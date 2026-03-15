@@ -13,6 +13,14 @@
     --ss-thumb: 16px;
     --ss-track: 4px;
     --ss-sidepad: calc(var(--ss-thumb) / 1.5);
+    --modal-controls-top: clamp(0.375rem, 0.8vw, 0.5rem);
+    --modal-controls-left: clamp(0.625rem, 1.6vw, 1rem);
+    --modal-controls-gap: clamp(0.5rem, 1.4vw, 0.75rem);
+    --modal-control-size: clamp(32px, 4.6vw, 36px);
+    --modal-control-radius: clamp(7px, 1vw, 8px);
+    --modal-control-font-size: clamp(1.1rem, 1rem + 0.35vw, 1.2rem);
+    --modal-close-font-size: clamp(1.4rem, 1.2rem + 0.8vw, 1.6rem);
+    --modal-download-icon-size: clamp(20px, 2.7vw, 22px);
 }
 * {
     box-sizing: border-box;
@@ -936,10 +944,10 @@ body.slideshow-open.hide-cursor .slideshow * {
 }
 .modal-controls {
     position: absolute;
-    top: 0.5rem;
-    left: 1rem;
+    top: max(var(--modal-controls-top), env(safe-area-inset-top));
+    left: max(var(--modal-controls-left), env(safe-area-inset-left));
     display: flex;
-    gap: 0.75rem;
+    gap: var(--modal-controls-gap);
     align-items: center;
     padding-bottom: 0.5rem;
     transition: transform 0.3s ease, opacity 0.3s ease;
@@ -992,15 +1000,13 @@ body.slideshow-open.hide-cursor .slideshow * {
 #modal-dl-btn {
     line-height: 1;
     padding: 0;
-    width: 32px;
-    height: 32px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
 }
 #modal-dl-btn svg {
-    width: 22px;
-    height: 22px;
+    width: var(--modal-download-icon-size);
+    height: var(--modal-download-icon-size);
     fill: currentColor;
 }
 #modal-fav-btn.filled {
@@ -1018,13 +1024,14 @@ body.slideshow-open.hide-cursor .slideshow * {
     background: rgba(0, 0, 0, 0.4);
     border: 1px solid var(--border);
     color: #fff;
-    font-size: 1.2rem;
-    width: 36px;
-    height: 36px;
-    border-radius: 8px;
+    font-size: var(--modal-control-font-size);
+    width: var(--modal-control-size);
+    height: var(--modal-control-size);
+    border-radius: var(--modal-control-radius);
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    line-height: 1;
     cursor: pointer;
     transition: background 0.25s ease, border-color 0.25s ease, color 0.25s ease;
     user-select: none;
@@ -1052,17 +1059,11 @@ body.slideshow-open.hide-cursor .slideshow * {
     color: var(--brand);
 }
 .close-btn {
-    font-size: 1.6rem;
+    font-size: var(--modal-close-font-size);
 }
-@media (max-width: 640px) {
-    .modal-controls button,
-    .modal-controls .close-btn,
-    #modal-fav-btn,
-    #modal-dl-btn {
-        width: 32px;
-        height: 32px;
-        font-size: 1.1rem;
-    }
+.modal-controls .close-btn svg,
+.modal-controls .modal-link svg {
+    display: block;
 }
 @media (max-width: 900px) and (orientation: landscape) {
     .modal {

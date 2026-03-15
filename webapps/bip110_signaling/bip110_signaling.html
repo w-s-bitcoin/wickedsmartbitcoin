@@ -22,6 +22,7 @@
       --accent: #79d8ff;
       --shadow: 0 14px 40px rgba(0, 0, 0, 0.35);
       --modal-controls-clearance: 0px;
+      --wrap-pad: clamp(8px, 1.4vw, 12px);
     }
 
     * { box-sizing: border-box; }
@@ -38,13 +39,13 @@
       width: 100%;
       max-width: none;
       margin: 0;
-      padding: 12px;
+      padding: var(--wrap-pad);
       display: grid;
       gap: 10px;
     }
 
     body.embedded-in-modal .wrap {
-      padding-top: calc(12px + var(--modal-controls-clearance));
+      padding-top: calc(var(--wrap-pad) + var(--modal-controls-clearance));
     }
 
     .topbar {
@@ -457,8 +458,7 @@
     }
 
     @media (max-width: 860px) {
-      .wrap { width: 100%; margin: 0; padding: 8px; }
-      body.embedded-in-modal .wrap { padding-top: calc(8px + var(--modal-controls-clearance)); }
+      .wrap { width: 100%; margin: 0; }
       .topbar { padding: 10px; border-radius: 12px; }
       .card { border-radius: 12px; }
 
@@ -1181,8 +1181,8 @@
 
       chips.innerHTML = "";
       const chipValues = [
-        `Height ${Number(meta.source_block_height).toLocaleString()}`,
         `Updated ${formatGeneratedUtc(meta.generated_utc)}`,
+        `Height ${Number(meta.source_block_height).toLocaleString()}`,
         `BIP-110 ${s.completed_periods}/${s.bip110_total_periods} periods complete`,
         currentSignal != null
           ? `Period ${s.current_period_index ?? "n/a"} signaling ${currentSignal.toLocaleString()} (${currentSignalPct})`
@@ -1302,6 +1302,78 @@
       ctx.textBaseline = "middle";
       ctx.fillText(String(text), 0, 0);
       ctx.restore();
+    }
+
+    function splitWordToFitWidth(ctx, word, maxWidth) {
+      const text = String(word || "");
+      if (!text) return [""];
+      if (ctx.measureText(text).width <= maxWidth) return [text];
+
+      const chunks = [];
+      let current = "";
+      for (const ch of text) {
+        const candidate = current + ch;
+        if (current && ctx.measureText(candidate).width > maxWidth) {
+          chunks.push(current);
+          current = ch;
+        } else {
+          current = candidate;
+        }
+      }
+      if (current) chunks.push(current);
+      return chunks.length ? chunks : [text];
+    }
+
+    function wrapTextToWidth(ctx, text, maxWidth) {
+      const words = String(text || "").trim().split(/\s+/).filter(Boolean);
+      if (!words.length) return [""];
+
+      const lines = [];
+      let line = "";
+
+      words.forEach((word) => {
+        if (ctx.measureText(word).width > maxWidth) {
+          if (line) {
+            lines.push(line);
+            line = "";
+          }
+          const chunks = splitWordToFitWidth(ctx, word, maxWidth);
+          lines.push(...chunks.slice(0, -1));
+          line = chunks[chunks.length - 1] || "";
+          return;
+        }
+
+        const candidate = line ? `${line} ${word}` : word;
+        if (!line || ctx.measureText(candidate).width <= maxWidth) {
+          line = candidate;
+        } else {
+          lines.push(line);
+          line = word;
+        }
+      });
+
+      if (line) lines.push(line);
+      return lines.length ? lines : [String(text || "")];
+    }
+
+    function formatSpecialPeriodLabel(text) {
+      const raw = String(text || "").trim();
+      const key = raw.toLowerCase().replace(/\s+/g, " ");
+      const maxHeightMatch = raw.match(/^\s*max(?:imum)?\s+activation\s+height\b(.*)$/i);
+      if (maxHeightMatch) {
+        const suffix = maxHeightMatch[1] || "";
+        return `Max Activation Height${suffix}`;
+      }
+      const isTargetLabel = key.startsWith("mandatory signaling period")
+        || key.startsWith("latest lock-in")
+        || key.startsWith("maximum activation height")
+        || key.startsWith("max activation height");
+      if (isTargetLabel) {
+        return raw.replace(/\b([a-zA-Z])([a-zA-Z']*)\b/g, (_, first, rest) => {
+          return `${first.toUpperCase()}${rest.toLowerCase()}`;
+        });
+      }
+      return raw;
     }
 
     function drawPanel({ canvas, key, title, periods, blocks, releases, ticks, threshold, thresholdPct, showBottomAxis, specialLabels = [], markerTypography = null, numericTypography = null }) {
@@ -1494,14 +1566,20 @@
             fitFontPx(ctx, thresholdCountText, thresholdMaxWidth, isMobile ? 10 : 11, 6, '"IBM Plex Mono", monospace')
           );
       const thresholdOffset = Math.max(4, Math.round(thresholdFontSize * 0.6));
+      const useVerticalThresholdLabels = isMobile || barWidth < 16;
 
       ctx.fillStyle = colors.threshold;
       ctx.font = `${thresholdFontSize}px "IBM Plex Mono", monospace`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "bottom";
-      ctx.fillText(thresholdPctText, thresholdX, thresholdY - thresholdOffset);
-      ctx.textBaseline = "top";
-      ctx.fillText(thresholdCountText, thresholdX, thresholdY + thresholdOffset);
+      if (useVerticalThresholdLabels) {
+        drawVerticalText(ctx, thresholdPctText, thresholdX, thresholdY - thresholdOffset, "up");
+        drawVerticalText(ctx, thresholdCountText, thresholdX, thresholdY + thresholdOffset, "up", "backward");
+      } else {
+        ctx.textAlign = "center";
+        ctx.textBaseline = "bottom";
+        ctx.fillText(thresholdPctText, thresholdX, thresholdY - thresholdOffset);
+        ctx.textBaseline = "top";
+        ctx.fillText(thresholdCountText, thresholdX, thresholdY + thresholdOffset);
+      }
 
       if (state.controls.labels) {
         periods.forEach((row) => {
@@ -1578,11 +1656,17 @@
           const y = yScale(Number(r.y_in_period));
           const x = xScale(p);
           const dyDataUnits = Number(r.label_dy || 55);
-          // Keep original spacing in two-panel mode, but normalize in solo mode
-          // so the marker-label distance stays visually identical.
-          const isSoloPanel = canvas.parentElement?.classList.contains("solo") === true;
-          const soloScale = isSoloPanel ? 0.5 : 1.0;
-          const labelY = y - (dyDataUnits * (plot.h / periodSize) * soloScale);
+          // Spacing depends only on this panel's own rendered chart height.
+          const rawMarkerLabelOffset = dyDataUnits * (plot.h / periodSize);
+          const minMarkerLabelOffsetPx = 2;
+          const maxMarkerLabelOffsetPx = isMobile ? 9 : 12;
+          const boundedMarkerLabelOffset = Math.min(
+            maxMarkerLabelOffsetPx,
+            Math.max(minMarkerLabelOffsetPx, Math.abs(rawMarkerLabelOffset))
+          );
+          const cappedMarkerLabelOffset = Math.sign(rawMarkerLabelOffset || dyDataUnits || 1)
+            * boundedMarkerLabelOffset;
+          const labelY = y - cappedMarkerLabelOffset;
           const anchor = String(r.label_anchor || "").toLowerCase();
           const baseline = anchor === "below"
             ? "top"
@@ -1612,15 +1696,30 @@
         const x = xScale(p);
         const bottomInset = isMobile ? 8 : 10;
         const y = yScale(0) - bottomInset;
+        const topInset = isMobile ? 6 : 8;
+        const maxUpwardSpan = Math.max(28, y - (plot.y + topInset));
+        const labelText = formatSpecialPeriodLabel(labelDef.text);
+        const labelFontPx = Math.round((8.8 + (12 - 8.8) * clamp((width - 420) / 560, 0, 1)) * 10) / 10;
+        const labelLineHeight = Math.max(10, Math.round(labelFontPx * 1.12));
         ctx.save();
+        ctx.fillStyle = "#777";
+        ctx.font = `${labelFontPx}px "Space Grotesk", sans-serif`;
+
+        let labelLines = [labelText];
+        if (ctx.measureText(labelText).width > maxUpwardSpan) {
+          labelLines = wrapTextToWidth(ctx, labelText, maxUpwardSpan);
+        }
+
         ctx.translate(x, y);
         ctx.rotate(-Math.PI / 2);
-        ctx.fillStyle = colors.foreground;
-        ctx.font = `${isMobile ? 10 : 12}px "Space Grotesk", sans-serif`;
-        // Center on the bar horizontally, start near the bar bottom, and draw upward.
+        // Keep each wrapped line centered in the bar while text still flows upward.
         ctx.textAlign = "left";
         ctx.textBaseline = "middle";
-        ctx.fillText(String(labelDef.text || ""), 0, 0);
+        const centeredLineOffset = ((labelLines.length - 1) * labelLineHeight) / 2;
+        labelLines.forEach((line, idx) => {
+          const lineOffset = idx * labelLineHeight - centeredLineOffset;
+          ctx.fillText(line, 0, lineOffset);
+        });
         ctx.restore();
       });
 
@@ -1751,33 +1850,36 @@
     }
 
     function updatePanelVisibility() {
+      const prevCount = state.lastVisibleCount;
+      const hasPriorVisibility = prevCount >= 0;
+
+      if (hasPriorVisibility) {
+        // Preserve the user-visible panel heights when toggling panel visibility.
+        if (!segwitPanel.classList.contains("hidden")) {
+          const segwitHeight = segwitCanvasBox.getBoundingClientRect().height;
+          if (Number.isFinite(segwitHeight) && segwitHeight > 0) {
+            state.manualPanelHeights.segwit = clampPanelResizeHeight(segwitHeight);
+          }
+        }
+        if (!bip110Panel.classList.contains("hidden")) {
+          const bip110Height = bip110CanvasBox.getBoundingClientRect().height;
+          if (Number.isFinite(bip110Height) && bip110Height > 0) {
+            state.manualPanelHeights.bip110 = clampPanelResizeHeight(bip110Height);
+          }
+        }
+      }
+
       segwitPanel.classList.toggle("hidden", !state.controls.showSegwit);
       bip110Panel.classList.toggle("hidden", !state.controls.showBip110);
 
       const visibleCount = (state.controls.showSegwit ? 1 : 0) + (state.controls.showBip110 ? 1 : 0);
       const solo = visibleCount === 1;
-      const prevCount = state.lastVisibleCount;
-      const hasPriorVisibility = prevCount >= 0;
       state.lastVisibleCount = visibleCount;
 
       segwitCanvasBox.classList.toggle("solo", solo && state.controls.showSegwit);
       bip110CanvasBox.classList.toggle("solo", solo && state.controls.showBip110);
 
-      if (hasPriorVisibility && visibleCount === 1 && prevCount !== 1) {
-        // Transitioning to solo: auto-fill the visible panel and show compact button
-        const soloKey = state.controls.showSegwit ? "segwit" : "bip110";
-        state.manualPanelHeights[soloKey] = getViewportFillHeightForSinglePanel();
-        state.filledPanels[soloKey] = true;
-        updateFillButtonState(soloKey);
-        persistControls();
-      } else if (hasPriorVisibility && visibleCount === 2 && prevCount !== 2) {
-        // Transitioning back to dual: reset both panels to auto expand state
-        const splitHeight = getEqualSplitPanelHeight(visibleCount);
-        ["segwit", "bip110"].forEach(key => {
-          state.manualPanelHeights[key] = splitHeight;
-          state.filledPanels[key] = false;
-          updateFillButtonState(key);
-        });
+      if (hasPriorVisibility && visibleCount !== prevCount) {
         persistControls();
       }
 
