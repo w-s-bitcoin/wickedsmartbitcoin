@@ -92,8 +92,8 @@ function openModalByIndex(index) {
         modalImg.style.transform = 'translate3d(-9999px,-9999px,0) scale(1)';
         if (modalDlBtn) {
             modalDlBtn.style.display = isBip110Embed ? '' : 'none';
-            modalDlBtn.setAttribute('aria-label', isBip110Embed ? 'Download BIP-110 final frame PNG' : 'Download image');
-            modalDlBtn.title = isBip110Embed ? 'Download BIP-110 final frame PNG' : 'Download image';
+            modalDlBtn.setAttribute('aria-label', 'Download image');
+            modalDlBtn.title = 'Download image';
         }
     } else {
         modalContentMode = 'image';

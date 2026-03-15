@@ -524,7 +524,7 @@
 
     <section class="card" id="segwitPanel">
       <div class="canvas-box" id="segwitCanvasBox">
-        <div class="panel-loader" id="segwitLoader" aria-live="polite" aria-label="Loading SegWit signaling chart">
+        <div class="panel-loader hidden" id="segwitLoader" aria-live="polite" aria-label="Loading SegWit signaling chart">
           <div class="circle" aria-hidden="true"></div>
           <div class="label">Loading SegWit signaling...</div>
         </div>
@@ -542,7 +542,7 @@
 
     <section class="card" id="bip110Panel">
       <div class="canvas-box" id="bip110CanvasBox">
-        <div class="panel-loader" id="bip110Loader" aria-live="polite" aria-label="Loading BIP-110 signaling chart">
+        <div class="panel-loader hidden" id="bip110Loader" aria-live="polite" aria-label="Loading BIP-110 signaling chart">
           <div class="circle" aria-hidden="true"></div>
           <div class="label">Loading BIP-110 signaling...</div>
         </div>
@@ -588,7 +588,6 @@
         showSegwit: true,
         showBip110: true,
         panelsSwapped: false,
-        deferRestoreStripes: false,
       },
       manualPanelHeights: {
         segwit: null,
@@ -1112,9 +1111,7 @@
         const parsed = JSON.parse(raw);
         if (!parsed || typeof parsed !== "object") return false;
 
-        const rememberedStripes = Boolean(parsed.stripes);
-        state.controls.stripes = false;
-        state.controls.deferRestoreStripes = rememberedStripes;
+        state.controls.stripes = Boolean(parsed.stripes);
         state.controls.markers = Boolean(parsed.markers);
         state.controls.labels = Boolean(parsed.labels);
         state.controls.showSegwit = Boolean(parsed.showSegwit);
@@ -1169,16 +1166,6 @@
 
       state.controls.stripes = false;
       persistControls();
-    }
-
-    function applyDeferredStripesRestore() {
-      if (!state.controls.deferRestoreStripes) return;
-      const stripes = document.getElementById("toggleStripes");
-      state.controls.stripes = true;
-      state.controls.deferRestoreStripes = false;
-      if (stripes) stripes.checked = true;
-      persistControls();
-      renderAll();
     }
 
     function setStatus(data) {
@@ -1854,8 +1841,8 @@
           btn.type = "button";
           btn.id = "modal-bip110-dl-btn";
           btn.className = "close-btn";
-          btn.setAttribute("aria-label", "Download BIP-110 final frame PNG");
-          btn.title = "Download BIP-110 final frame PNG";
+          btn.setAttribute("aria-label", "Download image");
+          btn.title = "Download image";
           btn.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M5 20h14v-2H5v2zm7-18v10.17l3.59-3.58L17 10l-5 5-5-5 1.41-1.41L11 12.17V2h1z"/></svg>';
 
           const sibling = parentDoc.getElementById("modal-dl-btn");
@@ -2498,10 +2485,6 @@
         applyDynamicPanelHeights();
         setControlsEnabled(false);
         setPanelLoadersVisible(true);
-        // Always start with block markers off on first paint, then optionally restore later.
-        state.controls.stripes = false;
-        const initialStripes = document.getElementById("toggleStripes");
-        if (initialStripes) initialStripes.checked = false;
         state.staticData = await loadStaticData();
         state.dynamicData = await loadDynamicData();
         state.data = buildCombinedData(state.staticData, state.dynamicData);
@@ -2529,7 +2512,6 @@
         setPanelLoaderVisible("bip110", false);
 
         await loadAndApplyBlockDataPhased(loadToken, state.data.metadata, ["segwit", "bip110"]);
-        applyDeferredStripesRestore();
         setControlsEnabled(true);
 
         window.addEventListener("resize", () => {
