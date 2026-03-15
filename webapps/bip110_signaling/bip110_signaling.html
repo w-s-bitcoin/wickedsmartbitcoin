@@ -811,11 +811,11 @@
       ctx.restore();
     }
 
-    function drawVerticalText(ctx, text, x, y, direction = "up") {
+    function drawVerticalText(ctx, text, x, y, direction = "up", flow = "forward") {
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(direction === "up" ? -Math.PI / 2 : Math.PI / 2);
-      ctx.textAlign = "left";
+      ctx.textAlign = flow === "backward" ? "right" : "left";
       ctx.textBaseline = "middle";
       ctx.fillText(String(text), 0, 0);
       ctx.restore();
@@ -1068,7 +1068,7 @@
             if (useVerticalLabels) {
               ctx.fillStyle = signalRaw < 100 ? colors.signal : "#111";
               ctx.font = `${sharedNumericSize}px "IBM Plex Mono", monospace`;
-              drawVerticalText(ctx, countText, x, labelAnchorY + 4, "up");
+              drawVerticalText(ctx, countText, x, labelAnchorY + 4, "up", "backward");
             } else {
               if (signalRaw < 100) {
                 ctx.fillStyle = colors.signal;
