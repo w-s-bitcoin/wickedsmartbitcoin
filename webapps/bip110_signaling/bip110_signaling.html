@@ -342,16 +342,13 @@
   <div class="tooltip" id="tooltip"></div>
 
   <script>
-    const AUTO_REFRESH_MS = 10000;
-    const FORCE_REFRESH_MS = 180000;
+    const AUTO_REFRESH_MS = 30000;
 
     const state = {
       data: null,
       dataSignature: null,
       autoRefreshTimer: null,
       phasedLoadToken: 0,
-      refreshInFlight: false,
-      lastSuccessfulRefreshAt: 0,
       pinnedTooltip: null,
       hoverTooltip: null,
       controls: {
@@ -397,12 +394,6 @@
         if (!loader) return;
         loader.classList.toggle("hidden", !visible);
       });
-    }
-
-    function setPanelLoaderVisible(key, visible) {
-      const loader = key === "segwit" ? segwitLoader : bip110Loader;
-      if (!loader) return;
-      loader.classList.toggle("hidden", !visible);
     }
 
     function nextPaint() {
@@ -606,29 +597,38 @@
       return data;
     }
 
-    async function loadBlockPointsForDataset(datasetKey, metadata, cacheBust = null) {
+    async function loadBlockPointData(metadata, cacheBust = null) {
       const withBust = (path) => {
         if (cacheBust == null) return path;
         const sep = path.includes("?") ? "&" : "?";
         return `${path}${sep}_=${cacheBust}`;
       };
 
-      const isSegwit = datasetKey === "segwit";
-      const file = isSegwit
-        ? withBust("webapp_data/segwit_block_points.bin")
-        : withBust("webapp_data/bip110_block_points.bin");
+      const files = {
+        segwitBlocks: withBust("webapp_data/segwit_block_points.bin"),
+        bip110Blocks: withBust("webapp_data/bip110_block_points.bin"),
+      };
 
-      const resp = await fetch(file);
-      if (!resp.ok) {
-        throw new Error(`Failed to load ${file} (${resp.status})`);
-      }
+      const [segwitBlocksResp, bip110BlocksResp] = await Promise.all([
+        fetch(files.segwitBlocks),
+        fetch(files.bip110Blocks),
+      ]);
+
+      [segwitBlocksResp, bip110BlocksResp].forEach((resp, idx) => {
+        if (!resp.ok) {
+          const fileList = [files.segwitBlocks, files.bip110Blocks];
+          throw new Error(`Failed to load ${fileList[idx]} (${resp.status})`);
+        }
+      });
 
       const periodSize = Number(metadata?.chart?.period_size || 2016);
       const segwitStart = Number(metadata?.datasets?.segwit_blocks?.start_height || 0);
       const bip110Start = Number(metadata?.datasets?.bip110_blocks?.start_height || 0);
-      const startHeight = isSegwit ? segwitStart : bip110Start;
 
-      return decodeBlockPoints(await resp.arrayBuffer(), startHeight, periodSize);
+      return {
+        segwitBlocks: decodeBlockPoints(await segwitBlocksResp.arrayBuffer(), segwitStart, periodSize),
+        bip110Blocks: decodeBlockPoints(await bip110BlocksResp.arrayBuffer(), bip110Start, periodSize),
+      };
     }
 
     function getDataSignature(meta) {
@@ -644,75 +644,36 @@
         throw new Error(`Failed to check metadata (${resp.status})`);
       }
       const meta = await resp.json();
-      const etag = String(resp.headers.get("etag") || "");
-      const lastModified = String(resp.headers.get("last-modified") || "");
-      return `${getDataSignature(meta)}|${etag}|${lastModified}`;
+      return getDataSignature(meta);
     }
 
-    async function refreshIfDataChanged({ force = false } = {}) {
+    async function refreshIfDataChanged() {
       if (!state.data) return;
-      if (state.refreshInFlight) return;
-
-      state.refreshInFlight = true;
       try {
-        if (!force) {
-          const latestSig = await fetchLatestMetadataSignature();
-          if (!latestSig || latestSig === state.dataSignature) {
-            return;
-          }
+        const latestSig = await fetchLatestMetadataSignature();
+        if (!latestSig || latestSig === state.dataSignature) {
+          return;
         }
 
-        const loadBuster = Date.now();
         const loadToken = ++state.phasedLoadToken;
-        state.data = await loadCoreData(loadBuster);
-        state.dataSignature = await fetchLatestMetadataSignature();
-        state.lastSuccessfulRefreshAt = Date.now();
+        state.data = await loadCoreData(Date.now());
+        state.dataSignature = getDataSignature(state.data.metadata);
         setStatus(state.data);
         updatePanelVisibility();
         state.pinnedTooltip = null;
         hideTooltip();
         await nextPaint();
         if (loadToken !== state.phasedLoadToken) return;
-        setPanelLoadersVisible(true);
-        renderSelectedPanels(["segwit"]);
-        setPanelLoaderVisible("segwit", false);
-        await nextPaint();
-        if (loadToken !== state.phasedLoadToken) return;
-        renderSelectedPanels(["bip110"]);
-        setPanelLoaderVisible("bip110", false);
+        renderAll();
 
-        await loadAndApplyBlockDataPhased(loadToken, state.data.metadata, loadBuster);
+        const blockPointData = await loadBlockPointData(state.data.metadata, Date.now());
+        if (loadToken !== state.phasedLoadToken) return;
+        state.data.segwitBlocks = blockPointData.segwitBlocks;
+        state.data.bip110Blocks = blockPointData.bip110Blocks;
+        renderAll();
       } catch (err) {
         console.warn("Auto-refresh check failed:", err);
-      } finally {
-        state.refreshInFlight = false;
       }
-    }
-
-    function triggerRefreshSoon(delayMs = 150) {
-      window.setTimeout(() => {
-        refreshIfDataChanged();
-      }, delayMs);
-    }
-
-    function setupRefreshWakeEvents() {
-      document.addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "visible") {
-          triggerRefreshSoon(0);
-        }
-      });
-
-      window.addEventListener("focus", () => {
-        triggerRefreshSoon(0);
-      });
-
-      window.addEventListener("pageshow", () => {
-        triggerRefreshSoon(0);
-      });
-
-      window.addEventListener("online", () => {
-        triggerRefreshSoon(0);
-      });
     }
 
     function startAutoRefresh() {
@@ -720,9 +681,7 @@
         clearInterval(state.autoRefreshTimer);
       }
       state.autoRefreshTimer = setInterval(() => {
-        const now = Date.now();
-        const shouldForceRefresh = (now - state.lastSuccessfulRefreshAt) >= FORCE_REFRESH_MS;
-        refreshIfDataChanged({ force: shouldForceRefresh });
+        refreshIfDataChanged();
       }, AUTO_REFRESH_MS);
     }
 
@@ -1622,39 +1581,9 @@
       });
     }
 
-    async function loadAndApplyBlockDataPhased(loadToken, metadata, cacheBust = null) {
-      const applyBlocks = async (key, blocks) => {
-        if (loadToken !== state.phasedLoadToken || !state.data) return;
-
-        if (key === "segwit") {
-          state.data.segwitBlocks = blocks;
-        } else {
-          state.data.bip110Blocks = blocks;
-        }
-
-        renderSelectedPanels([key]);
-        await nextPaint();
-      };
-
-      const segwitPromise = loadBlockPointsForDataset("segwit", metadata, cacheBust)
-        .then((blocks) => applyBlocks("segwit", blocks))
-        .catch((err) => {
-          console.warn("SegWit block markers failed to load:", err);
-        });
-
-      const bip110Promise = loadBlockPointsForDataset("bip110", metadata, cacheBust)
-        .then((blocks) => applyBlocks("bip110", blocks))
-        .catch((err) => {
-          console.warn("BIP-110 block markers failed to load:", err);
-        });
-
-      await Promise.all([segwitPromise, bip110Promise]);
-    }
-
-    function renderSelectedPanels(keys) {
+    function renderAll() {
       if (!state.data) return;
 
-      const selected = new Set(keys);
       const { metadata } = state.data;
       const segThreshold = Number(metadata.chart.thresholds.segwit.blocks);
       const bipThreshold = Number(metadata.chart.thresholds.bip110.blocks);
@@ -1669,7 +1598,7 @@
         state.data.bip110Periods
       );
 
-      if (selected.has("segwit") && state.controls.showSegwit) {
+      if (state.controls.showSegwit) {
         drawPanel({
           canvas: segwitCanvas,
           key: "segwit",
@@ -1686,7 +1615,7 @@
         });
       }
 
-      if (selected.has("bip110") && state.controls.showBip110) {
+      if (state.controls.showBip110) {
         drawPanel({
           canvas: bip110Canvas,
           key: "bip110",
@@ -1703,10 +1632,6 @@
           numericTypography: sharedNumericTypography,
         });
       }
-    }
-
-    function renderAll() {
-      renderSelectedPanels(["segwit", "bip110"]);
     }
 
     function setControlHandlers() {
@@ -1764,25 +1689,25 @@
         const loadToken = ++state.phasedLoadToken;
         setPanelLoadersVisible(true);
         state.data = await loadCoreData();
-        state.dataSignature = await fetchLatestMetadataSignature();
-        state.lastSuccessfulRefreshAt = Date.now();
+        state.dataSignature = getDataSignature(state.data.metadata);
         applyNarrowWindowDefaults();
         setStatus(state.data);
         setControlHandlers();
         updatePanelVisibility();
         attachPointer(segwitCanvas, "segwit");
         attachPointer(bip110Canvas, "bip110");
-        setupRefreshWakeEvents();
-        startAutoRefresh();
         await nextPaint();
-        renderSelectedPanels(["segwit"]);
-        setPanelLoaderVisible("segwit", false);
-        await nextPaint();
-        if (loadToken !== state.phasedLoadToken) return;
-        renderSelectedPanels(["bip110"]);
-        setPanelLoaderVisible("bip110", false);
+        renderAll();
+        setPanelLoadersVisible(false);
 
-        await loadAndApplyBlockDataPhased(loadToken, state.data.metadata);
+        const blockPointData = await loadBlockPointData(state.data.metadata);
+        if (loadToken === state.phasedLoadToken) {
+          state.data.segwitBlocks = blockPointData.segwitBlocks;
+          state.data.bip110Blocks = blockPointData.bip110Blocks;
+          renderAll();
+        }
+
+        startAutoRefresh();
 
         window.addEventListener("resize", () => {
           applyDynamicPanelHeights();
