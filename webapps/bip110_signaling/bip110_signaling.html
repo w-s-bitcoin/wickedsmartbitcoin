@@ -754,7 +754,7 @@
       chips.innerHTML = "";
       const chipValues = [
         `Height ${Number(meta.source_block_height).toLocaleString()}`,
-        `Updated ${meta.source_block_time_utc}`,
+        `Updated ${meta.generated_utc}`,
         `BIP-110 ${s.completed_periods}/${s.bip110_total_periods} periods complete`,
         currentSignal != null
           ? `Period ${s.current_period_index ?? "n/a"} signaling ${currentSignal.toLocaleString()} (${currentSignalPct})`
