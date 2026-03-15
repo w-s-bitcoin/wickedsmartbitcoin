@@ -691,15 +691,12 @@
 
       const stripes = document.getElementById("toggleStripes");
       const markers = document.getElementById("toggleMarkers");
-      const labels = document.getElementById("toggleLabels");
 
       if (stripes) stripes.checked = false;
       if (markers) markers.checked = false;
-      if (labels) labels.checked = false;
 
       state.controls.stripes = false;
       state.controls.markers = false;
-      state.controls.labels = false;
     }
 
     function setStatus(data) {
