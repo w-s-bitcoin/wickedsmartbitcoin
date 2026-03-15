@@ -568,6 +568,7 @@
     const CONTROLS_STORAGE_KEY = "bip110_signaling_controls_v1";
     const PANEL_RESIZE_MIN_HEIGHT = 220;
     const PANEL_RESIZE_VIEWPORT_PAD = 24;
+    const BIP110_FINAL_FRAME_PATH = "../../final_frames/bip110_signaling.png";
 
     const state = {
       staticData: null,
@@ -633,6 +634,7 @@
     const segwitFillHeightBtn = document.getElementById("segwitFillHeightBtn");
     const bip110FillHeightBtn = document.getElementById("bip110FillHeightBtn");
     const swapPanelsBtn = document.getElementById("swapPanelsBtn");
+    let modalDownloadBtn = null;
 
     function setControlsEnabled(enabled) {
       topbar.classList.toggle("ui-locked", !enabled);
@@ -650,6 +652,10 @@
       controls.forEach((control) => {
         control.disabled = !enabled;
       });
+
+      if (modalDownloadBtn) {
+        modalDownloadBtn.disabled = !enabled;
+      }
     }
 
     function setPanelLoadersVisible(visible) {
@@ -1765,6 +1771,58 @@
       });
     }
 
+    function triggerFinalFrameDownload() {
+        const link = document.createElement("a");
+        link.href = BIP110_FINAL_FRAME_PATH;
+        link.download = "bip110_signaling.png";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+    }
+
+    function removeModalDownloadButton() {
+      if (!modalDownloadBtn) return;
+      modalDownloadBtn.remove();
+      modalDownloadBtn = null;
+    }
+
+    function setupModalDownloadButton() {
+      if (window.self === window.top) return;
+      try {
+        const parentDoc = window.parent?.document;
+        if (!parentDoc) return;
+
+        const modalControls = parentDoc.querySelector(".modal-controls");
+        if (!modalControls) return;
+
+        let btn = parentDoc.getElementById("modal-bip110-dl-btn");
+        if (!btn) {
+          btn = parentDoc.createElement("button");
+          btn.type = "button";
+          btn.id = "modal-bip110-dl-btn";
+          btn.className = "close-btn";
+          btn.setAttribute("aria-label", "Download BIP-110 final frame PNG");
+          btn.title = "Download BIP-110 final frame PNG";
+          btn.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M5 20h14v-2H5v2zm7-18v10.17l3.59-3.58L17 10l-5 5-5-5 1.41-1.41L11 12.17V2h1z"/></svg>';
+
+          const sibling = parentDoc.getElementById("modal-dl-btn");
+          if (sibling && sibling.parentElement === modalControls) {
+            sibling.insertAdjacentElement("afterend", btn);
+          } else {
+            modalControls.appendChild(btn);
+          }
+        }
+
+        modalDownloadBtn = btn;
+        modalDownloadBtn.onclick = (ev) => {
+          ev.preventDefault();
+          triggerFinalFrameDownload();
+        };
+      } catch (_) {
+        // Ignore parent-document access issues (cross-origin embed or unavailable modal controls).
+      }
+    }
+
     function panelResizeMaxHeightPx() {
       return Math.max(PANEL_RESIZE_MIN_HEIGHT, window.innerHeight - PANEL_RESIZE_VIEWPORT_PAD);
     }
@@ -2355,6 +2413,7 @@
         setStatus(state.data);
         setControlHandlers();
         setupSwapButton();
+        setupModalDownloadButton();
         applyPanelOrder();
         setupPanelFillButtons();
         setupPanelResizeHandles();
@@ -2387,6 +2446,10 @@
             state.pinnedTooltip = null;
             hideTooltip();
           }
+        });
+
+        window.addEventListener("pagehide", () => {
+          removeModalDownloadButton();
         });
       } catch (err) {
         console.error(err);
