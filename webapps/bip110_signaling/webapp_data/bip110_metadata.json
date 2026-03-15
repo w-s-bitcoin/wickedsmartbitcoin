@@ -1,0 +1,1 @@
+{"generated_utc":"2026-03-15T14:06:18.093936+00:00","source_block_height":940780,"source_block_time_utc":"2026-03-15 13:41 UTC","state":{"completed_periods":6,"current_period_index":7,"blocks_into_current_period":1324,"bip110_total_periods":18,"bip110_last_period":18},"datasets":{"bip110_blocks":{"rows":13421,"start_height":927360,"end_height":940780,"period_size":2016}}}
