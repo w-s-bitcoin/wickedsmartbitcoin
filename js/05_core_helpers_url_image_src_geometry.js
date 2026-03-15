@@ -694,12 +694,12 @@ function preloadImage(url){
   setTimeout(() => { link.remove(); }, 60 * 1000);
 }
 async function downloadCurrentModalImage() {
-    if (modalContentMode === 'embed') {
+    const fname = modalImg?.dataset?.filename || visibleImages?.[currentIndex]?.filename;
+    if (modalContentMode === 'embed' && fname !== 'bip110_signaling.png') {
         const src = modalEmbed?.src || '';
         if (src) window.open(src, '_blank', 'noopener');
         return;
     }
-    const fname = modalImg?.dataset?.filename || visibleImages?.[currentIndex]?.filename;
     if (!fname) return;
     const url = imgSrc(fname);
     try {

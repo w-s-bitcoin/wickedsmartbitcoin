@@ -70,6 +70,7 @@ function openModalByIndex(index) {
     const shouldEmbed = modalType === 'embed' || !!embedPath;
     const embedUrl = shouldEmbed ? modalEmbedSrc(embedPath) : '';
     const isEmbed = !!embedUrl;
+    const isBip110Embed = isEmbed && fname === 'bip110_signaling.png';
     if (isEmbed) {
         modalContentMode = 'embed';
         hideModalSpinner();
@@ -89,13 +90,21 @@ function openModalByIndex(index) {
         modalImg.style.opacity = '0';
         modalImg.style.visibility = 'hidden';
         modalImg.style.transform = 'translate3d(-9999px,-9999px,0) scale(1)';
-        if (modalDlBtn) modalDlBtn.style.display = 'none';
+        if (modalDlBtn) {
+            modalDlBtn.style.display = isBip110Embed ? '' : 'none';
+            modalDlBtn.setAttribute('aria-label', isBip110Embed ? 'Download BIP-110 final frame PNG' : 'Download image');
+            modalDlBtn.title = isBip110Embed ? 'Download BIP-110 final frame PNG' : 'Download image';
+        }
     } else {
         modalContentMode = 'image';
         modal.classList.remove('embed-active');
         if (modalEmbedWrap) modalEmbedWrap.hidden = true;
         if (modalEmbed) modalEmbed.src = 'about:blank';
-        if (modalDlBtn) modalDlBtn.style.display = '';
+        if (modalDlBtn) {
+            modalDlBtn.style.display = '';
+            modalDlBtn.setAttribute('aria-label', 'Download image');
+            modalDlBtn.title = 'Download image';
+        }
         showModalSpinner();
         const token = ++modalImgLoadToken;
         modalImg.style.transition = '';

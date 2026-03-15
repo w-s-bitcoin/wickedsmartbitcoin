@@ -588,6 +588,7 @@
         showSegwit: true,
         showBip110: true,
         panelsSwapped: false,
+        deferRestoreStripes: false,
       },
       manualPanelHeights: {
         segwit: null,
@@ -635,6 +636,7 @@
     const bip110FillHeightBtn = document.getElementById("bip110FillHeightBtn");
     const swapPanelsBtn = document.getElementById("swapPanelsBtn");
     let modalDownloadBtn = null;
+    let modalDownloadEnsureTimer = null;
 
     function setControlsEnabled(enabled) {
       topbar.classList.toggle("ui-locked", !enabled);
@@ -680,8 +682,8 @@
     function applyEmbedModalTopClearance() {
       if (window.self === window.top) return;
 
-      const minClearance = 32;
-      const extraGap = 0;
+      const minClearance = 30;
+      const extraGap = -4;
       const root = document.documentElement;
 
       const updateClearance = () => {
@@ -1083,6 +1085,18 @@
           showSegwit: Boolean(state.controls.showSegwit),
           showBip110: Boolean(state.controls.showBip110),
           panelsSwapped: Boolean(state.controls.panelsSwapped),
+          manualPanelHeights: {
+            segwit: Number.isFinite(state.manualPanelHeights.segwit)
+              ? Math.round(state.manualPanelHeights.segwit)
+              : null,
+            bip110: Number.isFinite(state.manualPanelHeights.bip110)
+              ? Math.round(state.manualPanelHeights.bip110)
+              : null,
+          },
+          filledPanels: {
+            segwit: Boolean(state.filledPanels.segwit),
+            bip110: Boolean(state.filledPanels.bip110),
+          },
         };
         localStorage.setItem(CONTROLS_STORAGE_KEY, JSON.stringify(payload));
       } catch (_) {
@@ -1098,12 +1112,32 @@
         const parsed = JSON.parse(raw);
         if (!parsed || typeof parsed !== "object") return false;
 
-        state.controls.stripes = Boolean(parsed.stripes);
+        const rememberedStripes = Boolean(parsed.stripes);
+        state.controls.stripes = false;
+        state.controls.deferRestoreStripes = rememberedStripes;
         state.controls.markers = Boolean(parsed.markers);
         state.controls.labels = Boolean(parsed.labels);
         state.controls.showSegwit = Boolean(parsed.showSegwit);
         state.controls.showBip110 = Boolean(parsed.showBip110);
         state.controls.panelsSwapped = Boolean(parsed.panelsSwapped);
+
+        const parseStoredHeight = (value) => {
+          if (value == null || value === "") return null;
+          const n = Number(value);
+          return Number.isFinite(n) ? n : null;
+        };
+
+        const segwitHeight = parseStoredHeight(parsed?.manualPanelHeights?.segwit);
+        const bip110Height = parseStoredHeight(parsed?.manualPanelHeights?.bip110);
+        state.manualPanelHeights.segwit = Number.isFinite(segwitHeight)
+          ? clampPanelResizeHeight(segwitHeight)
+          : null;
+        state.manualPanelHeights.bip110 = Number.isFinite(bip110Height)
+          ? clampPanelResizeHeight(bip110Height)
+          : null;
+
+        state.filledPanels.segwit = Boolean(parsed?.filledPanels?.segwit);
+        state.filledPanels.bip110 = Boolean(parsed?.filledPanels?.bip110);
 
         if (!state.controls.showSegwit && !state.controls.showBip110) {
           state.controls.showBip110 = true;
@@ -1140,6 +1174,16 @@
       state.controls.stripes = false;
       state.controls.markers = false;
       persistControls();
+    }
+
+    function applyDeferredStripesRestore() {
+      if (!state.controls.deferRestoreStripes) return;
+      const stripes = document.getElementById("toggleStripes");
+      state.controls.stripes = true;
+      state.controls.deferRestoreStripes = false;
+      if (stripes) stripes.checked = true;
+      persistControls();
+      renderAll();
     }
 
     function setStatus(data) {
@@ -1731,24 +1775,28 @@
       const visibleCount = (state.controls.showSegwit ? 1 : 0) + (state.controls.showBip110 ? 1 : 0);
       const solo = visibleCount === 1;
       const prevCount = state.lastVisibleCount;
+      const hasPriorVisibility = prevCount >= 0;
       state.lastVisibleCount = visibleCount;
 
       segwitCanvasBox.classList.toggle("solo", solo && state.controls.showSegwit);
       bip110CanvasBox.classList.toggle("solo", solo && state.controls.showBip110);
 
-      if (visibleCount === 1 && prevCount !== 1) {
+      if (hasPriorVisibility && visibleCount === 1 && prevCount !== 1) {
         // Transitioning to solo: auto-fill the visible panel and show compact button
         const soloKey = state.controls.showSegwit ? "segwit" : "bip110";
-        state.manualPanelHeights[soloKey] = null;
+        state.manualPanelHeights[soloKey] = getViewportFillHeightForSinglePanel();
         state.filledPanels[soloKey] = true;
         updateFillButtonState(soloKey);
-      } else if (visibleCount === 2 && prevCount !== 2) {
+        persistControls();
+      } else if (hasPriorVisibility && visibleCount === 2 && prevCount !== 2) {
         // Transitioning back to dual: reset both panels to auto expand state
+        const splitHeight = getEqualSplitPanelHeight(visibleCount);
         ["segwit", "bip110"].forEach(key => {
-          state.manualPanelHeights[key] = null;
+          state.manualPanelHeights[key] = splitHeight;
           state.filledPanels[key] = false;
           updateFillButtonState(key);
         });
+        persistControls();
       }
 
       applyDynamicPanelHeights();
@@ -1781,19 +1829,29 @@
     }
 
     function removeModalDownloadButton() {
+      if (modalDownloadEnsureTimer) {
+        clearInterval(modalDownloadEnsureTimer);
+        modalDownloadEnsureTimer = null;
+      }
       if (!modalDownloadBtn) return;
       modalDownloadBtn.remove();
       modalDownloadBtn = null;
     }
 
     function setupModalDownloadButton() {
-      if (window.self === window.top) return;
+      if (window.self === window.top) return false;
       try {
         const parentDoc = window.parent?.document;
-        if (!parentDoc) return;
+        if (!parentDoc) return false;
 
         const modalControls = parentDoc.querySelector(".modal-controls");
-        if (!modalControls) return;
+        if (!modalControls) return false;
+
+        const hostModalDlBtn = parentDoc.getElementById("modal-dl-btn");
+        if (hostModalDlBtn && hostModalDlBtn.parentElement === modalControls) {
+          // Host page already provides the modal download control.
+          return true;
+        }
 
         let btn = parentDoc.getElementById("modal-bip110-dl-btn");
         if (!btn) {
@@ -1814,13 +1872,29 @@
         }
 
         modalDownloadBtn = btn;
+        modalDownloadBtn.disabled = topbar.classList.contains("ui-locked");
         modalDownloadBtn.onclick = (ev) => {
           ev.preventDefault();
           triggerFinalFrameDownload();
         };
+        return true;
       } catch (_) {
         // Ignore parent-document access issues (cross-origin embed or unavailable modal controls).
+        return false;
       }
+    }
+
+    function ensureModalDownloadButtonVisible() {
+      if (window.self === window.top) return;
+      if (setupModalDownloadButton()) return;
+      if (modalDownloadEnsureTimer) return;
+
+      modalDownloadEnsureTimer = window.setInterval(() => {
+        if (setupModalDownloadButton()) {
+          clearInterval(modalDownloadEnsureTimer);
+          modalDownloadEnsureTimer = null;
+        }
+      }, 180);
     }
 
     function panelResizeMaxHeightPx() {
@@ -1890,6 +1964,20 @@
       return Math.max(300, Math.floor(availableForPanels / 2));
     }
 
+    function getEqualSplitPanelHeight(visibleCount) {
+      const count = Math.max(1, Number(visibleCount) || 1);
+      const wrapStyle = getComputedStyle(mainWrap);
+      const padTop = parseFloat(wrapStyle.paddingTop) || 0;
+      const padBottom = parseFloat(wrapStyle.paddingBottom) || 0;
+      const gap = parseFloat(wrapStyle.rowGap || wrapStyle.gap) || 0;
+      const viewportH = window.innerHeight;
+      const topbarH = topbar.getBoundingClientRect().height;
+      const gapsOutsidePanels = gap * count;
+      const availableForPanels = viewportH - topbarH - padTop - padBottom - gapsOutsidePanels;
+      const minPerPanel = count === 1 ? 600 : 300;
+      return clampPanelResizeHeight(Math.max(minPerPanel, Math.floor(availableForPanels / count)));
+    }
+
     const FILL_BTN_SVG_EXPAND = `<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><line x1="8" y1="3.8" x2="8" y2="12.2"></line><polyline points="5.2,6.2 8,3.4 10.8,6.2"></polyline><polyline points="5.2,9.8 8,12.6 10.8,9.8"></polyline></svg>`;
     const FILL_BTN_SVG_COMPACT = `<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><line x1="8" y1="3.8" x2="8" y2="12.2"></line><polyline points="5.2,3.4 8,6.2 10.8,3.4"></polyline><polyline points="5.2,12.6 8,9.8 10.8,12.6"></polyline></svg>`;
 
@@ -1909,6 +1997,7 @@
       state.manualPanelHeights[key] = clampedHeight;
       state.filledPanels[key] = true;
       updateFillButtonState(key);
+      persistControls();
       applyDynamicPanelHeights();
       renderAll();
       if (state.pinnedTooltip) {
@@ -1921,10 +2010,11 @@
       if (visibleCount === 1) {
         state.manualPanelHeights[key] = clampPanelResizeHeight(getHalfPanelHeight());
       } else {
-        state.manualPanelHeights[key] = null;
+        state.manualPanelHeights[key] = getEqualSplitPanelHeight(visibleCount);
       }
       state.filledPanels[key] = false;
       updateFillButtonState(key);
+      persistControls();
       applyDynamicPanelHeights();
       renderAll();
       if (state.pinnedTooltip) {
@@ -1964,6 +2054,8 @@
             const deltaY = moveEv.clientY - startY;
             const nextHeight = clampPanelResizeHeight(startHeight + deltaY);
             state.manualPanelHeights[key] = nextHeight;
+            state.filledPanels[key] = false;
+            updateFillButtonState(key);
             box.style.height = `${nextHeight}px`;
             renderSelectedPanels([key]);
             if (state.pinnedTooltip) {
@@ -1976,6 +2068,9 @@
             window.removeEventListener("pointermove", onPointerMove);
             window.removeEventListener("pointerup", stopResize);
             window.removeEventListener("pointercancel", stopResize);
+            // Persist only the panel that was actively resized.
+            state.manualPanelHeights[key] = clampPanelResizeHeight(box.getBoundingClientRect().height);
+            persistControls();
           };
 
           window.addEventListener("pointermove", onPointerMove);
@@ -2399,8 +2494,14 @@
     async function init() {
       try {
         const loadToken = ++state.phasedLoadToken;
+        ensureModalDownloadButtonVisible();
+        applyDynamicPanelHeights();
         setControlsEnabled(false);
         setPanelLoadersVisible(true);
+        // Always start with block markers off on first paint, then optionally restore later.
+        state.controls.stripes = false;
+        const initialStripes = document.getElementById("toggleStripes");
+        if (initialStripes) initialStripes.checked = false;
         state.staticData = await loadStaticData();
         state.dynamicData = await loadDynamicData();
         state.data = buildCombinedData(state.staticData, state.dynamicData);
@@ -2413,9 +2514,10 @@
         setStatus(state.data);
         setControlHandlers();
         setupSwapButton();
-        setupModalDownloadButton();
         applyPanelOrder();
         setupPanelFillButtons();
+        updateFillButtonState("segwit");
+        updateFillButtonState("bip110");
         setupPanelResizeHandles();
         updatePanelVisibility();
         attachPointer(segwitCanvas, "segwit");
@@ -2431,6 +2533,7 @@
         setPanelLoaderVisible("bip110", false);
 
         await loadAndApplyBlockDataPhased(loadToken, state.data.metadata, ["segwit", "bip110"]);
+        applyDeferredStripesRestore();
         setControlsEnabled(true);
 
         window.addEventListener("resize", () => {
