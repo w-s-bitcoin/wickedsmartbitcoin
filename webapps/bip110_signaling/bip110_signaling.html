@@ -188,7 +188,7 @@
 
     .card {
       position: relative;
-      border: 1px solid var(--panel-border);
+      border: 1px solid rgba(255, 255, 255, 0.14);
       border-radius: 14px;
       background: #000;
       box-shadow: none;
@@ -203,6 +203,81 @@
       position: relative;
       width: 100%;
       height: max(300px, 44svh);
+    }
+
+    .panel-fill-btn {
+      position: absolute;
+      right: 8px;
+      top: 8px;
+      width: 18px;
+      height: 18px;
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 6px;
+      background: rgba(0, 0, 0, 0.72);
+      color: #d6e1e6;
+      cursor: pointer;
+      z-index: 4;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+    }
+
+    .panel-fill-btn:hover,
+    .panel-fill-btn:focus-visible {
+      border-color: var(--signal);
+      color: var(--signal);
+      outline: none;
+    }
+
+    .panel-fill-btn svg {
+      width: 11px;
+      height: 11px;
+      display: block;
+      stroke: currentColor;
+      stroke-width: 1.4;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .panel-resize-handle {
+      position: absolute;
+      right: 8px;
+      bottom: 8px;
+      width: 18px;
+      height: 18px;
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 6px;
+      background: rgba(0, 0, 0, 0.72);
+      cursor: nwse-resize;
+      z-index: 4;
+      touch-action: none;
+      padding: 0;
+    }
+
+    .panel-resize-handle::before {
+      content: "";
+      position: absolute;
+      right: 3px;
+      bottom: 3px;
+      width: 10px;
+      height: 10px;
+      background:
+        linear-gradient(135deg, transparent 0 34%, rgba(214, 225, 230, 0.75) 34% 43%, transparent 43% 57%, rgba(214, 225, 230, 0.75) 57% 66%, transparent 66% 100%);
+      pointer-events: none;
+    }
+
+    .panel-resize-handle:hover,
+    .panel-resize-handle:focus-visible {
+      border-color: var(--signal);
+      outline: none;
+    }
+
+    body.resizing-panel,
+    body.resizing-panel * {
+      user-select: none !important;
+      cursor: nwse-resize !important;
     }
 
     .panel-loader {
@@ -297,6 +372,20 @@
       .topbar { padding: 10px; border-radius: 12px; }
       .card { border-radius: 12px; }
 
+      .panel-fill-btn {
+        width: 16px;
+        height: 16px;
+        right: 6px;
+        top: 6px;
+      }
+
+      .panel-resize-handle {
+        width: 16px;
+        height: 16px;
+        right: 6px;
+        bottom: 6px;
+      }
+
       .info-wrap {
         position: static;
       }
@@ -338,7 +427,15 @@
           <div class="circle" aria-hidden="true"></div>
           <div class="label">Loading SegWit signaling...</div>
         </div>
+        <button type="button" class="panel-fill-btn" id="segwitFillHeightBtn" aria-label="Fill SegWit chart height" title="Fill chart height">
+          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <line x1="8" y1="3.8" x2="8" y2="12.2"></line>
+            <polyline points="5.2,6.2 8,3.4 10.8,6.2"></polyline>
+            <polyline points="5.2,9.8 8,12.6 10.8,9.8"></polyline>
+          </svg>
+        </button>
         <canvas id="segwitCanvas" aria-label="SegWit signaling chart"></canvas>
+        <button type="button" class="panel-resize-handle" id="segwitResizeHandle" aria-label="Resize SegWit chart height"></button>
       </div>
     </section>
 
@@ -348,7 +445,15 @@
           <div class="circle" aria-hidden="true"></div>
           <div class="label">Loading BIP-110 signaling...</div>
         </div>
+        <button type="button" class="panel-fill-btn" id="bip110FillHeightBtn" aria-label="Fill BIP-110 chart height" title="Fill chart height">
+          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <line x1="8" y1="3.8" x2="8" y2="12.2"></line>
+            <polyline points="5.2,6.2 8,3.4 10.8,6.2"></polyline>
+            <polyline points="5.2,9.8 8,12.6 10.8,9.8"></polyline>
+          </svg>
+        </button>
         <canvas id="bip110Canvas" aria-label="BIP-110 signaling chart"></canvas>
+        <button type="button" class="panel-resize-handle" id="bip110ResizeHandle" aria-label="Resize BIP-110 chart height"></button>
       </div>
     </section>
 
@@ -360,6 +465,8 @@
     const AUTO_REFRESH_MS = 60000;
     const FORCE_REFRESH_MS = 3600000;
     const CONTROLS_STORAGE_KEY = "bip110_signaling_controls_v1";
+    const PANEL_RESIZE_MIN_HEIGHT = 220;
+    const PANEL_RESIZE_VIEWPORT_PAD = 24;
 
     const state = {
       staticData: null,
@@ -379,6 +486,15 @@
         showSegwit: true,
         showBip110: true,
       },
+      manualPanelHeights: {
+        segwit: null,
+        bip110: null,
+      },
+      filledPanels: {
+        segwit: false,
+        bip110: false,
+      },
+      lastVisibleCount: -1,
       hitMaps: {
         segwit: [],
         bip110: [],
@@ -409,6 +525,10 @@
     const mainWrap = document.getElementById("mainWrap");
     const topbar = document.getElementById("topbar");
     const tooltip = document.getElementById("tooltip");
+    const segwitResizeHandle = document.getElementById("segwitResizeHandle");
+    const bip110ResizeHandle = document.getElementById("bip110ResizeHandle");
+    const segwitFillHeightBtn = document.getElementById("segwitFillHeightBtn");
+    const bip110FillHeightBtn = document.getElementById("bip110FillHeightBtn");
 
     function setPanelLoadersVisible(visible) {
       [segwitLoader, bip110Loader].forEach((loader) => {
@@ -1065,7 +1185,7 @@
 
       ctx.clearRect(0, 0, width, height);
 
-      ctx.fillStyle = "#06080a";
+      ctx.fillStyle = "#000";
       ctx.fillRect(0, 0, width, height);
 
       for (let p = 1; p <= xMax; p += 1) {
@@ -1478,25 +1598,50 @@
 
       const visibleCount = (state.controls.showSegwit ? 1 : 0) + (state.controls.showBip110 ? 1 : 0);
       const solo = visibleCount === 1;
+      const prevCount = state.lastVisibleCount;
+      state.lastVisibleCount = visibleCount;
 
       segwitCanvasBox.classList.toggle("solo", solo && state.controls.showSegwit);
       bip110CanvasBox.classList.toggle("solo", solo && state.controls.showBip110);
 
+      if (visibleCount === 1 && prevCount !== 1) {
+        // Transitioning to solo: auto-fill the visible panel and show compact button
+        const soloKey = state.controls.showSegwit ? "segwit" : "bip110";
+        state.manualPanelHeights[soloKey] = null;
+        state.filledPanels[soloKey] = true;
+        updateFillButtonState(soloKey);
+      } else if (visibleCount === 2 && prevCount !== 2) {
+        // Transitioning back to dual: reset both panels to auto expand state
+        ["segwit", "bip110"].forEach(key => {
+          state.manualPanelHeights[key] = null;
+          state.filledPanels[key] = false;
+          updateFillButtonState(key);
+        });
+      }
+
       applyDynamicPanelHeights();
     }
 
+    function panelResizeMaxHeightPx() {
+      return Math.max(PANEL_RESIZE_MIN_HEIGHT, window.innerHeight - PANEL_RESIZE_VIEWPORT_PAD);
+    }
+
+    function clampPanelResizeHeight(height) {
+      return Math.round(clamp(height, PANEL_RESIZE_MIN_HEIGHT, panelResizeMaxHeightPx()));
+    }
+
     function applyDynamicPanelHeights() {
-      const visibleBoxes = [];
-      if (state.controls.showSegwit) visibleBoxes.push(segwitCanvasBox);
-      if (state.controls.showBip110) visibleBoxes.push(bip110CanvasBox);
-      if (!visibleBoxes.length) return;
+      const visiblePanels = [];
+      if (state.controls.showSegwit) visiblePanels.push({ key: "segwit", box: segwitCanvasBox });
+      if (state.controls.showBip110) visiblePanels.push({ key: "bip110", box: bip110CanvasBox });
+      if (!visiblePanels.length) return;
 
       const wrapStyle = getComputedStyle(mainWrap);
       const padTop = parseFloat(wrapStyle.paddingTop) || 0;
       const padBottom = parseFloat(wrapStyle.paddingBottom) || 0;
       const gap = parseFloat(wrapStyle.rowGap || wrapStyle.gap) || 0;
 
-      const n = visibleBoxes.length;
+      const n = visiblePanels.length;
       const viewportH = window.innerHeight;
       const topbarH = topbar.getBoundingClientRect().height;
       const gapsOutsidePanels = gap * n;
@@ -1505,9 +1650,12 @@
       const minPerPanel = n === 1 ? 600 : 300;
       const panelHeight = Math.max(minPerPanel, Math.floor(availableForPanels / n));
 
-      // Use inline height so panel sizing accounts for dynamic topbar/chip wrapping.
-      visibleBoxes.forEach((box) => {
-        box.style.height = `${panelHeight}px`;
+      visiblePanels.forEach(({ key, box }) => {
+        const manual = state.manualPanelHeights[key];
+        const targetHeight = Number.isFinite(manual)
+          ? clampPanelResizeHeight(manual)
+          : panelHeight;
+        box.style.height = `${targetHeight}px`;
       });
 
       if (!state.controls.showSegwit) {
@@ -1516,6 +1664,127 @@
       if (!state.controls.showBip110) {
         bip110CanvasBox.style.height = "";
       }
+    }
+
+    function getViewportFillHeightForSinglePanel() {
+      const wrapStyle = getComputedStyle(mainWrap);
+      const padTop = parseFloat(wrapStyle.paddingTop) || 0;
+      const padBottom = parseFloat(wrapStyle.paddingBottom) || 0;
+      const gap = parseFloat(wrapStyle.rowGap || wrapStyle.gap) || 0;
+      const viewportH = window.innerHeight;
+      const topbarH = topbar.getBoundingClientRect().height;
+      const gapsOutsidePanels = gap;
+      const availableForPanel = viewportH - topbarH - padTop - padBottom - gapsOutsidePanels;
+      return clampPanelResizeHeight(availableForPanel);
+    }
+
+    function getHalfPanelHeight() {
+      const wrapStyle = getComputedStyle(mainWrap);
+      const padTop = parseFloat(wrapStyle.paddingTop) || 0;
+      const padBottom = parseFloat(wrapStyle.paddingBottom) || 0;
+      const gap = parseFloat(wrapStyle.rowGap || wrapStyle.gap) || 0;
+      const viewportH = window.innerHeight;
+      const topbarH = topbar.getBoundingClientRect().height;
+      const availableForPanels = viewportH - topbarH - padTop - padBottom - gap * 2;
+      return Math.max(300, Math.floor(availableForPanels / 2));
+    }
+
+    const FILL_BTN_SVG_EXPAND = `<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><line x1="8" y1="3.8" x2="8" y2="12.2"></line><polyline points="5.2,6.2 8,3.4 10.8,6.2"></polyline><polyline points="5.2,9.8 8,12.6 10.8,9.8"></polyline></svg>`;
+    const FILL_BTN_SVG_COMPACT = `<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><line x1="8" y1="3.8" x2="8" y2="12.2"></line><polyline points="5.2,3.4 8,6.2 10.8,3.4"></polyline><polyline points="5.2,12.6 8,9.8 10.8,12.6"></polyline></svg>`;
+
+    function updateFillButtonState(key) {
+      const btn = key === "segwit" ? segwitFillHeightBtn : bip110FillHeightBtn;
+      if (!btn) return;
+      const filled = state.filledPanels[key];
+      btn.innerHTML = filled ? FILL_BTN_SVG_COMPACT : FILL_BTN_SVG_EXPAND;
+      btn.title = filled ? "Compact chart height" : "Fill chart height";
+      btn.setAttribute("aria-label", filled
+        ? `Compact ${key === "segwit" ? "SegWit" : "BIP-110"} chart height`
+        : `Fill ${key === "segwit" ? "SegWit" : "BIP-110"} chart height`);
+    }
+
+    function fillSinglePanelToViewportHeight(key) {
+      const clampedHeight = getViewportFillHeightForSinglePanel();
+      state.manualPanelHeights[key] = clampedHeight;
+      state.filledPanels[key] = true;
+      updateFillButtonState(key);
+      applyDynamicPanelHeights();
+      renderAll();
+      if (state.pinnedTooltip) {
+        showTooltip(state.pinnedTooltip.content, state.pinnedTooltip.x, state.pinnedTooltip.y);
+      }
+    }
+
+    function compactSinglePanel(key) {
+      const visibleCount = (state.controls.showSegwit ? 1 : 0) + (state.controls.showBip110 ? 1 : 0);
+      if (visibleCount === 1) {
+        state.manualPanelHeights[key] = clampPanelResizeHeight(getHalfPanelHeight());
+      } else {
+        state.manualPanelHeights[key] = null;
+      }
+      state.filledPanels[key] = false;
+      updateFillButtonState(key);
+      applyDynamicPanelHeights();
+      renderAll();
+      if (state.pinnedTooltip) {
+        showTooltip(state.pinnedTooltip.content, state.pinnedTooltip.x, state.pinnedTooltip.y);
+      }
+    }
+
+    function setupPanelFillButtons() {
+      if (segwitFillHeightBtn) {
+        segwitFillHeightBtn.addEventListener("click", () => {
+          if (state.filledPanels.segwit) compactSinglePanel("segwit");
+          else fillSinglePanelToViewportHeight("segwit");
+        });
+      }
+
+      if (bip110FillHeightBtn) {
+        bip110FillHeightBtn.addEventListener("click", () => {
+          if (state.filledPanels.bip110) compactSinglePanel("bip110");
+          else fillSinglePanelToViewportHeight("bip110");
+        });
+      }
+    }
+
+    function setupPanelResizeHandles() {
+      const bindHandle = (handle, key, box) => {
+        if (!handle || !box) return;
+
+        handle.addEventListener("pointerdown", (ev) => {
+          ev.preventDefault();
+
+          const startY = ev.clientY;
+          const startHeight = box.getBoundingClientRect().height;
+
+          document.body.classList.add("resizing-panel");
+
+          const onPointerMove = (moveEv) => {
+            const deltaY = moveEv.clientY - startY;
+            const nextHeight = clampPanelResizeHeight(startHeight + deltaY);
+            state.manualPanelHeights[key] = nextHeight;
+            box.style.height = `${nextHeight}px`;
+            renderSelectedPanels([key]);
+            if (state.pinnedTooltip) {
+              showTooltip(state.pinnedTooltip.content, state.pinnedTooltip.x, state.pinnedTooltip.y);
+            }
+          };
+
+          const stopResize = () => {
+            document.body.classList.remove("resizing-panel");
+            window.removeEventListener("pointermove", onPointerMove);
+            window.removeEventListener("pointerup", stopResize);
+            window.removeEventListener("pointercancel", stopResize);
+          };
+
+          window.addEventListener("pointermove", onPointerMove);
+          window.addEventListener("pointerup", stopResize);
+          window.addEventListener("pointercancel", stopResize);
+        });
+      };
+
+      bindHandle(segwitResizeHandle, "segwit", segwitCanvasBox);
+      bindHandle(bip110ResizeHandle, "bip110", bip110CanvasBox);
     }
 
     function drawAxes(ctx, { plot, xScale, yScale, xMax, periodSize, title, ticks, showBottomAxis, chart, isMobile }) {
@@ -1941,6 +2210,8 @@
         }
         setStatus(state.data);
         setControlHandlers();
+        setupPanelFillButtons();
+        setupPanelResizeHandles();
         updatePanelVisibility();
         attachPointer(segwitCanvas, "segwit");
         attachPointer(bip110Canvas, "bip110");
