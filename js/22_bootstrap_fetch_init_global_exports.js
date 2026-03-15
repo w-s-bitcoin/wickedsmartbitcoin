@@ -97,6 +97,9 @@ fetch(IMAGE_LIST_URL)
         populateBtcmapsSelect();
         const initialFilename = getImageNameFromPath();
         const initialIsDonate = isDonateRouteActive();
+        // Deep-linked modal routes should prioritize modal content fetches
+        // before grid thumbnail lazy requests.
+        window.__deferGridLazyUntilModalSettled = !!(initialFilename && !initialIsDonate);
         let urlDistMetric = null;
         if (initialFilename && isDistFile(initialFilename)) {
             urlDistMetric = distMetricFromFilename(initialFilename) || null;
@@ -477,6 +480,9 @@ fetch(IMAGE_LIST_URL)
                     !openByFilenameAllowingNonFav(initialFilename)
                 )
                     history.replaceState(null, "", "/");
+                if (window.__deferGridLazyUntilModalSettled === true && typeof window.resumeDeferredGridLazyLoading === 'function') {
+                    window.resumeDeferredGridLazyLoading();
+                }
             }
         }
         if (modal?.style?.display === 'flex') {

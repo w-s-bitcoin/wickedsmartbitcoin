@@ -5,6 +5,19 @@ let io;
 let rawImageList = null;
 let ioInitialized = false;
 
+function isGridLazyDeferredForModal() {
+  return window.__deferGridLazyUntilModalSettled === true;
+}
+
+function resumeDeferredGridLazyLoading() {
+  if (!isGridLazyDeferredForModal()) return;
+  window.__deferGridLazyUntilModalSettled = false;
+  // Run the lazy pass immediately now that modal-priority fetches have started.
+  initLazyImages();
+}
+
+window.resumeDeferredGridLazyLoading = resumeDeferredGridLazyLoading;
+
 // helper: load a lazy image immediately (bypassing the observer)
 function _loadLazyImageNow(img) {
   if (!img) return;
@@ -19,6 +32,8 @@ function _loadLazyImageNow(img) {
 }
 
 function initLazyImages(){
+  if (isGridLazyDeferredForModal()) return;
+
   // gather any images that still need a src
   const allLazy = Array.from(document.querySelectorAll('img.lazy[data-src]:not([src])'));
   const shouldRefresh = allLazy.length > 0 || !ioInitialized;

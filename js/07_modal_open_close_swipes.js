@@ -13,6 +13,18 @@ function updateModalSafePadding() {
     const offset = Math.max(24, Math.ceil(h + 12));
     modal.style.setProperty('--controls-offset', offset + 'px');
 }
+
+function resumeDeferredGridLoadingIfNeeded() {
+    if (typeof window.resumeDeferredGridLazyLoading === 'function') {
+        window.resumeDeferredGridLazyLoading();
+        return;
+    }
+    if (window.__deferGridLazyUntilModalSettled === true) {
+        window.__deferGridLazyUntilModalSettled = false;
+        try { initLazyImages(); } catch (_) {}
+    }
+}
+
 function openModalByIndex(index) {
     const image = visibleImages[index];
     if (!image) return;
@@ -63,7 +75,17 @@ function openModalByIndex(index) {
         hideModalSpinner();
         modal.classList.add('embed-active');
         if (modalEmbedWrap) modalEmbedWrap.hidden = false;
-        if (modalEmbed && modalEmbed.src !== embedUrl) modalEmbed.src = embedUrl;
+        if (modalEmbed) {
+            if (window.__deferGridLazyUntilModalSettled === true) {
+                const resumeOnce = () => resumeDeferredGridLoadingIfNeeded();
+                modalEmbed.addEventListener('load', resumeOnce, { once: true });
+                modalEmbed.addEventListener('error', resumeOnce, { once: true });
+                // Safety net in case load events are suppressed/cached oddly.
+                setTimeout(resumeDeferredGridLoadingIfNeeded, 1200);
+            }
+            if (modalEmbed.src !== embedUrl) modalEmbed.src = embedUrl;
+            else if (window.__deferGridLazyUntilModalSettled === true) resumeDeferredGridLoadingIfNeeded();
+        }
         modalImg.style.opacity = '0';
         modalImg.style.visibility = 'hidden';
         modalImg.style.transform = 'translate3d(-9999px,-9999px,0) scale(1)';
@@ -102,12 +124,14 @@ function openModalByIndex(index) {
                 applyTransform();
             }
             reveal();
+            resumeDeferredGridLoadingIfNeeded();
         };
         const fail = () => {
             if (token !== modalImgLoadToken) return;
             hideModalSpinner();
             modalImg.style.visibility = 'visible';
             modalImg.style.opacity = '1';
+            resumeDeferredGridLoadingIfNeeded();
         };
         if (modalImg.src && modalImg.src.endsWith(nextUrl) && modalImg.complete && modalImg.naturalWidth) {
             done();
@@ -295,6 +319,7 @@ function closeModal() {
     modal.classList.remove('embed-active');
     if (modalEmbedWrap) modalEmbedWrap.hidden = true;
     if (modalEmbed) modalEmbed.src = 'about:blank';
+    resumeDeferredGridLoadingIfNeeded();
     if (modalDlBtn) modalDlBtn.style.display = '';
     document.body.classList.remove('modal-open');
     // restart lazy loading so thumbnails continue to fetch when user returns
