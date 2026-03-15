@@ -754,7 +754,7 @@
       chips.innerHTML = "";
       const chipValues = [
         `Height ${Number(meta.source_block_height).toLocaleString()}`,
-        `Updated ${meta.generated_utc}`,
+        `Updated ${formatGeneratedUtc(meta.generated_utc)}`,
         `BIP-110 ${s.completed_periods}/${s.bip110_total_periods} periods complete`,
         currentSignal != null
           ? `Period ${s.current_period_index ?? "n/a"} signaling ${currentSignal.toLocaleString()} (${currentSignalPct})`
@@ -786,6 +786,23 @@
       const pct = (signal / periodSize) * 100;
       if (pct > 0 && pct < 0.1) return "< 0.1%";
       return `${pct.toFixed(1)}%`;
+    }
+
+    function formatGeneratedUtc(value) {
+      const raw = String(value || "").trim();
+      if (!raw) return "n/a";
+
+      const parsed = new Date(raw);
+      if (Number.isNaN(parsed.getTime())) {
+        return raw;
+      }
+
+      const year = parsed.getUTCFullYear();
+      const month = String(parsed.getUTCMonth() + 1).padStart(2, "0");
+      const day = String(parsed.getUTCDate()).padStart(2, "0");
+      const hours = String(parsed.getUTCHours()).padStart(2, "0");
+      const minutes = String(parsed.getUTCMinutes()).padStart(2, "0");
+      return `${year}-${month}-${day} ${hours}:${minutes} UTC`;
     }
 
     function fitFontPx(ctx, text, maxWidth, basePx, minPx, fontFamily) {
