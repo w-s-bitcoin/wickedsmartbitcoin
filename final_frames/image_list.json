@@ -1,8 +1,8 @@
 [
     {
         "filename": "bip110_signaling.png",
-        "title": "BIP-110 Signaling Progress",
-        "description": "Side-by-side visualization of BIP9 SegWit signaling periods and BIP-110 signaling progress, showing block counts per 2,016-block window and activation thresholds",
+        "title": "SegWit and BIP-110 Signaling",
+        "description": "This dashboard shows miner signaling across each 2,016-block period for SegWit and BIP-110",
         "latest_x": "",
         "latest_nostr": "",
         "latest_youtube": ""
