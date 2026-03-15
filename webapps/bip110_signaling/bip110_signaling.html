@@ -173,6 +173,7 @@
       color: #d8e4ea;
       font-size: 0.84rem;
       user-select: none;
+      cursor: pointer;
     }
 
     .toggle input {
@@ -309,11 +310,11 @@
       </div>
       <div class="chips" id="statusChips"></div>
       <div class="controls">
-        <label class="toggle"><input type="checkbox" id="toggleSegwitWindow" checked /> SegWit periods</label>
-        <label class="toggle"><input type="checkbox" id="toggleBip110Window" checked /> BIP-110 periods</label>
-        <label class="toggle"><input type="checkbox" id="toggleStripes" checked /> Block markers</label>
-        <label class="toggle"><input type="checkbox" id="toggleMarkers" checked /> Release markers</label>
-        <label class="toggle"><input type="checkbox" id="toggleLabels" checked /> Percentage labels</label>
+        <label class="toggle" for="toggleSegwitWindow"><input type="checkbox" id="toggleSegwitWindow" checked /> SegWit periods</label>
+        <label class="toggle" for="toggleBip110Window"><input type="checkbox" id="toggleBip110Window" checked /> BIP-110 periods</label>
+        <label class="toggle" for="toggleStripes"><input type="checkbox" id="toggleStripes" checked /> Block markers</label>
+        <label class="toggle" for="toggleMarkers"><input type="checkbox" id="toggleMarkers" checked /> Release markers</label>
+        <label class="toggle" for="toggleLabels"><input type="checkbox" id="toggleLabels" checked /> Percentage labels</label>
       </div>
     </section>
 
@@ -344,6 +345,7 @@
   <script>
     const AUTO_REFRESH_MS = 10000;
     const FORCE_REFRESH_MS = 180000;
+    const CONTROLS_STORAGE_KEY = "bip110_signaling_controls_v1";
 
     const state = {
       staticData: null,
@@ -808,6 +810,57 @@
       }, AUTO_REFRESH_MS);
     }
 
+    function persistControls() {
+      try {
+        const payload = {
+          stripes: Boolean(state.controls.stripes),
+          markers: Boolean(state.controls.markers),
+          labels: Boolean(state.controls.labels),
+          showSegwit: Boolean(state.controls.showSegwit),
+          showBip110: Boolean(state.controls.showBip110),
+        };
+        localStorage.setItem(CONTROLS_STORAGE_KEY, JSON.stringify(payload));
+      } catch (_) {
+        // Ignore storage failures (private mode or unavailable storage).
+      }
+    }
+
+    function restorePersistedControls() {
+      try {
+        const raw = localStorage.getItem(CONTROLS_STORAGE_KEY);
+        if (!raw) return false;
+
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") return false;
+
+        state.controls.stripes = Boolean(parsed.stripes);
+        state.controls.markers = Boolean(parsed.markers);
+        state.controls.labels = Boolean(parsed.labels);
+        state.controls.showSegwit = Boolean(parsed.showSegwit);
+        state.controls.showBip110 = Boolean(parsed.showBip110);
+
+        if (!state.controls.showSegwit && !state.controls.showBip110) {
+          state.controls.showBip110 = true;
+        }
+
+        const stripes = document.getElementById("toggleStripes");
+        const markers = document.getElementById("toggleMarkers");
+        const labels = document.getElementById("toggleLabels");
+        const segwitWindow = document.getElementById("toggleSegwitWindow");
+        const bip110Window = document.getElementById("toggleBip110Window");
+
+        if (stripes) stripes.checked = state.controls.stripes;
+        if (markers) markers.checked = state.controls.markers;
+        if (labels) labels.checked = state.controls.labels;
+        if (segwitWindow) segwitWindow.checked = state.controls.showSegwit;
+        if (bip110Window) bip110Window.checked = state.controls.showBip110;
+
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+
     function applyNarrowWindowDefaults() {
       // Apply once at initial load only.
       if (window.innerWidth > 860) return;
@@ -820,6 +873,7 @@
 
       state.controls.stripes = false;
       state.controls.markers = false;
+      persistControls();
     }
 
     function setStatus(data) {
@@ -1812,16 +1866,19 @@
 
       stripes.addEventListener("change", () => {
         state.controls.stripes = stripes.checked;
+        persistControls();
         renderAll();
       });
 
       markers.addEventListener("change", () => {
         state.controls.markers = markers.checked;
+        persistControls();
         renderAll();
       });
 
       labels.addEventListener("change", () => {
         state.controls.labels = labels.checked;
+        persistControls();
         renderAll();
       });
 
@@ -1831,6 +1888,7 @@
         }
         state.controls.showSegwit = segwitWindow.checked;
         state.controls.showBip110 = bip110Window.checked;
+        persistControls();
         updatePanelVisibility();
         renderAll();
       });
@@ -1841,6 +1899,7 @@
         }
         state.controls.showSegwit = segwitWindow.checked;
         state.controls.showBip110 = bip110Window.checked;
+        persistControls();
         updatePanelVisibility();
         renderAll();
       });
@@ -1862,7 +1921,10 @@
         state.data = buildCombinedData(state.staticData, state.dynamicData);
         state.dataSignature = await fetchLatestBip110MetadataSignature();
         state.lastSuccessfulRefreshAt = Date.now();
-        applyNarrowWindowDefaults();
+        const restoredPersistedControls = restorePersistedControls();
+        if (!restoredPersistedControls) {
+          applyNarrowWindowDefaults();
+        }
         setStatus(state.data);
         setControlHandlers();
         updatePanelVisibility();
