@@ -179,11 +179,20 @@
       cursor: pointer;
     }
 
+    .topbar.ui-locked .toggle {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
     .toggle input {
       width: 15px;
       height: 15px;
       accent-color: var(--signal);
       cursor: pointer;
+    }
+
+    .topbar.ui-locked .toggle input {
+      cursor: not-allowed;
     }
 
 
@@ -208,6 +217,11 @@
       outline: none;
     }
 
+    .swap-panels-control:disabled {
+      color: rgba(216, 228, 234, 0.5);
+      cursor: not-allowed;
+    }
+
     .swap-panels-btn {
       display: inline-flex;
       align-items: center;
@@ -226,6 +240,10 @@
     .swap-panels-control:hover .swap-panels-btn,
     .swap-panels-control:focus-visible .swap-panels-btn {
       border-color: var(--signal);
+    }
+
+    .swap-panels-control:disabled .swap-panels-btn {
+      border-color: rgba(255, 255, 255, 0.14);
     }
 
     .swap-panels-btn svg {
@@ -287,6 +305,12 @@
       outline: none;
     }
 
+    .panel-fill-btn:disabled {
+      border-color: rgba(255, 255, 255, 0.14);
+      color: rgba(214, 225, 230, 0.5);
+      cursor: not-allowed;
+    }
+
     .panel-fill-btn svg {
       width: 12px;
       height: 12px;
@@ -329,6 +353,15 @@
     .panel-resize-handle:focus-visible {
       border-color: var(--signal);
       outline: none;
+    }
+
+    .panel-resize-handle:disabled {
+      border-color: rgba(255, 255, 255, 0.14);
+      cursor: not-allowed;
+    }
+
+    .panel-resize-handle:disabled::before {
+      opacity: 0.5;
     }
 
     body.resizing-panel,
@@ -594,11 +627,30 @@
     const mainWrap = document.getElementById("mainWrap");
     const topbar = document.getElementById("topbar");
     const tooltip = document.getElementById("tooltip");
+    const vizInfoBtn = document.getElementById("vizInfoBtn");
     const segwitResizeHandle = document.getElementById("segwitResizeHandle");
     const bip110ResizeHandle = document.getElementById("bip110ResizeHandle");
     const segwitFillHeightBtn = document.getElementById("segwitFillHeightBtn");
     const bip110FillHeightBtn = document.getElementById("bip110FillHeightBtn");
     const swapPanelsBtn = document.getElementById("swapPanelsBtn");
+
+    function setControlsEnabled(enabled) {
+      topbar.classList.toggle("ui-locked", !enabled);
+
+      const controls = [
+        vizInfoBtn,
+        swapPanelsBtn,
+        segwitFillHeightBtn,
+        bip110FillHeightBtn,
+        segwitResizeHandle,
+        bip110ResizeHandle,
+        ...topbar.querySelectorAll('input[type="checkbox"]'),
+      ].filter(Boolean);
+
+      controls.forEach((control) => {
+        control.disabled = !enabled;
+      });
+    }
 
     function setPanelLoadersVisible(visible) {
       [segwitLoader, bip110Loader].forEach((loader) => {
@@ -945,6 +997,7 @@
       if (state.refreshInFlight) return;
 
       state.refreshInFlight = true;
+      setControlsEnabled(false);
       try {
         if (!force) {
           const latestSig = await fetchLatestBip110MetadataSignature();
@@ -974,6 +1027,7 @@
         console.warn("Auto-refresh check failed:", err);
       } finally {
         state.refreshInFlight = false;
+        setControlsEnabled(true);
       }
     }
 
@@ -1602,7 +1656,7 @@
       const barW1 = estimateBarWidthForCanvas(segwitCanvas, chart);
       const barW2 = estimateBarWidthForCanvas(bip110Canvas, chart);
       const widthCandidates = [barW1, barW2].filter((w) => Number.isFinite(w) && w > 8);
-      const targetWidth = Math.max(32, (widthCandidates.length ? Math.min(...widthCandidates) : 30) * 1.35);
+      const targetWidth = Math.max(38, (widthCandidates.length ? Math.min(...widthCandidates) : 30) * 1.55);
       const visibleWidths = [
         segwitCanvas.getBoundingClientRect().width,
         bip110Canvas.getBoundingClientRect().width,
@@ -2287,6 +2341,7 @@
     async function init() {
       try {
         const loadToken = ++state.phasedLoadToken;
+        setControlsEnabled(false);
         setPanelLoadersVisible(true);
         state.staticData = await loadStaticData();
         state.dynamicData = await loadDynamicData();
@@ -2317,6 +2372,7 @@
         setPanelLoaderVisible("bip110", false);
 
         await loadAndApplyBlockDataPhased(loadToken, state.data.metadata, ["segwit", "bip110"]);
+        setControlsEnabled(true);
 
         window.addEventListener("resize", () => {
           applyDynamicPanelHeights();
@@ -2336,6 +2392,7 @@
         console.error(err);
         setPanelLoadersVisible(false);
         showError(String(err.message || err));
+        setControlsEnabled(true);
       }
     }
 
