@@ -99,7 +99,8 @@ fetch(IMAGE_LIST_URL)
         const initialIsDonate = isDonateRouteActive();
         // Deep-linked modal routes should prioritize modal content fetches
         // before grid thumbnail lazy requests.
-        window.__deferGridLazyUntilModalSettled = !!(initialFilename && !initialIsDonate);
+        const shouldPrioritizeDeepLinkModal = !!(initialFilename && !initialIsDonate);
+        window.__deferGridLazyUntilModalSettled = shouldPrioritizeDeepLinkModal;
         let urlDistMetric = null;
         if (initialFilename && isDistFile(initialFilename)) {
             urlDistMetric = distMetricFromFilename(initialFilename) || null;
@@ -398,7 +399,9 @@ fetch(IMAGE_LIST_URL)
         if (initialFilename) {
             try { preloadImage(imgSrc(initialFilename)); } catch (_) {}
         }
-        filterImages();
+        if (!shouldPrioritizeDeepLinkModal) {
+            filterImages();
+        }
         const savedLayout = localStorage.getItem("preferredLayout");
         if (savedLayout === "list" || savedLayout === "grid") {
             setLayout(savedLayout, false);

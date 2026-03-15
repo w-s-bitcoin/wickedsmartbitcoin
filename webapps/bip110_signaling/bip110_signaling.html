@@ -1162,17 +1162,12 @@
     }
 
     function applyNarrowWindowDefaults() {
-      // Apply once at initial load only.
-      if (window.innerWidth > 860) return;
-
+      // First-visit defaults: block markers off across all viewport sizes.
       const stripes = document.getElementById("toggleStripes");
-      const markers = document.getElementById("toggleMarkers");
 
       if (stripes) stripes.checked = false;
-      if (markers) markers.checked = false;
 
       state.controls.stripes = false;
-      state.controls.markers = false;
       persistControls();
     }
 
@@ -2494,6 +2489,11 @@
     async function init() {
       try {
         const loadToken = ++state.phasedLoadToken;
+        const restoredPersistedControls = restorePersistedControls();
+        if (!restoredPersistedControls) {
+          applyNarrowWindowDefaults();
+        }
+        applyPanelOrder();
         ensureModalDownloadButtonVisible();
         applyDynamicPanelHeights();
         setControlsEnabled(false);
@@ -2507,10 +2507,6 @@
         state.data = buildCombinedData(state.staticData, state.dynamicData);
         state.dataSignature = await fetchLatestBip110MetadataSignature();
         state.lastSuccessfulRefreshAt = Date.now();
-        const restoredPersistedControls = restorePersistedControls();
-        if (!restoredPersistedControls) {
-          applyNarrowWindowDefaults();
-        }
         setStatus(state.data);
         setControlHandlers();
         setupSwapButton();
