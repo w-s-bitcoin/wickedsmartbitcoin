@@ -348,6 +348,7 @@
       data: null,
       dataSignature: null,
       autoRefreshTimer: null,
+      phasedLoadToken: 0,
       pinnedTooltip: null,
       hoverTooltip: null,
       controls: {
@@ -392,6 +393,12 @@
       [segwitLoader, bip110Loader].forEach((loader) => {
         if (!loader) return;
         loader.classList.toggle("hidden", !visible);
+      });
+    }
+
+    function nextPaint() {
+      return new Promise((resolve) => {
+        requestAnimationFrame(() => resolve());
       });
     }
 
@@ -524,7 +531,7 @@
       return rows;
     }
 
-    async function loadAllData(cacheBust = null) {
+    async function loadCoreData(cacheBust = null) {
       const withBust = (path) => {
         if (cacheBust == null) return path;
         const sep = path.includes("?") ? "&" : "?";
@@ -535,8 +542,6 @@
         metadata: withBust("webapp_data/chart_metadata.json"),
         segwitPeriods: withBust("webapp_data/segwit_periods.csv"),
         bip110Periods: withBust("webapp_data/bip110_periods.csv"),
-        segwitBlocks: withBust("webapp_data/segwit_block_points.bin"),
-        bip110Blocks: withBust("webapp_data/bip110_block_points.bin"),
         segwitReleases: withBust("webapp_data/segwit_releases.csv"),
         bip110Releases: withBust("webapp_data/bip110_releases.csv"),
         segwitTicks: withBust("webapp_data/segwit_month_ticks.csv"),
@@ -547,8 +552,6 @@
         metadataResp,
         segwitPeriodsResp,
         bip110PeriodsResp,
-        segwitBlocksResp,
-        bip110BlocksResp,
         segwitReleasesResp,
         bip110ReleasesResp,
         segwitTicksResp,
@@ -559,8 +562,6 @@
         metadataResp,
         segwitPeriodsResp,
         bip110PeriodsResp,
-        segwitBlocksResp,
-        bip110BlocksResp,
         segwitReleasesResp,
         bip110ReleasesResp,
         segwitTicksResp,
@@ -574,16 +575,13 @@
       });
 
       const metadata = await metadataResp.json();
-      const periodSize = Number(metadata?.chart?.period_size || 2016);
-      const segwitStart = Number(metadata?.datasets?.segwit_blocks?.start_height || 0);
-      const bip110Start = Number(metadata?.datasets?.bip110_blocks?.start_height || 0);
 
       const data = {
         metadata,
         segwitPeriods: castRows(parseCsv(await segwitPeriodsResp.text())),
         bip110Periods: castRows(parseCsv(await bip110PeriodsResp.text())),
-        segwitBlocks: decodeBlockPoints(await segwitBlocksResp.arrayBuffer(), segwitStart, periodSize),
-        bip110Blocks: decodeBlockPoints(await bip110BlocksResp.arrayBuffer(), bip110Start, periodSize),
+        segwitBlocks: [],
+        bip110Blocks: [],
         segwitReleases: castRows(parseCsv(await segwitReleasesResp.text())).map((d) => ({
           ...d,
           display_label: String(d.display_label || "").replaceAll("\\n", "\n"),
@@ -597,6 +595,40 @@
       };
 
       return data;
+    }
+
+    async function loadBlockPointData(metadata, cacheBust = null) {
+      const withBust = (path) => {
+        if (cacheBust == null) return path;
+        const sep = path.includes("?") ? "&" : "?";
+        return `${path}${sep}_=${cacheBust}`;
+      };
+
+      const files = {
+        segwitBlocks: withBust("webapp_data/segwit_block_points.bin"),
+        bip110Blocks: withBust("webapp_data/bip110_block_points.bin"),
+      };
+
+      const [segwitBlocksResp, bip110BlocksResp] = await Promise.all([
+        fetch(files.segwitBlocks),
+        fetch(files.bip110Blocks),
+      ]);
+
+      [segwitBlocksResp, bip110BlocksResp].forEach((resp, idx) => {
+        if (!resp.ok) {
+          const fileList = [files.segwitBlocks, files.bip110Blocks];
+          throw new Error(`Failed to load ${fileList[idx]} (${resp.status})`);
+        }
+      });
+
+      const periodSize = Number(metadata?.chart?.period_size || 2016);
+      const segwitStart = Number(metadata?.datasets?.segwit_blocks?.start_height || 0);
+      const bip110Start = Number(metadata?.datasets?.bip110_blocks?.start_height || 0);
+
+      return {
+        segwitBlocks: decodeBlockPoints(await segwitBlocksResp.arrayBuffer(), segwitStart, periodSize),
+        bip110Blocks: decodeBlockPoints(await bip110BlocksResp.arrayBuffer(), bip110Start, periodSize),
+      };
     }
 
     function getDataSignature(meta) {
@@ -623,12 +655,21 @@
           return;
         }
 
-        state.data = await loadAllData(Date.now());
+        const loadToken = ++state.phasedLoadToken;
+        state.data = await loadCoreData(Date.now());
         state.dataSignature = getDataSignature(state.data.metadata);
         setStatus(state.data);
         updatePanelVisibility();
         state.pinnedTooltip = null;
         hideTooltip();
+        await nextPaint();
+        if (loadToken !== state.phasedLoadToken) return;
+        renderAll();
+
+        const blockPointData = await loadBlockPointData(state.data.metadata, Date.now());
+        if (loadToken !== state.phasedLoadToken) return;
+        state.data.segwitBlocks = blockPointData.segwitBlocks;
+        state.data.bip110Blocks = blockPointData.bip110Blocks;
         renderAll();
       } catch (err) {
         console.warn("Auto-refresh check failed:", err);
@@ -1624,8 +1665,9 @@
 
     async function init() {
       try {
+        const loadToken = ++state.phasedLoadToken;
         setPanelLoadersVisible(true);
-        state.data = await loadAllData();
+        state.data = await loadCoreData();
         state.dataSignature = getDataSignature(state.data.metadata);
         applyNarrowWindowDefaults();
         setStatus(state.data);
@@ -1633,8 +1675,17 @@
         updatePanelVisibility();
         attachPointer(segwitCanvas, "segwit");
         attachPointer(bip110Canvas, "bip110");
+        await nextPaint();
         renderAll();
         setPanelLoadersVisible(false);
+
+        const blockPointData = await loadBlockPointData(state.data.metadata);
+        if (loadToken === state.phasedLoadToken) {
+          state.data.segwitBlocks = blockPointData.segwitBlocks;
+          state.data.bip110Blocks = blockPointData.bip110Blocks;
+          renderAll();
+        }
+
         startAutoRefresh();
 
         window.addEventListener("resize", () => {
