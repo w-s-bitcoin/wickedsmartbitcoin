@@ -71,6 +71,7 @@
       align-items: center;
       gap: 8px;
       flex-wrap: wrap;
+      position: relative;
     }
 
     .info-wrap {
@@ -108,8 +109,10 @@
       position: absolute;
       top: calc(100% + 8px);
       left: 0;
+      right: auto;
       z-index: 50;
-      width: min(420px, calc(100vw - 36px));
+      width: min(420px, calc(100vw - 24px));
+      max-width: min(420px, calc(100vw - 24px));
       border: 1px solid rgba(255, 255, 255, 0.18);
       border-radius: 10px;
       background: #000;
@@ -293,6 +296,17 @@
       body.embedded-in-modal .wrap { padding-top: calc(8px + var(--modal-controls-clearance)); }
       .topbar { padding: 10px; border-radius: 12px; }
       .card { border-radius: 12px; }
+
+      .info-wrap {
+        position: static;
+      }
+
+      .info-popover {
+        left: auto;
+        right: 0;
+        width: min(420px, calc(100% - 4px));
+        max-width: min(420px, calc(100% - 4px));
+      }
     }
   </style>
 </head>
@@ -343,8 +357,8 @@
   <div class="tooltip" id="tooltip"></div>
 
   <script>
-    const AUTO_REFRESH_MS = 10000;
-    const FORCE_REFRESH_MS = 180000;
+    const AUTO_REFRESH_MS = 60000;
+    const FORCE_REFRESH_MS = 3600000;
     const CONTROLS_STORAGE_KEY = "bip110_signaling_controls_v1";
 
     const state = {
