@@ -811,6 +811,16 @@
       ctx.restore();
     }
 
+    function drawVerticalText(ctx, text, x, y, direction = "up") {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(direction === "up" ? -Math.PI / 2 : Math.PI / 2);
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText(String(text), 0, 0);
+      ctx.restore();
+    }
+
     function drawPanel({ canvas, key, title, periods, blocks, releases, ticks, threshold, thresholdPct, showBottomAxis, specialLabels = [], markerTypography = null, numericTypography = null }) {
       const { metadata } = state.data;
       const chart = metadata.chart;
@@ -1039,24 +1049,38 @@
             '"IBM Plex Mono", monospace'
           );
           const sharedNumericSize = Math.min(baseNumericSize, fitPct, fitCount);
+          const labelAnchorY = (renderedSignalTopByPeriod.get(p) ?? yScale(signalRaw));
+          const useVerticalLabels = isMobile || barWidth < 16;
 
-          ctx.fillStyle = "#111";
-          ctx.font = `${sharedNumericSize}px "IBM Plex Mono", monospace`;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "bottom";
-          ctx.fillText(pct, x, (renderedSignalTopByPeriod.get(p) ?? yScale(signalRaw)) - 4);
+          if (useVerticalLabels) {
+            ctx.fillStyle = "#111";
+            ctx.font = `${sharedNumericSize}px "IBM Plex Mono", monospace`;
+            drawVerticalText(ctx, pct, x, labelAnchorY - 4, "up");
+          } else {
+            ctx.fillStyle = "#111";
+            ctx.font = `${sharedNumericSize}px "IBM Plex Mono", monospace`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "bottom";
+            ctx.fillText(pct, x, labelAnchorY - 4);
+          }
 
           if (signalRaw > 0) {
-            if (signalRaw < 100) {
-              ctx.fillStyle = colors.signal;
+            if (useVerticalLabels) {
+              ctx.fillStyle = signalRaw < 100 ? colors.signal : "#111";
               ctx.font = `${sharedNumericSize}px "IBM Plex Mono", monospace`;
-              ctx.textBaseline = "top";
-              ctx.fillText(countText, x - barWidth * 0.48, yScale(0) + 6);
+              drawVerticalText(ctx, countText, x, labelAnchorY + 4, "up");
             } else {
-              ctx.fillStyle = "#111";
-              ctx.font = `${sharedNumericSize}px "IBM Plex Mono", monospace`;
-              ctx.textBaseline = "top";
-              ctx.fillText(countText, x, (renderedSignalTopByPeriod.get(p) ?? yScale(signalRaw)) + 2);
+              if (signalRaw < 100) {
+                ctx.fillStyle = colors.signal;
+                ctx.font = `${sharedNumericSize}px "IBM Plex Mono", monospace`;
+                ctx.textBaseline = "top";
+                ctx.fillText(countText, x - barWidth * 0.48, yScale(0) + 6);
+              } else {
+                ctx.fillStyle = "#111";
+                ctx.font = `${sharedNumericSize}px "IBM Plex Mono", monospace`;
+                ctx.textBaseline = "top";
+                ctx.fillText(countText, x, labelAnchorY + 2);
+              }
             }
           }
         });
