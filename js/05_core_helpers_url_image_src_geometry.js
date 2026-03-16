@@ -43,12 +43,7 @@ function replaceUrlForFilename(newFilename) {
   const slug = String(newFilename || "").replace(/\.png$/i, "");
     if (isStandaloneModalShell()) {
         const base = getPageBasePath();
-        if (location.hostname !== 'localhost') {
-            history.replaceState(null, '', `${base}/${slug}`.replace(/\/{2,}/g, '/'));
-        } else {
-            const currentPage = (location.pathname.split('/').pop() || 'view.html').split('?')[0];
-            history.replaceState(null, '', `${base}/${currentPage}?image=${encodeURIComponent(slug)}`.replace(/\/{2,}/g, '/'));
-        }
+        history.replaceState(null, '', `${base}/${slug}`.replace(/\/{2,}/g, '/'));
         return;
     }
   if (location.hostname === "localhost") {
