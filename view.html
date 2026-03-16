@@ -34,6 +34,11 @@
             body[data-standalone-modal-shell="1"] .modal {
                 display: flex;
             }
+            body[data-standalone-modal-shell="1"] #modal-img {
+                opacity: 0;
+                visibility: hidden;
+                transform: translate3d(-9999px, -9999px, 0) scale(1);
+            }
         </style>
     </head>
     <body data-standalone-modal-shell="1">
