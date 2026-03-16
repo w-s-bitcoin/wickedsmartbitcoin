@@ -66,6 +66,15 @@ function isStandaloneModalShell() {
     return document.body?.dataset?.standaloneModalShell === '1';
 }
 
+function getVisualizationUrl(filename) {
+    const slug = String(filename || '').replace(/\.png$/i, '');
+    const base = getPageBasePath();
+    if (location.hostname === 'localhost') {
+        return `${base}/view.html?image=${encodeURIComponent(filename)}`.replace(/\/{2,}/g, '/');
+    }
+    return `${base}/${slug}`.replace(/\/{2,}/g, '/');
+}
+
 function isDonateRouteActive() {
     if (location.hostname === 'localhost') {
         return (location.hash || '').replace(/^#/, '') === DONATE_ROUTE;

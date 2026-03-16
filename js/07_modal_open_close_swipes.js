@@ -28,6 +28,10 @@ function resumeDeferredGridLoadingIfNeeded() {
 function openModalByIndex(index) {
     const image = visibleImages[index];
     if (!image) return;
+    if (!isStandaloneModalShell()) {
+        window.location.href = getVisualizationUrl(image.filename);
+        return;
+    }
     // temporarily suspend the thumbnail observer so it doesn't fire off a
     // bunch of grid loads that could compete with the modal image request.
     if (io && io.disconnect) {
