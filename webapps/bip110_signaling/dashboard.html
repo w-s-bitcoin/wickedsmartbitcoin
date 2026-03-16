@@ -7,6 +7,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="preload" href="webapp_data/chart_static.json" as="fetch" crossorigin />
+  <link rel="preload" href="webapp_data/bip110_metadata.json" as="fetch" crossorigin />
   <style>
     :root {
       --bg: #06080a;
@@ -615,6 +617,10 @@
         segwit: [],
         bip110: [],
       },
+      deferredEnhancementRaf: {
+        segwit: null,
+        bip110: null,
+      },
       dpr: Math.max(1, window.devicePixelRatio || 1),
     };
 
@@ -826,7 +832,51 @@
       return fallbackResp;
     }
 
-    async function loadStaticData() {
+    function buildMetadataSignature(meta, resp = null) {
+      const etag = String(resp?.headers?.get("etag") || "");
+      const lastModified = String(resp?.headers?.get("last-modified") || "");
+      return `${getDataSignature(meta)}|${etag}|${lastModified}`;
+    }
+
+    async function loadStaticMetadataOnly() {
+      const metadataResp = await fetchJsonWithFallback(
+        "webapp_data/chart_static.json",
+        "webapp_data/chart_metadata.json"
+      );
+
+      if (!metadataResp.ok) {
+        throw new Error(`Failed to load webapp_data/chart_static.json (${metadataResp.status})`);
+      }
+
+      return {
+        metadata: await metadataResp.json(),
+      };
+    }
+
+    async function loadDynamicMetadataOnly(cacheBust = null) {
+      const withBust = (path) => {
+        if (cacheBust == null) return path;
+        const sep = path.includes("?") ? "&" : "?";
+        return `${path}${sep}_=${cacheBust}`;
+      };
+
+      const metadataResp = await fetchJsonWithFallback(
+        withBust("webapp_data/bip110_metadata.json"),
+        withBust("webapp_data/chart_metadata.json")
+      );
+
+      if (!metadataResp.ok) {
+        throw new Error(`Failed to load webapp_data/bip110_metadata.json (${metadataResp.status})`);
+      }
+
+      const metadata = await metadataResp.json();
+      return {
+        metadata,
+        signature: buildMetadataSignature(metadata, metadataResp),
+      };
+    }
+
+    async function loadStaticData(staticMetadata = null) {
       const metadataPath = "webapp_data/chart_static.json";
       const files = {
         segwitPeriods: "webapp_data/segwit_periods.csv",
@@ -834,36 +884,23 @@
         segwitTicks: "webapp_data/segwit_month_ticks.csv",
       };
 
-      const metadataRespPromise = fetchJsonWithFallback(
-        metadataPath,
-        "webapp_data/chart_metadata.json"
-      );
+      const responses = await Promise.all(Object.values(files).map((file) => fetch(file)));
+      const [segwitPeriodsResp, segwitReleasesResp, segwitTicksResp] = responses;
 
-      const [
-        metadataResp,
-        segwitPeriodsResp,
-        segwitReleasesResp,
-        segwitTicksResp,
-      ] = await Promise.all([
-        metadataRespPromise,
-        ...Object.values(files).map((file) => fetch(file)),
-      ]);
-
-      const responses = [
-        [metadataResp, metadataPath],
+      const requiredResponses = [
         [segwitPeriodsResp, files.segwitPeriods],
         [segwitReleasesResp, files.segwitReleases],
         [segwitTicksResp, files.segwitTicks],
       ];
 
-      responses.forEach(([resp, path]) => {
+      requiredResponses.forEach(([resp, path]) => {
         if (!resp.ok) {
           throw new Error(`Failed to load ${path} (${resp.status})`);
         }
       });
 
       return {
-        metadata: await metadataResp.json(),
+        metadata: staticMetadata || (await loadStaticMetadataOnly()).metadata,
         segwitPeriods: castRows(parseCsv(await segwitPeriodsResp.text())),
         segwitBlocks: [],
         segwitReleases: castRows(parseCsv(await segwitReleasesResp.text())).map((d) => ({
@@ -874,37 +911,28 @@
       };
     }
 
-    async function loadDynamicData(cacheBust = null) {
+    async function loadDynamicData(cacheBust = null, dynamicMetadata = null, metadataSignature = null) {
       const withBust = (path) => {
         if (cacheBust == null) return path;
         const sep = path.includes("?") ? "&" : "?";
         return `${path}${sep}_=${cacheBust}`;
       };
 
-      const metadataPath = withBust("webapp_data/bip110_metadata.json");
       const files = {
         bip110Periods: withBust("webapp_data/bip110_periods.csv"),
         bip110Releases: withBust("webapp_data/bip110_releases.csv"),
         bip110Ticks: withBust("webapp_data/bip110_month_ticks.csv"),
       };
 
-      const metadataRespPromise = fetchJsonWithFallback(
-        metadataPath,
-        withBust("webapp_data/chart_metadata.json")
-      );
-
       const [
-        metadataResp,
         bip110PeriodsResp,
         bip110ReleasesResp,
         bip110TicksResp,
       ] = await Promise.all([
-        metadataRespPromise,
         ...Object.values(files).map((f) => fetch(f)),
       ]);
 
       const responses = [
-        [metadataResp, metadataPath],
         [bip110PeriodsResp, files.bip110Periods],
         [bip110ReleasesResp, files.bip110Releases],
         [bip110TicksResp, files.bip110Ticks],
@@ -916,8 +944,17 @@
         }
       });
 
+      let metadata = dynamicMetadata;
+      let signature = metadataSignature;
+      if (!metadata) {
+        const metadataResult = await loadDynamicMetadataOnly(cacheBust);
+        metadata = metadataResult.metadata;
+        signature = metadataResult.signature;
+      }
+
       return {
-        metadata: await metadataResp.json(),
+        metadata,
+        signature,
         bip110Periods: castRows(parseCsv(await bip110PeriodsResp.text())),
         bip110Blocks: [],
         bip110Releases: castRows(parseCsv(await bip110ReleasesResp.text())).map((d) => ({
@@ -989,15 +1026,8 @@
 
     async function fetchLatestBip110MetadataSignature() {
       const cacheBust = Date.now();
-      const resp = await fetchJsonWithFallback(
-        `webapp_data/bip110_metadata.json?_=${cacheBust}`,
-        `webapp_data/chart_metadata.json?_=${cacheBust}`,
-        { cache: "no-store" }
-      );
-      const meta = await resp.json();
-      const etag = String(resp.headers.get("etag") || "");
-      const lastModified = String(resp.headers.get("last-modified") || "");
-      return `${getDataSignature(meta)}|${etag}|${lastModified}`;
+      const result = await loadDynamicMetadataOnly(cacheBust);
+      return result.signature;
     }
 
     async function refreshIfDataChanged({ force = false } = {}) {
@@ -1018,7 +1048,7 @@
         const loadToken = ++state.phasedLoadToken;
         state.dynamicData = await loadDynamicData(loadBuster);
         state.data = buildCombinedData(state.staticData, state.dynamicData, state.data);
-        state.dataSignature = await fetchLatestBip110MetadataSignature();
+        state.dataSignature = state.dynamicData.signature || getDataSignature(state.dynamicData.metadata);
         state.lastSuccessfulRefreshAt = Date.now();
         setStatus(state.data);
         updatePanelVisibility();
@@ -1190,6 +1220,8 @@
       const currentSignalPct = currentPeriodRow
         ? pctLabel(Number(currentPeriodRow.signal_blocks || 0), Number(meta.chart.period_size))
         : null;
+      const currentPeriodBlocks = Number(s.blocks_into_current_period || 0);
+      const periodSize = Number(meta?.chart?.period_size || 2016);
 
       chips.innerHTML = "";
       const chipValues = [
@@ -1198,7 +1230,7 @@
         `BIP-110 ${s.completed_periods}/${s.bip110_total_periods} periods complete`,
         currentSignal != null
           ? `Period ${s.current_period_index ?? "n/a"} signaling ${currentSignal.toLocaleString()} (${currentSignalPct})`
-          : `Period ${s.current_period_index ?? "n/a"} signaling n/a`,
+          : `Period ${s.current_period_index ?? "n/a"} ${currentPeriodBlocks.toLocaleString()} / ${periodSize.toLocaleString()} blocks mined`,
       ];
       chipValues.forEach((text) => {
         const div = document.createElement("div");
@@ -1388,7 +1420,7 @@
       return raw;
     }
 
-    function drawPanel({ canvas, key, title, periods, blocks, releases, ticks, threshold, thresholdPct, showBottomAxis, specialLabels = [], markerTypography = null, numericTypography = null }) {
+    function drawPanel({ canvas, key, title, periods, blocks, releases, ticks, threshold, thresholdPct, showBottomAxis, specialLabels = [], markerTypography = null, numericTypography = null, renderStripes = true, renderLabels = true, renderMarkers = true, renderSpecialLabels = true }) {
       const { metadata } = state.data;
       const chart = metadata.chart;
       const periodSize = chart.period_size;
@@ -1526,7 +1558,7 @@
         });
       });
 
-      if (state.controls.stripes) {
+      if (renderStripes) {
         const stripeOffset = Number(chart.signal_stripes.x_offset);
         const stripeHalf = Number(chart.signal_stripes.halfwidth);
         const stripeWidth = Math.max(0.5, Number(chart.signal_stripes.linewidth) * 2.5);
@@ -1614,7 +1646,7 @@
         ctx.fillText(thresholdCountText, thresholdX, thresholdY + thresholdOffset);
       }
 
-      if (state.controls.labels) {
+      if (renderLabels) {
         periods.forEach((row) => {
           const p = Number(row.period);
           const signalRaw = Number(row.signal_blocks || 0);
@@ -1680,7 +1712,7 @@
         });
       }
 
-      if (state.controls.markers) {
+      if (renderMarkers) {
         const markerFontSize = markerTypography?.fontSize ?? (isMobile ? 8.5 : 9.5);
         const markerLineHeight = markerTypography?.lineHeight ?? Math.max(8, markerFontSize + 1);
 
@@ -1724,7 +1756,7 @@
         });
       }
 
-      specialLabels.forEach((labelDef) => {
+      if (renderSpecialLabels) specialLabels.forEach((labelDef) => {
         const p = Number(labelDef.period);
         const x = xScale(p);
         const bottomInset = isMobile ? 8 : 10;
@@ -2516,23 +2548,59 @@
       await Promise.all(loadPromises);
     }
 
-    function renderSelectedPanels(keys) {
+    function cancelDeferredEnhancement(keys = ["segwit", "bip110"]) {
+      keys.forEach((key) => {
+        const id = state.deferredEnhancementRaf[key];
+        if (id != null) {
+          cancelAnimationFrame(id);
+          state.deferredEnhancementRaf[key] = null;
+        }
+      });
+    }
+
+    function scheduleDeferredEnhancement(keys) {
+      keys.forEach((key) => {
+        if (state.deferredEnhancementRaf[key] != null) return;
+        state.deferredEnhancementRaf[key] = requestAnimationFrame(() => {
+          state.deferredEnhancementRaf[key] = null;
+          renderSelectedPanels([key], { enhanced: true });
+        });
+      });
+    }
+
+    function renderSelectedPanels(keys, options = {}) {
       if (!state.data) return;
 
+      const enhanced = options.enhanced !== false;
+      const scheduleEnhancements = options.scheduleEnhancements === true;
       const selected = new Set(keys);
       const { metadata } = state.data;
       const segThreshold = Number(metadata.chart.thresholds.segwit.blocks);
       const bipThreshold = Number(metadata.chart.thresholds.bip110.blocks);
-      const sharedMarkerTypography = getSharedMarkerTypography(
-        metadata,
-        state.data.segwitReleases,
-        state.data.bip110Releases
-      );
-      const sharedNumericTypography = getSharedNumericTypography(
-        metadata,
-        state.data.segwitPeriods,
-        state.data.bip110Periods
-      );
+      const shouldRenderStripes = enhanced && state.controls.stripes;
+      const shouldRenderLabels = enhanced && state.controls.labels;
+      const shouldRenderMarkers = enhanced && state.controls.markers;
+      const shouldRenderSpecialLabels = enhanced;
+      const needsMarkerTypography = shouldRenderMarkers;
+      const needsNumericTypography = shouldRenderLabels;
+      const sharedMarkerTypography = needsMarkerTypography
+        ? getSharedMarkerTypography(
+            metadata,
+            state.data.segwitReleases,
+            state.data.bip110Releases
+          )
+        : null;
+      const sharedNumericTypography = needsNumericTypography
+        ? getSharedNumericTypography(
+            metadata,
+            state.data.segwitPeriods,
+            state.data.bip110Periods
+          )
+        : null;
+
+      if (enhanced) {
+        cancelDeferredEnhancement(keys);
+      }
 
       if (selected.has("segwit") && state.controls.showSegwit) {
         drawPanel({
@@ -2548,6 +2616,10 @@
           showBottomAxis: true,
           markerTypography: sharedMarkerTypography,
           numericTypography: sharedNumericTypography,
+          renderStripes: shouldRenderStripes,
+          renderLabels: shouldRenderLabels,
+          renderMarkers: shouldRenderMarkers,
+          renderSpecialLabels: shouldRenderSpecialLabels,
         });
       }
 
@@ -2566,7 +2638,15 @@
           specialLabels: metadata.chart.special_period_labels,
           markerTypography: sharedMarkerTypography,
           numericTypography: sharedNumericTypography,
+          renderStripes: shouldRenderStripes,
+          renderLabels: shouldRenderLabels,
+          renderMarkers: shouldRenderMarkers,
+          renderSpecialLabels: shouldRenderSpecialLabels,
         });
+      }
+
+      if (scheduleEnhancements) {
+        scheduleDeferredEnhancement(keys);
       }
     }
 
@@ -2642,10 +2722,33 @@
         applyDynamicPanelHeights();
         setControlsEnabled(false);
         setPanelLoadersVisible(true);
-        state.staticData = await loadStaticData();
-        state.dynamicData = await loadDynamicData();
+        const [staticMetadataResult, dynamicMetadataResult] = await Promise.all([
+          loadStaticMetadataOnly(),
+          loadDynamicMetadataOnly(),
+        ]);
+        state.staticData = {
+          metadata: staticMetadataResult.metadata,
+          segwitPeriods: [],
+          segwitBlocks: [],
+          segwitReleases: [],
+          segwitTicks: [],
+        };
+        state.dynamicData = {
+          metadata: dynamicMetadataResult.metadata,
+          signature: dynamicMetadataResult.signature,
+          bip110Periods: [],
+          bip110Blocks: [],
+          bip110Releases: [],
+          bip110Ticks: [],
+        };
         state.data = buildCombinedData(state.staticData, state.dynamicData);
-        state.dataSignature = await fetchLatestBip110MetadataSignature();
+        state.dataSignature = dynamicMetadataResult.signature;
+        setStatus(state.data);
+        await nextPaint();
+        state.staticData = await loadStaticData(staticMetadataResult.metadata);
+        state.dynamicData = await loadDynamicData(null, dynamicMetadataResult.metadata, dynamicMetadataResult.signature);
+        state.data = buildCombinedData(state.staticData, state.dynamicData);
+        state.dataSignature = state.dynamicData.signature || dynamicMetadataResult.signature;
         state.lastSuccessfulRefreshAt = Date.now();
         setStatus(state.data);
         setControlHandlers();
@@ -2661,11 +2764,11 @@
         setupRefreshWakeEvents();
         startAutoRefresh();
         await nextPaint();
-        renderSelectedPanels(["segwit"]);
+        renderSelectedPanels(["segwit"], { enhanced: false, scheduleEnhancements: true });
         setPanelLoaderVisible("segwit", false);
         await nextPaint();
         if (loadToken !== state.phasedLoadToken) return;
-        renderSelectedPanels(["bip110"]);
+        renderSelectedPanels(["bip110"], { enhanced: false, scheduleEnhancements: true });
         setPanelLoaderVisible("bip110", false);
 
         await loadAndApplyBlockDataPhased(loadToken, state.data.metadata, ["segwit", "bip110"]);

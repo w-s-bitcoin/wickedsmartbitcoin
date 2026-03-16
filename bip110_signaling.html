@@ -9,49 +9,19 @@
     <link rel="stylesheet" href="assets/styles.css" />
     <link rel="manifest" href="manifest.json" />
     <link rel="preload" href="final_frames/image_list.json" as="fetch" crossorigin />
+    <link rel="prefetch" href="webapps/bip110_signaling/dashboard.html" />
     <style>
       body[data-standalone-modal-shell="1"] {
         margin: 0;
         background: #000;
       }
 
-      body[data-standalone-modal-shell="1"] .standalone-hidden {
-        display: none !important;
-      }
-
       body[data-standalone-modal-shell="1"] .modal {
-        display: none;
+        display: flex;
       }
     </style>
   </head>
   <body data-standalone-modal-shell="1">
-    <div class="standalone-hidden">
-      <div class="site-kebab">
-        <button id="kebabBtn" class="kebab-btn" aria-haspopup="menu" aria-expanded="false" aria-label="More options">...</button>
-        <div id="kebabMenu" class="kebab-menu hidden" role="menu" aria-labelledby="kebabBtn">
-          <button class="menu-item menu-check checked" id="chkSearchTitles" role="menuitemcheckbox" aria-checked="true" data-pref="searchTitles">Title</button>
-          <button class="menu-item menu-check checked" id="chkSearchDescriptions" role="menuitemcheckbox" aria-checked="true" data-pref="searchDescriptions">Description</button>
-          <button class="menu-item" id="startSlideshowBtn" role="menuitem">Start Slideshow</button>
-        </div>
-      </div>
-
-      <div class="controls-row">
-        <div class="toggle-icons" id="toggleIcons">
-          <div class="toggle-icon active" id="gridView"></div>
-          <div class="toggle-icon" id="listView"></div>
-        </div>
-        <div class="toggle-icon" id="favoritesToggle" aria-label="Favorites"></div>
-        <div class="search-container">
-          <button id="search-btn" class="search-btn" aria-label="Search"></button>
-          <input id="search-input" class="search-input" type="text" placeholder="Search..." />
-        </div>
-      </div>
-
-      <div class="image-grid grid" id="image-grid"></div>
-      <div id="no-favorites-message" style="display: none;">No starred visualizations.</div>
-      <button class="buy-coffee-btn" id="buyCoffeeBtn" type="button">Buy me a coffee</button>
-    </div>
-
     <div class="modal" id="modal">
       <div class="modal-controls">
         <button class="close-btn" onclick="closeModal()">×</button>
@@ -60,7 +30,7 @@
         <button id="modal-fav-btn" class="close-btn" onclick="toggleFavoriteFromModal()">★</button>
         <button id="modal-dl-btn" class="close-btn" type="button" aria-label="Download image">
           <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M5 20h14v-2H5v2zm7-18v10.17l3.59-3.58L17 10l-5 5-5-5 1.41-1.41L11 12.17V2h1z"/>
+            <path d="M5 20h14v-2H5v2zm7-18v10.17l3.59-3.58L17 10l-5 5-5-5 1.41-1.41L11 12.17V2h1z" />
           </svg>
         </button>
         <a id="x-link" class="close-btn modal-link" href="#" target="_blank" rel="noopener noreferrer" aria-label="X/Twitter">
@@ -74,29 +44,15 @@
           </svg>
         </a>
         <a id="youtube-link" class="close-btn modal-link" href="#" target="_blank" rel="noopener noreferrer" aria-label="YouTube">
-          <svg height="20" viewBox="0 0 576 512"><path d="M549.7 124.1c-6.3-23.8-25-42.4-48.8-48.8C456.5 64 288 64 288 64s-168.5 0-212.9 11.3c-23.8 6.3-42.5 25-48.8 48.8C16 168.5 16 256 16 256s0 87.5 10.3 131.9c6.3 23.8 25 42.4 48.8 48.8C119.5 448 288 448 288 448s168.5 0 212.9-11.3c23.8-6.3 42.5-25 48.8-48.8C560 343.5 560 256 560 256s0-87.5-10.3-131.9zM232 336V176l142 80-142 80z" /></svg>
+          <svg height="20" viewBox="0 0 576 512">
+            <path d="M549.7 124.1c-6.3-23.8-25-42.4-48.8-48.8C456.5 64 288 64 288 64s-168.5 0-212.9 11.3c-23.8 6.3-42.5 25-48.8 48.8C16 168.5 16 256 16 256s0 87.5 10.3 131.9c6.3 23.8 25 42.4 48.8 48.8C119.5 448 288 448 288 448s168.5 0 212.9-11.3c23.8-6.3 42.5-25 48.8-48.8C560 343.5 560 256 560 256s0-87.5-10.3-131.9zM232 336V176l142 80-142 80z" />
+          </svg>
         </a>
-
-        <span class="region-controls" id="region-controls"><span style="color:white;font-size:1rem">Region:</span><span class="select-wrap"><select id="region-select" aria-label="Choose region"><option value="global">Global</option><option value="us">U.S.</option></select></span></span>
-        <span class="view-controls" id="view-controls"><span style="color:white;font-size:1rem">View:</span><span class="select-wrap"><select id="view-select" aria-label="Choose view"><option value="total">Total Merchants</option><option value="per_100k">Per 100k</option></select></span></span>
-        <span class="metric-controls" id="metric-controls"><span style="color:white;font-size:1rem">Metric:</span><span class="select-wrap"><select id="metric-select" aria-label="Choose metric"><option value="price">Price</option><option value="mcap">Market Cap</option></select></span></span>
-        <span class="year-controls" id="year-controls"><span style="color:white;font-size:1rem">Starting Year:</span><span class="select-wrap"><select id="year-select" aria-label="Choose year"></select></span></span>
-        <span class="scale-controls" id="scale-controls"><span style="color:white;font-size:1rem">Scale:</span><span class="select-wrap"><select id="scale-select" aria-label="Choose scale"><option value="linear">Linear</option><option value="log">Log</option></select></span></span>
-        <span class="priceof-controls" id="priceof-controls"><span style="color:white;font-size:1rem">Price of:</span><span class="select-wrap"><select id="priceof-select" aria-label="Choose item"></select></span></span>
-        <span class="sort-controls" id="pof-sort-controls"><span style="color:white;font-size:1rem">Sort:</span><span class="select-wrap"><select id="pof-sort-select" aria-label="Choose sort order"><option value="az">A-Z</option><option value="za">Z-A</option><option value="high">Highest Price</option><option value="low">Lowest Price</option></select></span><div class="uoa-index" id="pof-index"><input id="pof-index-input" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" /><span class="uoa-index-total">/ <span id="pof-index-total">39</span></span></div></span>
-        <span class="uoa-controls" id="uoa-controls"><span style="color:white;font-size:1rem">Unit of Account:</span><span class="select-wrap"><select id="uoa-select" aria-label="Choose unit of account"></select></span></span>
-        <span class="uoa-show-controls" id="uoa-show-controls"><span style="color:white;font-size:1rem">Show:</span><span class="select-wrap"><select id="uoa-show-select" aria-label="Choose region or group to show"><option value="all">All</option><option value="g7">G7</option><option value="g20">G20</option><option value="africa">Africa</option><option value="asia">Asia</option><option value="europe">Europe</option><option value="latam">LATAM</option><option value="mena">MENA</option><option value="oceania">Oceania</option><option value="metals">Metals</option></select></span></span>
-        <span class="sort-controls" id="sort-controls"><span style="color:white;font-size:1rem">Sort:</span><span class="select-wrap"><select id="sort-select" aria-label="Choose sort order"><option value="az">A-Z</option><option value="za">Z-A</option><option value="high">Highest Price</option><option value="low">Lowest Price</option></select></span><div class="uoa-index" id="uoa-index"><input id="uoa-index-input" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" /><span class="uoa-index-total">/ <span id="uoa-index-total">156</span></span></div></span>
-        <span class="dominance-controls" id="dominance-controls"><span style="color:white;font-size:1rem">Unit of Account:</span><span class="select-wrap"><select id="dominance-select" aria-label="Choose unit"><option value="usd">USD</option><option value="btc">BTC</option></select></span></span>
-        <span class="myr-controls" id="myr-controls"><span style="color:white;font-size:1rem">Years:</span><span class="select-wrap"><select id="myr-select" aria-label="Choose year range"></select></span></span>
-        <span class="halving-view-controls" id="halving-view-controls"><span style="color:white;font-size:1rem">Halving View:</span><span class="select-wrap"><select id="halving-view-select" aria-label="Choose halving view"><option value="cycles_block">Cycles (Block Height)</option><option value="cycles_days">Cycles (Days After Halving)</option><option value="progress_block">Progress (Block Height)</option></select></span></span>
-        <span class="anchor-controls" id="anchor-controls"><span style="color:white;font-size:1rem">Anchor:</span><span class="select-wrap"><select id="anchor-select" aria-label="Choose anchor"><option value="low">Cycle Low</option><option value="high">Cycle High</option></select></span></span>
-        <span class="hashlen-controls" id="hashlen-controls"><span style="color:white;font-size:1rem">Displayed Hash Length:</span><span class="select-wrap"><select id="hashlen-select" aria-label="Choose displayed hash length"><option value="32" selected>32</option><option value="64">64</option></select></span></span>
       </div>
 
       <img id="modal-img" src="" alt="Full size image" draggable="false" />
       <div id="modal-embed-wrap" class="modal-embed-wrap" hidden>
-        <iframe id="modal-embed" class="modal-embed" title="Interactive visualization" loading="lazy"></iframe>
+        <iframe id="modal-embed" class="modal-embed" title="Interactive visualization" loading="eager"></iframe>
       </div>
 
       <div id="youtube-overlay" class="youtube-overlay hidden" role="dialog" aria-modal="true">
@@ -109,40 +65,15 @@
       </div>
     </div>
 
-    <div id="slideshow" class="slideshow hidden" aria-hidden="true" role="dialog" aria-modal="true" tabindex="-1" data-esc-exit="true">
-      <div class="slideshow-controls" id="slideshowControls" aria-label="Slideshow controls">
-        <button class="ss-btn ss-exit" id="ssExitBtn" type="button" aria-label="Exit slideshow" data-exit="slideshow">×</button>
-        <button class="ss-btn ss-prev" id="ssPrevBtn" aria-label="Previous slide">‹</button>
-        <button id="ssPlayPauseBtn" class="ss-btn ss-play" type="button" aria-label="Pause slideshow" title="Pause (Space)">။</button>
-        <button class="ss-btn ss-next" id="ssNextBtn" aria-label="Next slide">›</button>
-      </div>
-      <div class="slideshow-viewport">
-        <img id="slideshow-img" alt="Slideshow image" draggable="false" />
-      </div>
-    </div>
-
-    <script src="js/00_constants.js" defer></script>
-    <script src="js/01_dom_elements.js" defer></script>
-    <script src="js/02_global_state.js" defer></script>
-    <script src="js/03_lazy_image_loading.js" defer></script>
-    <script src="js/04_persistence_cookies_localstorage.js" defer></script>
-    <script src="js/05_core_helpers_url_image_src_geometry.js" defer></script>
-    <script src="js/06_grid_layout_filter_render.js" defer></script>
-    <script src="js/07_modal_open_close_swipes.js" defer></script>
-    <script src="js/08_module_btcmap.js" defer></script>
-    <script src="js/09_module_bitcoin_vs_gold_bvg.js" defer></script>
-    <script src="js/10_module_days_at_a_loss_dal.js" defer></script>
-    <script src="js/11_module_price_on_this_day_potd.js" defer></script>
-    <script src="js/12_module_dominance_usd_btc.js" defer></script>
-    <script src="js/13_module_never_look_back_price_nlbp.js" defer></script>
-    <script src="js/14_module_target_block_hashes_length_32_64.js" defer></script>
-    <script src="js/15_module_halving_view.js" defer></script>
-    <script src="js/16_module_price_of_price_of.js" defer></script>
-    <script src="js/17_module_unit_of_account_uoa.js" defer></script>
-    <script src="js/19_module_monthly_yearly_returns_myr.js" defer></script>
-    <script src="js/20_buy_me_button_thanks_overlay.js" defer></script>
-    <script src="js/21_slideshow_core_ui_fullscreen.js" defer></script>
-    <script src="js/22_bootstrap_fetch_init_global_exports.js" defer></script>
-    <script src="js/23_event_bindings_global_modal_menu.js" defer></script>
+    <script>
+      (function primeStandaloneDashboard() {
+        var iframe = document.getElementById('modal-embed');
+        if (!iframe) return;
+        if (!iframe.getAttribute('src')) {
+          iframe.setAttribute('src', 'webapps/bip110_signaling/dashboard.html');
+        }
+      })();
+    </script>
+    <script src="js/24_bip110_standalone_bootstrap.js" defer></script>
   </body>
 </html>
