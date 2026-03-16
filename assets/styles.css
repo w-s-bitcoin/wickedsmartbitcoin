@@ -743,16 +743,6 @@ body.slideshow-open.hide-cursor .slideshow * {
     justify-content: center;
     text-align: center;
 }
-.chart-count {
-    margin-top: 0.35rem;
-    font-size: 0.8rem;
-    color: #555;
-    line-height: 1;
-    user-select: none;
-}
-.image-grid.list .chart-count {
-    font-size: 1rem;
-}
 .image-grid.grid .chart-title {
     font-size: 1rem;
 }

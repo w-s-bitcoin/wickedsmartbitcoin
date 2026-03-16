@@ -198,12 +198,6 @@ function updateGridCardAtCurrent({ oldFilename, newFilename, title, description 
     card.star.textContent = favOn ? "★" : "☆";
     card.star.classList.toggle("filled", favOn);
   }
-
-  // Update count label (Distribution stays "2", but safe to recompute)
-  if (card.countElem) {
-    card.countElem.textContent = String(getCardImageCount(newFilename));
-    card.countElem.setAttribute('aria-label', `Images in this set: ${card.countElem.textContent}`);
-  }
 }
 function showAnchorControls(show) {
   anchorControls?.classList.toggle('show', !!show);
