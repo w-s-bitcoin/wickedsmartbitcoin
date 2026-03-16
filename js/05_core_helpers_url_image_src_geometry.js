@@ -43,19 +43,11 @@ function replaceUrlForFilename(newFilename) {
   const slug = String(newFilename || "").replace(/\.png$/i, "");
     if (isStandaloneModalShell()) {
         const base = getPageBasePath();
-        const standalonePath = (
-            location.hostname === 'localhost'
-                ? `${base}/bip110_signaling.html`
-                : `${base}/bip110_signaling`
-        ).replace(/\/{2,}/g, '/');
-        if (slug === 'bip110_signaling') {
-            history.replaceState(null, '', standalonePath);
+        if (location.hostname !== 'localhost') {
+            history.replaceState(null, '', `${base}/${slug}`.replace(/\/{2,}/g, '/'));
         } else {
-            if (location.hostname === 'localhost') {
-                history.replaceState(null, '', `${standalonePath}?image=${encodeURIComponent(slug)}`);
-            } else {
-                history.replaceState(null, '', `${base}/${slug}`.replace(/\/{2,}/g, '/'));
-            }
+            const currentPage = (location.pathname.split('/').pop() || 'view.html').split('?')[0];
+            history.replaceState(null, '', `${base}/${currentPage}?image=${encodeURIComponent(slug)}`.replace(/\/{2,}/g, '/'));
         }
         return;
     }

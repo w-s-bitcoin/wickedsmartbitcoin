@@ -77,10 +77,10 @@ function onPlayPauseActivate(e) {
         showSlideshowUI(true);
     }
 }
-ssPlayPauseBtn.addEventListener('click', onPlayPauseActivate);
-ssPlayPauseBtn.addEventListener('keydown', onPlayPauseActivate);
-ssPlayPauseBtn.setAttribute('tabindex', '0');
-ssPlayPauseBtn.setAttribute('role', 'button');
+ssPlayPauseBtn?.addEventListener('click', onPlayPauseActivate);
+ssPlayPauseBtn?.addEventListener('keydown', onPlayPauseActivate);
+ssPlayPauseBtn?.setAttribute('tabindex', '0');
+ssPlayPauseBtn?.setAttribute('role', 'button');
 document.addEventListener('keydown', e => {
     if (isBuyMeVisible) return;
     if (!slideshowEl || slideshowEl.classList.contains('hidden')) return;

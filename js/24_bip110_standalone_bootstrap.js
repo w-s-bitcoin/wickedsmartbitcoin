@@ -62,7 +62,7 @@
 
     const base = getPageBasePath();
     if (location.hostname === "localhost") {
-      return `${getHomeUrl()}#${encodeURIComponent(slug)}`;
+      return normalizeJoinedPath(`${getPageBasePath()}/view.html?image=${encodeURIComponent(filename)}`);
     }
     return normalizeJoinedPath(`${base}/${slug}`);
   }

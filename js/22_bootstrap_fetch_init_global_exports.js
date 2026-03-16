@@ -107,7 +107,8 @@ fetch(IMAGE_LIST_URL)
         const standaloneShell = isStandaloneModalShell();
         let initialFilename = getImageNameFromPath();
         if (standaloneShell && !initialFilename) {
-            initialFilename = 'bip110_signaling.png';
+            window.location.replace((getPageBasePath() || '') + '/');
+            return;
         }
         const initialIsDonate = !standaloneShell && isDonateRouteActive();
         // Deep-linked modal routes should prioritize modal content fetches
@@ -531,7 +532,7 @@ fetch(IMAGE_LIST_URL)
         }
     })
     .catch(err => {
-        imageGrid.textContent = "Failed to load visualizations.";
+        if (imageGrid) imageGrid.textContent = "Failed to load visualizations.";
         console.error(err);
     });
 function _isTypingEl(el){
