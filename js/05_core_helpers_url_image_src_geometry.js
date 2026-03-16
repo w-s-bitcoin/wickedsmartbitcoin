@@ -43,7 +43,12 @@ function replaceUrlForFilename(newFilename) {
   const slug = String(newFilename || "").replace(/\.png$/i, "");
     if (isStandaloneModalShell()) {
         const base = getPageBasePath();
-        history.replaceState(null, '', `${base}/${slug}`.replace(/\/{2,}/g, '/'));
+        if (location.hostname === 'localhost') {
+            const page = location.pathname.split('/').pop() || 'view.html';
+            history.replaceState(null, '', `${base}/${page}#${encodeURIComponent(slug)}`.replace(/\/{2,}/g, '/'));
+        } else {
+            history.replaceState(null, '', `${base}/${slug}`.replace(/\/{2,}/g, '/'));
+        }
         return;
     }
   if (location.hostname === "localhost") {
@@ -65,7 +70,7 @@ function getVisualizationUrl(filename) {
     const slug = String(filename || '').replace(/\.png$/i, '');
     const base = getPageBasePath();
     if (location.hostname === 'localhost') {
-        return `${base}/view.html?image=${encodeURIComponent(filename)}`.replace(/\/{2,}/g, '/');
+        return `${base}/view.html#${encodeURIComponent(slug)}`.replace(/\/{2,}/g, '/');
     }
     return `${base}/${slug}`.replace(/\/{2,}/g, '/');
 }

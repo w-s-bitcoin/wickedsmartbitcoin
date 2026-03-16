@@ -28,7 +28,7 @@ function resumeDeferredGridLoadingIfNeeded() {
 function openModalByIndex(index) {
     const image = visibleImages[index];
     if (!image) return;
-    if (!isStandaloneModalShell() && location.hostname !== 'localhost') {
+    if (!isStandaloneModalShell()) {
         window.location.href = getVisualizationUrl(image.filename);
         return;
     }
