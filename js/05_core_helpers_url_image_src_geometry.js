@@ -41,6 +41,20 @@ function preloadThanksImagesIfNeeded(force = false) {
 }
 function replaceUrlForFilename(newFilename) {
   const slug = String(newFilename || "").replace(/\.png$/i, "");
+    if (isStandaloneModalShell()) {
+        const base = getPageBasePath();
+        const standalonePath = (
+            location.hostname === 'localhost'
+                ? `${base}/bip110_signaling.html`
+                : `${base}/bip110_signaling`
+        ).replace(/\/{2,}/g, '/');
+        if (slug === 'bip110_signaling') {
+            history.replaceState(null, '', standalonePath);
+        } else {
+            history.replaceState(null, '', `${standalonePath}?image=${encodeURIComponent(slug)}`);
+        }
+        return;
+    }
   if (location.hostname === "localhost") {
     location.hash = slug;
     return;
@@ -50,6 +64,10 @@ function replaceUrlForFilename(newFilename) {
   const base = getPageBasePath(); // '' on custom domain root, '/animations' on GH pages
   const next = `${base}/${slug}`.replace(/\/{2,}/g, "/");
   history.replaceState(null, "", next);
+}
+
+function isStandaloneModalShell() {
+    return document.body?.dataset?.standaloneModalShell === '1';
 }
 
 function isDonateRouteActive() {

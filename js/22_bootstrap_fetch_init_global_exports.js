@@ -23,8 +23,9 @@ updateLastUpdatedStamp();
 function syncModalToUrl() {
   if (!Array.isArray(imageList) || imageList.length === 0) return;
   const fname = getImageNameFromPath();
+    const standaloneShell = isStandaloneModalShell();
   const donate = isDonateRouteActive();
-  if (donate) {
+    if (!standaloneShell && donate) {
     if (modal?.style?.display === 'flex') closeModal();
     syncDonateOverlayToRoute();
     return;
@@ -37,13 +38,20 @@ function syncModalToUrl() {
     try {
       preloadImage(imgSrc(fname));
     } catch (_) {}
-    try { filterImages(); } catch (_) {}
+        if (!standaloneShell) {
+            try { filterImages(); } catch (_) {}
+        }
     openModalByFilename(fname);
     return;
   }
   if (modal?.style?.display === 'flex') closeModal();
 }
 function getImageNameFromPath() {
+    if (isStandaloneModalShell()) {
+        const params = new URLSearchParams(window.location.search || '');
+        const q = String(params.get('image') || '').trim();
+        if (q) return q.endsWith('.png') ? q : `${q}.png`;
+    }
   if (isDonateRouteActive()) return null;
     const resolveBtcmaps = (slugNoPng) => {
     let s = String(slugNoPng || "").replace(/^\/+|\/+$/g, "").toLowerCase();
@@ -68,6 +76,7 @@ function getImageNameFromPath() {
   if (base && rel.startsWith(base)) rel = rel.slice(base.length);
   rel = rel.replace(/^\/+|\/+$/g, "");
   if (!rel) return null;
+    if (rel.toLowerCase().endsWith('.html')) return null;
   if (rel.toLowerCase() === DONATE_ROUTE) return null;
     const relLow = rel.toLowerCase();
     if (
@@ -95,8 +104,12 @@ fetch(IMAGE_LIST_URL)
         setUoaShowMode(getStoredUoaShowMode());
         buildBtcmapsOptionsAndViewsFromList(imageList);
         populateBtcmapsSelect();
-        const initialFilename = getImageNameFromPath();
-        const initialIsDonate = isDonateRouteActive();
+        const standaloneShell = isStandaloneModalShell();
+        let initialFilename = getImageNameFromPath();
+        if (standaloneShell && !initialFilename) {
+            initialFilename = 'bip110_signaling.png';
+        }
+        const initialIsDonate = !standaloneShell && isDonateRouteActive();
         // Deep-linked modal routes should prioritize modal content fetches
         // before grid thumbnail lazy requests.
         const shouldPrioritizeDeepLinkModal = !!(initialFilename && !initialIsDonate);
@@ -399,15 +412,17 @@ fetch(IMAGE_LIST_URL)
         if (initialFilename) {
             try { preloadImage(imgSrc(initialFilename)); } catch (_) {}
         }
-        if (!shouldPrioritizeDeepLinkModal) {
+        if (!standaloneShell && !shouldPrioritizeDeepLinkModal) {
             filterImages();
         }
-        const savedLayout = localStorage.getItem("preferredLayout");
-        if (savedLayout === "list" || savedLayout === "grid") {
-            setLayout(savedLayout, false);
+        if (!standaloneShell) {
+            const savedLayout = localStorage.getItem("preferredLayout");
+            if (savedLayout === "list" || savedLayout === "grid") {
+                setLayout(savedLayout, false);
+            }
         }
-        if (showFavoritesOnly)
-            document.getElementById("favoritesToggle").classList.add("active");
+        if (!standaloneShell && showFavoritesOnly)
+            document.getElementById("favoritesToggle")?.classList.add("active");
         if (initialIsDonate) {
             showThanksPopup({ fromRoute: true });
         } else if (initialFilename) {
@@ -490,22 +505,28 @@ fetch(IMAGE_LIST_URL)
         }
         if (modal?.style?.display === 'flex') {
             refreshFavoriteStarsUI();
-            syncDonateOverlayToRoute();
-            if (typeof requestIdleCallback !== 'undefined') {
-                requestIdleCallback(() => {
-                    filterImages();
-                    syncModalToUrl();
-                });
-            } else {
-                setTimeout(() => {
-                    filterImages();
-                    syncModalToUrl();
-                }, 100);
+            if (!standaloneShell) {
+                syncDonateOverlayToRoute();
+                if (typeof requestIdleCallback !== 'undefined') {
+                    requestIdleCallback(() => {
+                        filterImages();
+                        syncModalToUrl();
+                    });
+                } else {
+                    setTimeout(() => {
+                        filterImages();
+                        syncModalToUrl();
+                    }, 100);
+                }
             }
         } else {
-            filterImages();
+            if (!standaloneShell) {
+                filterImages();
+            }
             refreshFavoriteStarsUI();
-            syncDonateOverlayToRoute();
+            if (!standaloneShell) {
+                syncDonateOverlayToRoute();
+            }
             syncModalToUrl();
         }
     })
