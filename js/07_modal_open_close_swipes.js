@@ -64,7 +64,7 @@ function openModalByIndex(index) {
     modalImg.alt = image.title || '';
     const modalType = String(image.modal_type || '').trim().toLowerCase();
     const fallbackEmbedPath = fname === 'bip110_signaling.png'
-        ? '/webapps/bip110_signaling/bip110_signaling.html'
+        ? '/webapps/bip110_signaling/dashboard.html'
         : '';
     const embedPath = String(image.embed_url || '').trim() || fallbackEmbedPath;
     const shouldEmbed = modalType === 'embed' || !!embedPath;
@@ -333,6 +333,11 @@ function closeModal() {
     document.body.classList.remove('modal-open');
     // restart lazy loading so thumbnails continue to fetch when user returns
     try { initLazyImages(); } catch (_) {}
+    if (isStandaloneModalShell()) {
+        const home = `${getPageBasePath() || ''}/`.replace(/\/{2,}/g, '/');
+        window.location.href = home;
+        return;
+    }
     if (location.hostname === 'localhost') {
         location.hash = '';
     } else {

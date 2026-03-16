@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>BIP-110 Signaling | Wicked Smart Bitcoin</title>
+    <link rel="icon" type="image/png" href="assets/favicon.png" />
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
+    <link rel="stylesheet" href="assets/styles.css" />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="preload" href="final_frames/image_list.json" as="fetch" crossorigin />
+    <style>
+      body[data-standalone-modal-shell="1"] {
+        margin: 0;
+        background: #000;
+      }
+
+      body[data-standalone-modal-shell="1"] .standalone-hidden {
+        display: none !important;
+      }
+
+      body[data-standalone-modal-shell="1"] .modal {
+        display: none;
+      }
+    </style>
+  </head>
+  <body data-standalone-modal-shell="1">
+    <div class="standalone-hidden">
+      <div class="site-kebab">
+        <button id="kebabBtn" class="kebab-btn" aria-haspopup="menu" aria-expanded="false" aria-label="More options">...</button>
+        <div id="kebabMenu" class="kebab-menu hidden" role="menu" aria-labelledby="kebabBtn">
+          <button class="menu-item menu-check checked" id="chkSearchTitles" role="menuitemcheckbox" aria-checked="true" data-pref="searchTitles">Title</button>
+          <button class="menu-item menu-check checked" id="chkSearchDescriptions" role="menuitemcheckbox" aria-checked="true" data-pref="searchDescriptions">Description</button>
+          <button class="menu-item" id="startSlideshowBtn" role="menuitem">Start Slideshow</button>
+        </div>
+      </div>
+
+      <div class="controls-row">
+        <div class="toggle-icons" id="toggleIcons">
+          <div class="toggle-icon active" id="gridView"></div>
+          <div class="toggle-icon" id="listView"></div>
+        </div>
+        <div class="toggle-icon" id="favoritesToggle" aria-label="Favorites"></div>
+        <div class="search-container">
+          <button id="search-btn" class="search-btn" aria-label="Search"></button>
+          <input id="search-input" class="search-input" type="text" placeholder="Search..." />
+        </div>
+      </div>
+
+      <div class="image-grid grid" id="image-grid"></div>
+      <div id="no-favorites-message" style="display: none;">No starred visualizations.</div>
+      <button class="buy-coffee-btn" id="buyCoffeeBtn" type="button">Buy me a coffee</button>
+    </div>
+
+    <div class="modal" id="modal">
+      <div class="modal-controls">
+        <button class="close-btn" onclick="closeModal()">×</button>
+        <button class="close-btn" onclick="prevImage()">&#8249;</button>
+        <button class="close-btn" onclick="nextImage()">&#8250;</button>
+        <button id="modal-fav-btn" class="close-btn" onclick="toggleFavoriteFromModal()">★</button>
+        <button id="modal-dl-btn" class="close-btn" type="button" aria-label="Download image">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 20h14v-2H5v2zm7-18v10.17l3.59-3.58L17 10l-5 5-5-5 1.41-1.41L11 12.17V2h1z"/>
+          </svg>
+        </button>
+        <a id="x-link" class="close-btn modal-link" href="#" target="_blank" rel="noopener noreferrer" aria-label="X/Twitter">
+          <svg width="16" height="16" viewBox="0 0 16 16">
+            <path d="M12.6.75h2.454l-5.36 6.142L16 15.25h-4.937l-3.867-5.07-4.425 5.07H.316l5.733-6.57L0 .75h5.063l3.495 4.633L12.601.75Zm-.86 13.028h1.36L4.323 2.145H2.865z" />
+          </svg>
+        </a>
+        <a id="nostr-link" class="close-btn modal-link" href="#" target="_blank" rel="noopener noreferrer" aria-label="Nostr">
+          <svg height="20" viewBox="0 0 496 496">
+            <path d="m374.82,278.35c.1,5.47-5.19,22.37-16.81,35.33-11.62,12.96-24.34,9.06-25.39,8.76s-1.34-1.94-3.43-1.64-4.17,2.68-8.19,3.13-7.6.74-11.32-.6c-1.94.3-2.23.31-3.13.97s-7.75,4.69-9.39,4.99c0,3.13-.6,19.37,0,24.29s1.64,11.17,3.28,15.64c1.64,4.47,1.19,4.62,3.28,4.32s5.81.15,6.85,1.79.6,2.83,2.38,3.58,26.37,7.45,43.21,8.34c11.62.3,18.62,1.19,22.65,8.49.6,3.43,3.28,5.66,4.92,6.11s3.58.89,5.21,2.53.45,3.58,2.38,5.07c1.94,1.49,6.41,3.72,11.03,5.96,4.62,2.23,6.56,5.81,6.85,7s.74,4.77.74,4.77c0,0-3.87,0-4.77-.89s-1.19-2.53-1.19-2.53c0,0-2.68.45-3.28,1.49s.3,1.19-3.43.3-5.07-1.64-7.9-3.72-7.15-7.45-10.88-7.3c1.79,3.58,2.53,3.58,4.62,4.77s3.58,2.53,3.58,2.53l-3.13,1.94s-1.94.89-6.41-.3c-4.47-1.19-5.07-1.94-5.51-4.62s0-4.02-1.19-6.26-1.79-6.85-9.68-9.24c-7.9-2.38-28.91-9.24-43.51-10.73-14.6-1.49-9.83-1.19-12.22-.6s-6.85,1.94-11.47-.6c-4.62-2.53-7.3-5.96-7.6-8.79s-.74-4.77,0-8.34,1.49-8.64.74-11.62-6.11-24.29-8.64-27.86c-5.66.45-22.05-.3-22.05-.3,0,0-1.04-.3-7.6,2.53-6.56,2.83-15.85,5.98-20.32,8.66-4.47,2.68-6.26,4.22-7,5.71.05,1.3-.53,3.35-1.21,3.94s-5.42,1.05-5.42,1.05c0,0-2.54,2.54-3.58,4.33-2.98,4.17-23.99,54.38-28.91,65.11-5.89,14.15-4.25,11.92-16.39,11.92s-3.5.13-3.5.13c0,0-5.36,2.55-7.3,2.55s-8.19-1.04-11.47,0-7.15,4.02-10.13,4.47c-2.98.45-2.15-.58-3.64-1.63-1.74-.09-6.2-.05-6.2-.05,0,0,.76-2.83,3.44-4.73,3.58-2.53,11.03-7,15.05-9.24,4.02-2.23,7.6-3.43,10.13-4.02,2.53-.6,8.05-2.68,13.26-4.32s8.49-3.58,12.96-13.71c4.47-10.13,21.9-48.42,22.35-50.51.28-1.29,1.62-2.81,2.09-6.56.29-2.32-1.08-5.67.74-9.83,4.77-10.88,9.39-8.79,11.47-8.79s7.45.15,11.47-.6c4.02-.74,6.7-1.19,10.73-3.43,4.02-2.23,4.92-3.87,4.92-3.87l-8.64-1.49s-8.05.3-10.88-1.94-6.7-6.85-6.7-6.85l-3.28-3.13.45,3.72s-2.23-3.87-2.83-4.47-3.72-2.83-4.92-4.92-3.28-10.88-3.28-10.88l-2.68,5.66-.74-8.19-2.23,3.13-1.19-7-2.09,3.58-1.49-6.26-2.53,1.94-1.04-4.47-2.53-1.49s-6.11-4.02-7.15-4.17-1.94,1.49-1.94,1.49l.6,5.21-5.3-2.72-3.04-5.17s1.02,1.74-4.18,3.27c-8.93,0-9.51-.99-10.83-1.71-.57-2.85-2.42-4.39-2.42-4.39h-8.94l-.15-2.98-3.43,1.34.3-4.47h-6.11l.45-4.92h-3.87s1.34-4.02,11.17-9.98c9.83-5.96,10.88-7.15,20.11-7.45,9.24-.3,14.3,1.19,20.11,3.58,5.81,2.38,16.84,5.96,19.07,7.6,4.92-4.32,12.37-8.64,14.9-8.64.45-1.04,2.69-5.36,7.81-7.65,15.34-6.87,46.99-14.78,57.16-15.45,13.56-.89,3.43-.6,16.99.89,13.56,1.49,23.54,3.28,30.25,5.51,5.46,1.82,10.88,4.17,14.9.89,1.88-.79,5.13-.58,7.75-2.23,13.34-10.9,15.09-14.06,18.96-18.23,3.87-4.17,8.75-10.83,9.8-19.62s1.94-25.33-4.62-38.29c-6.56-12.96-12.52-19.67-15.05-30.1-2.53-10.43-3.58-26.52-2.68-31.74s2.23-9.68,2.98-13.26,4.32-6.41,8.64-7.15c4.32-.74,7.75.6,9.68,2.09s5.06,2.73,5.81,4.47c.15.74-.6,2.83,3.58,3.58s6.97,1.81,6.97,1.81c0,0,6.8,1.87,1.35,3.36-5.51.89-8.92-.31-10.56.74s-3.13,4.38-4.17,4.83-3.13.15-5.21,1.79-4.17,2.98-5.51,6.26-2.38,6.85-1.49,11.62,3.72,13.71,6.26,18.77c2.53,5.07,8.79,17.73,10.58,20.71s6.85,12.81,7.3,23.39.45,19.22,0,23.84c-.45,4.62-4.71,22.45-15.44,37.35-3.54,6.14-10.09,13.86-10.72,15.22s-1.31,2.12-.7,3.32c2.01,3.93,5.59,9.62,6.39,12.7,1,2.89,3.04,7.01,3.14,12.48Z" />
+          </svg>
+        </a>
+        <a id="youtube-link" class="close-btn modal-link" href="#" target="_blank" rel="noopener noreferrer" aria-label="YouTube">
+          <svg height="20" viewBox="0 0 576 512"><path d="M549.7 124.1c-6.3-23.8-25-42.4-48.8-48.8C456.5 64 288 64 288 64s-168.5 0-212.9 11.3c-23.8 6.3-42.5 25-48.8 48.8C16 168.5 16 256 16 256s0 87.5 10.3 131.9c6.3 23.8 25 42.4 48.8 48.8C119.5 448 288 448 288 448s168.5 0 212.9-11.3c23.8-6.3 42.5-25 48.8-48.8C560 343.5 560 256 560 256s0-87.5-10.3-131.9zM232 336V176l142 80-142 80z" /></svg>
+        </a>
+
+        <span class="region-controls" id="region-controls"><span style="color:white;font-size:1rem">Region:</span><span class="select-wrap"><select id="region-select" aria-label="Choose region"><option value="global">Global</option><option value="us">U.S.</option></select></span></span>
+        <span class="view-controls" id="view-controls"><span style="color:white;font-size:1rem">View:</span><span class="select-wrap"><select id="view-select" aria-label="Choose view"><option value="total">Total Merchants</option><option value="per_100k">Per 100k</option></select></span></span>
+        <span class="metric-controls" id="metric-controls"><span style="color:white;font-size:1rem">Metric:</span><span class="select-wrap"><select id="metric-select" aria-label="Choose metric"><option value="price">Price</option><option value="mcap">Market Cap</option></select></span></span>
+        <span class="year-controls" id="year-controls"><span style="color:white;font-size:1rem">Starting Year:</span><span class="select-wrap"><select id="year-select" aria-label="Choose year"></select></span></span>
+        <span class="scale-controls" id="scale-controls"><span style="color:white;font-size:1rem">Scale:</span><span class="select-wrap"><select id="scale-select" aria-label="Choose scale"><option value="linear">Linear</option><option value="log">Log</option></select></span></span>
+        <span class="priceof-controls" id="priceof-controls"><span style="color:white;font-size:1rem">Price of:</span><span class="select-wrap"><select id="priceof-select" aria-label="Choose item"></select></span></span>
+        <span class="sort-controls" id="pof-sort-controls"><span style="color:white;font-size:1rem">Sort:</span><span class="select-wrap"><select id="pof-sort-select" aria-label="Choose sort order"><option value="az">A-Z</option><option value="za">Z-A</option><option value="high">Highest Price</option><option value="low">Lowest Price</option></select></span><div class="uoa-index" id="pof-index"><input id="pof-index-input" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" /><span class="uoa-index-total">/ <span id="pof-index-total">39</span></span></div></span>
+        <span class="uoa-controls" id="uoa-controls"><span style="color:white;font-size:1rem">Unit of Account:</span><span class="select-wrap"><select id="uoa-select" aria-label="Choose unit of account"></select></span></span>
+        <span class="uoa-show-controls" id="uoa-show-controls"><span style="color:white;font-size:1rem">Show:</span><span class="select-wrap"><select id="uoa-show-select" aria-label="Choose region or group to show"><option value="all">All</option><option value="g7">G7</option><option value="g20">G20</option><option value="africa">Africa</option><option value="asia">Asia</option><option value="europe">Europe</option><option value="latam">LATAM</option><option value="mena">MENA</option><option value="oceania">Oceania</option><option value="metals">Metals</option></select></span></span>
+        <span class="sort-controls" id="sort-controls"><span style="color:white;font-size:1rem">Sort:</span><span class="select-wrap"><select id="sort-select" aria-label="Choose sort order"><option value="az">A-Z</option><option value="za">Z-A</option><option value="high">Highest Price</option><option value="low">Lowest Price</option></select></span><div class="uoa-index" id="uoa-index"><input id="uoa-index-input" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" /><span class="uoa-index-total">/ <span id="uoa-index-total">156</span></span></div></span>
+        <span class="dominance-controls" id="dominance-controls"><span style="color:white;font-size:1rem">Unit of Account:</span><span class="select-wrap"><select id="dominance-select" aria-label="Choose unit"><option value="usd">USD</option><option value="btc">BTC</option></select></span></span>
+        <span class="myr-controls" id="myr-controls"><span style="color:white;font-size:1rem">Years:</span><span class="select-wrap"><select id="myr-select" aria-label="Choose year range"></select></span></span>
+        <span class="halving-view-controls" id="halving-view-controls"><span style="color:white;font-size:1rem">Halving View:</span><span class="select-wrap"><select id="halving-view-select" aria-label="Choose halving view"><option value="cycles_block">Cycles (Block Height)</option><option value="cycles_days">Cycles (Days After Halving)</option><option value="progress_block">Progress (Block Height)</option></select></span></span>
+        <span class="anchor-controls" id="anchor-controls"><span style="color:white;font-size:1rem">Anchor:</span><span class="select-wrap"><select id="anchor-select" aria-label="Choose anchor"><option value="low">Cycle Low</option><option value="high">Cycle High</option></select></span></span>
+        <span class="hashlen-controls" id="hashlen-controls"><span style="color:white;font-size:1rem">Displayed Hash Length:</span><span class="select-wrap"><select id="hashlen-select" aria-label="Choose displayed hash length"><option value="32" selected>32</option><option value="64">64</option></select></span></span>
+      </div>
+
+      <img id="modal-img" src="" alt="Full size image" draggable="false" />
+      <div id="modal-embed-wrap" class="modal-embed-wrap" hidden>
+        <iframe id="modal-embed" class="modal-embed" title="Interactive visualization" loading="lazy"></iframe>
+      </div>
+
+      <div id="youtube-overlay" class="youtube-overlay hidden" role="dialog" aria-modal="true">
+        <div class="youtube-overlay-content">
+          <button type="button" class="youtube-overlay-close" id="youtubeOverlayClose" aria-label="Close YouTube video">×</button>
+          <div class="youtube-embed-container">
+            <iframe id="youtube-iframe" class="youtube-iframe" title="YouTube video" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="slideshow" class="slideshow hidden" aria-hidden="true" role="dialog" aria-modal="true" tabindex="-1" data-esc-exit="true">
+      <div class="slideshow-controls" id="slideshowControls" aria-label="Slideshow controls">
+        <button class="ss-btn ss-exit" id="ssExitBtn" type="button" aria-label="Exit slideshow" data-exit="slideshow">×</button>
+        <button class="ss-btn ss-prev" id="ssPrevBtn" aria-label="Previous slide">‹</button>
+        <button id="ssPlayPauseBtn" class="ss-btn ss-play" type="button" aria-label="Pause slideshow" title="Pause (Space)">။</button>
+        <button class="ss-btn ss-next" id="ssNextBtn" aria-label="Next slide">›</button>
+      </div>
+      <div class="slideshow-viewport">
+        <img id="slideshow-img" alt="Slideshow image" draggable="false" />
+      </div>
+    </div>
+
+    <script src="js/00_constants.js" defer></script>
+    <script src="js/01_dom_elements.js" defer></script>
+    <script src="js/02_global_state.js" defer></script>
+    <script src="js/03_lazy_image_loading.js" defer></script>
+    <script src="js/04_persistence_cookies_localstorage.js" defer></script>
+    <script src="js/05_core_helpers_url_image_src_geometry.js" defer></script>
+    <script src="js/06_grid_layout_filter_render.js" defer></script>
+    <script src="js/07_modal_open_close_swipes.js" defer></script>
+    <script src="js/08_module_btcmap.js" defer></script>
+    <script src="js/09_module_bitcoin_vs_gold_bvg.js" defer></script>
+    <script src="js/10_module_days_at_a_loss_dal.js" defer></script>
+    <script src="js/11_module_price_on_this_day_potd.js" defer></script>
+    <script src="js/12_module_dominance_usd_btc.js" defer></script>
+    <script src="js/13_module_never_look_back_price_nlbp.js" defer></script>
+    <script src="js/14_module_target_block_hashes_length_32_64.js" defer></script>
+    <script src="js/15_module_halving_view.js" defer></script>
+    <script src="js/16_module_price_of_price_of.js" defer></script>
+    <script src="js/17_module_unit_of_account_uoa.js" defer></script>
+    <script src="js/19_module_monthly_yearly_returns_myr.js" defer></script>
+    <script src="js/20_buy_me_button_thanks_overlay.js" defer></script>
+    <script src="js/21_slideshow_core_ui_fullscreen.js" defer></script>
+    <script src="js/22_bootstrap_fetch_init_global_exports.js" defer></script>
+    <script src="js/23_event_bindings_global_modal_menu.js" defer></script>
+  </body>
+</html>
