@@ -51,7 +51,11 @@ function replaceUrlForFilename(newFilename) {
         if (slug === 'bip110_signaling') {
             history.replaceState(null, '', standalonePath);
         } else {
-            history.replaceState(null, '', `${standalonePath}?image=${encodeURIComponent(slug)}`);
+            if (location.hostname === 'localhost') {
+                history.replaceState(null, '', `${standalonePath}?image=${encodeURIComponent(slug)}`);
+            } else {
+                history.replaceState(null, '', `${base}/${slug}`.replace(/\/{2,}/g, '/'));
+            }
         }
         return;
     }
