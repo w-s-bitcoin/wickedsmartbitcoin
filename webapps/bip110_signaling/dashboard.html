@@ -583,6 +583,7 @@
       hoverTooltip: null,
       controls: {
         stripes: true,
+        stripesExplicit: false,
         markers: true,
         labels: true,
         showSegwit: true,
@@ -1079,6 +1080,7 @@
       try {
         const payload = {
           stripes: Boolean(state.controls.stripes),
+          stripesExplicit: Boolean(state.controls.stripesExplicit),
           markers: Boolean(state.controls.markers),
           labels: Boolean(state.controls.labels),
           showSegwit: Boolean(state.controls.showSegwit),
@@ -1111,7 +1113,11 @@
         const parsed = JSON.parse(raw);
         if (!parsed || typeof parsed !== "object") return false;
 
-        state.controls.stripes = Boolean(parsed.stripes);
+        const hasExplicitStripePreference = typeof parsed.stripesExplicit === "boolean";
+        state.controls.stripesExplicit = hasExplicitStripePreference ? parsed.stripesExplicit : false;
+        state.controls.stripes = state.controls.stripesExplicit
+          ? Boolean(parsed.stripes)
+          : window.innerWidth >= 760;
         state.controls.markers = Boolean(parsed.markers);
         state.controls.labels = Boolean(parsed.labels);
         state.controls.showSegwit = Boolean(parsed.showSegwit);
@@ -1152,6 +1158,10 @@
         if (segwitWindow) segwitWindow.checked = state.controls.showSegwit;
         if (bip110Window) bip110Window.checked = state.controls.showBip110;
 
+        if (!hasExplicitStripePreference) {
+          persistControls();
+        }
+
         return true;
       } catch (_) {
         return false;
@@ -1159,12 +1169,14 @@
     }
 
     function applyNarrowWindowDefaults() {
-      // First-visit defaults: block markers off across all viewport sizes.
+      // First-visit defaults: keep block markers off on narrow screens, on otherwise.
       const stripes = document.getElementById("toggleStripes");
+      const defaultStripesOn = window.innerWidth >= 760;
 
-      if (stripes) stripes.checked = false;
+      if (stripes) stripes.checked = defaultStripesOn;
 
-      state.controls.stripes = false;
+      state.controls.stripes = defaultStripesOn;
+      state.controls.stripesExplicit = false;
       persistControls();
     }
 
@@ -2571,6 +2583,7 @@
 
       stripes.addEventListener("change", () => {
         state.controls.stripes = stripes.checked;
+        state.controls.stripesExplicit = true;
         persistControls();
         renderAll();
       });
