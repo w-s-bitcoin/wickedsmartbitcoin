@@ -3,9 +3,9 @@
         "filename": "bip110_signaling.png",
         "title": "SegWit and BIP-110 Signaling",
         "description": "This dashboard shows miner signaling across each 2,016-block period for SegWit and BIP-110",
-        "latest_x": "",
+        "latest_x": "https://x.com/w_s_bitcoin/status/2033595927416406407",
         "latest_nostr": "",
-        "latest_youtube": ""
+        "latest_youtube": "https://youtu.be/dy3vzz9pa3g"
     },
     {
         "filename": "node_count.png",
