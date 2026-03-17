@@ -37,7 +37,7 @@
           aria-label="Close buy me a coffee panel"
         >×</button>
         <img
-          src="assets/buymeacoffee.png"
+          src="assets/thanks_for_the_coffee_landscape_lightning.png"
           alt="Buy me a coffee"
           class="buy-coffee-img"
           id="buyCoffeeImg"
@@ -119,9 +119,6 @@
     </script>
 
     <script>
-      /* ===========================
-       * BUY ME COFFEE: MINIMAL HANDLER FOR BIP110 PAGE
-       * =========================== */
       const DONATION_LIGHTNING = 'wicked@getalby.com';
       const DONATION_LIQUID = 'VJLDEF7n8TBjyJY2BaAgeVvzPSRMJ7VAP5opW9mB5A7ChyiKHnaguTugZNznxNiV2ZDyPxJyQoeZ2KhM';
       const DONATION_ONCHAIN = 'bc1q8mql8fucypd3dllkawqafytmrnwtv77gzxy346';
@@ -129,10 +126,69 @@
       const buyCoffeeBtn = document.getElementById('buyCoffeeBtn');
       const buyCoffeeOverlay = document.getElementById('buyCoffeeOverlay');
       const buyCoffeeCloseBtn = document.getElementById('buyCoffeeCloseBtn');
+      const buyCoffeeImg = document.getElementById('buyCoffeeImg');
       const buyCoffeeMethodBtns = Array.from(document.querySelectorAll('.buy-coffee-method-btn'));
+
+      function isBeerTime() {
+        const now = new Date();
+        const hour = now.getHours();
+        return hour >= 17 || hour < 3;
+      }
+
+      function getImageOrientation() {
+        return window.innerHeight >= window.innerWidth ? 'portrait' : 'landscape';
+      }
+
+      function repositionButtons() {
+        const methodsContainer = document.querySelector('.buy-coffee-methods');
+        if (!methodsContainer) return;
+        const isPortrait = getImageOrientation() === 'portrait';
+        if (isPortrait) {
+          Object.assign(methodsContainer.style, {
+            left: '50%',
+            top: '50%',
+            bottom: 'auto',
+            width: 'auto',
+            maxWidth: '92%',
+            whiteSpace: 'nowrap',
+            gap: 'clamp(6px, 1.5vw, 12px)',
+            transform: 'translate(-50%, calc(-100% - clamp(8px, 2vh, 18px)))'
+          });
+        } else {
+          Object.assign(methodsContainer.style, {
+            left: '0',
+            top: 'auto',
+            bottom: '20px',
+            width: '50%',
+            maxWidth: '',
+            whiteSpace: '',
+            gap: 'clamp(0.6rem, 1.6vw, 1.25rem)',
+            transform: ''
+          });
+        }
+      }
+
+      function updateBuyCoffeeImage(method) {
+        const btn = document.querySelector(`.buy-coffee-method-btn[data-method="${method}"]`);
+        if (!btn || !buyCoffeeImg) return;
+
+        buyCoffeeMethodBtns.forEach((b) => {
+          const isActive = b === btn;
+          b.classList.toggle('active', isActive);
+          b.setAttribute('aria-pressed', String(isActive));
+        });
+
+        const drink = isBeerTime() ? 'beer' : 'coffee';
+        const orient = getImageOrientation();
+        const normalizedMethod = method === 'on-chain' ? 'onchain' : method;
+        buyCoffeeImg.src = `assets/thanks_for_the_${drink}_${orient}_${normalizedMethod}.png`;
+        repositionButtons();
+      }
 
       function openBuyCoffeeOverlay() {
         if (!buyCoffeeOverlay) return;
+        const activeBtn = document.querySelector('.buy-coffee-method-btn.active');
+        updateBuyCoffeeImage((activeBtn && activeBtn.getAttribute('data-method')) || 'lightning');
         buyCoffeeOverlay.style.display = 'flex';
         buyCoffeeOverlay.setAttribute('aria-hidden', 'false');
         document.addEventListener('keydown', onBuyCoffeeKeydown);
@@ -185,56 +241,44 @@
       }
 
       function showCopyToast(message) {
-        const existingToast = document.querySelector('.buy-coffee-toast');
-        if (existingToast) {
-          existingToast.remove();
-        }
-        
-        const toast = document.createElement('div');
-        toast.className = 'buy-coffee-toast';
-        toast.textContent = message;
-        Object.assign(toast.style, {
-          position: 'fixed',
-          bottom: '20px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          padding: '0.75rem 1.5rem',
-          fontSize: '0.9rem',
-          borderRadius: '6px',
-          background: 'rgba(0, 0, 0, 0.9)',
-          color: '#fff',
-          zIndex: '10001',
-          opacity: '0',
-          transition: 'opacity 0.2s ease-out',
-        });
-        document.body.appendChild(toast);
+        if (!buyCoffeeOverlay) return;
 
-        // Trigger animation
-        requestAnimationFrame(() => {
-          toast.style.opacity = '1';
-        });
+        let toast = buyCoffeeOverlay.querySelector('.buy-coffee-toast');
+        if (!toast) {
+          toast = document.createElement('div');
+          toast.className = 'buy-coffee-toast';
+          Object.assign(toast.style, {
+            position: 'fixed',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            padding: '0.75rem 1.5rem',
+            fontSize: '0.95rem',
+            borderRadius: '999px',
+            background: 'rgba(0, 0, 0, 0.9)',
+            color: '#fff',
+            pointerEvents: 'none',
+            opacity: '0',
+            transition: 'opacity 0.2s ease-out',
+            zIndex: '10002',
+            border: '1px solid rgba(255, 255, 255, 0.2)'
+          });
+          buyCoffeeOverlay.appendChild(toast);
+        }
+
+        toast.textContent = message;
+        toast.style.opacity = '1';
 
         setTimeout(() => {
           toast.style.opacity = '0';
-          setTimeout(() => toast.remove(), 200);
         }, 2000);
       }
 
       function handleMethodClick(btn) {
-        const method = btn.getAttribute('data-method');
-        const address = getDonationAddressForMethod(method);
-        
-        buyCoffeeMethodBtns.forEach(b => {
-          const isActive = b === btn;
-          b.classList.toggle('active', isActive);
-          b.setAttribute('aria-pressed', isActive);
-        });
-
-        copyToClipboard(address);
-        showCopyToast(getDonationToastForMethod(method));
+        const method = btn.getAttribute('data-method') || 'lightning';
+        updateBuyCoffeeImage(method);
       }
 
-      // Event listeners
       if (buyCoffeeBtn) {
         buyCoffeeBtn.addEventListener('click', openBuyCoffeeOverlay);
       }
@@ -243,11 +287,22 @@
         buyCoffeeCloseBtn.addEventListener('click', closeBuyCoffeeOverlay);
       }
 
-      buyCoffeeMethodBtns.forEach(btn => {
+      if (buyCoffeeImg) {
+        buyCoffeeImg.addEventListener('click', async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const activeBtn = document.querySelector('.buy-coffee-method-btn.active');
+          const method = (activeBtn && activeBtn.getAttribute('data-method')) || 'lightning';
+          const address = getDonationAddressForMethod(method);
+          await copyToClipboard(address);
+          showCopyToast(getDonationToastForMethod(method));
+        });
+      }
+
+      buyCoffeeMethodBtns.forEach((btn) => {
         btn.addEventListener('click', () => handleMethodClick(btn));
       });
 
-      // Close on overlay background click
       if (buyCoffeeOverlay) {
         buyCoffeeOverlay.addEventListener('click', (e) => {
           if (e.target === buyCoffeeOverlay) {
@@ -255,6 +310,15 @@
           }
         });
       }
+
+      window.addEventListener('resize', () => {
+        const activeBtn = document.querySelector('.buy-coffee-method-btn.active');
+        if (activeBtn && buyCoffeeOverlay && buyCoffeeOverlay.style.display === 'flex') {
+          updateBuyCoffeeImage(activeBtn.getAttribute('data-method') || 'lightning');
+        }
+      });
+
+      updateBuyCoffeeImage('lightning');
     </script>
     <script src="js/24_bip110_standalone_bootstrap.js" defer></script>
   </body>
