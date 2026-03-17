@@ -42,6 +42,194 @@
         </style>
     </head>
     <body data-standalone-modal-shell="1">
+        <div class="buy-coffee">
+            <button class="buy-coffee-btn" id="buyCoffeeBtn" type="button" onclick="document.getElementById('buyCoffeeOverlay').style.display='flex'">
+                <span id="buyCoffeeIcon">☕</span>
+                <span id="buyCoffeeText">Buy me a coffee</span>
+            </button>
+        </div>
+        <div class="buy-coffee-overlay" id="buyCoffeeOverlay" aria-hidden="true" role="dialog" aria-modal="true" onclick="if(event.target===this) this.style.display='none'">
+            <div class="buy-coffee-modal">
+                <button
+                    type="button"
+                    class="buy-coffee-close"
+                    id="buyCoffeeCloseBtn"
+                    onclick="document.getElementById('buyCoffeeOverlay').style.display='none'"
+                    aria-label="Close buy me a coffee panel"
+                >×</button>
+                <img
+                    src="assets/buymeacoffee.png"
+                    alt="Buy me a coffee"
+                    class="buy-coffee-img"
+                    id="buyCoffeeImg"
+                    draggable="false"
+                />
+                <div class="buy-coffee-methods" role="group" aria-label="Donation method">
+                    <button
+                        type="button"
+                        class="buy-coffee-method-btn active"
+                        data-method="lightning"
+                        aria-pressed="true"
+                        onclick="updateBuyCoffeeImage('lightning')"
+                    >Lightning</button>
+                    <button
+                        type="button"
+                        class="buy-coffee-method-btn"
+                        data-method="liquid"
+                        aria-pressed="false"
+                        onclick="updateBuyCoffeeImage('liquid')"
+                    >Liquid</button>
+                    <button
+                        type="button"
+                        class="buy-coffee-method-btn"
+                        data-method="onchain"
+                        aria-pressed="false"
+                        onclick="updateBuyCoffeeImage('onchain')"
+                    >On-chain</button>
+                </div>
+            </div>
+        </div>
+        <script>
+            function isBeerTime() {
+                const now = new Date();
+                const hour = now.getHours();
+                return hour >= 17 || hour < 3;
+            }
+            function getImageOrientation() {
+                return window.innerHeight >= window.innerWidth ? 'portrait' : 'landscape';
+            }
+            function getDonationAddressForMethod(method) {
+                const m = method === 'onchain' ? 'onchain' : method;
+                if (m === 'lightning') return 'wicked@getalby.com';
+                if (m === 'liquid') return 'VJLDEF7n8TBjyJY2BaAgeVvzPSRMJ7VAP5opW9mB5A7ChyiKHnaguTugZNznxNiV2ZDyPxJyQoeZ2KhM';
+                if (m === 'onchain') return 'bc1q8mql8fucypd3dllkawqafytmrnwtv77gzxy346';
+                return 'wicked@getalby.com';
+            }
+            function getDonationToastForMethod(method) {
+                const m = method === 'onchain' ? 'onchain' : method;
+                if (m === 'lightning') return 'Lightning address copied!';
+                if (m === 'liquid') return 'Liquid address copied!';
+                if (m === 'onchain') return 'On-chain address copied!';
+                return 'Copied to clipboard!';
+            }
+            async function copyToClipboard(text) {
+                try {
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        await navigator.clipboard.writeText(text);
+                    } else {
+                        const ta = document.createElement('textarea');
+                        ta.value = text;
+                        ta.style.position = 'fixed';
+                        ta.style.opacity = '0';
+                        document.body.appendChild(ta);
+                        ta.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(ta);
+                    }
+                } catch (err) {
+                    console.error('Failed to copy to clipboard', err);
+                }
+            }
+            function showToast(message) {
+                const overlay = document.getElementById('buyCoffeeOverlay');
+                if (!overlay) return;
+                
+                let toast = overlay.querySelector('.buy-coffee-toast');
+                if (!toast) {
+                    toast = document.createElement('div');
+                    toast.className = 'buy-coffee-toast';
+                    Object.assign(toast.style, {
+                        position: 'fixed',
+                        top: '50%',
+                        left: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        padding: '0.75rem 1.5rem',
+                        fontSize: '0.95rem',
+                        borderRadius: '999px',
+                        background: 'rgba(0, 0, 0, 0.9)',
+                        color: '#fff',
+                        pointerEvents: 'none',
+                        opacity: '0',
+                        transition: 'opacity 0.2s ease-out',
+                        zIndex: '10002',
+                        border: '1px solid rgba(255, 255, 255, 0.2)'
+                    });
+                    overlay.appendChild(toast);
+                }
+                toast.innerHTML = message;
+                toast.style.opacity = '1';
+                
+                setTimeout(() => {
+                    toast.style.opacity = '0';
+                }, 2000);
+            }
+            function repositionButtons() {
+                const methodsContainer = document.querySelector('.buy-coffee-methods');
+                if (!methodsContainer) return;
+                const isPortrait = getImageOrientation() === 'portrait';
+                if (isPortrait) {
+                    Object.assign(methodsContainer.style, {
+                        left: '50%',
+                        top: '50%',
+                        bottom: 'auto',
+                        width: 'auto',
+                        maxWidth: '92%',
+                        whiteSpace: 'nowrap',
+                        gap: 'clamp(6px, 1.5vw, 12px)',
+                        transform: 'translate(-50%, calc(-100% - clamp(8px, 2vh, 18px)))'
+                    });
+                } else {
+                    Object.assign(methodsContainer.style, {
+                        left: '0',
+                        top: 'auto',
+                        bottom: '20px',
+                        width: '50%',
+                        maxWidth: '',
+                        whiteSpace: '',
+                        gap: 'clamp(0.6rem, 1.6vw, 1.25rem)',
+                        transform: ''
+                    });
+                }
+            }
+            function updateBuyCoffeeImage(method) {
+                const img = document.getElementById('buyCoffeeImg');
+                const btn = document.querySelector(`.buy-coffee-method-btn[data-method="${method}"]`);
+                if (!btn || !img) return;
+                
+                document.querySelectorAll('.buy-coffee-method-btn').forEach(b => {
+                    b.classList.toggle('active', b === btn);
+                    b.setAttribute('aria-pressed', b === btn);
+                });
+                
+                const drink = isBeerTime() ? 'beer' : 'coffee';
+                const orient = getImageOrientation();
+                const normalizedMethod = method === 'on-chain' ? 'onchain' : method;
+                img.src = `assets/thanks_for_the_${drink}_${orient}_${normalizedMethod}.png`;
+                repositionButtons();
+            }
+            window.addEventListener('resize', () => {
+                const activeBtn = document.querySelector('.buy-coffee-method-btn.active');
+                if (activeBtn && document.getElementById('buyCoffeeOverlay').style.display === 'flex') {
+                    updateBuyCoffeeImage(activeBtn.getAttribute('data-method'));
+                }
+            });
+            document.addEventListener('DOMContentLoaded', () => {
+                const img = document.getElementById('buyCoffeeImg');
+                if (img) {
+                    img.addEventListener('click', async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const activeBtn = document.querySelector('.buy-coffee-method-btn.active');
+                        if (!activeBtn) return;
+                        const method = activeBtn.getAttribute('data-method');
+                        const address = getDonationAddressForMethod(method);
+                        await copyToClipboard(address);
+                        showToast(getDonationToastForMethod(method));
+                    });
+                }
+                updateBuyCoffeeImage('lightning');
+            });
+        </script>
         <div class="modal" id="modal">
             <div class="modal-controls">
                 <button class="close-btn" onclick="closeModal()">×</button>

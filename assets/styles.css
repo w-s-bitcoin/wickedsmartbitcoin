@@ -250,7 +250,11 @@ footer {
     position: absolute;
     top: max(0.75rem, env(safe-area-inset-top));
     left: max(0.75rem, env(safe-area-inset-left));
-    z-index: 1500;
+    z-index: 10000;
+}
+body[data-standalone-modal-shell="1"] .buy-coffee {
+    left: auto;
+    right: max(0.75rem, env(safe-area-inset-right));
 }
 .buy-coffee-btn {
     padding: 0.25rem 0.75rem;
@@ -287,7 +291,7 @@ footer {
     display: none;
     align-items: center;
     justify-content: center;
-    z-index: 9500;
+    z-index: 10001;
     padding: max(1rem, env(safe-area-inset-top))
              max(1rem, env(safe-area-inset-right))
              max(1rem, env(safe-area-inset-bottom))
@@ -295,17 +299,21 @@ footer {
 }
 .buy-coffee-modal {
     position: relative;
-    max-width: min(90vw, 420px);
-    width: 100%;
+    display: inline-block;
+    cursor: pointer;
+    max-width: 90vw;
 }
 .buy-coffee-img {
     display: block;
-    width: 100%;
+    max-width: 90vw;
+    max-height: 90vh;
+    width: auto;
     height: auto;
     border-radius: 8px;
     border: 1px solid var(--border);
     cursor: pointer;
     background-color: #000;
+    box-shadow: 0 0 20px rgba(0,0,0,0.8);
 }
 .buy-coffee-close {
     position: absolute;
@@ -316,11 +324,14 @@ footer {
    BUY COFFEE → METHOD BUTTONS
    =========================== */
 .buy-coffee-methods {
-    display: none;
-    margin-top: 0.75rem;
-    gap: clamp(0.6rem, 1.6vw, 1.25rem);
+    position: absolute;
+    left: 0;
+    bottom: 20px;
+    width: 50%;
+    display: flex;
+    justify-content: center;
     align-items: center;
-    justify-content: flex-start;
+    gap: clamp(0.6rem, 1.6vw, 1.25rem);
 }
 .buy-coffee-method-btn,
 .thanks-method-btn {

@@ -22,6 +22,49 @@
     </style>
   </head>
   <body data-standalone-modal-shell="1">
+    <div class="buy-coffee">
+      <button class="buy-coffee-btn" id="buyCoffeeBtn" type="button">
+        <span id="buyCoffeeIcon">☕</span>
+        <span id="buyCoffeeText">Buy me a coffee</span>
+      </button>
+    </div>
+    <div class="buy-coffee-overlay" id="buyCoffeeOverlay" aria-hidden="true" role="dialog" aria-modal="true">
+      <div class="buy-coffee-modal">
+        <button
+          type="button"
+          class="buy-coffee-close"
+          id="buyCoffeeCloseBtn"
+          aria-label="Close buy me a coffee panel"
+        >×</button>
+        <img
+          src="assets/buymeacoffee.png"
+          alt="Buy me a coffee"
+          class="buy-coffee-img"
+          id="buyCoffeeImg"
+          draggable="false"
+        />
+        <div class="buy-coffee-methods" role="group" aria-label="Donation method">
+          <button
+            type="button"
+            class="buy-coffee-method-btn active"
+            data-method="lightning"
+            aria-pressed="true"
+          >Lightning</button>
+          <button
+            type="button"
+            class="buy-coffee-method-btn"
+            data-method="liquid"
+            aria-pressed="false"
+          >Liquid</button>
+          <button
+            type="button"
+            class="buy-coffee-method-btn"
+            data-method="onchain"
+            aria-pressed="false"
+          >On-chain</button>
+        </div>
+      </div>
+    </div>
     <div class="modal" id="modal">
       <div class="modal-controls">
         <button class="close-btn" onclick="closeModal()">×</button>
@@ -73,6 +116,145 @@
           iframe.setAttribute('src', 'webapps/bip110_signaling/dashboard.html');
         }
       })();
+    </script>
+
+    <script>
+      /* ===========================
+       * BUY ME COFFEE: MINIMAL HANDLER FOR BIP110 PAGE
+       * =========================== */
+      const DONATION_LIGHTNING = 'wicked@getalby.com';
+      const DONATION_LIQUID = 'VJLDEF7n8TBjyJY2BaAgeVvzPSRMJ7VAP5opW9mB5A7ChyiKHnaguTugZNznxNiV2ZDyPxJyQoeZ2KhM';
+      const DONATION_ONCHAIN = 'bc1q8mql8fucypd3dllkawqafytmrnwtv77gzxy346';
+
+      const buyCoffeeBtn = document.getElementById('buyCoffeeBtn');
+      const buyCoffeeOverlay = document.getElementById('buyCoffeeOverlay');
+      const buyCoffeeCloseBtn = document.getElementById('buyCoffeeCloseBtn');
+      const buyCoffeeMethodBtns = Array.from(document.querySelectorAll('.buy-coffee-method-btn'));
+
+      function openBuyCoffeeOverlay() {
+        if (!buyCoffeeOverlay) return;
+        buyCoffeeOverlay.style.display = 'flex';
+        buyCoffeeOverlay.setAttribute('aria-hidden', 'false');
+        document.addEventListener('keydown', onBuyCoffeeKeydown);
+      }
+
+      function closeBuyCoffeeOverlay() {
+        if (!buyCoffeeOverlay) return;
+        buyCoffeeOverlay.style.display = 'none';
+        buyCoffeeOverlay.setAttribute('aria-hidden', 'true');
+        document.removeEventListener('keydown', onBuyCoffeeKeydown);
+      }
+
+      function onBuyCoffeeKeydown(e) {
+        if (e.key === 'Escape') {
+          closeBuyCoffeeOverlay();
+        }
+      }
+
+      function getDonationAddressForMethod(method) {
+        const m = (method || 'lightning').toLowerCase().trim();
+        if (m === 'liquid') return DONATION_LIQUID;
+        if (m === 'onchain') return DONATION_ONCHAIN;
+        return DONATION_LIGHTNING;
+      }
+
+      function getDonationToastForMethod(method) {
+        const m = (method || 'lightning').toLowerCase().trim();
+        if (m === 'liquid') return 'Liquid address copied to clipboard';
+        if (m === 'onchain') return 'On-chain address copied to clipboard';
+        return 'Lightning address copied to clipboard';
+      }
+
+      async function copyToClipboard(text) {
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+          } else {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+          }
+        } catch (err) {
+          console.error('Failed to copy to clipboard', err);
+        }
+      }
+
+      function showCopyToast(message) {
+        const existingToast = document.querySelector('.buy-coffee-toast');
+        if (existingToast) {
+          existingToast.remove();
+        }
+        
+        const toast = document.createElement('div');
+        toast.className = 'buy-coffee-toast';
+        toast.textContent = message;
+        Object.assign(toast.style, {
+          position: 'fixed',
+          bottom: '20px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          padding: '0.75rem 1.5rem',
+          fontSize: '0.9rem',
+          borderRadius: '6px',
+          background: 'rgba(0, 0, 0, 0.9)',
+          color: '#fff',
+          zIndex: '10001',
+          opacity: '0',
+          transition: 'opacity 0.2s ease-out',
+        });
+        document.body.appendChild(toast);
+
+        // Trigger animation
+        requestAnimationFrame(() => {
+          toast.style.opacity = '1';
+        });
+
+        setTimeout(() => {
+          toast.style.opacity = '0';
+          setTimeout(() => toast.remove(), 200);
+        }, 2000);
+      }
+
+      function handleMethodClick(btn) {
+        const method = btn.getAttribute('data-method');
+        const address = getDonationAddressForMethod(method);
+        
+        buyCoffeeMethodBtns.forEach(b => {
+          const isActive = b === btn;
+          b.classList.toggle('active', isActive);
+          b.setAttribute('aria-pressed', isActive);
+        });
+
+        copyToClipboard(address);
+        showCopyToast(getDonationToastForMethod(method));
+      }
+
+      // Event listeners
+      if (buyCoffeeBtn) {
+        buyCoffeeBtn.addEventListener('click', openBuyCoffeeOverlay);
+      }
+
+      if (buyCoffeeCloseBtn) {
+        buyCoffeeCloseBtn.addEventListener('click', closeBuyCoffeeOverlay);
+      }
+
+      buyCoffeeMethodBtns.forEach(btn => {
+        btn.addEventListener('click', () => handleMethodClick(btn));
+      });
+
+      // Close on overlay background click
+      if (buyCoffeeOverlay) {
+        buyCoffeeOverlay.addEventListener('click', (e) => {
+          if (e.target === buyCoffeeOverlay) {
+            closeBuyCoffeeOverlay();
+          }
+        });
+      }
     </script>
     <script src="js/24_bip110_standalone_bootstrap.js" defer></script>
   </body>

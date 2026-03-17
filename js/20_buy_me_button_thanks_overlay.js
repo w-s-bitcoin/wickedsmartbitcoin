@@ -196,8 +196,10 @@ function showThanksPopup({ fromRoute = false } = {}) {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            zIndex: '9999',
-            cursor: 'default'
+            zIndex: '10001',
+            cursor: 'default',
+            background: 'rgba(0, 0, 0, 0.9)',
+            padding: 'max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left))'
         });
         const container = document.createElement('div');
         Object.assign(container.style, {
