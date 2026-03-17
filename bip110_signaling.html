@@ -139,6 +139,12 @@
         return window.innerHeight >= window.innerWidth ? 'portrait' : 'landscape';
       }
 
+      function updateBuyMeButtonLayout() {
+        if (!buyCoffeeBtn) return;
+        const narrow = window.innerWidth <= 750;
+        buyCoffeeBtn.classList.toggle('buy-coffee-hide-text', narrow);
+      }
+
       function repositionButtons() {
         const methodsContainer = document.querySelector('.buy-coffee-methods');
         if (!methodsContainer) return;
@@ -312,12 +318,14 @@
       }
 
       window.addEventListener('resize', () => {
+        updateBuyMeButtonLayout();
         const activeBtn = document.querySelector('.buy-coffee-method-btn.active');
         if (activeBtn && buyCoffeeOverlay && buyCoffeeOverlay.style.display === 'flex') {
           updateBuyCoffeeImage(activeBtn.getAttribute('data-method') || 'lightning');
         }
       });
 
+      updateBuyMeButtonLayout();
       updateBuyCoffeeImage('lightning');
     </script>
     <script src="js/24_bip110_standalone_bootstrap.js" defer></script>
