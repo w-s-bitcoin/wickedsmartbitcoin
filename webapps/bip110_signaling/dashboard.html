@@ -1061,6 +1061,7 @@
         setPanelLoaderVisible("bip110", false);
 
         await loadAndApplyBlockDataPhased(loadToken, state.data.metadata, ["bip110"], loadBuster);
+        setStatus(state.data);
       } catch (err) {
         console.warn("Auto-refresh check failed:", err);
       } finally {
