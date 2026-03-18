@@ -1491,7 +1491,7 @@
 
       const display = document.createElement("div");
       display.className = "chip chip-kpi-display";
-      display.textContent = formatGeneratedDateTimeForSelectedTimeZone(meta.generated_utc);
+      display.textContent = `Updated ${formatGeneratedDateTimeForSelectedTimeZone(meta.generated_utc)}`;
 
       const select = document.createElement("select");
       select.className = "chip-menu-select chip-kpi-select-overlay";
