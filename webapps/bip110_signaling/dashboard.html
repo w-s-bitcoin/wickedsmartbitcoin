@@ -163,6 +163,135 @@
       white-space: nowrap;
     }
 
+    .chip-menu-wrap {
+      position: relative;
+    }
+
+    .chip-button {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+    }
+
+    .chip-button:hover,
+    .chip-button:focus-visible,
+    .chip-button[data-open="true"] {
+      color: var(--signal);
+      border-color: rgba(255, 152, 0, 0.55);
+      background: rgba(255, 152, 0, 0.08);
+      outline: none;
+    }
+
+    .chip-caret {
+      font-size: 0.7rem;
+      opacity: 0.75;
+    }
+
+    .chip-menu {
+      position: absolute;
+      top: calc(100% + 8px);
+      left: 0;
+      z-index: 60;
+      min-width: min(320px, calc(100vw - 28px));
+      max-width: min(360px, calc(100vw - 28px));
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 14px;
+      background: #05080a;
+      padding: 12px;
+      box-shadow: 0 18px 34px rgba(0, 0, 0, 0.42);
+    }
+
+    .chip-menu[hidden] {
+      display: none;
+    }
+
+    .chip-menu-label {
+      display: block;
+      margin: 0 0 8px;
+      color: #d8e4ea;
+      font-size: 0.76rem;
+      font-family: "IBM Plex Mono", monospace;
+    }
+
+    .chip-menu-select {
+      width: auto;
+      max-width: min(78vw, 560px);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.4);
+      color: var(--fg);
+      padding: 5px 28px 5px 9px;
+      font: inherit;
+      font-size: 0.8rem;
+      cursor: pointer;
+      text-overflow: ellipsis;
+    }
+
+    .chip-kpi-select {
+      transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+    }
+
+    .chip-kpi-display {
+      display: inline-flex;
+      align-items: center;
+      padding-right: 24px;
+      transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+      position: relative;
+    }
+
+    .chip-menu-wrap.single-select {
+      position: relative;
+      display: inline-block;
+    }
+
+    .chip-menu-wrap.single-select::after {
+      content: "▼";
+      position: absolute;
+      right: 9px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 0.7rem;
+      opacity: 0.75;
+      pointer-events: none;
+      color: #d6e1e6;
+    }
+
+    .chip-kpi-select-overlay {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      cursor: pointer;
+      border: 0;
+      appearance: none;
+      -webkit-appearance: none;
+      font-size: 16px;
+    }
+
+    .chip-menu-wrap.single-select:hover .chip-kpi-display,
+    .chip-menu-wrap.single-select:focus-within .chip-kpi-display {
+      color: var(--signal);
+      border-color: rgba(255, 152, 0, 0.55);
+      background: rgba(255, 152, 0, 0.08);
+      outline: none;
+    }
+
+    .chip-menu-wrap.single-select:hover::after,
+    .chip-menu-wrap.single-select:focus-within::after {
+      color: var(--signal);
+    }
+
+    .chip-menu-help {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 0.75rem;
+      line-height: 1.45;
+      font-family: "IBM Plex Mono", monospace;
+    }
+
     .controls {
       display: flex;
       gap: 10px;
@@ -564,6 +693,7 @@
 
   <div class="tooltip" id="tooltip"></div>
 
+  <script src="../../js/25_dashboard_timezone_preferences.js"></script>
   <script>
     const AUTO_REFRESH_MS = 60000;
     const FORCE_REFRESH_MS = 3600000;
@@ -571,6 +701,7 @@
     const PANEL_RESIZE_MIN_HEIGHT = 220;
     const PANEL_RESIZE_VIEWPORT_PAD = 24;
     const BIP110_FINAL_FRAME_PATH = "../../final_frames/bip110_signaling.png";
+    const DASHBOARD_TIME = window.WSBDashboardTime || null;
 
     const state = {
       staticData: null,
@@ -622,6 +753,7 @@
         bip110: null,
       },
       dpr: Math.max(1, window.devicePixelRatio || 1),
+      timeZone: DASHBOARD_TIME?.getPreferredTimeZone?.() || "UTC",
     };
 
     const segwitCanvas = document.getElementById("segwitCanvas");
@@ -634,6 +766,7 @@
     const bip110Loader = document.getElementById("bip110Loader");
     const mainWrap = document.getElementById("mainWrap");
     const topbar = document.getElementById("topbar");
+    const statusChips = document.getElementById("statusChips");
     const tooltip = document.getElementById("tooltip");
     const vizInfoBtn = document.getElementById("vizInfoBtn");
     const segwitResizeHandle = document.getElementById("segwitResizeHandle");
@@ -677,6 +810,79 @@
       const loader = key === "segwit" ? segwitLoader : bip110Loader;
       if (!loader) return;
       loader.classList.toggle("hidden", !visible);
+    }
+
+    function getPreferredDashboardTimeZone() {
+      if (!DASHBOARD_TIME?.getPreferredTimeZone) return state.timeZone || "UTC";
+      return DASHBOARD_TIME.getPreferredTimeZone();
+    }
+
+    function setPreferredDashboardTimeZone(value) {
+      if (!DASHBOARD_TIME?.setPreferredTimeZone) {
+        state.timeZone = String(value || "UTC").trim() || "UTC";
+        return state.timeZone;
+      }
+      state.timeZone = DASHBOARD_TIME.setPreferredTimeZone(value);
+      return state.timeZone;
+    }
+
+    function getDashboardTimeZoneOptions() {
+      if (!DASHBOARD_TIME?.getTimeZoneOptions) {
+        return [{ value: "UTC", label: "UTC" }];
+      }
+      return DASHBOARD_TIME.getTimeZoneOptions();
+    }
+
+    function formatGeneratedForSelectedTimeZone(value) {
+      if (!DASHBOARD_TIME?.formatUtcTimestamp) {
+        return formatGeneratedUtc(value);
+      }
+      return DASHBOARD_TIME.formatUtcTimestamp(value, state.timeZone || "UTC").text;
+    }
+
+    function formatGeneratedDateTimeForSelectedTimeZone(value) {
+      const raw = String(value || "").trim();
+      if (!raw) return "n/a";
+
+      const parsed = new Date(raw);
+      if (Number.isNaN(parsed.getTime())) {
+        return raw;
+      }
+
+      const timeZone = state.timeZone || "UTC";
+      try {
+        const formatter = new Intl.DateTimeFormat("en-CA", {
+          timeZone,
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+          timeZoneName: "short",
+        });
+        const parts = formatter.formatToParts(parsed);
+        const values = Object.create(null);
+        parts.forEach((part) => {
+          values[part.type] = part.value;
+        });
+        const shortName = String(values.timeZoneName || timeZone || "UTC").trim();
+        return `${values.year}-${values.month}-${values.day} ${values.hour}:${values.minute} (${shortName})`;
+      } catch (_) {
+        return `${formatGeneratedUtc(value).replace(/\s+UTC$/, "")} (${timeZone})`;
+      }
+    }
+
+    function bindTimeZoneChipEvents() {
+      const select = document.getElementById("updatedTimeZoneSelect");
+      if (!select) return;
+
+      select.addEventListener("change", () => {
+        setPreferredDashboardTimeZone(select.value);
+        if (state.data) {
+          setStatus(state.data);
+        }
+      });
     }
 
     function nextPaint() {
@@ -1094,6 +1300,7 @@
       window.addEventListener("online", () => {
         triggerRefreshSoon(0);
       });
+
     }
 
     function startAutoRefresh() {
@@ -1213,7 +1420,6 @@
 
     function setStatus(data) {
       const meta = data.metadata;
-      const chips = document.getElementById("statusChips");
       const s = meta.state;
       const currentPeriod = Number(s.current_period_index);
       const currentPeriodRow = data.bip110Periods.find((row) => Number(row.period) === currentPeriod) || null;
@@ -1224,9 +1430,9 @@
       const currentPeriodBlocks = Number(s.blocks_into_current_period || 0);
       const periodSize = Number(meta?.chart?.period_size || 2016);
 
-      chips.innerHTML = "";
+      statusChips.innerHTML = "";
+      statusChips.appendChild(buildUpdatedChip(meta));
       const chipValues = [
-        `Updated ${formatGeneratedUtc(meta.generated_utc)}`,
         `Height ${Number(meta.source_block_height).toLocaleString()}`,
         `BIP-110 ${s.completed_periods}/${s.bip110_total_periods} periods complete`,
         currentSignal != null
@@ -1237,8 +1443,9 @@
         const div = document.createElement("div");
         div.className = "chip";
         div.textContent = text;
-        chips.appendChild(div);
+        statusChips.appendChild(div);
       });
+      bindTimeZoneChipEvents();
     }
 
     function configureCanvas(canvas) {
@@ -1276,6 +1483,32 @@
       const hours = String(parsed.getUTCHours()).padStart(2, "0");
       const minutes = String(parsed.getUTCMinutes()).padStart(2, "0");
       return `${year}-${month}-${day} ${hours}:${minutes} UTC`;
+    }
+
+    function buildUpdatedChip(meta) {
+      const wrapper = document.createElement("div");
+      wrapper.className = "chip-menu-wrap single-select";
+
+      const display = document.createElement("div");
+      display.className = "chip chip-kpi-display";
+      display.textContent = formatGeneratedDateTimeForSelectedTimeZone(meta.generated_utc);
+
+      const select = document.createElement("select");
+      select.className = "chip-menu-select chip-kpi-select-overlay";
+      select.id = "updatedTimeZoneSelect";
+      select.setAttribute("aria-label", "Updated timestamp time zone");
+
+      getDashboardTimeZoneOptions().forEach((option) => {
+        const optionEl = document.createElement("option");
+        optionEl.value = option.value;
+        optionEl.textContent = option.label;
+        optionEl.selected = option.value === state.timeZone;
+        select.appendChild(optionEl);
+      });
+
+      wrapper.appendChild(display);
+      wrapper.appendChild(select);
+      return wrapper;
     }
 
     function fitFontPx(ctx, text, maxWidth, basePx, minPx, fontFamily) {
@@ -2714,6 +2947,7 @@
     async function init() {
       try {
         const loadToken = ++state.phasedLoadToken;
+        state.timeZone = getPreferredDashboardTimeZone();
         const restoredPersistedControls = restorePersistedControls();
         if (!restoredPersistedControls) {
           applyNarrowWindowDefaults();
