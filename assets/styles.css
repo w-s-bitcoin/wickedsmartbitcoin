@@ -608,6 +608,38 @@ body.slideshow-open.hide-cursor .slideshow * {
 .slideshow-start-btn:focus {
     background-color: rgba(247, 147, 26, 0.15);
 }
+
+/* ===========================
+   KEBAB → TIMEZONE SETTINGS
+   =========================== */
+.kebab-menu .timezone-row {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: 0.35rem 0.9rem 0.55rem;
+}
+.kebab-menu .timezone-row:hover,
+.kebab-menu .timezone-row:focus,
+.kebab-menu .timezone-row:focus-visible {
+    background-color: transparent !important;
+    box-shadow: none !important;
+}
+.menu-timezone-select {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.35);
+    color: var(--fg);
+    padding: 0.35rem 0.5rem;
+    font-size: 0.88rem;
+    font-family: monospace;
+    cursor: pointer;
+    outline: none;
+}
+.menu-timezone-select:focus {
+    border-color: var(--brand);
+}
 .slideshow-start-btn span:first-child {
     color: var(--brand);
 }

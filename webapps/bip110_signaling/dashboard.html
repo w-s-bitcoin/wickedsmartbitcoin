@@ -3027,6 +3027,15 @@
         window.addEventListener("pagehide", () => {
           removeModalDownloadButton();
         });
+
+        window.addEventListener("storage", (ev) => {
+          if (!DASHBOARD_TIME?.STORAGE_KEY || ev.key !== DASHBOARD_TIME.STORAGE_KEY) return;
+          const newTz = DASHBOARD_TIME.getPreferredTimeZone?.() || "UTC";
+          if (newTz !== state.timeZone) {
+            state.timeZone = newTz;
+            if (state.data) setStatus(state.data);
+          }
+        });
       } catch (err) {
         console.error(err);
         setPanelLoadersVisible(false);

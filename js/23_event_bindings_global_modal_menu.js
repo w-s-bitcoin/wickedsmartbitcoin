@@ -383,14 +383,48 @@ kebabBtn?.addEventListener('click', e => {
     kebabBtn.setAttribute('aria-expanded', String(nowOpen));
     if (nowOpen) {
         requestAnimationFrame(() => {
-            requestAnimationFrame(() => updateSlideDurationUI(false));
+            requestAnimationFrame(() => {
+                updateSlideDurationUI(false);
+                refreshMenuTimeZoneSelect();
+            });
         });
     }
 });
+function refreshMenuTimeZoneSelect() {
+    const sel = document.getElementById('menuTimeZoneSelect');
+    if (!sel || !window.WSBDashboardTime) return;
+    const current = window.WSBDashboardTime.getPreferredTimeZone();
+    const options = window.WSBDashboardTime.getTimeZoneOptions();
+    sel.innerHTML = '';
+    options.forEach(({ value, label }) => {
+        const opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = label;
+        if (value === current) opt.selected = true;
+        sel.appendChild(opt);
+    });
+}
+
+document.getElementById('menuTimeZoneSelect')?.addEventListener('change', e => {
+    if (!window.WSBDashboardTime) return;
+    window.WSBDashboardTime.setPreferredTimeZone(e.target.value);
+});
+
+window.addEventListener('storage', e => {
+    if (!window.WSBDashboardTime) return;
+    if (e.key !== window.WSBDashboardTime.STORAGE_KEY) return;
+    const sel = document.getElementById('menuTimeZoneSelect');
+    if (sel) sel.value = window.WSBDashboardTime.getPreferredTimeZone();
+});
+
 kebabMenu?.addEventListener('click', e => {
     const btn = e.target.closest('.menu-item');
     if (!btn) return;
     if (btn.classList.contains('slideshow-row') || btn.closest('.slideshow-row')) {
+        e.stopPropagation();
+        return;
+    }
+    if (btn.classList.contains('timezone-row') || btn.closest('.timezone-row')) {
         e.stopPropagation();
         return;
     }
