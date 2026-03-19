@@ -2232,6 +2232,13 @@
 
         const hostModalDlBtn = parentDoc.getElementById("modal-dl-btn");
         if (hostModalDlBtn && hostModalDlBtn.parentElement === modalControls) {
+          hostModalDlBtn.disabled = true;
+          hostModalDlBtn.classList.add("dashboard-download-disabled");
+          hostModalDlBtn.setAttribute("aria-label", "Download disabled");
+          hostModalDlBtn.title = "Download disabled";
+          hostModalDlBtn.onclick = (ev) => {
+            ev.preventDefault();
+          };
           // Host page already provides the modal download control.
           return true;
         }
@@ -2255,10 +2262,12 @@
         }
 
         modalDownloadBtn = btn;
-        modalDownloadBtn.disabled = topbar.classList.contains("ui-locked");
+        modalDownloadBtn.disabled = true;
+        modalDownloadBtn.classList.add("dashboard-download-disabled");
+        modalDownloadBtn.setAttribute("aria-label", "Download disabled");
+        modalDownloadBtn.title = "Download disabled";
         modalDownloadBtn.onclick = (ev) => {
           ev.preventDefault();
-          triggerFinalFrameDownload();
         };
         return true;
       } catch (_) {

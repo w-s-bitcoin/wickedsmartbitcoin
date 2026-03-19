@@ -203,8 +203,10 @@
     }
     if (modalDlBtn) {
       modalDlBtn.style.display = "";
-      modalDlBtn.setAttribute("aria-label", "Download image");
-      modalDlBtn.title = "Download image";
+      modalDlBtn.disabled = true;
+      modalDlBtn.classList.add("dashboard-download-disabled");
+      modalDlBtn.setAttribute("aria-label", "Download disabled");
+      modalDlBtn.title = "Download disabled";
     }
   }
 
@@ -312,11 +314,13 @@
   function bindEvents() {
     modalDlBtn?.addEventListener("click", (event) => {
       event.preventDefault();
+      if (modalDlBtn.disabled) return;
       downloadCurrentModalImage();
     });
     modalDlBtn?.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" && event.key !== " " && event.code !== "Space") return;
       event.preventDefault();
+      if (modalDlBtn.disabled) return;
       downloadCurrentModalImage();
     });
     youtubeLink?.addEventListener("click", (event) => {

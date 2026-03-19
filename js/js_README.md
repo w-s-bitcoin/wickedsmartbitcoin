@@ -9,6 +9,7 @@ Load order matters.
 - `view.html`: standalone visualization shell for local deep links
 - `404.html`: production standalone shell (GitHub Pages fallback for clean routes)
 - `bip110_signaling.html`: lean standalone bootstrap dedicated to BIP110 iframe startup
+- `node_count.html`: lean standalone bootstrap dedicated to Node Count iframe startup
 
 ### URL behavior
 
@@ -47,6 +48,7 @@ Use this exact order where the full app shell is loaded:
 Additional standalone-only file:
 
 24. `24_bip110_standalone_bootstrap.js` (used by `bip110_signaling.html` only)
+25. `26_node_count_standalone_bootstrap.js` (used by `node_count.html` only)
 
 ## Practical Mental Model
 

@@ -69,12 +69,15 @@ function openModalByIndex(index) {
     const modalType = String(image.modal_type || '').trim().toLowerCase();
     const fallbackEmbedPath = fname === 'bip110_signaling.png'
         ? '/webapps/bip110_signaling/dashboard.html'
-        : '';
+        : (fname === 'node_count.png' ? '/webapps/node_count/dashboard.html' : '');
     const embedPath = String(image.embed_url || '').trim() || fallbackEmbedPath;
     const shouldEmbed = modalType === 'embed' || !!embedPath;
     const embedUrl = shouldEmbed ? modalEmbedSrc(embedPath) : '';
     const isEmbed = !!embedUrl;
-    const isBip110Embed = isEmbed && fname === 'bip110_signaling.png';
+    const isStandaloneDashboardEmbed = isEmbed && (
+        fname === 'bip110_signaling.png' ||
+        fname === 'node_count.png'
+    );
     if (isEmbed) {
         modalContentMode = 'embed';
         hideModalSpinner();
@@ -95,9 +98,18 @@ function openModalByIndex(index) {
         modalImg.style.visibility = 'hidden';
         modalImg.style.transform = 'translate3d(-9999px,-9999px,0) scale(1)';
         if (modalDlBtn) {
-            modalDlBtn.style.display = isBip110Embed ? '' : 'none';
-            modalDlBtn.setAttribute('aria-label', 'Download image');
-            modalDlBtn.title = 'Download image';
+            modalDlBtn.style.display = isStandaloneDashboardEmbed ? '' : 'none';
+            if (isStandaloneDashboardEmbed) {
+                modalDlBtn.disabled = true;
+                modalDlBtn.classList.add('dashboard-download-disabled');
+                modalDlBtn.setAttribute('aria-label', 'Download disabled');
+                modalDlBtn.title = 'Download disabled';
+            } else {
+                modalDlBtn.disabled = false;
+                modalDlBtn.classList.remove('dashboard-download-disabled');
+                modalDlBtn.setAttribute('aria-label', 'Download image');
+                modalDlBtn.title = 'Download image';
+            }
         }
     } else {
         modalContentMode = 'image';
@@ -106,6 +118,8 @@ function openModalByIndex(index) {
         if (modalEmbed) modalEmbed.src = 'about:blank';
         if (modalDlBtn) {
             modalDlBtn.style.display = '';
+            modalDlBtn.disabled = false;
+            modalDlBtn.classList.remove('dashboard-download-disabled');
             modalDlBtn.setAttribute('aria-label', 'Download image');
             modalDlBtn.title = 'Download image';
         }

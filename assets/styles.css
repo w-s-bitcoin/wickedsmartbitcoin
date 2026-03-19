@@ -1046,6 +1046,28 @@ body.slideshow-open.hide-cursor .slideshow * {
     color: var(--brand);
 }
 
+#modal-dl-btn:disabled,
+#modal-bip110-dl-btn:disabled,
+.modal-controls .close-btn.dashboard-download-disabled {
+    color: #888 !important;
+    border-color: rgba(255, 255, 255, 0.18) !important;
+    background: rgba(0, 0, 0, 0.4) !important;
+    cursor: default !important;
+    opacity: 0.6 !important;
+}
+
+#modal-dl-btn:disabled:hover,
+#modal-dl-btn:disabled:focus-visible,
+#modal-bip110-dl-btn:disabled:hover,
+#modal-bip110-dl-btn:disabled:focus-visible,
+.modal-controls .close-btn.dashboard-download-disabled:hover,
+.modal-controls .close-btn.dashboard-download-disabled:focus-visible {
+    color: #888 !important;
+    border-color: rgba(255, 255, 255, 0.18) !important;
+    background: rgba(0, 0, 0, 0.4) !important;
+    outline: none;
+}
+
 /* ===========================
    MODAL BUTTONS (match slideshow style, smaller)
    =========================== */
