@@ -4,6 +4,28 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Node Count Dashboard</title>
+  <script>
+    (function () {
+      try {
+        if (window.self === window.top) return;
+        const minClearance = 30;
+        const extraGap = -4;
+        let clearance = minClearance;
+        try {
+          const controls = window.parent?.document?.querySelector('.modal-controls');
+          if (controls) {
+            clearance = Math.max(minClearance, Math.ceil(controls.getBoundingClientRect().height + extraGap));
+          }
+        } catch (_) {
+          clearance = minClearance;
+        }
+        const root = document.documentElement;
+        root.classList.add('embedded-in-modal');
+        root.style.setProperty('--modal-controls-clearance', `${clearance}px`);
+      } catch (_) {
+      }
+    }());
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -20,7 +42,7 @@
       --warn: #ff5d5d;
       --chip: transparent;
       --shadow: 0 14px 40px rgba(0, 0, 0, 0.35);
-      --modal-controls-clearance: 0px;
+      --modal-controls-clearance: 30px;
       --wrap-pad: clamp(8px, 1.4vw, 12px);
       --panel-resizer-width: 20px;
       --topbar-row-gap: 6px;
@@ -49,7 +71,8 @@
       grid-template-rows: auto 1fr;
     }
 
-    body.embedded-in-modal .wrap {
+    body.embedded-in-modal .wrap,
+    html.embedded-in-modal body .wrap {
       padding-top: calc(var(--wrap-pad) + var(--modal-controls-clearance));
     }
 
@@ -1334,6 +1357,7 @@
           clearance = minClearance;
         }
         root.style.setProperty('--modal-controls-clearance', `${clearance}px`);
+        root.classList.add('embedded-in-modal');
         document.body.classList.add('embedded-in-modal');
       };
 
