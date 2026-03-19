@@ -961,6 +961,47 @@
         font-size: 0.78rem;
       }
     }
+
+    .panel-loader {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 10px;
+      background: rgba(0, 0, 0, 0.72);
+      z-index: 2;
+      transition: opacity 180ms ease, visibility 0ms linear 180ms;
+      opacity: 1;
+      visibility: visible;
+      pointer-events: none;
+    }
+
+    .panel-loader.hidden {
+      opacity: 0;
+      visibility: hidden;
+    }
+
+    .panel-loader .circle {
+      width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      border: 3px solid rgba(255, 255, 255, 0.2);
+      border-top-color: var(--accent);
+      animation: spin 850ms linear infinite;
+    }
+
+    .panel-loader .label {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.78rem;
+      color: #d6e1e6;
+      letter-spacing: 0.01em;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
   </style>
 </head>
 <body>
@@ -1035,6 +1076,10 @@
         <div class="history-legend" id="historyLegend" hidden>
           <div class="history-legend-list" id="historyLegendList"></div>
         </div>
+        <div class="panel-loader" id="historyLoader" aria-live="polite" aria-label="Loading node count chart">
+          <div class="circle" aria-hidden="true"></div>
+          <div class="label">Loading node count...</div>
+        </div>
         <div id="historyChart" class="chart"></div>
         <button type="button" class="panel-resize-handle" id="historyResizeHandle" aria-label="Resize Node Count chart height"></button>
       </article>
@@ -1046,6 +1091,10 @@
           <h2 class="panel-title">Top Node Software Versions</h2>
           <p class="panel-sub">Current distribution snapshot</p>
         </header>
+        <div class="panel-loader" id="softwareLoader" aria-live="polite" aria-label="Loading software versions">
+          <div class="circle" aria-hidden="true"></div>
+          <div class="label">Loading software versions...</div>
+        </div>
         <div id="softwareChart" class="chart"></div>
         <div class="software-resizer" id="softwareResizer" role="separator" aria-orientation="horizontal" aria-label="Resize software chart and table" tabindex="0"></div>
         <div class="list-wrap">
@@ -1214,6 +1263,45 @@
       const second = await fetch(fallback, { cache: 'no-store' });
       if (!second.ok) throw new Error(`Failed to load ${fallback} (${second.status})`);
       return second.text();
+    }
+
+    function sanitizeHistoryRows(rows) {
+      if (!Array.isArray(rows) || !rows.length) return [];
+
+      const cleaned = rows.filter((r) => {
+        const t = new Date(r.datetime).getTime();
+        return Number.isFinite(t);
+      });
+      if (cleaned.length < 3) return cleaned;
+
+      const badIndexes = new Set();
+      const totals = cleaned.map((r) => num(r.total_count));
+
+      for (let i = 0; i < totals.length; i += 1) {
+        if (!Number.isFinite(totals[i]) || totals[i] <= 0) {
+          badIndexes.add(i);
+        }
+      }
+
+      for (let i = 1; i < totals.length - 1; i += 1) {
+        if (badIndexes.has(i)) continue;
+        const prev = totals[i - 1];
+        const curr = totals[i];
+        const next = totals[i + 1];
+        if (!(prev > 0 && curr > 0 && next > 0)) continue;
+
+        const neighborLow = Math.min(prev, next);
+        const neighborHigh = Math.max(prev, next);
+        const neighborsAreClose = neighborLow > 0 && (neighborHigh / neighborLow) <= 1.25;
+        const severeIsolatedDip = curr < (neighborLow * 0.72);
+
+        if (neighborsAreClose && severeIsolatedDip) {
+          badIndexes.add(i);
+        }
+      }
+
+      if (!badIndexes.size) return cleaned;
+      return cleaned.filter((_, idx) => !badIndexes.has(idx));
     }
 
     function getEmbedState() {
@@ -1919,7 +2007,14 @@
       legend.style.maxHeight = `${legendHeight}px`;
     }
 
+    function setPanelLoaderVisible(panelKey, visible) {
+      const loader = panelKey === 'history' ? document.getElementById('historyLoader') : document.getElementById('softwareLoader');
+      if (!loader) return;
+      loader.classList.toggle('hidden', !visible);
+    }
+
     function renderHistoryChart(options = {}) {
+      setPanelLoaderVisible('history', true);
       const preserveViewport = Boolean(options.preserveViewport);
       const fitVisibleAllRange = Boolean(options.fitVisibleAllRange);
       const historyChartEl = document.getElementById('historyChart');
@@ -2113,9 +2208,11 @@
       const first = rows[0] ? new Date(rows[0].datetime).toISOString().slice(0, 10) : '-';
       const last = rows[rows.length - 1] ? new Date(rows[rows.length - 1].datetime).toISOString().slice(0, 10) : '-';
       document.getElementById('rangeSummary').textContent = `${first} to ${last}`;
+      requestAnimationFrame(() => setPanelLoaderVisible('history', false));
     }
 
     function renderSoftwarePanel() {
+      setPanelLoaderVisible('software', true);
       const topN = Number(document.getElementById('topNInput').value);
       document.getElementById('topNLabel').textContent = String(topN);
 
@@ -2261,6 +2358,8 @@
           renderSoftwarePanel();
         });
       });
+
+      requestAnimationFrame(() => setPanelLoaderVisible('software', false));
     }
 
     function setLastUpdated() {
@@ -2670,19 +2769,23 @@
 
     async function init() {
       applyEmbeddedModalLayout();
+      setPanelLoaderVisible('history', true);
+      setPanelLoaderVisible('software', true);
       try {
         const [historyCsv, softwareCsv, refreshedAtRaw] = await Promise.all([
-          fetchTextWithFallback('webapp_data/bitcoin_node_history.csv', '../../assets/bitcoin_node_history.csv'),
-          fetchTextWithFallback('webapp_data/node_software_counts_grouped.csv', '../../assets/node_software_counts_grouped.csv'),
+          fetchTextWithFallback('webapp_data/bitcoin_node_history.csv'),
+          fetchTextWithFallback('webapp_data/node_software_counts_grouped.csv'),
           fetchTextWithFallback('webapp_data/last_updated.txt', '../../assets/last_updated.txt').catch(() => ''),
         ]);
 
         state.refreshedAtText = String(refreshedAtRaw || '').trim();
 
-        state.history = parseCsv(historyCsv).map((r) => ({
-          ...r,
-          datetime: r.datetime || (r.timestamp ? new Date(num(r.timestamp) * 1000).toISOString() : ''),
-        })).filter((r) => !!r.datetime);
+        state.history = sanitizeHistoryRows(
+          parseCsv(historyCsv).map((r) => ({
+            ...r,
+            datetime: r.datetime || (r.timestamp ? new Date(num(r.timestamp) * 1000).toISOString() : ''),
+          })).filter((r) => !!r.datetime)
+        );
 
         state.software = parseCsv(softwareCsv);
 
