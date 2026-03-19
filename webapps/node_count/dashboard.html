@@ -1920,7 +1920,7 @@
       document.getElementById('kpiTotal').textContent = `Total ${fmtInt(total)}`;
       document.getElementById('kpiUnreachable').textContent = `Non-listening ${fmtInt(unreachable)}`;
       document.getElementById('kpiListening').textContent = `Listening ${fmtInt(listening)}`;
-      document.getElementById('kpiKnots').textContent = `Knots ${fmtInt(knots)}`;
+      document.getElementById('kpiKnots').textContent = `Knots ${fmtInt(Math.max(0, knots - bip110))}`;
       document.getElementById('kpiCore30').textContent = `Core v30 ${fmtInt(core30)}`;
       document.getElementById('kpiBip110').textContent = `BIP-110 ${fmtInt(bip110)}`;
     }
