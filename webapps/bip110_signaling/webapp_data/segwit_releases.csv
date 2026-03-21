@@ -1,20 +1,44 @@
 label,display_label,height,period,y_in_period,label_dy,label_anchor,release_time_utc,github_url
-Core:v0.13.2,Core\nv0.13.2,446394,4,858,55,above,2017-01-03 10:48 UTC,https://github.com/bitcoin/bitcoin/releases/tag/v0.13.2
-UASF:v0.14.0rc1,UASF\nv0.14.0rc1,453516,7,1932,-55,below,2017-02-17 20:59 UTC,https://github.com/UASF/bitcoin/releases/tag/v0.14.0rc1
-UASF:v0.14.0rc2,UASF\nv0.14.0rc2,454369,8,769,55,above,2017-02-23 20:41 UTC,https://github.com/UASF/bitcoin/releases/tag/v0.14.0rc2
-UASF:v0.14.0rc3,UASF\nv0.14.0rc3,455127,8,1527,55,above,2017-02-28 12:56 UTC,https://github.com/UASF/bitcoin/releases/tag/v0.14.0rc3
-UASF:v0.14.0,UASF\nv0.14.0,455898,9,282,-55,below,2017-03-07 10:52 UTC,https://github.com/UASF/bitcoin/releases/tag/v0.14.0
-Core:v0.14.0,Core\nv0.14.0,456321,9,705,55,above,2017-03-08 15:20 UTC,https://github.com/bitcoin/bitcoin/releases/tag/v0.14.0
-UASF:v0.14.0.uasfsegwit,UASF\nv0.14.0.\nuasfsegwit,458942,10,1310,55,above,2017-03-26 16:03 UTC,https://github.com/UASF/bitcoin/releases/tag/v0.14.0.uasfsegwit
-UASF:v0.14.0.uasfsegwit1.1,UASF\nv0.14.0.\nuasfsegwit1.1,459354,10,1722,55,above,2017-03-28 16:04 UTC,https://github.com/UASF/bitcoin/releases/tag/v0.14.0.uasfsegwit1.1
-UASF:v0.14.1rc1,UASF\nv0.14.1rc1,460476,11,828,55,above,2017-04-05 07:20 UTC,https://github.com/UASF/bitcoin/releases/tag/v0.14.1rc1
-UASF:v0.14.0.uasfsegwit3,UASF\nv0.14.0.\nuasfsegwit3,460819,11,1171,55,above,2017-04-07 14:32 UTC,https://github.com/UASF/bitcoin/releases/tag/v0.14.0.uasfsegwit3
-UASF:v0.14.0-uasfsegwit0.3,UASF\nv0.14.0-\nuasfsegwit0.3,461313,11,1665,55,above,2017-04-07 14:35 UTC,https://github.com/UASF/bitcoin/releases/tag/v0.14.0-uasfsegwit0.3
-UASF:v0.14.1rc2,UASF\nv0.14.1rc2,461829,12,165,55,above,2017-04-14 10:50 UTC,https://github.com/UASF/bitcoin/releases/tag/v0.14.1rc2
-UASF:v0.14.1,UASF\nv0.14.1,462686,12,1022,55,above,2017-04-20 19:45 UTC,https://github.com/UASF/bitcoin/releases/tag/v0.14.1
-Core:v0.14.1,Core\nv0.14.1,463012,12,1348,55,above,2017-04-22 14:19 UTC,https://github.com/bitcoin/bitcoin/releases/tag/v0.14.1
-UASF:v0.14.2rc1,UASF\nv0.14.2rc1,469196,15,1484,55,above,2017-06-01 20:03 UTC,https://github.com/UASF/bitcoin/releases/tag/v0.14.2rc1
-UASF:v0.14.2rc2,UASF\nv0.14.2rc2,470056,16,328,-55,below,2017-06-06 14:46 UTC,https://github.com/UASF/bitcoin/releases/tag/v0.14.2rc2
-UASF:v0.14.2,UASF\nv0.14.2,471370,16,1642,55,above,2017-06-15 12:08 UTC,https://github.com/UASF/bitcoin/releases/tag/v0.14.2
-UASF:v0.14.2-uasfsegwit1.0,UASF\nv0.14.2-\nuasfsegwit1.0,474864,18,1104,55,above,2017-07-10 16:29 UTC,https://github.com/UASF/bitcoin/releases/tag/v0.14.2-uasfsegwit1.0
-SegWit2x:v1.14.4,SegWit2x\nv1.14.4,476738,19,962,55,above,2017-07-17 22:48 UTC,https://github.com/btc1/bitcoin/releases/tag/v1.14.4
+Core:v0.13.2,"Core
+v0.13.2",446394,4,858,55,above,,https://github.com/bitcoin/bitcoin/releases/tag/v0.13.2
+UASF:v0.14.0rc1,"UASF
+v0.14.0rc1",453516,7,1932,-55,below,,https://github.com/UASF/bitcoin/releases/tag/v0.14.0rc1
+UASF:v0.14.0rc2,"UASF
+v0.14.0rc2",454369,8,769,55,above,,https://github.com/UASF/bitcoin/releases/tag/v0.14.0rc2
+UASF:v0.14.0rc3,"UASF
+v0.14.0rc3",455127,8,1527,55,above,,https://github.com/UASF/bitcoin/releases/tag/v0.14.0rc3
+UASF:v0.14.0,"UASF
+v0.14.0",455898,9,282,-55,below,,https://github.com/UASF/bitcoin/releases/tag/v0.14.0
+Core:v0.14.0,"Core
+v0.14.0",456321,9,705,55,above,,https://github.com/bitcoin/bitcoin/releases/tag/v0.14.0
+UASF:v0.14.0.uasfsegwit,"UASF
+v0.14.0.
+uasfsegwit",458942,10,1310,55,above,,https://github.com/UASF/bitcoin/releases/tag/v0.14.0.uasfsegwit
+UASF:v0.14.0.uasfsegwit1.1,"UASF
+v0.14.0.
+uasfsegwit1.1",459354,10,1722,55,above,,https://github.com/UASF/bitcoin/releases/tag/v0.14.0.uasfsegwit1.1
+UASF:v0.14.1rc1,"UASF
+v0.14.1rc1",460476,11,828,55,above,,https://github.com/UASF/bitcoin/releases/tag/v0.14.1rc1
+UASF:v0.14.0.uasfsegwit3,"UASF
+v0.14.0.
+uasfsegwit3",460819,11,1171,55,above,,https://github.com/UASF/bitcoin/releases/tag/v0.14.0.uasfsegwit3
+UASF:v0.14.0-uasfsegwit0.3,"UASF
+v0.14.0-
+uasfsegwit0.3",461313,11,1665,55,above,,https://github.com/UASF/bitcoin/releases/tag/v0.14.0-uasfsegwit0.3
+UASF:v0.14.1rc2,"UASF
+v0.14.1rc2",461829,12,165,55,above,,https://github.com/UASF/bitcoin/releases/tag/v0.14.1rc2
+UASF:v0.14.1,"UASF
+v0.14.1",462686,12,1022,55,above,,https://github.com/UASF/bitcoin/releases/tag/v0.14.1
+Core:v0.14.1,"Core
+v0.14.1",463012,12,1348,55,above,,https://github.com/bitcoin/bitcoin/releases/tag/v0.14.1
+UASF:v0.14.2rc1,"UASF
+v0.14.2rc1",469196,15,1484,55,above,,https://github.com/UASF/bitcoin/releases/tag/v0.14.2rc1
+UASF:v0.14.2rc2,"UASF
+v0.14.2rc2",470056,16,328,-55,below,,https://github.com/UASF/bitcoin/releases/tag/v0.14.2rc2
+UASF:v0.14.2,"UASF
+v0.14.2",471370,16,1642,55,above,,https://github.com/UASF/bitcoin/releases/tag/v0.14.2
+UASF:v0.14.2-uasfsegwit1.0,"UASF
+v0.14.2-
+uasfsegwit1.0",474864,18,1104,55,above,,https://github.com/UASF/bitcoin/releases/tag/v0.14.2-uasfsegwit1.0
+SegWit2x:v1.14.4,"SegWit2x
+v1.14.4",476738,19,962,55,above,,https://github.com/btc1/bitcoin/releases/tag/v1.14.4

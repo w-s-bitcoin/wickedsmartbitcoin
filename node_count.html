@@ -127,11 +127,51 @@
       const buyCoffeeCloseBtn = document.getElementById('buyCoffeeCloseBtn');
       const buyCoffeeImg = document.getElementById('buyCoffeeImg');
       const buyCoffeeMethodBtns = Array.from(document.querySelectorAll('.buy-coffee-method-btn'));
+      const DASHBOARD_TZ_STORAGE_KEY = 'wicked_dashboard_timezone_v1';
+
+      function getSelectedDashboardTimeZone() {
+        try {
+          const raw = String(localStorage.getItem(DASHBOARD_TZ_STORAGE_KEY) || '').trim();
+          if (!raw) return 'UTC';
+          Intl.DateTimeFormat('en-US', { timeZone: raw }).format(new Date());
+          return raw;
+        } catch (_) {
+          return 'UTC';
+        }
+      }
+
+      function getHourInTimeZone(timeZone, now = new Date()) {
+        try {
+          const parts = new Intl.DateTimeFormat('en-US', {
+            timeZone,
+            hour: '2-digit',
+            hour12: false
+          }).formatToParts(now);
+          const hourPart = parts.find((part) => part.type === 'hour');
+          const hour = Number(hourPart && hourPart.value);
+          if (Number.isFinite(hour)) return hour;
+        } catch (_) {
+        }
+        return now.getHours();
+      }
 
       function isBeerTime() {
         const now = new Date();
-        const hour = now.getHours();
+        const hour = getHourInTimeZone(getSelectedDashboardTimeZone(), now);
         return hour >= 17 || hour < 3;
+      }
+
+      function updateBuyMeButton() {
+        const icon = document.getElementById('buyCoffeeIcon');
+        const text = document.getElementById('buyCoffeeText');
+        if (!icon || !text) return;
+        if (isBeerTime()) {
+          icon.textContent = '🍺';
+          text.textContent = 'Buy me a beer';
+        } else {
+          icon.textContent = '☕';
+          text.textContent = 'Buy me a coffee';
+        }
       }
 
       function getImageOrientation() {
@@ -192,6 +232,7 @@
 
       function openBuyCoffeeOverlay() {
         if (!buyCoffeeOverlay) return;
+        updateBuyMeButton();
         const activeBtn = document.querySelector('.buy-coffee-method-btn.active');
         updateBuyCoffeeImage((activeBtn && activeBtn.getAttribute('data-method')) || 'lightning');
         buyCoffeeOverlay.style.display = 'flex';
@@ -324,8 +365,22 @@
         }
       });
 
+      function handleDonationTimeZoneChanged() {
+        updateBuyMeButton();
+        const activeBtn = document.querySelector('.buy-coffee-method-btn.active');
+        if (activeBtn && buyCoffeeOverlay && buyCoffeeOverlay.style.display === 'flex') {
+          updateBuyCoffeeImage(activeBtn.getAttribute('data-method') || 'lightning');
+        }
+      }
+
       updateBuyMeButtonLayout();
+      updateBuyMeButton();
       updateBuyCoffeeImage('lightning');
+      setInterval(updateBuyMeButton, 5 * 60 * 1000);
+      window.addEventListener('storage', (e) => {
+        if (e.key !== DASHBOARD_TZ_STORAGE_KEY) return;
+        handleDonationTimeZoneChanged();
+      });
     </script>
     <script src="js/26_node_count_standalone_bootstrap.js" defer></script>
   </body>

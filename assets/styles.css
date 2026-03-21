@@ -243,6 +243,102 @@ footer {
     opacity: 1;
 }
 
+.home-bip110-kpis {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: nowrap;
+    margin: 0.5rem 0 1.25rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0 0.25rem;
+}
+
+.home-bip110-kpis .chip {
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: #000;
+    border-radius: 999px;
+    padding: 5px 9px;
+    font-size: 0.8rem;
+    color: #d6e1e6;
+    font-family: "IBM Plex Mono", monospace;
+    white-space: nowrap;
+    flex: 0 0 auto;
+}
+
+.home-bip110-kpis .chip-kpi-display {
+    display: inline-flex;
+    align-items: center;
+    padding-right: 24px;
+    transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+    position: relative;
+}
+
+.home-bip110-kpis .chip-menu-select {
+    width: auto;
+    max-width: min(78vw, 560px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.4);
+    color: var(--fg);
+    padding: 5px 28px 5px 9px;
+    font: inherit;
+    font-size: 0.8rem;
+    cursor: pointer;
+    text-overflow: ellipsis;
+}
+
+.home-bip110-kpis .chip-menu-wrap.single-select {
+    position: relative;
+    display: inline-block;
+    flex: 0 0 auto;
+}
+
+.home-bip110-kpis .chip-menu-wrap.single-select::after {
+    content: "▼";
+    position: absolute;
+    right: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.7rem;
+    opacity: 0.75;
+    pointer-events: none;
+    color: #d6e1e6;
+}
+
+.home-bip110-kpis .chip-kpi-select-overlay {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+    border: 0;
+    appearance: none;
+    -webkit-appearance: none;
+    font-size: 16px;
+}
+
+.home-bip110-kpis .chip-menu-wrap.single-select:hover .chip-kpi-display,
+.home-bip110-kpis .chip-menu-wrap.single-select:focus-within .chip-kpi-display {
+    color: #ff9800;
+    border-color: rgba(255, 152, 0, 0.55);
+    background: rgba(255, 152, 0, 0.08);
+    outline: none;
+}
+
+.home-bip110-kpis .chip-menu-wrap.single-select:hover::after,
+.home-bip110-kpis .chip-menu-wrap.single-select:focus-within::after {
+    color: #ff9800;
+}
+
+@media (max-width: 640px) {
+    .home-bip110-kpis {
+        margin: 0.35rem 0 1rem;
+    }
+}
+
 /* ===========================
     SITE MENU (top-right kebab)
     =========================== */

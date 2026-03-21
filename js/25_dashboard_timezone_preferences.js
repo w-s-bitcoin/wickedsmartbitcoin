@@ -1,5 +1,6 @@
 (function initDashboardTimezonePreferences(globalScope) {
   const STORAGE_KEY = "wicked_dashboard_timezone_v1";
+  const CHANGE_EVENT = "wsb:timezonechange";
   const FALLBACK_TIME_ZONE = "UTC";
   const CURATED_TIME_ZONES = [
     { value: "UTC", label: "UTC - Greenwich Mean Time (GMT)" },
@@ -176,6 +177,15 @@
     } catch (_) {
       // Ignore storage failures so dashboards still work in restricted modes.
     }
+    try {
+      globalScope.dispatchEvent(
+        new CustomEvent(CHANGE_EVENT, {
+          detail: { timeZone: normalized },
+        })
+      );
+    } catch (_) {
+      // Ignore event dispatch errors.
+    }
     return normalized;
   }
 
@@ -219,6 +229,7 @@
 
   globalScope.WSBDashboardTime = {
     STORAGE_KEY,
+    CHANGE_EVENT,
     FALLBACK_TIME_ZONE,
     getBrowserTimeZone,
     getPreferredTimeZone,

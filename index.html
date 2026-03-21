@@ -175,6 +175,13 @@
                 <input id="search-input" class="search-input" type="text" placeholder="Search..." oninput="filterImages()" />
             </div>
         </div>
+        <div class="home-bip110-kpis" id="homeBip110Kpis" aria-live="polite">
+            <div class="chip-menu-wrap single-select">
+                <div class="chip chip-kpi-display" id="homeBip110UpdatedKpi">n/a</div>
+                <select class="chip-menu-select chip-kpi-select-overlay" id="homeKpiTimeZoneSelect" aria-label="Homepage date and time time zone"></select>
+            </div>
+            <div class="chip" id="homeBip110HeightKpi">Height n/a</div>
+        </div>
         <div class="image-grid grid" id="image-grid"></div>
         <div id="no-favorites-message" style="display: none; color: #ccc; font-size: 1.2rem; margin-top: 2rem">No starred visualizations.</div>
         <div class="modal" id="modal">
@@ -451,6 +458,7 @@
         <script src="js/20_buy_me_button_thanks_overlay.js" defer></script>
         <script src="js/21_slideshow_core_ui_fullscreen.js" defer></script>
         <script src="js/25_dashboard_timezone_preferences.js" defer></script>
+        <script src="js/27_homepage_kpis.js" defer></script>
         <script src="js/22_bootstrap_fetch_init_global_exports.js" defer></script>
         <script src="js/23_event_bindings_global_modal_menu.js" defer></script>
     </body>

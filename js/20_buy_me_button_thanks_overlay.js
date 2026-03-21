@@ -4,9 +4,38 @@
 const DONATION_LIGHTNING = 'wicked@getalby.com';
 const DONATION_LIQUID = 'VJLDEF7n8TBjyJY2BaAgeVvzPSRMJ7VAP5opW9mB5A7ChyiKHnaguTugZNznxNiV2ZDyPxJyQoeZ2KhM';
 const DONATION_ONCHAIN = 'bc1q8mql8fucypd3dllkawqafytmrnwtv77gzxy346';
+const DASHBOARD_TZ_STORAGE_KEY = 'wicked_dashboard_timezone_v1';
+const DASHBOARD_TZ_CHANGE_EVENT = 'wsb:timezonechange';
+function getSelectedDashboardTimeZone() {
+    const api = window.WSBDashboardTime;
+    if (api && typeof api.getPreferredTimeZone === 'function') {
+        return api.getPreferredTimeZone();
+    }
+    try {
+        const raw = String(localStorage.getItem(DASHBOARD_TZ_STORAGE_KEY) || '').trim();
+        if (!raw) return 'UTC';
+        Intl.DateTimeFormat('en-US', { timeZone: raw }).format(new Date());
+        return raw;
+    } catch (_) {
+        return 'UTC';
+    }
+}
+function getHourInTimeZone(timeZone, now = new Date()) {
+    try {
+        const parts = new Intl.DateTimeFormat('en-US', {
+            timeZone,
+            hour: '2-digit',
+            hour12: false
+        }).formatToParts(now);
+        const hourPart = parts.find(p => p.type === 'hour');
+        const hour = Number(hourPart?.value);
+        if (Number.isFinite(hour)) return hour;
+    } catch (_) {}
+    return now.getHours();
+}
 function isBeerTime() {
     const now = new Date();
-    const hour = now.getHours();
+    const hour = getHourInTimeZone(getSelectedDashboardTimeZone(), now);
     return hour >= 17 || hour < 3;
 }
 function onThanksKeydown(e) {
@@ -418,7 +447,7 @@ function updateBuyMeButton() {
     const icon = document.getElementById("buyCoffeeIcon");
     const text = document.getElementById("buyCoffeeText");
     if (!icon || !text) return;
-    const hour = new Date().getHours();
+    const hour = getHourInTimeZone(getSelectedDashboardTimeZone(), new Date());
     const isBeerTimeNow = (hour >= 17 || hour < 3);
     if (isBeerTimeNow) {
         icon.textContent = "🍺";
@@ -429,12 +458,24 @@ function updateBuyMeButton() {
     }
     preloadThanksImagesIfNeeded(false);
 }
+function handleDonationTimeZoneChanged() {
+        updateBuyMeButton();
+        if (!isBuyMeVisible || !thanksOverlay) return;
+        const method = getStoredBuyCoffeeMethod();
+        updateThanksOverlayImageForMethod(method);
+        positionThanksMethodButtonsForOrientation();
+}
 document.addEventListener("DOMContentLoaded", () => {
   updateBuyMeButton();
   preloadThanksImagesIfNeeded(true);
   preloadAllThanksImagesOnce();
 });
 setInterval(updateBuyMeButton, 5 * 60 * 1000);
+window.addEventListener(DASHBOARD_TZ_CHANGE_EVENT, handleDonationTimeZoneChanged);
+window.addEventListener('storage', e => {
+        if (e.key !== DASHBOARD_TZ_STORAGE_KEY) return;
+        handleDonationTimeZoneChanged();
+});
 function updateBuyMeButtonLayout() {
     const btn = document.getElementById("buyCoffeeBtn");
     if (!btn) return;

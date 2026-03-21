@@ -9,6 +9,8 @@ bip110:v0.1rc3,"BIP110
 v0.1rc3",932870,3,1478,55,above,2025-12-10 13:27 UTC,https://github.com/dathonohm/bitcoin/releases/tag/v29.2.knots20251110%2Bbip110-v0.1rc1,v29.2.knots20251110+bip110-v0.1rc1
 bip110:v0.1,"BIP110
 v0.1",934109,4,701,55,above,2025-12-10 13:27 UTC,https://github.com/dathonohm/bitcoin/releases/tag/v29.2.knots20251110%2Bbip110-v0.1rc1,v29.2.knots20251110+bip110-v0.1rc1
+core:v29.3,"Core
+v29.3",936041,5,617,55,above,2026-02-11 11:04 UTC,https://github.com/bitcoin/bitcoin/releases/tag/v29.3,v29.3
 bip110:v0.2,"BIP110
 v0.2",936315,5,891,55,above,2026-02-13 02:55 UTC,https://github.com/dathonohm/bitcoin/releases/tag/v29.3.knots20260210%2Bbip110-v0.2,v29.3.knots20260210+bip110-v0.2
 bip110:v0.3,"BIP110
