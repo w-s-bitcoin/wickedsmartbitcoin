@@ -75,7 +75,7 @@ function openModalByIndex(index) {
         ? '/webapps/bip110_signaling/dashboard.html'
         : (fname === 'node_count.png'
             ? '/webapps/node_count/dashboard.html'
-            : (isDominanceFile(fname) ? '/webapps/bitcoin_dominance/dashboard.html' : ''));
+            : (fname === `${DOM_BASE}.png` ? '/webapps/bitcoin_dominance/dashboard.html' : ''));
     const embedPath = String(image.embed_url || '').trim() || fallbackEmbedPath;
     const shouldEmbed = modalType === 'embed' || !!embedPath;
     const embedUrl = shouldEmbed ? modalEmbedSrc(embedPath) : '';
@@ -83,7 +83,7 @@ function openModalByIndex(index) {
     const isStandaloneDashboardEmbed = isEmbed && (
         fname === 'bip110_signaling.png' ||
         fname === 'node_count.png' ||
-        isDominanceFile(fname)
+        fname === `${DOM_BASE}.png`
     );
     if (isEmbed) {
         modalContentMode = 'embed';

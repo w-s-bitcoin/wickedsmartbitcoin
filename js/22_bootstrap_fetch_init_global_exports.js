@@ -2,6 +2,90 @@
  * BOOTSTRAP (fetch + init + global exports)
  * =========================== */
 
+const HOMEPAGE_DASHBOARD_TIME = window.WSBDashboardTime || null;
+const HOMEPAGE_TZ_STORAGE_KEY = HOMEPAGE_DASHBOARD_TIME?.STORAGE_KEY || "wicked_dashboard_timezone_v1";
+const HOMEPAGE_TZ_CHANGE_EVENT = HOMEPAGE_DASHBOARD_TIME?.CHANGE_EVENT || "wsb:timezonechange";
+const LAST_UPDATED_PREFIX = "Last updated:";
+
+function extractUtcStampFromLastUpdatedText(text) {
+    const raw = String(text || "").trim();
+    if (!raw) return "";
+    const withoutPrefix = raw
+        .replace(/^last\s+updated(?:\s+on)?\s*:?\s*/i, "")
+        .trim();
+    if (!withoutPrefix) return "";
+
+    // Already ISO with timezone suffix.
+    if (/Z$|[+-]\d{2}:?\d{2}$/i.test(withoutPrefix)) {
+        return withoutPrefix;
+    }
+
+    // Explicit UTC text such as:
+    // - "2026-03-22 17:15 UTC"
+    // - "March 22, 2026 at 17:15 UTC"
+    if (/\bUTC$/i.test(withoutPrefix)) {
+        const body = withoutPrefix.replace(/\s+UTC$/i, "").trim();
+        const isoLikeMatch = body.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?)$/);
+        if (isoLikeMatch) {
+            return `${isoLikeMatch[1]}T${isoLikeMatch[2]}Z`;
+        }
+        const parsedUtc = new Date(`${body.replace(/\s+at\s+/i, " ")} UTC`);
+        if (!Number.isNaN(parsedUtc.getTime())) {
+            return parsedUtc.toISOString();
+        }
+    }
+
+    // Fallback: if parseable, normalize to ISO; otherwise return empty so caller can skip.
+    const parsed = new Date(withoutPrefix);
+    if (!Number.isNaN(parsed.getTime())) {
+        return parsed.toISOString();
+    }
+    return "";
+}
+
+function formatLastUpdatedForPreferredTimeZone(utcStamp) {
+    const normalizedStamp = String(utcStamp || "").trim();
+    if (!normalizedStamp) return `${LAST_UPDATED_PREFIX} -`;
+
+    const preferredTimeZone = HOMEPAGE_DASHBOARD_TIME?.getPreferredTimeZone?.() || "UTC";
+    const formatted = HOMEPAGE_DASHBOARD_TIME?.formatUtcTimestamp
+        ? HOMEPAGE_DASHBOARD_TIME.formatUtcTimestamp(normalizedStamp, preferredTimeZone).text
+        : normalizedStamp;
+    return `${LAST_UPDATED_PREFIX} ${normalizeTimeZoneSuffixForFooter(formatted)}`;
+}
+
+function normalizeTimeZoneSuffixForFooter(text) {
+    const value = String(text || "").trim();
+    if (!value) return value;
+    if (/\([^)]*\)\s*$/i.test(value)) return value;
+
+    const match = value.match(/^(.*\s)([A-Z]{2,6}|UTC|GMT(?:[+-]\d{1,2}(?::\d{2})?)?)$/i);
+    if (!match) return value;
+    const prefix = String(match[1] || "").trimEnd();
+    const zone = String(match[2] || "").trim();
+    if (!zone) return value;
+    return `${prefix} (${zone})`;
+}
+
+function renderHomepageLastUpdated(utcStamp) {
+    const el = document.getElementById("last-updated");
+    if (!el) return;
+    el.textContent = formatLastUpdatedForPreferredTimeZone(utcStamp);
+}
+
+function rerenderHomepageLastUpdatedForTimeZoneChange() {
+    if (homepageLastUpdatedStamp) {
+        renderHomepageLastUpdated(homepageLastUpdatedStamp);
+        return;
+    }
+    const el = document.getElementById("last-updated");
+    if (!el) return;
+    const parsedStamp = extractUtcStampFromLastUpdatedText(el.textContent || "");
+    if (!parsedStamp) return;
+    homepageLastUpdatedStamp = parsedStamp;
+    renderHomepageLastUpdated(homepageLastUpdatedStamp);
+}
+
 function updateLastUpdatedStamp() {
     const el = document.getElementById("last-updated");
     if (!el) return Promise.resolve("");
@@ -14,8 +98,10 @@ function updateLastUpdatedStamp() {
         .then((text) => {
             const t = String(text || "").trim();
             if (!t) return "";
-            el.textContent = t;
-            return t;
+            const utcStamp = extractUtcStampFromLastUpdatedText(t);
+            if (!utcStamp) return "";
+            renderHomepageLastUpdated(utcStamp);
+            return utcStamp;
         })
         .catch(() => "");
 }
@@ -87,6 +173,15 @@ async function refreshHomepageLastUpdatedStamp() {
 refreshHomepageLastUpdatedStamp();
 setupHomepageRefreshWakeEvents();
 startHomepageAutoRefresh();
+
+window.addEventListener(HOMEPAGE_TZ_CHANGE_EVENT, () => {
+    rerenderHomepageLastUpdatedForTimeZoneChange();
+});
+
+window.addEventListener("storage", (event) => {
+    if (event.key !== HOMEPAGE_TZ_STORAGE_KEY) return;
+    rerenderHomepageLastUpdatedForTimeZoneChange();
+});
 
 function syncModalToUrl() {
   if (!Array.isArray(imageList) || imageList.length === 0) return;
@@ -174,9 +269,6 @@ fetch(IMAGE_LIST_URL)
         populateBtcmapsSelect();
         const standaloneShell = isStandaloneModalShell();
         let initialFilename = getImageNameFromPath();
-        if (initialFilename && isDominanceFile(initialFilename)) {
-            initialFilename = `${DOM_BASE}.png`;
-        }
         if (standaloneShell && !initialFilename) {
             window.location.replace((getPageBasePath() || '') + '/');
             return;

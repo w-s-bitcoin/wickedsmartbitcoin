@@ -35,17 +35,16 @@ Use this exact order where the full app shell is loaded:
 10. `09_module_bitcoin_vs_gold_bvg.js`
 11. `10_module_days_at_a_loss_dal.js`
 12. `11_module_price_on_this_day_potd.js`
-13. `12_module_dominance_usd_btc.js`
-14. `13_module_never_look_back_price_nlbp.js`
-15. `14_module_target_block_hashes_length_32_64.js`
-16. `15_module_halving_view.js`
-17. `16_module_price_of_price_of.js`
-18. `17_module_unit_of_account_uoa.js`
-19. `19_module_monthly_yearly_returns_myr.js`
-20. `20_buy_me_button_thanks_overlay.js`
-21. `21_slideshow_core_ui_fullscreen.js`
-22. `22_bootstrap_fetch_init_global_exports.js`
-23. `23_event_bindings_global_modal_menu.js`
+13. `13_module_never_look_back_price_nlbp.js`
+14. `14_module_target_block_hashes_length_32_64.js`
+15. `15_module_halving_view.js`
+16. `16_module_price_of_price_of.js`
+17. `17_module_unit_of_account_uoa.js`
+18. `19_module_monthly_yearly_returns_myr.js`
+19. `20_buy_me_button_thanks_overlay.js`
+20. `21_slideshow_core_ui_fullscreen.js`
+21. `22_bootstrap_fetch_init_global_exports.js`
+22. `23_event_bindings_global_modal_menu.js`
 
 Additional standalone-only file:
 
@@ -90,7 +89,6 @@ Most visualization-family swaps follow this flow:
 - `09_module_bitcoin_vs_gold_bvg.js`: BVG year handling
 - `10_module_days_at_a_loss_dal.js`: DAL scale handling
 - `11_module_price_on_this_day_potd.js`: POTD scale handling
-- `12_module_dominance_usd_btc.js`: Bitcoin Dominance filename helpers
 - `13_module_never_look_back_price_nlbp.js`: NLBP scale handling
 - `14_module_target_block_hashes_length_32_64.js`: hash-length mode handling
 - `15_module_halving_view.js`: halving view handling
