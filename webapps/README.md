@@ -2,6 +2,8 @@
 
 This folder contains standalone dashboard-style webapps that are intended to feel like part of the same product family. Use this file as the baseline when adding a new dashboard so layout, spacing, typography, controls, and resizing behavior stay consistent.
 
+If you want the condensed version first, read `DASHBOARD_QUICK_TIPS.md` and then return to this file for full conventions.
+
 Current dashboards:
 
 - `bip110_signaling/`: dual canvas dashboard for SegWit and BIP-110 signaling
