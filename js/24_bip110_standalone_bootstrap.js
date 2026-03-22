@@ -1,6 +1,6 @@
 (() => {
   const STANDALONE_FILENAME = "bip110_signaling.png";
-  const IMAGE_LIST_URL = "final_frames/image_list.json";
+  const IMAGE_LIST_URL = "assets/image_list.json";
   const DASHBOARD_URL = "webapps/bip110_signaling/dashboard.html";
   const FAVORITES_STORAGE_KEY = "favorites";
 

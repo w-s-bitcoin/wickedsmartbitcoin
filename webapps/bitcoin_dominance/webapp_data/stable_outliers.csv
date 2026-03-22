@@ -1,0 +1,5 @@
+Date,Primary Key,Name,Market Cap,BTC Market Cap,Outlier Type,Interpolation Filled
+2020-11-17,LUNCTerra Classic,Terra Classic,,341775840595.34,stable_gt_btc,False
+2020-10-12,USDCUSD Coin,USD Coin,2810039387.245,218126251971.86,spike_pattern,True
+2020-11-17,USDCUSD Coin,USD Coin,3734891549.545,341775840595.34,spike_pattern,True
+2020-10-12,USDTTether,Tether,16384567252.67,218126251971.86,spike_pattern,True

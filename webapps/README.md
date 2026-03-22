@@ -6,6 +6,7 @@ Current dashboards:
 
 - `bip110_signaling/`: dual canvas dashboard for SegWit and BIP-110 signaling
 - `node_count/`: Plotly-based history chart plus software-version panel
+- `bitcoin_dominance/`: Plotly-based BTC dominance history plus latest market-cap snapshot panel
 
 ## Core visual language
 

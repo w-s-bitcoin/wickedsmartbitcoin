@@ -87,7 +87,7 @@ function getImageNameFromPath() {
     }
   return rel + ".png";
 }
-const IMAGE_LIST_URL = `${getPageBasePath()}/final_frames/image_list.json`;
+const IMAGE_LIST_URL = `${getPageBasePath()}/assets/image_list.json`;
 fetch(IMAGE_LIST_URL)
     .then(res => res.json())
     .then(data => {
@@ -106,6 +106,9 @@ fetch(IMAGE_LIST_URL)
         populateBtcmapsSelect();
         const standaloneShell = isStandaloneModalShell();
         let initialFilename = getImageNameFromPath();
+        if (initialFilename && isDominanceFile(initialFilename)) {
+            initialFilename = `${DOM_BASE}.png`;
+        }
         if (standaloneShell && !initialFilename) {
             window.location.replace((getPageBasePath() || '') + '/');
             return;
@@ -375,12 +378,6 @@ fetch(IMAGE_LIST_URL)
             else urlNlbpScale = "linear";
             setStoredNlbpScale(urlNlbpScale);
         }
-        let urlDomUnit = null;
-        if (initialFilename && initialFilename.startsWith(DOM_BASE)) {
-            if (initialFilename === `${DOM_BASE}_btc.png`) urlDomUnit = "btc";
-            else urlDomUnit = "usd";
-            setStoredDominanceUnit(urlDomUnit);
-        }
         imageList = imageList.map(img =>
             img.filename.startsWith(BVG_BASE)
                 ? { ...img, filename: `${BVG_BASE}_${getStoredBvgYear()}.png` }
@@ -399,11 +396,6 @@ fetch(IMAGE_LIST_URL)
         imageList = imageList.map(img =>
             img.filename.startsWith(NLBP_BASE)
                 ? { ...img, filename: nlbpFilenameForScale(getStoredNlbpScale()) }
-                : img
-        );
-        imageList = imageList.map(img =>
-            img.filename.startsWith(DOM_BASE)
-                ? { ...img, filename: domFilenameForUnit(getStoredDominanceUnit()) }
                 : img
         );
         visibleImages = [...imageList];
@@ -474,14 +466,6 @@ fetch(IMAGE_LIST_URL)
                 if (openIdx === -1)
                     openIdx = visibleImages.findIndex(img =>
                         img.filename.startsWith(POF_BASE)
-                    );
-            } else if (urlDomUnit) {
-                openIdx = visibleImages.findIndex(
-                    img => img.filename === initialFilename
-                );
-                if (openIdx === -1)
-                    openIdx = visibleImages.findIndex(img =>
-                        img.filename.startsWith(DOM_BASE)
                     );
             } else if (
                 !initialFilename.startsWith("bitcoin_vs_gold_")

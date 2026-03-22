@@ -10,7 +10,15 @@
     {
         "filename": "node_count.png",
         "title": "Node Count",
-        "description": "Shows each node count by software and version",
+        "description": "Tracks Bitcoin node count over time and the software versions nodes are running",
+        "latest_x": "https://x.com/w_s_bitcoin/status/2034754967697776927",
+        "latest_nostr": "",
+        "latest_youtube": "https://youtu.be/-oujfwYj-zc"
+    },
+    {
+        "filename": "bitcoin_dominance.png",
+        "title": "Bitcoin Dominance",
+        "description": "Shows Bitcoin's share of market cap relative to the top cryptocurrencies",
         "latest_x": "",
         "latest_nostr": "",
         "latest_youtube": ""
@@ -2171,14 +2179,6 @@
         "latest_x": "https://x.com/w_s_bitcoin/status/1891599845720301793",
         "latest_nostr": "https://primal.net/e/nevent1qvzqqqqqqypzpte0dqh4z2yes5kxv48lqed2gpdyr5279vwtdjghxy3kq46y7phxqythwumn8ghj7cnfw33k76twv4ezuum0vd5kzmp0qyt8wumn8ghj7etyv4hzumn0wd68ytnvv9hxgtcqyzyqldexw6x7kfr8vvefyzgsyc3g22g0h53k2l3srzvwqw5u7rfuqaah0xg",
         "latest_youtube": "https://youtu.be/2qjF6A68oi0"
-    },
-    {
-        "filename": "bitcoin_dominance.png",
-        "title": "Bitcoin Dominance",
-        "description": "Shows Bitcoin's market cap compared to the top 9 shitcoins (excluding stablecoins)",
-        "latest_x": "https://x.com/w_s_bitcoin/status/1997713314873504177",
-        "latest_nostr": "https://primal.net/e/nevent1qqsvu05d4y6p7jlm88sxd00kqe6y3w2pu5rau2pcyqth6qf3d8hzsuc2maqng",
-        "latest_youtube": "https://youtu.be/R87W6PFl868"
     },
     {
         "filename": "monthly_yearly_returns.png",

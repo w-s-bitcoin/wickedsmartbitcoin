@@ -296,15 +296,17 @@ footer {
 }
 
 .home-bip110-kpis .chip-menu-wrap.single-select::after {
-    content: "▼";
+    content: '';
     position: absolute;
-    right: 9px;
+    right: 10px;
     top: 50%;
-    transform: translateY(-50%);
-    font-size: 0.7rem;
-    opacity: 0.75;
+    width: 6px;
+    height: 6px;
+    border-right: 1.5px solid #d6e1e6;
+    border-bottom: 1.5px solid #d6e1e6;
+    transform: translateY(-70%) rotate(45deg);
+    opacity: 0.8;
     pointer-events: none;
-    color: #d6e1e6;
 }
 
 .home-bip110-kpis .chip-kpi-select-overlay {
@@ -1138,8 +1140,14 @@ body.slideshow-open.hide-cursor .slideshow * {
     height: var(--modal-download-icon-size);
     fill: currentColor;
 }
-#modal-fav-btn.filled {
-    color: var(--brand);
+#modal-fav-btn.filled,
+.modal-controls #modal-fav-btn.filled,
+#modal-fav-btn.filled:hover,
+#modal-fav-btn.filled:focus-visible,
+.modal-controls #modal-fav-btn.filled:hover,
+.modal-controls #modal-fav-btn.filled:focus-visible {
+    color: var(--brand) !important;
+    -webkit-text-fill-color: var(--brand);
 }
 
 #modal-dl-btn:disabled,
@@ -1206,8 +1214,14 @@ body.slideshow-open.hide-cursor .slideshow * {
     color: var(--brand);
     outline: none;
 }
-#modal-fav-btn.filled {
-    color: var(--brand);
+#modal-fav-btn.filled,
+.modal-controls #modal-fav-btn.filled,
+#modal-fav-btn.filled:hover,
+#modal-fav-btn.filled:focus-visible,
+.modal-controls #modal-fav-btn.filled:hover,
+.modal-controls #modal-fav-btn.filled:focus-visible {
+    color: var(--brand) !important;
+    -webkit-text-fill-color: var(--brand);
 }
 .close-btn {
     font-size: var(--modal-close-font-size);

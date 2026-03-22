@@ -207,9 +207,6 @@ function showYearControls(show) {
 }
 
 function showScaleControls(show) {
-    scaleControls?.classList.toggle('show', !!show);
-}
-function showHashControls(show) {
     hashControls?.classList.toggle('show', !!show);
 }
 function showPriceOfControls(show) {
@@ -223,10 +220,6 @@ function showUoaControls(show) {
     if (sortControls) sortControls.classList.toggle('show', on);
     if (uoaShowControls) uoaShowControls.classList.toggle('show', on);
 }
-function showDominanceControls(show) {
-    dominanceControls?.classList.toggle('show', !!show);
-}
-
 function showMyrControls(show) {
     myrControls?.classList.toggle('show', !!show);
 }

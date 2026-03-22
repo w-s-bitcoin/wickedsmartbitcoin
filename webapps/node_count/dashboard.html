@@ -350,15 +350,17 @@
     }
 
     .chip-menu-wrap.single-select::after {
-      content: "▼";
+      content: '';
       position: absolute;
-      right: 9px;
+      right: 10px;
       top: 50%;
-      transform: translateY(-50%);
-      font-size: 0.7rem;
-      opacity: 0.75;
+      width: 6px;
+      height: 6px;
+      border-right: 1.5px solid #d6e1e6;
+      border-bottom: 1.5px solid #d6e1e6;
+      transform: translateY(-70%) rotate(45deg);
+      opacity: 0.8;
       pointer-events: none;
-      color: #d6e1e6;
     }
 
     .chip-menu-select.chip-kpi-select-overlay {
@@ -2187,7 +2189,7 @@
       ]);
 
       Plotly.react('historyChart', traces, {
-        margin: { l: 64, r: 24, t: 16, b: 40 },
+        margin: { l: 64, r: 24, t: 16, b: 25 },
         paper_bgcolor: PLOTLY_LIVE_BG,
         plot_bgcolor: PLOTLY_LIVE_BG,
         font: { color: '#eef4f6', family: '"IBM Plex Mono", monospace', size: 12 },

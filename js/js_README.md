@@ -10,10 +10,12 @@ Load order matters.
 - `404.html`: production standalone shell (GitHub Pages fallback for clean routes)
 - `bip110_signaling.html`: lean standalone bootstrap dedicated to BIP110 iframe startup
 - `node_count.html`: lean standalone bootstrap dedicated to Node Count iframe startup
+- `bitcoin_dominance.html`: lean standalone bootstrap dedicated to Bitcoin Dominance iframe startup
 
 ### URL behavior
 
 - Production deep links: `/node_count`, `/btcmap`, `/bip110_signaling`, etc.
+- Production deep links also include `/bitcoin_dominance`
 - Local standalone deep links: `/view.html#node_count`
 - Home page remains `/`
 
@@ -49,6 +51,7 @@ Additional standalone-only file:
 
 24. `24_bip110_standalone_bootstrap.js` (used by `bip110_signaling.html` only)
 25. `26_node_count_standalone_bootstrap.js` (used by `node_count.html` only)
+26. `28_bitcoin_dominance_standalone_bootstrap.js` (used by `bitcoin_dominance.html` only)
 
 ## Practical Mental Model
 
@@ -87,7 +90,7 @@ Most visualization-family swaps follow this flow:
 - `09_module_bitcoin_vs_gold_bvg.js`: BVG year handling
 - `10_module_days_at_a_loss_dal.js`: DAL scale handling
 - `11_module_price_on_this_day_potd.js`: POTD scale handling
-- `12_module_dominance_usd_btc.js`: USD/BTC unit handling
+- `12_module_dominance_usd_btc.js`: Bitcoin Dominance filename helpers
 - `13_module_never_look_back_price_nlbp.js`: NLBP scale handling
 - `14_module_target_block_hashes_length_32_64.js`: hash-length mode handling
 - `15_module_halving_view.js`: halving view handling
@@ -102,10 +105,12 @@ Most visualization-family swaps follow this flow:
 - `22_bootstrap_fetch_init_global_exports.js`: image manifest fetch, representative card rewrites, deep-link resolution, init sequence
 - `23_event_bindings_global_modal_menu.js`: event wiring for keyboard/mouse/touch/menu/controls
 - `24_bip110_standalone_bootstrap.js`: self-contained standalone controller for BIP110 page
+- `26_node_count_standalone_bootstrap.js`: self-contained standalone controller for Node Count page
+- `28_bitcoin_dominance_standalone_bootstrap.js`: self-contained standalone controller for Bitcoin Dominance page
 
 ## Where To Edit (Cheat Sheet)
 
-- Routing/deep-link behavior: `05`, `07`, `22`, and `24` (for BIP110 standalone)
+- Routing/deep-link behavior: `05`, `07`, `22`, and standalone bootstraps `24`, `26`, `28`
 - Grid rendering/filter/favorites card UI: `06`
 - Modal visibility/controls/swipes: `07`
 - Control dropdown logic by family: relevant `08-19` module + `23` bindings
@@ -120,7 +125,7 @@ Most visualization-family swaps follow this flow:
 ## Quick Debug Checklist
 
 - Confirm script order is unchanged
-- Confirm `final_frames/image_list.json` contains expected filenames/meta
+- Confirm `assets/image_list.json` contains expected filenames/meta
 - Confirm swap flow updates content + URL + metadata consistently
 - Confirm event handlers exist in `23_event_bindings_global_modal_menu.js`
 - Confirm relevant DOM IDs exist in loaded shell (`index.html` vs `view.html`/`404.html`)

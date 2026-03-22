@@ -16,7 +16,7 @@ Wicked Smart Bitcoin is a static site that publishes Bitcoin data visualizations
 - `index.html`: home/discovery page (grid, search, favorites, menu, slideshow)
 - `view.html`: standalone visualization shell used for local deep-link rendering
 - `404.html`: production standalone shell entry (GitHub Pages fallback for clean paths)
-- `final_frames/image_list.json`: source of visualization metadata
+- `assets/image_list.json`: source of visualization metadata
 
 This split allows clean production URLs such as `/node_count` while avoiding the old “modal over home page” behavior for shared links.
 

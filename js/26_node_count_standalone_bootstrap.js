@@ -1,6 +1,6 @@
 (() => {
   const STANDALONE_FILENAME = "node_count.png";
-  const IMAGE_LIST_URL = "final_frames/image_list.json";
+  const IMAGE_LIST_URL = "assets/image_list.json";
   const DASHBOARD_URL = "webapps/node_count/dashboard.html";
   const FAVORITES_STORAGE_KEY = "favorites";
 

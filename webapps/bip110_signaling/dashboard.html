@@ -270,15 +270,17 @@
     }
 
     .chip-menu-wrap.single-select::after {
-      content: "▼";
+      content: '';
       position: absolute;
-      right: 9px;
+      right: 10px;
       top: 50%;
-      transform: translateY(-50%);
-      font-size: 0.7rem;
-      opacity: 0.75;
+      width: 6px;
+      height: 6px;
+      border-right: 1.5px solid #d6e1e6;
+      border-bottom: 1.5px solid #d6e1e6;
+      transform: translateY(-70%) rotate(45deg);
+      opacity: 0.8;
       pointer-events: none;
-      color: #d6e1e6;
     }
 
     .chip-kpi-select-overlay {

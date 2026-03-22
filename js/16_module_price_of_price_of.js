@@ -202,14 +202,7 @@ function setPriceOfItem(slug) {
         cardContainer.setAttribute('title', tip);
         gridImg.alt = title;
     }
-    const favOn = isFavorite(newFilename);
-    modalFavBtn.textContent = favOn ? '★' : '☆';
-    modalFavBtn.classList.toggle('filled', favOn);
-    const gridStar = document.querySelector(`.favorite-star[data-filename="${POF_FAV_KEY}"]`);
-    if (gridStar) {
-        gridStar.textContent = favOn ? '★' : '☆';
-        gridStar.classList.toggle('filled', favOn);
-    }
+    syncCurrentModalFavoriteUI();
     updateModalSafePadding();
     updatePofIndexUiBySlug(slug);
 }

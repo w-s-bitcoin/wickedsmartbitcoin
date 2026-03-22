@@ -55,6 +55,9 @@ function openModalByIndex(index) {
             }
         });
     }
+    // Sync the modal favorite button before the modal becomes visible so the
+    // user does not see the default white star flash on open.
+    syncCurrentModalFavoriteUI();
     modal.style.display = 'flex';
     document.body.classList.add('modal-open');
     isPinching = false;
@@ -66,17 +69,21 @@ function openModalByIndex(index) {
     modal.classList.remove('zoomed');
     modalImg.dataset.filename = fname;
     modalImg.alt = image.title || '';
+    replaceUrlForFilename(fname);
     const modalType = String(image.modal_type || '').trim().toLowerCase();
     const fallbackEmbedPath = fname === 'bip110_signaling.png'
         ? '/webapps/bip110_signaling/dashboard.html'
-        : (fname === 'node_count.png' ? '/webapps/node_count/dashboard.html' : '');
+        : (fname === 'node_count.png'
+            ? '/webapps/node_count/dashboard.html'
+            : (isDominanceFile(fname) ? '/webapps/bitcoin_dominance/dashboard.html' : ''));
     const embedPath = String(image.embed_url || '').trim() || fallbackEmbedPath;
     const shouldEmbed = modalType === 'embed' || !!embedPath;
     const embedUrl = shouldEmbed ? modalEmbedSrc(embedPath) : '';
     const isEmbed = !!embedUrl;
     const isStandaloneDashboardEmbed = isEmbed && (
         fname === 'bip110_signaling.png' ||
-        fname === 'node_count.png'
+        fname === 'node_count.png' ||
+        isDominanceFile(fname)
     );
     if (isEmbed) {
         modalContentMode = 'embed';
@@ -181,7 +188,6 @@ function openModalByIndex(index) {
     showScaleControls(false);
     showHashControls(false);
     showPriceOfControls(false);
-    showDominanceControls(false);
     showMyrControls(false);
     showHalvingViewControls(false);
     showUoaControls(false);
@@ -214,11 +220,6 @@ function openModalByIndex(index) {
         chosenView = setStoredBtcmapsView(chosenRegion, chosenView);
         if (viewSelect) viewSelect.value = chosenView;
         setBtcmapsRegionAndView(chosenRegion, chosenView);
-    } else if (isDominanceFile(fname)) {
-        showDominanceControls(true);
-        const unit = domUnitFromFilename(fname) || getStoredDominanceUnit();
-        dominanceSelect.value = unit;
-        setDominanceUnit(unit);
     } else if (isDalFile(fname)) {
         showScaleControls(true);
         const sc = dalScaleFromFilename(fname) || getStoredDalScale();
@@ -311,9 +312,7 @@ function openModalByIndex(index) {
             replaceUrlForFilename(fname);
         }
     }
-    const fav = isFavorite(visibleImages[currentIndex].filename);
-    modalFavBtn.textContent = fav ? '★' : '☆';
-    modalFavBtn.classList.toggle('filled', fav);
+    syncCurrentModalFavoriteUI();
     requestAnimationFrame(() => {
         const active = document.activeElement;
         const focusIsInsideModal = !!(active && modal.contains(active));
@@ -376,7 +375,6 @@ function closeModal() {
     showHashControls(false);
     showPriceOfControls(false);
     showMyrControls(false);
-    showDominanceControls(false);
     showHalvingViewControls(false);
     showMetricControls(false);
     showAnchorControls(false);
@@ -673,28 +671,8 @@ function nextImage() {
 }
 function toggleFavoriteFromModal() {
     const filename = visibleImages[currentIndex].filename;
-    const favKey = filename.startsWith(POF_BASE) ? POF_FAV_KEY : filename;
-    let favs = getFavorites();
-    const index = favs.indexOf(favKey);
-    const gridStar = document.querySelector(`.favorite-star[data-filename="${favKey}"]`);
-    if (index !== -1) {
-        favs.splice(index, 1);
-        modalFavBtn.textContent = '☆';
-        modalFavBtn.classList.remove('filled');
-        if (gridStar) {
-            gridStar.textContent = '☆';
-            gridStar.classList.remove('filled');
-        }
-    } else {
-        if (favKey === POF_FAV_KEY) favs = favs.filter(f => !/^price_of_/.test(f));
-        favs.push(favKey);
-        modalFavBtn.textContent = '★';
-        modalFavBtn.classList.add('filled');
-        if (gridStar) {
-            gridStar.textContent = '★';
-            gridStar.classList.add('filled');
-        }
-    }
-    saveFavorites(favs);
-    if (showFavoritesOnly && index !== -1) justUnstarredInModal = true;
+    const wasFavorite = isFavorite(filename);
+    toggleFavorite(filename, getCurrentGridFavoriteStar());
+    syncCurrentModalFavoriteUI();
+    if (showFavoritesOnly && wasFavorite) justUnstarredInModal = true;
 }

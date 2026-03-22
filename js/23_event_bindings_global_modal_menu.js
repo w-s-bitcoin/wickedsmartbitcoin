@@ -203,9 +203,6 @@ document.addEventListener('keydown', e => {
                 isUp ? cycleNlbpScale('up') : cycleNlbpScale('down');
             }
             dropdownToFocus = scaleSelect;
-        } else if (active === dominanceSelect) {
-            isUp ? cycleDominance('up') : cycleDominance('down');
-            dropdownToFocus = dominanceSelect;
         } else if (active === halvingViewSelect) {
             isUp ? cycleHalvingView('up') : cycleHalvingView('down');
             dropdownToFocus = halvingViewSelect;
@@ -274,9 +271,6 @@ document.addEventListener('keydown', e => {
             } else if (isNlbpFile(currentFile)) {
                 isUp ? cycleNlbpScale('up') : cycleNlbpScale('down');
                 dropdownToFocus = scaleSelect;
-            } else if (isDominanceFile(currentFile)) {
-                isUp ? cycleDominance('up') : cycleDominance('down');
-                dropdownToFocus = dominanceSelect;
             } else if (isHalvingViewFile(currentFile)) {
                 isUp ? cycleHalvingView('up') : cycleHalvingView('down');
                 dropdownToFocus = halvingViewSelect;
@@ -460,7 +454,6 @@ scaleSelect?.addEventListener('change', e => {
     else if (isPotdFile(currentFile)) setPotdScale(e.target.value);
     else if (isNlbpFile(currentFile)) setNlbpScale(e.target.value);
 });
-dominanceSelect?.addEventListener('change', e => setDominanceUnit(e.target.value));
 priceOfSelect?.addEventListener('change', e => setPriceOfItem(e.target.value));
 pofSortSelect?.addEventListener('change', e => setPofSortMode(e.target.value));
 

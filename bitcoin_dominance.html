@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Bitcoin Dominance | Wicked Smart Bitcoin</title>
+    <link rel="icon" type="image/png" href="assets/favicon.png" />
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
+    <link rel="stylesheet" href="assets/styles.css" />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="preload" href="assets/image_list.json" as="fetch" crossorigin />
+    <link rel="prefetch" href="webapps/bitcoin_dominance/dashboard.html" />
+    <style>
+      body[data-standalone-modal-shell="1"] {
+        margin: 0;
+        background: #000;
+      }
+
+      body[data-standalone-modal-shell="1"] .modal {
+        display: flex;
+      }
+    </style>
+  </head>
+  <body data-standalone-modal-shell="1">
+    <div class="buy-coffee">
+      <button class="buy-coffee-btn" id="buyCoffeeBtn" type="button">
+        <span id="buyCoffeeIcon">☕</span>
+        <span id="buyCoffeeText">Buy me a coffee</span>
+      </button>
+    </div>
+    <div class="buy-coffee-overlay" id="buyCoffeeOverlay" aria-hidden="true" role="dialog" aria-modal="true">
+      <div class="buy-coffee-modal">
+        <button
+          type="button"
+          class="buy-coffee-close"
+          id="buyCoffeeCloseBtn"
+          aria-label="Close buy me a coffee panel"
+        >×</button>
+        <img
+          alt="Buy me a coffee"
+          class="buy-coffee-img"
+          id="buyCoffeeImg"
+          draggable="false"
+        />
+        <div class="buy-coffee-methods" role="group" aria-label="Donation method">
+          <button
+            type="button"
+            class="buy-coffee-method-btn active"
+            data-method="lightning"
+            aria-pressed="true"
+          >Lightning</button>
+          <button
+            type="button"
+            class="buy-coffee-method-btn"
+            data-method="liquid"
+            aria-pressed="false"
+          >Liquid</button>
+          <button
+            type="button"
+            class="buy-coffee-method-btn"
+            data-method="onchain"
+            aria-pressed="false"
+          >On-chain</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal" id="modal">
+      <div class="modal-controls">
+        <button class="close-btn" onclick="closeModal()">×</button>
+        <button class="close-btn" onclick="prevImage()">&#8249;</button>
+        <button class="close-btn" onclick="nextImage()">&#8250;</button>
+        <button id="modal-fav-btn" class="close-btn" onclick="toggleFavoriteFromModal()">★</button>
+        <button id="modal-dl-btn" class="close-btn" type="button" aria-label="Download image">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 20h14v-2H5v2zm7-18v10.17l3.59-3.58L17 10l-5 5-5-5 1.41-1.41L11 12.17V2h1z" />
+          </svg>
+        </button>
+        <a id="x-link" class="close-btn modal-link" href="#" target="_blank" rel="noopener noreferrer" aria-label="X/Twitter">
+          <svg width="16" height="16" viewBox="0 0 16 16">
+            <path d="M12.6.75h2.454l-5.36 6.142L16 15.25h-4.937l-3.867-5.07-4.425 5.07H.316l5.733-6.57L0 .75h5.063l3.495 4.633L12.601.75Zm-.86 13.028h1.36L4.323 2.145H2.865z" />
+          </svg>
+        </a>
+        <a id="nostr-link" class="close-btn modal-link" href="#" target="_blank" rel="noopener noreferrer" aria-label="Nostr">
+          <svg height="20" viewBox="0 0 496 496">
+            <path d="m374.82,278.35c.1,5.47-5.19,22.37-16.81,35.33-11.62,12.96-24.34,9.06-25.39,8.76s-1.34-1.94-3.43-1.64-4.17,2.68-8.19,3.13-7.6.74-11.32-.6c-1.94.3-2.23.31-3.13.97s-7.75,4.69-9.39,4.99c0,3.13-.6,19.37,0,24.29s1.64,11.17,3.28,15.64c1.64,4.47,1.19,4.62,3.28,4.32s5.81.15,6.85,1.79.6,2.83,2.38,3.58,26.37,7.45,43.21,8.34c11.62.3,18.62,1.19,22.65,8.49.6,3.43,3.28,5.66,4.92,6.11s3.58.89,5.21,2.53.45,3.58,2.38,5.07c1.94,1.49,6.41,3.72,11.03,5.96,4.62,2.23,6.56,5.81,6.85,7s.74,4.77.74,4.77c0,0-3.87,0-4.77-.89s-1.19-2.53-1.19-2.53c0,0-2.68.45-3.28,1.49s.3,1.19-3.43.3-5.07-1.64-7.9-3.72-7.15-7.45-10.88-7.3c1.79,3.58,2.53,3.58,4.62,4.77s3.58,2.53,3.58,2.53l-3.13,1.94s-1.94.89-6.41-.3c-4.47-1.19-5.07-1.94-5.51-4.62s0-4.02-1.19-6.26-1.79-6.85-9.68-9.24c-7.9-2.38-28.91-9.24-43.51-10.73-14.6-1.49-9.83-1.19-12.22-.6s-6.85,1.94-11.47-.6c-4.62-2.53-7.3-5.96-7.6-8.79s-.74-4.77,0-8.34,1.49-8.64.74-11.62-6.11-24.29-8.64-27.86c-5.66.45-22.05-.3-22.05-.3,0,0-1.04-.3-7.6,2.53-6.56,2.83-15.85,5.98-20.32,8.66-4.47,2.68-6.26,4.22-7,5.71.05,1.3-.53,3.35-1.21,3.94s-5.42,1.05-5.42,1.05c0,0-2.54,2.54-3.58,4.33-2.98,4.17-23.99,54.38-28.91,65.11-5.89,14.15-4.25,11.92-16.39,11.92s-3.5.13-3.5.13c0,0-5.36,2.55-7.3,2.55s-8.19-1.04-11.47,0-7.15,4.02-10.13,4.47c-2.98.45-2.15-.58-3.64-1.63-1.74-.09-6.2-.05-6.2-.05,0,0,.76-2.83,3.44-4.73,3.58-2.53,11.03-7,15.05-9.24,4.02-2.23,7.6-3.43,10.13-4.02,2.53-.6,8.05-2.68,13.26-4.32s8.49-3.58,12.96-13.71c4.47-10.13,21.9-48.42,22.35-50.51.28-1.29,1.62-2.81,2.09-6.56.29-2.32-1.08-5.67.74-9.83,4.77-10.88,9.39-8.79,11.47-8.79s7.45.15,11.47-.6c4.02-.74,6.7-1.19,10.73-3.43,4.02-2.23,4.92-3.87,4.92-3.87l-8.64-1.49s-8.05.3-10.88-1.94-6.7-6.85-6.7-6.85l-3.28-3.13.45,3.72s-2.23-3.87-2.83-4.47-3.72-2.83-4.92-4.92-3.28-10.88-3.28-10.88l-2.68,5.66-.74-8.19-2.23,3.13-1.19-7-2.09,3.58-1.49-6.26-2.53,1.94-1.04-4.47-2.53-1.49s-6.11-4.02-7.15-4.17-1.94,1.49-1.94,1.49l.6,5.21-5.3-2.72-3.04-5.17s1.02,1.74-4.18,3.27c-8.93,0-9.51-.99-10.83-1.71-.57-2.85-2.42-4.39-2.42-4.39h-8.94l-.15-2.98-3.43,1.34.3-4.47h-6.11l.45-4.92h-3.87s1.34-4.02,11.17-9.98c9.83-5.96,10.88-7.15,20.11-7.45,9.24-.3,14.3,1.19,20.11,3.58,5.81,2.38,16.84,5.96,19.07,7.6,4.92-4.32,12.37-8.64,14.9-8.64.45-1.04,2.69-5.36,7.81-7.65,15.34-6.87,46.99-14.78,57.16-15.45,13.56-.89,3.43-.6,16.99.89,13.56,1.49,23.54,3.28,30.25,5.51,5.46,1.82,10.88,4.17,14.9.89,1.88-.79,5.13-.58,7.75-2.23,13.34-10.9,15.09-14.06,18.96-18.23,3.87-4.17,8.75-10.83,9.8-19.62s1.94-25.33-4.62-38.29c-6.56-12.96-12.52-19.67-15.05-30.1-2.53-10.43-3.58-26.52-2.68-31.74s2.23-9.68,2.98-13.26,4.32-6.41,8.64-7.15c4.32-.74,7.75.6,9.68,2.09s5.06,2.73,5.81,4.47c.15.74-.6,2.83,3.58,3.58s6.97,1.81,6.97,1.81c0,0,6.8,1.87,1.35,3.36-5.51.89-8.92-.31-10.56.74s-3.13,4.38-4.17,4.83-3.13.15-5.21,1.79-4.17,2.98-5.51,6.26-2.38,6.85-1.49,11.62,3.72,13.71,6.26,18.77c2.53,5.07,8.79,17.73,10.58,20.71s6.85,12.81,7.3,23.39.45,19.22,0,23.84c-.45,4.62-4.71,22.45-15.44,37.35-3.54,6.14-10.09,13.86-10.72,15.22s-1.31,2.12-.7,3.32c2.01,3.93,5.59,9.62,6.39,12.7,1,2.89,3.04,7.01,3.14,12.48Z" />
+          </svg>
+        </a>
+        <a id="youtube-link" class="close-btn modal-link" href="#" target="_blank" rel="noopener noreferrer" aria-label="YouTube">
+          <svg height="20" viewBox="0 0 576 512">
+            <path d="M549.7 124.1c-6.3-23.8-25-42.4-48.8-48.8C456.5 64 288 64 288 64s-168.5 0-212.9 11.3c-23.8 6.3-42.5 25-48.8 48.8C16 168.5 16 256 16 256s0 87.5 10.3 131.9c6.3 23.8 25 42.4 48.8 48.8C119.5 448 288 448 288 448s168.5 0 212.9-11.3c23.8-6.3 42.5-25 48.8-48.8C560 343.5 560 256 560 256s0-87.5-10.3-131.9zM232 336V176l142 80-142 80z" />
+          </svg>
+        </a>
+      </div>
+
+      <img id="modal-img" src="" alt="Full size image" draggable="false" />
+      <div id="modal-embed-wrap" class="modal-embed-wrap" hidden>
+        <iframe id="modal-embed" class="modal-embed" title="Interactive visualization" loading="eager"></iframe>
+      </div>
+
+      <div id="youtube-overlay" class="youtube-overlay hidden" role="dialog" aria-modal="true">
+        <div class="youtube-overlay-content">
+          <button type="button" class="youtube-overlay-close" id="youtubeOverlayClose" aria-label="Close YouTube video">×</button>
+          <div class="youtube-embed-container">
+            <iframe id="youtube-iframe" class="youtube-iframe" title="YouTube video" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function primeStandaloneDashboard() {
+        var iframe = document.getElementById('modal-embed');
+        if (!iframe) return;
+        if (!iframe.getAttribute('src')) {
+          iframe.setAttribute('src', 'webapps/bitcoin_dominance/dashboard.html');
+        }
+      })();
+    </script>
+
+    <script>
+      const DONATION_LIGHTNING = 'wicked@getalby.com';
+      const DONATION_LIQUID = 'VJLDEF7n8TBjyJY2BaAgeVvzPSRMJ7VAP5opW9mB5A7ChyiKHnaguTugZNznxNiV2ZDyPxJyQoeZ2KhM';
+      const DONATION_ONCHAIN = 'bc1q8mql8fucypd3dllkawqafytmrnwtv77gzxy346';
+
+      const buyCoffeeBtn = document.getElementById('buyCoffeeBtn');
+      const buyCoffeeOverlay = document.getElementById('buyCoffeeOverlay');
+      const buyCoffeeCloseBtn = document.getElementById('buyCoffeeCloseBtn');
+      const buyCoffeeImg = document.getElementById('buyCoffeeImg');
+      const buyCoffeeMethodBtns = Array.from(document.querySelectorAll('.buy-coffee-method-btn'));
+      const DASHBOARD_TZ_STORAGE_KEY = 'wicked_dashboard_timezone_v1';
+
+      function getSelectedDashboardTimeZone() {
+        try {
+          const raw = String(localStorage.getItem(DASHBOARD_TZ_STORAGE_KEY) || '').trim();
+          if (!raw) return 'UTC';
+          Intl.DateTimeFormat('en-US', { timeZone: raw }).format(new Date());
+          return raw;
+        } catch (_) {
+          return 'UTC';
+        }
+      }
+
+      function getHourInTimeZone(timeZone, now = new Date()) {
+        try {
+          const parts = new Intl.DateTimeFormat('en-US', {
+            timeZone,
+            hour: '2-digit',
+            hour12: false
+          }).formatToParts(now);
+          const hourPart = parts.find((part) => part.type === 'hour');
+          const hour = Number(hourPart && hourPart.value);
+          if (Number.isFinite(hour)) return hour;
+        } catch (_) {
+        }
+        return now.getHours();
+      }
+
+      function isBeerTime() {
+        const now = new Date();
+        const hour = getHourInTimeZone(getSelectedDashboardTimeZone(), now);
+        return hour >= 17 || hour < 3;
+      }
+
+      function updateBuyMeButton() {
+        const icon = document.getElementById('buyCoffeeIcon');
+        const text = document.getElementById('buyCoffeeText');
+        if (!icon || !text) return;
+        if (isBeerTime()) {
+          icon.textContent = '🍺';
+          text.textContent = 'Buy me a beer';
+        } else {
+          icon.textContent = '☕';
+          text.textContent = 'Buy me a coffee';
+        }
+      }
+
+      function getImageOrientation() {
+        return window.innerHeight >= window.innerWidth ? 'portrait' : 'landscape';
+      }
+
+      function updateBuyMeButtonLayout() {
+        if (!buyCoffeeBtn) return;
+        const narrow = window.innerWidth <= 750;
+        buyCoffeeBtn.classList.toggle('buy-coffee-hide-text', narrow);
+      }
+
+      function repositionButtons() {
+        const methodsContainer = document.querySelector('.buy-coffee-methods');
+        if (!methodsContainer) return;
+        const isPortrait = getImageOrientation() === 'portrait';
+        if (isPortrait) {
+          Object.assign(methodsContainer.style, {
+            left: '50%',
+            top: '50%',
+            bottom: 'auto',
+            width: 'auto',
+            maxWidth: '92%',
+            whiteSpace: 'nowrap',
+            gap: 'clamp(6px, 1.5vw, 12px)',
+            transform: 'translate(-50%, calc(-100% - clamp(8px, 2vh, 18px)))'
+          });
+        } else {
+          Object.assign(methodsContainer.style, {
+            left: '0',
+            top: 'auto',
+            bottom: '20px',
+            width: '50%',
+            maxWidth: '',
+            whiteSpace: '',
+            gap: 'clamp(0.6rem, 1.6vw, 1.25rem)',
+            transform: ''
+          });
+        }
+      }
+
+      function updateBuyCoffeeImage(method) {
+        const btn = document.querySelector(`.buy-coffee-method-btn[data-method="${method}"]`);
+        if (!btn || !buyCoffeeImg) return;
+
+        buyCoffeeMethodBtns.forEach((b) => {
+          const active = b === btn;
+          b.classList.toggle('active', active);
+          b.setAttribute('aria-pressed', active ? 'true' : 'false');
+        });
+
+        const portrait = getImageOrientation() === 'portrait';
+        const prefix = isBeerTime() ? 'beer' : 'coffee';
+        const orientation = portrait ? 'portrait' : 'landscape';
+        buyCoffeeImg.src = `assets/thanks_for_the_${prefix}_${orientation}_${method}.png`;
+        repositionButtons();
+      }
+
+      function showBuyCoffeeOverlay() {
+        if (!buyCoffeeOverlay) return;
+        buyCoffeeOverlay.style.display = 'flex';
+        buyCoffeeOverlay.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('buy-coffee-open');
+        updateBuyCoffeeImage(document.querySelector('.buy-coffee-method-btn.active')?.getAttribute('data-method') || 'lightning');
+      }
+
+      function hideBuyCoffeeOverlay() {
+        if (!buyCoffeeOverlay) return;
+        buyCoffeeOverlay.style.display = 'none';
+        buyCoffeeOverlay.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('buy-coffee-open');
+      }
+
+      buyCoffeeBtn?.addEventListener('click', showBuyCoffeeOverlay);
+      buyCoffeeCloseBtn?.addEventListener('click', hideBuyCoffeeOverlay);
+      buyCoffeeOverlay?.addEventListener('click', (event) => {
+        if (event.target === buyCoffeeOverlay) hideBuyCoffeeOverlay();
+      });
+
+      buyCoffeeMethodBtns.forEach((btn) => {
+        btn.addEventListener('click', () => updateBuyCoffeeImage(btn.getAttribute('data-method') || 'lightning'));
+      });
+
+      window.addEventListener('resize', () => {
+        updateBuyMeButtonLayout();
+        const activeBtn = document.querySelector('.buy-coffee-method-btn.active');
+        if (activeBtn && buyCoffeeOverlay && buyCoffeeOverlay.style.display === 'flex') {
+          updateBuyCoffeeImage(activeBtn.getAttribute('data-method') || 'lightning');
+        }
+      });
+
+      function handleDonationTimeZoneChanged() {
+        updateBuyMeButton();
+        const activeBtn = document.querySelector('.buy-coffee-method-btn.active');
+        if (activeBtn && buyCoffeeOverlay && buyCoffeeOverlay.style.display === 'flex') {
+          updateBuyCoffeeImage(activeBtn.getAttribute('data-method') || 'lightning');
+        }
+      }
+
+      updateBuyMeButtonLayout();
+      updateBuyMeButton();
+      updateBuyCoffeeImage('lightning');
+      setInterval(updateBuyMeButton, 5 * 60 * 1000);
+      window.addEventListener('storage', (e) => {
+        if (e.key !== DASHBOARD_TZ_STORAGE_KEY) return;
+        handleDonationTimeZoneChanged();
+      });
+    </script>
+    <script src="js/28_bitcoin_dominance_standalone_bootstrap.js" defer></script>
+  </body>
+</html>

@@ -74,11 +74,14 @@ function migrateFavoriteFilename(oldFilename, newFilename) {
         favs.splice(pos, 1);
         if (!favs.includes(newFilename)) favs.push(newFilename);
         saveFavorites(favs);
-        modalFavBtn.classList.add('filled');
-        modalFavBtn.textContent = '★';
     }
-    const gridStar = document.querySelector(`.favorite-star[data-filename="${oldFilename}"]`);
-    if (gridStar) gridStar.setAttribute('data-filename', newFilename);
+    const currentGridStar = getCurrentGridFavoriteStar();
+    if (currentGridStar) {
+        currentGridStar.setAttribute('data-filename', favoriteKeyForFilename(newFilename));
+    }
+    const gridStar = findFavoriteStarByKey(oldFilename);
+    if (gridStar) gridStar.setAttribute('data-filename', favoriteKeyForFilename(newFilename));
+    syncCurrentModalFavoriteUI();
 }
 function getFavorites() {
     const stored = localStorage.getItem('favorites');
@@ -99,22 +102,50 @@ function getAllFavoriteKeys() {
     if (hasPriceOf) keys.add(POF_FAV_KEY);
     return keys;
 }
+function favoriteKeyForFilename(filename) {
+    return String(filename || '').startsWith(POF_BASE) ? POF_FAV_KEY : String(filename || '');
+}
+function setFavoriteVisualState(elem, on) {
+    if (!elem) return;
+    elem.textContent = on ? '★' : '☆';
+    elem.classList.toggle('filled', !!on);
+}
+function findFavoriteStarByKey(key) {
+    return Array.from(document.querySelectorAll('.favorite-star')).find(
+        star => star.getAttribute('data-filename') === key
+    ) || null;
+}
+function getCurrentGridFavoriteStar() {
+    const thumb = document.querySelector(`img.grid-thumb[data-grid-index="${currentIndex}"]`);
+    if (!thumb) return null;
+    return thumb.closest('.chart-container')?.querySelector('.favorite-star') || null;
+}
+function syncCurrentModalFavoriteUI() {
+    const cur = visibleImages?.[currentIndex];
+    if (!cur) return;
+    const key = favoriteKeyForFilename(cur.filename);
+    const on = isFavorite(cur.filename);
+    setFavoriteVisualState(modalFavBtn, on);
+    const gridStar = getCurrentGridFavoriteStar() || findFavoriteStarByKey(key);
+    if (gridStar) {
+        gridStar.setAttribute('data-filename', key);
+        setFavoriteVisualState(gridStar, on);
+    }
+    const thumb = document.querySelector(`img.grid-thumb[data-grid-index="${currentIndex}"]`);
+    if (thumb) thumb.dataset.fav = on ? '1' : '0';
+}
 function refreshFavoriteStarsUI() {
     const favs = new Set(getFavorites());
     document.querySelectorAll('.favorite-star').forEach(star => {
         const key = star.getAttribute('data-filename');
         const on = favs.has(key) || (key !== POF_FAV_KEY && favs.has(POF_FAV_KEY) && /^price_of_/.test(key));
-        star.textContent = on ? '★' : '☆';
-        star.classList.toggle('filled', on);
+        setFavoriteVisualState(star, on);
+    });
+    document.querySelectorAll('img.grid-thumb[data-grid-index]').forEach(thumb => {
+        thumb.dataset.fav = isFavorite(thumb.dataset.filename || '') ? '1' : '0';
     });
     if (modal && modal.style.display === 'flex') {
-        const cur = visibleImages[currentIndex];
-        if (cur) {
-            const key = cur.filename.startsWith(POF_BASE) ? POF_FAV_KEY : cur.filename;
-            const on = favs.has(key);
-            modalFavBtn.textContent = on ? '★' : '☆';
-            modalFavBtn.classList.toggle('filled', on);
-        }
+        syncCurrentModalFavoriteUI();
     }
 }
 function favoriteAll() {
@@ -136,26 +167,22 @@ function isFavorite(filename) {
     return favs.includes(filename);
 }
 function toggleFavorite(filename, starElem) {
-    const favKey = filename.startsWith(POF_BASE) ? POF_FAV_KEY : filename;
+    const favKey = favoriteKeyForFilename(filename);
     let favs = getFavorites();
     const index = favs.indexOf(favKey);
     const becameFav = index === -1;
     if (!becameFav) {
         favs.splice(index, 1);
-        starElem.textContent = '☆';
-        starElem.classList.remove('filled');
     } else {
         if (favKey === POF_FAV_KEY) favs = favs.filter(f => !/^price_of_/.test(f));
         favs.push(favKey);
-        starElem.textContent = '★';
-        starElem.classList.add('filled');
     }
     saveFavorites(favs);
-
-    // keep the corresponding thumbnail dataset in sync so the lazy loader can
-    // pick this up without another isFavorite() call.
-    const thumb = document.querySelector(`img.grid-thumb[data-filename="${filename}"]`);
-    if (thumb) thumb.dataset.fav = becameFav ? '1' : '0';
+    if (starElem) {
+        starElem.setAttribute('data-filename', favKey);
+        setFavoriteVisualState(starElem, becameFav);
+    }
+    refreshFavoriteStarsUI();
 
     if (showFavoritesOnly && !becameFav) filterImages();
     // if the user just added a favorite we want its thumbnail to begin
