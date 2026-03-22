@@ -16,14 +16,14 @@
         <meta property="og:type" content="website">
         <meta property="og:url" content="https://wickedsmartbitcoin.com/">
         <meta property="og:title" content="Wicked Smart Bitcoin">
-        <meta property="og:description" content="Bitcoin Visualizations Updated Hourly/Daily">
+        <meta property="og:description" content="Wicked's Collection of Bitcoin Dashboards">
         <meta property="og:image" content="https://wickedsmartbitcoin.com/assets/og-banner.png">
         <meta property="og:image:width" content="1200">
         <meta property="og:image:height" content="630">
         <meta name="twitter:card" content="summary_large_image">
         <meta name="twitter:site" content="@w_s_bitcoin">
         <meta name="twitter:title" content="Wicked Smart Bitcoin">
-        <meta name="twitter:description" content="Bitcoin Visualizations Updated Hourly/Daily">
+        <meta name="twitter:description" content="Wicked's Collection of Bitcoin Dashboards">
         <meta name="twitter:image" content="https://wickedsmartbitcoin.com/assets/og-banner.png">
     </head>
     <body>
@@ -137,7 +137,7 @@
         </div>
 
         <h1>Wicked Smart Bitcoin</h1>
-        <p>Bitcoin Visualizations Updated Hourly/Daily</p>
+        <p>Wicked's Collection of Bitcoin Dashboards</p>
 
         <div class="controls-row">
             <div class="toggle-icons" id="toggleIcons">
@@ -167,7 +167,7 @@
                 <span class="favorites-toggle-star">★</span>
             </div>
             <div class="search-container">
-                <button id="search-btn" class="search-btn" onclick="toggleSearch()" aria-label="Search">
+                <button id="search-btn" class="search-btn" type="button" aria-label="Search">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M10.5 3a7.5 7.5 0 1 1 0 15a7.5 7.5 0 0 1 0-15zm0 2a5.5 5.5 0 1 0 0 11a5.5 5.5 0 0 0 0-11zm8.03 12.47l3.25 3.25a1 1 0 1 1-1.41 1.41l-3.25-3.25a1 1 0 0 1 1.41-1.41z" fill="currentColor" />
                     </svg>
@@ -181,9 +181,13 @@
                 <select class="chip-menu-select chip-kpi-select-overlay" id="homeKpiTimeZoneSelect" aria-label="Homepage date and time time zone"></select>
             </div>
             <div class="chip" id="homeBip110HeightKpi">Height n/a</div>
+            <label class="chip chip-checkbox" for="showArchivedToggle">
+                <input id="showArchivedToggle" type="checkbox" />
+                <span>Show archived visualizations</span>
+            </label>
         </div>
         <div class="image-grid grid" id="image-grid"></div>
-        <div id="no-favorites-message" style="display: none; color: #ccc; font-size: 1.2rem; margin-top: 2rem">No starred visualizations.</div>
+        <div id="no-favorites-message" style="display: none; color: #ccc; font-size: 1.2rem; margin-top: 2rem">No starred visualizations</div>
         <div class="modal" id="modal">
             <div class="modal-controls">
                 <button class="close-btn" onclick="closeModal()">×</button>
@@ -422,7 +426,7 @@
             </div>
             <p>
                 © 2025 Wicked Smart Bitcoin
-                <span id="version-info">(v0.2.0)</span>
+                <span id="version-info">(v0.2.1)</span>
             </p>
             <p id="last-updated" style="font-size: 0.75rem; color: #666">Last updated: —</p>
         </footer>

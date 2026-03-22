@@ -8,6 +8,44 @@ Current dashboards:
 - `node_count/`: Plotly-based history chart plus software-version panel
 - `bitcoin_dominance/`: Plotly-based BTC dominance history plus latest market-cap snapshot panel
 
+## Shared foundation files
+
+Common dashboard shell/layout rules are centralized in `webapps/shared/` and should be referenced by every dashboard.
+
+- `shared/dashboard_shared.css`
+  - Shared topbar/title/info-popover/chip/control/toggle shell rules
+  - Shared compact action controls (swap button + resize-handle baseline)
+  - Shared loader styling and animation
+  - Shared embedded-modal wrap padding behavior
+- `shared/dashboard_embed_modal.js`
+  - Shared embedded-in-modal detection and `--modal-controls-clearance` updates
+  - Auto-applies on load and listens for window + parent resize events
+
+### Required `<head>` includes for new dashboards
+
+Add these references in every dashboard HTML file (path is relative to each dashboard folder):
+
+```html
+<script src="../shared/dashboard_embed_modal.js"></script>
+<link rel="stylesheet" href="../shared/dashboard_shared.css" />
+```
+
+Map the shared accent token in dashboard-local `:root`:
+
+```css
+:root {
+  --dashboard-accent: var(--accent);
+}
+```
+
+For dashboards that use `--signal` as the accent token:
+
+```css
+:root {
+  --dashboard-accent: var(--signal);
+}
+```
+
 ## Core visual language
 
 These values are already established in the current dashboards and should be treated as the default system unless a dashboard has a strong reason to diverge.
@@ -250,6 +288,8 @@ Required behaviors:
 - Keep info popovers usable on smaller screens by relaxing absolute positioning when necessary
 - Tighten corner radii slightly on smaller screens if needed, but do not redesign the layout entirely
 
+Use `shared/dashboard_embed_modal.js` for this behavior instead of re-implementing embed-clearance scripts per dashboard.
+
 Current mobile adjustments are intentionally modest. Prefer preserving the desktop visual language instead of creating a separate mobile theme.
 
 ## Data and loading patterns
@@ -266,6 +306,8 @@ Recommended expectations for future dashboards:
 
 Before calling a new dashboard finished, check all of the following:
 
+- The dashboard references `../shared/dashboard_shared.css` and `../shared/dashboard_embed_modal.js`.
+- Shared shell rules are reused; duplicated copies of shared rules were not pasted into the dashboard file.
 - Fonts match the established `Space Grotesk` and `IBM Plex Mono` split.
 - Outer padding uses the existing `clamp(8px, 1.4vw, 12px)` pattern.
 - Topbar is compact and bordered, not oversized.
@@ -279,6 +321,8 @@ Before calling a new dashboard finished, check all of the following:
 - Mobile and embedded modal states were checked explicitly.
 
 ## Practical recommendation
+
+Always start with the shared foundation files in `webapps/shared/`, then layer dashboard-specific rules only where needed.
 
 If a new dashboard is closer to a chart + controls + panel workflow, start by copying the shell and spacing patterns from `node_count/dashboard.html`.
 

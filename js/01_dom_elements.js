@@ -64,6 +64,7 @@ const anchorControls = document.getElementById('anchor-controls');
 const anchorSelect   = document.getElementById('anchor-select');
 const buyMeBtn = document.getElementById('buyCoffeeBtn');
 const favoritesToggleBtn = document.getElementById('favoritesToggle');
+const showArchivedToggle = document.getElementById('showArchivedToggle');
 const buyCoffeeMethodBtns = Array.from(document.querySelectorAll('.buy-coffee-method-btn'));
 const DONATE_ROUTE = 'donate';
 const viewControls =

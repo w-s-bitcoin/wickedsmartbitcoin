@@ -6,29 +6,17 @@
   <title>Node Count Dashboard</title>
   <script>
     (function () {
-      try {
-        if (window.self === window.top) return;
-        const minClearance = 30;
-        const extraGap = -4;
-        let clearance = minClearance;
-        try {
-          const controls = window.parent?.document?.querySelector('.modal-controls');
-          if (controls) {
-            clearance = Math.max(minClearance, Math.ceil(controls.getBoundingClientRect().height + extraGap));
-          }
-        } catch (_) {
-          clearance = minClearance;
-        }
-        const root = document.documentElement;
-        root.classList.add('embedded-in-modal');
-        root.style.setProperty('--modal-controls-clearance', `${clearance}px`);
-      } catch (_) {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('preview') === 'card') {
+        document.documentElement.classList.add('card-preview');
       }
     }());
   </script>
+  <script src="../shared/dashboard_embed_modal.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../shared/dashboard_shared.css" />
   <style>
     :root {
       --bg: #06080a;
@@ -44,12 +32,11 @@
       --shadow: 0 14px 40px rgba(0, 0, 0, 0.35);
       --modal-controls-clearance: 30px;
       --wrap-pad: clamp(8px, 1.4vw, 12px);
+      --dashboard-accent: var(--accent);
       --panel-resizer-width: 20px;
       --topbar-row-gap: 6px;
       --kpi-settings-pad-top: 5px;
     }
-
-    * { box-sizing: border-box; }
 
     body {
       margin: 0;
@@ -71,10 +58,34 @@
       grid-template-rows: auto 1fr;
     }
 
-    body.embedded-in-modal .wrap,
-    html.embedded-in-modal body .wrap {
-      padding-top: calc(var(--wrap-pad) + var(--modal-controls-clearance));
+    html.card-preview,
+    html.card-preview body {
+      height: 100%;
+      overflow: hidden;
     }
+
+    html.card-preview body .wrap {
+      height: 100vh;
+      padding: 0;
+      gap: 0;
+      grid-template-rows: 1fr;
+    }
+
+    html.card-preview body .topbar {
+      display: none !important;
+    }
+
+    html.card-preview body .panel {
+      border-radius: 0;
+      border-left: 0;
+      border-right: 0;
+    }
+
+    html.card-preview body .grid {
+      height: 100vh;
+      align-self: stretch;
+    }
+
 
     .topbar {
       display: grid;
@@ -86,85 +97,6 @@
       gap: var(--topbar-row-gap);
     }
 
-    .title-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-      position: relative;
-    }
-
-    .info-wrap {
-      position: relative;
-      display: inline-flex;
-      align-items: center;
-    }
-
-    .info-btn {
-      width: 18px;
-      height: 18px;
-      border-radius: 999px;
-      border: 1px solid rgba(255, 255, 255, 0.32);
-      background: transparent;
-      color: #d6e1e6;
-      font-family: "IBM Plex Mono", monospace;
-      font-size: 0.66rem;
-      font-weight: 600;
-      line-height: 1;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      padding: 0;
-    }
-
-    .info-btn:hover,
-    .info-btn:focus-visible {
-      color: var(--accent);
-      border-color: var(--accent);
-      outline: none;
-    }
-
-    .info-popover {
-      position: absolute;
-      top: calc(100% + 8px);
-      left: 0;
-      right: auto;
-      z-index: 50;
-      width: min(420px, calc(100vw - 24px));
-      max-width: min(420px, calc(100vw - 24px));
-      border: 1px solid rgba(255, 255, 255, 0.18);
-      border-radius: 10px;
-      background: #000;
-      color: #d9e5ea;
-      padding: 10px 12px;
-      font-size: 0.82rem;
-      line-height: 1.45;
-      box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
-      font-family: "IBM Plex Mono", monospace;
-      opacity: 0;
-      visibility: hidden;
-      pointer-events: none;
-      transform: translateY(-2px);
-      transition: opacity 120ms ease, transform 120ms ease, visibility 0ms linear 120ms;
-    }
-
-    .info-wrap:hover .info-popover,
-    .info-wrap:focus-within .info-popover {
-      opacity: 1;
-      visibility: visible;
-      transform: translateY(0);
-      transition: opacity 120ms ease, transform 120ms ease;
-    }
-
-    h1 {
-      margin: 0;
-      font-size: clamp(1.05rem, 2vw, 1.5rem);
-      font-weight: 700;
-      letter-spacing: 0.015em;
-      text-wrap: balance;
-    }
-
     .source-row {
       margin: 0;
       color: var(--muted);
@@ -173,8 +105,8 @@
       line-height: 1.4;
       display: flex;
       align-items: baseline;
-      max-width: 100%;
-      overflow: hidden;
+      flex-wrap: wrap;
+      gap: 0.35ch;
     }
 
     .source-row a {
@@ -290,46 +222,12 @@
       outline: none;
     }
 
-    .chips {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
     .toggle {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      color: #d8e4ea;
-      font-size: 0.84rem;
       font-family: "Space Grotesk", "Helvetica Neue", sans-serif;
-      user-select: none;
-      cursor: pointer;
-    }
-    .toggle input {
-      width: 15px;
-      height: 15px;
-      accent-color: var(--accent);
-      cursor: pointer;
-    }
-    .controls {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      align-items: center;
-      border-top: 1px solid rgba(255, 255, 255, 0.06);
-      padding-top: var(--kpi-settings-pad-top);
     }
 
-    .chip {
-      border: 1px solid rgba(255, 255, 255, 0.14);
-      border-radius: 999px;
-      background: transparent;
-      color: #d6e1e6;
-      padding: 5px 9px;
-      font-size: 0.8rem;
-      font-family: "IBM Plex Mono", monospace;
-      white-space: nowrap;
+    .controls {
+      padding-top: var(--kpi-settings-pad-top);
     }
 
     .controls .chip {
@@ -502,47 +400,8 @@
     }
 
     .panel-resize-handle {
-      position: absolute;
-      right: 8px;
-      bottom: 8px;
-      width: 20px;
-      height: 20px;
-      border: 1px solid rgba(255, 255, 255, 0.25);
-      border-radius: 6px;
-      background: rgba(0, 0, 0, 0.72);
-      cursor: nwse-resize;
-      z-index: 4;
-      touch-action: none;
-      padding: 0;
       display: none;
       flex-shrink: 0;
-    }
-
-    .panel-resize-handle::before {
-      content: "";
-      position: absolute;
-      right: 3px;
-      bottom: 3px;
-      width: 11px;
-      height: 11px;
-      background:
-        linear-gradient(135deg, transparent 0 34%, rgba(214, 225, 230, 0.75) 34% 43%, transparent 43% 57%, rgba(214, 225, 230, 0.75) 57% 66%, transparent 66% 100%);
-      pointer-events: none;
-    }
-
-    .panel-resize-handle:hover,
-    .panel-resize-handle:focus-visible {
-      border-color: var(--accent);
-      outline: none;
-    }
-
-    .panel-resize-handle:disabled {
-      border-color: rgba(255, 255, 255, 0.14);
-      cursor: not-allowed;
-    }
-
-    .panel-resize-handle:disabled::before {
-      opacity: 0.5;
     }
 
     .grid.stacked .panel-resize-handle {
@@ -573,74 +432,12 @@
       user-select: none !important;
     }
 
-    .swap-panels-control {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      border: 0;
-      background: transparent;
-      color: #d8e4ea;
-      cursor: pointer;
-      padding: 0;
-      flex-shrink: 0;
-      font: inherit;
-      font-size: 0.84rem;
-      line-height: 1;
-    }
-
-    .swap-panels-control:hover,
-    .swap-panels-control:focus-visible {
-      color: var(--accent);
-      outline: none;
-    }
-
-    .swap-panels-control:disabled {
-      color: rgba(216, 228, 234, 0.5);
-      cursor: not-allowed;
-    }
-
-    .swap-panels-btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 20px;
-      height: 20px;
-      border: 1px solid rgba(255, 255, 255, 0.25);
-      border-radius: 6px;
-      background: transparent;
-      color: #d8e4ea;
-      cursor: pointer;
-      padding: 0;
-      flex-shrink: 0;
-    }
-
-    .swap-panels-control:hover .swap-panels-btn,
-    .swap-panels-control:focus-visible .swap-panels-btn {
-      border-color: var(--accent);
-    }
-
-    .swap-panels-control:disabled .swap-panels-btn {
-      border-color: rgba(255, 255, 255, 0.14);
-    }
-
     .swap-panels-btn svg {
-      width: 12px;
-      height: 12px;
-      display: block;
-      stroke: currentColor;
-      fill: none;
-      stroke-width: 1.5;
-      stroke-linecap: round;
-      stroke-linejoin: round;
       transition: transform 0.15s ease;
     }
 
     .swap-panels-control.stacked .swap-panels-btn svg {
       transform: rotate(90deg);
-    }
-
-    .swap-panels-control .label {
-      white-space: nowrap;
     }
 
     .panel {
@@ -987,46 +784,7 @@
 
     }
 
-    .panel-loader {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-direction: column;
-      gap: 10px;
-      background: rgba(0, 0, 0, 0.72);
-      z-index: 2;
-      transition: opacity 180ms ease, visibility 0ms linear 180ms;
-      opacity: 1;
-      visibility: visible;
-      pointer-events: none;
-    }
 
-    .panel-loader.hidden {
-      opacity: 0;
-      visibility: hidden;
-    }
-
-    .panel-loader .circle {
-      width: 28px;
-      height: 28px;
-      border-radius: 999px;
-      border: 3px solid rgba(255, 255, 255, 0.2);
-      border-top-color: var(--accent);
-      animation: spin 850ms linear infinite;
-    }
-
-    .panel-loader .label {
-      font-family: "IBM Plex Mono", monospace;
-      font-size: 0.78rem;
-      color: #d6e1e6;
-      letter-spacing: 0.01em;
-    }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
   </style>
 </head>
 <body>
@@ -1041,7 +799,7 @@
           </div>
         </div>
       </div>
-      <p class="source-row source-row--inline" id="sourceRow"><span class="source-prefix">Source:</span><span class="source-first-line"><span class="source-primary"><a href="https://luke.dashjr.org/programs/bitcoin/files/charts/historical.html" target="_blank" rel="noopener noreferrer">https://luke.dashjr.org/programs/bitcoin/files/charts/historical.html</a></span><span class="source-separator">;</span></span><span class="source-secondary"><a href="https://luke.dashjr.org/programs/bitcoin/files/charts/software.html" target="_blank" rel="noopener noreferrer">https://luke.dashjr.org/programs/bitcoin/files/charts/software.html</a></span></p>
+      <p class="source-row" id="sourceRow"><span class="source-prefix">Sources:</span><span class="source-first-line"><span class="source-primary"><a href="https://luke.dashjr.org/programs/bitcoin/files/charts/historical.html" target="_blank" rel="noopener noreferrer">https://luke.dashjr.org/programs/bitcoin/files/charts/historical.html</a></span><span class="source-separator">;</span></span><span class="source-secondary"><a href="https://luke.dashjr.org/programs/bitcoin/files/charts/software.html" target="_blank" rel="noopener noreferrer">https://luke.dashjr.org/programs/bitcoin/files/charts/software.html</a></span></p>
       <div class="error" id="errorBox"></div>
       <div class="chips" id="statusChips">
         <div class="chip-menu-wrap single-select" id="updatedChipWrap">
@@ -1151,6 +909,8 @@
     const PANEL_SPLIT_STACK_MAX = 90;
     const PANEL_SPLIT_CENTER = 50;
     const PANEL_SPLIT_SNAP_DISTANCE = 1.2;
+    const AUTO_REFRESH_MS = 60000;
+    const FORCE_REFRESH_MS = 3600000;
     const SOFTWARE_SPLIT_MIN = 32;
     const SOFTWARE_SPLIT_MAX = 78;
 
@@ -1290,6 +1050,19 @@
       return second.text();
     }
 
+    function withCacheBust(path, cacheBust = null) {
+      if (cacheBust == null) return path;
+      const separator = path.includes('?') ? '&' : '?';
+      return `${path}${separator}_=${cacheBust}`;
+    }
+
+    async function fetchTextWithFallbackCacheBust(primary, fallback, cacheBust = null) {
+      return fetchTextWithFallback(
+        withCacheBust(primary, cacheBust),
+        fallback ? withCacheBust(fallback, cacheBust) : fallback
+      );
+    }
+
     function sanitizeHistoryRows(rows) {
       if (!Array.isArray(rows) || !rows.length) return [];
 
@@ -1342,33 +1115,7 @@
     }
 
     function applyEmbeddedModalLayout() {
-      if (window.self === window.top) return;
-
-      const minClearance = 30;
-      const extraGap = -4;
-      const root = document.documentElement;
-
-      const updateClearance = () => {
-        let clearance = minClearance;
-        try {
-          const controls = window.parent?.document?.querySelector('.modal-controls');
-          if (controls) {
-            clearance = Math.max(minClearance, Math.ceil(controls.getBoundingClientRect().height + extraGap));
-          }
-        } catch (_) {
-          clearance = minClearance;
-        }
-        root.style.setProperty('--modal-controls-clearance', `${clearance}px`);
-        root.classList.add('embedded-in-modal');
-        document.body.classList.add('embedded-in-modal');
-      };
-
-      updateClearance();
-      window.addEventListener('resize', updateClearance);
-      try {
-        window.parent?.addEventListener?.('resize', updateClearance);
-      } catch (_) {
-      }
+      window.WSBDashboardShared?.applyEmbeddedModalTopClearance?.();
     }
 
     const state = {
@@ -1388,7 +1135,131 @@
       softwareChartStackPercent: 48,
       softwareContentHeightWide: 0,
       softwareContentHeightStack: 0,
+      autoRefreshTimer: null,
+      refreshInFlight: false,
+      lastSuccessfulRefreshAt: 0,
+      dataSignature: '',
     };
+
+    function getDataSignature(historyRows, softwareRows, refreshedAtText) {
+      const latestDatetime = historyRows.length
+        ? String(historyRows[historyRows.length - 1].datetime || '').trim()
+        : '';
+      const refreshed = String(refreshedAtText || '').trim();
+      return `${refreshed}|${latestDatetime}|${historyRows.length}|${softwareRows.length}`;
+    }
+
+    async function loadDashboardData(cacheBust = null) {
+      const [historyCsv, softwareCsv, refreshedAtRaw] = await Promise.all([
+        fetchTextWithFallbackCacheBust('webapp_data/bitcoin_node_history.csv', null, cacheBust),
+        fetchTextWithFallbackCacheBust('webapp_data/node_software_counts_grouped.csv', null, cacheBust),
+        fetchTextWithFallbackCacheBust('webapp_data/last_updated.txt', '../../assets/last_updated.txt', cacheBust).catch(() => ''),
+      ]);
+
+      const refreshedAtText = String(refreshedAtRaw || '').trim();
+      const historyRows = sanitizeHistoryRows(
+        parseCsv(historyCsv).map((r) => ({
+          ...r,
+          datetime: r.datetime || (r.timestamp ? new Date(num(r.timestamp) * 1000).toISOString() : ''),
+        })).filter((r) => !!r.datetime)
+      );
+      const softwareRows = parseCsv(softwareCsv);
+
+      return {
+        historyRows,
+        softwareRows,
+        refreshedAtText,
+        signature: getDataSignature(historyRows, softwareRows, refreshedAtText),
+      };
+    }
+
+    async function fetchLatestDataSignature() {
+      const refreshedAtRaw = await fetchTextWithFallbackCacheBust(
+        'webapp_data/last_updated.txt',
+        '../../assets/last_updated.txt',
+        Date.now()
+      ).catch(() => '');
+      return String(refreshedAtRaw || '').trim();
+    }
+
+    async function refreshIfDataChanged({ force = false } = {}) {
+      if (state.refreshInFlight) return;
+      state.refreshInFlight = true;
+
+      try {
+        if (!force) {
+          const latestStamp = await fetchLatestDataSignature();
+          const currentStamp = String(state.refreshedAtText || '').trim();
+          if (latestStamp && currentStamp && latestStamp === currentStamp) {
+            return;
+          }
+        }
+
+        setPanelLoaderVisible('history', true);
+        setPanelLoaderVisible('software', true);
+
+        const data = await loadDashboardData(Date.now());
+        if (!data.historyRows.length) {
+          throw new Error('No history rows found in node count dataset.');
+        }
+        if (!data.softwareRows.length) {
+          throw new Error('No software rows found in grouped software dataset.');
+        }
+
+        state.history = data.historyRows;
+        state.software = data.softwareRows;
+        state.refreshedAtText = data.refreshedAtText;
+        state.dataSignature = data.signature;
+        state.lastSuccessfulRefreshAt = Date.now();
+
+        setLastUpdated();
+        renderHistoryChart();
+        renderSoftwarePanel();
+      } catch (err) {
+        console.warn('Auto-refresh check failed:', err);
+      } finally {
+        state.refreshInFlight = false;
+        setPanelLoaderVisible('history', false);
+        setPanelLoaderVisible('software', false);
+      }
+    }
+
+    function triggerRefreshSoon(delayMs = 150) {
+      window.setTimeout(() => {
+        refreshIfDataChanged();
+      }, delayMs);
+    }
+
+    function setupRefreshWakeEvents() {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          triggerRefreshSoon(0);
+        }
+      });
+
+      window.addEventListener('focus', () => {
+        triggerRefreshSoon(0);
+      });
+
+      window.addEventListener('pageshow', () => {
+        triggerRefreshSoon(0);
+      });
+
+      window.addEventListener('online', () => {
+        triggerRefreshSoon(0);
+      });
+    }
+
+    function startAutoRefresh() {
+      if (state.autoRefreshTimer) {
+        clearInterval(state.autoRefreshTimer);
+      }
+      state.autoRefreshTimer = setInterval(() => {
+        const now = Date.now();
+        const shouldForceRefresh = (now - state.lastSuccessfulRefreshAt) >= FORCE_REFRESH_MS;
+        refreshIfDataChanged({ force: shouldForceRefresh });
+      }, AUTO_REFRESH_MS);
+    }
 
     function isStackedLayout() {
       return window.matchMedia(`(max-width: ${MOBILE_STACK_BREAKPOINT}px)`).matches;
@@ -2397,39 +2268,8 @@
     }
 
     function updateSourceRowLayout() {
-      const row = document.getElementById('sourceRow');
-      if (!row) return;
-
-      const prefix = row.querySelector('.source-prefix');
-      const firstLine = row.querySelector('.source-first-line');
-      const secondary = row.querySelector('.source-secondary');
-      if (!prefix || !firstLine || !secondary) return;
-
-      row.classList.remove('source-row--inline', 'source-row--stacked', 'source-row--truncated');
-
-      const rowWidth = Math.floor(row.clientWidth);
-      if (rowWidth <= 0) {
-        row.classList.add('source-row--inline');
-        return;
-      }
-
-      const prefixStyles = getComputedStyle(prefix);
-      const prefixWidth = Math.ceil(prefix.getBoundingClientRect().width + (parseFloat(prefixStyles.marginRight) || 0));
-      const firstLineWidth = Math.ceil(firstLine.scrollWidth);
-      const secondaryWidth = Math.ceil(secondary.scrollWidth);
-      const inlineGap = 4;
-
-      if (prefixWidth + firstLineWidth + inlineGap + secondaryWidth <= rowWidth) {
-        row.classList.add('source-row--inline');
-        return;
-      }
-
-      if (prefixWidth + firstLineWidth <= rowWidth) {
-        row.classList.add('source-row--stacked');
-        return;
-      }
-
-      row.classList.add('source-row--truncated');
+      // Intentionally no-op: source row now follows the same wrapped layout as
+      // the bitcoin_dominance dashboard for consistent mobile formatting.
     }
 
     function bindControls() {
@@ -2798,22 +2638,12 @@
       setPanelLoaderVisible('history', true);
       setPanelLoaderVisible('software', true);
       try {
-        const [historyCsv, softwareCsv, refreshedAtRaw] = await Promise.all([
-          fetchTextWithFallback('webapp_data/bitcoin_node_history.csv'),
-          fetchTextWithFallback('webapp_data/node_software_counts_grouped.csv'),
-          fetchTextWithFallback('webapp_data/last_updated.txt', '../../assets/last_updated.txt').catch(() => ''),
-        ]);
-
-        state.refreshedAtText = String(refreshedAtRaw || '').trim();
-
-        state.history = sanitizeHistoryRows(
-          parseCsv(historyCsv).map((r) => ({
-            ...r,
-            datetime: r.datetime || (r.timestamp ? new Date(num(r.timestamp) * 1000).toISOString() : ''),
-          })).filter((r) => !!r.datetime)
-        );
-
-        state.software = parseCsv(softwareCsv);
+        const data = await loadDashboardData();
+        state.history = data.historyRows;
+        state.software = data.softwareRows;
+        state.refreshedAtText = data.refreshedAtText;
+        state.dataSignature = data.signature;
+        state.lastSuccessfulRefreshAt = Date.now();
 
         if (!state.history.length) {
           throw new Error('No history rows found in node count dataset.');
@@ -2832,6 +2662,8 @@
         bindControls();
         renderHistoryChart();
         renderSoftwarePanel();
+        setupRefreshWakeEvents();
+        startAutoRefresh();
       } catch (err) {
         console.error(err);
         showError(`Dashboard data failed to load: ${err.message || err}`);

@@ -3,23 +3,91 @@
  * =========================== */
 
 function updateLastUpdatedStamp() {
-  const el = document.getElementById("last-updated");
-  if (!el) return;
-  const url = `${getPageBasePath()}/assets/last_updated.txt?ts=${Date.now()}`;
-  fetch(url, { cache: "no-store" })
-    .then((res) => {
-      if (!res.ok) return null;
-      return res.text();
-    })
-    .then((text) => {
-      if (!text) return;
-      const t = String(text).trim();
-      if (!t) return;
-      el.textContent = t;
-    })
-    .catch(() => {});
+    const el = document.getElementById("last-updated");
+    if (!el) return Promise.resolve("");
+    const url = `${getPageBasePath()}/assets/last_updated.txt?ts=${Date.now()}`;
+    return fetch(url, { cache: "no-store" })
+        .then((res) => {
+            if (!res.ok) return "";
+            return res.text();
+        })
+        .then((text) => {
+            const t = String(text || "").trim();
+            if (!t) return "";
+            el.textContent = t;
+            return t;
+        })
+        .catch(() => "");
 }
-updateLastUpdatedStamp();
+
+const HOMEPAGE_AUTO_REFRESH_MS = 60000;
+const HOMEPAGE_FORCE_REFRESH_MS = 3600000;
+let homepageAutoRefreshTimer = null;
+let homepageRefreshInFlight = false;
+let homepageLastSuccessfulRefreshAt = 0;
+let homepageLastUpdatedStamp = "";
+
+function triggerHomepageRefreshSoon(delayMs = 150) {
+    window.setTimeout(() => {
+        refreshHomepageLastUpdatedStamp();
+    }, delayMs);
+}
+
+function setupHomepageRefreshWakeEvents() {
+    document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") {
+            triggerHomepageRefreshSoon(0);
+        }
+    });
+
+    window.addEventListener("focus", () => {
+        triggerHomepageRefreshSoon(0);
+    });
+
+    window.addEventListener("pageshow", () => {
+        triggerHomepageRefreshSoon(0);
+    });
+
+    window.addEventListener("online", () => {
+        triggerHomepageRefreshSoon(0);
+    });
+}
+
+function startHomepageAutoRefresh() {
+    if (homepageAutoRefreshTimer) {
+        clearInterval(homepageAutoRefreshTimer);
+    }
+    homepageAutoRefreshTimer = setInterval(() => {
+        const now = Date.now();
+        const shouldForceRefresh = (now - homepageLastSuccessfulRefreshAt) >= HOMEPAGE_FORCE_REFRESH_MS;
+        if (shouldForceRefresh || homepageLastUpdatedStamp) {
+            refreshHomepageLastUpdatedStamp();
+        }
+    }, HOMEPAGE_AUTO_REFRESH_MS);
+}
+
+async function refreshHomepageLastUpdatedStamp() {
+    if (homepageRefreshInFlight) return;
+    homepageRefreshInFlight = true;
+    try {
+        const latestStamp = await updateLastUpdatedStamp();
+        if (latestStamp && homepageLastUpdatedStamp && latestStamp !== homepageLastUpdatedStamp) {
+            window.location.reload();
+            return;
+        }
+        if (latestStamp) {
+            homepageLastUpdatedStamp = latestStamp;
+        }
+        homepageLastSuccessfulRefreshAt = Date.now();
+    } finally {
+        homepageRefreshInFlight = false;
+    }
+}
+
+refreshHomepageLastUpdatedStamp();
+setupHomepageRefreshWakeEvents();
+startHomepageAutoRefresh();
+
 function syncModalToUrl() {
   if (!Array.isArray(imageList) || imageList.length === 0) return;
   const fname = getImageNameFromPath();
@@ -268,7 +336,10 @@ fetch(IMAGE_LIST_URL)
         const effectiveView = urlHalvingView || storedHalvingView;
 
         const desiredFilename = halvingFilenameForView(effectiveView);
-        const baseMeta = HALVING_META[desiredFilename] || halvingEntries[0];
+        const sourceEntry =
+            halvingEntries.find(img => String(img.filename).toLowerCase() === String(desiredFilename).toLowerCase()) ||
+            halvingEntries[0];
+        const baseMeta = HALVING_META[desiredFilename] || sourceEntry;
 
         const firstIdx = imageList.findIndex(img =>
             isHalvingViewFile(img.filename)
@@ -277,6 +348,8 @@ fetch(IMAGE_LIST_URL)
         imageList = imageList.filter(img => !isHalvingViewFile(img.filename));
 
         const halvingCard = {
+            ...sourceEntry,
+            ...baseMeta,
             filename: desiredFilename,
             title: baseMeta.title || "Halving View",
             description: baseMeta.description || "",
@@ -416,6 +489,9 @@ fetch(IMAGE_LIST_URL)
         }
         if (!standaloneShell && showFavoritesOnly)
             document.getElementById("favoritesToggle")?.classList.add("active");
+        if (!standaloneShell && showArchivedToggle) {
+            showArchivedToggle.checked = showArchivedVisualizations;
+        }
         if (initialIsDonate) {
             showThanksPopup({ fromRoute: true });
         } else if (initialFilename) {

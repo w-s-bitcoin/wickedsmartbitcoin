@@ -34,6 +34,7 @@ function buildHalvingMetaFromList(list) {
   list.forEach(img => {
     if (isHalvingViewFile(img.filename)) {
       HALVING_META[img.filename] = {
+        archived: img.archived,
         title: img.title || '',
         description: img.description || '',
         latest_x: img.latest_x || '',
