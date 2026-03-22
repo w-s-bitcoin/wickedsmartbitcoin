@@ -168,7 +168,7 @@
     .source-row {
       margin: 0;
       color: var(--muted);
-      font-size: 0.82rem;
+      font-size: clamp(0.74rem, 0.70rem + 0.22vw, 0.82rem);
       font-family: "IBM Plex Mono", monospace;
       line-height: 1.4;
       display: flex;
@@ -179,6 +179,8 @@
 
     .source-row a {
       color: #d6e1e6;
+      font-size: inherit;
+      line-height: inherit;
       text-decoration: underline;
       text-underline-offset: 2px;
     }
@@ -983,9 +985,6 @@
         max-width: min(420px, calc(100% - 4px));
       }
 
-      .source-row {
-        font-size: 0.78rem;
-      }
     }
 
     .panel-loader {
