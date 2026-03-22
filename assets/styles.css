@@ -186,17 +186,17 @@ footer {
 .search-container {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0;
     position: relative;
 }
 .search-btn {
     width: 32px;
     height: 32px;
     padding: 0.005rem 0.02rem;
-    border: 1px solid var(--brand);
-    border-radius: 6px;
+    border: 1px solid var(--border);
+    border-radius: 6px 0 0 6px;
     background-color: var(--panel);
-    color: var(--brand);
+    color: #fff;
     font-size: 1.2rem;
     cursor: pointer;
     box-shadow: none;
@@ -204,31 +204,48 @@ footer {
     align-items: center;
     justify-content: center;
 }
+.controls-row .search-btn {
+    border-radius: 6px 0 0 6px;
+}
 .search-btn:not(.active):focus {
     border-color: var(--border);
-    color: var(--brand);
+    color: #fff;
     background: transparent;
 }
 .search-btn.active {
-    box-shadow: 0 0 8px var(--brand);
-    background-color: #333;
+    box-shadow: none;
+    background-color: var(--panel);
+    border-color: var(--border);
+    color: #fff;
 }
 .search-input {
-    height: 32px;
-    width: 0;
-    opacity: 0;
-    transition: width 0.3s ease, opacity 0.3s ease;
+    height: 36px;
+    width: clamp(140px, 24vw, 220px);
+    opacity: 1;
+    transition: none;
     background-color: var(--panel);
-    border: 1px solid var(--brand);
+    border: 1px solid var(--border);
+    border-left: 0;
     color: var(--fg);
     padding: 0 0.5rem;
     font-family: monospace;
     font-size: 1rem;
-    border-radius: 6px;
+    border-radius: 0 6px 6px 0;
+}
+.search-container:focus-within .search-btn,
+.search-container:focus-within .search-input {
+    border-color: var(--brand);
+}
+.search-container:focus-within .search-btn {
+    color: var(--brand);
+    background-color: transparent;
+    box-shadow: 0 0 8px var(--brand);
+}
+.search-container:focus-within .search-input {
+    box-shadow: 0 0 8px var(--brand);
 }
 .search-input:focus {
     outline: none !important;
-    box-shadow: none !important;
 }
 @supports selector(:focus-visible) {
     .search-input:focus {
@@ -239,7 +256,7 @@ footer {
     }
 }
 .search-container.active .search-input {
-    width: 200px;
+    width: clamp(140px, 24vw, 220px);
     opacity: 1;
 }
 
@@ -248,10 +265,9 @@ footer {
     justify-content: center;
     align-items: center;
     gap: 8px;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     margin: 0.5rem 0 1.25rem;
-    overflow-x: auto;
-    overflow-y: hidden;
+    overflow: visible;
     padding: 0 0.25rem;
 }
 
@@ -265,6 +281,27 @@ footer {
     font-family: "IBM Plex Mono", monospace;
     white-space: nowrap;
     flex: 0 0 auto;
+}
+
+.home-bip110-kpis .chip-checkbox {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    cursor: pointer;
+    user-select: none;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    color: #d8e4ea;
+    font-family: monospace;
+}
+
+.home-bip110-kpis .chip-checkbox input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    accent-color: var(--brand);
+    cursor: pointer;
 }
 
 .home-bip110-kpis .chip-kpi-display {
@@ -905,6 +942,35 @@ body.slideshow-open.hide-cursor .slideshow * {
     border: 1px solid var(--border);
     border-radius: 8px;
 }
+
+.chart-wrapper.dashboard-preview-wrapper {
+    background-color: #000;
+}
+
+.dashboard-preview-viewport {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    background: #000;
+}
+
+.dashboard-preview-scene {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: top left;
+    pointer-events: none;
+}
+
+.dashboard-preview-frame {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: #000;
+    pointer-events: none;
+    display: block;
+}
+
 .chart-wrapper img {
     position: absolute;
     inset: 0;

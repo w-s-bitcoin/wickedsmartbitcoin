@@ -560,6 +560,18 @@ function toggleFavoritesView() {
     document.getElementById('favoritesToggle').classList.toggle('active', showFavoritesOnly);
     filterImages();
 }
+function toggleArchivedVisualizations(showArchived) {
+    const next = (typeof showArchived === 'boolean') ? showArchived : !showArchivedVisualizations;
+    showArchivedVisualizations = next;
+    localStorage.setItem('showArchivedVisualizations', showArchivedVisualizations);
+    if (showArchivedToggle) {
+        showArchivedToggle.checked = showArchivedVisualizations;
+    }
+    filterImages();
+}
+showArchivedToggle?.addEventListener('change', (e) => {
+    toggleArchivedVisualizations(!!e.target?.checked);
+});
 document.addEventListener('keydown', (e) => {
   if (modal?.style.display === 'flex') return;
   if (isSlideshowOpen && isSlideshowOpen()) return;

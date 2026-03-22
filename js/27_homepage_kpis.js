@@ -3,6 +3,8 @@
  * =========================== */
 (function initHomepageBip110Kpis() {
   const METADATA_URL = "webapps/bip110_signaling/webapp_data/bip110_metadata.json";
+  const AUTO_REFRESH_MS = 60000;
+  const FORCE_REFRESH_MS = 3600000;
   const FALLBACK_TIME_ZONE = "UTC";
   const TZ_STORAGE_KEY = "wicked_dashboard_timezone_v1";
   const TZ_CHANGE_EVENT = "wsb:timezonechange";
@@ -13,6 +15,10 @@
   if (!updatedEl || !heightEl || !timeZoneSelect) return;
 
   let lastBlockHeight = NaN;
+  let metadataSignature = "";
+  let autoRefreshTimer = null;
+  let refreshInFlight = false;
+  let lastSuccessfulRefreshAt = 0;
 
   function getPreferredTimeZone() {
     if (window.WSBDashboardTime?.getPreferredTimeZone) {
@@ -103,16 +109,62 @@
   }
 
   async function refreshFromMetadata() {
+    if (refreshInFlight) return;
+    refreshInFlight = true;
     try {
-      const response = await fetch(METADATA_URL, { cache: "no-store" });
+      const response = await fetch(`${METADATA_URL}?_=${Date.now()}`, { cache: "no-store" });
       if (!response.ok) throw new Error(`Metadata request failed: ${response.status}`);
       const metadata = await response.json();
+      const nextSignature = `${String(metadata?.generated_utc || "").trim()}|${String(metadata?.source_block_height ?? "").trim()}`;
+      metadataSignature = nextSignature;
+      lastSuccessfulRefreshAt = Date.now();
       setKpis({
         height: metadata?.source_block_height,
       });
     } catch (_) {
       setKpis({});
+    } finally {
+      refreshInFlight = false;
     }
+  }
+
+  function triggerRefreshSoon(delayMs = 150) {
+    window.setTimeout(() => {
+      refreshFromMetadata();
+    }, delayMs);
+  }
+
+  function setupRefreshWakeEvents() {
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        triggerRefreshSoon(0);
+      }
+    });
+
+    window.addEventListener("focus", () => {
+      triggerRefreshSoon(0);
+    });
+
+    window.addEventListener("pageshow", () => {
+      triggerRefreshSoon(0);
+    });
+
+    window.addEventListener("online", () => {
+      triggerRefreshSoon(0);
+    });
+  }
+
+  function startAutoRefresh() {
+    if (autoRefreshTimer) {
+      window.clearInterval(autoRefreshTimer);
+    }
+    autoRefreshTimer = window.setInterval(() => {
+      const now = Date.now();
+      const shouldForceRefresh = (now - lastSuccessfulRefreshAt) >= FORCE_REFRESH_MS;
+      if (shouldForceRefresh || metadataSignature) {
+        refreshFromMetadata();
+      }
+    }, AUTO_REFRESH_MS);
   }
 
   function refreshForTimezoneOnly() {
@@ -129,6 +181,8 @@
   refreshFromMetadata();
   setKpis({});
   window.setInterval(() => setKpis({}), 30000);
+  setupRefreshWakeEvents();
+  startAutoRefresh();
 
   window.addEventListener(TZ_CHANGE_EVENT, refreshForTimezoneOnly);
   window.addEventListener("storage", (event) => {
