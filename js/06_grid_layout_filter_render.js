@@ -209,23 +209,22 @@ function filterImages(){
   });
   const message = document.getElementById('no-favorites-message');
   if(message) message.style.display = (showFavoritesOnly && visibleImages.length === 0) ? 'block' : 'none';
-  const grid = document.getElementById('image-grid');
-  const frag = document.createDocumentFragment();
-  for(const {container} of cardByFilename.values()){
-    container.style.display = 'none';
-  }
+  const visibleKeys = new Set();
   visibleImages.forEach((item, index) => {
     const card = cardByFilename.get(_cardKey(item.filename));
     if(!card) return;
+    visibleKeys.add(_cardKey(item.filename));
     card.container.style.display = '';
     if (card.img) card.img.dataset.gridIndex = index;
     // update the fav flag in case the user changed it while browsing
     if (card.img) card.img.dataset.fav = isFavorite(item.filename) ? '1' : '0';
     card.titleElem.dataset.gridIndex = index;
     if (card.desc) card.desc.dataset.gridIndex = index;
-    frag.appendChild(card.container);
   });
-  grid.appendChild(frag);
+  for (const [key, card] of cardByFilename.entries()) {
+    if (visibleKeys.has(key)) continue;
+    card.container.style.display = 'none';
+  }
   updateLayoutBasedOnWidth();
   updateAllDashboardPreviewScales();
   initLazyImages();
