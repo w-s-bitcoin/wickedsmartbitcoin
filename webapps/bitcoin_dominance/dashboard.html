@@ -87,22 +87,6 @@
       align-self: stretch;
     }
 
-    .card-preview-fallback {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      pointer-events: none;
-      z-index: 2;
-      opacity: 1;
-      transition: opacity 180ms ease;
-    }
-
-    .card-preview-fallback.is-hiding {
-      opacity: 0;
-    }
-
     .topbar,
     .panel {
       background: #000;
@@ -119,56 +103,7 @@
       padding: 10px 12px;
     }
 
-    .source-row {
-      margin: 0;
-      color: var(--muted);
-      font-size: clamp(0.74rem, 0.70rem + 0.22vw, 0.82rem);
-      font-family: "IBM Plex Mono", monospace;
-      line-height: 1.4;
-      display: flex;
-      align-items: baseline;
-      flex-wrap: wrap;
-      gap: 0.35ch;
-    }
-
-    .source-row a {
-      color: #d6e1e6;
-      font-size: inherit;
-      line-height: inherit;
-      text-decoration: underline;
-      text-underline-offset: 2px;
-    }
-
-    .source-row a:hover,
-    .source-row a:focus-visible {
-      color: var(--accent);
-      outline: none;
-    }
-
-    .chips {
-      display: flex;
-      gap: 8px 10px;
-      flex-wrap: wrap;
-      align-items: center;
-    }
-
-    .chips-inline {
-      display: flex;
-      gap: 8px 10px;
-      flex-wrap: wrap;
-      align-items: center;
-    }
-
-    #statusChips {
-      display: contents;
-    }
-
     .controls {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      align-items: center;
-      border-top: 1px solid rgba(255, 255, 255, 0.06);
       padding-top: var(--kpi-settings-pad-top);
     }
 
@@ -182,12 +117,6 @@
       font-size: 0.8rem;
       font-family: "IBM Plex Mono", monospace;
       white-space: nowrap;
-    }
-
-    .controls .chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
     }
 
     .chip select,
@@ -450,7 +379,8 @@
       html,
       body {
         height: auto;
-        overflow: auto;
+        overflow-y: auto;
+        overflow-x: hidden;
       }
 
       .wrap {
@@ -611,12 +541,14 @@
     const FORCE_REFRESH_MS = 3600000;
     const IS_CARD_PREVIEW = document.documentElement.classList.contains('card-preview');
     const FETCH_CACHE_MODE = IS_CARD_PREVIEW ? 'force-cache' : 'no-store';
-    const CARD_PREVIEW_FALLBACK_FRAME = '../../final_frames/bitcoin_dominance.png';
     const MOBILE_STACK_BREAKPOINT = 1100;
     const PANEL_SPLIT_MIN = 34;
     const PANEL_SPLIT_MAX = 72;
     const PANEL_SPLIT_CENTER = 50;
     const PANEL_SPLIT_SNAP_DISTANCE = 1.2;
+    const STACKED_HISTORY_MIN_HEIGHT = 240;
+    const STACKED_SNAPSHOT_MIN_HEIGHT = 260;
+    const STACKED_HISTORY_DEFAULT_RATIO = 0.56;
     const PLOTLY_LIVE_BG = 'rgba(0,0,0,0)';
     const PLOTLY_EXPORT_BG = '#000';
     const STABLE_USD_GREEN = '#35b56a';
@@ -653,7 +585,6 @@
       refreshInFlight: false,
       lastSuccessfulRefreshAt: 0,
       dataSignature: '',
-      cardPreviewFallbackImgs: [],
       datasets: {
         excl: {
           history: [],
@@ -665,50 +596,6 @@
         },
       },
     };
-
-    function showCardPreviewFallbacks() {
-      if (!IS_CARD_PREVIEW) return;
-      const targetIds = ['dominanceChart', 'snapshotChart'];
-      const nextImgs = [];
-
-      targetIds.forEach((id) => {
-        const chart = document.getElementById(id);
-        if (!chart) return;
-        const parent = chart.parentElement;
-        if (!parent) return;
-
-        const computedPosition = window.getComputedStyle(parent).position;
-        if (!computedPosition || computedPosition === 'static') {
-          parent.style.position = 'relative';
-        }
-
-        const img = document.createElement('img');
-        img.className = 'card-preview-fallback';
-        img.alt = '';
-        img.decoding = 'async';
-        img.loading = 'eager';
-        img.src = CARD_PREVIEW_FALLBACK_FRAME;
-        parent.appendChild(img);
-        nextImgs.push(img);
-      });
-
-      state.cardPreviewFallbackImgs = nextImgs;
-    }
-
-    function clearCardPreviewFallbacks() {
-      const imgs = Array.isArray(state.cardPreviewFallbackImgs) ? state.cardPreviewFallbackImgs : [];
-      if (!imgs.length) return;
-
-      imgs.forEach((img) => {
-        if (!img || !img.isConnected) return;
-        img.classList.add('is-hiding');
-        window.setTimeout(() => {
-          if (img.isConnected) img.remove();
-        }, 220);
-      });
-
-      state.cardPreviewFallbackImgs = [];
-    }
 
     let snapshotResizeObserver = null;
     let snapshotResizeFrame = 0;
@@ -1610,12 +1497,14 @@
         legendrank: 1,
       });
 
+      const dominanceXAxisBottomMargin = isStackedLayout() ? 56 : 35;
+
       Plotly.react('dominanceChart', traces, {
         paper_bgcolor: PLOTLY_LIVE_BG,
         plot_bgcolor: PLOTLY_LIVE_BG,
         hoverlabel: PLOTLY_HOVERLABEL,
         hoverdistance: 5,
-        margin: { l: 60, r: 24, t: 0, b: 25 },
+        margin: { l: 60, r: 24, t: 0, b: dominanceXAxisBottomMargin },
         showlegend: true,
         legend: {
           orientation: 'h',
@@ -1630,6 +1519,8 @@
         },
         hovermode: 'x unified',
         xaxis: {
+          automargin: true,
+          ticklabelstandoff: 10,
           color: '#d6e1e6',
           showgrid: false,
           tickfont: { family: 'IBM Plex Mono, monospace', size: 11 },
@@ -1739,12 +1630,13 @@
       const maxLabelWidthPx = Math.max(exclMaxLabelWidth, inclMaxLabelWidth);
 
       const snapshotChartEl = document.getElementById('snapshotChart');
+      const hideSnapshotXAxisTickLabels = isStackedLayout();
       const barWidth = 0.56;
       const layoutMargin = {
         l: Math.ceil(maxYAxisWidthPx + 40),
         r: Math.ceil(clamp(maxLabelWidthPx + 6, 48, 96)),
         t: 18,
-        b: 34,
+        b: hideSnapshotXAxisTickLabels ? 12 : 34,
       };
       const plotWidthPx = Math.max(1, (snapshotChartEl?.clientWidth || 0) - layoutMargin.l - layoutMargin.r);
       const plotHeightPx = Math.max(1, (snapshotChartEl?.clientHeight || 0) - layoutMargin.t - layoutMargin.b);
@@ -1834,7 +1726,8 @@
         images: iconImages,
         xaxis: {
           automargin: true,
-          ticklabelstandoff: 8,
+          ticklabelstandoff: hideSnapshotXAxisTickLabels ? 0 : 8,
+          showticklabels: !hideSnapshotXAxisTickLabels,
           color: '#d6e1e6',
           gridcolor: 'rgba(255,255,255,0.08)',
           tickmode: 'array',
@@ -2061,11 +1954,11 @@
       if (stacked) {
         grid.style.gap = '10px';
         grid.style.gridTemplateColumns = '1fr';
-        const minHistoryHeight = 180;
-        const minSnapshotHeight = 180;
+        const minHistoryHeight = STACKED_HISTORY_MIN_HEIGHT;
+        const minSnapshotHeight = STACKED_SNAPSHOT_MIN_HEIGHT;
         const gridRect = grid.getBoundingClientRect();
         const gridAvailableHeight = Math.max(1, Math.round(gridRect.height - 10));
-        const fallbackHistoryHeight = Math.max(minHistoryHeight, Math.round(gridAvailableHeight * 0.52));
+        const fallbackHistoryHeight = Math.max(minHistoryHeight, Math.round(gridAvailableHeight * STACKED_HISTORY_DEFAULT_RATIO));
         const fallbackSnapshotHeight = Math.max(minSnapshotHeight, gridAvailableHeight - fallbackHistoryHeight);
 
         const currentHistoryHeight = Math.max(minHistoryHeight, Math.round(historyPanel.getBoundingClientRect().height || fallbackHistoryHeight));
@@ -2433,7 +2326,6 @@
         installChartResizeObservers();
         applyPanelOrder();
         renderAll();
-        clearCardPreviewFallbacks();
         if (!IS_CARD_PREVIEW) {
           setupRefreshWakeEvents();
           startAutoRefresh();
@@ -2463,7 +2355,6 @@
       };
 
       if (IS_CARD_PREVIEW) {
-        showCardPreviewFallbacks();
         if (typeof window.requestIdleCallback === 'function') {
           window.requestIdleCallback(() => {
             void startInteractiveBootstrap();
