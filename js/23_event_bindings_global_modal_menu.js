@@ -411,6 +411,69 @@ window.addEventListener('storage', e => {
     if (sel) sel.value = window.WSBDashboardTime.getPreferredTimeZone();
 });
 
+function resetDashboardsToDefaults() {
+    const confirmed = window.confirm('Restore defaults for all dashboards? This will clear saved preferences and reload the page.');
+    if (!confirmed) return;
+
+    const keysToRemove = [
+        'favorites',
+        'searchTitles',
+        'searchDescriptions',
+        'preferredLayout',
+        'showFavoritesOnly',
+        'showArchivedVisualizations',
+        'bvgYear',
+        'dalScale',
+        'potdScale',
+        'nlbpScale',
+        'halvingView',
+        'pofItem',
+        'pofSort',
+        'uoaItem',
+        'uoaSort',
+        'uoaShowMode',
+        'btcmapRegion',
+        'btcmapView',
+        'distMetric',
+        'cycleAnchor',
+        'wicked_dashboard_timezone_v1',
+        'slideshowExp',
+        'buyCoffeeMethod'
+    ];
+    const keyPrefixesToRemove = [
+        'bip110_signaling_',
+        'bitcoin_dominance_',
+        'node_count_'
+    ];
+
+    keysToRemove.forEach((key) => {
+        try {
+            localStorage.removeItem(key);
+        } catch (_) {
+            // Ignore storage errors.
+        }
+    });
+
+    try {
+        for (let i = localStorage.length - 1; i >= 0; i -= 1) {
+            const key = localStorage.key(i);
+            if (!key) continue;
+            if (!keyPrefixesToRemove.some((prefix) => key.startsWith(prefix))) continue;
+            localStorage.removeItem(key);
+        }
+    } catch (_) {
+        // Ignore storage enumeration errors.
+    }
+
+    try {
+        setCookie('pofItem', '', -1);
+    } catch (_) {
+        // Ignore cookie errors.
+    }
+
+    window.location.reload();
+}
+
 kebabMenu?.addEventListener('click', e => {
     const btn = e.target.closest('.menu-item');
     if (!btn) return;
@@ -431,6 +494,12 @@ kebabMenu?.addEventListener('click', e => {
     const action = btn.dataset.action;
     if (action === 'star-all') favoriteAll();
     else if (action === 'unstar-all') unfavoriteAll();
+    else if (action === 'reset-dashboards') {
+        kebabMenu.classList.add('hidden');
+        kebabBtn.setAttribute('aria-expanded', 'false');
+        resetDashboardsToDefaults();
+        return;
+    }
     kebabMenu.classList.add('hidden');
     kebabBtn.setAttribute('aria-expanded', 'false');
 });
