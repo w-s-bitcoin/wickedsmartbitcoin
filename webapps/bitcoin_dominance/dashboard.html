@@ -436,17 +436,15 @@
         <a href="https://www.coingecko.com/" target="_blank" rel="noopener noreferrer">https://www.coingecko.com/</a>
       </p>
       <div class="error" id="errorBox"></div>
-      <div class="chips" id="kpiRow">
-        <span class="chip-menu-wrap">
+      <div class="chips" id="statusChips">
+        <span class="chip-menu-wrap" id="updatedChipWrap">
           <span id="updatedTimeZoneDisplay">Updated ...</span>
           <select id="updatedTimeZoneSelect" class="chip-menu-select" aria-label="Choose updated timestamp time zone"></select>
         </span>
-        <div class="chips-inline" id="statusChips">
-          <span class="chip">Top 10 Market Cap -</span>
-          <span class="chip">Bitcoin Market Cap -</span>
-          <span class="chip">Bitcoin Dominance -</span>
-          <span class="chip">Stable Dominance -</span>
-        </div>
+        <span class="chip" id="kpiTop10MarketCap">Top 10 Market Cap -</span>
+        <span class="chip" id="kpiBitcoinMarketCap">Bitcoin Market Cap -</span>
+        <span class="chip" id="kpiBitcoinDominance">Bitcoin Dominance -</span>
+        <span class="chip" id="kpiStableDominance">Stable Dominance -</span>
       </div>
       <div class="controls">
         <label class="toggle" for="toggleHistoryPanel">
@@ -1112,8 +1110,11 @@
     }
 
     function renderStatusChips() {
-      const host = document.getElementById('statusChips');
-      if (!host) return;
+      const top10Chip = document.getElementById('kpiTop10MarketCap');
+      const bitcoinMarketCapChip = document.getElementById('kpiBitcoinMarketCap');
+      const bitcoinDominanceChip = document.getElementById('kpiBitcoinDominance');
+      const stableDominanceChip = document.getElementById('kpiStableDominance');
+      if (!top10Chip || !bitcoinMarketCapChip || !bitcoinDominanceChip || !stableDominanceChip) return;
       const historyRows = getCurrentHistory();
       const snapshotRows = getSnapshotRows();
       const column = getCurrentColumn();
@@ -1132,22 +1133,18 @@
       const bitcoinRow = snapshotRows.find((row) => String(row.Symbol || '').toUpperCase() === 'BTC');
       const bitcoinMarketCap = bitcoinRow ? num(bitcoinRow['Market Cap']) : 0;
 
-      const chips = [
-        `<span class="chip">Top 10 Market Cap ${fmtCompactMoney(top10MarketCap)}</span>`,
-        `<span class="chip">Bitcoin Market Cap ${fmtCompactMoney(bitcoinMarketCap)}</span>`,
-        `<span class="chip">Bitcoin Dominance ${fmtPctRatio(latest[column])}</span>`,
-      ];
+      top10Chip.textContent = `Top 10 Market Cap ${fmtCompactMoney(top10MarketCap)}`;
+      bitcoinMarketCapChip.textContent = `Bitcoin Market Cap ${fmtCompactMoney(bitcoinMarketCap)}`;
+      bitcoinDominanceChip.textContent = `Bitcoin Dominance ${fmtPctRatio(latest[column])}`;
 
       // Keep Stable Dominance visible; show '-' when stablecoins are excluded.
       if (state.includeStables) {
         const stableColumn = getCurrentStableColumn();
         const stableDominance = stableColumn ? num(latest[stableColumn]) : 0;
-        chips.push(`<span class="chip">Stable Dominance ${fmtPctRatio(stableDominance)}</span>`);
+        stableDominanceChip.textContent = `Stable Dominance ${fmtPctRatio(stableDominance)}`;
       } else {
-        chips.push('<span class="chip">Stable Dominance -</span>');
+        stableDominanceChip.textContent = 'Stable Dominance -';
       }
-
-      host.innerHTML = chips.join('');
     }
 
     function updateModeLabels() {
