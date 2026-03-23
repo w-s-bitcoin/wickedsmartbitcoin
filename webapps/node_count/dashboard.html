@@ -95,131 +95,7 @@
       padding: 10px 12px;
       box-shadow: none;
       gap: var(--topbar-row-gap);
-    }
-
-    .source-row {
-      margin: 0;
-      color: var(--muted);
-      font-size: clamp(0.74rem, 0.70rem + 0.22vw, 0.82rem);
-      font-family: "IBM Plex Mono", monospace;
-      line-height: 1.4;
-      display: flex;
-      align-items: baseline;
-      flex-wrap: wrap;
-      gap: 0.35ch;
-    }
-
-    .source-row a {
-      color: #d6e1e6;
-      font-size: inherit;
-      line-height: inherit;
-      text-decoration: underline;
-      text-underline-offset: 2px;
-    }
-
-    .source-prefix {
-      flex: 0 0 auto;
-      margin-right: 0.35ch;
-    }
-
-    .source-first-line {
-      display: inline-flex;
-      align-items: baseline;
-      min-width: 0;
-      white-space: nowrap;
-    }
-
-    .source-primary {
-      min-width: 0;
-      white-space: nowrap;
-    }
-
-    .source-separator {
-      flex: 0 0 auto;
-      white-space: nowrap;
-    }
-
-    .source-primary a {
-      display: block;
-      white-space: nowrap;
-    }
-
-    .source-secondary {
-      flex: 0 1 auto;
-      max-width: 100%;
-      white-space: nowrap;
       overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .source-secondary a {
-      display: inline;
-    }
-
-    .source-row.source-row--inline {
-      flex-wrap: nowrap;
-    }
-
-    .source-row.source-row--inline .source-first-line {
-      flex: 0 0 auto;
-      max-width: none;
-    }
-
-    .source-row.source-row--inline .source-secondary {
-      flex: 0 0 auto;
-      margin-left: 0.35ch;
-    }
-
-    .source-row.source-row--stacked {
-      flex-wrap: wrap;
-    }
-
-    .source-row.source-row--stacked .source-first-line {
-      flex: 0 1 auto;
-      max-width: calc(100% - 4.8ch);
-    }
-
-    .source-row.source-row--stacked .source-secondary {
-      flex: 0 1 auto;
-      flex-basis: 100%;
-      margin-left: 0;
-      max-width: 100%;
-    }
-
-    .source-row.source-row--truncated {
-      flex-wrap: wrap;
-    }
-
-    .source-row.source-row--truncated .source-first-line {
-      flex: 1 1 0;
-      max-width: calc(100% - 4.8ch);
-      overflow: hidden;
-    }
-
-    .source-row.source-row--truncated .source-primary {
-      overflow: hidden;
-    }
-
-    .source-row.source-row--truncated .source-primary a {
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .source-row.source-row--truncated .source-separator {
-      display: none;
-    }
-
-    .source-row.source-row--truncated .source-secondary {
-      flex: 0 1 auto;
-      flex-basis: 100%;
-      margin-left: 0;
-      max-width: 100%;
-    }
-
-    .source-row a:hover,
-    .source-row a:focus-visible {
-      color: var(--accent);
-      outline: none;
     }
 
     .toggle {
@@ -230,10 +106,14 @@
       padding-top: var(--kpi-settings-pad-top);
     }
 
-    .controls .chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
+    #updatedChipWrap,
+    #updatedChipWrap .chip-kpi-display,
+    #updatedChip {
+      max-width: 100%;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .chip-kpi-display {
@@ -247,6 +127,7 @@
     .chip-menu-wrap.single-select {
       position: relative;
       display: inline-block;
+      max-width: 100%;
     }
 
     .chip-menu-wrap.single-select::after {
@@ -308,7 +189,8 @@
 
     .chip input[type="range"] {
       accent-color: var(--accent);
-      width: 96px;
+      width: clamp(56px, 18vw, 96px);
+      max-width: 100%;
       padding: 0;
     }
 
@@ -738,7 +620,17 @@
     @media (max-width: 1100px) {
       body {
         height: auto;
-        overflow: auto;
+        overflow-y: auto;
+        overflow-x: hidden;
+      }
+
+      .chip-kpi-display,
+      #updatedChip {
+        max-width: 100%;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       .wrap {
@@ -799,19 +691,26 @@
           </div>
         </div>
       </div>
-      <p class="source-row" id="sourceRow"><span class="source-prefix">Sources:</span><span class="source-first-line"><span class="source-primary"><a href="https://luke.dashjr.org/programs/bitcoin/files/charts/historical.html" target="_blank" rel="noopener noreferrer">https://luke.dashjr.org/programs/bitcoin/files/charts/historical.html</a></span><span class="source-separator">;</span></span><span class="source-secondary"><a href="https://luke.dashjr.org/programs/bitcoin/files/charts/software.html" target="_blank" rel="noopener noreferrer">https://luke.dashjr.org/programs/bitcoin/files/charts/software.html</a></span></p>
+      <p class="source-row">
+        <span>Sources:</span>
+        <a href="https://luke.dashjr.org/programs/bitcoin/files/charts/historical.html" target="_blank" rel="noopener noreferrer">https://luke.dashjr.org/programs/bitcoin/files/charts/historical.html</a>
+        <span>;</span>
+        <a href="https://luke.dashjr.org/programs/bitcoin/files/charts/software.html" target="_blank" rel="noopener noreferrer">https://luke.dashjr.org/programs/bitcoin/files/charts/software.html</a>
+      </p>
       <div class="error" id="errorBox"></div>
-      <div class="chips" id="statusChips">
+      <div class="chips" id="kpiRow">
         <div class="chip-menu-wrap single-select" id="updatedChipWrap">
           <div class="chip chip-kpi-display" id="updatedChip">Updated ...</div>
           <select id="updatedTimeZoneSelect" class="chip-menu-select chip-kpi-select-overlay" aria-label="Updated timestamp time zone"></select>
         </div>
-        <div class="chip" id="kpiTotal">Total -</div>
-        <div class="chip" id="kpiUnreachable">Non-listening -</div>
-        <div class="chip" id="kpiListening">Listening -</div>
-        <div class="chip" id="kpiKnots">Knots -</div>
-        <div class="chip" id="kpiCore30">Core v30 -</div>
-        <div class="chip" id="kpiBip110">BIP-110 -</div>
+        <div class="chips-inline" id="statusChips">
+          <div class="chip" id="kpiTotal">Total -</div>
+          <div class="chip" id="kpiUnreachable">Non-listening -</div>
+          <div class="chip" id="kpiListening">Listening -</div>
+          <div class="chip" id="kpiKnots">Knots -</div>
+          <div class="chip" id="kpiCore30">Core v30 -</div>
+          <div class="chip" id="kpiBip110">BIP-110 -</div>
+        </div>
       </div>
       <div class="controls">
         <label class="toggle" for="toggleHistoryPanel"><input type="checkbox" id="toggleHistoryPanel" checked /> Node Count</label>
@@ -2269,11 +2168,6 @@
       updatedChip.textContent = `Updated ${formatUpdatedForSelectedTimeZone(updatedRaw)}`;
     }
 
-    function updateSourceRowLayout() {
-      // Intentionally no-op: source row now follows the same wrapped layout as
-      // the bitcoin_dominance dashboard for consistent mobile formatting.
-    }
-
     function bindControls() {
       ['rangeSelect', 'smoothSelect'].forEach((id) => {
         document.getElementById(id).addEventListener('change', () => {
@@ -2595,7 +2489,6 @@
         Plotly.Plots.resize('historyChart');
         Plotly.Plots.resize('softwareChart');
         updateHistoryLegendSizing();
-        updateSourceRowLayout();
       });
     }
 
@@ -2660,7 +2553,6 @@
         applyPanelOrder();
         applyPanelVisibility();
         setLastUpdated();
-        updateSourceRowLayout();
         bindControls();
         renderHistoryChart();
         renderSoftwarePanel();
