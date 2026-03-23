@@ -87,6 +87,22 @@
       align-self: stretch;
     }
 
+    .card-preview-fallback {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      pointer-events: none;
+      z-index: 2;
+      opacity: 1;
+      transition: opacity 180ms ease;
+    }
+
+    .card-preview-fallback.is-hiding {
+      opacity: 0;
+    }
+
     .topbar,
     .panel {
       background: #000;
@@ -593,6 +609,9 @@
     const CONTROLS_STORAGE_KEY = 'bitcoin_dominance_controls_v1';
     const AUTO_REFRESH_MS = 60000;
     const FORCE_REFRESH_MS = 3600000;
+    const IS_CARD_PREVIEW = document.documentElement.classList.contains('card-preview');
+    const FETCH_CACHE_MODE = IS_CARD_PREVIEW ? 'force-cache' : 'no-store';
+    const CARD_PREVIEW_FALLBACK_FRAME = '../../final_frames/bitcoin_dominance.png';
     const MOBILE_STACK_BREAKPOINT = 1100;
     const PANEL_SPLIT_MIN = 34;
     const PANEL_SPLIT_MAX = 72;
@@ -634,6 +653,7 @@
       refreshInFlight: false,
       lastSuccessfulRefreshAt: 0,
       dataSignature: '',
+      cardPreviewFallbackImgs: [],
       datasets: {
         excl: {
           history: [],
@@ -645,6 +665,50 @@
         },
       },
     };
+
+    function showCardPreviewFallbacks() {
+      if (!IS_CARD_PREVIEW) return;
+      const targetIds = ['dominanceChart', 'snapshotChart'];
+      const nextImgs = [];
+
+      targetIds.forEach((id) => {
+        const chart = document.getElementById(id);
+        if (!chart) return;
+        const parent = chart.parentElement;
+        if (!parent) return;
+
+        const computedPosition = window.getComputedStyle(parent).position;
+        if (!computedPosition || computedPosition === 'static') {
+          parent.style.position = 'relative';
+        }
+
+        const img = document.createElement('img');
+        img.className = 'card-preview-fallback';
+        img.alt = '';
+        img.decoding = 'async';
+        img.loading = 'eager';
+        img.src = CARD_PREVIEW_FALLBACK_FRAME;
+        parent.appendChild(img);
+        nextImgs.push(img);
+      });
+
+      state.cardPreviewFallbackImgs = nextImgs;
+    }
+
+    function clearCardPreviewFallbacks() {
+      const imgs = Array.isArray(state.cardPreviewFallbackImgs) ? state.cardPreviewFallbackImgs : [];
+      if (!imgs.length) return;
+
+      imgs.forEach((img) => {
+        if (!img || !img.isConnected) return;
+        img.classList.add('is-hiding');
+        window.setTimeout(() => {
+          if (img.isConnected) img.remove();
+        }, 220);
+      });
+
+      state.cardPreviewFallbackImgs = [];
+    }
 
     let snapshotResizeObserver = null;
     let snapshotResizeFrame = 0;
@@ -947,7 +1011,7 @@
     }
 
     async function fetchText(path) {
-      const response = await fetch(path, { cache: 'no-store' });
+      const response = await fetch(path, { cache: FETCH_CACHE_MODE });
       if (!response.ok) throw new Error(`Failed to load ${path} (${response.status})`);
       return response.text();
     }
@@ -2369,8 +2433,11 @@
         installChartResizeObservers();
         applyPanelOrder();
         renderAll();
-        setupRefreshWakeEvents();
-        startAutoRefresh();
+        clearCardPreviewFallbacks();
+        if (!IS_CARD_PREVIEW) {
+          setupRefreshWakeEvents();
+          startAutoRefresh();
+        }
       } catch (error) {
         console.error(error);
         showError(`Dashboard data failed to load: ${error.message || error}`);
@@ -2380,18 +2447,36 @@
     }
 
     window.addEventListener('DOMContentLoaded', async () => {
-      try {
-        await Promise.race([
-          ensurePlotlyLoaded(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out loading Plotly.')), 12000)),
-        ]);
-        await init();
-      } catch (error) {
-        console.error(error);
-        showError(`Plotly failed to load: ${error.message || error}`);
-        setPanelLoaderVisible('history', false);
-        setPanelLoaderVisible('snapshot', false);
+      const startInteractiveBootstrap = async () => {
+        try {
+          await Promise.race([
+            ensurePlotlyLoaded(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out loading Plotly.')), 12000)),
+          ]);
+          await init();
+        } catch (error) {
+          console.error(error);
+          showError(`Plotly failed to load: ${error.message || error}`);
+          setPanelLoaderVisible('history', false);
+          setPanelLoaderVisible('snapshot', false);
+        }
+      };
+
+      if (IS_CARD_PREVIEW) {
+        showCardPreviewFallbacks();
+        if (typeof window.requestIdleCallback === 'function') {
+          window.requestIdleCallback(() => {
+            void startInteractiveBootstrap();
+          }, { timeout: 1200 });
+        } else {
+          window.setTimeout(() => {
+            void startInteractiveBootstrap();
+          }, 120);
+        }
+        return;
       }
+
+      await startInteractiveBootstrap();
     });
   </script>
 </body>

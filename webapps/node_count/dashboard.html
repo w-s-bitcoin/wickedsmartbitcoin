@@ -911,6 +911,8 @@
     const PANEL_SPLIT_SNAP_DISTANCE = 1.2;
     const AUTO_REFRESH_MS = 60000;
     const FORCE_REFRESH_MS = 3600000;
+    const IS_CARD_PREVIEW = document.documentElement.classList.contains('card-preview');
+    const FETCH_CACHE_MODE = IS_CARD_PREVIEW ? 'force-cache' : 'no-store';
     const SOFTWARE_SPLIT_MIN = 32;
     const SOFTWARE_SPLIT_MAX = 78;
 
@@ -1042,10 +1044,10 @@
     }
 
     async function fetchTextWithFallback(primary, fallback) {
-      const first = await fetch(primary, { cache: 'no-store' });
+      const first = await fetch(primary, { cache: FETCH_CACHE_MODE });
       if (first.ok) return first.text();
       if (!fallback) throw new Error(`Failed to load ${primary} (${first.status})`);
-      const second = await fetch(fallback, { cache: 'no-store' });
+      const second = await fetch(fallback, { cache: FETCH_CACHE_MODE });
       if (!second.ok) throw new Error(`Failed to load ${fallback} (${second.status})`);
       return second.text();
     }
@@ -2662,8 +2664,10 @@
         bindControls();
         renderHistoryChart();
         renderSoftwarePanel();
-        setupRefreshWakeEvents();
-        startAutoRefresh();
+        if (!IS_CARD_PREVIEW) {
+          setupRefreshWakeEvents();
+          startAutoRefresh();
+        }
       } catch (err) {
         console.error(err);
         showError(`Dashboard data failed to load: ${err.message || err}`);
@@ -2671,16 +2675,33 @@
     }
 
     window.addEventListener('DOMContentLoaded', async () => {
-      try {
-        await Promise.race([
-          ensurePlotlyLoaded(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out loading Plotly.')), 12000)),
-        ]);
-        await init();
-      } catch (err) {
-        console.error(err);
-        showError(`Dashboard failed to initialize: ${err.message || err}`);
+      const startInteractiveBootstrap = async () => {
+        try {
+          await Promise.race([
+            ensurePlotlyLoaded(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out loading Plotly.')), 12000)),
+          ]);
+          await init();
+        } catch (err) {
+          console.error(err);
+          showError(`Dashboard failed to initialize: ${err.message || err}`);
+        }
+      };
+
+      if (IS_CARD_PREVIEW) {
+        if (typeof window.requestIdleCallback === 'function') {
+          window.requestIdleCallback(() => {
+            void startInteractiveBootstrap();
+          }, { timeout: 1200 });
+        } else {
+          window.setTimeout(() => {
+            void startInteractiveBootstrap();
+          }, 120);
+        }
+        return;
       }
+
+      await startInteractiveBootstrap();
     });
   </script>
 </body>
