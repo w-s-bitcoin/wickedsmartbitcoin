@@ -2781,13 +2781,10 @@
         attachPointer(bip110Canvas, "bip110");
         setupRefreshWakeEvents();
         startAutoRefresh();
-        await nextPaint();
-        renderSelectedPanels(["segwit"], { enhanced: false, scheduleEnhancements: true });
+        renderSelectedPanels(["segwit", "bip110"], { enhanced: false, scheduleEnhancements: true });
         setPanelLoaderVisible("segwit", false);
-        await nextPaint();
-        if (loadToken !== state.phasedLoadToken) return;
-        renderSelectedPanels(["bip110"], { enhanced: false, scheduleEnhancements: true });
         setPanelLoaderVisible("bip110", false);
+        if (loadToken !== state.phasedLoadToken) return;
 
         await loadAndApplyBlockDataPhased(loadToken, state.data.metadata, ["segwit", "bip110"]);
         setControlsEnabled(true);
