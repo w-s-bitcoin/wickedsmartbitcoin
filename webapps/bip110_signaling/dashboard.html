@@ -891,31 +891,40 @@
       };
     }
 
-    async function loadDynamicData(cacheBust = null, dynamicMetadata = null, metadataSignature = null) {
+    async function loadDynamicData(cacheBust = null, dynamicMetadata = null, metadataSignature = null, previousDynamicData = null) {
       const withBust = (path) => {
         if (cacheBust == null) return path;
         const sep = path.includes("?") ? "&" : "?";
         return `${path}${sep}_=${cacheBust}`;
       };
 
+      const reuseReleases = Array.isArray(previousDynamicData?.bip110Releases)
+        && previousDynamicData.bip110Releases.length > 0;
+      const reuseTicks = Array.isArray(previousDynamicData?.bip110Ticks)
+        && previousDynamicData.bip110Ticks.length > 0;
+
       const files = {
         bip110Periods: withBust("webapp_data/bip110_periods.csv"),
-        bip110Releases: withBust("webapp_data/bip110_releases.csv"),
-        bip110Ticks: withBust("webapp_data/bip110_month_ticks.csv"),
       };
+      if (!reuseReleases) {
+        files.bip110Releases = withBust("webapp_data/bip110_releases.csv");
+      }
+      if (!reuseTicks) {
+        files.bip110Ticks = withBust("webapp_data/bip110_month_ticks.csv");
+      }
 
-      const [
-        bip110PeriodsResp,
-        bip110ReleasesResp,
-        bip110TicksResp,
-      ] = await Promise.all([
-        ...Object.values(files).map((f) => fetch(f)),
-      ]);
+      const entries = Object.entries(files);
+      const responsesList = await Promise.all(entries.map(([, path]) => fetch(path)));
+      const responseMap = Object.fromEntries(entries.map(([key], idx) => [key, responsesList[idx]]));
+
+      const bip110PeriodsResp = responseMap.bip110Periods;
+      const bip110ReleasesResp = responseMap.bip110Releases || null;
+      const bip110TicksResp = responseMap.bip110Ticks || null;
 
       const responses = [
         [bip110PeriodsResp, files.bip110Periods],
-        [bip110ReleasesResp, files.bip110Releases],
-        [bip110TicksResp, files.bip110Ticks],
+        ...(bip110ReleasesResp ? [[bip110ReleasesResp, files.bip110Releases]] : []),
+        ...(bip110TicksResp ? [[bip110TicksResp, files.bip110Ticks]] : []),
       ];
 
       responses.forEach(([resp, path]) => {
@@ -937,11 +946,15 @@
         signature,
         bip110Periods: castRows(parseCsv(await bip110PeriodsResp.text())),
         bip110Blocks: [],
-        bip110Releases: castRows(parseCsv(await bip110ReleasesResp.text())).map((d) => ({
-          ...d,
-          display_label: String(d.display_label || "").replaceAll("\\n", "\n"),
-        })),
-        bip110Ticks: castRows(parseCsv(await bip110TicksResp.text())),
+        bip110Releases: bip110ReleasesResp
+          ? castRows(parseCsv(await bip110ReleasesResp.text())).map((d) => ({
+              ...d,
+              display_label: String(d.display_label || "").replaceAll("\\n", "\n"),
+            }))
+          : (previousDynamicData?.bip110Releases || []),
+        bip110Ticks: bip110TicksResp
+          ? castRows(parseCsv(await bip110TicksResp.text()))
+          : (previousDynamicData?.bip110Ticks || []),
       };
     }
 
@@ -1026,7 +1039,7 @@
 
         const loadBuster = Date.now();
         const loadToken = ++state.phasedLoadToken;
-        state.dynamicData = await loadDynamicData(loadBuster);
+        state.dynamicData = await loadDynamicData(loadBuster, null, null, state.dynamicData);
         state.data = buildCombinedData(state.staticData, state.dynamicData, state.data);
         state.dataSignature = state.dynamicData.signature || getDataSignature(state.dynamicData.metadata);
         state.lastSuccessfulRefreshAt = Date.now();
@@ -2763,8 +2776,10 @@
         state.dataSignature = dynamicMetadataResult.signature;
         setStatus(state.data);
         await nextPaint();
-        state.staticData = await loadStaticData(staticMetadataResult.metadata);
-        state.dynamicData = await loadDynamicData(null, dynamicMetadataResult.metadata, dynamicMetadataResult.signature);
+        [state.staticData, state.dynamicData] = await Promise.all([
+          loadStaticData(staticMetadataResult.metadata),
+          loadDynamicData(null, dynamicMetadataResult.metadata, dynamicMetadataResult.signature),
+        ]);
         state.data = buildCombinedData(state.staticData, state.dynamicData);
         state.dataSignature = state.dynamicData.signature || dynamicMetadataResult.signature;
         state.lastSuccessfulRefreshAt = Date.now();
