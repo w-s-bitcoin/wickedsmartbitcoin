@@ -29,6 +29,14 @@ chkSearchDescriptions?.addEventListener('click', e => {
     e.stopPropagation();
     toggleSearchPref('desc');
 });
+document.getElementById('search-btn')?.addEventListener('click', e => {
+    e.preventDefault();
+    toggleSearch();
+});
+document.getElementById('search-btn')?.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    toggleSearch();
+});
 modal.addEventListener('click', e => {
     if (e.target === modal) closeModal();
 });
@@ -318,6 +326,7 @@ document.addEventListener('keydown', e => {
     }
     if (modal.style.display === 'flex') return;
     if (typeof isSlideshowOpen === 'function' && isSlideshowOpen()) return;
+    if (active && active.closest && active.closest('.chart-container, img.grid-thumb')) return;
     if (!visibleImages || !visibleImages.length) return;
     e.preventDefault();
     e.stopPropagation();
@@ -645,16 +654,24 @@ document.addEventListener('keydown', (e) => {
   if (modal?.style.display === 'flex') return;
   if (isSlideshowOpen && isSlideshowOpen()) return;
   if (isBuyMeVisible) return;
-  const isActivate = (e.key === 'Enter' || e.key === ' ' || e.code === 'Space');
+    const isActivate = (
+        e.key === 'Enter'
+        || e.key === ' '
+        || e.key === 'Spacebar'
+        || e.code === 'Space'
+    );
   if (!isActivate) return;
   const ae = document.activeElement;
-  const img = (ae && ae.matches && ae.matches('img.grid-thumb'))
-    ? ae
-    : (ae && ae.closest ? ae.closest('img.grid-thumb') : null);
-  if (!img) return;
+    const img = (ae && ae.matches && ae.matches('img.grid-thumb'))
+        ? ae
+        : (ae && ae.closest ? ae.closest('img.grid-thumb') : null);
+    const card = (ae && ae.matches && ae.matches('.chart-container'))
+        ? ae
+        : (ae && ae.closest ? ae.closest('.chart-container') : null);
+    if (!img && !card) return;
   e.preventDefault();
   e.stopImmediatePropagation();
-  const fname = img.dataset.filename;
+    const fname = img?.dataset?.filename || card?.dataset?.filename;
   if (fname) openModalByFilename(fname);
 }, true);
 

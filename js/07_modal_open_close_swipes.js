@@ -339,6 +339,12 @@ function openModalByIndex(index) {
     });
 }
 function closeModal() {
+    const GRID_FOCUS_RESTORE_KEY = 'wsb_pending_grid_focus_filename_v1';
+    const closedFilename =
+        (modalImg && modalImg.dataset && modalImg.dataset.filename)
+        || (visibleImages && visibleImages[currentIndex] && visibleImages[currentIndex].filename)
+        || lastOpenedFilename
+        || null;
     closeYoutubeOverlay();
     modal.style.display = 'none';
     modalContentMode = 'image';
@@ -351,6 +357,11 @@ function closeModal() {
     // restart lazy loading so thumbnails continue to fetch when user returns
     try { initLazyImages(); } catch (_) {}
     if (isStandaloneModalShell()) {
+        try {
+            if (closedFilename) {
+                sessionStorage.setItem(GRID_FOCUS_RESTORE_KEY, String(closedFilename));
+            }
+        } catch (_) {}
         const home = `${getPageBasePath() || ''}/`.replace(/\/{2,}/g, '/');
         window.location.href = home;
         return;
@@ -427,12 +438,42 @@ function closeModal() {
         }
         }
     } catch (_) {}
-    if (typeof currentIndex === 'number' && currentIndex >= 0) {
-        const thumb = document.querySelector(`img.grid-thumb[data-grid-index="${currentIndex}"]`);
-        if (thumb && typeof thumb.focus === 'function') {
-            requestAnimationFrame(() => thumb.focus());
+    const focusClosedCard = () => {
+        if (closedFilename) {
+            const card = cardByFilename.get(_cardKey(closedFilename));
+            const cardContainer = card?.container?.querySelector?.('.chart-container');
+            if (cardContainer && typeof cardContainer.focus === 'function' && cardContainer.offsetParent !== null) {
+                try { cardContainer.focus({ preventScroll: true }); }
+                catch (_) { cardContainer.focus(); }
+                return true;
+            }
         }
-    }
+
+        if (typeof currentIndex === 'number' && currentIndex >= 0) {
+            const card = document.querySelector(`.chart-container[data-grid-index="${currentIndex}"]`);
+            if (card && typeof card.focus === 'function' && card.offsetParent !== null) {
+                try { card.focus({ preventScroll: true }); }
+                catch (_) { card.focus(); }
+                return true;
+            }
+            const thumb = document.querySelector(`img.grid-thumb[data-grid-index="${currentIndex}"]`);
+            if (thumb && typeof thumb.focus === 'function' && thumb.offsetParent !== null) {
+                try { thumb.focus({ preventScroll: true }); }
+                catch (_) { thumb.focus(); }
+                return true;
+            }
+        }
+        return false;
+    };
+
+    // Retry across a couple frames in case grid reflow/render runs after modal close.
+    requestAnimationFrame(() => {
+        if (focusClosedCard()) return;
+        setTimeout(() => {
+            if (focusClosedCard()) return;
+            setTimeout(() => { focusClosedCard(); }, 120);
+        }, 30);
+    });
 }
 function handleSwipe() {
     if (isPinching || currentScale > 1.001 || modal.classList.contains('zoomed')) return;

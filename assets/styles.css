@@ -933,6 +933,17 @@ body.slideshow-open.hide-cursor .slideshow * {
     max-width: 100%;
     cursor: pointer;
 }
+
+.chart-container:focus {
+    outline: none;
+}
+
+.chart-container:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 3px;
+    border-radius: 10px;
+}
+
 .chart-wrapper {
     position: relative;
     width: 100%;
@@ -1830,4 +1841,14 @@ body.slideshow-open {
     .pof-index {
         margin-left: 0;
     }
+}
+
+/* Global focus color: keep focus ring consistently orange across all controls. */
+:where(a, button, input, select, textarea, [tabindex]):focus {
+    outline: 2px solid var(--brand) !important;
+    outline-offset: 2px;
+}
+
+:where(input[type="checkbox"], input[type="radio"]):focus {
+    box-shadow: 0 0 0 2px rgba(247, 147, 26, 0.35);
 }
