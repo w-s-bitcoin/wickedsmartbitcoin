@@ -705,28 +705,31 @@ function _focusedGridIndex(){
 function _thumbByGridIndex(i){
   return document.querySelector(`img.grid-thumb[data-grid-index="${i}"]`);
 }
-function _visibleGridThumbs(){
-  return Array.from(document.querySelectorAll('img.grid-thumb[data-grid-index]')).filter(el=>{
+function _cardByGridIndex(i){
+    return document.querySelector(`.chart-container[data-grid-index="${i}"]`);
+}
+function _visibleGridCards(){
+    return Array.from(document.querySelectorAll('.chart-container[data-grid-index]')).filter(el=>{
     if(!el.isConnected) return false;
     if(el.offsetParent === null) return false;
     const cs = getComputedStyle(el);
     return cs.display !== "none" && cs.visibility !== "hidden";
   });
 }
-function _gridColumnCount(thumbs){
-  if(!thumbs || thumbs.length <= 1) return 1;
-  const tops = thumbs.map(t=>t.getBoundingClientRect().top);
+function _gridColumnCount(cards){
+    if(!cards || cards.length <= 1) return 1;
+    const tops = cards.map(c=>c.getBoundingClientRect().top);
   const top0 = Math.min(...tops);
-  const row = thumbs
-    .filter(t=>Math.abs(t.getBoundingClientRect().top - top0) < 8)
+    const row = cards
+        .filter(c=>Math.abs(c.getBoundingClientRect().top - top0) < 8)
     .sort((a,b)=>a.getBoundingClientRect().left - b.getBoundingClientRect().left);
   return Math.max(1, row.length || 1);
 }
-function _focusThumb(i){
-  const t = _thumbByGridIndex(i);
-  if(!t) return false;
-  t.focus();
-  try{ t.scrollIntoView({block:"nearest", inline:"nearest"}); }catch(_){}
+function _focusGridCard(i){
+    const card = _cardByGridIndex(i) || _thumbByGridIndex(i)?.closest?.('.chart-container');
+    if(!card) return false;
+    card.focus();
+    try{ card.scrollIntoView({block:"nearest", inline:"nearest"}); }catch(_){}
   return true;
 }
 function onGridArrowNav(e){
@@ -736,12 +739,16 @@ function onGridArrowNav(e){
   const a = document.activeElement;
   if(_isTypingEl(a)) return;
   if(!imageGrid || !a || !imageGrid.contains(a)) return;
-  if(!a.classList?.contains("grid-thumb")) return;
+    const focusedCard =
+        (a.classList?.contains("chart-container") ? a : null)
+        || a.closest?.('.chart-container')
+        || (a.classList?.contains("grid-thumb") ? a.closest?.('.chart-container') : null);
+    if(!focusedCard) return;
   if(!imageGrid.classList.contains("grid")) return;
-  const gi = Number(a.dataset.gridIndex);
+    const gi = Number(focusedCard.dataset.gridIndex);
   if(!Number.isFinite(gi)) return;
-  const thumbs = _visibleGridThumbs();
-  const cols = _gridColumnCount(thumbs);
+    const cards = _visibleGridCards();
+    const cols = _gridColumnCount(cards);
   let delta = 0;
   if(e.key==="ArrowLeft") delta = -1;
   else if(e.key==="ArrowRight") delta = 1;
@@ -750,13 +757,13 @@ function onGridArrowNav(e){
   let target = gi + delta;
   if(target < 0) target = 0;
   if(e.key==="ArrowDown"){
-    while(target <= gi + cols && !_thumbByGridIndex(target) && target > gi) target -= 1;
+        while(target <= gi + cols && !_cardByGridIndex(target) && target > gi) target -= 1;
   } else if(e.key==="ArrowUp"){
-    while(target >= gi - cols && !_thumbByGridIndex(target) && target < gi) target += 1;
+        while(target >= gi - cols && !_cardByGridIndex(target) && target < gi) target += 1;
   }
   if(target === gi) return;
   e.preventDefault();
-  _focusThumb(target);
+    _focusGridCard(target);
 }
 window.setLayout = setLayout;
 window.toggleSearch = toggleSearch;

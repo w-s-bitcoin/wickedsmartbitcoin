@@ -21,6 +21,7 @@ const DASHBOARD_CARD_PREVIEW_SPECS = Object.freeze({
 
 let dashboardPreviewResizeObserver = null;
 let dashboardPreviewWindowResizeBound = false;
+const GRID_FOCUS_RESTORE_KEY = 'wsb_pending_grid_focus_filename_v1';
 
 function getDashboardCardPreviewSpec(filename) {
   return DASHBOARD_CARD_PREVIEW_SPECS[String(filename || '').trim().toLowerCase()] || null;
@@ -93,13 +94,24 @@ function buildGridOnce(){
     img.alt = title || '';
     const onOpen = (e) => {
       e.preventDefault();
+      e.stopPropagation();
+      if (typeof e.stopImmediatePropagation === 'function') {
+        e.stopImmediatePropagation();
+      }
       openModalByFilename(img.dataset.filename);
     };
 
+    chartContainer.dataset.filename = filename;
     chartContainer.tabIndex = 0;
     chartContainer.addEventListener('click', onOpen);
     chartContainer.addEventListener('keydown', (e) => {
-      if (!(e.key === 'Enter' || e.key === ' ' || e.code === 'Space')) return;
+      const isActivate = (
+        e.key === 'Enter'
+        || e.key === ' '
+        || e.key === 'Spacebar'
+        || e.code === 'Space'
+      );
+      if (!isActivate) return;
       onOpen(e);
     });
 
@@ -215,6 +227,11 @@ function filterImages(){
     if(!card) return;
     visibleKeys.add(_cardKey(item.filename));
     card.container.style.display = '';
+    const chartContainer = card.container.querySelector('.chart-container');
+    if (chartContainer) {
+      chartContainer.dataset.gridIndex = index;
+      chartContainer.dataset.filename = item.filename;
+    }
     if (card.img) card.img.dataset.gridIndex = index;
     // update the fav flag in case the user changed it while browsing
     if (card.img) card.img.dataset.fav = isFavorite(item.filename) ? '1' : '0';
@@ -228,6 +245,24 @@ function filterImages(){
   updateLayoutBasedOnWidth();
   updateAllDashboardPreviewScales();
   initLazyImages();
+
+  // If a modal close triggered a return to homepage, restore focus to that card.
+  try {
+    const pendingFilename = String(sessionStorage.getItem(GRID_FOCUS_RESTORE_KEY) || '').trim();
+    if (pendingFilename) {
+      const card = cardByFilename.get(_cardKey(pendingFilename));
+      const target = card?.container?.querySelector?.('.chart-container');
+      if (target && typeof target.focus === 'function' && target.offsetParent !== null) {
+        requestAnimationFrame(() => {
+          try { target.focus({ preventScroll: true }); }
+          catch (_) { target.focus(); }
+        });
+        sessionStorage.removeItem(GRID_FOCUS_RESTORE_KEY);
+      }
+    }
+  } catch (_) {
+    // Ignore storage failures.
+  }
 }
 function setLayout(type, manual = true) {
     imageGrid.classList.remove('grid', 'list');
@@ -271,6 +306,17 @@ function updateLayoutBasedOnWidth() {
     }
 }
 function toggleSearch() {
-    const input = document.getElementById('search-input');
-  if (input) input.focus();
+  const input = document.getElementById('search-input');
+  if (!input) return;
+
+  // Defer focus so it wins over other click handlers running in the same tick.
+  requestAnimationFrame(() => {
+    input.focus({ preventScroll: true });
+    const end = input.value.length;
+    try {
+      input.setSelectionRange(end, end);
+    } catch (_) {
+      // setSelectionRange can fail on some input types; safe to ignore here.
+    }
+  });
 }
