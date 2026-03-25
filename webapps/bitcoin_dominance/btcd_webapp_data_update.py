@@ -419,6 +419,35 @@ def compute_dominance_from_components(components: pd.DataFrame) -> pd.DataFrame:
     return res.sort_values("Date").reset_index(drop=True)
 
 
+def split_timeseries_historical_and_current_day(
+    df: pd.DataFrame,
+    today_str: str,
+    columns: list[str],
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    out = df.copy()
+    for col in columns:
+        if col not in out.columns:
+            out[col] = np.nan
+    out = out[columns].copy()
+    out["Date"] = pd.to_datetime(out["Date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    out = out.dropna(subset=["Date"]).drop_duplicates(subset=["Date"], keep="last")
+    out = out.sort_values("Date").reset_index(drop=True)
+
+    historical = out[out["Date"] < today_str].copy().reset_index(drop=True)
+    current_day = out[out["Date"] >= today_str].copy().reset_index(drop=True)
+    return historical, current_day
+
+
+def write_csv_if_changed(df: pd.DataFrame, path: Path) -> bool:
+    csv_text = df.to_csv(index=False)
+    if path.exists():
+        existing = path.read_text(encoding="utf-8")
+        if existing == csv_text:
+            return False
+    path.write_text(csv_text, encoding="utf-8")
+    return True
+
+
 def fetch_live_snapshot(
     date_str: str,
     allowed_primary_keys: set[str] | None = None,
@@ -559,44 +588,17 @@ def write_webapp_data(source_csv: Path, output_dir: Path) -> None:
         top10_excl_today = build_topn_daily(df_excl[df_excl["Date"] == latest_snapshot_date].copy(), top_n=DEFAULT_TOP_N)
         top10_incl_today = build_topn_daily(df_all_clean[df_all_clean["Date"] == latest_snapshot_date].copy(), top_n=DEFAULT_TOP_N)
 
-    # Incremental timeseries update (btcd_top10 only).
-    ts_path = output_dir / "btcd_timeseries.csv"
-    ts_incl_path = output_dir / "btcd_timeseries_incl_stables.csv"
+    # Timeseries are split into mostly-static historical files + intraday current-day files.
+    ts_hist_path = output_dir / "btcd_timeseries_historical.csv"
+    ts_current_path = output_dir / "btcd_timeseries_current_day.csv"
+    ts_incl_hist_path = output_dir / "btcd_timeseries_incl_stables_historical.csv"
+    ts_incl_current_path = output_dir / "btcd_timeseries_incl_stables_current_day.csv"
     ts_cols = ["Date", "btcd_top10"]
     ts_incl_cols = ["Date", "btcd_top10", "stabled_top10", "otherd_top10"]
 
-    if ts_path.exists():
-        existing_ts = pd.read_csv(ts_path)
-        for col in ts_cols:
-            if col not in existing_ts.columns:
-                existing_ts[col] = np.nan
-        existing_ts = existing_ts[ts_cols].copy()
-        existing_ts["Date"] = pd.to_datetime(existing_ts["Date"], errors="coerce").dt.strftime("%Y-%m-%d")
-        existing_ts = existing_ts.dropna(subset=["Date"]).drop_duplicates(subset=["Date"], keep="last")
-        last_existing_date = existing_ts["Date"].max() if not existing_ts.empty else None
-        missing_mask = existing_ts[[c for c in ts_cols if c != "Date"]].isna().any(axis=1)
-        existing_missing_dates = set(existing_ts.loc[missing_mask, "Date"].tolist())
-    else:
-        existing_ts = pd.DataFrame(columns=ts_cols)
-        last_existing_date = None
-        existing_missing_dates = set()
-
-    if last_existing_date is None:
-        target_dates = [d for d in available_dates if d <= today_str]
-    else:
-        target_dates = [d for d in available_dates if last_existing_date < d <= today_str]
-
-    # Also recalculate existing dates that are present but have missing metric values.
-    target_dates = sorted(set(target_dates) | (existing_missing_dates & set(available_dates)))
-
-    new_ts = compute_btcd_wide_for_dates(df_excl, target_dates=target_dates)
-    if existing_ts.empty:
-        btcd_wide = new_ts.copy()
-    elif new_ts.empty:
-        btcd_wide = existing_ts.copy()
-    else:
-        btcd_wide = pd.concat([existing_ts, new_ts], ignore_index=True)
-    btcd_wide = btcd_wide.drop_duplicates(subset=["Date"], keep="last").sort_values("Date").reset_index(drop=True)
+    # Recompute complete dominance series, then split into historical/current-day outputs.
+    target_dates = [d for d in available_dates if d <= today_str]
+    btcd_wide = compute_btcd_wide_for_dates(df_excl, target_dates=target_dates)
 
     # Recompute incl-stables full history each run so aggregate stable-jump smoothing has full context.
     available_dates_incl = sorted(df_all_clean["Date"].dropna().unique().tolist())
@@ -605,11 +607,16 @@ def write_webapp_data(source_csv: Path, output_dir: Path) -> None:
     components_incl = smooth_stable_component_outliers(components_incl, jump_ratio=2.0)
     btcd_wide_incl = compute_dominance_from_components(components_incl)
 
-    btcd_wide.to_csv(ts_path, index=False)
-    btcd_wide_incl.to_csv(ts_incl_path, index=False)
-    top10_excl_today.to_csv(output_dir / "top10_daily_excl_stables.csv", index=False)
-    top10_incl_today.to_csv(output_dir / "top10_daily_incl_stables.csv", index=False)
-    stable_outliers.to_csv(output_dir / "stable_outliers.csv", index=False)
+    btcd_hist, btcd_current = split_timeseries_historical_and_current_day(btcd_wide, today_str, ts_cols)
+    btcd_incl_hist, btcd_incl_current = split_timeseries_historical_and_current_day(btcd_wide_incl, today_str, ts_incl_cols)
+
+    write_csv_if_changed(btcd_hist, ts_hist_path)
+    write_csv_if_changed(btcd_current, ts_current_path)
+    write_csv_if_changed(btcd_incl_hist, ts_incl_hist_path)
+    write_csv_if_changed(btcd_incl_current, ts_incl_current_path)
+    write_csv_if_changed(top10_excl_today, output_dir / "top10_daily_excl_stables.csv")
+    write_csv_if_changed(top10_incl_today, output_dir / "top10_daily_incl_stables.csv")
+    write_csv_if_changed(stable_outliers, output_dir / "stable_outliers.csv")
 
     latest_date = str(btcd_wide["Date"].dropna().max()) if not btcd_wide.empty else None
     chart_static = {
@@ -621,8 +628,10 @@ def write_webapp_data(source_csv: Path, output_dir: Path) -> None:
         "default_top_n": DEFAULT_TOP_N,
         "records": {
             "df_all_clean": int(len(df_all_clean)),
-            "btcd_timeseries": int(len(btcd_wide)),
-            "btcd_timeseries_incl_stables": int(len(btcd_wide_incl)),
+            "btcd_timeseries_historical": int(len(btcd_hist)),
+            "btcd_timeseries_current_day": int(len(btcd_current)),
+            "btcd_timeseries_incl_stables_historical": int(len(btcd_incl_hist)),
+            "btcd_timeseries_incl_stables_current_day": int(len(btcd_incl_current)),
             "top10_daily_excl_stables": int(len(top10_excl_today)),
             "top10_daily_incl_stables": int(len(top10_incl_today)),
             "stable_outliers": int(len(stable_outliers)),

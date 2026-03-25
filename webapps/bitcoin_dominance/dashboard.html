@@ -443,8 +443,7 @@
         </span>
         <span class="chip" id="kpiTop10MarketCap">Top 10 Market Cap -</span>
         <span class="chip" id="kpiBitcoinMarketCap">Bitcoin Market Cap -</span>
-        <span class="chip" id="kpiBitcoinDominance">Bitcoin Dominance -</span>
-        <span class="chip" id="kpiStableDominance">Stable Dominance -</span>
+        <span class="chip" id="kpiStableMarketCap">Stablecoin Market Caps -</span>
       </div>
       <div class="controls">
         <label class="toggle" for="toggleHistoryPanel">
@@ -823,7 +822,7 @@
       return out;
     }
 
-    function fmtPctRatio(value, digits = 2) {
+    function fmtPctRatio(value, digits = 1) {
       return `${(num(value) * 100).toFixed(digits)}%`;
     }
 
@@ -1017,6 +1016,33 @@
       return fetchText(withCacheBust(path, cacheBust));
     }
 
+    function mergeTimeseriesRows(...parts) {
+      const byDate = new Map();
+      parts.forEach((rows) => {
+        (rows || []).forEach((row) => {
+          const date = String(row?.Date || '').trim();
+          if (!date) return;
+          byDate.set(date, row);
+        });
+      });
+      return Array.from(byDate.values()).sort((a, b) => new Date(`${a.Date}T00:00:00Z`) - new Date(`${b.Date}T00:00:00Z`));
+    }
+
+    async function fetchSplitTimeseriesRows({ historicalPath, currentDayPath, legacyPath, cacheBust = null }) {
+      const [historicalText, currentDayText] = await Promise.all([
+        fetchTextWithCacheBust(historicalPath, cacheBust).catch(() => ''),
+        fetchTextWithCacheBust(currentDayPath, cacheBust).catch(() => ''),
+      ]);
+
+      if (historicalText || currentDayText) {
+        return mergeTimeseriesRows(parseCsv(historicalText), parseCsv(currentDayText));
+      }
+
+      // Backward-compatible fallback for deployments that still publish a combined file.
+      const legacyText = await fetchTextWithCacheBust(legacyPath, cacheBust);
+      return parseCsv(legacyText);
+    }
+
     function getDataSignature(staticMeta, refreshedAtText) {
       const generatedAt = String(staticMeta?.generated_at_utc || '').trim();
       const latestSnapshot = String(staticMeta?.latest_snapshot_date || '').trim();
@@ -1027,16 +1053,26 @@
     async function loadDashboardData(cacheBust = null) {
       const [
         chartStaticText,
-        historyExclText,
-        historyInclText,
+        historyExclRows,
+        historyInclRows,
         snapshotExclText,
         snapshotInclText,
         dailyPriceText,
         refreshedAtRaw,
       ] = await Promise.all([
         fetchTextWithCacheBust('webapp_data/chart_static.json', cacheBust),
-        fetchTextWithCacheBust('webapp_data/btcd_timeseries.csv', cacheBust),
-        fetchTextWithCacheBust('webapp_data/btcd_timeseries_incl_stables.csv', cacheBust),
+        fetchSplitTimeseriesRows({
+          historicalPath: 'webapp_data/btcd_timeseries_historical.csv',
+          currentDayPath: 'webapp_data/btcd_timeseries_current_day.csv',
+          legacyPath: 'webapp_data/btcd_timeseries.csv',
+          cacheBust,
+        }),
+        fetchSplitTimeseriesRows({
+          historicalPath: 'webapp_data/btcd_timeseries_incl_stables_historical.csv',
+          currentDayPath: 'webapp_data/btcd_timeseries_incl_stables_current_day.csv',
+          legacyPath: 'webapp_data/btcd_timeseries_incl_stables.csv',
+          cacheBust,
+        }),
         fetchTextWithCacheBust('webapp_data/top10_daily_excl_stables.csv', cacheBust),
         fetchTextWithCacheBust('webapp_data/top10_daily_incl_stables.csv', cacheBust),
         fetchTextWithCacheBust('../../assets/daily_price.csv', cacheBust),
@@ -1046,11 +1082,11 @@
       const staticMeta = JSON.parse(chartStaticText);
       const datasets = {
         excl: {
-          history: parseCsv(historyExclText),
+          history: historyExclRows,
           snapshot: parseCsv(snapshotExclText),
         },
         incl: {
-          history: parseCsv(historyInclText),
+          history: historyInclRows,
           snapshot: parseCsv(snapshotInclText),
         },
       };
@@ -1228,9 +1264,8 @@
     function renderStatusChips() {
       const top10Chip = document.getElementById('kpiTop10MarketCap');
       const bitcoinMarketCapChip = document.getElementById('kpiBitcoinMarketCap');
-      const bitcoinDominanceChip = document.getElementById('kpiBitcoinDominance');
-      const stableDominanceChip = document.getElementById('kpiStableDominance');
-      if (!top10Chip || !bitcoinMarketCapChip || !bitcoinDominanceChip || !stableDominanceChip) return;
+      const stableMarketCapChip = document.getElementById('kpiStableMarketCap');
+      if (!top10Chip || !bitcoinMarketCapChip || !stableMarketCapChip) return;
       const historyRows = getCurrentHistory();
       const snapshotRows = getSnapshotRows();
       const column = getCurrentColumn();
@@ -1249,17 +1284,23 @@
       const bitcoinRow = snapshotRows.find((row) => String(row.Symbol || '').toUpperCase() === 'BTC');
       const bitcoinMarketCap = bitcoinRow ? num(bitcoinRow['Market Cap']) : 0;
 
-      top10Chip.textContent = `Top 10 Market Cap ${fmtCompactMoney(top10MarketCap)}`;
-      bitcoinMarketCapChip.textContent = `Bitcoin Market Cap ${fmtCompactMoney(bitcoinMarketCap)}`;
-      bitcoinDominanceChip.textContent = `Bitcoin Dominance ${fmtPctRatio(latest[column])}`;
+      // Calculate Stablecoin Market Caps (sum of stable rows in snapshot)
+      const stableMarketCap = snapshotRows.reduce((sum, row) => {
+        return String(row['Is Stable']).toLowerCase() === 'true'
+          ? sum + num(row['Market Cap'])
+          : sum;
+      }, 0);
 
-      // Keep Stable Dominance visible; show '-' when stablecoins are excluded.
+      top10Chip.textContent = `Top 10 Market Cap ${fmtCompactMoney(top10MarketCap)}`;
+      bitcoinMarketCapChip.textContent = `Bitcoin Market Cap ${fmtCompactMoney(bitcoinMarketCap)} · ${fmtPctRatio(latest[column])}`;
+
+      // Include stable metrics only when stablecoins are enabled in this view.
       if (state.includeStables) {
         const stableColumn = getCurrentStableColumn();
         const stableDominance = stableColumn ? num(latest[stableColumn]) : 0;
-        stableDominanceChip.textContent = `Stable Dominance ${fmtPctRatio(stableDominance)}`;
+        stableMarketCapChip.textContent = `Stablecoin Market Caps ${fmtCompactMoney(stableMarketCap)} · ${fmtPctRatio(stableDominance)}`;
       } else {
-        stableDominanceChip.textContent = 'Stable Dominance -';
+        stableMarketCapChip.textContent = 'Stablecoin Market Caps -';
       }
     }
 
@@ -1606,7 +1647,7 @@
         y: state.stackedDominance ? otherTopY : otherValueY,
         line: { color: '#999999', width: 2.5 },
         customdata: otherValueY,
-        hovertemplate: 'Other dominance: %{customdata:.2f}%<extra></extra>',
+        hovertemplate: 'Other dominance: %{customdata:.1f}%<extra></extra>',
         name: 'Other Dominance',
         legendrank: 3,
       });
@@ -1619,7 +1660,7 @@
           y: state.stackedDominance ? stableTopY : stableValueY,
           line: { color: STABLE_USD_GREEN, width: 2.1 },
           customdata: stableValueY,
-          hovertemplate: 'Stable dominance: %{customdata:.2f}%<extra></extra>',
+          hovertemplate: 'Stable dominance: %{customdata:.1f}%<extra></extra>',
           name: 'Stable Dominance',
           legendrank: 2,
         });
@@ -1631,7 +1672,7 @@
         x,
         y,
         line: { color: '#ff9f1c', width: 2.5 },
-        hovertemplate: 'BTC dominance: %{y:.2f}%<extra></extra>',
+        hovertemplate: 'BTC dominance: %{y:.1f}%<extra></extra>',
         name: 'BTC Dominance',
         legendrank: 1,
       });
