@@ -921,6 +921,31 @@
       return [clampedStart, clampedEnd];
     }
 
+    function adjustPriceAxisToXRange(xStart, xEnd) {
+      // Recalculate and update the price y-axis based on visible prices in the x-axis range
+      if (!state.priceHistory || !state.priceHistory.length) return;
+
+      const startNorm = normalizeChartDate(xStart);
+      const endNorm = normalizeChartDate(xEnd);
+      if (!startNorm || !endNorm) return;
+
+      // Find prices within the visible x-range
+      const visiblePrices = state.priceHistory
+        .filter((item) => item.date >= startNorm && item.date <= endNorm && Number.isFinite(item.price))
+        .map((item) => item.price);
+
+      if (!visiblePrices.length) return;
+
+      // Calculate new max for this range (with 2% padding)
+      const maxPrice = Math.max(...visiblePrices) * 1.02;
+      const dominanceAxisMin = -2;
+      const dominanceAxisMax = 100;
+      const zeroOffsetRatio = (0 - dominanceAxisMin) / (dominanceAxisMax - dominanceAxisMin);
+      const minPrice = -(zeroOffsetRatio / Math.max(1e-9, 1 - zeroOffsetRatio)) * maxPrice;
+
+      Plotly.relayout('dominanceChart', { 'yaxis2.range': [minPrice, maxPrice] });
+    }
+
     function bindHistoryChartViewportPersistence(minDate, maxDate) {
       const chartEl = document.getElementById('dominanceChart');
       if (!chartEl || typeof chartEl.on !== 'function') return;
@@ -937,6 +962,11 @@
         if (start == null || end == null) return;
 
         state.historyUserXAxisRange = clampHistoryXAxisRange([start, end], minDate, maxDate);
+
+        // Adjust price y-axis to show optimal range for the visible x-axis window
+        if (state.showPrice) {
+          adjustPriceAxisToXRange(start, end);
+        }
       };
 
       chartEl.__historyRelayoutHandler = onRelayout;
