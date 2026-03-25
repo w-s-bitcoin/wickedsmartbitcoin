@@ -463,6 +463,10 @@
           <input id="toggleStackedDominance" type="checkbox" checked />
           Stacked dominance
         </label>
+        <label class="toggle" for="toggleShowPrice">
+          <input id="toggleShowPrice" type="checkbox" />
+          Show BTC price
+        </label>
         <label class="chip">Range
           <select id="rangeSelect">
             <option value="30">30d</option>
@@ -568,6 +572,7 @@
       includeStables: true,
       topN: 10,
       stackedDominance: true,
+      showPrice: false,
       stackedDominanceTouched: false,
       range: '365',
       smooth: '7',
@@ -577,12 +582,14 @@
       historyPanelPercent: 61.54,
       historyPanelManualHeight: 0,
       snapshotPanelManualHeight: 0,
+      historyUserXAxisRange: null,
       refreshedAtText: '',
       timeZone: DASHBOARD_TIME?.getPreferredTimeZone?.() || 'UTC',
       autoRefreshTimer: null,
       refreshInFlight: false,
       lastSuccessfulRefreshAt: 0,
       dataSignature: '',
+      priceHistory: [],
       datasets: {
         excl: {
           history: [],
@@ -650,6 +657,7 @@
         const parsed = JSON.parse(raw);
         const includeStables = parsed.includeStables;
         const stackedDominance = parsed.stackedDominance;
+        const showPrice = parsed.showPrice;
         const stackedDominanceTouched = parsed.stackedDominanceTouched;
         const showHistoryPanel = parsed.showHistoryPanel;
         const showSnapshotPanel = parsed.showSnapshotPanel;
@@ -666,6 +674,9 @@
           if (stackedDominanceTouched === true || stackedDominance === true) {
             state.stackedDominance = stackedDominance;
           }
+        }
+        if (typeof showPrice === 'boolean') {
+          state.showPrice = showPrice;
         }
         if (stackedDominanceTouched === true) {
           state.stackedDominanceTouched = true;
@@ -701,6 +712,7 @@
         const payload = {
           includeStables: Boolean(state.includeStables),
           stackedDominance: Boolean(state.stackedDominance),
+          showPrice: Boolean(state.showPrice),
           stackedDominanceTouched: Boolean(state.stackedDominanceTouched),
           showHistoryPanel: Boolean(state.showHistoryPanel),
           showSnapshotPanel: Boolean(state.showSnapshotPanel),
@@ -867,6 +879,70 @@
       return context.measureText(String(text || '')).width;
     }
 
+    function parsePriceDateToIso(row) {
+      const timestamp = String(row?.timestamp || '').trim();
+      if (/^\d{4}-\d{2}-\d{2}/.test(timestamp)) {
+        return timestamp.slice(0, 10);
+      }
+
+      const rawDate = String(row?.date || '').trim();
+      const shortMatch = rawDate.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+      if (shortMatch) {
+        const month = shortMatch[1].padStart(2, '0');
+        const day = shortMatch[2].padStart(2, '0');
+        let year = shortMatch[3];
+        if (year.length === 2) year = `20${year}`;
+        return `${year}-${month}-${day}`;
+      }
+
+      return '';
+    }
+
+    function normalizeChartDate(value) {
+      const raw = String(value || '').trim();
+      if (!raw) return '';
+      const isoMatch = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+      if (isoMatch) return isoMatch[1];
+      const parsed = new Date(raw);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed.toISOString().slice(0, 10);
+      }
+      return '';
+    }
+
+    function clampHistoryXAxisRange(range, minDate, maxDate) {
+      if (!Array.isArray(range) || range.length !== 2 || !minDate || !maxDate) return null;
+      const start = normalizeChartDate(range[0]);
+      const end = normalizeChartDate(range[1]);
+      if (!start || !end) return null;
+      const clampedStart = start < minDate ? minDate : start;
+      const clampedEnd = end > maxDate ? maxDate : end;
+      if (clampedStart >= clampedEnd) return null;
+      return [clampedStart, clampedEnd];
+    }
+
+    function bindHistoryChartViewportPersistence(minDate, maxDate) {
+      const chartEl = document.getElementById('dominanceChart');
+      if (!chartEl || typeof chartEl.on !== 'function') return;
+
+      if (typeof chartEl.__historyRelayoutHandler === 'function' && typeof chartEl.removeListener === 'function') {
+        chartEl.removeListener('plotly_relayout', chartEl.__historyRelayoutHandler);
+      }
+
+      const onRelayout = (eventData = {}) => {
+        if (eventData['xaxis.autorange'] === true) return;
+
+        const start = eventData['xaxis.range[0]'] ?? eventData.xaxis?.range?.[0];
+        const end = eventData['xaxis.range[1]'] ?? eventData.xaxis?.range?.[1];
+        if (start == null || end == null) return;
+
+        state.historyUserXAxisRange = clampHistoryXAxisRange([start, end], minDate, maxDate);
+      };
+
+      chartEl.__historyRelayoutHandler = onRelayout;
+      chartEl.on('plotly_relayout', onRelayout);
+    }
+
     function loadScript(src) {
       return new Promise((resolve, reject) => {
         const script = document.createElement('script');
@@ -925,6 +1001,7 @@
         historyInclText,
         snapshotExclText,
         snapshotInclText,
+        dailyPriceText,
         refreshedAtRaw,
       ] = await Promise.all([
         fetchTextWithCacheBust('webapp_data/chart_static.json', cacheBust),
@@ -932,6 +1009,7 @@
         fetchTextWithCacheBust('webapp_data/btcd_timeseries_incl_stables.csv', cacheBust),
         fetchTextWithCacheBust('webapp_data/top10_daily_excl_stables.csv', cacheBust),
         fetchTextWithCacheBust('webapp_data/top10_daily_incl_stables.csv', cacheBust),
+        fetchTextWithCacheBust('../../assets/daily_price.csv', cacheBust),
         fetchTextWithCacheBust('webapp_data/last_updated.txt', cacheBust).catch(() => ''),
       ]);
 
@@ -946,11 +1024,18 @@
           snapshot: parseCsv(snapshotInclText),
         },
       };
+      const priceHistory = parseCsv(dailyPriceText)
+        .map((row) => ({
+          date: parsePriceDateToIso(row),
+          price: num(row.price),
+        }))
+        .filter((row) => row.date && Number.isFinite(row.price));
       const refreshedAtText = String(refreshedAtRaw || '').trim();
 
       return {
         staticMeta,
         datasets,
+        priceHistory,
         refreshedAtText,
         signature: getDataSignature(staticMeta, refreshedAtText),
       };
@@ -991,6 +1076,7 @@
 
         state.staticMeta = data.staticMeta;
         state.datasets = data.datasets;
+        state.priceHistory = data.priceHistory;
         state.refreshedAtText = data.refreshedAtText;
         state.dataSignature = data.signature;
         state.lastSuccessfulRefreshAt = Date.now();
@@ -1219,8 +1305,8 @@
     }
 
     function renderHistoryChart() {
-      const rangeDays = Number(state.range || document.getElementById('rangeSelect')?.value || 365);
-      const smooth = Number(state.smooth || document.getElementById('smoothSelect')?.value || 7);
+      const rangeDays = Number(state.range != null ? state.range : document.getElementById('rangeSelect')?.value ?? 365);
+      const smooth = Number(state.smooth ?? document.getElementById('smoothSelect')?.value ?? 7);
       const allRows = getCurrentHistory().slice().sort((a, b) => new Date(`${a.Date}T00:00:00Z`) - new Date(`${b.Date}T00:00:00Z`));
       let rows = allRows;
       let xAxisRange = null;
@@ -1237,6 +1323,17 @@
         const rangeEnd = allRows[allRows.length - 1].Date;
         xAxisRange = [rangeStart, rangeEnd];
       }
+      if (allRows.length && state.historyUserXAxisRange) {
+        const clampedUserRange = clampHistoryXAxisRange(
+          state.historyUserXAxisRange,
+          allRows[0].Date,
+          allRows[allRows.length - 1].Date
+        );
+        state.historyUserXAxisRange = clampedUserRange;
+        if (clampedUserRange) {
+          xAxisRange = clampedUserRange;
+        }
+      }
       const column = getCurrentColumn();
       const stableColumn = state.includeStables ? getCurrentStableColumn() : null;
       if (!rows.length) {
@@ -1246,6 +1343,12 @@
       const yRaw = rows.map((row) => num(row[column]) * 100);
       const y = smooth > 1 ? rollingAverage(yRaw, smooth) : yRaw;
       const yFill = y.map((v) => (Number.isFinite(v) ? Math.max(0, v) : null));
+      const priceByDate = new Map((state.priceHistory || []).map((row) => [row.date, row.price]));
+      const priceY = x.map((date) => {
+        const price = priceByDate.get(date);
+        return Number.isFinite(price) ? price : null;
+      });
+      const hasPriceTrace = state.showPrice && priceY.some((value) => Number.isFinite(value));
       const traces = [];
       let hasStableTrace = false;
       let stableY = null;
@@ -1296,6 +1399,8 @@
       const xMin = parsedX.length ? parsedX[0].date : x[0];
       const xMax = parsedX.length ? parsedX[parsedX.length - 1].date : x[x.length - 1];
       const yTickvals = [0, 25, 50, 75, 100];
+      const dominanceAxisMin = -2;
+      const dominanceAxisMax = 100;
       const xTickvals = [];
       const xTicktext = [];
 
@@ -1349,6 +1454,13 @@
         }
 
       }
+
+      const visiblePriceValues = priceY.filter((value) => Number.isFinite(value));
+      const zeroOffsetRatio = (0 - dominanceAxisMin) / (dominanceAxisMax - dominanceAxisMin);
+      const priceAxisMax = hasPriceTrace
+        ? Math.max(1, ...visiblePriceValues) * 1.02
+        : 1;
+      const priceAxisMin = -(zeroOffsetRatio / Math.max(1e-9, 1 - zeroOffsetRatio)) * priceAxisMax;
 
       if (state.stackedDominance) {
         // Stacked fills: BTC to 0, Stable on BTC, Other to 100.
@@ -1494,6 +1606,21 @@
         legendrank: 1,
       });
 
+      if (hasPriceTrace) {
+        traces.push({
+          type: 'scatter',
+          mode: 'lines',
+          x,
+          y: priceY,
+          yaxis: 'y2',
+          line: { color: '#ffffff', width: 2 },
+          hovertemplate: 'BTC price: $%{y:,.0f}<extra></extra>',
+          name: 'BTC Price',
+          legendrank: 4,
+          connectgaps: false,
+        });
+      }
+
       const dominanceXAxisBottomMargin = isStackedLayout() ? 56 : 35;
 
       Plotly.react('dominanceChart', traces, {
@@ -1501,7 +1628,7 @@
         plot_bgcolor: PLOTLY_LIVE_BG,
         hoverlabel: PLOTLY_HOVERLABEL,
         hoverdistance: 5,
-        margin: { l: 60, r: 24, t: 0, b: dominanceXAxisBottomMargin },
+        margin: { l: 60, r: hasPriceTrace ? 74 : 24, t: 0, b: dominanceXAxisBottomMargin },
         showlegend: true,
         legend: {
           orientation: 'h',
@@ -1548,12 +1675,30 @@
           tickfont: { family: 'IBM Plex Mono, monospace', size: 11 },
           zeroline: false,
           showspikes: false,
-          range: [-2, 100],
+          range: [dominanceAxisMin, dominanceAxisMax],
+        },
+        yaxis2: {
+          title: { text: 'BTC price', font: { family: 'IBM Plex Mono, monospace', size: 12 } },
+          overlaying: 'y',
+          side: 'right',
+          color: '#ffffff',
+          showgrid: false,
+          zeroline: false,
+          tickfont: { family: 'IBM Plex Mono, monospace', size: 11 },
+          tickprefix: '$',
+          tickformat: '~s',
+          range: [priceAxisMin, priceAxisMax],
+          showticklabels: hasPriceTrace,
+          showline: hasPriceTrace,
+          visible: hasPriceTrace,
         },
       }, {
         responsive: true,
+        doubleClick: false,
         displaylogo: false,
         modeBarButtonsToRemove: ['select2d', 'lasso2d', 'autoScale2d', 'toggleSpikelines'],
+      }).then(() => {
+        bindHistoryChartViewportPersistence(allRows[0]?.Date || '', allRows[allRows.length - 1]?.Date || '');
       });
     }
 
@@ -2177,6 +2322,7 @@
       const updatedTimeZoneSelect = document.getElementById('updatedTimeZoneSelect');
       const includeStablesToggle = document.getElementById('toggleIncludeStables');
       const stackedDominanceToggle = document.getElementById('toggleStackedDominance');
+      const showPriceToggle = document.getElementById('toggleShowPrice');
       const historyToggle = document.getElementById('toggleHistoryPanel');
       const snapshotToggle = document.getElementById('toggleSnapshotPanel');
       const rangeSelect = document.getElementById('rangeSelect');
@@ -2203,8 +2349,16 @@
         resizeVisibleCharts();
       });
 
+      showPriceToggle?.addEventListener('change', () => {
+        state.showPrice = !!showPriceToggle.checked;
+        saveControlsToStorage();
+        renderHistoryChart();
+        resizeVisibleCharts();
+      });
+
       rangeSelect?.addEventListener('change', () => {
         state.range = rangeSelect.value;
+        state.historyUserXAxisRange = null;
         saveControlsToStorage();
         renderHistoryChart();
       });
@@ -2290,6 +2444,7 @@
         const data = await loadDashboardData();
         state.staticMeta = data.staticMeta;
         state.datasets = data.datasets;
+        state.priceHistory = data.priceHistory;
         state.refreshedAtText = data.refreshedAtText;
         state.dataSignature = data.signature;
         state.lastSuccessfulRefreshAt = Date.now();
@@ -2307,10 +2462,12 @@
 
         const includeStablesToggle = document.getElementById('toggleIncludeStables');
         const stackedDominanceToggle = document.getElementById('toggleStackedDominance');
+        const showPriceToggle = document.getElementById('toggleShowPrice');
         const rangeSelect = document.getElementById('rangeSelect');
         const smoothSelect = document.getElementById('smoothSelect');
         if (includeStablesToggle) includeStablesToggle.checked = state.includeStables;
         if (stackedDominanceToggle) stackedDominanceToggle.checked = state.stackedDominance;
+        if (showPriceToggle) showPriceToggle.checked = state.showPrice;
         if (rangeSelect && Array.from(rangeSelect.options).some((opt) => opt.value === state.range)) {
           rangeSelect.value = state.range;
         }

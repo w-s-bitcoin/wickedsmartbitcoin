@@ -55,9 +55,11 @@ function openModalByIndex(index) {
             }
         });
     }
-    // Sync the modal favorite button before the modal becomes visible so the
-    // user does not see the default white star flash on open.
+    // Sync UI and pre-hide image before showing modal to avoid one-frame flashes.
     syncCurrentModalFavoriteUI();
+    modalImg.style.opacity = '0';
+    modalImg.style.visibility = 'hidden';
+    modalImg.style.transform = 'translate3d(-9999px,-9999px,0) scale(1)';
     modal.style.display = 'flex';
     document.body.classList.add('modal-open');
     isPinching = false;
