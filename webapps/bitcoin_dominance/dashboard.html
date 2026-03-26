@@ -34,6 +34,7 @@
       --dashboard-accent: var(--accent);
       --panel-resizer-width: 20px;
       --kpi-settings-pad-top: 6px;
+      --wrap-grid-template-rows: auto minmax(0, 1fr);
     }
 
     html, body {
@@ -46,18 +47,7 @@
     }
 
 
-    .wrap {
-      width: 100%;
-      max-width: none;
-      margin: 0;
-      padding: var(--wrap-pad);
-      display: grid;
-      gap: 10px;
-      height: 100vh;
-      overflow-y: auto;
-      overflow-x: hidden;
-      grid-template-rows: auto 1fr;
-    }
+    /* Wrap styles are now inherited from shared CSS */
 
     html.card-preview,
     html.card-preview body {
@@ -94,7 +84,6 @@
       border-radius: 14px;
       box-shadow: none;
       overflow: hidden;
-      min-height: 0;
     }
 
     .topbar {
@@ -191,7 +180,6 @@
       display: grid;
       grid-template-columns: minmax(0, 1.55fr) var(--panel-resizer-width) minmax(0, 1fr);
       gap: 0;
-      min-height: 0;
     }
 
     .grid.single-panel {
@@ -395,10 +383,6 @@
     }
 
     @media (max-width: 860px) {
-      .wrap {
-        padding: 8px;
-        padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px) + 56px);
-      }
 
       .topbar,
       .panel {

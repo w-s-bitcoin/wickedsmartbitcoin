@@ -46,14 +46,7 @@
       min-height: 100vh;
     }
 
-    .wrap {
-      width: 100%;
-      max-width: none;
-      margin: 0;
-      padding: var(--wrap-pad);
-      display: grid;
-      gap: 10px;
-    }
+    /* Wrap styles are now inherited from shared CSS */
 
     html.card-preview,
     html.card-preview body {
@@ -274,6 +267,7 @@
       background: #000;
       box-shadow: none;
       overflow: hidden;
+      min-height: var(--panel-min-height, 320px);
     }
 
     .card.hidden {
@@ -380,11 +374,6 @@
     }
 
     @media (max-width: 860px) {
-      .wrap {
-        width: 100%;
-        margin: 0;
-        padding-bottom: calc(var(--wrap-pad) + env(safe-area-inset-bottom, 0px) + 56px);
-      }
       .topbar { padding: 10px; border-radius: 12px; }
       .card { border-radius: 12px; }
 
