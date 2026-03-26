@@ -98,6 +98,13 @@ footer {
     color: var(--brand);
     background: transparent;
 }
+
+/* Keep unfavorited toggle visually neutral even if it retains focus after click. */
+.controls-row #favoritesToggle:not(.active):focus {
+    border-color: var(--border);
+    color: #fff;
+    background: transparent;
+}
 .controls-row .icon-grid div,
 .controls-row .icon-list div {
     background-color: #fff;
@@ -1039,7 +1046,7 @@ body.slideshow-open.hide-cursor .slideshow * {
     top: 6px;
     right: 6px;
     font-size: 1.5rem;
-    color: var(--brand);
+    color: #fff;
     background-color: rgba(0, 0, 0, 0.6);
     border-radius: 50%;
     width: 28px;
@@ -1055,6 +1062,10 @@ body.slideshow-open.hide-cursor .slideshow * {
 .chart-container:hover .favorite-star,
 .favorite-star.filled {
     opacity: 1;
+}
+
+.favorite-star.filled {
+    color: var(--brand);
 }
 .image-grid img,
 .favorite-star,
