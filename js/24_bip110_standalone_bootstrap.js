@@ -3,6 +3,7 @@
   const IMAGE_LIST_URL = "assets/image_list.json";
   const DASHBOARD_URL = "webapps/bip110_signaling/dashboard.html";
   const FAVORITES_STORAGE_KEY = "favorites";
+  const MODAL_NAV_SNAPSHOT_KEY = "wsb_modal_nav_snapshot_v1";
 
   const modal = document.getElementById("modal");
   const modalImg = document.getElementById("modal-img");
@@ -245,7 +246,7 @@
     const showFavoritesOnly = parseStoredBoolean(localStorage.getItem("showFavoritesOnly"));
     const favorites = new Set(readFavorites());
 
-    return list.filter((item) => {
+    const filtered = list.filter((item) => {
       const filename = String(item?.filename || "").trim();
       if (!filename) return false;
 
@@ -254,6 +255,34 @@
       if (showFavoritesOnly && !favorites.has(filename)) return false;
       return true;
     });
+
+    const snapshot = readModalNavigationSnapshot();
+    if (!snapshot.length) return filtered;
+
+    const snapshotSet = new Set(snapshot);
+    const candidates = filtered.filter((item) => snapshotSet.has(String(item?.filename || "").trim()));
+    if (!candidates.length) return filtered;
+
+    const candidateByFilename = new Map(candidates.map((item) => [String(item.filename), item]));
+    const ordered = snapshot.map((filename) => candidateByFilename.get(filename)).filter(Boolean);
+    if (!ordered.length) return filtered;
+
+    const anchorFilename = String(currentImage?.filename || STANDALONE_FILENAME).trim();
+    return ordered.some((item) => String(item?.filename || "").trim() === anchorFilename)
+      ? ordered
+      : filtered;
+  }
+
+  function readModalNavigationSnapshot() {
+    try {
+      const raw = sessionStorage.getItem(MODAL_NAV_SNAPSHOT_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed)
+        ? parsed.map((value) => String(value || "").trim()).filter(Boolean)
+        : [];
+    } catch (_) {
+      return [];
+    }
   }
 
   function parseStoredBoolean(value) {

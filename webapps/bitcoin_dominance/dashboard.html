@@ -984,6 +984,15 @@
       throw new Error('Plotly failed to load from all CDN sources.');
     }
 
+    const dashboardControlLock = window.WSBDashboardShared?.createDashboardControlLock?.({
+      topbar: document.querySelector('.topbar'),
+      extraControls: [document.getElementById('panelResizer')],
+    });
+
+    function setControlsEnabled(enabled) {
+      dashboardControlLock?.setEnabled(enabled);
+    }
+
     async function fetchText(path) {
       const response = await fetch(path, { cache: FETCH_CACHE_MODE });
       if (!response.ok) throw new Error(`Failed to load ${path} (${response.status})`);
@@ -2481,6 +2490,7 @@
     async function init() {
       applyEmbeddedModalLayout();
       hideError();
+      setControlsEnabled(false);
       
       try {
         // Load stored preferences before showing UI
@@ -2539,15 +2549,19 @@
           setupRefreshWakeEvents();
           startAutoRefresh();
         }
+        setControlsEnabled(true);
       } catch (error) {
         console.error(error);
         showError(`Dashboard data failed to load: ${error.message || error}`);
         setPanelLoaderVisible('history', false);
         setPanelLoaderVisible('snapshot', false);
+        setControlsEnabled(true);
       }
     }
 
     window.addEventListener('DOMContentLoaded', async () => {
+      setControlsEnabled(false);
+
       const startInteractiveBootstrap = async () => {
         try {
           await Promise.race([
@@ -2560,6 +2574,7 @@
           showError(`Plotly failed to load: ${error.message || error}`);
           setPanelLoaderVisible('history', false);
           setPanelLoaderVisible('snapshot', false);
+          setControlsEnabled(true);
         }
       };
 

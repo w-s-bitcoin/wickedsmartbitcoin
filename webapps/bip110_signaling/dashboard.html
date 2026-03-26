@@ -565,11 +565,26 @@
     const swapPanelsBtn = document.getElementById("swapPanelsBtn");
     let modalDownloadBtn = null;
     let modalDownloadEnsureTimer = null;
+    const dashboardControlLock = window.WSBDashboardShared?.createDashboardControlLock?.({
+      topbar,
+      extraControls: [
+        segwitResizeHandle,
+        bip110ResizeHandle,
+        segwitFillHeightBtn,
+        bip110FillHeightBtn,
+        () => modalDownloadBtn,
+      ],
+    });
 
     function setControlsEnabled(enabled) {
+      if (dashboardControlLock) {
+        dashboardControlLock.setEnabled(enabled);
+        return;
+      }
+
       topbar.classList.toggle("ui-locked", !enabled);
 
-      const controls = [
+      [
         vizInfoBtn,
         swapPanelsBtn,
         segwitFillHeightBtn,
@@ -577,15 +592,11 @@
         segwitResizeHandle,
         bip110ResizeHandle,
         ...topbar.querySelectorAll('input[type="checkbox"]'),
-      ].filter(Boolean);
-
-      controls.forEach((control) => {
+      ].filter(Boolean).forEach((control) => {
         control.disabled = !enabled;
       });
 
-      if (modalDownloadBtn) {
-        modalDownloadBtn.disabled = !enabled;
-      }
+      if (modalDownloadBtn) modalDownloadBtn.disabled = !enabled;
     }
 
     function setPanelLoadersVisible(visible) {
