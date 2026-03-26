@@ -2512,8 +2512,18 @@
       throw new Error('Plotly failed to load from all CDN sources.');
     }
 
+    const dashboardControlLock = window.WSBDashboardShared?.createDashboardControlLock?.({
+      topbar: document.querySelector('.topbar'),
+      extraControls: [document.getElementById('panelResizer')],
+    });
+
+    function setControlsEnabled(enabled) {
+      dashboardControlLock?.setEnabled(enabled);
+    }
+
     async function init() {
       applyEmbeddedModalLayout();
+      setControlsEnabled(false);
       setPanelLoaderVisible('history', true);
       setPanelLoaderVisible('software', true);
       try {
@@ -2544,13 +2554,17 @@
           setupRefreshWakeEvents();
           startAutoRefresh();
         }
+        setControlsEnabled(true);
       } catch (err) {
         console.error(err);
         showError(`Dashboard data failed to load: ${err.message || err}`);
+        setControlsEnabled(true);
       }
     }
 
     window.addEventListener('DOMContentLoaded', async () => {
+      setControlsEnabled(false);
+
       const startInteractiveBootstrap = async () => {
         try {
           await Promise.race([
@@ -2561,6 +2575,7 @@
         } catch (err) {
           console.error(err);
           showError(`Dashboard failed to initialize: ${err.message || err}`);
+          setControlsEnabled(true);
         }
       };
 

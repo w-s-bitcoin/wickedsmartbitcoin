@@ -14,6 +14,61 @@ function updateModalSafePadding() {
     modal.style.setProperty('--controls-offset', offset + 'px');
 }
 
+let modalNavigationFilenamesSnapshot = [];
+
+function parseStoredBooleanForModalNav(value) {
+    if (typeof value === 'boolean') return value;
+    const normalized = String(value == null ? '' : value).trim().toLowerCase();
+    return normalized === 'true' || normalized === '1' || normalized === 'yes';
+}
+
+function readModalNavigationSnapshotFromSession() {
+    try {
+        const raw = sessionStorage.getItem('wsb_modal_nav_snapshot_v1');
+        const parsed = raw ? JSON.parse(raw) : [];
+        if (!Array.isArray(parsed)) return [];
+        return parsed.map((value) => String(value || '').trim()).filter(Boolean);
+    } catch (_) {
+        return [];
+    }
+}
+
+function getStandaloneFilteredNavigationImages() {
+    const baseList = Array.isArray(imageList) && imageList.length
+        ? imageList
+        : (Array.isArray(visibleImages) ? visibleImages : []);
+    if (!baseList.length) return [];
+
+    const showArchived = parseStoredBooleanForModalNav(localStorage.getItem('showArchivedVisualizations'));
+    const showFavoritesOnly = parseStoredBooleanForModalNav(localStorage.getItem('showFavoritesOnly'));
+    const favorites = new Set(typeof getFavorites === 'function' ? getFavorites() : []);
+
+    const filtered = baseList.filter((item) => {
+        const filename = String(item?.filename || '').trim();
+        if (!filename) return false;
+        const isArchived = parseStoredBooleanForModalNav(item?.archived);
+        if (!showArchived && isArchived) return false;
+        if (showFavoritesOnly && !favorites.has(filename)) return false;
+        return true;
+    });
+
+    const snapshot = readModalNavigationSnapshotFromSession();
+    if (!snapshot.length) return filtered;
+
+    const filteredMap = new Map(filtered.map((item) => [String(item.filename), item]));
+    const ordered = snapshot.map((filename) => filteredMap.get(filename)).filter(Boolean);
+    if (!ordered.length) return filtered;
+
+    const currentFilename =
+        modalImg?.dataset?.filename ||
+        visibleImages[currentIndex]?.filename ||
+        lastOpenedFilename ||
+        '';
+    return ordered.some((item) => item?.filename === currentFilename)
+        ? ordered
+        : filtered;
+}
+
 function resumeDeferredGridLoadingIfNeeded() {
     if (typeof window.resumeDeferredGridLazyLoading === 'function') {
         window.resumeDeferredGridLazyLoading();
@@ -29,6 +84,10 @@ function openModalByIndex(index) {
     const image = visibleImages[index];
     if (!image) return;
     if (!isStandaloneModalShell()) {
+        try {
+            const snapshot = getModalNavigationImages().map((img) => String(img?.filename || '').trim()).filter(Boolean);
+            sessionStorage.setItem('wsb_modal_nav_snapshot_v1', JSON.stringify(snapshot));
+        } catch (_) {}
         window.location.href = getVisualizationUrl(image.filename);
         return;
     }
@@ -42,6 +101,7 @@ function openModalByIndex(index) {
     const firstOpen = modal.style.display !== 'flex';
     currentIndex = index;
     lastOpenedFilename = image.filename || null;
+    modalNavigationFilenamesSnapshot = getVisibleGridCardFilenames();
     if (firstOpen) {
         const focusable = document.querySelectorAll(
             'a, button, input, select, textarea, [tabindex]:not([tabindex="-1"])'
@@ -349,6 +409,7 @@ function closeModal() {
         || null;
     closeYoutubeOverlay();
     modal.style.display = 'none';
+    modalNavigationFilenamesSnapshot = [];
     modalContentMode = 'image';
     modal.classList.remove('embed-active');
     if (modalEmbedWrap) modalEmbedWrap.hidden = true;
@@ -762,14 +823,22 @@ function getVisibleGridCardFilenames() {
 }
 
 function getModalNavigationImages() {
+    if (isStandaloneModalShell()) {
+        return getStandaloneFilteredNavigationImages();
+    }
+
     if (!Array.isArray(visibleImages) || visibleImages.length === 0) return [];
 
     const visibleFilenames = getVisibleGridCardFilenames();
-    if (!visibleFilenames.length) {
+    const effectiveVisibleFilenames = visibleFilenames.length
+        ? visibleFilenames
+        : (Array.isArray(modalNavigationFilenamesSnapshot) ? modalNavigationFilenamesSnapshot : []);
+
+    if (!effectiveVisibleFilenames.length) {
         return visibleImages.slice();
     }
 
-    const allowed = new Set(visibleFilenames);
+    const allowed = new Set(effectiveVisibleFilenames);
     const filtered = visibleImages.filter(img => allowed.has(img.filename));
     return filtered.length ? filtered : visibleImages.slice();
 }

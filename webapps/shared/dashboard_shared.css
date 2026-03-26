@@ -154,6 +154,22 @@ h1 {
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
+.topbar.ui-locked .toggle,
+.topbar.ui-locked label.chip,
+.topbar.ui-locked .chip-menu-wrap,
+.topbar.ui-locked .info-wrap,
+.topbar.ui-locked .swap-panels-control {
+  opacity: 0.55;
+}
+
+.topbar.ui-locked button,
+.topbar.ui-locked select,
+.topbar.ui-locked input,
+.topbar.ui-locked textarea,
+.topbar.ui-locked label {
+  cursor: not-allowed;
+}
+
 /* Shared row-wrapping and overflow guards for dashboard topbars. */
 .topbar > * {
   min-width: 0;
