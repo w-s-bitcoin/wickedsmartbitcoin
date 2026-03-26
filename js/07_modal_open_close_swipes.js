@@ -697,20 +697,81 @@ modalImg.addEventListener('touchcancel', () => {
 });
 modalImg.addEventListener('dragstart', e => e.preventDefault());
 function prevImage() {
+    try { filterImages(); } catch (_) {}
     if (justUnstarredInModal) {
         justUnstarredInModal = false;
         filterImages();
     }
-    const prevIndex = (currentIndex - 1 + visibleImages.length) % visibleImages.length;
-    openModalByIndex(prevIndex);
+    const navList = getModalNavigationImages();
+    if (!navList.length) return;
+
+    const currentFilename =
+        modalImg?.dataset?.filename ||
+        visibleImages[currentIndex]?.filename ||
+        lastOpenedFilename ||
+        '';
+    const activeIndex = navList.findIndex(img => img.filename === currentFilename);
+    const prevNavIndex = activeIndex >= 0
+        ? (activeIndex - 1 + navList.length) % navList.length
+        : navList.length - 1;
+
+    const targetFilename = navList[prevNavIndex]?.filename;
+    if (!targetFilename) return;
+    const targetVisibleIndex = visibleImages.findIndex(img => img.filename === targetFilename);
+    if (targetVisibleIndex < 0) return;
+    openModalByIndex(targetVisibleIndex);
 }
 function nextImage() {
+    try { filterImages(); } catch (_) {}
     if (justUnstarredInModal) {
         justUnstarredInModal = false;
         filterImages();
     }
-    const nextIndex = (currentIndex + 1) % visibleImages.length;
-    openModalByIndex(nextIndex);
+    const navList = getModalNavigationImages();
+    if (!navList.length) return;
+
+    const currentFilename =
+        modalImg?.dataset?.filename ||
+        visibleImages[currentIndex]?.filename ||
+        lastOpenedFilename ||
+        '';
+    const activeIndex = navList.findIndex(img => img.filename === currentFilename);
+    const nextNavIndex = activeIndex >= 0
+        ? (activeIndex + 1) % navList.length
+        : 0;
+
+    const targetFilename = navList[nextNavIndex]?.filename;
+    if (!targetFilename) return;
+    const targetVisibleIndex = visibleImages.findIndex(img => img.filename === targetFilename);
+    if (targetVisibleIndex < 0) return;
+    openModalByIndex(targetVisibleIndex);
+}
+
+function getVisibleGridCardFilenames() {
+    const out = [];
+    const seen = new Set();
+    const cards = document.querySelectorAll('#image-grid .chart-container[data-filename]');
+    cards.forEach((card) => {
+        if (!card || card.offsetParent === null) return;
+        const filename = String(card.dataset.filename || '').trim();
+        if (!filename || seen.has(filename)) return;
+        seen.add(filename);
+        out.push(filename);
+    });
+    return out;
+}
+
+function getModalNavigationImages() {
+    if (!Array.isArray(visibleImages) || visibleImages.length === 0) return [];
+
+    const visibleFilenames = getVisibleGridCardFilenames();
+    if (!visibleFilenames.length) {
+        return visibleImages.slice();
+    }
+
+    const allowed = new Set(visibleFilenames);
+    const filtered = visibleImages.filter(img => allowed.has(img.filename));
+    return filtered.length ? filtered : visibleImages.slice();
 }
 function toggleFavoriteFromModal() {
     const filename = visibleImages[currentIndex].filename;

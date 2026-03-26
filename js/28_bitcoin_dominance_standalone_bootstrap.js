@@ -225,15 +225,41 @@
     try {
       const list = await loadImageList();
       if (!list.length) return;
-      const currentListIndex = list.findIndex((item) => String(item?.filename).toLowerCase() === String(currentImage.filename).toLowerCase());
-      const baseIndex = currentListIndex >= 0 ? currentListIndex : currentIndex;
-      const nextIndex = (baseIndex + delta + list.length) % list.length;
-      const target = list[nextIndex];
+      const navList = getFilteredNavigationList(list);
+      if (!navList.length) return;
+      const currentNavIndex = navList.findIndex((item) => String(item?.filename).toLowerCase() === String(currentImage.filename).toLowerCase());
+      const baseIndex = currentNavIndex >= 0
+        ? currentNavIndex
+        : (delta >= 0 ? 0 : navList.length - 1);
+      const nextIndex = (baseIndex + delta + navList.length) % navList.length;
+      const target = navList[nextIndex];
       if (!target?.filename) return;
       navigateToImage(target.filename);
     } catch (error) {
       console.warn("Standalone navigation failed:", error);
     }
+  }
+
+  function getFilteredNavigationList(list) {
+    const showArchived = parseStoredBoolean(localStorage.getItem("showArchivedVisualizations"));
+    const showFavoritesOnly = parseStoredBoolean(localStorage.getItem("showFavoritesOnly"));
+    const favorites = new Set(readFavorites());
+
+    return list.filter((item) => {
+      const filename = String(item?.filename || "").trim();
+      if (!filename) return false;
+
+      const isArchived = parseStoredBoolean(item?.archived);
+      if (!showArchived && isArchived) return false;
+      if (showFavoritesOnly && !favorites.has(filename)) return false;
+      return true;
+    });
+  }
+
+  function parseStoredBoolean(value) {
+    if (typeof value === "boolean") return value;
+    const normalized = String(value == null ? "" : value).trim().toLowerCase();
+    return normalized === "true" || normalized === "1" || normalized === "yes";
   }
 
   async function downloadCurrentModalImage() {
