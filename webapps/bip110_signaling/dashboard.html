@@ -986,6 +986,60 @@
       };
     }
 
+    function reconcileBip110PeriodsFromBlocks(dynamicData, metadata) {
+      if (!dynamicData || !Array.isArray(dynamicData.bip110Periods) || dynamicData.bip110Periods.length === 0) {
+        return dynamicData;
+      }
+      if (!Array.isArray(dynamicData.bip110Blocks) || dynamicData.bip110Blocks.length === 0) {
+        return dynamicData;
+      }
+
+      const periodSize = Number(metadata?.chart?.period_size || 2016);
+      const perPeriodCounts = new Map();
+
+      dynamicData.bip110Blocks.forEach((block) => {
+        const period = Number(block?.period);
+        if (!Number.isFinite(period)) return;
+
+        const counts = perPeriodCounts.get(period) || { elapsed: 0, signaling: 0 };
+        counts.elapsed += 1;
+        if (Number(block?.is_signaling) === 1) {
+          counts.signaling += 1;
+        }
+        perPeriodCounts.set(period, counts);
+      });
+
+      const reconciledPeriods = dynamicData.bip110Periods.map((row) => {
+        const period = Number(row?.period);
+        const status = String(row?.status || "");
+        const counts = perPeriodCounts.get(period);
+        if (!counts) return row;
+
+        if (status === "completed") {
+          return {
+            ...row,
+            elapsed_blocks: periodSize,
+            signal_blocks: counts.signaling,
+          };
+        }
+
+        if (status === "in_progress") {
+          return {
+            ...row,
+            elapsed_blocks: counts.elapsed,
+            signal_blocks: counts.signaling,
+          };
+        }
+
+        return row;
+      });
+
+      return {
+        ...dynamicData,
+        bip110Periods: reconciledPeriods,
+      };
+    }
+
     async function loadBlockPointsForDataset(datasetKey, metadata, cacheBust = null) {
       const withBust = (path) => {
         if (cacheBust == null) return path;
@@ -2562,6 +2616,7 @@
           state.staticData.segwitBlocks = blocks;
         } else {
           state.dynamicData.bip110Blocks = blocks;
+          state.dynamicData = reconcileBip110PeriodsFromBlocks(state.dynamicData, metadata);
         }
 
         state.data = buildCombinedData(state.staticData, state.dynamicData, state.data);
