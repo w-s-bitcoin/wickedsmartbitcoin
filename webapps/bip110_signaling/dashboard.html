@@ -277,7 +277,7 @@
     .canvas-box {
       position: relative;
       width: 100%;
-      height: max(300px, 44svh);
+      height: max(300px, 100%);
     }
 
     .panel-fill-btn {
@@ -326,10 +326,6 @@
     body.resizing-panel * {
       user-select: none !important;
       cursor: nwse-resize !important;
-    }
-
-    .canvas-box.solo {
-      height: max(600px, 88svh);
     }
 
     canvas {
@@ -1996,13 +1992,13 @@
       if (hasPriorVisibility) {
         // Preserve the user-visible panel heights when toggling panel visibility.
         if (!segwitPanel.classList.contains("hidden")) {
-          const segwitHeight = segwitCanvasBox.getBoundingClientRect().height;
+          const segwitHeight = segwitPanel.getBoundingClientRect().height;
           if (Number.isFinite(segwitHeight) && segwitHeight > 0) {
             state.manualPanelHeights.segwit = clampPanelResizeHeight(segwitHeight);
           }
         }
         if (!bip110Panel.classList.contains("hidden")) {
-          const bip110Height = bip110CanvasBox.getBoundingClientRect().height;
+          const bip110Height = bip110Panel.getBoundingClientRect().height;
           if (Number.isFinite(bip110Height) && bip110Height > 0) {
             state.manualPanelHeights.bip110 = clampPanelResizeHeight(bip110Height);
           }
@@ -2015,9 +2011,6 @@
       const visibleCount = (state.controls.showSegwit ? 1 : 0) + (state.controls.showBip110 ? 1 : 0);
       const solo = visibleCount === 1;
       state.lastVisibleCount = visibleCount;
-
-      segwitCanvasBox.classList.toggle("solo", solo && state.controls.showSegwit);
-      bip110CanvasBox.classList.toggle("solo", solo && state.controls.showBip110);
 
       if (hasPriorVisibility && visibleCount !== prevCount) {
         persistControls();
@@ -2159,18 +2152,20 @@
       const panelHeight = Math.max(minPerPanel, Math.floor(availableForPanels / n));
 
       visiblePanels.forEach(({ key, box }) => {
+        const panel = key === "segwit" ? segwitPanel : bip110Panel;
         const manual = state.manualPanelHeights[key];
         const targetHeight = Number.isFinite(manual)
           ? clampPanelResizeHeight(manual)
           : panelHeight;
-        box.style.height = `${targetHeight}px`;
+        panel.style.height = `${targetHeight}px`;
+        box.style.height = "";
       });
 
       if (!state.controls.showSegwit) {
-        segwitCanvasBox.style.height = "";
+        segwitPanel.style.height = "";
       }
       if (!state.controls.showBip110) {
-        bip110CanvasBox.style.height = "";
+        bip110Panel.style.height = "";
       }
     }
 
@@ -2273,13 +2268,14 @@
 
     function setupPanelResizeHandles() {
       const bindHandle = (handle, key, box) => {
+        const panel = key === "segwit" ? segwitPanel : bip110Panel;
         if (!handle || !box) return;
 
         handle.addEventListener("pointerdown", (ev) => {
           ev.preventDefault();
 
           const startY = ev.clientY;
-          const startHeight = box.getBoundingClientRect().height;
+          const startHeight = panel.getBoundingClientRect().height;
 
           document.body.classList.add("resizing-panel");
 
@@ -2289,7 +2285,8 @@
             state.manualPanelHeights[key] = nextHeight;
             state.filledPanels[key] = false;
             updateFillButtonState(key);
-            box.style.height = `${nextHeight}px`;
+            panel.style.height = `${nextHeight}px`;
+            box.style.height = "";
             renderSelectedPanels([key]);
             if (state.pinnedTooltip) {
               showTooltip(state.pinnedTooltip.content, state.pinnedTooltip.x, state.pinnedTooltip.y);
@@ -2302,7 +2299,7 @@
             window.removeEventListener("pointerup", stopResize);
             window.removeEventListener("pointercancel", stopResize);
             // Persist only the panel that was actively resized.
-            state.manualPanelHeights[key] = clampPanelResizeHeight(box.getBoundingClientRect().height);
+            state.manualPanelHeights[key] = clampPanelResizeHeight(panel.getBoundingClientRect().height);
             persistControls();
           };
 
