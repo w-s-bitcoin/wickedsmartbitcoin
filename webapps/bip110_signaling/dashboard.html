@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>BIP-110 Signaling Dashboard</title>
+  <title>BIP-110 Signaling</title>
   <script>
     (function () {
       const params = new URLSearchParams(window.location.search);
@@ -404,11 +404,11 @@
   <main class="wrap" id="mainWrap">
     <section class="topbar" id="topbar">
       <div class="title-row">
-        <h1 class="title">SegWit and BIP-110 Signaling</h1>
+        <h1 class="title">BIP-110 Signaling</h1>
         <div class="info-wrap">
           <button type="button" class="info-btn" id="vizInfoBtn" aria-label="About this visualization" aria-describedby="vizInfoPopover">?</button>
           <div class="info-popover" id="vizInfoPopover" role="tooltip">
-            This dashboard shows miner signaling across each 2,016-block period for SegWit and BIP-110. Bars show signaling vs non-signaling blocks, markers denote notable releases, and threshold lines indicate each proposal's activation target.
+            This dashboard focuses on miner signaling across each 2,016-block period for BIP-110. Bars show signaling vs non-signaling blocks, markers denote notable releases, and the threshold line tracks the BIP-110 activation target. SegWit signaling periods are included as a historical comparison panel when enabled.
           </div>
         </div>
       </div>
@@ -419,7 +419,7 @@
         <div class="chip">Period -</div>
       </div>
       <div class="controls">
-        <label class="toggle" for="toggleSegwitWindow"><input type="checkbox" id="toggleSegwitWindow" checked /> SegWit periods</label>
+        <label class="toggle" for="toggleSegwitWindow"><input type="checkbox" id="toggleSegwitWindow" /> SegWit periods</label>
         <label class="toggle" for="toggleBip110Window"><input type="checkbox" id="toggleBip110Window" checked /> BIP-110 periods</label>
         <label class="toggle" for="toggleStripes"><input type="checkbox" id="toggleStripes" checked /> Block markers</label>
         <label class="toggle" for="toggleMarkers"><input type="checkbox" id="toggleMarkers" checked /> Release markers</label>
@@ -482,7 +482,7 @@
   <script>
     const AUTO_REFRESH_MS = 60000;
     const FORCE_REFRESH_MS = 3600000;
-    const CONTROLS_STORAGE_KEY = "bip110_signaling_controls_v1";
+    const CONTROLS_STORAGE_KEY = "bip110_signaling_controls_v2";
     const PANEL_RESIZE_MIN_HEIGHT = 220;
     const PANEL_RESIZE_VIEWPORT_PAD = 24;
     const BIP110_FINAL_FRAME_PATH = "../../final_frames/bip110_signaling.png";
@@ -504,7 +504,7 @@
         stripesExplicit: false,
         markers: true,
         labels: true,
-        showSegwit: true,
+        showSegwit: false,
         showBip110: true,
         panelsSwapped: false,
       },
@@ -1859,7 +1859,29 @@
         ctx.restore();
       });
 
-      drawAxes(ctx, { plot, panelWidth: width, xScale, yScale, xMax, periodSize, title, ticks, showBottomAxis, chart, isMobile });
+      const xAxisLabelMax = key === "bip110"
+        ? periods.reduce((maxPeriod, row) => {
+            const period = Number(row.period);
+            const status = String(row.status || "");
+            if (!Number.isFinite(period) || status === "post_window") return maxPeriod;
+            return Math.max(maxPeriod, period);
+          }, 0)
+        : xMax;
+
+      drawAxes(ctx, {
+        plot,
+        panelWidth: width,
+        xScale,
+        yScale,
+        xMax,
+        xAxisLabelMax,
+        periodSize,
+        title,
+        ticks,
+        showBottomAxis,
+        chart,
+        isMobile,
+      });
 
       state.hitMaps[key] = [
         ...state.stripeMaps[key].map((s) => ({ type: "stripe", ...s })),
@@ -2313,7 +2335,7 @@
       bindHandle(bip110ResizeHandle, "bip110", bip110CanvasBox);
     }
 
-    function drawAxes(ctx, { plot, panelWidth, xScale, yScale, xMax, periodSize, title, ticks, showBottomAxis, chart, isMobile }) {
+    function drawAxes(ctx, { plot, panelWidth, xScale, yScale, xMax, xAxisLabelMax = xMax, periodSize, title, ticks, showBottomAxis, chart, isMobile }) {
       const fg = chart.colors.foreground;
       const yTicks = [0, 250, 500, 750, 1000, 1250, 1500, 1750, 2000];
 
@@ -2396,7 +2418,7 @@
 
       if (showBottomAxis) {
         ctx.font = `${isMobile ? 10 : 11}px "IBM Plex Mono", monospace`;
-        for (let i = 1; i <= xMax; i += 1) {
+        for (let i = 1; i <= xAxisLabelMax; i += 1) {
           const x = xScale(i);
           ctx.fillStyle = fg;
           ctx.textBaseline = "top";
@@ -2799,6 +2821,20 @@
         const restoredPersistedControls = restorePersistedControls();
         if (!restoredPersistedControls) {
           applyNarrowWindowDefaults();
+
+          state.controls.showSegwit = false;
+          state.controls.showBip110 = true;
+          state.filledPanels.segwit = false;
+          state.filledPanels.bip110 = true;
+          state.manualPanelHeights.segwit = null;
+          state.manualPanelHeights.bip110 = getViewportFillHeightForSinglePanel();
+
+          const segwitWindow = document.getElementById("toggleSegwitWindow");
+          const bip110Window = document.getElementById("toggleBip110Window");
+          if (segwitWindow) segwitWindow.checked = false;
+          if (bip110Window) bip110Window.checked = true;
+
+          persistControls();
         }
         applyPanelOrder();
         ensureModalDownloadButtonVisible();
