@@ -960,13 +960,17 @@
       chartEl.on('plotly_relayout', onRelayout);
     }
 
-    function loadScript(src) {
+    function loadScript(src, timeoutMs = 5000) {
       return new Promise((resolve, reject) => {
         const script = document.createElement('script');
         script.src = src;
         script.async = true;
-        script.onload = resolve;
-        script.onerror = () => reject(new Error(`Failed to load script: ${src}`));
+        const timer = setTimeout(() => {
+          script.onload = script.onerror = null;
+          reject(new Error(`Timed out loading script: ${src}`));
+        }, timeoutMs);
+        script.onload = () => { clearTimeout(timer); resolve(); };
+        script.onerror = () => { clearTimeout(timer); reject(new Error(`Failed to load script: ${src}`)); };
         document.head.appendChild(script);
       });
     }

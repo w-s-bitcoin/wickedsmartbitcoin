@@ -147,7 +147,6 @@ function buildGridOnce(){
       iframe.className = 'dashboard-preview-frame';
       iframe.src = previewSpec.url;
       iframe.title = `${title || filename} preview`;
-      iframe.loading = 'lazy';
       iframe.setAttribute('aria-hidden', 'true');
       iframe.tabIndex = -1;
       iframe.addEventListener('load', () => {

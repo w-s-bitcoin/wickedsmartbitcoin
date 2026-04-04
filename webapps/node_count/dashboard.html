@@ -2495,13 +2495,17 @@
       box.textContent = message;
     }
 
-    function loadScript(src) {
+    function loadScript(src, timeoutMs = 5000) {
       return new Promise((resolve, reject) => {
         const s = document.createElement('script');
         s.src = src;
         s.async = true;
-        s.onload = resolve;
-        s.onerror = () => reject(new Error(`Failed to load script: ${src}`));
+        const timer = setTimeout(() => {
+          s.onload = s.onerror = null;
+          reject(new Error(`Timed out loading script: ${src}`));
+        }, timeoutMs);
+        s.onload = () => { clearTimeout(timer); resolve(); };
+        s.onerror = () => { clearTimeout(timer); reject(new Error(`Failed to load script: ${src}`)); };
         document.head.appendChild(s);
       });
     }
