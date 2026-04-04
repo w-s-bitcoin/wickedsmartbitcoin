@@ -482,7 +482,7 @@
   <script>
     const AUTO_REFRESH_MS = 60000;
     const FORCE_REFRESH_MS = 3600000;
-    const CONTROLS_STORAGE_KEY = "bip110_signaling_controls_v2";
+    const CONTROLS_STORAGE_KEY = "bip110_signaling_controls_v3";
     const PANEL_RESIZE_MIN_HEIGHT = 220;
     const PANEL_RESIZE_VIEWPORT_PAD = 24;
     const BIP110_FINAL_FRAME_PATH = "../../final_frames/bip110_signaling.png";
@@ -509,6 +509,10 @@
         panelsSwapped: false,
       },
       manualPanelHeights: {
+        segwit: null,
+        bip110: null,
+      },
+      manualPanelHeightRatios: {
         segwit: null,
         bip110: null,
       },
@@ -1153,6 +1157,16 @@
 
     function persistControls() {
       try {
+        const segwitRatio = Number.isFinite(state.manualPanelHeightRatios.segwit)
+          ? state.manualPanelHeightRatios.segwit
+          : (Number.isFinite(state.manualPanelHeights.segwit)
+            ? (state.manualPanelHeights.segwit / (window.innerHeight || 1))
+            : null);
+        const bip110Ratio = Number.isFinite(state.manualPanelHeightRatios.bip110)
+          ? state.manualPanelHeightRatios.bip110
+          : (Number.isFinite(state.manualPanelHeights.bip110)
+            ? (state.manualPanelHeights.bip110 / (window.innerHeight || 1))
+            : null);
         const payload = {
           stripes: Boolean(state.controls.stripes),
           stripesExplicit: Boolean(state.controls.stripesExplicit),
@@ -1162,11 +1176,11 @@
           showBip110: Boolean(state.controls.showBip110),
           panelsSwapped: Boolean(state.controls.panelsSwapped),
           manualPanelHeights: {
-            segwit: Number.isFinite(state.manualPanelHeights.segwit)
-              ? Math.round(state.manualPanelHeights.segwit)
+            segwit: Number.isFinite(segwitRatio)
+              ? parseFloat(segwitRatio.toFixed(4))
               : null,
-            bip110: Number.isFinite(state.manualPanelHeights.bip110)
-              ? Math.round(state.manualPanelHeights.bip110)
+            bip110: Number.isFinite(bip110Ratio)
+              ? parseFloat(bip110Ratio.toFixed(4))
               : null,
           },
           filledPanels: {
@@ -1202,17 +1216,14 @@
         const parseStoredHeight = (value) => {
           if (value == null || value === "") return null;
           const n = Number(value);
-          return Number.isFinite(n) ? n : null;
+          if (!Number.isFinite(n) || n <= 0) return null;
+          return n;
         };
 
         const segwitHeight = parseStoredHeight(parsed?.manualPanelHeights?.segwit);
         const bip110Height = parseStoredHeight(parsed?.manualPanelHeights?.bip110);
-        state.manualPanelHeights.segwit = Number.isFinite(segwitHeight)
-          ? clampPanelResizeHeight(segwitHeight)
-          : null;
-        state.manualPanelHeights.bip110 = Number.isFinite(bip110Height)
-          ? clampPanelResizeHeight(bip110Height)
-          : null;
+        applyManualPanelHeightFromRatio("segwit", segwitHeight);
+        applyManualPanelHeightFromRatio("bip110", bip110Height);
 
         state.filledPanels.segwit = Boolean(parsed?.filledPanels?.segwit);
         state.filledPanels.bip110 = Boolean(parsed?.filledPanels?.bip110);
@@ -2016,13 +2027,13 @@
         if (!segwitPanel.classList.contains("hidden")) {
           const segwitHeight = segwitPanel.getBoundingClientRect().height;
           if (Number.isFinite(segwitHeight) && segwitHeight > 0) {
-            state.manualPanelHeights.segwit = clampPanelResizeHeight(segwitHeight);
+            setManualPanelHeight("segwit", segwitHeight);
           }
         }
         if (!bip110Panel.classList.contains("hidden")) {
           const bip110Height = bip110Panel.getBoundingClientRect().height;
           if (Number.isFinite(bip110Height) && bip110Height > 0) {
-            state.manualPanelHeights.bip110 = clampPanelResizeHeight(bip110Height);
+            setManualPanelHeight("bip110", bip110Height);
           }
         }
       }
@@ -2153,6 +2164,56 @@
       return Math.round(clamp(height, PANEL_RESIZE_MIN_HEIGHT, panelResizeMaxHeightPx()));
     }
 
+    function panelHeightPxToViewportRatio(height) {
+      const n = Number(height);
+      if (!Number.isFinite(n) || n <= 0) return null;
+      return n / (window.innerHeight || 1);
+    }
+
+    function panelHeightRatioToPx(ratio) {
+      const n = Number(ratio);
+      if (!Number.isFinite(n) || n <= 0) return null;
+      return n * (window.innerHeight || 1);
+    }
+
+    function setManualPanelHeight(key, heightPx) {
+      const clamped = clampPanelResizeHeight(heightPx);
+      state.manualPanelHeights[key] = clamped;
+      state.manualPanelHeightRatios[key] = panelHeightPxToViewportRatio(clamped);
+      return clamped;
+    }
+
+    function applyManualPanelHeightFromRatio(key, ratio) {
+      const restoredPx = panelHeightRatioToPx(ratio);
+      if (!Number.isFinite(restoredPx)) {
+        state.manualPanelHeights[key] = null;
+        state.manualPanelHeightRatios[key] = null;
+        return null;
+      }
+      return setManualPanelHeight(key, restoredPx);
+    }
+
+    function syncManualPanelHeightsToViewport() {
+      const visibleCount = (state.controls.showSegwit ? 1 : 0) + (state.controls.showBip110 ? 1 : 0);
+      if (visibleCount === 1) {
+        const onlyVisibleKey = state.controls.showSegwit ? "segwit" : "bip110";
+        if (state.filledPanels[onlyVisibleKey]) {
+          setManualPanelHeight(onlyVisibleKey, getViewportFillHeightForSinglePanel());
+        }
+      }
+
+      ["segwit", "bip110"].forEach((key) => {
+        const ratio = state.manualPanelHeightRatios[key];
+        if (Number.isFinite(ratio)) {
+          setManualPanelHeight(key, panelHeightRatioToPx(ratio));
+          return;
+        }
+        if (Number.isFinite(state.manualPanelHeights[key])) {
+          setManualPanelHeight(key, state.manualPanelHeights[key]);
+        }
+      });
+    }
+
     function applyDynamicPanelHeights() {
       const visiblePanels = [];
       if (state.controls.showSegwit) visiblePanels.push({ key: "segwit", box: segwitCanvasBox });
@@ -2176,9 +2237,12 @@
       visiblePanels.forEach(({ key, box }) => {
         const panel = key === "segwit" ? segwitPanel : bip110Panel;
         const manual = state.manualPanelHeights[key];
-        const targetHeight = Number.isFinite(manual)
-          ? clampPanelResizeHeight(manual)
-          : panelHeight;
+        const isFilledSinglePanel = n === 1 && state.filledPanels[key];
+        const targetHeight = isFilledSinglePanel
+          ? setManualPanelHeight(key, getViewportFillHeightForSinglePanel())
+          : (Number.isFinite(manual)
+            ? clampPanelResizeHeight(manual)
+            : panelHeight);
         panel.style.height = `${targetHeight}px`;
         box.style.height = "";
       });
@@ -2244,7 +2308,7 @@
 
     function fillSinglePanelToViewportHeight(key) {
       const clampedHeight = getViewportFillHeightForSinglePanel();
-      state.manualPanelHeights[key] = clampedHeight;
+      setManualPanelHeight(key, clampedHeight);
       state.filledPanels[key] = true;
       updateFillButtonState(key);
       persistControls();
@@ -2258,9 +2322,9 @@
     function compactSinglePanel(key) {
       const visibleCount = (state.controls.showSegwit ? 1 : 0) + (state.controls.showBip110 ? 1 : 0);
       if (visibleCount === 1) {
-        state.manualPanelHeights[key] = clampPanelResizeHeight(getHalfPanelHeight());
+        setManualPanelHeight(key, getHalfPanelHeight());
       } else {
-        state.manualPanelHeights[key] = getEqualSplitPanelHeight(visibleCount);
+        setManualPanelHeight(key, getEqualSplitPanelHeight(visibleCount));
       }
       state.filledPanels[key] = false;
       updateFillButtonState(key);
@@ -2303,8 +2367,7 @@
 
           const onPointerMove = (moveEv) => {
             const deltaY = moveEv.clientY - startY;
-            const nextHeight = clampPanelResizeHeight(startHeight + deltaY);
-            state.manualPanelHeights[key] = nextHeight;
+            const nextHeight = setManualPanelHeight(key, startHeight + deltaY);
             state.filledPanels[key] = false;
             updateFillButtonState(key);
             panel.style.height = `${nextHeight}px`;
@@ -2321,7 +2384,7 @@
             window.removeEventListener("pointerup", stopResize);
             window.removeEventListener("pointercancel", stopResize);
             // Persist only the panel that was actively resized.
-            state.manualPanelHeights[key] = clampPanelResizeHeight(panel.getBoundingClientRect().height);
+            setManualPanelHeight(key, panel.getBoundingClientRect().height);
             persistControls();
           };
 
@@ -2827,7 +2890,8 @@
           state.filledPanels.segwit = false;
           state.filledPanels.bip110 = true;
           state.manualPanelHeights.segwit = null;
-          state.manualPanelHeights.bip110 = getViewportFillHeightForSinglePanel();
+          state.manualPanelHeightRatios.segwit = null;
+          setManualPanelHeight("bip110", getViewportFillHeightForSinglePanel());
 
           const segwitWindow = document.getElementById("toggleSegwitWindow");
           const bip110Window = document.getElementById("toggleBip110Window");
@@ -2893,6 +2957,7 @@
         setControlsEnabled(true);
 
         window.addEventListener("resize", () => {
+          syncManualPanelHeightsToViewport();
           applyDynamicPanelHeights();
           renderAll();
           if (state.pinnedTooltip) {

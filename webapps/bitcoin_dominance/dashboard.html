@@ -526,6 +526,10 @@
     const FORCE_REFRESH_MS = 3600000;
     const IS_CARD_PREVIEW = document.documentElement.classList.contains('card-preview');
     const FETCH_CACHE_MODE = IS_CARD_PREVIEW ? 'force-cache' : 'no-store';
+    // Bust the cache once per UTC day in card-preview so data is never more than 24 h stale.
+    const CARD_PREVIEW_CACHE_BUST = IS_CARD_PREVIEW
+      ? new Date().toISOString().slice(0, 10).replace(/-/g, '')
+      : null;
     const MOBILE_STACK_BREAKPOINT = 1100;
     const PANEL_SPLIT_MIN = 34;
     const PANEL_SPLIT_MAX = 72;
@@ -2506,7 +2510,7 @@
         setPanelLoaderVisible('history', true);
         setPanelLoaderVisible('snapshot', true);
         
-        const data = await loadDashboardData();
+        const data = await loadDashboardData(CARD_PREVIEW_CACHE_BUST);
         state.staticMeta = data.staticMeta;
         state.datasets = data.datasets;
         state.priceHistory = data.priceHistory;
