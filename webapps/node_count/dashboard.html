@@ -783,7 +783,7 @@
 
   <script src="../../js/25_dashboard_timezone_preferences.js"></script>
   <script>
-    const CONTROLS_STORAGE_KEY = 'node_count_dashboard_controls_v1';
+    const CONTROLS_STORAGE_KEY = 'node_count_dashboard_controls_v2';
     const DASHBOARD_TIME = window.WSBDashboardTime || null;
     const MOBILE_STACK_BREAKPOINT = 1100;
     const PANEL_SPLIT_MIN = 34;
@@ -796,6 +796,10 @@
     const FORCE_REFRESH_MS = 3600000;
     const IS_CARD_PREVIEW = document.documentElement.classList.contains('card-preview');
     const FETCH_CACHE_MODE = IS_CARD_PREVIEW ? 'force-cache' : 'no-store';
+    // Bust the cache once per UTC day in card-preview so data is never more than 24 h stale.
+    const CARD_PREVIEW_CACHE_BUST = IS_CARD_PREVIEW
+      ? new Date().toISOString().slice(0, 10).replace(/-/g, '')
+      : null;
     const SOFTWARE_SPLIT_MIN = 32;
     const SOFTWARE_SPLIT_MAX = 78;
 
@@ -1247,9 +1251,11 @@
         const panelsSwapped = parsed.panelsSwapped;
         const historyPanelPercent = Number(parsed.historyPanelPercent);
         const historyPanelStackPercent = Number(parsed.historyPanelStackPercent);
-        const stackedTopPanelHeight = Number(parsed.stackedTopPanelHeight);
-        const historyPanelManualHeight = Number(parsed.historyPanelManualHeight);
-        const softwarePanelManualHeight = Number(parsed.softwarePanelManualHeight);
+        // Heights are stored as ratios of window.innerHeight; convert back to pixels.
+        const vh = window.innerHeight || 1;
+        const stackedTopPanelHeight = Number(parsed.stackedTopPanelHeight) * vh;
+        const historyPanelManualHeight = Number(parsed.historyPanelManualHeight) * vh;
+        const softwarePanelManualHeight = Number(parsed.softwarePanelManualHeight) * vh;
         const softwareChartPercent = Number(parsed.softwareChartPercent);
         const softwareChartStackPercent = Number(parsed.softwareChartStackPercent);
         const hiddenHistorySeries = Array.isArray(parsed.hiddenHistorySeries)
@@ -1320,9 +1326,16 @@
           panelsSwapped: Boolean(state.panelsSwapped),
           historyPanelPercent: Number(state.historyPanelPercent),
           historyPanelStackPercent: Number(state.historyPanelStackPercent),
-          stackedTopPanelHeight: Number(state.stackedTopPanelHeight),
-          historyPanelManualHeight: Number(state.historyPanelManualHeight),
-          softwarePanelManualHeight: Number(state.softwarePanelManualHeight),
+          // Store heights as ratios of window.innerHeight so they restore correctly on different-sized screens.
+          stackedTopPanelHeight: Number(state.stackedTopPanelHeight) > 0
+            ? parseFloat((Number(state.stackedTopPanelHeight) / (window.innerHeight || 1)).toFixed(4))
+            : 0,
+          historyPanelManualHeight: Number(state.historyPanelManualHeight) > 0
+            ? parseFloat((Number(state.historyPanelManualHeight) / (window.innerHeight || 1)).toFixed(4))
+            : 0,
+          softwarePanelManualHeight: Number(state.softwarePanelManualHeight) > 0
+            ? parseFloat((Number(state.softwarePanelManualHeight) / (window.innerHeight || 1)).toFixed(4))
+            : 0,
           softwareChartPercent: Number(state.softwareChartPercent),
           softwareChartStackPercent: Number(state.softwareChartStackPercent),
           hiddenHistorySeries: Array.from(state.hiddenHistorySeries),
@@ -2527,7 +2540,7 @@
       setPanelLoaderVisible('history', true);
       setPanelLoaderVisible('software', true);
       try {
-        const data = await loadDashboardData();
+        const data = await loadDashboardData(CARD_PREVIEW_CACHE_BUST);
         state.history = data.historyRows;
         state.software = data.softwareRows;
         state.refreshedAtText = data.refreshedAtText;
