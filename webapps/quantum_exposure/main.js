@@ -4198,6 +4198,11 @@ async function loadData() {
         ? currentValue
         : state.availableSnapshots[0];
       snapshotFilter.value = nextValue;
+
+      // Refresh top-exposure tooltips now that blockheight -> datetime map is populated.
+      if (Array.isArray(state.ge1Rows) && state.ge1Rows.length) {
+        updateTopExposures();
+      }
     })
     .catch(() => {
       // Best effort only; dropdown falls back to block-height labels.
