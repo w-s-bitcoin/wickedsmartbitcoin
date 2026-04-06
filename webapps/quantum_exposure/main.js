@@ -56,6 +56,7 @@ const UNIDENTIFIED_IDENTITY_FILTER_LABEL = "Unidentified";
 const UNIDENTIFIED_IDENTITY_GROUP_FILTER_VALUE = "__unidentified_group__";
 const UNIDENTIFIED_IDENTITY_GROUP_FILTER_LABEL = "Unidentified";
 const THEME_STORAGE_KEY = "quantum-research-dashboard-theme";
+const RUNTIME_MODE_STORAGE_KEY = "quantum-research-dashboard-runtime-mode-v1";
 const FILTERS_STORAGE_KEY = "quantum-research-dashboard-filters-v1";
 const HISTORICAL_GE1_CACHE_STORAGE_KEY = "quantum-research-historical-ge1-v1";
 const SNAPSHOT_PREF_LATEST = "latest";
@@ -65,6 +66,121 @@ const ALLOWED_SPEND_FILTERS = new Set(["all", "never_spent", "inactive", "active
 const ALLOWED_SCRIPT_FILTERS = new Set(["All", ...SCRIPT_TYPES_ORDER]);
 const ALLOWED_SUPPLY_DISPLAY_MODES = new Set(["total", "exposed", "filtered"]);
 const SHARE_NONE_TOKEN = "__none__";
+const LOCAL_RUNTIME_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+const IS_LOCAL_RUNTIME = LOCAL_RUNTIME_HOSTS.has(window.location.hostname);
+let runtimeLiteMode = true;
+
+function resolveInitialRuntimeLiteMode() {
+  if (!IS_LOCAL_RUNTIME) return true;
+  try {
+    const storedMode = window.localStorage.getItem(RUNTIME_MODE_STORAGE_KEY);
+    if (storedMode === "lite") return true;
+    if (storedMode === "full") return false;
+  } catch (err) {
+    console.warn("Could not read stored runtime mode preference", err);
+  }
+  return false;
+}
+
+function isLiteMode() {
+  return IS_LOCAL_RUNTIME ? runtimeLiteMode : true;
+}
+
+function persistRuntimeMode() {
+  if (!IS_LOCAL_RUNTIME) return;
+  try {
+    window.localStorage.setItem(RUNTIME_MODE_STORAGE_KEY, isLiteMode() ? "lite" : "full");
+  } catch (err) {
+    console.warn("Could not persist runtime mode preference", err);
+  }
+}
+
+function updateRuntimeModeButton() {
+  const modeButton = document.getElementById("runtimeModeToggle");
+  if (!modeButton) return;
+
+  const lite = isLiteMode();
+  const modeLabel = lite ? "ECO" : "FULL";
+  modeButton.textContent = modeLabel;
+  modeButton.setAttribute("aria-pressed", lite ? "true" : "false");
+  modeButton.classList.toggle("is-eco", lite);
+  modeButton.classList.toggle("is-full", !lite);
+
+  const tooltipLocal = "Toggle between ECO mode and FULL mode (local only).";
+  const tooltipOnline = "ECO mode is locked on deployed sites for faster loading. FULL mode is only available when running locally.";
+  const tooltip = IS_LOCAL_RUNTIME ? tooltipLocal : tooltipOnline;
+
+  setCustomTooltip(modeButton, tooltip);
+  modeButton.disabled = !IS_LOCAL_RUNTIME;
+}
+
+function latestSnapshotHeight() {
+  if (Array.isArray(state.availableSnapshots) && state.availableSnapshots.length) {
+    return String(state.availableSnapshots[0] || "").trim();
+  }
+  const snapshotFilter = document.getElementById("snapshotFilter");
+  return String(snapshotFilter?.options?.[0]?.value || "").trim();
+}
+
+function isLatestSnapshotSelected() {
+  const latest = latestSnapshotHeight();
+  const snapshotFilter = document.getElementById("snapshotFilter");
+  const current = String(state.snapshotHeight || snapshotFilter?.value || "").trim();
+  return !!latest && !!current && latest === current;
+}
+
+function updateTopExposureFilterControlAvailability() {
+  const isEco = isLiteMode();
+  const allowEcoLatestSearch = isEco && isLatestSnapshotSelected();
+  const disableTagFilters = isEco;
+  const disableAddressSearch = isEco && !allowEcoLatestSearch;
+  const container = document.getElementById("topExposuresFilters");
+  const topExposuresFiltersToggle = document.getElementById("topExposuresFiltersToggle");
+  const topExposureAddressSearch = document.getElementById("topExposureAddressSearch");
+  const detailDropdownTrigger = document.getElementById("detailDropdownTrigger");
+  const identityGroupDropdownTrigger = document.getElementById("identityGroupDropdownTrigger");
+  const identityDropdownTrigger = document.getElementById("identityDropdownTrigger");
+  const disabledTooltip = "ECO mode disables top-exposure filtering for faster loading. Run locally in FULL mode to enable top-exposure filters.";
+  const ecoHistoricalSearchTooltip = "Address/pubkey search is only available on the latest snapshot in ECO mode.";
+
+  if (container) {
+    container.classList.toggle("is-disabled", disableTagFilters);
+    container.classList.toggle("eco-search-enabled", allowEcoLatestSearch);
+  }
+
+  if (topExposuresFiltersToggle) {
+    topExposuresFiltersToggle.disabled = disableTagFilters;
+    setCustomTooltip(topExposuresFiltersToggle, disableTagFilters ? disabledTooltip : "Collapse top exposure filters");
+  }
+
+  if (topExposureAddressSearch) {
+    topExposureAddressSearch.disabled = disableAddressSearch;
+    if (disableAddressSearch) {
+      setCustomTooltip(topExposureAddressSearch, ecoHistoricalSearchTooltip);
+    } else {
+      setCustomTooltip(topExposureAddressSearch, "");
+    }
+  }
+
+  [detailDropdownTrigger, identityGroupDropdownTrigger, identityDropdownTrigger].forEach((el) => {
+    if (!el) return;
+    el.disabled = disableTagFilters;
+    setCustomTooltip(el, disableTagFilters ? disabledTooltip : "");
+  });
+
+  document.querySelectorAll("#detailDropdownMenu input, #identityGroupDropdownMenu input, #identityDropdownMenu input").forEach((el) => {
+    el.disabled = disableTagFilters;
+    setCustomTooltip(el, disableTagFilters ? disabledTooltip : "");
+  });
+}
+
+function applyRuntimeModeUi() {
+  const lite = isLiteMode();
+  document.documentElement.classList.toggle("lite-mode", lite);
+  document.documentElement.classList.toggle("full-mode", !lite);
+  updateRuntimeModeButton();
+  updateTopExposureFilterControlAvailability();
+}
 
 function normalizeSupplyDisplayMode(mode) {
   return ALLOWED_SUPPLY_DISPLAY_MODES.has(mode) ? mode : "total";
@@ -100,7 +216,7 @@ function applyTheme(theme) {
   if (toggle) {
     const isDark = nextTheme === "dark";
     toggle.setAttribute("aria-pressed", isDark ? "true" : "false");
-    toggle.setAttribute("title", isDark ? "Switch to light mode" : "Switch to dark mode");
+    setCustomTooltip(toggle, isDark ? "Switch to light mode" : "Switch to dark mode");
 
     const modeSymbol = document.getElementById("themeToggleMode");
     if (modeSymbol) {
@@ -986,6 +1102,17 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;");
 }
 
+function setCustomTooltip(el, text) {
+  if (!el) return;
+  const value = String(text || "").trim();
+  if (value) {
+    el.setAttribute("data-tooltip", value);
+  } else {
+    el.removeAttribute("data-tooltip");
+  }
+  el.removeAttribute("title");
+}
+
 let customTooltipBound = false;
 let customTooltipAnchor = null;
 
@@ -1549,6 +1676,19 @@ function handleTagCheckboxChange(changedEl, checkboxGetter, triggerId) {
 }
 
 function renderTopExposureTagFilters() {
+  if (isLiteMode()) {
+    state.selectedDetailTags = ["All"];
+    state.selectedIdentityGroups = ["All"];
+    state.selectedIdentityTags = ["All"];
+    state.pendingIdentityTagExclusions = null;
+    state.identityTagFilterQuery = "";
+    updateTagTriggerLabel("detailDropdownTrigger", state.selectedDetailTags);
+    updateTagTriggerLabel("identityGroupDropdownTrigger", state.selectedIdentityGroups);
+    updateTagTriggerLabel("identityDropdownTrigger", state.selectedIdentityTags);
+    updateTopExposureFilterControlAvailability();
+    return;
+  }
+
   const allOptions = buildTagOptionsFromGe1Rows(["All"]);
   state.selectedIdentityGroups = normalizeTagSelections(
     state.selectedIdentityGroups,
@@ -1599,6 +1739,7 @@ function renderTopExposureTagFilters() {
   updateTagTriggerLabel("detailDropdownTrigger", state.selectedDetailTags);
   updateTagTriggerLabel("identityGroupDropdownTrigger", state.selectedIdentityGroups);
   updateTagTriggerLabel("identityDropdownTrigger", state.selectedIdentityTags);
+  updateTopExposureFilterControlAvailability();
 }
 
 function getAggregate(balanceFilter, scriptType, spendType, fieldName) {
@@ -1997,6 +2138,36 @@ async function ensureHistoricalSeriesLoaded() {
 
   state.historicalSeriesLoading = true;
   try {
+    if (isLiteMode()) {
+      const liteResp = await fetch("webapp_data/historical_lite.csv");
+      if (!liteResp.ok) {
+        throw new Error("Could not load webapp_data/historical_lite.csv");
+      }
+
+      const groupedBySnapshot = new Map();
+      parseCsv(await liteResp.text()).forEach((row) => {
+        const snapshot = String(row.snapshot || "").trim();
+        if (!snapshot) return;
+
+        const aggregatesRow = { ...row };
+        delete aggregatesRow.snapshot;
+
+        if (!groupedBySnapshot.has(snapshot)) {
+          groupedBySnapshot.set(snapshot, []);
+        }
+        groupedBySnapshot.get(snapshot).push(aggregatesRow);
+      });
+
+      state.historicalSeries = Array.from(groupedBySnapshot.entries())
+        .sort((left, right) => Number.parseInt(left[0], 10) - Number.parseInt(right[0], 10))
+        .map(([snapshot, aggregatesRows]) => ({
+          snapshot,
+          aggregatesRows,
+          ge1FilteredSumsByKey: {},
+        }));
+      return;
+    }
+
     const snapshotsAsc = [...state.availableSnapshots].sort(
       (left, right) => Number.parseInt(left, 10) - Number.parseInt(right, 10)
     );
@@ -2810,7 +2981,7 @@ function updateScriptPanelModeUi() {
     title.textContent = "Historical Stacked Supply";
     toggle.dataset.mode = "historical";
     toggle.setAttribute("aria-pressed", "true");
-    toggle.setAttribute("title", "Switch to script type supply bars");
+    setCustomTooltip(toggle, "Switch to script type supply bars");
     if (legendLine1) legendLine1.textContent = "X-axis = block height";
     if (legendLine2) {
       if (showFilteredOnly) {
@@ -2825,7 +2996,7 @@ function updateScriptPanelModeUi() {
     title.textContent = "Script Type Supply Bars";
     toggle.dataset.mode = "bars";
     toggle.setAttribute("aria-pressed", "false");
-    toggle.setAttribute("title", "Switch to historical stacked chart");
+    setCustomTooltip(toggle, "Switch to historical stacked chart");
     if (legendLine1) legendLine1.textContent = "Rows ordered by total supply";
     if (legendLine2) {
       if (showFilteredOnly) {
@@ -2851,7 +3022,7 @@ function updateTopExposuresFiltersUi() {
   const isCollapsed = state.topExposuresFiltersCollapsed;
   panel.classList.toggle("is-collapsed", isCollapsed);
   toggle.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
-  toggle.setAttribute("title", isCollapsed ? "Show top exposure filters" : "Collapse top exposure filters");
+  setCustomTooltip(toggle, isCollapsed ? "Show top exposure filters" : "Collapse top exposure filters");
 }
 
 function updateScriptPanelDetailsUi() {
@@ -2862,7 +3033,7 @@ function updateScriptPanelDetailsUi() {
   const isCollapsed = !!state.scriptPanelDetailsCollapsed;
   panel.classList.toggle("is-details-collapsed", isCollapsed);
   toggle.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
-  toggle.setAttribute("title", isCollapsed ? "Show chart legend and controls" : "Collapse chart legend and controls");
+  setCustomTooltip(toggle, isCollapsed ? "Show chart legend and controls" : "Collapse chart legend and controls");
 }
 
 function captureFilterSnapshot() {
@@ -2969,12 +3140,12 @@ function updateResetButtonUi() {
   if (state.preResetStateSnapshot) {
     btn.textContent = "Undo Reset";
     btn.classList.add("reset-dashboard-btn--undo");
-    btn.title = "Undo the last filter reset";
+    setCustomTooltip(btn, "Undo the last filter reset");
     btn.disabled = false;
   } else {
     btn.textContent = "Reset Filters";
     btn.classList.remove("reset-dashboard-btn--undo");
-    btn.title = "Reset dashboard to defaults";
+    setCustomTooltip(btn, "Reset dashboard to defaults");
     btn.disabled = isDefaultFilterState();
   }
 }
@@ -3458,6 +3629,19 @@ let _lastTopExposuresVisibleCount = 0;
 
 function renderTopExposures(rows) {
   const container = document.getElementById("topExposuresList");
+  if (isLiteMode()) {
+    const latestSnapshot = latestSnapshotHeight();
+    const currentSnapshot = String(state.snapshotHeight || "").trim();
+    const isLatestSnapshot = !!latestSnapshot && latestSnapshot === currentSnapshot;
+    if (!isLatestSnapshot) {
+      state.topExposuresTotalCount = 0;
+      state.topExposuresLoading = false;
+      container.innerHTML =
+        '<div class="bar-empty" style="padding: 12px;">Historical top exposures are disabled in ECO mode. Select the latest snapshot, or run locally in FULL mode for historical top exposures.</div>';
+      return;
+    }
+  }
+
   const previousScrollTop = container.scrollTop;
   state.topExposuresTotalCount = rows.length;
 
@@ -3743,6 +3927,13 @@ function readFilters() {
   let selectedDetailTags = Array.isArray(state.selectedDetailTags) ? state.selectedDetailTags : ["All"];
   let selectedIdentityGroups = Array.isArray(state.selectedIdentityGroups) ? state.selectedIdentityGroups : ["All"];
   let selectedIdentityTags = Array.isArray(state.selectedIdentityTags) ? state.selectedIdentityTags : ["All"];
+  const topExposureAddressSearch = document.getElementById("topExposureAddressSearch");
+
+  if (isLiteMode()) {
+    selectedDetailTags = ["All"];
+    selectedIdentityGroups = ["All"];
+    selectedIdentityTags = ["All"];
+  }
 
   // If selections are exclusion-encoded from share-state, resolve them as soon
   // as the option universe is known so filtering logic never sees raw tokens.
@@ -3758,8 +3949,9 @@ function readFilters() {
     selectedIdentityTags = normalizeTagSelections(selectedIdentityTags, scopedOptions.identities, true, true);
   }
 
-  const topExposureAddressSearch = document.getElementById("topExposureAddressSearch");
-  const topExposureAddressQuery = topExposureAddressSearch
+  const topExposureAddressQuery = (isLiteMode() && !isLatestSnapshotSelected())
+    ? ""
+    : topExposureAddressSearch
     ? topExposureAddressSearch.value.trim()
     : String(state.topExposureAddressQuery || "").trim();
   let balanceValue = document.getElementById("balanceFilter").value;
@@ -3920,9 +4112,12 @@ async function loadData() {
   const needsIdentityGroupMapForUnidentifiedGroup = selectedIdentityGroups.includes(UNIDENTIFIED_IDENTITY_GROUP_FILTER_VALUE);
 
   if (
-    !selectedIdentityGroups.includes("All") ||
-    needsGlobalIdentityUniverseForExclusions ||
-    needsIdentityGroupMapForUnidentifiedGroup
+    !isLiteMode() &&
+    (
+      !selectedIdentityGroups.includes("All") ||
+      needsGlobalIdentityUniverseForExclusions ||
+      needsIdentityGroupMapForUnidentifiedGroup
+    )
   ) {
     await ensureIdentityGroupsLoaded();
   }
@@ -4102,6 +4297,40 @@ async function loadSnapshotData(snapshot) {
   renderTopExposureTagFilters();
   update();
 
+  if (isLiteMode()) {
+    const isLatestSnapshot = requestedSnapshot === latestSnapshotHeight();
+    if (!isLatestSnapshot) {
+      state.ge1Rows = [];
+      state.topExposuresLoading = false;
+      renderTopExposureTagFilters();
+      state.snapshotDataCache.set(requestedSnapshot, {
+        snapshotHeight: state.snapshotHeight,
+        aggregatesRows,
+        ge1Rows: [],
+      });
+      update();
+      return;
+    }
+
+    const ge1RespLite = await fetch(`${basePath}/dashboard_pubkeys_ge_1btc.csv`);
+    if (!ge1RespLite.ok) {
+      state.topExposuresLoading = false;
+      throw new Error(`Could not load one or more CSV files from ${basePath}/`);
+    }
+
+    const ge1RowsLite = parseCsv(await ge1RespLite.text());
+    state.ge1Rows = ge1RowsLite;
+    state.topExposuresLoading = false;
+    renderTopExposureTagFilters();
+    state.snapshotDataCache.set(requestedSnapshot, {
+      snapshotHeight: state.snapshotHeight,
+      aggregatesRows,
+      ge1Rows: ge1RowsLite,
+    });
+    update();
+    return;
+  }
+
   const ge1Resp = await fetch(`${basePath}/dashboard_pubkeys_ge_1btc.csv`);
   if (!ge1Resp.ok) {
     state.topExposuresLoading = false;
@@ -4128,6 +4357,7 @@ function attachEvents() {
   bindCustomTooltips();
   const copyDashboardLinkButton = document.getElementById("copyDashboardLink");
   const resetDashboardButton = document.getElementById("resetDashboard");
+  const runtimeModeToggleButton = document.getElementById("runtimeModeToggle");
   const themeToggle = document.getElementById("themeToggle");
   const scriptPanelModeToggle = document.getElementById("scriptPanelModeToggle");
   const scriptPanelDetailsToggle = document.getElementById("scriptPanelDetailsToggle");
@@ -4147,6 +4377,39 @@ function attachEvents() {
   if (themeToggle) {
     themeToggle.addEventListener("click", () => {
       toggleTheme();
+    });
+  }
+
+  if (runtimeModeToggleButton) {
+    runtimeModeToggleButton.addEventListener("click", async () => {
+      if (!IS_LOCAL_RUNTIME) return;
+
+      runtimeLiteMode = !isLiteMode();
+      persistRuntimeMode();
+      applyRuntimeModeUi();
+
+      // Clear mode-dependent caches so full mode can fetch GE1 rows and
+      // lite mode can avoid carrying heavy data structures.
+      state.snapshotDataCache.clear();
+      state.topExposuresDataCache.clear();
+      state.historicalSeries = [];
+      state.ge1Rows = [];
+      state.topExposuresLoading = false;
+      resetTopExposurePagination();
+
+      const snapshotFilter = document.getElementById("snapshotFilter");
+      const targetSnapshot = String(state.snapshotHeight || snapshotFilter?.value || state.availableSnapshots[0] || "").trim();
+      if (!targetSnapshot) {
+        update();
+        return;
+      }
+
+      try {
+        await loadSnapshotData(targetSnapshot);
+      } catch (err) {
+        console.error(err);
+        renderEmptyKpis();
+      }
     });
   }
 
@@ -4409,12 +4672,14 @@ function attachEvents() {
 
 (async function init() {
   try {
+    runtimeLiteMode = resolveInitialRuntimeLiteMode();
     applyPersistedFilterState(readPersistedFilters());
     const urlPrefs = readFiltersFromUrl();
     if (urlPrefs) {
       applyPersistedFilterState(urlPrefs);
     }
     applyTheme(resolveInitialTheme());
+    applyRuntimeModeUi();
     attachEvents();
     await loadData();
   } catch (err) {

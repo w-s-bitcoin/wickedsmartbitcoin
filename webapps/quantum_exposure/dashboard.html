@@ -8,6 +8,8 @@
     (function () {
       const params = new URLSearchParams(window.location.search);
       const isCardPreview = params.get('preview') === 'card';
+      const isLocalRuntime = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+      const isLiteMode = !isLocalRuntime;
 
       // On localhost, direct opens of this dashboard page should route through
       // the modal shell so controls/navigation match the main app experience.
@@ -32,6 +34,7 @@
       if (window.self !== window.top) {
         document.documentElement.classList.add('embedded-dashboard');
       }
+      document.documentElement.classList.add(isLiteMode ? 'lite-mode' : 'full-mode');
     }());
   </script>
   <script src="../shared/dashboard_embed_modal.js"></script>
@@ -361,6 +364,84 @@
     .copy-link-btn:hover {
       background: var(--surface-soft);
       color: var(--ink);
+    }
+
+    .runtime-mode-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 64px;
+      padding: 8px 8px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      background: var(--surface);
+      color: var(--ink);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+      cursor: pointer;
+      transition: background 160ms ease, border-color 160ms ease, color 160ms ease, opacity 160ms ease;
+      white-space: nowrap;
+    }
+
+    .runtime-mode-btn.is-eco {
+      background: #e7f6ea;
+      border-color: #5eae73;
+      color: #1f6d2c;
+    }
+
+    .runtime-mode-btn.is-eco:hover {
+      background: #d8efdf;
+      border-color: #4a955f;
+      color: #145224;
+    }
+
+    .runtime-mode-btn.is-full {
+      background: #fff0e4;
+      border-color: #d38a42;
+      color: #8c4d12;
+    }
+
+    .runtime-mode-btn.is-full:hover {
+      background: #ffe4cc;
+      border-color: #ba7531;
+      color: #6f3d0a;
+    }
+
+    :root[data-theme="dark"] .runtime-mode-btn.is-eco {
+      background: #1d3a27;
+      border-color: #4f8f61;
+      color: #a8e3b8;
+    }
+
+    :root[data-theme="dark"] .runtime-mode-btn.is-eco:hover {
+      background: #235031;
+      border-color: #67ab77;
+      color: #c2f0cd;
+    }
+
+    :root[data-theme="dark"] .runtime-mode-btn.is-full {
+      background: #3d2817;
+      border-color: #a96e35;
+      color: #f2c08c;
+    }
+
+    :root[data-theme="dark"] .runtime-mode-btn.is-full:hover {
+      background: #56361e;
+      border-color: #c0874f;
+      color: #ffd8ae;
+    }
+
+    .runtime-mode-btn:hover {
+      background: var(--surface-soft);
+      color: var(--ink);
+    }
+
+    .runtime-mode-btn:disabled {
+      opacity: 0.58;
+      cursor: default;
+      pointer-events: auto;
+      border-style: dashed;
     }
 
     .reset-dashboard-btn:hover {
@@ -1068,7 +1149,7 @@
       height: 100%;
       min-height: 0;
       overflow: hidden;
-      padding: 2px 0 0;
+      padding: 0;
     }
 
     .historical-chart.is-loading .historical-svg {
@@ -1078,7 +1159,7 @@
 
     .historical-chart-loading-overlay {
       position: absolute;
-      inset: 2px 0 0 0;
+      inset: 0;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -1432,6 +1513,22 @@
       margin: 2px 0 8px;
     }
 
+    .top-exposure-filters.is-disabled {
+      opacity: 0.6;
+    }
+
+    .top-exposure-filters.is-disabled .script-trigger,
+    .top-exposure-filters.is-disabled input,
+    .top-exposure-filters.is-disabled select {
+      cursor: not-allowed;
+    }
+
+    .top-exposure-filters.is-disabled.eco-search-enabled #topExposureAddressSearch {
+      opacity: 1;
+      cursor: text;
+      pointer-events: auto;
+    }
+
     .top-exposure-filters label,
     .top-exposure-filters .filter-label {
       font-size: 13px;
@@ -1656,6 +1753,7 @@
 
       .copy-link-btn,
       .reset-dashboard-btn,
+      .runtime-mode-btn,
       .theme-toggle {
         font-size: 11px;
         padding: 6px 10px;
@@ -1721,8 +1819,17 @@
         </div>
       </div>
       <div class="title-actions">
-        <button id="copyDashboardLink" class="copy-link-btn" type="button" title="Copy shareable dashboard link">Copy Link</button>
-        <button id="resetDashboard" class="reset-dashboard-btn" type="button" title="Reset dashboard to defaults">Reset Filters</button>
+        <button id="copyDashboardLink" class="copy-link-btn" type="button" data-tooltip="Copy shareable dashboard link">Copy Link</button>
+        <button id="resetDashboard" class="reset-dashboard-btn" type="button" data-tooltip="Reset dashboard to defaults">Reset Filters</button>
+        <button
+          id="runtimeModeToggle"
+          class="runtime-mode-btn"
+          type="button"
+          aria-pressed="true"
+          data-tooltip="ECO mode is locked on deployed sites for faster loading. FULL mode is only available when running locally."
+        >
+          ECO
+        </button>
         <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle light or dark mode" aria-pressed="false">
           <span id="themeToggleOther" class="theme-toggle-text"></span>
           <span class="theme-toggle-track" aria-hidden="true"><span class="theme-toggle-thumb"></span></span>
@@ -1831,7 +1938,7 @@
               data-mode="bars"
               aria-label="Toggle script panel view"
               aria-pressed="false"
-              title="Switch to historical stacked chart"
+              data-tooltip="Switch to historical stacked chart"
             >
               <span id="scriptPanelModeOtherLabel" class="panel-view-toggle-text">Bar</span>
               <span class="panel-view-toggle-track" aria-hidden="true"><span class="panel-view-toggle-thumb"></span></span>
@@ -1843,7 +1950,7 @@
               type="button"
               aria-expanded="true"
               aria-controls="scriptPanelSupplyMode"
-              title="Collapse chart legend and controls"
+              data-tooltip="Collapse chart legend and controls"
             >
               <span class="panel-collapse-icon" aria-hidden="true"></span>
             </button>
@@ -1886,7 +1993,7 @@
             type="button"
             aria-expanded="true"
             aria-controls="topExposuresFilters"
-            title="Collapse top exposure filters"
+            data-tooltip="Collapse top exposure filters"
           >
             <span class="panel-collapse-icon" aria-hidden="true"></span>
           </button>
