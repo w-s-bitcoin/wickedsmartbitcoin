@@ -4157,8 +4157,6 @@ async function loadData() {
     throw new Error("No snapshots found in webapp_data/");
   }
 
-  await loadSnapshotLabelLookup(state.availableSnapshots);
-
   const selectedIdentityGroups = Array.isArray(state.selectedIdentityGroups) ? state.selectedIdentityGroups : ["All"];
   const selectedIdentityTags = Array.isArray(state.selectedIdentityTags) ? state.selectedIdentityTags : ["All"];
   const needsGlobalIdentityUniverseForExclusions = selectedIdentityTags.includes(SHARE_EXCLUDE_TOKEN);
@@ -4185,6 +4183,25 @@ async function loadData() {
       ? preferredSnapshot
       : state.availableSnapshots[0];
   await loadSnapshotData(initialSnapshot);
+
+  // Do not block initial render on large datetime lookup parsing.
+  // Refresh snapshot labels in-place once lookup data is available.
+  loadSnapshotLabelLookup(state.availableSnapshots)
+    .then(() => {
+      const snapshotFilter = document.getElementById("snapshotFilter");
+      if (!snapshotFilter || !state.availableSnapshots.length) return;
+
+      const currentValue = String(state.snapshotHeight || snapshotFilter.value || "").trim();
+      populateSnapshotFilter(state.availableSnapshots);
+
+      const nextValue = state.availableSnapshots.includes(currentValue)
+        ? currentValue
+        : state.availableSnapshots[0];
+      snapshotFilter.value = nextValue;
+    })
+    .catch(() => {
+      // Best effort only; dropdown falls back to block-height labels.
+    });
 }
 
 async function loadSnapshotLabelLookup(snapshots) {
