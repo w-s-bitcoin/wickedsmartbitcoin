@@ -19,11 +19,14 @@
   <link rel="stylesheet" href="../shared/dashboard_shared.css" />
   <style>
     :root {
-      --bg: #06080a;
-      --panel: #0c1216;
+      /* dark (default) */
+      --bg: #000;
+      --panel: #000;
       --panel-border: rgba(255, 255, 255, 0.14);
       --fg: #f1f5f7;
       --muted: #95a6ae;
+      --fg-dim: #d6e1e6;
+      --link: #8dc7ff;
       --accent: #ff9f1c;
       --accent-2: #39d98a;
       --accent-3: #4aa8ff;
@@ -35,12 +38,27 @@
       --panel-resizer-width: 20px;
       --kpi-settings-pad-top: 6px;
       --wrap-grid-template-rows: auto minmax(0, 1fr);
+      /* component tokens */
+      --caret-chevron: #d6e1e6;
+      --resizer-track: rgba(255, 255, 255, 0.35);
+    }
+
+    :root[data-theme="light"] {
+      --bg: #f7f4ee;
+      --panel: #ffffff;
+      --panel-border: rgba(0, 0, 0, 0.11);
+      --fg: #1c1b19;
+      --muted: #6f685f;
+      --fg-dim: #514d47;
+      --link: #1f4f78;
+      --caret-chevron: #7a756e;
+      --resizer-track: rgba(0, 0, 0, 0.18);
     }
 
     html, body {
       margin: 0;
       min-height: 100vh;
-      background: #000;
+      background: var(--bg);
       color: var(--fg);
       font-family: "Space Grotesk", "Helvetica Neue", sans-serif;
       overflow: hidden;
@@ -79,7 +97,7 @@
 
     .topbar,
     .panel {
-      background: #000;
+      background: var(--panel);
       border: 1px solid var(--panel-border);
       border-radius: 14px;
       box-shadow: none;
@@ -98,10 +116,10 @@
 
     .chip,
     .chip-menu-wrap {
-      border: 1px solid rgba(255, 255, 255, 0.14);
+      border: 1px solid var(--panel-border);
       border-radius: 999px;
       background: transparent;
-      color: #d6e1e6;
+      color: var(--fg-dim);
       padding: 5px 9px;
       font-size: 0.8rem;
       font-family: "IBM Plex Mono", monospace;
@@ -146,8 +164,8 @@
       top: 50%;
       width: 6px;
       height: 6px;
-      border-right: 1.5px solid #d6e1e6;
-      border-bottom: 1.5px solid #d6e1e6;
+      border-right: 1.5px solid var(--caret-chevron);
+      border-bottom: 1.5px solid var(--caret-chevron);
       transform: translateY(-70%) rotate(45deg);
       opacity: 0.8;
       pointer-events: none;
@@ -244,7 +262,7 @@
       width: 2px;
       height: 42px;
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.35);
+      background: var(--resizer-track);
       transition: background-color 0.15s ease;
     }
 
@@ -336,7 +354,7 @@
     }
 
     #dominanceChart .spikeline {
-      stroke: #ffffff !important;
+      stroke: var(--fg) !important;
       stroke-width: 0.85px !important;
       stroke-dasharray: 5 4 !important;
     }
@@ -352,15 +370,21 @@
     }
 
     .error {
-      color: #ffd1d1;
-      background: rgba(255, 93, 93, 0.12);
-      border: 1px solid rgba(255, 93, 93, 0.35);
+      color: var(--error-fg, #ffd1d1);
+      background: var(--error-bg, rgba(255, 93, 93, 0.12));
+      border: 1px solid var(--error-border, rgba(255, 93, 93, 0.35));
       border-radius: 10px;
       padding: 10px 12px;
       margin: 0;
       display: none;
       font-family: "IBM Plex Mono", monospace;
       font-size: 0.82rem;
+    }
+
+    :root[data-theme="light"] .error {
+      --error-fg: #7b1b1b;
+      --error-bg: rgba(200, 50, 50, 0.08);
+      --error-border: rgba(200, 50, 50, 0.3);
     }
 
     @media (max-width: 1100px) {
@@ -519,6 +543,30 @@
 
   <script src="../../js/25_dashboard_timezone_preferences.js"></script>
   <script>
+    /* ── theme sync ─────────────────────────────────────────────────── */
+    (function () {
+      const THEME_KEY = 'quantum-research-dashboard-theme';
+      function applyTheme(t) {
+        document.documentElement.dataset.theme = (t === 'light' ? 'light' : 'dark');
+        document.dispatchEvent(new CustomEvent('dashboard-theme-change'));
+      }
+      try {
+        const stored = localStorage.getItem(THEME_KEY);
+        applyTheme(stored === 'light' || stored === 'dark'
+          ? stored
+          : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+      } catch (_) { applyTheme('dark'); }
+      window.addEventListener('message', function (e) {
+        if (e.data && e.data.type === 'quantum-dashboard-theme') applyTheme(e.data.theme);
+      });
+      window.addEventListener('storage', function (e) {
+        if (e.key === THEME_KEY && (e.newValue === 'light' || e.newValue === 'dark')) applyTheme(e.newValue);
+      });
+    }());
+    document.addEventListener('dashboard-theme-change', function () {
+      if (state.datasets) renderAll();
+    });
+    /* ────────────────────────────────────────────────────────────────── */
     const DASHBOARD_TIME = window.WSBDashboardTime || null;
     const LAYOUT_STORAGE_KEY = 'bitcoin_dominance_layout_v1';
     const CONTROLS_STORAGE_KEY = 'bitcoin_dominance_controls_v1';
@@ -543,16 +591,20 @@
     const STABLE_USD_GREEN = '#35b56a';
     // Hide tiny positive values that round to 0.00% in tooltip/display.
     const STABLE_MIN_PCT_FOR_PLOT = 0.01;
-    const PLOTLY_HOVERLABEL = {
-      bgcolor: '#000',
-      bordercolor: '#223038',
-      font: {
-        family: 'IBM Plex Mono, monospace',
-        color: '#e9f1f5',
-        size: 12,
-      },
-      align: 'left',
-    };
+    function getPlotlyHoverlabel() {
+      const style = getComputedStyle(document.documentElement);
+      const isLight = document.documentElement.dataset.theme === 'light';
+      return {
+        bgcolor: style.getPropertyValue('--panel').trim() || (isLight ? '#ffffff' : '#000000'),
+        bordercolor: isLight ? 'rgba(0, 0, 0, 0.12)' : '#223038',
+        font: {
+          family: 'IBM Plex Mono, monospace',
+          color: style.getPropertyValue('--fg').trim() || (isLight ? '#1c1b19' : '#e9f1f5'),
+          size: 12,
+        },
+        align: 'left',
+      };
+    }
 
     const state = {
       staticMeta: null,
@@ -960,13 +1012,17 @@
       chartEl.on('plotly_relayout', onRelayout);
     }
 
-    function loadScript(src) {
+    function loadScript(src, timeoutMs = 5000) {
       return new Promise((resolve, reject) => {
         const script = document.createElement('script');
         script.src = src;
         script.async = true;
-        script.onload = resolve;
-        script.onerror = () => reject(new Error(`Failed to load script: ${src}`));
+        const timer = setTimeout(() => {
+          script.onload = script.onerror = null;
+          reject(new Error(`Timed out loading script: ${src}`));
+        }, timeoutMs);
+        script.onload = () => { clearTimeout(timer); resolve(); };
+        script.onerror = () => { clearTimeout(timer); reject(new Error(`Failed to load script: ${src}`)); };
         document.head.appendChild(script);
       });
     }
@@ -1373,6 +1429,13 @@
     }
 
     function renderHistoryChart() {
+      const _thStyle = getComputedStyle(document.documentElement);
+      const _thFg = _thStyle.getPropertyValue('--fg').trim() || '#f1f5f7';
+      const _thFgDim = _thStyle.getPropertyValue('--fg-dim').trim() || '#d6e1e6';
+      const _thIsLight = document.documentElement.dataset.theme === 'light';
+      const _fillBtc    = _thIsLight ? 'rgba(255,159,28,0.18)'   : '#5f3800';
+      const _fillStable = _thIsLight ? 'rgba(53,181,106,0.15)'   : '#123f26';
+      const _fillOther  = _thIsLight ? 'rgba(130,130,130,0.18)'  : '#2f2f2f';
       const rangeDays = Number(state.range != null ? state.range : document.getElementById('rangeSelect')?.value ?? 365);
       const smooth = Number(state.smooth ?? document.getElementById('smoothSelect')?.value ?? 7);
       const allRows = getCurrentHistory().slice().sort((a, b) => new Date(`${a.Date}T00:00:00Z`) - new Date(`${b.Date}T00:00:00Z`));
@@ -1539,7 +1602,7 @@
           y: yFill,
           line: { color: '#ff9f1c', width: 0 },
           fill: 'tozeroy',
-          fillcolor: '#5f3800',
+          fillcolor: _fillBtc,
           hoverinfo: 'skip',
           showlegend: false,
         });
@@ -1552,7 +1615,7 @@
             y: stableTopY,
             line: { color: STABLE_USD_GREEN, width: 0 },
             fill: 'tonexty',
-            fillcolor: '#123f26',
+            fillcolor: _fillStable,
             hoverinfo: 'skip',
             showlegend: false,
           });
@@ -1565,7 +1628,7 @@
           y: otherTopY,
           line: { color: '#999999', width: 0 },
           fill: 'tonexty',
-          fillcolor: '#2f2f2f',
+          fillcolor: _fillOther,
           hoverinfo: 'skip',
           showlegend: false,
         });
@@ -1578,7 +1641,7 @@
           y: yFill,
           line: { color: '#ff9f1c', width: 0 },
           fill: 'tozeroy',
-          fillcolor: '#5f3800',
+          fillcolor: _fillBtc,
           hoverinfo: 'skip',
           showlegend: false,
         });
@@ -1590,7 +1653,7 @@
           y: otherValueY,
           line: { color: '#999999', width: 0 },
           fill: 'tozeroy',
-          fillcolor: '#2f2f2f',
+          fillcolor: _fillOther,
           hoverinfo: 'skip',
           showlegend: false,
         });
@@ -1603,7 +1666,7 @@
             y: stableValueY,
             line: { color: STABLE_USD_GREEN, width: 0 },
             fill: 'tozeroy',
-            fillcolor: '#123f26',
+            fillcolor: _fillStable,
             hoverinfo: 'skip',
             showlegend: false,
           });
@@ -1611,7 +1674,7 @@
       }
 
       // Draw custom grid lines above fills so they remain visible across filled areas.
-      const gridLineColor = 'rgba(255,255,255,0.08)';
+      const gridLineColor = _thIsLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)';
       yTickvals.forEach((yv) => {
         traces.push({
           type: 'scatter',
@@ -1681,7 +1744,7 @@
           x,
           y: priceY,
           yaxis: 'y2',
-          line: { color: '#ffffff', width: 2 },
+          line: { color: _thFg, width: 2 },
           hovertemplate: 'BTC price: $%{y:,.0f}<extra></extra>',
           name: 'BTC Price',
           legendrank: 4,
@@ -1694,7 +1757,7 @@
       Plotly.react('dominanceChart', traces, {
         paper_bgcolor: PLOTLY_LIVE_BG,
         plot_bgcolor: PLOTLY_LIVE_BG,
-        hoverlabel: PLOTLY_HOVERLABEL,
+        hoverlabel: getPlotlyHoverlabel(),
         hoverdistance: 5,
         margin: { l: 60, r: hasPriceTrace ? 74 : 24, t: 0, b: dominanceXAxisBottomMargin },
         showlegend: true,
@@ -1707,13 +1770,13 @@
           traceorder: 'normal',
           itemclick: false,
           itemdoubleclick: false,
-          font: { family: 'IBM Plex Mono, monospace', size: 11, color: '#d6e1e6' },
+          font: { family: 'IBM Plex Mono, monospace', size: 11, color: _thFgDim },
         },
         hovermode: 'x unified',
         xaxis: {
           automargin: true,
           ticklabelstandoff: 10,
-          color: '#d6e1e6',
+          color: _thFgDim,
           showgrid: false,
           tickfont: { family: 'IBM Plex Mono, monospace', size: 11 },
           tickmode: xTickvals.length ? 'array' : 'auto',
@@ -1729,13 +1792,13 @@
           showspikes: true,
           spikemode: 'across',
           spikesnap: 'cursor',
-          spikecolor: '#ffffff',
+          spikecolor: _thFg,
           spikethickness: 1,
           spikedash: 'dash',
         },
         yaxis: {
           title: { text: 'Dominance share', font: { family: 'IBM Plex Mono, monospace', size: 12 } },
-          color: '#d6e1e6',
+          color: _thFgDim,
           showgrid: false,
           tickmode: 'array',
           tickvals: yTickvals,
@@ -1749,7 +1812,7 @@
           title: { text: 'BTC price', font: { family: 'IBM Plex Mono, monospace', size: 12 } },
           overlaying: 'y',
           side: 'right',
-          color: '#ffffff',
+          color: _thFgDim,
           showgrid: false,
           zeroline: false,
           tickfont: { family: 'IBM Plex Mono, monospace', size: 11 },
@@ -1771,6 +1834,10 @@
     }
 
     function renderSnapshotChart() {
+      const _thStyle = getComputedStyle(document.documentElement);
+      const _thFgDim = _thStyle.getPropertyValue('--fg-dim').trim() || '#d6e1e6';
+      const _thIsLight = document.documentElement.dataset.theme === 'light';
+      const _thGrid = _thIsLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)';
       const rows = getSnapshotRows();
       if (!rows.length) {
         throw new Error('No latest snapshot rows found in Bitcoin Dominance dataset.');
@@ -1911,7 +1978,7 @@
           color: topRows.map((row) => {
             if (String(row['Primary Key']) === 'BTCBitcoin') return '#ff9f1c';
             if (String(row['Is Stable']).toLowerCase() === 'true') return STABLE_USD_GREEN;
-            return 'rgba(255,255,255,0.34)';
+            return _thIsLight ? 'rgba(0,0,0,0.28)' : 'rgba(255,255,255,0.34)';
           }),
         },
         hovertemplate: '%{y}<br>Price: %{customdata[0]}<br>Supply: %{customdata[1]}<br>Market cap: %{customdata[2]}<extra></extra>',
@@ -1922,14 +1989,14 @@
         y: yLabels,
         text: barLabels,
         textposition: 'middle right',
-        textfont: { family: 'IBM Plex Mono, monospace', size: 11, color: '#d6e1e6' },
+        textfont: { family: 'IBM Plex Mono, monospace', size: 11, color: _thFgDim },
         hoverinfo: 'skip',
         showlegend: false,
         cliponaxis: false,
       }], {
         paper_bgcolor: PLOTLY_LIVE_BG,
         plot_bgcolor: PLOTLY_LIVE_BG,
-        hoverlabel: PLOTLY_HOVERLABEL,
+        hoverlabel: getPlotlyHoverlabel(),
         dragmode: false,
         margin: layoutMargin,
         showlegend: false,
@@ -1938,8 +2005,8 @@
           automargin: true,
           ticklabelstandoff: hideSnapshotXAxisTickLabels ? 0 : 8,
           showticklabels: !hideSnapshotXAxisTickLabels,
-          color: '#d6e1e6',
-          gridcolor: 'rgba(255,255,255,0.08)',
+          color: _thFgDim,
+          gridcolor: _thGrid,
           tickmode: 'array',
           tickvals,
           ticktext: tickvals.map((value) => fmtAxisMarketCap(value)),
@@ -1951,7 +2018,7 @@
         yaxis: {
           automargin: false,
           ticklabelstandoff: 10,
-          color: '#d6e1e6',
+          color: _thFgDim,
           fixedrange: true,
           tickfont: { family: 'IBM Plex Mono, monospace', size: 11 },
           showspikes: false,

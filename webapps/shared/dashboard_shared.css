@@ -483,3 +483,91 @@ h1 {
     transform: rotate(360deg);
   }
 }
+
+/* ===========================
+   LIGHT MODE — shared dashboard component overrides
+   Activated when html[data-theme="light"] is set by theme JS.
+   Each dashboard's local :root[data-theme="light"] block supplies
+   --bg, --panel, --panel-border, --fg, --muted, --fg-dim, --link.
+   =========================== */
+:root[data-theme="light"] body {
+  background: var(--bg, #f7f4ee);
+  color: var(--fg, #1c1b19);
+}
+
+:root[data-theme="light"] .topbar {
+  background: var(--panel, #ffffff);
+  border-color: var(--panel-border, rgba(0, 0, 0, 0.11));
+}
+
+:root[data-theme="light"] .chip {
+  border-color: var(--panel-border, rgba(0, 0, 0, 0.11));
+  color: var(--fg-dim, #514d47);
+  background: transparent;
+}
+
+:root[data-theme="light"] .toggle {
+  color: var(--fg, #1c1b19);
+}
+
+:root[data-theme="light"] .controls {
+  border-top-color: rgba(0, 0, 0, 0.08);
+}
+
+:root[data-theme="light"] .swap-panels-control {
+  color: var(--fg, #1c1b19);
+}
+
+:root[data-theme="light"] .swap-panels-btn {
+  border-color: rgba(0, 0, 0, 0.18);
+  color: var(--fg, #1c1b19);
+}
+
+:root[data-theme="light"] .panel-resize-handle {
+  border-color: rgba(0, 0, 0, 0.18);
+  background: rgba(255, 255, 255, 0.88);
+}
+
+:root[data-theme="light"] .panel-resize-handle::before {
+  background: linear-gradient(
+    135deg,
+    transparent 0 34%,
+    rgba(60, 55, 50, 0.6) 34% 43%,
+    transparent 43% 57%,
+    rgba(60, 55, 50, 0.6) 57% 66%,
+    transparent 66% 100%
+  );
+}
+
+:root[data-theme="light"] .panel-loader {
+  background: rgba(248, 245, 240, 0.9);
+}
+
+:root[data-theme="light"] .panel-loader .label {
+  color: var(--muted, #6f685f);
+}
+
+:root[data-theme="light"] .panel-loader .circle {
+  border-color: rgba(0, 0, 0, 0.1);
+  border-top-color: var(--dashboard-accent, #ff9f1c);
+}
+
+:root[data-theme="light"] .info-btn {
+  border-color: rgba(0, 0, 0, 0.26);
+  color: var(--muted, #6f685f);
+}
+
+:root[data-theme="light"] .info-popover {
+  background: var(--panel, #ffffff);
+  border-color: rgba(0, 0, 0, 0.12);
+  color: var(--fg, #1c1b19);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.1);
+}
+
+:root[data-theme="light"] .source-row {
+  color: var(--muted, #6f685f);
+}
+
+:root[data-theme="light"] .source-row a {
+  color: var(--link, #1f4f78);
+}

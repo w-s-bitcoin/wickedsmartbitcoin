@@ -21,28 +21,71 @@
   <link rel="preload" href="webapp_data/bip110_metadata.json" as="fetch" crossorigin />
   <style>
     :root {
-      --bg: #06080a;
-      --panel: #0c1216;
-      --panel-border: #1f2a30;
+      /* dark (default) */
+      --bg: #000;
+      --panel: #000;
+      --panel-border: rgba(255, 255, 255, 0.11);
       --fg: #f1f5f7;
       --muted: #95a6ae;
+      --fg-dim: #d6e1e6;
+      --link: #8dc7ff;
       --signal: #ff9800;
       --nonsignal: #8b8f93;
       --threshold: #00e676;
-      --future: #222831;
+      --future: #171717;
       --marker: #4169e1;
       --accent: #79d8ff;
       --shadow: 0 14px 40px rgba(0, 0, 0, 0.35);
       --modal-controls-clearance: 30px;
       --wrap-pad: clamp(8px, 1.4vw, 12px);
       --dashboard-accent: var(--signal);
+      /* component tokens */
+      --card-bg: #000000;
+      --card-border: rgba(255, 255, 255, 0.14);
+      --caret-chevron: #d6e1e6;
+      --resizer-track: rgba(255, 255, 255, 0.35);
+      --dropdown-bg: #05080a;
+      --dropdown-border: rgba(255, 255, 255, 0.16);
+      --dropdown-select-bg: rgba(0, 0, 0, 0.4);
+      --dropdown-select-border: rgba(255, 255, 255, 0.18);
+      --tooltip-bg: #000000;
+      --tooltip-border: #223038;
+      --tooltip-fg: #e9f1f5;
+      --fill-btn-border: rgba(255, 255, 255, 0.25);
+      --fill-btn-bg: rgba(0, 0, 0, 0.72);
+    }
+
+    :root[data-theme="light"] {
+      --bg: #f7f4ee;
+      --panel: #ffffff;
+      --panel-border: rgba(0, 0, 0, 0.11);
+      --fg: #1c1b19;
+      --muted: #6f685f;
+      --fg-dim: #514d47;
+      --link: #1f4f78;
+      --threshold: #1a8c50;
+      --future: #e8e0d4;
+      --card-bg: #ffffff;
+      --card-border: rgba(0, 0, 0, 0.11);
+      --caret-chevron: #7a756e;
+      --resizer-track: rgba(0, 0, 0, 0.18);
+      --dropdown-bg: #ffffff;
+      --dropdown-border: rgba(0, 0, 0, 0.12);
+      --dropdown-select-bg: rgba(248, 245, 240, 0.95);
+      --dropdown-select-border: rgba(0, 0, 0, 0.14);
+      --tooltip-bg: #ffffff;
+      --tooltip-border: rgba(0, 0, 0, 0.12);
+      --tooltip-fg: #1c1b19;
+      --fill-btn-border: rgba(0, 0, 0, 0.18);
+      --fill-btn-bg: rgba(248, 245, 240, 0.9);
+      --fill-btn-disabled-color: rgba(0, 0, 0, 0.28);
     }
 
     body {
       margin: 0;
       font-family: "Space Grotesk", "Helvetica Neue", sans-serif;
       color: var(--fg);
-      background: #000;
+      background: var(--bg);
       min-height: 100vh;
     }
 
@@ -90,9 +133,9 @@
       display: grid;
       gap: 8px;
       padding: 10px 12px;
-      border: 1px solid rgba(255, 255, 255, 0.14);
+      border: 1px solid var(--card-border);
       border-radius: 14px;
-      background: #000;
+      background: var(--card-bg);
       box-shadow: none;
       backdrop-filter: none;
     }
@@ -105,12 +148,12 @@
     }
 
     .chip {
-      border: 1px solid rgba(255, 255, 255, 0.14);
+      border: 1px solid var(--card-border);
       background: transparent;
       border-radius: 999px;
       padding: 5px 9px;
       font-size: 0.8rem;
-      color: #d6e1e6;
+      color: var(--fg-dim);
       font-family: "IBM Plex Mono", monospace;
       white-space: nowrap;
     }
@@ -148,9 +191,9 @@
       z-index: 60;
       min-width: min(320px, calc(100vw - 28px));
       max-width: min(360px, calc(100vw - 28px));
-      border: 1px solid rgba(255, 255, 255, 0.16);
+      border: 1px solid var(--dropdown-border);
       border-radius: 14px;
-      background: #05080a;
+      background: var(--dropdown-bg);
       padding: 12px;
       box-shadow: 0 18px 34px rgba(0, 0, 0, 0.42);
     }
@@ -162,7 +205,7 @@
     .chip-menu-label {
       display: block;
       margin: 0 0 8px;
-      color: #d8e4ea;
+      color: var(--fg-dim);
       font-size: 0.76rem;
       font-family: "IBM Plex Mono", monospace;
     }
@@ -170,9 +213,9 @@
     .chip-menu-select {
       width: auto;
       max-width: min(78vw, 560px);
-      border: 1px solid rgba(255, 255, 255, 0.18);
+      border: 1px solid var(--dropdown-select-border);
       border-radius: 999px;
-      background: rgba(0, 0, 0, 0.4);
+      background: var(--dropdown-select-bg);
       color: var(--fg);
       padding: 5px 28px 5px 9px;
       font: inherit;
@@ -205,8 +248,8 @@
       top: 50%;
       width: 6px;
       height: 6px;
-      border-right: 1.5px solid #d6e1e6;
-      border-bottom: 1.5px solid #d6e1e6;
+      border-right: 1.5px solid var(--caret-chevron);
+      border-bottom: 1.5px solid var(--caret-chevron);
       transform: translateY(-70%) rotate(45deg);
       opacity: 0.8;
       pointer-events: none;
@@ -262,9 +305,9 @@
 
     .card {
       position: relative;
-      border: 1px solid rgba(255, 255, 255, 0.14);
+      border: 1px solid var(--card-border);
       border-radius: 14px;
-      background: #000;
+      background: var(--card-bg);
       box-shadow: none;
       overflow: hidden;
       min-height: var(--panel-min-height, 320px);
@@ -286,10 +329,10 @@
       top: 8px;
       width: 20px;
       height: 20px;
-      border: 1px solid rgba(255, 255, 255, 0.25);
+      border: 1px solid var(--fill-btn-border);
       border-radius: 6px;
-      background: rgba(0, 0, 0, 0.72);
-      color: #d6e1e6;
+      background: var(--fill-btn-bg);
+      color: var(--fg-dim);
       cursor: pointer;
       z-index: 4;
       display: inline-flex;
@@ -306,8 +349,8 @@
     }
 
     .panel-fill-btn:disabled {
-      border-color: rgba(255, 255, 255, 0.14);
-      color: rgba(214, 225, 230, 0.5);
+      border-color: var(--card-border);
+      color: var(--fill-btn-disabled-color, rgba(214, 225, 230, 0.5));
       cursor: not-allowed;
     }
 
@@ -342,9 +385,9 @@
       pointer-events: none;
       width: max-content;
       max-width: calc(100vw - 24px);
-      background: #000;
-      border: 1px solid #223038;
-      color: #e9f1f5;
+      background: var(--tooltip-bg);
+      border: 1px solid var(--tooltip-border);
+      color: var(--tooltip-fg);
       border-radius: 10px;
       padding: 8px 10px;
       font-size: clamp(0.72rem, 0.64rem + 0.30vw, 0.9rem);
@@ -361,12 +404,18 @@
 
     .error {
       margin: 10px 12px;
-      border: 1px solid rgba(255, 86, 86, 0.4);
-      color: #ffc7c7;
-      background: rgba(255, 86, 86, 0.1);
+      border: 1px solid var(--error-border, rgba(255, 86, 86, 0.4));
+      color: var(--error-fg, #ffc7c7);
+      background: var(--error-bg, rgba(255, 86, 86, 0.1));
       padding: 10px;
       border-radius: 10px;
       font-size: 0.88rem;
+    }
+
+    :root[data-theme="light"] .error {
+      --error-fg: #7b1b1b;
+      --error-bg: rgba(200, 50, 50, 0.08);
+      --error-border: rgba(200, 50, 50, 0.3);
     }
 
     @media (max-width: 860px) {
@@ -480,6 +529,30 @@
 
   <script src="../../js/25_dashboard_timezone_preferences.js"></script>
   <script>
+    /* ── theme sync ─────────────────────────────────────────────────── */
+    (function () {
+      const THEME_KEY = 'quantum-research-dashboard-theme';
+      function applyTheme(t) {
+        document.documentElement.dataset.theme = (t === 'light' ? 'light' : 'dark');
+        document.dispatchEvent(new CustomEvent('dashboard-theme-change'));
+      }
+      try {
+        const stored = localStorage.getItem(THEME_KEY);
+        applyTheme(stored === 'light' || stored === 'dark'
+          ? stored
+          : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+      } catch (_) { applyTheme('dark'); }
+      window.addEventListener('message', function (e) {
+        if (e.data && e.data.type === 'quantum-dashboard-theme') applyTheme(e.data.theme);
+      });
+      window.addEventListener('storage', function (e) {
+        if (e.key === THEME_KEY && (e.newValue === 'light' || e.newValue === 'dark')) applyTheme(e.newValue);
+      });
+    }());
+    document.addEventListener('dashboard-theme-change', function () {
+      if (typeof renderAll === 'function') renderAll();
+    });
+    /* ────────────────────────────────────────────────────────────────── */
     const AUTO_REFRESH_MS = 60000;
     const FORCE_REFRESH_MS = 3600000;
     const CONTROLS_STORAGE_KEY = "bip110_signaling_controls_v3";
@@ -1393,6 +1466,23 @@
       return String(label || "").split("\n");
     }
 
+    function getCanvasColors(chartColors) {
+      const style = getComputedStyle(document.documentElement);
+      const isLight = document.documentElement.dataset.theme === 'light';
+      return Object.assign({}, chartColors, {
+        foreground: style.getPropertyValue('--fg').trim() || chartColors.foreground,
+        background: style.getPropertyValue('--panel').trim() || chartColors.background,
+        nonsignal: isLight ? '#c8c8c8' : chartColors.nonsignal,
+        future: style.getPropertyValue('--future').trim() || chartColors.future,
+        threshold: style.getPropertyValue('--threshold').trim() || chartColors.threshold,
+        muted: style.getPropertyValue('--muted').trim() || '#888',
+        gridLine: isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.14)',
+        axisLine: isLight ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.35)',
+        tickMark: isLight ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.55)',
+        stripe: isLight ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.03)',
+      });
+    }
+
     function drawDiamond(ctx, x, y, size, color) {
       ctx.save();
       ctx.translate(x, y);
@@ -1507,7 +1597,7 @@
       const chart = metadata.chart;
       const periodSize = chart.period_size;
       const xMax = chart.x_max;
-      const colors = chart.colors;
+      const colors = getCanvasColors(chart.colors);
       const yTicks = [0, 250, 500, 750, 1000, 1250, 1500, 1750, 2000];
 
       const { ctx, width, height } = configureCanvas(canvas);
@@ -1562,13 +1652,13 @@
 
       ctx.clearRect(0, 0, width, height);
 
-      ctx.fillStyle = "#000";
+      ctx.fillStyle = colors.background;
       ctx.fillRect(0, 0, width, height);
 
       for (let p = 1; p <= xMax; p += 1) {
         const xCenter = xScale(p);
         const x0 = xCenter - barWidth / 2;
-        ctx.fillStyle = "rgba(255, 255, 255, 0.03)";
+        ctx.fillStyle = colors.stripe;
         ctx.fillRect(x0, plot.y, barWidth, plot.h);
       }
 
@@ -1829,7 +1919,7 @@
             labelY,
             "center",
             baseline,
-            chart.colors.foreground,
+            colors.foreground,
             `${markerFontSize}px "Space Grotesk", sans-serif`,
             markerLineHeight
           );
@@ -1849,7 +1939,7 @@
         const labelFontPx = Math.round((8.8 + (12 - 8.8) * clamp((width - 420) / 560, 0, 1)) * 10) / 10;
         const labelLineHeight = Math.max(10, Math.round(labelFontPx * 1.12));
         ctx.save();
-        ctx.fillStyle = "#888";
+        ctx.fillStyle = colors.muted;
         ctx.font = `${labelFontPx}px "Space Grotesk", sans-serif`;
 
         let labelLines = [labelText];
@@ -2399,10 +2489,11 @@
     }
 
     function drawAxes(ctx, { plot, panelWidth, xScale, yScale, xMax, xAxisLabelMax = xMax, periodSize, title, ticks, showBottomAxis, chart, isMobile }) {
-      const fg = chart.colors.foreground;
+      const colors = getCanvasColors(chart.colors);
+      const fg = colors.foreground;
       const yTicks = [0, 250, 500, 750, 1000, 1250, 1500, 1750, 2000];
 
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.14)";
+      ctx.strokeStyle = colors.gridLine;
       ctx.lineWidth = 1;
       yTicks.forEach((t) => {
         const y = yScale(t);
@@ -2412,7 +2503,7 @@
         ctx.stroke();
       });
 
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
+      ctx.strokeStyle = colors.axisLine;
       ctx.beginPath();
       ctx.moveTo(plot.x, plot.y);
       ctx.lineTo(plot.x, plot.y + plot.h);
@@ -2467,7 +2558,7 @@
       ctx.textAlign = "center";
       ctx.textBaseline = "bottom";
       ctx.font = `${isMobile ? 10 : 11}px "IBM Plex Mono", monospace`;
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.55)";
+      ctx.strokeStyle = colors.tickMark;
       ctx.lineWidth = 1;
       ticks.forEach((tick) => {
         const x = xScale(Number(tick.x));

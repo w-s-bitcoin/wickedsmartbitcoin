@@ -1,0 +1,4352 @@
+const SATS_PER_BTC = 100_000_000;
+const BLOCKS_PER_DAY = 144;
+const SCRIPT_TYPES_ORDER = ["P2PK", "P2PKH", "P2SH", "P2WPKH", "P2WSH", "P2TR", "Other"];
+const SPEND_TYPES_ORDER = ["never_spent", "inactive", "active"];
+
+const state = {
+  aggregatesRows: [],
+  ge1Rows: [],
+  scriptPanelMode: "bars",
+  supplyDisplayMode: "total",
+  historicalSeries: [],
+  historicalSeriesLoading: false,
+  historicalSeriesGe1Loading: false,
+  historicalSeriesGe1AbortController: null,
+  historicalSeriesGe1ActiveFilterKey: null,
+  historicalSeriesGe1LoadProgress: null,
+  historicalSeriesGe1LastCompletedFilterKey: null,
+  historicalSeriesGe1FallbackFilterKey: null,
+  historicalProgressiveYMaxSats: null,
+  blockDatetimeByHeight: {},
+  snapshotLabelDatetimeByHeight: {},
+  snapshotHeight: null,
+  availableSnapshots: [],
+  selectedDetailTags: ["All"],
+  selectedIdentityGroups: ["All"],
+  selectedIdentityTags: ["All"],
+  topExposureAddressQuery: "",
+  identityGroupsByName: {},
+  identityToGroupNames: {},
+  identityGroupsLoaded: false,
+  identityGroupsLoadingPromise: null,
+  identityTagFilterQuery: "",
+  snapshotDataCache: new Map(),
+  topExposuresDataCache: new Map(),
+  topExposuresVisibleCount: 250,
+  topExposuresTotalCount: 0,
+  topExposuresLoading: false,
+  topExposuresFiltersCollapsed: false,
+  scriptPanelDetailsCollapsed: false,
+  balanceAutoForcedFromAllByTopFilters: false,
+  pendingPersistedSnapshotPreference: null,
+  pendingPersistedSnapshotHeight: null,
+  preResetStateSnapshot: null,
+  pendingIdentityTagExclusions: null,
+};
+
+const TOP_EXPOSURES_PAGE_SIZE = 250;
+const TOP_EXPOSURES_BOTTOM_THRESHOLD_PX = 4;
+const TOP_EXPOSURES_LOAD_DELAY_MS = 250;
+const SHARE_EXCLUDE_TOKEN = "__share_exclude__";
+const ANALYSIS_MIN_HEIGHT_PX = 440;
+const UNLABELED_DETAIL_FILTER_VALUE = "__unlabeled_detail__";
+const UNLABELED_DETAIL_FILTER_LABEL = "Unlabeled (non-multisig)";
+const UNIDENTIFIED_IDENTITY_FILTER_VALUE = "__unidentified__";
+const UNIDENTIFIED_IDENTITY_FILTER_LABEL = "Unidentified";
+const UNIDENTIFIED_IDENTITY_GROUP_FILTER_VALUE = "__unidentified_group__";
+const UNIDENTIFIED_IDENTITY_GROUP_FILTER_LABEL = "Unidentified";
+const THEME_STORAGE_KEY = "quantum-research-dashboard-theme";
+const FILTERS_STORAGE_KEY = "quantum-research-dashboard-filters-v1";
+const HISTORICAL_GE1_CACHE_STORAGE_KEY = "quantum-research-historical-ge1-v1";
+const SNAPSHOT_PREF_LATEST = "latest";
+const SNAPSHOT_PREF_SPECIFIC = "specific";
+const ALLOWED_BALANCE_FILTERS = new Set(["all", "ge1", "ge10", "ge100", "ge1000"]);
+const ALLOWED_SPEND_FILTERS = new Set(["all", "never_spent", "inactive", "active"]);
+const ALLOWED_SCRIPT_FILTERS = new Set(["All", ...SCRIPT_TYPES_ORDER]);
+const ALLOWED_SUPPLY_DISPLAY_MODES = new Set(["total", "exposed", "filtered"]);
+const SHARE_NONE_TOKEN = "__none__";
+
+function normalizeSupplyDisplayMode(mode) {
+  return ALLOWED_SUPPLY_DISPLAY_MODES.has(mode) ? mode : "total";
+}
+
+function getSupplyDisplayFlags() {
+  const mode = normalizeSupplyDisplayMode(state.supplyDisplayMode);
+  return {
+    mode,
+    showNonExposed: mode === "total",
+    showFilteredOnly: mode === "filtered",
+  };
+}
+
+function resolveInitialTheme() {
+  try {
+    const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+    if (storedTheme === "light" || storedTheme === "dark") {
+      return storedTheme;
+    }
+  } catch (err) {
+    console.warn("Could not read stored theme preference", err);
+  }
+
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function applyTheme(theme) {
+  const nextTheme = theme === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = nextTheme;
+
+  const toggle = document.getElementById("themeToggle");
+  if (toggle) {
+    const isDark = nextTheme === "dark";
+    toggle.setAttribute("aria-pressed", isDark ? "true" : "false");
+    toggle.setAttribute("title", isDark ? "Switch to light mode" : "Switch to dark mode");
+
+    const modeSymbol = document.getElementById("themeToggleMode");
+    if (modeSymbol) {
+      modeSymbol.textContent = isDark ? "☾" : "☼";
+    }
+  }
+}
+
+function persistTheme(theme) {
+  try {
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  } catch (err) {
+    console.warn("Could not persist theme preference", err);
+  }
+}
+
+function toggleTheme() {
+  const nextTheme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  applyTheme(nextTheme);
+  persistTheme(nextTheme);
+}
+
+// Lazy-loaded in-memory mirror of the localStorage ge1 sums cache.
+// Structure: { [snapshot]: { [filterKey]: { never_spent, inactive, active } } }
+let _ge1PersistentCache = null;
+
+function loadGe1PersistentCache() {
+  if (_ge1PersistentCache !== null) return _ge1PersistentCache;
+  try {
+    const raw = window.localStorage.getItem(HISTORICAL_GE1_CACHE_STORAGE_KEY);
+    _ge1PersistentCache = raw ? JSON.parse(raw) : {};
+  } catch (err) {
+    _ge1PersistentCache = {};
+  }
+  return _ge1PersistentCache;
+}
+
+function saveGe1PersistentSum(snapshot, filterKey, sums) {
+  const cache = loadGe1PersistentCache();
+  if (!cache[snapshot]) cache[snapshot] = {};
+  cache[snapshot][filterKey] = sums;
+  try {
+    window.localStorage.setItem(HISTORICAL_GE1_CACHE_STORAGE_KEY, JSON.stringify(cache));
+  } catch (err) {
+    // localStorage may be full or unavailable — non-critical, in-memory cache still works
+  }
+}
+
+function readPersistedFilters() {
+  try {
+    const raw = window.localStorage.getItem(FILTERS_STORAGE_KEY);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch (err) {
+    console.warn("Could not read stored filter preferences", err);
+    return null;
+  }
+}
+
+function normalizePersistedSelections(values, allowedSet) {
+  if (!Array.isArray(values)) return null;
+  return values.filter((value) => allowedSet.has(value));
+}
+
+function applyCheckedValues(checkboxes, selectedValues, allValue) {
+  if (!Array.isArray(selectedValues)) return;
+
+  const selectedSet = new Set(selectedValues);
+  const hasAll = selectedSet.has(allValue);
+  checkboxes.forEach((el) => {
+    el.checked = hasAll ? true : selectedSet.has(el.value);
+  });
+}
+
+function setPendingIdentityTagExclusionsFromSelection(values) {
+  if (!Array.isArray(values) || !values.includes(SHARE_EXCLUDE_TOKEN)) {
+    state.pendingIdentityTagExclusions = null;
+    return;
+  }
+
+  const exclusions = Array.from(new Set(values.filter((value) => value && value !== SHARE_EXCLUDE_TOKEN)));
+  state.pendingIdentityTagExclusions = exclusions.length ? exclusions : null;
+}
+
+function applyPendingIdentityTagExclusions(identityOptions) {
+  const pending = Array.isArray(state.pendingIdentityTagExclusions) ? state.pendingIdentityTagExclusions : [];
+  const options = Array.isArray(identityOptions) ? identityOptions : [];
+  if (!pending.length || !options.length) {
+    return;
+  }
+
+  const optionSet = new Set(options);
+  const availableExclusions = pending.filter((value) => optionSet.has(value));
+  const unresolvedExclusions = pending.filter((value) => !optionSet.has(value));
+
+  if (availableExclusions.length) {
+    const excludedSet = new Set(availableExclusions);
+    // When identity tags are still exclusion-encoded (not yet resolved by normalizeTagSelections),
+    // or when "All" is set, use the full options list as the base — the intent of the pending
+    // exclusion is always "everything available minus the excluded items".
+    const isStillExcludeEncoded = state.selectedIdentityTags.includes(SHARE_EXCLUDE_TOKEN);
+    const selected = (state.selectedIdentityTags.includes("All") || isStillExcludeEncoded)
+      ? options.slice()
+      : state.selectedIdentityTags.filter((value) => value && value !== "All" && value !== SHARE_EXCLUDE_TOKEN);
+    const nextSelected = selected.filter((value) => !excludedSet.has(value));
+
+    if (!nextSelected.length) {
+      state.selectedIdentityTags = [];
+    } else if (nextSelected.length === options.length) {
+      state.selectedIdentityTags = ["All"];
+    } else {
+      state.selectedIdentityTags = nextSelected;
+    }
+  }
+
+  state.pendingIdentityTagExclusions = unresolvedExclusions.length ? unresolvedExclusions : null;
+}
+
+function applyPersistedFilterState(prefs) {
+  if (!prefs || typeof prefs !== "object") return;
+
+  const balanceFilter = document.getElementById("balanceFilter");
+  if (balanceFilter && ALLOWED_BALANCE_FILTERS.has(prefs.balance)) {
+    balanceFilter.value = prefs.balance;
+  }
+
+  const scriptTypes = normalizePersistedSelections(prefs.scriptTypes, ALLOWED_SCRIPT_FILTERS);
+  if (scriptTypes) {
+    applyCheckedValues(getScriptCheckboxes(), scriptTypes, "All");
+  }
+
+  const spendActivities = normalizePersistedSelections(prefs.spendActivities, ALLOWED_SPEND_FILTERS);
+  if (spendActivities) {
+    applyCheckedValues(getSpendCheckboxes(), spendActivities, "all");
+  }
+
+  if (Array.isArray(prefs.detailTags)) {
+    state.selectedDetailTags = prefs.detailTags;
+  }
+  if (Array.isArray(prefs.identityGroups)) {
+    state.selectedIdentityGroups = prefs.identityGroups;
+  }
+  if (Array.isArray(prefs.identityTags)) {
+    state.selectedIdentityTags = prefs.identityTags;
+    setPendingIdentityTagExclusionsFromSelection(prefs.identityTags);
+  }
+  if (typeof prefs.topExposureAddressQuery === "string") {
+    state.topExposureAddressQuery = prefs.topExposureAddressQuery;
+    const topExposureAddressSearch = document.getElementById("topExposureAddressSearch");
+    if (topExposureAddressSearch) {
+      topExposureAddressSearch.value = state.topExposureAddressQuery;
+    }
+  }
+
+  if (prefs.scriptPanelMode === "historical" || prefs.scriptPanelMode === "bars") {
+    state.scriptPanelMode = prefs.scriptPanelMode;
+  }
+
+  if (typeof prefs.supplyDisplayMode === "string") {
+    state.supplyDisplayMode = normalizeSupplyDisplayMode(prefs.supplyDisplayMode);
+  } else if (typeof prefs.showFilteredOnly === "boolean" || typeof prefs.showHistoricalNonExposed === "boolean") {
+    // Backward compatibility for previously persisted checkbox settings.
+    if (prefs.showFilteredOnly === true) {
+      state.supplyDisplayMode = "filtered";
+    } else if (prefs.showHistoricalNonExposed === false) {
+      state.supplyDisplayMode = "exposed";
+    } else {
+      state.supplyDisplayMode = "total";
+    }
+  }
+
+  if (typeof prefs.topExposuresFiltersCollapsed === "boolean") {
+    state.topExposuresFiltersCollapsed = prefs.topExposuresFiltersCollapsed;
+  }
+
+  if (typeof prefs.scriptPanelDetailsCollapsed === "boolean") {
+    state.scriptPanelDetailsCollapsed = prefs.scriptPanelDetailsCollapsed;
+  }
+
+  const snapshotPreference =
+    prefs.snapshotPreference === SNAPSHOT_PREF_LATEST || prefs.snapshotPreference === SNAPSHOT_PREF_SPECIFIC
+      ? prefs.snapshotPreference
+      : null;
+  const snapshot = String(prefs.snapshotHeight || "").trim();
+  state.pendingPersistedSnapshotPreference = snapshotPreference;
+  state.pendingPersistedSnapshotHeight = /^\d+$/.test(snapshot) ? snapshot : null;
+}
+
+function persistFilters(filters) {
+  try {
+    const snapshotFilter = document.getElementById("snapshotFilter");
+    const snapshotHeight = String(state.snapshotHeight || snapshotFilter?.value || "").trim();
+    const latestSnapshot = state.availableSnapshots.length
+      ? String(state.availableSnapshots[0])
+      : String(snapshotFilter?.options?.[0]?.value || "").trim();
+    const snapshotPreference =
+      snapshotHeight && latestSnapshot && snapshotHeight === latestSnapshot
+        ? SNAPSHOT_PREF_LATEST
+        : SNAPSHOT_PREF_SPECIFIC;
+
+    const payload = {
+      balance: filters.balance,
+      spendActivities: filters.spendActivities,
+      scriptTypes: filters.scriptTypes,
+      detailTags: filters.detailTags,
+      identityGroups: filters.identityGroups,
+      identityTags: filters.identityTags,
+      topExposureAddressQuery: filters.topExposureAddressQuery,
+      scriptPanelMode: state.scriptPanelMode,
+      supplyDisplayMode: normalizeSupplyDisplayMode(state.supplyDisplayMode),
+      topExposuresFiltersCollapsed: state.topExposuresFiltersCollapsed,
+      scriptPanelDetailsCollapsed: state.scriptPanelDetailsCollapsed,
+      snapshotPreference,
+      snapshotHeight,
+    };
+
+    window.localStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(payload));
+  } catch (err) {
+    console.warn("Could not persist filter preferences", err);
+  }
+}
+
+function normalizeSelectionForShare(values, allValue) {
+  if (!Array.isArray(values)) return [];
+  if (values.includes(allValue)) return [allValue];
+  return values;
+}
+
+function appendArrayParam(params, key, values, noneToken = SHARE_NONE_TOKEN) {
+  if (!Array.isArray(values)) return;
+  if (values.length === 0) {
+    params.append(key, noneToken);
+    return;
+  }
+  values.forEach((value) => {
+    params.append(key, value);
+  });
+}
+
+function encodeShareState(payload) {
+  try {
+    const json = JSON.stringify(payload);
+    const bytes = new TextEncoder().encode(json);
+    let binary = "";
+    bytes.forEach((byte) => {
+      binary += String.fromCharCode(byte);
+    });
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  } catch (err) {
+    console.warn("Could not encode share state", err);
+    return "";
+  }
+}
+
+function decodeShareState(rawValue) {
+  if (!rawValue) return null;
+
+  try {
+    const normalized = rawValue.replace(/-/g, "+").replace(/_/g, "/");
+    const paddingLength = (4 - (normalized.length % 4)) % 4;
+    const padded = normalized + "=".repeat(paddingLength);
+    const binary = atob(padded);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    const json = new TextDecoder().decode(bytes);
+    const parsed = JSON.parse(json);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch (err) {
+    console.warn("Could not decode share state", err);
+    return null;
+  }
+}
+
+function normalizeTagSelectionForShare(values, allOptions) {
+  if (!Array.isArray(values)) return [];
+  if (values.includes("All")) return ["All"];
+  if (values.length === 0) return [];
+
+  const deduped = Array.from(new Set(values));
+  const options = Array.isArray(allOptions) ? allOptions : [];
+  // When options are not available yet, keep the explicit selection rather than
+  // collapsing to an empty selection in the share payload.
+  if (!options.length) {
+    return deduped;
+  }
+
+  const optionSet = new Set(options);
+  const normalized = deduped.filter((value) => optionSet.has(value));
+  if (!normalized.length) return [];
+  if (normalized.length === options.length) {
+    return ["All"];
+  }
+
+  const normalizedSet = new Set(normalized);
+  const excluded = options.filter((value) => !normalizedSet.has(value));
+  // Prefer exclusion encoding when it's smaller than inclusion encoding.
+  if (excluded.length > 0 && excluded.length < normalized.length) {
+    return [SHARE_EXCLUDE_TOKEN, ...excluded];
+  }
+
+  return normalized;
+}
+
+function normalizeExplicitTagSelectionForShare(values, allOptions) {
+  if (!Array.isArray(values)) return [];
+  if (values.includes("All")) return ["All"];
+  if (values.length === 0) return [];
+
+  const deduped = Array.from(new Set(values));
+  const options = Array.isArray(allOptions) ? allOptions : [];
+  if (!options.length) {
+    return deduped;
+  }
+
+  const optionSet = new Set(options);
+  const normalized = deduped.filter((value) => optionSet.has(value));
+  if (!normalized.length) return [];
+  if (normalized.length === options.length) {
+    return ["All"];
+  }
+
+  // Prefer exclusion encoding when fewer items are excluded than included.
+  // The decode path (setPendingIdentityTagExclusionsFromSelection) already
+  // handles SHARE_EXCLUDE_TOKEN for identity tags specifically.
+  const normalizedSet = new Set(normalized);
+  const excluded = options.filter((value) => !normalizedSet.has(value));
+  if (excluded.length > 0 && excluded.length < normalized.length) {
+    return [SHARE_EXCLUDE_TOKEN, ...excluded];
+  }
+
+  return normalized;
+}
+
+function parseArrayParam(params, key, allowedSet = null, allValue = null, noneToken = SHARE_NONE_TOKEN) {
+  const rawValues = params.getAll(key);
+  if (!rawValues.length) return null;
+  if (rawValues.includes(noneToken)) return [];
+
+  let values = rawValues;
+  if (allowedSet) {
+    values = values.filter((value) => allowedSet.has(value));
+  }
+  if (!values.length) return [];
+  if (allValue && values.includes(allValue)) return [allValue];
+  return Array.from(new Set(values));
+}
+
+function getShareRouteBaseUrl() {
+  const path = String(window.location.pathname || "");
+  const dashboardMatch = path.match(/^(.*)\/webapps\/quantum_exposure\/dashboard\.html$/i);
+  const basePath = dashboardMatch
+    ? (dashboardMatch[1] || "")
+    : path.replace(/\/[^/]*$/, "");
+
+  if (window.location.hostname === "localhost") {
+    return `${window.location.origin}${basePath}/view.html`;
+  }
+  return `${window.location.origin}${basePath}/quantum_exposure`;
+}
+
+function buildShareableDashboardUrl() {
+  const filters = readFilters();
+  const allTagOptions = buildTagOptionsFromGe1Rows(["All"]);
+  const optionOrderingFilters = {
+    balance: filters.balance,
+    scriptTypes: filters.scriptTypes,
+    spendActivities: filters.spendActivities,
+    detailTags: filters.detailTags,
+    identityGroups: filters.identityGroups,
+    identityTags: ["All"],
+    topExposureAddressQuery: String(filters.topExposureAddressQuery || "").trim(),
+  };
+  const scopedTagOptions = buildTagOptionsFromGe1Rows(filters.identityGroups, optionOrderingFilters);
+  const panelMode = state.scriptPanelMode === "historical" ? "historical" : "bars";
+  const snapshotFilter = document.getElementById("snapshotFilter");
+  const snapshotHeight = String(state.snapshotHeight || snapshotFilter?.value || "").trim();
+  const latestSnapshot = state.availableSnapshots.length
+    ? String(state.availableSnapshots[0])
+    : String(snapshotFilter?.options?.[0]?.value || "").trim();
+  const snapshotPreference =
+    snapshotHeight && latestSnapshot && snapshotHeight === latestSnapshot
+      ? SNAPSHOT_PREF_LATEST
+      : SNAPSHOT_PREF_SPECIFIC;
+  const defaults = {
+    b: "all",
+    s: ["All"],
+    p: ["all"],
+    d: ["All"],
+    g: ["All"],
+    i: ["All"],
+    v: "bars",
+    m: "total",
+    c: 0,
+    e: 0,
+    t: "l",
+  };
+
+  const normalized = {
+    b: filters.balance,
+    s: normalizeSelectionForShare(filters.scriptTypes, "All"),
+    p: normalizeSelectionForShare(filters.spendActivities, "all"),
+    d: normalizeTagSelectionForShare(filters.detailTags, allTagOptions.details),
+    g: normalizeTagSelectionForShare(filters.identityGroups, allTagOptions.identityGroups),
+    i: normalizeExplicitTagSelectionForShare(filters.identityTags, scopedTagOptions.identities),
+    v: panelMode,
+    m: normalizeSupplyDisplayMode(state.supplyDisplayMode),
+    c: state.topExposuresFiltersCollapsed ? 1 : 0,
+    e: state.scriptPanelDetailsCollapsed ? 1 : 0,
+    t: snapshotPreference === SNAPSHOT_PREF_LATEST ? "l" : "s",
+  };
+
+  const payload = {};
+  const addIfDifferent = (key, value, defaultValue) => {
+    const sameValue = Array.isArray(defaultValue)
+      ? Array.isArray(value) && value.length === defaultValue.length && value.every((entry, idx) => entry === defaultValue[idx])
+      : value === defaultValue;
+    if (!sameValue) {
+      payload[key] = value;
+    }
+  };
+
+  addIfDifferent("b", normalized.b, defaults.b);
+  addIfDifferent("s", normalized.s, defaults.s);
+  addIfDifferent("p", normalized.p, defaults.p);
+  addIfDifferent("d", normalized.d, defaults.d);
+  addIfDifferent("g", normalized.g, defaults.g);
+  addIfDifferent("i", normalized.i, defaults.i);
+  addIfDifferent("v", normalized.v, defaults.v);
+  addIfDifferent("m", normalized.m, defaults.m);
+  addIfDifferent("c", normalized.c, defaults.c);
+  addIfDifferent("e", normalized.e, defaults.e);
+  addIfDifferent("t", normalized.t, defaults.t);
+
+  if (filters.topExposureAddressQuery) {
+    payload.q = filters.topExposureAddressQuery;
+  }
+  if (snapshotPreference === SNAPSHOT_PREF_SPECIFIC && snapshotHeight) {
+    payload.h = snapshotHeight;
+  }
+
+  const shareUrl = new URL(getShareRouteBaseUrl());
+  const isLocalhost = window.location.hostname === "localhost";
+  if (isLocalhost) {
+    shareUrl.hash = "quantum_exposure";
+  }
+  const shareParams = new URLSearchParams();
+
+  const finalizeShareUrl = () => {
+    if (isLocalhost) {
+      const localParams = shareParams.toString();
+      shareUrl.hash = localParams ? `quantum_exposure?${localParams}` : "quantum_exposure";
+      return shareUrl.toString();
+    }
+    shareParams.forEach((value, key) => {
+      shareUrl.searchParams.set(key, value);
+    });
+    return shareUrl.toString();
+  };
+
+  if (Object.keys(payload).length === 0) {
+    return finalizeShareUrl();
+  }
+
+  const payloadKeys = Object.keys(payload);
+  if (payloadKeys.length === 1 && payload.v === "historical") {
+    shareParams.set("view", "historical");
+    return finalizeShareUrl();
+  }
+
+  const encodedState = encodeShareState(payload);
+  if (encodedState) {
+    shareParams.set("state", encodedState);
+  } else {
+    shareParams.set("view", panelMode);
+  }
+  return finalizeShareUrl();
+}
+
+function readFiltersFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  if (!params.toString()) return null;
+
+  if (params.has("state")) {
+    const decoded = decodeShareState(params.get("state"));
+    if (!decoded) return null;
+
+    const prefs = {};
+
+    if (ALLOWED_BALANCE_FILTERS.has(decoded.b)) {
+      prefs.balance = decoded.b;
+    }
+    if (Array.isArray(decoded.s)) {
+      prefs.scriptTypes = decoded.s;
+    }
+    if (Array.isArray(decoded.p)) {
+      prefs.spendActivities = decoded.p;
+    }
+    if (Array.isArray(decoded.d)) {
+      prefs.detailTags = decoded.d;
+    }
+    if (Array.isArray(decoded.g)) {
+      prefs.identityGroups = decoded.g;
+    }
+    if (Array.isArray(decoded.i)) {
+      prefs.identityTags = decoded.i;
+    }
+    if (typeof decoded.q === "string") {
+      prefs.topExposureAddressQuery = decoded.q;
+    }
+    if (decoded.v === "bars" || decoded.v === "historical") {
+      prefs.scriptPanelMode = decoded.v;
+    }
+    if (typeof decoded.m === "string" && ALLOWED_SUPPLY_DISPLAY_MODES.has(decoded.m)) {
+      prefs.supplyDisplayMode = decoded.m;
+    }
+    if (decoded.c === 0 || decoded.c === 1) {
+      prefs.topExposuresFiltersCollapsed = decoded.c === 1;
+    }
+    if (decoded.e === 0 || decoded.e === 1) {
+      prefs.scriptPanelDetailsCollapsed = decoded.e === 1;
+    }
+
+    if (decoded.t === "l") {
+      prefs.snapshotPreference = SNAPSHOT_PREF_LATEST;
+    }
+
+    const snapshot = String(decoded.h || "").trim();
+    if (decoded.t === "s" && /^\d+$/.test(snapshot)) {
+      prefs.snapshotPreference = SNAPSHOT_PREF_SPECIFIC;
+      prefs.snapshotHeight = snapshot;
+    } else if (!decoded.t && /^\d+$/.test(snapshot)) {
+      // Backward compatibility for older compact links that only stored a height.
+      prefs.snapshotPreference = SNAPSHOT_PREF_SPECIFIC;
+      prefs.snapshotHeight = snapshot;
+    }
+
+    return prefs;
+  }
+
+  const hasKnownKey = [
+    "balance",
+    "scriptTypes",
+    "spendActivities",
+    "detailTags",
+    "identityGroups",
+    "identityTags",
+    "addr",
+    "panel",
+    "view",
+    "show",
+    "topCollapsed",
+    "detailsCollapsed",
+    "snapshot",
+  ].some((key) => params.has(key));
+
+  if (!hasKnownKey) return null;
+
+  const prefs = {};
+
+  const balance = params.get("balance");
+  if (ALLOWED_BALANCE_FILTERS.has(balance)) {
+    prefs.balance = balance;
+  }
+
+  const scriptTypes = parseArrayParam(params, "scriptTypes", ALLOWED_SCRIPT_FILTERS, "All");
+  if (scriptTypes !== null) {
+    prefs.scriptTypes = scriptTypes;
+  }
+
+  const spendActivities = parseArrayParam(params, "spendActivities", ALLOWED_SPEND_FILTERS, "all");
+  if (spendActivities !== null) {
+    prefs.spendActivities = spendActivities;
+  }
+
+  const detailTags = parseArrayParam(params, "detailTags");
+  if (detailTags !== null) {
+    prefs.detailTags = detailTags;
+  }
+
+  const identityGroups = parseArrayParam(params, "identityGroups");
+  if (identityGroups !== null) {
+    prefs.identityGroups = identityGroups;
+  }
+
+  const identityTags = parseArrayParam(params, "identityTags");
+  if (identityTags !== null) {
+    prefs.identityTags = identityTags;
+  }
+
+  if (params.has("addr")) {
+    prefs.topExposureAddressQuery = params.get("addr") || "";
+  }
+
+  const panel = params.get("view") || params.get("panel");
+  if (panel === "bars" || panel === "historical") {
+    prefs.scriptPanelMode = panel;
+  }
+
+  const show = params.get("show");
+  if (show && ALLOWED_SUPPLY_DISPLAY_MODES.has(show)) {
+    prefs.supplyDisplayMode = show;
+  }
+
+  if (params.has("topCollapsed")) {
+    prefs.topExposuresFiltersCollapsed = params.get("topCollapsed") === "1";
+  }
+
+  if (params.has("detailsCollapsed")) {
+    prefs.scriptPanelDetailsCollapsed = params.get("detailsCollapsed") === "1";
+  }
+
+  const snapshot = String(params.get("snapshot") || "").trim();
+  if (/^\d+$/.test(snapshot)) {
+    prefs.snapshotPreference = SNAPSHOT_PREF_SPECIFIC;
+    prefs.snapshotHeight = snapshot;
+  }
+
+  return prefs;
+}
+
+async function copyDashboardLinkToClipboard(buttonEl) {
+  const link = buildShareableDashboardUrl();
+
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(link);
+  } else {
+    const textArea = document.createElement("textarea");
+    textArea.value = link;
+    textArea.setAttribute("readonly", "readonly");
+    textArea.style.position = "absolute";
+    textArea.style.left = "-9999px";
+    document.body.appendChild(textArea);
+    textArea.select();
+    document.execCommand("copy");
+    document.body.removeChild(textArea);
+  }
+
+  if (!buttonEl) return;
+  const originalLabel = buttonEl.textContent || "Copy Link";
+  buttonEl.textContent = "Copied!";
+  window.setTimeout(() => {
+    buttonEl.textContent = originalLabel;
+  }, 1400);
+}
+
+function parseCsvLine(line) {
+  const values = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"' && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else if (ch === '"') {
+        inQuotes = false;
+      } else {
+        current += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ',') {
+      values.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  values.push(current);
+  return values;
+}
+
+function parseCsv(text) {
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length < 2) return [];
+
+  const headers = parseCsvLine(lines[0]).map((h) => h.trim());
+  return lines.slice(1).map((line) => {
+    const values = parseCsvLine(line);
+    const row = {};
+    headers.forEach((h, i) => {
+      row[h] = values[i] ?? "";
+    });
+    return row;
+  });
+}
+
+function toInt(value) {
+  if (value === null || value === undefined || value === "") return 0;
+  return Number.parseInt(value, 10) || 0;
+}
+
+function toFloat(value) {
+  if (value === null || value === undefined || value === "") return 0;
+  return Number.parseFloat(value) || 0;
+}
+
+function formatInt(value) {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
+}
+
+function formatFixed2(value) {
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function formatCeilBtc(sats) {
+  const btc = Math.ceil(sats / SATS_PER_BTC);
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(btc);
+}
+
+function formatDays(days) {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(days);
+}
+
+function formatMigrationTime(blocks) {
+  const roundedBlocks = Math.max(1, Math.ceil(blocks));
+  const minutes = roundedBlocks * (1440 / BLOCKS_PER_DAY);
+
+  if (minutes < 60) {
+    return `${formatInt(Math.ceil(minutes))} minutes`;
+  }
+
+  const days = roundedBlocks / BLOCKS_PER_DAY;
+  if (days < 1) {
+    const hours = days * 24;
+    return `${formatDays(hours)} hours`;
+  }
+  return `${formatDays(days)} days`;
+}
+
+function formatSigFigsBtc(sats) {
+  const TENTH_BTC_SATS = SATS_PER_BTC / 10; // 10,000,000
+  const btc = sats / SATS_PER_BTC;
+  
+  // Integer BTC amounts: check at sats level, 0 decimal places
+  if (sats % SATS_PER_BTC === 0) {
+    return btc.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  }
+  
+  // 0.1 BTC increments: check at sats level, 1 decimal place
+  if (sats % TENTH_BTC_SATS === 0) {
+    return btc.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  }
+  
+  // All others: 2 decimal places
+  return btc.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatTooltipDate(unixTime) {
+  if (!unixTime) return "Unknown";
+  const date = new Date(unixTime * 1000);
+  if (Number.isNaN(date.getTime())) return "Unknown";
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const hour = String(date.getUTCHours()).padStart(2, "0");
+  const minute = String(date.getUTCMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day} ${hour}:${minute} (UTC)`;
+}
+
+function formatSnapshotSelectDate(unixTime) {
+  if (!unixTime) return "";
+  const date = new Date(unixTime * 1000);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const hour = String(date.getUTCHours()).padStart(2, "0");
+  const minute = String(date.getUTCMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day} ${hour}:${minute}`;
+}
+
+function formatTooltipDateFromHeight(blockheight, unixFallback) {
+  if (blockheight > 0) {
+    const fromLookup = state.blockDatetimeByHeight[String(blockheight)];
+    if (fromLookup) return fromLookup;
+  }
+  return formatTooltipDate(unixFallback);
+}
+
+function escapeHtmlAttr(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+let customTooltipBound = false;
+let customTooltipAnchor = null;
+
+function ensureCustomTooltipElement() {
+  let tooltip = document.getElementById("quantumInlineTooltip");
+  if (!tooltip) {
+    tooltip = document.createElement("div");
+    tooltip.id = "quantumInlineTooltip";
+    tooltip.className = "quantum-inline-tooltip";
+    document.body.appendChild(tooltip);
+  }
+  return tooltip;
+}
+
+function hideCustomTooltip() {
+  const tooltip = document.getElementById("quantumInlineTooltip");
+  if (!tooltip) return;
+  tooltip.classList.remove("is-visible");
+}
+
+function placeCustomTooltip(tooltip, x, y) {
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const offset = 14;
+
+  let left = x + offset;
+  let top = y + offset;
+
+  const maxLeft = viewportWidth - tooltip.offsetWidth - 8;
+  const maxTop = viewportHeight - tooltip.offsetHeight - 8;
+
+  if (left > maxLeft) left = Math.max(8, x - tooltip.offsetWidth - offset);
+  if (top > maxTop) top = Math.max(8, y - tooltip.offsetHeight - offset);
+
+  tooltip.style.left = `${left}px`;
+  tooltip.style.top = `${top}px`;
+}
+
+function showCustomTooltip(anchor, x, y) {
+  const text = String(anchor?.getAttribute("data-tooltip") || "").trim();
+  if (!text) {
+    hideCustomTooltip();
+    return;
+  }
+
+  const tooltip = ensureCustomTooltipElement();
+  tooltip.textContent = text;
+  tooltip.classList.add("is-visible");
+  placeCustomTooltip(tooltip, x, y);
+}
+
+function bindCustomTooltips() {
+  if (customTooltipBound) return;
+  customTooltipBound = true;
+
+  document.addEventListener("mouseover", (event) => {
+    const anchor = event.target instanceof Element ? event.target.closest("[data-tooltip]") : null;
+    if (!anchor) return;
+    customTooltipAnchor = anchor;
+    showCustomTooltip(anchor, event.clientX, event.clientY);
+  });
+
+  document.addEventListener("mousemove", (event) => {
+    if (!customTooltipAnchor) return;
+    const tooltip = document.getElementById("quantumInlineTooltip");
+    if (!tooltip || !tooltip.classList.contains("is-visible")) return;
+    placeCustomTooltip(tooltip, event.clientX, event.clientY);
+  });
+
+  document.addEventListener("mouseout", (event) => {
+    if (!customTooltipAnchor) return;
+    const related = event.relatedTarget;
+    if (related instanceof Node && customTooltipAnchor.contains(related)) return;
+    customTooltipAnchor = null;
+    hideCustomTooltip();
+  });
+
+  window.addEventListener("scroll", () => {
+    if (!customTooltipAnchor) return;
+    hideCustomTooltip();
+  }, { passive: true });
+}
+
+function formatPercent(numerator, denominator) {
+  if (!denominator) return "0.00%";
+  const pct = (numerator / denominator) * 100;
+  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(pct)}%`;
+}
+
+function renderEmptyKpis() {
+  document.getElementById("kpiSupply").textContent = "-";
+  document.getElementById("kpiExposedSupply").textContent = "-";
+  document.getElementById("kpiExposedSupplyShare").textContent = "-";
+  document.getElementById("kpiExposedPubkeys").textContent = "-";
+  document.getElementById("kpiExposedPubkeysShare").textContent = "-";
+  document.getElementById("kpiExposedUtxos").textContent = "-";
+  document.getElementById("kpiExposedUtxosShare").textContent = "-";
+  document.getElementById("kpiMigrationTime").textContent = "-";
+  document.getElementById("kpiMigrationBlocks").textContent = "-";
+}
+
+function formatSpendLabel(value) {
+  if (value === "never_spent") return "Never Spent";
+  if (value === "inactive") return "Inactive";
+  if (value === "active") return "Active";
+  return value;
+}
+
+function balanceMinSats(balanceKey) {
+  if (balanceKey === "ge1000") return 100_000_000_000;
+  if (balanceKey === "ge100") return 10_000_000_000;
+  if (balanceKey === "ge10") return 1_000_000_000;
+  if (balanceKey === "ge1") return 100_000_000;
+  return 0;
+}
+
+function getScriptCheckboxes() {
+  return Array.from(document.querySelectorAll(".script-check"));
+}
+
+function getSpendCheckboxes() {
+  return Array.from(document.querySelectorAll(".spend-check"));
+}
+
+function getDetailCheckboxes() {
+  return Array.from(document.querySelectorAll(".detail-check"));
+}
+
+function getIdentityCheckboxes() {
+  return Array.from(document.querySelectorAll(".identity-check"));
+}
+
+function getIdentityGroupCheckboxes() {
+  return Array.from(document.querySelectorAll(".identity-group-check"));
+}
+
+function getCheckedScriptValues() {
+  return getScriptCheckboxes()
+    .filter((el) => el.checked)
+    .map((el) => el.value);
+}
+
+function getCheckedSpendValues() {
+  return getSpendCheckboxes()
+    .filter((el) => el.checked)
+    .map((el) => el.value);
+}
+
+function updateScriptTriggerLabel() {
+  const trigger = document.getElementById("scriptDropdownTrigger");
+  const checked = getCheckedScriptValues();
+  if (checked.length === 0) {
+    trigger.textContent = "None";
+    return;
+  }
+  if (checked.includes("All")) {
+    trigger.textContent = "All";
+    return;
+  }
+  trigger.textContent = checked.join(", ");
+}
+
+function updateSpendTriggerLabel() {
+  const trigger = document.getElementById("spendDropdownTrigger");
+  const checked = getCheckedSpendValues();
+  if (checked.length === 0) {
+    trigger.textContent = "None";
+    return;
+  }
+  if (checked.includes("all")) {
+    trigger.textContent = "All";
+    return;
+  }
+  trigger.textContent = checked.map((v) => formatSpendLabel(v)).join(", ");
+}
+
+function updateTagTriggerLabel(triggerId, checkedValues) {
+  const trigger = document.getElementById(triggerId);
+  const displayValues = checkedValues.map((value) => {
+    if (triggerId === "detailDropdownTrigger" && value === UNLABELED_DETAIL_FILTER_VALUE) {
+      return "Unlabeled";
+    }
+    if (triggerId === "identityGroupDropdownTrigger" && value === UNIDENTIFIED_IDENTITY_GROUP_FILTER_VALUE) {
+      return UNIDENTIFIED_IDENTITY_GROUP_FILTER_LABEL;
+    }
+    if (triggerId === "identityDropdownTrigger" && value === UNIDENTIFIED_IDENTITY_FILTER_VALUE) {
+      return "Unidentified";
+    }
+    return value;
+  });
+
+  let summary = "None";
+  if (checkedValues.includes("All")) {
+    summary = "All";
+  } else if (displayValues.length) {
+    if (triggerId === "identityGroupDropdownTrigger") {
+      summary = `${displayValues.length} selected`;
+    } else {
+      summary = displayValues.length <= 2 ? displayValues.join(", ") : `${displayValues.length} selected`;
+    }
+  }
+
+  if (trigger instanceof HTMLInputElement) {
+    trigger.placeholder = summary;
+    return;
+  }
+
+  trigger.textContent = summary;
+}
+
+function renderIdentityTagMenu(options, selectedValues) {
+  const query = state.identityTagFilterQuery.trim().toLowerCase();
+  const filteredOptions = options.filter((value) => {
+    const label = value === UNIDENTIFIED_IDENTITY_FILTER_VALUE ? UNIDENTIFIED_IDENTITY_FILTER_LABEL : value;
+    return !query || label.toLowerCase().includes(query);
+  });
+
+  renderTagMenu("identityDropdownMenu", "identity-check", filteredOptions, selectedValues);
+}
+
+function clearIdentityTagFilterInput() {
+  const identityTrigger = document.getElementById("identityDropdownTrigger");
+  if (!(identityTrigger instanceof HTMLInputElement)) {
+    return;
+  }
+
+  if (!state.identityTagFilterQuery && !identityTrigger.value) {
+    updateTagTriggerLabel("identityDropdownTrigger", state.selectedIdentityTags);
+    return;
+  }
+
+  state.identityTagFilterQuery = "";
+  identityTrigger.value = "";
+  renderIdentityTagMenu(buildTagOptionsFromGe1Rows(state.selectedIdentityGroups).identities, state.selectedIdentityTags);
+  attachIdentityCheckboxListeners();
+  updateTagTriggerLabel("identityDropdownTrigger", state.selectedIdentityTags);
+}
+
+function attachIdentityCheckboxListeners() {
+  getIdentityCheckboxes().forEach((el) => {
+    el.addEventListener("change", () => handleTagCheckboxChange(el, getIdentityCheckboxes, "identityDropdownTrigger"));
+  });
+}
+
+function normalizeTagSelections(checkedValues, allValues, allowEmpty = false, preserveWhenOptionsUnavailable = false) {
+  const selected = Array.isArray(checkedValues) ? checkedValues : [];
+  const options = Array.isArray(allValues) ? allValues : [];
+
+  const isExcludeEncoded = selected.includes(SHARE_EXCLUDE_TOKEN);
+  if (isExcludeEncoded) {
+    if (preserveWhenOptionsUnavailable && options.length === 0) {
+      return Array.from(new Set(selected));
+    }
+
+    if (options.length === 0) {
+      return allowEmpty ? [] : ["All"];
+    }
+
+    const excludedSet = new Set(selected.filter((value) => value !== SHARE_EXCLUDE_TOKEN));
+    const included = options.filter((value) => !excludedSet.has(value));
+    if (!included.length) {
+      return allowEmpty ? [] : ["All"];
+    }
+    if (included.length === options.length) {
+      return ["All"];
+    }
+    return included;
+  }
+
+  if (preserveWhenOptionsUnavailable && options.length === 0) {
+    if (!selected.length) return allowEmpty ? [] : ["All"];
+    if (selected.includes("All")) return ["All"];
+    return Array.from(new Set(selected));
+  }
+
+  if (!selected.length) {
+    return allowEmpty ? [] : ["All"];
+  }
+  if (selected.includes("All")) {
+    return ["All"];
+  }
+  const normalized = selected.filter((value) => options.includes(value));
+  if (options.length > 0 && normalized.length === options.length) {
+    return ["All"];
+  }
+  return normalized.length ? normalized : (allowEmpty ? [] : ["All"]);
+}
+
+function identityBelongsToSelectedGroups(identityValue, selectedIdentityGroups) {
+  if (!Array.isArray(selectedIdentityGroups) || selectedIdentityGroups.includes("All")) {
+    return true;
+  }
+
+  const includeUnidentified = selectedIdentityGroups.includes(UNIDENTIFIED_IDENTITY_GROUP_FILTER_VALUE);
+  const identityTag = formatIdentityTag(identityValue || "");
+  if (!identityTag) return includeUnidentified;
+
+  const groups = state.identityToGroupNames[identityTag] || [];
+  if (!groups.length) return includeUnidentified;
+
+  return groups.some(
+    (groupName) =>
+      groupName !== UNIDENTIFIED_IDENTITY_GROUP_FILTER_VALUE && selectedIdentityGroups.includes(groupName)
+  );
+}
+
+function buildTagOptionsFromGe1Rows(selectedIdentityGroups = state.selectedIdentityGroups, orderingFilters = null) {
+  const detailSet = new Set();
+  const identityGroupSet = new Set();
+  const identityGroupSupplySats = new Map();
+  const identitySupplySats = new Map();
+  const identitySet = new Set();
+  const orderingAddressQuery = String(orderingFilters?.topExposureAddressQuery || "").trim().toLowerCase();
+  const rowMatchesOrderingAddressQuery = (row) => {
+    if (!orderingAddressQuery) return true;
+    const primaryId = String(row.group_id || "").toLowerCase();
+    const displayIds = String(row.display_group_ids || row.display_group_id || "").toLowerCase();
+    return primaryId.includes(orderingAddressQuery) || displayIds.includes(orderingAddressQuery);
+  };
+  const hasIdentityGroupMap = Object.keys(state.identityToGroupNames).length > 0;
+  let hasUnlabeledDetail = false;
+  let hasUnlabeledIdentity = false;
+  let hasUnidentifiedGroup = false;
+  state.ge1Rows.forEach((row) => {
+    const detail = formatDetailTag(row.details || "");
+    const identity = formatIdentityTag(row.identity || "");
+    if (detail) {
+      detailSet.add(detail);
+    } else {
+      hasUnlabeledDetail = true;
+    }
+    if (!identity) {
+      hasUnlabeledIdentity = true;
+      hasUnidentifiedGroup = true;
+      if (
+        orderingFilters &&
+        (selectedIdentityGroups.includes("All") || selectedIdentityGroups.includes(UNIDENTIFIED_IDENTITY_GROUP_FILTER_VALUE)) &&
+        rowPassesTopExposureFilters(row, orderingFilters) &&
+        rowMatchesOrderingAddressQuery(row)
+      ) {
+        identitySupplySats.set(
+          UNIDENTIFIED_IDENTITY_FILTER_VALUE,
+          (identitySupplySats.get(UNIDENTIFIED_IDENTITY_FILTER_VALUE) || 0) + getFilteredExposedSupplySatsForRow(row, orderingFilters.scriptTypes)
+        );
+      }
+      return;
+    }
+
+    const groups = state.identityToGroupNames[identity] || [];
+    if (hasIdentityGroupMap && groups.length === 0) {
+      hasUnidentifiedGroup = true;
+    }
+    const exposedSupplySats = toInt(row.exposed_supply_sats);
+    groups.forEach((groupName) => {
+      identityGroupSet.add(groupName);
+      identityGroupSupplySats.set(groupName, (identityGroupSupplySats.get(groupName) || 0) + exposedSupplySats);
+    });
+
+    if (Array.isArray(selectedIdentityGroups) && selectedIdentityGroups.includes("All") && !hasIdentityGroupMap) {
+      identitySet.add(identity);
+    }
+
+    if (identityBelongsToSelectedGroups(identity, selectedIdentityGroups)) {
+      identitySet.add(identity);
+
+      if (orderingFilters && rowPassesTopExposureFilters(row, orderingFilters) && rowMatchesOrderingAddressQuery(row)) {
+        identitySupplySats.set(
+          identity,
+          (identitySupplySats.get(identity) || 0) + getFilteredExposedSupplySatsForRow(row, orderingFilters.scriptTypes)
+        );
+      }
+    }
+  });
+
+  // Always include known identities from the selected group set, even when they have
+  // zero supply in the current snapshot.
+  if (Array.isArray(selectedIdentityGroups) && !selectedIdentityGroups.includes("All")) {
+    selectedIdentityGroups.forEach((groupName) => {
+      const identities = state.identityGroupsByName[groupName] || [];
+      identities.forEach((identity) => {
+        if (identity) {
+          identitySet.add(identity);
+        }
+      });
+    });
+  } else if (hasIdentityGroupMap) {
+    Object.keys(state.identityToGroupNames).forEach((identity) => {
+      if (identity) {
+        identitySet.add(identity);
+      }
+    });
+  }
+
+  const sorter = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+
+  const detailOptions = Array.from(detailSet).sort(sorter);
+  if (hasUnlabeledDetail) {
+    detailOptions.unshift(UNLABELED_DETAIL_FILTER_VALUE);
+  }
+
+  const identityGroupOptions = Array.from(identityGroupSet).sort((a, b) => {
+    const supplyDiff = (identityGroupSupplySats.get(b) || 0) - (identityGroupSupplySats.get(a) || 0);
+    if (supplyDiff !== 0) return supplyDiff;
+    return sorter(a, b);
+  });
+  if (hasUnidentifiedGroup) {
+    identityGroupOptions.unshift(UNIDENTIFIED_IDENTITY_GROUP_FILTER_VALUE);
+  }
+
+  const identityOptions = Array.from(identitySet).sort((a, b) => {
+    const supplyDiff = (identitySupplySats.get(b) || 0) - (identitySupplySats.get(a) || 0);
+    if (supplyDiff !== 0) return supplyDiff;
+    return sorter(a, b);
+  });
+  if (
+    hasUnlabeledIdentity &&
+    (selectedIdentityGroups.includes("All") || selectedIdentityGroups.includes(UNIDENTIFIED_IDENTITY_GROUP_FILTER_VALUE))
+  ) {
+    identityOptions.unshift(UNIDENTIFIED_IDENTITY_FILTER_VALUE);
+  }
+
+  return {
+    details: detailOptions,
+    identityGroups: identityGroupOptions,
+    identities: identityOptions,
+  };
+}
+
+function renderTagMenu(menuId, checkboxClass, options, selectedValues) {
+  const menu = document.getElementById(menuId);
+  const useAll = selectedValues.includes("All");
+  const showAllAsCheckedSelections =
+    useAll &&
+    (checkboxClass === "detail-check" || checkboxClass === "identity-group-check" || checkboxClass === "identity-check");
+  const selectedSet = new Set(selectedValues);
+  const optionHtml = options
+    .map((value) => {
+      const label =
+        checkboxClass === "detail-check" && value === UNLABELED_DETAIL_FILTER_VALUE
+          ? UNLABELED_DETAIL_FILTER_LABEL
+          : checkboxClass === "identity-group-check" && value === UNIDENTIFIED_IDENTITY_GROUP_FILTER_VALUE
+          ? UNIDENTIFIED_IDENTITY_GROUP_FILTER_LABEL
+          : checkboxClass === "identity-check" && value === UNIDENTIFIED_IDENTITY_FILTER_VALUE
+          ? UNIDENTIFIED_IDENTITY_FILTER_LABEL
+          : value;
+      return `<label class="script-option"><input type="checkbox" class="${checkboxClass}" value="${escapeHtmlAttr(value)}" ${
+        showAllAsCheckedSelections || (!useAll && selectedSet.has(value)) ? "checked" : ""
+      }> ${escapeHtml(label)}</label>`;
+    })
+    .join("");
+
+  menu.innerHTML =
+    `<label class="script-option"><input type="checkbox" class="${checkboxClass}" value="All" ${
+      useAll ? "checked" : ""
+    }> All</label>` + optionHtml;
+}
+
+function setAllChecks(checkboxes, checked) {
+  checkboxes.forEach((el) => {
+    el.checked = checked;
+  });
+}
+
+function tagStateKeyForTrigger(triggerId) {
+  if (triggerId === "detailDropdownTrigger") return "selectedDetailTags";
+  if (triggerId === "identityGroupDropdownTrigger") return "selectedIdentityGroups";
+  if (triggerId === "identityDropdownTrigger") return "selectedIdentityTags";
+  return null;
+}
+
+function getAllTagValuesForTrigger(triggerId) {
+  if (triggerId === "detailDropdownTrigger") {
+    return buildTagOptionsFromGe1Rows(state.selectedIdentityGroups).details;
+  }
+  if (triggerId === "identityGroupDropdownTrigger") {
+    return buildTagOptionsFromGe1Rows(["All"]).identityGroups;
+  }
+  if (triggerId === "identityDropdownTrigger") {
+    return buildTagOptionsFromGe1Rows(state.selectedIdentityGroups).identities;
+  }
+  return [];
+}
+
+function handleTagCheckboxChange(changedEl, checkboxGetter, triggerId) {
+  const checkboxes = checkboxGetter();
+  const stateKey = tagStateKeyForTrigger(triggerId);
+  const allowEmptyAllToggle =
+    triggerId === "detailDropdownTrigger" ||
+    triggerId === "identityGroupDropdownTrigger" ||
+    triggerId === "identityDropdownTrigger";
+  const previousValues = stateKey && Array.isArray(state[stateKey]) ? state[stateKey] : ["All"];
+  const nonAllValues = getAllTagValuesForTrigger(triggerId);
+  const nextSet = previousValues.includes("All") && changedEl.value !== "All"
+    ? new Set(nonAllValues)
+    : new Set(previousValues.filter((value) => value !== "All"));
+
+  if (changedEl.value === "All") {
+    nextSet.clear();
+  } else if (changedEl.checked) {
+    nextSet.add(changedEl.value);
+  } else {
+    nextSet.delete(changedEl.value);
+  }
+
+  let checkedValues;
+  if (changedEl.value === "All") {
+    checkedValues = changedEl.checked ? ["All"] : (allowEmptyAllToggle ? [] : ["All"]);
+  } else if (nextSet.size === nonAllValues.length && nonAllValues.length) {
+    checkedValues = ["All"];
+  } else if (nextSet.size) {
+    checkedValues = Array.from(nextSet);
+  } else {
+    checkedValues = allowEmptyAllToggle ? [] : ["All"];
+  }
+
+  if (stateKey) {
+    state[stateKey] = checkedValues;
+  }
+
+  checkboxes.forEach((el) => {
+    if (el.value === "All") {
+      el.checked = checkedValues.includes("All");
+      return;
+    }
+    el.checked = (allowEmptyAllToggle && checkedValues.includes("All")) || (!checkedValues.includes("All") && checkedValues.includes(el.value));
+  });
+
+  if (triggerId === "identityGroupDropdownTrigger") {
+    state.pendingIdentityTagExclusions = null;
+    state.identityTagFilterQuery = "";
+    if (changedEl.checked) {
+      if (changedEl.value === "All") {
+        state.selectedIdentityTags = ["All"];
+      } else {
+        const groupIdentities = buildTagOptionsFromGe1Rows([changedEl.value]).identities;
+        if (groupIdentities.length && !state.selectedIdentityTags.includes("All")) {
+          const selectedSet = new Set(
+            state.selectedIdentityTags.filter(
+              (value) => value && value !== "All" && value !== SHARE_EXCLUDE_TOKEN
+            )
+          );
+          groupIdentities.forEach((identity) => selectedSet.add(identity));
+          state.selectedIdentityTags = selectedSet.size ? Array.from(selectedSet) : [];
+        }
+      }
+    }
+    const identityTrigger = document.getElementById("identityDropdownTrigger");
+    if (identityTrigger instanceof HTMLInputElement) {
+      identityTrigger.value = "";
+    }
+    renderTopExposureTagFilters();
+  }
+
+  if (triggerId === "identityDropdownTrigger") {
+    state.pendingIdentityTagExclusions = null;
+  }
+
+  resetTopExposurePagination();
+  updateTagTriggerLabel(triggerId, checkedValues);
+  clearPreResetSnapshot();
+  update();
+}
+
+function renderTopExposureTagFilters() {
+  const allOptions = buildTagOptionsFromGe1Rows(["All"]);
+  state.selectedIdentityGroups = normalizeTagSelections(
+    state.selectedIdentityGroups,
+    allOptions.identityGroups,
+    true,
+    true
+  );
+
+  const optionOrderingFilters = {
+    balance: document.getElementById("balanceFilter")?.value || "all",
+    scriptTypes: getCheckedScriptValues(),
+    spendActivities: getCheckedSpendValues(),
+    detailTags: state.selectedDetailTags,
+    identityGroups: state.selectedIdentityGroups,
+    identityTags: ["All"],
+    topExposureAddressQuery: String(state.topExposureAddressQuery || "").trim(),
+  };
+
+  const options = buildTagOptionsFromGe1Rows(state.selectedIdentityGroups, optionOrderingFilters);
+  state.selectedDetailTags = normalizeTagSelections(state.selectedDetailTags, options.details, true, true);
+  const deferIdentityExcludeResolution =
+    state.selectedIdentityTags.includes(SHARE_EXCLUDE_TOKEN) &&
+    !state.ge1Rows.length;
+  if (deferIdentityExcludeResolution) {
+    // Before GE1 rows load, identity options are sourced from group metadata and
+    // do not include the synthetic __unidentified__ identity. Keep exclusion
+    // tokens unresolved until GE1-backed options are available.
+    state.selectedIdentityTags = Array.from(new Set(state.selectedIdentityTags));
+  } else {
+    state.selectedIdentityTags = normalizeTagSelections(state.selectedIdentityTags, options.identities, true, true);
+    applyPendingIdentityTagExclusions(options.identities);
+  }
+
+  renderTagMenu("detailDropdownMenu", "detail-check", options.details, state.selectedDetailTags);
+  renderTagMenu("identityGroupDropdownMenu", "identity-group-check", options.identityGroups, state.selectedIdentityGroups);
+  renderIdentityTagMenu(options.identities, state.selectedIdentityTags);
+
+  getDetailCheckboxes().forEach((el) => {
+    el.addEventListener("change", () => handleTagCheckboxChange(el, getDetailCheckboxes, "detailDropdownTrigger"));
+  });
+  getIdentityGroupCheckboxes().forEach((el) => {
+    el.addEventListener("change", () =>
+      handleTagCheckboxChange(el, getIdentityGroupCheckboxes, "identityGroupDropdownTrigger")
+    );
+  });
+  attachIdentityCheckboxListeners();
+
+  updateTagTriggerLabel("detailDropdownTrigger", state.selectedDetailTags);
+  updateTagTriggerLabel("identityGroupDropdownTrigger", state.selectedIdentityGroups);
+  updateTagTriggerLabel("identityDropdownTrigger", state.selectedIdentityTags);
+}
+
+function getAggregate(balanceFilter, scriptType, spendType, fieldName) {
+  const row = state.aggregatesRows.find(
+    (r) =>
+      r.balance_filter === balanceFilter &&
+      r.script_type_filter === scriptType &&
+      r.spend_activity_filter === spendType
+  );
+  return row ? toInt(row[fieldName]) : 0;
+}
+
+function getAggregateFromRows(rows, balanceFilter, scriptType, spendType, fieldName) {
+  const row = rows.find(
+    (r) =>
+      r.balance_filter === balanceFilter &&
+      r.script_type_filter === scriptType &&
+      r.spend_activity_filter === spendType
+  );
+  return row ? toInt(row[fieldName]) : 0;
+}
+
+function getAggregateFloat(balanceFilter, scriptType, spendType, fieldName) {
+  const row = state.aggregatesRows.find(
+    (r) =>
+      r.balance_filter === balanceFilter &&
+      r.script_type_filter === scriptType &&
+      r.spend_activity_filter === spendType
+  );
+  return row ? toFloat(row[fieldName]) : 0;
+}
+
+function buildScriptBarsData(filters) {
+  const barsBalanceKey = state.balanceAutoForcedFromAllByTopFilters ? "all" : filters.balance;
+
+  if (isTagFilterActive(filters)) {
+    const baselineFilters = {
+      ...filters,
+      detailTags: ["All"],
+      identityGroups: ["All"],
+      identityTags: ["All"],
+    };
+    const baselineRows = buildScriptBarsData(baselineFilters);
+    return buildScriptBarsDataFromGe1(filters, barsBalanceKey, baselineRows);
+  }
+
+  const highlightAllScripts = filters.scriptTypes.includes("All");
+  const highlightAllSpends = filters.spendActivities.includes("all");
+  const showFullReference = barsBalanceKey !== "all";
+
+  return SCRIPT_TYPES_ORDER.map((script) => {
+    // Total supply bar: use the balance-filtered rollup row (all spend activities)
+    const totalSupplySats = getAggregate(barsBalanceKey, script, "all", "supply_sats");
+
+    // Exposed supply is always shown in full; filtering only changes emphasis.
+    const exposedNever = getAggregate(barsBalanceKey, script, "never_spent", "exposed_supply_sats");
+    const exposedInactive = getAggregate(barsBalanceKey, script, "inactive", "exposed_supply_sats");
+    const exposedActive = getAggregate(barsBalanceKey, script, "active", "exposed_supply_sats");
+
+    // Keep all-balance composition for faded reference when a balance filter is active.
+    const fullTotalSupplySats = getAggregate("all", script, "all", "supply_sats");
+    const fullExposedNever = getAggregate("all", script, "never_spent", "exposed_supply_sats");
+    const fullExposedInactive = getAggregate("all", script, "inactive", "exposed_supply_sats");
+    const fullExposedActive = getAggregate("all", script, "active", "exposed_supply_sats");
+    const fullExposedTotal = fullExposedNever + fullExposedInactive + fullExposedActive;
+    const fullNonExposedSupplySats = Math.max(fullTotalSupplySats - fullExposedTotal, 0);
+
+    return {
+      scriptType: script,
+      totalSupplySats,
+      exposedNever,
+      exposedInactive,
+      exposedActive,
+      exposedTotal: exposedNever + exposedInactive + exposedActive,
+      nonExposedSupplySats: Math.max(totalSupplySats - (exposedNever + exposedInactive + exposedActive), 0),
+      fullTotalSupplySats,
+      fullExposedNever,
+      fullExposedInactive,
+      fullExposedActive,
+      fullExposedTotal,
+      fullNonExposedSupplySats,
+      showFullReference,
+      scriptHighlighted: highlightAllScripts || filters.scriptTypes.includes(script),
+      spendHighlighted: {
+        never_spent: highlightAllSpends || filters.spendActivities.includes("never_spent"),
+        inactive: highlightAllSpends || filters.spendActivities.includes("inactive"),
+        active: highlightAllSpends || filters.spendActivities.includes("active"),
+      },
+    };
+  });
+}
+
+function buildScriptBarsDataFromGe1(
+  filters,
+  barsBalanceKey = state.balanceAutoForcedFromAllByTopFilters ? "all" : filters.balance,
+  baselineRows = []
+) {
+  const highlightAllScripts = filters.scriptTypes.includes("All");
+  const highlightAllSpends = filters.spendActivities.includes("all");
+  const tagFiltered = isTagFilterActive(filters);
+  const rowsByScript = new Map();
+  const baselineByScript = new Map(
+    (Array.isArray(baselineRows) ? baselineRows : []).map((row) => [row.scriptType, row])
+  );
+
+  SCRIPT_TYPES_ORDER.forEach((scriptType) => {
+    const baselineRow = baselineByScript.get(scriptType);
+    const baselineShowFullReference = baselineRow ? baselineRow.showFullReference : barsBalanceKey !== "all";
+    const fullTotalSupplySats = baselineRow
+      ? (baselineShowFullReference ? baselineRow.fullTotalSupplySats : baselineRow.totalSupplySats)
+      : getAggregate(barsBalanceKey, scriptType, "all", "supply_sats");
+    const fullExposedNever = baselineRow
+      ? (baselineShowFullReference ? baselineRow.fullExposedNever : baselineRow.exposedNever)
+      : getAggregate(barsBalanceKey, scriptType, "never_spent", "exposed_supply_sats");
+    const fullExposedInactive = baselineRow
+      ? (baselineShowFullReference ? baselineRow.fullExposedInactive : baselineRow.exposedInactive)
+      : getAggregate(barsBalanceKey, scriptType, "inactive", "exposed_supply_sats");
+    const fullExposedActive = baselineRow
+      ? (baselineShowFullReference ? baselineRow.fullExposedActive : baselineRow.exposedActive)
+      : getAggregate(barsBalanceKey, scriptType, "active", "exposed_supply_sats");
+    const fullExposedTotal = fullExposedNever + fullExposedInactive + fullExposedActive;
+
+    rowsByScript.set(scriptType, {
+      scriptType,
+      totalSupplySats: 0,
+      exposedNever: 0,
+      exposedInactive: 0,
+      exposedActive: 0,
+      exposedTotal: 0,
+      nonExposedSupplySats: 0,
+      fullTotalSupplySats,
+      fullExposedNever,
+      fullExposedInactive,
+      fullExposedActive,
+      fullExposedTotal,
+      fullNonExposedSupplySats: Math.max(fullTotalSupplySats - fullExposedTotal, 0),
+      showFullReference: tagFiltered,
+      scriptHighlighted: highlightAllScripts || filters.scriptTypes.includes(scriptType),
+      spendHighlighted: {
+        never_spent: highlightAllSpends || filters.spendActivities.includes("never_spent"),
+        inactive: highlightAllSpends || filters.spendActivities.includes("inactive"),
+        active: highlightAllSpends || filters.spendActivities.includes("active"),
+      },
+    });
+  });
+
+  state.ge1Rows.forEach((row) => {
+    if (!rowPassesBalanceFilter(row, barsBalanceKey)) return;
+
+    const exposedSupply = toInt(row.exposed_supply_sats);
+    if (!exposedSupply) return;
+
+    const matchesTagFilter = rowPassesTopExposureFilters(row, filters);
+
+    const scriptTypes = (row.script_types || row.script_type || "")
+      .split("|")
+      .map((t) => t.trim())
+      .filter((t) => SCRIPT_TYPES_ORDER.includes(t));
+    const uniqueScriptTypes = Array.from(new Set(scriptTypes));
+    const targets = uniqueScriptTypes.length ? uniqueScriptTypes : ["Other"];
+    const spend = row.spend_activity;
+
+    // Parse per-script-type supply breakdown from JSON
+    let supplyByScriptType = {};
+    if (row.exposed_supply_sats_by_script_type) {
+      try {
+        supplyByScriptType = JSON.parse(row.exposed_supply_sats_by_script_type);
+      } catch (e) {
+        // Fallback to empty if JSON parsing fails
+        supplyByScriptType = {};
+      }
+    }
+
+    targets.forEach((scriptType) => {
+      const bucket = rowsByScript.get(scriptType);
+      if (!bucket) return;
+
+      // When a script type filter is active, only accumulate into the selected script type buckets.
+      // Multi-script rows that pass the filter (because they have one matching type) should not
+      // bleed their other script type shares into non-selected bars.
+      if (matchesTagFilter && (!highlightAllScripts && !filters.scriptTypes.includes(scriptType))) return;
+
+      if (matchesTagFilter) {
+        // Use actual per-script-type supply from breakdown, or fallback to dividing evenly if not available
+        const supplyShare = supplyByScriptType[scriptType] !== undefined 
+          ? toInt(supplyByScriptType[scriptType])
+          : exposedSupply / targets.length;
+        
+        bucket.totalSupplySats += supplyShare;
+        if (spend === "never_spent") {
+          bucket.exposedNever += supplyShare;
+        } else if (spend === "inactive") {
+          bucket.exposedInactive += supplyShare;
+        } else if (spend === "active") {
+          bucket.exposedActive += supplyShare;
+        }
+      }
+    });
+  });
+
+  return Array.from(rowsByScript.values())
+    .map((row) => ({
+      ...row,
+      exposedTotal: row.exposedNever + row.exposedInactive + row.exposedActive,
+    }));
+}
+
+function renderScriptBars(rows) {
+  const container = document.getElementById("scriptBars");
+  if (!rows.length) {
+    container.className = "bar-empty";
+    container.textContent = "No script-type data for current filter selection.";
+    return;
+  }
+
+  const { showNonExposed, showFilteredOnly } = getSupplyDisplayFlags();
+  const filteredExposedForRow = (row) => {
+    if (!row.scriptHighlighted) return 0;
+    const never = row.spendHighlighted.never_spent ? row.exposedNever : 0;
+    const inactive = row.spendHighlighted.inactive ? row.exposedInactive : 0;
+    const active = row.spendHighlighted.active ? row.exposedActive : 0;
+    return never + inactive + active;
+  };
+  const showFullReference = rows.some((r) => r.showFullReference);
+  
+  const maxScaleTotal = Math.max(
+    ...rows.map((r) => {
+      if (showFilteredOnly) {
+        // In filtered-only mode, scale by the post-filter exposed total only.
+        return filteredExposedForRow(r);
+      }
+      if (r.showFullReference) {
+        return showNonExposed ? r.fullTotalSupplySats : r.fullExposedTotal;
+      }
+      return showNonExposed ? r.totalSupplySats : r.exposedTotal;
+    }),
+    1
+  );
+
+  const html = rows.map((r) => {
+    const rowClass = r.scriptHighlighted ? "bar-row" : "bar-row is-muted";
+    const actualTotalSupplySats = r.showFullReference ? r.fullTotalSupplySats : r.totalSupplySats;
+    const filteredNeverSats = r.scriptHighlighted && r.spendHighlighted.never_spent ? r.exposedNever : 0;
+    const filteredInactiveSats = r.scriptHighlighted && r.spendHighlighted.inactive ? r.exposedInactive : 0;
+    const filteredActiveSats = r.scriptHighlighted && r.spendHighlighted.active ? r.exposedActive : 0;
+    const filteredExposedTotalSats = filteredNeverSats + filteredInactiveSats + filteredActiveSats;
+    const displayNeverSats = showFilteredOnly ? filteredNeverSats : r.exposedNever;
+    const displayInactiveSats = showFilteredOnly ? filteredInactiveSats : r.exposedInactive;
+    const displayActiveSats = showFilteredOnly ? filteredActiveSats : r.exposedActive;
+    const displayedNonExposedSupplySats = showNonExposed && !showFilteredOnly
+      ? (r.showFullReference ? r.fullNonExposedSupplySats : r.nonExposedSupplySats)
+      : 0;
+    const displayedTotalSupplySats = showFilteredOnly
+      ? filteredExposedTotalSats
+      : (r.showFullReference
+        ? (showNonExposed ? (displayedNonExposedSupplySats + r.fullExposedTotal) : r.fullExposedTotal)
+        : (showNonExposed ? r.totalSupplySats : r.exposedTotal));
+    const totalPct = (displayedTotalSupplySats / maxScaleTotal) * 100;
+    const fullTotalPct = !showFilteredOnly && ((showNonExposed ? r.fullTotalSupplySats : r.fullExposedTotal) / maxScaleTotal) * 100;
+    const neverPct = displayedTotalSupplySats ? (displayNeverSats / displayedTotalSupplySats) * 100 : 0;
+    const inactivePct = displayedTotalSupplySats ? (displayInactiveSats / displayedTotalSupplySats) * 100 : 0;
+    const activePct = displayedTotalSupplySats ? (displayActiveSats / displayedTotalSupplySats) * 100 : 0;
+    const nonExposedPct = displayedTotalSupplySats ? (displayedNonExposedSupplySats / displayedTotalSupplySats) * 100 : 0;
+    const fullDenominator = !showFilteredOnly && (showNonExposed ? r.fullTotalSupplySats : r.fullExposedTotal);
+    const filteredNeverOfFullPct = fullDenominator ? (filteredNeverSats / fullDenominator) * 100 : 0;
+    const filteredInactiveOfFullPct = fullDenominator ? (filteredInactiveSats / fullDenominator) * 100 : 0;
+    const filteredActiveOfFullPct = fullDenominator ? (filteredActiveSats / fullDenominator) * 100 : 0;
+    const fullNeverPct = !showFilteredOnly && fullDenominator ? (r.fullExposedNever / fullDenominator) * 100 : 0;
+    const fullInactivePct = !showFilteredOnly && fullDenominator ? (r.fullExposedInactive / fullDenominator) * 100 : 0;
+    const fullActivePct = !showFilteredOnly && fullDenominator ? (r.fullExposedActive / fullDenominator) * 100 : 0;
+    const fullNonExposedPct = !showFilteredOnly && showNonExposed && r.fullTotalSupplySats
+      ? (r.fullNonExposedSupplySats / r.fullTotalSupplySats) * 100
+      : 0;
+    const fullInactiveStartPct = !showFilteredOnly && (fullNeverPct);
+    const fullActiveStartPct = !showFilteredOnly && (fullNeverPct + fullInactivePct);
+    const fullNonExposedStartPct = !showFilteredOnly && (fullNeverPct + fullInactivePct + fullActivePct);
+    const totalBtc = Math.round(actualTotalSupplySats / SATS_PER_BTC);
+    const baseExposedBtc = Math.round(r.exposedTotal / SATS_PER_BTC);
+    const baseExposedShare = formatPercent(r.exposedTotal, actualTotalSupplySats);
+    const filteredExposedBtc = Math.round(filteredExposedTotalSats / SATS_PER_BTC);
+    const filteredExposedShare = formatPercent(filteredExposedTotalSats, actualTotalSupplySats);
+    const fullExposedBtc = r.showFullReference ? Math.round(r.fullExposedTotal / SATS_PER_BTC) : baseExposedBtc;
+    const fullExposedShare = r.showFullReference ? formatPercent(r.fullExposedTotal, r.fullTotalSupplySats) : baseExposedShare;
+    const fullExposedForRow = r.showFullReference ? r.fullExposedTotal : r.exposedTotal;
+    const showFilteredMetric =
+      r.scriptHighlighted &&
+      filteredExposedTotalSats > 0 &&
+      filteredExposedTotalSats !== fullExposedForRow;
+    const neverBtc = Math.round(displayNeverSats / SATS_PER_BTC);
+    const inactiveBtc = Math.round(displayInactiveSats / SATS_PER_BTC);
+    const activeBtc = Math.round(displayActiveSats / SATS_PER_BTC);
+    const fullNeverBtc = !showFilteredOnly && Math.round(r.fullExposedNever / SATS_PER_BTC);
+    const fullInactiveBtc = !showFilteredOnly && Math.round(r.fullExposedInactive / SATS_PER_BTC);
+    const fullActiveBtc = !showFilteredOnly && Math.round(r.fullExposedActive / SATS_PER_BTC);
+    const nonExposedBtc = Math.round(displayedNonExposedSupplySats / SATS_PER_BTC);
+
+    return `
+      <div class="${rowClass}">
+        <div class="bar-head">
+          <span class="bar-name">${r.scriptType}</span>
+          <span class="bar-metric"><span class="bar-metric-label">Total</span> <span class="bar-metric-value">${formatInt(totalBtc)} BTC</span></span>
+        </div>
+        <div class="bar-stack-track">
+          ${showFilteredOnly ? `
+          <div class="bar-stack-fill" style="width:${totalPct}%">
+            <div class="seg-never ${r.spendHighlighted.never_spent ? "" : "is-faded"}" data-tooltip="Never Spent (filtered): ${formatInt(neverBtc)} BTC" style="width:${neverPct}%;"></div>
+            <div class="seg-inactive ${r.spendHighlighted.inactive ? "" : "is-faded"}" data-tooltip="Inactive (filtered): ${formatInt(inactiveBtc)} BTC" style="width:${inactivePct}%;"></div>
+            <div class="seg-active ${r.spendHighlighted.active ? "" : "is-faded"}" data-tooltip="Active (filtered): ${formatInt(activeBtc)} BTC" style="width:${activePct}%;"></div>
+          </div>` : (r.showFullReference ? `
+          <div class="bar-stack-fill bar-stack-fill-base" style="width:${fullTotalPct}%">
+            ${showNonExposed ? `<div class="seg-nonexposed" data-tooltip="Non-exposed: ${formatInt(nonExposedBtc)} BTC" style="left:${fullNonExposedStartPct}%; width:${fullNonExposedPct}%;"></div>` : ""}
+          </div>
+          <div class="bar-stack-fill bar-stack-fill-reference" style="width:${fullTotalPct}%">
+            <div class="seg-never" data-tooltip="Never Spent (full): ${formatInt(fullNeverBtc)} BTC" style="left:0; width:${fullNeverPct}%;"></div>
+            <div class="seg-inactive" data-tooltip="Inactive (full): ${formatInt(fullInactiveBtc)} BTC" style="left:${fullInactiveStartPct}%; width:${fullInactivePct}%;"></div>
+            <div class="seg-active" data-tooltip="Active (full): ${formatInt(fullActiveBtc)} BTC" style="left:${fullActiveStartPct}%; width:${fullActivePct}%;"></div>
+          </div>
+          <div class="bar-stack-fill bar-stack-fill-overlay" style="width:${fullTotalPct}%">
+            <div class="seg-never ${r.spendHighlighted.never_spent ? "" : "is-faded"}" data-tooltip="Never Spent: ${formatInt(neverBtc)} BTC" style="left:0; width:${filteredNeverOfFullPct}%;"></div>
+            <div class="seg-inactive ${r.spendHighlighted.inactive ? "" : "is-faded"}" data-tooltip="Inactive: ${formatInt(inactiveBtc)} BTC" style="left:${fullInactiveStartPct}%; width:${filteredInactiveOfFullPct}%;"></div>
+            <div class="seg-active ${r.spendHighlighted.active ? "" : "is-faded"}" data-tooltip="Active: ${formatInt(activeBtc)} BTC" style="left:${fullActiveStartPct}%; width:${filteredActiveOfFullPct}%;"></div>
+          </div>` : `
+          <div class="bar-stack-fill" style="width:${totalPct}%">
+            <div class="seg-never ${r.spendHighlighted.never_spent ? "" : "is-faded"}" data-tooltip="Never Spent: ${formatInt(neverBtc)} BTC" style="width:${neverPct}%;"></div>
+            <div class="seg-inactive ${r.spendHighlighted.inactive ? "" : "is-faded"}" data-tooltip="Inactive: ${formatInt(inactiveBtc)} BTC" style="width:${inactivePct}%;"></div>
+            <div class="seg-active ${r.spendHighlighted.active ? "" : "is-faded"}" data-tooltip="Active: ${formatInt(activeBtc)} BTC" style="width:${activePct}%;"></div>
+            ${showNonExposed ? `<div class="seg-nonexposed" data-tooltip="Non-exposed: ${formatInt(nonExposedBtc)} BTC" style="width:${nonExposedPct}%;"></div>` : ""}
+          </div>`)}
+        </div>
+        <div class="bar-summary">
+          <span class="bar-metric">
+            <span class="bar-metric-label">Exposed</span> <span class="bar-metric-value">${formatInt(fullExposedBtc)} BTC &middot; ${fullExposedShare}</span>
+          </span>
+          ${showFilteredMetric ? `<span class="bar-metric bar-metric-filtered">
+            <span class="bar-metric-label">Filtered</span> <span class="bar-metric-value">${formatInt(filteredExposedBtc)} BTC &middot; ${filteredExposedShare}</span>
+          </span>` : ""}
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  container.className = "";
+  container.innerHTML = html;
+}
+
+function compactHeightLabel(height) {
+  const n = Number.parseInt(height, 10);
+  if (!Number.isFinite(n)) return String(height || "");
+  return n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
+}
+
+function niceStep(rawStep) {
+  if (!Number.isFinite(rawStep) || rawStep <= 0) return 1;
+  const pow10 = 10 ** Math.floor(Math.log10(rawStep));
+  const frac = rawStep / pow10;
+  if (frac <= 1) return 1 * pow10;
+  if (frac <= 2) return 2 * pow10;
+  if (frac <= 5) return 5 * pow10;
+  return 10 * pow10;
+}
+
+function historicalYAxisUnitBtc(yMaxBtc) {
+  if (yMaxBtc >= 1_000_000) return 1_000_000;
+  if (yMaxBtc >= 100_000) return 100_000;
+  if (yMaxBtc >= 10_000) return 10_000;
+  if (yMaxBtc >= 1_000) return 1_000;
+  return 100;
+}
+
+function formatHistoricalYAxisLabelFromSats(satsValue, unitBtc) {
+  const btcValue = satsValue / SATS_PER_BTC;
+  const snapInt = Math.round(btcValue);
+  const snappedBtc = Math.abs(btcValue - snapInt) < 1e-9 ? snapInt : btcValue;
+
+  if (unitBtc >= 1_000_000) {
+    const inMillions = snappedBtc / 1_000_000;
+    const decimals = Math.abs(inMillions - Math.round(inMillions)) < 1e-9 ? 0 : 1;
+    return `${inMillions.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}M BTC`;
+  }
+
+  if (unitBtc >= 1_000) {
+    const inThousands = snappedBtc / 1_000;
+    const decimals = Math.abs(inThousands - Math.round(inThousands)) < 1e-9 ? 0 : 1;
+    return `${inThousands.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}k BTC`;
+  }
+
+  return `${formatInt(Math.round(snappedBtc))} BTC`;
+}
+
+function areaPath(points, xAt, yLowerAt, yUpperAt) {
+  if (!points.length) return "";
+
+  let path = `M ${xAt(points[0])} ${yUpperAt(points[0])}`;
+  for (let i = 1; i < points.length; i += 1) {
+    path += ` L ${xAt(points[i])} ${yUpperAt(points[i])}`;
+  }
+  for (let i = points.length - 1; i >= 0; i -= 1) {
+    path += ` L ${xAt(points[i])} ${yLowerAt(points[i])}`;
+  }
+  path += " Z";
+  return path;
+}
+
+async function ensureHistoricalSeriesLoaded() {
+  if (state.historicalSeries.length || state.historicalSeriesLoading) {
+    return;
+  }
+
+  state.historicalSeriesLoading = true;
+  try {
+    const snapshotsAsc = [...state.availableSnapshots].sort(
+      (left, right) => Number.parseInt(left, 10) - Number.parseInt(right, 10)
+    );
+
+    const series = [];
+    for (const snapshot of snapshotsAsc) {
+      const resp = await fetch(`webapp_data/${snapshot}/dashboard_pubkeys_aggregates.csv`);
+      if (!resp.ok) {
+        throw new Error(`Could not load historical aggregates for snapshot ${snapshot}`);
+      }
+      series.push({
+        snapshot,
+        aggregatesRows: parseCsv(await resp.text()),
+        ge1FilteredSumsByKey: {},
+      });
+      // Yield between files to keep the renderer responsive on first load.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    state.historicalSeries = series;
+
+    // Restore any previously persisted ge1 filter sums so the first
+    // filtered render is instant without re-fetching all ge_1btc CSVs.
+    const persistedGe1 = loadGe1PersistentCache();
+    for (const point of state.historicalSeries) {
+      const stored = persistedGe1[point.snapshot];
+      if (stored && typeof stored === "object") {
+        Object.assign(point.ge1FilteredSumsByKey, stored);
+      }
+    }
+  } finally {
+    state.historicalSeriesLoading = false;
+  }
+}
+
+function historicalGe1FilterKey(filters) {
+  const sortedScripts = [...filters.scriptTypes].sort();
+  const sortedDetailTags = [...filters.detailTags].sort();
+  const sortedIdentityGroups = [...filters.identityGroups].sort();
+  const sortedIdentityTags = [...filters.identityTags].sort();
+  return JSON.stringify({
+    balance: filters.balance,
+    scriptTypes: sortedScripts,
+    detailTags: sortedDetailTags,
+    identityGroups: sortedIdentityGroups,
+    identityTags: sortedIdentityTags,
+  });
+}
+
+async function ensureHistoricalSeriesGe1Loaded(filters, signal) {
+  if (!state.historicalSeries.length) return;
+
+  const filterKey = historicalGe1FilterKey(filters);
+  // Sort descending so the most recent snapshot loads and renders first.
+  const missingSeries = state.historicalSeries
+    .filter((point) => !point.ge1FilteredSumsByKey?.[filterKey])
+    .sort((a, b) => Number(b.snapshot) - Number(a.snapshot));
+
+  if (!missingSeries.length) return;
+
+  state.historicalSeriesGe1Loading = true;
+  state.historicalSeriesGe1LoadProgress = { loaded: 0, total: missingSeries.length };
+  try {
+    for (const point of missingSeries) {
+      if (signal?.aborted) break;
+
+      let resp;
+      try {
+        resp = await fetch(`webapp_data/${point.snapshot}/dashboard_pubkeys_ge_1btc.csv`, signal ? { signal } : {});
+      } catch (err) {
+        if (err.name === "AbortError") break;
+        throw err;
+      }
+
+      if (!resp.ok) {
+        throw new Error(`Could not load historical ge1 rows for snapshot ${point.snapshot}`);
+      }
+
+      let text;
+      try {
+        text = await resp.text();
+      } catch (err) {
+        if (err.name === "AbortError") break;
+        throw err;
+      }
+
+      const sums = buildFilteredExposedFromGe1Csv(text, filters);
+      if (!point.ge1FilteredSumsByKey) point.ge1FilteredSumsByKey = {};
+      point.ge1FilteredSumsByKey[filterKey] = sums;
+      saveGe1PersistentSum(point.snapshot, filterKey, sums);
+
+      state.historicalSeriesGe1LoadProgress.loaded++;
+      // Re-render after each snapshot so bars update progressively.
+      update();
+      // Yield to the main thread before the next fetch.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  } finally {
+    state.historicalSeriesGe1Loading = false;
+    state.historicalSeriesGe1LoadProgress = null;
+    if (state.historicalSeriesGe1ActiveFilterKey === filterKey) {
+      state.historicalSeriesGe1ActiveFilterKey = null;
+    }
+  }
+}
+
+function buildFilteredExposedFromGe1Csv(csvText, filters) {
+  const sums = {
+    never_spent: 0,
+    inactive: 0,
+    active: 0,
+  };
+
+  if (!csvText) {
+    return sums;
+  }
+
+  let cursor = 0;
+  const readLine = () => {
+    if (cursor >= csvText.length) return null;
+    let end = csvText.indexOf("\n", cursor);
+    if (end === -1) end = csvText.length;
+    let line = csvText.slice(cursor, end);
+    if (line.endsWith("\r")) line = line.slice(0, -1);
+    cursor = end + 1;
+    return line;
+  };
+
+  const headerLine = readLine();
+  if (!headerLine) {
+    return sums;
+  }
+
+  const header = parseCsvLine(headerLine);
+  const indexByName = new Map(header.map((name, idx) => [name, idx]));
+  const scriptPassAll = filters.scriptTypes.includes("All");
+  const minSats = balanceMinSats(filters.balance);
+
+  const idxDetails = indexByName.get("details");
+  const idxIdentity = indexByName.get("identity");
+  const idxExposedSupply = indexByName.get("exposed_supply_sats");
+  const idxSpend = indexByName.get("spend_activity");
+  const idxScriptTypes = indexByName.get("script_types");
+  const idxScriptType = indexByName.get("script_type");
+  const idxSupplyByScript = indexByName.get("exposed_supply_sats_by_script_type");
+
+  while (true) {
+    const line = readLine();
+    if (line === null) break;
+    if (!line) continue;
+    const values = parseCsvLine(line);
+
+    const details = idxDetails === undefined ? "" : (values[idxDetails] || "");
+    const identity = idxIdentity === undefined ? "" : (values[idxIdentity] || "");
+    if (!detailTagPassesFilters(filters.detailTags, details)) continue;
+    if (!identityBelongsToSelectedGroups(identity, filters.identityGroups)) continue;
+    if (!identityTagPassesFilters(filters.identityTags, identity)) continue;
+
+    const exposedSupplyRaw = idxExposedSupply === undefined ? "0" : (values[idxExposedSupply] || "0");
+    const exposedSupply = toInt(exposedSupplyRaw);
+    if (exposedSupply < minSats) continue;
+    if (!exposedSupply) continue;
+
+    const spend = idxSpend === undefined ? "" : (values[idxSpend] || "");
+    if (!SPEND_TYPES_ORDER.includes(spend)) continue;
+
+    const scriptTypesRaw = idxScriptTypes !== undefined
+      ? (values[idxScriptTypes] || "")
+      : idxScriptType !== undefined
+      ? (values[idxScriptType] || "")
+      : "";
+    const scriptTypes = scriptTypesRaw
+      .split("|")
+      .map((type) => type.trim())
+      .filter((type) => SCRIPT_TYPES_ORDER.includes(type));
+    const uniqueScriptTypes = Array.from(new Set(scriptTypes));
+    const targets = uniqueScriptTypes.length ? uniqueScriptTypes : ["Other"];
+
+    let supplyByScriptType = {};
+    const supplyByScriptRaw = idxSupplyByScript === undefined ? "" : (values[idxSupplyByScript] || "");
+    if (supplyByScriptRaw) {
+      try {
+        supplyByScriptType = JSON.parse(supplyByScriptRaw);
+      } catch (err) {
+        supplyByScriptType = {};
+      }
+    }
+
+    targets.forEach((scriptType) => {
+      if (!scriptPassAll && !filters.scriptTypes.includes(scriptType)) {
+        return;
+      }
+
+      const value = supplyByScriptType[scriptType] !== undefined
+        ? toInt(supplyByScriptType[scriptType])
+        : exposedSupply / targets.length;
+
+      sums[spend] += value;
+    });
+  }
+
+  return sums;
+}
+
+function buildHistoricalStackedData(filters) {
+  const selectedScripts = filters.scriptTypes.includes("All")
+    ? SCRIPT_TYPES_ORDER
+    : filters.scriptTypes.filter((value) => value !== "All");
+  const tagFiltersActive = isTagFilterActive(filters);
+
+  const spendFilterSet = new Set(filters.spendActivities);
+  const showAllSpends = spendFilterSet.has("all");
+  const ge1FilterKey = tagFiltersActive ? historicalGe1FilterKey(filters) : null;
+  const fallbackFilterKey = tagFiltersActive ? state.historicalSeriesGe1FallbackFilterKey : null;
+
+  return state.historicalSeries.map((point) => {
+    const rows = point.aggregatesRows;
+
+    // Base/faded layers always show the full "all-balance" picture regardless of filter.
+    const totalSupplySats = getAggregateFromRows(rows, "all", "All", "all", "supply_sats");
+    const fullNever = getAggregateFromRows(rows, "all", "All", "never_spent", "exposed_supply_sats");
+    const fullInactive = getAggregateFromRows(rows, "all", "All", "inactive", "exposed_supply_sats");
+    const fullActive = getAggregateFromRows(rows, "all", "All", "active", "exposed_supply_sats");
+    const fullExposed = fullNever + fullInactive + fullActive;
+
+    const selectedFromGe1 = tagFiltersActive && ge1FilterKey
+      ? point.ge1FilteredSumsByKey?.[ge1FilterKey] || null
+      : null;
+    const fallbackFromPreviousFilter = tagFiltersActive && fallbackFilterKey
+      ? point.ge1FilteredSumsByKey?.[fallbackFilterKey] || null
+      : null;
+    const shouldUseFallbackFilter = tagFiltersActive && ge1FilterKey && !selectedFromGe1 && !!fallbackFromPreviousFilter;
+
+    const selectedNever = selectedFromGe1
+      ? selectedFromGe1.never_spent
+      : shouldUseFallbackFilter
+      ? fallbackFromPreviousFilter.never_spent
+      : selectedScripts.reduce(
+          (sum, scriptType) =>
+            sum + getAggregateFromRows(rows, filters.balance, scriptType, "never_spent", "exposed_supply_sats"),
+          0
+        );
+    const selectedInactive = selectedFromGe1
+      ? selectedFromGe1.inactive
+      : shouldUseFallbackFilter
+      ? fallbackFromPreviousFilter.inactive
+      : selectedScripts.reduce(
+          (sum, scriptType) =>
+            sum + getAggregateFromRows(rows, filters.balance, scriptType, "inactive", "exposed_supply_sats"),
+          0
+        );
+    const selectedActive = selectedFromGe1
+      ? selectedFromGe1.active
+      : shouldUseFallbackFilter
+      ? fallbackFromPreviousFilter.active
+      : selectedScripts.reduce(
+          (sum, scriptType) =>
+            sum + getAggregateFromRows(rows, filters.balance, scriptType, "active", "exposed_supply_sats"),
+          0
+        );
+
+    const filteredNever = showAllSpends || spendFilterSet.has("never_spent") ? selectedNever : 0;
+    const filteredInactive = showAllSpends || spendFilterSet.has("inactive") ? selectedInactive : 0;
+    const filteredActive = showAllSpends || spendFilterSet.has("active") ? selectedActive : 0;
+
+    return {
+      snapshot: point.snapshot,
+      totalSupplySats,
+      fullNever,
+      fullInactive,
+      fullActive,
+      fullNonExposed: Math.max(totalSupplySats - fullExposed, 0),
+      filteredNever: Math.min(filteredNever, fullNever),
+      filteredInactive: Math.min(filteredInactive, fullInactive),
+      filteredActive: Math.min(filteredActive, fullActive),
+      spendHighlighted: {
+        never_spent: showAllSpends || spendFilterSet.has("never_spent"),
+        inactive: showAllSpends || spendFilterSet.has("inactive"),
+        active: showAllSpends || spendFilterSet.has("active"),
+      },
+    };
+  });
+}
+
+function showHistoricalLoadingOverlay(container, message) {
+  if (!container || !container.classList.contains("historical-chart") || !container.querySelector(".historical-svg")) {
+    return false;
+  }
+
+  container.classList.add("is-loading");
+
+  let overlay = container.querySelector("#historicalChartLoadingOverlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "historicalChartLoadingOverlay";
+    overlay.className = "historical-chart-loading-overlay";
+    container.appendChild(overlay);
+  }
+
+  overlay.innerHTML = `
+    <div class="historical-chart-loading-card" role="status" aria-live="polite">
+      <span class="historical-chart-loading-spinner" aria-hidden="true"></span>
+      <span>${escapeHtml(message)}</span>
+    </div>
+  `;
+
+  const tooltip = container.querySelector("#historicalHoverTooltip");
+  if (tooltip) {
+    tooltip.style.display = "none";
+  }
+
+  return true;
+}
+
+function clearHistoricalLoadingOverlay(container) {
+  if (!container) return;
+
+  container.classList.remove("is-loading");
+  const overlay = container.querySelector("#historicalChartLoadingOverlay");
+  if (overlay) {
+    overlay.remove();
+  }
+}
+
+function renderHistoricalLoadingShell(container, message = "Loading historical chart...") {
+  if (!container) return;
+
+  container.className = "historical-chart";
+  container.innerHTML = `
+    <svg class="historical-svg" role="img" aria-label="Historical stacked supply chart loading"></svg>
+  `;
+  showHistoricalLoadingOverlay(container, message);
+}
+
+function renderHistoricalStackedChart(filters) {
+  const container = document.getElementById("scriptBars");
+  const tagFiltersActive = isTagFilterActive(filters);
+  let isRenderingProgressively = false;
+  let loadingOverlayMessage = "Loading historical chart...";
+  const hasRenderedHistoricalChart =
+    !!container && container.classList.contains("historical-chart") && !!container.querySelector(".historical-svg");
+
+  if (!state.historicalSeries.length) {
+    if (!state.historicalSeriesLoading) {
+      ensureHistoricalSeriesLoaded()
+        .then(() => update())
+        .catch((err) => {
+          console.error(err);
+          update();
+        });
+    }
+    renderHistoricalLoadingShell(container, "Loading historical chart...");
+    return;
+  }
+
+  if (tagFiltersActive) {
+    const ge1FilterKey = historicalGe1FilterKey(filters);
+    const missingForFilter = state.historicalSeries.some((point) => !point.ge1FilteredSumsByKey?.[ge1FilterKey]);
+    if (missingForFilter) {
+      // Start a new load only when the filter key has changed; otherwise the
+      // existing load is already progressing for this same filter.
+      if (state.historicalSeriesGe1ActiveFilterKey !== ge1FilterKey) {
+        const priorCompletedKey = state.historicalSeriesGe1LastCompletedFilterKey;
+        state.historicalSeriesGe1FallbackFilterKey =
+          priorCompletedKey && priorCompletedKey !== ge1FilterKey ? priorCompletedKey : null;
+        state.historicalProgressiveYMaxSats = null;
+
+        // Abort any in-flight load for a different filter.
+        state.historicalSeriesGe1AbortController?.abort();
+        const controller = new AbortController();
+        state.historicalSeriesGe1AbortController = controller;
+        state.historicalSeriesGe1ActiveFilterKey = ge1FilterKey;
+        ensureHistoricalSeriesGe1Loaded(filters, controller.signal)
+          .then(() => update())
+          .catch((err) => {
+            if (err.name !== "AbortError") console.error(err);
+            update();
+          });
+      }
+
+      // Build a progress message for the overlay while loading.
+      const prog = state.historicalSeriesGe1LoadProgress;
+      loadingOverlayMessage = prog
+        ? `Loading filter data... (${prog.loaded}/${prog.total})`
+        : "Loading filter data...";
+      showHistoricalLoadingOverlay(container, loadingOverlayMessage);
+
+      // Fall through and render with whatever ge1 data has already arrived.
+      // Points without ge1 data yet will show their unfiltered bar values;
+      // they snap to filtered values as each snapshot finishes loading.
+      isRenderingProgressively = true;
+    } else {
+      state.historicalSeriesGe1LastCompletedFilterKey = ge1FilterKey;
+      state.historicalSeriesGe1FallbackFilterKey = null;
+    }
+  } else {
+    state.historicalSeriesGe1LastCompletedFilterKey = null;
+    state.historicalSeriesGe1FallbackFilterKey = null;
+  }
+
+  // Only show generic loading state if we're not already rendering progressively.
+  if (!isRenderingProgressively && (state.historicalSeriesLoading || state.historicalSeriesGe1Loading)) {
+    renderHistoricalLoadingShell(container, "Loading historical chart...");
+    return;
+  }
+
+  if (!state.historicalSeries.length) {
+    clearHistoricalLoadingOverlay(container);
+    container.className = "bar-empty";
+    container.textContent = "No historical snapshots available.";
+    return;
+  }
+
+  const points = buildHistoricalStackedData(filters).filter((point) => point.totalSupplySats > 0);
+  if (!points.length) {
+    clearHistoricalLoadingOverlay(container);
+    container.className = "bar-empty";
+    container.textContent = "No historical data for current filter selection.";
+    return;
+  }
+
+  const maxTotal = Math.max(...points.map((point) => point.totalSupplySats), 1);
+  const minHeight = Math.min(...points.map((point) => Number.parseInt(point.snapshot, 10) || 0));
+  const maxHeight = Math.max(...points.map((point) => Number.parseInt(point.snapshot, 10) || 0));
+
+  const containerWidth = Math.floor(container.clientWidth || container.getBoundingClientRect().width || 0);
+  const width = Math.max(containerWidth, 280);
+  const height = Math.max(container.clientHeight || 300, 140);
+  const isCardPreview = document.documentElement.classList.contains("card-preview");
+  const bottomMargin = isCardPreview
+    ? Math.min(22, Math.max(14, Math.floor(height * 0.13)))
+    : Math.min(30, Math.max(18, Math.floor(height * 0.15)));
+  const compactWidth = width < 520;
+  const margin = {
+    top: 12,
+    right: compactWidth ? 18 : 26,
+    bottom: bottomMargin,
+    left: compactWidth ? 56 : 68,
+  };
+  const plotWidth = Math.max(width - margin.left - margin.right, 80);
+  const plotHeight = Math.max(height - margin.top - margin.bottom, 56);
+
+  const xDomainSpan = Math.max(maxHeight - minHeight, 1);
+  const xAtHeight = (blockheight) => margin.left + ((blockheight - minHeight) / xDomainSpan) * plotWidth;
+
+  const { showNonExposed, showFilteredOnly } = getSupplyDisplayFlags();
+
+  // Compute per-point stacked tops first (only depends on xAtHeight, not yAt).
+  const pointsWithIndex = points.map((point, index) => {
+    const snapshotHeight = Number.parseInt(point.snapshot, 10) || 0;
+    const neverTop = point.fullNever;
+    const inactiveTop = neverTop + point.fullInactive;
+    const activeTop = inactiveTop + point.fullActive;
+    const totalTop = activeTop + point.fullNonExposed;
+
+    // Filtered stacking: only show filtered amounts
+    const neverFilteredTop = point.filteredNever;
+    const inactiveFilteredTop = point.filteredNever + point.filteredInactive;
+    const activeFilteredTop = point.filteredNever + point.filteredInactive + point.filteredActive;
+    const inactiveFilteredAnchoredTop = neverTop + point.filteredInactive;
+    const activeFilteredAnchoredTop = inactiveTop + point.filteredActive;
+
+    return {
+      ...point,
+      index,
+      snapshotHeight,
+      x: xAtHeight(snapshotHeight),
+      neverTop,
+      inactiveTop,
+      activeTop,
+      totalTop,
+      neverFilteredTop,
+      inactiveFilteredTop,
+      activeFilteredTop,
+      inactiveFilteredAnchoredTop,
+      activeFilteredAnchoredTop,
+    };
+  });
+
+  // Keep the current marker arrow top just under the chart top across modes and window resizes.
+  const markerHeadHeightPx = 16;
+  const markerGapToPointPx = 6;
+  const markerTopPaddingPx = 1;
+  const markerClearancePx = markerHeadHeightPx + markerGapToPointPx + markerTopPaddingPx;
+
+  let maxStackSats;
+  if (showFilteredOnly) {
+    // When showing filtered only, max is the sum of all filtered amounts at highest point
+    maxStackSats = Math.max(
+      ...pointsWithIndex.map((p) => p.activeFilteredTop),
+      1
+    );
+  } else {
+    // Original behavior: show non-exposed if enabled, otherwise just exposed
+    maxStackSats = Math.max(
+      ...pointsWithIndex.map((p) => (showNonExposed ? p.totalTop : p.activeTop)),
+      1
+    );
+  }
+
+  const clearanceRatio = Math.min(markerClearancePx / Math.max(plotHeight, 1), 0.92);
+  const computedYMaxSats = Math.max(maxStackSats / Math.max(1 - clearanceRatio, 0.08), 1);
+  const shouldLockYMaxDuringProgressiveLoad = isRenderingProgressively && state.historicalSeriesGe1Loading;
+  let yMaxSats;
+  if (shouldLockYMaxDuringProgressiveLoad) {
+    if (!state.historicalProgressiveYMaxSats) {
+      state.historicalProgressiveYMaxSats = computedYMaxSats;
+    } else if (computedYMaxSats > state.historicalProgressiveYMaxSats) {
+      // Allow upward y-scale adjustments during progressive rendering to avoid clipping.
+      state.historicalProgressiveYMaxSats = computedYMaxSats;
+    }
+    yMaxSats = state.historicalProgressiveYMaxSats;
+  } else {
+    state.historicalProgressiveYMaxSats = null;
+    yMaxSats = computedYMaxSats;
+  }
+
+  const yAt = (value) => margin.top + (1 - value / yMaxSats) * plotHeight;
+
+  const yMaxBtc = yMaxSats / SATS_PER_BTC;
+  const tickUnitBtc = historicalYAxisUnitBtc(yMaxBtc);
+  const targetIntervals = Math.min(8, Math.max(3, Math.round(plotHeight / 78)));
+  const yMaxUnits = yMaxBtc / tickUnitBtc;
+  const rawStepUnits = yMaxUnits / Math.max(targetIntervals, 1);
+  const stepPow10 = 10 ** Math.floor(Math.log10(Math.max(rawStepUnits, 1e-9)));
+  const normalizedStep = rawStepUnits / stepPow10;
+  const unitStepBasis = [0.5, 1, 1.5, 2, 2.5, 3, 5, 10];
+  const selectedBasis = unitStepBasis.find((basis) => normalizedStep <= basis) || 10;
+  const stepUnits = selectedBasis * stepPow10;
+  const stepBtc = stepUnits * tickUnitBtc;
+
+  const yTickValues = [];
+  const topTickBtc = Math.floor(yMaxBtc / stepBtc) * stepBtc;
+  for (let tickBtc = topTickBtc; tickBtc >= -1e-9; tickBtc -= stepBtc) {
+    yTickValues.push(Math.max(0, tickBtc) * SATS_PER_BTC);
+  }
+  if (!yTickValues.length || yTickValues[yTickValues.length - 1] !== 0) {
+    yTickValues.push(0);
+  }
+
+  const gridLines = yTickValues
+    .map((value) => {
+      const y = yAt(value);
+      const label = formatHistoricalYAxisLabelFromSats(value, tickUnitBtc);
+      return `
+        <line class="historical-grid-line" x1="${margin.left}" y1="${y}" x2="${margin.left + plotWidth}" y2="${y}"></line>
+        <text class="historical-y-label" x="${margin.left - 8}" y="${y}" text-anchor="end">${label}</text>
+      `;
+    })
+    .join("");
+
+  const xStep = niceStep((maxHeight - minHeight) / 6 || 1);
+  const xTicks = [];
+  const xTickStart = Math.ceil(minHeight / xStep) * xStep;
+  for (let x = xTickStart; x <= maxHeight; x += xStep) {
+    xTicks.push(x);
+  }
+  if (!xTicks.length || xTicks[0] !== minHeight) {
+    xTicks.unshift(minHeight);
+  }
+  if (xTicks[xTicks.length - 1] !== maxHeight) {
+    xTicks.push(maxHeight);
+  }
+
+  const xTickLabelY = Math.min(margin.top + plotHeight + 14, height - 4);
+  const xTickLabels = xTicks
+    .map((tickHeight, idx) => {
+      const isFirst = idx === 0;
+      const isLast = idx === xTicks.length - 1;
+      const anchor = isFirst ? "start" : isLast ? "end" : "middle";
+      const x = xAtHeight(tickHeight);
+      const paddedX = isFirst ? Math.max(x, margin.left + 2) : isLast ? Math.min(x, margin.left + plotWidth - 2) : x;
+      return `
+      <text class="historical-tick-label" x="${paddedX}" y="${xTickLabelY}" text-anchor="${anchor}">${compactHeightLabel(tickHeight)}</text>
+    `;
+    })
+    .join("");
+
+  const nonExposedBasePath = areaPath(
+    pointsWithIndex,
+    (point) => point.x,
+    (point) => yAt(point.activeTop),
+    (point) => yAt(point.totalTop)
+  );
+  const neverBasePath = areaPath(
+    pointsWithIndex,
+    (point) => point.x,
+    () => yAt(0),
+    (point) => yAt(point.neverTop)
+  );
+  const inactiveBasePath = areaPath(
+    pointsWithIndex,
+    (point) => point.x,
+    (point) => yAt(point.neverTop),
+    (point) => yAt(point.inactiveTop)
+  );
+  const activeBasePath = areaPath(
+    pointsWithIndex,
+    (point) => point.x,
+    (point) => yAt(point.inactiveTop),
+    (point) => yAt(point.activeTop)
+  );
+
+  // Filtered-only paths: stacked filtered amounts
+  const neverFilteredBasePath = areaPath(
+    pointsWithIndex,
+    (point) => point.x,
+    () => yAt(0),
+    (point) => yAt(point.neverFilteredTop)
+  );
+  const inactiveFilteredBasePath = areaPath(
+    pointsWithIndex,
+    (point) => point.x,
+    (point) => yAt(point.neverFilteredTop),
+    (point) => yAt(point.inactiveFilteredTop)
+  );
+  const activeFilteredBasePath = areaPath(
+    pointsWithIndex,
+    (point) => point.x,
+    (point) => yAt(point.inactiveFilteredTop),
+    (point) => yAt(point.activeFilteredTop)
+  );
+
+  // Choose paths based on display mode
+  const displayNeverPath = showFilteredOnly ? neverFilteredBasePath : neverBasePath;
+  const displayInactivePath = showFilteredOnly ? inactiveFilteredBasePath : inactiveBasePath;
+  const displayActivePath = showFilteredOnly ? activeFilteredBasePath : activeBasePath;
+  const displayNonExposedPath = (showNonExposed && !showFilteredOnly) ? nonExposedBasePath : null;
+
+  const neverOverlayPath = areaPath(
+    pointsWithIndex,
+    (point) => point.x,
+    () => yAt(0),
+    (point) => yAt(point.neverFilteredTop)
+  );
+  const inactiveOverlayPath = areaPath(
+    pointsWithIndex,
+    (point) => point.x,
+    (point) => yAt(showFilteredOnly ? point.neverFilteredTop : point.neverTop),
+    (point) => yAt(showFilteredOnly ? point.inactiveFilteredTop : point.inactiveFilteredAnchoredTop)
+  );
+  const activeOverlayPath = areaPath(
+    pointsWithIndex,
+    (point) => point.x,
+    (point) => yAt(showFilteredOnly ? point.inactiveFilteredTop : point.inactiveTop),
+    (point) => yAt(showFilteredOnly ? point.activeFilteredTop : point.activeFilteredAnchoredTop)
+  );
+
+  const selectedSnapshotHeight = Number.parseInt(state.snapshotHeight, 10);
+  const selectedPoint = Number.isFinite(selectedSnapshotHeight)
+    ? pointsWithIndex.find((point) => point.snapshotHeight === selectedSnapshotHeight)
+    : null;
+
+  const currentMarker = selectedPoint
+    ? (() => {
+        const markerX = selectedPoint.x;
+        const markerTargetY = showFilteredOnly 
+          ? selectedPoint.activeFilteredTop
+          : (showNonExposed ? selectedPoint.totalTop : selectedPoint.activeTop);
+        const markerTipY = Math.max(
+          margin.top + markerTopPaddingPx + markerHeadHeightPx,
+          yAt(markerTargetY) - markerGapToPointPx
+        );
+        const markerTopY = Math.max(margin.top + markerTopPaddingPx, markerTipY - markerHeadHeightPx);
+        const headHalfWidth = 4;
+        return `
+          <g class="historical-current-marker">
+            <line x1="${markerX}" y1="${markerTopY}" x2="${markerX}" y2="${markerTipY - 5}" stroke-width="1.6"></line>
+            <path d="M ${markerX - headHalfWidth} ${markerTipY - 5} L ${markerX + headHalfWidth} ${markerTipY - 5} L ${markerX} ${markerTipY} Z"></path>
+          </g>
+        `;
+      })()
+    : "";
+
+
+  container.className = "historical-chart";
+  container.innerHTML = `
+    <svg class="historical-svg" width="${width}" height="${height}" role="img" aria-label="Historical stacked supply chart">
+      ${gridLines}
+      <line class="historical-axis" x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${margin.top + plotHeight}"></line>
+      <line class="historical-axis" x1="${margin.left}" y1="${margin.top + plotHeight}" x2="${margin.left + plotWidth}" y2="${margin.top + plotHeight}"></line>
+
+      <path class="historical-area-base seg-never" d="${displayNeverPath}"></path>
+      <path class="historical-area-base seg-inactive" d="${displayInactivePath}"></path>
+      <path class="historical-area-base seg-active" d="${displayActivePath}"></path>
+      ${displayNonExposedPath ? `<path class="historical-area-base seg-nonexposed" d="${displayNonExposedPath}"></path>` : ""}
+
+      <path class="historical-area-overlay seg-never ${pointsWithIndex.some((point) => point.spendHighlighted.never_spent) ? "" : "is-faded"}" d="${neverOverlayPath}"></path>
+      <path class="historical-area-overlay seg-inactive ${pointsWithIndex.some((point) => point.spendHighlighted.inactive) ? "" : "is-faded"}" d="${inactiveOverlayPath}"></path>
+      <path class="historical-area-overlay seg-active ${pointsWithIndex.some((point) => point.spendHighlighted.active) ? "" : "is-faded"}" d="${activeOverlayPath}"></path>
+
+      ${currentMarker}
+
+      <line id="historicalHoverLine" class="historical-hover-line" x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${margin.top + plotHeight}" visibility="hidden"></line>
+      <circle id="historicalHoverDot" class="historical-hover-dot" cx="${margin.left}" cy="${margin.top + plotHeight}" r="4" visibility="hidden"></circle>
+      <rect id="historicalHoverTarget" x="${margin.left}" y="${margin.top}" width="${plotWidth}" height="${plotHeight}" fill="transparent"></rect>
+
+      ${xTickLabels}
+    </svg>
+    <div id="historicalHoverTooltip" class="historical-hover-tooltip" style="display:none;"></div>
+  `;
+  if (isRenderingProgressively && state.historicalSeriesGe1Loading) {
+    showHistoricalLoadingOverlay(container, loadingOverlayMessage);
+  } else {
+    clearHistoricalLoadingOverlay(container);
+  }
+
+  const svg = container.querySelector(".historical-svg");
+  const hoverTarget = container.querySelector("#historicalHoverTarget");
+  const hoverLine = container.querySelector("#historicalHoverLine");
+  const hoverDot = container.querySelector("#historicalHoverDot");
+  const tooltip = container.querySelector("#historicalHoverTooltip");
+  let selectingSnapshotFromChart = false;
+
+  const nearestPointForEvent = (event) => {
+    const rect = svg.getBoundingClientRect();
+    const xInSvg = ((event.clientX - rect.left) / rect.width) * width;
+
+    let nearest = pointsWithIndex[0];
+    let bestDist = Math.abs(xInSvg - nearest.x);
+    for (let i = 1; i < pointsWithIndex.length; i += 1) {
+      const dist = Math.abs(xInSvg - pointsWithIndex[i].x);
+      if (dist < bestDist) {
+        nearest = pointsWithIndex[i];
+        bestDist = dist;
+      }
+    }
+
+    return nearest;
+  };
+
+  const showHoverForEvent = (event) => {
+    const nearest = nearestPointForEvent(event);
+
+    hoverLine.setAttribute("x1", String(nearest.x));
+    hoverLine.setAttribute("x2", String(nearest.x));
+    hoverLine.setAttribute("visibility", "visible");
+
+    hoverDot.setAttribute("cx", String(nearest.x));
+    hoverDot.setAttribute("cy", String(yAt(showNonExposed ? nearest.totalTop : nearest.activeTop)));
+    hoverDot.setAttribute("visibility", "visible");
+
+    const neverBtc = Math.round(nearest.filteredNever / SATS_PER_BTC);
+    const inactiveBtc = Math.round(nearest.filteredInactive / SATS_PER_BTC);
+    const activeBtc = Math.round(nearest.filteredActive / SATS_PER_BTC);
+    const nonExposedBtc = Math.round(nearest.fullNonExposed / SATS_PER_BTC);
+    const totalSupplyBtc = Math.round(nearest.totalSupplySats / SATS_PER_BTC);
+    const neverPct = formatPercent(nearest.filteredNever, nearest.totalSupplySats);
+    const inactivePct = formatPercent(nearest.filteredInactive, nearest.totalSupplySats);
+    const activePct = formatPercent(nearest.filteredActive, nearest.totalSupplySats);
+
+    const nonExposedRow = showNonExposed && nonExposedBtc > 0
+      ? `<div class="historical-tooltip-row historical-tooltip-nonexposed"><span class="historical-tooltip-label">Non-exposed:</span> ${formatInt(nonExposedBtc)} BTC</div>`
+      : "";
+    const activeRow = activeBtc > 0
+      ? `<div class="historical-tooltip-row historical-tooltip-active"><span class="historical-tooltip-label">Active:</span> ${formatInt(activeBtc)} BTC &middot; ${activePct}</div>`
+      : "";
+    const inactiveRow = inactiveBtc > 0
+      ? `<div class="historical-tooltip-row historical-tooltip-inactive"><span class="historical-tooltip-label">Inactive:</span> ${formatInt(inactiveBtc)} BTC &middot; ${inactivePct}</div>`
+      : "";
+    const neverRow = neverBtc > 0
+      ? `<div class="historical-tooltip-row historical-tooltip-never"><span class="historical-tooltip-label">Never Spent:</span> ${formatInt(neverBtc)} BTC &middot; ${neverPct}</div>`
+      : "";
+
+    tooltip.style.display = "block";
+    tooltip.innerHTML = `
+      <div><strong>Block Height: ${formatInt(nearest.snapshotHeight)}</strong></div>
+      <div class="historical-tooltip-row historical-tooltip-total">Total Supply: ${formatInt(totalSupplyBtc)} BTC</div>
+      ${nonExposedRow}${activeRow}${inactiveRow}${neverRow}
+    `;
+
+    const containerRect = container.getBoundingClientRect();
+    let left = event.clientX - containerRect.left + 12;
+    let top = event.clientY - containerRect.top - 12;
+    const maxLeft = container.clientWidth - tooltip.offsetWidth - 8;
+    const maxTop = container.clientHeight - tooltip.offsetHeight - 8;
+    left = Math.max(8, Math.min(left, maxLeft));
+    top = Math.max(8, Math.min(top, maxTop));
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+  };
+
+  hoverTarget.addEventListener("mousemove", showHoverForEvent);
+  hoverTarget.addEventListener("mouseenter", showHoverForEvent);
+  hoverTarget.addEventListener("click", async (event) => {
+    const nearest = nearestPointForEvent(event);
+    const nextSnapshot = String(nearest.snapshotHeight || "").trim();
+    const currentSnapshot = String(state.snapshotHeight || "").trim();
+    if (!nextSnapshot || nextSnapshot === currentSnapshot || selectingSnapshotFromChart) {
+      return;
+    }
+
+    const snapshotFilter = document.getElementById("snapshotFilter");
+    if (snapshotFilter) {
+      const hasOption = Array.from(snapshotFilter.options).some((option) => option.value === nextSnapshot);
+      if (hasOption) {
+        snapshotFilter.value = nextSnapshot;
+      }
+    }
+
+    selectingSnapshotFromChart = true;
+    try {
+      await loadSnapshotData(nextSnapshot);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      selectingSnapshotFromChart = false;
+    }
+  });
+  hoverTarget.addEventListener("mouseleave", () => {
+    hoverLine.setAttribute("visibility", "hidden");
+    hoverDot.setAttribute("visibility", "hidden");
+    tooltip.style.display = "none";
+  });
+}
+
+function updateScriptPanelModeUi() {
+  const title = document.getElementById("scriptPanelTitle");
+  const toggle = document.getElementById("scriptPanelModeToggle");
+  const supplyModeSelect = document.getElementById("scriptPanelSupplyMode");
+  const legendLine1 = document.getElementById("scriptPanelLegendLine1");
+  const legendLine2 = document.getElementById("scriptPanelLegendLine2");
+  const nonExposedLegend = document.querySelector(".non-exposed-legend");
+  if (!title || !toggle) return;
+  const { mode, showNonExposed, showFilteredOnly } = getSupplyDisplayFlags();
+
+  state.supplyDisplayMode = mode;
+  if (supplyModeSelect) {
+    supplyModeSelect.value = mode;
+  }
+
+  if (state.scriptPanelMode === "historical") {
+    title.textContent = "Historical Stacked Supply";
+    toggle.dataset.mode = "historical";
+    toggle.setAttribute("aria-pressed", "true");
+    toggle.setAttribute("title", "Switch to script type supply bars");
+    if (legendLine1) legendLine1.textContent = "X-axis = block height";
+    if (legendLine2) {
+      if (showFilteredOnly) {
+        legendLine2.textContent = "Y-axis = BTC, stack = filtered spend activity amounts";
+      } else {
+        legendLine2.textContent = showNonExposed
+          ? "Y-axis = BTC, top of stack = total supply"
+          : "Y-axis = BTC, top of stack = exposed supply";
+      }
+    }
+  } else {
+    title.textContent = "Script Type Supply Bars";
+    toggle.dataset.mode = "bars";
+    toggle.setAttribute("aria-pressed", "false");
+    toggle.setAttribute("title", "Switch to historical stacked chart");
+    if (legendLine1) legendLine1.textContent = "Rows ordered by total supply";
+    if (legendLine2) {
+      if (showFilteredOnly) {
+        legendLine2.textContent = "Bar width = relative filtered supply size";
+      } else {
+        legendLine2.textContent = showNonExposed
+          ? "Bar width = relative total supply size"
+          : "Bar width = relative exposed supply size";
+      }
+    }
+  }
+
+  if (nonExposedLegend) {
+    nonExposedLegend.style.display = showNonExposed ? "" : "none";
+  }
+}
+
+function updateTopExposuresFiltersUi() {
+  const panel = document.querySelector(".top-exposures-panel");
+  const toggle = document.getElementById("topExposuresFiltersToggle");
+  if (!panel || !toggle) return;
+
+  const isCollapsed = state.topExposuresFiltersCollapsed;
+  panel.classList.toggle("is-collapsed", isCollapsed);
+  toggle.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
+  toggle.setAttribute("title", isCollapsed ? "Show top exposure filters" : "Collapse top exposure filters");
+}
+
+function updateScriptPanelDetailsUi() {
+  const panel = document.getElementById("scriptPanel");
+  const toggle = document.getElementById("scriptPanelDetailsToggle");
+  if (!panel || !toggle) return;
+
+  const isCollapsed = !!state.scriptPanelDetailsCollapsed;
+  panel.classList.toggle("is-details-collapsed", isCollapsed);
+  toggle.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
+  toggle.setAttribute("title", isCollapsed ? "Show chart legend and controls" : "Collapse chart legend and controls");
+}
+
+function captureFilterSnapshot() {
+  const balanceFilter = document.getElementById("balanceFilter");
+  const snapshotFilter = document.getElementById("snapshotFilter");
+  const supplyModeSelect = document.getElementById("scriptPanelSupplyMode");
+  const topExposureAddressSearch = document.getElementById("topExposureAddressSearch");
+  return {
+    balanceFilterValue: balanceFilter ? balanceFilter.value : "all",
+    snapshotFilterValue: snapshotFilter ? snapshotFilter.value : String(state.snapshotHeight || ""),
+    supplyModeValue: supplyModeSelect ? supplyModeSelect.value : state.supplyDisplayMode,
+    topExposureAddressSearchValue: topExposureAddressSearch ? topExposureAddressSearch.value : state.topExposureAddressQuery,
+    scriptCheckedValues: getCheckedScriptValues(),
+    spendCheckedValues: getCheckedSpendValues(),
+    selectedDetailTags: state.selectedDetailTags.slice(),
+    selectedIdentityGroups: state.selectedIdentityGroups.slice(),
+    selectedIdentityTags: state.selectedIdentityTags.slice(),
+    topExposureAddressQuery: state.topExposureAddressQuery,
+    identityTagFilterQuery: state.identityTagFilterQuery,
+    supplyDisplayMode: state.supplyDisplayMode,
+    topExposuresFiltersCollapsed: state.topExposuresFiltersCollapsed,
+    scriptPanelDetailsCollapsed: state.scriptPanelDetailsCollapsed,
+    balanceAutoForcedFromAllByTopFilters: state.balanceAutoForcedFromAllByTopFilters,
+    topExposuresVisibleCount: state.topExposuresVisibleCount,
+    snapshotHeight: state.snapshotHeight,
+  };
+}
+
+async function applyFilterSnapshot(snapshot) {
+  const balanceFilter = document.getElementById("balanceFilter");
+  const snapshotFilter = document.getElementById("snapshotFilter");
+  const supplyModeSelect = document.getElementById("scriptPanelSupplyMode");
+  const topExposureAddressSearch = document.getElementById("topExposureAddressSearch");
+
+  if (balanceFilter) balanceFilter.value = snapshot.balanceFilterValue;
+  if (supplyModeSelect) supplyModeSelect.value = snapshot.supplyModeValue;
+  if (topExposureAddressSearch) topExposureAddressSearch.value = snapshot.topExposureAddressSearchValue;
+
+  getScriptCheckboxes().forEach((el) => { el.checked = snapshot.scriptCheckedValues.includes(el.value); });
+  getSpendCheckboxes().forEach((el) => { el.checked = snapshot.spendCheckedValues.includes(el.value); });
+
+  state.selectedDetailTags = snapshot.selectedDetailTags.slice();
+  state.selectedIdentityGroups = snapshot.selectedIdentityGroups.slice();
+  state.selectedIdentityTags = snapshot.selectedIdentityTags.slice();
+  state.topExposureAddressQuery = snapshot.topExposureAddressQuery;
+  state.identityTagFilterQuery = snapshot.identityTagFilterQuery;
+  state.supplyDisplayMode = snapshot.supplyDisplayMode;
+  state.topExposuresFiltersCollapsed = snapshot.topExposuresFiltersCollapsed;
+  state.scriptPanelDetailsCollapsed = snapshot.scriptPanelDetailsCollapsed;
+  state.balanceAutoForcedFromAllByTopFilters = snapshot.balanceAutoForcedFromAllByTopFilters;
+  state.topExposuresVisibleCount = snapshot.topExposuresVisibleCount;
+
+  updateScriptTriggerLabel();
+  updateSpendTriggerLabel();
+  renderTopExposureTagFilters();
+  updateScriptPanelModeUi();
+  updateTopExposuresFiltersUi();
+  updateScriptPanelDetailsUi();
+  clearIdentityTagFilterInput();
+
+  const targetSnapshot = String(snapshot.snapshotFilterValue || snapshot.snapshotHeight || "").trim();
+  const currentSnapshot = String(state.snapshotHeight || snapshotFilter?.value || "").trim();
+
+  if (targetSnapshot && targetSnapshot !== currentSnapshot) {
+    await loadSnapshotData(targetSnapshot);
+    return;
+  }
+
+  resetTopExposurePagination();
+  update();
+}
+
+function isDefaultFilterState() {
+  const balanceFilter = document.getElementById("balanceFilter");
+  const snapshotFilter = document.getElementById("snapshotFilter");
+  const supplyModeSelect = document.getElementById("scriptPanelSupplyMode");
+  const topExposureAddressSearch = document.getElementById("topExposureAddressSearch");
+
+  if (balanceFilter && balanceFilter.value !== "all") return false;
+  if (supplyModeSelect && supplyModeSelect.value !== "total") return false;
+  if (topExposureAddressSearch && topExposureAddressSearch.value.trim() !== "") return false;
+
+  const scriptChecked = getCheckedScriptValues();
+  if (!scriptChecked.includes("All")) return false;
+
+  const spendChecked = getCheckedSpendValues();
+  if (!spendChecked.includes("all")) return false;
+
+  const arraysEqualAll = (arr) => arr.length === 1 && arr[0] === "All";
+  if (!arraysEqualAll(state.selectedDetailTags)) return false;
+  if (!arraysEqualAll(state.selectedIdentityGroups)) return false;
+  if (!arraysEqualAll(state.selectedIdentityTags)) return false;
+
+  const defaultSnapshot = state.availableSnapshots.length ? String(state.availableSnapshots[0]) : null;
+  const currentSnapshot = String(snapshotFilter?.value || state.snapshotHeight || "").trim();
+  if (defaultSnapshot && currentSnapshot && currentSnapshot !== defaultSnapshot) return false;
+
+  return true;
+}
+
+function updateResetButtonUi() {
+  const btn = document.getElementById("resetDashboard");
+  if (!btn) return;
+  if (state.preResetStateSnapshot) {
+    btn.textContent = "Undo Reset";
+    btn.classList.add("reset-dashboard-btn--undo");
+    btn.title = "Undo the last filter reset";
+    btn.disabled = false;
+  } else {
+    btn.textContent = "Reset Filters";
+    btn.classList.remove("reset-dashboard-btn--undo");
+    btn.title = "Reset dashboard to defaults";
+    btn.disabled = isDefaultFilterState();
+  }
+}
+
+function clearPreResetSnapshot() {
+  if (!state.preResetStateSnapshot) return;
+  state.preResetStateSnapshot = null;
+  updateResetButtonUi();
+}
+
+async function resetDashboardToDefaults() {
+  state.preResetStateSnapshot = captureFilterSnapshot();
+
+  const balanceFilter = document.getElementById("balanceFilter");
+  const snapshotFilter = document.getElementById("snapshotFilter");
+  const supplyModeSelect = document.getElementById("scriptPanelSupplyMode");
+  const topExposureAddressSearch = document.getElementById("topExposureAddressSearch");
+
+  if (balanceFilter) {
+    balanceFilter.value = "all";
+  }
+  setAllScriptChecks(true);
+  setAllSpendChecks(true);
+
+  state.selectedDetailTags = ["All"];
+  state.selectedIdentityGroups = ["All"];
+  state.selectedIdentityTags = ["All"];
+  state.topExposureAddressQuery = "";
+  state.identityTagFilterQuery = "";
+  state.supplyDisplayMode = "total";
+  state.topExposuresFiltersCollapsed = false;
+  state.scriptPanelDetailsCollapsed = false;
+  state.balanceAutoForcedFromAllByTopFilters = false;
+  state.topExposuresVisibleCount = TOP_EXPOSURES_PAGE_SIZE;
+  state.topExposuresLoading = false;
+
+  if (supplyModeSelect) {
+    supplyModeSelect.value = "total";
+  }
+  if (topExposureAddressSearch) {
+    topExposureAddressSearch.value = "";
+  }
+
+  updateScriptTriggerLabel();
+  updateSpendTriggerLabel();
+  renderTopExposureTagFilters();
+  updateScriptPanelModeUi();
+  updateTopExposuresFiltersUi();
+  updateScriptPanelDetailsUi();
+
+  try {
+    window.localStorage.removeItem(FILTERS_STORAGE_KEY);
+  } catch (err) {
+    console.warn("Could not clear stored filter preferences", err);
+  }
+
+  const defaultSnapshot = String(snapshotFilter?.options?.[0]?.value || state.availableSnapshots[0] || "").trim();
+  const currentSnapshot = String(state.snapshotHeight || snapshotFilter?.value || "").trim();
+
+  if (defaultSnapshot && defaultSnapshot !== currentSnapshot) {
+    updateResetButtonUi();
+    await loadSnapshotData(defaultSnapshot);
+    return;
+  }
+
+  resetTopExposurePagination();
+  updateResetButtonUi();
+  update();
+}
+
+function normalizedFilterValuesForCache(values) {
+  return Array.isArray(values) ? [...values].sort().join("|") : "";
+}
+
+function topExposuresCacheKey(filters) {
+  const snapshotKey = String(state.snapshotHeight || "").trim();
+  return [
+    snapshotKey,
+    filters.balance,
+    normalizedFilterValuesForCache(filters.scriptTypes),
+    normalizedFilterValuesForCache(filters.spendActivities),
+    normalizedFilterValuesForCache(filters.detailTags),
+    normalizedFilterValuesForCache(filters.identityGroups),
+    normalizedFilterValuesForCache(filters.identityTags),
+    String(filters.topExposureAddressQuery || "").trim().toLowerCase(),
+    state.identityGroupsLoaded ? "groups:loaded" : "groups:not_loaded",
+  ].join("||");
+}
+
+function buildTopExposuresData(filters) {
+  if (!state.ge1Rows.length) {
+    return [];
+  }
+
+  const cacheKey = topExposuresCacheKey(filters);
+  const cachedRows = state.topExposuresDataCache.get(cacheKey);
+  if (cachedRows) {
+    return cachedRows;
+  }
+
+  const minSats = balanceMinSats(filters.balance);
+  const scriptPassAll = filters.scriptTypes.includes("All");
+  const spendPassAll = filters.spendActivities.includes("all");
+  const addressQuery = String(filters.topExposureAddressQuery || "").trim().toLowerCase();
+
+  const rows = state.ge1Rows
+    .filter((row) => toInt(row.exposed_supply_sats) >= minSats)
+    .filter((row) => {
+      if (scriptPassAll) return true;
+      const types = (row.script_types || row.script_type || "").split("|");
+      return types.some((t) => filters.scriptTypes.includes(t));
+    })
+    .filter((row) => spendPassAll || filters.spendActivities.includes(row.spend_activity))
+    .filter((row) => {
+      return detailTagPassesFilters(filters.detailTags, row.details || "");
+    })
+    .filter((row) => {
+      return identityBelongsToSelectedGroups(row.identity || "", filters.identityGroups);
+    })
+    .filter((row) => {
+      return identityTagPassesFilters(filters.identityTags, row.identity || "");
+    })
+    .filter((row) => {
+      if (!addressQuery) return true;
+      const primaryId = String(row.group_id || "").toLowerCase();
+      const displayIds = String(row.display_group_ids || row.display_group_id || "").toLowerCase();
+      return primaryId.includes(addressQuery) || displayIds.includes(addressQuery);
+    })
+    .map((row) => {
+      const scriptTypes = (row.script_types || row.script_type || "").split("|").filter(Boolean);
+      const filteredExposedSupplySats = getFilteredExposedSupplySatsForRow(row, filters.scriptTypes);
+      const displayGroupIds = filterAndOrderDisplayGroupIds(
+        (row.display_group_ids || row.display_group_id || row.group_id).split("|").filter(Boolean),
+        scriptTypes,
+        row.group_id
+      );
+
+      return {
+        groupId: row.group_id,
+        displayGroupIds,
+        exposedSupplySats: toInt(row.exposed_supply_sats),
+        filteredExposedSupplySats,
+        exposedUtxoCount: toInt(row.exposed_utxo_count),
+        firstExposedBlockheight: toInt(row.first_exposed_blockheight),
+        firstExposedTime: toInt(row.first_exposed_time),
+        lastSpendBlockheight: toInt(row.last_spend_blockheight),
+        lastSpendTime: toInt(row.last_spend_time),
+        scriptTypes,
+        spendActivity: row.spend_activity,
+        detail: row.details || "",
+        identity: row.identity || "",
+      };
+    })
+    .sort((left, right) => {
+      const leftValue = scriptPassAll ? left.exposedSupplySats : left.filteredExposedSupplySats;
+      const rightValue = scriptPassAll ? right.exposedSupplySats : right.filteredExposedSupplySats;
+      return rightValue - leftValue;
+    });
+
+  if (state.topExposuresDataCache.size >= 120) {
+    state.topExposuresDataCache.clear();
+  }
+  state.topExposuresDataCache.set(cacheKey, rows);
+  return rows;
+}
+
+function isTagFilterActive(filters) {
+  return (
+    !filters.detailTags.includes("All") ||
+    !filters.identityGroups.includes("All") ||
+    !filters.identityTags.includes("All")
+  );
+}
+
+function rowPassesTopExposureFilters(row, filters, includeTagFilters = true) {
+  const minSats = balanceMinSats(filters.balance);
+  if (toInt(row.exposed_supply_sats) < minSats) return false;
+
+  if (!filters.scriptTypes.includes("All")) {
+    const types = (row.script_types || row.script_type || "").split("|");
+    if (!types.some((t) => filters.scriptTypes.includes(t))) return false;
+  }
+
+  if (!filters.spendActivities.includes("all") && !filters.spendActivities.includes(row.spend_activity)) {
+    return false;
+  }
+
+  if (!includeTagFilters) return true;
+
+  if (!detailTagPassesFilters(filters.detailTags, row.details || "")) {
+    return false;
+  }
+
+  if (!identityBelongsToSelectedGroups(row.identity || "", filters.identityGroups)) {
+    return false;
+  }
+
+  if (!identityTagPassesFilters(filters.identityTags, row.identity || "")) {
+    return false;
+  }
+
+  return true;
+}
+
+function rowPassesTagAndBalanceFilters(row, filters) {
+  if (!rowPassesBalanceFilter(row, filters.balance)) return false;
+
+  if (!detailTagPassesFilters(filters.detailTags, row.details || "")) {
+    return false;
+  }
+
+  if (!identityBelongsToSelectedGroups(row.identity || "", filters.identityGroups)) {
+    return false;
+  }
+
+  if (!identityTagPassesFilters(filters.identityTags, row.identity || "")) {
+    return false;
+  }
+
+  return true;
+}
+
+function rowPassesBalanceFilter(row, balanceKey) {
+  const minSats = balanceMinSats(balanceKey);
+  return toInt(row.exposed_supply_sats) >= minSats;
+}
+
+function getFilteredExposedSupplySatsForRow(row, selectedScriptTypes) {
+  const totalExposedSupply = toInt(row.exposed_supply_sats);
+  if (!totalExposedSupply) return 0;
+
+  const rowScriptTypes = (row.script_types || row.script_type || "")
+    .split("|")
+    .map((value) => value.trim())
+    .filter((value) => SCRIPT_TYPES_ORDER.includes(value));
+  const uniqueRowScriptTypes = Array.from(new Set(rowScriptTypes));
+  const targets = uniqueRowScriptTypes.length ? uniqueRowScriptTypes : ["Other"];
+
+  if (selectedScriptTypes.includes("All")) {
+    return totalExposedSupply;
+  }
+
+  const selectedSet = new Set(selectedScriptTypes);
+  let supplyByScriptType = {};
+  if (row.exposed_supply_sats_by_script_type) {
+    try {
+      supplyByScriptType = JSON.parse(row.exposed_supply_sats_by_script_type);
+    } catch (err) {
+      supplyByScriptType = {};
+    }
+  }
+
+  let filteredSupply = 0;
+  targets.forEach((scriptType) => {
+    if (!selectedSet.has(scriptType)) return;
+    const value = supplyByScriptType[scriptType] !== undefined
+      ? toInt(supplyByScriptType[scriptType])
+      : totalExposedSupply / targets.length;
+    filteredSupply += value;
+  });
+
+  return filteredSupply;
+}
+
+function migrationWeightForScriptType(scriptType) {
+  switch (scriptType) {
+    case "P2PK":
+      return 111;
+    case "P2PKH":
+      return 192;
+    case "P2SH":
+      return 176;
+    case "P2WPKH":
+      return 112;
+    case "P2WSH":
+      return 149;
+    case "P2TR":
+      return 103;
+    default:
+      return 176;
+  }
+}
+
+function estimateMigrationBlocksFromRow(row) {
+  const utxoCount = toInt(row.exposed_utxo_count);
+  if (!utxoCount) return 0;
+
+  const scriptTypes = (row.script_types || row.script_type || "").split("|").filter(Boolean);
+  const weights = scriptTypes.length ? scriptTypes.map((st) => migrationWeightForScriptType(st)) : [176];
+  const avgWeight = weights.reduce((sum, w) => sum + w, 0) / weights.length;
+  return (utxoCount * avgWeight * 4) / 4_000_000;
+}
+
+function aggregateKpisFromGe1(filters, includeTagFilters) {
+  const acc = {
+    supply_sats: 0,
+    exposed_pubkey_count: 0,
+    exposed_utxo_count: 0,
+    exposed_supply_sats: 0,
+    estimated_migration_blocks: 0,
+  };
+  const exposedPubkeyGroupIds = new Set();
+
+  state.ge1Rows.forEach((row) => {
+    if (!rowPassesTopExposureFilters(row, filters, includeTagFilters)) return;
+
+    const exposedSupply = getFilteredExposedSupplySatsForRow(row, filters.scriptTypes);
+    if (!exposedSupply) return;
+    const totalExposedUtxos = toInt(row.exposed_utxo_count);
+    acc.supply_sats += exposedSupply;
+    acc.exposed_supply_sats += exposedSupply;
+    acc.exposed_utxo_count += totalExposedUtxos;
+    exposedPubkeyGroupIds.add(row.group_id);
+    acc.estimated_migration_blocks += estimateMigrationBlocksFromRow(row);
+  });
+
+  acc.exposed_pubkey_count = exposedPubkeyGroupIds.size;
+
+  return acc;
+}
+
+function mempoolAddressUrl(groupId) {
+  if (!groupId) return null;
+  if (groupId.startsWith("out:") || groupId.startsWith("stxo:")) return null;
+  if (/^[0-9a-f]{40}$/i.test(groupId)) return null;
+  if (groupId.startsWith("sha256:")) {
+    const reversed = groupId.slice(7).match(/../g).reverse().join("");
+    return `https://mempool.space/scripthash/${reversed}`;
+  }
+  return `https://mempool.space/address/${encodeURIComponent(groupId)}`;
+}
+
+function formatGroupId(id) {
+  if (!id) return id;
+
+  const value = id.startsWith("sha256:") ? id.slice(7) : id;
+  return value;
+}
+
+function isHexPubkeyId(id) {
+  return /^[0-9a-f]{66}$/i.test(id) || /^[0-9a-f]{130}$/i.test(id);
+}
+
+function isP2pkhAddress(id) {
+  return /^1[1-9A-HJ-NP-Za-km-z]{25,34}$/.test(id);
+}
+
+function isP2shAddress(id) {
+  return /^3[1-9A-HJ-NP-Za-km-z]{25,34}$/.test(id);
+}
+
+function isBech32P2wAddress(id) {
+  return /^bc1q[ac-hj-np-z02-9]{11,90}$/i.test(id);
+}
+
+function isBech32TaprootAddress(id) {
+  return /^bc1p[ac-hj-np-z02-9]{11,90}$/i.test(id);
+}
+
+function filterAndOrderDisplayGroupIds(displayGroupIds, scriptTypes, fallbackGroupId) {
+  const scriptSet = new Set((scriptTypes || []).map((s) => (s || "").trim()).filter(Boolean));
+  const uniqueIds = Array.from(new Set((displayGroupIds || []).map((id) => (id || "").trim()).filter(Boolean)));
+
+  let filtered = uniqueIds.filter((id) => {
+    if (isHexPubkeyId(id)) return scriptSet.has("P2PK");
+    if (isP2pkhAddress(id)) return scriptSet.has("P2PKH");
+    if (isP2shAddress(id)) return scriptSet.has("P2SH");
+    if (isBech32TaprootAddress(id)) return scriptSet.has("P2TR");
+    if (isBech32P2wAddress(id)) return scriptSet.has("P2WPKH") || scriptSet.has("P2WSH");
+    return true;
+  });
+
+  if (!filtered.length) filtered = uniqueIds;
+  if (!filtered.length && fallbackGroupId) filtered = [fallbackGroupId];
+
+  const rankId = (id) => {
+    if (scriptSet.has("P2PK") && isHexPubkeyId(id)) return 0;
+    if (scriptSet.has("P2PKH") && isP2pkhAddress(id)) return 1;
+    if (scriptSet.has("P2WPKH") && isBech32P2wAddress(id)) return 2;
+    if (scriptSet.has("P2WSH") && isBech32P2wAddress(id)) return 3;
+    if (scriptSet.has("P2TR") && isBech32TaprootAddress(id)) return 4;
+    if (scriptSet.has("P2SH") && isP2shAddress(id)) return 5;
+    return 10;
+  };
+
+  return filtered.sort((a, b) => {
+    const rankDiff = rankId(a) - rankId(b);
+    if (rankDiff !== 0) return rankDiff;
+    return a.localeCompare(b);
+  });
+}
+
+function buildMiddleEllipsis(text, keptChars) {
+  if (keptChars >= text.length) return text;
+  if (keptChars <= 0) return "...";
+
+  const head = Math.ceil(keptChars / 2);
+  const tail = Math.floor(keptChars / 2);
+  return `${text.slice(0, head)}...${text.slice(text.length - tail)}`;
+}
+
+function applyConditionalMiddleEllipsis(container) {
+  if (!container) return;
+
+  const links = container.querySelectorAll(".group-link[data-full-label]");
+  links.forEach((linkEl) => {
+    const fullLabel = linkEl.getAttribute("data-full-label") || "";
+    linkEl.textContent = fullLabel;
+
+    // Only truncate when the full label would overflow the single-line container.
+    if (!fullLabel || linkEl.clientWidth <= 0 || linkEl.scrollWidth <= linkEl.clientWidth) {
+      return;
+    }
+
+    let low = 0;
+    let high = Math.max(fullLabel.length - 1, 0);
+    let bestFit = "...";
+
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const candidate = buildMiddleEllipsis(fullLabel, mid);
+      linkEl.textContent = candidate;
+
+      if (linkEl.scrollWidth <= linkEl.clientWidth) {
+        bestFit = candidate;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+
+    linkEl.textContent = bestFit;
+  });
+}
+
+function normalizeTagValue(value) {
+  const text = (value || "").trim();
+  if (!text) return "";
+  if (text.toLowerCase() === "none") return "";
+  return text;
+}
+
+function formatDetailTag(detail) {
+  const value = normalizeTagValue(detail);
+  if (!value) return "";
+
+  const multisigMatch = value.match(/^(\d+-of-\d+)\s+multisig$/i);
+  if (multisigMatch) {
+    const [m, n] = multisigMatch[1].split("-of-");
+    return `Multisig ${m} of ${n}`;
+  }
+  return value;
+}
+
+function formatIdentityTag(identity) {
+  const value = normalizeTagValue(identity);
+  if (!value) return "";
+  if (/^\d+$/.test(value)) return "";
+  if (value.toLowerCase() === "unidentified") return "";
+  return value
+    .replace(/\s*\([^)]*\)/g, "")
+    .replace(/\bManagement\b/gi, "Mgmt")
+    .trim();
+}
+
+function detailTagPassesFilters(selectedDetailTags, detailValue) {
+  if (selectedDetailTags.includes("All")) return true;
+
+  const detailTag = formatDetailTag(detailValue || "");
+  if (!detailTag) {
+    return selectedDetailTags.includes(UNLABELED_DETAIL_FILTER_VALUE);
+  }
+
+  return selectedDetailTags.includes(detailTag);
+}
+
+function identityTagPassesFilters(selectedIdentityTags, identityValue) {
+  if (selectedIdentityTags.includes("All")) return true;
+
+  const identityTag = formatIdentityTag(identityValue || "");
+  if (!identityTag) {
+    return selectedIdentityTags.includes(UNIDENTIFIED_IDENTITY_FILTER_VALUE);
+  }
+
+  return selectedIdentityTags.includes(identityTag);
+}
+
+let _lastTopExposuresRows = null;
+let _lastTopExposuresVisibleCount = 0;
+
+function renderTopExposures(rows) {
+  const container = document.getElementById("topExposuresList");
+  const previousScrollTop = container.scrollTop;
+  state.topExposuresTotalCount = rows.length;
+
+  if (!rows.length) {
+    _lastTopExposuresRows = null;
+    _lastTopExposuresVisibleCount = 0;
+    if (state.topExposuresLoading) {
+      container.innerHTML = '<div class="bar-empty" style="padding: 12px;">Loading top exposure rows...</div>';
+      return;
+    }
+    container.innerHTML = '<div class="bar-empty" style="padding: 12px;">No exposure rows for the current filter selection.</div>';
+    state.topExposuresLoading = false;
+    return;
+  }
+
+  const visibleCount = Math.min(state.topExposuresVisibleCount, rows.length);
+
+  if (rows === _lastTopExposuresRows && visibleCount === _lastTopExposuresVisibleCount && !state.topExposuresLoading) {
+    return;
+  }
+  _lastTopExposuresRows = rows;
+  _lastTopExposuresVisibleCount = visibleCount;
+
+  const visibleRows = rows.slice(0, visibleCount);
+
+  const html = visibleRows.map((row) => {
+    const spendTagClass = row.spendActivity === "never_spent"
+      ? "tag-spend-never"
+      : row.spendActivity === "inactive"
+        ? "tag-spend-inactive"
+        : "tag-spend-active";
+
+    const addressLines = row.displayGroupIds.map((id) => {
+      const addressUrl = mempoolAddressUrl(id);
+      const displayLabel = formatGroupId(id);
+      return addressUrl
+        ? `<a class="group-link" data-full-label="${escapeHtmlAttr(displayLabel)}" href="${addressUrl}" target="_blank" rel="noopener noreferrer">${escapeHtml(displayLabel)}</a>`
+        : `<span class="group-link" data-full-label="${escapeHtmlAttr(displayLabel)}">${escapeHtml(displayLabel)}</span>`;
+    }).join("");
+
+    const scriptTypeTags = row.scriptTypes
+      .map((st) => `<span class="tag">${st}</span>`)
+      .join("");
+    const detailTag = formatDetailTag(row.detail);
+    const identityTag = formatIdentityTag(row.identity || "");
+    const utxoLabel = row.exposedUtxoCount === 1 ? "1 UTXO" : `${formatInt(row.exposedUtxoCount)} UTXOs`;
+    const showFilteredBalance =
+      row.filteredExposedSupplySats > 0 && row.filteredExposedSupplySats !== row.exposedSupplySats;
+
+    const tooltipLines = [];
+    if (row.firstExposedBlockheight > 0 || row.firstExposedTime > 0) {
+      tooltipLines.push(
+        `First exposure:\n${formatInt(row.firstExposedBlockheight)} · ${formatTooltipDateFromHeight(row.firstExposedBlockheight, row.firstExposedTime)}`
+      );
+    }
+    if (row.lastSpendBlockheight > 0) {
+      tooltipLines.push(
+        `Last spend:\n${formatInt(row.lastSpendBlockheight)} · ${formatTooltipDateFromHeight(row.lastSpendBlockheight, row.lastSpendTime)}`
+      );
+    }
+    const spendTooltip = tooltipLines.join("\n");
+    const spendTooltipAttr = spendTooltip ? ` data-tooltip="${escapeHtmlAttr(spendTooltip)}"` : "";
+
+    return `
+      <div class="top-item">
+        <div class="top-head">
+          <div class="top-addresses">${addressLines}</div>
+          <span class="top-value">
+            <span class="top-value-exposed ${showFilteredBalance ? "top-value-exposed-dimmed" : ""}">Exposed balance: ${formatSigFigsBtc(row.exposedSupplySats)} BTC${showFilteredBalance ? ";" : ""}</span>
+            ${showFilteredBalance
+              ? ` <span class="top-value-filtered">Filtered balance: ${formatSigFigsBtc(row.filteredExposedSupplySats)} BTC</span>`
+              : ""}
+          </span>
+        </div>
+        <div class="tag-row">
+          ${scriptTypeTags}
+          ${detailTag ? `<span class="tag">${detailTag}</span>` : ""}
+          ${identityTag ? `<span class="tag">${identityTag}</span>` : ""}
+          <span class="tag ${spendTagClass}"${spendTooltipAttr}>${formatSpendLabel(row.spendActivity)}</span>
+          <span class="tag tag-utxo">${utxoLabel}</span>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  const footerHtml = visibleCount < rows.length
+    ? `<div id="topExposuresFooter" class="top-list-footer is-hidden">${
+        state.topExposuresLoading
+          ? '<span class="top-list-loading" aria-label="Loading more exposures" role="status"></span>'
+          : '<span class="top-list-pull" aria-hidden="true"></span>'
+      }</div>`
+    : "";
+
+  container.innerHTML = html + footerHtml;
+  applyConditionalMiddleEllipsis(container);
+  container.scrollTop = previousScrollTop;
+
+  if (visibleCount < rows.length) {
+    syncTopExposuresShowMoreVisibility();
+  }
+}
+
+function resetTopExposurePagination() {
+  state.topExposuresVisibleCount = TOP_EXPOSURES_PAGE_SIZE;
+  state.topExposuresTotalCount = 0;
+  state.topExposuresLoading = false;
+}
+
+function syncTopExposuresShowMoreVisibility() {
+  const container = document.getElementById("topExposuresList");
+  const footer = document.getElementById("topExposuresFooter");
+  if (!container || !footer) {
+    return;
+  }
+
+  const remainingScroll = container.scrollHeight - container.scrollTop - container.clientHeight;
+  const atBottom = remainingScroll <= TOP_EXPOSURES_BOTTOM_THRESHOLD_PX;
+  footer.classList.toggle("is-hidden", !atBottom && !state.topExposuresLoading);
+}
+
+function tryLoadMoreTopExposures() {
+  if (state.topExposuresLoading) {
+    return;
+  }
+  if (state.topExposuresVisibleCount >= state.topExposuresTotalCount) {
+    return;
+  }
+
+  const container = document.getElementById("topExposuresList");
+  if (!container) {
+    return;
+  }
+
+  const remainingScroll = container.scrollHeight - container.scrollTop - container.clientHeight;
+  if (remainingScroll > TOP_EXPOSURES_BOTTOM_THRESHOLD_PX) {
+    return;
+  }
+
+  state.topExposuresLoading = true;
+  update();
+
+  window.setTimeout(() => {
+    state.topExposuresVisibleCount += TOP_EXPOSURES_PAGE_SIZE;
+    state.topExposuresLoading = false;
+    update();
+  }, TOP_EXPOSURES_LOAD_DELAY_MS);
+}
+
+function setAllScriptChecks(checked) {
+  getScriptCheckboxes().forEach((el) => {
+    el.checked = checked;
+  });
+}
+
+function setAllSpendChecks(checked) {
+  getSpendCheckboxes().forEach((el) => {
+    el.checked = checked;
+  });
+}
+
+function handleScriptCheckboxChange(changedEl) {
+  const allEl = getScriptCheckboxes().find((el) => el.value === "All");
+  const nonAllEls = getScriptCheckboxes().filter((el) => el.value !== "All");
+
+  if (changedEl.value === "All") {
+    if (changedEl.checked) {
+      setAllScriptChecks(true);
+    } else {
+      setAllScriptChecks(false);
+    }
+  } else {
+    if (!changedEl.checked) {
+      allEl.checked = false;
+    } else if (nonAllEls.every((el) => el.checked)) {
+      allEl.checked = true;
+    }
+  }
+
+  updateScriptTriggerLabel();
+  resetTopExposurePagination();
+  clearPreResetSnapshot();
+  update();
+}
+
+function handleSpendCheckboxChange(changedEl) {
+  const allEl = getSpendCheckboxes().find((el) => el.value === "all");
+  const nonAllEls = getSpendCheckboxes().filter((el) => el.value !== "all");
+
+  if (changedEl.value === "all") {
+    if (changedEl.checked) {
+      setAllSpendChecks(true);
+    } else {
+      setAllSpendChecks(false);
+    }
+  } else {
+    if (!changedEl.checked) {
+      allEl.checked = false;
+    } else if (nonAllEls.every((el) => el.checked)) {
+      allEl.checked = true;
+    }
+  }
+
+  updateSpendTriggerLabel();
+  resetTopExposurePagination();
+  clearPreResetSnapshot();
+  update();
+}
+
+function aggregateAllKpis(filters) {
+  const balanceKey = filters.balance;
+  const scriptKeys = filters.scriptTypes.includes("All") ? ["All"] : filters.scriptTypes;
+  const spendKeys = filters.spendActivities.includes("all") ? ["all"] : filters.spendActivities;
+
+  const acc = {
+    supply_sats: 0,
+    exposed_pubkey_count: 0,
+    exposed_utxo_count: 0,
+    exposed_supply_sats: 0,
+    estimated_migration_blocks: 0,
+  };
+
+  scriptKeys.forEach((script) => {
+    // Supply uses the spend='all' rollup (value is independent of spend activity).
+    acc.supply_sats += getAggregate(balanceKey, script, "all", "supply_sats");
+
+    // Migration blocks should follow the selected spend activity filter.
+    spendKeys.forEach((spend) => {
+      acc.estimated_migration_blocks += getAggregateFloat(
+        balanceKey,
+        script,
+        spend,
+        "estimated_migration_blocks"
+      );
+    });
+
+    // exposed metrics respect the spend activity filter
+    spendKeys.forEach((spend) => {
+      acc.exposed_pubkey_count += getAggregate(balanceKey, script, spend, "exposed_pubkey_count");
+      acc.exposed_utxo_count += getAggregate(balanceKey, script, spend, "exposed_utxo_count");
+      acc.exposed_supply_sats += getAggregate(balanceKey, script, spend, "exposed_supply_sats");
+    });
+  });
+
+  return acc;
+}
+
+function renderKpis(kpi, total) {
+  const hasExposedPubkeys = kpi.exposed_pubkey_count > 0;
+  const roundedMigrationBlocks = hasExposedPubkeys
+    ? Math.max(1, Math.ceil(kpi.estimated_migration_blocks))
+    : 0;
+
+  document.getElementById("kpiSupply").textContent = formatCeilBtc(total.supply_sats) + " BTC";
+
+  const exposedSupplySubsetBtc = Math.ceil(kpi.exposed_supply_sats / SATS_PER_BTC);
+  const exposedSupplyOfTotal = formatPercent(kpi.exposed_supply_sats, total.supply_sats);
+  document.getElementById("kpiExposedSupply").textContent =
+    `${formatInt(exposedSupplySubsetBtc)} BTC · ${exposedSupplyOfTotal}`;
+  document.getElementById("kpiExposedSupplyShare").textContent =
+    `${formatPercent(kpi.exposed_supply_sats, total.exposed_supply_sats)} of all exposed supply`;
+
+  document.getElementById("kpiExposedPubkeys").textContent =
+    `${formatInt(kpi.exposed_pubkey_count)}`;
+  document.getElementById("kpiExposedPubkeysShare").textContent =
+    `${formatPercent(kpi.exposed_pubkey_count, total.exposed_pubkey_count)} of all exposed pubkeys`;
+
+  document.getElementById("kpiExposedUtxos").textContent =
+    `${formatInt(kpi.exposed_utxo_count)}`;
+  document.getElementById("kpiExposedUtxosShare").textContent =
+    `${formatPercent(kpi.exposed_utxo_count, total.exposed_utxo_count)} of all exposed UTXOs`;
+
+  document.getElementById("kpiMigrationTime").textContent = hasExposedPubkeys
+    ? `~${formatMigrationTime(roundedMigrationBlocks)}`
+    : "0 min";
+
+  document.getElementById("kpiMigrationBlocks").textContent =
+    `${formatInt(roundedMigrationBlocks)} blocks`;
+}
+
+function readFilters() {
+  const selectedScriptTypes = getCheckedScriptValues();
+  const selectedSpendActivities = getCheckedSpendValues();
+  let selectedDetailTags = Array.isArray(state.selectedDetailTags) ? state.selectedDetailTags : ["All"];
+  let selectedIdentityGroups = Array.isArray(state.selectedIdentityGroups) ? state.selectedIdentityGroups : ["All"];
+  let selectedIdentityTags = Array.isArray(state.selectedIdentityTags) ? state.selectedIdentityTags : ["All"];
+
+  // If selections are exclusion-encoded from share-state, resolve them as soon
+  // as the option universe is known so filtering logic never sees raw tokens.
+  const hasExcludeEncoding =
+    selectedDetailTags.includes(SHARE_EXCLUDE_TOKEN) ||
+    selectedIdentityGroups.includes(SHARE_EXCLUDE_TOKEN) ||
+    selectedIdentityTags.includes(SHARE_EXCLUDE_TOKEN);
+  if (hasExcludeEncoding && state.ge1Rows.length) {
+    const allOptions = buildTagOptionsFromGe1Rows(["All"]);
+    selectedIdentityGroups = normalizeTagSelections(selectedIdentityGroups, allOptions.identityGroups, true, true);
+    const scopedOptions = buildTagOptionsFromGe1Rows(selectedIdentityGroups);
+    selectedDetailTags = normalizeTagSelections(selectedDetailTags, scopedOptions.details, true, true);
+    selectedIdentityTags = normalizeTagSelections(selectedIdentityTags, scopedOptions.identities, true, true);
+  }
+
+  const topExposureAddressSearch = document.getElementById("topExposureAddressSearch");
+  const topExposureAddressQuery = topExposureAddressSearch
+    ? topExposureAddressSearch.value.trim()
+    : String(state.topExposureAddressQuery || "").trim();
+  let balanceValue = document.getElementById("balanceFilter").value;
+
+  const detailFiltered = selectedDetailTags.length > 0 && !selectedDetailTags.includes("All");
+  const identityGroupFiltered = selectedIdentityGroups.length > 0 && !selectedIdentityGroups.includes("All");
+  const identityFiltered = selectedIdentityTags.length > 0 && !selectedIdentityTags.includes("All");
+  const topExposureFiltersActive = detailFiltered || identityGroupFiltered || identityFiltered;
+  const balanceFilterEl = document.getElementById("balanceFilter");
+
+  if (topExposureFiltersActive) {
+    if (balanceValue === "all") {
+      // Auto-force from All only when top-exposure filters become constrained.
+      balanceValue = "ge1";
+      if (balanceFilterEl) {
+        balanceFilterEl.value = "ge1";
+      }
+      state.balanceAutoForcedFromAllByTopFilters = true;
+    }
+  } else if (state.balanceAutoForcedFromAllByTopFilters && balanceValue !== "all") {
+    // Restore All only if this session's current non-All value came from the auto-force.
+    balanceValue = "all";
+    if (balanceFilterEl) {
+      balanceFilterEl.value = "all";
+    }
+    state.balanceAutoForcedFromAllByTopFilters = false;
+  }
+
+  state.selectedDetailTags = selectedDetailTags;
+  state.selectedIdentityGroups = selectedIdentityGroups;
+  state.selectedIdentityTags = selectedIdentityTags;
+  state.topExposureAddressQuery = topExposureAddressQuery;
+
+  return {
+    balance: balanceValue,
+    spendActivities: selectedSpendActivities,
+    scriptTypes: selectedScriptTypes,
+    detailTags: state.selectedDetailTags,
+    identityGroups: state.selectedIdentityGroups,
+    identityTags: state.selectedIdentityTags,
+    topExposureAddressQuery: state.topExposureAddressQuery,
+  };
+}
+
+function update() {
+  updateAnalysisSplitHeight();
+  updateResetButtonUi();
+  const filters = readFilters();
+  persistFilters(filters);
+  if (state.scriptPanelMode === "historical") {
+    renderHistoricalStackedChart(filters);
+  } else {
+    renderScriptBars(buildScriptBarsData(filters));
+  }
+  renderTopExposures(buildTopExposuresData(filters));
+
+  if (!filters.scriptTypes.length || !filters.spendActivities.length) {
+    renderEmptyKpis();
+    return;
+  }
+
+  const useGe1Kpis = isTagFilterActive(filters);
+  const subset = useGe1Kpis ? aggregateKpisFromGe1(filters, true) : aggregateAllKpis(filters);
+  const total = aggregateAllKpis({
+    balance: "all",
+    spendActivities: ["all"],
+    scriptTypes: ["All"],
+  });
+  renderKpis(subset, total);
+}
+
+function updateAnalysisSplitHeight() {
+  const split = document.getElementById("analysisSplit");
+  if (!split) {
+    return;
+  }
+
+  const splitTop = split.getBoundingClientRect().top;
+  const bodyStyles = window.getComputedStyle(document.body);
+  const bodyPaddingBottom = Number.parseFloat(bodyStyles.paddingBottom) || 0;
+  const availableHeight = Math.floor(window.innerHeight - splitTop - bodyPaddingBottom);
+  const clampedHeight = Math.max(availableHeight, ANALYSIS_MIN_HEIGHT_PX);
+
+  document.documentElement.style.setProperty("--analysis-min-height", `${ANALYSIS_MIN_HEIGHT_PX}px`);
+  document.documentElement.style.setProperty("--analysis-max-height", `${clampedHeight}px`);
+}
+
+async function loadIdentityGroups() {
+  state.identityGroupsByName = {};
+  state.identityToGroupNames = {};
+
+  try {
+    const resp = await fetch("webapp_data/identity_groups.json");
+    if (!resp.ok) return false;
+
+    const payload = await resp.json();
+    if (!payload || typeof payload !== "object" || !payload.groups || typeof payload.groups !== "object") {
+      return false;
+    }
+
+    Object.entries(payload.groups).forEach(([groupName, identities]) => {
+      if (!Array.isArray(identities) || !groupName) return;
+
+      const normalizedIdentities = identities
+        .map((identity) => formatIdentityTag(identity || ""))
+        .filter(Boolean);
+
+      state.identityGroupsByName[groupName] = normalizedIdentities;
+
+      normalizedIdentities.forEach((identity) => {
+        if (!state.identityToGroupNames[identity]) {
+          state.identityToGroupNames[identity] = [];
+        }
+        if (!state.identityToGroupNames[identity].includes(groupName)) {
+          state.identityToGroupNames[identity].push(groupName);
+        }
+      });
+    });
+    return true;
+  } catch (err) {
+    console.warn("Could not load identity groups", err);
+    return false;
+  }
+}
+
+async function ensureIdentityGroupsLoaded() {
+  if (state.identityGroupsLoaded) {
+    return true;
+  }
+  if (state.identityGroupsLoadingPromise) {
+    return state.identityGroupsLoadingPromise;
+  }
+
+  state.identityGroupsLoadingPromise = (async () => {
+    const loaded = await loadIdentityGroups();
+    state.identityGroupsLoaded = loaded;
+    if (loaded) {
+      state.topExposuresDataCache.clear();
+    }
+    state.identityGroupsLoadingPromise = null;
+    return loaded;
+  })();
+
+  return state.identityGroupsLoadingPromise;
+}
+
+async function loadData() {
+  state.availableSnapshots = await loadAvailableSnapshots();
+  if (!state.availableSnapshots.length) {
+    throw new Error("No snapshots found in webapp_data/");
+  }
+
+  await loadSnapshotLabelLookup(state.availableSnapshots);
+
+  const selectedIdentityGroups = Array.isArray(state.selectedIdentityGroups) ? state.selectedIdentityGroups : ["All"];
+  const selectedIdentityTags = Array.isArray(state.selectedIdentityTags) ? state.selectedIdentityTags : ["All"];
+  const needsGlobalIdentityUniverseForExclusions = selectedIdentityTags.includes(SHARE_EXCLUDE_TOKEN);
+  const needsIdentityGroupMapForUnidentifiedGroup = selectedIdentityGroups.includes(UNIDENTIFIED_IDENTITY_GROUP_FILTER_VALUE);
+
+  if (
+    !selectedIdentityGroups.includes("All") ||
+    needsGlobalIdentityUniverseForExclusions ||
+    needsIdentityGroupMapForUnidentifiedGroup
+  ) {
+    await ensureIdentityGroupsLoaded();
+  }
+
+  populateSnapshotFilter(state.availableSnapshots);
+  const preferredMode = state.pendingPersistedSnapshotPreference;
+  const preferredSnapshot = state.pendingPersistedSnapshotHeight;
+  const initialSnapshot =
+    preferredMode === SNAPSHOT_PREF_LATEST
+      ? state.availableSnapshots[0]
+      : preferredSnapshot && state.availableSnapshots.includes(preferredSnapshot)
+      ? preferredSnapshot
+      : state.availableSnapshots[0];
+  await loadSnapshotData(initialSnapshot);
+}
+
+async function loadSnapshotLabelLookup(snapshots) {
+  state.blockDatetimeByHeight = {};
+  state.snapshotLabelDatetimeByHeight = {};
+
+  await Promise.all(
+    snapshots.map(async (snapshot) => {
+      try {
+        const resp = await fetch(`webapp_data/${snapshot}/dashboard_snapshot_meta.csv`);
+        if (!resp.ok) {
+          return;
+        }
+
+        const rows = parseCsv(await resp.text());
+        if (!rows.length) {
+          return;
+        }
+
+        const snapshotTime = toInt(rows[0].snapshot_time);
+        if (!snapshotTime) {
+          return;
+        }
+
+        state.blockDatetimeByHeight[String(snapshot)] = formatTooltipDate(snapshotTime);
+        state.snapshotLabelDatetimeByHeight[String(snapshot)] = formatSnapshotSelectDate(snapshotTime);
+      } catch (_err) {
+        // Best effort only; labels fall back to block height when unavailable.
+      }
+    })
+  );
+}
+
+async function loadAvailableSnapshots() {
+  const indexResp = await fetch("webapp_data/snapshots_index.csv");
+  if (indexResp.ok) {
+    const rows = parseCsv(await indexResp.text());
+    const values = rows
+      .map((row) => (row.snapshot_blockheight || "").trim())
+      .filter((value) => /^\d+$/.test(value));
+    if (values.length) {
+      values.sort((left, right) => Number.parseInt(right, 10) - Number.parseInt(left, 10));
+      return values;
+    }
+  }
+
+  const latestResp = await fetch("webapp_data/latest_snapshot.txt");
+  if (!latestResp.ok) {
+    throw new Error("Could not load webapp_data/latest_snapshot.txt");
+  }
+
+  const latest = (await latestResp.text()).trim();
+  if (!/^\d+$/.test(latest)) {
+    throw new Error("latest_snapshot.txt is not a valid block height");
+  }
+  return [latest];
+}
+
+function populateSnapshotFilter(snapshots) {
+  const select = document.getElementById("snapshotFilter");
+  const formatSnapshotLabel = (snapshot) => {
+    const datetimeUtc = state.snapshotLabelDatetimeByHeight[String(snapshot)] || "";
+    if (!datetimeUtc) return String(snapshot);
+    return `${snapshot} · ${datetimeUtc} (UTC)`;
+  };
+
+  select.innerHTML = snapshots
+    .map((snapshot) => `<option value="${snapshot}">${escapeHtml(formatSnapshotLabel(snapshot))}</option>`)
+    .join("");
+  select.value = snapshots[0];
+}
+
+async function loadSnapshotData(snapshot) {
+  const requestedSnapshot = String(snapshot || "").trim();
+  const basePath = `webapp_data/${requestedSnapshot}`;
+  const cached = state.snapshotDataCache.get(requestedSnapshot);
+
+  if (cached) {
+    state.aggregatesRows = cached.aggregatesRows;
+    state.ge1Rows = cached.ge1Rows;
+    state.snapshotHeight = cached.snapshotHeight;
+    state.topExposuresLoading = false;
+
+    const snapshotFilter = document.getElementById("snapshotFilter");
+    const loadedSnapshot = String(state.snapshotHeight || requestedSnapshot).trim();
+    if (snapshotFilter) {
+      const hasLoadedOption = Array.from(snapshotFilter.options).some((option) => option.value === loadedSnapshot);
+      snapshotFilter.value = hasLoadedOption ? loadedSnapshot : requestedSnapshot;
+    }
+
+    state.pendingPersistedSnapshotPreference = null;
+    state.pendingPersistedSnapshotHeight = null;
+    resetTopExposurePagination();
+    renderTopExposureTagFilters();
+    update();
+    return;
+  }
+
+  const [metaResp, aggregatesResp] = await Promise.all([
+    fetch(`${basePath}/dashboard_snapshot_meta.csv`),
+    fetch(`${basePath}/dashboard_pubkeys_aggregates.csv`),
+  ]);
+
+  if (!metaResp.ok || !aggregatesResp.ok) {
+    throw new Error(`Could not load one or more CSV files from ${basePath}/`);
+  }
+
+  const metaRows = parseCsv(await metaResp.text());
+  const aggregatesRows = parseCsv(await aggregatesResp.text());
+  const resolvedSnapshotHeight = metaRows.length ? metaRows[0].snapshot_blockheight : requestedSnapshot;
+
+  // Phase 1: render chart/KPI context as soon as light files are ready.
+  state.aggregatesRows = aggregatesRows;
+  state.snapshotHeight = resolvedSnapshotHeight;
+  state.ge1Rows = [];
+  state.topExposuresLoading = true;
+  state.topExposuresDataCache.clear();
+
+  const snapshotFilter = document.getElementById("snapshotFilter");
+  const loadedSnapshot = String(state.snapshotHeight || requestedSnapshot).trim();
+  if (snapshotFilter) {
+    const hasLoadedOption = Array.from(snapshotFilter.options).some((option) => option.value === loadedSnapshot);
+    snapshotFilter.value = hasLoadedOption ? loadedSnapshot : requestedSnapshot;
+  }
+
+  state.pendingPersistedSnapshotPreference = null;
+  state.pendingPersistedSnapshotHeight = null;
+  resetTopExposurePagination();
+  state.topExposuresLoading = true;
+  renderTopExposureTagFilters();
+  update();
+
+  const ge1Resp = await fetch(`${basePath}/dashboard_pubkeys_ge_1btc.csv`);
+  if (!ge1Resp.ok) {
+    state.topExposuresLoading = false;
+    throw new Error(`Could not load one or more CSV files from ${basePath}/`);
+  }
+
+  const ge1Rows = parseCsv(await ge1Resp.text());
+  state.ge1Rows = ge1Rows;
+  state.topExposuresLoading = false;
+
+  // Rebuild filters now that full identity/detail options are available.
+  renderTopExposureTagFilters();
+
+  state.snapshotDataCache.set(requestedSnapshot, {
+    snapshotHeight: state.snapshotHeight,
+    aggregatesRows,
+    ge1Rows,
+  });
+
+  update();
+}
+
+function attachEvents() {
+  bindCustomTooltips();
+  const copyDashboardLinkButton = document.getElementById("copyDashboardLink");
+  const resetDashboardButton = document.getElementById("resetDashboard");
+  const themeToggle = document.getElementById("themeToggle");
+  const scriptPanelModeToggle = document.getElementById("scriptPanelModeToggle");
+  const scriptPanelDetailsToggle = document.getElementById("scriptPanelDetailsToggle");
+  const supplyModeSelect = document.getElementById("scriptPanelSupplyMode");
+  const topExposuresFiltersToggle = document.getElementById("topExposuresFiltersToggle");
+  const topExposureAddressSearch = document.getElementById("topExposureAddressSearch");
+  ["balanceFilter"].forEach((id) => {
+    document.getElementById(id).addEventListener("change", () => {
+      // Manual balance changes should always override auto-revert behavior.
+      state.balanceAutoForcedFromAllByTopFilters = false;
+      resetTopExposurePagination();
+      clearPreResetSnapshot();
+      update();
+    });
+  });
+
+  if (themeToggle) {
+    themeToggle.addEventListener("click", () => {
+      toggleTheme();
+    });
+  }
+
+  if (resetDashboardButton) {
+    resetDashboardButton.addEventListener("click", async () => {
+      try {
+        if (state.preResetStateSnapshot) {
+          const snapshot = state.preResetStateSnapshot;
+          state.preResetStateSnapshot = null;
+          updateResetButtonUi();
+          await applyFilterSnapshot(snapshot);
+        } else {
+          await resetDashboardToDefaults();
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    });
+  }
+
+  if (copyDashboardLinkButton) {
+    copyDashboardLinkButton.addEventListener("click", async () => {
+      try {
+        await copyDashboardLinkToClipboard(copyDashboardLinkButton);
+      } catch (err) {
+        console.error(err);
+      }
+    });
+  }
+
+  if (scriptPanelModeToggle) {
+    scriptPanelModeToggle.addEventListener("click", async () => {
+      state.scriptPanelMode = state.scriptPanelMode === "historical" ? "bars" : "historical";
+      updateScriptPanelModeUi();
+
+      if (state.scriptPanelMode === "historical" && !state.historicalSeries.length) {
+        try {
+          update();
+          await ensureHistoricalSeriesLoaded();
+        } catch (err) {
+          console.error(err);
+          state.scriptPanelMode = "bars";
+          updateScriptPanelModeUi();
+        }
+      }
+
+      update();
+    });
+  }
+
+  if (supplyModeSelect) {
+    supplyModeSelect.value = normalizeSupplyDisplayMode(state.supplyDisplayMode);
+    supplyModeSelect.addEventListener("change", () => {
+      state.supplyDisplayMode = normalizeSupplyDisplayMode(supplyModeSelect.value);
+      updateScriptPanelModeUi();
+      clearPreResetSnapshot();
+      update();
+    });
+  }
+
+  if (topExposuresFiltersToggle) {
+    topExposuresFiltersToggle.addEventListener("click", () => {
+      state.topExposuresFiltersCollapsed = !state.topExposuresFiltersCollapsed;
+      updateTopExposuresFiltersUi();
+      syncTopExposuresShowMoreVisibility();
+      applyConditionalMiddleEllipsis(document.getElementById("topExposuresList"));
+      persistFilters(readFilters());
+    });
+  }
+
+  if (scriptPanelDetailsToggle) {
+    scriptPanelDetailsToggle.addEventListener("click", () => {
+      state.scriptPanelDetailsCollapsed = !state.scriptPanelDetailsCollapsed;
+      updateScriptPanelDetailsUi();
+      persistFilters(readFilters());
+
+      if (state.scriptPanelMode === "historical") {
+        // Re-render on the next frame so chart dimensions follow the panel's new height.
+        window.requestAnimationFrame(() => {
+          update();
+        });
+      }
+    });
+  }
+
+  if (topExposureAddressSearch) {
+    topExposureAddressSearch.value = state.topExposureAddressQuery;
+    topExposureAddressSearch.addEventListener("input", () => {
+      state.topExposureAddressQuery = topExposureAddressSearch.value.trim();
+      resetTopExposurePagination();
+      clearPreResetSnapshot();
+      update();
+    });
+  }
+
+  document.getElementById("snapshotFilter").addEventListener("change", async (event) => {
+    try {
+      clearPreResetSnapshot();
+      await loadSnapshotData(event.target.value);
+    } catch (err) {
+      console.error(err);
+      renderEmptyKpis();
+    }
+  });
+
+  const scriptDropdown = document.getElementById("scriptDropdown");
+  const scriptTrigger = document.getElementById("scriptDropdownTrigger");
+  const scriptMenu = document.getElementById("scriptDropdownMenu");
+  const spendDropdown = document.getElementById("spendDropdown");
+  const spendTrigger = document.getElementById("spendDropdownTrigger");
+  const spendMenu = document.getElementById("spendDropdownMenu");
+  const detailDropdown = document.getElementById("detailDropdown");
+  const detailTrigger = document.getElementById("detailDropdownTrigger");
+  const detailMenu = document.getElementById("detailDropdownMenu");
+  const identityGroupDropdown = document.getElementById("identityGroupDropdown");
+  const identityGroupTrigger = document.getElementById("identityGroupDropdownTrigger");
+  const identityGroupMenu = document.getElementById("identityGroupDropdownMenu");
+  const identityDropdown = document.getElementById("identityDropdown");
+  const identityTrigger = document.getElementById("identityDropdownTrigger");
+  const identityMenu = document.getElementById("identityDropdownMenu");
+  let identityPointerDownInside = false;
+
+  scriptTrigger.addEventListener("click", () => {
+    scriptMenu.classList.toggle("open");
+  });
+
+  spendTrigger.addEventListener("click", () => {
+    spendMenu.classList.toggle("open");
+  });
+
+  detailTrigger.addEventListener("click", () => {
+    detailMenu.classList.toggle("open");
+  });
+
+  identityGroupTrigger.addEventListener("click", async () => {
+    const willOpen = !identityGroupMenu.classList.contains("open");
+    identityGroupMenu.classList.toggle("open");
+    if (willOpen && !state.identityGroupsLoaded) {
+      await ensureIdentityGroupsLoaded();
+      renderTopExposureTagFilters();
+    }
+  });
+
+  identityTrigger.addEventListener("focus", async () => {
+    if (!state.identityGroupsLoaded) {
+      await ensureIdentityGroupsLoaded();
+      renderTopExposureTagFilters();
+    }
+    identityMenu.classList.add("open");
+  });
+
+  identityTrigger.addEventListener("click", async () => {
+    if (!state.identityGroupsLoaded) {
+      await ensureIdentityGroupsLoaded();
+      renderTopExposureTagFilters();
+    }
+    identityMenu.classList.add("open");
+  });
+
+  identityTrigger.addEventListener("input", async () => {
+    if (!state.identityGroupsLoaded) {
+      await ensureIdentityGroupsLoaded();
+    }
+    state.identityTagFilterQuery = identityTrigger.value;
+    renderIdentityTagMenu(buildTagOptionsFromGe1Rows(state.selectedIdentityGroups).identities, state.selectedIdentityTags);
+    attachIdentityCheckboxListeners();
+    identityMenu.classList.add("open");
+  });
+
+  identityTrigger.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      clearIdentityTagFilterInput();
+      identityMenu.classList.remove("open");
+      identityTrigger.blur();
+    }
+  });
+
+  identityDropdown.addEventListener("pointerdown", () => {
+    identityPointerDownInside = true;
+  });
+
+  identityTrigger.addEventListener("blur", () => {
+    window.setTimeout(() => {
+      if (identityPointerDownInside) {
+        identityPointerDownInside = false;
+        return;
+      }
+      if (!identityDropdown.contains(document.activeElement)) {
+        clearIdentityTagFilterInput();
+      }
+    }, 0);
+  });
+
+  document.addEventListener("click", (event) => {
+    identityPointerDownInside = false;
+    if (!scriptDropdown.contains(event.target)) {
+      scriptMenu.classList.remove("open");
+    }
+    if (!spendDropdown.contains(event.target)) {
+      spendMenu.classList.remove("open");
+    }
+    if (!detailDropdown.contains(event.target)) {
+      detailMenu.classList.remove("open");
+    }
+    if (!identityGroupDropdown.contains(event.target)) {
+      identityGroupMenu.classList.remove("open");
+    }
+    if (!identityDropdown.contains(event.target)) {
+      clearIdentityTagFilterInput();
+      identityMenu.classList.remove("open");
+    }
+  });
+
+  getScriptCheckboxes().forEach((el) => {
+    el.addEventListener("change", () => handleScriptCheckboxChange(el));
+  });
+
+  getSpendCheckboxes().forEach((el) => {
+    el.addEventListener("change", () => handleSpendCheckboxChange(el));
+  });
+
+  document.getElementById("topExposuresList").addEventListener("scroll", () => {
+    syncTopExposuresShowMoreVisibility();
+    tryLoadMoreTopExposures();
+  });
+
+  let resizeRafId = null;
+  window.addEventListener("resize", () => {
+    if (resizeRafId !== null) return;
+
+    resizeRafId = window.requestAnimationFrame(() => {
+      resizeRafId = null;
+      updateAnalysisSplitHeight();
+      syncTopExposuresShowMoreVisibility();
+      applyConditionalMiddleEllipsis(document.getElementById("topExposuresList"));
+      update();
+    });
+  });
+
+  window.addEventListener("storage", (event) => {
+    if (event.key !== THEME_STORAGE_KEY) return;
+    applyTheme(resolveInitialTheme());
+  });
+
+  window.addEventListener("message", (event) => {
+    if (event.origin !== window.location.origin) return;
+    const payload = event.data;
+    if (!payload || payload.type !== "quantum-dashboard-theme") return;
+    const theme = payload.theme === "dark" ? "dark" : "light";
+    applyTheme(theme);
+    persistTheme(theme);
+  });
+
+  updateScriptTriggerLabel();
+  updateSpendTriggerLabel();
+  updateScriptPanelModeUi();
+  updateTopExposuresFiltersUi();
+  updateScriptPanelDetailsUi();
+}
+
+(async function init() {
+  try {
+    applyPersistedFilterState(readPersistedFilters());
+    const urlPrefs = readFiltersFromUrl();
+    if (urlPrefs) {
+      applyPersistedFilterState(urlPrefs);
+    }
+    applyTheme(resolveInitialTheme());
+    attachEvents();
+    await loadData();
+  } catch (err) {
+    renderEmptyKpis();
+    console.error(err);
+  }
+})();

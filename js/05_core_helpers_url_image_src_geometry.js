@@ -41,18 +41,23 @@ function preloadThanksImagesIfNeeded(force = false) {
 }
 function replaceUrlForFilename(newFilename) {
   const slug = String(newFilename || "").replace(/\.png$/i, "");
+    const currentHash = String(location.hash || "").replace(/^#/, "");
+    const hashQueryIndex = currentHash.indexOf("?");
+    const currentHashSlug = (hashQueryIndex >= 0 ? currentHash.slice(0, hashQueryIndex) : currentHash).trim();
+    const currentHashQuery = hashQueryIndex >= 0 ? currentHash.slice(hashQueryIndex + 1).trim() : "";
+    const preservedSuffix = currentHashQuery && currentHashSlug === slug ? `?${currentHashQuery}` : "";
     if (isStandaloneModalShell()) {
         const base = getPageBasePath();
         if (location.hostname === 'localhost') {
             const page = location.pathname.split('/').pop() || 'view.html';
-            history.replaceState(null, '', `${base}/${page}#${encodeURIComponent(slug)}`.replace(/\/{2,}/g, '/'));
+                        history.replaceState(null, '', `${base}/${page}#${encodeURIComponent(slug)}${preservedSuffix}`.replace(/\/{2,}/g, '/'));
         } else {
             history.replaceState(null, '', `${base}/${slug}`.replace(/\/{2,}/g, '/'));
         }
         return;
     }
   if (location.hostname === "localhost") {
-    location.hash = slug;
+        location.hash = `${slug}${preservedSuffix}`;
     return;
   }
 
@@ -684,8 +689,38 @@ function modalEmbedSrc(pathOrUrl){
     if (!raw) return '';
     if (/^https?:\/\//i.test(raw)) return raw;
     const base = getPageBasePath();
-    if (raw.startsWith('/')) return `${base}${raw}`;
-    return `${base}/${raw.replace(/^\/+/, '')}`;
+        const resolved = raw.startsWith('/') ? `${base}${raw}` : `${base}/${raw.replace(/^\/+/, '')}`;
+
+        // Preserve shell query params when embedding dashboard routes from shell URLs.
+        // Supports both `?state=...#slug` and `#slug?state=...` forms.
+        const shellParams = new URLSearchParams(window.location.search || '');
+        const hash = String(window.location.hash || '').replace(/^#/, '');
+        const hashQueryIndex = hash.indexOf('?');
+        if (hashQueryIndex >= 0) {
+            const hashSearch = hash.slice(hashQueryIndex + 1);
+            const hashParams = new URLSearchParams(hashSearch);
+            hashParams.forEach((value, key) => {
+                if (!shellParams.has(key)) {
+                    shellParams.set(key, value);
+                }
+            });
+        }
+        if (!shellParams.toString()) return resolved;
+
+        try {
+                const url = new URL(resolved, window.location.origin);
+                const isDashboardPath = /\/webapps\/[^/]+\/dashboard\.html$/i.test(url.pathname);
+                if (!isDashboardPath) return resolved;
+
+                shellParams.forEach((value, key) => {
+                        if (!url.searchParams.has(key)) {
+                                url.searchParams.set(key, value);
+                        }
+                });
+                return `${url.pathname}${url.search}${url.hash}`;
+        } catch (_error) {
+                return resolved;
+        }
 }
 
 // prefetch an image URL by inserting a <link rel="preload"> element; this
