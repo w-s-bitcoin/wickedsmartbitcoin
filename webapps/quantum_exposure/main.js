@@ -3219,6 +3219,26 @@ async function resetDashboardToDefaults() {
   update();
 }
 
+function resetAllFilters() {
+  // Clear tag-based filters to show top 50 unfiltered when in ECO mode
+  state.selectedDetailTags = ["All"];
+  state.selectedIdentityGroups = ["All"];
+  state.selectedIdentityTags = ["All"];
+  state.topExposureAddressQuery = "";
+  state.pendingIdentityTagExclusions = null;
+  
+  // Reset UI elements
+  const topExposureAddressSearch = document.getElementById("topExposureAddressSearch");
+  if (topExposureAddressSearch) {
+    topExposureAddressSearch.value = "";
+  }
+  
+  // Re-render filters and data
+  renderTopExposureTagFilters();
+  resetTopExposurePagination();
+  update();
+}
+
 function normalizedFilterValuesForCache(values) {
   return Array.isArray(values) ? [...values].sort().join("|") : "";
 }
@@ -3655,6 +3675,20 @@ function renderTopExposures(rows) {
       container.innerHTML = '<div class="bar-empty" style="padding: 12px;">Loading top exposure rows...</div>';
       return;
     }
+    
+    // In ECO mode using top_50 data, provide helpful guidance if filters don't match
+    if (isLiteMode() && state.ge1IsUsingTop50) {
+      const filters = readFilters();
+      if (isTagFilterActive(filters)) {
+        container.innerHTML = `<div class="bar-empty" style="padding: 12px;">
+          No addresses match the current filters in the top 50 addresses. 
+          <a href="javascript:void(0)" onclick="resetAllFilters(); return false;">Clear filters</a> to view top addresses.
+        </div>`;
+        state.topExposuresLoading = false;
+        return;
+      }
+    }
+    
     container.innerHTML = '<div class="bar-empty" style="padding: 12px;">No exposure rows for the current filter selection.</div>';
     state.topExposuresLoading = false;
     return;
