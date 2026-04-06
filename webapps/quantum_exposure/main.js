@@ -4033,17 +4033,16 @@ function readFilters() {
   };
 }
 
-function update() {
-  updateAnalysisSplitHeight();
-  updateResetButtonUi();
+
+
+function updateKpisAndCharts() {
   const filters = readFilters();
-  persistFilters(filters);
+  
   if (state.scriptPanelMode === "historical") {
     renderHistoricalStackedChart(filters);
   } else {
     renderScriptBars(buildScriptBarsData(filters));
   }
-  renderTopExposures(buildTopExposuresData(filters));
 
   if (!filters.scriptTypes.length || !filters.spendActivities.length) {
     renderEmptyKpis();
@@ -4058,6 +4057,20 @@ function update() {
     scriptTypes: ["All"],
   });
   renderKpis(subset, total);
+}
+
+function updateTopExposures() {
+  const filters = readFilters();
+  renderTopExposures(buildTopExposuresData(filters));
+}
+
+function update() {
+  updateAnalysisSplitHeight();
+  updateResetButtonUi();
+  const filters = readFilters();
+  persistFilters(filters);
+  updateKpisAndCharts();
+  updateTopExposures();
 }
 
 function updateAnalysisSplitHeight() {
@@ -4332,7 +4345,12 @@ async function loadSnapshotData(snapshot) {
   resetTopExposurePagination();
   state.topExposuresLoading = true;
   renderTopExposureTagFilters();
-  update();
+  // Progressive rendering: show KPIs/charts immediately using fast aggregates
+  updateKpisAndCharts();
+  // In full mode, also render top exposures; in ECO mode, wait for ge1 data
+  if (!isLiteMode()) {
+    updateTopExposures();
+  }
 
   if (isLiteMode()) {
     const isLatestSnapshot = requestedSnapshot === latestSnapshotHeight();
@@ -4346,7 +4364,7 @@ async function loadSnapshotData(snapshot) {
         aggregatesRows,
         ge1Rows: [],
       });
-      update();
+      updateTopExposures();
       return;
     }
 
@@ -4362,7 +4380,7 @@ async function loadSnapshotData(snapshot) {
     state.ge1IsUsingTop50 = true;
     state.topExposuresLoading = false;
     renderTopExposureTagFilters();
-    update();
+    updateTopExposures();
 
     // Phase 2b: Start loading full ge1 data in background (non-blocking)
     // Abort any previous background load for different snapshot
@@ -4395,7 +4413,7 @@ async function loadSnapshotData(snapshot) {
             ge1Rows: ge1RowsFull,
           });
           
-          update(); // Quietly update with full data
+          updateTopExposures(); // Quietly update with full data
         }
         return ge1RowsFull;
       } catch (err) {
@@ -4434,7 +4452,8 @@ async function loadSnapshotData(snapshot) {
     ge1Rows,
   });
 
-  update();
+  // In full mode, update everything after ge1 data loads
+  updateTopExposures();
 }
 
 function attachEvents() {
