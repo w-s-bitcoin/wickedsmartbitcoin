@@ -1,0 +1,51 @@
+display_group_ids,exposed_supply_sats_by_script_type,spend_activity,exposed_utxo_count,first_exposed_blockheight,last_spend_blockheight,details,identity
+1CbR8da9YPZqXJJKm9ze1GYf67eKAUfXwP,"{ ""P2PKH"" : 7130687200000 }",active,30,195071,249872,,BTC-e
+17UUsmejDsjJEtbRcotd289ADp7ZdanH5k,"{ ""P2PKH"" : 6890654679592 }",active,23,213406,249438,,unidentified
+1GLEtzJ1H2zoGrUA4RMbRJam5UJSdrk6T2,"{ ""P2PKH"" : 5388004310000 }",active,2,219026,219029,,unidentified
+16cou7Ht6WjTzuFyDBnht9hmvXytg6XdVT,"{ ""P2PKH"" : 5300004310001 }",inactive,11,130794,179961,,Roger Ver
+13DRu4fXZ7gr8pykRVKwwStPUnUvfhMXJS,"{ ""P2PKH"" : 4728465537205 }",active,86,202264,244294,,Bitstamp
+1QAHVyRzkmD4j1pU5W89htZ3c6D6E7iWDs,"{ ""P2PKH"" : 4180400300000 }",active,163,188036,238906,,unidentified
+1BqcwhKevdBKeos72b8E32Swjrp4iDVnjP,"{ ""P2PKH"" : 4000031337100 }",active,2,201333,218515,,Silk Road Hacker
+14o7zMMUJkG6De24r3JkJ6USgChq7iWF86,"{ ""P2PKH"" : 3900000000000 }",active,38,242820,249919,,Just-Dice
+1FngtAcZsLfK89MNe7TqzyqVtSype8TiVD,"{ ""P2PKH"" : 3675000976310 }",active,4,133589,245332,,unidentified
+159SCycgn8weAy2XGUEhD6V1RTFni7E3iq,"{ ""P2PKH"" : 3640935932346 }",active,21,229537,248086,,unidentified
+18Hsgq92AUB1PYLU6MUMQXiwdebaDRo9oQ,"{ ""P2PKH"" : 3500204110010 }",active,6,128271,230490,,unidentified
+158mVoizfU3xPxGGchGtnsKSixGs9XTo6v,"{ ""P2PKH"" : 3267518075295 }",active,26,224445,249532,,unidentified
+1314XwNpeYZaVRhs8Y9vsS7KKczKm4qZWV,"{ ""P2PKH"" : 3154900000000 }",active,33,240654,249089,,Bitstamp
+12ib7dApVFvg82TXKycWBNpN8kFyiAN1dr,"{ ""P2PKH"" : 3100004210000 }",inactive,7,55632,70071,,unidentified
+1KRj8opQ5y3h2dw8FjnskxuVZ5qtu5Uuid,"{ ""P2PKH"" : 2745299220243 }",active,80,216955,249952,,unidentified
+15h6A2a3D31vRviBDdSpvhLtYJq3aePhdW,"{ ""P2PKH"" : 2740097757730 }",active,17,228261,249636,,unidentified
+1AyczyL16LhwBrJpAoSc8BJAvH4gw4cbcW,"{ ""P2PKH"" : 2631907200000 }",active,22,236255,247574,,unidentified
+1EtBRrw8yaauusCKLnWdTF5oU8PqJPXpn,"{ ""P2PKH"" : 2193203384377 }",active,18,200094,230839,,Winklevoss Capital
+1KrtYDFp4csthUJe5XwGnuTEC4YGwUw2zs,"{ ""P2PKH"" : 2081100000000 }",active,14,200094,230512,,Winklevoss Capital
+1DEpjpftLbsGiCJvJDp2F2quVRnymV8U5Q,"{ ""P2PKH"" : 2000004110011 }",active,7,113271,249865,,unidentified
+1FR8wjotgPmzTx7GmhW3WeXE39rHJbCvLV,"{ ""P2PKH"" : 1704602000000 }",active,26,212617,242112,,unidentified
+1FL488btzV244B5dkCTL6PZruJ9Di7AtT9,"{ ""P2PKH"" : 1692727100000 }",active,18,200094,230512,,Winklevoss Capital
+1DDkM9Tjya1KTiHpMkAuCb7KjyABZnK9Kk,"{ ""P2PKH"" : 1692000000000 }",active,1,226518,249803,,unidentified
+16g2TW2hbFoov3DThSRBdnETaS94bFvq5v,"{ ""P2PKH"" : 1470000976300 }",active,15,120896,230983,,unidentified
+19tuxqhzgwC6B9hhLHDLJkocx8LaaCS56s,"{ ""P2PKH"" : 1450000100000 }",inactive,12,135120,174968,,Roger Ver
+19ere2oJzJh81A5Q64SExDZYz54RvWHqZz,"{ ""P2PKH"" : 1428687000000 }",inactive,23,69804,191997,,unidentified
+1KX8EPDcziwbGaC7oDHDuKE9SfLWMmmbZy,"{ ""P2PKH"" : 1385000000000 }",inactive,13,109344,129884,,unidentified
+1NuDiVDgBx2rx3gwoRJRERkPkSLNksubMK,"{ ""P2PKH"" : 1350405816805 }",active,69,152886,243850,,unidentified
+1AKU6fsr5amt3XAvxaYoCPDe8vkhrfk4WU,"{ ""P2PKH"" : 1257764800000 }",active,8,183358,230048,,unidentified
+1HktZquxWcseRTkkSTPWSVtL2Cfdhus2sj,"{ ""P2PKH"" : 1250000100000 }",active,3,215115,230647,,unidentified
+17Jj4eNGBUEdBJEorViEieZ8W87ELXKgu7,"{ ""P2PKH"" : 1203914901727 }",active,3,223246,223253,,unidentified
+13ZsEsjAGkogoyqMpFXg5xWD2LtaXTZ5Cp,"{ ""P2PKH"" : 1170000478862 }",active,10,242427,249763,,unidentified
+1DgzSGFprGG4CcxdZPHeidSG7TKbgrATYx,"{ ""P2PKH"" : 1144000000000 }",active,19,157769,244857,,unidentified
+15RnLMa6B1gt4jdXgpSQnPaDpq3sqbN9Jz,"{ ""P2PKH"" : 1077100000000 }",active,26,241032,249089,,Bitstamp
+19dQ2xfrK5GEUahG6Cv87XDRK7W6YFnGFx,"{ ""P2PKH"" : 1041756900000 }",inactive,3,94778,111247,,unidentified
+16qBQ6cs4R76gwAF85XF8tdxscz8fGjoJr,"{ ""P2PKH"" : 1000000000000 }",active,1,232952,232958,,unidentified
+18BgWxZRdoCc21tdDPTNuEqREAofBnwG7M,"{ ""P2PKH"" : 1000000000000 }",active,1,232952,232958,,unidentified
+1NN2bPz6gLYx7cquCscw918npUVBdD9Lmu,"{ ""P2PKH"" : 1000000000000 }",active,1,232952,232958,,unidentified
+1JSgv2m1uQSBJ5vpfR9dMiGBC9ZuUnAmmq,"{ ""P2PKH"" : 964532880800 }",active,1,232941,246890,,unidentified
+16HC2oNNjmhXgGqf4YYZwSfRK4meVpAGm7,"{ ""P2PKH"" : 942478107850 }",inactive,1,82647,133421,,
+1Lu6j7umY8qVqvZzdojDBhHBAAyfcDUfGE,"{ ""P2PKH"" : 936119629860 }",active,7,203472,249219,,unidentified
+16Huqhis9zm18CjB3vD41p8posa9RVTDiP,"{ ""P2PKH"" : 889200000000 }",active,1,249580,249933,,unidentified
+12HUyZeNFqk4db2EM7GY5e6homTVTpPd7Z,"{ ""P2PKH"" : 875000000000 }",active,52,235101,248116,,unidentified
+17Kv5tVFrJFL86bEaMgFgXWTdfnjci5Fb9,"{ ""P2PKH"" : 800000000000 }",active,7,230505,230844,,Winklevoss Capital
+16G4BBCxEDNDA867xEvTBzkxEcSNC8WpfR,"{ ""P2PKH"" : 800000000000 }",active,3,234379,234408,,unidentified
+1BPpZwR9bRexQC3NVxPbfvEqxzzNznh86y,"{ ""P2PKH"" : 798605460452 }",active,30,218587,249844,,unidentified
+15Z5YJaaNSxeynvr6uW6jQZLwq3n1Hu6RX,"{ ""P2PKH"" : 794106000000 }",inactive,5,49995,85225,,unidentified
+13uraL1Maba7obbhkdB4pjsqMyvqrcTeeD,"{ ""P2PKH"" : 791111000000 }",inactive,18,86036,175887,,unidentified
+13Mu4HhLD4YWPbji62HPLj3p1S54ZVzkvT,"{ ""P2PKH"" : 777777777777 }",active,1,226976,227206,,unidentified
+1e6AzmPF35S3JTE8QMXD3k7oczJ7QgCSa,"{ ""P2PKH"" : 765910000000 }",inactive,3,108564,170109,,unidentified

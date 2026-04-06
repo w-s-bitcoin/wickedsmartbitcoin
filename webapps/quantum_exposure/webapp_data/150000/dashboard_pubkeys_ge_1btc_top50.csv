@@ -1,0 +1,51 @@
+display_group_ids,exposed_supply_sats_by_script_type,spend_activity,exposed_utxo_count,first_exposed_blockheight,last_spend_blockheight,details,identity
+12ib7dApVFvg82TXKycWBNpN8kFyiAN1dr,"{ ""P2PKH"" : 3100000000000 }",inactive,4,55632,70071,,unidentified
+1Pw48g5zwghYtYUhfjMppxxZnzaUu8ognh,"{ ""P2PKH"" : 2473891000000 }",active,3,70656,128820,,unidentified
+1E6mijNx2xKzRt6KXiqZncUmybgYN4cn2X,"{ ""P2PKH"" : 1985477000000 }",active,5,130609,146150,,Roger Ver
+16g2TW2hbFoov3DThSRBdnETaS94bFvq5v,"{ ""P2PKH"" : 1820000000000 }",active,20,120896,147676,,unidentified
+19ere2oJzJh81A5Q64SExDZYz54RvWHqZz,"{ ""P2PKH"" : 1796536000000 }",active,27,69804,138620,,unidentified
+199QiJj1miojVSAop7gpAamscHd77r12ET,"{ ""P2PKH"" : 1518845000000 }",active,4,39323,148299,,unidentified
+18tfoMKHSZ6RCpr43UhNiey6aPZwifQt72,"{ ""P2PKH"" : 1319511770478 }",active,58,144288,144739,,unidentified
+1PRptpuA78p49VLakJ2EuMypFQz7tjEQdk,"{ ""P2PKH"" : 1310011453974 }",active,8,132198,142669,,unidentified
+1KX8EPDcziwbGaC7oDHDuKE9SfLWMmmbZy,"{ ""P2PKH"" : 1305000000000 }",active,12,109344,129884,,unidentified
+1B1wPLyrJ831sg1D8hnZLBG7SejXbqMMrH,"{ ""P2PKH"" : 1280000000000 }",active,256,65615,120599,,unidentified
+16tCUWGG77ETotUAddvaj3nURCv4caQhxz,"{ ""P2PKH"" : 1224698937268 }",active,1,141118,141120,,unidentified
+19n1JqKDnoqcc34HA3fdgzNxczic6Hu5Pi,"{ ""P2PKH"" : 1186780000000 }",active,1,38330,148283,,unidentified
+1HYGzEjtQsmrhBAf19nd9eNvcz34RAzhRc,"{ ""P2PKH"" : 1130000000000 }",inactive,1,53868,73534,,unidentified
+14xZRjQBVj78mmpz1hQFBtbTtN8aeeoN4x,"{ ""P2PKH"" : 1050000000000 }",active,4,86638,103949,,unidentified
+13uraL1Maba7obbhkdB4pjsqMyvqrcTeeD,"{ ""P2PKH"" : 1041111000000 }",active,21,86036,138618,,unidentified
+1FSGpYLfoRBQjjdqLJoMyiA4nCVHfLokQd,"{ ""P2PKH"" : 1000001234567 }",active,11,132392,149935,,unidentified
+1U1jTCGkQYRaDVStZdDHMFWUMoSJi4HSc,"{ ""P2PKH"" : 899959000000 }",active,8,38353,128381,,Miner
+1e6AzmPF35S3JTE8QMXD3k7oczJ7QgCSa,"{ ""P2PKH"" : 866916000000 }",active,4,108564,148987,,unidentified
+15Z5YJaaNSxeynvr6uW6jQZLwq3n1Hu6RX,"{ ""P2PKH"" : 794106000000 }",inactive,5,49995,85225,,unidentified
+198E3LyUJASmKA4PJvEHthEE62XbTuPZSL,"{ ""P2PKH"" : 779900000000 }",active,1,124409,128352,,unidentified
+1ZTABNhD2bYDvFskVZGjwLrbEt8oZpy8g,"{ ""P2PKH"" : 749592220067 }",active,15,104212,140782,,unidentified
+18ShHDufPcxfNZr4rArogTUCF2GmkJiSCV,"{ ""P2PKH"" : 737200000000 }",inactive,1,69615,70118,,unidentified
+1Pm2PWb4r9kHnpPEnagKReDhCGwuWnqaDm,"{ ""P2PKH"" : 734573000000 }",active,3,139693,146150,,Roger Ver
+1MbcZkfjkWdEEeC9r5pq5XRBDRcKUCsg9h,"{ ""P2PKH"" : 640000000000 }",active,1,67043,97395,,unidentified
+1A373e9BMG2zRCC3n7kmzCUR4BzDt7MEtR,"{ ""P2PKH"" : 600000000000 }",active,5,125863,128681,,unidentified
+15kvmHULxE43oJyz6GjYE9WbJ8hADJXxay,"{ ""P2PKH"" : 600000000000 }",active,1,139693,146150,,Roger Ver
+1APtJW6iG5FKz6T5xQvokvQjwEvGtF1GZB,"{ ""P2PKH"" : 569979333537 }",active,2,132021,143758,,unidentified
+19a14GZW22rqri82pcCD84BmPQP2BC7Dh9,"{ ""P2PKH"" : 519000000000 }",inactive,6,72512,86365,,unidentified
+1Cn8sqWMiP2mDrVe15Zg7Z1YvXRHDPPv9F,"{ ""P2PKH"" : 509573000000 }",active,9,102814,119615,,unidentified
+12iadToQhyGrEPQDU35ghXGiSnLqLXm5Jx,"{ ""P2PKH"" : 500095000000 }",active,2,113813,120395,,unidentified
+1KCNLT1tnsNZsrfddUA7VrqmytLfyjTToY,"{ ""P2PKH"" : 500000000000 }",active,5,87348,103983,,unidentified
+19XZS4EKsFEg2RL3sE5kUiLmUYRz4vWGxY,"{ ""P2PKH"" : 500000000000 }",active,1,129894,129946,,unidentified
+1D2y2EL3ruXuG29YiAxcZkWdGkTpbbvdVo,"{ ""P2PKH"" : 500000000000 }",active,1,139694,146150,,Roger Ver
+18hFBPU81kC8V4Dp4iwdwQHakKa5TW2ZkJ,"{ ""P2PKH"" : 455330500000 }",active,26,105088,127369,,unidentified
+1NdGa3SosXNYhy9qLc7vb6yVDjKXt6SNxq,"{ ""P2PKH"" : 450599000000 }",active,52,107969,126845,,unidentified
+1EjzCpbBqyb2FBVBhSgaFnEMZY2smiwESN,"{ ""P2PKH"" : 450000000000 }",active,1,130689,137393,,unidentified
+1AeaSwbZdXVXas4PmbAvx3EdPNfrWvQKp9,"{ ""P2PKH"" : 400000000000 }",active,10,119359,145267,,unidentified
+1P1rs21hnsZEpcV7uuKk3mwVGcCZBKHv3F,"{ ""P2PKH"" : 385006000000 }",active,1,102462,124835,,unidentified
+16CxdHGToGZkbcra4PLP9eY3XSVT1vUdjV,"{ ""P2PKH"" : 375002000000 }",inactive,2,63455,85545,,unidentified
+12vkCjbtPiQxzq35LDnv1pVWnHBJBrdpnU,"{ ""P2PKH"" : 369244000000 }",active,1,130689,137395,,unidentified
+1E38XQRdXVhafXoAXwSZyoxPQ7R5HtmfrW,"{ ""P2PKH"" : 359993000000 }",active,33,122445,122490,,unidentified
+1HYBcza9tVquCCvCN1hUZkYT9RcM6GfLot,"{ ""P2PKH"" : 352751145908 }",active,46,132163,134307,,unidentified
+1FvUkW8thcqG6HP7gAvAjcR52fR7CYodBx,"{ ""P2PKH"" : 335000000000 }",active,8,72785,119882,,4222
+17N6xrkBdkBm6zw4CvEXnuAeXUut6i2gfN,"{ ""P2PKH"" : 326835000000 }",active,5,92179,142424,,unidentified
+16cou7Ht6WjTzuFyDBnht9hmvXytg6XdVT,"{ ""P2PKH"" : 324894000000 }",active,1,130794,146150,,Roger Ver
+04633280c0a93b45217059013ddadab8d35b9a858336028fecdff64c6a5e068fadaf7d2b73bc22795fa160c2304703320516e1b0b20e43d613fa5975787c8287e4,"{ ""P2PK"" : 323317000000 }",never_spent,1,40758,,,unidentified
+1HD3DP71dnQ5j3Ek3ZTk4eBJespSpeR3sU,"{ ""P2PKH"" : 320014000000 }",active,1,129050,129319,,unidentified
+19QDGMRKdZ9BpDZP2Re6yaDqNQ7zN4wo1D,"{ ""P2PKH"" : 316112590000 }",active,174,107346,138620,,unidentified
+1CLNXL7W6vg2s36vEh78UUxF89hUpZiyEa,"{ ""P2PKH"" : 275514000000 }",active,7,128538,149968,,unidentified
+1EDeUCEihgthzuLVKBiGQx76o4nD9ho3z3,"{ ""P2PKH"" : 273554000000 }",active,4,107463,128677,,unidentified

@@ -42,6 +42,9 @@ const state = {
   pendingPersistedSnapshotHeight: null,
   preResetStateSnapshot: null,
   pendingIdentityTagExclusions: null,
+  ge1FullDataLoadAbortController: null,
+  ge1FullDataLoadPromise: null,
+  ge1IsUsingTop50: false,
 };
 
 const TOP_EXPOSURES_PAGE_SIZE = 250;
@@ -79,7 +82,7 @@ function resolveInitialRuntimeLiteMode() {
   } catch (err) {
     console.warn("Could not read stored runtime mode preference", err);
   }
-  return false;
+  return true;
 }
 
 function isLiteMode() {
@@ -4302,6 +4305,7 @@ async function loadSnapshotData(snapshot) {
     if (!isLatestSnapshot) {
       state.ge1Rows = [];
       state.topExposuresLoading = false;
+      state.ge1IsUsingTop50 = false;
       renderTopExposureTagFilters();
       state.snapshotDataCache.set(requestedSnapshot, {
         snapshotHeight: state.snapshotHeight,
@@ -4312,22 +4316,68 @@ async function loadSnapshotData(snapshot) {
       return;
     }
 
-    const ge1RespLite = await fetch(`${basePath}/dashboard_pubkeys_ge_1btc.csv`);
-    if (!ge1RespLite.ok) {
+    // Phase 2a: Load lightweight top_50 version first for immediate UI feedback
+    const top50RespLite = await fetch(`${basePath}/dashboard_pubkeys_ge_1btc_top50.csv`);
+    if (!top50RespLite.ok) {
       state.topExposuresLoading = false;
-      throw new Error(`Could not load one or more CSV files from ${basePath}/`);
+      throw new Error(`Could not load top_50 CSV from ${basePath}/`);
     }
 
-    const ge1RowsLite = parseCsv(await ge1RespLite.text());
-    state.ge1Rows = ge1RowsLite;
+    const ge1RowsTop50 = parseCsv(await top50RespLite.text());
+    state.ge1Rows = ge1RowsTop50;
+    state.ge1IsUsingTop50 = true;
     state.topExposuresLoading = false;
     renderTopExposureTagFilters();
+    update();
+
+    // Phase 2b: Start loading full ge1 data in background (non-blocking)
+    // Abort any previous background load for different snapshot
+    if (state.ge1FullDataLoadAbortController) {
+      state.ge1FullDataLoadAbortController.abort();
+    }
+    state.ge1FullDataLoadAbortController = new AbortController();
+    const abortSignal = state.ge1FullDataLoadAbortController.signal;
+
+    state.ge1FullDataLoadPromise = (async () => {
+      try {
+        const ge1RespFull = await fetch(`${basePath}/dashboard_pubkeys_ge_1btc.csv`, { signal: abortSignal });
+        if (!ge1RespFull.ok) {
+          console.warn(`Could not load full ge1 CSV from ${basePath}/`);
+          return null;
+        }
+
+        const ge1RowsFull = parseCsv(await ge1RespFull.text());
+        
+        // Only swap if we're still on this snapshot and abort wasn't called
+        if (!abortSignal.aborted && state.snapshotHeight === resolvedSnapshotHeight) {
+          state.ge1Rows = ge1RowsFull;
+          state.ge1IsUsingTop50 = false;
+          state.topExposuresDataCache.clear(); // Clear cache to force re-filter with full data
+          
+          // Update cache with full data
+          state.snapshotDataCache.set(requestedSnapshot, {
+            snapshotHeight: state.snapshotHeight,
+            aggregatesRows,
+            ge1Rows: ge1RowsFull,
+          });
+          
+          update(); // Quietly update with full data
+        }
+        return ge1RowsFull;
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          console.warn(`Background full data load failed: ${err.message}`);
+        }
+        return null;
+      }
+    })();
+
+    // Cache top_50 version for now; will be updated when full load completes
     state.snapshotDataCache.set(requestedSnapshot, {
       snapshotHeight: state.snapshotHeight,
       aggregatesRows,
-      ge1Rows: ge1RowsLite,
+      ge1Rows: ge1RowsTop50,
     });
-    update();
     return;
   }
 
