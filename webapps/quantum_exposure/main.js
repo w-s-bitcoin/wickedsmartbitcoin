@@ -801,6 +801,88 @@ function toFloat(value) {
   return Number.parseFloat(value) || 0;
 }
 
+function getRowDisplayGroupIds(row) {
+  const raw = String(row.display_group_ids || row.display_group_id || row.group_id || "");
+  const ids = raw
+    .split("|")
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  return Array.from(new Set(ids));
+}
+
+function getRowPrimaryGroupId(row) {
+  const ids = getRowDisplayGroupIds(row);
+  return ids.length ? ids[0] : "";
+}
+
+function parseScriptSupplyMap(rawValue) {
+  let parsed = {};
+  if (!rawValue) return parsed;
+  try {
+    parsed = JSON.parse(rawValue);
+  } catch (err) {
+    return {};
+  }
+
+  const normalized = {};
+  Object.entries(parsed).forEach(([scriptTypeRaw, satsRaw]) => {
+    const scriptType = SCRIPT_TYPES_ORDER.includes(scriptTypeRaw) ? scriptTypeRaw : "Other";
+    normalized[scriptType] = (normalized[scriptType] || 0) + toInt(satsRaw);
+  });
+  return normalized;
+}
+
+function getRowSupplyByScriptType(row) {
+  if (row.__supplyByScriptTypeCache) {
+    return row.__supplyByScriptTypeCache;
+  }
+
+  const fromMap = parseScriptSupplyMap(row.exposed_supply_sats_by_script_type);
+  const hasValues = Object.values(fromMap).some((value) => value > 0);
+  if (hasValues) {
+    row.__supplyByScriptTypeCache = fromMap;
+    return fromMap;
+  }
+
+  const fallbackTotal = toInt(row.exposed_supply_sats);
+  const fallbackScriptTypes = String(row.script_types || row.script_type || "")
+    .split("|")
+    .map((value) => value.trim())
+    .filter((value) => SCRIPT_TYPES_ORDER.includes(value));
+  const uniqueFallbackTypes = Array.from(new Set(fallbackScriptTypes));
+  const targets = uniqueFallbackTypes.length ? uniqueFallbackTypes : ["Other"];
+  const distributed = {};
+  if (fallbackTotal > 0) {
+    const chunk = fallbackTotal / targets.length;
+    targets.forEach((scriptType) => {
+      distributed[scriptType] = (distributed[scriptType] || 0) + chunk;
+    });
+  }
+
+  row.__supplyByScriptTypeCache = distributed;
+  return distributed;
+}
+
+function getRowScriptTypes(row) {
+  const explicit = String(row.script_types || row.script_type || "")
+    .split("|")
+    .map((value) => value.trim())
+    .filter((value) => SCRIPT_TYPES_ORDER.includes(value));
+  const uniqueExplicit = Array.from(new Set(explicit));
+  if (uniqueExplicit.length) return uniqueExplicit;
+
+  const supplyByScript = getRowSupplyByScriptType(row);
+  const derived = SCRIPT_TYPES_ORDER.filter((scriptType) => toInt(supplyByScript[scriptType]) > 0);
+  return derived;
+}
+
+function getRowExposedSupplySats(row) {
+  const supplyByScript = getRowSupplyByScriptType(row);
+  const total = Object.values(supplyByScript).reduce((sum, value) => sum + toInt(value), 0);
+  if (total > 0) return total;
+  return toInt(row.exposed_supply_sats);
+}
+
 function formatInt(value) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
 }
@@ -880,12 +962,13 @@ function formatSnapshotSelectDate(unixTime) {
   return `${year}-${month}-${day} ${hour}:${minute}`;
 }
 
-function formatTooltipDateFromHeight(blockheight, unixFallback) {
-  if (blockheight > 0) {
-    const fromLookup = state.blockDatetimeByHeight[String(blockheight)];
+function formatTooltipDateFromHeight(blockheight) {
+  const normalizedHeight = Number.parseInt(blockheight, 10);
+  if (Number.isFinite(normalizedHeight) && normalizedHeight >= 0) {
+    const fromLookup = state.blockDatetimeByHeight[String(normalizedHeight)];
     if (fromLookup) return fromLookup;
   }
-  return formatTooltipDate(unixFallback);
+  return "Unknown";
 }
 
 function escapeHtmlAttr(value) {
@@ -1218,9 +1301,8 @@ function buildTagOptionsFromGe1Rows(selectedIdentityGroups = state.selectedIdent
   const orderingAddressQuery = String(orderingFilters?.topExposureAddressQuery || "").trim().toLowerCase();
   const rowMatchesOrderingAddressQuery = (row) => {
     if (!orderingAddressQuery) return true;
-    const primaryId = String(row.group_id || "").toLowerCase();
     const displayIds = String(row.display_group_ids || row.display_group_id || "").toLowerCase();
-    return primaryId.includes(orderingAddressQuery) || displayIds.includes(orderingAddressQuery);
+    return displayIds.includes(orderingAddressQuery);
   };
   const hasIdentityGroupMap = Object.keys(state.identityToGroupNames).length > 0;
   let hasUnlabeledDetail = false;
@@ -1255,7 +1337,7 @@ function buildTagOptionsFromGe1Rows(selectedIdentityGroups = state.selectedIdent
     if (hasIdentityGroupMap && groups.length === 0) {
       hasUnidentifiedGroup = true;
     }
-    const exposedSupplySats = toInt(row.exposed_supply_sats);
+    const exposedSupplySats = getRowExposedSupplySats(row);
     groups.forEach((groupName) => {
       identityGroupSet.add(groupName);
       identityGroupSupplySats.set(groupName, (identityGroupSupplySats.get(groupName) || 0) + exposedSupplySats);
@@ -1666,29 +1748,17 @@ function buildScriptBarsDataFromGe1(
   state.ge1Rows.forEach((row) => {
     if (!rowPassesBalanceFilter(row, barsBalanceKey)) return;
 
-    const exposedSupply = toInt(row.exposed_supply_sats);
+    const exposedSupply = getRowExposedSupplySats(row);
     if (!exposedSupply) return;
 
     const matchesTagFilter = rowPassesTopExposureFilters(row, filters);
 
-    const scriptTypes = (row.script_types || row.script_type || "")
-      .split("|")
-      .map((t) => t.trim())
-      .filter((t) => SCRIPT_TYPES_ORDER.includes(t));
+    const scriptTypes = getRowScriptTypes(row);
     const uniqueScriptTypes = Array.from(new Set(scriptTypes));
     const targets = uniqueScriptTypes.length ? uniqueScriptTypes : ["Other"];
     const spend = row.spend_activity;
 
-    // Parse per-script-type supply breakdown from JSON
-    let supplyByScriptType = {};
-    if (row.exposed_supply_sats_by_script_type) {
-      try {
-        supplyByScriptType = JSON.parse(row.exposed_supply_sats_by_script_type);
-      } catch (e) {
-        // Fallback to empty if JSON parsing fails
-        supplyByScriptType = {};
-      }
-    }
+    const supplyByScriptType = getRowSupplyByScriptType(row);
 
     targets.forEach((scriptType) => {
       const bucket = rowsByScript.get(scriptType);
@@ -2067,10 +2137,7 @@ function buildFilteredExposedFromGe1Csv(csvText, filters) {
 
   const idxDetails = indexByName.get("details");
   const idxIdentity = indexByName.get("identity");
-  const idxExposedSupply = indexByName.get("exposed_supply_sats");
   const idxSpend = indexByName.get("spend_activity");
-  const idxScriptTypes = indexByName.get("script_types");
-  const idxScriptType = indexByName.get("script_type");
   const idxSupplyByScript = indexByName.get("exposed_supply_sats_by_script_type");
 
   while (true) {
@@ -2085,35 +2152,16 @@ function buildFilteredExposedFromGe1Csv(csvText, filters) {
     if (!identityBelongsToSelectedGroups(identity, filters.identityGroups)) continue;
     if (!identityTagPassesFilters(filters.identityTags, identity)) continue;
 
-    const exposedSupplyRaw = idxExposedSupply === undefined ? "0" : (values[idxExposedSupply] || "0");
-    const exposedSupply = toInt(exposedSupplyRaw);
+    const supplyByScriptRaw = idxSupplyByScript === undefined ? "" : (values[idxSupplyByScript] || "");
+    const supplyByScriptType = parseScriptSupplyMap(supplyByScriptRaw);
+    const scriptTypes = SCRIPT_TYPES_ORDER.filter((type) => toInt(supplyByScriptType[type]) > 0);
+    const targets = scriptTypes.length ? scriptTypes : ["Other"];
+    const exposedSupply = targets.reduce((sum, scriptType) => sum + toInt(supplyByScriptType[scriptType]), 0);
     if (exposedSupply < minSats) continue;
     if (!exposedSupply) continue;
 
     const spend = idxSpend === undefined ? "" : (values[idxSpend] || "");
     if (!SPEND_TYPES_ORDER.includes(spend)) continue;
-
-    const scriptTypesRaw = idxScriptTypes !== undefined
-      ? (values[idxScriptTypes] || "")
-      : idxScriptType !== undefined
-      ? (values[idxScriptType] || "")
-      : "";
-    const scriptTypes = scriptTypesRaw
-      .split("|")
-      .map((type) => type.trim())
-      .filter((type) => SCRIPT_TYPES_ORDER.includes(type));
-    const uniqueScriptTypes = Array.from(new Set(scriptTypes));
-    const targets = uniqueScriptTypes.length ? uniqueScriptTypes : ["Other"];
-
-    let supplyByScriptType = {};
-    const supplyByScriptRaw = idxSupplyByScript === undefined ? "" : (values[idxSupplyByScript] || "");
-    if (supplyByScriptRaw) {
-      try {
-        supplyByScriptType = JSON.parse(supplyByScriptRaw);
-      } catch (err) {
-        supplyByScriptType = {};
-      }
-    }
 
     targets.forEach((scriptType) => {
       if (!scriptPassAll && !filters.scriptTypes.includes(scriptType)) {
@@ -3033,10 +3081,10 @@ function buildTopExposuresData(filters) {
   const addressQuery = String(filters.topExposureAddressQuery || "").trim().toLowerCase();
 
   const rows = state.ge1Rows
-    .filter((row) => toInt(row.exposed_supply_sats) >= minSats)
+    .filter((row) => getRowExposedSupplySats(row) >= minSats)
     .filter((row) => {
       if (scriptPassAll) return true;
-      const types = (row.script_types || row.script_type || "").split("|");
+      const types = getRowScriptTypes(row);
       return types.some((t) => filters.scriptTypes.includes(t));
     })
     .filter((row) => spendPassAll || filters.spendActivities.includes(row.spend_activity))
@@ -3051,29 +3099,27 @@ function buildTopExposuresData(filters) {
     })
     .filter((row) => {
       if (!addressQuery) return true;
-      const primaryId = String(row.group_id || "").toLowerCase();
       const displayIds = String(row.display_group_ids || row.display_group_id || "").toLowerCase();
-      return primaryId.includes(addressQuery) || displayIds.includes(addressQuery);
+      return displayIds.includes(addressQuery);
     })
     .map((row) => {
-      const scriptTypes = (row.script_types || row.script_type || "").split("|").filter(Boolean);
+      const scriptTypes = getRowScriptTypes(row);
       const filteredExposedSupplySats = getFilteredExposedSupplySatsForRow(row, filters.scriptTypes);
+      const primaryGroupId = getRowPrimaryGroupId(row);
       const displayGroupIds = filterAndOrderDisplayGroupIds(
-        (row.display_group_ids || row.display_group_id || row.group_id).split("|").filter(Boolean),
+        getRowDisplayGroupIds(row),
         scriptTypes,
-        row.group_id
+        primaryGroupId
       );
 
       return {
-        groupId: row.group_id,
+        groupId: primaryGroupId,
         displayGroupIds,
-        exposedSupplySats: toInt(row.exposed_supply_sats),
+        exposedSupplySats: getRowExposedSupplySats(row),
         filteredExposedSupplySats,
         exposedUtxoCount: toInt(row.exposed_utxo_count),
         firstExposedBlockheight: toInt(row.first_exposed_blockheight),
-        firstExposedTime: toInt(row.first_exposed_time),
         lastSpendBlockheight: toInt(row.last_spend_blockheight),
-        lastSpendTime: toInt(row.last_spend_time),
         scriptTypes,
         spendActivity: row.spend_activity,
         detail: row.details || "",
@@ -3103,10 +3149,10 @@ function isTagFilterActive(filters) {
 
 function rowPassesTopExposureFilters(row, filters, includeTagFilters = true) {
   const minSats = balanceMinSats(filters.balance);
-  if (toInt(row.exposed_supply_sats) < minSats) return false;
+  if (getRowExposedSupplySats(row) < minSats) return false;
 
   if (!filters.scriptTypes.includes("All")) {
-    const types = (row.script_types || row.script_type || "").split("|");
+    const types = getRowScriptTypes(row);
     if (!types.some((t) => filters.scriptTypes.includes(t))) return false;
   }
 
@@ -3151,17 +3197,14 @@ function rowPassesTagAndBalanceFilters(row, filters) {
 
 function rowPassesBalanceFilter(row, balanceKey) {
   const minSats = balanceMinSats(balanceKey);
-  return toInt(row.exposed_supply_sats) >= minSats;
+  return getRowExposedSupplySats(row) >= minSats;
 }
 
 function getFilteredExposedSupplySatsForRow(row, selectedScriptTypes) {
-  const totalExposedSupply = toInt(row.exposed_supply_sats);
+  const totalExposedSupply = getRowExposedSupplySats(row);
   if (!totalExposedSupply) return 0;
 
-  const rowScriptTypes = (row.script_types || row.script_type || "")
-    .split("|")
-    .map((value) => value.trim())
-    .filter((value) => SCRIPT_TYPES_ORDER.includes(value));
+  const rowScriptTypes = getRowScriptTypes(row);
   const uniqueRowScriptTypes = Array.from(new Set(rowScriptTypes));
   const targets = uniqueRowScriptTypes.length ? uniqueRowScriptTypes : ["Other"];
 
@@ -3170,14 +3213,7 @@ function getFilteredExposedSupplySatsForRow(row, selectedScriptTypes) {
   }
 
   const selectedSet = new Set(selectedScriptTypes);
-  let supplyByScriptType = {};
-  if (row.exposed_supply_sats_by_script_type) {
-    try {
-      supplyByScriptType = JSON.parse(row.exposed_supply_sats_by_script_type);
-    } catch (err) {
-      supplyByScriptType = {};
-    }
-  }
+  const supplyByScriptType = getRowSupplyByScriptType(row);
 
   let filteredSupply = 0;
   targets.forEach((scriptType) => {
@@ -3214,7 +3250,7 @@ function estimateMigrationBlocksFromRow(row) {
   const utxoCount = toInt(row.exposed_utxo_count);
   if (!utxoCount) return 0;
 
-  const scriptTypes = (row.script_types || row.script_type || "").split("|").filter(Boolean);
+  const scriptTypes = getRowScriptTypes(row);
   const weights = scriptTypes.length ? scriptTypes.map((st) => migrationWeightForScriptType(st)) : [176];
   const avgWeight = weights.reduce((sum, w) => sum + w, 0) / weights.length;
   return (utxoCount * avgWeight * 4) / 4_000_000;
@@ -3239,7 +3275,10 @@ function aggregateKpisFromGe1(filters, includeTagFilters) {
     acc.supply_sats += exposedSupply;
     acc.exposed_supply_sats += exposedSupply;
     acc.exposed_utxo_count += totalExposedUtxos;
-    exposedPubkeyGroupIds.add(row.group_id);
+    const rowPrimaryId = getRowPrimaryGroupId(row);
+    if (rowPrimaryId) {
+      exposedPubkeyGroupIds.add(rowPrimaryId);
+    }
     acc.estimated_migration_blocks += estimateMigrationBlocksFromRow(row);
   });
 
@@ -3469,14 +3508,14 @@ function renderTopExposures(rows) {
       row.filteredExposedSupplySats > 0 && row.filteredExposedSupplySats !== row.exposedSupplySats;
 
     const tooltipLines = [];
-    if (row.firstExposedBlockheight > 0 || row.firstExposedTime > 0) {
+    if (row.firstExposedBlockheight >= 0) {
       tooltipLines.push(
-        `First exposure:\n${formatInt(row.firstExposedBlockheight)} · ${formatTooltipDateFromHeight(row.firstExposedBlockheight, row.firstExposedTime)}`
+        `First exposure:\n${formatInt(row.firstExposedBlockheight)} · ${formatTooltipDateFromHeight(row.firstExposedBlockheight)}`
       );
     }
     if (row.lastSpendBlockheight > 0) {
       tooltipLines.push(
-        `Last spend:\n${formatInt(row.lastSpendBlockheight)} · ${formatTooltipDateFromHeight(row.lastSpendBlockheight, row.lastSpendTime)}`
+        `Last spend:\n${formatInt(row.lastSpendBlockheight)} · ${formatTooltipDateFromHeight(row.lastSpendBlockheight)}`
       );
     }
     const spendTooltip = tooltipLines.join("\n");
@@ -3904,8 +3943,41 @@ async function loadSnapshotLabelLookup(snapshots) {
   state.blockDatetimeByHeight = {};
   state.snapshotLabelDatetimeByHeight = {};
 
+  let loadedFromGlobalLookup = false;
+  try {
+    const lookupResp = await fetch("webapp_data/blockheight_datetime_lookup.csv");
+    if (lookupResp.ok) {
+      const lookupRows = parseCsv(await lookupResp.text());
+      const snapshotSet = new Set((Array.isArray(snapshots) ? snapshots : []).map((value) => String(value).trim()));
+      lookupRows.forEach((row) => {
+        const height = String(row.blockheight || "").trim();
+        const unixTime = toInt(row.unix_time);
+        if (!height || !unixTime) return;
+
+        const tooltipDate = formatTooltipDate(unixTime);
+        state.blockDatetimeByHeight[height] = tooltipDate;
+
+        if (snapshotSet.has(height)) {
+          state.snapshotLabelDatetimeByHeight[height] = formatSnapshotSelectDate(unixTime);
+        }
+      });
+      loadedFromGlobalLookup = true;
+    }
+  } catch (_err) {
+    // Fallback below will continue to per-snapshot metadata.
+  }
+
+  // Fallback path for snapshot labels if the global lookup is missing/incomplete.
+  const missingSnapshotLabels = (Array.isArray(snapshots) ? snapshots : [])
+    .map((snapshot) => String(snapshot).trim())
+    .filter((snapshot) => snapshot && !state.snapshotLabelDatetimeByHeight[snapshot]);
+
+  if (loadedFromGlobalLookup && missingSnapshotLabels.length === 0) {
+    return;
+  }
+
   await Promise.all(
-    snapshots.map(async (snapshot) => {
+    missingSnapshotLabels.map(async (snapshot) => {
       try {
         const resp = await fetch(`webapp_data/${snapshot}/dashboard_snapshot_meta.csv`);
         if (!resp.ok) {
