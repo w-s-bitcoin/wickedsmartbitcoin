@@ -2,6 +2,11 @@
  * GRID: LAYOUT + FILTER/RENDER
  * =========================== */
 const DASHBOARD_CARD_PREVIEW_SPECS = Object.freeze({
+  'quantum_exposure.png': {
+    url: 'webapps/quantum_exposure/dashboard.html?preview=card',
+    width: 1280,
+    height: 720,
+  },
   'bip110_signaling.png': {
     url: 'webapps/bip110_signaling/dashboard.html?preview=card',
     width: 1280,
@@ -22,6 +27,8 @@ const DASHBOARD_CARD_PREVIEW_SPECS = Object.freeze({
 let dashboardPreviewResizeObserver = null;
 let dashboardPreviewWindowResizeBound = false;
 const GRID_FOCUS_RESTORE_KEY = 'wsb_pending_grid_focus_filename_v1';
+let layoutForcedByNarrowWidth = false;
+let layoutBeforeNarrowForce = null;
 
 function getDashboardCardPreviewSpec(filename) {
   return DASHBOARD_CARD_PREVIEW_SPECS[String(filename || '').trim().toLowerCase()] || null;
@@ -151,6 +158,11 @@ function buildGridOnce(){
       iframe.tabIndex = -1;
       iframe.addEventListener('load', () => {
         spinner.remove();
+        if (typeof postThemeToPreviewFrames === 'function') {
+          postThemeToPreviewFrames(
+            typeof getStoredDashboardTheme === 'function' ? getStoredDashboardTheme() : 'dark'
+          );
+        }
       }, { once: true });
 
       scene.appendChild(iframe);
@@ -274,6 +286,8 @@ function setLayout(type, manual = true) {
         gridIcon.classList.remove('active');
     }
     if (manual) {
+      layoutForcedByNarrowWidth = false;
+      layoutBeforeNarrowForce = null;
         userSelectedLayout = type;
         localStorage.setItem('preferredLayout', type);
     }
@@ -289,20 +303,44 @@ function updateLayoutBasedOnWidth() {
   const containerWidth = imageGrid.offsetWidth;
   const columnWidth = 280 + 32;
   const columns = Math.floor(containerWidth / columnWidth);
+  const storedLayout = localStorage.getItem('preferredLayout');
+  const storedPreferred = storedLayout === 'grid' || storedLayout === 'list' ? storedLayout : null;
+
   if (columns < 2) {
-        toggleIconsEl.style.display = 'none';
-    searchBtn.disabled = false;
-        if (userSelectedLayout !== 'list') setLayout('list', false);
-    } else {
-        toggleIconsEl.style.display = 'inline-flex';
-    searchBtn.disabled = false;
-        const storedLayout = localStorage.getItem('preferredLayout');
-        const preferred =
-            userSelectedLayout ||
-            (storedLayout === 'grid' || storedLayout === 'list' ? storedLayout : null) ||
-            (imageGrid.classList.contains('list') ? 'list' : 'grid');
-        setLayout(preferred, false);
+    if (!layoutForcedByNarrowWidth) {
+      layoutBeforeNarrowForce =
+        userSelectedLayout ||
+        storedPreferred ||
+        (imageGrid.classList.contains('list') ? 'list' : 'grid');
     }
+    layoutForcedByNarrowWidth = true;
+    toggleIconsEl.style.display = 'none';
+    searchBtn.disabled = false;
+    if (!imageGrid.classList.contains('list')) {
+      setLayout('list', false);
+    }
+  } else {
+    toggleIconsEl.style.display = 'inline-flex';
+    searchBtn.disabled = false;
+
+    if (layoutForcedByNarrowWidth) {
+      const restoreLayout =
+        layoutBeforeNarrowForce ||
+        userSelectedLayout ||
+        storedPreferred ||
+        'grid';
+      layoutForcedByNarrowWidth = false;
+      layoutBeforeNarrowForce = null;
+      setLayout(restoreLayout, false);
+      return;
+    }
+
+    const preferred =
+      userSelectedLayout ||
+      storedPreferred ||
+      (imageGrid.classList.contains('list') ? 'list' : 'grid');
+    setLayout(preferred, false);
+  }
 }
 function toggleSearch() {
   const input = document.getElementById('search-input');

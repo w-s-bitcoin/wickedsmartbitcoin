@@ -446,6 +446,8 @@ function resetDashboardsToDefaults() {
         'distMetric',
         'cycleAnchor',
         'wicked_dashboard_timezone_v1',
+        'quantum-research-dashboard-theme',
+        'quantum-research-dashboard-filters-v1',
         'slideshowExp',
         'buyCoffeeMethod'
     ];

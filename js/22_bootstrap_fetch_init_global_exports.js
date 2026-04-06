@@ -224,6 +224,10 @@ function getImageNameFromPath() {
     };
   if (location.hash) {
     let h = location.hash.replace(/^#/, "");
+        const hashQueryIndex = h.indexOf("?");
+        if (hashQueryIndex >= 0) {
+            h = h.slice(0, hashQueryIndex);
+        }
     if (h.toLowerCase() === DONATE_ROUTE) return null;
     const hLow = h.toLowerCase();
     if (

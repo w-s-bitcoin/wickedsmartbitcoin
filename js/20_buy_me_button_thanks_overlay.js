@@ -6,6 +6,90 @@ const DONATION_LIQUID = 'VJLDEF7n8TBjyJY2BaAgeVvzPSRMJ7VAP5opW9mB5A7ChyiKHnaguTu
 const DONATION_ONCHAIN = 'bc1q8mql8fucypd3dllkawqafytmrnwtv77gzxy346';
 const DASHBOARD_TZ_STORAGE_KEY = 'wicked_dashboard_timezone_v1';
 const DASHBOARD_TZ_CHANGE_EVENT = 'wsb:timezonechange';
+const DASHBOARD_THEME_STORAGE_KEY = 'quantum-research-dashboard-theme';
+
+function applySiteTheme(themeRaw) {
+    const theme = themeRaw === 'dark' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = theme;
+}
+
+function getStoredDashboardTheme() {
+    try {
+        const raw = String(localStorage.getItem(DASHBOARD_THEME_STORAGE_KEY) || '').trim();
+        if (raw === 'light' || raw === 'dark') return raw;
+    } catch (_) {
+    }
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function updateShellThemeToggleUi(themeRaw) {
+    const btn = document.getElementById('shellThemeToggle');
+    if (!btn) return;
+    const icon = btn.querySelector('.shell-theme-icon');
+    const theme = themeRaw === 'dark' ? 'dark' : 'light';
+    const isDark = theme === 'dark';
+    btn.setAttribute('aria-pressed', String(isDark));
+    btn.setAttribute('title', isDark ? 'Switch to light mode' : 'Switch to dark mode');
+    if (icon) icon.textContent = isDark ? '☾' : '☼';
+}
+
+function postThemeToModalEmbed(themeRaw) {
+    const iframe = document.getElementById('modal-embed');
+    if (!iframe || !iframe.contentWindow) return;
+    const theme = themeRaw === 'dark' ? 'dark' : 'light';
+    iframe.contentWindow.postMessage({ type: 'quantum-dashboard-theme', theme }, window.location.origin);
+}
+
+function postThemeToPreviewFrames(themeRaw) {
+    const theme = themeRaw === 'dark' ? 'dark' : 'light';
+    const frames = document.querySelectorAll('.dashboard-preview-frame');
+    frames.forEach((frame) => {
+        if (frame.contentWindow) {
+            frame.contentWindow.postMessage({ type: 'quantum-dashboard-theme', theme }, window.location.origin);
+        }
+    });
+}
+
+function setDashboardThemeFromShell(themeRaw) {
+    const theme = themeRaw === 'dark' ? 'dark' : 'light';
+    try {
+        localStorage.setItem(DASHBOARD_THEME_STORAGE_KEY, theme);
+    } catch (_) {
+    }
+    applySiteTheme(theme);
+    updateShellThemeToggleUi(theme);
+    postThemeToModalEmbed(theme);
+    postThemeToPreviewFrames(theme);
+}
+
+function toggleDashboardThemeFromShell() {
+    const next = getStoredDashboardTheme() === 'dark' ? 'light' : 'dark';
+    setDashboardThemeFromShell(next);
+}
+
+function ensureShellThemeToggle() {
+    const buyBtn = document.getElementById('buyCoffeeBtn');
+    if (!buyBtn || !buyBtn.parentElement) return null;
+
+    let toggle = document.getElementById('shellThemeToggle');
+    if (toggle) return toggle;
+
+    toggle = document.createElement('button');
+    toggle.id = 'shellThemeToggle';
+    toggle.type = 'button';
+    toggle.className = 'buy-coffee-btn shell-theme-toggle';
+    toggle.setAttribute('aria-label', 'Toggle light or dark mode');
+    toggle.setAttribute('aria-pressed', 'false');
+
+    const icon = document.createElement('span');
+    icon.className = 'shell-theme-icon';
+    icon.textContent = '☼';
+    toggle.appendChild(icon);
+
+    toggle.addEventListener('click', toggleDashboardThemeFromShell);
+    buyBtn.insertAdjacentElement('afterend', toggle);
+    return toggle;
+}
 function getSelectedDashboardTimeZone() {
     const api = window.WSBDashboardTime;
     if (api && typeof api.getPreferredTimeZone === 'function') {
@@ -217,6 +301,7 @@ function showThanksPopup({ fromRoute = false } = {}) {
     const method = getStoredBuyCoffeeMethod();
     const imgSrc = thanksImagePath({ beerMode, isPortrait, method });
     if (!thanksOverlay) {
+        const overlayBg = (getComputedStyle(document.documentElement).getPropertyValue('--overlay-bg') || 'rgba(0, 0, 0, 0.9)').trim();
         thanksOverlay = document.createElement('div');
         thanksOverlay.id = 'thanks-overlay';
         Object.assign(thanksOverlay.style, {
@@ -227,7 +312,7 @@ function showThanksPopup({ fromRoute = false } = {}) {
             justifyContent: 'center',
             zIndex: '10001',
             cursor: 'default',
-            background: 'rgba(0, 0, 0, 0.9)',
+            background: overlayBg,
             padding: 'max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left))'
         });
         const container = document.createElement('div');
@@ -451,10 +536,10 @@ function updateBuyMeButton() {
     const isBeerTimeNow = (hour >= 17 || hour < 3);
     if (isBeerTimeNow) {
         icon.textContent = "🍺";
-        text.textContent = "Buy me a beer";
+        text.textContent = "· Buy me a beer";
     } else {
         icon.textContent = "☕";
-        text.textContent = "Buy me a coffee";
+        text.textContent = "· Buy me a coffee";
     }
     preloadThanksImagesIfNeeded(false);
 }
@@ -466,6 +551,15 @@ function handleDonationTimeZoneChanged() {
         positionThanksMethodButtonsForOrientation();
 }
 document.addEventListener("DOMContentLoaded", () => {
+    applySiteTheme(getStoredDashboardTheme());
+    ensureShellThemeToggle();
+    updateShellThemeToggleUi(getStoredDashboardTheme());
+    const modalEmbed = document.getElementById('modal-embed');
+    if (modalEmbed) {
+        modalEmbed.addEventListener('load', () => {
+            postThemeToModalEmbed(getStoredDashboardTheme());
+        });
+    }
   updateBuyMeButton();
   preloadThanksImagesIfNeeded(true);
   preloadAllThanksImagesOnce();
@@ -473,14 +567,26 @@ document.addEventListener("DOMContentLoaded", () => {
 setInterval(updateBuyMeButton, 5 * 60 * 1000);
 window.addEventListener(DASHBOARD_TZ_CHANGE_EVENT, handleDonationTimeZoneChanged);
 window.addEventListener('storage', e => {
-        if (e.key !== DASHBOARD_TZ_STORAGE_KEY) return;
-        handleDonationTimeZoneChanged();
+        if (e.key === DASHBOARD_TZ_STORAGE_KEY) {
+            handleDonationTimeZoneChanged();
+            return;
+        }
+        if (e.key === DASHBOARD_THEME_STORAGE_KEY) {
+            applySiteTheme(e.newValue);
+            updateShellThemeToggleUi(e.newValue);
+            postThemeToModalEmbed(e.newValue);
+            postThemeToPreviewFrames(e.newValue);
+        }
 });
 function updateBuyMeButtonLayout() {
     const btn = document.getElementById("buyCoffeeBtn");
+    const toggle = ensureShellThemeToggle();
     if (!btn) return;
     const narrow = window.innerWidth <= 750;
     btn.classList.toggle("buy-coffee-hide-text", narrow);
+    if (toggle) {
+        toggle.classList.toggle('compact', narrow);
+    }
 }
 document.addEventListener("DOMContentLoaded", updateBuyMeButtonLayout);
 window.addEventListener("resize", updateBuyMeButtonLayout);

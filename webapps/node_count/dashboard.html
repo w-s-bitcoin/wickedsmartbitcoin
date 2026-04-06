@@ -19,11 +19,14 @@
   <link rel="stylesheet" href="../shared/dashboard_shared.css" />
   <style>
     :root {
-      --bg: #06080a;
-      --panel: #0c1216;
-      --panel-border: #1f2a30;
+      /* dark (default) */
+      --bg: #000;
+      --panel: #000;
+      --panel-border: rgba(255, 255, 255, 0.11);
       --fg: #f1f5f7;
       --muted: #95a6ae;
+      --fg-dim: #d6e1e6;
+      --link: #8dc7ff;
       --accent: #ff9f1c;
       --accent-2: #39d98a;
       --accent-3: #4aa8ff;
@@ -37,6 +40,31 @@
       --topbar-row-gap: 6px;
       --kpi-settings-pad-top: 5px;
       --wrap-grid-template-rows: auto minmax(0, 1fr);
+      /* component tokens */
+      --resizer-track: rgba(255, 255, 255, 0.35);
+      --row-stripe: rgba(255, 255, 255, 0.02);
+      --row-hover: rgba(255, 255, 255, 0.06);
+      --row-border: rgba(255, 255, 255, 0.08);
+      --scrollbar-css: rgba(255, 255, 255, 0.28);
+      --caret-chevron: #d6e1e6;
+      --list-divider: rgba(255, 255, 255, 0.1);
+    }
+
+    :root[data-theme="light"] {
+      --bg: #f7f4ee;
+      --panel: #ffffff;
+      --panel-border: rgba(0, 0, 0, 0.11);
+      --fg: #1c1b19;
+      --muted: #6f685f;
+      --fg-dim: #514d47;
+      --link: #1f4f78;
+      --resizer-track: rgba(0, 0, 0, 0.18);
+      --row-stripe: rgba(0, 0, 0, 0.02);
+      --row-hover: rgba(0, 0, 0, 0.05);
+      --row-border: rgba(0, 0, 0, 0.07);
+      --scrollbar-css: rgba(0, 0, 0, 0.18);
+      --caret-chevron: #7a756e;
+      --list-divider: rgba(0, 0, 0, 0.08);
     }
 
     body {
@@ -44,7 +72,7 @@
       min-height: 100vh;
       font-family: "Space Grotesk", "Helvetica Neue", sans-serif;
       color: var(--fg);
-      background: #000;
+      background: var(--bg);
       overflow: hidden;
     }
 
@@ -81,8 +109,8 @@
 
     .topbar {
       display: grid;
-      background: #000;
-      border: 1px solid rgba(255, 255, 255, 0.14);
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
       border-radius: 14px;
       padding: 10px 12px;
       box-shadow: none;
@@ -129,8 +157,8 @@
       top: 50%;
       width: 6px;
       height: 6px;
-      border-right: 1.5px solid #d6e1e6;
-      border-bottom: 1.5px solid #d6e1e6;
+      border-right: 1.5px solid var(--caret-chevron);
+      border-bottom: 1.5px solid var(--caret-chevron);
       transform: translateY(-70%) rotate(45deg);
       opacity: 0.8;
       pointer-events: none;
@@ -248,7 +276,7 @@
       width: 2px;
       height: 42px;
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.35);
+      background: var(--resizer-track);
       transition: background-color 0.15s ease;
     }
 
@@ -314,8 +342,8 @@
     }
 
     .panel {
-      background: #000;
-      border: 1px solid rgba(255, 255, 255, 0.14);
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
       border-radius: 14px;
       box-shadow: none;
       overflow: hidden;
@@ -379,7 +407,7 @@
       min-height: 0;
       scrollbar-gutter: stable;
       scrollbar-width: thin;
-      scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
+      scrollbar-color: var(--scrollbar-css) transparent;
     }
 
     .history-legend::-webkit-scrollbar {
@@ -391,7 +419,7 @@
     }
 
     .history-legend::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.28);
+      background: var(--scrollbar-css);
       border-radius: 999px;
     }
 
@@ -411,7 +439,7 @@
       align-items: center;
       gap: 6px;
       min-height: var(--history-legend-row-height);
-      color: #d8e4ea;
+      color: var(--fg-dim);
       font-size: clamp(0.64rem, 0.56rem + 0.28vw, 0.76rem);
       font-family: "IBM Plex Mono", monospace;
       white-space: nowrap;
@@ -424,7 +452,7 @@
 
     .history-legend-item:hover,
     .history-legend-item:focus-visible {
-      color: #eef4f6;
+      color: var(--fg);
       outline: none;
     }
 
@@ -460,7 +488,7 @@
     }
 
     #historyChart .spikeline {
-      stroke: #ffffff !important;
+      stroke: var(--fg) !important;
       stroke-width: 0.85px !important;
       stroke-dasharray: 5 4 !important;
     }
@@ -486,7 +514,7 @@
       width: 42px;
       height: 2px;
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.35);
+      background: var(--resizer-track);
       transition: background-color 0.15s ease;
     }
 
@@ -519,7 +547,7 @@
       min-height: var(--software-table-min-height);
       overflow-y: auto;
       overflow-x: hidden;
-      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      border-top: 1px solid var(--list-divider);
     }
 
     .grid.stacked .software-panel {
@@ -539,7 +567,7 @@
     td {
       text-align: left;
       padding: 8px 6px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      border-bottom: 1px solid var(--row-border);
       vertical-align: top;
     }
 
@@ -551,10 +579,10 @@
       letter-spacing: 0.06em;
       position: sticky;
       top: 0;
-      background: #000;
+      background: var(--panel);
       background-clip: padding-box;
       z-index: 5;
-      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.08);
+      box-shadow: 0 1px 0 var(--row-border);
       transform: translateZ(0);
     }
 
@@ -570,11 +598,11 @@
 
     tr.software-main-row {
       cursor: pointer;
-      background: rgba(255, 255, 255, 0.02);
+      background: var(--row-stripe);
     }
 
     tr.software-main-row:hover {
-      background: rgba(255, 255, 255, 0.06);
+      background: var(--row-hover);
     }
 
     tr.software-main-row td {
@@ -587,25 +615,31 @@
 
     tr.software-sub-row td:first-child {
       padding-left: 24px;
-      color: #d5e0e6;
+      color: var(--fg-dim);
     }
 
     .row-toggle {
       display: inline-block;
       width: 14px;
       margin-right: 6px;
-      color: #9fb2bc;
+      color: var(--muted);
       font-family: "IBM Plex Mono", monospace;
     }
 
     .error {
-      color: #ffd1d1;
-      background: rgba(255, 93, 93, 0.12);
-      border: 1px solid rgba(255, 93, 93, 0.35);
+      color: var(--error-fg, #ffd1d1);
+      background: var(--error-bg, rgba(255, 93, 93, 0.12));
+      border: 1px solid var(--error-border, rgba(255, 93, 93, 0.35));
       border-radius: 10px;
       padding: 10px 12px;
       margin: 0 0 8px;
       display: none;
+    }
+
+    :root[data-theme="light"] .error {
+      --error-fg: #7b1b1b;
+      --error-bg: rgba(200, 50, 50, 0.08);
+      --error-border: rgba(200, 50, 50, 0.3);
     }
 
     @media (max-width: 1100px) {
@@ -783,6 +817,33 @@
 
   <script src="../../js/25_dashboard_timezone_preferences.js"></script>
   <script>
+    /* ── theme sync ─────────────────────────────────────────────────── */
+    (function () {
+      const THEME_KEY = 'quantum-research-dashboard-theme';
+      function applyTheme(t) {
+        document.documentElement.dataset.theme = (t === 'light' ? 'light' : 'dark');
+        document.dispatchEvent(new CustomEvent('dashboard-theme-change'));
+      }
+      try {
+        const stored = localStorage.getItem(THEME_KEY);
+        applyTheme(stored === 'light' || stored === 'dark'
+          ? stored
+          : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+      } catch (_) { applyTheme('dark'); }
+      window.addEventListener('message', function (e) {
+        if (e.data && e.data.type === 'quantum-dashboard-theme') applyTheme(e.data.theme);
+      });
+      window.addEventListener('storage', function (e) {
+        if (e.key === THEME_KEY && (e.newValue === 'light' || e.newValue === 'dark')) applyTheme(e.newValue);
+      });
+    }());
+    document.addEventListener('dashboard-theme-change', function () {
+      if (state.history.length) {
+        renderHistoryChart({ preserveViewport: true });
+        if (state.software.length) renderSoftwarePanel();
+      }
+    });
+    /* ────────────────────────────────────────────────────────────────── */
     const CONTROLS_STORAGE_KEY = 'node_count_dashboard_controls_v2';
     const DASHBOARD_TIME = window.WSBDashboardTime || null;
     const MOBILE_STACK_BREAKPOINT = 1100;
@@ -1564,16 +1625,20 @@
       }
     }
 
-    const PLOTLY_HOVERLABEL = {
-      bgcolor: '#000',
-      bordercolor: '#223038',
-      font: {
-        family: '"IBM Plex Mono", monospace',
-        color: '#e9f1f5',
-        size: 12,
-      },
-      align: 'left',
-    };
+    function getPlotlyHoverlabel() {
+      const style = getComputedStyle(document.documentElement);
+      const isLight = document.documentElement.dataset.theme === 'light';
+      return {
+        bgcolor: style.getPropertyValue('--panel').trim() || (isLight ? '#ffffff' : '#000000'),
+        bordercolor: isLight ? 'rgba(0, 0, 0, 0.12)' : '#223038',
+        font: {
+          family: '"IBM Plex Mono", monospace',
+          color: style.getPropertyValue('--fg').trim() || (isLight ? '#1c1b19' : '#e9f1f5'),
+          size: 12,
+        },
+        align: 'left',
+      };
+    }
 
     const PLOTLY_LIVE_BG = 'rgba(0,0,0,0)';
     const PLOTLY_EXPORT_BG = '#000';
@@ -1809,6 +1874,10 @@
     }
 
     function renderHistoryChart(options = {}) {
+      const _thStyle = getComputedStyle(document.documentElement);
+      const _thFg = _thStyle.getPropertyValue('--fg').trim() || '#eef4f6';
+      const _thIsLight = document.documentElement.dataset.theme === 'light';
+      const _thGrid = _thIsLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)';
       setPanelLoaderVisible('history', true);
       const preserveViewport = Boolean(options.preserveViewport);
       const fitVisibleAllRange = Boolean(options.fitVisibleAllRange);
@@ -1961,18 +2030,18 @@
         margin: { l: 64, r: 24, t: 16, b: 25 },
         paper_bgcolor: PLOTLY_LIVE_BG,
         plot_bgcolor: PLOTLY_LIVE_BG,
-        font: { color: '#eef4f6', family: '"IBM Plex Mono", monospace', size: 12 },
-        hoverlabel: PLOTLY_HOVERLABEL,
+        font: { color: _thFg, family: '"IBM Plex Mono", monospace', size: 12 },
+        hoverlabel: getPlotlyHoverlabel(),
         hoverdistance: 5,
         showlegend: false,
         xaxis: {
           hoverformat: '%Y-%m-%d',
-          gridcolor: 'rgba(255,255,255,0.08)',
+          gridcolor: _thGrid,
           zeroline: false,
           showspikes: true,
           spikemode: 'across',
           spikesnap: 'cursor',
-          spikecolor: '#ffffff',
+          spikecolor: _thFg,
           spikethickness: 1,
           spikedash: 'dash',
           ...(
@@ -1984,7 +2053,7 @@
         yaxis: {
           title: 'Node count',
           rangemode: 'tozero',
-          gridcolor: 'rgba(255,255,255,0.08)',
+          gridcolor: _thGrid,
           zeroline: false,
           showspikes: false,
         },
@@ -2007,6 +2076,10 @@
     }
 
     function renderSoftwarePanel() {
+      const _thStyle = getComputedStyle(document.documentElement);
+      const _thFg = _thStyle.getPropertyValue('--fg').trim() || '#eef4f6';
+      const _thIsLight = document.documentElement.dataset.theme === 'light';
+      const _thGrid = _thIsLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)';
       setPanelLoaderVisible('software', true);
       const topN = Number(document.getElementById('topNInput').value);
       document.getElementById('topNLabel').textContent = String(topN);
@@ -2093,11 +2166,11 @@
         margin: { l: 64, r: 18, t: 6, b: 62 },
         paper_bgcolor: PLOTLY_LIVE_BG,
         plot_bgcolor: PLOTLY_LIVE_BG,
-        font: { color: '#eef4f6', family: '"IBM Plex Mono", monospace', size: 12 },
-        hoverlabel: PLOTLY_HOVERLABEL,
+        font: { color: _thFg, family: '"IBM Plex Mono", monospace', size: 12 },
+        hoverlabel: getPlotlyHoverlabel(),
         hovermode: 'x unified',
-        xaxis: { tickangle: -28, automargin: true, gridcolor: 'rgba(255,255,255,0.04)', showspikes: false },
-        yaxis: { title: 'Nodes', gridcolor: 'rgba(255,255,255,0.08)', showspikes: false },
+        xaxis: { tickangle: -28, automargin: true, gridcolor: _thGrid, showspikes: false },
+        yaxis: { title: 'Nodes', gridcolor: _thGrid, showspikes: false },
       }, getPlotlyConfig('softwareChart', 'bitcoin-node-software-versions'));
 
       applySoftwarePanelSizing();

@@ -1,5 +1,16 @@
 [
   {
+    "filename": "quantum_exposure.png",
+    "title": "Bitcoin Quantum Exposure",
+    "description": "This dashboard tracks exposed Bitcoin supply, pubkeys, and UTXOs by script type and spend activity, with historical views and top exposure filters",
+    "latest_x": "",
+    "latest_nostr": "",
+    "latest_youtube": "",
+    "modal_type": "embed",
+    "embed_url": "/webapps/quantum_exposure/dashboard.html",
+    "archived": "False"
+  },
+  {
     "filename": "bip110_signaling.png",
     "title": "BIP-110 Signaling",
     "description": "This dashboard focuses on miner signaling across each 2,016-block period for BIP-110, with SegWit signaling periods included for historical comparison",

@@ -119,6 +119,36 @@
           iframe.setAttribute('src', 'webapps/bip110_signaling/dashboard.html');
         }
       })();
+
+      (function initShellTheme() {
+        var THEME_KEY = 'quantum-research-dashboard-theme';
+        function applyShellTheme(t) {
+          document.documentElement.dataset.theme = (t === 'light' ? 'light' : 'dark');
+        }
+        function postTheme(t) {
+          var iframe = document.getElementById('modal-embed');
+          if (iframe && iframe.contentWindow) {
+            iframe.contentWindow.postMessage({ type: 'quantum-dashboard-theme', theme: t }, window.location.origin);
+          }
+        }
+        var stored;
+        try { stored = localStorage.getItem(THEME_KEY); } catch (_) {}
+        var theme = (stored === 'light' || stored === 'dark')
+          ? stored
+          : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        applyShellTheme(theme);
+        var embed = document.getElementById('modal-embed');
+        if (embed) {
+          embed.addEventListener('load', function () { postTheme(theme); });
+        }
+        window.addEventListener('storage', function (e) {
+          if (e.key === THEME_KEY && (e.newValue === 'light' || e.newValue === 'dark')) {
+            theme = e.newValue;
+            applyShellTheme(theme);
+            postTheme(theme);
+          }
+        });
+      }());
     </script>
 
     <script>
