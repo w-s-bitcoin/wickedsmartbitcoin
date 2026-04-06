@@ -51,7 +51,7 @@ const TOP_EXPOSURES_PAGE_SIZE = 250;
 const TOP_EXPOSURES_BOTTOM_THRESHOLD_PX = 4;
 const TOP_EXPOSURES_LOAD_DELAY_MS = 250;
 const SHARE_EXCLUDE_TOKEN = "__share_exclude__";
-const ANALYSIS_MIN_HEIGHT_PX = 440;
+const ANALYSIS_MIN_HEIGHT_PX = 500;
 const UNLABELED_DETAIL_FILTER_VALUE = "__unlabeled_detail__";
 const UNLABELED_DETAIL_FILTER_LABEL = "Unlabeled (non-multisig)";
 const UNIDENTIFIED_IDENTITY_FILTER_VALUE = "__unidentified__";
@@ -152,8 +152,11 @@ function updateTopExposureFilterControlAvailability() {
   }
 
   if (topExposuresFiltersToggle) {
-    topExposuresFiltersToggle.disabled = disableTagFilters;
-    setCustomTooltip(topExposuresFiltersToggle, disableTagFilters ? disabledTooltip : "Collapse top exposure filters");
+    // Keep the collapse control available in ECO mode even when filters are disabled.
+    topExposuresFiltersToggle.disabled = false;
+    if (!disableTagFilters) {
+      setCustomTooltip(topExposuresFiltersToggle, "Collapse top exposure filters");
+    }
   }
 
   if (topExposureAddressSearch) {
