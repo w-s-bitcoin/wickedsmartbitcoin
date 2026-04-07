@@ -36,4 +36,7 @@ yarn-error.log*
 .prettierrc
 
 # Standalone bundle source (commit only the packaged zip)
-webapps/quantum_exposure_standalone/
+webapps-quantum-exposure/
+
+# Local standalone archive artifact
+quantum_exposure.zip

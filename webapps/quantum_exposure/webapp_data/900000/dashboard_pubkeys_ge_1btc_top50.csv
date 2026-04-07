@@ -1,0 +1,51 @@
+display_group_ids,exposed_supply_sats_by_script_type,spend_activity,exposed_utxo_count,first_exposed_blockheight,last_spend_blockheight,details,identity
+34xp4vRoCGJym3xR7yCVPFHoCNxv4Twseo,"{ ""P2SH"" : 24859753728657 }",inactive,4965,546288,770774,None,Binance
+bc1ql49ydapnjafl5t2cp9zqpjwe6pdgmxy98859v2,"{ ""P2WPKH"" : 14057482481017 }",active,70,788818,878355,,Robinhood
+3M219KR5vEneNb47ewrPfWyb5jQ2DjxRP6,"{ ""P2SH"" : 13428073102276 }",active,135,549926,893893,None,Binance
+bc1qgdjqv0av3q56jvd82tkdjpy7gdp9ut8tlqmgrpmv24sq90ecnvqqjwvw97,"{ ""P2WSH"" : 13001007836500 }",active,1,590368,899592,3-of-5 multisig,Bitfinex
+bc1qjasf9z3h7w3jspkhtgatgpyvvzgpa2wwd2lr0eh5tx44reyn2k7sfc27a4,"{ ""P2WSH"" : 7864657670200 }",active,1,756361,899536,3-of-5 multisig,Tether
+3LYJfcfHPXYJreMsASk2jkn69LWEYKzexb,"{ ""P2SH"" : 6820000635302 }",inactive,67,581111,763655,None,Binance
+bc1qd4ysezhmypwty5dnw7c8nqy5h5nxg0xqsvaefd0qn5kq32vwnwqqgv4rzr,"{ ""P2WSH"" : 6500009605440 }",active,16,704522,892398,3-of-5 multisig,Bitfinex
+1Ay8vMC7R1UbyCCZRVULMV7iQpHSAbguJP,"{ ""P2PKH"" : 5762426274130 }",active,806,761374,896260,,Upbit
+bc1qa2eu6p5rl9255e3xz7fcgm6snn4wl5kdfh7zpt05qp5fad9dmsys0qjg0e,"{ ""P2WSH"" : 4419436882250 }",active,44,850077,884862,3-of-6 multisig,Bybit
+bc1q4j7fcl8zx5yl56j00nkqez9zf3f6ggqchwzzcs5hjxwqhsgxvavq3qfgpr,"{ ""P2WSH"" : 4176585085242 }",active,88,828493,899765,2-of-2 multisig,Coincheck
+3MgEAFWu1HKSnZ5ZsC8qf61ZW18xrP5pgd,"{ ""P2SH"" : 4134966825721 }",active,254,767604,899715,None,Gemini
+bc1qcardnx2pjnh0ce0rsdkce2yxxr9v6pt9a6qya3,"{ ""P2WPKH"" : 4098418076214 }",active,13,875007,897671,,
+bc1qk4m9zv5tnxf2pddd565wugsjrkqkfn90aa0wypj2530f4f7tjwrqntpens,"{ ""P2WSH"" : 3527726289844 }",active,84,844716,848607,3-of-5 multisig,BitMEX
+bc1qzwhw94uldd3c8736lsxrda6t6x56030f8zk8nr,"{ ""P2WPKH"" : 3305648324730 }",active,7,846720,896657,,
+12XqeqZRVkBDgmPLVY4ZC6Y4ruUUEug8Fx,"{ ""P2PKH"" : 3232100229754 }",inactive,53,661177,733173,,
+bc1qx9t2l3pyny2spqpqlye8svce70nppwtaxwdrp4,"{ ""P2WPKH"" : 3164340158722 }",inactive,4767,630028,639966,,Binance Pool
+12ib7dApVFvg82TXKycWBNpN8kFyiAN1dr,"{ ""P2PKH"" : 3100007513452 }",inactive,189,55632,70071,,unidentified
+bc1q7uq3u829ahn22sdlpac0h0lurq3a9yfd3ew69f,"{ ""P2WPKH"" : 2779540864806 }",active,26,872380,875048,,Revolut
+bc1qx85mcrg3cm38vksg4re035nujrldgpppqnurrg,"{ ""P2WPKH"" : 2750000010491 }",active,5,888472,899041,,
+3EMVdMehEq5SFipQ5UfbsfMsH223sSz9A9,"{ ""P2SH"" : 2698353945404 }",active,32,561082,879221,4-of-8 multisig,Boerse Stuttgart Digital
+39eYrpgAgDhp4tTjrSb1ppZ5kdAc1ikBYw,"{ ""P2SH"" : 2613938438552 }",active,18,820136,878248,None,unidentified
+38UmuUqPCrFmQo4khkomQwZ4VbY2nZMJ67,"{ ""P2SH"" : 2406697361602 }",inactive,100,402670,791369,,
+3FuhQLprN9s9MR3bZzR5da7mw75fuahsaU,"{ ""P2SH"" : 2362968454833 }",active,760,871495,898539,None,Bithumb
+bc1qcpflj68s3ahy4xajez4d8v3vk28pvf7qte2jmlftvxzfke2u6mqsge3gvh,"{ ""P2WSH"" : 2353097612543 }",active,2,832688,899340,3-of-5 multisig,Abraxas Capital Mgmt
+15cHRgVrGKz7qp2JL2N5mkB2MCFGLcnHxv,"{ ""P2PKH"" : 2337500826145 }",active,55,741078,887307,,unidentified
+bc1qysj2w7xsw09datsy9mt9x50jn7qjd6qde6d66qm3ce0a4y9uzdpqcavdr0,"{ ""P2WSH"" : 2089726513964 }",active,17,889381,899709,3-of-5 multisig,River
+bc1qr4dl5wa7kl8yu792dceg9z5knl2gkn220lk7a9,"{ ""P2WPKH"" : 2048961520670 }",active,1694,725859,899940,,Crypto.com
+3HfD4pvF43jdu9dzVMEr1b8AnDHooRGc5t,"{ ""P2SH"" : 2027149444497 }",active,17,771770,877524,,
+17rm2dvb439dZqyMe2d4D6AQJSgg6yeNRn,"{ ""P2PKH"" : 2000800248286 }",inactive,87,459340,459341,,unidentified
+bc1qx2x5cqhymfcnjtg902ky6u5t5htmt7fvqztdsm028hkrvxcl4t2sjtpd9l,"{ ""P2WSH"" : 1910072483338 }",active,35,745992,899969,2-of-2 multisig,Bitbank
+bc1q6qphr80zug3v37xf503a7atzfn3au2fz0dy9ek,"{ ""P2WPKH"" : 1615463652498 }",active,20,849884,900000,,
+1GR9qNz7zgtaW5HwwVpEJWMnGWhsbsieCG,"{ ""P2PKH"" : 1574555978172 }",inactive,83,505553,505587,,unidentified
+bc1qchctnvmdva5z9vrpxkkxck64v7nmzdtyxsrq64,"{ ""P2WPKH"" : 1477799886372 }",active,1,814641,898666,,BitMEX
+bc1qlt5nm3kflne7rht4alsnzdzad878ld5rcu4na0,"{ ""P2WPKH"" : 1464509940217 }",active,6049,865542,899653,,Crypto.com
+1CNtkWbb4grh8xtb8mhoZ6armNE9PHgzA8,"{ ""P2PKH"" : 1457945388451 }",active,114,771695,856019,,Upbit
+3KXwpcwggRsACLkFdfCVMU5ZA4tcLxdN6T,"{ ""P2SH"" : 1409080398018 }",active,533,897495,900000,,
+bc1q32lyrhp9zpww22phqjwwmelta0c8a5q990ghs6,"{ ""P2WPKH"" : 1402527883353 }",active,158,825130,899710,,Ceffu
+bc1qnad7erjflzm38d8p820hday79v90d09sc4gdly,"{ ""P2WPKH"" : 1380100011083 }",active,3,888512,888813,,
+3FM9vDYsN2iuMPKWjAcqgyahdwdrUxhbJ3,"{ ""P2SH"" : 1378086454233 }",active,96,824506,899951,None,VanEck
+bc1q72nyp6mzxjxm02j7t85pg0pq24684zdj2wuweu,"{ ""P2WPKH"" : 1376393847403 }",active,4,877104,889424,,Purpose Investments
+1M6V17HCv255sevEvB4P9fjZYoJC6z9NBJ|bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h,"{ ""P2PKH"" : 600, ""P2WPKH"" : 1328116920245 }",active,297,704052,900000,,Binance
+bc1qcv8h9hp5w8c4qpze0a4tdxw6qjtvg8yps23k0g3aymxx7jlesv4q4t6f65,"{ ""P2WSH"" : 1294106092144 }",active,126,831674,899904,,
+1L7gnfBJhK9ZwUcw2Lx93BPHmcd1tsxeTs|bc1q6xhpjtd5fxepcz4gfhqa5ljy55ekqwzazs555v,"{ ""P2WPKH"" : 909691306230, ""P2PKH"" : 218429183947 }",active,20,834668,899782,,Nexo
+39gUvGynQ7Re3i15G3J2gp9DEB9LnLFPMN,"{ ""P2SH"" : 1071725992868 }",active,66,671980,897816,None,unidentified
+bc1q7t9fxfaakmtk8pj7tdxjvwsng6y9x76czuaf5h,"{ ""P2WPKH"" : 1065000042332 }",inactive,12,832662,833190,,Binance
+1DzsfLRDfbmQM99xm59au2SrTY3YmciBSB,"{ ""P2PKH"" : 1000001055209 }",inactive,20,761378,761392,,Upbit
+1GUfWdZQoo2pQ4BKHsiegxuZPnheY5ueTm,"{ ""P2PKH"" : 1000000852855 }",inactive,16,761381,761392,,Upbit
+12HnxiXEeKUVjQRbMVTytsGWnzHd5LdGCt,"{ ""P2PKH"" : 1000000763174 }",inactive,17,761380,761392,,Upbit
+17uULjz9moeLyjXHoKNwDRgKzf8ahY3Jia,"{ ""P2PKH"" : 1000000756220 }",inactive,17,761380,761392,,Upbit
+18qNs1yBGGKR8RyErnEF5kegbNUgPfixhS,"{ ""P2PKH"" : 1000000720039 }",inactive,16,761381,761392,,Upbit
