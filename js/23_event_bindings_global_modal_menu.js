@@ -485,7 +485,72 @@ function resetDashboardsToDefaults() {
     window.location.reload();
 }
 
-kebabMenu?.addEventListener('click', e => {
+function isLocalWebappHost() {
+    const host = String(window.location.hostname || '').toLowerCase();
+    if (window.location.protocol === 'file:') return true;
+    return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '0.0.0.0';
+}
+
+function setPullLatestDataButtonVisibility() {
+    if (!pullLatestDataBtn) return;
+    const show = isLocalWebappHost();
+    pullLatestDataBtn.classList.toggle('hidden', !show);
+}
+
+async function pullLatestDataFromOriginMain() {
+    if (!isLocalWebappHost()) return;
+    const confirmed = window.confirm(
+        'Pull latest data from origin/main for local dashboards now? This can overwrite uncommitted local data-file changes.'
+    );
+    if (!confirmed) return;
+
+    if (pullLatestDataBtn) {
+        pullLatestDataBtn.disabled = true;
+        pullLatestDataBtn.textContent = 'Pulling latest data...';
+    }
+
+    try {
+        const base = getPageBasePath();
+        const endpoint = `${base}/__pull_latest_data__`;
+        const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            cache: 'no-store'
+        });
+
+        let payload = null;
+        try {
+            payload = await res.json();
+        } catch (_) {
+            payload = null;
+        }
+
+        if (!res.ok) {
+            const msg = payload?.error || `Request failed (${res.status})`;
+            throw new Error(msg);
+        }
+
+        const commit = String(payload?.commit || '').trim();
+        const commitSuffix = commit ? ` (${commit})` : '';
+        window.alert(`Latest dashboard data pulled from origin/main${commitSuffix}. The page will now reload.`);
+        window.location.reload();
+    } catch (err) {
+        const message = String(err?.message || err || 'Unknown error');
+        window.alert(
+            'Could not pull latest data automatically. If you are using python -m http.server, run local_data_server.py instead and try again.\n\n' +
+            `Details: ${message}`
+        );
+    } finally {
+        if (pullLatestDataBtn) {
+            pullLatestDataBtn.disabled = false;
+            pullLatestDataBtn.textContent = 'Pull Latest Data';
+        }
+    }
+}
+
+setPullLatestDataButtonVisibility();
+
+kebabMenu?.addEventListener('click', async e => {
     const btn = e.target.closest('.menu-item');
     if (!btn) return;
     if (btn.classList.contains('slideshow-row') || btn.closest('.slideshow-row')) {
@@ -509,6 +574,11 @@ kebabMenu?.addEventListener('click', e => {
         kebabMenu.classList.add('hidden');
         kebabBtn.setAttribute('aria-expanded', 'false');
         resetDashboardsToDefaults();
+        return;
+    } else if (action === 'pull-latest-data') {
+        kebabMenu.classList.add('hidden');
+        kebabBtn.setAttribute('aria-expanded', 'false');
+        await pullLatestDataFromOriginMain();
         return;
     }
     kebabMenu.classList.add('hidden');

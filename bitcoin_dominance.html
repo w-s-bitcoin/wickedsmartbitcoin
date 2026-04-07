@@ -13,7 +13,25 @@
     <style>
       body[data-standalone-modal-shell="1"] {
         margin: 0;
-        background: #000;
+        background: var(--bg);
+      }
+
+      body[data-standalone-modal-shell="1"] .buy-coffee {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .shell-theme-toggle {
+        width: 34px;
+        min-width: 34px;
+        min-height: 34px;
+        padding: 0;
+      }
+
+      .shell-theme-icon {
+        font-size: 0.9rem;
+        line-height: 1;
       }
 
       body[data-standalone-modal-shell="1"] .modal {
@@ -29,44 +47,22 @@
     <div class="buy-coffee">
       <button class="buy-coffee-btn" id="buyCoffeeBtn" type="button">
         <span id="buyCoffeeIcon">☕</span>
-        <span id="buyCoffeeText">Buy me a coffee</span>
+        <span id="buyCoffeeText">· Buy me a coffee</span>
+      </button>
+      <button
+        class="buy-coffee-btn shell-theme-toggle"
+        id="shellThemeToggle"
+        type="button"
+        aria-label="Toggle light or dark mode"
+        aria-pressed="false"
+        title="Switch to dark mode"
+      >
+        <span id="shellThemeIcon" class="shell-theme-icon">☼</span>
       </button>
     </div>
     <div class="buy-coffee-overlay" id="buyCoffeeOverlay" aria-hidden="true" role="dialog" aria-modal="true">
       <div class="buy-coffee-modal">
         <button
-          type="button"
-          class="buy-coffee-close"
-          id="buyCoffeeCloseBtn"
-          aria-label="Close buy me a coffee panel"
-        >×</button>
-        <img
-          alt="Buy me a coffee"
-          class="buy-coffee-img"
-          id="buyCoffeeImg"
-          draggable="false"
-        />
-        <div class="buy-coffee-methods" role="group" aria-label="Donation method">
-          <button
-            type="button"
-            class="buy-coffee-method-btn active"
-            data-method="lightning"
-            aria-pressed="true"
-          >Lightning</button>
-          <button
-            type="button"
-            class="buy-coffee-method-btn"
-            data-method="liquid"
-            aria-pressed="false"
-          >Liquid</button>
-          <button
-            type="button"
-            class="buy-coffee-method-btn"
-            data-method="onchain"
-            aria-pressed="false"
-          >On-chain</button>
-        </div>
-      </div>
     </div>
     <div class="modal" id="modal">
       <div class="modal-controls">
@@ -157,6 +153,14 @@
       const buyCoffeeImg = document.getElementById('buyCoffeeImg');
       const buyCoffeeMethodBtns = Array.from(document.querySelectorAll('.buy-coffee-method-btn'));
       const DASHBOARD_TZ_STORAGE_KEY = 'wicked_dashboard_timezone_v1';
+      const DASHBOARD_THEME_STORAGE_KEY = 'quantum-research-dashboard-theme';
+      const shellThemeToggle = document.getElementById('shellThemeToggle');
+      const shellThemeIcon = document.getElementById('shellThemeIcon');
+
+      function applySiteTheme(themeRaw) {
+        const theme = themeRaw === 'dark' ? 'dark' : 'light';
+        document.documentElement.dataset.theme = theme;
+      }
 
       function getSelectedDashboardTimeZone() {
         try {
@@ -196,10 +200,10 @@
         if (!icon || !text) return;
         if (isBeerTime()) {
           icon.textContent = '🍺';
-          text.textContent = 'Buy me a beer';
+          text.textContent = '· Buy me a beer';
         } else {
           icon.textContent = '☕';
-          text.textContent = 'Buy me a coffee';
+          text.textContent = '· Buy me a coffee';
         }
       }
 
@@ -211,6 +215,52 @@
         if (!buyCoffeeBtn) return;
         const narrow = window.innerWidth <= 750;
         buyCoffeeBtn.classList.toggle('buy-coffee-hide-text', narrow);
+        if (shellThemeToggle) {
+          shellThemeToggle.classList.toggle('compact', narrow);
+        }
+      }
+
+      function getSelectedTheme() {
+        try {
+          const value = String(localStorage.getItem(DASHBOARD_THEME_STORAGE_KEY) || '').trim();
+          if (value === 'dark' || value === 'light') return value;
+        } catch (_) {
+        }
+        return 'light';
+      }
+
+      function updateThemeToggleUi(theme) {
+        if (!shellThemeToggle || !shellThemeIcon) return;
+        const normalized = theme === 'dark' ? 'dark' : 'light';
+        const isDark = normalized === 'dark';
+        shellThemeToggle.setAttribute('aria-pressed', String(isDark));
+        shellThemeToggle.setAttribute('title', isDark ? 'Switch to light mode' : 'Switch to dark mode');
+        shellThemeIcon.textContent = isDark ? '☾' : '☼';
+      }
+
+      function notifyDashboardTheme(theme) {
+        const iframe = document.getElementById('modal-embed');
+        if (!iframe || !iframe.contentWindow) return;
+        iframe.contentWindow.postMessage(
+          { type: 'quantum-dashboard-theme', theme: theme === 'dark' ? 'dark' : 'light' },
+          window.location.origin
+        );
+      }
+
+      function setDashboardTheme(theme) {
+        const normalized = theme === 'dark' ? 'dark' : 'light';
+        try {
+          localStorage.setItem(DASHBOARD_THEME_STORAGE_KEY, normalized);
+        } catch (_) {
+        }
+        applySiteTheme(normalized);
+        updateThemeToggleUi(normalized);
+        notifyDashboardTheme(normalized);
+      }
+
+      function toggleDashboardTheme() {
+        const nextTheme = getSelectedTheme() === 'dark' ? 'light' : 'dark';
+        setDashboardTheme(nextTheme);
       }
 
       function repositionButtons() {
@@ -276,6 +326,11 @@
 
       buyCoffeeBtn?.addEventListener('click', showBuyCoffeeOverlay);
       buyCoffeeCloseBtn?.addEventListener('click', hideBuyCoffeeOverlay);
+      shellThemeToggle?.addEventListener('click', toggleDashboardTheme);
+      const dashboardIframe = document.getElementById('modal-embed');
+      dashboardIframe?.addEventListener('load', () => {
+        notifyDashboardTheme(getSelectedTheme());
+      });
       buyCoffeeOverlay?.addEventListener('click', (event) => {
         if (event.target === buyCoffeeOverlay) hideBuyCoffeeOverlay();
       });
@@ -305,9 +360,20 @@
       updateBuyCoffeeImage('lightning');
       setInterval(updateBuyMeButton, 5 * 60 * 1000);
       window.addEventListener('storage', (e) => {
-        if (e.key !== DASHBOARD_TZ_STORAGE_KEY) return;
-        handleDonationTimeZoneChanged();
+        if (e.key === DASHBOARD_TZ_STORAGE_KEY) {
+          handleDonationTimeZoneChanged();
+          return;
+        }
+        if (e.key === DASHBOARD_THEME_STORAGE_KEY) {
+          const theme = e.newValue === 'dark' ? 'dark' : 'light';
+          applySiteTheme(theme);
+          updateThemeToggleUi(theme);
+          notifyDashboardTheme(theme);
+        }
       });
+
+      applySiteTheme(getSelectedTheme());
+      updateThemeToggleUi(getSelectedTheme());
     </script>
     <script src="js/28_bitcoin_dominance_standalone_bootstrap.js" defer></script>
   </body>
