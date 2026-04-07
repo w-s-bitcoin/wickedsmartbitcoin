@@ -2,15 +2,16 @@
 """
 Generate ECO mode optimized files for Quantum Exposure dashboard:
 1. Top 100 CSV files for fast initial load
-2. Update historical_lite.csv with new snapshots
+2. Rebuild historical_lite.csv from current snapshots
 """
 
 import json
 import csv
 import io
 from pathlib import Path
+from pipeline_paths import QUANTUM_DIR
 
-QUANTUM_EXPOSURE_DIR = Path(__file__).parent
+QUANTUM_EXPOSURE_DIR = QUANTUM_DIR
 WEBAPP_DATA_DIR = QUANTUM_EXPOSURE_DIR / "webapp_data"
 
 # Fields for historical_lite.csv
@@ -222,28 +223,6 @@ def get_snapshot_height(snapshot_dir):
     return None
 
 
-def read_existing_snapshots_in_historical_lite():
-    """Get set of snapshot heights already in historical_lite.csv."""
-    historical_lite_path = WEBAPP_DATA_DIR / "historical_lite.csv"
-    if not historical_lite_path.exists():
-        return set()
-
-    try:
-        existing = set()
-        with open(historical_lite_path, "r", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                try:
-                    snapshot = int(row.get("snapshot", 0))
-                    existing.add(snapshot)
-                except ValueError:
-                    pass
-        return existing
-    except Exception as e:
-        print(f"  ✗ Error reading historical_lite.csv: {e}")
-        return set()
-
-
 def load_aggregates_for_snapshot(snapshot_dir):
     """Load aggregates CSV and return as dict of rows."""
     aggregates_path = snapshot_dir / "dashboard_pubkeys_aggregates.csv"
@@ -300,33 +279,23 @@ def generate_historical_lite_rows(snapshot_height, aggregates_rows):
     return output_rows
 
 
-def append_to_historical_lite(new_rows):
-    """Append rows to historical_lite.csv."""
+def rebuild_historical_lite(all_rows):
+    """Fully rebuild historical_lite.csv from provided rows."""
     historical_lite_path = WEBAPP_DATA_DIR / "historical_lite.csv"
 
     try:
-        # Read existing rows
-        existing_rows = []
-        if historical_lite_path.exists():
-            with open(historical_lite_path, "r", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                existing_rows = list(reader)
-
-        # Combine and write back (sorted by snapshot for clarity)
-        combined_rows = existing_rows + new_rows
-        combined_rows.sort(
+        rows_sorted = list(all_rows)
+        rows_sorted.sort(
             key=lambda r: (int(r.get("snapshot", 0)), r.get("balance_filter", ""))
         )
 
-        with open(historical_lite_path, "w", encoding="utf-8", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=HISTORICAL_LITE_FIELDNAMES)
-            writer.writeheader()
-            writer.writerows(combined_rows)
-
-        return len(new_rows)
+        content = serialize_csv_rows(HISTORICAL_LITE_FIELDNAMES, rows_sorted)
+        if write_text_if_changed(historical_lite_path, content):
+            return {"status": "written", "rows": len(rows_sorted)}
+        return {"status": "unchanged", "rows": len(rows_sorted)}
     except Exception as e:
         print(f"  ✗ Error writing to historical_lite.csv: {e}")
-        return 0
+        return {"status": "error", "rows": 0}
 
 
 def main():
@@ -375,35 +344,34 @@ def main():
         else:
             print(f"  ⊘ {snapshot_dir.name}: Skipped (no data)")
 
-    # Phase 2: Update historical_lite.csv with new snapshots
-    print("\n=== Updating historical_lite.csv ===")
-    existing_snapshots = read_existing_snapshots_in_historical_lite()
-    print(f"  Current snapshots in historical_lite.csv: {len(existing_snapshots)}")
-
-    new_snapshots = []
-    new_rows_all = []
+    # Phase 2: Rebuild historical_lite.csv from current snapshots only
+    print("\n=== Rebuilding historical_lite.csv ===")
+    included_snapshots = []
+    historical_rows_all = []
 
     for snapshot_dir in snapshot_dirs:
         snapshot_height = get_snapshot_height(snapshot_dir)
         if snapshot_height is None:
             continue
 
-        if snapshot_height in existing_snapshots:
-            continue
-
         aggregates = load_aggregates_for_snapshot(snapshot_dir)
         if aggregates:
-            new_rows = generate_historical_lite_rows(snapshot_height, aggregates)
-            if new_rows:
-                new_snapshots.append(snapshot_height)
-                new_rows_all.extend(new_rows)
+            rows = generate_historical_lite_rows(snapshot_height, aggregates)
+            if rows:
+                included_snapshots.append(snapshot_height)
+                historical_rows_all.extend(rows)
 
-    if new_snapshots:
-        rows_added = append_to_historical_lite(new_rows_all)
-        print(f"  ✓ Added {len(new_snapshots)} snapshots ({rows_added} rows)")
-        print(f"    Snapshots: {new_snapshots}")
-    else:
-        print("  ✓ No new snapshots to add (database up-to-date)")
+    historical_result = rebuild_historical_lite(historical_rows_all)
+    if historical_result["status"] == "written":
+        print(
+            f"  ✓ Rebuilt historical_lite.csv using {len(included_snapshots)} snapshots "
+            f"({historical_result['rows']} rows)"
+        )
+    elif historical_result["status"] == "unchanged":
+        print(
+            f"  ⊘ historical_lite.csv unchanged "
+            f"({len(included_snapshots)} snapshots, {historical_result['rows']} rows)"
+        )
 
     # Phase 3: Regenerate snapshots_index.csv with snapshot_time column
     print("\n=== Updating snapshots_index.csv ===")
@@ -416,9 +384,7 @@ def main():
     print(f"  Generated top_{ECO_TOP_N} files: {eco_generated_count}")
     print(f"  Skipped top_{ECO_TOP_N} files: {eco_skipped_count}")
     print(f"  Unchanged top_{ECO_TOP_N} files: {eco_unchanged_count}")
-    print(
-        f"  Historical lite snapshots: {len(existing_snapshots) + len(new_snapshots)}"
-    )
+    print(f"  Historical lite snapshots: {len(included_snapshots)}")
 
 
 if __name__ == "__main__":

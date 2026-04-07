@@ -40,3 +40,6 @@ webapps-quantum-exposure/
 
 # Local standalone archive artifact
 quantum_exposure.zip
+
+# Archived quantum exposure snapshots (pipeline keeps these out of active data)
+webapps/quantum_exposure/webapp_data/archived/

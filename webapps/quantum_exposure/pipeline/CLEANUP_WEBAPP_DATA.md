@@ -127,12 +127,12 @@ The modifications are:
 
 After adding new snapshots to `webapp_data/`, run:
 ```bash
-python3 webapps/quantum_exposure/clean_new_webapp_data.py [new_blockheights]
+python3 webapps/quantum_exposure/pipeline/clean_new_webapp_data.py [new_blockheights]
 ```
 
 Then regenerate derived files:
 ```bash
-python3 webapps/quantum_exposure/generate_eco_files.py
+python3 webapps/quantum_exposure/pipeline/generate_eco_files.py
 ```
 
 This ensures:
