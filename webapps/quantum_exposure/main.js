@@ -42,12 +42,13 @@ const state = {
   pendingPersistedSnapshotHeight: null,
   preResetStateSnapshot: null,
   pendingIdentityTagExclusions: null,
-  ge1FullDataLoadAbortController: null,
-  ge1FullDataLoadPromise: null,
-  ge1IsUsingTop50: false,
+  ge1FullDataLoadTriggered: false,
+  ge1IsUsingEcoSubset: false,
 };
 
 const TOP_EXPOSURES_PAGE_SIZE = 250;
+const ECO_TOP_EXPOSURES_INITIAL_COUNT = 50;
+const ECO_TOP_EXPOSURES_PREFETCH_COUNT = 100;
 const TOP_EXPOSURES_BOTTOM_THRESHOLD_PX = 4;
 const TOP_EXPOSURES_LOAD_DELAY_MS = 250;
 const SHARE_EXCLUDE_TOKEN = "__share_exclude__";
@@ -3223,7 +3224,7 @@ async function resetDashboardToDefaults() {
 }
 
 function resetAllFilters() {
-  // Clear tag-based filters to show top 50 unfiltered when in ECO mode
+  // Clear tag-based filters to show the initial lite-mode subset unfiltered.
   state.selectedDetailTags = ["All"];
   state.selectedIdentityGroups = ["All"];
   state.selectedIdentityTags = ["All"];
@@ -3317,6 +3318,8 @@ function buildTopExposuresData(filters) {
         exposedUtxoCount: toInt(row.exposed_utxo_count),
         firstExposedBlockheight: toInt(row.first_exposed_blockheight),
         lastSpendBlockheight: toInt(row.last_spend_blockheight),
+        firstExposedUnixTime: toInt(row.first_exposed_unix_time) || 0,
+        lastSpendUnixTime: toInt(row.last_spend_unix_time) || 0,
         scriptTypes,
         spendActivity: row.spend_activity,
         detail: row.details || "",
@@ -3679,12 +3682,12 @@ function renderTopExposures(rows) {
       return;
     }
     
-    // In ECO mode using top_50 data, provide helpful guidance if filters don't match
-    if (isLiteMode() && state.ge1IsUsingTop50) {
+    // In ECO mode using the top100 subset, provide helpful guidance if filters don't match.
+    if (isLiteMode() && state.ge1IsUsingEcoSubset) {
       const filters = readFilters();
       if (isTagFilterActive(filters)) {
         container.innerHTML = `<div class="bar-empty" style="padding: 12px;">
-          No addresses match the current filters in the top 50 addresses. 
+          No addresses match the current filters in the top 100 addresses. 
           <a href="javascript:void(0)" onclick="resetAllFilters(); return false;">Clear filters</a> to view top addresses.
         </div>`;
         state.topExposuresLoading = false;
@@ -3733,13 +3736,19 @@ function renderTopExposures(rows) {
 
     const tooltipLines = [];
     if (row.firstExposedBlockheight >= 0) {
+      const firstExposedDate = row.firstExposedUnixTime
+        ? formatTooltipDate(row.firstExposedUnixTime)
+        : formatTooltipDateFromHeight(row.firstExposedBlockheight);
       tooltipLines.push(
-        `First exposure:\n${formatInt(row.firstExposedBlockheight)} · ${formatTooltipDateFromHeight(row.firstExposedBlockheight)}`
+        `First exposure:\n${formatInt(row.firstExposedBlockheight)} · ${firstExposedDate}`
       );
     }
     if (row.lastSpendBlockheight > 0) {
+      const lastSpendDate = row.lastSpendUnixTime
+        ? formatTooltipDate(row.lastSpendUnixTime)
+        : formatTooltipDateFromHeight(row.lastSpendBlockheight);
       tooltipLines.push(
-        `Last spend:\n${formatInt(row.lastSpendBlockheight)} · ${formatTooltipDateFromHeight(row.lastSpendBlockheight)}`
+        `Last spend:\n${formatInt(row.lastSpendBlockheight)} · ${lastSpendDate}`
       );
     }
     const spendTooltip = tooltipLines.join("\n");
@@ -3767,10 +3776,13 @@ function renderTopExposures(rows) {
     `;
   }).join("");
 
-  const footerHtml = visibleCount < rows.length
+  // Also show a footer in ECO mode while showing the lightweight subset, indicating
+  // that full data can be loaded by scrolling to the bottom of the list.
+  const ecoExpandPending = isLiteMode() && state.ge1IsUsingEcoSubset && !state.ge1FullDataLoadTriggered;
+  const footerHtml = visibleCount < rows.length || ecoExpandPending
     ? `<div id="topExposuresFooter" class="top-list-footer is-hidden">${
         state.topExposuresLoading
-          ? '<span class="top-list-loading" aria-label="Loading more exposures" role="status"></span>'
+          ? '<span class="top-list-loading" aria-label="Loading full results" role="status"></span>'
           : '<span class="top-list-pull" aria-hidden="true"></span>'
       }</div>`
     : "";
@@ -3788,6 +3800,7 @@ function resetTopExposurePagination() {
   state.topExposuresVisibleCount = TOP_EXPOSURES_PAGE_SIZE;
   state.topExposuresTotalCount = 0;
   state.topExposuresLoading = false;
+  state.ge1FullDataLoadTriggered = false;
 }
 
 function syncTopExposuresShowMoreVisibility() {
@@ -3799,14 +3812,12 @@ function syncTopExposuresShowMoreVisibility() {
 
   const remainingScroll = container.scrollHeight - container.scrollTop - container.clientHeight;
   const atBottom = remainingScroll <= TOP_EXPOSURES_BOTTOM_THRESHOLD_PX;
-  footer.classList.toggle("is-hidden", !atBottom && !state.topExposuresLoading);
+  const ecoExpandPending = isLiteMode() && state.ge1IsUsingEcoSubset && !state.ge1FullDataLoadTriggered;
+  footer.classList.toggle("is-hidden", !atBottom && !state.topExposuresLoading && !ecoExpandPending);
 }
 
 function tryLoadMoreTopExposures() {
   if (state.topExposuresLoading) {
-    return;
-  }
-  if (state.topExposuresVisibleCount >= state.topExposuresTotalCount) {
     return;
   }
 
@@ -3816,7 +3827,37 @@ function tryLoadMoreTopExposures() {
   }
 
   const remainingScroll = container.scrollHeight - container.scrollTop - container.clientHeight;
-  if (remainingScroll > TOP_EXPOSURES_BOTTOM_THRESHOLD_PX) {
+  const atBottom = remainingScroll <= TOP_EXPOSURES_BOTTOM_THRESHOLD_PX;
+
+  // ECO mode: first reveal rows 51-100 from the lightweight subset, then start
+  // the full ge1 CSV + large lookup CSV load in the background.
+  if (isLiteMode() && state.ge1IsUsingEcoSubset && !state.ge1FullDataLoadTriggered) {
+    if (atBottom) {
+      const ecoPrefetchTarget = Math.min(ECO_TOP_EXPOSURES_PREFETCH_COUNT, state.topExposuresTotalCount);
+      if (state.topExposuresVisibleCount < ecoPrefetchTarget) {
+        state.topExposuresLoading = true;
+        update();
+
+        window.setTimeout(() => {
+          state.topExposuresVisibleCount = ecoPrefetchTarget;
+          state.topExposuresLoading = false;
+          state.ge1FullDataLoadTriggered = true;
+          update();
+          triggerFullDataLoad();
+        }, TOP_EXPOSURES_LOAD_DELAY_MS);
+      } else {
+        state.ge1FullDataLoadTriggered = true;
+        triggerFullDataLoad();
+      }
+    }
+    return;
+  }
+
+  if (state.topExposuresVisibleCount >= state.topExposuresTotalCount) {
+    return;
+  }
+
+  if (!atBottom) {
     return;
   }
 
@@ -3828,6 +3869,57 @@ function tryLoadMoreTopExposures() {
     state.topExposuresLoading = false;
     update();
   }, TOP_EXPOSURES_LOAD_DELAY_MS);
+}
+
+async function triggerFullDataLoad() {
+  const snapshotHeight = String(state.snapshotHeight || "").trim();
+  if (!snapshotHeight) return;
+
+  state.topExposuresLoading = true;
+  update();
+
+  try {
+    const basePath = `webapp_data/${snapshotHeight}`;
+    // Load full ge1 CSV and the large lookup CSV concurrently.
+    const [ge1Text, lookupText] = await Promise.all([
+      fetch(`${basePath}/dashboard_pubkeys_ge_1btc.csv`)
+        .then((r) => (r.ok ? r.text() : null))
+        .catch(() => null),
+      fetch("webapp_data/blockheight_datetime_lookup.csv")
+        .then((r) => (r.ok ? r.text() : null))
+        .catch(() => null),
+    ]);
+
+    // Populate blockDatetimeByHeight from the large lookup CSV.
+    if (lookupText) {
+      parseCsv(lookupText).forEach((row) => {
+        const height = String(row.blockheight || "").trim();
+        const unixTime = toInt(row.unix_time);
+        if (height && unixTime) {
+          state.blockDatetimeByHeight[height] = formatTooltipDate(unixTime);
+        }
+      });
+    }
+
+    // Swap in full ge1 rows only if we're still on the same snapshot.
+    if (ge1Text && state.snapshotHeight === snapshotHeight) {
+      const ge1RowsFull = parseCsv(ge1Text);
+      state.ge1Rows = ge1RowsFull;
+      state.ge1IsUsingEcoSubset = false;
+      state.topExposuresDataCache.clear();
+      state.snapshotDataCache.set(snapshotHeight, {
+        snapshotHeight: state.snapshotHeight,
+        aggregatesRows: state.aggregatesRows,
+        ge1Rows: ge1RowsFull,
+      });
+    }
+  } catch (err) {
+    console.warn(`Full data load failed: ${err.message}`);
+  }
+
+  state.topExposuresLoading = false;
+  state.topExposuresVisibleCount = Math.max(state.topExposuresVisibleCount, ECO_TOP_EXPOSURES_PREFETCH_COUNT);
+  update();
 }
 
 function setAllScriptChecks(checked) {
@@ -4184,29 +4276,33 @@ async function loadData() {
       : state.availableSnapshots[0];
   await loadSnapshotData(initialSnapshot);
 
-  // Do not block initial render on large datetime lookup parsing.
-  // Refresh snapshot labels in-place once lookup data is available.
-  loadSnapshotLabelLookup(state.availableSnapshots)
-    .then(() => {
-      const snapshotFilter = document.getElementById("snapshotFilter");
-      if (!snapshotFilter || !state.availableSnapshots.length) return;
+  // In FULL mode: load the large blockheight lookup CSV in background so tooltip dates
+  // are available for every row. In ECO mode: snapshot labels come from snapshots_index.csv
+  // (populated in loadAvailableSnapshots above). The large lookup CSV and full ge1 CSV are
+  // loaded on-demand only when the user scrolls past the initial 50 rows.
+  if (!isLiteMode()) {
+    loadSnapshotLabelLookup(state.availableSnapshots)
+      .then(() => {
+        const snapshotFilter = document.getElementById("snapshotFilter");
+        if (!snapshotFilter || !state.availableSnapshots.length) return;
 
-      const currentValue = String(state.snapshotHeight || snapshotFilter.value || "").trim();
-      populateSnapshotFilter(state.availableSnapshots);
+        const currentValue = String(state.snapshotHeight || snapshotFilter.value || "").trim();
+        populateSnapshotFilter(state.availableSnapshots);
 
-      const nextValue = state.availableSnapshots.includes(currentValue)
-        ? currentValue
-        : state.availableSnapshots[0];
-      snapshotFilter.value = nextValue;
+        const nextValue = state.availableSnapshots.includes(currentValue)
+          ? currentValue
+          : state.availableSnapshots[0];
+        snapshotFilter.value = nextValue;
 
-      // Refresh top-exposure tooltips now that blockheight -> datetime map is populated.
-      if (Array.isArray(state.ge1Rows) && state.ge1Rows.length) {
-        updateTopExposures();
-      }
-    })
-    .catch(() => {
-      // Best effort only; dropdown falls back to block-height labels.
-    });
+        // Refresh top-exposure tooltips now that blockheight -> datetime map is populated.
+        if (Array.isArray(state.ge1Rows) && state.ge1Rows.length) {
+          updateTopExposures();
+        }
+      })
+      .catch(() => {
+        // Best effort only; dropdown falls back to block-height labels.
+      });
+  }
 }
 
 async function loadSnapshotLabelLookup(snapshots) {
@@ -4282,6 +4378,17 @@ async function loadAvailableSnapshots() {
       .filter((value) => /^\d+$/.test(value));
     if (values.length) {
       values.sort((left, right) => Number.parseInt(right, 10) - Number.parseInt(left, 10));
+      // Pre-populate snapshot label datetimes from the embedded snapshot_time column.
+      // This makes dropdown labels available immediately, with no need to load the large
+      // blockheight_datetime_lookup.csv or individual per-snapshot meta CSVs for this purpose.
+      rows.forEach((row) => {
+        const height = (row.snapshot_blockheight || "").trim();
+        const unixTime = toInt(row.snapshot_time);
+        if (height && unixTime) {
+          state.snapshotLabelDatetimeByHeight[height] = formatSnapshotSelectDate(unixTime);
+          state.blockDatetimeByHeight[height] = formatTooltipDate(unixTime);
+        }
+      });
       return values;
     }
   }
@@ -4382,7 +4489,7 @@ async function loadSnapshotData(snapshot) {
     if (!isLatestSnapshot) {
       state.ge1Rows = [];
       state.topExposuresLoading = false;
-      state.ge1IsUsingTop50 = false;
+      state.ge1IsUsingEcoSubset = false;
       renderTopExposureTagFilters();
       state.snapshotDataCache.set(requestedSnapshot, {
         snapshotHeight: state.snapshotHeight,
@@ -4393,67 +4500,27 @@ async function loadSnapshotData(snapshot) {
       return;
     }
 
-    // Phase 2a: Load lightweight top_50 version first for immediate UI feedback
-    const top50RespLite = await fetch(`${basePath}/dashboard_pubkeys_ge_1btc_top50.csv`);
-    if (!top50RespLite.ok) {
+    // Phase 2a: Load lightweight top100 version first, but initially render only 50 rows.
+    const ecoRespLite = await fetch(`${basePath}/dashboard_pubkeys_ge_1btc_top100.csv`);
+    if (!ecoRespLite.ok) {
       state.topExposuresLoading = false;
-      throw new Error(`Could not load top_50 CSV from ${basePath}/`);
+      throw new Error(`Could not load top_100 CSV from ${basePath}/`);
     }
 
-    const ge1RowsTop50 = parseCsv(await top50RespLite.text());
-    state.ge1Rows = ge1RowsTop50;
-    state.ge1IsUsingTop50 = true;
+    const ge1RowsEcoSubset = parseCsv(await ecoRespLite.text());
+    state.ge1Rows = ge1RowsEcoSubset;
+    state.ge1IsUsingEcoSubset = true;
+    state.topExposuresVisibleCount = Math.min(ECO_TOP_EXPOSURES_INITIAL_COUNT, ge1RowsEcoSubset.length);
     state.topExposuresLoading = false;
     renderTopExposureTagFilters();
     updateTopExposures();
 
-    // Phase 2b: Start loading full ge1 data in background (non-blocking)
-    // Abort any previous background load for different snapshot
-    if (state.ge1FullDataLoadAbortController) {
-      state.ge1FullDataLoadAbortController.abort();
-    }
-    state.ge1FullDataLoadAbortController = new AbortController();
-    const abortSignal = state.ge1FullDataLoadAbortController.signal;
-
-    state.ge1FullDataLoadPromise = (async () => {
-      try {
-        const ge1RespFull = await fetch(`${basePath}/dashboard_pubkeys_ge_1btc.csv`, { signal: abortSignal });
-        if (!ge1RespFull.ok) {
-          console.warn(`Could not load full ge1 CSV from ${basePath}/`);
-          return null;
-        }
-
-        const ge1RowsFull = parseCsv(await ge1RespFull.text());
-        
-        // Only swap if we're still on this snapshot and abort wasn't called
-        if (!abortSignal.aborted && state.snapshotHeight === resolvedSnapshotHeight) {
-          state.ge1Rows = ge1RowsFull;
-          state.ge1IsUsingTop50 = false;
-          state.topExposuresDataCache.clear(); // Clear cache to force re-filter with full data
-          
-          // Update cache with full data
-          state.snapshotDataCache.set(requestedSnapshot, {
-            snapshotHeight: state.snapshotHeight,
-            aggregatesRows,
-            ge1Rows: ge1RowsFull,
-          });
-          
-          updateTopExposures(); // Quietly update with full data
-        }
-        return ge1RowsFull;
-      } catch (err) {
-        if (err.name !== 'AbortError') {
-          console.warn(`Background full data load failed: ${err.message}`);
-        }
-        return null;
-      }
-    })();
-
-    // Cache top_50 version for now; will be updated when full load completes
+    // Full ge1 data and the large lookup CSV are loaded on-demand only when the user
+    // scrolls past the initial 50 rows (see tryLoadMoreTopExposures / triggerFullDataLoad).
     state.snapshotDataCache.set(requestedSnapshot, {
       snapshotHeight: state.snapshotHeight,
       aggregatesRows,
-      ge1Rows: ge1RowsTop50,
+      ge1Rows: ge1RowsEcoSubset,
     });
     return;
   }
