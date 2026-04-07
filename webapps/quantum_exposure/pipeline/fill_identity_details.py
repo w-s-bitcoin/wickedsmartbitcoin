@@ -15,8 +15,9 @@ import sys
 import csv
 from pathlib import Path
 from collections import defaultdict
+from pipeline_paths import QUANTUM_DIR
 
-QUANTUM_EXPOSURE_DIR = Path(__file__).parent
+QUANTUM_EXPOSURE_DIR = QUANTUM_DIR
 WEBAPP_DATA_DIR = QUANTUM_EXPOSURE_DIR / "webapp_data"
 
 # Canonical column names for ge1_btc files
