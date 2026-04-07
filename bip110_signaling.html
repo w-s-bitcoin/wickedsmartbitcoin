@@ -63,6 +63,38 @@
     <div class="buy-coffee-overlay" id="buyCoffeeOverlay" aria-hidden="true" role="dialog" aria-modal="true">
       <div class="buy-coffee-modal">
         <button
+          type="button"
+          class="buy-coffee-close"
+          id="buyCoffeeCloseBtn"
+          aria-label="Close buy me a coffee panel"
+        >×</button>
+        <img
+          alt="Buy me a coffee"
+          class="buy-coffee-img"
+          id="buyCoffeeImg"
+          draggable="false"
+        />
+        <div class="buy-coffee-methods" role="group" aria-label="Donation method">
+          <button
+            type="button"
+            class="buy-coffee-method-btn active"
+            data-method="lightning"
+            aria-pressed="true"
+          >Lightning</button>
+          <button
+            type="button"
+            class="buy-coffee-method-btn"
+            data-method="liquid"
+            aria-pressed="false"
+          >Liquid</button>
+          <button
+            type="button"
+            class="buy-coffee-method-btn"
+            data-method="onchain"
+            aria-pressed="false"
+          >On-chain</button>
+        </div>
+      </div>
     </div>
     <div class="modal" id="modal">
       <div class="modal-controls">
