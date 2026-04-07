@@ -170,7 +170,7 @@ function openModalByIndex(index) {
         modalImg.style.visibility = 'hidden';
         modalImg.style.transform = 'translate3d(-9999px,-9999px,0) scale(1)';
         if (modalDlBtn) {
-            modalDlBtn.style.display = isStandaloneDashboardEmbed ? '' : 'none';
+            modalDlBtn.style.display = 'none';
             if (isStandaloneDashboardEmbed) {
                 modalDlBtn.disabled = true;
                 modalDlBtn.classList.add('dashboard-download-disabled');

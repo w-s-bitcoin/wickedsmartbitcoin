@@ -74,6 +74,10 @@ const LOCAL_RUNTIME_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 const IS_LOCAL_RUNTIME = LOCAL_RUNTIME_HOSTS.has(window.location.hostname);
 let runtimeLiteMode = true;
 
+function isMobileUiViewport() {
+  return window.matchMedia("(max-width: 820px)").matches;
+}
+
 function resolveInitialRuntimeLiteMode() {
   if (!IS_LOCAL_RUNTIME) return true;
   try {
@@ -1174,9 +1178,42 @@ function showCustomTooltip(anchor, x, y) {
 function bindCustomTooltips() {
   if (customTooltipBound) return;
   customTooltipBound = true;
+  let mobileTooltipHideTimerId = null;
+
+  const clearMobileTooltipHideTimer = () => {
+    if (mobileTooltipHideTimerId !== null) {
+      window.clearTimeout(mobileTooltipHideTimerId);
+      mobileTooltipHideTimerId = null;
+    }
+  };
+
+  const shouldSuppressTooltipForAnchor = (anchor) => {
+    if (!anchor) return true;
+    if (!isMobileUiViewport()) return false;
+    if (anchor instanceof Element && anchor.closest("#scriptBars .bar-stack-track")) {
+      return false;
+    }
+    if (
+      anchor instanceof HTMLElement &&
+      anchor.classList.contains("tag") &&
+      (anchor.classList.contains("tag-spend-never") ||
+        anchor.classList.contains("tag-spend-inactive") ||
+        anchor.classList.contains("tag-spend-active"))
+    ) {
+      return false;
+    }
+    return !(anchor instanceof HTMLElement && anchor.disabled);
+  };
 
   document.addEventListener("mouseover", (event) => {
     const anchor = event.target instanceof Element ? event.target.closest("[data-tooltip]") : null;
+    if (shouldSuppressTooltipForAnchor(anchor)) {
+      if (customTooltipAnchor === anchor) {
+        customTooltipAnchor = null;
+      }
+      hideCustomTooltip();
+      return;
+    }
     if (!anchor) return;
     customTooltipAnchor = anchor;
     showCustomTooltip(anchor, event.clientX, event.clientY);
@@ -1194,11 +1231,39 @@ function bindCustomTooltips() {
     const related = event.relatedTarget;
     if (related instanceof Node && customTooltipAnchor.contains(related)) return;
     customTooltipAnchor = null;
+    clearMobileTooltipHideTimer();
     hideCustomTooltip();
   });
 
+  document.addEventListener("touchstart", (event) => {
+    const anchor = event.target instanceof Element ? event.target.closest("[data-tooltip]") : null;
+    if (shouldSuppressTooltipForAnchor(anchor)) {
+      customTooltipAnchor = null;
+      clearMobileTooltipHideTimer();
+      hideCustomTooltip();
+      return;
+    }
+
+    const touch = event.touches && event.touches.length ? event.touches[0] : null;
+    const rect = anchor.getBoundingClientRect();
+    const x = touch ? touch.clientX : rect.left + (rect.width / 2);
+    const y = touch ? touch.clientY : rect.top + (rect.height / 2);
+    customTooltipAnchor = anchor;
+    showCustomTooltip(anchor, x, y);
+
+    clearMobileTooltipHideTimer();
+    mobileTooltipHideTimerId = window.setTimeout(() => {
+      if (customTooltipAnchor === anchor) {
+        customTooltipAnchor = null;
+      }
+      hideCustomTooltip();
+      mobileTooltipHideTimerId = null;
+    }, 1800);
+  }, { passive: true });
+
   window.addEventListener("scroll", () => {
     if (!customTooltipAnchor) return;
+    clearMobileTooltipHideTimer();
     hideCustomTooltip();
   }, { passive: true });
 }
@@ -2865,7 +2930,27 @@ function renderHistoricalStackedChart(filters) {
   const hoverLine = container.querySelector("#historicalHoverLine");
   const hoverDot = container.querySelector("#historicalHoverDot");
   const tooltip = container.querySelector("#historicalHoverTooltip");
+  const mobileUi = isMobileUiViewport();
   let selectingSnapshotFromChart = false;
+  let pendingMobileSelectionSnapshot = null;
+  let pendingMobileSelectionTimerId = null;
+
+  const clearPendingMobileSelection = () => {
+    if (pendingMobileSelectionTimerId !== null) {
+      window.clearTimeout(pendingMobileSelectionTimerId);
+      pendingMobileSelectionTimerId = null;
+    }
+    pendingMobileSelectionSnapshot = null;
+  };
+
+  const armPendingMobileSelection = (snapshot) => {
+    clearPendingMobileSelection();
+    pendingMobileSelectionSnapshot = snapshot;
+    pendingMobileSelectionTimerId = window.setTimeout(() => {
+      pendingMobileSelectionSnapshot = null;
+      pendingMobileSelectionTimerId = null;
+    }, 2500);
+  };
 
   const nearestPointForEvent = (event) => {
     const rect = svg.getBoundingClientRect();
@@ -2933,13 +3018,11 @@ function renderHistoricalStackedChart(filters) {
     top = Math.max(8, Math.min(top, maxTop));
     tooltip.style.left = `${left}px`;
     tooltip.style.top = `${top}px`;
+    return nearest;
   };
 
-  hoverTarget.addEventListener("mousemove", showHoverForEvent);
-  hoverTarget.addEventListener("mouseenter", showHoverForEvent);
-  hoverTarget.addEventListener("click", async (event) => {
-    const nearest = nearestPointForEvent(event);
-    const nextSnapshot = String(nearest.snapshotHeight || "").trim();
+  const selectSnapshotFromPoint = async (nearest) => {
+    const nextSnapshot = String(nearest?.snapshotHeight || "").trim();
     const currentSnapshot = String(state.snapshotHeight || "").trim();
     if (!nextSnapshot || nextSnapshot === currentSnapshot || selectingSnapshotFromChart) {
       return;
@@ -2961,8 +3044,34 @@ function renderHistoricalStackedChart(filters) {
     } finally {
       selectingSnapshotFromChart = false;
     }
+  };
+
+  hoverTarget.addEventListener("mousemove", showHoverForEvent);
+  hoverTarget.addEventListener("mouseenter", showHoverForEvent);
+  hoverTarget.addEventListener("click", async (event) => {
+    const nearest = showHoverForEvent(event);
+    if (!nearest) return;
+
+    const nextSnapshot = String(nearest.snapshotHeight || "").trim();
+    if (mobileUi) {
+      if (!nextSnapshot || nextSnapshot !== pendingMobileSelectionSnapshot) {
+        armPendingMobileSelection(nextSnapshot);
+        return;
+      }
+      clearPendingMobileSelection();
+    }
+
+    await selectSnapshotFromPoint(nearest);
+  });
+
+  hoverTarget.addEventListener("dblclick", async (event) => {
+    if (!mobileUi) return;
+    const nearest = showHoverForEvent(event);
+    clearPendingMobileSelection();
+    await selectSnapshotFromPoint(nearest);
   });
   hoverTarget.addEventListener("mouseleave", () => {
+    clearPendingMobileSelection();
     hoverLine.setAttribute("visibility", "hidden");
     hoverDot.setAttribute("visibility", "hidden");
     tooltip.style.display = "none";

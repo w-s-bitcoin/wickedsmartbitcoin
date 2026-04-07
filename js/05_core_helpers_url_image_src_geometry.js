@@ -435,16 +435,18 @@ function setModalLinks({x = '', nostr = '', youtube = ''} = {}) {
         xLink.setAttribute('aria-disabled', 'true');
         xLink.setAttribute('tabindex', '-1');
     }
-    if (nostr) {
-        nostrLink.href = nostr;
-        nostrLink.classList.remove('disabled');
-        nostrLink.removeAttribute('aria-disabled');
-        nostrLink.removeAttribute('tabindex');
-    } else {
-        nostrLink.href = '#';
-        nostrLink.classList.add('disabled');
-        nostrLink.setAttribute('aria-disabled', 'true');
-        nostrLink.setAttribute('tabindex', '-1');
+    if (nostrLink) {
+        if (nostr) {
+            nostrLink.href = nostr;
+            nostrLink.classList.remove('disabled');
+            nostrLink.removeAttribute('aria-disabled');
+            nostrLink.removeAttribute('tabindex');
+        } else {
+            nostrLink.href = '#';
+            nostrLink.classList.add('disabled');
+            nostrLink.setAttribute('aria-disabled', 'true');
+            nostrLink.setAttribute('tabindex', '-1');
+        }
     }
     if (youtube) {
         currentYoutubeVideoId = extractYoutubeVideoId(youtube);

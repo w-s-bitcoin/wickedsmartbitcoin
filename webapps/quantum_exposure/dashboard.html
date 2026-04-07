@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Bitcoin Quantum Exposure Dashboard</title>
+  <title>Bitcoin Quantum Exposure</title>
   <script>
     (function () {
       // Apply theme early so shared styles do not flash/fallback before main.js initializes.
@@ -777,22 +777,25 @@
     }
 
     .panel-title-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: start;
+      column-gap: 10px;
+      row-gap: 6px;
       margin-bottom: 0;
     }
 
     .panel-title-main {
       display: inline-flex;
-      align-items: center;
+      align-items: flex-start;
       gap: 8px;
       min-width: 0;
     }
 
     .panel-title-main .bars-title {
-      white-space: nowrap;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      line-height: 1.2;
     }
 
     .panel-title-main .info-wrap {
@@ -825,6 +828,8 @@
       align-items: center;
       gap: 6px;
       flex-shrink: 0;
+      justify-self: end;
+      align-self: start;
     }
 
     #analysisSplit .bars-panel.is-details-collapsed .bar-legend {
@@ -1830,7 +1835,7 @@
     <section class="panel title-panel topbar">
       <div class="title-copy">
         <div class="title-row">
-          <h1>Bitcoin Quantum Exposure Dashboard</h1>
+          <h1>Bitcoin Quantum Exposure</h1>
           <div class="info-wrap">
             <button type="button" class="info-btn" aria-label="About this dashboard" aria-describedby="quantumExposureInfoPopover">?</button>
             <div class="info-popover" id="quantumExposureInfoPopover" role="tooltip">
