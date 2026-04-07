@@ -115,7 +115,7 @@ function updateRuntimeModeButton() {
   modeButton.classList.toggle("is-full", !lite);
 
   const tooltipLocal = "Toggle between ECO mode and FULL mode (local only).";
-  const tooltipOnline = "ECO mode is locked on deployed sites for faster loading. FULL mode is only available when running locally.";
+  const tooltipOnline = "ECO mode is locked on deployed sites for faster loading. FULL mode is only available when running this webapp locally.";
   const tooltip = IS_LOCAL_RUNTIME ? tooltipLocal : tooltipOnline;
 
   setCustomTooltip(modeButton, tooltip);

@@ -12,6 +12,7 @@ const modalFavBtn = document.getElementById('modal-fav-btn');
 const modalDlBtn = document.getElementById('modal-dl-btn');
 const kebabBtn = document.getElementById('kebabBtn');
 const kebabMenu = document.getElementById('kebabMenu');
+const pullLatestDataBtn = document.getElementById('pullLatestDataBtn');
 const chkSearchTitles = document.getElementById('chkSearchTitles');
 const chkSearchDescriptions = document.getElementById('chkSearchDescriptions');
 const startSlideshowBtn = document.getElementById('startSlideshowBtn');
