@@ -6,6 +6,17 @@
   <title>Bitcoin Quantum Exposure Dashboard</title>
   <script>
     (function () {
+      // Apply theme early so shared styles do not flash/fallback before main.js initializes.
+      try {
+        const storedTheme = window.localStorage.getItem('quantum-research-dashboard-theme');
+        const initialTheme = (storedTheme === 'light' || storedTheme === 'dark')
+          ? storedTheme
+          : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        document.documentElement.dataset.theme = initialTheme;
+      } catch (_err) {
+        document.documentElement.dataset.theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+
       const params = new URLSearchParams(window.location.search);
       const isCardPreview = params.get('preview') === 'card';
       const isLocalRuntime = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
@@ -90,6 +101,9 @@
       --tag-utxo-ink: #3d5166;
       --non-exposed-label: #777777;
       --checkbox-accent: var(--accent);
+      --fg: var(--ink);
+      --fg-dim: var(--muted-strong);
+      --dashboard-accent: var(--accent);
       --scrollbar-track: #e8dfd2;
       --scrollbar-thumb: #b5a99a;
       --scrollbar-thumb-hover: #9f917f;
@@ -140,6 +154,9 @@
       --tag-utxo-border: #4c677f;
       --tag-utxo-ink: #bcd4ea;
       --non-exposed-label: #a9b3bd;
+      --fg: var(--ink);
+      --fg-dim: var(--muted);
+      --dashboard-accent: var(--accent);
       --scrollbar-track: #171717;
       --scrollbar-thumb: #4e4e4e;
       --scrollbar-thumb-hover: #676767;
