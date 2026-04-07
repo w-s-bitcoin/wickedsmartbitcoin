@@ -1187,6 +1187,69 @@ def carry_forward_labels_from_existing_snapshot(cur, csv_path: Path) -> dict[str
     return counts
 
 
+def _list_prior_snapshot_csvs(out_dir: Path, current_height: int) -> list[Path]:
+    candidates: list[tuple[int, Path]] = []
+
+    if out_dir.exists():
+        for child in out_dir.iterdir():
+            if not child.is_dir() or not child.name.isdigit():
+                continue
+            height = int(child.name)
+            if height >= current_height:
+                continue
+            csv_path = child / "dashboard_pubkeys_ge_1btc.csv"
+            if csv_path.exists():
+                candidates.append((height, csv_path))
+
+    archived_dir = out_dir / "archived"
+    if archived_dir.exists():
+        for child in archived_dir.iterdir():
+            if not child.is_dir() or not child.name.isdigit():
+                continue
+            height = int(child.name)
+            if height >= current_height:
+                continue
+            csv_path = child / "dashboard_pubkeys_ge_1btc.csv"
+            if csv_path.exists():
+                candidates.append((height, csv_path))
+
+    # Oldest first so curated historical labels are applied before newer generic fallbacks.
+    candidates.sort(key=lambda item: item[0])
+
+    seen_heights: set[int] = set()
+    ordered_paths: list[Path] = []
+    for height, path in candidates:
+        if height in seen_heights:
+            continue
+        seen_heights.add(height)
+        ordered_paths.append(path)
+    return ordered_paths
+
+
+def carry_forward_labels_from_prior_snapshots(
+    cur,
+    out_dir: Path,
+    current_height: int,
+) -> dict[str, int]:
+    totals = {
+        "snapshots": 0,
+        "group": 0,
+        "display_exact": 0,
+        "display_sig": 0,
+        "display_script": 0,
+        "display_token": 0,
+        "total": 0,
+    }
+
+    for csv_path in _list_prior_snapshot_csvs(out_dir, current_height):
+        reused = carry_forward_labels_from_existing_snapshot(cur, csv_path)
+        totals["snapshots"] += 1
+        for key in ("group", "display_exact", "display_sig", "display_script", "display_token", "total"):
+            totals[key] += reused.get(key, 0)
+
+    return totals
+
+
 def label_miner_identity(cur) -> int:
     """Set identity = 'Miner' on GE1 rows that have no identity but received coinbase outputs.
 
@@ -2579,6 +2642,20 @@ def main() -> None:
 
             print()
             print_dashboard_summary(cur, analysis_height)
+
+            reused_prior = carry_forward_labels_from_prior_snapshots(
+                cur=cur,
+                out_dir=out_dir,
+                current_height=analysis_height,
+            )
+            print("Reused labels from prior snapshot CSVs:")
+            print(f"  snapshots scanned          : {reused_prior['snapshots']:,}")
+            print(f"  by group_id               : {reused_prior['group']:,}")
+            print(f"  by display ids (exact)    : {reused_prior['display_exact']:,}")
+            print(f"  by display+script sig     : {reused_prior['display_sig']:,}")
+            print(f"  by display+script token   : {reused_prior['display_script']:,}")
+            print(f"  by display id token       : {reused_prior['display_token']:,}")
+            print(f"  total labels carried      : {reused_prior['total']:,}")
 
             print("Labeling miner identity from coinbases table...")
             miner_labeled = label_miner_identity(cur)

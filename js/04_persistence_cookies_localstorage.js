@@ -93,17 +93,14 @@ function saveFavorites(favs) {
 function getAllFavoriteKeys() {
     const keys = new Set();
     if (!Array.isArray(imageList) || imageList.length === 0) return keys;
-    let hasPriceOf = false;
     for (const img of imageList) {
         if (!img || !img.filename) continue;
-        if (img.filename.startsWith(POF_BASE)) hasPriceOf = true;
-        else keys.add(img.filename);
+        keys.add(img.filename);
     }
-    if (hasPriceOf) keys.add(POF_FAV_KEY);
     return keys;
 }
 function favoriteKeyForFilename(filename) {
-    return String(filename || '').startsWith(POF_BASE) ? POF_FAV_KEY : String(filename || '');
+    return String(filename || '');
 }
 function setFavoriteVisualState(elem, on) {
     if (!elem) return;
@@ -138,7 +135,7 @@ function refreshFavoriteStarsUI() {
     const favs = new Set(getFavorites());
     document.querySelectorAll('.favorite-star').forEach(star => {
         const key = star.getAttribute('data-filename');
-        const on = favs.has(key) || (key !== POF_FAV_KEY && favs.has(POF_FAV_KEY) && /^price_of_/.test(key));
+        const on = favs.has(key);
         setFavoriteVisualState(star, on);
     });
     document.querySelectorAll('img.grid-thumb[data-grid-index]').forEach(thumb => {
@@ -161,9 +158,6 @@ function unfavoriteAll() {
 }
 function isFavorite(filename) {
     const favs = getFavorites();
-    if (filename.startsWith(POF_BASE)) {
-        return favs.includes(POF_FAV_KEY) || favs.some(f => /^price_of_/.test(f));
-    }
     return favs.includes(filename);
 }
 function toggleFavorite(filename, starElem) {
@@ -174,7 +168,6 @@ function toggleFavorite(filename, starElem) {
     if (!becameFav) {
         favs.splice(index, 1);
     } else {
-        if (favKey === POF_FAV_KEY) favs = favs.filter(f => !/^price_of_/.test(f));
         favs.push(favKey);
     }
     saveFavorites(favs);
@@ -191,13 +184,4 @@ function toggleFavorite(filename, starElem) {
     if (becameFav) {
         try { initLazyImages(); } catch (_) {}
     }
-}
-
-function migratePriceOfFavorites() {
-    let favs = getFavorites();
-    const hadLegacy = favs.some(f => /^price_of_/.test(f));
-    if (!hadLegacy) return;
-    favs = favs.filter(f => !/^price_of_/.test(f));
-    if (!favs.includes(POF_FAV_KEY)) favs.push(POF_FAV_KEY);
-    saveFavorites(favs);
 }

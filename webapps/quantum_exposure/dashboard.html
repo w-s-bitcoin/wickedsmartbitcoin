@@ -6,7 +6,7 @@
   <title>Bitcoin Quantum Exposure</title>
   <script>
     (function () {
-      // Apply theme early so shared styles do not flash/fallback before main.js initializes.
+      // Apply theme early so shared styles do not flash/fallback before dashboard_app.js initializes.
       try {
         const storedTheme = window.localStorage.getItem('quantum-research-dashboard-theme');
         const initialTheme = (storedTheme === 'light' || storedTheme === 'dark')
@@ -2078,6 +2078,6 @@
     </div>
   </div>
 
-  <script src="main.js"></script>
+  <script src="dashboard_app.js"></script>
 </body>
 </html>

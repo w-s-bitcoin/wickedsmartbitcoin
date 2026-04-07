@@ -39,15 +39,12 @@ function getStandaloneFilteredNavigationImages() {
         : (Array.isArray(visibleImages) ? visibleImages : []);
     if (!baseList.length) return [];
 
-    const showArchived = parseStoredBooleanForModalNav(localStorage.getItem('showArchivedVisualizations'));
     const showFavoritesOnly = parseStoredBooleanForModalNav(localStorage.getItem('showFavoritesOnly'));
     const favorites = new Set(typeof getFavorites === 'function' ? getFavorites() : []);
 
     const filtered = baseList.filter((item) => {
         const filename = String(item?.filename || '').trim();
         if (!filename) return false;
-        const isArchived = parseStoredBooleanForModalNav(item?.archived);
-        if (!showArchived && isArchived) return false;
         if (showFavoritesOnly && !favorites.has(filename)) return false;
         return true;
     });
@@ -144,12 +141,6 @@ function openModalByIndex(index) {
     const shouldEmbed = modalType === 'embed' || !!embedPath;
     const embedUrl = shouldEmbed ? modalEmbedSrc(embedPath) : '';
     const isEmbed = !!embedUrl;
-    const isStandaloneDashboardEmbed = isEmbed && (
-        fname === 'quantum_exposure.png' ||
-        fname === 'bip110_signaling.png' ||
-        fname === 'node_count.png' ||
-        fname === `${DOM_BASE}.png`
-    );
     if (isEmbed) {
         modalContentMode = 'embed';
         hideModalSpinner();
@@ -169,32 +160,11 @@ function openModalByIndex(index) {
         modalImg.style.opacity = '0';
         modalImg.style.visibility = 'hidden';
         modalImg.style.transform = 'translate3d(-9999px,-9999px,0) scale(1)';
-        if (modalDlBtn) {
-            modalDlBtn.style.display = 'none';
-            if (isStandaloneDashboardEmbed) {
-                modalDlBtn.disabled = true;
-                modalDlBtn.classList.add('dashboard-download-disabled');
-                modalDlBtn.setAttribute('aria-label', 'Download disabled');
-                modalDlBtn.title = 'Download disabled';
-            } else {
-                modalDlBtn.disabled = false;
-                modalDlBtn.classList.remove('dashboard-download-disabled');
-                modalDlBtn.setAttribute('aria-label', 'Download image');
-                modalDlBtn.title = 'Download image';
-            }
-        }
     } else {
         modalContentMode = 'image';
         modal.classList.remove('embed-active');
         if (modalEmbedWrap) modalEmbedWrap.hidden = true;
         if (modalEmbed) modalEmbed.src = 'about:blank';
-        if (modalDlBtn) {
-            modalDlBtn.style.display = '';
-            modalDlBtn.disabled = false;
-            modalDlBtn.classList.remove('dashboard-download-disabled');
-            modalDlBtn.setAttribute('aria-label', 'Download image');
-            modalDlBtn.title = 'Download image';
-        }
         showModalSpinner();
         const token = ++modalImgLoadToken;
         modalImg.style.transition = '';
@@ -248,134 +218,11 @@ function openModalByIndex(index) {
         nostr: image.latest_nostr || '',
         youtube: image.latest_youtube || ''
     });
-    populateYearSelect();
-    showYearControls(false);
-    showScaleControls(false);
-    showHashControls(false);
-    showPriceOfControls(false);
-    showMyrControls(false);
-    showHalvingViewControls(false);
-    showUoaControls(false);
-    showBtcmapsControls(false);
-    showMetricControls(false);
-    showAnchorControls(false);
-    if (isBvgFile(fname)) {
-        showYearControls(true);
-        const chosenYear = extractBvgYear(fname) || getStoredBvgYear();
-        yearSelect.value = chosenYear;
-        setBvgYear(chosenYear);
-    } else if (isBtcmapsFile(fname)) {
-        showBtcmapsControls(true);
-        populateBtcmapsSelect();
-        const parsed = btcmapsRegionAndViewFromFilename(fname);
-        let chosenRegion =
-            parsed.region ||
-            getStoredBtcmapsRegion() ||
-            BTCMAP_OPTIONS[0]?.slug ||
-            "global";
-        if (chosenRegion && !BTCMAP_OPTIONS.some(o => o.slug === chosenRegion)) {
-            chosenRegion = BTCMAP_OPTIONS[0]?.slug || "global";
-        }
-        if (btcmapsSelect) btcmapsSelect.value = chosenRegion;
-        populateBtcmapsViewSelect(chosenRegion);
-        let chosenView =
-            parsed.view ||
-            getStoredBtcmapsView(chosenRegion) ||
-            "total";
-        chosenView = setStoredBtcmapsView(chosenRegion, chosenView);
-        if (viewSelect) viewSelect.value = chosenView;
-        setBtcmapsRegionAndView(chosenRegion, chosenView);
-    } else if (isDalFile(fname)) {
-        showScaleControls(true);
-        const sc = dalScaleFromFilename(fname) || getStoredDalScale();
-        scaleSelect.value = sc;
-        setDalScale(sc);
-    } else if (isPotdFile(fname)) {
-        showScaleControls(true);
-        const sc = potdScaleFromFilename(fname) || getStoredPotdScale();
-        scaleSelect.value = sc;
-        setPotdScale(sc);
-    } else if (isNlbpFile(fname)) {
-        showScaleControls(true);
-        const sc = nlbpScaleFromFilename(fname) || getStoredNlbpScale();
-        scaleSelect.value = sc;
-        setNlbpScale(sc);
-    } else if (isHalvingViewFile(fname)) {
-        showHalvingViewControls(true);
-        populateHalvingViewSelect();
-
-        const view =
-        halvingViewFromFilename(fname) ||
-        getStoredHalvingView();
-
-        if (halvingViewSelect) halvingViewSelect.value = view;
-        setHalvingView(view);
-    } else if (isPriceOfFile(fname)) {
-        showPriceOfControls(true);
-        sortPriceOfOptions(getStoredPofSort());
-        if (pofSortSelect) {
-            pofSortSelect.value = getStoredPofSort();
-        }
-        let chosenSlug = pofSlugFromFilename(fname) || getStoredPofItem();
-        if (!PRICE_OF_OPTIONS.some(o => o.slug === chosenSlug)) {
-            chosenSlug =
-                PRICE_OF_OPTIONS.find(o => o.slug === 'ground_beef')?.slug ||
-                PRICE_OF_OPTIONS[0]?.slug;
-        }
-        priceOfSelect.value = chosenSlug;
-        const meta = PRICE_OF_META[chosenSlug];
-        if (meta) applyPostLinksFromMeta(meta);
-        setPriceOfItem(chosenSlug);
-        updatePofIndexUiBySlug(chosenSlug);
-    } else if (isUoaFile(fname)) {
-        showUoaControls(true);
-        sortUoaOptions(getStoredUoaSort());
-        populateUoaSelect();
-        let chosenSlug = uoaSlugFromFilename(fname) || getStoredUoaItem();
-        if (!UOA_OPTIONS.some(o => o.slug === chosenSlug)) {
-            chosenSlug = UOA_OPTIONS[0]?.slug || chosenSlug;
-        }
-        if (uoaSelect) uoaSelect.value = chosenSlug;
-        if (uoaSortSelect) {
-            uoaSortSelect.value = getStoredUoaSort();
-        }
-        if (uoaShowSelect) {
-            uoaShowSelect.value = getStoredUoaShowMode();
-        }
-        setUoaItem(chosenSlug);
-    } else if (isTargetHashFile(fname)) {
-        showHashControls(true);
-        const len = hashLengthFromFilename(fname);
-        if (hashSelect) hashSelect.value = len;
-        setHashLength(len);
-    } else if (isMyrFile(fname)) {
-        showMyrControls(true);
-        populateMyrSelect();
-        const chosenRange = myrRangeFromFilename(fname) || MYR_DEFAULT_RANGE;
-        myrSelect.value = chosenRange;
-        setMyrRange(chosenRange);
-    } else if (isDistFile(fname)) {
-        showMetricControls(true);
-        const metric =
-            distMetricFromFilename(fname) ||
-            getStoredDistMetric();
-        if (metricSelect) metricSelect.value = metric;
-        setDistMetric(metric, { title: image.title });
-    } else if (isCycleAnchorFile(fname)) {
-        showAnchorControls(true);
-        const anchor =
-            cycleAnchorFromFilename(fname) ||
-            getStoredCycleAnchor();
-        if (anchorSelect) anchorSelect.value = anchor;
-        setCycleAnchor(anchor, { title: image.title });
-
+    if (modalContentMode === 'embed') {
+        replaceUrlForFilename(fname);
     } else {
-        if (modalContentMode === 'embed') {
-            replaceUrlForFilename(fname);
-        } else {
-            setModalImageAndCenter(fname, image.title);
-            replaceUrlForFilename(fname);
-        }
+        setModalImageAndCenter(fname, image.title);
+        replaceUrlForFilename(fname);
     }
     syncCurrentModalFavoriteUI();
     requestAnimationFrame(() => {
@@ -447,22 +294,6 @@ function closeModal() {
         justUnstarredInModal = false;
         filterImages();
     }
-    showYearControls(false);
-    showScaleControls(false);
-    showHashControls(false);
-    showPriceOfControls(false);
-    showMyrControls(false);
-    showHalvingViewControls(false);
-    showMetricControls(false);
-    showAnchorControls(false);
-    try {
-        const cur = visibleImages[currentIndex];
-        if (cur && isMyrFile(cur.filename) && cur.filename !== `${MYR_BASE}.png`) {
-            const defaultFile = `${MYR_BASE}.png`;
-            cur.filename = defaultFile;
-            updateGridThumbAtCurrent(defaultFile);
-        }
-    } catch (_) {}
     if (tempNonFavInjected) {
         tempNonFavInjected = false;
         filterImages();
@@ -491,17 +322,6 @@ function closeModal() {
         if (last) {
         updateGridThumbAtCurrent(last, lastTitle);
 
-        // If distribution, also refresh the title/description text in the grid card
-        if (isDistFile(last)) {
-            const meta = getMetaForFilename(last);
-            const oldKey = lastOpenedFilename || last; // safe fallback
-            updateGridCardAtCurrent({
-            oldFilename: oldKey,
-            newFilename: last,
-            title: meta?.title || lastTitle || "",
-            description: meta?.description || ""
-            });
-        }
         }
     } catch (_) {}
     const focusClosedCard = () => {

@@ -105,7 +105,15 @@ function buildGridOnce(){
       if (typeof e.stopImmediatePropagation === 'function') {
         e.stopImmediatePropagation();
       }
-      openModalByFilename(img.dataset.filename);
+      const filename = img.dataset.filename;
+      const routeUrl = typeof getVisualizationUrl === 'function'
+        ? getVisualizationUrl(filename)
+        : '';
+      if (routeUrl) {
+        window.location.href = routeUrl;
+        return;
+      }
+      openModalByFilename(filename);
     };
 
     chartContainer.dataset.filename = filename;
@@ -129,8 +137,7 @@ function buildGridOnce(){
     const favOn = isFavorite(filename);
     star.textContent = favOn ? '★' : '☆';
     if(favOn) star.classList.add('filled');
-    const favKeyForThisCard = filename.startsWith(POF_BASE) ? POF_FAV_KEY : filename;
-    star.setAttribute('data-filename', favKeyForThisCard);
+    star.setAttribute('data-filename', filename);
     // record favourite state on the image element itself so that the lazy loader
     // can quickly inspect it without hitting localStorage repeatedly.
     img.dataset.fav = favOn ? '1' : '0';
@@ -218,17 +225,14 @@ function filterImages(){
   buildGridOnce();
   const query = (document.getElementById('search-input')?.value || '').toLowerCase();
   const {inTitle, inDesc} = readSearchPrefs();
-  visibleImages = imageList.filter(({title, description, filename, archived}) => {
+  visibleImages = imageList.filter(({title, description, filename}) => {
     let matchesSearch = true;
-    const archivedString = String(archived || '').trim().toLowerCase();
-    const isArchived = archived === true || archivedString === 'true';
-    const matchesArchived = showArchivedVisualizations || !isArchived;
     if(query){
       const hayTitle = inTitle ? (title || '').toLowerCase() : '';
       const hayDesc  = inDesc  ? (description || '').toLowerCase() : '';
       matchesSearch = hayTitle.includes(query) || hayDesc.includes(query);
     }
-    return matchesSearch && matchesArchived && (!showFavoritesOnly || isFavorite(filename));
+    return matchesSearch && (!showFavoritesOnly || isFavorite(filename));
   });
   const message = document.getElementById('no-favorites-message');
   if(message) message.style.display = (showFavoritesOnly && visibleImages.length === 0) ? 'block' : 'none';

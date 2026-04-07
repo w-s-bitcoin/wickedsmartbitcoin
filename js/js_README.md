@@ -14,8 +14,7 @@ Load order matters.
 
 ### URL behavior
 
-- Production deep links: `/node_count`, `/btcmap`, `/bip110_signaling`, etc.
-- Production deep links also include `/bitcoin_dominance`
+- Production deep links: `/quantum_exposure`, `/bip110_signaling`, `/node_count`, `/bitcoin_dominance`
 - Local standalone deep links: `/view.html#node_count`
 - Home page remains `/`
 
@@ -31,26 +30,13 @@ Use this exact order where the full app shell is loaded:
 6. `05_core_helpers_url_image_src_geometry.js`
 7. `06_grid_layout_filter_render.js`
 8. `07_modal_open_close_swipes.js`
-9. `08_module_btcmap.js`
-10. `09_module_bitcoin_vs_gold_bvg.js`
-11. `10_module_days_at_a_loss_dal.js`
-12. `11_module_price_on_this_day_potd.js`
-13. `13_module_never_look_back_price_nlbp.js`
-14. `14_module_target_block_hashes_length_32_64.js`
-15. `15_module_halving_view.js`
-16. `16_module_price_of_price_of.js`
-17. `17_module_unit_of_account_uoa.js`
-18. `19_module_monthly_yearly_returns_myr.js`
-19. `20_buy_me_button_thanks_overlay.js`
-20. `21_slideshow_core_ui_fullscreen.js`
-21. `22_bootstrap_fetch_init_global_exports.js`
-22. `23_event_bindings_global_modal_menu.js`
+9. `08_buy_me_button_thanks_overlay.js`
+10. `09_bootstrap_fetch_init_global_exports.js`
+11. `10_event_bindings_global_modal_menu.js`
+12. `11_dashboard_timezone_preferences.js`
+13. `12_homepage_kpis.js`
 
-Additional standalone-only file:
-
-24. `24_bip110_standalone_bootstrap.js` (used by `bip110_signaling.html` only)
-25. `26_node_count_standalone_bootstrap.js` (used by `node_count.html` only)
-26. `28_bitcoin_dominance_standalone_bootstrap.js` (used by `bitcoin_dominance.html` only)
+Dashboard-local standalone files live alongside each dashboard. Most use `webapps/*/standalone_bootstrap.js`; Quantum Exposure now uses `webapps/quantum_exposure/standalone_app.js`.
 
 ## Practical Mental Model
 
@@ -83,37 +69,27 @@ Most visualization-family swaps follow this flow:
 - `06_grid_layout_filter_render.js`: grid/list render, filtering, favorites UI on cards
 - `07_modal_open_close_swipes.js`: modal open/close lifecycle, controls visibility, swipe/gesture behavior
 
-### Feature-family modules
-
-- `08_module_btcmap.js`: BTC Map region/view handling
-- `09_module_bitcoin_vs_gold_bvg.js`: BVG year handling
-- `10_module_days_at_a_loss_dal.js`: DAL scale handling
-- `11_module_price_on_this_day_potd.js`: POTD scale handling
-- `13_module_never_look_back_price_nlbp.js`: NLBP scale handling
-- `14_module_target_block_hashes_length_32_64.js`: hash-length mode handling
-- `15_module_halving_view.js`: halving view handling
-- `16_module_price_of_price_of.js`: Price-Of options/meta/sort/index handling
-- `17_module_unit_of_account_uoa.js`: UOA options/meta/sort/group handling
-- `19_module_monthly_yearly_returns_myr.js`: monthly/yearly return window handling
-
 ### Overlays/bootstrap/events
 
-- `20_buy_me_button_thanks_overlay.js`: donate overlay and method UI
-- `21_slideshow_core_ui_fullscreen.js`: slideshow logic/fullscreen behavior
-- `22_bootstrap_fetch_init_global_exports.js`: image manifest fetch, representative card rewrites, deep-link resolution, init sequence
-- `23_event_bindings_global_modal_menu.js`: event wiring for keyboard/mouse/touch/menu/controls
-- `24_bip110_standalone_bootstrap.js`: self-contained standalone controller for BIP110 page
-- `26_node_count_standalone_bootstrap.js`: self-contained standalone controller for Node Count page
-- `28_bitcoin_dominance_standalone_bootstrap.js`: self-contained standalone controller for Bitcoin Dominance page
+- `08_buy_me_button_thanks_overlay.js`: donate overlay and method UI
+- `09_bootstrap_fetch_init_global_exports.js`: image manifest fetch, representative card rewrites, deep-link resolution, init sequence
+- `10_event_bindings_global_modal_menu.js`: event wiring for keyboard/mouse/touch/menu/controls
+- `11_dashboard_timezone_preferences.js`: shared dashboard timezone preference handling
+- `12_homepage_kpis.js`: homepage KPI hydration and refresh behavior
+
+### Dashboard-local standalone controllers
+
+- `webapps/bip110_signaling/standalone_bootstrap.js`: self-contained standalone controller for BIP110 page
+- `webapps/node_count/standalone_bootstrap.js`: self-contained standalone controller for Node Count page
+- `webapps/bitcoin_dominance/standalone_bootstrap.js`: self-contained standalone controller for Bitcoin Dominance page
+- `webapps/quantum_exposure/standalone_app.js`: self-contained standalone controller for Quantum Exposure page
 
 ## Where To Edit (Cheat Sheet)
 
-- Routing/deep-link behavior: `05`, `07`, `22`, and standalone bootstraps `24`, `26`, `28`
+- Routing/deep-link behavior: `05`, `09`, `10`, and each dashboard-local standalone controller (`webapps/*/standalone_bootstrap.js`, plus `webapps/quantum_exposure/standalone_app.js`)
 - Grid rendering/filter/favorites card UI: `06`
 - Modal visibility/controls/swipes: `07`
-- Control dropdown logic by family: relevant `08-19` module + `23` bindings
-- Slideshow behavior: `21` + `23`
-- Donate overlay behavior: `20` (+ route sync touchpoints in `22`/`23`)
+- Donate overlay behavior: `08` (+ route sync touchpoints in `09`/`10`)
 
 ## Notes About Removed Features
 
@@ -125,5 +101,5 @@ Most visualization-family swaps follow this flow:
 - Confirm script order is unchanged
 - Confirm `assets/image_list.json` contains expected filenames/meta
 - Confirm swap flow updates content + URL + metadata consistently
-- Confirm event handlers exist in `23_event_bindings_global_modal_menu.js`
+- Confirm event handlers exist in `10_event_bindings_global_modal_menu.js`
 - Confirm relevant DOM IDs exist in loaded shell (`index.html` vs `view.html`/`404.html`)

@@ -9,6 +9,12 @@ Current dashboards:
 - `bip110_signaling/`: dual canvas dashboard for SegWit and BIP-110 signaling
 - `node_count/`: Plotly-based history chart plus software-version panel
 - `bitcoin_dominance/`: Plotly-based BTC dominance history plus latest market-cap snapshot panel
+- `quantum_exposure/`: quantum exposure dashboard with its own app entrypoint and standalone bootstrap
+
+Each dashboard folder may contain both:
+
+- `dashboard.html`: embedded dashboard shell
+- `standalone_bootstrap.js` / `standalone_app.js`: root-page standalone controller loaded by `/<dashboard>.html` or the production clean route
 
 ## Shared foundation files
 
@@ -302,7 +308,7 @@ Recommended expectations for future dashboards:
 - Use compact loader text in `IBM Plex Mono`
 - Keep loading overlays black and semi-transparent, not blurred glass
 - Persist user controls that materially affect layout or reading state
-- Share timezone preference behavior through `js/25_dashboard_timezone_preferences.js` when timestamps are shown
+- Share timezone preference behavior through `js/11_dashboard_timezone_preferences.js` when timestamps are shown
 
 ## Implementation checklist for a new dashboard
 

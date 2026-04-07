@@ -112,10 +112,32 @@
     }
   }
 
+  function forwardEmbeddedNavigationKeys() {
+    try {
+      if (window.self === window.top) return;
+
+      document.addEventListener('keydown', (event) => {
+        const key = event.key;
+        const code = event.code;
+        const isLeft = key === 'ArrowLeft';
+        const isRight = key === 'ArrowRight';
+        const isSpace = key === ' ' || key === 'Spacebar' || code === 'Space';
+        if (!isLeft && !isRight && !isSpace) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        window.parent?.postMessage({ type: 'wsb-dashboard-nav-key', key }, window.location.origin);
+      }, true);
+    } catch (_) {
+    }
+  }
+
   window.WSBDashboardShared = window.WSBDashboardShared || {};
   window.WSBDashboardShared.applyEmbeddedModalTopClearance = applyEmbeddedModalTopClearance;
   window.WSBDashboardShared.createDashboardControlLock = createDashboardControlLock;
+  window.WSBDashboardShared.forwardEmbeddedNavigationKeys = forwardEmbeddedNavigationKeys;
 
   // Apply as early as possible to avoid top-padding jumps when embedded in modal.
   applyEmbeddedModalTopClearance();
+  forwardEmbeddedNavigationKeys();
 }());

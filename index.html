@@ -96,37 +96,6 @@
                     </button>
                 </div>
                 <div class="menu-divider" role="separator" aria-hidden="true"></div>
-                <div class="menu-section" role="group" aria-labelledby="menu-header-slideshow">
-                    <div class="menu-header" id="menu-header-slideshow">Slideshow</div>
-                    <div class="menu-item slideshow-row" role="group" aria-label="Slide duration">
-                        <label for="slideDuration" class="slideshow-label">Slide Duration</label>
-                        <div class="slideshow-range-wrap">
-                            <output id="slideDurationBubble" class="slideshow-bubble" for="slideDuration" aria-live="polite">2s</output>
-                            <input id="slideDuration" class="slideshow-range" type="range" min="1" max="6" step="1" value="2" list="durationTicks" aria-valuemin="2" aria-valuemax="64" aria-valuenow="4" aria-describedby="slideDurationTicks" />
-                        </div>
-                        <datalist id="durationTicks">
-                            <option value="1"></option>
-                            <option value="2"></option>
-                            <option value="3"></option>
-                            <option value="4"></option>
-                            <option value="5"></option>
-                            <option value="6"></option>
-                        </datalist>
-                        <div class="slideshow-ticks" id="slideDurationTicks" aria-hidden="true">
-                            <span>2</span>
-                            <span>4</span>
-                            <span>8</span>
-                            <span>16</span>
-                            <span>32</span>
-                            <span>64</span>
-                        </div>
-                    </div>
-                    <button class="menu-item" id="startSlideshowBtn" role="menuitem">
-                        <span class="menu-star" aria-hidden="true">▶</span>
-                        Start Slideshow
-                    </button>
-                </div>
-                <div class="menu-divider" role="separator" aria-hidden="true"></div>
                 <div class="menu-section" role="group" aria-labelledby="menu-header-timezone">
                     <div class="menu-header" id="menu-header-timezone">Time Zone</div>
                     <div class="menu-item timezone-row" role="group" aria-label="Time zone preference">
@@ -191,10 +160,6 @@
                 <select class="chip-menu-select chip-kpi-select-overlay" id="homeKpiTimeZoneSelect" aria-label="Homepage date and time time zone"></select>
             </div>
             <div class="chip" id="homeBip110HeightKpi">Height n/a</div>
-            <label class="chip chip-checkbox" for="showArchivedToggle">
-                <input id="showArchivedToggle" type="checkbox" />
-                <span>Show archived visualizations</span>
-            </label>
         </div>
         <div class="image-grid grid" id="image-grid"></div>
         <div id="no-favorites-message" style="display: none; color: #ccc; font-size: 1.2rem; margin-top: 2rem">No starred visualizations</div>
@@ -204,11 +169,6 @@
                 <button class="close-btn" onclick="prevImage()">&#8249;</button>
                 <button class="close-btn" onclick="nextImage()">&#8250;</button>
                 <button id="modal-fav-btn" class="close-btn" onclick="toggleFavoriteFromModal()">★</button>
-                <button id="modal-dl-btn" class="close-btn" type="button" aria-label="Download image">
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M5 20h14v-2H5v2zm7-18v10.17l3.59-3.58L17 10l-5 5-5-5 1.41-1.41L11 12.17V2h1z"/>
-                    </svg>
-                </button>
                 <a id="x-link" class="close-btn modal-link" href="#" target="_blank" rel="noopener noreferrer" aria-label="X/Twitter">
                     <svg width="16" height="16" viewBox="0 0 16 16">
                         <path d="M12.6.75h2.454l-5.36 6.142L16 15.25h-4.937l-3.867-5.07-4.425 5.07H.316l5.733-6.57L0 .75h5.063l3.495 4.633L12.601.75Zm-.86 13.028h1.36L4.323 2.145H2.865z" />
@@ -219,163 +179,6 @@
                         <path d="M549.7 124.1c-6.3-23.8-25-42.4-48.8-48.8C456.5 64 288 64 288 64s-168.5 0-212.9 11.3c-23.8 6.3-42.5 25-48.8 48.8C16 168.5 16 256 16 256s0 87.5 10.3 131.9c6.3 23.8 25 42.4 48.8 48.8C119.5 448 288 448 288 448s168.5 0 212.9-11.3c23.8-6.3 42.5-25 48.8-48.8C560 343.5 560 256 560 256s0-87.5-10.3-131.9zM232 336V176l142 80-142 80z" />
                     </svg>
                 </a>
-                <span class="region-controls" id="region-controls">
-                    <span style="color: white; font-size: 1rem">Region:</span>
-                    <span class="select-wrap">
-                        <select id="region-select" aria-label="Choose region">
-                            <option value="global">Global</option>
-                            <option value="us">U.S.</option>
-                            <!-- <option value="eu">EU</option>
-                            <option value="latam">LATAM</option>
-                            <option value="africa">Africa</option>
-                            <option value="asia">Asia</option> -->
-                        </select>
-                    </span>
-                </span>
-                <span class="view-controls" id="view-controls">
-                    <span style="color: white; font-size: 1rem">View:</span>
-                    <span class="select-wrap">
-                        <select id="view-select" aria-label="Choose view">
-                            <option value="total">Total Merchants</option>
-                            <option value="per_100k">Per 100k</option>
-                        </select>
-                    </span>
-                </span>
-                <span class="metric-controls" id="metric-controls">
-                    <span style="color: white; font-size: 1rem">Metric:</span>
-                    <span class="select-wrap">
-                        <select id="metric-select" aria-label="Choose metric">
-                            <option value="price">Price</option>
-                            <option value="mcap">Market Cap</option>
-                        </select>
-                    </span>
-                </span>
-                <span class="year-controls" id="year-controls">
-                    <span style="color: white; font-size: 1rem">Starting Year:</span>
-                    <span class="select-wrap"><select id="year-select" aria-label="Choose year"></select></span>
-                </span>
-
-                <span class="scale-controls" id="scale-controls">
-                    <span style="color: white; font-size: 1rem">Scale:</span>
-                    <span class="select-wrap">
-                        <select id="scale-select" aria-label="Choose scale">
-                            <option value="linear">Linear</option>
-                            <option value="log">Log</option>
-                        </select>
-                    </span>
-                </span>
-                <span class="priceof-controls" id="priceof-controls">
-                    <span style="color: white; font-size: 1rem">Price of:</span>
-                    <span class="select-wrap"><select id="priceof-select" aria-label="Choose item"></select></span>
-                </span>
-                <span class="sort-controls" id="pof-sort-controls">
-                    <span style="color: white; font-size: 1rem">Sort:</span>
-                    <span class="select-wrap">
-                        <select id="pof-sort-select" aria-label="Choose sort order">
-                            <option value="az">A-Z</option>
-                            <option value="za">Z-A</option>
-                            <option value="high">Highest Price</option>
-                            <option value="low">Lowest Price</option>
-                        </select>
-                    </span>
-                    <div class="uoa-index" id="pof-index">
-                        <input
-                            id="pof-index-input"
-                            type="text"
-                            inputmode="numeric"
-                            pattern="[0-9]*"
-                            autocomplete="off"
-                        />
-                        <span class="uoa-index-total">/ <span id="pof-index-total">39</span></span>
-                    </div>
-                </span>
-                <span class="uoa-controls" id="uoa-controls">
-                    <span style="color: white; font-size: 1rem">Unit of Account:</span>
-                    <span class="select-wrap">
-                        <select id="uoa-select" aria-label="Choose unit of account"></select>
-                    </span>
-                </span>
-                <span class="uoa-show-controls" id="uoa-show-controls">
-                    <span style="color: white; font-size: 1rem">Show:</span>
-                    <span class="select-wrap">
-                        <select id="uoa-show-select" aria-label="Choose region or group to show">
-                            <option value="all">All</option>
-                            <option value="g7">G7</option>
-                            <option value="g20">G20</option>
-                            <option value="africa">Africa</option>
-                            <option value="asia">Asia</option>
-                            <option value="europe">Europe</option>
-                            <option value="latam">LATAM</option>
-                            <option value="mena">MENA</option>
-                            <option value="oceania">Oceania</option>
-                            <option value="metals">Metals</option>
-                        </select>
-                    </span>
-                </span>                <span class="sort-controls" id="sort-controls">
-                    <span style="color: white; font-size: 1rem">Sort:</span>
-                    <span class="select-wrap">
-                        <select id="sort-select" aria-label="Choose sort order">
-                            <option value="az">A-Z</option>
-                            <option value="za">Z-A</option>
-                            <option value="high">Highest Price</option>
-                            <option value="low">Lowest Price</option>
-                        </select>
-                    </span>
-                    <div class="uoa-index" id="uoa-index">
-                        <input
-                            id="uoa-index-input"
-                            type="text"
-                            inputmode="numeric"
-                            pattern="[0-9]*"
-                            autocomplete="off"
-                        />
-                        <span class="uoa-index-total">/ <span id="uoa-index-total">156</span></span>
-                    </div>
-                </span>
-                <span class="imgsort-controls" id="imgsort-controls">
-                    <span style="color: white; font-size: 1rem">Image Sort:</span>
-                    <span class="select-wrap">
-                        <select id="imgsort-select" aria-label="Choose image sort order">
-                            <option value="az">A-Z</option>
-                            <option value="za">Z-A</option>
-                            <option value="high">Highest Price</option>
-                            <option value="low">Lowest Price</option>
-                        </select>
-                    </span>
-                </span>
-
-                <span class="myr-controls" id="myr-controls">
-                    <span style="color: white; font-size: 1rem">Years:</span>
-                    <span class="select-wrap"><select id="myr-select" aria-label="Choose year range"></select></span>
-                </span>
-                <span class="halving-view-controls" id="halving-view-controls">
-                    <span style="color: white; font-size: 1rem">Halving View:</span>
-                    <span class="select-wrap">
-                        <select id="halving-view-select" aria-label="Choose halving view">
-                            <option value="cycles_block">Cycles (Block Height)</option>
-                            <option value="cycles_days">Cycles (Days After Halving)</option>
-                            <option value="progress_block">Progress (Block Height)</option>
-                        </select>
-                    </span>
-                </span>
-                <span class="anchor-controls" id="anchor-controls">
-                    <span style="color: white; font-size: 1rem">Anchor:</span>
-                    <span class="select-wrap">
-                        <select id="anchor-select" aria-label="Choose anchor">
-                            <option value="low">Cycle Low</option>
-                            <option value="high">Cycle High</option>
-                        </select>
-                    </span>
-                </span>
-                <span class="hashlen-controls" id="hashlen-controls">
-                    <span style="color: white; font-size: 1rem">Displayed Hash Length:</span>
-                    <span class="select-wrap">
-                        <select id="hashlen-select" aria-label="Choose displayed hash length">
-                            <option value="32" selected>32</option>
-                            <option value="64">64</option>
-                        </select>
-                    </span>
-                </span>
             </div>
             <img id="modal-img" src="" alt="Full size image" draggable="false" />
             <div id="modal-embed-wrap" class="modal-embed-wrap" hidden>
@@ -390,17 +193,6 @@
                         <iframe id="youtube-iframe" class="youtube-iframe" title="YouTube video" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
                     </div>
                 </div>
-            </div>
-        </div>
-        <div id="slideshow" class="slideshow hidden" aria-hidden="true" role="dialog" aria-modal="true" tabindex="-1" data-esc-exit="true">
-            <div class="slideshow-controls" id="slideshowControls" aria-label="Slideshow controls">
-                <button class="ss-btn ss-exit" id="ssExitBtn" type="button" aria-label="Exit slideshow" data-exit="slideshow">×</button>
-                <button class="ss-btn ss-prev" id="ssPrevBtn" aria-label="Previous slide">‹</button>
-                <button id="ssPlayPauseBtn" class="ss-btn ss-play" type="button" aria-label="Pause slideshow" title="Pause (Space)">။</button>
-                <button class="ss-btn ss-next" id="ssNextBtn" aria-label="Next slide">›</button>
-            </div>
-            <div class="slideshow-viewport">
-                <img id="slideshow-img" alt="Slideshow image" draggable="false" />
             </div>
         </div>
         <footer>
@@ -442,22 +234,10 @@
         <script src="js/05_core_helpers_url_image_src_geometry.js" defer></script>
         <script src="js/06_grid_layout_filter_render.js" defer></script>
         <script src="js/07_modal_open_close_swipes.js" defer></script>
-        <script src="js/08_module_btcmap.js" defer></script>
-        <script src="js/09_module_bitcoin_vs_gold_bvg.js" defer></script>
-        <script src="js/10_module_days_at_a_loss_dal.js" defer></script>
-        <script src="js/11_module_price_on_this_day_potd.js" defer></script>
-        <script src="js/13_module_never_look_back_price_nlbp.js" defer></script>
-        <script src="js/14_module_target_block_hashes_length_32_64.js" defer></script>
-        <script src="js/15_module_halving_view.js" defer></script>
-        <script src="js/16_module_price_of_price_of.js" defer></script>
-        <script src="js/17_module_unit_of_account_uoa.js" defer></script>
-
-        <script src="js/19_module_monthly_yearly_returns_myr.js" defer></script>
-        <script src="js/20_buy_me_button_thanks_overlay.js" defer></script>
-        <script src="js/21_slideshow_core_ui_fullscreen.js" defer></script>
-        <script src="js/25_dashboard_timezone_preferences.js" defer></script>
-        <script src="js/27_homepage_kpis.js" defer></script>
-        <script src="js/22_bootstrap_fetch_init_global_exports.js" defer></script>
-        <script src="js/23_event_bindings_global_modal_menu.js" defer></script>
+        <script src="js/08_buy_me_button_thanks_overlay.js" defer></script>
+        <script src="js/09_bootstrap_fetch_init_global_exports.js" defer></script>
+        <script src="js/10_event_bindings_global_modal_menu.js" defer></script>
+        <script src="js/11_dashboard_timezone_preferences.js" defer></script>
+        <script src="js/12_homepage_kpis.js" defer></script>
     </body>
 </html>

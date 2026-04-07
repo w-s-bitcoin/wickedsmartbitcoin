@@ -3,147 +3,27 @@
  * =========================== */
 const THANKS_ALL_IMG_URLS = [...BUY_BEER_IMG_URLS, ...BUY_COFFEE_IMG_URLS];
 function preloadImages(urls, { useLinkPreload = true } = {}) {
-  const uniq = [...new Set(urls)].filter(Boolean);
-  if (useLinkPreload) {
-    const head = document.head || document.getElementsByTagName('head')[0];
+    const uniq = [...new Set(urls)].filter(Boolean);
+    if (!uniq.length) return;
+
+    if (useLinkPreload) {
+        const head = document.head || document.getElementsByTagName('head')[0];
+        uniq.forEach((href) => {
+            if (!head) return;
+            if (document.querySelector(`link[rel="preload"][as="image"][href="${href}"]`)) return;
+            const link = document.createElement('link');
+            link.rel = 'preload';
+            link.as = 'image';
+            link.href = href;
+            head.appendChild(link);
+        });
+    }
+
     uniq.forEach((href) => {
-      if (document.querySelector(`link[rel="preload"][as="image"][href="${href}"]`)) return;
-      const l = document.createElement('link');
-      l.rel = 'preload';
-      l.as = 'image';
-      l.href = href;
-      head.appendChild(l);
+        const img = new Image();
+        img.decoding = 'async';
+        img.src = href;
     });
-  }
-  const loaders = uniq.map((url) => new Promise(resolve => {
-    const img = new Image();
-    img.onload = img.onerror = () => resolve(url);
-    img.src = url;
-  }));
-  try { uniq.forEach((url) => fetch(url, { cache: "force-cache" })); } catch {}
-  return Promise.all(loaders);
-}
-function preloadAllThanksImagesOnce() {
-  if (preloadAllThanksImagesOnce._did) return;
-  preloadAllThanksImagesOnce._did = true;
-  const run = () => preloadImages(THANKS_ALL_IMG_URLS, { useLinkPreload: true });
-  if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 1500 });
-  else setTimeout(run, 0);
-}
-function getThanksPreloadUrls() {
-  return isBeerTime() ? BUY_BEER_IMG_URLS : BUY_COFFEE_IMG_URLS;
-}
-function preloadThanksImagesIfNeeded(force = false) {
-  const mode = isBeerTime() ? 'beer' : 'coffee';
-  if (!force && lastThanksPreloadMode === mode) return;
-  lastThanksPreloadMode = mode;
-  preloadImages(getThanksPreloadUrls());
-}
-function replaceUrlForFilename(newFilename) {
-  const slug = String(newFilename || "").replace(/\.png$/i, "");
-    const currentHash = String(location.hash || "").replace(/^#/, "");
-    const hashQueryIndex = currentHash.indexOf("?");
-    const currentHashSlug = (hashQueryIndex >= 0 ? currentHash.slice(0, hashQueryIndex) : currentHash).trim();
-    const currentHashQuery = hashQueryIndex >= 0 ? currentHash.slice(hashQueryIndex + 1).trim() : "";
-    const preservedSuffix = currentHashQuery && currentHashSlug === slug ? `?${currentHashQuery}` : "";
-    if (isStandaloneModalShell()) {
-        const base = getPageBasePath();
-        if (location.hostname === 'localhost') {
-            const page = location.pathname.split('/').pop() || 'view.html';
-                        history.replaceState(null, '', `${base}/${page}#${encodeURIComponent(slug)}${preservedSuffix}`.replace(/\/{2,}/g, '/'));
-        } else {
-            history.replaceState(null, '', `${base}/${slug}`.replace(/\/{2,}/g, '/'));
-        }
-        return;
-    }
-  if (location.hostname === "localhost") {
-        location.hash = `${slug}${preservedSuffix}`;
-    return;
-  }
-
-  // Always preserve repo subpath like "/animations"
-  const base = getPageBasePath(); // '' on custom domain root, '/animations' on GH pages
-  const next = `${base}/${slug}`.replace(/\/{2,}/g, "/");
-  history.replaceState(null, "", next);
-}
-
-function isStandaloneModalShell() {
-    return document.body?.dataset?.standaloneModalShell === '1';
-}
-
-function getVisualizationUrl(filename) {
-    const slug = String(filename || '').replace(/\.png$/i, '');
-    const base = getPageBasePath();
-    if (location.hostname === 'localhost') {
-        return `${base}/view.html#${encodeURIComponent(slug)}`.replace(/\/{2,}/g, '/');
-    }
-    return `${base}/${slug}`.replace(/\/{2,}/g, '/');
-}
-
-function isDonateRouteActive() {
-    if (location.hostname === 'localhost') {
-        return (location.hash || '').replace(/^#/, '') === DONATE_ROUTE;
-    }
-    const path = window.location.pathname.replace(/^\/+|\/+$/g, '').toLowerCase();
-    return path === DONATE_ROUTE;
-}
-function setDonateRouteUrl(active, { push = true } = {}) {
-  if (location.hostname === "localhost") {
-    location.hash = active ? DONATE_ROUTE : "";
-    return;
-  }
-  const base = getPageBasePath();
-  const target = active ? `${base}/${DONATE_ROUTE}` : (base || "/");
-  const fn = push ? "pushState" : "replaceState";
-  history[fn](null, "", target.replace(/\/{2,}/g, "/"));
-}
-
-function syncDonateOverlayToRoute() {
-    if (modal && modal.style.display === 'flex') return;
-
-    if (isDonateRouteActive()) {
-        if (!isBuyMeVisible) showThanksPopup({ fromRoute: true });
-    } else {
-        if (isBuyMeVisible) hideThanksPopup({ fromRoute: true });
-    }
-}
-function updateGridThumbAtCurrent(filename, title){
-  let img = document.querySelector(`img.grid-thumb[data-grid-index="${currentIndex}"]`);
-
-  // Fallback: locate by filename in your card map
-  if(!img && filename){
-    const card = cardByFilename.get(_cardKey(filename));
-    if(card && card.img) img = card.img;
-  }
-
-  if(!img) return;
-
-  const next = imgSrc(filename);
-  img.dataset.filename = filename;
-  img.dataset.src = next;
-  if(title !== undefined) img.alt = title || "";
-
-  const loaded =
-    img.dataset.loaded === "1" ||
-    (img.getAttribute("src") && img.naturalWidth > 0);
-
-  if(!loaded) return;
-
-  // Avoid blanking: preload then swap
-  if (img.src !== next) {
-    const pre = new Image();
-    pre.onload = () => {
-      // only swap if this thumb is still representing this filename
-      if ((img.dataset.filename || "").toLowerCase() !== String(filename || "").toLowerCase()) return;
-      img.src = next;
-      img.dataset.loaded = "1";
-    };
-    pre.onerror = () => {
-      // keep the old thumb if the new one fails
-      img.dataset.loaded = "0";
-    };
-    pre.src = next;
-  }
 }
 
 function _cardKey(fname){
@@ -194,197 +74,17 @@ function updateGridCardAtCurrent({ oldFilename, newFilename, title, description 
 
   // Update favorite star binding/state
   if (card.star) {
-    const starKey = newFilename.startsWith(POF_BASE) ? POF_FAV_KEY : newFilename;
+        const starKey = newFilename;
     card.star.setAttribute("data-filename", starKey);
-
-    // For POF_FAV_KEY, `isFavorite(newFilename)` might not match your grouping,
-    // so we check the effective favorite key.
     const favOn = isFavorite(starKey);
     card.star.textContent = favOn ? "★" : "☆";
     card.star.classList.toggle("filled", favOn);
   }
 }
-function showAnchorControls(show) {
-  anchorControls?.classList.toggle('show', !!show);
-}
-function showYearControls(show) {
-    yearControls?.classList.toggle('show', !!show);
-}
 
-function showScaleControls(show) {
-    hashControls?.classList.toggle('show', !!show);
-}
-function showPriceOfControls(show) {
-    const on = !!show;
-    priceOfControls?.classList.toggle('show', on);
-    pofSortControls?.classList.toggle('show', on);
-}
-function showUoaControls(show) {
-    const on = !!show;
-    if (uoaControls) uoaControls.classList.toggle('show', on);
-    if (sortControls) sortControls.classList.toggle('show', on);
-    if (uoaShowControls) uoaShowControls.classList.toggle('show', on);
-}
-function showMyrControls(show) {
-    myrControls?.classList.toggle('show', !!show);
-}
-function showHalvingViewControls(show) {
-    halvingViewControls?.classList.toggle('show', !!show);
-}
-function showBtcmapsControls(show) {
-    const on = !!show;
-    btcmapsControls?.classList.toggle('show', on);
-    viewControls?.classList.toggle('show', on);
-}
-
-function showMetricControls(show) {
-    metricControls?.classList.toggle('show', !!show);
-}
-
-function isCycleAnchorFile(filename) {
-  return filename === CYCLE_LOW_FILE || filename === CYCLE_HIGH_FILE;
-}
-function cycleAnchorFromFilename(filename) {
-  if (filename === CYCLE_LOW_FILE) return 'low';
-  if (filename === CYCLE_HIGH_FILE) return 'high';
-  return null;
-}
-function cycleFilenameForAnchor(anchor) {
-  return anchor === 'high' ? CYCLE_HIGH_FILE : CYCLE_LOW_FILE;
-}
-function getStoredCycleAnchor() {
-  const v = (localStorage.getItem(CYCLE_ANCHOR_STORAGE_KEY) || '').toLowerCase();
-  return v === 'low' ? 'low' : 'high';
-}
-function setStoredCycleAnchor(anchor) {
-  const v = anchor === 'high' ? 'high' : 'low';
-  localStorage.setItem(CYCLE_ANCHOR_STORAGE_KEY, v);
-  return v;
-}
-
-function setCycleAnchor(anchor, { title = '' } = {}) {
-  const norm = setStoredCycleAnchor(anchor);
-  const nextFilename = cycleFilenameForAnchor(norm);
-
-  const cur = visibleImages?.[currentIndex];
-  const oldFilename = (cur && isCycleAnchorFile(cur.filename)) ? cur.filename : null;
-
-  // Pull canonical metadata for the selected file
-  const meta = getMetaForFilename(nextFilename);
-
-  // Update current visible item (so arrows + state stay consistent)
-  if (cur && isCycleAnchorFile(cur.filename)) {
-    cur.filename = nextFilename;
-    if (meta) {
-      cur.title = meta.title || cur.title;
-      cur.description = meta.description || cur.description;
-      cur.latest_x = meta.latest_x || "";
-      cur.latest_nostr = meta.latest_nostr || "";
-      cur.latest_youtube = meta.latest_youtube || "";
-    }
-    lastOpenedFilename = nextFilename;
-  }
-
-  // Update modal
-  setModalLinks({
-    x: meta?.latest_x || cur?.latest_x || '',
-    nostr: meta?.latest_nostr || cur?.latest_nostr || '',
-    youtube: meta?.latest_youtube || cur?.latest_youtube || ''
-  });
-  setModalImageAndCenter(nextFilename, title || (meta?.title || cur?.title || ''));
-  replaceUrlForFilename(nextFilename);
-
-  // Update grid card immediately (title/desc/thumb/star/count)
-  if (oldFilename) {
-    updateGridCardAtCurrent({
-      oldFilename,
-      newFilename: nextFilename,
-      title: meta?.title || cur?.title || "",
-      description: meta?.description || cur?.description || ""
-    });
-  }
-}
-
-function cycleCycleAnchor(direction /* 'up' | 'down' */) {
-  const cur = getStoredCycleAnchor();
-  const idx = Math.max(0, CYCLE_ANCHORS.indexOf(cur));
-  const delta = direction === 'up' ? -1 : 1;
-  const next = CYCLE_ANCHORS[(idx + delta + CYCLE_ANCHORS.length) % CYCLE_ANCHORS.length];
-  setCycleAnchor(next, { title: visibleImages?.[currentIndex]?.title || '' });
-  if (anchorSelect) anchorSelect.value = next;
-}
-
-/* ===========================
- * Metric dropdown helpers
- * =========================== */
-function isDistFile(filename) {
-    return filename === DIST_PRICE_FILE || filename === DIST_MCAP_FILE;
-}
-function distMetricFromFilename(filename) {
-    if (filename === DIST_MCAP_FILE) return 'mcap';
-    if (filename === DIST_PRICE_FILE) return 'price';
-    return null;
-}
-function distFilenameForMetric(metric) {
-    return metric === 'mcap' ? DIST_MCAP_FILE : DIST_PRICE_FILE;
-}
-function getStoredDistMetric() {
-    const v = (localStorage.getItem(DIST_STORAGE_KEY) || '').toLowerCase();
-    return v === 'mcap' ? 'mcap' : 'price';
-}
-function setStoredDistMetric(metric) {
-    const v = metric === 'mcap' ? 'mcap' : 'price';
-    localStorage.setItem(DIST_STORAGE_KEY, v);
-    return v;
-}
-function setDistMetric(metric, { title = '' } = {}) {
-    const norm = setStoredDistMetric(metric);
-    const nextFilename = distFilenameForMetric(norm);
-
-    const cur = visibleImages?.[currentIndex];
-    const oldFilename = (cur && isDistFile(cur.filename)) ? cur.filename : null;
-
-    // Pull canonical title/desc/links from the underlying file entry
-    const meta = getMetaForFilename(nextFilename);
-
-    if (cur && isDistFile(cur.filename)) {
-        cur.filename = nextFilename;
-        if (meta) {
-            cur.title = meta.title || cur.title;
-            cur.description = meta.description || cur.description;
-            cur.latest_x = meta.latest_x || "";
-            cur.latest_nostr = meta.latest_nostr || "";
-            cur.latest_youtube = meta.latest_youtube || "";
-        }
-        lastOpenedFilename = nextFilename;
-    }
-
-    // Update modal
-    setModalImageAndCenter(nextFilename, title || (meta?.title || cur?.title || ''));
-    replaceUrlForFilename(nextFilename);
-
-    // Update grid card title/desc/thumb immediately
-    if (oldFilename) {
-        updateGridCardAtCurrent({
-            oldFilename,
-            newFilename: nextFilename,
-            title: meta?.title || cur?.title || "",
-            description: meta?.description || cur?.description || ""
-        });
-    }
-}
 function getMetaForFilename(fname){
   const list = Array.isArray(rawImageList) ? rawImageList : (Array.isArray(imageList) ? imageList : []);
   return list.find(x => String(x.filename).toLowerCase() === String(fname).toLowerCase()) || null;
-}
-
-function cycleDistMetric(direction /* 'up' | 'down' */) {
-    const cur = getStoredDistMetric();
-    const idx = Math.max(0, DIST_METRICS.indexOf(cur));
-    const delta = direction === 'up' ? -1 : 1;
-    const next = DIST_METRICS[(idx + delta + DIST_METRICS.length) % DIST_METRICS.length];
-    setDistMetric(next, { title: visibleImages?.[currentIndex]?.title || '' });
-    if (metricSelect) metricSelect.value = next;
 }
 // Store current YouTube video ID for the modal
 let currentYoutubeVideoId = '';
@@ -681,9 +381,81 @@ function getPageBasePath(){
   return `/${parts.slice(0, -1).join('/')}`;
 }
 
+function isStandaloneModalShell() {
+    return document.body?.dataset?.standaloneModalShell === '1';
+}
+
+function getVisualizationSlug(filename) {
+    return String(filename || '').replace(/\.png$/i, '').trim();
+}
+
+function getVisualizationUrl(filename) {
+    const slug = getVisualizationSlug(filename);
+    const base = getPageBasePath();
+    if (!slug) return `${base || ''}/`.replace(/\/{2,}/g, '/');
+    if (location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.hostname === '::1') {
+        const localStandaloneBySlug = {
+            quantum_exposure: 'quantum_exposure.html',
+            bip110_signaling: 'bip110_signaling.html',
+            node_count: 'node_count.html',
+            bitcoin_dominance: 'bitcoin_dominance.html',
+        };
+        const localStandalone = localStandaloneBySlug[slug];
+        if (localStandalone) {
+            return `${base}/${localStandalone}`.replace(/\/{2,}/g, '/');
+        }
+        return `${base}/view.html#${encodeURIComponent(slug)}`.replace(/\/{2,}/g, '/');
+    }
+    return `${base}/${slug}`.replace(/\/{2,}/g, '/');
+}
+
+function isDonateRouteActive() {
+    if (isStandaloneModalShell()) return false;
+    const hash = String(window.location.hash || '').replace(/^#/, '').split('?')[0].trim().toLowerCase();
+    if (hash === DONATE_ROUTE) return true;
+    const base = getPageBasePath();
+    let rel = window.location.pathname;
+    if (base && rel.startsWith(base)) rel = rel.slice(base.length);
+    rel = rel.replace(/^\/+|\/+$/g, '').toLowerCase();
+    return rel === DONATE_ROUTE;
+}
+
+function setDonateRouteUrl(active, { push = false } = {}) {
+    if (isStandaloneModalShell()) return;
+    const base = getPageBasePath();
+    const method = push ? 'pushState' : 'replaceState';
+    if (location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.hostname === '::1') {
+        const nextUrl = active ? `${base}/#${DONATE_ROUTE}` : (base || '/');
+        history[method](null, '', nextUrl.replace(/\/{2,}/g, '/'));
+        return;
+    }
+    const nextUrl = active ? `${base}/${DONATE_ROUTE}` : (base || '/');
+    history[method](null, '', nextUrl.replace(/\/{2,}/g, '/'));
+}
+
+function replaceUrlForFilename(filename) {
+    const nextUrl = getVisualizationUrl(filename);
+    if (!nextUrl) return;
+    if (isStandaloneModalShell() && location.hostname === 'localhost') {
+        const slug = getVisualizationSlug(filename);
+        history.replaceState(null, '', `${getPageBasePath()}/view.html#${encodeURIComponent(slug)}`.replace(/\/{2,}/g, '/'));
+        return;
+    }
+    history.replaceState(null, '', nextUrl);
+}
+
+function syncDonateOverlayToRoute() {
+    if (isStandaloneModalShell()) return;
+    if (isDonateRouteActive()) {
+        if (!isBuyMeVisible) showThanksPopup({ fromRoute: true });
+        return;
+    }
+    if (isBuyMeVisible) hideThanksPopup({ fromRoute: true });
+}
+
 function imgSrc(filename){
   const base = getPageBasePath();
-  return `${base}/final_frames/${filename}`;
+    return `${base}/assets/${filename}`;
 }
 
 function modalEmbedSrc(pathOrUrl){
@@ -739,34 +511,4 @@ function preloadImage(url){
   document.head.appendChild(link);
   // remove after a minute to keep DOM clean; the browser retains the fetch
   setTimeout(() => { link.remove(); }, 60 * 1000);
-}
-async function downloadCurrentModalImage() {
-    const fname = modalImg?.dataset?.filename || visibleImages?.[currentIndex]?.filename;
-    if (modalContentMode === 'embed' && fname !== 'bip110_signaling.png') {
-        const src = modalEmbed?.src || '';
-        if (src) window.open(src, '_blank', 'noopener');
-        return;
-    }
-    if (!fname) return;
-    const url = imgSrc(fname);
-    try {
-        const res = await fetch(url, { cache: 'no-store' });
-        if (!res.ok) throw new Error(String(res.status));
-        const blob = await res.blob();
-        const objUrl = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = objUrl;
-        a.download = fname;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(objUrl);
-    } catch (_) {
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = fname;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-    }
 }
