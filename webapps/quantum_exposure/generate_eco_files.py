@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
 Generate ECO mode optimized files for Quantum Exposure dashboard:
-1. Top 50 CSV files for fast initial load
+1. Top 100 CSV files for fast initial load
 2. Update historical_lite.csv with new snapshots
 """
 
 import json
 import csv
+import io
 from pathlib import Path
 
 QUANTUM_EXPOSURE_DIR = Path(__file__).parent
@@ -31,6 +32,13 @@ BALANCE_FILTERS = ["all", "ge1", "ge10", "ge100", "ge1000"]
 SCRIPT_TYPES = ["All", "P2PK", "P2PKH", "P2SH", "P2WPKH", "P2WSH", "P2TR"]
 SPEND_ACTIVITIES = ["all", "never_spent", "inactive", "active"]
 
+ECO_TOP_N = 100
+ECO_TOP_FILENAME = f"dashboard_pubkeys_ge_1btc_top{ECO_TOP_N}.csv"
+
+# Extra columns added to ECO subset CSVs for fast tooltip rendering
+# (avoids loading the large lookup CSV during initial render).
+ECO_EXTRA_COLUMNS = ["first_exposed_unix_time", "last_spend_unix_time"]
+
 
 def get_exposed_supply(row):
     """Extract total exposed supply from the JSON column."""
@@ -41,13 +49,71 @@ def get_exposed_supply(row):
         return 0
 
 
-def generate_top50_for_snapshot(snapshot_dir):
-    """Generate top_50 CSV for a single snapshot directory."""
+def serialize_csv_rows(fieldnames, rows):
+    """Serialize CSV rows to a string for stable write-if-changed comparisons."""
+    buffer = io.StringIO(newline="")
+    writer = csv.DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(rows)
+    return buffer.getvalue()
+
+
+def write_text_if_changed(path, content):
+    """Write text only when content differs from the existing file."""
+    if path.exists():
+        try:
+            with open(path, "r", encoding="utf-8", newline="") as f:
+                existing = f.read()
+            if existing == content:
+                return False
+        except Exception:
+            pass
+
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        f.write(content)
+    return True
+
+
+def load_blockheight_datetime_lookup():
+    """Load blockheight_datetime_lookup.csv into a {str(height): str(unix_time)} dict."""
+    lookup_path = WEBAPP_DATA_DIR / "blockheight_datetime_lookup.csv"
+    if not lookup_path.exists():
+        print("  ⚠ blockheight_datetime_lookup.csv not found — unix times will be empty in ECO subset files")
+        return {}
+
+    lookup = {}
+    try:
+        with open(lookup_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                height = str(row.get("blockheight", "")).strip()
+                unix_time = str(row.get("unix_time", "")).strip()
+                if height and unix_time:
+                    lookup[height] = unix_time
+        print(f"  Loaded {len(lookup):,} blockheight→unix_time entries")
+    except Exception as e:
+        print(f"  ✗ Error loading blockheight_datetime_lookup.csv: {e}")
+    return lookup
+
+
+def generate_eco_subset_for_snapshot(snapshot_dir, lookup_by_height=None):
+    """Generate the ECO subset CSV for a single snapshot directory.
+
+    The file is regenerated only when the source ge1 CSV is newer or the ECO
+    subset file does not exist. Writes are skipped if the serialized CSV content
+    is unchanged.
+    """
     ge1_csv_path = snapshot_dir / "dashboard_pubkeys_ge_1btc.csv"
-    top50_csv_path = snapshot_dir / "dashboard_pubkeys_ge_1btc_top50.csv"
+    eco_subset_csv_path = snapshot_dir / ECO_TOP_FILENAME
 
     if not ge1_csv_path.exists():
         return None
+
+    if eco_subset_csv_path.exists():
+        source_mtime = ge1_csv_path.stat().st_mtime_ns
+        target_mtime = eco_subset_csv_path.stat().st_mtime_ns
+        if source_mtime <= target_mtime:
+            return {"status": "skipped", "reason": "up_to_date"}
 
     try:
         with open(ge1_csv_path, "r", encoding="utf-8") as f:
@@ -59,20 +125,82 @@ def generate_top50_for_snapshot(snapshot_dir):
 
         # Sort by exposed supply descending
         rows_sorted = sorted(rows, key=lambda r: get_exposed_supply(r), reverse=True)
-        top50_rows = rows_sorted[:50]
+        eco_rows = rows_sorted[:ECO_TOP_N]
 
-        # Write top 50
-        if top50_rows:
-            with open(top50_csv_path, "w", encoding="utf-8", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=reader.fieldnames)
-                writer.writeheader()
-                writer.writerows(top50_rows)
+        if eco_rows:
+            # Embed unix times for fast tooltip rendering in ECO mode.
+            if lookup_by_height:
+                for r in eco_rows:
+                    first_h = str(r.get("first_exposed_blockheight", "")).strip()
+                    last_h = str(r.get("last_spend_blockheight", "")).strip()
+                    r["first_exposed_unix_time"] = lookup_by_height.get(first_h, "")
+                    r["last_spend_unix_time"] = lookup_by_height.get(last_h, "") if last_h else ""
+
+            # Extend fieldnames with extra columns (if not already present).
+            base_fieldnames = list(reader.fieldnames)
+            extra_cols = [c for c in ECO_EXTRA_COLUMNS if c not in base_fieldnames]
+            eco_fieldnames = base_fieldnames + extra_cols
+            eco_content = serialize_csv_rows(eco_fieldnames, eco_rows)
+
+            if not write_text_if_changed(eco_subset_csv_path, eco_content):
+                return {"status": "unchanged", "count": len(eco_rows), "total": len(rows)}
 
             total_rows = len(rows)
-            return {"status": "generated", "count": len(top50_rows), "total": total_rows}
+            return {"status": "generated", "count": len(eco_rows), "total": total_rows}
         return None
     except Exception as e:
         return {"status": "error", "error": str(e)}
+
+
+def get_snapshot_time_from_meta(snapshot_dir):
+    """Read snapshot_time from dashboard_snapshot_meta.csv, or '' if not available."""
+    meta_path = snapshot_dir / "dashboard_snapshot_meta.csv"
+    if not meta_path.exists():
+        return ""
+    try:
+        with open(meta_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                return str(row.get("snapshot_time", "")).strip()
+    except Exception:
+        pass
+    return ""
+
+
+def write_snapshots_index(snapshot_dirs, lookup_by_height=None):
+    """Write snapshots_index.csv with snapshot_blockheight and snapshot_time columns.
+
+    snapshot_time lets the dashboard populate dropdown labels immediately without
+    loading any per-snapshot meta CSVs or the large blockheight_datetime_lookup.csv.
+    """
+    snapshots_index_path = WEBAPP_DATA_DIR / "snapshots_index.csv"
+
+    rows = []
+    for snapshot_dir in sorted(snapshot_dirs, key=lambda d: int(d.name), reverse=True):
+        snapshot_height = get_snapshot_height(snapshot_dir)
+        if snapshot_height is None:
+            continue
+
+        # Prefer snapshot_time from the per-snapshot meta CSV.
+        snapshot_time = get_snapshot_time_from_meta(snapshot_dir)
+
+        # Fall back to the global lookup CSV if meta is missing.
+        if not snapshot_time and lookup_by_height:
+            snapshot_time = lookup_by_height.get(str(snapshot_height), "")
+
+        rows.append({
+            "snapshot_blockheight": str(snapshot_height),
+            "snapshot_time": snapshot_time,
+        })
+
+    try:
+        content = serialize_csv_rows(["snapshot_blockheight", "snapshot_time"], rows)
+        if write_text_if_changed(snapshots_index_path, content):
+            print(f"  ✓ Written {len(rows)} snapshots to snapshots_index.csv")
+        else:
+            print(f"  ⊘ snapshots_index.csv unchanged ({len(rows)} snapshots)")
+    except Exception as e:
+        print(f"  ✗ Error writing snapshots_index.csv: {e}")
 
 
 def get_snapshot_height(snapshot_dir):
@@ -219,17 +347,29 @@ def main():
 
     print(f"Found {len(snapshot_dirs)} snapshot directories\n")
 
-    # Phase 1: Generate top_50 CSV files
-    print("=== Generating Top 50 CSV Files ===")
-    top50_count = 0
+    # Phase 0: Load blockheight datetime lookup for unix time embedding
+    print("=== Loading Blockheight Datetime Lookup ===")
+    lookup_by_height = load_blockheight_datetime_lookup()
+
+    # Phase 1: Generate ECO subset CSV files (with embedded unix times)
+    print(f"\n=== Generating Top {ECO_TOP_N} CSV Files ===")
+    eco_generated_count = 0
+    eco_skipped_count = 0
+    eco_unchanged_count = 0
     for snapshot_dir in snapshot_dirs:
-        result = generate_top50_for_snapshot(snapshot_dir)
+        result = generate_eco_subset_for_snapshot(snapshot_dir, lookup_by_height)
         if result:
             if result.get("status") == "generated":
                 print(
                     f"  ✓ {snapshot_dir.name}: {result['count']} / {result['total']} rows"
                 )
-                top50_count += 1
+                eco_generated_count += 1
+            elif result.get("status") == "skipped":
+                print(f"  ⊘ {snapshot_dir.name}: ECO subset up-to-date")
+                eco_skipped_count += 1
+            elif result.get("status") == "unchanged":
+                print(f"  ⊘ {snapshot_dir.name}: ECO subset content unchanged")
+                eco_unchanged_count += 1
             elif result.get("status") == "error":
                 print(f"  ✗ {snapshot_dir.name}: {result['error']}")
         else:
@@ -265,11 +405,17 @@ def main():
     else:
         print("  ✓ No new snapshots to add (database up-to-date)")
 
+    # Phase 3: Regenerate snapshots_index.csv with snapshot_time column
+    print("\n=== Updating snapshots_index.csv ===")
+    write_snapshots_index(snapshot_dirs, lookup_by_height)
+
     # Summary
     print(
         f"\n✅ Complete!"
     )
-    print(f"  Generated top_50 files: {top50_count}")
+    print(f"  Generated top_{ECO_TOP_N} files: {eco_generated_count}")
+    print(f"  Skipped top_{ECO_TOP_N} files: {eco_skipped_count}")
+    print(f"  Unchanged top_{ECO_TOP_N} files: {eco_unchanged_count}")
     print(
         f"  Historical lite snapshots: {len(existing_snapshots) + len(new_snapshots)}"
     )
