@@ -203,7 +203,7 @@
       modalImg.style.transform = "translate3d(-9999px,-9999px,0) scale(1)";
     }
     if (modalDlBtn) {
-      modalDlBtn.style.display = "";
+      modalDlBtn.style.display = "none";
       modalDlBtn.disabled = true;
       modalDlBtn.classList.add("dashboard-download-disabled");
       modalDlBtn.setAttribute("aria-label", "Download disabled");
