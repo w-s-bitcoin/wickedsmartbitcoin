@@ -80,8 +80,6 @@ def clean_identity_label(identity: str | None) -> str:
     # Handle special values
     if re.fullmatch(r"CoinJoin Address", value, flags=re.IGNORECASE):
         return "unidentified"
-    if re.fullmatch(r"Satoshi Nakamoto", value, flags=re.IGNORECASE):
-        return "Miner"
     
     return value
 

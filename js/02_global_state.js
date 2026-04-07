@@ -8,7 +8,6 @@ let lastOpenedFilename = null;
 let justUnstarredInModal = false;
 let userSelectedLayout = null;
 let showFavoritesOnly = localStorage.getItem('showFavoritesOnly') === 'true';
-let showArchivedVisualizations = localStorage.getItem('showArchivedVisualizations') === 'true';
 let searchWasInitiallyClosed = true;
 let touchStartX = 0, touchEndX = 0;
 let touchStartY = 0, touchEndY = 0;
@@ -41,7 +40,6 @@ let modalContentMode = 'image';
 let modalSpinnerEl = null;
 let lastThanksPreloadMode = null;
 let gridBuilt = false;
-let distMetric = localStorage.getItem(DIST_STORAGE_KEY) || "price";
 function ensureModalSpinner(){
   const wrap = modalImg?.parentElement || modal;
   if(!wrap) return null;

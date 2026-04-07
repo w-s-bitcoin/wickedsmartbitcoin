@@ -227,7 +227,7 @@ def sync_to_standalone_repo(dry_run: bool) -> None:
 
     files_to_copy = [
         (QUANTUM_DIR / "dashboard.html", standalone_quantum_dir / "dashboard.html"),
-        (QUANTUM_DIR / "main.js", standalone_quantum_dir / "main.js"),
+        (QUANTUM_DIR / "dashboard_app.js", standalone_quantum_dir / "dashboard_app.js"),
         (WEBAPP_DATA_DIR / "latest_snapshot.txt", standalone_data_dir / "latest_snapshot.txt"),
         (WEBAPP_DATA_DIR / "snapshots_index.csv", standalone_data_dir / "snapshots_index.csv"),
         (WEBAPP_DATA_DIR / "historical_lite.csv", standalone_data_dir / "historical_lite.csv"),

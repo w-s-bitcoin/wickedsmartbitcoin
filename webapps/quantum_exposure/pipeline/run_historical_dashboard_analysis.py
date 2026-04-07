@@ -1124,8 +1124,10 @@ def list_available_snapshot_heights(out_dir: Path) -> list[str]:
             if child.is_dir() and child.name.isdigit():
                 heights.append(child.name)
 
-    # Deduplicate while preserving highest-height precedence.
-    unique = sorted(set(heights), key=lambda value: int(value), reverse=True)
+    # Deduplicate while preserving oldest-snapshot precedence.
+    # Historical labels in earlier curated snapshots should win over newer
+    # generic fallbacks such as Miner when the same group appears again.
+    unique = sorted(set(heights), key=lambda value: int(value))
     return unique
 
 

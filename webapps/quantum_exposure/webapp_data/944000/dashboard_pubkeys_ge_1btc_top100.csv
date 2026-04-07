@@ -14,7 +14,7 @@ bc1qa2eu6p5rl9255e3xz7fcgm6snn4wl5kdfh7zpt05qp5fad9dmsys0qjg0e,"{ ""P2WSH"" : 44
 bc1q4j7fcl8zx5yl56j00nkqez9zf3f6ggqchwzzcs5hjxwqhsgxvavq3qfgpr,"{ ""P2WSH"" : 4233134800949 }",active,104,828493,943888,2-of-2 multisig,Coincheck,1706846746,1775465112
 bc1qws342rlkhszh58rtn35zrw7w076puz83gkcufy,"{ ""P2WPKH"" : 4134900014781 }",active,1,916023,943366,,Deribit,1758627532,1775138360
 bc1qukw69mjxwp30adfqddv6gcyva26laxz562rhlk,"{ ""P2WPKH"" : 3404874483470 }",active,19,910924,932012,,Kraken,1755715762,1768242402
-bc1qx9t2l3pyny2spqpqlye8svce70nppwtaxwdrp4,"{ ""P2WPKH"" : 3164340200226 }",inactive,4803,630028,639966,,Miner,1589245063,1595213609
+bc1qx9t2l3pyny2spqpqlye8svce70nppwtaxwdrp4,"{ ""P2WPKH"" : 3164340200226 }",inactive,4803,630028,639966,,Binance Pool,1589245063,1595213609
 bc1qy3uw2kk45uj9vsy52rjfhydm2tnd6hreu8vha3,"{ ""P2WPKH"" : 3148418211905 }",active,25,910787,933108,,Kraken,1755631257,1768925586
 12ib7dApVFvg82TXKycWBNpN8kFyiAN1dr,"{ ""P2PKH"" : 3100007634055 }",inactive,245,55632,70071,,unidentified,1273738958,1280014523
 3FuhQLprN9s9MR3bZzR5da7mw75fuahsaU,"{ ""P2SH"" : 3086111813651 }",active,2307,871495,943197,None,Bithumb,1732281641,1775038053
