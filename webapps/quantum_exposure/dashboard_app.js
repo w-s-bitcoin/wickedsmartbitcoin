@@ -1740,6 +1740,7 @@ function handleTagCheckboxChange(changedEl, checkboxGetter, triggerId) {
   }
 
   resetTopExposurePagination();
+  triggerEcoFullDataLoadFromFirstFilter();
   updateTagTriggerLabel(triggerId, checkedValues);
   clearPreResetSnapshot();
   update();
@@ -4040,6 +4041,14 @@ function tryLoadMoreTopExposures() {
 }
 
 function triggerEcoFullDataLoadFromSearchFocus() {
+  triggerEcoFullDataLoadIfEligible();
+}
+
+function triggerEcoFullDataLoadFromFirstFilter() {
+  triggerEcoFullDataLoadIfEligible();
+}
+
+function triggerEcoFullDataLoadIfEligible() {
   const canPrefetchFromFocus =
     isLiteMode() &&
     isLatestSnapshotSelected() &&
@@ -4139,6 +4148,7 @@ function handleScriptCheckboxChange(changedEl) {
 
   updateScriptTriggerLabel();
   resetTopExposurePagination();
+  triggerEcoFullDataLoadFromFirstFilter();
   clearPreResetSnapshot();
   update();
 }
@@ -4163,6 +4173,7 @@ function handleSpendCheckboxChange(changedEl) {
 
   updateSpendTriggerLabel();
   resetTopExposurePagination();
+  triggerEcoFullDataLoadFromFirstFilter();
   clearPreResetSnapshot();
   update();
 }
@@ -4750,6 +4761,7 @@ function attachEvents() {
       // Manual balance changes should always override auto-revert behavior.
       state.balanceAutoForcedFromAllByTopFilters = false;
       resetTopExposurePagination();
+      triggerEcoFullDataLoadFromFirstFilter();
       clearPreResetSnapshot();
       update();
     });
@@ -4888,6 +4900,7 @@ function attachEvents() {
     topExposureAddressSearch.addEventListener("input", () => {
       state.topExposureAddressQuery = topExposureAddressSearch.value.trim();
       resetTopExposurePagination();
+      triggerEcoFullDataLoadFromFirstFilter();
       clearPreResetSnapshot();
       update();
     });
