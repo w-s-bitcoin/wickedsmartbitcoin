@@ -47,6 +47,18 @@
     const SHARE_STATE_PARAM = 'state';
     const LOCAL_RUNTIME_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
     const IS_LOCAL_RUNTIME = LOCAL_RUNTIME_HOSTS.has(window.location.hostname);
+    const ICONS = {
+      copyLink: '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>',
+      copyCopied: '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>',
+      resetDefaults: '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path></svg>',
+      resetUndo: '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>',
+    };
+
+    function setButtonIcon(iconId, markup) {
+      const iconEl = document.getElementById(iconId);
+      if (!iconEl || !markup) return;
+      iconEl.outerHTML = markup.replace('<svg ', `<svg id="${iconId}" `);
+    }
     // Hide tiny positive values that round to 0.00% in tooltip/display.
     const STABLE_MIN_PCT_FOR_PLOT = 0.01;
 
@@ -602,15 +614,17 @@
       }
 
       if (!buttonEl) return;
-      const labelEl = buttonEl.querySelector('.label');
+      const labelEl = buttonEl.querySelector('.btn-label');
       const original = labelEl ? labelEl.textContent : buttonEl.textContent;
       if (buttonEl.__copyFeedbackTimer) {
         window.clearTimeout(buttonEl.__copyFeedbackTimer);
       }
       buttonEl.classList.add('copy-link-btn--copied');
+      setButtonIcon('copyDashboardIcon', ICONS.copyCopied);
       if (labelEl) labelEl.textContent = 'Copied!';
       else buttonEl.textContent = 'Copied!';
       buttonEl.__copyFeedbackTimer = window.setTimeout(() => {
+        setButtonIcon('copyDashboardIcon', ICONS.copyLink);
         if (labelEl) labelEl.textContent = original || 'Copy Link';
         else buttonEl.textContent = original || 'Copy Link';
         buttonEl.classList.remove('copy-link-btn--copied');
@@ -805,14 +819,19 @@
     function updateResetButtonUi() {
       const btn = document.getElementById('resetDashboard');
       if (!btn) return;
+      const labelEl = btn.querySelector('.btn-label');
       if (state.preResetStateSnapshot) {
-        btn.textContent = 'Undo Restore';
+        if (labelEl) labelEl.textContent = 'Undo Restore';
+        else btn.textContent = 'Undo Restore';
+        setButtonIcon('resetDashboardIcon', ICONS.resetUndo);
         btn.classList.add('reset-dashboard-btn--undo');
         btn.setAttribute('aria-label', 'Undo the last restore defaults action');
         setCustomTooltip(btn, 'Undo the last restore defaults action');
         btn.disabled = false;
       } else {
-        btn.textContent = 'Restore Defaults';
+        if (labelEl) labelEl.textContent = 'Restore Defaults';
+        else btn.textContent = 'Restore Defaults';
+        setButtonIcon('resetDashboardIcon', ICONS.resetDefaults);
         btn.classList.remove('reset-dashboard-btn--undo');
         btn.setAttribute('aria-label', 'Restore dashboard defaults');
         setCustomTooltip(btn, 'Reset dashboard to defaults');
