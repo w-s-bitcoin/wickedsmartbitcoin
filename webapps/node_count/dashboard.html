@@ -830,6 +830,32 @@
       color: #bfdbfe;
     }
 
+    .title-actions button .btn-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
+      flex: 0 0 14px;
+      pointer-events: none;
+    }
+
+    .title-actions button .btn-icon svg {
+      width: 14px;
+      height: 14px;
+      display: block;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.9;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .title-actions button .btn-label {
+      display: inline-block;
+      line-height: 1;
+    }
+
     @media (max-width: 750px) {
       .copy-link-btn,
       .reset-dashboard-btn {
@@ -843,6 +869,13 @@
         line-height: 0;
         letter-spacing: 0;
         justify-content: center;
+      }
+
+      .copy-link-btn .btn-icon,
+      .copy-link-btn .btn-label,
+      .reset-dashboard-btn .btn-icon,
+      .reset-dashboard-btn .btn-label {
+        display: none;
       }
 
       .copy-link-btn::before,
@@ -896,8 +929,18 @@
         </div>
       </div>
       <div class="title-actions">
-        <button type="button" class="copy-link-btn" id="copyDashboardLink" aria-label="Copy shareable dashboard link" data-tooltip="Copy shareable dashboard link">Copy Link</button>
-        <button type="button" class="reset-dashboard-btn" id="resetDashboard" disabled aria-label="Restore dashboard defaults" data-tooltip="Reset dashboard to defaults">Restore Defaults</button>
+        <button type="button" class="copy-link-btn" id="copyDashboardLink" aria-label="Copy shareable dashboard link" data-tooltip="Copy shareable dashboard link">
+          <span class="btn-icon" aria-hidden="true">
+            <svg id="copyDashboardIcon" viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+          </span>
+          <span class="btn-label">Copy Link</span>
+        </button>
+        <button type="button" class="reset-dashboard-btn" id="resetDashboard" disabled aria-label="Restore dashboard defaults" data-tooltip="Reset dashboard to defaults">
+          <span class="btn-icon" aria-hidden="true">
+            <svg id="resetDashboardIcon" viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path></svg>
+          </span>
+          <span class="btn-label">Restore Defaults</span>
+        </button>
       </div>
       <p class="source-row">
         <span>Sources:</span>
