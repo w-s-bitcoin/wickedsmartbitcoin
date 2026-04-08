@@ -62,6 +62,20 @@ function preloadAllThanksImagesOnce() {
 function applySiteTheme(themeRaw) {
     const theme = themeRaw === 'dark' ? 'dark' : 'light';
     document.documentElement.dataset.theme = theme;
+    syncDonationOverlayTheme();
+}
+
+function syncDonationOverlayTheme() {
+    const overlayBg = (getComputedStyle(document.documentElement).getPropertyValue('--overlay-bg') || 'rgba(0, 0, 0, 0.9)').trim();
+
+    const buyOverlay = document.getElementById('buyCoffeeOverlay');
+    if (buyOverlay) {
+        buyOverlay.style.background = overlayBg;
+    }
+
+    if (thanksOverlay) {
+        thanksOverlay.style.background = overlayBg;
+    }
 }
 
 function getStoredDashboardTheme() {
@@ -421,6 +435,7 @@ function handleThanksOverlayResize() {
     positionThanksMethodButtonsForOrientation();
 }
 function showThanksPopup({ fromRoute = false } = {}) {
+    syncDonationOverlayTheme();
     preloadThanksImagesIfNeeded(true);
     const beerMode = isBeerTime();
     const isPortrait = window.innerHeight >= window.innerWidth;
