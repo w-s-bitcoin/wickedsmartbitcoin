@@ -3832,10 +3832,27 @@ function renderTopExposures(rows) {
       container.innerHTML = '<div class="bar-empty" style="padding: 12px;">Loading top exposure rows...</div>';
       return;
     }
+
+    const filters = readFilters();
+    const hasAddressQuery = Boolean(String(filters.topExposureAddressQuery || "").trim());
+
+    if (isLiteMode() && state.ge1IsUsingEcoSubset && hasAddressQuery) {
+      if (!state.ge1FullDataLoadTriggered && !state.topExposuresLoading) {
+        triggerEcoFullDataLoadFromSearchFocus();
+      }
+
+      if (state.topExposuresLoading || state.ge1FullDataLoadTriggered) {
+        container.innerHTML = `
+          <div class="bar-empty" style="padding: 12px; display: flex; align-items: center; gap: 8px;">
+            <span class="top-list-loading" aria-label="Loading full search results" role="status"></span>
+            No matches in the ECO subset yet. Loading full top exposures and continuing search...
+          </div>`;
+        return;
+      }
+    }
     
     // In ECO mode using the top100 subset, provide helpful guidance if filters don't match.
     if (isLiteMode() && state.ge1IsUsingEcoSubset) {
-      const filters = readFilters();
       if (isTagFilterActive(filters)) {
         container.innerHTML = `<div class="bar-empty" style="padding: 12px;">
           No addresses match the current filters in the top 100 addresses. 
