@@ -276,20 +276,49 @@
             width: 'auto',
             maxWidth: '92%',
             whiteSpace: 'nowrap',
-            gap: 'clamp(6px, 1.5vw, 12px)',
-            transform: 'translate(-50%, calc(-100% - clamp(8px, 2vh, 18px)))'
+            gap: '',
+            transform: ''
           });
         } else {
           Object.assign(methodsContainer.style, {
             left: '0',
             top: 'auto',
-            bottom: '20px',
+            bottom: '',
             width: '50%',
             maxWidth: '',
             whiteSpace: '',
-            gap: 'clamp(0.6rem, 1.6vw, 1.25rem)',
+            gap: '',
             transform: ''
           });
+        }
+        if (buyCoffeeImg) {
+          const imgRect = buyCoffeeImg.getBoundingClientRect();
+          const imgH = Math.max(imgRect.height || 0, 1);
+          const imgW = Math.max(imgRect.width || 0, 1);
+          const clampM = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+          const fs = Math.round(clampM(imgH * (isPortrait ? 0.03 : 0.028), 11, 22));
+          const py = Math.round(clampM(imgH * (isPortrait ? 0.016 : 0.0145), 7, 14));
+          const px = Math.round(clampM(imgH * (isPortrait ? 0.032 : 0.03), 12, 28));
+          const br = Math.round(clampM(imgH * 0.018, 10, 16));
+          const gp = Math.round(clampM(imgH * (isPortrait ? 0.015 : 0.018), 6, 18));
+          const bi = Math.round(clampM(imgH * (isPortrait ? 0.03 : 0.038), 10, 30));
+          const pl = Math.round(clampM(imgH * 0.035, 10, 26));
+          methodsContainer.style.gap = `${gp}px`;
+          if (!isPortrait) methodsContainer.style.bottom = `${bi}px`;
+          Array.from(methodsContainer.querySelectorAll('.buy-coffee-method-btn')).forEach(btn => {
+            btn.style.fontSize = `${fs}px`;
+            btn.style.padding = `${py}px ${px}px`;
+            btn.style.borderRadius = `${br}px`;
+          });
+          const avail = isPortrait ? imgW * 0.82 : imgW * 0.48;
+          const meas = methodsContainer.scrollWidth;
+          const sc = meas > 0 ? clampM(avail / meas, 0.7, 1) : 1;
+          methodsContainer.style.transformOrigin = 'center bottom';
+          if (isPortrait) {
+            methodsContainer.style.transform = `translate(-50%, calc(-100% - ${pl}px)) scale(${sc})`;
+          } else {
+            methodsContainer.style.transform = sc < 1 ? `scale(${sc})` : '';
+          }
         }
       }
 

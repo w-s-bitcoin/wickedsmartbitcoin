@@ -371,6 +371,49 @@ function getDonationToastForMethod(method) {
   if (m === 'onchain') return 'On-chain address<br>copied to clipboard';
   return 'Copied to clipboard';
 }
+
+function clampThanksMetric(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+}
+
+function applyThanksMethodButtonScale(buttonContainer, containerRect, isPortrait) {
+    if (!buttonContainer || !containerRect) return;
+
+    const buttons = Array.from(buttonContainer.querySelectorAll('.buy-coffee-method-btn'));
+    if (!buttons.length) return;
+
+    const imageHeight = Math.max(containerRect.height || 0, 1);
+    const imageWidth = Math.max(containerRect.width || 0, 1);
+    const fontSize = Math.round(clampThanksMetric(imageHeight * (isPortrait ? 0.03 : 0.028), 11, 22));
+    const paddingY = Math.round(clampThanksMetric(imageHeight * (isPortrait ? 0.016 : 0.0145), 7, 14));
+    const paddingX = Math.round(clampThanksMetric(imageHeight * (isPortrait ? 0.032 : 0.03), 12, 28));
+    const borderRadius = Math.round(clampThanksMetric(imageHeight * 0.018, 10, 16));
+    const gap = Math.round(clampThanksMetric(imageHeight * (isPortrait ? 0.015 : 0.018), 6, 18));
+    const bottomInset = Math.round(clampThanksMetric(imageHeight * (isPortrait ? 0.03 : 0.038), 10, 30));
+    const portraitLift = Math.round(clampThanksMetric(imageHeight * 0.035, 10, 26));
+
+    buttonContainer.style.gap = `${gap}px`;
+    buttonContainer.style.bottom = isPortrait ? 'auto' : `${bottomInset}px`;
+
+    buttons.forEach((button) => {
+        button.style.fontSize = `${fontSize}px`;
+        button.style.padding = `${paddingY}px ${paddingX}px`;
+        button.style.borderRadius = `${borderRadius}px`;
+    });
+
+    const availableWidth = isPortrait ? imageWidth * 0.82 : imageWidth * 0.48;
+    const measuredWidth = buttonContainer.scrollWidth;
+    const scale = measuredWidth > 0 ? clampThanksMetric(availableWidth / measuredWidth, 0.7, 1) : 1;
+
+    if (isPortrait) {
+        buttonContainer.style.transformOrigin = 'center bottom';
+        buttonContainer.style.transform = `translate(-50%, calc(-100% - ${portraitLift}px)) scale(${scale})`;
+    } else {
+        buttonContainer.style.transformOrigin = 'center bottom';
+        buttonContainer.style.transform = `scale(${scale})`;
+    }
+}
+
 function positionThanksMethodButtonsForOrientation() {
     if (!thanksOverlay) return;
     const container = thanksOverlay.querySelector('#thanks-overlay img')?.parentElement;
@@ -378,6 +421,7 @@ function positionThanksMethodButtonsForOrientation() {
     const buttonContainer = container.querySelector('.buy-coffee-methods');
     if (!buttonContainer) return;
     const isPortrait = window.innerHeight >= window.innerWidth;
+    const containerRect = container.getBoundingClientRect();
     Object.assign(buttonContainer.style, {
         position: 'absolute',
         left: '0',
@@ -391,6 +435,7 @@ function positionThanksMethodButtonsForOrientation() {
         flexWrap: '',
         gap: '',
         transform: '',
+        transformOrigin: '',
         zIndex: '10'
     });
     if (isPortrait) {
@@ -407,6 +452,7 @@ function positionThanksMethodButtonsForOrientation() {
             transform: 'translate(-50%, calc(-100% - clamp(8px, 2vh, 18px)))'
         });
     }
+    applyThanksMethodButtonScale(buttonContainer, containerRect, isPortrait);
 }
 function setThanksOverlayLoading(isLoading) {
     if (!thanksOverlay) return;
