@@ -44,6 +44,9 @@
       : null;
     const SOFTWARE_SPLIT_MIN = 32;
     const SOFTWARE_SPLIT_MAX = 78;
+    const SHARE_STATE_PARAM = 'state';
+    const LOCAL_RUNTIME_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
+    const IS_LOCAL_RUNTIME = LOCAL_RUNTIME_HOSTS.has(window.location.hostname);
 
     function parseCsv(text) {
       const rows = [];
@@ -254,6 +257,8 @@
       software: [],
       softwareExpandedKeys: new Set(),
       hiddenHistorySeries: new Set(),
+      preResetStateSnapshot: null,
+      suppressResetSnapshotClear: false,
       refreshedAtText: '',
       timeZone: DASHBOARD_TIME?.getPreferredTimeZone?.() || 'UTC',
       panelsSwapped: false,
@@ -583,7 +588,382 @@
           hiddenHistorySeries: Array.from(state.hiddenHistorySeries),
         };
         localStorage.setItem(CONTROLS_STORAGE_KEY, JSON.stringify(payload));
+        if (!state.suppressResetSnapshotClear) {
+          clearPreResetSnapshot();
+        }
       } catch (_) {
+      }
+    }
+
+    function encodeShareState(payload) {
+      try {
+        const json = JSON.stringify(payload);
+        const bytes = new TextEncoder().encode(json);
+        let binary = '';
+        bytes.forEach((byte) => {
+          binary += String.fromCharCode(byte);
+        });
+        return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+      } catch (_) {
+        return '';
+      }
+    }
+
+    function decodeShareState(rawValue) {
+      if (!rawValue) return null;
+      try {
+        const normalized = rawValue.replace(/-/g, '+').replace(/_/g, '/');
+        const paddingLength = (4 - (normalized.length % 4)) % 4;
+        const padded = normalized + '='.repeat(paddingLength);
+        const binary = atob(padded);
+        const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+        const json = new TextDecoder().decode(bytes);
+        const parsed = JSON.parse(json);
+        return parsed && typeof parsed === 'object' ? parsed : null;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function getShareRouteBaseUrl() {
+      const path = String(window.location.pathname || '');
+      const dashboardMatch = path.match(/^(.*)\/webapps\/node_count\/dashboard\.html$/i);
+      const basePath = dashboardMatch ? (dashboardMatch[1] || '') : path.replace(/\/[^/]*$/, '');
+      if (IS_LOCAL_RUNTIME) {
+        return `${window.location.origin}${basePath}/node_count.html`;
+      }
+      return `${window.location.origin}${basePath}/node_count`;
+    }
+
+    function buildShareableDashboardUrl() {
+      const range = String(document.getElementById('rangeSelect')?.value || '365');
+      const smooth = String(document.getElementById('smoothSelect')?.value || '7');
+      const topN = Number(document.getElementById('topNInput')?.value || 12);
+      const showHistory = Boolean(document.getElementById('toggleHistoryPanel')?.checked ?? true);
+      const showSoftware = Boolean(document.getElementById('toggleSoftwarePanel')?.checked ?? true);
+
+      const defaults = {
+        range: '365',
+        smooth: '7',
+        topN: 12,
+        showHistory: true,
+        showSoftware: true,
+        panelsSwapped: false,
+        historyPanelPercent: 61.54,
+        historyPanelStackPercent: 52,
+        softwareChartPercent: 52,
+        softwareChartStackPercent: 48,
+        hiddenHistorySeries: [],
+        timeZone: 'UTC',
+      };
+
+      const payload = {
+        range,
+        smooth,
+        topN,
+        showHistory,
+        showSoftware,
+        panelsSwapped: Boolean(state.panelsSwapped),
+        historyPanelPercent: Number(state.historyPanelPercent || defaults.historyPanelPercent),
+        historyPanelStackPercent: Number(state.historyPanelStackPercent || defaults.historyPanelStackPercent),
+        softwareChartPercent: Number(state.softwareChartPercent || defaults.softwareChartPercent),
+        softwareChartStackPercent: Number(state.softwareChartStackPercent || defaults.softwareChartStackPercent),
+        hiddenHistorySeries: Array.from(state.hiddenHistorySeries || []),
+        timeZone: String(state.timeZone || 'UTC'),
+      };
+
+      const compactPayload = {};
+      Object.entries(payload).forEach(([key, value]) => {
+        const def = defaults[key];
+        const sameArray = Array.isArray(def)
+          ? Array.isArray(value) && def.length === value.length && def.every((entry, idx) => entry === value[idx])
+          : false;
+        if (sameArray || value === def) return;
+        compactPayload[key] = value;
+      });
+
+      const shareUrl = new URL(getShareRouteBaseUrl());
+      if (!Object.keys(compactPayload).length) {
+        return shareUrl.toString();
+      }
+
+      const encoded = encodeShareState(compactPayload);
+      if (encoded) {
+        shareUrl.searchParams.set(SHARE_STATE_PARAM, encoded);
+      }
+      return shareUrl.toString();
+    }
+
+    function applyDashboardShareStateFromUrl() {
+      const params = new URLSearchParams(window.location.search || '');
+      const decoded = decodeShareState(params.get(SHARE_STATE_PARAM) || '');
+      if (!decoded) return;
+
+      const rangeSelect = document.getElementById('rangeSelect');
+      const smoothSelect = document.getElementById('smoothSelect');
+      const topNInput = document.getElementById('topNInput');
+      const toggleHistoryPanel = document.getElementById('toggleHistoryPanel');
+      const toggleSoftwarePanel = document.getElementById('toggleSoftwarePanel');
+
+      if (rangeSelect && ['30', '90', '180', '365', '0'].includes(String(decoded.range || ''))) {
+        rangeSelect.value = String(decoded.range);
+      }
+      if (smoothSelect && ['1', '7', '30'].includes(String(decoded.smooth || ''))) {
+        smoothSelect.value = String(decoded.smooth);
+      }
+      if (topNInput) {
+        const topN = Number(decoded.topN);
+        if (Number.isFinite(topN)) {
+          const minTopN = Number(topNInput.min || 6);
+          const maxTopN = Number(topNInput.max || 30);
+          topNInput.value = String(Math.max(minTopN, Math.min(maxTopN, topN)));
+        }
+      }
+
+      if (typeof decoded.showHistory === 'boolean' && toggleHistoryPanel) {
+        toggleHistoryPanel.checked = decoded.showHistory;
+      }
+      if (typeof decoded.showSoftware === 'boolean' && toggleSoftwarePanel) {
+        toggleSoftwarePanel.checked = decoded.showSoftware;
+      }
+      if (toggleHistoryPanel && toggleSoftwarePanel && !toggleHistoryPanel.checked && !toggleSoftwarePanel.checked) {
+        toggleHistoryPanel.checked = true;
+      }
+
+      if (typeof decoded.panelsSwapped === 'boolean') {
+        state.panelsSwapped = decoded.panelsSwapped;
+      }
+
+      const numericKeys = [
+        ['historyPanelPercent', PANEL_SPLIT_MIN, PANEL_SPLIT_MAX],
+        ['historyPanelStackPercent', PANEL_SPLIT_STACK_MIN, PANEL_SPLIT_STACK_MAX],
+        ['softwareChartPercent', SOFTWARE_SPLIT_MIN, SOFTWARE_SPLIT_MAX],
+        ['softwareChartStackPercent', SOFTWARE_SPLIT_MIN, SOFTWARE_SPLIT_MAX],
+      ];
+      numericKeys.forEach(([key, min, max]) => {
+        const value = Number(decoded[key]);
+        if (Number.isFinite(value)) {
+          state[key] = clamp(value, min, max);
+        }
+      });
+
+      if (Array.isArray(decoded.hiddenHistorySeries)) {
+        const allowed = new Set(['total', 'unreachable', 'listening', 'knots', 'core', 'bip110']);
+        state.hiddenHistorySeries = new Set(
+          decoded.hiddenHistorySeries
+            .map((value) => String(value || '').trim())
+            .filter((value) => allowed.has(value))
+        );
+      }
+
+      const timeZone = String(decoded.timeZone || '').trim();
+      if (timeZone) {
+        state.timeZone = setPreferredDashboardTimeZone(timeZone);
+      }
+    }
+
+    async function copyDashboardLinkToClipboard(buttonEl) {
+      const link = buildShareableDashboardUrl();
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(link);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = link;
+        textArea.setAttribute('readonly', 'readonly');
+        textArea.style.position = 'absolute';
+        textArea.style.left = '-9999px';
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+
+      if (!buttonEl) return;
+      const labelEl = buttonEl.querySelector('.label');
+      const original = labelEl ? labelEl.textContent : buttonEl.textContent;
+      if (labelEl) labelEl.textContent = 'Copied!';
+      else buttonEl.textContent = 'Copied!';
+      window.setTimeout(() => {
+        if (labelEl) labelEl.textContent = original || 'Copy Link';
+        else buttonEl.textContent = original || 'Copy Link';
+      }, 1400);
+    }
+
+    function captureResetSnapshot() {
+      const toggleHistoryPanel = document.getElementById('toggleHistoryPanel');
+      const toggleSoftwarePanel = document.getElementById('toggleSoftwarePanel');
+      return {
+        range: String(document.getElementById('rangeSelect')?.value || '365'),
+        smooth: String(document.getElementById('smoothSelect')?.value || '7'),
+        topN: Number(document.getElementById('topNInput')?.value || 12),
+        showHistory: Boolean(toggleHistoryPanel?.checked ?? true),
+        showSoftware: Boolean(toggleSoftwarePanel?.checked ?? true),
+        checkboxState: {
+          toggleHistoryPanel: Boolean(toggleHistoryPanel?.checked ?? true),
+          toggleSoftwarePanel: Boolean(toggleSoftwarePanel?.checked ?? true),
+        },
+        panelsSwapped: Boolean(state.panelsSwapped),
+        historyPanelPercent: Number(state.historyPanelPercent),
+        historyPanelStackPercent: Number(state.historyPanelStackPercent),
+        stackedTopPanelHeight: Number(state.stackedTopPanelHeight),
+        historyPanelManualHeight: Number(state.historyPanelManualHeight),
+        softwarePanelManualHeight: Number(state.softwarePanelManualHeight),
+        softwareChartPercent: Number(state.softwareChartPercent),
+        softwareChartStackPercent: Number(state.softwareChartStackPercent),
+        hiddenHistorySeries: Array.from(state.hiddenHistorySeries),
+        softwareExpandedKeys: Array.from(state.softwareExpandedKeys),
+        timeZone: String(state.timeZone || 'UTC'),
+      };
+    }
+
+    function restoreResetSnapshot(snapshot) {
+      if (!snapshot || typeof snapshot !== 'object') return;
+
+      state.suppressResetSnapshotClear = true;
+      try {
+        const rangeSelect = document.getElementById('rangeSelect');
+        const smoothSelect = document.getElementById('smoothSelect');
+        const topNInput = document.getElementById('topNInput');
+        const toggleHistoryPanel = document.getElementById('toggleHistoryPanel');
+        const toggleSoftwarePanel = document.getElementById('toggleSoftwarePanel');
+
+        if (rangeSelect) rangeSelect.value = String(snapshot.range || '365');
+        if (smoothSelect) smoothSelect.value = String(snapshot.smooth || '7');
+        if (topNInput) topNInput.value = String(snapshot.topN ?? 12);
+        const checkboxState = snapshot.checkboxState || {};
+        if (toggleHistoryPanel) {
+          toggleHistoryPanel.checked = typeof checkboxState.toggleHistoryPanel === 'boolean'
+            ? checkboxState.toggleHistoryPanel
+            : Boolean(snapshot.showHistory);
+        }
+        if (toggleSoftwarePanel) {
+          toggleSoftwarePanel.checked = typeof checkboxState.toggleSoftwarePanel === 'boolean'
+            ? checkboxState.toggleSoftwarePanel
+            : Boolean(snapshot.showSoftware);
+        }
+        if (toggleHistoryPanel && toggleSoftwarePanel && !toggleHistoryPanel.checked && !toggleSoftwarePanel.checked) {
+          toggleHistoryPanel.checked = true;
+        }
+
+        state.panelsSwapped = Boolean(snapshot.panelsSwapped);
+        state.historyPanelPercent = Number.isFinite(snapshot.historyPanelPercent) ? snapshot.historyPanelPercent : 61.54;
+        state.historyPanelStackPercent = Number.isFinite(snapshot.historyPanelStackPercent) ? snapshot.historyPanelStackPercent : 52;
+        state.stackedTopPanelHeight = Number.isFinite(snapshot.stackedTopPanelHeight) ? snapshot.stackedTopPanelHeight : 0;
+        state.historyPanelManualHeight = Number.isFinite(snapshot.historyPanelManualHeight) ? snapshot.historyPanelManualHeight : 0;
+        state.softwarePanelManualHeight = Number.isFinite(snapshot.softwarePanelManualHeight) ? snapshot.softwarePanelManualHeight : 0;
+        state.softwareChartPercent = Number.isFinite(snapshot.softwareChartPercent) ? snapshot.softwareChartPercent : 52;
+        state.softwareChartStackPercent = Number.isFinite(snapshot.softwareChartStackPercent) ? snapshot.softwareChartStackPercent : 48;
+        state.hiddenHistorySeries = new Set(Array.isArray(snapshot.hiddenHistorySeries) ? snapshot.hiddenHistorySeries : []);
+        state.softwareExpandedKeys = new Set(Array.isArray(snapshot.softwareExpandedKeys) ? snapshot.softwareExpandedKeys : []);
+        state.timeZone = setPreferredDashboardTimeZone(String(snapshot.timeZone || 'UTC'));
+
+        populateUpdatedTimeZoneSelect();
+        applyPanelOrder();
+        applyPanelVisibility();
+        setLastUpdated();
+        saveControlsToStorage();
+        renderHistoryChart();
+        renderSoftwarePanel();
+      } finally {
+        state.suppressResetSnapshotClear = false;
+      }
+      updateResetButtonUi();
+    }
+
+    function clearPreResetSnapshot() {
+      if (!state.preResetStateSnapshot) return;
+      state.preResetStateSnapshot = null;
+      updateResetButtonUi();
+    }
+
+    function restoreDashboardDefaults() {
+      state.preResetStateSnapshot = captureResetSnapshot();
+
+      try {
+        localStorage.removeItem(CONTROLS_STORAGE_KEY);
+      } catch (_) {
+      }
+
+      const rangeSelect = document.getElementById('rangeSelect');
+      const smoothSelect = document.getElementById('smoothSelect');
+      const topNInput = document.getElementById('topNInput');
+      const toggleHistoryPanel = document.getElementById('toggleHistoryPanel');
+      const toggleSoftwarePanel = document.getElementById('toggleSoftwarePanel');
+
+      if (rangeSelect) rangeSelect.value = '365';
+      if (smoothSelect) smoothSelect.value = '7';
+      if (topNInput) topNInput.value = '12';
+      if (toggleHistoryPanel) toggleHistoryPanel.checked = true;
+      if (toggleSoftwarePanel) toggleSoftwarePanel.checked = true;
+
+      state.panelsSwapped = false;
+      state.historyPanelPercent = 61.54;
+      state.historyPanelStackPercent = 52;
+      state.stackedTopPanelHeight = 0;
+      state.historyPanelManualHeight = 0;
+      state.softwarePanelManualHeight = 0;
+      state.softwareChartPercent = 52;
+      state.softwareChartStackPercent = 48;
+      state.softwareContentHeightWide = 0;
+      state.softwareContentHeightStack = 0;
+      state.hiddenHistorySeries = new Set();
+      state.softwareExpandedKeys = new Set();
+      state.timeZone = setPreferredDashboardTimeZone('UTC');
+
+      populateUpdatedTimeZoneSelect();
+      applyPanelOrder();
+      applyPanelVisibility();
+      setLastUpdated();
+      renderHistoryChart();
+      renderSoftwarePanel();
+      updateResetButtonUi();
+    }
+
+    function restorePreviousDashboardState() {
+      if (!state.preResetStateSnapshot) return;
+      const snapshot = state.preResetStateSnapshot;
+      state.preResetStateSnapshot = null;
+      restoreResetSnapshot(snapshot);
+    }
+
+    function isDefaultState() {
+      const rangeSelect = document.getElementById('rangeSelect');
+      const smoothSelect = document.getElementById('smoothSelect');
+      const topNInput = document.getElementById('topNInput');
+      const toggleHistoryPanel = document.getElementById('toggleHistoryPanel');
+      const toggleSoftwarePanel = document.getElementById('toggleSoftwarePanel');
+
+      if (rangeSelect && rangeSelect.value !== '365') return false;
+      if (smoothSelect && smoothSelect.value !== '7') return false;
+      if (topNInput && topNInput.value !== '12') return false;
+      if (toggleHistoryPanel && !toggleHistoryPanel.checked) return false;
+      if (toggleSoftwarePanel && !toggleSoftwarePanel.checked) return false;
+      if (state.panelsSwapped) return false;
+      if (Math.abs(Number(state.historyPanelPercent || 0) - 61.54) > 0.001) return false;
+      if (Math.abs(Number(state.historyPanelStackPercent || 0) - 52) > 0.001) return false;
+      if (Math.abs(Number(state.stackedTopPanelHeight || 0)) > 0.001) return false;
+      if (Math.abs(Number(state.historyPanelManualHeight || 0)) > 0.001) return false;
+      if (Math.abs(Number(state.softwarePanelManualHeight || 0)) > 0.001) return false;
+      if (Math.abs(Number(state.softwareChartPercent || 0) - 52) > 0.001) return false;
+      if (Math.abs(Number(state.softwareChartStackPercent || 0) - 48) > 0.001) return false;
+      if (state.hiddenHistorySeries?.size > 0) return false;
+      if (state.softwareExpandedKeys?.size > 0) return false;
+      if (state.timeZone !== 'UTC') return false;
+
+      return true;
+    }
+
+    function updateResetButtonUi() {
+      const btn = document.getElementById('resetDashboard');
+      if (!btn) return;
+      if (state.preResetStateSnapshot) {
+        btn.textContent = 'Undo Restore';
+        btn.classList.add('reset-dashboard-btn--undo');
+        btn.disabled = false;
+      } else {
+        btn.textContent = 'Restore Defaults';
+        btn.classList.remove('reset-dashboard-btn--undo');
+        btn.disabled = isDefaultState();
       }
     }
 
@@ -976,6 +1356,7 @@
           state.hiddenHistorySeries.add(seriesKey);
         }
         saveControlsToStorage();
+        updateResetButtonUi();
         const rangeDays = Number(document.getElementById('rangeSelect')?.value || 0);
         renderHistoryChart({
           preserveViewport: rangeDays !== 0,
@@ -992,6 +1373,7 @@
           ? new Set()
           : new Set(allKeys.filter((k) => k !== seriesKey));
         saveControlsToStorage();
+        updateResetButtonUi();
         const rangeDays = Number(document.getElementById('rangeSelect')?.value || 0);
         renderHistoryChart({
           preserveViewport: rangeDays !== 0,
@@ -1423,11 +1805,13 @@
       ['rangeSelect', 'smoothSelect'].forEach((id) => {
         document.getElementById(id).addEventListener('change', () => {
           saveControlsToStorage();
+          updateResetButtonUi();
           renderHistoryChart();
         });
       });
       document.getElementById('topNInput').addEventListener('input', () => {
         saveControlsToStorage();
+        updateResetButtonUi();
         renderSoftwarePanel();
       });
       ['toggleHistoryPanel', 'toggleSoftwarePanel'].forEach((id) => {
@@ -1449,6 +1833,7 @@
 
           applyPanelVisibility();
           saveControlsToStorage();
+          updateResetButtonUi();
         });
       });
       const swapPanelsBtn = document.getElementById('swapPanelsBtn');
@@ -1457,6 +1842,7 @@
           state.panelsSwapped = !state.panelsSwapped;
           applyPanelOrder();
           saveControlsToStorage();
+          updateResetButtonUi();
           requestAnimationFrame(() => {
             if (window.Plotly) {
               Plotly.Plots.resize('historyChart');
@@ -1509,6 +1895,7 @@
           document.body.classList.remove('resizing-panels');
           document.body.classList.remove('resizing-panels-y');
           saveControlsToStorage();
+          updateResetButtonUi();
         };
 
         panelResizer.addEventListener('pointerdown', (event) => {
@@ -1741,6 +2128,28 @@
         Plotly.Plots.resize('softwareChart');
         updateHistoryLegendSizing();
       });
+
+      const copyDashboardLinkButton = document.getElementById('copyDashboardLink');
+      if (copyDashboardLinkButton) {
+        copyDashboardLinkButton.addEventListener('click', async () => {
+          try {
+            await copyDashboardLinkToClipboard(copyDashboardLinkButton);
+          } catch (err) {
+            console.error(err);
+          }
+        });
+      }
+
+      const resetDashboardButton = document.getElementById('resetDashboard');
+      if (resetDashboardButton) {
+        resetDashboardButton.addEventListener('click', () => {
+          if (state.preResetStateSnapshot) {
+            restorePreviousDashboardState();
+          } else {
+            restoreDashboardDefaults();
+          }
+        });
+      }
     }
 
     function showError(message) {
@@ -1815,12 +2224,21 @@
         populateUpdatedTimeZoneSelect();
         bindTimeZoneChipEvents();
         loadControlsFromStorage();
+        applyDashboardShareStateFromUrl();
+        populateUpdatedTimeZoneSelect();
         applyPanelOrder();
         applyPanelVisibility();
         setLastUpdated();
         bindControls();
+        updateResetButtonUi();
         renderHistoryChart();
         renderSoftwarePanel();
+        // Ensure button state is properly set after all rendering completes
+        if (typeof window.requestIdleCallback === 'function') {
+          window.requestIdleCallback(() => updateResetButtonUi(), { timeout: 500 });
+        } else {
+          window.setTimeout(() => updateResetButtonUi(), 100);
+        }
         if (!IS_CARD_PREVIEW) {
           setupRefreshWakeEvents();
           startAutoRefresh();

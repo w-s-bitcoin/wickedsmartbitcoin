@@ -28,16 +28,22 @@
     const PANEL_RESIZE_MIN_HEIGHT = 220;
     const PANEL_RESIZE_VIEWPORT_PAD = 24;
     const DASHBOARD_TIME = window.WSBDashboardTime || null;
+    const SHARE_STATE_PARAM = "state";
+    const LOCAL_RUNTIME_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+    const IS_LOCAL_RUNTIME = LOCAL_RUNTIME_HOSTS.has(window.location.hostname);
 
     const state = {
       staticData: null,
       dynamicData: null,
       data: null,
       dataSignature: null,
+      preResetStateSnapshot: null,
+      suppressResetSnapshotClear: false,
       autoRefreshTimer: null,
       phasedLoadToken: 0,
       refreshInFlight: false,
       lastSuccessfulRefreshAt: 0,
+      controlsEnabled: true,
       pinnedTooltip: null,
       hoverTooltip: null,
       controls: {
@@ -115,8 +121,10 @@
     });
 
     function setControlsEnabled(enabled) {
+      state.controlsEnabled = Boolean(enabled);
       if (dashboardControlLock) {
         dashboardControlLock.setEnabled(enabled);
+        updateResetButtonUi();
         return;
       }
 
@@ -133,6 +141,8 @@
       ].filter(Boolean).forEach((control) => {
         control.disabled = !enabled;
       });
+
+      updateResetButtonUi();
     }
 
     function setPanelLoadersVisible(visible) {
@@ -725,6 +735,9 @@
           },
         };
         localStorage.setItem(CONTROLS_STORAGE_KEY, JSON.stringify(payload));
+        if (!state.suppressResetSnapshotClear) {
+          clearPreResetSnapshot();
+        }
       } catch (_) {
         // Ignore storage failures (private mode or unavailable storage).
       }
@@ -743,11 +756,11 @@
         state.controls.stripes = state.controls.stripesExplicit
           ? Boolean(parsed.stripes)
           : window.innerWidth >= 760;
-        state.controls.markers = Boolean(parsed.markers);
-        state.controls.labels = Boolean(parsed.labels);
-        state.controls.showSegwit = Boolean(parsed.showSegwit);
-        state.controls.showBip110 = Boolean(parsed.showBip110);
-        state.controls.panelsSwapped = Boolean(parsed.panelsSwapped);
+        state.controls.markers = typeof parsed.markers === "boolean" ? parsed.markers : true;
+        state.controls.labels = typeof parsed.labels === "boolean" ? parsed.labels : true;
+        state.controls.showSegwit = typeof parsed.showSegwit === "boolean" ? parsed.showSegwit : false;
+        state.controls.showBip110 = typeof parsed.showBip110 === "boolean" ? parsed.showBip110 : true;
+        state.controls.panelsSwapped = typeof parsed.panelsSwapped === "boolean" ? parsed.panelsSwapped : false;
 
         const parseStoredHeight = (value) => {
           if (value == null || value === "") return null;
@@ -761,8 +774,20 @@
         applyManualPanelHeightFromRatio("segwit", segwitHeight);
         applyManualPanelHeightFromRatio("bip110", bip110Height);
 
-        state.filledPanels.segwit = Boolean(parsed?.filledPanels?.segwit);
-        state.filledPanels.bip110 = Boolean(parsed?.filledPanels?.bip110);
+        state.filledPanels.segwit = typeof parsed?.filledPanels?.segwit === "boolean"
+          ? parsed.filledPanels.segwit
+          : false;
+        state.filledPanels.bip110 = typeof parsed?.filledPanels?.bip110 === "boolean"
+          ? parsed.filledPanels.bip110
+          : true;
+
+        // In filled mode, height is derived from viewport; manual ratios should remain unset.
+        ["segwit", "bip110"].forEach((key) => {
+          if (state.filledPanels[key]) {
+            state.manualPanelHeights[key] = null;
+            state.manualPanelHeightRatios[key] = null;
+          }
+        });
 
         if (!state.controls.showSegwit && !state.controls.showBip110) {
           state.controls.showBip110 = true;
@@ -787,6 +812,389 @@
         return true;
       } catch (_) {
         return false;
+      }
+    }
+
+    function encodeShareState(payload) {
+      try {
+        const json = JSON.stringify(payload);
+        const bytes = new TextEncoder().encode(json);
+        let binary = "";
+        bytes.forEach((byte) => {
+          binary += String.fromCharCode(byte);
+        });
+        return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+      } catch (_) {
+        return "";
+      }
+    }
+
+    function decodeShareState(rawValue) {
+      if (!rawValue) return null;
+      try {
+        const normalized = rawValue.replace(/-/g, "+").replace(/_/g, "/");
+        const paddingLength = (4 - (normalized.length % 4)) % 4;
+        const padded = normalized + "=".repeat(paddingLength);
+        const binary = atob(padded);
+        const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+        const json = new TextDecoder().decode(bytes);
+        const parsed = JSON.parse(json);
+        return parsed && typeof parsed === "object" ? parsed : null;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function getShareRouteBaseUrl() {
+      const path = String(window.location.pathname || "");
+      const dashboardMatch = path.match(/^(.*)\/webapps\/bip110_signaling\/dashboard\.html$/i);
+      const basePath = dashboardMatch ? (dashboardMatch[1] || "") : path.replace(/\/[^/]*$/, "");
+      if (IS_LOCAL_RUNTIME) {
+        return `${window.location.origin}${basePath}/bip110_signaling.html`;
+      }
+      return `${window.location.origin}${basePath}/bip110_signaling`;
+    }
+
+    function buildShareableDashboardUrl() {
+      const payload = {
+        controls: {
+          stripes: Boolean(state.controls.stripes),
+          stripesExplicit: Boolean(state.controls.stripesExplicit),
+          markers: Boolean(state.controls.markers),
+          labels: Boolean(state.controls.labels),
+          showSegwit: Boolean(state.controls.showSegwit),
+          showBip110: Boolean(state.controls.showBip110),
+          panelsSwapped: Boolean(state.controls.panelsSwapped),
+        },
+        manualPanelHeights: {
+          segwit: Number.isFinite(state.manualPanelHeightRatios.segwit) ? state.manualPanelHeightRatios.segwit : null,
+          bip110: Number.isFinite(state.manualPanelHeightRatios.bip110) ? state.manualPanelHeightRatios.bip110 : null,
+        },
+        filledPanels: {
+          segwit: Boolean(state.filledPanels.segwit),
+          bip110: Boolean(state.filledPanels.bip110),
+        },
+        timeZone: String(state.timeZone || "UTC"),
+      };
+
+      const shareUrl = new URL(getShareRouteBaseUrl());
+      const encoded = encodeShareState(payload);
+      if (encoded) {
+        shareUrl.searchParams.set(SHARE_STATE_PARAM, encoded);
+      }
+      return shareUrl.toString();
+    }
+
+    function applyDashboardShareStateFromUrl() {
+      const params = new URLSearchParams(window.location.search || "");
+      const decoded = decodeShareState(params.get(SHARE_STATE_PARAM) || "");
+      if (!decoded) return;
+
+      const controls = decoded.controls && typeof decoded.controls === "object" ? decoded.controls : null;
+      if (controls) {
+        if (typeof controls.stripes === "boolean") state.controls.stripes = controls.stripes;
+        if (typeof controls.stripesExplicit === "boolean") state.controls.stripesExplicit = controls.stripesExplicit;
+        if (typeof controls.markers === "boolean") state.controls.markers = controls.markers;
+        if (typeof controls.labels === "boolean") state.controls.labels = controls.labels;
+        if (typeof controls.showSegwit === "boolean") state.controls.showSegwit = controls.showSegwit;
+        if (typeof controls.showBip110 === "boolean") state.controls.showBip110 = controls.showBip110;
+        if (typeof controls.panelsSwapped === "boolean") state.controls.panelsSwapped = controls.panelsSwapped;
+      }
+
+      if (!state.controls.showSegwit && !state.controls.showBip110) {
+        state.controls.showBip110 = true;
+      }
+
+      const heights = decoded.manualPanelHeights && typeof decoded.manualPanelHeights === "object"
+        ? decoded.manualPanelHeights
+        : null;
+      if (heights) {
+        applyManualPanelHeightFromRatio("segwit", heights.segwit);
+        applyManualPanelHeightFromRatio("bip110", heights.bip110);
+      }
+
+      const filled = decoded.filledPanels && typeof decoded.filledPanels === "object"
+        ? decoded.filledPanels
+        : null;
+      if (filled) {
+        if (typeof filled.segwit === "boolean") state.filledPanels.segwit = filled.segwit;
+        if (typeof filled.bip110 === "boolean") state.filledPanels.bip110 = filled.bip110;
+      }
+
+      const timeZone = String(decoded.timeZone || "").trim();
+      if (timeZone) {
+        state.timeZone = setPreferredDashboardTimeZone(timeZone);
+      }
+
+      const stripes = document.getElementById("toggleStripes");
+      const markers = document.getElementById("toggleMarkers");
+      const labels = document.getElementById("toggleLabels");
+      const segwitWindow = document.getElementById("toggleSegwitWindow");
+      const bip110Window = document.getElementById("toggleBip110Window");
+      if (stripes) stripes.checked = state.controls.stripes;
+      if (markers) markers.checked = state.controls.markers;
+      if (labels) labels.checked = state.controls.labels;
+      if (segwitWindow) segwitWindow.checked = state.controls.showSegwit;
+      if (bip110Window) bip110Window.checked = state.controls.showBip110;
+    }
+
+    async function copyDashboardLinkToClipboard(buttonEl) {
+      const link = buildShareableDashboardUrl();
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(link);
+      } else {
+        const textArea = document.createElement("textarea");
+        textArea.value = link;
+        textArea.setAttribute("readonly", "readonly");
+        textArea.style.position = "absolute";
+        textArea.style.left = "-9999px";
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textArea);
+      }
+
+      if (!buttonEl) return;
+      const labelEl = buttonEl.querySelector(".label");
+      const original = labelEl ? labelEl.textContent : buttonEl.textContent;
+      if (labelEl) labelEl.textContent = "Copied!";
+      else buttonEl.textContent = "Copied!";
+      window.setTimeout(() => {
+        if (labelEl) labelEl.textContent = original || "Copy Link";
+        else buttonEl.textContent = original || "Copy Link";
+      }, 1400);
+    }
+
+    function captureResetSnapshot() {
+      const stripes = document.getElementById("toggleStripes");
+      const markers = document.getElementById("toggleMarkers");
+      const labels = document.getElementById("toggleLabels");
+      const segwitWindow = document.getElementById("toggleSegwitWindow");
+      const bip110Window = document.getElementById("toggleBip110Window");
+      return {
+        controls: {
+          stripes: Boolean(state.controls.stripes),
+          stripesExplicit: Boolean(state.controls.stripesExplicit),
+          markers: Boolean(state.controls.markers),
+          labels: Boolean(state.controls.labels),
+          showSegwit: Boolean(state.controls.showSegwit),
+          showBip110: Boolean(state.controls.showBip110),
+          panelsSwapped: Boolean(state.controls.panelsSwapped),
+        },
+        filledPanels: {
+          segwit: Boolean(state.filledPanels.segwit),
+          bip110: Boolean(state.filledPanels.bip110),
+        },
+        manualPanelHeightRatios: {
+          segwit: Number.isFinite(state.manualPanelHeightRatios.segwit) ? state.manualPanelHeightRatios.segwit : null,
+          bip110: Number.isFinite(state.manualPanelHeightRatios.bip110) ? state.manualPanelHeightRatios.bip110 : null,
+        },
+        timeZone: String(state.timeZone || 'UTC'),
+        checkboxState: {
+          toggleStripes: Boolean(stripes?.checked ?? state.controls.stripes),
+          toggleMarkers: Boolean(markers?.checked ?? state.controls.markers),
+          toggleLabels: Boolean(labels?.checked ?? state.controls.labels),
+          toggleSegwitWindow: Boolean(segwitWindow?.checked ?? state.controls.showSegwit),
+          toggleBip110Window: Boolean(bip110Window?.checked ?? state.controls.showBip110),
+        },
+      };
+    }
+
+    function restoreResetSnapshot(snapshot) {
+      if (!snapshot || typeof snapshot !== 'object') return;
+
+      state.suppressResetSnapshotClear = true;
+      try {
+        const controls = snapshot.controls || {};
+        const checkboxState = snapshot.checkboxState || {};
+        state.controls.stripes = typeof checkboxState.toggleStripes === 'boolean'
+          ? checkboxState.toggleStripes
+          : Boolean(controls.stripes);
+        state.controls.stripesExplicit = Boolean(controls.stripesExplicit);
+        state.controls.markers = typeof checkboxState.toggleMarkers === 'boolean'
+          ? checkboxState.toggleMarkers
+          : Boolean(controls.markers);
+        state.controls.labels = typeof checkboxState.toggleLabels === 'boolean'
+          ? checkboxState.toggleLabels
+          : Boolean(controls.labels);
+        state.controls.showSegwit = typeof checkboxState.toggleSegwitWindow === 'boolean'
+          ? checkboxState.toggleSegwitWindow
+          : Boolean(controls.showSegwit);
+        state.controls.showBip110 = typeof checkboxState.toggleBip110Window === 'boolean'
+          ? checkboxState.toggleBip110Window
+          : Boolean(controls.showBip110);
+        if (!state.controls.showSegwit && !state.controls.showBip110) {
+          state.controls.showBip110 = true;
+        }
+        state.controls.panelsSwapped = Boolean(controls.panelsSwapped);
+
+        const filledPanels = snapshot.filledPanels || {};
+        state.filledPanels.segwit = Boolean(filledPanels.segwit);
+        state.filledPanels.bip110 = Boolean(filledPanels.bip110);
+
+        state.manualPanelHeights.segwit = null;
+        state.manualPanelHeights.bip110 = null;
+        state.manualPanelHeightRatios.segwit = null;
+        state.manualPanelHeightRatios.bip110 = null;
+
+        const ratios = snapshot.manualPanelHeightRatios || {};
+        applyManualPanelHeightFromRatio('segwit', ratios.segwit);
+        applyManualPanelHeightFromRatio('bip110', ratios.bip110);
+        state.timeZone = setPreferredDashboardTimeZone(String(snapshot.timeZone || 'UTC'));
+
+        const stripes = document.getElementById('toggleStripes');
+        const markers = document.getElementById('toggleMarkers');
+        const labels = document.getElementById('toggleLabels');
+        const segwitWindow = document.getElementById('toggleSegwitWindow');
+        const bip110Window = document.getElementById('toggleBip110Window');
+        if (stripes) stripes.checked = state.controls.stripes;
+        if (markers) markers.checked = state.controls.markers;
+        if (labels) labels.checked = state.controls.labels;
+        if (segwitWindow) segwitWindow.checked = state.controls.showSegwit;
+        if (bip110Window) bip110Window.checked = state.controls.showBip110;
+
+        persistControls();
+        applyPanelOrder();
+        applyDynamicPanelHeights();
+        updatePanelVisibility();
+        updateFillButtonState('segwit');
+        updateFillButtonState('bip110');
+        if (state.data) {
+          setStatus(state.data);
+          renderAll();
+        }
+      } finally {
+        state.suppressResetSnapshotClear = false;
+      }
+      updateResetButtonUi();
+    }
+
+    function clearPreResetSnapshot() {
+      if (!state.preResetStateSnapshot) return;
+      state.preResetStateSnapshot = null;
+      updateResetButtonUi();
+    }
+
+    function restoreDashboardDefaults() {
+      state.preResetStateSnapshot = captureResetSnapshot();
+      state.suppressResetSnapshotClear = true;
+
+      try {
+        try {
+          localStorage.removeItem(CONTROLS_STORAGE_KEY);
+        } catch (_) {
+        }
+        try {
+          const params = new URLSearchParams(window.location.search || "");
+          if (params.has(SHARE_STATE_PARAM)) {
+            params.delete(SHARE_STATE_PARAM);
+            const nextQuery = params.toString();
+            const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}${window.location.hash || ""}`;
+            window.history.replaceState(null, "", nextUrl);
+          }
+        } catch (_) {
+        }
+
+        state.controls.stripes = window.innerWidth >= 760;
+        state.controls.stripesExplicit = false;
+        state.controls.markers = true;
+        state.controls.labels = true;
+        state.controls.showSegwit = false;
+        state.controls.showBip110 = true;
+        state.controls.panelsSwapped = false;
+
+        state.filledPanels.segwit = false;
+        state.filledPanels.bip110 = true;
+        state.manualPanelHeights.segwit = null;
+        state.manualPanelHeights.bip110 = null;
+        state.manualPanelHeightRatios.segwit = null;
+        state.manualPanelHeightRatios.bip110 = null;
+        // Default for this dashboard is filled bip110 panel, not a manual fixed ratio.
+        // Keep manual height metadata cleared so reload stays in default state.
+        state.filledPanels.segwit = false;
+        state.filledPanels.bip110 = true;
+
+        state.timeZone = setPreferredDashboardTimeZone("UTC");
+
+        const stripes = document.getElementById("toggleStripes");
+        const markers = document.getElementById("toggleMarkers");
+        const labels = document.getElementById("toggleLabels");
+        const segwitWindow = document.getElementById("toggleSegwitWindow");
+        const bip110Window = document.getElementById("toggleBip110Window");
+
+        if (stripes) stripes.checked = state.controls.stripes;
+        if (markers) markers.checked = true;
+        if (labels) labels.checked = true;
+        if (segwitWindow) segwitWindow.checked = false;
+        if (bip110Window) bip110Window.checked = true;
+
+        applyPanelOrder();
+        applyDynamicPanelHeights();
+        updatePanelVisibility();
+        updateFillButtonState("segwit");
+        updateFillButtonState("bip110");
+        if (state.data) {
+          setStatus(state.data);
+          renderAll();
+        }
+      } finally {
+        state.suppressResetSnapshotClear = false;
+      }
+      updateResetButtonUi();
+    }
+
+    function restorePreviousDashboardState() {
+      if (!state.preResetStateSnapshot) return;
+      const snapshot = state.preResetStateSnapshot;
+      state.preResetStateSnapshot = null;
+      restoreResetSnapshot(snapshot);
+    }
+
+    function isDefaultState() {
+      const stripes = document.getElementById("toggleStripes");
+      const markers = document.getElementById("toggleMarkers");
+      const labels = document.getElementById("toggleLabels");
+      const segwitWindow = document.getElementById("toggleSegwitWindow");
+      const bip110Window = document.getElementById("toggleBip110Window");
+
+      const defaultStripesOn = window.innerWidth >= 760;
+
+      if (state.controls.stripesExplicit) return false;
+      if (stripes && stripes.checked !== defaultStripesOn) return false;
+      if (markers && !markers.checked) return false;
+      if (labels && !labels.checked) return false;
+      if (segwitWindow && segwitWindow.checked) return false;
+      if (bip110Window && !bip110Window.checked) return false;
+      if (state.controls.panelsSwapped) return false;
+      if (state.filledPanels.segwit) return false;
+      if (!state.filledPanels.bip110) return false;
+      // In filled mode, viewport-derived height can introduce tiny persisted ratios.
+      // Treat filled panel state as canonical default and only enforce null manual ratios
+      // for panels that are NOT in filled mode.
+      if (!state.filledPanels.segwit && state.manualPanelHeightRatios.segwit != null) return false;
+      if (!state.filledPanels.bip110 && state.manualPanelHeightRatios.bip110 != null) return false;
+      if (state.timeZone !== 'UTC') return false;
+
+      return true;
+    }
+
+    function updateResetButtonUi() {
+      const btn = document.getElementById('resetDashboard');
+      if (!btn) return;
+
+      if (!state.controlsEnabled) {
+        btn.disabled = true;
+        return;
+      }
+
+      if (state.preResetStateSnapshot) {
+        btn.textContent = 'Undo Restore';
+        btn.classList.add('reset-dashboard-btn--undo');
+        btn.disabled = false;
+      } else {
+        btn.textContent = 'Restore Defaults';
+        btn.classList.remove('reset-dashboard-btn--undo');
+        btn.disabled = isDefaultState();
       }
     }
 
@@ -1600,6 +2008,7 @@
 
       if (hasPriorVisibility && visibleCount !== prevCount) {
         persistControls();
+        updateResetButtonUi();
       }
 
       applyDynamicPanelHeights();
@@ -1613,14 +2022,15 @@
       }
     }
 
-    function setupSwapButton() {
-      if (!swapPanelsBtn) return;
-      swapPanelsBtn.addEventListener("click", () => {
-        state.controls.panelsSwapped = !state.controls.panelsSwapped;
-        applyPanelOrder();
-        persistControls();
-      });
-    }
+      function setupSwapButton() {
+        if (!swapPanelsBtn) return;
+        swapPanelsBtn.addEventListener("click", () => {
+          state.controls.panelsSwapped = !state.controls.panelsSwapped;
+          applyPanelOrder();
+          persistControls();
+          updateResetButtonUi();
+        });
+      }
 
     function panelResizeMaxHeightPx() {
       return Math.max(PANEL_RESIZE_MIN_HEIGHT, window.innerHeight - PANEL_RESIZE_VIEWPORT_PAD);
@@ -1660,15 +2070,12 @@
     }
 
     function syncManualPanelHeightsToViewport() {
-      const visibleCount = (state.controls.showSegwit ? 1 : 0) + (state.controls.showBip110 ? 1 : 0);
-      if (visibleCount === 1) {
-        const onlyVisibleKey = state.controls.showSegwit ? "segwit" : "bip110";
-        if (state.filledPanels[onlyVisibleKey]) {
-          setManualPanelHeight(onlyVisibleKey, getViewportFillHeightForSinglePanel());
-        }
-      }
-
       ["segwit", "bip110"].forEach((key) => {
+        if (state.filledPanels[key]) {
+          state.manualPanelHeights[key] = null;
+          state.manualPanelHeightRatios[key] = null;
+          return;
+        }
         const ratio = state.manualPanelHeightRatios[key];
         if (Number.isFinite(ratio)) {
           setManualPanelHeight(key, panelHeightRatioToPx(ratio));
@@ -1705,7 +2112,7 @@
         const manual = state.manualPanelHeights[key];
         const isFilledSinglePanel = n === 1 && state.filledPanels[key];
         const targetHeight = isFilledSinglePanel
-          ? setManualPanelHeight(key, getViewportFillHeightForSinglePanel())
+          ? getViewportFillHeightForSinglePanel()
           : (Number.isFinite(manual)
             ? clampPanelResizeHeight(manual)
             : panelHeight);
@@ -1773,11 +2180,12 @@
     }
 
     function fillSinglePanelToViewportHeight(key) {
-      const clampedHeight = getViewportFillHeightForSinglePanel();
-      setManualPanelHeight(key, clampedHeight);
+      state.manualPanelHeights[key] = null;
+      state.manualPanelHeightRatios[key] = null;
       state.filledPanels[key] = true;
       updateFillButtonState(key);
       persistControls();
+      updateResetButtonUi();
       applyDynamicPanelHeights();
       renderAll();
       if (state.pinnedTooltip) {
@@ -1795,6 +2203,7 @@
       state.filledPanels[key] = false;
       updateFillButtonState(key);
       persistControls();
+      updateResetButtonUi();
       applyDynamicPanelHeights();
       renderAll();
       if (state.pinnedTooltip) {
@@ -1852,6 +2261,7 @@
             // Persist only the panel that was actively resized.
             setManualPanelHeight(key, panel.getBoundingClientRect().height);
             persistControls();
+            updateResetButtonUi();
           };
 
           window.addEventListener("pointermove", onPointerMove);
@@ -2294,23 +2704,28 @@
       const labels = document.getElementById("toggleLabels");
       const segwitWindow = document.getElementById("toggleSegwitWindow");
       const bip110Window = document.getElementById("toggleBip110Window");
+      const copyDashboardLinkButton = document.getElementById("copyDashboardLink");
+      const resetDashboardButton = document.getElementById("resetDashboard");
 
       stripes.addEventListener("change", () => {
         state.controls.stripes = stripes.checked;
         state.controls.stripesExplicit = true;
         persistControls();
+        updateResetButtonUi();
         renderAll();
       });
 
       markers.addEventListener("change", () => {
         state.controls.markers = markers.checked;
         persistControls();
+        updateResetButtonUi();
         renderAll();
       });
 
       labels.addEventListener("change", () => {
         state.controls.labels = labels.checked;
         persistControls();
+        updateResetButtonUi();
         renderAll();
       });
 
@@ -2321,6 +2736,7 @@
         state.controls.showSegwit = segwitWindow.checked;
         state.controls.showBip110 = bip110Window.checked;
         persistControls();
+        updateResetButtonUi();
         updatePanelVisibility();
         renderAll();
       });
@@ -2332,8 +2748,29 @@
         state.controls.showSegwit = segwitWindow.checked;
         state.controls.showBip110 = bip110Window.checked;
         persistControls();
+        updateResetButtonUi();
         updatePanelVisibility();
         renderAll();
+      });
+
+      copyDashboardLinkButton?.addEventListener("click", async () => {
+        try {
+          await copyDashboardLinkToClipboard(copyDashboardLinkButton);
+        } catch (err) {
+          console.error(err);
+        }
+      });
+
+      resetDashboardButton?.addEventListener("click", () => {
+        if (!state.preResetStateSnapshot && isDefaultState()) {
+          updateResetButtonUi();
+          return;
+        }
+        if (state.preResetStateSnapshot) {
+          restorePreviousDashboardState();
+        } else {
+          restoreDashboardDefaults();
+        }
       });
     }
 
@@ -2358,7 +2795,8 @@
           state.filledPanels.bip110 = true;
           state.manualPanelHeights.segwit = null;
           state.manualPanelHeightRatios.segwit = null;
-          setManualPanelHeight("bip110", getViewportFillHeightForSinglePanel());
+           state.manualPanelHeights.bip110 = null;
+           state.manualPanelHeightRatios.bip110 = null;
 
           const segwitWindow = document.getElementById("toggleSegwitWindow");
           const bip110Window = document.getElementById("toggleBip110Window");
@@ -2367,6 +2805,7 @@
 
           persistControls();
         }
+        applyDashboardShareStateFromUrl();
         applyPanelOrder();
         applyDynamicPanelHeights();
         setControlsEnabled(false);
@@ -2412,6 +2851,7 @@
         updatePanelVisibility();
         attachPointer(segwitCanvas, "segwit");
         attachPointer(bip110Canvas, "bip110");
+        updateResetButtonUi();
         setupRefreshWakeEvents();
         startAutoRefresh();
         renderSelectedPanels(["segwit", "bip110"], { enhanced: false, scheduleEnhancements: true });
@@ -2421,6 +2861,13 @@
 
         await loadAndApplyBlockDataPhased(loadToken, state.data.metadata, ["segwit", "bip110"]);
         setControlsEnabled(true);
+        updateResetButtonUi();
+        // Ensure button state is properly set after all rendering and loading completes
+        if (typeof window.requestIdleCallback === 'function') {
+          window.requestIdleCallback(() => updateResetButtonUi(), { timeout: 500 });
+        } else {
+          window.setTimeout(() => updateResetButtonUi(), 100);
+        }
 
         window.addEventListener("resize", () => {
           syncManualPanelHeightsToViewport();

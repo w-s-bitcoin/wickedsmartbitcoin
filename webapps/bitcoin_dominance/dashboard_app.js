@@ -44,6 +44,9 @@
     const PLOTLY_LIVE_BG = 'rgba(0,0,0,0)';
     const PLOTLY_EXPORT_BG = '#000';
     const STABLE_USD_GREEN = '#35b56a';
+    const SHARE_STATE_PARAM = 'state';
+    const LOCAL_RUNTIME_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
+    const IS_LOCAL_RUNTIME = LOCAL_RUNTIME_HOSTS.has(window.location.hostname);
     // Hide tiny positive values that round to 0.00% in tooltip/display.
     const STABLE_MIN_PCT_FOR_PLOT = 0.01;
     function getPlotlyHoverlabel() {
@@ -79,6 +82,8 @@
       historyUserXAxisRange: null,
       refreshedAtText: '',
       timeZone: DASHBOARD_TIME?.getPreferredTimeZone?.() || 'UTC',
+      preResetStateSnapshot: null,
+      suppressResetSnapshotClear: false,
       autoRefreshTimer: null,
       refreshInFlight: false,
       lastSuccessfulRefreshAt: 0,
@@ -140,6 +145,9 @@
           snapshotPanelManualHeight: Number(state.snapshotPanelManualHeight),
         };
         localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(payload));
+        if (!state.suppressResetSnapshotClear) {
+          clearPreResetSnapshot();
+        }
       } catch (_) {
       }
     }
@@ -216,7 +224,363 @@
           timeZone: String(state.timeZone || 'UTC'),
         };
         localStorage.setItem(CONTROLS_STORAGE_KEY, JSON.stringify(payload));
+        if (!state.suppressResetSnapshotClear) {
+          clearPreResetSnapshot();
+        }
       } catch (_) {
+      }
+    }
+
+    function encodeShareState(payload) {
+      try {
+        const json = JSON.stringify(payload);
+        const bytes = new TextEncoder().encode(json);
+        let binary = '';
+        bytes.forEach((byte) => {
+          binary += String.fromCharCode(byte);
+        });
+        return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+      } catch (_) {
+        return '';
+      }
+    }
+
+    function decodeShareState(rawValue) {
+      if (!rawValue) return null;
+      try {
+        const normalized = rawValue.replace(/-/g, '+').replace(/_/g, '/');
+        const paddingLength = (4 - (normalized.length % 4)) % 4;
+        const padded = normalized + '='.repeat(paddingLength);
+        const binary = atob(padded);
+        const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+        const json = new TextDecoder().decode(bytes);
+        const parsed = JSON.parse(json);
+        return parsed && typeof parsed === 'object' ? parsed : null;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function getShareRouteBaseUrl() {
+      const path = String(window.location.pathname || '');
+      const dashboardMatch = path.match(/^(.*)\/webapps\/bitcoin_dominance\/dashboard\.html$/i);
+      const basePath = dashboardMatch ? (dashboardMatch[1] || '') : path.replace(/\/[^/]*$/, '');
+      if (IS_LOCAL_RUNTIME) {
+        return `${window.location.origin}${basePath}/bitcoin_dominance.html`;
+      }
+      return `${window.location.origin}${basePath}/bitcoin_dominance`;
+    }
+
+    function buildShareableDashboardUrl() {
+      const defaults = {
+        includeStables: true,
+        stackedDominance: true,
+        showPrice: false,
+        stackedDominanceTouched: false,
+        range: '365',
+        smooth: '7',
+        panelsSwapped: false,
+        showHistoryPanel: true,
+        showSnapshotPanel: true,
+        historyPanelPercent: 61.54,
+        historyPanelManualHeight: 0,
+        snapshotPanelManualHeight: 0,
+        timeZone: 'UTC',
+      };
+
+      const payload = {
+        includeStables: Boolean(state.includeStables),
+        stackedDominance: Boolean(state.stackedDominance),
+        showPrice: Boolean(state.showPrice),
+        stackedDominanceTouched: Boolean(state.stackedDominanceTouched),
+        range: String(state.range || '365'),
+        smooth: String(state.smooth || '7'),
+        panelsSwapped: Boolean(state.panelsSwapped),
+        showHistoryPanel: Boolean(state.showHistoryPanel),
+        showSnapshotPanel: Boolean(state.showSnapshotPanel),
+        historyPanelPercent: Number(state.historyPanelPercent || 61.54),
+        historyPanelManualHeight: Number(state.historyPanelManualHeight || 0),
+        snapshotPanelManualHeight: Number(state.snapshotPanelManualHeight || 0),
+        timeZone: String(state.timeZone || 'UTC'),
+      };
+
+      const compactPayload = {};
+      Object.entries(payload).forEach(([key, value]) => {
+        if (value === defaults[key]) return;
+        compactPayload[key] = value;
+      });
+
+      const shareUrl = new URL(getShareRouteBaseUrl());
+      if (!Object.keys(compactPayload).length) {
+        return shareUrl.toString();
+      }
+
+      const encoded = encodeShareState(compactPayload);
+      if (encoded) {
+        shareUrl.searchParams.set(SHARE_STATE_PARAM, encoded);
+      }
+      return shareUrl.toString();
+    }
+
+    function applyDashboardShareStateFromUrl() {
+      const params = new URLSearchParams(window.location.search || '');
+      const decoded = decodeShareState(params.get(SHARE_STATE_PARAM) || '');
+      if (!decoded) return;
+
+      if (typeof decoded.includeStables === 'boolean') state.includeStables = decoded.includeStables;
+      if (typeof decoded.stackedDominance === 'boolean') state.stackedDominance = decoded.stackedDominance;
+      if (typeof decoded.showPrice === 'boolean') state.showPrice = decoded.showPrice;
+      if (typeof decoded.stackedDominanceTouched === 'boolean') state.stackedDominanceTouched = decoded.stackedDominanceTouched;
+      if (['30', '90', '180', '365', '0'].includes(String(decoded.range || ''))) state.range = String(decoded.range);
+      if (['1', '7', '30'].includes(String(decoded.smooth || ''))) state.smooth = String(decoded.smooth);
+      if (typeof decoded.panelsSwapped === 'boolean') state.panelsSwapped = decoded.panelsSwapped;
+      if (typeof decoded.showHistoryPanel === 'boolean') state.showHistoryPanel = decoded.showHistoryPanel;
+      if (typeof decoded.showSnapshotPanel === 'boolean') state.showSnapshotPanel = decoded.showSnapshotPanel;
+      if (!state.showHistoryPanel && !state.showSnapshotPanel) state.showHistoryPanel = true;
+
+      const historyPanelPercent = Number(decoded.historyPanelPercent);
+      if (Number.isFinite(historyPanelPercent)) {
+        state.historyPanelPercent = clamp(historyPanelPercent, PANEL_SPLIT_MIN, PANEL_SPLIT_MAX);
+      }
+
+      const historyPanelManualHeight = Number(decoded.historyPanelManualHeight);
+      if (Number.isFinite(historyPanelManualHeight) && historyPanelManualHeight >= 0) {
+        state.historyPanelManualHeight = historyPanelManualHeight;
+      }
+
+      const snapshotPanelManualHeight = Number(decoded.snapshotPanelManualHeight);
+      if (Number.isFinite(snapshotPanelManualHeight) && snapshotPanelManualHeight >= 0) {
+        state.snapshotPanelManualHeight = snapshotPanelManualHeight;
+      }
+
+      const timeZone = String(decoded.timeZone || '').trim();
+      if (timeZone) {
+        state.timeZone = DASHBOARD_TIME?.setPreferredTimeZone?.(timeZone) || timeZone;
+      }
+    }
+
+    async function copyDashboardLinkToClipboard(buttonEl) {
+      const link = buildShareableDashboardUrl();
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(link);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = link;
+        textArea.setAttribute('readonly', 'readonly');
+        textArea.style.position = 'absolute';
+        textArea.style.left = '-9999px';
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+
+      if (!buttonEl) return;
+      const labelEl = buttonEl.querySelector('.label');
+      const original = labelEl ? labelEl.textContent : buttonEl.textContent;
+      if (labelEl) labelEl.textContent = 'Copied!';
+      else buttonEl.textContent = 'Copied!';
+      window.setTimeout(() => {
+        if (labelEl) labelEl.textContent = original || 'Copy Link';
+        else buttonEl.textContent = original || 'Copy Link';
+      }, 1400);
+    }
+
+    function captureResetSnapshot() {
+      const includeStablesToggle = document.getElementById('toggleIncludeStables');
+      const stackedDominanceToggle = document.getElementById('toggleStackedDominance');
+      const showPriceToggle = document.getElementById('toggleShowPrice');
+      const historyToggle = document.getElementById('toggleHistoryPanel');
+      const snapshotToggle = document.getElementById('toggleSnapshotPanel');
+      return {
+        includeStables: Boolean(state.includeStables),
+        stackedDominance: Boolean(state.stackedDominance),
+        showPrice: Boolean(state.showPrice),
+        stackedDominanceTouched: Boolean(state.stackedDominanceTouched),
+        range: String(state.range || '365'),
+        smooth: String(state.smooth || '7'),
+        panelsSwapped: Boolean(state.panelsSwapped),
+        showHistoryPanel: Boolean(state.showHistoryPanel),
+        showSnapshotPanel: Boolean(state.showSnapshotPanel),
+        historyPanelPercent: Number(state.historyPanelPercent),
+        historyPanelManualHeight: Number(state.historyPanelManualHeight),
+        snapshotPanelManualHeight: Number(state.snapshotPanelManualHeight),
+        historyUserXAxisRange: Array.isArray(state.historyUserXAxisRange) ? state.historyUserXAxisRange.slice() : state.historyUserXAxisRange,
+        timeZone: String(state.timeZone || 'UTC'),
+        checkboxState: {
+          toggleIncludeStables: Boolean(includeStablesToggle?.checked ?? state.includeStables),
+          toggleStackedDominance: Boolean(stackedDominanceToggle?.checked ?? state.stackedDominance),
+          toggleShowPrice: Boolean(showPriceToggle?.checked ?? state.showPrice),
+          toggleHistoryPanel: Boolean(historyToggle?.checked ?? state.showHistoryPanel),
+          toggleSnapshotPanel: Boolean(snapshotToggle?.checked ?? state.showSnapshotPanel),
+        },
+      };
+    }
+
+    function restoreResetSnapshot(snapshot) {
+      if (!snapshot || typeof snapshot !== 'object') return;
+
+      state.suppressResetSnapshotClear = true;
+      try {
+        const checkboxState = snapshot.checkboxState || {};
+        state.includeStables = typeof checkboxState.toggleIncludeStables === 'boolean'
+          ? checkboxState.toggleIncludeStables
+          : Boolean(snapshot.includeStables);
+        state.stackedDominance = typeof checkboxState.toggleStackedDominance === 'boolean'
+          ? checkboxState.toggleStackedDominance
+          : Boolean(snapshot.stackedDominance);
+        state.showPrice = typeof checkboxState.toggleShowPrice === 'boolean'
+          ? checkboxState.toggleShowPrice
+          : Boolean(snapshot.showPrice);
+        state.stackedDominanceTouched = Boolean(snapshot.stackedDominanceTouched);
+        state.range = String(snapshot.range || '365');
+        state.smooth = String(snapshot.smooth || '7');
+        state.panelsSwapped = Boolean(snapshot.panelsSwapped);
+        state.showHistoryPanel = typeof checkboxState.toggleHistoryPanel === 'boolean'
+          ? checkboxState.toggleHistoryPanel
+          : Boolean(snapshot.showHistoryPanel);
+        state.showSnapshotPanel = typeof checkboxState.toggleSnapshotPanel === 'boolean'
+          ? checkboxState.toggleSnapshotPanel
+          : Boolean(snapshot.showSnapshotPanel);
+        if (!state.showHistoryPanel && !state.showSnapshotPanel) {
+          state.showHistoryPanel = true;
+        }
+        state.historyPanelPercent = Number.isFinite(snapshot.historyPanelPercent) ? snapshot.historyPanelPercent : 61.54;
+        state.historyPanelManualHeight = Number.isFinite(snapshot.historyPanelManualHeight) ? snapshot.historyPanelManualHeight : 0;
+        state.snapshotPanelManualHeight = Number.isFinite(snapshot.snapshotPanelManualHeight) ? snapshot.snapshotPanelManualHeight : 0;
+        state.historyUserXAxisRange = Array.isArray(snapshot.historyUserXAxisRange)
+          ? snapshot.historyUserXAxisRange.slice()
+          : null;
+        state.timeZone = DASHBOARD_TIME?.setPreferredTimeZone?.(String(snapshot.timeZone || 'UTC')) || String(snapshot.timeZone || 'UTC');
+
+        const includeStablesToggle = document.getElementById('toggleIncludeStables');
+        const stackedDominanceToggle = document.getElementById('toggleStackedDominance');
+        const showPriceToggle = document.getElementById('toggleShowPrice');
+        const historyToggle = document.getElementById('toggleHistoryPanel');
+        const snapshotToggle = document.getElementById('toggleSnapshotPanel');
+        const rangeSelect = document.getElementById('rangeSelect');
+        const smoothSelect = document.getElementById('smoothSelect');
+
+        if (includeStablesToggle) includeStablesToggle.checked = state.includeStables;
+        if (stackedDominanceToggle) stackedDominanceToggle.checked = state.stackedDominance;
+        if (showPriceToggle) showPriceToggle.checked = state.showPrice;
+        if (historyToggle) historyToggle.checked = state.showHistoryPanel;
+        if (snapshotToggle) snapshotToggle.checked = state.showSnapshotPanel;
+        if (rangeSelect) rangeSelect.value = state.range;
+        if (smoothSelect) smoothSelect.value = state.smooth;
+
+        populateUpdatedTimeZoneSelect();
+        syncPanelToggleUi();
+        applyPanelOrder();
+        applyPanelVisibility();
+        saveLayoutToStorage();
+        saveControlsToStorage();
+        renderAll();
+      } finally {
+        state.suppressResetSnapshotClear = false;
+      }
+      updateResetButtonUi();
+    }
+
+    function clearPreResetSnapshot() {
+      if (!state.preResetStateSnapshot) return;
+      state.preResetStateSnapshot = null;
+      updateResetButtonUi();
+    }
+
+    function restoreDashboardDefaults() {
+      state.preResetStateSnapshot = captureResetSnapshot();
+
+      try {
+        localStorage.removeItem(LAYOUT_STORAGE_KEY);
+        localStorage.removeItem(CONTROLS_STORAGE_KEY);
+      } catch (_) {
+      }
+
+      state.includeStables = true;
+      state.topN = 10;
+      state.stackedDominance = true;
+      state.showPrice = false;
+      state.stackedDominanceTouched = false;
+      state.range = '365';
+      state.smooth = '7';
+      state.panelsSwapped = false;
+      state.showHistoryPanel = true;
+      state.showSnapshotPanel = true;
+      state.historyPanelPercent = 61.54;
+      state.historyPanelManualHeight = 0;
+      state.snapshotPanelManualHeight = 0;
+      state.historyUserXAxisRange = null;
+      state.timeZone = DASHBOARD_TIME?.setPreferredTimeZone?.('UTC') || 'UTC';
+
+      const includeStablesToggle = document.getElementById('toggleIncludeStables');
+      const stackedDominanceToggle = document.getElementById('toggleStackedDominance');
+      const showPriceToggle = document.getElementById('toggleShowPrice');
+      const historyToggle = document.getElementById('toggleHistoryPanel');
+      const snapshotToggle = document.getElementById('toggleSnapshotPanel');
+      const rangeSelect = document.getElementById('rangeSelect');
+      const smoothSelect = document.getElementById('smoothSelect');
+
+      if (includeStablesToggle) includeStablesToggle.checked = true;
+      if (stackedDominanceToggle) stackedDominanceToggle.checked = true;
+      if (showPriceToggle) showPriceToggle.checked = false;
+      if (historyToggle) historyToggle.checked = true;
+      if (snapshotToggle) snapshotToggle.checked = true;
+      if (rangeSelect) rangeSelect.value = '365';
+      if (smoothSelect) smoothSelect.value = '7';
+
+      populateUpdatedTimeZoneSelect();
+      syncPanelToggleUi();
+      applyPanelOrder();
+      applyPanelVisibility();
+      renderAll();
+      updateResetButtonUi();
+    }
+
+    function restorePreviousDashboardState() {
+      if (!state.preResetStateSnapshot) return;
+      const snapshot = state.preResetStateSnapshot;
+      state.preResetStateSnapshot = null;
+      restoreResetSnapshot(snapshot);
+    }
+
+    function isDefaultState() {
+      const rangeSelect = document.getElementById('rangeSelect');
+      const smoothSelect = document.getElementById('smoothSelect');
+      const includeStablesToggle = document.getElementById('toggleIncludeStables');
+      const stackedDominanceToggle = document.getElementById('toggleStackedDominance');
+      const showPriceToggle = document.getElementById('toggleShowPrice');
+      const historyToggle = document.getElementById('toggleHistoryPanel');
+      const snapshotToggle = document.getElementById('toggleSnapshotPanel');
+
+      if (rangeSelect && rangeSelect.value !== '365') return false;
+      if (smoothSelect && smoothSelect.value !== '7') return false;
+      if (includeStablesToggle && !includeStablesToggle.checked) return false;
+      if (stackedDominanceToggle && !stackedDominanceToggle.checked) return false;
+      if (showPriceToggle && showPriceToggle.checked) return false;
+      if (historyToggle && !historyToggle.checked) return false;
+      if (snapshotToggle && !snapshotToggle.checked) return false;
+      if (state.panelsSwapped) return false;
+      if (Math.abs(Number(state.historyPanelPercent || 0) - 61.54) > 0.001) return false;
+      if (Math.abs(Number(state.historyPanelManualHeight || 0)) > 0.001) return false;
+      if (Math.abs(Number(state.snapshotPanelManualHeight || 0)) > 0.001) return false;
+      if (state.historyUserXAxisRange) return false;
+      if (state.timeZone !== 'UTC') return false;
+
+      return true;
+    }
+
+    function updateResetButtonUi() {
+      const btn = document.getElementById('resetDashboard');
+      if (!btn) return;
+      if (state.preResetStateSnapshot) {
+        btn.textContent = 'Undo Restore';
+        btn.classList.add('reset-dashboard-btn--undo');
+        btn.disabled = false;
+      } else {
+        btn.textContent = 'Restore Defaults';
+        btn.classList.remove('reset-dashboard-btn--undo');
+        btn.disabled = isDefaultState();
       }
     }
 
@@ -1918,16 +2282,20 @@
       const rangeSelect = document.getElementById('rangeSelect');
       const smoothSelect = document.getElementById('smoothSelect');
       const swapPanelsBtn = document.getElementById('swapPanelsBtn');
+      const copyDashboardLinkButton = document.getElementById('copyDashboardLink');
+      const resetDashboardButton = document.getElementById('resetDashboard');
 
       updatedTimeZoneSelect?.addEventListener('change', () => {
         state.timeZone = DASHBOARD_TIME?.setPreferredTimeZone?.(updatedTimeZoneSelect.value) || updatedTimeZoneSelect.value;
         setLastUpdated();
         saveControlsToStorage();
+        updateResetButtonUi();
       });
 
       includeStablesToggle?.addEventListener('change', () => {
         state.includeStables = !!includeStablesToggle.checked;
         saveControlsToStorage();
+        updateResetButtonUi();
         renderAll();
       });
 
@@ -1935,6 +2303,7 @@
         state.stackedDominance = !!stackedDominanceToggle.checked;
         state.stackedDominanceTouched = true;
         saveControlsToStorage();
+        updateResetButtonUi();
         renderHistoryChart();
         resizeVisibleCharts();
       });
@@ -1942,6 +2311,7 @@
       showPriceToggle?.addEventListener('change', () => {
         state.showPrice = !!showPriceToggle.checked;
         saveControlsToStorage();
+        updateResetButtonUi();
         renderHistoryChart();
         resizeVisibleCharts();
       });
@@ -1950,12 +2320,14 @@
         state.range = rangeSelect.value;
         state.historyUserXAxisRange = null;
         saveControlsToStorage();
+        updateResetButtonUi();
         renderHistoryChart();
       });
 
       smoothSelect?.addEventListener('change', () => {
         state.smooth = smoothSelect.value;
         saveControlsToStorage();
+        updateResetButtonUi();
         renderHistoryChart();
       });
 
@@ -1969,6 +2341,7 @@
         state.showHistoryPanel = nextHistory;
         state.showSnapshotPanel = nextSnapshot;
         saveControlsToStorage();
+        updateResetButtonUi();
         syncPanelToggleUi();
         applyPanelVisibility();
         if (state.showHistoryPanel) {
@@ -1990,6 +2363,7 @@
         state.showSnapshotPanel = nextSnapshot;
         state.showHistoryPanel = nextHistory;
         saveControlsToStorage();
+        updateResetButtonUi();
         syncPanelToggleUi();
         applyPanelVisibility();
         if (state.showHistoryPanel) {
@@ -2005,7 +2379,24 @@
         state.panelsSwapped = !state.panelsSwapped;
         applyPanelOrder();
         saveControlsToStorage();
+        updateResetButtonUi();
         resizeVisibleCharts();
+      });
+
+      copyDashboardLinkButton?.addEventListener('click', async () => {
+        try {
+          await copyDashboardLinkToClipboard(copyDashboardLinkButton);
+        } catch (err) {
+          console.error(err);
+        }
+      });
+
+      resetDashboardButton?.addEventListener('click', () => {
+        if (state.preResetStateSnapshot) {
+          restorePreviousDashboardState();
+        } else {
+          restoreDashboardDefaults();
+        }
       });
     }
 
@@ -2022,6 +2413,7 @@
         // Load stored preferences before showing UI
         loadControlsFromStorage();
         loadLayoutFromStorage();
+        applyDashboardShareStateFromUrl();
         
         // Apply panel visibility and sizing before showing loaders
         // This ensures the layout is correct from the start
@@ -2067,10 +2459,17 @@
         }
         populateUpdatedTimeZoneSelect();
         bindControls();
+        updateResetButtonUi();
         bindPanelResizeInteractions();
         installChartResizeObservers();
         applyPanelOrder();
         renderAll();
+        // Ensure button state is properly set after all rendering completes
+        if (typeof window.requestIdleCallback === 'function') {
+          window.requestIdleCallback(() => updateResetButtonUi(), { timeout: 500 });
+        } else {
+          window.setTimeout(() => updateResetButtonUi(), 100);
+        }
         if (!IS_CARD_PREVIEW) {
           setupRefreshWakeEvents();
           startAutoRefresh();

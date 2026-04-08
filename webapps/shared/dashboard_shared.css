@@ -47,6 +47,7 @@ body {
 /* Keep KPI/topbar in natural content height (no forced extra height). */
 .topbar {
   align-self: start;
+  position: relative;
 }
 
 body.embedded-in-modal .wrap,

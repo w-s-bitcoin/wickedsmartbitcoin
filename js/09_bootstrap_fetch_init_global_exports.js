@@ -2,9 +2,12 @@
  * BOOTSTRAP (fetch + init + global exports)
  * =========================== */
 
-const HOMEPAGE_DASHBOARD_TIME = window.WSBDashboardTime || null;
-const HOMEPAGE_TZ_STORAGE_KEY = HOMEPAGE_DASHBOARD_TIME?.STORAGE_KEY || "wicked_dashboard_timezone_v1";
-const HOMEPAGE_TZ_CHANGE_EVENT = HOMEPAGE_DASHBOARD_TIME?.CHANGE_EVENT || "wsb:timezonechange";
+function getHomepageDashboardTimeApi() {
+    return window.WSBDashboardTime || null;
+}
+
+const HOMEPAGE_TZ_STORAGE_KEY = "wicked_dashboard_timezone_v1";
+const HOMEPAGE_TZ_CHANGE_EVENT = "wsb:timezonechange";
 const LAST_UPDATED_PREFIX = "Last updated:";
 
 function extractUtcStampFromLastUpdatedText(text) {
@@ -47,9 +50,10 @@ function formatLastUpdatedForPreferredTimeZone(utcStamp) {
     const normalizedStamp = String(utcStamp || "").trim();
     if (!normalizedStamp) return `${LAST_UPDATED_PREFIX} -`;
 
-    const preferredTimeZone = HOMEPAGE_DASHBOARD_TIME?.getPreferredTimeZone?.() || "UTC";
-    const formatted = HOMEPAGE_DASHBOARD_TIME?.formatUtcTimestamp
-        ? HOMEPAGE_DASHBOARD_TIME.formatUtcTimestamp(normalizedStamp, preferredTimeZone).text
+    const dashboardTimeApi = getHomepageDashboardTimeApi();
+    const preferredTimeZone = dashboardTimeApi?.getPreferredTimeZone?.() || "UTC";
+    const formatted = dashboardTimeApi?.formatUtcTimestamp
+        ? dashboardTimeApi.formatUtcTimestamp(normalizedStamp, preferredTimeZone).text
         : normalizedStamp;
     return `${LAST_UPDATED_PREFIX} ${normalizeTimeZoneSuffixForFooter(formatted)}`;
 }

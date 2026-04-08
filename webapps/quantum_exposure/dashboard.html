@@ -352,7 +352,8 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-width: 100px;
+      width: 132px;
+      min-width: 132px;
       padding: 8px 12px;
       border-radius: 999px;
       border: 1px solid #cf5c5c;
@@ -1851,8 +1852,6 @@
         </div>
       </div>
       <div class="title-actions">
-        <button id="copyDashboardLink" class="copy-link-btn" type="button" data-tooltip="Copy shareable dashboard link">Copy Link</button>
-        <button id="resetDashboard" class="reset-dashboard-btn" type="button" data-tooltip="Reset dashboard to defaults">Reset Filters</button>
         <button
           id="runtimeModeToggle"
           class="runtime-mode-btn"
@@ -1862,6 +1861,8 @@
         >
           ECO
         </button>
+        <button id="copyDashboardLink" class="copy-link-btn" type="button" data-tooltip="Copy shareable dashboard link">Copy Link</button>
+        <button id="resetDashboard" class="reset-dashboard-btn" type="button" disabled data-tooltip="Reset dashboard to defaults">Restore Defaults</button>
         <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle light or dark mode" aria-pressed="false">
           <span id="themeToggleOther" class="theme-toggle-text"></span>
           <span class="theme-toggle-track" aria-hidden="true"><span class="theme-toggle-thumb"></span></span>

@@ -11,7 +11,7 @@
     --panel: #1a1a1a;
     --brand: #f7931a;
     --control-bg: rgba(0, 0, 0, 0.4);
-    --control-bg-hover: rgba(255, 255, 255, 0.08);
+    --control-bg-hover: #000;
     --control-disabled: #888;
     --control-disabled-border: rgba(255, 255, 255, 0.18);
     --overlay-bg: rgba(0, 0, 0, 0.9);
@@ -172,7 +172,7 @@ footer {
 .controls-row #favoritesToggle.active {
     border-color: var(--brand);
     color: var(--brand);
-    background-color: var(--control-bg-hover);
+    background-color: #000;
 }
 
 /* Keep unfavorited toggle visually neutral even if it retains focus after click. */
@@ -249,7 +249,7 @@ footer {
 }
 #favoritesToggle.active {
     box-shadow: none;
-    background-color: var(--control-bg-hover);
+    background-color: #000;
     color: var(--brand);
 }
 .favorites-toggle-star {
@@ -287,7 +287,7 @@ footer {
 }
 .search-btn.active {
     box-shadow: none;
-    background-color: var(--control-bg-hover);
+    background-color: #000;
     border-color: var(--brand);
     color: var(--brand);
 }
@@ -446,7 +446,7 @@ footer {
 .home-bip110-kpis .chip-menu-wrap.single-select:focus-within .chip-kpi-display {
     color: #ff9800;
     border-color: rgba(255, 152, 0, 0.55);
-    background: rgba(255, 152, 0, 0.08);
+    background: var(--control-bg-hover);
     outline: none;
 }
 
@@ -612,13 +612,14 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
 }
 .buy-coffee-method-btn:active,
 .thanks-method-btn:active {
+    background: #000;
     transform: scale(0.97);
 }
 .buy-coffee-method-btn:hover,
 .buy-coffee-method-btn:focus-visible,
 .thanks-method-btn:hover,
 .thanks-method-btn:focus-visible {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--control-bg-hover);
     border-color: var(--brand);
     color: var(--brand);
     outline: none;
@@ -628,10 +629,10 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
     border-color: var(--brand);
     color: var(--brand);
     box-shadow: 0 0 8px var(--brand);
-    background-color: #333;
+    background-color: #000;
 }
 .buy-coffee-method-btn.active {
-    background: rgba(0, 0, 0, 0);
+    background: #000;
     border-color: var(--brand);
     color: rgba(247, 147, 26, 1);
 }
@@ -708,7 +709,7 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
     outline: none;
 }
 .kebab-btn[aria-expanded='true'] {
-    background-color: var(--control-bg-hover);
+    background-color: #000;
     border-color: var(--brand);
     color: var(--brand);
     box-shadow: none;
@@ -716,7 +717,7 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
 .kebab-btn[aria-expanded='true']:hover,
 .kebab-btn[aria-expanded='true']:focus,
 .kebab-btn[aria-expanded='true']:focus-visible {
-    background-color: var(--control-bg-hover);
+    background-color: #000;
     border-color: var(--brand);
     color: var(--brand);
     box-shadow: none;
@@ -848,13 +849,19 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
     width: 100%;
     border: 1px solid var(--border);
     border-radius: 6px;
-    background: rgba(0, 0, 0, 0.35);
+    background: var(--control-bg);
     color: var(--fg);
     padding: 0.35rem 0.5rem;
     font-size: 0.88rem;
     font-family: monospace;
     cursor: pointer;
     outline: none;
+}
+.menu-timezone-select:hover,
+.menu-timezone-select:focus,
+.menu-timezone-select:focus-visible {
+    background: var(--control-bg-hover);
+    border-color: var(--brand);
 }
 .menu-timezone-select:focus {
     border-color: var(--brand);

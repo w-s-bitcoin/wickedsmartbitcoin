@@ -114,7 +114,7 @@ function updateRuntimeModeButton() {
   modeButton.classList.toggle("is-eco", lite);
   modeButton.classList.toggle("is-full", !lite);
 
-  const tooltipLocal = "Toggle between ECO mode and FULL mode (local only).";
+  const tooltipLocal = "Toggle between ECO mode and FULL mode";
   const tooltipOnline = "ECO mode is locked on deployed sites for faster loading. FULL mode is only available when running this webapp locally.";
   const tooltip = IS_LOCAL_RUNTIME ? tooltipLocal : tooltipOnline;
 
@@ -584,8 +584,8 @@ function getShareRouteBaseUrl() {
     ? (dashboardMatch[1] || "")
     : path.replace(/\/[^/]*$/, "");
 
-  if (window.location.hostname === "localhost") {
-    return `${window.location.origin}${basePath}/view.html`;
+  if (IS_LOCAL_RUNTIME) {
+    return `${window.location.origin}${basePath}/quantum_exposure.html`;
   }
   return `${window.location.origin}${basePath}/quantum_exposure`;
 }
@@ -671,18 +671,9 @@ function buildShareableDashboardUrl() {
   }
 
   const shareUrl = new URL(getShareRouteBaseUrl());
-  const isLocalhost = window.location.hostname === "localhost";
-  if (isLocalhost) {
-    shareUrl.hash = "quantum_exposure";
-  }
   const shareParams = new URLSearchParams();
 
   const finalizeShareUrl = () => {
-    if (isLocalhost) {
-      const localParams = shareParams.toString();
-      shareUrl.hash = localParams ? `quantum_exposure?${localParams}` : "quantum_exposure";
-      return shareUrl.toString();
-    }
     shareParams.forEach((value, key) => {
       shareUrl.searchParams.set(key, value);
     });
@@ -3157,6 +3148,9 @@ function captureFilterSnapshot() {
   const snapshotFilter = document.getElementById("snapshotFilter");
   const supplyModeSelect = document.getElementById("scriptPanelSupplyMode");
   const topExposureAddressSearch = document.getElementById("topExposureAddressSearch");
+  const detailCheckedValues = getDetailCheckboxes().filter((el) => el.checked).map((el) => el.value);
+  const identityGroupCheckedValues = getIdentityGroupCheckboxes().filter((el) => el.checked).map((el) => el.value);
+  const identityCheckedValues = getIdentityCheckboxes().filter((el) => el.checked).map((el) => el.value);
   return {
     balanceFilterValue: balanceFilter ? balanceFilter.value : "all",
     snapshotFilterValue: snapshotFilter ? snapshotFilter.value : String(state.snapshotHeight || ""),
@@ -3167,6 +3161,9 @@ function captureFilterSnapshot() {
     selectedDetailTags: state.selectedDetailTags.slice(),
     selectedIdentityGroups: state.selectedIdentityGroups.slice(),
     selectedIdentityTags: state.selectedIdentityTags.slice(),
+    detailCheckedValues,
+    identityGroupCheckedValues,
+    identityCheckedValues,
     topExposureAddressQuery: state.topExposureAddressQuery,
     identityTagFilterQuery: state.identityTagFilterQuery,
     supplyDisplayMode: state.supplyDisplayMode,
@@ -3175,6 +3172,7 @@ function captureFilterSnapshot() {
     balanceAutoForcedFromAllByTopFilters: state.balanceAutoForcedFromAllByTopFilters,
     topExposuresVisibleCount: state.topExposuresVisibleCount,
     snapshotHeight: state.snapshotHeight,
+    scriptPanelMode: state.scriptPanelMode,
   };
 }
 
@@ -3191,9 +3189,15 @@ async function applyFilterSnapshot(snapshot) {
   getScriptCheckboxes().forEach((el) => { el.checked = snapshot.scriptCheckedValues.includes(el.value); });
   getSpendCheckboxes().forEach((el) => { el.checked = snapshot.spendCheckedValues.includes(el.value); });
 
-  state.selectedDetailTags = snapshot.selectedDetailTags.slice();
-  state.selectedIdentityGroups = snapshot.selectedIdentityGroups.slice();
-  state.selectedIdentityTags = snapshot.selectedIdentityTags.slice();
+  state.selectedDetailTags = Array.isArray(snapshot.detailCheckedValues) && snapshot.detailCheckedValues.length
+    ? snapshot.detailCheckedValues.slice()
+    : snapshot.selectedDetailTags.slice();
+  state.selectedIdentityGroups = Array.isArray(snapshot.identityGroupCheckedValues) && snapshot.identityGroupCheckedValues.length
+    ? snapshot.identityGroupCheckedValues.slice()
+    : snapshot.selectedIdentityGroups.slice();
+  state.selectedIdentityTags = Array.isArray(snapshot.identityCheckedValues) && snapshot.identityCheckedValues.length
+    ? snapshot.identityCheckedValues.slice()
+    : snapshot.selectedIdentityTags.slice();
   state.topExposureAddressQuery = snapshot.topExposureAddressQuery;
   state.identityTagFilterQuery = snapshot.identityTagFilterQuery;
   state.supplyDisplayMode = snapshot.supplyDisplayMode;
@@ -3201,6 +3205,9 @@ async function applyFilterSnapshot(snapshot) {
   state.scriptPanelDetailsCollapsed = snapshot.scriptPanelDetailsCollapsed;
   state.balanceAutoForcedFromAllByTopFilters = snapshot.balanceAutoForcedFromAllByTopFilters;
   state.topExposuresVisibleCount = snapshot.topExposuresVisibleCount;
+  if (snapshot.scriptPanelMode === "historical" || snapshot.scriptPanelMode === "bars") {
+    state.scriptPanelMode = snapshot.scriptPanelMode;
+  }
 
   updateScriptTriggerLabel();
   updateSpendTriggerLabel();
@@ -3246,6 +3253,9 @@ function isDefaultFilterState() {
   const defaultSnapshot = state.availableSnapshots.length ? String(state.availableSnapshots[0]) : null;
   const currentSnapshot = String(snapshotFilter?.value || state.snapshotHeight || "").trim();
   if (defaultSnapshot && currentSnapshot && currentSnapshot !== defaultSnapshot) return false;
+  if (state.scriptPanelMode !== "bars") return false;
+  if (state.topExposuresFiltersCollapsed) return false;
+  if (state.scriptPanelDetailsCollapsed) return false;
 
   return true;
 }
@@ -3254,12 +3264,12 @@ function updateResetButtonUi() {
   const btn = document.getElementById("resetDashboard");
   if (!btn) return;
   if (state.preResetStateSnapshot) {
-    btn.textContent = "Undo Reset";
+    btn.textContent = "Undo Restore";
     btn.classList.add("reset-dashboard-btn--undo");
-    setCustomTooltip(btn, "Undo the last filter reset");
+    setCustomTooltip(btn, "Undo the last restore defaults action");
     btn.disabled = false;
   } else {
-    btn.textContent = "Reset Filters";
+    btn.textContent = "Restore Defaults";
     btn.classList.remove("reset-dashboard-btn--undo");
     setCustomTooltip(btn, "Reset dashboard to defaults");
     btn.disabled = isDefaultFilterState();
@@ -3292,11 +3302,14 @@ async function resetDashboardToDefaults() {
   state.topExposureAddressQuery = "";
   state.identityTagFilterQuery = "";
   state.supplyDisplayMode = "total";
+  state.scriptPanelMode = "bars";
   state.topExposuresFiltersCollapsed = false;
   state.scriptPanelDetailsCollapsed = false;
   state.balanceAutoForcedFromAllByTopFilters = false;
   state.topExposuresVisibleCount = TOP_EXPOSURES_PAGE_SIZE;
   state.topExposuresLoading = false;
+  state.pendingPersistedSnapshotPreference = null;
+  state.pendingPersistedSnapshotHeight = null;
 
   if (supplyModeSelect) {
     supplyModeSelect.value = "total";
@@ -4732,6 +4745,7 @@ function attachEvents() {
         console.error(err);
       }
     });
+    updateResetButtonUi();
   }
 
   if (copyDashboardLinkButton) {
@@ -4748,6 +4762,7 @@ function attachEvents() {
     scriptPanelModeToggle.addEventListener("click", async () => {
       state.scriptPanelMode = state.scriptPanelMode === "historical" ? "bars" : "historical";
       updateScriptPanelModeUi();
+      clearPreResetSnapshot();
 
       if (state.scriptPanelMode === "historical" && !state.historicalSeries.length) {
         try {
@@ -4780,6 +4795,7 @@ function attachEvents() {
       updateTopExposuresFiltersUi();
       syncTopExposuresShowMoreVisibility();
       applyConditionalMiddleEllipsis(document.getElementById("topExposuresList"));
+      clearPreResetSnapshot();
       persistFilters(readFilters());
     });
   }
@@ -4788,6 +4804,7 @@ function attachEvents() {
     scriptPanelDetailsToggle.addEventListener("click", () => {
       state.scriptPanelDetailsCollapsed = !state.scriptPanelDetailsCollapsed;
       updateScriptPanelDetailsUi();
+      clearPreResetSnapshot();
       persistFilters(readFilters());
 
       if (state.scriptPanelMode === "historical") {

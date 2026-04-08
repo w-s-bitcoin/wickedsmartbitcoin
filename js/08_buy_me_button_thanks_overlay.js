@@ -7,6 +7,55 @@ const DONATION_ONCHAIN = 'bc1q8mql8fucypd3dllkawqafytmrnwtv77gzxy346';
 const DASHBOARD_TZ_STORAGE_KEY = 'wicked_dashboard_timezone_v1';
 const DASHBOARD_TZ_CHANGE_EVENT = 'wsb:timezonechange';
 const DASHBOARD_THEME_STORAGE_KEY = 'quantum-research-dashboard-theme';
+let allThanksImagesPreloaded = false;
+
+function preloadThanksImagesIfNeeded(force = false) {
+    const drink = isBeerTime() ? 'beer' : 'coffee';
+    if (!force && lastThanksPreloadMode === drink) return;
+
+    const orientations = ['landscape', 'portrait'];
+    const methods = ['lightning', 'liquid', 'onchain'];
+    for (const orient of orientations) {
+        for (const method of methods) {
+            const src = `assets/thanks_for_the_${drink}_${orient}_${method}.png`;
+            try {
+                if (typeof preloadImage === 'function') preloadImage(src);
+                else {
+                    const img = new Image();
+                    img.src = src;
+                }
+            } catch (_) {
+            }
+        }
+    }
+
+    lastThanksPreloadMode = drink;
+}
+
+function preloadAllThanksImagesOnce() {
+    if (allThanksImagesPreloaded) return;
+
+    const drinks = ['beer', 'coffee'];
+    const orientations = ['landscape', 'portrait'];
+    const methods = ['lightning', 'liquid', 'onchain'];
+    for (const drink of drinks) {
+        for (const orient of orientations) {
+            for (const method of methods) {
+                const src = `assets/thanks_for_the_${drink}_${orient}_${method}.png`;
+                try {
+                    if (typeof preloadImage === 'function') preloadImage(src);
+                    else {
+                        const img = new Image();
+                        img.src = src;
+                    }
+                } catch (_) {
+                }
+            }
+        }
+    }
+
+    allThanksImagesPreloaded = true;
+}
 
 function applySiteTheme(themeRaw) {
     const theme = themeRaw === 'dark' ? 'dark' : 'light';
