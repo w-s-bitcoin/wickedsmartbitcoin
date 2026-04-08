@@ -440,3 +440,31 @@ youtubeOverlay?.addEventListener('click', (e) => {
   }
 });
 
+function applyStandaloneFocusOrder() {
+    if (!document.body || document.body.getAttribute('data-standalone-modal-shell') !== '1') return;
+
+    const modalControls = document.querySelector('.modal-controls');
+    const orderedFocusables = [];
+
+    if (modalControls) {
+        const controls = Array.from(modalControls.querySelectorAll('button.close-btn, a.close-btn'));
+        controls.forEach((el) => orderedFocusables.push(el));
+    }
+
+    const buyCoffeeButton = document.getElementById('buyCoffeeBtn');
+    const shellThemeButton = document.getElementById('shellThemeToggle');
+    if (buyCoffeeButton) orderedFocusables.push(buyCoffeeButton);
+    if (shellThemeButton) orderedFocusables.push(shellThemeButton);
+
+    orderedFocusables.forEach((el, idx) => {
+        if (!(el instanceof HTMLElement)) return;
+        el.setAttribute('tabindex', String(idx + 1));
+    });
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', applyStandaloneFocusOrder, { once: true });
+} else {
+    applyStandaloneFocusOrder();
+}
+

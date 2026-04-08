@@ -437,6 +437,68 @@ h1 {
   opacity: 0.5;
 }
 
+:root[data-theme="light"] select:hover,
+:root[data-theme="light"] select:focus,
+:root[data-theme="light"] select:focus-visible,
+:root[data-theme="light"] .script-trigger:hover,
+:root[data-theme="light"] .script-trigger:focus,
+:root[data-theme="light"] .script-trigger:focus-visible,
+:root[data-theme="light"] .chip-menu-wrap.single-select:hover .chip-kpi-display,
+:root[data-theme="light"] .chip-menu-wrap.single-select:focus-within .chip-kpi-display {
+  background: var(--surface, #fff) !important;
+  background-color: var(--surface, #fff) !important;
+}
+
+.dashboard-inline-tooltip {
+  position: fixed;
+  z-index: 70;
+  width: fit-content;
+  max-width: min(420px, calc(100vw - 24px));
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+  background: #ffffff;
+  color: #1c1b19;
+  padding: 10px 12px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.1);
+  font-family: "IBM Plex Mono", monospace;
+  white-space: pre-line;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-2px);
+  transition: opacity 120ms ease, transform 120ms ease, visibility 0ms linear 120ms;
+}
+
+:root[data-theme="dark"] .dashboard-inline-tooltip {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: #000;
+  color: #d9e5ea;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
+}
+
+.dashboard-inline-tooltip.is-visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+/* Consistent keyboard focus highlight across dashboard controls. */
+.wrap button:focus-visible,
+.wrap a:focus-visible,
+.wrap select:focus-visible,
+.wrap input[type="checkbox"]:focus-visible,
+.wrap input[type="radio"]:focus-visible,
+.wrap .chip-menu-wrap.single-select:focus-within,
+.wrap .chip:focus-within,
+.wrap .toggle:focus-within {
+  outline: 2px solid #ff9800 !important;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px rgba(255, 152, 0, 0.25);
+}
+
 .panel-loader {
   position: absolute;
   inset: 0;

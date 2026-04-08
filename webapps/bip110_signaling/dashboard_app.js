@@ -32,6 +32,165 @@
     const LOCAL_RUNTIME_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
     const IS_LOCAL_RUNTIME = LOCAL_RUNTIME_HOSTS.has(window.location.hostname);
 
+    function isMobileUiViewport() {
+      return window.matchMedia("(max-width: 820px)").matches;
+    }
+
+    function setCustomTooltip(el, text) {
+      if (!el) return;
+      const value = String(text || "").trim();
+      if (value) {
+        el.setAttribute("data-tooltip", value);
+      } else {
+        el.removeAttribute("data-tooltip");
+      }
+      el.removeAttribute("title");
+    }
+
+    let customTooltipBound = false;
+    let customTooltipAnchor = null;
+
+    function ensureCustomTooltipElement() {
+      let tooltip = document.getElementById("dashboardInlineTooltip");
+      if (!tooltip) {
+        tooltip = document.createElement("div");
+        tooltip.id = "dashboardInlineTooltip";
+        tooltip.className = "dashboard-inline-tooltip";
+        document.body.appendChild(tooltip);
+      }
+      return tooltip;
+    }
+
+    function hideCustomTooltip() {
+      const tooltip = document.getElementById("dashboardInlineTooltip");
+      if (!tooltip) return;
+      tooltip.classList.remove("is-visible");
+    }
+
+    function placeCustomTooltip(tooltip, x, y) {
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const offset = 14;
+
+      let left = x + offset;
+      let top = y + offset;
+
+      const maxLeft = viewportWidth - tooltip.offsetWidth - 8;
+      const maxTop = viewportHeight - tooltip.offsetHeight - 8;
+
+      if (left > maxLeft) left = Math.max(8, x - tooltip.offsetWidth - offset);
+      if (top > maxTop) top = Math.max(8, y - tooltip.offsetHeight - offset);
+
+      tooltip.style.left = `${left}px`;
+      tooltip.style.top = `${top}px`;
+    }
+
+    function showCustomTooltip(anchor, x, y) {
+      const text = String(anchor?.getAttribute("data-tooltip") || "").trim();
+      if (!text) {
+        hideCustomTooltip();
+        return;
+      }
+
+      const tooltip = ensureCustomTooltipElement();
+      tooltip.textContent = text;
+      tooltip.classList.add("is-visible");
+      placeCustomTooltip(tooltip, x, y);
+    }
+
+    function bindCustomTooltips() {
+      if (customTooltipBound) return;
+      customTooltipBound = true;
+      let mobileTooltipHideTimerId = null;
+
+      const clearMobileTooltipHideTimer = () => {
+        if (mobileTooltipHideTimerId !== null) {
+          window.clearTimeout(mobileTooltipHideTimerId);
+          mobileTooltipHideTimerId = null;
+        }
+      };
+
+      const shouldSuppressTooltipForAnchor = (anchor) => {
+        if (!anchor) return true;
+        if (!isMobileUiViewport()) return false;
+        if (anchor instanceof Element && anchor.closest("#scriptBars .bar-stack-track")) {
+          return false;
+        }
+        if (
+          anchor instanceof HTMLElement
+          && anchor.classList.contains("tag")
+          && (anchor.classList.contains("tag-spend-never")
+            || anchor.classList.contains("tag-spend-inactive")
+            || anchor.classList.contains("tag-spend-active"))
+        ) {
+          return false;
+        }
+        return !(anchor instanceof HTMLElement && anchor.disabled);
+      };
+
+      document.addEventListener("mouseover", (event) => {
+        const anchor = event.target instanceof Element ? event.target.closest("[data-tooltip]") : null;
+        if (shouldSuppressTooltipForAnchor(anchor)) {
+          if (customTooltipAnchor === anchor) {
+            customTooltipAnchor = null;
+          }
+          hideCustomTooltip();
+          return;
+        }
+        if (!anchor) return;
+        customTooltipAnchor = anchor;
+        showCustomTooltip(anchor, event.clientX, event.clientY);
+      });
+
+      document.addEventListener("mousemove", (event) => {
+        if (!customTooltipAnchor) return;
+        const tooltip = document.getElementById("dashboardInlineTooltip");
+        if (!tooltip || !tooltip.classList.contains("is-visible")) return;
+        placeCustomTooltip(tooltip, event.clientX, event.clientY);
+      });
+
+      document.addEventListener("mouseout", (event) => {
+        if (!customTooltipAnchor) return;
+        const related = event.relatedTarget;
+        if (related instanceof Node && customTooltipAnchor.contains(related)) return;
+        customTooltipAnchor = null;
+        clearMobileTooltipHideTimer();
+        hideCustomTooltip();
+      });
+
+      document.addEventListener("touchstart", (event) => {
+        const anchor = event.target instanceof Element ? event.target.closest("[data-tooltip]") : null;
+        if (shouldSuppressTooltipForAnchor(anchor)) {
+          customTooltipAnchor = null;
+          clearMobileTooltipHideTimer();
+          hideCustomTooltip();
+          return;
+        }
+
+        const touch = event.touches && event.touches.length ? event.touches[0] : null;
+        const rect = anchor.getBoundingClientRect();
+        const x = touch ? touch.clientX : rect.left + (rect.width / 2);
+        const y = touch ? touch.clientY : rect.top + (rect.height / 2);
+        customTooltipAnchor = anchor;
+        showCustomTooltip(anchor, x, y);
+
+        clearMobileTooltipHideTimer();
+        mobileTooltipHideTimerId = window.setTimeout(() => {
+          if (customTooltipAnchor === anchor) {
+            customTooltipAnchor = null;
+          }
+          hideCustomTooltip();
+          mobileTooltipHideTimerId = null;
+        }, 1800);
+      }, { passive: true });
+
+      window.addEventListener("scroll", () => {
+        if (!customTooltipAnchor) return;
+        clearMobileTooltipHideTimer();
+        hideCustomTooltip();
+      }, { passive: true });
+    }
+
     const state = {
       staticData: null,
       dynamicData: null,
@@ -1239,10 +1398,14 @@
       if (state.preResetStateSnapshot) {
         btn.textContent = 'Undo Restore';
         btn.classList.add('reset-dashboard-btn--undo');
+        btn.setAttribute('aria-label', 'Undo the last restore defaults action');
+        setCustomTooltip(btn, 'Undo the last restore defaults action');
         btn.disabled = false;
       } else {
         btn.textContent = 'Restore Defaults';
         btn.classList.remove('reset-dashboard-btn--undo');
+        btn.setAttribute('aria-label', 'Restore dashboard defaults');
+        setCustomTooltip(btn, 'Reset dashboard to defaults');
         btn.disabled = isDefaultState();
       }
     }
@@ -2296,6 +2459,7 @@
             updateFillButtonState(key);
             panel.style.height = `${nextHeight}px`;
             box.style.height = "";
+            updateResetButtonUi();
             renderSelectedPanels([key]);
             if (state.pinnedTooltip) {
               showTooltip(state.pinnedTooltip.content, state.pinnedTooltip.x, state.pinnedTooltip.y);
@@ -2748,6 +2912,7 @@
     }
 
     function setControlHandlers() {
+      bindCustomTooltips();
       const stripes = document.getElementById("toggleStripes");
       const markers = document.getElementById("toggleMarkers");
       const labels = document.getElementById("toggleLabels");
@@ -2755,6 +2920,9 @@
       const bip110Window = document.getElementById("toggleBip110Window");
       const copyDashboardLinkButton = document.getElementById("copyDashboardLink");
       const resetDashboardButton = document.getElementById("resetDashboard");
+
+      setCustomTooltip(copyDashboardLinkButton, "Copy shareable dashboard link");
+      setCustomTooltip(resetDashboardButton, state.preResetStateSnapshot ? "Undo the last restore defaults action" : "Reset dashboard to defaults");
 
       stripes.addEventListener("change", () => {
         state.controls.stripes = stripes.checked;
