@@ -8,6 +8,8 @@ const DASHBOARD_TZ_STORAGE_KEY = 'wicked_dashboard_timezone_v1';
 const DASHBOARD_TZ_CHANGE_EVENT = 'wsb:timezonechange';
 const DASHBOARD_THEME_STORAGE_KEY = 'quantum-research-dashboard-theme';
 let allThanksImagesPreloaded = false;
+let lastThanksOverlayFootprint = null;
+let pendingThanksImageSrc = '';
 
 function preloadThanksImagesIfNeeded(force = false) {
     const drink = isBeerTime() ? 'beer' : 'coffee';
@@ -256,14 +258,89 @@ function updateThanksOverlayImageForMethod(method) {
     const imgEl = thanksOverlay.querySelector('#thanks-overlay-img');
     if (!imgEl) return;
 
+    lockThanksOverlayFootprint();
     setThanksOverlayLoading(true);
-    imgEl.src = thanksImagePath({ beerMode, isPortrait, method });
+    const nextSrc = thanksImagePath({ beerMode, isPortrait, method });
+    pendingThanksImageSrc = String(new URL(nextSrc, window.location.href));
+    imgEl.src = nextSrc;
 
-    // Cached fast-path
     if (imgEl.complete && imgEl.naturalWidth > 0) {
-        setThanksOverlayLoading(false);
-        positionThanksMethodButtonsForOrientation();
+        requestAnimationFrame(() => {
+            if (imgEl.src !== pendingThanksImageSrc) return;
+            releaseThanksOverlayFootprint();
+            setThanksOverlayLoading(false);
+            positionThanksMethodButtonsForOrientation();
+        });
     }
+}
+
+function lockThanksOverlayFootprint() {
+    if (!thanksOverlay) return;
+    const imgEl = thanksOverlay.querySelector('#thanks-overlay-img');
+    const container = imgEl?.parentElement;
+    if (!imgEl || !container) return;
+
+    const forcedLandscape = getForcedLandscapeThanksFootprint();
+    if (forcedLandscape) {
+        lastThanksOverlayFootprint = forcedLandscape;
+    }
+
+    const rect = imgEl.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+        const width = Math.round(rect.width);
+        const height = Math.round(rect.height);
+        lastThanksOverlayFootprint = { width, height };
+    }
+
+    if (lastThanksOverlayFootprint) {
+        imgEl.style.width = `${lastThanksOverlayFootprint.width}px`;
+        imgEl.style.height = `${lastThanksOverlayFootprint.height}px`;
+        container.style.minWidth = `${lastThanksOverlayFootprint.width}px`;
+        container.style.minHeight = `${lastThanksOverlayFootprint.height}px`;
+    }
+}
+
+function releaseThanksOverlayFootprint() {
+    if (!thanksOverlay) return;
+    const imgEl = thanksOverlay.querySelector('#thanks-overlay-img');
+    const container = imgEl?.parentElement;
+    if (!imgEl || !container) return;
+
+    const forcedLandscape = getForcedLandscapeThanksFootprint();
+    if (forcedLandscape) {
+        lastThanksOverlayFootprint = forcedLandscape;
+        imgEl.style.width = `${forcedLandscape.width}px`;
+        imgEl.style.height = `${forcedLandscape.height}px`;
+        container.style.minWidth = `${forcedLandscape.width}px`;
+        container.style.minHeight = `${forcedLandscape.height}px`;
+        return;
+    }
+
+    imgEl.style.width = '';
+    imgEl.style.height = '';
+
+    const rect = imgEl.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+        const width = Math.round(rect.width);
+        const height = Math.round(rect.height);
+        lastThanksOverlayFootprint = { width, height };
+        container.style.minWidth = `${width}px`;
+        container.style.minHeight = `${height}px`;
+    } else {
+        container.style.minWidth = '';
+        container.style.minHeight = '';
+    }
+}
+
+function getForcedLandscapeThanksFootprint() {
+    const isPortrait = window.innerHeight >= window.innerWidth;
+    if (isPortrait) return null;
+
+    const maxByViewportWidth = Math.floor(window.innerWidth * 0.9);
+    const maxByViewportHeight = Math.floor(window.innerHeight * 0.9 * (16 / 9));
+    const width = Math.max(1, Math.min(1280, maxByViewportWidth, maxByViewportHeight));
+    const height = Math.round(width * 9 / 16);
+    return { width, height };
 }
 
 function getDonationTextForMethod(method) {
@@ -322,19 +399,19 @@ function setThanksOverlayLoading(isLoading) {
 
     const spinner = thanksOverlay.querySelector('#thanks-overlay-spinner');
     const btnsWrap = thanksOverlay.querySelector('.buy-coffee-methods');
+    const imgEl = thanksOverlay.querySelector('#thanks-overlay-img');
     const closeBtn = thanksOverlay.querySelector('#thanks-overlay-close');
 
     if (spinner) spinner.style.display = isLoading ? 'flex' : 'none';
+    if (imgEl) {
+        imgEl.style.visibility = isLoading ? 'hidden' : 'visible';
+        imgEl.style.pointerEvents = isLoading ? 'none' : 'auto';
+    }
 
-    // Only hide controls during the *initial* image load
-    const hideControls = isLoading && !hasThanksOverlayEverLoaded;
-
-    if (btnsWrap) btnsWrap.style.visibility = hideControls ? 'hidden' : 'visible';
-    if (closeBtn) closeBtn.style.visibility = hideControls ? 'hidden' : 'visible';
-
-    // After first load, keep controls clickable even while loading next image
-    if (btnsWrap) btnsWrap.style.pointerEvents = hideControls ? 'none' : 'auto';
-    if (closeBtn) closeBtn.style.pointerEvents = hideControls ? 'none' : 'auto';
+    if (btnsWrap) btnsWrap.style.visibility = isLoading ? 'hidden' : 'visible';
+    if (btnsWrap) btnsWrap.style.pointerEvents = isLoading ? 'none' : 'auto';
+    if (closeBtn) closeBtn.style.visibility = 'visible';
+    if (closeBtn) closeBtn.style.pointerEvents = 'auto';
 }
 
 function handleThanksOverlayResize() {
@@ -415,12 +492,15 @@ function showThanksPopup({ fromRoute = false } = {}) {
 
         // Show spinner until the image loads
         img.addEventListener('load', () => {
+            if (pendingThanksImageSrc && img.src !== pendingThanksImageSrc) return;
             if (!hasThanksOverlayEverLoaded) hasThanksOverlayEverLoaded = true;
+            releaseThanksOverlayFootprint();
             setThanksOverlayLoading(false);
             positionThanksMethodButtonsForOrientation();
         });
         img.addEventListener('error', () => {
-            // Hide spinner so user isn't stuck; still show controls so they can close
+            if (pendingThanksImageSrc && img.src !== pendingThanksImageSrc) return;
+            releaseThanksOverlayFootprint();
             setThanksOverlayLoading(false);
         });
 
@@ -549,13 +629,20 @@ function showThanksPopup({ fromRoute = false } = {}) {
     const imgEl = thanksOverlay.querySelector('#thanks-overlay-img');
 
     // Start in loading state BEFORE changing src
+    lockThanksOverlayFootprint();
     setThanksOverlayLoading(true);
+    pendingThanksImageSrc = String(new URL(imgSrc, window.location.href));
     imgEl.src = imgSrc;
 
-    // If the image is already cached, `load` may not fire in time; handle that
+    // Cached fallback: finalize on next frame when src is current.
     if (imgEl.complete && imgEl.naturalWidth > 0) {
-        if (!hasThanksOverlayEverLoaded) hasThanksOverlayEverLoaded = true;
-        setThanksOverlayLoading(false);
+        requestAnimationFrame(() => {
+            if (imgEl.src !== pendingThanksImageSrc) return;
+            if (!hasThanksOverlayEverLoaded) hasThanksOverlayEverLoaded = true;
+            releaseThanksOverlayFootprint();
+            setThanksOverlayLoading(false);
+            positionThanksMethodButtonsForOrientation();
+        });
     }
 
     const toast = thanksOverlay.querySelector('.thanks-toast');

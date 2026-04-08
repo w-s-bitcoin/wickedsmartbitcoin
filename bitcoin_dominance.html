@@ -179,6 +179,9 @@
       const buyCoffeeCloseBtn = document.getElementById('buyCoffeeCloseBtn');
       const buyCoffeeImg = document.getElementById('buyCoffeeImg');
       const buyCoffeeMethodBtns = Array.from(document.querySelectorAll('.buy-coffee-method-btn'));
+      let buyCoffeeSpinnerEl = null;
+      let lastBuyCoffeeFootprint = null;
+      let pendingBuyCoffeeImageSrc = '';
       const DASHBOARD_TZ_STORAGE_KEY = 'wicked_dashboard_timezone_v1';
       const DASHBOARD_THEME_STORAGE_KEY = 'quantum-research-dashboard-theme';
       const shellThemeToggle = document.getElementById('shellThemeToggle');
@@ -319,6 +322,111 @@
         }
       }
 
+      function ensureBuyCoffeeSpinner() {
+        if (buyCoffeeSpinnerEl) return buyCoffeeSpinnerEl;
+        const modal = buyCoffeeOverlay && buyCoffeeOverlay.querySelector('.buy-coffee-modal');
+        if (!modal) return null;
+
+        const spinner = document.createElement('div');
+        spinner.setAttribute('aria-hidden', 'true');
+        Object.assign(spinner.style, {
+          position: 'absolute',
+          inset: '0',
+          display: 'none',
+          alignItems: 'center',
+          justifyContent: 'center',
+          pointerEvents: 'none',
+          zIndex: '12'
+        });
+
+        const ring = document.createElement('div');
+        Object.assign(ring.style, {
+          width: '44px',
+          height: '44px',
+          borderRadius: '999px',
+          border: '4px solid rgba(255,255,255,0.25)',
+          borderTopColor: 'rgba(255,255,255,0.95)',
+          animation: 'thanksSpin 0.9s linear infinite',
+          filter: 'drop-shadow(0 0 10px rgba(0,0,0,0.8))'
+        });
+        spinner.appendChild(ring);
+
+        if (!document.getElementById('thanks-spinner-style')) {
+          const style = document.createElement('style');
+          style.id = 'thanks-spinner-style';
+          style.textContent = '@keyframes thanksSpin { to { transform: rotate(360deg); } }';
+          document.head.appendChild(style);
+        }
+
+        modal.appendChild(spinner);
+        buyCoffeeSpinnerEl = spinner;
+        return spinner;
+      }
+
+      function lockBuyCoffeeFootprint() {
+        if (!buyCoffeeImg) return;
+        const forcedLandscape = getForcedLandscapeBuyCoffeeFootprint();
+        if (forcedLandscape) {
+          lastBuyCoffeeFootprint = forcedLandscape;
+        }
+        const rect = buyCoffeeImg.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          lastBuyCoffeeFootprint = {
+            width: Math.round(rect.width),
+            height: Math.round(rect.height)
+          };
+        }
+        if (lastBuyCoffeeFootprint) {
+          buyCoffeeImg.style.width = `${lastBuyCoffeeFootprint.width}px`;
+          buyCoffeeImg.style.height = `${lastBuyCoffeeFootprint.height}px`;
+        }
+      }
+
+      function releaseBuyCoffeeFootprint() {
+        if (!buyCoffeeImg) return;
+        const forcedLandscape = getForcedLandscapeBuyCoffeeFootprint();
+        if (forcedLandscape) {
+          lastBuyCoffeeFootprint = forcedLandscape;
+          buyCoffeeImg.style.width = `${forcedLandscape.width}px`;
+          buyCoffeeImg.style.height = `${forcedLandscape.height}px`;
+          return;
+        }
+        buyCoffeeImg.style.width = '';
+        buyCoffeeImg.style.height = '';
+        const rect = buyCoffeeImg.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          lastBuyCoffeeFootprint = {
+            width: Math.round(rect.width),
+            height: Math.round(rect.height)
+          };
+        }
+      }
+
+      function getForcedLandscapeBuyCoffeeFootprint() {
+        if (getImageOrientation() !== 'landscape') return null;
+        const maxByViewportWidth = Math.floor(window.innerWidth * 0.9);
+        const maxByViewportHeight = Math.floor(window.innerHeight * 0.9 * (16 / 9));
+        const width = Math.max(1, Math.min(1280, maxByViewportWidth, maxByViewportHeight));
+        const height = Math.round(width * 9 / 16);
+        return { width, height };
+      }
+
+      function setBuyCoffeeLoading(isLoading) {
+        const spinner = ensureBuyCoffeeSpinner();
+        if (spinner) spinner.style.display = isLoading ? 'flex' : 'none';
+
+        const methodsContainer = document.querySelector('.buy-coffee-methods');
+        if (methodsContainer) {
+          methodsContainer.style.visibility = isLoading ? 'hidden' : 'visible';
+          methodsContainer.style.pointerEvents = isLoading ? 'none' : 'auto';
+        }
+
+        if (buyCoffeeImg) {
+          buyCoffeeImg.style.visibility = isLoading ? 'hidden' : 'visible';
+          buyCoffeeImg.style.pointerEvents = isLoading ? 'none' : 'auto';
+        }
+      }
+
       function updateBuyCoffeeImage(method) {
         const btn = document.querySelector(`.buy-coffee-method-btn[data-method="${method}"]`);
         if (!btn || !buyCoffeeImg) return;
@@ -332,7 +440,21 @@
         const portrait = getImageOrientation() === 'portrait';
         const prefix = isBeerTime() ? 'beer' : 'coffee';
         const orientation = portrait ? 'portrait' : 'landscape';
-        buyCoffeeImg.src = `assets/thanks_for_the_${prefix}_${orientation}_${method}.png`;
+        lockBuyCoffeeFootprint();
+        setBuyCoffeeLoading(true);
+        const nextSrc = `assets/thanks_for_the_${prefix}_${orientation}_${method}.png`;
+        pendingBuyCoffeeImageSrc = String(new URL(nextSrc, window.location.href));
+        buyCoffeeImg.src = nextSrc;
+
+        if (buyCoffeeImg.complete && buyCoffeeImg.naturalWidth > 0) {
+          requestAnimationFrame(() => {
+            if (buyCoffeeImg.src !== pendingBuyCoffeeImageSrc) return;
+            releaseBuyCoffeeFootprint();
+            setBuyCoffeeLoading(false);
+            repositionButtons();
+          });
+        }
+
         repositionButtons();
       }
 
@@ -373,6 +495,20 @@
           updateBuyCoffeeImage(activeBtn.getAttribute('data-method') || 'lightning');
         }
       });
+
+      if (buyCoffeeImg) {
+        buyCoffeeImg.addEventListener('load', () => {
+          if (pendingBuyCoffeeImageSrc && buyCoffeeImg.src !== pendingBuyCoffeeImageSrc) return;
+          releaseBuyCoffeeFootprint();
+          setBuyCoffeeLoading(false);
+          repositionButtons();
+        });
+        buyCoffeeImg.addEventListener('error', () => {
+          if (pendingBuyCoffeeImageSrc && buyCoffeeImg.src !== pendingBuyCoffeeImageSrc) return;
+          releaseBuyCoffeeFootprint();
+          setBuyCoffeeLoading(false);
+        });
+      }
 
       function handleDonationTimeZoneChanged() {
         updateBuyMeButton();
