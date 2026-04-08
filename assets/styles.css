@@ -360,22 +360,12 @@ footer {
 :root[data-theme="light"] .kebab-btn[aria-expanded='true']:hover,
 :root[data-theme="light"] .kebab-btn[aria-expanded='true']:focus,
 :root[data-theme="light"] .kebab-btn[aria-expanded='true']:focus-visible,
-:root[data-theme="light"] .buy-coffee-method-btn:hover,
-:root[data-theme="light"] .buy-coffee-method-btn:focus-visible,
-:root[data-theme="light"] .buy-coffee-method-btn:active,
-:root[data-theme="light"] .buy-coffee-method-btn.active,
-:root[data-theme="light"] .thanks-method-btn:hover,
-:root[data-theme="light"] .thanks-method-btn:focus-visible,
-:root[data-theme="light"] .thanks-method-btn:active,
-:root[data-theme="light"] .thanks-method-btn.active,
 :root[data-theme="light"] .modal-controls button:hover,
 :root[data-theme="light"] .modal-controls button:focus-visible,
 :root[data-theme="light"] .modal-controls .close-btn:hover,
 :root[data-theme="light"] .modal-controls .close-btn:focus-visible,
 :root[data-theme="light"] #modal-fav-btn:hover,
 :root[data-theme="light"] #modal-fav-btn:focus-visible,
-:root[data-theme="light"] .buy-coffee-close:hover,
-:root[data-theme="light"] .buy-coffee-close:focus-visible,
 :root[data-theme="light"] .home-bip110-kpis .chip-menu-wrap.single-select:hover .chip-kpi-display,
 :root[data-theme="light"] .home-bip110-kpis .chip-menu-wrap.single-select:focus-within .chip-kpi-display {
     background: #fff !important;
@@ -686,6 +676,33 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
     background: #000;
     border-color: var(--brand);
     color: rgba(247, 147, 26, 1);
+}
+.buy-coffee-methods .buy-coffee-method-btn,
+.thanks-methods .thanks-method-btn {
+    background: rgba(0, 0, 0, 0.58);
+    border-color: rgba(255, 255, 255, 0.22);
+    color: #ffffff;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+.buy-coffee-methods .buy-coffee-method-btn:hover,
+.buy-coffee-methods .buy-coffee-method-btn:focus-visible,
+.buy-coffee-methods .buy-coffee-method-btn:active,
+.buy-coffee-methods .buy-coffee-method-btn.active,
+.thanks-methods .thanks-method-btn:hover,
+.thanks-methods .thanks-method-btn:focus-visible,
+.thanks-methods .thanks-method-btn:active,
+.thanks-methods .thanks-method-btn.active {
+    background: #000 !important;
+    background-color: #000 !important;
+    border-color: var(--brand);
+    color: var(--brand);
+    outline: none;
+}
+.buy-coffee-methods .buy-coffee-method-btn.active,
+.thanks-methods .thanks-method-btn.active {
+    box-shadow: 0 0 8px var(--brand), 0 10px 24px rgba(0, 0, 0, 0.32);
 }
 .thanks-methods {
     position: absolute;
@@ -1295,6 +1312,28 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
 .modal-controls #modal-fav-btn.filled:focus-visible {
     color: var(--brand) !important;
     -webkit-text-fill-color: var(--brand);
+}
+
+.buy-coffee-modal .buy-coffee-close,
+#thanks-overlay #thanks-overlay-close {
+    background: rgba(0, 0, 0, 0.58) !important;
+    border-color: rgba(255, 255, 255, 0.22) !important;
+    color: #ffffff !important;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+.buy-coffee-modal .buy-coffee-close:hover,
+.buy-coffee-modal .buy-coffee-close:focus-visible,
+.buy-coffee-modal .buy-coffee-close:active,
+#thanks-overlay #thanks-overlay-close:hover,
+#thanks-overlay #thanks-overlay-close:focus-visible,
+#thanks-overlay #thanks-overlay-close:active {
+    background: #000 !important;
+    border-color: var(--brand) !important;
+    color: var(--brand) !important;
+    outline: none;
 }
 
 /* ===========================
