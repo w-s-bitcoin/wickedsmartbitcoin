@@ -985,11 +985,17 @@
       if (!buttonEl) return;
       const labelEl = buttonEl.querySelector('.label');
       const original = labelEl ? labelEl.textContent : buttonEl.textContent;
+      if (buttonEl.__copyFeedbackTimer) {
+        window.clearTimeout(buttonEl.__copyFeedbackTimer);
+      }
+      buttonEl.classList.add('copy-link-btn--copied');
       if (labelEl) labelEl.textContent = 'Copied!';
       else buttonEl.textContent = 'Copied!';
-      window.setTimeout(() => {
+      buttonEl.__copyFeedbackTimer = window.setTimeout(() => {
         if (labelEl) labelEl.textContent = original || 'Copy Link';
         else buttonEl.textContent = original || 'Copy Link';
+        buttonEl.classList.remove('copy-link-btn--copied');
+        buttonEl.__copyFeedbackTimer = null;
       }, 1400);
     }
 

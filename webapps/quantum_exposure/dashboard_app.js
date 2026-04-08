@@ -861,9 +861,15 @@ async function copyDashboardLinkToClipboard(buttonEl) {
 
   if (!buttonEl) return;
   const originalLabel = buttonEl.textContent || "Copy Link";
+  if (buttonEl.__copyFeedbackTimer) {
+    window.clearTimeout(buttonEl.__copyFeedbackTimer);
+  }
+  buttonEl.classList.add("copy-link-btn--copied");
   buttonEl.textContent = "Copied!";
-  window.setTimeout(() => {
+  buttonEl.__copyFeedbackTimer = window.setTimeout(() => {
     buttonEl.textContent = originalLabel;
+    buttonEl.classList.remove("copy-link-btn--copied");
+    buttonEl.__copyFeedbackTimer = null;
   }, 1400);
 }
 
