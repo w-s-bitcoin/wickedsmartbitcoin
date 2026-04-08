@@ -49,6 +49,165 @@
     const IS_LOCAL_RUNTIME = LOCAL_RUNTIME_HOSTS.has(window.location.hostname);
     // Hide tiny positive values that round to 0.00% in tooltip/display.
     const STABLE_MIN_PCT_FOR_PLOT = 0.01;
+
+    function isMobileUiViewport() {
+      return window.matchMedia('(max-width: 820px)').matches;
+    }
+
+    function setCustomTooltip(el, text) {
+      if (!el) return;
+      const value = String(text || '').trim();
+      if (value) {
+        el.setAttribute('data-tooltip', value);
+      } else {
+        el.removeAttribute('data-tooltip');
+      }
+      el.removeAttribute('title');
+    }
+
+    let customTooltipBound = false;
+    let customTooltipAnchor = null;
+
+    function ensureCustomTooltipElement() {
+      let tooltip = document.getElementById('dashboardInlineTooltip');
+      if (!tooltip) {
+        tooltip = document.createElement('div');
+        tooltip.id = 'dashboardInlineTooltip';
+        tooltip.className = 'dashboard-inline-tooltip';
+        document.body.appendChild(tooltip);
+      }
+      return tooltip;
+    }
+
+    function hideCustomTooltip() {
+      const tooltip = document.getElementById('dashboardInlineTooltip');
+      if (!tooltip) return;
+      tooltip.classList.remove('is-visible');
+    }
+
+    function placeCustomTooltip(tooltip, x, y) {
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const offset = 14;
+
+      let left = x + offset;
+      let top = y + offset;
+
+      const maxLeft = viewportWidth - tooltip.offsetWidth - 8;
+      const maxTop = viewportHeight - tooltip.offsetHeight - 8;
+
+      if (left > maxLeft) left = Math.max(8, x - tooltip.offsetWidth - offset);
+      if (top > maxTop) top = Math.max(8, y - tooltip.offsetHeight - offset);
+
+      tooltip.style.left = `${left}px`;
+      tooltip.style.top = `${top}px`;
+    }
+
+    function showCustomTooltip(anchor, x, y) {
+      const text = String(anchor?.getAttribute('data-tooltip') || '').trim();
+      if (!text) {
+        hideCustomTooltip();
+        return;
+      }
+
+      const tooltip = ensureCustomTooltipElement();
+      tooltip.textContent = text;
+      tooltip.classList.add('is-visible');
+      placeCustomTooltip(tooltip, x, y);
+    }
+
+    function bindCustomTooltips() {
+      if (customTooltipBound) return;
+      customTooltipBound = true;
+      let mobileTooltipHideTimerId = null;
+
+      const clearMobileTooltipHideTimer = () => {
+        if (mobileTooltipHideTimerId !== null) {
+          window.clearTimeout(mobileTooltipHideTimerId);
+          mobileTooltipHideTimerId = null;
+        }
+      };
+
+      const shouldSuppressTooltipForAnchor = (anchor) => {
+        if (!anchor) return true;
+        if (!isMobileUiViewport()) return false;
+        if (anchor instanceof Element && anchor.closest('#scriptBars .bar-stack-track')) {
+          return false;
+        }
+        if (
+          anchor instanceof HTMLElement
+          && anchor.classList.contains('tag')
+          && (anchor.classList.contains('tag-spend-never')
+            || anchor.classList.contains('tag-spend-inactive')
+            || anchor.classList.contains('tag-spend-active'))
+        ) {
+          return false;
+        }
+        return !(anchor instanceof HTMLElement && anchor.disabled);
+      };
+
+      document.addEventListener('mouseover', (event) => {
+        const anchor = event.target instanceof Element ? event.target.closest('[data-tooltip]') : null;
+        if (shouldSuppressTooltipForAnchor(anchor)) {
+          if (customTooltipAnchor === anchor) {
+            customTooltipAnchor = null;
+          }
+          hideCustomTooltip();
+          return;
+        }
+        if (!anchor) return;
+        customTooltipAnchor = anchor;
+        showCustomTooltip(anchor, event.clientX, event.clientY);
+      });
+
+      document.addEventListener('mousemove', (event) => {
+        if (!customTooltipAnchor) return;
+        const tooltip = document.getElementById('dashboardInlineTooltip');
+        if (!tooltip || !tooltip.classList.contains('is-visible')) return;
+        placeCustomTooltip(tooltip, event.clientX, event.clientY);
+      });
+
+      document.addEventListener('mouseout', (event) => {
+        if (!customTooltipAnchor) return;
+        const related = event.relatedTarget;
+        if (related instanceof Node && customTooltipAnchor.contains(related)) return;
+        customTooltipAnchor = null;
+        clearMobileTooltipHideTimer();
+        hideCustomTooltip();
+      });
+
+      document.addEventListener('touchstart', (event) => {
+        const anchor = event.target instanceof Element ? event.target.closest('[data-tooltip]') : null;
+        if (shouldSuppressTooltipForAnchor(anchor)) {
+          customTooltipAnchor = null;
+          clearMobileTooltipHideTimer();
+          hideCustomTooltip();
+          return;
+        }
+
+        const touch = event.touches && event.touches.length ? event.touches[0] : null;
+        const rect = anchor.getBoundingClientRect();
+        const x = touch ? touch.clientX : rect.left + (rect.width / 2);
+        const y = touch ? touch.clientY : rect.top + (rect.height / 2);
+        customTooltipAnchor = anchor;
+        showCustomTooltip(anchor, x, y);
+
+        clearMobileTooltipHideTimer();
+        mobileTooltipHideTimerId = window.setTimeout(() => {
+          if (customTooltipAnchor === anchor) {
+            customTooltipAnchor = null;
+          }
+          hideCustomTooltip();
+          mobileTooltipHideTimerId = null;
+        }, 1800);
+      }, { passive: true });
+
+      window.addEventListener('scroll', () => {
+        if (!customTooltipAnchor) return;
+        clearMobileTooltipHideTimer();
+        hideCustomTooltip();
+      }, { passive: true });
+    }
     function getPlotlyHoverlabel() {
       const style = getComputedStyle(document.documentElement);
       const isLight = document.documentElement.dataset.theme === 'light';
@@ -104,6 +263,61 @@
     let snapshotResizeObserver = null;
     let snapshotResizeFrame = 0;
     let lastSnapshotChartSize = { width: 0, height: 0 };
+    const snapshotCircularIconCache = new Map();
+    const snapshotCircularIconPending = new Set();
+
+    function getCircularSnapshotIconSource(iconUrl) {
+      const href = String(iconUrl || '').trim();
+      if (!href) return null;
+
+      const resolvedHref = new URL(href, window.location.href).href;
+      const cached = snapshotCircularIconCache.get(resolvedHref);
+      if (cached) return cached;
+
+      if (!snapshotCircularIconPending.has(resolvedHref)) {
+        snapshotCircularIconPending.add(resolvedHref);
+        const img = new window.Image();
+        img.decoding = 'async';
+        img.onload = () => {
+          try {
+            const naturalWidth = Math.max(1, Number(img.naturalWidth) || 1);
+            const naturalHeight = Math.max(1, Number(img.naturalHeight) || 1);
+            const side = Math.max(1, Math.min(naturalWidth, naturalHeight));
+            const sx = Math.max(0, (naturalWidth - side) / 2);
+            const sy = Math.max(0, (naturalHeight - side) / 2);
+
+            const canvas = document.createElement('canvas');
+            canvas.width = side;
+            canvas.height = side;
+            const ctx = canvas.getContext('2d');
+
+            if (!ctx) {
+              snapshotCircularIconCache.set(resolvedHref, resolvedHref);
+            } else {
+              ctx.beginPath();
+              ctx.arc(side / 2, side / 2, side / 2, 0, Math.PI * 2);
+              ctx.closePath();
+              ctx.clip();
+              ctx.drawImage(img, sx, sy, side, side, 0, 0, side, side);
+              snapshotCircularIconCache.set(resolvedHref, canvas.toDataURL('image/png'));
+            }
+          } catch (_err) {
+            snapshotCircularIconCache.set(resolvedHref, resolvedHref);
+          } finally {
+            snapshotCircularIconPending.delete(resolvedHref);
+            scheduleSnapshotChartRender(true);
+          }
+        };
+        img.onerror = () => {
+          snapshotCircularIconCache.set(resolvedHref, resolvedHref);
+          snapshotCircularIconPending.delete(resolvedHref);
+          scheduleSnapshotChartRender(true);
+        };
+        img.src = resolvedHref;
+      }
+
+      return resolvedHref;
+    }
 
     function isStackedLayout() {
       return window.matchMedia(`(max-width: ${MOBILE_STACK_BREAKPOINT}px)`).matches;
@@ -588,10 +802,14 @@
       if (state.preResetStateSnapshot) {
         btn.textContent = 'Undo Restore';
         btn.classList.add('reset-dashboard-btn--undo');
+        btn.setAttribute('aria-label', 'Undo the last restore defaults action');
+        setCustomTooltip(btn, 'Undo the last restore defaults action');
         btn.disabled = false;
       } else {
         btn.textContent = 'Restore Defaults';
         btn.classList.remove('reset-dashboard-btn--undo');
+        btn.setAttribute('aria-label', 'Restore dashboard defaults');
+        setCustomTooltip(btn, 'Reset dashboard to defaults');
         btn.disabled = isDefaultState();
       }
     }
@@ -1657,6 +1875,7 @@
       }, {
         responsive: true,
         doubleClick: false,
+        displayModeBar: false,
         displaylogo: false,
         modeBarButtonsToRemove: ['select2d', 'lasso2d', 'autoScale2d', 'toggleSpikelines'],
       }).then(() => {
@@ -1772,9 +1991,10 @@
       const iconImages = topRows.map((row) => {
         const marketCap = num(row['Market Cap']);
         const iconUrl = getSnapshotIconUrl(row);
-        if (!iconUrl || !Number.isFinite(marketCap)) return null;
+        const circularIconSource = getCircularSnapshotIconSource(iconUrl);
+        if (!circularIconSource || !Number.isFinite(marketCap)) return null;
         return {
-          source: iconUrl,
+          source: circularIconSource,
           xref: 'x',
           yref: 'y',
           x: marketCap + iconXOffset,
@@ -2072,15 +2292,18 @@
         const currentHistoryHeight = Math.max(minHistoryHeight, Math.round(historyPanel.getBoundingClientRect().height || fallbackHistoryHeight));
         const currentSnapshotHeight = Math.max(minSnapshotHeight, Math.round(snapshotPanel.getBoundingClientRect().height || fallbackSnapshotHeight));
 
-        if (!(Number(state.historyPanelManualHeight) > 0)) {
-          state.historyPanelManualHeight = currentHistoryHeight;
-        }
-        if (!(Number(state.snapshotPanelManualHeight) > 0)) {
-          state.snapshotPanelManualHeight = currentSnapshotHeight;
-        }
-
-        const historyHeight = Math.max(minHistoryHeight, Number(state.historyPanelManualHeight) || fallbackHistoryHeight);
-        const snapshotHeight = Math.max(minSnapshotHeight, Number(state.snapshotPanelManualHeight) || fallbackSnapshotHeight);
+        const historyHeight = Math.max(
+          minHistoryHeight,
+          Number(state.historyPanelManualHeight) > 0
+            ? Number(state.historyPanelManualHeight)
+            : (currentHistoryHeight || fallbackHistoryHeight)
+        );
+        const snapshotHeight = Math.max(
+          minSnapshotHeight,
+          Number(state.snapshotPanelManualHeight) > 0
+            ? Number(state.snapshotPanelManualHeight)
+            : (currentSnapshotHeight || fallbackSnapshotHeight)
+        );
         if (state.panelsSwapped) {
           grid.style.gridTemplateRows = `minmax(${minSnapshotHeight}px, ${Math.round(snapshotHeight)}px) minmax(${minHistoryHeight}px, ${Math.round(historyHeight)}px)`;
         } else {
@@ -2136,6 +2359,7 @@
           const leftPercent = clamp(((clientX - rect.left) / rect.width) * 100, PANEL_SPLIT_MIN, PANEL_SPLIT_MAX);
           state.historyPanelPercent = applyCenterSnap(leftPercent);
           applyPanelSizing();
+          updateResetButtonUi();
           resizeVisibleCharts();
         };
 
@@ -2145,6 +2369,7 @@
           panelResizer.classList.remove('dragging');
           document.body.classList.remove('resizing-panels');
           saveLayoutToStorage();
+          updateResetButtonUi();
         };
 
         panelResizer.addEventListener('pointerdown', (event) => {
@@ -2183,6 +2408,7 @@
           );
           applyPanelSizing();
           saveLayoutToStorage();
+          updateResetButtonUi();
           resizeVisibleCharts();
         });
       }
@@ -2222,6 +2448,7 @@
               state.snapshotPanelManualHeight = nextHeight;
             }
             applyPanelSizing();
+            updateResetButtonUi();
             resizeVisibleCharts();
           };
 
@@ -2238,6 +2465,7 @@
               handle.releasePointerCapture(ev.pointerId);
             }
             saveLayoutToStorage();
+            updateResetButtonUi();
           };
 
           handle.addEventListener('pointermove', onPointerMove);
@@ -2285,6 +2513,7 @@
     }
 
     function bindControls() {
+      bindCustomTooltips();
       const updatedTimeZoneSelect = document.getElementById('updatedTimeZoneSelect');
       const includeStablesToggle = document.getElementById('toggleIncludeStables');
       const stackedDominanceToggle = document.getElementById('toggleStackedDominance');
@@ -2296,6 +2525,9 @@
       const swapPanelsBtn = document.getElementById('swapPanelsBtn');
       const copyDashboardLinkButton = document.getElementById('copyDashboardLink');
       const resetDashboardButton = document.getElementById('resetDashboard');
+
+      setCustomTooltip(copyDashboardLinkButton, 'Copy shareable dashboard link');
+      setCustomTooltip(resetDashboardButton, state.preResetStateSnapshot ? 'Undo the last restore defaults action' : 'Reset dashboard to defaults');
 
       updatedTimeZoneSelect?.addEventListener('change', () => {
         state.timeZone = DASHBOARD_TIME?.setPreferredTimeZone?.(updatedTimeZoneSelect.value) || updatedTimeZoneSelect.value;
