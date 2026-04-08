@@ -81,6 +81,9 @@ wait_for_phase
 if [[ "$RUN_ANALYSIS" == "1" ]]; then
     printf '\n== Phase 4: dashboard analysis ==\n'
     "$PYTHON_BIN" run_dashboard_analysis.py
+
+    printf '\n== Phase 5: correct aggregate pubkey counts (>=1 BTC) ==\n'
+    "$PYTHON_BIN" correct_aggregated_pubkey_counts.py --snapshot "$(cat ../webapp_data/latest_snapshot.txt)"
 else
     printf '\nSkipping dashboard analysis because RUN_ANALYSIS=%s\n' "$RUN_ANALYSIS"
 fi

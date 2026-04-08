@@ -3587,6 +3587,16 @@ function estimateMigrationBlocksFromRow(row) {
   return (utxoCount * avgWeight * 4) / 4_000_000;
 }
 
+function getDetailTagThresholdPubkeyCount(detailValue) {
+  const detailTag = formatDetailTag(detailValue || "");
+  const multisigMatch = detailTag.match(/^Multisig\s+(\d+)\s+of\s+(\d+)$/i);
+  if (!multisigMatch) return 1;
+
+  const thresholdPubkeys = Number(multisigMatch[2]);
+  if (!Number.isFinite(thresholdPubkeys) || thresholdPubkeys <= 0) return 1;
+  return Math.max(1, Math.floor(thresholdPubkeys));
+}
+
 function aggregateKpisFromGe1(filters, includeTagFilters) {
   const acc = {
     supply_sats: 0,
@@ -3596,6 +3606,9 @@ function aggregateKpisFromGe1(filters, includeTagFilters) {
     estimated_migration_blocks: 0,
   };
   const exposedPubkeyGroupIds = new Set();
+  const detailFilterActive =
+    Array.isArray(filters.detailTags) && filters.detailTags.length > 0 && !filters.detailTags.includes("All");
+  const useThresholdPubkeyCounting = !isLiteMode() && includeTagFilters && detailFilterActive;
 
   state.ge1Rows.forEach((row) => {
     if (!rowPassesTopExposureFilters(row, filters, includeTagFilters)) return;
@@ -3606,14 +3619,21 @@ function aggregateKpisFromGe1(filters, includeTagFilters) {
     acc.supply_sats += exposedSupply;
     acc.exposed_supply_sats += exposedSupply;
     acc.exposed_utxo_count += totalExposedUtxos;
-    const rowPrimaryId = getRowPrimaryGroupId(row);
-    if (rowPrimaryId) {
-      exposedPubkeyGroupIds.add(rowPrimaryId);
+    if (useThresholdPubkeyCounting) {
+      // For exposure-pattern filtering, approximate exposed pubkeys by threshold size per row.
+      acc.exposed_pubkey_count += getDetailTagThresholdPubkeyCount(row.details);
+    } else {
+      const rowPrimaryId = getRowPrimaryGroupId(row);
+      if (rowPrimaryId) {
+        exposedPubkeyGroupIds.add(rowPrimaryId);
+      }
     }
     acc.estimated_migration_blocks += estimateMigrationBlocksFromRow(row);
   });
 
-  acc.exposed_pubkey_count = exposedPubkeyGroupIds.size;
+  if (!useThresholdPubkeyCounting) {
+    acc.exposed_pubkey_count = exposedPubkeyGroupIds.size;
+  }
 
   return acc;
 }
@@ -4000,6 +4020,23 @@ function tryLoadMoreTopExposures() {
     state.topExposuresLoading = false;
     update();
   }, TOP_EXPOSURES_LOAD_DELAY_MS);
+}
+
+function triggerEcoFullDataLoadFromSearchFocus() {
+  const canPrefetchFromFocus =
+    isLiteMode() &&
+    isLatestSnapshotSelected() &&
+    state.ge1IsUsingEcoSubset &&
+    !state.ge1FullDataLoadTriggered &&
+    !state.topExposuresLoading;
+
+  if (!canPrefetchFromFocus) {
+    return;
+  }
+
+  state.ge1FullDataLoadTriggered = true;
+  syncTopExposuresShowMoreVisibility();
+  triggerFullDataLoad();
 }
 
 async function triggerFullDataLoad() {
@@ -4646,8 +4683,8 @@ async function loadSnapshotData(snapshot) {
     renderTopExposureTagFilters();
     updateTopExposures();
 
-    // Full ge1 data and the large lookup CSV are loaded on-demand only when the user
-    // scrolls past the initial 50 rows (see tryLoadMoreTopExposures / triggerFullDataLoad).
+    // Full ge1 data and the large lookup CSV are loaded on-demand either when the user
+    // focuses address search or when they scroll past the initial 50 rows.
     state.snapshotDataCache.set(requestedSnapshot, {
       snapshotHeight: state.snapshotHeight,
       aggregatesRows,
@@ -4675,7 +4712,8 @@ async function loadSnapshotData(snapshot) {
     ge1Rows,
   });
 
-  // In full mode, update everything after ge1 data loads
+  // In full mode, recompute KPIs/charts and top exposures after ge1 data loads.
+  updateKpisAndCharts();
   updateTopExposures();
 }
 
@@ -4827,6 +4865,9 @@ function attachEvents() {
 
   if (topExposureAddressSearch) {
     topExposureAddressSearch.value = state.topExposureAddressQuery;
+    topExposureAddressSearch.addEventListener("focus", () => {
+      triggerEcoFullDataLoadFromSearchFocus();
+    });
     topExposureAddressSearch.addEventListener("input", () => {
       state.topExposureAddressQuery = topExposureAddressSearch.value.trim();
       resetTopExposurePagination();
