@@ -22,9 +22,13 @@
       /* dark (default) */
       --bg: #000;
       --panel: #000;
+      --surface: #000000;
+      --surface-soft: #000000;
       --panel-border: rgba(255, 255, 255, 0.14);
       --fg: #f1f5f7;
+      --ink: #f0f0f0;
       --muted: #95a6ae;
+      --line: #3a3a3a;
       --fg-dim: #d6e1e6;
       --link: #8dc7ff;
       --accent: #ff9f1c;
@@ -46,9 +50,13 @@
     :root[data-theme="light"] {
       --bg: #f7f4ee;
       --panel: #ffffff;
+      --surface: #ffffff;
+      --surface-soft: #faf6ef;
       --panel-border: rgba(0, 0, 0, 0.11);
       --fg: #1c1b19;
+      --ink: #1c1b19;
       --muted: #6f685f;
+      --line: #d8d0c3;
       --fg-dim: #514d47;
       --link: #1f4f78;
       --caret-chevron: #7a756e;
@@ -456,13 +464,14 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
+      gap: 6px;
       width: 96px;
       min-width: 96px;
       padding: 8px 12px;
       border-radius: 999px;
-      border: 1px solid rgba(255, 255, 255, 0.2);
-      background: transparent;
-      color: #95a6ae;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--muted);
       font-size: 12px;
       font-weight: 700;
       letter-spacing: 0.2px;
@@ -472,35 +481,21 @@
     }
 
     .copy-link-btn:hover {
-      background: rgba(255, 255, 255, 0.06);
-      border-color: rgba(255, 255, 255, 0.3);
-      color: #f1f5f7;
-    }
-
-    :root[data-theme="light"] .copy-link-btn {
-      border-color: rgba(0, 0, 0, 0.11);
-      background: #ffffff;
-      color: #6f685f;
-    }
-
-    :root[data-theme="light"] .copy-link-btn:hover,
-    :root[data-theme="light"] .copy-link-btn:focus-visible {
-      background: #faf6ef;
-      border-color: rgba(0, 0, 0, 0.14);
-      color: #1c1b19;
-      outline: none;
+      background: var(--surface-soft);
+      color: var(--ink);
     }
 
     .reset-dashboard-btn {
       display: inline-flex;
       align-items: center;
       justify-content: center;
+      gap: 6px;
       width: 132px;
       min-width: 132px;
       padding: 8px 12px;
       border-radius: 999px;
       border: 1px solid #cf5c5c;
-      background: #ffe9e9;
+      background: transparent;
       color: #8f1f1f;
       font-size: 12px;
       font-weight: 700;
@@ -511,9 +506,9 @@
     }
 
     .reset-dashboard-btn:hover {
-      background: #ffd4d4;
-      border-color: #b84949;
-      color: #6f1717;
+      background: transparent;
+      border-color: #b83d3d;
+      color: #6f1111;
     }
 
     .reset-dashboard-btn:disabled {
@@ -523,37 +518,37 @@
     }
 
     :root[data-theme="dark"] .reset-dashboard-btn {
-      background: #3b1d1d;
+      background: transparent;
       border-color: #a14a4a;
       color: #ffb3b3;
     }
 
     :root[data-theme="dark"] .reset-dashboard-btn:hover {
-      background: #4a2323;
+      background: transparent;
       border-color: #c05d5d;
       color: #ffd0d0;
     }
 
     .reset-dashboard-btn--undo {
       border-color: #3b82f6;
-      background: #eff6ff;
+      background: transparent;
       color: #1d4ed8;
     }
 
     .reset-dashboard-btn--undo:hover {
-      background: #dbeafe;
+      background: transparent;
       border-color: #2563eb;
       color: #1e40af;
     }
 
     :root[data-theme="dark"] .reset-dashboard-btn--undo {
-      background: #1e3a5f;
+      background: transparent;
       border-color: #3b82f6;
       color: #93c5fd;
     }
 
     :root[data-theme="dark"] .reset-dashboard-btn--undo:hover {
-      background: #1e3a8040;
+      background: transparent;
       border-color: #60a5fa;
       color: #bfdbfe;
     }
@@ -577,6 +572,11 @@
       stroke-width: 1.9;
       stroke-linecap: round;
       stroke-linejoin: round;
+    }
+
+    .title-actions button .btn-icon svg.icon-fill {
+      stroke: none;
+      fill: currentColor;
     }
 
     .title-actions button .btn-label {
