@@ -508,6 +508,9 @@
         const hiddenHistorySeries = Array.isArray(parsed.hiddenHistorySeries)
           ? parsed.hiddenHistorySeries
           : [];
+        const softwareExpandedKeys = Array.isArray(parsed.softwareExpandedKeys)
+          ? parsed.softwareExpandedKeys
+          : [];
 
         const rangeSelect = document.getElementById('rangeSelect');
         const smoothSelect = document.getElementById('smoothSelect');
@@ -556,6 +559,11 @@
               .filter((v) => allowed.has(v))
           );
         }
+        state.softwareExpandedKeys = new Set(
+          softwareExpandedKeys
+            .map((v) => String(v || '').trim())
+            .filter(Boolean)
+        );
       } catch (_) {
       }
     }
@@ -586,6 +594,7 @@
           softwareChartPercent: Number(state.softwareChartPercent),
           softwareChartStackPercent: Number(state.softwareChartStackPercent),
           hiddenHistorySeries: Array.from(state.hiddenHistorySeries),
+          softwareExpandedKeys: Array.from(state.softwareExpandedKeys),
         };
         localStorage.setItem(CONTROLS_STORAGE_KEY, JSON.stringify(payload));
         if (!state.suppressResetSnapshotClear) {
@@ -653,7 +662,11 @@
         historyPanelStackPercent: 52,
         softwareChartPercent: 52,
         softwareChartStackPercent: 48,
+        stackedTopPanelHeightRatio: 0,
+        historyPanelManualHeightRatio: 0,
+        softwarePanelManualHeightRatio: 0,
         hiddenHistorySeries: [],
+        softwareExpandedKeys: [],
         timeZone: 'UTC',
       };
 
@@ -668,7 +681,17 @@
         historyPanelStackPercent: Number(state.historyPanelStackPercent || defaults.historyPanelStackPercent),
         softwareChartPercent: Number(state.softwareChartPercent || defaults.softwareChartPercent),
         softwareChartStackPercent: Number(state.softwareChartStackPercent || defaults.softwareChartStackPercent),
+        stackedTopPanelHeightRatio: Number(state.stackedTopPanelHeight) > 0
+          ? parseFloat((Number(state.stackedTopPanelHeight) / (window.innerHeight || 1)).toFixed(4))
+          : 0,
+        historyPanelManualHeightRatio: Number(state.historyPanelManualHeight) > 0
+          ? parseFloat((Number(state.historyPanelManualHeight) / (window.innerHeight || 1)).toFixed(4))
+          : 0,
+        softwarePanelManualHeightRatio: Number(state.softwarePanelManualHeight) > 0
+          ? parseFloat((Number(state.softwarePanelManualHeight) / (window.innerHeight || 1)).toFixed(4))
+          : 0,
         hiddenHistorySeries: Array.from(state.hiddenHistorySeries || []),
+        softwareExpandedKeys: Array.from(state.softwareExpandedKeys || []),
         timeZone: String(state.timeZone || 'UTC'),
       };
 
@@ -754,6 +777,28 @@
             .map((value) => String(value || '').trim())
             .filter((value) => allowed.has(value))
         );
+      }
+
+      if (Array.isArray(decoded.softwareExpandedKeys)) {
+        state.softwareExpandedKeys = new Set(
+          decoded.softwareExpandedKeys
+            .map((value) => String(value || '').trim())
+            .filter(Boolean)
+        );
+      }
+
+      const vh = window.innerHeight || 1;
+      const stackedTopPanelHeightRatio = Number(decoded.stackedTopPanelHeightRatio);
+      if (Number.isFinite(stackedTopPanelHeightRatio) && stackedTopPanelHeightRatio > 0) {
+        state.stackedTopPanelHeight = stackedTopPanelHeightRatio * vh;
+      }
+      const historyPanelManualHeightRatio = Number(decoded.historyPanelManualHeightRatio);
+      if (Number.isFinite(historyPanelManualHeightRatio) && historyPanelManualHeightRatio > 0) {
+        state.historyPanelManualHeight = historyPanelManualHeightRatio * vh;
+      }
+      const softwarePanelManualHeightRatio = Number(decoded.softwarePanelManualHeightRatio);
+      if (Number.isFinite(softwarePanelManualHeightRatio) && softwarePanelManualHeightRatio > 0) {
+        state.softwarePanelManualHeight = softwarePanelManualHeightRatio * vh;
       }
 
       const timeZone = String(decoded.timeZone || '').trim();
