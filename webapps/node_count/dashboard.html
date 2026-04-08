@@ -696,6 +696,118 @@
 
     }
 
+    .title-actions {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      position: absolute;
+      right: 12px;
+      top: 12px;
+    }
+
+    .copy-link-btn {
+      display: inline-flex;
+      align-items: center;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: transparent;
+      color: #95a6ae;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+      cursor: pointer;
+      transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+      white-space: nowrap;
+    }
+
+    .copy-link-btn:hover {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(255, 255, 255, 0.3);
+      color: #f1f5f7;
+    }
+
+    :root[data-theme="light"] .copy-link-btn {
+      border-color: rgba(0, 0, 0, 0.11);
+      background: #ffffff;
+      color: #6f685f;
+    }
+
+    :root[data-theme="light"] .copy-link-btn:hover,
+    :root[data-theme="light"] .copy-link-btn:focus-visible {
+      background: #faf6ef;
+      border-color: rgba(0, 0, 0, 0.14);
+      color: #1c1b19;
+      outline: none;
+    }
+
+    .reset-dashboard-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 132px;
+      min-width: 132px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid #cf5c5c;
+      background: #ffe9e9;
+      color: #8f1f1f;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+      cursor: pointer;
+      transition: background 160ms ease, border-color 160ms ease, color 160ms ease, opacity 160ms ease;
+      white-space: nowrap;
+    }
+
+    .reset-dashboard-btn:hover {
+      background: #ffd4d4;
+      border-color: #b84949;
+      color: #6f1717;
+    }
+
+    .reset-dashboard-btn:disabled {
+      opacity: 0.38;
+      cursor: default;
+      pointer-events: none;
+    }
+
+    :root[data-theme="dark"] .reset-dashboard-btn {
+      background: #3b1d1d;
+      border-color: #a14a4a;
+      color: #ffb3b3;
+    }
+
+    :root[data-theme="dark"] .reset-dashboard-btn:hover {
+      background: #4a2323;
+      border-color: #c05d5d;
+      color: #ffd0d0;
+    }
+
+    .reset-dashboard-btn--undo {
+      border-color: #3b82f6;
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+
+    .reset-dashboard-btn--undo:hover {
+      background: #dbeafe;
+      border-color: #2563eb;
+      color: #1e40af;
+    }
+
+    :root[data-theme="dark"] .reset-dashboard-btn--undo {
+      background: #1e3a5f;
+      border-color: #3b82f6;
+      color: #93c5fd;
+    }
+
+    :root[data-theme="dark"] .reset-dashboard-btn--undo:hover {
+      background: #1e3a8040;
+      border-color: #60a5fa;
+      color: #bfdbfe;
+    }
 
   </style>
 </head>
@@ -710,6 +822,10 @@
             This dashboard tracks Bitcoin node count trends over time and shows current software distribution across major client families.
           </div>
         </div>
+      </div>
+      <div class="title-actions">
+        <button type="button" class="copy-link-btn" id="copyDashboardLink" aria-label="Copy shareable dashboard link" data-tooltip="Copy shareable dashboard link">Copy Link</button>
+        <button type="button" class="reset-dashboard-btn" id="resetDashboard" disabled aria-label="Restore dashboard defaults" data-tooltip="Reset dashboard to defaults">Restore Defaults</button>
       </div>
       <p class="source-row">
         <span>Sources:</span>
