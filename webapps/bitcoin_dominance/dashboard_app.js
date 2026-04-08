@@ -285,6 +285,7 @@
         historyPanelPercent: 61.54,
         historyPanelManualHeight: 0,
         snapshotPanelManualHeight: 0,
+        historyUserXAxisRange: null,
         timeZone: 'UTC',
       };
 
@@ -301,12 +302,19 @@
         historyPanelPercent: Number(state.historyPanelPercent || 61.54),
         historyPanelManualHeight: Number(state.historyPanelManualHeight || 0),
         snapshotPanelManualHeight: Number(state.snapshotPanelManualHeight || 0),
+        historyUserXAxisRange: Array.isArray(state.historyUserXAxisRange)
+          ? state.historyUserXAxisRange.slice()
+          : null,
         timeZone: String(state.timeZone || 'UTC'),
       };
 
       const compactPayload = {};
       Object.entries(payload).forEach(([key, value]) => {
-        if (value === defaults[key]) return;
+        const def = defaults[key];
+        const sameArray = Array.isArray(def)
+          ? Array.isArray(value) && def.length === value.length && def.every((entry, idx) => entry === value[idx])
+          : false;
+        if (sameArray || value === def) return;
         compactPayload[key] = value;
       });
 
@@ -351,6 +359,10 @@
       const snapshotPanelManualHeight = Number(decoded.snapshotPanelManualHeight);
       if (Number.isFinite(snapshotPanelManualHeight) && snapshotPanelManualHeight >= 0) {
         state.snapshotPanelManualHeight = snapshotPanelManualHeight;
+      }
+
+      if (Array.isArray(decoded.historyUserXAxisRange) && decoded.historyUserXAxisRange.length === 2) {
+        state.historyUserXAxisRange = decoded.historyUserXAxisRange.slice();
       }
 
       const timeZone = String(decoded.timeZone || '').trim();

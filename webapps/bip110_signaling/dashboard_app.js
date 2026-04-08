@@ -856,6 +856,27 @@
     }
 
     function buildShareableDashboardUrl() {
+      const defaults = {
+        controls: {
+          stripes: window.innerWidth >= 760,
+          stripesExplicit: false,
+          markers: true,
+          labels: true,
+          showSegwit: false,
+          showBip110: true,
+          panelsSwapped: false,
+        },
+        manualPanelHeights: {
+          segwit: null,
+          bip110: null,
+        },
+        filledPanels: {
+          segwit: false,
+          bip110: true,
+        },
+        timeZone: "UTC",
+      };
+
       const payload = {
         controls: {
           stripes: Boolean(state.controls.stripes),
@@ -878,7 +899,34 @@
       };
 
       const shareUrl = new URL(getShareRouteBaseUrl());
-      const encoded = encodeShareState(payload);
+      const compactPayload = {
+        controls: {},
+        manualPanelHeights: {},
+        filledPanels: {},
+      };
+
+      Object.entries(payload.controls).forEach(([key, value]) => {
+        if (value !== defaults.controls[key]) compactPayload.controls[key] = value;
+      });
+      Object.entries(payload.manualPanelHeights).forEach(([key, value]) => {
+        if (value !== defaults.manualPanelHeights[key]) compactPayload.manualPanelHeights[key] = value;
+      });
+      Object.entries(payload.filledPanels).forEach(([key, value]) => {
+        if (value !== defaults.filledPanels[key]) compactPayload.filledPanels[key] = value;
+      });
+      if (payload.timeZone !== defaults.timeZone) {
+        compactPayload.timeZone = payload.timeZone;
+      }
+
+      if (!Object.keys(compactPayload.controls).length) delete compactPayload.controls;
+      if (!Object.keys(compactPayload.manualPanelHeights).length) delete compactPayload.manualPanelHeights;
+      if (!Object.keys(compactPayload.filledPanels).length) delete compactPayload.filledPanels;
+
+      if (!Object.keys(compactPayload).length) {
+        return shareUrl.toString();
+      }
+
+      const encoded = encodeShareState(compactPayload);
       if (encoded) {
         shareUrl.searchParams.set(SHARE_STATE_PARAM, encoded);
       }
@@ -940,9 +988,10 @@
 
     async function copyDashboardLinkToClipboard(buttonEl) {
       const link = buildShareableDashboardUrl();
-      if (navigator.clipboard?.writeText) {
+      try {
+        if (!navigator.clipboard?.writeText) throw new Error("Clipboard API unavailable");
         await navigator.clipboard.writeText(link);
-      } else {
+      } catch (_) {
         const textArea = document.createElement("textarea");
         textArea.value = link;
         textArea.setAttribute("readonly", "readonly");
