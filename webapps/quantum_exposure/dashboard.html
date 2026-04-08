@@ -58,7 +58,7 @@
       --analysis-min-height: 500px;
       --wrap-grid-template-rows: auto minmax(0, 1fr);
       --bg: #f7f4ee;
-      --card: #fffdf9;
+      --card: #ffffff;
       --surface: #ffffff;
       --surface-soft: #faf6ef;
       --surface-muted: #fbf8f2;
@@ -352,12 +352,13 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
+      gap: 6px;
       width: 132px;
       min-width: 132px;
       padding: 8px 12px;
       border-radius: 999px;
       border: 1px solid #cf5c5c;
-      background: #ffe9e9;
+      background: transparent;
       color: #8f1f1f;
       font-size: 12px;
       font-weight: 700;
@@ -377,6 +378,7 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
+      gap: 6px;
       width: 96px;
       min-width: 96px;
       padding: 8px 12px;
@@ -401,7 +403,8 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-width: 64px;
+      gap: 6px;
+      min-width: 84px;
       padding: 8px 8px;
       border-radius: 999px;
       border: 1px solid transparent;
@@ -416,51 +419,82 @@
     }
 
     .runtime-mode-btn.is-eco {
-      background: #e7f6ea;
+      background: transparent;
       border-color: #5eae73;
       color: #1f6d2c;
     }
 
     .runtime-mode-btn.is-eco:hover {
-      background: #d8efdf;
+      background: transparent;
       border-color: #4a955f;
       color: #145224;
     }
 
     .runtime-mode-btn.is-full {
-      background: #fff0e4;
+      background: transparent;
       border-color: #d38a42;
       color: #8c4d12;
     }
 
     .runtime-mode-btn.is-full:hover {
-      background: #ffe4cc;
+      background: transparent;
       border-color: #ba7531;
       color: #6f3d0a;
     }
 
     :root[data-theme="dark"] .runtime-mode-btn.is-eco {
-      background: #1d3a27;
+      background: transparent;
       border-color: #4f8f61;
       color: #a8e3b8;
     }
 
     :root[data-theme="dark"] .runtime-mode-btn.is-eco:hover {
-      background: #235031;
+      background: transparent;
       border-color: #67ab77;
       color: #c2f0cd;
     }
 
     :root[data-theme="dark"] .runtime-mode-btn.is-full {
-      background: #3d2817;
+      background: transparent;
       border-color: #a96e35;
       color: #f2c08c;
     }
 
     :root[data-theme="dark"] .runtime-mode-btn.is-full:hover {
-      background: #56361e;
+      background: transparent;
       border-color: #c0874f;
       color: #ffd8ae;
+    }
+
+    .title-actions button .btn-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
+      flex: 0 0 14px;
+      pointer-events: none;
+    }
+
+    .title-actions button .btn-icon svg {
+      width: 14px;
+      height: 14px;
+      display: block;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.9;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .title-actions button .btn-icon svg.icon-fill {
+      stroke: none;
+      fill: currentColor;
+    }
+
+    .title-actions button .btn-label {
+      display: inline-block;
+      line-height: 1;
     }
 
     .runtime-mode-btn:hover {
@@ -476,43 +510,43 @@
     }
 
     .reset-dashboard-btn:hover {
-      background: #ffd9d9;
+      background: transparent;
       border-color: #b83d3d;
       color: #6f1111;
     }
 
     :root[data-theme="dark"] .reset-dashboard-btn {
-      background: #3b1d1d;
+      background: transparent;
       border-color: #a14a4a;
       color: #ffb3b3;
     }
 
     :root[data-theme="dark"] .reset-dashboard-btn:hover {
-      background: #4a2323;
+      background: transparent;
       border-color: #c05d5d;
       color: #ffd0d0;
     }
 
     .reset-dashboard-btn--undo {
       border-color: #3b82f6;
-      background: #eff6ff;
+      background: transparent;
       color: #1d4ed8;
     }
 
     .reset-dashboard-btn--undo:hover {
-      background: #dbeafe;
+      background: transparent;
       border-color: #2563eb;
       color: #1e40af;
     }
 
     :root[data-theme="dark"] .reset-dashboard-btn--undo {
-      background: #1e3a5f;
+      background: transparent;
       border-color: #3b82f6;
       color: #93c5fd;
     }
 
     :root[data-theme="dark"] .reset-dashboard-btn--undo:hover {
-      background: #1e3a8040;
+      background: transparent;
       border-color: #60a5fa;
       color: #bfdbfe;
     }
@@ -522,7 +556,8 @@
       align-items: center;
       gap: 10px;
       flex-shrink: 0;
-      padding: 8px 10px;
+      height: 32px;
+      padding: 5px 10px;
       border-radius: 999px;
       border: 1px solid var(--line);
       background: var(--surface);
@@ -544,8 +579,8 @@
 
     .theme-toggle-track {
       position: relative;
-      width: 42px;
-      height: 22px;
+      width: 36px;
+      height: 20px;
       border-radius: 999px;
       background: var(--surface-muted);
       box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
@@ -555,8 +590,8 @@
       position: absolute;
       top: 2px;
       left: 2px;
-      width: 18px;
-      height: 18px;
+      width: 16px;
+      height: 16px;
       border-radius: 50%;
       background: #fffdf8;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
@@ -564,7 +599,7 @@
     }
 
     :root[data-theme="dark"] .theme-toggle-thumb {
-      transform: translateX(20px);
+      transform: translateX(16px);
       background: #f2ede4;
     }
 
@@ -778,6 +813,7 @@
       color: var(--muted);
       text-transform: uppercase;
       letter-spacing: 0.7px;
+      line-height: 1.2;
     }
 
     .panel-title-row {
@@ -800,12 +836,18 @@
       white-space: normal;
       overflow-wrap: anywhere;
       line-height: 1.2;
+      margin-top: 8px;
+    }
+
+    .top-exposures-header .bars-title {
+      margin-top: 8px;
     }
 
     .panel-title-main .info-wrap {
       position: relative;
       display: inline-flex;
       align-items: center;
+      margin-top: 6px;
       flex-shrink: 0;
     }
 
@@ -882,8 +924,8 @@
       justify-content: flex-start;
       gap: 10px;
       flex-shrink: 0;
-      height: 34px;
-      padding: 6px 10px;
+      height: 32px;
+      padding: 5px 10px;
       border-radius: 999px;
       border: 1px solid var(--line);
       background: var(--surface);
@@ -902,8 +944,8 @@
 
     .panel-view-toggle-track {
       position: relative;
-      width: 42px;
-      height: 22px;
+      width: 36px;
+      height: 20px;
       border-radius: 999px;
       background: var(--surface-muted);
       box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
@@ -913,8 +955,8 @@
       position: absolute;
       top: 2px;
       left: 2px;
-      width: 18px;
-      height: 18px;
+      width: 16px;
+      height: 16px;
       border-radius: 50%;
       background: #fffdf8;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
@@ -927,7 +969,7 @@
     }
 
     .panel-view-toggle[data-mode="historical"] .panel-view-toggle-thumb {
-      transform: translateX(20px);
+      transform: translateX(16px);
       background: #f2ede4;
     }
 
@@ -1495,7 +1537,7 @@
 
     .top-exposures-header {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: space-between;
       gap: 10px;
       margin-bottom: 0;
@@ -1841,6 +1883,15 @@
         justify-content: center;
       }
 
+      .runtime-mode-btn .btn-icon,
+      .runtime-mode-btn .btn-label,
+      .copy-link-btn .btn-icon,
+      .copy-link-btn .btn-label,
+      .reset-dashboard-btn .btn-icon,
+      .reset-dashboard-btn .btn-label {
+        display: none;
+      }
+
       .copy-link-btn::before,
       .reset-dashboard-btn::before {
         content: '';
@@ -1969,10 +2020,23 @@
           aria-pressed="true"
           data-tooltip="ECO mode is locked on deployed sites for faster loading. FULL mode is only available when running this webapp locally."
         >
-          ECO
+          <span class="btn-icon" aria-hidden="true">
+            <svg id="runtimeModeIcon" class="icon-fill" viewBox="0 0 48 48" focusable="false" aria-hidden="true"><path d="M31.197 33.609c-3.86 3.313-10.505 4.373-16.005.214 1.282-2.014 6.075-8.804 14.26-12.078l-.556-1.393c-7.977 3.191-12.782 9.372-14.573 12.047-1.513-3.531-1.792-6.971-.775-10.021.947-2.846 2.998-5.146 5.774-6.477 3.986-1.91 6.896-2.212 9.977-2.531 2.933-.304 5.949-.616 9.79-2.346-.387 6.263-2.22 17.714-7.892 22.585zm8.749-26.372c-4.455 2.475-7.613 2.803-10.957 3.149-3.199.331-6.508.675-10.963 2.81-3.516 1.684-6.118 4.609-7.325 8.234-1.316 3.954-.899 8.355 1.16 12.788-2.209 2.801-4.268 6.68-4.861 7.83h3.402c.816-1.487 2.102-3.694 3.441-5.486 2.951 2.087 6.151 2.986 9.209 2.986 3.858 0 7.489-1.421 10.099-3.664 7.137-6.128 9.023-20.56 9.023-27.336V6l-2.228 1.237z"></path></svg>
+          </span>
+          <span class="btn-label">ECO</span>
         </button>
-        <button id="copyDashboardLink" class="copy-link-btn" type="button" data-tooltip="Copy shareable dashboard link">Copy Link</button>
-        <button id="resetDashboard" class="reset-dashboard-btn" type="button" disabled data-tooltip="Reset dashboard to defaults">Restore Defaults</button>
+        <button id="copyDashboardLink" class="copy-link-btn" type="button" data-tooltip="Copy shareable dashboard link">
+          <span class="btn-icon" aria-hidden="true">
+            <svg id="copyDashboardIcon" viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+          </span>
+          <span class="btn-label">Copy Link</span>
+        </button>
+        <button id="resetDashboard" class="reset-dashboard-btn" type="button" disabled data-tooltip="Reset dashboard to defaults">
+          <span class="btn-icon" aria-hidden="true">
+            <svg id="resetDashboardIcon" viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path></svg>
+          </span>
+          <span class="btn-label">Restore Defaults</span>
+        </button>
         <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle light or dark mode" aria-pressed="false">
           <span id="themeToggleOther" class="theme-toggle-text"></span>
           <span class="theme-toggle-track" aria-hidden="true"><span class="theme-toggle-thumb"></span></span>
