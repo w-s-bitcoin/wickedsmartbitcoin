@@ -33,6 +33,32 @@
   let imageListPromise = null;
   let currentYoutubeUrl = "";
 
+  function applyStandaloneFocusOrder() {
+    if (!document.body || document.body.getAttribute("data-standalone-modal-shell") !== "1") return;
+
+    const modalControls = document.querySelector(".modal-controls");
+    const orderedFocusables = [];
+
+    if (modalControls) {
+      const controls = Array.from(modalControls.querySelectorAll("button.close-btn, a.close-btn"));
+      controls.forEach((el) => {
+        if (!(el instanceof HTMLElement)) return;
+        const isDisabledLink = el.getAttribute("aria-disabled") === "true" || el.getAttribute("tabindex") === "-1";
+        if (isDisabledLink) return;
+        orderedFocusables.push(el);
+      });
+    }
+
+    const buyCoffeeButton = document.getElementById("buyCoffeeBtn");
+    const shellThemeButton = document.getElementById("shellThemeToggle");
+    if (buyCoffeeButton instanceof HTMLElement) orderedFocusables.push(buyCoffeeButton);
+    if (shellThemeButton instanceof HTMLElement) orderedFocusables.push(shellThemeButton);
+
+    orderedFocusables.forEach((el, idx) => {
+      el.setAttribute("tabindex", String(idx + 1));
+    });
+  }
+
   function getPageBasePath() {
     const parts = window.location.pathname.replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
     if (parts.length <= 1) return "";
@@ -163,6 +189,7 @@
     setLinkState(nostrLink, String(image?.latest_nostr || "").trim());
     setLinkState(youtubeLink, currentYoutubeUrl);
     if (youtubeLink) youtubeLink.dataset.youtube = currentYoutubeUrl;
+    applyStandaloneFocusOrder();
   }
 
   function setCurrentImage(image, index) {
@@ -426,6 +453,7 @@
 
     showShell();
     bindEvents();
+    applyStandaloneFocusOrder();
     updateFavoriteButton();
     applySocialLinks(currentImage);
     ensureCurrentImageFromList();

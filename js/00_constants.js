@@ -9,19 +9,16 @@ const MAX_TAP_MOVE_PX = 12;
 const BUY_COFFEE_METHOD_KEY = 'buyCoffeeMethod';
 const ASSET_BASE = 'assets/';
 const BUY_BEER_IMG_URLS = [
-  ASSET_BASE+'thanks_for_the_beer_landscape_lightning.png',
-  ASSET_BASE+'thanks_for_the_beer_landscape_liquid.png',
-  ASSET_BASE+'thanks_for_the_beer_landscape_onchain.png',
-  ASSET_BASE+'thanks_for_the_beer_portrait_lightning.png',
-  ASSET_BASE+'thanks_for_the_beer_portrait_liquid.png',
-  ASSET_BASE+'thanks_for_the_beer_portrait_onchain.png'
+  ASSET_BASE+'thanks_for_the_beer_landscape.png',
+  ASSET_BASE+'thanks_for_the_beer_portrait.png'
 ];
 const BUY_COFFEE_IMG_URLS = [
-  ASSET_BASE+'thanks_for_the_coffee_landscape_lightning.png',
-  ASSET_BASE+'thanks_for_the_coffee_landscape_liquid.png',
-  ASSET_BASE+'thanks_for_the_coffee_landscape_onchain.png',
-  ASSET_BASE+'thanks_for_the_coffee_portrait_lightning.png',
-  ASSET_BASE+'thanks_for_the_coffee_portrait_liquid.png',
-  ASSET_BASE+'thanks_for_the_coffee_portrait_onchain.png'
+  ASSET_BASE+'thanks_for_the_coffee_landscape.png',
+  ASSET_BASE+'thanks_for_the_coffee_portrait.png'
+];
+const BUY_DONATION_QR_URLS = [
+  ASSET_BASE+'qr_lightning.png',
+  ASSET_BASE+'qr_liquid.png',
+  ASSET_BASE+'qr_onchain.png'
 ];
 const cardByFilename = new Map();
