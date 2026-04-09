@@ -988,10 +988,6 @@
       transition: opacity 160ms ease, filter 160ms ease;
     }
 
-    .bar-row.is-muted {
-      opacity: 0.42;
-    }
-
     .bar-head {
       display: flex;
       align-items: center;
@@ -1052,6 +1048,10 @@
       background: var(--surface-muted);
       border-radius: 0;
       overflow: hidden;
+    }
+
+    .bar-stack-track.is-muted {
+      opacity: 0.42;
     }
 
     :root[data-theme="dark"] .bar-stack-track {

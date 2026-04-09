@@ -2054,6 +2054,10 @@ function renderScriptBars(rows) {
     const active = row.spendHighlighted.active ? row.exposedActive : 0;
     return never + inactive + active;
   };
+  const spendFadeClass = (row, spendKey) => {
+    if (!row.scriptHighlighted) return "";
+    return row.spendHighlighted[spendKey] ? "" : "is-faded";
+  };
   const showFullReference = rows.some((r) => r.showFullReference);
   
   const maxScaleTotal = Math.max(
@@ -2071,7 +2075,8 @@ function renderScriptBars(rows) {
   );
 
   const html = rows.map((r) => {
-    const rowClass = r.scriptHighlighted ? "bar-row" : "bar-row is-muted";
+    const rowClass = "bar-row";
+    const trackClass = r.scriptHighlighted ? "bar-stack-track" : "bar-stack-track is-muted";
     const actualTotalSupplySats = r.showFullReference ? r.fullTotalSupplySats : r.totalSupplySats;
     const filteredNeverSats = r.scriptHighlighted && r.spendHighlighted.never_spent ? r.exposedNever : 0;
     const filteredInactiveSats = r.scriptHighlighted && r.spendHighlighted.inactive ? r.exposedInactive : 0;
@@ -2133,12 +2138,12 @@ function renderScriptBars(rows) {
           <span class="bar-name">${r.scriptType}</span>
           <span class="bar-metric"><span class="bar-metric-label">Total</span> <span class="bar-metric-value">${formatInt(totalBtc)} BTC</span></span>
         </div>
-        <div class="bar-stack-track">
+        <div class="${trackClass}">
           ${showFilteredOnly ? `
           <div class="bar-stack-fill" style="width:${totalPct}%">
-            <div class="seg-never ${r.spendHighlighted.never_spent ? "" : "is-faded"}" data-tooltip="Never Spent (filtered): ${formatInt(neverBtc)} BTC" style="width:${neverPct}%;"></div>
-            <div class="seg-inactive ${r.spendHighlighted.inactive ? "" : "is-faded"}" data-tooltip="Inactive (filtered): ${formatInt(inactiveBtc)} BTC" style="width:${inactivePct}%;"></div>
-            <div class="seg-active ${r.spendHighlighted.active ? "" : "is-faded"}" data-tooltip="Active (filtered): ${formatInt(activeBtc)} BTC" style="width:${activePct}%;"></div>
+            <div class="seg-never ${spendFadeClass(r, "never_spent")}" data-tooltip="Never Spent (filtered): ${formatInt(neverBtc)} BTC" style="width:${neverPct}%;"></div>
+            <div class="seg-inactive ${spendFadeClass(r, "inactive")}" data-tooltip="Inactive (filtered): ${formatInt(inactiveBtc)} BTC" style="width:${inactivePct}%;"></div>
+            <div class="seg-active ${spendFadeClass(r, "active")}" data-tooltip="Active (filtered): ${formatInt(activeBtc)} BTC" style="width:${activePct}%;"></div>
           </div>` : (r.showFullReference ? `
           <div class="bar-stack-fill bar-stack-fill-base" style="width:${fullTotalPct}%">
             ${showNonExposed ? `<div class="seg-nonexposed" data-tooltip="Non-exposed: ${formatInt(nonExposedBtc)} BTC" style="left:${fullNonExposedStartPct}%; width:${fullNonExposedPct}%;"></div>` : ""}
@@ -2149,14 +2154,14 @@ function renderScriptBars(rows) {
             <div class="seg-active" data-tooltip="Active (full): ${formatInt(fullActiveBtc)} BTC" style="left:${fullActiveStartPct}%; width:${fullActivePct}%;"></div>
           </div>
           <div class="bar-stack-fill bar-stack-fill-overlay" style="width:${fullTotalPct}%">
-            <div class="seg-never ${r.spendHighlighted.never_spent ? "" : "is-faded"}" data-tooltip="Never Spent: ${formatInt(neverBtc)} BTC" style="left:0; width:${filteredNeverOfFullPct}%;"></div>
-            <div class="seg-inactive ${r.spendHighlighted.inactive ? "" : "is-faded"}" data-tooltip="Inactive: ${formatInt(inactiveBtc)} BTC" style="left:${fullInactiveStartPct}%; width:${filteredInactiveOfFullPct}%;"></div>
-            <div class="seg-active ${r.spendHighlighted.active ? "" : "is-faded"}" data-tooltip="Active: ${formatInt(activeBtc)} BTC" style="left:${fullActiveStartPct}%; width:${filteredActiveOfFullPct}%;"></div>
+            <div class="seg-never ${spendFadeClass(r, "never_spent")}" data-tooltip="Never Spent: ${formatInt(neverBtc)} BTC" style="left:0; width:${filteredNeverOfFullPct}%;"></div>
+            <div class="seg-inactive ${spendFadeClass(r, "inactive")}" data-tooltip="Inactive: ${formatInt(inactiveBtc)} BTC" style="left:${fullInactiveStartPct}%; width:${filteredInactiveOfFullPct}%;"></div>
+            <div class="seg-active ${spendFadeClass(r, "active")}" data-tooltip="Active: ${formatInt(activeBtc)} BTC" style="left:${fullActiveStartPct}%; width:${filteredActiveOfFullPct}%;"></div>
           </div>` : `
           <div class="bar-stack-fill" style="width:${totalPct}%">
-            <div class="seg-never ${r.spendHighlighted.never_spent ? "" : "is-faded"}" data-tooltip="Never Spent: ${formatInt(neverBtc)} BTC" style="width:${neverPct}%;"></div>
-            <div class="seg-inactive ${r.spendHighlighted.inactive ? "" : "is-faded"}" data-tooltip="Inactive: ${formatInt(inactiveBtc)} BTC" style="width:${inactivePct}%;"></div>
-            <div class="seg-active ${r.spendHighlighted.active ? "" : "is-faded"}" data-tooltip="Active: ${formatInt(activeBtc)} BTC" style="width:${activePct}%;"></div>
+            <div class="seg-never ${spendFadeClass(r, "never_spent")}" data-tooltip="Never Spent: ${formatInt(neverBtc)} BTC" style="width:${neverPct}%;"></div>
+            <div class="seg-inactive ${spendFadeClass(r, "inactive")}" data-tooltip="Inactive: ${formatInt(inactiveBtc)} BTC" style="width:${inactivePct}%;"></div>
+            <div class="seg-active ${spendFadeClass(r, "active")}" data-tooltip="Active: ${formatInt(activeBtc)} BTC" style="width:${activePct}%;"></div>
             ${showNonExposed ? `<div class="seg-nonexposed" data-tooltip="Non-exposed: ${formatInt(nonExposedBtc)} BTC" style="width:${nonExposedPct}%;"></div>` : ""}
           </div>`)}
         </div>
