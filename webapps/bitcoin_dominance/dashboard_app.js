@@ -1507,9 +1507,10 @@
       const _thFg = _thStyle.getPropertyValue('--fg').trim() || '#f1f5f7';
       const _thFgDim = _thStyle.getPropertyValue('--fg-dim').trim() || '#d6e1e6';
       const _thIsLight = document.documentElement.dataset.theme === 'light';
-      const _fillBtc    = _thIsLight ? 'rgba(255,159,28,0.18)'   : '#5f3800';
-      const _fillStable = _thIsLight ? 'rgba(53,181,106,0.15)'   : '#123f26';
-      const _fillOther  = _thIsLight ? 'rgba(130,130,130,0.18)'  : '#2f2f2f';
+      // Use opaque fills that visually match prior translucent fills over light/dark backgrounds.
+      const _fillBtc    = _thIsLight ? '#ffeed6' : '#5f3800';
+      const _fillStable = _thIsLight ? '#e1f4e9' : '#123f26';
+      const _fillOther  = _thIsLight ? '#e9e9e9' : '#2f2f2f';
       const rangeDays = Number(state.range != null ? state.range : document.getElementById('rangeSelect')?.value ?? 365);
       const smooth = Number(state.smooth ?? document.getElementById('smoothSelect')?.value ?? 7);
       const allRows = getCurrentHistory().slice().sort((a, b) => new Date(`${a.Date}T00:00:00Z`) - new Date(`${b.Date}T00:00:00Z`));
@@ -1549,10 +1550,11 @@
       const y = smooth > 1 ? rollingAverage(yRaw, smooth) : yRaw;
       const yFill = y.map((v) => (Number.isFinite(v) ? Math.max(0, v) : null));
       const priceByDate = new Map((state.priceHistory || []).map((row) => [row.date, row.price]));
-      const priceY = x.map((date) => {
+      const priceYRaw = x.map((date) => {
         const price = priceByDate.get(date);
         return Number.isFinite(price) ? price : null;
       });
+      const priceY = smooth > 1 ? rollingAverageNullable(priceYRaw, smooth) : priceYRaw;
       const hasPriceTrace = state.showPrice && priceY.some((value) => Number.isFinite(value));
       const traces = [];
       let hasStableTrace = false;
@@ -1773,19 +1775,23 @@
         });
       });
 
-      // Line layers (top stack): other, stable, btc
-      traces.push({
-        type: 'scatter',
-        mode: 'lines',
-        x,
-        y: state.stackedDominance ? otherTopY : otherValueY,
-        line: { color: '#999999', width: 2.5 },
-        customdata: otherValueY,
-        hovertemplate: 'Other dominance: %{customdata:.1f}%<extra></extra>',
-        name: 'Other Dominance',
-        legendrank: 3,
-      });
+      // Keep BTC dominance on top by drawing the price line before dominance lines.
+      if (hasPriceTrace) {
+        traces.push({
+          type: 'scatter',
+          mode: 'lines',
+          x,
+          y: priceY,
+          yaxis: 'y2',
+          line: { color: _thFg, width: 2 },
+          hovertemplate: 'BTC price: $%{y:,.0f}<extra></extra>',
+          name: 'BTC Price',
+          legendrank: 4,
+          connectgaps: false,
+        });
+      }
 
+      // Line layers (top stack): stable, other, btc
       if (state.includeStables && hasStablePositive) {
         traces.push({
           type: 'scatter',
@@ -1804,27 +1810,24 @@
         type: 'scatter',
         mode: 'lines',
         x,
+        y: state.stackedDominance ? otherTopY : otherValueY,
+        line: { color: '#999999', width: 2.5 },
+        customdata: otherValueY,
+        hovertemplate: 'Other dominance: %{customdata:.1f}%<extra></extra>',
+        name: 'Other Dominance',
+        legendrank: 3,
+      });
+
+      traces.push({
+        type: 'scatter',
+        mode: 'lines',
+        x,
         y,
         line: { color: '#ff9f1c', width: 2.5 },
         hovertemplate: 'BTC dominance: %{y:.1f}%<extra></extra>',
         name: 'BTC Dominance',
         legendrank: 1,
       });
-
-      if (hasPriceTrace) {
-        traces.push({
-          type: 'scatter',
-          mode: 'lines',
-          x,
-          y: priceY,
-          yaxis: 'y2',
-          line: { color: _thFg, width: 2 },
-          hovertemplate: 'BTC price: $%{y:,.0f}<extra></extra>',
-          name: 'BTC Price',
-          legendrank: 4,
-          connectgaps: false,
-        });
-      }
 
       const dominanceXAxisBottomMargin = isStackedLayout() ? 56 : 35;
 
