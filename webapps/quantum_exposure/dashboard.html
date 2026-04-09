@@ -767,6 +767,48 @@
       font-size: 12px;
     }
 
+    .kpi-supply-breakdown {
+      margin-top: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .kpi-breakdown-bar {
+      position: relative;
+      height: 20px;
+      background: var(--surface-muted);
+      border-radius: 0;
+      overflow: hidden;
+      display: flex;
+    }
+
+    :root[data-theme="dark"] .kpi-breakdown-bar {
+      background: #111111;
+    }
+
+    .kpi-breakdown-segment {
+      height: 100%;
+      transition: opacity 160ms ease, filter 160ms ease;
+    }
+
+    .kpi-breakdown-segment:hover {
+      z-index: 10;
+    }
+
+    .seg-exposed {
+      background: linear-gradient(90deg, 
+        var(--seg-never) 0%, 
+        var(--seg-inactive) calc(50% - 2px), 
+        var(--seg-active) 50%, 
+        var(--seg-active) 100%);
+    }
+
+    .seg-unmined {
+      background: var(--line);
+      opacity: 0.25;
+    }
+
     .note {
       color: var(--muted);
       font-size: 13px;
@@ -2096,6 +2138,7 @@
       <article class="kpi">
         <div class="kpi-title">Total Supply</div>
         <div id="kpiSupply" class="kpi-value">-</div>
+        <div id="kpiSupplyBreakdown" class="kpi-supply-breakdown"></div>
       </article>
 
       <article class="kpi">

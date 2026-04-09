@@ -1306,6 +1306,7 @@ function formatPercent(numerator, denominator) {
 
 function renderEmptyKpis() {
   document.getElementById("kpiSupply").textContent = "-";
+  document.getElementById("kpiSupplyBreakdown").innerHTML = "";
   document.getElementById("kpiExposedSupply").textContent = "-";
   document.getElementById("kpiExposedSupplyShare").textContent = "-";
   document.getElementById("kpiExposedPubkeys").textContent = "-";
@@ -4271,6 +4272,7 @@ function renderKpis(kpi, total) {
     : 0;
 
   document.getElementById("kpiSupply").textContent = formatCeilBtc(total.supply_sats) + " BTC";
+  renderSupplyBreakdownBar(total);
 
   const exposedSupplySubsetBtc = Math.ceil(kpi.exposed_supply_sats / SATS_PER_BTC);
   const exposedSupplyOfTotal = formatPercent(kpi.exposed_supply_sats, total.supply_sats);
@@ -4295,6 +4297,96 @@ function renderKpis(kpi, total) {
 
   document.getElementById("kpiMigrationBlocks").textContent =
     `${formatInt(roundedMigrationBlocks)} blocks`;
+}
+
+function renderSupplyBreakdownBar(total) {
+  const container = document.getElementById("kpiSupplyBreakdown");
+  if (!container || !total) {
+    return;
+  }
+
+  const MAX_BITCOIN_SUPPLY_SATS = 21 * 100_000_000 * SATS_PER_BTC;
+  const totalSupply = total.supply_sats || 0;
+  const exposedSupply = total.exposed_supply_sats || 0;
+  const nonExposedSupply = Math.max(totalSupply - exposedSupply, 0);
+  const unminedSupply = Math.max(MAX_BITCOIN_SUPPLY_SATS - totalSupply, 0);
+
+  if (totalSupply === 0) {
+    container.innerHTML = "";
+    return;
+  }
+
+  const exposedBtc = Math.round(exposedSupply / SATS_PER_BTC);
+  const nonExposedBtc = Math.round(nonExposedSupply / SATS_PER_BTC);
+  const unminedBtc = Math.round(unminedSupply / SATS_PER_BTC);
+
+  const exposedPct = (exposedSupply / MAX_BITCOIN_SUPPLY_SATS) * 100;
+  const nonExposedPct = (nonExposedSupply / MAX_BITCOIN_SUPPLY_SATS) * 100;
+  const unminedPct = (unminedSupply / MAX_BITCOIN_SUPPLY_SATS) * 100;
+
+  let segmentsHtml = "";
+  
+  if (exposedSupply > 0) {
+    segmentsHtml += `<div class="kpi-breakdown-segment seg-exposed" data-tooltip="Exposed Supply: ${formatInt(exposedBtc)} BTC (${formatPercent(exposedSupply, totalSupply)} of total supply)" style="width: ${exposedPct}%;"></div>`;
+  }
+  
+  if (nonExposedSupply > 0) {
+    segmentsHtml += `<div class="kpi-breakdown-segment seg-nonexposed" data-tooltip="Non-Exposed Supply: ${formatInt(nonExposedBtc)} BTC (${formatPercent(nonExposedSupply, totalSupply)} of total supply)" style="width: ${nonExposedPct}%;"></div>`;
+  }
+  
+  if (unminedSupply > 0) {
+    segmentsHtml += `<div class="kpi-breakdown-segment seg-unmined" data-tooltip="Unmined Supply: ${formatInt(unminedBtc)} BTC" style="width: ${unminedPct}%;"></div>`;
+  }
+
+  container.innerHTML = `
+    <div class="kpi-breakdown-bar">
+      ${segmentsHtml}
+    </div>
+  `;
+
+  // Attach tooltip listeners to the segments
+  const segments = container.querySelectorAll(".kpi-breakdown-segment");
+  segments.forEach((seg) => {
+    seg.addEventListener("mouseenter", (e) => {
+      const rect = seg.getBoundingClientRect();
+      const x = rect.left + rect.width / 2;
+      const y = rect.top;
+      customTooltipAnchor = seg;
+      showCustomTooltip(seg, x, y);
+    }, { passive: true });
+
+    seg.addEventListener("mouseleave", () => {
+      if (customTooltipAnchor === seg) {
+        hideCustomTooltip();
+        customTooltipAnchor = null;
+      }
+    }, { passive: true });
+
+    seg.addEventListener("touchstart", (e) => {
+      const touch = e.touches[0];
+      const rect = seg.getBoundingClientRect();
+      const x = touch.clientX;
+      const y = touch.clientY;
+      customTooltipAnchor = seg;
+      showCustomTooltip(seg, x, y);
+
+      clearMobileTooltipHideTimer();
+      mobileTooltipHideTimerId = window.setTimeout(() => {
+        if (customTooltipAnchor === seg) {
+          customTooltipAnchor = null;
+        }
+        hideCustomTooltip();
+        mobileTooltipHideTimerId = null;
+      }, 1800);
+    }, { passive: true });
+
+    seg.addEventListener("scroll", () => {
+      if (customTooltipAnchor === seg) {
+        clearMobileTooltipHideTimer();
+        hideCustomTooltip();
+      }
+    }, { passive: true });
+  });
 }
 
 function readFilters() {
