@@ -4305,10 +4305,16 @@ function renderSupplyBreakdownBar(total) {
     return;
   }
 
-  const MAX_BITCOIN_SUPPLY_SATS = 21 * 100_000_000 * SATS_PER_BTC;
+  const MAX_BITCOIN_SUPPLY_SATS = 21_000_000 * SATS_PER_BTC;
   const totalSupply = total.supply_sats || 0;
-  const exposedSupply = total.exposed_supply_sats || 0;
-  const nonExposedSupply = Math.max(totalSupply - exposedSupply, 0);
+  
+  // Get exposed supply breakdown by spend activity
+  const exposedNever = getAggregate("all", "All", "never_spent", "exposed_supply_sats");
+  const exposedInactive = getAggregate("all", "All", "inactive", "exposed_supply_sats");
+  const exposedActive = getAggregate("all", "All", "active", "exposed_supply_sats");
+  const exposedTotal = exposedNever + exposedInactive + exposedActive;
+  
+  const nonExposedSupply = Math.max(totalSupply - exposedTotal, 0);
   const unminedSupply = Math.max(MAX_BITCOIN_SUPPLY_SATS - totalSupply, 0);
 
   if (totalSupply === 0) {
@@ -4316,26 +4322,38 @@ function renderSupplyBreakdownBar(total) {
     return;
   }
 
-  const exposedBtc = Math.round(exposedSupply / SATS_PER_BTC);
+  const exposedNeverBtc = Math.round(exposedNever / SATS_PER_BTC);
+  const exposedInactiveBtc = Math.round(exposedInactive / SATS_PER_BTC);
+  const exposedActiveBtc = Math.round(exposedActive / SATS_PER_BTC);
   const nonExposedBtc = Math.round(nonExposedSupply / SATS_PER_BTC);
   const unminedBtc = Math.round(unminedSupply / SATS_PER_BTC);
 
-  const exposedPct = (exposedSupply / MAX_BITCOIN_SUPPLY_SATS) * 100;
+  const exposedNeverPct = (exposedNever / MAX_BITCOIN_SUPPLY_SATS) * 100;
+  const exposedInactivePct = (exposedInactive / MAX_BITCOIN_SUPPLY_SATS) * 100;
+  const exposedActivePct = (exposedActive / MAX_BITCOIN_SUPPLY_SATS) * 100;
   const nonExposedPct = (nonExposedSupply / MAX_BITCOIN_SUPPLY_SATS) * 100;
   const unminedPct = (unminedSupply / MAX_BITCOIN_SUPPLY_SATS) * 100;
 
   let segmentsHtml = "";
   
-  if (exposedSupply > 0) {
-    segmentsHtml += `<div class="kpi-breakdown-segment seg-exposed" data-tooltip="Exposed Supply: ${formatInt(exposedBtc)} BTC (${formatPercent(exposedSupply, totalSupply)} of total supply)" style="width: ${exposedPct}%;"></div>`;
+  if (exposedNever > 0) {
+    segmentsHtml += `<div class="kpi-breakdown-segment seg-never" data-tooltip="Never Spent: ${formatInt(exposedNeverBtc)} BTC · ${formatPercent(exposedNever, totalSupply)}" style="width: ${exposedNeverPct}%;"></div>`;
+  }
+  
+  if (exposedInactive > 0) {
+    segmentsHtml += `<div class="kpi-breakdown-segment seg-inactive" data-tooltip="Inactive: ${formatInt(exposedInactiveBtc)} BTC · ${formatPercent(exposedInactive, totalSupply)}" style="width: ${exposedInactivePct}%;"></div>`;
+  }
+  
+  if (exposedActive > 0) {
+    segmentsHtml += `<div class="kpi-breakdown-segment seg-active" data-tooltip="Active: ${formatInt(exposedActiveBtc)} BTC · ${formatPercent(exposedActive, totalSupply)}" style="width: ${exposedActivePct}%;"></div>`;
   }
   
   if (nonExposedSupply > 0) {
-    segmentsHtml += `<div class="kpi-breakdown-segment seg-nonexposed" data-tooltip="Non-Exposed Supply: ${formatInt(nonExposedBtc)} BTC (${formatPercent(nonExposedSupply, totalSupply)} of total supply)" style="width: ${nonExposedPct}%;"></div>`;
+    segmentsHtml += `<div class="kpi-breakdown-segment seg-nonexposed" data-tooltip="Non-Exposed: ${formatInt(nonExposedBtc)} BTC · ${formatPercent(nonExposedSupply, totalSupply)}" style="width: ${nonExposedPct}%;"></div>`;
   }
   
   if (unminedSupply > 0) {
-    segmentsHtml += `<div class="kpi-breakdown-segment seg-unmined" data-tooltip="Unmined Supply: ${formatInt(unminedBtc)} BTC" style="width: ${unminedPct}%;"></div>`;
+    segmentsHtml += `<div class="kpi-breakdown-segment seg-unmined" data-tooltip="Unmined: ${formatInt(unminedBtc)} BTC" style="width: ${unminedPct}%;"></div>`;
   }
 
   container.innerHTML = `
