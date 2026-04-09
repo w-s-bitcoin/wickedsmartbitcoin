@@ -16,18 +16,27 @@ function preloadThanksImagesIfNeeded(force = false) {
     if (!force && lastThanksPreloadMode === drink) return;
 
     const orientations = ['landscape', 'portrait'];
-    const methods = ['lightning', 'liquid', 'onchain'];
     for (const orient of orientations) {
-        for (const method of methods) {
-            const src = `assets/thanks_for_the_${drink}_${orient}_${method}.png`;
-            try {
-                if (typeof preloadImage === 'function') preloadImage(src);
-                else {
-                    const img = new Image();
-                    img.src = src;
-                }
-            } catch (_) {
+        const src = `assets/thanks_for_the_${drink}_${orient}.png`;
+        try {
+            if (typeof preloadImage === 'function') preloadImage(src);
+            else {
+                const img = new Image();
+                img.src = src;
             }
+        } catch (_) {
+        }
+    }
+
+    for (const method of ['lightning', 'liquid', 'onchain']) {
+        const qrSrc = `assets/qr_${method}.png`;
+        try {
+            if (typeof preloadImage === 'function') preloadImage(qrSrc);
+            else {
+                const img = new Image();
+                img.src = qrSrc;
+            }
+        } catch (_) {
         }
     }
 
@@ -39,20 +48,29 @@ function preloadAllThanksImagesOnce() {
 
     const drinks = ['beer', 'coffee'];
     const orientations = ['landscape', 'portrait'];
-    const methods = ['lightning', 'liquid', 'onchain'];
     for (const drink of drinks) {
         for (const orient of orientations) {
-            for (const method of methods) {
-                const src = `assets/thanks_for_the_${drink}_${orient}_${method}.png`;
-                try {
-                    if (typeof preloadImage === 'function') preloadImage(src);
-                    else {
-                        const img = new Image();
-                        img.src = src;
-                    }
-                } catch (_) {
+            const src = `assets/thanks_for_the_${drink}_${orient}.png`;
+            try {
+                if (typeof preloadImage === 'function') preloadImage(src);
+                else {
+                    const img = new Image();
+                    img.src = src;
                 }
+            } catch (_) {
             }
+        }
+    }
+
+    for (const method of ['lightning', 'liquid', 'onchain']) {
+        const qrSrc = `assets/qr_${method}.png`;
+        try {
+            if (typeof preloadImage === 'function') preloadImage(qrSrc);
+            else {
+                const img = new Image();
+                img.src = qrSrc;
+            }
+        } catch (_) {
         }
     }
 
@@ -137,7 +155,13 @@ function ensureShellThemeToggle() {
     if (!buyBtn || !buyBtn.parentElement) return null;
 
     let toggle = document.getElementById('shellThemeToggle');
-    if (toggle) return toggle;
+    if (toggle) {
+        if (!toggle.dataset.themeBound) {
+            toggle.addEventListener('click', toggleDashboardThemeFromShell);
+            toggle.dataset.themeBound = '1';
+        }
+        return toggle;
+    }
 
     toggle = document.createElement('button');
     toggle.id = 'shellThemeToggle';
@@ -152,6 +176,7 @@ function ensureShellThemeToggle() {
     toggle.appendChild(icon);
 
     toggle.addEventListener('click', toggleDashboardThemeFromShell);
+    toggle.dataset.themeBound = '1';
     buyBtn.insertAdjacentElement('afterend', toggle);
     return toggle;
 }
@@ -259,22 +284,129 @@ function showThanksToast(message) {
         toast.style.opacity = '0';
     }, 2000);
 }
-function thanksImagePath({ beerMode, isPortrait, method }) {
+function thanksImagePath({ beerMode, isPortrait }) {
     const drink = beerMode ? 'beer' : 'coffee';
     const orient = isPortrait ? 'portrait' : 'landscape';
-    const m = normalizeBuyCoffeeMethod(method);
-    return `assets/thanks_for_the_${drink}_${orient}_${m}.png`;
+    return `assets/thanks_for_the_${drink}_${orient}.png`;
 }
-function updateThanksOverlayImageForMethod(method) {
+
+function thanksQrPathForMethod(methodRaw) {
+    const method = normalizeBuyCoffeeMethod(methodRaw);
+    return `assets/qr_${method}.png`;
+}
+
+function chunkText(value, chunkSize) {
+    const chunks = [];
+    for (let i = 0; i < value.length; i += chunkSize) {
+        chunks.push(value.slice(i, i + chunkSize));
+    }
+    return chunks;
+}
+
+function splitChunksByPattern(chunks, rowPattern) {
+    const lines = [];
+    let cursor = 0;
+    rowPattern.forEach((rowSize) => {
+        if (cursor >= chunks.length) return;
+        lines.push(chunks.slice(cursor, cursor + rowSize));
+        cursor += rowSize;
+    });
+    while (cursor < chunks.length) {
+        const carrySize = rowPattern[rowPattern.length - 1] || chunks.length;
+        lines.push(chunks.slice(cursor, cursor + carrySize));
+        cursor += carrySize;
+    }
+    return lines.filter(line => line.length > 0);
+}
+
+function formatDonationChunksForMethod(methodRaw, address) {
+    const method = normalizeBuyCoffeeMethod(methodRaw);
+    if (method === 'liquid') {
+        const chunks = chunkText(address, 4);
+        return splitChunksByPattern(chunks, [7, 7, 6]);
+    }
+    if (method === 'onchain') {
+        const chunks = chunkText(address, 4);
+        return splitChunksByPattern(chunks, [5, 6]);
+    }
+    return [[address]];
+}
+
+function thanksAddressPaletteForMethod(methodRaw) {
+    const method = normalizeBuyCoffeeMethod(methodRaw);
+    if (method === 'liquid') {
+        return ['#ffffff', '#00B8B8'];
+    }
+    if (method === 'onchain') {
+        return ['#ffffff', '#ff9900'];
+    }
+    return ['#facc15', '#fef08a', '#fde047', '#fef08a'];
+}
+
+function getThanksOverlayLayout(isPortrait) {
+    if (isPortrait) {
+        return {
+            qr: { left: 0.3125, top: -0.0120, size: 0.3750 },
+            text: { left: 0.2750, top: 0.33, width: 0.4500 }
+        };
+    }
+    return {
+        qr: { left: 0.0600, top: 0.1750, size: 0.3900 },
+        text: { left: 0.1050, top: 0.6800, width: 0.3000 }
+    };
+}
+
+function updateThanksDonationOverlayForMethod(methodRaw) {
     if (!thanksOverlay) return;
+    const method = normalizeBuyCoffeeMethod(methodRaw);
+    const qrEl = thanksOverlay.querySelector('#thanks-overlay-donation-qr');
+    const textEl = thanksOverlay.querySelector('#thanks-overlay-donation-address');
+    if (!qrEl || !textEl) return;
+
+    qrEl.src = thanksQrPathForMethod(method);
+    const address = getDonationTextForMethod(method);
+    textEl.dataset.rawAddress = address;
+    const lines = formatDonationChunksForMethod(method, address);
+    const palette = thanksAddressPaletteForMethod(method);
+    const useAlternatingTwoTone = (method === 'liquid' || method === 'onchain');
+    const chunkGap = useAlternatingTwoTone ? '0.62ch' : '0.45ch';
+
+    textEl.textContent = '';
+    lines.forEach((lineChunks, lineIdx) => {
+        const lineEl = document.createElement('div');
+        lineEl.style.display = 'flex';
+        lineEl.style.justifyContent = 'center';
+        lineEl.style.alignItems = 'center';
+        lineEl.style.gap = chunkGap;
+
+        lineChunks.forEach((chunk, chunkIdx) => {
+            const chunkEl = document.createElement('span');
+            chunkEl.textContent = chunk;
+            chunkEl.style.display = 'inline-flex';
+            chunkEl.style.alignItems = 'center';
+            if (useAlternatingTwoTone) {
+                chunkEl.style.color = palette[chunkIdx % 2];
+            } else {
+                chunkEl.style.color = palette[(lineIdx * 2 + chunkIdx) % palette.length];
+            }
+            lineEl.appendChild(chunkEl);
+        });
+        textEl.appendChild(lineEl);
+    });
+}
+
+function updateThanksOverlayImageForMethod(methodRaw) {
+    if (!thanksOverlay) return;
+    const method = normalizeBuyCoffeeMethod(methodRaw);
     const beerMode = isBeerTime();
     const isPortrait = window.innerHeight >= window.innerWidth;
     const imgEl = thanksOverlay.querySelector('#thanks-overlay-img');
     if (!imgEl) return;
 
+    updateThanksDonationOverlayForMethod(method);
     lockThanksOverlayFootprint();
     setThanksOverlayLoading(true);
-    const nextSrc = thanksImagePath({ beerMode, isPortrait, method });
+    const nextSrc = thanksImagePath({ beerMode, isPortrait });
     pendingThanksImageSrc = String(new URL(nextSrc, window.location.href));
     imgEl.src = nextSrc;
 
@@ -324,9 +456,9 @@ function releaseThanksOverlayFootprint() {
     if (forcedLandscape) {
         lastThanksOverlayFootprint = forcedLandscape;
         imgEl.style.width = `${forcedLandscape.width}px`;
-        imgEl.style.height = `${forcedLandscape.height}px`;
+        imgEl.style.height = 'auto';
         container.style.minWidth = `${forcedLandscape.width}px`;
-        container.style.minHeight = `${forcedLandscape.height}px`;
+        container.style.minHeight = '';
         return;
     }
 
@@ -384,12 +516,12 @@ function applyThanksMethodButtonScale(buttonContainer, containerRect, isPortrait
 
     const imageHeight = Math.max(containerRect.height || 0, 1);
     const imageWidth = Math.max(containerRect.width || 0, 1);
-    const fontSize = Math.round(clampThanksMetric(imageHeight * (isPortrait ? 0.03 : 0.028), 11, 22));
-    const paddingY = Math.round(clampThanksMetric(imageHeight * (isPortrait ? 0.016 : 0.0145), 7, 14));
-    const paddingX = Math.round(clampThanksMetric(imageHeight * (isPortrait ? 0.032 : 0.03), 12, 28));
+    const fontSize = Math.round(clampThanksMetric(imageHeight * (isPortrait ? 0.03 : 0.036), 11, isPortrait ? 22 : 28));
+    const paddingY = Math.round(clampThanksMetric(imageHeight * (isPortrait ? 0.016 : 0.022), 7, isPortrait ? 14 : 18));
+    const paddingX = Math.round(clampThanksMetric(imageHeight * (isPortrait ? 0.032 : 0.044), 12, isPortrait ? 28 : 36));
     const borderRadius = Math.round(clampThanksMetric(imageHeight * 0.018, 10, 16));
-    const gap = Math.round(clampThanksMetric(imageHeight * (isPortrait ? 0.015 : 0.018), 6, 18));
-    const bottomInset = Math.round(clampThanksMetric(imageHeight * (isPortrait ? 0.03 : 0.038), 10, 30));
+    const gap = Math.round(clampThanksMetric(imageHeight * (isPortrait ? 0.015 : 0.022), 6, isPortrait ? 18 : 24));
+    const bottomInset = Math.round(clampThanksMetric(imageHeight * (isPortrait ? 0.03 : 0.052), 10, 38));
     const portraitLift = Math.round(clampThanksMetric(imageHeight * 0.035, 10, 26));
 
     buttonContainer.style.gap = `${gap}px`;
@@ -401,7 +533,7 @@ function applyThanksMethodButtonScale(buttonContainer, containerRect, isPortrait
         button.style.borderRadius = `${borderRadius}px`;
     });
 
-    const availableWidth = isPortrait ? imageWidth * 0.82 : imageWidth * 0.48;
+    const availableWidth = isPortrait ? imageWidth * 0.82 : imageWidth * 0.44;
     const measuredWidth = buttonContainer.scrollWidth;
     const scale = measuredWidth > 0 ? clampThanksMetric(availableWidth / measuredWidth, 0.7, 1) : 1;
 
@@ -411,6 +543,110 @@ function applyThanksMethodButtonScale(buttonContainer, containerRect, isPortrait
     } else {
         buttonContainer.style.transformOrigin = 'center bottom';
         buttonContainer.style.transform = `scale(${scale})`;
+    }
+}
+
+function positionThanksDonationOverlay() {
+    if (!thanksOverlay) return;
+    const container = thanksOverlay.querySelector('#thanks-overlay img')?.parentElement;
+    if (!container) return;
+
+    const isPortrait = window.innerHeight >= window.innerWidth;
+    const layout = getThanksOverlayLayout(isPortrait);
+    const qrEl = thanksOverlay.querySelector('#thanks-overlay-donation-qr');
+    const textEl = thanksOverlay.querySelector('#thanks-overlay-donation-address');
+    const containerRect = container.getBoundingClientRect();
+    const imageWidth = Math.max(containerRect.width || 0, 1);
+    const imageHeight = Math.max(containerRect.height || 0, 1);
+    const minGapPct = isPortrait ? 0.001 : 0.02;
+    const qrBottomPct = layout.qr.top + layout.qr.size;
+    const maxTextTopPct = 0.94;
+    let textTopPct = Math.min(maxTextTopPct, Math.max(layout.text.top, qrBottomPct + minGapPct));
+
+    if (qrEl) {
+        Object.assign(qrEl.style, {
+            position: 'absolute',
+            left: `${(layout.qr.left * 100).toFixed(2)}%`,
+            top: `${(layout.qr.top * 100).toFixed(2)}%`,
+            width: `${(layout.qr.size * 100).toFixed(2)}%`,
+            height: `${(layout.qr.size * 100).toFixed(2)}%`,
+            objectFit: 'contain',
+            imageRendering: 'auto',
+            pointerEvents: 'none'
+        });
+    }
+
+    if (textEl) {
+        const textBlockWidthPx = layout.text.width * imageWidth;
+        // Keep the same base sizing behavior in portrait and landscape.
+        let preferredFontPx = imageHeight * 0.041;
+        const fitFontPx = isPortrait ? preferredFontPx : textBlockWidthPx / 15;
+        let fontSizePx = Math.max(10, Math.min(preferredFontPx, fitFontPx));
+        const lineGapPx = Math.max(1, imageHeight * (isPortrait ? 0.004 : 0.004));
+        const lineCount = Math.max(1, textEl.childElementCount || 1);
+        // In portrait, always size as if there are 3 rows (the max for liquid) so all
+        // methods compute the same font size regardless of how many lines they render.
+        const solverLineCount = isPortrait ? 3 : lineCount;
+        const lineHeightMult = isPortrait ? 1.04 : 1.08;
+
+        if (isPortrait) {
+            const buttonContainer = container.querySelector('.buy-coffee-methods');
+            if (buttonContainer) {
+                const buttonRect = buttonContainer.getBoundingClientRect();
+                const buttonTopPx = buttonRect.top - containerRect.top;
+                const minTopPx = Math.max(0, (qrBottomPct + minGapPct) * imageHeight);
+                const bottomClearPx = imageHeight * 0.012;
+                const desiredTopPx = layout.text.top * imageHeight;
+
+                const textHeightForFont = (fs) => {
+                    const contentHeight = solverLineCount * fs * lineHeightMult;
+                    const gapsHeight = Math.max(0, solverLineCount - 1) * lineGapPx;
+                    return contentHeight + gapsHeight;
+                };
+
+                let textHeightPx = textHeightForFont(fontSizePx);
+                const maxTopPxByButtons = buttonTopPx - bottomClearPx - textHeightPx;
+                let solvedTopPx = Math.min(desiredTopPx, maxTopPxByButtons);
+
+                // Reposition first; only shrink font when there is no legal top left.
+                if (maxTopPxByButtons < minTopPx) {
+                    const availableAtMinPx = buttonTopPx - bottomClearPx - minTopPx;
+                    if (availableAtMinPx > 0) {
+                        const maxFontByHeight = (availableAtMinPx - Math.max(0, solverLineCount - 1) * lineGapPx) / (solverLineCount * lineHeightMult);
+                        if (Number.isFinite(maxFontByHeight)) {
+                            fontSizePx = Math.max(8, Math.min(fontSizePx, maxFontByHeight));
+                            textHeightPx = textHeightForFont(fontSizePx);
+                            solvedTopPx = Math.min(desiredTopPx, buttonTopPx - bottomClearPx - textHeightPx);
+                        }
+                    }
+                }
+
+                const nonNegativeTopPx = Math.max(0, solvedTopPx);
+                textTopPct = Math.min(maxTextTopPct, nonNegativeTopPx / imageHeight);
+            }
+        }
+
+        Object.assign(textEl.style, {
+            position: 'absolute',
+            left: `${(layout.text.left * 100).toFixed(2)}%`,
+            top: `${(textTopPct * 100).toFixed(2)}%`,
+            width: `${(layout.text.width * 100).toFixed(2)}%`,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: `${lineGapPx}px`,
+            textAlign: 'center',
+            fontFamily: 'monospace',
+            fontWeight: '700',
+            lineHeight: isPortrait ? '1.04' : '1.08',
+            letterSpacing: isPortrait ? '0.01em' : '0.015em',
+            fontSize: `${Math.round(fontSizePx)}px`,
+            textShadow: '0 0 8px rgba(0, 0, 0, 0.9), 0 0 4px rgba(0, 0, 0, 0.95)',
+            pointerEvents: 'auto',
+            userSelect: 'text',
+            webkitUserSelect: 'text',
+            cursor: 'text'
+        });
     }
 }
 
@@ -453,6 +689,7 @@ function positionThanksMethodButtonsForOrientation() {
         });
     }
     applyThanksMethodButtonScale(buttonContainer, containerRect, isPortrait);
+    positionThanksDonationOverlay();
 }
 function setThanksOverlayLoading(isLoading) {
     if (!thanksOverlay) return;
@@ -460,6 +697,7 @@ function setThanksOverlayLoading(isLoading) {
     const spinner = thanksOverlay.querySelector('#thanks-overlay-spinner');
     const btnsWrap = thanksOverlay.querySelector('.buy-coffee-methods');
     const imgEl = thanksOverlay.querySelector('#thanks-overlay-img');
+    const donationLayer = thanksOverlay.querySelector('#thanks-overlay-donation-layer');
     const closeBtn = thanksOverlay.querySelector('#thanks-overlay-close');
 
     if (spinner) spinner.style.display = isLoading ? 'flex' : 'none';
@@ -467,6 +705,7 @@ function setThanksOverlayLoading(isLoading) {
         imgEl.style.visibility = isLoading ? 'hidden' : 'visible';
         imgEl.style.pointerEvents = isLoading ? 'none' : 'auto';
     }
+    if (donationLayer) donationLayer.style.visibility = isLoading ? 'hidden' : 'visible';
 
     if (btnsWrap) btnsWrap.style.visibility = isLoading ? 'hidden' : 'visible';
     if (btnsWrap) btnsWrap.style.pointerEvents = isLoading ? 'none' : 'auto';
@@ -486,7 +725,7 @@ function showThanksPopup({ fromRoute = false } = {}) {
     const beerMode = isBeerTime();
     const isPortrait = window.innerHeight >= window.innerWidth;
     const method = getStoredBuyCoffeeMethod();
-    const imgSrc = thanksImagePath({ beerMode, isPortrait, method });
+    const imgSrc = thanksImagePath({ beerMode, isPortrait });
     if (!thanksOverlay) {
         const overlayBg = (getComputedStyle(document.documentElement).getPropertyValue('--overlay-bg') || 'rgba(0, 0, 0, 0.9)').trim();
         thanksOverlay = document.createElement('div');
@@ -588,7 +827,50 @@ function showThanksPopup({ fromRoute = false } = {}) {
         img.style.boxShadow = '0 0 20px rgba(0,0,0,0.8)';
         img.style.borderRadius = '8px';
         img.style.display = 'block';
+        img.style.userSelect = 'none';
+        img.style.webkitUserSelect = 'none';
         img.tabIndex = 0;
+        img.draggable = false;
+        img.addEventListener('dragstart', (e) => {
+            e.preventDefault();
+        });
+
+        const donationLayer = document.createElement('div');
+        donationLayer.id = 'thanks-overlay-donation-layer';
+        Object.assign(donationLayer.style, {
+            position: 'absolute',
+            inset: '0',
+            pointerEvents: 'none',
+            zIndex: '9'
+        });
+
+        const donationQr = document.createElement('img');
+        donationQr.id = 'thanks-overlay-donation-qr';
+        donationQr.alt = '';
+        donationQr.setAttribute('aria-hidden', 'true');
+        donationQr.draggable = false;
+
+        const donationAddress = document.createElement('div');
+        donationAddress.id = 'thanks-overlay-donation-address';
+        donationAddress.style.pointerEvents = 'auto';
+        donationAddress.style.userSelect = 'text';
+        donationAddress.style.webkitUserSelect = 'text';
+        donationAddress.style.cursor = 'text';
+        donationAddress.addEventListener('copy', (event) => {
+            const selectionText = String(window.getSelection?.().toString?.() || '');
+            const rawAddress = String(donationAddress.dataset.rawAddress || '');
+            const normalizedSelection = selectionText.replace(/\s+/g, '');
+            const copyText = normalizedSelection || rawAddress;
+            if (!copyText) return;
+            event.preventDefault();
+            if (event.clipboardData && event.clipboardData.setData) {
+                event.clipboardData.setData('text/plain', copyText);
+            }
+        });
+
+        donationLayer.appendChild(donationQr);
+        donationLayer.appendChild(donationAddress);
+
         const closeBtn = document.createElement('button');
         closeBtn.id = 'thanks-overlay-close';
         closeBtn.type = 'button';
@@ -660,6 +942,7 @@ function showThanksPopup({ fromRoute = false } = {}) {
         buttonContainer.appendChild(liquidButton);
         buttonContainer.appendChild(onChainButton);
         container.appendChild(img);
+        container.appendChild(donationLayer);
         container.appendChild(spinner);
         container.appendChild(buttonContainer);
         container.appendChild(closeBtn);
@@ -691,6 +974,7 @@ function showThanksPopup({ fromRoute = false } = {}) {
 
     // Start in loading state BEFORE changing src
     lockThanksOverlayFootprint();
+    updateThanksDonationOverlayForMethod(method);
     setThanksOverlayLoading(true);
     pendingThanksImageSrc = String(new URL(imgSrc, window.location.href));
     imgEl.src = imgSrc;

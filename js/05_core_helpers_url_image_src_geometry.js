@@ -1,7 +1,7 @@
 /* ===========================
  * CORE HELPERS (url + image src + geometry)
  * =========================== */
-const THANKS_ALL_IMG_URLS = [...BUY_BEER_IMG_URLS, ...BUY_COFFEE_IMG_URLS];
+const THANKS_ALL_IMG_URLS = [...BUY_BEER_IMG_URLS, ...BUY_COFFEE_IMG_URLS, ...BUY_DONATION_QR_URLS];
 function preloadImages(urls, { useLinkPreload = true } = {}) {
     const uniq = [...new Set(urls)].filter(Boolean);
     if (!uniq.length) return;

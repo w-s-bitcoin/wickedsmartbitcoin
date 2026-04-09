@@ -169,7 +169,7 @@
       }());
     </script>
 
-    <script>
+    <script type="application/json" id="legacy-buy-overlay-script">
       const DONATION_LIGHTNING = 'wicked@getalby.com';
       const DONATION_LIQUID = 'VJLDEF7n8TBjyJY2BaAgeVvzPSRMJ7VAP5opW9mB5A7ChyiKHnaguTugZNznxNiV2ZDyPxJyQoeZ2KhM';
       const DONATION_ONCHAIN = 'bc1q8mql8fucypd3dllkawqafytmrnwtv77gzxy346';
@@ -671,6 +671,48 @@
 
       applySiteTheme(getSelectedTheme());
       updateThemeToggleUi(getSelectedTheme());
+    </script>
+    <script>
+      var BUY_COFFEE_METHOD_KEY = 'buyCoffeeMethod';
+      var lastThanksPreloadMode = null;
+      var thanksOverlay = null;
+      var thanksToastTimeout = null;
+      var hasThanksOverlayEverLoaded = false;
+      var isBuyMeVisible = false;
+      var buyCoffeeCloseBtn = null;
+      var buyCoffeeMethodBtns = [];
+      var modal = document.getElementById('modal');
+      function isDonateRouteActive() { return false; }
+      function setDonateRouteUrl() {}
+
+      var legacyBuyOverlay = document.getElementById('buyCoffeeOverlay');
+      if (legacyBuyOverlay && legacyBuyOverlay.parentNode) {
+        legacyBuyOverlay.parentNode.removeChild(legacyBuyOverlay);
+      }
+    </script>
+    <script src="js/08_buy_me_button_thanks_overlay.js" defer></script>
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        var buyCoffeeBtn = document.getElementById('buyCoffeeBtn');
+        if (buyCoffeeBtn) {
+          buyCoffeeBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            showThanksPopup({ fromRoute: false });
+          });
+        }
+      });
+
+      window.addEventListener('resize', function () {
+        if (!isBuyMeVisible) return;
+        positionThanksMethodButtonsForOrientation();
+      });
+      window.addEventListener('orientationchange', function () {
+        if (!isBuyMeVisible) return;
+        positionThanksMethodButtonsForOrientation();
+      });
+      window.addEventListener('resize', handleThanksOverlayResize);
+      window.addEventListener('orientationchange', handleThanksOverlayResize);
     </script>
     <script src="webapps/node_count/standalone_bootstrap.js" defer></script>
   </body>
