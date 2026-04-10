@@ -32,6 +32,7 @@ GENESIS_PUBKEY_KEYHASH20_HEX = "62e907b15cbf27d5425399ebf6f0fb50ebb88f18"
 GENESIS_FIRST_EXPOSED_BLOCKHEIGHT = 0
 GENESIS_FIRST_EXPOSED_TIME = 1231006505
 GENESIS_IDENTITY = "Patoshi"
+GENESIS_BLOCK_REWARD_SATS = 5_000_000_000
 P2PK_PUBKEY_CACHE_TABLE = "dashboard_p2pk_pubkey_cache"
 BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 KEYHASH20_HEX_RE = re.compile(r"^[0-9a-fA-F]{40}$")
@@ -2083,7 +2084,14 @@ def refresh_aggregates(cur, analysis_height: int, analysis_time: int, cutoff_hei
             END AS spend_activity_filter,
             COUNT(*)::bigint AS pubkey_count,
             COALESCE(SUM(s.current_utxo_count), 0)::bigint AS utxo_count,
-            COALESCE(SUM(s.current_supply_sats), 0)::bigint AS supply_sats,
+            COALESCE(SUM(
+                CASE
+                    WHEN s.script_type = 'P2PK'
+                     AND s.group_id = %s
+                    THEN GREATEST(s.current_supply_sats - %s, 0)
+                    ELSE s.current_supply_sats
+                END
+            ), 0)::bigint AS supply_sats,
             COALESCE(SUM(s.exposed_pubkey_count), 0)::bigint AS exposed_pubkey_count,
             COALESCE(SUM(s.exposed_utxo_count), 0)::bigint AS exposed_utxo_count,
             COALESCE(SUM(s.exposed_supply_sats), 0)::bigint AS exposed_supply_sats,
@@ -2111,7 +2119,11 @@ def refresh_aggregates(cur, analysis_height: int, analysis_time: int, cutoff_hei
             (s.spend_activity),
             ()
         );
-        """
+        """,
+        (
+            GENESIS_PUBKEY_KEYHASH20_HEX,
+            GENESIS_BLOCK_REWARD_SATS,
+        ),
     )
     return cur.rowcount
 
@@ -2485,9 +2497,20 @@ def export_dashboard_csvs(
     index_path = out_dir / "snapshots_index.csv"
     with index_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["snapshot_blockheight"])
+        writer.writerow(["snapshot_blockheight", "snapshot_time"])
         for value in snapshot_dirs:
-            writer.writerow([value])
+            snap_time = ""
+            meta_file = out_dir / value / "dashboard_snapshot_meta.csv"
+            if meta_file.exists():
+                try:
+                    with meta_file.open("r", encoding="utf-8") as mf:
+                        meta_reader = csv.DictReader(mf)
+                        meta_row = next(meta_reader, None)
+                        if meta_row:
+                            snap_time = meta_row.get("snapshot_time", "")
+                except Exception:
+                    pass
+            writer.writerow([value, snap_time])
 
     return ge1_rows, agg_rows, meta_rows, snapshot_dir
 

@@ -418,6 +418,129 @@
       white-space: nowrap;
     }
 
+    .auto-update-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 10px;
+      min-width: 132px;
+      height: 32px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--ink);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+      cursor: pointer;
+      transition: background 160ms ease, border-color 160ms ease, color 160ms ease, opacity 160ms ease;
+      white-space: nowrap;
+    }
+
+    .auto-update-toggle.is-on {
+      border-color: #60a5fa;
+      color: #2563eb;
+    }
+
+    .auto-update-toggle:hover {
+      background: var(--surface-soft);
+    }
+
+    .auto-update-toggle-track {
+      position: relative;
+      width: 36px;
+      height: 20px;
+      border-radius: 999px;
+      background: var(--surface-muted);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+      transition: background 160ms ease, border-color 160ms ease;
+      flex-shrink: 0;
+    }
+
+    .auto-update-toggle-thumb {
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #fffdf8;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+      transition: transform 160ms ease, background 160ms ease;
+    }
+
+    .auto-update-toggle.is-on .auto-update-toggle-track {
+      background: #dbeafe;
+    }
+
+    .auto-update-toggle.is-on .auto-update-toggle-thumb {
+      transform: translateX(16px);
+      background: #2563eb;
+    }
+
+    :root[data-theme="dark"] .auto-update-toggle-track {
+      background: var(--surface-muted);
+    }
+
+    :root[data-theme="dark"] .auto-update-toggle-thumb {
+      background: #fffdf8;
+    }
+
+    :root[data-theme="dark"] .auto-update-toggle.is-on .auto-update-toggle-track {
+      background: #1e3a8a;
+    }
+
+    :root[data-theme="dark"] .auto-update-toggle.is-on .auto-update-toggle-thumb {
+      background: #60a5fa;
+    }
+
+    :root[data-theme="dark"] .auto-update-toggle.is-on {
+      border-color: #3b82f6;
+      color: #93c5fd;
+    }
+
+    .auto-update-toggle-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--ink);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+      text-transform: none;
+    }
+
+    .auto-update-toggle.is-on .auto-update-toggle-label {
+      color: currentColor;
+    }
+
+    .archived-toggle-icon {
+      width: 14px;
+      height: 14px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0.9;
+      color: currentColor;
+      flex: 0 0 14px;
+    }
+
+    .archived-toggle-icon svg {
+      width: 14px;
+      height: 14px;
+      display: block;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.9;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .auto-update-toggle.is-hidden {
+      display: none;
+    }
+
     .runtime-mode-btn.is-eco {
       background: transparent;
       border-color: #5eae73;
@@ -698,6 +821,12 @@
 
     .script-trigger.script-trigger-input {
       cursor: text;
+    }
+
+    @media (hover: none) and (pointer: coarse) {
+      #topExposureAddressSearch {
+        font-size: 16px;
+      }
     }
 
     .script-menu {
@@ -1904,7 +2033,8 @@
       }
 
       .copy-link-btn,
-      .reset-dashboard-btn {
+      .reset-dashboard-btn,
+      .auto-update-toggle {
         width: 30px;
         min-width: 30px;
         height: 30px;
@@ -1919,6 +2049,7 @@
 
       .runtime-mode-btn .btn-icon,
       .runtime-mode-btn .btn-label,
+      .auto-update-toggle .auto-update-toggle-label,
       .copy-link-btn .btn-icon,
       .copy-link-btn .btn-label,
       .reset-dashboard-btn .btn-icon,
@@ -2047,6 +2178,21 @@
         </div>
       </div>
       <div class="title-actions">
+        <button
+          id="archivedSnapshotsToggle"
+          class="auto-update-toggle is-hidden"
+          type="button"
+          aria-pressed="false"
+          data-tooltip="Show archived snapshot heights in historical mode"
+        >
+          <span class="auto-update-toggle-track" aria-hidden="true"><span class="auto-update-toggle-thumb"></span></span>
+          <span class="auto-update-toggle-label">
+            <span class="archived-toggle-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M3 8h18"></path><path d="M4 8h16l-1.2 10.4A2 2 0 0 1 16.82 20H7.18a2 2 0 0 1-1.98-1.6L4 8Z"></path><path d="M8 8V5.7c0-.94.76-1.7 1.7-1.7h4.6c.94 0 1.7.76 1.7 1.7V8"></path><path d="M12 11v5"></path><path d="M9.8 13.2 12 11l2.2 2.2"></path></svg>
+            </span>
+            Archived
+          </span>
+        </button>
         <button
           id="runtimeModeToggle"
           class="runtime-mode-btn"

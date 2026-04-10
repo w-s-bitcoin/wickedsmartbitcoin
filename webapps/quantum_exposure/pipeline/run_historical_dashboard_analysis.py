@@ -14,13 +14,16 @@ import argparse
 import csv
 import os
 import re
+import shutil
+import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Iterable
 
 import psycopg2
 from dotenv import load_dotenv
-from pipeline_paths import QUANTUM_DIR, resolve_env_file
+from pipeline_paths import PIPELINE_DIR, QUANTUM_DIR, resolve_env_file
 
 import run_dashboard_analysis as rda
 
@@ -29,6 +32,7 @@ GENESIS_PUBKEY_KEYHASH20_HEX = "62e907b15cbf27d5425399ebf6f0fb50ebb88f18"
 P2PK_PUBKEY_CACHE_TABLE = "dashboard_p2pk_pubkey_cache"
 DEFAULT_ENV_FILE = resolve_env_file()
 DEFAULT_OUT_DIR = QUANTUM_DIR / "webapp_data"
+KEEP_INTERVAL = 50_000
 
 
 def parse_args() -> argparse.Namespace:
@@ -54,10 +58,43 @@ def parse_args() -> argparse.Namespace:
         help="Step size for range mode (default: 10000)",
     )
     parser.add_argument(
+        "--skip-multiples-of",
+        type=int,
+        default=0,
+        help=(
+            "Skip heights that are exact multiples of this value "
+            "(example: 50000 to skip 50k checkpoints)"
+        ),
+    )
+    parser.add_argument(
+        "--skip-existing",
+        action="store_true",
+        default=False,
+        help="Skip heights that already exist in out-dir or out-dir/archived",
+    )
+    parser.add_argument(
         "--annotate-details",
         action="store_true",
         default=False,
         help="Run detail annotation pass before export (slower)",
+    )
+    parser.add_argument(
+        "--reuse-cached-labels",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Apply historical cross-snapshot label cache before export. "
+            "Enabled by default; use --no-reuse-cached-labels to disable."
+        ),
+    )
+    parser.add_argument(
+        "--skip-main-pipeline-postprocess",
+        action="store_true",
+        default=False,
+        help=(
+            "Skip clean_new_webapp_data.py, fill_identity_details.py, and "
+            "generate_eco_files.py after historical builds"
+        ),
     )
     return parser.parse_args()
 
@@ -1131,6 +1168,43 @@ def list_available_snapshot_heights(out_dir: Path) -> list[str]:
     return unique
 
 
+def collect_existing_snapshot_heights(out_dir: Path) -> set[int]:
+    heights: set[int] = set()
+
+    for value in list_available_snapshot_heights(out_dir):
+        if value.isdigit():
+            heights.add(int(value))
+
+    archived_dir = out_dir / "archived"
+    if archived_dir.exists() and archived_dir.is_dir():
+        for child in archived_dir.iterdir():
+            if child.is_dir() and child.name.isdigit():
+                heights.add(int(child.name))
+
+    return heights
+
+
+def apply_height_filters(heights: list[int], args: argparse.Namespace, out_dir: Path) -> tuple[list[int], int, int]:
+    filtered = list(heights)
+    skipped_by_multiple = 0
+    skipped_existing = 0
+
+    if args.skip_multiples_of:
+        if args.skip_multiples_of <= 0:
+            raise ValueError("--skip-multiples-of must be > 0")
+        before = len(filtered)
+        filtered = [h for h in filtered if h % args.skip_multiples_of != 0]
+        skipped_by_multiple = before - len(filtered)
+
+    if args.skip_existing:
+        existing = collect_existing_snapshot_heights(out_dir)
+        before = len(filtered)
+        filtered = [h for h in filtered if h not in existing]
+        skipped_existing = before - len(filtered)
+
+    return filtered, skipped_by_multiple, skipped_existing
+
+
 def split_pipe_values(raw: str) -> list[str]:
     return [part.strip() for part in raw.split("|") if part and part.strip()]
 
@@ -1589,6 +1663,74 @@ def run_one_snapshot(
     print(f"wrote metadata rows         : {csv_meta_rows:,}")
 
 
+def run_main_pipeline_postprocess(snapshot_heights: list[int], out_dir: Path, env_file: Path) -> None:
+    if not snapshot_heights:
+        return
+
+    unique_heights = sorted(set(snapshot_heights))
+
+    out_dir_resolved = out_dir.resolve()
+    default_out_dir_resolved = DEFAULT_OUT_DIR.resolve()
+    if out_dir_resolved != default_out_dir_resolved:
+        print(
+            "Skipping main-pipeline postprocess because --out-dir is non-default: "
+            f"{out_dir_resolved} (expected {default_out_dir_resolved})"
+        )
+        print(
+            "Run clean_new_webapp_data.py, fill_identity_details.py, and generate_eco_files.py "
+            "manually against your custom output directory if needed."
+        )
+        archived = archive_non_50k_snapshots(unique_heights, out_dir)
+        if archived:
+            print(f"Archived non-50k snapshots: {archived}")
+        return
+
+    env = os.environ.copy()
+    env["QUANTUM_PIPELINE_ENV_FILE"] = str(env_file)
+    height_args = [str(height) for height in unique_heights]
+
+    steps = [
+        [sys.executable, str(PIPELINE_DIR / "clean_new_webapp_data.py"), *height_args],
+        [sys.executable, str(PIPELINE_DIR / "fill_identity_details.py"), *height_args],
+    ]
+
+    print("\nRunning main-pipeline postprocess steps for historical snapshots...")
+    for cmd in steps:
+        print(f"$ ({PIPELINE_DIR}) {' '.join(cmd)}")
+        subprocess.run(cmd, cwd=PIPELINE_DIR, env=env, check=True)
+
+    archived = archive_non_50k_snapshots(unique_heights, out_dir)
+    if archived:
+        print(f"Archived non-50k snapshots: {archived}")
+
+    generate_cmd = [sys.executable, str(PIPELINE_DIR / "generate_eco_files.py")]
+    print(f"$ ({PIPELINE_DIR}) {' '.join(generate_cmd)}")
+    subprocess.run(generate_cmd, cwd=PIPELINE_DIR, env=env, check=True)
+
+
+def archive_non_50k_snapshots(snapshot_heights: list[int], out_dir: Path) -> list[int]:
+    archived_heights: list[int] = []
+    archived_dir = out_dir / "archived"
+    archived_dir.mkdir(parents=True, exist_ok=True)
+
+    for height in sorted(set(snapshot_heights)):
+        if height % KEEP_INTERVAL == 0:
+            continue
+
+        src = out_dir / str(height)
+        if not src.exists() or not src.is_dir():
+            continue
+
+        dest = archived_dir / str(height)
+        if dest.exists():
+            shutil.rmtree(dest)
+
+        shutil.move(str(src), str(dest))
+        archived_heights.append(height)
+
+    return archived_heights
+
+
 def main() -> None:
     global SCHEMA
 
@@ -1600,6 +1742,7 @@ def main() -> None:
 
     load_dotenv(dotenv_path=Path(parsed.env_file))
     out_dir = Path(parsed.out_dir)
+    built_heights: list[int] = []
 
     conn = connect()
     try:
@@ -1607,7 +1750,12 @@ def main() -> None:
             rda.ensure_dashboard_tables(cur)
             all_partitions = get_stxo_partitions(cur)
             chain_max = get_chain_max_height(cur)
-            heights = resolve_heights(parsed, chain_max)
+            requested_heights = resolve_heights(parsed, chain_max)
+            heights, skipped_by_multiple, skipped_existing = apply_height_filters(
+                requested_heights,
+                parsed,
+                out_dir,
+            )
             (
                 source_snapshots,
                 group_label_rows,
@@ -1627,13 +1775,21 @@ def main() -> None:
 
             print(f"chain max height            : {chain_max:,}")
             print(f"stxo partitions found       : {len(all_partitions):,}")
-            print(f"snapshots requested         : {len(heights):,}")
+            print(f"snapshots requested         : {len(requested_heights):,}")
+            print(f"skipped by multiples filter : {skipped_by_multiple:,}")
+            print(f"skipped existing snapshots  : {skipped_existing:,}")
+            print(f"snapshots selected          : {len(heights):,}")
             print(f"label source snapshots      : {len(source_snapshots):,}")
             print(f"group label rows cached     : {len(group_label_rows):,}")
             print(f"display label rows cached   : {len(display_label_rows):,}")
             print(f"display sig rows cached     : {len(display_sig_label_rows):,}")
             print(f"display token rows cached   : {len(display_token_label_rows):,}")
             print(f"display+script rows cached  : {len(display_script_label_rows):,}")
+            print(f"reuse cached labels enabled : {parsed.reuse_cached_labels}")
+
+            if not heights:
+                print("No snapshot heights left after filters; nothing to build.")
+                return
 
             p2pk_added_outputs, p2pk_added_stxo, p2pk_cache_rows = populate_p2pk_pubkey_cache(
                 cur,
@@ -1652,7 +1808,7 @@ def main() -> None:
                     height,
                     all_partitions,
                     annotate_details=parsed.annotate_details,
-                    reuse_cached_labels=bool(
+                    reuse_cached_labels=parsed.reuse_cached_labels and bool(
                         group_label_rows
                         or display_label_rows
                         or display_sig_label_rows
@@ -1661,12 +1817,48 @@ def main() -> None:
                     ),
                 )
                 conn.commit()
+                built_heights.append(height)
+
+                # Move non-50k snapshots into archived/ immediately after build.
+                if height % KEEP_INTERVAL != 0:
+                    src = out_dir / str(height)
+                    if src.exists() and src.is_dir():
+                        archived_dir = out_dir / "archived"
+                        archived_dir.mkdir(parents=True, exist_ok=True)
+                        dest = archived_dir / str(height)
+                        if dest.exists():
+                            shutil.rmtree(dest)
+                        shutil.move(str(src), str(dest))
+                        print(f"archived                    : {dest}")
+
+                # Generate ECO files for this snapshot immediately
+                print(f"generating ECO files for snapshot {height}...")
+                eco_cmd = [sys.executable, str(PIPELINE_DIR / "generate_eco_files.py")]
+                try:
+                    subprocess.run(eco_cmd, cwd=PIPELINE_DIR, check=True, capture_output=True)
+                    print(f"ECO files generated for snapshot {height}")
+                except subprocess.CalledProcessError as e:
+                    print(f"warning: ECO generation had non-zero exit: {e}")
+                    print(f"stdout: {e.stdout.decode() if e.stdout else ''}")
+                    print(f"stderr: {e.stderr.decode() if e.stderr else ''}")
 
     except Exception:
         conn.rollback()
         raise
     finally:
         conn.close()
+
+    if parsed.skip_main_pipeline_postprocess:
+        print("Skipping main-pipeline postprocess by request (--skip-main-pipeline-postprocess).")
+        archived = archive_non_50k_snapshots(built_heights, out_dir)
+        if archived:
+            print(f"Archived non-50k snapshots: {archived}")
+    else:
+        run_main_pipeline_postprocess(
+            snapshot_heights=built_heights,
+            out_dir=out_dir,
+            env_file=Path(parsed.env_file),
+        )
 
 
 if __name__ == "__main__":
