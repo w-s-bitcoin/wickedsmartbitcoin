@@ -33,6 +33,11 @@ CANONICAL_COLUMNS = [
     "identity",
 ]
 
+TARGET_FILES = (
+    "dashboard_pubkeys_ge_1btc.csv",
+    "dashboard_pubkeys_ge_1btc_top100.csv",
+)
+
 
 def load_all_ge1_btc_data():
     """
@@ -76,9 +81,9 @@ def load_all_ge1_btc_data():
     return dict(master_map)
 
 
-def update_snapshot_with_master_map(snapshot_dir, snapshot_label, master_map):
+def update_snapshot_csv_with_master_map(snapshot_dir, snapshot_label, master_map, filename):
     """
-    Update a snapshot's ge1_btc CSV using the master identity/details map.
+    Update a snapshot CSV using the master identity/details map.
     
     Returns dict with:
     - status: 'success', 'skipped', or 'error'
@@ -87,18 +92,19 @@ def update_snapshot_with_master_map(snapshot_dir, snapshot_label, master_map):
     - details_filled: number of rows with details filled in
     - details: explanation
     """
-    ge1_csv = snapshot_dir / "dashboard_pubkeys_ge_1btc.csv"
+    ge1_csv = snapshot_dir / filename
     
     if not ge1_csv.exists():
         return {
             "status": "skipped",
-            "details": f"No ge1_btc CSV at {snapshot_label}",
+            "details": f"No {filename} at {snapshot_label}",
         }
     
     try:
         # Read the CSV
         with open(ge1_csv, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
+            fieldnames = list(reader.fieldnames or [])
             rows = list(reader)
         
         if not rows:
@@ -117,11 +123,13 @@ def update_snapshot_with_master_map(snapshot_dir, snapshot_label, master_map):
             if group_id not in master_map:
                 continue
             
-            # Fill in missing identity
-            if not row.get("identity", "").strip():
-                if master_map[group_id]["identity"]:
-                    row["identity"] = master_map[group_id]["identity"]
-                    identities_filled += 1
+            # Fill in missing/placeholder identity.
+            identity_value = row.get("identity", "").strip()
+            master_identity = master_map[group_id]["identity"].strip()
+            should_fill_identity = (not identity_value) or (identity_value.lower() == "unidentified")
+            if should_fill_identity and master_identity and master_identity.lower() != "unidentified":
+                row["identity"] = master_identity
+                identities_filled += 1
             
             # Fill in missing details
             if not row.get("details", "").strip():
@@ -131,7 +139,7 @@ def update_snapshot_with_master_map(snapshot_dir, snapshot_label, master_map):
         
         # Write back to CSV
         with open(ge1_csv, "w", encoding="utf-8", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=CANONICAL_COLUMNS)
+            writer = csv.DictWriter(f, fieldnames=fieldnames or CANONICAL_COLUMNS)
             writer.writeheader()
             writer.writerows(rows)
         
@@ -146,8 +154,48 @@ def update_snapshot_with_master_map(snapshot_dir, snapshot_label, master_map):
     except Exception as e:
         return {
             "status": "error",
-            "details": f"Error processing: {str(e)}",
+            "details": f"Error processing {filename}: {str(e)}",
         }
+
+
+def update_snapshot_with_master_map(snapshot_dir, snapshot_label, master_map):
+    """
+    Update all supported snapshot CSVs using the master identity/details map.
+
+    Returns aggregate stats across files.
+    """
+    totals = {
+        "status": "success",
+        "rows_processed": 0,
+        "identities_filled": 0,
+        "details_filled": 0,
+        "details": "",
+    }
+
+    file_summaries = []
+    has_success = False
+    for filename in TARGET_FILES:
+        result = update_snapshot_csv_with_master_map(snapshot_dir, snapshot_label, master_map, filename)
+        if result["status"] == "error":
+            totals["status"] = "error"
+            file_summaries.append(f"{filename}: {result['details']}")
+            continue
+        if result["status"] == "success":
+            has_success = True
+            totals["rows_processed"] += result["rows_processed"]
+            totals["identities_filled"] += result["identities_filled"]
+            totals["details_filled"] += result["details_filled"]
+            file_summaries.append(
+                f"{filename}: {result['rows_processed']} rows"
+            )
+        else:
+            file_summaries.append(f"{filename}: skipped")
+
+    if totals["status"] != "error" and not has_success:
+        totals["status"] = "skipped"
+
+    totals["details"] = "; ".join(file_summaries)
+    return totals
 
 
 def main():
