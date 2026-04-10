@@ -1123,8 +1123,15 @@
       extraControls: [document.getElementById('panelResizer')],
     });
 
+    function syncSwapButtonEnabledState() {
+      const swapBtn = document.getElementById('swapPanelsBtn');
+      if (!swapBtn) return;
+      swapBtn.disabled = !(state.showHistoryPanel && state.showSnapshotPanel);
+    }
+
     function setControlsEnabled(enabled) {
       dashboardControlLock?.setEnabled(enabled);
+      syncSwapButtonEnabledState();
     }
 
     async function fetchText(path) {
@@ -2537,6 +2544,7 @@
       if (swapBtn) {
         swapBtn.disabled = !(state.showHistoryPanel && state.showSnapshotPanel);
       }
+      syncSwapButtonEnabledState();
       applyPanelSizing();
     }
 

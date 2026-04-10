@@ -27,8 +27,10 @@
     const CONTROLS_STORAGE_KEY = "bip110_signaling_controls_v3";
     const PANEL_RESIZE_MIN_HEIGHT = 220;
     const PANEL_RESIZE_VIEWPORT_PAD = 24;
+    const PANEL_RESIZE_SNAP_PX = 18;
     const DASHBOARD_TIME = window.WSBDashboardTime || null;
-    const SHARE_STATE_PARAM = "state";
+    const SHARE_STATE_PARAM = "bip110_state";
+    const LEGACY_SHARE_STATE_PARAM = "state";
     const LOCAL_RUNTIME_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
     const IS_LOCAL_RUNTIME = LOCAL_RUNTIME_HOSTS.has(window.location.hostname);
 
@@ -296,6 +298,7 @@
       state.controlsEnabled = Boolean(enabled);
       if (dashboardControlLock) {
         dashboardControlLock.setEnabled(enabled);
+        syncSwapButtonEnabledState();
         updateResetButtonUi();
         return;
       }
@@ -314,7 +317,14 @@
         control.disabled = !enabled;
       });
 
+      syncSwapButtonEnabledState();
       updateResetButtonUi();
+    }
+
+    function syncSwapButtonEnabledState() {
+      if (!swapPanelsBtn) return;
+      const bothVisible = Boolean(state.controls.showSegwit && state.controls.showBip110);
+      swapPanelsBtn.disabled = !bothVisible;
     }
 
     function setPanelLoadersVisible(visible) {
@@ -1017,6 +1027,30 @@
       }
     }
 
+    function isBip110SharePayload(decoded) {
+      if (!decoded || typeof decoded !== "object") return false;
+      const controls = decoded.controls;
+      if (controls && typeof controls === "object") {
+        const controlKeys = ["stripes", "stripesExplicit", "markers", "labels", "showSegwit", "showBip110", "panelsSwapped"];
+        if (controlKeys.some((key) => Object.prototype.hasOwnProperty.call(controls, key))) return true;
+      }
+      const manualHeights = decoded.manualPanelHeights;
+      if (manualHeights && typeof manualHeights === "object") {
+        if (Object.prototype.hasOwnProperty.call(manualHeights, "segwit")
+          || Object.prototype.hasOwnProperty.call(manualHeights, "bip110")) {
+          return true;
+        }
+      }
+      const filled = decoded.filledPanels;
+      if (filled && typeof filled === "object") {
+        if (Object.prototype.hasOwnProperty.call(filled, "segwit")
+          || Object.prototype.hasOwnProperty.call(filled, "bip110")) {
+          return true;
+        }
+      }
+      return typeof decoded.timeZone === "string";
+    }
+
     function getShareRouteBaseUrl() {
       const path = String(window.location.pathname || "");
       const dashboardMatch = path.match(/^(.*)\/webapps\/bip110_signaling\/dashboard\.html$/i);
@@ -1107,7 +1141,13 @@
 
     function applyDashboardShareStateFromUrl() {
       const params = new URLSearchParams(window.location.search || "");
-      const decoded = decodeShareState(params.get(SHARE_STATE_PARAM) || "");
+      const decodedPrimary = decodeShareState(params.get(SHARE_STATE_PARAM) || "");
+      const decodedLegacy = !decodedPrimary
+        ? decodeShareState(params.get(LEGACY_SHARE_STATE_PARAM) || "")
+        : null;
+      const decoded = isBip110SharePayload(decodedPrimary)
+        ? decodedPrimary
+        : (isBip110SharePayload(decodedLegacy) ? decodedLegacy : null);
       if (!decoded) return;
 
       const controls = decoded.controls && typeof decoded.controls === "object" ? decoded.controls : null;
@@ -1315,8 +1355,9 @@
         }
         try {
           const params = new URLSearchParams(window.location.search || "");
-          if (params.has(SHARE_STATE_PARAM)) {
+          if (params.has(SHARE_STATE_PARAM) || params.has(LEGACY_SHARE_STATE_PARAM)) {
             params.delete(SHARE_STATE_PARAM);
+            params.delete(LEGACY_SHARE_STATE_PARAM);
             const nextQuery = params.toString();
             const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}${window.location.hash || ""}`;
             window.history.replaceState(null, "", nextUrl);
@@ -2243,6 +2284,7 @@
       const visibleCount = (state.controls.showSegwit ? 1 : 0) + (state.controls.showBip110 ? 1 : 0);
       const solo = visibleCount === 1;
       state.lastVisibleCount = visibleCount;
+      syncSwapButtonEnabledState();
 
       if (hasPriorVisibility && visibleCount !== prevCount) {
         persistControls();
@@ -2389,6 +2431,58 @@
       return Math.max(300, Math.floor(availableForPanels / 2));
     }
 
+    function getVisiblePanelCount() {
+      return (state.controls.showSegwit ? 1 : 0) + (state.controls.showBip110 ? 1 : 0);
+    }
+
+    function getCompactTargetHeight(visibleCount) {
+      const count = Math.max(1, Number(visibleCount) || 1);
+      if (count === 1) {
+        return clampPanelResizeHeight(getHalfPanelHeight());
+      }
+      return getEqualSplitPanelHeight(count);
+    }
+
+    function resolvePanelResizeSnap(key, rawHeightPx) {
+      const visibleCount = getVisiblePanelCount();
+      const manualHeight = clampPanelResizeHeight(rawHeightPx);
+      const compactHeight = getCompactTargetHeight(visibleCount);
+      const compactDistance = Math.abs(manualHeight - compactHeight);
+
+      let fillHeight = null;
+      let fillDistance = Number.POSITIVE_INFINITY;
+      if (visibleCount === 1) {
+        fillHeight = clampPanelResizeHeight(getViewportFillHeightForSinglePanel());
+        fillDistance = Math.abs(manualHeight - fillHeight);
+      }
+
+      if (fillHeight != null && fillDistance <= PANEL_RESIZE_SNAP_PX && fillDistance <= compactDistance) {
+        return { mode: "fill", height: fillHeight };
+      }
+      if (compactDistance <= PANEL_RESIZE_SNAP_PX) {
+        return { mode: "compact", height: compactHeight };
+      }
+      return { mode: "manual", height: manualHeight };
+    }
+
+    function applyPanelResizeMode(key, mode, targetHeight) {
+      const panel = key === "segwit" ? segwitPanel : bip110Panel;
+      if (!panel) return;
+
+      if (mode === "fill") {
+        state.filledPanels[key] = true;
+        state.manualPanelHeights[key] = null;
+        state.manualPanelHeightRatios[key] = null;
+        panel.style.height = `${clampPanelResizeHeight(targetHeight)}px`;
+      } else {
+        const appliedHeight = setManualPanelHeight(key, targetHeight);
+        state.filledPanels[key] = false;
+        panel.style.height = `${appliedHeight}px`;
+      }
+
+      updateFillButtonState(key);
+    }
+
     function getEqualSplitPanelHeight(visibleCount) {
       const count = Math.max(1, Number(visibleCount) || 1);
       const wrapStyle = getComputedStyle(mainWrap);
@@ -2480,10 +2574,8 @@
 
           const onPointerMove = (moveEv) => {
             const deltaY = moveEv.clientY - startY;
-            const nextHeight = setManualPanelHeight(key, startHeight + deltaY);
-            state.filledPanels[key] = false;
-            updateFillButtonState(key);
-            panel.style.height = `${nextHeight}px`;
+            const snap = resolvePanelResizeSnap(key, startHeight + deltaY);
+            applyPanelResizeMode(key, snap.mode, snap.height);
             box.style.height = "";
             updateResetButtonUi();
             renderSelectedPanels([key]);
@@ -2497,8 +2589,14 @@
             window.removeEventListener("pointermove", onPointerMove);
             window.removeEventListener("pointerup", stopResize);
             window.removeEventListener("pointercancel", stopResize);
-            // Persist only the panel that was actively resized.
-            setManualPanelHeight(key, panel.getBoundingClientRect().height);
+
+            // Persist only the panel that was actively resized, honoring snapped mode.
+            if (state.filledPanels[key]) {
+              state.manualPanelHeights[key] = null;
+              state.manualPanelHeightRatios[key] = null;
+            } else {
+              setManualPanelHeight(key, panel.getBoundingClientRect().height);
+            }
             persistControls();
             updateResetButtonUi();
           };

@@ -1410,6 +1410,8 @@
         swapBtn.disabled = !bothVisible;
       }
 
+      syncSwapButtonEnabledState();
+
       applyPanelSizing();
       applySoftwarePanelSizing({ recalculateAvailableHeight: true });
 
@@ -2445,8 +2447,22 @@
       extraControls: [document.getElementById('panelResizer')],
     });
 
+    function syncSwapButtonEnabledState() {
+      const swapBtn = document.getElementById('swapPanelsBtn');
+      const historyPanel = document.querySelector('.history-panel');
+      const softwarePanel = document.querySelector('.software-panel');
+      if (!swapBtn) return;
+      if (!historyPanel || !softwarePanel) {
+        swapBtn.disabled = true;
+        return;
+      }
+      const bothVisible = !historyPanel.hidden && !softwarePanel.hidden;
+      swapBtn.disabled = !bothVisible;
+    }
+
     function setControlsEnabled(enabled) {
       dashboardControlLock?.setEnabled(enabled);
+      syncSwapButtonEnabledState();
     }
 
     async function init() {
