@@ -204,6 +204,51 @@ def write_snapshots_index(snapshot_dirs, lookup_by_height=None):
         print(f"  ✗ Error writing snapshots_index.csv: {e}")
 
 
+def write_archived_index(lookup_by_height=None):
+    """Write archived_index.csv with snapshot_blockheight and snapshot_time for archived snapshots."""
+    archived_dir = WEBAPP_DATA_DIR / "archived"
+    archived_index_path = WEBAPP_DATA_DIR / "archived_index.csv"
+
+    if not archived_dir.exists() or not archived_dir.is_dir():
+        print("  ⊘ No archived/ directory found; skipping archived_index.csv")
+        return
+
+    archived_dirs = sorted(
+        [d for d in archived_dir.iterdir() if d.is_dir() and d.name.isdigit()],
+        key=lambda d: int(d.name),
+        reverse=True,
+    )
+
+    if not archived_dirs:
+        print("  ⊘ No archived snapshot directories found; skipping archived_index.csv")
+        return
+
+    rows = []
+    for snapshot_dir in archived_dirs:
+        snapshot_height = get_snapshot_height(snapshot_dir)
+        if snapshot_height is None:
+            continue
+
+        snapshot_time = get_snapshot_time_from_meta(snapshot_dir)
+
+        if not snapshot_time and lookup_by_height:
+            snapshot_time = lookup_by_height.get(str(snapshot_height), "")
+
+        rows.append({
+            "snapshot_blockheight": str(snapshot_height),
+            "snapshot_time": snapshot_time,
+        })
+
+    try:
+        content = serialize_csv_rows(["snapshot_blockheight", "snapshot_time"], rows)
+        if write_text_if_changed(archived_index_path, content):
+            print(f"  ✓ Written {len(rows)} snapshots to archived_index.csv")
+        else:
+            print(f"  ⊘ archived_index.csv unchanged ({len(rows)} snapshots)")
+    except Exception as e:
+        print(f"  ✗ Error writing archived_index.csv: {e}")
+
+
 def get_snapshot_height(snapshot_dir):
     """Extract snapshot blockheight from meta CSV."""
     meta_path = snapshot_dir / "dashboard_snapshot_meta.csv"
@@ -279,9 +324,10 @@ def generate_historical_lite_rows(snapshot_height, aggregates_rows):
     return output_rows
 
 
-def rebuild_historical_lite(all_rows):
-    """Fully rebuild historical_lite.csv from provided rows."""
-    historical_lite_path = WEBAPP_DATA_DIR / "historical_lite.csv"
+def rebuild_historical_lite(all_rows, output_path=None):
+    """Fully rebuild historical_lite.csv (or a given path) from provided rows."""
+    if output_path is None:
+        output_path = WEBAPP_DATA_DIR / "historical_lite.csv"
 
     try:
         rows_sorted = list(all_rows)
@@ -290,11 +336,11 @@ def rebuild_historical_lite(all_rows):
         )
 
         content = serialize_csv_rows(HISTORICAL_LITE_FIELDNAMES, rows_sorted)
-        if write_text_if_changed(historical_lite_path, content):
+        if write_text_if_changed(output_path, content):
             return {"status": "written", "rows": len(rows_sorted)}
         return {"status": "unchanged", "rows": len(rows_sorted)}
     except Exception as e:
-        print(f"  ✗ Error writing to historical_lite.csv: {e}")
+        print(f"  ✗ Error writing to {output_path.name}: {e}")
         return {"status": "error", "rows": 0}
 
 
@@ -344,6 +390,39 @@ def main():
         else:
             print(f"  ⊘ {snapshot_dir.name}: Skipped (no data)")
 
+    # Phase 1b: Generate ECO subset CSV files for archived snapshots
+    archived_dir = WEBAPP_DATA_DIR / "archived"
+    archived_snapshot_dirs = []
+    if archived_dir.exists() and archived_dir.is_dir():
+        archived_snapshot_dirs = sorted(
+            [d for d in archived_dir.iterdir() if d.is_dir() and d.name.isdigit()],
+            key=lambda x: int(x.name),
+        )
+
+    if archived_snapshot_dirs:
+        print(f"\n=== Generating Top {ECO_TOP_N} CSV Files (Archived) ===")
+        archived_eco_generated_count = 0
+        archived_eco_skipped_count = 0
+        archived_eco_unchanged_count = 0
+        for snapshot_dir in archived_snapshot_dirs:
+            result = generate_eco_subset_for_snapshot(snapshot_dir, lookup_by_height)
+            if result:
+                if result.get("status") == "generated":
+                    print(
+                        f"  ✓ archived/{snapshot_dir.name}: {result['count']} / {result['total']} rows"
+                    )
+                    archived_eco_generated_count += 1
+                elif result.get("status") == "skipped":
+                    print(f"  ⊘ archived/{snapshot_dir.name}: ECO subset up-to-date")
+                    archived_eco_skipped_count += 1
+                elif result.get("status") == "unchanged":
+                    print(f"  ⊘ archived/{snapshot_dir.name}: ECO subset content unchanged")
+                    archived_eco_unchanged_count += 1
+                elif result.get("status") == "error":
+                    print(f"  ✗ archived/{snapshot_dir.name}: {result['error']}")
+            else:
+                print(f"  ⊘ archived/{snapshot_dir.name}: Skipped (no data)")
+
     # Phase 2: Rebuild historical_lite.csv from current snapshots only
     print("\n=== Rebuilding historical_lite.csv ===")
     included_snapshots = []
@@ -373,9 +452,54 @@ def main():
             f"({len(included_snapshots)} snapshots, {historical_result['rows']} rows)"
         )
 
+    # Phase 2b: Rebuild historical_archived.csv from archived snapshots
+    print("\n=== Rebuilding historical_archived.csv ===")
+    archived_dir = WEBAPP_DATA_DIR / "archived"
+    archived_snapshot_dirs = []
+    if archived_dir.exists() and archived_dir.is_dir():
+        archived_snapshot_dirs = sorted(
+            [d for d in archived_dir.iterdir() if d.is_dir() and d.name.isdigit()],
+            key=lambda x: int(x.name),
+        )
+
+    included_archived_snapshots = []
+    historical_archived_rows = []
+    for snapshot_dir in archived_snapshot_dirs:
+        snapshot_height = get_snapshot_height(snapshot_dir)
+        if snapshot_height is None:
+            continue
+        aggregates = load_aggregates_for_snapshot(snapshot_dir)
+        if aggregates:
+            rows = generate_historical_lite_rows(snapshot_height, aggregates)
+            if rows:
+                included_archived_snapshots.append(snapshot_height)
+                historical_archived_rows.extend(rows)
+
+    if included_archived_snapshots:
+        archived_result = rebuild_historical_lite(
+            historical_archived_rows,
+            output_path=WEBAPP_DATA_DIR / "historical_archived.csv",
+        )
+        if archived_result["status"] == "written":
+            print(
+                f"  ✓ Rebuilt historical_archived.csv using {len(included_archived_snapshots)} snapshots "
+                f"({archived_result['rows']} rows)"
+            )
+        elif archived_result["status"] == "unchanged":
+            print(
+                f"  ⊘ historical_archived.csv unchanged "
+                f"({len(included_archived_snapshots)} snapshots, {archived_result['rows']} rows)"
+            )
+    else:
+        print("  ⊘ No archived snapshots found; skipping historical_archived.csv")
+
     # Phase 3: Regenerate snapshots_index.csv with snapshot_time column
     print("\n=== Updating snapshots_index.csv ===")
     write_snapshots_index(snapshot_dirs, lookup_by_height)
+
+    # Phase 4: Regenerate archived_index.csv for archived snapshots
+    print("\n=== Updating archived_index.csv ===")
+    write_archived_index(lookup_by_height)
 
     # Summary
     print(

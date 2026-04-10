@@ -40,6 +40,9 @@ const state = {
   balanceAutoForcedFromAllByTopFilters: false,
   pendingPersistedSnapshotPreference: null,
   pendingPersistedSnapshotHeight: null,
+  archivedSnapshotsEnabled: false,
+  archivedSnapshotsAvailable: false,
+  snapshotLocationByHeight: {},
   preResetStateSnapshot: null,
   pendingIdentityTagExclusions: null,
   ge1FullDataLoadTriggered: false,
@@ -61,6 +64,7 @@ const UNIDENTIFIED_IDENTITY_GROUP_FILTER_VALUE = "__unidentified_group__";
 const UNIDENTIFIED_IDENTITY_GROUP_FILTER_LABEL = "Unidentified";
 const THEME_STORAGE_KEY = "quantum-research-dashboard-theme";
 const RUNTIME_MODE_STORAGE_KEY = "quantum-research-dashboard-runtime-mode-v1";
+const ARCHIVED_SNAPSHOTS_ENABLED_STORAGE_KEY = "quantum-research-archived-snapshots-enabled-v1";
 const FILTERS_STORAGE_KEY = "quantum-research-dashboard-filters-v1";
 const HISTORICAL_GE1_CACHE_STORAGE_KEY = "quantum-research-historical-ge1-v1";
 const SNAPSHOT_PREF_LATEST = "latest";
@@ -115,6 +119,27 @@ function persistRuntimeMode() {
     window.localStorage.setItem(RUNTIME_MODE_STORAGE_KEY, isLiteMode() ? "lite" : "full");
   } catch (err) {
     console.warn("Could not persist runtime mode preference", err);
+  }
+}
+
+function persistArchivedSnapshotsEnabled() {
+  if (!IS_LOCAL_RUNTIME) return;
+  try {
+    window.localStorage.setItem(ARCHIVED_SNAPSHOTS_ENABLED_STORAGE_KEY, state.archivedSnapshotsEnabled ? "true" : "false");
+  } catch (err) {
+    console.warn("Could not persist archived snapshots enabled preference", err);
+  }
+}
+
+function loadArchivedSnapshotsEnabled() {
+  if (!IS_LOCAL_RUNTIME) return;
+  try {
+    const stored = window.localStorage.getItem(ARCHIVED_SNAPSHOTS_ENABLED_STORAGE_KEY);
+    if (stored === "true") {
+      state.archivedSnapshotsEnabled = true;
+    }
+  } catch (err) {
+    console.warn("Could not load archived snapshots enabled preference", err);
   }
 }
 
@@ -211,8 +236,40 @@ function applyRuntimeModeUi() {
   const lite = isLiteMode();
   document.documentElement.classList.toggle("lite-mode", lite);
   document.documentElement.classList.toggle("full-mode", !lite);
+  loadArchivedSnapshotsEnabled();
   updateRuntimeModeButton();
+  updateArchivedSnapshotsToggleUi();
   updateTopExposureFilterControlAvailability();
+}
+
+function updateArchivedSnapshotsToggleUi() {
+  const archivedToggleButton = document.getElementById("archivedSnapshotsToggle");
+  if (!archivedToggleButton) return;
+
+  const shouldShow = IS_LOCAL_RUNTIME && state.archivedSnapshotsAvailable;
+
+  archivedToggleButton.classList.toggle("is-hidden", !shouldShow);
+  archivedToggleButton.classList.toggle("is-on", shouldShow && state.archivedSnapshotsEnabled);
+  archivedToggleButton.setAttribute("aria-pressed", shouldShow && state.archivedSnapshotsEnabled ? "true" : "false");
+  archivedToggleButton.setAttribute(
+    "aria-label",
+    shouldShow && state.archivedSnapshotsEnabled
+      ? "Archived snapshots shown"
+      : "Archived snapshots hidden"
+  );
+  setCustomTooltip(
+    archivedToggleButton,
+    shouldShow
+      ? "Include archived snapshot heights in filters and historical charts"
+      : "Archived snapshots are only available when running locally with webapp_data/archived present"
+  );
+}
+
+function snapshotBasePath(snapshot) {
+  const height = String(snapshot || "").trim();
+  return state.snapshotLocationByHeight[height] === "archived"
+    ? `webapp_data/archived/${height}`
+    : `webapp_data/${height}`;
 }
 
 function normalizeSupplyDisplayMode(mode) {
@@ -2267,6 +2324,28 @@ async function ensureHistoricalSeriesLoaded() {
         groupedBySnapshot.get(snapshot).push(aggregatesRow);
       });
 
+      if (state.archivedSnapshotsEnabled) {
+        try {
+          const archivedResp = await fetch("webapp_data/historical_archived.csv");
+          if (archivedResp.ok) {
+            parseCsv(await archivedResp.text()).forEach((row) => {
+              const snapshot = String(row.snapshot || "").trim();
+              if (!snapshot || groupedBySnapshot.has(snapshot)) return;
+
+              const aggregatesRow = { ...row };
+              delete aggregatesRow.snapshot;
+
+              if (!groupedBySnapshot.has(snapshot)) {
+                groupedBySnapshot.set(snapshot, []);
+              }
+              groupedBySnapshot.get(snapshot).push(aggregatesRow);
+            });
+          }
+        } catch (_err) {
+          // Best effort only; historical chart still renders active snapshots.
+        }
+      }
+
       state.historicalSeries = Array.from(groupedBySnapshot.entries())
         .sort((left, right) => Number.parseInt(left[0], 10) - Number.parseInt(right[0], 10))
         .map(([snapshot, aggregatesRows]) => ({
@@ -2283,7 +2362,7 @@ async function ensureHistoricalSeriesLoaded() {
 
     const series = [];
     for (const snapshot of snapshotsAsc) {
-      const resp = await fetch(`webapp_data/${snapshot}/dashboard_pubkeys_aggregates.csv`);
+      const resp = await fetch(`${snapshotBasePath(snapshot)}/dashboard_pubkeys_aggregates.csv`);
       if (!resp.ok) {
         throw new Error(`Could not load historical aggregates for snapshot ${snapshot}`);
       }
@@ -2345,7 +2424,7 @@ async function ensureHistoricalSeriesGe1Loaded(filters, signal) {
 
       let resp;
       try {
-        resp = await fetch(`webapp_data/${point.snapshot}/dashboard_pubkeys_ge_1btc.csv`, signal ? { signal } : {});
+        resp = await fetch(`${snapshotBasePath(point.snapshot)}/dashboard_pubkeys_ge_1btc.csv`, signal ? { signal } : {});
       } catch (err) {
         if (err.name === "AbortError") break;
         throw err;
@@ -2470,7 +2549,7 @@ function buildHistoricalStackedData(filters) {
   const ge1FilterKey = tagFiltersActive ? historicalGe1FilterKey(filters) : null;
   const fallbackFilterKey = tagFiltersActive ? state.historicalSeriesGe1FallbackFilterKey : null;
 
-  return state.historicalSeries.map((point) => {
+  const points = state.historicalSeries.map((point) => {
     const rows = point.aggregatesRows;
 
     // Base/faded layers always show the full "all-balance" picture regardless of filter.
@@ -2537,6 +2616,26 @@ function buildHistoricalStackedData(filters) {
       },
     };
   });
+
+  // Prepend a starting point at height 0 with all supplies at 0
+  const zeroPoint = {
+    snapshot: "0",
+    totalSupplySats: 0,
+    fullNever: 0,
+    fullInactive: 0,
+    fullActive: 0,
+    fullNonExposed: 0,
+    filteredNever: 0,
+    filteredInactive: 0,
+    filteredActive: 0,
+    spendHighlighted: {
+      never_spent: showAllSpends || spendFilterSet.has("never_spent"),
+      inactive: showAllSpends || spendFilterSet.has("inactive"),
+      active: showAllSpends || spendFilterSet.has("active"),
+    },
+  };
+
+  return [zeroPoint, ...points];
 }
 
 function showHistoricalLoadingOverlay(container, message) {
@@ -2668,7 +2767,9 @@ function renderHistoricalStackedChart(filters) {
     return;
   }
 
-  const points = buildHistoricalStackedData(filters).filter((point) => point.totalSupplySats > 0);
+  const allPoints = buildHistoricalStackedData(filters);
+  // Keep the zero point (height 0) even if it has no supply, but filter out other points with no supply.
+  const points = allPoints.filter((point) => point.totalSupplySats > 0 || point.snapshot === "0");
   if (!points.length) {
     clearHistoricalLoadingOverlay(container);
     container.className = "bar-empty";
@@ -3014,7 +3115,7 @@ function renderHistoricalStackedChart(filters) {
     hoverLine.setAttribute("visibility", "visible");
 
     hoverDot.setAttribute("cx", String(nearest.x));
-    hoverDot.setAttribute("cy", String(yAt(showNonExposed ? nearest.totalTop : nearest.activeTop)));
+    hoverDot.setAttribute("cy", String(yAt(showFilteredOnly ? nearest.activeFilteredTop : (showNonExposed ? nearest.totalTop : nearest.activeTop))));
     hoverDot.setAttribute("visibility", "visible");
 
     const neverBtc = Math.round(nearest.filteredNever / SATS_PER_BTC);
@@ -4597,7 +4698,7 @@ async function ensureIdentityGroupsLoaded() {
   return state.identityGroupsLoadingPromise;
 }
 
-async function loadData() {
+async function loadData(preferredSnapshotOverride = "") {
   state.availableSnapshots = await loadAvailableSnapshots();
   if (!state.availableSnapshots.length) {
     throw new Error("No snapshots found in webapp_data/");
@@ -4622,8 +4723,11 @@ async function loadData() {
   populateSnapshotFilter(state.availableSnapshots);
   const preferredMode = state.pendingPersistedSnapshotPreference;
   const preferredSnapshot = state.pendingPersistedSnapshotHeight;
+  const preferredOverride = String(preferredSnapshotOverride || "").trim();
   const initialSnapshot =
-    preferredMode === SNAPSHOT_PREF_LATEST
+    preferredOverride && state.availableSnapshots.includes(preferredOverride)
+      ? preferredOverride
+      : preferredMode === SNAPSHOT_PREF_LATEST
       ? state.availableSnapshots[0]
       : preferredSnapshot && state.availableSnapshots.includes(preferredSnapshot)
       ? preferredSnapshot
@@ -4699,7 +4803,7 @@ async function loadSnapshotLabelLookup(snapshots) {
   await Promise.all(
     missingSnapshotLabels.map(async (snapshot) => {
       try {
-        const resp = await fetch(`webapp_data/${snapshot}/dashboard_snapshot_meta.csv`);
+        const resp = await fetch(`${snapshotBasePath(snapshot)}/dashboard_snapshot_meta.csv`);
         if (!resp.ok) {
           return;
         }
@@ -4724,18 +4828,60 @@ async function loadSnapshotLabelLookup(snapshots) {
 }
 
 async function loadAvailableSnapshots() {
+  state.snapshotLocationByHeight = {};
+
   const indexResp = await fetch("webapp_data/snapshots_index.csv");
+  let activeRows = [];
   if (indexResp.ok) {
-    const rows = parseCsv(await indexResp.text());
-    const values = rows
+    activeRows = parseCsv(await indexResp.text());
+    const values = activeRows
       .map((row) => (row.snapshot_blockheight || "").trim())
       .filter((value) => /^\d+$/.test(value));
+
+    values.forEach((height) => {
+      state.snapshotLocationByHeight[height] = "active";
+    });
+
+    let archivedRows = [];
+    if (IS_LOCAL_RUNTIME) {
+      try {
+        const archivedResp = await fetch("webapp_data/archived_index.csv");
+        if (archivedResp.ok) {
+          archivedRows = parseCsv(await archivedResp.text());
+        }
+      } catch (_err) {
+        archivedRows = [];
+      }
+    }
+
+    const archivedValues = archivedRows
+      .map((row) => (row.snapshot_blockheight || "").trim())
+      .filter((value) => /^\d+$/.test(value));
+
+    state.archivedSnapshotsAvailable = archivedValues.length > 0;
+    if (!state.archivedSnapshotsAvailable) {
+      state.archivedSnapshotsEnabled = false;
+    }
+    updateArchivedSnapshotsToggleUi();
+
+    const mergedValues = [...values];
+    if (state.archivedSnapshotsEnabled) {
+      archivedValues.forEach((height) => {
+        if (!state.snapshotLocationByHeight[height]) {
+          state.snapshotLocationByHeight[height] = "archived";
+        }
+        if (!mergedValues.includes(height)) {
+          mergedValues.push(height);
+        }
+      });
+    }
+
     if (values.length) {
-      values.sort((left, right) => Number.parseInt(right, 10) - Number.parseInt(left, 10));
+      mergedValues.sort((left, right) => Number.parseInt(right, 10) - Number.parseInt(left, 10));
       // Pre-populate snapshot label datetimes from the embedded snapshot_time column.
       // This makes dropdown labels available immediately, with no need to load the large
       // blockheight_datetime_lookup.csv or individual per-snapshot meta CSVs for this purpose.
-      rows.forEach((row) => {
+      activeRows.forEach((row) => {
         const height = (row.snapshot_blockheight || "").trim();
         const unixTime = toInt(row.snapshot_time);
         if (height && unixTime) {
@@ -4743,9 +4889,23 @@ async function loadAvailableSnapshots() {
           state.blockDatetimeByHeight[height] = formatTooltipDate(unixTime);
         }
       });
-      return values;
+      if (state.archivedSnapshotsEnabled) {
+        archivedRows.forEach((row) => {
+          const height = (row.snapshot_blockheight || "").trim();
+          const unixTime = toInt(row.snapshot_time);
+          if (height && unixTime) {
+            state.snapshotLabelDatetimeByHeight[height] = formatSnapshotSelectDate(unixTime);
+            state.blockDatetimeByHeight[height] = formatTooltipDate(unixTime);
+          }
+        });
+      }
+      return mergedValues;
     }
   }
+
+  state.archivedSnapshotsAvailable = false;
+  state.archivedSnapshotsEnabled = false;
+  updateArchivedSnapshotsToggleUi();
 
   const latestResp = await fetch("webapp_data/latest_snapshot.txt");
   if (!latestResp.ok) {
@@ -4775,7 +4935,7 @@ function populateSnapshotFilter(snapshots) {
 
 async function loadSnapshotData(snapshot) {
   const requestedSnapshot = String(snapshot || "").trim();
-  const basePath = `webapp_data/${requestedSnapshot}`;
+  const basePath = snapshotBasePath(requestedSnapshot);
   const cached = state.snapshotDataCache.get(requestedSnapshot);
 
   if (cached) {
@@ -4907,6 +5067,7 @@ function attachEvents() {
   bindCustomTooltips();
   const copyDashboardLinkButton = document.getElementById("copyDashboardLink");
   const resetDashboardButton = document.getElementById("resetDashboard");
+  const archivedSnapshotsToggleButton = document.getElementById("archivedSnapshotsToggle");
   const runtimeModeToggleButton = document.getElementById("runtimeModeToggle");
   const themeToggle = document.getElementById("themeToggle");
   const scriptPanelModeToggle = document.getElementById("scriptPanelModeToggle");
@@ -4957,6 +5118,33 @@ function attachEvents() {
 
       try {
         await loadSnapshotData(targetSnapshot);
+      } catch (err) {
+        console.error(err);
+        renderEmptyKpis();
+      }
+    });
+  }
+
+  if (archivedSnapshotsToggleButton) {
+    archivedSnapshotsToggleButton.addEventListener("click", async () => {
+      if (!IS_LOCAL_RUNTIME || !state.archivedSnapshotsAvailable) return;
+
+      state.archivedSnapshotsEnabled = !state.archivedSnapshotsEnabled;
+      updateArchivedSnapshotsToggleUi();
+      persistArchivedSnapshotsEnabled();
+
+      state.snapshotDataCache.clear();
+      state.topExposuresDataCache.clear();
+      state.historicalSeries = [];
+      state.ge1Rows = [];
+      state.topExposuresLoading = false;
+      resetTopExposurePagination();
+
+      const snapshotFilter = document.getElementById("snapshotFilter");
+      const targetSnapshot = String(state.snapshotHeight || snapshotFilter?.value || "").trim();
+
+      try {
+        await loadData(targetSnapshot);
       } catch (err) {
         console.error(err);
         renderEmptyKpis();
