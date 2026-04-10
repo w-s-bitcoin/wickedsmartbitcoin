@@ -231,7 +231,7 @@ def sync_to_standalone_repo(dry_run: bool) -> None:
         (WEBAPP_DATA_DIR / "latest_snapshot.txt", standalone_data_dir / "latest_snapshot.txt"),
         (WEBAPP_DATA_DIR / "snapshots_index.csv", standalone_data_dir / "snapshots_index.csv"),
         (WEBAPP_DATA_DIR / "archived_index.csv", standalone_data_dir / "archived_index.csv"),
-        (WEBAPP_DATA_DIR / "historical_lite.csv", standalone_data_dir / "historical_lite.csv"),
+        (WEBAPP_DATA_DIR / "historical_eco.csv", standalone_data_dir / "historical_eco.csv"),
         (WEBAPP_DATA_DIR / "historical_archived.csv", standalone_data_dir / "historical_archived.csv"),
         (WEBAPP_DATA_DIR / "blockheight_datetime_lookup.csv", standalone_data_dir / "blockheight_datetime_lookup.csv"),
     ]
