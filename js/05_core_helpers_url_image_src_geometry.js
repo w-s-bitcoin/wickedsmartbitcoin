@@ -382,7 +382,10 @@ function getPageBasePath(){
 }
 
 function isStandaloneModalShell() {
-    return document.body?.dataset?.standaloneModalShell === '1';
+    const markedStandalone = document.body?.dataset?.standaloneModalShell === '1';
+    if (!markedStandalone) return false;
+    const path = String(window.location.pathname || '').toLowerCase();
+    return /(?:^|\/)view\.html$/.test(path);
 }
 
 function getVisualizationSlug(filename) {
