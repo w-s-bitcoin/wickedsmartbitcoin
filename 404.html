@@ -25,6 +25,14 @@
         <meta name="twitter:title" content="Wicked Smart Bitcoin">
         <meta name="twitter:description" content="Bitcoin Visualizations Updated Hourly/Daily">
         <meta name="twitter:image" content="https://wickedsmartbitcoin.com/assets/og-banner.png">
+        <script>
+            (function redirectDonateRouteFrom404() {
+                var path = String(window.location.pathname || '').replace(/\/+$/, '').toLowerCase();
+                if (path === '/donate') {
+                    window.location.replace('/#donate');
+                }
+            })();
+        </script>
         <style>
             body[data-standalone-modal-shell="1"] {
                 margin: 0;
