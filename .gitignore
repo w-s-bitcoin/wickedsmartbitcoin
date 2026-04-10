@@ -47,3 +47,6 @@ quantum_exposure.zip
 
 # Archived quantum exposure snapshots (pipeline keeps these out of active data)
 webapps/quantum_exposure/webapp_data/archived/
+
+# Local dev-only helpers
+dev/
