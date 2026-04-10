@@ -19,6 +19,7 @@ from pipeline_paths import QUANTUM_DIR
 
 QUANTUM_EXPOSURE_DIR = QUANTUM_DIR
 WEBAPP_DATA_DIR = QUANTUM_EXPOSURE_DIR / "webapp_data"
+ARCHIVED_DATA_DIR = WEBAPP_DATA_DIR / "archived"
 
 # Canonical column names for ge1_btc files
 CANONICAL_COLUMNS = [
@@ -42,10 +43,8 @@ def load_all_ge1_btc_data():
     """
     master_map = defaultdict(lambda: {"identity": "", "details": ""})
     
-    # Scan all snapshot directories
-    for snapshot_dir in sorted(WEBAPP_DATA_DIR.iterdir()):
-        if not snapshot_dir.is_dir() or not snapshot_dir.name.isdigit():
-            continue
+    # Scan all active + archived snapshot directories
+    for _, snapshot_dir, _ in list_snapshot_targets(include_archived=True):
         
         ge1_csv = snapshot_dir / "dashboard_pubkeys_ge_1btc.csv"
         if not ge1_csv.exists():
@@ -72,12 +71,12 @@ def load_all_ge1_btc_data():
                         master_map[group_id]["details"] = details
         
         except Exception as e:
-            print(f"  ⚠ Error reading {snapshot_dir.name}: {e}")
+            print(f"  ⚠ Error reading {snapshot_dir}: {e}")
     
     return dict(master_map)
 
 
-def update_snapshot_with_master_map(snapshot_height, master_map):
+def update_snapshot_with_master_map(snapshot_dir, snapshot_label, master_map):
     """
     Update a snapshot's ge1_btc CSV using the master identity/details map.
     
@@ -88,13 +87,12 @@ def update_snapshot_with_master_map(snapshot_height, master_map):
     - details_filled: number of rows with details filled in
     - details: explanation
     """
-    snapshot_dir = WEBAPP_DATA_DIR / str(snapshot_height)
     ge1_csv = snapshot_dir / "dashboard_pubkeys_ge_1btc.csv"
     
     if not ge1_csv.exists():
         return {
             "status": "skipped",
-            "details": f"No ge1_btc CSV at {snapshot_dir.name}",
+            "details": f"No ge1_btc CSV at {snapshot_label}",
         }
     
     try:
@@ -154,14 +152,9 @@ def update_snapshot_with_master_map(snapshot_height, master_map):
 
 def main():
     """Main execution."""
-    # Parse block heights from arguments, or use all if none provided
+    # Parse block heights from arguments, or use all (active + archived) if none provided
     if len(sys.argv) == 1:
-        # Update all snapshots
-        snapshot_heights = [
-            int(d.name) for d in WEBAPP_DATA_DIR.iterdir()
-            if d.is_dir() and d.name.isdigit()
-        ]
-        snapshot_heights.sort()
+        targets = list_snapshot_targets(include_archived=True)
     else:
         snapshot_heights = []
         for arg in sys.argv[1:]:
@@ -180,10 +173,11 @@ def main():
                 except ValueError:
                     print(f"Invalid block height: {arg}")
                     sys.exit(1)
-    
-    snapshot_heights = sorted(set(snapshot_heights))
-    
-    print(f"=== Filling Identity & Details in {len(snapshot_heights)} Snapshots ===\n")
+
+        requested_heights = sorted(set(snapshot_heights))
+        targets = list_snapshot_targets_for_heights(requested_heights)
+
+    print(f"=== Filling Identity & Details in {len(targets)} Snapshot Targets ===\n")
     
     # Load master map from all ge1_btc CSVs
     print("Building master identity/details map from all snapshots...")
@@ -195,10 +189,11 @@ def main():
     results = {}
     success_count = 0
     total_filled = 0
-    
-    for height in snapshot_heights:
-        result = update_snapshot_with_master_map(height, master_map)
-        results[height] = result
+
+    for height, snapshot_dir, location in targets:
+        label = f"{location}/{height}" if location == "archived" else str(height)
+        result = update_snapshot_with_master_map(snapshot_dir, label, master_map)
+        results[label] = result
         
         status_symbol = {
             "success": "✓",
@@ -206,7 +201,7 @@ def main():
             "error": "✗",
         }.get(result["status"], "?")
         
-        print(f"  {status_symbol} {height}: {result['details']}")
+        print(f"  {status_symbol} {label}: {result['details']}")
         
         if result["status"] == "success":
             success_count += 1
@@ -222,15 +217,42 @@ def main():
     
     # Summary
     print(f"\n=== Summary ===")
-    print(f"  Total processed: {success_count}/{len(snapshot_heights)}")
+    print(f"  Total processed: {success_count}/{len(targets)}")
     print(f"  Total fields filled: {total_filled}")
-    
-    if success_count == len(snapshot_heights):
+
+    if success_count == len(targets):
         print("\n✓ Fill completed successfully!")
         return 0
     else:
-        print(f"\n⚠ Fill completed with {len(snapshot_heights) - success_count} skipped/error(s)")
+        print(f"\n⚠ Fill completed with {len(targets) - success_count} skipped/error(s)")
         return 1
+
+
+def list_snapshot_targets(include_archived=True):
+    """Return sorted snapshot targets as (height, dir_path, location)."""
+    targets = []
+
+    for snapshot_dir in WEBAPP_DATA_DIR.iterdir():
+        if not snapshot_dir.is_dir() or not snapshot_dir.name.isdigit():
+            continue
+        targets.append((int(snapshot_dir.name), snapshot_dir, "active"))
+
+    if include_archived and ARCHIVED_DATA_DIR.exists() and ARCHIVED_DATA_DIR.is_dir():
+        for snapshot_dir in ARCHIVED_DATA_DIR.iterdir():
+            if not snapshot_dir.is_dir() or not snapshot_dir.name.isdigit():
+                continue
+            targets.append((int(snapshot_dir.name), snapshot_dir, "archived"))
+
+    targets.sort(key=lambda item: (item[0], item[2]))
+    return targets
+
+
+def list_snapshot_targets_for_heights(snapshot_heights):
+    """Resolve requested heights to active/archived snapshot directory targets."""
+    requested = set(snapshot_heights)
+    targets = [item for item in list_snapshot_targets(include_archived=True) if item[0] in requested]
+    targets.sort(key=lambda item: (item[0], item[2]))
+    return targets
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 """
 Generate ECO mode optimized files for Quantum Exposure dashboard:
 1. Top 100 CSV files for fast initial load
-2. Rebuild historical_lite.csv from current snapshots
+2. Rebuild historical_eco.csv from current snapshots
 """
 
 import json
@@ -14,8 +14,8 @@ from pipeline_paths import QUANTUM_DIR
 QUANTUM_EXPOSURE_DIR = QUANTUM_DIR
 WEBAPP_DATA_DIR = QUANTUM_EXPOSURE_DIR / "webapp_data"
 
-# Fields for historical_lite.csv
-HISTORICAL_LITE_FIELDNAMES = [
+# Fields for historical_eco.csv
+HISTORICAL_ECO_FIELDNAMES = [
     "snapshot",
     "balance_filter",
     "script_type_filter",
@@ -286,8 +286,8 @@ def load_aggregates_for_snapshot(snapshot_dir):
         return None
 
 
-def generate_historical_lite_rows(snapshot_height, aggregates_rows):
-    """Generate historical_lite.csv rows for a snapshot."""
+def generate_historical_eco_rows(snapshot_height, aggregates_rows):
+    """Generate historical_eco.csv rows for a snapshot."""
     if not aggregates_rows:
         return []
 
@@ -324,10 +324,10 @@ def generate_historical_lite_rows(snapshot_height, aggregates_rows):
     return output_rows
 
 
-def rebuild_historical_lite(all_rows, output_path=None):
-    """Fully rebuild historical_lite.csv (or a given path) from provided rows."""
+def rebuild_historical_eco(all_rows, output_path=None):
+    """Fully rebuild historical_eco.csv (or a given path) from provided rows."""
     if output_path is None:
-        output_path = WEBAPP_DATA_DIR / "historical_lite.csv"
+        output_path = WEBAPP_DATA_DIR / "historical_eco.csv"
 
     try:
         rows_sorted = list(all_rows)
@@ -335,7 +335,7 @@ def rebuild_historical_lite(all_rows, output_path=None):
             key=lambda r: (int(r.get("snapshot", 0)), r.get("balance_filter", ""))
         )
 
-        content = serialize_csv_rows(HISTORICAL_LITE_FIELDNAMES, rows_sorted)
+        content = serialize_csv_rows(HISTORICAL_ECO_FIELDNAMES, rows_sorted)
         if write_text_if_changed(output_path, content):
             return {"status": "written", "rows": len(rows_sorted)}
         return {"status": "unchanged", "rows": len(rows_sorted)}
@@ -423,8 +423,8 @@ def main():
             else:
                 print(f"  ⊘ archived/{snapshot_dir.name}: Skipped (no data)")
 
-    # Phase 2: Rebuild historical_lite.csv from current snapshots only
-    print("\n=== Rebuilding historical_lite.csv ===")
+    # Phase 2: Rebuild historical_eco.csv from current snapshots only
+    print("\n=== Rebuilding historical_eco.csv ===")
     included_snapshots = []
     historical_rows_all = []
 
@@ -435,20 +435,20 @@ def main():
 
         aggregates = load_aggregates_for_snapshot(snapshot_dir)
         if aggregates:
-            rows = generate_historical_lite_rows(snapshot_height, aggregates)
+            rows = generate_historical_eco_rows(snapshot_height, aggregates)
             if rows:
                 included_snapshots.append(snapshot_height)
                 historical_rows_all.extend(rows)
 
-    historical_result = rebuild_historical_lite(historical_rows_all)
+    historical_result = rebuild_historical_eco(historical_rows_all)
     if historical_result["status"] == "written":
         print(
-            f"  ✓ Rebuilt historical_lite.csv using {len(included_snapshots)} snapshots "
+            f"  ✓ Rebuilt historical_eco.csv using {len(included_snapshots)} snapshots "
             f"({historical_result['rows']} rows)"
         )
     elif historical_result["status"] == "unchanged":
         print(
-            f"  ⊘ historical_lite.csv unchanged "
+            f"  ⊘ historical_eco.csv unchanged "
             f"({len(included_snapshots)} snapshots, {historical_result['rows']} rows)"
         )
 
@@ -470,13 +470,13 @@ def main():
             continue
         aggregates = load_aggregates_for_snapshot(snapshot_dir)
         if aggregates:
-            rows = generate_historical_lite_rows(snapshot_height, aggregates)
+            rows = generate_historical_eco_rows(snapshot_height, aggregates)
             if rows:
                 included_archived_snapshots.append(snapshot_height)
                 historical_archived_rows.extend(rows)
 
     if included_archived_snapshots:
-        archived_result = rebuild_historical_lite(
+        archived_result = rebuild_historical_eco(
             historical_archived_rows,
             output_path=WEBAPP_DATA_DIR / "historical_archived.csv",
         )
@@ -508,7 +508,7 @@ def main():
     print(f"  Generated top_{ECO_TOP_N} files: {eco_generated_count}")
     print(f"  Skipped top_{ECO_TOP_N} files: {eco_skipped_count}")
     print(f"  Unchanged top_{ECO_TOP_N} files: {eco_unchanged_count}")
-    print(f"  Historical lite snapshots: {len(included_snapshots)}")
+    print(f"  Historical eco snapshots: {len(included_snapshots)}")
 
 
 if __name__ == "__main__":
