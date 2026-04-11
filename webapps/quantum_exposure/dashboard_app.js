@@ -2178,17 +2178,30 @@ function renderScriptBars(rows) {
     const fullExposedBtc = r.showFullReference ? Math.round(r.fullExposedTotal / SATS_PER_BTC) : baseExposedBtc;
     const fullExposedShare = r.showFullReference ? formatPercent(r.fullExposedTotal, r.fullTotalSupplySats) : baseExposedShare;
     const fullExposedForRow = r.showFullReference ? r.fullExposedTotal : r.exposedTotal;
+    const fullNeverForTooltip = r.showFullReference ? r.fullExposedNever : r.exposedNever;
+    const fullInactiveForTooltip = r.showFullReference ? r.fullExposedInactive : r.exposedInactive;
+    const fullActiveForTooltip = r.showFullReference ? r.fullExposedActive : r.exposedActive;
+    const showFilteredTooltip = !showFilteredOnly && filteredExposedTotalSats !== fullExposedForRow;
+    const buildExposedTooltip = (label, fullSats, filteredSats) => {
+      if (showFilteredOnly) {
+        return `${label} (Filtered): ${formatInt(Math.round(filteredSats / SATS_PER_BTC))} BTC · ${formatPercent(filteredSats, actualTotalSupplySats)}`;
+      }
+      const fullLine = `${label}: ${formatInt(Math.round(fullSats / SATS_PER_BTC))} BTC · ${formatPercent(fullSats, actualTotalSupplySats)}`;
+      if (!showFilteredTooltip) {
+        return fullLine;
+      }
+      const filteredLine = `Filtered: ${formatInt(Math.round(filteredSats / SATS_PER_BTC))} BTC · ${formatPercent(filteredSats, actualTotalSupplySats)}`;
+      return `${fullLine}\n${filteredLine}`;
+    };
+    const neverTooltip = buildExposedTooltip("Never Spent", fullNeverForTooltip, filteredNeverSats);
+    const inactiveTooltip = buildExposedTooltip("Inactive", fullInactiveForTooltip, filteredInactiveSats);
+    const activeTooltip = buildExposedTooltip("Active", fullActiveForTooltip, filteredActiveSats);
+    const nonExposedBtc = Math.round(displayedNonExposedSupplySats / SATS_PER_BTC);
+    const nonExposedTooltip = `Non-exposed: ${formatInt(nonExposedBtc)} BTC · ${formatPercent(displayedNonExposedSupplySats, actualTotalSupplySats)}`;
     const showFilteredMetric =
       r.scriptHighlighted &&
       filteredExposedTotalSats > 0 &&
       filteredExposedTotalSats !== fullExposedForRow;
-    const neverBtc = Math.round(displayNeverSats / SATS_PER_BTC);
-    const inactiveBtc = Math.round(displayInactiveSats / SATS_PER_BTC);
-    const activeBtc = Math.round(displayActiveSats / SATS_PER_BTC);
-    const fullNeverBtc = !showFilteredOnly && Math.round(r.fullExposedNever / SATS_PER_BTC);
-    const fullInactiveBtc = !showFilteredOnly && Math.round(r.fullExposedInactive / SATS_PER_BTC);
-    const fullActiveBtc = !showFilteredOnly && Math.round(r.fullExposedActive / SATS_PER_BTC);
-    const nonExposedBtc = Math.round(displayedNonExposedSupplySats / SATS_PER_BTC);
 
     return `
       <div class="${rowClass}">
@@ -2199,28 +2212,28 @@ function renderScriptBars(rows) {
         <div class="${trackClass}">
           ${showFilteredOnly ? `
           <div class="bar-stack-fill" style="width:${totalPct}%">
-            <div class="seg-never ${spendFadeClass(r, "never_spent")}" data-tooltip="Never Spent (filtered): ${formatInt(neverBtc)} BTC" style="width:${neverPct}%;"></div>
-            <div class="seg-inactive ${spendFadeClass(r, "inactive")}" data-tooltip="Inactive (filtered): ${formatInt(inactiveBtc)} BTC" style="width:${inactivePct}%;"></div>
-            <div class="seg-active ${spendFadeClass(r, "active")}" data-tooltip="Active (filtered): ${formatInt(activeBtc)} BTC" style="width:${activePct}%;"></div>
+            <div class="seg-never ${spendFadeClass(r, "never_spent")}" data-tooltip="${escapeHtmlAttr(neverTooltip)}" style="width:${neverPct}%;"></div>
+            <div class="seg-inactive ${spendFadeClass(r, "inactive")}" data-tooltip="${escapeHtmlAttr(inactiveTooltip)}" style="width:${inactivePct}%;"></div>
+            <div class="seg-active ${spendFadeClass(r, "active")}" data-tooltip="${escapeHtmlAttr(activeTooltip)}" style="width:${activePct}%;"></div>
           </div>` : (r.showFullReference ? `
           <div class="bar-stack-fill bar-stack-fill-base" style="width:${fullTotalPct}%">
-            ${showNonExposed ? `<div class="seg-nonexposed" data-tooltip="Non-exposed: ${formatInt(nonExposedBtc)} BTC" style="left:${fullNonExposedStartPct}%; width:${fullNonExposedPct}%;"></div>` : ""}
+            ${showNonExposed ? `<div class="seg-nonexposed" data-tooltip="${escapeHtmlAttr(nonExposedTooltip)}" style="left:${fullNonExposedStartPct}%; width:${fullNonExposedPct}%;"></div>` : ""}
           </div>
           <div class="bar-stack-fill bar-stack-fill-reference" style="width:${fullTotalPct}%">
-            <div class="seg-never" data-tooltip="Never Spent (full): ${formatInt(fullNeverBtc)} BTC" style="left:0; width:${fullNeverPct}%;"></div>
-            <div class="seg-inactive" data-tooltip="Inactive (full): ${formatInt(fullInactiveBtc)} BTC" style="left:${fullInactiveStartPct}%; width:${fullInactivePct}%;"></div>
-            <div class="seg-active" data-tooltip="Active (full): ${formatInt(fullActiveBtc)} BTC" style="left:${fullActiveStartPct}%; width:${fullActivePct}%;"></div>
+            <div class="seg-never" data-tooltip="${escapeHtmlAttr(neverTooltip)}" style="left:0; width:${fullNeverPct}%;"></div>
+            <div class="seg-inactive" data-tooltip="${escapeHtmlAttr(inactiveTooltip)}" style="left:${fullInactiveStartPct}%; width:${fullInactivePct}%;"></div>
+            <div class="seg-active" data-tooltip="${escapeHtmlAttr(activeTooltip)}" style="left:${fullActiveStartPct}%; width:${fullActivePct}%;"></div>
           </div>
           <div class="bar-stack-fill bar-stack-fill-overlay" style="width:${fullTotalPct}%">
-            <div class="seg-never ${spendFadeClass(r, "never_spent")}" data-tooltip="Never Spent: ${formatInt(neverBtc)} BTC" style="left:0; width:${filteredNeverOfFullPct}%;"></div>
-            <div class="seg-inactive ${spendFadeClass(r, "inactive")}" data-tooltip="Inactive: ${formatInt(inactiveBtc)} BTC" style="left:${fullInactiveStartPct}%; width:${filteredInactiveOfFullPct}%;"></div>
-            <div class="seg-active ${spendFadeClass(r, "active")}" data-tooltip="Active: ${formatInt(activeBtc)} BTC" style="left:${fullActiveStartPct}%; width:${filteredActiveOfFullPct}%;"></div>
+            <div class="seg-never ${spendFadeClass(r, "never_spent")}" data-tooltip="${escapeHtmlAttr(neverTooltip)}" style="left:0; width:${filteredNeverOfFullPct}%;"></div>
+            <div class="seg-inactive ${spendFadeClass(r, "inactive")}" data-tooltip="${escapeHtmlAttr(inactiveTooltip)}" style="left:${fullInactiveStartPct}%; width:${filteredInactiveOfFullPct}%;"></div>
+            <div class="seg-active ${spendFadeClass(r, "active")}" data-tooltip="${escapeHtmlAttr(activeTooltip)}" style="left:${fullActiveStartPct}%; width:${filteredActiveOfFullPct}%;"></div>
           </div>` : `
           <div class="bar-stack-fill" style="width:${totalPct}%">
-            <div class="seg-never ${spendFadeClass(r, "never_spent")}" data-tooltip="Never Spent: ${formatInt(neverBtc)} BTC" style="width:${neverPct}%;"></div>
-            <div class="seg-inactive ${spendFadeClass(r, "inactive")}" data-tooltip="Inactive: ${formatInt(inactiveBtc)} BTC" style="width:${inactivePct}%;"></div>
-            <div class="seg-active ${spendFadeClass(r, "active")}" data-tooltip="Active: ${formatInt(activeBtc)} BTC" style="width:${activePct}%;"></div>
-            ${showNonExposed ? `<div class="seg-nonexposed" data-tooltip="Non-exposed: ${formatInt(nonExposedBtc)} BTC" style="width:${nonExposedPct}%;"></div>` : ""}
+            <div class="seg-never ${spendFadeClass(r, "never_spent")}" data-tooltip="${escapeHtmlAttr(neverTooltip)}" style="width:${neverPct}%;"></div>
+            <div class="seg-inactive ${spendFadeClass(r, "inactive")}" data-tooltip="${escapeHtmlAttr(inactiveTooltip)}" style="width:${inactivePct}%;"></div>
+            <div class="seg-active ${spendFadeClass(r, "active")}" data-tooltip="${escapeHtmlAttr(activeTooltip)}" style="width:${activePct}%;"></div>
+            ${showNonExposed ? `<div class="seg-nonexposed" data-tooltip="${escapeHtmlAttr(nonExposedTooltip)}" style="width:${nonExposedPct}%;"></div>` : ""}
           </div>`)}
         </div>
         <div class="bar-summary">
@@ -4391,14 +4404,73 @@ function aggregateAllKpis(filters) {
   return acc;
 }
 
-function renderKpis(kpi, total) {
+function kpiFiltersAffectExposedBreakdown(filters) {
+  if (!filters) return false;
+  const addressQuery = String(filters.topExposureAddressQuery || "").trim();
+  return (
+    filters.balance !== "all" ||
+    !filters.scriptTypes.includes("All") ||
+    !filters.spendActivities.includes("all") ||
+    isTagFilterActive(filters) ||
+    !!addressQuery
+  );
+}
+
+function rowMatchesTopExposureAddressQuery(row, addressQuery) {
+  const normalizedQuery = String(addressQuery || "").trim().toLowerCase();
+  if (!normalizedQuery) return true;
+  const displayIds = String(row.display_group_ids || row.display_group_id || "").toLowerCase();
+  return displayIds.includes(normalizedQuery);
+}
+
+function aggregateFilteredExposedSupplyBySpend(filters) {
+  const sums = {
+    never_spent: 0,
+    inactive: 0,
+    active: 0,
+  };
+  if (!filters) return sums;
+  const addressQuery = String(filters.topExposureAddressQuery || "").trim();
+  const useGe1Filtering = isTagFilterActive(filters) || !!addressQuery;
+
+  if (useGe1Filtering) {
+    state.ge1Rows.forEach((row) => {
+      if (!rowPassesTopExposureFilters(row, filters, true)) return;
+      if (!rowMatchesTopExposureAddressQuery(row, addressQuery)) return;
+
+      const spend = row.spend_activity;
+      if (!SPEND_TYPES_ORDER.includes(spend)) return;
+
+      const filteredExposed = getFilteredExposedSupplySatsForRow(row, filters.scriptTypes);
+      if (!filteredExposed) return;
+
+      sums[spend] += filteredExposed;
+    });
+    return sums;
+  }
+
+  const scriptKeys = filters.scriptTypes.includes("All") ? ["All"] : filters.scriptTypes;
+  const spendKeys = filters.spendActivities.includes("all")
+    ? SPEND_TYPES_ORDER
+    : SPEND_TYPES_ORDER.filter((spend) => filters.spendActivities.includes(spend));
+
+  scriptKeys.forEach((script) => {
+    spendKeys.forEach((spend) => {
+      sums[spend] += getAggregate(filters.balance, script, spend, "exposed_supply_sats");
+    });
+  });
+
+  return sums;
+}
+
+function renderKpis(kpi, total, filters) {
   const hasExposedPubkeys = kpi.exposed_pubkey_count > 0;
   const roundedMigrationBlocks = hasExposedPubkeys
     ? Math.max(1, Math.ceil(kpi.estimated_migration_blocks))
     : 0;
 
   document.getElementById("kpiSupply").textContent = formatCeilBtc(total.supply_sats) + " BTC";
-  renderSupplyBreakdownBar(total);
+  renderSupplyBreakdownBar(total, filters);
 
   const exposedSupplySubsetBtc = Math.ceil(kpi.exposed_supply_sats / SATS_PER_BTC);
   const exposedSupplyOfTotal = formatPercent(kpi.exposed_supply_sats, total.supply_sats);
@@ -4425,7 +4497,7 @@ function renderKpis(kpi, total) {
     `${formatInt(roundedMigrationBlocks)} blocks`;
 }
 
-function renderSupplyBreakdownBar(total) {
+function renderSupplyBreakdownBar(total, filters) {
   const container = document.getElementById("kpiSupplyBreakdown");
   if (!container || !total) {
     return;
@@ -4439,6 +4511,14 @@ function renderSupplyBreakdownBar(total) {
   const exposedInactive = getAggregate("all", "All", "inactive", "exposed_supply_sats");
   const exposedActive = getAggregate("all", "All", "active", "exposed_supply_sats");
   const exposedTotal = exposedNever + exposedInactive + exposedActive;
+
+  const filteredExposedBySpend = aggregateFilteredExposedSupplyBySpend(filters);
+  const filteredNever = Math.min(exposedNever, filteredExposedBySpend.never_spent || 0);
+  const filteredInactive = Math.min(exposedInactive, filteredExposedBySpend.inactive || 0);
+  const filteredActive = Math.min(exposedActive, filteredExposedBySpend.active || 0);
+  const hasFilteredOverlay =
+    kpiFiltersAffectExposedBreakdown(filters) &&
+    (filteredNever !== exposedNever || filteredInactive !== exposedInactive || filteredActive !== exposedActive);
   
   const nonExposedSupply = Math.max(totalSupply - exposedTotal, 0);
   const unminedSupply = Math.max(MAX_BITCOIN_SUPPLY_SATS - totalSupply, 0);
@@ -4460,18 +4540,37 @@ function renderSupplyBreakdownBar(total) {
   const nonExposedPct = (nonExposedSupply / MAX_BITCOIN_SUPPLY_SATS) * 100;
   const unminedPct = (unminedSupply / MAX_BITCOIN_SUPPLY_SATS) * 100;
 
+  const filteredNeverPct = (filteredNever / MAX_BITCOIN_SUPPLY_SATS) * 100;
+  const filteredInactivePct = (filteredInactive / MAX_BITCOIN_SUPPLY_SATS) * 100;
+  const filteredActivePct = (filteredActive / MAX_BITCOIN_SUPPLY_SATS) * 100;
+
+  const neverHighlighted = !!filters && (filters.spendActivities.includes("all") || filters.spendActivities.includes("never_spent"));
+  const inactiveHighlighted = !!filters && (filters.spendActivities.includes("all") || filters.spendActivities.includes("inactive"));
+  const activeHighlighted = !!filters && (filters.spendActivities.includes("all") || filters.spendActivities.includes("active"));
+
+  const buildExposedTooltip = (label, fullSats, filteredSats) => {
+    const fullLine = `${label}: ${formatInt(Math.round(fullSats / SATS_PER_BTC))} BTC · ${formatPercent(fullSats, totalSupply)}`;
+    if (!hasFilteredOverlay) return fullLine;
+    const filteredLine = `Filtered: ${formatInt(Math.round(filteredSats / SATS_PER_BTC))} BTC · ${formatPercent(filteredSats, totalSupply)}`;
+    return `${fullLine}\n${filteredLine}`;
+  };
+
+  const neverTooltip = buildExposedTooltip("Never Spent", exposedNever, filteredNever);
+  const inactiveTooltip = buildExposedTooltip("Inactive", exposedInactive, filteredInactive);
+  const activeTooltip = buildExposedTooltip("Active", exposedActive, filteredActive);
+
   let segmentsHtml = "";
   
   if (exposedNever > 0) {
-    segmentsHtml += `<div class="kpi-breakdown-segment seg-never" data-tooltip="Never Spent: ${formatInt(exposedNeverBtc)} BTC · ${formatPercent(exposedNever, totalSupply)}" style="width: ${exposedNeverPct}%;"></div>`;
+    segmentsHtml += `<div class="kpi-breakdown-segment seg-never${hasFilteredOverlay ? " is-reference" : ""}" data-tooltip="${escapeHtmlAttr(neverTooltip)}" style="width: ${exposedNeverPct}%;"></div>`;
   }
   
   if (exposedInactive > 0) {
-    segmentsHtml += `<div class="kpi-breakdown-segment seg-inactive" data-tooltip="Inactive: ${formatInt(exposedInactiveBtc)} BTC · ${formatPercent(exposedInactive, totalSupply)}" style="width: ${exposedInactivePct}%;"></div>`;
+    segmentsHtml += `<div class="kpi-breakdown-segment seg-inactive${hasFilteredOverlay ? " is-reference" : ""}" data-tooltip="${escapeHtmlAttr(inactiveTooltip)}" style="width: ${exposedInactivePct}%;"></div>`;
   }
   
   if (exposedActive > 0) {
-    segmentsHtml += `<div class="kpi-breakdown-segment seg-active" data-tooltip="Active: ${formatInt(exposedActiveBtc)} BTC · ${formatPercent(exposedActive, totalSupply)}" style="width: ${exposedActivePct}%;"></div>`;
+    segmentsHtml += `<div class="kpi-breakdown-segment seg-active${hasFilteredOverlay ? " is-reference" : ""}" data-tooltip="${escapeHtmlAttr(activeTooltip)}" style="width: ${exposedActivePct}%;"></div>`;
   }
   
   if (nonExposedSupply > 0) {
@@ -4482,14 +4581,28 @@ function renderSupplyBreakdownBar(total) {
     segmentsHtml += `<div class="kpi-breakdown-segment seg-unmined" data-tooltip="Unmined: ${formatInt(unminedBtc)} BTC" style="width: ${unminedPct}%;"></div>`;
   }
 
+  let overlaySegmentsHtml = "";
+  if (hasFilteredOverlay) {
+    if (filteredNever > 0) {
+      overlaySegmentsHtml += `<div class="kpi-breakdown-overlay-segment seg-never${neverHighlighted ? "" : " is-faded"}" data-tooltip="${escapeHtmlAttr(neverTooltip)}" style="left: 0%; width: ${filteredNeverPct}%;"></div>`;
+    }
+    if (filteredInactive > 0) {
+      overlaySegmentsHtml += `<div class="kpi-breakdown-overlay-segment seg-inactive${inactiveHighlighted ? "" : " is-faded"}" data-tooltip="${escapeHtmlAttr(inactiveTooltip)}" style="left: ${exposedNeverPct}%; width: ${filteredInactivePct}%;"></div>`;
+    }
+    if (filteredActive > 0) {
+      overlaySegmentsHtml += `<div class="kpi-breakdown-overlay-segment seg-active${activeHighlighted ? "" : " is-faded"}" data-tooltip="${escapeHtmlAttr(activeTooltip)}" style="left: ${exposedNeverPct + exposedInactivePct}%; width: ${filteredActivePct}%;"></div>`;
+    }
+  }
+
   container.innerHTML = `
     <div class="kpi-breakdown-bar">
       ${segmentsHtml}
+      ${hasFilteredOverlay ? `<div class="kpi-breakdown-overlay">${overlaySegmentsHtml}</div>` : ""}
     </div>
   `;
 
   // Attach tooltip listeners to the segments
-  const segments = container.querySelectorAll(".kpi-breakdown-segment");
+  const segments = container.querySelectorAll(".kpi-breakdown-segment, .kpi-breakdown-overlay-segment");
   segments.forEach((seg) => {
     seg.addEventListener("mouseenter", (e) => {
       const rect = seg.getBoundingClientRect();
@@ -4631,7 +4744,7 @@ function updateKpisAndCharts() {
     spendActivities: ["all"],
     scriptTypes: ["All"],
   });
-  renderKpis(subset, total);
+  renderKpis(subset, total, filters);
 }
 
 function updateTopExposures() {

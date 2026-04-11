@@ -921,6 +921,31 @@
       transition: opacity 160ms ease, filter 160ms ease;
     }
 
+    .kpi-breakdown-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .kpi-breakdown-overlay-segment {
+      position: absolute;
+      top: 0;
+      height: 100%;
+      transition: opacity 160ms ease, filter 160ms ease;
+      pointer-events: auto;
+    }
+
+    .kpi-breakdown-overlay-segment.is-faded {
+      opacity: 0.22;
+      filter: saturate(0.65);
+    }
+
+    .kpi-breakdown-segment.is-reference {
+      opacity: 0.24;
+      filter: saturate(0.65);
+    }
+
     .kpi-breakdown-segment:hover {
       z-index: 10;
     }
@@ -1237,16 +1262,19 @@
       opacity: 0.32;
       filter: saturate(0.75);
       display: block;
+      pointer-events: none;
     }
 
     .bar-stack-fill-overlay {
       z-index: 3;
       display: block;
+      pointer-events: none;
     }
 
     .bar-stack-fill-base {
       z-index: 1;
       display: block;
+      pointer-events: none;
     }
 
     .bar-stack-fill-reference > div,
@@ -1255,6 +1283,7 @@
       position: absolute;
       top: 0;
       height: 100%;
+      pointer-events: auto;
     }
 
     .bar-stack-fill > div {
