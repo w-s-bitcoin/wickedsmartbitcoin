@@ -625,9 +625,10 @@
       color: var(--ink);
     }
 
-    .runtime-mode-btn:disabled {
+    .runtime-mode-btn:disabled,
+    .runtime-mode-btn.is-online-locked {
       opacity: 0.58;
-      cursor: default;
+      cursor: pointer;
       pointer-events: auto;
       border-style: dashed;
     }
