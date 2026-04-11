@@ -1014,6 +1014,11 @@ def _canonical_pipe_signature(value: str) -> str:
     return "|".join(sorted(set(parts), key=lambda item: (item.lower(), item)))
 
 
+def _normalize_multisig_details_label(value: str) -> str:
+    text = (value or "").strip()
+    return "None" if text.lower() == "multisig" else text
+
+
 def _load_label_caches_from_csv(csv_path: Path):
     group_cache: dict[str, tuple[str, str]] = {}
     display_exact_cache: dict[str, tuple[str, str]] = {}
@@ -1027,7 +1032,9 @@ def _load_label_caches_from_csv(csv_path: Path):
     with csv_path.open("r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            details = (row.get("details") or row.get("comments") or "").strip()
+            details = _normalize_multisig_details_label(
+                (row.get("details") or row.get("comments") or "")
+            )
             identity = (row.get("identity") or "").strip()
             if not details and not identity:
                 continue
@@ -1633,7 +1640,7 @@ def _detect_wrapped_multisig_from_row(spendingscript: str, spendingwitness: str,
                 return f"{m}-of-{n} multisig"
 
         if _might_contain_multisig_opcode(script) and _script_hex_is_multisig(script):
-            return "multisig"
+            return ""
 
     return ""
 
@@ -1884,7 +1891,9 @@ def load_historical_comment_cache(out_dir: Path) -> dict[str, str]:
 
             for row in reader:
                 # Support both old "comments" and new "details" column names
-                comment = (row.get("details") or row.get("comments") or "").strip()
+                comment = _normalize_multisig_details_label(
+                    row.get("details") or row.get("comments") or ""
+                )
                 if not comment:
                     continue
 
@@ -2389,6 +2398,17 @@ def upgrade_generic_multisig_details(
     return total_upgraded, len(unresolved_updates)
 
 
+def normalize_generic_multisig_details(cur) -> int:
+    cur.execute(
+        f"""
+        UPDATE {TMP_DASHBOARD_GE1_TABLE}
+        SET details = 'None'
+        WHERE lower(trim(COALESCE(details, ''))) = 'multisig'
+        """
+    )
+    return cur.rowcount
+
+
 def export_ge1_csv(cur, snapshot: int, out_dir: Path) -> tuple[int, Path]:
     snapshot_dir = out_dir / str(snapshot)
     ge1_path = snapshot_dir / "dashboard_pubkeys_ge_1btc.csv"
@@ -2591,6 +2611,10 @@ def main() -> None:
                     print(f"rows upgraded to m-of-n    : {upgraded:,}")
                     print(f"rows set to None           : {downgraded_to_none:,}")
 
+                normalized_multisig = normalize_generic_multisig_details(cur)
+                if normalized_multisig:
+                    print(f"generic multisig -> None   : {normalized_multisig:,}")
+
                 print("Labeling miner identity from coinbases table...")
                 miner_labeled = label_miner_identity(cur)
                 print(f"miner identity rows labeled : {miner_labeled:,}")
@@ -2690,6 +2714,18 @@ def main() -> None:
             print(f"details applied             : {comment_updates:,}")
             print(f"history cache hits          : {comment_history_hits:,}")
             print(f"new STXO lookups            : {comment_stxo_lookups:,}")
+
+            print("Upgrading wrapped multisig rows to m-of-n where possible...")
+            upgraded, downgraded_to_none = upgrade_generic_multisig_details(
+                cur,
+                redo_all_rows=False,
+            )
+            print(f"rows upgraded to m-of-n    : {upgraded:,}")
+            print(f"rows set to None           : {downgraded_to_none:,}")
+
+            normalized_multisig = normalize_generic_multisig_details(cur)
+            if normalized_multisig:
+                print(f"generic multisig -> None   : {normalized_multisig:,}")
 
             enforce_genesis_ge1_row(cur)
             csv_ge1_rows, csv_agg_rows, csv_meta_rows, snapshot_dir = export_dashboard_csvs(

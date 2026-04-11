@@ -57,7 +57,7 @@ const TOP_EXPOSURES_LOAD_DELAY_MS = 250;
 const SHARE_EXCLUDE_TOKEN = "__share_exclude__";
 const ANALYSIS_MIN_HEIGHT_PX = 500;
 const UNLABELED_DETAIL_FILTER_VALUE = "__unlabeled_detail__";
-const UNLABELED_DETAIL_FILTER_LABEL = "Unlabeled (non-multisig)";
+const UNLABELED_DETAIL_FILTER_LABEL = "Unlabeled";
 const UNIDENTIFIED_IDENTITY_FILTER_VALUE = "__unidentified__";
 const UNIDENTIFIED_IDENTITY_FILTER_LABEL = "Unidentified";
 const UNIDENTIFIED_IDENTITY_GROUP_FILTER_VALUE = "__unidentified_group__";
@@ -4764,27 +4764,34 @@ async function loadData(preferredSnapshotOverride = "") {
   // (populated in loadAvailableSnapshots above). The large lookup CSV and full ge1 CSV are
   // loaded on-demand only when the user scrolls past the initial 50 rows.
   if (!isLiteMode()) {
-    loadSnapshotLabelLookup(state.availableSnapshots)
-      .then(() => {
-        const snapshotFilter = document.getElementById("snapshotFilter");
-        if (!snapshotFilter || !state.availableSnapshots.length) return;
-
-        const currentValue = String(state.snapshotHeight || snapshotFilter.value || "").trim();
-        populateSnapshotFilter(state.availableSnapshots);
-
-        const nextValue = state.availableSnapshots.includes(currentValue)
-          ? currentValue
-          : state.availableSnapshots[0];
-        snapshotFilter.value = nextValue;
-
-        // Refresh top-exposure tooltips now that blockheight -> datetime map is populated.
-        if (Array.isArray(state.ge1Rows) && state.ge1Rows.length) {
-          updateTopExposures();
-        }
-      })
+    refreshSnapshotLookupUi()
       .catch(() => {
         // Best effort only; dropdown falls back to block-height labels.
       });
+  }
+}
+
+async function refreshSnapshotLookupUi() {
+  await loadSnapshotLabelLookup(state.availableSnapshots);
+
+  const snapshotFilter = document.getElementById("snapshotFilter");
+  if (!snapshotFilter || !state.availableSnapshots.length) return;
+
+  const currentValue = String(state.snapshotHeight || snapshotFilter.value || "").trim();
+  populateSnapshotFilter(state.availableSnapshots);
+
+  const nextValue = state.availableSnapshots.includes(currentValue)
+    ? currentValue
+    : state.availableSnapshots[0];
+  snapshotFilter.value = nextValue;
+
+  // Refresh top-exposure tooltips now that blockheight -> datetime map is populated.
+  // Force a fresh render by clearing the render-dedup sentinel — the rows object reference
+  // is the same cached instance, so without this the identity check in renderTopExposures
+  // would skip the re-render and leave stale "Unknown" datetime tags.
+  if (Array.isArray(state.ge1Rows) && state.ge1Rows.length) {
+    _lastTopExposuresRows = null;
+    updateTopExposures();
   }
 }
 
@@ -5143,6 +5150,9 @@ function attachEvents() {
 
       try {
         await loadSnapshotData(targetSnapshot);
+        if (!isLiteMode()) {
+          await refreshSnapshotLookupUi();
+        }
       } catch (err) {
         console.error(err);
         renderEmptyKpis();

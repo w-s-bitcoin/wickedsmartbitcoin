@@ -72023,7 +72023,7 @@ bc1qpf58n6e78qlljd07yugvq0lw6spm63s4qtfwcw,"{ ""P2WPKH"" : 278373052 }",active,7
 19M4QAgf4qFMNqrSF8vhwA4EH5EHAbKwaV,"{ ""P2PKH"" : 161072061 }",inactive,157,554212,570858,,unidentified
 39Q2FPsr63fsQvxtJf9TzsCZ1xMf6Re2g2,"{ ""P2SH"" : 827357797 }",inactive,3,554230,595355,None,unidentified
 35zD5f5pSw83wqSr4y2meMkLtyz76F2K5E,"{ ""P2SH"" : 200000000 }",active,1,554231,799998,None,
-39NuKSWA5agvmv2tKKh52s8Ygn8JRzUrYt,"{ ""P2SH"" : 200000000 }",active,1,554231,799931,multisig,
+39NuKSWA5agvmv2tKKh52s8Ygn8JRzUrYt,"{ ""P2SH"" : 200000000 }",active,1,554231,799931,None,
 3BfWfiYBgjyfhgrU7nnUmqta4xxTnVcAmh,"{ ""P2SH"" : 200000000 }",active,1,554231,799931,None,
 326uRJrXDGkcbmRsU79i19DDQU1bM5whTe,"{ ""P2SH"" : 725256000 }",inactive,1,554242,1,,
 1E2tbmPJLarfU1spNfNDhc4u1NGLzJczrx,"{ ""P2PKH"" : 173937197 }",inactive,2,554283,575612,,
@@ -89587,7 +89587,7 @@ bc1qr39zpygfa2vm6yfnf7uz2jtahtvp26r8gxaj38,"{ ""P2WPKH"" : 198881269 }",active,7
 36eGfxN45Zj9EXYW2vNrKUpDcgszgXmYJu,"{ ""P2SH"" : 130704922 }",active,15,654148,786020,,
 13zHSi2Z1ABnQ1fePDuJq3HktKLviwTz61,"{ ""P2PKH"" : 391654769 }",inactive,9,654150,741326,,unidentified
 bc1qmwnkmqphh4cm5pr2e3pfx4239x2gaga8eh3lyp,"{ ""P2WPKH"" : 673294243 }",inactive,2,654174,654174,,unidentified
-33scbzRnkSnVfs3dtQgRrme9SUsqobNRKT,"{ ""P2SH"" : 5618722182 }",active,10,654181,790608,multisig,
+33scbzRnkSnVfs3dtQgRrme9SUsqobNRKT,"{ ""P2SH"" : 5618722182 }",active,10,654181,790608,None,
 3HxtqKfymPYLNfs5NR1okkzqktHiccffEv,"{ ""P2SH"" : 130137445 }",active,3,654184,794950,,
 3Dm28EEmhQDdvzPVVbwkDzmMMdqYMwaJAc,"{ ""P2SH"" : 2242990885 }",inactive,1,654187,1,,
 1M7CNDYEGxK7k8NtyZHXHi8zUTGTyXXgyS,"{ ""P2PKH"" : 438740873 }",inactive,3,654188,745777,,
