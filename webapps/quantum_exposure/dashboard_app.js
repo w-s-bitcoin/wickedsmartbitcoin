@@ -166,7 +166,8 @@ function updateRuntimeModeButton() {
   const tooltip = IS_LOCAL_RUNTIME ? tooltipLocal : tooltipOnline;
 
   setCustomTooltip(modeButton, tooltip);
-  modeButton.disabled = !IS_LOCAL_RUNTIME;
+  modeButton.disabled = false;
+  modeButton.classList.toggle("is-online-locked", !IS_LOCAL_RUNTIME);
 }
 
 function latestSnapshotHeight() {
@@ -5239,7 +5240,10 @@ function attachEvents() {
 
   if (runtimeModeToggleButton) {
     runtimeModeToggleButton.addEventListener("click", async () => {
-      if (!IS_LOCAL_RUNTIME) return;
+      if (!IS_LOCAL_RUNTIME) {
+        window.open("https://github.com/w-s-bitcoin/webapps-quantum-exposure", "_blank", "noopener,noreferrer");
+        return;
+      }
 
       runtimeLiteMode = !isLiteMode();
       persistRuntimeMode();
