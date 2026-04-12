@@ -6,9 +6,11 @@ from pathlib import Path
 from arkham_entity_search import (
     DATA_DIR,
     LOOKUP_JSON_FILE,
+    build_lookup_entry,
     clean_identity_label,
     is_keyhash20,
     is_probable_btc_address,
+    normalize_lookup_entry,
 )
 
 
@@ -47,7 +49,7 @@ def load_lookup(path: Path) -> dict[str, dict]:
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise ValueError(f"Expected JSON object in {path}")
-    return data
+    return {address: normalize_lookup_entry(address, entry) for address, entry in data.items()}
 
 
 def collect_csv_identities(snapshot_csvs: list[Path]) -> tuple[dict[str, dict], int]:
@@ -100,17 +102,13 @@ def sync_lookup(lookup: dict[str, dict], csv_identities: dict[str, dict]) -> tup
         else:
             updated += 1
 
-        lookup[address] = {
-            "address": address,
-            "identity": desired_identity,
-            "identity_source": "ge1_csv_sync",
-        }
+        lookup[address] = build_lookup_entry(desired_identity, "ge1_csv_sync")
 
     return updated, added, unchanged
 
 
 def write_lookup(path: Path, lookup: dict[str, dict]) -> None:
-    ordered_lookup = {address: lookup[address] for address in sorted(lookup)}
+    ordered_lookup = {address: normalize_lookup_entry(address, lookup[address]) for address in sorted(lookup)}
     path.write_text(json.dumps(ordered_lookup, indent=2), encoding="utf-8")
 
 
