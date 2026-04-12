@@ -11,6 +11,8 @@ BASE_URL = "https://api.arkm.com"
 SCRIPT_DIR = Path(__file__).resolve().parent
 LOOKUP_JSON_FILE = SCRIPT_DIR / "arkham_btc_identity_lookup.json"
 DATA_DIR = SCRIPT_DIR.parent
+GE1_CSV_NAME = "dashboard_pubkeys_ge_1btc.csv"
+TOP100_CSV_NAME = "dashboard_pubkeys_ge_1btc_top100.csv"
 BATCH_SIZE = 1000
 REQUEST_PAUSE_SECONDS = 1.0
 MISSING_IDENTITY_VALUES = {"", "none", "null", "n/a", "na"}
@@ -18,6 +20,8 @@ QUERYABLE_IDENTITY_VALUES = MISSING_IDENTITY_VALUES | {"unidentified"}
 KEYHASH20_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 BASE58_RE = re.compile(r"^[13][a-km-zA-HJ-NP-Z1-9]{25,62}$")
 BECH32_RE = re.compile(r"^bc1[ac-hj-np-z02-9]{11,71}$")
+COMPRESSED_PUBKEY_RE = re.compile(r"^(02|03)[0-9a-fA-F]{64}$")
+UNCOMPRESSED_PUBKEY_RE = re.compile(r"^04[0-9a-fA-F]{128}$")
 IDENTITY_SOURCE_PRIORITY = {
     "arkhamEntity": 0,
     "predictedEntity": 1,
@@ -45,6 +49,48 @@ def is_keyhash20(value: str) -> bool:
 def is_probable_btc_address(value: str) -> bool:
     lowered = value.lower()
     return bool(BASE58_RE.fullmatch(value) or BECH32_RE.fullmatch(lowered))
+
+
+def is_probable_p2pkh_address(value: str) -> bool:
+    return bool(BASE58_RE.fullmatch(value) and value.startswith("1"))
+
+
+def is_probable_pubkey(value: str) -> bool:
+    return bool(COMPRESSED_PUBKEY_RE.fullmatch(value) or UNCOMPRESSED_PUBKEY_RE.fullmatch(value))
+
+
+def is_dsms_token(value: str) -> bool:
+    return value.upper().endswith("(DSMS)")
+
+
+def select_row_lookup_tokens(display_group_ids: str) -> list[str]:
+    btc_tokens = []
+    pubkey_tokens = []
+    for token in (item.strip() for item in display_group_ids.split("|") if item.strip()):
+        if is_dsms_token(token):
+            continue
+        if is_keyhash20(token):
+            continue
+        if not is_probable_btc_address(token):
+            if is_probable_pubkey(token):
+                pubkey_tokens.append(token)
+            continue
+        btc_tokens.append(token)
+
+    if len(btc_tokens) == 1:
+        return btc_tokens
+
+    p2pkh_tokens = [token for token in btc_tokens if is_probable_p2pkh_address(token)]
+    if p2pkh_tokens:
+        return [p2pkh_tokens[0]]
+
+    if btc_tokens:
+        return [btc_tokens[0]]
+
+    if pubkey_tokens:
+        return [pubkey_tokens[0]]
+
+    return []
 
 
 def clean_identity_label(identity: str | None) -> str:
@@ -77,6 +123,35 @@ def clean_identity_label(identity: str | None) -> str:
     return value
 
 
+def parse_combined_exposed_supply_sats(exposed_supply_sats_by_script_type: str) -> int:
+    raw = (exposed_supply_sats_by_script_type or "").strip()
+    if not raw:
+        return 0
+
+    # CSV stores JSON-like payloads with doubled quotes; normalize first.
+    normalized = raw.replace('""', '"')
+    try:
+        payload = json.loads(normalized)
+        if isinstance(payload, dict):
+            total = 0
+            for value in payload.values():
+                if isinstance(value, (int, float)):
+                    total += int(value)
+                elif isinstance(value, str):
+                    stripped = value.strip()
+                    if stripped:
+                        total += int(float(stripped))
+            return total
+    except (ValueError, TypeError):
+        pass
+
+    # Fallback parser if payload is malformed.
+    total = 0
+    for match in re.findall(r":\s*([0-9]+)", raw):
+        total += int(match)
+    return total
+
+
 def load_existing_lookup(path: Path) -> dict[str, dict]:
     if not path.exists():
         return {}
@@ -88,24 +163,20 @@ def load_existing_lookup(path: Path) -> dict[str, dict]:
 
 
 def load_candidate_addresses(csv_path: Path, existing_lookup: dict[str, dict]) -> list[str]:
-    return load_candidate_addresses_with_skip(csv_path, existing_lookup, set())
+    return load_candidate_addresses_with_skip(csv_path, existing_lookup, set(), 0)
 
 
 def load_candidate_addresses_with_skip(
     csv_path: Path,
     existing_lookup: dict[str, dict],
     skip_addresses: set[str],
+    min_balance_sats: int,
 ) -> list[str]:
     addresses = []
     seen = set(skip_addresses)
 
-    # Keep identified addresses out of candidate queries.
-    for address, entry in existing_lookup.items():
-        if not isinstance(entry, dict):
-            continue
-        identity = clean_identity_label(entry.get("identity") or "")
-        if identity and identity.lower() != "unidentified":
-            seen.add(address)
+    # Skip any address already present in the lookup, including prior unidentified results.
+    seen.update(existing_lookup)
 
     with csv_path.open(newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
@@ -114,13 +185,14 @@ def load_candidate_addresses_with_skip(
             if identity not in QUERYABLE_IDENTITY_VALUES:
                 continue
 
-            display_group_ids = row.get("display_group_ids") or ""
-            for token in (item.strip() for item in display_group_ids.split("|") if item.strip()):
+            combined_supply_sats = parse_combined_exposed_supply_sats(
+                row.get("exposed_supply_sats_by_script_type") or ""
+            )
+            if combined_supply_sats < min_balance_sats:
+                continue
+
+            for token in select_row_lookup_tokens(row.get("display_group_ids") or ""):
                 if token in seen:
-                    continue
-                if is_keyhash20(token):
-                    continue
-                if not is_probable_btc_address(token):
                     continue
 
                 seen.add(token)
@@ -129,23 +201,30 @@ def load_candidate_addresses_with_skip(
     return addresses
 
 
-def list_snapshot_csvs(data_dir: Path) -> list[Path]:
+def list_snapshot_csvs(data_dir: Path, file_name: str = GE1_CSV_NAME) -> list[Path]:
     snapshot_csvs = []
-    for csv_path in data_dir.rglob("dashboard_pubkeys_ge_1btc.csv"):
+    for csv_path in data_dir.rglob(file_name):
         parent_name = csv_path.parent.name
         if not parent_name.isdigit():
             continue
         snapshot_csvs.append(csv_path)
 
-    # Prefer active snapshots before archived for each height.
+    # Process newest snapshots first so unchecked latest-height addresses are queried first.
+    # For matching heights, prefer active snapshots before archived copies.
     snapshot_csvs.sort(
         key=lambda p: (
-            int(p.parent.name),
+            -int(p.parent.name),
             1 if "archived" in p.parts else 0,
             str(p),
         )
     )
     return snapshot_csvs
+
+
+def list_merge_target_csvs(data_dir: Path) -> list[Path]:
+    ge1_csvs = list_snapshot_csvs(data_dir, GE1_CSV_NAME)
+    top100_csvs = list_snapshot_csvs(data_dir, TOP100_CSV_NAME)
+    return ge1_csvs + [csv_path for csv_path in top100_csvs if csv_path not in set(ge1_csvs)]
 
 
 def ingest_existing_snapshot_identities(lookup: dict[str, dict], snapshot_csvs: list[Path]) -> tuple[int, int]:
@@ -159,10 +238,7 @@ def ingest_existing_snapshot_identities(lookup: dict[str, dict], snapshot_csvs: 
                 if not identity or identity.lower() == "unidentified":
                     continue
 
-                display_group_ids = row.get("display_group_ids") or ""
-                for token in (item.strip() for item in display_group_ids.split("|") if item.strip()):
-                    if is_keyhash20(token) or not is_probable_btc_address(token):
-                        continue
+                for token in select_row_lookup_tokens(row.get("display_group_ids") or ""):
                     per_address = identity_counts.setdefault(token, {})
                     per_address[identity] = per_address.get(identity, 0) + 1
 
@@ -238,16 +314,9 @@ def fetch_batch(addresses: list[str]) -> list[dict]:
         try:
             resp = requests.post(url, headers=headers, json=payload, timeout=60)
             if resp.status_code == 429:
-                if attempt == 10:
-                    raise RateLimitExhausted("Arkham rate limit persisted after 10 retries")
                 retry_after = resp.headers.get("Retry-After")
-                if retry_after and retry_after.isdigit():
-                    wait_seconds = int(retry_after)
-                else:
-                    wait_seconds = min(300, max(15, attempt * 15))
-                print(f"Rate limited on attempt {attempt}/10. Retrying in {wait_seconds}s...")
-                time.sleep(wait_seconds)
-                continue
+                retry_hint = f" Retry-After={retry_after}s." if retry_after and retry_after.isdigit() else ""
+                raise RateLimitExhausted(f"Arkham rate limit hit on attempt {attempt}/10.{retry_hint} Stopping run.")
             resp.raise_for_status()
             data = resp.json()
             break
@@ -363,14 +432,14 @@ def merge_lookup_into_snapshots(lookup: dict[str, dict], snapshot_csvs: list[Pat
         changed = 0
         for row in rows:
             display_group_ids = row.get("display_group_ids") or ""
-            tokens = [t.strip() for t in display_group_ids.split("|") if t.strip()]
+            raw_tokens = [t.strip() for t in display_group_ids.split("|") if t.strip()]
+            has_dsms = any(is_dsms_token(token) for token in raw_tokens)
+            tokens = select_row_lookup_tokens(display_group_ids)
 
             best_identity = None
             any_queried = False
 
             for token in tokens:
-                if is_keyhash20(token) or not is_probable_btc_address(token):
-                    continue
                 entry = lookup.get(token)
                 if entry is None:
                     continue
@@ -385,6 +454,8 @@ def merge_lookup_into_snapshots(lookup: dict[str, dict], snapshot_csvs: list[Pat
 
             if best_identity:
                 new_identity = best_identity
+            elif has_dsms:
+                new_identity = "unidentified"
             elif any_queried and not existing:
                 new_identity = "unidentified"
             else:
@@ -395,7 +466,7 @@ def merge_lookup_into_snapshots(lookup: dict[str, dict], snapshot_csvs: list[Pat
                 changed += 1
 
         if dry_run:
-            print(f"  [dry-run] snapshot merge {csv_path.parent.name}: {changed:,} rows would update")
+            print(f"  [dry-run] snapshot merge {csv_path.parent.name}/{csv_path.name}: {changed:,} rows would update")
             continue
 
         with csv_path.open("w", newline="", encoding="utf-8") as f:
@@ -403,7 +474,7 @@ def merge_lookup_into_snapshots(lookup: dict[str, dict], snapshot_csvs: list[Pat
             writer.writeheader()
             writer.writerows(rows)
 
-        print(f"  snapshot merge {csv_path.parent.name}: {changed:,} rows updated")
+        print(f"  snapshot merge {csv_path.parent.name}/{csv_path.name}: {changed:,} rows updated")
 
 
 def parse_args() -> argparse.Namespace:
@@ -413,22 +484,55 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Preview reconciliation and query counts without API calls or file writes",
     )
+    parser.add_argument(
+        "--only-latest",
+        action="store_true",
+        help="Query candidates from only the latest snapshot (still merges updates into all target CSVs)",
+    )
+    parser.add_argument(
+        "--only-height",
+        type=int,
+        help="Query candidates from only the specified snapshot height (still merges updates into all target CSVs)",
+    )
+    parser.add_argument(
+        "--min-balance-btc",
+        type=float,
+        default=0.0,
+        help="Only query rows whose combined exposed supply is at least this BTC amount",
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
     dry_run = args.dry_run
+    min_balance_sats = max(0, int(args.min_balance_btc * 100_000_000))
 
-    snapshot_csvs = list_snapshot_csvs(DATA_DIR)
+    snapshot_csvs = list_snapshot_csvs(DATA_DIR, GE1_CSV_NAME)
+    merge_target_csvs = list_merge_target_csvs(DATA_DIR)
     if not snapshot_csvs:
         raise RuntimeError(f"No snapshot CSVs found under {DATA_DIR}/[blockheight]/dashboard_pubkeys_ge_1btc.csv")
+
+    if args.only_latest and args.only_height is not None:
+        raise RuntimeError("Use either --only-latest or --only-height, not both")
+
+    if args.only_latest:
+        snapshot_csvs = snapshot_csvs[:1]
+    elif args.only_height is not None:
+        matched = [p for p in snapshot_csvs if int(p.parent.name) == args.only_height]
+        if not matched:
+            raise RuntimeError(f"No snapshot CSV found for height {args.only_height}")
+        snapshot_csvs = matched
 
     lookup = load_existing_lookup(LOOKUP_JSON_FILE)
 
     print(f"snapshot CSVs discovered   : {len(snapshot_csvs):,}")
+    print(f"merge target CSVs         : {len(merge_target_csvs):,}")
     print(f"existing lookup entries    : {len(lookup):,}")
     print(f"dry run mode              : {'yes' if dry_run else 'no'}")
+    print(f"only latest mode          : {'yes' if args.only_latest else 'no'}")
+    print(f"only height mode          : {args.only_height if args.only_height is not None else 'no'}")
+    print(f"min balance filter (BTC)  : {args.min_balance_btc:g}")
 
     # First reconcile known labels from all snapshots (including archived) and propagate globally.
     reconciled, conflicts = ingest_existing_snapshot_identities(lookup, snapshot_csvs)
@@ -436,12 +540,12 @@ def main():
     print(f"snapshot identity conflicts: {conflicts:,} addresses (resolved by most frequent label)")
 
     write_lookup_files(lookup, dry_run=dry_run)
-    merge_lookup_into_snapshots(lookup, snapshot_csvs, dry_run=dry_run)
+    merge_lookup_into_snapshots(lookup, merge_target_csvs, dry_run=dry_run)
 
     total_queried = 0
     queried_this_run: set[str] = set()
     for csv_idx, source_csv in enumerate(snapshot_csvs, start=1):
-        candidates = load_candidate_addresses_with_skip(source_csv, lookup, queried_this_run)
+        candidates = load_candidate_addresses_with_skip(source_csv, lookup, queried_this_run, min_balance_sats)
         print(
             f"[{csv_idx}/{len(snapshot_csvs)}] source {source_csv.parent.name}: "
             f"{len(candidates):,} unlabeled addresses left to query"
@@ -465,7 +569,7 @@ def main():
                 records = fetch_batch(batch)
             except RateLimitExhausted as exc:
                 write_lookup_files(lookup, dry_run=dry_run)
-                merge_lookup_into_snapshots(lookup, snapshot_csvs, dry_run=dry_run)
+                merge_lookup_into_snapshots(lookup, merge_target_csvs, dry_run=dry_run)
                 print(str(exc))
                 print(f"Progress preserved in {LOOKUP_JSON_FILE}")
                 return
@@ -477,7 +581,7 @@ def main():
 
             # Immediately apply newly learned identities across all snapshots to avoid re-querying later.
             write_lookup_files(lookup, dry_run=dry_run)
-            merge_lookup_into_snapshots(lookup, snapshot_csvs, dry_run=dry_run)
+            merge_lookup_into_snapshots(lookup, merge_target_csvs, dry_run=dry_run)
 
             identified = sum(1 for item in lookup.values() if item["identity"] != "unidentified")
             print(
