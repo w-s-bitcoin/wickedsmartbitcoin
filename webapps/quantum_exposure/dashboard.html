@@ -2064,7 +2064,7 @@
 
       .copy-link-btn,
       .reset-dashboard-btn,
-      .auto-update-toggle {
+      .auto-update-toggle:not(#archivedSnapshotsToggle) {
         width: 30px;
         min-width: 30px;
         height: 30px;
@@ -2075,15 +2075,47 @@
         line-height: 0;
         letter-spacing: 0;
         justify-content: center;
+        gap: 0;
       }
 
-      .runtime-mode-btn .btn-icon,
-      .runtime-mode-btn .btn-label,
-      .auto-update-toggle .auto-update-toggle-label,
-      .copy-link-btn .btn-icon,
-      .copy-link-btn .btn-label,
-      .reset-dashboard-btn .btn-icon,
-      .reset-dashboard-btn .btn-label {
+      #archivedSnapshotsToggle {
+        width: auto;
+        min-width: 66px;
+        height: 30px;
+        min-height: 30px;
+        padding: 4px 10px 4px 8px;
+        border-radius: 999px;
+        justify-content: flex-start;
+        gap: 6px;
+      }
+
+      #archivedSnapshotsToggle .archived-toggle-text {
+        display: none;
+      }
+
+      .auto-update-toggle:not(#archivedSnapshotsToggle) .auto-update-toggle-track {
+        width: 22px;
+        height: 12px;
+      }
+
+      .auto-update-toggle:not(#archivedSnapshotsToggle) .auto-update-toggle-thumb {
+        top: 2px;
+        left: 2px;
+        width: 8px;
+        height: 8px;
+      }
+
+      .auto-update-toggle:not(#archivedSnapshotsToggle).is-on .auto-update-toggle-thumb {
+        transform: translateX(10px);
+      }
+
+      .title-actions .runtime-mode-btn .btn-icon,
+      .title-actions .runtime-mode-btn .btn-label,
+      .title-actions .auto-update-toggle:not(#archivedSnapshotsToggle) .auto-update-toggle-label,
+      .title-actions .copy-link-btn .btn-icon,
+      .title-actions .copy-link-btn .btn-label,
+      .title-actions .reset-dashboard-btn .btn-icon,
+      .title-actions .reset-dashboard-btn .btn-label {
         display: none;
       }
 
@@ -2220,7 +2252,7 @@
             <span class="archived-toggle-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M3 8h18"></path><path d="M4 8h16l-1.2 10.4A2 2 0 0 1 16.82 20H7.18a2 2 0 0 1-1.98-1.6L4 8Z"></path><path d="M8 8V5.7c0-.94.76-1.7 1.7-1.7h4.6c.94 0 1.7.76 1.7 1.7V8"></path><path d="M12 11v5"></path><path d="M9.8 13.2 12 11l2.2 2.2"></path></svg>
             </span>
-            Archived
+            <span class="archived-toggle-text">Archived</span>
           </span>
         </button>
         <button
