@@ -123,6 +123,29 @@ def clean_identity_label(identity: str | None) -> str:
     return value
 
 
+def build_lookup_entry(identity: str | None, identity_source: str | None = None) -> dict:
+    cleaned_identity = clean_identity_label(identity)
+    stored_identity = cleaned_identity or "unidentified"
+    entry = {"identity": stored_identity}
+
+    if stored_identity.lower() != "unidentified":
+        cleaned_source = (identity_source or "").strip()
+        if cleaned_source:
+            entry["identity_source"] = cleaned_source
+
+    return entry
+
+
+def normalize_lookup_entry(address: str, entry: object) -> dict:
+    if isinstance(entry, str):
+        return build_lookup_entry(entry)
+
+    if not isinstance(entry, dict):
+        raise ValueError(f"Expected lookup entry object for {address}, found {type(entry)}")
+
+    return build_lookup_entry(entry.get("identity"), entry.get("identity_source"))
+
+
 def parse_combined_exposed_supply_sats(exposed_supply_sats_by_script_type: str) -> int:
     raw = (exposed_supply_sats_by_script_type or "").strip()
     if not raw:
@@ -159,7 +182,11 @@ def load_existing_lookup(path: Path) -> dict[str, dict]:
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise ValueError(f"Expected lookup JSON object in {path}, found {type(data)}")
-    return data
+
+    normalized_lookup = {}
+    for address, entry in data.items():
+        normalized_lookup[address] = normalize_lookup_entry(address, entry)
+    return normalized_lookup
 
 
 def load_candidate_addresses(csv_path: Path, existing_lookup: dict[str, dict]) -> list[str]:
@@ -255,11 +282,10 @@ def ingest_existing_snapshot_identities(lookup: dict[str, dict], snapshot_csvs: 
         if current_identity == best_identity:
             continue
 
-        lookup[address] = {
-            "address": address,
-            "identity": best_identity,
-            "identity_source": current_entry.get("identity_source") or "snapshot_consensus",
-        }
+        lookup[address] = build_lookup_entry(
+            best_identity,
+            current_entry.get("identity_source") or "snapshot_consensus",
+        )
         updates += 1
 
     return updates, conflicts
@@ -399,12 +425,7 @@ def update_lookup(lookup: dict[str, dict], batch_addresses: list[str], normalize
         best = choose_best_record(address, normalized_records)
         identity = best.get("identity") if best else None
         identity_source = best.get("identity_source") if best else None
-        cleaned_identity = clean_identity_label(identity)
-        lookup[address] = {
-            "address": address,
-            "identity": cleaned_identity or "unidentified",
-            "identity_source": identity_source or "",
-        }
+        lookup[address] = build_lookup_entry(identity, identity_source)
 
 
 def write_lookup_files(lookup: dict[str, dict], dry_run: bool = False) -> None:
@@ -413,7 +434,9 @@ def write_lookup_files(lookup: dict[str, dict], dry_run: bool = False) -> None:
         return
 
     ordered_addresses = sorted(lookup)
-    ordered_lookup = {address: lookup[address] for address in ordered_addresses}
+    ordered_lookup = {
+        address: normalize_lookup_entry(address, lookup[address]) for address in ordered_addresses
+    }
     LOOKUP_JSON_FILE.write_text(json.dumps(ordered_lookup, indent=2), encoding="utf-8")
 
 
