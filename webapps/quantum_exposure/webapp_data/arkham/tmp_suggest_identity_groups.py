@@ -5,7 +5,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent
-IDENTITY_GROUPS_PATH = ROOT / "identity_groups.json"
+DATA_ROOT = ROOT.parent
+IDENTITY_GROUPS_PATH = DATA_ROOT / "identity_groups.json"
 OUTPUT_PATH = ROOT / "tmp_identity_group_suggestions.csv"
 
 GROUP_EXCHANGES = "Exchanges, brokerages, and custody services"
@@ -131,6 +132,86 @@ EXPLICIT_GROUPS = {
     "Wagon Bet": (GROUP_CASINOS, "high", "Betting / gaming label."),
     "Zaif": (GROUP_EXCHANGES, "high", "Exchange / brokerage brand."),
     "Zhimin Qian & Jian Wen Fraud": (GROUP_SCAMS, "high", "Fraud / criminal-proceeds label."),
+
+    # Newly surfaced identities from recent ge1 snapshot refreshes.
+    "1xBet": (GROUP_CASINOS, "high", "Online betting brand."),
+    "777Coin.com": (GROUP_CASINOS, "high", "Casino / betting brand."),
+    "999Dice.com": (GROUP_CASINOS, "high", "Dice gambling brand."),
+    "ACE": (GROUP_EXCHANGES, "low", "Short venue-like label; provisional exchange/custody bucket."),
+    "AEX": (GROUP_EXCHANGES, "high", "Exchange brand."),
+    "Airtm": (GROUP_PAYMENTS, "medium", "Consumer payments / wallet rails brand."),
+    "Ali Khorashadizadeh": (GROUP_INDIVIDUALS, "high", "Person-labeled identity."),
+    "Alex Adrianus Martinus Peijnenburg": (GROUP_INDIVIDUALS, "high", "Person-labeled identity."),
+    "Allcoin": (GROUP_EXCHANGES, "high", "Exchange brand."),
+    "AllCrypt.com": (GROUP_EXCHANGES, "high", "Exchange-style brand."),
+    "Anycoin Direct": (GROUP_EXCHANGES, "high", "Brokerage/exchange brand."),
+    "Archive.org": (GROUP_GOV, "medium", "Public-interest nonprofit/charitable organization."),
+    "ATAIX": (GROUP_EXCHANGES, "high", "Exchange brand."),
+    "B2BX": (GROUP_INSTITUTIONS, "medium", "Institutional crypto liquidity/infrastructure branding."),
+    "Ban Chai Low": (GROUP_INDIVIDUALS, "high", "Person-labeled identity."),
+    "Banx.io": (GROUP_PAYMENTS, "medium", "Payments/card-wallet style branding."),
+    "Betcoin.tm": (GROUP_CASINOS, "high", "Betting / gaming brand."),
+    "Bibox": (GROUP_EXCHANGES, "high", "Exchange brand."),
+    "BITFRONT": (GROUP_EXCHANGES, "high", "Exchange brand."),
+    "BitBlinx": (GROUP_EXCHANGES, "medium", "Exchange-style venue label."),
+    "BitcoinVideoCasino": (GROUP_CASINOS, "high", "Casino / gaming brand."),
+    "Bitcoinwallet.com": (GROUP_PAYMENTS, "high", "Wallet-provider branding."),
+    "Bitfoliex": (GROUP_EXCHANGES, "medium", "Exchange-style venue label."),
+    "BitForex": (GROUP_EXCHANGES, "high", "Exchange brand."),
+    "BitMart": (GROUP_EXCHANGES, "high", "Exchange brand."),
+    "BitNZ": (GROUP_EXCHANGES, "high", "Exchange brand."),
+    "Bitsler": (GROUP_CASINOS, "high", "Dice/casino brand."),
+    "Bitsolo": (GROUP_CASINOS, "medium", "Gaming-style brand; provisional casino bucket."),
+    "Bittylicious": (GROUP_EXCHANGES, "high", "Brokerage/exchange brand."),
+    "BitVenus": (GROUP_EXCHANGES, "high", "Exchange brand."),
+    "Bitypreco": (GROUP_EXCHANGES, "medium", "Brokerage/exchange branding."),
+    "Blocktrade": (GROUP_EXCHANGES, "high", "Trading venue / exchange brand."),
+    "Braziliex": (GROUP_EXCHANGES, "high", "Exchange brand."),
+    "Busha": (GROUP_EXCHANGES, "high", "Brokerage/exchange brand."),
+    "BTC2PM": (GROUP_PAYMENTS, "medium", "Payments-style brand by naming."),
+    "BTCt.com": (GROUP_EXCHANGES, "low", "Legacy venue-like label; provisional exchange bucket."),
+    "BTX": (GROUP_EXCHANGES, "low", "Ticker-like venue label; provisional exchange bucket."),
+    "Coin Cloud": (GROUP_PAYMENTS, "high", "Bitcoin ATM operator / payments rails."),
+    "Coinjar": (GROUP_EXCHANGES, "high", "Exchange/brokerage brand."),
+    "Coinmkt.com": (GROUP_EXCHANGES, "medium", "Exchange-style market brand."),
+    "Coinomat": (GROUP_PAYMENTS, "medium", "Wallet/payments-oriented service brand."),
+    "Comkort": (GROUP_EXCHANGES, "low", "Exchange-style label; provisional venue bucket."),
+    "Cryptorush": (GROUP_EXCHANGES, "medium", "Exchange-style venue branding."),
+    "EveryDice.com": (GROUP_CASINOS, "high", "Dice gambling brand."),
+    "Exchanging.ir": (GROUP_EXCHANGES, "high", "Exchange/currency-trading service by name."),
+    "Garantex": (GROUP_DARKNET, "high", "Sanctioned illicit exchange-service cluster."),
+    "GDAC": (GROUP_EXCHANGES, "high", "Exchange brand."),
+    "Graviex": (GROUP_EXCHANGES, "high", "Exchange brand."),
+    "Huobi Korea": (GROUP_EXCHANGES, "high", "Regional exchange entity."),
+    "ICRPTEX": (GROUP_EXCHANGES, "medium", "Exchange-style venue label."),
+    "JetWin.com": (GROUP_CASINOS, "high", "Betting/gaming brand."),
+    "Jex.com": (GROUP_EXCHANGES, "high", "Exchange brand."),
+    "JustCoin": (GROUP_EXCHANGES, "high", "Exchange/brokerage brand."),
+    "Klever": (GROUP_PAYMENTS, "medium", "Wallet/app ecosystem branding."),
+    "Koinim": (GROUP_EXCHANGES, "high", "Exchange/brokerage brand."),
+    "LINE BITMAX": (GROUP_EXCHANGES, "high", "Exchange venue brand."),
+    "Livecoin.net": (GROUP_EXCHANGES, "high", "Exchange brand."),
+    "Localcoin ATM": (GROUP_PAYMENTS, "high", "Bitcoin ATM / payments rails."),
+    "Matthew Simon Grimm": (GROUP_INDIVIDUALS, "high", "Person-labeled identity."),
+    "MintPal": (GROUP_EXCHANGES, "high", "Historic exchange brand."),
+    "Mirror Trading International Ponzi": (GROUP_SCAMS, "high", "Ponzi / scam label."),
+    "MuchBetter": (GROUP_PAYMENTS, "medium", "Consumer wallet/payments brand."),
+    "MyBookie": (GROUP_CASINOS, "high", "Sportsbook / betting brand."),
+    "NetEx24.net": (GROUP_EXCHANGES, "medium", "Exchange-service branding."),
+    "Novadax": (GROUP_EXCHANGES, "high", "Exchange brand."),
+    "Pandora Open Market": (GROUP_DARKNET, "medium", "Open-market illicit-service style labeling."),
+    "Pintu": (GROUP_EXCHANGES, "high", "Exchange/brokerage brand."),
+    "Pocketrocketscasino.eu": (GROUP_CASINOS, "high", "Casino brand."),
+    "Pokemon Go PKG": (GROUP_INSTITUTIONS, "low", "Opaque package/service label; provisional institutions bucket."),
+    "Roobet": (GROUP_CASINOS, "high", "Casino / betting brand."),
+    "Satoshi Circle": (GROUP_PAYMENTS, "medium", "Wallet/payments-oriented naming."),
+    "Satoshi Roulette": (GROUP_CASINOS, "high", "Roulette / gaming brand."),
+    "Scrypt.CC": (GROUP_SCAMS, "high", "Known cloud-mining scam label."),
+    "Ten X": (GROUP_PAYMENTS, "medium", "Payments card/wallet brand."),
+    "Tidebit": (GROUP_EXCHANGES, "high", "Exchange brand."),
+    "Vilcov.com": (GROUP_EXCHANGES, "low", "Service-domain label; provisional exchange bucket."),
+    "Volabit": (GROUP_EXCHANGES, "high", "Exchange/brokerage brand."),
+    "Zipmex": (GROUP_EXCHANGES, "high", "Exchange/brokerage brand."),
 }
 
 EXCHANGE_KEYWORDS = (
@@ -151,7 +232,7 @@ def load_ungrouped() -> list[dict]:
         grouped.update(items)
 
     ungrouped: dict[str, dict] = {}
-    for csv_path in ROOT.rglob("dashboard_pubkeys_ge_1btc.csv"):
+    for csv_path in DATA_ROOT.rglob("dashboard_pubkeys_ge_1btc.csv"):
         try:
             height = int(csv_path.parent.name)
         except ValueError:

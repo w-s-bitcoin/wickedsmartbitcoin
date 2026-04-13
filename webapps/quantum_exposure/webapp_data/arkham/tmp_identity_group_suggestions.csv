@@ -1,202 +1,121 @@
 identity,count,first_height,last_height,height_count,suggested_group,confidence,reason
-Halcyon Super Holdings,230,350000,900000,11,"Institutions, funds, and corporates",medium,Holding-company style label; best fit is institutional/corporate bucket.
-Blockchain.com,108,550000,900000,8,"Payments, wallets, and merchant services",high,Wallet and consumer-facing payments platform label.
-4222,80,70000,944000,28,unidentified,low,Opaque numeric entity label; defaulting to general institutional/corporate bucket pending manual review.
-Bitmain,70,300000,650000,8,Mining pools and mining companies,high,Mining hardware / mining company.
-Bittrex,56,350000,800000,10,"Exchanges, brokerages, and custody services",high,Centralized exchange / trading venue.
-Galaxy Digital,41,600000,944000,8,"Institutions, funds, and corporates",high,Institutional trading / asset-management firm.
-Liquid,41,350000,750000,8,"Protocols, bridges, defi, and wrapped assets",high,Bitcoin-sidechain / protocol label.
-Bitfarms,38,750000,944000,5,Mining pools and mining companies,high,Public mining company.
-CoinCorner,32,350000,944000,11,"Exchanges, brokerages, and custody services",high,Exchange / brokerage brand.
-FTX US,32,650000,750000,3,"Exchanges, brokerages, and custody services",high,Centralized exchange label.
-Bit Digital,29,700000,944000,6,Mining pools and mining companies,high,Public mining company.
-Zaif,29,350000,500000,4,"Exchanges, brokerages, and custody services",high,Exchange / brokerage brand.
-Genesis Trading,25,550000,944000,9,"Institutions, funds, and corporates",high,Institutional trading / brokerage firm.
-FTX,23,600000,750000,4,"Exchanges, brokerages, and custody services",high,Centralized exchange label.
-Freewallet,19,500000,944000,10,"Payments, wallets, and merchant services",high,Wallet-provider label.
-Threshold Network,19,800000,900000,3,"Protocols, bridges, defi, and wrapped assets",high,Protocol/network label.
-Bitpanda,17,500000,944000,10,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Celsius Network,17,550000,800000,6,"Protocols, bridges, defi, and wrapped assets",medium,"Label indicates a protocol, network, DAO, bridge, or wrapped-asset system."
-Coinhako,15,800000,944000,4,"Exchanges, brokerages, and custody services",high,Exchange / brokerage brand.
-BTC Markets,14,400000,900000,11,"Exchanges, brokerages, and custody services",medium,"Label suggests an exchange, trading venue, brokerage, or custody provider."
-Dzengi.com,14,600000,944000,8,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-FreeBitco.in,14,500000,800000,7,"Casinos, betting, and gaming",high,Gaming / faucet / betting-style service.
-Norwegian Block,14,650000,944000,7,"Institutions, funds, and corporates",medium,Corporate/holding-style label; best fit is institutions/corporates.
-Cryptonit.net,13,250000,944000,9,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Voyager,13,600000,800000,5,"Exchanges, brokerages, and custody services",high,Brokerage / custodial platform.
-Bitaces.me,12,350000,944000,12,"Casinos, betting, and gaming",medium,Brand reads more like a betting/gaming service than an institutional venue.
-LuckyB.it,12,300000,850000,12,"Casinos, betting, and gaming",high,Betting / gaming brand.
-Newton,12,750000,944000,5,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Poolin,12,550000,750000,5,Mining pools and mining companies,high,Mining pool.
-WisdomTree,12,650000,944000,7,"Institutions, funds, and corporates",high,Asset manager / ETF sponsor.
-YoBit,12,500000,944000,3,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-DBS Bank,11,750000,900000,4,"Exchanges, brokerages, and custody services",medium,Bank-led custody / brokerage style Bitcoin exposure; best fit is exchange/custody bucket.
-Firi,11,750000,944000,5,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Fran Finney,11,350000,850000,11,Individuals,high,Person-labeled identity.
-Hydra Market,11,400000,600000,5,Darknet mixers and illicit services,high,Darknet market label.
-Prime Trust,11,600000,900000,7,"Exchanges, brokerages, and custody services",high,Custody / trust-services provider.
-SurBitcoin.com,11,450000,944000,11,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-TradeOgre,11,900000,900000,1,"Exchanges, brokerages, and custody services",medium,"Label suggests an exchange, trading venue, brokerage, or custody provider."
-NetWalker Ransomeware,10,650000,944000,7,"Hacks, scams, and ransomware",high,Ransomware label.
-RenrenBit,10,550000,700000,4,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-WhiteBIT,10,750000,944000,5,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Wintermute,10,700000,944000,6,"Institutions, funds, and corporates",high,Institutional market maker / trading firm.
-Zhimin Qian & Jian Wen Fraud,10,450000,650000,5,"Hacks, scams, and ransomware",high,Fraud / criminal-proceeds label.
-Coinmotion,9,600000,900000,7,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-DeepBit,9,160000,450000,9,Mining pools and mining companies,high,Historic mining pool.
-Hoo,9,550000,750000,5,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Kraken Darknet,9,850000,944000,3,Darknet mixers and illicit services,high,"Darknet / illicit-market label, not the exchange."
-Totalcoin.io,9,700000,944000,6,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Bitcoin Trade,8,500000,700000,5,"Exchanges, brokerages, and custody services",medium,"Label suggests an exchange, trading venue, brokerage, or custody provider."
-Bitlo,8,550000,900000,8,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-BTC.top,8,450000,650000,5,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Dustin Trammell @druidian,8,150000,300000,7,Individuals,high,Person-labeled identity.
-FalconX,8,750000,944000,5,"Institutions, funds, and corporates",high,Institutional brokerage / prime services firm.
-SwissBorg,8,700000,900000,5,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-BrasilBitcoin.br,7,600000,900000,7,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-CoinGate,7,550000,850000,7,"Payments, wallets, and merchant services",high,Merchant payments processor.
-CoinList,7,650000,900000,5,"Exchanges, brokerages, and custody services",medium,Token-sale / exchange-style platform and brokerage venue.
-Ethereum Foundation,7,350000,450000,3,"Protocols, bridges, defi, and wrapped assets",medium,Protocol ecosystem foundation rather than a custodial institution.
-Lemon Cash,7,800000,944000,4,"Payments, wallets, and merchant services",medium,"Label suggests wallet, payments, cash, ATM, or merchant rails."
-Nastyfans.org,7,650000,944000,7,Mining pools and mining companies,medium,Mining/community mining-share brand.
-OXBTC,7,450000,750000,7,Mining pools and mining companies,high,Mining pool / hashpower service label.
-Bitnuvem,6,650000,900000,6,"Exchanges, brokerages, and custody services",high,Exchange / brokerage brand.
-BitoEX,6,600000,850000,6,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-BitoPro,6,450000,850000,6,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-DMM Bitcoin,6,550000,800000,6,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Enigma Securities,6,650000,900000,6,"Institutions, funds, and corporates",high,Institutional trading / securities firm.
-Gatehub,6,450000,600000,4,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Paymium,6,350000,350000,1,"Payments, wallets, and merchant services",medium,"Label suggests wallet, payments, cash, ATM, or merchant rails."
-WazirX,6,700000,850000,4,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Bitcambio,5,500000,650000,4,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-CoinZoom,5,700000,900000,5,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-DigiFinex,5,700000,900000,5,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-FixedFloat,5,750000,944000,5,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Flow Traders,5,750000,944000,5,"Institutions, funds, and corporates",high,Institutional trading firm / market maker.
-GSR Markets,5,800000,944000,4,"Institutions, funds, and corporates",high,Institutional market maker / trading firm.
-Hashnest,5,450000,450000,1,Mining pools and mining companies,high,Cloud mining / mining-infrastructure brand.
-IREN,5,650000,850000,5,Mining pools and mining companies,high,Public mining company (Iris Energy/IREN).
-Kuna,5,550000,750000,5,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Kyber Network,5,650000,850000,5,"Protocols, bridges, defi, and wrapped assets",high,Protocol / network label.
-Lorenzo Protocol,5,850000,900000,2,"Protocols, bridges, defi, and wrapped assets",high,Protocol label by name.
-Qtrade,5,600000,800000,5,"Exchanges, brokerages, and custody services",medium,"Label suggests an exchange, trading venue, brokerage, or custody provider."
-SaveLife,5,750000,944000,5,"Governments, public sector, and charities",low,Public fundraising / aid organization; closest fit is public-sector/donations bucket.
-The Pirate Bay,5,700000,900000,5,Darknet mixers and illicit services,medium,Illicit-service / piracy platform label.
-UAE Royal Group,5,850000,944000,3,"Governments, public sector, and charities",low,Royal-family/public-sector-adjacent label; closest fit is public-sector bucket.
-WEEX,5,750000,900000,4,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Avalanche,4,750000,900000,4,"Protocols, bridges, defi, and wrapped assets",high,Blockchain protocol / ecosystem label.
-Bitcoin Depot,4,750000,900000,4,"Payments, wallets, and merchant services",medium,Bitcoin ATM / retail payments access network.
-BitcoinToYou,4,450000,500000,2,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Boring DAO,4,700000,850000,4,"Protocols, bridges, defi, and wrapped assets",high,DAO / bridge / wrapped-asset protocol.
-CoinDeal,4,600000,750000,4,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Commex,4,800000,944000,4,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Cryptal,4,750000,944000,4,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-CryptoMKT,4,550000,700000,4,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-CSGO Empire,4,800000,944000,4,"Casinos, betting, and gaming",high,Gaming / betting platform.
-Exness,4,550000,700000,4,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Jane Street,4,800000,944000,4,"Institutions, funds, and corporates",high,Institutional trading firm / market maker.
-JPEX,4,650000,800000,4,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-NoOnes.com,4,800000,944000,4,"Exchanges, brokerages, and custody services",medium,Peer-to-peer trading / exchange-style platform.
-Osprey Funds,4,900000,944000,2,"Institutions, funds, and corporates",high,Fund / asset-manager label.
-Phoenix Group,4,900000,900000,1,Mining pools and mining companies,high,Mining company label.
-001K Bot,3,850000,944000,3,"Institutions, funds, and corporates",low,Bot/service label; likely an operating entity rather than an exchange or protocol.
-BingX,3,850000,944000,3,"Exchanges, brokerages, and custody services",high,Centralized exchange / trading venue.
-BitcoinTalk,3,850000,944000,3,"Institutions, funds, and corporates",medium,Community/forum brand; best fit is general institutional/corporate bucket.
-BitConnect,3,500000,500000,1,"Hacks, scams, and ransomware",high,Known scam / Ponzi label.
-BitSeven,3,600000,700000,3,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Bitvc,3,350000,450000,3,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Bitz,3,550000,650000,3,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Bitzillions,3,300000,450000,3,"Casinos, betting, and gaming",medium,Name suggests gambling / gaming activity rather than exchange services.
-BYDFi,3,850000,944000,3,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-CoinBene,3,500000,600000,3,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-CoinsBank,3,350000,450000,2,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Core Scientific,3,750000,944000,3,Mining pools and mining companies,high,Public mining / hosting company.
-CrimeNetwork.biz,3,300000,400000,3,Darknet mixers and illicit services,high,Clearly illicit marketplace/service label.
-Cross,3,600000,700000,3,"Exchanges, brokerages, and custody services",low,Generic crypto-infrastructure style label; best provisional fit is protocol/bridge bucket.
-EXMO,3,450000,650000,3,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Fairdesk,3,800000,900000,3,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Fortress Trust,3,800000,900000,3,"Exchanges, brokerages, and custody services",medium,Custody / trust-services provider; best fit is exchange/custody bucket.
-Koinex,3,500000,500000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Maya Protocol,3,850000,900000,2,"Protocols, bridges, defi, and wrapped assets",high,Protocol label by name.
-OKLink,3,350000,450000,3,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-OneCoin Ponzi,3,450000,550000,3,"Hacks, scams, and ransomware",high,Ponzi / scam label.
-Ourbit,3,850000,944000,3,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Paribu,3,850000,900000,2,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Pionex,3,850000,944000,3,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-PlusToken Ponzi,3,550000,600000,2,"Hacks, scams, and ransomware",high,Ponzi / scam label.
-Teleport DAO,3,800000,900000,3,"Protocols, bridges, defi, and wrapped assets",high,DAO / protocol label.
-Wagon Bet,3,850000,944000,3,"Casinos, betting, and gaming",high,Betting / gaming label.
-WOO Network,3,850000,944000,3,"Protocols, bridges, defi, and wrapped assets",medium,"Network/protocol brand, not primarily a custodial institution."
-ZebPay,3,450000,500000,2,"Payments, wallets, and merchant services",medium,"Label suggests wallet, payments, cash, ATM, or merchant rails."
-Agentd,2,300000,400000,2,Mining pools and mining companies,low,Opaque service/entity label; defaulting to general institutional/corporate bucket.
-ALFAcoins,2,750000,944000,2,"Payments, wallets, and merchant services",high,Crypto payments processor / merchant gateway.
-AscendEX,2,650000,700000,2,"Exchanges, brokerages, and custody services",medium,"Label suggests an exchange, trading venue, brokerage, or custody provider."
-Azbit,2,900000,944000,2,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Bitbond,2,250000,300000,2,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Bridgers,2,944000,944000,1,"Protocols, bridges, defi, and wrapped assets",medium,Bridge / interoperability routing brand by name.
-bx.in.th,2,400000,450000,2,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Celo,2,750000,800000,2,"Protocols, bridges, defi, and wrapped assets",high,Blockchain protocol / ecosystem label.
-CHBTC.com,2,350000,400000,2,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Chymall.net,2,650000,700000,2,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-CleanSpark,2,900000,944000,2,Mining pools and mining companies,high,Public mining company.
-Clevercoin.com,2,350000,350000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-CoinCatch,2,850000,900000,2,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-CoinNest,2,500000,500000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-CryptoGames,2,400000,450000,2,"Casinos, betting, and gaming",medium,"Brand name suggests betting, dice, casino, or gaming activity."
-Cryptomkt,2,650000,700000,2,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Flowdesk,2,850000,900000,2,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-GermanPlazaMarket,2,350000,400000,2,Darknet mixers and illicit services,high,Dark-market / illicit marketplace label.
-Lazarus Group,2,900000,900000,1,"Hacks, scams, and ransomware",high,Known hacking / cybercrime actor.
-Liqui,2,500000,550000,2,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-LiteBit,2,600000,650000,2,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-M2,2,850000,900000,2,"Exchanges, brokerages, and custody services",medium,Exchange/custody brand in crypto context; best fit is exchange bucket.
-MBAex,2,550000,600000,2,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-OpenNode,2,900000,900000,1,"Payments, wallets, and merchant services",high,Bitcoin payments processor / merchant services.
-OTCBTC,2,550000,600000,2,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Relay.link,2,900000,944000,2,"Protocols, bridges, defi, and wrapped assets",high,Bridge / routing protocol label.
-Sequans,2,944000,944000,1,"Institutions, funds, and corporates",medium,Corporate treasury / listed-company style label.
-Terraform Labs,2,800000,850000,2,"Protocols, bridges, defi, and wrapped assets",high,Protocol ecosystem / issuer label.
-Three Arrows Capital,2,650000,700000,2,"Institutions, funds, and corporates",high,Fund / institutional investment firm.
-VBTC,2,400000,450000,2,"Protocols, bridges, defi, and wrapped assets",high,Wrapped-BTC style protocol / asset label.
-Zonda,2,500000,550000,2,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-1THash,1,750000,750000,1,Mining pools and mining companies,high,Mining pool/mining operator label by name.
-Aave,1,650000,650000,1,"Protocols, bridges, defi, and wrapped assets",high,Protocol/DeFi label.
-Arkham,1,900000,900000,1,"Exchanges, brokerages, and custody services",medium,Corporate intelligence/analytics company rather than a custody venue or protocol.
-Ascendex,1,750000,750000,1,"Exchanges, brokerages, and custody services",medium,"Label suggests an exchange, trading venue, brokerage, or custody provider."
-Bit2C,1,944000,944000,1,"Exchanges, brokerages, and custody services",high,Exchange / brokerage brand.
-Bitex.la,1,500000,500000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Bitpoint,1,550000,550000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-BSDigital,1,944000,944000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-BTCBOX,1,400000,400000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-BtcTurk,1,600000,600000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Cashierest,1,550000,550000,1,"Payments, wallets, and merchant services",medium,"Label suggests wallet, payments, cash, ATM, or merchant rails."
-CoinBox.me,1,250000,250000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Coinkite,1,400000,400000,1,"Payments, wallets, and merchant services",high,Hardware wallet company and wallet infrastructure brand.
-Coinmate,1,450000,450000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Coinroll,1,250000,250000,1,"Casinos, betting, and gaming",high,Gambling / dice-style gaming brand.
-Cryptopia,1,944000,944000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-DAYBIT,1,550000,550000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-DeFi Technologies,1,900000,900000,1,"Protocols, bridges, defi, and wrapped assets",high,Blockchain infrastructure / protocol ecosystem label.
-El Salvador Government,1,900000,900000,1,"Governments, public sector, and charities",high,Government-held/public-sector Bitcoin label.
-Exmo,1,350000,350000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Fasanara Capital,1,900000,900000,1,"Institutions, funds, and corporates",high,Asset manager / institutional capital firm.
-German Government,1,850000,850000,1,"Governments, public sector, and charities",high,Government/public-sector holdings label.
-Knc Miner,1,350000,350000,1,Mining pools and mining companies,high,Mining hardware / mining operator label.
-Masterxchange,1,300000,300000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Mercado Libre,1,900000,900000,1,"Institutions, funds, and corporates",medium,Large corporate/platform brand rather than exchange or wallet provider.
-Mercatox,1,550000,550000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-MiningRigRentals.com,1,944000,944000,1,Mining pools and mining companies,high,Mining infrastructure / hashpower marketplace.
-n.exchange,1,944000,944000,1,"Exchanges, brokerages, and custody services",medium,"Label suggests an exchange, trading venue, brokerage, or custody provider."
-Nakamoto,1,944000,944000,1,"Institutions, funds, and corporates",medium,Bitcoin treasury company label; best fit is institutional/corporate bucket.
-Phoenix Group UAE,1,900000,900000,1,Mining pools and mining companies,high,Mining company label.
-Rollbit,1,944000,944000,1,"Casinos, betting, and gaming",high,Casino / betting brand.
-Russian Anonymous Marketplace,1,400000,400000,1,Darknet mixers and illicit services,high,Clearly illicit marketplace label.
-Shitcoins.Club,1,900000,900000,1,"Payments, wallets, and merchant services",high,Bitcoin ATM / retail cash-access network.
-Stacks,1,900000,900000,1,"Protocols, bridges, defi, and wrapped assets",high,Blockchain protocol / ecosystem label.
-Stake.com,1,750000,750000,1,"Casinos, betting, and gaming",high,Online betting / casino brand.
-Suex.io,1,600000,600000,1,Darknet mixers and illicit services,high,Sanctioned illicit OTC/exchange-style service.
-Tidex,1,650000,650000,1,"Exchanges, brokerages, and custody services",medium,"Label suggests an exchange, trading venue, brokerage, or custody provider."
-Vauld,1,700000,700000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-Vaultoro,1,550000,550000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
-WBTCB,1,900000,900000,1,"Protocols, bridges, defi, and wrapped assets",high,Wrapped-BTC style asset label.
-YUNBI,1,400000,400000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+4222,83,70000,944000,29,unidentified,low,Opaque numeric entity label; defaulting to general institutional/corporate bucket pending manual review.
+Pandora Open Market,45,300000,500000,5,Darknet mixers and illicit services,medium,Open-market illicit-service style labeling.
+Betcoin.tm,18,300000,400000,3,"Casinos, betting, and gaming",high,Betting / gaming brand.
+BitcoinVideoCasino,14,300000,300000,1,"Casinos, betting, and gaming",high,Casino / gaming brand.
+MintPal,11,300000,300000,1,"Exchanges, brokerages, and custody services",high,Historic exchange brand.
+Tidebit,11,500000,850000,6,"Exchanges, brokerages, and custody services",high,Exchange brand.
+Archive.org,10,300000,850000,10,"Governments, public sector, and charities",medium,Public-interest nonprofit/charitable organization.
+Ten X,10,550000,800000,6,"Payments, wallets, and merchant services",medium,Payments card/wallet brand.
+Banx.io,9,300000,300000,1,"Payments, wallets, and merchant services",medium,Payments/card-wallet style branding.
+ACE,7,700000,850000,4,"Exchanges, brokerages, and custody services",low,Short venue-like label; provisional exchange/custody bucket.
+Bitfoliex,7,600000,650000,2,"Exchanges, brokerages, and custody services",medium,Exchange-style venue label.
+BitMart,7,550000,700000,4,"Exchanges, brokerages, and custody services",high,Exchange brand.
+Novadax,7,700000,850000,4,"Exchanges, brokerages, and custody services",high,Exchange brand.
+AEX,6,550000,700000,4,"Exchanges, brokerages, and custody services",high,Exchange brand.
+BitForex,6,550000,800000,6,"Exchanges, brokerages, and custody services",high,Exchange brand.
+Coinomat,6,300000,300000,1,"Payments, wallets, and merchant services",medium,Wallet/payments-oriented service brand.
+EveryDice.com,6,300000,300000,1,"Casinos, betting, and gaming",high,Dice gambling brand.
+GDAC,6,600000,700000,3,"Exchanges, brokerages, and custody services",high,Exchange brand.
+Satoshi Roulette,6,300000,300000,1,"Casinos, betting, and gaming",high,Roulette / gaming brand.
+Bitsolo,5,300000,300000,1,"Casinos, betting, and gaming",medium,Gaming-style brand; provisional casino bucket.
+Coin Cloud,5,450000,650000,5,"Payments, wallets, and merchant services",high,Bitcoin ATM operator / payments rails.
+Coinjar,5,300000,300000,1,"Exchanges, brokerages, and custody services",high,Exchange/brokerage brand.
+Matthew Simon Grimm,5,650000,750000,3,Individuals,high,Person-labeled identity.
+Pocketrocketscasino.eu,5,300000,300000,1,"Casinos, betting, and gaming",high,Casino brand.
+Vilcov.com,5,500000,700000,5,"Exchanges, brokerages, and custody services",low,Service-domain label; provisional exchange bucket.
+Ali Khorashadizadeh,4,300000,450000,4,Individuals,high,Person-labeled identity.
+AllCrypt.com,4,300000,300000,1,"Exchanges, brokerages, and custody services",high,Exchange-style brand.
+Bitsler,4,650000,800000,4,"Casinos, betting, and gaming",high,Dice/casino brand.
+Busha,4,650000,850000,4,"Exchanges, brokerages, and custody services",high,Brokerage/exchange brand.
+Comkort,4,300000,300000,1,"Exchanges, brokerages, and custody services",low,Exchange-style label; provisional venue bucket.
+Graviex,4,650000,850000,4,"Exchanges, brokerages, and custody services",high,Exchange brand.
+ICRPTEX,4,600000,750000,4,"Exchanges, brokerages, and custody services",medium,Exchange-style venue label.
+JustCoin,4,300000,300000,1,"Exchanges, brokerages, and custody services",high,Exchange/brokerage brand.
+Koinim,4,300000,300000,1,"Exchanges, brokerages, and custody services",high,Exchange/brokerage brand.
+Livecoin.net,4,600000,650000,2,"Exchanges, brokerages, and custody services",high,Exchange brand.
+Roobet,4,700000,850000,4,"Casinos, betting, and gaming",high,Casino / betting brand.
+Scrypt.CC,4,300000,450000,4,"Hacks, scams, and ransomware",high,Known cloud-mining scam label.
+Airtm,3,700000,800000,3,"Payments, wallets, and merchant services",medium,Consumer payments / wallet rails brand.
+B2BX,3,750000,850000,3,"Institutions, funds, and corporates",medium,Institutional crypto liquidity/infrastructure branding.
+BITFRONT,3,650000,750000,3,"Exchanges, brokerages, and custody services",high,Exchange brand.
+Bitypreco,3,650000,750000,3,"Exchanges, brokerages, and custody services",medium,Brokerage/exchange branding.
+Blocktrade,3,550000,650000,3,"Exchanges, brokerages, and custody services",high,Trading venue / exchange brand.
+BTC2PM,3,750000,850000,3,"Payments, wallets, and merchant services",medium,Payments-style brand by naming.
+BTCt.com,3,300000,300000,1,"Exchanges, brokerages, and custody services",low,Legacy venue-like label; provisional exchange bucket.
+BTX,3,650000,800000,3,"Exchanges, brokerages, and custody services",low,Ticker-like venue label; provisional exchange bucket.
+Exchanging.ir,3,300000,400000,3,"Exchanges, brokerages, and custody services",high,Exchange/currency-trading service by name.
+Huobi Korea,3,600000,700000,3,"Exchanges, brokerages, and custody services",high,Regional exchange entity.
+Klever,3,700000,800000,3,"Payments, wallets, and merchant services",medium,Wallet/app ecosystem branding.
+Localcoin ATM,3,650000,750000,3,"Payments, wallets, and merchant services",high,Bitcoin ATM / payments rails.
+Mirror Trading International Ponzi,3,650000,650000,1,"Hacks, scams, and ransomware",high,Ponzi / scam label.
+NetEx24.net,3,650000,750000,3,"Exchanges, brokerages, and custody services",medium,Exchange-service branding.
+Satoshi Circle,3,300000,300000,1,"Payments, wallets, and merchant services",medium,Wallet/payments-oriented naming.
+Zipmex,3,650000,750000,2,"Exchanges, brokerages, and custody services",high,Exchange/brokerage brand.
+999Dice.com,2,300000,300000,1,"Casinos, betting, and gaming",high,Dice gambling brand.
+Actioncrypto.com,2,300000,300000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+Anycoin Direct,2,800000,850000,2,"Exchanges, brokerages, and custody services",high,Brokerage/exchange brand.
+ATAIX,2,650000,650000,1,"Exchanges, brokerages, and custody services",high,Exchange brand.
+Bibox,2,650000,650000,1,"Exchanges, brokerages, and custody services",high,Exchange brand.
+BitBlinx,2,650000,650000,1,"Exchanges, brokerages, and custody services",medium,Exchange-style venue label.
+Bitcoinwallet.com,2,300000,300000,1,"Payments, wallets, and merchant services",high,Wallet-provider branding.
+BitNZ,2,300000,300000,1,"Exchanges, brokerages, and custody services",high,Exchange brand.
+Bittylicious,2,300000,300000,1,"Exchanges, brokerages, and custody services",high,Brokerage/exchange brand.
+BitVenus,2,750000,750000,1,"Exchanges, brokerages, and custody services",high,Exchange brand.
+Braziliex,2,650000,650000,1,"Exchanges, brokerages, and custody services",high,Exchange brand.
+Coinmkt.com,2,300000,300000,1,"Exchanges, brokerages, and custody services",medium,Exchange-style market brand.
+Cryptorush,2,300000,300000,1,"Exchanges, brokerages, and custody services",medium,Exchange-style venue branding.
+Garantex,2,700000,750000,2,Darknet mixers and illicit services,high,Sanctioned illicit exchange-service cluster.
+JetWin.com,2,300000,300000,1,"Casinos, betting, and gaming",high,Betting/gaming brand.
+Jex.com,2,600000,800000,2,"Exchanges, brokerages, and custody services",high,Exchange brand.
+LINE BITMAX,2,600000,650000,2,"Exchanges, brokerages, and custody services",high,Exchange venue brand.
+MuchBetter,2,650000,650000,1,"Payments, wallets, and merchant services",medium,Consumer wallet/payments brand.
+MyBookie,2,700000,750000,2,"Casinos, betting, and gaming",high,Sportsbook / betting brand.
+Pintu,2,650000,700000,2,"Exchanges, brokerages, and custody services",high,Exchange/brokerage brand.
+Pokemon Go PKG,2,650000,650000,1,"Institutions, funds, and corporates",low,Opaque package/service label; provisional institutions bucket.
+Volabit,2,700000,750000,2,"Exchanges, brokerages, and custody services",high,Exchange/brokerage brand.
+1xBet,1,750000,750000,1,"Casinos, betting, and gaming",high,Online betting brand.
+777Coin.com,1,300000,300000,1,"Casinos, betting, and gaming",high,Casino / betting brand.
+Alex Adrianus Martinus Peijnenburg,1,650000,650000,1,Individuals,high,Person-labeled identity.
+Allcoin,1,300000,300000,1,"Exchanges, brokerages, and custody services",high,Exchange brand.
+Ban Chai Low,1,700000,700000,1,Individuals,high,Person-labeled identity.
+BetMoose,1,650000,650000,1,"Casinos, betting, and gaming",medium,"Brand name suggests betting, dice, casino, or gaming activity."
+Bitango,1,300000,300000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+BitMarket.pl,1,300000,300000,1,"Exchanges, brokerages, and custody services",medium,"Label suggests an exchange, trading venue, brokerage, or custody provider."
+Bitzlato,1,650000,650000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+BKEX,1,650000,650000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+Bldj,1,700000,700000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+BNS,1,600000,600000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+Brawker.com,1,300000,300000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+btcbank.com.ua,1,600000,600000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+C2Bit,1,700000,700000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+Carlos C Dekker,1,700000,700000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+Cash FX Group,1,700000,700000,1,"Payments, wallets, and merchant services",medium,"Label suggests wallet, payments, cash, ATM, or merchant rails."
+Coinbox,1,650000,650000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+CoinFLEX,1,650000,650000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+Coinlist,1,650000,650000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+Coinsbit,1,750000,750000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+Coinswap.cex,1,300000,300000,1,"Exchanges, brokerages, and custody services",medium,"Label suggests an exchange, trading venue, brokerage, or custody provider."
+Delta,1,750000,750000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+eXch.cx,1,850000,850000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+ezDeFi,1,800000,800000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+FastEx,1,800000,800000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+Hotbit,1,700000,700000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+Indacoin.com,1,300000,300000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+Jeffrey Paul Duprex,1,700000,700000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+Keri David Taiaroa,1,700000,700000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+Multichain,1,800000,800000,1,"Protocols, bridges, defi, and wrapped assets",medium,"Label indicates a protocol, network, DAO, bridge, or wrapped-asset system."
+qmall,1,800000,800000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+Reku,1,750000,750000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+Ryan Farace,1,650000,650000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+Satoshi Tango,1,650000,650000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+Scalar Investments,1,700000,700000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+Simplecoin.us,1,300000,300000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+Sky,1,650000,650000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+Stocks.Exchange,1,650000,650000,1,"Exchanges, brokerages, and custody services",medium,"Label suggests an exchange, trading venue, brokerage, or custody provider."
+Tesseract Group,1,700000,700000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+Thodex,1,650000,650000,1,"Exchanges, brokerages, and custody services",medium,"Label suggests an exchange, trading venue, brokerage, or custody provider."
+Updown.bt,1,300000,300000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+Whitney Ross,1,750000,750000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+Yellow Card,1,650000,650000,1,"Exchanges, brokerages, and custody services",low,Defaulting to exchange/custody bucket because most remaining labels are service venues; review recommended.
+YOLO Dice,1,650000,650000,1,"Casinos, betting, and gaming",medium,"Brand name suggests betting, dice, casino, or gaming activity."

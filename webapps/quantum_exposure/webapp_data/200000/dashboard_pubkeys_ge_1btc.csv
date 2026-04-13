@@ -49641,7 +49641,7 @@ display_group_ids,exposed_supply_sats_by_script_type,spend_activity,exposed_utxo
 1JDdsBQxuzyguHwugxwhHktczAX1ixHgc4,"{ ""P2PKH"" : 538120000 }",active,5,141552,197990,,unidentified
 1JuAMdFBcmV2VsXXDe5ELXMZ7xmbRXqutq,"{ ""P2PKH"" : 1053000000 }",active,80,141560,199725,,unidentified
 1JNLtEubaE2Sw1WYHjNg5XqvBvWmNiS83U,"{ ""P2PKH"" : 164618870 }",inactive,4,141560,144682,,unidentified
-1PurkqMb1yoMpJr25tZtT6PhvXMjPB2pvf,"{ ""P2PKH"" : 2000000000 }",active,4,141566,199281,,Dustin Trammell @druidian
+1PurkqMb1yoMpJr25tZtT6PhvXMjPB2pvf,"{ ""P2PKH"" : 2000000000 }",active,4,141566,199281,,Dustin Trammell
 1CTh6PUCC5WkRXB19MTJRCurgwrW493mvq,"{ ""P2PKH"" : 276238424 }",active,4,141572,188994,,Miner
 1FaNGZnhYikc1mQn3hLtrpWW8ivHnWda8u,"{ ""P2PKH"" : 197450000 }",active,2,141572,193278,,unidentified
 1FZLHW1xfGPHiPiC3QmYsB38NCXaj6BAHT,"{ ""P2PKH"" : 8684904088 }",active,47,141575,175227,,unidentified

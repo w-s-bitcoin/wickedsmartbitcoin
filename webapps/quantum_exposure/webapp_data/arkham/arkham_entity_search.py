@@ -120,6 +120,8 @@ def clean_identity_label(identity: str | None) -> str:
         return "unidentified"
     if re.fullmatch(r"Satoshi Nakamoto", value, flags=re.IGNORECASE):
         return "Miner"
+    if re.fullmatch(r"Dustin\s+Trammell\s+@druidian", value, flags=re.IGNORECASE):
+        return "Dustin Trammell"
     return value
 
 

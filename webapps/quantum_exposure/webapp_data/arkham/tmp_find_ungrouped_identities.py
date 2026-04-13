@@ -5,7 +5,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent
-IDENTITY_GROUPS_PATH = ROOT / "identity_groups.json"
+DATA_ROOT = ROOT.parent
+IDENTITY_GROUPS_PATH = DATA_ROOT / "identity_groups.json"
 
 
 def main() -> None:
@@ -15,7 +16,7 @@ def main() -> None:
         grouped.update(items)
 
     ungrouped: dict[str, dict] = {}
-    for csv_path in ROOT.rglob("dashboard_pubkeys_ge_1btc.csv"):
+    for csv_path in DATA_ROOT.rglob("dashboard_pubkeys_ge_1btc.csv"):
         try:
             height = int(csv_path.parent.name)
         except ValueError:
