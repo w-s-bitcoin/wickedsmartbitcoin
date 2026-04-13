@@ -3198,10 +3198,12 @@
         renderSelectedPanels(["segwit", "bip110"], { enhanced: false, scheduleEnhancements: true });
         setPanelLoaderVisible("segwit", false);
         setPanelLoaderVisible("bip110", false);
+        // Keep controls responsive while block marker data finishes loading in the background.
+        setControlsEnabled(true);
+        updateResetButtonUi();
         if (loadToken !== state.phasedLoadToken) return;
 
         await loadAndApplyBlockDataPhased(loadToken, state.data.metadata, ["segwit", "bip110"]);
-        setControlsEnabled(true);
         updateResetButtonUi();
         // Ensure button state is properly set after all rendering and loading completes
         if (typeof window.requestIdleCallback === 'function') {
