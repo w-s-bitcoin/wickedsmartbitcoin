@@ -1504,11 +1504,11 @@
       statusChips.innerHTML = "";
       statusChips.appendChild(buildUpdatedChip(meta));
       const chipValues = [
-        `Height ${Number(meta.source_block_height).toLocaleString()}`,
-        `BIP-110 ${s.completed_periods}/${s.bip110_total_periods} periods complete`,
+        `Block Height ${Number(meta.source_block_height).toLocaleString()}`,
+        `BIP-110 ${s.completed_periods}/${s.bip110_total_periods} Periods Complete`,
         currentSignal != null
-          ? `Period ${s.current_period_index ?? "n/a"} signaling ${currentSignal.toLocaleString()} (${currentSignalPct})`
-          : `Period ${s.current_period_index ?? "n/a"} ${currentPeriodBlocks.toLocaleString()} / ${periodSize.toLocaleString()} blocks mined`,
+          ? `Period ${s.current_period_index ?? "N/A"} Signaling ${currentSignal.toLocaleString()} (${currentSignalPct})`
+          : `Period ${s.current_period_index ?? "N/A"} ${currentPeriodBlocks.toLocaleString()} / ${periodSize.toLocaleString()} Blocks Mined`,
       ];
       chipValues.forEach((text) => {
         const div = document.createElement("div");
