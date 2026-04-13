@@ -3,8 +3,8 @@
     "filename": "quantum_exposure.png",
     "title": "Bitcoin Quantum Exposure",
     "description": "This dashboard tracks exposed Bitcoin supply, pubkeys, and UTXOs by script type and spend activity, with historical views and top exposure filters",
-    "latest_x": "",
-    "latest_youtube": ""
+    "latest_x": "https://x.com/w_s_bitcoin/status/2041958658112622600",
+    "latest_youtube": "https://youtu.be/_Qxm70pFM4E"
   },
   {
     "filename": "bip110_signaling.png",
@@ -24,7 +24,7 @@
     "filename": "bitcoin_dominance.png",
     "title": "Bitcoin Dominance",
     "description": "This dashboard shows Bitcoin's share of market cap relative to the top cryptocurrencies",
-    "latest_x": "",
-    "latest_youtube": ""
+    "latest_x": "https://x.com/w_s_bitcoin/status/2036202715148107790",
+    "latest_youtube": "https://youtu.be/GbEJ0neZkxQ"
   }
 ]
