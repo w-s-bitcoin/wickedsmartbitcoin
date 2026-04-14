@@ -307,6 +307,7 @@ Recommended expectations for future dashboards:
 - Include a lightweight loader inside each major panel if data fetch or phased rendering is visible
 - Use compact loader text in `IBM Plex Mono`
 - Keep loading overlays black and semi-transparent, not blurred glass
+- If rendering in phases, unlock topbar controls immediately after the first meaningful panel render; keep heavy/background datasets loading without blocking first user interaction
 - Persist user controls that materially affect layout or reading state
 - Share timezone preference behavior through `js/11_dashboard_timezone_preferences.js` when timestamps are shown
 
@@ -327,6 +328,7 @@ Before calling a new dashboard finished, check all of the following:
 - If panels can swap, each panel keeps its own saved height.
 - Disabled actions are truly disabled in both styling and behavior.
 - Mobile and embedded modal states were checked explicitly.
+- First click on each topbar checkbox works immediately after navigation into the dashboard (no ignored first interaction).
 
 ## Practical recommendation
 

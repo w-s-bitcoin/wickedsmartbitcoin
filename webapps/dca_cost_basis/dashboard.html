@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DCA Cost Basis</title>
+  <script>
+    (function () {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('preview') === 'card') {
+        document.documentElement.classList.add('card-preview');
+      }
+    }());
+  </script>
+  <script src="../shared/dashboard_embed_modal.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../shared/dashboard_shared.css" />
+  <style>
+    :root {
+      --bg: #000;
+      --panel: #000;
+      --surface: #000;
+      --surface-soft: #000;
+      --panel-border: rgba(255, 255, 255, 0.14);
+      --fg: #f1f5f7;
+      --ink: #f0f0f0;
+      --muted: #95a6ae;
+      --line: #3a3a3a;
+      --fg-dim: #d6e1e6;
+      --accent: #ff9f1c;
+      --price-up: #41b36b;
+      --price-down: #d33a45;
+      --wrap-pad: clamp(8px, 1.4vw, 12px);
+      --wrap-grid-template-rows: auto minmax(0, 1fr);
+      --kpi-settings-pad-top: 6px;
+      --dashboard-accent: var(--accent);
+      --modal-controls-clearance: 30px;
+      --card-bg: #000;
+      --card-border: rgba(255, 255, 255, 0.14);
+      --caret-chevron: #d6e1e6;
+      --tooltip-bg: #000000;
+      --tooltip-border: rgba(255, 255, 255, 0.22);
+      --tooltip-fg: #e9f1f5;
+    }
+
+    :root[data-theme="light"] {
+      --bg: #f7f4ee;
+      --panel: #ffffff;
+      --surface: #ffffff;
+      --surface-soft: #faf6ef;
+      --panel-border: rgba(0, 0, 0, 0.11);
+      --fg: #1c1b19;
+      --ink: #1c1b19;
+      --muted: #6f685f;
+      --line: #d8d0c3;
+      --fg-dim: #514d47;
+      --card-bg: #ffffff;
+      --card-border: rgba(0, 0, 0, 0.11);
+      --caret-chevron: #7a756e;
+      --tooltip-bg: #ffffff;
+      --tooltip-border: rgba(0, 0, 0, 0.22);
+      --tooltip-fg: #1c1b19;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: "Space Grotesk", "Helvetica Neue", sans-serif;
+      overflow: hidden;
+    }
+
+    html.card-preview,
+    html.card-preview body {
+      height: 100%;
+      overflow: hidden;
+    }
+
+    html.card-preview body .wrap {
+      height: 100vh;
+      padding: 0;
+      gap: 0;
+      grid-template-rows: 1fr;
+    }
+
+    html.card-preview body .topbar {
+      display: none !important;
+    }
+
+    html.card-preview body .panel {
+      border-radius: 0;
+      border-left: 0;
+      border-right: 0;
+    }
+
+    .topbar {
+      display: grid;
+      gap: 8px;
+      padding: 10px 12px;
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      background: var(--card-bg);
+    }
+
+    .title {
+      margin: 0;
+      font-size: clamp(1.05rem, 2vw, 1.5rem);
+      letter-spacing: 0.015em;
+      font-weight: 700;
+      color: var(--fg);
+    }
+
+    .title-accent {
+      color: var(--accent);
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chip {
+      border: 1px solid var(--card-border);
+      border-radius: 999px;
+      background: transparent;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.8rem;
+      padding: 5px 9px;
+      white-space: nowrap;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      padding-top: var(--kpi-settings-pad-top);
+    }
+
+    .toggle {
+      font-family: "Space Grotesk", "Helvetica Neue", sans-serif;
+    }
+
+    #updatedChipWrap,
+    #updatedChipWrap .chip-kpi-display,
+    #chipUpdated {
+      max-width: 100%;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .chip-kpi-display {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding-right: 24px;
+      position: relative;
+      transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+    }
+
+    .chip-pct-profit { color: var(--price-up); }
+    .chip-pct-loss   { color: var(--price-down); }
+
+    .chip-menu-wrap.single-select {
+      position: relative;
+      display: inline-block;
+      max-width: 100%;
+    }
+
+    .chip-menu-wrap.single-select::after {
+      content: '';
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      width: 6px;
+      height: 6px;
+      border-right: 1.5px solid var(--caret-chevron);
+      border-bottom: 1.5px solid var(--caret-chevron);
+      transform: translateY(-70%) rotate(45deg);
+      opacity: 0.8;
+      pointer-events: none;
+    }
+
+    .chip-menu-select.chip-kpi-select-overlay {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      cursor: pointer;
+      border: none;
+      padding: 0;
+      margin: 0;
+      appearance: none;
+      -webkit-appearance: none;
+      background: transparent;
+      color: transparent;
+    }
+
+    .chip-menu-select.chip-kpi-select-overlay:focus,
+    .chip-menu-select.chip-kpi-select-overlay:focus-visible {
+      outline: none;
+      box-shadow: none;
+    }
+
+    .chip-menu-wrap.single-select:hover .chip-kpi-display,
+    .chip-menu-wrap.single-select:focus-within .chip-kpi-display {
+      color: var(--accent);
+      border-color: rgba(255, 152, 0, 0.55);
+      background: transparent;
+    }
+
+    .chip select,
+    .chip input {
+      background: transparent;
+      border: none;
+      color: var(--fg);
+      font: inherit;
+      outline: none;
+      min-width: 0;
+    }
+
+    .chip select:focus,
+    .chip select:focus-visible {
+      outline: none;
+      box-shadow: none;
+      border: none;
+    }
+
+    .wrap select:focus,
+    .wrap select:focus-visible {
+      outline: none !important;
+      box-shadow: none !important;
+    }
+
+    .chip input[type="checkbox"] {
+      appearance: auto;
+      -webkit-appearance: checkbox;
+      accent-color: var(--accent);
+      width: 13px;
+      height: 13px;
+      margin: 0;
+      min-width: auto;
+    }
+
+    .panel {
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      background: var(--card-bg);
+      min-height: var(--panel-min-height, 320px);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .chart-wrap {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+
+    #costBasisChart {
+      width: 100%;
+      height: 100%;
+    }
+
+    #costBasisChart .spikeline {
+      stroke: var(--fg) !important;
+      stroke-width: 0.85px !important;
+      stroke-dasharray: 5 4 !important;
+    }
+
+    #costBasisChart .hoverlayer .hovertext,
+    #costBasisChart .hoverlayer .axistext {
+      display: none !important;
+    }
+
+    .tooltip {
+      position: fixed;
+      z-index: 20;
+      pointer-events: none;
+      width: max-content;
+      max-width: min(440px, calc(100vw - 24px));
+      background: var(--tooltip-bg);
+      border: 1px solid var(--tooltip-border);
+      color: var(--tooltip-fg);
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: clamp(0.72rem, 0.64rem + 0.30vw, 0.9rem);
+      line-height: clamp(1.35, 1.28 + 0.15vw, 1.5);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+      white-space: normal;
+      transform: none;
+      opacity: 0;
+      transition: opacity 130ms ease;
+      font-family: "IBM Plex Mono", monospace;
+    }
+
+    .tooltip.show { opacity: 1; }
+
+    .tooltip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .tooltip-label {
+      color: rgba(255, 255, 255, 0.68);
+    }
+
+    :root[data-theme="light"] .tooltip-label {
+      color: rgba(0, 0, 0, 0.58);
+    }
+
+    .tooltip-value-accent { color: var(--accent); }
+    .tooltip-value-profit { color: var(--price-up); }
+    .tooltip-value-loss { color: var(--price-down); }
+
+    .current-price-overlay {
+      position: absolute;
+      right: 19px;
+      top: 0;
+      transform: translateY(-50%);
+      z-index: 4;
+      pointer-events: none;
+      padding: 4px 6px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: color-mix(in srgb, var(--panel) 90%, transparent);
+      color: var(--fg);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 13px;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    .current-price-overlay[hidden] {
+      display: none;
+    }
+
+    .error {
+      margin: 10px 12px;
+      border: 1px solid rgba(255, 86, 86, 0.4);
+      color: #ffc7c7;
+      background: rgba(255, 86, 86, 0.1);
+      padding: 10px;
+      border-radius: 10px;
+      font-size: 0.88rem;
+    }
+
+    :root[data-theme="light"] .error {
+      color: #7b1b1b;
+      background: rgba(200, 50, 50, 0.08);
+      border-color: rgba(200, 50, 50, 0.3);
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="topbar">
+      <div class="title-row">
+        <h1 class="title">Bitcoin DCA Cost Basis</h1>
+        <div class="info-wrap">
+          <button type="button" class="info-btn" aria-label="About this dashboard" aria-describedby="dcaCostBasisInfoPopover">?</button>
+          <div class="info-popover" id="dcaCostBasisInfoPopover" role="tooltip">
+            Compares historical Bitcoin price against DCA cost basis across daily, weekly, and monthly cadences. Use the selected range to evaluate how many DCA start points are currently in profit versus at a loss.
+          </div>
+        </div>
+      </div>
+      <div class="chips" id="statusChips">
+        <div class="chip-menu-wrap single-select" id="updatedChipWrap">
+          <div class="chip chip-kpi-display" id="chipUpdated"><span class="chip-label">Updated</span> <span class="chip-value">-</span></div>
+          <select id="updatedTimeZoneSelect" class="chip-menu-select chip-kpi-select-overlay" aria-label="Updated timestamp time zone"></select>
+        </div>
+        <div class="chip" id="chipHeight"><span class="chip-label">Block Height</span> <span class="chip-value">-</span></div>
+        <div class="chip" id="chipSpot"><span class="chip-label">Price</span> <span class="chip-value">-</span></div>
+        <div class="chip" id="chipProfitPct"><span class="chip-label">In Profit</span> <span class="chip-pct chip-pct-profit">-%</span></div>
+        <div class="chip" id="chipLossPct"><span class="chip-label">At a Loss</span> <span class="chip-pct chip-pct-loss">-%</span></div>
+      </div>
+      <div class="controls">
+        <label class="chip">Cadence
+          <select id="cadenceSelect">
+            <option value="daily_dca">Daily DCA</option>
+            <option value="weekly_dca">Weekly DCA</option>
+            <option value="monthly_dca">Monthly DCA</option>
+          </select>
+        </label>
+
+        <label class="chip">Range
+          <select id="rangeSelect">
+            <option value="365">1Y</option>
+            <option value="730">2Y</option>
+            <option value="1460">4Y</option>
+            <option value="2920">8Y</option>
+            <option value="0" selected>All</option>
+          </select>
+        </label>
+
+        <label class="chip">Scale
+          <select id="scaleSelect">
+            <option value="linear" selected>Linear</option>
+            <option value="log">Log</option>
+          </select>
+        </label>
+
+        <label class="toggle" for="toggleHalvings">
+          <input id="toggleHalvings" type="checkbox" checked /> Halvings
+        </label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="chart-wrap">
+        <div id="costBasisChart"></div>
+      </div>
+    </section>
+  </main>
+
+  <div class="tooltip" id="chartTooltip"></div>
+
+  <script src="../../js/11_dashboard_timezone_preferences.js"></script>
+  <script src="dashboard_app.js"></script>
+</body>
+</html>

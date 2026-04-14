@@ -1400,6 +1400,10 @@
       const bitcoinMarketCapChip = document.getElementById('kpiBitcoinMarketCap');
       const stableMarketCapChip = document.getElementById('kpiStableMarketCap');
       if (!top10Chip || !bitcoinMarketCapChip || !stableMarketCapChip) return;
+      const top10Value = top10Chip.querySelector('.chip-value');
+      const bitcoinValue = bitcoinMarketCapChip.querySelector('.chip-value');
+      const stableValue = stableMarketCapChip.querySelector('.chip-value');
+      if (!top10Value || !bitcoinValue || !stableValue) return;
       const historyRows = getCurrentHistory();
       const snapshotRows = getSnapshotRows();
       const column = getCurrentColumn();
@@ -1425,16 +1429,16 @@
           : sum;
       }, 0);
 
-      top10Chip.textContent = `Top 10 Market Cap ${fmtCompactMoney(top10MarketCap)}`;
-      bitcoinMarketCapChip.textContent = `Bitcoin Market Cap ${fmtCompactMoney(bitcoinMarketCap)} · ${fmtPctRatio(latest[column])}`;
+      top10Value.textContent = `${fmtCompactMoney(top10MarketCap)}`;
+      bitcoinValue.textContent = `${fmtCompactMoney(bitcoinMarketCap)} · ${fmtPctRatio(latest[column])}`;
 
       // Include stable metrics only when stablecoins are enabled in this view.
       if (state.includeStables) {
         const stableColumn = getCurrentStableColumn();
         const stableDominance = stableColumn ? num(latest[stableColumn]) : 0;
-        stableMarketCapChip.textContent = `Stablecoin Market Caps ${fmtCompactMoney(stableMarketCap)} · ${fmtPctRatio(stableDominance)}`;
+        stableValue.textContent = `${fmtCompactMoney(stableMarketCap)} · ${fmtPctRatio(stableDominance)}`;
       } else {
-        stableMarketCapChip.textContent = 'Stablecoin Market Caps -';
+        stableValue.textContent = '-';
       }
     }
 
@@ -1456,6 +1460,8 @@
     function setLastUpdated() {
       const display = document.getElementById('updatedTimeZoneDisplay');
       if (!display) return;
+      const valueEl = display.querySelector('.chip-value');
+      if (!valueEl) return;
       const source = String(state.refreshedAtText || state.staticMeta?.generated_at_utc || '').trim();
       const withParenthesizedZone = (text) => {
         const normalized = String(text || '').trim();
@@ -1468,15 +1474,15 @@
         return `${prefix} (${zone})`;
       };
       if (!source) {
-        display.textContent = 'Updated n/a';
+        valueEl.textContent = 'n/a';
         return;
       }
       if (DASHBOARD_TIME?.formatUtcTimestamp) {
         const formatted = DASHBOARD_TIME.formatUtcTimestamp(source, state.timeZone);
-        display.textContent = `Updated ${withParenthesizedZone(formatted.text || source)}`;
+        valueEl.textContent = withParenthesizedZone(formatted.text || source);
         return;
       }
-      display.textContent = `Updated ${withParenthesizedZone(source)}`;
+      valueEl.textContent = withParenthesizedZone(source);
     }
 
     function populateUpdatedTimeZoneSelect() {

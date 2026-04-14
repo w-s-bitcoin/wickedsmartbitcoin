@@ -91,6 +91,7 @@
       quantum_exposure: 'quantum_exposure.html',
       bip110_signaling: 'bip110_signaling.html',
       node_count: 'node_count.html',
+      dca_cost_basis: 'dca_cost_basis.html',
       bitcoin_dominance: 'bitcoin_dominance.html',
     };
 

@@ -50,6 +50,7 @@ For dashboard data refresh, use the same pattern everywhere:
   - `focus`
   - `pageshow`
   - `online`
+- if using phased rendering, re-enable topbar controls right after the first meaningful paint; do not keep controls locked while non-critical background datasets continue loading
 
 ## 5. Plotly defaults that work well
 
@@ -117,6 +118,7 @@ Before shipping a new dashboard:
 - swap + resize + persistence all work after reload
 - timezone display updates in place
 - wake refresh behavior works after tab sleep
+- first checkbox click works immediately after opening the dashboard (no ignored initial interaction)
 - card quick view does not reload when toggling favorites/archive/search
 - modal-embedded and standalone rendering both look correct
 - no console errors during init, resize, filter, and refresh

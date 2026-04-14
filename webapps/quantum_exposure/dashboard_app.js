@@ -1258,7 +1258,31 @@ function showCustomTooltip(anchor, x, y) {
   }
 
   const tooltip = ensureCustomTooltipElement();
-  tooltip.textContent = text;
+  let activeValueClass = "";
+  tooltip.innerHTML = text
+    .split("\n")
+    .map((line) => {
+      const match = line.match(/^([^:]+:)(\s*)(.*)$/);
+      if (!match) {
+        activeValueClass = "";
+        return `<div class="tooltip-row"><span>${escapeHtml(line)}</span></div>`;
+      }
+
+      const rawLabel = String(match[1] || "").replace(/:$/, "").trim().toLowerCase();
+      if (rawLabel === "never spent") {
+        activeValueClass = "tooltip-value-never";
+      } else if (rawLabel === "inactive") {
+        activeValueClass = "tooltip-value-inactive";
+      } else if (rawLabel === "active") {
+        activeValueClass = "tooltip-value-active";
+      } else if (rawLabel !== "filtered") {
+        activeValueClass = "";
+      }
+
+      const valueClassAttr = activeValueClass ? ` class="${activeValueClass}"` : "";
+      return `<div class="tooltip-row"><span class="tooltip-label">${escapeHtml(match[1])}</span><span${valueClassAttr}>${escapeHtml(match[3])}</span></div>`;
+    })
+    .join("");
   tooltip.classList.add("is-visible");
   placeCustomTooltip(tooltip, x, y);
 }
@@ -3167,16 +3191,16 @@ function renderHistoricalStackedChart(filters) {
     const activePct = formatPercent(nearest.filteredActive, nearest.totalSupplySats);
 
     const nonExposedRow = showNonExposed && nonExposedBtc > 0
-      ? `<div class="historical-tooltip-row historical-tooltip-nonexposed"><span class="historical-tooltip-label">Non-exposed:</span> ${formatInt(nonExposedBtc)} BTC</div>`
+      ? `<div class="historical-tooltip-row historical-tooltip-nonexposed"><span class="historical-tooltip-label">Non-exposed:</span> <span class="historical-tooltip-value historical-tooltip-value-nonexposed">${formatInt(nonExposedBtc)} BTC</span></div>`
       : "";
     const activeRow = activeBtc > 0
-      ? `<div class="historical-tooltip-row historical-tooltip-active"><span class="historical-tooltip-label">Active:</span> ${formatInt(activeBtc)} BTC &middot; ${activePct}</div>`
+      ? `<div class="historical-tooltip-row historical-tooltip-active"><span class="historical-tooltip-label">Active:</span> <span class="historical-tooltip-value historical-tooltip-value-active">${formatInt(activeBtc)} BTC &middot; ${activePct}</span></div>`
       : "";
     const inactiveRow = inactiveBtc > 0
-      ? `<div class="historical-tooltip-row historical-tooltip-inactive"><span class="historical-tooltip-label">Inactive:</span> ${formatInt(inactiveBtc)} BTC &middot; ${inactivePct}</div>`
+      ? `<div class="historical-tooltip-row historical-tooltip-inactive"><span class="historical-tooltip-label">Inactive:</span> <span class="historical-tooltip-value historical-tooltip-value-inactive">${formatInt(inactiveBtc)} BTC &middot; ${inactivePct}</span></div>`
       : "";
     const neverRow = neverBtc > 0
-      ? `<div class="historical-tooltip-row historical-tooltip-never"><span class="historical-tooltip-label">Never Spent:</span> ${formatInt(neverBtc)} BTC &middot; ${neverPct}</div>`
+      ? `<div class="historical-tooltip-row historical-tooltip-never"><span class="historical-tooltip-label">Never Spent:</span> <span class="historical-tooltip-value historical-tooltip-value-never">${formatInt(neverBtc)} BTC &middot; ${neverPct}</span></div>`
       : "";
 
     tooltip.style.display = "block";

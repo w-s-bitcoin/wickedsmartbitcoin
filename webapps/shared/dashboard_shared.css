@@ -306,7 +306,7 @@ h1 {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: #d8e4ea;
+  color: var(--muted, #95a6ae);
   font-size: 0.84rem;
   user-select: none;
   cursor: pointer;
@@ -324,11 +324,24 @@ h1 {
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 999px;
   background: transparent;
-  color: #d6e1e6;
+  color: var(--muted, #95a6ae);
   padding: 5px 9px;
   font-size: 0.8rem;
   font-family: "IBM Plex Mono", monospace;
   white-space: nowrap;
+}
+
+.chip-label {
+  color: var(--muted, #95a6ae);
+}
+
+.chip-value {
+  color: var(--fg, #f1f5f7);
+}
+
+.controls .chip > select,
+.controls .chip > input {
+  color: var(--fg, #f1f5f7);
 }
 
 .swap-panels-control {
@@ -337,7 +350,7 @@ h1 {
   gap: 6px;
   border: 0;
   background: transparent;
-  color: #d8e4ea;
+  color: var(--muted, #95a6ae);
   cursor: pointer;
   padding: 0;
   flex-shrink: 0;
@@ -454,7 +467,7 @@ h1 {
   z-index: 70;
   width: fit-content;
   max-width: min(420px, calc(100vw - 24px));
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(0, 0, 0, 0.22);
   border-radius: 10px;
   background: #ffffff;
   color: #1c1b19;
@@ -472,7 +485,7 @@ h1 {
 }
 
 :root[data-theme="dark"] .dashboard-inline-tooltip {
-  border-color: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.22);
   background: #000;
   color: #d9e5ea;
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
@@ -485,10 +498,17 @@ h1 {
   transition: opacity 120ms ease, transform 120ms ease;
 }
 
+.dashboard-inline-tooltip .tooltip-label {
+  color: rgba(255, 255, 255, 0.68);
+}
+
+:root[data-theme="light"] .dashboard-inline-tooltip .tooltip-label {
+  color: rgba(0, 0, 0, 0.58);
+}
+
 /* Consistent keyboard focus highlight across dashboard controls. */
 .wrap button:focus-visible,
 .wrap a:focus-visible,
-.wrap select:focus-visible,
 .wrap input[type="checkbox"]:focus-visible,
 .wrap input[type="radio"]:focus-visible,
 .wrap .chip-menu-wrap.single-select:focus-within,
@@ -497,6 +517,13 @@ h1 {
   outline: 2px solid #ff9800 !important;
   outline-offset: 2px;
   box-shadow: 0 0 0 2px rgba(255, 152, 0, 0.25);
+}
+
+.wrap select:focus,
+.wrap select:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  border: none !important;
 }
 
 .panel-loader {
@@ -565,12 +592,25 @@ h1 {
 
 :root[data-theme="light"] .chip {
   border-color: var(--panel-border, rgba(0, 0, 0, 0.11));
-  color: var(--fg-dim, #514d47);
+  color: var(--muted, #6f685f);
   background: transparent;
 }
 
-:root[data-theme="light"] .toggle {
+:root[data-theme="light"] .chip-label {
+  color: var(--muted, #6f685f);
+}
+
+:root[data-theme="light"] .chip-value {
   color: var(--fg, #1c1b19);
+}
+
+:root[data-theme="light"] .controls .chip > select,
+:root[data-theme="light"] .controls .chip > input {
+  color: var(--fg, #1c1b19);
+}
+
+:root[data-theme="light"] .toggle {
+  color: var(--muted, #6f685f);
 }
 
 :root[data-theme="light"] .controls {
@@ -578,7 +618,7 @@ h1 {
 }
 
 :root[data-theme="light"] .swap-panels-control {
-  color: var(--fg, #1c1b19);
+  color: var(--muted, #6f685f);
 }
 
 :root[data-theme="light"] .swap-panels-btn {

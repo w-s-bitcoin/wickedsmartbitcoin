@@ -1501,21 +1501,28 @@
       const currentPeriodBlocks = Number(s.blocks_into_current_period || 0);
       const periodSize = Number(meta?.chart?.period_size || 2016);
 
-      statusChips.innerHTML = "";
-      statusChips.appendChild(buildUpdatedChip(meta));
-      const chipValues = [
-        `Block Height ${Number(meta.source_block_height).toLocaleString()}`,
-        `BIP-110 ${s.completed_periods}/${s.bip110_total_periods} Periods Complete`,
-        currentSignal != null
-          ? `Period ${s.current_period_index ?? "N/A"} Signaling ${currentSignal.toLocaleString()} (${currentSignalPct})`
-          : `Period ${s.current_period_index ?? "N/A"} ${currentPeriodBlocks.toLocaleString()} / ${periodSize.toLocaleString()} Blocks Mined`,
-      ];
-      chipValues.forEach((text) => {
+      const appendStatusChip = (label, valueHtml) => {
         const div = document.createElement("div");
         div.className = "chip";
-        div.textContent = text;
+        div.innerHTML = `<span class="chip-label">${label}</span> <span class="chip-value">${valueHtml}</span>`;
         statusChips.appendChild(div);
-      });
+      };
+
+      statusChips.innerHTML = "";
+      statusChips.appendChild(buildUpdatedChip(meta));
+      appendStatusChip("Block Height", Number(meta.source_block_height).toLocaleString());
+      appendStatusChip("BIP-110 Periods Complete", `${s.completed_periods}/${s.bip110_total_periods}`);
+      if (currentSignal != null) {
+        appendStatusChip(
+          "Period",
+          `${s.current_period_index ?? "N/A"} <span class="chip-label">Signaling</span> <span class="chip-value-signal">${currentSignal.toLocaleString()}</span> (${currentSignalPct})`
+        );
+      } else {
+        appendStatusChip(
+          "Period",
+          `${s.current_period_index ?? "N/A"} ${currentPeriodBlocks.toLocaleString()} / ${periodSize.toLocaleString()} Blocks Mined`
+        );
+      }
       bindTimeZoneChipEvents();
     }
 
@@ -1562,7 +1569,7 @@
 
       const display = document.createElement("div");
       display.className = "chip chip-kpi-display";
-      display.textContent = `Updated ${formatGeneratedDateTimeForSelectedTimeZone(meta.generated_utc)}`;
+      display.innerHTML = `<span class="chip-label">Updated</span> <span class="chip-value">${formatGeneratedDateTimeForSelectedTimeZone(meta.generated_utc)}</span>`;
 
       const select = document.createElement("select");
       select.className = "chip-menu-select chip-kpi-select-overlay";
@@ -2715,10 +2722,10 @@
         const periodSize = Number(state?.data?.metadata?.chart?.period_size || 2016);
         const non = clamp(periodSize - signal, 0, periodSize);
         return [
-          `SegWit period ${data.period}`,
-          `Height ${Number(data.period_start_height).toLocaleString()}-${Number(data.period_end_height).toLocaleString()}`,
-          `Signaling ${signal.toLocaleString()} (${pctLabel(signal, periodSize)})`,
-          `Non-signaling ${non.toLocaleString()}`,
+          `Period: SegWit ${data.period}`,
+          `Height: ${Number(data.period_start_height).toLocaleString()}-${Number(data.period_end_height).toLocaleString()}`,
+          `Signaling: ${signal.toLocaleString()} (${pctLabel(signal, periodSize)})`,
+          `Non-signaling: ${non.toLocaleString()}`,
         ].join("\n");
       }
 
@@ -2730,19 +2737,19 @@
       const status = String(data.status || "");
 
       const lines = [
-        `BIP-110 period ${data.period}`,
-        `Status ${status}`,
-        data.period_start_height ? `Height ${Number(data.period_start_height).toLocaleString()}-${Number(data.period_end_height).toLocaleString()}` : "Outside signaling window",
-        `Signaling ${signal.toLocaleString()} (${pctLabel(signal, periodSize)})`,
+        `Period: BIP-110 ${data.period}`,
+        `Status: ${status}`,
+        data.period_start_height ? `Height: ${Number(data.period_start_height).toLocaleString()}-${Number(data.period_end_height).toLocaleString()}` : "Status: Outside signaling window",
+        `Signaling: ${signal.toLocaleString()} (${pctLabel(signal, periodSize)})`,
       ];
 
       if (status === "completed") {
-        lines.push(`Non-signaling ${non.toLocaleString()}`);
+        lines.push(`Non-signaling: ${non.toLocaleString()}`);
       } else if (status === "in_progress") {
-        lines.push(`Non-signaling ${non.toLocaleString()}`);
-        lines.push(`Mined ${elapsed.toLocaleString()} | Unmined ${unmined.toLocaleString()}`);
+        lines.push(`Non-signaling: ${non.toLocaleString()}`);
+        lines.push(`Mined | Unmined: ${elapsed.toLocaleString()} | ${unmined.toLocaleString()}`);
       } else {
-        lines.push(`Mined ${elapsed.toLocaleString()} | Unmined ${unmined.toLocaleString()}`);
+        lines.push(`Mined | Unmined: ${elapsed.toLocaleString()} | ${unmined.toLocaleString()}`);
       }
 
       return lines.join("\n");
@@ -2753,8 +2760,8 @@
         ? String(data.release_time_utc)
         : "Date/time unavailable";
       return [
-        String(data.label || "Release"),
-        when,
+        `Release: ${String(data.label || "Release")}`,
+        `Date: ${when}`,
       ].join("\n");
     }
 
@@ -2764,8 +2771,8 @@
         ? `Signaling for ${fork}`
         : `Non-signaling for ${fork}`;
       return [
-        `Height ${Number(data.height).toLocaleString()}`,
-        mode,
+        `Height: ${Number(data.height).toLocaleString()}`,
+        `Mode: ${mode}`,
       ].join("\n");
     }
 
@@ -2824,7 +2831,23 @@
     }
 
     function showTooltip(content, clientX, clientY) {
-      tooltip.textContent = content;
+      const escapeHtml = (value) => String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+
+      tooltip.innerHTML = String(content || "")
+        .split("\n")
+        .map((line) => {
+          const match = line.match(/^([^:]+:)(\s*)(.*)$/);
+          if (!match) {
+            return `<div class="tooltip-line"><span class="tooltip-value">${escapeHtml(line)}</span></div>`;
+          }
+          return `<div class="tooltip-line"><span class="tooltip-label">${escapeHtml(match[1])}</span><span class="tooltip-value">${escapeHtml(match[3])}</span></div>`;
+        })
+        .join("");
       const viewportW = window.innerWidth;
       const tipW = tooltip.offsetWidth || 320;
       const edgePad = 12;

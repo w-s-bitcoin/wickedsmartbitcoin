@@ -415,6 +415,14 @@ footer {
     flex: 0 0 auto;
 }
 
+.home-bip110-kpis .chip-label {
+    color: var(--muted);
+}
+
+.home-bip110-kpis .chip-value {
+    color: var(--fg);
+}
+
 :root:not([data-theme="light"]) .home-bip110-kpis .chip {
     background: #000;
 }
@@ -443,6 +451,7 @@ footer {
 .home-bip110-kpis .chip-kpi-display {
     display: inline-flex;
     align-items: center;
+    gap: 6px;
     padding-right: 24px;
     transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
     position: relative;

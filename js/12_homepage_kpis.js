@@ -17,6 +17,12 @@
   const timeZoneSelect = document.getElementById("homeKpiTimeZoneSelect");
   if (!updatedEl || !heightEl || !epochEl || !subsidyEl || !difficultyEl || !timeZoneSelect) return;
 
+  const updatedValueEl = updatedEl.querySelector(".chip-value") || updatedEl;
+  const heightValueEl = heightEl.querySelector(".chip-value") || heightEl;
+  const epochValueEl = epochEl.querySelector(".chip-value") || epochEl;
+  const subsidyValueEl = subsidyEl.querySelector(".chip-value") || subsidyEl;
+  const difficultyValueEl = difficultyEl.querySelector(".chip-value") || difficultyEl;
+
   let lastBlockHeight = NaN;
   let metadataSignature = "";
   let autoRefreshTimer = null;
@@ -157,10 +163,10 @@
     }
     const displayTime = formatNowForSelectedTimeZone(new Date());
 
-    updatedEl.textContent = displayTime;
-    heightEl.textContent = Number.isFinite(lastBlockHeight)
-      ? `Block Height ${lastBlockHeight.toLocaleString()}`
-      : "Block Height n/a";
+    updatedValueEl.textContent = displayTime;
+    heightValueEl.textContent = Number.isFinite(lastBlockHeight)
+      ? `${lastBlockHeight.toLocaleString()}`
+      : "n/a";
 
     if (typeof epoch !== "undefined") {
       const parsedEpoch = Number(epoch);
@@ -177,11 +183,11 @@
     }
 
     const epochPct = formatEpochCompletePercent(lastEpochComplete);
-    epochEl.textContent = Number.isFinite(lastEpoch)
+    epochValueEl.textContent = Number.isFinite(lastEpoch)
       ? (epochPct === "n/a"
-        ? `Epoch ${lastEpoch.toLocaleString()}`
-        : `Epoch ${lastEpoch.toLocaleString()} (${epochPct} Complete)`)
-      : "Epoch n/a";
+        ? `${lastEpoch.toLocaleString()}`
+        : `${lastEpoch.toLocaleString()} (${epochPct} Complete)`)
+      : "n/a";
 
     if (typeof subsidyBtc !== "undefined") {
       const cleaned = String(subsidyBtc || "").trim();
@@ -190,18 +196,18 @@
       lastSubsidyDisplay = formatSubsidyBtc(lastBlockHeight);
     }
 
-    subsidyEl.textContent = lastSubsidyDisplay === "n/a"
-      ? "Subsidy n/a"
-      : `Subsidy ${lastSubsidyDisplay} BTC`;
+    subsidyValueEl.textContent = lastSubsidyDisplay === "n/a"
+      ? "n/a"
+      : `${lastSubsidyDisplay} BTC`;
 
     if (typeof difficultyDisplay !== "undefined") {
       const cleaned = String(difficultyDisplay || "").trim();
       lastDifficultyDisplay = cleaned || "n/a";
     }
 
-    difficultyEl.textContent = lastDifficultyDisplay === "n/a"
-      ? "Difficulty n/a"
-      : `Difficulty ${lastDifficultyDisplay}`;
+    difficultyValueEl.textContent = lastDifficultyDisplay === "n/a"
+      ? "n/a"
+      : `${lastDifficultyDisplay}`;
   }
 
   async function refreshFromTopKpis() {

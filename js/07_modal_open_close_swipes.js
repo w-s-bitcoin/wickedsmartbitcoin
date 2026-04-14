@@ -132,11 +132,13 @@ function openModalByIndex(index) {
     const modalType = String(image.modal_type || '').trim().toLowerCase();
     const fallbackEmbedPath = fname === 'quantum_exposure.png'
         ? '/webapps/quantum_exposure/dashboard.html'
+        : (fname === 'dca_cost_basis.png'
+        ? '/webapps/dca_cost_basis/dashboard.html'
         : (fname === 'bip110_signaling.png'
         ? '/webapps/bip110_signaling/dashboard.html'
         : (fname === 'node_count.png'
             ? '/webapps/node_count/dashboard.html'
-            : (fname === `${DOM_BASE}.png` ? '/webapps/bitcoin_dominance/dashboard.html' : '')));
+            : (fname === `${DOM_BASE}.png` ? '/webapps/bitcoin_dominance/dashboard.html' : ''))));
     const embedPath = String(image.embed_url || '').trim() || fallbackEmbedPath;
     const shouldEmbed = modalType === 'embed' || !!embedPath;
     const embedUrl = shouldEmbed ? modalEmbedSrc(embedPath) : '';

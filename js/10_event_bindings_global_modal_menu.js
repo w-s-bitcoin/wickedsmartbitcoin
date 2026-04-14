@@ -226,6 +226,7 @@ function resetDashboardsToDefaults() {
     const keyPrefixesToRemove = [
         'bip110_signaling_',
         'bitcoin_dominance_',
+        'dca_cost_basis_',
         'node_count_'
     ];
 

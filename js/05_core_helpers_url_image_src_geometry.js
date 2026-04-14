@@ -399,6 +399,7 @@ function getVisualizationUrl(filename) {
     if (location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.hostname === '::1') {
         const localStandaloneBySlug = {
             quantum_exposure: 'quantum_exposure.html',
+            dca_cost_basis: 'dca_cost_basis.html',
             bip110_signaling: 'bip110_signaling.html',
             node_count: 'node_count.html',
             bitcoin_dominance: 'bitcoin_dominance.html',

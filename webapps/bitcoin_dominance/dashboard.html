@@ -127,11 +127,27 @@
       border: 1px solid var(--panel-border);
       border-radius: 999px;
       background: transparent;
-      color: var(--fg-dim);
+      color: var(--muted);
       padding: 5px 9px;
       font-size: 0.8rem;
       font-family: "IBM Plex Mono", monospace;
       white-space: nowrap;
+    }
+
+    .chip-label {
+      color: var(--muted);
+    }
+
+    .chip-value {
+      color: var(--fg);
+    }
+
+    #kpiBitcoinMarketCap .chip-value {
+      color: var(--accent);
+    }
+
+    #kpiStableMarketCap .chip-value {
+      color: var(--accent-2);
     }
 
     .chip select,
@@ -148,6 +164,14 @@
       accent-color: var(--accent);
       width: 96px;
       padding: 0;
+    }
+
+    .controls > label.chip {
+      color: var(--muted);
+    }
+
+    .controls > label.chip > select {
+      color: var(--fg);
     }
 
     .toggle {
@@ -678,12 +702,12 @@
       <div class="error" id="errorBox"></div>
       <div class="chips" id="statusChips">
         <span class="chip-menu-wrap" id="updatedChipWrap">
-          <span id="updatedTimeZoneDisplay">Updated ...</span>
+          <span id="updatedTimeZoneDisplay"><span class="chip-label">Updated</span> <span class="chip-value">...</span></span>
           <select id="updatedTimeZoneSelect" class="chip-menu-select" aria-label="Choose updated timestamp time zone"></select>
         </span>
-        <span class="chip" id="kpiTop10MarketCap">Top 10 Market Cap -</span>
-        <span class="chip" id="kpiBitcoinMarketCap">Bitcoin Market Cap -</span>
-        <span class="chip" id="kpiStableMarketCap">Stablecoin Market Caps -</span>
+        <span class="chip" id="kpiTop10MarketCap"><span class="chip-label">Top 10 Market Cap</span> <span class="chip-value">-</span></span>
+        <span class="chip" id="kpiBitcoinMarketCap"><span class="chip-label">Bitcoin Market Cap</span> <span class="chip-value">-</span></span>
+        <span class="chip" id="kpiStableMarketCap"><span class="chip-label">Stablecoin Market Caps</span> <span class="chip-value">-</span></span>
       </div>
       <div class="controls">
         <label class="toggle" for="toggleHistoryPanel">

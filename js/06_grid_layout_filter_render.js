@@ -7,6 +7,11 @@ const DASHBOARD_CARD_PREVIEW_SPECS = Object.freeze({
     width: 1280,
     height: 720,
   },
+  'dca_cost_basis.png': {
+    url: 'webapps/dca_cost_basis/dashboard.html?preview=card',
+    width: 1280,
+    height: 720,
+  },
   'bip110_signaling.png': {
     url: 'webapps/bip110_signaling/dashboard.html?preview=card',
     width: 1280,

@@ -7,6 +7,13 @@
     "latest_youtube": "https://youtu.be/_Qxm70pFM4E"
   },
   {
+    "filename": "dca_cost_basis.png",
+    "title": "DCA Cost Basis",
+    "description": "This dashboard tracks Bitcoin weighted-average DCA cost basis across daily, weekly, and monthly cadences and compares it to spot price",
+    "latest_x": "",
+    "latest_youtube": ""
+  },
+  {
     "filename": "bip110_signaling.png",
     "title": "BIP-110 Signaling",
     "description": "This dashboard focuses on miner signaling across each 2,016-block period for BIP-110, with SegWit signaling periods included for historical comparison",

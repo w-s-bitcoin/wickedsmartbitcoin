@@ -147,10 +147,17 @@
     .chip-kpi-display {
       display: inline-flex;
       align-items: center;
+      gap: 6px;
       padding-right: 24px;
       position: relative;
       transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
     }
+
+    .chip-value-unreachable { color: #9ca3af; }
+    .chip-value-listening { color: #6b7280; }
+    .chip-value-knots { color: #39d98a; }
+    .chip-value-core { color: #f7931a; }
+    .chip-value-bip110 { color: #4169e1; }
 
     .chip-menu-wrap.single-select {
       position: relative;
@@ -220,6 +227,10 @@
       width: clamp(56px, 18vw, 96px);
       max-width: 100%;
       padding: 0;
+    }
+
+    #topNLabel {
+      color: var(--fg);
     }
 
     .grid {
@@ -951,15 +962,15 @@
       <div class="error" id="errorBox"></div>
       <div class="chips" id="statusChips">
         <div class="chip-menu-wrap single-select" id="updatedChipWrap">
-          <div class="chip chip-kpi-display" id="updatedChip">Updated ...</div>
+          <div class="chip chip-kpi-display" id="updatedChip"><span class="chip-label">Updated</span> <span class="chip-value">...</span></div>
           <select id="updatedTimeZoneSelect" class="chip-menu-select chip-kpi-select-overlay" aria-label="Updated timestamp time zone"></select>
         </div>
-        <div class="chip" id="kpiTotal">Total -</div>
-        <div class="chip" id="kpiUnreachable">Non-listening -</div>
-        <div class="chip" id="kpiListening">Listening -</div>
-        <div class="chip" id="kpiKnots">Knots -</div>
-        <div class="chip" id="kpiCore30">Core v30 -</div>
-        <div class="chip" id="kpiBip110">BIP-110 -</div>
+        <div class="chip" id="kpiTotal"><span class="chip-label">Total</span> <span class="chip-value">-</span></div>
+        <div class="chip" id="kpiUnreachable"><span class="chip-label">Non-listening</span> <span class="chip-value chip-value-unreachable">-</span></div>
+        <div class="chip" id="kpiListening"><span class="chip-label">Listening</span> <span class="chip-value chip-value-listening">-</span></div>
+        <div class="chip" id="kpiKnots"><span class="chip-label">Knots</span> <span class="chip-value chip-value-knots">-</span></div>
+        <div class="chip" id="kpiCore30"><span class="chip-label">Core v30</span> <span class="chip-value chip-value-core">-</span></div>
+        <div class="chip" id="kpiBip110"><span class="chip-label">BIP-110</span> <span class="chip-value chip-value-bip110">-</span></div>
       </div>
       <div class="controls">
         <label class="toggle" for="toggleHistoryPanel"><input type="checkbox" id="toggleHistoryPanel" checked /> Node Count</label>

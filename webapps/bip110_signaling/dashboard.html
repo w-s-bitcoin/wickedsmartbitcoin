@@ -53,7 +53,7 @@
       --dropdown-select-bg: rgba(0, 0, 0, 0.4);
       --dropdown-select-border: rgba(255, 255, 255, 0.18);
       --tooltip-bg: #000000;
-      --tooltip-border: #223038;
+      --tooltip-border: rgba(255, 255, 255, 0.22);
       --tooltip-fg: #e9f1f5;
       --fill-btn-border: rgba(255, 255, 255, 0.25);
       --fill-btn-bg: rgba(0, 0, 0, 0.72);
@@ -82,7 +82,7 @@
       --dropdown-select-bg: rgba(248, 245, 240, 0.95);
       --dropdown-select-border: rgba(0, 0, 0, 0.14);
       --tooltip-bg: #ffffff;
-      --tooltip-border: rgba(0, 0, 0, 0.12);
+      --tooltip-border: rgba(0, 0, 0, 0.22);
       --tooltip-fg: #1c1b19;
       --fill-btn-border: rgba(0, 0, 0, 0.18);
       --fill-btn-bg: rgba(248, 245, 240, 0.9);
@@ -161,7 +161,7 @@
       border-radius: 999px;
       padding: 5px 9px;
       font-size: 0.8rem;
-      color: var(--fg-dim);
+      color: var(--muted);
       font-family: "IBM Plex Mono", monospace;
       white-space: nowrap;
     }
@@ -213,7 +213,7 @@
     .chip-menu-label {
       display: block;
       margin: 0 0 8px;
-      color: var(--fg-dim);
+      color: var(--muted);
       font-size: 0.76rem;
       font-family: "IBM Plex Mono", monospace;
     }
@@ -239,9 +239,14 @@
     .chip-kpi-display {
       display: inline-flex;
       align-items: center;
+      gap: 6px;
       padding-right: 24px;
       transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
       position: relative;
+    }
+
+    .chip-value-signal {
+      color: var(--signal);
     }
 
     .chip-menu-wrap.single-select {
@@ -406,6 +411,25 @@
       opacity: 0;
       transition: opacity 130ms ease;
       font-family: "IBM Plex Mono", monospace;
+    }
+
+    .tooltip-line {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .tooltip-label {
+      color: rgba(255, 255, 255, 0.68);
+      font-weight: 600;
+    }
+
+    .tooltip-value {
+      color: var(--tooltip-fg);
+    }
+
+    :root[data-theme="light"] .tooltip-label {
+      color: rgba(0, 0, 0, 0.58);
     }
 
     .tooltip.show { opacity: 1; }

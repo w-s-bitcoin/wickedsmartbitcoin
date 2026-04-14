@@ -1553,12 +1553,19 @@
       const core30 = num(latest.core_v30_count);
       const bip110 = num(latest.bip110_count);
 
-      document.getElementById('kpiTotal').textContent = `Total ${fmtInt(total)}`;
-      document.getElementById('kpiUnreachable').textContent = `Non-listening ${fmtInt(unreachable)}`;
-      document.getElementById('kpiListening').textContent = `Listening ${fmtInt(listening)}`;
-      document.getElementById('kpiKnots').textContent = `Knots ${fmtInt(Math.max(0, knots - bip110))}`;
-      document.getElementById('kpiCore30').textContent = `Core v30 ${fmtInt(core30)}`;
-      document.getElementById('kpiBip110').textContent = `BIP-110 ${fmtInt(bip110)}`;
+      const totalValue = document.querySelector('#kpiTotal .chip-value');
+      const unreachableValue = document.querySelector('#kpiUnreachable .chip-value');
+      const listeningValue = document.querySelector('#kpiListening .chip-value');
+      const knotsValue = document.querySelector('#kpiKnots .chip-value');
+      const core30Value = document.querySelector('#kpiCore30 .chip-value');
+      const bip110Value = document.querySelector('#kpiBip110 .chip-value');
+
+      if (totalValue) totalValue.textContent = fmtInt(total);
+      if (unreachableValue) unreachableValue.textContent = fmtInt(unreachable);
+      if (listeningValue) listeningValue.textContent = fmtInt(listening);
+      if (knotsValue) knotsValue.textContent = fmtInt(Math.max(0, knots - bip110));
+      if (core30Value) core30Value.textContent = fmtInt(core30);
+      if (bip110Value) bip110Value.textContent = fmtInt(bip110);
     }
 
     function renderHistoryLegend(items) {
@@ -2035,9 +2042,11 @@
     function setLastUpdated() {
       const updatedChip = document.getElementById('updatedChip');
       if (!updatedChip) return;
+      const updatedValue = updatedChip.querySelector('.chip-value');
+      if (!updatedValue) return;
       const updatedRaw = getUpdatedRawValue();
       if (!updatedRaw) return;
-      updatedChip.textContent = `Updated ${formatUpdatedForSelectedTimeZone(updatedRaw)}`;
+      updatedValue.textContent = formatUpdatedForSelectedTimeZone(updatedRaw);
     }
 
     function bindControls() {

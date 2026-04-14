@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>DCA Cost Basis | Wicked Smart Bitcoin</title>
+    <link rel="icon" type="image/png" href="assets/favicon.png" />
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
+    <link rel="stylesheet" href="assets/styles.css" />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="preload" href="assets/image_list.json" as="fetch" crossorigin />
+    <link rel="prefetch" href="webapps/dca_cost_basis/dashboard.html" />
+    <style>
+      body[data-standalone-modal-shell="1"] {
+        margin: 0;
+        background: var(--bg);
+      }
+
+      body[data-standalone-modal-shell="1"] .buy-coffee {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .shell-theme-toggle {
+        width: 34px;
+        min-width: 34px;
+        min-height: 34px;
+        padding: 0;
+      }
+
+      .shell-theme-icon {
+        font-size: 0.9rem;
+        line-height: 1;
+      }
+
+      body[data-standalone-modal-shell="1"] .modal {
+        display: flex;
+      }
+
+      body[data-standalone-modal-shell="1"] #modal-img {
+        display: none;
+      }
+    </style>
+  </head>
+  <body data-standalone-modal-shell="1">
+    <div class="buy-coffee">
+      <button class="buy-coffee-btn" id="buyCoffeeBtn" type="button">
+        <span id="buyCoffeeIcon">☕</span>
+        <span id="buyCoffeeText">· Buy me a coffee</span>
+      </button>
+      <button
+        class="buy-coffee-btn shell-theme-toggle"
+        id="shellThemeToggle"
+        type="button"
+        aria-label="Toggle light or dark mode"
+        aria-pressed="false"
+        title="Switch to dark mode"
+      >
+        <span id="shellThemeIcon" class="shell-theme-icon">☼</span>
+      </button>
+    </div>
+    <div class="buy-coffee-overlay" id="buyCoffeeOverlay" aria-hidden="true" role="dialog" aria-modal="true">
+      <div class="buy-coffee-modal">
+        <button
+          type="button"
+          class="buy-coffee-close"
+          id="buyCoffeeCloseBtn"
+          aria-label="Close buy me a coffee panel"
+        >×</button>
+        <img
+          alt="Buy me a coffee"
+          class="buy-coffee-img"
+          id="buyCoffeeImg"
+          draggable="false"
+        />
+        <div class="buy-coffee-methods" role="group" aria-label="Donation method">
+          <button
+            type="button"
+            class="buy-coffee-method-btn active"
+            data-method="lightning"
+            aria-pressed="true"
+          >Lightning</button>
+          <button
+            type="button"
+            class="buy-coffee-method-btn"
+            data-method="liquid"
+            aria-pressed="false"
+          >Liquid</button>
+          <button
+            type="button"
+            class="buy-coffee-method-btn"
+            data-method="onchain"
+            aria-pressed="false"
+          >On-chain</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal" id="modal">
+      <div class="modal-controls">
+        <button class="close-btn" onclick="closeModal()">×</button>
+        <button class="close-btn" onclick="prevImage()">&#8249;</button>
+        <button class="close-btn" onclick="nextImage()">&#8250;</button>
+        <button id="modal-fav-btn" class="close-btn" onclick="toggleFavoriteFromModal()">★</button>
+        <a id="x-link" class="close-btn modal-link" href="#" target="_blank" rel="noopener noreferrer" aria-label="X/Twitter">
+          <svg width="16" height="16" viewBox="0 0 16 16">
+            <path d="M12.6.75h2.454l-5.36 6.142L16 15.25h-4.937l-3.867-5.07-4.425 5.07H.316l5.733-6.57L0 .75h5.063l3.495 4.633L12.601.75Zm-.86 13.028h1.36L4.323 2.145H2.865z" />
+          </svg>
+        </a>
+        <a id="youtube-link" class="close-btn modal-link" href="#" target="_blank" rel="noopener noreferrer" aria-label="YouTube">
+          <svg height="20" viewBox="0 0 576 512">
+            <path d="M549.7 124.1c-6.3-23.8-25-42.4-48.8-48.8C456.5 64 288 64 288 64s-168.5 0-212.9 11.3c-23.8 6.3-42.5 25-48.8 48.8C16 168.5 16 256 16 256s0 87.5 10.3 131.9c6.3 23.8 25 42.4 48.8 48.8C119.5 448 288 448 288 448s168.5 0 212.9-11.3c23.8-6.3 42.5-25 48.8-48.8C560 343.5 560 256 560 256s0-87.5-10.3-131.9zM232 336V176l142 80-142 80z" />
+          </svg>
+        </a>
+      </div>
+
+      <img id="modal-img" src="" alt="Full size image" draggable="false" />
+      <div id="modal-embed-wrap" class="modal-embed-wrap" hidden>
+        <iframe id="modal-embed" class="modal-embed" title="Interactive visualization" loading="eager"></iframe>
+      </div>
+
+      <div id="youtube-overlay" class="youtube-overlay hidden" role="dialog" aria-modal="true">
+        <div class="youtube-overlay-content">
+          <button type="button" class="youtube-overlay-close" id="youtubeOverlayClose" aria-label="Close YouTube video">×</button>
+          <div class="youtube-embed-container">
+            <iframe id="youtube-iframe" class="youtube-iframe" title="YouTube video" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function primeStandaloneDashboard() {
+        var iframe = document.getElementById('modal-embed');
+        if (!iframe) return;
+        if (!iframe.getAttribute('src')) {
+          iframe.setAttribute('src', 'webapps/dca_cost_basis/dashboard.html');
+        }
+      })();
+
+      (function initShellTheme() {
+        var THEME_KEY = 'quantum-research-dashboard-theme';
+        function applyShellTheme(t) {
+          document.documentElement.dataset.theme = (t === 'light' ? 'light' : 'dark');
+        }
+        function postTheme(t) {
+          var iframe = document.getElementById('modal-embed');
+          if (iframe && iframe.contentWindow) {
+            iframe.contentWindow.postMessage({ type: 'quantum-dashboard-theme', theme: t }, window.location.origin);
+          }
+        }
+        var stored;
+        try { stored = localStorage.getItem(THEME_KEY); } catch (_) {}
+        var theme = (stored === 'light' || stored === 'dark')
+          ? stored
+          : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        applyShellTheme(theme);
+        var embed = document.getElementById('modal-embed');
+        if (embed) {
+          embed.addEventListener('load', function () { postTheme(theme); });
+        }
+        window.addEventListener('storage', function (e) {
+          if (e.key === THEME_KEY && (e.newValue === 'light' || e.newValue === 'dark')) {
+            theme = e.newValue;
+            applyShellTheme(theme);
+            postTheme(theme);
+          }
+        });
+      }());
+    </script>
+
+    <script type="application/json" id="legacy-buy-overlay-script">
+      const DONATION_LIGHTNING = 'wicked@getalby.com';
+      const DONATION_LIQUID = 'VJLDEF7n8TBjyJY2BaAgeVvzPSRMJ7VAP5opW9mB5A7ChyiKHnaguTugZNznxNiV2ZDyPxJyQoeZ2KhM';
+      const DONATION_ONCHAIN = 'bc1q8mql8fucypd3dllkawqafytmrnwtv77gzxy346';
+
+      const buyCoffeeBtn = document.getElementById('buyCoffeeBtn');
+      const buyCoffeeOverlay = document.getElementById('buyCoffeeOverlay');
+      const buyCoffeeCloseBtn = document.getElementById('buyCoffeeCloseBtn');
+      const buyCoffeeImg = document.getElementById('buyCoffeeImg');
+      const buyCoffeeMethodBtns = Array.from(document.querySelectorAll('.buy-coffee-method-btn'));
+      let buyCoffeeSpinnerEl = null;
+      let lastBuyCoffeeFootprint = null;
+      let pendingBuyCoffeeImageSrc = '';
+      const DASHBOARD_TZ_STORAGE_KEY = 'wicked_dashboard_timezone_v1';
+      const DASHBOARD_THEME_STORAGE_KEY = 'quantum-research-dashboard-theme';
+      const shellThemeToggle = document.getElementById('shellThemeToggle');
+      const shellThemeIcon = document.getElementById('shellThemeIcon');
+
+      function applySiteTheme(themeRaw) {
+        const theme = themeRaw === 'dark' ? 'dark' : 'light';
+        document.documentElement.dataset.theme = theme;
+      }
+
+      function getSelectedDashboardTimeZone() {
+        try {
+          const raw = String(localStorage.getItem(DASHBOARD_TZ_STORAGE_KEY) || '').trim();
+          if (!raw) return 'UTC';
+          Intl.DateTimeFormat('en-US', { timeZone: raw }).format(new Date());
+          return raw;
+        } catch (_) {
+          return 'UTC';
+        }
+      }
+
+      function getHourInTimeZone(timeZone, now = new Date()) {
+        try {
+          const parts = new Intl.DateTimeFormat('en-US', {
+            timeZone,
+            hour: '2-digit',
+            hour12: false
+          }).formatToParts(now);
+          const hourPart = parts.find((part) => part.type === 'hour');
+          const hour = Number(hourPart && hourPart.value);
+          if (Number.isFinite(hour)) return hour;
+        } catch (_) {
+        }
+        return now.getHours();
+      }
+
+      function isBeerTime() {
+        const now = new Date();
+        const hour = getHourInTimeZone(getSelectedDashboardTimeZone(), now);
+        return hour >= 17 || hour < 3;
+      }
+
+      function updateBuyMeButton() {
+        const icon = document.getElementById('buyCoffeeIcon');
+        const text = document.getElementById('buyCoffeeText');
+        if (!icon || !text) return;
+        if (isBeerTime()) {
+          icon.textContent = '🍺';
+          text.textContent = '· Buy me a beer';
+        } else {
+          icon.textContent = '☕';
+          text.textContent = '· Buy me a coffee';
+        }
+      }
+
+      function getImageOrientation() {
+        return window.innerHeight >= window.innerWidth ? 'portrait' : 'landscape';
+      }
+
+      function updateBuyMeButtonLayout() {
+        if (!buyCoffeeBtn) return;
+        const narrow = window.innerWidth <= 750;
+        buyCoffeeBtn.classList.toggle('buy-coffee-hide-text', narrow);
+        if (shellThemeToggle) {
+          shellThemeToggle.classList.toggle('compact', narrow);
+        }
+      }
+
+      function getSelectedTheme() {
+        try {
+          const value = String(localStorage.getItem(DASHBOARD_THEME_STORAGE_KEY) || '').trim();
+          if (value === 'dark' || value === 'light') return value;
+        } catch (_) {
+        }
+        return 'light';
+      }
+
+      function updateThemeToggleUi(theme) {
+        if (!shellThemeToggle || !shellThemeIcon) return;
+        const normalized = theme === 'dark' ? 'dark' : 'light';
+        const isDark = normalized === 'dark';
+        shellThemeToggle.setAttribute('aria-pressed', String(isDark));
+        shellThemeToggle.setAttribute('title', isDark ? 'Switch to light mode' : 'Switch to dark mode');
+        shellThemeIcon.textContent = isDark ? '☾' : '☼';
+      }
+
+      function notifyDashboardTheme(theme) {
+        const iframe = document.getElementById('modal-embed');
+        if (!iframe || !iframe.contentWindow) return;
+        iframe.contentWindow.postMessage(
+          { type: 'quantum-dashboard-theme', theme: theme === 'dark' ? 'dark' : 'light' },
+          window.location.origin
+        );
+      }
+
+      function setDashboardTheme(theme) {
+        const normalized = theme === 'dark' ? 'dark' : 'light';
+        try {
+          localStorage.setItem(DASHBOARD_THEME_STORAGE_KEY, normalized);
+        } catch (_) {
+        }
+        applySiteTheme(normalized);
+        updateThemeToggleUi(normalized);
+        notifyDashboardTheme(normalized);
+      }
+
+      function toggleDashboardTheme() {
+        const nextTheme = getSelectedTheme() === 'dark' ? 'light' : 'dark';
+        setDashboardTheme(nextTheme);
+      }
+
+      function repositionButtons() {
+        const methodsContainer = document.querySelector('.buy-coffee-methods');
+        if (!methodsContainer) return;
+        const isPortrait = getImageOrientation() === 'portrait';
+        if (isPortrait) {
+          Object.assign(methodsContainer.style, {
+            left: '50%',
+            top: '50%',
+            bottom: 'auto',
+            width: 'auto',
+            maxWidth: '92%',
+            whiteSpace: 'nowrap',
+            gap: '',
+            transform: ''
+          });
+        } else {
+          Object.assign(methodsContainer.style, {
+            left: '0',
+            top: 'auto',
+            bottom: '',
+            width: '50%',
+            maxWidth: '',
+            whiteSpace: '',
+            gap: '',
+            transform: ''
+          });
+        }
+        if (buyCoffeeImg) {
+          const imgRect = buyCoffeeImg.getBoundingClientRect();
+          const imgH = Math.max(imgRect.height || 0, 1);
+          const imgW = Math.max(imgRect.width || 0, 1);
+          const clampM = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+          const fs = Math.round(clampM(imgH * (isPortrait ? 0.03 : 0.028), 11, 22));
+          const py = Math.round(clampM(imgH * (isPortrait ? 0.016 : 0.0145), 7, 14));
+          const px = Math.round(clampM(imgH * (isPortrait ? 0.032 : 0.03), 12, 28));
+          const br = Math.round(clampM(imgH * 0.018, 10, 16));
+          const gp = Math.round(clampM(imgH * (isPortrait ? 0.015 : 0.018), 6, 18));
+          const bi = Math.round(clampM(imgH * (isPortrait ? 0.03 : 0.038), 10, 30));
+          const pl = Math.round(clampM(imgH * 0.035, 10, 26));
+          methodsContainer.style.gap = `${gp}px`;
+          if (!isPortrait) methodsContainer.style.bottom = `${bi}px`;
+          Array.from(methodsContainer.querySelectorAll('.buy-coffee-method-btn')).forEach(btn => {
+            btn.style.fontSize = `${fs}px`;
+            btn.style.padding = `${py}px ${px}px`;
+            btn.style.borderRadius = `${br}px`;
+          });
+          const avail = isPortrait ? imgW * 0.82 : imgW * 0.48;
+          const meas = methodsContainer.scrollWidth;
+          const sc = meas > 0 ? clampM(avail / meas, 0.7, 1) : 1;
+          methodsContainer.style.transformOrigin = 'center bottom';
+          if (isPortrait) {
+            methodsContainer.style.transform = `translate(-50%, calc(-100% - ${pl}px)) scale(${sc})`;
+          } else {
+            methodsContainer.style.transform = sc < 1 ? `scale(${sc})` : '';
+          }
+        }
+      }
+
+      function ensureBuyCoffeeSpinner() {
+        if (buyCoffeeSpinnerEl) return buyCoffeeSpinnerEl;
+        const modal = buyCoffeeOverlay && buyCoffeeOverlay.querySelector('.buy-coffee-modal');
+        if (!modal) return null;
+
+        const spinner = document.createElement('div');
+        spinner.setAttribute('aria-hidden', 'true');
+        Object.assign(spinner.style, {
+          position: 'absolute',
+          inset: '0',
+          display: 'none',
+          alignItems: 'center',
+          justifyContent: 'center',
+          pointerEvents: 'none',
+          zIndex: '12'
+        });
+
+        const ring = document.createElement('div');
+        Object.assign(ring.style, {
+          width: '44px',
+          height: '44px',
+          borderRadius: '999px',
+          border: '4px solid rgba(255,255,255,0.25)',
+          borderTopColor: 'rgba(255,255,255,0.95)',
+          animation: 'thanksSpin 0.9s linear infinite',
+          filter: 'drop-shadow(0 0 10px rgba(0,0,0,0.8))'
+        });
+        spinner.appendChild(ring);
+
+        if (!document.getElementById('thanks-spinner-style')) {
+          const style = document.createElement('style');
+          style.id = 'thanks-spinner-style';
+          style.textContent = '@keyframes thanksSpin { to { transform: rotate(360deg); } }';
+          document.head.appendChild(style);
+        }
+
+        modal.appendChild(spinner);
+        buyCoffeeSpinnerEl = spinner;
+        return spinner;
+      }
+
+      function lockBuyCoffeeFootprint() {
+        if (!buyCoffeeImg) return;
+        const forcedLandscape = getForcedLandscapeBuyCoffeeFootprint();
+        if (forcedLandscape) {
+          lastBuyCoffeeFootprint = forcedLandscape;
+        }
+        const rect = buyCoffeeImg.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          lastBuyCoffeeFootprint = {
+            width: Math.round(rect.width),
+            height: Math.round(rect.height)
+          };
+        }
+        if (lastBuyCoffeeFootprint) {
+          buyCoffeeImg.style.width = `${lastBuyCoffeeFootprint.width}px`;
+          buyCoffeeImg.style.height = `${lastBuyCoffeeFootprint.height}px`;
+        }
+      }
+
+      function releaseBuyCoffeeFootprint() {
+        if (!buyCoffeeImg) return;
+        const forcedLandscape = getForcedLandscapeBuyCoffeeFootprint();
+        if (forcedLandscape) {
+          lastBuyCoffeeFootprint = forcedLandscape;
+          buyCoffeeImg.style.width = `${forcedLandscape.width}px`;
+          buyCoffeeImg.style.height = `${forcedLandscape.height}px`;
+          return;
+        }
+        buyCoffeeImg.style.width = '';
+        buyCoffeeImg.style.height = '';
+        const rect = buyCoffeeImg.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          lastBuyCoffeeFootprint = {
+            width: Math.round(rect.width),
+            height: Math.round(rect.height)
+          };
+        }
+      }
+
+      function getForcedLandscapeBuyCoffeeFootprint() {
+        if (getImageOrientation() !== 'landscape') return null;
+        const maxByViewportWidth = Math.floor(window.innerWidth * 0.9);
+        const maxByViewportHeight = Math.floor(window.innerHeight * 0.9 * (16 / 9));
+        const width = Math.max(1, Math.min(1280, maxByViewportWidth, maxByViewportHeight));
+        const height = Math.round(width * 9 / 16);
+        return { width, height };
+      }
+
+      function setBuyCoffeeLoading(isLoading) {
+        const spinner = ensureBuyCoffeeSpinner();
+        if (spinner) spinner.style.display = isLoading ? 'flex' : 'none';
+
+        const methodsContainer = document.querySelector('.buy-coffee-methods');
+        if (methodsContainer) {
+          methodsContainer.style.visibility = isLoading ? 'hidden' : 'visible';
+          methodsContainer.style.pointerEvents = isLoading ? 'none' : 'auto';
+        }
+
+        if (buyCoffeeImg) {
+          buyCoffeeImg.style.visibility = isLoading ? 'hidden' : 'visible';
+          buyCoffeeImg.style.pointerEvents = isLoading ? 'none' : 'auto';
+        }
+      }
+
+      function updateBuyCoffeeImage(method) {
+        const btn = document.querySelector(`.buy-coffee-method-btn[data-method="${method}"]`);
+        if (!btn || !buyCoffeeImg) return;
+
+        buyCoffeeMethodBtns.forEach((b) => {
+          const active = b === btn;
+          b.classList.toggle('active', active);
+          b.setAttribute('aria-pressed', active ? 'true' : 'false');
+        });
+
+        const portrait = getImageOrientation() === 'portrait';
+        const prefix = isBeerTime() ? 'beer' : 'coffee';
+        const orientation = portrait ? 'portrait' : 'landscape';
+        lockBuyCoffeeFootprint();
+        setBuyCoffeeLoading(true);
+        const nextSrc = `assets/thanks_for_the_${prefix}_${orientation}_${method}.png`;
+        pendingBuyCoffeeImageSrc = String(new URL(nextSrc, window.location.href));
+        buyCoffeeImg.src = nextSrc;
+
+        if (buyCoffeeImg.complete && buyCoffeeImg.naturalWidth > 0) {
+          requestAnimationFrame(() => {
+            if (buyCoffeeImg.src !== pendingBuyCoffeeImageSrc) return;
+            releaseBuyCoffeeFootprint();
+            setBuyCoffeeLoading(false);
+            repositionButtons();
+          });
+        }
+
+        repositionButtons();
+      }
+
+      function showBuyCoffeeOverlay() {
+        if (!buyCoffeeOverlay) return;
+        buyCoffeeOverlay.style.display = 'flex';
+        buyCoffeeOverlay.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('buy-coffee-open');
+        updateBuyCoffeeImage(document.querySelector('.buy-coffee-method-btn.active')?.getAttribute('data-method') || 'lightning');
+      }
+
+      function hideBuyCoffeeOverlay() {
+        if (!buyCoffeeOverlay) return;
+        buyCoffeeOverlay.style.display = 'none';
+        buyCoffeeOverlay.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('buy-coffee-open');
+      }
+
+      buyCoffeeBtn?.addEventListener('click', showBuyCoffeeOverlay);
+      buyCoffeeCloseBtn?.addEventListener('click', hideBuyCoffeeOverlay);
+      shellThemeToggle?.addEventListener('click', toggleDashboardTheme);
+      const dashboardIframe = document.getElementById('modal-embed');
+      dashboardIframe?.addEventListener('load', () => {
+        notifyDashboardTheme(getSelectedTheme());
+      });
+      buyCoffeeOverlay?.addEventListener('click', (event) => {
+        if (event.target === buyCoffeeOverlay) hideBuyCoffeeOverlay();
+      });
+
+      buyCoffeeMethodBtns.forEach((btn) => {
+        btn.addEventListener('click', () => updateBuyCoffeeImage(btn.getAttribute('data-method') || 'lightning'));
+      });
+
+      window.addEventListener('resize', () => {
+        updateBuyMeButtonLayout();
+        const activeBtn = document.querySelector('.buy-coffee-method-btn.active');
+        if (activeBtn && buyCoffeeOverlay && buyCoffeeOverlay.style.display === 'flex') {
+          updateBuyCoffeeImage(activeBtn.getAttribute('data-method') || 'lightning');
+        }
+      });
+
+      if (buyCoffeeImg) {
+        buyCoffeeImg.addEventListener('load', () => {
+          if (pendingBuyCoffeeImageSrc && buyCoffeeImg.src !== pendingBuyCoffeeImageSrc) return;
+          releaseBuyCoffeeFootprint();
+          setBuyCoffeeLoading(false);
+          repositionButtons();
+        });
+        buyCoffeeImg.addEventListener('error', () => {
+          if (pendingBuyCoffeeImageSrc && buyCoffeeImg.src !== pendingBuyCoffeeImageSrc) return;
+          releaseBuyCoffeeFootprint();
+          setBuyCoffeeLoading(false);
+        });
+      }
+
+      function handleDonationTimeZoneChanged() {
+        updateBuyMeButton();
+        const activeBtn = document.querySelector('.buy-coffee-method-btn.active');
+        if (activeBtn && buyCoffeeOverlay && buyCoffeeOverlay.style.display === 'flex') {
+          updateBuyCoffeeImage(activeBtn.getAttribute('data-method') || 'lightning');
+        }
+      }
+
+      updateBuyMeButtonLayout();
+      updateBuyMeButton();
+      updateBuyCoffeeImage('lightning');
+      setInterval(updateBuyMeButton, 5 * 60 * 1000);
+      window.addEventListener('storage', (e) => {
+        if (e.key === DASHBOARD_TZ_STORAGE_KEY) {
+          handleDonationTimeZoneChanged();
+          return;
+        }
+        if (e.key === DASHBOARD_THEME_STORAGE_KEY) {
+          const theme = e.newValue === 'dark' ? 'dark' : 'light';
+          applySiteTheme(theme);
+          updateThemeToggleUi(theme);
+          notifyDashboardTheme(theme);
+        }
+      });
+
+      applySiteTheme(getSelectedTheme());
+      updateThemeToggleUi(getSelectedTheme());
+    </script>
+    <script>
+      var BUY_COFFEE_METHOD_KEY = 'buyCoffeeMethod';
+      var lastThanksPreloadMode = null;
+      var thanksOverlay = null;
+      var thanksToastTimeout = null;
+      var hasThanksOverlayEverLoaded = false;
+      var isBuyMeVisible = false;
+      var buyCoffeeCloseBtn = null;
+      var buyCoffeeMethodBtns = [];
+      var modal = document.getElementById('modal');
+      function isDonateRouteActive() { return false; }
+      function setDonateRouteUrl() {}
+
+      var legacyBuyOverlay = document.getElementById('buyCoffeeOverlay');
+      if (legacyBuyOverlay && legacyBuyOverlay.parentNode) {
+        legacyBuyOverlay.parentNode.removeChild(legacyBuyOverlay);
+      }
+    </script>
+    <script src="js/08_buy_me_button_thanks_overlay.js" defer></script>
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        var buyCoffeeBtn = document.getElementById('buyCoffeeBtn');
+        if (buyCoffeeBtn) {
+          buyCoffeeBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            showThanksPopup({ fromRoute: false });
+          });
+        }
+      });
+
+      window.addEventListener('resize', function () {
+        if (!isBuyMeVisible) return;
+        positionThanksMethodButtonsForOrientation();
+      });
+      window.addEventListener('orientationchange', function () {
+        if (!isBuyMeVisible) return;
+        positionThanksMethodButtonsForOrientation();
+      });
+      window.addEventListener('resize', handleThanksOverlayResize);
+      window.addEventListener('orientationchange', handleThanksOverlayResize);
+    </script>
+    <script src="webapps/dca_cost_basis/standalone_bootstrap.js" defer></script>
+  </body>
+</html>

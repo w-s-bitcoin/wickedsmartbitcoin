@@ -1584,22 +1584,31 @@
 
     .historical-tooltip-label {
       font-weight: 700;
+      color: rgba(255, 255, 255, 0.68);
     }
 
-    .historical-tooltip-never .historical-tooltip-label {
+    .historical-tooltip-value {
+      font-weight: 600;
+    }
+
+    .historical-tooltip-value-never {
       color: var(--seg-never);
     }
 
-    .historical-tooltip-inactive .historical-tooltip-label {
+    .historical-tooltip-value-inactive {
       color: var(--seg-inactive);
     }
 
-    .historical-tooltip-active .historical-tooltip-label {
+    .historical-tooltip-value-active {
       color: var(--seg-active);
     }
 
-    .historical-tooltip-nonexposed .historical-tooltip-label {
+    .historical-tooltip-value-nonexposed {
       color: var(--non-exposed-label);
+    }
+
+    :root[data-theme="light"] .historical-tooltip-label {
+      color: rgba(0, 0, 0, 0.58);
     }
 
     .quantum-inline-tooltip {
@@ -1607,7 +1616,7 @@
       z-index: 70;
       width: fit-content;
       max-width: min(420px, calc(100vw - 24px));
-      border: 1px solid rgba(0, 0, 0, 0.12);
+      border: 1px solid rgba(0, 0, 0, 0.22);
       border-radius: 10px;
       background: #ffffff;
       color: #1c1b19;
@@ -1625,7 +1634,7 @@
     }
 
     :root[data-theme="dark"] .quantum-inline-tooltip {
-      border-color: rgba(255, 255, 255, 0.18);
+      border-color: rgba(255, 255, 255, 0.22);
       background: #000;
       color: #d9e5ea;
       box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
@@ -1636,6 +1645,36 @@
       visibility: visible;
       transform: translateY(0);
       transition: opacity 120ms ease, transform 120ms ease;
+    }
+
+    .quantum-inline-tooltip .tooltip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .quantum-inline-tooltip .tooltip-label {
+      color: rgba(255, 255, 255, 0.68);
+    }
+
+    .quantum-inline-tooltip .tooltip-value-never {
+      color: var(--seg-never);
+    }
+
+    .quantum-inline-tooltip .tooltip-value-inactive {
+      color: var(--seg-inactive);
+    }
+
+    .quantum-inline-tooltip .tooltip-value-active {
+      color: var(--seg-active);
+    }
+
+    :root[data-theme="light"] .quantum-inline-tooltip .tooltip-label {
+      color: rgba(0, 0, 0, 0.58);
+    }
+
+    :root[data-theme="light"] .quantum-inline-tooltip .tooltip-value-inactive {
+      color: var(--seg-inactive);
     }
 
     .top-list {
