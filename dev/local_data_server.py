@@ -25,6 +25,7 @@ from pathlib import Path
 
 SYNC_PATHS = [
     "assets",
+    "webapps/dca_cost_basis/webapp_data",
     "webapps/bip110_signaling/webapp_data",
     "webapps/bitcoin_dominance/webapp_data",
     "webapps/node_count/webapp_data",
@@ -53,9 +54,27 @@ def get_dirty_data_paths(repo_root: Path) -> list[str]:
     lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
     dirty = []
     for line in lines:
-        if len(line) > 3:
-            dirty.append(line[3:])
+        if len(line) <= 3:
+            continue
+        path = line[3:]
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        dirty.append(path)
     return dirty
+
+
+def differs_from_origin_main(repo_root: Path, path: str) -> bool:
+    proc = run_git(repo_root, ["diff", "--quiet", "origin/main", "--", path])
+    # exit code 1 means there is a diff; 0 means no diff
+    if proc.returncode in {0, 1}:
+        return proc.returncode == 1
+    # On unexpected git errors, be conservative and treat as conflicting.
+    return True
+
+
+def get_blocking_dirty_paths(repo_root: Path) -> list[str]:
+    dirty_paths = get_dirty_data_paths(repo_root)
+    return [path for path in dirty_paths if differs_from_origin_main(repo_root, path)]
 
 
 def pull_latest_data(repo_root: Path) -> tuple[int, dict]:
@@ -70,25 +89,21 @@ def pull_latest_data(repo_root: Path) -> tuple[int, dict]:
             },
         )
 
-    dirty_paths = get_dirty_data_paths(repo_root)
-    if dirty_paths:
-        return (
-            HTTPStatus.CONFLICT,
-            {
-                "ok": False,
-                "error": "Refusing to overwrite uncommitted local data changes.",
-                "dirtyPaths": dirty_paths,
-            },
-        )
+    blocking_dirty_paths = get_blocking_dirty_paths(repo_root)
 
-    checkout_proc = run_git(repo_root, ["checkout", "origin/main", "--", *SYNC_PATHS])
-    if checkout_proc.returncode != 0:
+    # Always sync these generated data paths to origin/main, even when local edits exist.
+    # This endpoint is intended for fast local refreshes where latest remote data is preferred.
+    restore_proc = run_git(
+        repo_root,
+        ["restore", "--source", "origin/main", "--staged", "--worktree", "--", *SYNC_PATHS],
+    )
+    if restore_proc.returncode != 0:
         return (
             HTTPStatus.INTERNAL_SERVER_ERROR,
             {
                 "ok": False,
-                "error": "git checkout origin/main -- <data paths> failed",
-                "details": checkout_proc.stderr.strip() or checkout_proc.stdout.strip(),
+                "error": "git restore --source origin/main --worktree -- <data paths> failed",
+                "details": restore_proc.stderr.strip() or restore_proc.stdout.strip(),
             },
         )
 
@@ -101,6 +116,7 @@ def pull_latest_data(repo_root: Path) -> tuple[int, dict]:
             "ok": True,
             "commit": commit,
             "syncedPaths": SYNC_PATHS,
+            "overwroteLocalChanges": blocking_dirty_paths,
         },
     )
 

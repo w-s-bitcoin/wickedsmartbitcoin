@@ -125,6 +125,10 @@ def clean_identity_label(identity: str | None) -> str:
     return value
 
 
+def is_missing_identity(identity: str | None) -> bool:
+    return (identity or "").strip().lower() in MISSING_IDENTITY_VALUES
+
+
 def build_lookup_entry(identity: str | None, identity_source: str | None = None) -> dict:
     cleaned_identity = clean_identity_label(identity)
     stored_identity = cleaned_identity or "unidentified"
@@ -442,7 +446,13 @@ def write_lookup_files(lookup: dict[str, dict], dry_run: bool = False) -> None:
     LOOKUP_JSON_FILE.write_text(json.dumps(ordered_lookup, indent=2), encoding="utf-8")
 
 
-def merge_lookup_into_snapshots(lookup: dict[str, dict], snapshot_csvs: list[Path], dry_run: bool = False) -> None:
+def merge_lookup_into_snapshots(
+    lookup: dict[str, dict],
+    snapshot_csvs: list[Path],
+    dry_run: bool = False,
+) -> list[Path]:
+    incomplete_csvs = []
+
     for csv_path in snapshot_csvs:
         if not csv_path.exists():
             continue
@@ -455,6 +465,7 @@ def merge_lookup_into_snapshots(lookup: dict[str, dict], snapshot_csvs: list[Pat
                 rows.append(row)
 
         changed = 0
+        remaining_missing = 0
         for row in rows:
             display_group_ids = row.get("display_group_ids") or ""
             raw_tokens = [t.strip() for t in display_group_ids.split("|") if t.strip()]
@@ -490,8 +501,17 @@ def merge_lookup_into_snapshots(lookup: dict[str, dict], snapshot_csvs: list[Pat
                 row["identity"] = new_identity
                 changed += 1
 
+            if is_missing_identity(new_identity):
+                remaining_missing += 1
+
+        if remaining_missing:
+            incomplete_csvs.append(csv_path)
+
         if dry_run:
-            print(f"  [dry-run] snapshot merge {csv_path.parent.name}/{csv_path.name}: {changed:,} rows would update")
+            print(
+                f"  [dry-run] snapshot merge {csv_path.parent.name}/{csv_path.name}: "
+                f"{changed:,} rows would update | {remaining_missing:,} missing identities remain"
+            )
             continue
 
         with csv_path.open("w", newline="", encoding="utf-8") as f:
@@ -499,7 +519,12 @@ def merge_lookup_into_snapshots(lookup: dict[str, dict], snapshot_csvs: list[Pat
             writer.writeheader()
             writer.writerows(rows)
 
-        print(f"  snapshot merge {csv_path.parent.name}/{csv_path.name}: {changed:,} rows updated")
+        print(
+            f"  snapshot merge {csv_path.parent.name}/{csv_path.name}: "
+            f"{changed:,} rows updated | {remaining_missing:,} missing identities remain"
+        )
+
+    return incomplete_csvs
 
 
 def parse_args() -> argparse.Namespace:
@@ -533,25 +558,28 @@ def main():
     dry_run = args.dry_run
     min_balance_sats = max(0, int(args.min_balance_btc * 100_000_000))
 
-    snapshot_csvs = list_snapshot_csvs(DATA_DIR, GE1_CSV_NAME)
+    all_snapshot_csvs = list_snapshot_csvs(DATA_DIR, GE1_CSV_NAME)
     merge_target_csvs = list_merge_target_csvs(DATA_DIR)
-    if not snapshot_csvs:
+    if not all_snapshot_csvs:
         raise RuntimeError(f"No snapshot CSVs found under {DATA_DIR}/[blockheight]/dashboard_pubkeys_ge_1btc.csv")
+
+    source_snapshot_csvs = list(all_snapshot_csvs)
 
     if args.only_latest and args.only_height is not None:
         raise RuntimeError("Use either --only-latest or --only-height, not both")
 
     if args.only_latest:
-        snapshot_csvs = snapshot_csvs[:1]
+        source_snapshot_csvs = source_snapshot_csvs[:1]
     elif args.only_height is not None:
-        matched = [p for p in snapshot_csvs if int(p.parent.name) == args.only_height]
+        matched = [p for p in source_snapshot_csvs if int(p.parent.name) == args.only_height]
         if not matched:
             raise RuntimeError(f"No snapshot CSV found for height {args.only_height}")
-        snapshot_csvs = matched
+        source_snapshot_csvs = matched
 
     lookup = load_existing_lookup(LOOKUP_JSON_FILE)
 
-    print(f"snapshot CSVs discovered   : {len(snapshot_csvs):,}")
+    print(f"all ge1 snapshot CSVs     : {len(all_snapshot_csvs):,}")
+    print(f"query source CSVs         : {len(source_snapshot_csvs):,}")
     print(f"merge target CSVs         : {len(merge_target_csvs):,}")
     print(f"existing lookup entries    : {len(lookup):,}")
     print(f"dry run mode              : {'yes' if dry_run else 'no'}")
@@ -559,20 +587,21 @@ def main():
     print(f"only height mode          : {args.only_height if args.only_height is not None else 'no'}")
     print(f"min balance filter (BTC)  : {args.min_balance_btc:g}")
 
-    # First reconcile known labels from all snapshots (including archived) and propagate globally.
-    reconciled, conflicts = ingest_existing_snapshot_identities(lookup, snapshot_csvs)
+    # First reconcile known labels from all ge1 snapshots (including archived) and propagate globally.
+    reconciled, conflicts = ingest_existing_snapshot_identities(lookup, all_snapshot_csvs)
     print(f"snapshot identity sync     : {reconciled:,} lookup entries refreshed")
     print(f"snapshot identity conflicts: {conflicts:,} addresses (resolved by most frequent label)")
 
     write_lookup_files(lookup, dry_run=dry_run)
-    merge_lookup_into_snapshots(lookup, merge_target_csvs, dry_run=dry_run)
+    merge_targets_with_missing = merge_lookup_into_snapshots(lookup, merge_target_csvs, dry_run=dry_run)
+    print(f"merge targets still open   : {len(merge_targets_with_missing):,}")
 
     total_queried = 0
     queried_this_run: set[str] = set()
-    for csv_idx, source_csv in enumerate(snapshot_csvs, start=1):
+    for csv_idx, source_csv in enumerate(source_snapshot_csvs, start=1):
         candidates = load_candidate_addresses_with_skip(source_csv, lookup, queried_this_run, min_balance_sats)
         print(
-            f"[{csv_idx}/{len(snapshot_csvs)}] source {source_csv.parent.name}: "
+            f"[{csv_idx}/{len(source_snapshot_csvs)}] source {source_csv.parent.name}: "
             f"{len(candidates):,} unlabeled addresses left to query"
         )
 
@@ -604,9 +633,14 @@ def main():
             total_queried += len(batch)
             queried_this_run.update(batch)
 
-            # Immediately apply newly learned identities across all snapshots to avoid re-querying later.
+            # Immediately apply newly learned identities only where missing identities remain.
             write_lookup_files(lookup, dry_run=dry_run)
-            merge_lookup_into_snapshots(lookup, merge_target_csvs, dry_run=dry_run)
+            merge_targets_with_missing = merge_lookup_into_snapshots(
+                lookup,
+                merge_targets_with_missing,
+                dry_run=dry_run,
+            )
+            print(f"  merge targets still open: {len(merge_targets_with_missing):,}")
 
             identified = sum(1 for item in lookup.values() if item["identity"] != "unidentified")
             print(
@@ -619,6 +653,9 @@ def main():
         print("[dry-run] no API requests were sent")
         print("[dry-run] no lookup or snapshot files were modified")
     else:
+        if total_queried:
+            print("Final full snapshot sync to propagate newly learned identities across all targets...")
+            merge_lookup_into_snapshots(lookup, merge_target_csvs, dry_run=dry_run)
         print(f"Saved lookup JSON to {LOOKUP_JSON_FILE}")
     print(f"Total newly queried addresses this run: {total_queried:,}")
 

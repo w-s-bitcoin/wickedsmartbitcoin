@@ -352,7 +352,47 @@
       "Thodex",
       "Updown.bt",
       "Whitney Ross",
-      "Yellow Card"
+      "Yellow Card",
+      "Yapizon.com",
+      "Btc38",
+      "Coinsecure",
+      "BTCST.com",
+      "Ripio",
+      "SimpleFX",
+      "Urdubit.com",
+      "coins.co.th",
+      "BleuTrade",
+      "DSX",
+      "BitMarket24",
+      "CoinRail",
+      "I-obmen",
+      "Babylon Market",
+      "Bitbank.com",
+      "Bitgrail",
+      "CCEDK",
+      "CoinEgg",
+      "Exchanger1",
+      "MATBEA",
+      "NegocieCoins.com.br",
+      "Wall Street Market",
+      "ACX.io",
+      "BiKi.com",
+      "BISS",
+      "Bitcomaker",
+      "BitFlip",
+      "Bitkonan",
+      "BitOasis",
+      "Bitsonic",
+      "BTC Trade UA",
+      "Changelly",
+      "Coineal",
+      "CoinExchange",
+      "Exchange-Credit.ru",
+      "GoEx.pro",
+      "Hebei Atun Trading Co.",
+      "Nova",
+      "Open Ledger",
+      "xCoin.io"
     ],
     "Governments, public sector, and charities": [
       "Royal Government of Bhutan",
@@ -432,7 +472,9 @@
       "Mercado Libre",
       "Nakamoto",
       "B2BX",
-      "Pokemon Go PKG"
+      "Pokemon Go PKG",
+      "BitLendingClub",
+      "Exp Asset"
     ],
     "Mining pools and mining companies": [
       "GHash.io",
@@ -480,7 +522,11 @@
       "1THash",
       "Knc Miner",
       "MiningRigRentals.com",
-      "Phoenix Group UAE"
+      "Phoenix Group UAE",
+      "Hashflare",
+      "QuadrigaCX",
+      "Cloud Hashing",
+      "Genesis Mining"
     ],
     "Payments, wallets, and merchant services": [
       "BitPay",
@@ -529,7 +575,17 @@
       "Satoshi Circle",
       "Bitcoinwallet.com",
       "MuchBetter",
-      "Cash FX Group"
+      "Cash FX Group",
+      "Cryptonator",
+      "Coinapult",
+      "ALFAcashier",
+      "Coinify",
+      "365cash.co",
+      "BSave.io",
+      "Dispenser.tf",
+      "GoUrl",
+      "ww-pay.net",
+      "Wyre"
     ],
     "Protocols, bridges, defi, and wrapped assets": [
       "Babylon",
@@ -568,7 +624,8 @@
       "DeFi Technologies",
       "Stacks",
       "WBTCB",
-      "Multichain"
+      "Multichain",
+      "Komodo"
     ],
     "Casinos, betting, and gaming": [
       "Betco.in",
@@ -623,7 +680,13 @@
       "1xBet",
       "777Coin.com",
       "BetMoose",
-      "YOLO Dice"
+      "YOLO Dice",
+      "Bitstarz.com",
+      "Nitro Betting",
+      "Bitcoin Video Casino",
+      "Luckygames.io",
+      "Betchain.com",
+      "SafeDice.com"
     ],
     "Darknet mixers and illicit services": [
       "GMaxwell CoinJoin",
@@ -649,7 +712,12 @@
       "Russian Anonymous Marketplace",
       "Suex.io",
       "Pandora Open Market",
-      "Garantex"
+      "Garantex",
+      "JokerStash",
+      "Tails",
+      "Bitmixer.io",
+      "Abraxas",
+      "CrimeNet.biz"
     ],
     "Hacks, scams, and ransomware": [
       "Betco.in Hacker",
@@ -671,7 +739,17 @@
       "PlusToken Ponzi",
       "Lazarus Group",
       "Scrypt.CC",
-      "Mirror Trading International Ponzi"
+      "Mirror Trading International Ponzi",
+      "EOBot",
+      "MisterTango Scam",
+      "Bitstamp Hacker",
+      "DMALockerv3",
+      "SynAck",
+      "UnixCoin",
+      "Atlas Quantum",
+      "Bitfloor Hacker",
+      "Cloud Token",
+      "DavorCoin"
     ],
     "Individuals": [
       "4222",
@@ -694,11 +772,12 @@
       "Tim Draper",
       "Xiaobing Yan",
       "Fran Finney",
-      "Dustin Trammell",
       "Matthew Simon Grimm",
       "Ali Khorashadizadeh",
       "Alex Adrianus Martinus Peijnenburg",
-      "Ban Chai Low"
+      "Ban Chai Low",
+      "Alex Mashinsky",
+      "Dustin Trammell @druidian"
     ]
   }
 }

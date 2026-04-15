@@ -828,7 +828,7 @@ function renderChart() {
 
   const traces = [
     {
-      name: "DCA In Profit",
+      name: "Positive ROI",
       type: "scatter",
       mode: "lines",
       x,
@@ -838,7 +838,7 @@ function renderChart() {
       hoverinfo: "none",
     },
     {
-      name: "DCA At a Loss",
+      name: "Negative ROI",
       type: "scatter",
       mode: "lines",
       x,
