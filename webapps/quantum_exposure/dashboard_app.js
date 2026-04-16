@@ -47,6 +47,7 @@ const state = {
   pendingIdentityTagExclusions: null,
   ge1FullDataLoadTriggered: false,
   ge1IsUsingEcoSubset: false,
+  snapshotReportCache: new Map(),
 };
 
 const TOP_EXPOSURES_PAGE_SIZE = 250;
@@ -271,6 +272,436 @@ function snapshotBasePath(snapshot) {
   return state.snapshotLocationByHeight[height] === "archived"
     ? `webapp_data/archived/${height}`
     : `webapp_data/${height}`;
+}
+
+function snapshotHeightLabel(snapshot) {
+  const height = String(snapshot || "").trim();
+  if (!height) return "";
+  const dateLabel = state.snapshotLabelDatetimeByHeight[height];
+  return dateLabel ? `${height} · ${dateLabel} (UTC)` : height;
+}
+
+function extractDateFromLabel(dateLabel) {
+  if (!dateLabel) return "n/a";
+  const match = String(dateLabel).match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : "n/a";
+}
+
+function deltaClass(value) {
+  const text = String(value || "").trim();
+  if (text.startsWith("+")) return "is-positive";
+  if (text.startsWith("-")) return "is-negative";
+  return "";
+}
+
+function stripDecimals(val) {
+  return String(val || "").replace(/\.\d+/, "");
+}
+
+function formatCeilBtcFromDisplay(value) {
+  const raw = String(value || "");
+  const match = raw.match(/[-+]?\d[\d,]*(?:\.\d+)?/);
+  if (!match) return stripDecimals(raw);
+  const parsed = Number.parseFloat(match[0].replaceAll(",", ""));
+  if (!Number.isFinite(parsed)) return stripDecimals(raw);
+  return `${formatInt(Math.ceil(parsed))} BTC`;
+}
+
+function formatCeilBtcDeltaFromDisplay(value) {
+  const raw = String(value || "").trim();
+  const match = raw.match(/[-+]?\d[\d,]*(?:\.\d+)?/);
+  if (!match) return stripDecimals(raw);
+  const parsed = Number.parseFloat(match[0].replaceAll(",", ""));
+  if (!Number.isFinite(parsed)) return stripDecimals(raw);
+  const rounded = Math.ceil(parsed);
+  const sign = raw.startsWith("+") ? "+" : rounded < 0 ? "-" : "";
+  return `${sign}${formatInt(Math.abs(rounded))} BTC`;
+}
+
+function parseBtcTriple(line) {
+  const matches = Array.from((line || "").matchAll(/([+-]?\d[\d,]*\.\d{2}) BTC/g)).map((match) => `${match[1]} BTC`);
+  return {
+    prior: matches[0] || "n/a",
+    next: matches[1] || "n/a",
+    change: matches[2] || "n/a",
+  };
+}
+
+function parseCountTransition(line) {
+  const match = (line || "").match(/:\s*([\d,]+)\s*→\s*([\d,]+)\s*\(([+-]?[\d,]+)\)/);
+  if (!match) {
+    return { prior: "n/a", next: "n/a", change: "n/a" };
+  }
+  return { prior: match[1], next: match[2], change: match[3] };
+}
+
+function parseMovers(lines, headingText) {
+  const headingIndex = lines.findIndex((line) => line.trim() === headingText);
+  if (headingIndex === -1) return [];
+
+  const movers = [];
+  for (let index = headingIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index].trim();
+    if (!line) break;
+    if (line.startsWith("Largest ") || line.startsWith("─") || line.startsWith("=")) break;
+
+    // Try parsing with current supply + delta: "current_supply  delta  label"
+    const matchWithSupply = line.match(/^([-+]?[\d,]+\.[\d]+) BTC\s+([-+]\d[\d,]*\.\d{2}) BTC\s+(.+)$/);
+    if (matchWithSupply) {
+      movers.push({
+        current: `${matchWithSupply[1]} BTC`,
+        delta: `${matchWithSupply[2]} BTC`,
+        label: matchWithSupply[3].trim(),
+      });
+      continue;
+    }
+
+    // Fallback to old format: "delta  label"
+    const matchLegacy = line.match(/^([+-]\d[\d,]*\.\d{2}) BTC\s+(.+)$/);
+    if (matchLegacy) {
+      movers.push({
+        delta: `${matchLegacy[1]} BTC`,
+        label: matchLegacy[2].trim(),
+      });
+    }
+  }
+
+  return movers;
+}
+
+function parseSnapshotDiffSummary(text) {
+  const lines = String(text || "").split(/\r?\n/);
+  const findLine = (fragment) => lines.find((line) => line.includes(fragment)) || "";
+
+  const priorBlockMatch = findLine("Prior : block").match(/Prior\s*:\s*block\s*([\d,]+)/);
+  const newBlockMatch = findLine("New   : block").match(/New\s*:\s*block\s*([\d,]+)/);
+  const priorDateMatch = findLine("Prior Date (UTC):").match(/Prior Date \(UTC\):\s*([0-9]{4}-[0-9]{2}-[0-9]{2}|n\/a)/);
+  const newDateMatch = findLine("New Date (UTC):").match(/New Date \(UTC\):\s*([0-9]{4}-[0-9]{2}-[0-9]{2}|n\/a)/);
+  const totalLine = findLine("Total exposed supply");
+  const exposedShareLine = findLine("Exposed share of total supply");
+  const activeLine = findLine("Active (key-reuse risk)");
+  const inactiveLine = findLine("Inactive (not recently spent)");
+  const neverSpentLine = findLine("never_spent");
+  const rowCountLine = findLine("Address groups tracked");
+  const utxoLine = findLine("Exposed UTXOs");
+  const pubkeyLine = findLine("Exposed Pubkeys");
+
+  const pctMatch = totalLine.match(/\(([+-]?\d+\.\d+%)\)/);
+  const exposedShareMatches = Array.from((exposedShareLine || "").matchAll(/([\d]+(?:\.\d+)?)%/g)).map((match) => `${match[1]}%`);
+
+  // Parse script types section
+  const scriptTypesIdx = lines.findIndex((l) => l.includes("Exposed Supply by Script Type"));
+  const scriptTypes = {};
+  if (scriptTypesIdx >= 0) {
+    for (let i = scriptTypesIdx + 2; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line || line.startsWith("Exposed Supply by Spend")) break;
+      if (line.startsWith("─") || line.startsWith("=")) continue;
+      const match = line.match(/^([A-Z0-9\/\-]+?)\s+([-+]?[\d,]+\.[\d]+)\s+BTC\s+([-+]?[\d,]+\.[\d]+)\s+BTC\s+([-+]?[\d,]+\.[\d]+)\s+BTC/);
+      if (match) {
+        const name = match[1].trim();
+        if (name && name !== "Script Type" && name !== "Prior" && name.toLowerCase() !== "other") {
+          scriptTypes[name] = { prior: `${match[2]} BTC`, new: `${match[3]} BTC`, change: `${match[4]} BTC` };
+        }
+      }
+    }
+  }
+
+  // Parse spend activity section
+  const spendActivityIdx = lines.findIndex((l) => l.includes("Exposed Supply by Spend Activity"));
+  const spendActivity = {};
+  if (spendActivityIdx >= 0) {
+    for (let i = spendActivityIdx + 2; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line || line.startsWith("Exposed Supply by Identity") || line.startsWith("4. Exposed")) break;
+      if (line.startsWith("─") || line.startsWith("=")) continue;
+      const match = line.match(/^([a-z_]+)\s+([-+]?[\d,]+\.[\d]+)\s+BTC\s+([-+]?[\d,]+\.[\d]+)\s+BTC\s+([-+]?[\d,]+\.[\d]+)\s+BTC/);
+      if (match) {
+        const name = match[1].trim();
+        if (name && name !== "Activity") {
+          spendActivity[name] = { prior: `${match[2]} BTC`, new: `${match[3]} BTC`, change: `${match[4]} BTC` };
+        }
+      }
+    }
+  }
+
+  return {
+    priorBlock: priorBlockMatch ? priorBlockMatch[1] : "n/a",
+    newBlock: newBlockMatch ? newBlockMatch[1] : "n/a",
+    priorDate: priorDateMatch ? priorDateMatch[1] : "n/a",
+    newDate: newDateMatch ? newDateMatch[1] : "n/a",
+    total: {
+      ...parseBtcTriple(totalLine),
+      pct: pctMatch ? pctMatch[1] : "n/a",
+      sharePrior: exposedShareMatches[0] || "n/a",
+      shareNew: exposedShareMatches[1] || "n/a",
+    },
+    active: parseBtcTriple(activeLine),
+    inactive: parseBtcTriple(inactiveLine),
+    neverSpent: parseBtcTriple(neverSpentLine),
+    addressGroups: parseCountTransition(rowCountLine),
+    utxos: parseCountTransition(utxoLine),
+    pubkeys: parseCountTransition(pubkeyLine),
+    scriptTypes,
+    spendActivity,
+    groupGainers: parseMovers(lines, "Largest increases (identity group):"),
+    groupLosers: parseMovers(lines, "Largest decreases (identity group):"),
+    identityGainers: parseMovers(lines, "Largest increases (individual identity):"),
+    identityLosers: parseMovers(lines, "Largest decreases (individual identity):"),
+  };
+}
+
+function renderMoverList(items) {
+  if (!items.length) {
+    return '<p class="snapshot-report-empty">No movers for this snapshot.</p>';
+  }
+
+  return `
+    <ul class="snapshot-report-list">
+      ${items
+        .slice(0, 6)
+        .map(
+          (item) => `
+            <li>
+              <span class="snapshot-report-label">${escapeHtml(item.label)}</span>
+              <span style="text-align: right; flex: 1; display: flex; gap: 12px; justify-content: flex-end; align-items: baseline;">
+                ${item.current ? `<div style="font-size: 13px; font-weight: 600; color: var(--ink);">${escapeHtml(formatCeilBtcFromDisplay(item.current))}</div>` : ""}
+                <div class="snapshot-report-delta snapshot-report-delta-col ${deltaClass(item.delta)}">${escapeHtml(formatCeilBtcDeltaFromDisplay(item.delta))}</div>
+              </span>
+            </li>
+          `
+        )
+        .join("")}
+    </ul>
+  `;
+}
+
+function resolveSnapshotReportKpiCounts(snapshot, summary) {
+  const snapshotKey = String(snapshot || "").trim();
+  const loadedSnapshot = String(state.snapshotHeight || "").trim();
+  const hasLiveRows = snapshotKey && loadedSnapshot === snapshotKey && Array.isArray(state.aggregatesRows) && state.aggregatesRows.length;
+
+  if (hasLiveRows) {
+    const exposedPubkeys = getAggregateFromRows(state.aggregatesRows, "all", "All", "all", "exposed_pubkey_count");
+    const exposedUtxos = getAggregateFromRows(state.aggregatesRows, "all", "All", "all", "exposed_utxo_count");
+    return {
+      exposedPubkeys: formatInt(exposedPubkeys),
+      exposedUtxos: formatInt(exposedUtxos),
+    };
+  }
+
+  const fallbackUtxos = summary?.utxos?.next ? formatInt(toInt(summary.utxos.next.replaceAll(",", ""))) : "n/a";
+  return {
+    exposedPubkeys: "n/a",
+    exposedUtxos: fallbackUtxos,
+  };
+}
+
+function renderSnapshotReportHtml(summary, snapshot, kpiCounts) {
+  const totalDeltaClass = deltaClass(summary.total.change);
+  const totalShare = summary?.total?.shareNew || "n/a";
+  const totalCeil = formatCeilBtcFromDisplay(summary.total.next);
+  const totalValue = `${totalCeil}${totalShare !== "n/a" ? ` · ${totalShare}` : ""}`;
+  return `
+    <div class="snapshot-report-grid">
+      <article class="snapshot-report-card">
+        <h4>Total Exposed Supply</h4>
+        <div class="snapshot-report-value">${escapeHtml(totalValue)}</div>
+        <div class="snapshot-report-delta ${totalDeltaClass}">${escapeHtml(formatCeilBtcDeltaFromDisplay(summary.total.change))}</div>
+      </article>
+      <article class="snapshot-report-card">
+        <h4>Exposed Pubkeys</h4>
+        <div class="snapshot-report-value">${escapeHtml(kpiCounts.exposedPubkeys)}</div>
+        <div class="snapshot-report-delta ${deltaClass(summary.pubkeys.change)}">${escapeHtml(stripDecimals(summary.pubkeys.change))}</div>
+      </article>
+      <article class="snapshot-report-card">
+        <h4>Exposed UTXOs</h4>
+        <div class="snapshot-report-value">${escapeHtml(kpiCounts.exposedUtxos)}</div>
+        <div class="snapshot-report-delta ${deltaClass(summary.utxos.change)}">${escapeHtml(stripDecimals(summary.utxos.change))}</div>
+      </article>
+
+      <div class="snapshot-report-row-break" aria-hidden="true"></div>
+    </div>
+
+    <p class="snapshot-report-state" style="margin-top: 8px;"></p>
+
+    <section class="snapshot-report-section">
+      <h5>Exposed Supply by Spend Activity</h5>
+      <div class="snapshot-report-list">
+        ${Object.entries(summary.spendActivity || {})
+          .sort(([a], [b]) => {
+            const order = ["active", "inactive", "never_spent"];
+            const indexA = order.indexOf(a);
+            const indexB = order.indexOf(b);
+            return (indexA === -1 ? order.length : indexA) - (indexB === -1 ? order.length : indexB);
+          })
+          .map(
+            ([name, vals]) => {
+              const capitalize = s => s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, " ");
+              const colorClass = name === 'active' ? 'is-active' : name === 'inactive' ? 'is-inactive' : name === 'never_spent' ? 'is-never-spent' : '';
+              return `
+          <li>
+            <span class="snapshot-report-label">${escapeHtml(capitalize(name))}</span>
+            <span style="text-align: right; flex: 1; display: flex; gap: 12px; justify-content: flex-end; align-items: baseline;">
+              <div style="font-size: 13px; font-weight: 600;" class="${colorClass}">${escapeHtml(formatCeilBtcFromDisplay(vals.new))}</div>
+              <div class="snapshot-report-delta snapshot-report-delta-col ${deltaClass(vals.change)}">${escapeHtml(formatCeilBtcDeltaFromDisplay(vals.change))}</div>
+            </span>
+          </li>
+        `;
+            }
+          )
+          .join("")}
+      </div>
+    </section>
+
+    <section class="snapshot-report-section">
+      <h5>Exposed Supply by Script Type</h5>
+      <div class="snapshot-report-list">
+        ${Object.entries(summary.scriptTypes || {})
+          .filter(([name]) => name.toLowerCase() !== "other")
+          .sort(([a], [b]) => {
+            const order = ["P2PK", "P2PKH", "P2SH", "P2WPKH", "P2WSH", "P2TR"];
+            const indexA = order.indexOf(a);
+            const indexB = order.indexOf(b);
+            return (indexA === -1 ? order.length : indexA) - (indexB === -1 ? order.length : indexB);
+          })
+          .map(
+            ([name, vals]) => `
+          <li>
+            <span class="snapshot-report-label">${escapeHtml(name)}</span>
+            <span style="text-align: right; flex: 1; display: flex; gap: 12px; justify-content: flex-end; align-items: baseline;">
+              <div style="font-size: 13px; font-weight: 600; color: var(--ink);">${escapeHtml(formatCeilBtcFromDisplay(vals.new))}</div>
+              <div class="snapshot-report-delta snapshot-report-delta-col ${deltaClass(vals.change)}">${escapeHtml(formatCeilBtcDeltaFromDisplay(vals.change))}</div>
+            </span>
+          </li>
+        `
+          )
+          .join("")}
+      </div>
+    </section>
+
+    <section class="snapshot-report-section">
+      <h5>Identity Group Top Movers</h5>
+      <div>
+        ${renderMoverList(summary.groupGainers.slice(0, 3))}
+      </div>
+      <div style="margin-top: 16px;">
+        ${renderMoverList(summary.groupLosers.slice(0, 3))}
+      </div>
+    </section>
+
+    <section class="snapshot-report-section">
+      <h5>Individual Identity Top Movers</h5>
+      <div>
+        ${renderMoverList(summary.identityGainers.slice(0, 3))}
+      </div>
+      <div style="margin-top: 16px;">
+        ${renderMoverList(summary.identityLosers.slice(0, 3))}
+      </div>
+    </section>
+  `;
+}
+
+function setSnapshotReportLoadingState(message) {
+  const subtitle = document.getElementById("snapshotReportSubtitle");
+  const body = document.getElementById("snapshotReportBody");
+  if (subtitle) {
+    subtitle.textContent = message;
+  }
+  if (body) {
+    body.innerHTML = '<p class="snapshot-report-empty">Loading report...</p>';
+  }
+}
+
+function renderSnapshotReportSubtitle(priorBlock, newBlock, priorDate, newDate) {
+  return `
+    <span class="snapshot-report-subtitle-line"><span class="snapshot-report-subtitle-label">Block Range:</span>${escapeHtml(String(priorBlock || "n/a"))} → ${escapeHtml(String(newBlock || "n/a"))}</span>
+    <span class="snapshot-report-subtitle-line"><span class="snapshot-report-subtitle-label">Date Range:</span>${escapeHtml(String(priorDate || "n/a"))} → ${escapeHtml(String(newDate || "n/a"))}</span>
+  `;
+}
+
+async function loadSnapshotReportIntoModal() {
+  const body = document.getElementById("snapshotReportBody");
+  const subtitle = document.getElementById("snapshotReportSubtitle");
+  if (!body || !subtitle) return;
+
+  const snapshotFilter = document.getElementById("snapshotFilter");
+  const snapshot = String(state.snapshotHeight || snapshotFilter?.value || "").trim();
+  if (!snapshot) {
+    subtitle.textContent = "No snapshot selected";
+    body.innerHTML = '<p class="snapshot-report-empty">Choose a snapshot first, then open this report.</p>';
+    return;
+  }
+
+  subtitle.textContent = `Loading summary for ${snapshotHeightLabel(snapshot) || snapshot}...`;
+
+  if (state.snapshotReportCache.has(snapshot)) {
+    const cached = state.snapshotReportCache.get(snapshot);
+    const kpiCounts = resolveSnapshotReportKpiCounts(snapshot, cached.summary);
+    const priorDateFromState = extractDateFromLabel(state.snapshotLabelDatetimeByHeight[String(cached.summary.priorBlock).replace(/,/g, '')]);
+    const newDateFromState = extractDateFromLabel(state.snapshotLabelDatetimeByHeight[String(cached.summary.newBlock).replace(/,/g, '')]);
+    const priorDate = priorDateFromState !== "n/a" ? priorDateFromState : (cached.summary.priorDate || "n/a");
+    const newDate = newDateFromState !== "n/a" ? newDateFromState : (cached.summary.newDate || "n/a");
+    if (priorDate === "n/a" || newDate === "n/a") {
+      state.snapshotReportCache.delete(snapshot);
+    } else {
+    subtitle.innerHTML = renderSnapshotReportSubtitle(cached.summary.priorBlock, cached.summary.newBlock, priorDate, newDate);
+    body.innerHTML = renderSnapshotReportHtml(cached.summary, snapshot, kpiCounts);
+    return;
+    }
+  }
+
+  try {
+    const resp = await fetch(`${snapshotBasePath(snapshot)}/snapshot_diff_summary.txt`, { cache: "no-store" });
+    if (!resp.ok) {
+      throw new Error(`Report unavailable for snapshot ${snapshot}: HTTP ${resp.status}`);
+    }
+
+    const text = await resp.text();
+    const summary = parseSnapshotDiffSummary(text);
+    state.snapshotReportCache.set(snapshot, { summary });
+    const kpiCounts = resolveSnapshotReportKpiCounts(snapshot, summary);
+    const priorDateFromState = extractDateFromLabel(state.snapshotLabelDatetimeByHeight[String(summary.priorBlock).replace(/,/g, '')]);
+    const newDateFromState = extractDateFromLabel(state.snapshotLabelDatetimeByHeight[String(summary.newBlock).replace(/,/g, '')]);
+    const priorDate = priorDateFromState !== "n/a" ? priorDateFromState : (summary.priorDate || "n/a");
+    const newDate = newDateFromState !== "n/a" ? newDateFromState : (summary.newDate || "n/a");
+    subtitle.innerHTML = renderSnapshotReportSubtitle(summary.priorBlock, summary.newBlock, priorDate, newDate);
+    body.innerHTML = renderSnapshotReportHtml(summary, snapshot, kpiCounts);
+  } catch (err) {
+    console.error("Failed to load snapshot report:", err);
+    subtitle.textContent = `Snapshot ${snapshotHeightLabel(snapshot) || snapshot}`;
+    body.innerHTML = `
+      <p class="snapshot-report-empty">
+        Snapshot diff report not found for this height yet.
+      </p>
+      <p class="snapshot-report-state">
+        Run the daily snapshot pipeline with summarize_snapshot_diff.py enabled to generate snapshot_diff_summary.txt.
+      </p>
+    `;
+  }
+}
+
+function openSnapshotReportModal() {
+  const modal = document.getElementById("snapshotReportModal");
+  if (!modal) return;
+  modal.hidden = false;
+  modal.setAttribute("aria-hidden", "false");
+  document.body.style.overflow = "hidden";
+  setSnapshotReportLoadingState("Loading latest summary...");
+  loadSnapshotReportIntoModal();
+}
+
+function closeSnapshotReportModal() {
+  const modal = document.getElementById("snapshotReportModal");
+  if (!modal) return;
+  modal.hidden = true;
+  modal.setAttribute("aria-hidden", "true");
+  document.body.style.overflow = "";
+}
+
+function isSnapshotReportModalOpen() {
+  const modal = document.getElementById("snapshotReportModal");
+  return !!modal && !modal.hidden;
 }
 
 function normalizeSupplyDisplayMode(mode) {
@@ -5240,6 +5671,9 @@ function attachEvents() {
   const archivedSnapshotsToggleButton = document.getElementById("archivedSnapshotsToggle");
   const runtimeModeToggleButton = document.getElementById("runtimeModeToggle");
   const themeToggle = document.getElementById("themeToggle");
+  const snapshotReportButton = document.getElementById("snapshotReportButton");
+  const snapshotReportClose = document.getElementById("snapshotReportClose");
+  const snapshotReportModal = document.getElementById("snapshotReportModal");
   const scriptPanelModeToggle = document.getElementById("scriptPanelModeToggle");
   const scriptPanelDetailsToggle = document.getElementById("scriptPanelDetailsToggle");
   const supplyModeSelect = document.getElementById("scriptPanelSupplyMode");
@@ -5259,6 +5693,26 @@ function attachEvents() {
   if (themeToggle) {
     themeToggle.addEventListener("click", () => {
       toggleTheme();
+    });
+  }
+
+  if (snapshotReportButton) {
+    snapshotReportButton.addEventListener("click", () => {
+      openSnapshotReportModal();
+    });
+  }
+
+  if (snapshotReportClose) {
+    snapshotReportClose.addEventListener("click", () => {
+      closeSnapshotReportModal();
+    });
+  }
+
+  if (snapshotReportModal) {
+    snapshotReportModal.querySelectorAll("[data-report-close]").forEach((el) => {
+      el.addEventListener("click", () => {
+        closeSnapshotReportModal();
+      });
     });
   }
 
@@ -5432,6 +5886,10 @@ function attachEvents() {
     try {
       clearPreResetSnapshot();
       await loadSnapshotData(event.target.value);
+      if (isSnapshotReportModalOpen()) {
+        setSnapshotReportLoadingState(`Loading summary for ${snapshotHeightLabel(event.target.value) || event.target.value}...`);
+        await loadSnapshotReportIntoModal();
+      }
     } catch (err) {
       console.error(err);
       renderEmptyKpis();
@@ -5584,6 +6042,12 @@ function attachEvents() {
     const theme = payload.theme === "dark" ? "dark" : "light";
     applyTheme(theme);
     persistTheme(theme);
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (!isSnapshotReportModalOpen()) return;
+    closeSnapshotReportModal();
   });
 
   updateScriptTriggerLabel();

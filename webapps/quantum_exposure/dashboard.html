@@ -324,6 +324,60 @@
       overflow: visible;
     }
 
+    .title-row {
+      display: inline-flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .title-row h1 {
+      margin: 0;
+    }
+
+    .title-header-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .snapshot-report-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--muted);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+      padding: 0;
+      line-height: 1;
+    }
+
+    .snapshot-report-btn svg {
+      width: 14px;
+      height: 14px;
+      stroke: currentColor;
+      stroke-width: 1.85;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .snapshot-report-btn:hover {
+      background: var(--surface-soft);
+      color: var(--ink);
+    }
+
+    .snapshot-report-btn:focus-visible {
+      outline: 2px solid color-mix(in srgb, var(--accent) 65%, white 35%);
+      outline-offset: 2px;
+    }
+
     .top-filters {
       grid-area: filters;
       width: 100%;
@@ -2256,6 +2310,292 @@
 
     .accent { color: var(--accent); }
     .accent2 { color: var(--accent-2); }
+
+    .snapshot-report-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 120;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+    }
+
+    .snapshot-report-modal[hidden] {
+      display: none;
+    }
+
+    .snapshot-report-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(22, 20, 16, 0.52);
+      backdrop-filter: blur(2px);
+    }
+
+    .snapshot-report-dialog {
+      position: relative;
+      width: min(900px, calc(100vw - 36px));
+      max-height: min(94vh, 1080px);
+      overflow: auto;
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: linear-gradient(168deg, color-mix(in srgb, var(--card) 92%, white 8%) 0%, var(--card) 48%, color-mix(in srgb, var(--surface-soft) 72%, var(--card) 28%) 100%);
+      box-shadow: 0 28px 80px rgba(0, 0, 0, 0.26);
+      padding: 18px;
+    }
+
+    .snapshot-report-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+
+    .snapshot-report-title {
+      margin: 0;
+      font-size: clamp(20px, 2.2vw, 24px);
+      letter-spacing: 0.2px;
+    }
+
+    .snapshot-report-subtitle {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 12.5px;
+      font-family: "IBM Plex Mono", monospace;
+      display: grid;
+      gap: 3px;
+      line-height: 1.35;
+    }
+
+    .snapshot-report-subtitle-line {
+      display: block;
+    }
+
+    .snapshot-report-subtitle-label {
+      color: var(--muted-strong);
+      margin-right: 6px;
+    }
+
+    .snapshot-report-close {
+      width: 30px;
+      height: 30px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--muted-strong);
+      font-size: 19px;
+      line-height: 1;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      transition: background 160ms ease, color 160ms ease;
+    }
+
+    .snapshot-report-close:hover {
+      background: var(--surface-soft);
+      color: var(--ink);
+    }
+
+    .snapshot-report-grid {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .snapshot-report-card {
+      grid-column: span 4;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--surface) 78%, white 22%);
+      padding: 11px 12px;
+      min-height: 84px;
+    }
+
+    .snapshot-report-card h4 {
+      margin: 0;
+      font-size: 11px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: var(--muted-strong);
+      font-family: "IBM Plex Mono", monospace;
+      font-weight: 500;
+    }
+
+    .snapshot-report-row-break {
+      grid-column: 1 / -1;
+      height: 1px;
+      margin: 1px 0;
+      background: color-mix(in srgb, var(--line) 60%, transparent 40%);
+    }
+
+    .snapshot-report-value {
+      margin-top: 7px;
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      color: var(--ink);
+    }
+
+    .snapshot-report-value.is-never-spent { color: #b3264f; }
+    .snapshot-report-value.is-inactive { color: #ad7a00; }
+    .snapshot-report-value.is-active { color: #1f7a49; }
+
+    /* Generic color classes for spend activity and other non-card elements */
+    .is-never-spent { color: #b3264f; }
+    .is-inactive { color: #ad7a00; }
+    .is-active { color: #1f7a49; }
+
+    .snapshot-report-delta {
+      margin-top: 3px;
+      font-size: 12px;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+    }
+
+    .snapshot-report-delta-col {
+      width: 13ch;
+      text-align: right;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .snapshot-report-delta.is-positive { color: #1f6e43; }
+    .snapshot-report-delta.is-negative { color: #9f2145; }
+
+    .snapshot-report-section {
+      margin-top: 10px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--surface-muted) 78%, white 22%);
+      padding: 12px;
+    }
+
+    .snapshot-report-section h5 {
+      margin: 0 0 6px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: var(--muted-strong);
+      font-family: "IBM Plex Mono", monospace;
+    }
+
+    .snapshot-report-two-col {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 9px;
+    }
+
+    .snapshot-report-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 6px;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 12px;
+    }
+
+    .snapshot-report-list li {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      border-bottom: 1px dashed color-mix(in srgb, var(--line) 70%, transparent 30%);
+      padding-bottom: 5px;
+    }
+
+    .snapshot-report-list li:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .snapshot-report-label {
+      color: var(--ink);
+      overflow-wrap: anywhere;
+    }
+
+    .snapshot-report-empty {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      font-family: "IBM Plex Mono", monospace;
+    }
+
+    .snapshot-report-state {
+      margin: 2px 0 0;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 12px;
+    }
+
+    @media (max-width: 920px) {
+      .snapshot-report-card {
+        grid-column: span 6;
+      }
+
+      .snapshot-report-two-col {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    :root[data-theme="dark"] .snapshot-report-backdrop {
+      background: rgba(3, 4, 7, 0.78);
+      backdrop-filter: blur(3px);
+    }
+
+    :root[data-theme="dark"] .snapshot-report-dialog {
+      border-color: var(--line);
+      background: var(--card);
+      box-shadow: 0 28px 90px rgba(0, 0, 0, 0.62);
+    }
+
+    :root[data-theme="dark"] .snapshot-report-card {
+      border-color: var(--line);
+      background: var(--surface);
+    }
+
+    :root[data-theme="light"] .snapshot-report-section {
+      background: white;
+    }
+
+    :root[data-theme="dark"] .snapshot-report-section {
+      border-color: var(--divider);
+      background: var(--surface-muted);
+    }
+
+    :root[data-theme="dark"] .snapshot-report-row-break {
+      background: color-mix(in srgb, #5b6876 50%, transparent 50%);
+    }
+
+    :root[data-theme="dark"] .snapshot-report-value.is-never-spent { color: #ff5f8b; }
+    :root[data-theme="dark"] .snapshot-report-value.is-inactive { color: #ffd166; }
+    :root[data-theme="dark"] .snapshot-report-value.is-active { color: #4fd18b; }
+
+    /* Dark mode colors for generic classes */
+    :root[data-theme="dark"] .is-never-spent { color: #ff5f8b; }
+    :root[data-theme="dark"] .is-inactive { color: #ffd166; }
+    :root[data-theme="dark"] .is-active { color: #4fd18b; }
+
+    @media (max-width: 640px) {
+      .snapshot-report-dialog {
+        width: calc(100vw - 20px);
+        max-height: 90vh;
+        padding: 14px;
+      }
+
+      .snapshot-report-card {
+        grid-column: span 12;
+      }
+
+      .snapshot-report-title {
+        font-size: 19px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -2264,17 +2604,34 @@
       <div class="title-copy">
         <div class="title-row">
           <h1>Bitcoin Quantum Exposure</h1>
-          <div class="info-wrap">
-            <button type="button" class="info-btn" aria-label="About this dashboard" aria-describedby="quantumExposureInfoPopover">?</button>
-            <div class="info-popover" id="quantumExposureInfoPopover" role="tooltip">
-              <p style="margin: 0;">
-                This dashboard estimates how much Bitcoin supply is exposed to quantum-risk pathways, and who controls that exposure, at a selected block-height snapshot. It combines chain-derived aggregates with attribution metadata to show both macro risk (total exposed supply, exposed pubkeys/UTXOs, migration pressure) and micro concentration (largest exposed entities/addresses).
-              </p>
-              <p style="margin: 8px 0 0 0;">
-                What "quantum exposure" means here<br>
-                Supply is treated as exposed when spending conditions reveal public key material or otherwise create script paths considered vulnerable under a future cryptographically relevant quantum threat model. The dashboard does not predict when such a threat arrives; it quantifies current and historical exposure surfaces under consistent rules.
-              </p>
+          <div class="title-header-actions">
+            <div class="info-wrap">
+              <button type="button" class="info-btn" aria-label="About this dashboard" aria-describedby="quantumExposureInfoPopover">?</button>
+              <div class="info-popover" id="quantumExposureInfoPopover" role="tooltip">
+                <p style="margin: 0;">
+                  This dashboard estimates how much Bitcoin supply is exposed to quantum-risk pathways, and who controls that exposure, at a selected block-height snapshot. It combines chain-derived aggregates with attribution metadata to show both macro risk (total exposed supply, exposed pubkeys/UTXOs, migration pressure) and micro concentration (largest exposed entities/addresses).
+                </p>
+                <p style="margin: 8px 0 0 0;">
+                  What "quantum exposure" means here<br>
+                  Supply is treated as exposed when spending conditions reveal public key material or otherwise create script paths considered vulnerable under a future cryptographically relevant quantum threat model. The dashboard does not predict when such a threat arrives; it quantifies current and historical exposure surfaces under consistent rules.
+                </p>
+              </div>
             </div>
+            <button
+              id="snapshotReportButton"
+              type="button"
+              class="snapshot-report-btn"
+              aria-label="Open snapshot report"
+              data-tooltip="Open snapshot diff report"
+            >
+              <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                <path d="M7 3h7l5 5v13H7z"></path>
+                <path d="M14 3v5h5"></path>
+                <path d="M10 12h6"></path>
+                <path d="M10 15h6"></path>
+                <path d="M10 18h4"></path>
+              </svg>
+            </button>
           </div>
         </div>
       </div>
@@ -2533,6 +2890,20 @@
         </div>
       </section>
     </div>
+  </div>
+
+  <div id="snapshotReportModal" class="snapshot-report-modal" hidden aria-hidden="true">
+    <button type="button" class="snapshot-report-backdrop" data-report-close aria-label="Close snapshot report"></button>
+    <section class="snapshot-report-dialog" role="dialog" aria-modal="true" aria-labelledby="snapshotReportTitle">
+      <div class="snapshot-report-header">
+        <div>
+          <h3 id="snapshotReportTitle" class="snapshot-report-title">Bitcoin Quantum Exposure Weekly Diff Report</h3>
+          <p id="snapshotReportSubtitle" class="snapshot-report-subtitle">Loading latest summary...</p>
+        </div>
+        <button id="snapshotReportClose" type="button" class="snapshot-report-close" aria-label="Close snapshot report">×</button>
+      </div>
+      <div id="snapshotReportBody"></div>
+    </section>
   </div>
 
   <script src="dashboard_app.js"></script>

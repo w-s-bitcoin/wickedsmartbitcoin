@@ -358,6 +358,14 @@ def main() -> None:
     if not args.dry_run and not expected_ge1_csv.exists():
         raise RuntimeError(f"Pipeline completed but snapshot output is missing: {expected_ge1_csv}")
 
+    # Diff summary must run before archiving so the prior snapshot is still in the live dir.
+    run_command(
+        [sys.executable, str(PIPELINE_DIR / "summarize_snapshot_diff.py"), str(next_interval)],
+        cwd=PIPELINE_DIR,
+        env=runtime_env,
+        dry_run=args.dry_run,
+    )
+
     archived_snapshots = archive_prior_non_50k_snapshots(next_interval, dry_run=args.dry_run)
     if archived_snapshots:
         print(f"Archived non-50k snapshots: {archived_snapshots}")
