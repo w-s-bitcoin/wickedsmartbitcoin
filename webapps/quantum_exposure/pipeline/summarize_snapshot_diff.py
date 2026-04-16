@@ -180,6 +180,48 @@ def find_prior_interval_height(new_height: int) -> int | None:
     return None
 
 
+def total_issued_supply_sats_at_height(height: int) -> int:
+    """Return cumulative mined BTC supply in sats at a given block height."""
+    if height <= 0:
+        return 0
+
+    remaining_blocks = int(height)
+    era = 0
+    total_sats = 0
+
+    while remaining_blocks > 0:
+        subsidy_sats = 50 * SATS_PER_BTC // (2**era)
+        if subsidy_sats <= 0:
+            break
+
+        blocks_in_era = min(210_000, remaining_blocks)
+        total_sats += blocks_in_era * subsidy_sats
+        remaining_blocks -= blocks_in_era
+        era += 1
+
+    return total_sats
+
+
+def resolve_total_supply_sats(height: int, agg_rows: list[dict], ge1_rows: list[dict]) -> int:
+    """Resolve total BTC supply sats with multiple fallbacks for older archived snapshots."""
+    for row in agg_rows:
+        if (
+            row.get("balance_filter", "") == "all"
+            and row.get("script_type_filter", "") == "All"
+            and row.get("spend_activity_filter", "") == "all"
+        ):
+            parsed = int(row.get("supply_sats") or 0)
+            if parsed > 0:
+                return parsed
+
+    for row in ge1_rows:
+        parsed = int(row.get("supply_sats") or row.get("total_supply_sats") or 0)
+        if parsed > 0:
+            return parsed
+
+    return total_issued_supply_sats_at_height(height)
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Computation helpers
 # ──────────────────────────────────────────────────────────────────────────────
@@ -354,8 +396,8 @@ def build_report(new_height: int, prior_height: int) -> str:
     lines.append(f"  New Date (UTC): {new_date_utc}")
     lines.append("=" * 76)
 
-    # ── 1. Total exposed supply ──
-    lines.append(section("1. Total Exposed Supply"))
+    # ── 1. Supply overview ──
+    lines.append(section("1. Supply Overview"))
 
     def agg_total_sats(agg_rows: list[dict], spend_filter: str = "active") -> int:
         for row in agg_rows:
@@ -390,28 +432,31 @@ def build_report(new_height: int, prior_height: int) -> str:
             or spend_filter == "all"
         )
 
-    prior_total_all = agg_total_sats(prior_agg_rows, "all")
-    new_total_all = agg_total_sats(new_agg_rows, "all")
-    prior_supply_all = agg_supply_sats(prior_agg_rows)
-    new_supply_all = agg_supply_sats(new_agg_rows)
+    prior_total_all = total_exposed(prior_agg_rows, prior_rows, "all")
+    new_total_all = total_exposed(new_agg_rows, new_rows, "all")
+    prior_supply_all = resolve_total_supply_sats(prior_height, prior_agg_rows, prior_rows)
+    new_supply_all = resolve_total_supply_sats(new_height, new_agg_rows, new_rows)
+    delta_total_supply = new_supply_all - prior_supply_all
+    pct_total_supply_change = delta_total_supply / prior_supply_all if prior_supply_all else 0.0
     delta_total = new_total_all - prior_total_all
     pct_change = delta_total / prior_total_all if prior_total_all else 0.0
 
-    prior_total_active = agg_total_sats(prior_agg_rows, "active")
-    new_total_active = agg_total_sats(new_agg_rows, "active")
+    prior_total_active = total_exposed(prior_agg_rows, prior_rows, "active")
+    new_total_active = total_exposed(new_agg_rows, new_rows, "active")
     delta_active = new_total_active - prior_total_active
 
-    prior_total_inactive = agg_total_sats(prior_agg_rows, "inactive")
-    new_total_inactive = agg_total_sats(new_agg_rows, "inactive")
+    prior_total_inactive = total_exposed(prior_agg_rows, prior_rows, "inactive")
+    new_total_inactive = total_exposed(new_agg_rows, new_rows, "inactive")
     delta_inactive = new_total_inactive - prior_total_inactive
 
-    prior_total_never_spent = agg_total_sats(prior_agg_rows, "never_spent")
-    new_total_never_spent = agg_total_sats(new_agg_rows, "never_spent")
+    prior_total_never_spent = total_exposed(prior_agg_rows, prior_rows, "never_spent")
+    new_total_never_spent = total_exposed(new_agg_rows, new_rows, "never_spent")
     delta_never_spent = new_total_never_spent - prior_total_never_spent
 
     lines += [
         f"  {'':33} {'Prior':>18}  {'New':>18}  {'Change':>18}",
-        f"  {'Total exposed supply':33} {fmt_btc(prior_total_all)}  {fmt_btc(new_total_all)}  {fmt_btc(delta_total, sign=True)}  ({fmt_pct(pct_change)})",
+        f"  {'Total supply':33} {fmt_btc(prior_supply_all)}  {fmt_btc(new_supply_all)}  {fmt_btc(delta_total_supply, sign=True)}  ({fmt_pct(pct_total_supply_change)})",
+        f"  {'Exposed supply':33} {fmt_btc(prior_total_all)}  {fmt_btc(new_total_all)}  {fmt_btc(delta_total, sign=True)}  ({fmt_pct(pct_change)})",
         f"  {'Exposed share of total supply':33} {fmt_pct_of_total(prior_total_all, prior_supply_all):>18}  {fmt_pct_of_total(new_total_all, new_supply_all):>18}",
         f"  {'  Active (key-reuse risk)':33} {fmt_btc(prior_total_active)}  {fmt_btc(new_total_active)}  {fmt_btc(delta_active, sign=True)}",
         f"  {'  Inactive (not recently spent)':33} {fmt_btc(prior_total_inactive)}  {fmt_btc(new_total_inactive)}  {fmt_btc(delta_inactive, sign=True)}",
