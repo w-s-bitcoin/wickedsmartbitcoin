@@ -392,7 +392,16 @@
       "Hebei Atun Trading Co.",
       "Nova",
       "Open Ledger",
-      "xCoin.io"
+      "xCoin.io",
+      "Ccex",
+      "BitYes",
+      "Igot",
+      "Leancy.com",
+      "mexbt.com",
+      "Bit-Z",
+      "Bit2Me",
+      "BTC-Alpha",
+      "Vault Of Satoshi"
     ],
     "Governments, public sector, and charities": [
       "Royal Government of Bhutan",
@@ -526,7 +535,8 @@
       "Hashflare",
       "QuadrigaCX",
       "Cloud Hashing",
-      "Genesis Mining"
+      "Genesis Mining",
+      "BTC Guild"
     ],
     "Payments, wallets, and merchant services": [
       "BitPay",
@@ -585,7 +595,9 @@
       "Dispenser.tf",
       "GoUrl",
       "ww-pay.net",
-      "Wyre"
+      "Wyre",
+      "Reddit Bitcoin Faucet",
+      "HolyTransaction"
     ],
     "Protocols, bridges, defi, and wrapped assets": [
       "Babylon",
@@ -686,7 +698,9 @@
       "Bitcoin Video Casino",
       "Luckygames.io",
       "Betchain.com",
-      "SafeDice.com"
+      "SafeDice.com",
+      "DiceNow.com",
+      "IceDice.com"
     ],
     "Darknet mixers and illicit services": [
       "GMaxwell CoinJoin",
@@ -717,7 +731,8 @@
       "Tails",
       "Bitmixer.io",
       "Abraxas",
-      "CrimeNet.biz"
+      "CrimeNet.biz",
+      "UniCCShop"
     ],
     "Hacks, scams, and ransomware": [
       "Betco.in Hacker",
@@ -749,7 +764,11 @@
       "Atlas Quantum",
       "Bitfloor Hacker",
       "Cloud Token",
-      "DavorCoin"
+      "DavorCoin",
+      "Linode Hacker",
+      "Bitcoinica Hacker",
+      "CryptoLocker",
+      "KaratBit"
     ],
     "Individuals": [
       "4222",
@@ -777,7 +796,9 @@
       "Alex Adrianus Martinus Peijnenburg",
       "Ban Chai Low",
       "Alex Mashinsky",
-      "Dustin Trammell @druidian"
+      "Dustin Trammell @druidian",
+      "Jed McCaleb",
+      "Mohammad Ghorbaniyan"
     ]
   }
 }
