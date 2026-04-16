@@ -789,10 +789,14 @@ function bindChartTooltip(chart) {
 }
 
 function renderChart() {
+  const rows = getFilteredRows();
+  if (rows.length) {
+    updateKpis(rows);
+  }
+
   const chart = document.getElementById("costBasisChart");
   if (!chart || !window.Plotly) return;
 
-  const rows = getFilteredRows();
   if (!rows.length) {
     hideChartTooltip();
     return;
@@ -974,7 +978,6 @@ function renderChart() {
       syncCurrentPriceOverlay(chart, currentPrice, colors);
     });
   });
-  updateKpis(rows);
 }
 
 function bindControls() {
@@ -1041,12 +1044,17 @@ async function init() {
       });
     }
 
-    await Promise.race([
+    const plotlyPromise = Promise.race([
       ensurePlotlyLoaded(),
       new Promise((_, reject) => setTimeout(() => reject(new Error("Timed out loading Plotly.")), 12000)),
     ]);
 
-    await loadData();
+    const dataPromise = loadData();
+
+    await dataPromise;
+    renderChart();
+
+    await plotlyPromise;
     renderChart();
   } catch (err) {
     console.error(err);
