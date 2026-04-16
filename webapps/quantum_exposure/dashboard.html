@@ -2378,19 +2378,20 @@
     }
 
     .snapshot-report-close {
-      width: 30px;
-      height: 30px;
-      border-radius: 999px;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
       border: 1px solid var(--line);
       background: var(--surface);
       color: var(--muted-strong);
-      font-size: 19px;
+      font-size: 20px;
       line-height: 1;
       cursor: pointer;
-      display: inline-flex;
+      display: flex;
       align-items: center;
       justify-content: center;
       padding: 0;
+      flex-shrink: 0;
       transition: background 160ms ease, color 160ms ease;
     }
 
@@ -2516,7 +2517,19 @@
 
     .snapshot-report-label {
       color: var(--ink);
-      overflow-wrap: anywhere;
+      overflow-wrap: break-word;
+      word-break: break-word;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .snapshot-report-list li > span:last-child {
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+
+    .snapshot-report-list li > span:last-child > div {
+      white-space: nowrap;
     }
 
     .snapshot-report-empty {
@@ -2582,10 +2595,28 @@
     :root[data-theme="dark"] .is-active { color: #4fd18b; }
 
     @media (max-width: 640px) {
+      .snapshot-report-modal {
+        padding: 0 12px 80px 12px;
+        align-items: center;
+        justify-content: center;
+        padding-top: max(90px, calc(env(safe-area-inset-top, 0px) + 80px));
+      }
+
       .snapshot-report-dialog {
-        width: calc(100vw - 20px);
-        max-height: 90vh;
+        width: calc(100vw - 24px);
+        max-height: calc(100vh - 140px);
         padding: 14px;
+        border-radius: 16px;
+      }
+
+      .snapshot-report-header {
+        gap: 10px;
+      }
+
+      .snapshot-report-close {
+        width: 36px;
+        height: 36px;
+        font-size: 22px;
       }
 
       .snapshot-report-card {
@@ -2593,7 +2624,13 @@
       }
 
       .snapshot-report-title {
-        font-size: 19px;
+        font-size: 18px;
+        line-height: 1.2;
+      }
+
+      .snapshot-report-subtitle {
+        font-size: 11px;
+        gap: 2px;
       }
     }
   </style>
