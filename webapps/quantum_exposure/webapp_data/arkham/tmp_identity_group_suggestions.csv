@@ -1,1 +1,22 @@
 identity,count,first_height,last_height,height_count,suggested_group,confidence,reason
+Ccex,3,320000,320000,1,"Exchanges, brokerages, and custody services",high,Historic centralized exchange brand.
+Jed McCaleb,3,110000,130000,3,Individuals,high,Person-labeled identity.
+Mohammad Ghorbaniyan,3,310000,330000,3,Individuals,high,Person-labeled identity.
+Reddit Bitcoin Faucet,3,210000,240000,3,"Payments, wallets, and merchant services",high,Faucet/payments distribution service label.
+UniCCShop,3,450000,600000,3,Darknet mixers and illicit services,high,Known illicit carding marketplace/shop label.
+BitYes,2,320000,330000,2,"Exchanges, brokerages, and custody services",high,Exchange/brokerage venue label.
+Igot,2,320000,330000,2,"Exchanges, brokerages, and custody services",high,Exchange/brokerage venue label.
+Leancy.com,2,280000,290000,2,"Exchanges, brokerages, and custody services",medium,Exchange-style service domain label.
+Linode Hacker,2,170000,170000,1,"Hacks, scams, and ransomware",high,Hacker-linked compromise label.
+mexbt.com,2,310000,320000,2,"Exchanges, brokerages, and custody services",high,Exchange domain label.
+Bit-Z,1,500000,500000,1,"Exchanges, brokerages, and custody services",high,Exchange venue brand.
+Bit2Me,1,700000,700000,1,"Exchanges, brokerages, and custody services",high,Exchange/brokerage platform brand.
+Bitcoinica Hacker,1,180000,180000,1,"Hacks, scams, and ransomware",high,Hacker/theft-linked label.
+BTC Guild,1,220000,220000,1,Mining pools and mining companies,high,Historic Bitcoin mining pool.
+BTC-Alpha,1,500000,500000,1,"Exchanges, brokerages, and custody services",high,Exchange venue brand.
+CryptoLocker,1,260000,260000,1,"Hacks, scams, and ransomware",high,Known ransomware/cybercrime label.
+DiceNow.com,1,320000,320000,1,"Casinos, betting, and gaming",high,Dice gambling brand.
+HolyTransaction,1,330000,330000,1,"Payments, wallets, and merchant services",high,Wallet/payments service brand.
+IceDice.com,1,270000,270000,1,"Casinos, betting, and gaming",high,Dice gambling brand.
+KaratBit,1,600000,600000,1,"Hacks, scams, and ransomware",medium,High-risk investment/project label; provisional scam bucket.
+Vault Of Satoshi,1,330000,330000,1,"Exchanges, brokerages, and custody services",high,Historic exchange/custody platform label.

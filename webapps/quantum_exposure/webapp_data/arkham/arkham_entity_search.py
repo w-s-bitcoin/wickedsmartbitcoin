@@ -542,7 +542,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--only-height",
         type=int,
-        help="Query candidates from only the specified snapshot height (still merges updates into all target CSVs)",
+        nargs="+",
+        metavar="HEIGHT",
+        help="Query candidates from only the specified snapshot height(s) (space-separated; still merges updates into all target CSVs)",
     )
     parser.add_argument(
         "--min-balance-btc",
@@ -571,9 +573,10 @@ def main():
     if args.only_latest:
         source_snapshot_csvs = source_snapshot_csvs[:1]
     elif args.only_height is not None:
-        matched = [p for p in source_snapshot_csvs if int(p.parent.name) == args.only_height]
+        target_heights = set(args.only_height)
+        matched = [p for p in source_snapshot_csvs if int(p.parent.name) in target_heights]
         if not matched:
-            raise RuntimeError(f"No snapshot CSV found for height {args.only_height}")
+            raise RuntimeError(f"No snapshot CSVs found for height(s): {sorted(target_heights)}")
         source_snapshot_csvs = matched
 
     lookup = load_existing_lookup(LOOKUP_JSON_FILE)
@@ -584,7 +587,7 @@ def main():
     print(f"existing lookup entries    : {len(lookup):,}")
     print(f"dry run mode              : {'yes' if dry_run else 'no'}")
     print(f"only latest mode          : {'yes' if args.only_latest else 'no'}")
-    print(f"only height mode          : {args.only_height if args.only_height is not None else 'no'}")
+    print(f"only height mode          : {sorted(args.only_height) if args.only_height is not None else 'no'}")
     print(f"min balance filter (BTC)  : {args.min_balance_btc:g}")
 
     # First reconcile known labels from all ge1 snapshots (including archived) and propagate globally.
