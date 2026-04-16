@@ -304,7 +304,7 @@ function formatCeilBtcFromDisplay(value) {
   if (!match) return stripDecimals(raw);
   const parsed = Number.parseFloat(match[0].replaceAll(",", ""));
   if (!Number.isFinite(parsed)) return stripDecimals(raw);
-  return `${formatInt(Math.ceil(parsed))} BTC`;
+  return `${formatInt(Math.floor(parsed))} BTC`;
 }
 
 function formatCeilBtcDeltaFromDisplay(value) {
@@ -313,7 +313,7 @@ function formatCeilBtcDeltaFromDisplay(value) {
   if (!match) return stripDecimals(raw);
   const parsed = Number.parseFloat(match[0].replaceAll(",", ""));
   if (!Number.isFinite(parsed)) return stripDecimals(raw);
-  const rounded = Math.ceil(parsed);
+  const rounded = Math.floor(parsed);
   const sign = raw.startsWith("+") ? "+" : rounded < 0 ? "-" : "";
   return `${sign}${formatInt(Math.abs(rounded))} BTC`;
 }
@@ -377,7 +377,8 @@ function parseSnapshotDiffSummary(text) {
   const newBlockMatch = findLine("New   : block").match(/New\s*:\s*block\s*([\d,]+)/);
   const priorDateMatch = findLine("Prior Date (UTC):").match(/Prior Date \(UTC\):\s*([0-9]{4}-[0-9]{2}-[0-9]{2}|n\/a)/);
   const newDateMatch = findLine("New Date (UTC):").match(/New Date \(UTC\):\s*([0-9]{4}-[0-9]{2}-[0-9]{2}|n\/a)/);
-  const totalLine = findLine("Total exposed supply");
+  const totalSupplyLine = findLine("Total supply");
+  const totalLine = findLine("Exposed supply") || findLine("Total exposed supply");
   const exposedShareLine = findLine("Exposed share of total supply");
   const activeLine = findLine("Active (key-reuse risk)");
   const inactiveLine = findLine("Inactive (not recently spent)");
@@ -386,6 +387,7 @@ function parseSnapshotDiffSummary(text) {
   const utxoLine = findLine("Exposed UTXOs");
   const pubkeyLine = findLine("Exposed Pubkeys");
 
+  const totalSupplyPctMatch = totalSupplyLine.match(/\(([+-]?\d+\.\d+%)\)/);
   const pctMatch = totalLine.match(/\(([+-]?\d+\.\d+%)\)/);
   const exposedShareMatches = Array.from((exposedShareLine || "").matchAll(/([\d]+(?:\.\d+)?)%/g)).map((match) => `${match[1]}%`);
 
@@ -430,6 +432,10 @@ function parseSnapshotDiffSummary(text) {
     newBlock: newBlockMatch ? newBlockMatch[1] : "n/a",
     priorDate: priorDateMatch ? priorDateMatch[1] : "n/a",
     newDate: newDateMatch ? newDateMatch[1] : "n/a",
+    totalSupply: {
+      ...parseBtcTriple(totalSupplyLine),
+      pct: totalSupplyPctMatch ? totalSupplyPctMatch[1] : "n/a",
+    },
     total: {
       ...parseBtcTriple(totalLine),
       pct: pctMatch ? pctMatch[1] : "n/a",
@@ -497,15 +503,81 @@ function resolveSnapshotReportKpiCounts(snapshot, summary) {
   };
 }
 
+function parseBtcDisplayToSats(value) {
+  const raw = String(value || "");
+  const match = raw.match(/[-+]?\d[\d,]*(?:\.\d+)?/);
+  if (!match) return 0;
+  const parsed = Number.parseFloat(match[0].replaceAll(",", ""));
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.round(parsed * SATS_PER_BTC);
+}
+
+function renderSnapshotSupplyBreakdownBar(summary) {
+  const MAX_BITCOIN_SUPPLY_SATS = 21_000_000 * SATS_PER_BTC;
+
+  const formatFloorBtcFromSats = (sats) => formatInt(Math.floor(Math.max(0, sats) / SATS_PER_BTC));
+
+  const totalSupplySats = Math.max(0, parseBtcDisplayToSats(summary?.totalSupply?.next));
+  const exposedSupplySats = Math.max(0, parseBtcDisplayToSats(summary?.total?.next));
+  const exposedActiveSats = Math.max(0, parseBtcDisplayToSats(summary?.active?.next));
+  const exposedInactiveSats = Math.max(0, parseBtcDisplayToSats(summary?.inactive?.next));
+  const exposedNeverSpentSats = Math.max(0, parseBtcDisplayToSats(summary?.neverSpent?.next));
+
+  if (totalSupplySats <= 0) return "";
+
+  const cappedExposedSupplySats = Math.min(exposedSupplySats, totalSupplySats);
+  const nonExposedSupplySats = Math.max(totalSupplySats - cappedExposedSupplySats, 0);
+  const unminedSupplySats = Math.max(MAX_BITCOIN_SUPPLY_SATS - totalSupplySats, 0);
+
+  const exposedNeverPct = (exposedNeverSpentSats / MAX_BITCOIN_SUPPLY_SATS) * 100;
+  const exposedInactivePct = (exposedInactiveSats / MAX_BITCOIN_SUPPLY_SATS) * 100;
+  const exposedActivePct = (exposedActiveSats / MAX_BITCOIN_SUPPLY_SATS) * 100;
+  const nonExposedPct = (nonExposedSupplySats / MAX_BITCOIN_SUPPLY_SATS) * 100;
+  const unminedPct = (unminedSupplySats / MAX_BITCOIN_SUPPLY_SATS) * 100;
+
+  let segmentsHtml = "";
+
+  if (exposedNeverSpentSats > 0) {
+    segmentsHtml += `<div class="kpi-breakdown-segment seg-never" data-tooltip="Never Spent: ${formatFloorBtcFromSats(exposedNeverSpentSats)} BTC · ${formatPercent(exposedNeverSpentSats, totalSupplySats)}" style="width: ${exposedNeverPct}%;"></div>`;
+  }
+  if (exposedInactiveSats > 0) {
+    segmentsHtml += `<div class="kpi-breakdown-segment seg-inactive" data-tooltip="Inactive: ${formatFloorBtcFromSats(exposedInactiveSats)} BTC · ${formatPercent(exposedInactiveSats, totalSupplySats)}" style="width: ${exposedInactivePct}%;"></div>`;
+  }
+  if (exposedActiveSats > 0) {
+    segmentsHtml += `<div class="kpi-breakdown-segment seg-active" data-tooltip="Active: ${formatFloorBtcFromSats(exposedActiveSats)} BTC · ${formatPercent(exposedActiveSats, totalSupplySats)}" style="width: ${exposedActivePct}%;"></div>`;
+  }
+  if (nonExposedSupplySats > 0) {
+    segmentsHtml += `<div class="kpi-breakdown-segment seg-nonexposed" data-tooltip="Non-Exposed: ${formatFloorBtcFromSats(nonExposedSupplySats)} BTC · ${formatPercent(nonExposedSupplySats, totalSupplySats)}" style="width: ${nonExposedPct}%;"></div>`;
+  }
+  if (unminedSupplySats > 0) {
+    segmentsHtml += `<div class="kpi-breakdown-segment seg-unmined" data-tooltip="Unmined: ${formatFloorBtcFromSats(unminedSupplySats)} BTC" style="width: ${unminedPct}%;"></div>`;
+  }
+
+  return `
+    <div class="kpi-supply-breakdown snapshot-report-supply-breakdown">
+      <div class="kpi-breakdown-bar">
+        ${segmentsHtml}
+      </div>
+    </div>
+  `;
+}
+
 function renderSnapshotReportHtml(summary, snapshot, kpiCounts) {
+  const totalSupplyDeltaClass = deltaClass(summary.totalSupply.change);
+  const totalSupplyCeil = formatCeilBtcFromDisplay(summary.totalSupply.next);
   const totalDeltaClass = deltaClass(summary.total.change);
-  const totalShare = summary?.total?.shareNew || "n/a";
   const totalCeil = formatCeilBtcFromDisplay(summary.total.next);
-  const totalValue = `${totalCeil}${totalShare !== "n/a" ? ` · ${totalShare}` : ""}`;
+  const totalValue = totalCeil;
+  const supplyBreakdownBar = renderSnapshotSupplyBreakdownBar(summary);
   return `
     <div class="snapshot-report-grid">
       <article class="snapshot-report-card">
-        <h4>Total Exposed Supply</h4>
+        <h4>Total Supply</h4>
+        <div class="snapshot-report-value">${escapeHtml(totalSupplyCeil)}</div>
+        <div class="snapshot-report-delta ${totalSupplyDeltaClass}">${escapeHtml(formatCeilBtcDeltaFromDisplay(summary.totalSupply.change))}</div>
+      </article>
+      <article class="snapshot-report-card">
+        <h4>Exposed Supply</h4>
         <div class="snapshot-report-value">${escapeHtml(totalValue)}</div>
         <div class="snapshot-report-delta ${totalDeltaClass}">${escapeHtml(formatCeilBtcDeltaFromDisplay(summary.total.change))}</div>
       </article>
@@ -519,9 +591,9 @@ function renderSnapshotReportHtml(summary, snapshot, kpiCounts) {
         <div class="snapshot-report-value">${escapeHtml(kpiCounts.exposedUtxos)}</div>
         <div class="snapshot-report-delta ${deltaClass(summary.utxos.change)}">${escapeHtml(stripDecimals(summary.utxos.change))}</div>
       </article>
-
-      <div class="snapshot-report-row-break" aria-hidden="true"></div>
     </div>
+
+    ${supplyBreakdownBar}
 
     <p class="snapshot-report-state" style="margin-top: 8px;"></p>
 
@@ -1541,7 +1613,7 @@ function formatFixed2(value) {
 }
 
 function formatCeilBtc(sats) {
-  const btc = Math.ceil(sats / SATS_PER_BTC);
+  const btc = Math.floor(sats / SATS_PER_BTC);
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(btc);
 }
 
@@ -1663,19 +1735,49 @@ function hideCustomTooltip() {
   tooltip.classList.remove("is-visible");
 }
 
-function placeCustomTooltip(tooltip, x, y) {
-  const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
+function resolveTooltipBounds(anchor) {
+  const reportDialog = anchor instanceof Element
+    ? anchor.closest(".snapshot-report-dialog")
+    : null;
+
+  if (reportDialog instanceof Element) {
+    const rect = reportDialog.getBoundingClientRect();
+    return {
+      left: rect.left,
+      top: rect.top,
+      right: rect.right,
+      bottom: rect.bottom,
+      width: rect.width,
+      height: rect.height,
+    };
+  }
+
+  return {
+    left: 0,
+    top: 0,
+    right: window.innerWidth,
+    bottom: window.innerHeight,
+    width: window.innerWidth,
+    height: window.innerHeight,
+  };
+}
+
+function placeCustomTooltip(tooltip, x, y, anchor = null) {
+  const bounds = resolveTooltipBounds(anchor || customTooltipAnchor);
   const offset = 14;
+  const pad = 8;
 
   let left = x + offset;
   let top = y + offset;
 
-  const maxLeft = viewportWidth - tooltip.offsetWidth - 8;
-  const maxTop = viewportHeight - tooltip.offsetHeight - 8;
+  const maxLeft = bounds.right - tooltip.offsetWidth - pad;
+  const maxTop = bounds.bottom - tooltip.offsetHeight - pad;
 
-  if (left > maxLeft) left = Math.max(8, x - tooltip.offsetWidth - offset);
-  if (top > maxTop) top = Math.max(8, y - tooltip.offsetHeight - offset);
+  if (left > maxLeft) left = Math.max(bounds.left + pad, x - tooltip.offsetWidth - offset);
+  if (top > maxTop) top = Math.max(bounds.top + pad, y - tooltip.offsetHeight - offset);
+
+  left = Math.max(bounds.left + pad, Math.min(left, maxLeft));
+  top = Math.max(bounds.top + pad, Math.min(top, maxTop));
 
   tooltip.style.left = `${left}px`;
   tooltip.style.top = `${top}px`;
@@ -1689,6 +1791,9 @@ function showCustomTooltip(anchor, x, y) {
   }
 
   const tooltip = ensureCustomTooltipElement();
+  const bounds = resolveTooltipBounds(anchor);
+  const boundsConstrainedMaxWidth = Math.max(180, Math.floor(bounds.width - 16));
+  tooltip.style.maxWidth = `${Math.min(420, boundsConstrainedMaxWidth)}px`;
   let activeValueClass = "";
   tooltip.innerHTML = text
     .split("\n")
@@ -1715,7 +1820,7 @@ function showCustomTooltip(anchor, x, y) {
     })
     .join("");
   tooltip.classList.add("is-visible");
-  placeCustomTooltip(tooltip, x, y);
+  placeCustomTooltip(tooltip, x, y, anchor);
 }
 
 function bindCustomTooltips() {
@@ -1766,7 +1871,7 @@ function bindCustomTooltips() {
     if (!customTooltipAnchor) return;
     const tooltip = document.getElementById("quantumInlineTooltip");
     if (!tooltip || !tooltip.classList.contains("is-visible")) return;
-    placeCustomTooltip(tooltip, event.clientX, event.clientY);
+    placeCustomTooltip(tooltip, event.clientX, event.clientY, customTooltipAnchor);
   });
 
   document.addEventListener("mouseout", (event) => {
@@ -4928,7 +5033,7 @@ function renderKpis(kpi, total, filters) {
   document.getElementById("kpiSupply").textContent = formatCeilBtc(total.supply_sats) + " BTC";
   renderSupplyBreakdownBar(total, filters);
 
-  const exposedSupplySubsetBtc = Math.ceil(kpi.exposed_supply_sats / SATS_PER_BTC);
+  const exposedSupplySubsetBtc = Math.floor(kpi.exposed_supply_sats / SATS_PER_BTC);
   const exposedSupplyOfTotal = formatPercent(kpi.exposed_supply_sats, total.supply_sats);
   document.getElementById("kpiExposedSupply").textContent =
     `${formatInt(exposedSupplySubsetBtc)} BTC · ${exposedSupplyOfTotal}`;

@@ -401,7 +401,23 @@
       "Bit-Z",
       "Bit2Me",
       "BTC-Alpha",
-      "Vault Of Satoshi"
+      "Vault Of Satoshi",
+      "CoinSwitch",
+      "SecondsTrade",
+      "AdmiralCoin",
+      "VirgoCX",
+      "Abra",
+      "BitcoinWeBank.com",
+      "MINE.exchange",
+      "BitcoinVN",
+      "Bull Bitcoin",
+      "CoinTiger",
+      "Dex-Trade",
+      "InfinityCoin.exchange",
+      "LakeBTC.com",
+      "Litebit",
+      "NewLine.Online",
+      "Paraiba.world"
     ],
     "Governments, public sector, and charities": [
       "Royal Government of Bhutan",
@@ -483,7 +499,9 @@
       "B2BX",
       "Pokemon Go PKG",
       "BitLendingClub",
-      "Exp Asset"
+      "Exp Asset",
+      "Deloitte",
+      "Secondeye Solution"
     ],
     "Mining pools and mining companies": [
       "GHash.io",
@@ -536,7 +554,9 @@
       "QuadrigaCX",
       "Cloud Hashing",
       "Genesis Mining",
-      "BTC Guild"
+      "BTC Guild",
+      "Sierra Hash",
+      "Stratum"
     ],
     "Payments, wallets, and merchant services": [
       "BitPay",
@@ -597,7 +617,13 @@
       "ww-pay.net",
       "Wyre",
       "Reddit Bitcoin Faucet",
-      "HolyTransaction"
+      "HolyTransaction",
+      "GoCelery",
+      "Payeer",
+      "MoonBit.co.in",
+      "Wirex",
+      "DeCurrent",
+      "Enot.io"
     ],
     "Protocols, bridges, defi, and wrapped assets": [
       "Babylon",
@@ -637,7 +663,8 @@
       "Stacks",
       "WBTCB",
       "Multichain",
-      "Komodo"
+      "Komodo",
+      "WX.Network"
     ],
     "Casinos, betting, and gaming": [
       "Betco.in",
@@ -700,7 +727,13 @@
       "Betchain.com",
       "SafeDice.com",
       "DiceNow.com",
-      "IceDice.com"
+      "IceDice.com",
+      "Bovada",
+      "Rollin.io",
+      "CoinRoyale",
+      "FortuneJack.com",
+      "Gamdom",
+      "Satoshibet"
     ],
     "Darknet mixers and illicit services": [
       "GMaxwell CoinJoin",
@@ -732,7 +765,9 @@
       "Bitmixer.io",
       "Abraxas",
       "CrimeNet.biz",
-      "UniCCShop"
+      "UniCCShop",
+      "CrimeNetwork.co",
+      "BitLaunder.com"
     ],
     "Hacks, scams, and ransomware": [
       "Betco.in Hacker",
@@ -768,7 +803,10 @@
       "Linode Hacker",
       "Bitcoinica Hacker",
       "CryptoLocker",
-      "KaratBit"
+      "KaratBit",
+      "Bitcash.cz Hacker",
+      "Crystalead",
+      "Razzleton Ponzi"
     ],
     "Individuals": [
       "4222",
@@ -798,7 +836,9 @@
       "Alex Mashinsky",
       "Dustin Trammell @druidian",
       "Jed McCaleb",
-      "Mohammad Ghorbaniyan"
+      "Mohammad Ghorbaniyan",
+      "Wesley Winston Wosinski",
+      "Fengbing Xia"
     ]
   }
 }

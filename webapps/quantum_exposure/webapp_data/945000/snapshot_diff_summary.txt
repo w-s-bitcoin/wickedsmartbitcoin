@@ -7,10 +7,11 @@
 ============================================================================
 
 ────────────────────────────────────────────────────────────────────────────
-  1. Total Exposed Supply
+  1. Supply Overview
 ────────────────────────────────────────────────────────────────────────────
                                                  Prior                 New              Change
-  Total exposed supply                6,920,867.83 BTC    6,930,122.81 BTC       +9,254.98 BTC  (+0.13%)
+  Total supply                       20,012,373.03 BTC   20,015,498.03 BTC       +3,125.00 BTC  (+0.02%)
+  Exposed supply                      6,920,867.83 BTC    6,930,122.81 BTC       +9,254.98 BTC  (+0.13%)
   Exposed share of total supply                 34.58%              34.62%
     Active (key-reuse risk)           3,350,606.76 BTC    3,355,484.55 BTC       +4,877.79 BTC
     Inactive (not recently spent)     1,701,053.96 BTC    1,703,233.32 BTC       +2,179.36 BTC
