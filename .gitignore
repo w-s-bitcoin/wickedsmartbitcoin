@@ -53,5 +53,8 @@ quantum_exposure.zip
 # Archived quantum exposure snapshots (pipeline keeps these out of active data)
 webapps/quantum_exposure/webapp_data/archived/
 
+# Arkham enrichment working data and helpers
+webapps/quantum_exposure/webapp_data/arkham/
+
 # Local dev-only helpers
 dev/
