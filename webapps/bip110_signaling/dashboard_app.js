@@ -223,6 +223,7 @@
       controls: {
         stripes: true,
         stripesExplicit: false,
+        blockSymbol: "dash",
         markers: true,
         labels: true,
         showSegwit: false,
@@ -313,6 +314,7 @@
         segwitResizeHandle,
         bip110ResizeHandle,
         ...topbar.querySelectorAll('input[type="checkbox"]'),
+        ...topbar.querySelectorAll('select'),
       ].filter(Boolean).forEach((control) => {
         control.disabled = !enabled;
       });
@@ -898,6 +900,7 @@
         const payload = {
           stripes: Boolean(state.controls.stripes),
           stripesExplicit: Boolean(state.controls.stripesExplicit),
+          blockSymbol: normalizeBlockSymbol(state.controls.blockSymbol),
           markers: Boolean(state.controls.markers),
           labels: Boolean(state.controls.labels),
           showSegwit: Boolean(state.controls.showSegwit),
@@ -938,6 +941,7 @@
         state.controls.stripes = state.controls.stripesExplicit
           ? Boolean(parsed.stripes)
           : window.innerWidth >= 760;
+        state.controls.blockSymbol = normalizeBlockSymbol(parsed.blockSymbol);
         state.controls.markers = typeof parsed.markers === "boolean" ? parsed.markers : true;
         state.controls.labels = typeof parsed.labels === "boolean" ? parsed.labels : true;
         state.controls.showSegwit = typeof parsed.showSegwit === "boolean" ? parsed.showSegwit : false;
@@ -980,8 +984,11 @@
         const labels = document.getElementById("toggleLabels");
         const segwitWindow = document.getElementById("toggleSegwitWindow");
         const bip110Window = document.getElementById("toggleBip110Window");
+        const blockSymbolSelect = document.getElementById("blockSymbolSelect");
 
         if (stripes) stripes.checked = state.controls.stripes;
+        if (blockSymbolSelect) blockSymbolSelect.value = normalizeBlockSymbol(state.controls.blockSymbol);
+        syncBlockSymbolControl();
         if (markers) markers.checked = state.controls.markers;
         if (labels) labels.checked = state.controls.labels;
         if (segwitWindow) segwitWindow.checked = state.controls.showSegwit;
@@ -1031,7 +1038,7 @@
       if (!decoded || typeof decoded !== "object") return false;
       const controls = decoded.controls;
       if (controls && typeof controls === "object") {
-        const controlKeys = ["stripes", "stripesExplicit", "markers", "labels", "showSegwit", "showBip110", "panelsSwapped"];
+        const controlKeys = ["stripes", "stripesExplicit", "blockSymbol", "markers", "labels", "showSegwit", "showBip110", "panelsSwapped"];
         if (controlKeys.some((key) => Object.prototype.hasOwnProperty.call(controls, key))) return true;
       }
       const manualHeights = decoded.manualPanelHeights;
@@ -1066,6 +1073,7 @@
         controls: {
           stripes: window.innerWidth >= 760,
           stripesExplicit: false,
+          blockSymbol: "dash",
           markers: true,
           labels: true,
           showSegwit: false,
@@ -1087,6 +1095,7 @@
         controls: {
           stripes: Boolean(state.controls.stripes),
           stripesExplicit: Boolean(state.controls.stripesExplicit),
+          blockSymbol: normalizeBlockSymbol(state.controls.blockSymbol),
           markers: Boolean(state.controls.markers),
           labels: Boolean(state.controls.labels),
           showSegwit: Boolean(state.controls.showSegwit),
@@ -1154,6 +1163,7 @@
       if (controls) {
         if (typeof controls.stripes === "boolean") state.controls.stripes = controls.stripes;
         if (typeof controls.stripesExplicit === "boolean") state.controls.stripesExplicit = controls.stripesExplicit;
+        if (typeof controls.blockSymbol === "string") state.controls.blockSymbol = normalizeBlockSymbol(controls.blockSymbol);
         if (typeof controls.markers === "boolean") state.controls.markers = controls.markers;
         if (typeof controls.labels === "boolean") state.controls.labels = controls.labels;
         if (typeof controls.showSegwit === "boolean") state.controls.showSegwit = controls.showSegwit;
@@ -1191,7 +1201,10 @@
       const labels = document.getElementById("toggleLabels");
       const segwitWindow = document.getElementById("toggleSegwitWindow");
       const bip110Window = document.getElementById("toggleBip110Window");
+      const blockSymbolSelect = document.getElementById("blockSymbolSelect");
       if (stripes) stripes.checked = state.controls.stripes;
+      if (blockSymbolSelect) blockSymbolSelect.value = normalizeBlockSymbol(state.controls.blockSymbol);
+      syncBlockSymbolControl();
       if (markers) markers.checked = state.controls.markers;
       if (labels) labels.checked = state.controls.labels;
       if (segwitWindow) segwitWindow.checked = state.controls.showSegwit;
@@ -1240,10 +1253,12 @@
       const labels = document.getElementById("toggleLabels");
       const segwitWindow = document.getElementById("toggleSegwitWindow");
       const bip110Window = document.getElementById("toggleBip110Window");
+      const blockSymbolSelect = document.getElementById("blockSymbolSelect");
       return {
         controls: {
           stripes: Boolean(state.controls.stripes),
           stripesExplicit: Boolean(state.controls.stripesExplicit),
+          blockSymbol: normalizeBlockSymbol(state.controls.blockSymbol),
           markers: Boolean(state.controls.markers),
           labels: Boolean(state.controls.labels),
           showSegwit: Boolean(state.controls.showSegwit),
@@ -1265,6 +1280,7 @@
           toggleLabels: Boolean(labels?.checked ?? state.controls.labels),
           toggleSegwitWindow: Boolean(segwitWindow?.checked ?? state.controls.showSegwit),
           toggleBip110Window: Boolean(bip110Window?.checked ?? state.controls.showBip110),
+          blockSymbol: normalizeBlockSymbol(blockSymbolSelect?.value ?? state.controls.blockSymbol),
         },
       };
     }
@@ -1280,6 +1296,9 @@
           ? checkboxState.toggleStripes
           : Boolean(controls.stripes);
         state.controls.stripesExplicit = Boolean(controls.stripesExplicit);
+        state.controls.blockSymbol = typeof checkboxState.blockSymbol === 'string'
+          ? normalizeBlockSymbol(checkboxState.blockSymbol)
+          : normalizeBlockSymbol(controls.blockSymbol);
         state.controls.markers = typeof checkboxState.toggleMarkers === 'boolean'
           ? checkboxState.toggleMarkers
           : Boolean(controls.markers);
@@ -1316,7 +1335,10 @@
         const labels = document.getElementById('toggleLabels');
         const segwitWindow = document.getElementById('toggleSegwitWindow');
         const bip110Window = document.getElementById('toggleBip110Window');
+        const blockSymbolSelect = document.getElementById('blockSymbolSelect');
         if (stripes) stripes.checked = state.controls.stripes;
+        if (blockSymbolSelect) blockSymbolSelect.value = normalizeBlockSymbol(state.controls.blockSymbol);
+        syncBlockSymbolControl();
         if (markers) markers.checked = state.controls.markers;
         if (labels) labels.checked = state.controls.labels;
         if (segwitWindow) segwitWindow.checked = state.controls.showSegwit;
@@ -1367,6 +1389,7 @@
 
         state.controls.stripes = window.innerWidth >= 760;
         state.controls.stripesExplicit = false;
+        state.controls.blockSymbol = "dash";
         state.controls.markers = true;
         state.controls.labels = true;
         state.controls.showSegwit = false;
@@ -1391,8 +1414,11 @@
         const labels = document.getElementById("toggleLabels");
         const segwitWindow = document.getElementById("toggleSegwitWindow");
         const bip110Window = document.getElementById("toggleBip110Window");
+        const blockSymbolSelect = document.getElementById("blockSymbolSelect");
 
         if (stripes) stripes.checked = state.controls.stripes;
+        if (blockSymbolSelect) blockSymbolSelect.value = "dash";
+        syncBlockSymbolControl();
         if (markers) markers.checked = true;
         if (labels) labels.checked = true;
         if (segwitWindow) segwitWindow.checked = false;
@@ -1431,6 +1457,7 @@
 
       if (state.controls.stripesExplicit) return false;
       if (stripes && stripes.checked !== defaultStripesOn) return false;
+      if (normalizeBlockSymbol(state.controls.blockSymbol) !== 'dash') return false;
       if (markers && !markers.checked) return false;
       if (labels && !labels.checked) return false;
       if (segwitWindow && segwitWindow.checked) return false;
@@ -1540,6 +1567,12 @@
       return Math.max(min, Math.min(max, x));
     }
 
+    function normalizeBlockSymbol(value) {
+      const normalized = String(value || "").trim().toLowerCase();
+      if (normalized === "square" || normalized === "x") return normalized;
+      return "dash";
+    }
+
     function pctLabel(signal, periodSize) {
       const pct = (signal / periodSize) * 100;
       if (pct > 0 && pct < 0.1) return "< 0.1%";
@@ -1587,6 +1620,22 @@
       wrapper.appendChild(display);
       wrapper.appendChild(select);
       return wrapper;
+    }
+
+    function syncBlockSymbolControl() {
+      const select = document.getElementById("blockSymbolSelect");
+      const display = document.getElementById("blockSymbolDisplay");
+      if (!select || !display) return;
+
+      const value = normalizeBlockSymbol(select.value || state.controls.blockSymbol);
+      const symbols = {
+        dash: "-",
+        square: "■",
+        x: "×",
+      };
+      const label = symbols[value] || symbols.dash;
+      display.innerHTML = `<span class="chip-label">Block symbols</span> <span class="chip-value">${label}</span>`;
+      select.value = value;
     }
 
     function fitFontPx(ctx, text, maxWidth, basePx, minPx, fontFamily) {
@@ -1647,6 +1696,40 @@
       ctx.fillStyle = color;
       ctx.fillRect(-size / 2, -size / 2, size, size);
       ctx.restore();
+    }
+
+    function drawBlockStripeMarker(ctx, symbol, x0, x1, y, color, lineWidth, isMobile) {
+      const marker = normalizeBlockSymbol(symbol);
+      const centerX = (x0 + x1) / 2;
+      const segmentWidth = Math.max(1, Math.abs(x1 - x0));
+
+      if (marker === "square") {
+        const squareSize = Math.max(isMobile ? 2.6 : 3.2, Math.min(isMobile ? 4.8 : 5.4, segmentWidth * 0.85));
+        ctx.fillStyle = color;
+        ctx.fillRect(centerX - (squareSize / 2), y - (squareSize / 2), squareSize, squareSize);
+        return { x0: centerX - (squareSize / 2), x1: centerX + (squareSize / 2), yPad: Math.max(2.5, squareSize * 0.7) };
+      }
+
+      if (marker === "x") {
+        const arm = Math.max(isMobile ? 2.4 : 2.8, Math.min(isMobile ? 4.8 : 5.6, segmentWidth * 0.95));
+        ctx.strokeStyle = color;
+        ctx.lineWidth = Math.max(1.1, lineWidth * 0.75);
+        ctx.beginPath();
+        ctx.moveTo(centerX - arm, y - arm);
+        ctx.lineTo(centerX + arm, y + arm);
+        ctx.moveTo(centerX - arm, y + arm);
+        ctx.lineTo(centerX + arm, y - arm);
+        ctx.stroke();
+        return { x0: centerX - arm, x1: centerX + arm, yPad: Math.max(2.6, arm + 1) };
+      }
+
+      ctx.strokeStyle = color;
+      ctx.lineWidth = lineWidth;
+      ctx.beginPath();
+      ctx.moveTo(x0, y);
+      ctx.lineTo(x1, y);
+      ctx.stroke();
+      return { x0: Math.min(x0, x1), x1: Math.max(x0, x1), yPad: Math.max(2.5, lineWidth * 1.6) };
     }
 
     function drawMultiline(ctx, text, x, y, align, baseline, color, font, lineHeight) {
@@ -1891,7 +1974,7 @@
         const stripeOffset = Number(chart.signal_stripes.x_offset);
         const stripeHalf = Number(chart.signal_stripes.halfwidth);
         const stripeWidth = Math.max(0.5, Number(chart.signal_stripes.linewidth) * 2.5);
-        const stripeHitPad = Math.max(2.5, stripeWidth * 1.6);
+        const stripeSymbol = normalizeBlockSymbol(state.controls.blockSymbol);
 
         blocks.forEach((b) => {
           const p = Number(b.period);
@@ -1905,19 +1988,23 @@
             ? xScale(p + stripeOffset + stripeHalf)
             : xScale(p - stripeOffset + stripeHalf);
 
-          ctx.strokeStyle = signaling ? colors.signal : colors.nonsignal;
-          ctx.lineWidth = stripeWidth;
           ctx.globalAlpha = 0.98;
-          ctx.beginPath();
-          ctx.moveTo(x0, y);
-          ctx.lineTo(x1, y);
-          ctx.stroke();
+          const markerBounds = drawBlockStripeMarker(
+            ctx,
+            stripeSymbol,
+            x0,
+            x1,
+            y,
+            signaling ? colors.signal : colors.nonsignal,
+            stripeWidth,
+            isMobile
+          );
 
           state.stripeMaps[key].push({
-            x0: Math.min(x0, x1),
-            x1: Math.max(x0, x1),
-            y0: y - stripeHitPad,
-            y1: y + stripeHitPad,
+            x0: markerBounds.x0,
+            x1: markerBounds.x1,
+            y0: y - markerBounds.yPad,
+            y1: y + markerBounds.yPad,
             data: b,
           });
         });
@@ -2397,8 +2484,8 @@
       visiblePanels.forEach(({ key, box }) => {
         const panel = key === "segwit" ? segwitPanel : bip110Panel;
         const manual = state.manualPanelHeights[key];
-        const isFilledSinglePanel = n === 1 && state.filledPanels[key];
-        const targetHeight = isFilledSinglePanel
+        const isFilledPanel = state.filledPanels[key];
+        const targetHeight = isFilledPanel
           ? getViewportFillHeightForSinglePanel()
           : (Number.isFinite(manual)
             ? clampPanelResizeHeight(manual)
@@ -2456,12 +2543,8 @@
       const compactHeight = getCompactTargetHeight(visibleCount);
       const compactDistance = Math.abs(manualHeight - compactHeight);
 
-      let fillHeight = null;
-      let fillDistance = Number.POSITIVE_INFINITY;
-      if (visibleCount === 1) {
-        fillHeight = clampPanelResizeHeight(getViewportFillHeightForSinglePanel());
-        fillDistance = Math.abs(manualHeight - fillHeight);
-      }
+      const fillHeight = clampPanelResizeHeight(getViewportFillHeightForSinglePanel());
+      const fillDistance = Math.abs(manualHeight - fillHeight);
 
       if (fillHeight != null && fillDistance <= PANEL_RESIZE_SNAP_PX && fillDistance <= compactDistance) {
         return { mode: "fill", height: fillHeight };
@@ -3061,6 +3144,7 @@
     function setControlHandlers() {
       bindCustomTooltips();
       const stripes = document.getElementById("toggleStripes");
+      const blockSymbolSelect = document.getElementById("blockSymbolSelect");
       const markers = document.getElementById("toggleMarkers");
       const labels = document.getElementById("toggleLabels");
       const segwitWindow = document.getElementById("toggleSegwitWindow");
@@ -3078,6 +3162,19 @@
         updateResetButtonUi();
         renderAll();
       });
+
+      if (blockSymbolSelect) {
+        blockSymbolSelect.value = normalizeBlockSymbol(state.controls.blockSymbol);
+        syncBlockSymbolControl();
+        blockSymbolSelect.addEventListener("change", () => {
+          state.controls.blockSymbol = normalizeBlockSymbol(blockSymbolSelect.value);
+          blockSymbolSelect.value = state.controls.blockSymbol;
+          syncBlockSymbolControl();
+          persistControls();
+          updateResetButtonUi();
+          renderAll();
+        });
+      }
 
       markers.addEventListener("change", () => {
         state.controls.markers = markers.checked;

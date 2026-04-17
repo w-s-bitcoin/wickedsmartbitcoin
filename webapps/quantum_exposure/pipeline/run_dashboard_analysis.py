@@ -2508,12 +2508,14 @@ def export_dashboard_csvs(
         writer.writerow([snapshot, analysis_time, cutoff_height, cutoff_time])
     meta_rows = 1
 
-    latest_ptr = out_dir / "latest_snapshot.txt"
-    latest_ptr.parent.mkdir(parents=True, exist_ok=True)
-    latest_ptr.write_text(str(snapshot), encoding="utf-8")
-
     snapshot_dirs = [p.name for p in out_dir.iterdir() if p.is_dir() and p.name.isdigit()]
     snapshot_dirs.sort(key=lambda value: int(value), reverse=True)
+
+    latest_ptr = out_dir / "latest_snapshot.txt"
+    latest_ptr.parent.mkdir(parents=True, exist_ok=True)
+    latest_height = snapshot_dirs[0] if snapshot_dirs else str(snapshot)
+    latest_ptr.write_text(latest_height, encoding="utf-8")
+
     index_path = out_dir / "snapshots_index.csv"
     with index_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)

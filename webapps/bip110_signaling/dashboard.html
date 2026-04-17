@@ -306,6 +306,21 @@
       padding-top: 8px;
     }
 
+    #blockSymbolWrap {
+      width: 152px;
+    }
+
+    #blockSymbolDisplay {
+      width: 100%;
+      justify-content: space-between;
+      box-sizing: border-box;
+    }
+
+    #blockSymbolSelect,
+    #blockSymbolSelect option {
+      color: var(--fg);
+    }
+
     .topbar.ui-locked .toggle {
       opacity: 0.55;
       cursor: not-allowed;
@@ -727,6 +742,14 @@
         <label class="toggle" for="toggleSegwitWindow"><input type="checkbox" id="toggleSegwitWindow" /> SegWit periods</label>
         <label class="toggle" for="toggleBip110Window"><input type="checkbox" id="toggleBip110Window" checked /> BIP-110 periods</label>
         <label class="toggle" for="toggleStripes"><input type="checkbox" id="toggleStripes" checked /> Block markers</label>
+        <div class="chip-menu-wrap single-select" id="blockSymbolWrap">
+          <div class="chip chip-kpi-display" id="blockSymbolDisplay"><span class="chip-label">Block symbols</span> <span class="chip-value">-</span></div>
+          <select id="blockSymbolSelect" class="chip-menu-select chip-kpi-select-overlay" aria-label="Block symbols">
+            <option value="dash" selected>-</option>
+            <option value="square">■</option>
+            <option value="x">×</option>
+          </select>
+        </div>
         <label class="toggle" for="toggleMarkers"><input type="checkbox" id="toggleMarkers" checked /> Release markers</label>
         <label class="toggle" for="toggleLabels"><input type="checkbox" id="toggleLabels" checked /> Percentage labels</label>
         <button type="button" class="swap-panels-control" id="swapPanelsBtn" title="Swap panel order" aria-label="Swap panel order">
