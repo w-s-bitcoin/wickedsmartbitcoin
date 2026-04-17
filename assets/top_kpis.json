@@ -1,8 +1,8 @@
 {
-  "block_height": 945488,
+  "block_height": 945505,
   "epoch": 5,
   "epoch_complete": 0.502,
   "subsidy_btc": "3.125",
-  "difficulty": 138966872071213.2,
-  "difficulty_display": "138.97T"
+  "difficulty": 135594876535256.6,
+  "difficulty_display": "135.59T"
 }

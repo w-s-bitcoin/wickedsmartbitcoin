@@ -25,6 +25,74 @@
         <meta name="twitter:title" content="Wicked Smart Bitcoin">
         <meta name="twitter:description" content="Wicked's Collection of Bitcoin Dashboards">
         <meta name="twitter:image" content="https://wickedsmartbitcoin.com/assets/og-banner.png">
+        <style>
+            :root {
+                /* dark (default) */
+                --scrollbar-track: #171717;
+                --scrollbar-thumb: #4e4e4e;
+                --scrollbar-thumb-hover: #676767;
+            }
+
+            :root[data-theme="light"] {
+                --scrollbar-track: #e8dfd2;
+                --scrollbar-thumb: #b5a99a;
+                --scrollbar-thumb-hover: #9f917f;
+            }
+
+            html,
+            body,
+            .wrap,
+            .grid,
+            .cards-container,
+            .card-grid,
+            .list-container {
+                scrollbar-width: thin;
+                scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+            }
+
+            html::-webkit-scrollbar,
+            body::-webkit-scrollbar,
+            .wrap::-webkit-scrollbar,
+            .grid::-webkit-scrollbar,
+            .cards-container::-webkit-scrollbar,
+            .card-grid::-webkit-scrollbar,
+            .list-container::-webkit-scrollbar {
+                width: 10px;
+                height: 10px;
+            }
+
+            html::-webkit-scrollbar-track,
+            body::-webkit-scrollbar-track,
+            .wrap::-webkit-scrollbar-track,
+            .grid::-webkit-scrollbar-track,
+            .cards-container::-webkit-scrollbar-track,
+            .card-grid::-webkit-scrollbar-track,
+            .list-container::-webkit-scrollbar-track {
+                background: var(--scrollbar-track);
+            }
+
+            html::-webkit-scrollbar-thumb,
+            body::-webkit-scrollbar-thumb,
+            .wrap::-webkit-scrollbar-thumb,
+            .grid::-webkit-scrollbar-thumb,
+            .cards-container::-webkit-scrollbar-thumb,
+            .card-grid::-webkit-scrollbar-thumb,
+            .list-container::-webkit-scrollbar-thumb {
+                background: var(--scrollbar-thumb);
+                border-radius: 999px;
+                border: 2px solid var(--scrollbar-track);
+            }
+
+            html::-webkit-scrollbar-thumb:hover,
+            body::-webkit-scrollbar-thumb:hover,
+            .wrap::-webkit-scrollbar-thumb:hover,
+            .grid::-webkit-scrollbar-thumb:hover,
+            .cards-container::-webkit-scrollbar-thumb:hover,
+            .card-grid::-webkit-scrollbar-thumb:hover,
+            .list-container::-webkit-scrollbar-thumb:hover {
+                background: var(--scrollbar-thumb-hover);
+            }
+        </style>
     </head>
     <body>
         <div class="buy-coffee">

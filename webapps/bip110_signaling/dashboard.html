@@ -57,6 +57,9 @@
       --tooltip-fg: #e9f1f5;
       --fill-btn-border: rgba(255, 255, 255, 0.25);
       --fill-btn-bg: rgba(0, 0, 0, 0.72);
+      --scrollbar-track: #171717;
+      --scrollbar-thumb: #4e4e4e;
+      --scrollbar-thumb-hover: #676767;
     }
 
     :root[data-theme="light"] {
@@ -87,6 +90,9 @@
       --fill-btn-border: rgba(0, 0, 0, 0.18);
       --fill-btn-bg: rgba(248, 245, 240, 0.9);
       --fill-btn-disabled-color: rgba(0, 0, 0, 0.28);
+      --scrollbar-track: #e8dfd2;
+      --scrollbar-thumb: #b5a99a;
+      --scrollbar-thumb-hover: #9f917f;
     }
 
     body {
@@ -95,6 +101,60 @@
       color: var(--fg);
       background: var(--bg);
       min-height: 100vh;
+    }
+
+    html,
+    body,
+    .wrap,
+    .top-list,
+    #scriptBars,
+    .analysis-split,
+    .bars-panel {
+      scrollbar-width: thin;
+      scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+    }
+
+    html::-webkit-scrollbar,
+    body::-webkit-scrollbar,
+    .wrap::-webkit-scrollbar,
+    .top-list::-webkit-scrollbar,
+    #scriptBars::-webkit-scrollbar,
+    .analysis-split::-webkit-scrollbar,
+    .bars-panel::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+
+    html::-webkit-scrollbar-track,
+    body::-webkit-scrollbar-track,
+    .wrap::-webkit-scrollbar-track,
+    .top-list::-webkit-scrollbar-track,
+    #scriptBars::-webkit-scrollbar-track,
+    .analysis-split::-webkit-scrollbar-track,
+    .bars-panel::-webkit-scrollbar-track {
+      background: var(--scrollbar-track);
+    }
+
+    html::-webkit-scrollbar-thumb,
+    body::-webkit-scrollbar-thumb,
+    .wrap::-webkit-scrollbar-thumb,
+    .top-list::-webkit-scrollbar-thumb,
+    #scriptBars::-webkit-scrollbar-thumb,
+    .analysis-split::-webkit-scrollbar-thumb,
+    .bars-panel::-webkit-scrollbar-thumb {
+      background: var(--scrollbar-thumb);
+      border-radius: 999px;
+      border: 2px solid var(--scrollbar-track);
+    }
+
+    html::-webkit-scrollbar-thumb:hover,
+    body::-webkit-scrollbar-thumb:hover,
+    .wrap::-webkit-scrollbar-thumb:hover,
+    .top-list::-webkit-scrollbar-thumb:hover,
+    #scriptBars::-webkit-scrollbar-thumb:hover,
+    .analysis-split::-webkit-scrollbar-thumb:hover,
+    .bars-panel::-webkit-scrollbar-thumb:hover {
+      background: var(--scrollbar-thumb-hover);
     }
 
     /* Wrap styles are now inherited from shared CSS */
