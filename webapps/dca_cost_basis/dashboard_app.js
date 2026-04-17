@@ -33,6 +33,7 @@
 
 const CONTROLS_STORAGE_KEY = "dca_cost_basis_controls_v2";
 const DASHBOARD_TIME = window.WSBDashboardTime || null;
+const IS_CARD_PREVIEW = document.documentElement.classList.contains("card-preview");
 
 const state = {
   cadence: "daily_dca",
@@ -350,10 +351,10 @@ async function ensurePlotlyLoaded() {
 
 async function loadData() {
   const [metadataResp, dailyResp, weeklyResp, monthlyResp] = await Promise.all([
-    fetch("webapp_data/dca_cost_basis_metadata.json", { cache: "no-store" }),
-    fetch("webapp_data/daily_dca.csv", { cache: "no-store" }),
-    fetch("webapp_data/weekly_dca.csv", { cache: "no-store" }),
-    fetch("webapp_data/monthly_dca.csv", { cache: "no-store" }),
+    fetch("webapp_data/dca_cost_basis_metadata.json", { cache: "default" }),
+    fetch("webapp_data/daily_dca.csv", { cache: "default" }),
+    fetch("webapp_data/weekly_dca.csv", { cache: "default" }),
+    fetch("webapp_data/monthly_dca.csv", { cache: "default" }),
   ]);
 
   if (!metadataResp.ok) throw new Error(`Failed to load metadata (${metadataResp.status}).`);
@@ -1026,11 +1027,244 @@ function showError(message) {
   document.querySelector("main")?.prepend(error);
 }
 
+function bindHalFinneyEasterEgg() {
+  const trigger = document.getElementById("halFinneyBtn");
+  const overlay = document.getElementById("halFinneyOverlay");
+  const overlayImage = document.getElementById("halFinneyOverlayImage");
+  if (!trigger || !overlay || !overlayImage) return;
+
+  const applyThemeVariant = () => {
+    const isLight = document.documentElement.dataset.theme === "light";
+    overlayImage.src = isLight
+      ? "webapp_data/hal-finney-dca-light.jpeg"
+      : "webapp_data/hal-finney-dca-dark.jpeg";
+  };
+
+  const close = () => {
+    overlay.hidden = true;
+  };
+
+  applyThemeVariant();
+
+  trigger.addEventListener("click", () => {
+    applyThemeVariant();
+    overlay.hidden = false;
+  });
+
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) {
+      close();
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !overlay.hidden) {
+      close();
+    }
+  });
+
+  document.addEventListener("dashboard-theme-change", applyThemeVariant);
+}
+
+function buildSvgLinePath(values, mapX, mapY) {
+  if (!values.length) return "";
+  let d = "";
+  for (let i = 0; i < values.length; i += 1) {
+    const x = mapX(i);
+    const y = mapY(values[i]);
+    d += i === 0 ? `M ${x.toFixed(2)} ${y.toFixed(2)}` : ` L ${x.toFixed(2)} ${y.toFixed(2)}`;
+  }
+  return d;
+}
+
+function buildSvgSegmentedPaths(values, mapX, mapY) {
+  const paths = [];
+  let current = "";
+
+  for (let i = 0; i < values.length; i += 1) {
+    const value = values[i];
+    if (!Number.isFinite(value)) {
+      if (current) {
+        paths.push(current);
+        current = "";
+      }
+      continue;
+    }
+
+    const x = mapX(i);
+    const y = mapY(value);
+    current += current
+      ? ` L ${x.toFixed(2)} ${y.toFixed(2)}`
+      : `M ${x.toFixed(2)} ${y.toFixed(2)}`;
+  }
+
+  if (current) paths.push(current);
+  return paths;
+}
+
+function renderCardPreviewFromRows(rows) {
+  const chart = document.getElementById("costBasisChart");
+  if (!chart) return;
+
+  const safeRows = (rows || []).filter((row) => (
+    Number.isFinite(row.daysAgo) &&
+    Number.isFinite(row.historicalPrice) &&
+    Number.isFinite(row.dcaBasis) &&
+    Number.isFinite(row.isPriceAbove)
+  ));
+
+  if (!safeRows.length) {
+    chart.innerHTML = "";
+    const fallback = document.createElement("div");
+    fallback.textContent = "Preview unavailable";
+    fallback.style.display = "grid";
+    fallback.style.placeItems = "center";
+    fallback.style.width = "100%";
+    fallback.style.height = "100%";
+    fallback.style.color = getThemeColors().muted;
+    fallback.style.fontFamily = "IBM Plex Mono, monospace";
+    fallback.style.fontSize = "12px";
+    chart.appendChild(fallback);
+    return;
+  }
+
+  const colors = getThemeColors();
+  const width = Math.max(chart.clientWidth || 0, 420);
+  const height = Math.max(chart.clientHeight || 0, 220);
+  const padding = { top: 12, right: 18, bottom: 16, left: 18 };
+  const plotWidth = Math.max(1, width - padding.left - padding.right);
+  const plotHeight = Math.max(1, height - padding.top - padding.bottom);
+
+  const priceValues = safeRows.map((r) => r.historicalPrice);
+  const basisValues = safeRows.map((r) => r.dcaBasis);
+  const priceUpValues = safeRows.map((r) => (r.isPriceAbove === 1 ? r.historicalPrice : NaN));
+  const priceDownValues = safeRows.map((r) => (r.isPriceAbove === 0 ? r.historicalPrice : NaN));
+
+  // Keep color continuity at transition points, matching the full chart behavior.
+  for (let i = 0; i < safeRows.length - 1; i += 1) {
+    const curr = safeRows[i];
+    const next = safeRows[i + 1];
+    if (curr.isPriceAbove === next.isPriceAbove) continue;
+
+    if (curr.isPriceAbove === 1) {
+      priceUpValues[i + 1] = next.historicalPrice;
+    } else {
+      priceDownValues[i + 1] = next.historicalPrice;
+    }
+  }
+
+  const minYRaw = Math.min(...priceValues, ...basisValues);
+  const maxYRaw = Math.max(...priceValues, ...basisValues);
+  const padY = (maxYRaw - minYRaw) * 0.1 || Math.max(1, maxYRaw * 0.08);
+  const minYLinear = Math.max(0, minYRaw - padY);
+  const maxYLinear = maxYRaw + padY;
+
+  const isLog = state.yScale === "log";
+  const logValues = [...priceValues, ...basisValues].filter((v) => Number.isFinite(v) && v > 0);
+  const minYLog = Math.max(1e-6, Math.min(...logValues));
+  const maxYLog = Math.max(minYLog * 1.00001, Math.max(...logValues));
+  const minY = isLog ? minYLog : minYLinear;
+  const maxY = isLog ? maxYLog : maxYLinear;
+  const spanY = Math.max(1e-9, maxY - minY);
+  const spanLog = Math.max(1e-9, Math.log10(maxY) - Math.log10(minY));
+
+  const mapX = (idx) => padding.left + (idx / Math.max(1, safeRows.length - 1)) * plotWidth;
+  const mapY = (v) => {
+    if (isLog) {
+      const safeV = Math.max(v, minY);
+      return padding.top + ((Math.log10(maxY) - Math.log10(safeV)) / spanLog) * plotHeight;
+    }
+    return padding.top + ((maxY - v) / spanY) * plotHeight;
+  };
+
+  const basisPath = buildSvgLinePath(basisValues, mapX, mapY);
+  const upPaths = buildSvgSegmentedPaths(priceUpValues, mapX, mapY);
+  const downPaths = buildSvgSegmentedPaths(priceDownValues, mapX, mapY);
+  const yCurrent = mapY(priceValues[priceValues.length - 1]);
+
+  const gridLines = [0.25, 0.5, 0.75].map((t) => {
+    const y = padding.top + (plotHeight * t);
+    return `<line x1="${padding.left}" y1="${y.toFixed(2)}" x2="${(padding.left + plotWidth).toFixed(2)}" y2="${y.toFixed(2)}" stroke="${colors.grid}" stroke-width="1" />`;
+  }).join("");
+
+  const upPathElements = upPaths.map((d) => (`
+  <path d="${d}" fill="none" stroke="${colors.up}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+  `)).join("");
+
+  const downPathElements = downPaths.map((d) => (`
+  <path d="${d}" fill="none" stroke="${colors.down}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+  `)).join("");
+
+  const svg = `
+<svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="DCA Cost Basis preview chart">
+  ${gridLines}
+  <line x1="${padding.left}" y1="${yCurrent.toFixed(2)}" x2="${(padding.left + plotWidth).toFixed(2)}" y2="${yCurrent.toFixed(2)}" stroke="${colors.currentLine}" stroke-width="1.2" stroke-dasharray="5 4" />
+  ${downPathElements}
+  ${upPathElements}
+  <path d="${basisPath}" fill="none" stroke="${colors.basis}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+</svg>`;
+
+  chart.innerHTML = svg;
+}
+
+async function renderCardPreview() {
+  const chart = document.getElementById("costBasisChart");
+  if (!chart) return;
+
+  try {
+    const cadenceToFile = {
+      daily_dca: "daily_dca.csv",
+      weekly_dca: "weekly_dca.csv",
+      monthly_dca: "monthly_dca.csv",
+    };
+    const cadence = cadenceToFile[state.cadence] ? state.cadence : "daily_dca";
+    const filename = cadenceToFile[cadence];
+
+    const resp = await fetch(`webapp_data/${filename}`, { cache: "default" });
+    if (!resp.ok) throw new Error(`Failed to load ${filename} (${resp.status}).`);
+
+    const rows = parseCsv(await resp.text())
+      .map((row) => ({
+        daysAgo: Number.parseInt(row.days_ago || "0", 10),
+        historicalPrice: toNumber(row.historical_price),
+        dcaBasis: toNumber(row.dca_basis),
+        isPriceAbove: toNumber(row.is_price_above),
+      }))
+      .filter((row) => (
+        Number.isFinite(row.daysAgo) &&
+        Number.isFinite(row.historicalPrice) &&
+        Number.isFinite(row.dcaBasis) &&
+        Number.isFinite(row.isPriceAbove)
+      ))
+      .sort((a, b) => a.daysAgo - b.daysAgo);
+
+    const scopedRows = state.rangeDays > 0
+      ? rows.filter((row) => row.daysAgo <= state.rangeDays)
+      : rows;
+
+    scopedRows.sort((a, b) => b.daysAgo - a.daysAgo);
+    renderCardPreviewFromRows(scopedRows);
+  } catch (error) {
+    console.error(error);
+    renderCardPreviewFromRows([]);
+  }
+}
+
 async function init() {
   try {
+    if (IS_CARD_PREVIEW) {
+      loadControls();
+      await renderCardPreview();
+      document.addEventListener("dashboard-theme-change", () => {
+        renderCardPreview();
+      });
+      return;
+    }
+
     loadControls();
     populateUpdatedTimeZoneSelect();
     bindTimeZoneChipEvents();
+    bindHalFinneyEasterEgg();
     applyControlValuesToUi();
     bindControls();
 

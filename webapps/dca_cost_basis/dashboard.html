@@ -362,6 +362,65 @@
       background: rgba(200, 50, 50, 0.08);
       border-color: rgba(200, 50, 50, 0.3);
     }
+
+    .title-row-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .hal-finney-btn {
+      width: 26px;
+      height: 26px;
+      border-radius: 999px;
+      border: 1px solid var(--card-border);
+      padding: 0;
+      background: transparent;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      overflow: hidden;
+      transition: border-color 140ms ease, transform 140ms ease;
+    }
+
+    .hal-finney-btn:hover,
+    .hal-finney-btn:focus-visible {
+      border-color: var(--accent);
+      transform: translateY(-1px);
+      outline: none;
+    }
+
+    .hal-finney-btn img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .hal-finney-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 320;
+      background: rgba(0, 0, 0, 0.72);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: clamp(12px, 4vw, 32px);
+    }
+
+    .hal-finney-overlay[hidden] {
+      display: none;
+    }
+
+    .hal-finney-overlay-image {
+      max-width: min(960px, calc(100vw - 36px));
+      max-height: calc(100vh - 36px);
+      border-radius: 12px;
+      border: 1px solid var(--card-border);
+      box-shadow: 0 14px 40px rgba(0, 0, 0, 0.42);
+      display: block;
+    }
   </style>
 </head>
 <body>
@@ -369,11 +428,16 @@
     <section class="topbar">
       <div class="title-row">
         <h1 class="title">Bitcoin DCA Cost Basis</h1>
-        <div class="info-wrap">
-          <button type="button" class="info-btn" aria-label="About this dashboard" aria-describedby="dcaCostBasisInfoPopover">?</button>
-          <div class="info-popover" id="dcaCostBasisInfoPopover" role="tooltip">
-            Compares historical Bitcoin price against DCA cost basis across daily, weekly, and monthly cadences. Use the selected range to evaluate how many DCA start points are currently in profit versus at a loss.
+        <div class="title-row-actions">
+          <div class="info-wrap">
+            <button type="button" class="info-btn" aria-label="About this dashboard" aria-describedby="dcaCostBasisInfoPopover">?</button>
+            <div class="info-popover" id="dcaCostBasisInfoPopover" role="tooltip">
+              Compares historical Bitcoin price against DCA cost basis across daily, weekly, and monthly cadences. Use the selected range to evaluate how many DCA start points are currently in profit versus at a loss.
+            </div>
           </div>
+          <button type="button" class="hal-finney-btn" id="halFinneyBtn" aria-label="Hal Finney easter egg" title="">
+            <img src="webapp_data/hal-finney.png" alt="Hal Finney" />
+          </button>
         </div>
       </div>
       <div class="chips" id="statusChips">
@@ -426,6 +490,9 @@
   </main>
 
   <div class="tooltip" id="chartTooltip"></div>
+  <div class="hal-finney-overlay" id="halFinneyOverlay" hidden>
+    <img class="hal-finney-overlay-image" id="halFinneyOverlayImage" src="webapp_data/hal-finney-dca-dark.jpeg" alt="Hal Finney DCA easter egg" />
+  </div>
 
   <script src="../../js/11_dashboard_timezone_preferences.js"></script>
   <script src="dashboard_app.js"></script>
