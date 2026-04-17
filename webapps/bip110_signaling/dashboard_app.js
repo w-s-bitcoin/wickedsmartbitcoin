@@ -30,7 +30,6 @@
     const PANEL_RESIZE_SNAP_PX = 18;
     const DASHBOARD_TIME = window.WSBDashboardTime || null;
     const SHARE_STATE_PARAM = "bip110_state";
-    const LEGACY_SHARE_STATE_PARAM = "state";
     const LOCAL_RUNTIME_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
     const IS_LOCAL_RUNTIME = LOCAL_RUNTIME_HOSTS.has(window.location.hostname);
 
@@ -1151,12 +1150,7 @@
     function applyDashboardShareStateFromUrl() {
       const params = new URLSearchParams(window.location.search || "");
       const decodedPrimary = decodeShareState(params.get(SHARE_STATE_PARAM) || "");
-      const decodedLegacy = !decodedPrimary
-        ? decodeShareState(params.get(LEGACY_SHARE_STATE_PARAM) || "")
-        : null;
-      const decoded = isBip110SharePayload(decodedPrimary)
-        ? decodedPrimary
-        : (isBip110SharePayload(decodedLegacy) ? decodedLegacy : null);
+      const decoded = isBip110SharePayload(decodedPrimary) ? decodedPrimary : null;
       if (!decoded) return;
 
       const controls = decoded.controls && typeof decoded.controls === "object" ? decoded.controls : null;
@@ -1377,9 +1371,8 @@
         }
         try {
           const params = new URLSearchParams(window.location.search || "");
-          if (params.has(SHARE_STATE_PARAM) || params.has(LEGACY_SHARE_STATE_PARAM)) {
+          if (params.has(SHARE_STATE_PARAM)) {
             params.delete(SHARE_STATE_PARAM);
-            params.delete(LEGACY_SHARE_STATE_PARAM);
             const nextQuery = params.toString();
             const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}${window.location.hash || ""}`;
             window.history.replaceState(null, "", nextUrl);

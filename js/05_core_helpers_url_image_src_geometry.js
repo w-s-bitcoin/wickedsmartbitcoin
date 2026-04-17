@@ -472,17 +472,20 @@ function modalEmbedSrc(pathOrUrl){
         // Preserve shell query params when embedding dashboard routes from shell URLs.
         // Supports both `?state=...#slug` and `#slug?state=...` forms.
         const shellParams = new URLSearchParams(window.location.search || '');
+        const shouldForwardShellParam = (key) => String(key || '').trim() !== 'state';
         const hash = String(window.location.hash || '').replace(/^#/, '');
         const hashQueryIndex = hash.indexOf('?');
         if (hashQueryIndex >= 0) {
             const hashSearch = hash.slice(hashQueryIndex + 1);
             const hashParams = new URLSearchParams(hashSearch);
             hashParams.forEach((value, key) => {
+                if (!shouldForwardShellParam(key)) return;
                 if (!shellParams.has(key)) {
                     shellParams.set(key, value);
                 }
             });
         }
+        shellParams.delete('state');
         if (!shellParams.toString()) return resolved;
 
         try {
@@ -491,6 +494,7 @@ function modalEmbedSrc(pathOrUrl){
                 if (!isDashboardPath) return resolved;
 
                 shellParams.forEach((value, key) => {
+                    if (!shouldForwardShellParam(key)) return;
                         if (!url.searchParams.has(key)) {
                                 url.searchParams.set(key, value);
                         }
