@@ -115,8 +115,8 @@ h1 {
   left: 0;
   right: auto;
   z-index: 50;
-  width: min(420px, calc(100vw - 24px));
-  max-width: min(420px, calc(100vw - 24px));
+  width: clamp(280px, 34vw, 420px);
+  max-width: calc(100vw - 24px);
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 10px;
   background: #000;
@@ -126,6 +126,10 @@ h1 {
   line-height: 1.45;
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
   font-family: "IBM Plex Mono", monospace;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
+  text-wrap: pretty;
   opacity: 0;
   visibility: hidden;
   pointer-events: none;

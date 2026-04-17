@@ -160,6 +160,45 @@
     html.card-preview body .grid {
       height: 100vh;
       align-self: stretch;
+      grid-template-columns: 1fr;
+      grid-template-rows: 1fr;
+    }
+
+    html.card-preview body .history-panel {
+      display: none;
+    }
+
+    html.card-preview body .panel-resizer {
+      display: none;
+    }
+
+    html.card-preview body .snapshot-panel {
+      display: flex;
+      flex-direction: column;
+      padding: 0;
+    }
+
+    html.card-preview body .snapshot-panel .panel-head {
+      display: none;
+    }
+
+    html.card-preview body .snapshot-panel .snapshot-chart-wrap {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    html.card-preview body .snapshot-panel .panel-resize-handle {
+      display: none;
+    }
+
+    html.card-preview body .panel-loader {
+      display: none !important;
+    }
+
+    html.card-preview #snapshotChart {
+      width: 100%;
+      height: 100%;
     }
 
     .topbar,
@@ -522,14 +561,21 @@
         min-width: 120px;
       }
 
+      .info-wrap {
+        position: static;
+      }
+
       .info-popover {
-        left: 50%;
-        transform: translate(-50%, -2px);
+        left: 0;
+        right: auto;
+        width: min(420px, calc(100vw - 24px));
+        max-width: min(420px, calc(100vw - 24px));
+        transform: translate(var(--info-popover-shift-x, 0px), -2px);
       }
 
       .info-wrap:hover .info-popover,
       .info-wrap:focus-within .info-popover {
-        transform: translate(-50%, 0);
+        transform: translateY(0);
       }
     }
 
@@ -566,6 +612,10 @@
     .copy-link-btn:hover {
       background: var(--surface-soft);
       color: var(--ink);
+    }
+
+    :root[data-theme="dark"] .copy-link-btn {
+      color: #b0b0b0;
     }
 
     .reset-dashboard-btn {
@@ -680,12 +730,13 @@
         line-height: 0;
         letter-spacing: 0;
         justify-content: center;
+        gap: 0;
       }
 
-      .copy-link-btn .btn-icon,
-      .copy-link-btn .btn-label,
-      .reset-dashboard-btn .btn-icon,
-      .reset-dashboard-btn .btn-label {
+      .title-actions .copy-link-btn .btn-icon,
+      .title-actions .copy-link-btn .btn-label,
+      .title-actions .reset-dashboard-btn .btn-icon,
+      .title-actions .reset-dashboard-btn .btn-label {
         display: none;
       }
 

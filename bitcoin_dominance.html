@@ -134,7 +134,13 @@
         var iframe = document.getElementById('modal-embed');
         if (!iframe) return;
         if (!iframe.getAttribute('src')) {
-          iframe.setAttribute('src', 'webapps/bitcoin_dominance/dashboard.html');
+          // Preserve query parameters when loading dashboard in iframe
+          var params = new URLSearchParams(window.location.search);
+          var dashboardUrl = 'webapps/bitcoin_dominance/dashboard.html';
+          if (params.has('preview')) {
+            dashboardUrl += '?preview=' + encodeURIComponent(params.get('preview'));
+          }
+          iframe.setAttribute('src', dashboardUrl);
         }
       })();
 

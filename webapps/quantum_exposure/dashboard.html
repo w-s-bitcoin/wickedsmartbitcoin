@@ -284,6 +284,11 @@
       display: none !important;
     }
 
+    html.card-preview body .historical-chart-loading-overlay,
+    html.card-preview body .bar-empty {
+      display: none !important;
+    }
+
     html.card-preview body #scriptBars {
       margin: 0;
       height: 100%;
@@ -294,6 +299,17 @@
 
     html.card-preview body .historical-chart {
       padding: 0;
+    }
+
+    html.card-preview body .historical-tick-label,
+    html.card-preview body .historical-y-label,
+    html.card-preview body .historical-grid-line,
+    html.card-preview body .historical-axis,
+    html.card-preview body .historical-hover-tooltip,
+    html.card-preview body .historical-hover-line,
+    html.card-preview body .historical-hover-dot,
+    html.card-preview body .historical-current-marker {
+      display: none !important;
     }
 
     .panel {
@@ -316,6 +332,10 @@
       align-items: start;
       gap: 12px;
       min-height: 0;
+    }
+
+    .title-panel:focus-within {
+      border-color: var(--line);
     }
 
     .title-copy {
@@ -400,6 +420,9 @@
       align-items: center;
       justify-content: flex-end;
       gap: clamp(3px, 0.7vw, 8px);
+      justify-self: end;
+      margin-top: -1px;
+      margin-right: 0;
     }
 
     .reset-dashboard-btn {
@@ -2055,7 +2078,16 @@
       }
     }
 
-    @media (max-width: 820px) {
+    @media (max-width: 860px) {
+      .topbar {
+        padding: 10px;
+        border-radius: 12px;
+      }
+
+      .title-row h1 {
+        font-size: clamp(1rem, 1.75vw, 1.34rem);
+      }
+
       .title-panel {
         grid-template-columns: minmax(0, 1fr) auto;
         grid-template-areas:
@@ -2063,17 +2095,18 @@
           "filters"
           "divider"
           "kpis";
-        column-gap: calc(12px - clamp(0px, (820px - 100vw) * 0.04, 8px));
-        row-gap: calc(12px - clamp(0px, (820px - 100vw) * 0.025, 5px));
+        column-gap: calc(12px - clamp(0px, (860px - 100vw) * 0.04, 8px));
+        row-gap: calc(12px - clamp(0px, (860px - 100vw) * 0.025, 5px));
       }
 
       .title-actions {
         align-self: start;
         justify-content: flex-end;
         width: auto;
-        gap: calc(8px - clamp(0px, (820px - 100vw) * 0.06, 5px));
-        margin-top: calc(-1 * clamp(0px, (820px - 100vw) * 0.04, 3px));
-        margin-right: calc(-1 * clamp(0px, (820px - 100vw) * 0.08, 7px));
+        justify-self: end;
+        gap: calc(8px - clamp(0px, (860px - 100vw) * 0.05, 5px));
+        margin-top: calc(-1px - clamp(0px, (860px - 100vw) * 0.04, 3px));
+        margin-right: calc(-1 * clamp(0px, (860px - 100vw) * 0.06, 6px));
       }
 
       .filters {
@@ -2116,6 +2149,8 @@
       .title-actions {
         display: flex;
         flex-wrap: nowrap;
+        margin-top: -4px;
+        margin-right: -5px;
       }
 
       .runtime-mode-btn {

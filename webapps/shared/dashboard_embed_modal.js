@@ -132,6 +132,7 @@
     }
   }
 
+
   window.WSBDashboardShared = window.WSBDashboardShared || {};
   window.WSBDashboardShared.applyEmbeddedModalTopClearance = applyEmbeddedModalTopClearance;
   window.WSBDashboardShared.createDashboardControlLock = createDashboardControlLock;

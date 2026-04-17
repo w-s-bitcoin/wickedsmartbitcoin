@@ -196,6 +196,41 @@
       display: none !important;
     }
 
+    html.card-preview body #segwitPanel {
+      display: none !important;
+    }
+
+    html.card-preview body #bip110Panel {
+      border: 0;
+    }
+
+    html.card-preview body #bip110Canvas,
+    html.card-preview body #bip110ResizeHandle,
+    html.card-preview body #bip110FillHeightBtn {
+      display: none !important;
+    }
+
+    html.card-preview body .card-preview-grid-shell {
+      display: flex;
+      align-items: stretch;
+      justify-content: stretch;
+      width: 100%;
+      height: 100%;
+      padding: 0;
+    }
+
+    html.card-preview body .card-preview-grid-content {
+      display: grid;
+      grid-template-columns: repeat(var(--period-grid-cols, 63), var(--period-grid-cell-size, 10px));
+      gap: var(--period-grid-gap, 1px);
+      width: max-content;
+      height: max-content;
+      margin: auto;
+      padding: 0;
+      background: transparent;
+      border: 0;
+    }
+
 
     .topbar {
       display: grid;
@@ -509,6 +544,10 @@
 
     .tooltip.show { opacity: 1; }
 
+    #periodGridTooltip {
+      z-index: 130;
+    }
+
     .error {
       margin: 10px 12px;
       border: 1px solid var(--error-border, rgba(255, 86, 86, 0.4));
@@ -568,8 +607,8 @@
       .info-popover {
         left: auto;
         right: 0;
-        width: min(420px, calc(100% - 4px));
-        max-width: min(420px, calc(100% - 4px));
+        width: min(420px, calc(100vw - 24px));
+        max-width: min(420px, calc(100vw - 24px));
       }
     }
 
@@ -581,6 +620,258 @@
       position: absolute;
       right: clamp(4px, 1vw, 12px);
       top: clamp(4px, 1vw, 12px);
+    }
+
+    .title-row .info-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      position: relative;
+    }
+
+    .title-row .info-wrap .info-popover {
+      left: 0;
+      right: auto;
+      width: clamp(280px, 34vw, 420px);
+      max-width: calc(100vw - 24px);
+      white-space: normal;
+      overflow-wrap: break-word;
+      word-break: normal;
+      text-wrap: pretty;
+    }
+
+    .title-row .info-wrap:hover .info-popover,
+    .title-row .info-wrap:focus-within .info-popover {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transform: translate(var(--info-popover-shift-x, 0px), -2px);
+      transition: opacity 120ms ease, transform 120ms ease, visibility 0ms linear 120ms;
+    }
+
+    .title-row .info-wrap > .info-btn:hover ~ .info-popover,
+    .title-row .info-wrap > .info-btn:focus-visible ~ .info-popover,
+    .title-row .info-wrap > .info-btn:focus ~ .info-popover {
+      opacity: 1;
+      visibility: visible;
+      transform: translate(var(--info-popover-shift-x, 0px), 0);
+      transition: opacity 120ms ease, transform 120ms ease;
+    }
+
+    .period-grid-btn {
+      width: 24px;
+      height: 24px;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--fg-dim);
+      cursor: pointer;
+    }
+
+    .period-grid-btn:hover {
+      color: var(--signal);
+      border-color: color-mix(in srgb, var(--signal) 55%, var(--line));
+      background: var(--surface);
+    }
+
+    .period-grid-btn svg {
+      width: 14px;
+      height: 14px;
+      display: block;
+    }
+
+    .period-grid-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 120;
+      display: none;
+      align-items: flex-start;
+      justify-content: center;
+      padding-left: clamp(16px, 3vw, 34px);
+      padding-right: clamp(16px, 3vw, 34px);
+      padding-bottom: clamp(16px, 3vw, 34px);
+      padding-top: calc(clamp(16px, 3vw, 34px) + var(--modal-controls-clearance));
+      background: rgba(0, 0, 0, 0.64);
+      backdrop-filter: blur(1.5px);
+    }
+
+    .period-grid-overlay.show {
+      display: flex;
+    }
+
+    .period-grid-dialog {
+      width: max-content;
+      max-height: 90vh;
+      max-width: min(92vw, 1220px);
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      padding: 10px;
+      overflow: hidden;
+    }
+
+    .period-grid-dialog:focus,
+    .period-grid-dialog:focus-visible {
+      outline: none;
+    }
+
+    .period-grid-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+      margin: 2px 0 8px;
+      padding: 2px 2px 6px;
+    }
+
+    .period-grid-kpis {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      flex: 1;
+    }
+
+    .period-grid-close {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 19px;
+      line-height: 1;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      flex-shrink: 0;
+      transition: background 160ms ease, color 160ms ease;
+    }
+
+    .period-grid-close:hover {
+      background: var(--surface-soft);
+      color: var(--ink);
+    }
+
+    .period-grid-kpis .chip {
+      font-size: 0.76rem;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.2;
+    }
+
+    .period-grid-kpis .chip-value {
+      color: var(--fg);
+    }
+
+    .period-grid-period-chip {
+      position: relative;
+      padding-right: 16px;
+      cursor: pointer;
+    }
+
+    .period-grid-period-chip:focus-within {
+      outline: 2px solid var(--dashboard-accent);
+      outline-offset: 2px;
+      border-radius: 8px;
+    }
+
+    .period-grid-period-select {
+      appearance: none;
+      -webkit-appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--fg);
+      font: inherit;
+      font-weight: 700;
+      line-height: 1.1;
+      padding: 0;
+      margin: 0;
+      min-width: 26px;
+      cursor: pointer;
+      text-align: left;
+      outline: none;
+    }
+
+    .period-grid-period-select:focus-visible {
+      outline: none;
+    }
+
+    .period-grid-period-chip::after {
+      content: "\2191\2193";
+      position: absolute;
+      right: 3px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.72rem;
+      line-height: 1;
+      pointer-events: none;
+    }
+
+    .period-grid-signal-num {
+      color: var(--signal);
+      font-weight: 700;
+    }
+
+    .period-grid-content {
+      display: grid;
+      grid-template-columns: repeat(var(--period-grid-cols, 63), var(--period-grid-cell-size, 10px));
+      gap: var(--period-grid-gap, 1px);
+      width: max-content;
+      max-width: calc(100% - 4px);
+      margin: 0;
+      background: transparent;
+      border: 0;
+      border-radius: 8px;
+      padding: 0;
+    }
+
+    .period-grid-cell {
+      appearance: none;
+      -webkit-appearance: none;
+      border: 0;
+      border-radius: 0;
+      box-shadow: none;
+      margin: 0;
+      padding: 0;
+      width: var(--period-grid-cell-size, 10px);
+      height: var(--period-grid-cell-size, 10px);
+      background: var(--future);
+      cursor: pointer;
+    }
+
+    .period-grid-cell.is-signaling {
+      background: var(--signal);
+    }
+
+    .period-grid-cell.is-nonsignaling {
+      background: var(--nonsignal);
+    }
+
+    .period-grid-cell.is-unmined {
+      background: var(--future);
+      cursor: default;
+    }
+
+    .period-grid-cell:focus-visible {
+      outline: 2px solid var(--dashboard-accent);
+      outline-offset: -2px;
+    }
+
+    .period-grid-close:focus-visible {
+      outline: 2px solid var(--dashboard-accent);
+      outline-offset: 2px;
+      border-color: var(--dashboard-accent);
     }
 
     .copy-link-btn {
@@ -606,6 +897,10 @@
     .copy-link-btn:hover {
       background: var(--surface-soft);
       color: var(--ink);
+    }
+
+    :root[data-theme="dark"] .copy-link-btn {
+      color: #b0b0b0;
     }
 
     .reset-dashboard-btn {
@@ -720,12 +1015,13 @@
         line-height: 0;
         letter-spacing: 0;
         justify-content: center;
+        gap: 0;
       }
 
-      .copy-link-btn .btn-icon,
-      .copy-link-btn .btn-label,
-      .reset-dashboard-btn .btn-icon,
-      .reset-dashboard-btn .btn-label {
+      .title-actions .copy-link-btn .btn-icon,
+      .title-actions .copy-link-btn .btn-label,
+      .title-actions .reset-dashboard-btn .btn-icon,
+      .title-actions .reset-dashboard-btn .btn-label {
         display: none;
       }
 
@@ -773,6 +1069,14 @@
         <h1 class="title">BIP-110 Signaling</h1>
         <div class="info-wrap">
           <button type="button" class="info-btn" id="vizInfoBtn" aria-label="About this visualization" aria-describedby="vizInfoPopover">?</button>
+          <button type="button" class="period-grid-btn" id="periodGridBtn" aria-label="Show current period block grid" data-tooltip="Show current 2,016-block period grid">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <rect x="1" y="1" width="6" height="6" rx="1" fill="#ff9800"></rect>
+              <rect x="9" y="1" width="6" height="6" rx="1" fill="#8b8f93"></rect>
+              <rect x="1" y="9" width="6" height="6" rx="1" fill="#8b8f93"></rect>
+              <rect x="9" y="9" width="6" height="6" rx="1" fill="#ff9800"></rect>
+            </svg>
+          </button>
           <div class="info-popover" id="vizInfoPopover" role="tooltip">
             This dashboard focuses on miner signaling across each 2,016-block period for BIP-110. Bars show signaling vs non-signaling blocks, markers denote notable releases, and the threshold line tracks the BIP-110 activation target. SegWit signaling periods are included as a historical comparison panel when enabled.
           </div>
@@ -850,6 +1154,9 @@
           <div class="circle" aria-hidden="true"></div>
           <div class="label">Loading BIP-110 signaling...</div>
         </div>
+        <div class="card-preview-grid-shell" id="cardPreviewGridShell" hidden aria-hidden="true">
+          <div class="card-preview-grid-content" id="cardPreviewGridContent"></div>
+        </div>
         <button type="button" class="panel-fill-btn" id="bip110FillHeightBtn" aria-label="Fill BIP-110 chart height" title="Fill chart height">
           <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
             <line x1="8" y1="3.8" x2="8" y2="12.2"></line>
@@ -865,6 +1172,23 @@
   </main>
 
   <div class="tooltip" id="tooltip"></div>
+  <div class="period-grid-overlay" id="periodGridOverlay" aria-hidden="true">
+    <div class="period-grid-dialog" id="periodGridDialog" role="dialog" aria-modal="true" aria-label="Current BIP-110 period block grid" tabindex="-1">
+      <div class="period-grid-header" id="periodGridHeader">
+        <div class="period-grid-kpis">
+          <div class="chip period-grid-kpi period-grid-period-chip" id="periodGridPeriodChip">
+            <span class="chip-label" id="periodGridPeriodLabel">BIP-110 Signaling Period</span>
+            <select class="chip-value period-grid-period-select" id="periodGridPeriodSelect" aria-label="BIP-110 signaling period"></select>
+          </div>
+          <div class="chip period-grid-kpi"><span class="chip-label">Height Range</span> <span class="chip-value" id="periodGridRangeValue">-</span></div>
+          <div class="chip period-grid-kpi"><span class="chip-label">Signaling</span> <span class="chip-value" id="periodGridSignalValue">-</span></div>
+        </div>
+        <button id="periodGridClose" type="button" class="period-grid-close" aria-label="Close period grid overlay">&times;</button>
+      </div>
+      <div class="period-grid-content" id="periodGridContent"></div>
+    </div>
+  </div>
+  <div class="tooltip" id="periodGridTooltip"></div>
 
   <script src="../../js/11_dashboard_timezone_preferences.js"></script>
   <script src="dashboard_app.js"></script>

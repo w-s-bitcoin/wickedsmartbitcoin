@@ -25,6 +25,12 @@
     const AUTO_REFRESH_MS = 60000;
     const FORCE_REFRESH_MS = 3600000;
     const CONTROLS_STORAGE_KEY = "bip110_signaling_controls_v3";
+    const CARD_PREVIEW_GRID_LAYOUT = Object.freeze({
+      cols: 63,
+      rows: 32,
+      cellSizePx: 19,
+      gapPx: 1,
+    });
     const PANEL_RESIZE_MIN_HEIGHT = 220;
     const PANEL_RESIZE_VIEWPORT_PAD = 24;
     const PANEL_RESIZE_SNAP_PX = 18;
@@ -32,6 +38,7 @@
     const SHARE_STATE_PARAM = "bip110_state";
     const LOCAL_RUNTIME_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
     const IS_LOCAL_RUNTIME = LOCAL_RUNTIME_HOSTS.has(window.location.hostname);
+    const IS_CARD_PREVIEW = document.documentElement.classList.contains("card-preview");
 
     const ICONS = {
       copyLink: '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>',
@@ -125,6 +132,7 @@
       };
 
       const shouldSuppressTooltipForAnchor = (anchor) => {
+        if (isPeriodGridOverlayOpen()) return true;
         if (!anchor) return true;
         if (!isMobileUiViewport()) return false;
         if (anchor instanceof Element && anchor.closest("#scriptBars .bar-stack-track")) {
@@ -219,6 +227,8 @@
       controlsEnabled: true,
       pinnedTooltip: null,
       hoverTooltip: null,
+      periodGridDataset: "bip110",
+      periodGridSelectedPeriod: null,
       controls: {
         stripes: true,
         stripesExplicit: false,
@@ -278,6 +288,20 @@
     const topbar = document.getElementById("topbar");
     const statusChips = document.getElementById("statusChips");
     const tooltip = document.getElementById("tooltip");
+    const periodGridTooltip = document.getElementById("periodGridTooltip");
+    const periodGridBtn = document.getElementById("periodGridBtn");
+    const periodGridOverlay = document.getElementById("periodGridOverlay");
+    const periodGridDialog = document.getElementById("periodGridDialog");
+    const periodGridHeader = document.getElementById("periodGridHeader");
+    const periodGridClose = document.getElementById("periodGridClose");
+    const periodGridPeriodChip = document.getElementById("periodGridPeriodChip");
+    const periodGridPeriodLabel = document.getElementById("periodGridPeriodLabel");
+    const periodGridPeriodSelect = document.getElementById("periodGridPeriodSelect");
+    const periodGridRangeValue = document.getElementById("periodGridRangeValue");
+    const periodGridSignalValue = document.getElementById("periodGridSignalValue");
+    const periodGridContent = document.getElementById("periodGridContent");
+    const cardPreviewGridShell = document.getElementById("cardPreviewGridShell");
+    const cardPreviewGridContent = document.getElementById("cardPreviewGridContent");
     const vizInfoBtn = document.getElementById("vizInfoBtn");
     const segwitResizeHandle = document.getElementById("segwitResizeHandle");
     const bip110ResizeHandle = document.getElementById("bip110ResizeHandle");
@@ -307,6 +331,7 @@
 
       [
         vizInfoBtn,
+        periodGridBtn,
         swapPanelsBtn,
         segwitFillHeightBtn,
         bip110FillHeightBtn,
@@ -2346,6 +2371,11 @@
     }
 
     function updatePanelVisibility() {
+      if (IS_CARD_PREVIEW) {
+        state.controls.showSegwit = false;
+        state.controls.showBip110 = true;
+      }
+
       const prevCount = state.lastVisibleCount;
       const hasPriorVisibility = prevCount >= 0;
 
@@ -2852,6 +2882,489 @@
       ].join("\n");
     }
 
+    function getPeriodGridDataset() {
+      return state.periodGridDataset === "segwit" ? "segwit" : "bip110";
+    }
+
+    function getPeriodGridRows(datasetKey = getPeriodGridDataset()) {
+      if (!state.data) return [];
+      return datasetKey === "segwit"
+        ? (state.data.segwitPeriods || [])
+        : (state.data.bip110Periods || []);
+    }
+
+    function getPeriodGridBlocks(datasetKey = getPeriodGridDataset()) {
+      if (!state.data) return [];
+      return datasetKey === "segwit"
+        ? (state.data.segwitBlocks || [])
+        : (state.data.bip110Blocks || []);
+    }
+
+    function getPeriodGridRow(periodNumber, datasetKey = getPeriodGridDataset()) {
+      const target = Number(periodNumber);
+      if (!Number.isFinite(target)) return null;
+      return getPeriodGridRows(datasetKey).find((row) => Number(row.period) === target) || null;
+    }
+
+    function getCurrentBip110PeriodNumber() {
+      const currentPeriod = Number(state.data?.metadata?.state?.current_period_index);
+      return Number.isFinite(currentPeriod) ? currentPeriod : null;
+    }
+
+    function getPeriodGridAvailablePeriods(datasetKey = getPeriodGridDataset()) {
+      return getPeriodGridRows(datasetKey)
+        .map((row) => Number(row.period))
+        .filter((period) => Number.isFinite(period))
+        .sort((left, right) => left - right);
+    }
+
+    function getDefaultPeriodGridPeriod(datasetKey = getPeriodGridDataset()) {
+      const availablePeriods = getPeriodGridAvailablePeriods(datasetKey);
+      if (datasetKey === "bip110") {
+        const currentPeriod = getCurrentBip110PeriodNumber();
+        if (Number.isFinite(currentPeriod) && availablePeriods.includes(currentPeriod)) {
+          return currentPeriod;
+        }
+      }
+      return availablePeriods[availablePeriods.length - 1] || 1;
+    }
+
+    function getSelectedPeriodGridPeriod() {
+      const availablePeriods = getPeriodGridAvailablePeriods();
+      const selected = Number(state.periodGridSelectedPeriod);
+      if (Number.isFinite(selected) && availablePeriods.includes(selected)) {
+        return selected;
+      }
+      return getDefaultPeriodGridPeriod();
+    }
+
+    function ensurePeriodGridPeriodSelectOptions() {
+      if (!periodGridPeriodSelect) return;
+      const availablePeriods = getPeriodGridAvailablePeriods();
+      const currentValues = Array.from(periodGridPeriodSelect.options).map((option) => option.value);
+      const desiredValues = availablePeriods.map((period) => String(period));
+      if (currentValues.length === desiredValues.length && currentValues.every((value, index) => value === desiredValues[index])) {
+        return;
+      }
+      periodGridPeriodSelect.innerHTML = "";
+      availablePeriods.forEach((period) => {
+        const option = document.createElement("option");
+        option.value = String(period);
+        option.textContent = String(period);
+        periodGridPeriodSelect.appendChild(option);
+      });
+    }
+
+    function setPeriodGridSelectedPeriod(periodNumber) {
+      const requested = Number(periodNumber);
+      const availablePeriods = getPeriodGridAvailablePeriods();
+      const normalized = Number.isFinite(requested) && availablePeriods.includes(requested)
+        ? requested
+        : getDefaultPeriodGridPeriod();
+      state.periodGridSelectedPeriod = normalized;
+      if (periodGridPeriodSelect) {
+        periodGridPeriodSelect.value = String(normalized);
+      }
+    }
+
+    function buildCurrentPeriodGridCells() {
+      const datasetKey = getPeriodGridDataset();
+      const selectedPeriod = getSelectedPeriodGridPeriod();
+      const row = getPeriodGridRow(selectedPeriod, datasetKey);
+      if (!row || !state.data) return [];
+
+      const periodSize = Number(state.data?.metadata?.chart?.period_size || 2016);
+      const startHeight = Number(row.period_start_height);
+      if (!Number.isFinite(startHeight)) return [];
+
+      const status = String(row.status || "");
+      const elapsed = datasetKey === "segwit"
+        ? periodSize
+        : status === "completed"
+          ? periodSize
+          : status === "in_progress"
+            ? clamp(Number(row.elapsed_blocks || 0), 0, periodSize)
+            : 0;
+
+      const currentPeriod = Number(row.period);
+      const blockByHeight = new Map();
+      getPeriodGridBlocks(datasetKey).forEach((block) => {
+        if (Number(block.period) !== currentPeriod) return;
+        const height = Number(block.height);
+        if (!Number.isFinite(height)) return;
+        blockByHeight.set(height, block);
+      });
+
+      const cells = [];
+      for (let idx = 0; idx < periodSize; idx += 1) {
+        const height = startHeight + idx;
+        const hasMinedBlock = idx < elapsed;
+        const block = blockByHeight.get(height) || null;
+
+        if (hasMinedBlock && block) {
+          const isSignaling = Number(block.is_signaling) === 1;
+          cells.push({
+            height,
+            isSignaling,
+            isMined: true,
+            className: isSignaling ? "is-signaling" : "is-nonsignaling",
+            tooltip: formatStripeTooltip({ height, is_signaling: isSignaling ? 1 : 0 }, datasetKey),
+            clickable: true,
+          });
+          continue;
+        }
+
+        cells.push({
+          height,
+          isSignaling: false,
+          isMined: false,
+          className: "is-unmined",
+          tooltip: [
+            `Height: ${Number(height).toLocaleString()}`,
+            "Mode: Unmined",
+          ].join("\n"),
+          clickable: false,
+        });
+      }
+
+      return cells;
+    }
+
+    function renderTooltipHtml(content) {
+      const escapeHtml = (value) => String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+
+      return String(content || "")
+        .split("\n")
+        .map((line) => {
+          const match = line.match(/^([^:]+:)(\s*)(.*)$/);
+          if (!match) {
+            return `<div class="tooltip-line"><span class="tooltip-value">${escapeHtml(line)}</span></div>`;
+          }
+          return `<div class="tooltip-line"><span class="tooltip-label">${escapeHtml(match[1])}</span><span class="tooltip-value">${escapeHtml(match[3])}</span></div>`;
+        })
+        .join("");
+    }
+
+    function showPeriodGridTooltip(content, clientX, clientY) {
+      if (!periodGridTooltip || !isPeriodGridOverlayOpen()) return;
+      periodGridTooltip.innerHTML = renderTooltipHtml(content);
+      const dialogRect = periodGridDialog?.getBoundingClientRect();
+      const overlayRect = periodGridOverlay?.getBoundingClientRect();
+      const bounds = dialogRect || overlayRect || {
+        left: 0,
+        top: 0,
+        right: window.innerWidth,
+        bottom: window.innerHeight,
+      };
+
+      const tipW = periodGridTooltip.offsetWidth || 320;
+      const tipH = periodGridTooltip.offsetHeight || 64;
+      const edgePad = 10;
+      const yOffset = 14;
+      const half = tipW / 2;
+
+      const minX = bounds.left + edgePad + half;
+      const maxX = bounds.right - edgePad - half;
+      const clampedX = clamp(clientX, Math.min(minX, maxX), Math.max(minX, maxX));
+
+      const minY = bounds.top + edgePad + tipH + yOffset;
+      const maxY = bounds.bottom - edgePad + yOffset;
+      const clampedY = clamp(clientY, Math.min(minY, maxY), Math.max(minY, maxY));
+
+      periodGridTooltip.style.left = `${clampedX}px`;
+      periodGridTooltip.style.top = `${clampedY}px`;
+      periodGridTooltip.classList.add("show");
+    }
+
+    function hidePeriodGridTooltip() {
+      if (!periodGridTooltip) return;
+      periodGridTooltip.classList.remove("show");
+    }
+
+    function isPeriodGridOverlayOpen() {
+      return Boolean(periodGridOverlay?.classList.contains("show"));
+    }
+
+    function closePeriodGridOverlay() {
+      if (!periodGridOverlay) return;
+      periodGridOverlay.classList.remove("show");
+      periodGridOverlay.setAttribute("aria-hidden", "true");
+      hidePeriodGridTooltip();
+    }
+
+    function getPeriodGridAvailableSpace() {
+      const overlayStyle = periodGridOverlay ? getComputedStyle(periodGridOverlay) : null;
+      const dialogStyle = periodGridDialog ? getComputedStyle(periodGridDialog) : null;
+      const headerRect = periodGridHeader?.getBoundingClientRect();
+      const headerStyle = periodGridHeader ? getComputedStyle(periodGridHeader) : null;
+
+      const overlayPadLeft = parseFloat(overlayStyle?.paddingLeft || "0");
+      const overlayPadRight = parseFloat(overlayStyle?.paddingRight || "0");
+      const overlayPadTop = parseFloat(overlayStyle?.paddingTop || "0");
+      const overlayPadBottom = parseFloat(overlayStyle?.paddingBottom || "0");
+
+      const dialogPadX = (parseFloat(dialogStyle?.paddingLeft || "0") + parseFloat(dialogStyle?.paddingRight || "0"));
+      const dialogPadY = (parseFloat(dialogStyle?.paddingTop || "0") + parseFloat(dialogStyle?.paddingBottom || "0"));
+
+      const maxDialogWidth = Math.min(
+        window.innerWidth - overlayPadLeft - overlayPadRight,
+        window.innerWidth * 0.92,
+        1220
+      );
+      const maxDialogHeight = Math.min(
+        window.innerHeight - overlayPadTop - overlayPadBottom,
+        window.innerHeight * 0.9
+      );
+
+      const headerHeight = headerRect?.height || 0;
+      const headerMarginBottom = parseFloat(headerStyle?.marginBottom || "0");
+
+      const availableWidth = Math.max(40, maxDialogWidth - dialogPadX);
+      const availableHeight = Math.max(40, maxDialogHeight - dialogPadY - headerHeight - headerMarginBottom);
+
+      return { availableWidth, availableHeight };
+    }
+
+    function choosePeriodGridDimensionsForSpace(cellCount, availableWidth, availableHeight) {
+      const total = Number(cellCount || 0);
+      if (!Number.isFinite(total) || total <= 0) {
+        return { cols: 63, rows: 32 };
+      }
+
+      const targetAspect = Number(availableWidth) / Math.max(Number(availableHeight) || 1, 1);
+
+      const candidates = [];
+      for (let cols = 1; cols <= Math.sqrt(total); cols += 1) {
+        if (total % cols !== 0) continue;
+        const rows = total / cols;
+        candidates.push({ cols, rows });
+        if (rows !== cols) {
+          candidates.push({ cols: rows, rows: cols });
+        }
+      }
+
+      // Avoid degenerate ultra-thin layouts and keep options in practical dashboard ranges.
+      const practical = candidates.filter((candidate) => candidate.cols >= 24 && candidate.rows >= 24);
+      const pool = practical.length ? practical : candidates;
+
+      pool.sort((left, right) => {
+        const leftScore = Math.abs((left.cols / left.rows) - targetAspect);
+        const rightScore = Math.abs((right.cols / right.rows) - targetAspect);
+        if (leftScore !== rightScore) return leftScore - rightScore;
+
+        // Tie-break toward shapes near prior default around 63x32.
+        const leftTie = Math.abs(left.cols - 63) + Math.abs(left.rows - 32);
+        const rightTie = Math.abs(right.cols - 63) + Math.abs(right.rows - 32);
+        return leftTie - rightTie;
+      });
+
+      return pool[0] || { cols: 63, rows: 32 };
+    }
+
+    function choosePeriodGridDimensions(cellCount) {
+      const space = getPeriodGridAvailableSpace();
+      return choosePeriodGridDimensionsForSpace(cellCount, space.availableWidth, space.availableHeight);
+    }
+
+    function computePeriodGridCellSizeForSpace(cols, rows, availableWidth, availableHeight, fitMarginX = 0, fitMarginY = 6) {
+      const minCellPx = 4;
+      const gapPx = 1;
+
+      const colsNum = Math.max(1, Number(cols) || 1);
+      const rowsNum = Math.max(1, Number(rows) || 1);
+
+      const usableWidth = Math.max(40, Number(availableWidth || 0) - (fitMarginX * 2));
+      const usableHeight = Math.max(40, Number(availableHeight || 0) - (fitMarginY * 2));
+
+      const byWidth = Math.floor((usableWidth - ((colsNum - 1) * gapPx)) / colsNum);
+      const byHeight = Math.floor((usableHeight - ((rowsNum - 1) * gapPx)) / rowsNum);
+      const target = Math.min(byWidth, byHeight);
+
+      return Math.max(minCellPx, target);
+    }
+
+    function computePeriodGridCellSize(cols, rows) {
+      const fitSpace = getPeriodGridAvailableSpace();
+      return computePeriodGridCellSizeForSpace(cols, rows, fitSpace.availableWidth, fitSpace.availableHeight);
+    }
+
+    function formatPercentCompact(numerator, denominator) {
+      const num = Number(numerator || 0);
+      const den = Number(denominator || 0);
+      if (!Number.isFinite(num) || !Number.isFinite(den) || den <= 0) return "0.0%";
+      const pct = (num / den) * 100;
+      const roundedOne = Math.round(pct * 10) / 10;
+      return `${roundedOne.toFixed(1)}%`;
+    }
+
+    function formatSignalingValueWithOrangeNumerator(signalingText) {
+      const text = String(signalingText || "").trim();
+      const match = text.match(/^([0-9][0-9,]*)\/([0-9][0-9,]*)\s+\(([^)]+)\)$/);
+      if (!match) return text;
+      const [, numerator, denominator, pct] = match;
+      return `<span class="period-grid-signal-num">${numerator}</span>/${denominator} (${pct})`;
+    }
+
+    function getCurrentPeriodGridSummary() {
+      const datasetKey = getPeriodGridDataset();
+      const selectedPeriod = getSelectedPeriodGridPeriod();
+      const row = getPeriodGridRow(selectedPeriod, datasetKey);
+      if (!row || !state.data) {
+        return {
+          period: String(selectedPeriod),
+          range: "Height Range: -",
+          signaling: "Signaling: -",
+        };
+      }
+
+      const periodSize = Number(state.data?.metadata?.chart?.period_size || 2016);
+      const period = Number(row.period);
+      const startHeight = Number(row.period_start_height);
+      const endHeight = Number.isFinite(Number(row.period_end_height))
+        ? Number(row.period_end_height)
+        : (Number.isFinite(startHeight) ? (startHeight + periodSize - 1) : null);
+
+      const status = String(row.status || "");
+      const mined = datasetKey === "segwit"
+        ? periodSize
+        : status === "completed"
+          ? periodSize
+          : status === "in_progress"
+            ? clamp(Number(row.elapsed_blocks || 0), 0, periodSize)
+            : 0;
+      const signaling = clamp(Number(row.signal_blocks || 0), 0, mined);
+      const signalingPct = formatPercentCompact(signaling, Math.max(mined, 1));
+
+      const periodText = Number.isFinite(period) ? String(period) : String(selectedPeriod);
+      const rangeText = (Number.isFinite(startHeight) && Number.isFinite(endHeight))
+        ? `Height Range: ${startHeight.toLocaleString()} - ${endHeight.toLocaleString()}`
+        : "Height Range: -";
+      const signalingText = `Signaling: ${signaling.toLocaleString()}/${mined.toLocaleString()} (${signalingPct})`;
+
+      return {
+        period: periodText,
+        range: rangeText,
+        signaling: signalingText,
+      };
+    }
+
+    function renderCurrentPeriodGridOverlay() {
+      if (!periodGridContent) return;
+      periodGridContent.innerHTML = "";
+
+      const summary = getCurrentPeriodGridSummary();
+      ensurePeriodGridPeriodSelectOptions();
+      const datasetKey = getPeriodGridDataset();
+      if (periodGridPeriodLabel) {
+        periodGridPeriodLabel.textContent = datasetKey === "segwit" ? "SegWit Signaling Period" : "BIP-110 Signaling Period";
+      }
+      if (periodGridPeriodSelect) {
+        periodGridPeriodSelect.setAttribute("aria-label", datasetKey === "segwit" ? "SegWit signaling period" : "BIP-110 signaling period");
+      }
+      if (periodGridPeriodSelect) {
+        periodGridPeriodSelect.value = String(summary.period || getSelectedPeriodGridPeriod());
+      }
+      if (periodGridRangeValue) periodGridRangeValue.textContent = String(summary.range || "").replace(/^Height Range:\s*/i, "");
+      if (periodGridSignalValue) {
+        periodGridSignalValue.innerHTML = formatSignalingValueWithOrangeNumerator(
+          String(summary.signaling || "").replace(/^Signaling:\s*/i, "")
+        );
+      }
+
+      const cells = buildCurrentPeriodGridCells();
+      if (!cells.length) return;
+
+      const dims = choosePeriodGridDimensions(cells.length);
+      const cellSizePx = computePeriodGridCellSize(dims.cols, dims.rows);
+      periodGridContent.style.setProperty("--period-grid-cols", String(dims.cols));
+      periodGridContent.style.setProperty("--period-grid-cell-size", `${cellSizePx}px`);
+      periodGridContent.style.setProperty("--period-grid-gap", "1px");
+      periodGridContent.setAttribute("data-grid-cols", String(dims.cols));
+      periodGridContent.setAttribute("data-grid-rows", String(dims.rows));
+      periodGridContent.setAttribute("data-grid-cell-size", String(cellSizePx));
+
+      const fragment = document.createDocumentFragment();
+      cells.forEach((cell) => {
+        const cellEl = document.createElement("button");
+        cellEl.type = "button";
+        cellEl.className = `period-grid-cell ${cell.className}`;
+        cellEl.dataset.height = String(cell.height);
+        cellEl.dataset.tooltip = cell.tooltip;
+        cellEl.dataset.clickable = cell.clickable ? "1" : "0";
+        if (!cell.clickable) {
+          cellEl.setAttribute("aria-disabled", "true");
+        }
+        fragment.appendChild(cellEl);
+      });
+
+      periodGridContent.appendChild(fragment);
+    }
+
+    function renderCardPreviewGrid() {
+      if (!IS_CARD_PREVIEW || !cardPreviewGridShell || !cardPreviewGridContent) return;
+      if (!state.data) {
+        cardPreviewGridShell.hidden = true;
+        cardPreviewGridShell.setAttribute("aria-hidden", "true");
+        return;
+      }
+
+      state.periodGridDataset = "bip110";
+      const currentBip110Period = getCurrentBip110PeriodNumber();
+      setPeriodGridSelectedPeriod(
+        Number.isFinite(currentBip110Period)
+          ? currentBip110Period
+          : getDefaultPeriodGridPeriod("bip110")
+      );
+
+      const cells = buildCurrentPeriodGridCells();
+      if (!cells.length) {
+        cardPreviewGridShell.hidden = true;
+        cardPreviewGridShell.setAttribute("aria-hidden", "true");
+        return;
+      }
+
+      cardPreviewGridShell.hidden = false;
+      cardPreviewGridShell.setAttribute("aria-hidden", "false");
+
+      cardPreviewGridContent.innerHTML = "";
+      cardPreviewGridContent.style.setProperty("--period-grid-cols", String(CARD_PREVIEW_GRID_LAYOUT.cols));
+      cardPreviewGridContent.style.setProperty("--period-grid-cell-size", `${CARD_PREVIEW_GRID_LAYOUT.cellSizePx}px`);
+      cardPreviewGridContent.style.setProperty("--period-grid-gap", `${CARD_PREVIEW_GRID_LAYOUT.gapPx}px`);
+
+      const fragment = document.createDocumentFragment();
+      cells.forEach((cell) => {
+        const cellEl = document.createElement("div");
+        cellEl.className = `period-grid-cell ${cell.className}`;
+        fragment.appendChild(cellEl);
+      });
+      cardPreviewGridContent.appendChild(fragment);
+    }
+
+    function openPeriodGridOverlay(periodOverride = null, datasetKey = "bip110") {
+      if (!periodGridOverlay || !periodGridDialog) return;
+      state.periodGridDataset = datasetKey === "segwit" ? "segwit" : "bip110";
+      const hasExplicitOverride = periodOverride !== null && periodOverride !== undefined && periodOverride !== "";
+      const requestedPeriod = hasExplicitOverride ? Number(periodOverride) : NaN;
+      if (hasExplicitOverride && Number.isFinite(requestedPeriod)) {
+        setPeriodGridSelectedPeriod(requestedPeriod);
+      } else {
+        setPeriodGridSelectedPeriod(getDefaultPeriodGridPeriod(state.periodGridDataset));
+      }
+      state.pinnedTooltip = null;
+      hideTooltip();
+      hideCustomTooltip();
+      hidePeriodGridTooltip();
+      periodGridOverlay.classList.add("show");
+      periodGridOverlay.setAttribute("aria-hidden", "false");
+      renderCurrentPeriodGridOverlay();
+      periodGridDialog.focus({ preventScroll: true });
+    }
+
     function getReleaseGithubUrl(data) {
       if (data && typeof data.github_url === "string" && data.github_url.trim()) {
         return data.github_url.trim();
@@ -2907,23 +3420,11 @@
     }
 
     function showTooltip(content, clientX, clientY) {
-      const escapeHtml = (value) => String(value ?? "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/\"/g, "&quot;")
-        .replace(/'/g, "&#39;");
-
-      tooltip.innerHTML = String(content || "")
-        .split("\n")
-        .map((line) => {
-          const match = line.match(/^([^:]+:)(\s*)(.*)$/);
-          if (!match) {
-            return `<div class="tooltip-line"><span class="tooltip-value">${escapeHtml(line)}</span></div>`;
-          }
-          return `<div class="tooltip-line"><span class="tooltip-label">${escapeHtml(match[1])}</span><span class="tooltip-value">${escapeHtml(match[3])}</span></div>`;
-        })
-        .join("");
+      if (isPeriodGridOverlayOpen()) {
+        tooltip.classList.remove("show");
+        return;
+      }
+      tooltip.innerHTML = renderTooltipHtml(content);
       const viewportW = window.innerWidth;
       const tipW = tooltip.offsetWidth || 320;
       const edgePad = 12;
@@ -2992,6 +3493,12 @@
           return;
         }
 
+        if ((key === "bip110" || key === "segwit") && hit.type === "period") {
+          const period = Number(hit.data?.period);
+          openPeriodGridOverlay(Number.isFinite(period) ? period : null, key);
+          return;
+        }
+
         const content = hit.type === "release"
           ? formatReleaseTooltip(hit.data)
           : hit.type === "stripe"
@@ -3049,6 +3556,11 @@
     }
 
     function renderSelectedPanels(keys, options = {}) {
+      if (IS_CARD_PREVIEW) {
+        renderCardPreviewGrid();
+        return;
+      }
+
       if (!state.data) return;
 
       const enhanced = options.enhanced !== false;
@@ -3131,7 +3643,14 @@
     }
 
     function renderAll() {
+      if (IS_CARD_PREVIEW) {
+        renderCardPreviewGrid();
+        return;
+      }
       renderSelectedPanels(["segwit", "bip110"]);
+      if (isPeriodGridOverlayOpen()) {
+        renderCurrentPeriodGridOverlay();
+      }
     }
 
     function setControlHandlers() {
@@ -3147,6 +3666,7 @@
 
       setCustomTooltip(copyDashboardLinkButton, "Copy shareable dashboard link");
       setCustomTooltip(resetDashboardButton, state.preResetStateSnapshot ? "Undo the last restore defaults action" : "Reset dashboard to defaults");
+      setCustomTooltip(periodGridBtn, "Show current 2,016-block period grid");
 
       stripes.addEventListener("change", () => {
         state.controls.stripes = stripes.checked;
@@ -3213,6 +3733,102 @@
         } catch (err) {
           console.error(err);
         }
+      });
+
+      periodGridBtn?.addEventListener("click", () => {
+        if (!state.data) return;
+        openPeriodGridOverlay(null, "bip110");
+      });
+
+      periodGridOverlay?.addEventListener("mousemove", (event) => {
+        const cell = event.target instanceof Element ? event.target.closest(".period-grid-cell") : null;
+        if (!cell) {
+          hidePeriodGridTooltip();
+          return;
+        }
+        const content = String(cell.getAttribute("data-tooltip") || "").trim();
+        if (!content) {
+          hidePeriodGridTooltip();
+          return;
+        }
+        showPeriodGridTooltip(content, event.clientX, event.clientY);
+      });
+
+      periodGridOverlay?.addEventListener("mouseleave", () => {
+        hidePeriodGridTooltip();
+      });
+
+      periodGridOverlay?.addEventListener("click", (event) => {
+        const cell = event.target instanceof Element ? event.target.closest(".period-grid-cell") : null;
+        if (cell) {
+          if (cell.getAttribute("data-clickable") === "1") {
+            const height = Number(cell.getAttribute("data-height"));
+            if (Number.isFinite(height)) {
+              window.open(`https://mempool.space/block/${height}`, "_blank", "noopener,noreferrer");
+            }
+          }
+          return;
+        }
+
+        if (event.target === periodGridOverlay) {
+          closePeriodGridOverlay();
+        }
+      });
+
+      periodGridOverlay?.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          closePeriodGridOverlay();
+          return;
+        }
+
+        if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+          event.preventDefault();
+          const availablePeriods = getPeriodGridAvailablePeriods();
+          if (!availablePeriods.length) return;
+          const current = getSelectedPeriodGridPeriod();
+          const currentIndex = Math.max(0, availablePeriods.indexOf(current));
+          const delta = event.key === "ArrowUp" ? 1 : -1;
+          const nextIndex = (currentIndex + delta + availablePeriods.length) % availablePeriods.length;
+          const next = availablePeriods[nextIndex];
+          setPeriodGridSelectedPeriod(next);
+          renderCurrentPeriodGridOverlay();
+          return;
+        }
+
+        if (event.key !== "Enter" && event.key !== " ") return;
+        const cell = event.target instanceof Element ? event.target.closest(".period-grid-cell") : null;
+        if (!cell || cell.getAttribute("data-clickable") !== "1") return;
+
+        event.preventDefault();
+        const height = Number(cell.getAttribute("data-height"));
+        if (Number.isFinite(height)) {
+          window.open(`https://mempool.space/block/${height}`, "_blank", "noopener,noreferrer");
+        }
+      });
+
+      periodGridPeriodSelect?.addEventListener("change", () => {
+        const selected = Number(periodGridPeriodSelect.value);
+        setPeriodGridSelectedPeriod(selected);
+        renderCurrentPeriodGridOverlay();
+      });
+
+      periodGridPeriodChip?.addEventListener("click", (event) => {
+        if (!periodGridPeriodSelect) return;
+        if (event.target instanceof Element && event.target.closest("#periodGridPeriodSelect")) return;
+        periodGridPeriodSelect.focus({ preventScroll: true });
+        try {
+          if (typeof periodGridPeriodSelect.showPicker === "function") {
+            periodGridPeriodSelect.showPicker();
+            return;
+          }
+        } catch (_) {
+          // Fall through to click for browsers that gate showPicker behind user-gesture rules.
+        }
+        periodGridPeriodSelect.click();
+      });
+
+      periodGridClose?.addEventListener("click", () => {
+        closePeriodGridOverlay();
       });
 
       resetDashboardButton?.addEventListener("click", () => {
@@ -3336,6 +3952,10 @@
 
         window.addEventListener("keydown", (ev) => {
           if (ev.key === "Escape") {
+            if (isPeriodGridOverlayOpen()) {
+              closePeriodGridOverlay();
+              return;
+            }
             state.pinnedTooltip = null;
             hideTooltip();
           }

@@ -1159,7 +1159,7 @@ function renderCardPreviewFromRows(rows) {
   const minYLinear = Math.max(0, minYRaw - padY);
   const maxYLinear = maxYRaw + padY;
 
-  const isLog = state.yScale === "log";
+  const isLog = false;
   const logValues = [...priceValues, ...basisValues].filter((v) => Number.isFinite(v) && v > 0);
   const minYLog = Math.max(1e-6, Math.min(...logValues));
   const maxYLog = Math.max(minYLog * 1.00001, Math.max(...logValues));
@@ -1212,16 +1212,8 @@ async function renderCardPreview() {
   if (!chart) return;
 
   try {
-    const cadenceToFile = {
-      daily_dca: "daily_dca.csv",
-      weekly_dca: "weekly_dca.csv",
-      monthly_dca: "monthly_dca.csv",
-    };
-    const cadence = cadenceToFile[state.cadence] ? state.cadence : "daily_dca";
-    const filename = cadenceToFile[cadence];
-
-    const resp = await fetch(`webapp_data/${filename}`, { cache: "default" });
-    if (!resp.ok) throw new Error(`Failed to load ${filename} (${resp.status}).`);
+    const resp = await fetch("webapp_data/daily_dca.csv", { cache: "default" });
+    if (!resp.ok) throw new Error(`Failed to load daily_dca.csv (${resp.status}).`);
 
     const rows = parseCsv(await resp.text())
       .map((row) => ({
@@ -1236,14 +1228,9 @@ async function renderCardPreview() {
         Number.isFinite(row.dcaBasis) &&
         Number.isFinite(row.isPriceAbove)
       ))
-      .sort((a, b) => a.daysAgo - b.daysAgo);
+      .sort((a, b) => b.daysAgo - a.daysAgo);
 
-    const scopedRows = state.rangeDays > 0
-      ? rows.filter((row) => row.daysAgo <= state.rangeDays)
-      : rows;
-
-    scopedRows.sort((a, b) => b.daysAgo - a.daysAgo);
-    renderCardPreviewFromRows(scopedRows);
+    renderCardPreviewFromRows(rows);
   } catch (error) {
     console.error(error);
     renderCardPreviewFromRows([]);

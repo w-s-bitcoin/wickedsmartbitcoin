@@ -118,6 +118,32 @@
     html.card-preview body .grid {
       height: 100vh;
       align-self: stretch;
+      grid-template-columns: 1fr;
+      grid-template-rows: 1fr;
+    }
+
+    html.card-preview .panel-head,
+    html.card-preview .history-legend,
+    html.card-preview .panel-resize-handle,
+    html.card-preview .panel-resizer,
+    html.card-preview .software-panel,
+    html.card-preview #historyLoader {
+      display: none !important;
+    }
+
+    html.card-preview .history-panel {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      width: 100%;
+      padding: 0 !important;
+    }
+
+    html.card-preview #historyChart {
+      flex: 1 1 auto;
+      min-height: 0;
+      width: 100%;
+      height: 100%;
     }
 
 
@@ -775,10 +801,10 @@
       }
 
       .info-popover {
-        left: auto;
-        right: 0;
-        width: min(420px, calc(100% - 4px));
-        max-width: min(420px, calc(100% - 4px));
+        left: 0;
+        right: auto;
+        width: min(420px, calc(100vw - 24px));
+        max-width: min(420px, calc(100vw - 24px));
       }
 
     }
@@ -816,6 +842,10 @@
     .copy-link-btn:hover {
       background: var(--surface-soft);
       color: var(--ink);
+    }
+
+    :root[data-theme="dark"] .copy-link-btn {
+      color: #b0b0b0;
     }
 
     .reset-dashboard-btn {
@@ -930,12 +960,13 @@
         line-height: 0;
         letter-spacing: 0;
         justify-content: center;
+        gap: 0;
       }
 
-      .copy-link-btn .btn-icon,
-      .copy-link-btn .btn-label,
-      .reset-dashboard-btn .btn-icon,
-      .reset-dashboard-btn .btn-label {
+      .title-actions .copy-link-btn .btn-icon,
+      .title-actions .copy-link-btn .btn-label,
+      .title-actions .reset-dashboard-btn .btn-icon,
+      .title-actions .reset-dashboard-btn .btn-label {
         display: none;
       }
 
