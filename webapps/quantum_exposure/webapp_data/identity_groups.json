@@ -430,7 +430,12 @@
       "Jubi",
       "orbix",
       "PrimeBit",
-      "SouthXchange"
+      "SouthXchange",
+      "Paybis",
+      "AidosMarket",
+      "Coinsmarket.com",
+      "CREX24",
+      "Gatecoin.com"
     ],
     "Governments, public sector, and charities": [
       "Royal Government of Bhutan",
@@ -515,7 +520,8 @@
       "Exp Asset",
       "Deloitte",
       "Secondeye Solution",
-      "BTCLend.org"
+      "BTCLend.org",
+      "HTAL"
     ],
     "Mining pools and mining companies": [
       "GHash.io",
@@ -644,7 +650,8 @@
       "FaucetBox.com",
       "Mercuryo",
       "SatoshiPoint",
-      "Wallet in Telegram"
+      "Wallet in Telegram",
+      "Konvert"
     ],
     "Protocols, bridges, defi, and wrapped assets": [
       "Babylon",
@@ -760,7 +767,8 @@
       "Bitcoin.com Games",
       "Chainroll",
       "Duelbits",
-      "Fairlay"
+      "Fairlay",
+      "BitDice"
     ],
     "Darknet mixers and illicit services": [
       "GMaxwell CoinJoin",
