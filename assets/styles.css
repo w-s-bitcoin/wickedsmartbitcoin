@@ -1264,6 +1264,14 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
     flex-wrap: wrap;
     row-gap: 0.25rem;
 }
+.modal-controls-underlay {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+}
+.modal-controls-underlay .modal-controls {
+    pointer-events: none;
+}
 .modal-controls.hidden {
     transform: translateY(-100%);
     opacity: 0;

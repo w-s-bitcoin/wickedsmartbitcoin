@@ -32,11 +32,92 @@
   let imageListCache = null;
   let imageListPromise = null;
   let currentYoutubeUrl = "";
+  let snapshotReportControlsAnchor = null;
+  let snapshotReportControlsOriginalParent = null;
+  let snapshotReportControlsUnderlay = null;
+
+  function getModalControls() {
+    const controls = document.querySelector(".modal-controls");
+    return controls instanceof HTMLElement ? controls : null;
+  }
+
+  function ensureSnapshotReportControlsUnderlay() {
+    if (snapshotReportControlsUnderlay instanceof HTMLElement && snapshotReportControlsUnderlay.isConnected) {
+      return snapshotReportControlsUnderlay;
+    }
+    if (!(modal instanceof HTMLElement)) return null;
+
+    const underlay = document.createElement("div");
+    underlay.className = "modal-controls-underlay";
+    underlay.hidden = true;
+    underlay.setAttribute("aria-hidden", "true");
+    modal.appendChild(underlay);
+    snapshotReportControlsUnderlay = underlay;
+    return underlay;
+  }
+
+  function parkSnapshotReportControls() {
+    const controls = getModalControls();
+    const underlay = ensureSnapshotReportControlsUnderlay();
+    if (!controls || !underlay || controls.parentElement === underlay) return;
+
+    snapshotReportControlsOriginalParent = controls.parentNode;
+    snapshotReportControlsAnchor = document.createComment("snapshot-report-controls-anchor");
+    snapshotReportControlsOriginalParent?.insertBefore(snapshotReportControlsAnchor, controls);
+    underlay.hidden = false;
+    underlay.appendChild(controls);
+  }
+
+  function restoreSnapshotReportControls() {
+    const controls = getModalControls();
+    const underlay = snapshotReportControlsUnderlay;
+    if (!controls || !(underlay instanceof HTMLElement) || controls.parentElement !== underlay) return;
+
+    const targetParent = snapshotReportControlsAnchor?.parentNode || snapshotReportControlsOriginalParent;
+    if (targetParent instanceof Node) {
+      if (snapshotReportControlsAnchor?.parentNode === targetParent) {
+        targetParent.insertBefore(controls, snapshotReportControlsAnchor);
+      } else {
+        targetParent.appendChild(controls);
+      }
+    }
+
+    snapshotReportControlsAnchor?.remove();
+    snapshotReportControlsAnchor = null;
+    snapshotReportControlsOriginalParent = null;
+    underlay.hidden = true;
+  }
+
+  function setSnapshotReportShellState(isOpen) {
+    const active = !!isOpen;
+    document.body?.classList?.toggle("snapshot-report-shell-open", active);
+
+    const modalControls = getModalControls();
+    if (modalControls instanceof HTMLElement) {
+      modalControls.setAttribute("aria-hidden", active ? "true" : "false");
+      modalControls.toggleAttribute("inert", active);
+    }
+
+    if (
+      active
+      && document.activeElement instanceof HTMLElement
+      && modalControls instanceof HTMLElement
+      && modalControls.contains(document.activeElement)
+    ) {
+      document.activeElement.blur();
+    }
+
+    if (active) {
+      parkSnapshotReportControls();
+    } else {
+      restoreSnapshotReportControls();
+    }
+  }
 
   function applyStandaloneFocusOrder() {
     if (!document.body || document.body.getAttribute("data-standalone-modal-shell") !== "1") return;
 
-    const modalControls = document.querySelector(".modal-controls");
+    const modalControls = getModalControls();
     const orderedFocusables = [];
 
     if (modalControls) {
@@ -433,6 +514,10 @@
       if (event.origin !== window.location.origin) return;
       if (event.source !== modalEmbed?.contentWindow) return;
       const data = event.data || {};
+      if (data.type === "quantum-snapshot-report-modal") {
+        setSnapshotReportShellState(!!data.open);
+        return;
+      }
       if (data.type !== "wsb-dashboard-nav-key") return;
       const key = String(data.key || "");
       if (!key) return;
@@ -453,6 +538,7 @@
     }
 
     showShell();
+    setSnapshotReportShellState(false);
     bindEvents();
     applyStandaloneFocusOrder();
     updateFavoriteButton();

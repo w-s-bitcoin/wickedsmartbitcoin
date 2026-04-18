@@ -693,6 +693,18 @@ function renderSnapshotReportSubtitle(priorBlock, newBlock, priorDate, newDate) 
   `;
 }
 
+function notifyParentSnapshotReportModalState(isOpen) {
+  if (window.self === window.top) return;
+  try {
+    window.parent?.postMessage(
+      { type: "quantum-snapshot-report-modal", open: !!isOpen },
+      window.location.origin
+    );
+  } catch (_err) {
+    // Best effort only for standalone shell state.
+  }
+}
+
 async function loadSnapshotReportIntoModal() {
   const body = document.getElementById("snapshotReportBody");
   const subtitle = document.getElementById("snapshotReportSubtitle");
@@ -760,6 +772,7 @@ function openSnapshotReportModal() {
   modal.hidden = false;
   modal.setAttribute("aria-hidden", "false");
   document.body.style.overflow = "hidden";
+  notifyParentSnapshotReportModalState(true);
   setSnapshotReportLoadingState("Loading latest summary...");
   loadSnapshotReportIntoModal();
 }
@@ -770,6 +783,7 @@ function closeSnapshotReportModal() {
   modal.hidden = true;
   modal.setAttribute("aria-hidden", "true");
   document.body.style.overflow = "";
+  notifyParentSnapshotReportModalState(false);
 }
 
 function isSnapshotReportModalOpen() {
@@ -1063,17 +1077,6 @@ function normalizeSelectionForShare(values, allValue) {
   if (!Array.isArray(values)) return [];
   if (values.includes(allValue)) return [allValue];
   return values;
-}
-
-function appendArrayParam(params, key, values, noneToken = SHARE_NONE_TOKEN) {
-  if (!Array.isArray(values)) return;
-  if (values.length === 0) {
-    params.append(key, noneToken);
-    return;
-  }
-  values.forEach((value) => {
-    params.append(key, value);
-  });
 }
 
 function encodeShareState(payload) {
@@ -1628,13 +1631,6 @@ function formatInt(value) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
 }
 
-function formatFixed2(value) {
-  return new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
 function formatCeilBtc(sats) {
   const btc = Math.floor(sats / SATS_PER_BTC);
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(btc);
@@ -1821,13 +1817,20 @@ function showCustomTooltip(anchor, x, y) {
   tooltip.innerHTML = text
     .split("\n")
     .map((line) => {
-      const match = line.match(/^([^:]+:)(\s*)(.*)$/);
+      const match = line.match(/^([^:]+):\s*(.*)$/);
       if (!match) {
         activeValueClass = "";
         return `<div class="tooltip-row"><span>${escapeHtml(line)}</span></div>`;
       }
 
-      const rawLabel = String(match[1] || "").replace(/:$/, "").trim().toLowerCase();
+      const labelText = String(match[1] || "").trim();
+      const isStructuredLabel = /^[A-Za-z][A-Za-z0-9_()\/ +\-]{0,48}$/.test(labelText);
+      if (!isStructuredLabel) {
+        activeValueClass = "";
+        return `<div class="tooltip-row"><span>${escapeHtml(line)}</span></div>`;
+      }
+
+      const rawLabel = labelText.toLowerCase();
       if (rawLabel === "never spent") {
         activeValueClass = "tooltip-value-never";
       } else if (rawLabel === "inactive") {
@@ -1839,7 +1842,7 @@ function showCustomTooltip(anchor, x, y) {
       }
 
       const valueClassAttr = activeValueClass ? ` class="${activeValueClass}"` : "";
-      return `<div class="tooltip-row"><span class="tooltip-label">${escapeHtml(match[1])}</span><span${valueClassAttr}>${escapeHtml(match[3])}</span></div>`;
+      return `<div class="tooltip-row"><span class="tooltip-label">${escapeHtml(`${labelText}:`)}</span><span${valueClassAttr}>${escapeHtml(match[2])}</span></div>`;
     })
     .join("");
   tooltip.classList.add("is-visible");
@@ -2311,12 +2314,6 @@ function renderTagMenu(menuId, checkboxClass, options, selectedValues) {
     `<label class="script-option"><input type="checkbox" class="${checkboxClass}" value="All" ${
       useAll ? "checked" : ""
     }> All</label>` + optionHtml;
-}
-
-function setAllChecks(checkboxes, checked) {
-  checkboxes.forEach((el) => {
-    el.checked = checked;
-  });
 }
 
 function tagStateKeyForTrigger(triggerId) {
@@ -2894,6 +2891,19 @@ function areaPath(points, xAt, yLowerAt, yUpperAt) {
   return path;
 }
 
+function resetHistoricalSeriesState() {
+  state.historicalSeriesGe1AbortController?.abort();
+  state.historicalSeries = [];
+  state.historicalSeriesLoading = false;
+  state.historicalSeriesGe1Loading = false;
+  state.historicalSeriesGe1AbortController = null;
+  state.historicalSeriesGe1ActiveFilterKey = null;
+  state.historicalSeriesGe1LoadProgress = null;
+  state.historicalSeriesGe1LastCompletedFilterKey = null;
+  state.historicalSeriesGe1FallbackFilterKey = null;
+  state.historicalProgressiveYMaxSats = null;
+}
+
 async function ensureHistoricalSeriesLoaded() {
   if (state.historicalSeries.length || state.historicalSeriesLoading) {
     return;
@@ -3275,12 +3285,22 @@ function showHistoricalLoadingOverlay(container, message) {
     container.appendChild(overlay);
   }
 
-  overlay.innerHTML = `
-    <div class="historical-chart-loading-card" role="status" aria-live="polite">
-      <span class="historical-chart-loading-spinner" aria-hidden="true"></span>
-      <span>${escapeHtml(message)}</span>
-    </div>
-  `;
+  let card = overlay.querySelector(".historical-chart-loading-card");
+  let messageEl = overlay.querySelector(".historical-chart-loading-message");
+  if (!card || !messageEl) {
+    overlay.innerHTML = `
+      <div class="historical-chart-loading-card" role="status" aria-live="polite">
+        <span class="historical-chart-loading-spinner" aria-hidden="true"></span>
+        <span class="historical-chart-loading-message"></span>
+      </div>
+    `;
+    card = overlay.querySelector(".historical-chart-loading-card");
+    messageEl = overlay.querySelector(".historical-chart-loading-message");
+  }
+
+  if (messageEl) {
+    messageEl.textContent = String(message || "").trim() || "Loading historical chart...";
+  }
 
   const tooltip = container.querySelector("#historicalHoverTooltip");
   if (tooltip) {
@@ -3300,13 +3320,35 @@ function clearHistoricalLoadingOverlay(container) {
   }
 }
 
+function replaceHistoricalChartContent(container, markup) {
+  if (!container) return;
+
+  const overlay = container.querySelector("#historicalChartLoadingOverlay");
+  const range = document.createRange();
+  range.selectNodeContents(container);
+  const fragment = range.createContextualFragment(markup);
+
+  Array.from(container.childNodes).forEach((node) => {
+    if (node !== overlay) {
+      node.remove();
+    }
+  });
+
+  if (overlay) {
+    container.insertBefore(fragment, overlay);
+    return;
+  }
+
+  container.replaceChildren(fragment);
+}
+
 function renderHistoricalLoadingShell(container, message = "Loading historical chart...") {
   if (!container) return;
 
   container.className = "historical-chart";
-  container.innerHTML = `
+  replaceHistoricalChartContent(container, `
     <svg class="historical-svg" role="img" aria-label="Historical stacked supply chart loading"></svg>
-  `;
+  `);
   showHistoricalLoadingOverlay(container, message);
 }
 
@@ -3668,7 +3710,7 @@ function renderHistoricalStackedChart(filters) {
       <line class="historical-axis" x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${margin.top + plotHeight}"></line>
       <line class="historical-axis" x1="${margin.left}" y1="${margin.top + plotHeight}" x2="${margin.left + plotWidth}" y2="${margin.top + plotHeight}"></line>
     `;
-  container.innerHTML = `
+  replaceHistoricalChartContent(container, `
     <svg class="historical-svg" width="${width}" height="${height}" role="img" aria-label="Historical stacked supply chart">
       ${gridLines}
       ${axisLines}
@@ -3691,7 +3733,7 @@ function renderHistoricalStackedChart(filters) {
       ${xTickLabels}
     </svg>
     <div id="historicalHoverTooltip" class="historical-hover-tooltip" style="display:none;"></div>
-  `;
+  `);
   if (isRenderingProgressively && state.historicalSeriesGe1Loading) {
     showHistoricalLoadingOverlay(container, loadingOverlayMessage);
   } else {
@@ -4278,24 +4320,6 @@ function rowPassesTopExposureFilters(row, filters, includeTagFilters = true) {
   }
 
   if (!includeTagFilters) return true;
-
-  if (!detailTagPassesFilters(filters.detailTags, row.details || "")) {
-    return false;
-  }
-
-  if (!identityBelongsToSelectedGroups(row.identity || "", filters.identityGroups)) {
-    return false;
-  }
-
-  if (!identityTagPassesFilters(filters.identityTags, row.identity || "")) {
-    return false;
-  }
-
-  return true;
-}
-
-function rowPassesTagAndBalanceFilters(row, filters) {
-  if (!rowPassesBalanceFilter(row, filters.balance)) return false;
 
   if (!detailTagPassesFilters(filters.detailTags, row.details || "")) {
     return false;
@@ -5731,7 +5755,6 @@ async function loadSnapshotData(snapshot) {
   state.pendingPersistedSnapshotPreference = null;
   state.pendingPersistedSnapshotHeight = null;
   resetTopExposurePagination();
-  state.topExposuresLoading = true;
   renderTopExposureTagFilters();
   // Progressive rendering: show KPIs/charts immediately using fast aggregates
   updateKpisAndCharts();
@@ -5900,22 +5923,47 @@ function attachEvents() {
     archivedSnapshotsToggleButton.addEventListener("click", async () => {
       if (!IS_LOCAL_RUNTIME || !state.archivedSnapshotsAvailable) return;
 
+      const snapshotFilter = document.getElementById("snapshotFilter");
+      const previousSnapshot = String(state.snapshotHeight || snapshotFilter?.value || "").trim();
+      const previousSnapshotWasArchived = state.snapshotLocationByHeight[previousSnapshot] === "archived";
+
       state.archivedSnapshotsEnabled = !state.archivedSnapshotsEnabled;
       updateArchivedSnapshotsToggleUi();
       persistArchivedSnapshotsEnabled();
 
-      state.snapshotDataCache.clear();
-      state.topExposuresDataCache.clear();
-      state.historicalSeries = [];
-      state.ge1Rows = [];
-      state.topExposuresLoading = false;
-      resetTopExposurePagination();
-
-      const snapshotFilter = document.getElementById("snapshotFilter");
-      const targetSnapshot = String(state.snapshotHeight || snapshotFilter?.value || "").trim();
+      resetHistoricalSeriesState();
 
       try {
-        await loadData(targetSnapshot);
+        state.availableSnapshots = await loadAvailableSnapshots();
+        if (!state.availableSnapshots.length) {
+          throw new Error("No snapshots found in webapp_data/");
+        }
+
+        populateSnapshotFilter(state.availableSnapshots);
+        const targetSnapshot = state.availableSnapshots.includes(previousSnapshot)
+          ? previousSnapshot
+          : state.availableSnapshots[0];
+        if (snapshotFilter) {
+          snapshotFilter.value = targetSnapshot;
+        }
+
+        if (previousSnapshotWasArchived || targetSnapshot !== String(state.snapshotHeight || "").trim()) {
+          state.snapshotDataCache.clear();
+          state.topExposuresDataCache.clear();
+          state.ge1Rows = [];
+          state.topExposuresLoading = false;
+          resetTopExposurePagination();
+          await loadSnapshotData(targetSnapshot);
+          if (!isLiteMode()) {
+            await refreshSnapshotLookupUi();
+          }
+          return;
+        }
+
+        updateResetButtonUi();
+        if (state.scriptPanelMode === "historical") {
+          renderHistoricalStackedChart(readFilters());
+        }
       } catch (err) {
         console.error(err);
         renderEmptyKpis();
