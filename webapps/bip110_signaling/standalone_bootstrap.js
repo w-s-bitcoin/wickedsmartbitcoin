@@ -32,6 +32,86 @@
   let imageListCache = null;
   let imageListPromise = null;
   let currentYoutubeUrl = "";
+  let periodGridControlsAnchor = null;
+  let periodGridControlsOriginalParent = null;
+  let periodGridControlsUnderlay = null;
+
+  function getModalControls() {
+    const controls = document.querySelector(".modal-controls");
+    return controls instanceof HTMLElement ? controls : null;
+  }
+
+  function ensurePeriodGridControlsUnderlay() {
+    if (periodGridControlsUnderlay instanceof HTMLElement && periodGridControlsUnderlay.isConnected) {
+      return periodGridControlsUnderlay;
+    }
+    if (!(modal instanceof HTMLElement)) return null;
+
+    const underlay = document.createElement("div");
+    underlay.className = "modal-controls-underlay";
+    underlay.hidden = true;
+    underlay.setAttribute("aria-hidden", "true");
+    modal.appendChild(underlay);
+    periodGridControlsUnderlay = underlay;
+    return underlay;
+  }
+
+  function parkPeriodGridControls() {
+    const controls = getModalControls();
+    const underlay = ensurePeriodGridControlsUnderlay();
+    if (!controls || !underlay || controls.parentElement === underlay) return;
+
+    periodGridControlsOriginalParent = controls.parentNode;
+    periodGridControlsAnchor = document.createComment("period-grid-controls-anchor");
+    periodGridControlsOriginalParent?.insertBefore(periodGridControlsAnchor, controls);
+    underlay.hidden = false;
+    underlay.appendChild(controls);
+  }
+
+  function restorePeriodGridControls() {
+    const controls = getModalControls();
+    const underlay = periodGridControlsUnderlay;
+    if (!controls || !(underlay instanceof HTMLElement) || controls.parentElement !== underlay) return;
+
+    const targetParent = periodGridControlsAnchor?.parentNode || periodGridControlsOriginalParent;
+    if (targetParent instanceof Node) {
+      if (periodGridControlsAnchor?.parentNode === targetParent) {
+        targetParent.insertBefore(controls, periodGridControlsAnchor);
+      } else {
+        targetParent.appendChild(controls);
+      }
+    }
+
+    periodGridControlsAnchor?.remove();
+    periodGridControlsAnchor = null;
+    periodGridControlsOriginalParent = null;
+    underlay.hidden = true;
+  }
+
+  function setPeriodGridShellState(isOpen) {
+    const active = !!isOpen;
+
+    const modalControls = getModalControls();
+    if (modalControls instanceof HTMLElement) {
+      modalControls.setAttribute("aria-hidden", active ? "true" : "false");
+      modalControls.toggleAttribute("inert", active);
+    }
+
+    if (
+      active
+      && document.activeElement instanceof HTMLElement
+      && modalControls instanceof HTMLElement
+      && modalControls.contains(document.activeElement)
+    ) {
+      document.activeElement.blur();
+    }
+
+    if (active) {
+      parkPeriodGridControls();
+    } else {
+      restorePeriodGridControls();
+    }
+  }
 
   function applyStandaloneFocusOrder() {
     if (!document.body || document.body.getAttribute("data-standalone-modal-shell") !== "1") return;
@@ -423,6 +503,10 @@
       if (event.origin !== window.location.origin) return;
       if (event.source !== modalEmbed?.contentWindow) return;
       const data = event.data || {};
+      if (data.type === "bip110-period-grid-overlay") {
+        setPeriodGridShellState(!!data.open);
+        return;
+      }
       if (data.type !== "wsb-dashboard-nav-key") return;
       const key = String(data.key || "");
       if (!key) return;
@@ -443,6 +527,7 @@
     }
 
     showShell();
+    setPeriodGridShellState(false);
     bindEvents();
     applyStandaloneFocusOrder();
     updateFavoriteButton();

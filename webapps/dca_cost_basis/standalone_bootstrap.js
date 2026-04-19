@@ -32,6 +32,86 @@
   let imageListCache = null;
   let imageListPromise = null;
   let currentYoutubeUrl = "";
+  let halFinneyControlsAnchor = null;
+  let halFinneyControlsOriginalParent = null;
+  let halFinneyControlsUnderlay = null;
+
+  function getModalControls() {
+    const controls = document.querySelector(".modal-controls");
+    return controls instanceof HTMLElement ? controls : null;
+  }
+
+  function ensureHalFinneyControlsUnderlay() {
+    if (halFinneyControlsUnderlay instanceof HTMLElement && halFinneyControlsUnderlay.isConnected) {
+      return halFinneyControlsUnderlay;
+    }
+    if (!(modal instanceof HTMLElement)) return null;
+
+    const underlay = document.createElement("div");
+    underlay.className = "modal-controls-underlay";
+    underlay.hidden = true;
+    underlay.setAttribute("aria-hidden", "true");
+    modal.appendChild(underlay);
+    halFinneyControlsUnderlay = underlay;
+    return underlay;
+  }
+
+  function parkHalFinneyControls() {
+    const controls = getModalControls();
+    const underlay = ensureHalFinneyControlsUnderlay();
+    if (!controls || !underlay || controls.parentElement === underlay) return;
+
+    halFinneyControlsOriginalParent = controls.parentNode;
+    halFinneyControlsAnchor = document.createComment("hal-finney-controls-anchor");
+    halFinneyControlsOriginalParent?.insertBefore(halFinneyControlsAnchor, controls);
+    underlay.hidden = false;
+    underlay.appendChild(controls);
+  }
+
+  function restoreHalFinneyControls() {
+    const controls = getModalControls();
+    const underlay = halFinneyControlsUnderlay;
+    if (!controls || !(underlay instanceof HTMLElement) || controls.parentElement !== underlay) return;
+
+    const targetParent = halFinneyControlsAnchor?.parentNode || halFinneyControlsOriginalParent;
+    if (targetParent instanceof Node) {
+      if (halFinneyControlsAnchor?.parentNode === targetParent) {
+        targetParent.insertBefore(controls, halFinneyControlsAnchor);
+      } else {
+        targetParent.appendChild(controls);
+      }
+    }
+
+    halFinneyControlsAnchor?.remove();
+    halFinneyControlsAnchor = null;
+    halFinneyControlsOriginalParent = null;
+    underlay.hidden = true;
+  }
+
+  function setHalFinneyShellState(isOpen) {
+    const active = !!isOpen;
+
+    const modalControls = getModalControls();
+    if (modalControls instanceof HTMLElement) {
+      modalControls.setAttribute("aria-hidden", active ? "true" : "false");
+      modalControls.toggleAttribute("inert", active);
+    }
+
+    if (
+      active
+      && document.activeElement instanceof HTMLElement
+      && modalControls instanceof HTMLElement
+      && modalControls.contains(document.activeElement)
+    ) {
+      document.activeElement.blur();
+    }
+
+    if (active) {
+      parkHalFinneyControls();
+    } else {
+      restoreHalFinneyControls();
+    }
+  }
 
   function applyStandaloneFocusOrder() {
     if (!document.body || document.body.getAttribute("data-standalone-modal-shell") !== "1") return;
@@ -423,6 +503,10 @@
       if (event.origin !== window.location.origin) return;
       if (event.source !== modalEmbed?.contentWindow) return;
       const data = event.data || {};
+      if (data.type === "dca-hal-finney-overlay") {
+        setHalFinneyShellState(!!data.open);
+        return;
+      }
       if (data.type !== "wsb-dashboard-nav-key") return;
       const key = String(data.key || "");
       if (!key) return;
@@ -443,6 +527,7 @@
     }
 
     showShell();
+    setHalFinneyShellState(false);
     bindEvents();
     applyStandaloneFocusOrder();
     updateFavoriteButton();
