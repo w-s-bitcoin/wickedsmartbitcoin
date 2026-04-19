@@ -435,7 +435,14 @@
       "AidosMarket",
       "Coinsmarket.com",
       "CREX24",
-      "Gatecoin.com"
+      "Gatecoin.com",
+      "Coingi",
+      "BTCBIT.NET",
+      "Buenbit",
+      "KickEX",
+      "Bitpapa",
+      "CoinMetro",
+      "Rain"
     ],
     "Governments, public sector, and charities": [
       "Royal Government of Bhutan",
@@ -521,7 +528,8 @@
       "Deloitte",
       "Secondeye Solution",
       "BTCLend.org",
-      "HTAL"
+      "HTAL",
+      "Tesla"
     ],
     "Mining pools and mining companies": [
       "GHash.io",
@@ -768,7 +776,8 @@
       "Chainroll",
       "Duelbits",
       "Fairlay",
-      "BitDice"
+      "BitDice",
+      "500 Casino"
     ],
     "Darknet mixers and illicit services": [
       "GMaxwell CoinJoin",
@@ -877,7 +886,13 @@
       "Mohammad Ghorbaniyan",
       "Wesley Winston Wosinski",
       "Fengbing Xia",
-      "Andreas Antonopoulos"
+      "Andreas Antonopoulos",
+      "Dane Carter",
+      "Jan Winkel",
+      "Martin Schaerer",
+      "Sangeeta Baveja",
+      "Zhang Wei",
+      "Shen Xingbiao"
     ]
   }
 }
