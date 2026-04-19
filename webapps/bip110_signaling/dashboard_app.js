@@ -3090,11 +3090,24 @@
       return Boolean(periodGridOverlay?.classList.contains("show"));
     }
 
+    function notifyParentPeriodGridOverlayState(isOpen) {
+      if (window.self === window.top) return;
+      try {
+        window.parent?.postMessage(
+          { type: "bip110-period-grid-overlay", open: !!isOpen },
+          window.location.origin
+        );
+      } catch (_err) {
+        // Best effort only.
+      }
+    }
+
     function closePeriodGridOverlay() {
       if (!periodGridOverlay) return;
       periodGridOverlay.classList.remove("show");
       periodGridOverlay.setAttribute("aria-hidden", "true");
       hidePeriodGridTooltip();
+      notifyParentPeriodGridOverlayState(false);
     }
 
     function getPeriodGridAvailableSpace() {
@@ -3363,6 +3376,7 @@
       periodGridOverlay.setAttribute("aria-hidden", "false");
       renderCurrentPeriodGridOverlay();
       periodGridDialog.focus({ preventScroll: true });
+      notifyParentPeriodGridOverlayState(true);
     }
 
     function getReleaseGithubUrl(data) {

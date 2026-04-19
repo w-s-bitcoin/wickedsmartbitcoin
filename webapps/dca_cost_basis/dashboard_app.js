@@ -1027,6 +1027,18 @@ function showError(message) {
   document.querySelector("main")?.prepend(error);
 }
 
+function notifyParentHalFinneyOverlayState(isOpen) {
+  if (window.self === window.top) return;
+  try {
+    window.parent?.postMessage(
+      { type: "dca-hal-finney-overlay", open: !!isOpen },
+      window.location.origin
+    );
+  } catch (_err) {
+    // Best effort only.
+  }
+}
+
 function bindHalFinneyEasterEgg() {
   const trigger = document.getElementById("halFinneyBtn");
   const overlay = document.getElementById("halFinneyOverlay");
@@ -1042,6 +1054,7 @@ function bindHalFinneyEasterEgg() {
 
   const close = () => {
     overlay.hidden = true;
+    notifyParentHalFinneyOverlayState(false);
   };
 
   applyThemeVariant();
@@ -1049,6 +1062,7 @@ function bindHalFinneyEasterEgg() {
   trigger.addEventListener("click", () => {
     applyThemeVariant();
     overlay.hidden = false;
+    notifyParentHalFinneyOverlayState(true);
   });
 
   overlay.addEventListener("click", (event) => {
