@@ -232,7 +232,7 @@
       controls: {
         stripes: true,
         stripesExplicit: false,
-        blockSymbol: "dash",
+        blockSymbol: "square",
         markers: true,
         labels: true,
         showSegwit: false,
@@ -1097,7 +1097,7 @@
         controls: {
           stripes: window.innerWidth >= 760,
           stripesExplicit: false,
-          blockSymbol: "dash",
+          blockSymbol: "square",
           markers: true,
           labels: true,
           showSegwit: false,
@@ -1407,7 +1407,7 @@
 
         state.controls.stripes = window.innerWidth >= 760;
         state.controls.stripesExplicit = false;
-        state.controls.blockSymbol = "dash";
+        state.controls.blockSymbol = "square";
         state.controls.markers = true;
         state.controls.labels = true;
         state.controls.showSegwit = false;
@@ -1435,7 +1435,7 @@
         const blockSymbolSelect = document.getElementById("blockSymbolSelect");
 
         if (stripes) stripes.checked = state.controls.stripes;
-        if (blockSymbolSelect) blockSymbolSelect.value = "dash";
+        if (blockSymbolSelect) blockSymbolSelect.value = "square";
         syncBlockSymbolControl();
         if (markers) markers.checked = true;
         if (labels) labels.checked = true;
@@ -1475,7 +1475,7 @@
 
       if (state.controls.stripesExplicit) return false;
       if (stripes && stripes.checked !== defaultStripesOn) return false;
-      if (normalizeBlockSymbol(state.controls.blockSymbol) !== 'dash') return false;
+      if (normalizeBlockSymbol(state.controls.blockSymbol) !== 'square') return false;
       if (markers && !markers.checked) return false;
       if (labels && !labels.checked) return false;
       if (segwitWindow && segwitWindow.checked) return false;
@@ -1587,8 +1587,8 @@
 
     function normalizeBlockSymbol(value) {
       const normalized = String(value || "").trim().toLowerCase();
-      if (normalized === "square" || normalized === "x") return normalized;
-      return "dash";
+      if (normalized === "dash" || normalized === "square" || normalized === "x") return normalized;
+      return "square";
     }
 
     function pctLabel(signal, periodSize) {
@@ -1651,8 +1651,8 @@
         square: "■",
         x: "×",
       };
-      const label = symbols[value] || symbols.dash;
-      display.innerHTML = `<span class="chip-label">Block symbols</span> <span class="chip-value">${label}</span>`;
+      const label = symbols[value] || symbols.square;
+      display.innerHTML = `<span class="chip-label">Block symbol</span> <span class="chip-value">${label}</span>`;
       select.value = value;
     }
 
