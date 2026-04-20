@@ -1,13 +1,13 @@
 {
-  "generated_utc": "2026-04-19T18:03:46.068901+00:00",
+  "generated_utc": "2026-04-20T03:03:34.910436+00:00",
   "source": {
     "path": "assets/daily_price.csv",
     "start_date": "2011-06-05",
-    "latest_date": "2026-04-19",
-    "latest_timestamp_utc": "2026-04-19T18:00:00+00:00",
-    "latest_block_height": 945816,
-    "latest_price": 74814.6,
-    "duration_days": 5432
+    "latest_date": "2026-04-20",
+    "latest_timestamp_utc": "2026-04-20T03:00:00+00:00",
+    "latest_block_height": 945878,
+    "latest_price": 74452.5,
+    "duration_days": 5433
   },
   "settings": {
     "contribution_usd": 1.0,
@@ -18,17 +18,17 @@
   "kpis": {
     "daily_dca": {
       "name": "daily_dca",
-      "current_basis": 74814.6,
+      "current_basis": 74452.5,
       "current_return_pct": 0.0,
       "invested_usd": 1.0,
-      "btc_accum": 1.3366375012363896e-05,
+      "btc_accum": 1.3431382425036097e-05,
       "purchase_count": 1,
       "days_ago": 1
     },
     "weekly_dca": {
       "name": "weekly_dca",
       "current_basis": 77154.4,
-      "current_return_pct": -3.0326203042211315,
+      "current_return_pct": -3.5019389691320186,
       "invested_usd": 1.0,
       "btc_accum": 1.296102360980061e-05,
       "purchase_count": 1,
@@ -37,7 +37,7 @@
     "monthly_dca": {
       "name": "monthly_dca",
       "current_basis": 68141.7,
-      "current_return_pct": 9.792682014097108,
+      "current_return_pct": 9.261289342649219,
       "invested_usd": 1.0,
       "btc_accum": 1.4675301614136425e-05,
       "purchase_count": 1,
@@ -48,22 +48,22 @@
     {
       "label": "1st Halving",
       "date": "2012-11-28",
-      "days_ago": 4891
+      "days_ago": 4892
     },
     {
       "label": "2nd Halving",
       "date": "2016-07-09",
-      "days_ago": 3572
+      "days_ago": 3573
     },
     {
       "label": "3rd Halving",
       "date": "2020-05-11",
-      "days_ago": 2170
+      "days_ago": 2171
     },
     {
       "label": "4th Halving",
       "date": "2024-04-20",
-      "days_ago": 730
+      "days_ago": 731
     }
   ]
 }
