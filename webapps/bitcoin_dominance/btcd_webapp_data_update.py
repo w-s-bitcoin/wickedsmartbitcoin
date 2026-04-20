@@ -662,7 +662,7 @@ def main() -> None:
     here = Path(__file__).resolve().parent
     main_dir = Path(os.getenv("MAIN_DIR", "/Users/wicked/Projects/animations"))
     source_csv = main_dir / "Bitcoin Dominance" / "coinmarketcap_historical_data.csv"
-    output_dir = here / "webapp_data"
+    output_dir = Path(os.getenv("BTCD_WEBAPP_DATA_DIR", str(here / "webapp_data"))).expanduser()
     update_source_csv_with_live_data(source_csv)
     write_webapp_data(source_csv, output_dir)
 

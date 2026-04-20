@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 here = Path(__file__).resolve().parent
-webapp_data_dir = here / "webapp_data"
+webapp_data_dir = Path(os.getenv("NODE_COUNT_WEBAPP_DATA_DIR", str(here / "webapp_data"))).expanduser()
 webapp_data_dir.mkdir(parents=True, exist_ok=True)
 
 print(f"Webapp data output directory: {webapp_data_dir}")

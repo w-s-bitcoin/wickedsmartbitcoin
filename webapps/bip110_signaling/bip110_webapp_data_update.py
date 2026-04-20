@@ -4,7 +4,9 @@
 import csv
 import json
 import os
+import socket
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
@@ -182,10 +184,24 @@ rpc_password = os.getenv("RPC_PASSWORD")
 if not rpc_user or not rpc_password:
     raise RuntimeError("RPC_USER / RPC_PASSWORD not set in environment.")
 
-rpc = AuthServiceProxy(
-    f"http://{quote(rpc_user, safe='')}:{quote(rpc_password, safe='')}@127.0.0.1:8332",
-    timeout=120,
-)
+def _make_rpc(max_attempts: int = 10, retry_delay: float = 6.0) -> AuthServiceProxy:
+    url = f"http://{quote(rpc_user, safe='')}:{quote(rpc_password, safe='')}@127.0.0.1:8332"
+    last_err: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            conn = AuthServiceProxy(url, timeout=120)
+            conn.getblockcount()  # verify RPC is actually responsive
+            return conn
+        except (OSError, socket.timeout, TimeoutError) as exc:
+            last_err = exc
+            print(f"[bip110] RPC not ready (attempt {attempt}/{max_attempts}): {exc}")
+            if attempt < max_attempts:
+                time.sleep(retry_delay)
+        except Exception as exc:
+            raise RuntimeError(f"Bitcoin RPC error: {exc}") from exc
+    raise RuntimeError(f"Bitcoin RPC unavailable after {max_attempts} attempts: {last_err}")
+
+rpc = _make_rpc()
 
 module_dir = here
 if not (module_dir / "segwit_releases.py").exists() or not (module_dir / "bip110_releases.py").exists():

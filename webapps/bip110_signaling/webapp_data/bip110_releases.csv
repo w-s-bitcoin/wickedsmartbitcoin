@@ -19,3 +19,5 @@ bip110:v0.4,"BIP110
 v0.4",940045,7,589,55,above,2026-03-10 00:04 UTC,https://github.com/dathonohm/bitcoin/releases/tag/v29.3.knots20260210%2Bbip110-v0.4.1,v29.3.knots20260210+bip110-v0.4.1
 core:v28.4,"Core
 v28.4",943880,9,392,55,above,2026-04-06 06:37 UTC,https://github.com/bitcoin/bitcoin/releases/tag/v28.4,v28.4
+core:v31.0,"Core
+v31.0",945932,10,428,55,above,2026-04-20 13:21 UTC,https://github.com/bitcoin/bitcoin/releases/tag/v31.0,v31.0
