@@ -306,7 +306,7 @@ def main() -> None:
     here = Path(__file__).resolve().parent
     repo_root = here.parent.parent
     source_csv = repo_root / "assets" / "daily_price.csv"
-    output_dir = here / "webapp_data"
+    output_dir = Path(os.getenv("DCA_COST_BASIS_WEBAPP_DATA_DIR", str(here / "webapp_data"))).expanduser()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     source_df, latest_snapshot = load_price_history(source_csv, args.start_date)
