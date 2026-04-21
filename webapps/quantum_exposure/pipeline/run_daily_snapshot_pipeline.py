@@ -9,6 +9,10 @@ Workflow:
 5. Archive prior non-50k snapshots (keep only 50k intervals + latest 1000 snapshot).
 6. Refresh blockheight lookup and regenerate ECO/index outputs.
 7. Sync updated dashboard files to standalone webapps-quantum-exposure repo.
+
+Run in terminal with:
+source /Users/wicked/Projects/repos/animations-dev/.venv/bin/activate
+python /Users/wicked/Projects/repos/animations-dev/webapps/quantum_exposure/pipeline/run_daily_snapshot_pipeline.py
 """
 
 from __future__ import annotations
