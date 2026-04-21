@@ -326,11 +326,66 @@
       height: 100%;
       flex: 1 1 auto;
       min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #chartLegend {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 14px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      white-space: nowrap;
+      flex-shrink: 0;
+      padding: 8px 12px 0px 14px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--muted, #95a6ae) transparent;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 11px;
+      color: var(--muted, #95a6ae);
+    }
+
+    #chartLegend::-webkit-scrollbar {
+      height: 4px;
+    }
+
+    #chartLegend::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    #chartLegend::-webkit-scrollbar-thumb {
+      background: var(--muted, #95a6ae);
+      border-radius: 2px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      flex-shrink: 0;
+    }
+
+    .legend-swatch {
+      width: 20px;
+      height: 3px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+
+    .legend-swatch.dashed {
+      background: repeating-linear-gradient(
+        to right,
+        currentColor 0, currentColor 5px,
+        transparent 5px, transparent 9px
+      );
+      background-color: transparent !important;
     }
 
     #costBasisChart {
       width: 100%;
-      height: 100%;
+      height: auto;
     }
 
     #costBasisChart .spikeline {
@@ -544,7 +599,8 @@
 
     <section class="panel">
       <div class="chart-wrap">
-        <div id="costBasisChart"></div>
+        <div id="chartLegend"></div>
+        <div id="costBasisChart" style="flex: 1 1 auto; min-height: 0;"></div>
       </div>
     </section>
   </main>

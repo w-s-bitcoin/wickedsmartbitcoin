@@ -483,6 +483,56 @@ function buildDurationTickConfig(maxDays, selectedRangeDays = 0) {
   return { tickvals, ticktext };
 }
 
+function buildDateTickConfig(rows) {
+  if (!rows.length) return { tickvals: [], ticktext: [] };
+
+  // Derive "today" from the most recent row (rows sorted ascending by daysAgo)
+  const newestRow = rows[0];
+  if (!newestRow.dateIso) return { tickvals: [], ticktext: [] };
+  const newestDate = new Date(newestRow.dateIso + "T00:00:00Z");
+  if (isNaN(newestDate.getTime())) return { tickvals: [], ticktext: [] };
+  const todayUtc = new Date(newestDate.getTime() + newestRow.daysAgo * 86400000);
+
+  const maxDays = rows[rows.length - 1].daysAgo;
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const useYearsOnly = maxDays > 730;
+  const tickvals = [];
+  const ticktext = [];
+
+  if (useYearsOnly) {
+    const candidates = [];
+    for (let y = todayUtc.getUTCFullYear(); y >= 2009; y--) {
+      const jan1 = new Date(Date.UTC(y, 0, 1));
+      const daysAgo = Math.round((todayUtc.getTime() - jan1.getTime()) / 86400000);
+      if (daysAgo >= 1 && daysAgo <= maxDays) {
+        candidates.push({ daysAgo, label: String(y) });
+      }
+    }
+    // Thin ticks to avoid crowding (target ≤ 10 visible ticks)
+    const niceSteps = [1, 2, 3, 4, 5, 10];
+    const rawStep = Math.ceil(candidates.length / 10);
+    const step = niceSteps.find((s) => s >= rawStep) || rawStep;
+    candidates
+      .filter((_, i) => i % step === 0)
+      .forEach((c) => { tickvals.push(c.daysAgo); ticktext.push(c.label); });
+  } else {
+    const todayYear = todayUtc.getUTCFullYear();
+    const todayMonth = todayUtc.getUTCMonth();
+    for (let y = todayYear; y >= 2009; y--) {
+      const mEnd = y === todayYear ? todayMonth : 11;
+      for (let m = mEnd; m >= 0; m--) {
+        const monthStart = new Date(Date.UTC(y, m, 1));
+        const daysAgo = Math.round((todayUtc.getTime() - monthStart.getTime()) / 86400000);
+        if (daysAgo < 1 || daysAgo > maxDays) continue;
+        tickvals.push(daysAgo);
+        ticktext.push(m === 0 ? String(y) : monthNames[m]);
+      }
+    }
+  }
+
+  return { tickvals, ticktext };
+}
+
 function updateKpis(rows) {
   if (!rows.length) return;
 
@@ -789,6 +839,25 @@ function bindChartTooltip(chart) {
   });
 }
 
+function syncCustomLegend(traces, colors) {
+  const legendEl = document.getElementById("chartLegend");
+  if (!legendEl) return;
+
+  const items = traces
+    .filter((t) => t.name && t.showlegend !== false)
+    .map((t) => {
+      const color = t.line?.color || colors.fg;
+      const isDashed = t.line?.dash === "dash";
+      const swatchStyle = isDashed
+        ? `color: ${color};`
+        : `background: ${color};`;
+      const swatchClass = isDashed ? "legend-swatch dashed" : "legend-swatch";
+      return `<span class="legend-item"><span class="${swatchClass}" style="${swatchStyle}"></span>${escapeHtml(t.name)}</span>`;
+    });
+
+  legendEl.innerHTML = items.join("");
+}
+
 function renderChart() {
   const rows = getFilteredRows();
   if (rows.length) {
@@ -866,6 +935,7 @@ function renderChart() {
 
   const maxDays = Math.max(...x);
   const ticks = buildDurationTickConfig(maxDays, state.rangeDays);
+  const dateTicks = buildDateTickConfig(rows);
 
   const allYValues = [
     ...historicalPrice.filter((v) => Number.isFinite(v) && v > 0),
@@ -890,6 +960,20 @@ function renderChart() {
     showlegend: true,
   });
 
+  // Invisible anchor trace required for Plotly to render xaxis2.
+  traces.push({
+    type: "scatter",
+    mode: "lines",
+    x: [1, maxDays],
+    y: [null, null],
+    xaxis: "x2",
+    yaxis: "y",
+    hoverinfo: "skip",
+    showlegend: false,
+    line: { width: 0 },
+    opacity: 0,
+  });
+
   const logTicks = state.yScale === "log"
     ? buildLogTickConfig(allYValues)
     : { tickvals: [], ticktext: [] };
@@ -897,7 +981,7 @@ function renderChart() {
   const layout = {
     paper_bgcolor: "rgba(0,0,0,0)",
     plot_bgcolor: "rgba(0,0,0,0)",
-    margin: { l: 24, r: 88, t: 22, b: 52 },
+    margin: { l: 24, r: 88, t: 50, b: 52 },
     hovermode: "x unified",
     hoverdistance: 5,
     hoverlabel: {
@@ -905,16 +989,7 @@ function renderChart() {
       bgcolor: document.documentElement.dataset.theme === "light" ? "#ffffff" : "#000000",
       bordercolor: document.documentElement.dataset.theme === "light" ? "rgba(0,0,0,0.12)" : "#223038",
     },
-    legend: {
-      orientation: "h",
-      x: 0,
-      y: 1.11,
-      xanchor: "left",
-      yanchor: "top",
-      itemclick: false,
-      itemdoubleclick: false,
-      font: { family: "IBM Plex Mono, monospace", size: 11, color: colors.muted },
-    },
+    showlegend: false,
     xaxis: {
       type: "linear",
       autorange: "reversed",
@@ -934,6 +1009,26 @@ function renderChart() {
       tickfont: { family: "IBM Plex Mono, monospace", color: colors.fg, size: 12 },
       title: {
         text: "DCA Duration",
+        font: { family: "Space Grotesk, sans-serif", size: 12, color: colors.fg },
+        standoff: 8,
+      },
+    },
+    xaxis2: {
+      matches: "x",
+      overlaying: "x",
+      side: "top",
+      showgrid: true,
+      gridcolor: colors.grid,
+      zeroline: false,
+      showline: false,
+      tickmode: "array",
+      tickvals: dateTicks.tickvals,
+      ticktext: dateTicks.ticktext,
+      tickangle: 0,
+      automargin: true,
+      tickfont: { family: "IBM Plex Mono, monospace", color: colors.fg, size: 11 },
+      title: {
+        text: "DCA Starting Point",
         font: { family: "Space Grotesk, sans-serif", size: 12, color: colors.fg },
         standoff: 8,
       },
@@ -972,6 +1067,8 @@ function renderChart() {
     displaylogo: false,
     displayModeBar: false,
   };
+
+  syncCustomLegend(traces, colors);
 
   Plotly.react(chart, traces, layout, config).then(() => {
     bindChartTooltip(chart);
