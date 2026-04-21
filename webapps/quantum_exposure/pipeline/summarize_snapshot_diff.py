@@ -30,6 +30,7 @@ IDENTITY_GROUPS_PATH = WEBAPP_DATA_DIR / "identity_groups.json"
 
 SATS_PER_BTC = 100_000_000
 TENTH_BTC_SATS = SATS_PER_BTC // 10  # 10,000,000
+MIN_TOP_MOVER_SATS = 100 * SATS_PER_BTC
 INTERVAL = 1_000
 
 # How many top movers to show per dimension
@@ -314,12 +315,21 @@ def dict_diff(old: dict[str, int], new: dict[str, int]) -> dict[str, int]:
     return {k: new.get(k, 0) - old.get(k, 0) for k in keys}
 
 
-def top_movers(diff: dict[str, int], n: int) -> tuple[list[tuple[str, int]], list[tuple[str, int]]]:
+def top_movers(
+    diff: dict[str, int],
+    n: int,
+    excluded_labels: set[str] | None = None,
+) -> tuple[list[tuple[str, int]], list[tuple[str, int]]]:
     """Return (top_gainers, top_losers), each sorted by absolute change descending.
-    
-    Excludes "Ungrouped / unidentified" from results.
+
+    Excludes labels passed in ``excluded_labels`` and ignores moves below 100 BTC.
     """
-    items = [(k, v) for k, v in diff.items() if v != 0 and k != "Ungrouped / unidentified"]
+    blocked = excluded_labels or set()
+    items = [
+        (k, v)
+        for k, v in diff.items()
+        if abs(v) >= MIN_TOP_MOVER_SATS and k not in blocked
+    ]
     gainers = sorted((item for item in items if item[1] > 0), key=lambda x: -x[1])[:n]
     losers = sorted((item for item in items if item[1] < 0), key=lambda x: x[1])[:n]
     return gainers, losers
@@ -539,7 +549,11 @@ def build_report(new_height: int, prior_height: int) -> str:
         lines.append(f"  {grp:{col_w}} {fmt_btc(prior_v)}  {fmt_btc(new_v)}  {fmt_btc(d, sign=True)}")
 
     # Top group movers
-    group_gainers, group_losers = top_movers(group_diff, TOP_N)
+    group_gainers, group_losers = top_movers(
+        group_diff,
+        TOP_N,
+        excluded_labels={"Ungrouped / unidentified"},
+    )
     lines.append("")
     lines += movers_table(group_gainers, group_losers, "identity group", new_by_group)
 
@@ -549,7 +563,11 @@ def build_report(new_height: int, prior_height: int) -> str:
     prior_by_identity = aggregate_supply_by_identity(prior_rows)
     new_by_identity = aggregate_supply_by_identity(new_rows)
     identity_diff = dict_diff(prior_by_identity, new_by_identity)
-    identity_gainers, identity_losers = top_movers(identity_diff, TOP_N)
+    identity_gainers, identity_losers = top_movers(
+        identity_diff,
+        TOP_N,
+        excluded_labels={"unidentified"},
+    )
     lines += movers_table(identity_gainers, identity_losers, "individual identity", new_by_identity)
 
     # ── 7. New identities appearing / identities leaving ──
