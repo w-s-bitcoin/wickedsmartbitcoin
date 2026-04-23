@@ -64,7 +64,6 @@ const UNIDENTIFIED_IDENTITY_FILTER_LABEL = "Unidentified";
 const UNIDENTIFIED_IDENTITY_GROUP_FILTER_VALUE = "__unidentified_group__";
 const UNIDENTIFIED_IDENTITY_GROUP_FILTER_LABEL = "Unidentified";
 const THEME_STORAGE_KEY = "quantum-research-dashboard-theme";
-const IS_CARD_PREVIEW = document.documentElement.classList.contains("card-preview");
 const RUNTIME_MODE_STORAGE_KEY = "quantum-research-dashboard-runtime-mode-v1";
 const ARCHIVED_SNAPSHOTS_ENABLED_STORAGE_KEY = "quantum-research-archived-snapshots-enabled-v1";
 const FILTERS_STORAGE_KEY = "quantum-research-dashboard-filters-v1";
@@ -1015,28 +1014,6 @@ function applyPersistedFilterState(prefs) {
   const snapshot = String(prefs.snapshotHeight || "").trim();
   state.pendingPersistedSnapshotPreference = snapshotPreference;
   state.pendingPersistedSnapshotHeight = /^\d+$/.test(snapshot) ? snapshot : null;
-}
-
-function enforceCardPreviewHistoricalDefaults() {
-  if (!IS_CARD_PREVIEW) return;
-
-  state.scriptPanelMode = "historical";
-  state.supplyDisplayMode = "total";
-
-  setAllScriptChecks(true);
-  setAllSpendChecks(true);
-
-  const balanceFilter = document.getElementById("balanceFilter");
-  if (balanceFilter) {
-    balanceFilter.value = "all";
-  }
-
-  state.selectedDetailTags = ["All"];
-  state.selectedIdentityGroups = ["All"];
-  state.selectedIdentityTags = ["All"];
-  state.topExposureAddressQuery = "";
-  state.identityTagFilterQuery = "";
-  state.balanceAutoForcedFromAllByTopFilters = false;
 }
 
 function persistFilters(filters) {
@@ -3458,21 +3435,13 @@ function renderHistoricalStackedChart(filters) {
   const containerWidth = Math.floor(container.clientWidth || container.getBoundingClientRect().width || 0);
   const width = Math.max(containerWidth, 280);
   const height = Math.max(container.clientHeight || 300, 140);
-  const isCardPreview = document.documentElement.classList.contains("card-preview");
   const compactWidth = width < 520;
-  const margin = isCardPreview
-    ? {
-        top: 12,
-        right: 18,
-        bottom: 16,
-        left: 18,
-      }
-    : {
-        top: 12,
-        right: compactWidth ? 18 : 26,
-        bottom: Math.min(30, Math.max(18, Math.floor(height * 0.15))),
-        left: compactWidth ? 56 : 68,
-      };
+  const margin = {
+    top: 12,
+    right: compactWidth ? 18 : 26,
+    bottom: Math.min(30, Math.max(18, Math.floor(height * 0.15))),
+    left: compactWidth ? 56 : 68,
+  };
   const plotWidth = Math.max(width - margin.left - margin.right, 80);
   const plotHeight = Math.max(height - margin.top - margin.bottom, 56);
 
@@ -3574,18 +3543,16 @@ function renderHistoricalStackedChart(filters) {
     yTickValues.push(0);
   }
 
-  const gridLines = isCardPreview
-    ? ""
-    : yTickValues
-      .map((value) => {
-        const y = yAt(value);
-        const label = formatHistoricalYAxisLabelFromSats(value, tickUnitBtc);
-        return `
+  const gridLines = yTickValues
+    .map((value) => {
+      const y = yAt(value);
+      const label = formatHistoricalYAxisLabelFromSats(value, tickUnitBtc);
+      return `
         <line class="historical-grid-line" x1="${margin.left}" y1="${y}" x2="${margin.left + plotWidth}" y2="${y}"></line>
         <text class="historical-y-label" x="${margin.left - 8}" y="${y}" text-anchor="end">${label}</text>
       `;
-      })
-      .join("");
+    })
+    .join("");
 
   const xStep = niceStep((maxHeight - minHeight) / 6 || 1);
   const xTicks = [];
@@ -3601,20 +3568,18 @@ function renderHistoricalStackedChart(filters) {
   }
 
   const xTickLabelY = Math.min(margin.top + plotHeight + 14, height - 4);
-  const xTickLabels = isCardPreview
-    ? ""
-    : xTicks
-      .map((tickHeight, idx) => {
-        const isFirst = idx === 0;
-        const isLast = idx === xTicks.length - 1;
-        const anchor = isFirst ? "start" : isLast ? "end" : "middle";
-        const x = xAtHeight(tickHeight);
-        const paddedX = isFirst ? Math.max(x, margin.left + 2) : isLast ? Math.min(x, margin.left + plotWidth - 2) : x;
-        return `
+  const xTickLabels = xTicks
+    .map((tickHeight, idx) => {
+      const isFirst = idx === 0;
+      const isLast = idx === xTicks.length - 1;
+      const anchor = isFirst ? "start" : isLast ? "end" : "middle";
+      const x = xAtHeight(tickHeight);
+      const paddedX = isFirst ? Math.max(x, margin.left + 2) : isLast ? Math.min(x, margin.left + plotWidth - 2) : x;
+      return `
       <text class="historical-tick-label" x="${paddedX}" y="${xTickLabelY}" text-anchor="${anchor}">${compactHeightLabel(tickHeight)}</text>
     `;
-      })
-      .join("");
+    })
+    .join("");
 
   const nonExposedBasePath = areaPath(
     pointsWithIndex,
@@ -3714,9 +3679,7 @@ function renderHistoricalStackedChart(filters) {
 
 
   container.className = "historical-chart";
-  const axisLines = isCardPreview
-    ? ""
-    : `
+  const axisLines = `
       <line class="historical-axis" x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${margin.top + plotHeight}"></line>
       <line class="historical-axis" x1="${margin.left}" y1="${margin.top + plotHeight}" x2="${margin.left + plotWidth}" y2="${margin.top + plotHeight}"></line>
     `;
@@ -6266,7 +6229,6 @@ function attachEvents() {
     if (urlPrefs) {
       applyPersistedFilterState(urlPrefs);
     }
-    enforceCardPreviewHistoricalDefaults();
     applyTheme(resolveInitialTheme());
     applyRuntimeModeUi();
     attachEvents();

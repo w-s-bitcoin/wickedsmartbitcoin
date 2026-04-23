@@ -17,8 +17,6 @@
         document.documentElement.dataset.theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
       }
 
-      const params = new URLSearchParams(window.location.search);
-      const isCardPreview = params.get('preview') === 'card';
       const isLocalRuntime = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
       const isLiteMode = !isLocalRuntime;
 
@@ -26,8 +24,7 @@
       // the modal shell so controls/navigation match the main app experience.
       if (
         window.location.hostname === 'localhost' &&
-        window.self === window.top &&
-        !isCardPreview
+        window.self === window.top
       ) {
         const redirectedPath = window.location.pathname.replace(
           /\/webapps\/quantum_exposure\/dashboard\.html$/,
@@ -37,10 +34,6 @@
           window.location.replace(`${redirectedPath}#quantum_exposure`);
           return;
         }
-      }
-
-      if (isCardPreview) {
-        document.documentElement.classList.add('card-preview');
       }
       if (window.self !== window.top) {
         document.documentElement.classList.add('embedded-dashboard');
@@ -234,82 +227,6 @@
       min-width: 0;
       display: grid;
       gap: 10px;
-    }
-
-    html.card-preview,
-    html.card-preview body {
-      height: 100%;
-      overflow: hidden;
-    }
-
-    html.card-preview body .wrap {
-      height: 100%;
-      padding: 4px;
-      gap: 0;
-      grid-template-rows: 1fr;
-      overflow: hidden;
-    }
-
-    html.card-preview body .topbar {
-      display: none !important;
-    }
-
-    html.card-preview body .kpis,
-    html.card-preview body .top-exposures-panel {
-      display: none !important;
-    }
-
-    html.card-preview body .analysis-split {
-      grid-template-columns: 1fr;
-      gap: 0;
-      min-height: 0;
-      height: 100%;
-      max-height: 100%;
-      overflow: hidden;
-    }
-
-    html.card-preview body .analysis-split > .panel {
-      min-height: 0;
-      height: 100%;
-      box-shadow: none;
-    }
-
-    html.card-preview body .bars-panel {
-      gap: 0;
-      padding: 0;
-    }
-
-    html.card-preview body .panel-title-row,
-    html.card-preview body .bar-legend {
-      display: none !important;
-    }
-
-    html.card-preview body .historical-chart-loading-overlay,
-    html.card-preview body .bar-empty {
-      display: none !important;
-    }
-
-    html.card-preview body #scriptBars {
-      margin: 0;
-      height: 100%;
-      flex: 1 1 auto;
-      min-height: 0;
-      padding-right: 0;
-    }
-
-    html.card-preview body .historical-chart {
-      padding: 0;
-    }
-
-    html.card-preview body .historical-tick-label,
-    html.card-preview body .historical-y-label,
-    html.card-preview body .historical-grid-line,
-    html.card-preview body .historical-axis,
-    html.card-preview body .historical-hover-tooltip,
-    html.card-preview body .historical-hover-line,
-    html.card-preview body .historical-hover-dot,
-    html.card-preview body .historical-current-marker {
-      display: none !important;
     }
 
     .panel {

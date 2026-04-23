@@ -3,7 +3,7 @@
  * =========================== */
 const DASHBOARD_CARD_PREVIEW_SPECS = Object.freeze({
   'quantum_exposure.png': {
-    url: 'webapps/quantum_exposure/dashboard.html?preview=card',
+    url: 'webapps/quantum_exposure/preview.html',
     width: 1280,
     height: 720,
   },
