@@ -1,5 +1,5 @@
 (function () {
-  const THEME_KEY = "quantum-research-dashboard-theme";
+  const AUTO_REFRESH_MS = 60000;
   const GRID_LAYOUT = Object.freeze({
     cols: 63,
     cellSizePx: 19,
@@ -11,35 +11,6 @@
     periods: [],
     bip110Blocks: [],
   };
-
-  function applyTheme(theme) {
-    document.documentElement.dataset.theme = theme === "light" ? "light" : "dark";
-  }
-
-  function initThemeSync() {
-    try {
-      const stored = localStorage.getItem(THEME_KEY);
-      applyTheme(
-        stored === "light" || stored === "dark"
-          ? stored
-          : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
-      );
-    } catch (_) {
-      applyTheme("dark");
-    }
-
-    window.addEventListener("message", (event) => {
-      if (event.data && event.data.type === "quantum-dashboard-theme") {
-        applyTheme(event.data.theme);
-      }
-    });
-
-    window.addEventListener("storage", (event) => {
-      if (event.key === THEME_KEY && (event.newValue === "light" || event.newValue === "dark")) {
-        applyTheme(event.newValue);
-      }
-    });
-  }
 
   function parseCsv(text) {
     const rows = [];
@@ -200,9 +171,9 @@
 
   async function load() {
     const [metadataResp, periodsResp, blockPointsResp] = await Promise.all([
-      fetch("webapp_data/bip110_metadata.json"),
-      fetch("webapp_data/bip110_periods.csv"),
-      fetch("webapp_data/bip110_block_points.bin"),
+      fetch("webapp_data/bip110_metadata.json", { cache: "no-store" }),
+      fetch("webapp_data/bip110_periods.csv", { cache: "no-store" }),
+      fetch("webapp_data/bip110_block_points.bin", { cache: "no-store" }),
     ]);
 
     if (!metadataResp.ok) throw new Error(`Failed to load webapp_data/bip110_metadata.json (${metadataResp.status})`);
@@ -220,10 +191,19 @@
   }
 
   async function init() {
-    initThemeSync();
+    window.WSBPreviewShared?.initThemeSync({ onThemeChanged: render });
     await load();
     render();
     window.addEventListener("resize", render);
+    window.WSBPreviewShared
+      ?.createAutoRefresher({
+        intervalMs: AUTO_REFRESH_MS,
+        refresh: async () => {
+          await load();
+          render();
+        },
+      })
+      .start();
   }
 
   init().catch((error) => {

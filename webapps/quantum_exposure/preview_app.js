@@ -1,41 +1,9 @@
 (function () {
-  const SATS_PER_BTC = 100000000;
-  const THEME_KEY = 'quantum-research-dashboard-theme';
+  const AUTO_REFRESH_MS = 60000;
 
   const state = {
     points: [],
   };
-
-  function applyTheme(theme) {
-    document.documentElement.dataset.theme = theme === 'dark' ? 'dark' : 'light';
-  }
-
-  function initThemeSync() {
-    try {
-      const stored = window.localStorage.getItem(THEME_KEY);
-      if (stored === 'light' || stored === 'dark') {
-        applyTheme(stored);
-      } else {
-        applyTheme(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-      }
-    } catch (_err) {
-      applyTheme(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-    }
-
-    window.addEventListener('message', (event) => {
-      if (!event.data || event.data.type !== 'quantum-dashboard-theme') return;
-      applyTheme(event.data.theme);
-      render();
-    });
-
-    window.addEventListener('storage', (event) => {
-      if (event.key !== THEME_KEY) return;
-      if (event.newValue === 'light' || event.newValue === 'dark') {
-        applyTheme(event.newValue);
-        render();
-      }
-    });
-  }
 
   function parseCsv(text) {
     const rows = [];
@@ -168,7 +136,7 @@
   }
 
   async function loadData() {
-    const resp = await fetch('webapp_data/historical_eco.csv', { cache: 'default' });
+    const resp = await fetch('webapp_data/historical_eco.csv', { cache: 'no-store' });
     if (!resp.ok) {
       throw new Error(`Could not load webapp_data/historical_eco.csv (${resp.status})`);
     }
@@ -256,10 +224,19 @@
   }
 
   async function init() {
-    initThemeSync();
+    window.WSBPreviewShared?.initThemeSync({ onThemeChanged: render });
     await loadData();
     render();
     window.addEventListener('resize', render);
+    window.WSBPreviewShared
+      ?.createAutoRefresher({
+        intervalMs: AUTO_REFRESH_MS,
+        refresh: async () => {
+          await loadData();
+          render();
+        },
+      })
+      .start();
   }
 
   init().catch((error) => {
