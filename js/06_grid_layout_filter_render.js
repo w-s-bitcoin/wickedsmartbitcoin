@@ -18,7 +18,7 @@ const DASHBOARD_CARD_PREVIEW_SPECS = Object.freeze({
     height: 720,
   },
   'bitcoin_dominance.png': {
-    url: 'webapps/bitcoin_dominance/dashboard.html?preview=card',
+    url: 'webapps/bitcoin_dominance/preview.html',
     width: 1280,
     height: 720,
   },

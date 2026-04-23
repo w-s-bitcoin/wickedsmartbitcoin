@@ -27,12 +27,7 @@
     const CONTROLS_STORAGE_KEY = 'bitcoin_dominance_controls_v1';
     const AUTO_REFRESH_MS = 60000;
     const FORCE_REFRESH_MS = 3600000;
-    const IS_CARD_PREVIEW = document.documentElement.classList.contains('card-preview');
-    const FETCH_CACHE_MODE = IS_CARD_PREVIEW ? 'force-cache' : 'no-store';
-    // Bust the cache once per UTC day in card-preview so data is never more than 24 h stale.
-    const CARD_PREVIEW_CACHE_BUST = IS_CARD_PREVIEW
-      ? new Date().toISOString().slice(0, 10).replace(/-/g, '')
-      : null;
+    const FETCH_CACHE_MODE = 'no-store';
     const MOBILE_STACK_BREAKPOINT = 1100;
     const PANEL_SPLIT_MIN = 34;
     const PANEL_SPLIT_MAX = 72;
@@ -1957,8 +1952,7 @@
         }).format(num(row['Circulating Supply']));
         return `${supply} ${symbol}`;
       };
-      // Use top 10 for card preview, top 12 for normal view
-      const topNCount = IS_CARD_PREVIEW ? 10 : 12;
+      const topNCount = 12;
       const topRows = rows.slice(0, Math.min(rows.length, topNCount)).reverse();
       const total = rows.reduce((sum, row) => sum + num(row['Market Cap']), 0);
       const maxCap = Math.max(...topRows.map((row) => num(row['Market Cap'])), 1);
@@ -1979,7 +1973,7 @@
 
       const exclMaxYAxisWidth = calcMaxYAxisLabelWidth(state.datasets.excl.snapshot);
       const inclMaxYAxisWidth = calcMaxYAxisLabelWidth(state.datasets.incl.snapshot);
-      const maxYAxisWidthPx = IS_CARD_PREVIEW ? 0 : Math.max(exclMaxYAxisWidth, inclMaxYAxisWidth);
+      const maxYAxisWidthPx = Math.max(exclMaxYAxisWidth, inclMaxYAxisWidth);
 
       // Calculate max label width across both datasets to maintain consistent right margin
       const calcMaxLabelWidth = (snapshotData) => {
@@ -1997,16 +1991,16 @@
 
       const exclMaxLabelWidth = calcMaxLabelWidth(state.datasets.excl.snapshot);
       const inclMaxLabelWidth = calcMaxLabelWidth(state.datasets.incl.snapshot);
-      const maxLabelWidthPx = IS_CARD_PREVIEW ? 0 : Math.max(exclMaxLabelWidth, inclMaxLabelWidth);
+      const maxLabelWidthPx = Math.max(exclMaxLabelWidth, inclMaxLabelWidth);
 
       const snapshotChartEl = document.getElementById('snapshotChart');
       const hideSnapshotXAxisTickLabels = isStackedLayout();
       const barWidth = 0.56;
       const layoutMargin = {
-        l: Math.ceil(maxYAxisWidthPx + (IS_CARD_PREVIEW ? 0 : 40)),
-        r: IS_CARD_PREVIEW ? 6 : Math.ceil(clamp(maxLabelWidthPx + 6, 48, 96)),
-        t: IS_CARD_PREVIEW ? 8 : 18,
-        b: IS_CARD_PREVIEW ? 8 : (hideSnapshotXAxisTickLabels ? 12 : 34),
+        l: Math.ceil(maxYAxisWidthPx + 40),
+        r: Math.ceil(clamp(maxLabelWidthPx + 6, 48, 96)),
+        t: 18,
+        b: hideSnapshotXAxisTickLabels ? 12 : 34,
       };
       const plotWidthPx = Math.max(1, (snapshotChartEl?.clientWidth || 0) - layoutMargin.l - layoutMargin.r);
       const plotHeightPx = Math.max(1, (snapshotChartEl?.clientHeight || 0) - layoutMargin.t - layoutMargin.b);
@@ -2053,33 +2047,7 @@
       }).filter(Boolean);
       const yLabels = topRows.map((row) => `${row.Symbol} · ${row.Name}`);
 
-      // For card preview, use simplified chart with only bars and icons, no labels
-      const tracesList = IS_CARD_PREVIEW ? [
-        {
-          type: 'bar',
-          orientation: 'h',
-          width: barWidth,
-          x: topRows.map((row) => num(row['Market Cap'])),
-          y: yLabels,
-          customdata: topRows.map((row) => {
-            const marketCap = num(row['Market Cap']);
-            const share = total > 0 ? marketCap / total : 0;
-            return [
-              fmtPriceForTooltip(row),
-              fmtSupplyForTooltip(row),
-              `${fmtCompactMoney(marketCap)} · ${(share * 100).toFixed(1)}%`,
-            ];
-          }),
-          marker: {
-            color: topRows.map((row) => {
-              if (String(row['Primary Key']) === 'BTCBitcoin') return '#ff9f1c';
-              if (String(row['Is Stable']).toLowerCase() === 'true') return STABLE_USD_GREEN;
-              return _thIsLight ? 'rgba(0,0,0,0.28)' : 'rgba(255,255,255,0.34)';
-            }),
-          },
-          hovertemplate: '%{y}<br>Price: %{customdata[0]}<br>Supply: %{customdata[1]}<br>Market cap: %{customdata[2]}<extra></extra>',
-        }
-      ] : [{
+      const tracesList = [{
         type: 'bar',
         orientation: 'h',
         width: barWidth,
@@ -2140,7 +2108,7 @@
         yaxis: {
           automargin: false,
           ticklabelstandoff: 10,
-          showticklabels: !IS_CARD_PREVIEW,
+          showticklabels: true,
           color: _thFgDim,
           fixedrange: true,
           tickfont: { family: 'IBM Plex Mono, monospace', size: 11 },
@@ -2585,79 +2553,6 @@
       applyPanelSizing();
     }
 
-    async function renderCardPreview() {
-      const chartEl = document.getElementById('snapshotChart');
-      if (!chartEl) return;
-
-      try {
-        // Load top 10 data including stables
-        const resp = await fetch('webapp_data/top10_daily_incl_stables.csv', { cache: 'default' });
-        if (!resp.ok) throw new Error(`Failed to load top10_daily_incl_stables.csv (${resp.status}).`);
-
-        // Top market cap at top (index 0 = highest), no reverse
-        const rows = parseCsv(await resp.text())
-          .map((r) => ({
-            'Market Cap': num(r['Market Cap']) || 0,
-            'Primary Key': String(r['Primary Key'] || '').trim(),
-            'Symbol': String(r.Symbol || '').trim(),
-            'Is Stable': String(r['Is Stable'] || '').toLowerCase() === 'true',
-          }))
-          .filter((r) => r['Market Cap'] > 0)
-          .sort((a, b) => b['Market Cap'] - a['Market Cap'])
-          .slice(0, 10);
-
-        if (!rows.length) { chartEl.innerHTML = ''; return; }
-
-        const maxCap = rows[0]['Market Cap'];
-        const isLight = document.documentElement.dataset.theme === 'light';
-        // Use a normalized coordinate space so bars always fill width,
-        // regardless of whether clientWidth is 0 at render time.
-        const VW = 1000; // viewBox width units
-        const iconSize = 28;
-        const iconGap = 12;
-        const padT = 8;
-        const padB = 8;
-        const padL = 18;
-        const padR = iconSize + iconGap + 18; // right of the longest bar
-        const plotW = VW - padL - padR;
-        const n = rows.length;
-        // Use aspect ratio from actual element if available, else default
-        const elW = chartEl.getBoundingClientRect().width || chartEl.clientWidth || 420;
-        const elH = chartEl.getBoundingClientRect().height || chartEl.clientHeight || 280;
-        const rowH = Math.max(16, Math.floor((elH * (VW / elW) - padT - padB) / n));
-        const barH = Math.round(rowH * 0.52);
-        const totalH = padT + n * rowH + padB;
-
-        const items = rows.map((row, idx) => {
-          const cap = row['Market Cap'];
-          const barW = Math.max(4, Math.round((cap / maxCap) * plotW));
-          const barColor = row['Primary Key'] === 'BTCBitcoin'
-            ? '#ff9f1c'
-            : (row['Is Stable'] ? '#35b56a' : (isLight ? 'rgba(0,0,0,0.28)' : 'rgba(255,255,255,0.34)'));
-          const iconPath = row['Primary Key']
-            ? `icons/${encodeURIComponent(row['Primary Key'])}.png`
-            : (row['Symbol'] ? `icons/${encodeURIComponent(row['Symbol'].toUpperCase())}.png` : null);
-          const rowTop = padT + idx * rowH;
-          const barTop = rowTop + Math.round((rowH - barH) / 2);
-          const iconTop = rowTop + Math.round((rowH - iconSize) / 2);
-          const iconLeft = padL + barW + iconGap;
-
-          return [
-            `<rect x="${padL}" y="${barTop}" width="${barW}" height="${barH}" rx="2" fill="${barColor}" />`,
-            iconPath
-              ? `<image href="${iconPath}" x="${iconLeft}" y="${iconTop}" width="${iconSize}" height="${iconSize}" clip-path="url(#clip-icon-${idx})" />`
-              : '',
-            `<clipPath id="clip-icon-${idx}"><circle cx="${iconLeft + iconSize / 2}" cy="${iconTop + iconSize / 2}" r="${iconSize / 2}" /></clipPath>`,
-          ].join('');
-        }).join('');
-
-        chartEl.innerHTML = `<svg viewBox="0 0 ${VW} ${totalH}" width="100%" height="100%" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Top 10 Crypto by Market Cap">${items}</svg>`;
-      } catch (err) {
-        console.error(err);
-        chartEl.innerHTML = '';
-      }
-    }
-
     function bindControls() {
       bindCustomTooltips();
       const updatedTimeZoneSelect = document.getElementById('updatedTimeZoneSelect');
@@ -2814,7 +2709,7 @@
         setPanelLoaderVisible('history', true);
         setPanelLoaderVisible('snapshot', true);
         
-        const data = await loadDashboardData(CARD_PREVIEW_CACHE_BUST);
+        const data = await loadDashboardData(null);
         state.staticMeta = data.staticMeta;
         state.datasets = data.datasets;
         state.priceHistory = data.priceHistory;
@@ -2860,10 +2755,8 @@
         } else {
           window.setTimeout(() => updateResetButtonUi(), 100);
         }
-        if (!IS_CARD_PREVIEW) {
-          setupRefreshWakeEvents();
-          startAutoRefresh();
-        }
+        setupRefreshWakeEvents();
+        startAutoRefresh();
         setControlsEnabled(true);
       } catch (error) {
         console.error(error);
@@ -2876,19 +2769,6 @@
 
     window.addEventListener('DOMContentLoaded', async () => {
       setControlsEnabled(false);
-
-      if (IS_CARD_PREVIEW) {
-        const run = async () => {
-          await renderCardPreview();
-          document.addEventListener('dashboard-theme-change', () => { void renderCardPreview(); });
-        };
-        if (typeof window.requestIdleCallback === 'function') {
-          window.requestIdleCallback(() => { void run(); }, { timeout: 1200 });
-        } else {
-          window.setTimeout(() => { void run(); }, 120);
-        }
-        return;
-      }
 
       const startInteractiveBootstrap = async () => {
         try {
