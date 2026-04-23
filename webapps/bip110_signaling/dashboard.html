@@ -4,14 +4,6 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>BIP-110 Signaling</title>
-  <script>
-    (function () {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('preview') === 'card') {
-        document.documentElement.classList.add('card-preview');
-      }
-    }());
-  </script>
   <script src="../shared/dashboard_embed_modal.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -158,79 +150,6 @@
     }
 
     /* Wrap styles are now inherited from shared CSS */
-
-    html.card-preview,
-    html.card-preview body {
-      height: 100%;
-      overflow: hidden;
-    }
-
-    html.card-preview body .wrap {
-      display: flex;
-      flex-direction: column;
-      height: 100vh;
-      padding: 0;
-      gap: 0;
-    }
-
-    html.card-preview body .topbar {
-      display: none !important;
-    }
-
-    html.card-preview body .card {
-      flex: 1 1 0;
-      width: 100%;
-      min-height: 0;
-      border-radius: 0;
-      border-left: 0;
-      border-right: 0;
-    }
-
-    html.card-preview body .canvas-box {
-      height: 100% !important;
-      min-height: 0;
-    }
-
-    html.card-preview body .panel-fill-btn,
-    html.card-preview body .panel-resize-handle {
-      display: none !important;
-    }
-
-    html.card-preview body #segwitPanel {
-      display: none !important;
-    }
-
-    html.card-preview body #bip110Panel {
-      border: 0;
-    }
-
-    html.card-preview body #bip110Canvas,
-    html.card-preview body #bip110ResizeHandle,
-    html.card-preview body #bip110FillHeightBtn {
-      display: none !important;
-    }
-
-    html.card-preview body .card-preview-grid-shell {
-      display: flex;
-      align-items: stretch;
-      justify-content: stretch;
-      width: 100%;
-      height: 100%;
-      padding: 0;
-    }
-
-    html.card-preview body .card-preview-grid-content {
-      display: grid;
-      grid-template-columns: repeat(var(--period-grid-cols, 63), var(--period-grid-cell-size, 10px));
-      gap: var(--period-grid-gap, 1px);
-      width: max-content;
-      height: max-content;
-      margin: auto;
-      padding: 0;
-      background: transparent;
-      border: 0;
-    }
-
 
     .topbar {
       display: grid;
@@ -1153,9 +1072,6 @@
         <div class="panel-loader hidden" id="bip110Loader" aria-live="polite" aria-label="Loading BIP-110 signaling chart">
           <div class="circle" aria-hidden="true"></div>
           <div class="label">Loading BIP-110 signaling...</div>
-        </div>
-        <div class="card-preview-grid-shell" id="cardPreviewGridShell" hidden aria-hidden="true">
-          <div class="card-preview-grid-content" id="cardPreviewGridContent"></div>
         </div>
         <button type="button" class="panel-fill-btn" id="bip110FillHeightBtn" aria-label="Fill BIP-110 chart height" title="Fill chart height">
           <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
