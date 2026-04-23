@@ -210,7 +210,7 @@
     if (!blockPointsResp.ok) throw new Error(`Failed to load webapp_data/bip110_block_points.bin (${blockPointsResp.status})`);
 
     const metadataRoot = await metadataResp.json();
-    state.metadata = metadataRoot.chart ? metadataRoot : (metadataRoot.metadata || {});
+    state.metadata = metadataRoot;
     state.periods = castRows(parseCsv(await periodsResp.text()));
 
     const datasetMeta = state.metadata?.datasets?.bip110_blocks || {};
