@@ -23,7 +23,7 @@ const DASHBOARD_CARD_PREVIEW_SPECS = Object.freeze({
     height: 720,
   },
   'node_count.png': {
-    url: 'webapps/node_count/dashboard.html?preview=card',
+    url: 'webapps/node_count/preview.html',
     width: 1280,
     height: 720,
   },

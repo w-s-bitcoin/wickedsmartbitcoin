@@ -36,12 +36,7 @@
     const PANEL_SPLIT_SNAP_DISTANCE = 1.2;
     const AUTO_REFRESH_MS = 60000;
     const FORCE_REFRESH_MS = 3600000;
-    const IS_CARD_PREVIEW = document.documentElement.classList.contains('card-preview');
-    const FETCH_CACHE_MODE = IS_CARD_PREVIEW ? 'force-cache' : 'no-store';
-    // Bust the cache once per UTC day in card-preview so data is never more than 24 h stale.
-    const CARD_PREVIEW_CACHE_BUST = IS_CARD_PREVIEW
-      ? new Date().toISOString().slice(0, 10).replace(/-/g, '')
-      : null;
+    const FETCH_CACHE_MODE = 'no-store';
     const SOFTWARE_SPLIT_MIN = 32;
     const SOFTWARE_SPLIT_MAX = 78;
     const SHARE_STATE_PARAM = 'state';
@@ -2480,7 +2475,7 @@
       setPanelLoaderVisible('history', true);
       setPanelLoaderVisible('software', true);
       try {
-        const data = await loadDashboardData(CARD_PREVIEW_CACHE_BUST);
+        const data = await loadDashboardData(null);
         state.history = data.historyRows;
         state.software = data.softwareRows;
         state.refreshedAtText = data.refreshedAtText;
@@ -2512,10 +2507,8 @@
         } else {
           window.setTimeout(() => updateResetButtonUi(), 100);
         }
-        if (!IS_CARD_PREVIEW) {
-          setupRefreshWakeEvents();
-          startAutoRefresh();
-        }
+        setupRefreshWakeEvents();
+        startAutoRefresh();
         setControlsEnabled(true);
       } catch (err) {
         console.error(err);
@@ -2524,103 +2517,8 @@
       }
     }
 
-    function buildSvgLinePath(points) {
-      if (!points.length) return '';
-      let d = '';
-      for (let i = 0; i < points.length; i += 1) {
-        d += i === 0
-          ? `M ${points[i][0].toFixed(2)} ${points[i][1].toFixed(2)}`
-          : ` L ${points[i][0].toFixed(2)} ${points[i][1].toFixed(2)}`;
-      }
-      return d;
-    }
-
-    async function renderCardPreview() {
-      const chart = document.getElementById('historyChart');
-      if (!chart) return;
-
-      setPanelLoaderVisible('history', false);
-      setPanelLoaderVisible('software', false);
-
-      try {
-        const resp = await fetch('webapp_data/bitcoin_node_history.csv', { cache: 'default' });
-        if (!resp.ok) throw new Error(`Failed to load bitcoin_node_history.csv (${resp.status}).`);
-
-        const rows = sanitizeHistoryRows(
-          parseCsv(await resp.text()).map((r) => ({
-            ...r,
-            datetime: r.datetime || (r.timestamp ? new Date(num(r.timestamp) * 1000).toISOString() : ''),
-          })).filter((r) => !!r.datetime)
-        ).sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
-
-        const firstNonZero = rows.findIndex((r) => num(r.total_count) > 0);
-        const data = firstNonZero > 0 ? rows.slice(firstNonZero) : rows;
-        if (!data.length) { chart.innerHTML = ''; return; }
-
-        const series = [
-          { values: data.map((r) => num(r.total_count)),                                           color: HISTORY_COLORS.total,       width: 2.6 },
-          { values: data.map((r) => num(r.est_unreachable)),                                       color: HISTORY_COLORS.unreachable,  width: 1.8 },
-          { values: data.map((r) => num(r.listening)),                                             color: HISTORY_COLORS.listening,    width: 1.8 },
-          { values: data.map((r) => Math.max(0, num(r.knots_count) - num(r.bip110_count))),        color: HISTORY_COLORS.knots,        width: 1.8 },
-          { values: data.map((r) => num(r.core_v30_count)),                                        color: HISTORY_COLORS.core,         width: 1.8 },
-          { values: data.map((r) => num(r.bip110_count)),                                          color: HISTORY_COLORS.bip110,       width: 1.8 },
-        ];
-
-        const isLight = document.documentElement.dataset.theme === 'light';
-        const gridColor = isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)';
-
-        const width = Math.max(chart.clientWidth || 0, 420);
-        const height = Math.max(chart.clientHeight || 0, 220);
-        const pad = { top: 12, right: 18, bottom: 16, left: 18 };
-        const plotW = Math.max(1, width - pad.left - pad.right);
-        const plotH = Math.max(1, height - pad.top - pad.bottom);
-        const n = data.length;
-
-        const allValues = series.flatMap((s) => s.values).filter((v) => Number.isFinite(v) && v > 0);
-        const minY = 0;
-        const maxY = Math.max(...allValues) * 1.05;
-        const spanY = Math.max(1, maxY - minY);
-
-        const mapX = (i) => pad.left + (i / Math.max(1, n - 1)) * plotW;
-        const mapY = (v) => pad.top + ((maxY - Math.max(0, v)) / spanY) * plotH;
-
-        const gridLines = [0.25, 0.5, 0.75].map((t) => {
-          const y = pad.top + plotH * t;
-          return `<line x1="${pad.left}" y1="${y.toFixed(2)}" x2="${(pad.left + plotW).toFixed(2)}" y2="${y.toFixed(2)}" stroke="${gridColor}" stroke-width="1" />`;
-        }).join('');
-
-        const paths = series.map(({ values, color, width: sw }) => {
-          const points = [];
-          for (let i = 0; i < values.length; i += 1) {
-            const v = values[i];
-            if (Number.isFinite(v) && v > 0) points.push([mapX(i), mapY(v)]);
-          }
-          if (!points.length) return '';
-          return `<path d="${buildSvgLinePath(points)}" fill="none" stroke="${color}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" />`;
-        }).join('');
-
-        chart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Node Count Over Time preview chart">${gridLines}${paths}</svg>`;
-      } catch (err) {
-        console.error(err);
-        chart.innerHTML = '';
-      }
-    }
-
     window.addEventListener('DOMContentLoaded', async () => {
       setControlsEnabled(false);
-
-      if (IS_CARD_PREVIEW) {
-        const run = async () => {
-          await renderCardPreview();
-          document.addEventListener('dashboard-theme-change', () => { void renderCardPreview(); });
-        };
-        if (typeof window.requestIdleCallback === 'function') {
-          window.requestIdleCallback(() => { void run(); }, { timeout: 1200 });
-        } else {
-          window.setTimeout(() => { void run(); }, 120);
-        }
-        return;
-      }
 
       try {
         await Promise.race([
