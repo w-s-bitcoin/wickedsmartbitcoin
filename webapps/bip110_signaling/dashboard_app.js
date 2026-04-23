@@ -25,12 +25,6 @@
     const AUTO_REFRESH_MS = 60000;
     const FORCE_REFRESH_MS = 3600000;
     const CONTROLS_STORAGE_KEY = "bip110_signaling_controls_v3";
-    const CARD_PREVIEW_GRID_LAYOUT = Object.freeze({
-      cols: 63,
-      rows: 32,
-      cellSizePx: 19,
-      gapPx: 1,
-    });
     const PANEL_RESIZE_MIN_HEIGHT = 220;
     const PANEL_RESIZE_VIEWPORT_PAD = 24;
     const PANEL_RESIZE_SNAP_PX = 18;
@@ -38,7 +32,6 @@
     const SHARE_STATE_PARAM = "bip110_state";
     const LOCAL_RUNTIME_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
     const IS_LOCAL_RUNTIME = LOCAL_RUNTIME_HOSTS.has(window.location.hostname);
-    const IS_CARD_PREVIEW = document.documentElement.classList.contains("card-preview");
 
     const ICONS = {
       copyLink: '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>',
@@ -300,8 +293,6 @@
     const periodGridRangeValue = document.getElementById("periodGridRangeValue");
     const periodGridSignalValue = document.getElementById("periodGridSignalValue");
     const periodGridContent = document.getElementById("periodGridContent");
-    const cardPreviewGridShell = document.getElementById("cardPreviewGridShell");
-    const cardPreviewGridContent = document.getElementById("cardPreviewGridContent");
     const vizInfoBtn = document.getElementById("vizInfoBtn");
     const segwitResizeHandle = document.getElementById("segwitResizeHandle");
     const bip110ResizeHandle = document.getElementById("bip110ResizeHandle");
@@ -2371,11 +2362,6 @@
     }
 
     function updatePanelVisibility() {
-      if (IS_CARD_PREVIEW) {
-        state.controls.showSegwit = false;
-        state.controls.showBip110 = true;
-      }
-
       const prevCount = state.lastVisibleCount;
       const hasPriorVisibility = prevCount >= 0;
 
@@ -3318,46 +3304,6 @@
       periodGridContent.appendChild(fragment);
     }
 
-    function renderCardPreviewGrid() {
-      if (!IS_CARD_PREVIEW || !cardPreviewGridShell || !cardPreviewGridContent) return;
-      if (!state.data) {
-        cardPreviewGridShell.hidden = true;
-        cardPreviewGridShell.setAttribute("aria-hidden", "true");
-        return;
-      }
-
-      state.periodGridDataset = "bip110";
-      const currentBip110Period = getCurrentBip110PeriodNumber();
-      setPeriodGridSelectedPeriod(
-        Number.isFinite(currentBip110Period)
-          ? currentBip110Period
-          : getDefaultPeriodGridPeriod("bip110")
-      );
-
-      const cells = buildCurrentPeriodGridCells();
-      if (!cells.length) {
-        cardPreviewGridShell.hidden = true;
-        cardPreviewGridShell.setAttribute("aria-hidden", "true");
-        return;
-      }
-
-      cardPreviewGridShell.hidden = false;
-      cardPreviewGridShell.setAttribute("aria-hidden", "false");
-
-      cardPreviewGridContent.innerHTML = "";
-      cardPreviewGridContent.style.setProperty("--period-grid-cols", String(CARD_PREVIEW_GRID_LAYOUT.cols));
-      cardPreviewGridContent.style.setProperty("--period-grid-cell-size", `${CARD_PREVIEW_GRID_LAYOUT.cellSizePx}px`);
-      cardPreviewGridContent.style.setProperty("--period-grid-gap", `${CARD_PREVIEW_GRID_LAYOUT.gapPx}px`);
-
-      const fragment = document.createDocumentFragment();
-      cells.forEach((cell) => {
-        const cellEl = document.createElement("div");
-        cellEl.className = `period-grid-cell ${cell.className}`;
-        fragment.appendChild(cellEl);
-      });
-      cardPreviewGridContent.appendChild(fragment);
-    }
-
     function openPeriodGridOverlay(periodOverride = null, datasetKey = "bip110") {
       if (!periodGridOverlay || !periodGridDialog) return;
       state.periodGridDataset = datasetKey === "segwit" ? "segwit" : "bip110";
@@ -3570,11 +3516,6 @@
     }
 
     function renderSelectedPanels(keys, options = {}) {
-      if (IS_CARD_PREVIEW) {
-        renderCardPreviewGrid();
-        return;
-      }
-
       if (!state.data) return;
 
       const enhanced = options.enhanced !== false;
@@ -3657,10 +3598,6 @@
     }
 
     function renderAll() {
-      if (IS_CARD_PREVIEW) {
-        renderCardPreviewGrid();
-        return;
-      }
       renderSelectedPanels(["segwit", "bip110"]);
       if (isPeriodGridOverlayOpen()) {
         renderCurrentPeriodGridOverlay();

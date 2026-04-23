@@ -13,7 +13,7 @@ const DASHBOARD_CARD_PREVIEW_SPECS = Object.freeze({
     height: 720,
   },
   'bip110_signaling.png': {
-    url: 'webapps/bip110_signaling/dashboard.html?preview=card',
+    url: 'webapps/bip110_signaling/preview.html',
     width: 1280,
     height: 720,
   },
