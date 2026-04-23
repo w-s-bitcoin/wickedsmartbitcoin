@@ -21,7 +21,6 @@
       --seg-inactive: #f7c95c;
       --seg-active: #4fc37d;
       --seg-nonexposed: #73808e;
-      --historical-current-marker: #d0d0d0;
     }
 
     html,
@@ -55,11 +54,10 @@
     .seg-never { fill: var(--seg-never); }
     .seg-inactive { fill: var(--seg-inactive); }
     .seg-active { fill: var(--seg-active); }
-    .seg-nonexposed { fill: var(--seg-nonexposed); }
-
-    .historical-current-marker {
-      stroke: var(--historical-current-marker);
-      fill: var(--historical-current-marker);
+    .seg-nonexposed {
+      fill: var(--seg-nonexposed);
+      opacity: 0.52;
+      filter: saturate(0.75);
     }
   </style>
 </head>

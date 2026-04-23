@@ -245,32 +245,12 @@
       (point) => yAt(point.activeTop)
     );
 
-    const selectedPoint = pointsWithIndex[pointsWithIndex.length - 1] || null;
-    const currentMarker = selectedPoint
-      ? (() => {
-          const markerX = selectedPoint.x;
-          const markerTipY = Math.max(
-            margin.top + markerTopPaddingPx + markerHeadHeightPx,
-            yAt(selectedPoint.totalTop) - markerGapToPointPx
-          );
-          const markerTopY = Math.max(margin.top + markerTopPaddingPx, markerTipY - markerHeadHeightPx);
-          const headHalfWidth = 4;
-          return `
-            <g class="historical-current-marker">
-              <line x1="${markerX}" y1="${markerTopY}" x2="${markerX}" y2="${markerTipY - 5}" stroke-width="1.6"></line>
-              <path d="M ${markerX - headHalfWidth} ${markerTipY - 5} L ${markerX + headHalfWidth} ${markerTipY - 5} L ${markerX} ${markerTipY} Z"></path>
-            </g>
-          `;
-        })()
-      : '';
-
     container.innerHTML = `
       <svg class="historical-svg" width="${width}" height="${height}" role="img" aria-label="Historical stacked supply chart">
         <path class="seg-never" d="${neverPath}"></path>
         <path class="seg-inactive" d="${inactivePath}"></path>
         <path class="seg-active" d="${activePath}"></path>
         <path class="seg-nonexposed" d="${nonExposedPath}"></path>
-        ${currentMarker}
       </svg>
     `;
   }
