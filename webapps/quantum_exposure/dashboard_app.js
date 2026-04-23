@@ -1686,6 +1686,16 @@ function formatTooltipDate(unixTime) {
   return `${year}-${month}-${day} ${hour}:${minute} (UTC)`;
 }
 
+function formatRelativeAge(unixTime) {
+  if (!unixTime) return null;
+  const days = (Date.now() / 1000 - unixTime) / 86400;
+  if (days >= 365) {
+    const years = days / 365.25;
+    return `${years.toFixed(1)} Years Ago`;
+  }
+  return `${Math.round(days)} Days Ago`;
+}
+
 function formatSnapshotSelectDate(unixTime) {
   if (!unixTime) return "";
   const date = new Date(unixTime * 1000);
@@ -4717,16 +4727,18 @@ function renderTopExposures(rows) {
       const firstExposedDate = row.firstExposedUnixTime
         ? formatTooltipDate(row.firstExposedUnixTime)
         : formatTooltipDateFromHeight(row.firstExposedBlockheight);
+      const firstExposedAge = formatRelativeAge(row.firstExposedUnixTime);
       tooltipLines.push(
-        `First exposure:\n${formatInt(row.firstExposedBlockheight)} · ${firstExposedDate}`
+        `First exposure:${firstExposedAge ? ` ${firstExposedAge}` : ""}\n${formatInt(row.firstExposedBlockheight)} · ${firstExposedDate}`
       );
     }
     if (row.lastSpendBlockheight > 0) {
       const lastSpendDate = row.lastSpendUnixTime
         ? formatTooltipDate(row.lastSpendUnixTime)
         : formatTooltipDateFromHeight(row.lastSpendBlockheight);
+      const lastSpendAge = formatRelativeAge(row.lastSpendUnixTime);
       tooltipLines.push(
-        `Last spend:\n${formatInt(row.lastSpendBlockheight)} · ${lastSpendDate}`
+        `Last spend:${lastSpendAge ? ` ${lastSpendAge}` : ""}\n${formatInt(row.lastSpendBlockheight)} · ${lastSpendDate}`
       );
     }
     const spendTooltip = tooltipLines.join("\n");
