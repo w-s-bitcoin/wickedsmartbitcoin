@@ -1,36 +1,5 @@
 (function () {
-  const THEME_KEY = 'quantum-research-dashboard-theme';
-
-  function applyTheme(theme) {
-    document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark';
-  }
-
-  function initThemeSync() {
-    try {
-      const stored = localStorage.getItem(THEME_KEY);
-      applyTheme(
-        stored === 'light' || stored === 'dark'
-          ? stored
-          : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-      );
-    } catch (_) {
-      applyTheme('dark');
-    }
-
-    window.addEventListener('message', (event) => {
-      if (event.data && event.data.type === 'quantum-dashboard-theme') {
-        applyTheme(event.data.theme);
-        render();
-      }
-    });
-
-    window.addEventListener('storage', (event) => {
-      if (event.key === THEME_KEY && (event.newValue === 'light' || event.newValue === 'dark')) {
-        applyTheme(event.newValue);
-        render();
-      }
-    });
-  }
+  const AUTO_REFRESH_MS = 60000;
 
   function parseCsv(text) {
     const rows = [];
@@ -140,7 +109,7 @@
   }
 
   async function load() {
-    const resp = await fetch('webapp_data/top10_daily_incl_stables.csv', { cache: 'default' });
+    const resp = await fetch('webapp_data/top10_daily_incl_stables.csv', { cache: 'no-store' });
     if (!resp.ok) throw new Error(`Failed to load top10_daily_incl_stables.csv (${resp.status}).`);
 
     cachedRows = parseCsv(await resp.text())
@@ -156,10 +125,19 @@
   }
 
   async function init() {
-    initThemeSync();
+    window.WSBPreviewShared?.initThemeSync({ onThemeChanged: render });
     await load();
     render();
     window.addEventListener('resize', render);
+    window.WSBPreviewShared
+      ?.createAutoRefresher({
+        intervalMs: AUTO_REFRESH_MS,
+        refresh: async () => {
+          await load();
+          render();
+        },
+      })
+      .start();
   }
 
   init().catch((error) => {
