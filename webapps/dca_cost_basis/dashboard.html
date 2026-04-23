@@ -4,14 +4,6 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>DCA Cost Basis</title>
-  <script>
-    (function () {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('preview') === 'card') {
-        document.documentElement.classList.add('card-preview');
-      }
-    }());
-  </script>
   <script src="../shared/dashboard_embed_modal.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -131,29 +123,6 @@
     .analysis-split::-webkit-scrollbar-thumb:hover,
     .bars-panel::-webkit-scrollbar-thumb:hover {
       background: var(--scrollbar-thumb-hover);
-    }
-
-    html.card-preview,
-    html.card-preview body {
-      height: 100%;
-      overflow: hidden;
-    }
-
-    html.card-preview body .wrap {
-      height: 100vh;
-      padding: 0;
-      gap: 0;
-      grid-template-rows: 1fr;
-    }
-
-    html.card-preview body .topbar {
-      display: none !important;
-    }
-
-    html.card-preview body .panel {
-      border-radius: 0;
-      border-left: 0;
-      border-right: 0;
     }
 
     .topbar {
