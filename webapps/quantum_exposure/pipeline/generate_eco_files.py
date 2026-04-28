@@ -97,6 +97,49 @@ def load_blockheight_datetime_lookup():
     return lookup
 
 
+def enhance_ge1_csv_with_unix_times(ge1_csv_path, lookup_by_height=None):
+    """Add unix_time columns to the full ge_1btc CSV using blockheight lookup.
+    
+    Returns True if file was modified, False if unchanged, None on error.
+    """
+    if not ge1_csv_path.exists():
+        return None
+
+    try:
+        with open(ge1_csv_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            fieldnames = list(reader.fieldnames or [])
+            rows = list(reader)
+
+        if not rows:
+            return False
+
+        # Check if columns already exist
+        has_unix_times = "first_exposed_unix_time" in fieldnames and "last_spend_unix_time" in fieldnames
+        if has_unix_times:
+            return False  # Already enhanced
+
+        # Add unix times from lookup if available
+        if lookup_by_height:
+            for r in rows:
+                first_h = str(r.get("first_exposed_blockheight", "")).strip()
+                last_h = str(r.get("last_spend_blockheight", "")).strip()
+                r["first_exposed_unix_time"] = lookup_by_height.get(first_h, "")
+                r["last_spend_unix_time"] = lookup_by_height.get(last_h, "") if last_h else ""
+
+        # Extend fieldnames with extra columns (if not already present).
+        extra_cols = [c for c in ECO_EXTRA_COLUMNS if c not in fieldnames]
+        enhanced_fieldnames = fieldnames + extra_cols
+        enhanced_content = serialize_csv_rows(enhanced_fieldnames, rows)
+
+        if write_text_if_changed(ge1_csv_path, enhanced_content):
+            return True
+        return False
+    except Exception as e:
+        print(f"    ✗ Error enhancing {ge1_csv_path.name}: {e}")
+        return None
+
+
 def generate_eco_subset_for_snapshot(snapshot_dir, lookup_by_height=None):
     """Generate the ECO subset CSV for a single snapshot directory.
 
@@ -365,6 +408,41 @@ def main():
     # Phase 0: Load blockheight datetime lookup for unix time embedding
     print("=== Loading Blockheight Datetime Lookup ===")
     lookup_by_height = load_blockheight_datetime_lookup()
+
+    # Phase 0b: Enhance full ge_1btc CSV files with unix_time columns for FULL mode tooltip rendering
+    print(f"\n=== Enhancing Full dashboard_pubkeys_ge_1btc.csv Files ===")
+    full_enhanced_count = 0
+    full_unchanged_count = 0
+    for snapshot_dir in snapshot_dirs:
+        ge1_path = snapshot_dir / "dashboard_pubkeys_ge_1btc.csv"
+        result = enhance_ge1_csv_with_unix_times(ge1_path, lookup_by_height)
+        if result is True:
+            print(f"  ✓ {snapshot_dir.name}: Added unix_time columns")
+            full_enhanced_count += 1
+        elif result is False:
+            print(f"  ⊘ {snapshot_dir.name}: Already has unix_time columns or no changes needed")
+            full_unchanged_count += 1
+
+    # Phase 0c: Enhance archived ge_1btc CSV files
+    archived_dir = WEBAPP_DATA_DIR / "archived"
+    archived_full_enhanced_count = 0
+    archived_full_unchanged_count = 0
+    if archived_dir.exists() and archived_dir.is_dir():
+        archived_snapshot_dirs_phase0c = sorted(
+            [d for d in archived_dir.iterdir() if d.is_dir() and d.name.isdigit()],
+            key=lambda x: int(x.name),
+        )
+        if archived_snapshot_dirs_phase0c:
+            print(f"\n=== Enhancing Full dashboard_pubkeys_ge_1btc.csv Files (Archived) ===")
+            for snapshot_dir in archived_snapshot_dirs_phase0c:
+                ge1_path = snapshot_dir / "dashboard_pubkeys_ge_1btc.csv"
+                result = enhance_ge1_csv_with_unix_times(ge1_path, lookup_by_height)
+                if result is True:
+                    print(f"  ✓ archived/{snapshot_dir.name}: Added unix_time columns")
+                    archived_full_enhanced_count += 1
+                elif result is False:
+                    print(f"  ⊘ archived/{snapshot_dir.name}: Already has unix_time columns or no changes needed")
+                    archived_full_unchanged_count += 1
 
     # Phase 1: Generate ECO subset CSV files (with embedded unix times)
     print(f"\n=== Generating Top {ECO_TOP_N} CSV Files ===")
