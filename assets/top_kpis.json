@@ -7,6 +7,8 @@
   "subsidy_sats": 312500000,
   "supply_btc": 20021974.16997096,
   "supply_target_complete": 0.9534273424759586,
+  "target_hex": "0000000000000000000237740000000000000000000000000000000000000000",
+  "target_hashrate_hps": 908974603129442700000,
   "difficulty": 135594876535256.6,
   "difficulty_display": "135.59T"
 }
