@@ -42,6 +42,7 @@
   let lastSubsidyDisplay = "n/a";
   let lastSubsidySatsDisplay = "n/a";
   let lastSupplyDisplay = "n/a";
+  let lastSupplyBtcRaw = "n/a";
   let lastSupplyTargetComplete = NaN;
   let lastTargetHashrateDisplay = "n/a";
   let lastTargetHexDisplay = "";
@@ -49,38 +50,15 @@
   let lastDifficultyPreciseDisplay = "n/a";
   let balanceRowsScheduled = false;
 
-  function getKpiItems() {
-    return Array.from(kpisContainerEl.children).filter((el) => !el.classList.contains("kpi-row-break"));
-  }
-
   function clearKpiRowBreaks() {
     kpisContainerEl.querySelectorAll(".kpi-row-break").forEach((node) => node.remove());
   }
 
-  function getRenderedRowCount(items) {
-    const tops = new Set();
-    items.forEach((el) => tops.add(el.offsetTop));
-    return tops.size;
-  }
-
   function balanceKpiRowsNow() {
+    // Only clear any previously-inserted breaks; let flexbox wrap naturally.
+    // Inserting zero-height break spans creates doubled row-gaps (gap above + gap below
+    // the 0-height row), making spacing appear uneven. Pure flex-wrap + gap:8px is uniform.
     clearKpiRowBreaks();
-
-    const items = getKpiItems();
-    if (items.length < 2) return;
-
-    const renderedRows = getRenderedRowCount(items);
-    if (renderedRows <= 1) return;
-
-    const perRow = Math.ceil(items.length / renderedRows);
-    if (perRow <= 0) return;
-
-    for (let idx = perRow; idx < items.length; idx += perRow) {
-      const breakEl = document.createElement("span");
-      breakEl.className = "kpi-row-break";
-      breakEl.setAttribute("aria-hidden", "true");
-      kpisContainerEl.insertBefore(breakEl, items[idx]);
-    }
   }
 
   function scheduleBalanceKpiRows() {
@@ -381,17 +359,29 @@
     if (!Number.isFinite(numeric) || numeric < 0) return "n/a";
 
     return numeric.toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+
+  function formatSupplyBtcPrecise(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric < 0) return "n/a";
+
+    return numeric.toLocaleString("en-US", {
       minimumFractionDigits: 8,
       maximumFractionDigits: 8,
     });
   }
 
-  function formatSupplyTargetTooltip(completeRatio) {
+  function formatSupplyTargetTooltip(supplyBtcValue, completeRatio) {
+    const precise = formatSupplyBtcPrecise(supplyBtcValue);
     const numeric = Number(completeRatio);
-    if (!Number.isFinite(numeric) || numeric < 0) return "n/a";
+    if (!Number.isFinite(numeric) || numeric < 0) return precise !== "n/a" ? `${precise} BTC` : "n/a";
     const clamped = Math.max(0, Math.min(1, numeric));
     const flooredTwoDecimals = Math.floor(clamped * 10000) / 100;
-    return `${flooredTwoDecimals.toFixed(2)}% of the 21M BTC mined`;
+    const pct = `${flooredTwoDecimals.toFixed(2)}% of the 21M BTC mined`;
+    return precise !== "n/a" ? `${precise} BTC\n${pct}` : pct;
   }
 
   function formatTargetHashrate(value) {
@@ -558,6 +548,7 @@
 
     if (typeof supplyBtc !== "undefined") {
       lastSupplyDisplay = formatSupplyBtc(supplyBtc);
+      lastSupplyBtcRaw = supplyBtc;
     }
 
     if (typeof supplyTargetComplete !== "undefined") {
@@ -578,7 +569,7 @@
 
     if (supplyEl) {
       updateChipProgressRing(supplyEl, lastSupplyTargetComplete);
-      supplyEl.setAttribute("data-epoch-tooltip", formatSupplyTargetTooltip(lastSupplyTargetComplete));
+      supplyEl.setAttribute("data-epoch-tooltip", formatSupplyTargetTooltip(lastSupplyBtcRaw, lastSupplyTargetComplete));
     }
 
     if (typeof targetHashrate !== "undefined") {

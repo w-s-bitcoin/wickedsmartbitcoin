@@ -396,7 +396,8 @@ footer {
     display: flex;
     justify-content: center;
     align-items: center;
-    gap: 8px;
+    row-gap: 12px;
+    column-gap: 8px;
     flex-wrap: wrap;
     margin: 0.5rem 0 1.25rem;
     overflow: visible;
@@ -470,7 +471,7 @@ footer {
     color: var(--fg);
     font-size: 0.74rem;
     font-family: "IBM Plex Mono", monospace;
-    white-space: nowrap;
+    white-space: pre;
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
     opacity: 0;
     visibility: hidden;
