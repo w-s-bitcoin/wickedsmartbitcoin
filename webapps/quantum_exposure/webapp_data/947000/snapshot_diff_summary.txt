@@ -60,20 +60,18 @@
   Ungrouped / unidentified                         1,845,745.76 BTC    1,878,812.91 BTC      +33,067.16 BTC
   Unidentified miners and Patoshi                  1,714,056.71 BTC    1,714,019.26 BTC          -37.46 BTC
 
-  Group                                                           Prior                 New              Change
-  ────────────────────────────────────────────────── ──────────────────  ──────────────────  ──────────────────
-  Ungrouped / unidentified                             1,845,745.76 BTC    1,878,812.91 BTC      +33,067.16 BTC
-  Casinos, betting, and gaming                               677.94 BTC          741.80 BTC          +63.85 BTC
-  Governments, public sector, and charities                8,454.62 BTC        8,465.89 BTC          +11.27 BTC
-  Payments, wallets, and merchant services                30,259.14 BTC       30,269.08 BTC           +9.94 BTC
-  Hacks, scams, and ransomware                                96.08 BTC           96.08 BTC              +0 BTC
-  Individuals                                             14,754.67 BTC       14,754.67 BTC              +0 BTC
-  Darknet mixers and illicit services                      1,791.34 BTC        1,791.10 BTC           -0.24 BTC
-  Unidentified miners and Patoshi                      1,714,056.71 BTC    1,714,019.26 BTC          -37.46 BTC
-  Institutions, funds, and corporates                    652,609.98 BTC      652,370.69 BTC         -239.29 BTC
-  Mining pools and mining companies                       60,888.44 BTC       60,586.32 BTC         -302.12 BTC
-  Protocols, bridges, defi, and wrapped assets           186,660.79 BTC      177,829.17 BTC       -8,831.62 BTC
-  Exchanges, brokerages, and custody services          2,257,077.50 BTC    2,213,592.22 BTC      -43,485.28 BTC
+  Largest increases (identity group):
+        1,878,812.91 BTC        +33,067.16 BTC   Ungrouped / unidentified
+              741.80 BTC            +63.85 BTC   Casinos, betting, and gaming
+            8,465.89 BTC            +11.27 BTC   Governments, public sector, and charities
+           30,269.08 BTC             +9.94 BTC   Payments, wallets, and merchant services
+
+  Largest decreases (identity group):
+        2,213,592.22 BTC        -43,485.28 BTC   Exchanges, brokerages, and custody services
+          177,829.17 BTC         -8,831.62 BTC   Protocols, bridges, defi, and wrapped assets
+           60,586.32 BTC           -302.12 BTC   Mining pools and mining companies
+          652,370.69 BTC           -239.29 BTC   Institutions, funds, and corporates
+        1,714,019.26 BTC            -37.46 BTC   Unidentified miners and Patoshi
 
 ────────────────────────────────────────────────────────────────────────────
   5. Top Identity Movers (nominal BTC change)
