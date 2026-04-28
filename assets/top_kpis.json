@@ -5,6 +5,8 @@
   "epoch_complete": 0.505,
   "subsidy_btc": 3.125,
   "subsidy_sats": 312500000,
+  "supply_btc": 19947384.38000000,
+  "supply_target_complete": 0.95,
   "difficulty": 135594876535256.6,
   "difficulty_display": "135.59T"
 }
