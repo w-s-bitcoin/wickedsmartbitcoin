@@ -5,6 +5,7 @@
   const TOP_KPIS_URL = "assets/top_kpis.json";
   const AUTO_REFRESH_MS = 60000;
   const FORCE_REFRESH_MS = 3600000;
+  const TARGET_SUPPLY_BTC = 20999999.9769;
   const FALLBACK_TIME_ZONE = "UTC";
   const TZ_STORAGE_KEY = "wicked_dashboard_timezone_v1";
   const TZ_CHANGE_EVENT = "wsb:timezonechange";
@@ -13,15 +14,17 @@
   const heightEl = document.getElementById("homeBip110HeightKpi");
   const epochEl = document.getElementById("homeBip110EpochKpi");
   const subsidyEl = document.getElementById("homeBip110SubsidyKpi");
+  const supplyEl = document.getElementById("homeBip110SupplyKpi");
   const difficultyEpochEl = document.getElementById("homeBip110DifficultyEpochKpi");
   const difficultyEl = document.getElementById("homeBip110DifficultyKpi");
   const timeZoneSelect = document.getElementById("homeKpiTimeZoneSelect");
-  if (!updatedEl || !heightEl || !epochEl || !subsidyEl || !difficultyEpochEl || !difficultyEl || !timeZoneSelect) return;
+  if (!updatedEl || !heightEl || !epochEl || !subsidyEl || !supplyEl || !difficultyEpochEl || !difficultyEl || !timeZoneSelect) return;
 
   const updatedValueEl = updatedEl.querySelector(".chip-value") || updatedEl;
   const heightValueEl = heightEl.querySelector(".chip-value") || heightEl;
   const epochValueEl = epochEl.querySelector(".chip-value") || epochEl;
   const subsidyValueEl = subsidyEl.querySelector(".chip-value") || subsidyEl;
+  const supplyValueEl = supplyEl.querySelector(".chip-value") || supplyEl;
   const difficultyEpochValueEl = difficultyEpochEl.querySelector(".chip-value") || difficultyEpochEl;
   const difficultyValueEl = difficultyEl.querySelector(".chip-value") || difficultyEl;
 
@@ -35,6 +38,8 @@
   let lastBlockMinedAtMs = NaN;
   let lastSubsidyDisplay = "n/a";
   let lastSubsidySatsDisplay = "n/a";
+  let lastSupplyDisplay = "n/a";
+  let lastSupplyTargetComplete = NaN;
   let lastDifficultyDisplay = "n/a";
   let lastDifficultyPreciseDisplay = "n/a";
 
@@ -304,6 +309,24 @@
     });
   }
 
+  function formatSupplyBtc(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric < 0) return "n/a";
+
+    return numeric.toLocaleString("en-US", {
+      minimumFractionDigits: 8,
+      maximumFractionDigits: 8,
+    });
+  }
+
+  function formatSupplyTargetTooltip(completeRatio) {
+    const numeric = Number(completeRatio);
+    if (!Number.isFinite(numeric) || numeric < 0) return "n/a";
+    const clamped = Math.max(0, Math.min(1, numeric));
+    const flooredTwoDecimals = Math.floor(clamped * 10000) / 100;
+    return `${flooredTwoDecimals.toFixed(2)}% of the 21M BTC mined`;
+  }
+
   function setKpis({
     height,
     blockMinedAt,
@@ -311,6 +334,8 @@
     epochComplete,
     subsidyBtc,
     subsidySats,
+    supplyBtc,
+    supplyTargetComplete,
     difficultyDisplay,
     difficultyPreciseDisplay,
   }) {
@@ -434,6 +459,31 @@
       );
     }
 
+    if (typeof supplyBtc !== "undefined") {
+      lastSupplyDisplay = formatSupplyBtc(supplyBtc);
+    }
+
+    if (typeof supplyTargetComplete !== "undefined") {
+      const parsedSupplyTargetComplete = Number(supplyTargetComplete);
+      lastSupplyTargetComplete = Number.isFinite(parsedSupplyTargetComplete)
+        ? parsedSupplyTargetComplete
+        : NaN;
+    } else if (typeof supplyBtc !== "undefined") {
+      const parsedSupplyBtc = Number(supplyBtc);
+      lastSupplyTargetComplete = Number.isFinite(parsedSupplyBtc)
+        ? (parsedSupplyBtc / TARGET_SUPPLY_BTC)
+        : NaN;
+    }
+
+    supplyValueEl.textContent = lastSupplyDisplay === "n/a"
+      ? "n/a"
+      : `${lastSupplyDisplay} BTC`;
+
+    if (supplyEl) {
+      updateChipProgressRing(supplyEl, lastSupplyTargetComplete);
+      supplyEl.setAttribute("data-epoch-tooltip", formatSupplyTargetTooltip(lastSupplyTargetComplete));
+    }
+
     if (typeof difficultyDisplay !== "undefined") {
       const cleaned = String(difficultyDisplay || "").trim();
       lastDifficultyDisplay = cleaned || "n/a";
@@ -484,6 +534,8 @@
         epochComplete: topKpis?.epoch_complete,
         subsidyBtc: topKpis?.subsidy_btc,
         subsidySats: topKpis?.subsidy_sats,
+        supplyBtc: topKpis?.supply_btc,
+        supplyTargetComplete: topKpis?.supply_target_complete,
         difficultyDisplay,
         difficultyPreciseDisplay,
       });
