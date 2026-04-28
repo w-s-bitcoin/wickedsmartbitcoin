@@ -11,20 +11,23 @@
   const TZ_CHANGE_EVENT = "wsb:timezonechange";
 
   const updatedEl = document.getElementById("homeBip110UpdatedKpi");
+  const kpisContainerEl = document.getElementById("homeBip110Kpis");
   const heightEl = document.getElementById("homeBip110HeightKpi");
   const epochEl = document.getElementById("homeBip110EpochKpi");
   const subsidyEl = document.getElementById("homeBip110SubsidyKpi");
   const supplyEl = document.getElementById("homeBip110SupplyKpi");
+  const targetHashrateEl = document.getElementById("homeBip110TargetHashrateKpi");
   const difficultyEpochEl = document.getElementById("homeBip110DifficultyEpochKpi");
   const difficultyEl = document.getElementById("homeBip110DifficultyKpi");
   const timeZoneSelect = document.getElementById("homeKpiTimeZoneSelect");
-  if (!updatedEl || !heightEl || !epochEl || !subsidyEl || !supplyEl || !difficultyEpochEl || !difficultyEl || !timeZoneSelect) return;
+  if (!updatedEl || !kpisContainerEl || !heightEl || !epochEl || !subsidyEl || !supplyEl || !targetHashrateEl || !difficultyEpochEl || !difficultyEl || !timeZoneSelect) return;
 
   const updatedValueEl = updatedEl.querySelector(".chip-value") || updatedEl;
   const heightValueEl = heightEl.querySelector(".chip-value") || heightEl;
   const epochValueEl = epochEl.querySelector(".chip-value") || epochEl;
   const subsidyValueEl = subsidyEl.querySelector(".chip-value") || subsidyEl;
   const supplyValueEl = supplyEl.querySelector(".chip-value") || supplyEl;
+  const targetHashrateValueEl = targetHashrateEl.querySelector(".chip-value") || targetHashrateEl;
   const difficultyEpochValueEl = difficultyEpochEl.querySelector(".chip-value") || difficultyEpochEl;
   const difficultyValueEl = difficultyEl.querySelector(".chip-value") || difficultyEl;
 
@@ -40,8 +43,54 @@
   let lastSubsidySatsDisplay = "n/a";
   let lastSupplyDisplay = "n/a";
   let lastSupplyTargetComplete = NaN;
+  let lastTargetHashrateDisplay = "n/a";
+  let lastTargetHexDisplay = "";
   let lastDifficultyDisplay = "n/a";
   let lastDifficultyPreciseDisplay = "n/a";
+  let balanceRowsScheduled = false;
+
+  function getKpiItems() {
+    return Array.from(kpisContainerEl.children).filter((el) => !el.classList.contains("kpi-row-break"));
+  }
+
+  function clearKpiRowBreaks() {
+    kpisContainerEl.querySelectorAll(".kpi-row-break").forEach((node) => node.remove());
+  }
+
+  function getRenderedRowCount(items) {
+    const tops = new Set();
+    items.forEach((el) => tops.add(el.offsetTop));
+    return tops.size;
+  }
+
+  function balanceKpiRowsNow() {
+    clearKpiRowBreaks();
+
+    const items = getKpiItems();
+    if (items.length < 2) return;
+
+    const renderedRows = getRenderedRowCount(items);
+    if (renderedRows <= 1) return;
+
+    const perRow = Math.ceil(items.length / renderedRows);
+    if (perRow <= 0) return;
+
+    for (let idx = perRow; idx < items.length; idx += perRow) {
+      const breakEl = document.createElement("span");
+      breakEl.className = "kpi-row-break";
+      breakEl.setAttribute("aria-hidden", "true");
+      kpisContainerEl.insertBefore(breakEl, items[idx]);
+    }
+  }
+
+  function scheduleBalanceKpiRows() {
+    if (balanceRowsScheduled) return;
+    balanceRowsScheduled = true;
+    window.requestAnimationFrame(() => {
+      balanceRowsScheduled = false;
+      balanceKpiRowsNow();
+    });
+  }
 
   function getPreferredTimeZone() {
     if (window.WSBDashboardTime?.getPreferredTimeZone) {
@@ -327,6 +376,34 @@
     return `${flooredTwoDecimals.toFixed(2)}% of the 21M BTC mined`;
   }
 
+  function formatTargetHashrate(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) return "n/a";
+
+    const units = ["H/s", "kH/s", "MH/s", "GH/s", "TH/s", "PH/s", "EH/s", "ZH/s", "YH/s"];
+    let scaled = numeric;
+    let unitIndex = 0;
+    while (scaled >= 1000 && unitIndex < units.length - 1) {
+      scaled /= 1000;
+      unitIndex += 1;
+    }
+    return `${scaled.toFixed(2)} ${units[unitIndex]}`;
+  }
+
+  function formatTargetHashrateTooltip(targetHex) {
+    const cleaned = String(targetHex || "").trim();
+    if (!cleaned) return "n/a";
+    const hex = cleaned.toLowerCase().replace(/^0x/, "");
+    if (!hex || !/^[0-9a-f]+$/.test(hex)) return "n/a";
+
+    const normalized = hex.padStart(64, "0");
+    const leadingZerosMatch = normalized.match(/^0+/);
+    const leadingZeros = leadingZerosMatch ? leadingZerosMatch[0].length : 0;
+    const compressedRaw = normalized.slice(leadingZeros) || "0";
+
+    return `0x${compressedRaw} (${leadingZeros} leading zeros)`;
+  }
+
   function setKpis({
     height,
     blockMinedAt,
@@ -336,6 +413,8 @@
     subsidySats,
     supplyBtc,
     supplyTargetComplete,
+    targetHashrate,
+    targetHex,
     difficultyDisplay,
     difficultyPreciseDisplay,
   }) {
@@ -484,6 +563,19 @@
       supplyEl.setAttribute("data-epoch-tooltip", formatSupplyTargetTooltip(lastSupplyTargetComplete));
     }
 
+    if (typeof targetHashrate !== "undefined") {
+      lastTargetHashrateDisplay = formatTargetHashrate(targetHashrate);
+    }
+
+    if (typeof targetHex !== "undefined") {
+      lastTargetHexDisplay = String(targetHex || "").trim();
+    }
+
+    targetHashrateValueEl.textContent = lastTargetHashrateDisplay;
+    if (targetHashrateEl) {
+      targetHashrateEl.setAttribute("data-kpi-tooltip", formatTargetHashrateTooltip(lastTargetHexDisplay));
+    }
+
     if (typeof difficultyDisplay !== "undefined") {
       const cleaned = String(difficultyDisplay || "").trim();
       lastDifficultyDisplay = cleaned || "n/a";
@@ -501,6 +593,8 @@
     if (difficultyEl) {
       difficultyEl.setAttribute("data-kpi-tooltip", lastDifficultyPreciseDisplay);
     }
+
+    scheduleBalanceKpiRows();
   }
 
   async function refreshFromTopKpis() {
@@ -536,6 +630,8 @@
         subsidySats: topKpis?.subsidy_sats,
         supplyBtc: topKpis?.supply_btc,
         supplyTargetComplete: topKpis?.supply_target_complete,
+        targetHashrate: topKpis?.target_hashrate_hps,
+        targetHex: topKpis?.target_hex,
         difficultyDisplay,
         difficultyPreciseDisplay,
       });
@@ -607,5 +703,8 @@
     if (event.key !== TZ_STORAGE_KEY) return;
     refreshForTimezoneOnly();
   });
-  window.addEventListener("resize", () => setKpis({}));
+  window.addEventListener("resize", () => {
+    setKpis({});
+    scheduleBalanceKpiRows();
+  });
 })();
