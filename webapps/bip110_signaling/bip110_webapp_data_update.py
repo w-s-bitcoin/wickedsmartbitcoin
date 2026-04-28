@@ -405,7 +405,7 @@ def build_dynamic_release_points(current_height: int):
 current_height = int(rpc.getblockcount())
 current_hash = rpc.getblockhash(current_height)
 current_time_utc = datetime.fromtimestamp(int(rpc.getblockheader(current_hash)["time"]), tz=timezone.utc)
-date_str = current_time_utc.strftime("%Y-%m-%d %H:%M UTC")
+date_str = current_time_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
 
 bip110_total_periods = (BIP110_SIGNAL_END - BIP110_START) // PERIOD_SIZE
 bip110_scan_end = min(current_height + 1, BIP110_SIGNAL_END)

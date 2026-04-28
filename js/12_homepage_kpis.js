@@ -179,6 +179,24 @@
     const text = String(value).trim();
     if (!text) return NaN;
 
+    // Accept explicit UTC strings like "YYYY-MM-DD HH:MM UTC" or
+    // "YYYY-MM-DD HH:MM:SS UTC" across browsers.
+    const utcMatch = text.match(
+      /^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?\s+UTC$/i
+    );
+    if (utcMatch) {
+      const [, year, month, day, hour, minute, second = "00"] = utcMatch;
+      const parsedUtcMs = Date.UTC(
+        Number(year),
+        Number(month) - 1,
+        Number(day),
+        Number(hour),
+        Number(minute),
+        Number(second)
+      );
+      return Number.isFinite(parsedUtcMs) ? parsedUtcMs : NaN;
+    }
+
     if (/^\d+(\.\d+)?$/.test(text)) {
       const parsed = Number(text);
       if (!Number.isFinite(parsed) || parsed <= 0) return NaN;
