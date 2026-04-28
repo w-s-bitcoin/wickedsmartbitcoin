@@ -30,7 +30,7 @@ IDENTITY_GROUPS_PATH = WEBAPP_DATA_DIR / "identity_groups.json"
 
 SATS_PER_BTC = 100_000_000
 TENTH_BTC_SATS = SATS_PER_BTC // 10  # 10,000,000
-MIN_TOP_MOVER_SATS = 100 * SATS_PER_BTC
+MIN_TOP_MOVER_SATS = 1 * SATS_PER_BTC
 INTERVAL = 1_000
 
 # How many top movers to show per dimension
@@ -548,14 +548,21 @@ def build_report(new_height: int, prior_height: int) -> str:
         d = new_v - prior_v
         lines.append(f"  {grp:{col_w}} {fmt_btc(prior_v)}  {fmt_btc(new_v)}  {fmt_btc(d, sign=True)}")
 
-    # Top group movers
-    group_gainers, group_losers = top_movers(
-        group_diff,
-        TOP_N,
-        excluded_labels={"Ungrouped / unidentified"},
+    # All group movers sorted by change
+    sorted_groups = sorted(
+        [
+            (grp, change)
+            for grp, change in group_diff.items()
+        ],
+        key=lambda x: -x[1],  # Sort by change descending (largest increases first)
     )
     lines.append("")
-    lines += movers_table(group_gainers, group_losers, "identity group", new_by_group)
+    lines.append(f"  {'Group':<50} {'Prior':>18}  {'New':>18}  {'Change':>18}")
+    lines.append(f"  {'─'*50} {'─'*18}  {'─'*18}  {'─'*18}")
+    for grp, change in sorted_groups:
+        prior_v = prior_by_group.get(grp, 0)
+        new_v = new_by_group.get(grp, 0)
+        lines.append(f"  {grp:<50} {fmt_btc(prior_v)}  {fmt_btc(new_v)}  {fmt_btc(change, sign=True)}")
 
     # ── 6. By individual identity ──
     lines.append(section("5. Top Identity Movers (nominal BTC change)"))

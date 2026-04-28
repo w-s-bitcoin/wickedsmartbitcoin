@@ -457,8 +457,10 @@ function parseSnapshotDiffSummary(text) {
   };
 }
 
-function renderMoverList(items) {
+function renderMoverList(items, options = {}) {
+  const { showEmptyState = true } = options;
   if (!items.length) {
+    if (!showEmptyState) return "";
     return '<p class="snapshot-report-empty">No movers for this snapshot.</p>';
   }
 
@@ -569,6 +571,12 @@ function renderSnapshotReportHtml(summary, snapshot, kpiCounts) {
   const totalCeil = formatCeilBtcFromDisplay(summary.total.next);
   const totalValue = totalCeil;
   const supplyBreakdownBar = renderSnapshotSupplyBreakdownBar(summary);
+  const groupGainers = Array.isArray(summary.groupGainers) ? summary.groupGainers : [];
+  const groupLosers = Array.isArray(summary.groupLosers) ? summary.groupLosers : [];
+  const identityGainers = Array.isArray(summary.identityGainers) ? summary.identityGainers : [];
+  const identityLosers = Array.isArray(summary.identityLosers) ? summary.identityLosers : [];
+  const hasGroupMovers = groupGainers.length > 0 || groupLosers.length > 0;
+  const hasIdentityMovers = identityGainers.length > 0 || identityLosers.length > 0;
   return `
     <div class="snapshot-report-grid">
       <article class="snapshot-report-card">
@@ -655,20 +663,20 @@ function renderSnapshotReportHtml(summary, snapshot, kpiCounts) {
     <section class="snapshot-report-section">
       <h5>Identity Group Top Movers</h5>
       <div>
-        ${renderMoverList(summary.groupGainers.slice(0, 3))}
+        ${renderMoverList(groupGainers.slice(0, 3), { showEmptyState: !hasGroupMovers })}
       </div>
       <div style="margin-top: 16px;">
-        ${renderMoverList(summary.groupLosers.slice(0, 3))}
+        ${renderMoverList(groupLosers.slice(0, 3), { showEmptyState: false })}
       </div>
     </section>
 
     <section class="snapshot-report-section">
       <h5>Individual Identity Top Movers</h5>
       <div>
-        ${renderMoverList(summary.identityGainers.slice(0, 3))}
+        ${renderMoverList(identityGainers.slice(0, 3), { showEmptyState: !hasIdentityMovers })}
       </div>
       <div style="margin-top: 16px;">
-        ${renderMoverList(summary.identityLosers.slice(0, 3))}
+        ${renderMoverList(identityLosers.slice(0, 3), { showEmptyState: false })}
       </div>
     </section>
   `;
