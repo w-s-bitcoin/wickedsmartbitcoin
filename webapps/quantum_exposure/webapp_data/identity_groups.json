@@ -456,7 +456,9 @@
       "StormGain",
       "NAGAX",
       "SimpleSwap.io",
-      "Trade Satoshi"
+      "Trade Satoshi",
+      "Cobinhood",
+      "Patricia"
     ],
     "Governments, public sector, and charities": [
       "Royal Government of Bhutan",
@@ -601,7 +603,10 @@
       "Genesis Mining",
       "BTC Guild",
       "Sierra Hash",
-      "Stratum"
+      "Stratum",
+      "CoinWorker.com",
+      "BitcoFarm.com",
+      "Bitfury"
     ],
     "Payments, wallets, and merchant services": [
       "BitPay",
@@ -686,7 +691,11 @@
       "Prestmit",
       "Crypterium.com",
       "Vancouver Bitcoin",
-      "Coinme"
+      "Coinme",
+      "iQCashNow",
+      "Bitaps",
+      "Globee",
+      "GoCoin"
     ],
     "Protocols, bridges, defi, and wrapped assets": [
       "Babylon",
@@ -807,7 +816,8 @@
       "BitDice",
       "500 Casino",
       "Peerbet",
-      "Duckdice.io"
+      "Duckdice.io",
+      "LuckyGames"
     ],
     "Darknet mixers and illicit services": [
       "GMaxwell CoinJoin",
@@ -931,7 +941,8 @@
       "Ivo Willemsen",
       "John Michael Mathews",
       "Joshua Adam Meah",
-      "Pornchanok Vento"
+      "Pornchanok Vento",
+      "Fujing Zheng"
     ]
   }
 }
