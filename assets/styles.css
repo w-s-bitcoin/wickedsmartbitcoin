@@ -423,6 +423,96 @@ footer {
     color: var(--fg);
 }
 
+.home-bip110-kpis .chip-epoch-progress {
+    position: relative;
+    --epoch-progress-color: #ff9800;
+}
+
+.home-bip110-kpis .chip-epoch-progress .epoch-progress-ring {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+}
+
+.home-bip110-kpis .chip-epoch-progress .epoch-progress-meter {
+    fill: none;
+    stroke: var(--epoch-progress-color);
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 0 100;
+    vector-effect: non-scaling-stroke;
+}
+
+.home-bip110-kpis .chip-epoch-progress::after {
+    content: attr(data-epoch-tooltip);
+    position: absolute;
+    left: 50%;
+    top: calc(100% + 10px);
+    transform: translateX(-50%);
+    padding: 6px 9px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--fg);
+    font-size: 0.74rem;
+    font-family: "IBM Plex Mono", monospace;
+    white-space: nowrap;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 130ms ease;
+    pointer-events: none;
+    z-index: 20;
+}
+
+:root:not([data-theme="light"]) .home-bip110-kpis .chip-epoch-progress::after {
+    background: #000;
+}
+
+.home-bip110-kpis .chip-epoch-progress:hover::after {
+    opacity: 1;
+    visibility: visible;
+}
+
+.home-bip110-kpis .chip-kpi-tooltip {
+    position: relative;
+}
+
+.home-bip110-kpis .chip-kpi-tooltip::after {
+    content: attr(data-kpi-tooltip);
+    position: absolute;
+    left: 50%;
+    top: calc(100% + 10px);
+    transform: translateX(-50%);
+    padding: 6px 9px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--fg);
+    font-size: 0.74rem;
+    font-family: "IBM Plex Mono", monospace;
+    white-space: nowrap;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 130ms ease;
+    pointer-events: none;
+    z-index: 20;
+}
+
+:root:not([data-theme="light"]) .home-bip110-kpis .chip-kpi-tooltip::after {
+    background: #000;
+}
+
+.home-bip110-kpis .chip-kpi-tooltip:hover::after {
+    opacity: 1;
+    visibility: visible;
+}
+
 :root:not([data-theme="light"]) .home-bip110-kpis .chip {
     background: #000;
 }

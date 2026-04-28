@@ -13,14 +13,16 @@
   const heightEl = document.getElementById("homeBip110HeightKpi");
   const epochEl = document.getElementById("homeBip110EpochKpi");
   const subsidyEl = document.getElementById("homeBip110SubsidyKpi");
+  const difficultyEpochEl = document.getElementById("homeBip110DifficultyEpochKpi");
   const difficultyEl = document.getElementById("homeBip110DifficultyKpi");
   const timeZoneSelect = document.getElementById("homeKpiTimeZoneSelect");
-  if (!updatedEl || !heightEl || !epochEl || !subsidyEl || !difficultyEl || !timeZoneSelect) return;
+  if (!updatedEl || !heightEl || !epochEl || !subsidyEl || !difficultyEpochEl || !difficultyEl || !timeZoneSelect) return;
 
   const updatedValueEl = updatedEl.querySelector(".chip-value") || updatedEl;
   const heightValueEl = heightEl.querySelector(".chip-value") || heightEl;
   const epochValueEl = epochEl.querySelector(".chip-value") || epochEl;
   const subsidyValueEl = subsidyEl.querySelector(".chip-value") || subsidyEl;
+  const difficultyEpochValueEl = difficultyEpochEl.querySelector(".chip-value") || difficultyEpochEl;
   const difficultyValueEl = difficultyEl.querySelector(".chip-value") || difficultyEl;
 
   let lastBlockHeight = NaN;
@@ -30,8 +32,11 @@
   let lastSuccessfulRefreshAt = 0;
   let lastEpoch = NaN;
   let lastEpochComplete = NaN;
+  let lastBlockMinedAtMs = NaN;
   let lastSubsidyDisplay = "n/a";
+  let lastSubsidySatsDisplay = "n/a";
   let lastDifficultyDisplay = "n/a";
+  let lastDifficultyPreciseDisplay = "n/a";
 
   function getPreferredTimeZone() {
     if (window.WSBDashboardTime?.getPreferredTimeZone) {
@@ -108,6 +113,57 @@
     }
   }
 
+  function parseBlockTimeToMs(value) {
+    if (value == null) return NaN;
+    if (value instanceof Date) return value.getTime();
+
+    if (typeof value === "number") {
+      if (!Number.isFinite(value) || value <= 0) return NaN;
+      return value >= 1e12 ? value : value * 1000;
+    }
+
+    const text = String(value).trim();
+    if (!text) return NaN;
+
+    if (/^\d+(\.\d+)?$/.test(text)) {
+      const parsed = Number(text);
+      if (!Number.isFinite(parsed) || parsed <= 0) return NaN;
+      return parsed >= 1e12 ? parsed : parsed * 1000;
+    }
+
+    const parsedDate = new Date(text);
+    return Number.isNaN(parsedDate.getTime()) ? NaN : parsedDate.getTime();
+  }
+
+  function formatTimestampForSelectedTimeZone(timestampMs) {
+    const parsed = new Date(Number(timestampMs));
+    if (Number.isNaN(parsed.getTime())) return "n/a";
+
+    const timeZone = getPreferredTimeZone();
+    try {
+      const formatter = new Intl.DateTimeFormat("en-CA", {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+        timeZoneName: "short",
+      });
+      const parts = formatter.formatToParts(parsed);
+      const values = Object.create(null);
+      parts.forEach((part) => {
+        values[part.type] = part.value;
+      });
+      const shortName = String(values.timeZoneName || timeZone || FALLBACK_TIME_ZONE).trim();
+      return `${values.year}-${values.month}-${values.day} ${values.hour}:${values.minute}:${values.second} (${shortName})`;
+    } catch (_) {
+      return "n/a";
+    }
+  }
+
   function getHalvingEpoch(height) {
     const numericHeight = Number(height);
     if (!Number.isFinite(numericHeight) || numericHeight < 0) return NaN;
@@ -115,9 +171,33 @@
   }
 
   function getEpochComplete(height) {
+    const blocksMined = getEpochBlocksMinedInCurrentEpoch(height);
+    if (!Number.isFinite(blocksMined)) return NaN;
+    return blocksMined / 210000;
+  }
+
+  function getEpochBlocksMinedInCurrentEpoch(height) {
     const numericHeight = Number(height);
     if (!Number.isFinite(numericHeight) || numericHeight < 0) return NaN;
-    return (numericHeight % 210000) / 210000;
+    return (numericHeight % 210000) + 1;
+  }
+
+  function getDifficultyEpoch(height) {
+    const numericHeight = Number(height);
+    if (!Number.isFinite(numericHeight) || numericHeight < 0) return NaN;
+    return Math.floor(numericHeight / 2016) + 1;
+  }
+
+  function getDifficultyEpochBlocksMined(height) {
+    const numericHeight = Number(height);
+    if (!Number.isFinite(numericHeight) || numericHeight < 0) return NaN;
+    return (numericHeight % 2016) + 1;
+  }
+
+  function getDifficultyEpochComplete(height) {
+    const blocksMined = getDifficultyEpochBlocksMined(height);
+    if (!Number.isFinite(blocksMined)) return NaN;
+    return blocksMined / 2016;
   }
 
   function formatEpochCompletePercent(completeRatio) {
@@ -125,6 +205,59 @@
     if (!Number.isFinite(numeric) || numeric < 0) return "n/a";
     const flooredOneDecimal = Math.floor(numeric * 1000) / 10;
     return `${flooredOneDecimal.toFixed(1)}%`;
+  }
+
+  function formatEpochCompleteBlocks(completeRatio) {
+    const numeric = Number(completeRatio);
+    if (!Number.isFinite(numeric) || numeric < 0) return null;
+    const clamped = Math.max(0, Math.min(1, numeric));
+    return Math.floor(clamped * 210000);
+  }
+
+  function updateChipProgressRing(chipEl, completeRatio) {
+    if (!chipEl) return;
+    const progressSvgEl = chipEl.querySelector(".epoch-progress-ring");
+    const progressMeterEl = chipEl.querySelector(".epoch-progress-meter");
+    if (!progressSvgEl || !progressMeterEl) return;
+
+    const width = Math.max(1, chipEl.clientWidth || chipEl.getBoundingClientRect().width || 0);
+    const height = Math.max(1, chipEl.clientHeight || chipEl.getBoundingClientRect().height || 0);
+    const strokeWidth = 1.8;
+    const chipStyles = window.getComputedStyle(chipEl);
+    const chipBorderWidth = Number.parseFloat(chipStyles.borderTopWidth || "1") || 1;
+    const centerlineNudgePx = -1;
+    const inset = (chipBorderWidth / 2) + centerlineNudgePx;
+
+    const left = inset;
+    const top = inset;
+    const innerWidth = Math.max(1, width - inset * 2);
+    const innerHeight = Math.max(1, height - inset * 2);
+    const right = left + innerWidth;
+    const bottom = top + innerHeight;
+    const radius = Math.max(0, Math.min(innerHeight / 2, innerWidth / 2));
+    const centerX = left + (innerWidth / 2);
+
+    const d = [
+      `M ${centerX} ${top}`,
+      `H ${right - radius}`,
+      `A ${radius} ${radius} 0 0 1 ${right} ${top + radius}`,
+      `V ${bottom - radius}`,
+      `A ${radius} ${radius} 0 0 1 ${right - radius} ${bottom}`,
+      `H ${left + radius}`,
+      `A ${radius} ${radius} 0 0 1 ${left} ${bottom - radius}`,
+      `V ${top + radius}`,
+      `A ${radius} ${radius} 0 0 1 ${left + radius} ${top}`,
+      `H ${centerX}`,
+    ].join(" ");
+
+    const progressRatio = Number.isFinite(Number(completeRatio))
+      ? Math.max(0, Math.min(1, Number(completeRatio)))
+      : 0;
+
+    progressSvgEl.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    progressMeterEl.setAttribute("d", d);
+    progressMeterEl.setAttribute("stroke-width", String(strokeWidth));
+    progressMeterEl.style.strokeDasharray = `${(progressRatio * 100).toFixed(3)} 100`;
   }
 
   function getBlockSubsidySats(height) {
@@ -156,7 +289,31 @@
     return `${(numeric / 1e12).toFixed(2)}T`;
   }
 
-  function setKpis({ height, epoch, epochComplete, subsidyBtc, difficultyDisplay }) {
+  function formatDifficultyPrecise(value) {
+    const normalizedRaw = String(value ?? "").trim();
+    if (!normalizedRaw) return "n/a";
+
+    const normalizedNumeric = Number.parseFloat(normalizedRaw.replaceAll(",", ""));
+    if (!Number.isFinite(normalizedNumeric) || normalizedNumeric <= 0) {
+      return normalizedRaw;
+    }
+
+    const hasDecimals = !Number.isInteger(normalizedNumeric);
+    return normalizedNumeric.toLocaleString("en-US", {
+      maximumFractionDigits: hasDecimals ? 8 : 0,
+    });
+  }
+
+  function setKpis({
+    height,
+    blockMinedAt,
+    epoch,
+    epochComplete,
+    subsidyBtc,
+    subsidySats,
+    difficultyDisplay,
+    difficultyPreciseDisplay,
+  }) {
     if (typeof height !== "undefined") {
       const numericHeight = Number(height);
       lastBlockHeight = Number.isFinite(numericHeight) ? numericHeight : NaN;
@@ -168,6 +325,20 @@
       ? `${lastBlockHeight.toLocaleString()}`
       : "n/a";
 
+    if (typeof blockMinedAt !== "undefined") {
+      const parsedBlockMinedAt = parseBlockTimeToMs(blockMinedAt);
+      lastBlockMinedAtMs = Number.isFinite(parsedBlockMinedAt) ? parsedBlockMinedAt : NaN;
+    }
+
+    if (heightEl) {
+      heightEl.setAttribute(
+        "data-kpi-tooltip",
+        Number.isFinite(lastBlockMinedAtMs)
+          ? formatTimestampForSelectedTimeZone(lastBlockMinedAtMs)
+          : "n/a"
+      );
+    }
+
     if (typeof epoch !== "undefined") {
       const parsedEpoch = Number(epoch);
       lastEpoch = Number.isFinite(parsedEpoch) ? parsedEpoch : NaN;
@@ -175,19 +346,55 @@
       lastEpoch = getHalvingEpoch(lastBlockHeight);
     }
 
-    if (typeof epochComplete !== "undefined") {
+    if (Number.isFinite(lastBlockHeight)) {
+      lastEpochComplete = getEpochComplete(lastBlockHeight);
+    } else if (typeof epochComplete !== "undefined") {
       const parsedEpochComplete = Number(epochComplete);
       lastEpochComplete = Number.isFinite(parsedEpochComplete) ? parsedEpochComplete : NaN;
-    } else if (Number.isFinite(lastBlockHeight)) {
-      lastEpochComplete = getEpochComplete(lastBlockHeight);
     }
 
     const epochPct = formatEpochCompletePercent(lastEpochComplete);
+    const epochBlocksComplete = Number.isFinite(lastBlockHeight)
+      ? getEpochBlocksMinedInCurrentEpoch(lastBlockHeight)
+      : formatEpochCompleteBlocks(lastEpochComplete);
     epochValueEl.textContent = Number.isFinite(lastEpoch)
-      ? (epochPct === "n/a"
-        ? `${lastEpoch.toLocaleString()}`
-        : `${lastEpoch.toLocaleString()} (${epochPct} Complete)`)
+      ? `${lastEpoch.toLocaleString()}`
       : "n/a";
+
+    if (epochEl) {
+      updateChipProgressRing(epochEl, lastEpochComplete);
+      epochEl.setAttribute(
+        "data-epoch-tooltip",
+        Number.isFinite(epochBlocksComplete)
+          ? `${epochBlocksComplete.toLocaleString()} / 210,000 (${epochPct})`
+          : "n/a"
+      );
+    }
+
+    const difficultyEpoch = Number.isFinite(lastBlockHeight)
+      ? getDifficultyEpoch(lastBlockHeight)
+      : NaN;
+    const difficultyEpochComplete = Number.isFinite(lastBlockHeight)
+      ? getDifficultyEpochComplete(lastBlockHeight)
+      : NaN;
+    const difficultyEpochBlocksMined = Number.isFinite(lastBlockHeight)
+      ? getDifficultyEpochBlocksMined(lastBlockHeight)
+      : NaN;
+    const difficultyEpochPct = formatEpochCompletePercent(difficultyEpochComplete);
+
+    difficultyEpochValueEl.textContent = Number.isFinite(difficultyEpoch)
+      ? `${difficultyEpoch.toLocaleString()}`
+      : "n/a";
+
+    if (difficultyEpochEl) {
+      updateChipProgressRing(difficultyEpochEl, difficultyEpochComplete);
+      difficultyEpochEl.setAttribute(
+        "data-epoch-tooltip",
+        Number.isFinite(difficultyEpochBlocksMined)
+          ? `${difficultyEpochBlocksMined.toLocaleString()} / 2,016 (${difficultyEpochPct})`
+          : "n/a"
+      );
+    }
 
     if (typeof subsidyBtc !== "undefined") {
       const cleaned = String(subsidyBtc || "").trim();
@@ -200,14 +407,50 @@
       ? "n/a"
       : `${lastSubsidyDisplay} BTC`;
 
+    if (typeof subsidySats !== "undefined") {
+      const rawText = String(subsidySats || "").trim();
+      if (rawText) {
+        if (/^\d+$/.test(rawText)) {
+          lastSubsidySatsDisplay = Number(rawText).toLocaleString();
+        } else {
+          lastSubsidySatsDisplay = rawText;
+        }
+      } else {
+        lastSubsidySatsDisplay = "n/a";
+      }
+    } else if (Number.isFinite(lastBlockHeight)) {
+      const subsidySatsComputed = getBlockSubsidySats(lastBlockHeight);
+      lastSubsidySatsDisplay = subsidySatsComputed === null
+        ? "n/a"
+        : subsidySatsComputed.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    }
+
+    if (subsidyEl) {
+      subsidyEl.setAttribute(
+        "data-kpi-tooltip",
+        lastSubsidySatsDisplay === "n/a"
+          ? "n/a"
+          : `${lastSubsidySatsDisplay} sats`
+      );
+    }
+
     if (typeof difficultyDisplay !== "undefined") {
       const cleaned = String(difficultyDisplay || "").trim();
       lastDifficultyDisplay = cleaned || "n/a";
     }
 
+    if (typeof difficultyPreciseDisplay !== "undefined") {
+      const cleaned = String(difficultyPreciseDisplay || "").trim();
+      lastDifficultyPreciseDisplay = cleaned || "n/a";
+    }
+
     difficultyValueEl.textContent = lastDifficultyDisplay === "n/a"
       ? "n/a"
       : `${lastDifficultyDisplay}`;
+
+    if (difficultyEl) {
+      difficultyEl.setAttribute("data-kpi-tooltip", lastDifficultyPreciseDisplay);
+    }
   }
 
   async function refreshFromTopKpis() {
@@ -226,13 +469,23 @@
           ? `${Number(topKpis.difficulty_trillions).toFixed(2)}T`
           : formatDifficultyTrillions(topKpis?.difficulty)
       );
+      const difficultyPreciseDisplay = String(topKpis?.difficulty_precise || "").trim() || (
+        formatDifficultyPrecise(topKpis?.difficulty)
+      );
 
       setKpis({
         height: topKpis?.block_height,
+        blockMinedAt: topKpis?.block_timestamp
+          ?? topKpis?.block_time
+          ?? topKpis?.block_time_utc
+          ?? topKpis?.latest_block_time
+          ?? topKpis?.latest_block_timestamp,
         epoch: topKpis?.epoch,
         epochComplete: topKpis?.epoch_complete,
         subsidyBtc: topKpis?.subsidy_btc,
+        subsidySats: topKpis?.subsidy_sats,
         difficultyDisplay,
+        difficultyPreciseDisplay,
       });
     } catch (_) {
       setKpis({});
@@ -302,4 +555,5 @@
     if (event.key !== TZ_STORAGE_KEY) return;
     refreshForTimezoneOnly();
   });
+  window.addEventListener("resize", () => setKpis({}));
 })();

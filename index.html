@@ -227,10 +227,21 @@
                 <div class="chip chip-kpi-display" id="homeBip110UpdatedKpi"><span class="chip-value">n/a</span></div>
                 <select class="chip-menu-select chip-kpi-select-overlay" id="homeKpiTimeZoneSelect" aria-label="Homepage date and time time zone"></select>
             </div>
-            <div class="chip" id="homeBip110HeightKpi"><span class="chip-label">Block Height</span> <span class="chip-value">n/a</span></div>
-            <div class="chip" id="homeBip110EpochKpi"><span class="chip-label">Epoch</span> <span class="chip-value">n/a</span></div>
-            <div class="chip" id="homeBip110SubsidyKpi"><span class="chip-label">Subsidy</span> <span class="chip-value">n/a</span></div>
-            <div class="chip" id="homeBip110DifficultyKpi"><span class="chip-label">Difficulty</span> <span class="chip-value">n/a</span></div>
+            <div class="chip chip-kpi-tooltip" id="homeBip110HeightKpi" data-kpi-tooltip="n/a"><span class="chip-label">Block Height</span> <span class="chip-value">n/a</span></div>
+            <div class="chip chip-epoch-progress" id="homeBip110EpochKpi" data-epoch-tooltip="n/a">
+                <span class="chip-label">Epoch</span> <span class="chip-value">n/a</span>
+                <svg class="epoch-progress-ring" aria-hidden="true" focusable="false">
+                    <path class="epoch-progress-meter" pathLength="100"></path>
+                </svg>
+            </div>
+            <div class="chip chip-kpi-tooltip" id="homeBip110SubsidyKpi" data-kpi-tooltip="n/a"><span class="chip-label">Subsidy</span> <span class="chip-value">n/a</span></div>
+            <div class="chip chip-epoch-progress" id="homeBip110DifficultyEpochKpi" data-epoch-tooltip="n/a">
+                <span class="chip-label">Diff. Epoch</span> <span class="chip-value">n/a</span>
+                <svg class="epoch-progress-ring" aria-hidden="true" focusable="false">
+                    <path class="epoch-progress-meter" pathLength="100"></path>
+                </svg>
+            </div>
+            <div class="chip chip-kpi-tooltip" id="homeBip110DifficultyKpi" data-kpi-tooltip="n/a"><span class="chip-label">Difficulty</span> <span class="chip-value">n/a</span></div>
         </div>
         <div class="image-grid grid" id="image-grid"></div>
         <div id="no-favorites-message" style="display: none; color: #ccc; font-size: 1.2rem; margin-top: 2rem">No starred dashboards</div>
