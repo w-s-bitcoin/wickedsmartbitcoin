@@ -380,7 +380,7 @@
     if (!Number.isFinite(numeric) || numeric < 0) return precise !== "n/a" ? `${precise} BTC` : "n/a";
     const clamped = Math.max(0, Math.min(1, numeric));
     const flooredTwoDecimals = Math.floor(clamped * 10000) / 100;
-    const pct = `${flooredTwoDecimals.toFixed(2)}% of the 21M BTC mined`;
+    const pct = `(${flooredTwoDecimals.toFixed(2)}% of 21M BTC)`;
     return precise !== "n/a" ? `${precise} BTC\n${pct}` : pct;
   }
 
@@ -409,7 +409,7 @@
     const leadingZeros = leadingZerosMatch ? leadingZerosMatch[0].length : 0;
     const compressedRaw = normalized.slice(leadingZeros) || "0";
 
-    return `0x${compressedRaw} (${leadingZeros} leading zeros)`;
+    return `0x${compressedRaw}\n(${leadingZeros} leading zeros)`;
   }
 
   function setKpis({
