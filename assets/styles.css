@@ -506,7 +506,7 @@ footer {
     color: var(--fg);
     font-size: 0.74rem;
     font-family: "IBM Plex Mono", monospace;
-    white-space: nowrap;
+    white-space: pre;
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
     opacity: 0;
     visibility: hidden;
