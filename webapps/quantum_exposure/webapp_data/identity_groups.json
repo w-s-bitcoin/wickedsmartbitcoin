@@ -459,7 +459,8 @@
       "Trade Satoshi",
       "Cobinhood",
       "Patricia",
-      "Kassa.cc"
+      "Kassa.cc",
+      "Cryptobridge"
     ],
     "Governments, public sector, and charities": [
       "Royal Government of Bhutan",
@@ -608,7 +609,8 @@
       "Stratum",
       "CoinWorker.com",
       "BitcoFarm.com",
-      "Bitfury"
+      "Bitfury",
+      "Satoshi Nonce"
     ],
     "Payments, wallets, and merchant services": [
       "BitPay",
@@ -697,7 +699,9 @@
       "iQCashNow",
       "Bitaps",
       "Globee",
-      "GoCoin"
+      "GoCoin",
+      "General Bytes ATM",
+      "CoinWallet"
     ],
     "Protocols, bridges, defi, and wrapped assets": [
       "Babylon",
@@ -858,7 +862,8 @@
       "MiddleEarth",
       "DoctorDMarket",
       "BitMix.biz",
-      "Buybest Market"
+      "Buybest Market",
+      "LuxSocks"
     ],
     "Hacks, scams, and ransomware": [
       "Betco.in Hacker",
@@ -899,7 +904,8 @@
       "Crystalead",
       "Razzleton Ponzi",
       "GlobeImposter",
-      "MedusaLocker"
+      "MedusaLocker",
+      "HextraCoin"
     ],
     "Individuals": [
       "4222",
