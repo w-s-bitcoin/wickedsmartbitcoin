@@ -701,7 +701,8 @@
       "Globee",
       "GoCoin",
       "General Bytes ATM",
-      "CoinWallet"
+      "CoinWallet",
+      "KeyVendor.net"
     ],
     "Protocols, bridges, defi, and wrapped assets": [
       "Babylon",
@@ -744,7 +745,8 @@
       "Komodo",
       "WX.Network",
       "MorphToken",
-      "BitShares"
+      "BitShares",
+      "Factom Protocol"
     ],
     "Casinos, betting, and gaming": [
       "Betco.in",
@@ -824,7 +826,8 @@
       "Peerbet",
       "Duckdice.io",
       "LuckyGames",
-      "Bitkong"
+      "Bitkong",
+      "BitcoinRoulette"
     ],
     "Darknet mixers and illicit services": [
       "GMaxwell CoinJoin",
@@ -905,7 +908,8 @@
       "Razzleton Ponzi",
       "GlobeImposter",
       "MedusaLocker",
-      "HextraCoin"
+      "HextraCoin",
+      "Locky"
     ],
     "Individuals": [
       "4222",
