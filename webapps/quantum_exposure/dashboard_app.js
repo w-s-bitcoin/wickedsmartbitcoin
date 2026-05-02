@@ -4975,6 +4975,16 @@ function areTopExposureTagFiltersConstrained() {
   );
 }
 
+function isBalanceGe1Required(inactiveThresholdYears = state.inactiveThresholdYears) {
+  if (isLiteMode()) return false;
+  const normalizedInactiveThresholdYears = Math.max(
+    INACTIVE_THRESHOLD_MIN_YEARS,
+    Math.min(INACTIVE_THRESHOLD_MAX_YEARS, Math.round(Number(inactiveThresholdYears) || INACTIVE_THRESHOLD_MIN_YEARS))
+  );
+  const inactiveThresholdCustom = normalizedInactiveThresholdYears !== INACTIVE_THRESHOLD_MIN_YEARS;
+  return areTopExposureTagFiltersConstrained() || inactiveThresholdCustom;
+}
+
 function syncBalanceAllTickLabelAvailability(isUnavailable) {
   const allTickLabel = document.getElementById("balanceSliderAnchorAllLabel");
   if (!allTickLabel) return;
@@ -6076,16 +6086,13 @@ function readFilters() {
   const identityGroupFiltered = selectedIdentityGroups.length > 0 && !selectedIdentityGroups.includes("All");
   const identityFiltered = selectedIdentityTags.length > 0 && !selectedIdentityTags.includes("All");
   const topExposureFiltersActive = detailFiltered || identityGroupFiltered || identityFiltered;
-  const inactiveThresholdCustom =
-    !isLiteMode() &&
-    inactiveThresholdYears !== INACTIVE_THRESHOLD_MIN_YEARS;
-  const shouldAutoForceBalanceFromAll = topExposureFiltersActive || inactiveThresholdCustom;
+  const shouldAutoForceBalanceFromAll = isBalanceGe1Required(inactiveThresholdYears);
 
   syncBalanceAllTickLabelAvailability(!isLiteMode() && shouldAutoForceBalanceFromAll);
 
   if (shouldAutoForceBalanceFromAll) {
-    if (balanceThresholdBtc <= 0) {
-      // Auto-force from All when filters require ge1+ precision.
+    if (balanceThresholdBtc < 1) {
+      // Auto-force from sub-1 values when filters require ge1+ precision.
       balanceThresholdBtc = 1;
       if (isLiteMode()) {
         balanceValue = "ge1";
@@ -6731,7 +6738,7 @@ function attachEvents() {
   if (balanceFilterSlider) {
     balanceFilterSlider.addEventListener("input", () => {
       if (isLiteMode()) return;
-      const minRaw = areTopExposureTagFiltersConstrained() ? 1000 : 0;
+      const minRaw = isBalanceGe1Required() ? 1000 : 0;
       const currentRaw = Number(balanceFilterSlider.value) || 0;
       if (currentRaw < minRaw) {
         balanceFilterSlider.value = String(minRaw);
@@ -6743,7 +6750,7 @@ function attachEvents() {
 
     balanceFilterSlider.addEventListener("change", () => {
       if (isLiteMode()) return;
-      const minRaw = areTopExposureTagFiltersConstrained() ? 1000 : 0;
+      const minRaw = isBalanceGe1Required() ? 1000 : 0;
       const currentRaw = Number(balanceFilterSlider.value) || 0;
       if (currentRaw < minRaw) {
         balanceFilterSlider.value = String(minRaw);
