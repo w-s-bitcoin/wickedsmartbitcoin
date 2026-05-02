@@ -798,7 +798,26 @@
       justify-items: start;
     }
 
+    .inactive-threshold-slider-wrap {
+      display: none;
+      gap: 8px;
+      width: 100%;
+      justify-items: start;
+    }
+
+    .inactive-threshold-filter {
+      display: none;
+    }
+
     .full-mode .balance-slider-wrap {
+      display: grid;
+    }
+
+    .full-mode .inactive-threshold-slider-wrap {
+      display: grid;
+    }
+
+    .full-mode .inactive-threshold-filter {
       display: grid;
     }
 
@@ -927,7 +946,7 @@
       position: relative;
       display: grid;
       gap: 1px;
-      margin-left: 4px;
+      margin-left: 0px;
     }
 
     .balance-slider-anchors {
@@ -977,12 +996,143 @@
       opacity: 0.9;
     }
 
+    .inactive-threshold-header {
+      display: inline-flex;
+      align-items: baseline;
+      justify-content: flex-start;
+      gap: 10px;
+      width: auto;
+    }
+
+    .inactive-threshold-slider-value {
+      display: none;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 12px;
+      color: var(--ink);
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .full-mode .inactive-threshold-slider-value {
+      display: inline;
+    }
+
+    .inactive-threshold-slider-track-wrap {
+      --inactive-threshold-slider-tick-inset: 8px;
+      width: min(100%, 400px);
+      position: relative;
+      display: grid;
+      gap: 1px;
+      margin-left: 0px;
+    }
+
+    .inactive-threshold-slider {
+      width: 100%;
+      margin: 0;
+      cursor: pointer;
+      appearance: none;
+      -webkit-appearance: none;
+      position: relative;
+      z-index: 2;
+      height: 6px;
+      border-radius: 3px;
+      outline: none;
+      background: linear-gradient(
+        to right,
+        var(--seg-active) 0%,
+        var(--seg-active) var(--inactive-threshold-slider-pct, 0%),
+        var(--seg-inactive) var(--inactive-threshold-slider-pct, 0%),
+        var(--seg-inactive) 100%
+      );
+    }
+
+    .inactive-threshold-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--seg-inactive);
+      cursor: pointer;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+    }
+
+    .inactive-threshold-slider::-moz-range-thumb {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--seg-inactive);
+      border: none;
+      cursor: pointer;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+    }
+
+    [data-theme="dark"] .inactive-threshold-slider {
+      background: linear-gradient(
+        to right,
+        var(--seg-active) 0%,
+        var(--seg-active) var(--inactive-threshold-slider-pct, 0%),
+        var(--seg-inactive) var(--inactive-threshold-slider-pct, 0%),
+        var(--seg-inactive) 100%
+      );
+    }
+
+    .inactive-threshold-slider-anchors {
+      position: relative;
+      z-index: 1;
+      display: block;
+      width: calc(100% - (var(--inactive-threshold-slider-tick-inset) * 2));
+      margin: 0 var(--inactive-threshold-slider-tick-inset);
+      min-height: 20px;
+    }
+
+    .inactive-threshold-slider-anchor {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      transform: translateX(-50%);
+    }
+
+    .inactive-threshold-slider-anchor:nth-child(1) { left: 0%; }
+    .inactive-threshold-slider-anchor:nth-child(2) { left: 11.111%; }
+    .inactive-threshold-slider-anchor:nth-child(3) { left: 22.222%; }
+    .inactive-threshold-slider-anchor:nth-child(4) { left: 33.333%; }
+    .inactive-threshold-slider-anchor:nth-child(5) { left: 44.444%; }
+    .inactive-threshold-slider-anchor:nth-child(6) { left: 55.555%; }
+    .inactive-threshold-slider-anchor:nth-child(7) { left: 66.666%; }
+    .inactive-threshold-slider-anchor:nth-child(8) { left: 77.777%; }
+    .inactive-threshold-slider-anchor:nth-child(9) { left: 88.888%; }
+    .inactive-threshold-slider-anchor:nth-child(10) { left: 100%; }
+
+    .inactive-threshold-slider-anchor-label {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 10px;
+      color: var(--muted);
+      line-height: 1;
+      white-space: nowrap;
+      text-align: center;
+    }
+
+    .inactive-threshold-slider-anchor-tick {
+      width: 1px;
+      height: 8px;
+      background: var(--line);
+      opacity: 0.9;
+    }
+
     @media (max-width: 640px) {
       .balance-slider-track-wrap {
         --balance-slider-tick-inset: 8px;
       }
 
       .balance-slider-anchor-label {
+        font-size: 9px;
+      }
+
+      .inactive-threshold-slider-anchor-label {
         font-size: 9px;
       }
     }
@@ -1009,7 +1159,8 @@
       position: relative;
     }
 
-    .script-trigger:not(.script-trigger-input)::after {
+    .script-trigger:not(.script-trigger-input)::after,
+    .script-trigger.script-trigger-has-arrow::after {
       content: "";
       position: absolute;
       right: 10px;
@@ -1022,10 +1173,41 @@
       background-repeat: no-repeat;
       background-position: center;
       flex-shrink: 0;
+      transition: transform 140ms ease;
     }
 
-    [data-theme="dark"] .script-trigger:not(.script-trigger-input)::after {
+    [data-theme="dark"] .script-trigger:not(.script-trigger-input)::after,
+    [data-theme="dark"] .script-trigger.script-trigger-has-arrow::after {
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23918b82' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    }
+
+    .script-dropdown.is-open .script-trigger:not(.script-trigger-input)::after,
+    .script-dropdown.is-open .script-trigger.script-trigger-has-arrow::after {
+      transform: translateY(-50%) rotate(180deg);
+    }
+
+    #identityDropdown::after {
+      content: "";
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 12px;
+      height: 12px;
+      pointer-events: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236f685f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: center;
+      transition: transform 140ms ease;
+      z-index: 2;
+    }
+
+    [data-theme="dark"] #identityDropdown::after {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23918b82' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    }
+
+    #identityDropdown.is-open::after {
+      transform: translateY(-50%) rotate(180deg);
     }
 
     .script-trigger:hover {
@@ -1332,6 +1514,17 @@
       background: var(--surface);
       color: var(--ink);
       font-size: 13px;
+    }
+
+    #supplyModeDropdown {
+      width: 145px;
+    }
+
+    #supplyModeDropdown .script-trigger,
+    #supplyModeDropdown .script-menu {
+      width: 100%;
+      min-width: 0;
+      max-width: none;
     }
 
     .panel-view-toggle {
@@ -2020,6 +2213,12 @@
       background: var(--surface-soft);
     }
 
+    #scriptPanelDetailsToggle,
+    #topExposuresFiltersToggle {
+      transform: scale(0.85);
+      transform-origin: center;
+    }
+
     .panel-collapse-icon {
       width: 9px;
       height: 9px;
@@ -2202,6 +2401,57 @@
 
     input[type="checkbox"] {
       accent-color: var(--checkbox-accent);
+    }
+
+    .script-option input[type="checkbox"] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      margin: 0;
+      border-radius: 4px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      display: inline-grid;
+      place-content: center;
+      cursor: pointer;
+      flex: 0 0 auto;
+    }
+
+    .script-option input[type="checkbox"]::before {
+      content: "";
+      width: 8px;
+      height: 4px;
+      border-left: 2px solid #1a1a1a;
+      border-bottom: 2px solid #1a1a1a;
+      transform: translateY(-1px) rotate(-45deg) scale(0);
+      transform-origin: center;
+      transition: transform 120ms ease;
+    }
+
+    .script-option input[type="checkbox"]:checked {
+      border-color: transparent;
+      background: var(--checkbox-accent);
+    }
+
+    .script-option input[type="checkbox"]:checked::before {
+      transform: translateY(-1px) rotate(-45deg) scale(1);
+    }
+
+    #spendDropdownMenu .spend-check[value="all"]:checked {
+      background: var(--checkbox-accent);
+    }
+
+    #spendDropdownMenu .spend-check[value="never_spent"]:checked {
+      background: var(--seg-never);
+    }
+
+    #spendDropdownMenu .spend-check[value="inactive"]:checked {
+      background: var(--seg-inactive);
+    }
+
+    #spendDropdownMenu .spend-check[value="active"]:checked {
+      background: var(--seg-active);
     }
 
     button,
@@ -2966,8 +3216,8 @@
                 <span class="balance-slider-anchor"><span class="balance-slider-anchor-tick"></span><span class="balance-slider-anchor-label">1</span></span>
                 <span class="balance-slider-anchor"><span class="balance-slider-anchor-tick"></span><span class="balance-slider-anchor-label">10</span></span>
                 <span class="balance-slider-anchor"><span class="balance-slider-anchor-tick"></span><span class="balance-slider-anchor-label">100</span></span>
-                <span class="balance-slider-anchor"><span class="balance-slider-anchor-tick"></span><span class="balance-slider-anchor-label">1000</span></span>
-                <span class="balance-slider-anchor"><span class="balance-slider-anchor-tick"></span><span class="balance-slider-anchor-label">10000</span></span>
+                <span class="balance-slider-anchor"><span class="balance-slider-anchor-tick"></span><span class="balance-slider-anchor-label">1k</span></span>
+                <span class="balance-slider-anchor"><span class="balance-slider-anchor-tick"></span><span class="balance-slider-anchor-label">10k</span></span>
               </div>
             </div>
           </div>
@@ -2980,11 +3230,44 @@
             <div id="spendDropdownMenu" class="script-menu">
               <label class="script-option"><input type="checkbox" class="spend-check" value="all" checked> All</label>
               <label class="script-option"><input type="checkbox" class="spend-check" value="never_spent" checked> Never Spent</label>
-              <label class="script-option"><input type="checkbox" class="spend-check" value="inactive" checked> Inactive &gt; 1 Year</label>
-              <label class="script-option"><input type="checkbox" class="spend-check" value="active" checked> Active &lt; 1 Year</label>
+              <label class="script-option"><input type="checkbox" class="spend-check" value="inactive" checked> <span id="spendInactiveOptionLabel">Inactive ≥ 1 Year</span></label>
+              <label class="script-option"><input type="checkbox" class="spend-check" value="active" checked> <span id="spendActiveOptionLabel">Active &lt; 1 Year</span></label>
             </div>
           </div>
         </div>
+
+        <label class="inactive-threshold-filter">
+          <span class="inactive-threshold-header">
+            <span>Inactive Threshold</span>
+            <span id="inactiveThresholdSliderValue" class="inactive-threshold-slider-value">≥ 1 Year</span>
+          </span>
+          <div id="inactiveThresholdSliderWrap" class="inactive-threshold-slider-wrap" aria-hidden="true">
+            <div class="inactive-threshold-slider-track-wrap">
+              <input
+                id="inactiveThresholdSlider"
+                class="inactive-threshold-slider"
+                type="range"
+                min="1"
+                max="10"
+                step="1"
+                value="1"
+                aria-label="Inactive spend threshold in years"
+              />
+              <div class="inactive-threshold-slider-anchors" aria-hidden="true">
+                <span class="inactive-threshold-slider-anchor"><span class="inactive-threshold-slider-anchor-tick"></span><span class="inactive-threshold-slider-anchor-label">1y</span></span>
+                <span class="inactive-threshold-slider-anchor"><span class="inactive-threshold-slider-anchor-tick"></span><span class="inactive-threshold-slider-anchor-label">2y</span></span>
+                <span class="inactive-threshold-slider-anchor"><span class="inactive-threshold-slider-anchor-tick"></span><span class="inactive-threshold-slider-anchor-label">3y</span></span>
+                <span class="inactive-threshold-slider-anchor"><span class="inactive-threshold-slider-anchor-tick"></span><span class="inactive-threshold-slider-anchor-label">4y</span></span>
+                <span class="inactive-threshold-slider-anchor"><span class="inactive-threshold-slider-anchor-tick"></span><span class="inactive-threshold-slider-anchor-label">5y</span></span>
+                <span class="inactive-threshold-slider-anchor"><span class="inactive-threshold-slider-anchor-tick"></span><span class="inactive-threshold-slider-anchor-label">6y</span></span>
+                <span class="inactive-threshold-slider-anchor"><span class="inactive-threshold-slider-anchor-tick"></span><span class="inactive-threshold-slider-anchor-label">7y</span></span>
+                <span class="inactive-threshold-slider-anchor"><span class="inactive-threshold-slider-anchor-tick"></span><span class="inactive-threshold-slider-anchor-label">8y</span></span>
+                <span class="inactive-threshold-slider-anchor"><span class="inactive-threshold-slider-anchor-tick"></span><span class="inactive-threshold-slider-anchor-label">9y</span></span>
+                <span class="inactive-threshold-slider-anchor"><span class="inactive-threshold-slider-anchor-tick"></span><span class="inactive-threshold-slider-anchor-label">10y</span></span>
+              </div>
+            </div>
+          </div>
+        </label>
 
         <div class="filter-label">
           Script Type
@@ -3081,11 +3364,19 @@
           <div class="bar-legend-static">
             <label class="panel-show-control between-title-subtext" for="scriptPanelSupplyMode">
               Show
-              <select id="scriptPanelSupplyMode">
+              <select id="scriptPanelSupplyMode" class="hidden-select">
                 <option value="total">Total supply</option>
                 <option value="exposed">Exposed supply</option>
                 <option value="filtered">Filtered supply</option>
               </select>
+              <div id="supplyModeDropdown" class="script-dropdown">
+                <button id="supplyModeDropdownTrigger" type="button" class="script-trigger">Total supply</button>
+                <div id="supplyModeDropdownMenu" class="script-menu">
+                  <button type="button" class="script-option-btn script-option-btn--selected" data-value="total">Total supply</button>
+                  <button type="button" class="script-option-btn" data-value="exposed">Exposed supply</button>
+                  <button type="button" class="script-option-btn" data-value="filtered">Filtered supply</button>
+                </div>
+              </div>
             </label>
             <div class="bar-legend-colors">
               <div class="exposed-group">
@@ -3153,7 +3444,7 @@
           <div class="filter-label">
             Identity Tag
             <div id="identityDropdown" class="script-dropdown">
-              <input id="identityDropdownTrigger" type="text" class="script-trigger script-trigger-input" value="" placeholder="All" autocomplete="off" spellcheck="false">
+              <input id="identityDropdownTrigger" type="text" class="script-trigger script-trigger-input script-trigger-has-arrow" value="" placeholder="All" autocomplete="off" spellcheck="false">
               <div id="identityDropdownMenu" class="script-menu">
                 <label class="script-option"><input type="checkbox" class="identity-check" value="All" checked> All</label>
               </div>
