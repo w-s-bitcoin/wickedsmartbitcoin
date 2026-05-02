@@ -4547,6 +4547,21 @@ function isTagFilterActive(filters) {
   );
 }
 
+function areTopExposureTagFiltersConstrained() {
+  if (isLiteMode()) return false;
+  return (
+    !state.selectedDetailTags.includes("All") ||
+    !state.selectedIdentityGroups.includes("All") ||
+    !state.selectedIdentityTags.includes("All")
+  );
+}
+
+function syncBalanceAllTickLabelAvailability(isUnavailable) {
+  const allTickLabel = document.getElementById("balanceSliderAnchorAllLabel");
+  if (!allTickLabel) return;
+  allTickLabel.classList.toggle("is-unavailable", !!isUnavailable);
+}
+
 function rowPassesTopExposureFilters(row, filters, includeTagFilters = true) {
   const minSats = Number.isFinite(filters.balanceThresholdSats)
     ? filters.balanceThresholdSats
@@ -5562,6 +5577,8 @@ function readFilters() {
   const identityFiltered = selectedIdentityTags.length > 0 && !selectedIdentityTags.includes("All");
   const topExposureFiltersActive = detailFiltered || identityGroupFiltered || identityFiltered;
 
+  syncBalanceAllTickLabelAvailability(!isLiteMode() && topExposureFiltersActive);
+
   if (topExposureFiltersActive) {
     if (balanceThresholdBtc <= 0) {
       // Auto-force from All only when top-exposure filters become constrained.
@@ -6183,6 +6200,11 @@ function attachEvents() {
   if (balanceFilterSlider) {
     balanceFilterSlider.addEventListener("input", () => {
       if (isLiteMode()) return;
+      const minRaw = areTopExposureTagFiltersConstrained() ? 1000 : 0;
+      const currentRaw = Number(balanceFilterSlider.value) || 0;
+      if (currentRaw < minRaw) {
+        balanceFilterSlider.value = String(minRaw);
+      }
       syncSliderTrack(balanceFilterSlider);
       const thresholdBtc = sliderRawToThresholdBtc(balanceFilterSlider.value, true);
       setFullBalanceThresholdBtc(thresholdBtc, { updateSlider: true, updateSelect: true });
@@ -6190,6 +6212,11 @@ function attachEvents() {
 
     balanceFilterSlider.addEventListener("change", () => {
       if (isLiteMode()) return;
+      const minRaw = areTopExposureTagFiltersConstrained() ? 1000 : 0;
+      const currentRaw = Number(balanceFilterSlider.value) || 0;
+      if (currentRaw < minRaw) {
+        balanceFilterSlider.value = String(minRaw);
+      }
       syncSliderTrack(balanceFilterSlider);
       const thresholdBtc = sliderRawToThresholdBtc(balanceFilterSlider.value, true);
       setFullBalanceThresholdBtc(thresholdBtc, { updateSlider: true, updateSelect: true });

@@ -966,6 +966,10 @@
       text-align: center;
     }
 
+    .balance-slider-anchor-label.is-unavailable {
+      opacity: 0.35;
+    }
+
     .balance-slider-anchor-tick {
       width: 1px;
       height: 8px;
@@ -2958,7 +2962,7 @@
                 aria-label="Pubkey balance threshold"
               />
               <div class="balance-slider-anchors" aria-hidden="true">
-                <span class="balance-slider-anchor"><span class="balance-slider-anchor-tick"></span><span class="balance-slider-anchor-label">All</span></span>
+                <span class="balance-slider-anchor"><span class="balance-slider-anchor-tick"></span><span id="balanceSliderAnchorAllLabel" class="balance-slider-anchor-label">All</span></span>
                 <span class="balance-slider-anchor"><span class="balance-slider-anchor-tick"></span><span class="balance-slider-anchor-label">1</span></span>
                 <span class="balance-slider-anchor"><span class="balance-slider-anchor-tick"></span><span class="balance-slider-anchor-label">10</span></span>
                 <span class="balance-slider-anchor"><span class="balance-slider-anchor-tick"></span><span class="balance-slider-anchor-label">100</span></span>
