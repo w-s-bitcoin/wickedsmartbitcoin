@@ -16,9 +16,12 @@ const state = {
   historicalSeriesGe1LoadProgress: null,
   historicalSeriesGe1LastCompletedFilterKey: null,
   historicalSeriesGe1FallbackFilterKey: null,
+  historicalSeriesGe1LastCompletedLoadKeys: null,
+  historicalSeriesGe1FallbackLoadKeys: null,
   historicalProgressiveYMaxSats: null,
   blockDatetimeByHeight: {},
   snapshotLabelDatetimeByHeight: {},
+  snapshotUnixTimeByHeight: {},
   snapshotHeight: null,
   availableSnapshots: [],
   selectedDetailTags: ["All"],
@@ -39,6 +42,7 @@ const state = {
   scriptPanelDetailsCollapsed: false,
   balanceAutoForcedFromAllByTopFilters: false,
   fullBalanceThresholdBtc: 0,
+  inactiveThresholdYears: 1,
   pendingPersistedSnapshotPreference: null,
   pendingPersistedSnapshotHeight: null,
   archivedSnapshotsEnabled: false,
@@ -74,6 +78,9 @@ const SNAPSHOT_PREF_SPECIFIC = "specific";
 const ALLOWED_BALANCE_FILTERS = new Set(["all", "ge1", "ge10", "ge100", "ge1000"]);
 const FULL_BALANCE_MAX_BTC = 10_000;
 const FULL_BALANCE_SLIDER_MAX = 5_000;
+const INACTIVE_THRESHOLD_MIN_YEARS = 1;
+const INACTIVE_THRESHOLD_MAX_YEARS = 10;
+const SECONDS_PER_YEAR = 365.25 * 24 * 60 * 60;
 const ALLOWED_SPEND_FILTERS = new Set(["all", "never_spent", "inactive", "active"]);
 const ALLOWED_SCRIPT_FILTERS = new Set(["All", ...SCRIPT_TYPES_ORDER]);
 const ALLOWED_SUPPLY_DISPLAY_MODES = new Set(["total", "exposed", "filtered"]);
@@ -242,6 +249,7 @@ function applyRuntimeModeUi() {
   document.documentElement.classList.toggle("lite-mode", lite);
   document.documentElement.classList.toggle("full-mode", !lite);
   updateBalanceFilterUi();
+  updateInactiveThresholdUi();
   loadArchivedSnapshotsEnabled();
   updateRuntimeModeButton();
   updateArchivedSnapshotsToggleUi();
@@ -266,7 +274,7 @@ function formatBalanceThresholdLabel(thresholdBtc) {
     minimumFractionDigits: 0,
     maximumFractionDigits: 1,
   }).format(roundedTenth);
-  return `>= ${formatted} BTC`;
+  return `≥ ${formatted} BTC`;
 }
 
 function thresholdBtcToSliderRaw(thresholdBtc) {
@@ -355,6 +363,76 @@ function updateBalanceFilterUi() {
       updateSelect: true,
     });
   }
+}
+
+function formatInactiveThresholdLabel(years) {
+  const normalized = Math.max(
+    INACTIVE_THRESHOLD_MIN_YEARS,
+    Math.min(INACTIVE_THRESHOLD_MAX_YEARS, Math.round(Number(years) || INACTIVE_THRESHOLD_MIN_YEARS))
+  );
+  const suffix = normalized === 1 ? "Year" : "Years";
+  return `≥ ${normalized} ${suffix}`;
+}
+
+function syncInactiveThresholdSliderTrack(slider) {
+  if (!slider) return;
+  const min = Number(slider.min) || INACTIVE_THRESHOLD_MIN_YEARS;
+  const max = Number(slider.max) || INACTIVE_THRESHOLD_MAX_YEARS;
+  const value = Number(slider.value) || INACTIVE_THRESHOLD_MIN_YEARS;
+  const span = max - min;
+  const pct = span > 0 ? ((value - min) / span) * 100 : 0;
+  slider.style.setProperty("--inactive-threshold-slider-pct", `${pct}%`);
+}
+
+function syncSpendActivityThresholdLabels() {
+  const years = Math.max(
+    INACTIVE_THRESHOLD_MIN_YEARS,
+    Math.min(INACTIVE_THRESHOLD_MAX_YEARS, Math.round(Number(state.inactiveThresholdYears) || INACTIVE_THRESHOLD_MIN_YEARS))
+  );
+  const suffix = years === 1 ? "Year" : "Years";
+
+  const inactiveOption = document.getElementById("spendInactiveOptionLabel");
+  const activeOption = document.getElementById("spendActiveOptionLabel");
+  if (inactiveOption) {
+    inactiveOption.textContent = `Inactive ≥ ${years} ${suffix}`;
+  }
+  if (activeOption) {
+    activeOption.textContent = `Active < ${years} ${suffix}`;
+  }
+}
+
+function setInactiveThresholdYears(years, options = {}) {
+  const { updateSlider = true } = options;
+  const normalized = Math.max(
+    INACTIVE_THRESHOLD_MIN_YEARS,
+    Math.min(INACTIVE_THRESHOLD_MAX_YEARS, Math.round(Number(years) || INACTIVE_THRESHOLD_MIN_YEARS))
+  );
+  state.inactiveThresholdYears = normalized;
+
+  const slider = document.getElementById("inactiveThresholdSlider");
+  const valueLabel = document.getElementById("inactiveThresholdSliderValue");
+  if (updateSlider && slider) {
+    slider.value = String(normalized);
+    syncInactiveThresholdSliderTrack(slider);
+  }
+  if (valueLabel) {
+    valueLabel.textContent = formatInactiveThresholdLabel(normalized);
+  }
+  syncSpendActivityThresholdLabels();
+}
+
+function updateInactiveThresholdUi() {
+  const sliderWrap = document.getElementById("inactiveThresholdSliderWrap");
+  if (sliderWrap) {
+    sliderWrap.setAttribute("aria-hidden", isLiteMode() ? "true" : "false");
+  }
+
+  if (isLiteMode()) {
+    setInactiveThresholdYears(INACTIVE_THRESHOLD_MIN_YEARS, { updateSlider: true });
+    return;
+  }
+
+  setInactiveThresholdYears(state.inactiveThresholdYears, { updateSlider: true });
 }
 
 function updateArchivedSnapshotsToggleUi() {
@@ -1081,6 +1159,13 @@ function applyPersistedFilterState(prefs) {
     state.fullBalanceThresholdBtc = Math.round(balanceMinSats(balanceFilter.value) / SATS_PER_BTC);
   }
 
+  if (Number.isFinite(prefs.inactiveThresholdYears)) {
+    state.inactiveThresholdYears = Math.max(
+      INACTIVE_THRESHOLD_MIN_YEARS,
+      Math.min(INACTIVE_THRESHOLD_MAX_YEARS, Math.round(Number(prefs.inactiveThresholdYears) || INACTIVE_THRESHOLD_MIN_YEARS))
+    );
+  }
+
   const scriptTypes = normalizePersistedSelections(prefs.scriptTypes, ALLOWED_SCRIPT_FILTERS);
   if (scriptTypes) {
     applyCheckedValues(getScriptCheckboxes(), scriptTypes, "All");
@@ -1158,6 +1243,7 @@ function persistFilters(filters) {
     const payload = {
       balance: filters.balance,
       balanceBtc: !isLiteMode() ? Math.max(0, Number(state.fullBalanceThresholdBtc) || 0) : 0,
+      inactiveThresholdYears: !isLiteMode() ? Math.max(INACTIVE_THRESHOLD_MIN_YEARS, Math.min(INACTIVE_THRESHOLD_MAX_YEARS, Number(state.inactiveThresholdYears) || INACTIVE_THRESHOLD_MIN_YEARS)) : INACTIVE_THRESHOLD_MIN_YEARS,
       spendActivities: filters.spendActivities,
       scriptTypes: filters.scriptTypes,
       detailTags: filters.detailTags,
@@ -1330,6 +1416,7 @@ function buildShareableDashboardUrl() {
   const defaults = {
     b: "all",
     bb: 0,
+    iy: 1,
     s: ["All"],
     p: ["all"],
     d: ["All"],
@@ -1345,6 +1432,9 @@ function buildShareableDashboardUrl() {
   const normalized = {
     b: filters.balance,
     bb: !isLiteMode() ? Math.max(0, Number(filters.balanceThresholdBtc) || 0) : 0,
+    iy: !isLiteMode()
+      ? Math.max(INACTIVE_THRESHOLD_MIN_YEARS, Math.min(INACTIVE_THRESHOLD_MAX_YEARS, Number(filters.inactiveThresholdYears) || INACTIVE_THRESHOLD_MIN_YEARS))
+      : INACTIVE_THRESHOLD_MIN_YEARS,
     s: normalizeSelectionForShare(filters.scriptTypes, "All"),
     p: normalizeSelectionForShare(filters.spendActivities, "all"),
     d: normalizeTagSelectionForShare(filters.detailTags, allTagOptions.details),
@@ -1369,6 +1459,7 @@ function buildShareableDashboardUrl() {
 
   addIfDifferent("b", normalized.b, defaults.b);
   addIfDifferent("bb", normalized.bb, defaults.bb);
+  addIfDifferent("iy", normalized.iy, defaults.iy);
   addIfDifferent("s", normalized.s, defaults.s);
   addIfDifferent("p", normalized.p, defaults.p);
   addIfDifferent("d", normalized.d, defaults.d);
@@ -1432,6 +1523,12 @@ function readFiltersFromUrl() {
     if (Number.isFinite(decoded.bb)) {
       prefs.balanceBtc = Math.max(0, Math.min(FULL_BALANCE_MAX_BTC, Number(decoded.bb)));
     }
+    if (Number.isFinite(decoded.iy)) {
+      prefs.inactiveThresholdYears = Math.max(
+        INACTIVE_THRESHOLD_MIN_YEARS,
+        Math.min(INACTIVE_THRESHOLD_MAX_YEARS, Math.round(Number(decoded.iy) || INACTIVE_THRESHOLD_MIN_YEARS))
+      );
+    }
     if (Array.isArray(decoded.s)) {
       prefs.scriptTypes = decoded.s;
     }
@@ -1483,6 +1580,7 @@ function readFiltersFromUrl() {
   const hasKnownKey = [
     "balance",
     "balanceBtc",
+    "inactiveThresholdYears",
     "scriptTypes",
     "spendActivities",
     "detailTags",
@@ -1508,6 +1606,13 @@ function readFiltersFromUrl() {
   const balanceBtc = Number.parseFloat(params.get("balanceBtc"));
   if (Number.isFinite(balanceBtc)) {
     prefs.balanceBtc = Math.max(0, Math.min(FULL_BALANCE_MAX_BTC, balanceBtc));
+  }
+  const inactiveThresholdYears = Number.parseInt(params.get("inactiveThresholdYears"), 10);
+  if (Number.isFinite(inactiveThresholdYears)) {
+    prefs.inactiveThresholdYears = Math.max(
+      INACTIVE_THRESHOLD_MIN_YEARS,
+      Math.min(INACTIVE_THRESHOLD_MAX_YEARS, inactiveThresholdYears)
+    );
   }
 
   const scriptTypes = parseArrayParam(params, "scriptTypes", ALLOWED_SCRIPT_FILTERS, "All");
@@ -2094,6 +2199,42 @@ function formatSpendLabel(value) {
   return value;
 }
 
+function getCurrentSnapshotUnixTime() {
+  const snapshotFilter = document.getElementById("snapshotFilter");
+  const snapshotHeight = String(state.snapshotHeight || snapshotFilter?.value || "").trim();
+  const unixTime = toInt(state.snapshotUnixTimeByHeight[snapshotHeight]);
+  return unixTime > 0 ? unixTime : 0;
+}
+
+function classifySpendActivity(rawSpendActivity, lastSpendUnixTime, snapshotUnixTime, inactiveThresholdYears) {
+  const spendRaw = String(rawSpendActivity || "").trim();
+  const lastSpend = toInt(lastSpendUnixTime);
+
+  if (spendRaw === "never_spent" || lastSpend <= 0) {
+    return "never_spent";
+  }
+
+  const snapshotUnix = toInt(snapshotUnixTime);
+  if (snapshotUnix <= 0) {
+    return SPEND_TYPES_ORDER.includes(spendRaw) ? spendRaw : "active";
+  }
+
+  const years = Math.max(
+    INACTIVE_THRESHOLD_MIN_YEARS,
+    Math.min(INACTIVE_THRESHOLD_MAX_YEARS, Math.round(Number(inactiveThresholdYears) || INACTIVE_THRESHOLD_MIN_YEARS))
+  );
+  const inactiveCutoffUnix = snapshotUnix - years * SECONDS_PER_YEAR;
+  return lastSpend <= inactiveCutoffUnix ? "inactive" : "active";
+}
+
+function getRowSpendActivityForFilters(row, filters) {
+  const rowLastSpend = row?.last_spend_unix_time ?? row?.lastSpendUnixTime;
+  const rowRawSpend = row?.spend_activity ?? row?.spendActivity;
+  const snapshotUnix = Number(filters?.snapshotUnixTime) || getCurrentSnapshotUnixTime();
+  const thresholdYears = Number(filters?.inactiveThresholdYears) || state.inactiveThresholdYears;
+  return classifySpendActivity(rowRawSpend, rowLastSpend, snapshotUnix, thresholdYears);
+}
+
 function balanceMinSats(balanceKey) {
   if (typeof balanceKey === "number" && Number.isFinite(balanceKey)) {
     if (balanceKey > FULL_BALANCE_MAX_BTC) {
@@ -2670,17 +2811,22 @@ function buildScriptBarsData(filters) {
   // Check if balance value is exactly at a discrete threshold in FULL mode
   const discreteThresholds = [0, 1 * SATS_PER_BTC, 10 * SATS_PER_BTC, 100 * SATS_PER_BTC, 1000 * SATS_PER_BTC];
   const isDiscreteBalanceValue = !isLiteMode() && discreteThresholds.includes(filters.balanceThresholdSats);
-  const useGe1RowsPath = !isLiteMode() && state.ge1Rows.length && !isDiscreteBalanceValue;
+  const useCustomInactiveThreshold = !isLiteMode() && Number(filters.inactiveThresholdYears || INACTIVE_THRESHOLD_MIN_YEARS) !== INACTIVE_THRESHOLD_MIN_YEARS;
+  const useGe1RowsPath = !isLiteMode() && state.ge1Rows.length && (!isDiscreteBalanceValue || useCustomInactiveThreshold);
 
   if (useGe1RowsPath) {
     let baselineRows = [];
-    const needsBaselineReference = isTagFilterActive(filters) || balanceMinSats(barsBalanceKey) > 0;
+    const needsBaselineReference =
+      isTagFilterActive(filters) ||
+      balanceMinSats(barsBalanceKey) > 0 ||
+      useCustomInactiveThreshold;
     if (needsBaselineReference) {
       baselineRows = buildScriptBarsData({
         ...filters,
         balance: "all",
         balanceThresholdBtc: 0,
         balanceThresholdSats: 0,
+        inactiveThresholdYears: INACTIVE_THRESHOLD_MIN_YEARS,
         detailTags: ["All"],
         identityGroups: ["All"],
         identityTags: ["All"],
@@ -2799,10 +2945,69 @@ function buildScriptBarsDataFromGe1(
   const highlightAllScripts = filters.scriptTypes.includes("All");
   const highlightAllSpends = filters.spendActivities.includes("all");
   const tagFiltered = isTagFilterActive(filters);
+  const useCustomInactiveThreshold =
+    !isLiteMode() &&
+    Number(filters.inactiveThresholdYears || INACTIVE_THRESHOLD_MIN_YEARS) !== INACTIVE_THRESHOLD_MIN_YEARS;
   const rowsByScript = new Map();
   const baselineByScript = new Map(
     (Array.isArray(baselineRows) ? baselineRows : []).map((row) => [row.scriptType, row])
   );
+
+  const ge1ReferenceByScript = new Map();
+  if (useCustomInactiveThreshold) {
+    SCRIPT_TYPES_ORDER.forEach((scriptType) => {
+      ge1ReferenceByScript.set(scriptType, {
+        currentNever: 0,
+        currentInactive: 0,
+        currentActive: 0,
+        defaultNever: 0,
+        defaultInactive: 0,
+        defaultActive: 0,
+      });
+    });
+
+    const defaultThresholdFilters = {
+      ...filters,
+      inactiveThresholdYears: INACTIVE_THRESHOLD_MIN_YEARS,
+    };
+
+    state.ge1Rows.forEach((row) => {
+      const supplyByScriptType = getRowSupplyByScriptType(row);
+      const scriptTypes = getRowScriptTypes(row);
+      const uniqueScriptTypes = Array.from(new Set(scriptTypes));
+      const targets = uniqueScriptTypes.length ? uniqueScriptTypes : ["Other"];
+      const exposedSupply = getRowExposedSupplySats(row);
+      if (!exposedSupply) return;
+
+      const spendCurrent = getRowSpendActivityForFilters(row, filters);
+      const spendDefault = getRowSpendActivityForFilters(row, defaultThresholdFilters);
+
+      targets.forEach((scriptType) => {
+        const reference = ge1ReferenceByScript.get(scriptType);
+        if (!reference) return;
+
+        const supplyShare = supplyByScriptType[scriptType] !== undefined
+          ? toInt(supplyByScriptType[scriptType])
+          : exposedSupply / targets.length;
+
+        if (spendCurrent === "never_spent") {
+          reference.currentNever += supplyShare;
+        } else if (spendCurrent === "inactive") {
+          reference.currentInactive += supplyShare;
+        } else if (spendCurrent === "active") {
+          reference.currentActive += supplyShare;
+        }
+
+        if (spendDefault === "never_spent") {
+          reference.defaultNever += supplyShare;
+        } else if (spendDefault === "inactive") {
+          reference.defaultInactive += supplyShare;
+        } else if (spendDefault === "active") {
+          reference.defaultActive += supplyShare;
+        }
+      });
+    });
+  }
 
   SCRIPT_TYPES_ORDER.forEach((scriptType) => {
     const baselineRow = baselineByScript.get(scriptType);
@@ -2824,6 +3029,38 @@ function buildScriptBarsDataFromGe1(
       : getAggregate("all", scriptType, "active", "exposed_supply_sats");
     const fullExposedTotal = fullExposedNever + fullExposedInactive + fullExposedActive;
 
+    let adjustedFullExposedNever = fullExposedNever;
+    let adjustedFullExposedInactive = fullExposedInactive;
+    let adjustedFullExposedActive = fullExposedActive;
+
+    if (useCustomInactiveThreshold) {
+      const reference = ge1ReferenceByScript.get(scriptType);
+      if (reference) {
+        const missingNever = Math.max(0, fullExposedNever - reference.defaultNever);
+        const adjustedNever = Math.max(0, reference.currentNever + missingNever);
+        const availableInactiveActive = Math.max(0, fullExposedTotal - adjustedNever);
+        const currentInactiveActive = Math.max(0, reference.currentInactive + reference.currentActive);
+        const missingInactiveActive = Math.max(0, availableInactiveActive - currentInactiveActive);
+
+        const currentSplitDenom = reference.currentInactive + reference.currentActive;
+        const baselineSplitDenom = reference.defaultInactive + reference.defaultActive;
+        const inactiveShare = currentSplitDenom > 0
+          ? (reference.currentInactive / currentSplitDenom)
+          : baselineSplitDenom > 0
+            ? (reference.defaultInactive / baselineSplitDenom)
+            : 0.5;
+        const missingInactive = missingInactiveActive * inactiveShare;
+
+        adjustedFullExposedNever = adjustedNever;
+        adjustedFullExposedInactive = Math.max(0, reference.currentInactive + missingInactive);
+        adjustedFullExposedInactive = Math.min(adjustedFullExposedInactive, availableInactiveActive);
+        adjustedFullExposedActive = Math.max(0, availableInactiveActive - adjustedFullExposedInactive);
+      }
+    }
+
+    const adjustedFullExposedTotal =
+      adjustedFullExposedNever + adjustedFullExposedInactive + adjustedFullExposedActive;
+
     rowsByScript.set(scriptType, {
       scriptType,
       totalSupplySats: 0,
@@ -2833,12 +3070,12 @@ function buildScriptBarsDataFromGe1(
       exposedTotal: 0,
       nonExposedSupplySats: 0,
       fullTotalSupplySats,
-      fullExposedNever,
-      fullExposedInactive,
-      fullExposedActive,
-      fullExposedTotal,
-      fullNonExposedSupplySats: Math.max(fullTotalSupplySats - fullExposedTotal, 0),
-      showFullReference: tagFiltered || balanceMinSats(barsBalanceKey) > 0,
+      fullExposedNever: adjustedFullExposedNever,
+      fullExposedInactive: adjustedFullExposedInactive,
+      fullExposedActive: adjustedFullExposedActive,
+      fullExposedTotal: adjustedFullExposedTotal,
+      fullNonExposedSupplySats: Math.max(fullTotalSupplySats - adjustedFullExposedTotal, 0),
+      showFullReference: tagFiltered || balanceMinSats(barsBalanceKey) > 0 || useCustomInactiveThreshold,
       scriptHighlighted: highlightAllScripts || filters.scriptTypes.includes(scriptType),
       spendHighlighted: {
         never_spent: highlightAllSpends || filters.spendActivities.includes("never_spent"),
@@ -2859,7 +3096,7 @@ function buildScriptBarsDataFromGe1(
     const scriptTypes = getRowScriptTypes(row);
     const uniqueScriptTypes = Array.from(new Set(scriptTypes));
     const targets = uniqueScriptTypes.length ? uniqueScriptTypes : ["Other"];
-    const spend = row.spend_activity;
+    const spend = getRowSpendActivityForFilters(row, filters);
 
     const supplyByScriptType = getRowSupplyByScriptType(row);
 
@@ -2893,7 +3130,8 @@ function buildScriptBarsDataFromGe1(
   return Array.from(rowsByScript.values())
     .map((row) => ({
       ...row,
-      exposedTotal: row.exposedNever + row.exposedInactive + row.exposedActive,
+      // Keep exposed total anchored to the filtered total supply for this row.
+      exposedTotal: row.totalSupplySats,
     }));
 }
 
@@ -3121,6 +3359,8 @@ function resetHistoricalSeriesState() {
   state.historicalSeriesGe1LoadProgress = null;
   state.historicalSeriesGe1LastCompletedFilterKey = null;
   state.historicalSeriesGe1FallbackFilterKey = null;
+  state.historicalSeriesGe1LastCompletedLoadKeys = null;
+  state.historicalSeriesGe1FallbackLoadKeys = null;
   state.historicalProgressiveYMaxSats = null;
 }
 
@@ -3254,6 +3494,10 @@ function historicalGe1FilterKey(filters) {
   return JSON.stringify({
     balance: filters.balance,
     balanceThresholdSats,
+    inactiveThresholdYears: Math.max(
+      INACTIVE_THRESHOLD_MIN_YEARS,
+      Math.min(INACTIVE_THRESHOLD_MAX_YEARS, Number(filters.inactiveThresholdYears) || INACTIVE_THRESHOLD_MIN_YEARS)
+    ),
     scriptTypes: sortedScripts,
     detailTags: sortedDetailTags,
     identityGroups: sortedIdentityGroups,
@@ -3261,13 +3505,107 @@ function historicalGe1FilterKey(filters) {
   });
 }
 
-async function ensureHistoricalSeriesGe1Loaded(filters, signal) {
+function buildHistoricalFullReferenceFilters(filters, inactiveThresholdYears) {
+  return {
+    ...filters,
+    balance: "all",
+    balanceThresholdSats: balanceMinSats("all"),
+    scriptTypes: ["All"],
+    detailTags: ["All"],
+    identityGroups: ["All"],
+    identityTags: ["All"],
+    inactiveThresholdYears,
+  };
+}
+
+function buildHistoricalThresholdAwareFullReferenceSpendSplit(point, filters, fallbackLoadKeys = null) {
+  const rows = point.aggregatesRows;
+  const fullNever = getAggregateFromRows(rows, "all", "All", "never_spent", "exposed_supply_sats");
+  const fullInactive = getAggregateFromRows(rows, "all", "All", "inactive", "exposed_supply_sats");
+  const fullActive = getAggregateFromRows(rows, "all", "All", "active", "exposed_supply_sats");
+
+  const useCustomInactiveThreshold =
+    !isLiteMode() &&
+    Number(filters?.inactiveThresholdYears || INACTIVE_THRESHOLD_MIN_YEARS) !== INACTIVE_THRESHOLD_MIN_YEARS;
+
+  if (!useCustomInactiveThreshold) {
+    return {
+      never_spent: fullNever,
+      inactive: fullInactive,
+      active: fullActive,
+    };
+  }
+
+  const fullCurrentFilters = buildHistoricalFullReferenceFilters(filters, filters.inactiveThresholdYears);
+  const fullBaselineFilters = buildHistoricalFullReferenceFilters(filters, INACTIVE_THRESHOLD_MIN_YEARS);
+  const currentKey = historicalGe1FilterKey(fullCurrentFilters);
+  const baselineKey = historicalGe1FilterKey(fullBaselineFilters);
+  const fallbackCurrentKey = fallbackLoadKeys?.fullCurrent || null;
+  const fallbackBaselineKey = fallbackLoadKeys?.fullBaseline || null;
+  const current =
+    point.ge1FilteredSumsByKey?.[currentKey] ||
+    (fallbackCurrentKey ? point.ge1FilteredSumsByKey?.[fallbackCurrentKey] : null) ||
+    null;
+  const baseline =
+    point.ge1FilteredSumsByKey?.[baselineKey] ||
+    (fallbackBaselineKey ? point.ge1FilteredSumsByKey?.[fallbackBaselineKey] : null) ||
+    null;
+
+  if (!current || !baseline) {
+    return {
+      never_spent: fullNever,
+      inactive: fullInactive,
+      active: fullActive,
+    };
+  }
+
+  const fullExposedTotal = fullNever + fullInactive + fullActive;
+  const missingNever = Math.max(0, fullNever - baseline.never_spent);
+  const adjustedNever = Math.max(0, current.never_spent + missingNever);
+  const availableInactiveActive = Math.max(0, fullExposedTotal - adjustedNever);
+  const currentInactiveActive = Math.max(0, current.inactive + current.active);
+  const missingInactiveActive = Math.max(0, availableInactiveActive - currentInactiveActive);
+
+  const currentSplitDenom = current.inactive + current.active;
+  const baselineSplitDenom = baseline.inactive + baseline.active;
+  const inactiveShare = currentSplitDenom > 0
+    ? (current.inactive / currentSplitDenom)
+    : baselineSplitDenom > 0
+      ? (baseline.inactive / baselineSplitDenom)
+      : 0.5;
+  const missingInactive = missingInactiveActive * inactiveShare;
+
+  const adjustedInactive = Math.min(
+    availableInactiveActive,
+    Math.max(0, current.inactive + missingInactive)
+  );
+  const adjustedActive = Math.max(0, availableInactiveActive - adjustedInactive);
+
+  return {
+    never_spent: adjustedNever,
+    inactive: adjustedInactive,
+    active: adjustedActive,
+  };
+}
+
+async function ensureHistoricalSeriesGe1LoadedBatch(filterLoads, signal, activeLoadSignature = null) {
   if (!state.historicalSeries.length) return;
 
-  const filterKey = historicalGe1FilterKey(filters);
+  const normalizedFilterLoads = Array.from(
+    new Map(
+      (Array.isArray(filterLoads) ? filterLoads : [])
+        .filter((entry) => entry && entry.key && entry.filters)
+        .map((entry) => [entry.key, entry])
+    ).values()
+  );
+
+  if (!normalizedFilterLoads.length) return;
+
   // Sort descending so the most recent snapshot loads and renders first.
   const missingSeries = state.historicalSeries
-    .filter((point) => !point.ge1FilteredSumsByKey?.[filterKey])
+    .filter((point) =>
+      normalizedFilterLoads.some(({ key }) => !point.ge1FilteredSumsByKey?.[key])
+    )
     .sort((a, b) => Number(b.snapshot) - Number(a.snapshot));
 
   if (!missingSeries.length) return;
@@ -3298,10 +3636,15 @@ async function ensureHistoricalSeriesGe1Loaded(filters, signal) {
         throw err;
       }
 
-      const sums = buildFilteredExposedFromGe1Csv(text, filters);
+      const snapshotUnixTime = toInt(state.snapshotUnixTimeByHeight[String(point.snapshot)]);
       if (!point.ge1FilteredSumsByKey) point.ge1FilteredSumsByKey = {};
-      point.ge1FilteredSumsByKey[filterKey] = sums;
-      saveGe1PersistentSum(point.snapshot, filterKey, sums);
+
+      normalizedFilterLoads.forEach(({ key, filters }) => {
+        if (point.ge1FilteredSumsByKey[key]) return;
+        const sums = buildFilteredExposedFromGe1Csv(text, filters, snapshotUnixTime);
+        point.ge1FilteredSumsByKey[key] = sums;
+        saveGe1PersistentSum(point.snapshot, key, sums);
+      });
 
       state.historicalSeriesGe1LoadProgress.loaded++;
       // Re-render after each snapshot so bars update progressively.
@@ -3312,13 +3655,13 @@ async function ensureHistoricalSeriesGe1Loaded(filters, signal) {
   } finally {
     state.historicalSeriesGe1Loading = false;
     state.historicalSeriesGe1LoadProgress = null;
-    if (state.historicalSeriesGe1ActiveFilterKey === filterKey) {
+    if (!activeLoadSignature || state.historicalSeriesGe1ActiveFilterKey === activeLoadSignature) {
       state.historicalSeriesGe1ActiveFilterKey = null;
     }
   }
 }
 
-function buildFilteredExposedFromGe1Csv(csvText, filters) {
+function buildFilteredExposedFromGe1Csv(csvText, filters, snapshotUnixTimeOverride = 0) {
   const sums = {
     never_spent: 0,
     inactive: 0,
@@ -3355,7 +3698,11 @@ function buildFilteredExposedFromGe1Csv(csvText, filters) {
   const idxDetails = indexByName.get("details");
   const idxIdentity = indexByName.get("identity");
   const idxSpend = indexByName.get("spend_activity");
+  const idxLastSpendUnix = indexByName.get("last_spend_unix_time");
   const idxSupplyByScript = indexByName.get("exposed_supply_sats_by_script_type");
+  const effectiveSnapshotUnixTime = snapshotUnixTimeOverride > 0
+    ? snapshotUnixTimeOverride
+    : Number(filters.snapshotUnixTime) || 0;
 
   while (true) {
     const line = readLine();
@@ -3377,7 +3724,14 @@ function buildFilteredExposedFromGe1Csv(csvText, filters) {
     if (exposedSupply < minSats) continue;
     if (!exposedSupply) continue;
 
-    const spend = idxSpend === undefined ? "" : (values[idxSpend] || "");
+    const rawSpend = idxSpend === undefined ? "" : (values[idxSpend] || "");
+    const lastSpendUnix = idxLastSpendUnix === undefined ? 0 : toInt(values[idxLastSpendUnix]);
+    const spend = classifySpendActivity(
+      rawSpend,
+      lastSpendUnix,
+      effectiveSnapshotUnixTime,
+      filters.inactiveThresholdYears
+    );
     if (!SPEND_TYPES_ORDER.includes(spend)) continue;
 
     targets.forEach((scriptType) => {
@@ -3406,21 +3760,24 @@ function buildHistoricalStackedData(filters) {
   const discreteThresholds = [0, 1 * SATS_PER_BTC, 10 * SATS_PER_BTC, 100 * SATS_PER_BTC, 1000 * SATS_PER_BTC];
   const isDiscreteBalanceValue = !isLiteMode() && discreteThresholds.includes(filters.balanceThresholdSats);
   const useContinuousBalanceData = !isLiteMode() && !isDiscreteBalanceValue;
-  const needsGe1Data = tagFiltersActive || useContinuousBalanceData;
+  const useCustomInactiveThreshold = !isLiteMode() && Number(filters.inactiveThresholdYears || INACTIVE_THRESHOLD_MIN_YEARS) !== INACTIVE_THRESHOLD_MIN_YEARS;
+  const needsGe1Data = tagFiltersActive || useContinuousBalanceData || useCustomInactiveThreshold;
 
   const spendFilterSet = new Set(filters.spendActivities);
   const showAllSpends = spendFilterSet.has("all");
   const ge1FilterKey = needsGe1Data ? historicalGe1FilterKey(filters) : null;
   const fallbackFilterKey = needsGe1Data ? state.historicalSeriesGe1FallbackFilterKey : null;
+  const fallbackLoadKeys = needsGe1Data ? state.historicalSeriesGe1FallbackLoadKeys : null;
 
   const points = state.historicalSeries.map((point) => {
     const rows = point.aggregatesRows;
 
     // Base/faded layers always show the full "all-balance" picture regardless of filter.
     const totalSupplySats = getAggregateFromRows(rows, "all", "All", "all", "supply_sats");
-    const fullNever = getAggregateFromRows(rows, "all", "All", "never_spent", "exposed_supply_sats");
-    const fullInactive = getAggregateFromRows(rows, "all", "All", "inactive", "exposed_supply_sats");
-    const fullActive = getAggregateFromRows(rows, "all", "All", "active", "exposed_supply_sats");
+    const fullReferenceBySpend = buildHistoricalThresholdAwareFullReferenceSpendSplit(point, filters, fallbackLoadKeys);
+    const fullNever = fullReferenceBySpend.never_spent;
+    const fullInactive = fullReferenceBySpend.inactive;
+    const fullActive = fullReferenceBySpend.active;
     const fullExposed = fullNever + fullInactive + fullActive;
 
     const selectedFromGe1 = needsGe1Data && ge1FilterKey
@@ -3591,8 +3948,9 @@ function renderHistoricalStackedChart(filters) {
   // Check if balance value is exactly at a discrete threshold in FULL mode
   const discreteThresholds = [0, 1 * SATS_PER_BTC, 10 * SATS_PER_BTC, 100 * SATS_PER_BTC, 1000 * SATS_PER_BTC];
   const isDiscreteBalanceValue = !isLiteMode() && discreteThresholds.includes(filters.balanceThresholdSats);
-  const useContinuousBalanceData = !isLiteMode() && state.ge1Rows.length && !isDiscreteBalanceValue;
-  const needsGe1Data = tagFiltersActive || useContinuousBalanceData;
+  const useContinuousBalanceData = !isLiteMode() && !isDiscreteBalanceValue;
+  const useCustomInactiveThreshold = !isLiteMode() && Number(filters.inactiveThresholdYears || INACTIVE_THRESHOLD_MIN_YEARS) !== INACTIVE_THRESHOLD_MIN_YEARS;
+  const needsGe1Data = tagFiltersActive || useContinuousBalanceData || useCustomInactiveThreshold;
   
   let isRenderingProgressively = false;
   let loadingOverlayMessage = "Loading historical chart...";
@@ -3613,23 +3971,67 @@ function renderHistoricalStackedChart(filters) {
   }
 
   if (needsGe1Data) {
-    const ge1FilterKey = historicalGe1FilterKey(filters);
-    const missingForFilter = state.historicalSeries.some((point) => !point.ge1FilteredSumsByKey?.[ge1FilterKey]);
-    if (missingForFilter) {
-      // Start a new load only when the filter key has changed; otherwise the
-      // existing load is already progressing for this same filter.
-      if (state.historicalSeriesGe1ActiveFilterKey !== ge1FilterKey) {
-        const priorCompletedKey = state.historicalSeriesGe1LastCompletedFilterKey;
-        state.historicalSeriesGe1FallbackFilterKey =
-          priorCompletedKey && priorCompletedKey !== ge1FilterKey ? priorCompletedKey : null;
+    const selectedFilterKey = historicalGe1FilterKey(filters);
+    const requiredFilterLoads = [
+      {
+        role: "selected",
+        key: selectedFilterKey,
+        filters,
+      },
+    ];
+
+    if (useCustomInactiveThreshold) {
+      const fullCurrentFilters = buildHistoricalFullReferenceFilters(filters, filters.inactiveThresholdYears);
+      const fullBaselineFilters = buildHistoricalFullReferenceFilters(filters, INACTIVE_THRESHOLD_MIN_YEARS);
+      const fullCurrentKey = historicalGe1FilterKey(fullCurrentFilters);
+      const fullBaselineKey = historicalGe1FilterKey(fullBaselineFilters);
+
+      if (fullCurrentKey !== selectedFilterKey) {
+        requiredFilterLoads.push({
+          role: "fullCurrent",
+          key: fullCurrentKey,
+          filters: fullCurrentFilters,
+        });
+      }
+
+      if (fullBaselineKey !== selectedFilterKey && fullBaselineKey !== fullCurrentKey) {
+        requiredFilterLoads.push({
+          role: "fullBaseline",
+          key: fullBaselineKey,
+          filters: fullBaselineFilters,
+        });
+      }
+    }
+
+    const requiredLoadKeysByRole = requiredFilterLoads.reduce((acc, load) => {
+      if (load?.role) acc[load.role] = load.key;
+      return acc;
+    }, {});
+
+    const activeLoadSignature = JSON.stringify(
+      requiredFilterLoads
+        .map((load) => load.key)
+        .sort()
+    );
+
+    const missingForPlan = state.historicalSeries.some((point) =>
+      requiredFilterLoads.some(({ key }) => !point.ge1FilteredSumsByKey?.[key])
+    );
+
+    if (missingForPlan) {
+      // Start a new load only when the required load bundle changes.
+      if (state.historicalSeriesGe1ActiveFilterKey !== activeLoadSignature) {
+        const priorCompletedLoadKeys = state.historicalSeriesGe1LastCompletedLoadKeys;
+        state.historicalSeriesGe1FallbackLoadKeys = priorCompletedLoadKeys || null;
+        state.historicalSeriesGe1FallbackFilterKey = priorCompletedLoadKeys?.selected || null;
         state.historicalProgressiveYMaxSats = null;
 
         // Abort any in-flight load for a different filter.
         state.historicalSeriesGe1AbortController?.abort();
         const controller = new AbortController();
         state.historicalSeriesGe1AbortController = controller;
-        state.historicalSeriesGe1ActiveFilterKey = ge1FilterKey;
-        ensureHistoricalSeriesGe1Loaded(filters, controller.signal)
+        state.historicalSeriesGe1ActiveFilterKey = activeLoadSignature;
+        ensureHistoricalSeriesGe1LoadedBatch(requiredFilterLoads, controller.signal, activeLoadSignature)
           .then(() => update())
           .catch((err) => {
             if (err.name !== "AbortError") console.error(err);
@@ -3649,12 +4051,16 @@ function renderHistoricalStackedChart(filters) {
       // they snap to filtered values as each snapshot finishes loading.
       isRenderingProgressively = true;
     } else {
-      state.historicalSeriesGe1LastCompletedFilterKey = ge1FilterKey;
+      state.historicalSeriesGe1LastCompletedFilterKey = selectedFilterKey;
+      state.historicalSeriesGe1LastCompletedLoadKeys = requiredLoadKeysByRole;
       state.historicalSeriesGe1FallbackFilterKey = null;
+      state.historicalSeriesGe1FallbackLoadKeys = null;
     }
   } else {
     state.historicalSeriesGe1LastCompletedFilterKey = null;
+    state.historicalSeriesGe1LastCompletedLoadKeys = null;
     state.historicalSeriesGe1FallbackFilterKey = null;
+    state.historicalSeriesGe1FallbackLoadKeys = null;
   }
 
   // Only show generic loading state if we're not already rendering progressively.
@@ -4204,6 +4610,7 @@ function captureFilterSnapshot() {
   return {
     balanceFilterValue: balanceFilter ? balanceFilter.value : "all",
     fullBalanceThresholdBtc: Math.max(0, Number(state.fullBalanceThresholdBtc) || 0),
+    inactiveThresholdYears: Math.max(INACTIVE_THRESHOLD_MIN_YEARS, Math.min(INACTIVE_THRESHOLD_MAX_YEARS, Number(state.inactiveThresholdYears) || INACTIVE_THRESHOLD_MIN_YEARS)),
     snapshotFilterValue: snapshotFilter ? snapshotFilter.value : String(state.snapshotHeight || ""),
     supplyModeValue: supplyModeSelect ? supplyModeSelect.value : state.supplyDisplayMode,
     topExposureAddressSearchValue: topExposureAddressSearch ? topExposureAddressSearch.value : state.topExposureAddressQuery,
@@ -4239,6 +4646,9 @@ async function applyFilterSnapshot(snapshot) {
   }
   if (Number.isFinite(snapshot.fullBalanceThresholdBtc)) {
     setFullBalanceThresholdBtc(snapshot.fullBalanceThresholdBtc, { updateSlider: true, updateSelect: true });
+  }
+  if (Number.isFinite(snapshot.inactiveThresholdYears)) {
+    setInactiveThresholdYears(snapshot.inactiveThresholdYears, { updateSlider: true });
   }
   if (supplyModeSelect) supplyModeSelect.value = snapshot.supplyModeValue;
   if (topExposureAddressSearch) topExposureAddressSearch.value = snapshot.topExposureAddressSearchValue;
@@ -4294,6 +4704,9 @@ function isDefaultFilterState() {
 
   if (balanceFilter && balanceFilter.value !== "all") return false;
   if (!isLiteMode() && (Number(state.fullBalanceThresholdBtc) || 0) > 0) return false;
+  if (!isLiteMode() && Math.round(Number(state.inactiveThresholdYears) || INACTIVE_THRESHOLD_MIN_YEARS) !== INACTIVE_THRESHOLD_MIN_YEARS) {
+    return false;
+  }
   if (supplyModeSelect && supplyModeSelect.value !== "total") return false;
   if (topExposureAddressSearch && topExposureAddressSearch.value.trim() !== "") return false;
 
@@ -4366,6 +4779,7 @@ async function resetDashboardToDefaults() {
     syncBalanceDropdownTrigger();
   }
   setFullBalanceThresholdBtc(0, { updateSlider: true, updateSelect: true });
+  setInactiveThresholdYears(INACTIVE_THRESHOLD_MIN_YEARS, { updateSlider: true });
   setAllScriptChecks(true);
   setAllSpendChecks(true);
 
@@ -4450,6 +4864,7 @@ function topExposuresCacheKey(filters) {
   return [
     snapshotKey,
     `balance_sats:${balanceThresholdSats}`,
+    `inactive_years:${Math.max(INACTIVE_THRESHOLD_MIN_YEARS, Math.min(INACTIVE_THRESHOLD_MAX_YEARS, Number(filters.inactiveThresholdYears) || INACTIVE_THRESHOLD_MIN_YEARS))}`,
     normalizedFilterValuesForCache(filters.scriptTypes),
     normalizedFilterValuesForCache(filters.spendActivities),
     normalizedFilterValuesForCache(filters.detailTags),
@@ -4485,7 +4900,11 @@ function buildTopExposuresData(filters) {
       const types = getRowScriptTypes(row);
       return types.some((t) => filters.scriptTypes.includes(t));
     })
-    .filter((row) => spendPassAll || filters.spendActivities.includes(row.spend_activity))
+    .filter((row) => {
+      if (spendPassAll) return true;
+      const spend = getRowSpendActivityForFilters(row, filters);
+      return filters.spendActivities.includes(spend);
+    })
     .filter((row) => {
       return detailTagPassesFilters(filters.detailTags, row.details || "");
     })
@@ -4521,7 +4940,7 @@ function buildTopExposuresData(filters) {
         firstExposedUnixTime: toInt(row.first_exposed_unix_time) || 0,
         lastSpendUnixTime: toInt(row.last_spend_unix_time) || 0,
         scriptTypes,
-        spendActivity: row.spend_activity,
+        spendActivity: getRowSpendActivityForFilters(row, filters),
         detail: row.details || "",
         identity: row.identity || "",
       };
@@ -4573,7 +4992,8 @@ function rowPassesTopExposureFilters(row, filters, includeTagFilters = true) {
     if (!types.some((t) => filters.scriptTypes.includes(t))) return false;
   }
 
-  if (!filters.spendActivities.includes("all") && !filters.spendActivities.includes(row.spend_activity)) {
+  const spend = getRowSpendActivityForFilters(row, filters);
+  if (!filters.spendActivities.includes("all") && !filters.spendActivities.includes(spend)) {
     return false;
   }
 
@@ -5321,7 +5741,7 @@ function aggregateFilteredExposedSupplyBySpend(filters) {
       if (!rowPassesTopExposureFilters(row, filters, true)) return;
       if (!rowMatchesTopExposureAddressQuery(row, addressQuery)) return;
 
-      const spend = row.spend_activity;
+      const spend = getRowSpendActivityForFilters(row, filters);
       if (!SPEND_TYPES_ORDER.includes(spend)) return;
 
       const filteredExposed = getFilteredExposedSupplySatsForRow(row, filters.scriptTypes);
@@ -5380,6 +5800,73 @@ function renderKpis(kpi, total, filters) {
     `${formatInt(roundedMigrationBlocks)} blocks`;
 }
 
+function buildThresholdAwareFullReferenceSpendSplit(filters) {
+  const fullNever = getAggregate("all", "All", "never_spent", "exposed_supply_sats");
+  const fullInactive = getAggregate("all", "All", "inactive", "exposed_supply_sats");
+  const fullActive = getAggregate("all", "All", "active", "exposed_supply_sats");
+
+  const useCustomInactiveThreshold =
+    !isLiteMode() &&
+    Number(filters?.inactiveThresholdYears || INACTIVE_THRESHOLD_MIN_YEARS) !== INACTIVE_THRESHOLD_MIN_YEARS;
+
+  if (!useCustomInactiveThreshold || !state.ge1Rows.length) {
+    return {
+      never_spent: fullNever,
+      inactive: fullInactive,
+      active: fullActive,
+    };
+  }
+
+  const current = { never_spent: 0, inactive: 0, active: 0 };
+  const baseline = { never_spent: 0, inactive: 0, active: 0 };
+  const baselineFilters = {
+    ...filters,
+    inactiveThresholdYears: INACTIVE_THRESHOLD_MIN_YEARS,
+  };
+
+  state.ge1Rows.forEach((row) => {
+    const rowExposed = getRowExposedSupplySats(row);
+    if (!rowExposed) return;
+
+    const spendCurrent = getRowSpendActivityForFilters(row, filters);
+    const spendBaseline = getRowSpendActivityForFilters(row, baselineFilters);
+    if (SPEND_TYPES_ORDER.includes(spendCurrent)) {
+      current[spendCurrent] += rowExposed;
+    }
+    if (SPEND_TYPES_ORDER.includes(spendBaseline)) {
+      baseline[spendBaseline] += rowExposed;
+    }
+  });
+
+  const fullExposedTotal = fullNever + fullInactive + fullActive;
+  const missingNever = Math.max(0, fullNever - baseline.never_spent);
+  const adjustedNever = Math.max(0, current.never_spent + missingNever);
+  const availableInactiveActive = Math.max(0, fullExposedTotal - adjustedNever);
+  const currentInactiveActive = Math.max(0, current.inactive + current.active);
+  const missingInactiveActive = Math.max(0, availableInactiveActive - currentInactiveActive);
+
+  const currentSplitDenom = current.inactive + current.active;
+  const baselineSplitDenom = baseline.inactive + baseline.active;
+  const inactiveShare = currentSplitDenom > 0
+    ? (current.inactive / currentSplitDenom)
+    : baselineSplitDenom > 0
+      ? (baseline.inactive / baselineSplitDenom)
+      : 0.5;
+  const missingInactive = missingInactiveActive * inactiveShare;
+
+  const adjustedInactive = Math.min(
+    availableInactiveActive,
+    Math.max(0, current.inactive + missingInactive)
+  );
+  const adjustedActive = Math.max(0, availableInactiveActive - adjustedInactive);
+
+  return {
+    never_spent: adjustedNever,
+    inactive: adjustedInactive,
+    active: adjustedActive,
+  };
+}
+
 function renderSupplyBreakdownBar(total, filters) {
   const container = document.getElementById("kpiSupplyBreakdown");
   if (!container || !total) {
@@ -5389,10 +5876,11 @@ function renderSupplyBreakdownBar(total, filters) {
   const MAX_BITCOIN_SUPPLY_SATS = 21_000_000 * SATS_PER_BTC;
   const totalSupply = total.supply_sats || 0;
   
-  // Get exposed supply breakdown by spend activity
-  const exposedNever = getAggregate("all", "All", "never_spent", "exposed_supply_sats");
-  const exposedInactive = getAggregate("all", "All", "inactive", "exposed_supply_sats");
-  const exposedActive = getAggregate("all", "All", "active", "exposed_supply_sats");
+  // Build full-reference spend split, including threshold-aware inactive/active allocation.
+  const fullReferenceBySpend = buildThresholdAwareFullReferenceSpendSplit(filters);
+  const exposedNever = fullReferenceBySpend.never_spent || 0;
+  const exposedInactive = fullReferenceBySpend.inactive || 0;
+  const exposedActive = fullReferenceBySpend.active || 0;
   const exposedTotal = exposedNever + exposedInactive + exposedActive;
 
   const filteredExposedBySpend = aggregateFilteredExposedSupplyBySpend(filters);
@@ -5563,25 +6051,41 @@ function readFilters() {
     ? topExposureAddressSearch.value.trim()
     : String(state.topExposureAddressQuery || "").trim();
   const balanceFilterEl = document.getElementById("balanceFilter");
+  const inactiveThresholdSlider = document.getElementById("inactiveThresholdSlider");
   let balanceValue = balanceFilterEl ? balanceFilterEl.value : "all";
   let balanceThresholdBtc = Math.max(0, Math.min(FULL_BALANCE_MAX_BTC, Number(state.fullBalanceThresholdBtc) || 0));
+  let inactiveThresholdYears = Math.max(
+    INACTIVE_THRESHOLD_MIN_YEARS,
+    Math.min(INACTIVE_THRESHOLD_MAX_YEARS, Math.round(Number(state.inactiveThresholdYears) || INACTIVE_THRESHOLD_MIN_YEARS))
+  );
 
   if (isLiteMode()) {
     balanceThresholdBtc = Math.round(balanceMinSats(balanceValue) / SATS_PER_BTC);
+    inactiveThresholdYears = INACTIVE_THRESHOLD_MIN_YEARS;
   } else {
     balanceValue = discreteBalanceKeyForThresholdBtc(balanceThresholdBtc);
+    if (inactiveThresholdSlider) {
+      inactiveThresholdYears = Math.max(
+        INACTIVE_THRESHOLD_MIN_YEARS,
+        Math.min(INACTIVE_THRESHOLD_MAX_YEARS, Math.round(Number(inactiveThresholdSlider.value) || INACTIVE_THRESHOLD_MIN_YEARS))
+      );
+    }
   }
 
   const detailFiltered = selectedDetailTags.length > 0 && !selectedDetailTags.includes("All");
   const identityGroupFiltered = selectedIdentityGroups.length > 0 && !selectedIdentityGroups.includes("All");
   const identityFiltered = selectedIdentityTags.length > 0 && !selectedIdentityTags.includes("All");
   const topExposureFiltersActive = detailFiltered || identityGroupFiltered || identityFiltered;
+  const inactiveThresholdCustom =
+    !isLiteMode() &&
+    inactiveThresholdYears !== INACTIVE_THRESHOLD_MIN_YEARS;
+  const shouldAutoForceBalanceFromAll = topExposureFiltersActive || inactiveThresholdCustom;
 
-  syncBalanceAllTickLabelAvailability(!isLiteMode() && topExposureFiltersActive);
+  syncBalanceAllTickLabelAvailability(!isLiteMode() && shouldAutoForceBalanceFromAll);
 
-  if (topExposureFiltersActive) {
+  if (shouldAutoForceBalanceFromAll) {
     if (balanceThresholdBtc <= 0) {
-      // Auto-force from All only when top-exposure filters become constrained.
+      // Auto-force from All when filters require ge1+ precision.
       balanceThresholdBtc = 1;
       if (isLiteMode()) {
         balanceValue = "ge1";
@@ -5615,11 +6119,16 @@ function readFilters() {
   state.selectedIdentityGroups = selectedIdentityGroups;
   state.selectedIdentityTags = selectedIdentityTags;
   state.topExposureAddressQuery = topExposureAddressQuery;
+  state.inactiveThresholdYears = inactiveThresholdYears;
+
+  const snapshotUnixTime = getCurrentSnapshotUnixTime();
 
   return {
     balance: balanceValue,
     balanceThresholdBtc,
     balanceThresholdSats,
+    inactiveThresholdYears,
+    snapshotUnixTime,
     spendActivities: selectedSpendActivities,
     scriptTypes: selectedScriptTypes,
     detailTags: state.selectedDetailTags,
@@ -5825,6 +6334,7 @@ async function refreshSnapshotLookupUi() {
 async function loadSnapshotLabelLookup(snapshots) {
   state.blockDatetimeByHeight = {};
   state.snapshotLabelDatetimeByHeight = {};
+  state.snapshotUnixTimeByHeight = {};
 
   let loadedFromGlobalLookup = false;
   try {
@@ -5839,6 +6349,7 @@ async function loadSnapshotLabelLookup(snapshots) {
 
         const tooltipDate = formatTooltipDate(unixTime);
         state.blockDatetimeByHeight[height] = tooltipDate;
+        state.snapshotUnixTimeByHeight[height] = unixTime;
 
         if (snapshotSet.has(height)) {
           state.snapshotLabelDatetimeByHeight[height] = formatSnapshotSelectDate(unixTime);
@@ -5877,6 +6388,7 @@ async function loadSnapshotLabelLookup(snapshots) {
           return;
         }
 
+        state.snapshotUnixTimeByHeight[String(snapshot)] = snapshotTime;
         state.blockDatetimeByHeight[String(snapshot)] = formatTooltipDate(snapshotTime);
         state.snapshotLabelDatetimeByHeight[String(snapshot)] = formatSnapshotSelectDate(snapshotTime);
       } catch (_err) {
@@ -5944,6 +6456,7 @@ async function loadAvailableSnapshots() {
         const height = (row.snapshot_blockheight || "").trim();
         const unixTime = toInt(row.snapshot_time);
         if (height && unixTime) {
+          state.snapshotUnixTimeByHeight[height] = unixTime;
           state.snapshotLabelDatetimeByHeight[height] = formatSnapshotSelectDate(unixTime);
           state.blockDatetimeByHeight[height] = formatTooltipDate(unixTime);
         }
@@ -5953,6 +6466,7 @@ async function loadAvailableSnapshots() {
           const height = (row.snapshot_blockheight || "").trim();
           const unixTime = toInt(row.snapshot_time);
           if (height && unixTime) {
+            state.snapshotUnixTimeByHeight[height] = unixTime;
             state.snapshotLabelDatetimeByHeight[height] = formatSnapshotSelectDate(unixTime);
             state.blockDatetimeByHeight[height] = formatTooltipDate(unixTime);
           }
@@ -6008,6 +6522,22 @@ function syncBalanceDropdownTrigger() {
   }
   const menu = document.getElementById("balanceDropdownMenu");
   if (menu && select) {
+    menu.querySelectorAll(".script-option-btn").forEach((btn) => {
+      btn.classList.toggle("script-option-btn--selected", btn.dataset.value === select.value);
+    });
+  }
+}
+
+function syncSupplyModeDropdownTrigger() {
+  const select = document.getElementById("scriptPanelSupplyMode");
+  const trigger = document.getElementById("supplyModeDropdownTrigger");
+  if (!select || !trigger) return;
+
+  const selectedOption = select.options[select.selectedIndex];
+  trigger.textContent = selectedOption ? selectedOption.textContent : "";
+
+  const menu = document.getElementById("supplyModeDropdownMenu");
+  if (menu) {
     menu.querySelectorAll(".script-option-btn").forEach((btn) => {
       btn.classList.toggle("script-option-btn--selected", btn.dataset.value === select.value);
     });
@@ -6183,6 +6713,7 @@ function attachEvents() {
   const topExposuresFiltersToggle = document.getElementById("topExposuresFiltersToggle");
   const topExposureAddressSearch = document.getElementById("topExposureAddressSearch");
   const balanceFilterSlider = document.getElementById("balanceFilterSlider");
+  const inactiveThresholdSlider = document.getElementById("inactiveThresholdSlider");
   ["balanceFilter"].forEach((id) => {
     document.getElementById(id).addEventListener("change", () => {
       if (!isLiteMode()) {
@@ -6221,6 +6752,22 @@ function attachEvents() {
       const thresholdBtc = sliderRawToThresholdBtc(balanceFilterSlider.value, true);
       setFullBalanceThresholdBtc(thresholdBtc, { updateSlider: true, updateSelect: true });
       state.balanceAutoForcedFromAllByTopFilters = false;
+      resetTopExposurePagination();
+      triggerEcoFullDataLoadFromFirstFilter();
+      clearPreResetSnapshot();
+      update();
+    });
+  }
+
+  if (inactiveThresholdSlider) {
+    inactiveThresholdSlider.addEventListener("input", () => {
+      if (isLiteMode()) return;
+      setInactiveThresholdYears(inactiveThresholdSlider.value, { updateSlider: true });
+    });
+
+    inactiveThresholdSlider.addEventListener("change", () => {
+      if (isLiteMode()) return;
+      setInactiveThresholdYears(inactiveThresholdSlider.value, { updateSlider: true });
       resetTopExposurePagination();
       triggerEcoFullDataLoadFromFirstFilter();
       clearPreResetSnapshot();
@@ -6401,8 +6948,10 @@ function attachEvents() {
 
   if (supplyModeSelect) {
     supplyModeSelect.value = normalizeSupplyDisplayMode(state.supplyDisplayMode);
+    syncSupplyModeDropdownTrigger();
     supplyModeSelect.addEventListener("change", () => {
       state.supplyDisplayMode = normalizeSupplyDisplayMode(supplyModeSelect.value);
+      syncSupplyModeDropdownTrigger();
       updateScriptPanelModeUi();
       clearPreResetSnapshot();
       update();
@@ -6485,22 +7034,33 @@ function attachEvents() {
   const balanceDropdown = document.getElementById("balanceDropdown");
   const balanceDropdownTrigger = document.getElementById("balanceDropdownTrigger");
   const balanceDropdownMenu = document.getElementById("balanceDropdownMenu");
+  const supplyModeDropdown = document.getElementById("supplyModeDropdown");
+  const supplyModeDropdownTrigger = document.getElementById("supplyModeDropdownTrigger");
+  const supplyModeDropdownMenu = document.getElementById("supplyModeDropdownMenu");
+  const setDropdownOpen = (dropdownEl, menuEl, isOpen) => {
+    if (!menuEl) return;
+    const open = !!isOpen;
+    menuEl.classList.toggle("open", open);
+    if (dropdownEl) {
+      dropdownEl.classList.toggle("is-open", open);
+    }
+  };
   let identityPointerDownInside = false;
 
   scriptTrigger.addEventListener("click", () => {
-    scriptMenu.classList.toggle("open");
+    setDropdownOpen(scriptDropdown, scriptMenu, !scriptMenu.classList.contains("open"));
   });
 
   spendTrigger.addEventListener("click", () => {
-    spendMenu.classList.toggle("open");
+    setDropdownOpen(spendDropdown, spendMenu, !spendMenu.classList.contains("open"));
   });
 
   detailTrigger.addEventListener("click", () => {
-    detailMenu.classList.toggle("open");
+    setDropdownOpen(detailDropdown, detailMenu, !detailMenu.classList.contains("open"));
   });
 
   snapshotDropdownTrigger.addEventListener("click", () => {
-    snapshotDropdownMenu.classList.toggle("open");
+    setDropdownOpen(snapshotDropdown, snapshotDropdownMenu, !snapshotDropdownMenu.classList.contains("open"));
   });
 
   snapshotDropdownMenu.addEventListener("click", (event) => {
@@ -6510,12 +7070,12 @@ function attachEvents() {
     const snapshotFilter = document.getElementById("snapshotFilter");
     if (snapshotFilter) snapshotFilter.value = value;
     syncSnapshotDropdownTrigger();
-    snapshotDropdownMenu.classList.remove("open");
+    setDropdownOpen(snapshotDropdown, snapshotDropdownMenu, false);
     snapshotFilter.dispatchEvent(new Event("change"));
   });
 
   balanceDropdownTrigger.addEventListener("click", () => {
-    balanceDropdownMenu.classList.toggle("open");
+    setDropdownOpen(balanceDropdown, balanceDropdownMenu, !balanceDropdownMenu.classList.contains("open"));
   });
 
   balanceDropdownMenu.addEventListener("click", (event) => {
@@ -6525,13 +7085,28 @@ function attachEvents() {
     if (!balanceFilter) return;
     balanceFilter.value = btn.dataset.value;
     syncBalanceDropdownTrigger();
-    balanceDropdownMenu.classList.remove("open");
+    setDropdownOpen(balanceDropdown, balanceDropdownMenu, false);
     balanceFilter.dispatchEvent(new Event("change"));
   });
 
+  if (supplyModeDropdownTrigger && supplyModeDropdownMenu) {
+    supplyModeDropdownTrigger.addEventListener("click", () => {
+      setDropdownOpen(supplyModeDropdown, supplyModeDropdownMenu, !supplyModeDropdownMenu.classList.contains("open"));
+    });
+
+    supplyModeDropdownMenu.addEventListener("click", (event) => {
+      const btn = event.target.closest(".script-option-btn");
+      if (!btn || !supplyModeSelect) return;
+      supplyModeSelect.value = btn.dataset.value;
+      syncSupplyModeDropdownTrigger();
+      setDropdownOpen(supplyModeDropdown, supplyModeDropdownMenu, false);
+      supplyModeSelect.dispatchEvent(new Event("change"));
+    });
+  }
+
   identityGroupTrigger.addEventListener("click", async () => {
     const willOpen = !identityGroupMenu.classList.contains("open");
-    identityGroupMenu.classList.toggle("open");
+    setDropdownOpen(identityGroupDropdown, identityGroupMenu, willOpen);
     if (willOpen && !state.identityGroupsLoaded) {
       await ensureIdentityGroupsLoaded();
       renderTopExposureTagFilters();
@@ -6543,7 +7118,7 @@ function attachEvents() {
       await ensureIdentityGroupsLoaded();
       renderTopExposureTagFilters();
     }
-    identityMenu.classList.add("open");
+    setDropdownOpen(identityDropdown, identityMenu, true);
   });
 
   identityTrigger.addEventListener("click", async () => {
@@ -6551,7 +7126,7 @@ function attachEvents() {
       await ensureIdentityGroupsLoaded();
       renderTopExposureTagFilters();
     }
-    identityMenu.classList.add("open");
+    setDropdownOpen(identityDropdown, identityMenu, true);
   });
 
   identityTrigger.addEventListener("input", async () => {
@@ -6561,13 +7136,13 @@ function attachEvents() {
     state.identityTagFilterQuery = identityTrigger.value;
     renderIdentityTagMenu(buildTagOptionsFromGe1Rows(state.selectedIdentityGroups).identities, state.selectedIdentityTags);
     attachIdentityCheckboxListeners();
-    identityMenu.classList.add("open");
+    setDropdownOpen(identityDropdown, identityMenu, true);
   });
 
   identityTrigger.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       clearIdentityTagFilterInput();
-      identityMenu.classList.remove("open");
+      setDropdownOpen(identityDropdown, identityMenu, false);
       identityTrigger.blur();
     }
   });
@@ -6591,26 +7166,29 @@ function attachEvents() {
   document.addEventListener("click", (event) => {
     identityPointerDownInside = false;
     if (!scriptDropdown.contains(event.target)) {
-      scriptMenu.classList.remove("open");
+      setDropdownOpen(scriptDropdown, scriptMenu, false);
     }
     if (!spendDropdown.contains(event.target)) {
-      spendMenu.classList.remove("open");
+      setDropdownOpen(spendDropdown, spendMenu, false);
     }
     if (!detailDropdown.contains(event.target)) {
-      detailMenu.classList.remove("open");
+      setDropdownOpen(detailDropdown, detailMenu, false);
     }
     if (!snapshotDropdown.contains(event.target)) {
-      snapshotDropdownMenu.classList.remove("open");
+      setDropdownOpen(snapshotDropdown, snapshotDropdownMenu, false);
     }
     if (!balanceDropdown.contains(event.target)) {
-      balanceDropdownMenu.classList.remove("open");
+      setDropdownOpen(balanceDropdown, balanceDropdownMenu, false);
+    }
+    if (supplyModeDropdown && !supplyModeDropdown.contains(event.target)) {
+      setDropdownOpen(supplyModeDropdown, supplyModeDropdownMenu, false);
     }
     if (!identityGroupDropdown.contains(event.target)) {
-      identityGroupMenu.classList.remove("open");
+      setDropdownOpen(identityGroupDropdown, identityGroupMenu, false);
     }
     if (!identityDropdown.contains(event.target)) {
       clearIdentityTagFilterInput();
-      identityMenu.classList.remove("open");
+      setDropdownOpen(identityDropdown, identityMenu, false);
     }
   });
 
@@ -6663,6 +7241,7 @@ function attachEvents() {
   updateScriptTriggerLabel();
   updateSpendTriggerLabel();
   updateBalanceFilterUi();
+  updateInactiveThresholdUi();
   updateScriptPanelModeUi();
   updateTopExposuresFiltersUi();
   updateScriptPanelDetailsUi();
