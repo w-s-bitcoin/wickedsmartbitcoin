@@ -38,6 +38,7 @@ const state = {
   topExposuresFiltersCollapsed: false,
   scriptPanelDetailsCollapsed: false,
   balanceAutoForcedFromAllByTopFilters: false,
+  fullBalanceThresholdBtc: 0,
   pendingPersistedSnapshotPreference: null,
   pendingPersistedSnapshotHeight: null,
   archivedSnapshotsEnabled: false,
@@ -71,6 +72,8 @@ const HISTORICAL_GE1_CACHE_STORAGE_KEY = "quantum-research-historical-ge1-v1";
 const SNAPSHOT_PREF_LATEST = "latest";
 const SNAPSHOT_PREF_SPECIFIC = "specific";
 const ALLOWED_BALANCE_FILTERS = new Set(["all", "ge1", "ge10", "ge100", "ge1000"]);
+const FULL_BALANCE_MAX_BTC = 10_000;
+const FULL_BALANCE_SLIDER_MAX = 5_000;
 const ALLOWED_SPEND_FILTERS = new Set(["all", "never_spent", "inactive", "active"]);
 const ALLOWED_SCRIPT_FILTERS = new Set(["All", ...SCRIPT_TYPES_ORDER]);
 const ALLOWED_SUPPLY_DISPLAY_MODES = new Set(["total", "exposed", "filtered"]);
@@ -238,10 +241,118 @@ function applyRuntimeModeUi() {
   const lite = isLiteMode();
   document.documentElement.classList.toggle("lite-mode", lite);
   document.documentElement.classList.toggle("full-mode", !lite);
+  updateBalanceFilterUi();
   loadArchivedSnapshotsEnabled();
   updateRuntimeModeButton();
   updateArchivedSnapshotsToggleUi();
   updateTopExposureFilterControlAvailability();
+}
+
+function discreteBalanceKeyForThresholdBtc(thresholdBtc) {
+  const btc = Number(thresholdBtc) || 0;
+  if (btc >= 1000) return "ge1000";
+  if (btc >= 100) return "ge100";
+  if (btc >= 10) return "ge10";
+  if (btc >= 1) return "ge1";
+  return "all";
+}
+
+function formatBalanceThresholdLabel(thresholdBtc) {
+  if (!(thresholdBtc > 0)) {
+    return "All";
+  }
+  const roundedTenth = Math.round(thresholdBtc * 10) / 10;
+  const formatted = new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 1,
+  }).format(roundedTenth);
+  return `>= ${formatted} BTC`;
+}
+
+function thresholdBtcToSliderRaw(thresholdBtc) {
+  const btc = Math.max(0, Math.min(FULL_BALANCE_MAX_BTC, Number(thresholdBtc) || 0));
+  if (btc <= 0) return 0;
+  if (btc < 1) return Math.round(btc * 1000);
+  if (btc <= 10) return 1000 + Math.round(((btc - 1) / 9) * 1000);
+  if (btc <= 100) return 2000 + Math.round(((btc - 10) / 90) * 1000);
+  if (btc <= 1000) return 3000 + Math.round(((btc - 100) / 900) * 1000);
+  return 4000 + Math.round(((btc - 1000) / 9000) * 1000);
+}
+
+function sliderRawToThresholdBtc(rawValue, commit = false) {
+  const raw = Math.max(0, Math.min(FULL_BALANCE_SLIDER_MAX, Number(rawValue) || 0));
+  let thresholdBtc = 0;
+
+  if (raw < 1000) {
+    thresholdBtc = raw / 1000;
+  } else if (raw < 2000) {
+    thresholdBtc = 1 + ((raw - 1000) / 1000) * 9;
+  } else if (raw < 3000) {
+    thresholdBtc = 10 + ((raw - 2000) / 1000) * 90;
+  } else if (raw < 4000) {
+    thresholdBtc = 100 + ((raw - 3000) / 1000) * 900;
+  } else {
+    thresholdBtc = 1000 + ((raw - 4000) / 1000) * 9000;
+  }
+
+  const clamped = Math.max(0, Math.min(FULL_BALANCE_MAX_BTC, thresholdBtc));
+  if (!commit) {
+    return clamped;
+  }
+
+  if (clamped < 1) {
+    return clamped < 0.5 ? 0 : 1;
+  }
+
+  let step = 1;
+  if (clamped >= 1000) {
+    step = 1000;
+  } else if (clamped >= 100) {
+    step = 100;
+  } else if (clamped >= 10) {
+    step = 10;
+  }
+
+  const rounded = Math.round(clamped / step) * step;
+  return Math.max(1, Math.min(FULL_BALANCE_MAX_BTC, rounded));
+}
+
+function setFullBalanceThresholdBtc(thresholdBtc, options = {}) {
+  const {
+    updateSlider = true,
+    updateSelect = true,
+  } = options;
+
+  const normalized = Math.max(0, Math.min(FULL_BALANCE_MAX_BTC, Number(thresholdBtc) || 0));
+  state.fullBalanceThresholdBtc = normalized;
+
+  const slider = document.getElementById("balanceFilterSlider");
+  const sliderValue = document.getElementById("balanceFilterSliderValue");
+  const balanceFilter = document.getElementById("balanceFilter");
+
+  if (updateSlider && slider) {
+    slider.value = String(thresholdBtcToSliderRaw(normalized));
+  }
+  if (sliderValue) {
+    sliderValue.textContent = formatBalanceThresholdLabel(normalized);
+  }
+  if (updateSelect && balanceFilter) {
+    balanceFilter.value = discreteBalanceKeyForThresholdBtc(normalized);
+  }
+}
+
+function updateBalanceFilterUi() {
+  const sliderWrap = document.getElementById("balanceFilterSliderWrap");
+  if (sliderWrap) {
+    sliderWrap.setAttribute("aria-hidden", isLiteMode() ? "true" : "false");
+  }
+
+  if (!isLiteMode()) {
+    setFullBalanceThresholdBtc(state.fullBalanceThresholdBtc, {
+      updateSlider: true,
+      updateSelect: true,
+    });
+  }
 }
 
 function updateArchivedSnapshotsToggleUi() {
@@ -961,6 +1072,11 @@ function applyPersistedFilterState(prefs) {
   if (balanceFilter && ALLOWED_BALANCE_FILTERS.has(prefs.balance)) {
     balanceFilter.value = prefs.balance;
   }
+  if (Number.isFinite(prefs.balanceBtc)) {
+    state.fullBalanceThresholdBtc = Math.max(0, Math.min(FULL_BALANCE_MAX_BTC, prefs.balanceBtc));
+  } else if (balanceFilter) {
+    state.fullBalanceThresholdBtc = Math.round(balanceMinSats(balanceFilter.value) / SATS_PER_BTC);
+  }
 
   const scriptTypes = normalizePersistedSelections(prefs.scriptTypes, ALLOWED_SCRIPT_FILTERS);
   if (scriptTypes) {
@@ -1038,6 +1154,7 @@ function persistFilters(filters) {
 
     const payload = {
       balance: filters.balance,
+      balanceBtc: !isLiteMode() ? Math.max(0, Number(state.fullBalanceThresholdBtc) || 0) : 0,
       spendActivities: filters.spendActivities,
       scriptTypes: filters.scriptTypes,
       detailTags: filters.detailTags,
@@ -1209,6 +1326,7 @@ function buildShareableDashboardUrl() {
       : SNAPSHOT_PREF_SPECIFIC;
   const defaults = {
     b: "all",
+    bb: 0,
     s: ["All"],
     p: ["all"],
     d: ["All"],
@@ -1223,6 +1341,7 @@ function buildShareableDashboardUrl() {
 
   const normalized = {
     b: filters.balance,
+    bb: !isLiteMode() ? Math.max(0, Number(filters.balanceThresholdBtc) || 0) : 0,
     s: normalizeSelectionForShare(filters.scriptTypes, "All"),
     p: normalizeSelectionForShare(filters.spendActivities, "all"),
     d: normalizeTagSelectionForShare(filters.detailTags, allTagOptions.details),
@@ -1246,6 +1365,7 @@ function buildShareableDashboardUrl() {
   };
 
   addIfDifferent("b", normalized.b, defaults.b);
+  addIfDifferent("bb", normalized.bb, defaults.bb);
   addIfDifferent("s", normalized.s, defaults.s);
   addIfDifferent("p", normalized.p, defaults.p);
   addIfDifferent("d", normalized.d, defaults.d);
@@ -1306,6 +1426,9 @@ function readFiltersFromUrl() {
     if (ALLOWED_BALANCE_FILTERS.has(decoded.b)) {
       prefs.balance = decoded.b;
     }
+    if (Number.isFinite(decoded.bb)) {
+      prefs.balanceBtc = Math.max(0, Math.min(FULL_BALANCE_MAX_BTC, Number(decoded.bb)));
+    }
     if (Array.isArray(decoded.s)) {
       prefs.scriptTypes = decoded.s;
     }
@@ -1356,6 +1479,7 @@ function readFiltersFromUrl() {
 
   const hasKnownKey = [
     "balance",
+    "balanceBtc",
     "scriptTypes",
     "spendActivities",
     "detailTags",
@@ -1377,6 +1501,10 @@ function readFiltersFromUrl() {
   const balance = params.get("balance");
   if (ALLOWED_BALANCE_FILTERS.has(balance)) {
     prefs.balance = balance;
+  }
+  const balanceBtc = Number.parseFloat(params.get("balanceBtc"));
+  if (Number.isFinite(balanceBtc)) {
+    prefs.balanceBtc = Math.max(0, Math.min(FULL_BALANCE_MAX_BTC, balanceBtc));
   }
 
   const scriptTypes = parseArrayParam(params, "scriptTypes", ALLOWED_SCRIPT_FILTERS, "All");
@@ -1964,6 +2092,21 @@ function formatSpendLabel(value) {
 }
 
 function balanceMinSats(balanceKey) {
+  if (typeof balanceKey === "number" && Number.isFinite(balanceKey)) {
+    if (balanceKey > FULL_BALANCE_MAX_BTC) {
+      return Math.max(0, Math.round(balanceKey));
+    }
+    return Math.max(0, Math.round(balanceKey * SATS_PER_BTC));
+  }
+
+  const rawValue = String(balanceKey || "").trim();
+  if (rawValue.startsWith("btc:")) {
+    const btcValue = Number.parseFloat(rawValue.slice(4));
+    if (Number.isFinite(btcValue)) {
+      return Math.max(0, Math.round(btcValue * SATS_PER_BTC));
+    }
+  }
+
   if (balanceKey === "ge1000") return 100_000_000_000;
   if (balanceKey === "ge100") return 10_000_000_000;
   if (balanceKey === "ge10") return 1_000_000_000;
@@ -2435,7 +2578,9 @@ function renderTopExposureTagFilters() {
   );
 
   const optionOrderingFilters = {
-    balance: document.getElementById("balanceFilter")?.value || "all",
+    balance: isLiteMode()
+      ? (document.getElementById("balanceFilter")?.value || "all")
+      : ((state.fullBalanceThresholdBtc > 0 ? `btc:${state.fullBalanceThresholdBtc}` : "all")),
     scriptTypes: getCheckedScriptValues(),
     spendActivities: getCheckedSpendValues(),
     detailTags: state.selectedDetailTags,
@@ -2510,9 +2655,83 @@ function getAggregateFloat(balanceFilter, scriptType, spendType, fieldName) {
 }
 
 function buildScriptBarsData(filters) {
-  const barsBalanceKey = state.balanceAutoForcedFromAllByTopFilters ? "all" : filters.balance;
+  const barsBalanceKey = state.balanceAutoForcedFromAllByTopFilters
+    ? (isLiteMode() ? "all" : 0)
+    : (isLiteMode() ? filters.balance : (filters.balanceThresholdSats || 0));
+
+  // In FULL mode, convert numeric sats to discrete balance key for aggregate lookups
+  const aggregateBalanceKey = !isLiteMode() && typeof barsBalanceKey === "number"
+    ? discreteBalanceKeyForThresholdBtc(barsBalanceKey / SATS_PER_BTC)
+    : barsBalanceKey;
+
+  // Check if balance value is exactly at a discrete threshold in FULL mode
+  const discreteThresholds = [0, 1 * SATS_PER_BTC, 10 * SATS_PER_BTC, 100 * SATS_PER_BTC, 1000 * SATS_PER_BTC];
+  const isDiscreteBalanceValue = !isLiteMode() && discreteThresholds.includes(filters.balanceThresholdSats);
+  const useGe1RowsPath = !isLiteMode() && state.ge1Rows.length && !isDiscreteBalanceValue;
+
+  if (useGe1RowsPath) {
+    let baselineRows = [];
+    const needsBaselineReference = isTagFilterActive(filters) || balanceMinSats(barsBalanceKey) > 0;
+    if (needsBaselineReference) {
+      baselineRows = buildScriptBarsData({
+        ...filters,
+        balance: "all",
+        balanceThresholdBtc: 0,
+        balanceThresholdSats: 0,
+        detailTags: ["All"],
+        identityGroups: ["All"],
+        identityTags: ["All"],
+        topExposureAddressQuery: "",
+      });
+    }
+    return buildScriptBarsDataFromGe1(filters, barsBalanceKey, baselineRows);
+  }
 
   if (isTagFilterActive(filters)) {
+    // For discrete balance values in FULL mode, use aggregates directly
+    if (isDiscreteBalanceValue) {
+      const highlightAllScripts = filters.scriptTypes.includes("All");
+      const highlightAllSpends = filters.spendActivities.includes("all");
+      const showFullReference = aggregateBalanceKey !== "all";
+
+      return SCRIPT_TYPES_ORDER.map((script) => {
+        const totalSupplySats = getAggregate(aggregateBalanceKey, script, "all", "supply_sats");
+        const exposedNever = getAggregate(aggregateBalanceKey, script, "never_spent", "exposed_supply_sats");
+        const exposedInactive = getAggregate(aggregateBalanceKey, script, "inactive", "exposed_supply_sats");
+        const exposedActive = getAggregate(aggregateBalanceKey, script, "active", "exposed_supply_sats");
+        const fullTotalSupplySats = getAggregate("all", script, "all", "supply_sats");
+        const fullExposedNever = getAggregate("all", script, "never_spent", "exposed_supply_sats");
+        const fullExposedInactive = getAggregate("all", script, "inactive", "exposed_supply_sats");
+        const fullExposedActive = getAggregate("all", script, "active", "exposed_supply_sats");
+        const fullExposedTotal = fullExposedNever + fullExposedInactive + fullExposedActive;
+        const fullNonExposedSupplySats = Math.max(fullTotalSupplySats - fullExposedTotal, 0);
+
+        return {
+          scriptType: script,
+          totalSupplySats,
+          exposedNever,
+          exposedInactive,
+          exposedActive,
+          exposedTotal: exposedNever + exposedInactive + exposedActive,
+          nonExposedSupplySats: Math.max(totalSupplySats - (exposedNever + exposedInactive + exposedActive), 0),
+          fullTotalSupplySats,
+          fullExposedNever,
+          fullExposedInactive,
+          fullExposedActive,
+          fullExposedTotal,
+          fullNonExposedSupplySats,
+          showFullReference,
+          scriptHighlighted: highlightAllScripts || filters.scriptTypes.includes(script),
+          spendHighlighted: {
+            never_spent: highlightAllSpends || filters.spendActivities.includes("never_spent"),
+            inactive: highlightAllSpends || filters.spendActivities.includes("inactive"),
+            active: highlightAllSpends || filters.spendActivities.includes("active"),
+          },
+        };
+      });
+    }
+    
+    // For in-between values, use ge1Rows path
     const baselineFilters = {
       ...filters,
       detailTags: ["All"],
@@ -2525,16 +2744,16 @@ function buildScriptBarsData(filters) {
 
   const highlightAllScripts = filters.scriptTypes.includes("All");
   const highlightAllSpends = filters.spendActivities.includes("all");
-  const showFullReference = barsBalanceKey !== "all";
+  const showFullReference = aggregateBalanceKey !== "all";
 
   return SCRIPT_TYPES_ORDER.map((script) => {
     // Total supply bar: use the balance-filtered rollup row (all spend activities)
-    const totalSupplySats = getAggregate(barsBalanceKey, script, "all", "supply_sats");
+    const totalSupplySats = getAggregate(aggregateBalanceKey, script, "all", "supply_sats");
 
     // Exposed supply is always shown in full; filtering only changes emphasis.
-    const exposedNever = getAggregate(barsBalanceKey, script, "never_spent", "exposed_supply_sats");
-    const exposedInactive = getAggregate(barsBalanceKey, script, "inactive", "exposed_supply_sats");
-    const exposedActive = getAggregate(barsBalanceKey, script, "active", "exposed_supply_sats");
+    const exposedNever = getAggregate(aggregateBalanceKey, script, "never_spent", "exposed_supply_sats");
+    const exposedInactive = getAggregate(aggregateBalanceKey, script, "inactive", "exposed_supply_sats");
+    const exposedActive = getAggregate(aggregateBalanceKey, script, "active", "exposed_supply_sats");
 
     // Keep all-balance composition for faded reference when a balance filter is active.
     const fullTotalSupplySats = getAggregate("all", script, "all", "supply_sats");
@@ -2584,19 +2803,22 @@ function buildScriptBarsDataFromGe1(
 
   SCRIPT_TYPES_ORDER.forEach((scriptType) => {
     const baselineRow = baselineByScript.get(scriptType);
-    const baselineShowFullReference = baselineRow ? baselineRow.showFullReference : barsBalanceKey !== "all";
+    const baselineShowFullReference = baselineRow
+      ? baselineRow.showFullReference
+      : balanceMinSats(barsBalanceKey) > 0;
+    // Baseline is always built with "all" balance, so use its full values directly
     const fullTotalSupplySats = baselineRow
-      ? (baselineShowFullReference ? baselineRow.fullTotalSupplySats : baselineRow.totalSupplySats)
-      : getAggregate(barsBalanceKey, scriptType, "all", "supply_sats");
+      ? baselineRow.fullTotalSupplySats
+      : getAggregate("all", scriptType, "all", "supply_sats");
     const fullExposedNever = baselineRow
-      ? (baselineShowFullReference ? baselineRow.fullExposedNever : baselineRow.exposedNever)
-      : getAggregate(barsBalanceKey, scriptType, "never_spent", "exposed_supply_sats");
+      ? baselineRow.fullExposedNever
+      : getAggregate("all", scriptType, "never_spent", "exposed_supply_sats");
     const fullExposedInactive = baselineRow
-      ? (baselineShowFullReference ? baselineRow.fullExposedInactive : baselineRow.exposedInactive)
-      : getAggregate(barsBalanceKey, scriptType, "inactive", "exposed_supply_sats");
+      ? baselineRow.fullExposedInactive
+      : getAggregate("all", scriptType, "inactive", "exposed_supply_sats");
     const fullExposedActive = baselineRow
-      ? (baselineShowFullReference ? baselineRow.fullExposedActive : baselineRow.exposedActive)
-      : getAggregate(barsBalanceKey, scriptType, "active", "exposed_supply_sats");
+      ? baselineRow.fullExposedActive
+      : getAggregate("all", scriptType, "active", "exposed_supply_sats");
     const fullExposedTotal = fullExposedNever + fullExposedInactive + fullExposedActive;
 
     rowsByScript.set(scriptType, {
@@ -2613,7 +2835,7 @@ function buildScriptBarsDataFromGe1(
       fullExposedActive,
       fullExposedTotal,
       fullNonExposedSupplySats: Math.max(fullTotalSupplySats - fullExposedTotal, 0),
-      showFullReference: tagFiltered,
+      showFullReference: tagFiltered || balanceMinSats(barsBalanceKey) > 0,
       scriptHighlighted: highlightAllScripts || filters.scriptTypes.includes(scriptType),
       spendHighlighted: {
         never_spent: highlightAllSpends || filters.spendActivities.includes("never_spent"),
@@ -3023,8 +3245,12 @@ function historicalGe1FilterKey(filters) {
   const sortedDetailTags = [...filters.detailTags].sort();
   const sortedIdentityGroups = [...filters.identityGroups].sort();
   const sortedIdentityTags = [...filters.identityTags].sort();
+  const balanceThresholdSats = Number.isFinite(filters.balanceThresholdSats)
+    ? filters.balanceThresholdSats
+    : balanceMinSats(filters.balance);
   return JSON.stringify({
     balance: filters.balance,
+    balanceThresholdSats,
     scriptTypes: sortedScripts,
     detailTags: sortedDetailTags,
     identityGroups: sortedIdentityGroups,
@@ -3119,7 +3345,9 @@ function buildFilteredExposedFromGe1Csv(csvText, filters) {
   const header = parseCsvLine(headerLine);
   const indexByName = new Map(header.map((name, idx) => [name, idx]));
   const scriptPassAll = filters.scriptTypes.includes("All");
-  const minSats = balanceMinSats(filters.balance);
+  const minSats = Number.isFinite(filters.balanceThresholdSats)
+    ? filters.balanceThresholdSats
+    : balanceMinSats(filters.balance);
 
   const idxDetails = indexByName.get("details");
   const idxIdentity = indexByName.get("identity");
@@ -3170,11 +3398,17 @@ function buildHistoricalStackedData(filters) {
     ? SCRIPT_TYPES_ORDER
     : filters.scriptTypes.filter((value) => value !== "All");
   const tagFiltersActive = isTagFilterActive(filters);
+  
+  // Check if balance value is exactly at a discrete threshold in FULL mode
+  const discreteThresholds = [0, 1 * SATS_PER_BTC, 10 * SATS_PER_BTC, 100 * SATS_PER_BTC, 1000 * SATS_PER_BTC];
+  const isDiscreteBalanceValue = !isLiteMode() && discreteThresholds.includes(filters.balanceThresholdSats);
+  const useContinuousBalanceData = !isLiteMode() && !isDiscreteBalanceValue;
+  const needsGe1Data = tagFiltersActive || useContinuousBalanceData;
 
   const spendFilterSet = new Set(filters.spendActivities);
   const showAllSpends = spendFilterSet.has("all");
-  const ge1FilterKey = tagFiltersActive ? historicalGe1FilterKey(filters) : null;
-  const fallbackFilterKey = tagFiltersActive ? state.historicalSeriesGe1FallbackFilterKey : null;
+  const ge1FilterKey = needsGe1Data ? historicalGe1FilterKey(filters) : null;
+  const fallbackFilterKey = needsGe1Data ? state.historicalSeriesGe1FallbackFilterKey : null;
 
   const points = state.historicalSeries.map((point) => {
     const rows = point.aggregatesRows;
@@ -3186,13 +3420,13 @@ function buildHistoricalStackedData(filters) {
     const fullActive = getAggregateFromRows(rows, "all", "All", "active", "exposed_supply_sats");
     const fullExposed = fullNever + fullInactive + fullActive;
 
-    const selectedFromGe1 = tagFiltersActive && ge1FilterKey
+    const selectedFromGe1 = needsGe1Data && ge1FilterKey
       ? point.ge1FilteredSumsByKey?.[ge1FilterKey] || null
       : null;
-    const fallbackFromPreviousFilter = tagFiltersActive && fallbackFilterKey
+    const fallbackFromPreviousFilter = needsGe1Data && fallbackFilterKey
       ? point.ge1FilteredSumsByKey?.[fallbackFilterKey] || null
       : null;
-    const shouldUseFallbackFilter = tagFiltersActive && ge1FilterKey && !selectedFromGe1 && !!fallbackFromPreviousFilter;
+    const shouldUseFallbackFilter = needsGe1Data && ge1FilterKey && !selectedFromGe1 && !!fallbackFromPreviousFilter;
 
     const selectedNever = selectedFromGe1
       ? selectedFromGe1.never_spent
@@ -3350,6 +3584,13 @@ function renderHistoricalLoadingShell(container, message = "Loading historical c
 function renderHistoricalStackedChart(filters) {
   const container = document.getElementById("scriptBars");
   const tagFiltersActive = isTagFilterActive(filters);
+  
+  // Check if balance value is exactly at a discrete threshold in FULL mode
+  const discreteThresholds = [0, 1 * SATS_PER_BTC, 10 * SATS_PER_BTC, 100 * SATS_PER_BTC, 1000 * SATS_PER_BTC];
+  const isDiscreteBalanceValue = !isLiteMode() && discreteThresholds.includes(filters.balanceThresholdSats);
+  const useContinuousBalanceData = !isLiteMode() && state.ge1Rows.length && !isDiscreteBalanceValue;
+  const needsGe1Data = tagFiltersActive || useContinuousBalanceData;
+  
   let isRenderingProgressively = false;
   let loadingOverlayMessage = "Loading historical chart...";
   const hasRenderedHistoricalChart =
@@ -3368,7 +3609,7 @@ function renderHistoricalStackedChart(filters) {
     return;
   }
 
-  if (tagFiltersActive) {
+  if (needsGe1Data) {
     const ge1FilterKey = historicalGe1FilterKey(filters);
     const missingForFilter = state.historicalSeries.some((point) => !point.ge1FilteredSumsByKey?.[ge1FilterKey]);
     if (missingForFilter) {
@@ -3958,6 +4199,7 @@ function captureFilterSnapshot() {
   const identityCheckedValues = getIdentityCheckboxes().filter((el) => el.checked).map((el) => el.value);
   return {
     balanceFilterValue: balanceFilter ? balanceFilter.value : "all",
+    fullBalanceThresholdBtc: Math.max(0, Number(state.fullBalanceThresholdBtc) || 0),
     snapshotFilterValue: snapshotFilter ? snapshotFilter.value : String(state.snapshotHeight || ""),
     supplyModeValue: supplyModeSelect ? supplyModeSelect.value : state.supplyDisplayMode,
     topExposureAddressSearchValue: topExposureAddressSearch ? topExposureAddressSearch.value : state.topExposureAddressQuery,
@@ -3988,6 +4230,9 @@ async function applyFilterSnapshot(snapshot) {
   const topExposureAddressSearch = document.getElementById("topExposureAddressSearch");
 
   if (balanceFilter) balanceFilter.value = snapshot.balanceFilterValue;
+  if (Number.isFinite(snapshot.fullBalanceThresholdBtc)) {
+    setFullBalanceThresholdBtc(snapshot.fullBalanceThresholdBtc, { updateSlider: true, updateSelect: true });
+  }
   if (supplyModeSelect) supplyModeSelect.value = snapshot.supplyModeValue;
   if (topExposureAddressSearch) topExposureAddressSearch.value = snapshot.topExposureAddressSearchValue;
 
@@ -4041,6 +4286,7 @@ function isDefaultFilterState() {
   const topExposureAddressSearch = document.getElementById("topExposureAddressSearch");
 
   if (balanceFilter && balanceFilter.value !== "all") return false;
+  if (!isLiteMode() && (Number(state.fullBalanceThresholdBtc) || 0) > 0) return false;
   if (supplyModeSelect && supplyModeSelect.value !== "total") return false;
   if (topExposureAddressSearch && topExposureAddressSearch.value.trim() !== "") return false;
 
@@ -4111,6 +4357,7 @@ async function resetDashboardToDefaults() {
   if (balanceFilter) {
     balanceFilter.value = "all";
   }
+  setFullBalanceThresholdBtc(0, { updateSlider: true, updateSelect: true });
   setAllScriptChecks(true);
   setAllSpendChecks(true);
 
@@ -4189,9 +4436,12 @@ function normalizedFilterValuesForCache(values) {
 
 function topExposuresCacheKey(filters) {
   const snapshotKey = String(state.snapshotHeight || "").trim();
+  const balanceThresholdSats = Number.isFinite(filters.balanceThresholdSats)
+    ? filters.balanceThresholdSats
+    : balanceMinSats(filters.balance);
   return [
     snapshotKey,
-    filters.balance,
+    `balance_sats:${balanceThresholdSats}`,
     normalizedFilterValuesForCache(filters.scriptTypes),
     normalizedFilterValuesForCache(filters.spendActivities),
     normalizedFilterValuesForCache(filters.detailTags),
@@ -4213,7 +4463,9 @@ function buildTopExposuresData(filters) {
     return cachedRows;
   }
 
-  const minSats = balanceMinSats(filters.balance);
+  const minSats = Number.isFinite(filters.balanceThresholdSats)
+    ? filters.balanceThresholdSats
+    : balanceMinSats(filters.balance);
   const scriptPassAll = filters.scriptTypes.includes("All");
   const spendPassAll = filters.spendActivities.includes("all");
   const addressQuery = String(filters.topExposureAddressQuery || "").trim().toLowerCase();
@@ -4288,7 +4540,9 @@ function isTagFilterActive(filters) {
 }
 
 function rowPassesTopExposureFilters(row, filters, includeTagFilters = true) {
-  const minSats = balanceMinSats(filters.balance);
+  const minSats = Number.isFinite(filters.balanceThresholdSats)
+    ? filters.balanceThresholdSats
+    : balanceMinSats(filters.balance);
   if (getRowExposedSupplySats(row) < minSats) return false;
 
   if (!filters.scriptTypes.includes("All")) {
@@ -4318,7 +4572,9 @@ function rowPassesTopExposureFilters(row, filters, includeTagFilters = true) {
 }
 
 function rowPassesBalanceFilter(row, balanceKey) {
-  const minSats = balanceMinSats(balanceKey);
+  const minSats = Number.isFinite(balanceKey)
+    ? Math.max(0, balanceKey)
+    : balanceMinSats(balanceKey);
   return getRowExposedSupplySats(row) >= minSats;
 }
 
@@ -5035,7 +5291,7 @@ function aggregateFilteredExposedSupplyBySpend(filters) {
   };
   if (!filters) return sums;
   const addressQuery = String(filters.topExposureAddressQuery || "").trim();
-  const useGe1Filtering = isTagFilterActive(filters) || !!addressQuery;
+  const useGe1Filtering = !isLiteMode() || isTagFilterActive(filters) || !!addressQuery;
 
   if (useGe1Filtering) {
     state.ge1Rows.forEach((row) => {
@@ -5283,31 +5539,52 @@ function readFilters() {
     : topExposureAddressSearch
     ? topExposureAddressSearch.value.trim()
     : String(state.topExposureAddressQuery || "").trim();
-  let balanceValue = document.getElementById("balanceFilter").value;
+  const balanceFilterEl = document.getElementById("balanceFilter");
+  let balanceValue = balanceFilterEl ? balanceFilterEl.value : "all";
+  let balanceThresholdBtc = Math.max(0, Math.min(FULL_BALANCE_MAX_BTC, Number(state.fullBalanceThresholdBtc) || 0));
+
+  if (isLiteMode()) {
+    balanceThresholdBtc = Math.round(balanceMinSats(balanceValue) / SATS_PER_BTC);
+  } else {
+    balanceValue = discreteBalanceKeyForThresholdBtc(balanceThresholdBtc);
+  }
 
   const detailFiltered = selectedDetailTags.length > 0 && !selectedDetailTags.includes("All");
   const identityGroupFiltered = selectedIdentityGroups.length > 0 && !selectedIdentityGroups.includes("All");
   const identityFiltered = selectedIdentityTags.length > 0 && !selectedIdentityTags.includes("All");
   const topExposureFiltersActive = detailFiltered || identityGroupFiltered || identityFiltered;
-  const balanceFilterEl = document.getElementById("balanceFilter");
 
   if (topExposureFiltersActive) {
-    if (balanceValue === "all") {
+    if (balanceThresholdBtc <= 0) {
       // Auto-force from All only when top-exposure filters become constrained.
-      balanceValue = "ge1";
-      if (balanceFilterEl) {
-        balanceFilterEl.value = "ge1";
+      balanceThresholdBtc = 1;
+      if (isLiteMode()) {
+        balanceValue = "ge1";
+        if (balanceFilterEl) {
+          balanceFilterEl.value = "ge1";
+        }
+      } else {
+        setFullBalanceThresholdBtc(balanceThresholdBtc, { updateSlider: true, updateSelect: true });
+        balanceValue = discreteBalanceKeyForThresholdBtc(balanceThresholdBtc);
       }
       state.balanceAutoForcedFromAllByTopFilters = true;
     }
-  } else if (state.balanceAutoForcedFromAllByTopFilters && balanceValue !== "all") {
+  } else if (state.balanceAutoForcedFromAllByTopFilters && balanceThresholdBtc > 0) {
     // Restore All only if this session's current non-All value came from the auto-force.
-    balanceValue = "all";
-    if (balanceFilterEl) {
-      balanceFilterEl.value = "all";
+    balanceThresholdBtc = 0;
+    if (isLiteMode()) {
+      balanceValue = "all";
+      if (balanceFilterEl) {
+        balanceFilterEl.value = "all";
+      }
+    } else {
+      setFullBalanceThresholdBtc(balanceThresholdBtc, { updateSlider: true, updateSelect: true });
+      balanceValue = discreteBalanceKeyForThresholdBtc(balanceThresholdBtc);
     }
     state.balanceAutoForcedFromAllByTopFilters = false;
   }
+
+  const balanceThresholdSats = balanceMinSats(isLiteMode() ? balanceValue : balanceThresholdBtc);
 
   state.selectedDetailTags = selectedDetailTags;
   state.selectedIdentityGroups = selectedIdentityGroups;
@@ -5316,6 +5593,8 @@ function readFilters() {
 
   return {
     balance: balanceValue,
+    balanceThresholdBtc,
+    balanceThresholdSats,
     spendActivities: selectedSpendActivities,
     scriptTypes: selectedScriptTypes,
     detailTags: state.selectedDetailTags,
@@ -5341,7 +5620,12 @@ function updateKpisAndCharts() {
     return;
   }
 
-  const useGe1Kpis = isTagFilterActive(filters);
+  // Check if balance value is exactly at a discrete threshold in FULL mode
+  const discreteThresholds = [0, 1 * SATS_PER_BTC, 10 * SATS_PER_BTC, 100 * SATS_PER_BTC, 1000 * SATS_PER_BTC];
+  const isDiscreteBalanceValue = !isLiteMode() && discreteThresholds.includes(filters.balanceThresholdSats);
+
+  // Use ge1 KPIs for non-discrete (in-between) values in FULL mode, or if tag filters are active
+  const useGe1Kpis = ((!isLiteMode() && state.ge1Rows.length > 0 && !isDiscreteBalanceValue) || isTagFilterActive(filters));
   const subset = useGe1Kpis ? aggregateKpisFromGe1(filters, true) : aggregateAllKpis(filters);
   const total = aggregateAllKpis({
     balance: "all",
@@ -5826,8 +6110,12 @@ function attachEvents() {
   const supplyModeSelect = document.getElementById("scriptPanelSupplyMode");
   const topExposuresFiltersToggle = document.getElementById("topExposuresFiltersToggle");
   const topExposureAddressSearch = document.getElementById("topExposureAddressSearch");
+  const balanceFilterSlider = document.getElementById("balanceFilterSlider");
   ["balanceFilter"].forEach((id) => {
     document.getElementById(id).addEventListener("change", () => {
+      if (!isLiteMode()) {
+        return;
+      }
       // Manual balance changes should always override auto-revert behavior.
       state.balanceAutoForcedFromAllByTopFilters = false;
       resetTopExposurePagination();
@@ -5836,6 +6124,25 @@ function attachEvents() {
       update();
     });
   });
+
+  if (balanceFilterSlider) {
+    balanceFilterSlider.addEventListener("input", () => {
+      if (isLiteMode()) return;
+      const thresholdBtc = sliderRawToThresholdBtc(balanceFilterSlider.value, true);
+      setFullBalanceThresholdBtc(thresholdBtc, { updateSlider: true, updateSelect: true });
+    });
+
+    balanceFilterSlider.addEventListener("change", () => {
+      if (isLiteMode()) return;
+      const thresholdBtc = sliderRawToThresholdBtc(balanceFilterSlider.value, true);
+      setFullBalanceThresholdBtc(thresholdBtc, { updateSlider: true, updateSelect: true });
+      state.balanceAutoForcedFromAllByTopFilters = false;
+      resetTopExposurePagination();
+      triggerEcoFullDataLoadFromFirstFilter();
+      clearPreResetSnapshot();
+      update();
+    });
+  }
 
   if (themeToggle) {
     themeToggle.addEventListener("click", () => {
@@ -5871,6 +6178,10 @@ function attachEvents() {
       }
 
       runtimeLiteMode = !isLiteMode();
+      if (!runtimeLiteMode && (Number(state.fullBalanceThresholdBtc) || 0) <= 0) {
+        const currentBalanceKey = document.getElementById("balanceFilter")?.value || "all";
+        state.fullBalanceThresholdBtc = Math.round(balanceMinSats(currentBalanceKey) / SATS_PER_BTC);
+      }
       persistRuntimeMode();
       applyRuntimeModeUi();
 
@@ -6224,6 +6535,7 @@ function attachEvents() {
 
   updateScriptTriggerLabel();
   updateSpendTriggerLabel();
+  updateBalanceFilterUi();
   updateScriptPanelModeUi();
   updateTopExposuresFiltersUi();
   updateScriptPanelDetailsUi();
