@@ -791,6 +791,109 @@
       font-size: 14px;
     }
 
+    .balance-slider-wrap {
+      display: none;
+      gap: 8px;
+      width: 100%;
+      justify-items: start;
+    }
+
+    .full-mode .balance-slider-wrap {
+      display: grid;
+    }
+
+    .full-mode #balanceFilter {
+      display: none;
+    }
+
+    .balance-slider {
+      width: 100%;
+      margin: 0;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    .balance-filter-header {
+      display: inline-flex;
+      align-items: baseline;
+      justify-content: flex-start;
+      gap: 10px;
+      width: auto;
+    }
+
+    .balance-slider-value {
+      display: none;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 12px;
+      color: var(--ink);
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .full-mode .balance-slider-value {
+      display: inline;
+    }
+
+    .balance-slider-track-wrap {
+      --balance-slider-tick-inset: 8px;
+      width: min(100%, 400px);
+      display: grid;
+      gap: 1px;
+      margin-left: 4px;
+    }
+
+    .balance-slider-anchors {
+      position: relative;
+      display: block;
+      width: calc(100% - (var(--balance-slider-tick-inset) * 2));
+      margin: 0 var(--balance-slider-tick-inset);
+      min-height: 20px;
+    }
+
+    .balance-slider-anchor {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      transform: translateX(-50%);
+    }
+
+    .balance-slider-anchor:nth-child(1) { left: 0%; }
+    .balance-slider-anchor:nth-child(2) { left: 20%; }
+    .balance-slider-anchor:nth-child(3) { left: 40%; }
+    .balance-slider-anchor:nth-child(4) { left: 60%; }
+    .balance-slider-anchor:nth-child(5) { left: 80%; }
+    .balance-slider-anchor:nth-child(6) { left: 100%; }
+
+    .balance-slider-anchor-label {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 10px;
+      color: var(--muted);
+      line-height: 1;
+      white-space: nowrap;
+      text-align: center;
+    }
+
+    .balance-slider-anchor-tick {
+      width: 1px;
+      height: 8px;
+      background: var(--line);
+      opacity: 0.9;
+    }
+
+    @media (max-width: 640px) {
+      .balance-slider-track-wrap {
+        --balance-slider-tick-inset: 8px;
+      }
+
+      .balance-slider-anchor-label {
+        font-size: 9px;
+      }
+    }
+
     .script-dropdown {
       position: relative;
     }
@@ -2691,7 +2794,10 @@
         </label>
 
         <label>
-          Pubkey Balance
+          <span class="balance-filter-header">
+            <span>Pubkey Balance</span>
+            <span id="balanceFilterSliderValue" class="balance-slider-value">All</span>
+          </span>
           <select id="balanceFilter">
             <option value="all">All</option>
             <option value="ge1">≥ 1 BTC</option>
@@ -2699,6 +2805,28 @@
             <option value="ge100">≥ 100 BTC</option>
             <option value="ge1000">≥ 1,000 BTC</option>
           </select>
+          <div id="balanceFilterSliderWrap" class="balance-slider-wrap" aria-hidden="true">
+            <div class="balance-slider-track-wrap">
+              <input
+                id="balanceFilterSlider"
+                class="balance-slider"
+                type="range"
+                min="0"
+                max="5000"
+                step="1"
+                value="0"
+                aria-label="Pubkey balance threshold"
+              />
+              <div class="balance-slider-anchors" aria-hidden="true">
+                <span class="balance-slider-anchor"><span class="balance-slider-anchor-tick"></span><span class="balance-slider-anchor-label">All</span></span>
+                <span class="balance-slider-anchor"><span class="balance-slider-anchor-tick"></span><span class="balance-slider-anchor-label">1</span></span>
+                <span class="balance-slider-anchor"><span class="balance-slider-anchor-tick"></span><span class="balance-slider-anchor-label">10</span></span>
+                <span class="balance-slider-anchor"><span class="balance-slider-anchor-tick"></span><span class="balance-slider-anchor-label">100</span></span>
+                <span class="balance-slider-anchor"><span class="balance-slider-anchor-tick"></span><span class="balance-slider-anchor-label">1000</span></span>
+                <span class="balance-slider-anchor"><span class="balance-slider-anchor-tick"></span><span class="balance-slider-anchor-label">10000</span></span>
+              </div>
+            </div>
+          </div>
         </label>
 
         <div class="filter-label">
