@@ -332,6 +332,7 @@ function setFullBalanceThresholdBtc(thresholdBtc, options = {}) {
 
   if (updateSlider && slider) {
     slider.value = String(thresholdBtcToSliderRaw(normalized));
+    syncSliderTrack(slider);
   }
   if (sliderValue) {
     sliderValue.textContent = formatBalanceThresholdLabel(normalized);
@@ -339,6 +340,7 @@ function setFullBalanceThresholdBtc(thresholdBtc, options = {}) {
   if (updateSelect && balanceFilter) {
     balanceFilter.value = discreteBalanceKeyForThresholdBtc(normalized);
   }
+  syncBalanceDropdownTrigger();
 }
 
 function updateBalanceFilterUi() {
@@ -1071,6 +1073,7 @@ function applyPersistedFilterState(prefs) {
   const balanceFilter = document.getElementById("balanceFilter");
   if (balanceFilter && ALLOWED_BALANCE_FILTERS.has(prefs.balance)) {
     balanceFilter.value = prefs.balance;
+    syncBalanceDropdownTrigger();
   }
   if (Number.isFinite(prefs.balanceBtc)) {
     state.fullBalanceThresholdBtc = Math.max(0, Math.min(FULL_BALANCE_MAX_BTC, prefs.balanceBtc));
@@ -4070,6 +4073,7 @@ function renderHistoricalStackedChart(filters) {
       const hasOption = Array.from(snapshotFilter.options).some((option) => option.value === nextSnapshot);
       if (hasOption) {
         snapshotFilter.value = nextSnapshot;
+        syncSnapshotDropdownTrigger();
       }
     }
 
@@ -4229,7 +4233,10 @@ async function applyFilterSnapshot(snapshot) {
   const supplyModeSelect = document.getElementById("scriptPanelSupplyMode");
   const topExposureAddressSearch = document.getElementById("topExposureAddressSearch");
 
-  if (balanceFilter) balanceFilter.value = snapshot.balanceFilterValue;
+  if (balanceFilter) {
+    balanceFilter.value = snapshot.balanceFilterValue;
+    syncBalanceDropdownTrigger();
+  }
   if (Number.isFinite(snapshot.fullBalanceThresholdBtc)) {
     setFullBalanceThresholdBtc(snapshot.fullBalanceThresholdBtc, { updateSlider: true, updateSelect: true });
   }
@@ -4356,6 +4363,7 @@ async function resetDashboardToDefaults() {
 
   if (balanceFilter) {
     balanceFilter.value = "all";
+    syncBalanceDropdownTrigger();
   }
   setFullBalanceThresholdBtc(0, { updateSlider: true, updateSelect: true });
   setAllScriptChecks(true);
@@ -5785,6 +5793,7 @@ async function refreshSnapshotLookupUi() {
     ? currentValue
     : state.availableSnapshots[0];
   snapshotFilter.value = nextValue;
+  syncSnapshotDropdownTrigger();
 
   // Refresh top-exposure tooltips now that blockheight -> datetime map is populated.
   // Force a fresh render by clearing the render-dedup sentinel — the rows object reference
@@ -5952,8 +5961,45 @@ async function loadAvailableSnapshots() {
   return [latest];
 }
 
+function syncSnapshotDropdownTrigger() {
+  const select = document.getElementById("snapshotFilter");
+  const trigger = document.getElementById("snapshotDropdownTrigger");
+  const menu = document.getElementById("snapshotDropdownMenu");
+  if (!select || !trigger) return;
+  const selectedOption = select.options[select.selectedIndex];
+  trigger.textContent = selectedOption ? selectedOption.textContent : "";
+  if (menu) {
+    menu.querySelectorAll(".script-option-btn").forEach((btn) => {
+      btn.classList.toggle("script-option-btn--selected", btn.dataset.value === select.value);
+    });
+  }
+}
+
+function syncSliderTrack(slider) {
+  if (!slider) return;
+  const pct = ((slider.value - slider.min) / (slider.max - slider.min)) * 100;
+  slider.style.setProperty("--slider-pct", `${pct}%`);
+}
+
+function syncBalanceDropdownTrigger() {
+  const select = document.getElementById("balanceFilter");
+  const trigger = document.getElementById("balanceDropdownTrigger");
+  if (!trigger) return;
+  if (select) {
+    const selectedOption = select.options[select.selectedIndex];
+    trigger.textContent = selectedOption ? selectedOption.textContent : "";
+  }
+  const menu = document.getElementById("balanceDropdownMenu");
+  if (menu && select) {
+    menu.querySelectorAll(".script-option-btn").forEach((btn) => {
+      btn.classList.toggle("script-option-btn--selected", btn.dataset.value === select.value);
+    });
+  }
+}
+
 function populateSnapshotFilter(snapshots) {
   const select = document.getElementById("snapshotFilter");
+  const menu = document.getElementById("snapshotDropdownMenu");
   const formatSnapshotLabel = (snapshot) => {
     const datetimeUtc = state.snapshotLabelDatetimeByHeight[String(snapshot)] || "";
     if (!datetimeUtc) return String(snapshot);
@@ -5964,6 +6010,13 @@ function populateSnapshotFilter(snapshots) {
     .map((snapshot) => `<option value="${snapshot}">${escapeHtml(formatSnapshotLabel(snapshot))}</option>`)
     .join("");
   select.value = snapshots[0];
+
+  if (menu) {
+    menu.innerHTML = snapshots
+      .map((snapshot) => `<button type="button" class="script-option-btn" data-value="${escapeHtml(String(snapshot))}">${escapeHtml(formatSnapshotLabel(snapshot))}</button>`)
+      .join("");
+  }
+  syncSnapshotDropdownTrigger();
 }
 
 async function loadSnapshotData(snapshot) {
@@ -5982,6 +6035,7 @@ async function loadSnapshotData(snapshot) {
     if (snapshotFilter) {
       const hasLoadedOption = Array.from(snapshotFilter.options).some((option) => option.value === loadedSnapshot);
       snapshotFilter.value = hasLoadedOption ? loadedSnapshot : requestedSnapshot;
+      syncSnapshotDropdownTrigger();
     }
 
     state.pendingPersistedSnapshotPreference = null;
@@ -6017,6 +6071,7 @@ async function loadSnapshotData(snapshot) {
   if (snapshotFilter) {
     const hasLoadedOption = Array.from(snapshotFilter.options).some((option) => option.value === loadedSnapshot);
     snapshotFilter.value = hasLoadedOption ? loadedSnapshot : requestedSnapshot;
+    syncSnapshotDropdownTrigger();
   }
 
   state.pendingPersistedSnapshotPreference = null;
@@ -6128,12 +6183,14 @@ function attachEvents() {
   if (balanceFilterSlider) {
     balanceFilterSlider.addEventListener("input", () => {
       if (isLiteMode()) return;
+      syncSliderTrack(balanceFilterSlider);
       const thresholdBtc = sliderRawToThresholdBtc(balanceFilterSlider.value, true);
       setFullBalanceThresholdBtc(thresholdBtc, { updateSlider: true, updateSelect: true });
     });
 
     balanceFilterSlider.addEventListener("change", () => {
       if (isLiteMode()) return;
+      syncSliderTrack(balanceFilterSlider);
       const thresholdBtc = sliderRawToThresholdBtc(balanceFilterSlider.value, true);
       setFullBalanceThresholdBtc(thresholdBtc, { updateSlider: true, updateSelect: true });
       state.balanceAutoForcedFromAllByTopFilters = false;
@@ -6239,6 +6296,7 @@ function attachEvents() {
           : state.availableSnapshots[0];
         if (snapshotFilter) {
           snapshotFilter.value = targetSnapshot;
+          syncSnapshotDropdownTrigger();
         }
 
         if (previousSnapshotWasArchived || targetSnapshot !== String(state.snapshotHeight || "").trim()) {
@@ -6394,6 +6452,12 @@ function attachEvents() {
   const identityDropdown = document.getElementById("identityDropdown");
   const identityTrigger = document.getElementById("identityDropdownTrigger");
   const identityMenu = document.getElementById("identityDropdownMenu");
+  const snapshotDropdown = document.getElementById("snapshotDropdown");
+  const snapshotDropdownTrigger = document.getElementById("snapshotDropdownTrigger");
+  const snapshotDropdownMenu = document.getElementById("snapshotDropdownMenu");
+  const balanceDropdown = document.getElementById("balanceDropdown");
+  const balanceDropdownTrigger = document.getElementById("balanceDropdownTrigger");
+  const balanceDropdownMenu = document.getElementById("balanceDropdownMenu");
   let identityPointerDownInside = false;
 
   scriptTrigger.addEventListener("click", () => {
@@ -6406,6 +6470,36 @@ function attachEvents() {
 
   detailTrigger.addEventListener("click", () => {
     detailMenu.classList.toggle("open");
+  });
+
+  snapshotDropdownTrigger.addEventListener("click", () => {
+    snapshotDropdownMenu.classList.toggle("open");
+  });
+
+  snapshotDropdownMenu.addEventListener("click", (event) => {
+    const btn = event.target.closest(".script-option-btn");
+    if (!btn) return;
+    const value = btn.dataset.value;
+    const snapshotFilter = document.getElementById("snapshotFilter");
+    if (snapshotFilter) snapshotFilter.value = value;
+    syncSnapshotDropdownTrigger();
+    snapshotDropdownMenu.classList.remove("open");
+    snapshotFilter.dispatchEvent(new Event("change"));
+  });
+
+  balanceDropdownTrigger.addEventListener("click", () => {
+    balanceDropdownMenu.classList.toggle("open");
+  });
+
+  balanceDropdownMenu.addEventListener("click", (event) => {
+    const btn = event.target.closest(".script-option-btn");
+    if (!btn) return;
+    const balanceFilter = document.getElementById("balanceFilter");
+    if (!balanceFilter) return;
+    balanceFilter.value = btn.dataset.value;
+    syncBalanceDropdownTrigger();
+    balanceDropdownMenu.classList.remove("open");
+    balanceFilter.dispatchEvent(new Event("change"));
   });
 
   identityGroupTrigger.addEventListener("click", async () => {
@@ -6477,6 +6571,12 @@ function attachEvents() {
     }
     if (!detailDropdown.contains(event.target)) {
       detailMenu.classList.remove("open");
+    }
+    if (!snapshotDropdown.contains(event.target)) {
+      snapshotDropdownMenu.classList.remove("open");
+    }
+    if (!balanceDropdown.contains(event.target)) {
+      balanceDropdownMenu.classList.remove("open");
     }
     if (!identityGroupDropdown.contains(event.target)) {
       identityGroupMenu.classList.remove("open");

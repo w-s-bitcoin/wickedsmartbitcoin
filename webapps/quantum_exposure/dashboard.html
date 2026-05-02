@@ -93,7 +93,7 @@
       --tag-utxo-border: #c2cfdb;
       --tag-utxo-ink: #3d5166;
       --non-exposed-label: #777777;
-      --checkbox-accent: var(--accent);
+      --checkbox-accent: #ff9900;
       --fg: var(--ink);
       --fg-dim: var(--muted-strong);
       --dashboard-accent: var(--accent);
@@ -126,7 +126,7 @@
       --pull-dot: #8a8a8a;
       --filtered-border: #9b9b9b;
       --filtered-bg: #3b3b3b;
-      --checkbox-accent: #5ec4b0;
+      --checkbox-accent: #ff9900;
       --seg-never: #ff6b8f;
       --seg-inactive: #f7c95c;
       --seg-active: #4fc37d;
@@ -806,11 +806,98 @@
       display: none;
     }
 
+    .full-mode #balanceDropdown {
+      display: none;
+    }
+
+    .hidden-select {
+      display: none !important;
+    }
+
+    .script-option-btn {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 6px 8px;
+      border: none;
+      background: transparent;
+      color: var(--ink);
+      font-size: 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: inherit;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .script-option-btn:hover {
+      background-color: var(--divider);
+    }
+
+    .script-option-btn.script-option-btn--selected {
+      color: #ff9900;
+      font-weight: 500;
+    }
+
+    [data-theme="dark"] .script-option-btn.script-option-btn--selected {
+      color: #ff9900;
+    }
+
+    #snapshotDropdownMenu {
+      width: max-content;
+      min-width: 100%;
+      max-width: min(90vw, 440px);
+    }
+
     .balance-slider {
       width: 100%;
       margin: 0;
-      accent-color: var(--accent);
       cursor: pointer;
+      appearance: none;
+      -webkit-appearance: none;
+      position: relative;
+      z-index: 2;
+      height: 6px;
+      border-radius: 3px;
+      outline: none;
+      background: linear-gradient(
+        to right,
+        #b0b0b0 0%,
+        #b0b0b0 var(--slider-pct, 0%),
+        #ff9900 var(--slider-pct, 0%),
+        #ff9900 100%
+      );
+    }
+
+    .balance-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #ff9900;
+      cursor: pointer;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+    }
+
+    .balance-slider::-moz-range-thumb {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #ff9900;
+      border: none;
+      cursor: pointer;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+    }
+
+    [data-theme="dark"] .balance-slider {
+      background: linear-gradient(
+        to right,
+        #555555 0%,
+        #555555 var(--slider-pct, 0%),
+        #ff9900 var(--slider-pct, 0%),
+        #ff9900 100%
+      );
     }
 
     .balance-filter-header {
@@ -837,6 +924,7 @@
     .balance-slider-track-wrap {
       --balance-slider-tick-inset: 8px;
       width: min(100%, 400px);
+      position: relative;
       display: grid;
       gap: 1px;
       margin-left: 4px;
@@ -844,6 +932,7 @@
 
     .balance-slider-anchors {
       position: relative;
+      z-index: 1;
       display: block;
       width: calc(100% - (var(--balance-slider-tick-inset) * 2));
       margin: 0 var(--balance-slider-tick-inset);
@@ -902,7 +991,7 @@
       width: 100%;
       max-width: 100%;
       min-width: 0;
-      padding: 10px 12px;
+      padding: 10px 32px 10px 12px;
       border-radius: 10px;
       border: 1px solid var(--line);
       background: var(--surface);
@@ -910,6 +999,33 @@
       font-size: 14px;
       text-align: left;
       cursor: pointer;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      position: relative;
+    }
+
+    .script-trigger:not(.script-trigger-input)::after {
+      content: "";
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 12px;
+      height: 12px;
+      pointer-events: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236f685f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: center;
+      flex-shrink: 0;
+    }
+
+    [data-theme="dark"] .script-trigger:not(.script-trigger-input)::after {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23918b82' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    }
+
+    .script-trigger:hover {
+      background-color: var(--surface-soft);
     }
 
     .script-trigger::placeholder {
@@ -919,6 +1035,10 @@
 
     .script-trigger.script-trigger-input {
       cursor: text;
+    }
+
+    #topExposureAddressSearch {
+      padding-right: 12px;
     }
 
     @media (hover: none) and (pointer: coarse) {
@@ -951,9 +1071,15 @@
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 6px 4px;
+      padding: 6px 8px;
       color: var(--ink);
       font-size: 14px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    .script-option:hover {
+      background-color: var(--divider);
     }
 
     .kpis {
@@ -2790,7 +2916,11 @@
       <div class="filters top-filters">
         <label>
           Block Height
-          <select id="snapshotFilter"></select>
+          <select id="snapshotFilter" class="hidden-select"></select>
+          <div id="snapshotDropdown" class="script-dropdown">
+            <button id="snapshotDropdownTrigger" type="button" class="script-trigger">Loading…</button>
+            <div id="snapshotDropdownMenu" class="script-menu"></div>
+          </div>
         </label>
 
         <label>
@@ -2798,13 +2928,23 @@
             <span>Pubkey Balance</span>
             <span id="balanceFilterSliderValue" class="balance-slider-value">All</span>
           </span>
-          <select id="balanceFilter">
+          <select id="balanceFilter" class="hidden-select">
             <option value="all">All</option>
             <option value="ge1">≥ 1 BTC</option>
             <option value="ge10">≥ 10 BTC</option>
             <option value="ge100">≥ 100 BTC</option>
             <option value="ge1000">≥ 1,000 BTC</option>
           </select>
+          <div id="balanceDropdown" class="script-dropdown">
+            <button id="balanceDropdownTrigger" type="button" class="script-trigger">All</button>
+            <div id="balanceDropdownMenu" class="script-menu">
+              <button type="button" class="script-option-btn script-option-btn--selected" data-value="all">All</button>
+              <button type="button" class="script-option-btn" data-value="ge1">≥ 1 BTC</button>
+              <button type="button" class="script-option-btn" data-value="ge10">≥ 10 BTC</button>
+              <button type="button" class="script-option-btn" data-value="ge100">≥ 100 BTC</button>
+              <button type="button" class="script-option-btn" data-value="ge1000">≥ 1,000 BTC</button>
+            </div>
+          </div>
           <div id="balanceFilterSliderWrap" class="balance-slider-wrap" aria-hidden="true">
             <div class="balance-slider-track-wrap">
               <input
