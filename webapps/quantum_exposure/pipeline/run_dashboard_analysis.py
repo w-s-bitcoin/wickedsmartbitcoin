@@ -39,6 +39,19 @@ KEYHASH20_HEX_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 DEFAULT_ENV_FILE = resolve_env_file()
 DEFAULT_OUT_DIR = QUANTUM_DIR / "webapp_data"
 
+PQ_MAX_INPUTS_PER_TX = 10_000
+PQ_TX_OVERHEAD_VBYTES = 11
+PQ_OUTPUT_VBYTES = 32
+PQ_INPUT_VBYTES_BY_SCRIPT_TYPE = {
+    "P2PK": 363,
+    "P2PKH": 383,
+    "P2SH": 420,
+    "P2WPKH": 127,
+    "P2WSH": 230,
+    "P2TR": 123,
+    "Other": 383,
+}
+
 # ---------------------------------------------------------------------------
 # Bech32 helpers (P2WPKH / witness v0, mainnet "bc" HRP)
 # Reference: BIP-0173 / https://github.com/sipa/bech32
@@ -2084,54 +2097,112 @@ def refresh_aggregates(cur, analysis_height: int, analysis_time: int, cutoff_hei
         SELECT
             t.balance_filter,
             CASE
-                WHEN GROUPING(s.script_type) = 1 THEN 'All'
-                ELSE s.script_type
+                WHEN GROUPING(enriched.script_type) = 1 THEN 'All'
+                ELSE enriched.script_type
             END AS script_type_filter,
             CASE
-                WHEN GROUPING(s.spend_activity) = 1 THEN 'all'
-                ELSE s.spend_activity
+                WHEN GROUPING(enriched.spend_activity) = 1 THEN 'all'
+                ELSE enriched.spend_activity
             END AS spend_activity_filter,
             COUNT(*)::bigint AS pubkey_count,
-            COALESCE(SUM(s.current_utxo_count), 0)::bigint AS utxo_count,
+            COALESCE(SUM(enriched.current_utxo_count), 0)::bigint AS utxo_count,
             COALESCE(SUM(
                 CASE
-                    WHEN s.script_type = 'P2PK'
-                     AND s.group_id = %s
-                    THEN GREATEST(s.current_supply_sats - %s, 0)
-                    ELSE s.current_supply_sats
+                    WHEN enriched.script_type = 'P2PK'
+                     AND enriched.group_id = %s
+                    THEN GREATEST(enriched.current_supply_sats - %s, 0)
+                    ELSE enriched.current_supply_sats
                 END
             ), 0)::bigint AS supply_sats,
-            COALESCE(SUM(s.exposed_pubkey_count), 0)::bigint AS exposed_pubkey_count,
-            COALESCE(SUM(s.exposed_utxo_count), 0)::bigint AS exposed_utxo_count,
-            COALESCE(SUM(s.exposed_supply_sats), 0)::bigint AS exposed_supply_sats,
+            COALESCE(SUM(enriched.exposed_pubkey_count), 0)::bigint AS exposed_pubkey_count,
+            COALESCE(SUM(enriched.exposed_utxo_count), 0)::bigint AS exposed_utxo_count,
+            COALESCE(SUM(enriched.exposed_supply_sats), 0)::bigint AS exposed_supply_sats,
             ROUND(
-                COALESCE(SUM(
-                    s.current_utxo_count::numeric * (
-                        CASE s.script_type
-                            WHEN 'P2PK'   THEN 111
-                            WHEN 'P2PKH'  THEN 192
-                            WHEN 'P2SH'   THEN 176
-                            WHEN 'P2WPKH' THEN 112
-                            WHEN 'P2WSH'  THEN 149
-                            WHEN 'P2TR'   THEN 103
-                            ELSE 176
-                        END
-                    )
-                ), 0) * 4 / 4000000.0,
+                COALESCE(SUM(enriched.migration_vbytes), 0) * 4 / 4000000.0,
                 2
             )::numeric(20,2) AS estimated_migration_blocks
-        FROM tmp_dashboard_pubkey_base s
-        JOIN tiers t ON s.current_supply_sats >= t.min_sats
+        FROM (
+            WITH group_totals AS (
+                SELECT
+                    group_id,
+                    COALESCE(SUM(exposed_utxo_count), 0)::bigint AS group_exposed_utxo_count,
+                    CEIL(COALESCE(SUM(exposed_utxo_count), 0)::numeric / %s) AS group_tx_count
+                FROM tmp_dashboard_pubkey_base
+                GROUP BY group_id
+            )
+            SELECT
+                s.group_id,
+                s.script_type,
+                s.spend_activity,
+                s.current_utxo_count,
+                s.current_supply_sats,
+                s.exposed_pubkey_count,
+                s.exposed_utxo_count,
+                s.exposed_supply_sats,
+                (
+                    (s.exposed_utxo_count::numeric * (
+                        CASE s.script_type
+                            WHEN 'P2PK'   THEN %s
+                            WHEN 'P2PKH'  THEN %s
+                            WHEN 'P2SH'   THEN COALESCE(
+                                CASE WHEN ms.m_val IS NOT NULL
+                                     THEN 41 + ms.m_val * 73 + ms.n_val * 34
+                                END,
+                                %s
+                            )
+                            WHEN 'P2WPKH' THEN %s
+                            WHEN 'P2WSH'  THEN COALESCE(
+                                CASE WHEN ms.m_val IS NOT NULL
+                                     THEN CEIL((ms.m_val * 73 + ms.n_val * 34 + 170)::numeric / 4)
+                                END,
+                                %s
+                            )
+                            WHEN 'P2TR'   THEN %s
+                            ELSE %s
+                        END
+                    ))
+                    + (
+                        CASE
+                            WHEN gt.group_exposed_utxo_count > 0
+                            THEN
+                                (s.exposed_utxo_count::numeric / gt.group_exposed_utxo_count::numeric)
+                                * (gt.group_tx_count * (%s + %s))
+                            ELSE 0
+                        END
+                    )
+                ) AS migration_vbytes
+            FROM tmp_dashboard_pubkey_base s
+            JOIN group_totals gt ON gt.group_id = s.group_id
+            LEFT JOIN {TMP_DASHBOARD_GE1_TABLE} ge1 ON ge1.group_id = s.group_id
+            LEFT JOIN LATERAL (
+                SELECT
+                    rm[1]::int AS m_val,
+                    rm[2]::int AS n_val
+                    FROM regexp_match(ge1.details, '^([0-9]+)-of-([0-9]+)\\s+multisig$', 'i') AS rm
+                WHERE rm IS NOT NULL
+            ) AS ms ON true
+        ) AS enriched
+        JOIN tiers t ON enriched.current_supply_sats >= t.min_sats
         GROUP BY t.balance_filter, GROUPING SETS (
-            (s.script_type, s.spend_activity),
-            (s.script_type),
-            (s.spend_activity),
+            (enriched.script_type, enriched.spend_activity),
+            (enriched.script_type),
+            (enriched.spend_activity),
             ()
         );
         """,
         (
             GENESIS_PUBKEY_KEYHASH20_HEX,
             GENESIS_BLOCK_REWARD_SATS,
+            PQ_MAX_INPUTS_PER_TX,
+            PQ_INPUT_VBYTES_BY_SCRIPT_TYPE["P2PK"],
+            PQ_INPUT_VBYTES_BY_SCRIPT_TYPE["P2PKH"],
+            PQ_INPUT_VBYTES_BY_SCRIPT_TYPE["P2SH"],
+            PQ_INPUT_VBYTES_BY_SCRIPT_TYPE["P2WPKH"],
+            PQ_INPUT_VBYTES_BY_SCRIPT_TYPE["P2WSH"],
+            PQ_INPUT_VBYTES_BY_SCRIPT_TYPE["P2TR"],
+            PQ_INPUT_VBYTES_BY_SCRIPT_TYPE["Other"],
+            PQ_TX_OVERHEAD_VBYTES,
+            PQ_OUTPUT_VBYTES,
         ),
     )
     return cur.rowcount
@@ -2679,19 +2750,6 @@ def main() -> None:
                 print(f"  by display id token       : {reused['display_token']:,}")
                 print(f"  total labels carried      : {reused['total']:,}")
 
-            print("Refreshing aggregates table...")
-            agg_rows = refresh_aggregates(
-                cur=cur,
-                analysis_height=analysis_height,
-                analysis_time=analysis_time,
-                cutoff_height=cutoff_height,
-                cutoff_time=cutoff_time,
-            )
-            print(f"rows in {DASHBOARD_AGGREGATES_TABLE:<30}: {agg_rows:,}")
-
-            print()
-            print_dashboard_summary(cur, analysis_height)
-
             reused_prior = carry_forward_labels_from_prior_snapshots(
                 cur=cur,
                 out_dir=out_dir,
@@ -2728,6 +2786,19 @@ def main() -> None:
             normalized_multisig = normalize_generic_multisig_details(cur)
             if normalized_multisig:
                 print(f"generic multisig -> None   : {normalized_multisig:,}")
+
+            print("Refreshing aggregates table...")
+            agg_rows = refresh_aggregates(
+                cur=cur,
+                analysis_height=analysis_height,
+                analysis_time=analysis_time,
+                cutoff_height=cutoff_height,
+                cutoff_time=cutoff_time,
+            )
+            print(f"rows in {DASHBOARD_AGGREGATES_TABLE:<30}: {agg_rows:,}")
+
+            print()
+            print_dashboard_summary(cur, analysis_height)
 
             enforce_genesis_ge1_row(cur)
             csv_ge1_rows, csv_agg_rows, csv_meta_rows, snapshot_dir = export_dashboard_csvs(
