@@ -5058,33 +5058,173 @@ function getFilteredExposedSupplySatsForRow(row, selectedScriptTypes) {
   return filteredSupply;
 }
 
-function migrationWeightForScriptType(scriptType) {
+const PQ_MAX_INPUTS_PER_TX = 10_000;
+const PQ_TX_OVERHEAD_VBYTES = 11;
+const PQ_OUTPUT_VBYTES = 32;
+function pqInputVBytesForScriptType(scriptType) {
+
   switch (scriptType) {
     case "P2PK":
-      return 111;
+      return 363;
     case "P2PKH":
-      return 192;
+      return 383;
     case "P2SH":
-      return 176;
+      return 420;
     case "P2WPKH":
-      return 112;
+      return 127;
     case "P2WSH":
-      return 149;
+      return 230;
     case "P2TR":
-      return 103;
+      return 123;
     default:
-      return 176;
+      return 383;
   }
+}
+
+// Parse "m-of-n multisig" detail string into {m, n}, or null if not multisig.
+function parseMultisigMN(rawDetails) {
+  const match = String(rawDetails || "").match(/^(\d+)-of-(\d+)\s+multisig$/i);
+  if (!match) return null;
+  const m = parseInt(match[1], 10);
+  const n = parseInt(match[2], 10);
+  if (!Number.isFinite(m) || !Number.isFinite(n) || m < 1 || n < 1 || m > n) return null;
+  return { m, n };
+}
+
+// Compute P2SH/P2WSH input vbytes using actual Bitcoin ECDSA multisig sizing.
+// P2SH m-of-n:  41 + m*73 + n*34  (scriptSig: OP_0 + m sigs + redeemScript)
+// P2WSH m-of-n: ceil((m*73 + n*34 + 170) / 4)  (segwit discount; 170 = non-witness base weight + witness overhead)
+function pqMultisigInputVBytes(scriptType, m, n) {
+  if (scriptType === "P2SH") {
+    return 41 + m * 73 + n * 34;
+  }
+  if (scriptType === "P2WSH") {
+    return Math.ceil((m * 73 + n * 34 + 170) / 4);
+  }
+  return pqInputVBytesForScriptType(scriptType);
+}
+
+// Get the effective per-input vbytes for a script type, using multisig detail when available.
+function pqEffectiveInputVBytes(scriptType, multisigMN) {
+  if (multisigMN && (scriptType === "P2SH" || scriptType === "P2WSH")) {
+    return pqMultisigInputVBytes(scriptType, multisigMN.m, multisigMN.n);
+  }
+  return pqInputVBytesForScriptType(scriptType);
+}
+
+function estimatePqMigrationTxCount(utxoCount) {
+  if (!utxoCount) return 0;
+  return Math.ceil(utxoCount / PQ_MAX_INPUTS_PER_TX);
+}
+
+function estimateRowInputVBytesFromScriptMix(row, utxoCount) {
+  const supplyByScriptType = getRowSupplyByScriptType(row);
+  const scriptTypes = getRowScriptTypes(row);
+  const multisigMN = parseMultisigMN(row.details);
+
+  if (!scriptTypes.length || utxoCount <= 0) {
+    return utxoCount * pqInputVBytesForScriptType("Other");
+  }
+
+  const hasP2PK = scriptTypes.includes("P2PK");
+  const nonP2PKTypes = scriptTypes.filter((scriptType) => scriptType !== "P2PK");
+  if (hasP2PK && nonP2PKTypes.length > 0) {
+    const remainingUtxos = Math.max(0, utxoCount - 1);
+    if (!remainingUtxos) {
+      return pqInputVBytesForScriptType("P2PK");
+    }
+
+    const weightedNonP2PK = nonP2PKTypes.map((scriptType) => ({
+      scriptType,
+      sats: Math.max(0, toInt(supplyByScriptType[scriptType] || 0)),
+    }));
+    const totalNonP2PKSats = weightedNonP2PK.reduce((sum, item) => sum + item.sats, 0);
+
+    if (totalNonP2PKSats <= 0) {
+      const avgInputVBytes =
+        weightedNonP2PK.reduce((sum, item) => sum + pqEffectiveInputVBytes(item.scriptType, multisigMN), 0)
+        / weightedNonP2PK.length;
+      return pqInputVBytesForScriptType("P2PK") + (remainingUtxos * avgInputVBytes);
+    }
+
+    const allocations = weightedNonP2PK.map((item) => {
+      const exact = (remainingUtxos * item.sats) / totalNonP2PKSats;
+      const base = Math.floor(exact);
+      return {
+        scriptType: item.scriptType,
+        base,
+        fraction: exact - base,
+      };
+    });
+
+    let assigned = allocations.reduce((sum, item) => sum + item.base, 0);
+    let remainder = Math.max(0, remainingUtxos - assigned);
+
+    allocations
+      .sort((a, b) => b.fraction - a.fraction)
+      .forEach((item) => {
+        if (remainder <= 0) return;
+        item.base += 1;
+        remainder -= 1;
+      });
+
+    const nonP2PKInputVBytes = allocations.reduce(
+      (sum, item) => sum + (item.base * pqEffectiveInputVBytes(item.scriptType, multisigMN)),
+      0
+    );
+    return pqInputVBytesForScriptType("P2PK") + nonP2PKInputVBytes;
+  }
+
+  const inferred = scriptTypes.map((scriptType) => ({
+    scriptType,
+    sats: Math.max(0, toInt(supplyByScriptType[scriptType] || 0)),
+  }));
+
+  const totalSats = inferred.reduce((sum, item) => sum + item.sats, 0);
+  if (totalSats <= 0) {
+    const avgInputVBytes =
+      inferred.reduce((sum, item) => sum + pqEffectiveInputVBytes(item.scriptType, multisigMN), 0)
+      / inferred.length;
+    return utxoCount * avgInputVBytes;
+  }
+
+  const allocations = inferred.map((item) => {
+    const exact = (utxoCount * item.sats) / totalSats;
+    const base = Math.floor(exact);
+    return {
+      scriptType: item.scriptType,
+      base,
+      fraction: exact - base,
+    };
+  });
+
+  let assigned = allocations.reduce((sum, item) => sum + item.base, 0);
+  let remainder = Math.max(0, utxoCount - assigned);
+
+  allocations
+    .sort((a, b) => b.fraction - a.fraction)
+    .forEach((item) => {
+      if (remainder <= 0) return;
+      item.base += 1;
+      remainder -= 1;
+    });
+
+  return allocations.reduce(
+    (sum, item) => sum + (item.base * pqEffectiveInputVBytes(item.scriptType, multisigMN)),
+    0
+  );
 }
 
 function estimateMigrationBlocksFromRow(row) {
   const utxoCount = toInt(row.exposed_utxo_count);
   if (!utxoCount) return 0;
 
-  const scriptTypes = getRowScriptTypes(row);
-  const weights = scriptTypes.length ? scriptTypes.map((st) => migrationWeightForScriptType(st)) : [176];
-  const avgWeight = weights.reduce((sum, w) => sum + w, 0) / weights.length;
-  return (utxoCount * avgWeight * 4) / 4_000_000;
+  const txCount = estimatePqMigrationTxCount(utxoCount);
+  const totalInputVBytes = estimateRowInputVBytesFromScriptMix(row, utxoCount);
+  const totalVBytes =
+    totalInputVBytes
+    + (txCount * (PQ_TX_OVERHEAD_VBYTES + PQ_OUTPUT_VBYTES));
+  return (totalVBytes * 4) / 4_000_000;
 }
 
 function getDetailTagThresholdPubkeyCount(detailValue) {

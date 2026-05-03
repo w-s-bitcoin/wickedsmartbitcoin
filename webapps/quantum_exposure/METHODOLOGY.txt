@@ -1,0 +1,253 @@
+# Bitcoin Quantum Exposure Dashboard — Methodology
+
+## 1. Overview
+
+This document describes the methodology used to identify Bitcoin UTXOs that are quantum-vulnerable — those for which a public key has been revealed on-chain — how those exposures are determined across each script type, and how the dashboard's filtering system operates.
+
+A UTXO is considered **quantum-exposed** when the public key (or keys) protecting it is visible on the blockchain. A sufficiently powerful quantum computer could derive the private key from any exposed public key and spend the corresponding funds. The exposure status depends entirely on the script type and on-chain history — specifically, whether the address has been spent from before.
+
+---
+
+## 2. Snapshot Methodology
+
+All exposure calculations are performed against a consistent, deterministic snapshot of the blockchain. Each snapshot is anchored to a specific block height, and all data — UTXOs, spend history, and exposure status — is evaluated as of that height.
+
+Snapshots are produced at 1,000-block intervals. Only 50,000-block interval snapshots are shown in the published dashboard; intermediate snapshots are archived.
+
+---
+
+## 3. Per-Script-Type Exposure Identification
+
+The central question for each UTXO is: *has the public key(s) protecting this output been revealed on-chain?*
+
+### 3.1 P2PK (Pay-to-Public-Key)
+
+**Always exposed.**
+
+A P2PK scriptPubKey embeds the raw public key directly. The public key is visible from the moment the output is created — no spend is required.
+
+**Assumption:** The genesis block coinbase output (block 0) is excluded from the exposure dataset. It is protocol-unspendable by consensus and poses no practical quantum risk. However, any outputs sent to this public key or its P2PKH address are included in the list of exposures.
+
+### 3.2 P2PKH (Pay-to-Public-Key-Hash)
+
+**Exposed only after the first spend.**
+
+A P2PKH scriptPubKey commits only to a hash of the public key. The key itself is concealed until the output is spent, at which point the spending transaction must include the full pubkey.
+
+Once a key has been spent from — anywhere on-chain — all UTXOs at that address are considered exposed from that point forward, including any new UTXOs received at the same address after the initial spend.
+
+### 3.3 P2WPKH (Pay-to-Witness-Public-Key-Hash)
+
+**Same logic as P2PKH.**
+
+The public key is hidden behind a hash until spend. The witness data of the spending transaction reveals it. Exposure is determined by the same mechanism: a single prior spend anywhere on-chain exposes the key permanently.
+
+### 3.4 P2SH (Pay-to-Script-Hash)
+
+**Exposed only after the first spend from that address.**
+
+A P2SH output commits to a hash of a redeem script. The redeem script — and any public keys it contains — is concealed until the address is first spent, at which point the full redeem script is provided in the scriptSig.
+
+**Multisig exposure:** When a P2SH multisig address is spent, the scriptSig includes the complete redeem script, which lists **all n public keys** in the m-of-n policy. Only m signatures are needed to authorise a spend, but all n keys are permanently published on-chain as a result.
+
+**Assumption:** The redeem script is not decoded to verify it contains a quantum-vulnerable key type. All previously-spent P2SH addresses are conservatively classified as exposed. Whether the underlying script is a multisig, single-sig, hash-locked contract, or something else is not distinguished at the UTXO level. Where available, identity labels carry a structural descriptor (e.g. "2-of-3 multisig") that provides qualitative context.
+
+### 3.5 P2WSH (Pay-to-Witness-Script-Hash)
+
+**Same logic as P2SH.**
+
+The witness script is concealed until spend, at which point the full witness script is provided in the witness data, revealing all n public keys of any multisig policy it encodes.
+
+The same conservative assumption applies: all previously-spent P2WSH addresses are treated as exposed without decoding the witness script.
+
+### 3.6 P2TR (Pay-to-Taproot)
+
+**Always exposed.**
+
+A P2TR output encodes an x-only public key directly in the scriptPubKey. This key is visible from the moment the output is mined, regardless of whether the output has ever been spent.
+
+**Assumption:** A P2TR output may embed a Taproot script tree (MAST), but the x-only key in the scriptPubKey is itself a valid elliptic curve public key regardless of any script path. All P2TR outputs are treated as fully exposed via the key path. No attempt is made to determine whether a script path was used or whether the key was constructed with a null internal key.
+
+### 3.7 Bare Multisig
+
+**Always exposed — all n keys, from creation.**
+
+Bare multisig scriptPubKeys embed all n raw public keys directly in the output script (`OP_M <key1> … <keyN> OP_N OP_CHECKMULTISIG`). Every key is visible from the moment the output is mined, regardless of whether the output has ever been spent. Unlike P2SH and P2WSH multisig, there is no hashing step to conceal the keys — the quantum exposure of all n participants is immediate and unconditional from the block the output was created.
+
+### 3.8 Other Script Types
+
+Outputs whose script type does not match any of the above categories are included in the "Other" grouping on the dashboard and are conservatively classified as **not exposed**. This is a lower-bound assumption; some non-standard scripts may reveal public keys, but without individually decoding them this cannot be determined systematically.
+
+---
+
+## 4. Grouping and Aggregation
+
+### 4.1 Grouping by Controlling Key
+
+UTXOs are grouped by their controlling identity:
+
+- For P2PK, P2PKH, and P2WPKH outputs, the grouping key is the underlying public key (or its hash), so all UTXOs controlled by the same public key are consolidated regardless of whether they arrived via different script types.
+- For P2SH, P2WSH, P2TR, bare multisig, and other outputs, the grouping key is the address string. Each distinct address is its own group.
+
+A single entity may appear across multiple script types — for example, a public key that has received both P2PK and P2PKH outputs. In these cases, the exposed balance is tracked per script type within a single consolidated row.
+
+### 4.2 Spend Activity Classification
+
+Each group is classified into one of three spend activity tiers based on when the controlling key or address last sent funds:
+
+| Tier | Condition |
+|---|---|
+| **Never Spent** | No spending transaction has ever been associated with this key or address |
+| **Inactive** | The key or address has been spent from, but the most recent spend was more than a configurable threshold ago (default: 1 year before the snapshot date) |
+| **Active** | The most recent spend was within the threshold window |
+
+The inactive threshold is adjustable in the dashboard (1–10 years). The default of 1 year is pre-computed; non-default thresholds require reclassifying individual records at runtime.
+
+### 4.3 Balance Coverage
+
+A detailed per-address dataset is maintained for all addresses with a current total balance of ≥ 1 BTC. Aggregate totals (for KPIs, charts, and bars) cover the full exposure universe including sub-1-BTC addresses; the individual top-exposure list and tag-filtered views are restricted to the ≥ 1 BTC dataset.
+
+---
+
+## 5. Identity Enrichment
+
+Entity labels are sourced from Arkham Intelligence and applied to addresses in the dataset. Labels include:
+- An **identity** field: the name of the controlling entity (e.g. an exchange, custodian, or known wallet).
+- A **details** field: structural annotations such as multisig configuration (e.g. "2-of-3 multisig").
+
+Labels are applied retroactively and prospectively across all snapshots: once a label is known for an address, it is propagated to every snapshot in the dataset that contains that address. Labels from the immediately prior snapshot are also carried forward into each new snapshot, ensuring continuity between enrichment runs.
+
+---
+
+## 6. Dashboard Filtering
+
+### 6.1 Balance Filter
+
+Restricts the dataset to addresses whose current total balance meets a minimum threshold. Five discrete tiers are available: all balances, ≥ 1 BTC, ≥ 10 BTC, ≥ 100 BTC, ≥ 1,000 BTC. In the full local mode, a slider allows finer control using a stepped scale: 1–10 BTC in steps of 1, 10–100 BTC in steps of 10, 100–1,000 BTC in steps of 100, and so on.
+
+The total supply KPI always reflects the total circulating Bitcoin supply and is not affected by any filter — including balance tier, script type, spend activity, or tags. It is the fixed denominator against which the exposed fraction is measured.
+
+### 6.2 Script Type Filter
+
+Restricts KPIs, bars, and the top-exposure list to a subset of script types (P2PK, P2PKH, P2SH, P2WPKH, P2WSH, P2TR, or any combination). Exposed balances are tracked per script type, so filtering to a single type isolates only the exposure attributable to that script type, even for addresses that appear across multiple types.
+
+### 6.3 Spend Activity Filter
+
+Restricts the dataset to one or more spend activity tiers (Never Spent, Inactive, Active). This allows isolating, for example, only the coins that have never moved — generally the highest-risk segment from a quantum migration perspective.
+
+### 6.4 Inactive Threshold (Full Mode)
+
+Controls the boundary between "inactive" and "active". Setting the threshold to N years reclassifies any address whose most recent spend occurred more than N years before the snapshot date as inactive rather than active. The default is 1 year.
+
+### 6.5 Tag Filters (Full Mode)
+
+Three additional filter dimensions are available in the full local mode:
+
+- **Detail tag:** Filter by structural label (e.g. show only "2-of-3 multisig" P2SH addresses).
+- **Identity group:** Filter by high-level entity category (e.g. exchanges, custodians).
+- **Identity tag:** Filter by specific named entity.
+
+When any tag filter is active, the balance floor is automatically raised to ≥ 1 BTC, since the per-row detailed dataset required for tag filtering covers only that range.
+
+---
+
+## 7. Exposure Metrics and Migration Estimate
+
+### 7.1 Exposed Pubkey Count
+
+The number of distinct public keys (or addresses, for script-hash types) with any exposed balance.
+
+For single-sig script types (P2PK, P2PKH, P2WPKH, P2TR), each row corresponds to exactly one exposed public key.
+
+For multisig script types (P2SH, P2WSH, bare multisig), each row corresponds to a single address but the underlying spend has published **all n keys** in the policy on-chain. The dataset groups by address rather than by individual key, so this count understates the true number of exposed public keys for multisig entries. When a multisig detail-tag filter is present, the displayed count approximates exposed keys using `n` from the `m-of-n` detail label per row; rows without a parsed `m-of-n` label contribute 1.
+
+### 7.2 Exposed UTXO Count
+
+The count of individual unspent transaction outputs with exposed balance matching the current filters.
+
+### 7.3 Exposed Supply
+
+The total balance (in BTC) across all exposed UTXOs matching the current filters.
+
+### 7.4 Migration Effort Estimate
+
+The dashboard estimates the number of Bitcoin blocks required for all exposed UTXOs to migrate under a generic post-quantum transaction-size model. The estimate is built from script-type-aware per-input sizes plus fixed per-transaction overhead.
+
+Current assumptions:
+
+- **Per-transaction structure:** one destination output, no change output.
+- **Per-transaction overhead:** 11 vBytes fixed overhead + 32 vBytes output cost (43 vBytes total non-input data).
+- **Maximum inputs per transaction:** 10,000. If a group has more inputs, migration is split across multiple transactions.
+- **Input size model:** script-type-aware base input sizes are used. For P2SH and P2WSH multisig addresses where the m-of-n policy is known (from identity labels), per-input vbytes are computed directly from the actual Bitcoin scriptSig/witness structure:
+  - P2SH m-of-n: `41 + m×73 + n×34` vBytes (OP_0, m DER signatures, redeemScript with n compressed pubkeys)
+  - P2WSH m-of-n: `⌈(m×73 + n×34 + 170) / 4⌉` vBytes (segwit witness discount)
+  When no m-of-n detail is available, the flat script-type default is used (420 vBytes for P2SH, 230 vBytes for P2WSH).
+- **Mixed-script rows containing P2PK + another type:** exactly one input is assumed to be P2PK; remaining inputs are allocated to the other script type(s).
+
+The estimate remains a lower bound. It assumes dedicated migration transactions and constant block capacity, and does not model fee pressure, coordination failures, or inaccessible UTXOs.
+
+---
+
+## 8. Dashboard Panels and Visualizations
+
+### 8.1 KPI Panel
+
+Five headline metrics displayed at the top of the dashboard, each reflecting the current filter selection:
+
+- **Total Supply:** The total circulating Bitcoin supply. Not affected by any filter.
+- **Exposed Supply:** The total exposed balance matching all active filters, expressed in BTC and as a percentage of total supply.
+- **Exposed Public Keys:** The distinct count of public keys or addresses with any exposed balance. See §7.1 for the multisig undercount caveat.
+- **Exposed UTXOs:** The total number of individual unspent outputs with exposed balance.
+- **Migration Effort:** The estimated number of blocks required to migrate all exposed UTXOs, expressed in wall-clock time at ~10 minutes per block.
+
+### 8.2 Supply Breakdown Bar
+
+A horizontal segmented bar scaled to 21,000,000 BTC showing the composition of the total Bitcoin supply:
+
+| Segment | Meaning |
+|---|---|
+| Never Spent (exposed) | Exposed supply that has never been sent from |
+| Inactive (exposed) | Exposed supply last spent more than the inactive threshold ago |
+| Active (exposed) | Exposed supply last spent within the inactive threshold |
+| Non-Exposed | Circulating supply in non-exposed UTXOs |
+| Unmined | Supply not yet mined |
+
+When a filter narrows the view, a vivid overlay is drawn over the full-reference (unfiltered) base so both the total exposure picture and the filtered subset are visible simultaneously.
+
+### 8.3 Script Type Bars
+
+Seven horizontal stacked bars — one per script type — showing exposed balance broken down by spend activity (Never Spent / Inactive / Active). All bars share the same horizontal scale. When a filter is active, a dimmed full-reference layer remains visible so the filtered subset can be seen in context.
+
+### 8.4 Historical Stacked Area Chart
+
+An area chart showing exposed supply over time, with one point per available snapshot. Each point shows both the full-reference unfiltered exposure (faded) and the filtered overlay (vivid), stacked by spend activity tier. The X-axis is block height; the Y-axis is exposed supply in BTC.
+
+An optional "non-exposed circulating supply" layer can be toggled on to show how the exposure fraction relates to the total circulating supply over time.
+
+### 8.5 Top Exposures List
+
+A scrollable list of individual public keys and addresses sorted by exposed balance, descending. Each row shows the address(es), exposed balance, script type(s), spend activity, identity label, detail label, and UTXO count. All active filters apply to this list.
+
+### 8.6 Snapshot Selector
+
+Allows navigating to any available block-height snapshot. All filters and the selected snapshot are serialised into the URL fragment, enabling any dashboard state to be bookmarked or shared.
+
+---
+
+## 9. Key Assumptions and Design Decisions
+
+- **Exposure is permanent.** Once a public key or address is recorded as exposed, it remains so regardless of subsequent activity. New UTXOs received at an already-exposed address are exposed from the moment they arrive.
+
+- **P2SH and P2WSH are treated as universally exposed upon first spend.** The redeem or witness script is not decoded to confirm it contains a quantum-vulnerable key. All spent script-hash addresses are conservatively classified as exposed. This may overcount in rare cases (e.g. hash-only or timelock-only scripts), but it cannot undercount.
+
+- **Multisig exposes all n keys, not just the m signers.** When a multisig address is spent, every key in the policy is published on-chain. Dashboard metrics that count by address rather than by individual key understate the true number of exposed cryptographic identities.
+
+- **The genesis block output is excluded.** The Patoshi coinbase UTXO in block 0 is unspendable by protocol consensus and is not counted as a practical quantum risk.
+
+- **P2TR outputs are treated as fully exposed via the key path.** The x-only public key in the scriptPubKey is sufficient to establish quantum exposure regardless of whether the output uses a script path. Internal key structure is not examined.
+
+- **Sub-1-BTC addresses are included in aggregate totals but not in per-row filtering.** The detailed per-address dataset covers only addresses with ≥ 1 BTC current balance. Aggregate KPIs, charts, and bars cover the full exposure universe.
+
+- **Migration effort is a lower bound.** The block estimate assumes ideal conditions: dedicated migration transactions, constant block capacity, and no fee pressure. It does not model coordination failure, lost keys, or UTXOs that cannot practically be migrated.
+
+- **Multisig input sizing uses actual Bitcoin signature geometry, not hypothetical post-quantum sizes.** The migration estimate reflects the cost of spending existing UTXOs under current Bitcoin rules (ECDSA/Schnorr), not the size of any future PQ signature scheme. The per-input size for a known m-of-n P2SH or P2WSH address is derived from the number of signatures (m) and pubkeys (n) in the redeem/witness script, using standard DER-encoded ECDSA sizes (73 bytes per signature, 34 bytes per compressed pubkey). Rows without a resolved m-of-n label fall back to a script-type default representative of a common multisig policy.
