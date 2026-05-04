@@ -5060,7 +5060,7 @@ function getFilteredExposedSupplySatsForRow(row, selectedScriptTypes) {
 
 const PQ_MAX_INPUTS_PER_TX = 10_000;
 const PQ_TX_OVERHEAD_VBYTES = 11;
-const PQ_OUTPUT_VBYTES = 32;
+const PQ_OUTPUT_VBYTES = 34;
 function pqInputVBytesForScriptType(scriptType) {
 
   switch (scriptType) {

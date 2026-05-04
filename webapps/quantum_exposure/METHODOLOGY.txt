@@ -86,7 +86,7 @@ Outputs whose script type does not match any of the above categories are include
 
 UTXOs are grouped by their controlling identity:
 
-- For P2PK, P2PKH, and P2WPKH outputs, the grouping key is the underlying public key (or its hash), so all UTXOs controlled by the same public key are consolidated regardless of whether they arrived via different script types.
+- For P2PK, P2PKH, and P2WPKH outputs, the grouping key is the underlying public key, so all UTXOs controlled by the same public key are consolidated regardless of whether they arrived via different script types.
 - For P2SH, P2WSH, P2TR, bare multisig, and other outputs, the grouping key is the address string. Each distinct address is its own group.
 
 A single entity may appear across multiple script types — for example, a public key that has received both P2PK and P2PKH outputs. In these cases, the exposed balance is tracked per script type within a single consolidated row.
@@ -111,9 +111,14 @@ A detailed per-address dataset is maintained for all addresses with a current to
 
 ## 5. Identity Enrichment
 
-Entity labels are sourced from Arkham Intelligence and applied to addresses in the dataset. Labels include:
-- An **identity** field: the name of the controlling entity (e.g. an exchange, custodian, or known wallet).
-- A **details** field: structural annotations such as multisig configuration (e.g. "2-of-3 multisig").
+Entity labels are sourced from Arkham Intelligence and applied to addresses in the dataset for the **identity** dimension only.
+
+The **details** field is produced by the dashboard pipeline from on-chain script structure. For script-hash spends (P2SH and P2WSH), the pipeline inspects revealed redeem/witness scripts and attempts to match canonical multisig form (`OP_m <pubkeys...> OP_n OP_CHECKMULTISIG/OP_CHECKMULTISIGVERIFY`). When this parse succeeds, details are recorded as an explicit `m-of-n multisig` tag (e.g. "2-of-3 multisig"). If a canonical threshold cannot be resolved, details remain generic (or empty) rather than assigning a specific m-of-n value.
+
+In practice:
+
+- **identity** = external entity attribution from Arkham.
+- **details** = internal structural classification from Bitcoin script parsing.
 
 Labels are applied retroactively and prospectively across all snapshots: once a label is known for an address, it is propagated to every snapshot in the dataset that contains that address. Labels from the immediately prior snapshot are also carried forward into each new snapshot, ensuring continuity between enrichment runs.
 
@@ -124,8 +129,6 @@ Labels are applied retroactively and prospectively across all snapshots: once a 
 ### 6.1 Balance Filter
 
 Restricts the dataset to addresses whose current total balance meets a minimum threshold. Five discrete tiers are available: all balances, ≥ 1 BTC, ≥ 10 BTC, ≥ 100 BTC, ≥ 1,000 BTC. In the full local mode, a slider allows finer control using a stepped scale: 1–10 BTC in steps of 1, 10–100 BTC in steps of 10, 100–1,000 BTC in steps of 100, and so on.
-
-The total supply KPI always reflects the total circulating Bitcoin supply and is not affected by any filter — including balance tier, script type, spend activity, or tags. It is the fixed denominator against which the exposed fraction is measured.
 
 ### 6.2 Script Type Filter
 
@@ -143,11 +146,21 @@ Controls the boundary between "inactive" and "active". Setting the threshold to 
 
 Three additional filter dimensions are available in the full local mode:
 
-- **Detail tag:** Filter by structural label (e.g. show only "2-of-3 multisig" P2SH addresses).
-- **Identity group:** Filter by high-level entity category (e.g. exchanges, custodians).
+- **Detail tag:** Filter by structural label (e.g. show only "3-of-5 multisig" addresses).
+- **Identity group:** Filter by high-level entity category (e.g. exchanges, brokerages, and custody services).
 - **Identity tag:** Filter by specific named entity.
 
 When any tag filter is active, the balance floor is automatically raised to ≥ 1 BTC, since the per-row detailed dataset required for tag filtering covers only that range.
+
+### 6.6 Show Control (Bars and Historical Chart)
+
+The script panel includes a **Show** control that changes how the Script Type Bars and Historical Stacked Area Chart are rendered:
+
+- **Total supply:** Displays exposed + non-exposed circulating supply. When other filters are active, a faded full-reference layer remains visible and the filtered subset is overlaid.
+- **Exposed supply:** Removes the non-exposed segment and shows exposed-only stacking (Never Spent / Inactive / Active). Filter overlays still appear against the full exposed reference.
+- **Filtered supply:** Displays only the post-filter subset (no full-reference base), so bar and area heights directly represent the currently filtered amount.
+
+This control affects only the script panel visualisation modes; it does not change how KPI totals are computed.
 
 ---
 
@@ -160,6 +173,8 @@ The number of distinct public keys (or addresses, for script-hash types) with an
 For single-sig script types (P2PK, P2PKH, P2WPKH, P2TR), each row corresponds to exactly one exposed public key.
 
 For multisig script types (P2SH, P2WSH, bare multisig), each row corresponds to a single address but the underlying spend has published **all n keys** in the policy on-chain. The dataset groups by address rather than by individual key, so this count understates the true number of exposed public keys for multisig entries. When a multisig detail-tag filter is present, the displayed count approximates exposed keys using `n` from the `m-of-n` detail label per row; rows without a parsed `m-of-n` label contribute 1.
+
+Because individual pubkeys are not globally extracted and deduplicated across script families, cross-context key reuse can also create overcounting in aggregate views: for example, if the same three keys appear as standalone P2PKH exposures and also as one 2-of-3 multisig policy, they can be counted once in the single-sig rows and again via the multisig approximation.
 
 ### 7.2 Exposed UTXO Count
 
@@ -176,7 +191,7 @@ The dashboard estimates the number of Bitcoin blocks required for all exposed UT
 Current assumptions:
 
 - **Per-transaction structure:** one destination output, no change output.
-- **Per-transaction overhead:** 11 vBytes fixed overhead + 32 vBytes output cost (43 vBytes total non-input data).
+- **Per-transaction overhead:** 11 vBytes fixed overhead + 34 vBytes output cost (45 vBytes total non-input data).
 - **Maximum inputs per transaction:** 10,000. If a group has more inputs, migration is split across multiple transactions.
 - **Input size model:** script-type-aware base input sizes are used. For P2SH and P2WSH multisig addresses where the m-of-n policy is known (from identity labels), per-input vbytes are computed directly from the actual Bitcoin scriptSig/witness structure:
   - P2SH m-of-n: `41 + m×73 + n×34` vBytes (OP_0, m DER signatures, redeemScript with n compressed pubkeys)
@@ -221,8 +236,6 @@ Seven horizontal stacked bars — one per script type — showing exposed balanc
 ### 8.4 Historical Stacked Area Chart
 
 An area chart showing exposed supply over time, with one point per available snapshot. Each point shows both the full-reference unfiltered exposure (faded) and the filtered overlay (vivid), stacked by spend activity tier. The X-axis is block height; the Y-axis is exposed supply in BTC.
-
-An optional "non-exposed circulating supply" layer can be toggled on to show how the exposure fraction relates to the total circulating supply over time.
 
 ### 8.5 Top Exposures List
 
