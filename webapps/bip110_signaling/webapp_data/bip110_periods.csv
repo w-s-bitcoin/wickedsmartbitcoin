@@ -9,7 +9,7 @@ period,period_start_height,period_end_height,status,signal_blocks,elapsed_blocks
 8,941472,943487,completed,3,2016
 9,943488,945503,completed,2,2016
 10,945504,947519,completed,0,2016
-11,947520,949535,in_progress,0,302
+11,947520,949535,in_progress,0,519
 12,949536,951551,future,0,0
 13,951552,953567,future,0,0
 14,953568,955583,future,0,0
