@@ -48,6 +48,227 @@ const state = {
   },
 };
 
+const SELECT_DROPDOWN_CONFIGS = [
+  {
+    selectId: "updatedTimeZoneSelect",
+    dropdownId: "updatedTimeZoneDropdown",
+    triggerId: "updatedTimeZoneDropdownTrigger",
+    menuId: "updatedTimeZoneDropdownMenu",
+  },
+  {
+    selectId: "cadenceSelect",
+    dropdownId: "cadenceDropdown",
+    triggerId: "cadenceDropdownTrigger",
+    menuId: "cadenceDropdownMenu",
+  },
+  {
+    selectId: "rangeSelect",
+    dropdownId: "rangeDropdown",
+    triggerId: "rangeDropdownTrigger",
+    menuId: "rangeDropdownMenu",
+  },
+  {
+    selectId: "scaleSelect",
+    dropdownId: "scaleDropdown",
+    triggerId: "scaleDropdownTrigger",
+    menuId: "scaleDropdownMenu",
+  },
+];
+
+let selectDropdownGlobalListenersBound = false;
+
+function setDropdownOpen(dropdownEl, menuEl, isOpen) {
+  if (!menuEl) return;
+  const open = !!isOpen;
+  menuEl.classList.toggle("open", open);
+  if (dropdownEl) dropdownEl.classList.toggle("is-open", open);
+  if (dropdownEl?.parentElement?.classList.contains("chip-menu-wrap")) {
+    dropdownEl.parentElement.classList.toggle("is-open", open);
+  }
+}
+
+function closeAllSelectDropdowns(exceptDropdown = null) {
+  SELECT_DROPDOWN_CONFIGS.forEach(({ dropdownId, menuId }) => {
+    const dropdown = document.getElementById(dropdownId);
+    const menu = document.getElementById(menuId);
+    if (!dropdown || !menu) return;
+    if (exceptDropdown && dropdown === exceptDropdown) return;
+    setDropdownOpen(dropdown, menu, false);
+  });
+}
+
+function parseCssPx(value, fallback = 0) {
+  const n = Number.parseFloat(String(value || "").trim());
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function sizeUpdatedTimeZoneDropdownMenu(select, dropdown, menu, probeEl) {
+  if (!select || !dropdown || !menu || !probeEl) return;
+
+  const style = window.getComputedStyle(probeEl);
+  const font = style.font || `${style.fontWeight} ${style.fontSize} / ${style.lineHeight} ${style.fontFamily}`;
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.font = font;
+
+  let maxTextWidth = 0;
+  Array.from(select.options).forEach((option) => {
+    const text = String(option.textContent || "");
+    maxTextWidth = Math.max(maxTextWidth, ctx.measureText(text).width);
+  });
+
+  const menuStyle = window.getComputedStyle(menu);
+  const leftPad = parseCssPx(menuStyle.getPropertyValue("--dca-dropdown-content-pad"), 10);
+  const rightPad = parseCssPx(menuStyle.getPropertyValue("--dca-dropdown-content-pad"), 10);
+  const borderAndSafety = 44;
+  const desired = Math.ceil(maxTextWidth + leftPad + rightPad + borderAndSafety);
+
+  const pillWidth = Math.ceil(dropdown.getBoundingClientRect().width + 8);
+  const minWidth = Math.max(pillWidth, 360);
+  const maxWidth = Math.max(minWidth, Math.floor(window.innerWidth - 24));
+  const width = Math.max(minWidth, Math.min(desired, maxWidth));
+
+  // Keep the timezone menu anchored to the left edge of the Updated pill.
+  menu.style.left = "0px";
+  menu.style.width = `${width}px`;
+  menu.style.minWidth = `${width}px`;
+  menu.style.maxWidth = `${width}px`;
+}
+
+function sizeSelectDropdownToOptions(selectId, dropdownId, triggerId) {
+  const select = document.getElementById(selectId);
+  const dropdown = document.getElementById(dropdownId);
+  const trigger = document.getElementById(triggerId);
+  const valueEl = document.getElementById(triggerId.replace("Trigger", "Value"));
+  if (!select || !dropdown) return;
+
+  // Updated chip uses overlay behavior and should keep chip-driven width.
+  if (selectId === "updatedTimeZoneSelect") return;
+
+  const probeEl = valueEl || trigger;
+  if (!probeEl) return;
+
+  const style = window.getComputedStyle(probeEl);
+  const font = style.font || `${style.fontWeight} ${style.fontSize} / ${style.lineHeight} ${style.fontFamily}`;
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.font = font;
+
+  let maxTextWidth = 0;
+  Array.from(select.options).forEach((option) => {
+    const text = String(option.textContent || "");
+    maxTextWidth = Math.max(maxTextWidth, ctx.measureText(text).width);
+  });
+
+  const dropdownStyle = window.getComputedStyle(dropdown);
+  const leftPad = parseCssPx(dropdownStyle.getPropertyValue("--dca-dropdown-content-pad"), 10);
+  const rightPad = parseCssPx(dropdownStyle.getPropertyValue("--dca-dropdown-arrow-gap"), 18);
+  const fudge = 1;
+  const width = Math.ceil(maxTextWidth + leftPad + rightPad + fudge);
+  dropdown.style.width = `${Math.max(54, width)}px`;
+}
+
+function syncSelectDropdown(selectId, triggerId, menuId) {
+  const select = document.getElementById(selectId);
+  const trigger = document.getElementById(triggerId);
+  const dropdown = document.getElementById(triggerId.replace("Trigger", "Dropdown"));
+  const menu = document.getElementById(menuId);
+  const valueEl = document.getElementById(triggerId.replace("Trigger", "Value"));
+  if (!select || !menu) return;
+
+  const selectedOption = select.options[select.selectedIndex];
+  if (valueEl && selectId !== "updatedTimeZoneSelect") {
+    valueEl.textContent = selectedOption ? selectedOption.textContent : "";
+  }
+  if (trigger && selectId === "updatedTimeZoneSelect") {
+    trigger.textContent = selectedOption ? selectedOption.textContent : "";
+  }
+
+  menu.innerHTML = Array.from(select.options)
+    .map((option) => {
+      const selectedClass = option.value === select.value ? " dca-option-btn--selected" : "";
+      return `<button type="button" class="dca-option-btn${selectedClass}" data-value="${escapeHtml(option.value)}">${escapeHtml(option.textContent || "")}</button>`;
+    })
+    .join("");
+
+  sizeSelectDropdownToOptions(selectId, triggerId.replace("Trigger", "Dropdown"), triggerId);
+  if (selectId === "updatedTimeZoneSelect") {
+    sizeUpdatedTimeZoneDropdownMenu(select, dropdown, menu, trigger);
+  }
+}
+
+function syncAllSelectDropdowns() {
+  SELECT_DROPDOWN_CONFIGS.forEach(({ selectId, triggerId, menuId }) => {
+    syncSelectDropdown(selectId, triggerId, menuId);
+  });
+}
+
+function bindSelectDropdowns() {
+  SELECT_DROPDOWN_CONFIGS.forEach(({ selectId, dropdownId, triggerId, menuId }) => {
+    const select = document.getElementById(selectId);
+    const dropdown = document.getElementById(dropdownId);
+    const trigger = document.getElementById(triggerId);
+    const menu = document.getElementById(menuId);
+    if (!select || !dropdown || !trigger || !menu) return;
+    if (dropdown.dataset.bound === "1") return;
+    dropdown.dataset.bound = "1";
+
+    const isUpdatedChipDropdown = selectId === "updatedTimeZoneSelect";
+    const toggleRoot = isUpdatedChipDropdown
+      ? document.getElementById("updatedChipWrap")
+      : dropdown.closest("label.chip");
+
+    if (toggleRoot) {
+      toggleRoot.classList.add("dca-dropdown-pill");
+    }
+
+    if (toggleRoot && toggleRoot.dataset.dropdownPillBound !== "1") {
+      toggleRoot.dataset.dropdownPillBound = "1";
+      toggleRoot.addEventListener("click", (event) => {
+        if (menu.contains(event.target)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const willOpen = !menu.classList.contains("open");
+        closeAllSelectDropdowns(willOpen ? dropdown : null);
+        setDropdownOpen(dropdown, menu, willOpen);
+      });
+    }
+
+    menu.addEventListener("click", (event) => {
+      const btn = event.target.closest(".dca-option-btn");
+      if (!btn) return;
+      const nextValue = String(btn.dataset.value || "");
+      if (select.value !== nextValue) {
+        select.value = nextValue;
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      syncSelectDropdown(selectId, triggerId, menuId);
+      setDropdownOpen(dropdown, menu, false);
+    });
+  });
+
+  if (selectDropdownGlobalListenersBound) return;
+  selectDropdownGlobalListenersBound = true;
+
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    SELECT_DROPDOWN_CONFIGS.forEach(({ dropdownId, menuId }) => {
+      const dropdown = document.getElementById(dropdownId);
+      const menu = document.getElementById(menuId);
+      if (!dropdown || !menu) return;
+      if (dropdown.contains(target)) return;
+      setDropdownOpen(dropdown, menu, false);
+    });
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    closeAllSelectDropdowns();
+  });
+}
+
 function getPreferredDashboardTimeZone() {
   if (!DASHBOARD_TIME?.getPreferredTimeZone) return state.timeZone || "UTC";
   return DASHBOARD_TIME.getPreferredTimeZone();
@@ -105,6 +326,7 @@ function populateUpdatedTimeZoneSelect() {
     const selected = opt.value === preferred ? " selected" : "";
     return `<option value="${opt.value}"${selected}>${opt.label}</option>`;
   }).join("");
+  syncSelectDropdown("updatedTimeZoneSelect", "updatedTimeZoneDropdownTrigger", "updatedTimeZoneDropdownMenu");
 }
 
 function bindTimeZoneChipEvents() {
@@ -290,6 +512,8 @@ function ensureCustomRangeOption(rangeSelect, days) {
   } else {
     rangeSelect.appendChild(customOption);
   }
+
+  syncSelectDropdown("rangeSelect", "rangeDropdownTrigger", "rangeDropdownMenu");
 }
 
 function saveControls() {
@@ -318,34 +542,7 @@ function applyControlValuesToUi() {
   }
   if (scaleSelect) scaleSelect.value = state.yScale;
   if (toggleHalvings) toggleHalvings.checked = state.showHalvings;
-}
-
-async function ensurePlotlyLoaded() {
-  if (window.Plotly) return;
-
-  const cdnUrls = [
-    "https://cdn.plot.ly/plotly-2.35.2.min.js",
-    "https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js",
-    "https://unpkg.com/plotly.js-dist-min@2.35.2/plotly.min.js",
-  ];
-
-  for (const src of cdnUrls) {
-    try {
-      await new Promise((resolve, reject) => {
-        const script = document.createElement("script");
-        script.src = src;
-        script.async = true;
-        script.onload = resolve;
-        script.onerror = reject;
-        document.head.appendChild(script);
-      });
-      if (window.Plotly) return;
-    } catch (_) {
-      // Try next CDN.
-    }
-  }
-
-  throw new Error("Plotly failed to load from all CDN sources.");
+  syncAllSelectDropdowns();
 }
 
 async function loadData() {
@@ -441,7 +638,8 @@ function buildDurationTickConfig(maxDays, selectedRangeDays = 0) {
 
   const yearCount = Math.floor(safeMax / 365.25);
   if (yearCount >= 1) {
-    const desiredYearTicks = isAllRange ? 8 : 4;
+    const isEightYearPreset = selectedRangeDays === 2920;
+    const desiredYearTicks = isAllRange ? 8 : (isEightYearPreset ? 8 : 4);
     const rawYearStep = Math.max(1, Math.round(yearCount / desiredYearTicks));
     const niceYearSteps = [1, 2, 3, 4, 5, 10];
     const yearStep = niceYearSteps.find((step) => step >= rawYearStep) || rawYearStep;
@@ -632,31 +830,18 @@ function ensureCurrentPriceOverlay(chart) {
 }
 
 function getCurrentPriceLineTop(chart, currentPrice) {
-  const shapeNode = chart?.querySelector(".shapelayer path, .shapelayer line");
-  const hostRect = chart?.parentElement?.getBoundingClientRect();
-
-  if (shapeNode && hostRect) {
-    const shapeRect = shapeNode.getBoundingClientRect();
-    if (Number.isFinite(shapeRect.top) && Number.isFinite(shapeRect.height)) {
-      return (shapeRect.top - hostRect.top) + (shapeRect.height / 2);
-    }
-  }
-
-  const yAxis = chart?._fullLayout?.yaxis;
-  const plotHeight = chart?._fullLayout?._size?.h;
-  const plotTop = chart?._fullLayout?._size?.t;
-
-  if (!Number.isFinite(currentPrice) || currentPrice <= 0 || !yAxis || typeof yAxis.c2p !== "function" || !Number.isFinite(plotHeight) || !Number.isFinite(plotTop)) {
+  const geometry = chart?.__dcaChartGeometry;
+  if (!Number.isFinite(currentPrice) || currentPrice <= 0 || !geometry || typeof geometry.yForValue !== "function") {
     return NaN;
   }
 
-  const topPx = yAxis.c2p(currentPrice);
+  const topPx = geometry.yForValue(currentPrice) + (chart?.offsetTop || 0);
   if (!Number.isFinite(topPx)) {
     return NaN;
   }
 
-  const minTop = plotTop;
-  const maxTop = plotTop + plotHeight;
+  const minTop = geometry.plotTop + (chart?.offsetTop || 0);
+  const maxTop = geometry.plotBottom + (chart?.offsetTop || 0);
   return Math.max(minTop, Math.min(maxTop, topPx));
 }
 
@@ -685,6 +870,350 @@ function syncCurrentPriceOverlay(chart, currentPrice, colors) {
   overlay.hidden = false;
 }
 
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function formatPriceAxisTick(value) {
+  if (!Number.isFinite(value)) return "";
+  if (Math.abs(value) < 1e-9) return "$0";
+  if (value < 0) return "";
+  if (value >= 1000) return fmtUsdCompactTick(value);
+  if (value >= 100) return fmtUsd(value, 0);
+  if (value >= 10) return fmtUsd(value, 1);
+  return fmtUsd(value, 2);
+}
+
+function niceNumber(value, shouldRound) {
+  if (!Number.isFinite(value) || value <= 0) return 1;
+  const exponent = Math.floor(Math.log10(value));
+  const fraction = value / (10 ** exponent);
+  let niceFraction;
+
+  if (shouldRound) {
+    if (fraction < 1.5) niceFraction = 1;
+    else if (fraction < 3) niceFraction = 2;
+    else if (fraction < 7) niceFraction = 5;
+    else niceFraction = 10;
+  } else if (fraction <= 1) niceFraction = 1;
+  else if (fraction <= 2) niceFraction = 2;
+  else if (fraction <= 5) niceFraction = 5;
+  else niceFraction = 10;
+
+  return niceFraction * (10 ** exponent);
+}
+
+function buildLinearYAxisConfig(values, tickCount = 10) {
+  const safeValues = values.filter((value) => Number.isFinite(value) && value >= 0);
+  if (!safeValues.length) {
+    return {
+      min: 1,
+      max: 10,
+      tickvals: [1, 5, 10],
+      ticktext: [fmtUsd(1, 0), fmtUsd(5, 0), fmtUsd(10, 0)],
+    };
+  }
+
+  const minValue = Math.min(...safeValues);
+  const maxValue = Math.max(...safeValues);
+  const rawSpan = maxValue - minValue;
+  const span = rawSpan > 1e-9 ? rawSpan : Math.max(Math.abs(maxValue) * 0.1, 1);
+  const pad = span * 0.05;
+  const paddedMin = minValue - pad;
+  const paddedMax = maxValue + pad;
+  const range = niceNumber(Math.max(paddedMax - paddedMin, Math.abs(maxValue) * 0.15), false);
+  const step = niceNumber(range / Math.max(2, tickCount - 1), true);
+  const minTick = Math.ceil(paddedMin / step) * step;
+  const maxTick = Math.floor(paddedMax / step) * step;
+  const tickvals = [];
+
+  for (let value = minTick; value <= maxTick + (step * 0.5); value += step) {
+    tickvals.push(Number(value.toPrecision(12)));
+  }
+
+  if (!tickvals.length) {
+    tickvals.push(Number(paddedMax.toPrecision(12)));
+  }
+
+  return {
+    min: paddedMin,
+    max: paddedMax,
+    tickvals,
+    ticktext: tickvals.map((value) => formatPriceAxisTick(value)),
+  };
+}
+
+function buildYScaleConfig(values, scaleMode) {
+  if (scaleMode === "log") {
+    const safeValues = values.filter((value) => Number.isFinite(value) && value > 0);
+    if (!safeValues.length) {
+      const linear = buildLinearYAxisConfig(values);
+      return {
+        ...linear,
+        map(value, plotTop, plotHeight) {
+          if (!Number.isFinite(value)) return NaN;
+          const ratio = (value - linear.min) / Math.max(1e-9, linear.max - linear.min);
+          return plotTop + ((1 - ratio) * plotHeight);
+        },
+      };
+    }
+
+    let minValue = Math.min(...safeValues);
+    let maxValue = Math.max(...safeValues);
+
+    if (Math.abs(maxValue - minValue) < 1e-9) {
+      minValue *= 0.92;
+      maxValue *= 1.08;
+    }
+
+    const minLog = Math.log10(minValue);
+    const maxLog = Math.log10(maxValue);
+    const logSpan = Math.max(1e-9, maxLog - minLog);
+    const logPad = logSpan * 0.05;
+    const domainMinLog = minLog - logPad;
+    const domainMaxLog = maxLog + logPad;
+    const min = 10 ** domainMinLog;
+    const max = 10 ** domainMaxLog;
+    const ticks = buildLogTickConfig(safeValues)
+      .tickvals
+      .filter((value) => value >= min && value <= max);
+    const ticktext = ticks.map((value) => fmtUsdCompactTick(value));
+
+    return {
+      min,
+      max,
+      tickvals: ticks,
+      ticktext,
+      map(value, plotTop, plotHeight) {
+        if (!Number.isFinite(value) || value <= 0) return NaN;
+        const ratio = (Math.log10(value) - domainMinLog) / Math.max(1e-9, domainMaxLog - domainMinLog);
+        return plotTop + ((1 - ratio) * plotHeight);
+      },
+    };
+  }
+
+  const linear = buildLinearYAxisConfig(values);
+  return {
+    ...linear,
+    map(value, plotTop, plotHeight) {
+      if (!Number.isFinite(value)) return NaN;
+      const ratio = (value - linear.min) / Math.max(1e-9, linear.max - linear.min);
+      return plotTop + ((1 - ratio) * plotHeight);
+    },
+  };
+}
+
+function filterTicksByPixelSpacing(tickvals, ticktext, positionForValue, minSpacing, options = {}) {
+  const values = Array.isArray(tickvals) ? tickvals : [];
+  const text = Array.isArray(ticktext) ? ticktext : [];
+  if (values.length <= 2) {
+    return { tickvals: values.slice(), ticktext: text.slice() };
+  }
+
+  const preserveFirst = options.preserveFirst !== false;
+  const preserveLast = options.preserveLast !== false;
+  const kept = [];
+  let lastPos = null;
+
+  values.forEach((value, index) => {
+    const pos = positionForValue(value, index);
+    if (!Number.isFinite(pos)) return;
+    const isFirst = index === 0;
+    const isLast = index === values.length - 1;
+
+    if ((preserveFirst && isFirst) || (preserveLast && isLast)) {
+      kept.push(index);
+      lastPos = pos;
+      return;
+    }
+
+    if (lastPos == null || Math.abs(pos - lastPos) >= minSpacing) {
+      kept.push(index);
+      lastPos = pos;
+    }
+  });
+
+  if (preserveLast && kept[kept.length - 1] !== values.length - 1) {
+    kept.push(values.length - 1);
+  }
+
+  const uniqueKept = Array.from(new Set(kept)).sort((left, right) => left - right);
+  return {
+    tickvals: uniqueKept.map((index) => values[index]),
+    ticktext: uniqueKept.map((index) => text[index]),
+  };
+}
+
+function limitTicksToCount(ticks, targetCount) {
+  const values = Array.isArray(ticks?.tickvals) ? ticks.tickvals : [];
+  const text = Array.isArray(ticks?.ticktext) ? ticks.ticktext : [];
+  const desiredCount = Math.max(2, Math.round(targetCount || 0));
+
+  if (values.length <= desiredCount) {
+    return {
+      tickvals: values.slice(),
+      ticktext: text.slice(),
+    };
+  }
+
+  const lastIndex = values.length - 1;
+  const kept = new Set([0, lastIndex]);
+
+  // Keep all whole-year duration markers (e.g. 1Y, 2Y, 4Y) so key anchors
+  // are never dropped when matching top-axis density.
+  text.forEach((label, index) => {
+    if (/^\d+Y$/i.test(String(label || "").trim())) {
+      kept.add(index);
+    }
+  });
+
+  for (let i = 1; i < desiredCount - 1; i += 1) {
+    const ratio = i / Math.max(1, desiredCount - 1);
+    kept.add(Math.round(ratio * lastIndex));
+  }
+
+  const indices = Array.from(kept).sort((left, right) => left - right);
+  return {
+    tickvals: indices.map((index) => values[index]),
+    ticktext: indices.map((index) => text[index]),
+  };
+}
+
+function buildLinePath(days, values, xForDay, yForValue) {
+  let path = "";
+  let started = false;
+
+  for (let index = 0; index < days.length; index += 1) {
+    const day = days[index];
+    const value = values[index];
+    if (!Number.isFinite(day) || !Number.isFinite(value) || value <= 0) {
+      started = false;
+      continue;
+    }
+
+    const x = xForDay(day);
+    const y = yForValue(value);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      started = false;
+      continue;
+    }
+
+    path += `${started ? "L" : "M"}${x.toFixed(2)},${y.toFixed(2)} `;
+    started = true;
+  }
+
+  return path.trim();
+}
+
+function buildChartSvgMarkup(options) {
+  const {
+    width,
+    height,
+    plotLeft,
+    plotRight,
+    plotTop,
+    plotBottom,
+    xForDay,
+    yForValue,
+    bottomTicks,
+    topTicks,
+    rightTicks,
+    colors,
+    rows,
+    priceUp,
+    priceDown,
+    dcaBasis,
+    currentPrice,
+    maxDays,
+    topTitleY,
+    topTickY,
+    bottomTickY,
+    bottomTitleY,
+  } = options;
+
+  const plotWidth = plotRight - plotLeft;
+  const plotHeight = plotBottom - plotTop;
+  const xDays = rows.map((row) => row.daysAgo);
+  const basisPath = buildLinePath(xDays, dcaBasis, xForDay, yForValue);
+  const upPath = buildLinePath(xDays, priceUp, xForDay, yForValue);
+  const downPath = buildLinePath(xDays, priceDown, xForDay, yForValue);
+  const currentY = yForValue(currentPrice);
+
+  const topVerticalGrid = topTicks.tickvals.map((day) => {
+    const x = xForDay(day);
+    return `<line x1="${x.toFixed(2)}" y1="${plotTop}" x2="${x.toFixed(2)}" y2="${plotBottom}" stroke="${colors.grid}" stroke-width="1" />`;
+  }).join("");
+
+  const verticalGrid = bottomTicks.tickvals.map((day) => {
+    const x = xForDay(day);
+    return `<line x1="${x.toFixed(2)}" y1="${plotTop}" x2="${x.toFixed(2)}" y2="${plotBottom}" stroke="${colors.grid}" stroke-width="1" />`;
+  }).join("");
+
+  const horizontalGrid = rightTicks.tickvals.map((value) => {
+    const y = yForValue(value);
+    return `<line x1="${plotLeft}" y1="${y.toFixed(2)}" x2="${plotRight}" y2="${y.toFixed(2)}" stroke="${colors.grid}" stroke-width="1" />`;
+  }).join("");
+
+  const bottomTickLabels = bottomTicks.tickvals.map((day, index) => {
+    const x = xForDay(day);
+    return `<text x="${x.toFixed(2)}" y="${bottomTickY}" text-anchor="middle" fill="${colors.fg}" font-family="IBM Plex Mono, monospace" font-size="12">${escapeHtml(bottomTicks.ticktext[index] || "")}</text>`;
+  }).join("");
+
+  const topTickLabels = topTicks.tickvals.map((day, index) => {
+    const x = xForDay(day);
+    return `<text x="${x.toFixed(2)}" y="${topTickY}" text-anchor="middle" fill="${colors.fg}" font-family="IBM Plex Mono, monospace" font-size="11">${escapeHtml(topTicks.ticktext[index] || "")}</text>`;
+  }).join("");
+
+  const rightTickLabels = rightTicks.tickvals.map((value, index) => {
+    const y = yForValue(value);
+    return `<text x="${plotRight + 8}" y="${(y + 4).toFixed(2)}" text-anchor="start" fill="${colors.fg}" font-family="IBM Plex Mono, monospace" font-size="11">${escapeHtml(rightTicks.ticktext[index] || "")}</text>`;
+  }).join("");
+
+  const halvingLines = buildHalvingShapes(maxDays, colors).map((shape) => {
+    const x = xForDay(shape.x0);
+    return `<line x1="${x.toFixed(2)}" y1="${plotTop}" x2="${x.toFixed(2)}" y2="${plotBottom}" stroke="${shape.line.color}" stroke-width="${shape.line.width}" stroke-dasharray="4 4" />`;
+  }).join("");
+
+  const halvingLabels = buildHalvingAnnotations(maxDays, colors).map((annotation) => {
+    const lineX = xForDay(annotation.x);
+    const isLeftLabel = annotation.xanchor === "right";
+    const anchorY = plotTop + 6;
+    const anchorX = lineX + (isLeftLabel ? -18 : 9);
+    const textAnchor = "end";
+    return `<text x="${anchorX.toFixed(2)}" y="${anchorY.toFixed(2)}" transform="rotate(270 ${anchorX.toFixed(2)} ${anchorY.toFixed(2)})" text-anchor="${textAnchor}" dominant-baseline="hanging" fill="${annotation.font.color}" font-family="IBM Plex Mono, monospace" font-size="${annotation.font.size}">${escapeHtml(annotation.text)}</text>`;
+  }).join("");
+
+  const frameLines = [
+    `<line x1="${plotRight}" y1="${plotTop}" x2="${plotRight}" y2="${plotBottom}" stroke="${colors.grid}" stroke-width="1" />`,
+  ].join("");
+
+  const currentLine = Number.isFinite(currentY)
+    ? `<line x1="${plotLeft}" y1="${currentY.toFixed(2)}" x2="${plotRight}" y2="${currentY.toFixed(2)}" stroke="${colors.currentLine}" stroke-width="1.5" stroke-dasharray="6 4" />`
+    : "";
+
+  return `
+    <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" aria-label="DCA cost basis chart" role="img">
+      <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>
+      ${topVerticalGrid}
+      ${verticalGrid}
+      ${horizontalGrid}
+      ${frameLines}
+      ${halvingLines}
+      ${currentLine}
+      ${upPath ? `<path d="${upPath}" fill="none" stroke="${colors.up}" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+      ${downPath ? `<path d="${downPath}" fill="none" stroke="${colors.down}" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+      ${basisPath ? `<path d="${basisPath}" fill="none" stroke="${colors.basis}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+      <line class="dca-hover-line" x1="${plotLeft}" y1="${plotTop}" x2="${plotLeft}" y2="${plotBottom}" stroke="${colors.fg}" stroke-width="1" stroke-dasharray="5 4" visibility="hidden"></line>
+      ${bottomTickLabels}
+      ${topTickLabels}
+      ${rightTickLabels}
+      ${halvingLabels}
+      <text x="${(plotLeft + (plotWidth / 2)).toFixed(2)}" y="${bottomTitleY}" text-anchor="middle" fill="${colors.fg}" font-family="Space Grotesk, sans-serif" font-size="12">DCA Duration</text>
+      <text x="${(plotLeft + (plotWidth / 2)).toFixed(2)}" y="${topTitleY}" text-anchor="middle" fill="${colors.fg}" font-family="Space Grotesk, sans-serif" font-size="12">DCA Starting Date</text>
+    </svg>
+  `;
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -694,10 +1223,11 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
-function getCadencePurchaseLabel() {
-  if (state.cadence === "weekly_dca") return "Weekly Purchases";
-  if (state.cadence === "monthly_dca") return "Monthly Purchases";
-  return "Daily Purchases";
+function getCadenceDurationText(purchaseCount) {
+  const count = Math.max(0, Math.round(Number(purchaseCount) || 0));
+  if (state.cadence === "weekly_dca") return `${count.toLocaleString("en-US")} ${count === 1 ? "Week" : "Weeks"}`;
+  if (state.cadence === "monthly_dca") return `${count.toLocaleString("en-US")} ${count === 1 ? "Month" : "Months"}`;
+  return `${count.toLocaleString("en-US")} ${count === 1 ? "Day" : "Days"}`;
 }
 
 function findNearestRowByDays(rows, daysAgo) {
@@ -787,12 +1317,12 @@ function showChartTooltip(chart, hoverRow, hoverEvent) {
   const roiText = Number.isFinite(roi) ? `${roi >= 0 ? "+" : ""}${roi.toFixed(1)}%` : "-";
 
   tooltip.innerHTML = [
-    `<div class="tooltip-row"><span class="tooltip-label">Start Date:</span><span>${escapeHtml(startDate)}</span></div>`,
-    `<div class="tooltip-row"><span class="tooltip-label">Start Price:</span><span>${escapeHtml(fmtUsd(startPrice, 2))}</span></div>`,
-    `<div class="tooltip-row"><span class="tooltip-label">${escapeHtml(getCadencePurchaseLabel())}:</span><span>${escapeHtml(Number(hoverRow.purchaseCount || 0).toLocaleString("en-US"))}</span></div>`,
-    `<div class="tooltip-row"><span class="tooltip-label">Current Price:</span><span>${escapeHtml(fmtUsd(currentPrice, 2))}</span></div>`,
+    `<div class="tooltip-row"><span class="tooltip-label">&nbsp;Starting Date:</span><span>${escapeHtml(startDate)}</span></div>`,
+    `<div class="tooltip-row"><span class="tooltip-label">&nbsp;&nbsp;DCA Duration:</span><span>${escapeHtml(getCadenceDurationText(hoverRow.purchaseCount))}</span></div>`,
+    `<div class="tooltip-row"><span class="tooltip-label">Starting Price:</span><span>${escapeHtml(fmtUsd(startPrice, 2))}</span></div>`,
+    `<div class="tooltip-row"><span class="tooltip-label">&nbsp;Current Price:</span><span>${escapeHtml(fmtUsd(currentPrice, 2))}</span></div>`,
     `<div class="tooltip-row"><span class="tooltip-label">DCA Cost Basis:</span><span class="tooltip-value-accent">${escapeHtml(fmtUsd(basis, 2))}</span></div>`,
-    `<div class="tooltip-row"><span class="tooltip-label">ROI:</span><span class="${roiClass}">${escapeHtml(roiText)}</span></div>`,
+    `<div class="tooltip-row"><span class="tooltip-label">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ROI:</span><span class="${roiClass}">${escapeHtml(roiText)}</span></div>`,
   ].join("");
 
   tooltip.classList.add("show");
@@ -812,28 +1342,50 @@ function bindChartTooltip(chart) {
   if (!chart || chart.dataset.customTooltipBound === "1") return;
   chart.dataset.customTooltipBound = "1";
 
-  chart.on("plotly_hover", (eventData) => {
+  chart.addEventListener("mousemove", (event) => {
     const rows = chart.__dcaTooltipRows || [];
-    if (!rows.length) {
+    const geometry = chart.__dcaChartGeometry;
+    const hoverLine = chart.querySelector(".dca-hover-line");
+    if (!rows.length || !geometry || !hoverLine) {
       hideChartTooltip();
       return;
     }
 
-    const daysAgo = Number(eventData?.points?.[0]?.x);
-    const hoverRow = rows.find((r) => r.daysAgo === daysAgo) || findNearestRowByDays(rows, daysAgo);
+    const rect = chart.getBoundingClientRect();
+    const localX = event.clientX - rect.left;
+    const localY = event.clientY - rect.top;
+    if (
+      localX < geometry.plotLeft ||
+      localX > geometry.plotRight ||
+      localY < geometry.plotTop ||
+      localY > geometry.plotBottom
+    ) {
+      hoverLine.setAttribute("visibility", "hidden");
+      hideChartTooltip();
+      return;
+    }
+
+    const ratio = (localX - geometry.plotLeft) / Math.max(1, geometry.plotRight - geometry.plotLeft);
+    const estimatedDaysAgo = geometry.maxDays - (ratio * (geometry.maxDays - 1));
+    const hoverRow = rows.find((row) => row.daysAgo === Math.round(estimatedDaysAgo)) || findNearestRowByDays(rows, estimatedDaysAgo);
     if (!hoverRow) {
+      hoverLine.setAttribute("visibility", "hidden");
       hideChartTooltip();
       return;
     }
 
-    showChartTooltip(chart, hoverRow, eventData?.event);
-  });
-
-  chart.on("plotly_unhover", () => {
-    hideChartTooltip();
+    const hoverX = geometry.xForDay(hoverRow.daysAgo);
+    hoverLine.setAttribute("x1", hoverX.toFixed(2));
+    hoverLine.setAttribute("x2", hoverX.toFixed(2));
+    hoverLine.setAttribute("y1", geometry.plotTop.toFixed(2));
+    hoverLine.setAttribute("y2", geometry.plotBottom.toFixed(2));
+    hoverLine.setAttribute("visibility", "visible");
+    showChartTooltip(chart, hoverRow, event);
   });
 
   chart.addEventListener("mouseleave", () => {
+    const hoverLine = chart.querySelector(".dca-hover-line");
+    if (hoverLine) hoverLine.setAttribute("visibility", "hidden");
     hideChartTooltip();
   });
 }
@@ -864,9 +1416,10 @@ function renderChart() {
   }
 
   const chart = document.getElementById("costBasisChart");
-  if (!chart || !window.Plotly) return;
+  if (!chart) return;
 
   if (!rows.length) {
+    chart.innerHTML = "";
     hideChartTooltip();
     return;
   }
@@ -937,10 +1490,10 @@ function renderChart() {
   const dateTicks = buildDateTickConfig(rows);
 
   const allYValues = [
-    ...historicalPrice.filter((v) => Number.isFinite(v) && v > 0),
-    ...dcaBasis.filter((v) => Number.isFinite(v) && v > 0),
+    ...historicalPrice.filter((v) => Number.isFinite(v) && v >= 0),
+    ...dcaBasis.filter((v) => Number.isFinite(v) && v >= 0),
   ];
-  if (Number.isFinite(rawCurrentPrice) && rawCurrentPrice > 0) {
+  if (Number.isFinite(rawCurrentPrice) && rawCurrentPrice >= 0) {
     allYValues.push(rawCurrentPrice);
   }
 
@@ -959,7 +1512,6 @@ function renderChart() {
     showlegend: true,
   });
 
-  // Invisible anchor trace required for Plotly to render xaxis2.
   traces.push({
     type: "scatter",
     mode: "lines",
@@ -977,103 +1529,89 @@ function renderChart() {
     ? buildLogTickConfig(allYValues)
     : { tickvals: [], ticktext: [] };
 
-  const layout = {
-    paper_bgcolor: "rgba(0,0,0,0)",
-    plot_bgcolor: "rgba(0,0,0,0)",
-    margin: { l: 24, r: 88, t: 50, b: 52 },
-    hovermode: "x unified",
-    hoverdistance: 5,
-    hoverlabel: {
-      font: { family: "IBM Plex Mono, monospace", size: 12, color: colors.fg },
-      bgcolor: document.documentElement.dataset.theme === "light" ? "#ffffff" : "#000000",
-      bordercolor: document.documentElement.dataset.theme === "light" ? "rgba(0,0,0,0.12)" : "#223038",
-    },
-    showlegend: false,
-    xaxis: {
-      type: "linear",
-      autorange: "reversed",
-      showgrid: true,
-      gridcolor: colors.grid,
-      showspikes: true,
-      spikemode: "across",
-      spikesnap: "cursor",
-      spikecolor: colors.fg,
-      spikethickness: 1,
-      spikedash: "dash",
-      tickmode: "array",
-      tickvals: ticks.tickvals,
-      ticktext: ticks.ticktext,
-      tickangle: 0,
-      automargin: true,
-      tickfont: { family: "IBM Plex Mono, monospace", color: colors.fg, size: 12 },
-      title: {
-        text: "DCA Duration",
-        font: { family: "Space Grotesk, sans-serif", size: 12, color: colors.fg },
-        standoff: 8,
-      },
-    },
-    xaxis2: {
-      matches: "x",
-      overlaying: "x",
-      side: "top",
-      showgrid: true,
-      gridcolor: colors.grid,
-      zeroline: false,
-      showline: false,
-      tickmode: "array",
-      tickvals: dateTicks.tickvals,
-      ticktext: dateTicks.ticktext,
-      tickangle: 0,
-      automargin: true,
-      tickfont: { family: "IBM Plex Mono, monospace", color: colors.fg, size: 11 },
-      title: {
-        text: "DCA Starting Point",
-        font: { family: "Space Grotesk, sans-serif", size: 12, color: colors.fg },
-        standoff: 8,
-      },
-    },
-    yaxis: {
-      type: state.yScale,
-      side: "right",
-      showgrid: true,
-      gridcolor: colors.grid,
-      showspikes: false,
-      tickmode: state.yScale === "log" ? "array" : "auto",
-      tickvals: state.yScale === "log" ? logTicks.tickvals : undefined,
-      ticktext: state.yScale === "log" ? logTicks.ticktext : undefined,
-      tickprefix: state.yScale === "log" ? undefined : "$",
-      separatethousands: state.yScale === "log" ? undefined : true,
-      tickfont: { family: "IBM Plex Mono, monospace", color: colors.fg, size: 11 },
-    },
-    shapes: [
-      {
-        type: "line",
-        x0: maxDays,
-        x1: 1,
-        y0: currentPrice,
-        y1: currentPrice,
-        line: { color: colors.currentLine, width: 1.5, dash: "dash" },
-      },
-      ...buildHalvingShapes(maxDays, colors),
-    ],
-    annotations: [
-      ...buildHalvingAnnotations(maxDays, colors),
-    ],
-  };
-
-  const config = {
-    responsive: true,
-    displaylogo: false,
-    displayModeBar: false,
-  };
-
+  // Render legend first so height measurements are consistent on initial load.
   syncCustomLegend(traces, colors);
 
-  Plotly.react(chart, traces, layout, config).then(() => {
-    bindChartTooltip(chart);
-    window.requestAnimationFrame(() => {
-      syncCurrentPriceOverlay(chart, currentPrice, colors);
-    });
+  // Clear before measuring so the old SVG's pixel height doesn't inflate
+  // chart.parentElement.clientHeight and cause the chart to grow on resize.
+  chart.innerHTML = "";
+
+  const legendEl = document.getElementById("chartLegend");
+  const hostHeight = chart.parentElement?.clientHeight || chart.clientHeight || 420;
+  const legendHeight = legendEl?.offsetHeight || 0;
+  const width = Math.max(320, Math.round(chart.clientWidth || chart.parentElement?.clientWidth || 900));
+  const height = Math.max(280, Math.round(hostHeight - legendHeight));
+  const margins = { top: 28, right: 88, bottom: 58, left: 24 };
+  const topTitleY = 24;
+  const topTickY = 44;
+  const bottomTickY = height - 40;
+  const bottomTitleY = height - 20;
+  const plotLeft = margins.left;
+  const plotRight = width - margins.right;
+  const plotTop = margins.top + 22;
+  const plotBottom = height - margins.bottom;
+  const yAxis = buildYScaleConfig(allYValues, state.yScale);
+  const xForDay = (day) => {
+    const ratio = (maxDays - day) / Math.max(1, maxDays - 1);
+    return plotLeft + (ratio * Math.max(1, plotRight - plotLeft));
+  };
+  const yForValue = (value) => yAxis.map(value, plotTop, Math.max(1, plotBottom - plotTop));
+  const rawBottomTicks = filterTicksByPixelSpacing(
+    ticks.tickvals,
+    ticks.ticktext,
+    (day) => xForDay(day),
+    width < 520 ? 56 : width < 860 ? 42 : 32,
+  );
+  const topTicks = filterTicksByPixelSpacing(
+    dateTicks.tickvals,
+    dateTicks.ticktext,
+    (day) => xForDay(day),
+    width < 520 ? 86 : width < 860 ? 68 : 54,
+  );
+  const bottomTicks = limitTicksToCount(rawBottomTicks, topTicks.tickvals.length);
+  const rightTicks = filterTicksByPixelSpacing(
+    state.yScale === "log" ? logTicks.tickvals : yAxis.tickvals,
+    state.yScale === "log" ? logTicks.ticktext : yAxis.ticktext,
+    (value) => yForValue(value),
+    18,
+    { preserveFirst: true, preserveLast: true },
+  );
+  chart.innerHTML = buildChartSvgMarkup({
+    width,
+    height,
+    plotLeft,
+    plotRight,
+    plotTop,
+    plotBottom,
+    xForDay,
+    yForValue,
+    bottomTicks,
+    topTicks,
+    rightTicks,
+    colors,
+    rows,
+    priceUp,
+    priceDown,
+    dcaBasis,
+    currentPrice,
+    maxDays,
+    topTitleY,
+    topTickY,
+    bottomTickY,
+    bottomTitleY,
+  });
+  chart.__dcaChartGeometry = {
+    plotLeft,
+    plotRight,
+    plotTop,
+    plotBottom,
+    maxDays,
+    xForDay,
+    yForValue,
+  };
+  bindChartTooltip(chart);
+  window.requestAnimationFrame(() => {
+    syncCurrentPriceOverlay(chart, currentPrice, colors);
   });
 }
 
@@ -1085,18 +1623,21 @@ function bindControls() {
 
   cadenceSelect?.addEventListener("change", () => {
     state.cadence = cadenceSelect.value;
+    syncSelectDropdown("cadenceSelect", "cadenceDropdownTrigger", "cadenceDropdownMenu");
     saveControls();
     renderChart();
   });
 
   rangeSelect?.addEventListener("change", () => {
     state.rangeDays = Number(rangeSelect.value || "0");
+    syncSelectDropdown("rangeSelect", "rangeDropdownTrigger", "rangeDropdownMenu");
     saveControls();
     renderChart();
   });
 
   scaleSelect?.addEventListener("change", () => {
     state.yScale = scaleSelect.value;
+    syncSelectDropdown("scaleSelect", "scaleDropdownTrigger", "scaleDropdownMenu");
     saveControls();
     renderChart();
   });
@@ -1179,6 +1720,7 @@ function bindHalFinneyEasterEgg() {
 async function init() {
   try {
     loadControls();
+    bindSelectDropdowns();
     populateUpdatedTimeZoneSelect();
     bindTimeZoneChipEvents();
     bindHalFinneyEasterEgg();
@@ -1195,17 +1737,7 @@ async function init() {
       });
     }
 
-    const plotlyPromise = Promise.race([
-      ensurePlotlyLoaded(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("Timed out loading Plotly.")), 12000)),
-    ]);
-
-    const dataPromise = loadData();
-
-    await dataPromise;
-    renderChart();
-
-    await plotlyPromise;
+    await loadData();
     renderChart();
   } catch (err) {
     console.error(err);

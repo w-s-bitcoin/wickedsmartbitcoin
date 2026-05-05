@@ -161,6 +161,28 @@
       font-size: 0.8rem;
       padding: 5px 9px;
       white-space: nowrap;
+      overflow: visible;
+    }
+
+    .controls label.chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0;
+      position: relative;
+      overflow: visible;
+    }
+
+    .controls label.chip:has(.dca-dropdown),
+    .controls label.chip:has(.dca-dropdown) .dca-dropdown,
+    .controls label.chip:has(.dca-dropdown) .dca-dropdown-value {
+      cursor: pointer;
+    }
+
+    .dca-dropdown-pill,
+    .dca-dropdown-pill .dca-dropdown,
+    .dca-dropdown-pill .dca-dropdown-value,
+    .dca-dropdown-pill .chip-kpi-display {
+      cursor: pointer;
     }
 
     .controls {
@@ -180,9 +202,17 @@
     #chipUpdated {
       max-width: 100%;
       min-width: 0;
-      overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+
+    #updatedChipWrap {
+      overflow: visible;
+    }
+
+    #updatedChipWrap .chip-kpi-display,
+    #chipUpdated {
+      overflow: hidden;
     }
 
     .chip-kpi-display {
@@ -206,18 +236,47 @@
     .chip-menu-wrap.single-select::after {
       content: '';
       position: absolute;
-      right: 10px;
+      right: 8px;
       top: 50%;
-      width: 6px;
-      height: 6px;
-      border-right: 1.5px solid var(--caret-chevron);
-      border-bottom: 1.5px solid var(--caret-chevron);
-      transform: translateY(-70%) rotate(45deg);
-      opacity: 0.8;
+      width: 12px;
+      height: 12px;
       pointer-events: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237a756e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: center;
+      transform: translateY(-50%);
+      opacity: 0.9;
+      transition: transform 140ms ease;
     }
 
-    .chip-menu-select.chip-kpi-select-overlay {
+    .dca-dropdown::after {
+      content: '';
+      position: absolute;
+      right: 0px;
+      top: 50%;
+      width: 12px;
+      height: 12px;
+      pointer-events: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237a756e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: center;
+      transform: translateY(-50%);
+      opacity: 0.9;
+      transition: transform 140ms ease;
+    }
+
+    :root:not([data-theme="light"]) .chip-menu-wrap.single-select::after,
+    :root:not([data-theme="light"]) .dca-dropdown::after {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23d6e1e6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    }
+
+    .chip-menu-wrap.single-select.is-open::after,
+    .dca-dropdown.is-open::after {
+      transform: translateY(-50%) rotate(180deg);
+    }
+
+    .chip-menu-select.chip-kpi-select-overlay,
+    .dca-dropdown-trigger {
       position: absolute;
       inset: 0;
       width: 100%;
@@ -234,9 +293,140 @@
     }
 
     .chip-menu-select.chip-kpi-select-overlay:focus,
-    .chip-menu-select.chip-kpi-select-overlay:focus-visible {
+    .chip-menu-select.chip-kpi-select-overlay:focus-visible,
+    .dca-dropdown-trigger:focus,
+    .dca-dropdown-trigger:focus-visible {
       outline: none;
       box-shadow: none;
+    }
+
+    .dca-dropdown {
+      --dca-dropdown-content-pad: 10px;
+      --dca-dropdown-arrow-gap: 18px;
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      min-width: 0;
+      max-width: 100%;
+      margin-left: 0;
+      padding-right: 0;
+      flex: 0 0 auto;
+    }
+
+    .dca-dropdown-value {
+      display: block;
+      width: 100%;
+      color: var(--fg);
+      font: inherit;
+      line-height: inherit;
+      text-align: left;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      overflow: hidden;
+      max-width: 100%;
+      padding: 0 var(--dca-dropdown-arrow-gap) 0 var(--dca-dropdown-content-pad);
+      pointer-events: none;
+    }
+
+    .dca-dropdown-trigger {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      padding: 0;
+      margin: 0;
+      border: 0;
+      background: transparent;
+      z-index: 3;
+    }
+
+    .dca-dropdown-overlay {
+      position: absolute;
+      inset: 0;
+      padding-right: 0;
+      z-index: 2;
+    }
+
+    .dca-dropdown-overlay::after {
+      display: none;
+    }
+
+    .dca-native-select {
+      display: none !important;
+    }
+
+    .dca-dropdown-menu {
+      position: absolute;
+      left: -4px;
+      top: calc(100% + 8px);
+      width: calc(100% + 8px);
+      min-width: calc(100% + 8px);
+      max-width: calc(100% + 8px);
+      max-height: min(300px, 50vh);
+      overflow: auto;
+      z-index: 140;
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      background: var(--card-bg);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+      padding: 4px;
+      display: none;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 2px;
+    }
+
+    .dca-dropdown-menu.open {
+      display: flex;
+    }
+
+    #updatedTimeZoneDropdownMenu {
+      left: 0 !important;
+      width: min(340px, calc(100vw - 24px)) !important;
+      min-width: max(100%, 240px) !important;
+      max-width: min(340px, calc(100vw - 24px)) !important;
+    }
+
+    .dca-option-btn {
+      display: flex;
+      align-items: center;
+      width: 100%;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--fg);
+      text-align: left;
+      padding: 8px var(--dca-dropdown-content-pad);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 12px;
+      line-height: 1.35;
+      min-height: 32px;
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .dca-option-btn:hover,
+    .dca-option-btn:focus-visible {
+      background: rgba(255, 255, 255, 0.12);
+      color: var(--fg);
+      outline: none;
+    }
+
+    :root[data-theme="light"] .dca-option-btn:hover,
+    :root[data-theme="light"] .dca-option-btn:focus-visible {
+      background: rgba(0, 0, 0, 0.08);
+    }
+
+    .dca-option-btn--selected {
+      color: var(--accent);
+    }
+
+    .dca-option-btn--selected:hover,
+    .dca-option-btn--selected:focus-visible {
+      color: var(--accent);
     }
 
     .chip-menu-wrap.single-select:hover .chip-kpi-display,
@@ -354,18 +544,8 @@
 
     #costBasisChart {
       width: 100%;
-      height: auto;
-    }
-
-    #costBasisChart .spikeline {
-      stroke: var(--fg) !important;
-      stroke-width: 0.85px !important;
-      stroke-dasharray: 5 4 !important;
-    }
-
-    #costBasisChart .hoverlayer .hovertext,
-    #costBasisChart .hoverlayer .axistext {
-      display: none !important;
+      height: 100%;
+      position: relative;
     }
 
     .tooltip {
@@ -527,7 +707,11 @@
       <div class="chips" id="statusChips">
         <div class="chip-menu-wrap single-select" id="updatedChipWrap">
           <div class="chip chip-kpi-display" id="chipUpdated"><span class="chip-label">Updated</span> <span class="chip-value">-</span></div>
-          <select id="updatedTimeZoneSelect" class="chip-menu-select chip-kpi-select-overlay" aria-label="Updated timestamp time zone"></select>
+          <div id="updatedTimeZoneDropdown" class="dca-dropdown dca-dropdown-overlay">
+            <button id="updatedTimeZoneDropdownTrigger" type="button" class="dca-dropdown-trigger" aria-label="Updated timestamp time zone"></button>
+            <div id="updatedTimeZoneDropdownMenu" class="dca-dropdown-menu" aria-label="Updated timestamp time zone options"></div>
+          </div>
+          <select id="updatedTimeZoneSelect" class="chip-menu-select chip-kpi-select-overlay dca-native-select" aria-label="Updated timestamp time zone"></select>
         </div>
         <div class="chip" id="chipHeight"><span class="chip-label">Block Height</span> <span class="chip-value">-</span></div>
         <div class="chip" id="chipSpot"><span class="chip-label">Price</span> <span class="chip-value">-</span></div>
@@ -536,7 +720,12 @@
       </div>
       <div class="controls">
         <label class="chip">Cadence
-          <select id="cadenceSelect">
+          <div id="cadenceDropdown" class="dca-dropdown">
+            <span id="cadenceDropdownValue" class="dca-dropdown-value">Daily DCA</span>
+            <button id="cadenceDropdownTrigger" type="button" class="dca-dropdown-trigger"></button>
+            <div id="cadenceDropdownMenu" class="dca-dropdown-menu"></div>
+          </div>
+          <select id="cadenceSelect" class="dca-native-select">
             <option value="daily_dca">Daily DCA</option>
             <option value="weekly_dca">Weekly DCA</option>
             <option value="monthly_dca">Monthly DCA</option>
@@ -544,7 +733,12 @@
         </label>
 
         <label class="chip">Range
-          <select id="rangeSelect">
+          <div id="rangeDropdown" class="dca-dropdown">
+            <span id="rangeDropdownValue" class="dca-dropdown-value">All</span>
+            <button id="rangeDropdownTrigger" type="button" class="dca-dropdown-trigger"></button>
+            <div id="rangeDropdownMenu" class="dca-dropdown-menu"></div>
+          </div>
+          <select id="rangeSelect" class="dca-native-select">
             <option value="365">1Y</option>
             <option value="730">2Y</option>
             <option value="1460">4Y</option>
@@ -554,7 +748,12 @@
         </label>
 
         <label class="chip">Scale
-          <select id="scaleSelect">
+          <div id="scaleDropdown" class="dca-dropdown">
+            <span id="scaleDropdownValue" class="dca-dropdown-value">Linear</span>
+            <button id="scaleDropdownTrigger" type="button" class="dca-dropdown-trigger"></button>
+            <div id="scaleDropdownMenu" class="dca-dropdown-menu"></div>
+          </div>
+          <select id="scaleSelect" class="dca-native-select">
             <option value="linear" selected>Linear</option>
             <option value="log">Log</option>
           </select>
