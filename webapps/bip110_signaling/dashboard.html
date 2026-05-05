@@ -160,6 +160,9 @@
       background: var(--card-bg);
       box-shadow: none;
       backdrop-filter: none;
+      overflow: visible;
+      position: relative;
+      z-index: 50;
     }
 
 
@@ -263,61 +266,207 @@
       color: var(--signal);
     }
 
+    .dca-dropdown-pill,
+    .dca-dropdown-pill .dca-dropdown,
+    .dca-dropdown-pill .dca-dropdown-value,
+    .dca-dropdown-pill .chip-kpi-display {
+      cursor: pointer;
+    }
+
+    .dca-dropdown-pill {
+      flex: 0 0 auto;
+      min-width: max-content;
+    }
+
     .chip-menu-wrap.single-select {
       position: relative;
       display: inline-block;
+      max-width: 100%;
     }
 
     .chip-menu-wrap.single-select::after {
       content: '';
       position: absolute;
-      right: 10px;
+      right: 8px;
       top: 50%;
-      width: 6px;
-      height: 6px;
-      border-right: 1.5px solid var(--caret-chevron);
-      border-bottom: 1.5px solid var(--caret-chevron);
-      transform: translateY(-70%) rotate(45deg);
-      opacity: 0.8;
+      width: 12px;
+      height: 12px;
       pointer-events: none;
+      border: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237a756e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: center;
+      transform: translateY(-50%);
+      opacity: 0.9;
+      transition: transform 140ms ease;
     }
 
-    .chip-kpi-select-overlay {
+    :root:not([data-theme="light"]) .chip-menu-wrap.single-select::after,
+    :root:not([data-theme="light"]) .dca-dropdown::after {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23d6e1e6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    }
+
+    .chip-menu-wrap.single-select.is-open::after,
+    .dca-dropdown.is-open::after {
+      transform: translateY(-50%) rotate(180deg);
+    }
+
+    .chip-menu-select.chip-kpi-select-overlay,
+    .dca-dropdown-trigger {
       position: absolute;
       inset: 0;
       width: 100%;
       height: 100%;
       opacity: 0;
       cursor: pointer;
-      border: 0;
+      border: none;
+      padding: 0;
+      margin: 0;
       appearance: none;
       -webkit-appearance: none;
+      background: transparent;
+      color: transparent;
       font-size: 16px;
     }
 
-    .chip-menu-wrap.single-select:hover .chip-kpi-display,
-    .chip-menu-wrap.single-select:focus-within .chip-kpi-display {
-      color: var(--signal);
-      border-color: rgba(255, 152, 0, 0.55);
+    .chip-menu-select.chip-kpi-select-overlay:focus,
+    .chip-menu-select.chip-kpi-select-overlay:focus-visible,
+    .dca-dropdown-trigger:focus,
+    .dca-dropdown-trigger:focus-visible {
+      outline: none;
+      box-shadow: none;
+    }
+
+    .dca-dropdown {
+      --dca-dropdown-content-pad: 10px;
+      --dca-dropdown-arrow-gap: 18px;
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      min-width: 0;
+      max-width: 100%;
+      margin-left: 0;
+      padding-right: 0;
+      flex: 0 0 auto;
+    }
+
+    .dca-dropdown::after {
+      content: '';
+      position: absolute;
+      right: 0;
+      top: 50%;
+      width: 12px;
+      height: 12px;
+      pointer-events: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237a756e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: center;
+      transform: translateY(-50%);
+      opacity: 0.9;
+      transition: transform 140ms ease;
+    }
+
+    .dca-dropdown-value {
+      display: block;
+      width: 100%;
+      color: var(--fg);
+      font: inherit;
+      line-height: inherit;
+      text-align: left;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      overflow: hidden;
+      max-width: 100%;
+      padding: 0 var(--dca-dropdown-arrow-gap) 0 var(--dca-dropdown-content-pad);
+      pointer-events: none;
+    }
+
+    .dca-dropdown-overlay {
+      position: absolute;
+      inset: 0;
+      padding-right: 0;
+      z-index: 2;
+    }
+
+    .dca-dropdown-overlay::after {
+      display: none;
+    }
+
+    .dca-native-select {
+      display: none !important;
+    }
+
+    .dca-dropdown-menu {
+      position: absolute;
+      left: -4px;
+      top: calc(100% + 8px);
+      width: calc(100% + 8px);
+      min-width: calc(100% + 8px);
+      max-width: calc(100% + 8px);
+      max-height: min(300px, 50vh);
+      overflow: auto;
+      z-index: 1200;
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      background: var(--card-bg);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+      padding: 4px;
+      display: none;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 2px;
+    }
+
+    .dca-dropdown-menu.open {
+      display: flex;
+    }
+
+    #updatedTimeZoneDropdownMenu {
+      left: 0 !important;
+      width: min(340px, calc(100vw - 24px)) !important;
+      min-width: max(100%, 240px) !important;
+      max-width: min(340px, calc(100vw - 24px)) !important;
+    }
+
+    .dca-option-btn {
+      display: flex;
+      align-items: center;
+      width: 100%;
+      border: 0;
+      border-radius: 8px;
       background: transparent;
+      color: var(--fg);
+      text-align: left;
+      padding: 8px var(--dca-dropdown-content-pad);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 12px;
+      line-height: 1.35;
+      min-height: 32px;
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .dca-option-btn:hover,
+    .dca-option-btn:focus-visible {
+      background: rgba(255, 255, 255, 0.12);
+      color: var(--fg);
       outline: none;
     }
 
-    .chip-menu-wrap.single-select:hover::after,
-    .chip-menu-wrap.single-select:focus-within::after {
+    :root[data-theme="light"] .dca-option-btn:hover,
+    :root[data-theme="light"] .dca-option-btn:focus-visible {
+      background: rgba(0, 0, 0, 0.08);
+    }
+
+    .dca-option-btn--selected {
       color: var(--signal);
     }
 
-    .chip-menu-help {
-      margin: 8px 0 0;
-      color: var(--muted);
-      font-size: 0.75rem;
-      line-height: 1.45;
-      font-family: "IBM Plex Mono", monospace;
-    }
-
-    .controls {
-      padding-top: 8px;
+    .dca-option-btn--selected:hover,
+    .dca-option-btn--selected:focus-visible {
+      color: var(--signal);
     }
 
     #blockSymbolWrap {
@@ -330,9 +479,49 @@
       box-sizing: border-box;
     }
 
-    #blockSymbolSelect,
-    #blockSymbolSelect option {
-      color: var(--fg);
+    #updatedChipWrap,
+    #updatedChipWrap .chip-kpi-display {
+      max-width: 100%;
+      min-width: 0;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #updatedChipWrap {
+      overflow: visible;
+    }
+
+    #updatedChipWrap .chip-kpi-display {
+      overflow: hidden;
+    }
+
+    .chip-menu-wrap.single-select:hover .chip-kpi-display,
+    .chip-menu-wrap.single-select.is-open .chip-kpi-display {
+      color: var(--signal);
+      border-color: rgba(255, 152, 0, 0.55);
+      background: transparent;
+      outline: none;
+    }
+
+    .chip-menu-help {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 0.75rem;
+      line-height: 1.45;
+      font-family: "IBM Plex Mono", monospace;
+    }
+
+    .controls {
+      padding-top: 8px;
+      position: relative;
+      z-index: 1;
+      overflow: visible;
+    }
+
+    .chips {
+      position: relative;
+      z-index: 60;
+      overflow: visible;
     }
 
     .topbar.ui-locked .toggle {
@@ -1027,7 +1216,11 @@
         <label class="toggle" for="toggleStripes"><input type="checkbox" id="toggleStripes" checked /> Block markers</label>
         <div class="chip-menu-wrap single-select" id="blockSymbolWrap">
           <div class="chip chip-kpi-display" id="blockSymbolDisplay"><span class="chip-label">Block symbol</span> <span class="chip-value">■</span></div>
-          <select id="blockSymbolSelect" class="chip-menu-select chip-kpi-select-overlay" aria-label="Block symbol">
+          <div id="blockSymbolDropdown" class="dca-dropdown dca-dropdown-overlay">
+            <button id="blockSymbolDropdownTrigger" type="button" class="dca-dropdown-trigger" aria-label="Block symbol"></button>
+            <div id="blockSymbolDropdownMenu" class="dca-dropdown-menu" aria-label="Block symbol options"></div>
+          </div>
+          <select id="blockSymbolSelect" class="dca-native-select" aria-label="Block symbol">
             <option value="dash">-</option>
             <option value="square" selected>■</option>
             <option value="x">×</option>
@@ -1107,6 +1300,6 @@
   <div class="tooltip" id="periodGridTooltip"></div>
 
   <script src="../../js/11_dashboard_timezone_preferences.js"></script>
-  <script src="dashboard_app.js"></script>
+  <script src="dashboard_app.js?v=20260505c"></script>
 </body>
 </html>

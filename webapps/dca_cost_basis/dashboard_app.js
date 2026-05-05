@@ -146,28 +146,65 @@ function sizeSelectDropdownToOptions(selectId, dropdownId, triggerId) {
   // Updated chip uses overlay behavior and should keep chip-driven width.
   if (selectId === "updatedTimeZoneSelect") return;
 
+  // Only size once — never recompute on selection changes.
+  if (dropdown.dataset.fixedWidthPx) return;
+
   const probeEl = valueEl || trigger;
   if (!probeEl) return;
 
   const style = window.getComputedStyle(probeEl);
-  const font = style.font || `${style.fontWeight} ${style.fontSize} / ${style.lineHeight} ${style.fontFamily}`;
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-  ctx.font = font;
+  const measurer = document.createElement("span");
+  measurer.style.position = "fixed";
+  measurer.style.left = "-99999px";
+  measurer.style.top = "-99999px";
+  measurer.style.visibility = "hidden";
+  measurer.style.pointerEvents = "none";
+  measurer.style.whiteSpace = "nowrap";
+  measurer.style.font = style.font || `${style.fontWeight} ${style.fontSize} / ${style.lineHeight} ${style.fontFamily}`;
+  measurer.style.letterSpacing = style.letterSpacing;
+  measurer.style.textTransform = style.textTransform;
+  document.body.appendChild(measurer);
 
   let maxTextWidth = 0;
   Array.from(select.options).forEach((option) => {
-    const text = String(option.textContent || "");
-    maxTextWidth = Math.max(maxTextWidth, ctx.measureText(text).width);
+    measurer.textContent = String(option.textContent || "");
+    maxTextWidth = Math.max(maxTextWidth, measurer.getBoundingClientRect().width);
   });
+  document.body.removeChild(measurer);
 
   const dropdownStyle = window.getComputedStyle(dropdown);
   const leftPad = parseCssPx(dropdownStyle.getPropertyValue("--dca-dropdown-content-pad"), 10);
   const rightPad = parseCssPx(dropdownStyle.getPropertyValue("--dca-dropdown-arrow-gap"), 18);
   const fudge = 1;
-  const width = Math.ceil(maxTextWidth + leftPad + rightPad + fudge);
-  dropdown.style.width = `${Math.max(54, width)}px`;
+  const measuredWidth = Math.max(54, Math.ceil(maxTextWidth + leftPad + rightPad + fudge));
+  const priorLockedWidth = Number.parseFloat(dropdown.dataset.fixedWidthPx || "0");
+  const fixedWidth = Number.isFinite(priorLockedWidth) && priorLockedWidth > 0
+    ? Math.max(priorLockedWidth, measuredWidth)
+    : measuredWidth;
+  dropdown.dataset.fixedWidthPx = String(fixedWidth);
+  const widthPx = `${fixedWidth}px`;
+  dropdown.style.width = widthPx;
+  dropdown.style.minWidth = widthPx;
+  dropdown.style.maxWidth = widthPx;
+  dropdown.style.flexBasis = widthPx;
+  const wrapper = dropdown.closest("label.chip") || dropdown.closest(".chip-menu-wrap");
+  if (wrapper) {
+    const dropdownRect = dropdown.getBoundingClientRect();
+    const wrapperRect = wrapper.getBoundingClientRect();
+    const prefixWidth = Math.max(0, Math.ceil(wrapperRect.width - dropdownRect.width));
+    const measuredWrapperWidth = Math.max(prefixWidth + fixedWidth, Math.ceil(wrapperRect.width));
+    const priorWrapperWidth = Number.parseFloat(wrapper.dataset.fixedPillWidthPx || "0");
+    const fixedWrapperWidth = Number.isFinite(priorWrapperWidth) && priorWrapperWidth > 0
+      ? Math.max(priorWrapperWidth, measuredWrapperWidth)
+      : measuredWrapperWidth;
+    wrapper.dataset.fixedPillWidthPx = String(fixedWrapperWidth);
+    const wrapperWidthPx = `${fixedWrapperWidth}px`;
+    wrapper.style.width = wrapperWidthPx;
+    wrapper.style.minWidth = wrapperWidthPx;
+    wrapper.style.maxWidth = wrapperWidthPx;
+    wrapper.style.flexBasis = wrapperWidthPx;
+    wrapper.style.flexShrink = "0";
+  }
 }
 
 function syncSelectDropdown(selectId, triggerId, menuId) {
@@ -193,7 +230,6 @@ function syncSelectDropdown(selectId, triggerId, menuId) {
     })
     .join("");
 
-  sizeSelectDropdownToOptions(selectId, triggerId.replace("Trigger", "Dropdown"), triggerId);
   if (selectId === "updatedTimeZoneSelect") {
     sizeUpdatedTimeZoneDropdownMenu(select, dropdown, menu, trigger);
   }
@@ -246,6 +282,12 @@ function bindSelectDropdowns() {
       }
       syncSelectDropdown(selectId, triggerId, menuId);
       setDropdownOpen(dropdown, menu, false);
+    });
+  });
+
+  requestAnimationFrame(() => {
+    SELECT_DROPDOWN_CONFIGS.forEach(({ selectId, dropdownId, triggerId }) => {
+      sizeSelectDropdownToOptions(selectId, dropdownId, triggerId);
     });
   });
 
