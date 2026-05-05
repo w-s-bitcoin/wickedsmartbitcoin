@@ -1,0 +1,124 @@
+============================================================================
+  Quantum Exposure Snapshot Diff Report
+  Prior : block 947,000
+  New   : block 948,000
+  Prior Date (UTC): 2026-04-28
+  New Date (UTC): 2026-05-05
+============================================================================
+
+────────────────────────────────────────────────────────────────────────────
+  1. Supply Overview
+────────────────────────────────────────────────────────────────────────────
+                                                 Prior                 New              Change
+  Total supply                       20,021,748.03 BTC   20,024,873.03 BTC       +3,125.00 BTC  (+0.02%)
+  Exposed supply                      6,907,652.49 BTC    6,914,622.34 BTC       +6,969.84 BTC  (+0.10%)
+  Exposed share of total supply                 34.50%              34.53%
+    Active (key-reuse risk)           3,385,795.08 BTC    3,392,828.52 BTC       +7,033.44 BTC
+    Inactive (not recently spent)     1,656,627.40 BTC    1,654,687.73 BTC       -1,939.66 BTC
+    never_spent                       1,865,230.01 BTC    1,867,106.08 BTC       +1,876.07 BTC
+
+  Address groups tracked :    150,144  →     150,295  (+151)
+  Exposed UTXOs          :  7,679,759  →   7,666,669  (-13,090)
+  Exposed Pubkeys        : 16,099,521  →  16,062,636  (-36,885)
+
+────────────────────────────────────────────────────────────────────────────
+  2. Exposed Supply by Script Type
+────────────────────────────────────────────────────────────────────────────
+  Script Type                       Prior                 New              Change
+  ──────────────────── ──────────────────  ──────────────────  ──────────────────
+  P2PK                   1,715,919.53 BTC    1,715,919.53 BTC           +0.00 BTC
+  P2PKH                  1,181,481.49 BTC    1,179,369.67 BTC       -2,111.81 BTC
+  P2SH                   1,263,465.72 BTC    1,266,005.50 BTC       +2,539.78 BTC
+  P2WPKH                 1,873,177.28 BTC    1,882,017.82 BTC       +8,840.54 BTC
+  P2WSH                    666,680.08 BTC      661,266.45 BTC       -5,413.63 BTC
+  P2TR                     206,868.02 BTC      209,982.93 BTC       +3,114.90 BTC
+
+────────────────────────────────────────────────────────────────────────────
+  3. Exposed Supply by Spend Activity
+────────────────────────────────────────────────────────────────────────────
+  Activity                          Prior                 New              Change
+  ──────────────────── ──────────────────  ──────────────────  ──────────────────
+  active                 3,385,795.08 BTC    3,392,828.52 BTC       +7,033.44 BTC
+  inactive               1,656,627.40 BTC    1,654,687.73 BTC       -1,939.66 BTC
+  never_spent            1,865,230.01 BTC    1,867,106.08 BTC       +1,876.07 BTC
+
+────────────────────────────────────────────────────────────────────────────
+  4. Exposed Supply by Identity Group
+────────────────────────────────────────────────────────────────────────────
+  Group                                                       Prior                 New              Change
+  ────────────────────────────────────────────── ──────────────────  ──────────────────  ──────────────────
+  Casinos, betting, and gaming                           741.80 BTC          740.21 BTC           -1.59 BTC
+  Darknet mixers and illicit services                  1,791.10 BTC        1,792.22 BTC           +1.12 BTC
+  Exchanges, brokerages, and custody services      2,213,592.22 BTC    2,195,205.76 BTC      -18,386.45 BTC
+  Governments, public sector, and charities            8,465.89 BTC        8,102.52 BTC         -363.36 BTC
+  Hacks, scams, and ransomware                            96.08 BTC           96.08 BTC              +0 BTC
+  Individuals                                         14,754.67 BTC       14,754.67 BTC              +0 BTC
+  Institutions, funds, and corporates                652,370.69 BTC      654,915.40 BTC       +2,544.71 BTC
+  Mining pools and mining companies                   60,586.32 BTC       63,371.15 BTC       +2,784.83 BTC
+  Payments, wallets, and merchant services            30,269.08 BTC       30,286.00 BTC          +16.92 BTC
+  Protocols, bridges, defi, and wrapped assets       177,829.17 BTC      177,696.37 BTC         -132.80 BTC
+  Ungrouped / unidentified                         1,878,812.91 BTC    1,898,731.26 BTC      +19,918.34 BTC
+  Unidentified miners and Patoshi                  1,714,019.26 BTC    1,714,024.08 BTC           +4.82 BTC
+
+  Largest increases (identity group):
+        1,898,731.26 BTC        +19,918.34 BTC   Ungrouped / unidentified
+           63,371.15 BTC         +2,784.83 BTC   Mining pools and mining companies
+          654,915.40 BTC         +2,544.71 BTC   Institutions, funds, and corporates
+           30,286.00 BTC            +16.92 BTC   Payments, wallets, and merchant services
+        1,714,024.08 BTC             +4.82 BTC   Unidentified miners and Patoshi
+            1,792.22 BTC             +1.12 BTC   Darknet mixers and illicit services
+
+  Largest decreases (identity group):
+        2,195,205.76 BTC        -18,386.45 BTC   Exchanges, brokerages, and custody services
+            8,102.52 BTC           -363.36 BTC   Governments, public sector, and charities
+          177,696.37 BTC           -132.80 BTC   Protocols, bridges, defi, and wrapped assets
+              740.21 BTC             -1.59 BTC   Casinos, betting, and gaming
+
+────────────────────────────────────────────────────────────────────────────
+  5. Top Identity Movers (nominal BTC change)
+────────────────────────────────────────────────────────────────────────────
+  Largest increases (individual identity):
+           29,913.41 BTC        +10,713.73 BTC   Coinbase
+          535,914.18 BTC         +3,356.84 BTC   Binance
+            4,662.55 BTC         +3,309.22 BTC   Hut 8
+           30,974.94 BTC         +1,585.39 BTC   Bitwise
+          123,589.30 BTC         +1,411.90 BTC   BlackRock
+            3,418.51 BTC         +1,305.98 BTC   Fidelity FBTC ETF
+           33,034.24 BTC         +1,270.23 BTC   Bitget
+            1,180.69 BTC         +1,089.53 BTC   B2C2 Group
+           16,467.87 BTC         +1,065.55 BTC   ARK Invest
+            1,844.33 BTC           +567.32 BTC   Bullish.com
+
+  Largest decreases (individual identity):
+          147,312.14 BTC        -19,356.66 BTC   Robinhood
+          148,571.84 BTC         -7,882.42 BTC   Coinbase Prime
+           14,284.90 BTC         -2,808.66 BTC   Abraxas Capital Mgmt
+          155,753.42 BTC         -1,761.05 BTC   Kraken
+           14,425.63 BTC         -1,264.68 BTC   OKX
+            2,548.59 BTC         -1,236.60 BTC   Matrixport
+           48,984.24 BTC         -1,079.65 BTC   Bybit
+          273,490.17 BTC           -749.52 BTC   Bitfinex
+            1,204.32 BTC           -507.03 BTC   Ceffu
+           13,632.01 BTC           -428.18 BTC   gate.io
+
+────────────────────────────────────────────────────────────────────────────
+  6. Identity Coverage Changes
+────────────────────────────────────────────────────────────────────────────
+  Previously unidentified addresses now labelled : 5
+    + BSDigital
+    + Betplay.io
+    + CoinCafe
+    + Coinmotion
+    + YoBit
+
+  Identities no longer present in snapshot       : 6
+    - AltCoinTrader
+    - BYDFi
+    - BetFury
+    - Bit2C
+    - Freewallet
+    - VirgoCX
+
+============================================================================
+  End of snapshot diff report: block 947,000 → block 948,000
+============================================================================

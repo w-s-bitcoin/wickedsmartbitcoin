@@ -1,140 +1,142 @@
 ua,software,main_version,sub_version,listening,est_unreachable,total_count
-/Satoshi:22.0.0/,Bitcoin Core,v22,v22.0.0,89,1585,1674
-/Satoshi:29.3.0/Knots:20260210+bip110-v0.4.1/UASF-BIP110:0.4/,BIP110,v29,v29.3.0,182,3271,3453
+/Satoshi:22.0.0/,Bitcoin Core,v22,v22.0.0,84,1560,1644
+/Satoshi:29.3.0/Knots:20260210+bip110-v0.4.1/UASF-BIP110:0.4/,BIP110,v29,v29.3.0,188,3270,3458
 /Satoshi:0.16.1/,Bitcoin Core,v0.16,v0.16.1,0,52,52
-/Satoshi:29.0.0/,Bitcoin Core,v29,v29.0.0,356,3988,4344
-/Satoshi:29.2.0/Knots:20251110/,Bitcoin Knots,v29,v29.2.0,155,2104,2259
-/Satoshi:30.2.0/,Bitcoin Core,v30,v30.2.0,1046,12796,13842
-/Satoshi:29.3.0/Knots:20260210+bip110-v0.3/UASF-BIP110:0.1/,BIP110,v29,v29.3.0,85,2542,2627
-/Satoshi:29.1.0/Knots:20250903/,Bitcoin Knots,v29,v29.1.0,60,907,967
-/Satoshi:29.2.0/,Bitcoin Core,v29,v29.2.0,107,2673,2780
-/Satoshi:29.3.0/Knots:20260210/,Bitcoin Knots,v29,v29.3.0,255,4617,4872
-/Satoshi:0.21.1/,Bitcoin Core,v0.21,v0.21.1,27,906,933
-/Satoshi:25.0.0/,Bitcoin Core,v25,v25.0.0,94,2025,2119
-/Satoshi:30.0.0/,Bitcoin Core,v30,v30.0.0,433,6067,6500
-/Satoshi:29.1.0/,Bitcoin Core,v29,v29.1.0,110,3157,3267
-/Satoshi:28.1.0/,Bitcoin Core,v28,v28.1.0,811,7336,8147
-/Satoshi:28.1.0/Knots:20250305/,Bitcoin Knots,v28,v28.1.0,74,1436,1510
-/Satoshi:29.2.0/Knots:20251010/,Bitcoin Knots,v29,v29.2.0,32,572,604
-/Satoshi:27.0.0/,Bitcoin Core,v27,v27.0.0,820,11324,12144
-/Satoshi:29.3.0/,Bitcoin Core,v29,v29.3.0,44,2334,2378
-/Satoshi:27.1.0/,Bitcoin Core,v27,v27.1.0,120,1832,1952
-/Satoshi:0.7.2/,Bitcoin Core,v0.7,v0.7.2,0,82,82
-/Satoshi:29.2.0/Knots:20251110+bip110-v0.1rc3/UASF-BIP110:0.1/,BIP110,v29,v29.2.0,32,597,629
-/Satoshi:28.0.0/,Bitcoin Core,v28,v28.0.0,133,2099,2232
-/Satoshi:29.2.0/Knots:20251110+bip110-v0.1/UASF-BIP110:0.1/,BIP110,v29,v29.2.0,35,516,551
-/Satoshi:25.1.0/,Bitcoin Core,v25,v25.1.0,367,1040,1407
-/Satoshi:31.0.0/,Bitcoin Core,v31,v31.0.0,233,1320,1553
-/Satoshi:29.3.0/Knots:20260210/UASF-BIP110:0.4/,BIP110,v29,v29.3.0,11,196,207
+/Satoshi:29.0.0/,Bitcoin Core,v29,v29.0.0,361,4101,4462
+/Satoshi:29.2.0/Knots:20251110/,Bitcoin Knots,v29,v29.2.0,147,2121,2268
+/Satoshi:30.2.0/,Bitcoin Core,v30,v30.2.0,1036,12651,13687
+/Satoshi:29.3.0/Knots:20260210+bip110-v0.3/UASF-BIP110:0.1/,BIP110,v29,v29.3.0,82,2552,2634
+/Satoshi:29.1.0/Knots:20250903/,Bitcoin Knots,v29,v29.1.0,55,899,954
+/Satoshi:29.2.0/,Bitcoin Core,v29,v29.2.0,102,2560,2662
+/Satoshi:29.3.0/Knots:20260210/,Bitcoin Knots,v29,v29.3.0,262,4668,4930
+/Satoshi:0.21.1/,Bitcoin Core,v0.21,v0.21.1,25,846,871
+/Satoshi:25.0.0/,Bitcoin Core,v25,v25.0.0,99,2004,2103
+/Satoshi:30.0.0/,Bitcoin Core,v30,v30.0.0,435,6043,6478
+/Satoshi:29.1.0/,Bitcoin Core,v29,v29.1.0,108,3114,3222
+/Satoshi:28.1.0/,Bitcoin Core,v28,v28.1.0,811,7344,8155
+/Satoshi:28.1.0/Knots:20250305/,Bitcoin Knots,v28,v28.1.0,76,1375,1451
+/Satoshi:29.2.0/Knots:20251010/,Bitcoin Knots,v29,v29.2.0,36,571,607
+/Satoshi:27.0.0/,Bitcoin Core,v27,v27.0.0,813,10587,11400
+/Satoshi:29.3.0/,Bitcoin Core,v29,v29.3.0,42,2237,2279
+/Satoshi:27.1.0/,Bitcoin Core,v27,v27.1.0,120,1976,2096
+/Satoshi:0.7.2/,Bitcoin Core,v0.7,v0.7.2,0,83,83
+/Satoshi:29.2.0/Knots:20251110+bip110-v0.1rc3/UASF-BIP110:0.1/,BIP110,v29,v29.2.0,29,596,625
+/Satoshi:28.0.0/,Bitcoin Core,v28,v28.0.0,135,2092,2227
+/Satoshi:29.2.0/Knots:20251110+bip110-v0.1/UASF-BIP110:0.1/,BIP110,v29,v29.2.0,35,511,546
+/Satoshi:25.1.0/,Bitcoin Core,v25,v25.1.0,359,1009,1368
+/Satoshi:31.0.0/,Bitcoin Core,v31,v31.0.0,237,1452,1689
+/Satoshi:29.3.0/Knots:20260210/UASF-BIP110:0.4/,BIP110,v29,v29.3.0,9,248,257
 /Satoshi:25.0/,Bitcoin Core,v25,v25.0,0,1,1
-/Satoshi:0.21.0/,Bitcoin Core,v0.21,v0.21.0,8,102,110
-/Satoshi:26.0.0/,Bitcoin Core,v26,v26.0.0,83,1311,1394
-/Satoshi:27.2.0/,Bitcoin Core,v27,v27.2.0,29,194,223
+/Satoshi:0.21.0/,Bitcoin Core,v0.21,v0.21.0,8,104,112
+/Satoshi:26.0.0/,Bitcoin Core,v26,v26.0.0,83,1335,1418
+/Satoshi:27.2.0/,Bitcoin Core,v27,v27.2.0,28,200,228
 /Satoshi:24.1.0/,Bitcoin Core,v24,v24.1.0,5,31,36
-/Satoshi:24.0.1/,Bitcoin Core,v24,v24.0.1,72,1041,1113
-/Satoshi:0.17.1/,Bitcoin Core,v0.17,v0.17.1,5,29,34
-/Satoshi:0.18.0/,Bitcoin Core,v0.18,v0.18.0,10,45,55
-/Satoshi:0.12.0/,Bitcoin Core,v0.12,v0.12.0,0,5,5
+/Satoshi:24.0.1/,Bitcoin Core,v24,v24.0.1,72,1046,1118
+/Satoshi:0.17.1/,Bitcoin Core,v0.17,v0.17.1,5,28,33
+/Satoshi:0.18.0/,Bitcoin Core,v0.18,v0.18.0,10,43,53
+/Satoshi:0.12.0/,Bitcoin Core,v0.12,v0.12.0,0,14,14
 /Satoshi:0.17.2/,Bitcoin Core,v0.17,v0.17.2,2,2,4
-/Satoshi:30.99.0/,Bitcoin Core,v30,v30.99.0,14,72,86
-/Satoshi:0.19.1/,Bitcoin Core,v0.19,v0.19.1,2,41,43
+/Satoshi:30.99.0/,Bitcoin Core,v30,v30.99.0,14,70,84
+/Satoshi:0.19.1/,Bitcoin Core,v0.19,v0.19.1,2,40,42
 /Satoshi:23.2.0/,Bitcoin Core,v23,v23.2.0,0,6,6
-/Satoshi:23.0.0/,Bitcoin Core,v23,v23.0.0,23,476,499
-/Satoshi:28.99.0/,Bitcoin Core,v28,v28.99.0,5,29,34
-/Satoshi:0.12.1/,Bitcoin Core,v0.12,v0.12.1,6,24,30
-/Satoshi:0.20.0/,Bitcoin Core,v0.20,v0.20.0,3,57,60
-/Satoshi:28.2.0/,Bitcoin Core,v28,v28.2.0,11,53,64
+/Satoshi:23.0.0/,Bitcoin Core,v23,v23.0.0,23,526,549
+/Satoshi:28.99.0/,Bitcoin Core,v28,v28.99.0,4,31,35
+/Satoshi:0.12.1/,Bitcoin Core,v0.12,v0.12.1,5,25,30
+/Satoshi:0.20.0/,Bitcoin Core,v0.20,v0.20.0,3,56,59
+/Satoshi:28.2.0/,Bitcoin Core,v28,v28.2.0,10,60,70
 /Satoshi:28.4.0/,Bitcoin Core,v28,v28.4.0,9,29,38
 /Satoshi:29.99.0/,Bitcoin Core,v29,v29.99.0,12,34,46
-/Satoshi:0.15.1/,Bitcoin Core,v0.15,v0.15.1,1,42,43
-/Satoshi:28.3.0/,Bitcoin Core,v28,v28.3.0,16,91,107
-/Satoshi:22.1.0/,Bitcoin Core,v22,v22.1.0,2,27,29
-/Satoshi:0.15.0.1/,Bitcoin Core,v0.15,v0.15.0,0,30,30
+/Satoshi:0.15.1/,Bitcoin Core,v0.15,v0.15.1,2,35,37
+/Satoshi:28.3.0/,Bitcoin Core,v28,v28.3.0,15,100,115
+/Satoshi:22.1.0/,Bitcoin Core,v22,v22.1.0,2,26,28
+/Satoshi:0.15.0.1/,Bitcoin Core,v0.15,v0.15.0,0,19,19
 /Satoshi:0.20.1/,Bitcoin Core,v0.20,v0.20.1,10,192,202
-/Satoshi:0.19.0.1/,Bitcoin Core,v0.19,v0.19.0,2,33,35
-/Satoshi:0.17.0/,Bitcoin Core,v0.17,v0.17.0,1,14,15
+/Satoshi:0.19.0.1/,Bitcoin Core,v0.19,v0.19.0,3,35,38
+/Satoshi:0.17.0/,Bitcoin Core,v0.17,v0.17.0,1,15,16
 /btcwire:0.5.0/neutrino:0.12.0-beta/,btcsuite,,,0,56,56
 /Satoshi:29.3.0/Knots:20260210+bip110-v0.3/UASF-BIP110:0.1/RUG THE SPAMMERS/,BIP110,v29,v29.3.0,0,1,1
-/Satoshi:25.2.0/,Bitcoin Core,v25,v25.2.0,4,27,31
-/Satoshi:0.0.156.64/,Bitcoin Core,v0.0,v0.0.156,0,57,57
-/Satoshi:26.1.0/,Bitcoin Core,v26,v26.1.0,9,89,98
+/Satoshi:25.2.0/,Bitcoin Core,v25,v25.2.0,3,27,30
+/Satoshi:0.0.156.64/,Bitcoin Core,v0.0,v0.0.156,0,58,58
+/Satoshi:26.1.0/,Bitcoin Core,v26,v26.1.0,10,90,100
 /Bither1.6.2/,Bither,,,0,14,14
 /CKCoinD:29.3.0/,other,,,2,3,5
-/Satoshi:26.2.0/,Bitcoin Core,v26,v26.2.0,22,115,137
-/Satoshi:29.2.0/Knots:20251110/UASF-BIP110:0.1/,BIP110,v29,v29.2.0,0,84,84
-/Satoshi:24.0.0/,Bitcoin Core,v24,v24.0.0,3,15,18
-/Satoshi:0.16.2/,Bitcoin Core,v0.16,v0.16.2,1,15,16
+/Satoshi:26.2.0/,Bitcoin Core,v26,v26.2.0,22,127,149
+/Satoshi:29.2.0/Knots:20251110/UASF-BIP110:0.1/,BIP110,v29,v29.2.0,0,83,83
+/Satoshi:24.0.0/,Bitcoin Core,v24,v24.0.0,2,15,17
+/Satoshi:0.16.2/,Bitcoin Core,v0.16,v0.16.2,1,22,23
 /Satoshi:29.3.0/Knots:20260210+bip110-v0.2/UASF-BIP110:0.1/,BIP110,v29,v29.3.0,1,5,6
-/GrayersDad:knots+bip110-v0.4.1/,BIP110,,,3,0,3
+/GrayersDad:knots+bip110-v0.4.1/,BIP110,,,2,1,3
 /Satoshi:29.3.0/Knots:20260210+bip110-v0.4.1/UASF-BIP110:0.4/BIP-110-LETS-GO/,BIP110,v29,v29.3.0,0,1,1
-/Satoshi:29.3.0/Knots:20260210-bip110-v0.3/,BIP110,v29,v29.3.0,0,3,3
+/Satoshi:29.3.0/Knots:20260210-bip110-v0.3/,BIP110,v29,v29.3.0,0,2,2
 /Satoshi:29.3.0/UASF-BIP110:0.1/,BIP110,v29,v29.3.0,0,3,3
 /Satoshi:0.1.17.128/,Bitcoin Core,v0.1,v0.1.17,0,139,139
 /Satoshi:21.2.0/Knots:20210629/,Bitcoin Knots,v21,v21.2.0,0,4,4
 /Satoshi:23.99.0/,Bitcoin Core,v23,v23.99.0,2,5,7
 /BitcoinUnlimited:1.0.1.3/,Bitcoin Unlimited,,,0,1,1
-/Satoshi:31.99.0/,Bitcoin Core,v31,v31.99.0,11,47,58
+/Satoshi:31.99.0/,Bitcoin Core,v31,v31.99.0,11,45,56
 /Satoshi:0.14.2/,Bitcoin Core,v0.14,v0.14.2,0,43,43
-/Satoshi:0.18.1/,Bitcoin Core,v0.18,v0.18.1,8,28,36
-/Satoshi:25.99.0/,Bitcoin Core,v25,v25.99.0,6,7,13
-/Satoshi:29.2.0/Knots:20251110+bip110-v0.1rc1/UASF-BIP110:0.1/,BIP110,v29,v29.2.0,0,6,6
-/Satoshi:0.10.2/,Bitcoin Core,v0.10,v0.10.2,0,5,5
-/breadwallet:0.6.5/,bread,,,0,3,3
-/Satoshi:0.11.0/,Bitcoin Core,v0.11,v0.11.0,0,5,5
-/Satoshi:0.16.0/,Bitcoin Core,v0.16,v0.16.0,0,22,22
-/Satoshi:0.15.0/Knots:20170914/,Bitcoin Knots,v0.15,v0.15.0,0,10,10
-/Satoshi:0.14.0/,Bitcoin Core,v0.14,v0.14.0,0,11,11
-/breadwallet:1.51/,bread,,,0,6,6
-/breadwallet:0.6.8/,bread,,,0,6,6
-/Satoshi:0.8.5/,Bitcoin Core,v0.8,v0.8.5,0,4,4
-/Satoshi:0.14.2/UASF-Segwit:0.3/,Bitcoin Core,v0.14,v0.14.2,0,5,5
-/Satoshi:0.14.99/,Bitcoin Core,v0.14,v0.14.99,0,4,4
-/breadwallet:0.6.9/,bread,,,0,3,3
-/Satoshi:0.15.99/,Bitcoin Core,v0.15,v0.15.99,1,8,9
-/Classic:1.3.4/,Bitcoin Classic,,,0,7,7
-/Satoshi:0.9.2/,Bitcoin Core,v0.9,v0.9.2,0,7,7
-/Satoshi:0.8.3/,Bitcoin Core,v0.8,v0.8.3,1,5,6
-/Satoshi:0.8.1/,Bitcoin Core,v0.8,v0.8.1,1,6,7
-/Satoshi:0.7.0.3/,Bitcoin Core,v0.7,v0.7.0,0,7,7
-/Satoshi:0.15.0/,Bitcoin Core,v0.15,v0.15.0,0,22,22
-/Satoshi:1.0.5/,Bitcoin Core,v1,v1.0.5,0,9,9
-/Satoshi:0.14.1/Knots:20170420/,Bitcoin Knots,v0.14,v0.14.1,0,11,11
-/breadwallet:0.6.4/,bread,,,0,2,2
-/Satoshi:0.14.2/UASF-Segwit:1.0/,Bitcoin Core,v0.14,v0.14.2,0,6,6
-/Satoshi:0.8.0/,Bitcoin Core,v0.8,v0.8.0,0,3,3
-/Satoshi:0.13.1/,Bitcoin Core,v0.13,v0.13.1,1,13,14
-/Satoshi:0.15.1/Knots:20171111/,Bitcoin Knots,v0.15,v0.15.1,0,5,5
-/Satoshi:0.9.1/,Bitcoin Core,v0.9,v0.9.1,0,8,8
-/Satoshi:0.11.1/,Bitcoin Core,v0.11,v0.11.1,0,9,9
-/Satoshi:0.13.0/,Bitcoin Core,v0.13,v0.13.0,1,9,10
-/Satoshi:0.16.99/,Bitcoin Core,v0.16,v0.16.99,0,9,9
-/breadwallet:0.6.6/,bread,,,0,6,6
+/Satoshi:0.18.1/,Bitcoin Core,v0.18,v0.18.1,7,28,35
+/Satoshi:29.2.0/Knots:20251110+bip110-v0.1rc1/UASF-BIP110:0.1/,BIP110,v29,v29.2.0,0,7,7
+/Satoshi:25.99.0/,Bitcoin Core,v25,v25.99.0,6,8,14
+/Satoshi:0.7.0.3/,Bitcoin Core,v0.7,v0.7.0,0,9,9
+/breadwallet:0.6.7/,bread,,,0,8,8
+/Satoshi:0.14.2/UASF-Segwit:1.0/,Bitcoin Core,v0.14,v0.14.2,0,11,11
+/Satoshi:0.16.99/,Bitcoin Core,v0.16,v0.16.99,0,6,6
+/Satoshi:0.10.1/,Bitcoin Core,v0.10,v0.10.1,0,7,7
+/Satoshi:0.8.1/,Bitcoin Core,v0.8,v0.8.1,1,12,13
+/Satoshi:0.16.0/,Bitcoin Core,v0.16,v0.16.0,0,18,18
+/Satoshi:0.8.2.2/,Bitcoin Core,v0.8,v0.8.2,0,9,9
+/Satoshi:0.11.0/,Bitcoin Core,v0.11,v0.11.0,0,8,8
+/Satoshi:0.15.99/,Bitcoin Core,v0.15,v0.15.99,1,10,11
+/Satoshi:0.13.1/,Bitcoin Core,v0.13,v0.13.1,1,11,12
+/breadwallet:0.6.9/,bread,,,0,9,9
 /Satoshi:0.9.3/,Bitcoin Core,v0.9,v0.9.3,1,5,6
-/breadwallet:1.3.5/,bread,,,0,4,4
-/Classic:1.3.8/,Bitcoin Classic,,,0,7,7
-/Satoshi:0.14.1/,Bitcoin Core,v0.14,v0.14.1,1,18,19
-/Satoshi:0.8.6/,Bitcoin Core,v0.8,v0.8.6,0,11,11
-/Satoshi:0.14.2/Knots:20170618/,Bitcoin Knots,v0.14,v0.14.2,0,1,1
-/Satoshi:0.10.0/,Bitcoin Core,v0.10,v0.10.0,0,13,13
-/breadwallet:0.6.7/,bread,,,0,6,6
-/Satoshi:0.8.2.2/,Bitcoin Core,v0.8,v0.8.2,0,5,5
-/breadwallet:1.4/,bread,,,0,7,7
+/Satoshi:0.11.2/,Bitcoin Core,v0.11,v0.11.2,1,14,15
+/breadwallet:0.6.4/,bread,,,0,7,7
+/Satoshi:0.14.2/UASF-Segwit:0.3/,Bitcoin Core,v0.14,v0.14.2,0,4,4
+/Satoshi:0.15.0/,Bitcoin Core,v0.15,v0.15.0,0,18,18
+/Satoshi:0.14.2/Knots:20170618/,Bitcoin Knots,v0.14,v0.14.2,0,2,2
+/Satoshi:0.14.99/,Bitcoin Core,v0.14,v0.14.99,0,5,5
+/Satoshi:0.13.2/,Bitcoin Core,v0.13,v0.13.2,0,10,10
+/Satoshi:0.14.1/Knots:20170420/,Bitcoin Knots,v0.14,v0.14.1,0,6,6
+/Satoshi:0.11.1/,Bitcoin Core,v0.11,v0.11.1,0,7,7
+/Satoshi:1.0.5/,Bitcoin Core,v1,v1.0.5,0,11,11
+/Satoshi:0.9.1/,Bitcoin Core,v0.9,v0.9.1,0,5,5
+/breadwallet:1.50/,bread,,,0,3,3
+/breadwallet:0.6.8/,bread,,,0,5,5
+/Satoshi:0.14.1/,Bitcoin Core,v0.14,v0.14.1,1,12,13
+/breadwallet:1.51/,bread,,,0,5,5
+/Satoshi:0.15.0/Knots:20170914/,Bitcoin Knots,v0.15,v0.15.0,0,9,9
+/Satoshi:0.10.0/,Bitcoin Core,v0.10,v0.10.0,0,12,12
+/breadwallet:1.3.5/,bread,,,0,11,11
+/Classic:1.3.8/,Bitcoin Classic,,,0,4,4
+/breadwallet:0.6.2/,bread,,,0,3,3
+/breadwallet:1.4/,bread,,,0,8,8
+/Satoshi:0.8.5/,Bitcoin Core,v0.8,v0.8.5,0,6,6
+/breadwallet:0.6.6/,bread,,,0,5,5
+/Satoshi:0.10.2/,Bitcoin Core,v0.10,v0.10.2,0,4,4
+/Satoshi:0.8.0/,Bitcoin Core,v0.8,v0.8.0,0,2,2
+/Satoshi:0.8.3/,Bitcoin Core,v0.8,v0.8.3,1,9,10
+/Satoshi:0.8.6/,Bitcoin Core,v0.8,v0.8.6,0,10,10
+/breadwallet:0.6.5/,bread,,,0,2,2
+/Satoshi:0.14.0/,Bitcoin Core,v0.14,v0.14.0,0,6,6
+/Satoshi:0.15.1/Knots:20171111/,Bitcoin Knots,v0.15,v0.15.1,0,6,6
 /Satoshi:24.2.0/,Bitcoin Core,v24,v24.2.0,5,16,21
-/Satoshi:30.1.0/,Bitcoin Core,v30,v30.1.0,12,47,59
-/Satoshi:0.21.2/,Bitcoin Core,v0.21,v0.21.2,3,11,14
-/Satoshi:27.99.0/,Bitcoin Core,v27,v27.99.0,1,27,28
-/Satoshi:23.1.0/,Bitcoin Core,v23,v23.1.0,6,16,22
+/Satoshi:0.13.0/,Bitcoin Core,v0.13,v0.13.0,1,6,7
+/Satoshi:30.1.0/,Bitcoin Core,v30,v30.1.0,12,55,67
+/Satoshi:0.21.2/,Bitcoin Core,v0.21,v0.21.2,3,13,16
+/Satoshi:27.99.0/,Bitcoin Core,v27,v27.99.0,2,26,28
+/Satoshi:23.1.0/,Bitcoin Core,v23,v23.1.0,5,16,21
 /Satoshi:29.3.0/UASF-BIP110:0.3/,BIP110,v29,v29.3.0,0,2,2
 /Satoshi:23.0.0/Knots:20220529/,Bitcoin Knots,v23,v23.0.0,0,3,3
 /Bither1.6.1/,Bither,,,0,12,12
-/Satoshi:0.13.2/,Bitcoin Core,v0.13,v0.13.2,0,11,11
 /Satoshi:24.99.0/,Bitcoin Core,v24,v24.99.0,4,8,12
-/Satoshi:0.17.0.1/,Bitcoin Core,v0.17,v0.17.0,2,11,13
-/Satoshi:0.20.2/,Bitcoin Core,v0.20,v0.20.2,0,6,6
-/Satoshi:29.3.0/Knots:20260210/UASF-BIP110:0.1/,BIP110,v29,v29.3.0,1,6,7
+/Satoshi:0.17.0.1/,Bitcoin Core,v0.17,v0.17.0,3,10,13
+/Satoshi:0.20.2/,Bitcoin Core,v0.20,v0.20.2,0,5,5
+/Satoshi:29.3.0/Knots:20260210/UASF-BIP110:0.1/,BIP110,v29,v29.3.0,2,5,7
 /Satoshi:0.16.3/,Bitcoin Core,v0.16,v0.16.3,0,14,14
 /btcwire:0.5.0/btcd:0.24.2/,btcsuite,,,6,2,8
-/Satoshi:27.1.0/Knots:20240801/,Bitcoin Knots,v27,v27.1.0,5,12,17
+/Satoshi:27.1.0/Knots:20240801/,Bitcoin Knots,v27,v27.1.0,6,11,17
 /Knots:27.1.knots20240801/,Bitcoin Knots,,,0,1,1
 /Statoshi:28.0.0/,other,,,1,0,1
 /Satoshi:0.14.3/,Bitcoin Core,v0.14,v0.14.3,0,4,4
@@ -145,14 +147,13 @@ ua,software,main_version,sub_version,listening,est_unreachable,total_count
 /Satoshi:29.2.0/Knots:20251110+bip110-v0.1rc2/UASF-BIP110:0.1/,BIP110,v29,v29.2.0,1,3,4
 /Satoshi:22.99.0/,Bitcoin Core,v22,v22.99.0,0,6,6
 /btcwire:0.5.0/btcd:0.23.3/,btcsuite,,,0,7,7
-/Satoshi:0.11.2/,Bitcoin Core,v0.11,v0.11.2,1,12,13
 /Satoshi:0.0.125.2/,Bitcoin Core,v0.0,v0.0.125,0,1,1
 /Satoshi-Noderunners:30.2.0/,other,,,1,0,1
 /Ladybug:0.12.0/,other,,,1,0,1
-/GhostCore:1.0.0/,other,,,3,0,3
+/GhostCore:1.0.0/,other,,,4,0,4
 /Satoshi:29.4.0/,Bitcoin Core,v29,v29.4.0,0,3,3
-/breadwallet:1.50/,bread,,,0,7,7
-/Satoshi:0.10.1/,Bitcoin Core,v0.10,v0.10.1,0,6,6
+/Classic:1.3.4/,Bitcoin Classic,,,0,2,2
+/Satoshi:0.9.2/,Bitcoin Core,v0.9,v0.9.2,0,7,7
 /Satoshi:0.9.5/,Bitcoin Core,v0.9,v0.9.5,0,1,1
 /Satoshi:0.19.0/,Bitcoin Core,v0.19,v0.19.0,0,3,3
 /Satoshi:0.20.99/,Bitcoin Core,v0.20,v0.20.99,0,2,2
@@ -166,7 +167,6 @@ ua,software,main_version,sub_version,listening,est_unreachable,total_count
 /Satoshi:27.1.0/Knots:20240621/,Bitcoin Knots,v27,v27.1.0,0,1,1
 /Satoshi:26.1.0/Knots:20240513/,Bitcoin Knots,v26,v26.1.0,0,1,1
 /Satoshi:0.15.2/,Bitcoin Core,v0.15,v0.15.2,1,1,2
-/breadwallet:0.6.2/,bread,,,0,1,1
 /btcwire:0.5.0/bitfeed:0.1.0/,btcsuite,,,0,1,1
 /Satoshi:29.4.1/,Bitcoin Core,v29,v29.4.1,0,1,1
 /Satoshi:1.0.0/,Bitcoin Core,v1,v1.0.0,2,0,2
@@ -183,4 +183,5 @@ ua,software,main_version,sub_version,listening,est_unreachable,total_count
 /Prometheus:30.0.4/,other,,,1,0,1
 /FlamiSatoshi:30.99.0/,other,v30,v30.99.0,1,0,1
 /Satoshi:0.8.99/,Bitcoin Core,v0.8,v0.8.99,1,0,1
+/btcwire:0.5.0/utreexod:0.5.1/,btcsuite,,,1,0,1
 /Satoshi:0.0.126.144/,Bitcoin Core,v0.0,v0.0.126,1,0,1
