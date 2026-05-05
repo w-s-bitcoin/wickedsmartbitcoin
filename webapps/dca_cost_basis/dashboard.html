@@ -178,11 +178,21 @@
       cursor: pointer;
     }
 
+    .controls label.chip:has(.dca-dropdown) {
+      flex: 0 0 auto;
+      min-width: max-content;
+    }
+
     .dca-dropdown-pill,
     .dca-dropdown-pill .dca-dropdown,
     .dca-dropdown-pill .dca-dropdown-value,
     .dca-dropdown-pill .chip-kpi-display {
       cursor: pointer;
+    }
+
+    .dca-dropdown-pill {
+      flex: 0 0 auto;
+      min-width: max-content;
     }
 
     .controls {
@@ -779,6 +789,6 @@
   </div>
 
   <script src="../../js/11_dashboard_timezone_preferences.js"></script>
-  <script src="dashboard_app.js"></script>
+  <script src="dashboard_app.js?v=20260505b"></script>
 </body>
 </html>

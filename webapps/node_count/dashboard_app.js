@@ -49,6 +49,270 @@
       resetUndo: '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>',
     };
 
+    const SELECT_DROPDOWN_CONFIGS = [
+      {
+        selectId: 'updatedTimeZoneSelect',
+        dropdownId: 'updatedTimeZoneDropdown',
+        triggerId: 'updatedTimeZoneDropdownTrigger',
+        menuId: 'updatedTimeZoneDropdownMenu',
+      },
+      {
+        selectId: 'rangeSelect',
+        dropdownId: 'rangeDropdown',
+        triggerId: 'rangeDropdownTrigger',
+        menuId: 'rangeDropdownMenu',
+      },
+      {
+        selectId: 'smoothSelect',
+        dropdownId: 'smoothDropdown',
+        triggerId: 'smoothDropdownTrigger',
+        menuId: 'smoothDropdownMenu',
+      },
+    ];
+
+    let selectDropdownGlobalListenersBound = false;
+
+    function setDropdownOpen(dropdownEl, menuEl, isOpen) {
+      if (!menuEl) return;
+      const open = !!isOpen;
+      menuEl.classList.toggle('open', open);
+      if (dropdownEl) dropdownEl.classList.toggle('is-open', open);
+      if (dropdownEl?.parentElement?.classList.contains('chip-menu-wrap')) {
+        dropdownEl.parentElement.classList.toggle('is-open', open);
+      }
+    }
+
+    function closeAllSelectDropdowns(exceptDropdown = null) {
+      SELECT_DROPDOWN_CONFIGS.forEach(({ dropdownId, menuId }) => {
+        const dropdown = document.getElementById(dropdownId);
+        const menu = document.getElementById(menuId);
+        if (!dropdown || !menu) return;
+        if (exceptDropdown && dropdown === exceptDropdown) return;
+        setDropdownOpen(dropdown, menu, false);
+      });
+    }
+
+    function parseCssPx(value, fallback = 0) {
+      const n = Number.parseFloat(String(value || '').trim());
+      return Number.isFinite(n) ? n : fallback;
+    }
+
+    function escapeHtml(value) {
+      return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function sizeUpdatedTimeZoneDropdownMenu(select, dropdown, menu, probeEl) {
+      if (!select || !dropdown || !menu || !probeEl) return;
+
+      const style = window.getComputedStyle(probeEl);
+      const font = style.font || `${style.fontWeight} ${style.fontSize} / ${style.lineHeight} ${style.fontFamily}`;
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.font = font;
+
+      let maxTextWidth = 0;
+      Array.from(select.options).forEach((option) => {
+        const text = String(option.textContent || '');
+        maxTextWidth = Math.max(maxTextWidth, ctx.measureText(text).width);
+      });
+
+      const menuStyle = window.getComputedStyle(menu);
+      const leftPad = parseCssPx(menuStyle.getPropertyValue('--dca-dropdown-content-pad'), 10);
+      const rightPad = parseCssPx(menuStyle.getPropertyValue('--dca-dropdown-content-pad'), 10);
+      const borderAndSafety = 44;
+      const desired = Math.ceil(maxTextWidth + leftPad + rightPad + borderAndSafety);
+
+      const pillWidth = Math.ceil(dropdown.getBoundingClientRect().width + 8);
+      const minWidth = Math.max(pillWidth, 360);
+      const maxWidth = Math.max(minWidth, Math.floor(window.innerWidth - 24));
+      const width = Math.max(minWidth, Math.min(desired, maxWidth));
+
+      menu.style.left = '0px';
+      menu.style.width = `${width}px`;
+      menu.style.minWidth = `${width}px`;
+      menu.style.maxWidth = `${width}px`;
+    }
+
+    function sizeSelectDropdownToOptions(selectId, dropdownId, triggerId) {
+      const select = document.getElementById(selectId);
+      const dropdown = document.getElementById(dropdownId);
+      const trigger = document.getElementById(triggerId);
+      const valueEl = document.getElementById(triggerId.replace('Trigger', 'Value'));
+      if (!select || !dropdown) return;
+
+      if (selectId === 'updatedTimeZoneSelect') return;
+
+      // Only size once — never recompute on selection changes.
+      if (dropdown.dataset.fixedWidthPx) return;
+
+      const probeEl = valueEl || trigger;
+      if (!probeEl) return;
+
+      const style = window.getComputedStyle(probeEl);
+      const measurer = document.createElement('span');
+      measurer.style.position = 'fixed';
+      measurer.style.left = '-99999px';
+      measurer.style.top = '-99999px';
+      measurer.style.visibility = 'hidden';
+      measurer.style.pointerEvents = 'none';
+      measurer.style.whiteSpace = 'nowrap';
+      measurer.style.font = style.font || `${style.fontWeight} ${style.fontSize} / ${style.lineHeight} ${style.fontFamily}`;
+      measurer.style.letterSpacing = style.letterSpacing;
+      measurer.style.textTransform = style.textTransform;
+      document.body.appendChild(measurer);
+
+      let maxTextWidth = 0;
+      Array.from(select.options).forEach((option) => {
+        measurer.textContent = String(option.textContent || '');
+        maxTextWidth = Math.max(maxTextWidth, measurer.getBoundingClientRect().width);
+      });
+      document.body.removeChild(measurer);
+
+      const dropdownStyle = window.getComputedStyle(dropdown);
+      const leftPad = parseCssPx(dropdownStyle.getPropertyValue('--dca-dropdown-content-pad'), 10);
+      const rightPad = parseCssPx(dropdownStyle.getPropertyValue('--dca-dropdown-arrow-gap'), 18);
+      const fudge = 1;
+      const measuredWidth = Math.max(54, Math.ceil(maxTextWidth + leftPad + rightPad + fudge));
+      const priorLockedWidth = Number.parseFloat(dropdown.dataset.fixedWidthPx || '0');
+      const fixedWidth = Number.isFinite(priorLockedWidth) && priorLockedWidth > 0
+        ? Math.max(priorLockedWidth, measuredWidth)
+        : measuredWidth;
+      dropdown.dataset.fixedWidthPx = String(fixedWidth);
+      const widthPx = `${fixedWidth}px`;
+      dropdown.style.width = widthPx;
+      dropdown.style.minWidth = widthPx;
+      dropdown.style.maxWidth = widthPx;
+      dropdown.style.flexBasis = widthPx;
+      const wrapper = dropdown.closest('label.chip') || dropdown.closest('.chip-menu-wrap');
+      if (wrapper) {
+        const dropdownRect = dropdown.getBoundingClientRect();
+        const wrapperRect = wrapper.getBoundingClientRect();
+        const prefixWidth = Math.max(0, Math.ceil(wrapperRect.width - dropdownRect.width));
+        const measuredWrapperWidth = Math.max(prefixWidth + fixedWidth, Math.ceil(wrapperRect.width));
+        const priorWrapperWidth = Number.parseFloat(wrapper.dataset.fixedPillWidthPx || '0');
+        const fixedWrapperWidth = Number.isFinite(priorWrapperWidth) && priorWrapperWidth > 0
+          ? Math.max(priorWrapperWidth, measuredWrapperWidth)
+          : measuredWrapperWidth;
+        wrapper.dataset.fixedPillWidthPx = String(fixedWrapperWidth);
+        const wrapperWidthPx = `${fixedWrapperWidth}px`;
+        wrapper.style.width = wrapperWidthPx;
+        wrapper.style.minWidth = wrapperWidthPx;
+        wrapper.style.maxWidth = wrapperWidthPx;
+        wrapper.style.flexBasis = wrapperWidthPx;
+        wrapper.style.flexShrink = '0';
+      }
+    }
+
+    function syncSelectDropdown(selectId, triggerId, menuId) {
+      const select = document.getElementById(selectId);
+      const trigger = document.getElementById(triggerId);
+      const dropdown = document.getElementById(triggerId.replace('Trigger', 'Dropdown'));
+      const menu = document.getElementById(menuId);
+      const valueEl = document.getElementById(triggerId.replace('Trigger', 'Value'));
+      if (!select || !menu) return;
+
+      const selectedOption = select.options[select.selectedIndex];
+      if (valueEl && selectId !== 'updatedTimeZoneSelect') {
+        valueEl.textContent = selectedOption ? selectedOption.textContent : '';
+      }
+      if (trigger && selectId === 'updatedTimeZoneSelect') {
+        trigger.textContent = selectedOption ? selectedOption.textContent : '';
+      }
+
+      menu.innerHTML = Array.from(select.options)
+        .map((option) => {
+          const selectedClass = option.value === select.value ? ' dca-option-btn--selected' : '';
+          return `<button type="button" class="dca-option-btn${selectedClass}" data-value="${escapeHtml(option.value)}">${escapeHtml(option.textContent || '')}</button>`;
+        })
+        .join('');
+
+      if (selectId === 'updatedTimeZoneSelect') {
+        sizeUpdatedTimeZoneDropdownMenu(select, dropdown, menu, trigger);
+      }
+    }
+
+    function syncAllSelectDropdowns() {
+      SELECT_DROPDOWN_CONFIGS.forEach(({ selectId, triggerId, menuId }) => {
+        syncSelectDropdown(selectId, triggerId, menuId);
+      });
+    }
+
+    function bindSelectDropdowns() {
+      SELECT_DROPDOWN_CONFIGS.forEach(({ selectId, dropdownId, triggerId, menuId }) => {
+        const select = document.getElementById(selectId);
+        const dropdown = document.getElementById(dropdownId);
+        const trigger = document.getElementById(triggerId);
+        const menu = document.getElementById(menuId);
+        if (!select || !dropdown || !trigger || !menu) return;
+        if (dropdown.dataset.bound === '1') return;
+        dropdown.dataset.bound = '1';
+
+        const isUpdatedChipDropdown = selectId === 'updatedTimeZoneSelect';
+        const toggleRoot = isUpdatedChipDropdown
+          ? document.getElementById('updatedChipWrap')
+          : dropdown.closest('label.chip');
+
+        if (toggleRoot) {
+          toggleRoot.classList.add('dca-dropdown-pill');
+        }
+
+        if (toggleRoot && toggleRoot.dataset.dropdownPillBound !== '1') {
+          toggleRoot.dataset.dropdownPillBound = '1';
+          toggleRoot.addEventListener('click', (event) => {
+            if (menu.contains(event.target)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const willOpen = !menu.classList.contains('open');
+            closeAllSelectDropdowns(willOpen ? dropdown : null);
+            setDropdownOpen(dropdown, menu, willOpen);
+          });
+        }
+
+        menu.addEventListener('click', (event) => {
+          const btn = event.target.closest('.dca-option-btn');
+          if (!btn) return;
+          const nextValue = String(btn.dataset.value || '');
+          if (select.value !== nextValue) {
+            select.value = nextValue;
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+          syncSelectDropdown(selectId, triggerId, menuId);
+          setDropdownOpen(dropdown, menu, false);
+        });
+      });
+
+      requestAnimationFrame(() => {
+        SELECT_DROPDOWN_CONFIGS.forEach(({ selectId, dropdownId, triggerId }) => {
+          sizeSelectDropdownToOptions(selectId, dropdownId, triggerId);
+        });
+      });
+
+      if (selectDropdownGlobalListenersBound) return;
+      selectDropdownGlobalListenersBound = true;
+
+      document.addEventListener('click', (event) => {
+        const target = event.target;
+        SELECT_DROPDOWN_CONFIGS.forEach(({ dropdownId, menuId }) => {
+          const dropdown = document.getElementById(dropdownId);
+          const menu = document.getElementById(menuId);
+          if (!dropdown || !menu) return;
+          if (dropdown.contains(target)) return;
+          setDropdownOpen(dropdown, menu, false);
+        });
+      });
+
+      document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape') return;
+        closeAllSelectDropdowns();
+      });
+    }
+
     function setButtonIcon(iconId, markup) {
       const iconEl = document.getElementById(iconId);
       if (!iconEl || !markup) return;
@@ -639,6 +903,7 @@
         const selected = opt.value === preferred ? ' selected' : '';
         return `<option value="${opt.value}"${selected}>${opt.label}</option>`;
       }).join('');
+      syncSelectDropdown('updatedTimeZoneSelect', 'updatedTimeZoneDropdownTrigger', 'updatedTimeZoneDropdownMenu');
     }
 
     function bindTimeZoneChipEvents() {
@@ -1077,6 +1342,7 @@
         state.timeZone = setPreferredDashboardTimeZone(String(snapshot.timeZone || 'UTC'));
 
         populateUpdatedTimeZoneSelect();
+        syncAllSelectDropdowns();
         applyPanelOrder();
         applyPanelVisibility();
         setLastUpdated();
@@ -1130,6 +1396,7 @@
       state.timeZone = setPreferredDashboardTimeZone('UTC');
 
       populateUpdatedTimeZoneSelect();
+      syncAllSelectDropdowns();
       applyPanelOrder();
       applyPanelVisibility();
       setLastUpdated();
@@ -2047,6 +2314,9 @@
     function bindControls() {
       ['rangeSelect', 'smoothSelect'].forEach((id) => {
         document.getElementById(id).addEventListener('change', () => {
+          const triggerId = id === 'rangeSelect' ? 'rangeDropdownTrigger' : 'smoothDropdownTrigger';
+          const menuId = id === 'rangeSelect' ? 'rangeDropdownMenu' : 'smoothDropdownMenu';
+          syncSelectDropdown(id, triggerId, menuId);
           saveControlsToStorage();
           updateResetButtonUi();
           renderHistoryChart();
@@ -2374,6 +2644,7 @@
       window.addEventListener('resize', () => {
         applyPanelSizing();
         applySoftwarePanelSizing({ recalculateAvailableHeight: true });
+        syncAllSelectDropdowns();
         Plotly.Plots.resize('historyChart');
         Plotly.Plots.resize('softwareChart');
         updateHistoryLegendSizing();
@@ -2489,11 +2760,13 @@
           throw new Error('No software rows found in grouped software dataset.');
         }
 
+        bindSelectDropdowns();
         populateUpdatedTimeZoneSelect();
         bindTimeZoneChipEvents();
         loadControlsFromStorage();
         applyDashboardShareStateFromUrl();
         populateUpdatedTimeZoneSelect();
+        syncAllSelectDropdowns();
         applyPanelOrder();
         applyPanelVisibility();
         setLastUpdated();
