@@ -8,8 +8,9 @@ Current dashboards:
 
 - `bip110_signaling/`: dual canvas dashboard for SegWit and BIP-110 signaling
 - `node_count/`: Plotly-based history chart plus software-version panel
-- `bitcoin_dominance/`: Plotly-based BTC dominance history plus latest market-cap snapshot panel
-- `quantum_exposure/`: quantum exposure dashboard with its own app entrypoint and standalone bootstrap
+- `bitcoin_dominance/`: Plotly-based BTC dominance history plus top-10 market-cap snapshot panel
+- `dca_cost_basis/`: Plotly-based DCA cost basis chart with cadence/range/scale controls
+- `quantum_exposure/`: quantum exposure research dashboard with its own app entrypoint and standalone bootstrap
 
 Each dashboard folder may contain both:
 
@@ -87,6 +88,9 @@ Accent color is dashboard-specific, but it should be a single clear accent that 
 
 - `bip110_signaling`: signal orange (`--signal`)
 - `node_count`: orange accent (`--accent`)
+- `bitcoin_dominance`: orange accent (`--accent`)
+- `dca_cost_basis`: orange accent (`--accent`)
+- `quantum_exposure`: teal accent (`--accent`, `#0c6f5f`)
 
 ### Page padding and spacing
 
@@ -222,6 +226,24 @@ Important node-count sizing values:
 - Software chart minimum height: `156px`
 - Software table minimum height: `calc(header + row + 12px)`
 - Stacked software chart target height: `260px`
+
+### Bitcoin Dominance specifics
+
+Bitcoin Dominance currently persists (two separate storage keys):
+
+- Layout key: `panelsSwapped`, wide-layout panel split percentage (`historyPanelPercent`), per-panel manual heights for the history and snapshot panels
+- Controls key: `includeStables`, `stackedDominance`, `showPrice`, `stackedDominanceTouched`
+
+Important sizing values:
+
+- Main panel split bounds: `34` to `72`
+- Stack breakpoint: `1100px`
+
+### DCA Cost Basis specifics
+
+DCA Cost Basis is a single-panel dashboard (no resizable layout). It persists control state only:
+
+- Controls key: `cadence`, `rangeDays`, `yScale`, `showHalvings`
 
 ### BIP110 specifics
 
