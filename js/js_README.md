@@ -11,10 +11,11 @@ Load order matters.
 - `bip110_signaling.html`: lean standalone bootstrap dedicated to BIP110 iframe startup
 - `node_count.html`: lean standalone bootstrap dedicated to Node Count iframe startup
 - `bitcoin_dominance.html`: lean standalone bootstrap dedicated to Bitcoin Dominance iframe startup
+- `dca_cost_basis.html`: lean standalone bootstrap dedicated to DCA Cost Basis iframe startup
 
 ### URL behavior
 
-- Production deep links: `/quantum_exposure`, `/bip110_signaling`, `/node_count`, `/bitcoin_dominance`
+- Production deep links: `/quantum_exposure`, `/bip110_signaling`, `/node_count`, `/bitcoin_dominance`, `/dca_cost_basis`
 - Local standalone deep links: `/view.html#node_count`
 - Home page remains `/`
 
@@ -82,6 +83,7 @@ Most visualization-family swaps follow this flow:
 - `webapps/bip110_signaling/standalone_bootstrap.js`: self-contained standalone controller for BIP110 page
 - `webapps/node_count/standalone_bootstrap.js`: self-contained standalone controller for Node Count page
 - `webapps/bitcoin_dominance/standalone_bootstrap.js`: self-contained standalone controller for Bitcoin Dominance page
+- `webapps/dca_cost_basis/standalone_bootstrap.js`: self-contained standalone controller for DCA Cost Basis page
 - `webapps/quantum_exposure/standalone_app.js`: self-contained standalone controller for Quantum Exposure page
 
 ## Where To Edit (Cheat Sheet)
