@@ -4,10 +4,13 @@ Use this as the fast-path checklist when building a new dashboard in `webapps/`.
 
 ## 1. Start from the shared shell
 
-Always include:
+Always include in `dashboard.html` `<head>`:
 
 ```html
 <script src="../shared/dashboard_embed_modal.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="../shared/dashboard_shared.css" />
 ```
 
@@ -19,7 +22,55 @@ Set your accent token in local `:root`:
 }
 ```
 
-## 2. Keep layout behavior predictable
+Put all dashboard logic in a separate `dashboard_app.js` file (not inline in the HTML). Load it at the bottom of `<body>`.
+
+## 2. Wire up the theme system
+
+Every `dashboard_app.js` must start with this IIFE before any other code:
+
+```javascript
+(function () {
+  const THEME_KEY = 'quantum-research-dashboard-theme';
+  function applyTheme(t) {
+    document.documentElement.dataset.theme = (t === 'light' ? 'light' : 'dark');
+    document.dispatchEvent(new CustomEvent('dashboard-theme-change'));
+  }
+  try {
+    const stored = localStorage.getItem(THEME_KEY);
+    applyTheme(
+      stored === 'light' || stored === 'dark'
+        ? stored
+        : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    );
+  } catch (_) { applyTheme('dark'); }
+  window.addEventListener('message', function (e) {
+    if (e.data && e.data.type === 'quantum-dashboard-theme') applyTheme(e.data.theme);
+  });
+  window.addEventListener('storage', function (e) {
+    if (e.key === THEME_KEY && (e.newValue === 'light' || e.newValue === 'dark')) applyTheme(e.newValue);
+  });
+}());
+document.addEventListener('dashboard-theme-change', function () {
+  // re-render charts, update Plotly layout colors, etc.
+});
+```
+
+Add `:root[data-theme="light"]` token overrides in the dashboard's local CSS. Copy the token set from `node_count/dashboard.html` as a starting point.
+
+## 3. Create the standalone shell page
+
+Copy an existing root-level `<dashboard>.html` (e.g. `node_count.html`) to `/<new_dashboard>.html`. Update:
+- The `<title>` tag
+- `<link rel="prefetch" href="webapps/<new_dashboard>/dashboard.html" />`
+- The `<script src="webapps/<new_dashboard>/standalone_bootstrap.js">` tag at the end of `<body>`
+
+The shell page must have `data-standalone-modal-shell="1"` on `<body>`. It loads `assets/styles.css` — not any dashboard-specific CSS.
+
+Copy an existing `standalone_bootstrap.js` and update `STANDALONE_FILENAME`, `DASHBOARD_URL`, `getStandalonePath()`, and the `getMainRouteUrl()` slug guard for the new dashboard.
+
+**Critical:** Add the new slug to `localStandaloneBySlug` in **every** existing `standalone_bootstrap.js` and in `quantum_exposure/standalone_app.js`. This map is used for local dev routing and must stay in sync across all files.
+
+## 4. Keep layout behavior predictable
 
 - Use a two-panel wide layout plus stacked/mobile fallback.
 - Persist sizes by panel identity (not panel slot).
@@ -27,7 +78,7 @@ Set your accent token in local `:root`:
 - Use pointer capture for all drag-resize interactions.
 - Drag down should always increase panel height.
 
-## 3. Persist all user-impacting state
+## 5. Persist all user-impacting state
 
 Persist at minimum:
 
@@ -37,7 +88,7 @@ Persist at minimum:
 - timezone preference (if timestamps are shown)
 - chart options that materially change what users see
 
-## 4. Match the standard refresh behavior
+## 6. Match the standard refresh behavior
 
 For dashboard data refresh, use the same pattern everywhere:
 
@@ -52,7 +103,7 @@ For dashboard data refresh, use the same pattern everywhere:
   - `online`
 - if using phased rendering, re-enable topbar controls right after the first meaningful paint; do not keep controls locked while non-critical background datasets continue loading
 
-## 5. Plotly defaults that work well
+## 7. Plotly defaults that work well
 
 Use these as first-pass defaults:
 
@@ -67,25 +118,24 @@ Recommended baseline margins from existing dashboards:
 - history-style chart: `{ l: 64, r: 24, t: 16, b: 40 }`
 - compact category/bar panel: `{ l: 64, r: 18, t: 6, b: 62 }`
 
-## 6. Home page card preview integration
+## 8. Home page card preview integration
 
-If the dashboard needs live grid/list quick views:
+The card preview uses a separate `preview.html` + `preview_app.js` — not `?preview=card` on the main dashboard.
 
-1. Add a preview mapping entry in `js/06_grid_layout_filter_render.js`:
-   - `url: "webapps/<dashboard>/dashboard.html?preview=card"`
-   - virtual preview scene width/height
-2. Add `preview=card` mode in dashboard HTML/CSS:
-   - hide topbar/KPI-only sections
-   - show panel area only
-   - remove controls not needed in tiny preview
-3. Keep card DOM nodes mounted during filtering.
+1. Create `preview.html` with minimal markup, load `../shared/preview_shared.js` then `preview_app.js` at end of `<body>`.
+2. `preview_app.js` renders only the main chart. Call `window.WSBPreviewShared?.initThemeSync({ onThemeChanged: render })` during init.
+3. Add a preview mapping entry in `js/06_grid_layout_filter_render.js`:
+   - key: `'<dashboard>.png'` (must match the card image filename)
+   - `url: 'webapps/<dashboard>/preview.html'`
+   - `width: 1280, height: 720`
+4. Keep card DOM nodes mounted during filtering.
 
 Important:
 
 - Do not re-append mounted preview card nodes during filter/favorites/archive toggles.
 - Reparenting iframe-backed cards can trigger reload lag.
 
-## 7. Card-preview CSS rules to remember
+## 9. Card-preview CSS rules to remember
 
 For panel-only preview mode:
 
@@ -101,7 +151,7 @@ This ensures:
 - two visible panels each span full width
 - proportions remain consistent with scene scaling
 
-## 8. Embedded modal behavior
+## 10. Embedded modal behavior
 
 Dashboards can render standalone or in modal iframes.
 
@@ -109,28 +159,36 @@ Dashboards can render standalone or in modal iframes.
 - avoid dashboard-specific hacks for modal top padding unless absolutely necessary
 - verify both contexts before shipping
 
-## 9. Final QA checklist
+## 11. Final QA checklist
 
 Before shipping a new dashboard:
 
 - desktop wide layout works
 - mobile stacked layout works
 - swap + resize + persistence all work after reload
+- dark and light themes render correctly in both standalone and modal contexts
 - timezone display updates in place
 - wake refresh behavior works after tab sleep
 - first checkbox click works immediately after opening the dashboard (no ignored initial interaction)
-- card quick view does not reload when toggling favorites/archive/search
+- card quick view (preview.html) does not reload when toggling favorites/archive/search
 - modal-embedded and standalone rendering both look correct
 - no console errors during init, resize, filter, and refresh
+- `localStandaloneBySlug` updated in all existing bootstrap files
+- `DASHBOARD_CARD_PREVIEW_SPECS` entry added in `js/06_grid_layout_filter_render.js`
 
-## 10. Recommended build order
+## 12. Recommended build order
 
-1. Data loading + parsing
-2. Static panel shell and topbar
-3. First chart render (no resizing yet)
-4. Panel visibility toggles
-5. Resize interactions + persistence
-6. Refresh/wake behavior
-7. Card preview mode (`preview=card`)
-8. Home page integration
-9. Final spacing and typography polish
+1. `webapp_data/` — generate data files with the update script
+2. Theme sync IIFE + dark/light token definitions
+3. Static panel shell and topbar (no data yet)
+4. Data loading + parsing
+5. First chart render (no resizing yet)
+6. Panel visibility toggles
+7. Resize interactions + persistence
+8. Refresh/wake behavior
+9. Copy Link + Reset Dashboard topbar buttons
+10. `preview.html` + `preview_app.js` card preview
+11. Root-level `<dashboard>.html` shell page + `standalone_bootstrap.js`
+12. `localStandaloneBySlug` update in all existing bootstraps
+13. `DASHBOARD_CARD_PREVIEW_SPECS` entry in `js/06_grid_layout_filter_render.js`
+14. Final spacing and typography polish

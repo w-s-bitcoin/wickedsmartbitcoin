@@ -1,5 +1,12 @@
 [
   {
+    "filename": "bitcoin_net_worth.png",
+    "title": "Bitcoin Net Worth",
+    "description": "This dashboard tracks Bitcoin-denominated net worth across assets and liabilities with snapshot history, charting, and optional local encryption for live data",
+    "latest_x": "",
+    "latest_youtube": ""
+  },
+  {
     "filename": "quantum_exposure.png",
     "title": "Bitcoin Quantum Exposure",
     "description": "This dashboard tracks exposed Bitcoin supply, pubkeys, and UTXOs by script type and spend activity, with historical views and top exposure filters",

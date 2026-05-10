@@ -403,6 +403,7 @@ function getVisualizationUrl(filename) {
             bip110_signaling: 'bip110_signaling.html',
             node_count: 'node_count.html',
             bitcoin_dominance: 'bitcoin_dominance.html',
+            bitcoin_net_worth: 'bitcoin_net_worth.html',
         };
         const localStandalone = localStandaloneBySlug[slug];
         if (localStandalone) {

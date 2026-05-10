@@ -93,6 +93,7 @@
       node_count: 'node_count.html',
       dca_cost_basis: 'dca_cost_basis.html',
       bitcoin_dominance: 'bitcoin_dominance.html',
+      bitcoin_net_worth: 'bitcoin_net_worth.html',
     };
 
     if (slug === "bitcoin_dominance") return getStandalonePath();

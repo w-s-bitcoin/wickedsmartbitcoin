@@ -243,6 +243,7 @@ fetch(IMAGE_LIST_URL)
     .then(res => res.json())
     .then(data => {
         const dashboardFilenames = new Set([
+            'bitcoin_net_worth.png',
             'quantum_exposure.png',
             'dca_cost_basis.png',
             'bip110_signaling.png',

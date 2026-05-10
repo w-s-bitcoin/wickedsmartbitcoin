@@ -116,7 +116,21 @@
     try {
       if (window.self === window.top) return;
 
+      const isEditableTarget = (target) => {
+        if (!(target instanceof Element)) return false;
+        if (target.closest('input, textarea, select, button, [contenteditable="true"], [contenteditable=""], [contenteditable]')) {
+          return true;
+        }
+        if (target instanceof HTMLElement && target.isContentEditable) {
+          return true;
+        }
+        return false;
+      };
+
       document.addEventListener('keydown', (event) => {
+        if (event.defaultPrevented) return;
+        if (isEditableTarget(event.target)) return;
+
         const key = event.key;
         const code = event.code;
         const isLeft = key === 'ArrowLeft';
