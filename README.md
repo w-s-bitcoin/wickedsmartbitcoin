@@ -50,6 +50,14 @@ Interactive DCA (dollar-cost averaging) dashboard comparing historical Bitcoin p
 - Plotly chart with cost basis and current price overlay
 - KPI chips: Block Height, Price, In Profit %, At a Loss %
 
+### Bitcoin Net Worth (`/bitcoin_net_worth`)
+Interactive dashboard for tracking personal net worth in Bitcoin terms.
+- Demo and Live modes with local persistence for live entries
+- Snapshot history with editable assets and liabilities
+- Net worth, assets, and liabilities charts with filtering and date-range controls
+- Optional live-data encryption lock/unlock flow
+- Export/import support for local CSV or encrypted data files
+
 ### BIP-110 Signaling (`/bip110_signaling`)
 Dual-canvas dashboard tracking SegWit and BIP-110 miner signaling over time.
 - Two independently resizable chart panels (SegWit signaling + BIP-110 signaling)
@@ -114,6 +122,7 @@ Open:
 ├── bitcoin_dominance.html
 ├── bip110_signaling.html
 ├── dca_cost_basis.html
+├── bitcoin_net_worth.html
 ├── quantum_exposure.html
 ├── assets/
 ├── js/
@@ -122,6 +131,7 @@ Open:
 │   ├── node_count/
 │   ├── bitcoin_dominance/
 │   ├── dca_cost_basis/
+│   ├── bitcoin_net_worth/
 │   ├── bip110_signaling/
 │   └── quantum_exposure/
 ```

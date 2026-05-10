@@ -10,6 +10,7 @@ Current dashboards:
 - `node_count/`: Plotly-based history chart plus software-version panel
 - `bitcoin_dominance/`: Plotly-based BTC dominance history plus top-10 market-cap snapshot panel
 - `dca_cost_basis/`: Plotly-based DCA cost basis chart with cadence/range/scale controls
+- `bitcoin_net_worth/`: interactive net worth tracker with demo/live modes, snapshot history, and optional encryption
 - `quantum_exposure/`: quantum exposure research dashboard with its own app entrypoint and standalone bootstrap
 
 Each dashboard folder may contain both:
