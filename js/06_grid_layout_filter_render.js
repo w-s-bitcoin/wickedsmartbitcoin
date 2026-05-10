@@ -27,6 +27,11 @@ const DASHBOARD_CARD_PREVIEW_SPECS = Object.freeze({
     width: 1280,
     height: 720,
   },
+  'bitcoin_net_worth.png': {
+    url: 'webapps/bitcoin_net_worth/preview.html',
+    width: 1280,
+    height: 720,
+  },
 });
 
 let dashboardPreviewResizeObserver = null;
