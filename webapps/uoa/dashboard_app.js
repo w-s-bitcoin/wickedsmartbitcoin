@@ -1098,6 +1098,18 @@
   function fmtSats(v) {
     if (!Number.isFinite(v) || v <= 0) return "0 sats";
 
+    if (v > 1000000000000) {
+      return `${(v / 1000000000000).toFixed(2)}T sats`;
+    }
+
+    if (v > 1000000000) {
+      return `${(v / 1000000000).toFixed(2)}B sats`;
+    }
+
+    if (v > 1000000) {
+      return `${(v / 1000000).toFixed(2)}M sats`;
+    }
+
     const formatWithSatsDigitRules = (unitValue, unitLabel) => {
       let decimals = 0;
       if (unitValue < 1) {

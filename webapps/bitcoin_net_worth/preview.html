@@ -5,10 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Bitcoin Net Worth Preview</title>
   <style>
-    html, body {
+    :root {
+      --bg: #000;
+    }
+
+    :root[data-theme="light"] {
+      --bg: #f7f4ee;
+    }
+
+    html,
+    body {
       margin: 0;
       width: 100%;
       height: 100%;
+      overflow: hidden;
+      background: var(--bg);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -24,5 +35,8 @@
 <body>
   <img src="../../assets/bitcoin-icon.png" alt="Bitcoin" />
   <script src="../shared/preview_shared.js"></script>
+  <script>
+    window.WSBPreviewShared?.initThemeSync?.();
+  </script>
 </body>
 </html>

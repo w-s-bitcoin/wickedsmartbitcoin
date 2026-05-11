@@ -5,37 +5,82 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>UoA Preview</title>
   <style>
+    :root {
+      --bg: #000;
+      --text: #fff;
+      --border: rgba(255, 255, 255, 0.15);
+      --grid-bg: rgba(255, 255, 255, 0.05);
+      --axis-color: rgba(255, 255, 255, 0.2);
+    }
+
+    :root[data-theme="light"] {
+      --bg: #f7f4ee;
+      --text: #1a1a1a;
+      --border: rgba(0, 0, 0, 0.12);
+      --grid-bg: rgba(0, 0, 0, 0.03);
+      --axis-color: rgba(0, 0, 0, 0.15);
+    }
+
     html, body {
       margin: 0;
       width: 100%;
       height: 100%;
-      background: #000;
-      color: #fff;
+      background: var(--bg);
+      color: var(--text);
       font-family: "Space Grotesk", sans-serif;
+      overflow: hidden;
     }
+
     .wrap {
       width: 100%;
       height: 100%;
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
-      padding: 8px;
+      gap: 12px;
+      padding: 12px;
       box-sizing: border-box;
     }
+
+    .chart-container {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      border: none;
+      border-radius: 0;
+      background: transparent;
+      overflow: hidden;
+    }
+
+    .chart-content {
+      flex: 1;
+      min-height: 0;
+      position: relative;
+    }
+
     canvas {
       width: 100%;
       height: 100%;
-      border: 1px solid rgba(255,255,255,0.35);
-      background: #000;
+      display: block;
     }
   </style>
 </head>
 <body>
   <div class="wrap">
-    <canvas id="l"></canvas>
-    <canvas id="r"></canvas>
+    <div class="chart-container">
+      <div class="chart-content">
+        <canvas id="leftChart"></canvas>
+      </div>
+    </div>
+    <div class="chart-container">
+      <div class="chart-content">
+        <canvas id="rightChart"></canvas>
+      </div>
+    </div>
   </div>
   <script src="../shared/preview_shared.js"></script>
   <script src="preview_app.js"></script>
+  <script>
+    window.WSBPreviewShared?.initThemeSync?.();
+  </script>
 </body>
 </html>

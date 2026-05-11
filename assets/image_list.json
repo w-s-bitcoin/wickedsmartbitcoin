@@ -44,7 +44,7 @@
   {
     "filename": "uoa.png",
     "title": "Unit of Account",
-    "description": "Compare Bitcoin to multiple currencies with historical FX rates and mirrored log/linear scale views",
+    "description": "Compares any selected currency pair in both directions using historical rates, mirrored charts, date-range controls, and optional redenomination adjustment",
     "latest_x": "",
     "latest_youtube": ""
   }
