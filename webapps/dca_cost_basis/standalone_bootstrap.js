@@ -174,6 +174,7 @@
       bitcoin_dominance: 'bitcoin_dominance.html',
       dca_cost_basis: 'dca_cost_basis.html',
       bitcoin_net_worth: 'bitcoin_net_worth.html',
+      uoa: 'uoa.html',
     };
 
     if (slug === "dca_cost_basis") return getStandalonePath();
@@ -370,7 +371,11 @@
     const snapshot = readModalNavigationSnapshot();
     if (!snapshot.length) return filtered;
 
+    const filteredFilenames = filtered.map((item) => String(item?.filename || "").trim()).filter(Boolean);
     const snapshotSet = new Set(snapshot);
+    const snapshotCoversFiltered = filteredFilenames.every((filename) => snapshotSet.has(filename));
+    if (!snapshotCoversFiltered) return filtered;
+
     const candidates = filtered.filter((item) => snapshotSet.has(String(item?.filename || "").trim()));
     if (!candidates.length) return filtered;
 

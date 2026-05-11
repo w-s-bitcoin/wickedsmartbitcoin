@@ -248,7 +248,8 @@ fetch(IMAGE_LIST_URL)
             'dca_cost_basis.png',
             'bip110_signaling.png',
             'node_count.png',
-            'bitcoin_dominance.png'
+            'bitcoin_dominance.png',
+            'uoa.png'
         ]);
         imageList = Array.isArray(data)
             ? data

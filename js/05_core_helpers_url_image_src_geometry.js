@@ -404,6 +404,7 @@ function getVisualizationUrl(filename) {
             node_count: 'node_count.html',
             bitcoin_dominance: 'bitcoin_dominance.html',
             bitcoin_net_worth: 'bitcoin_net_worth.html',
+            uoa: 'uoa.html',
         };
         const localStandalone = localStandaloneBySlug[slug];
         if (localStandalone) {

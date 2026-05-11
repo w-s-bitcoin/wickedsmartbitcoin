@@ -1,0 +1,722 @@
+#!/usr/bin/env python3
+"""Update UoA FX datasets from Frankfurter with maximum supported currency coverage."""
+
+import json
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+import time
+
+import numpy as np
+import pandas as pd
+import requests
+
+# Configuration
+API_BASE = "https://api.frankfurter.dev/v2"
+START_DATE = "1999-01-01"
+VES_REDENOMINATION_EVENTS = [
+    {"date": "2018-05-29", "ratio": 100000, "ratioLabel": "100,000:1"},
+    {"date": "2018-08-20", "ratio": 100000, "ratioLabel": "100,000:1"},
+    {"date": "2021-10-01", "ratio": 1000000, "ratioLabel": "1,000,000:1"},
+]
+BYN_REDENOMINATION_EVENTS = [
+    {"date": "2016-07-01", "ratio": 10000, "ratioLabel": "10,000:1"},
+]
+REDENOMINATION_EVENTS = {
+    "VES": VES_REDENOMINATION_EVENTS,
+    "BYN": BYN_REDENOMINATION_EVENTS,
+}
+NOTABLE_EVENTS = {    "VES": [
+        {
+            "date": "2013-02-19",
+            "label": "devaluation (Maduro regime)",
+            "devaluationEstimate": "estimated devaluation: ~65%",
+        },
+        {
+            "date": "2016-03-08",
+            "label": "devaluation announcement",
+            "devaluationEstimate": "estimated devaluation: ~70%",
+        },
+        {
+            "date": "2018-02-06",
+            "label": "devaluation (new market rate)",
+            "devaluationEstimate": "estimated devaluation: ~250,000%",
+        },
+        {
+            "date": "2018-08-20",
+            "label": "devaluation with 100,000:1 redenomination",
+            "devaluationEstimate": "estimated devaluation: ~50% + redenomination",
+        },
+    ],    "SDG": [
+        {
+            "date": "2021-02-25",
+            "label": "official rate unification / managed-float reset",
+            "devaluationEstimate": "estimated devaluation: ~582%",
+        }
+    ]
+}
+VES_FIRST_REDENOM_DATE = "2018-05-29"
+
+CURRENCY_FORMAT_OVERRIDES = {
+    "EUR": {"symbol": "€", "symbol_position": "left", "minor_unit": 2},
+    "USD": {"symbol": "$", "symbol_position": "left", "minor_unit": 2},
+    "GBP": {"symbol": "£", "symbol_position": "left", "minor_unit": 2},
+    "JPY": {"symbol": "¥", "symbol_position": "left", "minor_unit": 0},
+    "CHF": {"symbol": "CHF", "symbol_position": "right", "minor_unit": 2},
+    "CAD": {"symbol": "C$", "symbol_position": "left", "minor_unit": 2},
+    "AUD": {"symbol": "A$", "symbol_position": "left", "minor_unit": 2},
+    "NZD": {"symbol": "NZ$", "symbol_position": "left", "minor_unit": 2},
+    "CNY": {"symbol": "¥", "symbol_position": "left", "minor_unit": 2},
+    "INR": {"symbol": "₹", "symbol_position": "left", "minor_unit": 2},
+    "SEK": {"symbol": "kr", "symbol_position": "right", "minor_unit": 2},
+    "NOK": {"symbol": "kr", "symbol_position": "right", "minor_unit": 2},
+    "DKK": {"symbol": "kr", "symbol_position": "right", "minor_unit": 2},
+    "PLN": {"symbol": "zł", "symbol_position": "right", "minor_unit": 2},
+    "HUF": {"symbol": "Ft", "symbol_position": "right", "minor_unit": 0},
+    "CZK": {"symbol": "Kč", "symbol_position": "right", "minor_unit": 2},
+    "RON": {"symbol": "lei", "symbol_position": "right", "minor_unit": 2},
+    "TRY": {"symbol": "₺", "symbol_position": "left", "minor_unit": 2},
+    "ILS": {"symbol": "₪", "symbol_position": "right", "minor_unit": 2},
+    "MXN": {"symbol": "MX$", "symbol_position": "left", "minor_unit": 2},
+    "SGD": {"symbol": "S$", "symbol_position": "left", "minor_unit": 2},
+    "ZAR": {"symbol": "R", "symbol_position": "left", "minor_unit": 2},
+    "HKD": {"symbol": "HK$", "symbol_position": "left", "minor_unit": 2},
+    "KRW": {"symbol": "₩", "symbol_position": "left", "minor_unit": 0},
+    "THB": {"symbol": "฿", "symbol_position": "left", "minor_unit": 2},
+    "VES": {"symbol": "Bs ", "symbol_position": "left", "minor_unit": 2},
+    "PHP": {"symbol": "₱", "symbol_position": "left", "minor_unit": 2},
+    "BRL": {"symbol": "R$", "symbol_position": "left", "minor_unit": 2},
+    "IDR": {"symbol": "Rp", "symbol_position": "left", "minor_unit": 2},
+    "MYR": {"symbol": "RM", "symbol_position": "left", "minor_unit": 2},
+    "ISK": {"symbol": "kr", "symbol_position": "right", "minor_unit": 0},
+}
+
+CURRENCY_NAME_OVERRIDES = {
+    "USD": "US Dollar",
+    "VES": "Venezuelan Bolívar",
+    "XAG": "silver",
+    "XAU": "gold",
+    "XPD": "palladium",
+    "XPT": "platinum",
+}
+
+
+def fetch_supported_currencies():
+    """Fetch the full currency code -> name map from Frankfurter."""
+    url = f"{API_BASE}/currencies"
+    response = requests.get(url, timeout=30)
+    response.raise_for_status()
+    data = response.json()
+    if isinstance(data, list):
+        # v2 format: [{"iso_code": "USD", "name": "United States Dollar", ...}, ...]
+        out = {}
+        for row in data:
+            code = str(row.get("iso_code") or "").upper().strip()
+            name = str(row.get("name") or code).strip()
+            if code:
+                out[code] = name
+        if out:
+            return out
+    if isinstance(data, dict):
+        # v1 fallback format: {"USD": "United States Dollar", ...}
+        return {str(code).upper(): str(name).strip() for code, name in data.items()}
+    raise ValueError("Unexpected currencies response format")
+
+
+def fetch_pair_rates(base_currency, quote_currency="USD", start_date=None, end_date=None):
+    """Fetch historical rates for a currency pair from Frankfurter API"""
+    start = start_date or START_DATE
+    end = end_date or START_DATE
+    print(f"  Fetching {base_currency}/{quote_currency}...")
+    start_dt = datetime.strptime(start, "%Y-%m-%d").date()
+    end_dt = datetime.strptime(end, "%Y-%m-%d").date()
+
+    # Large full-history requests can occasionally return malformed JSON from upstream;
+    # chunking keeps payload sizes stable and significantly improves reliability.
+    span_days = (end_dt - start_dt).days
+    chunk_days = 365 if span_days > 540 else (span_days + 1)
+
+    by_date = {}
+    chunk_start = start_dt
+    while chunk_start <= end_dt:
+        chunk_end = min(chunk_start + timedelta(days=chunk_days - 1), end_dt)
+        try:
+            chunk_rates = fetch_pair_rates_chunk(base_currency, quote_currency, chunk_start, chunk_end)
+            for date_str, rate_value in chunk_rates:
+                by_date[date_str] = rate_value
+        except Exception as e:
+            print(
+                "    ERROR fetching "
+                f"{base_currency}/{quote_currency} for {chunk_start.isoformat()}..{chunk_end.isoformat()}: {e}"
+            )
+            return []
+        chunk_start = chunk_end + timedelta(days=1)
+
+    rates = sorted(by_date.items(), key=lambda item: item[0])
+    print(f"    Got {len(rates)} trading days")
+    return rates
+
+
+def fetch_pair_rates_chunk(base_currency, quote_currency, start_dt, end_dt, max_retries=3):
+    """Fetch one date window for a single pair with retry on transient malformed responses."""
+    url = f"{API_BASE}/rates"
+    params = {
+        "from": start_dt.isoformat(),
+        "to": end_dt.isoformat(),
+        "base": base_currency,
+        "quotes": quote_currency,
+    }
+
+    last_error = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            response = requests.get(url, params=params, timeout=45)
+            response.raise_for_status()
+            data = response.json()
+
+            rates = []
+            if isinstance(data, list):
+                for row in data:
+                    date_str = str(row.get("date") or "").strip()
+                    quote = str(row.get("quote") or "").upper().strip()
+                    rate_value = row.get("rate")
+                    if date_str and quote == quote_currency and isinstance(rate_value, (int, float)):
+                        rates.append((date_str, float(rate_value)))
+            elif isinstance(data, dict) and "rates" in data:
+                # v1 fallback format
+                for date_str, rates_dict in data["rates"].items():
+                    if quote_currency in rates_dict:
+                        rates.append((date_str, float(rates_dict[quote_currency])))
+
+            return rates
+        except Exception as exc:
+            last_error = exc
+            if attempt < max_retries:
+                time.sleep(0.4 * attempt)
+
+    raise last_error
+
+
+def fill_missing_dates(df, start_date, end_date):
+    """Forward-fill missing dates (weekends/holidays) in dataframe"""
+    # Create a complete date range
+    date_range = pd.date_range(start=start_date, end=end_date, freq='D')
+
+    # Reindex to include all dates and forward-fill
+    df_filled = df.reindex(date_range)
+    df_filled = df_filled.fillna(method='ffill')
+
+    # Reset index to have date as column
+    df_filled = df_filled.reset_index()
+    df_filled.columns = ['date']
+
+    # Merge back the original data
+    for col in df.columns:
+        if col != 'date':
+            df_filled[col] = df_filled['date'].apply(
+                lambda d: df[df['date'] == d.strftime('%Y-%m-%d')][col].values[0]
+                if not df[df['date'] == d.strftime('%Y-%m-%d')].empty
+                else df_filled[col].iloc[0] if pd.notna(df_filled.loc[df_filled['date'] == d, col].values[0])
+                else None
+            )
+
+    return df_filled
+
+
+def clean_ves_redenomination_lag_points(df, event_dates):
+    """Replace obvious stale-scale VES/USD lag points with prior-day values.
+
+    Some post-redenomination days can sporadically retain pre-redenomination scale
+    values from upstream. We detect large local scale breaks in log-space and
+    replace those rows with the prior day's value.
+    """
+    if "vesusd" not in df.columns or "date" not in df.columns:
+        return df, 0
+
+    cleaned = df.copy()
+    cleaned["vesusd"] = pd.to_numeric(cleaned["vesusd"], errors="coerce")
+    cleaned["date"] = pd.to_datetime(cleaned["date"], errors="coerce")
+
+    event_date_set = {pd.to_datetime(event_date).date() for event_date in event_dates}
+    first_event = min(event_date_set) if event_date_set else None
+    if first_event is None:
+        return cleaned, 0
+
+    fixes = 0
+    vals = cleaned["vesusd"].tolist()
+    dates = cleaned["date"].tolist()
+
+    # We only alter interior points with a valid previous day to preserve the
+    # requested "fill with day before" behavior exactly.
+    for idx in range(1, len(vals) - 1):
+        date_val = dates[idx]
+        if pd.isna(date_val):
+            continue
+        day = date_val.date()
+        if day < first_event or day in event_date_set:
+            continue
+
+        prev_val = vals[idx - 1]
+        cur_val = vals[idx]
+        next_val = vals[idx + 1]
+
+        # Use local neighborhood scale as reference; if current is wildly off,
+        # treat it as a stale-scale lag point.
+        ref_candidates = [v for v in (prev_val, next_val) if pd.notna(v) and v > 0]
+        if not ref_candidates:
+            continue
+        ref_val = float(pd.Series(ref_candidates).median())
+        if not pd.notna(ref_val) or ref_val <= 0:
+            continue
+
+        is_bad = False
+        if pd.isna(cur_val) or cur_val <= 0:
+            is_bad = True
+        else:
+            ratio = float(cur_val) / ref_val
+            # Detect clear stale-scale mismatches while avoiding normal volatility.
+            if ratio < 0.05 or ratio > 20.0:
+                is_bad = True
+
+        if is_bad and pd.notna(prev_val) and prev_val > 0:
+            vals[idx] = prev_val
+            fixes += 1
+
+    cleaned["vesusd"] = vals
+    return cleaned, fixes
+
+
+def clean_transient_spike_outliers(
+    df,
+    value_columns,
+    date_column="date",
+    max_spike_days=21,
+    spike_factor=6.0,
+    anchor_tolerance=2.5,
+    baseline_window=45,
+    recovery_window=7,
+    merge_gap_days=1,
+    max_anchor_gap_days=60,
+):
+    """Clean transient multi-day spike outliers that revert quickly.
+
+    A run is cleaned only when:
+    - values in the run deviate strongly from the local rolling-median baseline,
+    - the run is short (<= max_spike_days), and
+    - values immediately before/after the run are reasonably consistent (anchor_tolerance),
+      indicating a temporary spike rather than a structural regime shift.
+    - post-run values recover near pre-run anchor within a bounded lookahead window.
+
+    Replacement uses log-linear interpolation between the two anchors.
+    """
+    if not value_columns:
+        return df, {}
+
+    cleaned = df.copy()
+    if date_column in cleaned.columns:
+        cleaned[date_column] = pd.to_datetime(cleaned[date_column], errors="coerce")
+
+    ves_event_dates = {
+        pd.to_datetime(event["date"], errors="coerce").date()
+        for event in VES_REDENOMINATION_EVENTS
+    }
+
+    fixes_by_column = {}
+    for col in value_columns:
+        if col not in cleaned.columns:
+            continue
+
+        series = pd.to_numeric(cleaned[col], errors="coerce")
+        valid_mask = series.notna() & (series > 0)
+        if int(valid_mask.sum()) < max(10, baseline_window // 2):
+            continue
+
+        baseline = series.where(valid_mask).rolling(
+            window=baseline_window,
+            min_periods=max(7, baseline_window // 3),
+            center=True,
+        ).median()
+
+        ratio = pd.Series(1.0, index=series.index, dtype=float)
+        both = valid_mask & baseline.notna() & (baseline > 0)
+        ratio.loc[both] = (series.loc[both] / baseline.loc[both]).astype(float)
+        log_dist = ratio.abs().apply(lambda x: abs(np.log(x)) if x > 0 else float("inf"))
+        threshold = abs(np.log(spike_factor))
+        candidate = both & (log_dist >= threshold)
+
+        # Merge nearby candidate islands to capture multi-day spikes with small gaps.
+        if merge_gap_days > 0 and candidate.any():
+            cand_vals = candidate.to_numpy(dtype=bool).copy()  # Create a writable copy of the array
+            n_vals = cand_vals.shape[0]
+            i = 0
+            while i < n_vals:
+                if cand_vals[i]:
+                    i += 1
+                    continue
+                gap_start = i
+                while i < n_vals and not cand_vals[i]:
+                    i += 1
+                gap_end = i - 1
+                gap_len = gap_end - gap_start + 1
+                left_on = gap_start > 0 and cand_vals[gap_start - 1]
+                right_on = i < n_vals and cand_vals[i]
+                if left_on and right_on and gap_len <= merge_gap_days:
+                    cand_vals[gap_start:gap_end + 1] = True
+            candidate = pd.Series(cand_vals, index=candidate.index)
+
+        fixed_runs = 0
+        idx = 0
+        n = len(series)
+        while idx < n:
+            if not bool(candidate.iloc[idx]):
+                idx += 1
+                continue
+
+            run_start = idx
+            while idx + 1 < n and bool(candidate.iloc[idx + 1]):
+                idx += 1
+            run_end = idx
+            run_len = run_end - run_start + 1
+
+            # Only short-lived anomalies are treated as spikes.
+            if run_len > max_spike_days:
+                idx += 1
+                continue
+
+            left = run_start - 1
+            right = run_end + 1
+            if left < 0 or right >= n:
+                idx += 1
+                continue
+
+            # Search for right anchor near-by to ensure "comes back down" behavior.
+            right_limit = min(n - 1, run_end + max_anchor_gap_days)
+            while right <= right_limit:
+                rv = series.iloc[right]
+                if pd.notna(rv) and float(rv) > 0:
+                    break
+                right += 1
+            if right > right_limit:
+                idx += 1
+                continue
+
+            left_val = float(series.iloc[left]) if pd.notna(series.iloc[left]) else None
+            right_val = float(series.iloc[right]) if pd.notna(series.iloc[right]) else None
+            if left_val is None or right_val is None or left_val <= 0 or right_val <= 0:
+                idx += 1
+                continue
+
+            anchor_ratio = max(left_val, right_val) / min(left_val, right_val)
+            if anchor_ratio > anchor_tolerance:
+                idx += 1
+                continue
+
+            # Preserve known step changes for VES redenominations.
+            if col.lower() == "vesusd" and date_column in cleaned.columns:
+                run_dates = cleaned.loc[run_start:run_end, date_column].dt.date
+                if any(d in ves_event_dates for d in run_dates if pd.notna(d)):
+                    idx += 1
+                    continue
+
+            run_values = series.iloc[run_start:run_end + 1]
+            run_median = float(run_values.median()) if run_values.notna().any() else None
+            if run_median is None or run_median <= 0:
+                idx += 1
+                continue
+
+            ref = (left_val * right_val) ** 0.5
+            if ref <= 0:
+                idx += 1
+                continue
+
+            run_vs_ref = max(run_median / ref, ref / run_median)
+            if run_vs_ref < spike_factor:
+                idx += 1
+                continue
+
+            # Ensure post-run recovery is near pre-run anchor to avoid deleting regime shifts.
+            recovery_slice = series.iloc[right:min(n, right + recovery_window)]
+            recovery_vals = recovery_slice[(recovery_slice.notna()) & (recovery_slice > 0)]
+            if recovery_vals.empty:
+                idx += 1
+                continue
+            recovery_med = float(recovery_vals.median())
+            recovery_ratio = max(recovery_med, left_val) / min(recovery_med, left_val)
+            if recovery_ratio > anchor_tolerance:
+                idx += 1
+                continue
+
+            # Log-linear bridge preserves positivity and avoids abrupt plateaus.
+            left_log = np.log(left_val)
+            right_log = np.log(right_val)
+            span = run_len + 1
+            for j in range(run_len):
+                t = (j + 1) / span
+                bridged = float(np.exp(left_log + (right_log - left_log) * t))
+                series.iloc[run_start + j] = bridged
+
+            fixed_runs += 1
+            idx += 1
+
+        cleaned[col] = series
+        if fixed_runs:
+            fixes_by_column[col] = fixed_runs
+
+    return cleaned, fixes_by_column
+
+
+def rebuild_vesusd_canonical(df, end_date_iso):
+    """Rebuild vesusd from canonical source stitching to avoid mixed-scale artifacts.
+
+    Era rules:
+    - Before 2018-05-29: VEF/USD converted by 100000:1.
+    - On/after 2018-05-29: direct VES/USD.
+    """
+    if "date" not in df.columns:
+        return df, 0
+
+    first_dt = datetime.strptime(VES_FIRST_REDENOM_DATE, "%Y-%m-%d").date()
+    event_dates = {event["date"] for event in VES_REDENOMINATION_EVENTS}
+
+    ves_rates = fetch_pair_rates("VES", "USD", start_date=START_DATE, end_date=end_date_iso)
+    vef_rates = fetch_pair_rates("VEF", "USD", start_date=START_DATE, end_date=end_date_iso)
+    direct_ves = {d: r for d, r in ves_rates}
+    converted_vef = {d: (r / 100000.0) for d, r in vef_rates}
+
+    canonical = {}
+    for d in sorted(set(direct_ves.keys()) | set(converted_vef.keys())):
+        d_dt = datetime.strptime(d, "%Y-%m-%d").date()
+        if d_dt < first_dt:
+            if d in converted_vef:
+                canonical[d] = converted_vef[d]
+        else:
+            if d in direct_ves:
+                canonical[d] = direct_ves[d]
+
+    out = df.copy()
+    out["date"] = pd.to_datetime(out["date"], errors="coerce")
+    date_iso = out["date"].dt.strftime("%Y-%m-%d")
+    mapped = pd.to_numeric(date_iso.map(canonical), errors="coerce")
+    out["vesusd"] = mapped
+
+    vals = out["vesusd"].tolist()
+    dates = date_iso.tolist()
+    fixes = 0
+    for idx in range(1, len(vals)):
+        d = dates[idx]
+        cur = vals[idx]
+        prev = vals[idx - 1]
+        if d in event_dates:
+            continue
+        if pd.isna(cur) and pd.notna(prev) and prev > 0:
+            vals[idx] = prev
+            fixes += 1
+            continue
+        if pd.notna(cur) and cur <= 0 and pd.notna(prev) and prev > 0:
+            vals[idx] = prev
+            fixes += 1
+            continue
+        if pd.notna(cur) and cur > 0 and pd.notna(prev) and prev > 0:
+            ratio = float(cur) / float(prev)
+            if ratio < 0.01 or ratio > 100.0:
+                vals[idx] = prev
+                fixes += 1
+    out["vesusd"] = pd.Series(vals, index=out.index).ffill()
+    out["date"] = out["date"].dt.strftime("%Y-%m-%d")
+    return out, fixes
+
+
+def main():
+    webapp_data_dir = Path(__file__).parent / "webapp_data"
+    fx_rates_file = webapp_data_dir / "daily_fx_rates.csv"
+    uoa_pairs_file = webapp_data_dir / "uoa_pairs.json"
+
+    print("=" * 60)
+    print("Updating FX Rates for Multiple Currency Pairs")
+    print("=" * 60)
+
+    # Load existing CSV to get current range and refresh from the latest stored day forward.
+    print("\nLoading existing FX rates...")
+    existing_df = pd.read_csv(fx_rates_file)
+    existing_df['date'] = pd.to_datetime(existing_df['date'])
+    min_date = existing_df['date'].min().strftime('%Y-%m-%d')
+    max_date = existing_df['date'].max().strftime('%Y-%m-%d')
+    print(f"  Current date range: {min_date} to {max_date}")
+
+    fetch_start_date = max_date
+    fetch_end_date = date.today().isoformat()
+    print(f"  Refresh window: {fetch_start_date} to {fetch_end_date}")
+
+    supported_currencies = fetch_supported_currencies()
+    target_currencies = sorted(code for code in supported_currencies.keys() if code != "USD")
+    print(f"  Frankfurter-supported currencies (excl. USD): {len(target_currencies)}")
+
+    existing_columns = set(existing_df.columns)
+    existing_currency_columns = {f"{code.lower()}usd" for code in target_currencies}
+    missing_columns = sorted(col for col in existing_currency_columns if col not in existing_columns)
+    if missing_columns:
+        print(f"  New currency columns requiring full backfill: {len(missing_columns)}")
+
+    # Fetch rates for new currencies
+    print(f"\nFetching {len(target_currencies)} currency pairs from Frankfurter API...")
+    all_rates = {}
+    for currency in target_currencies:
+        column_name = f"{currency.lower()}usd"
+        start_for_currency = START_DATE if column_name in missing_columns else fetch_start_date
+        rates = fetch_pair_rates(currency, "USD", start_date=start_for_currency, end_date=fetch_end_date)
+        if rates:
+            all_rates[currency] = rates
+
+    if not all_rates:
+        print("ERROR: Failed to fetch any rates!")
+        return
+
+    # Build combined dataframe
+    print("\nBuilding combined FX rates dataframe...")
+
+    df_combined = existing_df.copy()
+    df_combined['date'] = pd.to_datetime(df_combined['date']).dt.strftime('%Y-%m-%d')
+    date_range = pd.date_range(start=min_date, end=fetch_end_date, freq='D')
+    df_combined = (
+        df_combined.set_index(pd.to_datetime(df_combined['date']))
+        .reindex(date_range)
+        .ffill()
+        .reset_index(drop=True)
+    )
+    df_combined['date'] = date_range.strftime('%Y-%m-%d')
+
+    # Ensure all target columns exist in one shot to avoid dataframe fragmentation.
+    target_columns = [f"{currency.lower()}usd" for currency in target_currencies]
+    if missing_columns:
+        missing_df = pd.DataFrame(pd.NA, index=df_combined.index, columns=missing_columns)
+        df_combined = pd.concat([df_combined, missing_df], axis=1)
+
+    # Apply refreshed rates in a frame-level update (non-null values only).
+    refresh_map = {}
+    for currency, rates in all_rates.items():
+        column_name = f"{currency.lower()}usd"
+        refresh_map[column_name] = {date_value: rate for date_value, rate in rates}
+
+    if refresh_map:
+        refresh_df = pd.DataFrame(index=df_combined.index)
+        for column_name, rates_dict in refresh_map.items():
+            refresh_df[column_name] = df_combined['date'].map(rates_dict)
+        df_combined.update(refresh_df)
+
+    # Keep only the canonical column order: date + discovered currency columns.
+    df_combined = df_combined[['date', *target_columns]]
+
+    print("  Forward-filling missing dates...")
+    for col in df_combined.columns:
+        if col != 'date':
+            df_combined[col] = df_combined[col].ffill()
+
+    # Keep raw source values in vesusd; apply only targeted lag cleanup post-event.
+    ves_event_dates = [event["date"] for event in VES_REDENOMINATION_EVENTS]
+    df_combined, ves_fixes = clean_ves_redenomination_lag_points(df_combined, ves_event_dates)
+    if ves_fixes:
+        print(f"  Cleaned post-redenomination lag points: {ves_fixes}")
+
+    # Remove transient spike outliers (single or multi-day) that quickly revert.
+    spike_columns = [col for col in df_combined.columns if col != "date" and col.lower().endswith("usd")]
+    df_combined, spike_fixes = clean_transient_spike_outliers(df_combined, spike_columns)
+    if spike_fixes:
+        total_spike_fixes = sum(spike_fixes.values())
+        top_cols = sorted(spike_fixes.items(), key=lambda kv: kv[1], reverse=True)[:8]
+        top_cols_text = ", ".join(f"{col}:{count}" for col, count in top_cols)
+        print(f"  Cleaned transient spike runs: {total_spike_fixes} across {len(spike_fixes)} columns")
+        print(f"    Top columns: {top_cols_text}")
+
+    # Save updated CSV
+    print(f"\nSaving updated CSV with {len(df_combined.columns)-1} currency pairs...")
+    df_combined.to_csv(fx_rates_file, index=False)
+    print(f"  Saved {len(df_combined)} rows to {fx_rates_file.name}")
+
+    # Write the refresh timestamp used by the dashboard's Updated KPI.
+    last_updated_file = webapp_data_dir / "last_updated.txt"
+    last_updated_text = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    last_updated_file.write_text(last_updated_text + "\n", encoding="utf-8")
+    print(f"  Wrote: {last_updated_file.name}")
+
+    # Update uoa_pairs.json
+    print("\nUpdating uoa_pairs.json...")
+    with open(uoa_pairs_file, 'r') as f:
+        uoa_data = json.load(f)
+
+    # Rebuild currencies from source-supported set (plus BTC/USD), preserving BTC metadata.
+    existing_currencies = uoa_data.get("currencies", {})
+    btc_currency = existing_currencies.get("BTC", {
+        "name": "Bitcoin",
+        "code": "BTC",
+        "symbol": "BTC",
+        "symbol_position": "right",
+        "minor_unit": 8,
+    })
+    usd_defaults = CURRENCY_FORMAT_OVERRIDES.get("USD", {"symbol": "$", "symbol_position": "left", "minor_unit": 2})
+    currency_name = lambda code: CURRENCY_NAME_OVERRIDES.get(code, supported_currencies.get(code, code))
+
+    rebuilt_currencies = {
+        "BTC": btc_currency,
+        "USD": {
+            "name": currency_name("USD"),
+            "code": "USD",
+            "symbol": usd_defaults["symbol"],
+            "symbol_position": usd_defaults["symbol_position"],
+            "minor_unit": usd_defaults["minor_unit"],
+        },
+    }
+
+    for code in target_currencies:
+        fmt = CURRENCY_FORMAT_OVERRIDES.get(code, {"symbol": code, "symbol_position": "left", "minor_unit": 2})
+        rebuilt_currencies[code] = {
+            "name": currency_name(code),
+            "code": code,
+            "symbol": fmt["symbol"],
+            "symbol_position": fmt["symbol_position"],
+            "minor_unit": fmt["minor_unit"],
+        }
+
+    uoa_data["currencies"] = rebuilt_currencies
+
+    # Update pairs list to reflect all available pairs
+    uoa_data["pairs"] = [
+        {
+            "id": f"{curr.upper()}/USD",
+            "base": curr.upper(),
+            "quote": "USD",
+            "display_name": f"{currency_name(curr)} / US Dollar",
+            "dataset": "daily_fx_rates.csv",
+            "dataset_columns": ["date", f"{curr.lower()}usd"],
+            "pair_column_value": None,
+            "quote_assumption": "USD-denominated FX rate"
+        }
+        for curr in target_currencies
+    ]
+
+    # Update metadata
+    uoa_data["generated_at_utc"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    uoa_data["source"]["end_date"] = fetch_end_date
+    uoa_data["source"]["notes"] = (
+        f"Rates are business-day reference rates for {len(target_currencies)} Frankfurter-supported currency pairs vs USD; "
+        "weekends and market holidays are forward-filled."
+    )
+    uoa_data["redenomination_events"] = REDENOMINATION_EVENTS
+    uoa_data["notable_events"] = NOTABLE_EVENTS
+
+    with open(uoa_pairs_file, 'w') as f:
+        json.dump(uoa_data, f, indent=2)
+    print(f"  Added {len(target_currencies)} source currencies to uoa_pairs.json")
+
+    # Summary
+    print("\n" + "=" * 60)
+    print("SUCCESS!")
+    print("=" * 60)
+    print(f"CSV updated with {len(df_combined.columns)-1} currency pairs")
+    print(f"Rows: {len(df_combined)} (dates with forward-filled missing values)")
+    print(f"Source-supported currencies loaded: {', '.join(target_currencies)}")
+    print("\nFiles updated:")
+    print(f"  - {fx_rates_file.name}")
+    print(f"  - {uoa_pairs_file.name}")
+
+
+if __name__ == "__main__":
+    main()

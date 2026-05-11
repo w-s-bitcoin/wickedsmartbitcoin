@@ -40,5 +40,12 @@
     "description": "This dashboard shows Bitcoin's share of market cap relative to the top cryptocurrencies",
     "latest_x": "https://x.com/w_s_bitcoin/status/2036202715148107790",
     "latest_youtube": "https://youtu.be/GbEJ0neZkxQ"
+  },
+  {
+    "filename": "uoa.png",
+    "title": "Unit of Account",
+    "description": "Compare Bitcoin to multiple currencies with historical FX rates and mirrored log/linear scale views",
+    "latest_x": "",
+    "latest_youtube": ""
   }
 ]

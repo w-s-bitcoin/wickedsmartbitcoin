@@ -1,0 +1,3368 @@
+{
+  "generated_at_utc": "2026-05-11T21:26:32.724683Z",
+  "source": {
+    "name": "Frankfurter",
+    "url": "https://api.frankfurter.app",
+    "upstream": "European Central Bank (ECB) reference rates",
+    "pair_endpoint": "https://api.frankfurter.app/1999-01-01..2999-12-31?from=EUR&to=USD",
+    "start_date": "1999-01-04",
+    "end_date": "2026-05-11",
+    "notes": "Rates are business-day reference rates for 164 Frankfurter-supported currency pairs vs USD; weekends and market holidays are forward-filled.",
+    "dataset_notes": "CSV schema simplified to date, eurusd where eurusd is the EUR/USD rate value. Source attribution is stored in this metadata file."
+  },
+  "redenomination_events": {
+    "VES": [
+      {
+        "date": "2018-05-29",
+        "ratio": 100000,
+        "ratioLabel": "100,000:1"
+      },
+      {
+        "date": "2018-08-20",
+        "ratio": 100000,
+        "ratioLabel": "100,000:1"
+      },
+      {
+        "date": "2021-10-01",
+        "ratio": 1000000,
+        "ratioLabel": "1,000,000:1"
+      }
+    ],
+    "BYN": [
+      {
+        "date": "2016-07-01",
+        "ratio": 10000,
+        "ratioLabel": "10,000:1"
+      }
+    ]
+  },
+  "notable_events": {
+    "VES": [
+      {
+        "date": "2013-02-19",
+        "label": "devaluation (Maduro regime)",
+        "devaluationEstimate": "estimated devaluation: ~65%"
+      },
+      {
+        "date": "2016-03-08",
+        "label": "devaluation announcement",
+        "devaluationEstimate": "estimated devaluation: ~70%"
+      },
+      {
+        "date": "2018-02-06",
+        "label": "devaluation (new market rate)",
+        "devaluationEstimate": "estimated devaluation: ~250,000%"
+      },
+      {
+        "date": "2018-08-20",
+        "label": "devaluation with 100,000:1 redenomination",
+        "devaluationEstimate": "estimated devaluation: ~50% + redenomination"
+      }
+    ],
+    "SDG": [
+      {
+        "date": "2021-02-25",
+        "label": "official rate unification / managed-float reset",
+        "devaluationEstimate": "estimated devaluation: ~582%"
+      }
+    ]
+  },
+  "currencies": {
+    "BTC": {
+      "name": "Bitcoin",
+      "code": "BTC",
+      "symbol": "BTC",
+      "symbol_position": "right",
+      "minor_unit": 8
+    },
+    "USD": {
+      "name": "US Dollar",
+      "code": "USD",
+      "symbol": "$",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "AED": {
+      "name": "United Arab Emirates Dirham",
+      "code": "AED",
+      "symbol": "AED",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "AFN": {
+      "name": "Afghan Afghani",
+      "code": "AFN",
+      "symbol": "AFN",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "ALL": {
+      "name": "Albanian Lek",
+      "code": "ALL",
+      "symbol": "ALL",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "AMD": {
+      "name": "Armenian Dram",
+      "code": "AMD",
+      "symbol": "AMD",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "ANG": {
+      "name": "Netherlands Antillean Gulden",
+      "code": "ANG",
+      "symbol": "ANG",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "AOA": {
+      "name": "Angolan Kwanza",
+      "code": "AOA",
+      "symbol": "AOA",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "ARS": {
+      "name": "Argentine Peso",
+      "code": "ARS",
+      "symbol": "ARS",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "AUD": {
+      "name": "Australian Dollar",
+      "code": "AUD",
+      "symbol": "A$",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "AWG": {
+      "name": "Aruban Florin",
+      "code": "AWG",
+      "symbol": "AWG",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "AZN": {
+      "name": "Azerbaijani Manat",
+      "code": "AZN",
+      "symbol": "AZN",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "BAM": {
+      "name": "Bosnia and Herzegovina Convertible Mark",
+      "code": "BAM",
+      "symbol": "BAM",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "BBD": {
+      "name": "Barbadian Dollar",
+      "code": "BBD",
+      "symbol": "BBD",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "BDT": {
+      "name": "Bangladeshi Taka",
+      "code": "BDT",
+      "symbol": "BDT",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "BGN": {
+      "name": "Bulgarian Lev",
+      "code": "BGN",
+      "symbol": "BGN",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "BHD": {
+      "name": "Bahraini Dinar",
+      "code": "BHD",
+      "symbol": "BHD",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "BIF": {
+      "name": "Burundian Franc",
+      "code": "BIF",
+      "symbol": "BIF",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "BMD": {
+      "name": "Bermudian Dollar",
+      "code": "BMD",
+      "symbol": "BMD",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "BND": {
+      "name": "Brunei Dollar",
+      "code": "BND",
+      "symbol": "BND",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "BOB": {
+      "name": "Bolivian Boliviano",
+      "code": "BOB",
+      "symbol": "BOB",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "BRL": {
+      "name": "Brazilian Real",
+      "code": "BRL",
+      "symbol": "R$",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "BSD": {
+      "name": "Bahamian Dollar",
+      "code": "BSD",
+      "symbol": "BSD",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "BTN": {
+      "name": "Bhutanese Ngultrum",
+      "code": "BTN",
+      "symbol": "BTN",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "BWP": {
+      "name": "Botswana Pula",
+      "code": "BWP",
+      "symbol": "BWP",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "BYN": {
+      "name": "Belarusian Ruble",
+      "code": "BYN",
+      "symbol": "BYN",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "BZD": {
+      "name": "Belize Dollar",
+      "code": "BZD",
+      "symbol": "BZD",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "CAD": {
+      "name": "Canadian Dollar",
+      "code": "CAD",
+      "symbol": "C$",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "CDF": {
+      "name": "Congolese Franc",
+      "code": "CDF",
+      "symbol": "CDF",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "CHF": {
+      "name": "Swiss Franc",
+      "code": "CHF",
+      "symbol": "CHF",
+      "symbol_position": "right",
+      "minor_unit": 2
+    },
+    "CLP": {
+      "name": "Chilean Peso",
+      "code": "CLP",
+      "symbol": "CLP",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "CNH": {
+      "name": "Chinese Renminbi Yuan Offshore",
+      "code": "CNH",
+      "symbol": "CNH",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "CNY": {
+      "name": "Chinese Renminbi Yuan",
+      "code": "CNY",
+      "symbol": "\u00a5",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "COP": {
+      "name": "Colombian Peso",
+      "code": "COP",
+      "symbol": "COP",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "CRC": {
+      "name": "Costa Rican Col\u00f3n",
+      "code": "CRC",
+      "symbol": "CRC",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "CUP": {
+      "name": "Cuban Peso",
+      "code": "CUP",
+      "symbol": "CUP",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "CVE": {
+      "name": "Cape Verdean Escudo",
+      "code": "CVE",
+      "symbol": "CVE",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "CZK": {
+      "name": "Czech Koruna",
+      "code": "CZK",
+      "symbol": "K\u010d",
+      "symbol_position": "right",
+      "minor_unit": 2
+    },
+    "DJF": {
+      "name": "Djiboutian Franc",
+      "code": "DJF",
+      "symbol": "DJF",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "DKK": {
+      "name": "Danish Krone",
+      "code": "DKK",
+      "symbol": "kr",
+      "symbol_position": "right",
+      "minor_unit": 2
+    },
+    "DOP": {
+      "name": "Dominican Peso",
+      "code": "DOP",
+      "symbol": "DOP",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "DZD": {
+      "name": "Algerian Dinar",
+      "code": "DZD",
+      "symbol": "DZD",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "EGP": {
+      "name": "Egyptian Pound",
+      "code": "EGP",
+      "symbol": "EGP",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "ERN": {
+      "name": "Eritrean Nakfa",
+      "code": "ERN",
+      "symbol": "ERN",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "ETB": {
+      "name": "Ethiopian Birr",
+      "code": "ETB",
+      "symbol": "ETB",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "EUR": {
+      "name": "Euro",
+      "code": "EUR",
+      "symbol": "\u20ac",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "FJD": {
+      "name": "Fijian Dollar",
+      "code": "FJD",
+      "symbol": "FJD",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "FKP": {
+      "name": "Falkland Pound",
+      "code": "FKP",
+      "symbol": "FKP",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "GBP": {
+      "name": "British Pound",
+      "code": "GBP",
+      "symbol": "\u00a3",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "GEL": {
+      "name": "Georgian Lari",
+      "code": "GEL",
+      "symbol": "GEL",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "GGP": {
+      "name": "Guernsey Pound",
+      "code": "GGP",
+      "symbol": "GGP",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "GHS": {
+      "name": "Ghanaian Cedi",
+      "code": "GHS",
+      "symbol": "GHS",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "GIP": {
+      "name": "Gibraltar Pound",
+      "code": "GIP",
+      "symbol": "GIP",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "GMD": {
+      "name": "Gambian Dalasi",
+      "code": "GMD",
+      "symbol": "GMD",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "GNF": {
+      "name": "Guinean Franc",
+      "code": "GNF",
+      "symbol": "GNF",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "GTQ": {
+      "name": "Guatemalan Quetzal",
+      "code": "GTQ",
+      "symbol": "GTQ",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "GYD": {
+      "name": "Guyanese Dollar",
+      "code": "GYD",
+      "symbol": "GYD",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "HKD": {
+      "name": "Hong Kong Dollar",
+      "code": "HKD",
+      "symbol": "HK$",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "HNL": {
+      "name": "Honduran Lempira",
+      "code": "HNL",
+      "symbol": "HNL",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "HTG": {
+      "name": "Haitian Gourde",
+      "code": "HTG",
+      "symbol": "HTG",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "HUF": {
+      "name": "Hungarian Forint",
+      "code": "HUF",
+      "symbol": "Ft",
+      "symbol_position": "right",
+      "minor_unit": 0
+    },
+    "IDR": {
+      "name": "Indonesian Rupiah",
+      "code": "IDR",
+      "symbol": "Rp",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "ILS": {
+      "name": "Israeli New Shekel",
+      "code": "ILS",
+      "symbol": "\u20aa",
+      "symbol_position": "right",
+      "minor_unit": 2
+    },
+    "IMP": {
+      "name": "Isle of Man Pound",
+      "code": "IMP",
+      "symbol": "IMP",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "INR": {
+      "name": "Indian Rupee",
+      "code": "INR",
+      "symbol": "\u20b9",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "IQD": {
+      "name": "Iraqi Dinar",
+      "code": "IQD",
+      "symbol": "IQD",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "IRR": {
+      "name": "Iranian Rial",
+      "code": "IRR",
+      "symbol": "IRR",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "ISK": {
+      "name": "Icelandic Kr\u00f3na",
+      "code": "ISK",
+      "symbol": "kr",
+      "symbol_position": "right",
+      "minor_unit": 0
+    },
+    "JEP": {
+      "name": "Jersey Pound",
+      "code": "JEP",
+      "symbol": "JEP",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "JMD": {
+      "name": "Jamaican Dollar",
+      "code": "JMD",
+      "symbol": "JMD",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "JOD": {
+      "name": "Jordanian Dinar",
+      "code": "JOD",
+      "symbol": "JOD",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "JPY": {
+      "name": "Japanese Yen",
+      "code": "JPY",
+      "symbol": "\u00a5",
+      "symbol_position": "left",
+      "minor_unit": 0
+    },
+    "KES": {
+      "name": "Kenyan Shilling",
+      "code": "KES",
+      "symbol": "KES",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "KGS": {
+      "name": "Kyrgyzstani Som",
+      "code": "KGS",
+      "symbol": "KGS",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "KHR": {
+      "name": "Cambodian Riel",
+      "code": "KHR",
+      "symbol": "KHR",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "KMF": {
+      "name": "Comorian Franc",
+      "code": "KMF",
+      "symbol": "KMF",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "KRW": {
+      "name": "South Korean Won",
+      "code": "KRW",
+      "symbol": "\u20a9",
+      "symbol_position": "left",
+      "minor_unit": 0
+    },
+    "KWD": {
+      "name": "Kuwaiti Dinar",
+      "code": "KWD",
+      "symbol": "KWD",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "KYD": {
+      "name": "Cayman Islands Dollar",
+      "code": "KYD",
+      "symbol": "KYD",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "KZT": {
+      "name": "Kazakhstani Tenge",
+      "code": "KZT",
+      "symbol": "KZT",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "LAK": {
+      "name": "Lao Kip",
+      "code": "LAK",
+      "symbol": "LAK",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "LBP": {
+      "name": "Lebanese Pound",
+      "code": "LBP",
+      "symbol": "LBP",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "LKR": {
+      "name": "Sri Lankan Rupee",
+      "code": "LKR",
+      "symbol": "LKR",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "LRD": {
+      "name": "Liberian Dollar",
+      "code": "LRD",
+      "symbol": "LRD",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "LSL": {
+      "name": "Lesotho Loti",
+      "code": "LSL",
+      "symbol": "LSL",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "LYD": {
+      "name": "Libyan Dinar",
+      "code": "LYD",
+      "symbol": "LYD",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "MAD": {
+      "name": "Moroccan Dirham",
+      "code": "MAD",
+      "symbol": "MAD",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "MDL": {
+      "name": "Moldovan Leu",
+      "code": "MDL",
+      "symbol": "MDL",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "MGA": {
+      "name": "Malagasy Ariary",
+      "code": "MGA",
+      "symbol": "MGA",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "MKD": {
+      "name": "Macedonian Denar",
+      "code": "MKD",
+      "symbol": "MKD",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "MMK": {
+      "name": "Myanmar Kyat",
+      "code": "MMK",
+      "symbol": "MMK",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "MNT": {
+      "name": "Mongolian T\u00f6gr\u00f6g",
+      "code": "MNT",
+      "symbol": "MNT",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "MOP": {
+      "name": "Macanese Pataca",
+      "code": "MOP",
+      "symbol": "MOP",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "MRO": {
+      "name": "Mauritanian Ouguiya",
+      "code": "MRO",
+      "symbol": "MRO",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "MRU": {
+      "name": "Mauritanian Ouguiya",
+      "code": "MRU",
+      "symbol": "MRU",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "MUR": {
+      "name": "Mauritian Rupee",
+      "code": "MUR",
+      "symbol": "MUR",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "MVR": {
+      "name": "Maldivian Rufiyaa",
+      "code": "MVR",
+      "symbol": "MVR",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "MWK": {
+      "name": "Malawian Kwacha",
+      "code": "MWK",
+      "symbol": "MWK",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "MXN": {
+      "name": "Mexican Peso",
+      "code": "MXN",
+      "symbol": "MX$",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "MYR": {
+      "name": "Malaysian Ringgit",
+      "code": "MYR",
+      "symbol": "RM",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "MZN": {
+      "name": "Mozambican Metical",
+      "code": "MZN",
+      "symbol": "MZN",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "NAD": {
+      "name": "Namibian Dollar",
+      "code": "NAD",
+      "symbol": "NAD",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "NGN": {
+      "name": "Nigerian Naira",
+      "code": "NGN",
+      "symbol": "NGN",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "NIO": {
+      "name": "Nicaraguan C\u00f3rdoba",
+      "code": "NIO",
+      "symbol": "NIO",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "NOK": {
+      "name": "Norwegian Krone",
+      "code": "NOK",
+      "symbol": "kr",
+      "symbol_position": "right",
+      "minor_unit": 2
+    },
+    "NPR": {
+      "name": "Nepalese Rupee",
+      "code": "NPR",
+      "symbol": "NPR",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "NZD": {
+      "name": "New Zealand Dollar",
+      "code": "NZD",
+      "symbol": "NZ$",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "OMR": {
+      "name": "Omani Rial",
+      "code": "OMR",
+      "symbol": "OMR",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "PAB": {
+      "name": "Panamanian Balboa",
+      "code": "PAB",
+      "symbol": "PAB",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "PEN": {
+      "name": "Peruvian Sol",
+      "code": "PEN",
+      "symbol": "PEN",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "PGK": {
+      "name": "Papua New Guinean Kina",
+      "code": "PGK",
+      "symbol": "PGK",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "PHP": {
+      "name": "Philippine Peso",
+      "code": "PHP",
+      "symbol": "\u20b1",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "PKR": {
+      "name": "Pakistani Rupee",
+      "code": "PKR",
+      "symbol": "PKR",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "PLN": {
+      "name": "Polish Z\u0142oty",
+      "code": "PLN",
+      "symbol": "z\u0142",
+      "symbol_position": "right",
+      "minor_unit": 2
+    },
+    "PYG": {
+      "name": "Paraguayan Guaran\u00ed",
+      "code": "PYG",
+      "symbol": "PYG",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "QAR": {
+      "name": "Qatari Riyal",
+      "code": "QAR",
+      "symbol": "QAR",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "RON": {
+      "name": "Romanian Leu",
+      "code": "RON",
+      "symbol": "lei",
+      "symbol_position": "right",
+      "minor_unit": 2
+    },
+    "RSD": {
+      "name": "Serbian Dinar",
+      "code": "RSD",
+      "symbol": "RSD",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "RUB": {
+      "name": "Russian Ruble",
+      "code": "RUB",
+      "symbol": "RUB",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "RWF": {
+      "name": "Rwandan Franc",
+      "code": "RWF",
+      "symbol": "RWF",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "SAR": {
+      "name": "Saudi Riyal",
+      "code": "SAR",
+      "symbol": "SAR",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "SBD": {
+      "name": "Solomon Islands Dollar",
+      "code": "SBD",
+      "symbol": "SBD",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "SCR": {
+      "name": "Seychellois Rupee",
+      "code": "SCR",
+      "symbol": "SCR",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "SDG": {
+      "name": "Sudanese Pound",
+      "code": "SDG",
+      "symbol": "SDG",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "SEK": {
+      "name": "Swedish Krona",
+      "code": "SEK",
+      "symbol": "kr",
+      "symbol_position": "right",
+      "minor_unit": 2
+    },
+    "SGD": {
+      "name": "Singapore Dollar",
+      "code": "SGD",
+      "symbol": "S$",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "SHP": {
+      "name": "Saint Helenian Pound",
+      "code": "SHP",
+      "symbol": "SHP",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "SLE": {
+      "name": "New Leone",
+      "code": "SLE",
+      "symbol": "SLE",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "SOS": {
+      "name": "Somali Shilling",
+      "code": "SOS",
+      "symbol": "SOS",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "SRD": {
+      "name": "Surinamese Dollar",
+      "code": "SRD",
+      "symbol": "SRD",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "SSP": {
+      "name": "South Sudanese Pound",
+      "code": "SSP",
+      "symbol": "SSP",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "STN": {
+      "name": "S\u00e3o Tom\u00e9 and Pr\u00edncipe Second Dobra",
+      "code": "STN",
+      "symbol": "STN",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "SVC": {
+      "name": "Salvadoran Col\u00f3n",
+      "code": "SVC",
+      "symbol": "SVC",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "SYP": {
+      "name": "Syrian Pound",
+      "code": "SYP",
+      "symbol": "SYP",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "SZL": {
+      "name": "Swazi Lilangeni",
+      "code": "SZL",
+      "symbol": "SZL",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "THB": {
+      "name": "Thai Baht",
+      "code": "THB",
+      "symbol": "\u0e3f",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "TJS": {
+      "name": "Tajikistani Somoni",
+      "code": "TJS",
+      "symbol": "TJS",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "TMT": {
+      "name": "Turkmenistani Manat",
+      "code": "TMT",
+      "symbol": "TMT",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "TND": {
+      "name": "Tunisian Dinar",
+      "code": "TND",
+      "symbol": "TND",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "TOP": {
+      "name": "Tongan Pa\u02bbanga",
+      "code": "TOP",
+      "symbol": "TOP",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "TRY": {
+      "name": "Turkish Lira",
+      "code": "TRY",
+      "symbol": "\u20ba",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "TTD": {
+      "name": "Trinidad and Tobago Dollar",
+      "code": "TTD",
+      "symbol": "TTD",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "TWD": {
+      "name": "New Taiwan Dollar",
+      "code": "TWD",
+      "symbol": "TWD",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "TZS": {
+      "name": "Tanzanian Shilling",
+      "code": "TZS",
+      "symbol": "TZS",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "UAH": {
+      "name": "Ukrainian Hryvnia",
+      "code": "UAH",
+      "symbol": "UAH",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "UGX": {
+      "name": "Ugandan Shilling",
+      "code": "UGX",
+      "symbol": "UGX",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "UYU": {
+      "name": "Uruguayan Peso",
+      "code": "UYU",
+      "symbol": "UYU",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "UZS": {
+      "name": "Uzbekistan Som",
+      "code": "UZS",
+      "symbol": "UZS",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "VES": {
+      "name": "Venezuelan Bol\u00edvar",
+      "code": "VES",
+      "symbol": "Bs ",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "VND": {
+      "name": "Vietnamese \u0110\u1ed3ng",
+      "code": "VND",
+      "symbol": "VND",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "VUV": {
+      "name": "Vanuatu Vatu",
+      "code": "VUV",
+      "symbol": "VUV",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "WST": {
+      "name": "Samoan Tala",
+      "code": "WST",
+      "symbol": "WST",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "XAF": {
+      "name": "Central African CFA Franc",
+      "code": "XAF",
+      "symbol": "XAF",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "XAG": {
+      "name": "silver",
+      "code": "XAG",
+      "symbol": "XAG",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "XAU": {
+      "name": "gold",
+      "code": "XAU",
+      "symbol": "XAU",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "XCD": {
+      "name": "East Caribbean Dollar",
+      "code": "XCD",
+      "symbol": "XCD",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "XCG": {
+      "name": "Caribbean Guilder",
+      "code": "XCG",
+      "symbol": "XCG",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "XDR": {
+      "name": "Special Drawing Rights",
+      "code": "XDR",
+      "symbol": "XDR",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "XOF": {
+      "name": "West African CFA Franc",
+      "code": "XOF",
+      "symbol": "XOF",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "XPD": {
+      "name": "palladium",
+      "code": "XPD",
+      "symbol": "XPD",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "XPF": {
+      "name": "CFP Franc",
+      "code": "XPF",
+      "symbol": "XPF",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "XPT": {
+      "name": "platinum",
+      "code": "XPT",
+      "symbol": "XPT",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "YER": {
+      "name": "Yemeni Rial",
+      "code": "YER",
+      "symbol": "YER",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "ZAR": {
+      "name": "South African Rand",
+      "code": "ZAR",
+      "symbol": "R",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "ZMW": {
+      "name": "Zambian Kwacha",
+      "code": "ZMW",
+      "symbol": "ZMW",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "ZWG": {
+      "name": "Zimbabwe Gold",
+      "code": "ZWG",
+      "symbol": "ZWG",
+      "symbol_position": "left",
+      "minor_unit": 2
+    }
+  },
+  "pairs": [
+    {
+      "id": "AED/USD",
+      "base": "AED",
+      "quote": "USD",
+      "display_name": "United Arab Emirates Dirham / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "aedusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "AFN/USD",
+      "base": "AFN",
+      "quote": "USD",
+      "display_name": "Afghan Afghani / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "afnusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "ALL/USD",
+      "base": "ALL",
+      "quote": "USD",
+      "display_name": "Albanian Lek / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "allusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "AMD/USD",
+      "base": "AMD",
+      "quote": "USD",
+      "display_name": "Armenian Dram / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "amdusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "ANG/USD",
+      "base": "ANG",
+      "quote": "USD",
+      "display_name": "Netherlands Antillean Gulden / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "angusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "AOA/USD",
+      "base": "AOA",
+      "quote": "USD",
+      "display_name": "Angolan Kwanza / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "aoausd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "ARS/USD",
+      "base": "ARS",
+      "quote": "USD",
+      "display_name": "Argentine Peso / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "arsusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "AUD/USD",
+      "base": "AUD",
+      "quote": "USD",
+      "display_name": "Australian Dollar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "audusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "AWG/USD",
+      "base": "AWG",
+      "quote": "USD",
+      "display_name": "Aruban Florin / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "awgusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "AZN/USD",
+      "base": "AZN",
+      "quote": "USD",
+      "display_name": "Azerbaijani Manat / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "aznusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "BAM/USD",
+      "base": "BAM",
+      "quote": "USD",
+      "display_name": "Bosnia and Herzegovina Convertible Mark / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "bamusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "BBD/USD",
+      "base": "BBD",
+      "quote": "USD",
+      "display_name": "Barbadian Dollar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "bbdusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "BDT/USD",
+      "base": "BDT",
+      "quote": "USD",
+      "display_name": "Bangladeshi Taka / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "bdtusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "BGN/USD",
+      "base": "BGN",
+      "quote": "USD",
+      "display_name": "Bulgarian Lev / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "bgnusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "BHD/USD",
+      "base": "BHD",
+      "quote": "USD",
+      "display_name": "Bahraini Dinar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "bhdusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "BIF/USD",
+      "base": "BIF",
+      "quote": "USD",
+      "display_name": "Burundian Franc / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "bifusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "BMD/USD",
+      "base": "BMD",
+      "quote": "USD",
+      "display_name": "Bermudian Dollar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "bmdusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "BND/USD",
+      "base": "BND",
+      "quote": "USD",
+      "display_name": "Brunei Dollar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "bndusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "BOB/USD",
+      "base": "BOB",
+      "quote": "USD",
+      "display_name": "Bolivian Boliviano / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "bobusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "BRL/USD",
+      "base": "BRL",
+      "quote": "USD",
+      "display_name": "Brazilian Real / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "brlusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "BSD/USD",
+      "base": "BSD",
+      "quote": "USD",
+      "display_name": "Bahamian Dollar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "bsdusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "BTN/USD",
+      "base": "BTN",
+      "quote": "USD",
+      "display_name": "Bhutanese Ngultrum / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "btnusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "BWP/USD",
+      "base": "BWP",
+      "quote": "USD",
+      "display_name": "Botswana Pula / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "bwpusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "BYN/USD",
+      "base": "BYN",
+      "quote": "USD",
+      "display_name": "Belarusian Ruble / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "bynusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "BZD/USD",
+      "base": "BZD",
+      "quote": "USD",
+      "display_name": "Belize Dollar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "bzdusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "CAD/USD",
+      "base": "CAD",
+      "quote": "USD",
+      "display_name": "Canadian Dollar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "cadusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "CDF/USD",
+      "base": "CDF",
+      "quote": "USD",
+      "display_name": "Congolese Franc / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "cdfusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "CHF/USD",
+      "base": "CHF",
+      "quote": "USD",
+      "display_name": "Swiss Franc / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "chfusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "CLP/USD",
+      "base": "CLP",
+      "quote": "USD",
+      "display_name": "Chilean Peso / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "clpusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "CNH/USD",
+      "base": "CNH",
+      "quote": "USD",
+      "display_name": "Chinese Renminbi Yuan Offshore / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "cnhusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "CNY/USD",
+      "base": "CNY",
+      "quote": "USD",
+      "display_name": "Chinese Renminbi Yuan / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "cnyusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "COP/USD",
+      "base": "COP",
+      "quote": "USD",
+      "display_name": "Colombian Peso / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "copusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "CRC/USD",
+      "base": "CRC",
+      "quote": "USD",
+      "display_name": "Costa Rican Col\u00f3n / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "crcusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "CUP/USD",
+      "base": "CUP",
+      "quote": "USD",
+      "display_name": "Cuban Peso / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "cupusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "CVE/USD",
+      "base": "CVE",
+      "quote": "USD",
+      "display_name": "Cape Verdean Escudo / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "cveusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "CZK/USD",
+      "base": "CZK",
+      "quote": "USD",
+      "display_name": "Czech Koruna / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "czkusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "DJF/USD",
+      "base": "DJF",
+      "quote": "USD",
+      "display_name": "Djiboutian Franc / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "djfusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "DKK/USD",
+      "base": "DKK",
+      "quote": "USD",
+      "display_name": "Danish Krone / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "dkkusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "DOP/USD",
+      "base": "DOP",
+      "quote": "USD",
+      "display_name": "Dominican Peso / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "dopusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "DZD/USD",
+      "base": "DZD",
+      "quote": "USD",
+      "display_name": "Algerian Dinar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "dzdusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "EGP/USD",
+      "base": "EGP",
+      "quote": "USD",
+      "display_name": "Egyptian Pound / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "egpusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "ERN/USD",
+      "base": "ERN",
+      "quote": "USD",
+      "display_name": "Eritrean Nakfa / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "ernusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "ETB/USD",
+      "base": "ETB",
+      "quote": "USD",
+      "display_name": "Ethiopian Birr / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "etbusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "EUR/USD",
+      "base": "EUR",
+      "quote": "USD",
+      "display_name": "Euro / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "eurusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "FJD/USD",
+      "base": "FJD",
+      "quote": "USD",
+      "display_name": "Fijian Dollar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "fjdusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "FKP/USD",
+      "base": "FKP",
+      "quote": "USD",
+      "display_name": "Falkland Pound / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "fkpusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "GBP/USD",
+      "base": "GBP",
+      "quote": "USD",
+      "display_name": "British Pound / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "gbpusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "GEL/USD",
+      "base": "GEL",
+      "quote": "USD",
+      "display_name": "Georgian Lari / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "gelusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "GGP/USD",
+      "base": "GGP",
+      "quote": "USD",
+      "display_name": "Guernsey Pound / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "ggpusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "GHS/USD",
+      "base": "GHS",
+      "quote": "USD",
+      "display_name": "Ghanaian Cedi / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "ghsusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "GIP/USD",
+      "base": "GIP",
+      "quote": "USD",
+      "display_name": "Gibraltar Pound / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "gipusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "GMD/USD",
+      "base": "GMD",
+      "quote": "USD",
+      "display_name": "Gambian Dalasi / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "gmdusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "GNF/USD",
+      "base": "GNF",
+      "quote": "USD",
+      "display_name": "Guinean Franc / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "gnfusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "GTQ/USD",
+      "base": "GTQ",
+      "quote": "USD",
+      "display_name": "Guatemalan Quetzal / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "gtqusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "GYD/USD",
+      "base": "GYD",
+      "quote": "USD",
+      "display_name": "Guyanese Dollar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "gydusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "HKD/USD",
+      "base": "HKD",
+      "quote": "USD",
+      "display_name": "Hong Kong Dollar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "hkdusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "HNL/USD",
+      "base": "HNL",
+      "quote": "USD",
+      "display_name": "Honduran Lempira / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "hnlusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "HTG/USD",
+      "base": "HTG",
+      "quote": "USD",
+      "display_name": "Haitian Gourde / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "htgusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "HUF/USD",
+      "base": "HUF",
+      "quote": "USD",
+      "display_name": "Hungarian Forint / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "hufusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "IDR/USD",
+      "base": "IDR",
+      "quote": "USD",
+      "display_name": "Indonesian Rupiah / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "idrusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "ILS/USD",
+      "base": "ILS",
+      "quote": "USD",
+      "display_name": "Israeli New Shekel / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "ilsusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "IMP/USD",
+      "base": "IMP",
+      "quote": "USD",
+      "display_name": "Isle of Man Pound / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "impusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "INR/USD",
+      "base": "INR",
+      "quote": "USD",
+      "display_name": "Indian Rupee / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "inrusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "IQD/USD",
+      "base": "IQD",
+      "quote": "USD",
+      "display_name": "Iraqi Dinar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "iqdusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "IRR/USD",
+      "base": "IRR",
+      "quote": "USD",
+      "display_name": "Iranian Rial / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "irrusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "ISK/USD",
+      "base": "ISK",
+      "quote": "USD",
+      "display_name": "Icelandic Kr\u00f3na / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "iskusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "JEP/USD",
+      "base": "JEP",
+      "quote": "USD",
+      "display_name": "Jersey Pound / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "jepusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "JMD/USD",
+      "base": "JMD",
+      "quote": "USD",
+      "display_name": "Jamaican Dollar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "jmdusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "JOD/USD",
+      "base": "JOD",
+      "quote": "USD",
+      "display_name": "Jordanian Dinar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "jodusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "JPY/USD",
+      "base": "JPY",
+      "quote": "USD",
+      "display_name": "Japanese Yen / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "jpyusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "KES/USD",
+      "base": "KES",
+      "quote": "USD",
+      "display_name": "Kenyan Shilling / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "kesusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "KGS/USD",
+      "base": "KGS",
+      "quote": "USD",
+      "display_name": "Kyrgyzstani Som / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "kgsusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "KHR/USD",
+      "base": "KHR",
+      "quote": "USD",
+      "display_name": "Cambodian Riel / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "khrusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "KMF/USD",
+      "base": "KMF",
+      "quote": "USD",
+      "display_name": "Comorian Franc / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "kmfusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "KRW/USD",
+      "base": "KRW",
+      "quote": "USD",
+      "display_name": "South Korean Won / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "krwusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "KWD/USD",
+      "base": "KWD",
+      "quote": "USD",
+      "display_name": "Kuwaiti Dinar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "kwdusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "KYD/USD",
+      "base": "KYD",
+      "quote": "USD",
+      "display_name": "Cayman Islands Dollar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "kydusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "KZT/USD",
+      "base": "KZT",
+      "quote": "USD",
+      "display_name": "Kazakhstani Tenge / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "kztusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "LAK/USD",
+      "base": "LAK",
+      "quote": "USD",
+      "display_name": "Lao Kip / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "lakusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "LBP/USD",
+      "base": "LBP",
+      "quote": "USD",
+      "display_name": "Lebanese Pound / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "lbpusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "LKR/USD",
+      "base": "LKR",
+      "quote": "USD",
+      "display_name": "Sri Lankan Rupee / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "lkrusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "LRD/USD",
+      "base": "LRD",
+      "quote": "USD",
+      "display_name": "Liberian Dollar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "lrdusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "LSL/USD",
+      "base": "LSL",
+      "quote": "USD",
+      "display_name": "Lesotho Loti / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "lslusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "LYD/USD",
+      "base": "LYD",
+      "quote": "USD",
+      "display_name": "Libyan Dinar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "lydusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "MAD/USD",
+      "base": "MAD",
+      "quote": "USD",
+      "display_name": "Moroccan Dirham / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "madusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "MDL/USD",
+      "base": "MDL",
+      "quote": "USD",
+      "display_name": "Moldovan Leu / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "mdlusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "MGA/USD",
+      "base": "MGA",
+      "quote": "USD",
+      "display_name": "Malagasy Ariary / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "mgausd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "MKD/USD",
+      "base": "MKD",
+      "quote": "USD",
+      "display_name": "Macedonian Denar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "mkdusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "MMK/USD",
+      "base": "MMK",
+      "quote": "USD",
+      "display_name": "Myanmar Kyat / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "mmkusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "MNT/USD",
+      "base": "MNT",
+      "quote": "USD",
+      "display_name": "Mongolian T\u00f6gr\u00f6g / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "mntusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "MOP/USD",
+      "base": "MOP",
+      "quote": "USD",
+      "display_name": "Macanese Pataca / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "mopusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "MRO/USD",
+      "base": "MRO",
+      "quote": "USD",
+      "display_name": "Mauritanian Ouguiya / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "mrousd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "MRU/USD",
+      "base": "MRU",
+      "quote": "USD",
+      "display_name": "Mauritanian Ouguiya / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "mruusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "MUR/USD",
+      "base": "MUR",
+      "quote": "USD",
+      "display_name": "Mauritian Rupee / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "murusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "MVR/USD",
+      "base": "MVR",
+      "quote": "USD",
+      "display_name": "Maldivian Rufiyaa / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "mvrusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "MWK/USD",
+      "base": "MWK",
+      "quote": "USD",
+      "display_name": "Malawian Kwacha / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "mwkusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "MXN/USD",
+      "base": "MXN",
+      "quote": "USD",
+      "display_name": "Mexican Peso / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "mxnusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "MYR/USD",
+      "base": "MYR",
+      "quote": "USD",
+      "display_name": "Malaysian Ringgit / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "myrusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "MZN/USD",
+      "base": "MZN",
+      "quote": "USD",
+      "display_name": "Mozambican Metical / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "mznusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "NAD/USD",
+      "base": "NAD",
+      "quote": "USD",
+      "display_name": "Namibian Dollar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "nadusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "NGN/USD",
+      "base": "NGN",
+      "quote": "USD",
+      "display_name": "Nigerian Naira / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "ngnusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "NIO/USD",
+      "base": "NIO",
+      "quote": "USD",
+      "display_name": "Nicaraguan C\u00f3rdoba / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "niousd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "NOK/USD",
+      "base": "NOK",
+      "quote": "USD",
+      "display_name": "Norwegian Krone / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "nokusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "NPR/USD",
+      "base": "NPR",
+      "quote": "USD",
+      "display_name": "Nepalese Rupee / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "nprusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "NZD/USD",
+      "base": "NZD",
+      "quote": "USD",
+      "display_name": "New Zealand Dollar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "nzdusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "OMR/USD",
+      "base": "OMR",
+      "quote": "USD",
+      "display_name": "Omani Rial / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "omrusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "PAB/USD",
+      "base": "PAB",
+      "quote": "USD",
+      "display_name": "Panamanian Balboa / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "pabusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "PEN/USD",
+      "base": "PEN",
+      "quote": "USD",
+      "display_name": "Peruvian Sol / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "penusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "PGK/USD",
+      "base": "PGK",
+      "quote": "USD",
+      "display_name": "Papua New Guinean Kina / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "pgkusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "PHP/USD",
+      "base": "PHP",
+      "quote": "USD",
+      "display_name": "Philippine Peso / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "phpusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "PKR/USD",
+      "base": "PKR",
+      "quote": "USD",
+      "display_name": "Pakistani Rupee / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "pkrusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "PLN/USD",
+      "base": "PLN",
+      "quote": "USD",
+      "display_name": "Polish Z\u0142oty / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "plnusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "PYG/USD",
+      "base": "PYG",
+      "quote": "USD",
+      "display_name": "Paraguayan Guaran\u00ed / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "pygusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "QAR/USD",
+      "base": "QAR",
+      "quote": "USD",
+      "display_name": "Qatari Riyal / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "qarusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "RON/USD",
+      "base": "RON",
+      "quote": "USD",
+      "display_name": "Romanian Leu / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "ronusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "RSD/USD",
+      "base": "RSD",
+      "quote": "USD",
+      "display_name": "Serbian Dinar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "rsdusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "RUB/USD",
+      "base": "RUB",
+      "quote": "USD",
+      "display_name": "Russian Ruble / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "rubusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "RWF/USD",
+      "base": "RWF",
+      "quote": "USD",
+      "display_name": "Rwandan Franc / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "rwfusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "SAR/USD",
+      "base": "SAR",
+      "quote": "USD",
+      "display_name": "Saudi Riyal / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "sarusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "SBD/USD",
+      "base": "SBD",
+      "quote": "USD",
+      "display_name": "Solomon Islands Dollar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "sbdusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "SCR/USD",
+      "base": "SCR",
+      "quote": "USD",
+      "display_name": "Seychellois Rupee / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "scrusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "SDG/USD",
+      "base": "SDG",
+      "quote": "USD",
+      "display_name": "Sudanese Pound / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "sdgusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "SEK/USD",
+      "base": "SEK",
+      "quote": "USD",
+      "display_name": "Swedish Krona / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "sekusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "SGD/USD",
+      "base": "SGD",
+      "quote": "USD",
+      "display_name": "Singapore Dollar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "sgdusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "SHP/USD",
+      "base": "SHP",
+      "quote": "USD",
+      "display_name": "Saint Helenian Pound / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "shpusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "SLE/USD",
+      "base": "SLE",
+      "quote": "USD",
+      "display_name": "New Leone / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "sleusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "SOS/USD",
+      "base": "SOS",
+      "quote": "USD",
+      "display_name": "Somali Shilling / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "sosusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "SRD/USD",
+      "base": "SRD",
+      "quote": "USD",
+      "display_name": "Surinamese Dollar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "srdusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "SSP/USD",
+      "base": "SSP",
+      "quote": "USD",
+      "display_name": "South Sudanese Pound / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "sspusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "STN/USD",
+      "base": "STN",
+      "quote": "USD",
+      "display_name": "S\u00e3o Tom\u00e9 and Pr\u00edncipe Second Dobra / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "stnusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "SVC/USD",
+      "base": "SVC",
+      "quote": "USD",
+      "display_name": "Salvadoran Col\u00f3n / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "svcusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "SYP/USD",
+      "base": "SYP",
+      "quote": "USD",
+      "display_name": "Syrian Pound / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "sypusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "SZL/USD",
+      "base": "SZL",
+      "quote": "USD",
+      "display_name": "Swazi Lilangeni / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "szlusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "THB/USD",
+      "base": "THB",
+      "quote": "USD",
+      "display_name": "Thai Baht / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "thbusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "TJS/USD",
+      "base": "TJS",
+      "quote": "USD",
+      "display_name": "Tajikistani Somoni / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "tjsusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "TMT/USD",
+      "base": "TMT",
+      "quote": "USD",
+      "display_name": "Turkmenistani Manat / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "tmtusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "TND/USD",
+      "base": "TND",
+      "quote": "USD",
+      "display_name": "Tunisian Dinar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "tndusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "TOP/USD",
+      "base": "TOP",
+      "quote": "USD",
+      "display_name": "Tongan Pa\u02bbanga / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "topusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "TRY/USD",
+      "base": "TRY",
+      "quote": "USD",
+      "display_name": "Turkish Lira / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "tryusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "TTD/USD",
+      "base": "TTD",
+      "quote": "USD",
+      "display_name": "Trinidad and Tobago Dollar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "ttdusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "TWD/USD",
+      "base": "TWD",
+      "quote": "USD",
+      "display_name": "New Taiwan Dollar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "twdusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "TZS/USD",
+      "base": "TZS",
+      "quote": "USD",
+      "display_name": "Tanzanian Shilling / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "tzsusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "UAH/USD",
+      "base": "UAH",
+      "quote": "USD",
+      "display_name": "Ukrainian Hryvnia / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "uahusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "UGX/USD",
+      "base": "UGX",
+      "quote": "USD",
+      "display_name": "Ugandan Shilling / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "ugxusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "UYU/USD",
+      "base": "UYU",
+      "quote": "USD",
+      "display_name": "Uruguayan Peso / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "uyuusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "UZS/USD",
+      "base": "UZS",
+      "quote": "USD",
+      "display_name": "Uzbekistan Som / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "uzsusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "VES/USD",
+      "base": "VES",
+      "quote": "USD",
+      "display_name": "Venezuelan Bol\u00edvar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "vesusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "VND/USD",
+      "base": "VND",
+      "quote": "USD",
+      "display_name": "Vietnamese \u0110\u1ed3ng / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "vndusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "VUV/USD",
+      "base": "VUV",
+      "quote": "USD",
+      "display_name": "Vanuatu Vatu / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "vuvusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "WST/USD",
+      "base": "WST",
+      "quote": "USD",
+      "display_name": "Samoan Tala / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "wstusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "XAF/USD",
+      "base": "XAF",
+      "quote": "USD",
+      "display_name": "Central African CFA Franc / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "xafusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "XAG/USD",
+      "base": "XAG",
+      "quote": "USD",
+      "display_name": "silver / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "xagusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "XAU/USD",
+      "base": "XAU",
+      "quote": "USD",
+      "display_name": "gold / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "xauusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "XCD/USD",
+      "base": "XCD",
+      "quote": "USD",
+      "display_name": "East Caribbean Dollar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "xcdusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "XCG/USD",
+      "base": "XCG",
+      "quote": "USD",
+      "display_name": "Caribbean Guilder / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "xcgusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "XDR/USD",
+      "base": "XDR",
+      "quote": "USD",
+      "display_name": "Special Drawing Rights / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "xdrusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "XOF/USD",
+      "base": "XOF",
+      "quote": "USD",
+      "display_name": "West African CFA Franc / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "xofusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "XPD/USD",
+      "base": "XPD",
+      "quote": "USD",
+      "display_name": "palladium / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "xpdusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "XPF/USD",
+      "base": "XPF",
+      "quote": "USD",
+      "display_name": "CFP Franc / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "xpfusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "XPT/USD",
+      "base": "XPT",
+      "quote": "USD",
+      "display_name": "platinum / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "xptusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "YER/USD",
+      "base": "YER",
+      "quote": "USD",
+      "display_name": "Yemeni Rial / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "yerusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "ZAR/USD",
+      "base": "ZAR",
+      "quote": "USD",
+      "display_name": "South African Rand / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "zarusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "ZMW/USD",
+      "base": "ZMW",
+      "quote": "USD",
+      "display_name": "Zambian Kwacha / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "zmwusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "ZWG/USD",
+      "base": "ZWG",
+      "quote": "USD",
+      "display_name": "Zimbabwe Gold / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "zwgusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    }
+  ]
+}

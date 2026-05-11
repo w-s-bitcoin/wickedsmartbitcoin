@@ -361,9 +361,14 @@ html.embedded-in-modal body .app-shell {
   transition: background 0.15s, color 0.15s;
 }
 
-.clear-data-btn:hover {
+.clear-data-btn:hover:not(:disabled) {
   background: rgba(239, 68, 68, 0.25);
   color: #dc2626;
+}
+
+.clear-data-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
 }
 
 .live-encryption-toggle {

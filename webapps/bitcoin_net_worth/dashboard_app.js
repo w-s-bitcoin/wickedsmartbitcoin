@@ -253,6 +253,7 @@ const el = {
   netChart: document.getElementById("netChart"),
   undoBtn: document.getElementById("undoBtn"),
   redoBtn: document.getElementById("redoBtn"),
+  clearDataBtn: document.getElementById("clearDataBtn"),
   lockDataBtn: document.getElementById("lockDataBtn"),
   saveDataBtn: document.getElementById("saveDataBtn"),
   chartStartDate: document.getElementById("chartStartDate"),
@@ -1622,12 +1623,20 @@ async function bootstrap() {
       const pw = await promptForPasswordWithLiveReset({
         confirm: false,
         message: "Enter your encryption password to unlock live data.",
+        forceDemoOnCancel: false,
+        returnClearAction: true,
         validator: async (p) => {
           const ok = await unlockLiveEncryptedData(p);
           return ok ? null : "Incorrect password. Please try again.";
         }
       });
-      if (pw) {
+      if (pw === RESET_LIVE_DATA_ACTION) {
+        currentMode = "live";
+        localStorage.setItem(MODE_KEY, currentMode);
+        snapshots = loadSnapshots();
+        formState = loadForm();
+        liveEncryptionPassword = null;
+      } else if (pw) {
         liveEncryptionPassword = pw;
       } else {
         currentMode = "demo";
@@ -2590,8 +2599,14 @@ function forceDashboardToDemoMode() {
 }
 
 async function promptForPasswordWithLiveReset(options = {}) {
+  const {
+    forceDemoOnCancel = true,
+    returnClearAction = false,
+    ...promptOptions
+  } = options;
+
   const result = await promptForPassword({
-    ...options,
+    ...promptOptions,
     extraActionLabel: "Clear Data",
     extraActionValue: RESET_LIVE_DATA_ACTION,
     extraActionClassName: "enc-btn-danger"
@@ -2606,11 +2621,13 @@ async function promptForPasswordWithLiveReset(options = {}) {
     }
     resetLiveDataToEmpty();
     renderAll();
-    return null;
+    return returnClearAction ? RESET_LIVE_DATA_ACTION : null;
   }
 
   if (!result) {
-    forceDashboardToDemoMode();
+    if (forceDemoOnCancel) {
+      forceDashboardToDemoMode();
+    }
     return null;
   }
 
@@ -4597,6 +4614,8 @@ function getDisplaySnapshot() {
 }
 
 function renderAll() {
+  updateModeToggleUI();
+
   // GUARD: Never rerender while an editor row field is actively focused
   // This prevents focus loss and partial saves during user editing
   if (isAssetLiabilityEditorFocused()) {
@@ -5847,8 +5866,15 @@ function updateModeToggleUI() {
   document.getElementById("modeDemoBtn").classList.toggle("active", currentMode === "demo");
   document.getElementById("modeLiveBtn").classList.toggle("active", currentMode === "live");
   const isLive = currentMode === "live";
+  const hasLiveData = isLive && snapshots.length > 0;
   const isEnc = isLive && liveEncryptionEnabled;
   const isLiveLocked = isLive && liveAccessLocked;
+  if (el.clearDataBtn) {
+    el.clearDataBtn.disabled = !hasLiveData;
+    el.clearDataBtn.title = !isLive
+      ? "Switch to Live mode to clear data"
+      : (hasLiveData ? "Clear all live data" : "No live data to clear");
+  }
   if (el.lockDataBtn) {
     el.lockDataBtn.disabled = !isEnc;
     el.lockDataBtn.title = !isEnc
@@ -6040,12 +6066,20 @@ async function switchMode(newMode) {
       } else if (hasEncData) {
         const pw = await promptForPasswordWithLiveReset({
           confirm: false,
+          forceDemoOnCancel: false,
+          returnClearAction: true,
           validator: async (p) => {
             const ok = await unlockLiveEncryptedData(p);
             return ok ? null : "Incorrect password. Please try again.";
           }
         });
-        if (pw) {
+        if (pw === RESET_LIVE_DATA_ACTION) {
+          currentMode = "live";
+          localStorage.setItem(MODE_KEY, currentMode);
+          snapshots = loadSnapshots();
+          formState = loadForm();
+          liveEncryptionPassword = null;
+        } else if (pw) {
           liveEncryptionPassword = pw;
         } else {
           // Cancelled — revert to demo mode
