@@ -58,6 +58,12 @@ Interactive dashboard for tracking personal net worth in Bitcoin terms.
 - Optional live-data encryption lock/unlock flow
 - Export/import support for local CSV or encrypted data files
 
+### UoA BTC/USD (`/uoa`)
+Dual-chart unit-of-account dashboard for monitoring Bitcoin pricing in both directions.
+- Left panel: USDBTC (sats per $1) on a log-scale historical line chart
+- Right panel: BTCUSD ($ per 1 BTC) on a log-scale historical line chart
+- Prominent current conversion readouts with synchronized as-of date
+
 ### BIP-110 Signaling (`/bip110_signaling`)
 Dual-canvas dashboard tracking SegWit and BIP-110 miner signaling over time.
 - Two independently resizable chart panels (SegWit signaling + BIP-110 signaling)
@@ -123,6 +129,7 @@ Open:
 ├── bip110_signaling.html
 ├── dca_cost_basis.html
 ├── bitcoin_net_worth.html
+├── uoa.html
 ├── quantum_exposure.html
 ├── assets/
 ├── js/
@@ -132,6 +139,7 @@ Open:
 │   ├── bitcoin_dominance/
 │   ├── dca_cost_basis/
 │   ├── bitcoin_net_worth/
+│   ├── uoa/
 │   ├── bip110_signaling/
 │   └── quantum_exposure/
 ```

@@ -22,6 +22,11 @@ const DASHBOARD_CARD_PREVIEW_SPECS = Object.freeze({
     width: 1280,
     height: 720,
   },
+  'uoa.png': {
+    url: 'webapps/uoa/preview.html',
+    width: 1280,
+    height: 720,
+  },
   'node_count.png': {
     url: 'webapps/node_count/preview.html',
     width: 1280,
