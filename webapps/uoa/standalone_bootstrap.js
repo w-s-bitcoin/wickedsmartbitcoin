@@ -371,9 +371,6 @@
       nextImage();
       return;
     }
-    if (key === " " || key === "Spacebar") {
-      closeModal();
-    }
   }
 
   function handleKeydown(event) {
@@ -393,11 +390,6 @@
     if (event.key === "ArrowRight") {
       event.preventDefault();
       handleNavKey("ArrowRight");
-      return;
-    }
-    if (event.key === " " || event.key === "Spacebar" || event.code === "Space") {
-      event.preventDefault();
-      handleNavKey(" ");
       return;
     }
     if (event.key === "Escape") {

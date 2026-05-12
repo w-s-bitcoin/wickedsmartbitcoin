@@ -85,6 +85,7 @@
     endDateBtn: document.getElementById("endDateBtn"),
     rangeDaysLabel: document.getElementById("rangeDaysLabel"),
     dateRangePresets: document.getElementById("dateRangePresets"),
+    dateRangePanel: document.querySelector(".date-range-panel"),
     dateRangePlaybackControls: document.getElementById("dateRangePlaybackControls"),
     dateRangePlayBtn: document.getElementById("dateRangePlayBtn"),
     dateRangePauseBtn: document.getElementById("dateRangePauseBtn"),
@@ -96,6 +97,7 @@
     dateRangeSliderWrap: document.getElementById("dateRangeSliderWrap"),
     dateRangeStartSlider: document.getElementById("dateRangeStartSlider"),
     dateRangeEndSlider: document.getElementById("dateRangeEndSlider"),
+    dateRangeRemaining: document.getElementById("dateRangeRemaining"),
     primaryUoaSelect: document.getElementById("primaryUoaSelect"),
     secondaryUoaSelect: document.getElementById("secondaryUoaSelect"),
     scaleSelect: document.getElementById("scaleSelect"),
@@ -107,6 +109,12 @@
     btcUsdScaleLabel: document.getElementById("btcUsdScaleLabel"),
     satUsdText: document.getElementById("satUsdText"),
     usdSatText: document.getElementById("usdSatText"),
+    usdBtcDateEdges: document.getElementById("usdBtcDateEdges"),
+    btcUsdDateEdges: document.getElementById("btcUsdDateEdges"),
+    usdBtcStartDateEdge: document.getElementById("usdBtcStartDateEdge"),
+    usdBtcEndDateEdge: document.getElementById("usdBtcEndDateEdge"),
+    btcUsdStartDateEdge: document.getElementById("btcUsdStartDateEdge"),
+    btcUsdEndDateEdge: document.getElementById("btcUsdEndDateEdge"),
     blockHeightText: document.getElementById("blockHeightText"),
     rightAsOf: document.getElementById("rightAsOf"),
     usdBtcChart: document.getElementById("usdBtcChart"),
@@ -119,6 +127,8 @@
   let rows = [];
   let dropdownGlobalListenersBound = false;
   let secondaryArrowGlobalBound = false;
+  let dateRangeSpaceShortcutBound = false;
+  let dateRangeSessionPersistenceBound = false;
   const overlayClosers = new Set();
   let usdParityStartIso = "";
   let uoaPairs = null; // Metadata from uoa_pairs.json
@@ -134,6 +144,12 @@
   };
   let chartEventTooltipEl = null;
   let dateRangeDragState = null;
+  let dateRangeEndSliderScrubState = {
+    active: false,
+    pointerId: null,
+    resumeAfterRelease: false,
+    captureOnWrap: false,
+  };
   let dateRangePlaybackOutsidePointerHandler = null;
   let dateRangeFpsMenuOutsideHandler = null;
   let dateRangePlaybackState = {
@@ -411,11 +427,20 @@
     dateRangePlaybackOutsidePointerHandler = (event) => {
       if (!dateRangePlaybackState.isPlaying) return;
       const target = event.target;
+      const eventPath = typeof event.composedPath === "function" ? event.composedPath() : [];
+      const targetElement = target instanceof Element ? target : null;
       const isPauseButtonClick = (!!el.dateRangePlayBtn && (target === el.dateRangePlayBtn || el.dateRangePlayBtn.contains(target)))
         || (!!el.dateRangePauseBtn && (target === el.dateRangePauseBtn || el.dateRangePauseBtn.contains(target)));
       const isFpsDropdownClick = (el.dateRangeFpsTrigger && (target === el.dateRangeFpsTrigger || el.dateRangeFpsTrigger.contains(target)))
         || (el.dateRangeFpsMenu && (target === el.dateRangeFpsMenu || el.dateRangeFpsMenu.contains(target)));
-      if (isPauseButtonClick || isFpsDropdownClick) return;
+      const isSliderInteraction = (!!el.dateRangeSliderWrap && (target === el.dateRangeSliderWrap || el.dateRangeSliderWrap.contains(target)))
+        || (!!el.dateRangeStartSlider && (target === el.dateRangeStartSlider || el.dateRangeStartSlider.contains(target)))
+        || (!!el.dateRangeEndSlider && (target === el.dateRangeEndSlider || el.dateRangeEndSlider.contains(target)));
+      const isInDateRangePanel = !!el.dateRangePanel && (
+        (targetElement && !!targetElement.closest(".date-range-panel"))
+        || eventPath.includes(el.dateRangePanel)
+      );
+      if (isPauseButtonClick || isFpsDropdownClick || isSliderInteraction || isInDateRangePanel) return;
 
       event.preventDefault();
       event.stopPropagation();
@@ -469,6 +494,11 @@
       originalEndIndex: 0,
     };
 
+    dateRangeEndSliderScrubState.active = false;
+    dateRangeEndSliderScrubState.pointerId = null;
+    dateRangeEndSliderScrubState.resumeAfterRelease = false;
+    dateRangeEndSliderScrubState.captureOnWrap = false;
+
     if (shouldRestore && Number.isFinite(restoreStartIndex) && Number.isFinite(restoreEndIndex)) {
       setDateRangeByIndices(restoreStartIndex, restoreEndIndex);
     }
@@ -476,6 +506,7 @@
     updateDateRangePlayButton();
     updateDateRangePauseButton();
     updateDateRangeStopButton();
+    persistFilters();
   }
 
   function setDateRangeByIndices(startIndex, endIndex) {
@@ -613,6 +644,7 @@
     updateDateRangePlayButton();
     updateDateRangePauseButton();
     unbindDateRangePlaybackOutsidePointerCancel();
+    persistFilters();
   }
 
   function toggleDateRangePlayback() {
@@ -666,6 +698,7 @@
     dateRangePlaybackState.lastTimestampMs = 0;
     dateRangePlaybackState.accumulatedMs = 0;
     updateDateRangePlayButton();
+    updateDateRangePauseButton();
     updateDateRangeStopButton();
     bindDateRangePlaybackOutsidePointerCancel();
     dateRangePlaybackState.rafId = requestAnimationFrame(stepDateRangePlayback);
@@ -673,6 +706,53 @@
 
   function stopAndResetDateRangePlayback() {
     stopDateRangePlayback({ restoreOriginalRange: true });
+  }
+
+  function bindDateRangePlaybackSpaceShortcut() {
+    if (dateRangeSpaceShortcutBound) return;
+    dateRangeSpaceShortcutBound = true;
+
+    const blurRangeSliderIfFocused = () => {
+      const active = document.activeElement;
+      if (active === el.dateRangeStartSlider || active === el.dateRangeEndSlider) {
+        active.blur();
+      }
+    };
+
+    document.addEventListener("keydown", (event) => {
+      if (!(event.key === " " || event.code === "Space")) return;
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
+
+      const active = document.activeElement;
+      const isTextEntryInput = (
+        active
+        && active.tagName === "INPUT"
+        && ["text", "search", "email", "password", "url", "tel", "number"].includes(
+          String(active.type || "").toLowerCase()
+        )
+      );
+      if (
+        active
+        && (
+          isTextEntryInput
+          || active.tagName === "TEXTAREA"
+          || active.tagName === "SELECT"
+          || active.isContentEditable
+        )
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === "function") {
+        event.stopImmediatePropagation();
+      }
+
+      blurRangeSliderIfFocused();
+      toggleDateRangePlayback();
+      requestAnimationFrame(blurRangeSliderIfFocused);
+    }, true);
   }
 
   function bindDateRangePlaybackFpsButtons() {
@@ -732,6 +812,18 @@
       ? storedPlaybackFps
       : DEFAULT_RANGE_PLAYBACK_FPS;
 
+    const pausedPlaybackSession = (
+      stored.pausedPlaybackSession
+      && typeof stored.pausedPlaybackSession === "object"
+      && stored.pausedPlaybackSession.startDate
+      && stored.pausedPlaybackSession.targetEndDate
+      && stored.pausedPlaybackSession.currentEndDate
+    ) ? {
+      startDate: clampIsoDate(stored.pausedPlaybackSession.startDate, bounds.min, bounds.max, bounds.min),
+      targetEndDate: clampIsoDate(stored.pausedPlaybackSession.targetEndDate, bounds.min, bounds.max, bounds.max),
+      currentEndDate: clampIsoDate(stored.pausedPlaybackSession.currentEndDate, bounds.min, bounds.max, bounds.max),
+    } : null;
+
     return {
       startDate,
       endDate,
@@ -741,11 +833,29 @@
       orderMode,
       smoothVesRedenom,
       playbackFps,
+      pausedPlaybackSession,
     };
   }
 
   function persistFilters() {
     try {
+      let pausedPlaybackSession = null;
+      if (dateRangePlaybackState.hasSession && allRows.length) {
+        const maxIndex = Math.max(0, allRows.length - 1);
+        const currentEndFromSlider = Number(el.dateRangeEndSlider?.value);
+        if (Number.isFinite(currentEndFromSlider)) {
+          dateRangePlaybackState.currentEndIndex = currentEndFromSlider;
+        }
+        const safeStart = Math.max(0, Math.min(maxIndex, Number(dateRangePlaybackState.startIndex) || 0));
+        const safeTargetEnd = Math.max(0, Math.min(maxIndex, Number(dateRangePlaybackState.targetEndIndex) || maxIndex));
+        const safeCurrentEnd = Math.max(0, Math.min(maxIndex, Number(dateRangePlaybackState.currentEndIndex) || safeStart));
+        pausedPlaybackSession = {
+          startDate: toIsoDate(allRows[safeStart].date),
+          targetEndDate: toIsoDate(allRows[safeTargetEnd].date),
+          currentEndDate: toIsoDate(allRows[safeCurrentEnd].date),
+        };
+      }
+
       const payload = {
         startDate: el.startDateInput?.value || "",
         endDate: el.endDateInput?.value || "",
@@ -755,11 +865,30 @@
         orderMode: ORDER_MODES.includes(el.orderBySelect?.value) ? el.orderBySelect.value : "alpha-asc",
         smoothVesRedenom: !!el.vesRedenomAdjustToggle?.checked,
         playbackFps: getSelectedDateRangePlaybackFps(),
+        pausedPlaybackSession,
       };
       localStorage.setItem(UOA_FILTERS_KEY, JSON.stringify(payload));
     } catch (_) {
       // Ignore storage write errors (private mode / quotas).
     }
+  }
+
+  function bindDateRangeSessionPersistence() {
+    if (dateRangeSessionPersistenceBound) return;
+    dateRangeSessionPersistenceBound = true;
+
+    const persistSessionSnapshot = () => {
+      if (dateRangePlaybackState.hasSession) {
+        const currentEndFromSlider = Number(el.dateRangeEndSlider?.value);
+        if (Number.isFinite(currentEndFromSlider)) {
+          dateRangePlaybackState.currentEndIndex = currentEndFromSlider;
+        }
+      }
+      persistFilters();
+    };
+
+    window.addEventListener("pagehide", persistSessionSnapshot);
+    window.addEventListener("beforeunload", persistSessionSnapshot);
   }
 
   const DROPDOWNS = [
@@ -2338,6 +2467,23 @@
     const endPct = Math.max(0, Math.min(100, (endIndex / safeMax) * 100));
     el.dateRangeSliderWrap.style.setProperty("--slider-start", `${startPct}%`);
     el.dateRangeSliderWrap.style.setProperty("--slider-end", `${endPct}%`);
+    
+    // Show remaining animation range whenever a playback session exists,
+    // including paused/restored states after reload.
+    if (dateRangePlaybackState.hasSession || dateRangeEndSliderScrubState.active) {
+      const targetPct = Math.max(0, Math.min(100, (dateRangePlaybackState.targetEndIndex / safeMax) * 100));
+      if (el.dateRangeRemaining) {
+        el.dateRangeRemaining.classList.add("active");
+        el.dateRangeRemaining.style.left = `${endPct}%`;
+        el.dateRangeRemaining.style.right = `calc(100% - ${targetPct}%)`;
+      }
+    } else {
+      if (el.dateRangeRemaining) {
+        el.dateRangeRemaining.classList.remove("active");
+        el.dateRangeRemaining.style.left = "0";
+        el.dateRangeRemaining.style.right = "0";
+      }
+    }
   }
 
   function syncDateRangeSlidersFromInputs() {
@@ -2372,7 +2518,10 @@
   }
 
   function handleDateRangeSliderInput(changed) {
-    stopDateRangePlayback();
+    const shouldPreservePlaybackSession = changed === "end" && dateRangePlaybackState.hasSession;
+    if (!shouldPreservePlaybackSession) {
+      stopDateRangePlayback();
+    }
     if (!el.dateRangeStartSlider || !el.dateRangeEndSlider || !allRows.length) return;
     const maxIndex = Math.max(0, allRows.length - 1);
     let startIndex = Number(el.dateRangeStartSlider.value);
@@ -2413,10 +2562,139 @@
     const endIso = toIsoDate(allRows[endIndex].date);
     if (el.startDateInput) el.startDateInput.value = startIso;
     if (el.endDateInput) el.endDateInput.value = endIso;
+
+    if (changed === "end" && dateRangePlaybackState.hasSession) {
+      dateRangePlaybackState.currentEndIndex = endIndex;
+    }
+
     applyFilters();
   }
 
+  function getDateRangeIndexFromPointerX(clientX) {
+    if (!el.dateRangeSliderWrap || !allRows.length) return null;
+    const maxIndex = Math.max(0, allRows.length - 1);
+    const wrapRect = el.dateRangeSliderWrap.getBoundingClientRect();
+    if (!Number.isFinite(wrapRect.width) || wrapRect.width <= 0) return null;
+    const safeMax = Math.max(1, maxIndex);
+    const ratio = Math.max(0, Math.min(1, (clientX - wrapRect.left) / wrapRect.width));
+    return Math.round(ratio * safeMax);
+  }
+
+  function applyPlaybackEndScrubIndex(nextIndex) {
+    if (!el.dateRangeEndSlider || !allRows.length || !Number.isFinite(nextIndex)) return null;
+    const maxIndex = Math.max(0, allRows.length - 1);
+    const clamped = Math.max(0, Math.min(maxIndex, Math.round(nextIndex)));
+    el.dateRangeEndSlider.value = String(clamped);
+    handleDateRangeSliderInput("end");
+    const adjustedEndIndex = Number(el.dateRangeEndSlider.value);
+    return Number.isFinite(adjustedEndIndex) ? adjustedEndIndex : null;
+  }
+
+  function beginDateRangeEndSliderScrub(event) {
+    if (!el.dateRangeEndSlider || !allRows.length) return;
+    if (typeof event.button === "number" && event.button !== 0) return;
+
+    dateRangeEndSliderScrubState.active = true;
+    dateRangeEndSliderScrubState.pointerId = Number.isFinite(event.pointerId) ? event.pointerId : null;
+    dateRangeEndSliderScrubState.resumeAfterRelease = false;
+    dateRangeEndSliderScrubState.captureOnWrap = false;
+
+    if (dateRangePlaybackState.isPlaying) {
+      pauseDateRangePlayback();
+      dateRangeEndSliderScrubState.resumeAfterRelease = true;
+    }
+
+    const currentEndIndex = Number(el.dateRangeEndSlider.value);
+    if (dateRangePlaybackState.hasSession && Number.isFinite(currentEndIndex)) {
+      dateRangePlaybackState.currentEndIndex = currentEndIndex;
+    }
+
+    try {
+      if (Number.isFinite(event.pointerId)) {
+        el.dateRangeEndSlider.setPointerCapture(event.pointerId);
+      }
+    } catch (_) {
+      // Ignore capture failures.
+    }
+  }
+
+  function endDateRangeEndSliderScrub(event) {
+    if (!dateRangeEndSliderScrubState.active || !el.dateRangeEndSlider) return;
+    if (Number.isFinite(dateRangeEndSliderScrubState.pointerId) && Number.isFinite(event.pointerId)
+      && event.pointerId !== dateRangeEndSliderScrubState.pointerId) {
+      return;
+    }
+
+    try {
+      if (dateRangeEndSliderScrubState.captureOnWrap && el.dateRangeSliderWrap && Number.isFinite(event.pointerId)) {
+        el.dateRangeSliderWrap.releasePointerCapture(event.pointerId);
+      }
+      if (!dateRangeEndSliderScrubState.captureOnWrap && Number.isFinite(event.pointerId)) {
+        el.dateRangeEndSlider.releasePointerCapture(event.pointerId);
+      }
+    } catch (_) {
+      // Ignore capture failures.
+    }
+
+    const shouldResumeAfterRelease = dateRangeEndSliderScrubState.resumeAfterRelease;
+    dateRangeEndSliderScrubState.active = false;
+    dateRangeEndSliderScrubState.pointerId = null;
+    dateRangeEndSliderScrubState.resumeAfterRelease = false;
+    dateRangeEndSliderScrubState.captureOnWrap = false;
+
+    if (!dateRangePlaybackState.hasSession) return;
+
+    const currentEndIndex = Number(el.dateRangeEndSlider.value);
+    if (Number.isFinite(currentEndIndex)) {
+      dateRangePlaybackState.currentEndIndex = currentEndIndex;
+    }
+
+    if (Number.isFinite(currentEndIndex)
+      && (currentEndIndex < dateRangePlaybackState.startIndex || currentEndIndex >= dateRangePlaybackState.targetEndIndex)) {
+      stopDateRangePlayback({ restoreOriginalRange: false });
+      return;
+    }
+
+    if (!shouldResumeAfterRelease) return;
+
+    startDateRangePlayback();
+  }
+
   function beginDateRangeSegmentDrag(event) {
+    if (dateRangeEndSliderScrubState.active && !dateRangeEndSliderScrubState.captureOnWrap) {
+      // End-marker scrub is already handling this pointer sequence.
+      return;
+    }
+
+    if (dateRangePlaybackState.hasSession) {
+      const clickedIndex = getDateRangeIndexFromPointerX(event.clientX);
+      if (!Number.isFinite(clickedIndex)) return;
+      event.preventDefault();
+
+      dateRangeEndSliderScrubState.active = true;
+      dateRangeEndSliderScrubState.pointerId = Number.isFinite(event.pointerId) ? event.pointerId : null;
+      dateRangeEndSliderScrubState.resumeAfterRelease = !!dateRangePlaybackState.isPlaying;
+      dateRangeEndSliderScrubState.captureOnWrap = true;
+
+      if (dateRangePlaybackState.isPlaying) {
+        pauseDateRangePlayback();
+      }
+
+      const adjustedEndIndex = applyPlaybackEndScrubIndex(clickedIndex);
+      if (Number.isFinite(adjustedEndIndex)) {
+        dateRangePlaybackState.currentEndIndex = adjustedEndIndex;
+      }
+
+      try {
+        if (el.dateRangeSliderWrap && Number.isFinite(event.pointerId)) {
+          el.dateRangeSliderWrap.setPointerCapture(event.pointerId);
+        }
+      } catch (_) {
+        // Ignore capture failures.
+      }
+      return;
+    }
+
     stopDateRangePlayback();
     if (!el.dateRangeSliderWrap || !el.dateRangeStartSlider || !el.dateRangeEndSlider || !allRows.length) return;
     if (event.button !== 0) return;
@@ -2461,6 +2739,21 @@
   }
 
   function moveDateRangeSegmentDrag(event) {
+    if (dateRangeEndSliderScrubState.active) {
+      if (Number.isFinite(dateRangeEndSliderScrubState.pointerId)
+        && Number.isFinite(event.pointerId)
+        && event.pointerId !== dateRangeEndSliderScrubState.pointerId) {
+        return;
+      }
+      const hoveredIndex = getDateRangeIndexFromPointerX(event.clientX);
+      if (!Number.isFinite(hoveredIndex)) return;
+      const adjustedEndIndex = applyPlaybackEndScrubIndex(hoveredIndex);
+      if (Number.isFinite(adjustedEndIndex) && dateRangePlaybackState.hasSession) {
+        dateRangePlaybackState.currentEndIndex = adjustedEndIndex;
+      }
+      return;
+    }
+
     if (!dateRangeDragState || !el.dateRangeStartSlider || !el.dateRangeEndSlider || !allRows.length) return;
     if (event.pointerId !== dateRangeDragState.pointerId) return;
 
@@ -2497,6 +2790,11 @@
   }
 
   function endDateRangeSegmentDrag(event) {
+    if (dateRangeEndSliderScrubState.active) {
+      endDateRangeEndSliderScrub(event);
+      return;
+    }
+
     if (!dateRangeDragState || !el.dateRangeSliderWrap) return;
     if (event.pointerId !== dateRangeDragState.pointerId) return;
 
@@ -2815,6 +3113,24 @@
     const startDate = new Date(`${start}T00:00:00Z`);
     const endDate = new Date(`${end}T23:59:59Z`);
 
+    const isoToShortSlashDate = (isoValue) => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(isoValue || ""))) return "--";
+      const [yearRaw, monthRaw, dayRaw] = String(isoValue).split("-");
+      const year = Number(yearRaw);
+      const month = Number(monthRaw);
+      const day = Number(dayRaw);
+      if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return "--";
+      const shortYear = String(year).slice(-2).padStart(2, "0");
+      return `${month}/${day}/${shortYear}`;
+    };
+    const isoPattern = /^\d{4}-\d{2}-\d{2}$/;
+    const startEdgeText = isoPattern.test(start) ? isoToShortSlashDate(start) : "--";
+    const endEdgeText = isoPattern.test(end) ? isoToShortSlashDate(end) : "--";
+    if (el.usdBtcStartDateEdge) el.usdBtcStartDateEdge.textContent = startEdgeText;
+    if (el.btcUsdStartDateEdge) el.btcUsdStartDateEdge.textContent = startEdgeText;
+    if (el.usdBtcEndDateEdge) el.usdBtcEndDateEdge.textContent = endEdgeText;
+    if (el.btcUsdEndDateEdge) el.btcUsdEndDateEdge.textContent = endEdgeText;
+
     if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
       rows = [...allRows];
       refreshDateButtonLabels();
@@ -2833,7 +3149,7 @@
 
   function initControls() {
     const bounds = getDateBounds();
-    if (!bounds) return;
+    if (!bounds) return null;
     const saved = loadStoredFilters(bounds);
 
     if (el.startDateInput) {
@@ -2861,6 +3177,12 @@
       el.dateRangeEndSlider.addEventListener("input", () => {
         handleDateRangeSliderInput("end");
       });
+      if (el.dateRangeEndSlider.dataset.scrubBound !== "1") {
+        el.dateRangeEndSlider.dataset.scrubBound = "1";
+        el.dateRangeEndSlider.addEventListener("pointerdown", beginDateRangeEndSliderScrub);
+        el.dateRangeEndSlider.addEventListener("pointerup", endDateRangeEndSliderScrub);
+        el.dateRangeEndSlider.addEventListener("pointercancel", endDateRangeEndSliderScrub);
+      }
     }
     if (el.dateRangeSliderWrap) {
       el.dateRangeSliderWrap.addEventListener("pointerdown", beginDateRangeSegmentDrag);
@@ -2880,6 +3202,7 @@
       el.dateRangeStopBtn.dataset.bound = "1";
       el.dateRangeStopBtn.addEventListener("click", stopAndResetDateRangePlayback);
     }
+    bindDateRangePlaybackSpaceShortcut();
     bindDateRangePlaybackFpsButtons();
     setDateRangePlaybackFps(saved.playbackFps);
 
@@ -2935,9 +3258,42 @@
     syncPairControls();
     bindCustomDropdowns();
     bindSecondaryArrowCycling();
+    bindDateRangeSessionPersistence();
     initDatePickers();
     bindRangePresetButtons();
     updateDateRangePlayButton();
+    updateDateRangeStopButton();
+    return saved;
+  }
+
+  function restorePausedPlaybackSession(saved) {
+    if (!saved?.pausedPlaybackSession || !allRows.length) return;
+
+    const startIndex = getDateIndexFromIso(saved.pausedPlaybackSession.startDate);
+    const targetEndIndex = getDateIndexFromIso(saved.pausedPlaybackSession.targetEndDate);
+    const currentEndIndex = getDateIndexFromIso(saved.pausedPlaybackSession.currentEndDate);
+    const maxIndex = Math.max(0, allRows.length - 1);
+
+    if (!Number.isFinite(startIndex) || !Number.isFinite(targetEndIndex) || !Number.isFinite(currentEndIndex)) return;
+    if (startIndex < 0 || targetEndIndex < 0 || currentEndIndex < 0) return;
+
+    const safeStart = Math.max(0, Math.min(maxIndex, startIndex));
+    const safeTargetEnd = Math.max(0, Math.min(maxIndex, targetEndIndex));
+    const safeCurrentEnd = Math.max(0, Math.min(maxIndex, currentEndIndex));
+    if (safeTargetEnd <= safeStart) return;
+
+    // Keep paused session state so reload restores the exact frame and target end point.
+    dateRangePlaybackState.hasSession = true;
+    dateRangePlaybackState.isPlaying = false;
+    dateRangePlaybackState.startIndex = safeStart;
+    dateRangePlaybackState.targetEndIndex = safeTargetEnd;
+    dateRangePlaybackState.currentEndIndex = safeCurrentEnd;
+    dateRangePlaybackState.originalStartIndex = safeStart;
+    dateRangePlaybackState.originalEndIndex = safeTargetEnd;
+
+    setDateRangeByIndices(safeStart, safeCurrentEnd);
+    updateDateRangePlayButton();
+    updateDateRangePauseButton();
     updateDateRangeStopButton();
   }
 
@@ -3159,6 +3515,13 @@
     };
     const chartW = Math.max(1, w - pad.left - pad.right);
     const chartH = Math.max(1, h - pad.top - pad.bottom);
+
+    if (opts.edgeTrackEl && Number.isFinite(w) && w > 0) {
+      const plotStartPct = Math.max(0, Math.min(100, (pad.left / w) * 100));
+      const plotEndPct = Math.max(0, Math.min(100, ((w - pad.right) / w) * 100));
+      opts.edgeTrackEl.style.setProperty("--chart-start-x-pct", `${plotStartPct}%`);
+      opts.edgeTrackEl.style.setProperty("--chart-end-x-pct", `${plotEndPct}%`);
+    }
 
     let yFor = null;
     let ticksToDraw = [];
@@ -3977,6 +4340,7 @@
         linearFormatter: leftFormatter,
         overlapLabelFn: leftOverlapLabelFn,
         eventMarkers: leftEventMarkers,
+        edgeTrackEl: el.usdBtcDateEdges,
         ticks: primaryCurrency === "BTC" ? [
           { value: 1, label: "1 sat" },
           { value: 10, label: "10 sats" },
@@ -4002,6 +4366,7 @@
         linearFormatter: rightFormatter,
         overlapLabelFn: rightOverlapLabelFn,
         eventMarkers: rightEventMarkers,
+        edgeTrackEl: el.btcUsdDateEdges,
         ticks: secondaryCurrency === "BTC" ? satsTicks : secondaryCurrency === "USD" ? [
           { value: 0.001, label: "0.1¢" },
           { value: 0.01, label: "1¢" },
@@ -4040,11 +4405,12 @@
     populateCurrencyDropdowns();
     populateUpdatedTimeZoneSelect();
 
-    initControls();
+    const saved = initControls();
     bindChartEventHover(el.usdBtcChart);
     bindChartEventHover(el.btcUsdChart);
     primeKeyboardFocus();
     applyFilters();
+    restorePausedPlaybackSession(saved);
     window.addEventListener("resize", () => {
       renderAll();
     });
