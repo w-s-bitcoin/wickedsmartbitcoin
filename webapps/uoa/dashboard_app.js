@@ -168,6 +168,19 @@
 
   const ORDER_MODES = ["alpha-asc", "alpha-desc", "value-desc", "value-asc"];
 
+  function updatePlaybackActiveFlag() {
+    const isActive = dateRangePlaybackState.hasSession;
+    window.dateRangePlaybackActive = isActive;
+    // Also set on parent window if this is in an iframe
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.dateRangePlaybackActive = isActive;
+      }
+    } catch (_) {
+      // Ignore cross-origin issues
+    }
+  }
+
   function safeReadJson(key) {
     try {
       const raw = localStorage.getItem(key);
@@ -493,6 +506,7 @@
       originalStartIndex: 0,
       originalEndIndex: 0,
     };
+    updatePlaybackActiveFlag();
 
     dateRangeEndSliderScrubState.active = false;
     dateRangeEndSliderScrubState.pointerId = null;
@@ -517,12 +531,12 @@
     safeStart = Math.max(0, Math.min(maxIndex, safeStart));
     safeEnd = Math.max(0, Math.min(maxIndex, safeEnd));
 
-    if (maxIndex >= 1 && safeStart >= safeEnd) {
+    if (maxIndex >= 1 && safeStart > safeEnd) {
       if (safeStart >= maxIndex) {
         safeStart = Math.max(0, maxIndex - 1);
         safeEnd = maxIndex;
       } else {
-        safeEnd = Math.min(maxIndex, safeStart + 1);
+        safeEnd = safeStart;
       }
     }
 
@@ -541,7 +555,7 @@
       return;
     }
 
-    if (!Number.isFinite(dateRangePlaybackState.targetEndIndex) || dateRangePlaybackState.targetEndIndex < 1) {
+    if (!Number.isFinite(dateRangePlaybackState.targetEndIndex) || dateRangePlaybackState.targetEndIndex < 0) {
       pauseDateRangePlayback();
       return;
     }
@@ -555,7 +569,7 @@
     dateRangePlaybackState.accumulatedMs += elapsedMs;
 
     let currentEndIndex = Number(el.dateRangeEndSlider?.value);
-    if (!Number.isFinite(currentEndIndex)) currentEndIndex = 1;
+    if (!Number.isFinite(currentEndIndex)) currentEndIndex = Math.max(0, Number(dateRangePlaybackState.startIndex) || 0);
 
     const frameMs = 1000 / Math.max(1, dateRangePlaybackState.fps || DEFAULT_RANGE_PLAYBACK_FPS);
 
@@ -599,13 +613,14 @@
       startIndex = Math.max(0, Math.min(maxIndex, startIndex));
       targetEndIndex = Math.max(0, Math.min(maxIndex, targetEndIndex));
 
-      if (targetEndIndex <= startIndex) return;
+      if (targetEndIndex < startIndex) return;
 
-      const playbackEndStartIndex = Math.min(targetEndIndex, startIndex + 1);
+      const playbackEndStartIndex = startIndex;
       const selectedFps = getSelectedDateRangePlaybackFps();
 
       setDateRangeByIndices(startIndex, playbackEndStartIndex);
       dateRangePlaybackState.hasSession = true;
+      updatePlaybackActiveFlag();
       dateRangePlaybackState.fps = selectedFps;
       dateRangePlaybackState.startIndex = startIndex;
       dateRangePlaybackState.targetEndIndex = targetEndIndex;
@@ -619,7 +634,7 @@
         dateRangePlaybackState.startIndex,
         Math.min(dateRangePlaybackState.targetEndIndex, dateRangePlaybackState.currentEndIndex)
       );
-      if (resumeEndIndex >= dateRangePlaybackState.targetEndIndex) return;
+      if (resumeEndIndex > dateRangePlaybackState.targetEndIndex) return;
       setDateRangeByIndices(dateRangePlaybackState.startIndex, resumeEndIndex);
     }
 
@@ -669,13 +684,14 @@
       startIndex = Math.max(0, Math.min(maxIndex, startIndex));
       targetEndIndex = Math.max(0, Math.min(maxIndex, targetEndIndex));
 
-      if (targetEndIndex <= startIndex) return;
+      if (targetEndIndex < startIndex) return;
 
-      const playbackEndStartIndex = Math.min(targetEndIndex, startIndex + 1);
+      const playbackEndStartIndex = startIndex;
       const selectedFps = getSelectedDateRangePlaybackFps();
 
       setDateRangeByIndices(startIndex, playbackEndStartIndex);
       dateRangePlaybackState.hasSession = true;
+      updatePlaybackActiveFlag();
       dateRangePlaybackState.fps = selectedFps;
       dateRangePlaybackState.startIndex = startIndex;
       dateRangePlaybackState.targetEndIndex = targetEndIndex;
@@ -685,11 +701,15 @@
     } else {
       const selectedFps = getSelectedDateRangePlaybackFps();
       dateRangePlaybackState.fps = selectedFps;
+      // If paused at the end of animation, restart from the beginning
+      if (dateRangePlaybackState.currentEndIndex === dateRangePlaybackState.targetEndIndex) {
+        dateRangePlaybackState.currentEndIndex = dateRangePlaybackState.startIndex;
+      }
       const resumeEndIndex = Math.max(
         dateRangePlaybackState.startIndex,
         Math.min(dateRangePlaybackState.targetEndIndex, dateRangePlaybackState.currentEndIndex)
       );
-      if (resumeEndIndex >= dateRangePlaybackState.targetEndIndex) return;
+      if (resumeEndIndex > dateRangePlaybackState.targetEndIndex) return;
       setDateRangeByIndices(dateRangePlaybackState.startIndex, resumeEndIndex);
     }
 
@@ -780,6 +800,79 @@
     }
 
     setDateRangePlaybackFps(getSelectedDateRangePlaybackFps());
+  }
+
+  function bindDateRangePlaybackArrowScrubbing() {
+    document.addEventListener("keydown", (event) => {
+      // Check if playback is active (playing or paused with an active session)
+      const isPlaybackActive = dateRangePlaybackState.hasSession;
+      if (!isPlaybackActive) return;
+
+      const isArrowLeft = event.key === "ArrowLeft";
+      const isArrowRight = event.key === "ArrowRight";
+      const isComma = event.key === "," || event.code === "Comma";
+      const isPeriod = event.key === "." || event.code === "Period";
+      if (!isArrowLeft && !isArrowRight && !isComma && !isPeriod) return;
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
+
+      // Don't interfere if focus is on a form element
+      const active = document.activeElement;
+      const isFormElement = (
+        active
+        && (
+          (active.tagName === "INPUT" && !["range"].includes(String(active.type || "").toLowerCase()))
+          || active.tagName === "TEXTAREA"
+          || active.tagName === "SELECT"
+          || active.isContentEditable
+        )
+      );
+      if (isFormElement) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const maxIndex = Math.max(0, allRows.length - 1);
+      const rawStartIndex = Number(dateRangePlaybackState.startIndex);
+      const rawTargetEndIndex = Number(dateRangePlaybackState.targetEndIndex);
+      const sessionStartIndex = Number.isFinite(rawStartIndex)
+        ? Math.max(0, Math.min(maxIndex, Math.round(rawStartIndex)))
+        : 0;
+      const sessionTargetEndIndex = Number.isFinite(rawTargetEndIndex)
+        ? Math.max(0, Math.min(maxIndex, Math.round(rawTargetEndIndex)))
+        : maxIndex;
+      const minSessionEndIndex = sessionStartIndex;
+      const maxSessionEndIndex = sessionTargetEndIndex;
+
+      if (maxSessionEndIndex < minSessionEndIndex) return;
+
+      let currentEndIndex = Number(el.dateRangeEndSlider?.value);
+      if (!Number.isFinite(currentEndIndex)) currentEndIndex = dateRangePlaybackState.currentEndIndex || minSessionEndIndex;
+      currentEndIndex = Math.max(minSessionEndIndex, Math.min(maxSessionEndIndex, Math.round(currentEndIndex)));
+
+      const fps = dateRangePlaybackState.fps || DEFAULT_RANGE_PLAYBACK_FPS;
+      const framesFor10Seconds = Math.max(1, Math.round(10 * fps));
+
+      let nextEndIndex = currentEndIndex;
+      if (isArrowRight) {
+        nextEndIndex = Math.min(maxSessionEndIndex, currentEndIndex + framesFor10Seconds);
+      } else if (isArrowLeft) {
+        nextEndIndex = Math.max(minSessionEndIndex, currentEndIndex - framesFor10Seconds);
+      } else if (isPeriod) {
+        nextEndIndex = Math.min(maxSessionEndIndex, currentEndIndex + 1);
+      } else if (isComma) {
+        nextEndIndex = Math.max(minSessionEndIndex, currentEndIndex - 1);
+      }
+
+      if (nextEndIndex !== currentEndIndex) {
+        setDateRangeByIndices(sessionStartIndex, nextEndIndex);
+        dateRangePlaybackState.currentEndIndex = nextEndIndex;
+
+        // If right arrow scrubbing reaches the end of animation during playback, pause instead of advancing to next modal
+        if (isArrowRight && dateRangePlaybackState.isPlaying && nextEndIndex === maxSessionEndIndex) {
+          pauseDateRangePlayback();
+        }
+      }
+    }, true);
   }
 
   function getFallbackSecondary(primary) {
@@ -2496,12 +2589,12 @@
     let endIndex = getDateIndexFromIso(endIso);
     if (startIndex < 0) startIndex = 0;
     if (endIndex < 0) endIndex = maxIndex;
-    if (maxIndex >= 1 && startIndex >= endIndex) {
+    if (maxIndex >= 1 && startIndex > endIndex) {
       if (startIndex >= maxIndex) {
         startIndex = Math.max(0, maxIndex - 1);
         endIndex = maxIndex;
       } else {
-        endIndex = Math.min(maxIndex, startIndex + 1);
+        endIndex = startIndex;
       }
     } else if (startIndex > endIndex) {
       startIndex = endIndex;
@@ -2531,20 +2624,20 @@
     if (!Number.isFinite(endIndex)) endIndex = maxIndex;
 
     if (maxIndex >= 1) {
-      if (changed === "start" && startIndex >= endIndex) {
-        startIndex = Math.max(0, endIndex - 1);
+      if (changed === "start" && startIndex > endIndex) {
+        startIndex = endIndex;
         el.dateRangeStartSlider.value = String(startIndex);
       }
-      if (changed === "end" && endIndex <= startIndex) {
-        endIndex = Math.min(maxIndex, startIndex + 1);
+      if (changed === "end" && endIndex < startIndex) {
+        endIndex = startIndex;
         el.dateRangeEndSlider.value = String(endIndex);
       }
-      if (startIndex >= endIndex) {
+      if (startIndex > endIndex) {
         if (startIndex >= maxIndex) {
           startIndex = Math.max(0, maxIndex - 1);
           endIndex = maxIndex;
         } else {
-          endIndex = Math.min(maxIndex, startIndex + 1);
+          endIndex = startIndex;
         }
         el.dateRangeStartSlider.value = String(startIndex);
         el.dateRangeEndSlider.value = String(endIndex);
@@ -3096,12 +3189,12 @@
       if (startIndex < 0) startIndex = 0;
       if (endIndex < 0) endIndex = maxIndex;
 
-      if (startIndex >= endIndex) {
+      if (startIndex > endIndex) {
         if (startIndex >= maxIndex) {
           startIndex = Math.max(0, maxIndex - 1);
           endIndex = maxIndex;
         } else {
-          endIndex = Math.min(maxIndex, startIndex + 1);
+          endIndex = startIndex;
         }
         start = toIsoDate(allRows[startIndex].date);
         end = toIsoDate(allRows[endIndex].date);
@@ -3280,10 +3373,11 @@
     const safeStart = Math.max(0, Math.min(maxIndex, startIndex));
     const safeTargetEnd = Math.max(0, Math.min(maxIndex, targetEndIndex));
     const safeCurrentEnd = Math.max(0, Math.min(maxIndex, currentEndIndex));
-    if (safeTargetEnd <= safeStart) return;
+    if (safeTargetEnd < safeStart) return;
 
     // Keep paused session state so reload restores the exact frame and target end point.
     dateRangePlaybackState.hasSession = true;
+    updatePlaybackActiveFlag();
     dateRangePlaybackState.isPlaying = false;
     dateRangePlaybackState.startIndex = safeStart;
     dateRangePlaybackState.targetEndIndex = safeTargetEnd;
@@ -3413,7 +3507,11 @@
     ctx.clearRect(0, 0, w, h);
 
     const isLinear = opts.scaleMode === "linear";
-    const vals = series
+    const axisSourceSeries = (series.length === 1 && Array.isArray(opts.axisReferenceSeries) && opts.axisReferenceSeries.length >= 2)
+      ? opts.axisReferenceSeries
+      : series;
+
+    const vals = axisSourceSeries
       .map((s) => s.value)
       .filter((v) => Number.isFinite(v) && (isLinear || v > 0));
     if (!vals.length) {
@@ -3423,6 +3521,12 @@
 
     let min = Math.min(...vals);
     let max = Math.max(...vals);
+    if (Number.isFinite(Number(opts?.minYFloor))) {
+      min = Math.min(min, Number(opts.minYFloor));
+    }
+    if (Number.isFinite(Number(opts?.maxYFloor))) {
+      max = Math.max(max, Number(opts.maxYFloor));
+    }
     const dataMin = min;
     const dataMax = max;
     const dataRange = dataMax - dataMin;
@@ -3490,8 +3594,9 @@
     const sideMargin = 6; // margin to edge
     
     // Measure year labels for bottom padding
-    const y0 = series[0].date.getFullYear();
-    const y1 = series[series.length - 1].date.getFullYear();
+    const xAxisSeries = axisSourceSeries.length > 1 ? axisSourceSeries : series;
+    const y0 = xAxisSeries[0].date.getFullYear();
+    const y1 = xAxisSeries[xAxisSeries.length - 1].date.getFullYear();
     let maxYearWidth = 0;
     for (let y = y0; y <= y1; y++) {
       const metrics = ctx.measureText(String(y));
@@ -3549,7 +3654,11 @@
       });
     }
 
-    const xFor = (i) => pad.left + (i / Math.max(1, series.length - 1)) * chartW;
+    const isSinglePointSeries = series.length === 1;
+    const xFor = (i) => {
+      if (isSinglePointSeries) return pad.left + (chartW / 2);
+      return pad.left + (i / Math.max(1, series.length - 1)) * chartW;
+    };
 
     ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--line").trim();
     ctx.lineWidth = 1;
@@ -3570,7 +3679,7 @@
       ctx.fillText(tick.label, tx, y);
     });
 
-    const xTicks = buildAdaptiveTimeTicks(series, chartW);
+    const xTicks = buildAdaptiveTimeTicks(xAxisSeries, chartW);
 
     xTicks.forEach((tick) => {
       const idx = series.findIndex((s) => s.date >= tick.date);
@@ -3598,27 +3707,39 @@
     ctx.rect(pad.left, pad.top, chartW, chartH);
     ctx.clip();
 
-    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--ghost").trim();
-    ctx.lineWidth = 0.6;
-    ctx.beginPath();
-    series.forEach((s, i) => {
-      const x = xFor(i);
-      const y = yFor(s.value);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.stroke();
+    if (series.length >= 2) {
+      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--ghost").trim();
+      ctx.lineWidth = 0.6;
+      ctx.beginPath();
+      series.forEach((s, i) => {
+        const x = xFor(i);
+        const y = yFor(s.value);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
 
-    ctx.strokeStyle = opts.color;
-    ctx.lineWidth = 1.6;
-    ctx.beginPath();
-    series.forEach((s, i) => {
-      const x = xFor(i);
-      const y = yFor(s.value);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.stroke();
+      ctx.strokeStyle = opts.color;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      series.forEach((s, i) => {
+        const x = xFor(i);
+        const y = yFor(s.value);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    } else if (series.length === 1) {
+      const pointX = xFor(0);
+      const pointY = yFor(series[0].value);
+      ctx.fillStyle = opts.color;
+      ctx.beginPath();
+      ctx.arc(pointX, pointY, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.55)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
     ctx.restore();
 
     const markerStates = [];
@@ -3911,6 +4032,85 @@
           : baseValue,
       };
     });
+
+    const getRangeAxisHints = (displaySeries, allSeries, chartScaleMode) => {
+      if (!Array.isArray(displaySeries) || displaySeries.length < 1 || !Array.isArray(allSeries) || allSeries.length < 2) {
+        return null;
+      }
+      const startPoint = displaySeries[0];
+      if (!startPoint?.date || !Number.isFinite(startPoint.value)) return null;
+      const startTime = startPoint.date.getTime();
+      const idx = allSeries.findIndex((s) => s?.date && s.date.getTime() === startTime);
+      if (idx < 0) return null;
+
+      // Use n+1 specifically (next date in the full series) to anchor axis scaling.
+      const nextPoint = allSeries[idx + 1] || null;
+      if (!nextPoint || !Number.isFinite(nextPoint.value)) return null;
+
+      const startValue = startPoint.value;
+      const nextValue = nextPoint.value;
+
+      let minYFloor = null;
+      let maxYFloor = null;
+      let axisReferenceSeries = null;
+
+      if (chartScaleMode === "log") {
+        if (!(startValue > 0 && nextValue > 0)) return null;
+        let ratio = Math.max(startValue / nextValue, nextValue / startValue);
+        if (!Number.isFinite(ratio) || ratio <= 1) ratio = 1.01;
+        maxYFloor = startValue * ratio;
+
+        // Apply the n->n+1 anchored lower bound to all start->end ranges.
+        minYFloor = startValue / ratio;
+
+        // Single-point frame still uses explicit axis reference for stable ticks.
+        if (displaySeries.length === 1) {
+          axisReferenceSeries = [startPoint, nextPoint];
+        }
+      } else {
+        let delta = Math.abs(nextValue - startValue);
+        if (!Number.isFinite(delta) || delta <= 0) {
+          delta = Math.max(Math.abs(startValue) * 0.01, LOG_MIN_POSITIVE);
+        }
+        maxYFloor = startValue + delta;
+
+        // Apply the n->n+1 anchored lower bound to all start->end ranges.
+        minYFloor = startValue - delta;
+
+        // Single-point frame still uses explicit axis reference for stable ticks.
+        if (displaySeries.length === 1) {
+          axisReferenceSeries = [startPoint, nextPoint];
+        }
+      }
+
+      return {
+        axisReferenceSeries,
+        minYFloor,
+        maxYFloor,
+      };
+    };
+
+    const leftSeriesAllForAxis = adjustedAllRows.map((r) => {
+      const baseValue = primaryCurrency === "BTC" ? r.satsPerSecondary : r.inversePrice;
+      return {
+        date: r.date,
+        value: isPreciousMetalCurrency(primaryCurrency)
+          ? baseValue * TROY_OUNCE_TO_GRAMS
+          : baseValue,
+      };
+    });
+    const rightSeriesAllForAxis = adjustedAllRows.map((r) => {
+      const baseValue = secondaryCurrency === "BTC" ? r.directPrice * 100000000 : r.directPrice;
+      return {
+        date: r.date,
+        value: isPreciousMetalCurrency(secondaryCurrency)
+          ? baseValue * TROY_OUNCE_TO_GRAMS
+          : baseValue,
+      };
+    });
+
+    const leftAxisHints = getRangeAxisHints(leftSeries, leftSeriesAllForAxis, scaleMode);
+    const rightAxisHints = getRangeAxisHints(rightSeries, rightSeriesAllForAxis, scaleMode);
 
     const leftFormatter = (value) => {
       if (!Number.isFinite(value) || value < 0) return "0";
@@ -4341,6 +4541,9 @@
         overlapLabelFn: leftOverlapLabelFn,
         eventMarkers: leftEventMarkers,
         edgeTrackEl: el.usdBtcDateEdges,
+        axisReferenceSeries: leftAxisHints?.axisReferenceSeries || null,
+        minYFloor: leftAxisHints?.minYFloor,
+        maxYFloor: leftAxisHints?.maxYFloor,
         ticks: primaryCurrency === "BTC" ? [
           { value: 1, label: "1 sat" },
           { value: 10, label: "10 sats" },
@@ -4367,6 +4570,9 @@
         overlapLabelFn: rightOverlapLabelFn,
         eventMarkers: rightEventMarkers,
         edgeTrackEl: el.btcUsdDateEdges,
+        axisReferenceSeries: rightAxisHints?.axisReferenceSeries || null,
+        minYFloor: rightAxisHints?.minYFloor,
+        maxYFloor: rightAxisHints?.maxYFloor,
         ticks: secondaryCurrency === "BTC" ? satsTicks : secondaryCurrency === "USD" ? [
           { value: 0.001, label: "0.1¢" },
           { value: 0.01, label: "1¢" },
@@ -4409,6 +4615,7 @@
     bindChartEventHover(el.usdBtcChart);
     bindChartEventHover(el.btcUsdChart);
     primeKeyboardFocus();
+    bindDateRangePlaybackArrowScrubbing();
     applyFilters();
     restorePausedPlaybackSession(saved);
     window.addEventListener("resize", () => {
