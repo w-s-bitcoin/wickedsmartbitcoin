@@ -68,6 +68,23 @@ gridIcon?.addEventListener('keydown', onToolbarButtonKeydown);
 listIcon?.addEventListener('keydown', onToolbarButtonKeydown);
 favoritesToggleBtn?.addEventListener('keydown', onToolbarButtonKeydown);
 document.addEventListener('keydown', e => {
+    if (isBuyMeVisible) return;
+    if (!(e.key === ' ' || e.key === 'Spacebar' || e.code === 'Space')) return;
+    if (modal?.style?.display !== 'flex') return;
+
+    const activeFilename = String(modalImg?.dataset?.filename || '').toLowerCase();
+    const modalSrc = String(modalEmbed?.getAttribute?.('src') || '').toLowerCase();
+    const isUoaModal = activeFilename === 'uoa.png' || modalSrc.includes('/webapps/uoa/dashboard.html');
+    if (!isUoaModal) return;
+
+    // Prevent native Space activation (e.g. focused close button) from exiting UOA.
+    e.preventDefault();
+    e.stopPropagation();
+    if (typeof e.stopImmediatePropagation === 'function') {
+        e.stopImmediatePropagation();
+    }
+}, true);
+document.addEventListener('keydown', e => {
     if (!isBuyMeVisible) return;
     const k = e.key;
     if (
@@ -104,9 +121,6 @@ document.addEventListener('keydown', e => {
     } else if (e.key === 'ArrowRight') {
         swallow();
         nextImage();
-    } else if (e.key === ' ' || e.code === 'Space') {
-        swallow();
-        closeModal();
     } else if (e.key === 'Escape') {
         swallow();
         // Check if YouTube overlay is open - if so, close it instead of the modal
