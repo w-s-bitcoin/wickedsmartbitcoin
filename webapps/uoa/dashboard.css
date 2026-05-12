@@ -824,6 +824,7 @@ body {
   --slider-end: 100%;
   position: relative;
   height: 30px;
+  cursor: default;
 }
 
 .date-range-slider-wrap::before,
@@ -840,12 +841,14 @@ body {
 
 .date-range-slider-wrap::before {
   background: rgba(128, 128, 128, 0.24);
+  cursor: default;
 }
 
 .date-range-slider-wrap::after {
   left: var(--slider-start);
   right: calc(100% - var(--slider-end));
   background: #5f5f5f;
+  cursor: ew-resize;
 }
 
 :root[data-theme="light"] .date-range-slider-wrap::before {
@@ -856,13 +859,34 @@ body {
   background: #bdbdbd;
 }
 
+.date-range-remaining {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 6px;
+  border-radius: 999px;
+  transform: translateY(-50%);
+  background: transparent;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.date-range-remaining.active {
+  background: #ff9900;
+}
+
+:root[data-theme="light"] .date-range-remaining.active {
+  background: #ff9900;
+}
+
 .date-range-slider {
   position: absolute;
   left: 0;
   top: 50%;
   transform: translateY(-50%);
   width: 100%;
-  height: 30px;
+  height: 50px;
   margin: 0;
   padding: 0;
   background: transparent;
@@ -870,6 +894,7 @@ body {
   -webkit-appearance: none;
   pointer-events: none;
   z-index: 2;
+  cursor: default;
 }
 
 .date-range-slider::-webkit-slider-runnable-track {
@@ -880,15 +905,19 @@ body {
 .date-range-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  border: 2px solid var(--fg);
-  background: var(--panel);
-  margin-top: -6px;
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.25);
-  cursor: ew-resize;
+  width: 12px;
+  height: 26px;
+  border-radius: 3px;
+  border: none;
+  background: #e6e6e6;
+  margin-top: -11px;
+  cursor: pointer;
   pointer-events: auto;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+:root[data-theme="light"] .date-range-slider::-webkit-slider-thumb {
+  background: #bdbdbd;
 }
 
 .date-range-slider::-moz-range-track {
@@ -897,14 +926,19 @@ body {
 }
 
 .date-range-slider::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  border: 2px solid var(--fg);
-  background: var(--panel);
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.25);
-  cursor: ew-resize;
+  width: 12px;
+  height: 26px;
+  border-radius: 3px;
+  border: none;
+  background: #e6e6e6;
+  margin-top: -11px;
+  cursor: pointer;
   pointer-events: auto;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+:root[data-theme="light"] .date-range-slider::-moz-range-thumb {
+  background: #bdbdbd;
 }
 
 /* Net-worth style custom date picker */
@@ -1253,6 +1287,33 @@ body {
   color: var(--fg);
   font-size: 1.05rem;
   padding: 0 2px;
+}
+
+.chart-date-edges {
+  position: relative;
+  height: 1.05rem;
+  margin: 2px 2px 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-date-edges > span {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+}
+
+.chart-date-edges > span:first-child {
+  left: var(--chart-start-x-pct, 0%);
+}
+
+.chart-date-edges > span:last-child {
+  left: var(--chart-end-x-pct, 100%);
+  transform: translate(-75%, -50%);
+  text-align: right;
 }
 
 .mono {
