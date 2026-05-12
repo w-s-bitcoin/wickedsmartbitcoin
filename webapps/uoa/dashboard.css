@@ -1263,18 +1263,29 @@ body {
   margin: 2px 0 0;
   text-align: center;
   font-family: "Space Grotesk", "Helvetica Neue", sans-serif;
-  font-size: clamp(1.7rem, 1.8vw, 2rem);
+  font-size: clamp(1rem, 2.5vw, 2rem);
   font-weight: 500;
   letter-spacing: 0;
 }
 
 .big-value {
   text-align: center;
-  font-size: clamp(2.8rem, 3.2vw, 3.75rem);
+  font-size: clamp(2.25rem, 3vw, 3.25rem);
   line-height: 1.06;
   font-weight: 500;
   margin-top: 0;
 }
+
+@media (max-width: 640px) {
+  .big-value {
+    font-size: clamp(1.9rem, 5vw, 2.6rem);
+  }
+}
+
+@media (max-width: 400px) {
+  /* Panel title now uses viewport scaling, no additional override needed */
+}
+
 
 .big-value.sats {
   color: var(--left);
@@ -1288,7 +1299,7 @@ body {
   margin: 6px 0 3px;
   text-align: center;
   color: var(--fg);
-  font-size: 1.05rem;
+  font-size: clamp(0.8rem, 1.5vw, 1.05rem);
   padding: 0 2px;
 }
 
@@ -1360,6 +1371,7 @@ canvas {
   flex: 1 1 auto;
   min-height: 220px;
   height: auto;
+  aspect-ratio: 1 / 1;
   border: 0;
   border-radius: 10px;
   background: var(--panel);
@@ -1379,6 +1391,6 @@ canvas {
   }
 
   canvas {
-    height: 56vh;
+    height: auto;
   }
 }

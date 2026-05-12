@@ -151,6 +151,7 @@
     captureOnWrap: false,
   };
   let dateRangePlaybackOutsidePointerHandler = null;
+  let dateRangePlaybackOutsidePointerTouchState = null;
   let dateRangeFpsMenuOutsideHandler = null;
   let dateRangePlaybackState = {
     isPlaying: false,
@@ -437,6 +438,50 @@
 
   function bindDateRangePlaybackOutsidePointerCancel() {
     if (dateRangePlaybackOutsidePointerHandler) return;
+
+    const cleanupTouchTracking = () => {
+      if (!dateRangePlaybackOutsidePointerTouchState) return;
+      document.removeEventListener("pointermove", dateRangePlaybackOutsidePointerTouchState.moveHandler, true);
+      document.removeEventListener("pointerup", dateRangePlaybackOutsidePointerTouchState.endHandler, true);
+      document.removeEventListener("pointercancel", dateRangePlaybackOutsidePointerTouchState.cancelHandler, true);
+      dateRangePlaybackOutsidePointerTouchState = null;
+    };
+
+    const trackTouchMove = (event) => {
+      if (!dateRangePlaybackOutsidePointerTouchState || event.pointerId !== dateRangePlaybackOutsidePointerTouchState.pointerId) return;
+      const deltaX = event.clientX - dateRangePlaybackOutsidePointerTouchState.startX;
+      const deltaY = event.clientY - dateRangePlaybackOutsidePointerTouchState.startY;
+      if (Math.hypot(deltaX, deltaY) > 30) {
+        dateRangePlaybackOutsidePointerTouchState.moved = true;
+      }
+    };
+
+    const trackTouchEnd = (event) => {
+      if (!dateRangePlaybackOutsidePointerTouchState || event.pointerId !== dateRangePlaybackOutsidePointerTouchState.pointerId) return;
+      const { moved, target, eventPath, targetElement } = dateRangePlaybackOutsidePointerTouchState;
+      cleanupTouchTracking();
+      if (moved) return;
+      if (!dateRangePlaybackState.isPlaying) return;
+      const isPauseButtonClick = (!!el.dateRangePlayBtn && (target === el.dateRangePlayBtn || el.dateRangePlayBtn.contains(target)))
+        || (!!el.dateRangePauseBtn && (target === el.dateRangePauseBtn || el.dateRangePauseBtn.contains(target)));
+      const isFpsDropdownClick = (el.dateRangeFpsTrigger && (target === el.dateRangeFpsTrigger || el.dateRangeFpsTrigger.contains(target)))
+        || (el.dateRangeFpsMenu && (target === el.dateRangeFpsMenu || el.dateRangeFpsMenu.contains(target)));
+      const isSliderInteraction = (!!el.dateRangeSliderWrap && (target === el.dateRangeSliderWrap || el.dateRangeSliderWrap.contains(target)))
+        || (!!el.dateRangeStartSlider && (target === el.dateRangeStartSlider || el.dateRangeStartSlider.contains(target)))
+        || (!!el.dateRangeEndSlider && (target === el.dateRangeEndSlider || el.dateRangeEndSlider.contains(target)));
+      const isInDateRangePanel = !!el.dateRangePanel && (
+        (targetElement && !!targetElement.closest(".date-range-panel"))
+        || eventPath.includes(el.dateRangePanel)
+      );
+      if (isPauseButtonClick || isFpsDropdownClick || isSliderInteraction || isInDateRangePanel) return;
+      stopDateRangePlayback({ restoreOriginalRange: true });
+    };
+
+    const trackTouchCancel = (event) => {
+      if (!dateRangePlaybackOutsidePointerTouchState || event.pointerId !== dateRangePlaybackOutsidePointerTouchState.pointerId) return;
+      cleanupTouchTracking();
+    };
+
     dateRangePlaybackOutsidePointerHandler = (event) => {
       if (!dateRangePlaybackState.isPlaying) return;
       const target = event.target;
@@ -455,10 +500,30 @@
       );
       if (isPauseButtonClick || isFpsDropdownClick || isSliderInteraction || isInDateRangePanel) return;
 
+      if (event.pointerType === "touch") {
+        dateRangePlaybackOutsidePointerTouchState = {
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startY: event.clientY,
+          moved: false,
+          target,
+          eventPath,
+          targetElement,
+          moveHandler: trackTouchMove,
+          endHandler: trackTouchEnd,
+          cancelHandler: trackTouchCancel,
+        };
+        document.addEventListener("pointermove", trackTouchMove, true);
+        document.addEventListener("pointerup", trackTouchEnd, true);
+        document.addEventListener("pointercancel", trackTouchCancel, true);
+        return;
+      }
+
       event.preventDefault();
       event.stopPropagation();
       stopDateRangePlayback({ restoreOriginalRange: true });
     };
+
     document.addEventListener("pointerdown", dateRangePlaybackOutsidePointerHandler, true);
   }
 
@@ -466,6 +531,12 @@
     if (!dateRangePlaybackOutsidePointerHandler) return;
     document.removeEventListener("pointerdown", dateRangePlaybackOutsidePointerHandler, true);
     dateRangePlaybackOutsidePointerHandler = null;
+    if (dateRangePlaybackOutsidePointerTouchState) {
+      document.removeEventListener("pointermove", dateRangePlaybackOutsidePointerTouchState.moveHandler, true);
+      document.removeEventListener("pointerup", dateRangePlaybackOutsidePointerTouchState.endHandler, true);
+      document.removeEventListener("pointercancel", dateRangePlaybackOutsidePointerTouchState.cancelHandler, true);
+      dateRangePlaybackOutsidePointerTouchState = null;
+    }
   }
 
   function pauseDateRangePlayback() {
@@ -3054,7 +3125,11 @@
     return uniqueTicks;
   }
 
-  function measureLabelWidth(ticks, fontSpec = "500 18px Space Grotesk") {
+  function measureLabelWidth(ticks, fontSpec) {
+    if (!fontSpec) {
+      const tickLabelFontSize = getResponsiveTickLabelFontSize();
+      fontSpec = `500 ${tickLabelFontSize}px Space Grotesk`;
+    }
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
     if (!ctx) return 40;
@@ -3495,6 +3570,13 @@
     return ticks;
   }
 
+  function getResponsiveTickLabelFontSize() {
+    const width = window.innerWidth;
+    if (width < 640) return 12;
+    if (width < 980) return 14;
+    return 18;
+  }
+
   function drawChart(canvas, series, opts) {
     const rect = canvas.getBoundingClientRect();
     const dpr = Math.max(1, window.devicePixelRatio || 1);
@@ -3581,7 +3663,8 @@
     }
 
     // Measure tick labels to determine required left padding.
-    ctx.font = "500 18px Space Grotesk";
+    const tickLabelFontSize = getResponsiveTickLabelFontSize();
+    ctx.font = `500 ${tickLabelFontSize}px Space Grotesk`;
     let maxYLabelWidth = 40;
     tickValues.forEach((value) => {
       const baseLabel = opts.linearFormatter ? opts.linearFormatter(value) : String(value);
@@ -3674,7 +3757,7 @@
       ctx.stroke();
 
       ctx.fillStyle = opts.color;
-      ctx.font = "500 18px Space Grotesk";
+      ctx.font = `500 ${tickLabelFontSize}px Space Grotesk`;
       ctx.textAlign = "right";
       ctx.textBaseline = "middle";
       const tx = pad.left - yLabelSpacing;
@@ -3696,7 +3779,7 @@
       ctx.translate(x - 8, pad.top + chartH + bottomSpacing);
       ctx.rotate(-Math.PI / 5);
       ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--line").trim();
-      ctx.font = "500 18px Space Grotesk";
+      ctx.font = `500 ${tickLabelFontSize}px Space Grotesk`;
       ctx.textAlign = "right";
       ctx.textBaseline = "top";
       ctx.fillText(String(tick.label), 0, 0);
