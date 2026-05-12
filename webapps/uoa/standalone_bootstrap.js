@@ -33,6 +33,19 @@
   let imageListPromise = null;
   let currentYoutubeUrl = "";
 
+  function isPlaybackActive() {
+    // Check both local window and parent window for the playback flag
+    if (window.dateRangePlaybackActive) return true;
+    try {
+      if (window.parent && window.parent !== window && window.parent.dateRangePlaybackActive) {
+        return true;
+      }
+    } catch (_) {
+      // Ignore cross-origin access issues
+    }
+    return false;
+  }
+
   function applyStandaloneFocusOrder() {
     if (!document.body || document.body.getAttribute("data-standalone-modal-shell") !== "1") return;
 
@@ -248,6 +261,7 @@
   }
 
   function navigateToImage(filename) {
+    if (isPlaybackActive()) return;
     window.location.href = getMainRouteUrl(filename);
   }
 
@@ -341,6 +355,7 @@
   }
 
   function closeModal() {
+    if (isPlaybackActive()) return;
     try {
       const filename = String(currentImage?.filename || STANDALONE_FILENAME).trim();
       if (filename) {
@@ -353,16 +368,19 @@
   }
 
   function prevImage() {
+    if (isPlaybackActive()) return;
     navigateRelative(-1);
   }
 
   function nextImage() {
+    if (isPlaybackActive()) return;
     navigateRelative(1);
   }
 
   function handleNavKey(key) {
     if (youtubeOverlay && !youtubeOverlay.classList.contains("hidden")) return;
     if (!modal || modal.style.display !== "flex") return;
+    if (isPlaybackActive()) return;
     if (key === "ArrowLeft") {
       prevImage();
       return;
@@ -382,6 +400,16 @@
       return;
     }
     if (!modal || modal.style.display !== "flex") return;
+    
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeModal();
+      return;
+    }
+    
+    // Block all other navigation when playback is active
+    if (isPlaybackActive()) return;
+    
     if (event.key === "ArrowLeft") {
       event.preventDefault();
       handleNavKey("ArrowLeft");
@@ -391,10 +419,6 @@
       event.preventDefault();
       handleNavKey("ArrowRight");
       return;
-    }
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeModal();
     }
   }
 
@@ -420,6 +444,7 @@
     window.addEventListener("message", (event) => {
       if (event.origin !== window.location.origin) return;
       if (event.source !== modalEmbed?.contentWindow) return;
+      if (isPlaybackActive()) return;
       const data = event.data || {};
       if (data.type !== "wsb-dashboard-nav-key") return;
       const key = String(data.key || "");
