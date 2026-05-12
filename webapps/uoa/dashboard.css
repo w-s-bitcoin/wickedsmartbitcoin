@@ -825,6 +825,8 @@ body {
   position: relative;
   height: 30px;
   cursor: default;
+  touch-action: none;
+  user-select: none;
 }
 
 .date-range-slider-wrap::before,
@@ -895,6 +897,7 @@ body {
   pointer-events: none;
   z-index: 2;
   cursor: default;
+  touch-action: none;
 }
 
 .date-range-slider::-webkit-slider-runnable-track {
