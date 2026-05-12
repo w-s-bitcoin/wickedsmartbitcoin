@@ -2838,6 +2838,7 @@
         && event.pointerId !== dateRangeEndSliderScrubState.pointerId) {
         return;
       }
+      event.preventDefault();
       const hoveredIndex = getDateRangeIndexFromPointerX(event.clientX);
       if (!Number.isFinite(hoveredIndex)) return;
       const adjustedEndIndex = applyPlaybackEndScrubIndex(hoveredIndex);
@@ -2849,6 +2850,7 @@
 
     if (!dateRangeDragState || !el.dateRangeStartSlider || !el.dateRangeEndSlider || !allRows.length) return;
     if (event.pointerId !== dateRangeDragState.pointerId) return;
+    event.preventDefault();
 
     const {
       startClientX,
