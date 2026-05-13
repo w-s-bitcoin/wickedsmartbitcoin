@@ -5138,11 +5138,7 @@
 
   function renderPairKpiValue(primary, secondary) {
     if (!el.pairKpiValue) return;
-    el.pairKpiValue.innerHTML = `
-      <span class="pair-primary">${primary}</span>
-      <span class="pair-separator">/</span>
-      <span class="pair-secondary">${secondary}</span>
-    `;
+    el.pairKpiValue.innerHTML = `<span class="pair-primary">${primary}</span><span class="pair-separator">/</span><span class="pair-secondary">${secondary}</span>`;
   }
 
   function syncPairControls(changedControlId) {
@@ -6680,6 +6676,7 @@
     bindDateRangePlaybackArrowScrubbing();
     applyFilters();
     restorePausedPlaybackSession(saved);
+    document.body.classList.remove("uoa-loading");
     window.addEventListener("resize", () => {
       renderAll();
     });
