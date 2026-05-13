@@ -46,6 +46,10 @@
   let lastSupplyTargetComplete = NaN;
   let lastTargetHashrateDisplay = "n/a";
   let lastTargetHexDisplay = "";
+
+  function isDashboardExportActive() {
+    return !!(window.wsbDashboardExportActive || window.dateRangeExportActive);
+  }
   let lastDifficultyDisplay = "n/a";
   let lastDifficultyPreciseDisplay = "n/a";
   let balanceRowsScheduled = false;
@@ -607,6 +611,7 @@
   }
 
   async function refreshFromTopKpis() {
+    if (isDashboardExportActive()) return;
     if (refreshInFlight) return;
     refreshInFlight = true;
     try {
@@ -653,6 +658,7 @@
 
   function triggerRefreshSoon(delayMs = 150) {
     window.setTimeout(() => {
+      if (isDashboardExportActive()) return;
       refreshFromTopKpis();
     }, delayMs);
   }
@@ -703,7 +709,10 @@
   renderTimeZoneOptions();
   refreshFromTopKpis();
   setKpis({});
-  window.setInterval(() => setKpis({}), 30000);
+  window.setInterval(() => {
+    if (isDashboardExportActive()) return;
+    setKpis({});
+  }, 30000);
   setupRefreshWakeEvents();
   startAutoRefresh();
 
