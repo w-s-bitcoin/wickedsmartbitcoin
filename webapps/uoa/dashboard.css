@@ -21,6 +21,7 @@
   --modal-controls-clearance: 30px;
   --wrap-grid-template-rows: auto minmax(0, 1fr);
   --kpi-settings-pad-top: 6px;
+  --chart-panel-min-height: 420px;
 }
 
 :root[data-theme="light"] {
@@ -53,7 +54,8 @@ body {
   font-family: "Space Grotesk", sans-serif;
   background: var(--bg);
   color: var(--fg);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .wrap {
@@ -61,9 +63,9 @@ body {
   max-width: none;
   margin: 0;
   padding: var(--wrap-pad);
-  height: 100vh;
+  min-height: 100vh;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(var(--chart-panel-min-height), 1fr);
   gap: 8px;
 }
 
@@ -190,7 +192,10 @@ body {
 }
 
 #pairKpiValue {
-  min-width: 7ch;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5ch;
+  min-width: 9ch;
 }
 
 #primaryRankKpiValue,
@@ -1150,6 +1155,12 @@ body {
   background: #e6e6e6;
 }
 
+body.uoa-loading .date-range-slider-wrap::after,
+body.uoa-loading .date-range-slider-wrap > * {
+  opacity: 0;
+  pointer-events: none;
+}
+
 :root[data-theme="light"] .date-range-slider-wrap::after {
   background: #bdbdbd;
 }
@@ -1617,14 +1628,14 @@ body {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
-  min-height: 0;
+  min-height: var(--chart-panel-min-height);
 }
 
 .panel {
   background: var(--panel);
   border: 1px solid var(--panel-border);
   border-radius: 14px;
-  min-height: 0;
+  min-height: var(--chart-panel-min-height);
   padding: 6px 8px;
   display: flex;
   flex-direction: column;
