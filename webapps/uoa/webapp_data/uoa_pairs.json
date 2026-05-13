@@ -213,7 +213,7 @@
     "ANG": {
       "name": "Netherlands Antillean Gulden",
       "code": "ANG",
-      "symbol": "ANG",
+      "symbol": "\u0192",
       "symbol_position": "left",
       "minor_unit": 2
     },

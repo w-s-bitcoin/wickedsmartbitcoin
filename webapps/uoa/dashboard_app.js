@@ -418,18 +418,17 @@
     return missing;
   }
 
-  function getDateRangeRestrictionMessage(dataBounds = getPairDataDateIndexBounds()) {
-    if (!allRows.length || !dataBounds) return "";
-    const globalMaxIndex = Math.max(0, allRows.length - 1);
-    if (dataBounds.minIndex <= 0 && dataBounds.maxIndex >= globalMaxIndex) return "";
+  function getDateRangeRestrictionMessage(dataBounds = getPairDataDateIndexBounds(), primaryBounds = getPairDateIndexBounds()) {
+    if (!allRows.length || !dataBounds || !primaryBounds) return "";
+    if (dataBounds.minIndex <= primaryBounds.minIndex && dataBounds.maxIndex >= primaryBounds.maxIndex) return "";
 
     const { primary, secondary } = getSelectedPairCurrencies();
     const missing = new Set();
-    if (dataBounds.minIndex > 0) {
-      getMissingCurrenciesForRows(0, dataBounds.minIndex - 1, primary, secondary).forEach((code) => missing.add(code));
+    if (dataBounds.minIndex > primaryBounds.minIndex) {
+      getMissingCurrenciesForRows(primaryBounds.minIndex, dataBounds.minIndex - 1, primary, secondary).forEach((code) => missing.add(code));
     }
-    if (dataBounds.maxIndex < globalMaxIndex) {
-      getMissingCurrenciesForRows(dataBounds.maxIndex + 1, globalMaxIndex, primary, secondary).forEach((code) => missing.add(code));
+    if (dataBounds.maxIndex < primaryBounds.maxIndex) {
+      getMissingCurrenciesForRows(dataBounds.maxIndex + 1, primaryBounds.maxIndex, primary, secondary).forEach((code) => missing.add(code));
     }
 
     const missingText = Array.from(missing).join(" and ") || `${primary} or ${secondary}`;
@@ -514,11 +513,25 @@
     return getPairDataDateIndexBounds() || getPairDateIndexBounds();
   }
 
+  function getDateRangeVisualBounds() {
+    return getPairDateIndexBounds() || {
+      minIndex: 0,
+      maxIndex: Math.max(0, allRows.length - 1),
+    };
+  }
+
+  function getDateRangeVisualPercent(index, visualBounds = getDateRangeVisualBounds()) {
+    const minIndex = visualBounds?.minIndex ?? 0;
+    const maxIndex = visualBounds?.maxIndex ?? Math.max(0, allRows.length - 1);
+    const span = Math.max(1, maxIndex - minIndex);
+    return Math.max(0, Math.min(100, ((index - minIndex) / span) * 100));
+  }
+
   function getPresetDateIndices(presetKey, anchorEndIndex = null, primaryCurrency = null) {
     if (!allRows.length) return null;
     const primaryBounds = getCurrencyDateIndexBounds(primaryCurrency || getSelectedPairCurrencies().primary);
     const minIndex = primaryBounds?.minIndex ?? 0;
-    const maxIndex = Math.max(0, allRows.length - 1);
+    const maxIndex = primaryBounds?.maxIndex ?? Math.max(0, allRows.length - 1);
     const todayIso = getLocalTodayIso();
     let endIndex = Number.isFinite(anchorEndIndex)
       ? Math.max(0, Math.min(maxIndex, anchorEndIndex))
@@ -2140,7 +2153,7 @@
     const controlBounds = getDateRangeControlBounds();
     const minIndex = controlBounds?.minIndex ?? 0;
     const maxIndex = controlBounds?.maxIndex ?? Math.max(0, allRows.length - 1);
-    const globalMaxIndex = Math.max(0, allRows.length - 1);
+    const visualBounds = getDateRangeVisualBounds();
     let safeStart = Number.isFinite(startIndex) ? Math.round(startIndex) : minIndex;
     let safeEnd = Number.isFinite(endIndex) ? Math.round(endIndex) : maxIndex;
     safeStart = Math.max(minIndex, Math.min(maxIndex, safeStart));
@@ -2157,7 +2170,7 @@
 
     if (el.dateRangeStartSlider) el.dateRangeStartSlider.value = String(safeStart);
     if (el.dateRangeEndSlider) el.dateRangeEndSlider.value = String(safeEnd);
-    updateDateRangeSliderFill(safeStart, safeEnd, globalMaxIndex);
+    updateDateRangeSliderFill(safeStart, safeEnd, visualBounds);
     if (el.startDateInput) el.startDateInput.value = toIsoDate(allRows[safeStart].date);
     if (el.endDateInput) el.endDateInput.value = toIsoDate(allRows[safeEnd].date);
     applyFilters();
@@ -2701,6 +2714,7 @@
       triggerId: "primaryUoaDropdownTrigger",
       menuId: "primaryUoaDropdownMenu",
       valueId: "primaryUoaValue",
+      searchable: true,
     },
     {
       selectId: "secondaryUoaSelect",
@@ -2708,6 +2722,7 @@
       triggerId: "secondaryUoaDropdownTrigger",
       menuId: "secondaryUoaDropdownMenu",
       valueId: "secondaryUoaValue",
+      searchable: true,
     },
     {
       selectId: "scaleSelect",
@@ -3748,11 +3763,13 @@
   }
 
   function closeAllDropdowns(exceptDropdown = null) {
-    DROPDOWNS.forEach(({ dropdownId, menuId }) => {
+    DROPDOWNS.forEach((config) => {
+      const { dropdownId, menuId } = config;
       const dropdown = document.getElementById(dropdownId);
       const menu = document.getElementById(menuId);
       if (!dropdown || !menu) return;
       if (exceptDropdown && dropdown === exceptDropdown) return;
+      clearDropdownSearchInput(config);
       setDropdownOpen(dropdown, menu, false);
     });
   }
@@ -3766,7 +3783,7 @@
     if (config.selectId === "updatedTimeZoneSelect") return;
     const dropdown = document.getElementById(config.dropdownId);
     const valueEl = document.getElementById(config.valueId);
-    if (!dropdown || !valueEl || !Array.isArray(options) || !options.length) return;
+    if (!dropdown || !valueEl || !Array.isArray(options)) return;
 
     const probe = document.createElement("canvas");
     const ctx = probe.getContext("2d");
@@ -3782,31 +3799,55 @@
     ].filter(Boolean).join(" ");
     if (font) ctx.font = font;
 
+    const contentPad = parseFloat(styles.getPropertyValue("--dca-dropdown-content-pad")) || 10;
+    const arrowGap = parseFloat(styles.getPropertyValue("--dca-dropdown-arrow-gap")) || 18;
+    const extraBuffer = 2;
+    const maxAllowed = Math.max(120, window.innerWidth - 48);
+
+    if (config.searchable && valueEl.tagName === "INPUT") {
+      const select = document.getElementById(config.selectId);
+      const selectedOption = select?.options?.[select.selectedIndex];
+      const selectedText = selectedOption ? selectedOption.textContent : "";
+      const activeText = String(valueEl.value || "");
+      const textForWidth = activeText.trim() && activeText !== selectedText && activeText.length > 3
+        ? activeText
+        : (selectedText || "WWW");
+      const minLabelWidth = ctx.measureText("WWW").width;
+      const typedWidth = ctx.measureText(textForWidth).width;
+      const desired = Math.ceil(Math.max(minLabelWidth, typedWidth) + contentPad + arrowGap + extraBuffer);
+      const clamped = Math.min(desired, maxAllowed);
+      dropdown.style.width = `${clamped}px`;
+      dropdown.style.minWidth = `${clamped}px`;
+      return;
+    }
+
+    if (!options.length) return;
     const longestWidth = options.reduce((max, option) => {
       const label = option.textContent || "";
       return Math.max(max, ctx.measureText(label).width);
     }, 0);
 
-    const contentPad = parseFloat(styles.getPropertyValue("--dca-dropdown-content-pad")) || 10;
-    const arrowGap = parseFloat(styles.getPropertyValue("--dca-dropdown-arrow-gap")) || 18;
-    const extraBuffer = 2;
     // right padding already includes the caret area via --dca-dropdown-arrow-gap
     const desired = Math.ceil(longestWidth + contentPad + arrowGap + extraBuffer);
-    const maxAllowed = Math.max(120, window.innerWidth - 48);
-
+    dropdown.style.width = "";
     dropdown.style.minWidth = `${Math.min(desired, maxAllowed)}px`;
   }
 
-  function syncDropdownMenu(config) {
-    const select = document.getElementById(config.selectId);
-    const menu = document.getElementById(config.menuId);
-    const valueEl = config.valueId ? document.getElementById(config.valueId) : null;
-    if (!select || !menu) return;
+  function getDropdownSearchText(option) {
+    const code = String(option?.value || "").toUpperCase();
+    const currencyName = getCurrencyName(code);
+    return `${code} ${currencyName}`.toLowerCase();
+  }
 
-    const selectedOption = select.options[select.selectedIndex];
-    if (valueEl) valueEl.textContent = selectedOption ? selectedOption.textContent : "";
+  function getDropdownInputSearchTerm(dropdown, valueEl, selectedText) {
+    if (!valueEl || valueEl.tagName !== "INPUT") return "";
+    if (!dropdown?.classList.contains("is-open")) return "";
+    const raw = String(valueEl.value || "").trim();
+    return raw === String(selectedText || "") ? "" : raw;
+  }
 
-    let optionsToShow = Array.from(select.options);
+  function getDropdownOptionsForConfig(config, select) {
+    let optionsToShow = Array.from(select?.options || []);
     // Secondary dropdown should not offer the currently selected primary.
     if (config.selectId === "secondaryUoaSelect") {
       const primaryValue = el.primaryUoaSelect?.value;
@@ -3814,15 +3855,167 @@
         optionsToShow = optionsToShow.filter((opt) => opt.value !== primaryValue);
       }
     }
+    return optionsToShow;
+  }
+
+  function getDropdownSearchMatches(config, select, searchTerm) {
+    const normalizedTerm = String(searchTerm || "").trim().toLowerCase();
+    const optionsToShow = getDropdownOptionsForConfig(config, select);
+    if (!normalizedTerm) return optionsToShow;
+    return optionsToShow.filter((option) => getDropdownSearchText(option).includes(normalizedTerm));
+  }
+
+  function clearDropdownSearchInput(config) {
+    if (!config.searchable || !config.valueId) return;
+    const select = document.getElementById(config.selectId);
+    const valueEl = document.getElementById(config.valueId);
+    if (!select || !valueEl || valueEl.tagName !== "INPUT") return;
+    const selectedOption = select.options[select.selectedIndex];
+    valueEl.value = selectedOption ? selectedOption.textContent : "";
+    valueEl.dataset.lastValidSearch = "";
+    valueEl.dataset.highlightedIndex = "-1";
+  }
+
+  function setDropdownHighlightedIndex(menu, valueEl, nextIndex) {
+    if (!menu || !valueEl) return;
+    const buttons = Array.from(menu.querySelectorAll(".dca-option-btn:not(:disabled)"));
+    if (!buttons.length) {
+      valueEl.dataset.highlightedIndex = "-1";
+      return;
+    }
+    const safeIndex = ((nextIndex % buttons.length) + buttons.length) % buttons.length;
+    buttons.forEach((button, index) => {
+      button.classList.toggle("dca-option-btn--active", index === safeIndex);
+    });
+    valueEl.dataset.highlightedIndex = String(safeIndex);
+    buttons[safeIndex].scrollIntoView({ block: "nearest" });
+  }
+
+  function getDropdownHighlightedButton(menu, valueEl) {
+    if (!menu || !valueEl) return null;
+    const buttons = Array.from(menu.querySelectorAll(".dca-option-btn:not(:disabled)"));
+    const highlightedIndex = Number(valueEl.dataset.highlightedIndex);
+    if (!Number.isInteger(highlightedIndex) || highlightedIndex < 0 || highlightedIndex >= buttons.length) return null;
+    return buttons[highlightedIndex] || null;
+  }
+
+  function selectDropdownValue(config, select, dropdown, menu, valueEl, nextValue) {
+    if (!select || !nextValue) return;
+    if (select.value !== nextValue) {
+      select.value = nextValue;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    clearDropdownSearchInput(config);
+    syncDropdownMenu(config);
+    setDropdownOpen(dropdown, menu, false);
+    if (valueEl?.tagName === "INPUT") valueEl.blur();
+  }
+
+  function getDropdownSelectedButtonIndex(menu, select) {
+    const buttons = Array.from(menu?.querySelectorAll(".dca-option-btn:not(:disabled)") || []);
+    if (!buttons.length || !select) return -1;
+    return buttons.findIndex((button) => button.dataset.value === select.value);
+  }
+
+  function handleDropdownKeyboardEvent(event, config, select, dropdown, menu, valueEl) {
+    const keyboardStateEl = valueEl || dropdown;
+    if (!keyboardStateEl) return false;
+
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      if (!menu.classList.contains("open")) {
+        closeAllOverlays();
+        closeAllDropdowns(dropdown);
+        setDropdownOpen(dropdown, menu, true);
+        syncDropdownMenu(config);
+      }
+      const buttons = Array.from(menu.querySelectorAll(".dca-option-btn:not(:disabled)"));
+      if (!buttons.length) return true;
+      const currentIndex = Number(keyboardStateEl.dataset.highlightedIndex);
+      const selectedIndex = getDropdownSelectedButtonIndex(menu, select);
+      const fallbackIndex = Number.isInteger(currentIndex) && currentIndex >= 0
+        ? currentIndex
+        : (selectedIndex >= 0 ? selectedIndex : (event.key === "ArrowDown" ? -1 : 0));
+      const nextIndex = fallbackIndex + (event.key === "ArrowDown" ? 1 : -1);
+      setDropdownHighlightedIndex(menu, keyboardStateEl, nextIndex);
+      return true;
+    }
+
+    if (event.key === "Enter") {
+      const highlightedButton = getDropdownHighlightedButton(menu, keyboardStateEl);
+      const typedCode = String(valueEl?.value || "").trim().toUpperCase();
+      const exactOption = config.searchable && /^[A-Z]{3}$/.test(typedCode)
+        ? getDropdownOptionsForConfig(config, select).find((option) => option.value === typedCode)
+        : null;
+      const nextValue = highlightedButton?.dataset.value || exactOption?.value || "";
+      if (nextValue) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        selectDropdownValue(config, select, dropdown, menu, valueEl, nextValue);
+        return true;
+      }
+      if (!menu.classList.contains("open")) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        closeAllOverlays();
+        closeAllDropdowns(dropdown);
+        setDropdownOpen(dropdown, menu, true);
+        syncDropdownMenu(config);
+        const selectedIndex = getDropdownSelectedButtonIndex(menu, select);
+        if (selectedIndex >= 0) setDropdownHighlightedIndex(menu, keyboardStateEl, selectedIndex);
+        return true;
+      }
+    }
+
+    if (event.key === "Escape" && menu.classList.contains("open")) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      clearDropdownSearchInput(config);
+      setDropdownOpen(dropdown, menu, false);
+      if (valueEl?.tagName === "INPUT") valueEl.blur();
+      return true;
+    }
+
+    return false;
+  }
+
+  function syncDropdownMenu(config) {
+    const select = document.getElementById(config.selectId);
+    const dropdown = document.getElementById(config.dropdownId);
+    const menu = document.getElementById(config.menuId);
+    const valueEl = config.valueId ? document.getElementById(config.valueId) : null;
+    if (!select || !menu) return;
+
+    const selectedOption = select.options[select.selectedIndex];
+    const selectedText = selectedOption ? selectedOption.textContent : "";
+    if (valueEl) {
+      if (valueEl.tagName === "INPUT") {
+        if (!dropdown?.classList.contains("is-open")) valueEl.value = selectedText;
+      } else {
+        valueEl.textContent = selectedText;
+      }
+    }
+
+    const searchTerm = config.searchable ? getDropdownInputSearchTerm(dropdown, valueEl, selectedText).toLowerCase() : "";
+    const optionsToShow = getDropdownSearchMatches(config, select, searchTerm);
+    const keyboardStateEl = valueEl || dropdown;
+    if (keyboardStateEl) keyboardStateEl.dataset.highlightedIndex = "-1";
 
     autoSizeDropdown(config, optionsToShow);
 
-    menu.innerHTML = optionsToShow
-      .map((option) => {
-        const selectedClass = option.value === select.value ? " dca-option-btn--selected" : "";
-        return `<button type=\"button\" class=\"dca-option-btn${selectedClass}\" data-value=\"${option.value}\">${option.textContent || ""}</button>`;
-      })
-      .join("");
+    menu.innerHTML = optionsToShow.length
+      ? optionsToShow
+        .map((option) => {
+          const selectedClass = option.value === select.value ? " dca-option-btn--selected" : "";
+          return `<button type=\"button\" class=\"dca-option-btn${selectedClass}\" data-value=\"${option.value}\">${option.textContent || ""}</button>`;
+        })
+        .join("")
+      : `<button type="button" class="dca-option-btn" disabled>No matches</button>`;
   }
 
   function populateUpdatedTimeZoneSelect() {
@@ -3868,6 +4061,17 @@
       if (!select || !dropdown || !trigger || !menu) return;
       if (dropdown.dataset.bound === "1") return;
       dropdown.dataset.bound = "1";
+      const valueEl = config.valueId ? document.getElementById(config.valueId) : null;
+
+      const openDropdown = () => {
+        closeAllOverlays();
+        closeAllDropdowns(dropdown);
+        setDropdownOpen(dropdown, menu, true);
+        if (config.searchable && valueEl?.tagName === "INPUT") {
+          valueEl.dataset.lastValidSearch = "";
+        }
+        syncDropdownMenu(config);
+      };
 
       trigger.addEventListener("click", (event) => {
         event.preventDefault();
@@ -3876,18 +4080,62 @@
         closeAllOverlays();
         closeAllDropdowns(willOpen ? dropdown : null);
         setDropdownOpen(dropdown, menu, willOpen);
+        if (willOpen) syncDropdownMenu(config);
       });
+
+      trigger.addEventListener("keydown", (event) => {
+        handleDropdownKeyboardEvent(event, config, select, dropdown, menu, valueEl);
+      });
+
+      if (config.searchable && valueEl && valueEl.tagName === "INPUT") {
+        valueEl.addEventListener("pointerdown", (event) => {
+          event.stopPropagation();
+        });
+        valueEl.addEventListener("click", (event) => {
+          event.stopPropagation();
+          openDropdown();
+          valueEl.select();
+        });
+        valueEl.addEventListener("focus", () => {
+          openDropdown();
+          valueEl.select();
+        });
+        valueEl.addEventListener("input", () => {
+          if (!menu.classList.contains("open")) setDropdownOpen(dropdown, menu, true);
+          const selectedOption = select.options[select.selectedIndex];
+          const selectedText = selectedOption ? selectedOption.textContent : "";
+          const nextTerm = getDropdownInputSearchTerm(dropdown, valueEl, selectedText);
+          const matches = getDropdownSearchMatches(config, select, nextTerm);
+          if (nextTerm && !matches.length) {
+            const previous = valueEl.dataset.lastValidSearch || "";
+            valueEl.value = previous;
+            window.requestAnimationFrame(() => {
+              const end = valueEl.value.length;
+              valueEl.setSelectionRange(end, end);
+            });
+            syncDropdownMenu(config);
+            return;
+          }
+          valueEl.dataset.lastValidSearch = nextTerm ? valueEl.value : "";
+          syncDropdownMenu(config);
+        });
+        valueEl.addEventListener("keydown", (event) => {
+          handleDropdownKeyboardEvent(event, config, select, dropdown, menu, valueEl);
+        });
+        valueEl.addEventListener("blur", () => {
+          window.setTimeout(() => {
+            const active = document.activeElement;
+            if (dropdown.contains(active) || menu.contains(active)) return;
+            clearDropdownSearchInput(config);
+            setDropdownOpen(dropdown, menu, false);
+          }, 120);
+        });
+      }
 
       menu.addEventListener("click", (event) => {
         const btn = event.target.closest(".dca-option-btn");
-        if (!btn) return;
-        const nextValue = String(btn.dataset.value || "");
-        if (select.value !== nextValue) {
-          select.value = nextValue;
-          select.dispatchEvent(new Event("change", { bubbles: true }));
-        }
-        syncDropdownMenu(config);
-        setDropdownOpen(dropdown, menu, false);
+        if (!btn || btn.disabled) return;
+        selectDropdownValue(config, select, dropdown, menu, valueEl, String(btn.dataset.value || ""));
       });
     });
 
@@ -3898,11 +4146,13 @@
 
     document.addEventListener("click", (event) => {
       const target = event.target;
-      DROPDOWNS.forEach(({ dropdownId, menuId }) => {
+      DROPDOWNS.forEach((config) => {
+        const { dropdownId, menuId } = config;
         const dropdown = document.getElementById(dropdownId);
         const menu = document.getElementById(menuId);
         if (!dropdown || !menu) return;
         if (dropdown.contains(target) || menu.contains(target)) return;
+        clearDropdownSearchInput(config);
         setDropdownOpen(dropdown, menu, false);
       });
     });
@@ -4258,18 +4508,17 @@
     return -1;
   }
 
-  function updateDateRangeSliderFill(startIndex, endIndex, maxIndex) {
+  function updateDateRangeSliderFill(startIndex, endIndex, visualBounds = getDateRangeVisualBounds()) {
     if (!el.dateRangeSliderWrap) return;
-    const safeMax = Math.max(1, maxIndex);
-    const startPct = Math.max(0, Math.min(100, (startIndex / safeMax) * 100));
-    const endPct = Math.max(0, Math.min(100, (endIndex / safeMax) * 100));
+    const startPct = getDateRangeVisualPercent(startIndex, visualBounds);
+    const endPct = getDateRangeVisualPercent(endIndex, visualBounds);
     el.dateRangeSliderWrap.style.setProperty("--slider-start", `${startPct}%`);
     el.dateRangeSliderWrap.style.setProperty("--slider-end", `${endPct}%`);
     
     // Show remaining animation range whenever a playback session exists,
     // including paused/restored states after reload.
     if (dateRangePlaybackState.hasSession || dateRangeEndSliderScrubState.active) {
-      const targetPct = Math.max(0, Math.min(100, (dateRangePlaybackState.targetEndIndex / safeMax) * 100));
+      const targetPct = getDateRangeVisualPercent(dateRangePlaybackState.targetEndIndex, visualBounds);
       if (el.dateRangeRemaining) {
         el.dateRangeRemaining.classList.add("active");
         el.dateRangeRemaining.style.left = `${endPct}%`;
@@ -4284,23 +4533,20 @@
     }
   }
 
-  function updateDateRangeAvailability(pairBounds, maxIndex) {
+  function updateDateRangeAvailability(pairBounds) {
     if (!el.dateRangeSliderWrap) return;
-    const safeMax = Math.max(1, maxIndex);
     const dataBounds = getPairDataDateIndexBounds();
-    const hasRestriction = !!pairBounds && (pairBounds.minIndex > 0 || pairBounds.maxIndex < maxIndex);
-    const hasMissingData = !!dataBounds && (dataBounds.minIndex > 0 || dataBounds.maxIndex < maxIndex);
-    const availableStartPct = pairBounds
-      ? Math.max(0, Math.min(100, (pairBounds.minIndex / safeMax) * 100))
-      : 0;
-    const availableEndPct = pairBounds
-      ? Math.max(0, Math.min(100, (pairBounds.maxIndex / safeMax) * 100))
-      : 100;
+    const visualBounds = pairBounds || getDateRangeVisualBounds();
+    const hasRestriction = !!pairBounds && (pairBounds.minIndex > 0 || pairBounds.maxIndex < Math.max(0, allRows.length - 1));
+    const hasMissingData = !!dataBounds && !!pairBounds
+      && (dataBounds.minIndex > pairBounds.minIndex || dataBounds.maxIndex < pairBounds.maxIndex);
+    const availableStartPct = pairBounds ? getDateRangeVisualPercent(pairBounds.minIndex, visualBounds) : 0;
+    const availableEndPct = pairBounds ? getDateRangeVisualPercent(pairBounds.maxIndex, visualBounds) : 100;
 
     el.dateRangeSliderWrap.classList.toggle("is-restricted", hasRestriction);
     el.dateRangeSliderWrap.style.setProperty("--available-start", `${availableStartPct}%`);
     el.dateRangeSliderWrap.style.setProperty("--available-end", `${availableEndPct}%`);
-    const restrictionMessage = hasMissingData ? getDateRangeRestrictionMessage(dataBounds) : "";
+    const restrictionMessage = hasMissingData ? getDateRangeRestrictionMessage(dataBounds, pairBounds) : "";
     if (restrictionMessage) {
       el.dateRangeSliderWrap.setAttribute("title", restrictionMessage);
       if (el.dateRangeStartSlider) el.dateRangeStartSlider.setAttribute("title", restrictionMessage);
@@ -4311,11 +4557,15 @@
       if (el.dateRangeEndSlider) el.dateRangeEndSlider.removeAttribute("title");
     }
 
-    setRangeTrackSegment(el.dateRangeMissingDataStart, 0, hasMissingData ? dataBounds.minIndex : 0, safeMax);
-    setRangeTrackSegment(el.dateRangeMissingDataEnd, hasMissingData ? dataBounds.maxIndex : maxIndex, maxIndex, safeMax);
+    const missingStartFrom = hasMissingData ? pairBounds.minIndex : 0;
+    const missingStartTo = hasMissingData ? Math.min(dataBounds.minIndex, pairBounds.maxIndex) : 0;
+    const missingEndFrom = hasMissingData ? Math.max(dataBounds.maxIndex, pairBounds.minIndex) : visualBounds.maxIndex;
+    const missingEndTo = hasMissingData ? pairBounds.maxIndex : visualBounds.maxIndex;
+    setRangeTrackSegment(el.dateRangeMissingDataStart, missingStartFrom, missingStartTo, visualBounds);
+    setRangeTrackSegment(el.dateRangeMissingDataEnd, missingEndFrom, missingEndTo, visualBounds);
   }
 
-  function setRangeTrackSegment(trackEl, fromIndex, toIndex, safeMax) {
+  function setRangeTrackSegment(trackEl, fromIndex, toIndex, visualBounds = getDateRangeVisualBounds()) {
     if (!trackEl) return;
     if (!Number.isFinite(fromIndex) || !Number.isFinite(toIndex) || toIndex <= fromIndex) {
       trackEl.classList.remove("active");
@@ -4324,8 +4574,8 @@
       return;
     }
 
-    const startPct = Math.max(0, Math.min(100, (fromIndex / safeMax) * 100));
-    const endPct = Math.max(0, Math.min(100, (toIndex / safeMax) * 100));
+    const startPct = getDateRangeVisualPercent(fromIndex, visualBounds);
+    const endPct = getDateRangeVisualPercent(toIndex, visualBounds);
     trackEl.style.left = `${startPct}%`;
     trackEl.style.right = `calc(100% - ${endPct}%)`;
     trackEl.classList.add("active");
@@ -4340,7 +4590,7 @@
     return Math.max(0, Math.min(Math.max(0, allRows.length - 1), index));
   }
 
-  function setMissingRangeSegment(segmentEl, markerEl, fromIndex, toIndex, markerIndex, safeMax) {
+  function setMissingRangeSegment(segmentEl, markerEl, fromIndex, toIndex, markerIndex, visualBounds = getDateRangeVisualBounds()) {
     if (!segmentEl || !markerEl) return;
     if (!Number.isFinite(fromIndex) || !Number.isFinite(toIndex) || toIndex <= fromIndex) {
       segmentEl.classList.remove("active");
@@ -4351,9 +4601,9 @@
       return;
     }
 
-    const startPct = Math.max(0, Math.min(100, (fromIndex / safeMax) * 100));
-    const endPct = Math.max(0, Math.min(100, (toIndex / safeMax) * 100));
-    const markerPct = Math.max(0, Math.min(100, (markerIndex / safeMax) * 100));
+    const startPct = getDateRangeVisualPercent(fromIndex, visualBounds);
+    const endPct = getDateRangeVisualPercent(toIndex, visualBounds);
+    const markerPct = getDateRangeVisualPercent(markerIndex, visualBounds);
     const markerOffsetPx = (DATE_RANGE_THUMB_WIDTH_PX / 2) - (DATE_RANGE_THUMB_WIDTH_PX * markerPct / 100);
     segmentEl.style.left = `${startPct}%`;
     segmentEl.style.right = `calc(100% - ${endPct}%)`;
@@ -4362,31 +4612,35 @@
     markerEl.classList.add("active");
   }
 
-  function updateDateRangeMissingSelection(startIndex, endIndex, maxIndex) {
-    const safeMax = Math.max(1, maxIndex);
+  function updateDateRangeMissingSelection(startIndex, endIndex, visualBounds = getDateRangeVisualBounds()) {
+    const pairBounds = getPairDateIndexBounds();
     const dataBounds = getPairDataDateIndexBounds();
-    const availableStartIndex = dataBounds?.minIndex ?? 0;
-    const availableEndIndex = dataBounds?.maxIndex ?? maxIndex;
+    const availableStartIndex = dataBounds?.minIndex ?? pairBounds?.minIndex ?? 0;
+    const availableEndIndex = dataBounds?.maxIndex ?? pairBounds?.maxIndex ?? visualBounds.maxIndex;
+    const primaryStartIndex = pairBounds?.minIndex ?? 0;
+    const primaryEndIndex = pairBounds?.maxIndex ?? visualBounds.maxIndex;
     const requestedStartIndex = getDateRangeVisualIndex(requestedDateRange.startIso, startIndex, "after");
     const requestedEndIndex = getDateRangeVisualIndex(requestedDateRange.endIso, endIndex, "before");
+    const startMissingFromIndex = Math.max(requestedStartIndex, primaryStartIndex);
     const startMissingEndIndex = Math.min(requestedEndIndex, availableStartIndex);
     const endMissingStartIndex = Math.max(requestedStartIndex, availableEndIndex);
+    const endMissingToIndex = Math.min(requestedEndIndex, primaryEndIndex);
 
     setMissingRangeSegment(
       el.dateRangeMissingSelectionStart,
       el.dateRangeMissingMarkerStart,
-      requestedStartIndex,
+      startMissingFromIndex,
       startMissingEndIndex,
-      requestedStartIndex,
-      safeMax
+      startMissingFromIndex,
+      visualBounds
     );
     setMissingRangeSegment(
       el.dateRangeMissingSelectionEnd,
       el.dateRangeMissingMarkerEnd,
       endMissingStartIndex,
-      requestedEndIndex,
-      requestedEndIndex,
-      safeMax
+      endMissingToIndex,
+      endMissingToIndex,
+      visualBounds
     );
   }
 
@@ -4394,11 +4648,11 @@
     if (!el.dateRangeStartSlider || !el.dateRangeEndSlider || !allRows.length) return;
     const pairBounds = getPairDateIndexBounds();
     const controlBounds = getDateRangeControlBounds();
+    const visualBounds = getDateRangeVisualBounds();
     const minIndex = controlBounds?.minIndex ?? 0;
     const maxIndex = controlBounds?.maxIndex ?? Math.max(0, allRows.length - 1);
-    const globalMaxIndex = Math.max(0, allRows.length - 1);
     syncDateControlBoundsToPair(controlBounds);
-    updateDateRangeAvailability(pairBounds, globalMaxIndex);
+    updateDateRangeAvailability(pairBounds);
     const startIso = el.startDateInput?.value || toIsoDate(allRows[minIndex].date);
     const endIso = el.endDateInput?.value || toIsoDate(allRows[maxIndex].date);
 
@@ -4419,17 +4673,17 @@
       startIndex = endIndex;
     }
 
-    el.dateRangeStartSlider.min = "0";
-    el.dateRangeStartSlider.max = String(globalMaxIndex);
-    el.dateRangeEndSlider.min = "0";
-    el.dateRangeEndSlider.max = String(globalMaxIndex);
+    el.dateRangeStartSlider.min = String(visualBounds.minIndex);
+    el.dateRangeStartSlider.max = String(visualBounds.maxIndex);
+    el.dateRangeEndSlider.min = String(visualBounds.minIndex);
+    el.dateRangeEndSlider.max = String(visualBounds.maxIndex);
     el.dateRangeStartSlider.value = String(startIndex);
     el.dateRangeEndSlider.value = String(endIndex);
     if (el.startDateInput) el.startDateInput.value = toIsoDate(allRows[startIndex].date);
     if (el.endDateInput) el.endDateInput.value = toIsoDate(allRows[endIndex].date);
 
-    updateDateRangeSliderFill(startIndex, endIndex, globalMaxIndex);
-    updateDateRangeMissingSelection(startIndex, endIndex, globalMaxIndex);
+    updateDateRangeSliderFill(startIndex, endIndex, visualBounds);
+    updateDateRangeMissingSelection(startIndex, endIndex, visualBounds);
   }
 
   function handleDateRangeSliderInput(changed) {
@@ -4439,9 +4693,9 @@
     }
     if (!el.dateRangeStartSlider || !el.dateRangeEndSlider || !allRows.length) return;
     const controlBounds = getDateRangeControlBounds();
+    const visualBounds = getDateRangeVisualBounds();
     const safeMinIndex = controlBounds?.minIndex ?? 0;
     const safeMaxIndex = controlBounds?.maxIndex ?? Math.max(0, allRows.length - 1);
-    const globalMaxIndex = Math.max(0, allRows.length - 1);
     let startIndex = Number(el.dateRangeStartSlider.value);
     let endIndex = Number(el.dateRangeEndSlider.value);
 
@@ -4478,7 +4732,7 @@
       el.dateRangeEndSlider.value = String(endIndex);
     }
 
-    updateDateRangeSliderFill(startIndex, endIndex, globalMaxIndex);
+    updateDateRangeSliderFill(startIndex, endIndex, visualBounds);
 
     const startIso = toIsoDate(allRows[startIndex].date);
     const endIso = toIsoDate(allRows[endIndex].date);
@@ -4495,12 +4749,14 @@
 
   function getDateRangeIndexFromPointerX(clientX) {
     if (!el.dateRangeSliderWrap || !allRows.length) return null;
-    const maxIndex = Math.max(0, allRows.length - 1);
+    const visualBounds = getDateRangeVisualBounds();
     const wrapRect = el.dateRangeSliderWrap.getBoundingClientRect();
     if (!Number.isFinite(wrapRect.width) || wrapRect.width <= 0) return null;
-    const safeMax = Math.max(1, maxIndex);
+    const minIndex = visualBounds?.minIndex ?? 0;
+    const maxIndex = visualBounds?.maxIndex ?? Math.max(0, allRows.length - 1);
+    const span = Math.max(1, maxIndex - minIndex);
     const ratio = Math.max(0, Math.min(1, (clientX - wrapRect.left) / wrapRect.width));
-    return Math.round(ratio * safeMax);
+    return Math.round(minIndex + ratio * span);
   }
 
   function applyPlaybackEndScrubIndex(nextIndex) {
@@ -4637,21 +4893,20 @@
     if (event.button !== 0) return;
 
     const controlBounds = getDateRangeControlBounds();
+    const visualBounds = getDateRangeVisualBounds();
     const minIndex = controlBounds?.minIndex ?? 0;
     const maxIndex = controlBounds?.maxIndex ?? Math.max(0, allRows.length - 1);
-    const globalMaxIndex = Math.max(0, allRows.length - 1);
     if (maxIndex <= minIndex) return;
 
     const wrapRect = el.dateRangeSliderWrap.getBoundingClientRect();
     if (!Number.isFinite(wrapRect.width) || wrapRect.width <= 0) return;
 
-    const safeGlobalMax = Math.max(1, globalMaxIndex);
     const startIndex = Number(el.dateRangeStartSlider.value);
     const endIndex = Number(el.dateRangeEndSlider.value);
     if (!Number.isFinite(startIndex) || !Number.isFinite(endIndex) || startIndex >= endIndex) return;
 
-    const startX = wrapRect.left + (startIndex / safeGlobalMax) * wrapRect.width;
-    const endX = wrapRect.left + (endIndex / safeGlobalMax) * wrapRect.width;
+    const startX = wrapRect.left + (getDateRangeVisualPercent(startIndex, visualBounds) / 100) * wrapRect.width;
+    const endX = wrapRect.left + (getDateRangeVisualPercent(endIndex, visualBounds) / 100) * wrapRect.width;
     const pointerX = event.clientX;
     const handleGuardPx = 12;
 
@@ -4668,7 +4923,8 @@
       endIndex,
       minIndex,
       maxIndex,
-      globalMaxIndex,
+      visualSpan: Math.max(1, (visualBounds?.maxIndex ?? maxIndex) - (visualBounds?.minIndex ?? minIndex)),
+      visualBounds,
       wrapLeft: wrapRect.left,
       wrapWidth: wrapRect.width,
     };
@@ -4707,13 +4963,13 @@
       endIndex,
       minIndex,
       maxIndex,
-      globalMaxIndex,
+      visualSpan,
+      visualBounds,
       wrapWidth,
     } = dateRangeDragState;
 
-    const safeGlobalMax = Math.max(1, globalMaxIndex);
     const deltaPx = event.clientX - startClientX;
-    const deltaIndex = Math.round((deltaPx / wrapWidth) * safeGlobalMax);
+    const deltaIndex = Math.round((deltaPx / wrapWidth) * Math.max(1, visualSpan));
 
     const minShift = minIndex - startIndex;
     const maxShift = maxIndex - endIndex;
@@ -4726,7 +4982,7 @@
     el.dateRangeStartSlider.value = String(nextStart);
     el.dateRangeEndSlider.value = String(nextEnd);
 
-    updateDateRangeSliderFill(nextStart, nextEnd, globalMaxIndex);
+    updateDateRangeSliderFill(nextStart, nextEnd, visualBounds);
 
     const startIso = toIsoDate(allRows[nextStart].date);
     const endIso = toIsoDate(allRows[nextEnd].date);
@@ -5017,6 +5273,8 @@
 
     const handleGlobalArrow = (event) => {
       if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      const target = event.target;
+      if (target?.closest?.(".dca-dropdown, .dca-dropdown-menu")) return;
       event.preventDefault();
       cycleSecondaryUoa(event.key === "ArrowDown" ? 1 : -1);
     };

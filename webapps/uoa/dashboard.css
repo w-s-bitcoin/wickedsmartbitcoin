@@ -142,6 +142,10 @@ body {
   max-width: 100%;
 }
 
+.chip-menu-wrap.single-select.is-open {
+  z-index: 3000;
+}
+
 .chip-menu-wrap.single-select::after {
   content: '';
   position: absolute;
@@ -224,6 +228,11 @@ body {
   flex: 0 0 auto;
 }
 
+.controls label.chip:has(.dca-dropdown.is-open),
+.dca-dropdown.is-open {
+  z-index: 3000;
+}
+
 .dca-dropdown::after {
   content: '';
   position: absolute;
@@ -269,6 +278,25 @@ body {
   max-width: 100%;
   padding: 0 var(--dca-dropdown-arrow-gap) 0 var(--dca-dropdown-content-pad);
   pointer-events: none;
+}
+
+.dca-dropdown-input {
+  position: relative;
+  z-index: 4;
+  box-sizing: border-box;
+  min-width: 0;
+  border: 0;
+  margin: 0;
+  background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  outline: none;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.dca-dropdown-input:focus {
+  outline: none;
 }
 
 .dca-dropdown-trigger {
@@ -331,7 +359,7 @@ body {
   max-width: calc(100% + 8px);
   max-height: min(300px, 50vh);
   overflow: auto;
-  z-index: 140;
+  z-index: 3001;
   border: 1px solid var(--panel-border);
   border-radius: 10px;
   background: var(--panel);
@@ -343,6 +371,11 @@ body {
   gap: 2px;
   scrollbar-width: thin;
   scrollbar-color: #3f3f3f #111111;
+}
+
+.dca-dropdown.is-open .dca-dropdown-menu,
+.chip-menu-wrap.single-select.is-open .dca-dropdown-menu {
+  z-index: 3001;
 }
 
 .dca-dropdown-menu::-webkit-scrollbar {
@@ -397,14 +430,16 @@ body {
 }
 
 .dca-option-btn:hover,
-.dca-option-btn:focus-visible {
+.dca-option-btn:focus-visible,
+.dca-option-btn--active {
   background: rgba(255, 255, 255, 0.12);
   color: var(--fg);
   outline: none;
 }
 
 :root[data-theme="light"] .dca-option-btn:hover,
-:root[data-theme="light"] .dca-option-btn:focus-visible {
+:root[data-theme="light"] .dca-option-btn:focus-visible,
+:root[data-theme="light"] .dca-option-btn--active {
   background: rgba(0, 0, 0, 0.08);
 }
 
@@ -704,11 +739,19 @@ body {
   background: #ff9900;
 }
 
-.date-range-settings-btn {
+.date-range-download-settings .date-range-settings-btn {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
   border-top-right-radius: 8px;
   border-bottom-right-radius: 8px;
   margin-right: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
   font-size: 1.15rem;
+  line-height: 1;
+  text-align: center;
+  transform: translateX(-1px);
 }
 
 .date-range-fps-trigger {
