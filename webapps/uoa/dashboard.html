@@ -164,6 +164,27 @@
             </div>
             <button
               type="button"
+              id="dashboardExpandBtn"
+              class="date-range-playback-btn dashboard-expand-btn"
+              aria-label="Expand video layout"
+              aria-pressed="false"
+              title="Expand video layout"
+            >
+              <svg class="dashboard-expand-icon dashboard-expand-icon-expand" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 9V4h5" />
+                <path d="M20 9V4h-5" />
+                <path d="M4 15v5h5" />
+                <path d="M20 15v5h-5" />
+              </svg>
+              <svg class="dashboard-expand-icon dashboard-expand-icon-shrink" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M9 4v5H4" />
+                <path d="M15 4v5h5" />
+                <path d="M9 20v-5H4" />
+                <path d="M15 20v-5h5" />
+              </svg>
+            </button>
+            <button
+              type="button"
               id="dateRangeDownloadBtn"
               class="date-range-playback-btn date-range-download-btn"
               aria-label="Download date range animation"
@@ -222,6 +243,20 @@
                   <div id="downloadExtensionSelect" class="download-setting-button-row" role="group" aria-label="Download extension">
                     <button type="button" class="download-setting-option is-selected" data-value="mp4" aria-pressed="true">mp4</button>
                     <button type="button" class="download-setting-option" data-value="webm" aria-pressed="false">webm</button>
+                  </div>
+                </div>
+                <div id="downloadEstimatePanel" class="download-estimate-panel" aria-live="polite">
+                  <div class="download-estimate-row">
+                    <span>File Size</span>
+                    <strong id="downloadEstimateSize">--</strong>
+                  </div>
+                  <div class="download-estimate-row">
+                    <span>Video Length</span>
+                    <strong id="downloadEstimateLength">--</strong>
+                  </div>
+                  <div class="download-estimate-row">
+                    <span>Download Time</span>
+                    <strong id="downloadEstimateTime">--</strong>
                   </div>
                 </div>
                 <div class="download-setting-actions">
