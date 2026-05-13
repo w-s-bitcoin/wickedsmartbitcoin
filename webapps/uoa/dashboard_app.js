@@ -69,6 +69,7 @@
   };
   const LOG_MIN_POSITIVE = 1e-300;
   const DEFAULT_RANGE_PLAYBACK_FPS = 60;
+  const DATE_RANGE_PLAYBACK_FPS_OPTIONS = [30, 60, 120, 240];
   const DATE_RANGE_THUMB_WIDTH_PX = 12;
   const DATE_RANGE_EXPORT_VIDEO_FPS = 30;
   const DATE_RANGE_EXPORT_START_HOLD_SECONDS = 1;
@@ -150,7 +151,6 @@
     dateRangePauseBtn: document.getElementById("dateRangePauseBtn"),
     dateRangeStopBtn: document.getElementById("dateRangeStopBtn"),
     dateRangeFpsTrigger: document.getElementById("dateRangeFpsTrigger"),
-    dateRangeFpsMenu: document.getElementById("dateRangeFpsMenu"),
     dateRangeDownloadBtn: document.getElementById("dateRangeDownloadBtn"),
     dateRangeDownloadSettingsBtn: document.getElementById("dateRangeDownloadSettingsBtn"),
     dateRangeDownloadSettingsMenu: document.getElementById("dateRangeDownloadSettingsMenu"),
@@ -232,7 +232,6 @@
   };
   let dateRangePlaybackOutsidePointerHandler = null;
   let dateRangePlaybackOutsidePointerTouchState = null;
-  let dateRangeFpsMenuOutsideHandler = null;
   let dateRangeDownloadSettingsOutsideHandler = null;
   let dateRangeDownloadSettingsViewportHandler = null;
   let isDateRangeExporting = false;
@@ -671,6 +670,13 @@
     return Number.isFinite(speed) && speed > 0 ? speed : 1;
   }
 
+  function getNextDateRangePlaybackFps(currentFps) {
+    const current = Number(currentFps);
+    const index = DATE_RANGE_PLAYBACK_FPS_OPTIONS.findIndex((fps) => fps === current);
+    const nextIndex = index >= 0 ? (index + 1) % DATE_RANGE_PLAYBACK_FPS_OPTIONS.length : 0;
+    return DATE_RANGE_PLAYBACK_FPS_OPTIONS[nextIndex] || DEFAULT_RANGE_PLAYBACK_FPS;
+  }
+
   function buildDateRangeExportFrameIndices(startIndex, endIndex, playbackFps) {
     const start = Math.round(Number(startIndex));
     const end = Math.round(Number(endIndex));
@@ -861,58 +867,11 @@
       el.dateRangeFpsTrigger.dataset.fps = String(normalizedFps);
       el.dateRangeFpsTrigger.textContent = getPlaybackSpeedLabel(normalizedFps);
     }
-    if (el.dateRangeFpsMenu) {
-      const options = Array.from(el.dateRangeFpsMenu.querySelectorAll(".date-range-fps-option[data-fps]"));
-      options.forEach((option) => {
-        const optionFps = Number(option.dataset.fps);
-        const isSelected = optionFps === normalizedFps;
-        option.classList.toggle("is-selected", isSelected);
-        option.setAttribute("aria-pressed", isSelected ? "true" : "false");
-      });
-    }
     dateRangePlaybackState.fps = normalizedFps;
     if (!downloadSettingsHasStoredValue && el.downloadFpsSelect && !el.dateRangeDownloadSettingsMenu?.classList.contains("open")) {
       downloadSettings.fps = String(normalizedFps);
       setDownloadSettingGroupValue(el.downloadFpsSelect, normalizedFps);
     }
-  }
-
-  function closeDateRangeFpsMenu() {
-    if (el.dateRangeFpsMenu) el.dateRangeFpsMenu.classList.remove("open");
-    if (el.dateRangeFpsTrigger) {
-      el.dateRangeFpsTrigger.classList.remove("is-open");
-      el.dateRangeFpsTrigger.setAttribute("aria-expanded", "false");
-    }
-    if (dateRangeFpsMenuOutsideHandler) {
-      document.removeEventListener("pointerdown", dateRangeFpsMenuOutsideHandler, true);
-      dateRangeFpsMenuOutsideHandler = null;
-    }
-  }
-
-  function openDateRangeFpsMenu() {
-    if (!el.dateRangeFpsMenu || !el.dateRangeFpsTrigger) return;
-    el.dateRangeFpsMenu.classList.add("open");
-    el.dateRangeFpsTrigger.classList.add("is-open");
-    el.dateRangeFpsTrigger.setAttribute("aria-expanded", "true");
-    if (!dateRangeFpsMenuOutsideHandler) {
-      dateRangeFpsMenuOutsideHandler = (event) => {
-        const target = event.target;
-        const inTrigger = target === el.dateRangeFpsTrigger || el.dateRangeFpsTrigger.contains(target);
-        const inMenu = target === el.dateRangeFpsMenu || el.dateRangeFpsMenu.contains(target);
-        if (inTrigger || inMenu) return;
-        closeDateRangeFpsMenu();
-      };
-      document.addEventListener("pointerdown", dateRangeFpsMenuOutsideHandler, true);
-    }
-  }
-
-  function toggleDateRangeFpsMenu() {
-    if (!el.dateRangeFpsMenu) return;
-    if (el.dateRangeFpsMenu.classList.contains("open")) {
-      closeDateRangeFpsMenu();
-      return;
-    }
-    openDateRangeFpsMenu();
   }
 
   function closeDownloadSettingsMenu({ restoreControls = false } = {}) {
@@ -956,7 +915,6 @@
     if (!el.dateRangeDownloadSettingsMenu || !el.dateRangeDownloadSettingsBtn) return;
     syncDownloadSettingsControls();
     syncDownloadSettingsDownloadButton();
-    closeDateRangeFpsMenu();
     el.dateRangeDownloadSettingsMenu.classList.add("open");
     el.dateRangeDownloadSettingsBtn.classList.add("is-open");
     el.dateRangeDownloadSettingsBtn.setAttribute("aria-expanded", "true");
@@ -2015,11 +1973,10 @@
       const { moved, target, eventPath, targetElement } = dateRangePlaybackOutsidePointerTouchState;
       cleanupTouchTracking();
       if (moved) return;
-      if (!dateRangePlaybackState.isPlaying) return;
+      if (!dateRangePlaybackState.hasSession) return;
       const isPauseButtonClick = (!!el.dateRangePlayBtn && (target === el.dateRangePlayBtn || el.dateRangePlayBtn.contains(target)))
         || (!!el.dateRangePauseBtn && (target === el.dateRangePauseBtn || el.dateRangePauseBtn.contains(target)));
-      const isFpsDropdownClick = (el.dateRangeFpsTrigger && (target === el.dateRangeFpsTrigger || el.dateRangeFpsTrigger.contains(target)))
-        || (el.dateRangeFpsMenu && (target === el.dateRangeFpsMenu || el.dateRangeFpsMenu.contains(target)));
+      const isFpsButtonClick = !!el.dateRangeFpsTrigger && (target === el.dateRangeFpsTrigger || el.dateRangeFpsTrigger.contains(target));
       const isSliderInteraction = (!!el.dateRangeSliderWrap && (target === el.dateRangeSliderWrap || el.dateRangeSliderWrap.contains(target)))
         || (!!el.dateRangeStartSlider && (target === el.dateRangeStartSlider || el.dateRangeStartSlider.contains(target)))
         || (!!el.dateRangeEndSlider && (target === el.dateRangeEndSlider || el.dateRangeEndSlider.contains(target)));
@@ -2027,7 +1984,7 @@
         (targetElement && !!targetElement.closest(".date-range-panel"))
         || eventPath.includes(el.dateRangePanel)
       );
-      if (isPauseButtonClick || isFpsDropdownClick || isSliderInteraction || isInDateRangePanel) return;
+      if (isPauseButtonClick || isFpsButtonClick || isSliderInteraction || isInDateRangePanel) return;
       stopDateRangePlayback({ restoreOriginalRange: true });
     };
 
@@ -2037,14 +1994,13 @@
     };
 
     dateRangePlaybackOutsidePointerHandler = (event) => {
-      if (!dateRangePlaybackState.isPlaying) return;
+      if (!dateRangePlaybackState.hasSession) return;
       const target = event.target;
       const eventPath = typeof event.composedPath === "function" ? event.composedPath() : [];
       const targetElement = target instanceof Element ? target : null;
       const isPauseButtonClick = (!!el.dateRangePlayBtn && (target === el.dateRangePlayBtn || el.dateRangePlayBtn.contains(target)))
         || (!!el.dateRangePauseBtn && (target === el.dateRangePauseBtn || el.dateRangePauseBtn.contains(target)));
-      const isFpsDropdownClick = (el.dateRangeFpsTrigger && (target === el.dateRangeFpsTrigger || el.dateRangeFpsTrigger.contains(target)))
-        || (el.dateRangeFpsMenu && (target === el.dateRangeFpsMenu || el.dateRangeFpsMenu.contains(target)));
+      const isFpsButtonClick = !!el.dateRangeFpsTrigger && (target === el.dateRangeFpsTrigger || el.dateRangeFpsTrigger.contains(target));
       const isSliderInteraction = (!!el.dateRangeSliderWrap && (target === el.dateRangeSliderWrap || el.dateRangeSliderWrap.contains(target)))
         || (!!el.dateRangeStartSlider && (target === el.dateRangeStartSlider || el.dateRangeStartSlider.contains(target)))
         || (!!el.dateRangeEndSlider && (target === el.dateRangeEndSlider || el.dateRangeEndSlider.contains(target)));
@@ -2052,7 +2008,7 @@
         (targetElement && !!targetElement.closest(".date-range-panel"))
         || eventPath.includes(el.dateRangePanel)
       );
-      if (isPauseButtonClick || isFpsDropdownClick || isSliderInteraction || isInDateRangePanel) return;
+      if (isPauseButtonClick || isFpsButtonClick || isSliderInteraction || isInDateRangePanel) return;
 
       if (event.pointerType === "touch") {
         dateRangePlaybackOutsidePointerTouchState = {
@@ -2097,7 +2053,6 @@
     if (dateRangePlaybackState.rafId) {
       cancelAnimationFrame(dateRangePlaybackState.rafId);
     }
-    unbindDateRangePlaybackOutsidePointerCancel();
     dateRangePlaybackState.isPlaying = false;
     dateRangePlaybackState.rafId = 0;
     dateRangePlaybackState.lastTimestampMs = 0;
@@ -2288,7 +2243,7 @@
     dateRangePlaybackState.rafId = 0;
     updateDateRangePlayButton();
     updateDateRangePauseButton();
-    unbindDateRangePlaybackOutsidePointerCancel();
+    bindDateRangePlaybackOutsidePointerCancel();
     persistFilters();
   }
 
@@ -2412,21 +2367,9 @@
       el.dateRangeFpsTrigger.dataset.bound = "1";
       el.dateRangeFpsTrigger.addEventListener("click", (event) => {
         event.stopPropagation();
-        toggleDateRangeFpsMenu();
-      });
-    }
-
-    if (el.dateRangeFpsMenu) {
-      const options = Array.from(el.dateRangeFpsMenu.querySelectorAll(".date-range-fps-option[data-fps]"));
-      options.forEach((option) => {
-        if (option.dataset.bound === "1") return;
-        option.dataset.bound = "1";
-        option.addEventListener("click", () => {
-          const nextFps = Number(option.dataset.fps);
-          if (!Number.isFinite(nextFps) || nextFps <= 0) return;
-          setDateRangePlaybackFps(nextFps);
-          persistFilters();
-        });
+        const nextFps = getNextDateRangePlaybackFps(getSelectedDateRangePlaybackFps());
+        setDateRangePlaybackFps(nextFps);
+        persistFilters();
       });
     }
 
@@ -2490,6 +2433,16 @@
       // Check if playback is active (playing or paused with an active session)
       const isPlaybackActive = dateRangePlaybackState.hasSession;
       if (!isPlaybackActive) return;
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof event.stopImmediatePropagation === "function") {
+          event.stopImmediatePropagation();
+        }
+        stopDateRangePlayback({ restoreOriginalRange: true });
+        return;
+      }
 
       const isArrowLeft = event.key === "ArrowLeft";
       const isArrowRight = event.key === "ArrowRight";
@@ -5524,6 +5477,7 @@
     updateDateRangePlayButton();
     updateDateRangePauseButton();
     updateDateRangeStopButton();
+    bindDateRangePlaybackOutsidePointerCancel();
   }
 
   const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -5961,10 +5915,10 @@
     renderPairKpiValue(primaryCurrency, secondaryCurrency);
     const latestBtcRow = getLatestBtcRow();
     const latestBlockHeight = latestBtcRow?.blockHeight;
-    const latestBlockHeightText = latestBlockHeight ? String(latestBlockHeight) : "--";
+    const latestBlockHeightText = latestBlockHeight ? String(latestBlockHeight) : "";
     const ranksByCurrency = getCurrencyRanksByValue();
-    if (el.primaryRankKpiValue) el.primaryRankKpiValue.textContent = ranksByCurrency[primaryCurrency] ? String(ranksByCurrency[primaryCurrency]) : "--";
-    if (el.secondaryRankKpiValue) el.secondaryRankKpiValue.textContent = ranksByCurrency[secondaryCurrency] ? String(ranksByCurrency[secondaryCurrency]) : "--";
+    if (el.primaryRankKpiValue) el.primaryRankKpiValue.textContent = ranksByCurrency[primaryCurrency] ? String(ranksByCurrency[primaryCurrency]) : "";
+    if (el.secondaryRankKpiValue) el.secondaryRankKpiValue.textContent = ranksByCurrency[secondaryCurrency] ? String(ranksByCurrency[secondaryCurrency]) : "";
     if (el.blockHeightText) {
       el.blockHeightText.textContent = latestBlockHeight ? `BLOCK HEIGHT: ${latestBlockHeightText}` : "BLOCK HEIGHT: --";
     }
