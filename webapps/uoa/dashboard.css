@@ -963,6 +963,17 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
   gap: 0;
 }
 
+.download-scale-field {
+  gap: 6px;
+}
+
+.download-scale-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  width: 100%;
+  gap: 0;
+}
+
 .download-setting-option {
   flex: 1 1 0;
   border: 1px solid var(--panel-border);
@@ -1015,6 +1026,27 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 .download-chart-mode-row .download-setting-option[data-value="right"].is-selected {
   color: #000000;
   background: var(--download-chart-right, var(--right));
+}
+
+.download-scale-row[data-side="left"] .download-setting-option.is-selected {
+  color: #000000;
+  background: var(--download-chart-left, var(--accent));
+}
+
+.download-scale-row[data-side="right"] .download-setting-option.is-selected {
+  color: #000000;
+  background: var(--download-chart-right, var(--right));
+}
+
+.download-scale-row.is-disabled .download-setting-option,
+.download-scale-row.is-disabled .download-setting-option.is-selected {
+  background: #000000;
+  color: rgba(255, 255, 255, 0.24);
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  box-shadow: none;
+  cursor: not-allowed;
+  pointer-events: none;
+  text-shadow: none;
 }
 
 .download-setting-option.is-selected:hover,
@@ -1118,7 +1150,8 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 }
 
 .date-range-play-btn.is-playing,
-.date-range-stop-btn.is-active {
+.date-range-stop-btn.is-active,
+.date-range-download-settings .date-range-settings-btn.is-open {
   color: #000000;
   background: var(--accent);
   border-color: var(--panel-border-opaque) !important;
@@ -1162,6 +1195,24 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 :root[data-theme="light"] .download-chart-mode-row .download-setting-option[data-value="right"].is-selected {
   color: #000000;
   background: var(--download-chart-right, var(--right));
+}
+
+:root[data-theme="light"] .download-scale-row[data-side="left"] .download-setting-option.is-selected {
+  color: #000000;
+  background: var(--download-chart-left, var(--accent));
+}
+
+:root[data-theme="light"] .download-scale-row[data-side="right"] .download-setting-option.is-selected {
+  color: #000000;
+  background: var(--download-chart-right, var(--right));
+}
+
+:root[data-theme="light"] .download-scale-row.is-disabled .download-setting-option,
+:root[data-theme="light"] .download-scale-row.is-disabled .download-setting-option.is-selected {
+  background: #000000;
+  color: rgba(255, 255, 255, 0.24);
+  border-color: rgba(0, 0, 0, 0.78) !important;
+  box-shadow: none;
 }
 
 :root[data-theme="light"] .download-setting-option.is-selected:hover,
