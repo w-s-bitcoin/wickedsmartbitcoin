@@ -24,37 +24,58 @@ BYN_REDENOMINATION_EVENTS = [
 MRO_REDENOMINATION_EVENTS = [
     {"date": "2018-01-03", "ratio": 10, "ratioLabel": "10:1"},
 ]
+CUP_REDENOMINATION_EVENTS = [
+    {"date": "2021-01-04", "ratio": 1 / 24, "ratioLabel": "1:24"},
+]
+SYP_REDENOMINATION_EVENTS = [
+    {"date": "2026-01-07", "ratio": 100, "ratioLabel": "100:1"},
+]
+ZMW_REDENOMINATION_EVENTS = [
+    {"date": "2013-01-02", "ratio": 1000, "ratioLabel": "1,000:1"},
+]
 REDENOMINATION_EVENTS = {
     "VES": VES_REDENOMINATION_EVENTS,
     "BYN": BYN_REDENOMINATION_EVENTS,
     "MRO": MRO_REDENOMINATION_EVENTS,
+    "CUP": CUP_REDENOMINATION_EVENTS,
+    "SYP": SYP_REDENOMINATION_EVENTS,
+    "ZMW": ZMW_REDENOMINATION_EVENTS,
 }
 NOTABLE_EVENTS = {    "VES": [
         {
             "date": "2013-02-19",
-            "label": "devaluation (Maduro regime)",
-            "devaluationEstimate": "estimated devaluation: ~65%",
+            "label": "VES devaluation ~65%",
         },
         {
             "date": "2016-03-08",
-            "label": "devaluation announcement",
-            "devaluationEstimate": "estimated devaluation: ~70%",
+            "label": "VES devaluation ~70%",
         },
         {
             "date": "2018-02-06",
-            "label": "devaluation (new market rate)",
-            "devaluationEstimate": "estimated devaluation: ~250,000%",
+            "label": "VES devaluation ~250,000%",
         },
         {
             "date": "2018-08-20",
-            "label": "devaluation with 100,000:1 redenomination",
-            "devaluationEstimate": "estimated devaluation: ~50% + redenomination",
+            "label": "VES devaluation ~50% + redenomination",
         },
     ],    "SDG": [
         {
             "date": "2021-02-25",
-            "label": "official rate unification / managed-float reset",
-            "devaluationEstimate": "estimated devaluation: ~582%",
+            "label": "SDG devaluation ~582%",
+        }
+    ],    "TMT": [
+        {
+            "date": "2015-01-06",
+            "label": "TMT devaluation ~20%",
+        }
+    ],    "LBP": [
+        {
+            "date": "2023-02-03",
+            "label": "LBP devaluation ~90%",
+        },
+        {
+            "date": "2024-03-11",
+            "label": "LBP devaluation ~83.3%",
         }
     ]
 }
@@ -111,6 +132,20 @@ MANUAL_FX_SCALE_CORRECTIONS = [
         "end_date": "2018-06-27",
         "factor": 0.01,
         "reason": "Remove accidental 100x MRO/USD source-scale spike.",
+    },
+    {
+        "column": "sypusd",
+        "start_date": "2026-01-05",
+        "end_date": "2026-01-06",
+        "factor": 0.5,
+        "reason": "Correct SYP/USD pre-redenomination source-scale points.",
+    },
+    {
+        "column": "cupusd",
+        "start_date": "2021-01-05",
+        "end_date": "2021-01-05",
+        "factor": 0.3611544461778471,
+        "reason": "Correct isolated CUP/USD point to 1/24 after redenomination.",
     },
 ]
 
