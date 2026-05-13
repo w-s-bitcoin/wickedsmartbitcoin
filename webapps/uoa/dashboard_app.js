@@ -151,6 +151,7 @@
     dateRangePauseBtn: document.getElementById("dateRangePauseBtn"),
     dateRangeStopBtn: document.getElementById("dateRangeStopBtn"),
     dateRangeFpsTrigger: document.getElementById("dateRangeFpsTrigger"),
+    dashboardExpandBtn: document.getElementById("dashboardExpandBtn"),
     dateRangeDownloadBtn: document.getElementById("dateRangeDownloadBtn"),
     dateRangeDownloadSettingsBtn: document.getElementById("dateRangeDownloadSettingsBtn"),
     dateRangeDownloadSettingsMenu: document.getElementById("dateRangeDownloadSettingsMenu"),
@@ -160,6 +161,9 @@
     downloadOrientationSelect: document.getElementById("downloadOrientationSelect"),
     downloadThemeSelect: document.getElementById("downloadThemeSelect"),
     downloadFpsSelect: document.getElementById("downloadFpsSelect"),
+    downloadEstimateSize: document.getElementById("downloadEstimateSize"),
+    downloadEstimateLength: document.getElementById("downloadEstimateLength"),
+    downloadEstimateTime: document.getElementById("downloadEstimateTime"),
     downloadSettingsDownloadBtn: document.getElementById("downloadSettingsDownloadBtn"),
     startDateInput: document.getElementById("startDateInput"),
     endDateInput: document.getElementById("endDateInput"),
@@ -716,6 +720,68 @@
     return frames.length ? frames : [start, end];
   }
 
+  function formatDownloadEstimateDuration(seconds) {
+    if (!Number.isFinite(seconds) || seconds < 0) return "--";
+    const rounded = Math.max(0, Math.round(seconds));
+    const minutes = Math.floor(rounded / 60);
+    const secs = rounded % 60;
+    if (minutes <= 0) return `${secs}s`;
+    return `${minutes}m ${String(secs).padStart(2, "0")}s`;
+  }
+
+  function formatDownloadEstimateSize(bytes) {
+    if (!Number.isFinite(bytes) || bytes <= 0) return "--";
+    const mib = bytes / (1024 * 1024);
+    if (mib < 10) return `${mib.toFixed(1)} MB`;
+    return `${Math.round(mib)} MB`;
+  }
+
+  function getDateRangeExportEstimateRange() {
+    if (!allRows.length || !el.dateRangeStartSlider || !el.dateRangeEndSlider) return null;
+    const maxIndex = Math.max(0, allRows.length - 1);
+    const playbackStart = Number(dateRangePlaybackState.startIndex);
+    const playbackEnd = Number(dateRangePlaybackState.targetEndIndex);
+    const sliderStart = Number(el.dateRangeStartSlider.value);
+    const sliderEnd = Number(el.dateRangeEndSlider.value);
+    const rawStart = dateRangePlaybackState.hasSession && Number.isFinite(playbackStart)
+      ? playbackStart
+      : sliderStart;
+    const rawEnd = dateRangePlaybackState.hasSession && Number.isFinite(playbackEnd)
+      ? playbackEnd
+      : sliderEnd;
+    const startIndex = Math.max(0, Math.min(maxIndex, Number.isFinite(rawStart) ? rawStart : 0));
+    const endIndex = Math.max(startIndex, Math.min(maxIndex, Number.isFinite(rawEnd) ? rawEnd : maxIndex));
+    return { startIndex, endIndex };
+  }
+
+  function getDateRangeExportBitrate(settings) {
+    return Math.max(4_000_000, Number(settings.quality) * 8000);
+  }
+
+  function updateDownloadEstimates() {
+    if (!el.downloadEstimateSize || !el.downloadEstimateLength || !el.downloadEstimateTime) return;
+    const range = getDateRangeExportEstimateRange();
+    if (!range) {
+      el.downloadEstimateSize.textContent = "--";
+      el.downloadEstimateLength.textContent = "--";
+      el.downloadEstimateTime.textContent = "--";
+      return;
+    }
+    const settings = normalizeDownloadSettings(readDownloadSettingsControls());
+    const selectedPlaybackFps = Math.max(1, Number(settings.fps) || getSelectedDateRangePlaybackFps());
+    const frameIndices = buildDateRangeExportFrameIndices(range.startIndex, range.endIndex, selectedPlaybackFps);
+    const uniqueFrameCount = new Set(frameIndices).size;
+    const videoSeconds = frameIndices.length / DATE_RANGE_EXPORT_VIDEO_FPS;
+    const bitrate = getDateRangeExportBitrate(settings);
+    const extensionMultiplier = settings.extension === "webm" ? 0.78 : 1;
+    const estimatedBytes = (bitrate * videoSeconds / 8) * extensionMultiplier;
+    const renderSeconds = Math.max(1, uniqueFrameCount * 0.035);
+    const processingSeconds = videoSeconds + renderSeconds;
+    el.downloadEstimateSize.textContent = formatDownloadEstimateSize(estimatedBytes);
+    el.downloadEstimateLength.textContent = formatDownloadEstimateDuration(videoSeconds);
+    el.downloadEstimateTime.textContent = `~${formatDownloadEstimateDuration(processingSeconds)}`;
+  }
+
   function getExportThemePalette(theme) {
     return EXPORT_THEME_PALETTES[theme === "dark" ? "dark" : "light"];
   }
@@ -837,6 +903,7 @@
     setDownloadSettingGroupValue(el.downloadOrientationSelect, normalized.orientation);
     setDownloadSettingGroupValue(el.downloadThemeSelect, normalized.theme);
     setDownloadSettingGroupValue(el.downloadFpsSelect, normalized.fps);
+    updateDownloadEstimates();
   }
 
   function readDownloadSettingsControls() {
@@ -859,6 +926,7 @@
     } catch (_) {
       // Ignore storage failures.
     }
+    updateDownloadEstimates();
   }
 
   function setDateRangePlaybackFps(nextFps) {
@@ -872,6 +940,7 @@
       downloadSettings.fps = String(normalizedFps);
       setDownloadSettingGroupValue(el.downloadFpsSelect, normalizedFps);
     }
+    updateDownloadEstimates();
   }
 
   function closeDownloadSettingsMenu({ restoreControls = false } = {}) {
@@ -1856,7 +1925,7 @@
       }
       recorder = new MediaRecorder(stream, {
         mimeType: recorderInfo.mimeType,
-        videoBitsPerSecond: Math.max(4_000_000, Number(settings.quality) * 8000),
+        videoBitsPerSecond: getDateRangeExportBitrate(settings),
       });
 
       recorder.addEventListener("dataavailable", (event) => {
@@ -2374,6 +2443,32 @@
     }
 
     setDateRangePlaybackFps(getSelectedDateRangePlaybackFps());
+  }
+
+  function setDashboardExpandedMode(expanded) {
+    document.body.classList.toggle("uoa-dashboard-expanded", expanded);
+    if (el.dashboardExpandBtn) {
+      el.dashboardExpandBtn.setAttribute("aria-pressed", String(expanded));
+      el.dashboardExpandBtn.setAttribute("aria-label", expanded ? "Shrink video layout" : "Expand video layout");
+      el.dashboardExpandBtn.setAttribute("title", expanded ? "Shrink video layout" : "Expand video layout");
+    }
+    try {
+      window.parent?.postMessage({ type: "wsb-uoa-dashboard-expanded", expanded }, window.location.origin);
+    } catch (_) {
+    }
+    requestAnimationFrame(() => {
+      renderAll();
+      requestAnimationFrame(renderAll);
+    });
+  }
+
+  function bindDashboardExpandButton() {
+    if (!el.dashboardExpandBtn || el.dashboardExpandBtn.dataset.bound === "1") return;
+    el.dashboardExpandBtn.dataset.bound = "1";
+    el.dashboardExpandBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setDashboardExpandedMode(!document.body.classList.contains("uoa-dashboard-expanded"));
+    });
   }
 
   function bindDateRangeDownloadControls() {
@@ -4637,6 +4732,7 @@
 
     updateDateRangeSliderFill(startIndex, endIndex, visualBounds);
     updateDateRangeMissingSelection(startIndex, endIndex, visualBounds);
+    updateDownloadEstimates();
   }
 
   function handleDateRangeSliderInput(changed) {
@@ -5380,6 +5476,7 @@
     }
     bindDateRangePlaybackSpaceShortcut();
     bindDateRangePlaybackFpsButtons();
+    bindDashboardExpandButton();
     bindDateRangeDownloadControls();
     setDateRangePlaybackFps(saved.playbackFps);
 

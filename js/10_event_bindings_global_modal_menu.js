@@ -84,6 +84,13 @@ document.addEventListener('keydown', e => {
         e.stopImmediatePropagation();
     }
 }, true);
+window.addEventListener('message', e => {
+    if (e.origin !== window.location.origin) return;
+    if (e.source !== modalEmbed?.contentWindow) return;
+    const data = e.data || {};
+    if (data.type !== 'wsb-uoa-dashboard-expanded') return;
+    document.body?.classList?.toggle('uoa-dashboard-expanded', !!data.expanded);
+}, true);
 document.addEventListener('keydown', e => {
     if (!isBuyMeVisible) return;
     const k = e.key;
@@ -482,4 +489,3 @@ if (document.readyState === 'loading') {
 } else {
     applyStandaloneFocusOrder();
 }
-
