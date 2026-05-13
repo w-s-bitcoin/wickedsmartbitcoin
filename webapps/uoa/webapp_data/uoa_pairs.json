@@ -41,36 +41,68 @@
         "ratio": 10,
         "ratioLabel": "10:1"
       }
+    ],
+    "CUP": [
+      {
+        "date": "2021-01-04",
+        "ratio": 0.041666666666666664,
+        "ratioLabel": "1:24"
+      }
+    ],
+    "SYP": [
+      {
+        "date": "2026-01-07",
+        "ratio": 100,
+        "ratioLabel": "100:1"
+      }
+    ],
+    "ZMW": [
+      {
+        "date": "2013-01-02",
+        "ratio": 1000,
+        "ratioLabel": "1,000:1"
+      }
     ]
   },
   "notable_events": {
     "VES": [
       {
         "date": "2013-02-19",
-        "label": "devaluation (Maduro regime)",
-        "devaluationEstimate": "estimated devaluation: ~65%"
+        "label": "VES devaluation ~65%"
       },
       {
         "date": "2016-03-08",
-        "label": "devaluation announcement",
-        "devaluationEstimate": "estimated devaluation: ~70%"
+        "label": "VES devaluation ~70%"
       },
       {
         "date": "2018-02-06",
-        "label": "devaluation (new market rate)",
-        "devaluationEstimate": "estimated devaluation: ~250,000%"
+        "label": "VES devaluation ~250,000%"
       },
       {
         "date": "2018-08-20",
-        "label": "devaluation with 100,000:1 redenomination",
-        "devaluationEstimate": "estimated devaluation: ~50% + redenomination"
+        "label": "VES devaluation ~50% + redenomination"
       }
     ],
     "SDG": [
       {
         "date": "2021-02-25",
-        "label": "official rate unification / managed-float reset",
-        "devaluationEstimate": "estimated devaluation: ~582%"
+        "label": "SDG devaluation ~582%"
+      }
+    ],
+    "TMT": [
+      {
+        "date": "2015-01-06",
+        "label": "TMT devaluation ~20%"
+      }
+    ],
+    "LBP": [
+      {
+        "date": "2023-02-03",
+        "label": "LBP devaluation ~90%"
+      },
+      {
+        "date": "2024-03-11",
+        "label": "LBP devaluation ~83.3%"
       }
     ]
   },
