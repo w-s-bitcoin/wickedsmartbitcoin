@@ -614,6 +614,13 @@ body.uoa-dashboard-expanded .topbar {
   outline: none;
 }
 
+.date-range-btn:focus,
+.date-range-btn:focus-visible,
+.date-range-header label.chip:has(.date-range-btn):focus-within {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
 .date-range-panel {
   border: 1px solid var(--panel-border);
   border-radius: 14px;
@@ -663,6 +670,20 @@ body.uoa-dashboard-expanded .topbar {
   display: inline-flex;
   flex-wrap: nowrap;
   gap: 0;
+}
+
+.date-range-chart-toggle-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.date-range-chart-toggle-label {
+  display: inline-block;
 }
 
 .date-range-playback-controls {
@@ -968,10 +989,24 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 }
 
 .download-scale-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  display: flex;
   width: 100%;
   gap: 0;
+}
+
+.download-scale-row {
+  min-width: 0;
+}
+
+.download-scale-row:first-child .download-setting-option:last-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  margin-right: -1px;
+}
+
+.download-scale-row:last-child .download-setting-option:first-child {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
 }
 
 .download-setting-option {
@@ -1258,6 +1293,13 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
   z-index: 3;
 }
 
+.date-range-chart-toggle-btn:focus,
+.date-range-chart-toggle-btn:focus-visible,
+.date-range-chart-toggle-wrap:focus-within {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
 .date-range-preset-btn.is-active,
 .date-range-chart-toggle-btn.is-active {
   color: #000000;
@@ -1486,6 +1528,12 @@ body.uoa-loading .date-range-slider-wrap > * {
   z-index: 4;
   cursor: default;
   touch-action: none;
+}
+
+.date-range-slider:focus,
+.date-range-slider:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 .date-range-slider::-webkit-slider-runnable-track {
