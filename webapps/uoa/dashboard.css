@@ -119,6 +119,7 @@ body.uoa-dashboard-expanded .wrap {
   min-height: 100vh;
   grid-template-rows: auto minmax(var(--chart-panel-min-height), 1fr);
   padding-top: var(--wrap-pad);
+  box-sizing: border-box;
 }
 
 body.uoa-dashboard-expanded.embedded-in-modal .wrap,
@@ -2085,6 +2086,16 @@ canvas {
 
 @media (max-width: 860px) {
   .wrap {
+    padding-bottom: calc(var(--wrap-pad) + env(safe-area-inset-bottom, 0px) + 56px);
+  }
+
+  body.uoa-dashboard-expanded {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  body.uoa-dashboard-expanded .wrap {
+    height: auto;
     padding-bottom: calc(var(--wrap-pad) + env(safe-area-inset-bottom, 0px) + 56px);
   }
 }
