@@ -260,8 +260,8 @@
     }
   }
 
-  function navigateToImage(filename) {
-    if (isPlaybackActive()) return;
+  function navigateToImage(filename, options = {}) {
+    if (isPlaybackActive() && !options.allowDuringPlayback) return;
     window.location.href = getMainRouteUrl(filename);
   }
 
@@ -272,7 +272,7 @@
     return raw.endsWith(".png") ? raw : `${raw}.png`;
   }
 
-  async function navigateRelative(delta) {
+  async function navigateRelative(delta, options = {}) {
     try {
       const list = await loadImageList();
       if (!list.length) return;
@@ -285,7 +285,7 @@
       const nextIndex = (baseIndex + delta + navList.length) % navList.length;
       const target = navList[nextIndex];
       if (!target?.filename) return;
-      navigateToImage(target.filename);
+      navigateToImage(target.filename, options);
     } catch (error) {
       console.warn("Standalone navigation failed:", error);
     }
@@ -368,13 +368,11 @@
   }
 
   function prevImage() {
-    if (isPlaybackActive()) return;
-    navigateRelative(-1);
+    navigateRelative(-1, { allowDuringPlayback: true });
   }
 
   function nextImage() {
-    if (isPlaybackActive()) return;
-    navigateRelative(1);
+    navigateRelative(1, { allowDuringPlayback: true });
   }
 
   function handleNavKey(key) {

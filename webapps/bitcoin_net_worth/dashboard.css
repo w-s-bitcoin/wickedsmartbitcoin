@@ -1847,6 +1847,12 @@ td.history-actions-cell {
   }
 }
 
+@media (max-width: 860px) {
+  .app-shell {
+    margin-bottom: calc(30px + env(safe-area-inset-bottom, 0px) + 56px);
+  }
+}
+
 /* ── Scrollbar styling ──────────────────────────────────────────────────────
    Targets the scrollable bottom-panel containers:
    .table-wrap (history table), #assetsRows/#liabilitiesRows (editor rows),

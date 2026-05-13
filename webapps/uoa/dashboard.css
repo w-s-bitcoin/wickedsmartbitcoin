@@ -170,6 +170,34 @@ body {
   color: var(--fg);
 }
 
+.chip .chip-value {
+  display: inline-block;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+.chip .chip-value:empty::before {
+  content: attr(data-loading-placeholder);
+  visibility: hidden;
+}
+
+#updatedKpiValue {
+  min-width: 21ch;
+}
+
+#blockHeightKpiValue {
+  min-width: 7ch;
+}
+
+#pairKpiValue {
+  min-width: 7ch;
+}
+
+#primaryRankKpiValue,
+#secondaryRankKpiValue {
+  min-width: 3ch;
+}
+
 #pairKpiValue .pair-primary {
   color: var(--left);
 }
@@ -226,6 +254,20 @@ body {
   margin-left: 0;
   padding-right: 0;
   flex: 0 0 auto;
+}
+
+#primaryUoaDropdown,
+#secondaryUoaDropdown {
+  width: 50px;
+  min-width: 50px;
+}
+
+#scaleDropdown {
+  min-width: 74px;
+}
+
+#orderByDropdown {
+  min-width: 172px;
 }
 
 .controls label.chip:has(.dca-dropdown.is-open),
@@ -476,8 +518,11 @@ body {
 .date-range-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 6px;
   padding: 4px 10px;
+  width: 106px;
+  min-width: 106px;
   min-height: 30px;
   font-size: 0.85rem;
   font-family: inherit;
@@ -488,6 +533,10 @@ body {
   cursor: pointer;
   white-space: nowrap;
   transition: background 140ms ease, border-color 140ms ease;
+}
+
+.date-range-btn-placeholder {
+  visibility: hidden;
 }
 
 .date-range-btn:hover {
@@ -599,6 +648,7 @@ body {
   border-bottom-left-radius: 0 !important;
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
+  border-radius: 0 !important;
   margin-right: 0;
 }
 
@@ -748,10 +798,20 @@ body {
   padding: 0;
   display: grid;
   place-items: center;
-  font-size: 1.15rem;
+  font-size: 0;
   line-height: 1;
   text-align: center;
   transform: translateX(-1px);
+  text-indent: 0;
+}
+
+.date-range-download-settings .date-range-settings-btn::before {
+  content: "⚙";
+  display: block;
+  color: currentColor;
+  font-size: 1.15rem;
+  line-height: 1;
+  transform: translateY(1px);
 }
 
 .date-range-fps-trigger {
@@ -763,7 +823,6 @@ body {
   justify-content: center;
 }
 
-.date-range-fps-menu,
 .date-range-download-settings-menu {
   position: absolute;
   left: -1px;
@@ -780,19 +839,6 @@ body {
   z-index: 180;
 }
 
-.date-range-fps-menu {
-  left: 50%;
-  top: 100%;
-  transform: translateX(-50%);
-  min-width: max-content;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-  padding: 0;
-  flex-direction: row;
-  gap: 0;
-}
-
 .date-range-download-settings-menu {
   left: auto;
   right: 0;
@@ -806,7 +852,6 @@ body {
   gap: 9px;
 }
 
-.date-range-fps-menu.open,
 .date-range-download-settings-menu.open {
   display: flex;
 }
@@ -922,59 +967,6 @@ body {
   color: #dc2626;
 }
 
-.date-range-fps-option {
-  border: 1px solid var(--panel-border);
-  border-radius: 0;
-  margin-right: -1px;
-  background: var(--panel);
-  color: var(--muted);
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 0.75rem;
-  text-align: center;
-  padding: 5px 9px;
-  cursor: pointer;
-  position: relative;
-  z-index: 1;
-  transition: border-color 120ms ease, color 120ms ease, background 120ms ease, box-shadow 120ms ease;
-}
-
-.date-range-fps-option:first-child {
-  border-top-left-radius: 8px;
-  border-bottom-left-radius: 8px;
-}
-
-.date-range-fps-option:last-child {
-  margin-right: 0;
-  border-top-right-radius: 8px;
-  border-bottom-right-radius: 8px;
-}
-
-.date-range-fps-option:hover,
-.date-range-fps-option:focus-visible {
-  color: var(--fg);
-  border-color: rgba(255, 255, 255, 0.35);
-  outline: none;
-  z-index: 3;
-}
-
-.date-range-fps-option.is-selected {
-  color: #000000;
-  border: 1px solid var(--panel-border-opaque) !important;
-  background: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--panel-border-opaque);
-  text-shadow: none;
-  z-index: 4;
-}
-
-.date-range-fps-option.is-selected:hover,
-.date-range-fps-option.is-selected:focus-visible {
-  border-color: var(--panel-border-opaque) !important;
-}
-
-.date-range-fps-option.is-selected + .date-range-fps-option {
-  border-left-color: var(--panel-border);
-}
-
 .date-range-playback-btn:hover,
 .date-range-playback-btn:focus-visible {
   color: var(--fg);
@@ -1028,22 +1020,6 @@ body {
 :root[data-theme="light"] .date-range-playback-btn:hover,
 :root[data-theme="light"] .date-range-playback-btn:focus-visible {
   border-color: rgba(0, 0, 0, 0.35);
-}
-
-:root[data-theme="light"] .date-range-fps-option:hover,
-:root[data-theme="light"] .date-range-fps-option:focus-visible {
-  border-color: rgba(0, 0, 0, 0.35);
-}
-
-:root[data-theme="light"] .date-range-fps-option.is-selected {
-  color: #000000;
-  border-color: var(--panel-border-opaque) !important;
-  background: var(--accent);
-}
-
-:root[data-theme="light"] .date-range-fps-option.is-selected:hover,
-:root[data-theme="light"] .date-range-fps-option.is-selected:focus-visible {
-  border-color: var(--panel-border-opaque) !important;
 }
 
 :root[data-theme="light"] .download-setting-option:hover,
@@ -1796,5 +1772,11 @@ canvas {
 
   canvas {
     height: auto;
+  }
+}
+
+@media (max-width: 860px) {
+  .wrap {
+    padding-bottom: calc(var(--wrap-pad) + env(safe-area-inset-bottom, 0px) + 56px);
   }
 }
