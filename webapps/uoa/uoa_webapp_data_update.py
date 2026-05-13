@@ -167,6 +167,7 @@ VES_FIRST_REDENOM_DATE = "2018-05-29"
 CURRENCY_FORMAT_OVERRIDES = {
     "EUR": {"symbol": "€", "symbol_position": "left", "minor_unit": 2},
     "USD": {"symbol": "$", "symbol_position": "left", "minor_unit": 2},
+    "ANG": {"symbol": "ƒ", "symbol_position": "left", "minor_unit": 2},
     "GBP": {"symbol": "£", "symbol_position": "left", "minor_unit": 2},
     "JPY": {"symbol": "¥", "symbol_position": "left", "minor_unit": 0},
     "CHF": {"symbol": "CHF", "symbol_position": "right", "minor_unit": 2},
