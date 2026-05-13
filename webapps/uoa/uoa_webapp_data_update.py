@@ -21,9 +21,13 @@ VES_REDENOMINATION_EVENTS = [
 BYN_REDENOMINATION_EVENTS = [
     {"date": "2016-07-01", "ratio": 10000, "ratioLabel": "10,000:1"},
 ]
+MRO_REDENOMINATION_EVENTS = [
+    {"date": "2018-01-03", "ratio": 10, "ratioLabel": "10:1"},
+]
 REDENOMINATION_EVENTS = {
     "VES": VES_REDENOMINATION_EVENTS,
     "BYN": BYN_REDENOMINATION_EVENTS,
+    "MRO": MRO_REDENOMINATION_EVENTS,
 }
 NOTABLE_EVENTS = {    "VES": [
         {
@@ -91,6 +95,7 @@ CURRENCY_FORMAT_OVERRIDES = {
 }
 
 CURRENCY_NAME_OVERRIDES = {
+    "BAM": "Bosnia and Herzegovina convertible mark",
     "USD": "US Dollar",
     "VES": "Venezuelan Bolívar",
     "XAG": "silver",
@@ -98,6 +103,16 @@ CURRENCY_NAME_OVERRIDES = {
     "XPD": "palladium",
     "XPT": "platinum",
 }
+
+MANUAL_FX_SCALE_CORRECTIONS = [
+    {
+        "column": "mrousd",
+        "start_date": "2018-04-17",
+        "end_date": "2018-06-27",
+        "factor": 0.01,
+        "reason": "Remove accidental 100x MRO/USD source-scale spike.",
+    },
+]
 
 
 def fetch_supported_currencies():
@@ -464,6 +479,41 @@ def clean_transient_spike_outliers(
     return cleaned, fixes_by_column
 
 
+def apply_manual_fx_scale_corrections(df, corrections=MANUAL_FX_SCALE_CORRECTIONS):
+    """Apply known date-bounded source-scale corrections before writing webapp data."""
+    if "date" not in df.columns or not corrections:
+        return df, {}
+
+    cleaned = df.copy()
+    date_series = pd.to_datetime(cleaned["date"], errors="coerce")
+    fixes_by_column = {}
+
+    for correction in corrections:
+        column = str(correction.get("column", "")).strip()
+        if not column or column not in cleaned.columns:
+            continue
+
+        start_date = pd.to_datetime(correction.get("start_date"), errors="coerce")
+        end_date = pd.to_datetime(correction.get("end_date"), errors="coerce")
+        factor = correction.get("factor")
+        if pd.isna(start_date) or pd.isna(end_date) or not isinstance(factor, (int, float)) or factor <= 0:
+            continue
+
+        mask = (date_series >= start_date) & (date_series <= end_date)
+        if not mask.any():
+            continue
+
+        values = pd.to_numeric(cleaned.loc[mask, column], errors="coerce")
+        valid_mask = values.notna()
+        if not valid_mask.any():
+            continue
+
+        cleaned.loc[values[valid_mask].index, column] = values[valid_mask] * float(factor)
+        fixes_by_column[column] = fixes_by_column.get(column, 0) + int(valid_mask.sum())
+
+    return cleaned, fixes_by_column
+
+
 def rebuild_vesusd_canonical(df, end_date_iso):
     """Rebuild vesusd from canonical source stitching to avoid mixed-scale artifacts.
 
@@ -615,6 +665,13 @@ def main():
     df_combined, ves_fixes = clean_ves_redenomination_lag_points(df_combined, ves_event_dates)
     if ves_fixes:
         print(f"  Cleaned post-redenomination lag points: {ves_fixes}")
+
+    # Apply known date-bounded source-scale fixes before general spike cleanup.
+    df_combined, manual_fixes = apply_manual_fx_scale_corrections(df_combined)
+    if manual_fixes:
+        total_manual_fixes = sum(manual_fixes.values())
+        manual_cols_text = ", ".join(f"{col}:{count}" for col, count in sorted(manual_fixes.items()))
+        print(f"  Applied manual source-scale corrections: {total_manual_fixes} rows ({manual_cols_text})")
 
     # Remove transient spike outliers (single or multi-day) that quickly revert.
     spike_columns = [col for col in df_combined.columns if col != "date" and col.lower().endswith("usd")]

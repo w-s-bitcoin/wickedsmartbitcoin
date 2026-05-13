@@ -37,8 +37,8 @@
   --fg-dim: #374151;
   --muted: #6f685f;
   --ink: #111827;
-  --accent: #ff9900;
-  --left: #ff9900;
+  --accent: #ffae00;
+  --left: #ffae00;
   --right: #39d7a4;
   --ghost: rgba(55, 65, 81, 0.2);
 }
@@ -523,6 +523,12 @@ body {
 .date-range-fps-dropdown {
   position: relative;
   display: inline-flex;
+  margin-right: -1px;
+}
+
+.date-range-download-settings {
+  position: relative;
+  display: inline-flex;
 }
 
 .date-range-playback-btn {
@@ -556,8 +562,8 @@ body {
 .date-range-fps-trigger {
   border-top-left-radius: 0 !important;
   border-bottom-left-radius: 0 !important;
-  border-top-right-radius: 8px;
-  border-bottom-right-radius: 8px;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
   margin-right: 0;
 }
 
@@ -620,34 +626,102 @@ body {
   justify-content: center;
 }
 
-.date-range-fps-trigger {
-  min-width: 82px;
-  padding-right: 22px;
+.date-range-download-btn,
+.date-range-settings-btn {
+  width: 30px;
+  min-width: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.date-range-fps-trigger::after {
+.date-range-download-btn {
+  font-size: 0.95rem;
+}
+
+.date-range-download-btn.is-exporting {
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 1;
+}
+
+.date-range-download-btn.is-exporting:hover,
+.date-range-download-btn.is-exporting:focus-visible {
+  color: var(--muted);
+}
+
+@property --date-range-export-progress {
+  syntax: "<percentage>";
+  inherits: true;
+  initial-value: 0%;
+}
+
+.date-range-export-progress {
+  --date-range-export-progress: 0%;
+  position: relative;
+  display: block;
+  width: 22px;
+  height: 22px;
+}
+
+.date-range-export-progress::before {
   content: "";
   position: absolute;
-  right: 8px;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(#ff9900 0% var(--date-range-export-progress), #5f5f5f var(--date-range-export-progress) 100%);
+  box-shadow: 0 0 5px color-mix(in srgb, #ff9900 22%, transparent);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+  transition: --date-range-export-progress 140ms linear;
+}
+
+:root[data-theme="light"] .date-range-export-progress::before {
+  background: conic-gradient(#ff9900 0% var(--date-range-export-progress), #bdbdbd var(--date-range-export-progress) 100%);
+}
+
+.date-range-export-stop-square {
+  position: absolute;
+  left: 50%;
   top: 50%;
-  width: 12px;
-  height: 12px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237a756e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: center;
-  transform: translateY(-35%);
-  pointer-events: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--muted) 80%, transparent);
+  transform: translate(-50%, -50%);
+  transition: background 120ms ease, box-shadow 120ms ease;
+  z-index: 1;
 }
 
-.date-range-fps-trigger.is-open::after {
-  transform: translateY(-35%) rotate(180deg);
+.date-range-download-btn.is-exporting:hover .date-range-export-stop-square,
+.date-range-download-btn.is-exporting:focus-visible .date-range-export-stop-square {
+  background: #ff9900;
+  box-shadow: 0 0 7px color-mix(in srgb, #ff9900 58%, transparent);
 }
 
-:root:not([data-theme="light"]) .date-range-fps-trigger::after {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23d6e1e6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+.date-range-download-btn.is-exporting.is-canceling .date-range-export-stop-square {
+  background: #ff9900;
 }
 
-.date-range-fps-menu {
+.date-range-settings-btn {
+  border-top-right-radius: 8px;
+  border-bottom-right-radius: 8px;
+  margin-right: 0;
+  font-size: 1.15rem;
+}
+
+.date-range-fps-trigger {
+  width: 48px;
+  min-width: 48px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.date-range-fps-menu,
+.date-range-download-settings-menu {
   position: absolute;
   left: -1px;
   top: calc(100% + 6px);
@@ -663,30 +737,194 @@ body {
   z-index: 180;
 }
 
-.date-range-fps-menu.open {
+.date-range-fps-menu {
+  left: 50%;
+  top: 100%;
+  transform: translateX(-50%);
+  min-width: max-content;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  flex-direction: row;
+  gap: 0;
+}
+
+.date-range-download-settings-menu {
+  left: auto;
+  right: 0;
+  min-width: 280px;
+  padding: 10px;
+  gap: 9px;
+}
+
+.date-range-fps-menu.open,
+.date-range-download-settings-menu.open {
   display: flex;
 }
 
-.date-range-fps-option {
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
+.download-setting-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.7rem;
+}
+
+.download-setting-button-row {
+  display: flex;
+  width: 100%;
+  gap: 0;
+}
+
+.download-setting-option {
+  flex: 1 1 0;
+  border: 1px solid var(--panel-border);
+  border-radius: 0;
+  margin-right: -1px;
+  background: var(--panel);
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.74rem;
+  text-align: center;
+  padding: 6px 8px;
+  cursor: pointer;
+  position: relative;
+  z-index: 1;
+  transition: border-color 120ms ease, color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+
+.download-setting-option:first-child {
+  border-top-left-radius: 8px;
+  border-bottom-left-radius: 8px;
+}
+
+.download-setting-option:last-child {
+  margin-right: 0;
+  border-top-right-radius: 8px;
+  border-bottom-right-radius: 8px;
+}
+
+.download-setting-option:hover,
+.download-setting-option:focus-visible {
+  color: var(--fg);
+  border-color: rgba(255, 255, 255, 0.35);
+  outline: none;
+  z-index: 3;
+}
+
+.download-setting-option.is-selected {
+  color: #000000;
+  border: 1px solid var(--panel-border-opaque) !important;
+  background: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--panel-border-opaque);
+  text-shadow: none;
+  z-index: 4;
+}
+
+.download-chart-mode-row .download-setting-option[data-value="right"].is-selected {
+  color: #000000;
+  background: var(--right);
+}
+
+.download-setting-option.is-selected:hover,
+.download-setting-option.is-selected:focus-visible {
+  border-color: var(--panel-border-opaque) !important;
+}
+
+.download-setting-option.is-selected + .download-setting-option {
+  border-left-color: var(--panel-border);
+}
+
+.download-setting-actions {
+  display: flex;
+  width: 100%;
+  padding-top: 3px;
+}
+
+.download-setting-actions button {
+  width: 100%;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--panel);
   color: var(--fg);
   font-family: "IBM Plex Mono", monospace;
   font-size: 0.74rem;
-  text-align: left;
-  padding: 6px 8px;
+  padding: 7px 10px;
   cursor: pointer;
+}
+
+.download-setting-actions button:hover,
+.download-setting-actions button:focus-visible {
+  border-color: rgba(255, 255, 255, 0.35);
+  outline: none;
+}
+
+.download-setting-actions button.is-stop-download {
+  border-color: transparent;
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.download-setting-actions button.is-stop-download:hover,
+.download-setting-actions button.is-stop-download:focus-visible {
+  border-color: transparent;
+  background: rgba(239, 68, 68, 0.25);
+  color: #dc2626;
+}
+
+.date-range-fps-option {
+  border: 1px solid var(--panel-border);
+  border-radius: 0;
+  margin-right: -1px;
+  background: var(--panel);
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.75rem;
+  text-align: center;
+  padding: 5px 9px;
+  cursor: pointer;
+  position: relative;
+  z-index: 1;
+  transition: border-color 120ms ease, color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+
+.date-range-fps-option:first-child {
+  border-top-left-radius: 8px;
+  border-bottom-left-radius: 8px;
+}
+
+.date-range-fps-option:last-child {
+  margin-right: 0;
+  border-top-right-radius: 8px;
+  border-bottom-right-radius: 8px;
 }
 
 .date-range-fps-option:hover,
 .date-range-fps-option:focus-visible {
-  background: rgba(255, 255, 255, 0.12);
+  color: var(--fg);
+  border-color: rgba(255, 255, 255, 0.35);
   outline: none;
+  z-index: 3;
 }
 
 .date-range-fps-option.is-selected {
-  background: rgba(255, 255, 255, 0.08);
+  color: #000000;
+  border: 1px solid var(--panel-border-opaque) !important;
+  background: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--panel-border-opaque);
+  text-shadow: none;
+  z-index: 4;
+}
+
+.date-range-fps-option.is-selected:hover,
+.date-range-fps-option.is-selected:focus-visible {
+  border-color: var(--panel-border-opaque) !important;
+}
+
+.date-range-fps-option.is-selected + .date-range-fps-option {
+  border-left-color: var(--panel-border);
 }
 
 .date-range-playback-btn:hover,
@@ -746,11 +984,39 @@ body {
 
 :root[data-theme="light"] .date-range-fps-option:hover,
 :root[data-theme="light"] .date-range-fps-option:focus-visible {
-  background: rgba(0, 0, 0, 0.08);
+  border-color: rgba(0, 0, 0, 0.35);
 }
 
 :root[data-theme="light"] .date-range-fps-option.is-selected {
-  background: rgba(0, 0, 0, 0.06);
+  color: #000000;
+  border-color: var(--panel-border-opaque) !important;
+  background: var(--accent);
+}
+
+:root[data-theme="light"] .date-range-fps-option.is-selected:hover,
+:root[data-theme="light"] .date-range-fps-option.is-selected:focus-visible {
+  border-color: var(--panel-border-opaque) !important;
+}
+
+:root[data-theme="light"] .download-setting-option:hover,
+:root[data-theme="light"] .download-setting-option:focus-visible {
+  border-color: rgba(0, 0, 0, 0.35);
+}
+
+:root[data-theme="light"] .download-setting-option.is-selected {
+  color: #000000;
+  border-color: var(--panel-border-opaque) !important;
+  background: var(--accent);
+}
+
+:root[data-theme="light"] .download-chart-mode-row .download-setting-option[data-value="right"].is-selected {
+  color: #000000;
+  background: var(--right);
+}
+
+:root[data-theme="light"] .download-setting-option.is-selected:hover,
+:root[data-theme="light"] .download-setting-option.is-selected:focus-visible {
+  border-color: var(--panel-border-opaque) !important;
 }
 
 .date-range-preset-btn {
@@ -1274,6 +1540,8 @@ body {
   line-height: 1.06;
   font-weight: 500;
   margin-top: 0;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
 }
 
 @media (max-width: 640px) {
@@ -1301,6 +1569,8 @@ body {
   color: var(--fg);
   font-size: clamp(0.8rem, 1.5vw, 1.05rem);
   padding: 0 2px;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
 }
 
 .chart-date-edges {
@@ -1311,6 +1581,7 @@ body {
   font-size: 0.78rem;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
 }
 
 .chart-date-edges > span {
@@ -1326,7 +1597,7 @@ body {
 
 .chart-date-edges > span:last-child {
   left: var(--chart-end-x-pct, 100%);
-  transform: translate(-75%, -50%);
+  transform: translate(-100%, -50%);
   text-align: right;
 }
 
