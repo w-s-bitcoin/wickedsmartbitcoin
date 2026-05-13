@@ -117,8 +117,13 @@ let homepageRefreshInFlight = false;
 let homepageLastSuccessfulRefreshAt = 0;
 let homepageLastUpdatedStamp = "";
 
+function isDashboardExportActive() {
+    return !!(window.wsbDashboardExportActive || window.dateRangeExportActive);
+}
+
 function triggerHomepageRefreshSoon(delayMs = 150) {
     window.setTimeout(() => {
+        if (isDashboardExportActive()) return;
         refreshHomepageLastUpdatedStamp();
     }, delayMs);
 }
@@ -157,6 +162,7 @@ function startHomepageAutoRefresh() {
 }
 
 async function refreshHomepageLastUpdatedStamp() {
+    if (isDashboardExportActive()) return;
     if (homepageRefreshInFlight) return;
     homepageRefreshInFlight = true;
     try {

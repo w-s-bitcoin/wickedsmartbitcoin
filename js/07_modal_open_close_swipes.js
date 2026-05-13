@@ -255,6 +255,7 @@ function openModalByIndex(index) {
     });
 }
 function closeModal() {
+    if (window.wsbDashboardExportActive || window.dateRangeExportActive) return;
     const GRID_FOCUS_RESTORE_KEY = 'wsb_pending_grid_focus_filename_v1';
     const closedFilename =
         (modalImg && modalImg.dataset && modalImg.dataset.filename)
@@ -586,6 +587,7 @@ modalImg.addEventListener('touchcancel', () => {
 });
 modalImg.addEventListener('dragstart', e => e.preventDefault());
 function prevImage() {
+    if (window.wsbDashboardExportActive || window.dateRangeExportActive) return;
     try { filterImages(); } catch (_) {}
     if (justUnstarredInModal) {
         justUnstarredInModal = false;
@@ -611,6 +613,7 @@ function prevImage() {
     openModalByIndex(targetVisibleIndex);
 }
 function nextImage() {
+    if (window.wsbDashboardExportActive || window.dateRangeExportActive) return;
     try { filterImages(); } catch (_) {}
     if (justUnstarredInModal) {
         justUnstarredInModal = false;

@@ -46,6 +46,17 @@
     return false;
   }
 
+  function isDateRangeExportActive() {
+    if (window.dateRangeExportActive) return true;
+    try {
+      if (window.parent && window.parent !== window && window.parent.dateRangeExportActive) {
+        return true;
+      }
+    } catch (_) {
+    }
+    return false;
+  }
+
   function applyStandaloneFocusOrder() {
     if (!document.body || document.body.getAttribute("data-standalone-modal-shell") !== "1") return;
 
@@ -355,6 +366,7 @@
   }
 
   function closeModal() {
+    if (isDateRangeExportActive()) return;
     if (isPlaybackActive()) return;
     document.body?.classList?.remove("uoa-dashboard-expanded");
     try {
@@ -369,10 +381,12 @@
   }
 
   function prevImage() {
+    if (isDateRangeExportActive()) return;
     navigateRelative(-1, { allowDuringPlayback: true });
   }
 
   function nextImage() {
+    if (isDateRangeExportActive()) return;
     navigateRelative(1, { allowDuringPlayback: true });
   }
 
@@ -444,6 +458,10 @@
       if (event.origin !== window.location.origin) return;
       if (event.source !== modalEmbed?.contentWindow) return;
       const data = event.data || {};
+      if (data.type === "wsb-uoa-date-range-export-active") {
+        window.dateRangeExportActive = !!data.active;
+        return;
+      }
       if (data.type === "wsb-uoa-dashboard-expanded") {
         document.body?.classList?.toggle("uoa-dashboard-expanded", !!data.expanded);
         return;
