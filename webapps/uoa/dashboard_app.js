@@ -849,7 +849,7 @@
     const chartMode = ["both", "left", "right"].includes(settings.chartMode) ? settings.chartMode : DEFAULT_DOWNLOAD_SETTINGS.chartMode;
     const rawExtension = settings.extension === "gif" ? "webm" : settings.extension;
     const extension = ["mp4", "webm"].includes(rawExtension) ? rawExtension : DEFAULT_DOWNLOAD_SETTINGS.extension;
-    const quality = ["720", "1080", "1440"].includes(String(settings.quality)) ? String(settings.quality) : DEFAULT_DOWNLOAD_SETTINGS.quality;
+    const quality = ["720", "1080", "1440", "2160"].includes(String(settings.quality)) ? String(settings.quality) : DEFAULT_DOWNLOAD_SETTINGS.quality;
     const orientation = ["landscape", "portrait", "square"].includes(settings.orientation) ? settings.orientation : DEFAULT_DOWNLOAD_SETTINGS.orientation;
     const theme = settings.theme === "dark" ? "dark" : settings.theme === "light" ? "light" : getCurrentDashboardTheme();
     const rawFps = Number(settings.fps);
