@@ -1,6 +1,7 @@
 (function () {
   const THEME_KEY = "quantum-research-dashboard-theme";
   const UOA_FILTERS_KEY = "uoa-dashboard-filters-v1";
+  const UOA_DOWNLOAD_SETTINGS_KEY = "uoa-dashboard-download-settings-v1";
   const DASHBOARD_TIME = window.WSBDashboardTime || null;
   const REDENOMINATION_EVENTS = {
     VES: [
@@ -10,6 +11,9 @@
     ],
     BYN: [
       { date: "2016-07-01", ratio: 10000, ratioLabel: "10,000:1" },
+    ],
+    MRO: [
+      { date: "2018-01-03", ratio: 10, ratioLabel: "10:1" },
     ],
   };
   const NOTABLE_EVENTS = {
@@ -45,6 +49,36 @@
   };
   const LOG_MIN_POSITIVE = 1e-300;
   const DEFAULT_RANGE_PLAYBACK_FPS = 60;
+  const DEFAULT_DOWNLOAD_SETTINGS = {
+    chartMode: "both",
+    extension: "mp4",
+    quality: "1080",
+    orientation: "landscape",
+    theme: "light",
+    fps: "",
+  };
+  const EXPORT_THEME_PALETTES = {
+    dark: {
+      "--bg": "#000000",
+      "--panel": "#000000",
+      "--fg": "#e5e7eb",
+      "--muted": "#95a6ae",
+      "--line": "rgba(255, 255, 255, 0.17)",
+      "--left": "#ffae00",
+      "--right": "#34d399",
+      "--ghost": "rgba(148, 163, 184, 0.25)",
+    },
+    light: {
+      "--bg": "#ffffff",
+      "--panel": "#ffffff",
+      "--fg": "#111827",
+      "--muted": "#6f685f",
+      "--line": "rgba(0, 0, 0, 0.13)",
+      "--left": "#ffae00",
+      "--right": "#39d7a4",
+      "--ghost": "rgba(55, 65, 81, 0.2)",
+    },
+  };
 
   function applyTheme(theme) {
     document.documentElement.dataset.theme = theme === "light" ? "light" : "dark";
@@ -92,6 +126,16 @@
     dateRangeStopBtn: document.getElementById("dateRangeStopBtn"),
     dateRangeFpsTrigger: document.getElementById("dateRangeFpsTrigger"),
     dateRangeFpsMenu: document.getElementById("dateRangeFpsMenu"),
+    dateRangeDownloadBtn: document.getElementById("dateRangeDownloadBtn"),
+    dateRangeDownloadSettingsBtn: document.getElementById("dateRangeDownloadSettingsBtn"),
+    dateRangeDownloadSettingsMenu: document.getElementById("dateRangeDownloadSettingsMenu"),
+    downloadChartModeSelect: document.getElementById("downloadChartModeSelect"),
+    downloadExtensionSelect: document.getElementById("downloadExtensionSelect"),
+    downloadQualitySelect: document.getElementById("downloadQualitySelect"),
+    downloadOrientationSelect: document.getElementById("downloadOrientationSelect"),
+    downloadThemeSelect: document.getElementById("downloadThemeSelect"),
+    downloadFpsSelect: document.getElementById("downloadFpsSelect"),
+    downloadSettingsDownloadBtn: document.getElementById("downloadSettingsDownloadBtn"),
     startDateInput: document.getElementById("startDateInput"),
     endDateInput: document.getElementById("endDateInput"),
     dateRangeSliderWrap: document.getElementById("dateRangeSliderWrap"),
@@ -153,6 +197,15 @@
   let dateRangePlaybackOutsidePointerHandler = null;
   let dateRangePlaybackOutsidePointerTouchState = null;
   let dateRangeFpsMenuOutsideHandler = null;
+  let dateRangeDownloadSettingsOutsideHandler = null;
+  let isDateRangeExporting = false;
+  let dateRangeExportCancelRequested = false;
+  let isRenderingDateRangeExportFrame = false;
+  let activeDateRangeExportTheme = null;
+  let activeDateRangeExportAxisRows = null;
+  let downloadSettings = { ...DEFAULT_DOWNLOAD_SETTINGS };
+  let downloadSettingsHasStoredValue = false;
+  const exportNumericMeasureCache = new Map();
   let dateRangePlaybackState = {
     isPlaying: false,
     rafId: 0,
@@ -359,11 +412,161 @@
     return DEFAULT_RANGE_PLAYBACK_FPS;
   }
 
+  function getPlaybackSpeedLabel(fps) {
+    const speed = (Number(fps) || DEFAULT_RANGE_PLAYBACK_FPS) / DEFAULT_RANGE_PLAYBACK_FPS;
+    if (Math.abs(speed - 0.5) < 0.001) return "0.5x";
+    if (Math.abs(speed - 1) < 0.001) return "1x";
+    if (Math.abs(speed - 2) < 0.001) return "2x";
+    if (Math.abs(speed - 4) < 0.001) return "4x";
+    return `${Number(speed.toFixed(2))}x`;
+  }
+
+  function getExportThemePalette(theme) {
+    return EXPORT_THEME_PALETTES[theme === "dark" ? "dark" : "light"];
+  }
+
+  function getDashboardCssValue(name, fallback = "") {
+    if (isRenderingDateRangeExportFrame && activeDateRangeExportTheme) {
+      return getExportThemePalette(activeDateRangeExportTheme)[name] || fallback;
+    }
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+  }
+
+  function normalizeDownloadSettings(settings = {}) {
+    const chartMode = ["both", "left", "right"].includes(settings.chartMode) ? settings.chartMode : DEFAULT_DOWNLOAD_SETTINGS.chartMode;
+    const rawExtension = settings.extension === "gif" ? "webm" : settings.extension;
+    const extension = ["mp4", "webm"].includes(rawExtension) ? rawExtension : DEFAULT_DOWNLOAD_SETTINGS.extension;
+    const quality = ["720", "1080", "1440"].includes(String(settings.quality)) ? String(settings.quality) : DEFAULT_DOWNLOAD_SETTINGS.quality;
+    const orientation = ["landscape", "portrait", "square"].includes(settings.orientation) ? settings.orientation : DEFAULT_DOWNLOAD_SETTINGS.orientation;
+    const theme = settings.theme === "dark" ? "dark" : settings.theme === "light" ? "light" : DEFAULT_DOWNLOAD_SETTINGS.theme;
+    const rawFps = Number(settings.fps);
+    const fps = Number.isFinite(rawFps) && rawFps > 0
+      ? String(rawFps)
+      : String(getSelectedDateRangePlaybackFps());
+    return { chartMode, extension, quality, orientation, theme, fps };
+  }
+
+  function loadDownloadSettings() {
+    let stored = null;
+    try {
+      stored = JSON.parse(localStorage.getItem(UOA_DOWNLOAD_SETTINGS_KEY) || "null");
+    } catch (_) {
+      stored = null;
+    }
+    downloadSettingsHasStoredValue = !!stored && typeof stored === "object";
+    downloadSettings = normalizeDownloadSettings(stored || DEFAULT_DOWNLOAD_SETTINGS);
+    syncDownloadSettingsControls();
+  }
+
+  function getDownloadSettingGroupValue(group) {
+    if (group === el.downloadChartModeSelect) {
+      const leftSelected = !!group.querySelector('.download-setting-option.is-selected[data-value="left"]');
+      const rightSelected = !!group.querySelector('.download-setting-option.is-selected[data-value="right"]');
+      if (leftSelected && rightSelected) return "both";
+      if (leftSelected) return "left";
+      if (rightSelected) return "right";
+      return DEFAULT_DOWNLOAD_SETTINGS.chartMode;
+    }
+    const selected = group?.querySelector?.(".download-setting-option.is-selected[data-value]");
+    return selected?.dataset.value || "";
+  }
+
+  function setDownloadSettingGroupValue(group, value) {
+    if (!group) return;
+    const buttons = Array.from(group.querySelectorAll(".download-setting-option[data-value]"));
+    if (group === el.downloadChartModeSelect) {
+      const mode = ["both", "left", "right"].includes(value) ? value : DEFAULT_DOWNLOAD_SETTINGS.chartMode;
+      buttons.forEach((button) => {
+        const isSelected = mode === "both" || button.dataset.value === mode;
+        button.classList.toggle("is-selected", isSelected);
+        button.setAttribute("aria-pressed", isSelected ? "true" : "false");
+      });
+      return;
+    }
+    buttons.forEach((button) => {
+      const isSelected = button.dataset.value === String(value);
+      button.classList.toggle("is-selected", isSelected);
+      button.setAttribute("aria-pressed", isSelected ? "true" : "false");
+    });
+  }
+
+  function toggleDownloadChartModeButton(button) {
+    const group = el.downloadChartModeSelect;
+    if (!group || !button) return;
+    const nextSelected = !button.classList.contains("is-selected");
+    button.classList.toggle("is-selected", nextSelected);
+    button.setAttribute("aria-pressed", nextSelected ? "true" : "false");
+
+    const leftButton = group.querySelector('.download-setting-option[data-value="left"]');
+    const rightButton = group.querySelector('.download-setting-option[data-value="right"]');
+    const leftSelected = !!leftButton?.classList.contains("is-selected");
+    const rightSelected = !!rightButton?.classList.contains("is-selected");
+    if (!leftSelected && !rightSelected) {
+      const fallbackButton = button.dataset.value === "left" ? rightButton : leftButton;
+      if (fallbackButton) {
+        fallbackButton.classList.add("is-selected");
+        fallbackButton.setAttribute("aria-pressed", "true");
+      }
+    }
+  }
+
+  function getDownloadChartModeLabels() {
+    const primary = (el.primaryUoaSelect?.value || "BTC").toUpperCase();
+    const secondary = (el.secondaryUoaSelect?.value || "USD").toUpperCase();
+    return {
+      left: `${secondary}${primary}`,
+      right: `${primary}${secondary}`,
+    };
+  }
+
+  function syncDownloadChartModeLabels() {
+    if (!el.downloadChartModeSelect) return;
+    const labels = getDownloadChartModeLabels();
+    const leftButton = el.downloadChartModeSelect.querySelector('.download-setting-option[data-value="left"]');
+    const rightButton = el.downloadChartModeSelect.querySelector('.download-setting-option[data-value="right"]');
+    if (leftButton) leftButton.textContent = labels.left;
+    if (rightButton) rightButton.textContent = labels.right;
+  }
+
+  function syncDownloadSettingsControls() {
+    const normalized = normalizeDownloadSettings(downloadSettings);
+    downloadSettings = normalized;
+    syncDownloadChartModeLabels();
+    setDownloadSettingGroupValue(el.downloadChartModeSelect, normalized.chartMode);
+    setDownloadSettingGroupValue(el.downloadExtensionSelect, normalized.extension);
+    setDownloadSettingGroupValue(el.downloadQualitySelect, normalized.quality);
+    setDownloadSettingGroupValue(el.downloadOrientationSelect, normalized.orientation);
+    setDownloadSettingGroupValue(el.downloadThemeSelect, normalized.theme);
+    setDownloadSettingGroupValue(el.downloadFpsSelect, normalized.fps);
+  }
+
+  function readDownloadSettingsControls() {
+    return normalizeDownloadSettings({
+      chartMode: getDownloadSettingGroupValue(el.downloadChartModeSelect),
+      extension: getDownloadSettingGroupValue(el.downloadExtensionSelect),
+      quality: getDownloadSettingGroupValue(el.downloadQualitySelect),
+      orientation: getDownloadSettingGroupValue(el.downloadOrientationSelect),
+      theme: getDownloadSettingGroupValue(el.downloadThemeSelect),
+      fps: getDownloadSettingGroupValue(el.downloadFpsSelect),
+    });
+  }
+
+  function saveDownloadSettings(nextSettings) {
+    downloadSettings = normalizeDownloadSettings(nextSettings);
+    downloadSettingsHasStoredValue = true;
+    syncDownloadSettingsControls();
+    try {
+      localStorage.setItem(UOA_DOWNLOAD_SETTINGS_KEY, JSON.stringify(downloadSettings));
+    } catch (_) {
+      // Ignore storage failures.
+    }
+  }
+
   function setDateRangePlaybackFps(nextFps) {
     const normalizedFps = Number.isFinite(Number(nextFps)) ? Number(nextFps) : DEFAULT_RANGE_PLAYBACK_FPS;
     if (el.dateRangeFpsTrigger) {
       el.dateRangeFpsTrigger.dataset.fps = String(normalizedFps);
-      el.dateRangeFpsTrigger.textContent = `${normalizedFps} FPS`;
+      el.dateRangeFpsTrigger.textContent = getPlaybackSpeedLabel(normalizedFps);
     }
     if (el.dateRangeFpsMenu) {
       const options = Array.from(el.dateRangeFpsMenu.querySelectorAll(".date-range-fps-option[data-fps]"));
@@ -371,10 +574,14 @@
         const optionFps = Number(option.dataset.fps);
         const isSelected = optionFps === normalizedFps;
         option.classList.toggle("is-selected", isSelected);
-        option.setAttribute("aria-selected", isSelected ? "true" : "false");
+        option.setAttribute("aria-pressed", isSelected ? "true" : "false");
       });
     }
     dateRangePlaybackState.fps = normalizedFps;
+    if (!downloadSettingsHasStoredValue && el.downloadFpsSelect && !el.dateRangeDownloadSettingsMenu?.classList.contains("open")) {
+      downloadSettings.fps = String(normalizedFps);
+      setDownloadSettingGroupValue(el.downloadFpsSelect, normalizedFps);
+    }
   }
 
   function closeDateRangeFpsMenu() {
@@ -413,6 +620,985 @@
       return;
     }
     openDateRangeFpsMenu();
+  }
+
+  function closeDownloadSettingsMenu({ restoreControls = false } = {}) {
+    if (el.dateRangeDownloadSettingsMenu) el.dateRangeDownloadSettingsMenu.classList.remove("open");
+    if (el.dateRangeDownloadSettingsBtn) {
+      el.dateRangeDownloadSettingsBtn.classList.remove("is-open");
+      el.dateRangeDownloadSettingsBtn.setAttribute("aria-expanded", "false");
+    }
+    if (dateRangeDownloadSettingsOutsideHandler) {
+      document.removeEventListener("pointerdown", dateRangeDownloadSettingsOutsideHandler, true);
+      dateRangeDownloadSettingsOutsideHandler = null;
+    }
+    if (restoreControls) syncDownloadSettingsControls();
+  }
+
+  function openDownloadSettingsMenu() {
+    if (!el.dateRangeDownloadSettingsMenu || !el.dateRangeDownloadSettingsBtn) return;
+    syncDownloadSettingsControls();
+    syncDownloadSettingsDownloadButton();
+    closeDateRangeFpsMenu();
+    el.dateRangeDownloadSettingsMenu.classList.add("open");
+    el.dateRangeDownloadSettingsBtn.classList.add("is-open");
+    el.dateRangeDownloadSettingsBtn.setAttribute("aria-expanded", "true");
+    if (!dateRangeDownloadSettingsOutsideHandler) {
+      dateRangeDownloadSettingsOutsideHandler = (event) => {
+        const target = event.target;
+        const inTrigger = target === el.dateRangeDownloadSettingsBtn || el.dateRangeDownloadSettingsBtn.contains(target);
+        const inMenu = target === el.dateRangeDownloadSettingsMenu || el.dateRangeDownloadSettingsMenu.contains(target);
+        if (inTrigger || inMenu) return;
+        closeDownloadSettingsMenu({ restoreControls: true });
+      };
+      document.addEventListener("pointerdown", dateRangeDownloadSettingsOutsideHandler, true);
+    }
+  }
+
+  function toggleDownloadSettingsMenu() {
+    if (!el.dateRangeDownloadSettingsMenu) return;
+    if (el.dateRangeDownloadSettingsMenu.classList.contains("open")) {
+      closeDownloadSettingsMenu({ restoreControls: true });
+      return;
+    }
+    openDownloadSettingsMenu();
+  }
+
+  function renderDateRangeDownloadButtonProgress(progress = 0) {
+    if (!el.dateRangeDownloadBtn) return;
+    const progressPct = `${Math.max(0, Math.min(1, Number(progress) || 0)) * 100}%`;
+    const progressEl = el.dateRangeDownloadBtn.querySelector(".date-range-export-progress");
+    if (el.dateRangeDownloadBtn.classList.contains("is-exporting") && progressEl) {
+      progressEl.style.setProperty("--date-range-export-progress", progressPct);
+      return;
+    }
+    el.dateRangeDownloadBtn.classList.add("is-exporting");
+    el.dateRangeDownloadBtn.disabled = false;
+    el.dateRangeDownloadBtn.setAttribute("aria-label", "Cancel animation download");
+    el.dateRangeDownloadBtn.setAttribute("title", "Cancel download");
+    el.dateRangeDownloadBtn.innerHTML = [
+      `<span class="date-range-export-progress" style="--date-range-export-progress: ${progressPct}" aria-hidden="true">`,
+      '<span class="date-range-export-stop-square"></span>',
+      "</span>",
+    ].join("");
+    syncDownloadSettingsDownloadButton();
+  }
+
+  function resetDateRangeDownloadButton() {
+    if (!el.dateRangeDownloadBtn) return;
+    el.dateRangeDownloadBtn.classList.remove("is-exporting", "is-canceling");
+    el.dateRangeDownloadBtn.disabled = false;
+    el.dateRangeDownloadBtn.setAttribute("aria-label", "Download date range animation");
+    el.dateRangeDownloadBtn.setAttribute("title", "Download animation");
+    el.dateRangeDownloadBtn.textContent = "↓";
+    syncDownloadSettingsDownloadButton();
+  }
+
+  function syncDownloadSettingsDownloadButton() {
+    if (!el.downloadSettingsDownloadBtn) return;
+    el.downloadSettingsDownloadBtn.classList.toggle("is-stop-download", isDateRangeExporting);
+    el.downloadSettingsDownloadBtn.textContent = isDateRangeExporting ? "Stop Download" : "Download Animation";
+  }
+
+  function requestDateRangeExportCancel() {
+    if (!isDateRangeExporting) return;
+    dateRangeExportCancelRequested = true;
+    if (el.dateRangeDownloadBtn) {
+      el.dateRangeDownloadBtn.classList.add("is-canceling");
+      el.dateRangeDownloadBtn.setAttribute("aria-label", "Canceling animation download");
+      el.dateRangeDownloadBtn.setAttribute("title", "Canceling download");
+    }
+    syncDownloadSettingsDownloadButton();
+  }
+
+  function getDownloadDimensions(settings) {
+    const quality = Number(settings.quality) || 1080;
+    if (settings.orientation === "portrait") return { width: quality, height: Math.round(quality * 16 / 9) };
+    if (settings.orientation === "square") return { width: quality, height: quality };
+    return { width: Math.round(quality * 16 / 9), height: quality };
+  }
+
+  function getExportLayoutMetrics(settings) {
+    const { width, height } = getDownloadDimensions(settings);
+    const panelGap = Math.max(8, Math.round(Math.min(width, height) * 0.012));
+    const outerMargin = panelGap;
+    const footerHeight = Math.max(34, Math.round(Math.min(width, height) * 0.052));
+    return { width, height, outerMargin, panelGap, footerHeight };
+  }
+
+  function getExportReferenceLayoutSettings(settings) {
+    return { ...settings, quality: "1440" };
+  }
+
+  function shouldExportChart(settings, chartSide) {
+    const chartMode = settings?.chartMode || DEFAULT_DOWNLOAD_SETTINGS.chartMode;
+    return chartMode === "both" || chartMode === chartSide;
+  }
+
+  function drawScaledExportFrame(sourceCanvas, targetCanvas, settings) {
+    const { width, height } = getDownloadDimensions(settings);
+    if (targetCanvas.width !== width) targetCanvas.width = width;
+    if (targetCanvas.height !== height) targetCanvas.height = height;
+    const ctx = targetCanvas.getContext("2d");
+    if (!ctx) return;
+    const bg = getExportThemePalette(settings.theme)["--bg"];
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, width, height);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(sourceCanvas, 0, 0, width, height);
+    ctx.restore();
+  }
+
+  function getSupportedDownloadRecorder(requestedExtension) {
+    const candidatesByExtension = {
+      mp4: [
+        { mimeType: "video/mp4;codecs=avc1.42E01E", extension: "mp4" },
+        { mimeType: "video/mp4", extension: "mp4" },
+      ],
+      webm: [
+        { mimeType: "video/webm;codecs=vp9", extension: "webm" },
+        { mimeType: "video/webm;codecs=vp8", extension: "webm" },
+        { mimeType: "video/webm", extension: "webm" },
+      ],
+    };
+    const fallbackCandidates = [
+      { mimeType: "video/webm;codecs=vp9", extension: "webm" },
+      { mimeType: "video/webm;codecs=vp8", extension: "webm" },
+      { mimeType: "video/webm", extension: "webm" },
+    ];
+    const candidates = [...(candidatesByExtension[requestedExtension] || []), ...fallbackCandidates];
+    if (!window.MediaRecorder || typeof MediaRecorder.isTypeSupported !== "function") return null;
+    return candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate.mimeType)) || null;
+  }
+
+  function getDateRangeExportFilename(settings, actualExtension, snapshot = {}) {
+    const primary = (snapshot.primaryCurrency || el.primaryUoaSelect?.value || "BTC").toLowerCase();
+    const secondary = (snapshot.secondaryCurrency || el.secondaryUoaSelect?.value || "USD").toLowerCase();
+    const chartMode = settings.chartMode === "left" || settings.chartMode === "right" ? `-${settings.chartMode}` : "";
+    const start = String(snapshot.startIso || el.startDateInput?.value || "start").replaceAll("-", "");
+    const end = String(snapshot.endIso || el.endDateInput?.value || "end").replaceAll("-", "");
+    return `uoa-${primary}-${secondary}${chartMode}-${start}-${end}-${settings.orientation}-${settings.quality}p.${actualExtension}`;
+  }
+
+  function formatDateEdgeText(isoValue) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(isoValue || ""))) return "--";
+    const [yearRaw, monthRaw, dayRaw] = String(isoValue).split("-");
+    const year = Number(yearRaw);
+    const month = Number(monthRaw);
+    const day = Number(dayRaw);
+    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return "--";
+    const shortYear = String(year).slice(-2).padStart(2, "0");
+    return `${month}/${day}/${shortYear}`;
+  }
+
+  function drawRoundedExportRect(ctx, x, y, width, height, radius) {
+    if (typeof ctx.roundRect === "function") {
+      ctx.roundRect(x, y, width, height, radius);
+      return;
+    }
+    const r = Math.max(0, Math.min(radius, width / 2, height / 2));
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + width - r, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+    ctx.lineTo(x + width, y + height - r);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+    ctx.lineTo(x + r, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+  }
+
+  function makeExportElement(tagName, className = "", text = "") {
+    const node = document.createElement(tagName);
+    if (className) node.className = className;
+    if (text) node.textContent = text;
+    return node;
+  }
+
+  function createExportSelect(value) {
+    const select = document.createElement("select");
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value;
+    select.appendChild(option);
+    select.value = value;
+    return select;
+  }
+
+  function setExportSelectValue(select, value) {
+    if (!select) return;
+    if (!Array.from(select.options).some((option) => option.value === value)) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = value;
+      select.appendChild(option);
+    }
+    select.value = value;
+  }
+
+  function createExportRenderSurface(settings) {
+    const { width, height, outerMargin, panelGap, footerHeight } = getExportLayoutMetrics(settings);
+    const palette = getExportThemePalette(settings.theme);
+    const exportFontScale = 1.65;
+    const scaleCssPixels = (value) => {
+      const numeric = parseFloat(value);
+      return Number.isFinite(numeric) ? `${Math.round(numeric * exportFontScale)}px` : value;
+    };
+    const liveTitleStyle = el.usdBtcTitle ? getComputedStyle(el.usdBtcTitle) : null;
+    const liveValueStyle = el.usdBtcBig ? getComputedStyle(el.usdBtcBig) : null;
+    const liveSubStyle = el.satUsdText ? getComputedStyle(el.satUsdText) : null;
+    const liveDateStyle = el.usdBtcDateEdges ? getComputedStyle(el.usdBtcDateEdges) : null;
+    const surface = document.createElement("div");
+    surface.className = "uoa-export-surface";
+    surface.style.width = `${width}px`;
+    surface.style.height = `${Math.max(1, height - footerHeight)}px`;
+    surface.style.position = "fixed";
+    surface.style.left = "-100000px";
+    surface.style.top = "0";
+    surface.style.zIndex = "-1";
+    surface.style.pointerEvents = "none";
+    surface.style.display = "grid";
+    const exportBothCharts = settings.chartMode === "both";
+    surface.style.gridTemplateColumns = exportBothCharts && settings.orientation === "landscape" ? "repeat(2, minmax(0, 1fr))" : "1fr";
+    surface.style.gridTemplateRows = exportBothCharts && settings.orientation !== "landscape" ? "repeat(2, minmax(0, 1fr))" : "1fr";
+    surface.style.gap = `${panelGap}px`;
+    surface.style.padding = `${outerMargin}px`;
+    surface.style.boxSizing = "border-box";
+    surface.style.background = palette["--bg"];
+    Object.entries(palette).forEach(([name, value]) => {
+      surface.style.setProperty(name, value);
+    });
+
+    const makePanel = (kind) => {
+      const panel = makeExportElement("section", "panel chart-panel");
+      panel.style.minWidth = "0";
+      panel.style.minHeight = "0";
+      panel.style.height = "100%";
+      panel.style.background = palette["--panel"];
+      panel.style.border = "0";
+      panel.style.borderColor = "transparent";
+      panel.style.boxShadow = "none";
+      const title = makeExportElement("h2", "panel-title");
+      const big = makeExportElement("div", `big-value ${kind === "left" ? "sats" : "usd"}`);
+      const sub = makeExportElement("div", "sub-value");
+      const edges = makeExportElement("div", "chart-date-edges mono");
+      const startEdge = makeExportElement("span", "", "--");
+      const endEdge = makeExportElement("span", "", "--");
+      const chart = document.createElement("canvas");
+      chart.width = 1200;
+      chart.height = 720;
+      if (liveTitleStyle) title.style.fontSize = scaleCssPixels(liveTitleStyle.fontSize);
+      if (liveValueStyle) big.style.fontSize = scaleCssPixels(liveValueStyle.fontSize);
+      if (liveSubStyle) {
+        sub.style.fontSize = scaleCssPixels(liveSubStyle.fontSize);
+        sub.style.margin = liveSubStyle.margin;
+      }
+      if (liveDateStyle) {
+        edges.style.fontSize = scaleCssPixels(liveDateStyle.fontSize);
+        edges.style.height = scaleCssPixels(liveDateStyle.height);
+      }
+      title.style.color = palette["--fg"];
+      sub.style.color = palette["--fg"];
+      edges.style.color = palette["--muted"];
+      startEdge.style.color = palette["--muted"];
+      endEdge.style.color = palette["--muted"];
+      [big, sub, edges, startEdge, endEdge].forEach((node) => {
+        node.style.setProperty("font-variant-numeric", "tabular-nums", "important");
+        node.style.setProperty("font-feature-settings", "\"tnum\" 1", "important");
+        node.style.setProperty("letter-spacing", "0", "important");
+        node.style.setProperty("text-rendering", "geometricPrecision");
+      });
+      edges.append(startEdge, endEdge);
+      panel.append(title, big, sub, edges, chart);
+      return { panel, title, big, sub, edges, startEdge, endEdge, chart };
+    };
+
+    const left = makePanel("left");
+    const right = makePanel("right");
+    if (shouldExportChart(settings, "left")) surface.append(left.panel);
+    if (shouldExportChart(settings, "right")) surface.append(right.panel);
+
+    const refs = {
+      surface,
+      primaryUoaSelect: createExportSelect("BTC"),
+      secondaryUoaSelect: createExportSelect("USD"),
+      scaleSelect: createExportSelect("log"),
+      orderBySelect: createExportSelect("alpha-asc"),
+      vesRedenomAdjustToggle: Object.assign(document.createElement("input"), { type: "checkbox" }),
+      usdBtcBig: left.big,
+      btcUsdBig: right.big,
+      usdBtcPanel: left.panel,
+      btcUsdPanel: right.panel,
+      usdBtcScaleLabel: makeExportElement("span"),
+      btcUsdScaleLabel: makeExportElement("span"),
+      satUsdText: left.sub,
+      usdSatText: right.sub,
+      usdBtcDateEdges: left.edges,
+      btcUsdDateEdges: right.edges,
+      usdBtcStartDateEdge: left.startEdge,
+      usdBtcEndDateEdge: left.endEdge,
+      btcUsdStartDateEdge: right.startEdge,
+      btcUsdEndDateEdge: right.endEdge,
+      blockHeightText: makeExportElement("span"),
+      rightAsOf: makeExportElement("span"),
+      usdBtcChart: left.chart,
+      btcUsdChart: right.chart,
+      usdBtcTitle: left.title,
+      btcUsdTitle: right.title,
+      updatedKpiValue: makeExportElement("span"),
+      blockHeightKpiValue: makeExportElement("span"),
+      pairKpiValue: makeExportElement("span"),
+      primaryRankKpiValue: makeExportElement("span"),
+      secondaryRankKpiValue: makeExportElement("span"),
+    };
+    document.body.appendChild(surface);
+    return refs;
+  }
+
+  function withExportElements(exportRefs, callback) {
+    const keys = Object.keys(exportRefs).filter((key) => key !== "surface");
+    const saved = {};
+    keys.forEach((key) => {
+      saved[key] = el[key];
+      el[key] = exportRefs[key];
+    });
+    try {
+      return callback();
+    } finally {
+      keys.forEach((key) => {
+        el[key] = saved[key];
+      });
+    }
+  }
+
+  function renderExportFrameToSurface(exportRefs, snapshot, startIndex, endIndex) {
+    withExportElements(exportRefs, () => {
+      setExportSelectValue(exportRefs.primaryUoaSelect, snapshot.primaryCurrency);
+      setExportSelectValue(exportRefs.secondaryUoaSelect, snapshot.secondaryCurrency);
+      setExportSelectValue(exportRefs.scaleSelect, snapshot.scaleMode);
+      setExportSelectValue(exportRefs.orderBySelect, snapshot.orderMode);
+      exportRefs.vesRedenomAdjustToggle.checked = snapshot.smoothVesRedenom;
+      const savedRows = rows;
+      const savedExportRenderFlag = isRenderingDateRangeExportFrame;
+      const savedExportTheme = activeDateRangeExportTheme;
+      const savedExportAxisRows = activeDateRangeExportAxisRows;
+      const frameStartIso = toIsoDate(allRows[startIndex].date);
+      const frameEndIso = toIsoDate(allRows[endIndex].date);
+      const frameStartText = formatDateEdgeText(frameStartIso);
+      const frameEndText = formatDateEdgeText(frameEndIso);
+      exportRefs.usdBtcStartDateEdge.textContent = frameStartText;
+      exportRefs.btcUsdStartDateEdge.textContent = frameStartText;
+      exportRefs.usdBtcEndDateEdge.textContent = frameEndText;
+      exportRefs.btcUsdEndDateEdge.textContent = frameEndText;
+      rows = allRows.slice(startIndex, endIndex + 1);
+      isRenderingDateRangeExportFrame = true;
+      activeDateRangeExportTheme = snapshot.exportTheme || null;
+      const exportAxisStartIndex = Number.isFinite(snapshot.exportStartIndex) ? snapshot.exportStartIndex : startIndex;
+      const exportAxisEndIndex = Number.isFinite(snapshot.exportEndIndex) ? snapshot.exportEndIndex : endIndex;
+      activeDateRangeExportAxisRows = allRows.slice(exportAxisStartIndex, exportAxisEndIndex + 1);
+      try {
+        renderAll();
+        stabilizeDateRangeExportNumericText(exportRefs);
+      } finally {
+        rows = savedRows;
+        isRenderingDateRangeExportFrame = savedExportRenderFlag;
+        activeDateRangeExportTheme = savedExportTheme;
+        activeDateRangeExportAxisRows = savedExportAxisRows;
+      }
+    });
+  }
+
+  function copyComputedExportStyles(source, target) {
+    if (!source || !target || source.nodeType !== Node.ELEMENT_NODE) return;
+    const computed = getComputedStyle(source);
+    [
+      "align-items",
+      "background",
+      "background-color",
+      "border",
+      "border-radius",
+      "box-sizing",
+      "color",
+      "display",
+      "flex-direction",
+      "font",
+      "font-family",
+      "font-feature-settings",
+      "font-size",
+      "font-stretch",
+      "font-style",
+      "font-variant",
+      "font-variant-numeric",
+      "font-weight",
+      "gap",
+      "grid-template-columns",
+      "grid-template-rows",
+      "height",
+      "justify-content",
+      "left",
+      "letter-spacing",
+      "line-height",
+      "margin",
+      "max-height",
+      "max-width",
+      "min-height",
+      "min-width",
+      "object-fit",
+      "opacity",
+      "overflow",
+      "overflow-x",
+      "overflow-y",
+      "padding",
+      "pointer-events",
+      "position",
+      "right",
+      "text-rendering",
+      "text-align",
+      "top",
+      "transform",
+      "-webkit-font-smoothing",
+      "white-space",
+      "width",
+    ].forEach((property) => {
+      const value = computed.getPropertyValue(property);
+      if (value) target.style.setProperty(property, value);
+    });
+  }
+
+  function isExportNumericTextNode(node) {
+    if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+    return node.classList.contains("big-value")
+      || node.classList.contains("sub-value")
+      || node.classList.contains("chart-date-edges")
+      || node.parentElement?.classList.contains("chart-date-edges");
+  }
+
+  function applyExportNumericTextFeatures(source, target) {
+    if (!isExportNumericTextNode(source) || !target?.style) return;
+    target.style.setProperty("font-variant-numeric", "tabular-nums", "important");
+    target.style.setProperty("font-feature-settings", "\"tnum\" 1", "important");
+    target.style.setProperty("letter-spacing", "0", "important");
+    target.style.setProperty("text-rendering", "geometricPrecision", "important");
+    target.style.setProperty("-webkit-font-smoothing", "antialiased", "important");
+  }
+
+  function getExportNumericDigitWidth(node) {
+    if (!node) return 0;
+    const style = getComputedStyle(node);
+    const key = [
+      style.fontFamily,
+      style.fontSize,
+      style.fontStretch,
+      style.fontStyle,
+      style.fontWeight,
+      style.letterSpacing,
+    ].join("|");
+    if (exportNumericMeasureCache.has(key)) return exportNumericMeasureCache.get(key);
+    const probe = document.createElement("span");
+    probe.textContent = "0";
+    probe.style.position = "fixed";
+    probe.style.left = "-100000px";
+    probe.style.top = "0";
+    probe.style.visibility = "hidden";
+    probe.style.whiteSpace = "pre";
+    probe.style.fontFamily = style.fontFamily;
+    probe.style.fontSize = style.fontSize;
+    probe.style.fontStretch = style.fontStretch;
+    probe.style.fontStyle = style.fontStyle;
+    probe.style.fontWeight = style.fontWeight;
+    probe.style.lineHeight = style.lineHeight;
+    probe.style.letterSpacing = "0";
+    probe.style.fontVariantNumeric = "tabular-nums";
+    probe.style.fontFeatureSettings = "\"tnum\" 1";
+    document.body.appendChild(probe);
+    const width = probe.getBoundingClientRect().width;
+    probe.remove();
+    const stableWidth = Number.isFinite(width) && width > 0 ? width : 0;
+    exportNumericMeasureCache.set(key, stableWidth);
+    return stableWidth;
+  }
+
+  function stabilizeExportNumericTextNode(node) {
+    if (!node || !node.textContent) return;
+    const text = node.textContent;
+    const digitWidth = getExportNumericDigitWidth(node);
+    node.textContent = "";
+    let textBuffer = "";
+    const flushTextBuffer = () => {
+      if (!textBuffer) return;
+      const span = document.createElement("span");
+      span.textContent = textBuffer;
+      span.style.setProperty("font-variant-numeric", "tabular-nums", "important");
+      span.style.setProperty("font-feature-settings", "\"tnum\" 1", "important");
+      span.style.setProperty("letter-spacing", "0", "important");
+      span.style.display = "inline";
+      span.style.whiteSpace = "pre";
+      node.appendChild(span);
+      textBuffer = "";
+    };
+    Array.from(text).forEach((char) => {
+      if (!/\d/.test(char) || digitWidth <= 0) {
+        textBuffer += char;
+        return;
+      }
+      flushTextBuffer();
+      const span = document.createElement("span");
+      span.textContent = char;
+      span.style.setProperty("font-variant-numeric", "tabular-nums", "important");
+      span.style.setProperty("font-feature-settings", "\"tnum\" 1", "important");
+      span.style.setProperty("letter-spacing", "0", "important");
+      span.style.setProperty("text-rendering", "geometricPrecision", "important");
+      span.style.setProperty("-webkit-font-smoothing", "antialiased", "important");
+      span.style.display = "inline-block";
+      span.style.whiteSpace = "pre";
+      span.style.width = `${digitWidth}px`;
+      span.style.textAlign = "center";
+      node.appendChild(span);
+    });
+    flushTextBuffer();
+  }
+
+  function stabilizeDateRangeExportNumericText(exportRefs) {
+    [
+      exportRefs?.usdBtcBig,
+      exportRefs?.btcUsdBig,
+      exportRefs?.satUsdText,
+      exportRefs?.usdSatText,
+      exportRefs?.usdBtcStartDateEdge,
+      exportRefs?.usdBtcEndDateEdge,
+      exportRefs?.btcUsdStartDateEdge,
+      exportRefs?.btcUsdEndDateEdge,
+    ].forEach(stabilizeExportNumericTextNode);
+  }
+
+  function cloneExportNodeForSnapshot(node) {
+    if (node.nodeType === Node.TEXT_NODE) return document.createTextNode(node.textContent || "");
+    if (node.nodeType !== Node.ELEMENT_NODE) return null;
+    if (node instanceof HTMLCanvasElement) {
+      const img = document.createElement("img");
+      copyComputedExportStyles(node, img);
+      const rect = node.getBoundingClientRect();
+      img.src = node.toDataURL("image/png");
+      img.style.width = `${rect.width}px`;
+      img.style.height = `${rect.height}px`;
+      img.style.display = "block";
+      img.setAttribute("width", `${Math.max(1, Math.round(rect.width))}`);
+      img.setAttribute("height", `${Math.max(1, Math.round(rect.height))}`);
+      return img;
+    }
+    const clone = document.createElement(node.tagName.toLowerCase());
+    copyComputedExportStyles(node, clone);
+    applyExportNumericTextFeatures(node, clone);
+    Array.from(node.attributes).forEach((attribute) => {
+      if (attribute.name !== "style") clone.setAttribute(attribute.name, attribute.value);
+    });
+    node.childNodes.forEach((child) => {
+      const childClone = cloneExportNodeForSnapshot(child);
+      if (childClone) clone.appendChild(childClone);
+    });
+    return clone;
+  }
+
+  async function drawExportSurfaceSnapshot(ctx, exportRefs, width, surfaceHeight) {
+    const clone = cloneExportNodeForSnapshot(exportRefs.surface);
+    if (!clone) return false;
+    clone.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
+    clone.style.position = "static";
+    clone.style.left = "auto";
+    clone.style.top = "auto";
+    clone.style.width = `${width}px`;
+    clone.style.height = `${surfaceHeight}px`;
+    const markup = new XMLSerializer().serializeToString(clone);
+    const svg = [
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${surfaceHeight}" viewBox="0 0 ${width} ${surfaceHeight}">`,
+      `<foreignObject width="100%" height="100%">${markup}</foreignObject>`,
+      "</svg>",
+    ].join("");
+    const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
+    try {
+      const image = new Image();
+      image.decoding = "sync";
+      const loaded = new Promise((resolve, reject) => {
+        image.onload = resolve;
+        image.onerror = reject;
+      });
+      image.src = url;
+      await loaded;
+      ctx.drawImage(image, 0, 0, width, surfaceHeight);
+      return true;
+    } catch (error) {
+      console.warn("Falling back to manual animation frame composition.", error);
+      return false;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  function canvasHasPixelVariance(canvas) {
+    const ctx = canvas.getContext("2d");
+    if (!ctx || canvas.width < 1 || canvas.height < 1) return false;
+    const stepX = Math.max(1, Math.floor(canvas.width / 28));
+    const stepY = Math.max(1, Math.floor(canvas.height / 18));
+    let reference = null;
+    for (let y = 0; y < canvas.height; y += stepY) {
+      for (let x = 0; x < canvas.width; x += stepX) {
+        let pixel;
+        try {
+          pixel = ctx.getImageData(x, y, 1, 1).data;
+        } catch (_) {
+          return false;
+        }
+        if (pixel[3] === 0) continue;
+        if (!reference) {
+          reference = pixel;
+          continue;
+        }
+        if (
+          Math.abs(pixel[0] - reference[0]) > 4
+          || Math.abs(pixel[1] - reference[1]) > 4
+          || Math.abs(pixel[2] - reference[2]) > 4
+          || Math.abs(pixel[3] - reference[3]) > 4
+        ) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  async function composeDateRangeExportFrame(canvas, settings, exportRefs, options = {}) {
+    const { width, height, footerHeight } = getExportLayoutMetrics(settings);
+    if (canvas.width !== width) canvas.width = width;
+    if (canvas.height !== height) canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const preferDomSnapshot = options.preferDomSnapshot !== false;
+    const palette = getExportThemePalette(settings.theme);
+    const bg = palette["--bg"];
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, width, height);
+    const surfaceRect = exportRefs.surface.getBoundingClientRect();
+    const relativeRect = (node) => {
+      const rect = node.getBoundingClientRect();
+      return {
+        x: rect.left - surfaceRect.left,
+        y: rect.top - surfaceRect.top,
+        width: rect.width,
+        height: rect.height,
+      };
+    };
+    const drawTextFragment = (node, { textAlign = "left", textBaseline = "top" } = {}) => {
+      if (!node || !node.textContent) return;
+      const rect = relativeRect(node);
+      const style = getComputedStyle(node);
+      ctx.save();
+      ctx.font = [
+        style.fontStyle,
+        style.fontWeight,
+        style.fontSize,
+        style.fontFamily,
+      ].filter(Boolean).join(" ");
+      ctx.fillStyle = style.color || "#ffffff";
+      ctx.textAlign = textAlign;
+      ctx.textBaseline = textBaseline;
+      const fontSize = parseFloat(style.fontSize) || 12;
+      const lineBoxHeight = rect.height || fontSize;
+      const x = textAlign === "right" || textAlign === "end"
+        ? rect.x + rect.width
+        : textAlign === "center"
+          ? rect.x + rect.width / 2
+          : rect.x;
+      const y = textBaseline === "middle"
+        ? rect.y + lineBoxHeight / 2
+        : rect.y + Math.max(0, (lineBoxHeight - fontSize) / 2);
+      ctx.fillText(node.textContent, x, y);
+      ctx.restore();
+    };
+    const drawTextFragments = (node) => {
+      const fragments = node ? Array.from(node.children).filter((child) => child.textContent) : [];
+      if (!fragments.length) return false;
+      fragments.forEach((fragment) => drawTextFragment(fragment));
+      return true;
+    };
+    const drawElementText = (node) => {
+      if (!node || !node.textContent) return;
+      if (drawTextFragments(node)) return;
+      const rect = relativeRect(node);
+      const style = getComputedStyle(node);
+      ctx.save();
+      ctx.font = [
+        style.fontStyle,
+        style.fontWeight,
+        style.fontSize,
+        style.fontFamily,
+      ].filter(Boolean).join(" ");
+      ctx.fillStyle = style.color || "#ffffff";
+      ctx.textAlign = style.textAlign || "left";
+      ctx.textBaseline = "top";
+      let x = rect.x;
+      if (ctx.textAlign === "center") x += rect.width / 2;
+      if (ctx.textAlign === "right" || ctx.textAlign === "end") x += rect.width;
+      const fontSize = parseFloat(style.fontSize) || 12;
+      const lineBoxHeight = rect.height || fontSize;
+      const y = rect.y + Math.max(0, (lineBoxHeight - fontSize) / 2);
+      ctx.fillText(node.textContent, x, y);
+      ctx.restore();
+    };
+    const drawDateEdgeText = (node) => {
+      if (!node || !node.textContent) return;
+      if (drawTextFragments(node)) return;
+      const rect = relativeRect(node);
+      const style = getComputedStyle(node);
+      const alignRight = style.textAlign === "right" || style.textAlign === "end";
+      const textX = alignRight ? rect.x + rect.width : rect.x + rect.width / 2;
+      const centerY = rect.y + rect.height / 2;
+      ctx.save();
+      ctx.font = [
+        style.fontStyle,
+        style.fontWeight,
+        style.fontSize,
+        style.fontFamily,
+      ].filter(Boolean).join(" ");
+      ctx.fillStyle = style.color || "#ffffff";
+      ctx.textAlign = alignRight ? "right" : "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(node.textContent, textX, centerY);
+      ctx.restore();
+    };
+    const drawPanel = (panel, title, big, sub, edges, startEdge, endEdge, chart) => {
+      if (!panel?.isConnected) return;
+      const panelRect = relativeRect(panel);
+      const panelStyle = getComputedStyle(panel);
+      ctx.save();
+      ctx.fillStyle = panelStyle.backgroundColor || "transparent";
+      ctx.strokeStyle = "transparent";
+      ctx.lineWidth = 0;
+      ctx.beginPath();
+      drawRoundedExportRect(ctx, panelRect.x, panelRect.y, panelRect.width, panelRect.height, parseFloat(panelStyle.borderTopLeftRadius) || 0);
+      ctx.fill();
+      ctx.restore();
+
+      drawElementText(title);
+      drawElementText(big);
+      if (sub.style.display !== "none") drawElementText(sub);
+      drawDateEdgeText(startEdge);
+      drawDateEdgeText(endEdge);
+
+      const chartRect = relativeRect(chart);
+      ctx.save();
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(chart, chartRect.x, chartRect.y, chartRect.width, chartRect.height);
+      ctx.restore();
+    };
+
+    let usedDomSnapshot = false;
+    if (preferDomSnapshot) {
+      const snapshotCanvas = document.createElement("canvas");
+      const snapshotHeight = Math.max(1, height - footerHeight);
+      snapshotCanvas.width = width;
+      snapshotCanvas.height = snapshotHeight;
+      const snapshotCtx = snapshotCanvas.getContext("2d");
+      if (snapshotCtx) {
+        const didDrawSnapshot = await drawExportSurfaceSnapshot(snapshotCtx, exportRefs, width, snapshotHeight);
+        if (didDrawSnapshot && canvasHasPixelVariance(snapshotCanvas)) {
+          ctx.drawImage(snapshotCanvas, 0, 0);
+          usedDomSnapshot = true;
+        }
+      }
+    }
+    if (!usedDomSnapshot) {
+      if (shouldExportChart(settings, "left")) {
+        drawPanel(
+          exportRefs.usdBtcPanel,
+          exportRefs.usdBtcTitle,
+          exportRefs.usdBtcBig,
+          exportRefs.satUsdText,
+          exportRefs.usdBtcDateEdges,
+          exportRefs.usdBtcStartDateEdge,
+          exportRefs.usdBtcEndDateEdge,
+          exportRefs.usdBtcChart
+        );
+      }
+      if (shouldExportChart(settings, "right")) {
+        drawPanel(
+          exportRefs.btcUsdPanel,
+          exportRefs.btcUsdTitle,
+          exportRefs.btcUsdBig,
+          exportRefs.usdSatText,
+          exportRefs.btcUsdDateEdges,
+          exportRefs.btcUsdStartDateEdge,
+          exportRefs.btcUsdEndDateEdge,
+          exportRefs.btcUsdChart
+        );
+      }
+    }
+    ctx.save();
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, height - footerHeight, width, footerHeight);
+    ctx.fillStyle = settings.theme === "dark" ? "#6f7f87" : "#8f887f";
+    ctx.font = `500 ${Math.max(30, Math.round(footerHeight * 0.6))}px IBM Plex Mono, monospace`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("https://wickedsmartbitcoin.com/uoa", width / 2, height - footerHeight * 0.6);
+    ctx.restore();
+  }
+
+  function waitMs(ms) {
+    return new Promise((resolve) => window.setTimeout(resolve, ms));
+  }
+
+  async function waitForDateRangeExportFonts() {
+    if (!document.fonts?.ready) return;
+    try {
+      await document.fonts.ready;
+    } catch (_) {
+      // Font readiness is a best-effort export polish step; keep the download moving.
+    }
+  }
+
+  async function downloadDateRangeAnimation() {
+    if (isDateRangeExporting) {
+      requestDateRangeExportCancel();
+      return;
+    }
+    if (!allRows.length || !el.dateRangeStartSlider || !el.dateRangeEndSlider) return;
+    const settings = normalizeDownloadSettings(downloadSettings);
+    const layoutSettings = getExportReferenceLayoutSettings(settings);
+    const fps = Math.max(1, Number(settings.fps) || getSelectedDateRangePlaybackFps());
+    const { width: exportWidth, height: exportHeight } = getExportLayoutMetrics(settings);
+    const recorderInfo = getSupportedDownloadRecorder(settings.extension);
+    if (!recorderInfo || typeof HTMLCanvasElement.prototype.captureStream !== "function") {
+      window.alert("This browser does not support recording dashboard animations.");
+      return;
+    }
+
+    const maxIndex = Math.max(0, allRows.length - 1);
+    const playbackStart = Number(dateRangePlaybackState.startIndex);
+    const playbackEnd = Number(dateRangePlaybackState.targetEndIndex);
+    const sliderStart = Number(el.dateRangeStartSlider.value);
+    const sliderEnd = Number(el.dateRangeEndSlider.value);
+    const rawStart = dateRangePlaybackState.hasSession && Number.isFinite(playbackStart)
+      ? playbackStart
+      : sliderStart;
+    const rawEnd = dateRangePlaybackState.hasSession && Number.isFinite(playbackEnd)
+      ? playbackEnd
+      : sliderEnd;
+    const startIndex = Math.max(0, Math.min(maxIndex, Number.isFinite(rawStart) ? rawStart : 0));
+    const endIndex = Math.max(startIndex, Math.min(maxIndex, Number.isFinite(rawEnd) ? rawEnd : maxIndex));
+    const exportSnapshot = {
+      primaryCurrency: el.primaryUoaSelect?.value || "BTC",
+      secondaryCurrency: el.secondaryUoaSelect?.value || "USD",
+      scaleMode: el.scaleSelect?.value === "linear" ? "linear" : "log",
+      orderMode: ORDER_MODES.includes(el.orderBySelect?.value) ? el.orderBySelect.value : "alpha-asc",
+      smoothVesRedenom: !!el.vesRedenomAdjustToggle?.checked,
+      exportTheme: settings.theme,
+      exportStartIndex: startIndex,
+      exportEndIndex: endIndex,
+      startIso: toIsoDate(allRows[startIndex].date),
+      endIso: toIsoDate(allRows[endIndex].date),
+    };
+
+    isDateRangeExporting = true;
+    dateRangeExportCancelRequested = false;
+    renderDateRangeDownloadButtonProgress(0);
+
+    const exportCanvas = document.createElement("canvas");
+    exportCanvas.width = exportWidth;
+    exportCanvas.height = exportHeight;
+    const layoutCanvas = document.createElement("canvas");
+    let exportRefs = null;
+    let track = null;
+    let recorder = null;
+    let wasCanceled = false;
+    const chunks = [];
+
+    try {
+      exportRefs = createExportRenderSurface(layoutSettings);
+      await waitForDateRangeExportFonts();
+      renderExportFrameToSurface(exportRefs, exportSnapshot, startIndex, startIndex);
+      await waitForDateRangeExportFonts();
+      await composeDateRangeExportFrame(layoutCanvas, layoutSettings, exportRefs);
+      drawScaledExportFrame(layoutCanvas, exportCanvas, settings);
+      let stream;
+      try {
+        stream = exportCanvas.captureStream(0);
+      } catch (_) {
+        stream = exportCanvas.captureStream(fps);
+      }
+      [track] = stream.getVideoTracks();
+      if (!track || typeof track.requestFrame !== "function") {
+        if (track) track.stop();
+        stream = exportCanvas.captureStream(fps);
+        [track] = stream.getVideoTracks();
+      }
+      recorder = new MediaRecorder(stream, {
+        mimeType: recorderInfo.mimeType,
+        videoBitsPerSecond: Math.max(4_000_000, Number(settings.quality) * 8000),
+      });
+
+      recorder.addEventListener("dataavailable", (event) => {
+        if (event.data && event.data.size > 0) chunks.push(event.data);
+      });
+
+      const recorderDone = new Promise((resolve, reject) => {
+        recorder.addEventListener("stop", resolve, { once: true });
+        recorder.addEventListener("error", () => reject(recorder.error || new Error("Recording failed")), { once: true });
+      });
+
+      recorder.start();
+      if (track && typeof track.requestFrame === "function") track.requestFrame();
+      const totalFrames = Math.max(1, endIndex - startIndex + 1);
+      for (let index = startIndex; index <= endIndex; index += 1) {
+        if (dateRangeExportCancelRequested) {
+          wasCanceled = true;
+          break;
+        }
+        renderExportFrameToSurface(exportRefs, exportSnapshot, startIndex, index);
+        await composeDateRangeExportFrame(layoutCanvas, layoutSettings, exportRefs);
+        drawScaledExportFrame(layoutCanvas, exportCanvas, settings);
+        if (dateRangeExportCancelRequested) {
+          wasCanceled = true;
+          break;
+        }
+        if (track && typeof track.requestFrame === "function") track.requestFrame();
+        const processedFrames = index - startIndex + 1;
+        renderDateRangeDownloadButtonProgress(processedFrames / totalFrames);
+        await waitMs(1000 / fps);
+      }
+      recorder.stop();
+      await recorderDone;
+      if (wasCanceled || dateRangeExportCancelRequested) {
+        chunks.length = 0;
+        return;
+      }
+      renderDateRangeDownloadButtonProgress(1);
+
+      const actualExtension = recorderInfo.extension;
+      const blob = new Blob(chunks, { type: recorderInfo.mimeType });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = getDateRangeExportFilename(settings, actualExtension, exportSnapshot);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      console.error(error);
+      window.alert("The animation export could not be completed in this browser.");
+    } finally {
+      if (recorder && recorder.state !== "inactive") recorder.stop();
+      if (track) track.stop();
+      if (exportRefs?.surface) exportRefs.surface.remove();
+      chunks.length = 0;
+      isDateRangeExporting = false;
+      dateRangeExportCancelRequested = false;
+      resetDateRangeDownloadButton();
+    }
   }
 
   function updateDateRangePlayButton() {
@@ -865,12 +2051,63 @@
           if (!Number.isFinite(nextFps) || nextFps <= 0) return;
           setDateRangePlaybackFps(nextFps);
           persistFilters();
-          closeDateRangeFpsMenu();
         });
       });
     }
 
     setDateRangePlaybackFps(getSelectedDateRangePlaybackFps());
+  }
+
+  function bindDateRangeDownloadControls() {
+    loadDownloadSettings();
+    if (el.dateRangeDownloadBtn && el.dateRangeDownloadBtn.dataset.bound !== "1") {
+      el.dateRangeDownloadBtn.dataset.bound = "1";
+      el.dateRangeDownloadBtn.addEventListener("click", () => {
+        closeDownloadSettingsMenu({ restoreControls: true });
+        downloadDateRangeAnimation();
+      });
+    }
+    if (el.dateRangeDownloadSettingsBtn && el.dateRangeDownloadSettingsBtn.dataset.bound !== "1") {
+      el.dateRangeDownloadSettingsBtn.dataset.bound = "1";
+      el.dateRangeDownloadSettingsBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        toggleDownloadSettingsMenu();
+      });
+    }
+    [
+      el.downloadChartModeSelect,
+      el.downloadExtensionSelect,
+      el.downloadQualitySelect,
+      el.downloadOrientationSelect,
+      el.downloadThemeSelect,
+      el.downloadFpsSelect,
+    ].forEach((group) => {
+      if (!group || group.dataset.bound === "1") return;
+      group.dataset.bound = "1";
+      const buttons = Array.from(group.querySelectorAll(".download-setting-option[data-value]"));
+      buttons.forEach((button) => {
+        button.addEventListener("click", () => {
+          if (group === el.downloadChartModeSelect) {
+            toggleDownloadChartModeButton(button);
+          } else {
+            setDownloadSettingGroupValue(group, button.dataset.value);
+          }
+          saveDownloadSettings(readDownloadSettingsControls());
+        });
+      });
+    });
+    if (el.downloadSettingsDownloadBtn && el.downloadSettingsDownloadBtn.dataset.bound !== "1") {
+      el.downloadSettingsDownloadBtn.dataset.bound = "1";
+      el.downloadSettingsDownloadBtn.addEventListener("click", () => {
+        if (isDateRangeExporting) {
+          requestDateRangeExportCancel();
+          return;
+        }
+        saveDownloadSettings(readDownloadSettingsControls());
+        closeDownloadSettingsMenu();
+        downloadDateRangeAnimation();
+      });
+    }
   }
 
   function bindDateRangePlaybackArrowScrubbing() {
@@ -1266,7 +2503,7 @@
       secondarySelect.value = "USD";
     }
 
-    syncAllDropdowns();
+    if (!isRenderingDateRangeExportFrame) syncAllDropdowns();
   }
 
   function getActiveOrderMode() {
@@ -1536,10 +2773,10 @@
 
   function getTitleUnitLabel(currencyCode) {
     const preciousMetalUnits = {
-      XAU: "g gold",
-      XAG: "g silver",
-      XPT: "g platinum",
-      XPD: "g palladium",
+      XAU: "oz gold",
+      XAG: "oz silver",
+      XPT: "oz platinum",
+      XPD: "oz palladium",
     };
     return preciousMetalUnits[currencyCode] || currencyCode;
   }
@@ -1620,73 +2857,48 @@
     return currencyCode === "XAU" || currencyCode === "XAG" || currencyCode === "XPT" || currencyCode === "XPD";
   }
 
-  function formatGramAmount(gramsValue) {
-    if (!Number.isFinite(gramsValue) || gramsValue <= 0) return "0 g";
-
-    let decimals;
-    if (gramsValue >= 100) {
-      decimals = 2;
-    } else if (gramsValue >= 1) {
-      decimals = 4;
-    } else {
-      decimals = Math.min(8, Math.max(4, Math.ceil(-Math.log10(gramsValue)) + 2));
-    }
-
-    let txt = gramsValue.toLocaleString("en-US", {
-      minimumFractionDigits: decimals,
-      maximumFractionDigits: decimals,
-    });
-
-    if (txt.includes(".")) {
-      txt = txt.replace(/0+$/, "");
-      if (txt.endsWith(".")) txt = txt.slice(0, -1);
-    }
-
-    return `${txt} g`;
-  }
-
-  function formatCompactGramYAxisLabel(gramsValue) {
-    if (!Number.isFinite(gramsValue) || gramsValue < 0) return "0";
-    if (gramsValue === 0) return "0 g";
+  function formatCompactOunceYAxisLabel(ouncesValue) {
+    if (!Number.isFinite(ouncesValue) || ouncesValue < 0) return "0";
+    if (ouncesValue === 0) return "0 oz";
 
     let formatted;
-    if (gramsValue >= 1000000000000) {
-      const t = gramsValue / 1000000000000;
+    if (ouncesValue >= 1000000000000) {
+      const t = ouncesValue / 1000000000000;
       formatted = t >= 10 ? `${t.toFixed(0)}T` : `${t.toFixed(1)}T`;
-    } else if (gramsValue >= 1000000000) {
-      const b = gramsValue / 1000000000;
+    } else if (ouncesValue >= 1000000000) {
+      const b = ouncesValue / 1000000000;
       formatted = b >= 10 ? `${b.toFixed(0)}B` : `${b.toFixed(1)}B`;
-    } else if (gramsValue >= 1000000) {
-      const m = gramsValue / 1000000;
+    } else if (ouncesValue >= 1000000) {
+      const m = ouncesValue / 1000000;
       formatted = m >= 10 ? `${m.toFixed(0)}M` : `${m.toFixed(1)}M`;
-    } else if (gramsValue >= 100000) {
-      const k = gramsValue / 1000;
+    } else if (ouncesValue >= 100000) {
+      const k = ouncesValue / 1000;
       formatted = k >= 100 ? `${k.toFixed(0)}k` : `${k.toFixed(1)}k`;
-    } else if (gramsValue >= 1000) {
-      const k = gramsValue / 1000;
+    } else if (ouncesValue >= 1000) {
+      const k = ouncesValue / 1000;
       const kDecimals = k < 10 ? 2 : 1;
       formatted = `${k.toFixed(kDecimals)}k`;
-    } else if (gramsValue >= 100) {
-      formatted = `${Math.round(gramsValue)}`;
-    } else if (gramsValue >= 10) {
-      formatted = `${gramsValue.toFixed(1)}`;
-    } else if (gramsValue >= 1) {
-      formatted = `${gramsValue.toFixed(2)}`;
+    } else if (ouncesValue >= 100) {
+      formatted = `${Math.round(ouncesValue)}`;
+    } else if (ouncesValue >= 10) {
+      formatted = `${ouncesValue.toFixed(1)}`;
+    } else if (ouncesValue >= 1) {
+      formatted = `${ouncesValue.toFixed(2)}`;
     } else {
-      if (gramsValue > 0 && gramsValue < 1e-8) {
-        formatted = gramsValue
+      if (ouncesValue > 0 && ouncesValue < 1e-8) {
+        formatted = ouncesValue
           .toExponential(2)
           .replace("e+", "e")
           .replace(/e-0+/, "e-");
       } else {
         let decimals = 4;
-        if (gramsValue < 0.01) {
+        if (ouncesValue < 0.01) {
           decimals = 5;
         }
-        if (gramsValue < 0.001) {
-          decimals = Math.min(24, Math.max(6, -Math.floor(Math.log10(gramsValue)) + 3));
+        if (ouncesValue < 0.001) {
+          decimals = Math.min(24, Math.max(6, -Math.floor(Math.log10(ouncesValue)) + 3));
         }
-        formatted = `${gramsValue.toFixed(decimals)}`;
+        formatted = `${ouncesValue.toFixed(decimals)}`;
       }
     }
 
@@ -1699,7 +2911,7 @@
       }
     }
 
-    return `${formatted} g`;
+    return `${formatted} oz`;
   }
 
   function formatOunceAmount(ouncesValue) {
@@ -2782,6 +3994,18 @@
     }
   }
 
+  function beginDateRangeStartSliderScrub(event) {
+    if (!el.dateRangeStartSlider || !allRows.length) return;
+    if (typeof event.button === "number" && event.button !== 0) return;
+    if (!dateRangePlaybackState.hasSession) return;
+
+    stopDateRangePlayback({ restoreOriginalRange: false });
+    dateRangeEndSliderScrubState.active = false;
+    dateRangeEndSliderScrubState.pointerId = null;
+    dateRangeEndSliderScrubState.resumeAfterRelease = false;
+    dateRangeEndSliderScrubState.captureOnWrap = false;
+  }
+
   function endDateRangeEndSliderScrub(event) {
     if (!dateRangeEndSliderScrubState.active || !el.dateRangeEndSlider) return;
     if (Number.isFinite(dateRangeEndSliderScrubState.pointerId) && Number.isFinite(event.pointerId)
@@ -3283,19 +4507,9 @@
     const startDate = new Date(`${start}T00:00:00Z`);
     const endDate = new Date(`${end}T23:59:59Z`);
 
-    const isoToShortSlashDate = (isoValue) => {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(isoValue || ""))) return "--";
-      const [yearRaw, monthRaw, dayRaw] = String(isoValue).split("-");
-      const year = Number(yearRaw);
-      const month = Number(monthRaw);
-      const day = Number(dayRaw);
-      if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return "--";
-      const shortYear = String(year).slice(-2).padStart(2, "0");
-      return `${month}/${day}/${shortYear}`;
-    };
     const isoPattern = /^\d{4}-\d{2}-\d{2}$/;
-    const startEdgeText = isoPattern.test(start) ? isoToShortSlashDate(start) : "--";
-    const endEdgeText = isoPattern.test(end) ? isoToShortSlashDate(end) : "--";
+    const startEdgeText = isoPattern.test(start) ? formatDateEdgeText(start) : "--";
+    const endEdgeText = isoPattern.test(end) ? formatDateEdgeText(end) : "--";
     if (el.usdBtcStartDateEdge) el.usdBtcStartDateEdge.textContent = startEdgeText;
     if (el.btcUsdStartDateEdge) el.btcUsdStartDateEdge.textContent = startEdgeText;
     if (el.usdBtcEndDateEdge) el.usdBtcEndDateEdge.textContent = endEdgeText;
@@ -3344,6 +4558,10 @@
       el.dateRangeStartSlider.addEventListener("input", () => {
         handleDateRangeSliderInput("start");
       });
+      if (el.dateRangeStartSlider.dataset.scrubBound !== "1") {
+        el.dateRangeStartSlider.dataset.scrubBound = "1";
+        el.dateRangeStartSlider.addEventListener("pointerdown", beginDateRangeStartSliderScrub);
+      }
       el.dateRangeEndSlider.addEventListener("input", () => {
         handleDateRangeSliderInput("end");
       });
@@ -3374,6 +4592,7 @@
     }
     bindDateRangePlaybackSpaceShortcut();
     bindDateRangePlaybackFpsButtons();
+    bindDateRangeDownloadControls();
     setDateRangePlaybackFps(saved.playbackFps);
 
     if (el.primaryUoaSelect) {
@@ -3504,7 +4723,7 @@
 
     if (!monthStarts.length) return [];
 
-    const maxTicks = Math.max(4, Math.floor(chartW / 88));
+    const maxTicks = Math.max(4, Math.floor(chartW / (isRenderingDateRangeExportFrame ? 122 : 88)));
     const selectedIndices = new Set();
 
     if (isMultiYearRange) {
@@ -3572,9 +4791,8 @@
 
   function getResponsiveTickLabelFontSize() {
     const width = window.innerWidth;
-    if (width < 640) return 12;
-    if (width < 980) return 14;
-    return 18;
+    const baseSize = width < 640 ? 12 : width < 980 ? 14 : 18;
+    return isRenderingDateRangeExportFrame ? Math.round(baseSize * 1.5) : baseSize;
   }
 
   function drawChart(canvas, series, opts) {
@@ -3594,8 +4812,11 @@
     const axisSourceSeries = (series.length === 1 && Array.isArray(opts.axisReferenceSeries) && opts.axisReferenceSeries.length >= 2)
       ? opts.axisReferenceSeries
       : series;
+    const yAxisSourceSeries = Array.isArray(opts.yAxisReferenceSeries) && opts.yAxisReferenceSeries.length >= 2
+      ? opts.yAxisReferenceSeries
+      : axisSourceSeries;
 
-    const vals = axisSourceSeries
+    const vals = yAxisSourceSeries
       .map((s) => s.value)
       .filter((v) => Number.isFinite(v) && (isLinear || v > 0));
     if (!vals.length) {
@@ -3688,7 +4909,7 @@
       maxYearWidth = Math.max(maxYearWidth, metrics.width);
     }
     // Account for rotation (-π/5 radians = -36 degrees)
-    const fontHeight = 18 * 1.2; // approximate line height
+    const fontHeight = tickLabelFontSize * 1.2; // approximate line height
     const rotationAngle = -Math.PI / 5;
     const rotatedHeight = Math.abs(maxYearWidth * Math.sin(rotationAngle)) + 
                           Math.abs(fontHeight * Math.cos(rotationAngle));
@@ -3745,7 +4966,7 @@
       return pad.left + (i / Math.max(1, series.length - 1)) * chartW;
     };
 
-    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--line").trim();
+    ctx.strokeStyle = getDashboardCssValue("--line", "rgba(255, 255, 255, 0.17)");
     ctx.lineWidth = 1;
 
     ticksToDraw.forEach((tick) => {
@@ -3778,7 +4999,7 @@
       ctx.save();
       ctx.translate(x - 8, pad.top + chartH + bottomSpacing);
       ctx.rotate(-Math.PI / 5);
-      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--line").trim();
+      ctx.fillStyle = getDashboardCssValue("--muted", "#95a6ae");
       ctx.font = `500 ${tickLabelFontSize}px Space Grotesk`;
       ctx.textAlign = "right";
       ctx.textBaseline = "top";
@@ -3786,15 +5007,24 @@
       ctx.restore();
     });
 
-    // Clip line rendering to chart area so strokes never overlap date labels.
+    const fullRangeCount = Math.max(2, Array.isArray(allRows) ? allRows.length : series.length);
+    const visibleRangeRatio = Math.max(0, Math.min(1, (series.length - 1) / Math.max(1, fullRangeCount - 1)));
+    const shortRangeBoost = 1 - Math.sqrt(visibleRangeRatio);
+    const primaryLineWidth = 1.6 + shortRangeBoost * 1.8;
+    const ghostLineWidth = 0.6 + shortRangeBoost * 0.7;
+    const lineTipBleed = Math.ceil(Math.max(primaryLineWidth, ghostLineWidth) / 2);
+
+    // Clip line rendering near the chart area while preserving rounded line tips.
     ctx.save();
     ctx.beginPath();
-    ctx.rect(pad.left, pad.top, chartW, chartH);
+    ctx.rect(pad.left - lineTipBleed, pad.top - lineTipBleed, chartW + lineTipBleed * 2, chartH + lineTipBleed * 2);
     ctx.clip();
 
     if (series.length >= 2) {
-      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--ghost").trim();
-      ctx.lineWidth = 0.6;
+      ctx.strokeStyle = getDashboardCssValue("--ghost", "rgba(148, 163, 184, 0.25)");
+      ctx.lineWidth = ghostLineWidth;
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
       ctx.beginPath();
       series.forEach((s, i) => {
         const x = xFor(i);
@@ -3805,7 +5035,9 @@
       ctx.stroke();
 
       ctx.strokeStyle = opts.color;
-      ctx.lineWidth = 1.6;
+      ctx.lineWidth = primaryLineWidth;
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
       ctx.beginPath();
       series.forEach((s, i) => {
         const x = xFor(i);
@@ -3819,11 +5051,8 @@
       const pointY = yFor(series[0].value);
       ctx.fillStyle = opts.color;
       ctx.beginPath();
-      ctx.arc(pointX, pointY, 4, 0, Math.PI * 2);
+      ctx.arc(pointX, pointY, 2.6, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = "rgba(0, 0, 0, 0.55)";
-      ctx.lineWidth = 1;
-      ctx.stroke();
     }
     ctx.restore();
 
@@ -4017,12 +5246,11 @@
     ];
 
     const hasPreciousMetalInPair = isPreciousMetalCurrency(primaryCurrency) || isPreciousMetalCurrency(secondaryCurrency);
-    const TROY_OUNCE_TO_GRAMS = 31.1034768;
     const leftMainValue = isPreciousMetalCurrency(primaryCurrency)
-      ? latest.inversePrice * TROY_OUNCE_TO_GRAMS
+      ? latest.inversePrice
       : latest.inversePrice;
     const rightMainValue = isPreciousMetalCurrency(secondaryCurrency)
-      ? latest.directPrice * TROY_OUNCE_TO_GRAMS
+      ? latest.directPrice
       : latest.directPrice;
     const showSubtext = hasBtcInPair || hasPreciousMetalInPair;
     if (el.satUsdText) el.satUsdText.style.display = showSubtext ? "" : "none";
@@ -4031,12 +5259,12 @@
     el.usdBtcBig.textContent = primaryCurrency === "BTC"
       ? fmtSats(latest.satsPerSecondary)
       : isPreciousMetalCurrency(primaryCurrency)
-        ? formatGramAmount(leftMainValue)
+        ? formatOunceAmount(leftMainValue)
         : formatRateValue(leftMainValue, primaryCurrency);
     el.btcUsdBig.textContent = secondaryCurrency === "BTC"
       ? fmtSats(latest.directPrice * 100000000)
       : isPreciousMetalCurrency(secondaryCurrency)
-        ? formatGramAmount(rightMainValue)
+        ? formatOunceAmount(rightMainValue)
         : formatRateValue(rightMainValue, secondaryCurrency);
 
     const primaryUnit = formatCurrencyUnit(primaryCurrency);
@@ -4054,21 +5282,21 @@
     } else if (hasPreciousMetalInPair) {
       if (primaryCurrency !== secondaryCurrency) {
         let nonMetalCurrency;
-        let nonMetalPerGram;
+        let nonMetalPerOunce;
         let ouncesPerNonMetal;
 
         if (isPreciousMetalCurrency(primaryCurrency) && !isPreciousMetalCurrency(secondaryCurrency)) {
           nonMetalCurrency = secondaryCurrency;
-          nonMetalPerGram = latest.directPrice / TROY_OUNCE_TO_GRAMS;
+          nonMetalPerOunce = latest.directPrice;
           ouncesPerNonMetal = latest.inversePrice;
         } else if (!isPreciousMetalCurrency(primaryCurrency) && isPreciousMetalCurrency(secondaryCurrency)) {
           nonMetalCurrency = primaryCurrency;
-          nonMetalPerGram = latest.inversePrice / TROY_OUNCE_TO_GRAMS;
+          nonMetalPerOunce = latest.inversePrice;
           ouncesPerNonMetal = latest.directPrice;
         }
 
-        if (nonMetalCurrency && Number.isFinite(nonMetalPerGram) && Number.isFinite(ouncesPerNonMetal)) {
-          el.satUsdText.textContent = `1 g = ${formatRateValue(nonMetalPerGram, nonMetalCurrency)}`;
+        if (nonMetalCurrency && Number.isFinite(nonMetalPerOunce) && Number.isFinite(ouncesPerNonMetal)) {
+          el.satUsdText.textContent = `1 oz = ${formatRateValue(nonMetalPerOunce, nonMetalCurrency)}`;
           el.usdSatText.textContent = `${formatCurrencyUnit(nonMetalCurrency)} = ${formatOunceAmount(ouncesPerNonMetal)}`;
         } else {
           el.satUsdText.textContent = "N/A";
@@ -4096,25 +5324,21 @@
     if (el.secondaryRankKpiValue) el.secondaryRankKpiValue.textContent = ranksByCurrency[secondaryCurrency] ? String(ranksByCurrency[secondaryCurrency]) : "--";
 
     // Determine colors and labels based on pair
-    const leftColor = getComputedStyle(document.documentElement).getPropertyValue("--left").trim();
-    const rightColor = getComputedStyle(document.documentElement).getPropertyValue("--right").trim();
+    const leftColor = getDashboardCssValue("--left", "#ffae00");
+    const rightColor = getDashboardCssValue("--right", "#34d399");
 
     const leftSeries = adjustedRows.map((r) => {
       const baseValue = primaryCurrency === "BTC" ? r.satsPerSecondary : r.inversePrice;
       return {
         date: r.date,
-        value: isPreciousMetalCurrency(primaryCurrency)
-          ? baseValue * TROY_OUNCE_TO_GRAMS
-          : baseValue,
+        value: baseValue,
       };
     });
     const rightSeries = adjustedRows.map((r) => {
       const baseValue = secondaryCurrency === "BTC" ? r.directPrice * 100000000 : r.directPrice;
       return {
         date: r.date,
-        value: isPreciousMetalCurrency(secondaryCurrency)
-          ? baseValue * TROY_OUNCE_TO_GRAMS
-          : baseValue,
+        value: baseValue,
       };
     });
 
@@ -4179,29 +5403,41 @@
       const baseValue = primaryCurrency === "BTC" ? r.satsPerSecondary : r.inversePrice;
       return {
         date: r.date,
-        value: isPreciousMetalCurrency(primaryCurrency)
-          ? baseValue * TROY_OUNCE_TO_GRAMS
-          : baseValue,
+        value: baseValue,
       };
     });
     const rightSeriesAllForAxis = adjustedAllRows.map((r) => {
       const baseValue = secondaryCurrency === "BTC" ? r.directPrice * 100000000 : r.directPrice;
       return {
         date: r.date,
-        value: isPreciousMetalCurrency(secondaryCurrency)
-          ? baseValue * TROY_OUNCE_TO_GRAMS
-          : baseValue,
+        value: baseValue,
       };
     });
 
     const leftAxisHints = getRangeAxisHints(leftSeries, leftSeriesAllForAxis, scaleMode);
     const rightAxisHints = getRangeAxisHints(rightSeries, rightSeriesAllForAxis, scaleMode);
+    const getExportYAxisReferenceSeries = (allSeriesForAxis) => {
+      if (!isRenderingDateRangeExportFrame || !Array.isArray(activeDateRangeExportAxisRows) || activeDateRangeExportAxisRows.length < 2) {
+        return null;
+      }
+      if (!Array.isArray(allSeriesForAxis) || allSeriesForAxis.length < 2) return null;
+      const startTime = activeDateRangeExportAxisRows[0]?.date?.getTime?.();
+      const endTime = activeDateRangeExportAxisRows[activeDateRangeExportAxisRows.length - 1]?.date?.getTime?.();
+      if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) return null;
+      const reference = allSeriesForAxis.filter((point) => {
+        const time = point?.date?.getTime?.();
+        return Number.isFinite(time) && time >= startTime && time <= endTime;
+      });
+      return reference.length >= 2 ? reference : null;
+    };
+    const leftExportYAxisReferenceSeries = getExportYAxisReferenceSeries(leftSeriesAllForAxis);
+    const rightExportYAxisReferenceSeries = getExportYAxisReferenceSeries(rightSeriesAllForAxis);
 
     const leftFormatter = (value) => {
       if (!Number.isFinite(value) || value < 0) return "0";
       if (primaryCurrency === "BTC") return fmtSatAxisLabel(value);
       if (isPreciousMetalCurrency(primaryCurrency)) {
-        return formatCompactGramYAxisLabel(value);
+        return formatCompactOunceYAxisLabel(value);
       }
       return formatCompactYAxisLabel(value, primaryCurrency);
     };
@@ -4209,7 +5445,7 @@
       if (!Number.isFinite(value) || value < 0) return "0";
       if (secondaryCurrency === "BTC") return fmtSatAxisLabel(value);
       if (isPreciousMetalCurrency(secondaryCurrency)) {
-        return formatCompactGramYAxisLabel(value);
+        return formatCompactOunceYAxisLabel(value);
       }
       return formatCompactYAxisLabel(value, secondaryCurrency);
     };
@@ -4248,369 +5484,45 @@
       redenomEvents.forEach((event) => {
         leftEventMarkers.push({
           dateIso: event.date,
-          tooltip: `${event.date}\n${event.ratioLabel} redenomination`,
+          tooltip: `${event.date}\n${redenominationCurrency} ${event.ratioLabel} redenomination`,
         });
         rightEventMarkers.push({
           dateIso: event.date,
-          tooltip: `${event.date}\n${event.ratioLabel} redenomination`,
+          tooltip: `${event.date}\n${redenominationCurrency} ${event.ratioLabel} redenomination`,
         });
       });
 
       if (!applyRedenomAdjustment) {
         // Stars remain visible even without redenomination adjustment; slash labels remain off.
       } else {
-      const leftRawSeries = transformedRows.map((r) => ({
-        date: r.date,
-        value: primaryCurrency === "BTC" ? r.satsPerSecondary : r.inversePrice,
-      }));
-      const leftRawSeriesAll = transformedAllRows.map((r) => ({
-        date: r.date,
-        value: primaryCurrency === "BTC" ? r.satsPerSecondary : r.inversePrice,
-      }));
-      const leftNumeratorCurrency = secondaryCurrency;
-      const leftDenominatorCurrency = primaryCurrency;
-      const rightRawSeries = transformedRows.map((r) => ({
-        date: r.date,
-        value: secondaryCurrency === "BTC" ? r.directPrice * 100000000 : r.directPrice,
-      }));
-      const rightRawSeriesAll = transformedAllRows.map((r) => ({
-        date: r.date,
-        value: secondaryCurrency === "BTC" ? r.directPrice * 100000000 : r.directPrice,
-      }));
-      const leftSeriesAll = adjustedAllRows.map((r) => ({
-        date: r.date,
-        value: primaryCurrency === "BTC" ? r.satsPerSecondary : r.inversePrice,
-      }));
-      const rightSeriesAll = adjustedAllRows.map((r) => ({
-        date: r.date,
-        value: secondaryCurrency === "BTC" ? r.directPrice * 100000000 : r.directPrice,
-      }));
-      const rightNumeratorCurrency = primaryCurrency;
-      const rightDenominatorCurrency = secondaryCurrency;
-      const leftOverlapRanges = [];
-      const rightOverlapRanges = [];
-
-      const eventSegmentFilter = (point, eventDate, prevEventDate, nextEventDate, isPostEvent) => {
-        if (isPostEvent) {
-          if (!(point.date >= eventDate)) return false;
-          if (nextEventDate && point.date >= nextEventDate) return false;
-          return true;
-        }
-        if (!(point.date < eventDate)) return false;
-        if (prevEventDate && point.date < prevEventDate) return false;
-        return true;
-      };
-
-      const segmentCrossesTick = (points, tickValue) => {
-        if (!Array.isArray(points) || points.length === 0 || !Number.isFinite(tickValue) || tickValue <= 0) return false;
-        if (points.length === 1) {
-          const v = points[0]?.value;
-          return Number.isFinite(v) && v > 0 && Math.abs(v - tickValue) <= (tickValue * 1e-9);
-        }
-        for (let i = 1; i < points.length; i += 1) {
-          const a = points[i - 1]?.value;
-          const b = points[i]?.value;
-          if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0 || b <= 0) continue;
-          if ((a <= tickValue && b >= tickValue) || (a >= tickValue && b <= tickValue)) {
-            return true;
-          }
-        }
-        return false;
-      };
-
-      const boundaryCrossesTick = (prePoints, postPoints, tickValue) => {
-        if (!Array.isArray(prePoints) || !Array.isArray(postPoints)) return false;
-        if (!prePoints.length || !postPoints.length || !Number.isFinite(tickValue) || tickValue <= 0) return false;
-        const preLast = prePoints[prePoints.length - 1]?.value;
-        const postFirst = postPoints[0]?.value;
-        if (!Number.isFinite(preLast) || !Number.isFinite(postFirst) || preLast <= 0 || postFirst <= 0) return false;
-        return (preLast <= tickValue && postFirst >= tickValue) || (preLast >= tickValue && postFirst <= tickValue);
-      };
-
-      const valueInSegmentRange = (points, value) => {
-        if (!Array.isArray(points) || !points.length || !Number.isFinite(value) || value <= 0) return false;
-        let minValue = Number.POSITIVE_INFINITY;
-        let maxValue = Number.NEGATIVE_INFINITY;
-        for (const point of points) {
-          const v = point?.value;
-          if (!Number.isFinite(v) || v <= 0) continue;
-          minValue = Math.min(minValue, v);
-          maxValue = Math.max(maxValue, v);
-        }
-        if (!Number.isFinite(minValue) || !Number.isFinite(maxValue)) return false;
-        const eps = Math.max((maxValue - minValue) * 1e-9, minValue * 1e-9, LOG_MIN_POSITIVE);
-        return value >= (minValue - eps) && value <= (maxValue + eps);
-      };
-
-      const computePaddedLogDomain = (points) => {
-        const values = (Array.isArray(points) ? points : [])
-          .map((p) => p?.value)
-          .filter((v) => Number.isFinite(v) && v > 0);
-        if (!values.length) return null;
-        const dataMin = Math.min(...values);
-        const dataMax = Math.max(...values);
-        if (!Number.isFinite(dataMin) || !Number.isFinite(dataMax) || dataMin <= 0 || dataMax <= 0) return null;
-        const safeMin = Math.max(dataMin, LOG_MIN_POSITIVE);
-        const safeMax = Math.max(dataMax, safeMin * (1 + 1e-15));
-        const logSpan = Math.log(safeMax / safeMin);
-        if (logSpan < 1e-6) {
-          const center = Math.max(safeMin, LOG_MIN_POSITIVE);
-          const factor = 1.01;
-          return { min: center / factor, max: center * factor };
-        }
-        const logPad = Math.max(logSpan * 0.01, 1e-6);
-        const factor = Math.exp(logPad);
-        return { min: safeMin / factor, max: safeMax * factor };
-      };
-
-      const leftRawDomain = computePaddedLogDomain(leftRawSeries);
-      const rightRawDomain = computePaddedLogDomain(rightRawSeries);
-      const leftAdjustedDomain = computePaddedLogDomain(leftSeries);
-      const rightAdjustedDomain = computePaddedLogDomain(rightSeries);
-
-      redenomEvents.forEach((event, eventIndex) => {
-        const eventDate = parseIsoDateUtc(event.date);
-        if (!eventDate) return;
-        const preEventProbeDate = new Date(eventDate.getTime() - (24 * 60 * 60 * 1000));
-        const preEventFactor = getCumulativeRedenomFactorAtDate(
+        const currentSegmentFactor = getCumulativeRedenomFactorAtDate(
           redenominationCurrency,
-          preEventProbeDate,
+          latestOriginal.date,
           redenomAnchorDate
         );
 
-        const prevEventDate = eventIndex > 0
-          ? parseIsoDateUtc(redenomEvents[eventIndex - 1].date)
-          : null;
-        const nextEventDate = eventIndex < redenomEvents.length - 1
-          ? parseIsoDateUtc(redenomEvents[eventIndex + 1].date)
-          : null;
-
-        const leftPreRawPoints = leftRawSeriesAll
-          .filter((point) => eventSegmentFilter(point, eventDate, prevEventDate, nextEventDate, false))
-          .filter((point) => Number.isFinite(point.value) && point.value > 0);
-        const leftPreAdjPoints = leftSeriesAll
-          .filter((point) => eventSegmentFilter(point, eventDate, prevEventDate, nextEventDate, false))
-          .filter((point) => Number.isFinite(point.value) && point.value > 0);
-        const leftPostRawPoints = leftRawSeriesAll
-          .filter((point) => eventSegmentFilter(point, eventDate, prevEventDate, nextEventDate, true))
-          .filter((point) => Number.isFinite(point.value) && point.value > 0);
-        const leftPostAdjPoints = leftSeriesAll
-          .filter((point) => eventSegmentFilter(point, eventDate, prevEventDate, nextEventDate, true))
-          .filter((point) => Number.isFinite(point.value) && point.value > 0);
-        const leftPreAdjVisiblePoints = leftSeries
-          .filter((point) => eventSegmentFilter(point, eventDate, prevEventDate, nextEventDate, false))
-          .filter((point) => Number.isFinite(point.value) && point.value > 0);
-        const leftPostAdjVisiblePoints = leftSeries
-          .filter((point) => eventSegmentFilter(point, eventDate, prevEventDate, nextEventDate, true))
-          .filter((point) => Number.isFinite(point.value) && point.value > 0);
-        
-        // Include boundary point: extend pre-segments with the boundary point scaled to pre-event space
-        let leftPreRawPointsExt = [...leftPreRawPoints];
-        let leftPreAdjPointsExt = [...leftPreAdjPoints];
-        if (leftPostRawPoints.length && leftPostAdjPoints.length) {
-          const boundaryRawPoint = leftPostRawPoints[0];
-          const boundaryAdjPoint = leftPostAdjPoints[0];
-          if (boundaryRawPoint && Number.isFinite(boundaryRawPoint.value) && boundaryRawPoint.value > 0) {
-            leftPreRawPointsExt.push({ date: eventDate, value: boundaryRawPoint.value * preEventFactor });
-          }
-          if (boundaryAdjPoint && Number.isFinite(boundaryAdjPoint.value) && boundaryAdjPoint.value > 0) {
-            leftPreAdjPointsExt.push({ date: eventDate, value: boundaryAdjPoint.value });
-          }
-        }
-        
-        if (leftPreRawPointsExt.length && leftPreAdjPointsExt.length && leftPostAdjPoints.length) {
-          leftOverlapRanges.push({
-            eventDate,
-            preFactor: preEventFactor,
-            preRawPoints: leftPreRawPointsExt,
-            preAdjPoints: leftPreAdjPointsExt,
-            postAdjPoints: leftPostAdjPoints,
-            preVisibleInWindow: leftPreAdjVisiblePoints.length > 0,
-            postVisibleInWindow: leftPostAdjVisiblePoints.length > 0,
-          });
-        }
-
-        const rightPreRawPoints = rightRawSeriesAll
-          .filter((point) => eventSegmentFilter(point, eventDate, prevEventDate, nextEventDate, false))
-          .filter((point) => Number.isFinite(point.value) && point.value > 0);
-        const rightPreAdjPoints = rightSeriesAll
-          .filter((point) => eventSegmentFilter(point, eventDate, prevEventDate, nextEventDate, false))
-          .filter((point) => Number.isFinite(point.value) && point.value > 0);
-        const rightPostRawPoints = rightRawSeriesAll
-          .filter((point) => eventSegmentFilter(point, eventDate, prevEventDate, nextEventDate, true))
-          .filter((point) => Number.isFinite(point.value) && point.value > 0);
-        const rightPostAdjPoints = rightSeriesAll
-          .filter((point) => eventSegmentFilter(point, eventDate, prevEventDate, nextEventDate, true))
-          .filter((point) => Number.isFinite(point.value) && point.value > 0);
-        const rightPreAdjVisiblePoints = rightSeries
-          .filter((point) => eventSegmentFilter(point, eventDate, prevEventDate, nextEventDate, false))
-          .filter((point) => Number.isFinite(point.value) && point.value > 0);
-        const rightPostAdjVisiblePoints = rightSeries
-          .filter((point) => eventSegmentFilter(point, eventDate, prevEventDate, nextEventDate, true))
-          .filter((point) => Number.isFinite(point.value) && point.value > 0);
-        
-        // Include boundary point: extend pre-segments with the boundary point scaled to pre-event space
-        let rightPreRawPointsExt = [...rightPreRawPoints];
-        let rightPreAdjPointsExt = [...rightPreAdjPoints];
-        if (rightPostRawPoints.length && rightPostAdjPoints.length) {
-          const boundaryRawPoint = rightPostRawPoints[0];
-          const boundaryAdjPoint = rightPostAdjPoints[0];
-          if (boundaryRawPoint && Number.isFinite(boundaryRawPoint.value) && boundaryRawPoint.value > 0) {
-            rightPreRawPointsExt.push({ date: eventDate, value: boundaryRawPoint.value * preEventFactor });
-          }
-          if (boundaryAdjPoint && Number.isFinite(boundaryAdjPoint.value) && boundaryAdjPoint.value > 0) {
-            rightPreAdjPointsExt.push({ date: eventDate, value: boundaryAdjPoint.value });
-          }
-        }
-        
-        if (rightPreRawPointsExt.length && rightPreAdjPointsExt.length && rightPostAdjPoints.length) {
-          rightOverlapRanges.push({
-            eventDate,
-            preFactor: preEventFactor,
-            preRawPoints: rightPreRawPointsExt,
-            preAdjPoints: rightPreAdjPointsExt,
-            postAdjPoints: rightPostAdjPoints,
-            preVisibleInWindow: rightPreAdjVisiblePoints.length > 0,
-            postVisibleInWindow: rightPostAdjVisiblePoints.length > 0,
-          });
-        }
-      });
-
-      leftOverlapRanges.sort((a, b) => b.eventDate - a.eventDate);
-      rightOverlapRanges.sort((a, b) => b.eventDate - a.eventDate);
-
-      if (leftOverlapRanges.length) {
-        const hasRedenomAnchorDate = redenomAnchorDate instanceof Date && !Number.isNaN(redenomAnchorDate.getTime());
-        const totalRedenomFactor = redenomEvents.reduce((acc, e) => {
-          const eventDate = parseIsoDateUtc(e.date);
-          if (hasRedenomAnchorDate && eventDate && eventDate > redenomAnchorDate) return acc;
-          return acc * (Number(e.ratio) || 1);
-        }, 1);
-        leftOverlapLabelFn = (tickValue, baseLabel) => {
-          // Keep upper padded ticks in adjusted units when they sit above the plotted adjusted domain.
-          if (leftAdjustedDomain && tickValue > leftAdjustedDomain.max) return baseLabel;
-
-          for (const range of leftOverlapRanges) {
-            const preVisibleInWindow = !!range.preVisibleInWindow;
-            const postVisibleInWindow = !!range.postVisibleInWindow;
-            if (!preVisibleInWindow && !postVisibleInWindow) continue;
-
-            const preAdjCross = segmentCrossesTick(range.preAdjPoints, tickValue);
-            const postAdjCross = segmentCrossesTick(range.postAdjPoints, tickValue);
-            const hasAnyAdjustedOverlap = preAdjCross || postAdjCross;
-            if (!hasAnyAdjustedOverlap) continue;
-
-            if (!preVisibleInWindow && postVisibleInWindow) {
-              return baseLabel;
-            }
-
-            if (!postVisibleInWindow && preVisibleInWindow) {
-              if (!preAdjCross) continue;
-            }
-
-            if (preVisibleInWindow && postVisibleInWindow && !preAdjCross && postAdjCross) {
-              return baseLabel;
-            }
-
-            const oldValue = convertAdjustedTickToRawByFactor(
+        if (Number.isFinite(currentSegmentFactor) && currentSegmentFactor > 1) {
+          leftOverlapLabelFn = (tickValue, baseLabel) => {
+            const rawValue = convertAdjustedTickToRawByFactor(
               tickValue,
-              range.preFactor,
-              leftDenominatorCurrency,
-              leftNumeratorCurrency,
+              currentSegmentFactor,
+              primaryCurrency,
+              secondaryCurrency,
               redenominationCurrency
             );
-            if (!Number.isFinite(oldValue) || oldValue <= 0) continue;
-            // Do not hard-stop at raw segment/domain bounds; keep axis-extreme ticks
-            // converted so top/bottom labels remain redenomination-aware.
-
-            if (preAdjCross && !postAdjCross) {
-              return leftFormatter(oldValue);
-            }
-            if (preVisibleInWindow && postVisibleInWindow && preAdjCross && postAdjCross) {
-              return `${leftFormatter(oldValue)}/${baseLabel}`;
-            }
-          }
-          // No overlapping chart lines found for this tick. If it sits outside the
-          // adjusted segments, convert it using all redenomination factors so the label
-          // shows the historical raw equivalent rather than the unadjusted baseLabel.
-          if (totalRedenomFactor > 1) {
-            const oldValue = convertAdjustedTickToRawByFactor(
+            return Number.isFinite(rawValue) && rawValue > 0 ? leftFormatter(rawValue) : baseLabel;
+          };
+          rightOverlapLabelFn = (tickValue, baseLabel) => {
+            const rawValue = convertAdjustedTickToRawByFactor(
               tickValue,
-              totalRedenomFactor,
-              leftDenominatorCurrency,
-              leftNumeratorCurrency,
+              currentSegmentFactor,
+              secondaryCurrency,
+              primaryCurrency,
               redenominationCurrency
             );
-            if (Number.isFinite(oldValue) && oldValue > 0) return leftFormatter(oldValue);
-          }
-          return null;
-        };
-      }
-
-      if (rightOverlapRanges.length) {
-        const hasRedenomAnchorDate = redenomAnchorDate instanceof Date && !Number.isNaN(redenomAnchorDate.getTime());
-        const totalRedenomFactor = redenomEvents.reduce((acc, e) => {
-          const eventDate = parseIsoDateUtc(e.date);
-          if (hasRedenomAnchorDate && eventDate && eventDate > redenomAnchorDate) return acc;
-          return acc * (Number(e.ratio) || 1);
-        }, 1);
-        rightOverlapLabelFn = (tickValue, baseLabel) => {
-          for (const range of rightOverlapRanges) {
-            const preVisibleInWindow = !!range.preVisibleInWindow;
-            const postVisibleInWindow = !!range.postVisibleInWindow;
-            if (!preVisibleInWindow && !postVisibleInWindow) continue;
-
-            const preAdjCross = segmentCrossesTick(range.preAdjPoints, tickValue);
-            const postAdjCross = segmentCrossesTick(range.postAdjPoints, tickValue);
-            const hasAnyAdjustedOverlap = preAdjCross || postAdjCross;
-            if (!hasAnyAdjustedOverlap) continue;
-
-            if (!preVisibleInWindow && postVisibleInWindow) {
-              return baseLabel;
-            }
-
-            if (!postVisibleInWindow && preVisibleInWindow) {
-              if (!preAdjCross) continue;
-            }
-
-            if (preVisibleInWindow && postVisibleInWindow && !preAdjCross && postAdjCross) {
-              return baseLabel;
-            }
-
-            const oldValue = convertAdjustedTickToRawByFactor(
-              tickValue,
-              range.preFactor,
-              rightDenominatorCurrency,
-              rightNumeratorCurrency,
-              redenominationCurrency
-            );
-            if (!Number.isFinite(oldValue) || oldValue <= 0) continue;
-            // Do not hard-stop at raw segment/domain bounds; keep axis-extreme ticks
-            // converted so top/bottom labels remain redenomination-aware.
-
-            if (preAdjCross && !postAdjCross) {
-              return rightFormatter(oldValue);
-            }
-            if (preVisibleInWindow && postVisibleInWindow && preAdjCross && postAdjCross) {
-              return `${rightFormatter(oldValue)}/${baseLabel}`;
-            }
-          }
-          // No overlapping chart lines found for this tick. Convert it using all
-          // redenomination factors so the label shows the historical raw equivalent
-          // rather than the unadjusted baseLabel.
-          if (totalRedenomFactor > 1) {
-            const oldValue = convertAdjustedTickToRawByFactor(
-              tickValue,
-              totalRedenomFactor,
-              rightDenominatorCurrency,
-              rightNumeratorCurrency,
-              redenominationCurrency
-            );
-            if (Number.isFinite(oldValue) && oldValue > 0) return rightFormatter(oldValue);
-          }
-          return null;
-        };
-      }
+            return Number.isFinite(rawValue) && rawValue > 0 ? rightFormatter(rawValue) : baseLabel;
+          };
+        }
       }
     }
 
@@ -4627,6 +5539,7 @@
         eventMarkers: leftEventMarkers,
         edgeTrackEl: el.usdBtcDateEdges,
         axisReferenceSeries: leftAxisHints?.axisReferenceSeries || null,
+        yAxisReferenceSeries: leftExportYAxisReferenceSeries,
         minYFloor: leftAxisHints?.minYFloor,
         maxYFloor: leftAxisHints?.maxYFloor,
         ticks: primaryCurrency === "BTC" ? [
@@ -4656,6 +5569,7 @@
         eventMarkers: rightEventMarkers,
         edgeTrackEl: el.btcUsdDateEdges,
         axisReferenceSeries: rightAxisHints?.axisReferenceSeries || null,
+        yAxisReferenceSeries: rightExportYAxisReferenceSeries,
         minYFloor: rightAxisHints?.minYFloor,
         maxYFloor: rightAxisHints?.maxYFloor,
         ticks: secondaryCurrency === "BTC" ? satsTicks : secondaryCurrency === "USD" ? [
