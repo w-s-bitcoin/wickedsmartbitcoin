@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-05-13T01:39:11.677550Z",
+  "generated_at_utc": "2026-05-13T13:27:13.376104Z",
   "source": {
     "name": "Frankfurter",
     "url": "https://api.frankfurter.app",
@@ -7,8 +7,9 @@
     "pair_endpoint": "https://api.frankfurter.app/1999-01-01..2999-12-31?from=EUR&to=USD",
     "start_date": "1999-01-04",
     "end_date": "2026-05-12",
-    "notes": "Rates are business-day reference rates for 164 Frankfurter-supported currency pairs vs USD; weekends and market holidays are forward-filled.",
-    "dataset_notes": "CSV schema simplified to date, eurusd where eurusd is the EUR/USD rate value. Source attribution is stored in this metadata file."
+    "notes": "Rates are business-day reference rates for 163 Frankfurter-supported currency pairs vs USD; CUP/USD is overwritten with elTOQUE TRMI via CUP=X where available; weekends and market holidays are forward-filled.",
+    "dataset_notes": "CSV schema simplified to date, eurusd where eurusd is the EUR/USD rate value. Source attribution is stored in this metadata file.",
+    "cupusd_source": "elTOQUE TRMI via CUP=X"
   },
   "redenomination_events": {
     "VES": [
@@ -44,7 +45,7 @@
     ],
     "CUP": [
       {
-        "date": "2021-01-04",
+        "date": "2021-01-01",
         "ratio": 0.041666666666666664,
         "ratioLabel": "1:24"
       }
@@ -61,6 +62,34 @@
         "date": "2013-01-02",
         "ratio": 1000,
         "ratioLabel": "1,000:1"
+      }
+    ],
+    "MZN": [
+      {
+        "date": "2006-07-10",
+        "ratio": 1000,
+        "ratioLabel": "1,000:1"
+      }
+    ],
+    "AZN": [
+      {
+        "date": "2006-01-01",
+        "ratio": 5000,
+        "ratioLabel": "5,000:1"
+      }
+    ],
+    "TJS": [
+      {
+        "date": "2000-11-01",
+        "ratio": 1000,
+        "ratioLabel": "1,000:1"
+      }
+    ],
+    "TMT": [
+      {
+        "date": "2009-01-01",
+        "ratio": 5000,
+        "ratioLabel": "5,000:1"
       }
     ]
   },
@@ -95,6 +124,32 @@
         "label": "TMT devaluation ~20%"
       }
     ],
+    "EGP": [
+      {
+        "date": "2016-11-04",
+        "label": "EGP devaluation ~48%"
+      },
+      {
+        "date": "2024-03-07",
+        "label": "EGP devaluation ~55%"
+      }
+    ],
+    "ARS": [
+      {
+        "date": "2023-12-15",
+        "label": "ARS devaluation ~54%"
+      }
+    ],
+    "AZN": [
+      {
+        "date": "2015-02-24",
+        "label": "AZN devaluation ~34%"
+      },
+      {
+        "date": "2015-12-22",
+        "label": "AZN devaluation ~47%"
+      }
+    ],
     "LBP": [
       {
         "date": "2023-02-03",
@@ -103,6 +158,12 @@
       {
         "date": "2024-03-11",
         "label": "LBP devaluation ~83.3%"
+      }
+    ],
+    "LYD": [
+      {
+        "date": "2021-02-09",
+        "label": "LYD devaluation ~69%"
       }
     ]
   },
@@ -321,13 +382,6 @@
       "name": "Chilean Peso",
       "code": "CLP",
       "symbol": "CLP",
-      "symbol_position": "left",
-      "minor_unit": 2
-    },
-    "CNH": {
-      "name": "Chinese Renminbi Yuan Offshore",
-      "code": "CNH",
-      "symbol": "CNH",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -1649,19 +1703,6 @@
       "quote_assumption": "USD-denominated FX rate"
     },
     {
-      "id": "CNH/USD",
-      "base": "CNH",
-      "quote": "USD",
-      "display_name": "Chinese Renminbi Yuan Offshore / US Dollar",
-      "dataset": "daily_fx_rates.csv",
-      "dataset_columns": [
-        "date",
-        "cnhusd"
-      ],
-      "pair_column_value": null,
-      "quote_assumption": "USD-denominated FX rate"
-    },
-    {
       "id": "CNY/USD",
       "base": "CNY",
       "quote": "USD",
@@ -1711,7 +1752,9 @@
         "cupusd"
       ],
       "pair_column_value": null,
-      "quote_assumption": "USD-denominated FX rate"
+      "quote_assumption": "Informal-market TRMI median, stored as USD per CUP",
+      "rate_source": "elTOQUE TRMI via CUP=X",
+      "source_coverage_note": "CUP/USD is available from 2021-01-01 onward; informal-market TRMI data is applied where available."
     },
     {
       "id": "CVE/USD",
