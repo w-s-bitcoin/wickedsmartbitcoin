@@ -88,6 +88,11 @@ window.addEventListener('message', e => {
     if (e.origin !== window.location.origin) return;
     if (e.source !== modalEmbed?.contentWindow) return;
     const data = e.data || {};
+    if (data.type === 'wsb-uoa-date-range-export-active') {
+        window.wsbDashboardExportActive = !!data.active;
+        window.dateRangeExportActive = !!data.active;
+        return;
+    }
     if (data.type !== 'wsb-uoa-dashboard-expanded') return;
     document.body?.classList?.toggle('uoa-dashboard-expanded', !!data.expanded);
 }, true);
