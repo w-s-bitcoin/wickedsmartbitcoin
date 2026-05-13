@@ -1,4 +1,5 @@
 :root {
+  color-scheme: dark;
   --bg: #000000;
   --panel: #000000;
   --surface: #000000;
@@ -25,6 +26,7 @@
 }
 
 :root[data-theme="light"] {
+  color-scheme: light;
   --bg: #f4f5f7;
   --panel: #ffffff;
   --surface: #ffffff;
@@ -48,6 +50,11 @@
   box-sizing: border-box;
 }
 
+html,
+body {
+  scrollbar-color: #5f5f5f #000000;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
@@ -56,6 +63,44 @@ body {
   color: var(--fg);
   overflow-x: hidden;
   overflow-y: auto;
+}
+
+body.uoa-dashboard-expanded {
+  overflow: hidden;
+}
+
+:root[data-theme="light"],
+:root[data-theme="light"] body {
+  scrollbar-color: #bdbdbd #f4f5f7;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+html::-webkit-scrollbar-track,
+body::-webkit-scrollbar-track {
+  background: #000000;
+}
+
+html::-webkit-scrollbar-thumb,
+body::-webkit-scrollbar-thumb {
+  background: #5f5f5f;
+  border: 3px solid #000000;
+  border-radius: 999px;
+}
+
+:root[data-theme="light"]::-webkit-scrollbar-track,
+:root[data-theme="light"] body::-webkit-scrollbar-track {
+  background: #f4f5f7;
+}
+
+:root[data-theme="light"]::-webkit-scrollbar-thumb,
+:root[data-theme="light"] body::-webkit-scrollbar-thumb {
+  background: #bdbdbd;
+  border-color: #f4f5f7;
 }
 
 .wrap {
@@ -69,6 +114,18 @@ body {
   gap: 8px;
 }
 
+body.uoa-dashboard-expanded .wrap {
+  height: 100vh;
+  min-height: 100vh;
+  grid-template-rows: auto minmax(var(--chart-panel-min-height), 1fr);
+  padding-top: var(--wrap-pad);
+}
+
+body.uoa-dashboard-expanded.embedded-in-modal .wrap,
+html.embedded-in-modal body.uoa-dashboard-expanded .wrap {
+  padding-top: var(--wrap-pad);
+}
+
 .topbar {
   display: grid;
   gap: 8px;
@@ -76,6 +133,10 @@ body {
   border: 1px solid var(--panel-border);
   border-radius: 14px;
   background: var(--panel);
+}
+
+body.uoa-dashboard-expanded .topbar {
+  display: none;
 }
 
 .title-row {
@@ -717,13 +778,38 @@ body {
 }
 
 .date-range-download-btn,
-.date-range-settings-btn {
+.date-range-settings-btn,
+.dashboard-expand-btn {
   width: 30px;
   min-width: 30px;
   padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.dashboard-expand-btn {
+  margin-right: -1px;
+}
+
+.dashboard-expand-icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.dashboard-expand-icon-shrink,
+body.uoa-dashboard-expanded .dashboard-expand-icon-expand {
+  display: none;
+}
+
+body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
+  display: block;
 }
 
 .date-range-download-btn {
@@ -935,6 +1021,34 @@ body {
   border-left-color: var(--panel-border);
 }
 
+.download-estimate-panel {
+  display: grid;
+  gap: 4px;
+  border-top: 1px solid var(--panel-border);
+  border-bottom: 1px solid var(--panel-border);
+  padding: 8px 0;
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.download-estimate-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.2;
+}
+
+.download-estimate-row strong {
+  color: var(--fg);
+  font-size: 0.72rem;
+  font-weight: 500;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
 .download-setting-actions {
   display: flex;
   width: 100%;
@@ -1028,7 +1142,9 @@ body {
 }
 
 :root[data-theme="light"] .download-setting-option:hover,
-:root[data-theme="light"] .download-setting-option:focus-visible {
+:root[data-theme="light"] .download-setting-option:focus-visible,
+:root[data-theme="light"] .download-setting-actions button:hover,
+:root[data-theme="light"] .download-setting-actions button:focus-visible {
   border-color: rgba(0, 0, 0, 0.35);
 }
 

@@ -356,6 +356,7 @@
 
   function closeModal() {
     if (isPlaybackActive()) return;
+    document.body?.classList?.remove("uoa-dashboard-expanded");
     try {
       const filename = String(currentImage?.filename || STANDALONE_FILENAME).trim();
       if (filename) {
@@ -442,8 +443,12 @@
     window.addEventListener("message", (event) => {
       if (event.origin !== window.location.origin) return;
       if (event.source !== modalEmbed?.contentWindow) return;
-      if (isPlaybackActive()) return;
       const data = event.data || {};
+      if (data.type === "wsb-uoa-dashboard-expanded") {
+        document.body?.classList?.toggle("uoa-dashboard-expanded", !!data.expanded);
+        return;
+      }
+      if (isPlaybackActive()) return;
       if (data.type !== "wsb-dashboard-nav-key") return;
       const key = String(data.key || "");
       if (!key) return;

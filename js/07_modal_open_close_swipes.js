@@ -266,6 +266,7 @@ function closeModal() {
     modalNavigationFilenamesSnapshot = [];
     modalContentMode = 'image';
     modal.classList.remove('embed-active');
+    document.body?.classList?.remove('uoa-dashboard-expanded');
     if (modalEmbedWrap) modalEmbedWrap.hidden = true;
     if (modalEmbed) modalEmbed.src = 'about:blank';
     resumeDeferredGridLoadingIfNeeded();

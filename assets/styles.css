@@ -2,6 +2,7 @@
     THEME / GLOBAL ELEMENTS
     =========================== */
 :root {
+    color-scheme: dark;
     --bg: #0f0f0f;
     --fg: #f4f4f4;
     --muted: #777;
@@ -49,6 +50,7 @@ label:focus-within,
 }
 
 :root[data-theme="light"] {
+    color-scheme: light;
     --bg: #f7f4ee;
     --fg: #1f1b16;
     --muted: #766d62;
@@ -1375,6 +1377,11 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
 }
 .modal-controls.hidden {
     transform: translateY(-100%);
+    opacity: 0;
+    pointer-events: none;
+}
+body.uoa-dashboard-expanded .modal-controls,
+body.uoa-dashboard-expanded .buy-coffee {
     opacity: 0;
     pointer-events: none;
 }
