@@ -98,6 +98,8 @@
     orientation: "landscape",
     theme: "",
     fps: String(DEFAULT_RANGE_PLAYBACK_FPS),
+    leftScale: "",
+    rightScale: "",
   };
   const RANGE_PRESET_KEYS = ["full", "ytd", "1y", "2y", "4y", "8y"];
   const EXPORT_THEME_PALETTES = {
@@ -175,6 +177,8 @@
     dateRangeDownloadSettingsBtn: document.getElementById("dateRangeDownloadSettingsBtn"),
     dateRangeDownloadSettingsMenu: document.getElementById("dateRangeDownloadSettingsMenu"),
     downloadChartModeSelect: document.getElementById("downloadChartModeSelect"),
+    downloadLeftScaleSelect: document.getElementById("downloadLeftScaleSelect"),
+    downloadRightScaleSelect: document.getElementById("downloadRightScaleSelect"),
     downloadExtensionSelect: document.getElementById("downloadExtensionSelect"),
     downloadQualitySelect: document.getElementById("downloadQualitySelect"),
     downloadOrientationSelect: document.getElementById("downloadOrientationSelect"),
@@ -262,6 +266,7 @@
   let isRenderingDateRangeExportFrame = false;
   let activeDateRangeExportTheme = null;
   let activeDateRangeExportAxisRows = null;
+  let activeDateRangeExportScaleModes = null;
   let downloadSettings = { ...DEFAULT_DOWNLOAD_SETTINGS };
   let downloadSettingsHasStoredValue = false;
   const exportNumericMeasureCache = new Map();
@@ -845,6 +850,15 @@
     };
   }
 
+  function getDashboardScaleMode() {
+    return el.scaleSelect?.value === "linear" ? "linear" : "log";
+  }
+
+  function normalizeScaleMode(value, fallback = "log") {
+    if (value === "linear" || value === "log") return value;
+    return fallback === "linear" ? "linear" : "log";
+  }
+
   function normalizeDownloadSettings(settings = {}) {
     const chartMode = ["both", "left", "right"].includes(settings.chartMode) ? settings.chartMode : DEFAULT_DOWNLOAD_SETTINGS.chartMode;
     const rawExtension = settings.extension === "gif" ? "webm" : settings.extension;
@@ -852,11 +866,14 @@
     const quality = ["720", "1080", "1440", "2160"].includes(String(settings.quality)) ? String(settings.quality) : DEFAULT_DOWNLOAD_SETTINGS.quality;
     const orientation = ["landscape", "portrait", "square"].includes(settings.orientation) ? settings.orientation : DEFAULT_DOWNLOAD_SETTINGS.orientation;
     const theme = settings.theme === "dark" ? "dark" : settings.theme === "light" ? "light" : getCurrentDashboardTheme();
+    const fallbackScale = normalizeScaleMode(settings.scaleMode, getDashboardScaleMode());
+    const leftScale = normalizeScaleMode(settings.leftScale, fallbackScale);
+    const rightScale = normalizeScaleMode(settings.rightScale, fallbackScale);
     const rawFps = Number(settings.fps);
     const fps = Number.isFinite(rawFps) && rawFps > 0
       ? String(rawFps)
       : String(getSelectedDateRangePlaybackFps());
-    return { chartMode, extension, quality, orientation, theme, fps };
+    return { chartMode, extension, quality, orientation, theme, fps, leftScale, rightScale };
   }
 
   function loadDownloadSettings() {
@@ -921,6 +938,23 @@
         fallbackButton.setAttribute("aria-pressed", "true");
       }
     }
+    syncDownloadScaleAvailability();
+  }
+
+  function syncDownloadScaleAvailability() {
+    if (!el.downloadChartModeSelect) return;
+    const syncSide = (side, group) => {
+      if (!group) return;
+      const chartButton = el.downloadChartModeSelect.querySelector(`.download-setting-option[data-value="${side}"]`);
+      const isEnabled = !!chartButton?.classList.contains("is-selected");
+      group.classList.toggle("is-disabled", !isEnabled);
+      group.querySelectorAll(".download-setting-option[data-value]").forEach((button) => {
+        button.disabled = !isEnabled;
+        button.setAttribute("aria-disabled", isEnabled ? "false" : "true");
+      });
+    };
+    syncSide("left", el.downloadLeftScaleSelect);
+    syncSide("right", el.downloadRightScaleSelect);
   }
 
   function getDownloadChartModeLabels() {
@@ -948,6 +982,9 @@
       rightButton.textContent = labels.right;
       rightButton.style.setProperty("--download-chart-right", chartColors.right);
     }
+    if (el.downloadLeftScaleSelect) el.downloadLeftScaleSelect.style.setProperty("--download-chart-left", chartColors.left);
+    if (el.downloadRightScaleSelect) el.downloadRightScaleSelect.style.setProperty("--download-chart-right", chartColors.right);
+    syncDownloadScaleAvailability();
   }
 
   function getVisibleChartMode() {
@@ -1021,6 +1058,9 @@
     setDownloadSettingGroupValue(el.downloadOrientationSelect, normalized.orientation);
     setDownloadSettingGroupValue(el.downloadThemeSelect, normalized.theme);
     setDownloadSettingGroupValue(el.downloadFpsSelect, normalized.fps);
+    setDownloadSettingGroupValue(el.downloadLeftScaleSelect, normalized.leftScale);
+    setDownloadSettingGroupValue(el.downloadRightScaleSelect, normalized.rightScale);
+    syncDownloadScaleAvailability();
     updateDownloadEstimates();
   }
 
@@ -1032,6 +1072,8 @@
       orientation: getDownloadSettingGroupValue(el.downloadOrientationSelect),
       theme: getDownloadSettingGroupValue(el.downloadThemeSelect),
       fps: getDownloadSettingGroupValue(el.downloadFpsSelect),
+      leftScale: getDownloadSettingGroupValue(el.downloadLeftScaleSelect),
+      rightScale: getDownloadSettingGroupValue(el.downloadRightScaleSelect),
     });
   }
 
@@ -1499,6 +1541,7 @@
       const savedExportRenderFlag = isRenderingDateRangeExportFrame;
       const savedExportTheme = activeDateRangeExportTheme;
       const savedExportAxisRows = activeDateRangeExportAxisRows;
+      const savedExportScaleModes = activeDateRangeExportScaleModes;
       const frameStartIso = toIsoDate(allRows[startIndex].date);
       const frameEndIso = toIsoDate(allRows[endIndex].date);
       const frameStartText = formatDateEdgeText(frameStartIso);
@@ -1511,6 +1554,10 @@
       isRenderingDateRangeExportFrame = true;
       activeDateRangeExportTheme = snapshot.exportTheme || null;
       activeDateRangeExportAxisRows = null;
+      activeDateRangeExportScaleModes = {
+        left: normalizeScaleMode(snapshot.leftScaleMode, snapshot.scaleMode),
+        right: normalizeScaleMode(snapshot.rightScaleMode, snapshot.scaleMode),
+      };
       try {
         renderAll();
         stabilizeDateRangeExportNumericText(exportRefs);
@@ -1519,6 +1566,7 @@
         isRenderingDateRangeExportFrame = savedExportRenderFlag;
         activeDateRangeExportTheme = savedExportTheme;
         activeDateRangeExportAxisRows = savedExportAxisRows;
+        activeDateRangeExportScaleModes = savedExportScaleModes;
       }
     });
   }
@@ -2005,7 +2053,9 @@
     const exportSnapshot = {
       primaryCurrency: el.primaryUoaSelect?.value || "BTC",
       secondaryCurrency: el.secondaryUoaSelect?.value || "USD",
-      scaleMode: el.scaleSelect?.value === "linear" ? "linear" : "log",
+      scaleMode: getDashboardScaleMode(),
+      leftScaleMode: settings.leftScale,
+      rightScaleMode: settings.rightScale,
       orderMode: ORDER_MODES.includes(el.orderBySelect?.value) ? el.orderBySelect.value : "alpha-asc",
       smoothVesRedenom: !!el.vesRedenomAdjustToggle?.checked,
       exportTheme: settings.theme,
@@ -2669,6 +2719,8 @@
     }
     [
       el.downloadChartModeSelect,
+      el.downloadLeftScaleSelect,
+      el.downloadRightScaleSelect,
       el.downloadExtensionSelect,
       el.downloadQualitySelect,
       el.downloadOrientationSelect,
@@ -6308,12 +6360,14 @@
   function renderAll() {
     applyCurrencyOrdering();
 
-    const scaleMode = el.scaleSelect?.value === "linear" ? "linear" : "log";
+    const scaleMode = getDashboardScaleMode();
+    const leftScaleMode = normalizeScaleMode(activeDateRangeExportScaleModes?.left, scaleMode);
+    const rightScaleMode = normalizeScaleMode(activeDateRangeExportScaleModes?.right, scaleMode);
     const primaryCurrency = el.primaryUoaSelect?.value || "BTC";
     const secondaryCurrency = el.secondaryUoaSelect?.value || "USD";
     
-    if (el.usdBtcScaleLabel) el.usdBtcScaleLabel.textContent = scaleMode.toUpperCase();
-    if (el.btcUsdScaleLabel) el.btcUsdScaleLabel.textContent = scaleMode.toUpperCase();
+    if (el.usdBtcScaleLabel) el.usdBtcScaleLabel.textContent = leftScaleMode.toUpperCase();
+    if (el.btcUsdScaleLabel) el.btcUsdScaleLabel.textContent = rightScaleMode.toUpperCase();
 
     // Update pair KPI
     renderPairKpiValue(primaryCurrency, secondaryCurrency);
@@ -6611,8 +6665,8 @@
       };
     });
 
-    const leftAxisHints = getRangeAxisHints(leftSeries, leftSeriesAllForAxis, scaleMode);
-    const rightAxisHints = getRangeAxisHints(rightSeries, rightSeriesAllForAxis, scaleMode);
+    const leftAxisHints = getRangeAxisHints(leftSeries, leftSeriesAllForAxis, leftScaleMode);
+    const rightAxisHints = getRangeAxisHints(rightSeries, rightSeriesAllForAxis, rightScaleMode);
     const getExportYAxisReferenceSeries = (allSeriesForAxis) => {
       if (!isRenderingDateRangeExportFrame || !Array.isArray(activeDateRangeExportAxisRows) || activeDateRangeExportAxisRows.length < 2) {
         return null;
@@ -7002,7 +7056,7 @@
       el.usdBtcChart,
       leftSeries,
       {
-        scaleMode,
+        scaleMode: leftScaleMode,
         color: leftColor,
         tickSide: "left",
         yAxisCurrency: primaryCurrency,
@@ -7033,7 +7087,7 @@
       el.btcUsdChart,
       rightSeries,
       {
-        scaleMode,
+        scaleMode: rightScaleMode,
         color: rightColor,
         tickSide: "left",
         yAxisCurrency: secondaryCurrency,
