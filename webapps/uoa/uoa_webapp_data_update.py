@@ -48,7 +48,7 @@ except ModuleNotFoundError:
 # Configuration
 API_BASE = "https://api.frankfurter.dev/v2"
 START_DATE = "1999-01-01"
-EXCLUDED_SOURCE_CURRENCIES = {"CNH"}
+EXCLUDED_SOURCE_CURRENCIES = {"CNH", "MRO"}
 CUP_INFORMAL_API_URL = "https://api.cambiocuba.money/api/v1/x-rates-by-date-range"
 CUP_INFORMAL_PERIOD = "2Y"
 CUP_INFORMAL_SOURCE_LABEL = "elTOQUE TRMI via CUP=X"
@@ -60,8 +60,8 @@ VES_REDENOMINATION_EVENTS = [
 BYN_REDENOMINATION_EVENTS = [
     {"date": "2016-07-01", "ratio": 10000, "ratioLabel": "10,000:1"},
 ]
-MRO_REDENOMINATION_EVENTS = [
-    {"date": "2018-01-03", "ratio": 10, "ratioLabel": "10:1"},
+MRU_REDENOMINATION_EVENTS = [
+    {"date": "2018-01-02", "ratio": 10, "ratioLabel": "10:1"},
 ]
 CUP_REDENOMINATION_EVENTS = [
     {"date": "2021-01-01", "ratio": 1 / 24, "ratioLabel": "1:24"},
@@ -87,7 +87,7 @@ TMT_REDENOMINATION_EVENTS = [
 REDENOMINATION_EVENTS = {
     "VES": VES_REDENOMINATION_EVENTS,
     "BYN": BYN_REDENOMINATION_EVENTS,
-    "MRO": MRO_REDENOMINATION_EVENTS,
+    "MRU": MRU_REDENOMINATION_EVENTS,
     "CUP": CUP_REDENOMINATION_EVENTS,
     "SYP": SYP_REDENOMINATION_EVENTS,
     "ZMW": ZMW_REDENOMINATION_EVENTS,
@@ -210,13 +210,6 @@ CURRENCY_NAME_OVERRIDES = {
 }
 
 MANUAL_FX_SCALE_CORRECTIONS = [
-    {
-        "column": "mrousd",
-        "start_date": "2018-04-17",
-        "end_date": "2018-06-27",
-        "factor": 0.01,
-        "reason": "Remove accidental 100x MRO/USD source-scale spike.",
-    },
     {
         "column": "sypusd",
         "start_date": "2026-01-05",
@@ -744,6 +737,25 @@ def apply_manual_fx_scale_corrections(df, corrections=MANUAL_FX_SCALE_CORRECTION
     return cleaned, fixes_by_column
 
 
+def merge_legacy_mro_history_into_mru(df):
+    """Use legacy MRO/USD values to backfill MRU/USD before MRU source coverage begins."""
+    if "mrousd" not in df.columns:
+        return df, 0
+
+    merged = df.copy()
+    if "mruusd" not in merged.columns:
+        merged["mruusd"] = pd.NA
+
+    mro_values = pd.to_numeric(merged["mrousd"], errors="coerce")
+    mru_values = pd.to_numeric(merged["mruusd"], errors="coerce")
+    fill_mask = mru_values.isna() & mro_values.notna()
+    if not fill_mask.any():
+        return merged, 0
+
+    merged.loc[fill_mask, "mruusd"] = mro_values.loc[fill_mask]
+    return merged, int(fill_mask.sum())
+
+
 def rebuild_vesusd_canonical(df, end_date_iso):
     """Rebuild vesusd from canonical source stitching to avoid mixed-scale artifacts.
 
@@ -965,6 +977,10 @@ def main():
         for column_name, rates_dict in refresh_map.items():
             refresh_df[column_name] = df_combined['date'].map(rates_dict)
         df_combined.update(refresh_df)
+
+    df_combined, legacy_mro_fills = merge_legacy_mro_history_into_mru(df_combined)
+    if legacy_mro_fills:
+        print(f"  Backfilled MRU/USD from legacy MRO/USD history: {legacy_mro_fills} rows")
 
     # Keep only the canonical column order: date + discovered currency columns.
     df_combined = df_combined[['date', *target_columns]]

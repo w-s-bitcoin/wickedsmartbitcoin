@@ -9,6 +9,12 @@
   box-sizing: border-box;
 }
 
+@supports (-webkit-touch-callout: none) {
+  :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea) {
+    font-size: max(16px, 1em) !important;
+  }
+}
+
 html,
 body {
   margin: 0;

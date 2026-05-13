@@ -7,7 +7,7 @@
     "pair_endpoint": "https://api.frankfurter.app/1999-01-01..2999-12-31?from=EUR&to=USD",
     "start_date": "1999-01-04",
     "end_date": "2026-05-12",
-    "notes": "Rates are business-day reference rates for 163 Frankfurter-supported currency pairs vs USD; CUP/USD is overwritten with elTOQUE TRMI via CUP=X where available; weekends and market holidays are forward-filled.",
+    "notes": "Rates are business-day reference rates for 162 Frankfurter-supported currency pairs vs USD; CUP/USD is overwritten with elTOQUE TRMI via CUP=X where available; weekends and market holidays are forward-filled.",
     "dataset_notes": "CSV schema simplified to date, eurusd where eurusd is the EUR/USD rate value. Source attribution is stored in this metadata file.",
     "cupusd_source": "elTOQUE TRMI via CUP=X"
   },
@@ -34,13 +34,6 @@
         "date": "2016-07-01",
         "ratio": 10000,
         "ratioLabel": "10,000:1"
-      }
-    ],
-    "MRO": [
-      {
-        "date": "2018-01-03",
-        "ratio": 10,
-        "ratioLabel": "10:1"
       }
     ],
     "CUP": [
@@ -90,6 +83,13 @@
         "date": "2009-01-01",
         "ratio": 5000,
         "ratioLabel": "5,000:1"
+      }
+    ],
+    "MRU": [
+      {
+        "date": "2018-01-02",
+        "ratio": 10,
+        "ratioLabel": "10:1"
       }
     ]
   },
@@ -812,13 +812,6 @@
       "symbol_position": "left",
       "minor_unit": 2
     },
-    "MRO": {
-      "name": "Mauritanian Ouguiya",
-      "code": "MRO",
-      "symbol": "MRO",
-      "symbol_position": "left",
-      "minor_unit": 2
-    },
     "MRU": {
       "name": "Mauritanian Ouguiya",
       "code": "MRU",
@@ -1051,7 +1044,7 @@
       "minor_unit": 2
     },
     "SLE": {
-      "name": "New Leone",
+      "name": "new Leone",
       "code": "SLE",
       "symbol": "SLE",
       "symbol_position": "left",
@@ -2498,19 +2491,6 @@
       "quote_assumption": "USD-denominated FX rate"
     },
     {
-      "id": "MRO/USD",
-      "base": "MRO",
-      "quote": "USD",
-      "display_name": "Mauritanian Ouguiya / US Dollar",
-      "dataset": "daily_fx_rates.csv",
-      "dataset_columns": [
-        "date",
-        "mrousd"
-      ],
-      "pair_column_value": null,
-      "quote_assumption": "USD-denominated FX rate"
-    },
-    {
       "id": "MRU/USD",
       "base": "MRU",
       "quote": "USD",
@@ -2943,7 +2923,7 @@
       "id": "SLE/USD",
       "base": "SLE",
       "quote": "USD",
-      "display_name": "New Leone / US Dollar",
+      "display_name": "new Leone / US Dollar",
       "dataset": "daily_fx_rates.csv",
       "dataset_columns": [
         "date",

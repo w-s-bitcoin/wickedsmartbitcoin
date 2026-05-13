@@ -108,6 +108,13 @@ html {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
 }
+
+@supports (-webkit-touch-callout: none) {
+    :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea) {
+        font-size: max(16px, 1em) !important;
+    }
+}
+
 body {
     background-color: var(--bg);
     color: var(--fg);
