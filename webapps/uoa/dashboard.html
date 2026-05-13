@@ -155,18 +155,85 @@
                 type="button"
                 id="dateRangeFpsTrigger"
                 class="date-range-playback-btn date-range-fps-trigger"
-                aria-haspopup="listbox"
+                aria-controls="dateRangeFpsMenu"
                 aria-expanded="false"
-                aria-label="Playback frame rate"
+                aria-label="Playback speed"
                 data-fps="60"
               >
-                60 FPS
+                1x
               </button>
-              <div id="dateRangeFpsMenu" class="date-range-fps-menu" role="listbox" aria-label="Playback frame rate options">
-                <button type="button" class="date-range-fps-option" data-fps="30" role="option" aria-selected="false">30 FPS</button>
-                <button type="button" class="date-range-fps-option" data-fps="60" role="option" aria-selected="true">60 FPS</button>
-                <button type="button" class="date-range-fps-option" data-fps="120" role="option" aria-selected="false">120 FPS</button>
-                <button type="button" class="date-range-fps-option" data-fps="240" role="option" aria-selected="false">240 FPS</button>
+              <div id="dateRangeFpsMenu" class="date-range-fps-menu" role="group" aria-label="Playback speed options">
+                <button type="button" class="date-range-fps-option" data-fps="30" aria-pressed="false">0.5x</button>
+                <button type="button" class="date-range-fps-option" data-fps="60" aria-pressed="true">1x</button>
+                <button type="button" class="date-range-fps-option" data-fps="120" aria-pressed="false">2x</button>
+                <button type="button" class="date-range-fps-option" data-fps="240" aria-pressed="false">4x</button>
+              </div>
+            </div>
+            <button
+              type="button"
+              id="dateRangeDownloadBtn"
+              class="date-range-playback-btn date-range-download-btn"
+              aria-label="Download date range animation"
+              title="Download animation"
+            >
+              ↓
+            </button>
+            <div class="date-range-download-settings" id="dateRangeDownloadSettings">
+              <button
+                type="button"
+                id="dateRangeDownloadSettingsBtn"
+                class="date-range-playback-btn date-range-settings-btn"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+                aria-label="Download settings"
+                title="Download settings"
+              >
+                ⚙
+              </button>
+              <div id="dateRangeDownloadSettingsMenu" class="date-range-download-settings-menu" role="dialog" aria-label="Download options">
+                <div class="download-setting-field">Charts
+                  <div id="downloadChartModeSelect" class="download-setting-button-row download-chart-mode-row" role="group" aria-label="Download charts">
+                    <button type="button" class="download-setting-option is-selected" data-value="left" aria-pressed="true">USDBTC</button>
+                    <button type="button" class="download-setting-option is-selected" data-value="right" aria-pressed="true">BTCUSD</button>
+                  </div>
+                </div>
+                <div class="download-setting-field">Orientation
+                  <div id="downloadOrientationSelect" class="download-setting-button-row" role="group" aria-label="Download orientation">
+                    <button type="button" class="download-setting-option is-selected" data-value="landscape" aria-pressed="true">Landscape</button>
+                    <button type="button" class="download-setting-option" data-value="portrait" aria-pressed="false">Portrait</button>
+                    <button type="button" class="download-setting-option" data-value="square" aria-pressed="false">Square</button>
+                  </div>
+                </div>
+                <div class="download-setting-field">Quality
+                  <div id="downloadQualitySelect" class="download-setting-button-row" role="group" aria-label="Download quality">
+                    <button type="button" class="download-setting-option" data-value="720" aria-pressed="false">720p</button>
+                    <button type="button" class="download-setting-option is-selected" data-value="1080" aria-pressed="true">1080p</button>
+                    <button type="button" class="download-setting-option" data-value="1440" aria-pressed="false">1440p</button>
+                  </div>
+                </div>
+                <div class="download-setting-field">Playback Speed
+                  <div id="downloadFpsSelect" class="download-setting-button-row" role="group" aria-label="Download playback speed">
+                    <button type="button" class="download-setting-option" data-value="30" aria-pressed="false">0.5x</button>
+                    <button type="button" class="download-setting-option is-selected" data-value="60" aria-pressed="true">1x</button>
+                    <button type="button" class="download-setting-option" data-value="120" aria-pressed="false">2x</button>
+                    <button type="button" class="download-setting-option" data-value="240" aria-pressed="false">4x</button>
+                  </div>
+                </div>
+                <div class="download-setting-field">Theme
+                  <div id="downloadThemeSelect" class="download-setting-button-row" role="group" aria-label="Download theme">
+                    <button type="button" class="download-setting-option is-selected" data-value="light" aria-pressed="true">Light</button>
+                    <button type="button" class="download-setting-option" data-value="dark" aria-pressed="false">Dark</button>
+                  </div>
+                </div>
+                <div class="download-setting-field">Extension
+                  <div id="downloadExtensionSelect" class="download-setting-button-row" role="group" aria-label="Download extension">
+                    <button type="button" class="download-setting-option is-selected" data-value="mp4" aria-pressed="true">mp4</button>
+                    <button type="button" class="download-setting-option" data-value="webm" aria-pressed="false">webm</button>
+                  </div>
+                </div>
+                <div class="download-setting-actions">
+                  <button type="button" id="downloadSettingsDownloadBtn">Download Animation</button>
+                </div>
               </div>
             </div>
           </div>
