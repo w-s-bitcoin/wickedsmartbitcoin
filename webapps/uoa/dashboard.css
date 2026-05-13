@@ -658,7 +658,8 @@ body.uoa-dashboard-expanded .topbar {
   min-width: 8ch;
 }
 
-.date-range-presets {
+.date-range-presets,
+.date-range-chart-toggles {
   display: inline-flex;
   flex-wrap: nowrap;
   gap: 0;
@@ -844,12 +845,12 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 .date-range-export-progress::before {
   content: "";
   position: absolute;
-  inset: 0;
+  inset: 1px;
   border-radius: 50%;
   background: conic-gradient(#ff9900 0% var(--date-range-export-progress), #5f5f5f var(--date-range-export-progress) 100%);
   box-shadow: 0 0 5px color-mix(in srgb, #ff9900 22%, transparent);
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
-  mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
   transition: --date-range-export-progress 140ms linear;
 }
 
@@ -1007,9 +1008,13 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
   z-index: 4;
 }
 
+.download-chart-mode-row .download-setting-option[data-value="left"].is-selected {
+  background: var(--download-chart-left, var(--accent));
+}
+
 .download-chart-mode-row .download-setting-option[data-value="right"].is-selected {
   color: #000000;
-  background: var(--right);
+  background: var(--download-chart-right, var(--right));
 }
 
 .download-setting-option.is-selected:hover,
@@ -1156,7 +1161,7 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 
 :root[data-theme="light"] .download-chart-mode-row .download-setting-option[data-value="right"].is-selected {
   color: #000000;
-  background: var(--right);
+  background: var(--download-chart-right, var(--right));
 }
 
 :root[data-theme="light"] .download-setting-option.is-selected:hover,
@@ -1164,7 +1169,8 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
   border-color: var(--panel-border-opaque) !important;
 }
 
-.date-range-preset-btn {
+.date-range-preset-btn,
+.date-range-chart-toggle-btn {
   border: 1px solid var(--panel-border);
   border-radius: 0;
   margin-right: -1px;
@@ -1179,25 +1185,30 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
   transition: border-color 120ms ease, color 120ms ease, background 120ms ease, box-shadow 120ms ease;
 }
 
-.date-range-preset-btn:first-child {
+.date-range-preset-btn:first-child,
+.date-range-chart-toggle-btn:first-child {
   border-top-left-radius: 8px;
   border-bottom-left-radius: 8px;
 }
 
-.date-range-preset-btn:last-child {
+.date-range-preset-btn:last-child,
+.date-range-chart-toggle-btn:last-child {
   margin-right: 0;
   border-top-right-radius: 8px;
   border-bottom-right-radius: 8px;
 }
 
 .date-range-preset-btn:hover,
-.date-range-preset-btn:focus-visible {
+.date-range-preset-btn:focus-visible,
+.date-range-chart-toggle-btn:hover,
+.date-range-chart-toggle-btn:focus-visible {
   color: var(--fg);
   border-color: rgba(255, 255, 255, 0.35);
   z-index: 3;
 }
 
-.date-range-preset-btn.is-active {
+.date-range-preset-btn.is-active,
+.date-range-chart-toggle-btn.is-active {
   color: #000000;
   border: 1px solid var(--panel-border-opaque) !important;
   background: var(--accent);
@@ -1206,27 +1217,51 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
   z-index: 4;
 }
 
+.date-range-chart-toggle-btn[data-value="left"].is-active {
+  background: var(--date-range-chart-left, var(--accent));
+}
+
+.date-range-chart-toggle-btn[data-value="right"].is-active {
+  background: var(--date-range-chart-right, var(--right));
+}
+
 .date-range-preset-btn.is-active:hover,
-.date-range-preset-btn.is-active:focus-visible {
+.date-range-preset-btn.is-active:focus-visible,
+.date-range-chart-toggle-btn.is-active:hover,
+.date-range-chart-toggle-btn.is-active:focus-visible {
   border-color: var(--panel-border-opaque) !important;
 }
 
-.date-range-preset-btn.is-active + .date-range-preset-btn {
+.date-range-preset-btn.is-active + .date-range-preset-btn,
+.date-range-chart-toggle-btn.is-active + .date-range-chart-toggle-btn {
   border-left-color: var(--panel-border);
 }
 
 :root[data-theme="light"] .date-range-preset-btn:hover,
-:root[data-theme="light"] .date-range-preset-btn:focus-visible {
+:root[data-theme="light"] .date-range-preset-btn:focus-visible,
+:root[data-theme="light"] .date-range-chart-toggle-btn:hover,
+:root[data-theme="light"] .date-range-chart-toggle-btn:focus-visible {
   border-color: rgba(0, 0, 0, 0.35);
 }
 
-:root[data-theme="light"] .date-range-preset-btn.is-active {
+:root[data-theme="light"] .date-range-preset-btn.is-active,
+:root[data-theme="light"] .date-range-chart-toggle-btn.is-active {
   border-color: var(--panel-border-opaque) !important;
   background: var(--accent);
 }
 
+:root[data-theme="light"] .date-range-chart-toggle-btn[data-value="left"].is-active {
+  background: var(--date-range-chart-left, var(--accent));
+}
+
+:root[data-theme="light"] .date-range-chart-toggle-btn[data-value="right"].is-active {
+  background: var(--date-range-chart-right, var(--right));
+}
+
 :root[data-theme="light"] .date-range-preset-btn.is-active:hover,
-:root[data-theme="light"] .date-range-preset-btn.is-active:focus-visible {
+:root[data-theme="light"] .date-range-preset-btn.is-active:focus-visible,
+:root[data-theme="light"] .date-range-chart-toggle-btn.is-active:hover,
+:root[data-theme="light"] .date-range-chart-toggle-btn.is-active:focus-visible {
   border-color: var(--panel-border-opaque) !important;
 }
 
@@ -1747,6 +1782,16 @@ body.uoa-loading .date-range-slider-wrap > * {
   min-height: var(--chart-panel-min-height);
 }
 
+.grid.chart-view-left,
+.grid.chart-view-right {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.grid.chart-view-left .chart-panel-right,
+.grid.chart-view-right .chart-panel-left {
+  display: none;
+}
+
 .panel {
   background: var(--panel);
   border: 1px solid var(--panel-border);
@@ -1758,7 +1803,44 @@ body.uoa-loading .date-range-slider-wrap > * {
 }
 
 .chart-panel {
+  position: relative;
   padding: 4px 8px 8px;
+}
+
+body.uoa-loading .chart-panel > * {
+  opacity: 0;
+}
+
+body.uoa-loading .chart-panel::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 32px;
+  height: 32px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--accent);
+  border-right-color: var(--accent);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  animation: uoa-chart-loading-spin 0.8s linear infinite;
+  z-index: 1;
+  pointer-events: none;
+}
+
+:root[data-theme="light"] body.uoa-loading .chart-panel::after {
+  border-color: rgba(17, 24, 39, 0.13);
+  border-top-color: var(--accent);
+  border-right-color: var(--accent);
+}
+
+@keyframes uoa-chart-loading-spin {
+  0% {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
 }
 
 .panel-title {

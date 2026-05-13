@@ -12,8 +12,8 @@
     BYN: [
       { date: "2016-07-01", ratio: 10000, ratioLabel: "10,000:1" },
     ],
-    MRO: [
-      { date: "2018-01-03", ratio: 10, ratioLabel: "10:1" },
+    MRU: [
+      { date: "2018-01-02", ratio: 10, ratioLabel: "10:1" },
     ],
     CUP: [
       { date: "2021-01-04", ratio: 1 / 24, ratioLabel: "1:24" },
@@ -74,6 +74,23 @@
   const DATE_RANGE_EXPORT_VIDEO_FPS = 30;
   const DATE_RANGE_EXPORT_START_HOLD_SECONDS = 1;
   const DATE_RANGE_EXPORT_END_HOLD_SECONDS = 3;
+  const DATE_RANGE_EXPORT_BATCH_MEMORY_BUDGET = 220 * 1024 * 1024;
+  const DATE_RANGE_EXPORT_MIN_BATCH_FRAMES = 12;
+  const DATE_RANGE_EXPORT_MAX_BATCH_FRAMES = 90;
+  const YELLOW_METAL_CURRENCIES = new Set(["XAU"]);
+  const SILVER_METAL_CURRENCIES = new Set(["XAG", "XPT", "XPD"]);
+  const GRAINS_PER_TROY_OUNCE = 480;
+  const GRAIN_AXIS_OUNCE_THRESHOLD = 0.01;
+  const MONETARY_METAL_COLORS = {
+    dark: {
+      yellow: "#facc15",
+      silver: "#cbd5e1",
+    },
+    light: {
+      yellow: "#e8c600",
+      silver: "#8f9ead",
+    },
+  };
   const DEFAULT_DOWNLOAD_SETTINGS = {
     chartMode: "both",
     extension: "mp4",
@@ -145,7 +162,9 @@
     endDateBtn: document.getElementById("endDateBtn"),
     rangeDaysLabel: document.getElementById("rangeDaysLabel"),
     dateRangePresets: document.getElementById("dateRangePresets"),
+    dateRangeChartToggles: document.getElementById("dateRangeChartToggles"),
     dateRangePanel: document.querySelector(".date-range-panel"),
+    chartGrid: document.querySelector(".grid"),
     dateRangePlaybackControls: document.getElementById("dateRangePlaybackControls"),
     dateRangePlayBtn: document.getElementById("dateRangePlayBtn"),
     dateRangePauseBtn: document.getElementById("dateRangePauseBtn"),
@@ -797,6 +816,35 @@
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
   }
 
+  function getDashboardRenderTheme() {
+    if (isRenderingDateRangeExportFrame && activeDateRangeExportTheme) {
+      return activeDateRangeExportTheme === "light" ? "light" : "dark";
+    }
+    return getCurrentDashboardTheme();
+  }
+
+  function getCurrencyAccentColor(currencyCode, fallbackCssVarName, fallbackColor) {
+    const code = String(currencyCode || "").toUpperCase();
+    const theme = getDashboardRenderTheme();
+    const metalColors = MONETARY_METAL_COLORS[theme] || MONETARY_METAL_COLORS.dark;
+    if (YELLOW_METAL_CURRENCIES.has(code)) return metalColors.yellow;
+    if (SILVER_METAL_CURRENCIES.has(code)) return metalColors.silver;
+    return getDashboardCssValue(fallbackCssVarName, fallbackColor);
+  }
+
+  function getChartAccentColors(primaryCurrency, secondaryCurrency) {
+    if (secondaryCurrency === "BTC") {
+      return {
+        left: getCurrencyAccentColor(primaryCurrency, "--right", "#34d399"),
+        right: getCurrencyAccentColor(secondaryCurrency, "--left", "#ffae00"),
+      };
+    }
+    return {
+      left: getCurrencyAccentColor(primaryCurrency, "--left", "#ffae00"),
+      right: getCurrencyAccentColor(secondaryCurrency, "--right", "#34d399"),
+    };
+  }
+
   function normalizeDownloadSettings(settings = {}) {
     const chartMode = ["both", "left", "right"].includes(settings.chartMode) ? settings.chartMode : DEFAULT_DOWNLOAD_SETTINGS.chartMode;
     const rawExtension = settings.extension === "gif" ? "webm" : settings.extension;
@@ -886,11 +934,81 @@
 
   function syncDownloadChartModeLabels() {
     if (!el.downloadChartModeSelect) return;
+    const primary = el.primaryUoaSelect?.value || "BTC";
+    const secondary = el.secondaryUoaSelect?.value || "USD";
+    const chartColors = getChartAccentColors(primary, secondary);
     const labels = getDownloadChartModeLabels();
     const leftButton = el.downloadChartModeSelect.querySelector('.download-setting-option[data-value="left"]');
     const rightButton = el.downloadChartModeSelect.querySelector('.download-setting-option[data-value="right"]');
-    if (leftButton) leftButton.textContent = labels.left;
-    if (rightButton) rightButton.textContent = labels.right;
+    if (leftButton) {
+      leftButton.textContent = labels.left;
+      leftButton.style.setProperty("--download-chart-left", chartColors.left);
+    }
+    if (rightButton) {
+      rightButton.textContent = labels.right;
+      rightButton.style.setProperty("--download-chart-right", chartColors.right);
+    }
+  }
+
+  function getVisibleChartMode() {
+    if (!el.dateRangeChartToggles) return "both";
+    const leftSelected = !!el.dateRangeChartToggles.querySelector('.date-range-chart-toggle-btn.is-active[data-value="left"]');
+    const rightSelected = !!el.dateRangeChartToggles.querySelector('.date-range-chart-toggle-btn.is-active[data-value="right"]');
+    if (leftSelected && rightSelected) return "both";
+    if (leftSelected) return "left";
+    if (rightSelected) return "right";
+    return "both";
+  }
+
+  function applyVisibleChartMode() {
+    if (!el.chartGrid) return;
+    const mode = getVisibleChartMode();
+    el.chartGrid.classList.toggle("chart-view-left", mode === "left");
+    el.chartGrid.classList.toggle("chart-view-right", mode === "right");
+    el.chartGrid.classList.toggle("chart-view-both", mode === "both");
+  }
+
+  function syncDateRangeChartToggleLabels() {
+    if (!el.dateRangeChartToggles) return;
+    const primary = el.primaryUoaSelect?.value || "BTC";
+    const secondary = el.secondaryUoaSelect?.value || "USD";
+    const chartColors = getChartAccentColors(primary, secondary);
+    const labels = getDownloadChartModeLabels();
+    const leftButton = el.dateRangeChartToggles.querySelector('.date-range-chart-toggle-btn[data-value="left"]');
+    const rightButton = el.dateRangeChartToggles.querySelector('.date-range-chart-toggle-btn[data-value="right"]');
+    if (leftButton) {
+      leftButton.textContent = labels.left;
+      leftButton.style.setProperty("--date-range-chart-left", chartColors.left);
+    }
+    if (rightButton) {
+      rightButton.textContent = labels.right;
+      rightButton.style.setProperty("--date-range-chart-right", chartColors.right);
+    }
+    applyVisibleChartMode();
+  }
+
+  function toggleVisibleChartButton(button) {
+    if (!el.dateRangeChartToggles || !button) return;
+    const buttons = Array.from(el.dateRangeChartToggles.querySelectorAll(".date-range-chart-toggle-btn[data-value]"));
+    const nextSelected = !button.classList.contains("is-active");
+    button.classList.toggle("is-active", nextSelected);
+    button.setAttribute("aria-pressed", nextSelected ? "true" : "false");
+    const leftButton = el.dateRangeChartToggles.querySelector('.date-range-chart-toggle-btn[data-value="left"]');
+    const rightButton = el.dateRangeChartToggles.querySelector('.date-range-chart-toggle-btn[data-value="right"]');
+    const leftSelected = !!leftButton?.classList.contains("is-active");
+    const rightSelected = !!rightButton?.classList.contains("is-active");
+    if (!leftSelected && !rightSelected) {
+      const fallbackButton = button === leftButton ? rightButton : leftButton;
+      if (fallbackButton) {
+        fallbackButton.classList.add("is-active");
+        fallbackButton.setAttribute("aria-pressed", "true");
+      }
+    }
+    buttons.forEach((item) => {
+      item.setAttribute("aria-pressed", item.classList.contains("is-active") ? "true" : "false");
+    });
+    applyVisibleChartMode();
+    requestAnimationFrame(renderAll);
   }
 
   function syncDownloadSettingsControls() {
@@ -1121,6 +1239,31 @@
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(sourceCanvas, 0, 0, width, height);
     ctx.restore();
+  }
+
+  function getDateRangeExportBatchSize(settings) {
+    const { width, height } = getDownloadDimensions(settings);
+    const frameBytes = Math.max(1, width * height * 4);
+    const budgetFrames = Math.floor(DATE_RANGE_EXPORT_BATCH_MEMORY_BUDGET / frameBytes);
+    return Math.max(
+      DATE_RANGE_EXPORT_MIN_BATCH_FRAMES,
+      Math.min(DATE_RANGE_EXPORT_MAX_BATCH_FRAMES, budgetFrames)
+    );
+  }
+
+  function closeDateRangeExportFrames(frameCache) {
+    frameCache.forEach((frame) => {
+      if (typeof frame?.close === "function") frame.close();
+    });
+    frameCache.clear();
+  }
+
+  function transitionMediaRecorder(recorder, eventName, action) {
+    return new Promise((resolve, reject) => {
+      recorder.addEventListener(eventName, resolve, { once: true });
+      recorder.addEventListener("error", () => reject(recorder.error || new Error("Recording failed")), { once: true });
+      action();
+    });
   }
 
   function getSupportedDownloadRecorder(requestedExtension) {
@@ -1891,41 +2034,9 @@
       await waitForDateRangeExportFonts();
       await waitForDateRangeExportFonts();
       const frameIndices = buildDateRangeExportFrameIndices(startIndex, endIndex, selectedPlaybackFps);
-      const uniqueFrameIndices = [];
-      const seenFrameIndices = new Set();
-      frameIndices.forEach((index) => {
-        if (seenFrameIndices.has(index)) return;
-        seenFrameIndices.add(index);
-        uniqueFrameIndices.push(index);
-      });
-      const totalWorkUnits = Math.max(1, uniqueFrameIndices.length + frameIndices.length);
+      const batchSize = getDateRangeExportBatchSize(settings);
+      const totalWorkUnits = Math.max(1, frameIndices.length * 2);
       let completedWorkUnits = 0;
-
-      for (const index of uniqueFrameIndices) {
-        if (dateRangeExportCancelRequested) {
-          wasCanceled = true;
-          break;
-        }
-        renderExportFrameToSurface(exportRefs, exportSnapshot, startIndex, index);
-        await composeDateRangeExportFrame(layoutCanvas, layoutSettings, exportRefs);
-        drawScaledExportFrame(layoutCanvas, exportCanvas, settings);
-        const frameImage = typeof createImageBitmap === "function"
-          ? await createImageBitmap(exportCanvas)
-          : (() => {
-              const canvas = document.createElement("canvas");
-              canvas.width = exportCanvas.width;
-              canvas.height = exportCanvas.height;
-              canvas.getContext("2d")?.drawImage(exportCanvas, 0, 0);
-              return canvas;
-            })();
-        cachedFrames.set(index, frameImage);
-        completedWorkUnits += 1;
-        renderDateRangeDownloadButtonProgress(completedWorkUnits / totalWorkUnits);
-      }
-      if (wasCanceled || dateRangeExportCancelRequested) {
-        chunks.length = 0;
-        return;
-      }
 
       const exportCtx = exportCanvas.getContext("2d");
       if (!exportCtx) throw new Error("Export canvas context unavailable.");
@@ -1955,28 +2066,81 @@
         recorder.addEventListener("error", () => reject(recorder.error || new Error("Recording failed")), { once: true });
       });
 
+      const renderFrameBatch = async (batchStart) => {
+        closeDateRangeExportFrames(cachedFrames);
+        const batchIndices = frameIndices.slice(batchStart, batchStart + batchSize);
+        const uniqueBatchIndices = [];
+        const seenBatchIndices = new Set();
+        batchIndices.forEach((index) => {
+          if (seenBatchIndices.has(index)) return;
+          seenBatchIndices.add(index);
+          uniqueBatchIndices.push(index);
+        });
+        for (const index of uniqueBatchIndices) {
+          if (dateRangeExportCancelRequested) {
+            wasCanceled = true;
+            break;
+          }
+          renderExportFrameToSurface(exportRefs, exportSnapshot, startIndex, index);
+          await composeDateRangeExportFrame(layoutCanvas, layoutSettings, exportRefs);
+          drawScaledExportFrame(layoutCanvas, exportCanvas, settings);
+          const frameImage = typeof createImageBitmap === "function"
+            ? await createImageBitmap(exportCanvas)
+            : (() => {
+                const canvas = document.createElement("canvas");
+                canvas.width = exportCanvas.width;
+                canvas.height = exportCanvas.height;
+                canvas.getContext("2d")?.drawImage(exportCanvas, 0, 0);
+                return canvas;
+              })();
+          cachedFrames.set(index, frameImage);
+          completedWorkUnits += 1;
+          renderDateRangeDownloadButtonProgress(completedWorkUnits / totalWorkUnits);
+        }
+      };
+
       recorder.start();
-      const recordStartTime = performance.now();
-      for (let frameIndex = 0; frameIndex < frameIndices.length; frameIndex += 1) {
-        const index = frameIndices[frameIndex];
-        if (dateRangeExportCancelRequested) {
+      if (typeof recorder.pause !== "function" || typeof recorder.resume !== "function") {
+        throw new Error("MediaRecorder pause/resume unavailable.");
+      }
+      await transitionMediaRecorder(recorder, "pause", () => recorder.pause());
+
+      let recordedFrames = 0;
+      for (let batchStart = 0; batchStart < frameIndices.length; batchStart += batchSize) {
+        await renderFrameBatch(batchStart);
+        if (wasCanceled || dateRangeExportCancelRequested) {
           wasCanceled = true;
           break;
         }
-        const frameImage = cachedFrames.get(index);
-        if (!frameImage) throw new Error("Cached export frame unavailable.");
-        exportCtx.clearRect(0, 0, exportCanvas.width, exportCanvas.height);
-        exportCtx.drawImage(frameImage, 0, 0);
-        if (dateRangeExportCancelRequested) {
-          wasCanceled = true;
-          break;
+        await transitionMediaRecorder(recorder, "resume", () => recorder.resume());
+        const recordStartTime = performance.now() - (recordedFrames * 1000 / exportVideoFps);
+        const batchEnd = Math.min(frameIndices.length, batchStart + batchSize);
+        for (let frameIndex = batchStart; frameIndex < batchEnd; frameIndex += 1) {
+          const index = frameIndices[frameIndex];
+          if (dateRangeExportCancelRequested) {
+            wasCanceled = true;
+            break;
+          }
+          const frameImage = cachedFrames.get(index);
+          if (!frameImage) throw new Error("Cached export frame unavailable.");
+          exportCtx.clearRect(0, 0, exportCanvas.width, exportCanvas.height);
+          exportCtx.drawImage(frameImage, 0, 0);
+          if (dateRangeExportCancelRequested) {
+            wasCanceled = true;
+            break;
+          }
+          if (track && typeof track.requestFrame === "function") track.requestFrame();
+          recordedFrames += 1;
+          completedWorkUnits += 1;
+          renderDateRangeDownloadButtonProgress(completedWorkUnits / totalWorkUnits);
+          const nextFrameTime = recordStartTime + (recordedFrames * 1000 / exportVideoFps);
+          const waitTime = nextFrameTime - performance.now();
+          if (waitTime > 0) await waitMs(waitTime);
         }
-        if (track && typeof track.requestFrame === "function") track.requestFrame();
-        completedWorkUnits += 1;
-        renderDateRangeDownloadButtonProgress(completedWorkUnits / totalWorkUnits);
-        const nextFrameTime = recordStartTime + ((frameIndex + 1) * 1000 / exportVideoFps);
-        const waitTime = nextFrameTime - performance.now();
-        if (waitTime > 0) await waitMs(waitTime);
+        if (wasCanceled || dateRangeExportCancelRequested) break;
+        if (batchEnd < frameIndices.length) {
+          await transitionMediaRecorder(recorder, "pause", () => recorder.pause());
+        }
       }
       recorder.stop();
       await recorderDone;
@@ -2002,10 +2166,7 @@
     } finally {
       if (recorder && recorder.state !== "inactive") recorder.stop();
       if (track) track.stop();
-      cachedFrames.forEach((frame) => {
-        if (typeof frame?.close === "function") frame.close();
-      });
-      cachedFrames.clear();
+      closeDateRangeExportFrames(cachedFrames);
       if (exportRefs?.surface) exportRefs.surface.remove();
       chunks.length = 0;
       isDateRangeExporting = false;
@@ -2540,6 +2701,18 @@
         downloadDateRangeAnimation();
       });
     }
+  }
+
+  function bindDateRangeChartToggles() {
+    if (!el.dateRangeChartToggles || el.dateRangeChartToggles.dataset.bound === "1") return;
+    el.dateRangeChartToggles.dataset.bound = "1";
+    const buttons = Array.from(el.dateRangeChartToggles.querySelectorAll(".date-range-chart-toggle-btn[data-value]"));
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => {
+        toggleVisibleChartButton(button);
+      });
+    });
+    syncDateRangeChartToggleLabels();
   }
 
   function bindDateRangePlaybackArrowScrubbing() {
@@ -3364,6 +3537,9 @@
   function formatCompactOunceYAxisLabel(ouncesValue) {
     if (!Number.isFinite(ouncesValue) || ouncesValue < 0) return "0";
     if (ouncesValue === 0) return "0 oz";
+    if (ouncesValue < GRAIN_AXIS_OUNCE_THRESHOLD) {
+      return formatCompactGrainYAxisLabel(ouncesValue * GRAINS_PER_TROY_OUNCE);
+    }
 
     let formatted;
     if (ouncesValue >= 1000000000000) {
@@ -3418,6 +3594,44 @@
     return `${formatted} oz`;
   }
 
+  function formatCompactGrainYAxisLabel(grainsValue) {
+    if (!Number.isFinite(grainsValue) || grainsValue < 0) return "0";
+    if (grainsValue === 0) return "0 gr";
+
+    let formatted;
+    if (grainsValue >= 1000000) {
+      const m = grainsValue / 1000000;
+      formatted = m >= 10 ? `${m.toFixed(0)}M` : `${m.toFixed(1)}M`;
+    } else if (grainsValue >= 1000) {
+      const k = grainsValue / 1000;
+      formatted = k >= 10 ? `${k.toFixed(0)}k` : `${k.toFixed(1)}k`;
+    } else if (grainsValue >= 100) {
+      formatted = `${Math.round(grainsValue)}`;
+    } else if (grainsValue >= 10) {
+      formatted = grainsValue >= 20 ? `${grainsValue.toFixed(0)}` : `${grainsValue.toFixed(1)}`;
+    } else if (grainsValue >= 1) {
+      formatted = `${grainsValue.toFixed(2)}`;
+    } else if (grainsValue > 0 && grainsValue < 1e-6) {
+      formatted = grainsValue
+        .toExponential(2)
+        .replace("e+", "e")
+        .replace(/e-0+/, "e-");
+    } else {
+      const magnitude = Math.floor(Math.log10(Math.max(grainsValue, 1e-12)));
+      const decimals = Math.min(8, Math.max(3, 2 - magnitude));
+      formatted = `${grainsValue.toFixed(decimals)}`;
+    }
+
+    if (formatted.includes(".") && !formatted.includes("e")) {
+      formatted = formatted.replace(/0+$/, "");
+      if (formatted.endsWith(".")) {
+        formatted = formatted.slice(0, -1);
+      }
+    }
+
+    return `${formatted} gr`;
+  }
+
   function formatOunceAmount(ouncesValue) {
     if (!Number.isFinite(ouncesValue) || ouncesValue <= 0) return "0 oz";
 
@@ -3435,6 +3649,13 @@
     }
 
     return `${txt} oz`;
+  }
+
+  function formatSatSubtextValue(value, currencyCode) {
+    if (isPreciousMetalCurrency(currencyCode)) {
+      return formatCompactGrainYAxisLabel(value * GRAINS_PER_TROY_OUNCE);
+    }
+    return formatSatValue(value, currencyCode);
   }
 
   function formatCompactYAxisLabel(value, currencyCode) {
@@ -5232,6 +5453,64 @@
     return uniqueTicks;
   }
 
+  function buildMetalYAxisTicks(min, max, isLinear, count = 8) {
+    if (!Number.isFinite(min) || !Number.isFinite(max)) return [];
+    const ticks = [];
+    const addTick = (value) => {
+      if (!Number.isFinite(value) || (!isLinear && value <= 0)) return;
+      if (value < min || value > max) return;
+      const normalized = Number(value.toPrecision(15));
+      const valueScale = Math.max(Math.abs(normalized), LOG_MIN_POSITIVE);
+      const isDuplicate = ticks.some((tick) => Math.abs(tick - normalized) <= valueScale * 1e-10);
+      if (!isDuplicate) ticks.push(normalized);
+    };
+
+    if (max >= GRAIN_AXIS_OUNCE_THRESHOLD) {
+      const ounceMin = Math.max(min, GRAIN_AXIS_OUNCE_THRESHOLD);
+      const ounceTicks = isLinear
+        ? buildLinearTicks(ounceMin, max, Math.max(3, Math.ceil(count / 2)))
+        : buildLogTicks(ounceMin, max);
+      ounceTicks
+        .filter((value) => value >= GRAIN_AXIS_OUNCE_THRESHOLD)
+        .forEach(addTick);
+    }
+
+    if (min < GRAIN_AXIS_OUNCE_THRESHOLD) {
+      const grainMin = Math.max(min * GRAINS_PER_TROY_OUNCE, isLinear ? 0 : LOG_MIN_POSITIVE);
+      const grainMax = Math.min(max, GRAIN_AXIS_OUNCE_THRESHOLD) * GRAINS_PER_TROY_OUNCE;
+      if (grainMax > 0 && grainMax >= grainMin) {
+        const grainTicks = isLinear
+          ? buildLinearTicks(grainMin, grainMax, Math.max(3, Math.ceil(count / 2)))
+          : buildLogTicks(Math.max(grainMin, LOG_MIN_POSITIVE), grainMax);
+        grainTicks
+          .map((value) => value / GRAINS_PER_TROY_OUNCE)
+          .filter((value) => value < GRAIN_AXIS_OUNCE_THRESHOLD)
+          .forEach(addTick);
+      }
+    }
+
+    return ticks.sort((a, b) => a - b);
+  }
+
+  function clampYAxisTicksBySpacing(ticks, yFor, min, max, minSpacingPx) {
+    if (!Array.isArray(ticks) || ticks.length <= 1 || typeof yFor !== "function") return ticks;
+    const visibleTicks = ticks
+      .filter((tick) => tick && Number.isFinite(tick.value) && tick.value >= min && tick.value <= max)
+      .map((tick) => ({ ...tick, y: yFor(tick.value) }))
+      .filter((tick) => Number.isFinite(tick.y))
+      .sort((a, b) => a.y - b.y);
+    const kept = [];
+
+    visibleTicks.forEach((tick) => {
+      const hasRoom = kept.every((keptTick) => Math.abs(keptTick.y - tick.y) >= minSpacingPx);
+      if (hasRoom) kept.push(tick);
+    });
+
+    if (kept.length < 3) return ticks;
+    const keptValues = new Set(kept.map((tick) => tick.value));
+    return ticks.filter((tick) => keptValues.has(tick.value));
+  }
+
   function measureLabelWidth(ticks, fontSpec) {
     if (!fontSpec) {
       const tickLabelFontSize = getResponsiveTickLabelFontSize();
@@ -5254,6 +5533,11 @@
   function renderPairKpiValue(primary, secondary) {
     if (!el.pairKpiValue) return;
     el.pairKpiValue.innerHTML = `<span class="pair-primary">${primary}</span><span class="pair-separator">/</span><span class="pair-secondary">${secondary}</span>`;
+    const primaryEl = el.pairKpiValue.querySelector(".pair-primary");
+    const secondaryEl = el.pairKpiValue.querySelector(".pair-secondary");
+    const chartColors = getChartAccentColors(primary, secondary);
+    if (primaryEl) primaryEl.style.color = chartColors.left;
+    if (secondaryEl) secondaryEl.style.color = chartColors.right;
   }
 
   function syncPairControls(changedControlId) {
@@ -5289,6 +5573,8 @@
     lastSecondaryUoa = secondary;
 
     renderPairKpiValue(primary, secondary);
+    syncDateRangeChartToggleLabels();
+    syncDownloadChartModeLabels();
 
     syncAllDropdowns();
     if (changedControlId === "primaryUoaSelect" && priorRangePreset === "full") {
@@ -5496,6 +5782,7 @@
     bindDateRangePlaybackSpaceShortcut();
     bindDateRangePlaybackFpsButtons();
     bindDashboardExpandButton();
+    bindDateRangeChartToggles();
     bindDateRangeDownloadControls();
     setDateRangePlaybackFps(saved.playbackFps);
 
@@ -5767,7 +6054,9 @@
         max = dataMax + padAmount;
       }
       if (dataMin >= 0) min = Math.max(0, min);
-      tickValues = buildLinearTicks(min, max, 8);
+      tickValues = isPreciousMetalCurrency(opts.yAxisCurrency)
+        ? buildMetalYAxisTicks(min, max, true, 8)
+        : buildLinearTicks(min, max, 8);
     } else {
       // Apply an equivalent 1% pad in log space to keep margins proportional.
       const safeMin = Math.max(dataMin, LOG_MIN_POSITIVE);
@@ -5785,7 +6074,9 @@
         min = safeMin / factor;
         max = safeMax * factor;
       }
-      tickValues = buildLogTicks(min, max);
+      tickValues = isPreciousMetalCurrency(opts.yAxisCurrency)
+        ? buildMetalYAxisTicks(min, max, false, 8)
+        : buildLogTicks(min, max);
     }
 
     // Measure tick labels to determine required left padding.
@@ -5863,6 +6154,16 @@
         const nextLabel = opts.overlapLabelFn(tick.value, tick.label);
         return nextLabel ? { ...tick, label: nextLabel } : tick;
       });
+    }
+
+    if (isPreciousMetalCurrency(opts.yAxisCurrency)) {
+      ticksToDraw = clampYAxisTicksBySpacing(
+        ticksToDraw,
+        yFor,
+        min,
+        max,
+        tickLabelFontSize * 1.6
+      );
     }
 
     const isSinglePointSeries = series.length === 1;
@@ -5964,10 +6265,8 @@
     const markerStates = [];
     const eventMarkers = Array.isArray(opts.eventMarkers) ? opts.eventMarkers : [];
     
-    // Get the date range of the series for date-based positioning
     const firstDate = series.length > 0 ? series[0].date : null;
     const lastDate = series.length > 0 ? series[series.length - 1].date : null;
-    const dateRangeMs = firstDate && lastDate ? lastDate.getTime() - firstDate.getTime() : 1;
     
     eventMarkers.forEach((event) => {
       const eventDate = parseIsoDateUtc(event.dateIso);
@@ -5984,14 +6283,7 @@
       
       if (!Number.isFinite(yValue) || yValue <= 0 || yValue < min || yValue > max) return;
 
-      // Calculate x position based on the actual event date, not array index
-      let x = xFor(idx); // fallback to index-based positioning
-      if (firstDate && lastDate && dateRangeMs > 0) {
-        const eventOffsetMs = eventDate.getTime() - firstDate.getTime();
-        const dateProgress = Math.max(0, Math.min(1, eventOffsetMs / dateRangeMs));
-        x = pad.left + dateProgress * chartW;
-      }
-      
+      const x = xFor(idx);
       const y = yFor(yValue);
       drawStar(ctx, x, y);
       ctx.fillStyle = "#ffffff";
@@ -6025,6 +6317,7 @@
 
     // Update pair KPI
     renderPairKpiValue(primaryCurrency, secondaryCurrency);
+    syncDateRangeChartToggleLabels();
     const latestBtcRow = getLatestBtcRow();
     const latestBlockHeight = latestBtcRow?.blockHeight;
     const latestBlockHeightText = latestBlockHeight ? String(latestBlockHeight) : "";
@@ -6182,10 +6475,10 @@
     if (hasBtcInPair) {
       if (primaryCurrency === "BTC") {
         el.satUsdText.textContent = fmtCurrencyToBtcSubtext(secondaryUnit, latest.inversePrice);
-        el.usdSatText.textContent = `1 sat = ${formatSatValue(latest.satValueInSecondary, secondaryCurrency)}`;
+        el.usdSatText.textContent = `1 sat = ${formatSatSubtextValue(latest.satValueInSecondary, secondaryCurrency)}`;
       } else {
         const satValueInPrimary = latest.inversePrice / 100000000;
-        el.satUsdText.textContent = `1 sat = ${formatSatValue(satValueInPrimary, primaryCurrency)}`;
+        el.satUsdText.textContent = `1 sat = ${formatSatSubtextValue(satValueInPrimary, primaryCurrency)}`;
         el.usdSatText.textContent = `${primaryUnit} = ${fmtBtc(latest.directPrice)}`;
       }
     } else if (hasPreciousMetalInPair) {
@@ -6225,8 +6518,11 @@
     }
 
     // Determine colors and labels based on pair
-    const leftColor = getDashboardCssValue("--left", "#ffae00");
-    const rightColor = getDashboardCssValue("--right", "#34d399");
+    const chartColors = getChartAccentColors(primaryCurrency, secondaryCurrency);
+    const leftColor = chartColors.left;
+    const rightColor = chartColors.right;
+    if (el.usdBtcBig) el.usdBtcBig.style.color = leftColor;
+    if (el.btcUsdBig) el.btcUsdBig.style.color = rightColor;
 
     const leftSeries = adjustedRows.map((r) => {
       const baseValue = primaryCurrency === "BTC" ? r.satsPerSecondary : r.inversePrice;
@@ -6709,6 +7005,7 @@
         scaleMode,
         color: leftColor,
         tickSide: "left",
+        yAxisCurrency: primaryCurrency,
         linearFormatter: leftFormatter,
         overlapLabelFn: leftOverlapLabelFn,
         eventMarkers: leftEventMarkers,
@@ -6739,6 +7036,7 @@
         scaleMode,
         color: rightColor,
         tickSide: "left",
+        yAxisCurrency: secondaryCurrency,
         linearFormatter: rightFormatter,
         overlapLabelFn: rightOverlapLabelFn,
         eventMarkers: rightEventMarkers,

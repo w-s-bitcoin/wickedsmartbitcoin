@@ -119,6 +119,10 @@
             <button type="button" class="date-range-preset-btn" data-range="4y">4Y</button>
             <button type="button" class="date-range-preset-btn" data-range="8y">8Y</button>
           </div>
+          <div class="date-range-chart-toggles" id="dateRangeChartToggles" role="group" aria-label="Visible charts">
+            <button type="button" class="date-range-chart-toggle-btn is-active" data-value="left" aria-pressed="true">USDBTC</button>
+            <button type="button" class="date-range-chart-toggle-btn is-active" data-value="right" aria-pressed="true">BTCUSD</button>
+          </div>
           <div class="date-range-playback-controls" id="dateRangePlaybackControls" role="group" aria-label="Range playback controls">
             <button
               type="button"
@@ -281,7 +285,7 @@
       </section>
 
       <main class="grid" aria-label="UoA chart panels">
-        <section class="panel chart-panel" aria-label="USDBTC chart panel">
+        <section class="panel chart-panel chart-panel-left" aria-label="USDBTC chart panel">
           <h2 class="panel-title" id="usdBtcTitle">Price of 1 USD in terms of bitcoin</h2>
           <div id="usdBtcBig" class="big-value sats">-- sats</div>
           <div id="satUsdText" class="sub-value">1 BTC = 100,000,000 sats</div>
@@ -292,7 +296,7 @@
           <canvas id="usdBtcChart" width="1200" height="720"></canvas>
         </section>
 
-        <section class="panel chart-panel" aria-label="BTCUSD chart panel">
+        <section class="panel chart-panel chart-panel-right" aria-label="BTCUSD chart panel">
           <h2 class="panel-title" id="btcUsdTitle">Price of 1 BTC in terms of US Dollar</h2>
           <div id="btcUsdBig" class="big-value usd">$--</div>
           <div id="usdSatText" class="sub-value">1 sat = $--</div>
