@@ -240,8 +240,6 @@
   let dateRangeDownloadSettingsViewportHandler = null;
   let isDateRangeExporting = false;
   let dateRangeExportCancelRequested = false;
-  let dateRangeExportBenchmark = null;
-  let dateRangeExportBenchmarkStarted = false;
   let isRenderingDateRangeExportFrame = false;
   let activeDateRangeExportTheme = null;
   let activeDateRangeExportAxisRows = null;
@@ -760,22 +758,6 @@
     return Math.max(4_000_000, Number(settings.quality) * 8000);
   }
 
-  function getDateRangeExportRenderCost(settings) {
-    const metrics = getExportLayoutMetrics(getExportReferenceLayoutSettings(settings));
-    const chartMode = settings?.chartMode || DEFAULT_DOWNLOAD_SETTINGS.chartMode;
-    const chartFactor = chartMode === "both" ? 1 : 0.68;
-    return Math.max(1, metrics.width * metrics.height * chartFactor);
-  }
-
-  function getEstimatedRenderSeconds(settings, uniqueFrameCount) {
-    if (!Number.isFinite(uniqueFrameCount) || uniqueFrameCount <= 0) return 1;
-    if (dateRangeExportBenchmark?.msPerCostUnit > 0) {
-      const renderMs = uniqueFrameCount * getDateRangeExportRenderCost(settings) * dateRangeExportBenchmark.msPerCostUnit;
-      return Math.max(1, renderMs / 1000);
-    }
-    return Math.max(1, uniqueFrameCount * 0.035);
-  }
-
   function updateDownloadEstimates() {
     if (!el.downloadEstimateSize || !el.downloadEstimateLength || !el.downloadEstimateTime) return;
     const range = getDateRangeExportEstimateRange();
@@ -793,7 +775,7 @@
     const bitrate = getDateRangeExportBitrate(settings);
     const extensionMultiplier = settings.extension === "webm" ? 0.78 : 1;
     const estimatedBytes = (bitrate * videoSeconds / 8) * extensionMultiplier;
-    const renderSeconds = getEstimatedRenderSeconds(settings, uniqueFrameCount);
+    const renderSeconds = Math.max(1, uniqueFrameCount * 0.035);
     const processingSeconds = videoSeconds + renderSeconds;
     el.downloadEstimateSize.textContent = formatDownloadEstimateSize(estimatedBytes);
     el.downloadEstimateLength.textContent = formatDownloadEstimateDuration(videoSeconds);
@@ -1398,85 +1380,6 @@
     });
   }
 
-  async function runDateRangeExportRenderBenchmark() {
-    if (dateRangeExportBenchmarkStarted || dateRangeExportBenchmark || isDateRangeExporting || !allRows.length) return;
-    dateRangeExportBenchmarkStarted = true;
-    const maxIndex = Math.max(0, allRows.length - 1);
-    const range = getDateRangeExportEstimateRange();
-    const startIndex = Math.max(0, Math.min(maxIndex, range?.startIndex ?? 0));
-    const endIndex = Math.max(startIndex, Math.min(maxIndex, range?.endIndex ?? maxIndex));
-    const span = Math.max(0, endIndex - startIndex);
-    const frameIndices = Array.from(new Set([
-      startIndex,
-      startIndex + Math.round(span * 0.5),
-      endIndex,
-    ].map((index) => Math.max(startIndex, Math.min(endIndex, index)))));
-    if (!frameIndices.length) {
-      dateRangeExportBenchmarkStarted = false;
-      return;
-    }
-
-    const settings = normalizeDownloadSettings(downloadSettings || readDownloadSettingsControls());
-    const layoutSettings = getExportReferenceLayoutSettings(settings);
-    const { width: exportWidth, height: exportHeight } = getDownloadDimensions(settings);
-    const layoutCanvas = document.createElement("canvas");
-    const exportCanvas = document.createElement("canvas");
-    exportCanvas.width = exportWidth;
-    exportCanvas.height = exportHeight;
-    let exportRefs = null;
-    try {
-      exportRefs = createExportRenderSurface(layoutSettings);
-      await waitForDateRangeExportFonts();
-      const snapshot = {
-        primaryCurrency: el.primaryUoaSelect?.value || "BTC",
-        secondaryCurrency: el.secondaryUoaSelect?.value || "USD",
-        scaleMode: el.scaleSelect?.value === "linear" ? "linear" : "log",
-        orderMode: ORDER_MODES.includes(el.orderBySelect?.value) ? el.orderBySelect.value : "alpha-asc",
-        smoothVesRedenom: !!el.vesRedenomAdjustToggle?.checked,
-        exportTheme: settings.theme,
-        startIso: toIsoDate(allRows[startIndex].date),
-        endIso: toIsoDate(allRows[endIndex].date),
-      };
-      const startedAt = performance.now();
-      for (const frameIndex of frameIndices) {
-        if (isDateRangeExporting) return;
-        renderExportFrameToSurface(exportRefs, snapshot, startIndex, frameIndex);
-        await composeDateRangeExportFrame(layoutCanvas, layoutSettings, exportRefs);
-        drawScaledExportFrame(layoutCanvas, exportCanvas, settings);
-        await new Promise((resolve) => requestAnimationFrame(resolve));
-      }
-      const elapsedMs = performance.now() - startedAt;
-      const cost = getDateRangeExportRenderCost(settings);
-      if (Number.isFinite(elapsedMs) && elapsedMs > 0 && cost > 0) {
-        dateRangeExportBenchmark = {
-          msPerCostUnit: elapsedMs / (frameIndices.length * cost),
-          measuredFrames: frameIndices.length,
-        };
-        updateDownloadEstimates();
-      }
-    } catch (error) {
-      console.warn("UoA export render benchmark failed.", error);
-    } finally {
-      exportRefs?.surface?.remove?.();
-    }
-  }
-
-  function scheduleDateRangeExportRenderBenchmark() {
-    if (dateRangeExportBenchmarkStarted || dateRangeExportBenchmark) return;
-    const run = () => {
-      if (document.visibilityState === "hidden") {
-        window.setTimeout(scheduleDateRangeExportRenderBenchmark, 2000);
-        return;
-      }
-      runDateRangeExportRenderBenchmark();
-    };
-    if (typeof window.requestIdleCallback === "function") {
-      window.requestIdleCallback(run, { timeout: 3000 });
-    } else {
-      window.setTimeout(run, 1200);
-    }
-  }
-
   function copyComputedExportStyles(source, target) {
     if (!source || !target || source.nodeType !== Node.ELEMENT_NODE) return;
     const computed = getComputedStyle(source);
@@ -1733,11 +1636,6 @@
       }
     }
     return false;
-  }
-
-  function assertExportCanvasHasContent(canvas) {
-    if (canvasHasPixelVariance(canvas)) return;
-    throw new Error("Export frame rendered blank.");
   }
 
   async function composeDateRangeExportFrame(canvas, settings, exportRefs, options = {}) {
@@ -2011,7 +1909,6 @@
         renderExportFrameToSurface(exportRefs, exportSnapshot, startIndex, index);
         await composeDateRangeExportFrame(layoutCanvas, layoutSettings, exportRefs);
         drawScaledExportFrame(layoutCanvas, exportCanvas, settings);
-        assertExportCanvasHasContent(exportCanvas);
         const frameImage = typeof createImageBitmap === "function"
           ? await createImageBitmap(exportCanvas)
           : (() => {
@@ -2070,7 +1967,6 @@
         if (!frameImage) throw new Error("Cached export frame unavailable.");
         exportCtx.clearRect(0, 0, exportCanvas.width, exportCanvas.height);
         exportCtx.drawImage(frameImage, 0, 0);
-        assertExportCanvasHasContent(exportCanvas);
         if (dateRangeExportCancelRequested) {
           wasCanceled = true;
           break;
@@ -6898,7 +6794,6 @@
     applyFilters();
     restorePausedPlaybackSession(saved);
     document.body.classList.remove("uoa-loading");
-    scheduleDateRangeExportRenderBenchmark();
     window.addEventListener("resize", () => {
       renderAll();
     });
