@@ -1,18 +1,57 @@
 #!/usr/bin/env python3
 """Update UoA FX datasets from Frankfurter with maximum supported currency coverage."""
 
+import argparse
+import csv
 import json
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 import time
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
-import numpy as np
-import pandas as pd
-import requests
+try:
+    import numpy as np
+    import pandas as pd
+except ModuleNotFoundError:
+    np = None
+    pd = None
+
+try:
+    import requests
+except ModuleNotFoundError:
+    class _UrlopenResponse:
+        def __init__(self, status_code, text):
+            self.status_code = status_code
+            self.text = text
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise RuntimeError(f"HTTP {self.status_code}: {self.text[:200]}")
+
+        def json(self):
+            return json.loads(self.text)
+
+    class _RequestsFallback:
+        @staticmethod
+        def get(url, params=None, timeout=30):
+            if params:
+                separator = "&" if "?" in url else "?"
+                url = f"{url}{separator}{urlencode(params)}"
+            req = Request(url, headers={"User-Agent": "wickedsmartbitcoin-uoa-refresh/1.0"})
+            with urlopen(req, timeout=timeout) as response:
+                body = response.read().decode("utf-8")
+                return _UrlopenResponse(response.status, body)
+
+    requests = _RequestsFallback()
 
 # Configuration
 API_BASE = "https://api.frankfurter.dev/v2"
 START_DATE = "1999-01-01"
+EXCLUDED_SOURCE_CURRENCIES = {"CNH"}
+CUP_INFORMAL_API_URL = "https://api.cambiocuba.money/api/v1/x-rates-by-date-range"
+CUP_INFORMAL_PERIOD = "2Y"
+CUP_INFORMAL_SOURCE_LABEL = "elTOQUE TRMI via CUP=X"
 VES_REDENOMINATION_EVENTS = [
     {"date": "2018-05-29", "ratio": 100000, "ratioLabel": "100,000:1"},
     {"date": "2018-08-20", "ratio": 100000, "ratioLabel": "100,000:1"},
@@ -25,13 +64,25 @@ MRO_REDENOMINATION_EVENTS = [
     {"date": "2018-01-03", "ratio": 10, "ratioLabel": "10:1"},
 ]
 CUP_REDENOMINATION_EVENTS = [
-    {"date": "2021-01-04", "ratio": 1 / 24, "ratioLabel": "1:24"},
+    {"date": "2021-01-01", "ratio": 1 / 24, "ratioLabel": "1:24"},
 ]
 SYP_REDENOMINATION_EVENTS = [
     {"date": "2026-01-07", "ratio": 100, "ratioLabel": "100:1"},
 ]
 ZMW_REDENOMINATION_EVENTS = [
     {"date": "2013-01-02", "ratio": 1000, "ratioLabel": "1,000:1"},
+]
+MZN_REDENOMINATION_EVENTS = [
+    {"date": "2006-07-10", "ratio": 1000, "ratioLabel": "1,000:1"},
+]
+AZN_REDENOMINATION_EVENTS = [
+    {"date": "2006-01-01", "ratio": 5000, "ratioLabel": "5,000:1"},
+]
+TJS_REDENOMINATION_EVENTS = [
+    {"date": "2000-11-01", "ratio": 1000, "ratioLabel": "1,000:1"},
+]
+TMT_REDENOMINATION_EVENTS = [
+    {"date": "2009-01-01", "ratio": 5000, "ratioLabel": "5,000:1"},
 ]
 REDENOMINATION_EVENTS = {
     "VES": VES_REDENOMINATION_EVENTS,
@@ -40,6 +91,10 @@ REDENOMINATION_EVENTS = {
     "CUP": CUP_REDENOMINATION_EVENTS,
     "SYP": SYP_REDENOMINATION_EVENTS,
     "ZMW": ZMW_REDENOMINATION_EVENTS,
+    "MZN": MZN_REDENOMINATION_EVENTS,
+    "AZN": AZN_REDENOMINATION_EVENTS,
+    "TJS": TJS_REDENOMINATION_EVENTS,
+    "TMT": TMT_REDENOMINATION_EVENTS,
 }
 NOTABLE_EVENTS = {    "VES": [
         {
@@ -67,6 +122,34 @@ NOTABLE_EVENTS = {    "VES": [
         {
             "date": "2015-01-06",
             "label": "TMT devaluation ~20%",
+        }
+    ],    "EGP": [
+        {
+            "date": "2016-11-04",
+            "label": "EGP devaluation ~48%",
+        },
+        {
+            "date": "2024-03-07",
+            "label": "EGP devaluation ~55%",
+        }
+    ],    "ARS": [
+        {
+            "date": "2023-12-15",
+            "label": "ARS devaluation ~54%",
+        }
+    ],    "AZN": [
+        {
+            "date": "2015-02-24",
+            "label": "AZN devaluation ~34%",
+        },
+        {
+            "date": "2015-12-22",
+            "label": "AZN devaluation ~47%",
+        }
+    ],    "LYD": [
+        {
+            "date": "2021-02-09",
+            "label": "LYD devaluation ~69%",
         }
     ],    "LBP": [
         {
@@ -142,10 +225,52 @@ MANUAL_FX_SCALE_CORRECTIONS = [
     },
     {
         "column": "cupusd",
-        "start_date": "2021-01-05",
-        "end_date": "2021-01-05",
-        "factor": 0.3611544461778471,
-        "reason": "Correct isolated CUP/USD point to 1/24 after redenomination.",
+        "start_date": START_DATE,
+        "end_date": "2020-12-31",
+        "clear": True,
+        "reason": "Remove CUP/USD values before 2021 source coverage.",
+    },
+    {
+        "column": "mznusd",
+        "start_date": "2006-07-03",
+        "end_date": "2006-07-09",
+        "value": 0.000039,
+        "reason": "Carry forward 2006-07-02 MZN/USD value through pre-redenomination source-scale spike.",
+    },
+    {
+        "column": "aznusd",
+        "start_date": "2006-01-01",
+        "end_date": "2006-01-08",
+        "value": 1.089,
+        "reason": "Correct AZN/USD values immediately after 5,000:1 redenomination.",
+    },
+    {
+        "column": "tjsusd",
+        "start_date": "2000-01-02",
+        "end_date": "2000-01-06",
+        "value": 0.00069,
+        "reason": "Carry forward 2000-01-01 TJS/USD value before source-scale correction.",
+    },
+    {
+        "column": "tjsusd",
+        "start_date": "2000-01-07",
+        "end_date": "2000-10-31",
+        "factor": 0.1,
+        "reason": "Correct TJS/USD pre-redenomination source-scale values.",
+    },
+    {
+        "column": "khrusd",
+        "start_date": "2026-05-11",
+        "end_date": "2026-05-11",
+        "value": 0.00025,
+        "reason": "Replace isolated bad upstream KHR/USD point; NBC and market sources stayed near 4012 KHR/USD.",
+    },
+    {
+        "column": "lakusd",
+        "start_date": "2026-05-11",
+        "end_date": "2026-05-11",
+        "value": 0.000046,
+        "reason": "Replace isolated bad upstream LAK/USD point; market sources stayed near 21,900 LAK/USD.",
     },
 ]
 
@@ -244,6 +369,66 @@ def fetch_pair_rates_chunk(base_currency, quote_currency, start_dt, end_dt, max_
                 time.sleep(0.4 * attempt)
 
     raise last_error
+
+
+def fetch_cup_informal_usd_rates(period=CUP_INFORMAL_PERIOD):
+    """Fetch informal-market CUP/USD values and convert to USD per 1 CUP.
+
+    The CUP=X/elTOQUE feed reports CUP per 1 USD. Our canonical `cupusd`
+    column stores USD per 1 CUP, so each valid median is inverted.
+    """
+    print(f"  Fetching CUP/USD informal rate ({CUP_INFORMAL_SOURCE_LABEL}, period={period})...")
+    response = requests.get(
+        CUP_INFORMAL_API_URL,
+        params={"trmi": "true", "period": period, "cur": "USD"},
+        timeout=90,
+    )
+    response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, list):
+        raise ValueError("Unexpected CUP informal rate response format")
+
+    rates = []
+    for row in data:
+        if not isinstance(row, dict):
+            continue
+        date_str = str(row.get("_id") or row.get("date") or "").strip()[:10]
+        if not date_str:
+            continue
+        cup_per_usd = row.get("median")
+        if not isinstance(cup_per_usd, (int, float)) or cup_per_usd <= 0:
+            continue
+
+        # The current public feed covers post-2021 data. If earlier rows are
+        # added later, keep the source denomination as reported for that date;
+        # chart-level redenomination handling will segment CUP values.
+        rates.append((date_str, 1.0 / float(cup_per_usd)))
+
+    rates = sorted(set(rates), key=lambda item: item[0])
+    if not rates:
+        raise ValueError("No valid CUP informal rates returned")
+    print(f"    Got {len(rates)} daily medians ({rates[0][0]}..{rates[-1][0]})")
+    return rates
+
+
+def apply_cup_informal_rates(df, period=CUP_INFORMAL_PERIOD):
+    """Overwrite available `cupusd` rows with informal-market CUP/USD data."""
+    if "date" not in df.columns:
+        raise ValueError("FX dataframe is missing date column")
+
+    rates = fetch_cup_informal_usd_rates(period=period)
+    rate_map = {date_value: rate for date_value, rate in rates}
+    out = df.copy()
+    if "cupusd" not in out.columns:
+        out["cupusd"] = pd.NA
+
+    date_iso = pd.to_datetime(out["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    mapped = date_iso.map(rate_map)
+    mask = mapped.notna()
+    if mask.any():
+        out.loc[mask, "cupusd"] = mapped[mask].astype(float)
+        out["cupusd"] = pd.to_numeric(out["cupusd"], errors="coerce").ffill()
+    return out, len(rates), rates[0][0], rates[-1][0]
 
 
 def fill_missing_dates(df, start_date, end_date):
@@ -531,11 +716,20 @@ def apply_manual_fx_scale_corrections(df, corrections=MANUAL_FX_SCALE_CORRECTION
         start_date = pd.to_datetime(correction.get("start_date"), errors="coerce")
         end_date = pd.to_datetime(correction.get("end_date"), errors="coerce")
         factor = correction.get("factor")
-        if pd.isna(start_date) or pd.isna(end_date) or not isinstance(factor, (int, float)) or factor <= 0:
+        value = correction.get("value")
+        should_clear = correction.get("clear") is True
+        has_factor = isinstance(factor, (int, float)) and factor > 0
+        has_value = isinstance(value, (int, float)) and value > 0
+        if pd.isna(start_date) or pd.isna(end_date) or not (has_factor or has_value or should_clear):
             continue
 
         mask = (date_series >= start_date) & (date_series <= end_date)
         if not mask.any():
+            continue
+
+        if should_clear:
+            cleaned.loc[mask, column] = pd.NA
+            fixes_by_column[column] = fixes_by_column.get(column, 0) + int(mask.sum())
             continue
 
         values = pd.to_numeric(cleaned.loc[mask, column], errors="coerce")
@@ -543,7 +737,7 @@ def apply_manual_fx_scale_corrections(df, corrections=MANUAL_FX_SCALE_CORRECTION
         if not valid_mask.any():
             continue
 
-        cleaned.loc[values[valid_mask].index, column] = values[valid_mask] * float(factor)
+        cleaned.loc[values[valid_mask].index, column] = float(value) if has_value else values[valid_mask] * float(factor)
         fixes_by_column[column] = fixes_by_column.get(column, 0) + int(valid_mask.sum())
 
     return cleaned, fixes_by_column
@@ -610,7 +804,88 @@ def rebuild_vesusd_canonical(df, end_date_iso):
     return out, fixes
 
 
+def annotate_cup_informal_source(uoa_data):
+    """Mark CUP/USD as an informal-market sourced series in metadata."""
+    for pair in uoa_data.get("pairs", []):
+        if pair.get("base") != "CUP" or pair.get("quote") != "USD":
+            continue
+        pair["rate_source"] = CUP_INFORMAL_SOURCE_LABEL
+        pair["quote_assumption"] = "Informal-market TRMI median, stored as USD per CUP"
+        pair["source_coverage_note"] = (
+            f"CUP/USD is available from 2021-01-01 onward; {CUP_INFORMAL_SOURCE_LABEL} is applied where available."
+        )
+        break
+
+
+def refresh_cup_only():
+    """Refresh only the `cupusd` column using the informal-market source."""
+    webapp_data_dir = Path(__file__).parent / "webapp_data"
+    fx_rates_file = webapp_data_dir / "daily_fx_rates.csv"
+    uoa_pairs_file = webapp_data_dir / "uoa_pairs.json"
+
+    print("=" * 60)
+    print("Updating CUP/USD informal-market rates only")
+    print("=" * 60)
+
+    rates = fetch_cup_informal_usd_rates()
+    rate_map = {date_value: rate for date_value, rate in rates}
+    tmp_file = fx_rates_file.with_suffix(fx_rates_file.suffix + ".tmp")
+    with open(fx_rates_file, newline="", encoding="utf-8") as src, open(tmp_file, "w", newline="", encoding="utf-8") as dst:
+        reader = csv.DictReader(src)
+        fieldnames = list(reader.fieldnames or [])
+        if "date" not in fieldnames:
+            raise ValueError("daily_fx_rates.csv is missing date column")
+        if "cupusd" not in fieldnames:
+            fieldnames.append("cupusd")
+
+        writer = csv.DictWriter(dst, fieldnames=fieldnames)
+        writer.writeheader()
+        applied_count = 0
+        for row in reader:
+            date_value = str(row.get("date") or "")[:10]
+            if date_value in rate_map:
+                row["cupusd"] = f"{rate_map[date_value]:.12g}"
+                applied_count += 1
+            writer.writerow({field: row.get(field, "") for field in fieldnames})
+    tmp_file.replace(fx_rates_file)
+    count = len(rates)
+    first_date = rates[0][0]
+    last_date = rates[-1][0]
+    print(
+        f"  Updated cupusd with {applied_count} of {count} informal daily medians "
+        f"({first_date}..{last_date})"
+    )
+
+    with open(uoa_pairs_file, "r") as f:
+        uoa_data = json.load(f)
+    annotate_cup_informal_source(uoa_data)
+    uoa_data["generated_at_utc"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    source_meta = uoa_data.setdefault("source", {})
+    source_meta["cupusd_source"] = CUP_INFORMAL_SOURCE_LABEL
+    source_meta["notes"] = (
+        "Rates are business-day reference rates for 163 Frankfurter-supported currency pairs vs USD; "
+        f"CUP/USD is overwritten with {CUP_INFORMAL_SOURCE_LABEL} where available; "
+        "weekends and market holidays are forward-filled."
+    )
+    with open(uoa_pairs_file, "w") as f:
+        json.dump(uoa_data, f, indent=2)
+    print(f"  Updated CUP metadata in {uoa_pairs_file.name}")
+
+
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--cup-only",
+        action="store_true",
+        help="Refresh only cupusd from the informal-market CUP source.",
+    )
+    args = parser.parse_args()
+    if args.cup_only:
+        refresh_cup_only()
+        return
+    if pd is None or np is None:
+        raise RuntimeError("Full refresh requires numpy and pandas; use --cup-only for the lightweight CUP refresh.")
+
     webapp_data_dir = Path(__file__).parent / "webapp_data"
     fx_rates_file = webapp_data_dir / "daily_fx_rates.csv"
     uoa_pairs_file = webapp_data_dir / "uoa_pairs.json"
@@ -632,7 +907,10 @@ def main():
     print(f"  Refresh window: {fetch_start_date} to {fetch_end_date}")
 
     supported_currencies = fetch_supported_currencies()
-    target_currencies = sorted(code for code in supported_currencies.keys() if code != "USD")
+    target_currencies = sorted(
+        code for code in supported_currencies.keys()
+        if code != "USD" and code not in EXCLUDED_SOURCE_CURRENCIES
+    )
     print(f"  Frankfurter-supported currencies (excl. USD): {len(target_currencies)}")
 
     existing_columns = set(existing_df.columns)
@@ -694,6 +972,17 @@ def main():
     for col in df_combined.columns:
         if col != 'date':
             df_combined[col] = df_combined[col].ffill()
+
+    # Use the informal free-float CUP/USD reference where the source has coverage.
+    cup_rates_count = 0
+    cup_rates_start = None
+    cup_rates_end = None
+    if "cupusd" in df_combined.columns:
+        df_combined, cup_rates_count, cup_rates_start, cup_rates_end = apply_cup_informal_rates(df_combined)
+        print(
+            "  Applied informal CUP/USD rates: "
+            f"{cup_rates_count} rows ({cup_rates_start}..{cup_rates_end})"
+        )
 
     # Keep raw source values in vesusd; apply only targeted lag cleanup post-event.
     ves_event_dates = [event["date"] for event in VES_REDENOMINATION_EVENTS]
@@ -769,9 +1058,10 @@ def main():
 
     uoa_data["currencies"] = rebuilt_currencies
 
-    # Update pairs list to reflect all available pairs
-    uoa_data["pairs"] = [
-        {
+    # Update pairs list to reflect all available pairs.
+    rebuilt_pairs = []
+    for curr in target_currencies:
+        pair = {
             "id": f"{curr.upper()}/USD",
             "base": curr.upper(),
             "quote": "USD",
@@ -781,14 +1071,19 @@ def main():
             "pair_column_value": None,
             "quote_assumption": "USD-denominated FX rate"
         }
-        for curr in target_currencies
-    ]
+        if curr.upper() == "CUP":
+            pair["rate_source"] = CUP_INFORMAL_SOURCE_LABEL
+            pair["quote_assumption"] = "Informal-market TRMI median, stored as USD per CUP"
+        rebuilt_pairs.append(pair)
+    uoa_data["pairs"] = rebuilt_pairs
+    annotate_cup_informal_source(uoa_data)
 
     # Update metadata
     uoa_data["generated_at_utc"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     uoa_data["source"]["end_date"] = fetch_end_date
     uoa_data["source"]["notes"] = (
         f"Rates are business-day reference rates for {len(target_currencies)} Frankfurter-supported currency pairs vs USD; "
+        f"CUP/USD is overwritten with {CUP_INFORMAL_SOURCE_LABEL} where available; "
         "weekends and market holidays are forward-filled."
     )
     uoa_data["redenomination_events"] = REDENOMINATION_EVENTS

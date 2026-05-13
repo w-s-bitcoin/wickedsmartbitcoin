@@ -753,7 +753,12 @@ body {
 .date-range-download-settings-menu {
   left: auto;
   right: 0;
-  min-width: 280px;
+  width: min(280px, calc(100vw - 16px));
+  min-width: 0;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+  transform: translateX(var(--download-settings-menu-shift-x, 0px));
   padding: 10px;
   gap: 9px;
 }
@@ -1088,6 +1093,8 @@ body {
 .date-range-slider-wrap {
   --slider-start: 0%;
   --slider-end: 100%;
+  --available-start: 0%;
+  --available-end: 100%;
   position: relative;
   height: 30px;
   cursor: default;
@@ -1117,6 +1124,7 @@ body {
   right: calc(100% - var(--slider-end));
   background: #5f5f5f;
   cursor: ew-resize;
+  z-index: 1;
 }
 
 :root[data-theme="light"] .date-range-slider-wrap::before {
@@ -1125,6 +1133,88 @@ body {
 
 :root[data-theme="light"] .date-range-slider-wrap::after {
   background: #bdbdbd;
+}
+
+.date-range-available-track {
+  position: absolute;
+  left: var(--available-start);
+  right: calc(100% - var(--available-end));
+  top: 50%;
+  height: 6px;
+  border-radius: 999px;
+  transform: translateY(-50%);
+  background: rgba(128, 128, 128, 0.24);
+  pointer-events: none;
+}
+
+:root[data-theme="light"] .date-range-available-track {
+  background: #e6e6e6;
+}
+
+.date-range-missing-data {
+  position: absolute;
+  left: 0;
+  right: 100%;
+  top: 50%;
+  height: 6px;
+  border-radius: 999px;
+  transform: translateY(-50%);
+  background: #3e1111;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.date-range-missing-data.active {
+  opacity: 1;
+}
+
+:root[data-theme="light"] .date-range-missing-data {
+  background: #e9b6b6;
+}
+
+.date-range-missing-selection {
+  position: absolute;
+  left: 0;
+  right: 100%;
+  top: 50%;
+  height: 6px;
+  border-radius: 999px;
+  transform: translateY(-50%);
+  background: #7d2a2a;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 2;
+}
+
+.date-range-missing-selection.active {
+  opacity: 1;
+}
+
+:root[data-theme="light"] .date-range-missing-selection {
+  background: #d88989;
+}
+
+.date-range-missing-marker {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 12px;
+  height: 26px;
+  border-radius: 3px;
+  transform: translate(-50%, -50%);
+  background: #9b3a3a;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 3;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+.date-range-missing-marker.active {
+  opacity: 1;
+}
+
+:root[data-theme="light"] .date-range-missing-marker {
+  background: #d88989;
 }
 
 .date-range-remaining {
@@ -1161,7 +1251,7 @@ body {
   appearance: none;
   -webkit-appearance: none;
   pointer-events: none;
-  z-index: 2;
+  z-index: 4;
   cursor: default;
   touch-action: none;
 }
@@ -1179,7 +1269,7 @@ body {
   border-radius: 3px;
   border: none;
   background: #e6e6e6;
-  margin-top: -11px;
+  margin-top: -10px;
   cursor: pointer;
   pointer-events: auto;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
@@ -1200,7 +1290,7 @@ body {
   border-radius: 3px;
   border: none;
   background: #e6e6e6;
-  margin-top: -11px;
+  margin-top: -10px;
   cursor: pointer;
   pointer-events: auto;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);

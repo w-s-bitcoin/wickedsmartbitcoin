@@ -206,8 +206,8 @@
                 </div>
                 <div class="download-setting-field">Quality
                   <div id="downloadQualitySelect" class="download-setting-button-row" role="group" aria-label="Download quality">
-                    <button type="button" class="download-setting-option" data-value="720" aria-pressed="false">720p</button>
-                    <button type="button" class="download-setting-option is-selected" data-value="1080" aria-pressed="true">1080p</button>
+                    <button type="button" class="download-setting-option is-selected" data-value="720" aria-pressed="true">720p</button>
+                    <button type="button" class="download-setting-option" data-value="1080" aria-pressed="false">1080p</button>
                     <button type="button" class="download-setting-option" data-value="1440" aria-pressed="false">1440p</button>
                   </div>
                 </div>
@@ -239,6 +239,13 @@
           </div>
         </div>
         <div class="date-range-slider-wrap" id="dateRangeSliderWrap">
+          <div class="date-range-available-track" id="dateRangeAvailableTrack"></div>
+          <div class="date-range-missing-data date-range-missing-data-start" id="dateRangeMissingDataStart"></div>
+          <div class="date-range-missing-data date-range-missing-data-end" id="dateRangeMissingDataEnd"></div>
+          <div class="date-range-missing-selection date-range-missing-selection-start" id="dateRangeMissingSelectionStart"></div>
+          <div class="date-range-missing-selection date-range-missing-selection-end" id="dateRangeMissingSelectionEnd"></div>
+          <div class="date-range-missing-marker date-range-missing-marker-start" id="dateRangeMissingMarkerStart"></div>
+          <div class="date-range-missing-marker date-range-missing-marker-end" id="dateRangeMissingMarkerEnd"></div>
           <input id="dateRangeStartSlider" class="date-range-slider" type="range" min="0" max="0" value="0" step="1" aria-label="Start date slider" />
           <input id="dateRangeEndSlider" class="date-range-slider" type="range" min="0" max="0" value="0" step="1" aria-label="End date slider" />
           <div class="date-range-remaining" id="dateRangeRemaining"></div>

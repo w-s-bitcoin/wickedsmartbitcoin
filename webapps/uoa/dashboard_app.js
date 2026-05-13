@@ -69,14 +69,19 @@
   };
   const LOG_MIN_POSITIVE = 1e-300;
   const DEFAULT_RANGE_PLAYBACK_FPS = 60;
+  const DATE_RANGE_THUMB_WIDTH_PX = 12;
+  const DATE_RANGE_EXPORT_VIDEO_FPS = 30;
+  const DATE_RANGE_EXPORT_START_HOLD_SECONDS = 1;
+  const DATE_RANGE_EXPORT_END_HOLD_SECONDS = 3;
   const DEFAULT_DOWNLOAD_SETTINGS = {
     chartMode: "both",
     extension: "mp4",
-    quality: "1080",
+    quality: "720",
     orientation: "landscape",
-    theme: "light",
-    fps: "",
+    theme: "",
+    fps: String(DEFAULT_RANGE_PLAYBACK_FPS),
   };
+  const RANGE_PRESET_KEYS = ["full", "ytd", "1y", "2y", "4y", "8y"];
   const EXPORT_THEME_PALETTES = {
     dark: {
       "--bg": "#000000",
@@ -159,6 +164,13 @@
     startDateInput: document.getElementById("startDateInput"),
     endDateInput: document.getElementById("endDateInput"),
     dateRangeSliderWrap: document.getElementById("dateRangeSliderWrap"),
+    dateRangeAvailableTrack: document.getElementById("dateRangeAvailableTrack"),
+    dateRangeMissingDataStart: document.getElementById("dateRangeMissingDataStart"),
+    dateRangeMissingDataEnd: document.getElementById("dateRangeMissingDataEnd"),
+    dateRangeMissingSelectionStart: document.getElementById("dateRangeMissingSelectionStart"),
+    dateRangeMissingSelectionEnd: document.getElementById("dateRangeMissingSelectionEnd"),
+    dateRangeMissingMarkerStart: document.getElementById("dateRangeMissingMarkerStart"),
+    dateRangeMissingMarkerEnd: document.getElementById("dateRangeMissingMarkerEnd"),
     dateRangeStartSlider: document.getElementById("dateRangeStartSlider"),
     dateRangeEndSlider: document.getElementById("dateRangeEndSlider"),
     dateRangeRemaining: document.getElementById("dateRangeRemaining"),
@@ -195,6 +207,10 @@
   let dateRangeSessionPersistenceBound = false;
   const overlayClosers = new Set();
   let usdParityStartIso = "";
+  let requestedDateRange = {
+    startIso: "",
+    endIso: "",
+  };
   let uoaPairs = null; // Metadata from uoa_pairs.json
   let fxRatesByDate = {}; // { "2026-05-08": { "EUR/USD": 1.176100 } }
   let availableCurrencies = ["BTC", "USD"]; // Will be populated from uoaPairs
@@ -218,6 +234,7 @@
   let dateRangePlaybackOutsidePointerTouchState = null;
   let dateRangeFpsMenuOutsideHandler = null;
   let dateRangeDownloadSettingsOutsideHandler = null;
+  let dateRangeDownloadSettingsViewportHandler = null;
   let isDateRangeExporting = false;
   let dateRangeExportCancelRequested = false;
   let isRenderingDateRangeExportFrame = false;
@@ -277,7 +294,12 @@
     return (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
   }
 
-  function shiftIsoByYearsPreservingDate(isoValue, yearDelta) {
+  function getLocalTodayIso() {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  }
+
+  function shiftIsoByYearsPreservingDate(isoValue, yearDelta, options = {}) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(isoValue || ""))) return "";
     const [yRaw, mRaw, dRaw] = isoValue.split("-");
     const sourceYear = Number(yRaw);
@@ -285,19 +307,32 @@
     const sourceDay = Number(dRaw);
     const targetYear = sourceYear + Number(yearDelta || 0);
     if (!Number.isFinite(targetYear)) return "";
+    const leapDayToFeb28 = options.leapDayToFeb28 !== false;
 
-    // Leap-day handling rule requested by user:
-    // Feb 29 -> Feb 28 when target isn't leap, and vice versa when target is leap.
-    if (sourceMonth === 2 && sourceDay === 29 && !isLeapYear(targetYear)) {
+    if (leapDayToFeb28 && sourceMonth === 2 && sourceDay === 29 && !isLeapYear(targetYear)) {
       return `${targetYear}-${String(sourceMonth).padStart(2, "0")}-28`;
-    }
-    if (sourceMonth === 2 && sourceDay === 28 && !isLeapYear(sourceYear) && isLeapYear(targetYear)) {
-      return `${targetYear}-${String(sourceMonth).padStart(2, "0")}-29`;
     }
 
     const lastDay = new Date(Date.UTC(targetYear, sourceMonth, 0)).getUTCDate();
     const day = Math.min(sourceDay, lastDay);
     return `${targetYear}-${String(sourceMonth).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  }
+
+  function shiftIsoByDays(isoValue, dayDelta) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(isoValue || ""))) return "";
+    const date = new Date(`${isoValue}T00:00:00Z`);
+    if (Number.isNaN(date.getTime())) return "";
+    date.setUTCDate(date.getUTCDate() + Math.trunc(Number(dayDelta) || 0));
+    return toIsoDate(date);
+  }
+
+  function getInclusiveIsoDaySpan(startIso, endIso) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(startIso || "")) || !/^\d{4}-\d{2}-\d{2}$/.test(String(endIso || ""))) return null;
+    const start = new Date(`${startIso}T00:00:00Z`);
+    const end = new Date(`${endIso}T00:00:00Z`);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return null;
+    const dayMs = 24 * 60 * 60 * 1000;
+    return Math.floor((end.getTime() - start.getTime()) / dayMs) + 1;
   }
 
   function getDateIndexOnOrAfter(targetIso) {
@@ -316,20 +351,189 @@
     return 0;
   }
 
-  function getPresetDateIndices(presetKey, anchorEndIndex = null) {
+  function setRequestedDateRange(startIso, endIso) {
+    requestedDateRange = {
+      startIso: String(startIso || ""),
+      endIso: String(endIso || ""),
+    };
+  }
+
+  function getSelectedPairCurrencies() {
+    return {
+      primary: el.primaryUoaSelect?.value || "BTC",
+      secondary: el.secondaryUoaSelect?.value || "USD",
+    };
+  }
+
+  function rowSupportsCurrencyPair(row, primaryCurrency, secondaryCurrency) {
+    if (!row?.date) return false;
+    const isoDate = toIsoDate(row.date);
+    const primaryInUsd = getCurrencyValueInUsd(primaryCurrency, row, isoDate);
+    const secondaryInUsd = getCurrencyValueInUsd(secondaryCurrency, row, isoDate);
+    return Number.isFinite(primaryInUsd) && primaryInUsd > 0
+      && Number.isFinite(secondaryInUsd) && secondaryInUsd > 0;
+  }
+
+  function rowSupportsCurrency(row, currencyCode) {
+    if (!row?.date) return false;
+    const isoDate = toIsoDate(row.date);
+    const valueInUsd = getCurrencyValueInUsd(currencyCode, row, isoDate);
+    return Number.isFinite(valueInUsd) && valueInUsd > 0;
+  }
+
+  function getCurrencyDateIndexBounds(currencyCode) {
     if (!allRows.length) return null;
+    const code = String(currencyCode || "BTC").toUpperCase();
+    let minIndex = -1;
+    let maxIndex = -1;
+    for (let i = 0; i < allRows.length; i += 1) {
+      if (!rowSupportsCurrency(allRows[i], code)) continue;
+      if (minIndex < 0) minIndex = i;
+      maxIndex = i;
+    }
+    if (minIndex < 0 || maxIndex < 0) return null;
+    return {
+      minIndex,
+      maxIndex,
+      minIso: toIsoDate(allRows[minIndex].date),
+      maxIso: toIsoDate(allRows[maxIndex].date),
+    };
+  }
+
+  function getMissingCurrenciesForRows(startIndex, endIndex, primaryCurrency, secondaryCurrency) {
+    const missing = new Set();
+    const safeStart = Math.max(0, Math.min(allRows.length - 1, startIndex));
+    const safeEnd = Math.max(0, Math.min(allRows.length - 1, endIndex));
+    if (!allRows.length || safeEnd < safeStart) return missing;
+
+    for (let i = safeStart; i <= safeEnd; i += 1) {
+      const row = allRows[i];
+      const isoDate = toIsoDate(row.date);
+      const primaryInUsd = getCurrencyValueInUsd(primaryCurrency, row, isoDate);
+      const secondaryInUsd = getCurrencyValueInUsd(secondaryCurrency, row, isoDate);
+      if (!Number.isFinite(primaryInUsd) || primaryInUsd <= 0) missing.add(primaryCurrency);
+      if (!Number.isFinite(secondaryInUsd) || secondaryInUsd <= 0) missing.add(secondaryCurrency);
+      if (missing.has(primaryCurrency) && missing.has(secondaryCurrency)) break;
+    }
+    return missing;
+  }
+
+  function getDateRangeRestrictionMessage(dataBounds = getPairDataDateIndexBounds()) {
+    if (!allRows.length || !dataBounds) return "";
+    const globalMaxIndex = Math.max(0, allRows.length - 1);
+    if (dataBounds.minIndex <= 0 && dataBounds.maxIndex >= globalMaxIndex) return "";
+
+    const { primary, secondary } = getSelectedPairCurrencies();
+    const missing = new Set();
+    if (dataBounds.minIndex > 0) {
+      getMissingCurrenciesForRows(0, dataBounds.minIndex - 1, primary, secondary).forEach((code) => missing.add(code));
+    }
+    if (dataBounds.maxIndex < globalMaxIndex) {
+      getMissingCurrenciesForRows(dataBounds.maxIndex + 1, globalMaxIndex, primary, secondary).forEach((code) => missing.add(code));
+    }
+
+    const missingText = Array.from(missing).join(" and ") || `${primary} or ${secondary}`;
+    return `Missing data for ${missingText}`;
+  }
+
+  function getPairDateIndexBounds(primaryCurrency = null, secondaryCurrency = null) {
+    if (!allRows.length) return null;
+    const pair = primaryCurrency && secondaryCurrency
+      ? { primary: primaryCurrency, secondary: secondaryCurrency }
+      : getSelectedPairCurrencies();
+    return getCurrencyDateIndexBounds(pair.primary);
+  }
+
+  function getPairDataDateIndexBounds(primaryCurrency = null, secondaryCurrency = null) {
+    if (!allRows.length) return null;
+    const pair = primaryCurrency && secondaryCurrency
+      ? { primary: primaryCurrency, secondary: secondaryCurrency }
+      : getSelectedPairCurrencies();
+    const primaryBounds = getCurrencyDateIndexBounds(pair.primary);
+    const secondaryBounds = getCurrencyDateIndexBounds(pair.secondary);
+    if (!primaryBounds || !secondaryBounds) return null;
+
+    const minIndex = Math.max(primaryBounds.minIndex, secondaryBounds.minIndex);
+    const maxIndex = Math.min(primaryBounds.maxIndex, secondaryBounds.maxIndex);
+    if (minIndex > maxIndex) return null;
+    return {
+      minIndex,
+      maxIndex,
+      minIso: toIsoDate(allRows[minIndex].date),
+      maxIso: toIsoDate(allRows[maxIndex].date),
+    };
+  }
+
+  function clampDateRangeToPairBounds(startIso, endIso, pairBounds = getPairDateIndexBounds()) {
+    const globalBounds = getDateBounds();
+    if (!globalBounds) return { startIso, endIso };
+    const minIso = pairBounds?.minIso || globalBounds.min;
+    const maxIso = pairBounds?.maxIso || globalBounds.max;
+    let nextStart = clampIsoDate(startIso, minIso, maxIso, minIso);
+    let nextEnd = clampIsoDate(endIso, minIso, maxIso, maxIso);
+    if (nextStart > nextEnd) {
+      if (String(startIso || "") > maxIso) {
+        nextStart = maxIso;
+        nextEnd = maxIso;
+      } else {
+        nextEnd = nextStart;
+      }
+    }
+    return { startIso: nextStart, endIso: nextEnd };
+  }
+
+  function syncDateControlBoundsToPair(pairBounds = getPairDateIndexBounds()) {
+    const globalBounds = getDateBounds();
+    if (!globalBounds) return;
+    const minIso = pairBounds?.minIso || globalBounds.min;
+    const maxIso = pairBounds?.maxIso || globalBounds.max;
+    if (el.startDateInput) {
+      el.startDateInput.min = minIso;
+      el.startDateInput.max = maxIso;
+    }
+    if (el.endDateInput) {
+      el.endDateInput.min = minIso;
+      el.endDateInput.max = maxIso;
+    }
+  }
+
+  function applyRequestedDateRangeToControls() {
+    const bounds = getDateBounds();
+    if (!bounds || !el.startDateInput || !el.endDateInput) return;
+    if (!requestedDateRange.startIso || !requestedDateRange.endIso) {
+      setRequestedDateRange(el.startDateInput.value || bounds.min, el.endDateInput.value || bounds.max);
+    }
+    const controlBounds = getDateRangeControlBounds();
+    syncDateControlBoundsToPair(controlBounds);
+    const clamped = clampDateRangeToPairBounds(requestedDateRange.startIso, requestedDateRange.endIso, controlBounds);
+    el.startDateInput.value = clamped.startIso;
+    el.endDateInput.value = clamped.endIso;
+  }
+
+  function getDateRangeControlBounds() {
+    return getPairDataDateIndexBounds() || getPairDateIndexBounds();
+  }
+
+  function getPresetDateIndices(presetKey, anchorEndIndex = null, primaryCurrency = null) {
+    if (!allRows.length) return null;
+    const primaryBounds = getCurrencyDateIndexBounds(primaryCurrency || getSelectedPairCurrencies().primary);
+    const minIndex = primaryBounds?.minIndex ?? 0;
     const maxIndex = Math.max(0, allRows.length - 1);
-    const endIndex = Number.isFinite(anchorEndIndex) ? Math.max(0, Math.min(maxIndex, anchorEndIndex)) : maxIndex;
-    const endIso = toIsoDate(allRows[endIndex].date);
+    const todayIso = getLocalTodayIso();
+    let endIndex = Number.isFinite(anchorEndIndex)
+      ? Math.max(0, Math.min(maxIndex, anchorEndIndex))
+      : getDateIndexOnOrBefore(todayIso);
+    if (endIndex < 0) endIndex = maxIndex;
+    endIndex = Math.max(minIndex, endIndex);
 
     if (presetKey === "full") {
-      return { startIndex: 0, endIndex: maxIndex };
+      return { startIndex: minIndex, endIndex: maxIndex };
     }
 
     if (presetKey === "ytd") {
-      const year = endIso.slice(0, 4);
+      const year = todayIso.slice(0, 4);
       const startIsoTarget = `${year}-01-01`;
-      const startIndex = Math.max(0, Math.min(endIndex, getDateIndexOnOrAfter(startIsoTarget)));
+      const startIndex = Math.max(minIndex, Math.min(endIndex, getDateIndexOnOrAfter(startIsoTarget)));
       return { startIndex, endIndex };
     }
 
@@ -342,20 +546,18 @@
     const years = yearsByPreset[presetKey];
     if (!years) return null;
 
-    const startIsoTarget = shiftIsoByYearsPreservingDate(endIso, -years);
+    const startIsoTarget = shiftIsoByYearsPreservingDate(todayIso, -years, {
+      leapDayToFeb28: years === 1 || years === 2,
+    });
     let startIndex = getDateIndexOnOrAfter(startIsoTarget);
-    if (startIndex < 0) startIndex = 0;
+    if (startIndex < 0) startIndex = minIndex;
+    startIndex = Math.max(minIndex, startIndex);
     startIndex = Math.min(startIndex, endIndex);
     return { startIndex, endIndex };
   }
 
-  function updateRangePresetActiveState() {
-    if (!el.dateRangePresets || !allRows.length) return;
-    const buttons = Array.from(el.dateRangePresets.querySelectorAll(".date-range-preset-btn[data-range]"));
-    if (!buttons.length) return;
-
-    const startIso = String(el.startDateInput?.value || "").trim();
-    const endIso = String(el.endDateInput?.value || "").trim();
+  function getMatchingRangePresetKey(startIso, endIso, primaryCurrency = null) {
+    if (!allRows.length || !startIso || !endIso) return "";
     let startIndex = getDateIndexFromIso(startIso);
     let endIndex = getDateIndexFromIso(endIso);
     const maxIndex = Math.max(0, allRows.length - 1);
@@ -364,18 +566,22 @@
     if (startIndex < 0) startIndex = 0;
     if (endIndex < 0) endIndex = maxIndex;
 
-    let activeKey = "";
-    if (endIndex === maxIndex) {
-      for (const btn of buttons) {
-        const key = String(btn.dataset.range || "").toLowerCase();
-        const preset = getPresetDateIndices(key, endIndex);
-        if (!preset) continue;
-        if (preset.startIndex === startIndex && preset.endIndex === endIndex) {
-          activeKey = key;
-          break;
-        }
-      }
+    for (const key of RANGE_PRESET_KEYS) {
+      const preset = getPresetDateIndices(key, null, primaryCurrency);
+      if (!preset) continue;
+      if (preset.startIndex === startIndex && preset.endIndex === endIndex) return key;
     }
+    return "";
+  }
+
+  function updateRangePresetActiveState() {
+    if (!el.dateRangePresets || !allRows.length) return;
+    const buttons = Array.from(el.dateRangePresets.querySelectorAll(".date-range-preset-btn[data-range]"));
+    if (!buttons.length) return;
+
+    const startIso = String(requestedDateRange.startIso || el.startDateInput?.value || "").trim();
+    const endIso = String(requestedDateRange.endIso || el.endDateInput?.value || "").trim();
+    const activeKey = getMatchingRangePresetKey(startIso, endIso);
 
     buttons.forEach((btn) => {
       const isActive = String(btn.dataset.range || "").toLowerCase() === activeKey;
@@ -387,7 +593,7 @@
   function applyRangePreset(presetKey) {
     stopDateRangePlayback();
     if (!allRows.length || !el.startDateInput || !el.endDateInput) return;
-    const todayIso = toIsoDate(new Date());
+    const todayIso = getLocalTodayIso();
     let endIndex = getDateIndexOnOrBefore(todayIso);
     if (endIndex < 0) endIndex = Math.max(0, allRows.length - 1);
 
@@ -408,8 +614,14 @@
       }
     }
 
-    el.startDateInput.value = toIsoDate(allRows[startIndex].date);
-    el.endDateInput.value = todayIso;
+    const startIso = toIsoDate(allRows[startIndex].date);
+    const endIso = String(presetKey || "").toLowerCase() === "full"
+      ? toIsoDate(allRows[nextEndIndex].date)
+      : todayIso;
+    setRequestedDateRange(startIso, endIso);
+    el.startDateInput.value = startIso;
+    el.endDateInput.value = endIso;
+    applyRequestedDateRangeToControls();
     applyFilters();
   }
 
@@ -441,8 +653,56 @@
     return `${Number(speed.toFixed(2))}x`;
   }
 
+  function getPlaybackSpeedMultiplier(fps) {
+    const speed = (Number(fps) || DEFAULT_RANGE_PLAYBACK_FPS) / DEFAULT_RANGE_PLAYBACK_FPS;
+    return Number.isFinite(speed) && speed > 0 ? speed : 1;
+  }
+
+  function buildDateRangeExportFrameIndices(startIndex, endIndex, playbackFps) {
+    const start = Math.round(Number(startIndex));
+    const end = Math.round(Number(endIndex));
+    const safeStart = Number.isFinite(start) ? start : 0;
+    const safeEnd = Number.isFinite(end) ? end : safeStart;
+    const startHoldFrames = Math.max(0, Math.round(DATE_RANGE_EXPORT_START_HOLD_SECONDS * DATE_RANGE_EXPORT_VIDEO_FPS));
+    const endHoldFrames = Math.max(0, Math.round(DATE_RANGE_EXPORT_END_HOLD_SECONDS * DATE_RANGE_EXPORT_VIDEO_FPS));
+    const frames = [
+      ...Array.from({ length: startHoldFrames }, () => safeEnd),
+    ];
+
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+      frames.push(...Array.from({ length: endHoldFrames }, () => safeEnd));
+      return frames.length ? frames : [safeStart];
+    }
+
+    const speed = getPlaybackSpeedMultiplier(playbackFps);
+    const span = end - start;
+    const indices = [];
+    let frameNumber = 0;
+    let lastIndex = null;
+
+    while (true) {
+      const offset = Math.floor(frameNumber * speed);
+      if (offset > span) break;
+      const index = start + offset;
+      indices.push(index);
+      lastIndex = index;
+      frameNumber += 1;
+      if (frameNumber > (span / speed) + DATE_RANGE_EXPORT_VIDEO_FPS + 2) break;
+    }
+
+    if (lastIndex !== end) indices.push(end);
+    const motionFrames = indices.length ? indices : [start, end];
+    frames.push(...motionFrames);
+    frames.push(...Array.from({ length: endHoldFrames }, () => end));
+    return frames.length ? frames : [start, end];
+  }
+
   function getExportThemePalette(theme) {
     return EXPORT_THEME_PALETTES[theme === "dark" ? "dark" : "light"];
+  }
+
+  function getCurrentDashboardTheme() {
+    return document.documentElement.dataset.theme === "light" ? "light" : "dark";
   }
 
   function getDashboardCssValue(name, fallback = "") {
@@ -458,7 +718,7 @@
     const extension = ["mp4", "webm"].includes(rawExtension) ? rawExtension : DEFAULT_DOWNLOAD_SETTINGS.extension;
     const quality = ["720", "1080", "1440"].includes(String(settings.quality)) ? String(settings.quality) : DEFAULT_DOWNLOAD_SETTINGS.quality;
     const orientation = ["landscape", "portrait", "square"].includes(settings.orientation) ? settings.orientation : DEFAULT_DOWNLOAD_SETTINGS.orientation;
-    const theme = settings.theme === "dark" ? "dark" : settings.theme === "light" ? "light" : DEFAULT_DOWNLOAD_SETTINGS.theme;
+    const theme = settings.theme === "dark" ? "dark" : settings.theme === "light" ? "light" : getCurrentDashboardTheme();
     const rawFps = Number(settings.fps);
     const fps = Number.isFinite(rawFps) && rawFps > 0
       ? String(rawFps)
@@ -643,7 +903,10 @@
   }
 
   function closeDownloadSettingsMenu({ restoreControls = false } = {}) {
-    if (el.dateRangeDownloadSettingsMenu) el.dateRangeDownloadSettingsMenu.classList.remove("open");
+    if (el.dateRangeDownloadSettingsMenu) {
+      el.dateRangeDownloadSettingsMenu.classList.remove("open");
+      el.dateRangeDownloadSettingsMenu.style.removeProperty("--download-settings-menu-shift-x");
+    }
     if (el.dateRangeDownloadSettingsBtn) {
       el.dateRangeDownloadSettingsBtn.classList.remove("is-open");
       el.dateRangeDownloadSettingsBtn.setAttribute("aria-expanded", "false");
@@ -652,7 +915,28 @@
       document.removeEventListener("pointerdown", dateRangeDownloadSettingsOutsideHandler, true);
       dateRangeDownloadSettingsOutsideHandler = null;
     }
+    if (dateRangeDownloadSettingsViewportHandler) {
+      window.removeEventListener("resize", dateRangeDownloadSettingsViewportHandler);
+      window.removeEventListener("scroll", dateRangeDownloadSettingsViewportHandler, true);
+      dateRangeDownloadSettingsViewportHandler = null;
+    }
     if (restoreControls) syncDownloadSettingsControls();
+  }
+
+  function constrainDownloadSettingsMenuToViewport() {
+    const menu = el.dateRangeDownloadSettingsMenu;
+    if (!menu?.classList.contains("open")) return;
+    menu.style.setProperty("--download-settings-menu-shift-x", "0px");
+    const rect = menu.getBoundingClientRect();
+    const margin = 8;
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || rect.right;
+    let shiftX = 0;
+    if (rect.left < margin) {
+      shiftX = margin - rect.left;
+    } else if (rect.right > viewportWidth - margin) {
+      shiftX = (viewportWidth - margin) - rect.right;
+    }
+    menu.style.setProperty("--download-settings-menu-shift-x", `${Math.round(shiftX)}px`);
   }
 
   function openDownloadSettingsMenu() {
@@ -663,6 +947,12 @@
     el.dateRangeDownloadSettingsMenu.classList.add("open");
     el.dateRangeDownloadSettingsBtn.classList.add("is-open");
     el.dateRangeDownloadSettingsBtn.setAttribute("aria-expanded", "true");
+    constrainDownloadSettingsMenuToViewport();
+    if (!dateRangeDownloadSettingsViewportHandler) {
+      dateRangeDownloadSettingsViewportHandler = () => constrainDownloadSettingsMenuToViewport();
+      window.addEventListener("resize", dateRangeDownloadSettingsViewportHandler);
+      window.addEventListener("scroll", dateRangeDownloadSettingsViewportHandler, true);
+    }
     if (!dateRangeDownloadSettingsOutsideHandler) {
       dateRangeDownloadSettingsOutsideHandler = (event) => {
         const target = event.target;
@@ -1463,7 +1753,7 @@
     ctx.font = `500 ${Math.max(30, Math.round(footerHeight * 0.6))}px IBM Plex Mono, monospace`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("https://wickedsmartbitcoin.com/uoa", width / 2, height - footerHeight * 0.6);
+    ctx.fillText("https://wickedsmartbitcoin.com/uoa", width / 2, height - footerHeight * 0.68);
     ctx.restore();
   }
 
@@ -1488,7 +1778,8 @@
     if (!allRows.length || !el.dateRangeStartSlider || !el.dateRangeEndSlider) return;
     const settings = normalizeDownloadSettings(downloadSettings);
     const layoutSettings = getExportReferenceLayoutSettings(settings);
-    const fps = Math.max(1, Number(settings.fps) || getSelectedDateRangePlaybackFps());
+    const selectedPlaybackFps = Math.max(1, Number(settings.fps) || getSelectedDateRangePlaybackFps());
+    const exportVideoFps = DATE_RANGE_EXPORT_VIDEO_FPS;
     const { width: exportWidth, height: exportHeight } = getExportLayoutMetrics(settings);
     const recorderInfo = getSupportedDownloadRecorder(settings.extension);
     if (!recorderInfo || typeof HTMLCanvasElement.prototype.captureStream !== "function") {
@@ -1535,24 +1826,61 @@
     let recorder = null;
     let wasCanceled = false;
     const chunks = [];
+    const cachedFrames = new Map();
 
     try {
       exportRefs = createExportRenderSurface(layoutSettings);
       await waitForDateRangeExportFonts();
-      renderExportFrameToSurface(exportRefs, exportSnapshot, startIndex, startIndex);
       await waitForDateRangeExportFonts();
-      await composeDateRangeExportFrame(layoutCanvas, layoutSettings, exportRefs);
-      drawScaledExportFrame(layoutCanvas, exportCanvas, settings);
+      const frameIndices = buildDateRangeExportFrameIndices(startIndex, endIndex, selectedPlaybackFps);
+      const uniqueFrameIndices = [];
+      const seenFrameIndices = new Set();
+      frameIndices.forEach((index) => {
+        if (seenFrameIndices.has(index)) return;
+        seenFrameIndices.add(index);
+        uniqueFrameIndices.push(index);
+      });
+      const totalWorkUnits = Math.max(1, uniqueFrameIndices.length + frameIndices.length);
+      let completedWorkUnits = 0;
+
+      for (const index of uniqueFrameIndices) {
+        if (dateRangeExportCancelRequested) {
+          wasCanceled = true;
+          break;
+        }
+        renderExportFrameToSurface(exportRefs, exportSnapshot, startIndex, index);
+        await composeDateRangeExportFrame(layoutCanvas, layoutSettings, exportRefs);
+        drawScaledExportFrame(layoutCanvas, exportCanvas, settings);
+        const frameImage = typeof createImageBitmap === "function"
+          ? await createImageBitmap(exportCanvas)
+          : (() => {
+              const canvas = document.createElement("canvas");
+              canvas.width = exportCanvas.width;
+              canvas.height = exportCanvas.height;
+              canvas.getContext("2d")?.drawImage(exportCanvas, 0, 0);
+              return canvas;
+            })();
+        cachedFrames.set(index, frameImage);
+        completedWorkUnits += 1;
+        renderDateRangeDownloadButtonProgress(completedWorkUnits / totalWorkUnits);
+      }
+      if (wasCanceled || dateRangeExportCancelRequested) {
+        chunks.length = 0;
+        return;
+      }
+
+      const exportCtx = exportCanvas.getContext("2d");
+      if (!exportCtx) throw new Error("Export canvas context unavailable.");
       let stream;
       try {
         stream = exportCanvas.captureStream(0);
       } catch (_) {
-        stream = exportCanvas.captureStream(fps);
+        stream = exportCanvas.captureStream(exportVideoFps);
       }
       [track] = stream.getVideoTracks();
       if (!track || typeof track.requestFrame !== "function") {
         if (track) track.stop();
-        stream = exportCanvas.captureStream(fps);
+        stream = exportCanvas.captureStream(exportVideoFps);
         [track] = stream.getVideoTracks();
       }
       recorder = new MediaRecorder(stream, {
@@ -1570,24 +1898,27 @@
       });
 
       recorder.start();
-      if (track && typeof track.requestFrame === "function") track.requestFrame();
-      const totalFrames = Math.max(1, endIndex - startIndex + 1);
-      for (let index = startIndex; index <= endIndex; index += 1) {
+      const recordStartTime = performance.now();
+      for (let frameIndex = 0; frameIndex < frameIndices.length; frameIndex += 1) {
+        const index = frameIndices[frameIndex];
         if (dateRangeExportCancelRequested) {
           wasCanceled = true;
           break;
         }
-        renderExportFrameToSurface(exportRefs, exportSnapshot, startIndex, index);
-        await composeDateRangeExportFrame(layoutCanvas, layoutSettings, exportRefs);
-        drawScaledExportFrame(layoutCanvas, exportCanvas, settings);
+        const frameImage = cachedFrames.get(index);
+        if (!frameImage) throw new Error("Cached export frame unavailable.");
+        exportCtx.clearRect(0, 0, exportCanvas.width, exportCanvas.height);
+        exportCtx.drawImage(frameImage, 0, 0);
         if (dateRangeExportCancelRequested) {
           wasCanceled = true;
           break;
         }
         if (track && typeof track.requestFrame === "function") track.requestFrame();
-        const processedFrames = index - startIndex + 1;
-        renderDateRangeDownloadButtonProgress(processedFrames / totalFrames);
-        await waitMs(1000 / fps);
+        completedWorkUnits += 1;
+        renderDateRangeDownloadButtonProgress(completedWorkUnits / totalWorkUnits);
+        const nextFrameTime = recordStartTime + ((frameIndex + 1) * 1000 / exportVideoFps);
+        const waitTime = nextFrameTime - performance.now();
+        if (waitTime > 0) await waitMs(waitTime);
       }
       recorder.stop();
       await recorderDone;
@@ -1613,6 +1944,10 @@
     } finally {
       if (recorder && recorder.state !== "inactive") recorder.stop();
       if (track) track.stop();
+      cachedFrames.forEach((frame) => {
+        if (typeof frame?.close === "function") frame.close();
+      });
+      cachedFrames.clear();
       if (exportRefs?.surface) exportRefs.surface.remove();
       chunks.length = 0;
       isDateRangeExporting = false;
@@ -1802,15 +2137,18 @@
 
   function setDateRangeByIndices(startIndex, endIndex) {
     if (!allRows.length) return false;
-    const maxIndex = Math.max(0, allRows.length - 1);
-    let safeStart = Number.isFinite(startIndex) ? Math.round(startIndex) : 0;
+    const controlBounds = getDateRangeControlBounds();
+    const minIndex = controlBounds?.minIndex ?? 0;
+    const maxIndex = controlBounds?.maxIndex ?? Math.max(0, allRows.length - 1);
+    const globalMaxIndex = Math.max(0, allRows.length - 1);
+    let safeStart = Number.isFinite(startIndex) ? Math.round(startIndex) : minIndex;
     let safeEnd = Number.isFinite(endIndex) ? Math.round(endIndex) : maxIndex;
-    safeStart = Math.max(0, Math.min(maxIndex, safeStart));
-    safeEnd = Math.max(0, Math.min(maxIndex, safeEnd));
+    safeStart = Math.max(minIndex, Math.min(maxIndex, safeStart));
+    safeEnd = Math.max(minIndex, Math.min(maxIndex, safeEnd));
 
-    if (maxIndex >= 1 && safeStart > safeEnd) {
+    if (maxIndex > minIndex && safeStart > safeEnd) {
       if (safeStart >= maxIndex) {
-        safeStart = Math.max(0, maxIndex - 1);
+        safeStart = Math.max(minIndex, maxIndex - 1);
         safeEnd = maxIndex;
       } else {
         safeEnd = safeStart;
@@ -1819,7 +2157,7 @@
 
     if (el.dateRangeStartSlider) el.dateRangeStartSlider.value = String(safeStart);
     if (el.dateRangeEndSlider) el.dateRangeEndSlider.value = String(safeEnd);
-    updateDateRangeSliderFill(safeStart, safeEnd, maxIndex);
+    updateDateRangeSliderFill(safeStart, safeEnd, globalMaxIndex);
     if (el.startDateInput) el.startDateInput.value = toIsoDate(allRows[safeStart].date);
     if (el.endDateInput) el.endDateInput.value = toIsoDate(allRows[safeEnd].date);
     applyFilters();
@@ -1875,8 +2213,10 @@
     if (dateRangePlaybackState.isPlaying) return;
     if (!allRows.length) return;
     
-    const maxIndex = Math.max(0, allRows.length - 1);
-    if (maxIndex < 1) return;
+    const controlBounds = getDateRangeControlBounds();
+    const minIndex = controlBounds?.minIndex ?? 0;
+    const maxIndex = controlBounds?.maxIndex ?? Math.max(0, allRows.length - 1);
+    if (maxIndex <= minIndex) return;
 
     if (!dateRangePlaybackState.hasSession) {
       const currentStartIso = String(el.startDateInput?.value || "").trim();
@@ -1885,10 +2225,10 @@
       let targetEndIndex = getDateIndexFromIso(currentEndIso);
       if (startIndex < 0) startIndex = Number(el.dateRangeStartSlider?.value);
       if (targetEndIndex < 0) targetEndIndex = Number(el.dateRangeEndSlider?.value);
-      if (!Number.isFinite(startIndex)) startIndex = 0;
+      if (!Number.isFinite(startIndex)) startIndex = minIndex;
       if (!Number.isFinite(targetEndIndex)) targetEndIndex = maxIndex;
-      startIndex = Math.max(0, Math.min(maxIndex, startIndex));
-      targetEndIndex = Math.max(0, Math.min(maxIndex, targetEndIndex));
+      startIndex = Math.max(minIndex, Math.min(maxIndex, startIndex));
+      targetEndIndex = Math.max(minIndex, Math.min(maxIndex, targetEndIndex));
 
       if (targetEndIndex < startIndex) return;
 
@@ -1946,8 +2286,10 @@
       return;
     }
 
-    const maxIndex = Math.max(0, allRows.length - 1);
-    if (maxIndex < 1) return;
+    const controlBounds = getDateRangeControlBounds();
+    const minIndex = controlBounds?.minIndex ?? 0;
+    const maxIndex = controlBounds?.maxIndex ?? Math.max(0, allRows.length - 1);
+    if (maxIndex <= minIndex) return;
 
     if (!dateRangePlaybackState.hasSession) {
       const currentStartIso = String(el.startDateInput?.value || "").trim();
@@ -1956,10 +2298,10 @@
       let targetEndIndex = getDateIndexFromIso(currentEndIso);
       if (startIndex < 0) startIndex = Number(el.dateRangeStartSlider?.value);
       if (targetEndIndex < 0) targetEndIndex = Number(el.dateRangeEndSlider?.value);
-      if (!Number.isFinite(startIndex)) startIndex = 0;
+      if (!Number.isFinite(startIndex)) startIndex = minIndex;
       if (!Number.isFinite(targetEndIndex)) targetEndIndex = maxIndex;
-      startIndex = Math.max(0, Math.min(maxIndex, startIndex));
-      targetEndIndex = Math.max(0, Math.min(maxIndex, targetEndIndex));
+      startIndex = Math.max(minIndex, Math.min(maxIndex, startIndex));
+      targetEndIndex = Math.max(minIndex, Math.min(maxIndex, targetEndIndex));
 
       if (targetEndIndex < startIndex) return;
 
@@ -2222,9 +2564,31 @@
       ? getFallbackSecondary(validPrimary)
       : validSecondaryCandidate;
 
-    const defaultStart = usdParityStartIso || bounds.min;
-    const startDate = clampIsoDate(stored.startDate, bounds.min, bounds.max, defaultStart);
-    const endDate = clampIsoDate(stored.endDate, bounds.min, bounds.max, bounds.max);
+    const defaultPrimaryBounds = getCurrencyDateIndexBounds(validPrimary);
+    const defaultStart = defaultPrimaryBounds?.minIso || bounds.min;
+    const storedRangePreset = RANGE_PRESET_KEYS.includes(String(stored.rangePreset || "").toLowerCase())
+      ? String(stored.rangePreset || "").toLowerCase()
+      : "";
+    let startDate = clampIsoDate(stored.startDate, bounds.min, bounds.max, defaultStart);
+    let endDate = clampIsoDate(stored.endDate, bounds.min, bounds.max, bounds.max);
+    if (storedRangePreset) {
+      const preset = getPresetDateIndices(storedRangePreset, null, validPrimary);
+      if (preset) {
+        startDate = toIsoDate(allRows[preset.startIndex].date);
+        endDate = storedRangePreset === "full"
+          ? toIsoDate(allRows[preset.endIndex].date)
+          : getLocalTodayIso();
+      }
+    } else {
+      const rollingDaysToToday = Number(stored.rollingDaysToToday);
+      if (Number.isFinite(rollingDaysToToday) && rollingDaysToToday >= 1) {
+        const todayIso = getLocalTodayIso();
+        endDate = clampIsoDate(todayIso, bounds.min, todayIso, todayIso);
+        startDate = clampIsoDate(shiftIsoByDays(todayIso, -(Math.round(rollingDaysToToday) - 1)), bounds.min, endDate, bounds.min);
+      }
+    }
+    const requestedStartDate = startDate;
+    const requestedEndDate = endDate;
     const scale = stored.scaleMode === "linear" ? "linear" : "log";
     const orderMode = ORDER_MODES.includes(stored.orderMode) ? stored.orderMode : "alpha-asc";
     const smoothVesRedenom = stored.smoothVesRedenom === false ? false : true;
@@ -2254,6 +2618,9 @@
       orderMode,
       smoothVesRedenom,
       playbackFps,
+      rangePreset: storedRangePreset,
+      requestedStartDate,
+      requestedEndDate,
       pausedPlaybackSession,
     };
   }
@@ -2277,9 +2644,17 @@
         };
       }
 
+      const startDateValue = requestedDateRange.startIso || el.startDateInput?.value || "";
+      const endDateValue = requestedDateRange.endIso || el.endDateInput?.value || "";
+      const rangePreset = getMatchingRangePresetKey(startDateValue, endDateValue);
+      const rollingDaysToToday = !rangePreset && endDateValue === getLocalTodayIso()
+        ? getInclusiveIsoDaySpan(startDateValue, endDateValue)
+        : null;
       const payload = {
-        startDate: el.startDateInput?.value || "",
-        endDate: el.endDateInput?.value || "",
+        startDate: startDateValue,
+        endDate: endDateValue,
+        rangePreset,
+        rollingDaysToToday,
         primaryUoa: el.primaryUoaSelect?.value || "",
         secondaryUoa: el.secondaryUoaSelect?.value || "",
         scaleMode: el.scaleSelect?.value === "linear" ? "linear" : "log",
@@ -2500,6 +2875,25 @@
     return {};
   }
 
+  function mergePriceRowsWithFxDates(priceRows, fxByDate) {
+    const byIso = new Map();
+    (priceRows || []).forEach((row) => {
+      byIso.set(toIsoDate(row.date), row);
+    });
+    Object.keys(fxByDate || {}).forEach((isoDate) => {
+      if (byIso.has(isoDate)) return;
+      const date = new Date(`${isoDate}T00:00:00Z`);
+      if (Number.isNaN(date.getTime())) return;
+      byIso.set(isoDate, {
+        date,
+        price: null,
+        blockHeight: null,
+        usdbtcSats: null,
+      });
+    });
+    return Array.from(byIso.values()).sort((a, b) => a.date - b.date);
+  }
+
   function populateCurrencyDropdowns() {
     if (!uoaPairs || !uoaPairs.currencies) return;
     const currencies = Object.keys(uoaPairs.currencies);
@@ -2531,8 +2925,16 @@
     return ORDER_MODES.includes(selected) ? selected : "alpha-asc";
   }
 
+  function getLatestBtcRow() {
+    for (let i = allRows.length - 1; i >= 0; i -= 1) {
+      const row = allRows[i];
+      if (Number.isFinite(row?.price) && row.price > 0) return row;
+    }
+    return null;
+  }
+
   function getLatestCurrencySatsValues() {
-    const rowPool = rows.length ? rows : allRows;
+    const rowPool = allRows;
     if (!rowPool.length) return {};
 
     // Use the most recent row where BTC is valid and at least one fiat FX value exists,
@@ -3824,6 +4226,7 @@
   }
 
   function refreshDateButtonLabels() {
+    syncDateRangeSlidersFromInputs();
     if (el.startDateBtn) {
       el.startDateBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>${fmtDatePickerLabel(el.startDateInput?.value || "")}`;
     }
@@ -3845,7 +4248,6 @@
       el.rangeDaysLabel.innerHTML = `Range <span class="range-days-value">${daysText} Days</span>`;
     }
     updateRangePresetActiveState();
-    syncDateRangeSlidersFromInputs();
   }
 
   function getDateIndexFromIso(isoValue) {
@@ -3882,19 +4284,133 @@
     }
   }
 
+  function updateDateRangeAvailability(pairBounds, maxIndex) {
+    if (!el.dateRangeSliderWrap) return;
+    const safeMax = Math.max(1, maxIndex);
+    const dataBounds = getPairDataDateIndexBounds();
+    const hasRestriction = !!pairBounds && (pairBounds.minIndex > 0 || pairBounds.maxIndex < maxIndex);
+    const hasMissingData = !!dataBounds && (dataBounds.minIndex > 0 || dataBounds.maxIndex < maxIndex);
+    const availableStartPct = pairBounds
+      ? Math.max(0, Math.min(100, (pairBounds.minIndex / safeMax) * 100))
+      : 0;
+    const availableEndPct = pairBounds
+      ? Math.max(0, Math.min(100, (pairBounds.maxIndex / safeMax) * 100))
+      : 100;
+
+    el.dateRangeSliderWrap.classList.toggle("is-restricted", hasRestriction);
+    el.dateRangeSliderWrap.style.setProperty("--available-start", `${availableStartPct}%`);
+    el.dateRangeSliderWrap.style.setProperty("--available-end", `${availableEndPct}%`);
+    const restrictionMessage = hasMissingData ? getDateRangeRestrictionMessage(dataBounds) : "";
+    if (restrictionMessage) {
+      el.dateRangeSliderWrap.setAttribute("title", restrictionMessage);
+      if (el.dateRangeStartSlider) el.dateRangeStartSlider.setAttribute("title", restrictionMessage);
+      if (el.dateRangeEndSlider) el.dateRangeEndSlider.setAttribute("title", restrictionMessage);
+    } else {
+      el.dateRangeSliderWrap.removeAttribute("title");
+      if (el.dateRangeStartSlider) el.dateRangeStartSlider.removeAttribute("title");
+      if (el.dateRangeEndSlider) el.dateRangeEndSlider.removeAttribute("title");
+    }
+
+    setRangeTrackSegment(el.dateRangeMissingDataStart, 0, hasMissingData ? dataBounds.minIndex : 0, safeMax);
+    setRangeTrackSegment(el.dateRangeMissingDataEnd, hasMissingData ? dataBounds.maxIndex : maxIndex, maxIndex, safeMax);
+  }
+
+  function setRangeTrackSegment(trackEl, fromIndex, toIndex, safeMax) {
+    if (!trackEl) return;
+    if (!Number.isFinite(fromIndex) || !Number.isFinite(toIndex) || toIndex <= fromIndex) {
+      trackEl.classList.remove("active");
+      trackEl.style.left = "0";
+      trackEl.style.right = "100%";
+      return;
+    }
+
+    const startPct = Math.max(0, Math.min(100, (fromIndex / safeMax) * 100));
+    const endPct = Math.max(0, Math.min(100, (toIndex / safeMax) * 100));
+    trackEl.style.left = `${startPct}%`;
+    trackEl.style.right = `calc(100% - ${endPct}%)`;
+    trackEl.classList.add("active");
+  }
+
+  function getDateRangeVisualIndex(isoValue, fallbackIndex, prefer = "nearest") {
+    if (!allRows.length || !isoValue) return fallbackIndex;
+    let index = getDateIndexFromIso(isoValue);
+    if (index >= 0) return index;
+    index = prefer === "after" ? getDateIndexOnOrAfter(isoValue) : getDateIndexOnOrBefore(isoValue);
+    if (index < 0) index = fallbackIndex;
+    return Math.max(0, Math.min(Math.max(0, allRows.length - 1), index));
+  }
+
+  function setMissingRangeSegment(segmentEl, markerEl, fromIndex, toIndex, markerIndex, safeMax) {
+    if (!segmentEl || !markerEl) return;
+    if (!Number.isFinite(fromIndex) || !Number.isFinite(toIndex) || toIndex <= fromIndex) {
+      segmentEl.classList.remove("active");
+      markerEl.classList.remove("active");
+      segmentEl.style.left = "0";
+      segmentEl.style.right = "100%";
+      markerEl.style.left = "0";
+      return;
+    }
+
+    const startPct = Math.max(0, Math.min(100, (fromIndex / safeMax) * 100));
+    const endPct = Math.max(0, Math.min(100, (toIndex / safeMax) * 100));
+    const markerPct = Math.max(0, Math.min(100, (markerIndex / safeMax) * 100));
+    const markerOffsetPx = (DATE_RANGE_THUMB_WIDTH_PX / 2) - (DATE_RANGE_THUMB_WIDTH_PX * markerPct / 100);
+    segmentEl.style.left = `${startPct}%`;
+    segmentEl.style.right = `calc(100% - ${endPct}%)`;
+    markerEl.style.left = `calc(${markerPct}% + ${markerOffsetPx}px)`;
+    segmentEl.classList.add("active");
+    markerEl.classList.add("active");
+  }
+
+  function updateDateRangeMissingSelection(startIndex, endIndex, maxIndex) {
+    const safeMax = Math.max(1, maxIndex);
+    const dataBounds = getPairDataDateIndexBounds();
+    const availableStartIndex = dataBounds?.minIndex ?? 0;
+    const availableEndIndex = dataBounds?.maxIndex ?? maxIndex;
+    const requestedStartIndex = getDateRangeVisualIndex(requestedDateRange.startIso, startIndex, "after");
+    const requestedEndIndex = getDateRangeVisualIndex(requestedDateRange.endIso, endIndex, "before");
+    const startMissingEndIndex = Math.min(requestedEndIndex, availableStartIndex);
+    const endMissingStartIndex = Math.max(requestedStartIndex, availableEndIndex);
+
+    setMissingRangeSegment(
+      el.dateRangeMissingSelectionStart,
+      el.dateRangeMissingMarkerStart,
+      requestedStartIndex,
+      startMissingEndIndex,
+      requestedStartIndex,
+      safeMax
+    );
+    setMissingRangeSegment(
+      el.dateRangeMissingSelectionEnd,
+      el.dateRangeMissingMarkerEnd,
+      endMissingStartIndex,
+      requestedEndIndex,
+      requestedEndIndex,
+      safeMax
+    );
+  }
+
   function syncDateRangeSlidersFromInputs() {
     if (!el.dateRangeStartSlider || !el.dateRangeEndSlider || !allRows.length) return;
-    const maxIndex = Math.max(0, allRows.length - 1);
-    const startIso = el.startDateInput?.value || toIsoDate(allRows[0].date);
+    const pairBounds = getPairDateIndexBounds();
+    const controlBounds = getDateRangeControlBounds();
+    const minIndex = controlBounds?.minIndex ?? 0;
+    const maxIndex = controlBounds?.maxIndex ?? Math.max(0, allRows.length - 1);
+    const globalMaxIndex = Math.max(0, allRows.length - 1);
+    syncDateControlBoundsToPair(controlBounds);
+    updateDateRangeAvailability(pairBounds, globalMaxIndex);
+    const startIso = el.startDateInput?.value || toIsoDate(allRows[minIndex].date);
     const endIso = el.endDateInput?.value || toIsoDate(allRows[maxIndex].date);
 
     let startIndex = getDateIndexFromIso(startIso);
     let endIndex = getDateIndexFromIso(endIso);
-    if (startIndex < 0) startIndex = 0;
+    if (startIndex < 0) startIndex = minIndex;
     if (endIndex < 0) endIndex = maxIndex;
-    if (maxIndex >= 1 && startIndex > endIndex) {
+    startIndex = Math.max(minIndex, Math.min(maxIndex, startIndex));
+    endIndex = Math.max(minIndex, Math.min(maxIndex, endIndex));
+    if (maxIndex > minIndex && startIndex > endIndex) {
       if (startIndex >= maxIndex) {
-        startIndex = Math.max(0, maxIndex - 1);
+        startIndex = Math.max(minIndex, maxIndex - 1);
         endIndex = maxIndex;
       } else {
         endIndex = startIndex;
@@ -3904,13 +4420,16 @@
     }
 
     el.dateRangeStartSlider.min = "0";
-    el.dateRangeStartSlider.max = String(maxIndex);
+    el.dateRangeStartSlider.max = String(globalMaxIndex);
     el.dateRangeEndSlider.min = "0";
-    el.dateRangeEndSlider.max = String(maxIndex);
+    el.dateRangeEndSlider.max = String(globalMaxIndex);
     el.dateRangeStartSlider.value = String(startIndex);
     el.dateRangeEndSlider.value = String(endIndex);
+    if (el.startDateInput) el.startDateInput.value = toIsoDate(allRows[startIndex].date);
+    if (el.endDateInput) el.endDateInput.value = toIsoDate(allRows[endIndex].date);
 
-    updateDateRangeSliderFill(startIndex, endIndex, maxIndex);
+    updateDateRangeSliderFill(startIndex, endIndex, globalMaxIndex);
+    updateDateRangeMissingSelection(startIndex, endIndex, globalMaxIndex);
   }
 
   function handleDateRangeSliderInput(changed) {
@@ -3919,14 +4438,21 @@
       stopDateRangePlayback();
     }
     if (!el.dateRangeStartSlider || !el.dateRangeEndSlider || !allRows.length) return;
-    const maxIndex = Math.max(0, allRows.length - 1);
+    const controlBounds = getDateRangeControlBounds();
+    const safeMinIndex = controlBounds?.minIndex ?? 0;
+    const safeMaxIndex = controlBounds?.maxIndex ?? Math.max(0, allRows.length - 1);
+    const globalMaxIndex = Math.max(0, allRows.length - 1);
     let startIndex = Number(el.dateRangeStartSlider.value);
     let endIndex = Number(el.dateRangeEndSlider.value);
 
-    if (!Number.isFinite(startIndex)) startIndex = 0;
-    if (!Number.isFinite(endIndex)) endIndex = maxIndex;
+    if (!Number.isFinite(startIndex)) startIndex = safeMinIndex;
+    if (!Number.isFinite(endIndex)) endIndex = safeMaxIndex;
+    startIndex = Math.max(safeMinIndex, Math.min(safeMaxIndex, startIndex));
+    endIndex = Math.max(safeMinIndex, Math.min(safeMaxIndex, endIndex));
+    el.dateRangeStartSlider.value = String(startIndex);
+    el.dateRangeEndSlider.value = String(endIndex);
 
-    if (maxIndex >= 1) {
+    if (safeMaxIndex > safeMinIndex) {
       if (changed === "start" && startIndex > endIndex) {
         startIndex = endIndex;
         el.dateRangeStartSlider.value = String(startIndex);
@@ -3936,9 +4462,9 @@
         el.dateRangeEndSlider.value = String(endIndex);
       }
       if (startIndex > endIndex) {
-        if (startIndex >= maxIndex) {
-          startIndex = Math.max(0, maxIndex - 1);
-          endIndex = maxIndex;
+        if (startIndex >= safeMaxIndex) {
+          startIndex = Math.max(safeMinIndex, safeMaxIndex - 1);
+          endIndex = safeMaxIndex;
         } else {
           endIndex = startIndex;
         }
@@ -3946,16 +4472,17 @@
         el.dateRangeEndSlider.value = String(endIndex);
       }
     } else {
-      startIndex = 0;
-      endIndex = maxIndex;
+      startIndex = safeMinIndex;
+      endIndex = safeMaxIndex;
       el.dateRangeStartSlider.value = String(startIndex);
       el.dateRangeEndSlider.value = String(endIndex);
     }
 
-    updateDateRangeSliderFill(startIndex, endIndex, maxIndex);
+    updateDateRangeSliderFill(startIndex, endIndex, globalMaxIndex);
 
     const startIso = toIsoDate(allRows[startIndex].date);
     const endIso = toIsoDate(allRows[endIndex].date);
+    setRequestedDateRange(startIso, endIso);
     if (el.startDateInput) el.startDateInput.value = startIso;
     if (el.endDateInput) el.endDateInput.value = endIso;
 
@@ -3978,8 +4505,10 @@
 
   function applyPlaybackEndScrubIndex(nextIndex) {
     if (!el.dateRangeEndSlider || !allRows.length || !Number.isFinite(nextIndex)) return null;
-    const maxIndex = Math.max(0, allRows.length - 1);
-    const clamped = Math.max(0, Math.min(maxIndex, Math.round(nextIndex)));
+    const controlBounds = getDateRangeControlBounds();
+    const minIndex = controlBounds?.minIndex ?? 0;
+    const maxIndex = controlBounds?.maxIndex ?? Math.max(0, allRows.length - 1);
+    const clamped = Math.max(minIndex, Math.min(maxIndex, Math.round(nextIndex)));
     el.dateRangeEndSlider.value = String(clamped);
     handleDateRangeSliderInput("end");
     const adjustedEndIndex = Number(el.dateRangeEndSlider.value);
@@ -4107,19 +4636,22 @@
     if (!el.dateRangeSliderWrap || !el.dateRangeStartSlider || !el.dateRangeEndSlider || !allRows.length) return;
     if (event.button !== 0) return;
 
-    const maxIndex = Math.max(0, allRows.length - 1);
-    if (maxIndex < 1) return;
+    const controlBounds = getDateRangeControlBounds();
+    const minIndex = controlBounds?.minIndex ?? 0;
+    const maxIndex = controlBounds?.maxIndex ?? Math.max(0, allRows.length - 1);
+    const globalMaxIndex = Math.max(0, allRows.length - 1);
+    if (maxIndex <= minIndex) return;
 
     const wrapRect = el.dateRangeSliderWrap.getBoundingClientRect();
     if (!Number.isFinite(wrapRect.width) || wrapRect.width <= 0) return;
 
-    const safeMax = Math.max(1, maxIndex);
+    const safeGlobalMax = Math.max(1, globalMaxIndex);
     const startIndex = Number(el.dateRangeStartSlider.value);
     const endIndex = Number(el.dateRangeEndSlider.value);
     if (!Number.isFinite(startIndex) || !Number.isFinite(endIndex) || startIndex >= endIndex) return;
 
-    const startX = wrapRect.left + (startIndex / safeMax) * wrapRect.width;
-    const endX = wrapRect.left + (endIndex / safeMax) * wrapRect.width;
+    const startX = wrapRect.left + (startIndex / safeGlobalMax) * wrapRect.width;
+    const endX = wrapRect.left + (endIndex / safeGlobalMax) * wrapRect.width;
     const pointerX = event.clientX;
     const handleGuardPx = 12;
 
@@ -4134,7 +4666,9 @@
       startClientX: pointerX,
       startIndex,
       endIndex,
+      minIndex,
       maxIndex,
+      globalMaxIndex,
       wrapLeft: wrapRect.left,
       wrapWidth: wrapRect.width,
     };
@@ -4171,15 +4705,17 @@
       startClientX,
       startIndex,
       endIndex,
+      minIndex,
       maxIndex,
+      globalMaxIndex,
       wrapWidth,
     } = dateRangeDragState;
 
-    const safeMax = Math.max(1, maxIndex);
+    const safeGlobalMax = Math.max(1, globalMaxIndex);
     const deltaPx = event.clientX - startClientX;
-    const deltaIndex = Math.round((deltaPx / wrapWidth) * safeMax);
+    const deltaIndex = Math.round((deltaPx / wrapWidth) * safeGlobalMax);
 
-    const minShift = -startIndex;
+    const minShift = minIndex - startIndex;
     const maxShift = maxIndex - endIndex;
     const shift = Math.max(minShift, Math.min(maxShift, deltaIndex));
 
@@ -4190,10 +4726,11 @@
     el.dateRangeStartSlider.value = String(nextStart);
     el.dateRangeEndSlider.value = String(nextEnd);
 
-    updateDateRangeSliderFill(nextStart, nextEnd, maxIndex);
+    updateDateRangeSliderFill(nextStart, nextEnd, globalMaxIndex);
 
     const startIso = toIsoDate(allRows[nextStart].date);
     const endIso = toIsoDate(allRows[nextEnd].date);
+    setRequestedDateRange(startIso, endIso);
     if (el.startDateInput) el.startDateInput.value = startIso;
     if (el.endDateInput) el.endDateInput.value = endIso;
     applyFilters();
@@ -4230,6 +4767,7 @@
       onSelect: (isoVal) => {
         stopDateRangePlayback();
         el.startDateInput.value = isoVal;
+        setRequestedDateRange(el.startDateInput.value, el.endDateInput.value);
         applyFilters();
         endPicker.rebuildCalendar();
       },
@@ -4245,6 +4783,7 @@
       onSelect: (isoVal) => {
         stopDateRangePlayback();
         el.endDateInput.value = isoVal;
+        setRequestedDateRange(el.startDateInput.value, el.endDateInput.value);
         applyFilters();
         startPicker.rebuildCalendar();
       },
@@ -4399,6 +4938,12 @@
 
   function syncPairControls(changedControlId) {
     if (!el.primaryUoaSelect || !el.secondaryUoaSelect) return;
+    const priorPrimary = lastPrimaryUoa || el.primaryUoaSelect.value || "BTC";
+    const priorRangePreset = getMatchingRangePresetKey(
+      requestedDateRange.startIso || el.startDateInput?.value || "",
+      requestedDateRange.endIso || el.endDateInput?.value || "",
+      priorPrimary
+    );
     let primary = el.primaryUoaSelect.value;
     let secondary = el.secondaryUoaSelect.value;
 
@@ -4426,8 +4971,14 @@
     renderPairKpiValue(primary, secondary);
 
     syncAllDropdowns();
-    persistFilters();
-    renderAll();
+    if (changedControlId === "primaryUoaSelect" && priorRangePreset === "full") {
+      const preset = getPresetDateIndices("full", null, primary);
+      if (preset) {
+        setRequestedDateRange(toIsoDate(allRows[preset.startIndex].date), toIsoDate(allRows[preset.endIndex].date));
+      }
+    }
+    applyRequestedDateRangeToControls();
+    applyFilters();
   }
 
   function cycleSecondaryUoa(direction) {
@@ -4499,9 +5050,16 @@
 
     const bounds = getDateBounds();
     if (!bounds) return;
+    const controlBounds = getDateRangeControlBounds();
+    syncDateControlBoundsToPair(controlBounds);
 
     let start = String(el.startDateInput?.value || bounds.min);
     let end = String(el.endDateInput?.value || bounds.max);
+    const clamped = clampDateRangeToPairBounds(start, end, controlBounds);
+    start = clamped.startIso;
+    end = clamped.endIso;
+    if (el.startDateInput) el.startDateInput.value = start;
+    if (el.endDateInput) el.endDateInput.value = end;
 
     const maxIndex = Math.max(0, allRows.length - 1);
     if (maxIndex >= 1) {
@@ -4555,6 +5113,7 @@
     const bounds = getDateBounds();
     if (!bounds) return null;
     const saved = loadStoredFilters(bounds);
+    setRequestedDateRange(saved.requestedStartDate || saved.startDate, saved.requestedEndDate || saved.endDate);
 
     if (el.startDateInput) {
       el.startDateInput.min = bounds.min;
@@ -4562,6 +5121,7 @@
       el.startDateInput.value = saved.startDate;
       el.startDateInput.addEventListener("change", () => {
         stopDateRangePlayback();
+        setRequestedDateRange(el.startDateInput.value, el.endDateInput?.value || el.startDateInput.value);
         applyFilters();
       });
     }
@@ -4571,6 +5131,7 @@
       el.endDateInput.value = saved.endDate;
       el.endDateInput.addEventListener("change", () => {
         stopDateRangePlayback();
+        setRequestedDateRange(el.startDateInput?.value || el.endDateInput.value, el.endDateInput.value);
         applyFilters();
       });
     }
@@ -5140,6 +5701,16 @@
 
     // Update pair KPI
     renderPairKpiValue(primaryCurrency, secondaryCurrency);
+    const latestBtcRow = getLatestBtcRow();
+    const latestBlockHeight = latestBtcRow?.blockHeight;
+    const latestBlockHeightText = latestBlockHeight ? String(latestBlockHeight) : "--";
+    const ranksByCurrency = getCurrencyRanksByValue();
+    if (el.primaryRankKpiValue) el.primaryRankKpiValue.textContent = ranksByCurrency[primaryCurrency] ? String(ranksByCurrency[primaryCurrency]) : "--";
+    if (el.secondaryRankKpiValue) el.secondaryRankKpiValue.textContent = ranksByCurrency[secondaryCurrency] ? String(ranksByCurrency[secondaryCurrency]) : "--";
+    if (el.blockHeightText) {
+      el.blockHeightText.textContent = latestBlockHeight ? `BLOCK HEIGHT: ${latestBlockHeightText}` : "BLOCK HEIGHT: --";
+    }
+    if (el.blockHeightKpiValue) el.blockHeightKpiValue.textContent = latestBlockHeightText;
 
     // Update panel titles
     if (el.usdBtcTitle) {
@@ -5162,12 +5733,8 @@
       el.btcUsdBig.textContent = "-- units";
       el.satUsdText.textContent = "N/A";
       el.usdSatText.textContent = "N/A";
-      if (el.primaryRankKpiValue) el.primaryRankKpiValue.textContent = "--";
-      if (el.secondaryRankKpiValue) el.secondaryRankKpiValue.textContent = "--";
-      if (el.blockHeightText) el.blockHeightText.textContent = "BLOCK HEIGHT: --";
       if (el.rightAsOf) el.rightAsOf.textContent = "--";
       if (el.updatedKpiValue) el.updatedKpiValue.textContent = formatUpdatedDisplayText(refreshedAtText);
-      if (el.blockHeightKpiValue) el.blockHeightKpiValue.textContent = "--";
       clearCanvas(el.usdBtcChart);
       clearCanvas(el.btcUsdChart);
       return;
@@ -5179,8 +5746,6 @@
       el.btcUsdBig.textContent = "-- units";
       el.satUsdText.textContent = "N/A";
       el.usdSatText.textContent = "N/A";
-      if (el.primaryRankKpiValue) el.primaryRankKpiValue.textContent = "--";
-      if (el.secondaryRankKpiValue) el.secondaryRankKpiValue.textContent = "--";
       clearCanvas(el.usdBtcChart);
       clearCanvas(el.btcUsdChart);
       return;
@@ -5328,20 +5893,12 @@
       if (el.usdSatText) el.usdSatText.textContent = "";
     }
 
-    if (el.blockHeightText) {
-      el.blockHeightText.textContent = latestOriginal.blockHeight ? `BLOCK HEIGHT: ${latestOriginal.blockHeight}` : "BLOCK HEIGHT: --";
-    }
     if (el.rightAsOf) el.rightAsOf.textContent = fmtDate(latestOriginal.date);
     if (el.updatedKpiValue) {
       el.updatedKpiValue.textContent = refreshedAtText
         ? formatUpdatedDisplayText(refreshedAtText)
         : formatUpdatedKpiTimestamp(latestOriginal.date);
     }
-    if (el.blockHeightKpiValue) el.blockHeightKpiValue.textContent = latestOriginal.blockHeight ? String(latestOriginal.blockHeight) : "--";
-
-    const ranksByCurrency = getCurrencyRanksByValue();
-    if (el.primaryRankKpiValue) el.primaryRankKpiValue.textContent = ranksByCurrency[primaryCurrency] ? String(ranksByCurrency[primaryCurrency]) : "--";
-    if (el.secondaryRankKpiValue) el.secondaryRankKpiValue.textContent = ranksByCurrency[secondaryCurrency] ? String(ranksByCurrency[secondaryCurrency]) : "--";
 
     // Determine colors and labels based on pair
     const leftColor = getDashboardCssValue("--left", "#ffae00");
@@ -5896,7 +6453,7 @@
     refreshedAtText = await loadLastUpdatedText();
 
     const loaded = await loadData();
-    allRows = loaded.rows;
+    allRows = mergePriceRowsWithFxDates(loaded.rows, fxRatesByDate);
     usdParityStartIso = computeUsdParityStartIso();
     rows = [...allRows];
 
