@@ -15,35 +15,55 @@
     MRO: [
       { date: "2018-01-03", ratio: 10, ratioLabel: "10:1" },
     ],
+    CUP: [
+      { date: "2021-01-04", ratio: 1 / 24, ratioLabel: "1:24" },
+    ],
+    SYP: [
+      { date: "2026-01-07", ratio: 100, ratioLabel: "100:1" },
+    ],
+    ZMW: [
+      { date: "2013-01-02", ratio: 1000, ratioLabel: "1,000:1" },
+    ],
   };
   const NOTABLE_EVENTS = {
     VES: [
       {
         date: "2013-02-19",
-        label: "devaluation (Maduro regime)",
-        devaluationEstimate: "estimated devaluation: ~65%",
+        label: "VES devaluation ~65%",
       },
       {
         date: "2016-03-08",
-        label: "devaluation announcement",
-        devaluationEstimate: "estimated devaluation: ~70%",
+        label: "VES devaluation ~70%",
       },
       {
         date: "2018-02-06",
-        label: "devaluation (new market rate)",
-        devaluationEstimate: "estimated devaluation: ~250,000%",
+        label: "VES devaluation ~250,000%",
       },
       {
         date: "2018-08-20",
-        label: "devaluation with 100,000:1 redenomination",
-        devaluationEstimate: "estimated devaluation: ~50% + redenomination",
+        label: "VES devaluation ~50% + redenomination",
       },
     ],
     SDG: [
       {
         date: "2021-02-25",
-        label: "official rate unification / managed-float reset",
-        devaluationEstimate: "estimated devaluation: ~582%",
+        label: "SDG devaluation ~582%",
+      },
+    ],
+    TMT: [
+      {
+        date: "2015-01-06",
+        label: "TMT devaluation ~20%",
+      },
+    ],
+    LBP: [
+      {
+        date: "2023-02-03",
+        label: "LBP devaluation ~90%",
+      },
+      {
+        date: "2024-03-11",
+        label: "LBP devaluation ~83.3%",
       },
     ],
   };
@@ -3139,7 +3159,7 @@
           ratio: Number(event?.ratio),
           ratioLabel: String(event?.ratioLabel || "").trim(),
         }))
-        .filter((event) => event.date && Number.isFinite(event.ratio) && event.ratio > 1)
+        .filter((event) => event.date && Number.isFinite(event.ratio) && event.ratio > 0 && event.ratio !== 1)
         .sort((a, b) => a.date.localeCompare(b.date));
     }
 
@@ -5501,7 +5521,281 @@
           redenomAnchorDate
         );
 
-        if (Number.isFinite(currentSegmentFactor) && currentSegmentFactor > 1) {
+        if (redenominationCurrency === "VES") {
+          const leftRawSeriesAll = transformedAllRows.map((r) => ({
+            date: r.date,
+            value: primaryCurrency === "BTC" ? r.satsPerSecondary : r.inversePrice,
+          }));
+          const leftNumeratorCurrency = secondaryCurrency;
+          const leftDenominatorCurrency = primaryCurrency;
+          const rightRawSeriesAll = transformedAllRows.map((r) => ({
+            date: r.date,
+            value: secondaryCurrency === "BTC" ? r.directPrice * 100000000 : r.directPrice,
+          }));
+          const rightNumeratorCurrency = primaryCurrency;
+          const rightDenominatorCurrency = secondaryCurrency;
+          const leftOverlapRanges = [];
+          const rightOverlapRanges = [];
+
+          const eventSegmentFilter = (point, eventDate, prevEventDate, nextEventDate, isPostEvent) => {
+            if (isPostEvent) {
+              if (!(point.date >= eventDate)) return false;
+              if (nextEventDate && point.date >= nextEventDate) return false;
+              return true;
+            }
+            if (!(point.date < eventDate)) return false;
+            if (prevEventDate && point.date < prevEventDate) return false;
+            return true;
+          };
+
+          const segmentCrossesTick = (points, tickValue) => {
+            if (!Array.isArray(points) || points.length === 0 || !Number.isFinite(tickValue) || tickValue <= 0) return false;
+            if (points.length === 1) {
+              const v = points[0]?.value;
+              return Number.isFinite(v) && v > 0 && Math.abs(v - tickValue) <= (tickValue * 1e-9);
+            }
+            for (let i = 1; i < points.length; i += 1) {
+              const a = points[i - 1]?.value;
+              const b = points[i]?.value;
+              if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0 || b <= 0) continue;
+              if ((a <= tickValue && b >= tickValue) || (a >= tickValue && b <= tickValue)) {
+                return true;
+              }
+            }
+            return false;
+          };
+
+          const computePaddedLogDomain = (points) => {
+            const values = (Array.isArray(points) ? points : [])
+              .map((p) => p?.value)
+              .filter((v) => Number.isFinite(v) && v > 0);
+            if (!values.length) return null;
+            const dataMin = Math.min(...values);
+            const dataMax = Math.max(...values);
+            if (!Number.isFinite(dataMin) || !Number.isFinite(dataMax) || dataMin <= 0 || dataMax <= 0) return null;
+            const safeMin = Math.max(dataMin, LOG_MIN_POSITIVE);
+            const safeMax = Math.max(dataMax, safeMin * (1 + 1e-15));
+            const logSpan = Math.log(safeMax / safeMin);
+            if (logSpan < 1e-6) {
+              const center = Math.max(safeMin, LOG_MIN_POSITIVE);
+              const factor = 1.01;
+              return { min: center / factor, max: center * factor };
+            }
+            const logPad = Math.max(logSpan * 0.01, 1e-6);
+            const factor = Math.exp(logPad);
+            return { min: safeMin / factor, max: safeMax * factor };
+          };
+
+          const leftAdjustedDomain = computePaddedLogDomain(leftSeries);
+
+          redenomEvents.forEach((event, eventIndex) => {
+            const eventDate = parseIsoDateUtc(event.date);
+            if (!eventDate) return;
+            const preEventProbeDate = new Date(eventDate.getTime() - (24 * 60 * 60 * 1000));
+            const preEventFactor = getCumulativeRedenomFactorAtDate(
+              redenominationCurrency,
+              preEventProbeDate,
+              redenomAnchorDate
+            );
+
+            const prevEventDate = eventIndex > 0
+              ? parseIsoDateUtc(redenomEvents[eventIndex - 1].date)
+              : null;
+            const nextEventDate = eventIndex < redenomEvents.length - 1
+              ? parseIsoDateUtc(redenomEvents[eventIndex + 1].date)
+              : null;
+
+            const leftPreRawPoints = leftRawSeriesAll
+              .filter((point) => eventSegmentFilter(point, eventDate, prevEventDate, nextEventDate, false))
+              .filter((point) => Number.isFinite(point.value) && point.value > 0);
+            const leftPreAdjPoints = leftSeriesAllForAxis
+              .filter((point) => eventSegmentFilter(point, eventDate, prevEventDate, nextEventDate, false))
+              .filter((point) => Number.isFinite(point.value) && point.value > 0);
+            const leftPostRawPoints = leftRawSeriesAll
+              .filter((point) => eventSegmentFilter(point, eventDate, prevEventDate, nextEventDate, true))
+              .filter((point) => Number.isFinite(point.value) && point.value > 0);
+            const leftPostAdjPoints = leftSeriesAllForAxis
+              .filter((point) => eventSegmentFilter(point, eventDate, prevEventDate, nextEventDate, true))
+              .filter((point) => Number.isFinite(point.value) && point.value > 0);
+            const leftPreAdjVisiblePoints = leftSeries
+              .filter((point) => eventSegmentFilter(point, eventDate, prevEventDate, nextEventDate, false))
+              .filter((point) => Number.isFinite(point.value) && point.value > 0);
+            const leftPostAdjVisiblePoints = leftSeries
+              .filter((point) => eventSegmentFilter(point, eventDate, prevEventDate, nextEventDate, true))
+              .filter((point) => Number.isFinite(point.value) && point.value > 0);
+
+            const leftPreRawPointsExt = [...leftPreRawPoints];
+            const leftPreAdjPointsExt = [...leftPreAdjPoints];
+            if (leftPostRawPoints.length && leftPostAdjPoints.length) {
+              const boundaryRawPoint = leftPostRawPoints[0];
+              const boundaryAdjPoint = leftPostAdjPoints[0];
+              if (boundaryRawPoint && Number.isFinite(boundaryRawPoint.value) && boundaryRawPoint.value > 0) {
+                leftPreRawPointsExt.push({ date: eventDate, value: boundaryRawPoint.value * preEventFactor });
+              }
+              if (boundaryAdjPoint && Number.isFinite(boundaryAdjPoint.value) && boundaryAdjPoint.value > 0) {
+                leftPreAdjPointsExt.push({ date: eventDate, value: boundaryAdjPoint.value });
+              }
+            }
+
+            if (leftPreRawPointsExt.length && leftPreAdjPointsExt.length && leftPostAdjPoints.length) {
+              leftOverlapRanges.push({
+                eventDate,
+                preFactor: preEventFactor,
+                preAdjPoints: leftPreAdjPointsExt,
+                postAdjPoints: leftPostAdjPoints,
+                preVisibleInWindow: leftPreAdjVisiblePoints.length > 0,
+                postVisibleInWindow: leftPostAdjVisiblePoints.length > 0,
+              });
+            }
+
+            const rightPreRawPoints = rightRawSeriesAll
+              .filter((point) => eventSegmentFilter(point, eventDate, prevEventDate, nextEventDate, false))
+              .filter((point) => Number.isFinite(point.value) && point.value > 0);
+            const rightPreAdjPoints = rightSeriesAllForAxis
+              .filter((point) => eventSegmentFilter(point, eventDate, prevEventDate, nextEventDate, false))
+              .filter((point) => Number.isFinite(point.value) && point.value > 0);
+            const rightPostRawPoints = rightRawSeriesAll
+              .filter((point) => eventSegmentFilter(point, eventDate, prevEventDate, nextEventDate, true))
+              .filter((point) => Number.isFinite(point.value) && point.value > 0);
+            const rightPostAdjPoints = rightSeriesAllForAxis
+              .filter((point) => eventSegmentFilter(point, eventDate, prevEventDate, nextEventDate, true))
+              .filter((point) => Number.isFinite(point.value) && point.value > 0);
+            const rightPreAdjVisiblePoints = rightSeries
+              .filter((point) => eventSegmentFilter(point, eventDate, prevEventDate, nextEventDate, false))
+              .filter((point) => Number.isFinite(point.value) && point.value > 0);
+            const rightPostAdjVisiblePoints = rightSeries
+              .filter((point) => eventSegmentFilter(point, eventDate, prevEventDate, nextEventDate, true))
+              .filter((point) => Number.isFinite(point.value) && point.value > 0);
+
+            const rightPreRawPointsExt = [...rightPreRawPoints];
+            const rightPreAdjPointsExt = [...rightPreAdjPoints];
+            if (rightPostRawPoints.length && rightPostAdjPoints.length) {
+              const boundaryRawPoint = rightPostRawPoints[0];
+              const boundaryAdjPoint = rightPostAdjPoints[0];
+              if (boundaryRawPoint && Number.isFinite(boundaryRawPoint.value) && boundaryRawPoint.value > 0) {
+                rightPreRawPointsExt.push({ date: eventDate, value: boundaryRawPoint.value * preEventFactor });
+              }
+              if (boundaryAdjPoint && Number.isFinite(boundaryAdjPoint.value) && boundaryAdjPoint.value > 0) {
+                rightPreAdjPointsExt.push({ date: eventDate, value: boundaryAdjPoint.value });
+              }
+            }
+
+            if (rightPreRawPointsExt.length && rightPreAdjPointsExt.length && rightPostAdjPoints.length) {
+              rightOverlapRanges.push({
+                eventDate,
+                preFactor: preEventFactor,
+                preAdjPoints: rightPreAdjPointsExt,
+                postAdjPoints: rightPostAdjPoints,
+                preVisibleInWindow: rightPreAdjVisiblePoints.length > 0,
+                postVisibleInWindow: rightPostAdjVisiblePoints.length > 0,
+              });
+            }
+          });
+
+          leftOverlapRanges.sort((a, b) => b.eventDate - a.eventDate);
+          rightOverlapRanges.sort((a, b) => b.eventDate - a.eventDate);
+
+          const getTotalRedenomFactor = () => {
+            const hasRedenomAnchorDate = redenomAnchorDate instanceof Date && !Number.isNaN(redenomAnchorDate.getTime());
+            return redenomEvents.reduce((acc, e) => {
+              const eventDate = parseIsoDateUtc(e.date);
+              if (hasRedenomAnchorDate && eventDate && eventDate > redenomAnchorDate) return acc;
+              return acc * (Number(e.ratio) || 1);
+            }, 1);
+          };
+
+          if (leftOverlapRanges.length) {
+            const totalRedenomFactor = getTotalRedenomFactor();
+            leftOverlapLabelFn = (tickValue, baseLabel) => {
+              if (leftAdjustedDomain && tickValue > leftAdjustedDomain.max) return baseLabel;
+
+              for (const range of leftOverlapRanges) {
+                const preVisibleInWindow = !!range.preVisibleInWindow;
+                const postVisibleInWindow = !!range.postVisibleInWindow;
+                if (!preVisibleInWindow && !postVisibleInWindow) continue;
+
+                const preAdjCross = segmentCrossesTick(range.preAdjPoints, tickValue);
+                const postAdjCross = segmentCrossesTick(range.postAdjPoints, tickValue);
+                if (!preAdjCross && !postAdjCross) continue;
+
+                if (!preVisibleInWindow && postVisibleInWindow) return baseLabel;
+                if (!postVisibleInWindow && preVisibleInWindow && !preAdjCross) continue;
+                if (preVisibleInWindow && postVisibleInWindow && !preAdjCross && postAdjCross) return baseLabel;
+
+                const oldValue = convertAdjustedTickToRawByFactor(
+                  tickValue,
+                  range.preFactor,
+                  leftDenominatorCurrency,
+                  leftNumeratorCurrency,
+                  redenominationCurrency
+                );
+                if (!Number.isFinite(oldValue) || oldValue <= 0) continue;
+
+                if (preAdjCross && !postAdjCross) return leftFormatter(oldValue);
+                if (preVisibleInWindow && postVisibleInWindow && preAdjCross && postAdjCross) {
+                  return `${leftFormatter(oldValue)}/${baseLabel}`;
+                }
+              }
+
+              if (totalRedenomFactor > 1) {
+                const oldValue = convertAdjustedTickToRawByFactor(
+                  tickValue,
+                  totalRedenomFactor,
+                  leftDenominatorCurrency,
+                  leftNumeratorCurrency,
+                  redenominationCurrency
+                );
+                if (Number.isFinite(oldValue) && oldValue > 0) return leftFormatter(oldValue);
+              }
+              return null;
+            };
+          }
+
+          if (rightOverlapRanges.length) {
+            const totalRedenomFactor = getTotalRedenomFactor();
+            rightOverlapLabelFn = (tickValue, baseLabel) => {
+              for (const range of rightOverlapRanges) {
+                const preVisibleInWindow = !!range.preVisibleInWindow;
+                const postVisibleInWindow = !!range.postVisibleInWindow;
+                if (!preVisibleInWindow && !postVisibleInWindow) continue;
+
+                const preAdjCross = segmentCrossesTick(range.preAdjPoints, tickValue);
+                const postAdjCross = segmentCrossesTick(range.postAdjPoints, tickValue);
+                if (!preAdjCross && !postAdjCross) continue;
+
+                if (!preVisibleInWindow && postVisibleInWindow) return baseLabel;
+                if (!postVisibleInWindow && preVisibleInWindow && !preAdjCross) continue;
+                if (preVisibleInWindow && postVisibleInWindow && !preAdjCross && postAdjCross) return baseLabel;
+
+                const oldValue = convertAdjustedTickToRawByFactor(
+                  tickValue,
+                  range.preFactor,
+                  rightDenominatorCurrency,
+                  rightNumeratorCurrency,
+                  redenominationCurrency
+                );
+                if (!Number.isFinite(oldValue) || oldValue <= 0) continue;
+
+                if (preAdjCross && !postAdjCross) return rightFormatter(oldValue);
+                if (preVisibleInWindow && postVisibleInWindow && preAdjCross && postAdjCross) {
+                  return `${rightFormatter(oldValue)}/${baseLabel}`;
+                }
+              }
+
+              if (totalRedenomFactor > 1) {
+                const oldValue = convertAdjustedTickToRawByFactor(
+                  tickValue,
+                  totalRedenomFactor,
+                  rightDenominatorCurrency,
+                  rightNumeratorCurrency,
+                  redenominationCurrency
+                );
+                if (Number.isFinite(oldValue) && oldValue > 0) return rightFormatter(oldValue);
+              }
+              return null;
+            };
+          }
+        } else if (Number.isFinite(currentSegmentFactor) && currentSegmentFactor > 0 && currentSegmentFactor !== 1) {
           leftOverlapLabelFn = (tickValue, baseLabel) => {
             const rawValue = convertAdjustedTickToRawByFactor(
               tickValue,
