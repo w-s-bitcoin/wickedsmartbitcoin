@@ -268,6 +268,7 @@ function closeModal() {
     modalContentMode = 'image';
     modal.classList.remove('embed-active');
     document.body?.classList?.remove('uoa-dashboard-expanded');
+    document.body?.classList?.remove('dca-dashboard-expanded');
     if (modalEmbedWrap) modalEmbedWrap.hidden = true;
     if (modalEmbed) modalEmbed.src = 'about:blank';
     resumeDeferredGridLoadingIfNeeded();

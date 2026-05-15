@@ -13,8 +13,8 @@
   --fg-dim: #c2c8cf;
   --muted: #95a6ae;
   --ink: #e5e7eb;
-  --accent: #ffae00;
-  --left: #ffae00;
+  --accent: #ff9f1c;
+  --left: #ff9f1c;
   --right: #34d399;
   --ghost: rgba(148, 163, 184, 0.25);
   --dashboard-accent: var(--accent);
@@ -40,8 +40,8 @@
   --fg-dim: #374151;
   --muted: #6f685f;
   --ink: #111827;
-  --accent: #ffae00;
-  --left: #ffae00;
+  --accent: #ff9f1c;
+  --left: #ff9f1c;
   --right: #39d7a4;
   --ghost: rgba(55, 65, 81, 0.2);
 }
@@ -111,7 +111,7 @@ body::-webkit-scrollbar-thumb {
   min-height: 100vh;
   display: grid;
   grid-template-rows: auto auto minmax(var(--chart-panel-min-height), 1fr);
-  gap: 8px;
+  gap: 10px;
 }
 
 body.uoa-dashboard-expanded .wrap {
@@ -869,15 +869,15 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
   position: absolute;
   inset: 1px;
   border-radius: 50%;
-  background: conic-gradient(#ff9900 0% var(--date-range-export-progress), #5f5f5f var(--date-range-export-progress) 100%);
-  box-shadow: 0 0 5px color-mix(in srgb, #ff9900 22%, transparent);
+  background: conic-gradient(#ff9f1c 0% var(--date-range-export-progress), #5f5f5f var(--date-range-export-progress) 100%);
+  box-shadow: 0 0 5px color-mix(in srgb, #ff9f1c 22%, transparent);
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
   mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
   transition: --date-range-export-progress 140ms linear;
 }
 
 :root[data-theme="light"] .date-range-export-progress::before {
-  background: conic-gradient(#ff9900 0% var(--date-range-export-progress), #bdbdbd var(--date-range-export-progress) 100%);
+  background: conic-gradient(#ff9f1c 0% var(--date-range-export-progress), #bdbdbd var(--date-range-export-progress) 100%);
 }
 
 .date-range-export-stop-square {
@@ -895,12 +895,12 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 
 .date-range-download-btn.is-exporting:hover .date-range-export-stop-square,
 .date-range-download-btn.is-exporting:focus-visible .date-range-export-stop-square {
-  background: #ff9900;
-  box-shadow: 0 0 7px color-mix(in srgb, #ff9900 58%, transparent);
+  background: #ff9f1c;
+  box-shadow: 0 0 7px color-mix(in srgb, #ff9f1c 58%, transparent);
 }
 
 .date-range-download-btn.is-exporting.is-canceling .date-range-export-stop-square {
-  background: #ff9900;
+  background: #ff9f1c;
 }
 
 .date-range-download-settings .date-range-settings-btn {
@@ -915,7 +915,6 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
   font-size: 0;
   line-height: 1;
   text-align: center;
-  transform: translateX(-1px);
   text-indent: 0;
 }
 
@@ -1166,6 +1165,12 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
   z-index: 3;
 }
 
+.date-range-playback-btn:focus,
+.date-range-playback-btn:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
 .date-range-playback-btn:disabled {
   opacity: 0.5;
   color: var(--muted);
@@ -1186,6 +1191,7 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 }
 
 .date-range-play-btn.is-playing,
+.date-range-pause-btn.is-paused,
 .date-range-stop-btn.is-active,
 .date-range-download-settings .date-range-settings-btn.is-open {
   color: #000000;
@@ -1197,7 +1203,10 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 
 .date-range-play-btn.is-playing:disabled,
 .date-range-play-btn.is-playing:disabled:hover,
-.date-range-play-btn.is-playing:disabled:focus-visible {
+.date-range-play-btn.is-playing:disabled:focus-visible,
+.date-range-pause-btn.is-paused:disabled,
+.date-range-pause-btn.is-paused:disabled:hover,
+.date-range-pause-btn.is-paused:disabled:focus-visible {
   opacity: 1;
   color: #000000;
   background: var(--accent);
@@ -1296,6 +1305,8 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 
 .date-range-chart-toggle-btn:focus,
 .date-range-chart-toggle-btn:focus-visible,
+.date-range-preset-btn:focus,
+.date-range-preset-btn:focus-visible,
 .date-range-chart-toggle-wrap:focus-within {
   outline: none !important;
   box-shadow: none !important;
@@ -1506,11 +1517,11 @@ body.uoa-loading .date-range-slider-wrap > * {
 }
 
 .date-range-remaining.active {
-  background: #ff9900;
+  background: #ff9f1c;
 }
 
 :root[data-theme="light"] .date-range-remaining.active {
-  background: #ff9900;
+  background: #ff9f1c;
 }
 
 .date-range-slider {
@@ -1878,7 +1889,7 @@ body.uoa-loading .date-range-slider-wrap > * {
 .grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 10px 8px;
   min-height: var(--chart-panel-min-height);
 }
 

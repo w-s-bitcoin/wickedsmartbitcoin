@@ -109,7 +109,7 @@
       "--fg": "#e5e7eb",
       "--muted": "#95a6ae",
       "--line": "rgba(255, 255, 255, 0.17)",
-      "--left": "#ff9900",
+      "--left": "#ff9f1c",
       "--right": "#34d399",
       "--ghost": "rgba(148, 163, 184, 0.25)",
     },
@@ -119,7 +119,7 @@
       "--fg": "#111827",
       "--muted": "#6f685f",
       "--line": "rgba(0, 0, 0, 0.13)",
-      "--left": "#ff9900",
+      "--left": "#ff9f1c",
       "--right": "#39d7a4",
       "--ghost": "rgba(55, 65, 81, 0.2)",
     },
@@ -841,11 +841,11 @@
     if (secondaryCurrency === "BTC") {
       return {
         left: getCurrencyAccentColor(primaryCurrency, "--right", "#34d399"),
-        right: getCurrencyAccentColor(secondaryCurrency, "--left", "#ffae00"),
+        right: getCurrencyAccentColor(secondaryCurrency, "--left", "#ff9f1c"),
       };
     }
     return {
-      left: getCurrencyAccentColor(primaryCurrency, "--left", "#ffae00"),
+      left: getCurrencyAccentColor(primaryCurrency, "--left", "#ff9f1c"),
       right: getCurrencyAccentColor(secondaryCurrency, "--right", "#34d399"),
     };
   }
@@ -2238,7 +2238,7 @@
     if (!el.dateRangePauseBtn) return;
     const hasSession = !!dateRangePlaybackState.hasSession;
     const isPlaying = !!dateRangePlaybackState.isPlaying;
-    el.dateRangePauseBtn.disabled = !hasSession;
+    el.dateRangePauseBtn.disabled = !hasSession || !isPlaying;
     el.dateRangePauseBtn.classList.toggle("is-paused", hasSession && !isPlaying);
   }
 
@@ -2283,7 +2283,15 @@
         (targetElement && !!targetElement.closest(".date-range-panel"))
         || eventPath.includes(el.dateRangePanel)
       );
+      const isChartPanelClick = !!el.chartGrid && (
+        (targetElement && !!targetElement.closest(".chart-panel"))
+        || eventPath.some((item) => item instanceof Element && item.classList?.contains("chart-panel"))
+      );
       if (isPauseButtonClick || isFpsButtonClick || isSliderInteraction || isInDateRangePanel) return;
+      if (isChartPanelClick) {
+        toggleDateRangePlayback();
+        return;
+      }
       stopDateRangePlayback({ restoreOriginalRange: true });
     };
 
@@ -2306,6 +2314,10 @@
       const isInDateRangePanel = !!el.dateRangePanel && (
         (targetElement && !!targetElement.closest(".date-range-panel"))
         || eventPath.includes(el.dateRangePanel)
+      );
+      const isChartPanelClick = !!el.chartGrid && (
+        (targetElement && !!targetElement.closest(".chart-panel"))
+        || eventPath.some((item) => item instanceof Element && item.classList?.contains("chart-panel"))
       );
       if (isPauseButtonClick || isFpsButtonClick || isSliderInteraction || isInDateRangePanel) return;
 
@@ -2330,6 +2342,10 @@
 
       event.preventDefault();
       event.stopPropagation();
+      if (isChartPanelClick) {
+        toggleDateRangePlayback();
+        return;
+      }
       stopDateRangePlayback({ restoreOriginalRange: true });
     };
 
@@ -2618,9 +2634,17 @@
     if (dateRangeSpaceShortcutBound) return;
     dateRangeSpaceShortcutBound = true;
 
-    const blurRangeSliderIfFocused = () => {
+    const blurDateRangeControlIfFocused = () => {
       const active = document.activeElement;
-      if (active === el.dateRangeStartSlider || active === el.dateRangeEndSlider) {
+      if (
+        active === el.dateRangeStartSlider
+        || active === el.dateRangeEndSlider
+        || active === el.dateRangePlayBtn
+        || active === el.dateRangePauseBtn
+        || active === el.dateRangeStopBtn
+        || active === el.dateRangeFpsTrigger
+        || (el.dateRangePresets && el.dateRangePresets.contains(active))
+      ) {
         active.blur();
       }
     };
@@ -2655,9 +2679,9 @@
         event.stopImmediatePropagation();
       }
 
-      blurRangeSliderIfFocused();
+      blurDateRangeControlIfFocused();
       toggleDateRangePlayback();
-      requestAnimationFrame(blurRangeSliderIfFocused);
+      requestAnimationFrame(blurDateRangeControlIfFocused);
     }, true);
   }
 
@@ -5200,6 +5224,64 @@
       return;
     }
 
+    if (!el.dateRangeSliderWrap || !el.dateRangeStartSlider || !el.dateRangeEndSlider || !allRows.length) return;
+    if (event.button !== 0) return;
+
+    const controlBounds = getDateRangeControlBounds();
+    const visualBounds = getDateRangeVisualBounds();
+    const minIndex = controlBounds?.minIndex ?? 0;
+    const maxIndex = controlBounds?.maxIndex ?? Math.max(0, allRows.length - 1);
+    if (maxIndex <= minIndex) return;
+
+    const wrapRect = el.dateRangeSliderWrap.getBoundingClientRect();
+    if (!Number.isFinite(wrapRect.width) || wrapRect.width <= 0) return;
+
+    const startIndex = Number(el.dateRangeStartSlider.value);
+    const endIndex = Number(el.dateRangeEndSlider.value);
+    if (!Number.isFinite(startIndex) || !Number.isFinite(endIndex) || startIndex > endIndex) return;
+
+    const startX = wrapRect.left + (getDateRangeVisualPercent(startIndex, visualBounds) / 100) * wrapRect.width;
+    const endX = wrapRect.left + (getDateRangeVisualPercent(endIndex, visualBounds) / 100) * wrapRect.width;
+    const pointerX = event.clientX;
+    const handleGuardPx = 12;
+    const nearStartHandle = Math.abs(pointerX - startX) <= handleGuardPx;
+    const nearEndHandle = Math.abs(pointerX - endX) <= handleGuardPx;
+
+    if (nearStartHandle || nearEndHandle) {
+      const handle = nearStartHandle && nearEndHandle
+        ? (Math.abs(pointerX - startX) <= Math.abs(pointerX - endX) ? "start" : "end")
+        : (nearStartHandle ? "start" : "end");
+
+      if (dateRangePlaybackState.hasSession && handle === "start") {
+        stopDateRangePlayback({ restoreOriginalRange: false });
+      } else if (dateRangePlaybackState.isPlaying && handle === "end") {
+        pauseDateRangePlayback();
+        dateRangeEndSliderScrubState.resumeAfterRelease = true;
+      }
+
+      event.preventDefault();
+
+      dateRangeDragState = {
+        mode: handle,
+        pointerId: event.pointerId,
+        startIndex,
+        endIndex,
+        minIndex,
+        maxIndex,
+        visualSpan: Math.max(1, (visualBounds?.maxIndex ?? maxIndex) - (visualBounds?.minIndex ?? minIndex)),
+        visualBounds,
+        wrapLeft: wrapRect.left,
+        wrapWidth: wrapRect.width,
+      };
+
+      try {
+        el.dateRangeSliderWrap.setPointerCapture(event.pointerId);
+      } catch (_) {
+        // Ignore capture failures.
+      }
+      return;
+    }
+
     if (dateRangePlaybackState.hasSession) {
       const clickedIndex = getDateRangeIndexFromPointerX(event.clientX);
       if (!Number.isFinite(clickedIndex)) return;
@@ -5230,26 +5312,7 @@
     }
 
     stopDateRangePlayback();
-    if (!el.dateRangeSliderWrap || !el.dateRangeStartSlider || !el.dateRangeEndSlider || !allRows.length) return;
-    if (event.button !== 0) return;
-
-    const controlBounds = getDateRangeControlBounds();
-    const visualBounds = getDateRangeVisualBounds();
-    const minIndex = controlBounds?.minIndex ?? 0;
-    const maxIndex = controlBounds?.maxIndex ?? Math.max(0, allRows.length - 1);
-    if (maxIndex <= minIndex) return;
-
-    const wrapRect = el.dateRangeSliderWrap.getBoundingClientRect();
-    if (!Number.isFinite(wrapRect.width) || wrapRect.width <= 0) return;
-
-    const startIndex = Number(el.dateRangeStartSlider.value);
-    const endIndex = Number(el.dateRangeEndSlider.value);
     if (!Number.isFinite(startIndex) || !Number.isFinite(endIndex) || startIndex >= endIndex) return;
-
-    const startX = wrapRect.left + (getDateRangeVisualPercent(startIndex, visualBounds) / 100) * wrapRect.width;
-    const endX = wrapRect.left + (getDateRangeVisualPercent(endIndex, visualBounds) / 100) * wrapRect.width;
-    const pointerX = event.clientX;
-    const handleGuardPx = 12;
 
     // Only start drag when clicking the highlighted middle segment, not near handles.
     if (pointerX <= startX + handleGuardPx || pointerX >= endX - handleGuardPx) return;
@@ -5258,6 +5321,7 @@
     event.preventDefault();
 
     dateRangeDragState = {
+      mode: "range",
       pointerId: event.pointerId,
       startClientX: pointerX,
       startIndex,
@@ -5297,6 +5361,31 @@
     if (!dateRangeDragState || !el.dateRangeStartSlider || !el.dateRangeEndSlider || !allRows.length) return;
     if (event.pointerId !== dateRangeDragState.pointerId) return;
     event.preventDefault();
+
+    if (dateRangeDragState.mode === "start" || dateRangeDragState.mode === "end") {
+      const rawIndex = getDateRangeIndexFromPointerX(event.clientX);
+      if (!Number.isFinite(rawIndex)) return;
+      const currentStart = Number(el.dateRangeStartSlider.value);
+      const currentEnd = Number(el.dateRangeEndSlider.value);
+      if (!Number.isFinite(currentStart) || !Number.isFinite(currentEnd)) return;
+      const nextStart = dateRangeDragState.mode === "start"
+        ? Math.max(dateRangeDragState.minIndex, Math.min(currentEnd, rawIndex))
+        : currentStart;
+      const nextEnd = dateRangeDragState.mode === "end"
+        ? Math.max(currentStart, Math.min(dateRangeDragState.maxIndex, rawIndex))
+        : currentEnd;
+      if (Number(el.dateRangeStartSlider.value) === nextStart && Number(el.dateRangeEndSlider.value) === nextEnd) return;
+      el.dateRangeStartSlider.value = String(nextStart);
+      el.dateRangeEndSlider.value = String(nextEnd);
+      updateDateRangeSliderFill(nextStart, nextEnd, dateRangeDragState.visualBounds);
+      const startIso = toIsoDate(allRows[nextStart].date);
+      const endIso = toIsoDate(allRows[nextEnd].date);
+      setRequestedDateRange(startIso, endIso);
+      if (el.startDateInput) el.startDateInput.value = startIso;
+      if (el.endDateInput) el.endDateInput.value = endIso;
+      applyFilters();
+      return;
+    }
 
     const {
       startClientX,
