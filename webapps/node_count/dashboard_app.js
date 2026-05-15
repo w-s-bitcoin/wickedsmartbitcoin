@@ -277,6 +277,8 @@
         menu.addEventListener('click', (event) => {
           const btn = event.target.closest('.dca-option-btn');
           if (!btn) return;
+          event.preventDefault();
+          event.stopPropagation();
           const nextValue = String(btn.dataset.value || '');
           if (select.value !== nextValue) {
             select.value = nextValue;
@@ -911,6 +913,8 @@
       if (!select) return;
       select.addEventListener('change', () => {
         setPreferredDashboardTimeZone(select.value);
+        select.blur();
+        closeAllSelectDropdowns();
         setLastUpdated();
       });
     }
@@ -1076,15 +1080,15 @@
     }
 
     function buildShareableDashboardUrl() {
-      const range = String(document.getElementById('rangeSelect')?.value || '365');
-      const smooth = String(document.getElementById('smoothSelect')?.value || '7');
+      const range = String(document.getElementById('rangeSelect')?.value || '0');
+      const smooth = String(document.getElementById('smoothSelect')?.value || '1');
       const topN = Number(document.getElementById('topNInput')?.value || 12);
       const showHistory = Boolean(document.getElementById('toggleHistoryPanel')?.checked ?? true);
       const showSoftware = Boolean(document.getElementById('toggleSoftwarePanel')?.checked ?? true);
 
       const defaults = {
-        range: '365',
-        smooth: '7',
+        range: '0',
+        smooth: '1',
         topN: 12,
         showHistory: true,
         showSoftware: true,
@@ -1277,8 +1281,8 @@
       const toggleHistoryPanel = document.getElementById('toggleHistoryPanel');
       const toggleSoftwarePanel = document.getElementById('toggleSoftwarePanel');
       return {
-        range: String(document.getElementById('rangeSelect')?.value || '365'),
-        smooth: String(document.getElementById('smoothSelect')?.value || '7'),
+        range: String(document.getElementById('rangeSelect')?.value || '0'),
+        smooth: String(document.getElementById('smoothSelect')?.value || '1'),
         topN: Number(document.getElementById('topNInput')?.value || 12),
         showHistory: Boolean(toggleHistoryPanel?.checked ?? true),
         showSoftware: Boolean(toggleSoftwarePanel?.checked ?? true),
@@ -1311,8 +1315,8 @@
         const toggleHistoryPanel = document.getElementById('toggleHistoryPanel');
         const toggleSoftwarePanel = document.getElementById('toggleSoftwarePanel');
 
-        if (rangeSelect) rangeSelect.value = String(snapshot.range || '365');
-        if (smoothSelect) smoothSelect.value = String(snapshot.smooth || '7');
+        if (rangeSelect) rangeSelect.value = String(snapshot.range || '0');
+        if (smoothSelect) smoothSelect.value = String(snapshot.smooth || '1');
         if (topNInput) topNInput.value = String(snapshot.topN ?? 12);
         const checkboxState = snapshot.checkboxState || {};
         if (toggleHistoryPanel) {
@@ -1375,8 +1379,8 @@
       const toggleHistoryPanel = document.getElementById('toggleHistoryPanel');
       const toggleSoftwarePanel = document.getElementById('toggleSoftwarePanel');
 
-      if (rangeSelect) rangeSelect.value = '365';
-      if (smoothSelect) smoothSelect.value = '7';
+      if (rangeSelect) rangeSelect.value = '0';
+      if (smoothSelect) smoothSelect.value = '1';
       if (topNInput) topNInput.value = '12';
       if (toggleHistoryPanel) toggleHistoryPanel.checked = true;
       if (toggleSoftwarePanel) toggleSoftwarePanel.checked = true;
@@ -1419,8 +1423,8 @@
       const toggleHistoryPanel = document.getElementById('toggleHistoryPanel');
       const toggleSoftwarePanel = document.getElementById('toggleSoftwarePanel');
 
-      if (rangeSelect && rangeSelect.value !== '365') return false;
-      if (smoothSelect && smoothSelect.value !== '7') return false;
+      if (rangeSelect && rangeSelect.value !== '0') return false;
+      if (smoothSelect && smoothSelect.value !== '1') return false;
       if (topNInput && topNInput.value !== '12') return false;
       if (toggleHistoryPanel && !toggleHistoryPanel.checked) return false;
       if (toggleSoftwarePanel && !toggleSoftwarePanel.checked) return false;

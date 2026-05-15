@@ -666,11 +666,79 @@ body.uoa-dashboard-expanded .topbar {
   min-width: 8ch;
 }
 
+.date-range-range-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.date-range-range-label {
+  display: inline-block;
+}
+
 .date-range-presets,
 .date-range-chart-toggles {
   display: inline-flex;
   flex-wrap: nowrap;
   gap: 0;
+}
+
+.date-range-range-buttons {
+  align-items: stretch;
+}
+
+.date-range-days-segment {
+  border: 1px solid var(--panel-border);
+  border-radius: 8px 0 0 8px;
+  margin-right: -1px;
+  background: transparent;
+  color: var(--fg);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 10.5ch;
+  padding: 5px 9px;
+  position: relative;
+  z-index: 1;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.75rem;
+  line-height: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.date-range-days-segment:focus-within {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.date-range-days-input {
+  appearance: textfield;
+  -moz-appearance: textfield;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--fg);
+  width: 6.5ch;
+  min-width: 6.5ch;
+  padding: 0;
+  margin: 0;
+  text-align: right;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.date-range-days-input::-webkit-outer-spin-button,
+.date-range-days-input::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+.date-range-days-suffix {
+  color: var(--fg);
 }
 
 .date-range-chart-toggle-wrap {

@@ -558,6 +558,20 @@
       min-width: 8ch;
     }
 
+    .date-range-range-control {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.8rem;
+      white-space: nowrap;
+    }
+
+    .date-range-range-label {
+      display: inline-block;
+    }
+
     .date-range-button-row,
     .date-range-play-row {
       display: inline-flex;
@@ -567,6 +581,60 @@
       overflow: visible;
       min-height: 28px;
       gap: 0;
+    }
+
+    .date-range-range-buttons {
+      align-items: stretch;
+    }
+
+    .date-range-days-segment {
+      border: 1px solid var(--card-border);
+      border-radius: 8px 0 0 8px;
+      margin-right: -1px;
+      background: transparent;
+      color: var(--fg);
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      min-width: 10.5ch;
+      padding: 5px 9px;
+      position: relative;
+      z-index: 1;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.75rem;
+      line-height: normal;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .date-range-days-segment:focus-within {
+      outline: none !important;
+      box-shadow: none !important;
+    }
+
+    .date-range-days-input {
+      appearance: textfield;
+      -moz-appearance: textfield;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--fg);
+      width: 6.5ch;
+      min-width: 6.5ch;
+      padding: 0;
+      margin: 0;
+      text-align: right;
+      font: inherit;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .date-range-days-input::-webkit-outer-spin-button,
+    .date-range-days-input::-webkit-inner-spin-button {
+      appearance: none;
+      margin: 0;
+    }
+
+    .date-range-days-suffix {
+      color: var(--fg);
     }
 
     .date-range-playback-btn {
@@ -1853,14 +1921,20 @@
           <button id="dateRangeEndBtn" class="date-range-btn" type="button"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg><span class="date-range-btn-placeholder" aria-hidden="true">00/00/00</span></button>
           <input id="dateRangeEndInput" class="date-range-native-input" type="date" />
         </label>
-        <span id="dateRangeDaysValue" class="chip range-days-chip" aria-live="polite">Range <span class="range-days-value"></span></span>
-        <div class="date-range-button-row" aria-label="Range presets">
-          <button type="button" class="date-range-btn" data-range-preset="full">Full Range</button>
-          <button type="button" class="date-range-btn" data-range-preset="ytd">YTD</button>
-          <button type="button" class="date-range-btn" data-range-preset="1y">1Y</button>
-          <button type="button" class="date-range-btn" data-range-preset="2y">2Y</button>
-          <button type="button" class="date-range-btn" data-range-preset="4y">4Y</button>
-          <button type="button" class="date-range-btn" data-range-preset="8y">8Y</button>
+        <div class="date-range-range-control">
+          <span class="date-range-range-label">Range</span>
+          <div class="date-range-button-row date-range-range-buttons" aria-label="Range presets">
+            <label class="date-range-days-segment" for="dateRangeDaysInput">
+              <input id="dateRangeDaysInput" class="date-range-days-input" type="text" inputmode="numeric" autocomplete="off" aria-label="Range length in days" />
+              <span class="date-range-days-suffix">Days</span>
+            </label>
+            <button type="button" class="date-range-btn" data-range-preset="ytd">YTD</button>
+            <button type="button" class="date-range-btn" data-range-preset="1y">1Y</button>
+            <button type="button" class="date-range-btn" data-range-preset="2y">2Y</button>
+            <button type="button" class="date-range-btn" data-range-preset="4y">4Y</button>
+            <button type="button" class="date-range-btn" data-range-preset="8y">8Y</button>
+            <button type="button" class="date-range-btn" data-range-preset="full">All</button>
+          </div>
         </div>
         <div class="date-range-play-row" aria-label="Playback controls">
           <button type="button" id="dateRangePlayBtn" class="date-range-playback-btn date-range-play-btn" aria-label="Play">▶</button>
