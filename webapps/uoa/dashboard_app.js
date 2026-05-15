@@ -108,7 +108,7 @@
       "--panel": "#000000",
       "--fg": "#e5e7eb",
       "--muted": "#95a6ae",
-      "--line": "rgba(255, 255, 255, 0.17)",
+      "--line": "#2b2b2b",
       "--left": "#ff9f1c",
       "--right": "#34d399",
       "--ghost": "rgba(148, 163, 184, 0.25)",
@@ -118,7 +118,7 @@
       "--panel": "#ffffff",
       "--fg": "#111827",
       "--muted": "#6f685f",
-      "--line": "rgba(0, 0, 0, 0.13)",
+      "--line": "#dedede",
       "--left": "#ff9f1c",
       "--right": "#39d7a4",
       "--ghost": "rgba(55, 65, 81, 0.2)",
@@ -685,11 +685,15 @@
     if (safeMaxIndex < safeMinIndex) return;
 
     const desiredDays = Math.max(1, Math.round(Number(dayCount) || 1));
-    let startIndex = getDateIndexOnOrAfter(el.startDateInput.value || requestedDateRange.startIso || toIsoDate(allRows[safeMinIndex].date));
-    if (startIndex < 0) startIndex = safeMinIndex;
-    startIndex = Math.max(safeMinIndex, Math.min(safeMaxIndex, startIndex));
+    let endIndex = getDateIndexOnOrBefore(el.endDateInput.value || requestedDateRange.endIso || toIsoDate(allRows[safeMaxIndex].date));
+    if (endIndex < 0) endIndex = safeMaxIndex;
+    endIndex = Math.max(safeMinIndex, Math.min(safeMaxIndex, endIndex));
 
-    let endIndex = startIndex + desiredDays - 1;
+    let startIndex = endIndex - desiredDays + 1;
+    if (startIndex < safeMinIndex) {
+      startIndex = safeMinIndex;
+      endIndex = Math.min(safeMaxIndex, startIndex + desiredDays - 1);
+    }
     if (endIndex > safeMaxIndex) {
       endIndex = safeMaxIndex;
       startIndex = Math.max(safeMinIndex, endIndex - desiredDays + 1);
@@ -1411,6 +1415,236 @@
     frameCache.clear();
   }
 
+  function concatUint8Arrays(arrays) {
+    const totalLength = arrays.reduce((sum, item) => sum + item.length, 0);
+    const out = new Uint8Array(totalLength);
+    let offset = 0;
+    arrays.forEach((item) => {
+      out.set(item, offset);
+      offset += item.length;
+    });
+    return out;
+  }
+
+  function ebmlIdBytes(id) {
+    const hex = id.toString(16).padStart(2, "0");
+    const padded = hex.length % 2 ? `0${hex}` : hex;
+    const bytes = new Uint8Array(padded.length / 2);
+    for (let i = 0; i < bytes.length; i += 1) {
+      bytes[i] = Number.parseInt(padded.slice(i * 2, i * 2 + 2), 16);
+    }
+    return bytes;
+  }
+
+  function ebmlSizeBytes(size) {
+    if (size < 0x7f) return Uint8Array.of(0x80 | size);
+    if (size < 0x3fff) return Uint8Array.of(0x40 | (size >> 8), size & 0xff);
+    if (size < 0x1fffff) return Uint8Array.of(0x20 | (size >> 16), (size >> 8) & 0xff, size & 0xff);
+    if (size < 0x0fffffff) {
+      return Uint8Array.of(
+        0x10 | (size >> 24),
+        (size >> 16) & 0xff,
+        (size >> 8) & 0xff,
+        size & 0xff,
+      );
+    }
+    const bytes = new Uint8Array(8);
+    bytes[0] = 0x01;
+    let value = size;
+    for (let i = 7; i >= 1; i -= 1) {
+      bytes[i] = value & 0xff;
+      value = Math.floor(value / 256);
+    }
+    return bytes;
+  }
+
+  function ebmlUnknownSizeBytes() {
+    return Uint8Array.of(0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff);
+  }
+
+  function ebmlElement(id, data) {
+    return concatUint8Arrays([ebmlIdBytes(id), ebmlSizeBytes(data.length), data]);
+  }
+
+  function ebmlUint(value, byteLength = 0) {
+    let length = byteLength;
+    if (!length) {
+      length = 1;
+      let probe = Math.max(0, Number(value) || 0);
+      while (probe > 0xff) {
+        length += 1;
+        probe = Math.floor(probe / 256);
+      }
+    }
+    const bytes = new Uint8Array(length);
+    let next = Math.max(0, Number(value) || 0);
+    for (let i = length - 1; i >= 0; i -= 1) {
+      bytes[i] = next & 0xff;
+      next = Math.floor(next / 256);
+    }
+    return bytes;
+  }
+
+  function ebmlFloat64(value) {
+    const bytes = new Uint8Array(8);
+    new DataView(bytes.buffer).setFloat64(0, Number(value) || 0, false);
+    return bytes;
+  }
+
+  function ebmlAscii(value) {
+    return new TextEncoder().encode(String(value || ""));
+  }
+
+  function webmSimpleBlock(trackNumber, relativeTimecode, keyFrame, data) {
+    const header = new Uint8Array(4);
+    header[0] = 0x80 | Math.max(1, Math.min(126, trackNumber));
+    new DataView(header.buffer).setInt16(1, Math.max(-32768, Math.min(32767, Math.round(relativeTimecode))), false);
+    header[3] = keyFrame ? 0x80 : 0x00;
+    return ebmlElement(0xa3, concatUint8Arrays([header, data]));
+  }
+
+  function buildWebMBlob(encodedFrames, width, height, fps, codecId) {
+    const durationSeconds = encodedFrames.length / Math.max(1, fps);
+    const ebmlHeader = ebmlElement(0x1a45dfa3, concatUint8Arrays([
+      ebmlElement(0x4286, ebmlUint(1)),
+      ebmlElement(0x42f7, ebmlUint(1)),
+      ebmlElement(0x42f2, ebmlUint(4)),
+      ebmlElement(0x42f3, ebmlUint(8)),
+      ebmlElement(0x4282, ebmlAscii("webm")),
+      ebmlElement(0x4287, ebmlUint(4)),
+      ebmlElement(0x4285, ebmlUint(2)),
+    ]));
+    const info = ebmlElement(0x1549a966, concatUint8Arrays([
+      ebmlElement(0x2ad7b1, ebmlUint(1000000)),
+      ebmlElement(0x4489, ebmlFloat64(durationSeconds)),
+      ebmlElement(0x4d80, ebmlAscii("wickedsmartbitcoin")),
+      ebmlElement(0x5741, ebmlAscii("wickedsmartbitcoin")),
+    ]));
+    const video = ebmlElement(0xe0, concatUint8Arrays([
+      ebmlElement(0xb0, ebmlUint(width)),
+      ebmlElement(0xba, ebmlUint(height)),
+    ]));
+    const trackEntry = ebmlElement(0xae, concatUint8Arrays([
+      ebmlElement(0xd7, ebmlUint(1)),
+      ebmlElement(0x73c5, ebmlUint(1)),
+      ebmlElement(0x83, ebmlUint(1)),
+      ebmlElement(0x86, ebmlAscii(codecId)),
+      ebmlElement(0x258688, ebmlAscii("Unit of Account")),
+      video,
+    ]));
+    const tracks = ebmlElement(0x1654ae6b, trackEntry);
+    const clusters = [];
+    let clusterStartMs = -1;
+    let clusterBlocks = [];
+    const flushCluster = () => {
+      if (clusterStartMs < 0 || !clusterBlocks.length) return;
+      clusters.push(ebmlElement(0x1f43b675, concatUint8Arrays([
+        ebmlElement(0xe7, ebmlUint(clusterStartMs)),
+        ...clusterBlocks,
+      ])));
+      clusterStartMs = -1;
+      clusterBlocks = [];
+    };
+    encodedFrames.forEach((frame) => {
+      const timeMs = Math.round(frame.timestamp / 1000);
+      if (clusterStartMs < 0 || timeMs - clusterStartMs > 30000) {
+        flushCluster();
+        clusterStartMs = timeMs;
+      }
+      clusterBlocks.push(webmSimpleBlock(1, timeMs - clusterStartMs, frame.type === "key", frame.data));
+    });
+    flushCluster();
+    const segmentPayload = concatUint8Arrays([info, tracks, ...clusters]);
+    const segment = concatUint8Arrays([ebmlIdBytes(0x18538067), ebmlUnknownSizeBytes(), segmentPayload]);
+    return new Blob([ebmlHeader, segment], { type: "video/webm" });
+  }
+
+  async function getSupportedWebCodecsExportConfig(width, height, settings) {
+    if (!window.VideoEncoder || !window.VideoFrame || typeof VideoEncoder.isConfigSupported !== "function") return null;
+    const candidates = [
+      { codec: "vp09.00.10.08", webmCodecId: "V_VP9" },
+      { codec: "vp8", webmCodecId: "V_VP8" },
+    ];
+    for (const candidate of candidates) {
+      const config = {
+        codec: candidate.codec,
+        width,
+        height,
+        bitrate: getDateRangeExportBitrate(settings),
+        framerate: DATE_RANGE_EXPORT_VIDEO_FPS,
+        latencyMode: "quality",
+      };
+      try {
+        const support = await VideoEncoder.isConfigSupported(config);
+        if (support?.supported) return { ...candidate, config: support.config || config };
+      } catch (_) {
+        // Try the next codec.
+      }
+    }
+    return null;
+  }
+
+  async function encodeDateRangeAnimationWebM({
+    exportCanvas,
+    layoutCanvas,
+    layoutSettings,
+    exportRefs,
+    exportSnapshot,
+    settings,
+    startIndex,
+    frameIndices,
+  }) {
+    const encoderConfig = await getSupportedWebCodecsExportConfig(exportCanvas.width, exportCanvas.height, settings);
+    if (!encoderConfig) return null;
+    const encodedFrames = [];
+    const frameDurationUs = Math.round(1000000 / DATE_RANGE_EXPORT_VIDEO_FPS);
+    let frameIndex = 0;
+    let encodeError = null;
+    const encoder = new VideoEncoder({
+      output: (chunk) => {
+        const data = new Uint8Array(chunk.byteLength);
+        chunk.copyTo(data);
+        encodedFrames.push({
+          timestamp: chunk.timestamp,
+          type: chunk.type,
+          data,
+        });
+      },
+      error: (error) => {
+        encodeError = error;
+      },
+    });
+    encoder.configure(encoderConfig.config);
+    for (const index of frameIndices) {
+      if (dateRangeExportCancelRequested) break;
+      renderExportFrameToSurface(exportRefs, exportSnapshot, startIndex, index);
+      await composeDateRangeExportFrame(layoutCanvas, layoutSettings, exportRefs);
+      drawScaledExportFrame(layoutCanvas, exportCanvas, settings);
+      const timestamp = frameIndex * frameDurationUs;
+      const frame = new VideoFrame(exportCanvas, {
+        timestamp,
+        duration: frameDurationUs,
+      });
+      encoder.encode(frame, { keyFrame: frameIndex % DATE_RANGE_EXPORT_VIDEO_FPS === 0 });
+      frame.close();
+      if (encodeError) throw encodeError;
+      frameIndex += 1;
+      renderDateRangeDownloadButtonProgress(frameIndex / Math.max(1, frameIndices.length));
+      if (encoder.encodeQueueSize > 8) {
+        await encoder.flush();
+        await waitMs(0);
+      } else if (frameIndex % 6 === 0) {
+        await waitMs(0);
+      }
+    }
+    await encoder.flush();
+    if (encodeError) throw encodeError;
+    encoder.close();
+    if (dateRangeExportCancelRequested) return null;
+    encodedFrames.sort((a, b) => a.timestamp - b.timestamp);
+    return buildWebMBlob(encodedFrames, exportCanvas.width, exportCanvas.height, DATE_RANGE_EXPORT_VIDEO_FPS, encoderConfig.webmCodecId);
+  }
+
   function transitionMediaRecorder(recorder, eventName, action) {
     return new Promise((resolve, reject) => {
       recorder.addEventListener(eventName, resolve, { once: true });
@@ -1448,6 +1682,17 @@
     const start = String(snapshot.startIso || el.startDateInput?.value || "start").replaceAll("-", "");
     const end = String(snapshot.endIso || el.endDateInput?.value || "end").replaceAll("-", "");
     return `uoa-${primary}-${secondary}${chartMode}-${start}-${end}-${settings.orientation}-${settings.quality}p.${actualExtension}`;
+  }
+
+  function downloadDateRangeExportBlob(blob, extension, settings, snapshot = {}) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = getDateRangeExportFilename(settings, extension, snapshot);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   function formatDateEdgeText(isoValue) {
@@ -2142,11 +2387,6 @@
     const selectedPlaybackFps = Math.max(1, Number(settings.fps) || getSelectedDateRangePlaybackFps());
     const exportVideoFps = DATE_RANGE_EXPORT_VIDEO_FPS;
     const { width: exportWidth, height: exportHeight } = getExportLayoutMetrics(settings);
-    const recorderInfo = getSupportedDownloadRecorder(settings.extension);
-    if (!recorderInfo || typeof HTMLCanvasElement.prototype.captureStream !== "function") {
-      window.alert("This browser does not support recording dashboard animations.");
-      return;
-    }
 
     const maxIndex = Math.max(0, allRows.length - 1);
     const playbackStart = Number(dateRangePlaybackState.startIndex);
@@ -2195,6 +2435,37 @@
       await waitForDateRangeExportFonts();
       await waitForDateRangeExportFonts();
       const frameIndices = buildDateRangeExportFrameIndices(startIndex, endIndex, selectedPlaybackFps);
+      if (settings.extension === "webm") {
+        try {
+          const webmBlob = await encodeDateRangeAnimationWebM({
+            exportCanvas,
+            layoutCanvas,
+            layoutSettings,
+            exportRefs,
+            exportSnapshot,
+            settings,
+            startIndex,
+            frameIndices,
+          });
+          if (webmBlob && !dateRangeExportCancelRequested) {
+            renderDateRangeDownloadButtonProgress(1);
+            downloadDateRangeExportBlob(webmBlob, "webm", settings, exportSnapshot);
+            return;
+          }
+          if (dateRangeExportCancelRequested) {
+            wasCanceled = true;
+            return;
+          }
+        } catch (error) {
+          console.warn("Deterministic WebCodecs export unavailable; falling back to recorder export.", error);
+        }
+      }
+
+      const recorderInfo = getSupportedDownloadRecorder(settings.extension);
+      if (!recorderInfo || typeof HTMLCanvasElement.prototype.captureStream !== "function") {
+        throw new Error("Recording export unavailable.");
+      }
+
       const batchSize = getDateRangeExportBatchSize(settings);
       const totalWorkUnits = Math.max(1, frameIndices.length * 2);
       let completedWorkUnits = 0;
@@ -2311,19 +2582,13 @@
       }
       renderDateRangeDownloadButtonProgress(1);
 
-      const actualExtension = recorderInfo.extension;
       const blob = new Blob(chunks, { type: recorderInfo.mimeType });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = getDateRangeExportFilename(settings, actualExtension, exportSnapshot);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      downloadDateRangeExportBlob(blob, recorderInfo.extension, settings, exportSnapshot);
     } catch (error) {
-      console.error(error);
-      window.alert("The animation export could not be completed in this browser.");
+      if (!wasCanceled && !dateRangeExportCancelRequested) {
+        console.error(error);
+        window.alert("The animation export could not be completed in this browser.");
+      }
     } finally {
       if (recorder && recorder.state !== "inactive") recorder.stop();
       if (track) track.stop();
@@ -6189,6 +6454,13 @@
     return ticks.filter((_, i) => i % stride === 0);
   }
 
+  function snapCanvasLineCoord(value, lineWidth = 1, dpr = 1) {
+    const safeDpr = Math.max(1, Number(dpr) || 1);
+    const deviceLineWidth = Math.max(1, Math.round((Number(lineWidth) || 1) * safeDpr));
+    const offset = deviceLineWidth % 2 === 1 ? 0.5 / safeDpr : 0;
+    return (Math.round((Number(value) || 0) * safeDpr) / safeDpr) + offset;
+  }
+
   function buildAdaptiveTimeTicks(series, chartW) {
     if (!Array.isArray(series) || series.length < 2) return [];
 
@@ -6469,15 +6741,16 @@
       return pad.left + (i / Math.max(1, series.length - 1)) * chartW;
     };
 
-    ctx.strokeStyle = getDashboardCssValue("--line", "rgba(255, 255, 255, 0.17)");
+    ctx.strokeStyle = getDashboardCssValue("--line", "#2b2b2b");
     ctx.lineWidth = 1;
 
     ticksToDraw.forEach((tick) => {
       if (tick.value < min || tick.value > max) return;
       const y = yFor(tick.value);
+      const gridY = snapCanvasLineCoord(y, ctx.lineWidth, dpr);
       ctx.beginPath();
-      ctx.moveTo(pad.left, y);
-      ctx.lineTo(pad.left + chartW, y);
+      ctx.moveTo(pad.left, gridY);
+      ctx.lineTo(pad.left + chartW, gridY);
       ctx.stroke();
 
       ctx.fillStyle = opts.color;
@@ -6494,9 +6767,10 @@
       const idx = series.findIndex((s) => s.date >= tick.date);
       if (idx <= 0) return;
       const x = xFor(idx);
+      const gridX = snapCanvasLineCoord(x, ctx.lineWidth, dpr);
       ctx.beginPath();
-      ctx.moveTo(x, pad.top);
-      ctx.lineTo(x, pad.top + chartH);
+      ctx.moveTo(gridX, pad.top);
+      ctx.lineTo(gridX, pad.top + chartH);
       ctx.stroke();
 
       ctx.save();
