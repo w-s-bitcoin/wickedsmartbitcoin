@@ -1388,7 +1388,9 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
     pointer-events: none;
 }
 body.uoa-dashboard-expanded .modal-controls,
-body.uoa-dashboard-expanded .buy-coffee {
+body.uoa-dashboard-expanded .buy-coffee,
+body.dca-dashboard-expanded .modal-controls,
+body.dca-dashboard-expanded .buy-coffee {
     opacity: 0;
     pointer-events: none;
 }

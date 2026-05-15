@@ -93,8 +93,13 @@ window.addEventListener('message', e => {
         window.dateRangeExportActive = !!data.active;
         return;
     }
-    if (data.type !== 'wsb-uoa-dashboard-expanded') return;
-    document.body?.classList?.toggle('uoa-dashboard-expanded', !!data.expanded);
+    if (data.type === 'wsb-uoa-dashboard-expanded') {
+        document.body?.classList?.toggle('uoa-dashboard-expanded', !!data.expanded);
+        return;
+    }
+    if (data.type === 'wsb-dca-dashboard-expanded') {
+        document.body?.classList?.toggle('dca-dashboard-expanded', !!data.expanded);
+    }
 }, true);
 document.addEventListener('keydown', e => {
     if (!isBuyMeVisible) return;
