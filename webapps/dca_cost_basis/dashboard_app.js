@@ -120,6 +120,10 @@ let dateRangeExportCancelRequested = false;
 let dateRangePlaybackOutsidePointerHandler = null;
 let dateRangePlaybackOutsidePointerTouchState = null;
 let dateRangeSessionPersistenceBound = false;
+const downloadEstimateCalibrationCache = new Map();
+const downloadEstimateCalibrationPending = new Set();
+let downloadEstimateCalibrationRequestId = 0;
+let downloadEstimateCalibrationTimer = null;
 
 function setDropdownOpen(dropdownEl, menuEl, isOpen) {
   if (!menuEl) return;
@@ -2059,6 +2063,88 @@ function getDownloadVideoSeconds(settings = state.downloadSettings) {
   return frameDates.length ? frameDates.length / EXPORT_VIDEO_FPS : 0;
 }
 
+function getDownloadEstimateCalibrationKey(settings, frameDates) {
+  const { width, height } = getDownloadDimensions(settings);
+  return [
+    state.cadence,
+    state.dateRange.startIso,
+    state.dateRange.endIso,
+    settings.scale,
+    settings.orientation,
+    settings.quality,
+    settings.speed,
+    settings.theme,
+    width,
+    height,
+    frameDates.length,
+    new Set(frameDates).size,
+  ].join("|");
+}
+
+function getRepresentativeExportFrameDates(frameDates) {
+  const uniqueDates = Array.from(new Set(frameDates));
+  if (uniqueDates.length <= 3) return uniqueDates;
+  return [
+    uniqueDates[0],
+    uniqueDates[Math.floor((uniqueDates.length - 1) / 2)],
+    uniqueDates[uniqueDates.length - 1],
+  ];
+}
+
+async function calibrateDownloadEstimate(settings, frameDates, key) {
+  if (isDateRangeExporting || downloadEstimateCalibrationCache.has(key) || downloadEstimateCalibrationPending.has(key)) return;
+  downloadEstimateCalibrationPending.add(key);
+  const requestId = ++downloadEstimateCalibrationRequestId;
+  const representativeDates = getRepresentativeExportFrameDates(frameDates);
+  if (!representativeDates.length) {
+    downloadEstimateCalibrationPending.delete(key);
+    return;
+  }
+
+  try {
+    await waitForDateRangeExportFonts();
+    if (requestId !== downloadEstimateCalibrationRequestId) return;
+
+    const { width, height } = getDownloadDimensions(settings);
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const palette = getPaletteForTheme(settings.theme);
+
+    const started = performance.now();
+    for (const dateIso of representativeDates) {
+      if (requestId !== downloadEstimateCalibrationRequestId) return;
+      const rows = getFrameRows(state.dateRange.startIso, dateIso);
+      await drawExportFrame(ctx, canvas, dateIso, settings, palette, rows);
+    }
+    const msPerFrame = (performance.now() - started) / representativeDates.length;
+    if (!Number.isFinite(msPerFrame) || msPerFrame <= 0) return;
+    downloadEstimateCalibrationCache.set(key, {
+      msPerFrame,
+      sampleCount: representativeDates.length,
+    });
+    if (requestId === downloadEstimateCalibrationRequestId) updateDownloadEstimates();
+  } catch (error) {
+    console.warn("Unable to calibrate DCA export estimate.", error);
+  } finally {
+    downloadEstimateCalibrationPending.delete(key);
+  }
+}
+
+function scheduleDownloadEstimateCalibration(settings, frameDates, key) {
+  if (downloadEstimateCalibrationCache.has(key) || downloadEstimateCalibrationPending.has(key)) return;
+  if (downloadEstimateCalibrationTimer) {
+    window.clearTimeout(downloadEstimateCalibrationTimer);
+    downloadEstimateCalibrationTimer = null;
+  }
+  downloadEstimateCalibrationTimer = window.setTimeout(() => {
+    downloadEstimateCalibrationTimer = null;
+    calibrateDownloadEstimate({ ...settings }, [...frameDates], key);
+  }, 180);
+}
+
 function formatDuration(seconds) {
   const total = Math.max(0, Math.round(seconds));
   const minutes = Math.floor(total / 60);
@@ -2076,13 +2162,22 @@ function updateDownloadEstimates() {
   const seconds = getDownloadVideoSeconds(settings);
   const frameDates = getDateRangeExportFrameDates(state.dateRange.startIso, state.dateRange.endIso, Number(settings.speed) || 1);
   const uniqueFrameCount = new Set(frameDates).size;
+  const calibrationKey = getDownloadEstimateCalibrationKey(settings, frameDates);
+  const calibration = downloadEstimateCalibrationCache.get(calibrationKey);
   const bitrate = getDateRangeExportBitrate(settings);
   const extensionMultiplier = settings.extension === "webm" ? 0.78 : 1;
   const bytes = (seconds * bitrate / 8) * extensionMultiplier;
   const mb = bytes / (1024 * 1024);
+  const fallbackRenderSeconds = Math.max(1, uniqueFrameCount * 0.035 * (width * height) / (1280 * 720));
+  const calibratedRenderSeconds = calibration
+    ? Math.max(1, (uniqueFrameCount * calibration.msPerFrame) / 1000)
+    : null;
   sizeEl.textContent = `${Math.max(1, Math.round(mb)).toLocaleString("en-US")} MB`;
   lengthEl.textContent = formatDuration(seconds);
-  timeEl.textContent = `~${formatDuration(seconds + Math.max(1, uniqueFrameCount * 0.035 * (width * height) / (1280 * 720)))}`;
+  timeEl.textContent = `~${formatDuration(seconds + (calibratedRenderSeconds ?? fallbackRenderSeconds))}`;
+  if (!calibration && frameDates.length) {
+    scheduleDownloadEstimateCalibration(settings, frameDates, calibrationKey);
+  }
 }
 
 function syncDownloadSettingsControls() {
@@ -2429,7 +2524,7 @@ async function waitForDateRangeExportFonts() {
   }
 }
 
-async function drawExportFrame(ctx, canvas, frameEndIso, settings, palette) {
+async function drawExportFrame(ctx, canvas, frameEndIso, settings, palette, precomputedRows = null) {
   const referenceSettings = getExportReferenceSettings(settings);
   const { width: referenceWidth, height: referenceHeight } = getDownloadDimensions(referenceSettings);
   const referenceMinDimension = Math.min(referenceWidth, referenceHeight);
@@ -2442,7 +2537,9 @@ async function drawExportFrame(ctx, canvas, frameEndIso, settings, palette) {
   const footerHeight = Math.round(referenceFooterHeight * scale);
   const chartWidth = canvas.width - panelPad * 2;
   const chartHeight = canvas.height - panelPad * 2 - footerHeight;
-  const rows = getFrameRows(state.dateRange.startIso, frameEndIso);
+  const rows = Array.isArray(precomputedRows)
+    ? precomputedRows
+    : getFrameRows(state.dateRange.startIso, frameEndIso);
   const svg = buildStandaloneChartSvg(rows, referenceChartWidth, referenceChartHeight, palette, settings.scale);
   ctx.fillStyle = palette.bg;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -2501,7 +2598,7 @@ async function downloadDateRangeAnimation() {
   try {
     await waitForDateRangeExportFonts();
     await waitForDateRangeExportFonts();
-    await drawExportFrame(ctx, canvas, finalDate, { ...settings, theme }, palette);
+    await drawExportFrame(ctx, canvas, finalDate, { ...settings, theme }, palette, getFrameRows(state.dateRange.startIso, finalDate));
   } catch (error) {
     console.error(error);
     isDateRangeExporting = false;
@@ -2556,10 +2653,12 @@ async function downloadDateRangeAnimation() {
   let wasCanceled = false;
   const batchSize = getDateRangeExportBatchSize(settings);
   const cachedFrames = new Map();
+  const cachedRows = new Map();
   let exportSucceeded = false;
 
   const renderFrameBatch = async (batchStart) => {
     closeDateRangeExportFrames(cachedFrames);
+    cachedRows.clear();
     const batchDates = frameDates.slice(batchStart, batchStart + batchSize);
     const uniqueBatchDates = [];
     const seenBatchDates = new Set();
@@ -2574,7 +2673,17 @@ async function downloadDateRangeAnimation() {
         wasCanceled = true;
         break;
       }
-      await drawExportFrame(ctx, canvas, dateIso, { ...settings, theme }, palette);
+      cachedRows.set(dateIso, getFrameRows(state.dateRange.startIso, dateIso));
+    }
+    if (wasCanceled) return;
+
+    for (const dateIso of uniqueBatchDates) {
+      if (dateRangeExportCancelRequested) {
+        wasCanceled = true;
+        break;
+      }
+      const rows = cachedRows.get(dateIso) || [];
+      await drawExportFrame(ctx, canvas, dateIso, { ...settings, theme }, palette, rows);
       const frameImage = typeof createImageBitmap === "function"
         ? await createImageBitmap(canvas)
         : (() => {
@@ -2608,7 +2717,7 @@ async function downloadDateRangeAnimation() {
       }
 
       await transitionMediaRecorder(recorder, "resume", () => recorder.resume());
-      let recordStartTime = performance.now() - (recordedFrames * frameDurationMs);
+      let lastCaptureTime = performance.now() - frameDurationMs;
       const batchEnd = Math.min(frameDates.length, batchStart + batchSize);
       for (let frameIndex = batchStart; frameIndex < batchEnd; frameIndex += 1) {
         const dateIso = frameDates[frameIndex];
@@ -2618,19 +2727,17 @@ async function downloadDateRangeAnimation() {
         }
         const frameImage = cachedFrames.get(dateIso);
         if (!frameImage) throw new Error("Cached export frame unavailable.");
+        const elapsedSinceLastCapture = performance.now() - lastCaptureTime;
+        if (elapsedSinceLastCapture < frameDurationMs) {
+          await wait(frameDurationMs - elapsedSinceLastCapture);
+        }
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(frameImage, 0, 0);
         if (track && typeof track.requestFrame === "function") track.requestFrame();
+        lastCaptureTime = performance.now();
         recordedFrames += 1;
         completedWork += 1;
         renderDateRangeDownloadButtonProgress(completedWork / totalWork);
-        const nextFrameTime = recordStartTime + (recordedFrames * frameDurationMs);
-        let waitTime = nextFrameTime - performance.now();
-        if (waitTime < -frameDurationMs) {
-          recordStartTime = performance.now() - (recordedFrames * frameDurationMs);
-          waitTime = 0;
-        }
-        if (waitTime > 0) await wait(waitTime);
       }
       if (wasCanceled || dateRangeExportCancelRequested) break;
       if (batchEnd < frameDates.length) {
@@ -2664,6 +2771,7 @@ async function downloadDateRangeAnimation() {
     if (recorder.state !== "inactive") recorder.stop();
     stream.getTracks().forEach((streamTrack) => streamTrack.stop());
     closeDateRangeExportFrames(cachedFrames);
+    cachedRows.clear();
     if (!exportSucceeded) chunks.length = 0;
     isDateRangeExporting = false;
     dateRangeExportCancelRequested = false;
@@ -3660,11 +3768,15 @@ function buildChartSvgMarkup(options) {
 
   const plotWidth = plotRight - plotLeft;
   const plotHeight = plotBottom - plotTop;
-  const axisTitleCenterX = Number.isFinite(Number(axisTitleX))
+  const axisTitleCenterX = axisTitleX !== null && axisTitleX !== undefined && Number.isFinite(Number(axisTitleX))
     ? Number(axisTitleX)
     : plotLeft + (plotWidth / 2);
-  const startDateLabelX = Number.isFinite(Number(startDateX)) ? Number(startDateX) : plotLeft;
-  const currentDateLabelX = Number.isFinite(Number(currentDateX)) ? Number(currentDateX) : xForDay(1);
+  const startDateLabelX = startDateX !== null && startDateX !== undefined && Number.isFinite(Number(startDateX))
+    ? Number(startDateX)
+    : plotLeft;
+  const currentDateLabelX = currentDateX !== null && currentDateX !== undefined && Number.isFinite(Number(currentDateX))
+    ? Number(currentDateX)
+    : xForDay(1);
   const xDays = rows.map((row) => row.daysAgo);
   const basisPath = buildLinePath(xDays, dcaBasis, xForDay, yForValue);
   const upPath = buildLinePath(xDays, priceUp, xForDay, yForValue);
