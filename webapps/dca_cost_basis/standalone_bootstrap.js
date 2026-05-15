@@ -513,6 +513,10 @@
         setHalFinneyShellState(!!data.open);
         return;
       }
+      if (data.type === "wsb-dca-dashboard-expanded") {
+        document.body?.classList?.toggle("dca-dashboard-expanded", !!data.expanded);
+        return;
+      }
       if (data.type !== "wsb-dashboard-nav-key") return;
       const key = String(data.key || "");
       if (!key) return;

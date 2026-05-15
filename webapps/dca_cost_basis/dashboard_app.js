@@ -32,15 +32,55 @@
 /* ────────────────────────────────────────────────────────────────── */
 
 const CONTROLS_STORAGE_KEY = "dca_cost_basis_controls_v2";
+const DATE_RANGE_STORAGE_KEY = "dca_cost_basis_date_range_v1";
+const DOWNLOAD_SETTINGS_KEY = "dca_cost_basis_download_settings_v1";
 const DASHBOARD_TIME = window.WSBDashboardTime || null;
+const PLAYBACK_SPEEDS = [0.5, 1, 2, 4];
+const EXPORT_VIDEO_FPS = 30;
+const EXPORT_START_HOLD_SECONDS = 1;
+const EXPORT_END_HOLD_SECONDS = 3;
+const EXPORT_BATCH_MEMORY_BUDGET = 220 * 1024 * 1024;
+const EXPORT_MIN_BATCH_FRAMES = 12;
+const EXPORT_MAX_BATCH_FRAMES = 90;
+const EXPORT_CHART_TEXT_SCALE = 1.72;
+const CHART_MONO_FONT = '"IBM Plex Mono", monospace';
+const CHART_TITLE_FONT = '"Space Grotesk", "Helvetica Neue", sans-serif';
+const CHART_MONO_FONT_ATTR = "IBM Plex Mono, monospace";
+const CHART_TITLE_FONT_ATTR = "Space Grotesk, Helvetica Neue, sans-serif";
+const MS_PER_DAY = 86400000;
+const LOG_MIN_POSITIVE = 1e-12;
+const ONE_YEAR_TICK_THRESHOLD_DAYS = 365.25;
+const FOUR_MONTH_TICK_THRESHOLD_DAYS = 365.25 * 1.5;
+const SIX_MONTH_TICK_THRESHOLD_DAYS = 365.25 * 4;
+const TWO_YEAR_TICK_THRESHOLD_DAYS = 365.25 * 10;
 
 const state = {
   cadence: "daily_dca",
-  rangeDays: 0,
   yScale: "linear",
   showHalvings: true,
   timeZone: "UTC",
   metadata: null,
+  priceRows: [],
+  cadenceCaches: {},
+  dateRange: {
+    startIso: "",
+    endIso: "",
+    currentEndIso: "",
+    selectedPreset: "full",
+    playbackSpeed: 1,
+    isPlaying: false,
+    isPaused: false,
+    pendingSpacePlayback: false,
+    timerId: null,
+  },
+  downloadSettings: {
+    scale: "linear",
+    orientation: "landscape",
+    quality: "720",
+    speed: "1",
+    theme: document.documentElement.dataset.theme === "light" ? "light" : "dark",
+    extension: "mp4",
+  },
   seriesByCadence: {
     daily_dca: [],
     weekly_dca: [],
@@ -62,12 +102,6 @@ const SELECT_DROPDOWN_CONFIGS = [
     menuId: "cadenceDropdownMenu",
   },
   {
-    selectId: "rangeSelect",
-    dropdownId: "rangeDropdown",
-    triggerId: "rangeDropdownTrigger",
-    menuId: "rangeDropdownMenu",
-  },
-  {
     selectId: "scaleSelect",
     dropdownId: "scaleDropdown",
     triggerId: "scaleDropdownTrigger",
@@ -76,6 +110,16 @@ const SELECT_DROPDOWN_CONFIGS = [
 ];
 
 let selectDropdownGlobalListenersBound = false;
+let dateRangeKeyboardShortcutsBound = false;
+let dateRangeCurrentMarkerDrag = null;
+let dateRangeHandleDrag = null;
+let dateRangeLastAdjustedHandle = null;
+let activeDatePickerClose = null;
+let isDateRangeExporting = false;
+let dateRangeExportCancelRequested = false;
+let dateRangePlaybackOutsidePointerHandler = null;
+let dateRangePlaybackOutsidePointerTouchState = null;
+let dateRangeSessionPersistenceBound = false;
 
 function setDropdownOpen(dropdownEl, menuEl, isOpen) {
   if (!menuEl) return;
@@ -459,45 +503,6 @@ function fmtUsdCompactTick(value) {
   return `$${Math.round(value).toLocaleString("en-US")}`;
 }
 
-function buildLogTickConfig(values) {
-  const safeValues = values.filter((v) => Number.isFinite(v) && v > 0);
-  if (!safeValues.length) return { tickvals: [], ticktext: [] };
-
-  const minY = Math.min(...safeValues);
-  const maxY = Math.max(...safeValues);
-  const minExp = Math.floor(Math.log10(minY));
-  const maxExp = Math.ceil(Math.log10(maxY));
-  const spanDecades = Math.log10(maxY) - Math.log10(minY);
-
-  let multipliers;
-  if (spanDecades <= 0.35) {
-    multipliers = [1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8, 9];
-  } else if (spanDecades <= 0.7) {
-    multipliers = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 7, 8, 9];
-  } else if (spanDecades <= 1.2) {
-    multipliers = [1, 2, 3, 4, 5, 6, 8];
-  } else if (spanDecades <= 1.8) {
-    multipliers = [1, 2, 3, 5, 7];
-  } else {
-    multipliers = [1, 2, 5];
-  }
-
-  const tickSet = new Set();
-  for (let exp = minExp; exp <= maxExp; exp += 1) {
-    const base = 10 ** exp;
-    multipliers.forEach((mult) => {
-      const tick = mult * base;
-      if (tick >= minY * 0.97 && tick <= maxY * 1.03) {
-        tickSet.add(Number(tick.toPrecision(10)));
-      }
-    });
-  }
-
-  const tickvals = Array.from(tickSet).sort((a, b) => a - b);
-  const ticktext = tickvals.map((v) => fmtUsdCompactTick(v));
-  return { tickvals, ticktext };
-}
-
 function loadControls() {
   try {
     const raw = localStorage.getItem(CONTROLS_STORAGE_KEY);
@@ -506,10 +511,6 @@ function loadControls() {
 
     if (["daily_dca", "weekly_dca", "monthly_dca"].includes(parsed.cadence)) {
       state.cadence = parsed.cadence;
-    }
-    const parsedRange = Number(parsed.rangeDays);
-    if (Number.isFinite(parsedRange) && parsedRange >= 0) {
-      state.rangeDays = Math.round(parsedRange);
     }
     if (["linear", "log"].includes(parsed.yScale)) {
       state.yScale = parsed.yScale;
@@ -562,7 +563,6 @@ function saveControls() {
   try {
     localStorage.setItem(CONTROLS_STORAGE_KEY, JSON.stringify({
       cadence: state.cadence,
-      rangeDays: state.rangeDays,
       yScale: state.yScale,
       showHalvings: state.showHalvings,
     }));
@@ -573,15 +573,10 @@ function saveControls() {
 
 function applyControlValuesToUi() {
   const cadenceSelect = document.getElementById("cadenceSelect");
-  const rangeSelect = document.getElementById("rangeSelect");
   const scaleSelect = document.getElementById("scaleSelect");
   const toggleHalvings = document.getElementById("toggleHalvings");
 
   if (cadenceSelect) cadenceSelect.value = state.cadence;
-  if (rangeSelect) {
-    ensureCustomRangeOption(rangeSelect, state.rangeDays);
-    rangeSelect.value = String(state.rangeDays);
-  }
   if (scaleSelect) scaleSelect.value = state.yScale;
   if (toggleHalvings) toggleHalvings.checked = state.showHalvings;
   syncAllSelectDropdowns();
@@ -624,82 +619,2111 @@ async function loadData() {
   state.seriesByCadence.daily_dca = parseSeries(await dailyResp.text());
   state.seriesByCadence.weekly_dca = parseSeries(await weeklyResp.text());
   state.seriesByCadence.monthly_dca = parseSeries(await monthlyResp.text());
+  state.priceRows = buildPriceRowsFromSeries(state.seriesByCadence.daily_dca);
+  state.cadenceCaches = buildCadenceCaches(state.priceRows);
+  initializeDateRangeState();
+}
+
+function parseIsoDateMs(iso) {
+  const ms = Date.parse(`${iso}T00:00:00Z`);
+  return Number.isFinite(ms) ? ms : NaN;
+}
+
+function addDaysIso(iso, days) {
+  const ms = parseIsoDateMs(iso);
+  if (!Number.isFinite(ms)) return iso;
+  return new Date(ms + (Math.round(days) * MS_PER_DAY)).toISOString().slice(0, 10);
+}
+
+function diffDays(startIso, endIso) {
+  const startMs = parseIsoDateMs(startIso);
+  const endMs = parseIsoDateMs(endIso);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return 0;
+  return Math.round((endMs - startMs) / MS_PER_DAY);
+}
+
+function fmtDatePickerLabel(isoVal) {
+  if (!isoVal) return "<span class=\"date-range-btn-placeholder\" aria-hidden=\"true\">00/00/00</span>";
+  const [year, month, day] = String(isoVal).split("-");
+  if (!year || !month || !day) return "<span class=\"date-range-btn-placeholder\" aria-hidden=\"true\">00/00/00</span>";
+  return `${month}/${day}/${year.slice(2)}`;
+}
+
+function datePickerButtonHtml(isoVal) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>${fmtDatePickerLabel(isoVal)}`;
+}
+
+function isoToLocalDate(iso) {
+  if (!iso) return null;
+  const [year, month, day] = String(iso).split("-").map(Number);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
+  const date = new Date(year, month - 1, day);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function makeDatePicker({ anchorEl, align = "left", getSelected, getMin, getMax, onSelect }) {
+  let popup = null;
+  let pickerYear;
+  let pickerMonth;
+  let pickerView = "days";
+  let pickerExpandedYear = null;
+  const popupAlign = align === "right" ? "right" : "left";
+
+  function buildCalendar() {
+    const selectedIso = getSelected();
+    const minDate = isoToLocalDate(getMin());
+    const maxDate = isoToLocalDate(getMax());
+    const year = pickerYear;
+    const month = pickerMonth;
+    const monthLabel = new Date(year, month, 1).toLocaleString("default", { month: "long", year: "numeric" });
+
+    const wrap = document.createElement("div");
+    wrap.className = "date-picker-popup";
+
+    const header = document.createElement("div");
+    header.className = "date-picker-header";
+    const prev = document.createElement("button");
+    prev.className = "date-picker-nav";
+    prev.textContent = "\u2039";
+    prev.type = "button";
+    prev.addEventListener("click", (event) => {
+      event.stopPropagation();
+      pickerMonth -= 1;
+      if (pickerMonth < 0) {
+        pickerMonth = 11;
+        pickerYear -= 1;
+      }
+      rebuildCalendar();
+    });
+    const next = document.createElement("button");
+    next.className = "date-picker-nav";
+    next.textContent = "\u203a";
+    next.type = "button";
+    next.addEventListener("click", (event) => {
+      event.stopPropagation();
+      pickerMonth += 1;
+      if (pickerMonth > 11) {
+        pickerMonth = 0;
+        pickerYear += 1;
+      }
+      rebuildCalendar();
+    });
+    const label = document.createElement("span");
+    label.textContent = monthLabel;
+    label.className = "date-picker-header-label";
+    label.addEventListener("click", (event) => {
+      event.stopPropagation();
+      pickerView = "years";
+      pickerExpandedYear = null;
+      rebuildCalendar();
+    });
+    header.append(prev, label, next);
+    wrap.appendChild(header);
+
+    const grid = document.createElement("div");
+    grid.className = "date-picker-grid";
+    ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].forEach((dayName) => {
+      const day = document.createElement("div");
+      day.className = "date-picker-dow";
+      day.textContent = dayName;
+      grid.appendChild(day);
+    });
+
+    const firstDay = new Date(year, month, 1).getDay();
+    for (let i = 0; i < firstDay; i += 1) {
+      const blank = document.createElement("div");
+      blank.className = "date-picker-day dp-empty";
+      grid.appendChild(blank);
+    }
+
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    for (let dayNum = 1; dayNum <= daysInMonth; dayNum += 1) {
+      const date = new Date(year, month, dayNum);
+      date.setHours(0, 0, 0, 0);
+      const isoVal = `${year}-${String(month + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
+      const outOfRange = (minDate && date < minDate) || (maxDate && date > maxDate);
+      const cell = document.createElement("div");
+      cell.className = "date-picker-day";
+      cell.textContent = String(dayNum);
+      if (isoVal === selectedIso) cell.classList.add("dp-selected");
+      if (outOfRange) {
+        cell.classList.add("dp-disabled");
+      } else {
+        cell.addEventListener("click", (event) => {
+          event.stopPropagation();
+          closePopup();
+          onSelect(isoVal);
+        });
+      }
+      grid.appendChild(cell);
+    }
+
+    wrap.appendChild(grid);
+    return wrap;
+  }
+
+  function buildYearGrid() {
+    const minDate = isoToLocalDate(getMin());
+    const maxDate = isoToLocalDate(getMax());
+    const minYear = minDate ? minDate.getFullYear() : pickerYear - 10;
+    const maxYear = maxDate ? maxDate.getFullYear() : pickerYear + 5;
+    const wrap = document.createElement("div");
+    wrap.className = "date-picker-popup dp-year-grid-popup";
+
+    const header = document.createElement("div");
+    header.className = "date-picker-header";
+    const backBtn = document.createElement("button");
+    backBtn.className = "date-picker-nav";
+    backBtn.textContent = "\u2039";
+    backBtn.type = "button";
+    backBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      pickerView = "days";
+      rebuildCalendar();
+    });
+    const label = document.createElement("span");
+    label.className = "date-picker-header-label";
+    label.textContent = "Select Year";
+    header.append(backBtn, label);
+    wrap.appendChild(header);
+
+    const grid = document.createElement("div");
+    grid.className = "dp-year-grid";
+    for (let year = minYear; year <= maxYear; year += 1) {
+      const cell = document.createElement("div");
+      cell.className = "dp-year-cell";
+      if (year === pickerYear) cell.classList.add("dp-year-current");
+      const yearLabel = document.createElement("span");
+      yearLabel.textContent = String(year);
+      const chevron = document.createElement("span");
+      chevron.className = "dp-accordion-chevron";
+      chevron.textContent = "\u203a";
+      cell.append(yearLabel, chevron);
+      cell.addEventListener("click", (event) => {
+        event.stopPropagation();
+        pickerView = "year";
+        pickerExpandedYear = year;
+        rebuildCalendar();
+      });
+      grid.appendChild(cell);
+    }
+    wrap.appendChild(grid);
+    return wrap;
+  }
+
+  function buildYearAccordion() {
+    const minDate = isoToLocalDate(getMin());
+    const maxDate = isoToLocalDate(getMax());
+    const minYear = minDate ? minDate.getFullYear() : pickerYear - 10;
+    const maxYear = maxDate ? maxDate.getFullYear() : pickerYear + 5;
+    const expandedYear = pickerExpandedYear !== null ? pickerExpandedYear : pickerYear;
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const wrap = document.createElement("div");
+    wrap.className = "date-picker-popup dp-year-grid-popup";
+
+    const header = document.createElement("div");
+    header.className = "date-picker-header";
+    const backBtn = document.createElement("button");
+    backBtn.className = "date-picker-nav";
+    backBtn.textContent = "\u2039";
+    backBtn.type = "button";
+    backBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      pickerView = "years";
+      pickerExpandedYear = null;
+      rebuildCalendar();
+    });
+    const label = document.createElement("span");
+    label.className = "date-picker-header-label";
+    label.textContent = "Select Month";
+    header.append(backBtn, label);
+    wrap.appendChild(header);
+
+    const list = document.createElement("div");
+    list.className = "dp-accordion-list";
+    for (let year = minYear; year <= maxYear; year += 1) {
+      const yearRow = document.createElement("div");
+      yearRow.className = `dp-accordion-year${year === expandedYear ? " dp-accordion-open" : ""}`;
+      const yearBtn = document.createElement("button");
+      yearBtn.type = "button";
+      yearBtn.className = "dp-accordion-year-btn";
+      yearBtn.textContent = String(year);
+      const chevron = document.createElement("span");
+      chevron.className = "dp-accordion-chevron";
+      chevron.textContent = "\u203a";
+      yearBtn.appendChild(chevron);
+      yearBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        pickerExpandedYear = pickerExpandedYear === year ? null : year;
+        rebuildCalendar();
+      });
+      yearRow.appendChild(yearBtn);
+
+      if (year === expandedYear) {
+        const monthGrid = document.createElement("div");
+        monthGrid.className = "dp-month-grid";
+        monthNames.forEach((name, monthIndex) => {
+          const minMonth = minDate && year === minDate.getFullYear() ? minDate.getMonth() : -1;
+          const maxMonth = maxDate && year === maxDate.getFullYear() ? maxDate.getMonth() : 12;
+          const disabled = monthIndex < minMonth || monthIndex > maxMonth;
+          const cell = document.createElement("div");
+          cell.className = `dp-month-cell${disabled ? " dp-disabled" : ""}`;
+          if (year === pickerYear && monthIndex === pickerMonth) cell.classList.add("dp-month-current");
+          cell.textContent = name;
+          if (!disabled) {
+            cell.addEventListener("click", (event) => {
+              event.stopPropagation();
+              pickerYear = year;
+              pickerMonth = monthIndex;
+              pickerView = "days";
+              pickerExpandedYear = null;
+              rebuildCalendar();
+            });
+          }
+          monthGrid.appendChild(cell);
+        });
+        yearRow.appendChild(monthGrid);
+      }
+      list.appendChild(yearRow);
+    }
+    wrap.appendChild(list);
+    return wrap;
+  }
+
+  function positionPopup() {
+    if (!popup || !anchorEl) return;
+    const rect = anchorEl.getBoundingClientRect();
+    popup.style.top = `${rect.bottom + 6}px`;
+    const idealLeft = popupAlign === "left" ? rect.left : rect.right - popup.offsetWidth;
+    const maxLeft = Math.max(4, window.innerWidth - popup.offsetWidth - 4);
+    popup.style.left = `${Math.min(Math.max(4, idealLeft), maxLeft)}px`;
+  }
+
+  function rebuildCalendar() {
+    if (!popup) return;
+    const fresh = pickerView === "years" ? buildYearGrid() : pickerView === "year" ? buildYearAccordion() : buildCalendar();
+    popup.replaceChildren(...fresh.childNodes);
+    popup.className = fresh.className;
+    requestAnimationFrame(positionPopup);
+  }
+
+  function openPopup() {
+    if (activeDatePickerClose && activeDatePickerClose !== closePopup) {
+      activeDatePickerClose();
+    }
+    closeAllSelectDropdowns();
+    const selectedIso = getSelected();
+    const selectedDate = isoToLocalDate(selectedIso);
+    const fallbackDate = isoToLocalDate(getMax()) || new Date();
+    pickerYear = (selectedDate || fallbackDate).getFullYear();
+    pickerMonth = (selectedDate || fallbackDate).getMonth();
+    pickerView = "days";
+    pickerExpandedYear = null;
+    popup = buildCalendar();
+    activeDatePickerClose = closePopup;
+    document.body.appendChild(popup);
+    requestAnimationFrame(positionPopup);
+    window.addEventListener("scroll", positionPopup, true);
+    window.addEventListener("resize", positionPopup);
+  }
+
+  function closePopup() {
+    if (!popup) return;
+    popup.remove();
+    popup = null;
+    if (activeDatePickerClose === closePopup) activeDatePickerClose = null;
+    window.removeEventListener("scroll", positionPopup, true);
+    window.removeEventListener("resize", positionPopup);
+  }
+
+  function toggle(event) {
+    event.stopPropagation();
+    if (popup) closePopup();
+    else openPopup();
+  }
+
+  document.addEventListener("click", closePopup);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closePopup();
+  });
+  return { toggle, closePopup, rebuildCalendar };
+}
+
+function buildPriceRowsFromSeries(rows) {
+  const seen = new Map();
+  rows.forEach((row) => {
+    if (!row.dateIso || !Number.isFinite(row.historicalPrice)) return;
+    seen.set(row.dateIso, {
+      dateIso: row.dateIso,
+      timestampUtc: row.timestampUtc,
+      blockHeight: row.blockHeight,
+      price: row.historicalPrice,
+      utcDay: new Date(`${row.dateIso}T00:00:00Z`).getUTCDay(),
+      monthDay: Number(row.dateIso.slice(8, 10)),
+    });
+  });
+  return Array.from(seen.values()).sort((a, b) => a.dateIso.localeCompare(b.dateIso));
+}
+
+function buildCadenceCaches(priceRows) {
+  const masks = {
+    daily_dca: priceRows.map(() => true),
+    weekly_dca: priceRows.map((row) => row.utcDay === 5),
+    monthly_dca: priceRows.map((row) => row.monthDay === 1),
+  };
+
+  return Object.fromEntries(Object.entries(masks).map(([cadence, mask]) => {
+    const prefixCount = [0];
+    const prefixInvPrice = [0];
+    const prevBuyIndex = [];
+    let lastBuy = -1;
+    mask.forEach((isBuy, index) => {
+      if (isBuy) lastBuy = index;
+      prevBuyIndex[index] = lastBuy;
+      prefixCount[index + 1] = prefixCount[index] + (isBuy ? 1 : 0);
+      prefixInvPrice[index + 1] = prefixInvPrice[index] + (isBuy ? 1 / priceRows[index].price : 0);
+    });
+    return [cadence, { mask, prefixCount, prefixInvPrice, prevBuyIndex }];
+  }));
+}
+
+function getDataBounds() {
+  const rows = state.priceRows || [];
+  return {
+    minIso: rows[0]?.dateIso || "",
+    maxIso: rows[rows.length - 1]?.dateIso || "",
+  };
+}
+
+function findDateIndex(iso, mode = "exact") {
+  const rows = state.priceRows || [];
+  if (!rows.length || !iso) return -1;
+  let lo = 0;
+  let hi = rows.length - 1;
+  let best = mode === "ceil" ? rows.length : -1;
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const cmp = rows[mid].dateIso.localeCompare(iso);
+    if (cmp === 0) return mid;
+    if (cmp < 0) {
+      if (mode === "floor") best = mid;
+      lo = mid + 1;
+    } else {
+      if (mode === "ceil") best = mid;
+      hi = mid - 1;
+    }
+  }
+  if (mode === "ceil") return best < rows.length ? best : -1;
+  return best;
+}
+
+function clampIsoToData(iso) {
+  const { minIso, maxIso } = getDataBounds();
+  if (!minIso || !maxIso) return iso || "";
+  if (!iso || iso < minIso) return minIso;
+  if (iso > maxIso) return maxIso;
+  return iso;
+}
+
+function normalizeDateRangeState() {
+  const { minIso, maxIso } = getDataBounds();
+  if (!minIso || !maxIso) return;
+  state.dateRange.startIso = clampIsoToData(state.dateRange.startIso || minIso);
+  state.dateRange.endIso = clampIsoToData(state.dateRange.endIso || maxIso);
+  if (state.dateRange.startIso > state.dateRange.endIso) {
+    state.dateRange.startIso = state.dateRange.endIso;
+  }
+  state.dateRange.currentEndIso = clampIsoToData(state.dateRange.currentEndIso || state.dateRange.endIso);
+  if (state.dateRange.currentEndIso < state.dateRange.startIso) {
+    state.dateRange.currentEndIso = state.dateRange.startIso;
+  }
+  if (state.dateRange.currentEndIso > state.dateRange.endIso) {
+    state.dateRange.currentEndIso = state.dateRange.endIso;
+  }
+}
+
+function getPresetStartIso(preset, endIso) {
+  const { minIso } = getDataBounds();
+  if (!minIso || !endIso) return "";
+  if (preset === "full") return minIso;
+  if (preset === "ytd") return clampIsoToData(`${endIso.slice(0, 4)}-01-01`);
+  const yearCount = Number.parseInt(String(preset).replace("y", ""), 10);
+  if (Number.isFinite(yearCount) && yearCount > 0) {
+    const end = new Date(`${endIso}T00:00:00Z`);
+    const start = new Date(Date.UTC(end.getUTCFullYear() - yearCount, end.getUTCMonth(), end.getUTCDate()));
+    if (end.getUTCMonth() === 1 && end.getUTCDate() === 29) {
+      start.setUTCDate(28);
+    }
+    return clampIsoToData(start.toISOString().slice(0, 10));
+  }
+  return minIso;
+}
+
+function loadDateRangeState() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(DATE_RANGE_STORAGE_KEY) || "{}");
+    if (typeof parsed.startIso === "string") state.dateRange.startIso = parsed.startIso;
+    if (typeof parsed.endIso === "string") state.dateRange.endIso = parsed.endIso;
+    if (typeof parsed.selectedPreset === "string") state.dateRange.selectedPreset = parsed.selectedPreset;
+    const speed = Number(parsed.playbackSpeed);
+    if (PLAYBACK_SPEEDS.includes(speed)) state.dateRange.playbackSpeed = speed;
+    if (
+      parsed.pausedPlaybackSession
+      && typeof parsed.pausedPlaybackSession === "object"
+      && typeof parsed.pausedPlaybackSession.startIso === "string"
+      && typeof parsed.pausedPlaybackSession.targetEndIso === "string"
+      && typeof parsed.pausedPlaybackSession.currentEndIso === "string"
+    ) {
+      return {
+        startIso: clampIsoToData(parsed.pausedPlaybackSession.startIso),
+        targetEndIso: clampIsoToData(parsed.pausedPlaybackSession.targetEndIso),
+        currentEndIso: clampIsoToData(parsed.pausedPlaybackSession.currentEndIso),
+      };
+    }
+  } catch (_) {
+    // Ignore invalid cached date range state.
+  }
+  return null;
+}
+
+function saveDateRangeState() {
+  try {
+    const hasPlaybackSession = !!(state.dateRange.isPlaying || state.dateRange.isPaused);
+    const pausedPlaybackSession = hasPlaybackSession ? {
+      startIso: state.dateRange.startIso,
+      targetEndIso: state.dateRange.endIso,
+      currentEndIso: state.dateRange.currentEndIso,
+    } : null;
+    localStorage.setItem(DATE_RANGE_STORAGE_KEY, JSON.stringify({
+      startIso: state.dateRange.startIso,
+      endIso: state.dateRange.endIso,
+      selectedPreset: state.dateRange.selectedPreset,
+      playbackSpeed: state.dateRange.playbackSpeed,
+      pausedPlaybackSession,
+    }));
+  } catch (_) {
+    // Ignore storage failures.
+  }
+}
+
+function initializeDateRangeState() {
+  const { minIso, maxIso } = getDataBounds();
+  if (!minIso || !maxIso) return;
+  state.dateRange.startIso = minIso;
+  state.dateRange.endIso = maxIso;
+  state.dateRange.currentEndIso = maxIso;
+  const pausedPlaybackSession = loadDateRangeState();
+  if (pausedPlaybackSession) {
+    state.dateRange.startIso = pausedPlaybackSession.startIso;
+    state.dateRange.endIso = pausedPlaybackSession.targetEndIso;
+    state.dateRange.currentEndIso = pausedPlaybackSession.currentEndIso;
+    state.dateRange.isPlaying = false;
+    state.dateRange.isPaused = true;
+    state.dateRange.selectedPreset = "custom";
+  } else if (state.dateRange.selectedPreset && state.dateRange.selectedPreset !== "custom") {
+    state.dateRange.endIso = maxIso;
+    state.dateRange.startIso = getPresetStartIso(state.dateRange.selectedPreset, maxIso);
+    state.dateRange.currentEndIso = state.dateRange.endIso;
+  } else {
+    state.dateRange.currentEndIso = state.dateRange.endIso;
+  }
+  normalizeDateRangeState();
+  syncDateRangeControls();
+  syncDownloadSettingsControls();
+  if (state.dateRange.isPaused) {
+    bindDateRangePlaybackOutsidePointerActions();
+  }
+}
+
+function getFrameRows(startIso = state.dateRange.startIso, endIso = state.dateRange.currentEndIso) {
+  const priceRows = state.priceRows || [];
+  if (!priceRows.length) return [];
+  const startIdx = findDateIndex(startIso, "ceil");
+  const endIdx = findDateIndex(endIso, "floor");
+  if (startIdx < 0 || endIdx < 0 || startIdx > endIdx) return [];
+
+  const cache = state.cadenceCaches[state.cadence] || state.cadenceCaches.daily_dca;
+  const endRow = priceRows[endIdx];
+  const currentPrice = endRow.price;
+  const output = [];
+
+  for (let index = startIdx; index <= endIdx; index += 1) {
+    const row = priceRows[index];
+    const effectiveStart = state.cadence === "daily_dca"
+      ? index
+      : Math.max(0, cache.prevBuyIndex[index]);
+    const prefixStart = Math.max(0, effectiveStart);
+    const purchaseCount = cache.prefixCount[endIdx + 1] - cache.prefixCount[prefixStart];
+    const invPrice = cache.prefixInvPrice[endIdx + 1] - cache.prefixInvPrice[prefixStart];
+    const investedUsd = purchaseCount;
+    const btcAccum = invPrice;
+    const dcaBasis = purchaseCount > 0 && btcAccum > 0 ? investedUsd / btcAccum : NaN;
+    const daysAgo = endIdx - index + 1;
+    const oneDayDaily = state.cadence === "daily_dca" && daysAgo === 1;
+
+    output.push({
+      daysAgo,
+      yearsAgo: daysAgo / 365.25,
+      dateIso: oneDayDaily ? endRow.dateIso : row.dateIso,
+      timestampUtc: oneDayDaily ? endRow.timestampUtc : row.timestampUtc,
+      blockHeight: oneDayDaily ? endRow.blockHeight : row.blockHeight,
+      historicalPrice: oneDayDaily ? currentPrice : row.price,
+      currentPrice,
+      dcaBasis: oneDayDaily ? currentPrice : dcaBasis,
+      investedUsd: oneDayDaily ? 1 : investedUsd,
+      btcAccum: oneDayDaily ? 1 / currentPrice : btcAccum,
+      purchaseCount: oneDayDaily ? 1 : purchaseCount,
+      isPriceAbove: Number.isFinite(dcaBasis) && currentPrice >= dcaBasis ? 1 : 0,
+    });
+  }
+
+  return output.sort((a, b) => a.daysAgo - b.daysAgo);
+}
+
+function getDateRangeFrameDates(startIso = state.dateRange.startIso, endIso = state.dateRange.endIso, speed = state.dateRange.playbackSpeed) {
+  const startIdx = findDateIndex(startIso, "ceil");
+  const endIdx = findDateIndex(endIso, "floor");
+  if (startIdx < 0 || endIdx < 0 || startIdx > endIdx) return [];
+  const dates = [];
+  const step = speed >= 1 ? Math.max(1, Math.round(speed)) : 1;
+  for (let index = startIdx; index <= endIdx; index += step) {
+    dates.push(state.priceRows[index].dateIso);
+  }
+  if (dates[dates.length - 1] !== state.priceRows[endIdx].dateIso) {
+    dates.push(state.priceRows[endIdx].dateIso);
+  }
+  return dates;
+}
+
+function getDateRangeExportFrameDates(startIso = state.dateRange.startIso, endIso = state.dateRange.endIso, speed = state.dateRange.playbackSpeed) {
+  const motionDates = getDateRangeFrameDates(startIso, endIso, speed);
+  if (!motionDates.length) return [];
+  const finalDate = motionDates[motionDates.length - 1];
+  const startHoldFrames = Math.max(0, Math.round(EXPORT_START_HOLD_SECONDS * EXPORT_VIDEO_FPS));
+  const endHoldFrames = Math.max(0, Math.round(EXPORT_END_HOLD_SECONDS * EXPORT_VIDEO_FPS));
+  const frames = [
+    ...Array.from({ length: startHoldFrames }, () => finalDate),
+  ];
+  motionDates.forEach((dateIso) => {
+    frames.push(dateIso);
+    if (Number(speed) === 0.5) frames.push(dateIso);
+  });
+  frames.push(...Array.from({ length: endHoldFrames }, () => finalDate));
+  return frames;
+}
+
+function syncDateRangeControls() {
+  normalizeDateRangeState();
+  const { minIso, maxIso } = getDataBounds();
+  const startBtn = document.getElementById("dateRangeStartBtn");
+  const endBtn = document.getElementById("dateRangeEndBtn");
+  const startInput = document.getElementById("dateRangeStartInput");
+  const endInput = document.getElementById("dateRangeEndInput");
+  const sliderWrap = document.getElementById("dateRangeSliderWrap");
+  const startSlider = document.getElementById("dateRangeStartSlider");
+  const endSlider = document.getElementById("dateRangeEndSlider");
+  const rangeValue = document.getElementById("dateRangeDaysValue");
+  const speedBtn = document.getElementById("dateRangeSpeedBtn");
+  const playBtn = document.getElementById("dateRangePlayBtn");
+  const pauseBtn = document.getElementById("dateRangePauseBtn");
+  const stopBtn = document.getElementById("dateRangeStopBtn");
+  const playbackActive = state.dateRange.isPlaying || state.dateRange.isPaused;
+
+  if (startInput) {
+    startInput.min = minIso;
+    startInput.max = state.dateRange.endIso || maxIso;
+    startInput.value = state.dateRange.startIso;
+  }
+  if (startBtn) startBtn.innerHTML = datePickerButtonHtml(state.dateRange.startIso);
+  if (endInput) {
+    endInput.min = state.dateRange.startIso || minIso;
+    endInput.max = maxIso;
+    endInput.value = state.dateRange.endIso;
+  }
+  if (endBtn) endBtn.innerHTML = datePickerButtonHtml(state.dateRange.endIso);
+  const minIndex = 0;
+  const maxIndex = Math.max(0, state.priceRows.length - 1);
+  const startIdx = findDateIndex(state.dateRange.startIso, "ceil");
+  const endIdx = findDateIndex(state.dateRange.endIso, "floor");
+  const rawCurrentIdx = findDateIndex(state.dateRange.currentEndIso, "floor");
+  const currentIdx = Math.max(startIdx, Math.min(endIdx, rawCurrentIdx));
+  if (startSlider && endSlider) {
+    [startSlider, endSlider].forEach((slider) => {
+      slider.min = String(minIndex);
+      slider.max = String(maxIndex);
+      slider.disabled = maxIndex <= 0;
+    });
+    startSlider.value = String(Math.max(minIndex, Math.min(maxIndex, startIdx)));
+    endSlider.value = String(Math.max(minIndex, Math.min(maxIndex, endIdx)));
+  }
+  if (sliderWrap) {
+    const denom = Math.max(1, maxIndex - minIndex);
+    const styles = window.getComputedStyle(sliderWrap);
+    const edgePad = Number.parseFloat(styles.getPropertyValue("--slider-edge-pad")) || 0;
+    const trackWidth = Math.max(1, sliderWrap.clientWidth - edgePad * 2);
+    const pct = (index) => `${((Math.max(minIndex, Math.min(maxIndex, index)) - minIndex) / denom * 100).toFixed(4)}%`;
+    const markerPos = (index) => {
+      const ratio = (Math.max(minIndex, Math.min(maxIndex, index)) - minIndex) / denom;
+      return `${(edgePad + ratio * trackWidth).toFixed(2)}px`;
+    };
+    sliderWrap.style.setProperty("--slider-start", pct(startIdx));
+    sliderWrap.style.setProperty("--slider-end", pct(endIdx));
+    sliderWrap.style.setProperty("--slider-current", pct(currentIdx));
+    sliderWrap.style.setProperty("--slider-start-marker", markerPos(startIdx));
+    sliderWrap.style.setProperty("--slider-end-marker", markerPos(endIdx));
+    sliderWrap.style.setProperty("--slider-current-marker", markerPos(currentIdx));
+    sliderWrap.classList.toggle("is-ready", maxIndex > 0);
+    sliderWrap.classList.toggle("is-playing", state.dateRange.isPlaying);
+    sliderWrap.classList.toggle("is-paused", state.dateRange.isPaused);
+  }
+  if (rangeValue) {
+    const days = Math.max(1, diffDays(state.dateRange.startIso, state.dateRange.endIso) + 1);
+    rangeValue.innerHTML = `Range <span class="range-days-value">${days.toLocaleString("en-US")} Days</span>`;
+  }
+  if (speedBtn) speedBtn.textContent = `${state.dateRange.playbackSpeed}x`;
+  playBtn?.classList.toggle("is-playing", state.dateRange.isPlaying);
+  pauseBtn?.classList.toggle("is-paused", state.dateRange.isPaused);
+  if (playBtn) playBtn.disabled = !!state.dateRange.isPlaying;
+  if (pauseBtn) pauseBtn.disabled = !playbackActive || !!state.dateRange.isPaused;
+  if (stopBtn) stopBtn.disabled = !playbackActive;
+
+  document.querySelectorAll("[data-range-preset]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.rangePreset === state.dateRange.selectedPreset);
+  });
+  updateDownloadEstimates();
+}
+
+function setDateRange(startIso, endIso, preset = "custom") {
+  stopDateRangePlayback(false);
+  state.dateRange.startIso = clampIsoToData(startIso);
+  state.dateRange.endIso = clampIsoToData(endIso);
+  state.dateRange.currentEndIso = state.dateRange.endIso;
+  state.dateRange.selectedPreset = preset;
+  normalizeDateRangeState();
+  saveDateRangeState();
+  syncDateRangeControls();
+  renderChart();
+}
+
+function setLastAdjustedDateRangeHandle(handle) {
+  if (handle === "start" || handle === "end") {
+    dateRangeLastAdjustedHandle = handle;
+  }
+}
+
+function nudgeLastAdjustedDateRangeHandle(delta) {
+  if (dateRangeLastAdjustedHandle !== "start" && dateRangeLastAdjustedHandle !== "end") return false;
+  const startIdx = findDateIndex(state.dateRange.startIso, "ceil");
+  const endIdx = findDateIndex(state.dateRange.endIso, "floor");
+  const maxIdx = Math.max(0, state.priceRows.length - 1);
+  if (startIdx < 0 || endIdx < 0 || maxIdx <= 0) return false;
+
+  let nextStartIdx = startIdx;
+  let nextEndIdx = endIdx;
+  if (dateRangeLastAdjustedHandle === "start") {
+    nextStartIdx = Math.max(0, Math.min(endIdx, startIdx + delta));
+  } else {
+    nextEndIdx = Math.max(startIdx, Math.min(maxIdx, endIdx + delta));
+  }
+  if (nextStartIdx === startIdx && nextEndIdx === endIdx) return false;
+
+  const nextStart = state.priceRows[nextStartIdx]?.dateIso;
+  const nextEnd = state.priceRows[nextEndIdx]?.dateIso;
+  if (!nextStart || !nextEnd) return false;
+  state.dateRange.startIso = nextStart;
+  state.dateRange.endIso = nextEnd;
+  state.dateRange.currentEndIso = nextEnd;
+  state.dateRange.selectedPreset = "custom";
+  saveDateRangeState();
+  syncDateRangeControls();
+  renderChart();
+  return true;
+}
+
+function stepDateRangePlayback() {
+  if (!state.dateRange.isPlaying) return;
+  const currentIdx = findDateIndex(state.dateRange.currentEndIso, "floor");
+  const endIdx = findDateIndex(state.dateRange.endIso, "floor");
+  if (currentIdx < 0 || endIdx < 0 || currentIdx >= endIdx) {
+    pauseDateRangePlayback();
+    syncDateRangeControls();
+    return;
+  }
+  const step = Math.max(1, Math.round(state.dateRange.playbackSpeed));
+  const nextIdx = Math.min(endIdx, currentIdx + step);
+  state.dateRange.currentEndIso = state.priceRows[nextIdx].dateIso;
+  syncDateRangeControls();
+  renderChart();
+}
+
+function playDateRangePlayback() {
+  const startIdx = findDateIndex(state.dateRange.startIso, "ceil");
+  const endIdx = findDateIndex(state.dateRange.endIso, "floor");
+  if (startIdx < 0 || endIdx < 0 || startIdx >= endIdx) return;
+  if (findDateIndex(state.dateRange.currentEndIso, "floor") >= endIdx) {
+    state.dateRange.currentEndIso = state.priceRows[startIdx]?.dateIso || state.dateRange.startIso;
+    syncDateRangeControls();
+    renderChart();
+  }
+  state.dateRange.isPlaying = true;
+  state.dateRange.isPaused = false;
+  hideChartTooltip();
+  syncDateRangeControls();
+  saveDateRangeState();
+  window.clearInterval(state.dateRange.timerId);
+  const intervalMs = state.dateRange.playbackSpeed < 1
+    ? 1000 / (30 * state.dateRange.playbackSpeed)
+    : 1000 / 30;
+  bindDateRangePlaybackOutsidePointerActions();
+  state.dateRange.timerId = window.setInterval(stepDateRangePlayback, intervalMs);
+}
+
+function pauseDateRangePlayback() {
+  if (!state.dateRange.isPlaying && !state.dateRange.isPaused) return;
+  window.clearInterval(state.dateRange.timerId);
+  state.dateRange.timerId = null;
+  state.dateRange.isPlaying = false;
+  state.dateRange.isPaused = true;
+  syncDateRangeControls();
+  bindDateRangePlaybackOutsidePointerActions();
+  saveDateRangeState();
+}
+
+function toggleDateRangePlayback() {
+  if (!state.priceRows.length) {
+    state.dateRange.pendingSpacePlayback = true;
+    return;
+  }
+  if (state.dateRange.isPlaying) {
+    pauseDateRangePlayback();
+    return;
+  }
+  playDateRangePlayback();
+}
+
+function stopDateRangePlayback(resetToEnd = true) {
+  window.clearInterval(state.dateRange.timerId);
+  state.dateRange.timerId = null;
+  state.dateRange.isPlaying = false;
+  state.dateRange.isPaused = false;
+  unbindDateRangePlaybackOutsidePointerActions();
+  if (resetToEnd) {
+    state.dateRange.currentEndIso = state.dateRange.endIso;
+  }
+  syncDateRangeControls();
+  saveDateRangeState();
+}
+
+function isDateRangePlaybackActive() {
+  return !!(state.dateRange.isPlaying || state.dateRange.isPaused);
+}
+
+function getDateRangeOutsidePointerTargetInfo(event) {
+  const target = event?.target;
+  const eventPath = typeof event?.composedPath === "function" ? event.composedPath() : [];
+  const targetElement = target instanceof Element ? target : null;
+  const isInDateRangePanel = !!(
+    targetElement?.closest(".date-range-panel")
+    || targetElement?.closest(".date-picker-popup")
+    || eventPath.some((item) => item instanceof Element && (
+      item.classList?.contains("date-range-panel")
+      || item.classList?.contains("date-picker-popup")
+    ))
+  );
+  const isInChartPanel = !!(
+    targetElement?.closest(".chart-wrap")
+    || targetElement?.closest("#costBasisChart")
+    || eventPath.some((item) => item instanceof Element && (
+      item.classList?.contains("chart-wrap")
+      || item.id === "costBasisChart"
+    ))
+  );
+  return { target, eventPath, targetElement, isInDateRangePanel, isInChartPanel };
+}
+
+function handleDateRangePlaybackOutsideClick(info, event = null) {
+  if (!isDateRangePlaybackActive()) return;
+  if (info?.isInDateRangePanel) return;
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  if (info?.isInChartPanel) {
+    toggleDateRangePlayback();
+    return;
+  }
+  stopDateRangePlayback(true);
+  renderChart();
+}
+
+function bindDateRangePlaybackOutsidePointerActions() {
+  if (dateRangePlaybackOutsidePointerHandler) return;
+
+  const cleanupTouchTracking = () => {
+    if (!dateRangePlaybackOutsidePointerTouchState) return;
+    document.removeEventListener("pointermove", dateRangePlaybackOutsidePointerTouchState.moveHandler, true);
+    document.removeEventListener("pointerup", dateRangePlaybackOutsidePointerTouchState.endHandler, true);
+    document.removeEventListener("pointercancel", dateRangePlaybackOutsidePointerTouchState.cancelHandler, true);
+    dateRangePlaybackOutsidePointerTouchState = null;
+  };
+
+  const trackTouchMove = (event) => {
+    if (!dateRangePlaybackOutsidePointerTouchState || event.pointerId !== dateRangePlaybackOutsidePointerTouchState.pointerId) return;
+    const deltaX = event.clientX - dateRangePlaybackOutsidePointerTouchState.startX;
+    const deltaY = event.clientY - dateRangePlaybackOutsidePointerTouchState.startY;
+    if (Math.hypot(deltaX, deltaY) > 30) {
+      dateRangePlaybackOutsidePointerTouchState.moved = true;
+    }
+  };
+
+  const trackTouchEnd = (event) => {
+    if (!dateRangePlaybackOutsidePointerTouchState || event.pointerId !== dateRangePlaybackOutsidePointerTouchState.pointerId) return;
+    const { moved, info } = dateRangePlaybackOutsidePointerTouchState;
+    cleanupTouchTracking();
+    if (moved) return;
+    handleDateRangePlaybackOutsideClick(info);
+  };
+
+  const trackTouchCancel = (event) => {
+    if (!dateRangePlaybackOutsidePointerTouchState || event.pointerId !== dateRangePlaybackOutsidePointerTouchState.pointerId) return;
+    cleanupTouchTracking();
+  };
+
+  dateRangePlaybackOutsidePointerHandler = (event) => {
+    if (!isDateRangePlaybackActive()) return;
+    const info = getDateRangeOutsidePointerTargetInfo(event);
+    if (info.isInDateRangePanel) return;
+
+    if (event.pointerType === "touch") {
+      dateRangePlaybackOutsidePointerTouchState = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        moved: false,
+        info,
+        moveHandler: trackTouchMove,
+        endHandler: trackTouchEnd,
+        cancelHandler: trackTouchCancel,
+      };
+      document.addEventListener("pointermove", trackTouchMove, true);
+      document.addEventListener("pointerup", trackTouchEnd, true);
+      document.addEventListener("pointercancel", trackTouchCancel, true);
+      return;
+    }
+
+    handleDateRangePlaybackOutsideClick(info, event);
+  };
+
+  document.addEventListener("pointerdown", dateRangePlaybackOutsidePointerHandler, true);
+}
+
+function unbindDateRangePlaybackOutsidePointerActions() {
+  if (dateRangePlaybackOutsidePointerHandler) {
+    document.removeEventListener("pointerdown", dateRangePlaybackOutsidePointerHandler, true);
+    dateRangePlaybackOutsidePointerHandler = null;
+  }
+  if (dateRangePlaybackOutsidePointerTouchState) {
+    document.removeEventListener("pointermove", dateRangePlaybackOutsidePointerTouchState.moveHandler, true);
+    document.removeEventListener("pointerup", dateRangePlaybackOutsidePointerTouchState.endHandler, true);
+    document.removeEventListener("pointercancel", dateRangePlaybackOutsidePointerTouchState.cancelHandler, true);
+    dateRangePlaybackOutsidePointerTouchState = null;
+  }
+}
+
+function cyclePlaybackSpeed() {
+  const currentIndex = PLAYBACK_SPEEDS.indexOf(state.dateRange.playbackSpeed);
+  const next = PLAYBACK_SPEEDS[(currentIndex + 1) % PLAYBACK_SPEEDS.length] || 1;
+  state.dateRange.playbackSpeed = next;
+  saveDateRangeState();
+  syncDateRangeControls();
+}
+
+function getDateRangeRawIndexFromClientX(clientX) {
+  const sliderWrap = document.getElementById("dateRangeSliderWrap");
+  if (!sliderWrap || !state.priceRows.length) return NaN;
+  const rect = sliderWrap.getBoundingClientRect();
+  if (!Number.isFinite(rect.width) || rect.width <= 0) return NaN;
+  const styles = window.getComputedStyle(sliderWrap);
+  const edgePad = Number.parseFloat(styles.getPropertyValue("--slider-edge-pad")) || 0;
+  const trackLeft = rect.left + edgePad;
+  const trackWidth = Math.max(1, rect.width - edgePad * 2);
+  const ratio = (clientX - trackLeft) / trackWidth;
+  return Math.round(ratio * Math.max(0, state.priceRows.length - 1));
+}
+
+function getDateRangeMarkerClientX(index) {
+  const sliderWrap = document.getElementById("dateRangeSliderWrap");
+  if (!sliderWrap || !state.priceRows.length) return NaN;
+  const rect = sliderWrap.getBoundingClientRect();
+  if (!Number.isFinite(rect.width) || rect.width <= 0) return NaN;
+  const maxIndex = Math.max(0, state.priceRows.length - 1);
+  const styles = window.getComputedStyle(sliderWrap);
+  const edgePad = Number.parseFloat(styles.getPropertyValue("--slider-edge-pad")) || 0;
+  const ratio = Math.max(0, Math.min(maxIndex, index)) / Math.max(1, maxIndex);
+  return rect.left + edgePad + ratio * Math.max(1, rect.width - edgePad * 2);
+}
+
+function setCurrentEndFromPointerEvent(event) {
+  const rawIndex = getDateRangeRawIndexFromClientX(event.clientX);
+  if (!Number.isFinite(rawIndex)) return;
+  const startIdx = findDateIndex(state.dateRange.startIso, "ceil");
+  const endIdx = findDateIndex(state.dateRange.endIso, "floor");
+  const maxIndex = Math.max(0, state.priceRows.length - 1);
+  const targetEndIdx = Number.isFinite(dateRangeCurrentMarkerDrag?.targetEndIdx)
+    ? dateRangeCurrentMarkerDrag.targetEndIdx
+    : endIdx;
+  const index = Math.max(startIdx, Math.min(maxIndex, rawIndex));
+  if (!state.priceRows[index]) return;
+  if (dateRangeCurrentMarkerDrag) {
+    const targetEndIso = dateRangeCurrentMarkerDrag.targetEndIso || state.dateRange.endIso;
+    state.dateRange.endIso = index > targetEndIdx
+      ? state.priceRows[index].dateIso
+      : targetEndIso;
+  }
+  state.dateRange.currentEndIso = state.priceRows[index].dateIso;
+  if (dateRangeCurrentMarkerDrag) {
+    dateRangeCurrentMarkerDrag.lastRawIndex = rawIndex;
+    dateRangeCurrentMarkerDrag.lastIndex = index;
+  }
+  syncDateRangeControls();
+  renderChart();
+}
+
+function beginDateRangePlaybackScrub(event, captureTarget = event.currentTarget) {
+  if (!state.dateRange.isPlaying && !state.dateRange.isPaused) return;
+  if (typeof event.button === "number" && event.button !== 0) return;
+  event.preventDefault();
+  event.stopPropagation();
+  dateRangeCurrentMarkerDrag = {
+    pointerId: Number.isFinite(event.pointerId) ? event.pointerId : null,
+    resumeAfterRelease: state.dateRange.isPlaying,
+    captureTarget,
+    targetEndIdx: findDateIndex(state.dateRange.endIso, "floor"),
+    targetEndIso: state.dateRange.endIso,
+    lastRawIndex: getDateRangeRawIndexFromClientX(event.clientX),
+  };
+  if (state.dateRange.isPlaying) {
+    pauseDateRangePlayback();
+  }
+  if (captureTarget && Number.isFinite(event.pointerId) && typeof captureTarget.setPointerCapture === "function") {
+    try {
+      captureTarget.setPointerCapture(event.pointerId);
+    } catch (_) {
+      // Best effort only.
+    }
+  }
+  setCurrentEndFromPointerEvent(event);
+}
+
+function beginDateRangeCurrentMarkerDrag(event) {
+  beginDateRangePlaybackScrub(event, event.currentTarget);
+}
+
+function beginDateRangeHandleDrag(event, handle, captureTarget = event.currentTarget) {
+  if (typeof event.button === "number" && event.button !== 0) return;
+  const startIdx = findDateIndex(state.dateRange.startIso, "ceil");
+  const endIdx = findDateIndex(state.dateRange.endIso, "floor");
+  if (startIdx < 0 || endIdx < 0) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (state.dateRange.isPlaying || state.dateRange.isPaused) {
+    stopDateRangePlayback(false);
+  }
+  setLastAdjustedDateRangeHandle(handle);
+  dateRangeHandleDrag = {
+    pointerId: Number.isFinite(event.pointerId) ? event.pointerId : null,
+    handle,
+    startClientX: event.clientX,
+    startIdx,
+    endIdx,
+  };
+  if (captureTarget && Number.isFinite(event.pointerId) && typeof captureTarget.setPointerCapture === "function") {
+    try {
+      captureTarget.setPointerCapture(event.pointerId);
+    } catch (_) {
+      // Best effort only.
+    }
+  }
+  setDateRangeHandleFromPointerEvent(event);
+}
+
+function beginDateRangeSliderWrapScrub(event) {
+  if (event.target?.closest?.(".date-range-current-marker")) return;
+  const staticMarker = event.target?.closest?.(".date-range-static-marker");
+  if (staticMarker?.classList.contains("date-range-start-marker")) {
+    beginDateRangeHandleDrag(event, "start", event.currentTarget);
+    return;
+  }
+  if (staticMarker?.classList.contains("date-range-end-marker")) {
+    beginDateRangeHandleDrag(event, "end", event.currentTarget);
+    return;
+  }
+  if (state.dateRange.isPlaying || state.dateRange.isPaused) {
+    beginDateRangePlaybackScrub(event, event.currentTarget);
+    return;
+  }
+  if (typeof event.button === "number" && event.button !== 0) return;
+  const startIdx = findDateIndex(state.dateRange.startIso, "ceil");
+  const endIdx = findDateIndex(state.dateRange.endIso, "floor");
+  if (startIdx < 0 || endIdx < 0) return;
+  const startX = getDateRangeMarkerClientX(startIdx);
+  const endX = getDateRangeMarkerClientX(endIdx);
+  if (!Number.isFinite(startX) || !Number.isFinite(endX)) return;
+  const pointerX = event.clientX;
+  const handleGuardPx = 12;
+  const nearStart = Math.abs(pointerX - startX) <= handleGuardPx;
+  const nearEnd = Math.abs(pointerX - endX) <= handleGuardPx;
+  const selectedSegment = pointerX > startX + handleGuardPx && pointerX < endX - handleGuardPx;
+  if (!nearStart && !nearEnd && !selectedSegment) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const handle = nearStart && nearEnd
+    ? (Math.abs(pointerX - startX) <= Math.abs(pointerX - endX) ? "start" : "end")
+    : (nearStart ? "start" : "end");
+  dateRangeHandleDrag = {
+    pointerId: Number.isFinite(event.pointerId) ? event.pointerId : null,
+    handle: selectedSegment ? "range" : handle,
+    startClientX: pointerX,
+    startIdx,
+    endIdx,
+  };
+  if (event.currentTarget && Number.isFinite(event.pointerId) && typeof event.currentTarget.setPointerCapture === "function") {
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch (_) {
+      // Best effort only.
+    }
+  }
+}
+
+function setDateRangeHandleFromPointerEvent(event) {
+  if (!dateRangeHandleDrag) return;
+  const rawIndex = getDateRangeRawIndexFromClientX(event.clientX);
+  if (!Number.isFinite(rawIndex) || !state.priceRows.length) return;
+  const maxIndex = state.priceRows.length - 1;
+  const startIdx = findDateIndex(state.dateRange.startIso, "ceil");
+  const endIdx = findDateIndex(state.dateRange.endIso, "floor");
+  if (startIdx < 0 || endIdx < 0) return;
+  const clamped = Math.max(0, Math.min(maxIndex, rawIndex));
+  let nextStartIdx = dateRangeHandleDrag.handle === "start" ? Math.min(clamped, endIdx) : startIdx;
+  let nextEndIdx = dateRangeHandleDrag.handle === "end" ? Math.max(clamped, startIdx) : endIdx;
+  if (dateRangeHandleDrag.handle === "range") {
+    const initialStart = Number.isFinite(dateRangeHandleDrag.startIdx) ? dateRangeHandleDrag.startIdx : startIdx;
+    const initialEnd = Number.isFinite(dateRangeHandleDrag.endIdx) ? dateRangeHandleDrag.endIdx : endIdx;
+    const initialPointerIndex = getDateRangeRawIndexFromClientX(dateRangeHandleDrag.startClientX);
+    if (!Number.isFinite(initialPointerIndex)) return;
+    const shift = Math.round(rawIndex - initialPointerIndex);
+    const minShift = -initialStart;
+    const maxShift = maxIndex - initialEnd;
+    const safeShift = Math.max(minShift, Math.min(maxShift, shift));
+    nextStartIdx = initialStart + safeShift;
+    nextEndIdx = initialEnd + safeShift;
+  }
+  const nextStart = state.priceRows[nextStartIdx]?.dateIso;
+  const nextEnd = state.priceRows[nextEndIdx]?.dateIso;
+  if (!nextStart || !nextEnd) return;
+  if (state.dateRange.startIso === nextStart && state.dateRange.endIso === nextEnd) return;
+  if (dateRangeHandleDrag.handle === "start" || dateRangeHandleDrag.handle === "end") {
+    setLastAdjustedDateRangeHandle(dateRangeHandleDrag.handle);
+  }
+  state.dateRange.startIso = nextStart;
+  state.dateRange.endIso = nextEnd;
+  state.dateRange.currentEndIso = nextEnd;
+  state.dateRange.selectedPreset = "custom";
+  saveDateRangeState();
+  syncDateRangeControls();
+  renderChart();
+}
+
+function moveDateRangeCurrentMarkerDrag(event) {
+  if (dateRangeHandleDrag) {
+    if (Number.isFinite(dateRangeHandleDrag.pointerId)
+      && Number.isFinite(event.pointerId)
+      && event.pointerId !== dateRangeHandleDrag.pointerId) {
+      return;
+    }
+    event.preventDefault();
+    setDateRangeHandleFromPointerEvent(event);
+    return;
+  }
+  if (!dateRangeCurrentMarkerDrag) return;
+  if (Number.isFinite(dateRangeCurrentMarkerDrag.pointerId)
+    && Number.isFinite(event.pointerId)
+    && event.pointerId !== dateRangeCurrentMarkerDrag.pointerId) {
+    return;
+  }
+  event.preventDefault();
+  setCurrentEndFromPointerEvent(event);
+}
+
+function endDateRangeCurrentMarkerDrag(event) {
+  if (dateRangeHandleDrag) {
+    if (Number.isFinite(dateRangeHandleDrag.pointerId)
+      && Number.isFinite(event.pointerId)
+      && event.pointerId !== dateRangeHandleDrag.pointerId) {
+      return;
+    }
+    const captureTarget = event.currentTarget;
+    if (captureTarget && Number.isFinite(event.pointerId) && typeof captureTarget.releasePointerCapture === "function") {
+      try {
+        captureTarget.releasePointerCapture(event.pointerId);
+      } catch (_) {
+        // Best effort only.
+      }
+    }
+    dateRangeHandleDrag = null;
+    return;
+  }
+  if (!dateRangeCurrentMarkerDrag) return;
+  if (Number.isFinite(dateRangeCurrentMarkerDrag.pointerId)
+    && Number.isFinite(event.pointerId)
+    && event.pointerId !== dateRangeCurrentMarkerDrag.pointerId) {
+    return;
+  }
+  const scrubState = dateRangeCurrentMarkerDrag;
+  const captureTarget = scrubState.captureTarget || event.currentTarget;
+  if (captureTarget && Number.isFinite(event.pointerId) && typeof captureTarget.releasePointerCapture === "function") {
+    try {
+      captureTarget.releasePointerCapture(event.pointerId);
+    } catch (_) {
+      // Best effort only.
+    }
+  }
+  dateRangeCurrentMarkerDrag = null;
+
+  const endIdx = Number.isFinite(scrubState.targetEndIdx)
+    ? scrubState.targetEndIdx
+    : findDateIndex(state.dateRange.endIso, "floor");
+  const releasedAtOrPastEnd = Number.isFinite(scrubState.lastRawIndex)
+    && Number.isFinite(endIdx)
+    && scrubState.lastRawIndex >= endIdx;
+  if (releasedAtOrPastEnd) {
+    state.dateRange.currentEndIso = state.dateRange.endIso;
+    stopDateRangePlayback(false);
+    renderChart();
+    return;
+  }
+
+  if (scrubState.resumeAfterRelease) {
+    playDateRangePlayback();
+  } else {
+    saveDateRangeState();
+  }
+}
+
+function bindDateRangeSessionPersistence() {
+  if (dateRangeSessionPersistenceBound) return;
+  dateRangeSessionPersistenceBound = true;
+
+  const persistSessionSnapshot = () => {
+    saveDateRangeState();
+  };
+
+  window.addEventListener("pagehide", persistSessionSnapshot);
+  window.addEventListener("beforeunload", persistSessionSnapshot);
+}
+
+function isSpaceShortcutTextEntry(active) {
+  const textInputTypes = ["text", "search", "email", "password", "url", "tel", "number"];
+  return !!(
+    active
+    && (
+      (active.tagName === "INPUT" && textInputTypes.includes(String(active.type || "").toLowerCase()))
+      || active.tagName === "TEXTAREA"
+      || active.tagName === "SELECT"
+      || active.isContentEditable
+    )
+  );
+}
+
+function isArrowShortcutFormEntry(active) {
+  return !!(
+    active
+    && (
+      (active.tagName === "INPUT" && String(active.type || "").toLowerCase() !== "range")
+      || active.tagName === "TEXTAREA"
+      || active.tagName === "SELECT"
+      || active.isContentEditable
+    )
+  );
+}
+
+function blurDateRangeSliderIfFocused() {
+  const active = document.activeElement;
+  if (
+    active === document.getElementById("dateRangeStartSlider")
+    || active === document.getElementById("dateRangeEndSlider")
+    || active === document.getElementById("dateRangePlayBtn")
+    || active === document.getElementById("dateRangePauseBtn")
+    || active === document.getElementById("dateRangeStopBtn")
+    || active === document.getElementById("dateRangeSpeedBtn")
+    || active?.matches?.("[data-range-preset]")
+  ) {
+    active.blur();
+  }
+}
+
+function setDateRangeCurrentEndByIndex(index) {
+  const startIdx = findDateIndex(state.dateRange.startIso, "ceil");
+  const endIdx = findDateIndex(state.dateRange.endIso, "floor");
+  if (startIdx < 0 || endIdx < 0 || endIdx < startIdx) return false;
+  const nextIndex = Math.max(startIdx, Math.min(endIdx, Math.round(index)));
+  if (!state.priceRows[nextIndex]) return false;
+  state.dateRange.currentEndIso = state.priceRows[nextIndex].dateIso;
+  syncDateRangeControls();
+  renderChart();
+  return true;
+}
+
+function bindDateRangeKeyboardShortcuts() {
+  if (dateRangeKeyboardShortcutsBound) return;
+  dateRangeKeyboardShortcutsBound = true;
+
+  window.addEventListener("keydown", (event) => {
+    if (!(event.key === " " || event.code === "Space")) return;
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    if (isSpaceShortcutTextEntry(document.activeElement)) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (typeof event.stopImmediatePropagation === "function") {
+      event.stopImmediatePropagation();
+    }
+
+    blurDateRangeSliderIfFocused();
+    toggleDateRangePlayback();
+    requestAnimationFrame(blurDateRangeSliderIfFocused);
+  }, true);
+
+  window.addEventListener("keydown", (event) => {
+    const isPlaybackActive = state.dateRange.isPlaying || state.dateRange.isPaused;
+
+    if (event.key === "Escape") {
+      if (!isPlaybackActive) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === "function") {
+        event.stopImmediatePropagation();
+      }
+      stopDateRangePlayback(true);
+      renderChart();
+      return;
+    }
+
+    const isArrowLeft = event.key === "ArrowLeft";
+    const isArrowRight = event.key === "ArrowRight";
+    const isComma = event.key === "," || event.code === "Comma";
+    const isPeriod = event.key === "." || event.code === "Period";
+    if (!isArrowLeft && !isArrowRight && !isComma && !isPeriod) return;
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    if (isArrowShortcutFormEntry(document.activeElement)) return;
+
+    if (!isPlaybackActive) {
+      if (!isArrowLeft && !isArrowRight) return;
+      if (dateRangeLastAdjustedHandle !== "start" && dateRangeLastAdjustedHandle !== "end") return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === "function") {
+        event.stopImmediatePropagation();
+      }
+      blurDateRangeSliderIfFocused();
+      nudgeLastAdjustedDateRangeHandle(isArrowRight ? 1 : -1);
+      requestAnimationFrame(blurDateRangeSliderIfFocused);
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (typeof event.stopImmediatePropagation === "function") {
+      event.stopImmediatePropagation();
+    }
+
+    const startIdx = findDateIndex(state.dateRange.startIso, "ceil");
+    const endIdx = findDateIndex(state.dateRange.endIso, "floor");
+    const currentIdx = findDateIndex(state.dateRange.currentEndIso, "floor");
+    if (startIdx < 0 || endIdx < 0 || currentIdx < 0 || endIdx < startIdx) return;
+
+    const daysPerSecond = 30 * Math.max(0.5, Number(state.dateRange.playbackSpeed) || 1);
+    const framesFor10Seconds = Math.max(1, Math.round(10 * daysPerSecond));
+    let nextIdx = currentIdx;
+    if (isArrowRight) {
+      nextIdx = Math.min(endIdx, currentIdx + framesFor10Seconds);
+    } else if (isArrowLeft) {
+      nextIdx = Math.max(startIdx, currentIdx - framesFor10Seconds);
+    } else if (isPeriod) {
+      nextIdx = Math.min(endIdx, currentIdx + 1);
+    } else if (isComma) {
+      nextIdx = Math.max(startIdx, currentIdx - 1);
+    }
+
+    if (nextIdx !== currentIdx) {
+      setDateRangeCurrentEndByIndex(nextIdx);
+      if (isArrowRight && state.dateRange.isPlaying && nextIdx === endIdx) {
+        pauseDateRangePlayback();
+      }
+    }
+  }, true);
+}
+
+function primeKeyboardFocus() {
+  // Match the UoA dashboard so the iframe owns the initial keyboard shortcuts.
+  if (document.body && !document.body.hasAttribute("tabindex")) {
+    document.body.setAttribute("tabindex", "-1");
+  }
+  requestAnimationFrame(() => {
+    try {
+      window.focus();
+      document.body?.focus({ preventScroll: true });
+    } catch (_) {
+      // Ignore browser focus restrictions.
+    }
+  });
+}
+
+function setDashboardExpandedMode(expanded) {
+  document.body.classList.toggle("dca-dashboard-expanded", !!expanded);
+  const expandBtn = document.getElementById("dashboardExpandBtn");
+  if (expandBtn) {
+    expandBtn.setAttribute("aria-pressed", String(!!expanded));
+    expandBtn.setAttribute("aria-label", expanded ? "Shrink video layout" : "Expand video layout");
+    expandBtn.setAttribute("title", expanded ? "Shrink video layout" : "Expand video layout");
+  }
+  try {
+    window.parent?.postMessage({ type: "wsb-dca-dashboard-expanded", expanded: !!expanded }, window.location.origin);
+  } catch (_) {
+    // Ignore parent messaging failures.
+  }
+  requestAnimationFrame(() => {
+    renderChart();
+    requestAnimationFrame(renderChart);
+  });
+}
+
+function bindDashboardExpandButton() {
+  const expandBtn = document.getElementById("dashboardExpandBtn");
+  if (!expandBtn || expandBtn.dataset.bound === "1") return;
+  expandBtn.dataset.bound = "1";
+  expandBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setDashboardExpandedMode(!document.body.classList.contains("dca-dashboard-expanded"));
+  });
+}
+
+function loadDownloadSettings() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(DOWNLOAD_SETTINGS_KEY) || "{}");
+    state.downloadSettings = normalizeDownloadSettings({ ...state.downloadSettings, ...parsed });
+  } catch (_) {
+    state.downloadSettings = normalizeDownloadSettings(state.downloadSettings);
+  }
+}
+
+function saveDownloadSettings() {
+  try {
+    localStorage.setItem(DOWNLOAD_SETTINGS_KEY, JSON.stringify(state.downloadSettings));
+  } catch (_) {
+    // Ignore storage failures.
+  }
+}
+
+function normalizeDownloadSettings(settings = {}) {
+  const currentTheme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
+  return {
+    scale: ["linear", "log"].includes(settings.scale) ? settings.scale : state.yScale,
+    orientation: ["landscape", "portrait", "square"].includes(settings.orientation) ? settings.orientation : "landscape",
+    quality: ["720", "1080", "1440", "2160"].includes(String(settings.quality)) ? String(settings.quality) : "720",
+    speed: ["0.5", "1", "2", "4"].includes(String(settings.speed)) ? String(settings.speed) : String(state.dateRange.playbackSpeed || 1),
+    theme: ["light", "dark"].includes(settings.theme) ? settings.theme : currentTheme,
+    extension: ["mp4", "webm"].includes(settings.extension) ? settings.extension : "mp4",
+  };
+}
+
+function getDownloadDimensions(settings) {
+  const quality = Number(settings.quality) || 720;
+  if (settings.orientation === "portrait") return { width: quality, height: Math.round(quality * 16 / 9) };
+  if (settings.orientation === "square") return { width: quality, height: quality };
+  return { width: Math.round(quality * 16 / 9), height: quality };
+}
+
+function getExportReferenceSettings(settings) {
+  return { ...settings, quality: "1440" };
+}
+
+function getDownloadVideoSeconds(settings = state.downloadSettings) {
+  const frameDates = getDateRangeExportFrameDates(
+    state.dateRange.startIso,
+    state.dateRange.endIso,
+    Number(settings.speed) || 1,
+  );
+  return frameDates.length ? frameDates.length / EXPORT_VIDEO_FPS : 0;
+}
+
+function formatDuration(seconds) {
+  const total = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  return minutes ? `${minutes}m ${rest}s` : `${rest}s`;
+}
+
+function updateDownloadEstimates() {
+  const sizeEl = document.getElementById("downloadEstimateSize");
+  const lengthEl = document.getElementById("downloadEstimateLength");
+  const timeEl = document.getElementById("downloadEstimateTime");
+  if (!sizeEl || !lengthEl || !timeEl) return;
+  const settings = normalizeDownloadSettings(state.downloadSettings);
+  const { width, height } = getDownloadDimensions(settings);
+  const seconds = getDownloadVideoSeconds(settings);
+  const frameDates = getDateRangeExportFrameDates(state.dateRange.startIso, state.dateRange.endIso, Number(settings.speed) || 1);
+  const uniqueFrameCount = new Set(frameDates).size;
+  const bitrate = getDateRangeExportBitrate(settings);
+  const extensionMultiplier = settings.extension === "webm" ? 0.78 : 1;
+  const bytes = (seconds * bitrate / 8) * extensionMultiplier;
+  const mb = bytes / (1024 * 1024);
+  sizeEl.textContent = `${Math.max(1, Math.round(mb)).toLocaleString("en-US")} MB`;
+  lengthEl.textContent = formatDuration(seconds);
+  timeEl.textContent = `~${formatDuration(seconds + Math.max(1, uniqueFrameCount * 0.035 * (width * height) / (1280 * 720)))}`;
+}
+
+function syncDownloadSettingsControls() {
+  loadDownloadSettings();
+  const groups = {
+    downloadScaleSelect: state.downloadSettings.scale,
+    downloadOrientationSelect: state.downloadSettings.orientation,
+    downloadQualitySelect: state.downloadSettings.quality,
+    downloadSpeedSelect: state.downloadSettings.speed,
+    downloadThemeSelect: state.downloadSettings.theme,
+    downloadExtensionSelect: state.downloadSettings.extension,
+  };
+  Object.entries(groups).forEach(([id, value]) => {
+    const group = document.getElementById(id);
+    if (!group) return;
+    group.querySelectorAll(".download-setting-option[data-value]").forEach((button) => {
+      const selected = button.dataset.value === value;
+      button.classList.toggle("is-selected", selected);
+      button.setAttribute("aria-pressed", selected ? "true" : "false");
+    });
+  });
+  syncDownloadSettingsDownloadButton();
+  updateDownloadEstimates();
+}
+
+function renderDateRangeDownloadButtonProgress(progress = 0) {
+  const downloadBtn = document.getElementById("dateRangeDownloadBtn");
+  if (!downloadBtn) return;
+  const progressPct = `${Math.max(0, Math.min(1, Number(progress) || 0)) * 100}%`;
+  const progressEl = downloadBtn.querySelector(".date-range-export-progress");
+  if (downloadBtn.classList.contains("is-exporting") && progressEl) {
+    progressEl.style.setProperty("--date-range-export-progress", progressPct);
+    return;
+  }
+  downloadBtn.classList.add("is-exporting");
+  downloadBtn.disabled = false;
+  downloadBtn.setAttribute("aria-label", "Cancel animation download");
+  downloadBtn.setAttribute("title", "Cancel download");
+  downloadBtn.innerHTML = [
+    `<span class="date-range-export-progress" style="--date-range-export-progress: ${progressPct}" aria-hidden="true">`,
+    '<span class="date-range-export-stop-square"></span>',
+    "</span>",
+  ].join("");
+  syncDownloadSettingsDownloadButton();
+}
+
+function resetDateRangeDownloadButton() {
+  const downloadBtn = document.getElementById("dateRangeDownloadBtn");
+  if (!downloadBtn) return;
+  downloadBtn.classList.remove("is-exporting", "is-canceling");
+  downloadBtn.disabled = false;
+  downloadBtn.setAttribute("aria-label", "Download date range animation");
+  downloadBtn.setAttribute("title", "Download animation");
+  downloadBtn.textContent = "↓";
+  syncDownloadSettingsDownloadButton();
+}
+
+function syncDownloadSettingsDownloadButton() {
+  const button = document.getElementById("downloadSettingsDownloadBtn");
+  if (!button) return;
+  button.classList.toggle("is-stop-download", isDateRangeExporting);
+  button.textContent = isDateRangeExporting ? "Stop Download" : "Download Animation";
+}
+
+function requestDateRangeExportCancel() {
+  if (!isDateRangeExporting) return;
+  dateRangeExportCancelRequested = true;
+  const downloadBtn = document.getElementById("dateRangeDownloadBtn");
+  if (downloadBtn) {
+    downloadBtn.classList.add("is-canceling");
+    downloadBtn.setAttribute("aria-label", "Canceling animation download");
+    downloadBtn.setAttribute("title", "Canceling download");
+  }
+  syncDownloadSettingsDownloadButton();
+}
+
+function broadcastDateRangeExportActive(active) {
+  try {
+    window.dateRangeExportActive = !!active;
+    if (window.parent && window.parent !== window) {
+      window.parent.dateRangeExportActive = !!active;
+      window.parent.postMessage({ type: "wsb-dca-date-range-export-active", active: !!active }, window.location.origin);
+    }
+  } catch (_) {
+    // Best effort only.
+  }
+}
+
+function bindDateRangeExportUnloadGuard() {
+  if (window.dcaDateRangeExportUnloadGuardBound === true) return;
+  window.dcaDateRangeExportUnloadGuardBound = true;
+  window.addEventListener("beforeunload", (event) => {
+    if (!isDateRangeExporting) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
+}
+
+function buildStandaloneChartSvg(rows, width, height, colors, yScale = state.yScale) {
+  if (!rows.length) return "";
+  const x = rows.map((r) => r.daysAgo);
+  const historicalPrice = rows.map((r) => r.historicalPrice);
+  const dcaBasis = rows.map((r) => r.dcaBasis);
+  const priceUp = rows.map((r) => (r.isPriceAbove === 1 ? r.historicalPrice : null));
+  const priceDown = rows.map((r) => (r.isPriceAbove === 0 ? r.historicalPrice : null));
+  for (let i = 0; i < rows.length - 1; i += 1) {
+    if (rows[i].isPriceAbove === rows[i + 1].isPriceAbove) continue;
+    if (rows[i].isPriceAbove === 1) priceUp[i + 1] = rows[i + 1].historicalPrice;
+    else priceDown[i + 1] = rows[i + 1].historicalPrice;
+  }
+  const latestRow = rows[rows.length - 1];
+  const rawCurrentPrice = Number.isFinite(latestRow.currentPrice) ? latestRow.currentPrice : latestRow.historicalPrice;
+  const maxDays = Math.max(...x);
+  const ticks = buildDurationTickConfig(maxDays);
+  const dateTicks = buildDateTickConfig(rows, width);
+  const allYValues = [
+    ...historicalPrice.filter((v) => Number.isFinite(v) && v >= 0),
+    ...dcaBasis.filter((v) => Number.isFinite(v) && v >= 0),
+  ];
+  if (Number.isFinite(rawCurrentPrice) && rawCurrentPrice >= 0) allYValues.push(rawCurrentPrice);
+  const currentPrice = Number.isFinite(rawCurrentPrice) && rawCurrentPrice > 0
+    ? rawCurrentPrice
+    : (allYValues.length ? allYValues[allYValues.length - 1] : NaN);
+  const labelSizes = scaleChartLabelSizes(getResponsiveChartLabelSizes(width), EXPORT_CHART_TEXT_SCALE);
+  const cadenceLabel = getCadenceLabel();
+  const legendFontSize = Math.max(12, Number((labelSizes.tick * 0.76).toFixed(2)));
+  const currentPriceOverlayMetrics = getCurrentPriceOverlayMetrics(labelSizes);
+  const legendHeight = Math.max(28, Math.round(legendFontSize * 1.95));
+  const margins = {
+    top: legendHeight + Math.max(78, Math.round(height * 0.068)),
+    right: Math.max(104, Math.round(width * 0.055), currentPriceOverlayMetrics.rightMargin + 20),
+    bottom: Math.max(96, Math.round(height * 0.086)),
+    left: Math.max(32, Math.round(width * 0.018)),
+  };
+  const topTitleY = legendHeight + Math.round((margins.top - legendHeight) * 0.52);
+  const topTickY = margins.top + Math.round(labelSizes.topTick * 0.7);
+  const bottomTickY = height - Math.round(margins.bottom * 0.55);
+  const bottomTitleY = height - Math.round(margins.bottom * 0.16);
+  const plotLeft = margins.left;
+  const plotRight = width - margins.right;
+  const plotTop = margins.top + 26;
+  const plotBottom = height - margins.bottom - 8;
+  const yAxis = buildYScaleConfig(allYValues, yScale);
+  const xForDay = (day) => {
+    const ratio = (maxDays - day) / Math.max(1, maxDays - 1);
+    return plotLeft + (ratio * Math.max(1, plotRight - plotLeft));
+  };
+  const yForValue = (value) => yAxis.map(value, plotTop, Math.max(1, plotBottom - plotTop));
+  const rawBottomTicks = maxDays >= 365 && maxDays <= 365 * 4
+    ? ticks
+    : filterTicksByPixelSpacing(
+      ticks.tickvals,
+      ticks.ticktext,
+      (day) => xForDay(day),
+      width < 900 ? 56 : 38,
+    );
+  const topTicks = filterDateTicksByPixelSpacing(
+    dateTicks.tickvals,
+    dateTicks.ticktext,
+    (day) => xForDay(day),
+    width < 900 ? 82 : 58,
+  );
+  const { bottomTicks, topTicks: balancedTopTicks } = balanceXAxisTickCounts(rawBottomTicks, topTicks);
+  const rightTicks = filterTicksByPixelSpacing(
+    yAxis.tickvals,
+    yAxis.ticktext,
+    (value) => yForValue(value),
+    labelSizes.yTick * 1.45,
+    { preserveFirst: true, preserveLast: true },
+  );
+  return buildChartSvgMarkup({
+    width,
+    height,
+    plotLeft,
+    plotRight,
+    plotTop,
+    plotBottom,
+    xForDay,
+    yForValue,
+    bottomTicks,
+    topTicks: balancedTopTicks,
+    rightTicks,
+    colors,
+    rows,
+    priceUp,
+    priceDown,
+    dcaBasis,
+    currentPrice,
+    maxDays,
+    topTitleY,
+    topTickY,
+    bottomTickY,
+    bottomTitleY,
+    labelSizes,
+    yScale,
+    renderCurrentPriceLabel: true,
+    renderLegend: true,
+    legendFontSize,
+    exportHalvingLabelSpacing: true,
+    axisTitleX: width / 2,
+    startDateX: margins.left,
+    currentDateX: width - margins.left,
+    topAxisTitle: `${cadenceLabel} Starting Date`,
+    bottomAxisTitle: `${cadenceLabel} Duration`,
+    lineWidths: {
+      price: 5.8,
+      basis: 6.4,
+      current: 2.4,
+      grid: 1,
+    },
+  });
+}
+
+function scaleChartLabelSizes(labelSizes, scale = 1) {
+  return Object.fromEntries(Object.entries(labelSizes || {}).map(([key, value]) => [
+    key,
+    Number((Number(value || 0) * scale).toFixed(2)),
+  ]));
+}
+
+function getCadenceLabel(cadence = state.cadence) {
+  if (cadence === "weekly_dca") return "Weekly DCA";
+  if (cadence === "monthly_dca") return "Monthly DCA";
+  return "Daily DCA";
+}
+
+function getResponsiveChartLabelSizes(width = window.innerWidth) {
+  const safeWidth = Number.isFinite(width) ? width : window.innerWidth;
+  const progress = Math.max(0, Math.min(1, (safeWidth - 420) / 900));
+  const tick = 12 + (progress * 6);
+  return {
+    tick: Number(tick.toFixed(2)),
+    topTick: Number(Math.max(11, tick - 1).toFixed(2)),
+    yTick: Number(tick.toFixed(2)),
+    halving: Number(Math.max(11, tick * 0.78).toFixed(2)),
+    halvingCostBasis: Number(Math.max(12, tick * 0.9).toFixed(2)),
+    title: Number(Math.max(12, tick).toFixed(2)),
+    currentPrice: Number((tick * 1.12).toFixed(2)),
+  };
+}
+
+function getCurrentPriceOverlayMetrics(labelSizes) {
+  const fontSize = Number(labelSizes?.currentPrice) || 13;
+  const sixDigitPriceChars = "$999,999".length;
+  const textWidth = sixDigitPriceChars * fontSize * 0.62;
+  const horizontalPadding = 12;
+  const borderWidth = 2;
+  const minWidth = Math.ceil(textWidth + horizontalPadding + borderWidth);
+  return {
+    minWidth,
+    rightMargin: minWidth + 18,
+  };
+}
+
+function getPaletteForTheme(theme) {
+  const prior = document.documentElement.dataset.theme;
+  if (theme === "light" || theme === "dark") {
+    document.documentElement.dataset.theme = theme;
+  }
+  const colors = getThemeColors();
+  const bg = document.documentElement.dataset.theme === "light" ? "#ffffff" : "#000000";
+  const isLight = document.documentElement.dataset.theme === "light";
+  if (prior) document.documentElement.dataset.theme = prior;
+  else delete document.documentElement.dataset.theme;
+  return {
+    ...colors,
+    bg,
+    up: isLight ? "#0f7f42" : "#18a957",
+    down: isLight ? "#a92631" : "#c92c39",
+  };
+}
+
+function imageFromSvg(svgMarkup) {
+  return new Promise((resolve, reject) => {
+    const markup = String(svgMarkup || "").replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" ');
+    const blob = new Blob([markup], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const image = new Image();
+    image.decoding = "sync";
+    image.onload = () => {
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Unable to render SVG frame."));
+    };
+    image.src = url;
+  });
+}
+
+function scaleSvgRoot(svgMarkup, width, height, viewWidth, viewHeight) {
+  return String(svgMarkup || "").replace(
+    /<svg\b([^>]*)\bwidth="[^"]+"\s+height="[^"]+"\s+viewBox="[^"]+"/,
+    `<svg$1width="${width}" height="${height}" viewBox="0 0 ${viewWidth} ${viewHeight}"`
+  );
+}
+
+function getSupportedRecorder(extension = "mp4") {
+  if (!window.MediaRecorder || typeof MediaRecorder.isTypeSupported !== "function") return null;
+  const byExtension = {
+    mp4: ["video/mp4;codecs=avc1.42E01E", "video/mp4"],
+    webm: ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"],
+  };
+  const fallback = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
+  const candidates = [...(byExtension[extension] || []), ...fallback];
+  const mimeType = candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate));
+  if (!mimeType) return null;
+  return { mimeType, extension: mimeType.includes("mp4") ? "mp4" : "webm" };
+}
+
+function getDateRangeExportBitrate(settings) {
+  return Math.max(4_000_000, Number(settings.quality) * 8000);
+}
+
+function getDateRangeExportBatchSize(settings) {
+  const { width, height } = getDownloadDimensions(settings);
+  const frameBytes = Math.max(1, width * height * 4);
+  const budgetFrames = Math.floor(EXPORT_BATCH_MEMORY_BUDGET / frameBytes);
+  return Math.max(EXPORT_MIN_BATCH_FRAMES, Math.min(EXPORT_MAX_BATCH_FRAMES, budgetFrames));
+}
+
+function closeDateRangeExportFrames(frameCache) {
+  frameCache.forEach((frame) => {
+    if (typeof frame?.close === "function") frame.close();
+  });
+  frameCache.clear();
+}
+
+function transitionMediaRecorder(recorder, eventName, action) {
+  return new Promise((resolve, reject) => {
+    recorder.addEventListener(eventName, resolve, { once: true });
+    recorder.addEventListener("error", () => reject(recorder.error || new Error("Recording failed")), { once: true });
+    action();
+  });
+}
+
+async function waitForDateRangeExportFonts() {
+  if (!document.fonts?.ready) return;
+  try {
+    await document.fonts.ready;
+  } catch (_) {
+    // Font readiness is best-effort only.
+  }
+}
+
+async function drawExportFrame(ctx, canvas, frameEndIso, settings, palette) {
+  const referenceSettings = getExportReferenceSettings(settings);
+  const { width: referenceWidth, height: referenceHeight } = getDownloadDimensions(referenceSettings);
+  const referenceMinDimension = Math.min(referenceWidth, referenceHeight);
+  const referencePanelPad = Math.max(8, Math.round(referenceMinDimension * 0.012));
+  const referenceFooterHeight = Math.max(34, Math.round(referenceMinDimension * 0.052));
+  const referenceChartWidth = referenceWidth - referencePanelPad * 2;
+  const referenceChartHeight = referenceHeight - referencePanelPad * 2 - referenceFooterHeight;
+  const scale = canvas.height / Math.max(1, referenceHeight);
+  const panelPad = Math.round(referencePanelPad * scale);
+  const footerHeight = Math.round(referenceFooterHeight * scale);
+  const chartWidth = canvas.width - panelPad * 2;
+  const chartHeight = canvas.height - panelPad * 2 - footerHeight;
+  const rows = getFrameRows(state.dateRange.startIso, frameEndIso);
+  const svg = buildStandaloneChartSvg(rows, referenceChartWidth, referenceChartHeight, palette, settings.scale);
+  ctx.fillStyle = palette.bg;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (svg) {
+    const scaledSvg = scaleSvgRoot(svg, chartWidth, chartHeight, referenceChartWidth, referenceChartHeight);
+    const image = await imageFromSvg(scaledSvg);
+    ctx.drawImage(image, panelPad, panelPad, chartWidth, chartHeight);
+  }
+  ctx.fillStyle = palette.bg;
+  ctx.fillRect(0, canvas.height - footerHeight, canvas.width, footerHeight);
+  const footerTextSize = Math.max(30, Math.round(footerHeight * 0.6));
+  const footerCenterY = canvas.height - footerHeight * 0.68;
+  ctx.fillStyle = settings.theme === "dark" ? "#6f7f87" : "#8f887f";
+  ctx.font = `500 ${footerTextSize}px ${CHART_MONO_FONT}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("https://wickedsmartbitcoin.com/dca_cost_basis", canvas.width / 2, footerCenterY);
+}
+
+function wait(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function downloadDateRangeAnimation() {
+  if (isDateRangeExporting) {
+    requestDateRangeExportCancel();
+    return;
+  }
+
+  const settings = normalizeDownloadSettings(state.downloadSettings);
+  const recorderInfo = getSupportedRecorder(settings.extension);
+  if (!recorderInfo || typeof HTMLCanvasElement.prototype.captureStream !== "function") {
+    window.alert("The animation export could not be completed in this browser.");
+    return;
+  }
+
+  stopDateRangePlayback(false);
+  const { width, height } = getDownloadDimensions(settings);
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  const theme = settings.theme === "light" ? "light" : "dark";
+  const palette = getPaletteForTheme(theme);
+  const frameDates = getDateRangeExportFrameDates(state.dateRange.startIso, state.dateRange.endIso, Number(settings.speed) || 1);
+  if (!frameDates.length) return;
+  const finalDate = frameDates[frameDates.length - 1];
+
+  isDateRangeExporting = true;
+  dateRangeExportCancelRequested = false;
+  broadcastDateRangeExportActive(true);
+  renderDateRangeDownloadButtonProgress(0);
+
+  try {
+    await waitForDateRangeExportFonts();
+    await waitForDateRangeExportFonts();
+    await drawExportFrame(ctx, canvas, finalDate, { ...settings, theme }, palette);
+  } catch (error) {
+    console.error(error);
+    isDateRangeExporting = false;
+    dateRangeExportCancelRequested = false;
+    broadcastDateRangeExportActive(false);
+    resetDateRangeDownloadButton();
+    window.alert("The animation export could not be completed in this browser.");
+    return;
+  }
+
+  const chunks = [];
+  let stream = null;
+  let track = null;
+  let recorder = null;
+  try {
+    try {
+      stream = canvas.captureStream(0);
+    } catch (_) {
+      stream = canvas.captureStream(EXPORT_VIDEO_FPS);
+    }
+    [track] = stream.getVideoTracks();
+    if (!track || typeof track.requestFrame !== "function") {
+      if (track) track.stop();
+      stream = canvas.captureStream(EXPORT_VIDEO_FPS);
+      [track] = stream.getVideoTracks();
+    }
+    recorder = new MediaRecorder(stream, {
+      mimeType: recorderInfo.mimeType,
+      videoBitsPerSecond: getDateRangeExportBitrate(settings),
+    });
+  } catch (error) {
+    console.error(error);
+    stream?.getTracks?.().forEach((streamTrack) => streamTrack.stop());
+    isDateRangeExporting = false;
+    dateRangeExportCancelRequested = false;
+    broadcastDateRangeExportActive(false);
+    resetDateRangeDownloadButton();
+    window.alert("The animation export could not be completed in this browser.");
+    return;
+  }
+  recorder.ondataavailable = (event) => {
+    if (event.data?.size) chunks.push(event.data);
+  };
+
+  const finished = new Promise((resolve, reject) => {
+    recorder.addEventListener("stop", resolve, { once: true });
+    recorder.addEventListener("error", () => reject(recorder.error || new Error("Recording failed")), { once: true });
+  });
+
+  const totalWork = Math.max(1, frameDates.length * 2);
+  let completedWork = 0;
+  let wasCanceled = false;
+  const batchSize = getDateRangeExportBatchSize(settings);
+  const cachedFrames = new Map();
+  let exportSucceeded = false;
+
+  const renderFrameBatch = async (batchStart) => {
+    closeDateRangeExportFrames(cachedFrames);
+    const batchDates = frameDates.slice(batchStart, batchStart + batchSize);
+    const uniqueBatchDates = [];
+    const seenBatchDates = new Set();
+    batchDates.forEach((dateIso) => {
+      if (seenBatchDates.has(dateIso)) return;
+      seenBatchDates.add(dateIso);
+      uniqueBatchDates.push(dateIso);
+    });
+
+    for (const dateIso of uniqueBatchDates) {
+      if (dateRangeExportCancelRequested) {
+        wasCanceled = true;
+        break;
+      }
+      await drawExportFrame(ctx, canvas, dateIso, { ...settings, theme }, palette);
+      const frameImage = typeof createImageBitmap === "function"
+        ? await createImageBitmap(canvas)
+        : (() => {
+            const fallbackCanvas = document.createElement("canvas");
+            fallbackCanvas.width = canvas.width;
+            fallbackCanvas.height = canvas.height;
+            fallbackCanvas.getContext("2d")?.drawImage(canvas, 0, 0);
+            return fallbackCanvas;
+          })();
+      cachedFrames.set(dateIso, frameImage);
+      completedWork += 1;
+      renderDateRangeDownloadButtonProgress(completedWork / totalWork);
+    }
+  };
+
+  try {
+    recorder.start();
+    if (typeof recorder.pause !== "function" || typeof recorder.resume !== "function") {
+      throw new Error("MediaRecorder pause/resume unavailable.");
+    }
+    if (track && typeof track.requestFrame === "function") track.requestFrame();
+    await transitionMediaRecorder(recorder, "pause", () => recorder.pause());
+
+    let recordedFrames = 0;
+    const frameDurationMs = 1000 / EXPORT_VIDEO_FPS;
+    for (let batchStart = 0; batchStart < frameDates.length; batchStart += batchSize) {
+      await renderFrameBatch(batchStart);
+      if (wasCanceled || dateRangeExportCancelRequested) {
+        wasCanceled = true;
+        break;
+      }
+
+      await transitionMediaRecorder(recorder, "resume", () => recorder.resume());
+      let recordStartTime = performance.now() - (recordedFrames * frameDurationMs);
+      const batchEnd = Math.min(frameDates.length, batchStart + batchSize);
+      for (let frameIndex = batchStart; frameIndex < batchEnd; frameIndex += 1) {
+        const dateIso = frameDates[frameIndex];
+        if (dateRangeExportCancelRequested) {
+          wasCanceled = true;
+          break;
+        }
+        const frameImage = cachedFrames.get(dateIso);
+        if (!frameImage) throw new Error("Cached export frame unavailable.");
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(frameImage, 0, 0);
+        if (track && typeof track.requestFrame === "function") track.requestFrame();
+        recordedFrames += 1;
+        completedWork += 1;
+        renderDateRangeDownloadButtonProgress(completedWork / totalWork);
+        const nextFrameTime = recordStartTime + (recordedFrames * frameDurationMs);
+        let waitTime = nextFrameTime - performance.now();
+        if (waitTime < -frameDurationMs) {
+          recordStartTime = performance.now() - (recordedFrames * frameDurationMs);
+          waitTime = 0;
+        }
+        if (waitTime > 0) await wait(waitTime);
+      }
+      if (wasCanceled || dateRangeExportCancelRequested) break;
+      if (batchEnd < frameDates.length) {
+        await transitionMediaRecorder(recorder, "pause", () => recorder.pause());
+      }
+    }
+    recorder.stop();
+    await finished;
+    if (wasCanceled || dateRangeExportCancelRequested) {
+      chunks.length = 0;
+      return;
+    }
+    renderDateRangeDownloadButtonProgress(1);
+
+    const blob = new Blob(chunks, { type: recorderInfo.mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `dca-cost-basis-${state.dateRange.startIso}-${state.dateRange.endIso}-${settings.orientation}-${settings.quality}p.${recorderInfo.extension}`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    exportSucceeded = true;
+  } catch (error) {
+    if (!wasCanceled && !dateRangeExportCancelRequested) {
+      console.error(error);
+      window.alert("The animation export could not be completed in this browser.");
+    }
+  } finally {
+    if (recorder.state !== "inactive") recorder.stop();
+    stream.getTracks().forEach((streamTrack) => streamTrack.stop());
+    closeDateRangeExportFrames(cachedFrames);
+    if (!exportSucceeded) chunks.length = 0;
+    isDateRangeExporting = false;
+    dateRangeExportCancelRequested = false;
+    broadcastDateRangeExportActive(false);
+    resetDateRangeDownloadButton();
+  }
 }
 
 function getThemeColors() {
   const style = getComputedStyle(document.documentElement);
   const isLight = document.documentElement.dataset.theme === "light";
   return {
+    bg: isLight ? "#ffffff" : "#000000",
     fg: style.getPropertyValue("--fg").trim() || (isLight ? "#1c1b19" : "#f1f5f7"),
     muted: style.getPropertyValue("--muted").trim() || (isLight ? "#6f685f" : "#95a6ae"),
     grid: isLight ? "rgba(0,0,0,0.10)" : "rgba(255,255,255,0.14)",
     halvingLine: isLight ? "rgba(0,0,0,0.28)" : "rgba(255,255,255,0.34)",
+    halvingCalloutLine: isLight ? "rgba(0,0,0,0.36)" : "rgba(255,255,255,0.42)",
     up: style.getPropertyValue("--price-up").trim() || "#41b36b",
     down: style.getPropertyValue("--price-down").trim() || "#d33a45",
     basis: style.getPropertyValue("--accent").trim() || "#ff9f1c",
     currentLine: isLight ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.65)",
+    overlappedTick: isLight ? "rgba(0,0,0,0.26)" : "rgba(255,255,255,0.22)",
   };
 }
 
 function getFilteredRows() {
-  const all = state.seriesByCadence[state.cadence] || [];
-  if (!all.length) return [];
-
-  const scoped = state.rangeDays > 0
-    ? all.filter((row) => row.daysAgo <= state.rangeDays)
-    : all.slice();
-
-  return scoped.sort((a, b) => a.daysAgo - b.daysAgo);
+  return getFrameRows();
 }
 
-function buildDurationTickConfig(maxDays, selectedRangeDays = 0) {
+function buildDurationTickConfig(maxDays) {
   const safeMax = Math.max(1, Math.round(maxDays));
   const tickSet = new Set([1]);
-  const isAllRange = selectedRangeDays === 0;
 
-  // For the 1Y preset, use explicit 10-week intervals for consistent readability.
-  if (selectedRangeDays === 365) {
-    const weeklyStepDays = 70; // 10 weeks
-    for (let day = weeklyStepDays; day <= safeMax; day += weeklyStepDays) {
+  if (safeMax < 365) {
+    const dayStep = safeMax <= 21
+      ? 7
+      : safeMax <= 70
+        ? 14
+        : safeMax <= 140
+          ? 28
+          : safeMax <= 240
+            ? 56
+            : 84;
+    for (let day = dayStep; day < safeMax; day += dayStep) {
       tickSet.add(day);
-    }
-    tickSet.add(365);
-
-    const tickvals = Array.from(tickSet)
-      .filter((day) => day >= 1 && day <= safeMax)
-      .sort((a, b) => a - b);
-
-    const ticktext = tickvals.map((day) => {
-      if (day === 365) return "1Y";
-      if (day >= 7 && day % 7 === 0) return `${day / 7}W`;
-      return day === 1 ? "1D" : `${day}D`;
-    });
-
-    return { tickvals, ticktext };
-  }
-
-  const yearCount = Math.floor(safeMax / 365.25);
-  if (yearCount >= 1) {
-    const isEightYearPreset = selectedRangeDays === 2920;
-    const desiredYearTicks = isAllRange ? 8 : (isEightYearPreset ? 8 : 4);
-    const rawYearStep = Math.max(1, Math.round(yearCount / desiredYearTicks));
-    const niceYearSteps = [1, 2, 3, 4, 5, 10];
-    const yearStep = niceYearSteps.find((step) => step >= rawYearStep) || rawYearStep;
-    for (let y = yearStep; y <= yearCount; y += yearStep) {
-      tickSet.add(Math.round(y * 365.25));
     }
   } else {
-    const desiredTicks = 5;
-    const target = safeMax / desiredTicks;
-    const niceDaySteps = [1, 2, 3, 5, 7, 10, 14, 21, 28, 35, 42, 56, 70, 84, 112, 140, 168, 210, 280];
-    const dayStep = niceDaySteps.find((step) => step >= target) || niceDaySteps[niceDaySteps.length - 1];
-    for (let day = dayStep; day <= safeMax; day += dayStep) {
-      tickSet.add(day);
+    const yearCount = Math.floor(safeMax / 365);
+    const monthStep = getStableRangeMonthTickStep(safeMax);
+    const yearStep = getStableYearTickStep(safeMax);
+    if (yearStep === 1) tickSet.add(365);
+    const maxMonths = Math.floor(safeMax / (365 / 12));
+    for (let months = monthStep; months <= maxMonths; months += monthStep) {
+      if (months % 12 === 0) continue;
+      tickSet.add(Math.round(months * 365 / 12));
     }
-  }
-
-  if (!isAllRange) {
-    tickSet.add(safeMax);
+    for (let y = yearStep; y <= yearCount; y += yearStep) {
+      tickSet.add(y * 365);
+    }
   }
 
   const tickvals = Array.from(tickSet)
@@ -707,10 +2731,18 @@ function buildDurationTickConfig(maxDays, selectedRangeDays = 0) {
     .sort((a, b) => a - b);
 
   const ticktext = tickvals.map((day) => {
-    const years = day / 365.25;
-    if (day >= 365 && Math.abs(years - Math.round(years)) < 0.03) {
-      const wholeYears = Math.round(years);
+    const years = day / 365;
+    if (day >= 365 && Number.isInteger(years)) {
+      const wholeYears = years;
       return `${wholeYears}Y`;
+    }
+    const months = Math.round(day / (365 / 12));
+    const monthDay = Math.round(months * 365 / 12);
+    if (months >= 2 && months % 12 !== 0 && Math.abs(day - monthDay) <= 2) {
+      return `${months}M`;
+    }
+    if (day > 365 && Math.abs(years - Math.round(years * 2) / 2) < 0.02) {
+      return `${(Math.round(years * 2) / 2).toFixed(1)}Y`;
     }
     if (day >= 14 && day % 7 === 0) {
       const weeks = day / 7;
@@ -722,54 +2754,130 @@ function buildDurationTickConfig(maxDays, selectedRangeDays = 0) {
   return { tickvals, ticktext };
 }
 
-function buildDateTickConfig(rows) {
+function buildDateTickConfig(rows, chartWidth = 900) {
   if (!rows.length) return { tickvals: [], ticktext: [] };
 
-  // Derive "today" from the most recent row (rows sorted ascending by daysAgo)
-  const newestRow = rows[0];
-  if (!newestRow.dateIso) return { tickvals: [], ticktext: [] };
-  const newestDate = new Date(newestRow.dateIso + "T00:00:00Z");
-  if (isNaN(newestDate.getTime())) return { tickvals: [], ticktext: [] };
-  const todayUtc = new Date(newestDate.getTime() + newestRow.daysAgo * 86400000);
+  const newestRow = rows.reduce((best, row) => {
+    if (!best) return row;
+    return Number(row.daysAgo) < Number(best.daysAgo) ? row : best;
+  }, null);
+  const oldestRow = rows.reduce((best, row) => {
+    if (!best) return row;
+    return Number(row.daysAgo) > Number(best.daysAgo) ? row : best;
+  }, null);
+  const newestDateMs = parseIsoDateMs(newestRow?.dateIso);
+  const oldestDateMs = parseIsoDateMs(oldestRow?.dateIso);
+  if (!Number.isFinite(newestDateMs) || !Number.isFinite(oldestDateMs)) return { tickvals: [], ticktext: [] };
 
+  const dateAxisRefMs = newestDateMs + ((Number(newestRow.daysAgo) - 1) * MS_PER_DAY);
+  const startMs = Math.min(oldestDateMs, newestDateMs);
+  const endMs = Math.max(oldestDateMs, newestDateMs);
   const maxDays = rows[rows.length - 1].daysAgo;
   const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const useYearsOnly = maxDays > 730;
-  const tickvals = [];
-  const ticktext = [];
-
-  if (useYearsOnly) {
-    const candidates = [];
-    for (let y = todayUtc.getUTCFullYear(); y >= 2009; y--) {
-      const jan1 = new Date(Date.UTC(y, 0, 1));
-      const daysAgo = Math.round((todayUtc.getTime() - jan1.getTime()) / 86400000);
-      if (daysAgo >= 1 && daysAgo <= maxDays) {
-        candidates.push({ daysAgo, label: String(y) });
-      }
-    }
-    // Thin ticks to avoid crowding (target ≤ 10 visible ticks)
-    const niceSteps = [1, 2, 3, 4, 5, 10];
-    const rawStep = Math.ceil(candidates.length / 10);
-    const step = niceSteps.find((s) => s >= rawStep) || rawStep;
-    candidates
-      .filter((_, i) => i % step === 0)
-      .forEach((c) => { tickvals.push(c.daysAgo); ticktext.push(c.label); });
-  } else {
-    const todayYear = todayUtc.getUTCFullYear();
-    const todayMonth = todayUtc.getUTCMonth();
-    for (let y = todayYear; y >= 2009; y--) {
-      const mEnd = y === todayYear ? todayMonth : 11;
-      for (let m = mEnd; m >= 0; m--) {
-        const monthStart = new Date(Date.UTC(y, m, 1));
-        const daysAgo = Math.round((todayUtc.getTime() - monthStart.getTime()) / 86400000);
-        if (daysAgo < 1 || daysAgo > maxDays) continue;
-        tickvals.push(daysAgo);
-        ticktext.push(m === 0 ? String(y) : monthNames[m]);
-      }
-    }
+  const monthStarts = [];
+  let cursor = new Date(Date.UTC(
+    new Date(startMs).getUTCFullYear(),
+    new Date(startMs).getUTCMonth(),
+    1,
+  ));
+  if (cursor.getTime() < startMs) {
+    cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1));
+  }
+  while (cursor.getTime() <= endMs) {
+    monthStarts.push(new Date(cursor.getTime()));
+    cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1));
   }
 
-  return { tickvals, ticktext };
+  if (!monthStarts.length) return { tickvals: [], ticktext: [] };
+
+  const monthStep = getStableDateTickMonthStep(maxDays);
+  const selected = new Set();
+
+  monthStarts.forEach((date, index) => {
+    const absoluteMonth = date.getUTCFullYear() * 12 + date.getUTCMonth();
+    if (absoluteMonth % monthStep === 0) {
+      selected.add(index);
+    }
+  });
+
+  if (!selected.size) selected.add(0);
+
+  const ticks = monthStarts
+    .filter((_, index) => selected.has(index))
+    .map((date) => {
+      const daysAgo = Math.round((dateAxisRefMs - date.getTime()) / MS_PER_DAY) + 1;
+      const month = date.getUTCMonth();
+      return {
+        daysAgo,
+        label: month === 0 ? String(date.getUTCFullYear()) : monthNames[month],
+      };
+    })
+    .filter((tick) => tick.daysAgo >= 1 && tick.daysAgo <= maxDays)
+    .sort((a, b) => b.daysAgo - a.daysAgo);
+
+  return {
+    tickvals: ticks.map((tick) => tick.daysAgo),
+    ticktext: ticks.map((tick) => tick.label),
+  };
+}
+
+function getStableYearTickStep(maxDays) {
+  const days = Math.max(1, Number(maxDays) || 1);
+  return days > TWO_YEAR_TICK_THRESHOLD_DAYS ? 2 : 1;
+}
+
+function getStableRangeMonthTickStep(maxDays) {
+  const days = Math.max(1, Number(maxDays) || 1);
+  if (days <= FOUR_MONTH_TICK_THRESHOLD_DAYS) return 4;
+  if (days <= SIX_MONTH_TICK_THRESHOLD_DAYS) return 6;
+  if (days <= TWO_YEAR_TICK_THRESHOLD_DAYS) return 12;
+  return 24;
+}
+
+function getStableDateTickMonthStep(maxDays) {
+  const days = Math.max(1, Number(maxDays) || 1);
+  if (days > ONE_YEAR_TICK_THRESHOLD_DAYS) {
+    return getStableRangeMonthTickStep(days);
+  }
+  const months = Math.max(1, Math.round(days / 30.4375));
+  if (months <= 4) return 1;
+  if (months <= 9) return 2;
+  if (months <= 16) return 3;
+  if (months <= 30) return 6;
+  return 12;
+}
+
+function getVisibleDateAxisReferenceMs(rows) {
+  if (!Array.isArray(rows) || !rows.length) return NaN;
+  const newestRow = rows.reduce((best, row) => {
+    if (!best) return row;
+    return Number(row.daysAgo) < Number(best.daysAgo) ? row : best;
+  }, null);
+  const newestDateMs = parseIsoDateMs(newestRow?.dateIso);
+  const newestDaysAgo = Number(newestRow?.daysAgo);
+  if (!Number.isFinite(newestDateMs) || !Number.isFinite(newestDaysAgo)) return NaN;
+  return newestDateMs + ((newestDaysAgo - 1) * MS_PER_DAY);
+}
+
+function getVisibleHalvings(rows, maxDays) {
+  if (!state.showHalvings) return [];
+  const halvings = Array.isArray(state.metadata?.halvings) ? state.metadata.halvings : [];
+  const referenceMs = getVisibleDateAxisReferenceMs(rows);
+
+  return halvings
+    .map((h) => {
+      const eventDate = String(h.date || "");
+      const eventMs = parseIsoDateMs(eventDate);
+      const daysAgo = Number.isFinite(referenceMs) && Number.isFinite(eventMs)
+        ? Math.round((referenceMs - eventMs) / MS_PER_DAY)
+        : Number(h.days_ago);
+      return {
+        label: String(h.label || "Halving"),
+        date: eventDate,
+        daysAgo,
+      };
+    })
+    .filter((h) => Number.isFinite(h.daysAgo) && h.daysAgo >= 1 && h.daysAgo <= maxDays);
 }
 
 function updateKpis(rows) {
@@ -797,13 +2905,8 @@ function updateKpis(rows) {
     total ? `${(lossCount / total * 100).toFixed(1)}%` : "-%";
 }
 
-function buildHalvingShapes(maxDays, colors) {
-  if (!state.showHalvings) return [];
-  const halvings = Array.isArray(state.metadata?.halvings) ? state.metadata.halvings : [];
-
-  return halvings
-    .map((h) => ({ label: String(h.label || "Halving"), daysAgo: Number(h.days_ago) }))
-    .filter((h) => Number.isFinite(h.daysAgo) && h.daysAgo >= 1 && h.daysAgo <= maxDays)
+function buildHalvingShapes(maxDays, colors, rows) {
+  return getVisibleHalvings(rows, maxDays)
     .map((h) => ({
       type: "line",
       x0: h.daysAgo,
@@ -811,17 +2914,12 @@ function buildHalvingShapes(maxDays, colors) {
       y0: 0,
       y1: 1,
       yref: "paper",
-      line: { color: colors.halvingLine, width: 1.4, dash: "dot" },
+      line: { color: colors.halvingLine, width: 1.4 },
     }));
 }
 
-function buildHalvingAnnotations(maxDays, colors) {
-  if (!state.showHalvings) return [];
-  const halvings = Array.isArray(state.metadata?.halvings) ? state.metadata.halvings : [];
-
-  return halvings
-    .map((h) => ({ label: String(h.label || "Halving"), date: String(h.date || ""), daysAgo: Number(h.days_ago) }))
-    .filter((h) => Number.isFinite(h.daysAgo) && h.daysAgo >= 1 && h.daysAgo <= maxDays)
+function buildHalvingAnnotations(maxDays, colors, rows) {
+  return getVisibleHalvings(rows, maxDays)
     .flatMap((h) => {
       const base = {
         x: h.daysAgo,
@@ -854,6 +2952,76 @@ function buildHalvingAnnotations(maxDays, colors) {
         },
       ];
     });
+}
+
+function buildHalvingCostBasisCallouts(maxDays, colors, rows, xForDay, yForValue, plotLeft, plotRight, plotTop, plotBottom, labelSizes) {
+  const plotWidth = Math.max(1, plotRight - plotLeft);
+  const plotHeight = Math.max(1, plotBottom - plotTop);
+  const lineLength = Math.min(33, Math.max(19.5, Math.min(plotWidth, plotHeight) * 0.039));
+  const crossoverGap = 4;
+  const labelGap = 0;
+  const labelLineGap = 0;
+  const fontSize = Math.max(12, Math.round(Number(labelSizes?.halvingCostBasis) || 12));
+
+  return getVisibleHalvings(rows, maxDays)
+    .map((halving) => {
+      const row = findNearestRowByDays(rows, halving.daysAgo);
+      const basis = Number(row?.dcaBasis);
+      if (!Number.isFinite(basis) || basis <= 0) return "";
+
+      const x = xForDay(halving.daysAgo);
+      const y = yForValue(basis);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return "";
+
+      const minLineX = plotLeft + 6;
+      const minLineY = plotTop + 16;
+      const availableLeft = Math.max(0, x - minLineX);
+      const transition = Math.max(0, Math.min(1, availableLeft / Math.max(1, lineLength + crossoverGap)));
+      const easedTransition = transition * transition * (3 - (2 * transition));
+      const effectiveGap = crossoverGap * easedTransition;
+      const lineStartX = Math.max(minLineX, Math.min(plotRight - 18, x - effectiveGap));
+      const lineStartY = Math.max(minLineY, Math.min(plotBottom - 8, y - effectiveGap));
+      const leftSpace = lineStartX - minLineX;
+      const topSpace = lineStartY - minLineY;
+      const hasFullVerticalRoom = topSpace >= lineLength;
+      const constrainedLineLength = Math.max(8, Math.min(lineLength, topSpace));
+      const horizontalLength = hasFullVerticalRoom
+        ? Math.max(0, Math.min(lineLength, leftSpace))
+        : Math.max(0, Math.min(constrainedLineLength, leftSpace));
+      const useVerticalCallout = horizontalLength < 1;
+      const drawStartX = useVerticalCallout ? x : lineStartX;
+      const label = fmtUsd(basis, 0);
+      const estimatedTextWidth = label.length * fontSize * 0.62;
+      const geometricLineEndX = useVerticalCallout ? x : drawStartX - horizontalLength;
+      const centeredTextAnchorX = x + (estimatedTextWidth / 2);
+      const rightAlignedTextAnchorX = Math.max(plotLeft + 6 + estimatedTextWidth, geometricLineEndX - labelLineGap);
+      const textAnchorX = Math.min(
+        centeredTextAnchorX + ((rightAlignedTextAnchorX - centeredTextAnchorX) * easedTransition),
+        x + (estimatedTextWidth / 2),
+      );
+      const labelCenterX = textAnchorX - (estimatedTextWidth / 2);
+      const labelLeftShift = Math.max(0, x - labelCenterX);
+      const labelDrivenTopShift = Math.min(horizontalLength, labelLeftShift * 0.5);
+      const labelEdgeAttachX = Math.min(drawStartX, x, textAnchorX + labelLineGap);
+      const lineEndX = useVerticalCallout
+        ? x
+        : (hasFullVerticalRoom
+          ? Math.max(minLineX, Math.min(x - labelDrivenTopShift, labelEdgeAttachX))
+          : Math.min(geometricLineEndX, x - labelDrivenTopShift));
+      const verticalLength = useVerticalCallout
+        ? constrainedLineLength
+        : (hasFullVerticalRoom ? lineLength : drawStartX - lineEndX);
+      const lineEndY = lineStartY - verticalLength;
+      const textY = Math.max(plotTop + fontSize, lineEndY - labelGap);
+      const renderedStartX = useVerticalCallout ? x : Math.min(drawStartX, x);
+      const renderedEndX = Math.min(lineEndX, renderedStartX, x);
+
+      return `
+        <line x1="${renderedEndX.toFixed(2)}" y1="${lineEndY.toFixed(2)}" x2="${renderedStartX.toFixed(2)}" y2="${lineStartY.toFixed(2)}" stroke="${colors.halvingCalloutLine}" stroke-width="1.2" />
+        <text x="${textAnchorX.toFixed(2)}" y="${textY.toFixed(2)}" text-anchor="end" dominant-baseline="text-after-edge" fill="${colors.basis}" stroke="${colors.bg || "#000000"}" stroke-width="3" stroke-linejoin="round" paint-order="stroke fill" font-family="${CHART_MONO_FONT_ATTR}" font-size="${fontSize}">${escapeHtml(label)}</text>
+      `;
+    })
+    .join("");
 }
 
 function ensureCurrentPriceOverlay(chart) {
@@ -903,12 +3071,16 @@ function syncCurrentPriceOverlay(chart, currentPrice, colors) {
   }
 
   overlay.textContent = fmtUsd(currentPrice, 0);
+  const geometry = chart?.__dcaChartGeometry;
+  const overlayTextPad = 6;
+  const leftPx = (chart?.offsetLeft || 0) + (Number(geometry?.plotRight) || 0) + 8 - overlayTextPad;
+  const labelSizes = getResponsiveChartLabelSizes(chart?.clientWidth || chart?.parentElement?.clientWidth || window.innerWidth);
+  const overlayMetrics = getCurrentPriceOverlayMetrics(labelSizes);
+  overlay.style.setProperty("--current-price-overlay-left", `${leftPx}px`);
+  overlay.style.setProperty("--current-price-overlay-font-size", `${labelSizes.currentPrice}px`);
+  overlay.style.setProperty("--current-price-overlay-min-width", `${overlayMetrics.minWidth}px`);
   overlay.style.top = `${topPx}px`;
   overlay.style.color = colors.fg;
-  overlay.style.borderColor = colors.grid;
-  overlay.style.background = document.documentElement.dataset.theme === "light"
-    ? "rgba(255,255,255,0.90)"
-    : "rgba(0,0,0,0.82)";
   overlay.hidden = false;
 }
 
@@ -945,43 +3117,245 @@ function niceNumber(value, shouldRound) {
   return niceFraction * (10 ** exponent);
 }
 
-function buildLinearYAxisConfig(values, tickCount = 10) {
+function formatCompactUsdAxisLabel(value) {
+  if (!Number.isFinite(value) || value < 0) return "$0";
+  if (value === 0) return "$0";
+
+  let formatted;
+  if (value < 1) {
+    const cents = value * 100;
+    if (cents >= 10) {
+      formatted = `${cents.toFixed(cents < 1000 ? 2 : 0)}¢`;
+    } else if (cents > 0 && cents < 1e-20) {
+      formatted = `${cents.toExponential(2).replace("e+", "e")}¢`;
+    } else {
+      const magnitude = Math.floor(Math.log10(Math.max(cents, 1e-30)));
+      const decimals = cents >= 1 ? 2 : Math.min(24, Math.max(2, (-magnitude) + 2));
+      formatted = `${cents.toFixed(decimals)}¢`;
+    }
+    if (formatted.includes(".") && !formatted.includes("e")) {
+      formatted = formatted.replace(/0+(?=¢$)/, "").replace(/\.(?=¢$)/, "");
+    }
+    return formatted;
+  }
+
+  if (value >= 1000000000000) {
+    const t = value / 1000000000000;
+    formatted = t >= 10 ? `${t.toFixed(0)}T` : `${t.toFixed(1)}T`;
+  } else if (value >= 1000000000) {
+    const b = value / 1000000000;
+    formatted = b >= 10 ? `${b.toFixed(0)}B` : `${b.toFixed(1)}B`;
+  } else if (value >= 1000000) {
+    const m = value / 1000000;
+    formatted = m >= 10 ? `${m.toFixed(0)}M` : `${m.toFixed(1)}M`;
+  } else if (value >= 100000) {
+    const k = value / 1000;
+    formatted = k >= 100 ? `${k.toFixed(0)}k` : `${k.toFixed(1)}k`;
+  } else if (value >= 1000) {
+    const k = value / 1000;
+    formatted = `${k.toFixed(k < 10 ? 2 : 1)}k`;
+  } else if (value >= 100) {
+    formatted = `${Math.round(value)}`;
+  } else if (value >= 10) {
+    formatted = `${value.toFixed(1)}`;
+  } else if (value >= 1) {
+    if (value >= 0.95 && value <= 1.05) formatted = `${value.toFixed(4)}`;
+    else if (value < 2) formatted = `${value.toFixed(3)}`;
+    else formatted = `${value.toFixed(2)}`;
+  } else if (value > 0 && value < 1e-8) {
+    formatted = value.toExponential(2).replace("e+", "e").replace(/e-0+/, "e-");
+  } else {
+    const decimals = value < 0.001
+      ? Math.min(24, Math.max(4, -Math.floor(Math.log10(value)) + 2))
+      : 3;
+    formatted = `${value.toFixed(decimals)}`;
+  }
+
+  if (formatted.includes(".") && !formatted.includes("e")) {
+    formatted = formatted
+      .replace(/\.0+(?=[a-zA-Z]$)/, "")
+      .replace(/(\.\d*?[1-9])0+(?=[a-zA-Z]$)/, "$1")
+      .replace(/0+$/, "");
+    if (formatted.endsWith(".")) formatted = formatted.slice(0, -1);
+  }
+
+  return `$${formatted}`;
+}
+
+function formatUsdAxisTickLabels(values) {
+  const tickvals = Array.isArray(values)
+    ? values.filter((value) => Number.isFinite(value))
+    : [];
+  if (!tickvals.length) return [];
+
+  const baseLabels = tickvals.map((value) => formatCompactUsdAxisLabel(value));
+  if (new Set(baseLabels).size === baseLabels.length) return baseLabels;
+
+  const finiteSorted = tickvals.slice().sort((a, b) => a - b);
+  let minStep = Infinity;
+  for (let index = 1; index < finiteSorted.length; index += 1) {
+    const delta = Math.abs(finiteSorted[index] - finiteSorted[index - 1]);
+    if (delta > 0) minStep = Math.min(minStep, delta);
+  }
+  const neededDecimals = Number.isFinite(minStep) && minStep > 0
+    ? Math.max(0, Math.min(8, Math.ceil(-Math.log10(minStep)) + 1))
+    : 2;
+  const maxDecimals = Math.max(neededDecimals, 2);
+
+  for (let decimals = 1; decimals <= maxDecimals; decimals += 1) {
+    const labels = tickvals.map((value) => `$${value.toLocaleString("en-US", {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    })}`);
+    if (new Set(labels).size === labels.length) return labels;
+  }
+
+  return tickvals.map((value) => `$${value.toLocaleString("en-US", {
+    minimumFractionDigits: maxDecimals,
+    maximumFractionDigits: maxDecimals,
+  })}`);
+}
+
+function buildLinearTicks(min, max, count = 5) {
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return [];
+  const targetCount = Math.max(3, count);
+
+  if (Math.abs(max - min) < 1e-12) {
+    const scale = Math.max(Math.abs(min), Math.abs(max), LOG_MIN_POSITIVE);
+    const epsilon = Math.max(scale * 1e-6, Number.EPSILON * scale * 16);
+    const start = min - epsilon;
+    const end = max + epsilon;
+    return Array.from({ length: targetCount }, (_, index) => (
+      start + (((end - start) * index) / (targetCount - 1))
+    ));
+  }
+
+  const rawStep = (max - min) / (targetCount - 1);
+  const exponent = Math.floor(Math.log10(Math.abs(rawStep)));
+  const niceBases = [1, 2, 2.5, 5, 10];
+  const stepCandidates = [];
+
+  for (let exp = exponent - 3; exp <= exponent + 3; exp += 1) {
+    const scale = 10 ** exp;
+    niceBases.forEach((base) => stepCandidates.push(base * scale));
+  }
+  stepCandidates.sort((a, b) => a - b);
+
+  let candidateIndex = stepCandidates.findIndex((step) => step >= rawStep);
+  if (candidateIndex < 0) candidateIndex = stepCandidates.length - 1;
+
+  const buildTicksForStep = (step) => {
+    const valueScale = Math.max(Math.abs(min), Math.abs(max), LOG_MIN_POSITIVE);
+    const eps = Math.max(Math.abs(step) * 1e-9, valueScale * 1e-12, Number.EPSILON * valueScale * 16);
+    const start = Math.ceil((min - eps) / step) * step;
+    const end = Math.floor((max + eps) / step) * step;
+    const ticks = [];
+    for (let value = start; value <= end + eps; value += step) {
+      ticks.push(Number(value.toPrecision(15)));
+    }
+    return ticks;
+  };
+
+  let ticks = buildTicksForStep(stepCandidates[candidateIndex]);
+  while (ticks.length < 3 && candidateIndex > 0) {
+    candidateIndex -= 1;
+    ticks = buildTicksForStep(stepCandidates[candidateIndex]);
+  }
+  while (ticks.length > 12 && candidateIndex < stepCandidates.length - 1) {
+    const nextTicks = buildTicksForStep(stepCandidates[candidateIndex + 1]);
+    if (nextTicks.length < 3) break;
+    candidateIndex += 1;
+    ticks = nextTicks;
+  }
+
+  if (ticks.length >= 3) return ticks;
+  return Array.from({ length: targetCount }, (_, index) => min + (((max - min) * index) / (targetCount - 1)));
+}
+
+function buildLogTicks(min, max) {
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min <= 0 || max <= 0) return [];
+  const minLog = Math.log10(min);
+  const maxLog = Math.log10(max);
+  const span = maxLog - minLog;
+
+  if (span < 1) {
+    const linearTicks = buildLinearTicks(min, max, 6)
+      .filter((value) => value > 0)
+      .sort((a, b) => a - b);
+    return linearTicks.length >= 3 ? linearTicks : buildLinearTicks(min, max, 4).filter((value) => value > 0);
+  }
+
+  const factors = span >= 3
+    ? [1]
+    : span >= 2
+      ? [1, 5]
+      : [1, 2, 5];
+  const ticks = [];
+
+  for (let exp = Math.floor(minLog); exp <= Math.ceil(maxLog); exp += 1) {
+    const base = 10 ** exp;
+    factors.forEach((factor) => {
+      const value = factor * base;
+      if (value >= min && value <= max) ticks.push(Number(value.toPrecision(15)));
+    });
+  }
+
+  const uniqueTicks = Array.from(new Set(ticks)).sort((a, b) => a - b);
+  return uniqueTicks.length >= 3 ? uniqueTicks : buildLinearTicks(min, max, 4).filter((value) => value > 0);
+}
+
+function buildLinearYAxisConfig(values, tickCount = 8) {
   const safeValues = values.filter((value) => Number.isFinite(value) && value >= 0);
   if (!safeValues.length) {
     return {
       min: 1,
       max: 10,
       tickvals: [1, 5, 10],
-      ticktext: [fmtUsd(1, 0), fmtUsd(5, 0), fmtUsd(10, 0)],
+      ticktext: formatUsdAxisTickLabels([1, 5, 10]),
     };
   }
 
-  const minValue = Math.min(...safeValues);
-  const maxValue = Math.max(...safeValues);
-  const rawSpan = maxValue - minValue;
-  const span = rawSpan > 1e-9 ? rawSpan : Math.max(Math.abs(maxValue) * 0.1, 1);
-  const pad = span * 0.05;
-  const paddedMin = minValue - pad;
-  const paddedMax = maxValue + pad;
-  const range = niceNumber(Math.max(paddedMax - paddedMin, Math.abs(maxValue) * 0.15), false);
-  const step = niceNumber(range / Math.max(2, tickCount - 1), true);
-  const minTick = Math.ceil(paddedMin / step) * step;
-  const maxTick = Math.floor(paddedMax / step) * step;
-  const tickvals = [];
+  const dataMin = Math.min(...safeValues);
+  const dataMax = Math.max(...safeValues);
+  const dataRange = dataMax - dataMin;
+  const midpoint = (dataMax + dataMin) / 2;
+  const hasPositiveMidpoint = Number.isFinite(midpoint) && midpoint > 0;
+  const relativeSpread = hasPositiveMidpoint ? (dataRange / midpoint) : Infinity;
+  const valueScale = Math.max(Math.abs(dataMin), Math.abs(dataMax), LOG_MIN_POSITIVE);
+  const nearConstantByScale = Math.abs(dataRange) <= Math.max(
+    valueScale * 1e-12,
+    Number.EPSILON * valueScale * 64,
+  );
+  let min;
+  let max;
 
-  for (let value = minTick; value <= maxTick + (step * 0.5); value += step) {
-    tickvals.push(Number(value.toPrecision(12)));
+  if (hasPositiveMidpoint && relativeSpread < 0.01) {
+    const lowerPadAmount = midpoint * 0.02;
+    const upperPadAmount = midpoint * 0.02;
+    min = midpoint - lowerPadAmount;
+    max = midpoint + upperPadAmount;
+  } else if (nearConstantByScale) {
+    const lowerPadAmount = Math.max(valueScale * 0.02, Number.EPSILON * valueScale * 64);
+    const upperPadAmount = Math.max(valueScale * 0.02, Number.EPSILON * valueScale * 64);
+    min = dataMin - lowerPadAmount;
+    max = dataMax + upperPadAmount;
+  } else {
+    const lowerPadAmount = dataRange * 0.02;
+    const upperPadAmount = dataRange * 0.02;
+    min = dataMin - lowerPadAmount;
+    max = dataMax + upperPadAmount;
   }
-
-  if (!tickvals.length) {
-    tickvals.push(Number(paddedMax.toPrecision(12)));
+  let tickvals = buildLinearTicks(min, max, tickCount);
+  if (dataMin >= 0) {
+    tickvals = tickvals.filter((value) => value >= 0);
+    if (!tickvals.length) tickvals = [0, Math.max(0, dataMax)];
   }
 
   return {
-    min: paddedMin,
-    max: paddedMax,
+    min,
+    max,
     tickvals,
-    ticktext: tickvals.map((value) => formatPriceAxisTick(value)),
+    ticktext: formatUsdAxisTickLabels(tickvals),
   };
 }
 
@@ -1000,26 +3374,29 @@ function buildYScaleConfig(values, scaleMode) {
       };
     }
 
-    let minValue = Math.min(...safeValues);
-    let maxValue = Math.max(...safeValues);
+    const dataMin = Math.min(...safeValues);
+    const dataMax = Math.max(...safeValues);
+    const safeMin = Math.max(dataMin, LOG_MIN_POSITIVE);
+    const safeMax = Math.max(dataMax, safeMin * (1 + 1e-15));
+    const logSpan = Math.log(safeMax / safeMin);
+    let min;
+    let max;
 
-    if (Math.abs(maxValue - minValue) < 1e-9) {
-      minValue *= 0.92;
-      maxValue *= 1.08;
+    if (logSpan < 1e-6) {
+      const center = Math.max(safeMin, LOG_MIN_POSITIVE);
+      min = center / 1.02;
+      max = center * 1.02;
+    } else {
+      const lowerLogPad = Math.max(logSpan * 0.02, 1e-6);
+      const upperLogPad = Math.max(logSpan * 0.02, 1e-6);
+      min = safeMin / Math.exp(lowerLogPad);
+      max = safeMax * Math.exp(upperLogPad);
     }
 
-    const minLog = Math.log10(minValue);
-    const maxLog = Math.log10(maxValue);
-    const logSpan = Math.max(1e-9, maxLog - minLog);
-    const logPad = logSpan * 0.05;
-    const domainMinLog = minLog - logPad;
-    const domainMaxLog = maxLog + logPad;
-    const min = 10 ** domainMinLog;
-    const max = 10 ** domainMaxLog;
-    const ticks = buildLogTickConfig(safeValues)
-      .tickvals
-      .filter((value) => value >= min && value <= max);
-    const ticktext = ticks.map((value) => fmtUsdCompactTick(value));
+    const ticks = buildLogTicks(min, max);
+    const ticktext = formatUsdAxisTickLabels(ticks);
+    const domainMinLog = Math.log10(min);
+    const domainMaxLog = Math.log10(max);
 
     return {
       min,
@@ -1086,7 +3463,22 @@ function filterTicksByPixelSpacing(tickvals, ticktext, positionForValue, minSpac
   };
 }
 
-function limitTicksToCount(ticks, targetCount) {
+function filterDateTicksByPixelSpacing(tickvals, ticktext, positionForValue, minSpacing) {
+  const values = Array.isArray(tickvals) ? tickvals : [];
+  const text = Array.isArray(ticktext) ? ticktext : [];
+  if (values.length <= 2) {
+    return { tickvals: values.slice(), ticktext: text.slice() };
+  }
+
+  const years = text.map((label) => (/^\d{4}$/.test(String(label || "")) ? Number(label) : NaN));
+  const allYears = years.every((year) => Number.isFinite(year));
+  if (allYears) {
+    return { tickvals: values.slice(), ticktext: text.slice() };
+  }
+  return filterTicksByPixelSpacing(values, text, positionForValue, minSpacing);
+}
+
+function limitTicksToEvenStride(ticks, targetCount) {
   const values = Array.isArray(ticks?.tickvals) ? ticks.tickvals : [];
   const text = Array.isArray(ticks?.ticktext) ? ticks.ticktext : [];
   const desiredCount = Math.max(2, Math.round(targetCount || 0));
@@ -1098,26 +3490,73 @@ function limitTicksToCount(ticks, targetCount) {
     };
   }
 
-  const lastIndex = values.length - 1;
-  const kept = new Set([0, lastIndex]);
-
-  // Keep all whole-year duration markers (e.g. 1Y, 2Y, 4Y) so key anchors
-  // are never dropped when matching top-axis density.
-  text.forEach((label, index) => {
-    if (/^\d+Y$/i.test(String(label || "").trim())) {
-      kept.add(index);
-    }
-  });
-
-  for (let i = 1; i < desiredCount - 1; i += 1) {
-    const ratio = i / Math.max(1, desiredCount - 1);
-    kept.add(Math.round(ratio * lastIndex));
+  const stride = Math.max(2, Math.ceil(values.length / desiredCount));
+  const indices = [];
+  for (let index = 0; index < values.length; index += stride) {
+    indices.push(index);
   }
 
-  const indices = Array.from(kept).sort((left, right) => left - right);
   return {
     tickvals: indices.map((index) => values[index]),
     ticktext: indices.map((index) => text[index]),
+  };
+}
+
+function limitDateTicksToAnchoredStride(ticks, targetCount) {
+  const values = Array.isArray(ticks?.tickvals) ? ticks.tickvals : [];
+  const text = Array.isArray(ticks?.ticktext) ? ticks.ticktext : [];
+  const desiredCount = Math.max(2, Math.round(targetCount || 0));
+  if (values.length <= desiredCount) {
+    return {
+      tickvals: values.slice(),
+      ticktext: text.slice(),
+    };
+  }
+
+  const years = text.map((label) => (/^\d{4}$/.test(String(label || "")) ? Number(label) : NaN));
+  const allYears = years.every((year) => Number.isFinite(year));
+  if (!allYears) return limitTicksToEvenStride(ticks, desiredCount);
+
+  const stride = Math.max(2, Math.ceil(values.length / desiredCount));
+  const indices = years
+    .map((year, index) => ({ year, index }))
+    .filter(({ year }) => year % stride === 0)
+    .map(({ index }) => index);
+
+  if (indices.length >= 2) {
+    return {
+      tickvals: indices.map((index) => values[index]),
+      ticktext: indices.map((index) => text[index]),
+    };
+  }
+
+  return limitTicksToEvenStride(ticks, desiredCount);
+}
+
+function balanceXAxisTickCounts(bottomTicks, topTicks) {
+  const bottomCount = Array.isArray(bottomTicks?.tickvals) ? bottomTicks.tickvals.length : 0;
+  const topCount = Array.isArray(topTicks?.tickvals) ? topTicks.tickvals.length : 0;
+  if (bottomCount < 3 || topCount < 3) return { bottomTicks, topTicks };
+
+  const topText = Array.isArray(topTicks?.ticktext) ? topTicks.ticktext : [];
+  const topIsRangeAnchoredYears = topText.length === topCount
+    && topText.every((label) => /^\d{4}$/.test(String(label || "")));
+  if (topIsRangeAnchoredYears) return { bottomTicks, topTicks };
+
+  const allowedDelta = 3;
+  const largerCount = Math.max(bottomCount, topCount);
+  const smallerCount = Math.max(1, Math.min(bottomCount, topCount));
+  if (Math.abs(bottomCount - topCount) <= allowedDelta && largerCount / smallerCount < 1.75) {
+    return { bottomTicks, topTicks };
+  }
+
+  if (bottomCount > topCount) {
+    return { bottomTicks, topTicks };
+  }
+
+  return {
+    bottomTicks,
+    topTicks: limitDateTicksToAnchoredStride(topTicks, Math.max(bottomCount + allowedDelta, Math.ceil(bottomCount * 1.5))),
   };
 }
 
@@ -1147,6 +3586,34 @@ function buildLinePath(days, values, xForDay, yForValue) {
   return path.trim();
 }
 
+function buildLegendSvgMarkup(colors, labelSizes, options = {}) {
+  const fontSize = Number(options.fontSize) || Number(labelSizes?.tick) || 14;
+  const xStart = Number(options.x) || 24;
+  const y = Number(options.y) || Math.round(fontSize * 1.45);
+  const swatchWidth = Math.max(22, Math.round(fontSize * 1.6));
+  const swatchStroke = Math.max(3, fontSize * 0.22);
+  const itemGap = Math.max(18, Math.round(fontSize * 1.15));
+  const textGap = Math.max(7, Math.round(fontSize * 0.45));
+  const charWidth = fontSize * 0.62;
+  const items = [
+    { label: "Positive ROI", color: colors.up },
+    { label: "Negative ROI", color: colors.down },
+    { label: "DCA Cost Basis", color: colors.basis },
+    { label: "Current Price", color: colors.currentLine, dashed: true },
+  ];
+  let x = xStart;
+  return items.map((item) => {
+    const itemStroke = item.dashed ? Math.max(1.5, fontSize * 0.12) : swatchStroke;
+    const lineCap = item.dashed ? "butt" : "round";
+    const dashAttrs = item.dashed ? ' stroke-dasharray="6 4"' : "";
+    const line = `<line x1="${x.toFixed(2)}" y1="${y.toFixed(2)}" x2="${(x + swatchWidth).toFixed(2)}" y2="${y.toFixed(2)}" stroke="${item.color}" stroke-width="${itemStroke.toFixed(2)}" stroke-linecap="${lineCap}"${dashAttrs} />`;
+    const textX = x + swatchWidth + textGap;
+    const text = `<text x="${textX.toFixed(2)}" y="${(y + fontSize * 0.35).toFixed(2)}" text-anchor="start" fill="${colors.muted}" font-family="${CHART_MONO_FONT_ATTR}" font-size="${fontSize}">${escapeHtml(item.label)}</text>`;
+    x = textX + (item.label.length * charWidth) + itemGap;
+    return `${line}${text}`;
+  }).join("");
+}
+
 function buildChartSvgMarkup(options) {
   const {
     width,
@@ -1171,87 +3638,164 @@ function buildChartSvgMarkup(options) {
     topTickY,
     bottomTickY,
     bottomTitleY,
+    labelSizes = getResponsiveChartLabelSizes(width),
+    yScale = state.yScale,
+    renderCurrentPriceLabel = false,
+    renderLegend = false,
+    legendFontSize = null,
+    legendY = null,
+    exportHalvingLabelSpacing = false,
+    axisTitleX = null,
+    startDateX = null,
+    currentDateX = null,
+    headerTitle = "",
+    topAxisTitle = "DCA Starting Date",
+    bottomAxisTitle = "DCA Duration",
+    lineWidths = {},
   } = options;
+  const gridStrokeWidth = Number(lineWidths.grid) || 1;
+  const priceStrokeWidth = Number(lineWidths.price) || 2.25;
+  const basisStrokeWidth = Number(lineWidths.basis) || 3.5;
+  const currentStrokeWidth = Number(lineWidths.current) || 1.5;
 
   const plotWidth = plotRight - plotLeft;
   const plotHeight = plotBottom - plotTop;
+  const axisTitleCenterX = Number.isFinite(Number(axisTitleX))
+    ? Number(axisTitleX)
+    : plotLeft + (plotWidth / 2);
+  const startDateLabelX = Number.isFinite(Number(startDateX)) ? Number(startDateX) : plotLeft;
+  const currentDateLabelX = Number.isFinite(Number(currentDateX)) ? Number(currentDateX) : xForDay(1);
   const xDays = rows.map((row) => row.daysAgo);
   const basisPath = buildLinePath(xDays, dcaBasis, xForDay, yForValue);
   const upPath = buildLinePath(xDays, priceUp, xForDay, yForValue);
   const downPath = buildLinePath(xDays, priceDown, xForDay, yForValue);
   const currentY = yForValue(currentPrice);
+  const currentDateRow = rows.reduce((best, row) => {
+    if (!best) return row;
+    return Number(row.daysAgo) < Number(best.daysAgo) ? row : best;
+  }, null);
+  const currentDateLabel = currentDateRow?.dateIso || "";
+  const startDateRow = rows.reduce((best, row) => {
+    if (!best) return row;
+    return Number(row.daysAgo) > Number(best.daysAgo) ? row : best;
+  }, null);
+  const startDateLabel = startDateRow?.dateIso || "";
 
   const topVerticalGrid = topTicks.tickvals.map((day) => {
     const x = xForDay(day);
-    return `<line x1="${x.toFixed(2)}" y1="${plotTop}" x2="${x.toFixed(2)}" y2="${plotBottom}" stroke="${colors.grid}" stroke-width="1" />`;
+    return `<line x1="${x.toFixed(2)}" y1="${plotTop}" x2="${x.toFixed(2)}" y2="${plotBottom}" stroke="${colors.grid}" stroke-width="${gridStrokeWidth}" />`;
   }).join("");
 
   const verticalGrid = bottomTicks.tickvals.map((day) => {
     const x = xForDay(day);
-    return `<line x1="${x.toFixed(2)}" y1="${plotTop}" x2="${x.toFixed(2)}" y2="${plotBottom}" stroke="${colors.grid}" stroke-width="1" />`;
+    return `<line x1="${x.toFixed(2)}" y1="${plotTop}" x2="${x.toFixed(2)}" y2="${plotBottom}" stroke="${colors.grid}" stroke-width="${gridStrokeWidth}" />`;
   }).join("");
 
   const horizontalGrid = rightTicks.tickvals.map((value) => {
     const y = yForValue(value);
-    return `<line x1="${plotLeft}" y1="${y.toFixed(2)}" x2="${plotRight}" y2="${y.toFixed(2)}" stroke="${colors.grid}" stroke-width="1" />`;
+    return `<line x1="${plotLeft}" y1="${y.toFixed(2)}" x2="${plotRight}" y2="${y.toFixed(2)}" stroke="${colors.grid}" stroke-width="${gridStrokeWidth}" />`;
   }).join("");
 
   const bottomTickLabels = bottomTicks.tickvals.map((day, index) => {
     const x = xForDay(day);
-    return `<text x="${x.toFixed(2)}" y="${bottomTickY}" text-anchor="middle" fill="${colors.fg}" font-family="IBM Plex Mono, monospace" font-size="12">${escapeHtml(bottomTicks.ticktext[index] || "")}</text>`;
+    return `<text x="${x.toFixed(2)}" y="${bottomTickY}" text-anchor="middle" fill="${colors.muted}" font-family="${CHART_MONO_FONT_ATTR}" font-size="${labelSizes.tick}">${escapeHtml(bottomTicks.ticktext[index] || "")}</text>`;
   }).join("");
 
   const topTickLabels = topTicks.tickvals.map((day, index) => {
     const x = xForDay(day);
-    return `<text x="${x.toFixed(2)}" y="${topTickY}" text-anchor="middle" fill="${colors.fg}" font-family="IBM Plex Mono, monospace" font-size="11">${escapeHtml(topTicks.ticktext[index] || "")}</text>`;
+    return `<text x="${x.toFixed(2)}" y="${topTickY}" text-anchor="middle" fill="${colors.muted}" font-family="${CHART_MONO_FONT_ATTR}" font-size="${labelSizes.topTick}">${escapeHtml(topTicks.ticktext[index] || "")}</text>`;
   }).join("");
 
+  const currentPriceLabelHeight = Math.max(1, Number(labelSizes.currentPrice) || 13);
+  const yTickLabelHeight = Math.max(1, Number(labelSizes.yTick) || 13);
+  const currentPriceOverlapRadius = Number.isFinite(currentY)
+    ? ((currentPriceLabelHeight + yTickLabelHeight) / 2) + 2
+    : 0;
   const rightTickLabels = rightTicks.tickvals.map((value, index) => {
     const y = yForValue(value);
-    return `<text x="${plotRight + 8}" y="${(y + 4).toFixed(2)}" text-anchor="start" fill="${colors.fg}" font-family="IBM Plex Mono, monospace" font-size="11">${escapeHtml(rightTicks.ticktext[index] || "")}</text>`;
+    const overlapsCurrentPrice = Number.isFinite(currentY)
+      && Math.abs(y - currentY) < currentPriceOverlapRadius;
+    const fill = overlapsCurrentPrice ? (colors.overlappedTick || colors.muted || colors.fg) : colors.muted;
+    return `<text x="${plotRight + 8}" y="${(y + (labelSizes.yTick * 0.36)).toFixed(2)}" text-anchor="start" fill="${fill}" font-family="${CHART_MONO_FONT_ATTR}" font-size="${labelSizes.yTick}">${escapeHtml(rightTicks.ticktext[index] || "")}</text>`;
   }).join("");
 
-  const halvingLines = buildHalvingShapes(maxDays, colors).map((shape) => {
+  const halvingLines = buildHalvingShapes(maxDays, colors, rows).map((shape) => {
     const x = xForDay(shape.x0);
-    return `<line x1="${x.toFixed(2)}" y1="${plotTop}" x2="${x.toFixed(2)}" y2="${plotBottom}" stroke="${shape.line.color}" stroke-width="${shape.line.width}" stroke-dasharray="4 4" />`;
+    return `<line x1="${x.toFixed(2)}" y1="${plotTop}" x2="${x.toFixed(2)}" y2="${plotBottom}" stroke="${shape.line.color}" stroke-width="${shape.line.width}" />`;
   }).join("");
 
-  const halvingLabels = buildHalvingAnnotations(maxDays, colors).map((annotation) => {
+  const halvingLabels = buildHalvingAnnotations(maxDays, colors, rows).map((annotation) => {
     const lineX = xForDay(annotation.x);
     const isLeftLabel = annotation.xanchor === "right";
-    const anchorY = plotTop + 6;
-    const anchorX = lineX + (isLeftLabel ? -18 : 9);
-    const textAnchor = "end";
-    return `<text x="${anchorX.toFixed(2)}" y="${anchorY.toFixed(2)}" transform="rotate(270 ${anchorX.toFixed(2)} ${anchorY.toFixed(2)})" text-anchor="${textAnchor}" dominant-baseline="hanging" fill="${annotation.font.color}" font-family="IBM Plex Mono, monospace" font-size="${annotation.font.size}">${escapeHtml(annotation.text)}</text>`;
+    const isLogScale = yScale === "log";
+    const anchorY = isLogScale ? plotBottom - 6 : plotTop + 6;
+    const leftOffset = exportHalvingLabelSpacing ? -32 : -18;
+    const rightOffset = exportHalvingLabelSpacing ? 18 : 9;
+    const logLeftOffset = exportHalvingLabelSpacing ? -18 : -9;
+    const logRightOffset = exportHalvingLabelSpacing ? 30 : 18;
+    const anchorX = lineX + (isLogScale
+      ? (isLeftLabel ? logLeftOffset : logRightOffset)
+      : (isLeftLabel ? leftOffset : rightOffset));
+    if (!isLeftLabel && anchorX + labelSizes.halving > plotRight - 6) {
+      return "";
+    }
+    const textAnchor = isLogScale ? "start" : "end";
+    const dominantBaseline = isLogScale ? "auto" : "hanging";
+    return `<text x="${anchorX.toFixed(2)}" y="${anchorY.toFixed(2)}" transform="rotate(270 ${anchorX.toFixed(2)} ${anchorY.toFixed(2)})" text-anchor="${textAnchor}" dominant-baseline="${dominantBaseline}" fill="${annotation.font.color}" font-family="${CHART_MONO_FONT_ATTR}" font-size="${labelSizes.halving}">${escapeHtml(annotation.text)}</text>`;
   }).join("");
 
+  const halvingCostBasisCallouts = buildHalvingCostBasisCallouts(
+    maxDays,
+    colors,
+    rows,
+    xForDay,
+    yForValue,
+    plotLeft,
+    plotRight,
+    plotTop,
+    plotBottom,
+    labelSizes,
+  );
+
   const frameLines = [
-    `<line x1="${plotRight}" y1="${plotTop}" x2="${plotRight}" y2="${plotBottom}" stroke="${colors.grid}" stroke-width="1" />`,
+    `<line x1="${plotRight}" y1="${plotTop}" x2="${plotRight}" y2="${plotBottom}" stroke="${colors.grid}" stroke-width="${gridStrokeWidth}" />`,
   ].join("");
 
   const currentLine = Number.isFinite(currentY)
-    ? `<line x1="${plotLeft}" y1="${currentY.toFixed(2)}" x2="${plotRight}" y2="${currentY.toFixed(2)}" stroke="${colors.currentLine}" stroke-width="1.5" stroke-dasharray="6 4" />`
+    ? `<line x1="${plotLeft}" y1="${currentY.toFixed(2)}" x2="${plotRight}" y2="${currentY.toFixed(2)}" stroke="${colors.currentLine}" stroke-width="${currentStrokeWidth}" stroke-dasharray="6 4" />`
+    : "";
+  const currentPriceLabel = renderCurrentPriceLabel && Number.isFinite(currentY) && Number.isFinite(currentPrice) && currentPrice > 0
+    ? `<text x="${plotRight + 8}" y="${currentY.toFixed(2)}" text-anchor="start" dominant-baseline="central" fill="${colors.fg}" stroke="${colors.bg || "#000000"}" stroke-width="5" stroke-linejoin="round" paint-order="stroke fill" font-family="${CHART_MONO_FONT_ATTR}" font-size="${labelSizes.currentPrice}">${escapeHtml(fmtUsd(currentPrice, 0))}</text>`
+    : "";
+  const headerTitleMarkup = headerTitle
+    ? `<text x="${(width / 2).toFixed(2)}" y="${Math.max(24, labelSizes.title * 1.5).toFixed(2)}" text-anchor="middle" fill="${colors.fg}" font-family="${CHART_TITLE_FONT_ATTR}" font-weight="700" font-size="${Math.max(24, labelSizes.title * 1.28).toFixed(2)}">${escapeHtml(headerTitle)}</text>`
     : "";
 
   return `
     <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" aria-label="DCA cost basis chart" role="img">
       <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>
+      ${headerTitleMarkup}
+      ${renderLegend ? buildLegendSvgMarkup(colors, labelSizes, { x: plotLeft, y: Number(legendY) || Math.max(18, (Number(legendFontSize) || labelSizes.tick) * 1.35), fontSize: legendFontSize }) : ""}
       ${topVerticalGrid}
       ${verticalGrid}
       ${horizontalGrid}
       ${frameLines}
       ${halvingLines}
       ${currentLine}
-      ${upPath ? `<path d="${upPath}" fill="none" stroke="${colors.up}" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
-      ${downPath ? `<path d="${downPath}" fill="none" stroke="${colors.down}" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
-      ${basisPath ? `<path d="${basisPath}" fill="none" stroke="${colors.basis}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+      ${upPath ? `<path d="${upPath}" fill="none" stroke="${colors.up}" stroke-width="${priceStrokeWidth}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+      ${downPath ? `<path d="${downPath}" fill="none" stroke="${colors.down}" stroke-width="${priceStrokeWidth}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+      ${basisPath ? `<path d="${basisPath}" fill="none" stroke="${colors.basis}" stroke-width="${basisStrokeWidth}" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+      ${halvingCostBasisCallouts}
       <line class="dca-hover-line" x1="${plotLeft}" y1="${plotTop}" x2="${plotLeft}" y2="${plotBottom}" stroke="${colors.fg}" stroke-width="1" stroke-dasharray="5 4" visibility="hidden"></line>
       ${bottomTickLabels}
       ${topTickLabels}
       ${rightTickLabels}
+      ${currentPriceLabel}
       ${halvingLabels}
-      <text x="${(plotLeft + (plotWidth / 2)).toFixed(2)}" y="${bottomTitleY}" text-anchor="middle" fill="${colors.fg}" font-family="Space Grotesk, sans-serif" font-size="12">DCA Duration</text>
-      <text x="${(plotLeft + (plotWidth / 2)).toFixed(2)}" y="${topTitleY}" text-anchor="middle" fill="${colors.fg}" font-family="Space Grotesk, sans-serif" font-size="12">DCA Starting Date</text>
+      ${startDateLabel ? `<text x="${startDateLabelX.toFixed(2)}" y="${topTitleY}" text-anchor="start" fill="${colors.muted}" font-family="${CHART_MONO_FONT_ATTR}" font-size="${labelSizes.halving}">${escapeHtml(startDateLabel)}</text>` : ""}
+      ${currentDateLabel ? `<text x="${currentDateLabelX.toFixed(2)}" y="${topTitleY}" text-anchor="end" fill="${colors.muted}" font-family="${CHART_MONO_FONT_ATTR}" font-size="${labelSizes.halving}">${escapeHtml(currentDateLabel)}</text>` : ""}
+      <text x="${axisTitleCenterX.toFixed(2)}" y="${bottomTitleY}" text-anchor="middle" fill="${colors.muted}" font-family="${CHART_TITLE_FONT_ATTR}" font-size="${labelSizes.title}">${escapeHtml(bottomAxisTitle)}</text>
+      <text x="${axisTitleCenterX.toFixed(2)}" y="${topTitleY}" text-anchor="middle" fill="${colors.muted}" font-family="${CHART_TITLE_FONT_ATTR}" font-size="${labelSizes.title}">${escapeHtml(topAxisTitle)}</text>
     </svg>
   `;
 }
@@ -1388,6 +3932,11 @@ function bindChartTooltip(chart) {
     const rows = chart.__dcaTooltipRows || [];
     const geometry = chart.__dcaChartGeometry;
     const hoverLine = chart.querySelector(".dca-hover-line");
+    if (state.dateRange.isPlaying) {
+      if (hoverLine) hoverLine.setAttribute("visibility", "hidden");
+      hideChartTooltip();
+      return;
+    }
     if (!rows.length || !geometry || !hoverLine) {
       hideChartTooltip();
       return;
@@ -1528,8 +4077,6 @@ function renderChart() {
   ];
 
   const maxDays = Math.max(...x);
-  const ticks = buildDurationTickConfig(maxDays, state.rangeDays);
-  const dateTicks = buildDateTickConfig(rows);
 
   const allYValues = [
     ...historicalPrice.filter((v) => Number.isFinite(v) && v >= 0),
@@ -1567,10 +4114,6 @@ function renderChart() {
     opacity: 0,
   });
 
-  const logTicks = state.yScale === "log"
-    ? buildLogTickConfig(allYValues)
-    : { tickvals: [], ticktext: [] };
-
   // Render legend first so height measurements are consistent on initial load.
   syncCustomLegend(traces, colors);
 
@@ -1583,39 +4126,50 @@ function renderChart() {
   const legendHeight = legendEl?.offsetHeight || 0;
   const width = Math.max(320, Math.round(chart.clientWidth || chart.parentElement?.clientWidth || 900));
   const height = Math.max(280, Math.round(hostHeight - legendHeight));
-  const margins = { top: 28, right: 88, bottom: 58, left: 24 };
+  const labelSizes = getResponsiveChartLabelSizes(width);
+  const currentPriceOverlayMetrics = getCurrentPriceOverlayMetrics(labelSizes);
+  const margins = {
+    top: 28,
+    right: Math.max(88, currentPriceOverlayMetrics.rightMargin),
+    bottom: 58,
+    left: 24,
+  };
   const topTitleY = 24;
-  const topTickY = 44;
-  const bottomTickY = height - 40;
+  const topTickY = 52;
+  const bottomTickY = height - 48;
   const bottomTitleY = height - 20;
   const plotLeft = margins.left;
   const plotRight = width - margins.right;
-  const plotTop = margins.top + 22;
-  const plotBottom = height - margins.bottom;
+  const plotTop = margins.top + 30;
+  const plotBottom = height - margins.bottom - 8;
   const yAxis = buildYScaleConfig(allYValues, state.yScale);
+  const ticks = buildDurationTickConfig(maxDays);
+  const dateTicks = buildDateTickConfig(rows, width);
   const xForDay = (day) => {
     const ratio = (maxDays - day) / Math.max(1, maxDays - 1);
     return plotLeft + (ratio * Math.max(1, plotRight - plotLeft));
   };
   const yForValue = (value) => yAxis.map(value, plotTop, Math.max(1, plotBottom - plotTop));
-  const rawBottomTicks = filterTicksByPixelSpacing(
-    ticks.tickvals,
-    ticks.ticktext,
-    (day) => xForDay(day),
-    width < 520 ? 56 : width < 860 ? 42 : 32,
-  );
-  const topTicks = filterTicksByPixelSpacing(
+  const rawBottomTicks = maxDays >= 365 && maxDays <= 365 * 4
+    ? ticks
+    : filterTicksByPixelSpacing(
+      ticks.tickvals,
+      ticks.ticktext,
+      (day) => xForDay(day),
+      width < 520 ? 56 : width < 860 ? 42 : 32,
+    );
+  const topTicks = filterDateTicksByPixelSpacing(
     dateTicks.tickvals,
     dateTicks.ticktext,
     (day) => xForDay(day),
     width < 520 ? 86 : width < 860 ? 68 : 54,
   );
-  const bottomTicks = limitTicksToCount(rawBottomTicks, topTicks.tickvals.length);
+  const { bottomTicks, topTicks: balancedTopTicks } = balanceXAxisTickCounts(rawBottomTicks, topTicks);
   const rightTicks = filterTicksByPixelSpacing(
-    state.yScale === "log" ? logTicks.tickvals : yAxis.tickvals,
-    state.yScale === "log" ? logTicks.ticktext : yAxis.ticktext,
+    yAxis.tickvals,
+    yAxis.ticktext,
     (value) => yForValue(value),
-    18,
+    labelSizes.yTick * 1.45,
     { preserveFirst: true, preserveLast: true },
   );
   chart.innerHTML = buildChartSvgMarkup({
@@ -1628,7 +4182,7 @@ function renderChart() {
     xForDay,
     yForValue,
     bottomTicks,
-    topTicks,
+    topTicks: balancedTopTicks,
     rightTicks,
     colors,
     rows,
@@ -1641,6 +4195,7 @@ function renderChart() {
     topTickY,
     bottomTickY,
     bottomTitleY,
+    labelSizes,
   });
   chart.__dcaChartGeometry = {
     plotLeft,
@@ -1659,20 +4214,33 @@ function renderChart() {
 
 function bindControls() {
   const cadenceSelect = document.getElementById("cadenceSelect");
-  const rangeSelect = document.getElementById("rangeSelect");
   const scaleSelect = document.getElementById("scaleSelect");
   const toggleHalvings = document.getElementById("toggleHalvings");
+  const startBtn = document.getElementById("dateRangeStartBtn");
+  const endBtn = document.getElementById("dateRangeEndBtn");
+  const startInput = document.getElementById("dateRangeStartInput");
+  const endInput = document.getElementById("dateRangeEndInput");
+  const sliderWrap = document.getElementById("dateRangeSliderWrap");
+  const startSlider = document.getElementById("dateRangeStartSlider");
+  const endSlider = document.getElementById("dateRangeEndSlider");
+  const currentMarker = document.querySelector(".date-range-current-marker");
+  const playBtn = document.getElementById("dateRangePlayBtn");
+  const pauseBtn = document.getElementById("dateRangePauseBtn");
+  const stopBtn = document.getElementById("dateRangeStopBtn");
+  const speedBtn = document.getElementById("dateRangeSpeedBtn");
+  const downloadBtn = document.getElementById("dateRangeDownloadBtn");
+  const settingsBtn = document.getElementById("dateRangeSettingsBtn");
+  const settingsMenu = document.getElementById("dateRangeSettingsMenu");
+  const settingsDownloadBtn = document.getElementById("downloadSettingsDownloadBtn");
+  bindDashboardExpandButton();
+  const closeDownloadSettingsMenu = () => {
+    settingsMenu?.classList.remove("open");
+    settingsBtn?.classList.remove("is-open");
+  };
 
   cadenceSelect?.addEventListener("change", () => {
     state.cadence = cadenceSelect.value;
     syncSelectDropdown("cadenceSelect", "cadenceDropdownTrigger", "cadenceDropdownMenu");
-    saveControls();
-    renderChart();
-  });
-
-  rangeSelect?.addEventListener("change", () => {
-    state.rangeDays = Number(rangeSelect.value || "0");
-    syncSelectDropdown("rangeSelect", "rangeDropdownTrigger", "rangeDropdownMenu");
     saveControls();
     renderChart();
   });
@@ -1690,7 +4258,159 @@ function bindControls() {
     renderChart();
   });
 
+  startInput?.addEventListener("change", () => {
+    setLastAdjustedDateRangeHandle("start");
+    setDateRange(startInput.value, state.dateRange.endIso, "custom");
+  });
+
+  endInput?.addEventListener("change", () => {
+    setLastAdjustedDateRangeHandle("end");
+    setDateRange(state.dateRange.startIso, endInput.value, "custom");
+  });
+
+  if (startBtn && endBtn && startInput && endInput) {
+    const startPicker = makeDatePicker({
+      anchorEl: startBtn,
+      align: "left",
+      getSelected: () => startInput.value || state.dateRange.startIso,
+      getMin: () => startInput.min || getDataBounds().minIso,
+      getMax: () => startInput.max || state.dateRange.endIso,
+      onSelect: (isoVal) => {
+        setLastAdjustedDateRangeHandle("start");
+        setDateRange(isoVal, state.dateRange.endIso, "custom");
+        endPicker.rebuildCalendar();
+      },
+    });
+    const endPicker = makeDatePicker({
+      anchorEl: endBtn,
+      align: "left",
+      getSelected: () => endInput.value || state.dateRange.endIso,
+      getMin: () => endInput.min || state.dateRange.startIso,
+      getMax: () => endInput.max || getDataBounds().maxIso,
+      onSelect: (isoVal) => {
+        setLastAdjustedDateRangeHandle("end");
+        setDateRange(state.dateRange.startIso, isoVal, "custom");
+        startPicker.rebuildCalendar();
+      },
+    });
+    startBtn.addEventListener("click", startPicker.toggle);
+    endBtn.addEventListener("click", endPicker.toggle);
+  }
+
+  startSlider?.addEventListener("input", () => {
+    stopDateRangePlayback(false);
+    setLastAdjustedDateRangeHandle("start");
+    const rawIndex = Number.parseInt(startSlider.value || "0", 10);
+    const endIndex = findDateIndex(state.dateRange.endIso, "floor");
+    const index = Math.max(0, Math.min(rawIndex, Math.max(0, endIndex)));
+    if (!state.priceRows[index]) return;
+    state.dateRange.startIso = state.priceRows[index].dateIso;
+    state.dateRange.currentEndIso = state.dateRange.endIso;
+    state.dateRange.selectedPreset = "custom";
+    saveDateRangeState();
+    syncDateRangeControls();
+    renderChart();
+  });
+
+  endSlider?.addEventListener("input", () => {
+    stopDateRangePlayback(false);
+    setLastAdjustedDateRangeHandle("end");
+    const rawIndex = Number.parseInt(endSlider.value || "0", 10);
+    const startIndex = findDateIndex(state.dateRange.startIso, "ceil");
+    const index = Math.max(Math.max(0, startIndex), Math.min(rawIndex, state.priceRows.length - 1));
+    if (!state.priceRows[index]) return;
+    state.dateRange.endIso = state.priceRows[index].dateIso;
+    state.dateRange.currentEndIso = state.dateRange.endIso;
+    state.dateRange.selectedPreset = "custom";
+    saveDateRangeState();
+    syncDateRangeControls();
+    renderChart();
+  });
+
+  currentMarker?.addEventListener("pointerdown", beginDateRangeCurrentMarkerDrag);
+  currentMarker?.addEventListener("pointermove", moveDateRangeCurrentMarkerDrag);
+  currentMarker?.addEventListener("pointerup", endDateRangeCurrentMarkerDrag);
+  currentMarker?.addEventListener("pointercancel", endDateRangeCurrentMarkerDrag);
+  document.querySelector(".date-range-start-marker")?.addEventListener("pointerdown", (event) => {
+    beginDateRangeHandleDrag(event, "start", sliderWrap || event.currentTarget);
+  });
+  document.querySelector(".date-range-end-marker")?.addEventListener("pointerdown", (event) => {
+    beginDateRangeHandleDrag(event, "end", sliderWrap || event.currentTarget);
+  });
+  sliderWrap?.addEventListener("pointerdown", beginDateRangeSliderWrapScrub);
+  sliderWrap?.addEventListener("pointermove", moveDateRangeCurrentMarkerDrag);
+  sliderWrap?.addEventListener("pointerup", endDateRangeCurrentMarkerDrag);
+  sliderWrap?.addEventListener("pointercancel", endDateRangeCurrentMarkerDrag);
+
+  document.querySelectorAll("[data-range-preset]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const preset = button.dataset.rangePreset || "full";
+      const { maxIso } = getDataBounds();
+      const endIso = maxIso;
+      setDateRange(getPresetStartIso(preset, endIso), endIso, preset);
+    });
+  });
+
+  playBtn?.addEventListener("click", playDateRangePlayback);
+  pauseBtn?.addEventListener("click", pauseDateRangePlayback);
+  stopBtn?.addEventListener("click", () => {
+    stopDateRangePlayback(true);
+    syncDateRangeControls();
+    renderChart();
+  });
+  speedBtn?.addEventListener("click", cyclePlaybackSpeed);
+  downloadBtn?.addEventListener("click", () => {
+    closeDownloadSettingsMenu();
+    downloadDateRangeAnimation();
+  });
+  settingsDownloadBtn?.addEventListener("click", () => {
+    if (isDateRangeExporting) {
+      requestDateRangeExportCancel();
+      return;
+    }
+    saveDownloadSettings();
+    closeDownloadSettingsMenu();
+    downloadDateRangeAnimation();
+  });
+
+  settingsBtn?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const open = !settingsMenu?.classList.contains("open");
+    settingsMenu?.classList.toggle("open", open);
+    settingsBtn.classList.toggle("is-open", open);
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!settingsMenu?.classList.contains("open")) return;
+    if (settingsMenu.contains(event.target) || settingsBtn?.contains(event.target)) return;
+    closeDownloadSettingsMenu();
+  });
+
+  [
+    "downloadScaleSelect",
+    "downloadOrientationSelect",
+    "downloadQualitySelect",
+    "downloadSpeedSelect",
+    "downloadThemeSelect",
+    "downloadExtensionSelect",
+  ].forEach((groupId) => {
+    const group = document.getElementById(groupId);
+    group?.addEventListener("click", (event) => {
+      const button = event.target.closest(".download-setting-option[data-value]");
+      if (!button) return;
+      const key = groupId
+        .replace("download", "")
+        .replace("Select", "")
+        .replace(/^./, (char) => char.toLowerCase());
+      state.downloadSettings[key] = button.dataset.value;
+      state.downloadSettings = normalizeDownloadSettings(state.downloadSettings);
+      saveDownloadSettings();
+      syncDownloadSettingsControls();
+    });
+  });
+
   window.addEventListener("resize", () => {
+    syncDateRangeControls();
     renderChart();
   });
 
@@ -1768,6 +4488,10 @@ async function init() {
     bindHalFinneyEasterEgg();
     applyControlValuesToUi();
     bindControls();
+    bindDateRangeKeyboardShortcuts();
+    bindDateRangeSessionPersistence();
+    bindDateRangeExportUnloadGuard();
+    primeKeyboardFocus();
 
     if (DASHBOARD_TIME?.CHANGE_EVENT) {
       window.addEventListener(DASHBOARD_TIME.CHANGE_EVENT, (event) => {
@@ -1781,6 +4505,15 @@ async function init() {
 
     await loadData();
     renderChart();
+    primeKeyboardFocus();
+    if (state.dateRange.pendingSpacePlayback) {
+      state.dateRange.pendingSpacePlayback = false;
+      requestAnimationFrame(() => {
+        if (!state.dateRange.isPlaying && !state.dateRange.isPaused) {
+          playDateRangePlayback();
+        }
+      });
+    }
   } catch (err) {
     console.error(err);
     showError(String(err?.message || err));
