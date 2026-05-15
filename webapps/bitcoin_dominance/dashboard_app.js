@@ -277,6 +277,8 @@
         menu.addEventListener('click', (event) => {
           const btn = event.target.closest('.dca-option-btn');
           if (!btn) return;
+          event.preventDefault();
+          event.stopPropagation();
           const nextValue = String(btn.dataset.value || '');
           if (select.value !== nextValue) {
             select.value = nextValue;
@@ -501,8 +503,8 @@
       stackedDominance: true,
       showPrice: false,
       stackedDominanceTouched: false,
-      range: '365',
-      smooth: '7',
+      range: '0',
+      smooth: '1',
       panelsSwapped: false,
       showHistoryPanel: true,
       showSnapshotPanel: true,
@@ -703,8 +705,8 @@
           stackedDominanceTouched: Boolean(state.stackedDominanceTouched),
           showHistoryPanel: Boolean(state.showHistoryPanel),
           showSnapshotPanel: Boolean(state.showSnapshotPanel),
-          range: String(state.range || '365'),
-          smooth: String(state.smooth || '7'),
+          range: String(state.range || '0'),
+          smooth: String(state.smooth || '1'),
           panelsSwapped: Boolean(state.panelsSwapped),
           timeZone: String(state.timeZone || 'UTC'),
         };
@@ -762,8 +764,8 @@
         stackedDominance: true,
         showPrice: false,
         stackedDominanceTouched: false,
-        range: '365',
-        smooth: '7',
+        range: '0',
+        smooth: '1',
         panelsSwapped: false,
         showHistoryPanel: true,
         showSnapshotPanel: true,
@@ -779,8 +781,8 @@
         stackedDominance: Boolean(state.stackedDominance),
         showPrice: Boolean(state.showPrice),
         stackedDominanceTouched: Boolean(state.stackedDominanceTouched),
-        range: String(state.range || '365'),
-        smooth: String(state.smooth || '7'),
+        range: String(state.range || '0'),
+        smooth: String(state.smooth || '1'),
         panelsSwapped: Boolean(state.panelsSwapped),
         showHistoryPanel: Boolean(state.showHistoryPanel),
         showSnapshotPanel: Boolean(state.showSnapshotPanel),
@@ -902,8 +904,8 @@
         stackedDominance: Boolean(state.stackedDominance),
         showPrice: Boolean(state.showPrice),
         stackedDominanceTouched: Boolean(state.stackedDominanceTouched),
-        range: String(state.range || '365'),
-        smooth: String(state.smooth || '7'),
+        range: String(state.range || '0'),
+        smooth: String(state.smooth || '1'),
         panelsSwapped: Boolean(state.panelsSwapped),
         showHistoryPanel: Boolean(state.showHistoryPanel),
         showSnapshotPanel: Boolean(state.showSnapshotPanel),
@@ -938,8 +940,8 @@
           ? checkboxState.toggleShowPrice
           : Boolean(snapshot.showPrice);
         state.stackedDominanceTouched = Boolean(snapshot.stackedDominanceTouched);
-        state.range = String(snapshot.range || '365');
-        state.smooth = String(snapshot.smooth || '7');
+        state.range = String(snapshot.range || '0');
+        state.smooth = String(snapshot.smooth || '1');
         state.panelsSwapped = Boolean(snapshot.panelsSwapped);
         state.showHistoryPanel = typeof checkboxState.toggleHistoryPanel === 'boolean'
           ? checkboxState.toggleHistoryPanel
@@ -1032,8 +1034,8 @@
       if (showPriceToggle) showPriceToggle.checked = false;
       if (historyToggle) historyToggle.checked = true;
       if (snapshotToggle) snapshotToggle.checked = true;
-      if (rangeSelect) rangeSelect.value = '365';
-      if (smoothSelect) smoothSelect.value = '7';
+      if (rangeSelect) rangeSelect.value = '0';
+      if (smoothSelect) smoothSelect.value = '1';
 
       populateUpdatedTimeZoneSelect();
       syncAllSelectDropdowns();
@@ -1060,8 +1062,8 @@
       const historyToggle = document.getElementById('toggleHistoryPanel');
       const snapshotToggle = document.getElementById('toggleSnapshotPanel');
 
-      if (rangeSelect && rangeSelect.value !== '365') return false;
-      if (smoothSelect && smoothSelect.value !== '7') return false;
+      if (rangeSelect && rangeSelect.value !== '0') return false;
+      if (smoothSelect && smoothSelect.value !== '1') return false;
       if (includeStablesToggle && !includeStablesToggle.checked) return false;
       if (stackedDominanceToggle && !stackedDominanceToggle.checked) return false;
       if (showPriceToggle && showPriceToggle.checked) return false;
@@ -2839,6 +2841,8 @@
 
       updatedTimeZoneSelect?.addEventListener('change', () => {
         state.timeZone = DASHBOARD_TIME?.setPreferredTimeZone?.(updatedTimeZoneSelect.value) || updatedTimeZoneSelect.value;
+        updatedTimeZoneSelect.blur();
+        closeAllSelectDropdowns();
         setLastUpdated();
         saveControlsToStorage();
         updateResetButtonUi();
