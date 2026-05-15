@@ -683,6 +683,11 @@
 
       select.addEventListener("change", () => {
         setPreferredDashboardTimeZone(select.value);
+        setDropdownOpen(
+          document.getElementById("updatedTimeZoneDropdown"),
+          document.getElementById("updatedTimeZoneDropdownMenu"),
+          false,
+        );
         if (state.data) {
           setStatus(state.data);
         }

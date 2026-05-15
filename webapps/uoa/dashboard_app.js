@@ -163,6 +163,7 @@
     startDateBtn: document.getElementById("startDateBtn"),
     endDateBtn: document.getElementById("endDateBtn"),
     rangeDaysLabel: document.getElementById("rangeDaysLabel"),
+    dateRangeDaysInput: document.getElementById("dateRangeDaysInput"),
     dateRangePresets: document.getElementById("dateRangePresets"),
     dateRangeChartToggles: document.getElementById("dateRangeChartToggles"),
     dateRangePanel: document.querySelector(".date-range-panel"),
@@ -665,6 +666,94 @@
     applyFilters();
   }
 
+  function parseDateRangeDaysValue(value) {
+    const parsed = Number.parseInt(String(value || "").replace(/[^\d]/g, ""), 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  }
+
+  function formatDateRangeDaysValue(value) {
+    const dayCount = parseDateRangeDaysValue(value);
+    return dayCount > 0 ? dayCount.toLocaleString("en-US") : "";
+  }
+
+  function applyDateRangeDayCount(dayCount) {
+    stopDateRangePlayback();
+    if (!allRows.length || !el.startDateInput || !el.endDateInput) return;
+    const controlBounds = getDateRangeControlBounds();
+    const safeMinIndex = controlBounds?.minIndex ?? 0;
+    const safeMaxIndex = controlBounds?.maxIndex ?? Math.max(0, allRows.length - 1);
+    if (safeMaxIndex < safeMinIndex) return;
+
+    const desiredDays = Math.max(1, Math.round(Number(dayCount) || 1));
+    let startIndex = getDateIndexOnOrAfter(el.startDateInput.value || requestedDateRange.startIso || toIsoDate(allRows[safeMinIndex].date));
+    if (startIndex < 0) startIndex = safeMinIndex;
+    startIndex = Math.max(safeMinIndex, Math.min(safeMaxIndex, startIndex));
+
+    let endIndex = startIndex + desiredDays - 1;
+    if (endIndex > safeMaxIndex) {
+      endIndex = safeMaxIndex;
+      startIndex = Math.max(safeMinIndex, endIndex - desiredDays + 1);
+    }
+    startIndex = Math.max(safeMinIndex, Math.min(safeMaxIndex, startIndex));
+    endIndex = Math.max(startIndex, Math.min(safeMaxIndex, endIndex));
+
+    const startIso = toIsoDate(allRows[startIndex].date);
+    const endIso = toIsoDate(allRows[endIndex].date);
+    setRequestedDateRange(startIso, endIso);
+    el.startDateInput.value = startIso;
+    el.endDateInput.value = endIso;
+    applyRequestedDateRangeToControls();
+    applyFilters();
+  }
+
+  function commitDateRangeDaysInput() {
+    const input = el.dateRangeDaysInput;
+    if (!input) return;
+    const dayCount = parseDateRangeDaysValue(input.value);
+    if (!dayCount) {
+      const fallback = Number.parseInt(input.dataset.lastValidValue || "0", 10);
+      input.value = fallback > 0 ? fallback.toLocaleString("en-US") : "";
+      return;
+    }
+    applyDateRangeDayCount(dayCount);
+  }
+
+  function selectDateRangeDaysInput(input) {
+    if (!input) return;
+    window.setTimeout(() => {
+      input.select();
+    }, 0);
+  }
+
+  function getCaretIndexForDigitPosition(value, digitCount) {
+    if (digitCount <= 0) return 0;
+    let seenDigits = 0;
+    for (let i = 0; i < value.length; i += 1) {
+      if (!/\d/.test(value[i])) continue;
+      seenDigits += 1;
+      if (seenDigits >= digitCount) return i + 1;
+    }
+    return value.length;
+  }
+
+  function handleDateRangeDaysInput() {
+    const input = el.dateRangeDaysInput;
+    if (!input) return;
+    const rawValue = String(input.value || "");
+    const rawCaret = Number.isFinite(input.selectionStart) ? input.selectionStart : rawValue.length;
+    const digitsBeforeCaret = rawValue.slice(0, rawCaret).replace(/\D/g, "").length;
+    const dayCount = parseDateRangeDaysValue(input.value);
+    const formattedValue = formatDateRangeDaysValue(input.value);
+    input.value = formattedValue;
+    if (document.activeElement === input) {
+      const nextCaret = getCaretIndexForDigitPosition(formattedValue, digitsBeforeCaret);
+      input.setSelectionRange(nextCaret, nextCaret);
+    }
+    if (dayCount > 0) {
+      applyDateRangeDayCount(dayCount);
+    }
+  }
+
   function bindRangePresetButtons() {
     if (!el.dateRangePresets) return;
     const buttons = Array.from(el.dateRangePresets.querySelectorAll(".date-range-preset-btn[data-range]"));
@@ -676,6 +765,28 @@
         applyRangePreset(key);
       });
     });
+  }
+
+  function bindDateRangeDaysInput() {
+    const input = el.dateRangeDaysInput;
+    if (!input || input.dataset.bound === "1") return;
+    input.dataset.bound = "1";
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        commitDateRangeDaysInput();
+        input.blur();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        const fallback = Number.parseInt(input.dataset.lastValidValue || "0", 10);
+        input.value = fallback > 0 ? fallback.toLocaleString("en-US") : "";
+        input.blur();
+      }
+    });
+    input.addEventListener("focus", () => selectDateRangeDaysInput(input));
+    input.addEventListener("click", () => selectDateRangeDaysInput(input));
+    input.addEventListener("input", handleDateRangeDaysInput);
+    input.addEventListener("blur", commitDateRangeDaysInput);
   }
 
   function getSelectedDateRangePlaybackFps() {
@@ -3315,6 +3426,34 @@
     return values;
   }
 
+  function getBtcRowOnOrBeforeIso(isoDate) {
+    if (!allRows.length) return null;
+    let index = getDateIndexOnOrBefore(isoDate);
+    if (index < 0) index = allRows.length - 1;
+    for (let i = Math.min(index, allRows.length - 1); i >= 0; i -= 1) {
+      const row = allRows[i];
+      if (Number.isFinite(row?.price) && row.price > 0) return row;
+    }
+    return null;
+  }
+
+  function getCurrencySatsValuesForRow(row) {
+    if (!row) return {};
+    const isoDate = toIsoDate(row.date);
+    const btcUsd = row.price;
+    if (!Number.isFinite(btcUsd) || btcUsd <= 0) return {};
+    const values = {};
+    availableCurrencies.forEach((currencyCode) => {
+      const valueInUsd = currencyCode === "BTC"
+        ? btcUsd
+        : getCurrencyValueInUsd(currencyCode, row, isoDate);
+      if (Number.isFinite(valueInUsd) && valueInUsd > 0) {
+        values[currencyCode] = (100000000 * valueInUsd) / btcUsd;
+      }
+    });
+    return values;
+  }
+
   function sortCurrencies(orderMode, usdValuesByCurrency) {
     const values = usdValuesByCurrency || {};
     const codes = [...availableCurrencies];
@@ -3363,6 +3502,10 @@
 
   function getCurrencyRanksByValue() {
     const values = getLatestCurrencySatsValues();
+    return getCurrencyRanksFromSatsValues(values);
+  }
+
+  function getCurrencyRanksFromSatsValues(values) {
     const ranked = Object.keys(values).sort((a, b) => {
       if (values[a] === values[b]) return a.localeCompare(b);
       return values[b] - values[a];
@@ -4499,6 +4642,8 @@
       menu.addEventListener("click", (event) => {
         const btn = event.target.closest(".dca-option-btn");
         if (!btn || btn.disabled) return;
+        event.preventDefault();
+        event.stopPropagation();
         selectDropdownValue(config, select, dropdown, menu, valueEl, String(btn.dataset.value || ""));
       });
     });
@@ -4847,7 +4992,7 @@
     if (el.endDateBtn) {
       el.endDateBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>${fmtDatePickerLabel(el.endDateInput?.value || "")}`;
     }
-    if (el.rangeDaysLabel) {
+    if (el.dateRangeDaysInput || el.rangeDaysLabel) {
       const startVal = String(el.startDateInput?.value || "").trim();
       const endVal = String(el.endDateInput?.value || "").trim();
       const startDate = startVal ? new Date(`${startVal}T00:00:00Z`) : null;
@@ -4858,8 +5003,16 @@
         && !Number.isNaN(endDate.getTime())
         && endDate.getTime() >= startDate.getTime();
       const days = valid ? Math.floor((endDate.getTime() - startDate.getTime()) / dayMs) + 1 : 0;
-      const daysText = days > 0 ? String(days) : "--";
-      el.rangeDaysLabel.innerHTML = `Range <span class="range-days-value">${daysText} Days</span>`;
+      if (el.dateRangeDaysInput) {
+        el.dateRangeDaysInput.dataset.lastValidValue = days > 0 ? String(days) : "";
+        if (document.activeElement !== el.dateRangeDaysInput) {
+          el.dateRangeDaysInput.value = days > 0 ? days.toLocaleString("en-US") : "";
+        }
+      }
+      if (el.rangeDaysLabel) {
+        const daysText = days > 0 ? String(days) : "--";
+        el.rangeDaysLabel.innerHTML = `Range <span class="range-days-value">${daysText} Days</span>`;
+      }
     }
     updateRangePresetActiveState();
   }
@@ -5924,6 +6077,7 @@
     bindDateRangePlaybackFpsButtons();
     bindDashboardExpandButton();
     bindDateRangeChartToggles();
+    bindDateRangeDaysInput();
     bindDateRangeDownloadControls();
     setDateRangePlaybackFps(saved.playbackFps);
 
@@ -5972,6 +6126,8 @@
           ? DASHBOARD_TIME.setPreferredTimeZone(next)
           : next;
         syncAllDropdowns();
+        updatedTimeZoneSelect.blur();
+        closeAllDropdowns();
         renderAll();
       });
     }
@@ -6461,16 +6617,18 @@
     // Update pair KPI
     renderPairKpiValue(primaryCurrency, secondaryCurrency);
     syncDateRangeChartToggleLabels();
-    const latestBtcRow = getLatestBtcRow();
-    const latestBlockHeight = latestBtcRow?.blockHeight;
-    const latestBlockHeightText = latestBlockHeight ? String(latestBlockHeight) : "";
-    const ranksByCurrency = getCurrencyRanksByValue();
+    const fallbackEndRow = rows[rows.length - 1] || allRows[allRows.length - 1] || null;
+    const selectedEndIso = el.endDateInput?.value || requestedDateRange.endIso || (fallbackEndRow ? toIsoDate(fallbackEndRow.date) : "");
+    const selectedEndBtcRow = getBtcRowOnOrBeforeIso(selectedEndIso);
+    const selectedBlockHeight = selectedEndBtcRow?.blockHeight;
+    const selectedBlockHeightText = Number.isFinite(selectedBlockHeight) ? String(selectedBlockHeight) : "";
+    const ranksByCurrency = getCurrencyRanksFromSatsValues(getCurrencySatsValuesForRow(selectedEndBtcRow));
     if (el.primaryRankKpiValue) el.primaryRankKpiValue.textContent = ranksByCurrency[primaryCurrency] ? String(ranksByCurrency[primaryCurrency]) : "";
     if (el.secondaryRankKpiValue) el.secondaryRankKpiValue.textContent = ranksByCurrency[secondaryCurrency] ? String(ranksByCurrency[secondaryCurrency]) : "";
     if (el.blockHeightText) {
-      el.blockHeightText.textContent = latestBlockHeight ? `BLOCK HEIGHT: ${latestBlockHeightText}` : "BLOCK HEIGHT: --";
+      el.blockHeightText.textContent = selectedBlockHeightText ? `BLOCK HEIGHT: ${selectedBlockHeightText}` : "BLOCK HEIGHT: --";
     }
-    if (el.blockHeightKpiValue) el.blockHeightKpiValue.textContent = latestBlockHeightText;
+    if (el.blockHeightKpiValue) el.blockHeightKpiValue.textContent = selectedBlockHeightText;
 
     // Update panel titles
     if (el.usdBtcTitle) {

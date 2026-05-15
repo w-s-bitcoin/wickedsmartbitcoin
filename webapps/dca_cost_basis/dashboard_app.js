@@ -323,6 +323,8 @@ function bindSelectDropdowns() {
     menu.addEventListener("click", (event) => {
       const btn = event.target.closest(".dca-option-btn");
       if (!btn) return;
+      event.preventDefault();
+      event.stopPropagation();
       const nextValue = String(btn.dataset.value || "");
       if (select.value !== nextValue) {
         select.value = nextValue;
@@ -424,6 +426,8 @@ function bindTimeZoneChipEvents() {
   if (!select) return;
   select.addEventListener("change", () => {
     setPreferredDashboardTimeZone(select.value);
+    select.blur();
+    closeAllSelectDropdowns();
     renderChart();
   });
 }
@@ -1224,10 +1228,10 @@ function syncDateRangeControls() {
   const endBtn = document.getElementById("dateRangeEndBtn");
   const startInput = document.getElementById("dateRangeStartInput");
   const endInput = document.getElementById("dateRangeEndInput");
+  const daysInput = document.getElementById("dateRangeDaysInput");
   const sliderWrap = document.getElementById("dateRangeSliderWrap");
   const startSlider = document.getElementById("dateRangeStartSlider");
   const endSlider = document.getElementById("dateRangeEndSlider");
-  const rangeValue = document.getElementById("dateRangeDaysValue");
   const speedBtn = document.getElementById("dateRangeSpeedBtn");
   const playBtn = document.getElementById("dateRangePlayBtn");
   const pauseBtn = document.getElementById("dateRangePauseBtn");
@@ -1281,9 +1285,12 @@ function syncDateRangeControls() {
     sliderWrap.classList.toggle("is-playing", state.dateRange.isPlaying);
     sliderWrap.classList.toggle("is-paused", state.dateRange.isPaused);
   }
-  if (rangeValue) {
+  if (daysInput) {
     const days = Math.max(1, diffDays(state.dateRange.startIso, state.dateRange.endIso) + 1);
-    rangeValue.innerHTML = `Range <span class="range-days-value">${days.toLocaleString("en-US")} Days</span>`;
+    daysInput.dataset.lastValidValue = String(days);
+    if (document.activeElement !== daysInput) {
+      daysInput.value = days.toLocaleString("en-US");
+    }
   }
   if (speedBtn) speedBtn.textContent = `${state.dateRange.playbackSpeed}x`;
   playBtn?.classList.toggle("is-playing", state.dateRange.isPlaying);
@@ -1308,6 +1315,83 @@ function setDateRange(startIso, endIso, preset = "custom") {
   saveDateRangeState();
   syncDateRangeControls();
   renderChart();
+}
+
+function parseDateRangeDaysValue(value) {
+  const parsed = Number.parseInt(String(value || "").replace(/[^\d]/g, ""), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function formatDateRangeDaysValue(value) {
+  const dayCount = parseDateRangeDaysValue(value);
+  return dayCount > 0 ? dayCount.toLocaleString("en-US") : "";
+}
+
+function setDateRangeByDayCount(dayCount) {
+  const rows = state.priceRows || [];
+  if (!rows.length) return;
+  const desiredDays = Math.max(1, Math.round(Number(dayCount) || 1));
+  const maxIdx = Math.max(0, rows.length - 1);
+  let startIdx = findDateIndex(state.dateRange.startIso, "ceil");
+  if (startIdx < 0) startIdx = 0;
+  startIdx = Math.max(0, Math.min(maxIdx, startIdx));
+  let endIdx = startIdx + desiredDays - 1;
+  if (endIdx > maxIdx) {
+    endIdx = maxIdx;
+    startIdx = Math.max(0, endIdx - desiredDays + 1);
+  }
+  startIdx = Math.max(0, Math.min(maxIdx, startIdx));
+  endIdx = Math.max(startIdx, Math.min(maxIdx, endIdx));
+  const startIso = rows[startIdx]?.dateIso;
+  const endIso = rows[endIdx]?.dateIso;
+  if (!startIso || !endIso) return;
+  setDateRange(startIso, endIso, "custom");
+}
+
+function commitDateRangeDaysInput(input) {
+  if (!input) return;
+  const dayCount = parseDateRangeDaysValue(input.value);
+  if (!dayCount) {
+    const fallback = Number.parseInt(input.dataset.lastValidValue || "0", 10);
+    input.value = fallback > 0 ? fallback.toLocaleString("en-US") : "";
+    return;
+  }
+  setDateRangeByDayCount(dayCount);
+}
+
+function selectDateRangeDaysInput(input) {
+  if (!input) return;
+  window.setTimeout(() => {
+    input.select();
+  }, 0);
+}
+
+function getCaretIndexForDigitPosition(value, digitCount) {
+  if (digitCount <= 0) return 0;
+  let seenDigits = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    if (!/\d/.test(value[i])) continue;
+    seenDigits += 1;
+    if (seenDigits >= digitCount) return i + 1;
+  }
+  return value.length;
+}
+
+function handleDateRangeDaysInput(input) {
+  if (!input) return;
+  const rawValue = String(input.value || "");
+  const rawCaret = Number.isFinite(input.selectionStart) ? input.selectionStart : rawValue.length;
+  const digitsBeforeCaret = rawValue.slice(0, rawCaret).replace(/\D/g, "").length;
+  const dayCount = parseDateRangeDaysValue(input.value);
+  const formattedValue = formatDateRangeDaysValue(input.value);
+  input.value = formattedValue;
+  if (document.activeElement === input) {
+    const nextCaret = getCaretIndexForDigitPosition(formattedValue, digitsBeforeCaret);
+    input.setSelectionRange(nextCaret, nextCaret);
+  }
+  if (dayCount > 0) {
+    setDateRangeByDayCount(dayCount);
+  }
 }
 
 function setLastAdjustedDateRangeHandle(handle) {
@@ -4332,6 +4416,7 @@ function bindControls() {
   const endBtn = document.getElementById("dateRangeEndBtn");
   const startInput = document.getElementById("dateRangeStartInput");
   const endInput = document.getElementById("dateRangeEndInput");
+  const daysInput = document.getElementById("dateRangeDaysInput");
   const sliderWrap = document.getElementById("dateRangeSliderWrap");
   const startSlider = document.getElementById("dateRangeStartSlider");
   const endSlider = document.getElementById("dateRangeEndSlider");
@@ -4378,6 +4463,27 @@ function bindControls() {
   endInput?.addEventListener("change", () => {
     setLastAdjustedDateRangeHandle("end");
     setDateRange(state.dateRange.startIso, endInput.value, "custom");
+  });
+
+  daysInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      commitDateRangeDaysInput(daysInput);
+      daysInput.blur();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      const fallback = Number.parseInt(daysInput.dataset.lastValidValue || "0", 10);
+      daysInput.value = fallback > 0 ? fallback.toLocaleString("en-US") : "";
+      daysInput.blur();
+    }
+  });
+
+  daysInput?.addEventListener("focus", () => selectDateRangeDaysInput(daysInput));
+  daysInput?.addEventListener("click", () => selectDateRangeDaysInput(daysInput));
+  daysInput?.addEventListener("input", () => handleDateRangeDaysInput(daysInput));
+
+  daysInput?.addEventListener("blur", () => {
+    commitDateRangeDaysInput(daysInput);
   });
 
   if (startBtn && endBtn && startInput && endInput) {

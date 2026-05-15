@@ -117,14 +117,20 @@
             <button id="endDateBtn" class="date-range-btn" type="button"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg><span class="date-range-btn-placeholder" aria-hidden="true">00/00/00</span></button>
             <input id="endDateInput" type="date" style="display:none" />
           </label>
-          <span id="rangeDaysLabel" class="chip range-days-chip" aria-live="polite">Range <span class="range-days-value"></span></span>
-          <div class="date-range-presets" id="dateRangePresets" role="group" aria-label="Quick date ranges">
-            <button type="button" class="date-range-preset-btn" data-range="full">Full Range</button>
-            <button type="button" class="date-range-preset-btn" data-range="ytd">YTD</button>
-            <button type="button" class="date-range-preset-btn" data-range="1y">1Y</button>
-            <button type="button" class="date-range-preset-btn" data-range="2y">2Y</button>
-            <button type="button" class="date-range-preset-btn" data-range="4y">4Y</button>
-            <button type="button" class="date-range-preset-btn" data-range="8y">8Y</button>
+          <div class="date-range-range-control">
+            <span class="date-range-range-label">Range</span>
+            <div class="date-range-presets date-range-range-buttons" id="dateRangePresets" role="group" aria-label="Quick date ranges">
+              <label class="date-range-days-segment" for="dateRangeDaysInput">
+                <input id="dateRangeDaysInput" class="date-range-days-input" type="text" inputmode="numeric" autocomplete="off" aria-label="Range length in days" />
+                <span class="date-range-days-suffix">Days</span>
+              </label>
+              <button type="button" class="date-range-preset-btn" data-range="ytd">YTD</button>
+              <button type="button" class="date-range-preset-btn" data-range="1y">1Y</button>
+              <button type="button" class="date-range-preset-btn" data-range="2y">2Y</button>
+              <button type="button" class="date-range-preset-btn" data-range="4y">4Y</button>
+              <button type="button" class="date-range-preset-btn" data-range="8y">8Y</button>
+              <button type="button" class="date-range-preset-btn" data-range="full">All</button>
+            </div>
           </div>
           <div class="date-range-playback-controls" id="dateRangePlaybackControls" role="group" aria-label="Range playback controls">
             <button

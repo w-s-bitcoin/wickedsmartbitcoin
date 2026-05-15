@@ -1215,7 +1215,7 @@
         <label class="toggle" for="toggleSoftwarePanel"><input type="checkbox" id="toggleSoftwarePanel" checked /> Software Versions</label>
         <label class="chip">Range
           <div id="rangeDropdown" class="dca-dropdown">
-            <span id="rangeDropdownValue" class="dca-dropdown-value">1y</span>
+            <span id="rangeDropdownValue" class="dca-dropdown-value">All</span>
             <button id="rangeDropdownTrigger" type="button" class="dca-dropdown-trigger" aria-label="Range"></button>
             <div id="rangeDropdownMenu" class="dca-dropdown-menu" aria-label="Range options"></div>
           </div>
@@ -1223,19 +1223,19 @@
             <option value="30">30d</option>
             <option value="90">90d</option>
             <option value="180">180d</option>
-            <option value="365" selected>1y</option>
-            <option value="0">All</option>
+            <option value="365">1y</option>
+            <option value="0" selected>All</option>
           </select>
         </label>
         <label class="chip">Smoothing
           <div id="smoothDropdown" class="dca-dropdown">
-            <span id="smoothDropdownValue" class="dca-dropdown-value">7d</span>
+            <span id="smoothDropdownValue" class="dca-dropdown-value">None</span>
             <button id="smoothDropdownTrigger" type="button" class="dca-dropdown-trigger" aria-label="Smoothing"></button>
             <div id="smoothDropdownMenu" class="dca-dropdown-menu" aria-label="Smoothing options"></div>
           </div>
           <select id="smoothSelect" class="dca-native-select">
-            <option value="1">None</option>
-            <option value="7" selected>7d</option>
+            <option value="1" selected>None</option>
+            <option value="7">7d</option>
             <option value="30">30d</option>
           </select>
         </label>
