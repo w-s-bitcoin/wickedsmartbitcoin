@@ -88,7 +88,7 @@ const state = {
     quality: "720",
     speed: "1",
     theme: document.documentElement.dataset.theme === "light" ? "light" : "dark",
-    extension: "mp4",
+    extension: "webm",
     endFrameHold: true,
   },
   seriesByCadence: {
@@ -2542,7 +2542,7 @@ function normalizeDownloadSettings(settings = {}) {
     quality: ["720", "1080", "1440", "2160"].includes(String(settings.quality)) ? String(settings.quality) : "720",
     speed: ["0.5", "1", "2", "4"].includes(String(settings.speed)) ? String(settings.speed) : String(state.dateRange.playbackSpeed || 1),
     theme: ["light", "dark"].includes(settings.theme) ? settings.theme : currentTheme,
-    extension: ["mp4", "webm"].includes(settings.extension) ? settings.extension : "mp4",
+    extension: "webm",
     endFrameHold: settings.endFrameHold !== false,
   };
 }
@@ -2694,7 +2694,6 @@ function syncDownloadSettingsControls() {
     downloadQualitySelect: state.downloadSettings.quality,
     downloadSpeedSelect: state.downloadSettings.speed,
     downloadThemeSelect: state.downloadSettings.theme,
-    downloadExtensionSelect: state.downloadSettings.extension,
   };
   Object.entries(groups).forEach(([id, value]) => {
     const group = document.getElementById(id);
@@ -5397,7 +5396,6 @@ function bindControls() {
     "downloadQualitySelect",
     "downloadSpeedSelect",
     "downloadThemeSelect",
-    "downloadExtensionSelect",
   ].forEach((groupId) => {
     const group = document.getElementById(groupId);
     group?.addEventListener("click", (event) => {

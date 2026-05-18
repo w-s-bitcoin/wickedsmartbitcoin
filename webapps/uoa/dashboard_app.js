@@ -102,7 +102,7 @@
   };
   const DEFAULT_DOWNLOAD_SETTINGS = {
     chartMode: "both",
-    extension: "mp4",
+    extension: "webm",
     quality: "720",
     orientation: "landscape",
     theme: "",
@@ -192,7 +192,6 @@
     downloadChartModeSelect: document.getElementById("downloadChartModeSelect"),
     downloadLeftScaleSelect: document.getElementById("downloadLeftScaleSelect"),
     downloadRightScaleSelect: document.getElementById("downloadRightScaleSelect"),
-    downloadExtensionSelect: document.getElementById("downloadExtensionSelect"),
     downloadQualitySelect: document.getElementById("downloadQualitySelect"),
     downloadOrientationSelect: document.getElementById("downloadOrientationSelect"),
     downloadThemeSelect: document.getElementById("downloadThemeSelect"),
@@ -1138,7 +1137,7 @@
   function normalizeDownloadSettings(settings = {}) {
     const chartMode = ["both", "left", "right"].includes(settings.chartMode) ? settings.chartMode : DEFAULT_DOWNLOAD_SETTINGS.chartMode;
     const rawExtension = settings.extension === "gif" ? "webm" : settings.extension;
-    const extension = ["mp4", "webm"].includes(rawExtension) ? rawExtension : DEFAULT_DOWNLOAD_SETTINGS.extension;
+    const extension = rawExtension === "webm" ? "webm" : DEFAULT_DOWNLOAD_SETTINGS.extension;
     const quality = ["720", "1080", "1440", "2160"].includes(String(settings.quality)) ? String(settings.quality) : DEFAULT_DOWNLOAD_SETTINGS.quality;
     const orientation = ["landscape", "portrait", "square"].includes(settings.orientation) ? settings.orientation : DEFAULT_DOWNLOAD_SETTINGS.orientation;
     const theme = settings.theme === "dark" ? "dark" : settings.theme === "light" ? "light" : getCurrentDashboardTheme();
@@ -1349,7 +1348,6 @@
     downloadSettings = normalized;
     syncDownloadChartModeLabels();
     setDownloadSettingGroupValue(el.downloadChartModeSelect, normalized.chartMode);
-    setDownloadSettingGroupValue(el.downloadExtensionSelect, normalized.extension);
     setDownloadSettingGroupValue(el.downloadQualitySelect, normalized.quality);
     setDownloadSettingGroupValue(el.downloadOrientationSelect, normalized.orientation);
     setDownloadSettingGroupValue(el.downloadThemeSelect, normalized.theme);
@@ -1364,7 +1362,7 @@
   function readDownloadSettingsControls() {
     return normalizeDownloadSettings({
       chartMode: getDownloadSettingGroupValue(el.downloadChartModeSelect),
-      extension: getDownloadSettingGroupValue(el.downloadExtensionSelect),
+      extension: "webm",
       quality: getDownloadSettingGroupValue(el.downloadQualitySelect),
       orientation: getDownloadSettingGroupValue(el.downloadOrientationSelect),
       theme: getDownloadSettingGroupValue(el.downloadThemeSelect),
@@ -2299,6 +2297,8 @@
     if (!node || !node.textContent) return;
     const text = node.textContent;
     const digitWidth = getExportNumericDigitWidth(node);
+    const shouldOpticallyCenterOnes = node.classList.contains("big-value")
+      || node.classList.contains("sub-value");
     node.textContent = "";
     let textBuffer = "";
     const flushTextBuffer = () => {
@@ -2330,6 +2330,9 @@
       span.style.whiteSpace = "pre";
       span.style.width = `${digitWidth}px`;
       span.style.textAlign = "center";
+      if (shouldOpticallyCenterOnes && char === "1") {
+        span.style.transform = "translateX(0.045em)";
+      }
       node.appendChild(span);
     });
     flushTextBuffer();
@@ -3408,7 +3411,6 @@
       el.downloadChartModeSelect,
       el.downloadLeftScaleSelect,
       el.downloadRightScaleSelect,
-      el.downloadExtensionSelect,
       el.downloadQualitySelect,
       el.downloadOrientationSelect,
       el.downloadThemeSelect,
