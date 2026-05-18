@@ -1,6 +1,7 @@
 (function initDashboardTimezonePreferences(globalScope) {
   const STORAGE_KEY = "wicked_dashboard_timezone_v1";
   const CHANGE_EVENT = "wsb:timezonechange";
+  const BROADCAST_CHANNEL = "wicked_dashboard_timezone_channel_v1";
   const FALLBACK_TIME_ZONE = "UTC";
   const CURATED_TIME_ZONES = [
     { value: "UTC", label: "UTC - Greenwich Mean Time (GMT)" },
@@ -170,6 +171,40 @@
     }
   }
 
+  function dispatchTimeZoneChange(timeZone) {
+    try {
+      globalScope.dispatchEvent(
+        new CustomEvent(CHANGE_EVENT, {
+          detail: { timeZone },
+        })
+      );
+    } catch (_) {
+      // Ignore event dispatch errors.
+    }
+  }
+
+  let broadcastChannel = null;
+  try {
+    if ("BroadcastChannel" in globalScope) {
+      broadcastChannel = new BroadcastChannel(BROADCAST_CHANNEL);
+      broadcastChannel.addEventListener("message", (event) => {
+        const next = normalizeTimeZone(event?.data?.timeZone);
+        if (next) dispatchTimeZoneChange(next);
+      });
+    }
+  } catch (_) {
+    broadcastChannel = null;
+  }
+
+  try {
+    globalScope.addEventListener("storage", (event) => {
+      if (event.key !== STORAGE_KEY) return;
+      dispatchTimeZoneChange(normalizeTimeZone(event.newValue || FALLBACK_TIME_ZONE));
+    });
+  } catch (_) {
+    // Ignore storage listener failures.
+  }
+
   function setPreferredTimeZone(value) {
     const normalized = normalizeTimeZone(value);
     try {
@@ -177,14 +212,11 @@
     } catch (_) {
       // Ignore storage failures so dashboards still work in restricted modes.
     }
+    dispatchTimeZoneChange(normalized);
     try {
-      globalScope.dispatchEvent(
-        new CustomEvent(CHANGE_EVENT, {
-          detail: { timeZone: normalized },
-        })
-      );
+      broadcastChannel?.postMessage({ timeZone: normalized });
     } catch (_) {
-      // Ignore event dispatch errors.
+      // Ignore broadcast failures.
     }
     return normalized;
   }
@@ -230,6 +262,7 @@
   globalScope.WSBDashboardTime = {
     STORAGE_KEY,
     CHANGE_EVENT,
+    BROADCAST_CHANNEL,
     FALLBACK_TIME_ZONE,
     getBrowserTimeZone,
     getPreferredTimeZone,
