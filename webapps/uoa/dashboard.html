@@ -26,6 +26,20 @@
             </div>
           </div>
         </div>
+        <div class="title-actions">
+          <button type="button" class="copy-link-btn" id="copyDashboardLink" aria-label="Copy shareable dashboard link" data-tooltip="Copy shareable dashboard link">
+            <span class="btn-icon" aria-hidden="true">
+              <svg id="copyDashboardIcon" viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+            </span>
+            <span class="btn-label">Copy Link</span>
+          </button>
+          <button type="button" class="reset-dashboard-btn" id="resetDashboard" disabled aria-label="Restore dashboard defaults" data-tooltip="Reset dashboard to defaults">
+            <span class="btn-icon" aria-hidden="true">
+              <svg id="resetDashboardIcon" viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path></svg>
+            </span>
+            <span class="btn-label">Restore Defaults</span>
+          </button>
+        </div>
         <div class="chips" id="kpiRow" aria-label="UoA KPIs">
           <div class="chip-menu-wrap single-select" id="updatedChipWrap">
             <div id="updatedKpiChip" class="chip chip-kpi-display"><span class="chip-label">Updated</span> <span id="updatedKpiValue" class="chip-value" data-loading-placeholder="0000-00-00 00:00 UTC"></span></div>

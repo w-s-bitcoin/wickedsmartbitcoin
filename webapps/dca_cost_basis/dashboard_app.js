@@ -35,6 +35,15 @@ const CONTROLS_STORAGE_KEY = "dca_cost_basis_controls_v2";
 const DATE_RANGE_STORAGE_KEY = "dca_cost_basis_date_range_v1";
 const DOWNLOAD_SETTINGS_KEY = "dca_cost_basis_download_settings_v1";
 const DASHBOARD_TIME = window.WSBDashboardTime || null;
+const SHARE_STATE_PARAM = "state";
+const LOCAL_RUNTIME_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+const IS_LOCAL_RUNTIME = LOCAL_RUNTIME_HOSTS.has(window.location.hostname);
+const ICONS = {
+  copyLink: '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>',
+  copyCopied: '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>',
+  resetDefaults: '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path></svg>',
+  resetUndo: '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>',
+};
 const PLAYBACK_SPEEDS = [0.5, 1, 2, 4];
 const EXPORT_VIDEO_FPS = 30;
 const EXPORT_START_HOLD_SECONDS = 1;
@@ -120,6 +129,10 @@ let dateRangeExportCancelRequested = false;
 let dateRangePlaybackOutsidePointerHandler = null;
 let dateRangePlaybackOutsidePointerTouchState = null;
 let dateRangeSessionPersistenceBound = false;
+let preResetStateSnapshot = null;
+let suppressResetSnapshotClear = false;
+let customTooltipBound = false;
+let customTooltipAnchor = null;
 const downloadEstimateCalibrationCache = new Map();
 const downloadEstimateCalibrationPending = new Set();
 let downloadEstimateCalibrationRequestId = 0;
@@ -143,6 +156,145 @@ function closeAllSelectDropdowns(exceptDropdown = null) {
     if (exceptDropdown && dropdown === exceptDropdown) return;
     setDropdownOpen(dropdown, menu, false);
   });
+}
+
+function setButtonIcon(iconId, markup) {
+  const iconEl = document.getElementById(iconId);
+  if (!iconEl || !markup) return;
+  iconEl.outerHTML = markup.replace("<svg ", `<svg id="${iconId}" `);
+}
+
+function isMobileUiViewport() {
+  return window.matchMedia("(max-width: 820px)").matches;
+}
+
+function setCustomTooltip(anchor, text) {
+  if (!anchor) return;
+  const value = String(text || "").trim();
+  if (value) {
+    anchor.setAttribute("data-tooltip", value);
+  } else {
+    anchor.removeAttribute("data-tooltip");
+  }
+  anchor.removeAttribute("title");
+}
+
+function ensureCustomTooltipElement() {
+  let tooltip = document.getElementById("dashboardInlineTooltip");
+  if (!tooltip) {
+    tooltip = document.createElement("div");
+    tooltip.id = "dashboardInlineTooltip";
+    tooltip.className = "dashboard-inline-tooltip";
+    document.body.appendChild(tooltip);
+  }
+  return tooltip;
+}
+
+function hideCustomTooltip() {
+  const tooltip = document.getElementById("dashboardInlineTooltip");
+  if (!tooltip) return;
+  tooltip.classList.remove("is-visible");
+}
+
+function placeCustomTooltip(tooltip, x, y) {
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const offset = 14;
+  let left = x + offset;
+  let top = y + offset;
+  const maxLeft = viewportWidth - tooltip.offsetWidth - 8;
+  const maxTop = viewportHeight - tooltip.offsetHeight - 8;
+  if (left > maxLeft) left = Math.max(8, x - tooltip.offsetWidth - offset);
+  if (top > maxTop) top = Math.max(8, y - tooltip.offsetHeight - offset);
+  tooltip.style.left = `${left}px`;
+  tooltip.style.top = `${top}px`;
+}
+
+function showCustomTooltip(anchor, x, y) {
+  const text = String(anchor?.getAttribute("data-tooltip") || "").trim();
+  if (!text) {
+    hideCustomTooltip();
+    return;
+  }
+  const tooltip = ensureCustomTooltipElement();
+  tooltip.textContent = text;
+  tooltip.classList.add("is-visible");
+  placeCustomTooltip(tooltip, x, y);
+}
+
+function bindCustomTooltips() {
+  if (customTooltipBound) return;
+  customTooltipBound = true;
+  let mobileTooltipHideTimerId = null;
+
+  const clearMobileTooltipHideTimer = () => {
+    if (mobileTooltipHideTimerId !== null) {
+      window.clearTimeout(mobileTooltipHideTimerId);
+      mobileTooltipHideTimerId = null;
+    }
+  };
+
+  const shouldSuppressTooltipForAnchor = (anchor) => {
+    if (!anchor) return true;
+    if (!isMobileUiViewport()) return false;
+    return !(anchor instanceof HTMLElement && anchor.disabled);
+  };
+
+  document.addEventListener("mouseover", (event) => {
+    const anchor = event.target instanceof Element ? event.target.closest("[data-tooltip]") : null;
+    if (shouldSuppressTooltipForAnchor(anchor)) {
+      if (customTooltipAnchor === anchor) customTooltipAnchor = null;
+      hideCustomTooltip();
+      return;
+    }
+    if (!anchor) return;
+    customTooltipAnchor = anchor;
+    showCustomTooltip(anchor, event.clientX, event.clientY);
+  });
+
+  document.addEventListener("mousemove", (event) => {
+    if (!customTooltipAnchor) return;
+    const tooltip = document.getElementById("dashboardInlineTooltip");
+    if (!tooltip || !tooltip.classList.contains("is-visible")) return;
+    placeCustomTooltip(tooltip, event.clientX, event.clientY);
+  });
+
+  document.addEventListener("mouseout", (event) => {
+    if (!customTooltipAnchor) return;
+    const related = event.relatedTarget;
+    if (related instanceof Node && customTooltipAnchor.contains(related)) return;
+    customTooltipAnchor = null;
+    clearMobileTooltipHideTimer();
+    hideCustomTooltip();
+  });
+
+  document.addEventListener("touchstart", (event) => {
+    const anchor = event.target instanceof Element ? event.target.closest("[data-tooltip]") : null;
+    if (shouldSuppressTooltipForAnchor(anchor)) {
+      customTooltipAnchor = null;
+      clearMobileTooltipHideTimer();
+      hideCustomTooltip();
+      return;
+    }
+    const touch = event.touches && event.touches.length ? event.touches[0] : null;
+    const rect = anchor.getBoundingClientRect();
+    const x = touch ? touch.clientX : rect.left + (rect.width / 2);
+    const y = touch ? touch.clientY : rect.top + (rect.height / 2);
+    customTooltipAnchor = anchor;
+    showCustomTooltip(anchor, x, y);
+    clearMobileTooltipHideTimer();
+    mobileTooltipHideTimerId = window.setTimeout(() => {
+      if (customTooltipAnchor === anchor) customTooltipAnchor = null;
+      hideCustomTooltip();
+      mobileTooltipHideTimerId = null;
+    }, 1800);
+  }, { passive: true });
+
+  window.addEventListener("scroll", () => {
+    if (!customTooltipAnchor) return;
+    clearMobileTooltipHideTimer();
+    hideCustomTooltip();
+  }, { passive: true });
 }
 
 function parseCssPx(value, fallback = 0) {
@@ -428,6 +580,7 @@ function bindTimeZoneChipEvents() {
     setPreferredDashboardTimeZone(select.value);
     select.blur();
     closeAllSelectDropdowns();
+    saveControls();
     renderChart();
   });
 }
@@ -511,11 +664,47 @@ function fmtUsdCompactTick(value) {
   return `$${Math.round(value).toLocaleString("en-US")}`;
 }
 
+function encodeShareState(payload) {
+  try {
+    const json = JSON.stringify(payload);
+    const bytes = new TextEncoder().encode(json);
+    let binary = "";
+    bytes.forEach((byte) => {
+      binary += String.fromCharCode(byte);
+    });
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  } catch (_) {
+    return "";
+  }
+}
+
+function decodeShareState(rawValue) {
+  if (!rawValue) return null;
+  try {
+    const normalized = rawValue.replace(/-/g, "+").replace(/_/g, "/");
+    const paddingLength = (4 - (normalized.length % 4)) % 4;
+    const padded = normalized + "=".repeat(paddingLength);
+    const binary = atob(padded);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    const json = new TextDecoder().decode(bytes);
+    const parsed = JSON.parse(json);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function getDashboardShareStateFromUrl() {
+  const params = new URLSearchParams(window.location.search || "");
+  return decodeShareState(params.get(SHARE_STATE_PARAM) || "");
+}
+
 function loadControls() {
   try {
+    const shareState = getDashboardShareStateFromUrl();
     const raw = localStorage.getItem(CONTROLS_STORAGE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw);
+    if (!raw && !shareState) return;
+    const parsed = shareState || JSON.parse(raw);
 
     if (["daily_dca", "weekly_dca", "monthly_dca"].includes(parsed.cadence)) {
       state.cadence = parsed.cadence;
@@ -525,6 +714,9 @@ function loadControls() {
     }
     if (typeof parsed.showHalvings === "boolean") {
       state.showHalvings = parsed.showHalvings;
+    }
+    if (typeof parsed.timeZone === "string" && parsed.timeZone.trim()) {
+      setPreferredDashboardTimeZone(parsed.timeZone);
     }
   } catch (_) {
     // Ignore invalid cached controls.
@@ -573,7 +765,9 @@ function saveControls() {
       cadence: state.cadence,
       yScale: state.yScale,
       showHalvings: state.showHalvings,
+      timeZone: state.timeZone || "UTC",
     }));
+    if (!suppressResetSnapshotClear) clearPreResetSnapshot();
   } catch (_) {
     // Ignore storage failures.
   }
@@ -1070,7 +1264,7 @@ function getPresetStartIso(preset, endIso) {
 
 function loadDateRangeState() {
   try {
-    const parsed = JSON.parse(localStorage.getItem(DATE_RANGE_STORAGE_KEY) || "{}");
+    const parsed = getDashboardShareStateFromUrl() || JSON.parse(localStorage.getItem(DATE_RANGE_STORAGE_KEY) || "{}");
     if (typeof parsed.startIso === "string") state.dateRange.startIso = parsed.startIso;
     if (typeof parsed.endIso === "string") state.dateRange.endIso = parsed.endIso;
     if (typeof parsed.selectedPreset === "string") state.dateRange.selectedPreset = parsed.selectedPreset;
@@ -1110,9 +1304,227 @@ function saveDateRangeState() {
       playbackSpeed: state.dateRange.playbackSpeed,
       pausedPlaybackSession,
     }));
+    if (!suppressResetSnapshotClear) clearPreResetSnapshot();
   } catch (_) {
     // Ignore storage failures.
   }
+}
+
+function getDefaultDashboardState() {
+  const { minIso, maxIso } = getDataBounds();
+  return {
+    cadence: "daily_dca",
+    yScale: "linear",
+    showHalvings: true,
+    timeZone: "UTC",
+    startIso: minIso || "",
+    endIso: maxIso || "",
+    currentEndIso: maxIso || "",
+    selectedPreset: "full",
+    playbackSpeed: 1,
+  };
+}
+
+function captureResetSnapshot() {
+  return {
+    cadence: state.cadence,
+    yScale: state.yScale,
+    showHalvings: !!state.showHalvings,
+    timeZone: state.timeZone || "UTC",
+    startIso: state.dateRange.startIso || "",
+    endIso: state.dateRange.endIso || "",
+    currentEndIso: state.dateRange.currentEndIso || state.dateRange.endIso || "",
+    selectedPreset: state.dateRange.selectedPreset || "custom",
+    playbackSpeed: state.dateRange.playbackSpeed || 1,
+  };
+}
+
+function restoreResetSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") return;
+  suppressResetSnapshotClear = true;
+  try {
+    stopDateRangePlayback(false);
+    state.cadence = ["daily_dca", "weekly_dca", "monthly_dca"].includes(snapshot.cadence) ? snapshot.cadence : "daily_dca";
+    state.yScale = ["linear", "log"].includes(snapshot.yScale) ? snapshot.yScale : "linear";
+    state.showHalvings = snapshot.showHalvings !== false;
+    setPreferredDashboardTimeZone(String(snapshot.timeZone || "UTC"));
+
+    state.dateRange.startIso = clampIsoToData(snapshot.startIso || "");
+    state.dateRange.endIso = clampIsoToData(snapshot.endIso || "");
+    state.dateRange.currentEndIso = clampIsoToData(snapshot.currentEndIso || snapshot.endIso || "");
+    state.dateRange.selectedPreset = typeof snapshot.selectedPreset === "string" ? snapshot.selectedPreset : "custom";
+    const playbackSpeed = Number(snapshot.playbackSpeed);
+    state.dateRange.playbackSpeed = PLAYBACK_SPEEDS.includes(playbackSpeed) ? playbackSpeed : 1;
+    state.dateRange.isPlaying = false;
+    state.dateRange.isPaused = false;
+    normalizeDateRangeState();
+
+    saveControls();
+    saveDateRangeState();
+    populateUpdatedTimeZoneSelect();
+    applyControlValuesToUi();
+    syncDateRangeControls();
+    renderChart();
+  } finally {
+    suppressResetSnapshotClear = false;
+  }
+  updateResetButtonUi();
+}
+
+function restoreDashboardDefaults() {
+  preResetStateSnapshot = captureResetSnapshot();
+  try {
+    localStorage.removeItem(CONTROLS_STORAGE_KEY);
+    localStorage.removeItem(DATE_RANGE_STORAGE_KEY);
+  } catch (_) {
+    // Ignore storage failures.
+  }
+  restoreResetSnapshot(getDefaultDashboardState());
+  updateResetButtonUi();
+}
+
+function restorePreviousDashboardState() {
+  if (!preResetStateSnapshot) return;
+  const snapshot = preResetStateSnapshot;
+  preResetStateSnapshot = null;
+  restoreResetSnapshot(snapshot);
+}
+
+function clearPreResetSnapshot() {
+  if (!preResetStateSnapshot) {
+    updateResetButtonUi();
+    return;
+  }
+  preResetStateSnapshot = null;
+  updateResetButtonUi();
+}
+
+function statesMatch(current, defaults) {
+  return current.cadence === defaults.cadence
+    && current.yScale === defaults.yScale
+    && current.showHalvings === defaults.showHalvings
+    && current.timeZone === defaults.timeZone
+    && current.startIso === defaults.startIso
+    && current.endIso === defaults.endIso
+    && current.currentEndIso === defaults.currentEndIso
+    && current.selectedPreset === defaults.selectedPreset
+    && Number(current.playbackSpeed) === Number(defaults.playbackSpeed);
+}
+
+function isDefaultState() {
+  return statesMatch(captureResetSnapshot(), getDefaultDashboardState());
+}
+
+function updateResetButtonUi() {
+  const btn = document.getElementById("resetDashboard");
+  if (!btn) return;
+  const labelEl = btn.querySelector(".btn-label");
+  if (preResetStateSnapshot) {
+    if (labelEl) labelEl.textContent = "Undo Restore";
+    else btn.textContent = "Undo Restore";
+    setButtonIcon("resetDashboardIcon", ICONS.resetUndo);
+    btn.classList.add("reset-dashboard-btn--undo");
+    btn.setAttribute("aria-label", "Undo the last restore defaults action");
+    setCustomTooltip(btn, "Undo the last restore defaults action");
+    btn.disabled = false;
+    return;
+  }
+
+  if (labelEl) labelEl.textContent = "Restore Defaults";
+  else btn.textContent = "Restore Defaults";
+  setButtonIcon("resetDashboardIcon", ICONS.resetDefaults);
+  btn.classList.remove("reset-dashboard-btn--undo");
+  btn.setAttribute("aria-label", "Restore dashboard defaults");
+  setCustomTooltip(btn, "Reset dashboard to defaults");
+  btn.disabled = isDefaultState();
+}
+
+function getShareRouteBaseUrl() {
+  const path = String(window.location.pathname || "");
+  const dashboardMatch = path.match(/^(.*)\/webapps\/dca_cost_basis\/dashboard\.html$/i);
+  const basePath = dashboardMatch ? (dashboardMatch[1] || "") : path.replace(/\/[^/]*$/, "");
+  if (IS_LOCAL_RUNTIME) {
+    return `${window.location.origin}${basePath}/dca_cost_basis.html`;
+  }
+  return `${window.location.origin}${basePath}/dca_cost_basis`;
+}
+
+function buildShareableDashboardUrl() {
+  const defaults = getDefaultDashboardState();
+  const payload = captureResetSnapshot();
+  const compactPayload = {};
+  Object.entries(payload).forEach(([key, value]) => {
+    if (value === defaults[key]) return;
+    compactPayload[key] = value;
+  });
+
+  const shareUrl = new URL(getShareRouteBaseUrl());
+  if (!Object.keys(compactPayload).length) return shareUrl.toString();
+  const encoded = encodeShareState(compactPayload);
+  if (encoded) shareUrl.searchParams.set(SHARE_STATE_PARAM, encoded);
+  return shareUrl.toString();
+}
+
+async function copyDashboardLinkToClipboard(buttonEl) {
+  const link = buildShareableDashboardUrl();
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(link);
+  } else {
+    const textArea = document.createElement("textarea");
+    textArea.value = link;
+    textArea.setAttribute("readonly", "readonly");
+    textArea.style.position = "absolute";
+    textArea.style.left = "-9999px";
+    document.body.appendChild(textArea);
+    textArea.select();
+    document.execCommand("copy");
+    document.body.removeChild(textArea);
+  }
+
+  if (!buttonEl) return;
+  const labelEl = buttonEl.querySelector(".btn-label");
+  const original = labelEl ? labelEl.textContent : buttonEl.textContent;
+  if (buttonEl.__copyFeedbackTimer) {
+    window.clearTimeout(buttonEl.__copyFeedbackTimer);
+  }
+  buttonEl.classList.add("copy-link-btn--copied");
+  setButtonIcon("copyDashboardIcon", ICONS.copyCopied);
+  if (labelEl) labelEl.textContent = "Copied!";
+  else buttonEl.textContent = "Copied!";
+  buttonEl.__copyFeedbackTimer = window.setTimeout(() => {
+    setButtonIcon("copyDashboardIcon", ICONS.copyLink);
+    if (labelEl) labelEl.textContent = original || "Copy Link";
+    else buttonEl.textContent = original || "Copy Link";
+    buttonEl.classList.remove("copy-link-btn--copied");
+    buttonEl.__copyFeedbackTimer = null;
+  }, 1400);
+}
+
+function bindDashboardActionButtons() {
+  const copyButton = document.getElementById("copyDashboardLink");
+  const resetButton = document.getElementById("resetDashboard");
+  bindCustomTooltips();
+  setCustomTooltip(copyButton, "Copy shareable dashboard link");
+  if (copyButton && copyButton.dataset.bound !== "1") {
+    copyButton.dataset.bound = "1";
+    copyButton.addEventListener("click", async () => {
+      try {
+        await copyDashboardLinkToClipboard(copyButton);
+      } catch (_) {
+        // Clipboard may be unavailable in some browser contexts.
+      }
+    });
+  }
+
+  setCustomTooltip(resetButton, preResetStateSnapshot ? "Undo the last restore defaults action" : "Reset dashboard to defaults");
+  if (resetButton && resetButton.dataset.bound !== "1") {
+    resetButton.dataset.bound = "1";
+    resetButton.addEventListener("click", () => {
+      if (preResetStateSnapshot) restorePreviousDashboardState();
+      else restoreDashboardDefaults();
+    });
+  }
+  updateResetButtonUi();
 }
 
 function initializeDateRangeState() {
@@ -4695,6 +5107,7 @@ function bindControls() {
   const settingsBtn = document.getElementById("dateRangeSettingsBtn");
   const settingsMenu = document.getElementById("dateRangeSettingsMenu");
   const settingsDownloadBtn = document.getElementById("downloadSettingsDownloadBtn");
+  bindDashboardActionButtons();
   bindDashboardExpandButton();
   const closeDownloadSettingsMenu = () => {
     settingsMenu?.classList.remove("open");
@@ -4989,6 +5402,7 @@ async function init() {
 
     await loadData();
     renderChart();
+    updateResetButtonUi();
     primeKeyboardFocus();
     if (state.dateRange.pendingSpacePlayback) {
       state.dateRange.pendingSpacePlayback = false;
