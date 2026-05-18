@@ -72,6 +72,7 @@ def build_release_url(label: str) -> str:
 
     repo_map = {
         "core": "bitcoin/bitcoin",
+        "knots": "bitcoinknots/bitcoin",
         "bip110": "dathonohm/bitcoin",
         "uasf": "UASF/bitcoin",
         "segwit2x": "btc1/bitcoin",
@@ -108,6 +109,9 @@ def bip110_display_label(label: str) -> str:
     if label.lower().startswith("core"):
         version = label.split(":", 1)[1] if ":" in label else ""
         return f"Core\n{version}"
+    if label.lower().startswith("knots"):
+        version = label.split(":", 1)[1] if ":" in label else ""
+        return f"Knots\n{version}"
     return label
 
 def block_time_at_height(rpc, height: int) -> int:
@@ -257,9 +261,10 @@ def fetch_github_release_metadata():
             url = r.links.get('next', {}).get('url')
         return releases
 
-    # Fetch releases for both repos
+    # Fetch releases for the release-marker repos
     bip110_releases = fetch_all_releases("dathonohm", "bitcoin")
     core_releases = fetch_all_releases("bitcoin", "bitcoin")
+    knots_releases = fetch_all_releases("bitcoinknots", "bitcoin")
 
     # For BIP110, match tags containing the version string (e.g., v0.4, v0.4.1) anywhere in the tag
     bip110_map = {}
@@ -279,7 +284,14 @@ def fetch_github_release_metadata():
         url = rel.get("html_url")
         if tag and published:
             core_map[tag] = {"published_at": published, "html_url": url, "tag_name": tag}
-    return {"bip110": bip110_map, "core": core_map}
+    knots_map = {}
+    for rel in knots_releases:
+        tag = rel.get("tag_name")
+        published = rel.get("published_at")
+        url = rel.get("html_url")
+        if tag and published and ".knots" in tag.lower():
+            knots_map[tag] = {"published_at": published, "html_url": url, "tag_name": tag}
+    return {"bip110": bip110_map, "core": core_map, "knots": knots_map}
 
 # Build a mapping from label to release metadata (datetime, url, tag)
 release_metadata_map = fetch_github_release_metadata()
@@ -321,6 +333,16 @@ def get_release_metadata(label):
             return {"release_time_utc": dt_fmt, "github_url": meta["html_url"], "tag_name": meta["tag_name"]}
     elif prefix == "core":
         meta = release_metadata_map["core"].get(version)
+        if meta:
+            dt = meta["published_at"]
+            try:
+                dt_obj = datetime.fromisoformat(dt.replace("Z", "+00:00"))
+                dt_fmt = dt_obj.strftime("%Y-%m-%d %H:%M UTC")
+            except Exception:
+                dt_fmt = dt
+            return {"release_time_utc": dt_fmt, "github_url": meta["html_url"], "tag_name": meta["tag_name"]}
+    elif prefix == "knots":
+        meta = release_metadata_map["knots"].get(version)
         if meta:
             dt = meta["published_at"]
             try:
@@ -387,6 +409,23 @@ def build_dynamic_release_points(current_height: int):
             continue
 
         label = f"core:{version}"
+        h = int(height_at_or_before_timestamp(rpc, ts, lo=BIP110_START, hi=current_height))
+        period = int(height_to_period(h, BIP110_START, PERIOD_SIZE))
+        if 1 <= period <= BIP110_LAST_PERIOD:
+            points.append((label, h, period))
+
+    knots_tag_re = re.compile(r"^v\d+\.\d+(?:\.\d+)?\.knots\d{8}$", re.IGNORECASE)
+    for version, meta in release_metadata_map["knots"].items():
+        if not knots_tag_re.match(version):
+            continue
+        dt = parse_iso_utc(meta.get("published_at", ""))
+        if not dt:
+            continue
+        ts = int(dt.timestamp())
+        if ts < start_ts or ts > end_ts:
+            continue
+
+        label = f"knots:{version}"
         h = int(height_at_or_before_timestamp(rpc, ts, lo=BIP110_START, hi=current_height))
         period = int(height_to_period(h, BIP110_START, PERIOD_SIZE))
         if 1 <= period <= BIP110_LAST_PERIOD:
@@ -754,4 +793,3 @@ print("\nCreated/updated files:")
 for p in sorted(webapp_dir.glob("*")):
     if p.is_file():
         print(f"  - {p.name} ({p.stat().st_size:,} bytes)")
-
