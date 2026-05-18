@@ -715,8 +715,10 @@ function loadControls() {
     if (typeof parsed.showHalvings === "boolean") {
       state.showHalvings = parsed.showHalvings;
     }
-    if (typeof parsed.timeZone === "string" && parsed.timeZone.trim()) {
+    if (shareState && typeof parsed.timeZone === "string" && parsed.timeZone.trim()) {
       setPreferredDashboardTimeZone(parsed.timeZone);
+    } else if (typeof parsed.timeZone === "string" && parsed.timeZone.trim()) {
+      state.timeZone = String(parsed.timeZone).trim();
     }
   } catch (_) {
     // Ignore invalid cached controls.
@@ -5394,6 +5396,16 @@ async function init() {
       window.addEventListener(DASHBOARD_TIME.CHANGE_EVENT, (event) => {
         const changedTimeZone = String(event?.detail?.timeZone || "").trim();
         if (!changedTimeZone) return;
+        state.timeZone = changedTimeZone;
+        populateUpdatedTimeZoneSelect();
+        renderChart();
+      });
+    }
+    if (DASHBOARD_TIME?.STORAGE_KEY) {
+      window.addEventListener("storage", (event) => {
+        if (event.key !== DASHBOARD_TIME.STORAGE_KEY) return;
+        const changedTimeZone = getPreferredDashboardTimeZone();
+        if (changedTimeZone === state.timeZone) return;
         state.timeZone = changedTimeZone;
         populateUpdatedTimeZoneSelect();
         renderChart();

@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-05-18T02:05:43.384290Z",
+  "generated_at_utc": "2026-05-18T03:04:49.250270Z",
   "source": {
     "name": "Frankfurter",
     "url": "https://api.frankfurter.app",
@@ -206,7 +206,7 @@
     "AMD": {
       "name": "Armenian Dram",
       "code": "AMD",
-      "symbol": "֏",
+      "symbol": "\u058f",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -241,7 +241,7 @@
     "AWG": {
       "name": "Aruban Florin",
       "code": "AWG",
-      "symbol": "ƒ",
+      "symbol": "\u0192",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -269,7 +269,7 @@
     "BDT": {
       "name": "Bangladeshi Taka",
       "code": "BDT",
-      "symbol": "৳",
+      "symbol": "\u09f3",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -395,7 +395,7 @@
     "CRC": {
       "name": "Costa Rican Col\u00f3n",
       "code": "CRC",
-      "symbol": "₡",
+      "symbol": "\u20a1",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -451,7 +451,7 @@
     "EGP": {
       "name": "Egyptian Pound",
       "code": "EGP",
-      "symbol": "£E",
+      "symbol": "\u00a3E",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -486,7 +486,7 @@
     "FKP": {
       "name": "Falkland Pound",
       "code": "FKP",
-      "symbol": "£",
+      "symbol": "\u00a3",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -500,28 +500,28 @@
     "GEL": {
       "name": "Georgian Lari",
       "code": "GEL",
-      "symbol": "₾",
+      "symbol": "\u20be",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "GGP": {
       "name": "Guernsey Pound",
       "code": "GGP",
-      "symbol": "£",
+      "symbol": "\u00a3",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "GHS": {
       "name": "Ghanaian Cedi",
       "code": "GHS",
-      "symbol": "GH₵",
+      "symbol": "GH\u20b5",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "GIP": {
       "name": "Gibraltar Pound",
       "code": "GIP",
-      "symbol": "£",
+      "symbol": "\u00a3",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -598,7 +598,7 @@
     "IMP": {
       "name": "Isle of Man Pound",
       "code": "IMP",
-      "symbol": "£",
+      "symbol": "\u00a3",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -633,7 +633,7 @@
     "JEP": {
       "name": "Jersey Pound",
       "code": "JEP",
-      "symbol": "£",
+      "symbol": "\u00a3",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -668,14 +668,14 @@
     "KGS": {
       "name": "Kyrgyzstani Som",
       "code": "KGS",
-      "symbol": " сом",
+      "symbol": " \u0441\u043e\u043c",
       "symbol_position": "right",
       "minor_unit": 2
     },
     "KHR": {
       "name": "Cambodian Riel",
       "code": "KHR",
-      "symbol": "៛",
+      "symbol": "\u17db",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -710,14 +710,14 @@
     "KZT": {
       "name": "Kazakhstani Tenge",
       "code": "KZT",
-      "symbol": "₸",
+      "symbol": "\u20b8",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "LAK": {
       "name": "Lao Kip",
       "code": "LAK",
-      "symbol": "₭",
+      "symbol": "\u20ad",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -780,7 +780,7 @@
     "MKD": {
       "name": "Macedonian Denar",
       "code": "MKD",
-      "symbol": "ден ",
+      "symbol": "\u0434\u0435\u043d ",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -794,7 +794,7 @@
     "MNT": {
       "name": "Mongolian T\u00f6gr\u00f6g",
       "code": "MNT",
-      "symbol": "₮",
+      "symbol": "\u20ae",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -864,7 +864,7 @@
     "NGN": {
       "name": "Nigerian Naira",
       "code": "NGN",
-      "symbol": "₦",
+      "symbol": "\u20a6",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -885,7 +885,7 @@
     "NPR": {
       "name": "Nepalese Rupee",
       "code": "NPR",
-      "symbol": "रू",
+      "symbol": "\u0930\u0942",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -948,7 +948,7 @@
     "PYG": {
       "name": "Paraguayan Guaran\u00ed",
       "code": "PYG",
-      "symbol": "₲",
+      "symbol": "\u20b2",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -976,7 +976,7 @@
     "RUB": {
       "name": "Russian Ruble",
       "code": "RUB",
-      "symbol": " ₽",
+      "symbol": " \u20bd",
       "symbol_position": "right",
       "minor_unit": 2
     },
@@ -1032,7 +1032,7 @@
     "SHP": {
       "name": "Saint Helenian Pound",
       "code": "SHP",
-      "symbol": "£",
+      "symbol": "\u00a3",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -1060,7 +1060,7 @@
     "SSP": {
       "name": "South Sudanese Pound",
       "code": "SSP",
-      "symbol": "£",
+      "symbol": "\u00a3",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -1074,14 +1074,14 @@
     "SVC": {
       "name": "Salvadoran Col\u00f3n",
       "code": "SVC",
-      "symbol": "₡",
+      "symbol": "\u20a1",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "SYP": {
       "name": "Syrian Pound",
       "code": "SYP",
-      "symbol": "£S ",
+      "symbol": "\u00a3S ",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -1118,7 +1118,7 @@
       "code": "TND",
       "symbol": " DT",
       "symbol_position": "right",
-      "minor_unit": 2
+      "minor_unit": 0
     },
     "TOP": {
       "name": "Tongan Pa\u02bbanga",
@@ -1158,7 +1158,7 @@
     "UAH": {
       "name": "Ukrainian Hryvnia",
       "code": "UAH",
-      "symbol": "₴",
+      "symbol": "\u20b4",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -1179,7 +1179,7 @@
     "UZS": {
       "name": "Uzbekistan Som",
       "code": "UZS",
-      "symbol": "сўм ",
+      "symbol": "\u0441\u045e\u043c ",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -1193,7 +1193,7 @@
     "VND": {
       "name": "Vietnamese \u0110\u1ed3ng",
       "code": "VND",
-      "symbol": "₫",
+      "symbol": "\u20ab",
       "symbol_position": "left",
       "minor_unit": 2
     },
