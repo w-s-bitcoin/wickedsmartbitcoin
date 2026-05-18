@@ -185,28 +185,28 @@
     "AED": {
       "name": "United Arab Emirates Dirham",
       "code": "AED",
-      "symbol": "AED",
+      "symbol": "Dh ",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "AFN": {
       "name": "Afghan Afghani",
       "code": "AFN",
-      "symbol": "AFN",
+      "symbol": "Af ",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "ALL": {
       "name": "Albanian Lek",
       "code": "ALL",
-      "symbol": "ALL",
+      "symbol": "L",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "AMD": {
       "name": "Armenian Dram",
       "code": "AMD",
-      "symbol": "AMD",
+      "symbol": "֏",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -220,7 +220,7 @@
     "AOA": {
       "name": "Angolan Kwanza",
       "code": "AOA",
-      "symbol": "AOA",
+      "symbol": "Kz",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -241,7 +241,7 @@
     "AWG": {
       "name": "Aruban Florin",
       "code": "AWG",
-      "symbol": "AWG",
+      "symbol": "ƒ",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -262,14 +262,14 @@
     "BBD": {
       "name": "Barbadian Dollar",
       "code": "BBD",
-      "symbol": "BBD",
+      "symbol": "Bds$",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "BDT": {
       "name": "Bangladeshi Taka",
       "code": "BDT",
-      "symbol": "BDT",
+      "symbol": "৳",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -283,35 +283,35 @@
     "BHD": {
       "name": "Bahraini Dinar",
       "code": "BHD",
-      "symbol": "BHD",
+      "symbol": "BD ",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "BIF": {
       "name": "Burundian Franc",
       "code": "BIF",
-      "symbol": "BIF",
+      "symbol": "FBu",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "BMD": {
       "name": "Bermudian Dollar",
       "code": "BMD",
-      "symbol": "BMD",
+      "symbol": "BD$",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "BND": {
       "name": "Brunei Dollar",
       "code": "BND",
-      "symbol": "BND",
+      "symbol": "B$",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "BOB": {
       "name": "Bolivian Boliviano",
       "code": "BOB",
-      "symbol": "BOB",
+      "symbol": "Bs ",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -325,35 +325,35 @@
     "BSD": {
       "name": "Bahamian Dollar",
       "code": "BSD",
-      "symbol": "BSD",
+      "symbol": "B$",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "BTN": {
       "name": "Bhutanese Ngultrum",
       "code": "BTN",
-      "symbol": "BTN",
+      "symbol": "Nu. ",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "BWP": {
       "name": "Botswana Pula",
       "code": "BWP",
-      "symbol": "BWP",
+      "symbol": "P",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "BYN": {
       "name": "Belarusian Ruble",
       "code": "BYN",
-      "symbol": "BYN",
+      "symbol": "Br",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "BZD": {
       "name": "Belize Dollar",
       "code": "BZD",
-      "symbol": "BZD",
+      "symbol": "BZ$",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -367,7 +367,7 @@
     "CDF": {
       "name": "Congolese Franc",
       "code": "CDF",
-      "symbol": "CDF",
+      "symbol": "FC ",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -402,7 +402,7 @@
     "CRC": {
       "name": "Costa Rican Col\u00f3n",
       "code": "CRC",
-      "symbol": "CRC",
+      "symbol": "₡",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -430,7 +430,7 @@
     "DJF": {
       "name": "Djiboutian Franc",
       "code": "DJF",
-      "symbol": "DJF",
+      "symbol": "Fdj ",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -444,35 +444,35 @@
     "DOP": {
       "name": "Dominican Peso",
       "code": "DOP",
-      "symbol": "DOP",
+      "symbol": "RD$",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "DZD": {
       "name": "Algerian Dinar",
       "code": "DZD",
-      "symbol": "DZD",
+      "symbol": "DA ",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "EGP": {
       "name": "Egyptian Pound",
       "code": "EGP",
-      "symbol": "EGP",
+      "symbol": "£E",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "ERN": {
       "name": "Eritrean Nakfa",
       "code": "ERN",
-      "symbol": "ERN",
+      "symbol": "Nfk ",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "ETB": {
       "name": "Ethiopian Birr",
       "code": "ETB",
-      "symbol": "ETB",
+      "symbol": "Br ",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -486,14 +486,14 @@
     "FJD": {
       "name": "Fijian Dollar",
       "code": "FJD",
-      "symbol": "FJD",
+      "symbol": "FJ$",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "FKP": {
       "name": "Falkland Pound",
       "code": "FKP",
-      "symbol": "FKP",
+      "symbol": "£",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -507,56 +507,56 @@
     "GEL": {
       "name": "Georgian Lari",
       "code": "GEL",
-      "symbol": "GEL",
+      "symbol": "₾",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "GGP": {
       "name": "Guernsey Pound",
       "code": "GGP",
-      "symbol": "GGP",
+      "symbol": "£",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "GHS": {
       "name": "Ghanaian Cedi",
       "code": "GHS",
-      "symbol": "GHS",
+      "symbol": "GH₵",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "GIP": {
       "name": "Gibraltar Pound",
       "code": "GIP",
-      "symbol": "GIP",
+      "symbol": "£",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "GMD": {
       "name": "Gambian Dalasi",
       "code": "GMD",
-      "symbol": "GMD",
+      "symbol": "D",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "GNF": {
       "name": "Guinean Franc",
       "code": "GNF",
-      "symbol": "GNF",
+      "symbol": "FG ",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "GTQ": {
       "name": "Guatemalan Quetzal",
       "code": "GTQ",
-      "symbol": "GTQ",
+      "symbol": "Q ",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "GYD": {
       "name": "Guyanese Dollar",
       "code": "GYD",
-      "symbol": "GYD",
+      "symbol": "G$",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -570,14 +570,14 @@
     "HNL": {
       "name": "Honduran Lempira",
       "code": "HNL",
-      "symbol": "HNL",
+      "symbol": "L ",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "HTG": {
       "name": "Haitian Gourde",
       "code": "HTG",
-      "symbol": "HTG",
+      "symbol": "G ",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -605,7 +605,7 @@
     "IMP": {
       "name": "Isle of Man Pound",
       "code": "IMP",
-      "symbol": "IMP",
+      "symbol": "£",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -640,21 +640,21 @@
     "JEP": {
       "name": "Jersey Pound",
       "code": "JEP",
-      "symbol": "JEP",
+      "symbol": "£",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "JMD": {
       "name": "Jamaican Dollar",
       "code": "JMD",
-      "symbol": "JMD",
+      "symbol": "J$",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "JOD": {
       "name": "Jordanian Dinar",
       "code": "JOD",
-      "symbol": "JOD",
+      "symbol": "JD ",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -675,21 +675,21 @@
     "KGS": {
       "name": "Kyrgyzstani Som",
       "code": "KGS",
-      "symbol": "KGS",
-      "symbol_position": "left",
+      "symbol": " сом",
+      "symbol_position": "right",
       "minor_unit": 2
     },
     "KHR": {
       "name": "Cambodian Riel",
       "code": "KHR",
-      "symbol": "KHR",
+      "symbol": "៛",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "KMF": {
       "name": "Comorian Franc",
       "code": "KMF",
-      "symbol": "KMF",
+      "symbol": "FC ",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -703,28 +703,28 @@
     "KWD": {
       "name": "Kuwaiti Dinar",
       "code": "KWD",
-      "symbol": "KWD",
+      "symbol": "KD ",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "KYD": {
       "name": "Cayman Islands Dollar",
       "code": "KYD",
-      "symbol": "KYD",
+      "symbol": "CI$",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "KZT": {
       "name": "Kazakhstani Tenge",
       "code": "KZT",
-      "symbol": "KZT",
+      "symbol": "₸",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "LAK": {
       "name": "Lao Kip",
       "code": "LAK",
-      "symbol": "LAK",
+      "symbol": "₭",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -738,105 +738,105 @@
     "LKR": {
       "name": "Sri Lankan Rupee",
       "code": "LKR",
-      "symbol": "LKR",
+      "symbol": "Rs ",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "LRD": {
       "name": "Liberian Dollar",
       "code": "LRD",
-      "symbol": "LRD",
+      "symbol": "L$",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "LSL": {
       "name": "Lesotho Loti",
       "code": "LSL",
-      "symbol": "LSL",
+      "symbol": "M",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "LYD": {
       "name": "Libyan Dinar",
       "code": "LYD",
-      "symbol": "LYD",
+      "symbol": "LD",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "MAD": {
       "name": "Moroccan Dirham",
       "code": "MAD",
-      "symbol": "MAD",
-      "symbol_position": "left",
+      "symbol": "DH",
+      "symbol_position": "right",
       "minor_unit": 2
     },
     "MDL": {
       "name": "Moldovan Leu",
       "code": "MDL",
-      "symbol": "MDL",
+      "symbol": "L ",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "MGA": {
       "name": "Malagasy Ariary",
       "code": "MGA",
-      "symbol": "MGA",
+      "symbol": "Ar ",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "MKD": {
       "name": "Macedonian Denar",
       "code": "MKD",
-      "symbol": "MKD",
+      "symbol": "ден ",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "MMK": {
       "name": "Myanmar Kyat",
       "code": "MMK",
-      "symbol": "MMK",
+      "symbol": "K ",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "MNT": {
       "name": "Mongolian T\u00f6gr\u00f6g",
       "code": "MNT",
-      "symbol": "MNT",
+      "symbol": "₮",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "MOP": {
       "name": "Macanese Pataca",
       "code": "MOP",
-      "symbol": "MOP",
+      "symbol": "MOP$",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "MRU": {
       "name": "Mauritanian Ouguiya",
       "code": "MRU",
-      "symbol": "MRU",
+      "symbol": "UM ",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "MUR": {
       "name": "Mauritian Rupee",
       "code": "MUR",
-      "symbol": "MUR",
+      "symbol": "Rs ",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "MVR": {
       "name": "Maldivian Rufiyaa",
       "code": "MVR",
-      "symbol": "MVR",
+      "symbol": "Rf",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "MWK": {
       "name": "Malawian Kwacha",
       "code": "MWK",
-      "symbol": "MWK",
+      "symbol": "K",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -857,28 +857,28 @@
     "MZN": {
       "name": "Mozambican Metical",
       "code": "MZN",
-      "symbol": "MZN",
+      "symbol": "MT ",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "NAD": {
       "name": "Namibian Dollar",
       "code": "NAD",
-      "symbol": "NAD",
+      "symbol": "N$",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "NGN": {
       "name": "Nigerian Naira",
       "code": "NGN",
-      "symbol": "NGN",
+      "symbol": "₦",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "NIO": {
       "name": "Nicaraguan C\u00f3rdoba",
       "code": "NIO",
-      "symbol": "NIO",
+      "symbol": "C$",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -892,7 +892,7 @@
     "NPR": {
       "name": "Nepalese Rupee",
       "code": "NPR",
-      "symbol": "NPR",
+      "symbol": "रू",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -913,21 +913,21 @@
     "PAB": {
       "name": "Panamanian Balboa",
       "code": "PAB",
-      "symbol": "PAB",
+      "symbol": "B/. ",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "PEN": {
       "name": "Peruvian Sol",
       "code": "PEN",
-      "symbol": "PEN",
+      "symbol": "S/",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "PGK": {
       "name": "Papua New Guinean Kina",
       "code": "PGK",
-      "symbol": "PGK",
+      "symbol": "K",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -941,7 +941,7 @@
     "PKR": {
       "name": "Pakistani Rupee",
       "code": "PKR",
-      "symbol": "PKR",
+      "symbol": "Rs ",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -955,14 +955,14 @@
     "PYG": {
       "name": "Paraguayan Guaran\u00ed",
       "code": "PYG",
-      "symbol": "PYG",
+      "symbol": "₲",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "QAR": {
       "name": "Qatari Riyal",
       "code": "QAR",
-      "symbol": "QAR",
+      "symbol": "QR ",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -976,15 +976,15 @@
     "RSD": {
       "name": "Serbian Dinar",
       "code": "RSD",
-      "symbol": "RSD",
-      "symbol_position": "left",
+      "symbol": " din",
+      "symbol_position": "right",
       "minor_unit": 2
     },
     "RUB": {
       "name": "Russian Ruble",
       "code": "RUB",
-      "symbol": "RUB",
-      "symbol_position": "left",
+      "symbol": " ₽",
+      "symbol_position": "right",
       "minor_unit": 2
     },
     "RWF": {
@@ -997,21 +997,21 @@
     "SAR": {
       "name": "Saudi Riyal",
       "code": "SAR",
-      "symbol": "SAR",
+      "symbol": "SR ",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "SBD": {
       "name": "Solomon Islands Dollar",
       "code": "SBD",
-      "symbol": "SBD",
+      "symbol": "SI$",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "SCR": {
       "name": "Seychellois Rupee",
       "code": "SCR",
-      "symbol": "SCR",
+      "symbol": "Rs",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -1039,63 +1039,63 @@
     "SHP": {
       "name": "Saint Helenian Pound",
       "code": "SHP",
-      "symbol": "SHP",
+      "symbol": "£",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "SLE": {
       "name": "new Leone",
       "code": "SLE",
-      "symbol": "SLE",
+      "symbol": "Le ",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "SOS": {
       "name": "Somali Shilling",
       "code": "SOS",
-      "symbol": "SOS",
+      "symbol": "S. ",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "SRD": {
       "name": "Surinamese Dollar",
       "code": "SRD",
-      "symbol": "SRD",
+      "symbol": "Sr$",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "SSP": {
       "name": "South Sudanese Pound",
       "code": "SSP",
-      "symbol": "SSP",
+      "symbol": "£",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "STN": {
       "name": "S\u00e3o Tom\u00e9 and Pr\u00edncipe Second Dobra",
       "code": "STN",
-      "symbol": "STN",
+      "symbol": "Db",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "SVC": {
       "name": "Salvadoran Col\u00f3n",
       "code": "SVC",
-      "symbol": "SVC",
+      "symbol": "₡",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "SYP": {
       "name": "Syrian Pound",
       "code": "SYP",
-      "symbol": "SYP",
+      "symbol": "£S ",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "SZL": {
       "name": "Swazi Lilangeni",
       "code": "SZL",
-      "symbol": "SZL",
+      "symbol": "E",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -1109,7 +1109,7 @@
     "TJS": {
       "name": "Tajikistani Somoni",
       "code": "TJS",
-      "symbol": "TJS",
+      "symbol": "SM ",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -1123,14 +1123,14 @@
     "TND": {
       "name": "Tunisian Dinar",
       "code": "TND",
-      "symbol": "TND",
-      "symbol_position": "left",
+      "symbol": " DT",
+      "symbol_position": "right",
       "minor_unit": 2
     },
     "TOP": {
       "name": "Tongan Pa\u02bbanga",
       "code": "TOP",
-      "symbol": "TOP",
+      "symbol": "T$",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -1144,14 +1144,14 @@
     "TTD": {
       "name": "Trinidad and Tobago Dollar",
       "code": "TTD",
-      "symbol": "TTD",
+      "symbol": "TT$",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "TWD": {
       "name": "New Taiwan Dollar",
       "code": "TWD",
-      "symbol": "TWD",
+      "symbol": "NT$",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -1165,28 +1165,28 @@
     "UAH": {
       "name": "Ukrainian Hryvnia",
       "code": "UAH",
-      "symbol": "UAH",
+      "symbol": "₴",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "UGX": {
       "name": "Ugandan Shilling",
       "code": "UGX",
-      "symbol": "UGX",
+      "symbol": "USh ",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "UYU": {
       "name": "Uruguayan Peso",
       "code": "UYU",
-      "symbol": "UYU",
+      "symbol": "$U",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "UZS": {
       "name": "Uzbekistan Som",
       "code": "UZS",
-      "symbol": "UZS",
+      "symbol": "сўм ",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -1200,21 +1200,21 @@
     "VND": {
       "name": "Vietnamese \u0110\u1ed3ng",
       "code": "VND",
-      "symbol": "VND",
+      "symbol": "₫",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "VUV": {
       "name": "Vanuatu Vatu",
       "code": "VUV",
-      "symbol": "VUV",
+      "symbol": "Vt",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "WST": {
       "name": "Samoan Tala",
       "code": "WST",
-      "symbol": "WST",
+      "symbol": "WS$",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -1242,7 +1242,7 @@
     "XCD": {
       "name": "East Caribbean Dollar",
       "code": "XCD",
-      "symbol": "XCD",
+      "symbol": "EC$",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -1277,7 +1277,7 @@
     "XPF": {
       "name": "CFP Franc",
       "code": "XPF",
-      "symbol": "XPF",
+      "symbol": "F",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -1305,14 +1305,14 @@
     "ZMW": {
       "name": "Zambian Kwacha",
       "code": "ZMW",
-      "symbol": "ZMW",
+      "symbol": "K",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "ZWG": {
       "name": "Zimbabwe Gold",
       "code": "ZWG",
-      "symbol": "ZWG",
+      "symbol": "ZiG ",
       "symbol_position": "left",
       "minor_unit": 2
     }

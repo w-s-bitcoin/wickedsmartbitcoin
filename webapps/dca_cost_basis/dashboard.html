@@ -128,6 +128,7 @@
     }
 
     .topbar {
+      position: relative;
       display: grid;
       gap: 8px;
       padding: 10px 12px;
@@ -146,6 +147,131 @@
 
     .title-accent {
       color: var(--accent);
+    }
+
+    .title-actions {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: clamp(3px, 0.7vw, 8px);
+      position: absolute;
+      right: clamp(4px, 1vw, 12px);
+      top: clamp(4px, 1vw, 12px);
+    }
+
+    .copy-link-btn,
+    .reset-dashboard-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: var(--surface);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+      cursor: pointer;
+      transition: background 160ms ease, border-color 160ms ease, color 160ms ease, opacity 160ms ease;
+      white-space: nowrap;
+    }
+
+    .copy-link-btn {
+      width: 96px;
+      min-width: 96px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+    }
+
+    .copy-link-btn:hover {
+      background: var(--surface-soft);
+      color: var(--ink);
+    }
+
+    :root[data-theme="dark"] .copy-link-btn {
+      color: #b0b0b0;
+    }
+
+    .reset-dashboard-btn {
+      width: 132px;
+      min-width: 132px;
+      border: 1px solid #cf5c5c;
+      background: transparent;
+      color: #8f1f1f;
+    }
+
+    .reset-dashboard-btn:hover {
+      background: transparent;
+      border-color: #b83d3d;
+      color: #6f1111;
+    }
+
+    .reset-dashboard-btn:disabled {
+      opacity: 0.38;
+      cursor: default;
+      pointer-events: none;
+    }
+
+    :root[data-theme="dark"] .reset-dashboard-btn {
+      background: transparent;
+      border-color: #a14a4a;
+      color: #ffb3b3;
+    }
+
+    :root[data-theme="dark"] .reset-dashboard-btn:hover {
+      background: transparent;
+      border-color: #c05d5d;
+      color: #ffd0d0;
+    }
+
+    .reset-dashboard-btn--undo {
+      border-color: #3b82f6;
+      background: transparent;
+      color: #1d4ed8;
+    }
+
+    .reset-dashboard-btn--undo:hover {
+      background: transparent;
+      border-color: #2563eb;
+      color: #1e40af;
+    }
+
+    :root[data-theme="dark"] .reset-dashboard-btn--undo {
+      background: transparent;
+      border-color: #3b82f6;
+      color: #93c5fd;
+    }
+
+    :root[data-theme="dark"] .reset-dashboard-btn--undo:hover {
+      background: transparent;
+      border-color: #60a5fa;
+      color: #bfdbfe;
+    }
+
+    .title-actions button .btn-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
+      flex: 0 0 14px;
+      pointer-events: none;
+    }
+
+    .title-actions button .btn-icon svg {
+      width: 14px;
+      height: 14px;
+      display: block;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.9;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .title-actions button .btn-label {
+      display: inline-block;
+      line-height: 1;
     }
 
     .chips {
@@ -911,8 +1037,89 @@
     }
 
     @media (max-width: 860px) {
+      .topbar {
+        padding: 10px;
+      }
+
+      .title-actions {
+        gap: calc(8px - clamp(0px, (860px - 100vw) * 0.05, 5px));
+        right: calc(12px - clamp(0px, (860px - 100vw) * 0.07, 7px));
+        top: calc(12px - clamp(0px, (860px - 100vw) * 0.07, 7px));
+      }
+
+      .copy-link-btn,
+      .reset-dashboard-btn {
+        padding: 6px 10px;
+        min-height: 32px;
+        font-size: 11px;
+      }
+
+      .reset-dashboard-btn {
+        width: 120px;
+        min-width: 120px;
+      }
+
       body.dca-dashboard-expanded .wrap {
         padding-bottom: calc(var(--wrap-pad) + env(safe-area-inset-bottom, 0px) + 56px);
+      }
+    }
+
+    @media (max-width: 750px) {
+      .copy-link-btn,
+      .reset-dashboard-btn {
+        width: 30px;
+        min-width: 30px;
+        height: 30px;
+        min-height: 30px;
+        padding: 0;
+        border-radius: 999px;
+        font-size: 0;
+        line-height: 0;
+        letter-spacing: 0;
+        justify-content: center;
+        gap: 0;
+      }
+
+      .title-actions .copy-link-btn .btn-icon,
+      .title-actions .copy-link-btn .btn-label,
+      .title-actions .reset-dashboard-btn .btn-icon,
+      .title-actions .reset-dashboard-btn .btn-label {
+        display: none;
+      }
+
+      .copy-link-btn::before,
+      .reset-dashboard-btn::before {
+        content: "";
+        width: 15px;
+        height: 15px;
+        display: block;
+        background-color: currentColor;
+        -webkit-mask-repeat: no-repeat;
+        -webkit-mask-position: center;
+        -webkit-mask-size: contain;
+        mask-repeat: no-repeat;
+        mask-position: center;
+        mask-size: contain;
+      }
+
+      .copy-link-btn::before {
+        -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E");
+        mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E");
+      }
+
+      .copy-link-btn.copy-link-btn--copied::before {
+        -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+        mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+      }
+
+      .reset-dashboard-btn::before {
+        -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8'/%3E%3Cpath d='M21 3v5h-5'/%3E%3C/svg%3E");
+        mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8'/%3E%3Cpath d='M21 3v5h-5'/%3E%3C/svg%3E");
+      }
+
+      .reset-dashboard-btn.reset-dashboard-btn--undo::before {
+        -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8'/%3E%3Cpath d='M3 3v5h5'/%3E%3C/svg%3E");
+        mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8'/%3E%3Cpath d='M3 3v5h5'/%3E%3C/svg%3E");
       }
     }
 
@@ -1864,6 +2071,20 @@
             <img src="webapp_data/hal-finney.png" alt="Hal Finney" />
           </button>
         </div>
+      </div>
+      <div class="title-actions">
+        <button type="button" class="copy-link-btn" id="copyDashboardLink" aria-label="Copy shareable dashboard link" data-tooltip="Copy shareable dashboard link">
+          <span class="btn-icon" aria-hidden="true">
+            <svg id="copyDashboardIcon" viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+          </span>
+          <span class="btn-label">Copy Link</span>
+        </button>
+        <button type="button" class="reset-dashboard-btn" id="resetDashboard" disabled aria-label="Restore dashboard defaults" data-tooltip="Reset dashboard to defaults">
+          <span class="btn-icon" aria-hidden="true">
+            <svg id="resetDashboardIcon" viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path></svg>
+          </span>
+          <span class="btn-label">Restore Defaults</span>
+        </button>
       </div>
       <div class="chips" id="statusChips">
         <div class="chip-menu-wrap single-select" id="updatedChipWrap">

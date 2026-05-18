@@ -3,6 +3,15 @@
   const UOA_FILTERS_KEY = "uoa-dashboard-filters-v1";
   const UOA_DOWNLOAD_SETTINGS_KEY = "uoa-dashboard-download-settings-v1";
   const DASHBOARD_TIME = window.WSBDashboardTime || null;
+  const SHARE_STATE_PARAM = "state";
+  const LOCAL_RUNTIME_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+  const IS_LOCAL_RUNTIME = LOCAL_RUNTIME_HOSTS.has(window.location.hostname);
+  const ICONS = {
+    copyLink: '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>',
+    copyCopied: '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>',
+    resetDefaults: '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path></svg>',
+    resetUndo: '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>',
+  };
   const REDENOMINATION_EVENTS = {
     VES: [
       { date: "2018-05-29", ratio: 100000, ratioLabel: "100,000:1" },
@@ -155,6 +164,8 @@
   });
 
   const el = {
+    copyDashboardLink: document.getElementById("copyDashboardLink"),
+    resetDashboard: document.getElementById("resetDashboard"),
     updatedKpiValue: document.getElementById("updatedKpiValue"),
     blockHeightKpiValue: document.getElementById("blockHeightKpiValue"),
     pairKpiValue: document.getElementById("pairKpiValue"),
@@ -244,6 +255,10 @@
   let availableCurrencies = ["BTC", "USD"]; // Will be populated from uoaPairs
   let lastPrimaryUoa = "BTC";
   let lastSecondaryUoa = "USD";
+  let preResetStateSnapshot = null;
+  let suppressResetSnapshotClear = false;
+  let customTooltipBound = false;
+  let customTooltipAnchor = null;
   let updatedKpiTimeZone = DASHBOARD_TIME?.getPreferredTimeZone?.() || "UTC";
   let refreshedAtText = "";
   const chartEventMarkersById = {
@@ -308,6 +323,145 @@
     } catch (_) {
       return null;
     }
+  }
+
+  function setButtonIcon(iconId, markup) {
+    const iconEl = document.getElementById(iconId);
+    if (!iconEl || !markup) return;
+    iconEl.outerHTML = markup.replace("<svg ", `<svg id="${iconId}" `);
+  }
+
+  function isMobileUiViewport() {
+    return window.matchMedia("(max-width: 820px)").matches;
+  }
+
+  function setCustomTooltip(anchor, text) {
+    if (!anchor) return;
+    const value = String(text || "").trim();
+    if (value) {
+      anchor.setAttribute("data-tooltip", value);
+    } else {
+      anchor.removeAttribute("data-tooltip");
+    }
+    anchor.removeAttribute("title");
+  }
+
+  function ensureCustomTooltipElement() {
+    let tooltip = document.getElementById("dashboardInlineTooltip");
+    if (!tooltip) {
+      tooltip = document.createElement("div");
+      tooltip.id = "dashboardInlineTooltip";
+      tooltip.className = "dashboard-inline-tooltip";
+      document.body.appendChild(tooltip);
+    }
+    return tooltip;
+  }
+
+  function hideCustomTooltip() {
+    const tooltip = document.getElementById("dashboardInlineTooltip");
+    if (!tooltip) return;
+    tooltip.classList.remove("is-visible");
+  }
+
+  function placeCustomTooltip(tooltip, x, y) {
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const offset = 14;
+    let left = x + offset;
+    let top = y + offset;
+    const maxLeft = viewportWidth - tooltip.offsetWidth - 8;
+    const maxTop = viewportHeight - tooltip.offsetHeight - 8;
+    if (left > maxLeft) left = Math.max(8, x - tooltip.offsetWidth - offset);
+    if (top > maxTop) top = Math.max(8, y - tooltip.offsetHeight - offset);
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+  }
+
+  function showCustomTooltip(anchor, x, y) {
+    const text = String(anchor?.getAttribute("data-tooltip") || "").trim();
+    if (!text) {
+      hideCustomTooltip();
+      return;
+    }
+    const tooltip = ensureCustomTooltipElement();
+    tooltip.textContent = text;
+    tooltip.classList.add("is-visible");
+    placeCustomTooltip(tooltip, x, y);
+  }
+
+  function bindCustomTooltips() {
+    if (customTooltipBound) return;
+    customTooltipBound = true;
+    let mobileTooltipHideTimerId = null;
+
+    const clearMobileTooltipHideTimer = () => {
+      if (mobileTooltipHideTimerId !== null) {
+        window.clearTimeout(mobileTooltipHideTimerId);
+        mobileTooltipHideTimerId = null;
+      }
+    };
+
+    const shouldSuppressTooltipForAnchor = (anchor) => {
+      if (!anchor) return true;
+      if (!isMobileUiViewport()) return false;
+      return !(anchor instanceof HTMLElement && anchor.disabled);
+    };
+
+    document.addEventListener("mouseover", (event) => {
+      const anchor = event.target instanceof Element ? event.target.closest("[data-tooltip]") : null;
+      if (shouldSuppressTooltipForAnchor(anchor)) {
+        if (customTooltipAnchor === anchor) customTooltipAnchor = null;
+        hideCustomTooltip();
+        return;
+      }
+      if (!anchor) return;
+      customTooltipAnchor = anchor;
+      showCustomTooltip(anchor, event.clientX, event.clientY);
+    });
+
+    document.addEventListener("mousemove", (event) => {
+      if (!customTooltipAnchor) return;
+      const tooltip = document.getElementById("dashboardInlineTooltip");
+      if (!tooltip || !tooltip.classList.contains("is-visible")) return;
+      placeCustomTooltip(tooltip, event.clientX, event.clientY);
+    });
+
+    document.addEventListener("mouseout", (event) => {
+      if (!customTooltipAnchor) return;
+      const related = event.relatedTarget;
+      if (related instanceof Node && customTooltipAnchor.contains(related)) return;
+      customTooltipAnchor = null;
+      clearMobileTooltipHideTimer();
+      hideCustomTooltip();
+    });
+
+    document.addEventListener("touchstart", (event) => {
+      const anchor = event.target instanceof Element ? event.target.closest("[data-tooltip]") : null;
+      if (shouldSuppressTooltipForAnchor(anchor)) {
+        customTooltipAnchor = null;
+        clearMobileTooltipHideTimer();
+        hideCustomTooltip();
+        return;
+      }
+      const touch = event.touches && event.touches.length ? event.touches[0] : null;
+      const rect = anchor.getBoundingClientRect();
+      const x = touch ? touch.clientX : rect.left + (rect.width / 2);
+      const y = touch ? touch.clientY : rect.top + (rect.height / 2);
+      customTooltipAnchor = anchor;
+      showCustomTooltip(anchor, x, y);
+      clearMobileTooltipHideTimer();
+      mobileTooltipHideTimerId = window.setTimeout(() => {
+        if (customTooltipAnchor === anchor) customTooltipAnchor = null;
+        hideCustomTooltip();
+        mobileTooltipHideTimerId = null;
+      }, 1800);
+    }, { passive: true });
+
+    window.addEventListener("scroll", () => {
+      if (!customTooltipAnchor) return;
+      clearMobileTooltipHideTimer();
+      hideCustomTooltip();
+    }, { passive: true });
   }
 
   function clampIsoDate(value, minIso, maxIso, fallbackIso) {
@@ -1112,6 +1266,24 @@
     return "both";
   }
 
+  function setVisibleChartMode(mode) {
+    if (!el.dateRangeChartToggles) return;
+    const normalized = ["left", "right", "both"].includes(String(mode || "")) ? String(mode) : "both";
+    const leftButton = el.dateRangeChartToggles.querySelector('.date-range-chart-toggle-btn[data-value="left"]');
+    const rightButton = el.dateRangeChartToggles.querySelector('.date-range-chart-toggle-btn[data-value="right"]');
+    const leftActive = normalized !== "right";
+    const rightActive = normalized !== "left";
+    if (leftButton) {
+      leftButton.classList.toggle("is-active", leftActive);
+      leftButton.setAttribute("aria-pressed", leftActive ? "true" : "false");
+    }
+    if (rightButton) {
+      rightButton.classList.toggle("is-active", rightActive);
+      rightButton.setAttribute("aria-pressed", rightActive ? "true" : "false");
+    }
+    applyVisibleChartMode();
+  }
+
   function applyVisibleChartMode() {
     if (!el.chartGrid) return;
     const mode = getVisibleChartMode();
@@ -1160,6 +1332,7 @@
       item.setAttribute("aria-pressed", item.classList.contains("is-active") ? "true" : "false");
     });
     applyVisibleChartMode();
+    persistFilters();
     requestAnimationFrame(renderAll);
   }
 
@@ -3258,8 +3431,44 @@
     return availableCurrencies.find((code) => code !== primary) || "USD";
   }
 
+  function encodeShareState(payload) {
+    try {
+      const json = JSON.stringify(payload);
+      const bytes = new TextEncoder().encode(json);
+      let binary = "";
+      bytes.forEach((byte) => {
+        binary += String.fromCharCode(byte);
+      });
+      return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function decodeShareState(rawValue) {
+    if (!rawValue) return null;
+    try {
+      const normalized = rawValue.replace(/-/g, "+").replace(/_/g, "/");
+      const paddingLength = (4 - (normalized.length % 4)) % 4;
+      const padded = normalized + "=".repeat(paddingLength);
+      const binary = atob(padded);
+      const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+      const json = new TextDecoder().decode(bytes);
+      const parsed = JSON.parse(json);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function getDashboardShareStateFromUrl() {
+    const params = new URLSearchParams(window.location.search || "");
+    return decodeShareState(params.get(SHARE_STATE_PARAM) || "");
+  }
+
   function loadStoredFilters(bounds) {
-    const stored = safeReadJson(UOA_FILTERS_KEY) || {};
+    const shareState = getDashboardShareStateFromUrl();
+    const stored = shareState || safeReadJson(UOA_FILTERS_KEY) || {};
 
     const validPrimary = availableCurrencies.includes(stored.primaryUoa) ? stored.primaryUoa : "BTC";
     const validSecondaryCandidate = availableCurrencies.includes(stored.secondaryUoa)
@@ -3301,6 +3510,10 @@
     const playbackFps = Number.isFinite(storedPlaybackFps) && storedPlaybackFps > 0
       ? storedPlaybackFps
       : DEFAULT_RANGE_PLAYBACK_FPS;
+    const chartMode = ["left", "right", "both"].includes(String(stored.chartMode || ""))
+      ? String(stored.chartMode)
+      : "both";
+    const timeZone = String(stored.timeZone || "").trim() || (DASHBOARD_TIME?.getPreferredTimeZone?.() || "UTC");
 
     const pausedPlaybackSession = (
       stored.pausedPlaybackSession
@@ -3323,6 +3536,8 @@
       orderMode,
       smoothVesRedenom,
       playbackFps,
+      chartMode,
+      timeZone,
       rangePreset: storedRangePreset,
       requestedStartDate,
       requestedEndDate,
@@ -3366,12 +3581,251 @@
         orderMode: ORDER_MODES.includes(el.orderBySelect?.value) ? el.orderBySelect.value : "alpha-asc",
         smoothVesRedenom: !!el.vesRedenomAdjustToggle?.checked,
         playbackFps: getSelectedDateRangePlaybackFps(),
+        chartMode: getVisibleChartMode(),
+        timeZone: updatedKpiTimeZone || "UTC",
         pausedPlaybackSession,
       };
       localStorage.setItem(UOA_FILTERS_KEY, JSON.stringify(payload));
+      if (!suppressResetSnapshotClear) clearPreResetSnapshot();
     } catch (_) {
       // Ignore storage write errors (private mode / quotas).
     }
+  }
+
+  function getDefaultDashboardState(bounds = getDateBounds()) {
+    const primaryUoa = "BTC";
+    const secondaryUoa = "USD";
+    const defaultPrimaryBounds = getCurrencyDateIndexBounds(primaryUoa);
+    const startDate = defaultPrimaryBounds?.minIso || bounds?.min || "";
+    const endDate = bounds?.max || defaultPrimaryBounds?.maxIso || "";
+    return {
+      startDate,
+      endDate,
+      primaryUoa,
+      secondaryUoa,
+      scaleMode: "log",
+      orderMode: "alpha-asc",
+      smoothVesRedenom: true,
+      playbackFps: DEFAULT_RANGE_PLAYBACK_FPS,
+      chartMode: "both",
+      timeZone: "UTC",
+    };
+  }
+
+  function captureResetSnapshot() {
+    return {
+      startDate: requestedDateRange.startIso || el.startDateInput?.value || "",
+      endDate: requestedDateRange.endIso || el.endDateInput?.value || "",
+      primaryUoa: el.primaryUoaSelect?.value || "BTC",
+      secondaryUoa: el.secondaryUoaSelect?.value || "USD",
+      scaleMode: el.scaleSelect?.value === "linear" ? "linear" : "log",
+      orderMode: ORDER_MODES.includes(el.orderBySelect?.value) ? el.orderBySelect.value : "alpha-asc",
+      smoothVesRedenom: !!el.vesRedenomAdjustToggle?.checked,
+      playbackFps: getSelectedDateRangePlaybackFps(),
+      chartMode: getVisibleChartMode(),
+      timeZone: updatedKpiTimeZone || "UTC",
+    };
+  }
+
+  function restoreResetSnapshot(snapshot) {
+    if (!snapshot || typeof snapshot !== "object") return;
+    const bounds = getDateBounds();
+    if (!bounds) return;
+
+    suppressResetSnapshotClear = true;
+    try {
+      const primary = availableCurrencies.includes(snapshot.primaryUoa) ? snapshot.primaryUoa : "BTC";
+      const secondaryCandidate = availableCurrencies.includes(snapshot.secondaryUoa) ? snapshot.secondaryUoa : getFallbackSecondary(primary);
+      const secondary = secondaryCandidate === primary ? getFallbackSecondary(primary) : secondaryCandidate;
+      const startDate = clampIsoDate(snapshot.startDate, bounds.min, bounds.max, bounds.min);
+      const endDate = clampIsoDate(snapshot.endDate, bounds.min, bounds.max, bounds.max);
+
+      stopDateRangePlayback();
+      if (el.primaryUoaSelect) el.primaryUoaSelect.value = primary;
+      if (el.secondaryUoaSelect) el.secondaryUoaSelect.value = secondary;
+      lastPrimaryUoa = primary;
+      lastSecondaryUoa = secondary;
+      if (el.scaleSelect) el.scaleSelect.value = snapshot.scaleMode === "linear" ? "linear" : "log";
+      if (el.orderBySelect) {
+        el.orderBySelect.value = ORDER_MODES.includes(snapshot.orderMode) ? snapshot.orderMode : "alpha-asc";
+      }
+      if (el.vesRedenomAdjustToggle) el.vesRedenomAdjustToggle.checked = snapshot.smoothVesRedenom !== false;
+      updatedKpiTimeZone = DASHBOARD_TIME?.setPreferredTimeZone
+        ? DASHBOARD_TIME.setPreferredTimeZone(String(snapshot.timeZone || "UTC"))
+        : String(snapshot.timeZone || "UTC");
+      if (document.getElementById("updatedTimeZoneSelect")) {
+        document.getElementById("updatedTimeZoneSelect").value = updatedKpiTimeZone;
+      }
+      setDateRangePlaybackFps(snapshot.playbackFps);
+      setVisibleChartMode(snapshot.chartMode);
+      setRequestedDateRange(startDate, endDate);
+      if (el.startDateInput) el.startDateInput.value = startDate;
+      if (el.endDateInput) el.endDateInput.value = endDate;
+
+      renderPairKpiValue(primary, secondary);
+      syncDateRangeChartToggleLabels();
+      syncDownloadChartModeLabels();
+      syncAllDropdowns();
+      applyRequestedDateRangeToControls();
+      applyFilters();
+    } finally {
+      suppressResetSnapshotClear = false;
+    }
+    updateResetButtonUi();
+  }
+
+  function restoreDashboardDefaults() {
+    preResetStateSnapshot = captureResetSnapshot();
+    try {
+      localStorage.removeItem(UOA_FILTERS_KEY);
+    } catch (_) {
+      // Ignore storage write errors.
+    }
+    restoreResetSnapshot(getDefaultDashboardState());
+    updateResetButtonUi();
+  }
+
+  function restorePreviousDashboardState() {
+    if (!preResetStateSnapshot) return;
+    const snapshot = preResetStateSnapshot;
+    preResetStateSnapshot = null;
+    restoreResetSnapshot(snapshot);
+  }
+
+  function clearPreResetSnapshot() {
+    if (!preResetStateSnapshot) {
+      updateResetButtonUi();
+      return;
+    }
+    preResetStateSnapshot = null;
+    updateResetButtonUi();
+  }
+
+  function statesMatch(current, defaults) {
+    return current.startDate === defaults.startDate
+      && current.endDate === defaults.endDate
+      && current.primaryUoa === defaults.primaryUoa
+      && current.secondaryUoa === defaults.secondaryUoa
+      && current.scaleMode === defaults.scaleMode
+      && current.orderMode === defaults.orderMode
+      && current.smoothVesRedenom === defaults.smoothVesRedenom
+      && Number(current.playbackFps) === Number(defaults.playbackFps)
+      && current.chartMode === defaults.chartMode
+      && current.timeZone === defaults.timeZone;
+  }
+
+  function isDefaultState() {
+    return statesMatch(captureResetSnapshot(), getDefaultDashboardState());
+  }
+
+  function updateResetButtonUi() {
+    const btn = el.resetDashboard || document.getElementById("resetDashboard");
+    if (!btn) return;
+    const labelEl = btn.querySelector(".btn-label");
+    if (preResetStateSnapshot) {
+      if (labelEl) labelEl.textContent = "Undo Restore";
+      else btn.textContent = "Undo Restore";
+      setButtonIcon("resetDashboardIcon", ICONS.resetUndo);
+      btn.classList.add("reset-dashboard-btn--undo");
+      btn.setAttribute("aria-label", "Undo the last restore defaults action");
+      setCustomTooltip(btn, "Undo the last restore defaults action");
+      btn.disabled = false;
+      return;
+    }
+
+    if (labelEl) labelEl.textContent = "Restore Defaults";
+    else btn.textContent = "Restore Defaults";
+    setButtonIcon("resetDashboardIcon", ICONS.resetDefaults);
+    btn.classList.remove("reset-dashboard-btn--undo");
+    btn.setAttribute("aria-label", "Restore dashboard defaults");
+    setCustomTooltip(btn, "Reset dashboard to defaults");
+    btn.disabled = isDefaultState();
+  }
+
+  function getShareRouteBaseUrl() {
+    const path = String(window.location.pathname || "");
+    const dashboardMatch = path.match(/^(.*)\/webapps\/uoa\/dashboard\.html$/i);
+    const basePath = dashboardMatch ? (dashboardMatch[1] || "") : path.replace(/\/[^/]*$/, "");
+    if (IS_LOCAL_RUNTIME) {
+      return `${window.location.origin}${basePath}/uoa.html`;
+    }
+    return `${window.location.origin}${basePath}/uoa`;
+  }
+
+  function buildShareableDashboardUrl() {
+    const defaults = getDefaultDashboardState();
+    const payload = captureResetSnapshot();
+    const compactPayload = {};
+    Object.entries(payload).forEach(([key, value]) => {
+      if (value === defaults[key]) return;
+      compactPayload[key] = value;
+    });
+
+    const shareUrl = new URL(getShareRouteBaseUrl());
+    if (!Object.keys(compactPayload).length) return shareUrl.toString();
+    const encoded = encodeShareState(compactPayload);
+    if (encoded) shareUrl.searchParams.set(SHARE_STATE_PARAM, encoded);
+    return shareUrl.toString();
+  }
+
+  async function copyDashboardLinkToClipboard(buttonEl) {
+    const link = buildShareableDashboardUrl();
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(link);
+    } else {
+      const textArea = document.createElement("textarea");
+      textArea.value = link;
+      textArea.setAttribute("readonly", "readonly");
+      textArea.style.position = "absolute";
+      textArea.style.left = "-9999px";
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textArea);
+    }
+
+    if (!buttonEl) return;
+    const labelEl = buttonEl.querySelector(".btn-label");
+    const original = labelEl ? labelEl.textContent : buttonEl.textContent;
+    if (buttonEl.__copyFeedbackTimer) {
+      window.clearTimeout(buttonEl.__copyFeedbackTimer);
+    }
+    buttonEl.classList.add("copy-link-btn--copied");
+    setButtonIcon("copyDashboardIcon", ICONS.copyCopied);
+    if (labelEl) labelEl.textContent = "Copied!";
+    else buttonEl.textContent = "Copied!";
+    buttonEl.__copyFeedbackTimer = window.setTimeout(() => {
+      setButtonIcon("copyDashboardIcon", ICONS.copyLink);
+      if (labelEl) labelEl.textContent = original || "Copy Link";
+      else buttonEl.textContent = original || "Copy Link";
+      buttonEl.classList.remove("copy-link-btn--copied");
+      buttonEl.__copyFeedbackTimer = null;
+    }, 1400);
+  }
+
+  function bindDashboardActionButtons() {
+    bindCustomTooltips();
+    setCustomTooltip(el.copyDashboardLink, "Copy shareable dashboard link");
+    if (el.copyDashboardLink && el.copyDashboardLink.dataset.bound !== "1") {
+      el.copyDashboardLink.dataset.bound = "1";
+      el.copyDashboardLink.addEventListener("click", async () => {
+        try {
+          await copyDashboardLinkToClipboard(el.copyDashboardLink);
+        } catch (_) {
+          // Clipboard may be unavailable in some browser contexts.
+        }
+      });
+    }
+
+    setCustomTooltip(el.resetDashboard, preResetStateSnapshot ? "Undo the last restore defaults action" : "Reset dashboard to defaults");
+    if (el.resetDashboard && el.resetDashboard.dataset.bound !== "1") {
+      el.resetDashboard.dataset.bound = "1";
+      el.resetDashboard.addEventListener("click", () => {
+        if (preResetStateSnapshot) restorePreviousDashboardState();
+        else restoreDashboardDefaults();
+      });
+    }
+    updateResetButtonUi();
   }
 
   function bindDateRangeSessionPersistence() {
@@ -6280,6 +6734,14 @@
     const bounds = getDateBounds();
     if (!bounds) return null;
     const saved = loadStoredFilters(bounds);
+    if (saved.timeZone) {
+      updatedKpiTimeZone = DASHBOARD_TIME?.setPreferredTimeZone
+        ? DASHBOARD_TIME.setPreferredTimeZone(saved.timeZone)
+        : saved.timeZone;
+      if (document.getElementById("updatedTimeZoneSelect")) {
+        document.getElementById("updatedTimeZoneSelect").value = updatedKpiTimeZone;
+      }
+    }
     setRequestedDateRange(saved.requestedStartDate || saved.startDate, saved.requestedEndDate || saved.endDate);
 
     if (el.startDateInput) {
@@ -6345,6 +6807,7 @@
     bindDateRangeDaysInput();
     bindDateRangeDownloadControls();
     setDateRangePlaybackFps(saved.playbackFps);
+    setVisibleChartMode(saved.chartMode);
 
     if (el.primaryUoaSelect) {
       el.primaryUoaSelect.value = saved.primaryUoa;
@@ -6393,6 +6856,7 @@
         syncAllDropdowns();
         updatedTimeZoneSelect.blur();
         closeAllDropdowns();
+        persistFilters();
         renderAll();
       });
     }
@@ -6403,8 +6867,10 @@
     bindDateRangeSessionPersistence();
     initDatePickers();
     bindRangePresetButtons();
+    bindDashboardActionButtons();
     updateDateRangePlayButton();
     updateDateRangeStopButton();
+    updateResetButtonUi();
     return saved;
   }
 
