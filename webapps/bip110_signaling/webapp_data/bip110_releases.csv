@@ -10,7 +10,8 @@ v0.1rc3",932870,3,1478,55,above,2025-12-10 13:27 UTC,https://github.com/dathonoh
 bip110:v0.1,"BIP110
 v0.1",934109,4,701,55,above,2025-12-10 13:27 UTC,https://github.com/dathonohm/bitcoin/releases/tag/v29.2.knots20251110%2Bbip110-v0.1rc1,v29.2.knots20251110+bip110-v0.1rc1
 knots:v29.3.knots20260210,"Knots
-v29.3.knots20260210",935890,5,466,55,above,2026-02-10 09:44 UTC,https://github.com/bitcoinknots/bitcoin/releases/tag/v29.3.knots20260210,v29.3.knots20260210
+v29.3
+20260210",935890,5,466,55,above,2026-02-10 09:44 UTC,https://github.com/bitcoinknots/bitcoin/releases/tag/v29.3.knots20260210,v29.3.knots20260210
 core:v29.3,"Core
 v29.3",936041,5,617,55,above,2026-02-11 11:04 UTC,https://github.com/bitcoin/bitcoin/releases/tag/v29.3,v29.3
 bip110:v0.2,"BIP110
@@ -24,6 +25,8 @@ v28.4",943880,9,392,55,above,2026-04-06 06:37 UTC,https://github.com/bitcoin/bit
 core:v31.0,"Core
 v31.0",945932,10,428,55,above,2026-04-20 13:21 UTC,https://github.com/bitcoin/bitcoin/releases/tag/v31.0,v31.0
 knots:v29.3.knots20260507,"Knots
-v29.3.knots20260507",948405,11,885,55,above,2026-05-08 04:19 UTC,https://github.com/bitcoinknots/bitcoin/releases/tag/v29.3.knots20260507,v29.3.knots20260507
+v29.3
+20260507",948405,11,885,-55,below,2026-05-08 04:19 UTC,https://github.com/bitcoinknots/bitcoin/releases/tag/v29.3.knots20260507,v29.3.knots20260507
 knots:v29.3.knots20260508,"Knots
-v29.3.knots20260508",948536,11,1016,55,above,2026-05-09 01:18 UTC,https://github.com/bitcoinknots/bitcoin/releases/tag/v29.3.knots20260508,v29.3.knots20260508
+v29.3
+20260508",948536,11,1016,55,above,2026-05-09 01:18 UTC,https://github.com/bitcoinknots/bitcoin/releases/tag/v29.3.knots20260508,v29.3.knots20260508
