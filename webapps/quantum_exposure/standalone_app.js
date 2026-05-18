@@ -3,7 +3,7 @@
   const IMAGE_LIST_URL = "assets/image_list.json";
   const DASHBOARD_URL = "webapps/quantum_exposure/dashboard.html";
   const FAVORITES_STORAGE_KEY = "favorites";
-  const MODAL_NAV_SNAPSHOT_KEY = "wsb_modal_nav_snapshot_v1";
+  const MODAL_NAV_SNAPSHOT_KEY = "wsb_modal_nav_snapshot_v2";
   const GRID_FOCUS_RESTORE_KEY = "wsb_pending_grid_focus_filename_v1";
   const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
   const IS_LOCAL_HOST = LOCAL_HOSTS.has(String(location.hostname || "").toLowerCase());
@@ -175,6 +175,7 @@
       node_count: 'node_count.html',
       bitcoin_dominance: 'bitcoin_dominance.html',
       bitcoin_net_worth: 'bitcoin_net_worth.html',
+      uoa: 'uoa.html',
     };
 
     if (slug === "quantum_exposure") {
