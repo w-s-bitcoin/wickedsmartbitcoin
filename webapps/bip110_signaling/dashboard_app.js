@@ -2315,8 +2315,18 @@
       ctx.lineWidth = 1;
       ctx.globalAlpha = 0.84;
       ctx.beginPath();
-      ctx.moveTo(plot.x, thresholdY);
-      ctx.lineTo(plot.x + plot.w, thresholdY);
+      if (key === "bip110") {
+        const mandatoryRampX = xScale(17.5);
+        const mandatoryEndX = xScale(18.5);
+        const mandatoryY = yScale(periodSize);
+        ctx.moveTo(plot.x, thresholdY);
+        ctx.lineTo(mandatoryRampX, thresholdY);
+        ctx.lineTo(mandatoryRampX, mandatoryY);
+        ctx.lineTo(mandatoryEndX, mandatoryY);
+      } else {
+        ctx.moveTo(plot.x, thresholdY);
+        ctx.lineTo(plot.x + plot.w, thresholdY);
+      }
       ctx.stroke();
       ctx.globalAlpha = 1;
 
@@ -3667,19 +3677,54 @@
       return null;
     }
 
-    function showTooltip(content, clientX, clientY) {
+    function getTooltipPanelBounds(canvas) {
+      if (!canvas) return null;
+      const panel = canvas.closest(".card") || canvas.parentElement || canvas;
+      return panel.getBoundingClientRect();
+    }
+
+    function showTooltip(content, clientX, clientY, boundsRect = null) {
       if (isPeriodGridOverlayOpen()) {
         tooltip.classList.remove("show");
         return;
       }
       tooltip.innerHTML = renderTooltipHtml(content);
-      const viewportW = window.innerWidth;
-      const tipW = tooltip.offsetWidth || 320;
       const edgePad = 12;
+      const viewportBounds = {
+        left: 0,
+        top: 0,
+        right: window.innerWidth,
+        bottom: window.innerHeight,
+        width: window.innerWidth,
+        height: window.innerHeight,
+      };
+      const rawBounds = boundsRect || viewportBounds;
+      const bounds = {
+        left: clamp(rawBounds.left, 0, viewportBounds.right),
+        top: clamp(rawBounds.top, 0, viewportBounds.bottom),
+        right: clamp(rawBounds.right, 0, viewportBounds.right),
+        bottom: clamp(rawBounds.bottom, 0, viewportBounds.bottom),
+      };
+      if (bounds.right <= bounds.left) {
+        bounds.left = viewportBounds.left;
+        bounds.right = viewportBounds.right;
+      }
+      if (bounds.bottom <= bounds.top) {
+        bounds.top = viewportBounds.top;
+        bounds.bottom = viewportBounds.bottom;
+      }
+      const maxWidth = Math.max(180, Math.min(viewportBounds.width - (edgePad * 2), bounds.right - bounds.left - (edgePad * 2)));
+      tooltip.style.maxWidth = `${maxWidth}px`;
+      const tipW = tooltip.offsetWidth || 320;
+      const tipH = tooltip.offsetHeight || 0;
       const half = tipW / 2;
-      const clampedX = clamp(clientX, edgePad + half, viewportW - edgePad - half);
+      const clampedX = clamp(clientX, bounds.left + edgePad + half, bounds.right - edgePad - half);
+      const offsetY = 14;
+      const minAnchorY = bounds.top + edgePad + tipH + offsetY;
+      const maxAnchorY = bounds.bottom - edgePad + offsetY;
+      const clampedY = clamp(clientY, Math.min(minAnchorY, maxAnchorY), Math.max(minAnchorY, maxAnchorY));
       tooltip.style.left = `${clampedX}px`;
-      tooltip.style.top = `${clientY}px`;
+      tooltip.style.top = `${clampedY}px`;
       tooltip.classList.add("show");
     }
 
@@ -3708,7 +3753,7 @@
           : hit.type === "stripe"
             ? formatStripeTooltip(hit.data, key)
           : formatPeriodTooltip(hit.data, key);
-        showTooltip(content, ev.clientX, ev.clientY);
+        showTooltip(content, ev.clientX, ev.clientY, getTooltipPanelBounds(canvas));
       });
 
       canvas.addEventListener("mouseleave", () => {
@@ -3754,7 +3799,7 @@
           : formatPeriodTooltip(hit.data, key);
 
         state.pinnedTooltip = { content, x: ev.clientX, y: ev.clientY };
-        showTooltip(content, ev.clientX, ev.clientY);
+        showTooltip(content, ev.clientX, ev.clientY, getTooltipPanelBounds(canvas));
       });
     }
 
