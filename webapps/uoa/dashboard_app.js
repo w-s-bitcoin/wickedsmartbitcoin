@@ -3514,7 +3514,10 @@
     const chartMode = ["left", "right", "both"].includes(String(stored.chartMode || ""))
       ? String(stored.chartMode)
       : "both";
-    const timeZone = String(stored.timeZone || "").trim() || (DASHBOARD_TIME?.getPreferredTimeZone?.() || "UTC");
+    const sharedTimeZone = shareState ? String(stored.timeZone || "").trim() : "";
+    const timeZone = sharedTimeZone
+      ? setPreferredDashboardTimeZone(sharedTimeZone)
+      : getPreferredDashboardTimeZone();
 
     const pausedPlaybackSession = (
       stored.pausedPlaybackSession
@@ -5339,7 +5342,7 @@
     renderAll();
   }
 
-  function bindGlobalTimeZoneSync() {
+  function bindTimeZonePreferenceSync() {
     if (globalTimeZoneSyncBound) return;
     globalTimeZoneSyncBound = true;
 
@@ -5361,12 +5364,6 @@
         handleResync();
       });
     }
-
-    window.addEventListener("focus", handleResync);
-    document.addEventListener("visibilitychange", () => {
-      if (!document.hidden) handleResync();
-    });
-    window.setInterval(handleResync, 1000);
   }
 
   function syncAllDropdowns() {
@@ -6829,11 +6826,12 @@
     const bounds = getDateBounds();
     if (!bounds) return null;
     const saved = loadStoredFilters(bounds);
-    if (saved.timeZone) {
-      updatedKpiTimeZone = setPreferredDashboardTimeZone(saved.timeZone);
-      if (document.getElementById("updatedTimeZoneSelect")) {
-        document.getElementById("updatedTimeZoneSelect").value = updatedKpiTimeZone;
-      }
+    updatedKpiTimeZone = getPreferredDashboardTimeZone();
+    const updatedTimeZoneSelectEl = document.getElementById("updatedTimeZoneSelect");
+    if (updatedTimeZoneSelectEl) {
+      updatedTimeZoneSelectEl.value = updatedKpiTimeZone;
+      const dropdownConfig = DROPDOWNS.find((config) => config.selectId === "updatedTimeZoneSelect");
+      if (dropdownConfig) syncDropdownMenu(dropdownConfig);
     }
     setRequestedDateRange(saved.requestedStartDate || saved.startDate, saved.requestedEndDate || saved.endDate);
 
@@ -8216,7 +8214,7 @@
     populateUpdatedTimeZoneSelect();
 
     const saved = initControls();
-    bindGlobalTimeZoneSync();
+    bindTimeZonePreferenceSync();
     bindChartEventHover(el.usdBtcChart);
     bindChartEventHover(el.btcUsdChart);
     bindDateRangeExportUnloadGuard();
