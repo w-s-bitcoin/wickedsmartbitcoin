@@ -24,7 +24,7 @@ function parseStoredBooleanForModalNav(value) {
 
 function readModalNavigationSnapshotFromSession() {
     try {
-        const raw = sessionStorage.getItem('wsb_modal_nav_snapshot_v1');
+        const raw = sessionStorage.getItem('wsb_modal_nav_snapshot_v2');
         const parsed = raw ? JSON.parse(raw) : [];
         if (!Array.isArray(parsed)) return [];
         return parsed.map((value) => String(value || '').trim()).filter(Boolean);
@@ -83,7 +83,7 @@ function openModalByIndex(index) {
     if (!isStandaloneModalShell()) {
         try {
             const snapshot = getModalNavigationImages().map((img) => String(img?.filename || '').trim()).filter(Boolean);
-            sessionStorage.setItem('wsb_modal_nav_snapshot_v1', JSON.stringify(snapshot));
+            sessionStorage.setItem('wsb_modal_nav_snapshot_v2', JSON.stringify(snapshot));
         } catch (_) {}
         window.location.href = getVisualizationUrl(image.filename);
         return;
