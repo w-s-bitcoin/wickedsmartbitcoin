@@ -260,6 +260,7 @@
   let customTooltipBound = false;
   let customTooltipAnchor = null;
   let updatedKpiTimeZone = DASHBOARD_TIME?.getPreferredTimeZone?.() || "UTC";
+  let globalTimeZoneSyncBound = false;
   let refreshedAtText = "";
   const chartEventMarkersById = {
     usdBtcChart: [],
@@ -3650,9 +3651,7 @@
         el.orderBySelect.value = ORDER_MODES.includes(snapshot.orderMode) ? snapshot.orderMode : "alpha-asc";
       }
       if (el.vesRedenomAdjustToggle) el.vesRedenomAdjustToggle.checked = snapshot.smoothVesRedenom !== false;
-      updatedKpiTimeZone = DASHBOARD_TIME?.setPreferredTimeZone
-        ? DASHBOARD_TIME.setPreferredTimeZone(String(snapshot.timeZone || "UTC"))
-        : String(snapshot.timeZone || "UTC");
+      updatedKpiTimeZone = setPreferredDashboardTimeZone(String(snapshot.timeZone || "UTC"));
       if (document.getElementById("updatedTimeZoneSelect")) {
         document.getElementById("updatedTimeZoneSelect").value = updatedKpiTimeZone;
       }
@@ -5213,12 +5212,16 @@
   function syncDropdownMenu(config) {
     const select = document.getElementById(config.selectId);
     const dropdown = document.getElementById(config.dropdownId);
+    const trigger = document.getElementById(config.triggerId);
     const menu = document.getElementById(config.menuId);
     const valueEl = config.valueId ? document.getElementById(config.valueId) : null;
     if (!select || !menu) return;
 
     const selectedOption = select.options[select.selectedIndex];
     const selectedText = selectedOption ? selectedOption.textContent : "";
+    if (trigger && config.selectId === "updatedTimeZoneSelect") {
+      trigger.textContent = selectedText;
+    }
     if (valueEl) {
       if (valueEl.tagName === "INPUT") {
         if (!dropdown?.classList.contains("is-open")) valueEl.value = selectedText;
@@ -5248,30 +5251,122 @@
     const select = document.getElementById("updatedTimeZoneSelect");
     if (!select) return;
 
-    const options = DASHBOARD_TIME?.getTimeZoneOptions?.() || [{ value: "UTC", label: "UTC" }];
+    const options = getDashboardTimeZoneOptions();
     select.innerHTML = options
       .map((option) => `<option value="${option.value}">${option.label}</option>`)
       .join("");
 
-    const preferred = DASHBOARD_TIME?.getPreferredTimeZone?.() || "UTC";
+    const preferred = getPreferredDashboardTimeZone();
     const hasPreferred = options.some((option) => option.value === preferred);
     updatedKpiTimeZone = hasPreferred ? preferred : (options[0]?.value || "UTC");
     select.value = updatedKpiTimeZone;
+    const dropdownConfig = DROPDOWNS.find((config) => config.selectId === "updatedTimeZoneSelect");
+    if (dropdownConfig) syncDropdownMenu(dropdownConfig);
+  }
+
+  function getPreferredDashboardTimeZone() {
+    if (DASHBOARD_TIME?.getPreferredTimeZone) return DASHBOARD_TIME.getPreferredTimeZone();
+    return updatedKpiTimeZone || "UTC";
+  }
+
+  function setPreferredDashboardTimeZone(value) {
+    const next = String(value || "UTC").trim() || "UTC";
+    let normalized = next;
+    if (DASHBOARD_TIME?.setPreferredTimeZone) {
+      normalized = DASHBOARD_TIME.setPreferredTimeZone(normalized);
+    }
+    updatedKpiTimeZone = normalized || next;
+    return updatedKpiTimeZone;
+  }
+
+  function getDashboardTimeZoneOptions() {
+    if (DASHBOARD_TIME?.getTimeZoneOptions) return DASHBOARD_TIME.getTimeZoneOptions();
+    return [{ value: "UTC", label: "UTC - Greenwich Mean Time (GMT)" }];
+  }
+
+  function withParenthesizedZone(text) {
+    const normalized = String(text || "").trim();
+    if (!normalized) return normalized;
+    if (/\([^()]+\)\s*$/.test(normalized)) return normalized;
+    const match = normalized.match(/^(.*\d{2}:\d{2})(?:\s+([A-Za-z][A-Za-z0-9_:+\/-]*))$/);
+    if (!match) return normalized;
+    return `${match[1].trimEnd()} (${match[2].trim()})`;
+  }
+
+  function normalizeUpdatedTimestampInput(rawText) {
+    const raw = String(rawText || "").trim();
+    if (!raw) return "";
+    return raw.endsWith("UTC")
+      ? `${raw.replace(/\s+UTC$/, "").replace(" ", "T")}Z`
+      : raw;
   }
 
   function formatUpdatedKpiTimestamp(dateValue) {
     if (!(dateValue instanceof Date) || Number.isNaN(dateValue.getTime())) return "--";
     if (!DASHBOARD_TIME?.formatUtcTimestamp) return fmtDate(dateValue);
     const formatted = DASHBOARD_TIME.formatUtcTimestamp(dateValue.toISOString(), updatedKpiTimeZone || "UTC");
-    return formatted?.text || fmtDate(dateValue);
+    return withParenthesizedZone(formatted?.text || fmtDate(dateValue));
   }
 
   function formatUpdatedDisplayText(rawText) {
     const cleaned = String(rawText || "").trim();
     if (!cleaned) return "--";
-    if (!DASHBOARD_TIME?.formatUtcTimestamp) return cleaned;
-    const formatted = DASHBOARD_TIME.formatUtcTimestamp(cleaned, updatedKpiTimeZone || "UTC");
-    return formatted?.text || cleaned;
+    if (!DASHBOARD_TIME?.formatUtcTimestamp) return withParenthesizedZone(cleaned);
+    const formatted = DASHBOARD_TIME.formatUtcTimestamp(normalizeUpdatedTimestampInput(cleaned), updatedKpiTimeZone || "UTC");
+    return withParenthesizedZone(formatted?.text || cleaned);
+  }
+
+  function syncUpdatedTimeZonePreference(nextTimeZone) {
+    const next = String(nextTimeZone || getPreferredDashboardTimeZone() || "UTC").trim() || "UTC";
+    if (updatedKpiTimeZone === next) {
+      const dropdownConfig = DROPDOWNS.find((config) => config.selectId === "updatedTimeZoneSelect");
+      if (dropdownConfig) syncDropdownMenu(dropdownConfig);
+      return;
+    }
+    updatedKpiTimeZone = next;
+    const select = document.getElementById("updatedTimeZoneSelect");
+    if (select) {
+      const hasOption = Array.from(select.options).some((option) => option.value === next);
+      if (hasOption) {
+        select.value = next;
+      } else {
+        populateUpdatedTimeZoneSelect();
+      }
+    }
+    const dropdownConfig = DROPDOWNS.find((config) => config.selectId === "updatedTimeZoneSelect");
+    if (dropdownConfig) syncDropdownMenu(dropdownConfig);
+    persistFilters();
+    renderAll();
+  }
+
+  function bindGlobalTimeZoneSync() {
+    if (globalTimeZoneSyncBound) return;
+    globalTimeZoneSyncBound = true;
+
+    const changeEvent = DASHBOARD_TIME?.CHANGE_EVENT;
+    const storageKey = DASHBOARD_TIME?.STORAGE_KEY;
+    const handleTimeZoneChange = (event) => {
+      const changedTimeZone = String(event?.detail?.timeZone || "").trim();
+      syncUpdatedTimeZonePreference(changedTimeZone || getPreferredDashboardTimeZone());
+    };
+    const handleResync = () => syncUpdatedTimeZonePreference(getPreferredDashboardTimeZone());
+
+    if (changeEvent) {
+      window.addEventListener(changeEvent, handleTimeZoneChange);
+    }
+
+    if (storageKey) {
+      window.addEventListener("storage", (event) => {
+        if (event.key !== storageKey) return;
+        handleResync();
+      });
+    }
+
+    window.addEventListener("focus", handleResync);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) handleResync();
+    });
+    window.setInterval(handleResync, 1000);
   }
 
   function syncAllDropdowns() {
@@ -6735,9 +6830,7 @@
     if (!bounds) return null;
     const saved = loadStoredFilters(bounds);
     if (saved.timeZone) {
-      updatedKpiTimeZone = DASHBOARD_TIME?.setPreferredTimeZone
-        ? DASHBOARD_TIME.setPreferredTimeZone(saved.timeZone)
-        : saved.timeZone;
+      updatedKpiTimeZone = setPreferredDashboardTimeZone(saved.timeZone);
       if (document.getElementById("updatedTimeZoneSelect")) {
         document.getElementById("updatedTimeZoneSelect").value = updatedKpiTimeZone;
       }
@@ -6850,9 +6943,7 @@
     if (updatedTimeZoneSelect) {
       updatedTimeZoneSelect.addEventListener("change", () => {
         const next = String(updatedTimeZoneSelect.value || "UTC");
-        updatedKpiTimeZone = DASHBOARD_TIME?.setPreferredTimeZone
-          ? DASHBOARD_TIME.setPreferredTimeZone(next)
-          : next;
+        updatedKpiTimeZone = setPreferredDashboardTimeZone(next);
         syncAllDropdowns();
         updatedTimeZoneSelect.blur();
         closeAllDropdowns();
@@ -8125,6 +8216,7 @@
     populateUpdatedTimeZoneSelect();
 
     const saved = initControls();
+    bindGlobalTimeZoneSync();
     bindChartEventHover(el.usdBtcChart);
     bindChartEventHover(el.btcUsdChart);
     bindDateRangeExportUnloadGuard();
