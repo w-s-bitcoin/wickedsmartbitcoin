@@ -3624,6 +3624,7 @@
 
       const perPrefixRepo = {
         core: "bitcoin/bitcoin",
+        knots: "bitcoinknots/bitcoin",
         bip110: "dathonohm/bitcoin",
         uasf: "UASF/bitcoin",
         segwit2x: "btc1/bitcoin",

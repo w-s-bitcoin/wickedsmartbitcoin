@@ -1,12 +1,12 @@
 {
-  "generated_at_utc": "2026-05-18T03:04:49.250270Z",
+  "generated_at_utc": "2026-05-18T11:05:50.623424Z",
   "source": {
     "name": "Frankfurter",
     "url": "https://api.frankfurter.app",
     "upstream": "European Central Bank (ECB) reference rates",
     "pair_endpoint": "https://api.frankfurter.app/1999-01-01..2999-12-31?from=EUR&to=USD",
     "start_date": "1999-01-04",
-    "end_date": "2026-05-17",
+    "end_date": "2026-05-18",
     "notes": "Rates are business-day reference rates for 161 Frankfurter-supported currency pairs vs USD; CUP/USD is overwritten with elTOQUE TRMI via CUP=X where available; weekends and market holidays are forward-filled.",
     "dataset_notes": "CSV schema simplified to date, eurusd where eurusd is the EUR/USD rate value. Source attribution is stored in this metadata file.",
     "cupusd_source": "elTOQUE TRMI via CUP=X"
