@@ -285,6 +285,10 @@
                     <button type="button" class="download-setting-option" data-value="webm" aria-pressed="false">webm</button>
                   </div>
                 </div>
+                <label class="download-setting-checkbox">
+                  <input type="checkbox" id="downloadEndFrameHoldToggle" checked>
+                  <span>1s start / 3s end hold</span>
+                </label>
                 <div id="downloadEstimatePanel" class="download-estimate-panel" aria-live="polite">
                   <div class="download-estimate-row">
                     <span>File Size</span>
@@ -346,6 +350,7 @@
     </div>
 
     <script src="../../js/11_dashboard_timezone_preferences.js"></script>
+    <script src="../../js/12_mp4_muxer.js"></script>
     <script src="dashboard_app.js"></script>
   </body>
 </html>

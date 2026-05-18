@@ -89,6 +89,7 @@ const state = {
     speed: "1",
     theme: document.documentElement.dataset.theme === "light" ? "light" : "dark",
     extension: "mp4",
+    endFrameHold: true,
   },
   seriesByCadence: {
     daily_dca: [],
@@ -1618,12 +1619,16 @@ function getDateRangeFrameDates(startIso = state.dateRange.startIso, endIso = st
   return dates;
 }
 
-function getDateRangeExportFrameDates(startIso = state.dateRange.startIso, endIso = state.dateRange.endIso, speed = state.dateRange.playbackSpeed) {
+function getDateRangeExportFrameDates(startIso = state.dateRange.startIso, endIso = state.dateRange.endIso, speed = state.dateRange.playbackSpeed, includeEndFrameHold = true) {
   const motionDates = getDateRangeFrameDates(startIso, endIso, speed);
   if (!motionDates.length) return [];
   const finalDate = motionDates[motionDates.length - 1];
-  const startHoldFrames = Math.max(0, Math.round(EXPORT_START_HOLD_SECONDS * EXPORT_VIDEO_FPS));
-  const endHoldFrames = Math.max(0, Math.round(EXPORT_END_HOLD_SECONDS * EXPORT_VIDEO_FPS));
+  const startHoldFrames = includeEndFrameHold
+    ? Math.max(0, Math.round(EXPORT_START_HOLD_SECONDS * EXPORT_VIDEO_FPS))
+    : 0;
+  const endHoldFrames = includeEndFrameHold
+    ? Math.max(0, Math.round(EXPORT_END_HOLD_SECONDS * EXPORT_VIDEO_FPS))
+    : 0;
   const frames = [
     ...Array.from({ length: startHoldFrames }, () => finalDate),
   ];
@@ -2538,6 +2543,7 @@ function normalizeDownloadSettings(settings = {}) {
     speed: ["0.5", "1", "2", "4"].includes(String(settings.speed)) ? String(settings.speed) : String(state.dateRange.playbackSpeed || 1),
     theme: ["light", "dark"].includes(settings.theme) ? settings.theme : currentTheme,
     extension: ["mp4", "webm"].includes(settings.extension) ? settings.extension : "mp4",
+    endFrameHold: settings.endFrameHold !== false,
   };
 }
 
@@ -2557,6 +2563,7 @@ function getDownloadVideoSeconds(settings = state.downloadSettings) {
     state.dateRange.startIso,
     state.dateRange.endIso,
     Number(settings.speed) || 1,
+    settings.endFrameHold,
   );
   return frameDates.length ? frameDates.length / EXPORT_VIDEO_FPS : 0;
 }
@@ -2572,6 +2579,7 @@ function getDownloadEstimateCalibrationKey(settings, frameDates) {
     settings.quality,
     settings.speed,
     settings.theme,
+    settings.endFrameHold ? "hold" : "no-hold",
     width,
     height,
     frameDates.length,
@@ -2658,7 +2666,7 @@ function updateDownloadEstimates() {
   const settings = normalizeDownloadSettings(state.downloadSettings);
   const { width, height } = getDownloadDimensions(settings);
   const seconds = getDownloadVideoSeconds(settings);
-  const frameDates = getDateRangeExportFrameDates(state.dateRange.startIso, state.dateRange.endIso, Number(settings.speed) || 1);
+  const frameDates = getDateRangeExportFrameDates(state.dateRange.startIso, state.dateRange.endIso, Number(settings.speed) || 1, settings.endFrameHold);
   const uniqueFrameCount = new Set(frameDates).size;
   const calibrationKey = getDownloadEstimateCalibrationKey(settings, frameDates);
   const calibration = downloadEstimateCalibrationCache.get(calibrationKey);
@@ -2697,6 +2705,8 @@ function syncDownloadSettingsControls() {
       button.setAttribute("aria-pressed", selected ? "true" : "false");
     });
   });
+  const endFrameHoldToggle = document.getElementById("downloadEndFrameHoldToggle");
+  if (endFrameHoldToggle) endFrameHoldToggle.checked = !!state.downloadSettings.endFrameHold;
   syncDownloadSettingsDownloadButton();
   updateDownloadEstimates();
 }
@@ -3233,6 +3243,71 @@ async function encodeDateRangeAnimationWebM({ canvas, ctx, settings, theme, pale
   return buildWebMBlob(encodedFrames, canvas.width, canvas.height, EXPORT_VIDEO_FPS, encoderConfig.webmCodecId);
 }
 
+async function encodeDateRangeAnimationMp4({ canvas, ctx, settings, theme, palette, frameDates }) {
+  const muxer = window.WSBMp4Muxer;
+  if (!muxer?.getSupportedAvcConfig || !muxer?.buildMp4Blob) return null;
+  const encoderConfig = await muxer.getSupportedAvcConfig(
+    canvas.width,
+    canvas.height,
+    getDateRangeExportBitrate(settings),
+    EXPORT_VIDEO_FPS
+  );
+  if (!encoderConfig) return null;
+  const samples = [];
+  const frameDurationUs = Math.round(1000000 / EXPORT_VIDEO_FPS);
+  let frameIndex = 0;
+  let encodeError = null;
+  let avcConfig = null;
+  const encoder = new VideoEncoder({
+    output: (chunk, metadata) => {
+      const data = new Uint8Array(chunk.byteLength);
+      chunk.copyTo(data);
+      const description = metadata?.decoderConfig?.description;
+      if (description && !avcConfig) avcConfig = new Uint8Array(description);
+      samples.push({
+        data,
+        key: chunk.type === "key",
+      });
+    },
+    error: (error) => {
+      encodeError = error;
+    },
+  });
+  encoder.configure(encoderConfig);
+  for (const dateIso of frameDates) {
+    if (dateRangeExportCancelRequested) break;
+    const rows = getFrameRows(state.dateRange.startIso, dateIso);
+    await drawExportFrame(ctx, canvas, dateIso, { ...settings, theme }, palette, rows);
+    const timestamp = frameIndex * frameDurationUs;
+    const frame = new VideoFrame(canvas, {
+      timestamp,
+      duration: frameDurationUs,
+    });
+    encoder.encode(frame, { keyFrame: frameIndex % EXPORT_VIDEO_FPS === 0 });
+    frame.close();
+    if (encodeError) throw encodeError;
+    frameIndex += 1;
+    renderDateRangeDownloadButtonProgress(frameIndex / Math.max(1, frameDates.length));
+    if (encoder.encodeQueueSize > 8) {
+      await encoder.flush();
+      await wait(0);
+    } else if (frameIndex % 6 === 0) {
+      await wait(0);
+    }
+  }
+  await encoder.flush();
+  if (encodeError) throw encodeError;
+  encoder.close();
+  if (dateRangeExportCancelRequested) return null;
+  return muxer.buildMp4Blob({
+    width: canvas.width,
+    height: canvas.height,
+    fps: EXPORT_VIDEO_FPS,
+    samples,
+    avcConfig,
+  });
+}
+
 async function waitForDateRangeExportFonts() {
   if (!document.fonts?.ready) return;
   try {
@@ -3310,7 +3385,7 @@ async function downloadDateRangeAnimation() {
 
   const theme = settings.theme === "light" ? "light" : "dark";
   const palette = getPaletteForTheme(theme);
-  const frameDates = getDateRangeExportFrameDates(state.dateRange.startIso, state.dateRange.endIso, Number(settings.speed) || 1);
+  const frameDates = getDateRangeExportFrameDates(state.dateRange.startIso, state.dateRange.endIso, Number(settings.speed) || 1, settings.endFrameHold);
   if (!frameDates.length) return;
   const finalDate = frameDates[frameDates.length - 1];
 
@@ -3331,6 +3406,37 @@ async function downloadDateRangeAnimation() {
     resetDateRangeDownloadButton();
     window.alert("The animation export could not be completed in this browser.");
     return;
+  }
+
+  if (settings.extension === "mp4") {
+    try {
+      const mp4Blob = await encodeDateRangeAnimationMp4({
+        canvas,
+        ctx,
+        settings,
+        theme,
+        palette,
+        frameDates,
+      });
+      if (mp4Blob && !dateRangeExportCancelRequested) {
+        renderDateRangeDownloadButtonProgress(1);
+        downloadDateRangeExportBlob(mp4Blob, "mp4", settings);
+        isDateRangeExporting = false;
+        dateRangeExportCancelRequested = false;
+        broadcastDateRangeExportActive(false);
+        resetDateRangeDownloadButton();
+        return;
+      }
+      if (dateRangeExportCancelRequested) {
+        isDateRangeExporting = false;
+        dateRangeExportCancelRequested = false;
+        broadcastDateRangeExportActive(false);
+        resetDateRangeDownloadButton();
+        return;
+      }
+    } catch (error) {
+      console.warn("Deterministic WebCodecs MP4 export unavailable; falling back to recorder export.", error);
+    }
   }
 
   if (settings.extension === "webm") {
@@ -5306,6 +5412,12 @@ function bindControls() {
       saveDownloadSettings();
       syncDownloadSettingsControls();
     });
+  });
+  document.getElementById("downloadEndFrameHoldToggle")?.addEventListener("change", (event) => {
+    state.downloadSettings.endFrameHold = !!event.target.checked;
+    state.downloadSettings = normalizeDownloadSettings(state.downloadSettings);
+    saveDownloadSettings();
+    syncDownloadSettingsControls();
   });
 
   window.addEventListener("resize", () => {

@@ -109,6 +109,7 @@
     fps: String(DEFAULT_RANGE_PLAYBACK_FPS),
     leftScale: "",
     rightScale: "",
+    endFrameHold: true,
   };
   const RANGE_PRESET_KEYS = ["full", "ytd", "1y", "2y", "4y", "8y"];
   const EXPORT_THEME_PALETTES = {
@@ -196,6 +197,7 @@
     downloadOrientationSelect: document.getElementById("downloadOrientationSelect"),
     downloadThemeSelect: document.getElementById("downloadThemeSelect"),
     downloadFpsSelect: document.getElementById("downloadFpsSelect"),
+    downloadEndFrameHoldToggle: document.getElementById("downloadEndFrameHoldToggle"),
     downloadEstimateSize: document.getElementById("downloadEstimateSize"),
     downloadEstimateLength: document.getElementById("downloadEstimateLength"),
     downloadEstimateTime: document.getElementById("downloadEstimateTime"),
@@ -975,13 +977,17 @@
     return DATE_RANGE_PLAYBACK_FPS_OPTIONS[nextIndex] || DEFAULT_RANGE_PLAYBACK_FPS;
   }
 
-  function buildDateRangeExportFrameIndices(startIndex, endIndex, playbackFps) {
+  function buildDateRangeExportFrameIndices(startIndex, endIndex, playbackFps, includeEndFrameHold = true) {
     const start = Math.round(Number(startIndex));
     const end = Math.round(Number(endIndex));
     const safeStart = Number.isFinite(start) ? start : 0;
     const safeEnd = Number.isFinite(end) ? end : safeStart;
-    const startHoldFrames = Math.max(0, Math.round(DATE_RANGE_EXPORT_START_HOLD_SECONDS * DATE_RANGE_EXPORT_VIDEO_FPS));
-    const endHoldFrames = Math.max(0, Math.round(DATE_RANGE_EXPORT_END_HOLD_SECONDS * DATE_RANGE_EXPORT_VIDEO_FPS));
+    const startHoldFrames = includeEndFrameHold
+      ? Math.max(0, Math.round(DATE_RANGE_EXPORT_START_HOLD_SECONDS * DATE_RANGE_EXPORT_VIDEO_FPS))
+      : 0;
+    const endHoldFrames = includeEndFrameHold
+      ? Math.max(0, Math.round(DATE_RANGE_EXPORT_END_HOLD_SECONDS * DATE_RANGE_EXPORT_VIDEO_FPS))
+      : 0;
     const frames = [
       ...Array.from({ length: startHoldFrames }, () => safeEnd),
     ];
@@ -1063,7 +1069,7 @@
     }
     const settings = normalizeDownloadSettings(readDownloadSettingsControls());
     const selectedPlaybackFps = Math.max(1, Number(settings.fps) || getSelectedDateRangePlaybackFps());
-    const frameIndices = buildDateRangeExportFrameIndices(range.startIndex, range.endIndex, selectedPlaybackFps);
+    const frameIndices = buildDateRangeExportFrameIndices(range.startIndex, range.endIndex, selectedPlaybackFps, settings.endFrameHold);
     const uniqueFrameCount = new Set(frameIndices).size;
     const videoSeconds = frameIndices.length / DATE_RANGE_EXPORT_VIDEO_FPS;
     const bitrate = getDateRangeExportBitrate(settings);
@@ -1143,7 +1149,8 @@
     const fps = Number.isFinite(rawFps) && rawFps > 0
       ? String(rawFps)
       : String(getSelectedDateRangePlaybackFps());
-    return { chartMode, extension, quality, orientation, theme, fps, leftScale, rightScale };
+    const endFrameHold = settings.endFrameHold !== false;
+    return { chartMode, extension, quality, orientation, theme, fps, leftScale, rightScale, endFrameHold };
   }
 
   function loadDownloadSettings() {
@@ -1349,6 +1356,7 @@
     setDownloadSettingGroupValue(el.downloadFpsSelect, normalized.fps);
     setDownloadSettingGroupValue(el.downloadLeftScaleSelect, normalized.leftScale);
     setDownloadSettingGroupValue(el.downloadRightScaleSelect, normalized.rightScale);
+    if (el.downloadEndFrameHoldToggle) el.downloadEndFrameHoldToggle.checked = !!normalized.endFrameHold;
     syncDownloadScaleAvailability();
     updateDownloadEstimates();
   }
@@ -1363,6 +1371,7 @@
       fps: getDownloadSettingGroupValue(el.downloadFpsSelect),
       leftScale: getDownloadSettingGroupValue(el.downloadLeftScaleSelect),
       rightScale: getDownloadSettingGroupValue(el.downloadRightScaleSelect),
+      endFrameHold: el.downloadEndFrameHoldToggle ? el.downloadEndFrameHoldToggle.checked : true,
     });
   }
 
@@ -1817,6 +1826,81 @@
     if (dateRangeExportCancelRequested) return null;
     encodedFrames.sort((a, b) => a.timestamp - b.timestamp);
     return buildWebMBlob(encodedFrames, exportCanvas.width, exportCanvas.height, DATE_RANGE_EXPORT_VIDEO_FPS, encoderConfig.webmCodecId);
+  }
+
+  async function encodeDateRangeAnimationMp4({
+    exportCanvas,
+    layoutCanvas,
+    layoutSettings,
+    exportRefs,
+    exportSnapshot,
+    settings,
+    startIndex,
+    frameIndices,
+  }) {
+    const muxer = window.WSBMp4Muxer;
+    if (!muxer?.getSupportedAvcConfig || !muxer?.buildMp4Blob) return null;
+    const encoderConfig = await muxer.getSupportedAvcConfig(
+      exportCanvas.width,
+      exportCanvas.height,
+      getDateRangeExportBitrate(settings),
+      DATE_RANGE_EXPORT_VIDEO_FPS
+    );
+    if (!encoderConfig) return null;
+    const samples = [];
+    const frameDurationUs = Math.round(1000000 / DATE_RANGE_EXPORT_VIDEO_FPS);
+    let frameIndex = 0;
+    let encodeError = null;
+    let avcConfig = null;
+    const encoder = new VideoEncoder({
+      output: (chunk, metadata) => {
+        const data = new Uint8Array(chunk.byteLength);
+        chunk.copyTo(data);
+        const description = metadata?.decoderConfig?.description;
+        if (description && !avcConfig) avcConfig = new Uint8Array(description);
+        samples.push({
+          data,
+          key: chunk.type === "key",
+        });
+      },
+      error: (error) => {
+        encodeError = error;
+      },
+    });
+    encoder.configure(encoderConfig);
+    for (const index of frameIndices) {
+      if (dateRangeExportCancelRequested) break;
+      renderExportFrameToSurface(exportRefs, exportSnapshot, startIndex, index);
+      await composeDateRangeExportFrame(layoutCanvas, layoutSettings, exportRefs);
+      drawScaledExportFrame(layoutCanvas, exportCanvas, settings);
+      const timestamp = frameIndex * frameDurationUs;
+      const frame = new VideoFrame(exportCanvas, {
+        timestamp,
+        duration: frameDurationUs,
+      });
+      encoder.encode(frame, { keyFrame: frameIndex % DATE_RANGE_EXPORT_VIDEO_FPS === 0 });
+      frame.close();
+      if (encodeError) throw encodeError;
+      frameIndex += 1;
+      renderDateRangeDownloadButtonProgress(frameIndex / Math.max(1, frameIndices.length));
+      if (encoder.encodeQueueSize > 8) {
+        await encoder.flush();
+        await waitMs(0);
+      } else if (frameIndex % 6 === 0) {
+        await waitMs(0);
+      }
+    }
+    await encoder.flush();
+    if (encodeError) throw encodeError;
+    encoder.close();
+    if (dateRangeExportCancelRequested) return null;
+    return muxer.buildMp4Blob({
+      width: exportCanvas.width,
+      height: exportCanvas.height,
+      fps: DATE_RANGE_EXPORT_VIDEO_FPS,
+      samples,
+      avcConfig,
+    });
   }
 
   function transitionMediaRecorder(recorder, eventName, action) {
@@ -2608,7 +2692,33 @@
       exportRefs = createExportRenderSurface(layoutSettings);
       await waitForDateRangeExportFonts();
       await waitForDateRangeExportFonts();
-      const frameIndices = buildDateRangeExportFrameIndices(startIndex, endIndex, selectedPlaybackFps);
+      const frameIndices = buildDateRangeExportFrameIndices(startIndex, endIndex, selectedPlaybackFps, settings.endFrameHold);
+      if (settings.extension === "mp4") {
+        try {
+          const mp4Blob = await encodeDateRangeAnimationMp4({
+            exportCanvas,
+            layoutCanvas,
+            layoutSettings,
+            exportRefs,
+            exportSnapshot,
+            settings,
+            startIndex,
+            frameIndices,
+          });
+          if (mp4Blob && !dateRangeExportCancelRequested) {
+            renderDateRangeDownloadButtonProgress(1);
+            downloadDateRangeExportBlob(mp4Blob, "mp4", settings, exportSnapshot);
+            return;
+          }
+          if (dateRangeExportCancelRequested) {
+            wasCanceled = true;
+            return;
+          }
+        } catch (error) {
+          console.warn("Deterministic WebCodecs MP4 export unavailable; falling back to recorder export.", error);
+        }
+      }
+
       if (settings.extension === "webm") {
         try {
           const webmBlob = await encodeDateRangeAnimationWebM({
@@ -2712,6 +2822,7 @@
       await transitionMediaRecorder(recorder, "pause", () => recorder.pause());
 
       let recordedFrames = 0;
+      const frameDurationMs = 1000 / exportVideoFps;
       for (let batchStart = 0; batchStart < frameIndices.length; batchStart += batchSize) {
         await renderFrameBatch(batchStart);
         if (wasCanceled || dateRangeExportCancelRequested) {
@@ -2719,7 +2830,7 @@
           break;
         }
         await transitionMediaRecorder(recorder, "resume", () => recorder.resume());
-        const recordStartTime = performance.now() - (recordedFrames * 1000 / exportVideoFps);
+        let lastCaptureTime = performance.now() - frameDurationMs;
         const batchEnd = Math.min(frameIndices.length, batchStart + batchSize);
         for (let frameIndex = batchStart; frameIndex < batchEnd; frameIndex += 1) {
           const index = frameIndices[frameIndex];
@@ -2729,6 +2840,10 @@
           }
           const frameImage = cachedFrames.get(index);
           if (!frameImage) throw new Error("Cached export frame unavailable.");
+          const elapsedSinceLastCapture = performance.now() - lastCaptureTime;
+          if (elapsedSinceLastCapture < frameDurationMs) {
+            await waitMs(frameDurationMs - elapsedSinceLastCapture);
+          }
           exportCtx.clearRect(0, 0, exportCanvas.width, exportCanvas.height);
           exportCtx.drawImage(frameImage, 0, 0);
           if (dateRangeExportCancelRequested) {
@@ -2736,12 +2851,10 @@
             break;
           }
           if (track && typeof track.requestFrame === "function") track.requestFrame();
+          lastCaptureTime = performance.now();
           recordedFrames += 1;
           completedWorkUnits += 1;
           renderDateRangeDownloadButtonProgress(completedWorkUnits / totalWorkUnits);
-          const nextFrameTime = recordStartTime + (recordedFrames * 1000 / exportVideoFps);
-          const waitTime = nextFrameTime - performance.now();
-          if (waitTime > 0) await waitMs(waitTime);
         }
         if (wasCanceled || dateRangeExportCancelRequested) break;
         if (batchEnd < frameIndices.length) {
@@ -3315,6 +3428,12 @@
         });
       });
     });
+    if (el.downloadEndFrameHoldToggle && el.downloadEndFrameHoldToggle.dataset.bound !== "1") {
+      el.downloadEndFrameHoldToggle.dataset.bound = "1";
+      el.downloadEndFrameHoldToggle.addEventListener("change", () => {
+        saveDownloadSettings(readDownloadSettingsControls());
+      });
+    }
     if (el.downloadSettingsDownloadBtn && el.downloadSettingsDownloadBtn.dataset.bound !== "1") {
       el.downloadSettingsDownloadBtn.dataset.bound = "1";
       el.downloadSettingsDownloadBtn.addEventListener("click", () => {
