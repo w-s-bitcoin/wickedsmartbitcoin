@@ -1287,6 +1287,30 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
   border-left-color: var(--panel-border);
 }
 
+.download-setting-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.7rem;
+  line-height: 1.2;
+  cursor: pointer;
+  user-select: none;
+}
+
+.download-setting-checkbox input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.download-setting-checkbox:hover {
+  color: var(--fg);
+}
+
 .download-estimate-panel {
   display: grid;
   gap: 4px;
