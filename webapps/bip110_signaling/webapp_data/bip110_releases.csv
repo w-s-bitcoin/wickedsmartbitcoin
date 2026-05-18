@@ -11,7 +11,7 @@ bip110:v0.1,"BIP110
 v0.1",934109,4,701,55,above,2025-12-10 13:27 UTC,https://github.com/dathonohm/bitcoin/releases/tag/v29.2.knots20251110%2Bbip110-v0.1rc1,v29.2.knots20251110+bip110-v0.1rc1
 knots:v29.3.knots20260210,"Knots
 v29.3
-20260210",935890,5,466,55,above,2026-02-10 09:44 UTC,https://github.com/bitcoinknots/bitcoin/releases/tag/v29.3.knots20260210,v29.3.knots20260210
+20260210",935890,5,466,-55,below,2026-02-10 09:44 UTC,https://github.com/bitcoinknots/bitcoin/releases/tag/v29.3.knots20260210,v29.3.knots20260210
 core:v29.3,"Core
 v29.3",936041,5,617,55,above,2026-02-11 11:04 UTC,https://github.com/bitcoin/bitcoin/releases/tag/v29.3,v29.3
 bip110:v0.2,"BIP110

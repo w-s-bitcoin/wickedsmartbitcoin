@@ -14,11 +14,25 @@
     "latest_youtube": "https://youtu.be/_Qxm70pFM4E"
   },
   {
+    "filename": "uoa.png",
+    "title": "Unit of Account",
+    "description": "Compares any selected currency pair in both directions using historical rates, mirrored charts, date-range controls, and optional redenomination adjustment",
+    "latest_x": "",
+    "latest_youtube": ""
+  },
+  {
     "filename": "dca_cost_basis.png",
     "title": "DCA Cost Basis",
     "description": "This dashboard tracks Bitcoin weighted-average DCA cost basis across daily, weekly, and monthly cadences and compares it to spot price",
     "latest_x": "",
     "latest_youtube": ""
+  },
+  {
+    "filename": "bitcoin_dominance.png",
+    "title": "Bitcoin Dominance",
+    "description": "This dashboard shows Bitcoin's share of market cap relative to the top cryptocurrencies",
+    "latest_x": "https://x.com/w_s_bitcoin/status/2036202715148107790",
+    "latest_youtube": "https://youtu.be/GbEJ0neZkxQ"
   },
   {
     "filename": "bip110_signaling.png",
@@ -33,19 +47,5 @@
     "description": "This dashboard tracks Bitcoin node count over time and the software versions nodes are running",
     "latest_x": "https://x.com/w_s_bitcoin/status/2034754967697776927",
     "latest_youtube": "https://youtu.be/-oujfwYj-zc"
-  },
-  {
-    "filename": "bitcoin_dominance.png",
-    "title": "Bitcoin Dominance",
-    "description": "This dashboard shows Bitcoin's share of market cap relative to the top cryptocurrencies",
-    "latest_x": "https://x.com/w_s_bitcoin/status/2036202715148107790",
-    "latest_youtube": "https://youtu.be/GbEJ0neZkxQ"
-  },
-  {
-    "filename": "uoa.png",
-    "title": "Unit of Account",
-    "description": "Compares any selected currency pair in both directions using historical rates, mirrored charts, date-range controls, and optional redenomination adjustment",
-    "latest_x": "",
-    "latest_youtube": ""
   }
 ]

@@ -144,7 +144,7 @@ html.embedded-in-modal body .app-shell {
 
 .quote-cards {
   display: grid;
-  grid-template-columns: auto minmax(260px, 1fr);
+  grid-template-columns: minmax(260px, 1fr);
   gap: 12px;
   align-items: stretch;
 }
@@ -526,6 +526,7 @@ html.embedded-in-modal body .app-shell {
   display: inline-flex;
   gap: 8px;
   align-items: center;
+  flex: 0 0 auto;
 }
 
 .history-action-btn {
