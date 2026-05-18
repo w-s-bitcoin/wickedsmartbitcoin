@@ -564,7 +564,7 @@ for label, height, period in merged_release_points:
 
     period_start = BIP110_START + (period - 1) * PERIOD_SIZE
     y = int(clamp(height - period_start, 0, PERIOD_SIZE))
-    dy = -55 if label.lower() in ["core:v30.1", "knots:v29.3.knots20260507"] else 55
+    dy = -55 if label.lower() in ["core:v30.1", "knots:v29.3.knots20260210", "knots:v29.3.knots20260507"] else 55
 
     meta = get_release_metadata(label)
     bip110_release_rows.append({
