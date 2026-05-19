@@ -99,6 +99,10 @@ window.addEventListener('message', e => {
     }
     if (data.type === 'wsb-dca-dashboard-expanded') {
         document.body?.classList?.toggle('dca-dashboard-expanded', !!data.expanded);
+        return;
+    }
+    if (data.type === 'wsb-dca-comparison-dashboard-expanded') {
+        document.body?.classList?.toggle('dca-comparison-dashboard-expanded', !!data.expanded);
     }
 }, true);
 document.addEventListener('keydown', e => {
@@ -257,6 +261,7 @@ function resetDashboardsToDefaults() {
     const keyPrefixesToRemove = [
         'bip110_signaling_',
         'bitcoin_dominance_',
+        'dca_comparison_',
         'dca_cost_basis_',
         'node_count_'
     ];

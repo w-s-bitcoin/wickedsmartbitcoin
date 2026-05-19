@@ -5872,6 +5872,21 @@
       popup.className = fresh.className;
       requestAnimationFrame(() => {
         positionPopup();
+        if (pickerView === "years") {
+          const grid = popup.querySelector(".dp-year-grid");
+          const selectedYear = popup.querySelector(".dp-year-current");
+          if (grid && selectedYear) {
+            grid.scrollTop = Math.max(0, selectedYear.offsetTop + selectedYear.offsetHeight - grid.clientHeight);
+          }
+        } else if (pickerView === "year") {
+          const list = popup.querySelector(".dp-accordion-list");
+          const openRow = popup.querySelector(".dp-accordion-year.dp-accordion-open");
+          if (list && openRow) {
+            const yearButton = openRow.querySelector(".dp-accordion-year-btn");
+            const desiredTop = Math.max(0, (yearButton || openRow).offsetTop - 2);
+            list.scrollTop = Math.min(desiredTop, Math.max(0, list.scrollHeight - list.clientHeight));
+          }
+        }
       });
     }
 
@@ -7571,7 +7586,7 @@
     const selectedEndIso = el.endDateInput?.value || requestedDateRange.endIso || (fallbackEndRow ? toIsoDate(fallbackEndRow.date) : "");
     const selectedEndBtcRow = getBtcRowOnOrBeforeIso(selectedEndIso);
     const selectedBlockHeight = selectedEndBtcRow?.blockHeight;
-    const selectedBlockHeightText = Number.isFinite(selectedBlockHeight) ? String(selectedBlockHeight) : "";
+    const selectedBlockHeightText = Number.isFinite(selectedBlockHeight) ? selectedBlockHeight.toLocaleString("en-US") : "";
     const ranksByCurrency = getCurrencyRanksFromSatsValues(getCurrencySatsValuesForRow(selectedEndBtcRow));
     if (el.primaryRankKpiValue) el.primaryRankKpiValue.textContent = ranksByCurrency[primaryCurrency] ? String(ranksByCurrency[primaryCurrency]) : "";
     if (el.secondaryRankKpiValue) el.secondaryRankKpiValue.textContent = ranksByCurrency[secondaryCurrency] ? String(ranksByCurrency[secondaryCurrency]) : "";
