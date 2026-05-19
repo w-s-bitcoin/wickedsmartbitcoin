@@ -61,7 +61,6 @@
     const isLight = document.documentElement.dataset.theme === "light";
     return {
       muted: style.getPropertyValue("--muted").trim() || (isLight ? "#6f685f" : "#95a6ae"),
-      grid: isLight ? "rgba(0,0,0,0.10)" : "rgba(255,255,255,0.14)",
       up: style.getPropertyValue("--price-up").trim() || "#41b36b",
       down: style.getPropertyValue("--price-down").trim() || "#d33a45",
       basis: style.getPropertyValue("--accent").trim() || "#ff9f1c",
@@ -170,11 +169,6 @@
     const downPaths = buildSvgSegmentedPaths(priceDownValues, mapX, mapY);
     const yCurrent = mapY(priceValues[priceValues.length - 1]);
 
-    const gridLines = [0.25, 0.5, 0.75].map((t) => {
-      const y = padding.top + (plotHeight * t);
-      return `<line x1="${padding.left}" y1="${y.toFixed(2)}" x2="${(padding.left + plotWidth).toFixed(2)}" y2="${y.toFixed(2)}" stroke="${colors.grid}" stroke-width="1" />`;
-    }).join("");
-
     const upPathElements = upPaths.map((d) => (
       `<path d="${d}" fill="none" stroke="${colors.up}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />`
     )).join("");
@@ -185,7 +179,6 @@
 
     chart.innerHTML = `
 <svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="DCA Cost Basis preview chart">
-  ${gridLines}
   <line x1="${padding.left}" y1="${yCurrent.toFixed(2)}" x2="${(padding.left + plotWidth).toFixed(2)}" y2="${yCurrent.toFixed(2)}" stroke="${colors.currentLine}" stroke-width="1.2" stroke-dasharray="5 4" />
   ${downPathElements}
   ${upPathElements}
