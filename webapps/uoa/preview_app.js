@@ -47,32 +47,6 @@
     // Keep canvas background transparent so it matches the page/panel background exactly.
     ctx.clearRect(0, 0, w, h);
 
-    // Grid lines
-    const gridColor = isLight ? "rgba(0, 0, 0, 0.08)" : "rgba(255, 255, 255, 0.08)";
-    ctx.strokeStyle = gridColor;
-    ctx.lineWidth = 1;
-    ctx.globalAlpha = 0.3;
-
-    // Vertical grid lines
-    for (let i = 0; i <= 4; i++) {
-      const x = (w * i) / 4;
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, h);
-      ctx.stroke();
-    }
-
-    // Horizontal grid lines
-    for (let i = 0; i <= 3; i++) {
-      const y = (h * i) / 3;
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(w, y);
-      ctx.stroke();
-    }
-
-    ctx.globalAlpha = 1;
-
     // Calculate scales
     const min = Math.min(...values);
     const max = Math.max(...values);

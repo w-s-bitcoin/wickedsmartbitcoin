@@ -135,9 +135,6 @@
       { values: data.map((r) => num(r.bip110_count)), color: HISTORY_COLORS.bip110, width: 1.8 },
     ];
 
-    const isLight = document.documentElement.dataset.theme === 'light';
-    const gridColor = isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)';
-
     const width = Math.max(chart.clientWidth || 0, 420);
     const height = Math.max(chart.clientHeight || 0, 220);
     const pad = { top: 12, right: 18, bottom: 16, left: 18 };
@@ -153,11 +150,6 @@
     const mapX = (i) => pad.left + (i / Math.max(1, n - 1)) * plotW;
     const mapY = (v) => pad.top + ((maxY - Math.max(0, v)) / spanY) * plotH;
 
-    const gridLines = [0.25, 0.5, 0.75].map((t) => {
-      const y = pad.top + plotH * t;
-      return `<line x1="${pad.left}" y1="${y.toFixed(2)}" x2="${(pad.left + plotW).toFixed(2)}" y2="${y.toFixed(2)}" stroke="${gridColor}" stroke-width="1" />`;
-    }).join('');
-
     const paths = series.map(({ values, color, width: sw }) => {
       const points = [];
       for (let i = 0; i < values.length; i += 1) {
@@ -168,7 +160,7 @@
       return `<path d="${buildSvgLinePath(points)}" fill="none" stroke="${color}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" />`;
     }).join('');
 
-    chart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Node Count Over Time preview chart">${gridLines}${paths}</svg>`;
+    chart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Node Count Over Time preview chart">${paths}</svg>`;
   }
 
   async function load() {
