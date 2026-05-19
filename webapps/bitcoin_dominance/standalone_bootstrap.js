@@ -92,6 +92,7 @@
       bip110_signaling: 'bip110_signaling.html',
       node_count: 'node_count.html',
       dca_cost_basis: 'dca_cost_basis.html',
+      dca_comparison: 'dca_comparison.html',
       bitcoin_dominance: 'bitcoin_dominance.html',
       bitcoin_net_worth: 'bitcoin_net_worth.html',
       uoa: 'uoa.html',
