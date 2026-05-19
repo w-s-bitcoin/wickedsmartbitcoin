@@ -26,7 +26,8 @@
       --price-up: #41b36b;
       --price-down: #d33a45;
       --wrap-pad: clamp(8px, 1.4vw, 12px);
-      --wrap-grid-template-rows: auto auto minmax(0, 1fr);
+      --wrap-grid-template-rows: auto auto minmax(var(--panel-min-height), 1fr);
+      --panel-min-height: 420px;
       --kpi-settings-pad-top: 6px;
       --dashboard-accent: var(--accent);
       --modal-controls-clearance: 30px;
@@ -1017,7 +1018,7 @@
       height: 100vh;
       min-height: 100vh;
       overflow: hidden;
-      grid-template-rows: auto minmax(var(--panel-min-height, 320px), 1fr);
+      grid-template-rows: auto minmax(var(--panel-min-height), 1fr);
       align-content: stretch;
       padding-top: var(--wrap-pad);
     }
@@ -1032,7 +1033,7 @@
     }
 
     body.dca-dashboard-expanded .panel {
-      min-height: 0;
+      min-height: var(--panel-min-height);
       height: 100%;
     }
 
@@ -1060,6 +1061,7 @@
       }
 
       body.dca-dashboard-expanded .wrap {
+        height: auto;
         padding-bottom: calc(var(--wrap-pad) + env(safe-area-inset-bottom, 0px) + 56px);
       }
     }
