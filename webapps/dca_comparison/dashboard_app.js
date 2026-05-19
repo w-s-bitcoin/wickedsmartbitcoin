@@ -1987,6 +1987,27 @@
     return (Math.round((Number(value) || 0) * safeDpr) / safeDpr) + offset;
   }
 
+  function clampRotatedRightAlignedLabelX(ctx, label, anchorX, angle, fontSize, minX, maxX) {
+    const textWidth = ctx.measureText(String(label || "")).width;
+    const textHeight = Number(fontSize) * 1.2;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const corners = [
+      [-textWidth, 0],
+      [0, 0],
+      [-textWidth, textHeight],
+      [0, textHeight],
+    ].map(([x0, y0]) => ({
+      x: anchorX + x0 * cos - y0 * sin,
+      y: x0 * sin + y0 * cos,
+    }));
+    const boxMinX = Math.min(...corners.map((point) => point.x));
+    const boxMaxX = Math.max(...corners.map((point) => point.x));
+    if (boxMinX < minX) return anchorX + (minX - boxMinX);
+    if (boxMaxX > maxX) return anchorX - (boxMaxX - maxX);
+    return anchorX;
+  }
+
   function buildAdaptiveTimeTicks(series, chartW, isExport = false) {
     if (!Array.isArray(series) || series.length < 2) return [];
     const first = series[0].date;
@@ -2186,13 +2207,18 @@
       ctx.stroke();
 
       ctx.save();
-      ctx.translate(xx - 8, top + plotH + bottomSpacing);
-      ctx.rotate(-Math.PI / 5);
-      ctx.fillStyle = muted;
+      const tickLabel = String(tick.label);
+      const rotation = -Math.PI / 5;
       ctx.font = `400 ${tickLabelFontSize}px ${CHART_MONO_FONT}`;
+      const anchorX = opts.export
+        ? clampRotatedRightAlignedLabelX(ctx, tickLabel, xx - 8, rotation, tickLabelFontSize, 0, localW)
+        : xx - 8;
+      ctx.translate(anchorX, top + plotH + bottomSpacing);
+      ctx.rotate(rotation);
+      ctx.fillStyle = muted;
       ctx.textAlign = "right";
       ctx.textBaseline = "top";
-      ctx.fillText(String(tick.label), 0, 0);
+      ctx.fillText(tickLabel, 0, 0);
       ctx.restore();
     });
 
