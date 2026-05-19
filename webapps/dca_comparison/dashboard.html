@@ -1,0 +1,2482 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DCA Comparison</title>
+  <script src="../shared/dashboard_embed_modal.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../shared/dashboard_shared.css" />
+  <style>
+    :root {
+      --bg: #000;
+      --panel: #000;
+      --surface: #000;
+      --surface-soft: #000;
+      --panel-border: rgba(255, 255, 255, 0.14);
+      --panel-border-opaque: #242424;
+      --fg: #f1f5f7;
+      --ink: #f0f0f0;
+      --muted: #95a6ae;
+      --line: #3a3a3a;
+      --fg-dim: #d6e1e6;
+      --accent: #ff9f1c;
+      --price-up: #41b36b;
+      --price-down: #d33a45;
+      --wrap-pad: clamp(8px, 1.4vw, 12px);
+      --wrap-grid-template-rows: auto auto minmax(0, 1fr);
+      --kpi-settings-pad-top: 6px;
+      --dashboard-accent: var(--accent);
+      --modal-controls-clearance: 30px;
+      --card-bg: #000;
+      --card-border: rgba(255, 255, 255, 0.14);
+      --caret-chevron: #d6e1e6;
+      --tooltip-bg: #000000;
+      --tooltip-border: rgba(255, 255, 255, 0.22);
+      --tooltip-fg: #e9f1f5;
+      --scrollbar-track: #171717;
+      --scrollbar-thumb: #4e4e4e;
+      --scrollbar-thumb-hover: #676767;
+    }
+
+    :root[data-theme="light"] {
+      --bg: #f7f4ee;
+      --panel: #ffffff;
+      --surface: #ffffff;
+      --surface-soft: #faf6ef;
+      --panel-border: rgba(0, 0, 0, 0.11);
+      --panel-border-opaque: #e3e3e3;
+      --fg: #1c1b19;
+      --ink: #1c1b19;
+      --muted: #6f685f;
+      --line: #d8d0c3;
+      --fg-dim: #514d47;
+      --card-bg: #ffffff;
+      --card-border: rgba(0, 0, 0, 0.11);
+      --caret-chevron: #7a756e;
+      --tooltip-bg: #ffffff;
+      --tooltip-border: rgba(0, 0, 0, 0.22);
+      --tooltip-fg: #1c1b19;
+      --scrollbar-track: #e8dfd2;
+      --scrollbar-thumb: #b5a99a;
+      --scrollbar-thumb-hover: #9f917f;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: "Space Grotesk", "Helvetica Neue", sans-serif;
+      overflow: hidden;
+    }
+
+    html,
+    body,
+    .wrap,
+    .top-list,
+    #scriptBars,
+    .analysis-split,
+    .bars-panel {
+      scrollbar-width: thin;
+      scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+    }
+
+    html::-webkit-scrollbar,
+    body::-webkit-scrollbar,
+    .wrap::-webkit-scrollbar,
+    .top-list::-webkit-scrollbar,
+    #scriptBars::-webkit-scrollbar,
+    .analysis-split::-webkit-scrollbar,
+    .bars-panel::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+
+    html::-webkit-scrollbar-track,
+    body::-webkit-scrollbar-track,
+    .wrap::-webkit-scrollbar-track,
+    .top-list::-webkit-scrollbar-track,
+    #scriptBars::-webkit-scrollbar-track,
+    .analysis-split::-webkit-scrollbar-track,
+    .bars-panel::-webkit-scrollbar-track {
+      background: var(--scrollbar-track);
+    }
+
+    html::-webkit-scrollbar-thumb,
+    body::-webkit-scrollbar-thumb,
+    .wrap::-webkit-scrollbar-thumb,
+    .top-list::-webkit-scrollbar-thumb,
+    #scriptBars::-webkit-scrollbar-thumb,
+    .analysis-split::-webkit-scrollbar-thumb,
+    .bars-panel::-webkit-scrollbar-thumb {
+      background: var(--scrollbar-thumb);
+      border-radius: 999px;
+      border: 2px solid var(--scrollbar-track);
+    }
+
+    html::-webkit-scrollbar-thumb:hover,
+    body::-webkit-scrollbar-thumb:hover,
+    .wrap::-webkit-scrollbar-thumb:hover,
+    .top-list::-webkit-scrollbar-thumb:hover,
+    #scriptBars::-webkit-scrollbar-thumb:hover,
+    .analysis-split::-webkit-scrollbar-thumb:hover,
+    .bars-panel::-webkit-scrollbar-thumb:hover {
+      background: var(--scrollbar-thumb-hover);
+    }
+
+    .topbar {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      justify-items: stretch;
+      gap: 8px;
+      padding: 10px 12px;
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      background: var(--card-bg);
+    }
+
+    .title {
+      margin: 0;
+      font-size: clamp(1.05rem, 2vw, 1.5rem);
+      letter-spacing: 0.015em;
+      font-weight: 700;
+      color: var(--fg);
+    }
+
+    .title-accent {
+      color: var(--accent);
+    }
+
+    .title-actions {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: clamp(3px, 0.7vw, 8px);
+      position: absolute;
+      right: clamp(4px, 1vw, 12px);
+      top: clamp(4px, 1vw, 12px);
+    }
+
+    .copy-link-btn,
+    .reset-dashboard-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: var(--surface);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+      cursor: pointer;
+      transition: background 160ms ease, border-color 160ms ease, color 160ms ease, opacity 160ms ease;
+      white-space: nowrap;
+    }
+
+    .copy-link-btn {
+      width: 96px;
+      min-width: 96px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+    }
+
+    .copy-link-btn:hover {
+      background: var(--surface-soft);
+      color: var(--ink);
+    }
+
+    :root[data-theme="dark"] .copy-link-btn {
+      color: #b0b0b0;
+    }
+
+    .reset-dashboard-btn {
+      width: 132px;
+      min-width: 132px;
+      border: 1px solid #cf5c5c;
+      background: transparent;
+      color: #8f1f1f;
+    }
+
+    .reset-dashboard-btn:hover {
+      background: transparent;
+      border-color: #b83d3d;
+      color: #6f1111;
+    }
+
+    .reset-dashboard-btn:disabled {
+      opacity: 0.38;
+      cursor: default;
+      pointer-events: none;
+    }
+
+    :root[data-theme="dark"] .reset-dashboard-btn {
+      background: transparent;
+      border-color: #a14a4a;
+      color: #ffb3b3;
+    }
+
+    :root[data-theme="dark"] .reset-dashboard-btn:hover {
+      background: transparent;
+      border-color: #c05d5d;
+      color: #ffd0d0;
+    }
+
+    .reset-dashboard-btn--undo {
+      border-color: #3b82f6;
+      background: transparent;
+      color: #1d4ed8;
+    }
+
+    .reset-dashboard-btn--undo:hover {
+      background: transparent;
+      border-color: #2563eb;
+      color: #1e40af;
+    }
+
+    :root[data-theme="dark"] .reset-dashboard-btn--undo {
+      background: transparent;
+      border-color: #3b82f6;
+      color: #93c5fd;
+    }
+
+    :root[data-theme="dark"] .reset-dashboard-btn--undo:hover {
+      background: transparent;
+      border-color: #60a5fa;
+      color: #bfdbfe;
+    }
+
+    .title-actions button .btn-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
+      flex: 0 0 14px;
+      pointer-events: none;
+    }
+
+    .title-actions button .btn-icon svg {
+      width: 14px;
+      height: 14px;
+      display: block;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.9;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .title-actions button .btn-label {
+      display: inline-block;
+      line-height: 1;
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    #statusChips.kpi-cards {
+      display: grid !important;
+      grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+      gap: 8px;
+      width: 100% !important;
+      inline-size: 100% !important;
+      justify-self: stretch !important;
+      box-sizing: border-box;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      padding-top: 8px;
+      min-height: 0;
+    }
+
+    @media (max-width: 1300px) {
+      #statusChips.kpi-cards {
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+      }
+    }
+
+    :root[data-theme="light"] #statusChips.kpi-cards {
+      border-top-color: rgba(0, 0, 0, 0.08);
+    }
+
+    .kpi-card {
+      container-type: inline-size;
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 10px;
+      background: var(--surface);
+      min-width: 0;
+      min-height: 70px;
+      text-align: center;
+    }
+
+    @media (max-width: 900px) {
+      #statusChips.kpi-cards {
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+      }
+    }
+
+    @media (max-width: 650px) {
+      #statusChips.kpi-cards {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+      }
+    }
+
+    @media (max-width: 430px) {
+      #statusChips.kpi-cards {
+        grid-template-columns: minmax(0, 1fr) !important;
+      }
+    }
+
+    .kpi-title {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+      margin-bottom: 6px;
+      line-height: 1.15;
+      white-space: nowrap;
+    }
+
+    .kpi-value {
+      color: var(--fg);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: clamp(0.9rem, calc(0.55rem + 4.8cqw), 1.65rem);
+      font-weight: 700;
+      line-height: 1.15;
+      min-height: 1.15em;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: normal;
+    }
+
+    .kpi-foot {
+      margin-top: 4px;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 12px;
+      line-height: 1.2;
+      min-height: 1.2em;
+    }
+
+    .chip {
+      border: 1px solid var(--card-border);
+      border-radius: 999px;
+      background: transparent;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.8rem;
+      padding: 5px 9px;
+      white-space: nowrap;
+      overflow: visible;
+    }
+
+    .exchange-rate-unit {
+      color: var(--muted);
+    }
+
+    .exchange-rate-values {
+      color: var(--fg);
+    }
+
+    .controls label.chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0;
+      position: relative;
+      overflow: visible;
+    }
+
+    .controls label.chip:has(.dca-dropdown),
+    .controls label.chip:has(.dca-dropdown) .dca-dropdown,
+    .controls label.chip:has(.dca-dropdown) .dca-dropdown-value {
+      cursor: pointer;
+    }
+
+    .controls label.chip:has(.dca-dropdown) {
+      flex: 0 0 auto;
+      min-width: max-content;
+    }
+
+    .dca-dropdown-pill,
+    .dca-dropdown-pill .dca-dropdown,
+    .dca-dropdown-pill .dca-dropdown-value,
+    .dca-dropdown-pill .chip-kpi-display {
+      cursor: pointer;
+    }
+
+    .dca-dropdown-pill {
+      flex: 0 0 auto;
+      min-width: max-content;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      border-top: 0;
+      padding-top: var(--kpi-settings-pad-top);
+    }
+
+    .comparison-asset-pair {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex: 0 0 auto;
+      overflow: visible;
+    }
+
+    .comparison-asset-pair .chip {
+      min-width: max-content;
+    }
+
+    .comparison-vs {
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.8rem;
+      font-weight: 500;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    .dca-amount-cadence-chip {
+      min-width: 0 !important;
+      width: auto;
+      gap: 2px !important;
+      padding-right: 8px;
+    }
+
+    .dca-amount-prefix {
+      color: var(--fg);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.8rem;
+      line-height: 1;
+    }
+
+    #amountInput.dca-amount-input {
+      width: auto;
+      min-width: 1ch;
+      max-width: 10ch;
+      height: auto;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      color: var(--fg);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.8rem;
+      line-height: 1;
+      padding: 0;
+      text-align: right;
+    }
+
+    #amountInput.dca-amount-input:focus,
+    #amountInput.dca-amount-input:focus-visible {
+      outline: none;
+      box-shadow: none;
+    }
+
+    .dca-amount-cadence-chip #cadenceDropdown {
+      --dca-dropdown-content-pad: 4px;
+      --dca-dropdown-arrow-gap: 18px;
+    }
+
+    .date-range-panel {
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      background: var(--card-bg);
+      padding: 10px 12px;
+      display: grid;
+      gap: 10px;
+      overflow: visible;
+    }
+
+    .date-range-header {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .date-range-header label.chip:has(.date-range-btn) {
+      border: 0;
+      border-radius: 0;
+      padding: 0;
+    }
+
+    .date-range-native-input {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+      color-scheme: dark;
+    }
+
+    :root[data-theme="light"] .date-range-native-input {
+      color-scheme: light;
+    }
+
+    .date-picker-popup {
+      position: fixed;
+      z-index: 200;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 12px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.28);
+      width: 224px;
+      user-select: none;
+    }
+
+    .date-picker-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      gap: 4px;
+    }
+
+    .date-picker-header span {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--fg);
+      flex: 1;
+      text-align: center;
+    }
+
+    .date-picker-nav {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 1rem;
+      padding: 2px 6px;
+      border-radius: 6px;
+      line-height: 1;
+    }
+
+    .date-picker-nav:focus,
+    .date-picker-nav:focus-visible,
+    .dp-accordion-year-btn:focus,
+    .dp-accordion-year-btn:focus-visible {
+      outline: none;
+      box-shadow: none;
+    }
+
+    .date-picker-nav:hover {
+      color: var(--fg);
+      background: rgba(255, 255, 255, 0.12);
+    }
+
+    :root[data-theme="light"] .date-picker-nav:hover {
+      background: rgba(0, 0, 0, 0.08);
+    }
+
+    .date-picker-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 2px;
+    }
+
+    .date-picker-dow {
+      font-size: 0.68rem;
+      color: var(--muted);
+      text-align: center;
+      padding: 2px 0 4px;
+      font-weight: 500;
+    }
+
+    .date-picker-day {
+      font-size: 0.78rem;
+      text-align: center;
+      padding: 4px 2px;
+      border-radius: 6px;
+      cursor: pointer;
+      color: var(--fg);
+      transition: background 100ms ease;
+    }
+
+    .date-picker-day:hover:not(.dp-disabled):not(.dp-empty) {
+      background: rgba(59, 130, 246, 0.22);
+    }
+
+    .date-picker-day.dp-disabled {
+      color: var(--muted);
+      opacity: 0.45;
+      cursor: not-allowed;
+      text-decoration: line-through;
+    }
+
+    .date-picker-day.dp-empty {
+      cursor: default;
+    }
+
+    .date-picker-day.dp-selected {
+      background: var(--accent);
+      color: #000;
+      font-weight: 700;
+      border-radius: 6px;
+    }
+
+    .date-picker-header-label {
+      cursor: pointer;
+    }
+
+    .date-picker-header-label:hover {
+      color: var(--accent);
+    }
+
+    .dp-year-grid-popup .date-picker-header {
+      position: relative;
+    }
+
+    .dp-year-grid-popup .date-picker-header-label {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      pointer-events: none;
+    }
+
+    .dp-year-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 2px 0;
+      max-height: 184px;
+      overflow-y: auto;
+      scrollbar-width: none;
+    }
+
+    .dp-year-grid::-webkit-scrollbar {
+      display: none;
+    }
+
+    .dp-year-cell {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.82rem;
+      font-weight: 500;
+      padding: 6px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      color: var(--fg);
+      transition: background 100ms ease;
+    }
+
+    .dp-year-cell:hover {
+      background: rgba(59, 130, 246, 0.22);
+    }
+
+    .dp-year-cell.dp-year-current {
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    .dp-accordion-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      max-height: 184px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      scrollbar-width: none;
+    }
+
+    .dp-accordion-list::-webkit-scrollbar {
+      display: none;
+    }
+
+    .dp-accordion-year-btn {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: none;
+      border: none;
+      color: var(--fg);
+      font-size: 0.82rem;
+      font-family: inherit;
+      font-weight: 500;
+      padding: 6px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 100ms ease;
+    }
+
+    .dp-accordion-year-btn:hover {
+      background: rgba(59, 130, 246, 0.22);
+    }
+
+    .dp-accordion-open .dp-accordion-year-btn {
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    .dp-accordion-chevron {
+      display: inline-block;
+      transition: transform 140ms ease;
+    }
+
+    .dp-accordion-open .dp-accordion-chevron {
+      transform: rotate(90deg);
+    }
+
+    .dp-month-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 4px;
+      padding: 4px 8px 8px;
+    }
+
+    .dp-month-cell {
+      font-size: 0.78rem;
+      text-align: center;
+      padding: 6px 4px;
+      border-radius: 6px;
+      cursor: pointer;
+      color: var(--fg);
+      transition: background 100ms ease;
+    }
+
+    .dp-month-cell:hover:not(.dp-disabled) {
+      background: rgba(59, 130, 246, 0.22);
+    }
+
+    .dp-month-cell.dp-month-current {
+      background: var(--accent);
+      color: #000;
+      font-weight: 700;
+    }
+
+    .dp-month-cell.dp-disabled {
+      color: var(--muted);
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .date-range-native-input:focus,
+    .date-range-native-input:focus-visible,
+    .date-range-slider:focus,
+    .date-range-slider:focus-visible,
+    .date-range-btn:focus,
+    .date-range-btn:focus-visible,
+    .date-range-playback-btn:focus,
+    .date-range-playback-btn:focus-visible {
+      outline: none !important;
+      box-shadow: none !important;
+    }
+
+    .date-range-panel button {
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .date-range-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 6px;
+      padding: 4px 10px;
+      width: 106px;
+      min-width: 106px;
+      min-height: 30px;
+      font-size: 0.85rem;
+      font-family: inherit;
+      background: transparent;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      color: var(--fg);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 140ms ease, border-color 140ms ease;
+    }
+
+    .date-range-btn-placeholder {
+      visibility: hidden;
+    }
+
+    .date-range-btn:hover {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.35);
+    }
+
+    .date-range-btn:focus,
+    .date-range-btn:focus-visible {
+      border-color: var(--card-border);
+      background: transparent;
+    }
+
+    :root[data-theme="light"] .date-range-btn:hover {
+      background: rgba(0, 0, 0, 0.06);
+      border-color: rgba(0, 0, 0, 0.35);
+    }
+
+    .range-days-chip {
+      border: 1px solid var(--card-border);
+      border-radius: 999px;
+      padding: 5px 10px;
+      color: var(--muted);
+      flex: 0 0 18ch;
+      width: 18ch;
+      display: inline-flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 4px;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .range-days-value {
+      color: var(--fg);
+      margin-left: auto;
+      text-align: right;
+      min-width: 8ch;
+    }
+
+    .date-range-range-control {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.8rem;
+      white-space: nowrap;
+    }
+
+    .date-range-range-label {
+      display: inline-block;
+    }
+
+    .date-range-button-row,
+    .date-range-play-row {
+      display: inline-flex;
+      align-items: stretch;
+      border: 0;
+      border-radius: 0;
+      overflow: visible;
+      min-height: 28px;
+      gap: 0;
+    }
+
+    .date-range-range-buttons {
+      align-items: stretch;
+    }
+
+    .date-range-days-segment {
+      border: 1px solid var(--card-border);
+      border-radius: 8px 0 0 8px;
+      margin-right: -1px;
+      background: transparent;
+      color: var(--fg);
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      min-width: 10.5ch;
+      padding: 5px 9px;
+      position: relative;
+      z-index: 1;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.75rem;
+      line-height: normal;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .date-range-days-segment:focus-within {
+      outline: none !important;
+      box-shadow: none !important;
+    }
+
+    .date-range-days-input {
+      appearance: textfield;
+      -moz-appearance: textfield;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--fg);
+      width: 6.5ch;
+      min-width: 6.5ch;
+      padding: 0;
+      margin: 0;
+      text-align: right;
+      font: inherit;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .date-range-days-input::-webkit-outer-spin-button,
+    .date-range-days-input::-webkit-inner-spin-button {
+      appearance: none;
+      margin: 0;
+    }
+
+    .date-range-days-suffix {
+      color: var(--fg);
+    }
+
+    .date-range-playback-btn {
+      min-width: 30px;
+      height: 28px;
+      border: 1px solid var(--card-border);
+      border-radius: 0;
+      margin-right: -1px;
+      background: transparent;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.75rem;
+      line-height: 1;
+      padding: 0 9px;
+      cursor: pointer;
+      position: relative;
+      z-index: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+    }
+
+    .date-range-playback-btn:first-child {
+      border-top-left-radius: 8px;
+      border-bottom-left-radius: 8px;
+    }
+
+    .date-range-playback-btn:last-child {
+      border-top-right-radius: 8px;
+      border-bottom-right-radius: 8px;
+      margin-right: 0;
+    }
+
+    .date-range-playback-btn:hover,
+    .date-range-playback-btn:focus-visible {
+      color: var(--fg);
+      border-color: rgba(255, 255, 255, 0.35);
+      background: rgba(255, 255, 255, 0.08);
+      z-index: 3;
+    }
+
+    .date-range-playback-btn:focus,
+    .date-range-playback-btn:focus-visible {
+      outline: none !important;
+      box-shadow: none !important;
+      border-color: var(--card-border);
+      background: transparent;
+      z-index: 1;
+    }
+
+    :root[data-theme="light"] .date-range-playback-btn:hover,
+    :root[data-theme="light"] .date-range-playback-btn:focus-visible {
+      border-color: rgba(0, 0, 0, 0.35);
+      background: rgba(0, 0, 0, 0.06);
+    }
+
+    .date-range-play-btn.is-playing,
+    .date-range-pause-btn.is-paused,
+    .date-range-stop-btn.is-active,
+    .date-range-download-wrap .date-range-settings-btn.is-open {
+      background: var(--accent);
+      color: #000000;
+      border-color: var(--panel-border-opaque) !important;
+      box-shadow: inset 0 0 0 1px var(--panel-border-opaque);
+      z-index: 4;
+    }
+
+    .date-range-play-btn.is-playing:disabled,
+    .date-range-play-btn.is-playing:disabled:hover,
+    .date-range-play-btn.is-playing:disabled:focus-visible,
+    .date-range-pause-btn.is-paused:disabled,
+    .date-range-pause-btn.is-paused:disabled:hover,
+    .date-range-pause-btn.is-paused:disabled:focus-visible {
+      opacity: 1;
+      color: #000000;
+      background: var(--accent);
+      border-color: var(--panel-border-opaque) !important;
+      box-shadow: inset 0 0 0 1px var(--panel-border-opaque);
+    }
+
+    .date-range-playback-btn:disabled {
+      opacity: 0.5;
+      color: var(--muted);
+      cursor: not-allowed;
+    }
+
+    .date-range-playback-btn:disabled:hover,
+    .date-range-playback-btn:disabled:focus-visible {
+      color: var(--muted);
+      background: transparent;
+      border-color: var(--card-border);
+      z-index: 1;
+    }
+
+    .date-range-pause-btn:disabled,
+    .date-range-stop-btn:disabled {
+      opacity: 1;
+      color: color-mix(in srgb, var(--muted) 62%, transparent);
+    }
+
+    .date-range-icon-btn,
+    .date-range-play-btn,
+    .date-range-pause-btn,
+    .date-range-stop-btn,
+    .date-range-download-btn,
+    .date-range-settings-btn,
+    .dashboard-expand-btn {
+      width: 30px;
+      min-width: 30px;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .date-range-icon-btn,
+    .date-range-play-btn {
+      font-size: 0.78rem;
+    }
+
+    .date-range-pause-btn,
+    .date-range-stop-btn {
+      font-size: 0.72rem;
+    }
+
+    .date-range-speed-btn {
+      width: 48px;
+      min-width: 48px;
+      padding: 0;
+      border-radius: 0 !important;
+      margin-right: 0;
+    }
+
+    .date-range-download-btn {
+      font-size: 0.95rem;
+    }
+
+    .date-range-download-btn.is-exporting {
+      color: var(--muted);
+      cursor: pointer;
+      opacity: 1;
+    }
+
+    .date-range-download-btn.is-exporting:hover,
+    .date-range-download-btn.is-exporting:focus-visible {
+      color: var(--muted);
+      background: transparent;
+    }
+
+    @property --date-range-export-progress {
+      syntax: "<percentage>";
+      inherits: true;
+      initial-value: 0%;
+    }
+
+    .date-range-export-progress {
+      --date-range-export-progress: 0%;
+      position: relative;
+      display: block;
+      width: 22px;
+      height: 22px;
+    }
+
+    .date-range-export-progress::before {
+      content: "";
+      position: absolute;
+      inset: 1px;
+      border-radius: 50%;
+      background: conic-gradient(#ff9f1c 0% var(--date-range-export-progress), #5f5f5f var(--date-range-export-progress) 100%);
+      box-shadow: 0 0 5px color-mix(in srgb, #ff9f1c 22%, transparent);
+      -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+      mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+      transition: --date-range-export-progress 140ms linear;
+    }
+
+    :root[data-theme="light"] .date-range-export-progress::before {
+      background: conic-gradient(#ff9f1c 0% var(--date-range-export-progress), #bdbdbd var(--date-range-export-progress) 100%);
+    }
+
+    .date-range-export-stop-square {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 7px;
+      height: 7px;
+      border-radius: 1px;
+      background: color-mix(in srgb, var(--muted) 80%, transparent);
+      transform: translate(-50%, -50%);
+      transition: background 120ms ease, box-shadow 120ms ease;
+      z-index: 1;
+    }
+
+    .date-range-download-btn.is-exporting:hover .date-range-export-stop-square,
+    .date-range-download-btn.is-exporting:focus-visible .date-range-export-stop-square,
+    .date-range-download-btn.is-exporting.is-canceling .date-range-export-stop-square {
+      background: #ff9f1c;
+      box-shadow: 0 0 7px color-mix(in srgb, #ff9f1c 58%, transparent);
+    }
+
+    .date-range-download-wrap .date-range-settings-btn {
+      border-top-left-radius: 0;
+      border-bottom-left-radius: 0;
+      border-top-right-radius: 8px;
+      border-bottom-right-radius: 8px;
+      margin-right: 0;
+      padding: 0;
+      display: grid;
+      place-items: center;
+      font-size: 0;
+      line-height: 1;
+      text-align: center;
+      text-indent: 0;
+    }
+
+    .date-range-download-wrap .date-range-settings-btn::before {
+      content: "⚙";
+      display: block;
+      color: currentColor;
+      font-size: 1.15rem;
+      line-height: 1;
+      transform: translateY(1px);
+    }
+
+    .dashboard-expand-btn {
+      margin-right: -1px;
+    }
+
+    .dashboard-expand-icon {
+      width: 16px;
+      height: 16px;
+      display: block;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .dashboard-expand-icon-shrink,
+    body.dca-dashboard-expanded .dashboard-expand-icon-expand {
+      display: none;
+    }
+
+    body.dca-dashboard-expanded .dashboard-expand-icon-shrink {
+      display: block;
+    }
+
+    body.dca-dashboard-expanded {
+      overflow: hidden;
+    }
+
+    body.dca-dashboard-expanded .wrap {
+      height: 100vh;
+      min-height: 100vh;
+      overflow: hidden;
+      grid-template-rows: auto minmax(var(--panel-min-height, 320px), 1fr);
+      align-content: stretch;
+      padding-top: var(--wrap-pad);
+    }
+
+    body.dca-dashboard-expanded.embedded-in-modal .wrap,
+    html.embedded-in-modal body.dca-dashboard-expanded .wrap {
+      padding-top: var(--wrap-pad);
+    }
+
+    body.dca-dashboard-expanded .topbar {
+      display: none;
+    }
+
+    body.dca-dashboard-expanded .panel {
+      min-height: 0;
+      height: 100%;
+    }
+
+    @media (max-width: 860px) {
+      .topbar {
+        padding: 10px;
+      }
+
+      .title-actions {
+        gap: calc(8px - clamp(0px, (860px - 100vw) * 0.05, 5px));
+        right: calc(12px - clamp(0px, (860px - 100vw) * 0.07, 7px));
+        top: calc(12px - clamp(0px, (860px - 100vw) * 0.07, 7px));
+      }
+
+      .copy-link-btn,
+      .reset-dashboard-btn {
+        padding: 6px 10px;
+        min-height: 32px;
+        font-size: 11px;
+      }
+
+      .reset-dashboard-btn {
+        width: 120px;
+        min-width: 120px;
+      }
+
+      body.dca-dashboard-expanded .wrap {
+        padding-bottom: calc(var(--wrap-pad) + env(safe-area-inset-bottom, 0px) + 56px);
+      }
+    }
+
+    @media (max-width: 750px) {
+      .copy-link-btn,
+      .reset-dashboard-btn {
+        width: 30px;
+        min-width: 30px;
+        height: 30px;
+        min-height: 30px;
+        padding: 0;
+        border-radius: 999px;
+        font-size: 0;
+        line-height: 0;
+        letter-spacing: 0;
+        justify-content: center;
+        gap: 0;
+      }
+
+      .title-actions .copy-link-btn .btn-icon,
+      .title-actions .copy-link-btn .btn-label,
+      .title-actions .reset-dashboard-btn .btn-icon,
+      .title-actions .reset-dashboard-btn .btn-label {
+        display: none;
+      }
+
+      .copy-link-btn::before,
+      .reset-dashboard-btn::before {
+        content: "";
+        width: 15px;
+        height: 15px;
+        display: block;
+        background-color: currentColor;
+        -webkit-mask-repeat: no-repeat;
+        -webkit-mask-position: center;
+        -webkit-mask-size: contain;
+        mask-repeat: no-repeat;
+        mask-position: center;
+        mask-size: contain;
+      }
+
+      .copy-link-btn::before {
+        -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E");
+        mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E");
+      }
+
+      .copy-link-btn.copy-link-btn--copied::before {
+        -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+        mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+      }
+
+      .reset-dashboard-btn::before {
+        -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8'/%3E%3Cpath d='M21 3v5h-5'/%3E%3C/svg%3E");
+        mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8'/%3E%3Cpath d='M21 3v5h-5'/%3E%3C/svg%3E");
+      }
+
+      .reset-dashboard-btn.reset-dashboard-btn--undo::before {
+        -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8'/%3E%3Cpath d='M3 3v5h5'/%3E%3C/svg%3E");
+        mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8'/%3E%3Cpath d='M3 3v5h5'/%3E%3C/svg%3E");
+      }
+    }
+
+    .date-range-download-wrap {
+      position: relative;
+      display: inline-flex;
+    }
+
+    .date-range-play-row > .date-range-download-wrap {
+      margin-left: 0;
+    }
+
+    .date-range-play-row > .date-range-download-wrap .date-range-playback-btn {
+      border-radius: 0 8px 8px 0;
+      margin-right: 0;
+    }
+
+    .date-range-button-row .date-range-btn {
+      min-width: 0;
+      width: auto;
+      height: auto;
+      min-height: 0;
+      padding: 5px 9px;
+      line-height: normal;
+      display: inline-block;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.75rem;
+      border-radius: 0;
+      margin-right: -1px;
+      transition: border-color 120ms ease, color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+    }
+
+    .date-range-button-row .date-range-btn:first-child {
+      border-top-left-radius: 8px;
+      border-bottom-left-radius: 8px;
+    }
+
+    .date-range-button-row .date-range-btn:last-child {
+      margin-right: 0;
+      border-top-right-radius: 8px;
+      border-bottom-right-radius: 8px;
+    }
+
+    .date-range-button-row .date-range-btn:hover,
+    .date-range-button-row .date-range-btn:focus-visible {
+      color: var(--fg);
+      border-color: rgba(255, 255, 255, 0.35);
+      background: transparent;
+      z-index: 3;
+    }
+
+    .date-range-button-row .date-range-btn:focus,
+    .date-range-button-row .date-range-btn:focus-visible {
+      border-color: var(--card-border);
+      background: transparent;
+      z-index: 1;
+    }
+
+    :root[data-theme="light"] .date-range-button-row .date-range-btn:hover,
+    :root[data-theme="light"] .date-range-button-row .date-range-btn:focus-visible {
+      border-color: rgba(0, 0, 0, 0.35);
+      background: transparent;
+    }
+
+    .date-range-button-row .date-range-btn.is-active {
+      color: #000000;
+      border: 1px solid var(--panel-border-opaque) !important;
+      background: var(--accent);
+      box-shadow: inset 0 0 0 1px var(--panel-border-opaque);
+      text-shadow: none;
+      z-index: 4;
+    }
+
+    .date-range-button-row .date-range-btn.is-active:hover,
+    .date-range-button-row .date-range-btn.is-active:focus-visible {
+      border-color: var(--panel-border-opaque) !important;
+    }
+
+    .date-range-button-row .date-range-btn.is-active:focus,
+    .date-range-button-row .date-range-btn.is-active:focus-visible {
+      background: var(--accent);
+      color: #000000;
+      border-color: var(--panel-border-opaque) !important;
+      box-shadow: inset 0 0 0 1px var(--panel-border-opaque) !important;
+      z-index: 4;
+    }
+
+    .date-range-settings-menu {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 6px);
+      width: min(280px, calc(100vw - 16px));
+      min-width: 0;
+      max-width: calc(100vw - 16px);
+      max-height: calc(100dvh - 16px);
+      overflow: auto;
+      z-index: 180;
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+      padding: 10px;
+      display: none;
+      gap: 9px;
+    }
+
+    .date-range-settings-menu.open {
+      display: grid;
+    }
+
+    .download-setting-field {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.78rem;
+    }
+
+    .download-setting-button-row {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: 1fr;
+      border: 1px solid var(--card-border);
+      border-radius: 9px;
+      overflow: hidden;
+    }
+
+    .download-setting-option,
+    #downloadSettingsDownloadBtn {
+      min-height: 31px;
+      border: 1px solid var(--card-border);
+      border-radius: 0;
+      margin-right: -1px;
+      background: transparent;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.74rem;
+      cursor: pointer;
+      position: relative;
+      z-index: 1;
+    }
+
+    .download-setting-option:last-child {
+      margin-right: 0;
+      border-top-right-radius: 8px;
+      border-bottom-right-radius: 8px;
+    }
+
+    .download-setting-option:first-child {
+      border-top-left-radius: 8px;
+      border-bottom-left-radius: 8px;
+    }
+
+    .download-setting-option:hover,
+    #downloadSettingsDownloadBtn:hover {
+      color: var(--fg);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    :root[data-theme="light"] .download-setting-option:hover,
+    :root[data-theme="light"] #downloadSettingsDownloadBtn:hover {
+      background: rgba(0, 0, 0, 0.06);
+    }
+
+    .download-setting-option.is-selected,
+    #downloadSettingsDownloadBtn {
+      background: var(--accent);
+      color: #000;
+      box-shadow: inset 0 0 0 1px var(--card-border);
+      z-index: 2;
+    }
+
+    .download-setting-option.is-selected:hover,
+    .download-setting-option.is-selected:focus-visible,
+    :root[data-theme="light"] .download-setting-option.is-selected:hover,
+    :root[data-theme="light"] .download-setting-option.is-selected:focus-visible {
+      background: var(--accent);
+      color: #000;
+    }
+
+    .download-setting-checkbox {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.78rem;
+      line-height: 1.2;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .download-setting-checkbox input[type="checkbox"] {
+      width: 15px;
+      height: 15px;
+      margin: 0;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    .download-setting-checkbox:hover {
+      color: var(--fg);
+    }
+
+    #downloadSettingsDownloadBtn {
+      width: 100%;
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      margin-right: 0;
+      background: var(--panel);
+      color: var(--fg);
+      box-shadow: none;
+      font-weight: 400;
+      padding: 7px 10px;
+      cursor: pointer;
+    }
+
+    #downloadSettingsDownloadBtn:hover,
+    #downloadSettingsDownloadBtn:focus-visible {
+      border-color: rgba(255, 255, 255, 0.35);
+      background: var(--panel);
+      color: var(--fg);
+      outline: none;
+    }
+
+    #downloadSettingsDownloadBtn.is-stop-download {
+      border-color: transparent;
+      background: rgba(239, 68, 68, 0.15);
+      color: #ef4444;
+    }
+
+    #downloadSettingsDownloadBtn.is-stop-download:hover,
+    #downloadSettingsDownloadBtn.is-stop-download:focus-visible {
+      border-color: transparent;
+      background: rgba(239, 68, 68, 0.25);
+      color: #dc2626;
+    }
+
+    .download-estimate-panel {
+      border-top: 1px solid var(--card-border);
+      border-bottom: 1px solid var(--card-border);
+      padding: 8px 0;
+      display: grid;
+      gap: 4px;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.8rem;
+    }
+
+    .download-estimate-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .download-estimate-row strong {
+      color: var(--fg);
+      font-weight: 600;
+    }
+
+    .date-range-slider-wrap {
+      --slider-start: 0%;
+      --slider-end: 100%;
+      --slider-current: 100%;
+      --slider-start-marker: var(--slider-start);
+      --slider-end-marker: var(--slider-end);
+      --slider-current-marker: var(--slider-current);
+      --slider-edge-pad: 6px;
+      position: relative;
+      height: 30px;
+      cursor: default;
+      touch-action: none;
+      user-select: none;
+    }
+
+    .date-range-slider-wrap::before,
+    .date-range-slider-wrap::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 50%;
+      height: 6px;
+      border-radius: 999px;
+      transform: translateY(-50%);
+    }
+
+    .date-range-slider-wrap::before {
+      background: rgba(128, 128, 128, 0.24);
+    }
+
+    :root[data-theme="light"] .date-range-slider-wrap::before {
+      background: #e6e6e6;
+    }
+
+    .date-range-slider-wrap::after {
+      left: var(--slider-start);
+      right: calc(100% - var(--slider-end));
+      background: #5f5f5f;
+      cursor: ew-resize;
+      opacity: 0;
+      z-index: 1;
+    }
+
+    .date-range-slider-wrap.is-ready::after {
+      opacity: 1;
+    }
+
+    :root[data-theme="light"] .date-range-slider-wrap::after {
+      background: #bdbdbd;
+    }
+
+    .date-range-remaining-track {
+      position: absolute;
+      left: var(--slider-current);
+      right: calc(100% - var(--slider-end));
+      top: 50%;
+      height: 6px;
+      border-radius: 999px;
+      transform: translateY(-50%);
+      background: var(--accent);
+      pointer-events: none;
+      opacity: 0;
+      z-index: 2;
+    }
+
+    .date-range-current-marker {
+      position: absolute;
+      left: var(--slider-current-marker);
+      top: 50%;
+      width: 12px;
+      height: 26px;
+      border-radius: 3px;
+      transform: translate(-50%, -50%);
+      background: #e6e6e6;
+      pointer-events: none;
+      opacity: 0;
+      z-index: 5;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+      cursor: pointer;
+      touch-action: none;
+    }
+
+    :root[data-theme="light"] .date-range-current-marker {
+      background: #bdbdbd;
+    }
+
+    .date-range-slider-wrap.is-playing .date-range-remaining-track,
+    .date-range-slider-wrap.is-playing .date-range-current-marker,
+    .date-range-slider-wrap.is-paused .date-range-remaining-track,
+    .date-range-slider-wrap.is-paused .date-range-current-marker {
+      opacity: 1;
+    }
+
+    .date-range-slider {
+      position: absolute;
+      left: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 100%;
+      height: 50px;
+      margin: 0;
+      padding: 0;
+      background: transparent;
+      appearance: none;
+      -webkit-appearance: none;
+      pointer-events: none;
+      z-index: 4;
+      cursor: default;
+      touch-action: none;
+    }
+
+    .date-range-slider::-webkit-slider-runnable-track {
+      height: 6px;
+      background: transparent;
+    }
+
+    .date-range-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 12px;
+      height: 26px;
+      border-radius: 3px;
+      border: none;
+      background: transparent;
+      margin-top: -10px;
+      cursor: pointer;
+      pointer-events: auto;
+      box-shadow: none;
+    }
+
+    :root[data-theme="light"] .date-range-slider::-webkit-slider-thumb {
+      background: transparent;
+    }
+
+    .date-range-slider::-moz-range-track {
+      height: 6px;
+      background: transparent;
+    }
+
+    .date-range-slider::-moz-range-thumb {
+      width: 12px;
+      height: 26px;
+      border-radius: 3px;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      pointer-events: auto;
+      box-shadow: none;
+    }
+
+    :root[data-theme="light"] .date-range-slider::-moz-range-thumb {
+      background: transparent;
+    }
+
+    .date-range-static-marker {
+      position: absolute;
+      top: 50%;
+      width: 12px;
+      height: 26px;
+      border-radius: 3px;
+      transform: translate(-50%, -50%);
+      background: #e6e6e6;
+      pointer-events: auto;
+      opacity: 0;
+      z-index: 5;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+      cursor: pointer;
+      touch-action: none;
+    }
+
+    .date-range-slider-wrap.is-ready .date-range-static-marker {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    :root[data-theme="light"] .date-range-static-marker {
+      background: #bdbdbd;
+    }
+
+    .date-range-start-marker {
+      left: var(--slider-start-marker);
+    }
+
+    .date-range-end-marker {
+      left: var(--slider-end-marker);
+    }
+
+    .date-range-slider-wrap.is-playing .date-range-end-marker,
+    .date-range-slider-wrap.is-paused .date-range-end-marker {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .toggle {
+      font-family: "Space Grotesk", "Helvetica Neue", sans-serif;
+    }
+
+    #updatedChipWrap,
+    #updatedChipWrap .chip-kpi-display,
+    #chipUpdated {
+      max-width: 100%;
+      min-width: 0;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #updatedChipWrap {
+      overflow: visible;
+    }
+
+    #updatedChipWrap .chip-kpi-display,
+    #chipUpdated {
+      overflow: hidden;
+    }
+
+    .chip-kpi-display {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding-right: 24px;
+      position: relative;
+      transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+    }
+
+    .chip-pct-profit { color: var(--price-up); }
+    .chip-pct-loss   { color: var(--price-down); }
+
+    .chip-menu-wrap.single-select {
+      position: relative;
+      display: inline-block;
+      max-width: 100%;
+    }
+
+    .chip-menu-wrap.single-select::after {
+      content: '';
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      width: 12px;
+      height: 12px;
+      pointer-events: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237a756e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: center;
+      transform: translateY(-50%);
+      opacity: 0.9;
+      transition: transform 140ms ease;
+    }
+
+    .dca-dropdown::after {
+      content: '';
+      position: absolute;
+      right: 0px;
+      top: 50%;
+      width: 12px;
+      height: 12px;
+      pointer-events: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237a756e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: center;
+      transform: translateY(-50%);
+      opacity: 0.9;
+      transition: transform 140ms ease;
+    }
+
+    :root:not([data-theme="light"]) .chip-menu-wrap.single-select::after,
+    :root:not([data-theme="light"]) .dca-dropdown::after {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23d6e1e6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    }
+
+    .chip-menu-wrap.single-select.is-open::after,
+    .dca-dropdown.is-open::after {
+      transform: translateY(-50%) rotate(180deg);
+    }
+
+    .chip-menu-select.chip-kpi-select-overlay,
+    .dca-dropdown-trigger {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      cursor: pointer;
+      border: none;
+      padding: 0;
+      margin: 0;
+      appearance: none;
+      -webkit-appearance: none;
+      background: transparent;
+      color: transparent;
+    }
+
+    .chip-menu-select.chip-kpi-select-overlay:focus,
+    .chip-menu-select.chip-kpi-select-overlay:focus-visible,
+    .dca-dropdown-trigger:focus,
+    .dca-dropdown-trigger:focus-visible {
+      outline: none;
+      box-shadow: none;
+    }
+
+    .dca-dropdown {
+      --dca-dropdown-content-pad: 10px;
+      --dca-dropdown-arrow-gap: 18px;
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      min-width: 0;
+      max-width: 100%;
+      margin-left: 0;
+      padding-right: 0;
+      flex: 0 0 auto;
+    }
+
+    .dca-dropdown-value {
+      display: block;
+      width: 100%;
+      color: var(--fg);
+      font: inherit;
+      line-height: inherit;
+      text-align: left;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      overflow: hidden;
+      max-width: 100%;
+      padding: 0 var(--dca-dropdown-arrow-gap) 0 var(--dca-dropdown-content-pad);
+      pointer-events: none;
+    }
+
+    .dca-dropdown-trigger {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      padding: 0;
+      margin: 0;
+      border: 0;
+      background: transparent;
+      z-index: 3;
+    }
+
+    .dca-dropdown-overlay {
+      position: absolute;
+      inset: 0;
+      padding-right: 0;
+      z-index: 2;
+    }
+
+    .dca-dropdown-overlay::after {
+      display: none;
+    }
+
+    .dca-native-select {
+      display: none !important;
+    }
+
+    .dca-comparison-native-select {
+      display: none !important;
+    }
+
+    .dca-dropdown-menu {
+      position: absolute;
+      left: -4px;
+      top: calc(100% + 8px);
+      width: calc(100% + 8px);
+      min-width: calc(100% + 8px);
+      max-width: calc(100% + 8px);
+      max-height: min(300px, 50vh);
+      overflow: auto;
+      z-index: 140;
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      background: var(--card-bg);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+      padding: 4px;
+      display: none;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 2px;
+    }
+
+    .dca-dropdown-menu.open {
+      display: flex;
+    }
+
+    #updatedTimeZoneDropdownMenu {
+      left: 0 !important;
+      width: min(340px, calc(100vw - 24px)) !important;
+      min-width: max(100%, 240px) !important;
+      max-width: min(340px, calc(100vw - 24px)) !important;
+    }
+
+    .dca-option-btn {
+      display: flex;
+      align-items: center;
+      width: 100%;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--fg);
+      text-align: left;
+      padding: 8px var(--dca-dropdown-content-pad);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 12px;
+      line-height: 1.35;
+      min-height: 32px;
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .dca-option-btn:hover,
+    .dca-option-btn:focus-visible {
+      background: rgba(255, 255, 255, 0.12);
+      color: var(--fg);
+      outline: none;
+    }
+
+    :root[data-theme="light"] .dca-option-btn:hover,
+    :root[data-theme="light"] .dca-option-btn:focus-visible {
+      background: rgba(0, 0, 0, 0.08);
+    }
+
+    .dca-option-btn--selected {
+      color: var(--accent);
+    }
+
+    .dca-option-btn--selected:hover,
+    .dca-option-btn--selected:focus-visible {
+      color: var(--accent);
+    }
+
+    .chip-menu-wrap.single-select:hover .chip-kpi-display,
+    .chip-menu-wrap.single-select:focus-within .chip-kpi-display {
+      color: var(--accent);
+      border-color: rgba(255, 152, 0, 0.55);
+      background: transparent;
+    }
+
+    .chip select,
+    .chip input {
+      background: transparent;
+      border: none;
+      color: var(--fg);
+      font: inherit;
+      outline: none;
+      min-width: 0;
+    }
+
+    .chip select:focus,
+    .chip select:focus-visible {
+      outline: none;
+      box-shadow: none;
+      border: none;
+    }
+
+    .wrap select:focus,
+    .wrap select:focus-visible {
+      outline: none !important;
+      box-shadow: none !important;
+    }
+
+    .chip input[type="checkbox"] {
+      appearance: auto;
+      -webkit-appearance: checkbox;
+      accent-color: var(--accent);
+      width: 13px;
+      height: 13px;
+      margin: 0;
+      min-width: auto;
+    }
+
+    .panel {
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      background: var(--card-bg);
+      min-height: var(--panel-min-height, 320px);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .chart-wrap {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #chartLegend {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 14px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      white-space: nowrap;
+      flex-shrink: 0;
+      padding: 8px 12px 0px 14px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--muted, #95a6ae) transparent;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: clamp(11px, 0.78vw, 14px);
+      color: var(--muted, #95a6ae);
+    }
+
+    #chartLegend::-webkit-scrollbar {
+      height: 4px;
+    }
+
+    #chartLegend::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    #chartLegend::-webkit-scrollbar-thumb {
+      background: var(--muted, #95a6ae);
+      border-radius: 2px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      flex-shrink: 0;
+    }
+
+    .legend-swatch {
+      width: 20px;
+      height: 3px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+
+    .legend-swatch.dashed {
+      height: 2px;
+      border-radius: 0;
+      background: repeating-linear-gradient(
+        to right,
+        currentColor 0, currentColor 6px,
+        transparent 6px, transparent 10px
+      );
+      background-color: transparent !important;
+    }
+
+    #costBasisChart {
+      width: 100%;
+      height: 100%;
+      position: relative;
+    }
+
+    .tooltip {
+      position: fixed;
+      z-index: 20;
+      pointer-events: none;
+      width: max-content;
+      max-width: min(440px, calc(100vw - 24px));
+      background: var(--tooltip-bg);
+      border: 1px solid var(--tooltip-border);
+      color: var(--tooltip-fg);
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: clamp(0.72rem, 0.64rem + 0.30vw, 0.9rem);
+      line-height: clamp(1.35, 1.28 + 0.15vw, 1.5);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+      white-space: normal;
+      transform: none;
+      opacity: 0;
+      transition: opacity 130ms ease;
+      font-family: "IBM Plex Mono", monospace;
+    }
+
+    .tooltip.show { opacity: 1; }
+
+    .tooltip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .tooltip-label {
+      color: rgba(255, 255, 255, 0.68);
+    }
+
+    :root[data-theme="light"] .tooltip-label {
+      color: rgba(0, 0, 0, 0.58);
+    }
+
+    .tooltip-value-accent { color: var(--accent); }
+    .tooltip-value-profit { color: var(--price-up); }
+    .tooltip-value-loss { color: var(--price-down); }
+
+    .current-price-overlay {
+      position: absolute;
+      left: var(--current-price-overlay-left, auto);
+      right: auto;
+      top: 0;
+      transform: translateY(-50%);
+      z-index: 4;
+      pointer-events: none;
+      padding: 0 6px;
+      box-sizing: border-box;
+      min-width: var(--current-price-overlay-min-width, 0);
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      color: var(--fg);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: var(--current-price-overlay-font-size, 13px);
+      line-height: 1;
+      white-space: nowrap;
+      text-align: left;
+      text-shadow:
+        0 0 3px var(--panel),
+        0 0 6px var(--panel),
+        0 0 10px var(--panel);
+    }
+
+    .current-price-overlay[hidden] {
+      display: none;
+    }
+
+    .error {
+      margin: 10px 12px;
+      border: 1px solid rgba(255, 86, 86, 0.4);
+      color: #ffc7c7;
+      background: rgba(255, 86, 86, 0.1);
+      padding: 10px;
+      border-radius: 10px;
+      font-size: 0.88rem;
+    }
+
+    :root[data-theme="light"] .error {
+      color: #7b1b1b;
+      background: rgba(200, 50, 50, 0.08);
+      border-color: rgba(200, 50, 50, 0.3);
+    }
+
+    .title-row-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .hal-finney-btn {
+      width: 26px;
+      height: 26px;
+      border-radius: 999px;
+      border: 1px solid var(--card-border);
+      padding: 0;
+      background: transparent;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      overflow: hidden;
+      transition: border-color 140ms ease, transform 140ms ease;
+    }
+
+    .hal-finney-btn:hover,
+    .hal-finney-btn:focus-visible {
+      border-color: var(--accent);
+      transform: translateY(-1px);
+      outline: none;
+    }
+
+    .hal-finney-btn img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .hal-finney-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 320;
+      background: rgba(0, 0, 0, 0.72);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: clamp(12px, 4vw, 32px);
+    }
+
+    .hal-finney-overlay[hidden] {
+      display: none;
+    }
+
+    .hal-finney-overlay-image {
+      max-width: min(960px, calc(100vw - 36px));
+      max-height: calc(100vh - 36px);
+      border-radius: 12px;
+      border: 1px solid var(--card-border);
+      box-shadow: 0 14px 40px rgba(0, 0, 0, 0.42);
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="topbar">
+      <div class="title-row">
+        <h1 class="title">DCA Comparison</h1>
+        <div class="title-row-actions">
+          <div class="info-wrap">
+            <button type="button" class="info-btn" aria-label="About this dashboard" aria-describedby="dcaComparisonInfoPopover">?</button>
+            <div class="info-popover" id="dcaComparisonInfoPopover" role="tooltip">
+              Compares two assets dollar cost averaged with the same start date, cadence, and amount against a USD savings baseline.
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="title-actions">
+        <button type="button" class="copy-link-btn" id="copyDashboardLink" aria-label="Copy shareable dashboard link" data-tooltip="Copy shareable dashboard link">
+          <span class="btn-icon" aria-hidden="true">
+            <svg id="copyDashboardIcon" viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+          </span>
+          <span class="btn-label">Copy Link</span>
+        </button>
+        <button type="button" class="reset-dashboard-btn" id="resetDashboard" aria-label="Restore dashboard defaults" data-tooltip="Reset dashboard to defaults">
+          <span class="btn-icon" aria-hidden="true">
+            <svg id="resetDashboardIcon" viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path></svg>
+          </span>
+          <span class="btn-label">Restore Defaults</span>
+        </button>
+      </div>
+      <div class="controls">
+        <div class="comparison-asset-pair" aria-label="DCA comparison assets">
+          <label class="chip" aria-label="Left comparison asset">
+            <div id="assetADropdown" class="dca-dropdown">
+              <span id="assetADropdownValue" class="dca-dropdown-value">Bitcoin</span>
+              <button id="assetADropdownTrigger" type="button" class="dca-dropdown-trigger" aria-label="Left comparison asset"></button>
+              <div id="assetADropdownMenu" class="dca-dropdown-menu" aria-label="Left comparison asset options"></div>
+            </div>
+            <select id="assetASelect" class="dca-comparison-native-select">
+              <option value="BTC" selected>Bitcoin</option>
+              <option value="XAU">Gold</option>
+              <option value="XAG">Silver</option>
+            </select>
+          </label>
+          <span class="comparison-vs" aria-hidden="true">vs</span>
+          <label class="chip" aria-label="Right comparison asset">
+            <div id="assetBDropdown" class="dca-dropdown">
+              <span id="assetBDropdownValue" class="dca-dropdown-value">Gold</span>
+              <button id="assetBDropdownTrigger" type="button" class="dca-dropdown-trigger" aria-label="Right comparison asset"></button>
+              <div id="assetBDropdownMenu" class="dca-dropdown-menu" aria-label="Right comparison asset options"></div>
+            </div>
+            <select id="assetBSelect" class="dca-comparison-native-select">
+              <option value="BTC">Bitcoin</option>
+              <option value="XAU" selected>Gold</option>
+              <option value="XAG">Silver</option>
+            </select>
+          </label>
+        </div>
+
+        <label class="chip dca-amount-cadence-chip" aria-label="DCA amount and cadence">
+          <span class="dca-amount-prefix" aria-hidden="true">$</span>
+          <input id="amountInput" class="dca-amount-input" type="text" inputmode="numeric" autocomplete="off" value="50" aria-label="DCA amount" />
+          <div id="cadenceDropdown" class="dca-dropdown">
+            <span id="cadenceDropdownValue" class="dca-dropdown-value">Weekly DCA</span>
+            <button id="cadenceDropdownTrigger" type="button" class="dca-dropdown-trigger" aria-label="DCA cadence"></button>
+            <div id="cadenceDropdownMenu" class="dca-dropdown-menu" aria-label="DCA cadence options"></div>
+          </div>
+          <select id="cadenceSelect" class="dca-comparison-native-select">
+            <option value="daily">Daily DCA</option>
+            <option value="weekly" selected>Weekly DCA</option>
+            <option value="monthly">Monthly DCA</option>
+          </select>
+        </label>
+
+        <label class="chip">Scale
+          <div id="scaleDropdown" class="dca-dropdown">
+            <span id="scaleDropdownValue" class="dca-dropdown-value">Linear</span>
+            <button id="scaleDropdownTrigger" type="button" class="dca-dropdown-trigger" aria-label="Chart scale"></button>
+            <div id="scaleDropdownMenu" class="dca-dropdown-menu" aria-label="Chart scale options"></div>
+          </div>
+          <select id="scaleSelect" class="dca-comparison-native-select">
+            <option value="linear" selected>Linear</option>
+            <option value="log">Log</option>
+          </select>
+        </label>
+
+      </div>
+      <div class="chips kpi-cards" id="statusChips">
+        <article class="kpi-card">
+          <div class="kpi-title" id="assetAPriceTitle">1 BTC</div>
+          <div class="kpi-value" id="assetAPrice"></div>
+          <div class="kpi-foot" id="assetAPriceLabel"></div>
+        </article>
+        <article class="kpi-card">
+          <div class="kpi-title" id="assetBPriceTitle">1 oz gold</div>
+          <div class="kpi-value" id="assetBPrice"></div>
+          <div class="kpi-foot" id="assetBPriceLabel"></div>
+        </article>
+        <article class="kpi-card">
+          <div class="kpi-title" id="countLabel">Number of Weeks</div>
+          <div class="kpi-value" id="countKpi"></div>
+          <div class="kpi-foot" id="countYearsKpi"></div>
+        </article>
+        <article class="kpi-card">
+          <div class="kpi-title">Amount Invested</div>
+          <div class="kpi-value chip-pct-profit" id="investedKpi"></div>
+          <div class="kpi-foot kpi-foot-placeholder" aria-hidden="true">&nbsp;</div>
+        </article>
+        <article class="kpi-card">
+          <div class="kpi-title" id="assetADcaTitle">Bitcoin DCA Value</div>
+          <div class="kpi-value" id="assetADcaValue"></div>
+          <div class="kpi-foot" id="assetADcaUnits"></div>
+        </article>
+        <article class="kpi-card">
+          <div class="kpi-title" id="assetBDcaTitle">Gold DCA Value</div>
+          <div class="kpi-value" id="assetBDcaValue"></div>
+          <div class="kpi-foot" id="assetBDcaUnits"></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="date-range-panel" aria-label="DCA date range animation controls">
+      <div class="date-range-header">
+        <label class="chip" for="dateRangeStartInput">Start
+          <button id="dateRangeStartBtn" class="date-range-btn" type="button"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg><span class="date-range-btn-placeholder" aria-hidden="true">00/00/00</span></button>
+          <input id="dateRangeStartInput" class="date-range-native-input" type="date" />
+        </label>
+        <label class="chip" for="dateRangeEndInput">End
+          <button id="dateRangeEndBtn" class="date-range-btn" type="button"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg><span class="date-range-btn-placeholder" aria-hidden="true">00/00/00</span></button>
+          <input id="dateRangeEndInput" class="date-range-native-input" type="date" />
+        </label>
+        <div class="date-range-range-control">
+          <span class="date-range-range-label">Range</span>
+          <div class="date-range-button-row date-range-range-buttons" aria-label="Range presets">
+            <label class="date-range-days-segment" for="dateRangeDaysInput">
+              <input id="dateRangeDaysInput" class="date-range-days-input" type="text" inputmode="numeric" autocomplete="off" aria-label="Range length in days" />
+              <span class="date-range-days-suffix">Days</span>
+            </label>
+            <button type="button" class="date-range-btn" data-range-preset="ytd">YTD</button>
+            <button type="button" class="date-range-btn" data-range-preset="1y">1Y</button>
+            <button type="button" class="date-range-btn" data-range-preset="2y">2Y</button>
+            <button type="button" class="date-range-btn" data-range-preset="4y">4Y</button>
+            <button type="button" class="date-range-btn" data-range-preset="8y">8Y</button>
+            <button type="button" class="date-range-btn" data-range-preset="full">All</button>
+          </div>
+        </div>
+        <div class="date-range-play-row" aria-label="Playback controls">
+          <button type="button" id="dateRangePlayBtn" class="date-range-playback-btn date-range-play-btn" aria-label="Play">▶</button>
+          <button type="button" id="dateRangePauseBtn" class="date-range-playback-btn date-range-pause-btn" aria-label="Pause" disabled>❚❚</button>
+          <button type="button" id="dateRangeStopBtn" class="date-range-playback-btn date-range-stop-btn" aria-label="Stop" disabled>■</button>
+          <button type="button" id="dateRangeSpeedBtn" class="date-range-playback-btn date-range-speed-btn">1x</button>
+          <button type="button" id="dashboardExpandBtn" class="date-range-playback-btn dashboard-expand-btn" aria-label="Expand video layout" aria-pressed="false" title="Expand video layout">
+            <svg class="dashboard-expand-icon dashboard-expand-icon-expand" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 9V4h5" />
+              <path d="M20 9V4h-5" />
+              <path d="M4 15v5h5" />
+              <path d="M20 15v5h-5" />
+            </svg>
+            <svg class="dashboard-expand-icon dashboard-expand-icon-shrink" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M9 4v5H4" />
+              <path d="M15 4v5h5" />
+              <path d="M9 20v-5H4" />
+              <path d="M15 20v-5h5" />
+            </svg>
+          </button>
+          <button type="button" id="dateRangeDownloadBtn" class="date-range-playback-btn date-range-download-btn" aria-label="Download date range animation" title="Download animation">↓</button>
+          <div class="date-range-download-wrap">
+            <button type="button" id="dateRangeSettingsBtn" class="date-range-playback-btn date-range-settings-btn" aria-label="Download settings">⚙</button>
+            <div id="dateRangeSettingsMenu" class="date-range-settings-menu" role="dialog" aria-label="Download settings">
+              <div class="download-setting-field">Scale
+                <div id="downloadScaleSelect" class="download-setting-button-row">
+                  <button type="button" class="download-setting-option is-selected" data-value="linear">Linear</button>
+                  <button type="button" class="download-setting-option" data-value="log">Log</button>
+                </div>
+              </div>
+              <div class="download-setting-field">Orientation
+                <div id="downloadOrientationSelect" class="download-setting-button-row">
+                  <button type="button" class="download-setting-option is-selected" data-value="landscape">Landscape</button>
+                  <button type="button" class="download-setting-option" data-value="portrait">Portrait</button>
+                  <button type="button" class="download-setting-option" data-value="square">Square</button>
+                </div>
+              </div>
+              <div class="download-setting-field">Quality
+                <div id="downloadQualitySelect" class="download-setting-button-row">
+                  <button type="button" class="download-setting-option is-selected" data-value="720">720p</button>
+                  <button type="button" class="download-setting-option" data-value="1080">1080p</button>
+                  <button type="button" class="download-setting-option" data-value="1440">1440p</button>
+                  <button type="button" class="download-setting-option" data-value="2160">4K</button>
+                </div>
+              </div>
+              <div class="download-setting-field">Playback Speed
+                <div id="downloadSpeedSelect" class="download-setting-button-row">
+                  <button type="button" class="download-setting-option" data-value="0.5">0.5x</button>
+                  <button type="button" class="download-setting-option is-selected" data-value="1">1x</button>
+                  <button type="button" class="download-setting-option" data-value="2">2x</button>
+                  <button type="button" class="download-setting-option" data-value="4">4x</button>
+                </div>
+              </div>
+              <div class="download-setting-field">Theme
+                <div id="downloadThemeSelect" class="download-setting-button-row">
+                  <button type="button" class="download-setting-option is-selected" data-value="light">Light</button>
+                  <button type="button" class="download-setting-option" data-value="dark">Dark</button>
+                </div>
+              </div>
+              <label class="download-setting-checkbox">
+                <input type="checkbox" id="downloadEndFrameHoldToggle" checked>
+                <span>1s start / 3s end hold</span>
+              </label>
+              <div id="downloadEstimatePanel" class="download-estimate-panel" aria-live="polite">
+                <div class="download-estimate-row"><span>File Size</span><strong id="downloadEstimateSize">--</strong></div>
+                <div class="download-estimate-row"><span>Video Length</span><strong id="downloadEstimateLength">--</strong></div>
+                <div class="download-estimate-row"><span>Download Time</span><strong id="downloadEstimateTime">--</strong></div>
+              </div>
+              <button type="button" id="downloadSettingsDownloadBtn">Download Animation</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="date-range-slider-wrap" id="dateRangeSliderWrap">
+        <div class="date-range-remaining-track" aria-hidden="true"></div>
+        <div class="date-range-static-marker date-range-start-marker" aria-hidden="true"></div>
+        <div class="date-range-static-marker date-range-end-marker" aria-hidden="true"></div>
+        <div class="date-range-current-marker" aria-hidden="true"></div>
+        <input id="dateRangeStartSlider" class="date-range-slider" type="range" min="0" max="0" value="0" step="1" aria-label="Start date slider" />
+        <input id="dateRangeEndSlider" class="date-range-slider date-range-end-slider" type="range" min="0" max="0" value="0" step="1" aria-label="End date slider" />
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="chart-wrap">
+        <canvas id="chartCanvas" style="flex: 1 1 auto; min-height: 0; width: 100%; height: 100%; display: block;"></canvas>
+      </div>
+    </section>
+  </main>
+
+  <div class="error" id="errorBox" hidden></div>
+  <div class="tooltip" id="chartTooltip"></div>
+  <script src="../../js/11_dashboard_timezone_preferences.js"></script>
+  <script src="../../js/12_mp4_muxer.js"></script>
+  <script src="dashboard_app.js"></script>
+</body>
+</html>

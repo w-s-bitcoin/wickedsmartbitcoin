@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DCA Comparison Preview</title>
+  <style>
+    html, body { margin: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+    body { display: grid; place-items: center; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    svg { width: 100%; height: 100%; display: block; }
+  </style>
+</head>
+<body>
+  <svg viewBox="0 0 1280 720" role="img" aria-label="DCA Comparison preview">
+    <rect width="1280" height="720" rx="20" fill="#000"/>
+    <text x="640" y="58" fill="#f5f7f8" font-family="Inter, system-ui, sans-serif" font-size="46" text-anchor="middle" font-weight="800">DCA Comparison</text>
+    <text x="466" y="58" fill="#39c878" font-family="Inter, system-ui, sans-serif" font-size="46" text-anchor="end">$50 Weekly</text>
+    <text x="832" y="58" fill="#ff9900" font-family="Inter, system-ui, sans-serif" font-size="46">Bitcoin</text>
+    <text x="1016" y="58" fill="#ffd000" font-family="Inter, system-ui, sans-serif" font-size="46">Gold</text>
+    <g stroke="#242424" stroke-width="1">
+      <line x1="60" y1="170" x2="1220" y2="170"/><line x1="60" y1="290" x2="1220" y2="290"/>
+      <line x1="60" y1="410" x2="1220" y2="410"/><line x1="60" y1="530" x2="1220" y2="530"/>
+      <line x1="120" y1="120" x2="120" y2="585"/><line x1="520" y1="120" x2="520" y2="585"/>
+      <line x1="920" y1="120" x2="920" y2="585"/>
+    </g>
+    <polyline points="60,570 180,520 320,470 480,410 620,350 760,300 930,250 1100,198 1220,165" fill="none" stroke="#39c878" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <polyline points="60,570 160,525 260,440 360,430 480,355 610,275 740,330 850,245 970,255 1080,385 1220,315" fill="none" stroke="#ff9900" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <polyline points="60,570 180,535 300,480 440,405 570,320 720,285 860,235 980,175 1100,135 1220,155" fill="none" stroke="#ffd000" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="64" y="642" fill="#9baab1" font-size="24">USD Savings</text>
+    <text x="260" y="642" fill="#ff9900" font-size="24">Bitcoin DCA</text>
+    <text x="460" y="642" fill="#ffd000" font-size="24">Gold DCA</text>
+  </svg>
+</body>
+</html>
