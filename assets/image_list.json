@@ -28,6 +28,13 @@
     "latest_youtube": ""
   },
   {
+    "filename": "dca_comparison.png",
+    "title": "DCA Comparison",
+    "description": "Compares two assets dollar cost averaged with the same start date, cadence, and purchase amount against a USD savings baseline",
+    "latest_x": "",
+    "latest_youtube": ""
+  },
+  {
     "filename": "bitcoin_dominance.png",
     "title": "Bitcoin Dominance",
     "description": "This dashboard shows Bitcoin's share of market cap relative to the top cryptocurrencies",

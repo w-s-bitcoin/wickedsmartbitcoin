@@ -136,11 +136,13 @@ function openModalByIndex(index) {
         ? '/webapps/bitcoin_net_worth/dashboard.html'
         : (fname === 'dca_cost_basis.png'
         ? '/webapps/dca_cost_basis/dashboard.html'
+        : (fname === 'dca_comparison.png'
+        ? '/webapps/dca_comparison/dashboard.html'
         : (fname === 'bip110_signaling.png'
         ? '/webapps/bip110_signaling/dashboard.html'
         : (fname === 'node_count.png'
             ? '/webapps/node_count/dashboard.html'
-            : (fname === `${DOM_BASE}.png` ? '/webapps/bitcoin_dominance/dashboard.html' : '')))));
+            : (fname === `${DOM_BASE}.png` ? '/webapps/bitcoin_dominance/dashboard.html' : ''))))));
     const embedPath = String(image.embed_url || '').trim() || fallbackEmbedPath;
     const shouldEmbed = modalType === 'embed' || !!embedPath;
     const embedUrl = shouldEmbed ? modalEmbedSrc(embedPath) : '';
@@ -269,6 +271,7 @@ function closeModal() {
     modal.classList.remove('embed-active');
     document.body?.classList?.remove('uoa-dashboard-expanded');
     document.body?.classList?.remove('dca-dashboard-expanded');
+    document.body?.classList?.remove('dca-comparison-dashboard-expanded');
     if (modalEmbedWrap) modalEmbedWrap.hidden = true;
     if (modalEmbed) modalEmbed.src = 'about:blank';
     resumeDeferredGridLoadingIfNeeded();

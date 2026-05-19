@@ -1110,7 +1110,24 @@ function makeDatePicker({ anchorEl, align = "left", getSelected, getMin, getMax,
     const fresh = pickerView === "years" ? buildYearGrid() : pickerView === "year" ? buildYearAccordion() : buildCalendar();
     popup.replaceChildren(...fresh.childNodes);
     popup.className = fresh.className;
-    requestAnimationFrame(positionPopup);
+    requestAnimationFrame(() => {
+      positionPopup();
+      if (pickerView === "years") {
+        const grid = popup.querySelector(".dp-year-grid");
+        const selectedYear = popup.querySelector(".dp-year-current");
+        if (grid && selectedYear) {
+          grid.scrollTop = Math.max(0, selectedYear.offsetTop + selectedYear.offsetHeight - grid.clientHeight);
+        }
+      } else if (pickerView === "year") {
+        const list = popup.querySelector(".dp-accordion-list");
+        const openRow = popup.querySelector(".dp-accordion-year.dp-accordion-open");
+        if (list && openRow) {
+          const yearButton = openRow.querySelector(".dp-accordion-year-btn");
+          const desiredTop = Math.max(0, (yearButton || openRow).offsetTop - 2);
+          list.scrollTop = Math.min(desiredTop, Math.max(0, list.scrollHeight - list.clientHeight));
+        }
+      }
+    });
   }
 
   function openPopup() {
