@@ -2237,8 +2237,8 @@
       ctx.stroke();
     }
     drawLine("invested", green, chartLineWidth);
-    drawLine("valueA", assetA.color, chartLineWidth);
     drawLine("valueB", assetB.color, chartLineWidth);
+    drawLine("valueA", assetA.color, chartLineWidth);
 
     drawChartLegend(ctx, [
       { label: "Amount Invested", color: green, textColor: muted },
