@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <style id="wsb-early-black">html,body{background:#000;color:#f1f5f7;}</style>
     <title>Bitcoin Dominance | Wicked Smart Bitcoin</title>
     <link rel="icon" type="image/png" href="assets/favicon.png" />
     <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
@@ -159,7 +160,7 @@
         try { stored = localStorage.getItem(THEME_KEY); } catch (_) {}
         var theme = (stored === 'light' || stored === 'dark')
           ? stored
-          : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+          : 'dark';
         applyShellTheme(theme);
         var embed = document.getElementById('modal-embed');
         if (embed) {

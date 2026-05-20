@@ -4,12 +4,7 @@
   const DEFAULT_WAKE_DELAY_MS = 150;
 
   function resolvePreferredTheme() {
-    try {
-      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-      return prefersDark ? "dark" : "light";
-    } catch (_err) {
-      return "dark";
-    }
+    return "dark";
   }
 
   function applyTheme(theme) {
