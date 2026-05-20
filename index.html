@@ -3,14 +3,15 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-        <title>Wicked Smart Bitcoin</title>
+        <style id="wsb-early-black">html,body{background:#000;color:#f1f5f7;}</style>
+    <title>Wicked Smart Bitcoin</title>
         <script>
             (function () {
                 try {
                     var stored = localStorage.getItem('quantum-research-dashboard-theme');
                     var theme = stored === 'light' || stored === 'dark'
                         ? stored
-                        : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+                        : 'dark';
                     document.documentElement.dataset.theme = theme;
                 } catch (_) {
                     document.documentElement.dataset.theme = 'dark';
@@ -324,7 +325,7 @@
             </div>
             <p>
                 © 2025 Wicked Smart Bitcoin
-                <span id="version-info">(v0.3.2)</span>
+                <span id="version-info">(v0.3.3)</span>
             </p>
             <p id="last-updated" style="font-size: 0.75rem; color: #666">Last updated: —</p>
         </footer>

@@ -8,7 +8,7 @@
   try {
     const stored = localStorage.getItem(SHARED_THEME_KEY);
     applySharedTheme(stored === 'light' || stored === 'dark' ? stored
-      : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+      : 'dark');
   } catch (_) { applySharedTheme('dark'); }
   window.addEventListener('message', function (e) {
     if (e.data && e.data.type === 'quantum-dashboard-theme') applySharedTheme(e.data.theme);
