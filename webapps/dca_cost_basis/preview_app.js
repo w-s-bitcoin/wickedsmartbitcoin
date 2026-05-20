@@ -1,6 +1,7 @@
 (function () {
   const AUTO_REFRESH_MS = 60000;
   let cachedRows = [];
+  let hasLoadedPreviewData = false;
 
   function parseCsv(text) {
     const rows = [];
@@ -187,6 +188,7 @@
   }
 
   function render() {
+    if (!hasLoadedPreviewData) return;
     renderCardPreviewFromRows(cachedRows);
   }
 
@@ -208,6 +210,7 @@
         Number.isFinite(row.isPriceAbove)
       ))
       .sort((a, b) => b.daysAgo - a.daysAgo);
+    hasLoadedPreviewData = true;
   }
 
   async function init() {
