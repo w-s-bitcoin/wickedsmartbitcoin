@@ -3670,6 +3670,70 @@
     };
   }
 
+  function loadStoredFilterShellState() {
+    const shareState = getDashboardShareStateFromUrl();
+    const stored = shareState || safeReadJson(UOA_FILTERS_KEY) || {};
+
+    const validPrimary = availableCurrencies.includes(stored.primaryUoa) ? stored.primaryUoa : "BTC";
+    const validSecondaryCandidate = availableCurrencies.includes(stored.secondaryUoa)
+      ? stored.secondaryUoa
+      : getFallbackSecondary(validPrimary);
+    const validSecondary = validSecondaryCandidate === validPrimary
+      ? getFallbackSecondary(validPrimary)
+      : validSecondaryCandidate;
+    const scaleMode = stored.scaleMode === "linear" ? "linear" : "log";
+    const orderMode = ORDER_MODES.includes(stored.orderMode) ? stored.orderMode : "alpha-asc";
+    const smoothVesRedenom = stored.smoothVesRedenom === false ? false : true;
+    const storedPlaybackFps = Number(stored.playbackFps);
+    const playbackFps = Number.isFinite(storedPlaybackFps) && storedPlaybackFps > 0
+      ? storedPlaybackFps
+      : DEFAULT_RANGE_PLAYBACK_FPS;
+    const chartMode = ["left", "right", "both"].includes(String(stored.chartMode || ""))
+      ? String(stored.chartMode)
+      : "both";
+    const sharedTimeZone = shareState ? String(stored.timeZone || "").trim() : "";
+    const timeZone = sharedTimeZone
+      ? setPreferredDashboardTimeZone(sharedTimeZone)
+      : getPreferredDashboardTimeZone();
+
+    return {
+      primaryUoa: validPrimary,
+      secondaryUoa: validSecondary,
+      scaleMode,
+      orderMode,
+      smoothVesRedenom,
+      playbackFps,
+      chartMode,
+      timeZone,
+    };
+  }
+
+  function hydrateTitleAndFilterShell(shellState = loadStoredFilterShellState()) {
+    if (el.primaryUoaSelect) el.primaryUoaSelect.value = shellState.primaryUoa;
+    if (el.secondaryUoaSelect) el.secondaryUoaSelect.value = shellState.secondaryUoa;
+    if (el.scaleSelect) el.scaleSelect.value = shellState.scaleMode;
+    if (el.orderBySelect) el.orderBySelect.value = shellState.orderMode;
+    if (el.vesRedenomAdjustToggle) el.vesRedenomAdjustToggle.checked = shellState.smoothVesRedenom;
+
+    updatedKpiTimeZone = shellState.timeZone || getPreferredDashboardTimeZone();
+    const updatedTimeZoneSelectEl = document.getElementById("updatedTimeZoneSelect");
+    if (updatedTimeZoneSelectEl) updatedTimeZoneSelectEl.value = updatedKpiTimeZone;
+
+    if (el.dateRangeFpsTrigger) {
+      el.dateRangeFpsTrigger.dataset.fps = String(shellState.playbackFps);
+      el.dateRangeFpsTrigger.textContent = getPlaybackSpeedLabel(shellState.playbackFps);
+    }
+    dateRangePlaybackState.fps = shellState.playbackFps;
+
+    setVisibleChartMode(shellState.chartMode);
+    renderPairKpiValue(shellState.primaryUoa, shellState.secondaryUoa);
+    syncDateRangeChartToggleLabels();
+    syncDownloadChartModeLabels();
+    syncAllDropdowns();
+    if (el.updatedKpiValue) el.updatedKpiValue.textContent = formatUpdatedDisplayText(refreshedAtText);
+    return shellState;
+  }
+
   function persistFilters() {
     try {
       let pausedPlaybackSession = null;
@@ -8335,19 +8399,24 @@
   }
 
   async function init() {
-    // Load metadata first
-    uoaPairs = await loadUoaPairs();
-    fxRatesByDate = await loadFxRates();
-    refreshedAtText = await loadLastUpdatedText();
+    const uoaPairsPromise = loadUoaPairs();
+    const refreshedAtPromise = loadLastUpdatedText();
 
-    const loaded = await loadData();
+    uoaPairs = await uoaPairsPromise;
+    refreshedAtText = await refreshedAtPromise;
+
+    // Populate the title/filter shell as soon as the small metadata files are ready.
+    populateCurrencyDropdowns();
+    populateUpdatedTimeZoneSelect();
+    hydrateTitleAndFilterShell();
+
+    const fxRatesPromise = loadFxRates();
+    const priceDataPromise = loadData();
+    const [loaded, loadedFxRates] = await Promise.all([priceDataPromise, fxRatesPromise]);
+    fxRatesByDate = loadedFxRates;
     allRows = mergePriceRowsWithFxDates(loaded.rows, fxRatesByDate);
     usdParityStartIso = computeUsdParityStartIso();
     rows = [...allRows];
-
-    // Populate dropdowns from metadata
-    populateCurrencyDropdowns();
-    populateUpdatedTimeZoneSelect();
 
     const saved = initControls();
     bindTimeZonePreferenceSync();
