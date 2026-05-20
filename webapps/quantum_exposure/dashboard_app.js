@@ -1012,7 +1012,7 @@ function resolveInitialTheme() {
     console.warn("Could not read stored theme preference", err);
   }
 
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  return "dark";
 }
 
 function applyTheme(theme) {
