@@ -4,10 +4,23 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Bitcoin Quantum Exposure Preview</title>
+  <script>
+    (function () {
+      try {
+        var stored = localStorage.getItem("quantum-research-dashboard-theme");
+        var theme = stored === "light" || stored === "dark"
+          ? stored
+          : (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        document.documentElement.dataset.theme = theme;
+      } catch (_) {
+        document.documentElement.dataset.theme = "dark";
+      }
+    })();
+  </script>
   <link rel="preload" href="webapp_data/historical_eco.csv" as="fetch" crossorigin />
   <style>
     :root {
-      --bg: #f7f4ee;
+      --bg: #000000;
       --seg-never: #ef476f;
       --seg-inactive: #ffd166;
       --seg-active: #2a9d5b;
@@ -16,11 +29,14 @@
     }
 
     :root[data-theme="dark"] {
-      --bg: #000000;
       --seg-never: #ff6b8f;
       --seg-inactive: #f7c95c;
       --seg-active: #4fc37d;
       --seg-nonexposed: #73808e;
+    }
+
+    :root[data-theme="light"] {
+      --bg: #f7f4ee;
     }
 
     html,
