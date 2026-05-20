@@ -102,7 +102,7 @@ function getStoredDashboardTheme() {
         if (raw === 'light' || raw === 'dark') return raw;
     } catch (_) {
     }
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    return 'dark';
 }
 
 function updateShellThemeToggleUi(themeRaw) {

@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Bitcoin Quantum Exposure</title>
+  <style id="wsb-early-black">html,body{background:#000;color:#f1f5f7;}</style>
+    <title>Bitcoin Quantum Exposure</title>
   <script>
     (function () {
       // Apply theme early so shared styles do not flash/fallback before dashboard_app.js initializes.
@@ -11,10 +12,10 @@
         const storedTheme = window.localStorage.getItem('quantum-research-dashboard-theme');
         const initialTheme = (storedTheme === 'light' || storedTheme === 'dark')
           ? storedTheme
-          : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+          : 'dark';
         document.documentElement.dataset.theme = initialTheme;
       } catch (_err) {
-        document.documentElement.dataset.theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        document.documentElement.dataset.theme = 'dark';
       }
 
       const isLocalRuntime = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);

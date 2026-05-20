@@ -11,7 +11,7 @@
     applyTheme(
       stored === "light" || stored === "dark"
         ? stored
-        : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+        : "dark"
     );
   } catch (_) {
     applyTheme("dark");

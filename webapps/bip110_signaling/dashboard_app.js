@@ -9,7 +9,7 @@
         const stored = localStorage.getItem(THEME_KEY);
         applyTheme(stored === 'light' || stored === 'dark'
           ? stored
-          : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+          : 'dark');
       } catch (_) { applyTheme('dark'); }
       window.addEventListener('message', function (e) {
         if (e.data && e.data.type === 'quantum-dashboard-theme') applyTheme(e.data.theme);
