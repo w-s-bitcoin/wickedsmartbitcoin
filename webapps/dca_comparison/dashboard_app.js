@@ -103,6 +103,7 @@
     copyLinkBtn: document.getElementById("copyDashboardLink"),
     resetBtn: document.getElementById("resetDashboard"),
     canvas: document.getElementById("chartCanvas"),
+    chartLegend: document.getElementById("chartLegend"),
     assetAPriceTitle: document.getElementById("assetAPriceTitle"),
     assetBPriceTitle: document.getElementById("assetBPriceTitle"),
     assetAPriceLabel: document.getElementById("assetAPriceLabel"),
@@ -1115,6 +1116,17 @@
     ctx.restore();
   }
 
+  function syncCustomLegend(items) {
+    if (!el.chartLegend) return;
+    el.chartLegend.innerHTML = items.map((item) => {
+      const swatchClass = item.dashed ? "legend-swatch dashed" : "legend-swatch";
+      const swatchStyle = item.dashed
+        ? `color: ${item.color};`
+        : `background: ${item.color};`;
+      return `<span class="legend-item"><span class="${swatchClass}" style="${swatchStyle}"></span>${escapeHtml(item.label)}</span>`;
+    }).join("");
+  }
+
   function roundRectPath(ctx, x, y, width, height, radius) {
     const r = Math.max(0, Math.min(radius, width / 2, height / 2));
     ctx.beginPath();
@@ -2111,11 +2123,20 @@
     const assetA = ASSETS[chartSettings.assetA];
     const assetB = ASSETS[chartSettings.assetB];
     const points = buildSeries(endIso, chartSettings);
+    const legendItems = [
+      { label: "Amount Invested", color: green, textColor: muted },
+      { label: `${assetA.label} DCA Value`, color: assetA.color, textColor: muted },
+      { label: `${assetB.label} DCA Value`, color: assetB.color, textColor: muted },
+    ];
     if (!opts.skipBackground) {
       ctx.fillStyle = bg;
       ctx.fillRect(0, 0, cssW, cssH);
     }
-    if (!points.length) return { points };
+    if (!opts.export) syncCustomLegend(legendItems);
+    if (!points.length) {
+      if (!opts.export) syncCustomLegend([]);
+      return { points };
+    }
     const chartArea = opts.chartArea || null;
     const localW = chartArea ? chartArea.width : cssW;
     const localH = chartArea ? chartArea.height : cssH;
@@ -2154,13 +2175,13 @@
     const rightYearOverhang = Math.abs(fontHeight * Math.sin(rotationAngle));
     ctx.font = `400 ${yTickLabelFontSize}px ${CHART_MONO_FONT}`;
     const yLabelWidth = yAxis.ticktext.reduce((max, label) => Math.max(max, ctx.measureText(String(label || "")).width), 0);
-    const left = opts.export ? 8 : 36;
+    const left = opts.export ? 8 : 24;
     const right = Math.max(opts.export ? 54 : 72, yLabelWidth + (opts.export ? 10 : 22), rightYearOverhang + (opts.export ? 6 : 4));
     const legendFontSize = opts.export
       ? Math.max(11, Number((tickLabelFontSize * 0.76).toFixed(2)))
       : Math.max(12, Number((tickLabelFontSize * 0.76).toFixed(2)));
-    const topTitleY = opts.export ? 42 : 48;
-    const top = opts.export ? 72 : 74;
+    const topTitleY = opts.export ? 42 : 24;
+    const top = opts.export ? 72 : 58;
     const bottom = opts.export
       ? Math.max(52, rotatedHeight + bottomSpacing + bottomMargin)
       : rotatedHeight + bottomSpacing + bottomMargin;
@@ -2240,11 +2261,9 @@
     drawLine("valueB", assetB.color, chartLineWidth);
     drawLine("valueA", assetA.color, chartLineWidth);
 
-    drawChartLegend(ctx, [
-      { label: "Amount Invested", color: green, textColor: muted },
-      { label: `${assetA.label} DCA Value`, color: assetA.color, textColor: muted },
-      { label: `${assetB.label} DCA Value`, color: assetB.color, textColor: muted },
-    ], left, opts.export ? 18 : 18, legendFontSize);
+    if (opts.export) {
+      drawChartLegend(ctx, legendItems, left, 18, legendFontSize);
+    }
 
     ctx.font = `400 ${Math.max(11, tickLabelFontSize * 0.78)}px ${CHART_MONO_FONT}`;
     ctx.fillStyle = muted;

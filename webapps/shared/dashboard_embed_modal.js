@@ -146,13 +146,49 @@
     }
   }
 
+  function updateInfoPopoverPosition(popover) {
+    if (!(popover instanceof Element)) return;
+
+    popover.style.setProperty('--info-popover-shift-x', '0px');
+
+    const margin = 12;
+    const rect = popover.getBoundingClientRect();
+    let shift = 0;
+
+    if (rect.left < margin) {
+      shift = margin - rect.left;
+    } else if (rect.right > window.innerWidth - margin) {
+      shift = window.innerWidth - margin - rect.right;
+    }
+
+    popover.style.setProperty('--info-popover-shift-x', `${Math.round(shift)}px`);
+  }
+
+  function setupInfoPopoverPlacement() {
+    const updateFromTarget = (target) => {
+      const wrap = target?.closest?.('.info-wrap');
+      const popover = wrap?.querySelector?.('.info-popover');
+      if (!popover) return;
+      requestAnimationFrame(() => updateInfoPopoverPosition(popover));
+    };
+
+    document.addEventListener('pointerenter', (event) => updateFromTarget(event.target), true);
+    document.addEventListener('focusin', (event) => updateFromTarget(event.target), true);
+    window.addEventListener('resize', () => {
+      document.querySelectorAll('.info-popover').forEach(updateInfoPopoverPosition);
+    });
+  }
+
 
   window.WSBDashboardShared = window.WSBDashboardShared || {};
   window.WSBDashboardShared.applyEmbeddedModalTopClearance = applyEmbeddedModalTopClearance;
   window.WSBDashboardShared.createDashboardControlLock = createDashboardControlLock;
   window.WSBDashboardShared.forwardEmbeddedNavigationKeys = forwardEmbeddedNavigationKeys;
+  window.WSBDashboardShared.updateInfoPopoverPosition = updateInfoPopoverPosition;
+  window.WSBDashboardShared.setupInfoPopoverPlacement = setupInfoPopoverPlacement;
 
   // Apply as early as possible to avoid top-padding jumps when embedded in modal.
   applyEmbeddedModalTopClearance();
   forwardEmbeddedNavigationKeys();
+  setupInfoPopoverPlacement();
 }());
