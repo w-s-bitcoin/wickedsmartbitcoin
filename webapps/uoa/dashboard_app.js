@@ -28,7 +28,7 @@
       { date: "2021-01-04", ratio: 1 / 24, ratioLabel: "1:24" },
     ],
     SYP: [
-      { date: "2026-01-07", ratio: 100, ratioLabel: "100:1" },
+      { date: "2026-01-08", ratio: 100, ratioLabel: "100:1" },
     ],
     ZMW: [
       { date: "2013-01-02", ratio: 1000, ratioLabel: "1,000:1" },
@@ -8028,7 +8028,7 @@
           redenomAnchorDate
         );
 
-        if (redenominationCurrency === "VES") {
+        if (redenominationCurrency === "VES" || redenominationCurrency === "SYP") {
           const leftRawSeriesAll = transformedAllRows.map((r) => ({
             date: r.date,
             value: primaryCurrency === "BTC" ? r.satsPerSecondary : r.inversePrice,

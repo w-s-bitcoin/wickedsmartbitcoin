@@ -67,7 +67,7 @@ CUP_REDENOMINATION_EVENTS = [
     {"date": "2021-01-01", "ratio": 1 / 24, "ratioLabel": "1:24"},
 ]
 SYP_REDENOMINATION_EVENTS = [
-    {"date": "2026-01-07", "ratio": 100, "ratioLabel": "100:1"},
+    {"date": "2026-01-08", "ratio": 100, "ratioLabel": "100:1"},
 ]
 ZMW_REDENOMINATION_EVENTS = [
     {"date": "2013-01-02", "ratio": 1000, "ratioLabel": "1,000:1"},
@@ -321,6 +321,13 @@ MANUAL_FX_SCALE_CORRECTIONS = [
         "end_date": "2026-01-06",
         "factor": 0.5,
         "reason": "Correct SYP/USD pre-redenomination source-scale points.",
+    },
+    {
+        "column": "sypusd",
+        "start_date": "2026-01-07",
+        "end_date": "2026-01-07",
+        "value": 0.00009,
+        "reason": "Backfill anomalous SYP/USD redenomination transition outlier.",
     },
     {
         "column": "cupusd",

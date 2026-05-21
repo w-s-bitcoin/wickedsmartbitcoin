@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <style id="wsb-early-black">html,body{background:#000;color:#f1f5f7;}</style>
+  <style id="wsb-early-black">html,body{background:#000;color:#f1f5f7;}:root[data-theme="light"],:root[data-theme="light"] body{background:#f4f5f7;color:#111827;}</style>
     <title>Bitcoin Quantum Exposure</title>
   <script>
     (function () {
@@ -51,7 +51,7 @@
     :root {
       --analysis-min-height: 500px;
       --wrap-grid-template-rows: auto minmax(0, 1fr);
-      --bg: #f7f4ee;
+      --bg: #f4f5f7;
       --card: #ffffff;
       --surface: #ffffff;
       --surface-soft: #faf6ef;
@@ -61,7 +61,10 @@
       --muted-strong: #514d47;
       --accent: #0c6f5f;
       --accent-2: #c85e3c;
-      --line: #d8d0c3;
+      --line: #dedede;
+      --panel-border: rgba(0, 0, 0, 0.11);
+      --panel-border-opaque: #e3e3e3;
+      --card-border: var(--panel-border);
       --divider: #e8e0d4;
       --shadow: 0 8px 30px rgba(0, 0, 0, 0.05);
       --bg-orb-1: #efe5d4;
@@ -98,9 +101,9 @@
       --fg: var(--ink);
       --fg-dim: var(--muted-strong);
       --dashboard-accent: var(--accent);
-      --scrollbar-track: #e8dfd2;
-      --scrollbar-thumb: #b5a99a;
-      --scrollbar-thumb-hover: #9f917f;
+      --scrollbar-track: #f4f5f7;
+      --scrollbar-thumb: #bdbdbd;
+      --scrollbar-thumb-hover: #a8a8a8;
     }
 
     :root[data-theme="dark"] {
@@ -114,7 +117,10 @@
       --muted-strong: #d0d0d0;
       --accent: #9a9a9a;
       --accent-2: #c2c2c2;
-      --line: #3a3a3a;
+      --line: #2b2b2b;
+      --panel-border: rgba(255, 255, 255, 0.14);
+      --panel-border-opaque: #242424;
+      --card-border: var(--panel-border);
       --divider: #313131;
       --shadow: 0 14px 40px rgba(0, 0, 0, 0.35);
       --bg-orb-1: #1f1f1f;
@@ -233,7 +239,7 @@
     .panel {
       min-width: 0;
       background: var(--card);
-      border: 1px solid var(--line);
+      border: 1px solid var(--panel-border);
       border-radius: 14px;
       padding: 12px;
       box-shadow: var(--shadow);
@@ -253,7 +259,7 @@
     }
 
     .title-panel:focus-within {
-      border-color: var(--line);
+      border-color: var(--panel-border);
     }
 
     .title-copy {
@@ -284,7 +290,7 @@
       width: 28px;
       height: 28px;
       border-radius: 999px;
-      border: 1px solid var(--line);
+      border: 1px solid var(--panel-border);
       background: var(--surface);
       color: var(--muted);
       display: inline-flex;
@@ -378,7 +384,7 @@
       min-width: 96px;
       padding: 8px 12px;
       border-radius: 999px;
-      border: 1px solid var(--line);
+      border: 1px solid var(--panel-border);
       background: var(--surface);
       color: var(--muted);
       font-size: 12px;
@@ -422,7 +428,7 @@
       height: 32px;
       padding: 5px 10px;
       border-radius: 999px;
-      border: 1px solid var(--line);
+      border: 1px solid var(--panel-border);
       background: var(--surface);
       color: var(--ink);
       font-size: 12px;
@@ -460,7 +466,7 @@
       width: 16px;
       height: 16px;
       border-radius: 50%;
-      background: #fffdf8;
+      background: #ffffff;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
       transition: transform 160ms ease, background 160ms ease;
     }
@@ -479,7 +485,7 @@
     }
 
     :root[data-theme="dark"] .auto-update-toggle-thumb {
-      background: #fffdf8;
+      background: #ffffff;
     }
 
     :root[data-theme="dark"] .auto-update-toggle.is-on .auto-update-toggle-track {
@@ -678,7 +684,7 @@
       height: 32px;
       padding: 5px 10px;
       border-radius: 999px;
-      border: 1px solid var(--line);
+      border: 1px solid var(--panel-border);
       background: var(--surface);
       color: var(--ink);
       font-size: 12px;
@@ -712,7 +718,7 @@
       width: 16px;
       height: 16px;
       border-radius: 50%;
-      background: #fffdf8;
+      background: #ffffff;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
       transition: transform 160ms ease;
     }
@@ -786,7 +792,7 @@
       min-width: 0;
       padding: 10px 12px;
       border-radius: 10px;
-      border: 1px solid var(--line);
+      border: 1px solid var(--panel-border);
       background: var(--surface);
       color: var(--ink);
       font-size: 14px;
@@ -1148,7 +1154,7 @@
       min-width: 0;
       padding: 10px 32px 10px 12px;
       border-radius: 10px;
-      border: 1px solid var(--line);
+      border: 1px solid var(--panel-border);
       background: var(--surface);
       color: var(--ink);
       font-size: 14px;
@@ -1240,7 +1246,7 @@
       left: 0;
       width: 100%;
       background: var(--surface);
-      border: 1px solid var(--line);
+      border: 1px solid var(--panel-border);
       border-radius: 10px;
       box-shadow: var(--shadow);
       padding: 8px;
@@ -1278,7 +1284,7 @@
 
     .kpi {
       container-type: inline-size;
-      border: 1px solid var(--line);
+      border: 1px solid var(--panel-border);
       border-radius: 10px;
       padding: 10px;
       background: var(--surface);
@@ -1453,7 +1459,7 @@
     .panel-title-main .info-popover {
       left: 0;
       right: auto;
-      z-index: 40;
+      z-index: 1000;
       width: min(420px, calc(100vw - 36px));
       max-width: min(420px, calc(100vw - 36px));
       font-family: "IBM Plex Mono", monospace;
@@ -1511,7 +1517,7 @@
       min-width: 146px;
       padding: 8px 10px;
       border-radius: 10px;
-      border: 1px solid var(--line);
+      border: 1px solid var(--panel-border);
       background: var(--surface);
       color: var(--ink);
       font-size: 13px;
@@ -1537,7 +1543,7 @@
       height: 32px;
       padding: 5px 10px;
       border-radius: 999px;
-      border: 1px solid var(--line);
+      border: 1px solid var(--panel-border);
       background: var(--surface);
       color: var(--ink);
       font-size: 12px;
@@ -1568,13 +1574,13 @@
       width: 16px;
       height: 16px;
       border-radius: 50%;
-      background: #fffdf8;
+      background: #ffffff;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
       transition: transform 160ms ease;
     }
 
     .panel-view-toggle[data-mode="historical"] {
-      border-color: var(--line);
+      border-color: var(--panel-border);
       background: var(--surface);
     }
 
@@ -1592,7 +1598,7 @@
       display: grid;
       gap: 6px;
       padding: 8px;
-      border: 1px solid var(--line);
+      border: 1px solid var(--panel-border);
       border-radius: 10px;
       background: var(--surface);
       transition: opacity 160ms ease, filter 160ms ease;
@@ -1627,7 +1633,7 @@
       gap: 6px;
       padding: 3px 8px;
       border-radius: 999px;
-      border: 1px solid var(--line);
+      border: 1px solid var(--panel-border);
       background: var(--surface-soft);
       font-size: 12px;
       color: var(--muted);
@@ -1874,7 +1880,7 @@
       align-items: center;
       gap: 8px;
       padding: 8px 12px;
-      border: 1px solid var(--line);
+      border: 1px solid var(--panel-border);
       border-radius: 999px;
       background: var(--surface);
       color: var(--muted);
@@ -1897,7 +1903,7 @@
       height: 100%;
       display: block;
       background: var(--surface);
-      border: 1px solid var(--line);
+      border: 1px solid var(--panel-border);
       border-radius: 10px;
     }
 
@@ -1983,7 +1989,7 @@
       min-width: 180px;
       max-width: 260px;
       background: color-mix(in srgb, var(--surface) 92%, black 8%);
-      border: 1px solid var(--line);
+      border: 1px solid var(--panel-border);
       border-radius: 8px;
       box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
       padding: 8px 10px;
@@ -2037,7 +2043,7 @@
       z-index: 140;
       width: fit-content;
       max-width: min(420px, calc(100vw - 24px));
-      border: 1px solid rgba(0, 0, 0, 0.22);
+      border: 1px solid var(--panel-border);
       border-radius: 10px;
       background: #ffffff;
       color: #1c1b19;
@@ -2055,7 +2061,7 @@
     }
 
     :root[data-theme="dark"] .quantum-inline-tooltip {
-      border-color: rgba(255, 255, 255, 0.22);
+      border-color: var(--panel-border);
       background: #000;
       color: #d9e5ea;
       box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
@@ -2099,7 +2105,7 @@
     }
 
     .top-list {
-      border: 1px solid var(--line);
+      border: 1px solid var(--panel-border);
       border-radius: 10px;
       background: var(--surface);
       flex: 1 1 0;
@@ -2170,7 +2176,7 @@
     .show-more-button {
       padding: 10px 14px;
       border-radius: 10px;
-      border: 1px solid var(--line);
+      border: 1px solid var(--panel-border);
       background: var(--surface);
       color: var(--ink);
       font-size: 13px;
@@ -2203,7 +2209,7 @@
       width: 34px;
       height: 34px;
       flex-shrink: 0;
-      border: 1px solid var(--line);
+      border: 1px solid var(--panel-border);
       border-radius: 999px;
       background: var(--surface);
       color: var(--ink);
@@ -2411,7 +2417,7 @@
       height: 16px;
       margin: 0;
       border-radius: 4px;
-      border: 1px solid var(--line);
+      border: 1px solid var(--panel-border);
       background: var(--surface);
       display: inline-grid;
       place-content: center;
@@ -2774,7 +2780,7 @@
       max-height: min(94vh, 1080px);
       overflow: auto;
       border-radius: 18px;
-      border: 1px solid var(--line);
+      border: 1px solid var(--panel-border);
       background: linear-gradient(168deg, color-mix(in srgb, var(--card) 92%, white 8%) 0%, var(--card) 48%, color-mix(in srgb, var(--surface-soft) 72%, var(--card) 28%) 100%);
       box-shadow: 0 28px 80px rgba(0, 0, 0, 0.26);
       padding: 18px;
@@ -2817,7 +2823,7 @@
       width: 32px;
       height: 32px;
       border-radius: 50%;
-      border: 1px solid var(--line);
+      border: 1px solid var(--panel-border);
       background: var(--surface);
       color: var(--muted-strong);
       font-size: 20px;
@@ -2844,7 +2850,7 @@
 
     .snapshot-report-card {
       grid-column: span 6;
-      border: 1px solid var(--line);
+      border: 1px solid var(--panel-border);
       border-radius: 12px;
       background: color-mix(in srgb, var(--surface) 78%, white 22%);
       padding: 11px 12px;
@@ -2904,7 +2910,7 @@
 
     .snapshot-report-section {
       margin-top: 10px;
-      border: 1px solid var(--line);
+      border: 1px solid var(--panel-border);
       border-radius: 12px;
       background: color-mix(in srgb, var(--surface-muted) 78%, white 22%);
       padding: 12px;
@@ -3012,13 +3018,13 @@
     }
 
     :root[data-theme="dark"] .snapshot-report-dialog {
-      border-color: var(--line);
+      border-color: var(--panel-border);
       background: var(--card);
       box-shadow: 0 28px 90px rgba(0, 0, 0, 0.62);
     }
 
     :root[data-theme="dark"] .snapshot-report-card {
-      border-color: var(--line);
+      border-color: var(--panel-border);
       background: var(--surface);
     }
 
@@ -3096,11 +3102,10 @@
               <button type="button" class="info-btn" aria-label="About this dashboard" aria-describedby="quantumExposureInfoPopover">?</button>
               <div class="info-popover" id="quantumExposureInfoPopover" role="tooltip">
                 <p style="margin: 0;">
-                  This dashboard estimates how much Bitcoin supply is exposed to quantum-risk pathways, and who controls that exposure, at a selected block-height snapshot. It combines chain-derived aggregates with attribution metadata to show both macro risk (total exposed supply, exposed pubkeys/UTXOs, migration pressure) and micro concentration (largest exposed entities/addresses).
+                  This dashboard estimates how much Bitcoin supply is exposed to quantum-risk spending paths at a selected block-height snapshot.
                 </p>
-                <p style="margin: 8px 0 0 0;">
-                  What "quantum exposure" means here<br>
-                  Supply is treated as exposed when spending conditions reveal public key material or otherwise create script paths considered vulnerable under a future cryptographically relevant quantum threat model. The dashboard does not predict when such a threat arrives; it quantifies current and historical exposure surfaces under consistent rules.
+                <p style="margin: 6px 0 0 0;">
+                  It combines chain-derived aggregates with attribution metadata to show exposed supply, exposed pubkeys/UTXOs, estimated migration pressure, and the largest exposed entities or addresses.
                 </p>
               </div>
             </div>
