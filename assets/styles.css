@@ -36,7 +36,7 @@
     --modal-download-icon-size: clamp(20px, 2.7vw, 22px);
 }
 
-/* Consistent keyboard focus highlight across shell controls and links. */
+/* Keep focused shell controls from showing a persistent heavy ring after click. */
 button:focus-visible,
 a:focus-visible,
 select:focus-visible,
@@ -46,9 +46,8 @@ label:focus-within,
 .buy-coffee-btn:focus-visible,
 .close-btn:focus-visible,
 .modal-link:focus-visible {
-    outline: 2px solid #ff9800 !important;
-    outline-offset: 2px;
-    box-shadow: 0 0 0 2px rgba(255, 152, 0, 0.25);
+    outline: none !important;
+    box-shadow: none !important;
 }
 
 :root[data-theme="light"] {
@@ -1148,8 +1147,7 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
 }
 
 .chart-container:focus-visible {
-    outline: 2px solid var(--brand);
-    outline-offset: 3px;
+    outline: none;
     border-radius: 10px;
 }
 
@@ -1648,8 +1646,7 @@ body.dca-dashboard-expanded .buy-coffee {
 }
 
 .youtube-overlay-close:focus {
-    outline: 2px solid var(--brand);
-    outline-offset: 2px;
+    outline: none;
 }
 
 @media (max-width: 768px) {
@@ -1870,12 +1867,11 @@ body.dca-dashboard-expanded .buy-coffee {
     }
 }
 
-/* Global focus color: keep focus ring consistently orange across all controls. */
+/* Suppress the browser focus ring that otherwise persists after mouse clicks. */
 :where(a, button, input, select, textarea, [tabindex]):focus {
-    outline: 2px solid var(--brand) !important;
-    outline-offset: 2px;
+    outline: none !important;
 }
 
 :where(input[type="checkbox"], input[type="radio"]):focus {
-    box-shadow: 0 0 0 2px rgba(247, 147, 26, 0.35);
+    box-shadow: none;
 }
