@@ -636,12 +636,13 @@ def _redenomination_event_dates(events):
 
 
 def clean_syp_redenomination_scale_points(df, events=SYP_REDENOMINATION_EVENTS):
-    """Correct stale-scale SYP/USD rows after the 2026 100:1 redenomination.
+    """Correct stale-scale SYP/USD rows around the 2026 100:1 redenomination.
 
-    Upstream can intermittently report post-redenomination SYP values on the
-    pre-redenomination scale. The dashboard expects source units to step at the
-    redenomination date, so post-event stale-scale rows are multiplied by the
-    event ratio while true event steps are preserved.
+    Upstream can intermittently report SYP values on the wrong scale around the
+    event boundary. The dashboard expects source units to step at the
+    redenomination date, so pre-event transition outliers are restored to the
+    nearby pre-event anchor and post-event stale-scale rows are multiplied by
+    the event ratio while true event steps are preserved.
     """
     if "sypusd" not in df.columns or "date" not in df.columns:
         return df, 0
@@ -673,14 +674,33 @@ def clean_syp_redenomination_scale_points(df, events=SYP_REDENOMINATION_EVENTS):
     ]
     expected_post_anchor = None
     if pre_event_values:
-        expected_post_anchor = float(pd.Series(pre_event_values).median()) * ratio
+        pre_event_anchor = float(pd.Series(pre_event_values).median())
+        expected_post_anchor = pre_event_anchor * ratio
+    else:
+        pre_event_anchor = None
 
     fixes = 0
     for idx, date_val in enumerate(dates):
-        if pd.isna(date_val) or date_val.date() < event_date:
+        if pd.isna(date_val):
             continue
 
+        day = date_val.date()
         cur_val = vals[idx]
+        if pre_event_anchor is not None and event_date - timedelta(days=7) <= day < event_date:
+            if pd.isna(cur_val) or cur_val <= 0:
+                vals[idx] = pre_event_anchor
+                fixes += 1
+                continue
+
+            local_ratio = float(cur_val) / pre_event_anchor
+            if local_ratio < 0.05 or local_ratio > 20.0:
+                vals[idx] = pre_event_anchor
+                fixes += 1
+                continue
+
+        if day < event_date:
+            continue
+
         ref_candidates = []
 
         for prev_idx in range(idx - 1, -1, -1):
