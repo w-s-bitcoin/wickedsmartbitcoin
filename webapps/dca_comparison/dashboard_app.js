@@ -44,6 +44,7 @@
   const NO_SECONDARY_ASSET = "NONE";
 
   let selectDropdownGlobalListenersBound = false;
+  let secondaryAssetArrowGlobalBound = false;
   let activeDatePickerClose = null;
   let downloadEstimateCalibrationTimer = null;
   let downloadEstimateCalibrationRequestId = 0;
@@ -486,7 +487,8 @@
   }
 
   function cycleSelectDropdownOption(select, menu, direction) {
-    const buttons = getDropdownOptionButtons(menu);
+    const buttons = getDropdownOptionButtons(menu)
+      .filter((button) => select?.id !== "assetBSelect" || button.dataset.value !== NO_SECONDARY_ASSET);
     if (!buttons.length || !select) return false;
     const selectedIndex = Math.max(0, buttons.findIndex((button) => button.dataset.value === select.value));
     const nextIndex = (selectedIndex + direction + buttons.length) % buttons.length;
@@ -616,6 +618,52 @@
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") closeAllSelectDropdowns();
     });
+  }
+
+  function cycleSecondaryAsset(direction) {
+    if (!el.assetBSelect || !el.assetASelect) return;
+    const primary = el.assetASelect.value;
+    const options = Array.from(el.assetBSelect.options)
+      .map((option) => option.value)
+      .filter((value) => value !== primary && value !== NO_SECONDARY_ASSET);
+    if (!options.length) return;
+
+    const current = el.assetBSelect.value;
+    const currentIndex = options.indexOf(current);
+    const startIndex = currentIndex >= 0 ? currentIndex : (direction > 0 ? -1 : 0);
+    const nextIndex = (startIndex + direction + options.length) % options.length;
+    const nextValue = options[nextIndex];
+    if (!nextValue || nextValue === current) return;
+
+    el.assetBSelect.value = nextValue;
+    el.assetBSelect.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function bindSecondaryAssetArrowCycling() {
+    const trigger = document.getElementById("assetBDropdownTrigger");
+    if (trigger && trigger.dataset.arrowBound !== "1") {
+      trigger.dataset.arrowBound = "1";
+      trigger.addEventListener("keydown", (event) => {
+        if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+        event.preventDefault();
+        event.stopPropagation();
+        cycleSecondaryAsset(event.key === "ArrowDown" ? 1 : -1);
+      });
+    }
+
+    if (secondaryAssetArrowGlobalBound) return;
+    secondaryAssetArrowGlobalBound = true;
+
+    const handleGlobalArrow = (event) => {
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      const target = event.target;
+      if (target?.closest?.(".dca-dropdown, .dca-dropdown-menu")) return;
+      if (isTextEntry(target)) return;
+      event.preventDefault();
+      cycleSecondaryAsset(event.key === "ArrowDown" ? 1 : -1);
+    };
+
+    window.addEventListener("keydown", handleGlobalArrow, true);
   }
 
   function isoToLocalDate(iso) {
@@ -3333,6 +3381,7 @@
       el.settingsBtn?.classList.remove("is-open");
     };
     bindSelectDropdowns();
+    bindSecondaryAssetArrowCycling();
     let startPicker = null;
     let endPicker = null;
     if (el.rangeStartBtn && el.rangeEndBtn && el.rangeStartInput && el.rangeEndInput) {
