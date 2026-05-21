@@ -2197,7 +2197,119 @@ body.uoa-loading .chart-panel::after {
   }
 }
 
-@media (max-width: 400px) {
+@media (max-width: 860px) {
+  html,
+  body,
+  .wrap {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .wrap,
+  .topbar,
+  .date-range-panel,
+  .grid,
+  .panel,
+  .chips,
+  .controls {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .chips .chip,
+  .controls .chip {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .panel-title {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .date-range-panel {
+    overflow: hidden;
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .date-range-header,
+  .date-range-header > *,
+  .date-range-range-control,
+  .date-range-chart-toggle-wrap,
+  .date-range-presets,
+  .date-range-chart-toggles,
+  .date-range-playback-controls {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .date-range-range-control,
+  .date-range-chart-toggle-wrap {
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    white-space: normal;
+  }
+
+  .date-range-presets,
+  .date-range-chart-toggles,
+  .date-range-playback-controls {
+    flex-wrap: wrap;
+  }
+
+  .date-range-presets,
+  .date-range-range-buttons,
+  .date-range-playback-controls {
+    flex: 0 1 auto;
+    width: auto;
+  }
+
+  #kpiRow > *,
+  .chips > *,
+  .controls > * {
+    flex: 0 0 auto;
+    max-width: 100%;
+  }
+
+  .topbar > *,
+  .topbar .chips,
+  .topbar .controls {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .topbar .chips,
+  .topbar .controls {
+    display: block !important;
+    overflow: visible;
+  }
+
+  .topbar .chips > *,
+  .topbar .controls > * {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 6px;
+    vertical-align: middle;
+    margin: 0 8px 8px 0;
+    width: auto !important;
+  }
+
+  .topbar .chips > .chip-menu-wrap {
+    display: inline-block !important;
+  }
+
+  .topbar .chips > .chip-menu-wrap .chip-kpi-display {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .date-range-days-segment {
+    min-width: 0;
+  }
+
   /* Panel title now uses viewport scaling, no additional override needed */
 }
 

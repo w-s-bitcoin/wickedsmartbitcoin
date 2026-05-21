@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <style id="wsb-early-black">html,body{background:#000;color:#f1f5f7;}</style>
+  <style id="wsb-early-black">html,body{background:#000;color:#f1f5f7;}:root[data-theme="light"],:root[data-theme="light"] body{background:#f4f5f7;color:#111827;}</style>
     <title>DCA Comparison</title>
   <script src="../shared/dashboard_embed_modal.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -21,7 +21,7 @@
       --fg: #f1f5f7;
       --ink: #f0f0f0;
       --muted: #95a6ae;
-      --line: #3a3a3a;
+      --line: #2b2b2b;
       --fg-dim: #d6e1e6;
       --accent: #ff9f1c;
       --price-up: #41b36b;
@@ -33,7 +33,7 @@
       --dashboard-accent: var(--accent);
       --modal-controls-clearance: 30px;
       --card-bg: #000;
-      --card-border: rgba(255, 255, 255, 0.14);
+      --card-border: var(--panel-border);
       --caret-chevron: #d6e1e6;
       --tooltip-bg: #000000;
       --tooltip-border: rgba(255, 255, 255, 0.22);
@@ -44,7 +44,7 @@
     }
 
     :root[data-theme="light"] {
-      --bg: #f7f4ee;
+      --bg: #f4f5f7;
       --panel: #ffffff;
       --surface: #ffffff;
       --surface-soft: #faf6ef;
@@ -53,17 +53,23 @@
       --fg: #1c1b19;
       --ink: #1c1b19;
       --muted: #6f685f;
-      --line: #d8d0c3;
+      --line: #dedede;
       --fg-dim: #514d47;
       --card-bg: #ffffff;
-      --card-border: rgba(0, 0, 0, 0.11);
+      --card-border: var(--panel-border);
       --caret-chevron: #7a756e;
       --tooltip-bg: #ffffff;
       --tooltip-border: rgba(0, 0, 0, 0.22);
       --tooltip-fg: #1c1b19;
-      --scrollbar-track: #e8dfd2;
-      --scrollbar-thumb: #b5a99a;
-      --scrollbar-thumb-hover: #9f917f;
+      --scrollbar-track: #f4f5f7;
+      --scrollbar-thumb: #bdbdbd;
+      --scrollbar-thumb-hover: #a8a8a8;
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
     }
 
     body {
@@ -303,12 +309,21 @@
       }
     }
 
+    @media (max-width: 430px) {
+      #statusChips.kpi-cards {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+      }
+    }
+
     :root[data-theme="light"] #statusChips.kpi-cards {
       border-top-color: rgba(0, 0, 0, 0.08);
     }
 
     .kpi-card {
       container-type: inline-size;
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) auto minmax(0, 1fr);
+      align-items: center;
       border: 1px solid var(--card-border);
       border-radius: 10px;
       padding: 10px;
@@ -318,39 +333,22 @@
       text-align: center;
     }
 
-    @media (max-width: 900px) {
-      #statusChips.kpi-cards {
-        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-      }
-    }
-
-    @media (max-width: 650px) {
-      #statusChips.kpi-cards {
-        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-      }
-    }
-
-    @media (max-width: 430px) {
-      #statusChips.kpi-cards {
-        grid-template-columns: minmax(0, 1fr) !important;
-      }
-    }
-
     .kpi-title {
       font-family: "IBM Plex Mono", monospace;
-      font-size: 12px;
+      font-size: clamp(9.5px, 2.6vw, 12px);
       color: var(--muted);
       text-transform: uppercase;
-      letter-spacing: 0.7px;
+      letter-spacing: clamp(0.25px, 0.14vw, 0.7px);
       margin-bottom: 6px;
       line-height: 1.15;
       white-space: nowrap;
+      align-self: end;
     }
 
     .kpi-value {
       color: var(--fg);
       font-family: "IBM Plex Mono", monospace;
-      font-size: clamp(0.9rem, calc(0.55rem + 4.8cqw), 1.65rem);
+      font-size: clamp(0.85rem, calc(0.52rem + 4.9cqw), 1.85rem);
       font-weight: 700;
       line-height: 1.15;
       min-height: 1.15em;
@@ -363,9 +361,10 @@
       margin-top: 4px;
       color: var(--muted);
       font-family: "IBM Plex Mono", monospace;
-      font-size: 12px;
+      font-size: clamp(9.5px, 2.5vw, 12px);
       line-height: 1.2;
       min-height: 1.2em;
+      align-self: start;
     }
 
     .chip {
@@ -1224,6 +1223,116 @@
       }
     }
 
+    @media (max-width: 860px) {
+      html,
+      body,
+      .wrap {
+        max-width: 100%;
+        overflow-x: hidden;
+      }
+
+      .wrap,
+      .topbar,
+      .date-range-panel,
+      .panel,
+      .chips,
+      .controls {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+      }
+
+      .chips .chip,
+      .controls .chip {
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .date-range-panel {
+        overflow: hidden;
+        padding-left: 10px;
+        padding-right: 10px;
+      }
+
+      .date-range-header,
+      .date-range-header > *,
+      .date-range-range-control,
+      .date-range-button-row,
+      .date-range-play-row {
+        max-width: 100%;
+        min-width: 0;
+      }
+
+      .date-range-range-control {
+        flex: 0 1 auto;
+        flex-wrap: wrap;
+        white-space: normal;
+      }
+
+      .date-range-button-row,
+      .date-range-play-row {
+        flex-wrap: wrap;
+      }
+
+      .date-range-button-row,
+      .date-range-range-buttons,
+      .date-range-play-row {
+        flex: 0 1 auto;
+        width: auto;
+      }
+
+      #statusChips > *,
+      .chips > *,
+      .controls > * {
+        flex: 0 0 auto;
+        max-width: 100%;
+      }
+
+      #statusChips > .chip,
+      #statusChips > .chip-menu-wrap {
+        flex: 0 0 auto !important;
+        max-width: 100%;
+        width: auto;
+      }
+
+      .comparison-asset-pair,
+      .dca-amount-cadence-chip,
+      .controls label.chip {
+        flex: 0 0 auto !important;
+        max-width: 100%;
+        width: auto;
+      }
+
+      .comparison-asset-pair {
+        flex-wrap: wrap;
+      }
+
+      .topbar > *,
+      .topbar .controls {
+        min-width: 0;
+        max-width: 100%;
+      }
+
+      .topbar .controls {
+        display: block !important;
+        overflow: visible;
+      }
+
+      .topbar .controls > * {
+        display: inline-flex !important;
+        align-items: center;
+        gap: 6px;
+        vertical-align: middle;
+        margin: 0 8px 8px 0;
+        width: auto !important;
+      }
+
+      .date-range-days-segment {
+        min-width: 0;
+      }
+    }
+
     @media (max-width: 750px) {
       .copy-link-btn,
       .reset-dashboard-btn {
@@ -2045,24 +2154,17 @@
       white-space: nowrap;
       flex-shrink: 0;
       padding: 8px 12px 0px 14px;
-      scrollbar-width: thin;
-      scrollbar-color: var(--muted, #95a6ae) transparent;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
       font-family: "IBM Plex Mono", monospace;
       font-size: clamp(11px, 0.78vw, 14px);
       color: var(--muted, #95a6ae);
     }
 
     #chartLegend::-webkit-scrollbar {
-      height: 4px;
-    }
-
-    #chartLegend::-webkit-scrollbar-track {
-      background: transparent;
-    }
-
-    #chartLegend::-webkit-scrollbar-thumb {
-      background: var(--muted, #95a6ae);
-      border-radius: 2px;
+      display: none;
+      width: 0;
+      height: 0;
     }
 
     .legend-item {
@@ -2471,6 +2573,7 @@
 
     <section class="panel">
       <div class="chart-wrap">
+        <div id="chartLegend"></div>
         <canvas id="chartCanvas" style="flex: 1 1 auto; min-height: 0; width: 100%; height: 100%; display: block;"></canvas>
       </div>
     </section>
