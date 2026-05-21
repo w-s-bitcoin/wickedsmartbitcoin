@@ -2,7 +2,18 @@
   --modal-controls-clearance: 30px;
   --wrap-pad: clamp(8px, 1.4vw, 12px);
   --dashboard-accent: var(--accent, #ff9f1c);
+  --panel-border: rgba(255, 255, 255, 0.14);
+  --panel-border-opaque: #242424;
+  --card-border: var(--panel-border);
+  --line: #2b2b2b;
   --panel-min-height: 320px;
+}
+
+:root[data-theme="light"] {
+  --panel-border: rgba(0, 0, 0, 0.11);
+  --panel-border-opaque: #e3e3e3;
+  --card-border: var(--panel-border);
+  --line: #dedede;
 }
 
 * {
@@ -88,13 +99,14 @@ h1 {
   position: relative;
   display: inline-flex;
   align-items: center;
+  z-index: 100;
 }
 
 .info-btn {
   width: 18px;
   height: 18px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.32);
+  border: 1px solid var(--panel-border);
   background: transparent;
   color: #d6e1e6;
   font-family: "IBM Plex Mono", monospace;
@@ -120,10 +132,10 @@ h1 {
   top: calc(100% + 8px);
   left: 0;
   right: auto;
-  z-index: 50;
+  z-index: 1000;
   width: clamp(280px, 34vw, 420px);
   max-width: calc(100vw - 24px);
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: 1px solid var(--panel-border);
   border-radius: 10px;
   background: #000;
   color: #d9e5ea;
@@ -139,7 +151,7 @@ h1 {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transform: translateY(-2px);
+  transform: translate(var(--info-popover-shift-x, 0px), -2px);
   transition: opacity 120ms ease, transform 120ms ease, visibility 0ms linear 120ms;
 }
 
@@ -147,7 +159,7 @@ h1 {
 .info-wrap:focus-within .info-popover {
   opacity: 1;
   visibility: visible;
-  transform: translateY(0);
+  transform: translate(var(--info-popover-shift-x, 0px), 0);
   transition: opacity 120ms ease, transform 120ms ease;
 }
 
@@ -163,7 +175,7 @@ h1 {
   gap: 10px;
   flex-wrap: wrap;
   align-items: center;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid var(--panel-border);
 }
 
 .topbar.ui-locked .toggle,
@@ -331,7 +343,7 @@ h1 {
 }
 
 .chip {
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--panel-border);
   border-radius: 999px;
   background: transparent;
   color: var(--muted, #95a6ae);
@@ -386,7 +398,7 @@ h1 {
   justify-content: center;
   width: 20px;
   height: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.25);
+  border: 1px solid var(--panel-border);
   border-radius: 6px;
   background: transparent;
   color: #d8e4ea;
@@ -401,7 +413,7 @@ h1 {
 }
 
 .swap-panels-control:disabled .swap-panels-btn {
-  border-color: rgba(255, 255, 255, 0.14);
+  border-color: var(--panel-border);
 }
 
 .swap-panels-btn svg {
@@ -425,7 +437,7 @@ h1 {
   bottom: 8px;
   width: 20px;
   height: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.25);
+  border: 1px solid var(--panel-border);
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.72);
   cursor: nwse-resize;
@@ -452,7 +464,7 @@ h1 {
 }
 
 .panel-resize-handle:disabled {
-  border-color: rgba(255, 255, 255, 0.14);
+  border-color: var(--panel-border);
   cursor: not-allowed;
 }
 
@@ -477,7 +489,7 @@ h1 {
   z-index: 70;
   width: fit-content;
   max-width: min(420px, calc(100vw - 24px));
-  border: 1px solid rgba(0, 0, 0, 0.22);
+  border: 1px solid var(--panel-border);
   border-radius: 10px;
   background: #ffffff;
   color: #1c1b19;
@@ -495,7 +507,7 @@ h1 {
 }
 
 :root[data-theme="dark"] .dashboard-inline-tooltip {
-  border-color: rgba(255, 255, 255, 0.22);
+  border-color: var(--panel-border);
   background: #000;
   color: #d9e5ea;
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
@@ -591,7 +603,7 @@ h1 {
    --bg, --panel, --panel-border, --fg, --muted, --fg-dim, --link.
    =========================== */
 :root[data-theme="light"] body {
-  background: var(--bg, #f7f4ee);
+  background: var(--bg, #f4f5f7);
   color: var(--fg, #1c1b19);
 }
 
@@ -624,7 +636,7 @@ h1 {
 }
 
 :root[data-theme="light"] .controls {
-  border-top-color: rgba(0, 0, 0, 0.08);
+  border-top-color: var(--panel-border);
 }
 
 :root[data-theme="light"] .swap-panels-control {
@@ -632,12 +644,12 @@ h1 {
 }
 
 :root[data-theme="light"] .swap-panels-btn {
-  border-color: rgba(0, 0, 0, 0.18);
+  border-color: var(--panel-border);
   color: var(--fg, #1c1b19);
 }
 
 :root[data-theme="light"] .panel-resize-handle {
-  border-color: rgba(0, 0, 0, 0.18);
+  border-color: var(--panel-border);
   background: rgba(255, 255, 255, 0.88);
 }
 
@@ -666,13 +678,13 @@ h1 {
 }
 
 :root[data-theme="light"] .info-btn {
-  border-color: rgba(0, 0, 0, 0.26);
+  border-color: var(--panel-border);
   color: var(--muted, #6f685f);
 }
 
 :root[data-theme="light"] .info-popover {
   background: var(--panel, #ffffff);
-  border-color: rgba(0, 0, 0, 0.12);
+  border-color: var(--panel-border);
   color: var(--fg, #1c1b19);
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.1);
 }

@@ -3,18 +3,20 @@
     =========================== */
 :root {
     color-scheme: dark;
-    --bg: #0f0f0f;
+    --bg: #000000;
     --fg: #f4f4f4;
     --muted: #777;
     --ink: #fff;
     --ink-dim: #ccc;
-    --border: #333;
+    --panel-border: rgba(255, 255, 255, 0.14);
+    --panel-border-opaque: #242424;
+    --border: var(--panel-border);
     --panel: #1a1a1a;
     --brand: #f7931a;
     --control-bg: rgba(0, 0, 0, 0.4);
     --control-bg-hover: #000;
     --control-disabled: #888;
-    --control-disabled-border: rgba(255, 255, 255, 0.18);
+    --control-disabled-border: var(--panel-border);
     --overlay-bg: rgba(0, 0, 0, 0.9);
     --card-preview-bg: #000;
     --card-overlay-bg: rgba(0, 0, 0, 0.7);
@@ -51,26 +53,28 @@ label:focus-within,
 
 :root[data-theme="light"] {
     color-scheme: light;
-    --bg: #f7f4ee;
+    --bg: #f4f5f7;
     --fg: #1f1b16;
     --muted: #766d62;
     --ink: #1f1b16;
     --ink-dim: #554d44;
-    --border: #c8beb2;
-    --panel: #fffdf8;
+    --panel-border: rgba(0, 0, 0, 0.11);
+    --panel-border-opaque: #e3e3e3;
+    --border: var(--panel-border);
+    --panel: #ffffff;
     --control-bg: rgba(255, 255, 255, 0.88);
     --control-bg-hover: rgba(247, 147, 26, 0.12);
     --control-disabled: #8f8478;
-    --control-disabled-border: rgba(115, 98, 81, 0.28);
+    --control-disabled-border: var(--panel-border);
     --overlay-bg: rgba(247, 244, 238, 0.94);
-    --card-preview-bg: #f3eee4;
+    --card-preview-bg: #ffffff;
     --card-overlay-bg: rgba(255, 253, 248, 0.9);
     --card-overlay-fg: #2a241d;
     --card-star-bg: rgba(255, 253, 248, 0.92);
     --card-star-fg: #3c3227;
-    --scrollbar-track: #e8dfd2;
-    --scrollbar-thumb: #b5a99a;
-    --scrollbar-thumb-hover: #9f917f;
+    --scrollbar-track: #f4f5f7;
+    --scrollbar-thumb: #bdbdbd;
+    --scrollbar-thumb-hover: #a8a8a8;
 }
 
 html,
@@ -119,7 +123,9 @@ body {
     background-color: var(--bg);
     color: var(--fg);
     font-family: monospace;
-    margin: 2rem;
+    min-height: 100vh;
+    margin: 0;
+    padding: 2rem;
     text-align: center;
 }
 h1 {
@@ -799,7 +805,7 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
 .buy-coffee-methods .buy-coffee-method-btn,
 .thanks-methods .thanks-method-btn {
     background: rgba(0, 0, 0, 0.58);
-    border-color: rgba(255, 255, 255, 0.22);
+    border-color: var(--panel-border);
     color: #ffffff;
     box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
     backdrop-filter: blur(8px);
@@ -1451,7 +1457,7 @@ body.dca-dashboard-expanded .buy-coffee {
 .buy-coffee-modal .buy-coffee-close,
 #thanks-overlay #thanks-overlay-close {
     background: rgba(0, 0, 0, 0.58) !important;
-    border-color: rgba(255, 255, 255, 0.22) !important;
+    border-color: var(--panel-border) !important;
     color: #ffffff !important;
     box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
     backdrop-filter: blur(8px);
