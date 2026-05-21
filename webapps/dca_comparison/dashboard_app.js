@@ -41,6 +41,7 @@
     SPX: "SPY",
     IXIC: "QQQ",
   };
+  const NO_SECONDARY_ASSET = "NONE";
 
   let selectDropdownGlobalListenersBound = false;
   let activeDatePickerClose = null;
@@ -111,6 +112,7 @@
     resetBtn: document.getElementById("resetDashboard"),
     canvas: document.getElementById("chartCanvas"),
     chartLegend: document.getElementById("chartLegend"),
+    statusChips: document.getElementById("statusChips"),
     missingDataStart: document.getElementById("dateRangeMissingDataStart"),
     missingDataEnd: document.getElementById("dateRangeMissingDataEnd"),
     missingSelectionStart: document.getElementById("dateRangeMissingSelectionStart"),
@@ -331,14 +333,20 @@
   }
 
   function getAssetBounds(assetCode) {
+    if (assetCode === NO_SECONDARY_ASSET) return { minIso: state.minIso, maxIso: state.maxIso };
     return state.assetBounds?.[assetCode] || { minIso: state.minIso, maxIso: state.maxIso };
+  }
+
+  function hasSecondaryAsset(settings = state.settings) {
+    return settings.assetB !== NO_SECONDARY_ASSET && !!ASSETS[settings.assetB];
   }
 
   function getPairAvailableBounds(settings = state.settings) {
     const a = getAssetBounds(settings.assetA);
-    const b = getAssetBounds(settings.assetB);
-    const minIso = [a.minIso, b.minIso].filter(Boolean).sort().at(-1) || state.minIso;
-    const maxIso = [a.maxIso, b.maxIso].filter(Boolean).sort()[0] || state.maxIso;
+    const bounds = [a];
+    if (hasSecondaryAsset(settings)) bounds.push(getAssetBounds(settings.assetB));
+    const minIso = bounds.map((bound) => bound.minIso).filter(Boolean).sort().at(-1) || state.minIso;
+    const maxIso = bounds.map((bound) => bound.maxIso).filter(Boolean).sort()[0] || state.maxIso;
     if (!minIso || !maxIso || minIso > maxIso) return { minIso: state.minIso, maxIso: state.maxIso };
     return { minIso, maxIso };
   }
@@ -454,7 +462,8 @@
     const valueEl = document.getElementById(triggerId.replace("Trigger", "Value"));
     if (!select || !menu) return;
     const options = Array.from(select.options).filter((option) => {
-      if (selectId !== "assetBSelect") return true;
+      if (selectId !== "assetBSelect") return option.value !== NO_SECONDARY_ASSET;
+      if (option.value === NO_SECONDARY_ASSET) return true;
       return option.value !== (el.assetASelect?.value || state.settings.assetA);
     });
     if (selectId === "assetBSelect" && options.length && !options.some((option) => option.value === select.value)) {
@@ -1293,10 +1302,10 @@
 
   function buildExportKpis(latest, settings) {
     const assetA = ASSETS[settings.assetA];
-    const assetB = ASSETS[settings.assetB];
-    return [
-      { title: `1 ${assetUnitPhrase(settings.assetA)}`, value: fmtKpiUsd(latest?.priceA), foot: fmtCrossUnits(latest?.priceA / latest?.priceB, settings.assetB), color: null },
-      { title: `1 ${assetUnitPhrase(settings.assetB)}`, value: fmtKpiUsd(latest?.priceB), foot: fmtCrossUnits(latest?.priceB / latest?.priceA, settings.assetA), color: null },
+    const hasB = hasSecondaryAsset(settings);
+    const assetB = hasB ? ASSETS[settings.assetB] : null;
+    const kpis = [
+      { title: `1 ${assetUnitPhrase(settings.assetA)}`, value: fmtKpiUsd(latest?.priceA), foot: hasB ? fmtCrossUnits(latest?.priceA / latest?.priceB, settings.assetB) : "", color: null },
       {
         title: `Number of ${cadenceLabel(settings.cadence)}`,
         value: latest?.count?.toLocaleString?.("en-US") || "",
@@ -1305,14 +1314,18 @@
       },
       { title: "Amount Invested", value: fmtInvestedUsd(latest?.invested, settings.amount), foot: "", color: "green" },
       { title: `${assetA.label} DCA Value`, value: fmtKpiUsd(latest?.valueA), foot: fmtDcaUnits(latest?.unitsA, settings.assetA), color: assetA.color },
-      { title: `${assetB.label} DCA Value`, value: fmtKpiUsd(latest?.valueB), foot: fmtDcaUnits(latest?.unitsB, settings.assetB), color: assetB.color },
     ];
+    if (hasB) {
+      kpis.splice(1, 0, { title: `1 ${assetUnitPhrase(settings.assetB)}`, value: fmtKpiUsd(latest?.priceB), foot: fmtCrossUnits(latest?.priceB / latest?.priceA, settings.assetA), color: null });
+      kpis.push({ title: `${assetB.label} DCA Value`, value: fmtKpiUsd(latest?.valueB), foot: fmtDcaUnits(latest?.unitsB, settings.assetB), color: assetB.color });
+    }
+    return kpis;
   }
 
   function drawExportKpiCards(ctx, kpis, layout, palette) {
     const { x, y, width } = layout;
     const gap = 8;
-    const columns = width < 900 ? 3 : 6;
+    const columns = kpis.length <= 4 ? (width < 900 ? 2 : 4) : (width < 900 ? 3 : 6);
     const rows = Math.ceil(kpis.length / columns);
     const cardH = width < 900 ? 76 : 70;
     const cardW = (width - (gap * (columns - 1))) / columns;
@@ -1365,20 +1378,26 @@
     const theme = settings.theme || getTheme();
     const palette = getExportPalette(theme);
     const assetA = ASSETS[settings.assetA];
-    const assetB = ASSETS[settings.assetB];
+    const hasB = hasSecondaryAsset(settings);
+    const assetB = hasB ? ASSETS[settings.assetB] : null;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = palette.bg;
     ctx.fillRect(0, 0, width, height);
 
     const margin = width < 900 ? 18 : 24;
     const titleY = 28;
-    drawCenteredSegments(ctx, [
+    const titleSegments = [
       { text: fmtTitleUsd(settings.amount), color: palette.green },
       { text: ` ${cadencePhrase(settings.cadence)}: `, color: palette.fg },
       { text: assetA.label, color: assetA.color },
-      { text: " vs ", color: palette.fg },
-      { text: assetB.label, color: assetB.color },
-    ], width / 2, titleY, `700 ${width < 900 ? 20 : 26}px ${getComputedStyle(document.body).fontFamily}`, "middle", width - 96);
+    ];
+    if (hasB) {
+      titleSegments.push(
+        { text: " vs ", color: palette.fg },
+        { text: assetB.label, color: assetB.color },
+      );
+    }
+    drawCenteredSegments(ctx, titleSegments, width / 2, titleY, `700 ${width < 900 ? 20 : 26}px ${getComputedStyle(document.body).fontFamily}`, "middle", width - 96);
 
     const latest = buildSeries(iso, settings).at(-1);
     const kpiY = 48;
@@ -1972,7 +1991,7 @@
     s.assetA = normalizeAssetCode(s.assetA);
     s.assetB = normalizeAssetCode(s.assetB);
     s.assetA = ASSETS[s.assetA] ? s.assetA : DEFAULTS.assetA;
-    s.assetB = ASSETS[s.assetB] ? s.assetB : DEFAULTS.assetB;
+    s.assetB = s.assetB === NO_SECONDARY_ASSET || ASSETS[s.assetB] ? s.assetB : DEFAULTS.assetB;
     if (s.assetA === s.assetB) s.assetB = s.assetA === "BTC" ? "XAU" : "BTC";
     s.amount = Math.max(1, Number(s.amount) || DEFAULTS.amount);
     s.cadence = ["daily", "weekly", "monthly"].includes(s.cadence) ? s.cadence : DEFAULTS.cadence;
@@ -2118,9 +2137,10 @@
       setRangeTrackSegment(el.missingSelectionEnd, available.maxIso, state.desiredRangeEnd, visual);
       setMissingMarker(el.missingMarkerStart, state.desiredRangeStart && state.desiredRangeStart < available.minIso ? state.desiredRangeStart : "", visual);
       setMissingMarker(el.missingMarkerEnd, state.desiredRangeEnd && state.desiredRangeEnd > available.maxIso ? state.desiredRangeEnd : "", visual);
+      const comparedAssetLabel = hasSecondaryAsset(s) ? `${ASSETS[s.assetA].label} and ${ASSETS[s.assetB].label}` : ASSETS[s.assetA].label;
       const restrictionMessage = state.desiredRangeStart < available.minIso
-        ? `${ASSETS[s.assetA].label} and ${ASSETS[s.assetB].label} comparison data starts on ${available.minIso}.`
-        : (state.desiredRangeEnd > available.maxIso ? `${ASSETS[s.assetA].label} and ${ASSETS[s.assetB].label} comparison data ends on ${available.maxIso}.` : "");
+        ? `${comparedAssetLabel} comparison data starts on ${available.minIso}.`
+        : (state.desiredRangeEnd > available.maxIso ? `${comparedAssetLabel} comparison data ends on ${available.maxIso}.` : "");
       if (restrictionMessage) el.rangeTrackWrap.setAttribute("title", restrictionMessage);
       else el.rangeTrackWrap.removeAttribute("title");
       el.rangeTrackWrap.classList.toggle("is-ready", visualMaxIdx > visualMinIdx);
@@ -2151,6 +2171,7 @@
 
   function buildSeries(endIso, settings = state.settings) {
     const s = settings;
+    const hasB = hasSecondaryAsset(s);
     let unitsA = 0;
     let unitsB = 0;
     let invested = 0;
@@ -2159,24 +2180,25 @@
     for (const r of state.rows) {
       if (r.date < s.rangeStart || r.date > endIso) continue;
       const priceA = r[s.assetA];
-      const priceB = r[s.assetB];
-      if (!Number.isFinite(priceA) || priceA <= 0 || !Number.isFinite(priceB) || priceB <= 0) continue;
+      const priceB = hasB ? r[s.assetB] : NaN;
+      if (!Number.isFinite(priceA) || priceA <= 0) continue;
+      if (hasB && (!Number.isFinite(priceB) || priceB <= 0)) continue;
       if (r.date >= s.dcaStart && isDcaDate(r.date, s.dcaStart, s.cadence)) {
         invested += s.amount;
         unitsA += s.amount / priceA;
-        unitsB += s.amount / priceB;
+        if (hasB) unitsB += s.amount / priceB;
         count += 1;
       }
       if (r.date >= s.dcaStart && invested > 0) {
         points.push({
           date: r.date,
           priceA,
-          priceB,
+          priceB: hasB ? priceB : null,
           valueA: unitsA * priceA,
-          valueB: unitsB * priceB,
+          valueB: hasB ? unitsB * priceB : null,
           invested,
           unitsA,
-          unitsB,
+          unitsB: hasB ? unitsB : null,
           count,
         });
       }
@@ -2333,13 +2355,14 @@
     const green = opts.export ? exportPalette.green : (colorVar("--price-up") || exportPalette.green);
     const chartSettings = opts.settings || state.settings;
     const assetA = ASSETS[chartSettings.assetA];
-    const assetB = ASSETS[chartSettings.assetB];
+    const hasB = hasSecondaryAsset(chartSettings);
+    const assetB = hasB ? ASSETS[chartSettings.assetB] : null;
     const points = buildSeries(endIso, chartSettings);
     const legendItems = [
       { label: "Amount Invested", color: green, textColor: muted },
       { label: `${assetA.label} DCA Value`, color: assetA.color, textColor: muted },
-      { label: `${assetB.label} DCA Value`, color: assetB.color, textColor: muted },
     ];
+    if (hasB) legendItems.push({ label: `${assetB.label} DCA Value`, color: assetB.color, textColor: muted });
     if (!opts.skipBackground) {
       ctx.fillStyle = bg;
       ctx.fillRect(0, 0, cssW, cssH);
@@ -2362,7 +2385,7 @@
       ctx.clip();
     }
     const latest = points[points.length - 1];
-    const values = points.flatMap((p) => [p.valueA, p.valueB, p.invested]).filter((v) => Number.isFinite(v));
+    const values = points.flatMap((p) => hasB ? [p.valueA, p.valueB, p.invested] : [p.valueA, p.invested]).filter((v) => Number.isFinite(v));
     const scale = opts.export ? (opts.scale || chartSettings.scale) : chartSettings.scale;
     const yAxis = buildYScaleConfig(values, scale, { minMaxValue: chartSettings.amount * 2 });
     const labelSizes = getResponsiveChartLabelSizes(localW);
@@ -2472,7 +2495,7 @@
       ctx.stroke();
     }
     drawLine("invested", green, chartLineWidth);
-    drawLine("valueB", assetB.color, chartLineWidth);
+    if (hasB) drawLine("valueB", assetB.color, chartLineWidth);
     drawLine("valueA", assetA.color, chartLineWidth);
 
     if (opts.export) {
@@ -2500,9 +2523,13 @@
   function updateKpis(latest) {
     const s = state.settings;
     const a = ASSETS[s.assetA];
-    const b = ASSETS[s.assetB];
+    const hasB = hasSecondaryAsset(s);
+    const b = hasB ? ASSETS[s.assetB] : null;
+    el.statusChips?.classList.toggle("kpi-cards--single", !hasB);
     el.assetAPriceTitle.textContent = `1 ${assetUnitPhrase(s.assetA)}`;
-    el.assetBPriceTitle.textContent = `1 ${assetUnitPhrase(s.assetB)}`;
+    el.assetBPriceTitle.closest(".kpi-card")?.toggleAttribute("hidden", !hasB);
+    el.assetBDcaTitle.closest(".kpi-card")?.toggleAttribute("hidden", !hasB);
+    el.assetBPriceTitle.textContent = hasB ? `1 ${assetUnitPhrase(s.assetB)}` : "";
     if (!latest) {
       el.assetAPrice.textContent = "";
       el.assetBPrice.textContent = "";
@@ -2513,19 +2540,19 @@
       if (el.countYearsKpi) el.countYearsKpi.textContent = "";
       el.investedKpi.textContent = "";
       el.assetADcaTitle.textContent = `${a.label} DCA Value`;
-      el.assetBDcaTitle.textContent = `${b.label} DCA Value`;
+      el.assetBDcaTitle.textContent = hasB ? `${b.label} DCA Value` : "";
       el.assetADcaValue.textContent = "";
       el.assetBDcaValue.textContent = "";
       el.assetADcaUnits.textContent = "";
       el.assetBDcaUnits.textContent = "";
       el.assetADcaValue.style.color = a.color;
-      el.assetBDcaValue.style.color = b.color;
+      if (hasB) el.assetBDcaValue.style.color = b.color;
       return;
     }
     el.assetAPrice.textContent = fmtKpiUsd(latest.priceA);
-    el.assetBPrice.textContent = fmtKpiUsd(latest.priceB);
-    el.assetAPriceLabel.textContent = fmtCrossUnits(latest.priceA / latest.priceB, s.assetB);
-    el.assetBPriceLabel.textContent = fmtCrossUnits(latest.priceB / latest.priceA, s.assetA);
+    el.assetBPrice.textContent = hasB ? fmtKpiUsd(latest.priceB) : "";
+    el.assetAPriceLabel.textContent = hasB ? fmtCrossUnits(latest.priceA / latest.priceB, s.assetB) : "";
+    el.assetBPriceLabel.textContent = hasB ? fmtCrossUnits(latest.priceB / latest.priceA, s.assetA) : "";
     el.assetAPrice.style.color = "";
     el.assetBPrice.style.color = "";
     el.assetBPrice.className = "kpi-value";
@@ -2534,13 +2561,13 @@
     if (el.countYearsKpi) el.countYearsKpi.textContent = fmtElapsedYears(s.dcaStart, latest.date);
     el.investedKpi.textContent = fmtInvestedUsd(latest.invested, s.amount);
     el.assetADcaTitle.textContent = `${a.label} DCA Value`;
-    el.assetBDcaTitle.textContent = `${b.label} DCA Value`;
+    el.assetBDcaTitle.textContent = hasB ? `${b.label} DCA Value` : "";
     el.assetADcaValue.textContent = fmtKpiUsd(latest.valueA);
-    el.assetBDcaValue.textContent = fmtKpiUsd(latest.valueB);
+    el.assetBDcaValue.textContent = hasB ? fmtKpiUsd(latest.valueB) : "";
     el.assetADcaUnits.textContent = fmtDcaUnits(latest.unitsA, s.assetA);
-    el.assetBDcaUnits.textContent = fmtDcaUnits(latest.unitsB, s.assetB);
+    el.assetBDcaUnits.textContent = hasB ? fmtDcaUnits(latest.unitsB, s.assetB) : "";
     el.assetADcaValue.style.color = a.color;
-    el.assetBDcaValue.style.color = b.color;
+    if (hasB) el.assetBDcaValue.style.color = b.color;
   }
 
   function render() {
