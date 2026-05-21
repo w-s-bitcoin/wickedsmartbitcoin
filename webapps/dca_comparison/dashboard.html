@@ -303,9 +303,17 @@
       min-height: 0;
     }
 
+    #statusChips.kpi-cards.kpi-cards--single {
+      grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    }
+
     @media (max-width: 1300px) {
       #statusChips.kpi-cards {
         grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+      }
+
+      #statusChips.kpi-cards.kpi-cards--single {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
       }
     }
 
@@ -331,6 +339,10 @@
       min-width: 0;
       min-height: 70px;
       text-align: center;
+    }
+
+    .kpi-card[hidden] {
+      display: none !important;
     }
 
     .kpi-title {
@@ -2470,6 +2482,7 @@
               <option value="SPY">SPY</option>
               <option value="QQQ">QQQ</option>
               <option value="TLT">TLT</option>
+              <option value="NONE">None</option>
             </select>
           </label>
         </div>
