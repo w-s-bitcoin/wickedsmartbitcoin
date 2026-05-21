@@ -11,8 +11,9 @@
     BTC: { column: "BTC", cssVar: "--btc" },
     XAU: { column: "XAU", cssVar: "--gold" },
     XAG: { column: "XAG", cssVar: "--silver" },
-    SPX: { column: "SPX", cssVar: "--ink-dim" },
-    IXIC: { column: "IXIC", cssVar: "--muted" },
+    SPY: { column: "SPY", cssVar: "--ink-dim" },
+    QQQ: { column: "QQQ", cssVar: "--muted" },
+    TLT: { column: "TLT", cssVar: "--link" },
   };
 
   let cachedRows = [];
@@ -233,8 +234,9 @@
     const xauIdx = fxHeader.indexOf("xauusd");
     const xagIdx = fxHeader.indexOf("xagusd");
     const indexDateIdx = indexHeader.indexOf("date");
-    const spxIdx = indexHeader.indexOf("sp500");
-    const ixicIdx = indexHeader.indexOf("nasdaq");
+    const spyIdx = indexHeader.indexOf("spy");
+    const qqqIdx = indexHeader.indexOf("qqq");
+    const tltIdx = indexHeader.indexOf("tlt");
     const byDate = new Map();
 
     for (const row of btcRows) {
@@ -257,10 +259,12 @@
       const iso = isoFromMaybeUsDate(row[indexDateIdx]);
       const target = byDate.get(iso);
       if (!target) continue;
-      const spx = toNumber(row[spxIdx]);
-      const ixic = toNumber(row[ixicIdx]);
-      if (Number.isFinite(spx) && spx > 0) target.SPX = spx;
-      if (Number.isFinite(ixic) && ixic > 0) target.IXIC = ixic;
+      const spy = toNumber(row[spyIdx]);
+      const qqq = toNumber(row[qqqIdx]);
+      const tlt = toNumber(row[tltIdx]);
+      if (Number.isFinite(spy) && spy > 0) target.SPY = spy;
+      if (Number.isFinite(qqq) && qqq > 0) target.QQQ = qqq;
+      if (Number.isFinite(tlt) && tlt > 0) target.TLT = tlt;
     }
 
     cachedRows = [...byDate.values()]
