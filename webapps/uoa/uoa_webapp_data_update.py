@@ -626,6 +626,115 @@ def clean_ves_redenomination_lag_points(df, event_dates):
     return cleaned, fixes
 
 
+def _redenomination_event_dates(events):
+    dates = set()
+    for event in events or []:
+        event_date = pd.to_datetime(event.get("date"), errors="coerce")
+        if pd.notna(event_date):
+            dates.add(event_date.date())
+    return dates
+
+
+def clean_syp_redenomination_scale_points(df, events=SYP_REDENOMINATION_EVENTS):
+    """Correct stale-scale SYP/USD rows after the 2026 100:1 redenomination.
+
+    Upstream can intermittently report post-redenomination SYP values on the
+    pre-redenomination scale. The dashboard expects source units to step at the
+    redenomination date, so post-event stale-scale rows are multiplied by the
+    event ratio while true event steps are preserved.
+    """
+    if "sypusd" not in df.columns or "date" not in df.columns:
+        return df, 0
+
+    event_dates = sorted(_redenomination_event_dates(events))
+    if not event_dates:
+        return df, 0
+    event_date = event_dates[0]
+    ratio = float(events[0].get("ratio", 100) or 100)
+    if ratio <= 1:
+        return df, 0
+
+    cleaned = df.copy()
+    cleaned["sypusd"] = pd.to_numeric(cleaned["sypusd"], errors="coerce")
+    cleaned["date"] = pd.to_datetime(cleaned["date"], errors="coerce")
+
+    vals = cleaned["sypusd"].tolist()
+    dates = cleaned["date"].tolist()
+
+    pre_event_values = [
+        float(value)
+        for value, date_value in zip(vals, dates)
+        if (
+            pd.notna(value)
+            and value > 0
+            and pd.notna(date_value)
+            and event_date - timedelta(days=45) <= date_value.date() < event_date
+        )
+    ]
+    expected_post_anchor = None
+    if pre_event_values:
+        expected_post_anchor = float(pd.Series(pre_event_values).median()) * ratio
+
+    fixes = 0
+    for idx, date_val in enumerate(dates):
+        if pd.isna(date_val) or date_val.date() < event_date:
+            continue
+
+        cur_val = vals[idx]
+        ref_candidates = []
+
+        for prev_idx in range(idx - 1, -1, -1):
+            prev_date = dates[prev_idx]
+            if pd.isna(prev_date) or prev_date.date() < event_date:
+                break
+            prev_val = vals[prev_idx]
+            if pd.notna(prev_val) and prev_val > 0:
+                ref_candidates.append(float(prev_val))
+                break
+
+        for next_idx in range(idx + 1, len(vals)):
+            next_date = dates[next_idx]
+            if pd.isna(next_date) or next_date.date() < event_date:
+                continue
+            next_val = vals[next_idx]
+            if pd.notna(next_val) and next_val > 0:
+                ref_candidates.append(float(next_val))
+                break
+
+        if expected_post_anchor is not None:
+            ref_candidates.append(expected_post_anchor)
+        if not ref_candidates:
+            continue
+
+        ref_val = float(pd.Series(ref_candidates).median())
+        if not pd.notna(ref_val) or ref_val <= 0:
+            continue
+
+        if pd.isna(cur_val) or cur_val <= 0:
+            vals[idx] = ref_val
+            fixes += 1
+            continue
+
+        scale_ratio = float(cur_val) / ref_val
+        if scale_ratio < 0.05:
+            scaled = float(cur_val) * ratio
+            if scaled > 0 and max(scaled, ref_val) / min(scaled, ref_val) <= 2.5:
+                vals[idx] = scaled
+            else:
+                vals[idx] = ref_val
+            fixes += 1
+        elif scale_ratio > 20.0:
+            scaled = float(cur_val) / ratio
+            if scaled > 0 and max(scaled, ref_val) / min(scaled, ref_val) <= 2.5:
+                vals[idx] = scaled
+            else:
+                vals[idx] = ref_val
+            fixes += 1
+
+    cleaned["sypusd"] = vals
+    return cleaned, fixes
+
+
 def clean_transient_spike_outliers(
     df,
     value_columns,
@@ -656,9 +765,9 @@ def clean_transient_spike_outliers(
     if date_column in cleaned.columns:
         cleaned[date_column] = pd.to_datetime(cleaned[date_column], errors="coerce")
 
-    ves_event_dates = {
-        pd.to_datetime(event["date"], errors="coerce").date()
-        for event in VES_REDENOMINATION_EVENTS
+    redenomination_event_dates_by_column = {
+        f"{code.lower()}usd": _redenomination_event_dates(events)
+        for code, events in REDENOMINATION_EVENTS.items()
     }
 
     fixes_by_column = {}
@@ -751,10 +860,11 @@ def clean_transient_spike_outliers(
                 idx += 1
                 continue
 
-            # Preserve known step changes for VES redenominations.
-            if col.lower() == "vesusd" and date_column in cleaned.columns:
+            # Preserve known redenomination step changes.
+            event_dates = redenomination_event_dates_by_column.get(col.lower(), set())
+            if event_dates and date_column in cleaned.columns:
                 run_dates = cleaned.loc[run_start:run_end, date_column].dt.date
-                if any(d in ves_event_dates for d in run_dates if pd.notna(d)):
+                if any(d in event_dates for d in run_dates if pd.notna(d)):
                     idx += 1
                     continue
 
@@ -1125,6 +1235,10 @@ def main():
         total_manual_fixes = sum(manual_fixes.values())
         manual_cols_text = ", ".join(f"{col}:{count}" for col, count in sorted(manual_fixes.items()))
         print(f"  Applied manual source-scale corrections: {total_manual_fixes} rows ({manual_cols_text})")
+
+    df_combined, syp_fixes = clean_syp_redenomination_scale_points(df_combined)
+    if syp_fixes:
+        print(f"  Cleaned SYP post-redenomination scale points: {syp_fixes}")
 
     # Remove transient spike outliers (single or multi-day) that quickly revert.
     spike_columns = [col for col in df_combined.columns if col != "date" and col.lower().endswith("usd")]
