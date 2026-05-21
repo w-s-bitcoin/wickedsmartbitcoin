@@ -106,6 +106,12 @@
     resetBtn: document.getElementById("resetDashboard"),
     canvas: document.getElementById("chartCanvas"),
     chartLegend: document.getElementById("chartLegend"),
+    missingDataStart: document.getElementById("dateRangeMissingDataStart"),
+    missingDataEnd: document.getElementById("dateRangeMissingDataEnd"),
+    missingSelectionStart: document.getElementById("dateRangeMissingSelectionStart"),
+    missingSelectionEnd: document.getElementById("dateRangeMissingSelectionEnd"),
+    missingMarkerStart: document.getElementById("dateRangeMissingMarkerStart"),
+    missingMarkerEnd: document.getElementById("dateRangeMissingMarkerEnd"),
     assetAPriceTitle: document.getElementById("assetAPriceTitle"),
     assetBPriceTitle: document.getElementById("assetBPriceTitle"),
     assetAPriceLabel: document.getElementById("assetAPriceLabel"),
@@ -133,8 +139,11 @@
     exportSettings: { ...DEFAULT_EXPORT_SETTINGS },
     rows: [],
     byDate: new Map(),
+    assetBounds: {},
     minIso: "",
     maxIso: "",
+    desiredRangeStart: "",
+    desiredRangeEnd: "",
     currentIso: "",
     isPlaying: false,
     paused: false,
@@ -263,23 +272,25 @@
   }
 
   function getPresetStartIso(preset, endIso) {
-    if (!state.minIso || !endIso) return "";
-    if (preset === "full") return state.minIso;
-    if (preset === "ytd") return clampIso(`${endIso.slice(0, 4)}-01-01`, state.minIso, state.maxIso);
+    const bounds = getActiveAvailableBounds();
+    if (!bounds.minIso || !endIso) return "";
+    if (preset === "full") return bounds.minIso;
+    if (preset === "ytd") return clampIso(`${endIso.slice(0, 4)}-01-01`, bounds.minIso, bounds.maxIso);
     const yearCount = Number.parseInt(String(preset).replace("y", ""), 10);
     if (Number.isFinite(yearCount) && yearCount > 0) {
-      return clampIso(subtractCalendarYears(endIso, yearCount), state.minIso, state.maxIso);
+      return clampIso(subtractCalendarYears(endIso, yearCount), bounds.minIso, bounds.maxIso);
     }
-    return state.minIso;
+    return bounds.minIso;
   }
 
   function inferRangePreset(startIso, endIso) {
     if (!startIso || !endIso) return "";
-    if (startIso === state.minIso && endIso === state.maxIso) return "full";
+    const bounds = getActiveAvailableBounds();
+    if (startIso === bounds.minIso && endIso === bounds.maxIso) return "full";
     const presets = ["ytd", "1y", "2y", "4y", "8y"];
     return presets.find((preset) => {
       const presetStart = normalizeCadenceStartIso(getPresetStartIso(preset, endIso), state.settings.cadence);
-      return clampIso(presetStart, state.minIso, state.maxIso) === startIso;
+      return clampIso(presetStart, bounds.minIso, bounds.maxIso) === startIso;
     }) || "";
   }
 
@@ -312,6 +323,48 @@
     if (lo === 0) return 0;
     const prior = lo - 1;
     return Math.abs(dayDiff(state.rows[lo].date, iso)) < Math.abs(dayDiff(state.rows[prior].date, iso)) ? lo : prior;
+  }
+
+  function getAssetBounds(assetCode) {
+    return state.assetBounds?.[assetCode] || { minIso: state.minIso, maxIso: state.maxIso };
+  }
+
+  function getPairAvailableBounds(settings = state.settings) {
+    const a = getAssetBounds(settings.assetA);
+    const b = getAssetBounds(settings.assetB);
+    const minIso = [a.minIso, b.minIso].filter(Boolean).sort().at(-1) || state.minIso;
+    const maxIso = [a.maxIso, b.maxIso].filter(Boolean).sort()[0] || state.maxIso;
+    if (!minIso || !maxIso || minIso > maxIso) return { minIso: state.minIso, maxIso: state.maxIso };
+    return { minIso, maxIso };
+  }
+
+  function getActiveAvailableBounds() {
+    return getPairAvailableBounds(state.settings);
+  }
+
+  function rememberDesiredRange(startIso = state.settings.rangeStart, endIso = state.settings.rangeEnd) {
+    state.desiredRangeStart = startIso || state.desiredRangeStart || state.minIso;
+    state.desiredRangeEnd = endIso || state.desiredRangeEnd || state.maxIso;
+  }
+
+  function getVisualBounds() {
+    const available = getActiveAvailableBounds();
+    const desiredStart = state.desiredRangeStart || state.settings.rangeStart || available.minIso;
+    const desiredEnd = state.desiredRangeEnd || state.settings.rangeEnd || available.maxIso;
+    return {
+      minIso: [desiredStart, available.minIso].filter(Boolean).sort()[0] || state.minIso,
+      maxIso: [desiredEnd, available.maxIso].filter(Boolean).sort().at(-1) || state.maxIso,
+    };
+  }
+
+  function clampSettingsToAvailableRange({ preserveDesired = true } = {}) {
+    const available = getActiveAvailableBounds();
+    if (preserveDesired) rememberDesiredRange();
+    state.settings.rangeStart = clampIso(state.settings.rangeStart || available.minIso, available.minIso, available.maxIso);
+    state.settings.rangeEnd = clampIso(state.settings.rangeEnd || available.maxIso, available.minIso, available.maxIso);
+    if (state.settings.rangeStart > state.settings.rangeEnd) state.settings.rangeStart = state.settings.rangeEnd;
+    state.settings.dcaStart = state.settings.rangeStart;
+    state.currentIso = clampIso(state.currentIso || state.settings.rangeEnd, state.settings.rangeStart, state.settings.rangeEnd);
   }
 
   function fmtShortDate(iso) {
@@ -395,15 +448,39 @@
     const menu = document.getElementById(menuId);
     const valueEl = document.getElementById(triggerId.replace("Trigger", "Value"));
     if (!select || !menu) return;
-    const selectedOption = select.options[select.selectedIndex];
+    const options = Array.from(select.options).filter((option) => {
+      if (selectId !== "assetBSelect") return true;
+      return option.value !== (el.assetASelect?.value || state.settings.assetA);
+    });
+    if (selectId === "assetBSelect" && options.length && !options.some((option) => option.value === select.value)) {
+      select.value = options[0].value;
+      state.settings.assetB = options[0].value;
+    }
+    const selectedOption = Array.from(select.options).find((option) => option.value === select.value);
     if (valueEl) valueEl.textContent = selectedOption ? selectedOption.textContent : "";
     if (trigger) trigger.setAttribute("aria-label", selectedOption ? selectedOption.textContent : "");
-    menu.innerHTML = Array.from(select.options)
+    menu.innerHTML = options
       .map((option) => {
         const selectedClass = option.value === select.value ? " dca-option-btn--selected" : "";
         return `<button type="button" class="dca-option-btn${selectedClass}" data-value="${escapeHtml(option.value)}">${escapeHtml(option.textContent || "")}</button>`;
       })
       .join("");
+  }
+
+  function getDropdownOptionButtons(menu) {
+    return Array.from(menu?.querySelectorAll(".dca-option-btn") || []);
+  }
+
+  function cycleSelectDropdownOption(select, menu, direction) {
+    const buttons = getDropdownOptionButtons(menu);
+    if (!buttons.length || !select) return false;
+    const selectedIndex = Math.max(0, buttons.findIndex((button) => button.dataset.value === select.value));
+    const nextIndex = (selectedIndex + direction + buttons.length) % buttons.length;
+    const nextValue = buttons[nextIndex]?.dataset.value;
+    if (!nextValue) return false;
+    select.value = nextValue;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
   }
 
   function syncAllSelectDropdowns() {
@@ -482,6 +559,31 @@
         }
         syncSelectDropdown(selectId, triggerId, menuId);
         setDropdownOpen(dropdown, menu, false);
+      });
+      toggleRoot?.addEventListener("keydown", (event) => {
+        if (event.altKey || event.ctrlKey || event.metaKey) return;
+        const isUp = event.key === "ArrowUp";
+        const isDown = event.key === "ArrowDown";
+        if (!isUp && !isDown && event.key !== "Enter" && event.key !== "Escape") return;
+        if (event.key === "Escape") {
+          setDropdownOpen(dropdown, menu, false);
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.key === "Enter") {
+          if (!menu.classList.contains("open")) {
+            closeAllSelectDropdowns(dropdown);
+            setDropdownOpen(dropdown, menu, true);
+          }
+          return;
+        }
+        if (!menu.classList.contains("open")) {
+          closeAllSelectDropdowns(dropdown);
+          setDropdownOpen(dropdown, menu, true);
+        }
+        cycleSelectDropdownOption(select, menu, isDown ? 1 : -1);
+        syncSelectDropdown(selectId, triggerId, menuId);
       });
     });
     requestAnimationFrame(() => {
@@ -1805,14 +1907,23 @@
     const spxIdx = indexHeader.indexOf("sp500");
     const ixicIdx = indexHeader.indexOf("nasdaq");
     const byDate = new Map();
+    const ensureRow = (iso) => {
+      if (!iso) return null;
+      let row = byDate.get(iso);
+      if (!row) {
+        row = { date: iso };
+        byDate.set(iso, row);
+      }
+      return row;
+    };
     for (const r of btcRows) {
       const iso = isoFromMaybeUsDate(r[btcDateIdx]);
       const price = Number(r[btcPriceIdx]);
-      if (iso && Number.isFinite(price) && price > 0) byDate.set(iso, { date: iso, BTC: price });
+      if (iso && Number.isFinite(price) && price > 0) ensureRow(iso).BTC = price;
     }
     for (const r of fxRows) {
       const iso = isoFromMaybeUsDate(r[fxDateIdx]);
-      const target = byDate.get(iso);
+      const target = ensureRow(iso);
       if (!target) continue;
       const xag = Number(r[xagIdx]);
       const xau = Number(r[xauIdx]);
@@ -1821,17 +1932,29 @@
     }
     for (const r of indexRows) {
       const iso = isoFromMaybeUsDate(r[indexDateIdx]);
-      const target = byDate.get(iso);
+      const target = ensureRow(iso);
       if (!target) continue;
       const spx = Number(r[spxIdx]);
       const ixic = Number(r[ixicIdx]);
       if (Number.isFinite(spx) && spx > 0) target.SPX = spx;
       if (Number.isFinite(ixic) && ixic > 0) target.IXIC = ixic;
     }
-    state.rows = [...byDate.values()].filter((r) => r.BTC && r.XAG && r.XAU).sort((a, b) => a.date.localeCompare(b.date));
+    state.rows = [...byDate.values()]
+      .filter((r) => Object.keys(ASSETS).some((asset) => Number.isFinite(r[asset]) && r[asset] > 0))
+      .sort((a, b) => a.date.localeCompare(b.date));
     state.byDate = new Map(state.rows.map((r) => [r.date, r]));
     state.minIso = state.rows[0]?.date || "";
     state.maxIso = state.rows[state.rows.length - 1]?.date || "";
+    state.assetBounds = {};
+    Object.keys(ASSETS).forEach((asset) => {
+      const assetRows = state.rows.filter((r) => Number.isFinite(r[asset]) && r[asset] > 0);
+      if (assetRows.length) {
+        state.assetBounds[asset] = {
+          minIso: assetRows[0].date,
+          maxIso: assetRows[assetRows.length - 1].date,
+        };
+      }
+    });
   }
 
   function normalizeSettings() {
@@ -1849,14 +1972,20 @@
     s.endFrameHold = s.endFrameHold !== false;
     s.preset = ["", "ytd", "1y", "2y", "4y", "8y", "full"].includes(s.preset) ? s.preset : "";
     if (s.preset) {
-      s.rangeEnd = state.maxIso;
+      const bounds = getActiveAvailableBounds();
+      s.rangeEnd = bounds.maxIso;
       s.rangeStart = getPresetStartIso(s.preset, s.rangeEnd);
+      state.desiredRangeStart = s.rangeStart;
+      state.desiredRangeEnd = s.rangeEnd;
     }
-    s.rangeStart = clampIso(s.rangeStart || s.dcaStart, state.minIso, state.maxIso);
-    s.rangeEnd = clampIso(s.rangeEnd || state.maxIso, state.minIso, state.maxIso);
-    s.rangeStart = clampIso(normalizeCadenceStartIso(s.rangeStart, s.cadence), state.minIso, state.maxIso);
+    const available = getActiveAvailableBounds();
+    if (!state.desiredRangeStart) state.desiredRangeStart = s.rangeStart || s.dcaStart || available.minIso;
+    if (!state.desiredRangeEnd) state.desiredRangeEnd = s.rangeEnd || available.maxIso;
+    s.rangeStart = clampIso(s.rangeStart || s.dcaStart, available.minIso, available.maxIso);
+    s.rangeEnd = clampIso(s.rangeEnd || available.maxIso, available.minIso, available.maxIso);
+    s.rangeStart = clampIso(normalizeCadenceStartIso(s.rangeStart, s.cadence), available.minIso, available.maxIso);
     if (s.rangeStart > s.rangeEnd) {
-      s.rangeEnd = clampIso(s.rangeStart, state.minIso, state.maxIso);
+      s.rangeEnd = clampIso(s.rangeStart, available.minIso, available.maxIso);
     }
     if (s.rangeStart > s.rangeEnd) s.rangeStart = s.rangeEnd;
     s.preset = inferRangePreset(s.rangeStart, s.rangeEnd);
@@ -1864,10 +1993,46 @@
     state.currentIso = clampIso(state.currentIso || s.rangeEnd, s.rangeStart, s.rangeEnd);
   }
 
+  function setRangeTrackSegment(segmentEl, fromIso, toIso, visualBounds) {
+    if (!segmentEl || !fromIso || !toIso || fromIso >= toIso) {
+      segmentEl?.classList.remove("active");
+      if (segmentEl) {
+        segmentEl.style.left = "0";
+        segmentEl.style.right = "100%";
+      }
+      return;
+    }
+    const startIdx = findDateIndexByMode(fromIso, "ceil");
+    const endIdx = findDateIndexByMode(toIso, "floor");
+    const minIdx = findDateIndexByMode(visualBounds.minIso, "ceil");
+    const maxIdx = findDateIndexByMode(visualBounds.maxIso, "floor");
+    const denom = Math.max(1, maxIdx - minIdx);
+    const pct = (idx) => ((Math.max(minIdx, Math.min(maxIdx, idx)) - minIdx) / denom * 100);
+    segmentEl.style.left = `${pct(startIdx).toFixed(4)}%`;
+    segmentEl.style.right = `calc(100% - ${pct(endIdx).toFixed(4)}%)`;
+    segmentEl.classList.add("active");
+  }
+
+  function setMissingMarker(markerEl, iso, visualBounds) {
+    if (!markerEl || !iso) {
+      markerEl?.classList.remove("active");
+      return;
+    }
+    const idx = findDateIndexByMode(iso, "nearest");
+    const minIdx = findDateIndexByMode(visualBounds.minIso, "ceil");
+    const maxIdx = findDateIndexByMode(visualBounds.maxIso, "floor");
+    const denom = Math.max(1, maxIdx - minIdx);
+    const pct = ((Math.max(minIdx, Math.min(maxIdx, idx)) - minIdx) / denom * 100);
+    markerEl.style.left = `${pct.toFixed(4)}%`;
+    markerEl.classList.add("active");
+  }
+
   function syncControls() {
     const s = state.settings;
-    el.rangeStartInput.min = state.minIso; el.rangeStartInput.max = s.rangeEnd; el.rangeStartInput.value = s.rangeStart;
-    el.rangeEndInput.min = s.rangeStart; el.rangeEndInput.max = state.maxIso; el.rangeEndInput.value = s.rangeEnd;
+    const available = getActiveAvailableBounds();
+    const visual = getVisualBounds();
+    el.rangeStartInput.min = available.minIso; el.rangeStartInput.max = s.rangeEnd; el.rangeStartInput.value = s.rangeStart;
+    el.rangeEndInput.min = s.rangeStart; el.rangeEndInput.max = available.maxIso; el.rangeEndInput.value = s.rangeEnd;
     if (el.rangeStartBtn) el.rangeStartBtn.innerHTML = datePickerButtonHtml(s.rangeStart);
     if (el.rangeEndBtn) el.rangeEndBtn.innerHTML = datePickerButtonHtml(s.rangeEnd);
     el.cadenceSelect.value = s.cadence;
@@ -1907,13 +2072,15 @@
     el.playBtn.classList.toggle("is-playing", state.isPlaying);
     el.pauseBtn.classList.toggle("is-paused", state.paused);
 
+    const visualMinIdx = Math.max(0, findDateIndexByMode(visual.minIso, "ceil"));
+    const visualMaxIdx = Math.max(visualMinIdx, findDateIndexByMode(visual.maxIso, "floor"));
     const startIdx = findDateIndex(s.rangeStart);
     const endIdx = findDateIndex(s.rangeEnd);
     const currentIdx = findDateIndex(state.currentIso);
-    const maxIdx = Math.max(0, state.rows.length - 1);
+    const maxIdx = visualMaxIdx;
     if (el.startSlider && el.endSlider) {
-      el.startSlider.min = "0"; el.startSlider.max = String(maxIdx); el.startSlider.value = String(startIdx);
-      el.endSlider.min = "0"; el.endSlider.max = String(maxIdx); el.endSlider.value = String(endIdx);
+      el.startSlider.min = String(visualMinIdx); el.startSlider.max = String(visualMaxIdx); el.startSlider.value = String(startIdx);
+      el.endSlider.min = String(visualMinIdx); el.endSlider.max = String(visualMaxIdx); el.endSlider.value = String(endIdx);
     }
     if (el.rangeDaysInput) {
       const days = Math.max(1, dayDiff(s.rangeStart, s.rangeEnd) + 1);
@@ -1921,19 +2088,30 @@
       if (document.activeElement !== el.rangeDaysInput) el.rangeDaysInput.value = days.toLocaleString("en-US");
     }
     if (el.rangeTrackWrap) {
-      const denom = Math.max(1, maxIdx);
+      const denom = Math.max(1, visualMaxIdx - visualMinIdx);
       const styles = window.getComputedStyle(el.rangeTrackWrap);
       const edgePad = Number.parseFloat(styles.getPropertyValue("--slider-edge-pad")) || 0;
       const trackWidth = Math.max(1, el.rangeTrackWrap.clientWidth - edgePad * 2);
-      const pct = (idx) => `${(Math.max(0, Math.min(maxIdx, idx)) / denom * 100).toFixed(4)}%`;
-      const markerPos = (idx) => `${(edgePad + (Math.max(0, Math.min(maxIdx, idx)) / denom) * trackWidth).toFixed(2)}px`;
+      const pct = (idx) => `${(((Math.max(visualMinIdx, Math.min(visualMaxIdx, idx)) - visualMinIdx) / denom) * 100).toFixed(4)}%`;
+      const markerPos = (idx) => `${(edgePad + ((Math.max(visualMinIdx, Math.min(visualMaxIdx, idx)) - visualMinIdx) / denom) * trackWidth).toFixed(2)}px`;
       el.rangeTrackWrap.style.setProperty("--slider-start", pct(startIdx));
       el.rangeTrackWrap.style.setProperty("--slider-end", pct(endIdx));
       el.rangeTrackWrap.style.setProperty("--slider-current", pct(currentIdx));
       el.rangeTrackWrap.style.setProperty("--slider-start-marker", markerPos(startIdx));
       el.rangeTrackWrap.style.setProperty("--slider-end-marker", markerPos(endIdx));
       el.rangeTrackWrap.style.setProperty("--slider-current-marker", markerPos(currentIdx));
-      el.rangeTrackWrap.classList.toggle("is-ready", maxIdx > 0);
+      setRangeTrackSegment(el.missingDataStart, visual.minIso, available.minIso, visual);
+      setRangeTrackSegment(el.missingDataEnd, available.maxIso, visual.maxIso, visual);
+      setRangeTrackSegment(el.missingSelectionStart, state.desiredRangeStart, available.minIso, visual);
+      setRangeTrackSegment(el.missingSelectionEnd, available.maxIso, state.desiredRangeEnd, visual);
+      setMissingMarker(el.missingMarkerStart, state.desiredRangeStart && state.desiredRangeStart < available.minIso ? state.desiredRangeStart : "", visual);
+      setMissingMarker(el.missingMarkerEnd, state.desiredRangeEnd && state.desiredRangeEnd > available.maxIso ? state.desiredRangeEnd : "", visual);
+      const restrictionMessage = state.desiredRangeStart < available.minIso
+        ? `${ASSETS[s.assetA].label} and ${ASSETS[s.assetB].label} comparison data starts on ${available.minIso}.`
+        : (state.desiredRangeEnd > available.maxIso ? `${ASSETS[s.assetA].label} and ${ASSETS[s.assetB].label} comparison data ends on ${available.maxIso}.` : "");
+      if (restrictionMessage) el.rangeTrackWrap.setAttribute("title", restrictionMessage);
+      else el.rangeTrackWrap.removeAttribute("title");
+      el.rangeTrackWrap.classList.toggle("is-ready", visualMaxIdx > visualMinIdx);
       el.rangeTrackWrap.classList.toggle("is-playing", state.isPlaying);
       el.rangeTrackWrap.classList.toggle("is-paused", state.paused);
     }
@@ -2157,6 +2335,8 @@
     if (!opts.export) syncCustomLegend(legendItems);
     if (!points.length) {
       if (!opts.export) syncCustomLegend([]);
+      if (!opts.export) updateKpis(null);
+      if (chartArea) ctx.restore();
       return { points };
     }
     const chartArea = opts.chartArea || null;
@@ -2311,6 +2491,25 @@
     const b = ASSETS[s.assetB];
     el.assetAPriceTitle.textContent = `1 ${assetUnitPhrase(s.assetA)}`;
     el.assetBPriceTitle.textContent = `1 ${assetUnitPhrase(s.assetB)}`;
+    if (!latest) {
+      el.assetAPrice.textContent = "";
+      el.assetBPrice.textContent = "";
+      el.assetAPriceLabel.textContent = "";
+      el.assetBPriceLabel.textContent = "";
+      el.countLabel.textContent = `Number of ${cadenceLabel()}`;
+      el.countKpi.textContent = "";
+      if (el.countYearsKpi) el.countYearsKpi.textContent = "";
+      el.investedKpi.textContent = "";
+      el.assetADcaTitle.textContent = `${a.label} DCA Value`;
+      el.assetBDcaTitle.textContent = `${b.label} DCA Value`;
+      el.assetADcaValue.textContent = "";
+      el.assetBDcaValue.textContent = "";
+      el.assetADcaUnits.textContent = "";
+      el.assetBDcaUnits.textContent = "";
+      el.assetADcaValue.style.color = a.color;
+      el.assetBDcaValue.style.color = b.color;
+      return;
+    }
     el.assetAPrice.textContent = fmtKpiUsd(latest.priceA);
     el.assetBPrice.textContent = fmtKpiUsd(latest.priceB);
     el.assetAPriceLabel.textContent = fmtCrossUnits(latest.priceA / latest.priceB, s.assetB);
@@ -2348,12 +2547,15 @@
 
   function setDateRangeByIndexes(startIdx, endIdx, preset = "") {
     clearPreResetSnapshot();
-    const maxIdx = Math.max(0, state.rows.length - 1);
-    const safeStartIdx = Math.max(0, Math.min(maxIdx, Math.round(startIdx)));
+    const available = getActiveAvailableBounds();
+    const minIdx = Math.max(0, findDateIndexByMode(available.minIso, "ceil"));
+    const maxIdx = Math.max(minIdx, findDateIndexByMode(available.maxIso, "floor"));
+    const safeStartIdx = Math.max(minIdx, Math.min(maxIdx, Math.round(startIdx)));
     const safeEndIdx = Math.max(safeStartIdx, Math.min(maxIdx, Math.round(endIdx)));
     const start = state.rows[safeStartIdx]?.date;
     const end = state.rows[safeEndIdx]?.date;
     if (!start || !end) return;
+    rememberDesiredRange(start, end);
     state.settings.rangeStart = start;
     state.settings.rangeEnd = end;
     if (state.settings.dcaStart < state.settings.rangeStart) state.settings.dcaStart = state.settings.rangeStart;
@@ -2387,13 +2589,15 @@
     if (!state.rows.length) return;
     clearPreResetSnapshot();
     const days = Math.max(1, Math.round(Number(dayCount) || 1));
-    const maxIdx = Math.max(0, state.rows.length - 1);
+    const available = getActiveAvailableBounds();
+    const minIdx = Math.max(0, findDateIndexByMode(available.minIso, "ceil"));
+    const maxIdx = Math.max(minIdx, findDateIndexByMode(available.maxIso, "floor"));
     let startIdx = findDateIndexByMode(state.settings.rangeStart, "ceil");
-    if (startIdx < 0) startIdx = 0;
+    if (startIdx < minIdx) startIdx = minIdx;
     let endIdx = startIdx + days - 1;
     if (endIdx > maxIdx) {
       endIdx = maxIdx;
-      startIdx = Math.max(0, endIdx - days + 1);
+      startIdx = Math.max(minIdx, endIdx - days + 1);
     }
     setDateRangeByIndexes(startIdx, endIdx, "");
   }
@@ -2429,10 +2633,13 @@
 
   function applyPreset(preset) {
     clearPreResetSnapshot();
-    const max = state.maxIso;
+    const available = getActiveAvailableBounds();
+    const max = available.maxIso;
     const start = getPresetStartIso(preset, max);
     state.settings.preset = preset;
-    state.settings.rangeStart = clampIso(start, state.minIso, state.maxIso);
+    state.desiredRangeStart = start;
+    state.desiredRangeEnd = max;
+    state.settings.rangeStart = clampIso(start, available.minIso, available.maxIso);
     state.settings.rangeEnd = max;
     if (state.settings.dcaStart < state.settings.rangeStart) state.settings.dcaStart = state.settings.rangeStart;
     state.currentIso = state.settings.rangeEnd;
@@ -2506,7 +2713,10 @@
     const edgePad = Number.parseFloat(styles.getPropertyValue("--slider-edge-pad")) || 0;
     const usable = Math.max(1, rect.width - edgePad * 2);
     const pct = Math.min(1, Math.max(0, (clientX - rect.left - edgePad) / usable));
-    return Math.round(pct * Math.max(0, state.rows.length - 1));
+    const visual = getVisualBounds();
+    const minIdx = Math.max(0, findDateIndexByMode(visual.minIso, "ceil"));
+    const maxIdx = Math.max(minIdx, findDateIndexByMode(visual.maxIso, "floor"));
+    return Math.round(minIdx + pct * Math.max(0, maxIdx - minIdx));
   }
 
   function startDrag(kind, ev) {
@@ -2543,16 +2753,19 @@
   function onDragMove(ev) {
     const rawIdx = indexFromPointer(ev.clientX);
     const iso = state.rows[Math.max(0, Math.min(state.rows.length - 1, rawIdx))]?.date || isoFromPointer(ev.clientX);
+    const available = getActiveAvailableBounds();
     if (state.drag === "start") {
-      state.settings.rangeStart = clampIso(iso, state.minIso, state.settings.rangeEnd);
+      state.desiredRangeStart = iso;
+      state.settings.rangeStart = clampIso(iso, available.minIso, state.settings.rangeEnd);
       if (state.settings.dcaStart < state.settings.rangeStart) state.settings.dcaStart = state.settings.rangeStart;
       if (state.currentIso < state.settings.rangeStart) state.currentIso = state.settings.rangeStart;
     } else if (state.drag === "end") {
-      state.settings.rangeEnd = clampIso(iso, state.settings.rangeStart, state.maxIso);
+      state.desiredRangeEnd = iso;
+      state.settings.rangeEnd = clampIso(iso, state.settings.rangeStart, available.maxIso);
       state.currentIso = state.settings.rangeEnd;
     } else if (state.drag === "playhead") {
       const startIdx = findDateIndexByMode(state.settings.rangeStart, "ceil");
-      const maxIdx = Math.max(0, state.rows.length - 1);
+      const maxIdx = findDateIndexByMode(available.maxIso, "floor");
       const nextIdx = Math.max(startIdx, Math.min(maxIdx, rawIdx));
       const nextIso = state.rows[nextIdx]?.date;
       if (nextIso) {
@@ -2565,14 +2778,15 @@
       }
     } else if (state.drag === "range" && state.dragInfo) {
       const shift = Math.round(rawIdx - state.dragInfo.pointerIdx);
-      const minShift = -state.dragInfo.startIdx;
-      const maxShift = Math.max(0, state.rows.length - 1) - state.dragInfo.endIdx;
+      const minShift = Math.max(0, findDateIndexByMode(available.minIso, "ceil")) - state.dragInfo.startIdx;
+      const maxShift = Math.max(0, findDateIndexByMode(available.maxIso, "floor")) - state.dragInfo.endIdx;
       const safeShift = Math.max(minShift, Math.min(maxShift, shift));
       const nextStart = state.rows[state.dragInfo.startIdx + safeShift]?.date;
       const nextEnd = state.rows[state.dragInfo.endIdx + safeShift]?.date;
       if (nextStart && nextEnd) {
         state.settings.rangeStart = nextStart;
         state.settings.rangeEnd = nextEnd;
+        rememberDesiredRange(nextStart, nextEnd);
         state.currentIso = nextEnd;
       }
     }
@@ -2663,15 +2877,16 @@
   function getNudgedStartIndex(delta) {
     const cadence = state.settings.cadence;
     const startIso = state.settings.rangeStart;
+    const available = getActiveAvailableBounds();
     if (cadence === "weekly") {
       const d = dateFromIso(startIso);
       d.setUTCDate(d.getUTCDate() + (delta > 0 ? 1 : -1));
       const nextIso = delta > 0 ? getNextFridayIso(d.toISOString().slice(0, 10)) : getPreviousFridayIso(d.toISOString().slice(0, 10));
-      return findDateIndexByMode(clampIso(nextIso, state.minIso, state.maxIso), delta > 0 ? "ceil" : "floor");
+      return findDateIndexByMode(clampIso(nextIso, available.minIso, available.maxIso), delta > 0 ? "ceil" : "floor");
     }
     if (cadence === "monthly") {
       const nextIso = delta > 0 ? getNextMonthFirstIso(`${startIso.slice(0, 8)}02`) : getPreviousMonthFirstIso(startIso);
-      return findDateIndexByMode(clampIso(nextIso, state.minIso, state.maxIso), delta > 0 ? "ceil" : "floor");
+      return findDateIndexByMode(clampIso(nextIso, available.minIso, available.maxIso), delta > 0 ? "ceil" : "floor");
     }
     const startIdx = findDateIndexByMode(startIso, "ceil");
     return startIdx + delta;
@@ -2681,10 +2896,12 @@
     if (state.lastAdjustedHandle !== "start" && state.lastAdjustedHandle !== "end") return false;
     const startIdx = findDateIndexByMode(state.settings.rangeStart, "ceil");
     const endIdx = findDateIndexByMode(state.settings.rangeEnd, "floor");
-    const maxIdx = Math.max(0, state.rows.length - 1);
+    const available = getActiveAvailableBounds();
+    const minIdx = Math.max(0, findDateIndexByMode(available.minIso, "ceil"));
+    const maxIdx = Math.max(minIdx, findDateIndexByMode(available.maxIso, "floor"));
     if (startIdx < 0 || endIdx < 0 || maxIdx <= 0) return false;
     const nextStartIdx = state.lastAdjustedHandle === "start"
-      ? Math.max(0, Math.min(endIdx, getNudgedStartIndex(delta)))
+      ? Math.max(minIdx, Math.min(endIdx, getNudgedStartIndex(delta)))
       : startIdx;
     const nextEndIdx = state.lastAdjustedHandle === "end"
       ? Math.max(startIdx, Math.min(maxIdx, endIdx + delta))
@@ -3226,6 +3443,8 @@
     };
     const updateFromForm = (changedKey = "") => {
       clearPreResetSnapshot();
+      const previousAssetA = state.settings.assetA;
+      const previousAssetB = state.settings.assetB;
       state.settings.rangeStart = el.rangeStartInput.value;
       state.settings.rangeEnd = el.rangeEndInput.value;
       state.settings.cadence = el.cadenceSelect.value;
@@ -3234,12 +3453,25 @@
       state.settings.assetA = el.assetASelect.value;
       state.settings.assetB = el.assetBSelect.value;
       if (state.settings.assetA === state.settings.assetB) {
-        const replacement = state.settings.assetA === "BTC" ? "XAU" : "BTC";
-        if (changedKey === "assetB") state.settings.assetA = replacement;
-        else state.settings.assetB = replacement;
+        if (changedKey === "assetA") {
+          state.settings.assetB = previousAssetA;
+        } else if (changedKey === "assetB") {
+          state.settings.assetA = previousAssetB;
+        }
+        if (state.settings.assetA === state.settings.assetB) {
+          const replacement = Object.keys(ASSETS).find((asset) => asset !== state.settings.assetA) || DEFAULTS.assetB;
+          if (changedKey === "assetB") state.settings.assetA = replacement;
+          else state.settings.assetB = replacement;
+        }
       }
+      if (changedKey === "rangeStart" || changedKey === "rangeEnd") {
+        rememberDesiredRange(state.settings.rangeStart, state.settings.rangeEnd);
+      } else if (changedKey === "assetA" || changedKey === "assetB") {
+        rememberDesiredRange();
+      }
+      clampSettingsToAvailableRange({ preserveDesired: changedKey !== "rangeStart" && changedKey !== "rangeEnd" });
       state.currentIso = state.settings.rangeEnd;
-      state.settings.preset = "";
+      if (changedKey !== "assetA" && changedKey !== "assetB") state.settings.preset = "";
       stopAnimation(false);
       render();
     };
@@ -3297,7 +3529,10 @@
       clearPreResetSnapshot();
       setLastAdjustedHandle("start");
       const idx = Math.min(Number(el.startSlider.value), findDateIndex(state.settings.rangeEnd));
-      state.settings.rangeStart = state.rows[idx]?.date || state.settings.rangeStart;
+      const available = getActiveAvailableBounds();
+      const nextIso = state.rows[idx]?.date || state.settings.rangeStart;
+      state.desiredRangeStart = nextIso;
+      state.settings.rangeStart = clampIso(nextIso, available.minIso, state.settings.rangeEnd);
       if (state.settings.dcaStart < state.settings.rangeStart) state.settings.dcaStart = state.settings.rangeStart;
       state.settings.preset = "";
       render();
@@ -3306,7 +3541,10 @@
       clearPreResetSnapshot();
       setLastAdjustedHandle("end");
       const idx = Math.max(Number(el.endSlider.value), findDateIndex(state.settings.rangeStart));
-      state.settings.rangeEnd = state.rows[idx]?.date || state.settings.rangeEnd;
+      const available = getActiveAvailableBounds();
+      const nextIso = state.rows[idx]?.date || state.settings.rangeEnd;
+      state.desiredRangeEnd = nextIso;
+      state.settings.rangeEnd = clampIso(nextIso, state.settings.rangeStart, available.maxIso);
       state.currentIso = state.settings.rangeEnd;
       state.settings.preset = "";
       render();
@@ -3417,10 +3655,12 @@
       const pausedPlaybackSession = readStoredPlaybackSession();
       bindEvents();
       await loadData();
-      if (!state.settings.rangeEnd) state.settings.rangeEnd = state.maxIso;
+      if (!state.settings.rangeEnd) state.settings.rangeEnd = getActiveAvailableBounds().maxIso;
       if (pausedPlaybackSession) {
-        state.settings.rangeStart = clampIso(pausedPlaybackSession.startIso, state.minIso, state.maxIso);
-        state.settings.rangeEnd = clampIso(pausedPlaybackSession.targetEndIso, state.minIso, state.maxIso);
+        const available = getActiveAvailableBounds();
+        state.settings.rangeStart = clampIso(pausedPlaybackSession.startIso, available.minIso, available.maxIso);
+        state.settings.rangeEnd = clampIso(pausedPlaybackSession.targetEndIso, available.minIso, available.maxIso);
+        rememberDesiredRange(pausedPlaybackSession.startIso, pausedPlaybackSession.targetEndIso);
         state.currentIso = clampIso(pausedPlaybackSession.currentIso, state.settings.rangeStart, state.settings.rangeEnd);
         state.isPlaying = false;
         state.paused = true;

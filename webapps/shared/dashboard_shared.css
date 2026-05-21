@@ -528,7 +528,7 @@ h1 {
   color: rgba(0, 0, 0, 0.58);
 }
 
-/* Consistent keyboard focus highlight across dashboard controls. */
+/* Keep dashboard controls from showing a persistent heavy ring after click. */
 .wrap button:focus-visible,
 .wrap a:focus-visible,
 .wrap input[type="checkbox"]:focus-visible,
@@ -536,9 +536,8 @@ h1 {
 .wrap .chip-menu-wrap.single-select:focus-within,
 .wrap .chip:focus-within,
 .wrap .toggle:focus-within {
-  outline: 2px solid #ff9800 !important;
-  outline-offset: 2px;
-  box-shadow: 0 0 0 2px rgba(255, 152, 0, 0.25);
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 .wrap select:focus,
