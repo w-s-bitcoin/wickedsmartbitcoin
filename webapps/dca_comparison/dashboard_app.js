@@ -33,8 +33,13 @@
     BTC: { name: "Bitcoin", label: "Bitcoin", unit: "btc", color: "#ff9900" },
     XAU: { name: "Gold", label: "Gold", unit: "gold oz", color: "#ffd000", cssClass: "gold" },
     XAG: { name: "Silver", label: "Silver", unit: "silver oz", color: "#c7d2dc", cssClass: "silver" },
-    SPX: { name: "S&P 500", label: "S&P 500", unit: "S&P 500", color: "#4da3ff" },
-    IXIC: { name: "NASDAQ", label: "NASDAQ", unit: "NASDAQ", color: "#b77cff" },
+    SPY: { name: "SPY", label: "SPY", unit: "SPY", color: "#4da3ff" },
+    QQQ: { name: "QQQ", label: "QQQ", unit: "QQQ", color: "#b77cff" },
+    TLT: { name: "TLT", label: "TLT", unit: "TLT", color: "#7dd3fc" },
+  };
+  const LEGACY_ASSET_CODES = {
+    SPX: "SPY",
+    IXIC: "QQQ",
   };
 
   let selectDropdownGlobalListenersBound = false;
@@ -930,9 +935,11 @@
     if (code === "BTC") return "BTC";
     if (code === "XAU") return "oz gold";
     if (code === "XAG") return "oz silver";
-    if (code === "SPX") return "S&P 500";
-    if (code === "IXIC") return "NASDAQ";
     return ASSETS[code]?.label || code;
+  }
+
+  function normalizeAssetCode(code) {
+    return LEGACY_ASSET_CODES[code] || code;
   }
 
   function fmtCrossUnits(value, code) {
@@ -1904,8 +1911,9 @@
     const xagIdx = fxHeader.indexOf("xagusd");
     const xauIdx = fxHeader.indexOf("xauusd");
     const indexDateIdx = indexHeader.indexOf("date");
-    const spxIdx = indexHeader.indexOf("sp500");
-    const ixicIdx = indexHeader.indexOf("nasdaq");
+    const spyIdx = indexHeader.indexOf("spy");
+    const qqqIdx = indexHeader.indexOf("qqq");
+    const tltIdx = indexHeader.indexOf("tlt");
     const byDate = new Map();
     const ensureRow = (iso) => {
       if (!iso) return null;
@@ -1934,10 +1942,12 @@
       const iso = isoFromMaybeUsDate(r[indexDateIdx]);
       const target = ensureRow(iso);
       if (!target) continue;
-      const spx = Number(r[spxIdx]);
-      const ixic = Number(r[ixicIdx]);
-      if (Number.isFinite(spx) && spx > 0) target.SPX = spx;
-      if (Number.isFinite(ixic) && ixic > 0) target.IXIC = ixic;
+      const spy = Number(r[spyIdx]);
+      const qqq = Number(r[qqqIdx]);
+      const tlt = Number(r[tltIdx]);
+      if (Number.isFinite(spy) && spy > 0) target.SPY = spy;
+      if (Number.isFinite(qqq) && qqq > 0) target.QQQ = qqq;
+      if (Number.isFinite(tlt) && tlt > 0) target.TLT = tlt;
     }
     state.rows = [...byDate.values()]
       .filter((r) => Object.keys(ASSETS).some((asset) => Number.isFinite(r[asset]) && r[asset] > 0))
@@ -1959,6 +1969,8 @@
 
   function normalizeSettings() {
     const s = state.settings;
+    s.assetA = normalizeAssetCode(s.assetA);
+    s.assetB = normalizeAssetCode(s.assetB);
     s.assetA = ASSETS[s.assetA] ? s.assetA : DEFAULTS.assetA;
     s.assetB = ASSETS[s.assetB] ? s.assetB : DEFAULTS.assetB;
     if (s.assetA === s.assetB) s.assetB = s.assetA === "BTC" ? "XAU" : "BTC";

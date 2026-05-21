@@ -13,10 +13,11 @@ from urllib.request import Request, urlopen
 
 START_DATE = "1971-02-05"
 YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-OUTPUT_COLUMNS = ["date", "sp500", "nasdaq"]
+OUTPUT_COLUMNS = ["date", "spy", "qqq", "tlt"]
 INDEX_SOURCES = {
-    "sp500": {"symbol": "^GSPC", "label": "S&P 500"},
-    "nasdaq": {"symbol": "^IXIC", "label": "NASDAQ Composite"},
+    "spy": {"symbol": "SPY", "label": "SPY"},
+    "qqq": {"symbol": "QQQ", "label": "QQQ"},
+    "tlt": {"symbol": "TLT", "label": "TLT"},
 }
 
 
@@ -126,8 +127,9 @@ def write_csv(path: Path, rows_by_date: dict[str, dict[str, str]]) -> None:
             source = rows_by_date[iso]
             writer.writerow({
                 "date": iso,
-                "sp500": fmt_price(source.get("sp500")),
-                "nasdaq": fmt_price(source.get("nasdaq")),
+                "spy": fmt_price(source.get("spy")),
+                "qqq": fmt_price(source.get("qqq")),
+                "tlt": fmt_price(source.get("tlt")),
             })
 
 
@@ -141,14 +143,14 @@ def main() -> None:
         data = fetch_yahoo_chart(config["symbol"], START_DATE)
         fetched_any = True
         for iso, price in data.items():
-            rows_by_date.setdefault(iso, {"date": iso, "sp500": "", "nasdaq": ""})
+            rows_by_date.setdefault(iso, {"date": iso, "spy": "", "qqq": "", "tlt": ""})
             rows_by_date[iso][column] = fmt_price(price)
         print(f"Updated {config['label']}: {len(data):,} daily rows")
 
     if not fetched_any:
         raise RuntimeError("No index data was fetched")
 
-    rows_by_date = fill_daily_calendar(rows_by_date, ["sp500", "nasdaq"])
+    rows_by_date = fill_daily_calendar(rows_by_date, ["spy", "qqq", "tlt"])
     write_csv(csv_path, rows_by_date)
     (out_dir / "last_updated.txt").write_text(
         datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC") + "\n"
