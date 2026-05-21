@@ -33,6 +33,8 @@
     BTC: { name: "Bitcoin", label: "Bitcoin", unit: "btc", color: "#ff9900" },
     XAU: { name: "Gold", label: "Gold", unit: "gold oz", color: "#ffd000", cssClass: "gold" },
     XAG: { name: "Silver", label: "Silver", unit: "silver oz", color: "#c7d2dc", cssClass: "silver" },
+    SPX: { name: "S&P 500", label: "S&P 500", unit: "S&P 500", color: "#4da3ff" },
+    IXIC: { name: "NASDAQ", label: "NASDAQ", unit: "NASDAQ", color: "#b77cff" },
   };
 
   let selectDropdownGlobalListenersBound = false;
@@ -826,6 +828,8 @@
     if (code === "BTC") return "BTC";
     if (code === "XAU") return "oz gold";
     if (code === "XAG") return "oz silver";
+    if (code === "SPX") return "S&P 500";
+    if (code === "IXIC") return "NASDAQ";
     return ASSETS[code]?.label || code;
   }
 
@@ -1781,19 +1785,25 @@
   }
 
   async function loadData() {
-    const [btcText, fxText] = await Promise.all([
+    const [btcText, fxText, indicesText] = await Promise.all([
       fetch("../../assets/daily_price.csv", { cache: "default" }).then((r) => r.text()),
       fetch("../uoa/webapp_data/daily_fx_rates.csv", { cache: "default" }).then((r) => r.text()),
+      fetch("webapp_data/market_indices.csv", { cache: "default" }).then((r) => (r.ok ? r.text() : "")).catch(() => ""),
     ]);
     const btcRows = parseCsv(btcText);
     const btcHeader = btcRows.shift();
     const fxRows = parseCsv(fxText);
     const fxHeader = fxRows.shift();
+    const indexRows = indicesText ? parseCsv(indicesText) : [];
+    const indexHeader = indexRows.length ? indexRows.shift() : [];
     const btcDateIdx = btcHeader.indexOf("date");
     const btcPriceIdx = btcHeader.indexOf("price");
     const fxDateIdx = fxHeader.indexOf("date");
     const xagIdx = fxHeader.indexOf("xagusd");
     const xauIdx = fxHeader.indexOf("xauusd");
+    const indexDateIdx = indexHeader.indexOf("date");
+    const spxIdx = indexHeader.indexOf("sp500");
+    const ixicIdx = indexHeader.indexOf("nasdaq");
     const byDate = new Map();
     for (const r of btcRows) {
       const iso = isoFromMaybeUsDate(r[btcDateIdx]);
@@ -1808,6 +1818,15 @@
       const xau = Number(r[xauIdx]);
       if (Number.isFinite(xag) && xag > 0) target.XAG = xag;
       if (Number.isFinite(xau) && xau > 0) target.XAU = xau;
+    }
+    for (const r of indexRows) {
+      const iso = isoFromMaybeUsDate(r[indexDateIdx]);
+      const target = byDate.get(iso);
+      if (!target) continue;
+      const spx = Number(r[spxIdx]);
+      const ixic = Number(r[ixicIdx]);
+      if (Number.isFinite(spx) && spx > 0) target.SPX = spx;
+      if (Number.isFinite(ixic) && ixic > 0) target.IXIC = ixic;
     }
     state.rows = [...byDate.values()].filter((r) => r.BTC && r.XAG && r.XAU).sort((a, b) => a.date.localeCompare(b.date));
     state.byDate = new Map(state.rows.map((r) => [r.date, r]));
@@ -1949,19 +1968,22 @@
     const points = [];
     for (const r of state.rows) {
       if (r.date < s.rangeStart || r.date > endIso) continue;
+      const priceA = r[s.assetA];
+      const priceB = r[s.assetB];
+      if (!Number.isFinite(priceA) || priceA <= 0 || !Number.isFinite(priceB) || priceB <= 0) continue;
       if (r.date >= s.dcaStart && isDcaDate(r.date, s.dcaStart, s.cadence)) {
         invested += s.amount;
-        unitsA += s.amount / r[s.assetA];
-        unitsB += s.amount / r[s.assetB];
+        unitsA += s.amount / priceA;
+        unitsB += s.amount / priceB;
         count += 1;
       }
       if (r.date >= s.dcaStart && invested > 0) {
         points.push({
           date: r.date,
-          priceA: r[s.assetA],
-          priceB: r[s.assetB],
-          valueA: unitsA * r[s.assetA],
-          valueB: unitsB * r[s.assetB],
+          priceA,
+          priceB,
+          valueA: unitsA * priceA,
+          valueB: unitsB * priceB,
           invested,
           unitsA,
           unitsB,
