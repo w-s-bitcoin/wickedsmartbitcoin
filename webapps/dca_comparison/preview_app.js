@@ -10,6 +10,9 @@
   const ASSETS = {
     BTC: { column: "BTC", cssVar: "--btc" },
     XAU: { column: "XAU", cssVar: "--gold" },
+    XAG: { column: "XAG", cssVar: "--silver" },
+    SPX: { column: "SPX", cssVar: "--ink-dim" },
+    IXIC: { column: "IXIC", cssVar: "--muted" },
   };
 
   let cachedRows = [];
@@ -212,19 +215,26 @@
   }
 
   async function load() {
-    const [btcText, fxText] = await Promise.all([
+    const [btcText, fxText, indicesText] = await Promise.all([
       fetch("../../assets/daily_price.csv", { cache: "default" }).then((resp) => resp.text()),
       fetch("../uoa/webapp_data/daily_fx_rates.csv", { cache: "default" }).then((resp) => resp.text()),
+      fetch("webapp_data/market_indices.csv", { cache: "default" }).then((resp) => (resp.ok ? resp.text() : "")).catch(() => ""),
     ]);
 
     const btcRows = parseCsv(btcText);
     const btcHeader = btcRows.shift() || [];
     const fxRows = parseCsv(fxText);
     const fxHeader = fxRows.shift() || [];
+    const indexRows = indicesText ? parseCsv(indicesText) : [];
+    const indexHeader = indexRows.length ? indexRows.shift() || [] : [];
     const btcDateIdx = btcHeader.indexOf("date");
     const btcPriceIdx = btcHeader.indexOf("price");
     const fxDateIdx = fxHeader.indexOf("date");
     const xauIdx = fxHeader.indexOf("xauusd");
+    const xagIdx = fxHeader.indexOf("xagusd");
+    const indexDateIdx = indexHeader.indexOf("date");
+    const spxIdx = indexHeader.indexOf("sp500");
+    const ixicIdx = indexHeader.indexOf("nasdaq");
     const byDate = new Map();
 
     for (const row of btcRows) {
@@ -238,7 +248,19 @@
       const target = byDate.get(iso);
       if (!target) continue;
       const xau = toNumber(row[xauIdx]);
+      const xag = toNumber(row[xagIdx]);
       if (Number.isFinite(xau) && xau > 0) target.XAU = xau;
+      if (Number.isFinite(xag) && xag > 0) target.XAG = xag;
+    }
+
+    for (const row of indexRows) {
+      const iso = isoFromMaybeUsDate(row[indexDateIdx]);
+      const target = byDate.get(iso);
+      if (!target) continue;
+      const spx = toNumber(row[spxIdx]);
+      const ixic = toNumber(row[ixicIdx]);
+      if (Number.isFinite(spx) && spx > 0) target.SPX = spx;
+      if (Number.isFinite(ixic) && ixic > 0) target.IXIC = ixic;
     }
 
     cachedRows = [...byDate.values()]
