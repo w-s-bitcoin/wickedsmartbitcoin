@@ -1,13 +1,13 @@
 {
-  "generated_at_utc": "2026-05-13T13:27:13.376104Z",
+  "generated_at_utc": "2026-05-21T13:05:30.340952Z",
   "source": {
     "name": "Frankfurter",
     "url": "https://api.frankfurter.app",
     "upstream": "European Central Bank (ECB) reference rates",
     "pair_endpoint": "https://api.frankfurter.app/1999-01-01..2999-12-31?from=EUR&to=USD",
     "start_date": "1999-01-04",
-    "end_date": "2026-05-12",
-    "notes": "Rates are business-day reference rates for 162 Frankfurter-supported currency pairs vs USD; CUP/USD is overwritten with elTOQUE TRMI via CUP=X where available; weekends and market holidays are forward-filled.",
+    "end_date": "2026-05-21",
+    "notes": "Rates are business-day reference rates for 161 Frankfurter-supported currency pairs vs USD; CUP/USD is overwritten with elTOQUE TRMI via CUP=X where available; weekends and market holidays are forward-filled.",
     "dataset_notes": "CSV schema simplified to date, eurusd where eurusd is the EUR/USD rate value. Source attribution is stored in this metadata file.",
     "cupusd_source": "elTOQUE TRMI via CUP=X"
   },
@@ -34,6 +34,13 @@
         "date": "2016-07-01",
         "ratio": 10000,
         "ratioLabel": "10,000:1"
+      }
+    ],
+    "MRU": [
+      {
+        "date": "2018-01-02",
+        "ratio": 10,
+        "ratioLabel": "10:1"
       }
     ],
     "CUP": [
@@ -83,13 +90,6 @@
         "date": "2009-01-01",
         "ratio": 5000,
         "ratioLabel": "5,000:1"
-      }
-    ],
-    "MRU": [
-      {
-        "date": "2018-01-02",
-        "ratio": 10,
-        "ratioLabel": "10:1"
       }
     ]
   },
@@ -150,6 +150,12 @@
         "label": "AZN devaluation ~47%"
       }
     ],
+    "LYD": [
+      {
+        "date": "2021-02-09",
+        "label": "LYD devaluation ~69%"
+      }
+    ],
     "LBP": [
       {
         "date": "2023-02-03",
@@ -158,12 +164,6 @@
       {
         "date": "2024-03-11",
         "label": "LBP devaluation ~83.3%"
-      }
-    ],
-    "LYD": [
-      {
-        "date": "2021-02-09",
-        "label": "LYD devaluation ~69%"
       }
     ]
   },
@@ -206,7 +206,7 @@
     "AMD": {
       "name": "Armenian Dram",
       "code": "AMD",
-      "symbol": "֏",
+      "symbol": "\u058f",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -241,7 +241,7 @@
     "AWG": {
       "name": "Aruban Florin",
       "code": "AWG",
-      "symbol": "ƒ",
+      "symbol": "\u0192",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -269,14 +269,7 @@
     "BDT": {
       "name": "Bangladeshi Taka",
       "code": "BDT",
-      "symbol": "৳",
-      "symbol_position": "left",
-      "minor_unit": 2
-    },
-    "BGN": {
-      "name": "Bulgarian Lev",
-      "code": "BGN",
-      "symbol": "BGN",
+      "symbol": "\u09f3",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -402,7 +395,7 @@
     "CRC": {
       "name": "Costa Rican Col\u00f3n",
       "code": "CRC",
-      "symbol": "₡",
+      "symbol": "\u20a1",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -458,7 +451,7 @@
     "EGP": {
       "name": "Egyptian Pound",
       "code": "EGP",
-      "symbol": "£E",
+      "symbol": "\u00a3E",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -493,7 +486,7 @@
     "FKP": {
       "name": "Falkland Pound",
       "code": "FKP",
-      "symbol": "£",
+      "symbol": "\u00a3",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -507,28 +500,28 @@
     "GEL": {
       "name": "Georgian Lari",
       "code": "GEL",
-      "symbol": "₾",
+      "symbol": "\u20be",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "GGP": {
       "name": "Guernsey Pound",
       "code": "GGP",
-      "symbol": "£",
+      "symbol": "\u00a3",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "GHS": {
       "name": "Ghanaian Cedi",
       "code": "GHS",
-      "symbol": "GH₵",
+      "symbol": "GH\u20b5",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "GIP": {
       "name": "Gibraltar Pound",
       "code": "GIP",
-      "symbol": "£",
+      "symbol": "\u00a3",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -605,7 +598,7 @@
     "IMP": {
       "name": "Isle of Man Pound",
       "code": "IMP",
-      "symbol": "£",
+      "symbol": "\u00a3",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -640,7 +633,7 @@
     "JEP": {
       "name": "Jersey Pound",
       "code": "JEP",
-      "symbol": "£",
+      "symbol": "\u00a3",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -675,14 +668,14 @@
     "KGS": {
       "name": "Kyrgyzstani Som",
       "code": "KGS",
-      "symbol": " сом",
+      "symbol": " \u0441\u043e\u043c",
       "symbol_position": "right",
       "minor_unit": 2
     },
     "KHR": {
       "name": "Cambodian Riel",
       "code": "KHR",
-      "symbol": "៛",
+      "symbol": "\u17db",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -717,14 +710,14 @@
     "KZT": {
       "name": "Kazakhstani Tenge",
       "code": "KZT",
-      "symbol": "₸",
+      "symbol": "\u20b8",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "LAK": {
       "name": "Lao Kip",
       "code": "LAK",
-      "symbol": "₭",
+      "symbol": "\u20ad",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -787,7 +780,7 @@
     "MKD": {
       "name": "Macedonian Denar",
       "code": "MKD",
-      "symbol": "ден ",
+      "symbol": "\u0434\u0435\u043d ",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -801,7 +794,7 @@
     "MNT": {
       "name": "Mongolian T\u00f6gr\u00f6g",
       "code": "MNT",
-      "symbol": "₮",
+      "symbol": "\u20ae",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -871,7 +864,7 @@
     "NGN": {
       "name": "Nigerian Naira",
       "code": "NGN",
-      "symbol": "₦",
+      "symbol": "\u20a6",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -892,7 +885,7 @@
     "NPR": {
       "name": "Nepalese Rupee",
       "code": "NPR",
-      "symbol": "रू",
+      "symbol": "\u0930\u0942",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -955,7 +948,7 @@
     "PYG": {
       "name": "Paraguayan Guaran\u00ed",
       "code": "PYG",
-      "symbol": "₲",
+      "symbol": "\u20b2",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -983,7 +976,7 @@
     "RUB": {
       "name": "Russian Ruble",
       "code": "RUB",
-      "symbol": " ₽",
+      "symbol": " \u20bd",
       "symbol_position": "right",
       "minor_unit": 2
     },
@@ -1039,12 +1032,12 @@
     "SHP": {
       "name": "Saint Helenian Pound",
       "code": "SHP",
-      "symbol": "£",
+      "symbol": "\u00a3",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "SLE": {
-      "name": "new Leone",
+      "name": "New Leone",
       "code": "SLE",
       "symbol": "Le ",
       "symbol_position": "left",
@@ -1067,7 +1060,7 @@
     "SSP": {
       "name": "South Sudanese Pound",
       "code": "SSP",
-      "symbol": "£",
+      "symbol": "\u00a3",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -1081,14 +1074,14 @@
     "SVC": {
       "name": "Salvadoran Col\u00f3n",
       "code": "SVC",
-      "symbol": "₡",
+      "symbol": "\u20a1",
       "symbol_position": "left",
       "minor_unit": 2
     },
     "SYP": {
       "name": "Syrian Pound",
       "code": "SYP",
-      "symbol": "£S ",
+      "symbol": "\u00a3S ",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -1125,7 +1118,7 @@
       "code": "TND",
       "symbol": " DT",
       "symbol_position": "right",
-      "minor_unit": 2
+      "minor_unit": 0
     },
     "TOP": {
       "name": "Tongan Pa\u02bbanga",
@@ -1165,7 +1158,7 @@
     "UAH": {
       "name": "Ukrainian Hryvnia",
       "code": "UAH",
-      "symbol": "₴",
+      "symbol": "\u20b4",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -1186,7 +1179,7 @@
     "UZS": {
       "name": "Uzbekistan Som",
       "code": "UZS",
-      "symbol": "сўм ",
+      "symbol": "\u0441\u045e\u043c ",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -1200,7 +1193,7 @@
     "VND": {
       "name": "Vietnamese \u0110\u1ed3ng",
       "code": "VND",
-      "symbol": "₫",
+      "symbol": "\u20ab",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -1488,19 +1481,6 @@
       "quote_assumption": "USD-denominated FX rate"
     },
     {
-      "id": "BGN/USD",
-      "base": "BGN",
-      "quote": "USD",
-      "display_name": "Bulgarian Lev / US Dollar",
-      "dataset": "daily_fx_rates.csv",
-      "dataset_columns": [
-        "date",
-        "bgnusd"
-      ],
-      "pair_column_value": null,
-      "quote_assumption": "USD-denominated FX rate"
-    },
-    {
       "id": "BHD/USD",
       "base": "BHD",
       "quote": "USD",
@@ -1747,7 +1727,7 @@
       "pair_column_value": null,
       "quote_assumption": "Informal-market TRMI median, stored as USD per CUP",
       "rate_source": "elTOQUE TRMI via CUP=X",
-      "source_coverage_note": "CUP/USD is available from 2021-01-01 onward; informal-market TRMI data is applied where available."
+      "source_coverage_note": "CUP/USD is available from 2021-01-01 onward; elTOQUE TRMI via CUP=X is applied where available."
     },
     {
       "id": "CVE/USD",
@@ -2923,7 +2903,7 @@
       "id": "SLE/USD",
       "base": "SLE",
       "quote": "USD",
-      "display_name": "new Leone / US Dollar",
+      "display_name": "New Leone / US Dollar",
       "dataset": "daily_fx_rates.csv",
       "dataset_columns": [
         "date",
