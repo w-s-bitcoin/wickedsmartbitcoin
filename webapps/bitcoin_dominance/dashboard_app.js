@@ -513,6 +513,7 @@
       snapshotPanelManualHeight: 0,
       historyUserXAxisRange: null,
       refreshedAtText: '',
+      updateBlockHeightText: '',
       timeZone: DASHBOARD_TIME?.getPreferredTimeZone?.() || 'UTC',
       preResetStateSnapshot: null,
       suppressResetSnapshotClear: false,
@@ -1514,6 +1515,20 @@
       return getDataSignature(staticMeta, String(refreshedAtRaw || '').trim());
     }
 
+    async function loadGlobalUpdateBlockHeight(cacheBust = null) {
+      try {
+        const raw = await fetchTextWithCacheBust('../../assets/top_kpis.json', cacheBust);
+        const data = JSON.parse(raw);
+        const height = Number(data?.block_height);
+        if (Number.isFinite(height) && height > 0) {
+          state.updateBlockHeightText = height.toLocaleString('en-US');
+          setLastUpdated();
+        }
+      } catch (_) {
+        // The dashboard can still render with its timestamp if the shared KPI file is unavailable.
+      }
+    }
+
     async function refreshIfDataChanged({ force = false } = {}) {
       if (state.refreshInFlight) return;
       state.refreshInFlight = true;
@@ -1545,6 +1560,7 @@
         state.lastSuccessfulRefreshAt = Date.now();
 
         hideError();
+        loadGlobalUpdateBlockHeight(Date.now());
         renderAll();
       } catch (error) {
         console.warn('Auto-refresh check failed:', error);
@@ -1736,16 +1752,21 @@
         const zone = m[2].trim();
         return `${prefix} (${zone})`;
       };
+      const withUpdateBlockHeight = (text) => {
+        const normalized = String(text || '').trim();
+        if (!normalized || !state.updateBlockHeightText) return normalized;
+        return `${normalized} | ${state.updateBlockHeightText}`;
+      };
       if (!source) {
         valueEl.textContent = 'n/a';
         return;
       }
       if (DASHBOARD_TIME?.formatUtcTimestamp) {
         const formatted = DASHBOARD_TIME.formatUtcTimestamp(source, state.timeZone);
-        valueEl.textContent = withParenthesizedZone(formatted.text || source);
+        valueEl.textContent = withUpdateBlockHeight(withParenthesizedZone(formatted.text || source));
         return;
       }
-      valueEl.textContent = withParenthesizedZone(source);
+      valueEl.textContent = withUpdateBlockHeight(withParenthesizedZone(source));
     }
 
     function populateUpdatedTimeZoneSelect() {
@@ -2987,6 +3008,7 @@
         state.refreshedAtText = data.refreshedAtText;
         state.dataSignature = data.signature;
         state.lastSuccessfulRefreshAt = Date.now();
+        await loadGlobalUpdateBlockHeight();
 
         if (!state.datasets.excl.history.length) {
           throw new Error('No rows found in btcd_timeseries.csv.');

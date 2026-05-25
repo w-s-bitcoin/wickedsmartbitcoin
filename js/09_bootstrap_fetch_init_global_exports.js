@@ -253,6 +253,7 @@ fetch(IMAGE_LIST_URL)
             'quantum_exposure.png',
             'dca_cost_basis.png',
             'dca_comparison.png',
+            'patoshi_pattern.png',
             'bip110_signaling.png',
             'node_count.png',
             'bitcoin_dominance.png',

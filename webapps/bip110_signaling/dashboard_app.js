@@ -1810,7 +1810,6 @@
 
       statusChips.innerHTML = "";
       statusChips.appendChild(buildUpdatedChip(meta));
-      appendStatusChip("Block Height", Number(meta.source_block_height).toLocaleString());
       appendStatusChip("BIP-110 Periods Complete", `${s.completed_periods}/${s.bip110_total_periods}`);
       if (currentSignal != null) {
         appendStatusChip(
@@ -1879,7 +1878,11 @@
         const display = document.createElement("div");
         display.className = "chip chip-kpi-display";
         display.id = "updatedTimeZoneDisplay";
-        display.innerHTML = `<span class="chip-label">Updated</span> <span class="chip-value">${formatGeneratedDateTimeForSelectedTimeZone(meta.generated_utc)}</span>`;
+        const height = Number(meta?.source_block_height);
+        const heightText = Number.isFinite(height) && height > 0 ? height.toLocaleString("en-US") : "";
+        const updatedText = formatGeneratedDateTimeForSelectedTimeZone(meta.generated_utc);
+        const updatedDisplayText = updatedText && heightText ? `${updatedText} | ${heightText}` : updatedText;
+        display.innerHTML = `<span class="chip-label">Updated</span> <span class="chip-value">${updatedDisplayText}</span>`;
 
         const dropdown = document.createElement("div");
         dropdown.id = "updatedTimeZoneDropdown";

@@ -17,6 +17,11 @@ const DASHBOARD_CARD_PREVIEW_SPECS = Object.freeze({
     width: 1280,
     height: 720,
   },
+  'patoshi_pattern.png': {
+    url: 'webapps/patoshi_pattern/preview.html',
+    width: 1280,
+    height: 720,
+  },
   'bip110_signaling.png': {
     url: 'webapps/bip110_signaling/preview.html',
     width: 1280,

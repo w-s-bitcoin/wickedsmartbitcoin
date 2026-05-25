@@ -27,10 +27,24 @@ function readModalNavigationSnapshotFromSession() {
         const raw = sessionStorage.getItem('wsb_modal_nav_snapshot_v2');
         const parsed = raw ? JSON.parse(raw) : [];
         if (!Array.isArray(parsed)) return [];
-        return parsed.map((value) => String(value || '').trim()).filter(Boolean);
+        const snapshot = parsed.map((value) => String(value || '').trim()).filter(Boolean);
+        return normalizeModalNavigationSnapshot(snapshot);
     } catch (_) {
         return [];
     }
+}
+
+function normalizeModalNavigationSnapshot(snapshot) {
+    if (!Array.isArray(snapshot) || !snapshot.length) return [];
+    if (snapshot.includes('patoshi_pattern.png')) return snapshot;
+
+    const quantumIndex = snapshot.indexOf('quantum_exposure.png');
+    const uoaIndex = snapshot.indexOf('uoa.png');
+    if (quantumIndex < 0 || uoaIndex < 0 || quantumIndex >= uoaIndex) return snapshot;
+
+    const normalized = snapshot.slice();
+    normalized.splice(quantumIndex + 1, 0, 'patoshi_pattern.png');
+    return normalized;
 }
 
 function getStandaloneFilteredNavigationImages() {
@@ -272,6 +286,7 @@ function closeModal() {
     document.body?.classList?.remove('uoa-dashboard-expanded');
     document.body?.classList?.remove('dca-dashboard-expanded');
     document.body?.classList?.remove('dca-comparison-dashboard-expanded');
+    document.body?.classList?.remove('patoshi-pattern-dashboard-expanded');
     if (modalEmbedWrap) modalEmbedWrap.hidden = true;
     if (modalEmbed) modalEmbed.src = 'about:blank';
     resumeDeferredGridLoadingIfNeeded();
