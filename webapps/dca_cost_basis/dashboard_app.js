@@ -2670,8 +2670,10 @@ function scheduleDownloadEstimateCalibration(settings, frameDates, key) {
 
 function formatDuration(seconds) {
   const total = Math.max(0, Math.round(seconds));
-  const minutes = Math.floor(total / 60);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
   const rest = total % 60;
+  if (hours) return `${hours}h ${minutes}m ${rest}s`;
   return minutes ? `${minutes}m ${rest}s` : `${rest}s`;
 }
 
@@ -3876,12 +3878,13 @@ function updateKpis(rows) {
 
   const updatedRaw = String(state.metadata?.generated_utc || "").trim();
   const updatedText = updatedRaw ? formatUpdatedForSelectedTimeZone(updatedRaw) : "-";
+  const updatedHeight = Number(state.metadata?.source?.latest_block_height ?? latest.blockHeight);
+  const updatedHeightText = Number.isFinite(updatedHeight) && updatedHeight > 0 ? updatedHeight.toLocaleString("en-US") : "";
+  const updatedKpiText = updatedText && updatedHeightText ? `${updatedText} | ${updatedHeightText}` : updatedText;
 
   const chipUpdatedValue = document.querySelector("#chipUpdated .chip-value");
-  const chipHeightValue = document.querySelector("#chipHeight .chip-value");
   const chipSpotValue = document.querySelector("#chipSpot .chip-value");
-  if (chipUpdatedValue) chipUpdatedValue.textContent = updatedText;
-  if (chipHeightValue) chipHeightValue.textContent = Number(latest.blockHeight || 0).toLocaleString("en-US");
+  if (chipUpdatedValue) chipUpdatedValue.textContent = updatedKpiText;
   if (chipSpotValue) chipSpotValue.textContent = fmtUsd(spot, 0);
 
   const total = rows.length;

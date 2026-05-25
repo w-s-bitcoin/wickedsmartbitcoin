@@ -1,7 +1,7 @@
 (() => {
-  const STANDALONE_FILENAME = "uoa.png";
+  const STANDALONE_FILENAME = "patoshi_pattern.png";
   const IMAGE_LIST_URL = "assets/image_list.json";
-  const DASHBOARD_URL = "webapps/uoa/dashboard.html";
+  const DASHBOARD_URL = "webapps/patoshi_pattern/dashboard.html";
   const FAVORITES_STORAGE_KEY = "favorites";
   const MODAL_NAV_SNAPSHOT_KEY = "wsb_modal_nav_snapshot_v2";
   const GRID_FOCUS_RESTORE_KEY = "wsb_pending_grid_focus_filename_v1";
@@ -22,7 +22,7 @@
 
   let currentImage = {
     filename: STANDALONE_FILENAME,
-    title: "Unit of Account (UoA)",
+    title: "Patoshi Pattern",
     description: "",
     latest_x: "",
     latest_nostr: "",
@@ -32,29 +32,85 @@
   let imageListCache = null;
   let imageListPromise = null;
   let currentYoutubeUrl = "";
+  let halFinneyControlsAnchor = null;
+  let halFinneyControlsOriginalParent = null;
+  let halFinneyControlsUnderlay = null;
 
-  function isPlaybackActive() {
-    // Check both local window and parent window for the playback flag
-    if (window.dateRangePlaybackActive) return true;
-    try {
-      if (window.parent && window.parent !== window && window.parent.dateRangePlaybackActive) {
-        return true;
-      }
-    } catch (_) {
-      // Ignore cross-origin access issues
-    }
-    return false;
+  function getModalControls() {
+    const controls = document.querySelector(".modal-controls");
+    return controls instanceof HTMLElement ? controls : null;
   }
 
-  function isDateRangeExportActive() {
-    if (window.dateRangeExportActive) return true;
-    try {
-      if (window.parent && window.parent !== window && window.parent.dateRangeExportActive) {
-        return true;
-      }
-    } catch (_) {
+  function ensureHalFinneyControlsUnderlay() {
+    if (halFinneyControlsUnderlay instanceof HTMLElement && halFinneyControlsUnderlay.isConnected) {
+      return halFinneyControlsUnderlay;
     }
-    return false;
+    if (!(modal instanceof HTMLElement)) return null;
+
+    const underlay = document.createElement("div");
+    underlay.className = "modal-controls-underlay";
+    underlay.hidden = true;
+    underlay.setAttribute("aria-hidden", "true");
+    modal.appendChild(underlay);
+    halFinneyControlsUnderlay = underlay;
+    return underlay;
+  }
+
+  function parkHalFinneyControls() {
+    const controls = getModalControls();
+    const underlay = ensureHalFinneyControlsUnderlay();
+    if (!controls || !underlay || controls.parentElement === underlay) return;
+
+    halFinneyControlsOriginalParent = controls.parentNode;
+    halFinneyControlsAnchor = document.createComment("hal-finney-controls-anchor");
+    halFinneyControlsOriginalParent?.insertBefore(halFinneyControlsAnchor, controls);
+    underlay.hidden = false;
+    underlay.appendChild(controls);
+  }
+
+  function restoreHalFinneyControls() {
+    const controls = getModalControls();
+    const underlay = halFinneyControlsUnderlay;
+    if (!controls || !(underlay instanceof HTMLElement) || controls.parentElement !== underlay) return;
+
+    const targetParent = halFinneyControlsAnchor?.parentNode || halFinneyControlsOriginalParent;
+    if (targetParent instanceof Node) {
+      if (halFinneyControlsAnchor?.parentNode === targetParent) {
+        targetParent.insertBefore(controls, halFinneyControlsAnchor);
+      } else {
+        targetParent.appendChild(controls);
+      }
+    }
+
+    halFinneyControlsAnchor?.remove();
+    halFinneyControlsAnchor = null;
+    halFinneyControlsOriginalParent = null;
+    underlay.hidden = true;
+  }
+
+  function setHalFinneyShellState(isOpen) {
+    const active = !!isOpen;
+
+    const modalControls = getModalControls();
+    if (modalControls instanceof HTMLElement) {
+      modalControls.setAttribute("aria-hidden", active ? "true" : "false");
+      modalControls.toggleAttribute("inert", active);
+    }
+
+    if (
+      active
+      && document.activeElement instanceof HTMLElement
+      && modalControls instanceof HTMLElement
+      && modalControls.contains(document.activeElement)
+    ) {
+      document.activeElement.blur();
+    }
+
+    if (active) {
+      parkHalFinneyControls();
+    } else {
+      restoreHalFinneyControls();
+    }
   }
 
   function applyStandaloneFocusOrder() {
@@ -96,8 +152,8 @@
   function getStandalonePath() {
     const base = getPageBasePath();
     const path = IS_LOCAL_HOST
-      ? `${base}/uoa.html`
-      : `${base}/uoa`;
+      ? `${base}/patoshi_pattern.html`
+      : `${base}/patoshi_pattern`;
     return normalizeJoinedPath(path);
   }
 
@@ -112,18 +168,18 @@
   function getMainRouteUrl(filename) {
     const slug = slugFromFilename(filename);
     const localStandaloneBySlug = {
-      quantum_exposure: 'quantum_exposure.html',
-      bip110_signaling: 'bip110_signaling.html',
-      dca_cost_basis: 'dca_cost_basis.html',
-      dca_comparison: 'dca_comparison.html',
-      patoshi_pattern: 'patoshi_pattern.html',
-      node_count: 'node_count.html',
-      bitcoin_dominance: 'bitcoin_dominance.html',
-      bitcoin_net_worth: 'bitcoin_net_worth.html',
-      uoa: 'uoa.html',
-    };
+    quantum_exposure: 'quantum_exposure.html',
+    bip110_signaling: 'bip110_signaling.html',
+    node_count: 'node_count.html',
+    bitcoin_dominance: 'bitcoin_dominance.html',
+    dca_cost_basis: 'dca_cost_basis.html',
+    dca_comparison: 'dca_comparison.html',
+    patoshi_pattern: 'patoshi_pattern.html',
+    bitcoin_net_worth: 'bitcoin_net_worth.html',
+    uoa: 'uoa.html',
+  };
 
-    if (slug === "uoa") return getStandalonePath();
+    if (slug === "patoshi_pattern") return getStandalonePath();
 
     const base = getPageBasePath();
     if (IS_LOCAL_HOST) {
@@ -214,7 +270,7 @@
   function setCurrentImage(image, index) {
     currentImage = image || currentImage;
     currentIndex = Number.isInteger(index) ? index : currentIndex;
-    document.title = `${currentImage.title || "Unit of Account (UoA)"} | Wicked Smart Bitcoin`;
+    document.title = `${currentImage.title || "Patoshi Pattern"} | Wicked Smart Bitcoin`;
     if (modalImg) {
       modalImg.dataset.filename = currentImage.filename;
       modalImg.alt = currentImage.title || "";
@@ -273,8 +329,7 @@
     }
   }
 
-  function navigateToImage(filename, options = {}) {
-    if (isPlaybackActive() && !options.allowDuringPlayback) return;
+  function navigateToImage(filename) {
     window.location.href = getMainRouteUrl(filename);
   }
 
@@ -285,7 +340,7 @@
     return raw.endsWith(".png") ? raw : `${raw}.png`;
   }
 
-  async function navigateRelative(delta, options = {}) {
+  async function navigateRelative(delta) {
     try {
       const list = await loadImageList();
       if (!list.length) return;
@@ -298,7 +353,7 @@
       const nextIndex = (baseIndex + delta + navList.length) % navList.length;
       const target = navList[nextIndex];
       if (!target?.filename) return;
-      navigateToImage(target.filename, options);
+      navigateToImage(target.filename);
     } catch (error) {
       console.warn("Standalone navigation failed:", error);
     }
@@ -368,9 +423,6 @@
   }
 
   function closeModal() {
-    if (isDateRangeExportActive()) return;
-    if (isPlaybackActive()) return;
-    document.body?.classList?.remove("uoa-dashboard-expanded");
     try {
       const filename = String(currentImage?.filename || STANDALONE_FILENAME).trim();
       if (filename) {
@@ -383,19 +435,24 @@
   }
 
   function prevImage() {
-    if (isDateRangeExportActive()) return;
-    navigateRelative(-1, { allowDuringPlayback: true });
+    navigateRelative(-1);
   }
 
   function nextImage() {
-    if (isDateRangeExportActive()) return;
-    navigateRelative(1, { allowDuringPlayback: true });
+    navigateRelative(1);
+  }
+
+  function toggleDashboardPlayback() {
+    if (!modalEmbed || !modalEmbed.contentWindow) return;
+    modalEmbed.contentWindow.postMessage(
+      { type: "wsb-patoshi-pattern-toggle-playback" },
+      window.location.origin
+    );
   }
 
   function handleNavKey(key) {
     if (youtubeOverlay && !youtubeOverlay.classList.contains("hidden")) return;
     if (!modal || modal.style.display !== "flex") return;
-    if (isPlaybackActive()) return;
     if (key === "ArrowLeft") {
       prevImage();
       return;
@@ -403,6 +460,9 @@
     if (key === "ArrowRight") {
       nextImage();
       return;
+    }
+    if (key === " " || key === "Spacebar") {
+      toggleDashboardPlayback();
     }
   }
 
@@ -415,16 +475,6 @@
       return;
     }
     if (!modal || modal.style.display !== "flex") return;
-    
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeModal();
-      return;
-    }
-    
-    // Block all other navigation when playback is active
-    if (isPlaybackActive()) return;
-    
     if (event.key === "ArrowLeft") {
       event.preventDefault();
       handleNavKey("ArrowLeft");
@@ -434,6 +484,15 @@
       event.preventDefault();
       handleNavKey("ArrowRight");
       return;
+    }
+    if (event.key === " " || event.key === "Spacebar" || event.code === "Space") {
+      event.preventDefault();
+      handleNavKey(" ");
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeModal();
     }
   }
 
@@ -460,15 +519,14 @@
       if (event.origin !== window.location.origin) return;
       if (event.source !== modalEmbed?.contentWindow) return;
       const data = event.data || {};
-      if (data.type === "wsb-uoa-date-range-export-active") {
-        window.dateRangeExportActive = !!data.active;
+      if (data.type === "dca-hal-finney-overlay") {
+        setHalFinneyShellState(!!data.open);
         return;
       }
-      if (data.type === "wsb-uoa-dashboard-expanded") {
-        document.body?.classList?.toggle("uoa-dashboard-expanded", !!data.expanded);
+      if (data.type === "wsb-patoshi-pattern-dashboard-expanded") {
+        document.body?.classList?.toggle("patoshi-pattern-dashboard-expanded", !!data.expanded);
         return;
       }
-      if (isPlaybackActive()) return;
       if (data.type !== "wsb-dashboard-nav-key") return;
       const key = String(data.key || "");
       if (!key) return;
@@ -489,6 +547,7 @@
     }
 
     showShell();
+    setHalFinneyShellState(false);
     bindEvents();
     applyStandaloneFocusOrder();
     updateFavoriteButton();

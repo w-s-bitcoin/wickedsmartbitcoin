@@ -103,6 +103,10 @@ window.addEventListener('message', e => {
     }
     if (data.type === 'wsb-dca-comparison-dashboard-expanded') {
         document.body?.classList?.toggle('dca-comparison-dashboard-expanded', !!data.expanded);
+        return;
+    }
+    if (data.type === 'wsb-patoshi-pattern-dashboard-expanded') {
+        document.body?.classList?.toggle('patoshi-pattern-dashboard-expanded', !!data.expanded);
     }
 }, true);
 document.addEventListener('keydown', e => {
