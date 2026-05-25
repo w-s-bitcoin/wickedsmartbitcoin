@@ -173,6 +173,7 @@
       bip110_signaling: 'bip110_signaling.html',
       dca_cost_basis: 'dca_cost_basis.html',
       dca_comparison: 'dca_comparison.html',
+      patoshi_pattern: 'patoshi_pattern.html',
       node_count: 'node_count.html',
       bitcoin_dominance: 'bitcoin_dominance.html',
       bitcoin_net_worth: 'bitcoin_net_worth.html',
@@ -401,12 +402,26 @@
     try {
       const raw = sessionStorage.getItem(MODAL_NAV_SNAPSHOT_KEY);
       const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed)
+      const snapshot = Array.isArray(parsed)
         ? parsed.map((value) => String(value || "").trim()).filter(Boolean)
         : [];
+      return normalizeModalNavigationSnapshot(snapshot);
     } catch (_) {
       return [];
     }
+  }
+
+  function normalizeModalNavigationSnapshot(snapshot) {
+    if (!Array.isArray(snapshot) || !snapshot.length) return [];
+    if (snapshot.includes("patoshi_pattern.png")) return snapshot;
+
+    const quantumIndex = snapshot.indexOf("quantum_exposure.png");
+    const uoaIndex = snapshot.indexOf("uoa.png");
+    if (quantumIndex < 0 || uoaIndex < 0 || quantumIndex >= uoaIndex) return snapshot;
+
+    const normalized = snapshot.slice();
+    normalized.splice(quantumIndex + 1, 0, "patoshi_pattern.png");
+    return normalized;
   }
 
   function parseStoredBoolean(value) {

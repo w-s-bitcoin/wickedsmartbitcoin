@@ -1,0 +1,2831 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <style id="wsb-early-black">html,body{background:#000;color:#f1f5f7;}:root[data-theme="light"],:root[data-theme="light"] body{background:#f4f5f7;color:#111827;}</style>
+  <script>
+    (function () {
+      // Apply the shared theme before the chart app initializes so the first
+      // canvas/loading paint does not briefly use the dark fallback in light mode.
+      try {
+        const storedTheme = window.localStorage.getItem('quantum-research-dashboard-theme');
+        const initialTheme = (storedTheme === 'light' || storedTheme === 'dark')
+          ? storedTheme
+          : 'dark';
+        document.documentElement.dataset.theme = initialTheme;
+      } catch (_err) {
+        document.documentElement.dataset.theme = 'dark';
+      }
+    })();
+  </script>
+  <title>Patoshi Pattern</title>
+  <script src="../shared/dashboard_embed_modal.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../shared/dashboard_shared.css" />
+  <style>
+    :root {
+      --bg: #000;
+      --panel: #000;
+      --surface: #000;
+      --surface-soft: #000;
+      --panel-border: rgba(255, 255, 255, 0.14);
+      --panel-border-opaque: #242424;
+      --fg: #f1f5f7;
+      --ink: #f0f0f0;
+      --muted: #95a6ae;
+      --line: #2b2b2b;
+      --accent: #ff9f1c;
+      --patoshi: #ff9900;
+      --other: #0065ff;
+      --spent: #a8b3ba;
+      --green: #41b36b;
+      --red: #d33a45;
+      --wrap-pad: clamp(8px, 1.4vw, 12px);
+      --panel-min-height: 480px;
+      --control-bg: rgba(0, 0, 0, 0.4);
+      --control-hover: rgba(255, 255, 255, 0.08);
+      --control-disabled: #888;
+      --grid: #242424;
+      --tooltip-bg: #000;
+      --tooltip-border: rgba(255, 255, 255, 0.22);
+      --card-bg: #000;
+      --card-border: var(--panel-border);
+      --caret-chevron: #d6e1e6;
+    }
+
+    :root[data-theme="light"] {
+      --bg: #f4f5f7;
+      --panel: #fff;
+      --surface: #fff;
+      --surface-soft: #faf6ef;
+      --panel-border: rgba(0, 0, 0, 0.11);
+      --panel-border-opaque: #e3e3e3;
+      --fg: #1c1b19;
+      --ink: #1c1b19;
+      --muted: #6f685f;
+      --line: #dedede;
+      --control-bg: #fff;
+      --control-hover: rgba(0, 0, 0, 0.04);
+      --grid: #e0e0e0;
+      --tooltip-bg: #fff;
+      --tooltip-border: rgba(0, 0, 0, 0.2);
+      --card-bg: #fff;
+      --card-border: var(--panel-border);
+      --caret-chevron: #7a756e;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--fg); font-family: "Space Grotesk", "Helvetica Neue", sans-serif; }
+    body { overflow-x: hidden; }
+    button, input, select { font: inherit; }
+    button:focus, input:focus { outline: none; box-shadow: none; }
+
+    .wrap {
+      min-height: 100vh;
+      width: 100%;
+      min-width: 0;
+      max-width: 100%;
+      padding: var(--wrap-pad);
+      display: grid;
+      grid-template-rows: auto auto minmax(var(--panel-min-height), 1fr);
+      gap: 10px;
+    }
+
+    .panel, .topbar, .range-panel {
+      border: 1px solid var(--panel-border);
+      border-radius: 12px;
+      background: var(--panel);
+      min-width: 0;
+    }
+
+    .topbar {
+      container-type: inline-size;
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+      overflow: visible;
+    }
+
+    .title-row, .filter-row, .kpi-grid, .range-top, .play-row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    .title {
+      margin: 0;
+      font-size: clamp(1.45rem, 3.8vw, 2.2rem);
+      line-height: 1;
+      letter-spacing: 0;
+    }
+
+    .pill, .seg button, .icon-btn {
+      min-height: 34px;
+      border: 1px solid var(--panel-border);
+      background: var(--control-bg);
+      color: var(--fg);
+      border-radius: 999px;
+      padding: 7px 13px;
+      font-family: "IBM Plex Mono", monospace;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      white-space: nowrap;
+    }
+    .pill label { color: var(--muted); }
+    .chip {
+      border: 1px solid var(--card-border);
+      border-radius: 999px;
+      background: transparent;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.8rem;
+      padding: 5px 9px;
+      white-space: nowrap;
+      overflow: visible;
+    }
+    .chip-kpi-display {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding-right: 24px;
+      position: relative;
+      transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+    }
+    #updatedChipWrap,
+    #updatedChipWrap .chip-kpi-display,
+    #chipUpdated {
+      max-width: 100%;
+      min-width: 0;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .chip-menu-wrap.single-select {
+      overflow: visible;
+      position: relative;
+      display: inline-block;
+      max-width: 100%;
+    }
+    #updatedChipWrap .chip-kpi-display,
+    #chipUpdated {
+      overflow: hidden;
+    }
+    .chip-menu-wrap.single-select::after {
+      content: '';
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      width: 12px;
+      height: 12px;
+      pointer-events: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237a756e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: center;
+      transform: translateY(-50%);
+      opacity: 0.9;
+      transition: transform 140ms ease;
+    }
+    :root:not([data-theme="light"]) .chip-menu-wrap.single-select::after {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23d6e1e6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    }
+    .chip-menu-wrap.single-select.is-open::after {
+      transform: translateY(-50%) rotate(180deg);
+    }
+    #updatedChipWrap:hover .chip-kpi-display,
+    #updatedChipWrap:focus-within .chip-kpi-display {
+      border-color: var(--accent);
+    }
+    .chip-label {
+      color: var(--muted);
+    }
+    .chip-value {
+      color: var(--fg);
+      font-variant-numeric: tabular-nums;
+    }
+    .chip-menu-select.chip-kpi-select-overlay,
+    .dca-dropdown-trigger {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      cursor: pointer;
+      border: none;
+      padding: 0;
+      margin: 0;
+      appearance: none;
+      -webkit-appearance: none;
+      background: transparent;
+      color: transparent;
+    }
+    .chip-menu-select.chip-kpi-select-overlay:focus,
+    .chip-menu-select.chip-kpi-select-overlay:focus-visible,
+    .dca-dropdown-trigger:focus,
+    .dca-dropdown-trigger:focus-visible {
+      outline: none;
+      box-shadow: none;
+    }
+    .dca-dropdown.dca-dropdown-overlay {
+      position: absolute;
+      inset: 0;
+      padding-right: 0;
+      z-index: 2;
+    }
+    .dca-dropdown.dca-dropdown-overlay::after,
+    .dca-dropdown.dca-dropdown-overlay .dca-dropdown-value {
+      display: none;
+    }
+    .dca-dropdown.dca-dropdown-overlay .dca-dropdown-menu {
+      left: 0 !important;
+      width: min(340px, calc(100vw - 24px)) !important;
+      min-width: max(100%, 240px) !important;
+      max-width: min(340px, calc(100vw - 24px)) !important;
+    }
+    .dca-native-select {
+      display: none !important;
+    }
+    .pill select, .pill input {
+      min-width: 0;
+      border: 0;
+      background: transparent;
+      color: var(--fg);
+      font: inherit;
+    }
+    .pill input[type="datetime-local"] { width: 224px; color-scheme: dark; }
+    :root[data-theme="light"] .pill input[type="datetime-local"] { color-scheme: light; }
+    .y-max-pill {
+      gap: 0;
+      padding: 0;
+      overflow: visible;
+    }
+    .y-max-dropdown {
+      min-width: 142px;
+      margin-left: 0;
+    }
+    .y-max-input {
+      width: 72px;
+      flex: 0 0 72px;
+      height: 30px;
+      padding: 0 10px;
+      border: 0;
+      border-right: 1px solid var(--card-border);
+      background: transparent;
+      color: var(--fg);
+      font: 0.75rem "IBM Plex Mono", monospace;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .seg { display: inline-flex; align-items: stretch; border: 1px solid var(--panel-border); border-radius: 12px; overflow: hidden; }
+    .seg button { border: 0; border-right: 1px solid var(--panel-border); border-radius: 0; min-width: 44px; padding-inline: 12px; }
+    .seg button:last-child { border-right: 0; }
+    .seg button.active { background: var(--accent); color: #000; }
+    .seg button:disabled { color: var(--control-disabled); cursor: not-allowed; }
+    .icon-btn { width: 36px; min-width: 36px; padding: 0; border-radius: 8px; cursor: pointer; }
+    .icon-btn.active { background: var(--accent); color: #000; }
+    .icon-btn:disabled { color: var(--control-disabled); cursor: not-allowed; }
+
+    .kpi-grid {
+      container-type: inline-size;
+      display: grid;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      grid-auto-rows: minmax(82px, auto);
+      align-items: stretch;
+      gap: 10px;
+      width: 100%;
+      box-sizing: border-box;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      padding-top: 8px;
+      min-height: 0;
+    }
+    :root[data-theme="light"] .kpi-grid {
+      border-top-color: rgba(0, 0, 0, 0.08);
+    }
+    .kpi-card {
+      container-type: inline-size;
+      grid-column: span 2;
+      min-width: 0;
+      min-height: 82px;
+      height: 100%;
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      background: var(--panel);
+      padding: 10px;
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) auto minmax(0, 1fr);
+      align-items: center;
+      text-align: center;
+      font-family: "IBM Plex Mono", monospace;
+    }
+    .kpi-card:nth-child(1),
+    .kpi-card:nth-child(2) {
+      grid-column: span 1;
+    }
+    .kpi-card:nth-child(1) { order: 1; }
+    .kpi-card:nth-child(3) { order: 2; }
+    .kpi-card:nth-child(4) { order: 3; }
+    .kpi-card:nth-child(5) { order: 4; }
+    .kpi-card:nth-child(2) { order: 5; }
+    .kpi-label {
+      align-self: end;
+      margin-bottom: 6px;
+      color: var(--muted);
+      font-size: clamp(10px, calc(0.42rem + 0.28vw), 12px);
+      line-height: 1.15;
+      text-transform: uppercase;
+      letter-spacing: clamp(0.12px, 0.04vw, 0.7px);
+      white-space: nowrap;
+    }
+    .kpi-value {
+      color: var(--fg);
+      font-size: clamp(0.85rem, calc(0.48rem + 1.75vw), 1.55rem);
+      font-weight: 700;
+      line-height: 1.15;
+      min-height: 1.15em;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: normal;
+    }
+    .kpi-sub {
+      align-self: start;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: clamp(9.5px, 2.5vw, 12px);
+      line-height: 1.2;
+      min-height: 1.2em;
+    }
+    .hashrate-split {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+      white-space: nowrap;
+    }
+    .hashrate-split-left {
+      min-width: 0;
+      text-align: right;
+    }
+    .hashrate-split-divider {
+      color: var(--muted);
+      text-align: center;
+    }
+    .hashrate-split-right {
+      min-width: 0;
+      text-align: left;
+    }
+    .kpi-value.orange { color: var(--patoshi); }
+    .kpi-value.blue { color: var(--other); }
+    .kpi-value.green { color: var(--green); }
+    .kpi-value.red { color: var(--red); }
+
+    .range-panel { padding: 12px 14px; display: grid; gap: 12px; overflow: hidden; }
+    .range-line { position: relative; height: 42px; }
+    .range-line input[type="range"] {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      margin: 0;
+      pointer-events: none;
+      appearance: none;
+      background: transparent;
+    }
+    .range-track {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 18px;
+      height: 7px;
+      border-radius: 999px;
+      background: #666;
+    }
+    .range-fill { position: absolute; top: 18px; height: 7px; border-radius: 999px; background: var(--accent); }
+    .range-line input[type="range"]::-webkit-slider-thumb {
+      appearance: none;
+      width: 16px;
+      height: 34px;
+      border-radius: 5px;
+      border: 0;
+      background: #eee;
+      pointer-events: none;
+      cursor: ew-resize;
+    }
+    .range-line input[type="range"]::-moz-range-thumb {
+      width: 16px;
+      height: 34px;
+      border-radius: 5px;
+      border: 0;
+      background: #eee;
+      pointer-events: auto;
+      cursor: ew-resize;
+    }
+
+    .chart-panel {
+      position: relative;
+      min-height: var(--panel-min-height);
+      padding: 8px;
+      overflow: hidden;
+    }
+    #patoshiChart {
+      width: 100%;
+      height: 100%;
+      display: block;
+      min-height: calc(var(--panel-min-height) - 18px);
+      background: var(--panel);
+      cursor: grab;
+      touch-action: none;
+    }
+    #patoshiChart.dragging {
+      cursor: grabbing;
+    }
+    #patoshiChart.target-pick-hover.target-pick-include {
+      cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='%23ff9900' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='6'/%3E%3Cpath d='M12 2.5v3.5M12 18v3.5M2.5 12H6M18 12h3.5'/%3E%3C/g%3E%3Ccircle cx='12' cy='12' r='1.8' fill='%23ff9900'/%3E%3C/svg%3E") 12 12, crosshair;
+    }
+    #patoshiChart.target-pick-hover.target-pick-exclude {
+      cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='%230066ff' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='6'/%3E%3Cpath d='M12 2.5v3.5M12 18v3.5M2.5 12H6M18 12h3.5'/%3E%3C/g%3E%3Ccircle cx='12' cy='12' r='1.8' fill='%230066ff'/%3E%3C/svg%3E") 12 12, crosshair;
+    }
+    .loading-ring {
+      position: absolute;
+      inset: 0;
+      margin: auto;
+      width: 48px;
+      height: 48px;
+      border: 3px solid rgba(255, 159, 28, 0.2);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 900ms linear infinite;
+    }
+    .chart-tooltip {
+      position: fixed;
+      z-index: 300;
+      display: none;
+      pointer-events: none;
+      max-width: min(260px, calc(100vw - 24px));
+      padding: 8px 10px;
+      border: 1px solid var(--tooltip-border);
+      border-radius: 8px;
+      background: var(--tooltip-bg);
+      color: var(--fg);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+      font: 0.78rem/1.35 "IBM Plex Mono", monospace;
+      text-align: left;
+      white-space: nowrap;
+    }
+    .chart-tooltip strong {
+      color: var(--muted);
+      font-weight: 500;
+    }
+    @media (min-width: 1100px) {
+      body.patoshi-side-panel-open .wrap {
+        grid-template-columns: minmax(0, 1fr) minmax(220px, 260px);
+        grid-template-rows: auto auto minmax(var(--panel-min-height), 1fr);
+        align-items: stretch;
+      }
+      body.patoshi-side-panel-open .topbar,
+      body.patoshi-side-panel-open .range-panel,
+      body.patoshi-side-panel-open .chart-panel {
+        grid-column: 1;
+      }
+      body.patoshi-side-panel-open .spent-rewards-panel {
+        grid-column: 2;
+        grid-row: 1 / 4;
+        position: relative;
+        inset: auto;
+        display: flex;
+        align-self: stretch;
+        width: 100%;
+        max-height: none;
+        box-shadow: none;
+      }
+    }
+    .side-panel-btn {
+      width: 28px;
+      height: 28px;
+      color: var(--muted);
+    }
+    .filters-menu-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+    }
+    .filters-btn {
+      width: 28px;
+      height: 28px;
+      color: var(--muted);
+    }
+    .filters-btn svg {
+      width: 15px;
+      height: 15px;
+      display: block;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .filters-btn.is-open {
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+    :root[data-theme="light"] .filters-btn.is-open,
+    :root[data-theme="light"] .filters-btn.is-open:hover,
+    :root[data-theme="light"] .filters-btn.is-open:focus-visible {
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+    .filters-panel {
+      position: absolute;
+      top: calc(100% + 8px);
+      left: var(--filters-panel-left, 0px);
+      width: min(440px, calc(100vw - 32px));
+      max-height: var(--filters-panel-max-height, min(72vh, 560px));
+      overflow-x: hidden;
+      overflow-y: auto;
+      padding: 12px;
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      background: var(--card-bg);
+      box-shadow: 0 12px 34px rgba(0, 0, 0, 0.32);
+      z-index: 1200;
+      display: none;
+    }
+    .filters-panel.open {
+      display: block;
+    }
+    .filters-panel-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .filters-panel-title {
+      margin: 0;
+      font: 700 0.94rem "Space Grotesk", sans-serif;
+      color: var(--fg);
+    }
+    .filters-panel .filters-panel-close {
+      width: 28px;
+      height: 28px;
+    }
+    .filters-panel .filter-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      align-items: stretch;
+      gap: 10px;
+      max-width: 100%;
+      overflow: visible;
+    }
+    .filter-control-row,
+    .filter-check-pair {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+    .filter-control-row > .pill,
+    .filter-control-row > .spent-alpha-control {
+      width: fit-content;
+      max-width: 100%;
+      flex: 0 1 auto;
+    }
+    .filter-setting-row {
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font: 0.8rem "IBM Plex Mono", monospace;
+      white-space: nowrap;
+    }
+    .filter-setting-label {
+      flex: 0 0 auto;
+      color: var(--muted);
+      font: inherit;
+      line-height: 1;
+    }
+    .filters-panel .pill {
+      justify-content: flex-start;
+      min-height: 30px;
+      border-color: var(--card-border);
+      border-radius: 8px;
+      padding: 0;
+      gap: 0;
+      font: 0.75rem "IBM Plex Mono", monospace;
+      line-height: normal;
+      background: transparent;
+    }
+    .filters-panel .pill .dca-dropdown {
+      width: auto;
+      min-width: max-content;
+      max-width: 100%;
+      min-height: 30px;
+      --dca-dropdown-content-pad: 10px;
+      --dca-dropdown-arrow-gap: 36px;
+    }
+    .filters-panel .pill .dca-dropdown::after {
+      right: 14px;
+    }
+    .filters-panel .pill .dca-dropdown-menu {
+      width: max-content;
+      min-width: 100%;
+      max-width: min(420px, calc(100vw - 56px));
+    }
+    .filters-panel .y-max-pill .y-max-input {
+      border: 0;
+      border-right: 1px solid var(--card-border);
+      border-radius: 0;
+      align-self: stretch;
+    }
+    .filters-panel .hashrate-window-setting {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 7px;
+      white-space: normal;
+    }
+    .filters-panel .pattern-mode-row {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 7px;
+      white-space: normal;
+    }
+    .filters-panel .hashrate-window-setting .filter-setting-label {
+      line-height: 1.2;
+    }
+    .filters-panel .pattern-mode-row .filter-setting-label {
+      line-height: 1.2;
+    }
+    .hashrate-window-buttons {
+      width: 100%;
+    }
+    .hashrate-window-buttons .date-range-days-segment {
+      width: 12ch;
+      min-width: 12ch;
+      max-width: none;
+      flex: 0 0 12ch;
+    }
+    .hashrate-window-buttons .date-range-btn {
+      flex: 1 1 0;
+      min-width: 0;
+      padding: 0 7px;
+    }
+    .hashrate-match-row {
+      width: 100%;
+      margin-top: -2px;
+    }
+    .filter-check-pair {
+      flex-wrap: wrap;
+    }
+    .filter-check-pair .check-row {
+      min-width: 0;
+      flex: 1 1 0;
+    }
+    .pattern-mode-row {
+      align-items: center;
+    }
+    .pattern-mode-control {
+      display: inline-flex;
+      align-items: stretch;
+      width: fit-content;
+      max-width: 100%;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      overflow: hidden;
+      background: transparent;
+      font: 0.75rem "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    }
+    .pattern-mode-button {
+      min-height: 30px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 12px;
+      font: inherit;
+      line-height: 1;
+      white-space: nowrap;
+    }
+    .pattern-mode-button {
+      appearance: none;
+      border: 0;
+      border-right: 1px solid var(--card-border);
+      background: transparent;
+      color: var(--fg);
+      cursor: pointer;
+    }
+    .pattern-mode-button:last-child {
+      border-right: 0;
+    }
+    .pattern-mode-button.is-active {
+      background: var(--accent);
+      color: #000;
+    }
+    .pattern-mode-button:focus,
+    .pattern-mode-button:focus-visible {
+      outline: none;
+      box-shadow: none;
+    }
+    .pattern-block-fields {
+      display: grid;
+      gap: 8px;
+      width: 100%;
+    }
+    .pattern-block-field {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+      color: var(--muted);
+      font: 0.8rem "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    }
+    .pattern-block-field input {
+      width: 100%;
+      min-width: 0;
+      height: 30px;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--fg);
+      font: 0.75rem "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      padding: 0 10px;
+      outline: none;
+    }
+    .pattern-block-field input:focus,
+    .pattern-block-field input:focus-visible {
+      border-color: var(--panel-border);
+      box-shadow: none;
+    }
+    .pattern-block-input-row {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+    }
+    .pattern-block-input-row input {
+      border-radius: 0 8px 8px 0;
+    }
+    .pattern-block-pick-btn {
+      width: 30px;
+      height: 30px;
+      flex: 0 0 30px;
+      display: inline-grid;
+      place-items: center;
+      border: 1px solid var(--card-border);
+      border-right: 0;
+      border-radius: 8px 0 0 8px;
+      background: transparent;
+      color: var(--muted);
+      padding: 0;
+      cursor: pointer;
+    }
+    .pattern-block-pick-btn svg {
+      width: 17px;
+      height: 17px;
+      display: block;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2.4;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .pattern-block-pick-btn:focus,
+    .pattern-block-pick-btn:focus-visible {
+      outline: none;
+      box-shadow: none;
+    }
+    .pattern-block-pick-btn:hover {
+      color: var(--fg);
+    }
+    #patoshiIncludePickBtn.is-active {
+      color: var(--patoshi);
+    }
+    #patoshiExcludePickBtn.is-active {
+      color: #0066ff;
+    }
+    @media (max-width: 700px) {
+      .filters-panel {
+        width: min(360px, calc(100vw - 28px));
+        max-height: var(--filters-panel-max-height, min(70vh, 560px));
+        overflow-x: hidden;
+        overflow-y: auto;
+      }
+    }
+    .side-panel-btn svg {
+      width: 14px;
+      height: 14px;
+      stroke: currentColor;
+      stroke-width: 1.85;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .side-panel-btn .side-panel-fill {
+      fill: currentColor;
+      stroke: none;
+    }
+    .side-panel-btn .side-panel-icon-open {
+      display: none;
+    }
+    .side-panel-btn.is-open {
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+    :root[data-theme="light"] .side-panel-btn.is-open,
+    :root[data-theme="light"] .side-panel-btn.is-open:hover,
+    :root[data-theme="light"] .side-panel-btn.is-open:focus-visible {
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+    .side-panel-btn.is-open .side-panel-icon-closed {
+      display: none;
+    }
+    .side-panel-btn.is-open .side-panel-icon-open {
+      display: block;
+    }
+    .spent-rewards-panel {
+      position: fixed;
+      top: calc(var(--wrap-pad) + 64px);
+      right: var(--wrap-pad);
+      bottom: var(--wrap-pad);
+      z-index: 220;
+      display: none;
+      width: min(280px, calc(100vw - var(--wrap-pad) * 2));
+      min-width: 0;
+      border: 1px solid var(--panel-border);
+      border-radius: 14px;
+      background: var(--panel);
+      color: var(--fg);
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.42);
+      overflow: visible;
+      font-family: "IBM Plex Mono", monospace;
+    }
+    .spent-rewards-panel.open {
+      display: flex;
+      flex-direction: column;
+    }
+    .spent-rewards-panel-header {
+      padding: 10px 10px 10px 14px;
+      border-bottom: 1px solid var(--panel-border);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 6px;
+      align-items: start;
+    }
+    .spent-rewards-panel-title {
+      margin: 0;
+      font: 700 0.94rem "Space Grotesk", sans-serif;
+      color: var(--fg);
+    }
+    .spent-rewards-sort-control {
+      grid-column: 1 / -1;
+      margin-top: 2px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .spent-rewards-sort-label {
+      color: var(--muted);
+      font-size: 0.72rem;
+      line-height: 1;
+      white-space: nowrap;
+    }
+    .spent-rewards-sort-dropdown {
+      --dca-dropdown-content-pad: 16px;
+      --dca-dropdown-arrow-gap: 46px;
+      width: min(188px, calc(100% - 64px));
+      flex: 0 1 auto;
+      min-height: 30px;
+      min-width: 0;
+      max-width: 100%;
+      border: 1px solid var(--panel-border);
+      border-radius: 999px;
+      background: var(--control-bg);
+      color: var(--fg);
+      font-size: 0.78rem;
+      line-height: 28px;
+      z-index: 30;
+    }
+    .dca-dropdown.spent-rewards-sort-dropdown::after {
+      right: 16px;
+    }
+    .spent-rewards-sort-dropdown .dca-dropdown-menu {
+      left: 0;
+      top: calc(100% + 5px);
+      width: 100%;
+      min-width: 100%;
+      max-width: 100%;
+    }
+    .spent-rewards-panel-close {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 1px solid var(--panel-border);
+      background: var(--panel);
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 1;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      flex-shrink: 0;
+      transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
+    }
+    .spent-rewards-panel-close:hover {
+      background: var(--control-hover);
+      color: var(--fg);
+      border-color: var(--accent);
+    }
+    .spent-rewards-list {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      overflow: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--muted) transparent;
+    }
+    .spent-reward-item {
+      display: grid;
+      gap: 4px;
+      width: 100%;
+      min-width: 0;
+      border: 1px solid var(--panel-border);
+      border-radius: 10px;
+      background: transparent;
+      color: var(--fg);
+      padding: 9px 10px;
+      text-align: left;
+      font: 0.75rem/1.25 "IBM Plex Mono", monospace;
+      cursor: pointer;
+    }
+    .spent-reward-item:hover,
+    .spent-reward-item.is-active {
+      border-color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 12%, transparent);
+    }
+    .spent-reward-title {
+      font-weight: 700;
+    }
+    .spent-reward-title.is-patoshi {
+      color: var(--patoshi);
+    }
+    .spent-reward-title.is-other {
+      color: var(--other);
+    }
+    .spent-reward-meta {
+      color: var(--fg);
+    }
+    .spent-reward-date {
+      color: var(--muted);
+      font-size: 0.7rem;
+    }
+    .spent-rewards-footer {
+      display: flex;
+      justify-content: center;
+      padding: 8px 10px 10px;
+      border-top: 1px solid var(--panel-border);
+    }
+    .spent-rewards-footer:not(.is-hidden) {
+      padding-bottom: 14px;
+    }
+    .spent-rewards-footer.is-hidden {
+      visibility: visible;
+    }
+    .spent-rewards-footer.is-hidden .spent-rewards-loading,
+    .spent-rewards-footer.is-hidden .spent-rewards-pull {
+      visibility: hidden;
+    }
+    .spent-rewards-loading {
+      display: inline-flex;
+      width: 18px;
+      height: 18px;
+      border: 2px solid var(--panel-border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    .spent-rewards-pull {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--muted);
+      opacity: 0.9;
+      animation: spent-rewards-bounce 0.75s ease-in-out infinite;
+    }
+    @keyframes spent-rewards-bounce {
+      0%, 100% { transform: translateY(0); opacity: 0.45; }
+      50% { transform: translateY(4px); opacity: 0.9; }
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .check-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.78rem;
+      line-height: 1.2;
+      cursor: default;
+      user-select: none;
+    }
+    .check-row:hover {
+      color: var(--fg);
+    }
+    .check-row input[type="checkbox"] {
+      appearance: auto;
+      -webkit-appearance: checkbox;
+      width: 13px;
+      height: 13px;
+      min-width: auto;
+      margin: 0;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+    .spent-alpha-control {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      height: 30px;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      color: var(--muted);
+      padding: 0;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.8rem;
+      white-space: nowrap;
+    }
+    .spent-alpha-control label {
+      color: var(--muted);
+    }
+    .spent-alpha-stepper {
+      display: inline-flex;
+      overflow: hidden;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+    }
+    .spent-alpha-stepper button,
+    .spent-alpha-stepper input {
+      height: 30px;
+      border: 0;
+      border-right: 1px solid var(--card-border);
+      background: transparent;
+      color: var(--fg);
+      font: 0.75rem "IBM Plex Mono", monospace;
+      text-align: center;
+    }
+    .spent-alpha-stepper button {
+      width: 26px;
+      padding: 0;
+      cursor: pointer;
+    }
+    .spent-alpha-stepper button:hover:not(:disabled) {
+      background: var(--control-hover);
+      color: var(--accent);
+    }
+    .spent-alpha-stepper button:disabled {
+      color: var(--control-disabled);
+      cursor: not-allowed;
+    }
+    .spent-alpha-stepper input {
+      width: 42px;
+      padding: 0 4px;
+      -moz-appearance: textfield;
+    }
+    .spent-alpha-stepper input::-webkit-outer-spin-button,
+    .spent-alpha-stepper input::-webkit-inner-spin-button {
+      margin: 0;
+      -webkit-appearance: none;
+    }
+    .spent-alpha-stepper > :last-child {
+      border-right: 0;
+    }
+    @container (max-width: 1080px) {
+      .kpi-grid {
+        align-items: stretch;
+        grid-auto-rows: minmax(82px, 1fr);
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+      .kpi-card {
+        grid-column: span 2;
+        min-height: 82px;
+      }
+      .kpi-card:nth-child(1),
+      .kpi-card:nth-child(2) {
+        grid-column: span 1;
+      }
+      .kpi-card:nth-child(1) { order: 1; }
+      .kpi-card:nth-child(2) { order: 2; }
+      .kpi-card:nth-child(3) { order: 3; }
+      .kpi-card:nth-child(4) { order: 4; }
+      .kpi-card:nth-child(5) { order: 5; }
+      .kpi-value {
+        font-size: clamp(0.78rem, calc(0.34rem + 1.08vw), 1.22rem);
+        white-space: nowrap;
+        overflow-wrap: normal;
+      }
+      .kpi-label {
+        font-size: clamp(9px, calc(0.4rem + 0.24vw), 10.5px);
+        letter-spacing: clamp(0.04px, 0.035vw, 0.45px);
+      }
+      .kpi-sub {
+        font-size: clamp(8.5px, 1.1vw, 10.5px);
+      }
+    }
+    @container (max-width: 620px) {
+      .kpi-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+      .kpi-card {
+        grid-column: span 2;
+      }
+      .kpi-card:nth-child(1),
+      .kpi-card:nth-child(2) {
+        grid-column: span 1;
+      }
+    }
+    @container (max-width: 380px) {
+      .kpi-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 900px) {
+      .wrap { grid-template-rows: auto auto minmax(520px, 1fr); padding-bottom: calc(var(--wrap-pad) + 56px); }
+      .filter-row, .range-top {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        scrollbar-width: none;
+        padding-bottom: 2px;
+      }
+      .filter-row::-webkit-scrollbar, .range-top::-webkit-scrollbar { display: none; }
+      .title-actions { margin-left: 0; }
+      .chart-panel { min-height: 520px; }
+      #patoshiChart { min-height: 502px; }
+      .pill input[type="datetime-local"] { width: 204px; }
+      .spent-rewards-panel {
+        top: calc(var(--wrap-pad) + var(--modal-controls-clearance, 30px));
+        right: var(--wrap-pad);
+        bottom: var(--wrap-pad);
+        width: min(280px, calc(100vw - var(--wrap-pad) * 2));
+        max-height: none;
+        border-radius: 14px;
+      }
+    }
+    @media (max-width: 1099px) {
+      .spent-rewards-panel {
+        top: calc(var(--wrap-pad) + var(--modal-controls-clearance, 30px));
+        right: var(--wrap-pad);
+        bottom: var(--wrap-pad);
+        width: min(280px, calc(100vw - var(--wrap-pad) * 2));
+        max-height: none;
+      }
+      body.patoshi-side-panel-open .chart-panel {
+        height: min(62vh, 560px);
+        min-height: var(--panel-min-height);
+      }
+      body.patoshi-side-panel-open #patoshiChart {
+        min-height: calc(var(--panel-min-height) - 18px);
+      }
+    }
+
+    /* Match the DCA Comparison control language while preserving Patoshi-specific IDs. */
+    .panel, .topbar, .range-panel {
+      border-color: var(--card-border);
+      border-radius: 14px;
+      background: var(--card-bg);
+    }
+    .topbar {
+      position: relative;
+      z-index: 80;
+      padding: 10px 12px;
+      gap: 8px;
+      overflow: visible;
+    }
+    .title {
+      font-size: clamp(1.05rem, 2vw, 1.5rem);
+      font-weight: 700;
+      letter-spacing: 0.015em;
+      line-height: normal;
+      color: var(--fg);
+    }
+    .title-actions {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: clamp(3px, 0.7vw, 8px);
+      position: absolute;
+      right: clamp(4px, 1vw, 12px);
+      top: clamp(4px, 1vw, 12px);
+    }
+    .title-row-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .copy-link-btn,
+    .reset-dashboard-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: var(--surface);
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+      line-height: 1;
+      cursor: pointer;
+      transition: background 160ms ease, border-color 160ms ease, color 160ms ease, opacity 160ms ease;
+      white-space: nowrap;
+    }
+    .copy-link-btn {
+      width: 96px;
+      min-width: 96px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+    }
+    .copy-link-btn:hover {
+      background: var(--surface-soft);
+      color: var(--ink);
+    }
+    :root:not([data-theme="light"]) .copy-link-btn {
+      color: #b0b0b0;
+    }
+    .reset-dashboard-btn {
+      width: 132px;
+      min-width: 132px;
+      border: 1px solid #cf5c5c;
+      color: #8f1f1f;
+      background: transparent;
+    }
+    .reset-dashboard-btn:hover {
+      background: transparent;
+      border-color: #b83d3d;
+      color: #6f1111;
+    }
+    .copy-link-btn:disabled,
+    .reset-dashboard-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .reset-dashboard-btn:disabled,
+    .reset-dashboard-btn:disabled:hover {
+      border-color: var(--line);
+      color: var(--muted);
+      background: transparent;
+    }
+    .reset-dashboard-btn--undo {
+      border-color: #3b82f6;
+      background: transparent;
+      color: #1d4ed8;
+    }
+    .reset-dashboard-btn--undo:hover {
+      background: transparent;
+      border-color: #2563eb;
+      color: #1e40af;
+    }
+    :root:not([data-theme="light"]) .reset-dashboard-btn {
+      border-color: #a14a4a;
+      color: #ffb3b3;
+    }
+    :root:not([data-theme="light"]) .reset-dashboard-btn:hover {
+      background: transparent;
+      border-color: #c05d5d;
+      color: #ffd0d0;
+    }
+    :root:not([data-theme="light"]) .reset-dashboard-btn:disabled,
+    :root:not([data-theme="light"]) .reset-dashboard-btn:disabled:hover {
+      border-color: var(--line);
+      color: var(--muted);
+      background: transparent;
+    }
+    :root:not([data-theme="light"]) .reset-dashboard-btn--undo {
+      border-color: #3b82f6;
+      color: #93c5fd;
+    }
+    :root:not([data-theme="light"]) .reset-dashboard-btn--undo:hover {
+      border-color: #60a5fa;
+      color: #bfdbfe;
+    }
+    .title-actions button .btn-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
+      flex: 0 0 14px;
+      pointer-events: none;
+    }
+    .title-actions button .btn-icon svg {
+      width: 14px;
+      height: 14px;
+      display: block;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.9;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .title-actions button .btn-label {
+      display: inline-block;
+      line-height: 1;
+    }
+    .pill, .seg button, .icon-btn {
+      min-height: 30px;
+      padding: 6px 12px;
+      font-size: 0.8rem;
+      line-height: 1;
+    }
+    .date-range-btn {
+      min-height: 30px;
+      height: 30px;
+      border: 1px solid var(--panel-border);
+      background: var(--control-bg);
+      color: var(--fg);
+      border-radius: 8px;
+      padding: 6px 12px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font: 0.85rem "IBM Plex Mono", monospace;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    .date-range-btn svg {
+      width: 13px;
+      height: 13px;
+    }
+    .date-range-native-input {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+      color-scheme: dark;
+    }
+    :root[data-theme="light"] .date-range-native-input {
+      color-scheme: light;
+    }
+    .pill input[type="datetime-local"] {
+      position: absolute;
+      width: 1px !important;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .date-picker-popup {
+      position: fixed;
+      z-index: 200;
+      width: 236px;
+      padding: 12px;
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      background: var(--card-bg);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.28);
+      color: var(--fg);
+      font-family: "IBM Plex Mono", monospace;
+      user-select: none;
+    }
+    .date-picker-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+    .date-picker-header-label {
+      flex: 1;
+      text-align: center;
+      color: var(--fg);
+      font-size: 0.85rem;
+      font-weight: 600;
+      line-height: 1;
+    }
+    .date-picker-nav {
+      width: 26px;
+      height: 24px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 1rem;
+      line-height: 1;
+      padding: 0;
+    }
+    .date-picker-nav:hover {
+      background: rgba(255, 255, 255, 0.12);
+      color: var(--fg);
+    }
+    :root[data-theme="light"] .date-picker-nav:hover {
+      background: rgba(0, 0, 0, 0.08);
+    }
+    .date-picker-grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 2px;
+    }
+    .date-picker-dow {
+      padding: 2px 0 4px;
+      color: var(--muted);
+      font-size: 0.68rem;
+      font-weight: 500;
+      text-align: center;
+    }
+    .date-picker-day {
+      min-height: 25px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--fg);
+      cursor: pointer;
+      font: 0.78rem "IBM Plex Mono", monospace;
+      text-align: center;
+    }
+    .date-picker-day:hover:not(.dp-disabled):not(.dp-empty) {
+      background: rgba(59, 130, 246, 0.22);
+    }
+    .date-picker-day.dp-selected {
+      background: var(--accent);
+      color: #000;
+      font-weight: 700;
+    }
+    .date-picker-day.dp-disabled {
+      color: var(--muted);
+      cursor: not-allowed;
+      opacity: 0.45;
+      text-decoration: line-through;
+    }
+    .date-picker-day.dp-empty {
+      cursor: default;
+    }
+    .date-picker-header-label {
+      cursor: pointer;
+    }
+    .date-picker-header-label:hover {
+      color: var(--accent);
+    }
+    .dp-year-grid-popup .date-picker-header {
+      position: relative;
+    }
+    .dp-year-grid-popup .date-picker-header-label {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      pointer-events: none;
+    }
+    .dp-year-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      max-height: 184px;
+      overflow-y: auto;
+      padding: 2px 0;
+      scrollbar-width: none;
+    }
+    .dp-year-grid::-webkit-scrollbar,
+    .dp-accordion-list::-webkit-scrollbar {
+      display: none;
+    }
+    .dp-year-cell {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-radius: 6px;
+      color: var(--fg);
+      cursor: pointer;
+      font-size: 0.82rem;
+      font-weight: 500;
+      padding: 6px 8px;
+      transition: background 100ms ease;
+    }
+    .dp-year-cell:hover {
+      background: rgba(59, 130, 246, 0.22);
+    }
+    .dp-year-cell.dp-year-current {
+      color: var(--accent);
+      font-weight: 700;
+    }
+    .dp-accordion-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      max-height: 184px;
+      overflow-x: hidden;
+      overflow-y: auto;
+      scrollbar-width: none;
+    }
+    .dp-accordion-year-btn {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--fg);
+      cursor: pointer;
+      font: 500 0.82rem "IBM Plex Mono", monospace;
+      padding: 6px 8px;
+      transition: background 100ms ease;
+    }
+    .dp-accordion-year-btn:hover {
+      background: rgba(59, 130, 246, 0.22);
+    }
+    .dp-accordion-open .dp-accordion-year-btn {
+      color: var(--accent);
+      font-weight: 700;
+    }
+    .dp-accordion-chevron {
+      display: inline-block;
+      transition: transform 140ms ease;
+    }
+    .dp-accordion-open .dp-accordion-chevron {
+      transform: rotate(90deg);
+    }
+    .dp-month-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 4px;
+      padding: 4px 8px 8px;
+    }
+    .dp-month-cell {
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--fg);
+      cursor: pointer;
+      font: 0.78rem "IBM Plex Mono", monospace;
+      padding: 6px 4px;
+      text-align: center;
+      transition: background 100ms ease;
+    }
+    .dp-month-cell:hover:not(.dp-disabled) {
+      background: rgba(59, 130, 246, 0.22);
+    }
+    .dp-month-cell.dp-month-current {
+      background: var(--accent);
+      color: #000;
+      font-weight: 700;
+    }
+    .dp-month-cell.dp-disabled {
+      color: var(--muted);
+      cursor: not-allowed;
+      opacity: 0.45;
+    }
+    .date-picker-nav:focus,
+    .date-picker-nav:focus-visible,
+    .dp-accordion-year-btn:focus,
+    .dp-accordion-year-btn:focus-visible,
+    .dp-month-cell:focus,
+    .dp-month-cell:focus-visible {
+      outline: none;
+      box-shadow: none;
+    }
+    .patoshi-time-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--card-border);
+      color: var(--muted);
+      font-size: 0.74rem;
+    }
+    .patoshi-time-row input {
+      flex: 1 1 auto;
+      min-width: 0;
+      height: 28px;
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      background: var(--control-bg);
+      color: var(--fg);
+      padding: 4px 8px;
+      font: 0.78rem "IBM Plex Mono", monospace;
+      color-scheme: dark;
+    }
+    :root[data-theme="light"] .patoshi-time-row input {
+      color-scheme: light;
+    }
+    .seg {
+      border-radius: 8px;
+    }
+    .seg button {
+      min-width: 38px;
+      min-height: 28px;
+      padding-inline: 12px;
+    }
+    .icon-btn {
+      width: 31px;
+      min-width: 31px;
+      border-radius: 0;
+    }
+    .date-range-native-input:focus,
+    .date-range-native-input:focus-visible,
+    .date-range-slider:focus,
+    .date-range-slider:focus-visible,
+    .date-range-btn:focus,
+    .date-range-btn:focus-visible,
+    .date-range-playback-btn:focus,
+    .date-range-playback-btn:focus-visible {
+      outline: none !important;
+      box-shadow: none !important;
+    }
+    .date-range-panel {
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      background: var(--card-bg);
+      padding: 10px 12px;
+      display: grid;
+      gap: 10px;
+      overflow: visible;
+    }
+    .date-range-header {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+    .date-range-header label.chip:has(.date-range-btn) {
+      border: 0;
+      border-radius: 0;
+      padding: 0;
+    }
+    .date-range-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 6px;
+      padding: 4px 10px;
+      width: 106px;
+      min-width: 106px;
+      min-height: 30px;
+      font-size: 0.85rem;
+      font-family: inherit;
+      background: transparent;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      color: var(--fg);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 140ms ease, border-color 140ms ease;
+    }
+    #startBtn,
+    #endBtn {
+      width: 168px;
+      min-width: 168px;
+      max-width: 168px;
+      padding-inline: 10px;
+      justify-content: flex-start;
+      overflow: hidden;
+    }
+    #startBtnLabel,
+    #endBtnLabel {
+      display: inline-block;
+      min-width: 14ch;
+      overflow: hidden;
+      text-overflow: clip;
+      font-variant-numeric: tabular-nums;
+    }
+    .date-range-btn svg {
+      width: 13px;
+      height: 13px;
+      flex: 0 0 auto;
+    }
+    .date-range-btn:hover {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.35);
+    }
+    .date-range-btn:focus,
+    .date-range-btn:focus-visible {
+      border-color: var(--card-border);
+      background: transparent;
+    }
+    :root[data-theme="light"] .date-range-btn:hover {
+      background: rgba(0, 0, 0, 0.06);
+      border-color: rgba(0, 0, 0, 0.35);
+    }
+    .date-range-range-control {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.8rem;
+      white-space: nowrap;
+    }
+    .date-range-button-row,
+    .date-range-play-row {
+      display: inline-flex;
+      align-items: stretch;
+      border: 0;
+      border-radius: 0;
+      overflow: visible;
+      min-height: 28px;
+      gap: 0;
+    }
+    .date-range-days-segment {
+      border: 1px solid var(--card-border);
+      border-radius: 8px 0 0 8px;
+      margin-right: -1px;
+      background: transparent;
+      color: var(--fg);
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      width: 12ch;
+      min-width: 12ch;
+      max-width: 12ch;
+      flex: 0 0 12ch;
+      padding: 5px 9px;
+      position: relative;
+      z-index: 1;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.75rem;
+      line-height: normal;
+      font-variant-numeric: tabular-nums;
+    }
+    .date-range-days-segment:focus-within {
+      outline: none !important;
+      box-shadow: none !important;
+    }
+    .date-range-days-input {
+      appearance: textfield;
+      -moz-appearance: textfield;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--fg);
+      width: 5ch;
+      min-width: 5ch;
+      padding: 0;
+      margin: 0;
+      text-align: right;
+      font: inherit;
+      font-variant-numeric: tabular-nums;
+    }
+    .date-range-days-input::-webkit-outer-spin-button,
+    .date-range-days-input::-webkit-inner-spin-button {
+      appearance: none;
+      margin: 0;
+    }
+    .date-range-days-suffix {
+      color: var(--fg);
+    }
+    .date-range-button-row .date-range-btn {
+      min-width: 0;
+      width: auto;
+      height: auto;
+      min-height: 0;
+      padding: 5px 9px;
+      line-height: normal;
+      display: inline-block;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.75rem;
+      border-radius: 0;
+      margin-right: -1px;
+      transition: border-color 120ms ease, color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+    }
+    .date-range-button-row .date-range-btn:last-child {
+      margin-right: 0;
+      border-top-right-radius: 8px;
+      border-bottom-right-radius: 8px;
+    }
+    .date-range-button-row .date-range-btn:hover,
+    .date-range-button-row .date-range-btn:focus-visible {
+      color: var(--fg);
+      border-color: rgba(255, 255, 255, 0.35);
+      background: transparent;
+      z-index: 3;
+    }
+    .date-range-button-row .date-range-btn:focus,
+    .date-range-button-row .date-range-btn:focus-visible {
+      border-color: var(--card-border);
+      background: transparent;
+      z-index: 1;
+    }
+    :root[data-theme="light"] .date-range-button-row .date-range-btn:hover,
+    :root[data-theme="light"] .date-range-button-row .date-range-btn:focus-visible {
+      border-color: rgba(0, 0, 0, 0.35);
+      background: transparent;
+    }
+    .date-range-button-row .date-range-btn.active,
+    .date-range-button-row .date-range-btn.is-active {
+      color: #000000;
+      border: 1px solid var(--panel-border-opaque) !important;
+      background: var(--accent);
+      box-shadow: inset 0 0 0 1px var(--panel-border-opaque);
+      text-shadow: none;
+      z-index: 4;
+    }
+    .date-range-playback-btn {
+      min-width: 30px;
+      height: 28px;
+      border: 1px solid var(--card-border);
+      border-radius: 0;
+      margin-right: -1px;
+      background: transparent;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.75rem;
+      line-height: 1;
+      padding: 0 9px;
+      cursor: pointer;
+      position: relative;
+      z-index: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+    }
+    .date-range-playback-btn:first-child {
+      border-top-left-radius: 8px;
+      border-bottom-left-radius: 8px;
+    }
+    .date-range-playback-btn:last-child {
+      border-top-right-radius: 8px;
+      border-bottom-right-radius: 8px;
+      margin-right: 0;
+    }
+    .date-range-playback-btn:hover,
+    .date-range-playback-btn:focus-visible {
+      color: var(--fg);
+      border-color: rgba(255, 255, 255, 0.35);
+      background: rgba(255, 255, 255, 0.08);
+      z-index: 3;
+    }
+    :root[data-theme="light"] .date-range-playback-btn:hover,
+    :root[data-theme="light"] .date-range-playback-btn:focus-visible {
+      border-color: rgba(0, 0, 0, 0.35);
+      background: rgba(0, 0, 0, 0.06);
+    }
+    .date-range-playback-btn:focus,
+    .date-range-playback-btn:focus-visible {
+      outline: none !important;
+      box-shadow: none !important;
+      border-color: var(--card-border);
+      background: transparent;
+      z-index: 1;
+    }
+    .date-range-play-btn.active,
+    .date-range-pause-btn.active,
+    .date-range-settings-btn.active,
+    .date-range-play-btn.is-playing,
+    .date-range-pause-btn.is-paused,
+    .date-range-settings-btn.is-open {
+      background: var(--accent);
+      color: #000;
+      border-color: var(--panel-border-opaque) !important;
+      box-shadow: inset 0 0 0 1px var(--panel-border-opaque);
+      z-index: 4;
+    }
+    .date-range-playback-btn:disabled {
+      opacity: 0.5;
+      color: var(--muted);
+      cursor: not-allowed;
+    }
+    .date-range-playback-btn:disabled:hover,
+    .date-range-playback-btn:disabled:focus-visible {
+      color: var(--muted);
+      background: transparent;
+      border-color: var(--card-border);
+      z-index: 1;
+    }
+    .date-range-pause-btn:disabled,
+    .date-range-stop-btn:disabled {
+      opacity: 1;
+      color: color-mix(in srgb, var(--muted) 62%, transparent);
+    }
+    .date-range-play-btn,
+    .date-range-pause-btn,
+    .date-range-stop-btn,
+    .date-range-download-btn,
+    .date-range-settings-btn {
+      width: 30px;
+      min-width: 30px;
+      padding: 0;
+    }
+    .date-range-play-btn {
+      font-size: 0.78rem;
+    }
+    .date-range-pause-btn,
+    .date-range-stop-btn {
+      font-size: 0.72rem;
+    }
+    .date-range-speed-btn {
+      width: 48px;
+      min-width: 48px;
+      padding: 0;
+      border-radius: 0 !important;
+      margin-right: 0;
+    }
+    .date-range-download-btn,
+    .dashboard-expand-btn {
+      width: 30px;
+      min-width: 30px;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .date-range-download-btn {
+      font-size: 0.95rem;
+      margin-right: -1px;
+    }
+    .date-range-download-btn.is-exporting {
+      color: var(--muted);
+      cursor: pointer;
+      opacity: 1;
+    }
+    .date-range-download-btn.is-exporting:hover,
+    .date-range-download-btn.is-exporting:focus-visible {
+      color: var(--muted);
+      background: transparent;
+    }
+    @property --date-range-export-progress {
+      syntax: "<percentage>";
+      inherits: true;
+      initial-value: 0%;
+    }
+    .date-range-export-progress {
+      --date-range-export-progress: 0%;
+      position: relative;
+      display: block;
+      width: 22px;
+      height: 22px;
+    }
+    .date-range-export-progress::before {
+      content: "";
+      position: absolute;
+      inset: 1px;
+      border-radius: 50%;
+      background: conic-gradient(#ff9f1c 0% var(--date-range-export-progress), #5f5f5f var(--date-range-export-progress) 100%);
+      box-shadow: 0 0 5px color-mix(in srgb, #ff9f1c 22%, transparent);
+      -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+      mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+      transition: --date-range-export-progress 140ms linear;
+    }
+    :root[data-theme="light"] .date-range-export-progress::before {
+      background: conic-gradient(#ff9f1c 0% var(--date-range-export-progress), #bdbdbd var(--date-range-export-progress) 100%);
+    }
+    .date-range-export-stop-square {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 7px;
+      height: 7px;
+      border-radius: 1px;
+      background: color-mix(in srgb, var(--muted) 80%, transparent);
+      transform: translate(-50%, -50%);
+      transition: background 120ms ease, box-shadow 120ms ease;
+      z-index: 1;
+    }
+    .date-range-download-btn.is-exporting:hover .date-range-export-stop-square,
+    .date-range-download-btn.is-exporting:focus-visible .date-range-export-stop-square,
+    .date-range-download-btn.is-exporting.is-canceling .date-range-export-stop-square {
+      background: #ff9f1c;
+      box-shadow: 0 0 7px color-mix(in srgb, #ff9f1c 58%, transparent);
+    }
+    .dashboard-expand-btn {
+      margin-right: -1px;
+    }
+    .dashboard-expand-icon {
+      width: 16px;
+      height: 16px;
+      display: block;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .dashboard-expand-icon-shrink,
+    body.patoshi-dashboard-expanded .dashboard-expand-icon-expand {
+      display: none;
+    }
+    body.patoshi-dashboard-expanded .dashboard-expand-icon-shrink {
+      display: block;
+    }
+    body.patoshi-dashboard-expanded {
+      overflow: hidden;
+    }
+    body.patoshi-dashboard-expanded .wrap {
+      height: 100vh;
+      min-height: 100vh;
+      overflow: hidden;
+      grid-template-rows: auto auto minmax(var(--panel-min-height), 1fr);
+      align-content: stretch;
+      padding-top: var(--wrap-pad);
+    }
+    body.patoshi-dashboard-expanded.embedded-in-modal .wrap,
+    html.embedded-in-modal body.patoshi-dashboard-expanded .wrap {
+      padding-top: var(--wrap-pad);
+    }
+    body.patoshi-dashboard-expanded .title-row,
+    body.patoshi-dashboard-expanded .title-actions,
+    body.patoshi-dashboard-expanded .filter-row {
+      display: none;
+    }
+    body.patoshi-dashboard-expanded .topbar {
+      padding: 0;
+      border-color: transparent;
+      background: transparent;
+    }
+    body.patoshi-dashboard-expanded .kpi-grid {
+      border-top: 0;
+      padding-top: 0;
+    }
+    body.patoshi-dashboard-expanded .panel {
+      min-height: var(--panel-min-height);
+      height: 100%;
+    }
+    .date-range-download-wrap {
+      position: relative;
+      display: inline-flex;
+      margin-left: -1px;
+    }
+    .date-range-download-wrap .date-range-settings-btn {
+      border-top-left-radius: 0 !important;
+      border-bottom-left-radius: 0 !important;
+      border-top-right-radius: 8px !important;
+      border-bottom-right-radius: 8px !important;
+      margin-right: 0;
+      padding: 0;
+      display: grid;
+      place-items: center;
+      font-size: 0;
+      line-height: 1;
+      text-align: center;
+      text-indent: 0;
+    }
+    .date-range-download-wrap .date-range-settings-btn::before {
+      content: "⚙";
+      display: block;
+      color: currentColor;
+      font-size: 1.15rem;
+      line-height: 1;
+      transform: translateY(1px);
+    }
+    .date-range-settings-menu {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 6px);
+      width: min(300px, calc(100vw - 16px));
+      min-width: 0;
+      max-width: calc(100vw - 16px);
+      max-height: calc(100dvh - 16px);
+      overflow: auto;
+      z-index: 180;
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+      padding: 10px;
+      display: none;
+      gap: 9px;
+    }
+    .date-range-settings-menu.open {
+      display: grid;
+    }
+    .download-setting-field {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.78rem;
+    }
+    .download-setting-button-row {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: 1fr;
+      border: 1px solid var(--card-border);
+      border-radius: 9px;
+      overflow: hidden;
+    }
+    .download-setting-option {
+      min-height: 31px;
+      border: 1px solid var(--card-border);
+      border-radius: 0;
+      margin-right: -1px;
+      background: transparent;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.74rem;
+      cursor: pointer;
+      position: relative;
+      z-index: 1;
+    }
+    .download-setting-option:first-child {
+      border-top-left-radius: 8px;
+      border-bottom-left-radius: 8px;
+    }
+    .download-setting-option:last-child {
+      margin-right: 0;
+      border-top-right-radius: 8px;
+      border-bottom-right-radius: 8px;
+    }
+    .download-setting-option:hover {
+      color: var(--fg);
+      background: rgba(255, 255, 255, 0.08);
+    }
+    :root[data-theme="light"] .download-setting-option:hover {
+      background: rgba(0, 0, 0, 0.06);
+    }
+    .download-setting-option.is-selected,
+    .download-setting-option.is-selected:hover,
+    .download-setting-option.is-selected:focus-visible,
+    :root[data-theme="light"] .download-setting-option.is-selected:hover,
+    :root[data-theme="light"] .download-setting-option.is-selected:focus-visible {
+      background: var(--accent);
+      color: #000;
+      box-shadow: inset 0 0 0 1px var(--card-border);
+      z-index: 2;
+    }
+    .download-setting-checkbox {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.78rem;
+      line-height: 1.2;
+      cursor: pointer;
+      user-select: none;
+    }
+    .download-setting-checkbox input[type="checkbox"] {
+      width: 15px;
+      height: 15px;
+      margin: 0;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+    .download-setting-checkbox:hover {
+      color: var(--fg);
+    }
+    .download-estimate-panel {
+      border-top: 1px solid var(--card-border);
+      border-bottom: 1px solid var(--card-border);
+      padding: 8px 0;
+      display: grid;
+      gap: 4px;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.8rem;
+    }
+    .download-estimate-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .download-estimate-row strong {
+      color: var(--fg);
+      font-weight: 600;
+    }
+    #downloadSettingsDownloadBtn {
+      width: 100%;
+      min-height: 31px;
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      margin-right: 0;
+      background: var(--panel);
+      color: var(--fg);
+      box-shadow: none;
+      font: 400 0.74rem "IBM Plex Mono", monospace;
+      padding: 7px 10px;
+      cursor: pointer;
+    }
+    #downloadSettingsDownloadBtn:hover,
+    #downloadSettingsDownloadBtn:focus-visible {
+      border-color: rgba(255, 255, 255, 0.35);
+      background: var(--panel);
+      color: var(--fg);
+      outline: none;
+    }
+    :root[data-theme="light"] #downloadSettingsDownloadBtn:hover,
+    :root[data-theme="light"] #downloadSettingsDownloadBtn:focus-visible {
+      border-color: rgba(0, 0, 0, 0.35);
+    }
+    #downloadSettingsDownloadBtn.is-stop-download {
+      border-color: transparent;
+      background: rgba(239, 68, 68, 0.15);
+      color: #ef4444;
+    }
+    #downloadSettingsDownloadBtn.is-stop-download:hover,
+    #downloadSettingsDownloadBtn.is-stop-download:focus-visible {
+      border-color: transparent;
+      background: rgba(239, 68, 68, 0.25);
+      color: #dc2626;
+    }
+    .download-setting-text {
+      width: 100%;
+      min-height: 31px;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      background: var(--control-bg);
+      color: var(--fg);
+      padding: 6px 8px;
+      font: 0.74rem "IBM Plex Mono", monospace;
+    }
+    .date-range-slider-wrap {
+      --slider-start: 0%;
+      --slider-end: 100%;
+      --slider-window-left: 0px;
+      --slider-window-width: 0px;
+      --slider-start-marker: 0px;
+      --slider-end-marker: 100%;
+      --slider-edge-pad: 6px;
+      --slider-track-h: 6px;
+      --slider-window-min: 18px;
+      --slider-window-h: 10px;
+      --slider-window-height: var(--slider-window-h);
+      --range-cursor: default;
+      position: relative;
+      height: 30px;
+      cursor: var(--range-cursor);
+      touch-action: none;
+      user-select: none;
+    }
+    .date-range-slider-wrap .range-track,
+    .date-range-slider-wrap .range-animation-fill,
+    .date-range-slider-wrap .range-fill {
+      top: 50%;
+      height: var(--slider-track-h);
+      transform: translateY(-50%);
+    }
+    .date-range-slider-wrap .range-track {
+      background: rgba(128, 128, 128, 0.24);
+      z-index: 1;
+    }
+    :root[data-theme="light"] .date-range-slider-wrap .range-track {
+      background: #e6e6e6;
+    }
+    .date-range-slider-wrap .range-animation-fill {
+      position: absolute;
+      left: var(--slider-start);
+      width: max(0px, calc(var(--slider-end) - var(--slider-start)));
+      background: #5f5f5f;
+      border-radius: 999px;
+      z-index: 2;
+      pointer-events: none;
+    }
+    :root[data-theme="light"] .date-range-slider-wrap .range-animation-fill {
+      background: #bdbdbd;
+    }
+    .date-range-slider-wrap .range-fill {
+      left: var(--slider-window-left) !important;
+      width: var(--slider-window-width) !important;
+      min-width: var(--slider-window-min);
+      height: var(--slider-window-height);
+      background: var(--patoshi);
+      cursor: var(--range-cursor);
+      z-index: 4;
+      pointer-events: none;
+      transform: translateY(-50%);
+    }
+    :root[data-theme="light"] .date-range-slider-wrap .range-fill {
+      background: var(--patoshi);
+    }
+    .date-range-slider-wrap .date-range-slider {
+      position: absolute;
+      left: 0;
+      top: 50%;
+      right: auto;
+      bottom: auto;
+      transform: translateY(-50%);
+      width: 100%;
+      height: 50px;
+      margin: 0;
+      padding: 0;
+      background: transparent;
+      opacity: 0;
+      appearance: none;
+      -webkit-appearance: none;
+      pointer-events: auto;
+      z-index: 4;
+      cursor: var(--range-cursor);
+      touch-action: none;
+    }
+    .date-range-slider-wrap .date-range-slider::-webkit-slider-runnable-track {
+      height: 6px;
+      background: transparent;
+    }
+    .date-range-slider-wrap .date-range-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 12px;
+      height: 26px;
+      border-radius: 3px;
+      border: none;
+      background: transparent !important;
+      margin-top: -10px;
+      cursor: ew-resize;
+      pointer-events: none;
+      box-shadow: none;
+    }
+    :root[data-theme="light"] .date-range-slider-wrap .date-range-slider::-webkit-slider-thumb {
+      background: transparent;
+    }
+    .date-range-slider-wrap .date-range-slider::-moz-range-track {
+      height: 6px;
+      background: transparent;
+    }
+    .date-range-slider-wrap .date-range-slider::-moz-range-thumb {
+      width: 12px;
+      height: 26px;
+      border-radius: 3px;
+      border: none;
+      background: transparent !important;
+      cursor: pointer;
+      pointer-events: none;
+      box-shadow: none;
+    }
+    :root[data-theme="light"] .date-range-slider-wrap .date-range-slider::-moz-range-thumb {
+      background: transparent;
+    }
+    .date-range-static-marker {
+      position: absolute;
+      top: 50%;
+      width: 12px;
+      height: 26px;
+      border-radius: 3px;
+      transform: translate(-50%, -50%);
+      background: #e6e6e6;
+      pointer-events: auto;
+      opacity: 1;
+      z-index: 3;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+      cursor: pointer;
+      touch-action: none;
+    }
+    :root[data-theme="light"] .date-range-static-marker {
+      background: #bdbdbd;
+    }
+    .date-range-start-marker {
+      left: var(--slider-start-marker);
+    }
+    .date-range-end-marker {
+      left: var(--slider-end-marker);
+    }
+    .dca-dropdown {
+      --dca-dropdown-content-pad: 10px;
+      --dca-dropdown-arrow-gap: 18px;
+      position: relative;
+      z-index: 1;
+      display: inline-flex;
+      align-items: center;
+      min-width: 0;
+      max-width: 100%;
+      flex: 0 0 auto;
+    }
+    .dca-dropdown::after {
+      content: '';
+      position: absolute;
+      right: 0;
+      top: 50%;
+      width: 12px;
+      height: 12px;
+      pointer-events: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237a756e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: center;
+      transform: translateY(-50%);
+      opacity: 0.9;
+      transition: transform 140ms ease;
+    }
+    :root:not([data-theme="light"]) .dca-dropdown::after {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23d6e1e6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    }
+    .dca-dropdown.is-open::after {
+      transform: translateY(-50%) rotate(180deg);
+    }
+    .dca-dropdown-value {
+      display: block;
+      width: 100%;
+      color: var(--fg);
+      font: inherit;
+      line-height: inherit;
+      text-align: left;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      overflow: hidden;
+      max-width: 100%;
+      padding: 0 var(--dca-dropdown-arrow-gap) 0 var(--dca-dropdown-content-pad);
+      pointer-events: none;
+    }
+    .dca-dropdown-trigger {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      padding: 0;
+      margin: 0;
+      border: 0;
+      background: transparent;
+      z-index: 3;
+      cursor: pointer;
+    }
+    .dca-dropdown.dca-dropdown-overlay {
+      position: absolute;
+      inset: 0;
+      padding-right: 0;
+      z-index: 2;
+    }
+    .dca-dropdown.dca-dropdown-overlay::after,
+    .dca-dropdown.dca-dropdown-overlay .dca-dropdown-value {
+      display: none;
+    }
+    .dca-dropdown.dca-dropdown-overlay .dca-dropdown-menu {
+      left: 0 !important;
+      width: min(340px, calc(100vw - 24px)) !important;
+      min-width: max(100%, 240px) !important;
+      max-width: min(340px, calc(100vw - 24px)) !important;
+    }
+    .dca-dropdown-menu {
+      position: absolute;
+      left: -4px;
+      top: calc(100% + 8px);
+      width: max-content;
+      min-width: calc(100% + 8px);
+      max-width: min(320px, calc(100vw - 24px));
+      max-height: min(300px, 50vh);
+      overflow: auto;
+      z-index: 1000;
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      background: var(--card-bg);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+      padding: 4px;
+      display: none;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 2px;
+    }
+    .dca-dropdown-menu.open {
+      display: flex;
+    }
+    .dca-dropdown.is-open {
+      z-index: 1001;
+    }
+    .dca-option-btn {
+      display: flex;
+      align-items: center;
+      width: 100%;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--fg);
+      text-align: left;
+      padding: 8px var(--dca-dropdown-content-pad);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 12px;
+      line-height: 1.35;
+      min-height: 32px;
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .dca-option-btn:hover,
+    .dca-option-btn.is-selected,
+    .dca-option-btn--selected {
+      background: rgba(255, 255, 255, 0.12);
+    }
+    :root[data-theme="light"] .dca-option-btn:hover,
+    :root[data-theme="light"] .dca-option-btn.is-selected,
+    :root[data-theme="light"] .dca-option-btn--selected {
+      background: rgba(0, 0, 0, 0.08);
+    }
+    .patoshi-native-select {
+      display: none !important;
+    }
+    @media (max-width: 860px) {
+      .topbar {
+        padding: 10px;
+      }
+      .title-actions {
+        gap: calc(8px - clamp(0px, (860px - 100vw) * 0.05, 5px));
+        right: calc(12px - clamp(0px, (860px - 100vw) * 0.07, 7px));
+        top: calc(12px - clamp(0px, (860px - 100vw) * 0.07, 7px));
+      }
+      .copy-link-btn,
+      .reset-dashboard-btn {
+        padding: 6px 10px;
+        min-height: 32px;
+        font-size: 11px;
+      }
+      .reset-dashboard-btn {
+        width: 120px;
+        min-width: 120px;
+      }
+    }
+    @media (max-width: 750px) {
+      .copy-link-btn,
+      .reset-dashboard-btn {
+        width: 30px;
+        min-width: 30px;
+        height: 30px;
+        min-height: 30px;
+        padding: 0;
+        border-radius: 999px;
+        font-size: 0;
+        line-height: 0;
+        letter-spacing: 0;
+        justify-content: center;
+        gap: 0;
+      }
+      .title-actions .copy-link-btn .btn-icon,
+      .title-actions .copy-link-btn .btn-label,
+      .title-actions .reset-dashboard-btn .btn-icon,
+      .title-actions .reset-dashboard-btn .btn-label {
+        display: none;
+      }
+      .copy-link-btn::before,
+      .reset-dashboard-btn::before {
+        content: "";
+        width: 18px;
+        height: 18px;
+        display: block;
+        background-color: currentColor;
+        -webkit-mask-repeat: no-repeat;
+        -webkit-mask-position: center;
+        -webkit-mask-size: contain;
+        mask-repeat: no-repeat;
+        mask-position: center;
+        mask-size: contain;
+      }
+      .copy-link-btn::before {
+        -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E");
+        mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E");
+      }
+      .reset-dashboard-btn::before {
+        -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8'/%3E%3Cpath d='M21 3v5h-5'/%3E%3C/svg%3E");
+        mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8'/%3E%3Cpath d='M21 3v5h-5'/%3E%3C/svg%3E");
+      }
+      .reset-dashboard-btn.reset-dashboard-btn--undo::before {
+        -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8'/%3E%3Cpath d='M3 3v5h5'/%3E%3C/svg%3E");
+        mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8'/%3E%3Cpath d='M3 3v5h5'/%3E%3C/svg%3E");
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="topbar" aria-label="Patoshi controls">
+      <div class="title-row">
+        <h1 class="title">Patoshi Pattern</h1>
+        <div class="title-row-actions">
+          <div class="info-wrap">
+            <button class="info-btn" type="button" aria-label="About Patoshi Pattern" aria-describedby="patoshiInfoPopover">?</button>
+            <div class="info-popover" id="patoshiInfoPopover" role="tooltip">Explore early Bitcoin ExtraNonce patterns, Patoshi-classified blocks, spent block rewards, and difficulty-period markers across any selected block-time range.</div>
+          </div>
+          <div class="filters-menu-wrap">
+            <button class="info-btn filters-btn" type="button" id="filtersBtn" aria-label="Show Patoshi filters" aria-haspopup="dialog" aria-expanded="false" aria-controls="filtersPanel">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5.5h8.3M16.7 5.5H21M3 12h4.3M12.7 12H21M3 18.5h10.3M18.7 18.5H21"></path><circle cx="14" cy="5.5" r="2.65"></circle><circle cx="10" cy="12" r="2.65"></circle><circle cx="16" cy="18.5" r="2.65"></circle></svg>
+            </button>
+            <div class="filters-panel" id="filtersPanel" role="dialog" aria-label="Patoshi settings">
+              <div class="filters-panel-header">
+                <h2 class="filters-panel-title">Dashboard Settings</h2>
+                <button id="filtersClose" type="button" class="spent-rewards-panel-close filters-panel-close" aria-label="Close settings">×</button>
+              </div>
+              <div class="filter-row">
+                <div class="filter-control-row pattern-mode-row filter-setting-row">
+                  <span class="filter-setting-label">Patoshi Pattern</span>
+                  <div class="pattern-mode-control" role="group" aria-label="Patoshi pattern">
+                    <button class="pattern-mode-button" type="button" data-patoshi-pattern="none" aria-pressed="false">None</button>
+                    <button class="pattern-mode-button" type="button" data-patoshi-pattern="original" aria-pressed="false">Original</button>
+                    <button class="pattern-mode-button is-active" type="button" data-patoshi-pattern="updated" aria-pressed="true">Updated</button>
+                  </div>
+                </div>
+                <div class="pattern-block-fields">
+                  <label class="pattern-block-field" for="patoshiIncludeInput">
+                    <span>Add blocks to Patoshi pattern</span>
+                    <span class="pattern-block-input-row">
+                      <button id="patoshiIncludePickBtn" class="pattern-block-pick-btn" type="button" aria-label="Pick blocks to add to Patoshi pattern" aria-pressed="false">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <circle cx="12" cy="12" r="7"></circle>
+                          <circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"></circle>
+                          <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3"></path>
+                        </svg>
+                      </button>
+                      <input id="patoshiIncludeInput" type="text" inputmode="numeric" autocomplete="off" aria-label="Add blocks to Patoshi pattern" placeholder="Enter block heights, separated by commas" />
+                    </span>
+                  </label>
+                  <label class="pattern-block-field" for="patoshiExcludeInput">
+                    <span>Remove blocks from Patoshi pattern</span>
+                    <span class="pattern-block-input-row">
+                      <button id="patoshiExcludePickBtn" class="pattern-block-pick-btn" type="button" aria-label="Pick blocks to remove from Patoshi pattern" aria-pressed="false">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <circle cx="12" cy="12" r="7"></circle>
+                          <circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"></circle>
+                          <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3"></path>
+                        </svg>
+                      </button>
+                      <input id="patoshiExcludeInput" type="text" inputmode="numeric" autocomplete="off" aria-label="Remove blocks from Patoshi pattern" placeholder="Enter block heights, separated by commas" />
+                    </span>
+                  </label>
+                </div>
+                <div class="filter-control-row"><span class="spent-alpha-control"><label for="markerScaleInput">Marker Size</label><span class="spent-alpha-stepper"><button type="button" id="markerScaleMinus" aria-label="Decrease marker size">-</button><input id="markerScaleInput" type="number" min="0.1" max="2" step="0.1" inputmode="decimal" aria-label="Marker size" /><button type="button" id="markerScalePlus" aria-label="Increase marker size">+</button></span></span></div>
+                <div class="filter-check-pair">
+                  <label class="check-row"><input type="checkbox" id="showSpent" /> Show spent</label>
+                  <label class="check-row"><input type="checkbox" id="markSpent" /> Mark spent</label>
+                </div>
+                <div class="filter-check-pair">
+                  <label class="check-row"><input type="checkbox" id="showPatoshiLine" /> Pattern line</label>
+                  <label class="check-row"><input type="checkbox" id="showOrder" /> Order line</label>
+                </div>
+                <div class="filter-control-row filter-setting-row hashrate-window-setting">
+                  <label class="filter-setting-label" for="hashrateWindowInput">Hashrate Window</label>
+                  <div class="date-range-button-row date-range-range-buttons hashrate-window-buttons" aria-label="Hashrate window presets">
+                    <label class="date-range-days-segment" for="hashrateWindowInput">
+                      <input id="hashrateWindowInput" class="date-range-days-input" type="text" inputmode="decimal" autocomplete="off" aria-label="Hashrate window length in days" />
+                      <span class="date-range-days-suffix" id="hashrateWindowSuffix">Days</span>
+                    </label>
+                    <button type="button" class="date-range-btn" data-hashrate-range="1">1D</button>
+                    <button type="button" class="date-range-btn" data-hashrate-range="3">3D</button>
+                    <button type="button" class="date-range-btn" data-hashrate-range="7">7D</button>
+                    <button type="button" class="date-range-btn" data-hashrate-range="14">14D</button>
+                    <button type="button" class="date-range-btn" data-hashrate-range="30">30D</button>
+                  </div>
+                </div>
+                <label class="check-row hashrate-match-row"><input type="checkbox" id="hashrateWindowMatch" /> Match window width (max 30D)</label>
+                <div class="filter-control-row filter-setting-row"><label class="filter-setting-label" for="countMetric">Block Count Sub-metric</label><span class="pill"><div id="countMetricDropdown" class="dca-dropdown"><span id="countMetricDropdownValue" class="dca-dropdown-value">Time Since Last</span><button id="countMetricDropdownTrigger" type="button" class="dca-dropdown-trigger" aria-label="Block count sub-metric"></button><div id="countMetricDropdownMenu" class="dca-dropdown-menu" aria-label="Block count sub-metric options"></div></div><select id="countMetric" class="patoshi-native-select"><option value="spent">Spent</option><option value="time">Time Since Last</option></select></span></div>
+                <div class="filter-control-row filter-setting-row"><label class="filter-setting-label" for="yMaxInput">Y Max</label><span class="pill y-max-pill"><input id="yMaxInput" class="y-max-input" type="text" inputmode="numeric" aria-label="Y maximum value" /><div id="yModeDropdown" class="dca-dropdown y-max-dropdown"><span id="yModeDropdownValue" class="dca-dropdown-value">Rolling Patoshi</span><button id="yModeDropdownTrigger" type="button" class="dca-dropdown-trigger" aria-label="Y maximum mode"></button><div id="yModeDropdownMenu" class="dca-dropdown-menu" aria-label="Y maximum options"></div></div><select id="yMode" class="patoshi-native-select"><option value="rolling_patoshi">Rolling Patoshi</option><option value="window_patoshi">Window Patoshi</option><option value="window_all">Window All</option><option value="custom">Custom Fixed</option></select></span></div>
+              </div>
+            </div>
+          </div>
+          <button class="info-btn side-panel-btn" type="button" id="spentRewardsPanelBtn" aria-label="Show spent pre-100,000 coinbase rewards" aria-expanded="false">
+            <svg class="side-panel-icon-closed" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M15 4v16"></path></svg>
+            <svg class="side-panel-icon-open" viewBox="0 0 24 24" aria-hidden="true"><rect class="side-panel-fill" x="15" y="4" width="6" height="16"></rect><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M15 4v16"></path></svg>
+          </button>
+        </div>
+      </div>
+      <div class="filter-row updated-kpi-row">
+        <div class="chip-menu-wrap single-select" id="updatedChipWrap">
+          <div class="chip chip-kpi-display" id="chipUpdated"><span class="chip-label">Updated</span> <span class="chip-value" id="updatedKpiValue" data-loading-placeholder="0000-00-00 00:00 UTC"></span></div>
+          <div id="updatedTimeZoneDropdown" class="dca-dropdown dca-dropdown-overlay"><button id="updatedTimeZoneDropdownTrigger" type="button" class="dca-dropdown-trigger" aria-label="Updated timestamp time zone"></button><div id="updatedTimeZoneDropdownMenu" class="dca-dropdown-menu" aria-label="Updated timestamp time zone options"></div></div>
+          <select id="updatedTimeZoneSelect" class="chip-menu-select chip-kpi-select-overlay dca-native-select" aria-label="Updated timestamp time zone"></select>
+        </div>
+      </div>
+      <div class="title-actions">
+        <button class="copy-link-btn" type="button" id="copyLinkBtn" aria-label="Copy shareable dashboard link" data-tooltip="Copy shareable dashboard link">
+          <span class="btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></span>
+          <span class="btn-label">Copy Link</span>
+        </button>
+        <button class="reset-dashboard-btn" type="button" id="restoreBtn" aria-label="Restore dashboard defaults" data-tooltip="Reset dashboard to defaults">
+          <span class="btn-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path></svg></span>
+          <span class="btn-label">Restore Defaults</span>
+        </button>
+      </div>
+      <div class="kpi-grid">
+        <div class="kpi-card"><div class="kpi-label">Block Height</div><div class="kpi-value" id="kpiHeight"></div><div class="kpi-sub"></div></div>
+        <div class="kpi-card"><div class="kpi-label">Difficulty</div><div class="kpi-value" id="kpiDifficulty"></div><div class="kpi-sub" id="kpiDiffChange"></div></div>
+        <div class="kpi-card"><div class="kpi-label">Satoshi Total Block Count</div><div class="kpi-value orange" id="kpiPatoshi"></div><div class="kpi-sub" id="kpiPatoshiSub"></div></div>
+        <div class="kpi-card"><div class="kpi-label">Other Total Block Count</div><div class="kpi-value blue" id="kpiOther"></div><div class="kpi-sub" id="kpiOtherSub"></div></div>
+        <div class="kpi-card"><div class="kpi-label" id="kpiHashrateLabel">Hashrate</div><div class="kpi-value" id="kpiHashrate"></div><div class="kpi-sub" id="kpiHashrateSub"></div></div>
+      </div>
+    </section>
+
+    <section class="range-panel date-range-panel" aria-label="Patoshi date window">
+      <div class="range-top date-range-header">
+        <label class="chip" for="startInput">Start
+          <button id="startBtn" class="date-range-btn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg><span id="startBtnLabel"></span></button>
+          <input id="startInput" class="date-range-native-input" type="datetime-local" />
+        </label>
+        <label class="chip" for="endInput">End
+          <button id="endBtn" class="date-range-btn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg><span id="endBtnLabel"></span></button>
+          <input id="endInput" class="date-range-native-input" type="datetime-local" />
+        </label>
+        <div class="date-range-range-control">
+          <span class="date-range-range-label">Window</span>
+          <div class="date-range-button-row date-range-range-buttons" aria-label="Window presets">
+            <label class="date-range-days-segment" for="windowDaysInput">
+              <input id="windowDaysInput" class="date-range-days-input" type="text" inputmode="decimal" autocomplete="off" aria-label="Window length in days" />
+              <span class="date-range-days-suffix" id="windowDaysSuffix">Days</span>
+            </label>
+            <button type="button" class="date-range-btn" data-range="1">1D</button>
+            <button type="button" class="date-range-btn" data-range="3">3D</button>
+            <button type="button" class="date-range-btn" data-range="7">7D</button>
+            <button type="button" class="date-range-btn" data-range="14">14D</button>
+            <button type="button" class="date-range-btn" data-range="30">30D</button>
+            <button type="button" class="date-range-btn" data-range="60">60D</button>
+            <button type="button" class="date-range-btn" data-range="90">90D</button>
+            <button type="button" class="date-range-btn" data-range="all">All</button>
+          </div>
+        </div>
+        <div class="date-range-play-row" aria-label="Playback controls">
+          <button class="date-range-playback-btn date-range-play-btn" type="button" id="playBtn" title="Play" aria-label="Play">▶</button>
+          <button class="date-range-playback-btn date-range-pause-btn" type="button" id="pauseBtn" title="Pause" aria-label="Pause">❚❚</button>
+          <button class="date-range-playback-btn date-range-stop-btn" type="button" id="stopBtn" title="Stop" aria-label="Stop">■</button>
+          <button class="date-range-playback-btn date-range-speed-btn" type="button" id="speedBtn">1x</button>
+          <button class="date-range-playback-btn dashboard-expand-btn" type="button" id="expandBtn" aria-label="Expand video layout" aria-pressed="false" title="Expand video layout">
+            <svg class="dashboard-expand-icon dashboard-expand-icon-expand" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 9V4h5" />
+              <path d="M20 9V4h-5" />
+              <path d="M4 15v5h5" />
+              <path d="M20 15v5h-5" />
+            </svg>
+            <svg class="dashboard-expand-icon dashboard-expand-icon-shrink" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M9 4v5H4" />
+              <path d="M15 4v5h5" />
+              <path d="M9 20v-5H4" />
+              <path d="M15 20v-5h5" />
+            </svg>
+          </button>
+          <button class="date-range-playback-btn date-range-download-btn" type="button" id="downloadBtn" title="Download animation" aria-label="Download window animation">↓</button>
+          <div class="date-range-download-wrap">
+            <button class="date-range-playback-btn date-range-settings-btn" type="button" id="settingsBtn" title="Settings" aria-label="Settings">⚙</button>
+            <div class="date-range-settings-menu" id="settingsPanel" role="dialog" aria-label="Patoshi settings">
+              <div class="download-setting-field">Orientation
+                <div class="download-setting-button-row" id="downloadOrientationSelect" aria-label="Export orientation">
+                  <button type="button" class="download-setting-option is-selected" data-export-setting="orientation" data-value="landscape">Landscape</button>
+                  <button type="button" class="download-setting-option" data-export-setting="orientation" data-value="portrait">Portrait</button>
+                  <button type="button" class="download-setting-option" data-export-setting="orientation" data-value="square">Square</button>
+                </div>
+              </div>
+              <div class="download-setting-field">Quality
+                <div class="download-setting-button-row" id="downloadQualitySelect" aria-label="Export quality">
+                  <button type="button" class="download-setting-option is-selected" data-export-setting="quality" data-value="720">720p</button>
+                  <button type="button" class="download-setting-option" data-export-setting="quality" data-value="1080">1080p</button>
+                  <button type="button" class="download-setting-option" data-export-setting="quality" data-value="1440">1440p</button>
+                  <button type="button" class="download-setting-option" data-export-setting="quality" data-value="2160">4K</button>
+                </div>
+              </div>
+              <div class="download-setting-field">Playback Speed
+                <div class="download-setting-button-row" id="downloadSpeedSelect" aria-label="Export playback speed">
+                  <button type="button" class="download-setting-option" data-export-setting="speed" data-value="0.5">0.5x</button>
+                  <button type="button" class="download-setting-option is-selected" data-export-setting="speed" data-value="1">1x</button>
+                  <button type="button" class="download-setting-option" data-export-setting="speed" data-value="2">2x</button>
+                  <button type="button" class="download-setting-option" data-export-setting="speed" data-value="4">4x</button>
+                </div>
+              </div>
+              <div class="download-setting-field">Theme
+                <div class="download-setting-button-row" id="downloadThemeSelect" aria-label="Export theme">
+                  <button type="button" class="download-setting-option" data-export-setting="theme" data-value="light">Light</button>
+                  <button type="button" class="download-setting-option is-selected" data-export-setting="theme" data-value="dark">Dark</button>
+                </div>
+              </div>
+              <label class="download-setting-checkbox">
+                <input type="checkbox" id="downloadEndFrameHoldToggle" checked />
+                <span>1s start / 3s end hold</span>
+              </label>
+              <div class="download-estimate-panel" id="downloadEstimatePanel" aria-live="polite">
+                <div class="download-estimate-row"><span>File Size</span><strong id="downloadEstimateSize">--</strong></div>
+                <div class="download-estimate-row"><span>Video Length</span><strong id="downloadEstimateLength">--</strong></div>
+                <div class="download-estimate-row"><span>Download Time</span><strong id="downloadEstimateTime">--</strong></div>
+              </div>
+              <button type="button" id="downloadSettingsDownloadBtn">Download Animation</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="range-line date-range-slider-wrap" id="rangeLine">
+        <div class="range-track"></div>
+        <div class="range-animation-fill" id="rangeAnimationFill"></div>
+        <div class="range-fill" id="rangeFill"></div>
+        <div class="date-range-static-marker date-range-start-marker" id="startMarker" aria-hidden="true"></div>
+        <div class="date-range-static-marker date-range-end-marker" id="endMarker" aria-hidden="true"></div>
+        <input class="date-range-slider" type="range" id="startRange" min="0" max="1" step="60" value="0" aria-label="Start time" />
+        <input class="date-range-slider" type="range" id="endRange" min="0" max="1" step="60" value="1" aria-label="End time" />
+      </div>
+    </section>
+
+    <main class="panel chart-panel" aria-label="Patoshi chart panel">
+      <canvas id="patoshiChart"></canvas>
+      <div class="loading-ring" id="loadingRing"></div>
+      <div class="chart-tooltip" id="chartTooltip" role="tooltip"></div>
+    </main>
+
+    <aside class="spent-rewards-panel" id="spentRewardsPanel" aria-label="Spent pre-100,000 coinbase rewards">
+      <div class="spent-rewards-panel-header">
+        <h2 class="spent-rewards-panel-title">Spent Rewards</h2>
+        <button id="spentRewardsPanelClose" type="button" class="spent-rewards-panel-close" aria-label="Close spent rewards panel">×</button>
+        <div class="spent-rewards-sort-control">
+          <span class="spent-rewards-sort-label">Sort by</span>
+          <div id="spentRewardsSortDropdown" class="dca-dropdown spent-rewards-sort-dropdown"><span id="spentRewardsSortDropdownValue" class="dca-dropdown-value">Latest spent</span><button id="spentRewardsSortDropdownTrigger" type="button" class="dca-dropdown-trigger" aria-label="Sort spent rewards"></button><div id="spentRewardsSortDropdownMenu" class="dca-dropdown-menu" aria-label="Spent rewards sort options"></div></div>
+          <select id="spentRewardsSort" class="patoshi-native-select" aria-label="Sort spent rewards"><option value="latest_spent" selected>Latest spent</option><option value="earliest_spent">Earliest spent</option><option value="latest_height">Latest height</option><option value="earliest_height">Earliest height</option></select>
+        </div>
+      </div>
+      <div class="spent-rewards-list" id="spentRewardsList"></div>
+    </aside>
+  </div>
+
+  <script src="../../js/11_dashboard_timezone_preferences.js"></script>
+  <script src="dashboard_app.js"></script>
+</body>
+</html>

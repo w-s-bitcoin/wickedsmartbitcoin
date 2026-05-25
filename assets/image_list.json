@@ -14,6 +14,13 @@
     "latest_youtube": "https://youtu.be/_Qxm70pFM4E"
   },
   {
+    "filename": "patoshi_pattern.png",
+    "title": "Patoshi Pattern",
+    "description": "Explore early Bitcoin ExtraNonce patterns, Patoshi-classified blocks, spent block rewards, and difficulty markers across custom block-time ranges",
+    "latest_x": "",
+    "latest_youtube": ""
+  },
+  {
     "filename": "uoa.png",
     "title": "Unit of Account",
     "description": "Compares any selected currency pair in both directions using historical rates, mirrored charts, date-range controls, and optional redenomination adjustment",

@@ -1394,7 +1394,11 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
 body.uoa-dashboard-expanded .modal-controls,
 body.uoa-dashboard-expanded .buy-coffee,
 body.dca-dashboard-expanded .modal-controls,
-body.dca-dashboard-expanded .buy-coffee {
+body.dca-dashboard-expanded .buy-coffee,
+body.dca-comparison-dashboard-expanded .modal-controls,
+body.dca-comparison-dashboard-expanded .buy-coffee,
+body.patoshi-pattern-dashboard-expanded .modal-controls,
+body.patoshi-pattern-dashboard-expanded .buy-coffee {
     opacity: 0;
     pointer-events: none;
 }
