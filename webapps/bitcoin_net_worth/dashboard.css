@@ -35,6 +35,7 @@
   --add-btn-color: #ffffff;
   --top-kpi-panel-height: 96px;
   --tall-panel-height: clamp(420px, 52vh, 560px);
+  --wrap-pad: clamp(8px, 1.4vw, 12px);
 }
 
 [data-theme="light"] {
@@ -131,14 +132,14 @@ body {
 .app-shell {
   width: 100%;
   margin: 0 auto;
-  padding: clamp(8px, 1.4vw, 12px);
+  padding: var(--wrap-pad);
   display: grid;
   gap: 10px;
 }
 
 body.embedded-in-modal .app-shell,
 html.embedded-in-modal body .app-shell {
-  padding-top: calc(12px + var(--modal-controls-clearance, 30px));
+  padding-top: calc(var(--wrap-pad) + var(--modal-controls-clearance, 30px));
 }
 
 .hero {
@@ -2135,7 +2136,7 @@ td.history-actions-cell {
 
 @media (max-width: 860px) {
   .app-shell {
-    margin-bottom: calc(30px + env(safe-area-inset-bottom, 0px) + 56px);
+    margin-bottom: calc(var(--wrap-pad) + env(safe-area-inset-bottom, 0px) + 56px);
   }
 }
 
