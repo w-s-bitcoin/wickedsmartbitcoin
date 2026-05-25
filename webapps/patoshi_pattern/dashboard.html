@@ -232,6 +232,55 @@
       outline: none;
       box-shadow: none;
     }
+    .block-search-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0;
+      min-height: unset;
+      padding: 0;
+      overflow: hidden;
+      vertical-align: top;
+    }
+    .block-search-icon {
+      width: 34px;
+      align-self: stretch;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      border-right: 1px solid var(--card-border);
+      padding: 5px 0;
+    }
+    .block-search-icon svg {
+      width: 14px;
+      height: 14px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .block-search-input {
+      width: 16ch;
+      min-width: 16ch;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--fg);
+      font: inherit;
+      font-variant-numeric: tabular-nums;
+      line-height: normal;
+      padding: 5px 11px;
+      margin: 0;
+    }
+    .block-search-input::placeholder {
+      color: color-mix(in srgb, var(--muted) 66%, transparent);
+    }
+    .block-search-input:focus,
+    .block-search-input:focus-visible {
+      outline: none;
+      box-shadow: none;
+    }
     .dca-dropdown.dca-dropdown-overlay {
       position: absolute;
       inset: 0;
@@ -1180,6 +1229,14 @@
         padding-bottom: 2px;
       }
       .filter-row::-webkit-scrollbar, .range-top::-webkit-scrollbar { display: none; }
+      .filter-row.updated-kpi-row {
+        flex-wrap: wrap;
+        overflow-x: visible;
+        row-gap: 8px;
+      }
+      .filter-row.updated-kpi-row > * {
+        max-width: 100%;
+      }
       .title-actions { margin-left: 0; }
       .chart-panel { min-height: 520px; }
       #patoshiChart { min-height: 502px; }
@@ -1200,13 +1257,6 @@
         bottom: var(--wrap-pad);
         width: min(280px, calc(100vw - var(--wrap-pad) * 2));
         max-height: none;
-      }
-      body.patoshi-side-panel-open .chart-panel {
-        height: min(62vh, 560px);
-        min-height: var(--panel-min-height);
-      }
-      body.patoshi-side-panel-open #patoshiChart {
-        min-height: calc(var(--panel-min-height) - 18px);
       }
     }
 
@@ -1249,8 +1299,9 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 6px;
-      padding: 8px 12px;
+      gap: 5px;
+      min-height: 30px;
+      padding: 5px 9px;
       border-radius: 999px;
       background: var(--surface);
       font-family: Arial, Helvetica, sans-serif;
@@ -2536,8 +2587,8 @@
       }
       .copy-link-btn,
       .reset-dashboard-btn {
-        padding: 6px 10px;
-        min-height: 32px;
+        padding: 5px 9px;
+        min-height: 30px;
         font-size: 11px;
       }
       .reset-dashboard-btn {
@@ -2546,6 +2597,9 @@
       }
     }
     @media (max-width: 750px) {
+      .title-actions {
+        gap: 3px;
+      }
       .copy-link-btn,
       .reset-dashboard-btn {
         width: 30px;
@@ -2569,8 +2623,8 @@
       .copy-link-btn::before,
       .reset-dashboard-btn::before {
         content: "";
-        width: 18px;
-        height: 18px;
+        width: 15px;
+        height: 15px;
         display: block;
         background-color: currentColor;
         -webkit-mask-repeat: no-repeat;
@@ -2692,6 +2746,7 @@
           <div id="updatedTimeZoneDropdown" class="dca-dropdown dca-dropdown-overlay"><button id="updatedTimeZoneDropdownTrigger" type="button" class="dca-dropdown-trigger" aria-label="Updated timestamp time zone"></button><div id="updatedTimeZoneDropdownMenu" class="dca-dropdown-menu" aria-label="Updated timestamp time zone options"></div></div>
           <select id="updatedTimeZoneSelect" class="chip-menu-select chip-kpi-select-overlay dca-native-select" aria-label="Updated timestamp time zone"></select>
         </div>
+        <label class="chip block-search-pill" id="blockSearchPill" for="blockSearchInput"><span class="block-search-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></span><input id="blockSearchInput" class="block-search-input" type="text" inputmode="numeric" autocomplete="off" placeholder="Search block" aria-label="Search block height" /></label>
       </div>
       <div class="title-actions">
         <button class="copy-link-btn" type="button" id="copyLinkBtn" aria-label="Copy shareable dashboard link" data-tooltip="Copy shareable dashboard link">
