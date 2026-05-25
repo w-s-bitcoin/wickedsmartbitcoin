@@ -185,6 +185,7 @@ function buildGridOnce(){
       const iframe = document.createElement('iframe');
       iframe.className = 'dashboard-preview-frame';
       iframe.src = previewSpec.url;
+      iframe.dataset.baseSrc = previewSpec.url;
       iframe.title = `${title || filename} preview`;
       iframe.setAttribute('aria-hidden', 'true');
       iframe.tabIndex = -1;
@@ -212,6 +213,8 @@ function buildGridOnce(){
         preview: {
           viewport,
           scene,
+          iframe,
+          url: previewSpec.url,
           width: previewSpec.width,
           height: previewSpec.height,
         },

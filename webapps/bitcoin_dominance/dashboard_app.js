@@ -26,7 +26,6 @@
     const LAYOUT_STORAGE_KEY = 'bitcoin_dominance_layout_v1';
     const CONTROLS_STORAGE_KEY = 'bitcoin_dominance_controls_v1';
     const AUTO_REFRESH_MS = 60000;
-    const FORCE_REFRESH_MS = 3600000;
     const FETCH_CACHE_MODE = 'no-store';
     const MOBILE_STACK_BREAKPOINT = 1100;
     const PANEL_SPLIT_MIN = 34;
@@ -1529,12 +1528,12 @@
       }
     }
 
-    async function refreshIfDataChanged({ force = false } = {}) {
+    async function refreshIfDataChanged() {
       if (state.refreshInFlight) return;
       state.refreshInFlight = true;
 
       try {
-        if (!force && state.dataSignature) {
+        if (state.dataSignature) {
           const latestSignature = await fetchLatestDataSignature();
           if (latestSignature === state.dataSignature) {
             return;
@@ -1601,11 +1600,7 @@
       if (state.autoRefreshTimer) {
         clearInterval(state.autoRefreshTimer);
       }
-      state.autoRefreshTimer = setInterval(() => {
-        const now = Date.now();
-        const shouldForceRefresh = (now - state.lastSuccessfulRefreshAt) >= FORCE_REFRESH_MS;
-        refreshIfDataChanged({ force: shouldForceRefresh });
-      }, AUTO_REFRESH_MS);
+      state.autoRefreshTimer = setInterval(refreshIfDataChanged, AUTO_REFRESH_MS);
     }
 
     function getModeKey() {
