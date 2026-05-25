@@ -60,6 +60,7 @@
     patoshiIncludeBlocks: "",
     patoshiExcludeBlocks: "",
     spentRewardsSort: "latest_spent",
+    spentRewardsPatoshiOnly: false,
     markerScale: 1,
     showSpent: true,
     markSpent: false,
@@ -158,6 +159,7 @@
     spentRewardsPanelClose: $("spentRewardsPanelClose"),
     spentRewardsList: $("spentRewardsList"),
     spentRewardsSort: $("spentRewardsSort"),
+    spentRewardsPatoshiOnly: $("spentRewardsPatoshiOnly"),
     updatedKpiValue: $("updatedKpiValue"),
     updatedTimeZoneSelect: $("updatedTimeZoneSelect"),
     copyLinkBtn: $("copyLinkBtn"),
@@ -301,6 +303,7 @@
       if (!["latest_spent", "earliest_spent", "latest_height", "earliest_height"].includes(state.spentRewardsSort)) {
         state.spentRewardsSort = "latest_spent";
       }
+      state.spentRewardsPatoshiOnly = !!parsed.spentRewardsPatoshiOnly;
       state.patoshiIncludeBlocks = sanitizePatternBlocksText(state.patoshiIncludeBlocks);
       state.patoshiExcludeBlocks = sanitizePatternBlocksText(state.patoshiExcludeBlocks);
       syncPatternBlockSets();
@@ -382,6 +385,7 @@
     const spendHeight = (row, fallback) => Number.isFinite(row.spendingHeight) ? row.spendingHeight : fallback;
     return rows
       .filter((row) => row.isSpent && Number.isFinite(row.height) && row.height < 100000)
+      .filter((row) => !state.spentRewardsPatoshiOnly || isPatoshiRow(row))
       .sort((a, b) => {
         switch (state.spentRewardsSort) {
           case "earliest_spent":
@@ -577,6 +581,7 @@
       els.patoshiExcludeInput.value = state.patoshiExcludeBlocks || "";
     }
     if (els.spentRewardsSort) els.spentRewardsSort.value = state.spentRewardsSort;
+    if (els.spentRewardsPatoshiOnly) els.spentRewardsPatoshiOnly.checked = !!state.spentRewardsPatoshiOnly;
     updateMarkerScaleControls();
     syncDropdownLabels();
     els.showSpent.checked = state.showSpent;
@@ -770,6 +775,7 @@
       patoshiIncludeBlocks: "",
       patoshiExcludeBlocks: "",
       spentRewardsSort: "latest_spent",
+      spentRewardsPatoshiOnly: false,
       markerScale: 1,
       showSpent: true,
       markSpent: false,
@@ -830,6 +836,7 @@
       patoshiIncludeBlocks: sanitizePatternBlocksText(state.patoshiIncludeBlocks),
       patoshiExcludeBlocks: sanitizePatternBlocksText(state.patoshiExcludeBlocks),
       spentRewardsSort: state.spentRewardsSort,
+      spentRewardsPatoshiOnly: !!state.spentRewardsPatoshiOnly,
       markerScale: normalizeMarkerScale(state.markerScale),
       showSpent: !!state.showSpent,
       markSpent: !!state.markSpent,
@@ -860,6 +867,7 @@
       patoshiIncludeBlocks: "",
       patoshiExcludeBlocks: "",
       spentRewardsSort: "latest_spent",
+      spentRewardsPatoshiOnly: false,
       markerScale: 1,
       showSpent: true,
       markSpent: false,
@@ -936,6 +944,7 @@
       patoshiIncludeBlocks: snapshot.patoshiIncludeBlocks,
       patoshiExcludeBlocks: snapshot.patoshiExcludeBlocks,
       spentRewardsSort: snapshot.spentRewardsSort,
+      spentRewardsPatoshiOnly: !!snapshot.spentRewardsPatoshiOnly,
       markerScale: snapshot.markerScale,
       showSpent: !!snapshot.showSpent,
       markSpent: !!snapshot.markSpent,
@@ -4180,7 +4189,7 @@
     });
 
     [
-      "yMode", "countMetric", "spentRewardsSort", "showSpent", "markSpent", "showPatoshiLine", "showOrder",
+      "yMode", "countMetric", "spentRewardsSort", "spentRewardsPatoshiOnly", "showSpent", "markSpent", "showPatoshiLine", "showOrder",
     ].forEach((id) => {
       const el = els[id];
       if (!el) return;
@@ -4195,7 +4204,7 @@
             yAxisRestoreMode = state.yMode;
           }
         }
-        if (id === "spentRewardsSort") {
+        if (id === "spentRewardsSort" || id === "spentRewardsPatoshiOnly") {
           highlightedSpentBlockHeight = null;
           spentRewardsVisibleCount = SPENT_REWARDS_PAGE_SIZE;
           spentRewardsLoading = false;
@@ -4344,6 +4353,7 @@
       if (!["latest_spent", "earliest_spent", "latest_height", "earliest_height"].includes(state.spentRewardsSort)) {
         state.spentRewardsSort = "latest_spent";
       }
+      state.spentRewardsPatoshiOnly = !!shared.spentRewardsPatoshiOnly;
       state.patoshiIncludeBlocks = sanitizePatternBlocksText(state.patoshiIncludeBlocks);
       state.patoshiExcludeBlocks = sanitizePatternBlocksText(state.patoshiExcludeBlocks);
       syncPatternBlockSets();

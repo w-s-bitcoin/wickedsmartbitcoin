@@ -636,6 +636,11 @@
       min-width: 100%;
       max-width: min(420px, calc(100vw - 56px));
     }
+    #countMetricDropdownMenu,
+    #yModeDropdownMenu {
+      top: auto;
+      bottom: calc(100% + 8px);
+    }
     .filters-panel .y-max-pill .y-max-input {
       border: 0;
       border-right: 1px solid var(--card-border);
@@ -643,9 +648,9 @@
       align-self: stretch;
     }
     .filters-panel .hashrate-window-setting {
-      align-items: flex-start;
-      flex-direction: column;
-      gap: 7px;
+      align-items: center;
+      flex-direction: row;
+      gap: 10px;
       white-space: normal;
     }
     .filters-panel .pattern-mode-row {
@@ -661,7 +666,9 @@
       line-height: 1.2;
     }
     .hashrate-window-buttons {
-      width: 100%;
+      width: max-content;
+      max-width: 100%;
+      flex-wrap: wrap;
     }
     .hashrate-window-buttons .date-range-days-segment {
       width: 12ch;
@@ -670,8 +677,7 @@
       flex: 0 0 12ch;
     }
     .hashrate-window-buttons .date-range-btn {
-      flex: 1 1 0;
-      min-width: 0;
+      flex: 0 0 auto;
       padding: 0 7px;
     }
     .hashrate-match-row {
@@ -917,6 +923,11 @@
       width: 100%;
       min-width: 100%;
       max-width: 100%;
+    }
+    .spent-rewards-filter-row {
+      grid-column: 1 / -1;
+      margin-top: -2px;
+      width: fit-content;
     }
     .spent-rewards-panel-close {
       width: 28px;
@@ -2820,6 +2831,7 @@
           <div id="spentRewardsSortDropdown" class="dca-dropdown spent-rewards-sort-dropdown"><span id="spentRewardsSortDropdownValue" class="dca-dropdown-value">Latest spent</span><button id="spentRewardsSortDropdownTrigger" type="button" class="dca-dropdown-trigger" aria-label="Sort spent rewards"></button><div id="spentRewardsSortDropdownMenu" class="dca-dropdown-menu" aria-label="Spent rewards sort options"></div></div>
           <select id="spentRewardsSort" class="patoshi-native-select" aria-label="Sort spent rewards"><option value="latest_spent" selected>Latest spent</option><option value="earliest_spent">Earliest spent</option><option value="latest_height">Latest height</option><option value="earliest_height">Earliest height</option></select>
         </div>
+        <label class="check-row spent-rewards-filter-row"><input type="checkbox" id="spentRewardsPatoshiOnly" /> Patoshi Pattern only</label>
       </div>
       <div class="spent-rewards-list" id="spentRewardsList"></div>
     </aside>
