@@ -277,11 +277,24 @@ def get_database_tip_height_with_psql(fallback_height: int) -> int:
     return fallback_height
 
 
+def parse_optional_int(value: object) -> int | None:
+    raw = str(value).strip()
+    if not raw or raw.lower() in {"none", "null", "nan", "\\n"}:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        try:
+            numeric = float(raw)
+        except ValueError:
+            return None
+        return int(numeric) if numeric.is_integer() else None
+
+
 def coerce_coinbase_spend_state(is_spent: object, spending_height: object) -> tuple[int, int | None]:
     raw_spent = str(is_spent).strip().lower()
     spent_value = raw_spent in {"t", "true", "1", "yes"}
-    raw_height = str(spending_height).strip()
-    spend_height_value = int(raw_height) if raw_height else None
+    spend_height_value = parse_optional_int(spending_height)
     spent_flag = spent_value and spend_height_value is not None
     return (1 if spent_flag else 0, spend_height_value if spent_flag else None)
 
