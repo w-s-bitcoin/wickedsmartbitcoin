@@ -111,11 +111,25 @@ function updateLastUpdatedStamp() {
 }
 
 const HOMEPAGE_AUTO_REFRESH_MS = 60000;
-const HOMEPAGE_FORCE_REFRESH_MS = 3600000;
 let homepageAutoRefreshTimer = null;
 let homepageRefreshInFlight = false;
-let homepageLastSuccessfulRefreshAt = 0;
 let homepageLastUpdatedStamp = "";
+
+const HOMEPAGE_GRID_CARD_DATA_SOURCES = Object.freeze({
+    "bip110_signaling.png": ["webapps/bip110_signaling/webapp_data/bip110_metadata.json"],
+    "bitcoin_dominance.png": ["webapps/bitcoin_dominance/webapp_data/last_updated.txt"],
+    "bitcoin_net_worth.png": ["webapps/bitcoin_net_worth/webapp_data/demo_history.csv"],
+    "dca_comparison.png": ["webapps/dca_comparison/webapp_data/last_updated.txt"],
+    "dca_cost_basis.png": ["webapps/dca_cost_basis/webapp_data/dca_cost_basis_metadata.json"],
+    "node_count.png": ["webapps/node_count/webapp_data/last_updated.txt"],
+    "patoshi_pattern.png": ["webapps/patoshi_pattern/webapp_data/patoshi_metadata.json"],
+    "quantum_exposure.png": ["webapps/quantum_exposure/webapp_data/latest_snapshot.txt"],
+    "uoa.png": ["webapps/uoa/webapp_data/last_updated.txt"],
+});
+
+let homepageCardRefreshTimer = null;
+let homepageCardRefreshInFlight = false;
+let homepageCardDataSignatures = Object.create(null);
 
 function isDashboardExportActive() {
     return !!(window.wsbDashboardExportActive || window.dateRangeExportActive);
@@ -125,6 +139,7 @@ function triggerHomepageRefreshSoon(delayMs = 150) {
     window.setTimeout(() => {
         if (isDashboardExportActive()) return;
         refreshHomepageLastUpdatedStamp();
+        refreshHomepageGridCards();
     }, delayMs);
 }
 
@@ -153,11 +168,7 @@ function startHomepageAutoRefresh() {
         clearInterval(homepageAutoRefreshTimer);
     }
     homepageAutoRefreshTimer = setInterval(() => {
-        const now = Date.now();
-        const shouldForceRefresh = (now - homepageLastSuccessfulRefreshAt) >= HOMEPAGE_FORCE_REFRESH_MS;
-        if (shouldForceRefresh || homepageLastUpdatedStamp) {
-            refreshHomepageLastUpdatedStamp();
-        }
+        refreshHomepageLastUpdatedStamp();
     }, HOMEPAGE_AUTO_REFRESH_MS);
 }
 
@@ -167,22 +178,111 @@ async function refreshHomepageLastUpdatedStamp() {
     homepageRefreshInFlight = true;
     try {
         const latestStamp = await updateLastUpdatedStamp();
-        if (latestStamp && homepageLastUpdatedStamp && latestStamp !== homepageLastUpdatedStamp) {
-            window.location.reload();
-            return;
-        }
         if (latestStamp) {
             homepageLastUpdatedStamp = latestStamp;
         }
-        homepageLastSuccessfulRefreshAt = Date.now();
     } finally {
         homepageRefreshInFlight = false;
     }
 }
 
+function resolveHomepageDataUrl(path) {
+    const raw = String(path || "").trim();
+    if (!raw) return "";
+    if (/^https?:\/\//i.test(raw)) return raw;
+    const base = getPageBasePath();
+    return `${base}/${raw.replace(/^\/+/, "")}`.replace(/\/{2,}/g, "/");
+}
+
+function withHomepageCacheBust(url) {
+    const separator = String(url || "").includes("?") ? "&" : "?";
+    return `${url}${separator}_=${Date.now()}`;
+}
+
+async function fetchHomepageSignaturePart(path) {
+    const url = withHomepageCacheBust(resolveHomepageDataUrl(path));
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) throw new Error(`Homepage card data request failed: ${path} (${response.status})`);
+    return (await response.text()).trim();
+}
+
+async function fetchHomepageCardSignature(paths) {
+    const parts = await Promise.all(paths.map(fetchHomepageSignaturePart));
+    return parts.join("\n---WSB-HOMEPAGE-CARD-DATA---\n");
+}
+
+function withRefreshParam(url, paramName = "_") {
+    const raw = String(url || "").trim();
+    if (!raw) return "";
+    try {
+        const parsed = new URL(raw, window.location.href);
+        parsed.searchParams.set(paramName, String(Date.now()));
+        return parsed.href;
+    } catch (_) {
+        const separator = raw.includes("?") ? "&" : "?";
+        return `${raw}${separator}${encodeURIComponent(paramName)}=${Date.now()}`;
+    }
+}
+
+function reloadHomepageDashboardCard(filename) {
+    const key = _cardKey(filename);
+    const card = cardByFilename.get(key);
+    const iframe = card?.preview?.iframe;
+    if (iframe) {
+        const baseSrc = iframe.dataset.baseSrc || card.preview.url || iframe.getAttribute("src") || "";
+        iframe.src = withRefreshParam(baseSrc, "refresh");
+    }
+
+    const currentModalFilename = String(modalImg?.dataset?.filename || "").trim().toLowerCase();
+    if (
+        modalContentMode === "embed"
+        && modalEmbed
+        && currentModalFilename === String(filename || "").trim().toLowerCase()
+        && modalEmbed.src
+        && modalEmbed.src !== "about:blank"
+    ) {
+        modalEmbed.src = withRefreshParam(modalEmbed.src, "refresh");
+    }
+}
+
+async function refreshHomepageGridCards() {
+    if (isDashboardExportActive()) return;
+    if (homepageCardRefreshInFlight) return;
+    if (isStandaloneModalShell()) return;
+    homepageCardRefreshInFlight = true;
+    try {
+        const entries = Object.entries(HOMEPAGE_GRID_CARD_DATA_SOURCES);
+        await Promise.all(entries.map(async ([filename, paths]) => {
+            const signature = await fetchHomepageCardSignature(paths);
+            const previousSignature = homepageCardDataSignatures[filename] || "";
+            if (!previousSignature) {
+                homepageCardDataSignatures[filename] = signature;
+                return;
+            }
+            if (signature && signature !== previousSignature) {
+                homepageCardDataSignatures[filename] = signature;
+                reloadHomepageDashboardCard(filename);
+            }
+        }));
+    } catch (error) {
+        console.warn("Homepage card data refresh check failed:", error);
+    } finally {
+        homepageCardRefreshInFlight = false;
+    }
+}
+
+function startHomepageGridCardRefresh() {
+    if (homepageCardRefreshTimer) {
+        clearInterval(homepageCardRefreshTimer);
+    }
+    refreshHomepageGridCards();
+    homepageCardRefreshTimer = setInterval(refreshHomepageGridCards, HOMEPAGE_AUTO_REFRESH_MS);
+}
+
 refreshHomepageLastUpdatedStamp();
 setupHomepageRefreshWakeEvents();
 startHomepageAutoRefresh();
+startHomepageGridCardRefresh();
 
 window.addEventListener(HOMEPAGE_TZ_CHANGE_EVENT, () => {
     rerenderHomepageLastUpdatedForTimeZoneChange();

@@ -4,7 +4,6 @@
 (function initHomepageBip110Kpis() {
   const TOP_KPIS_URL = "assets/top_kpis.json";
   const AUTO_REFRESH_MS = 60000;
-  const FORCE_REFRESH_MS = 3600000;
   const TARGET_SUPPLY_BTC = 20999999.9769;
   const FALLBACK_TIME_ZONE = "UTC";
   const TZ_STORAGE_KEY = "wicked_dashboard_timezone_v1";
@@ -35,7 +34,6 @@
   let metadataSignature = "";
   let autoRefreshTimer = null;
   let refreshInFlight = false;
-  let lastSuccessfulRefreshAt = 0;
   let lastEpoch = NaN;
   let lastEpochComplete = NaN;
   let lastBlockMinedAtMs = NaN;
@@ -610,6 +608,30 @@
     scheduleBalanceKpiRows();
   }
 
+  function getTopKpisSignature(topKpis) {
+    if (!topKpis || typeof topKpis !== "object") return "";
+    return [
+      topKpis.block_height,
+      topKpis.block_timestamp,
+      topKpis.block_time,
+      topKpis.block_time_utc,
+      topKpis.latest_block_time,
+      topKpis.latest_block_timestamp,
+      topKpis.epoch,
+      topKpis.epoch_complete,
+      topKpis.subsidy_btc,
+      topKpis.subsidy_sats,
+      topKpis.supply_btc,
+      topKpis.supply_target_complete,
+      topKpis.target_hashrate_hps,
+      topKpis.target_hex,
+      topKpis.difficulty,
+      topKpis.difficulty_trillions,
+      topKpis.difficulty_display,
+      topKpis.difficulty_precise,
+    ].map((value) => String(value ?? "").trim()).join("|");
+  }
+
   async function refreshFromTopKpis() {
     if (isDashboardExportActive()) return;
     if (refreshInFlight) return;
@@ -618,9 +640,11 @@
       const response = await fetch(`${TOP_KPIS_URL}?_=${Date.now()}`, { cache: "no-store" });
       if (!response.ok) throw new Error(`Top KPI request failed: ${response.status}`);
       const topKpis = await response.json();
-      const nextSignature = `${String(topKpis?.block_height ?? "").trim()}|${String(topKpis?.epoch ?? "").trim()}|${String(topKpis?.epoch_complete ?? "").trim()}|${String(topKpis?.subsidy_btc ?? "").trim()}|${String(topKpis?.difficulty_trillions ?? "").trim()}`;
+      const nextSignature = getTopKpisSignature(topKpis);
+      if (metadataSignature && nextSignature && nextSignature === metadataSignature) {
+        return;
+      }
       metadataSignature = nextSignature;
-      lastSuccessfulRefreshAt = Date.now();
 
       const difficultyDisplay = String(topKpis?.difficulty_display || "").trim() || (
         Number.isFinite(Number(topKpis?.difficulty_trillions))
@@ -688,11 +712,7 @@
       window.clearInterval(autoRefreshTimer);
     }
     autoRefreshTimer = window.setInterval(() => {
-      const now = Date.now();
-      const shouldForceRefresh = (now - lastSuccessfulRefreshAt) >= FORCE_REFRESH_MS;
-      if (shouldForceRefresh || metadataSignature) {
-        refreshFromTopKpis();
-      }
+      refreshFromTopKpis();
     }, AUTO_REFRESH_MS);
   }
 
