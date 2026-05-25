@@ -692,6 +692,7 @@
       preResetStateSnapshot: null,
       suppressResetSnapshotClear: false,
       refreshedAtText: '',
+      updateBlockHeightText: '',
       timeZone: DASHBOARD_TIME?.getPreferredTimeZone?.() || 'UTC',
       panelsSwapped: false,
       historyPanelPercent: 61.54,
@@ -750,6 +751,24 @@
       return String(refreshedAtRaw || '').trim();
     }
 
+    async function loadGlobalUpdateBlockHeight(cacheBust = null) {
+      try {
+        const url = cacheBust == null
+          ? '../../assets/top_kpis.json'
+          : `../../assets/top_kpis.json?_${encodeURIComponent(cacheBust)}`;
+        const response = await fetch(url, { cache: FETCH_CACHE_MODE });
+        if (!response.ok) throw new Error(`Failed to load ${url} (${response.status})`);
+        const data = await response.json();
+        const height = Number(data?.block_height);
+        if (Number.isFinite(height) && height > 0) {
+          state.updateBlockHeightText = height.toLocaleString('en-US');
+          setLastUpdated();
+        }
+      } catch (_) {
+        // The timestamp can stand on its own if the shared top KPI file is unavailable.
+      }
+    }
+
     async function refreshIfDataChanged({ force = false } = {}) {
       if (state.refreshInFlight) return;
       state.refreshInFlight = true;
@@ -780,6 +799,7 @@
         state.dataSignature = data.signature;
         state.lastSuccessfulRefreshAt = Date.now();
 
+        loadGlobalUpdateBlockHeight(Date.now());
         setLastUpdated();
         renderHistoryChart();
         renderSoftwarePanel();
@@ -2312,7 +2332,10 @@
       if (!updatedValue) return;
       const updatedRaw = getUpdatedRawValue();
       if (!updatedRaw) return;
-      updatedValue.textContent = formatUpdatedForSelectedTimeZone(updatedRaw);
+      const updatedText = formatUpdatedForSelectedTimeZone(updatedRaw);
+      updatedValue.textContent = updatedText && state.updateBlockHeightText
+        ? `${updatedText} | ${state.updateBlockHeightText}`
+        : updatedText;
     }
 
     function bindControls() {
@@ -2756,6 +2779,7 @@
         state.refreshedAtText = data.refreshedAtText;
         state.dataSignature = data.signature;
         state.lastSuccessfulRefreshAt = Date.now();
+        await loadGlobalUpdateBlockHeight();
 
         if (!state.history.length) {
           throw new Error('No history rows found in node count dataset.');

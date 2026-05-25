@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { color-scheme: dark; --bg:#000; --fg:#f1f5f7; --grid:#242424; }
+    :root[data-theme="light"] { color-scheme: light; --bg:#fff; --fg:#1c1b19; --grid:#dedede; }
+    * { box-sizing: border-box; }
+    html, body { margin:0; width:100%; height:100%; overflow:hidden; background:var(--bg); }
+    canvas { display:block; width:100vw; height:100vh; background:var(--bg); }
+  </style>
+  <title>Patoshi Pattern Preview</title>
+</head>
+<body>
+  <canvas id="patoshiPreview" aria-label="Patoshi Pattern preview"></canvas>
+  <script src="preview_app.js"></script>
+</body>
+</html>

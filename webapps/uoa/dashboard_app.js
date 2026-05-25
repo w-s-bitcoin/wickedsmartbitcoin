@@ -3730,7 +3730,7 @@
     syncDateRangeChartToggleLabels();
     syncDownloadChartModeLabels();
     syncAllDropdowns();
-    if (el.updatedKpiValue) el.updatedKpiValue.textContent = formatUpdatedDisplayText(refreshedAtText);
+    if (el.updatedKpiValue) el.updatedKpiValue.textContent = withUpdatedKpiBlockHeight(formatUpdatedDisplayText(refreshedAtText));
     return shellState;
   }
 
@@ -5502,6 +5502,18 @@
     if (!DASHBOARD_TIME?.formatUtcTimestamp) return withParenthesizedZone(cleaned);
     const formatted = DASHBOARD_TIME.formatUtcTimestamp(normalizeUpdatedTimestampInput(cleaned), updatedKpiTimeZone || "UTC");
     return withParenthesizedZone(formatted?.text || cleaned);
+  }
+
+  function getUpdatedKpiBlockHeightText() {
+    const latestRow = allRows[allRows.length - 1] || rows[rows.length - 1] || null;
+    const height = Number(latestRow?.blockHeight);
+    return Number.isFinite(height) && height > 0 ? height.toLocaleString("en-US") : "";
+  }
+
+  function withUpdatedKpiBlockHeight(text) {
+    const normalized = String(text || "").trim();
+    const heightText = getUpdatedKpiBlockHeightText();
+    return normalized && heightText ? `${normalized} | ${heightText}` : normalized;
   }
 
   function syncUpdatedTimeZonePreference(nextTimeZone) {
@@ -7681,7 +7693,7 @@
       el.satUsdText.textContent = "N/A";
       el.usdSatText.textContent = "N/A";
       if (el.rightAsOf) el.rightAsOf.textContent = "--";
-      if (el.updatedKpiValue) el.updatedKpiValue.textContent = formatUpdatedDisplayText(refreshedAtText);
+      if (el.updatedKpiValue) el.updatedKpiValue.textContent = withUpdatedKpiBlockHeight(formatUpdatedDisplayText(refreshedAtText));
       clearCanvas(el.usdBtcChart);
       clearCanvas(el.btcUsdChart);
       return;
@@ -7842,9 +7854,10 @@
 
     if (el.rightAsOf) el.rightAsOf.textContent = fmtDate(latestOriginal.date);
     if (el.updatedKpiValue) {
-      el.updatedKpiValue.textContent = refreshedAtText
+      const updatedText = refreshedAtText
         ? formatUpdatedDisplayText(refreshedAtText)
         : formatUpdatedKpiTimestamp(latestOriginal.date);
+      el.updatedKpiValue.textContent = withUpdatedKpiBlockHeight(updatedText);
     }
 
     // Determine colors and labels based on pair

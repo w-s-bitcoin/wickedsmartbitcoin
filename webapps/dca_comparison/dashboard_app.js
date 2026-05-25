@@ -1485,8 +1485,10 @@
 
   function formatDuration(seconds) {
     const total = Math.max(0, Math.round(Number(seconds) || 0));
-    const minutes = Math.floor(total / 60);
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
     const rest = total % 60;
+    if (hours) return `${hours}h ${minutes}m ${rest}s`;
     return minutes ? `${minutes}m ${rest}s` : `${rest}s`;
   }
 
