@@ -1,13 +1,13 @@
 {
-  "generated_at_utc": "2026-05-21T13:05:30.340952Z",
+  "generated_at_utc": "2026-05-25T12:06:00.165556Z",
   "source": {
     "name": "Frankfurter",
     "url": "https://api.frankfurter.app",
     "upstream": "European Central Bank (ECB) reference rates",
     "pair_endpoint": "https://api.frankfurter.app/1999-01-01..2999-12-31?from=EUR&to=USD",
     "start_date": "1999-01-04",
-    "end_date": "2026-05-21",
-    "notes": "Rates are business-day reference rates for 161 Frankfurter-supported currency pairs vs USD; CUP/USD is overwritten with elTOQUE TRMI via CUP=X where available; weekends and market holidays are forward-filled.",
+    "end_date": "2026-05-25",
+    "notes": "Rates are business-day reference rates for 162 Frankfurter-supported currency pairs vs USD; CUP/USD is overwritten with elTOQUE TRMI via CUP=X where available; weekends and market holidays are forward-filled.",
     "dataset_notes": "CSV schema simplified to date, eurusd where eurusd is the EUR/USD rate value. Source attribution is stored in this metadata file.",
     "cupusd_source": "elTOQUE TRMI via CUP=X"
   },
@@ -683,6 +683,13 @@
       "name": "Comorian Franc",
       "code": "KMF",
       "symbol": "FC ",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
+    "KPW": {
+      "name": "North Korean Won",
+      "code": "KPW",
+      "symbol": "KPW",
       "symbol_position": "left",
       "minor_unit": 2
     },
@@ -2245,6 +2252,19 @@
       "dataset_columns": [
         "date",
         "kmfusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "KPW/USD",
+      "base": "KPW",
+      "quote": "USD",
+      "display_name": "North Korean Won / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "kpwusd"
       ],
       "pair_column_value": null,
       "quote_assumption": "USD-denominated FX rate"
