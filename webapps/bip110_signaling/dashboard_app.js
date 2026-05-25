@@ -23,7 +23,6 @@
     });
     /* ────────────────────────────────────────────────────────────────── */
     const AUTO_REFRESH_MS = 60000;
-    const FORCE_REFRESH_MS = 3600000;
     const CONTROLS_STORAGE_KEY = "bip110_signaling_controls_v3";
     const PANEL_RESIZE_MIN_HEIGHT = 220;
     const PANEL_RESIZE_VIEWPORT_PAD = 24;
@@ -1086,20 +1085,18 @@
       return result.signature;
     }
 
-    async function refreshIfDataChanged({ force = false } = {}) {
+    async function refreshIfDataChanged() {
       if (!state.data) return;
       if (state.refreshInFlight) return;
 
       state.refreshInFlight = true;
-      setControlsEnabled(false);
       try {
-        if (!force) {
-          const latestSig = await fetchLatestBip110MetadataSignature();
-          if (!latestSig || latestSig === state.dataSignature) {
-            return;
-          }
+        const latestSig = await fetchLatestBip110MetadataSignature();
+        if (!latestSig || latestSig === state.dataSignature) {
+          return;
         }
 
+        setControlsEnabled(false);
         const loadBuster = Date.now();
         const loadToken = ++state.phasedLoadToken;
         state.dynamicData = await loadDynamicData(loadBuster, null, null, state.dynamicData);
@@ -1157,11 +1154,7 @@
       if (state.autoRefreshTimer) {
         clearInterval(state.autoRefreshTimer);
       }
-      state.autoRefreshTimer = setInterval(() => {
-        const now = Date.now();
-        const shouldForceRefresh = (now - state.lastSuccessfulRefreshAt) >= FORCE_REFRESH_MS;
-        refreshIfDataChanged({ force: shouldForceRefresh });
-      }, AUTO_REFRESH_MS);
+      state.autoRefreshTimer = setInterval(refreshIfDataChanged, AUTO_REFRESH_MS);
     }
 
     function persistControls() {
