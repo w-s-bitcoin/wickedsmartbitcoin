@@ -35,7 +35,6 @@
     const PANEL_SPLIT_CENTER = 50;
     const PANEL_SPLIT_SNAP_DISTANCE = 1.2;
     const AUTO_REFRESH_MS = 60000;
-    const FORCE_REFRESH_MS = 3600000;
     const FETCH_CACHE_MODE = 'no-store';
     const SOFTWARE_SPLIT_MIN = 32;
     const SOFTWARE_SPLIT_MAX = 78;
@@ -769,17 +768,15 @@
       }
     }
 
-    async function refreshIfDataChanged({ force = false } = {}) {
+    async function refreshIfDataChanged() {
       if (state.refreshInFlight) return;
       state.refreshInFlight = true;
 
       try {
-        if (!force) {
-          const latestStamp = await fetchLatestDataSignature();
-          const currentStamp = String(state.refreshedAtText || '').trim();
-          if (latestStamp && currentStamp && latestStamp === currentStamp) {
-            return;
-          }
+        const latestStamp = await fetchLatestDataSignature();
+        const currentStamp = String(state.refreshedAtText || '').trim();
+        if (latestStamp && currentStamp && latestStamp === currentStamp) {
+          return;
         }
 
         setPanelLoaderVisible('history', true);
@@ -842,11 +839,7 @@
       if (state.autoRefreshTimer) {
         clearInterval(state.autoRefreshTimer);
       }
-      state.autoRefreshTimer = setInterval(() => {
-        const now = Date.now();
-        const shouldForceRefresh = (now - state.lastSuccessfulRefreshAt) >= FORCE_REFRESH_MS;
-        refreshIfDataChanged({ force: shouldForceRefresh });
-      }, AUTO_REFRESH_MS);
+      state.autoRefreshTimer = setInterval(refreshIfDataChanged, AUTO_REFRESH_MS);
     }
 
     function isStackedLayout() {

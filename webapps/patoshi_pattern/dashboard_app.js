@@ -19,6 +19,7 @@
   const SPENT_REWARDS_PAGE_SIZE = 100;
   const SPENT_REWARDS_BOTTOM_THRESHOLD_PX = 4;
   const SPENT_REWARDS_LOAD_DELAY_MS = 250;
+  const AUTO_REFRESH_MS = 60000;
   const EXPORT_FPS = 30;
   const EXPORT_START_HOLD_FRAMES = EXPORT_FPS;
   const EXPORT_END_HOLD_FRAMES = EXPORT_FPS * 3;
@@ -89,6 +90,9 @@
   let maxDatasetExtraNonce = null;
   let rowsByHeight = new Map();
   let metadata = null;
+  let dataSignature = null;
+  let autoRefreshTimer = 0;
+  let refreshCheckInFlight = false;
   let minMs = 0;
   let maxMs = 1;
   let rafId = 0;
@@ -1746,6 +1750,58 @@
 
   function updateUpdatedKpi() {
     if (els.updatedKpiValue) els.updatedKpiValue.textContent = formatUpdatedKpiText();
+  }
+
+  function getDataSignature(meta) {
+    if (!meta || typeof meta !== "object") return "";
+    return [
+      meta.generated_at,
+      meta.block_count,
+      meta.patoshi_count,
+      meta.patoshi_original_count,
+      meta.patoshi_updated_count,
+      meta.spent_count,
+      meta.spending_height_count,
+      meta.spending_height_last_queried_height,
+      meta.max_extranonce,
+    ].map((value) => value ?? "").join("|");
+  }
+
+  async function fetchLatestDataSignature() {
+    const url = `${META_URL}?refresh=${Date.now()}`;
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) throw new Error(`Failed to load ${META_URL} (${response.status})`);
+    return getDataSignature(await response.json());
+  }
+
+  async function refreshIfDataChanged() {
+    if (!dataSignature || refreshCheckInFlight) return;
+    refreshCheckInFlight = true;
+    try {
+      const latestSignature = await fetchLatestDataSignature();
+      if (!latestSignature || latestSignature === dataSignature) return;
+      saveState();
+      window.location.reload();
+    } catch (error) {
+      console.warn("Patoshi auto-refresh check failed:", error);
+    } finally {
+      refreshCheckInFlight = false;
+    }
+  }
+
+  function triggerRefreshCheckSoon(delayMs = 150) {
+    window.setTimeout(refreshIfDataChanged, delayMs);
+  }
+
+  function setupAutoRefreshChecks() {
+    if (autoRefreshTimer) window.clearInterval(autoRefreshTimer);
+    autoRefreshTimer = window.setInterval(refreshIfDataChanged, AUTO_REFRESH_MS);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") triggerRefreshCheckSoon(0);
+    });
+    window.addEventListener("focus", () => triggerRefreshCheckSoon(0));
+    window.addEventListener("pageshow", () => triggerRefreshCheckSoon(0));
+    window.addEventListener("online", () => triggerRefreshCheckSoon(0));
   }
 
   function syncUpdatedTimeZoneSelect(value = getPreferredDashboardTimeZone()) {
@@ -4426,8 +4482,8 @@
     const hasSavedState = loadState();
     installEvents();
     const [csvText, metaText] = await Promise.all([
-      fetch(DATA_URL).then((r) => r.text()),
-      fetch(META_URL).then((r) => r.json()).catch(() => null),
+      fetch(DATA_URL, { cache: "no-store" }).then((r) => r.text()),
+      fetch(META_URL, { cache: "no-store" }).then((r) => r.json()).catch(() => null),
     ]);
     rows = parseCsv(csvText);
     maxDatasetExtraNonce = getMaxDatasetExtraNonce();
@@ -4439,6 +4495,7 @@
       saveState();
     }
     metadata = metaText;
+    dataSignature = getDataSignature(metadata);
     updateUpdatedKpi();
     minMs = rows[0].ms;
     maxMs = rows[rows.length - 1].ms;
@@ -4508,6 +4565,7 @@
     syncControls();
     renderSpentRewardsPanel();
     render();
+    setupAutoRefreshChecks();
   }
 
   init().catch((error) => {
