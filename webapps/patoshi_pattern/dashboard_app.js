@@ -45,6 +45,10 @@
     endFrameHold: true,
   };
 
+  function getDefaultMarkerScale() {
+    return window.matchMedia?.("(max-width: 750px)")?.matches ? 0.5 : 1;
+  }
+
   const state = {
     startMs: Date.UTC(2008, 11, 4, 18, 15, 0),
     endMs: Date.UTC(2009, 0, 3, 18, 15, 0),
@@ -61,7 +65,7 @@
     patoshiExcludeBlocks: "",
     spentRewardsSort: "latest_spent",
     spentRewardsPatoshiOnly: false,
-    markerScale: 1,
+    markerScale: getDefaultMarkerScale(),
     showSpent: true,
     markSpent: false,
     showPatoshiLine: true,
@@ -105,9 +109,11 @@
   let yAxisRestoreMode = null;
   let spentRewardsPanelOpen = false;
   let highlightedSpentBlockHeight = null;
+  let highlightedSpentBlockSource = null;
   let spentRewardsVisibleCount = SPENT_REWARDS_PAGE_SIZE;
   let spentRewardsLoading = false;
   let spentRewardsLoadGeneration = 0;
+  let blockSearchHighlightTimer = 0;
   let layoutSyncRaf = 0;
   let rangeResizeObserver = null;
   let downloadEstimateCalibrationTimer = null;
@@ -160,6 +166,8 @@
     spentRewardsList: $("spentRewardsList"),
     spentRewardsSort: $("spentRewardsSort"),
     spentRewardsPatoshiOnly: $("spentRewardsPatoshiOnly"),
+    blockSearchPill: $("blockSearchPill"),
+    blockSearchInput: $("blockSearchInput"),
     updatedKpiValue: $("updatedKpiValue"),
     updatedTimeZoneSelect: $("updatedTimeZoneSelect"),
     copyLinkBtn: $("copyLinkBtn"),
@@ -225,6 +233,7 @@
         paused: state.playing || state.paused,
         sidePanelOpen: spentRewardsPanelOpen,
         highlightedSpentBlockHeight: Number.isFinite(highlightedSpentBlockHeight) ? highlightedSpentBlockHeight : null,
+        highlightedSpentBlockSource,
         updatedKpiTimeZone,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(copy));
@@ -285,8 +294,12 @@
         && Number.isFinite(highlightedHeight)
         ? highlightedHeight
         : null;
+      highlightedSpentBlockSource = Number.isFinite(highlightedSpentBlockHeight)
+        ? (parsed.highlightedSpentBlockSource === "search" ? "search" : "panel")
+        : null;
       delete parsed.sidePanelOpen;
       delete parsed.highlightedSpentBlockHeight;
+      delete parsed.highlightedSpentBlockSource;
       Object.assign(state, parsed);
       state.playing = false;
       state.paused = !!state.paused;
@@ -416,9 +429,35 @@
     return Number.isFinite(highlightedSpentBlockHeight) ? rowsByHeight.get(highlightedSpentBlockHeight) : null;
   }
 
+  function formatBlockSearchHeight(value) {
+    const clean = String(value || "").replace(/[^\d]/g, "");
+    if (!clean) return "";
+    return Math.min(Number(clean), 99999).toLocaleString("en-US");
+  }
+
   function clearHighlightedSpentReward() {
     if (!Number.isFinite(highlightedSpentBlockHeight)) return;
     highlightedSpentBlockHeight = null;
+    highlightedSpentBlockSource = null;
+    if (els.blockSearchInput) els.blockSearchInput.value = "";
+    saveState();
+    renderSpentRewardsPanel();
+    render();
+  }
+
+  function clearPanelHighlightIfHiddenFromSpentRewards() {
+    if (highlightedSpentBlockSource !== "panel" || !Number.isFinite(highlightedSpentBlockHeight)) return;
+    if (spentRewardsPanelOpen && getSpentRewardRows().some((row) => row.height === highlightedSpentBlockHeight)) return;
+    clearHighlightedSpentReward();
+  }
+
+  function setHighlightedBlock(row, options = {}) {
+    if (!row || !Number.isFinite(row.height)) return;
+    const { source = "panel", updateInput = true } = options;
+    highlightedSpentBlockHeight = row.height;
+    highlightedSpentBlockSource = source;
+    if (updateInput && els.blockSearchInput) els.blockSearchInput.value = formatBlockSearchHeight(row.height);
+    centerChartOnRow(row);
     saveState();
     renderSpentRewardsPanel();
     render();
@@ -582,6 +621,9 @@
     }
     if (els.spentRewardsSort) els.spentRewardsSort.value = state.spentRewardsSort;
     if (els.spentRewardsPatoshiOnly) els.spentRewardsPatoshiOnly.checked = !!state.spentRewardsPatoshiOnly;
+    if (els.blockSearchInput && document.activeElement !== els.blockSearchInput) {
+      els.blockSearchInput.value = Number.isFinite(highlightedSpentBlockHeight) ? formatBlockSearchHeight(highlightedSpentBlockHeight) : "";
+    }
     updateMarkerScaleControls();
     syncDropdownLabels();
     els.showSpent.checked = state.showSpent;
@@ -760,6 +802,8 @@
   function applyDefaultState() {
     const animationStartMs = getAnimationStartMinMs();
     const animationEndMs = getDefaultAnimationEndMs();
+    highlightedSpentBlockHeight = null;
+    highlightedSpentBlockSource = null;
     Object.assign(state, {
       startMs: animationStartMs,
       endMs: animationEndMs,
@@ -776,7 +820,7 @@
       patoshiExcludeBlocks: "",
       spentRewardsSort: "latest_spent",
       spentRewardsPatoshiOnly: false,
-      markerScale: 1,
+      markerScale: getDefaultMarkerScale(),
       showSpent: true,
       markSpent: false,
       showPatoshiLine: true,
@@ -846,6 +890,8 @@
       exportSettings: { ...DEFAULT_EXPORT_SETTINGS, ...(state.exportSettings || {}) },
       updatedKpiTimeZone: updatedKpiTimeZone || getPreferredDashboardTimeZone(),
       sidePanelOpen: !!spentRewardsPanelOpen,
+      highlightedSpentBlockHeight: Number.isFinite(highlightedSpentBlockHeight) ? highlightedSpentBlockHeight : null,
+      highlightedSpentBlockSource,
     };
   }
 
@@ -868,7 +914,7 @@
       patoshiExcludeBlocks: "",
       spentRewardsSort: "latest_spent",
       spentRewardsPatoshiOnly: false,
-      markerScale: 1,
+      markerScale: getDefaultMarkerScale(),
       showSpent: true,
       markSpent: false,
       showPatoshiLine: true,
@@ -877,6 +923,7 @@
       exportSettings: { ...DEFAULT_EXPORT_SETTINGS },
       updatedKpiTimeZone: getPreferredDashboardTimeZone(),
       sidePanelOpen: false,
+      highlightedSpentBlockHeight: null,
     };
   }
 
@@ -962,6 +1009,11 @@
       syncUpdatedTimeZoneSelect(snapshot.updatedKpiTimeZone);
     }
     spentRewardsPanelOpen = !!snapshot.sidePanelOpen;
+    const snapshotHighlightedHeight = Number(snapshot.highlightedSpentBlockHeight);
+    highlightedSpentBlockHeight = Number.isFinite(snapshotHighlightedHeight) ? snapshotHighlightedHeight : null;
+    highlightedSpentBlockSource = Number.isFinite(highlightedSpentBlockHeight)
+      ? (snapshot.highlightedSpentBlockSource === "search" ? "search" : "panel")
+      : null;
     syncPatternBlockSets();
     normalizeExportSettings();
     state.yMaxCustom = normalizeYMaxCustom(state.yMaxCustom);
@@ -3677,10 +3729,7 @@
     }
     if (state.playing) return;
     const marker = getNearestBlockMarkerAt(event);
-    if (!marker) {
-      clearHighlightedSpentReward();
-      return;
-    }
+    if (!marker) return;
     window.open(`https://mempool.space/block/${marker.row.height}`, "_blank", "noopener,noreferrer");
   }
 
@@ -3724,6 +3773,7 @@
   function toggleSpentRewardsPanel(event) {
     event?.stopPropagation?.();
     spentRewardsPanelOpen = !spentRewardsPanelOpen;
+    clearPanelHighlightIfHiddenFromSpentRewards();
     saveState();
     renderSpentRewardsPanel();
     window.requestAnimationFrame(render);
@@ -3733,6 +3783,7 @@
     event?.stopPropagation?.();
     if (!spentRewardsPanelOpen) return;
     spentRewardsPanelOpen = false;
+    clearPanelHighlightIfHiddenFromSpentRewards();
     saveState();
     renderSpentRewardsPanel();
     window.requestAnimationFrame(render);
@@ -3745,16 +3796,50 @@
     const height = Number(item.dataset.height);
     const row = rowsByHeight.get(height);
     if (!row) return;
-    highlightedSpentBlockHeight = height;
-    centerChartOnRow(row);
-    saveState();
-    renderSpentRewardsPanel();
-    render();
+    if (highlightedSpentBlockSource === "panel" && highlightedSpentBlockHeight === row.height) {
+      clearHighlightedSpentReward();
+      return;
+    }
+    setHighlightedBlock(row);
   }
 
-  function clickIsOnHighlightedReward(event) {
-    const marker = getNearestBlockMarkerAt(event);
-    return !!marker && marker.row.height === highlightedSpentBlockHeight;
+  function parseBlockSearchHeight(value) {
+    const clean = String(value || "").replace(/[^\d]/g, "");
+    if (!clean) return null;
+    const height = Number(clean);
+    return Number.isInteger(height) && height >= 0 && height <= 99999 ? height : null;
+  }
+
+  function commitBlockSearch() {
+    if (!els.blockSearchInput) return;
+    window.clearTimeout(blockSearchHighlightTimer);
+    blockSearchHighlightTimer = 0;
+    const raw = els.blockSearchInput.value;
+    if (!String(raw).trim()) {
+      clearHighlightedSpentReward();
+      return;
+    }
+    const height = parseBlockSearchHeight(raw);
+    const row = Number.isFinite(height) ? rowsByHeight.get(height) : null;
+    if (!row) {
+      els.blockSearchInput.value = Number.isFinite(highlightedSpentBlockHeight) ? formatBlockSearchHeight(highlightedSpentBlockHeight) : "";
+      return;
+    }
+    setHighlightedBlock(row, { source: "search" });
+  }
+
+  function scheduleBlockSearchHighlight(value) {
+    window.clearTimeout(blockSearchHighlightTimer);
+    blockSearchHighlightTimer = window.setTimeout(() => {
+      blockSearchHighlightTimer = 0;
+      const height = parseBlockSearchHeight(value);
+      const row = Number.isFinite(height) ? rowsByHeight.get(height) : null;
+      if (row) {
+        setHighlightedBlock(row, { source: "search", updateInput: false });
+      } else if (!value) {
+        clearHighlightedSpentReward();
+      }
+    }, 35);
   }
 
   function shiftWindowBy(deltaMs) {
@@ -4067,6 +4152,32 @@
       syncSpentRewardsLoadMoreVisibility();
       tryLoadMoreSpentRewards();
     });
+    els.blockSearchInput?.addEventListener("input", () => {
+      const input = els.blockSearchInput;
+      const selectionStart = input.selectionStart ?? input.value.length;
+      const digitsBeforeCursor = input.value.slice(0, selectionStart).replace(/[^\d]/g, "").length;
+      const formatted = formatBlockSearchHeight(input.value);
+      if (input.value !== formatted) {
+        input.value = formatted;
+        let nextCursor = formatted.length;
+        let seenDigits = 0;
+        for (let index = 0; index < formatted.length; index += 1) {
+          if (/\d/.test(formatted[index])) seenDigits += 1;
+          if (seenDigits >= digitsBeforeCursor) {
+            nextCursor = index + 1;
+            break;
+          }
+        }
+        input.setSelectionRange(nextCursor, nextCursor);
+      }
+      scheduleBlockSearchHighlight(formatted);
+    });
+    els.blockSearchInput?.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      commitBlockSearch();
+    });
+    els.blockSearchInput?.addEventListener("change", commitBlockSearch);
     els.settingsBtn.addEventListener("click", () => {
       els.settingsPanel.classList.toggle("open");
       updateSettingsOptions();
@@ -4079,12 +4190,6 @@
       if (els.settingsPanel.contains(event.target) || els.settingsBtn.contains(event.target) || els.downloadBtn?.contains(event.target)) return;
       els.settingsPanel.classList.remove("open");
       updateActiveButtons();
-    });
-    document.addEventListener("click", (event) => {
-      if (!Number.isFinite(highlightedSpentBlockHeight)) return;
-      if (els.spentRewardsPanel?.contains(event.target) || els.spentRewardsPanelBtn?.contains(event.target)) return;
-      if (event.target === canvas && clickIsOnHighlightedReward(event)) return;
-      clearHighlightedSpentReward();
     });
     els.restoreBtn.addEventListener("click", () => {
       if (preResetStateSnapshot) restorePreviousDashboardState();
@@ -4205,11 +4310,11 @@
           }
         }
         if (id === "spentRewardsSort" || id === "spentRewardsPatoshiOnly") {
-          highlightedSpentBlockHeight = null;
           spentRewardsVisibleCount = SPENT_REWARDS_PAGE_SIZE;
           spentRewardsLoading = false;
           spentRewardsLoadGeneration += 1;
           if (els.spentRewardsList) els.spentRewardsList.scrollTop = 0;
+          clearPanelHighlightIfHiddenFromSpentRewards();
           renderSpentRewardsPanel();
           render();
           saveState();
@@ -4330,6 +4435,7 @@
     rowsByHeight = new Map(rows.map((row) => [row.height, row]));
     if (Number.isFinite(highlightedSpentBlockHeight) && !rowsByHeight.has(highlightedSpentBlockHeight)) {
       highlightedSpentBlockHeight = null;
+      highlightedSpentBlockSource = null;
       saveState();
     }
     metadata = metaText;
@@ -4341,7 +4447,11 @@
       applyDefaultState();
       Object.assign(state, shared);
       spentRewardsPanelOpen = !!shared.sidePanelOpen;
-      highlightedSpentBlockHeight = null;
+      const sharedHighlightedHeight = Number(shared.highlightedSpentBlockHeight);
+      highlightedSpentBlockHeight = Number.isFinite(sharedHighlightedHeight) ? sharedHighlightedHeight : null;
+      highlightedSpentBlockSource = Number.isFinite(highlightedSpentBlockHeight)
+        ? (shared.highlightedSpentBlockSource === "search" ? "search" : "panel")
+        : null;
       state.playing = false;
       state.paused = false;
       if (state.yMode === "fixed_2650") state.yMode = "custom";
@@ -4364,6 +4474,10 @@
       pendingShareState = null;
     } else if (!hasSavedState) {
       applyDefaultState();
+    }
+    if (Number.isFinite(highlightedSpentBlockHeight) && !rowsByHeight.has(highlightedSpentBlockHeight)) {
+      highlightedSpentBlockHeight = null;
+      highlightedSpentBlockSource = null;
     }
     const currentWindowMs = Math.max(getMinWindowMs(), state.endMs - state.startMs || getDefaultWindowMs());
     const timelineMin = getTimelineMinMs(currentWindowMs);

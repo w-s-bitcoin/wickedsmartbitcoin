@@ -171,8 +171,9 @@ body.uoa-dashboard-expanded .topbar {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 8px 12px;
+  gap: 5px;
+  min-height: 30px;
+  padding: 5px 9px;
   border-radius: 999px;
   background: var(--surface);
   font-size: 12px;
@@ -2438,8 +2439,8 @@ canvas {
 
   .copy-link-btn,
   .reset-dashboard-btn {
-    padding: 6px 10px;
-    min-height: 32px;
+    padding: 5px 9px;
+    min-height: 30px;
     font-size: 11px;
   }
 
