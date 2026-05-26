@@ -66,6 +66,7 @@
     patoshiExcludeBlocks: "",
     spentRewardsSort: "latest_spent",
     spentRewardsPatoshiOnly: false,
+    blockClickAction: "mempool",
     markerScale: getDefaultMarkerScale(),
     showSpent: true,
     markSpent: false,
@@ -102,18 +103,21 @@
   let rangeDrag = null;
   let chartDrag = null;
   let chartResizeWheelRemainder = 0;
+  let blockClickTimer = 0;
   let suppressNextChartClick = false;
   let activeDatePicker = null;
   let theme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
   let updatedKpiTimeZone = DASHBOARD_TIME?.getPreferredTimeZone?.() || "UTC";
   let diffMarkerHitboxes = [];
   let blockMarkerHitboxes = [];
+  let chartPlotArea = null;
   let xAxisHitArea = null;
   let yAxisHitArea = null;
   let yAxisRestoreMode = null;
   let spentRewardsPanelOpen = false;
   let highlightedSpentBlockHeight = null;
   let highlightedSpentBlockSource = null;
+  let highlightedSpentBlockCentered = false;
   let spentRewardsVisibleCount = SPENT_REWARDS_PAGE_SIZE;
   let spentRewardsLoading = false;
   let spentRewardsLoadGeneration = 0;
@@ -172,6 +176,7 @@
     spentRewardsPatoshiOnly: $("spentRewardsPatoshiOnly"),
     blockSearchPill: $("blockSearchPill"),
     blockSearchInput: $("blockSearchInput"),
+    blockSearchClear: $("blockSearchClear"),
     updatedKpiValue: $("updatedKpiValue"),
     updatedTimeZoneSelect: $("updatedTimeZoneSelect"),
     copyLinkBtn: $("copyLinkBtn"),
@@ -191,6 +196,7 @@
     patoshiExcludeInput: $("patoshiExcludeInput"),
     patoshiIncludePickBtn: $("patoshiIncludePickBtn"),
     patoshiExcludePickBtn: $("patoshiExcludePickBtn"),
+    blockClickButtons: Array.from(document.querySelectorAll("[data-block-click-action]")),
     markerScaleInput: $("markerScaleInput"),
     markerScaleMinus: $("markerScaleMinus"),
     markerScalePlus: $("markerScalePlus"),
@@ -238,6 +244,7 @@
         sidePanelOpen: spentRewardsPanelOpen,
         highlightedSpentBlockHeight: Number.isFinite(highlightedSpentBlockHeight) ? highlightedSpentBlockHeight : null,
         highlightedSpentBlockSource,
+        highlightedSpentBlockCentered,
         updatedKpiTimeZone,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(copy));
@@ -301,9 +308,11 @@
       highlightedSpentBlockSource = Number.isFinite(highlightedSpentBlockHeight)
         ? (parsed.highlightedSpentBlockSource === "search" ? "search" : "panel")
         : null;
+      highlightedSpentBlockCentered = Number.isFinite(highlightedSpentBlockHeight) && parsed.highlightedSpentBlockCentered !== false;
       delete parsed.sidePanelOpen;
       delete parsed.highlightedSpentBlockHeight;
       delete parsed.highlightedSpentBlockSource;
+      delete parsed.highlightedSpentBlockCentered;
       Object.assign(state, parsed);
       state.playing = false;
       state.paused = !!state.paused;
@@ -321,6 +330,7 @@
         state.spentRewardsSort = "latest_spent";
       }
       state.spentRewardsPatoshiOnly = !!parsed.spentRewardsPatoshiOnly;
+      if (!["mempool", "highlight"].includes(state.blockClickAction)) state.blockClickAction = "mempool";
       state.patoshiIncludeBlocks = sanitizePatternBlocksText(state.patoshiIncludeBlocks);
       state.patoshiExcludeBlocks = sanitizePatternBlocksText(state.patoshiExcludeBlocks);
       syncPatternBlockSets();
@@ -439,13 +449,21 @@
     return Math.min(Number(clean), 99999).toLocaleString("en-US");
   }
 
+  function syncBlockSearchClearButton() {
+    const hasValue = !!String(els.blockSearchInput?.value || "").trim();
+    els.blockSearchPill?.classList.toggle("has-value", hasValue);
+    if (els.blockSearchClear) els.blockSearchClear.hidden = !hasValue;
+  }
+
   function clearHighlightedSpentReward() {
     if (!Number.isFinite(highlightedSpentBlockHeight)) return;
     highlightedSpentBlockHeight = null;
     highlightedSpentBlockSource = null;
+    highlightedSpentBlockCentered = false;
     if (els.blockSearchInput) els.blockSearchInput.value = "";
+    syncBlockSearchClearButton();
+    if (spentRewardsPanelOpen) syncSpentRewardsActiveItem();
     saveState();
-    renderSpentRewardsPanel();
     render();
   }
 
@@ -457,25 +475,36 @@
 
   function setHighlightedBlock(row, options = {}) {
     if (!row || !Number.isFinite(row.height)) return;
-    const { source = "panel", updateInput = true } = options;
+    const { source = "panel", updateInput = true, center = true } = options;
     highlightedSpentBlockHeight = row.height;
     highlightedSpentBlockSource = source;
+    highlightedSpentBlockCentered = !!center;
     if (updateInput && els.blockSearchInput) els.blockSearchInput.value = formatBlockSearchHeight(row.height);
-    centerChartOnRow(row);
-    saveState();
-    renderSpentRewardsPanel();
-    render();
+    syncBlockSearchClearButton();
+    if (spentRewardsPanelOpen) syncSpentRewardsActiveItem();
+    if (!center || !centerChartOnRow(row)) {
+      saveState();
+      render();
+    }
   }
 
   function centerChartOnRow(row) {
-    if (!row) return;
+    if (!row) return false;
     const windowMs = getWindowMs();
+    const centeredRange = getRangeCenteredOnRow(row, windowMs);
+    if (!centeredRange) return false;
+    setLastAdjustedHandle("range");
+    setRange(centeredRange.startMs, centeredRange.endMs);
+    return true;
+  }
+
+  function getRangeCenteredOnRow(row, windowMs) {
+    if (!row || !Number.isFinite(row.ms)) return null;
     const timelineMin = getTimelineMinMs(windowMs);
     const minStart = Math.min(timelineMin, row.ms - windowMs);
     const maxStart = Math.max(minStart, maxMs - windowMs);
     const safeStart = clamp(row.ms - windowMs / 2, minStart, maxStart);
-    setLastAdjustedHandle("range");
-    setRange(safeStart, safeStart + windowMs);
+    return { startMs: safeStart, endMs: safeStart + windowMs };
   }
 
   function renderSpentRewardsPanel() {
@@ -489,7 +518,7 @@
       els.spentRewardsPanelBtn.setAttribute("aria-expanded", String(spentRewardsPanelOpen));
       els.spentRewardsPanelBtn.setAttribute("aria-label", spentRewardsPanelOpen ? "Hide spent rewards" : "Show spent pre-100,000 coinbase rewards");
     }
-    if (!els.spentRewardsList) return;
+    if (!els.spentRewardsList || !spentRewardsPanelOpen) return;
     const rewards = getSpentRewardRows();
     const highlightedIndex = Number.isFinite(highlightedSpentBlockHeight)
       ? rewards.findIndex((row) => row.height === highlightedSpentBlockHeight)
@@ -524,6 +553,16 @@
     }).join("") + footerHtml;
     els.spentRewardsList.scrollTop = previousScrollTop;
     syncSpentRewardsLoadMoreVisibility();
+  }
+
+  function syncSpentRewardsActiveItem() {
+    if (!els.spentRewardsList) return;
+    els.spentRewardsList.querySelectorAll(".spent-reward-item.is-active").forEach((item) => {
+      item.classList.remove("is-active");
+    });
+    if (!Number.isFinite(highlightedSpentBlockHeight)) return;
+    const activeItem = els.spentRewardsList.querySelector(`.spent-reward-item[data-height="${highlightedSpentBlockHeight}"]`);
+    activeItem?.classList.add("is-active");
   }
 
   function syncSpentRewardsLoadMoreVisibility() {
@@ -617,6 +656,11 @@
       button.classList.toggle("is-active", active);
       button.setAttribute("aria-pressed", active ? "true" : "false");
     });
+    els.blockClickButtons.forEach((button) => {
+      const active = button.dataset.blockClickAction === state.blockClickAction;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+    });
     if (els.patoshiIncludeInput && document.activeElement !== els.patoshiIncludeInput) {
       els.patoshiIncludeInput.value = state.patoshiIncludeBlocks || "";
     }
@@ -628,6 +672,7 @@
     if (els.blockSearchInput && document.activeElement !== els.blockSearchInput) {
       els.blockSearchInput.value = Number.isFinite(highlightedSpentBlockHeight) ? formatBlockSearchHeight(highlightedSpentBlockHeight) : "";
     }
+    syncBlockSearchClearButton();
     updateMarkerScaleControls();
     syncDropdownLabels();
     els.showSpent.checked = state.showSpent;
@@ -824,6 +869,7 @@
       patoshiExcludeBlocks: "",
       spentRewardsSort: "latest_spent",
       spentRewardsPatoshiOnly: false,
+      blockClickAction: "mempool",
       markerScale: getDefaultMarkerScale(),
       showSpent: true,
       markSpent: false,
@@ -885,6 +931,7 @@
       patoshiExcludeBlocks: sanitizePatternBlocksText(state.patoshiExcludeBlocks),
       spentRewardsSort: state.spentRewardsSort,
       spentRewardsPatoshiOnly: !!state.spentRewardsPatoshiOnly,
+      blockClickAction: state.blockClickAction,
       markerScale: normalizeMarkerScale(state.markerScale),
       showSpent: !!state.showSpent,
       markSpent: !!state.markSpent,
@@ -896,6 +943,7 @@
       sidePanelOpen: !!spentRewardsPanelOpen,
       highlightedSpentBlockHeight: Number.isFinite(highlightedSpentBlockHeight) ? highlightedSpentBlockHeight : null,
       highlightedSpentBlockSource,
+      highlightedSpentBlockCentered,
     };
   }
 
@@ -918,6 +966,7 @@
       patoshiExcludeBlocks: "",
       spentRewardsSort: "latest_spent",
       spentRewardsPatoshiOnly: false,
+      blockClickAction: "mempool",
       markerScale: getDefaultMarkerScale(),
       showSpent: true,
       markSpent: false,
@@ -928,6 +977,7 @@
       updatedKpiTimeZone: getPreferredDashboardTimeZone(),
       sidePanelOpen: false,
       highlightedSpentBlockHeight: null,
+      highlightedSpentBlockCentered: false,
     };
   }
 
@@ -996,6 +1046,7 @@
       patoshiExcludeBlocks: snapshot.patoshiExcludeBlocks,
       spentRewardsSort: snapshot.spentRewardsSort,
       spentRewardsPatoshiOnly: !!snapshot.spentRewardsPatoshiOnly,
+      blockClickAction: snapshot.blockClickAction,
       markerScale: snapshot.markerScale,
       showSpent: !!snapshot.showSpent,
       markSpent: !!snapshot.markSpent,
@@ -1018,6 +1069,7 @@
     highlightedSpentBlockSource = Number.isFinite(highlightedSpentBlockHeight)
       ? (snapshot.highlightedSpentBlockSource === "search" ? "search" : "panel")
       : null;
+    highlightedSpentBlockCentered = Number.isFinite(highlightedSpentBlockHeight) && snapshot.highlightedSpentBlockCentered !== false;
     syncPatternBlockSets();
     normalizeExportSettings();
     state.yMaxCustom = normalizeYMaxCustom(state.yMaxCustom);
@@ -1027,6 +1079,7 @@
     if (!["rolling_patoshi", "window_patoshi", "window_all", "custom"].includes(state.yMode)) state.yMode = "rolling_patoshi";
     if (!["spent", "time"].includes(state.countMetric)) state.countMetric = "spent";
     if (!["updated", "original", "none"].includes(state.patoshiPattern)) state.patoshiPattern = "updated";
+    if (!["mempool", "highlight"].includes(state.blockClickAction)) state.blockClickAction = "mempool";
     syncControls();
     renderSpentRewardsPanel();
     render();
@@ -1183,6 +1236,7 @@
       state.patoshiIncludeBlocks,
       state.patoshiExcludeBlocks,
       state.markerScale,
+      state.blockClickAction,
       state.showSpent ? 1 : 0,
       state.markSpent ? 1 : 0,
       state.showPatoshiLine ? 1 : 0,
@@ -1633,7 +1687,7 @@
       setRange(state.animationStartMs, state.animationEndMs);
       return;
     }
-    setWindowByCount(Number(value));
+    setWindowByCount(Number(value), { centerHighlighted: true });
   }
 
   function snapWindowToClosestPreset() {
@@ -2329,9 +2383,22 @@
     return value.length;
   }
 
-  function setWindowByCount(count) {
+  function setWindowByCount(count, { centerHighlighted = highlightedSpentBlockCentered } = {}) {
     const value = Math.max(1, Math.round((Number(count) || 1) * 10) / 10);
     const windowMs = Math.max(getMinWindowMs(), value * DAY);
+    if (centerHighlighted && highlightedSpentBlockCentered) {
+      const centeredRange = getRangeCenteredOnRow(getHighlightedSpentRow(), windowMs);
+      if (centeredRange) {
+        state.animationStartMs = Math.max(getAnimationStartMinMs(), state.animationStartMs);
+        if (state.animationEndMs < state.animationStartMs + windowMs) {
+          state.animationEndMs = Math.min(maxMs, state.animationStartMs + windowMs);
+        }
+        state.finalEndMs = state.animationEndMs;
+        setLastAdjustedHandle("range");
+        setRange(centeredRange.startMs, centeredRange.endMs);
+        return;
+      }
+    }
     const oldTimelineMin = getTimelineMinMs();
     const timelineMin = getTimelineMinMs(windowMs);
     const wasPinnedToEarliest = Math.abs(state.startMs - oldTimelineMin) < HOUR / 2
@@ -2969,6 +3036,15 @@
     saveState();
   }
 
+  function resetYModeToRollingPatoshi() {
+    state.yMode = "rolling_patoshi";
+    if (els.yMode) els.yMode.value = state.yMode;
+    yAxisRestoreMode = null;
+    syncDropdownLabels();
+    render();
+    saveState();
+  }
+
   function drawText(text, x, y, options = {}) {
     ctx.save();
     ctx.font = options.font || `${options.weight || 500} ${options.size || 14}px "IBM Plex Mono"`;
@@ -3079,6 +3155,7 @@
 
   function render() {
     if (!rows.length) {
+      chartPlotArea = null;
       xAxisHitArea = null;
       yAxisHitArea = null;
       return;
@@ -3109,6 +3186,7 @@
       top: mobile ? 66 : 62,
       bottom: rect.height - (mobile ? 62 : 72),
     };
+    chartPlotArea = plot;
     yAxisHitArea = {
       left: 0,
       right: plot.left + (mobile ? 4 : 6),
@@ -3773,6 +3851,21 @@
     }, null)?.item || null;
   }
 
+  function highlightBlockMarker(marker) {
+    if (!marker?.row) return;
+    setHighlightedBlock(marker.row, { source: "search", center: false });
+  }
+
+  function highlightAndCenterBlockMarker(marker) {
+    if (!marker?.row) return;
+    setHighlightedBlock(marker.row, { source: "search", center: true });
+  }
+
+  function openBlockInMempool(marker) {
+    if (!marker?.row || !Number.isFinite(marker.row.height)) return;
+    window.open(`https://mempool.space/block/${marker.row.height}`, "_blank", "noopener,noreferrer");
+  }
+
   function handleChartClick(event) {
     if (suppressNextChartClick) {
       suppressNextChartClick = false;
@@ -3786,7 +3879,12 @@
     if (state.playing) return;
     const marker = getNearestBlockMarkerAt(event);
     if (!marker) return;
-    window.open(`https://mempool.space/block/${marker.row.height}`, "_blank", "noopener,noreferrer");
+    if (blockClickTimer) window.clearTimeout(blockClickTimer);
+    blockClickTimer = window.setTimeout(() => {
+      blockClickTimer = 0;
+      if (state.blockClickAction === "highlight") highlightBlockMarker(marker);
+      else openBlockInMempool(marker);
+    }, 220);
   }
 
   function eventIsOnXAxis(event) {
@@ -3812,11 +3910,26 @@
   }
 
   function handleChartDoubleClick(event) {
+    if (blockClickTimer) {
+      window.clearTimeout(blockClickTimer);
+      blockClickTimer = 0;
+    }
+    if (!patternBlockPickMode) {
+      const marker = getNearestBlockMarkerAt(event);
+      if (marker) {
+        event.preventDefault();
+        event.stopPropagation();
+        hideChartTooltip();
+        if (state.playing) pauseAnimation();
+        highlightAndCenterBlockMarker(marker);
+        return;
+      }
+    }
     if (eventIsOnYAxis(event)) {
       event.preventDefault();
       event.stopPropagation();
       hideChartTooltip();
-      restoreYModeBeforeAxisCustom();
+      resetYModeToRollingPatoshi();
       return;
     }
     if (!eventIsOnXAxis(event)) return;
@@ -3847,6 +3960,7 @@
 
   function handleSpentRewardsPanelClick(event) {
     event.stopPropagation();
+    if (!eventTargetIsInsideDropdown(event.target)) closeDropdowns();
     const item = event.target.closest(".spent-reward-item");
     if (!item) return;
     const height = Number(item.dataset.height);
@@ -3879,9 +3993,21 @@
     const row = Number.isFinite(height) ? rowsByHeight.get(height) : null;
     if (!row) {
       els.blockSearchInput.value = Number.isFinite(highlightedSpentBlockHeight) ? formatBlockSearchHeight(highlightedSpentBlockHeight) : "";
+      syncBlockSearchClearButton();
       return;
     }
     setHighlightedBlock(row, { source: "search" });
+  }
+
+  function clearBlockSearch() {
+    window.clearTimeout(blockSearchHighlightTimer);
+    blockSearchHighlightTimer = 0;
+    if (els.blockSearchInput) {
+      els.blockSearchInput.value = "";
+      els.blockSearchInput.focus();
+    }
+    syncBlockSearchClearButton();
+    clearHighlightedSpentReward();
   }
 
   function scheduleBlockSearchHighlight(value) {
@@ -3907,27 +4033,46 @@
     setRange(safeStart, safeEnd);
   }
 
-  function setWindowMsAroundCenter(nextWindowMs) {
+  function getChartCursorXRatio(event) {
+    if (!chartPlotArea) return 0.5;
+    const rect = canvas.getBoundingClientRect();
+    const plotWidth = Math.max(1, chartPlotArea.right - chartPlotArea.left);
+    const x = event.clientX - rect.left;
+    return clamp((x - chartPlotArea.left) / plotWidth, 0, 1);
+  }
+
+  function setWindowMsAroundChartPoint(nextWindowMs, event) {
     const maxWindowMs = Math.max(getMinWindowMs(), maxMs - minMs);
     const windowMs = clamp(nextWindowMs, getMinWindowMs(), maxWindowMs);
-    const centerMs = (state.startMs + state.endMs) / 2;
+    if (highlightedSpentBlockCentered) {
+      const centeredRange = getRangeCenteredOnRow(getHighlightedSpentRow(), windowMs);
+      if (centeredRange) {
+        setLastAdjustedHandle("range");
+        setRange(centeredRange.startMs, centeredRange.endMs);
+        return;
+      }
+    }
+    const currentWindowMs = Math.max(getMinWindowMs(), getWindowMs());
+    const ratio = getChartCursorXRatio(event);
+    const anchorMs = state.startMs + ratio * currentWindowMs;
     const timelineMin = getTimelineMinMs(windowMs);
-    let startMs = centerMs - windowMs / 2;
+    const upperBound = Math.min(maxMs, state.animationEndMs);
+    let startMs = anchorMs - ratio * windowMs;
     let endMs = startMs + windowMs;
-    if (endMs < state.animationStartMs) {
-      endMs = state.animationStartMs;
+
+    if (endMs > upperBound) {
+      endMs = upperBound;
       startMs = endMs - windowMs;
     }
-    if (endMs > state.animationEndMs) {
-      endMs = state.animationEndMs;
-      startMs = endMs - windowMs;
+    if (startMs < timelineMin) {
+      startMs = timelineMin;
+      endMs = startMs + windowMs;
     }
-    startMs = Math.max(timelineMin, startMs);
-    endMs = startMs + windowMs;
-    if (endMs > maxMs) {
-      endMs = maxMs;
+    if (endMs > upperBound) {
+      endMs = upperBound;
       startMs = Math.max(timelineMin, endMs - windowMs);
     }
+
     setLastAdjustedHandle("range");
     setRange(startMs, endMs);
   }
@@ -3963,7 +4108,7 @@
     const nextDays = resizeUnits > 0
       ? currentDays + dayStep
       : currentDays - dayStep;
-    setWindowMsAroundCenter(nextDays * DAY);
+    setWindowMsAroundChartPoint(nextDays * DAY, event);
   }
 
   function startChartDrag(event) {
@@ -4226,7 +4371,13 @@
         }
         input.setSelectionRange(nextCursor, nextCursor);
       }
+      syncBlockSearchClearButton();
       scheduleBlockSearchHighlight(formatted);
+    });
+    els.blockSearchClear?.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      clearBlockSearch();
     });
     els.blockSearchInput?.addEventListener("keydown", (event) => {
       if (event.key !== "Enter") return;
@@ -4296,6 +4447,16 @@
 
     els.patoshiPatternButtons.forEach((button) => {
       button.addEventListener("click", () => setPatoshiPattern(button.dataset.patoshiPattern));
+    });
+
+    els.blockClickButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const value = button.dataset.blockClickAction;
+        if (!["mempool", "highlight"].includes(value) || value === state.blockClickAction) return;
+        state.blockClickAction = value;
+        syncControls();
+        saveState();
+      });
     });
 
     els.patoshiIncludePickBtn?.addEventListener("click", (event) => {
@@ -4492,6 +4653,7 @@
     if (Number.isFinite(highlightedSpentBlockHeight) && !rowsByHeight.has(highlightedSpentBlockHeight)) {
       highlightedSpentBlockHeight = null;
       highlightedSpentBlockSource = null;
+      highlightedSpentBlockCentered = false;
       saveState();
     }
     metadata = metaText;
@@ -4509,6 +4671,7 @@
       highlightedSpentBlockSource = Number.isFinite(highlightedSpentBlockHeight)
         ? (shared.highlightedSpentBlockSource === "search" ? "search" : "panel")
         : null;
+      highlightedSpentBlockCentered = Number.isFinite(highlightedSpentBlockHeight) && shared.highlightedSpentBlockCentered !== false;
       state.playing = false;
       state.paused = false;
       if (state.yMode === "fixed_2650") state.yMode = "custom";
@@ -4521,6 +4684,7 @@
         state.spentRewardsSort = "latest_spent";
       }
       state.spentRewardsPatoshiOnly = !!shared.spentRewardsPatoshiOnly;
+      if (!["mempool", "highlight"].includes(state.blockClickAction)) state.blockClickAction = "mempool";
       state.patoshiIncludeBlocks = sanitizePatternBlocksText(state.patoshiIncludeBlocks);
       state.patoshiExcludeBlocks = sanitizePatternBlocksText(state.patoshiExcludeBlocks);
       syncPatternBlockSets();
@@ -4535,6 +4699,7 @@
     if (Number.isFinite(highlightedSpentBlockHeight) && !rowsByHeight.has(highlightedSpentBlockHeight)) {
       highlightedSpentBlockHeight = null;
       highlightedSpentBlockSource = null;
+      highlightedSpentBlockCentered = false;
     }
     const currentWindowMs = Math.max(getMinWindowMs(), state.endMs - state.startMs || getDefaultWindowMs());
     const timelineMin = getTimelineMinMs(currentWindowMs);

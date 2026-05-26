@@ -122,7 +122,6 @@ const HOMEPAGE_GRID_CARD_DATA_SOURCES = Object.freeze({
     "dca_comparison.png": ["webapps/dca_comparison/webapp_data/last_updated.txt"],
     "dca_cost_basis.png": ["webapps/dca_cost_basis/webapp_data/dca_cost_basis_metadata.json"],
     "node_count.png": ["webapps/node_count/webapp_data/last_updated.txt"],
-    "patoshi_pattern.png": ["webapps/patoshi_pattern/webapp_data/patoshi_metadata.json"],
     "quantum_exposure.png": ["webapps/quantum_exposure/webapp_data/latest_snapshot.txt"],
     "uoa.png": ["webapps/uoa/webapp_data/last_updated.txt"],
 });
