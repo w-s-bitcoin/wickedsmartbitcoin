@@ -111,9 +111,13 @@
   let diffMarkerHitboxes = [];
   let blockMarkerHitboxes = [];
   let chartPlotArea = null;
+  let chartXDomain = null;
   let xAxisHitArea = null;
   let yAxisHitArea = null;
   let yAxisRestoreMode = null;
+  let chartInteractionMode = "pan";
+  let timeMeasurement = null;
+  let measurementRenderRaf = 0;
   let spentRewardsPanelOpen = false;
   let highlightedSpentBlockHeight = null;
   let highlightedSpentBlockSource = null;
@@ -165,6 +169,8 @@
     downloadEstimateLength: $("downloadEstimateLength"),
     downloadEstimateTime: $("downloadEstimateTime"),
     chartTooltip: $("chartTooltip"),
+    chartPanModeBtn: $("chartPanModeBtn"),
+    chartMeasureModeBtn: $("chartMeasureModeBtn"),
     filtersBtn: $("filtersBtn"),
     filtersPanel: $("filtersPanel"),
     filtersClose: $("filtersClose"),
@@ -245,6 +251,8 @@
         highlightedSpentBlockHeight: Number.isFinite(highlightedSpentBlockHeight) ? highlightedSpentBlockHeight : null,
         highlightedSpentBlockSource,
         highlightedSpentBlockCentered,
+        chartInteractionMode,
+        timeMeasurement: serializeTimeMeasurement(),
         updatedKpiTimeZone,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(copy));
@@ -309,10 +317,13 @@
         ? (parsed.highlightedSpentBlockSource === "search" ? "search" : "panel")
         : null;
       highlightedSpentBlockCentered = Number.isFinite(highlightedSpentBlockHeight) && parsed.highlightedSpentBlockCentered !== false;
+      applyChartInteractionSnapshot(parsed);
       delete parsed.sidePanelOpen;
       delete parsed.highlightedSpentBlockHeight;
       delete parsed.highlightedSpentBlockSource;
       delete parsed.highlightedSpentBlockCentered;
+      delete parsed.chartInteractionMode;
+      delete parsed.timeMeasurement;
       Object.assign(state, parsed);
       state.playing = false;
       state.paused = !!state.paused;
@@ -680,10 +691,73 @@
     els.showPatoshiLine.checked = state.showPatoshiLine;
     els.showOrder.checked = state.showOrder;
     els.speedBtn.textContent = speeds[state.speedIndex]?.label || "1x";
+    syncChartInteractionModeButtons();
     updateSettingsOptions();
     updateRangeFill();
     updateActiveButtons();
     updateResetButtonUi();
+  }
+
+  function syncChartInteractionModeButtons() {
+    const panActive = chartInteractionMode === "pan";
+    els.chartPanModeBtn?.classList.toggle("is-active", panActive);
+    els.chartPanModeBtn?.setAttribute("aria-pressed", panActive ? "true" : "false");
+    els.chartMeasureModeBtn?.classList.toggle("is-active", !panActive);
+    els.chartMeasureModeBtn?.setAttribute("aria-pressed", !panActive ? "true" : "false");
+    canvas.classList.toggle("measure-mode", !panActive);
+  }
+
+  function setChartInteractionMode(mode) {
+    const nextMode = mode === "measure" ? "measure" : "pan";
+    if (chartInteractionMode === nextMode) return;
+    chartInteractionMode = nextMode;
+    if (chartInteractionMode === "pan") timeMeasurement = null;
+    if (measurementRenderRaf) {
+      window.cancelAnimationFrame(measurementRenderRaf);
+      measurementRenderRaf = 0;
+    }
+    if (chartDrag?.kind === "chart-pan") {
+      chartDrag = null;
+      canvas.classList.remove("dragging");
+    }
+    hideChartTooltip();
+    syncChartInteractionModeButtons();
+    render();
+    saveState();
+  }
+
+  function serializeTimeMeasurement() {
+    if (!timeMeasurement || !Number.isFinite(timeMeasurement.startMs) || !Number.isFinite(timeMeasurement.endMs)) return null;
+    const endMs = timeMeasurement.endMs;
+    return {
+      startMs: Math.round(timeMeasurement.startMs),
+      hoverMs: Math.round(endMs),
+      endMs: Math.round(endMs),
+      startHeight: Number.isFinite(timeMeasurement.startHeight) ? timeMeasurement.startHeight : null,
+      endHeight: Number.isFinite(timeMeasurement.endHeight) ? timeMeasurement.endHeight : null,
+      y: Number.isFinite(timeMeasurement.y) ? Math.round(timeMeasurement.y * 100) / 100 : null,
+    };
+  }
+
+  function normalizeTimeMeasurementSnapshot(value) {
+    if (!value || typeof value !== "object") return null;
+    const startMs = Number(value.startMs);
+    const endMs = Number(value.endMs);
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return null;
+    return {
+      startMs,
+      hoverMs: endMs,
+      endMs,
+      startHeight: Number.isFinite(Number(value.startHeight)) ? Number(value.startHeight) : null,
+      endHeight: Number.isFinite(Number(value.endHeight)) ? Number(value.endHeight) : null,
+      y: Number.isFinite(Number(value.y)) ? Number(value.y) : null,
+    };
+  }
+
+  function applyChartInteractionSnapshot(snapshot) {
+    chartInteractionMode = snapshot?.chartInteractionMode === "measure" ? "measure" : "pan";
+    timeMeasurement = normalizeTimeMeasurementSnapshot(snapshot?.timeMeasurement);
+    if (chartInteractionMode !== "measure") timeMeasurement = null;
   }
 
   function getMinWindowMs() {
@@ -944,6 +1018,8 @@
       highlightedSpentBlockHeight: Number.isFinite(highlightedSpentBlockHeight) ? highlightedSpentBlockHeight : null,
       highlightedSpentBlockSource,
       highlightedSpentBlockCentered,
+      chartInteractionMode,
+      timeMeasurement: serializeTimeMeasurement(),
     };
   }
 
@@ -978,6 +1054,8 @@
       sidePanelOpen: false,
       highlightedSpentBlockHeight: null,
       highlightedSpentBlockCentered: false,
+      chartInteractionMode: "pan",
+      timeMeasurement: null,
     };
   }
 
@@ -1070,6 +1148,7 @@
       ? (snapshot.highlightedSpentBlockSource === "search" ? "search" : "panel")
       : null;
     highlightedSpentBlockCentered = Number.isFinite(highlightedSpentBlockHeight) && snapshot.highlightedSpentBlockCentered !== false;
+    applyChartInteractionSnapshot(snapshot);
     syncPatternBlockSets();
     normalizeExportSettings();
     state.yMaxCustom = normalizeYMaxCustom(state.yMaxCustom);
@@ -3156,6 +3235,7 @@
   function render() {
     if (!rows.length) {
       chartPlotArea = null;
+      chartXDomain = null;
       xAxisHitArea = null;
       yAxisHitArea = null;
       return;
@@ -3202,6 +3282,7 @@
     const yDomainMax = yMax * 1.025;
     const x = (ms) => plot.left + ((ms - xDomainStart) / (xDomainEnd - xDomainStart)) * width;
     const y = (value) => plot.bottom - ((value - yMin) / (yDomainMax - yMin)) * height;
+    chartXDomain = { startMs: xDomainStart, endMs: xDomainEnd };
 
     ctx.save();
     ctx.strokeStyle = c.muted;
@@ -3273,15 +3354,16 @@
     if (state.showPatoshiLine && state.patoshiPattern !== "none") drawPatoshiSegments(drawableRows, x, y, plot);
     drawPoints(drawablePoints, c, mobile, isPatoshiRow);
     drawHighlightedSpentReward(x, y, plot, c, mobile);
+    drawTimeMeasurement(x, y, plot, c, mobile);
 
     const dateLabelInset = rect.width - plot.right;
     const lightMode = document.documentElement.dataset.theme === "light";
     const dateShadow = lightMode ? false : "rgba(0, 0, 0, 0.9)";
     const dateColor = lightMode ? "#000000" : c.muted;
-    drawText(fmtDateTime(state.startMs, false), dateLabelInset, plot.top - 44, { color: dateColor, size: mobile ? 11 : 13, weight: lightMode ? 700 : 500, shadow: dateShadow });
-    drawText(fmtTimeUtc(state.startMs), dateLabelInset, plot.top - 26, { color: dateColor, size: mobile ? 10 : 12, weight: lightMode ? 700 : 500, shadow: dateShadow });
-    drawText(fmtDateTime(state.endMs, false), rect.width - dateLabelInset, plot.top - 44, { align: "right", color: dateColor, size: mobile ? 11 : 13, weight: lightMode ? 700 : 500, shadow: dateShadow });
-    drawText(fmtTimeUtc(state.endMs), rect.width - dateLabelInset, plot.top - 26, { align: "right", color: dateColor, size: mobile ? 10 : 12, weight: lightMode ? 700 : 500, shadow: dateShadow });
+    drawText(fmtDateTime(state.startMs, false), dateLabelInset, plot.top - 49, { color: dateColor, size: mobile ? 11 : 13, weight: lightMode ? 700 : 500, shadow: dateShadow });
+    drawText(fmtTimeUtc(state.startMs), dateLabelInset, plot.top - 31, { color: dateColor, size: mobile ? 10 : 12, weight: lightMode ? 700 : 500, shadow: dateShadow });
+    drawText(fmtDateTime(state.endMs, false), rect.width - dateLabelInset, plot.top - 49, { align: "right", color: dateColor, size: mobile ? 11 : 13, weight: lightMode ? 700 : 500, shadow: dateShadow });
+    drawText(fmtTimeUtc(state.endMs), rect.width - dateLabelInset, plot.top - 31, { align: "right", color: dateColor, size: mobile ? 10 : 12, weight: lightMode ? 700 : 500, shadow: dateShadow });
   }
 
   function drawPatoshiSegments(visible, x, y, plot) {
@@ -3363,6 +3445,165 @@
       shadow: lightMode ? false : "rgba(0, 0, 0, 0.95)",
     });
     ctx.restore();
+  }
+
+  function formatMeasurementDuration(ms) {
+    let seconds = Math.max(0, Math.round(Math.abs(ms) / 1000));
+    const days = Math.floor(seconds / 86400);
+    seconds -= days * 86400;
+    const hours = Math.floor(seconds / 3600);
+    seconds -= hours * 3600;
+    const minutes = Math.floor(seconds / 60);
+    seconds -= minutes * 60;
+    const fixedUnit = (value, unit) => `${String(value).padStart(2, " ")}${unit}`;
+    const parts = [];
+    if (days) parts.push(`${days}d`);
+    if (days || hours) parts.push(fixedUnit(hours, "h"));
+    if (days || hours || minutes) parts.push(fixedUnit(minutes, "m"));
+    parts.push(fixedUnit(seconds, "s"));
+    return parts.join(" ");
+  }
+
+  function drawMeasurementBlockAnchor(row, x, y, plot, c, mobile) {
+    if (!row || row.ms < state.startMs || row.ms > state.endMs) return;
+    const xx = x(row.ms);
+    const yy = y(row.extranonce);
+    if (xx < plot.left - 2 || xx > plot.right + 2 || yy < plot.top - 24 || yy > plot.bottom + 2) return;
+    const ringRadius = Math.max(mobile ? 6 : 8, (mobile ? 5.5 : 7) * getMarkerScale());
+    const label = fmtInt(row.height);
+    const labelSize = mobile ? 11 : 13;
+    const labelY = Math.max(plot.top + labelSize, yy - ringRadius - 9);
+    const labelX = clamp(xx, plot.left + textWidth(label, labelSize) / 2 + 2, plot.right - textWidth(label, labelSize) / 2 - 2);
+    const lightMode = theme === "light";
+    const highlightColor = lightMode ? "#000000" : c.fg;
+    ctx.save();
+    ctx.strokeStyle = highlightColor;
+    ctx.lineWidth = mobile ? 2 : 2.4;
+    ctx.beginPath();
+    ctx.arc(xx, yy, ringRadius, 0, Math.PI * 2);
+    ctx.stroke();
+    drawText(label, labelX, labelY, {
+      align: "center",
+      color: highlightColor,
+      size: labelSize,
+      weight: 700,
+      shadow: lightMode ? false : "rgba(0, 0, 0, 0.95)",
+    });
+    ctx.restore();
+  }
+
+  function drawTimeMeasurement(x, y, plot, c, mobile) {
+    if (!timeMeasurement || !Number.isFinite(timeMeasurement.startMs)) return;
+    const startMs = timeMeasurement.startMs;
+    const endMs = Number.isFinite(timeMeasurement.endMs) ? timeMeasurement.endMs : timeMeasurement.hoverMs;
+    if (!Number.isFinite(endMs)) return;
+    const visibleStartMs = clamp(Math.min(startMs, endMs), state.startMs, state.endMs);
+    const visibleEndMs = clamp(Math.max(startMs, endMs), state.startMs, state.endMs);
+    if (visibleStartMs >= visibleEndMs) return;
+    const startX = x(startMs);
+    const endX = x(endMs);
+    const lineStartX = x(visibleStartMs);
+    const lineEndX = x(visibleEndMs);
+    const minX = Math.min(lineStartX, lineEndX);
+    const maxX = Math.max(lineStartX, lineEndX);
+    const actualStartMs = Math.min(startMs, endMs);
+    const actualEndMs = Math.max(startMs, endMs);
+    const showStartArrow = actualStartMs >= state.startMs && actualStartMs <= state.endMs;
+    const showEndArrow = actualEndMs >= state.startMs && actualEndMs <= state.endMs;
+    const measureY = plot.top - (mobile ? 14 : 16);
+    const lightMode = theme === "light";
+    const lineColor = lightMode ? "rgba(0, 0, 0, 0.78)" : "rgba(241, 245, 247, 0.9)";
+    const mutedLine = lightMode ? "rgba(0, 0, 0, 0.38)" : "rgba(241, 245, 247, 0.45)";
+    const labelDurationMs = actualEndMs > state.endMs ? state.endMs - actualStartMs : endMs - startMs;
+    const label = formatMeasurementDuration(labelDurationMs);
+    const labelSize = mobile ? 11 : 12;
+    const labelPadX = 7;
+    const labelWidth = textWidth(label, labelSize) + labelPadX * 2;
+    const labelHeight = labelSize + 9;
+    const labelCenterX = (lineStartX + lineEndX) / 2;
+    const labelHalfWidth = labelWidth / 2;
+    const labelMinX = plot.left + labelHalfWidth + 2;
+    const labelMaxX = plot.right - labelHalfWidth - 2;
+    const labelGap = mobile ? 6 : 8;
+    const labelFitsInside = labelWidth + 6 <= Math.abs(maxX - minX);
+    let labelX = labelCenterX;
+    if (labelFitsInside) {
+      labelX = clamp(labelCenterX, minX + labelHalfWidth + 2, maxX - labelHalfWidth - 2);
+    } else if (actualEndMs > state.endMs) {
+      labelX = minX - labelGap - labelHalfWidth;
+    } else {
+      labelX = maxX + labelGap + labelHalfWidth;
+    }
+    labelX = labelMinX <= labelMaxX ? clamp(labelX, labelMinX, labelMaxX) : (plot.left + plot.right) / 2;
+    const labelY = measureY;
+
+    ctx.save();
+    ctx.lineWidth = mobile ? 1.2 : 1.4;
+    ctx.strokeStyle = mutedLine;
+    ctx.setLineDash([5, 5]);
+    [
+      { ms: startMs, x: startX },
+      { ms: endMs, x: endX },
+    ].forEach(({ ms, x: xx }) => {
+      if (ms < state.startMs || ms > state.endMs) return;
+      ctx.beginPath();
+      ctx.moveTo(xx, measureY);
+      ctx.lineTo(xx, plot.bottom);
+      ctx.stroke();
+    });
+    ctx.setLineDash([]);
+    ctx.strokeStyle = lineColor;
+    ctx.lineWidth = mobile ? 1.6 : 1.8;
+    ctx.beginPath();
+    ctx.moveTo(lineStartX, measureY);
+    ctx.lineTo(lineEndX, measureY);
+    ctx.stroke();
+    const cap = mobile ? 5 : 6;
+    [lineStartX, lineEndX].forEach((xx) => {
+      ctx.beginPath();
+      ctx.moveTo(xx, measureY - cap);
+      ctx.lineTo(xx, measureY + cap);
+      ctx.stroke();
+    });
+    if (Math.abs(maxX - minX) > 18) {
+      const arrow = mobile ? 4 : 5;
+      ctx.beginPath();
+      if (showStartArrow) {
+        ctx.moveTo(minX, measureY);
+        ctx.lineTo(minX + arrow, measureY - arrow);
+        ctx.moveTo(minX, measureY);
+        ctx.lineTo(minX + arrow, measureY + arrow);
+      }
+      if (showEndArrow) {
+        ctx.moveTo(maxX, measureY);
+        ctx.lineTo(maxX - arrow, measureY - arrow);
+        ctx.moveTo(maxX, measureY);
+        ctx.lineTo(maxX - arrow, measureY + arrow);
+      }
+      ctx.stroke();
+    }
+    ctx.fillStyle = lightMode ? "rgba(255, 255, 255, 0.92)" : "rgba(0, 0, 0, 0.78)";
+    ctx.strokeStyle = lightMode ? "rgba(0, 0, 0, 0.18)" : "rgba(255, 255, 255, 0.18)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(labelX - labelWidth / 2, labelY - labelHeight / 2, labelWidth, labelHeight, 5);
+    ctx.fill();
+    ctx.stroke();
+    drawText(label, labelX, labelY + 0.5, {
+      align: "center",
+      color: lineColor,
+      size: labelSize,
+      weight: 700,
+      shadow: false,
+    });
+    ctx.restore();
+    const startRow = Number.isFinite(timeMeasurement.startHeight) ? rowsByHeight.get(timeMeasurement.startHeight) : null;
+    const endHeight = Number.isFinite(timeMeasurement.endHeight) ? timeMeasurement.endHeight : timeMeasurement.hoverHeight;
+    const endRow = Number.isFinite(endHeight) ? rowsByHeight.get(endHeight) : null;
+    drawMeasurementBlockAnchor(startRow, x, y, plot, c, mobile);
+    if (!startRow || !endRow || startRow.height !== endRow.height) {
+      drawMeasurementBlockAnchor(endRow, x, y, plot, c, mobile);
+    }
   }
 
   function drawSpecialMarkers(visible, x, y, plot, c, mobile) {
@@ -3798,6 +4039,12 @@
   }
 
   function handleChartPointerMove(event) {
+    if (chartInteractionMode === "measure") {
+      updateMeasurementHover(event);
+      canvas.classList.remove("target-pick-hover");
+      hideChartTooltip();
+      return;
+    }
     if (chartDrag) {
       canvas.classList.remove("target-pick-hover");
       hideChartTooltip();
@@ -3851,6 +4098,89 @@
     }, null)?.item || null;
   }
 
+  function getChartPointFromEvent(event) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    };
+  }
+
+  function getChartMsFromEvent(event) {
+    if (!chartPlotArea || !chartXDomain) return null;
+    const point = getChartPointFromEvent(event);
+    const ratio = clamp((point.x - chartPlotArea.left) / Math.max(1, chartPlotArea.right - chartPlotArea.left), 0, 1);
+    const ms = chartXDomain.startMs + ratio * (chartXDomain.endMs - chartXDomain.startMs);
+    return clamp(ms, state.startMs, state.endMs);
+  }
+
+  function getMeasurementPointFromEvent(event) {
+    const marker = getNearestBlockMarkerAt(event);
+    const point = getChartPointFromEvent(event);
+    return {
+      ms: marker?.row ? marker.row.ms : getChartMsFromEvent(event),
+      height: marker?.row ? marker.row.height : null,
+      y: chartPlotArea ? clamp(point.y, chartPlotArea.top + 16, chartPlotArea.bottom - 16) : point.y,
+    };
+  }
+
+  function handleMeasurementClick(event) {
+    const point = getMeasurementPointFromEvent(event);
+    if (!Number.isFinite(point.ms)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    hideChartTooltip();
+    if (state.playing) pauseAnimation();
+    if (!timeMeasurement || Number.isFinite(timeMeasurement.endMs)) {
+      timeMeasurement = {
+        startMs: point.ms,
+        hoverMs: point.ms,
+        endMs: null,
+        startHeight: Number.isFinite(point.height) ? point.height : null,
+        hoverHeight: Number.isFinite(point.height) ? point.height : null,
+        endHeight: null,
+        y: point.y,
+      };
+      render();
+      saveState();
+      return;
+    }
+    timeMeasurement.endMs = point.ms;
+    timeMeasurement.hoverMs = point.ms;
+    timeMeasurement.endHeight = Number.isFinite(point.height) ? point.height : null;
+    timeMeasurement.hoverHeight = timeMeasurement.endHeight;
+    timeMeasurement.y = point.y;
+    render();
+    saveState();
+  }
+
+  function updateMeasurementHover(event) {
+    if (chartInteractionMode !== "measure" || !timeMeasurement || Number.isFinite(timeMeasurement.endMs)) return;
+    const point = getMeasurementPointFromEvent(event);
+    if (!Number.isFinite(point.ms)) return;
+    timeMeasurement.hoverMs = point.ms;
+    timeMeasurement.hoverHeight = Number.isFinite(point.height) ? point.height : null;
+    timeMeasurement.y = point.y;
+    if (!measurementRenderRaf) {
+      measurementRenderRaf = window.requestAnimationFrame(() => {
+        measurementRenderRaf = 0;
+        render();
+      });
+    }
+  }
+
+  function cancelActiveMeasurement() {
+    if (!timeMeasurement || Number.isFinite(timeMeasurement.endMs)) return false;
+    timeMeasurement = null;
+    if (measurementRenderRaf) {
+      window.cancelAnimationFrame(measurementRenderRaf);
+      measurementRenderRaf = 0;
+    }
+    render();
+    saveState();
+    return true;
+  }
+
   function highlightBlockMarker(marker) {
     if (!marker?.row) return;
     setHighlightedBlock(marker.row, { source: "search", center: false });
@@ -3869,6 +4199,10 @@
   function handleChartClick(event) {
     if (suppressNextChartClick) {
       suppressNextChartClick = false;
+      return;
+    }
+    if (chartInteractionMode === "measure") {
+      handleMeasurementClick(event);
       return;
     }
     if (patternBlockPickMode) {
@@ -3910,6 +4244,7 @@
   }
 
   function handleChartDoubleClick(event) {
+    if (chartInteractionMode === "measure") return;
     if (blockClickTimer) {
       window.clearTimeout(blockClickTimer);
       blockClickTimer = 0;
@@ -4113,6 +4448,10 @@
 
   function startChartDrag(event) {
     if (event.button != null && event.button !== 0) return;
+    if (chartInteractionMode === "measure") {
+      hideChartTooltip();
+      return;
+    }
     if (patternBlockPickMode && getNearestBlockMarkerAt(event)) {
       event.preventDefault();
       hideChartTooltip();
@@ -4329,6 +4668,8 @@
     els.expandBtn?.addEventListener("click", toggleExpandMode);
     els.downloadBtn?.addEventListener("click", exportVideo);
     els.downloadPanelBtn?.addEventListener("click", exportVideo);
+    els.chartPanModeBtn?.addEventListener("click", () => setChartInteractionMode("pan"));
+    els.chartMeasureModeBtn?.addEventListener("click", () => setChartInteractionMode("measure"));
     els.filtersBtn?.addEventListener("click", toggleFiltersPanel);
     els.filtersClose?.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -4581,6 +4922,12 @@
       }
     });
     window.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && chartInteractionMode === "measure" && cancelActiveMeasurement()) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation?.();
+        return;
+      }
       if (event.key === "Escape" && els.filtersPanel?.classList.contains("open")) {
         closeDropdowns();
       }
@@ -4665,6 +5012,9 @@
       const shared = pendingShareState;
       applyDefaultState();
       Object.assign(state, shared);
+      delete state.chartInteractionMode;
+      delete state.timeMeasurement;
+      applyChartInteractionSnapshot(shared);
       spentRewardsPanelOpen = !!shared.sidePanelOpen;
       const sharedHighlightedHeight = Number(shared.highlightedSpentBlockHeight);
       highlightedSpentBlockHeight = Number.isFinite(sharedHighlightedHeight) ? sharedHighlightedHeight : null;
