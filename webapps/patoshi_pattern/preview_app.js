@@ -1,7 +1,7 @@
 (() => {
   const canvas = document.getElementById("patoshiPreview");
   const ctx = canvas.getContext("2d", { alpha: false });
-  const DATA_URL = "webapp_data/patoshi_blocks.csv";
+  const DATA_URL = "webapp_data/patoshi_preview_blocks.csv";
   const START = Date.UTC(2009, 0, 9);
   const END = Date.UTC(2009, 5, 1);
 
@@ -75,7 +75,7 @@
     ctx.globalAlpha = 1;
   }
 
-  fetch(DATA_URL).then((r) => r.text()).then((text) => {
+  fetch(DATA_URL, { cache: "force-cache" }).then((r) => r.text()).then((text) => {
     const rows = parseCsv(text);
     draw(rows);
     window.addEventListener("resize", () => draw(rows));

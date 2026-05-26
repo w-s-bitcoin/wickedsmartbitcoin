@@ -233,6 +233,7 @@
       box-shadow: none;
     }
     .block-search-pill {
+      position: relative;
       display: inline-flex;
       align-items: center;
       gap: 0;
@@ -273,6 +274,9 @@
       padding: 5px 11px;
       margin: 0;
     }
+    .block-search-pill.has-value .block-search-input {
+      padding-right: 30px;
+    }
     .block-search-input::placeholder {
       color: color-mix(in srgb, var(--muted) 66%, transparent);
     }
@@ -280,6 +284,40 @@
     .block-search-input:focus-visible {
       outline: none;
       box-shadow: none;
+    }
+    .block-search-clear {
+      position: absolute;
+      right: 5px;
+      top: 50%;
+      width: 20px;
+      height: 20px;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      padding: 0;
+      margin: 0;
+      background: transparent;
+      color: color-mix(in srgb, var(--muted) 82%, var(--fg));
+      cursor: pointer;
+      transform: translateY(-50%);
+    }
+    .block-search-clear svg {
+      width: 13px;
+      height: 13px;
+      display: block;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2.4;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .block-search-clear:hover,
+    .block-search-clear:focus-visible {
+      color: var(--fg);
+    }
+    .block-search-pill.has-value .block-search-clear {
+      display: inline-flex;
     }
     .dca-dropdown.dca-dropdown-overlay {
       position: absolute;
@@ -706,6 +744,12 @@
       align-items: flex-start;
       flex-direction: column;
       gap: 7px;
+      white-space: normal;
+    }
+    .filters-panel .block-click-setting {
+      align-items: center;
+      flex-direction: row;
+      gap: 10px;
       white-space: normal;
     }
     .filters-panel .hashrate-window-setting .filter-setting-label {
@@ -2705,6 +2749,13 @@
                     </span>
                   </label>
                 </div>
+                <div class="filter-control-row filter-setting-row block-click-setting">
+                  <span class="filter-setting-label">Block Click</span>
+                  <div class="pattern-mode-control" role="group" aria-label="Block click behavior">
+                    <button class="pattern-mode-button is-active" type="button" data-block-click-action="mempool" aria-pressed="true">mempool.space</button>
+                    <button class="pattern-mode-button" type="button" data-block-click-action="highlight" aria-pressed="false">highlight</button>
+                  </div>
+                </div>
                 <div class="filter-control-row"><span class="spent-alpha-control"><label for="markerScaleInput">Marker Size</label><span class="spent-alpha-stepper"><button type="button" id="markerScaleMinus" aria-label="Decrease marker size">-</button><input id="markerScaleInput" type="number" min="0.1" max="2" step="0.1" inputmode="decimal" aria-label="Marker size" /><button type="button" id="markerScalePlus" aria-label="Increase marker size">+</button></span></span></div>
                 <div class="filter-check-pair">
                   <label class="check-row"><input type="checkbox" id="showSpent" /> Show spent</label>
@@ -2746,7 +2797,7 @@
           <div id="updatedTimeZoneDropdown" class="dca-dropdown dca-dropdown-overlay"><button id="updatedTimeZoneDropdownTrigger" type="button" class="dca-dropdown-trigger" aria-label="Updated timestamp time zone"></button><div id="updatedTimeZoneDropdownMenu" class="dca-dropdown-menu" aria-label="Updated timestamp time zone options"></div></div>
           <select id="updatedTimeZoneSelect" class="chip-menu-select chip-kpi-select-overlay dca-native-select" aria-label="Updated timestamp time zone"></select>
         </div>
-        <label class="chip block-search-pill" id="blockSearchPill" for="blockSearchInput"><span class="block-search-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></span><input id="blockSearchInput" class="block-search-input" type="text" inputmode="numeric" autocomplete="off" placeholder="Search block" aria-label="Search block height" /></label>
+        <div class="chip block-search-pill" id="blockSearchPill"><span class="block-search-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></span><input id="blockSearchInput" class="block-search-input" type="text" inputmode="numeric" autocomplete="off" placeholder="Search block" aria-label="Search block height" /><button id="blockSearchClear" class="block-search-clear" type="button" aria-label="Clear block search"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button></div>
       </div>
       <div class="title-actions">
         <button class="copy-link-btn" type="button" id="copyLinkBtn" aria-label="Copy shareable dashboard link" data-tooltip="Copy shareable dashboard link">
