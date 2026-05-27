@@ -313,13 +313,7 @@
       if (!raw) return false;
       const parsed = JSON.parse(raw);
       spentRewardsPanelOpen = !!parsed.sidePanelOpen;
-      const savedHighlightedHeight = parsed.highlightedSpentBlockHeight;
-      const highlightedHeight = Number(savedHighlightedHeight);
-      highlightedSpentBlockHeight = savedHighlightedHeight !== null
-        && savedHighlightedHeight !== undefined
-        && Number.isFinite(highlightedHeight)
-        ? highlightedHeight
-        : null;
+      highlightedSpentBlockHeight = normalizeHighlightedBlockHeight(parsed.highlightedSpentBlockHeight);
       highlightedSpentBlockSource = Number.isFinite(highlightedSpentBlockHeight)
         ? (parsed.highlightedSpentBlockSource === "search" ? "search" : "panel")
         : null;
@@ -778,6 +772,12 @@
     return Number.isFinite(number) ? number : null;
   }
 
+  function normalizeHighlightedBlockHeight(value) {
+    if (value == null || value === "") return null;
+    const height = Number(value);
+    return Number.isInteger(height) && height >= 0 && height <= 99999 ? height : null;
+  }
+
   function normalizeTimeMeasurementSnapshot(value) {
     if (!value || typeof value !== "object") return null;
     const startMs = Number(value.startMs);
@@ -1117,6 +1117,7 @@
       updatedKpiTimeZone: getPreferredDashboardTimeZone(),
       sidePanelOpen: false,
       highlightedSpentBlockHeight: null,
+      highlightedSpentBlockSource: null,
       highlightedSpentBlockCentered: false,
       chartInteractionMode: "pan",
       timeMeasurement: null,
@@ -1207,8 +1208,7 @@
       syncUpdatedTimeZoneSelect(snapshot.updatedKpiTimeZone);
     }
     spentRewardsPanelOpen = !!snapshot.sidePanelOpen;
-    const snapshotHighlightedHeight = Number(snapshot.highlightedSpentBlockHeight);
-    highlightedSpentBlockHeight = Number.isFinite(snapshotHighlightedHeight) ? snapshotHighlightedHeight : null;
+    highlightedSpentBlockHeight = normalizeHighlightedBlockHeight(snapshot.highlightedSpentBlockHeight);
     highlightedSpentBlockSource = Number.isFinite(highlightedSpentBlockHeight)
       ? (snapshot.highlightedSpentBlockSource === "search" ? "search" : "panel")
       : null;
@@ -5757,8 +5757,7 @@
       delete state.slopeMeasurement;
       applyChartInteractionSnapshot(shared);
       spentRewardsPanelOpen = !!shared.sidePanelOpen;
-      const sharedHighlightedHeight = Number(shared.highlightedSpentBlockHeight);
-      highlightedSpentBlockHeight = Number.isFinite(sharedHighlightedHeight) ? sharedHighlightedHeight : null;
+      highlightedSpentBlockHeight = normalizeHighlightedBlockHeight(shared.highlightedSpentBlockHeight);
       highlightedSpentBlockSource = Number.isFinite(highlightedSpentBlockHeight)
         ? (shared.highlightedSpentBlockSource === "search" ? "search" : "panel")
         : null;
