@@ -535,6 +535,18 @@
     #patoshiChart.measure-mode {
       cursor: crosshair;
     }
+    #patoshiChart.slope-grab-hover {
+      cursor: grab;
+    }
+    #patoshiChart.slope-grab-hover.dragging {
+      cursor: grabbing;
+    }
+    #patoshiChart.axis-x-hover {
+      cursor: ew-resize;
+    }
+    #patoshiChart.axis-y-hover {
+      cursor: ns-resize;
+    }
     #patoshiChart.target-pick-hover.target-pick-include {
       cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='%23ff9900' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='6'/%3E%3Cpath d='M12 2.5v3.5M12 18v3.5M2.5 12H6M18 12h3.5'/%3E%3C/g%3E%3Ccircle cx='12' cy='12' r='1.8' fill='%23ff9900'/%3E%3C/svg%3E") 12 12, crosshair;
     }
@@ -1270,6 +1282,22 @@
       .kpi-card:nth-child(2) {
         grid-column: span 1;
       }
+      .kpi-card {
+        padding-inline: 8px;
+      }
+      .kpi-label {
+        width: 100%;
+        max-width: 100%;
+        font-size: clamp(7px, 2.18cqw, 9.5px);
+        letter-spacing: 0;
+        line-height: 1.05;
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
+      .kpi-card:nth-child(1) .kpi-label,
+      .kpi-card:nth-child(2) .kpi-label {
+        white-space: nowrap;
+      }
     }
     @container (max-width: 380px) {
       .kpi-grid {
@@ -1911,6 +1939,39 @@
     .date-range-days-suffix {
       color: var(--fg);
     }
+    @media (max-width: 900px) {
+      input,
+      select,
+      textarea {
+        font-size: 16px !important;
+      }
+      .date-range-days-segment {
+        gap: 3px;
+        width: 12ch;
+        min-width: 12ch;
+        max-width: 12ch;
+        flex-basis: 12ch;
+        padding: 4px 7px;
+        overflow: hidden;
+      }
+      .date-range-days-input {
+        width: 6.2ch;
+        min-width: 6.2ch;
+        line-height: 1;
+        transform: scale(0.76);
+        transform-origin: right center;
+        margin-left: -1.5ch;
+      }
+      .date-range-days-suffix {
+        font-size: 12px;
+        line-height: 1;
+      }
+      .hashrate-window-buttons .date-range-days-segment {
+        width: 12ch;
+        min-width: 12ch;
+        flex-basis: 12ch;
+      }
+    }
     .date-range-button-row .date-range-btn {
       min-width: 0;
       width: auto;
@@ -2098,6 +2159,11 @@
     #chartMeasureModeBtn svg {
       width: 24px;
       height: 24px;
+    }
+    #chartSlopeModeBtn svg {
+      width: 21px;
+      height: 21px;
+      transform: translate(-0.75px, -0.5px);
     }
     .chart-tool-btn:hover,
     .chart-tool-btn:focus-visible {
@@ -2998,6 +3064,7 @@
         <div class="chart-tool-row" aria-label="Chart interaction mode">
           <button class="chart-tool-btn is-active" type="button" id="chartPanModeBtn" aria-label="Pan chart" aria-pressed="true" title="Pan chart"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="1.6"></circle><path d="M12 4.5v4.2"></path><path d="m9.8 6.5 2.2-2.2 2.2 2.2"></path><path d="M12 15.3v4.2"></path><path d="m9.8 17.5 2.2 2.2 2.2-2.2"></path><path d="M4.5 12h4.2"></path><path d="m6.5 9.8-2.2 2.2 2.2 2.2"></path><path d="M15.3 12h4.2"></path><path d="m17.5 9.8 2.2 2.2-2.2 2.2"></path></svg></button>
           <button class="chart-tool-btn" type="button" id="chartMeasureModeBtn" aria-label="Measure time on chart" aria-pressed="false" title="Measure time"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><g transform="rotate(-45 12 12)"><rect x="5" y="9" width="14" height="6" rx="1.5"></rect><path d="M8 9v2.3"></path><path d="M11 9v3.4"></path><path d="M14 9v2.3"></path><path d="M17 9v3.4"></path></g></svg></button>
+          <button class="chart-tool-btn" type="button" id="chartSlopeModeBtn" aria-label="Measure slope on chart" aria-pressed="false" title="Measure slope"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4.8 19.2h16.2"></path><path d="M4.8 19.2 12.3 4.8"></path><path d="M15.3 19.2c0-4.2-2.1-7.7-5.4-9.9" stroke-dasharray="0.4 2.2"></path></svg></button>
         </div>
       </div>
       <div class="range-line date-range-slider-wrap" id="rangeLine">
