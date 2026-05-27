@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <style id="wsb-early-black">html,body{background:#000;color:#f1f5f7;}:root[data-theme="light"],:root[data-theme="light"] body{background:#f4f5f7;color:#111827;}</style>
   <script>
     (function () {
@@ -1943,7 +1943,7 @@
       input,
       select,
       textarea {
-        font-size: 13px;
+        font-size: 16px;
       }
       .date-range-days-segment {
         gap: 3px;
@@ -2849,25 +2849,55 @@
       #yMaxInput,
       #startInput,
       #endInput {
-        font-size: 13px !important;
+        font-size: 16px !important;
         line-height: 1.15 !important;
         font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace !important;
       }
+      #blockSearchInput,
+      #windowDaysInput,
+      #hashrateWindowInput,
+      #patoshiIncludeInput,
+      #patoshiExcludeInput,
+      #markerScaleInput,
+      #yMaxInput {
+        transform: scale(0.8125);
+      }
+      #blockSearchInput,
+      #patoshiIncludeInput,
+      #patoshiExcludeInput,
+      #markerScaleInput {
+        transform-origin: left center;
+      }
+      #windowDaysInput,
+      #hashrateWindowInput,
+      #yMaxInput {
+        transform-origin: right center;
+      }
+      #blockSearchInput {
+        width: 19.7ch;
+        min-width: 19.7ch;
+        margin-right: -3.7ch;
+      }
       #windowDaysInput,
       #hashrateWindowInput {
-        width: 5.8ch;
-        min-width: 5.8ch;
+        width: 7.2ch;
+        min-width: 7.2ch;
+        margin-left: -1.4ch;
       }
       #markerScaleInput {
-        width: 46px;
+        width: 57px;
+        margin-right: -11px;
       }
       #yMaxInput {
-        width: 78px;
-        flex-basis: 78px;
+        width: 96px;
+        flex-basis: 96px;
+        margin-left: -18px;
       }
       #patoshiIncludeInput,
       #patoshiExcludeInput {
         height: 34px;
+        width: 123.08%;
+        margin-right: -23.08%;
       }
     }
   </style>
@@ -2999,14 +3029,14 @@
 
     <section class="range-panel date-range-panel" aria-label="Patoshi date window">
       <div class="range-top date-range-header">
-        <label class="chip" for="startInput">Start
+        <div class="chip">Start
           <button id="startBtn" class="date-range-btn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg><span id="startBtnLabel"></span></button>
-          <input id="startInput" class="date-range-native-input" type="datetime-local" />
-        </label>
-        <label class="chip" for="endInput">End
+          <input id="startInput" class="date-range-native-input" type="datetime-local" aria-label="Start date and time" />
+        </div>
+        <div class="chip">End
           <button id="endBtn" class="date-range-btn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg><span id="endBtnLabel"></span></button>
-          <input id="endInput" class="date-range-native-input" type="datetime-local" />
-        </label>
+          <input id="endInput" class="date-range-native-input" type="datetime-local" aria-label="End date and time" />
+        </div>
         <div class="date-range-range-control">
           <span class="date-range-range-label">Window</span>
           <div class="date-range-button-row date-range-range-buttons" aria-label="Window presets">
