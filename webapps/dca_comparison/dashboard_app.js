@@ -165,6 +165,9 @@
     isExporting: false,
     exportCancelRequested: false,
   };
+  let chartRangeDragState = null;
+  let chartRangeResizeWheelRemainder = 0;
+  let chartRangePanWheelRemainder = 0;
 
   function applyTheme(theme) {
     document.documentElement.dataset.theme = theme === "light" ? "light" : "dark";
@@ -267,6 +270,19 @@
     if (cadence === "weekly") return getNextFridayIso(iso);
     if (cadence === "monthly") return getNextMonthFirstIso(iso);
     return iso;
+  }
+
+  function alignCadenceStartIso(iso, cadence, direction = "ceil") {
+    if (!iso) return iso;
+    if (direction === "floor") {
+      if (cadence === "weekly") return getPreviousFridayIso(iso);
+      if (cadence === "monthly") {
+        const d = dateFromIso(iso);
+        return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().slice(0, 10);
+      }
+      return iso;
+    }
+    return normalizeCadenceStartIso(iso, cadence);
   }
 
   function dayDiff(a, b) {
@@ -2419,6 +2435,7 @@
     }
     if (!opts.export) syncCustomLegend(legendItems);
     if (!points.length) {
+      if (!opts.export && !opts.chartArea) canvas.__dcaChartGeometry = null;
       if (!opts.export) syncCustomLegend([]);
       if (!opts.export) updateKpis(null);
       if (chartArea) ctx.restore();
@@ -2474,6 +2491,9 @@
       : rotatedHeight + bottomSpacing + bottomMargin;
     const plotW = Math.max(1, localW - left - right);
     const plotH = Math.max(1, localH - top - bottom);
+    if (!opts.export && !opts.chartArea) {
+      canvas.__dcaChartGeometry = { left, top, plotW, plotH };
+    }
     const startT = dateFromIso(points[0].date).getTime();
     const endT = dateFromIso(points[points.length - 1].date).getTime();
     const x = (iso) => left + ((dateFromIso(iso).getTime() - startT) / Math.max(1, endT - startT)) * plotW;
@@ -2634,13 +2654,44 @@
     if (handle === "start" || handle === "end") state.lastAdjustedHandle = handle;
   }
 
-  function setDateRangeByIndexes(startIdx, endIdx, preset = "") {
+  function setDateRangeByIndexes(startIdx, endIdx, preset = "", options = {}) {
     clearPreResetSnapshot();
     const available = getActiveAvailableBounds();
     const minIdx = Math.max(0, findDateIndexByMode(available.minIso, "ceil"));
     const maxIdx = Math.max(minIdx, findDateIndexByMode(available.maxIso, "floor"));
-    const safeStartIdx = Math.max(minIdx, Math.min(maxIdx, Math.round(startIdx)));
-    const safeEndIdx = Math.max(safeStartIdx, Math.min(maxIdx, Math.round(endIdx)));
+    let safeStartIdx = Math.max(minIdx, Math.min(maxIdx, Math.round(startIdx)));
+    let safeEndIdx = Math.max(safeStartIdx, Math.min(maxIdx, Math.round(endIdx)));
+    if (options.preserveSpanAfterCadenceSnap) {
+      const originalSpan = Math.max(0, safeEndIdx - safeStartIdx);
+      const normalizedStartIso = alignCadenceStartIso(
+        state.rows[safeStartIdx]?.date,
+        state.settings.cadence,
+        options.cadenceSnapDirection || "ceil"
+      );
+      let normalizedStartIdx = findDateIndexByMode(normalizedStartIso, "ceil");
+      if (!Number.isFinite(normalizedStartIdx) || normalizedStartIdx < 0) normalizedStartIdx = safeStartIdx;
+      normalizedStartIdx = Math.max(minIdx, Math.min(maxIdx, normalizedStartIdx));
+      safeStartIdx = normalizedStartIdx;
+      safeEndIdx = safeStartIdx + originalSpan;
+      if (safeEndIdx > maxIdx) {
+        const requestedStartIso = state.rows[Math.max(minIdx, Math.min(maxIdx, Math.round(startIdx)))]?.date || available.minIso;
+        const localFloorStartIso = alignCadenceStartIso(requestedStartIso, state.settings.cadence, "floor");
+        const localFloorStartIdx = findDateIndexByMode(clampIso(localFloorStartIso, available.minIso, available.maxIso), "floor");
+        if (Number.isFinite(localFloorStartIdx) && localFloorStartIdx >= minIdx && localFloorStartIdx + originalSpan <= maxIdx) {
+          safeStartIdx = localFloorStartIdx;
+          safeEndIdx = safeStartIdx + originalSpan;
+        } else {
+          const latestStartIdx = Math.max(minIdx, maxIdx - originalSpan);
+          const latestStartIso = state.rows[latestStartIdx]?.date || available.minIso;
+          const alignedLatestStartIso = alignCadenceStartIso(latestStartIso, state.settings.cadence, "floor");
+          const alignedLatestStartIdx = findDateIndexByMode(clampIso(alignedLatestStartIso, available.minIso, available.maxIso), "floor");
+          safeStartIdx = Math.max(minIdx, Math.min(maxIdx, Number.isFinite(alignedLatestStartIdx) && alignedLatestStartIdx >= 0
+            ? alignedLatestStartIdx
+            : latestStartIdx));
+          safeEndIdx = Math.min(maxIdx, safeStartIdx + originalSpan);
+        }
+      }
+    }
     const start = state.rows[safeStartIdx]?.date;
     const end = state.rows[safeEndIdx]?.date;
     if (!start || !end) return;
@@ -2905,6 +2956,199 @@
       state.currentIso = state.settings.rangeEnd;
       render();
     }
+  }
+
+  function getCurrentDateRangeIndices() {
+    if (!state.rows.length) return null;
+    const available = getActiveAvailableBounds();
+    const minIdx = Math.max(0, findDateIndexByMode(available.minIso, "ceil"));
+    const maxIdx = Math.max(minIdx, findDateIndexByMode(available.maxIso, "floor"));
+    let startIdx = findDateIndexByMode(state.settings.rangeStart, "ceil");
+    let endIdx = findDateIndexByMode(state.settings.rangeEnd, "floor");
+    if (startIdx < 0) startIdx = minIdx;
+    if (endIdx < 0) endIdx = maxIdx;
+    startIdx = Math.max(minIdx, Math.min(maxIdx, startIdx));
+    endIdx = Math.max(minIdx, Math.min(maxIdx, endIdx));
+    if (startIdx > endIdx) {
+      const tmp = startIdx;
+      startIdx = endIdx;
+      endIdx = tmp;
+    }
+    return { startIdx, endIdx, minIdx, maxIdx };
+  }
+
+  function shiftDateRangeByIndices(deltaIndex) {
+    const current = getCurrentDateRangeIndices();
+    if (!current || !Number.isFinite(deltaIndex)) return false;
+    const minShift = current.minIdx - current.startIdx;
+    const maxShift = current.maxIdx - current.endIdx;
+    const shift = Math.max(minShift, Math.min(maxShift, Math.round(deltaIndex)));
+    if (!shift) return false;
+    stopAnimation(false);
+    setDateRangeByIndexes(current.startIdx + shift, current.endIdx + shift, "", {
+      preserveSpanAfterCadenceSnap: true,
+      cadenceSnapDirection: shift < 0 ? "floor" : "ceil",
+    });
+    return true;
+  }
+
+  function setDateRangeSpanAroundRatio(nextSpan, ratio) {
+    const current = getCurrentDateRangeIndices();
+    if (!current || !Number.isFinite(nextSpan)) return;
+    const maxSpan = Math.max(0, current.maxIdx - current.minIdx);
+    const minSpan = maxSpan >= 1 ? 1 : 0;
+    const span = Math.max(minSpan, Math.min(maxSpan, Math.round(nextSpan)));
+    const safeRatio = Math.max(0, Math.min(1, Number.isFinite(ratio) ? ratio : 0.5));
+    const currentSpan = Math.max(0, current.endIdx - current.startIdx);
+    const anchorIndex = current.startIdx + (safeRatio * currentSpan);
+    let nextStart = Math.round(anchorIndex - (safeRatio * span));
+    let nextEnd = nextStart + span;
+
+    if (nextEnd > current.maxIdx) {
+      nextEnd = current.maxIdx;
+      nextStart = nextEnd - span;
+    }
+    if (nextStart < current.minIdx) {
+      nextStart = current.minIdx;
+      nextEnd = nextStart + span;
+    }
+    if (nextEnd > current.maxIdx) {
+      nextEnd = current.maxIdx;
+      nextStart = Math.max(current.minIdx, nextEnd - span);
+    }
+
+    stopAnimation(false);
+    setDateRangeByIndexes(nextStart, nextEnd, "", {
+      preserveSpanAfterCadenceSnap: true,
+      cadenceSnapDirection: nextStart < current.startIdx ? "floor" : "ceil",
+    });
+  }
+
+  function getChartPointerInfo(canvas, event) {
+    const geometry = canvas?.__dcaChartGeometry;
+    if (!canvas || !geometry) return null;
+    const rect = canvas.getBoundingClientRect();
+    if (!Number.isFinite(rect.width) || rect.width <= 0 || !Number.isFinite(rect.height) || rect.height <= 0) return null;
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    const plotLeft = geometry.left;
+    const plotRight = geometry.left + geometry.plotW;
+    const plotTop = geometry.top;
+    const plotBottom = geometry.top + geometry.plotH;
+    const inX = x >= plotLeft && x <= plotRight;
+    const inPlot = inX && y >= plotTop && y <= plotBottom;
+    const onXAxis = inX && y > plotBottom && y <= rect.height;
+    const ratio = Math.max(0, Math.min(1, (x - plotLeft) / Math.max(1, geometry.plotW)));
+    return {
+      inPlot,
+      onXAxis,
+      ratio,
+      plotWidth: Math.max(1, geometry.plotW),
+    };
+  }
+
+  function handleChartRangeWheel(event) {
+    const info = getChartPointerInfo(event.currentTarget, event);
+    if (!info || (!info.inPlot && !info.onXAxis)) return;
+    event.preventDefault();
+
+    const current = getCurrentDateRangeIndices();
+    if (!current) return;
+    const currentSpan = Math.max(0, current.endIdx - current.startIdx);
+
+    if (event.deltaX) {
+      const deltaX = event.deltaMode === 1 ? event.deltaX * 18 : event.deltaX;
+      chartRangePanWheelRemainder += (deltaX / info.plotWidth) * Math.max(1, currentSpan);
+      const shift = Math.trunc(chartRangePanWheelRemainder);
+      if (shift) {
+        chartRangePanWheelRemainder -= shift;
+        shiftDateRangeByIndices(shift);
+      }
+    }
+
+    if (!event.deltaY) return;
+    const deltaY = event.deltaMode === 1 ? event.deltaY * 18 : event.deltaY;
+    const resizeThreshold = event.deltaMode === 1 ? 6 : 180;
+    chartRangeResizeWheelRemainder += deltaY;
+    const resizeUnits = Math.trunc(chartRangeResizeWheelRemainder / resizeThreshold);
+    if (!resizeUnits) return;
+    chartRangeResizeWheelRemainder -= resizeUnits * resizeThreshold;
+    const spanStep = Math.max(1, Math.round(Math.max(1, currentSpan) * 0.08)) * Math.abs(resizeUnits);
+    const nextSpan = resizeUnits > 0
+      ? currentSpan + spanStep
+      : currentSpan - spanStep;
+    setDateRangeSpanAroundRatio(nextSpan, info.ratio);
+  }
+
+  function beginChartRangeDrag(event) {
+    if (typeof event.button === "number" && event.button !== 0) return;
+    const canvas = event.currentTarget;
+    const info = getChartPointerInfo(canvas, event);
+    if (!info || (!info.inPlot && !info.onXAxis)) return;
+    const current = getCurrentDateRangeIndices();
+    if (!current || current.maxIdx <= current.minIdx) return;
+    event.preventDefault();
+    stopAnimation(false);
+    chartRangeDragState = {
+      pointerId: Number.isFinite(event.pointerId) ? event.pointerId : null,
+      canvas,
+      startClientX: event.clientX,
+      startIdx: current.startIdx,
+      endIdx: current.endIdx,
+      minIdx: current.minIdx,
+      maxIdx: current.maxIdx,
+      plotWidth: info.plotWidth,
+    };
+    canvas.classList.add("dragging");
+    try {
+      canvas.setPointerCapture?.(event.pointerId);
+    } catch (_) {
+      // Best effort only.
+    }
+  }
+
+  function moveChartRangeDrag(event) {
+    if (!chartRangeDragState) return;
+    if (Number.isFinite(chartRangeDragState.pointerId) && event.pointerId !== chartRangeDragState.pointerId) return;
+    event.preventDefault();
+    const dx = event.clientX - chartRangeDragState.startClientX;
+    const span = Math.max(0, chartRangeDragState.endIdx - chartRangeDragState.startIdx);
+    const rawShift = Math.round((-dx / Math.max(1, chartRangeDragState.plotWidth)) * Math.max(1, span));
+    const minShift = chartRangeDragState.minIdx - chartRangeDragState.startIdx;
+    const maxShift = chartRangeDragState.maxIdx - chartRangeDragState.endIdx;
+    const shift = Math.max(minShift, Math.min(maxShift, rawShift));
+    setDateRangeByIndexes(chartRangeDragState.startIdx + shift, chartRangeDragState.endIdx + shift, "", {
+      preserveSpanAfterCadenceSnap: true,
+      cadenceSnapDirection: shift < 0 ? "floor" : "ceil",
+    });
+  }
+
+  function endChartRangeDrag(event) {
+    if (!chartRangeDragState) return;
+    if (Number.isFinite(chartRangeDragState.pointerId) && event?.pointerId !== chartRangeDragState.pointerId) return;
+    const canvas = chartRangeDragState.canvas;
+    try {
+      canvas?.releasePointerCapture?.(chartRangeDragState.pointerId);
+    } catch (_) {
+      // Best effort only.
+    }
+    canvas?.classList.remove("dragging");
+    chartRangeDragState = null;
+  }
+
+  function bindChartRangeInteractions(canvas) {
+    if (!canvas || canvas.dataset.rangeInteractionsBound === "1") return;
+    canvas.dataset.rangeInteractionsBound = "1";
+    canvas.addEventListener("wheel", handleChartRangeWheel, { passive: false });
+    canvas.addEventListener("pointerdown", beginChartRangeDrag);
+    canvas.addEventListener("pointermove", moveChartRangeDrag);
+    canvas.addEventListener("pointerup", endChartRangeDrag);
+    canvas.addEventListener("pointercancel", endChartRangeDrag);
+    canvas.addEventListener("lostpointercapture", () => {
+      if (chartRangeDragState?.canvas !== canvas) return;
+      canvas.classList.remove("dragging");
+      chartRangeDragState = null;
+    });
   }
 
   function isTextEntry(active) {
@@ -3653,6 +3897,7 @@
       else if (clickedIdx > startIdx && clickedIdx < endIdx) startDrag("range", event);
       else startDrag(distStart <= distEnd ? "start" : "end", event);
     });
+    bindChartRangeInteractions(el.canvas);
     el.rangeDaysInput?.addEventListener("focus", () => window.setTimeout(() => el.rangeDaysInput.select(), 0));
     el.rangeDaysInput?.addEventListener("click", () => window.setTimeout(() => el.rangeDaysInput.select(), 0));
     el.rangeDaysInput?.addEventListener("input", handleRangeDaysInput);

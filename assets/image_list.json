@@ -3,8 +3,8 @@
     "filename": "bitcoin_net_worth.png",
     "title": "Bitcoin Net Worth",
     "description": "This dashboard tracks Bitcoin-denominated net worth across assets and liabilities with snapshot history, charting, and optional local encryption for live data",
-    "latest_x": "",
-    "latest_youtube": ""
+    "latest_x": "https://x.com/w_s_bitcoin/status/2053061991485362646",
+    "latest_youtube": "https://youtu.be/_7E72agk2zQ"
   },
   {
     "filename": "quantum_exposure.png",
@@ -17,8 +17,8 @@
     "filename": "patoshi_pattern.png",
     "title": "Patoshi Pattern",
     "description": "Explore early Bitcoin ExtraNonce patterns, Patoshi-classified blocks, spent block rewards, and difficulty markers across custom block-time ranges",
-    "latest_x": "",
-    "latest_youtube": ""
+    "latest_x": "https://x.com/w_s_bitcoin/status/2058998461291196603",
+    "latest_youtube": "https://youtu.be/YbcdZfnvrDc"
   },
   {
     "filename": "uoa.png",

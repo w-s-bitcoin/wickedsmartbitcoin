@@ -134,6 +134,9 @@ let preResetStateSnapshot = null;
 let suppressResetSnapshotClear = false;
 let customTooltipBound = false;
 let customTooltipAnchor = null;
+let chartRangeDragState = null;
+let chartRangeResizeWheelRemainder = 0;
+let chartRangePanWheelRemainder = 0;
 const downloadEstimateCalibrationCache = new Map();
 const downloadEstimateCalibrationPending = new Set();
 let downloadEstimateCalibrationRequestId = 0;
@@ -1753,6 +1756,88 @@ function setDateRange(startIso, endIso, preset = "custom") {
   renderChart();
 }
 
+function getCurrentDateRangeIndices() {
+  const rows = state.priceRows || [];
+  if (!rows.length) return null;
+  const maxIndex = rows.length - 1;
+  let startIdx = findDateIndex(state.dateRange.startIso, "ceil");
+  let endIdx = findDateIndex(state.dateRange.endIso, "floor");
+  if (startIdx < 0) startIdx = 0;
+  if (endIdx < 0) endIdx = maxIndex;
+  startIdx = Math.max(0, Math.min(maxIndex, startIdx));
+  endIdx = Math.max(0, Math.min(maxIndex, endIdx));
+  if (startIdx > endIdx) {
+    const tmp = startIdx;
+    startIdx = endIdx;
+    endIdx = tmp;
+  }
+  return { startIdx, endIdx, minIdx: 0, maxIdx: maxIndex };
+}
+
+function applyDateRangeIndices(startIdx, endIdx, options = {}) {
+  const rows = state.priceRows || [];
+  const current = getCurrentDateRangeIndices();
+  if (!rows.length || !current) return;
+  let nextStartIdx = Math.max(current.minIdx, Math.min(current.maxIdx, Math.round(startIdx)));
+  let nextEndIdx = Math.max(current.minIdx, Math.min(current.maxIdx, Math.round(endIdx)));
+  if (nextStartIdx > nextEndIdx) {
+    const tmp = nextStartIdx;
+    nextStartIdx = nextEndIdx;
+    nextEndIdx = tmp;
+  }
+  const nextStart = rows[nextStartIdx]?.dateIso;
+  const nextEnd = rows[nextEndIdx]?.dateIso;
+  if (!nextStart || !nextEnd) return;
+  if (options.stopPlayback !== false) stopDateRangePlayback(false);
+  if (state.dateRange.startIso === nextStart && state.dateRange.endIso === nextEnd) return;
+  state.dateRange.startIso = nextStart;
+  state.dateRange.endIso = nextEnd;
+  state.dateRange.currentEndIso = nextEnd;
+  state.dateRange.selectedPreset = "custom";
+  saveDateRangeState();
+  syncDateRangeControls();
+  renderChart();
+}
+
+function shiftDateRangeByIndices(deltaIndex, options = {}) {
+  const current = getCurrentDateRangeIndices();
+  if (!current || !Number.isFinite(deltaIndex)) return false;
+  const minShift = current.minIdx - current.startIdx;
+  const maxShift = current.maxIdx - current.endIdx;
+  const shift = Math.max(minShift, Math.min(maxShift, Math.round(deltaIndex)));
+  if (!shift) return false;
+  applyDateRangeIndices(current.startIdx + shift, current.endIdx + shift, options);
+  return true;
+}
+
+function setDateRangeSpanAroundRatio(nextSpan, ratio, options = {}) {
+  const current = getCurrentDateRangeIndices();
+  if (!current || !Number.isFinite(nextSpan)) return;
+  const maxSpan = Math.max(0, current.maxIdx - current.minIdx);
+  const minSpan = maxSpan >= 1 ? 1 : 0;
+  const span = Math.max(minSpan, Math.min(maxSpan, Math.round(nextSpan)));
+  const safeRatio = Math.max(0, Math.min(1, Number.isFinite(ratio) ? ratio : 0.5));
+  const currentSpan = Math.max(0, current.endIdx - current.startIdx);
+  const anchorIndex = current.startIdx + (safeRatio * currentSpan);
+  let nextStart = Math.round(anchorIndex - (safeRatio * span));
+  let nextEnd = nextStart + span;
+
+  if (nextEnd > current.maxIdx) {
+    nextEnd = current.maxIdx;
+    nextStart = nextEnd - span;
+  }
+  if (nextStart < current.minIdx) {
+    nextStart = current.minIdx;
+    nextEnd = nextStart + span;
+  }
+  if (nextEnd > current.maxIdx) {
+    nextEnd = current.maxIdx;
+    nextStart = Math.max(current.minIdx, nextEnd - span);
+  }
+
+  applyDateRangeIndices(nextStart, nextEnd, options);
+}
+
 function parseDateRangeDaysValue(value) {
   const parsed = Number.parseInt(String(value || "").replace(/[^\d]/g, ""), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
@@ -2334,6 +2419,141 @@ function endDateRangeCurrentMarkerDrag(event) {
   } else {
     saveDateRangeState();
   }
+}
+
+function getChartPointerInfo(chart, event) {
+  const geometry = chart?.__dcaChartGeometry;
+  if (!chart || !geometry) return null;
+  const rect = chart.getBoundingClientRect();
+  if (!Number.isFinite(rect.width) || rect.width <= 0 || !Number.isFinite(rect.height) || rect.height <= 0) return null;
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+  const plotLeft = geometry.plotLeft;
+  const plotRight = geometry.plotRight;
+  const plotTop = geometry.plotTop;
+  const plotBottom = geometry.plotBottom;
+  const inX = x >= plotLeft && x <= plotRight;
+  const inPlot = inX && y >= plotTop && y <= plotBottom;
+  const onXAxis = inX && y > plotBottom && y <= rect.height;
+  const ratio = Math.max(0, Math.min(1, (x - plotLeft) / Math.max(1, plotRight - plotLeft)));
+  return {
+    inPlot,
+    onXAxis,
+    ratio,
+    plotWidth: Math.max(1, plotRight - plotLeft),
+  };
+}
+
+function hideCostBasisHoverLine(chart) {
+  const hoverLine = chart?.querySelector?.(".dca-hover-line");
+  if (hoverLine) hoverLine.setAttribute("visibility", "hidden");
+  hideChartTooltip();
+}
+
+function handleChartRangeWheel(event) {
+  const chart = event.currentTarget;
+  const info = getChartPointerInfo(chart, event);
+  if (!info || (!info.inPlot && !info.onXAxis)) return;
+  event.preventDefault();
+  hideCostBasisHoverLine(chart);
+
+  const current = getCurrentDateRangeIndices();
+  if (!current) return;
+  const currentSpan = Math.max(0, current.endIdx - current.startIdx);
+
+  if (event.deltaX) {
+    const deltaX = event.deltaMode === 1 ? event.deltaX * 18 : event.deltaX;
+    chartRangePanWheelRemainder += (deltaX / info.plotWidth) * Math.max(1, currentSpan);
+    const shift = Math.trunc(chartRangePanWheelRemainder);
+    if (shift) {
+      chartRangePanWheelRemainder -= shift;
+      shiftDateRangeByIndices(shift);
+    }
+  }
+
+  if (!event.deltaY) return;
+  const deltaY = event.deltaMode === 1 ? event.deltaY * 18 : event.deltaY;
+  const resizeThreshold = event.deltaMode === 1 ? 6 : 180;
+  chartRangeResizeWheelRemainder += deltaY;
+  const resizeUnits = Math.trunc(chartRangeResizeWheelRemainder / resizeThreshold);
+  if (!resizeUnits) return;
+  chartRangeResizeWheelRemainder -= resizeUnits * resizeThreshold;
+  const spanStep = Math.max(1, Math.round(Math.max(1, currentSpan) * 0.08)) * Math.abs(resizeUnits);
+  const nextSpan = resizeUnits > 0
+    ? currentSpan + spanStep
+    : currentSpan - spanStep;
+  setDateRangeSpanAroundRatio(nextSpan, info.ratio);
+}
+
+function beginChartRangeDrag(event) {
+  if (typeof event.button === "number" && event.button !== 0) return;
+  const chart = event.currentTarget;
+  const info = getChartPointerInfo(chart, event);
+  if (!info || (!info.inPlot && !info.onXAxis)) return;
+  const current = getCurrentDateRangeIndices();
+  if (!current || current.maxIdx <= current.minIdx) return;
+  event.preventDefault();
+  hideCostBasisHoverLine(chart);
+  stopDateRangePlayback(false);
+  chartRangeDragState = {
+    pointerId: Number.isFinite(event.pointerId) ? event.pointerId : null,
+    chart,
+    startClientX: event.clientX,
+    startIdx: current.startIdx,
+    endIdx: current.endIdx,
+    minIdx: current.minIdx,
+    maxIdx: current.maxIdx,
+    plotWidth: info.plotWidth,
+  };
+  chart.classList.add("dragging");
+  try {
+    chart.setPointerCapture?.(event.pointerId);
+  } catch (_) {
+    // Best effort only.
+  }
+}
+
+function moveChartRangeDrag(event) {
+  if (!chartRangeDragState) return;
+  if (Number.isFinite(chartRangeDragState.pointerId) && event.pointerId !== chartRangeDragState.pointerId) return;
+  event.preventDefault();
+  const dx = event.clientX - chartRangeDragState.startClientX;
+  const span = Math.max(0, chartRangeDragState.endIdx - chartRangeDragState.startIdx);
+  const rawShift = Math.round((-dx / Math.max(1, chartRangeDragState.plotWidth)) * Math.max(1, span));
+  const minShift = chartRangeDragState.minIdx - chartRangeDragState.startIdx;
+  const maxShift = chartRangeDragState.maxIdx - chartRangeDragState.endIdx;
+  const shift = Math.max(minShift, Math.min(maxShift, rawShift));
+  applyDateRangeIndices(chartRangeDragState.startIdx + shift, chartRangeDragState.endIdx + shift, {
+    stopPlayback: false,
+  });
+}
+
+function endChartRangeDrag(event) {
+  if (!chartRangeDragState) return;
+  if (Number.isFinite(chartRangeDragState.pointerId) && event?.pointerId !== chartRangeDragState.pointerId) return;
+  const chart = chartRangeDragState.chart;
+  try {
+    chart?.releasePointerCapture?.(chartRangeDragState.pointerId);
+  } catch (_) {
+    // Best effort only.
+  }
+  chart?.classList.remove("dragging");
+  chartRangeDragState = null;
+}
+
+function bindChartRangeInteractions(chart) {
+  if (!chart || chart.dataset.rangeInteractionsBound === "1") return;
+  chart.dataset.rangeInteractionsBound = "1";
+  chart.addEventListener("wheel", handleChartRangeWheel, { passive: false });
+  chart.addEventListener("pointerdown", beginChartRangeDrag);
+  chart.addEventListener("pointermove", moveChartRangeDrag);
+  chart.addEventListener("pointerup", endChartRangeDrag);
+  chart.addEventListener("pointercancel", endChartRangeDrag);
+  chart.addEventListener("lostpointercapture", () => {
+    if (chartRangeDragState?.chart !== chart) return;
+    chart.classList.remove("dragging");
+    chartRangeDragState = null;
+  });
 }
 
 function bindDateRangeSessionPersistence() {
@@ -4930,6 +5150,10 @@ function bindChartTooltip(chart) {
   chart.dataset.customTooltipBound = "1";
 
   chart.addEventListener("mousemove", (event) => {
+    if (chartRangeDragState) {
+      hideCostBasisHoverLine(chart);
+      return;
+    }
     const rows = chart.__dcaTooltipRows || [];
     const geometry = chart.__dcaChartGeometry;
     const hoverLine = chart.querySelector(".dca-hover-line");
@@ -5012,6 +5236,8 @@ function renderChart() {
 
   if (!rows.length) {
     chart.innerHTML = "";
+    chart.__dcaChartGeometry = null;
+    chart.__dcaTooltipRows = [];
     hideChartTooltip();
     return;
   }
@@ -5234,6 +5460,7 @@ function bindControls() {
   const settingsBtn = document.getElementById("dateRangeSettingsBtn");
   const settingsMenu = document.getElementById("dateRangeSettingsMenu");
   const settingsDownloadBtn = document.getElementById("downloadSettingsDownloadBtn");
+  const chart = document.getElementById("costBasisChart");
   bindDashboardActionButtons();
   bindDashboardExpandButton();
   const closeDownloadSettingsMenu = () => {
@@ -5365,6 +5592,7 @@ function bindControls() {
   sliderWrap?.addEventListener("pointermove", moveDateRangeCurrentMarkerDrag);
   sliderWrap?.addEventListener("pointerup", endDateRangeCurrentMarkerDrag);
   sliderWrap?.addEventListener("pointercancel", endDateRangeCurrentMarkerDrag);
+  bindChartRangeInteractions(chart);
 
   document.querySelectorAll("[data-range-preset]").forEach((button) => {
     button.addEventListener("click", () => {
