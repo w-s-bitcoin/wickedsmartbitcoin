@@ -267,7 +267,22 @@
     usdBtcChart: [],
     btcUsdChart: [],
   };
+  const chartHoverMetaById = {
+    usdBtcChart: null,
+    btcUsdChart: null,
+  };
+  const chartHoverOverlayById = {
+    usdBtcChart: null,
+    btcUsdChart: null,
+  };
+  const chartHoverFlipBoundaryById = {
+    usdBtcChart: null,
+    btcUsdChart: null,
+  };
   let chartEventTooltipEl = null;
+  let chartRangeDragState = null;
+  let chartRangeResizeWheelRemainder = 0;
+  let chartRangePanWheelRemainder = 0;
   let dateRangeDragState = null;
   let dateRangeEndSliderScrubState = {
     active: false,
@@ -4078,6 +4093,10 @@
   }
 
   function clearCanvas(canvas) {
+    if (canvas?.id) {
+      chartEventMarkersById[canvas.id] = [];
+      chartHoverMetaById[canvas.id] = null;
+    }
     const rect = canvas.getBoundingClientRect();
     const dpr = Math.max(1, window.devicePixelRatio || 1);
     const w = Math.max(1, Math.round(rect.width));
@@ -5066,11 +5085,34 @@
     chartEventTooltipEl.style.display = "none";
   }
 
+  function hideChartHoverOverlays() {
+    Object.values(chartHoverOverlayById).forEach((overlay) => {
+      if (!overlay) return;
+      overlay.line.style.display = "none";
+      overlay.tooltip.style.display = "none";
+    });
+    Object.keys(chartHoverFlipBoundaryById).forEach((chartId) => {
+      chartHoverFlipBoundaryById[chartId] = null;
+    });
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
   function showChartEventTooltip(text, clientX, clientY, boundsRect = null) {
     const tip = createChartEventTooltip();
     tip.textContent = text;
     tip.style.display = "block";
+    placeChartTooltip(tip, clientX, clientY, boundsRect);
+  }
 
+  function placeChartTooltip(tip, clientX, clientY, boundsRect = null) {
     const margin = 8;
     const offsetX = 10;
     const offsetY = 10;
@@ -5105,14 +5147,151 @@
     tip.style.top = `${top}px`;
   }
 
+  function getNearestChartHoverPoint(canvas, event) {
+    const meta = chartHoverMetaById[canvas?.id];
+    if (!meta || !Array.isArray(meta.series) || !meta.series.length) return null;
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const plotLeft = meta.pad.left;
+    const plotRight = meta.pad.left + meta.chartW;
+    if (x < plotLeft || x > plotRight) return null;
+    const ratio = meta.series.length === 1
+      ? 0
+      : (x - plotLeft) / Math.max(1, meta.chartW);
+    const index = Math.max(0, Math.min(meta.series.length - 1, Math.round(ratio * (meta.series.length - 1))));
+    return {
+      index,
+      date: meta.series[index]?.date,
+      rect,
+      yRatio: Math.max(0, Math.min(1, (event.clientY - rect.top - meta.pad.top) / Math.max(1, meta.chartH))),
+    };
+  }
+
+  function formatChartHoverValue(meta, index) {
+    const point = meta?.series?.[index];
+    if (!point || !Number.isFinite(point.value)) return "--";
+    const displayValue = Number.isFinite(point.rawValue) ? point.rawValue : point.value;
+    if (typeof meta.tooltipFormatter === "function") return meta.tooltipFormatter(displayValue);
+    return String(displayValue);
+  }
+
+  function ensureChartHoverOverlay(canvas) {
+    if (!canvas?.id) return null;
+    if (chartHoverOverlayById[canvas.id]) return chartHoverOverlayById[canvas.id];
+    const panel = canvas.closest(".chart-panel");
+    if (!panel) return null;
+    const line = document.createElement("div");
+    line.className = "chart-hover-line";
+    line.style.display = "none";
+    const tooltip = document.createElement("div");
+    tooltip.className = "chart-hover-value-tooltip";
+    tooltip.style.display = "none";
+    panel.append(line, tooltip);
+    chartHoverOverlayById[canvas.id] = { line, tooltip };
+    return chartHoverOverlayById[canvas.id];
+  }
+
+  function getChartHoverX(meta, index) {
+    if (!meta || !Number.isFinite(index)) return null;
+    if (!Array.isArray(meta.series) || !meta.series.length) return null;
+    const safeIndex = Math.max(0, Math.min(meta.series.length - 1, index));
+    const ratio = meta.series.length === 1 ? 0.5 : safeIndex / Math.max(1, meta.series.length - 1);
+    return meta.pad.left + (ratio * meta.chartW);
+  }
+
+  function showChartHoverOverlayFor(canvas, meta, index, yRatio) {
+    const overlay = ensureChartHoverOverlay(canvas);
+    if (!overlay || !meta || canvas.offsetParent === null) return;
+    const x = getChartHoverX(meta, index);
+    if (!Number.isFinite(x)) return;
+    const value = formatChartHoverValue(meta, index);
+    const date = meta.series?.[index]?.date;
+    if (!(date instanceof Date)) return;
+    const panel = canvas.closest(".chart-panel");
+    const panelRect = panel.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
+    const left = (canvasRect.left - panelRect.left) + x;
+    const top = (canvasRect.top - panelRect.top) + meta.pad.top;
+    const height = meta.chartH;
+
+    overlay.line.style.display = "block";
+    overlay.line.style.left = `${left}px`;
+    overlay.line.style.top = `${top}px`;
+    overlay.line.style.height = `${height}px`;
+
+    overlay.tooltip.innerHTML = [
+      `<div class="chart-hover-tooltip-date">${escapeHtml(fmtDate(date))}</div>`,
+      `<div class="chart-hover-tooltip-value" style="color:${escapeHtml(meta.color || "currentColor")}">${escapeHtml(value)}</div>`,
+    ].join("");
+    overlay.tooltip.style.display = "block";
+    const tooltipWidth = overlay.tooltip.offsetWidth || 120;
+    const tooltipHeight = overlay.tooltip.offsetHeight || 42;
+    const tooltipGap = 10;
+    const maxTooltipLeft = panelRect.width - tooltipWidth - 8;
+    const rightTooltipLeft = left + tooltipGap;
+    const leftTooltipLeft = left - tooltipGap - tooltipWidth;
+    const overflowsRight = rightTooltipLeft > maxTooltipLeft;
+    const chartId = canvas.id;
+    if (overflowsRight && chartId) {
+      const currentBoundary = chartHoverFlipBoundaryById[chartId];
+      chartHoverFlipBoundaryById[chartId] = Number.isFinite(currentBoundary)
+        ? Math.min(currentBoundary, left)
+        : left;
+    }
+    const flipBoundary = chartHoverFlipBoundaryById[chartId];
+    const shouldFlipLeft = Number.isFinite(flipBoundary)
+      ? left >= flipBoundary
+      : overflowsRight;
+    const tooltipLeft = shouldFlipLeft
+      ? Math.max(8, leftTooltipLeft)
+      : Math.max(8, rightTooltipLeft);
+    const tooltipCenterY = top + (Math.max(0, Math.min(1, Number.isFinite(yRatio) ? yRatio : 0.5)) * height);
+    const tooltipTop = Math.max(
+      top,
+      Math.min(tooltipCenterY - (tooltipHeight / 2), top + height - tooltipHeight)
+    );
+    overlay.tooltip.style.left = `${tooltipLeft}px`;
+    overlay.tooltip.style.top = `${tooltipTop}px`;
+  }
+
+  function showSharedChartHoverTooltip(canvas, event) {
+    const hovered = getNearestChartHoverPoint(canvas, event);
+    if (!hovered || !(hovered.date instanceof Date)) {
+      hideChartEventTooltip();
+      hideChartHoverOverlays();
+      return;
+    }
+    hideChartEventTooltip();
+    const leftMeta = chartHoverMetaById.usdBtcChart;
+    const rightMeta = chartHoverMetaById.btcUsdChart;
+    const hoveredChartId = canvas?.id || "";
+    showChartHoverOverlayFor(
+      el.usdBtcChart,
+      leftMeta,
+      hovered.index,
+      hoveredChartId === "usdBtcChart" ? hovered.yRatio : 1 - hovered.yRatio
+    );
+    showChartHoverOverlayFor(
+      el.btcUsdChart,
+      rightMeta,
+      hovered.index,
+      hoveredChartId === "btcUsdChart" ? hovered.yRatio : 1 - hovered.yRatio
+    );
+  }
+
   function bindChartEventHover(canvas) {
     if (!canvas || canvas.dataset.eventHoverBound === "1") return;
     canvas.dataset.eventHoverBound = "1";
 
     canvas.addEventListener("mousemove", (event) => {
+      if (chartRangeDragState) {
+        hideChartEventTooltip();
+        hideChartHoverOverlays();
+        return;
+      }
       const markers = chartEventMarkersById[canvas.id] || [];
       if (!markers.length) {
-        hideChartEventTooltip();
+        showSharedChartHoverTooltip(canvas, event);
         return;
       }
 
@@ -5126,14 +5305,18 @@
       });
 
       if (!hit) {
-        hideChartEventTooltip();
+        showSharedChartHoverTooltip(canvas, event);
         return;
       }
 
+      hideChartHoverOverlays();
       showChartEventTooltip(hit.tooltip, event.clientX, event.clientY, rect);
     });
 
-    canvas.addEventListener("mouseleave", hideChartEventTooltip);
+    canvas.addEventListener("mouseleave", () => {
+      hideChartEventTooltip();
+      hideChartHoverOverlays();
+    });
   }
 
   function drawStar(ctx, cx, cy, outerRadius = 7, innerRadius = 3.2, points = 5) {
@@ -6229,7 +6412,8 @@
 
   function handleDateRangeSliderInput(changed) {
     const shouldPreservePlaybackSession = changed === "end" && dateRangePlaybackState.hasSession;
-    if (!shouldPreservePlaybackSession) {
+    const shouldSkipPlaybackStop = changed === "range-drag";
+    if (!shouldPreservePlaybackSession && !shouldSkipPlaybackStop) {
       stopDateRangePlayback();
     }
     if (!el.dateRangeStartSlider || !el.dateRangeEndSlider || !allRows.length) return;
@@ -6614,6 +6798,220 @@
     }
 
     dateRangeDragState = null;
+  }
+
+  function getCurrentDateRangeIndices() {
+    if (!el.dateRangeStartSlider || !el.dateRangeEndSlider || !allRows.length) return null;
+    const controlBounds = getDateRangeControlBounds();
+    const minIndex = controlBounds?.minIndex ?? 0;
+    const maxIndex = controlBounds?.maxIndex ?? Math.max(0, allRows.length - 1);
+    let startIndex = Number(el.dateRangeStartSlider.value);
+    let endIndex = Number(el.dateRangeEndSlider.value);
+    if (!Number.isFinite(startIndex)) startIndex = minIndex;
+    if (!Number.isFinite(endIndex)) endIndex = maxIndex;
+    startIndex = Math.max(minIndex, Math.min(maxIndex, Math.round(startIndex)));
+    endIndex = Math.max(minIndex, Math.min(maxIndex, Math.round(endIndex)));
+    if (startIndex > endIndex) {
+      const tmp = startIndex;
+      startIndex = endIndex;
+      endIndex = tmp;
+    }
+    return { startIndex, endIndex, minIndex, maxIndex };
+  }
+
+  function applyDateRangeIndices(startIndex, endIndex, options = {}) {
+    if (!el.dateRangeStartSlider || !el.dateRangeEndSlider || !allRows.length) return;
+    const current = getCurrentDateRangeIndices();
+    if (!current) return;
+    const minIndex = current.minIndex;
+    const maxIndex = current.maxIndex;
+    let nextStart = Math.max(minIndex, Math.min(maxIndex, Math.round(startIndex)));
+    let nextEnd = Math.max(minIndex, Math.min(maxIndex, Math.round(endIndex)));
+    if (nextStart > nextEnd) {
+      const tmp = nextStart;
+      nextStart = nextEnd;
+      nextEnd = tmp;
+    }
+    if (options.stopPlayback !== false) stopDateRangePlayback({ restoreOriginalRange: false });
+    if (Number(el.dateRangeStartSlider.value) === nextStart && Number(el.dateRangeEndSlider.value) === nextEnd) return;
+    el.dateRangeStartSlider.value = String(nextStart);
+    el.dateRangeEndSlider.value = String(nextEnd);
+    handleDateRangeSliderInput(options.stopPlayback === false ? "range-drag" : "range");
+  }
+
+  function shiftDateRangeByIndices(deltaIndex, options = {}) {
+    const current = getCurrentDateRangeIndices();
+    if (!current || !Number.isFinite(deltaIndex)) return false;
+    const span = current.endIndex - current.startIndex;
+    const minShift = current.minIndex - current.startIndex;
+    const maxShift = current.maxIndex - current.endIndex;
+    const shift = Math.max(minShift, Math.min(maxShift, Math.round(deltaIndex)));
+    if (!shift) return false;
+    applyDateRangeIndices(current.startIndex + shift, current.endIndex + shift, options);
+    return true;
+  }
+
+  function getChartPointerInfo(canvas, event) {
+    const meta = chartHoverMetaById[canvas?.id];
+    if (!meta || !canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    if (!Number.isFinite(rect.width) || rect.width <= 0 || !Number.isFinite(rect.height) || rect.height <= 0) return null;
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    const plotLeft = meta.pad.left;
+    const plotRight = meta.pad.left + meta.chartW;
+    const plotTop = meta.pad.top;
+    const plotBottom = meta.pad.top + meta.chartH;
+    const inX = x >= plotLeft && x <= plotRight;
+    const inPlot = inX && y >= plotTop && y <= plotBottom;
+    const onXAxis = inX && y > plotBottom && y <= rect.height;
+    const ratio = Math.max(0, Math.min(1, (x - plotLeft) / Math.max(1, meta.chartW)));
+    return {
+      rect,
+      meta,
+      x,
+      y,
+      inPlot,
+      onXAxis,
+      ratio,
+      plotWidth: Math.max(1, meta.chartW),
+    };
+  }
+
+  function setDateRangeSpanAroundRatio(nextSpan, ratio, options = {}) {
+    const current = getCurrentDateRangeIndices();
+    if (!current || !Number.isFinite(nextSpan)) return;
+    const maxSpan = Math.max(0, current.maxIndex - current.minIndex);
+    const minSpan = maxSpan >= 1 ? 1 : 0;
+    const span = Math.max(minSpan, Math.min(maxSpan, Math.round(nextSpan)));
+    const safeRatio = Math.max(0, Math.min(1, Number.isFinite(ratio) ? ratio : 0.5));
+    const currentSpan = Math.max(0, current.endIndex - current.startIndex);
+    const anchorIndex = current.startIndex + (safeRatio * currentSpan);
+    let nextStart = Math.round(anchorIndex - (safeRatio * span));
+    let nextEnd = nextStart + span;
+
+    if (nextEnd > current.maxIndex) {
+      nextEnd = current.maxIndex;
+      nextStart = nextEnd - span;
+    }
+    if (nextStart < current.minIndex) {
+      nextStart = current.minIndex;
+      nextEnd = nextStart + span;
+    }
+    if (nextEnd > current.maxIndex) {
+      nextEnd = current.maxIndex;
+      nextStart = Math.max(current.minIndex, nextEnd - span);
+    }
+
+    applyDateRangeIndices(nextStart, nextEnd, options);
+  }
+
+  function handleChartRangeWheel(canvas, event) {
+    const info = getChartPointerInfo(canvas, event);
+    if (!info || (!info.inPlot && !info.onXAxis)) return;
+    event.preventDefault();
+    hideChartEventTooltip();
+    hideChartHoverOverlays();
+
+    const current = getCurrentDateRangeIndices();
+    if (!current) return;
+    const currentSpan = Math.max(0, current.endIndex - current.startIndex);
+
+    if (event.deltaX) {
+      const deltaX = event.deltaMode === 1 ? event.deltaX * 18 : event.deltaX;
+      chartRangePanWheelRemainder += (deltaX / info.plotWidth) * Math.max(1, currentSpan);
+      const shift = Math.trunc(chartRangePanWheelRemainder);
+      if (shift) {
+        chartRangePanWheelRemainder -= shift;
+        shiftDateRangeByIndices(shift);
+      }
+    }
+
+    if (!event.deltaY) return;
+    const deltaY = event.deltaMode === 1 ? event.deltaY * 18 : event.deltaY;
+    const resizeThreshold = event.deltaMode === 1 ? 6 : 180;
+    chartRangeResizeWheelRemainder += deltaY;
+    const resizeUnits = Math.trunc(chartRangeResizeWheelRemainder / resizeThreshold);
+    if (!resizeUnits) return;
+    chartRangeResizeWheelRemainder -= resizeUnits * resizeThreshold;
+    const spanStep = Math.max(1, Math.round(Math.max(1, currentSpan) * 0.08)) * Math.abs(resizeUnits);
+    const nextSpan = resizeUnits > 0
+      ? currentSpan + spanStep
+      : currentSpan - spanStep;
+    setDateRangeSpanAroundRatio(nextSpan, info.ratio);
+  }
+
+  function beginChartRangeDrag(canvas, event) {
+    if (typeof event.button === "number" && event.button !== 0) return;
+    const info = getChartPointerInfo(canvas, event);
+    if (!info || (!info.inPlot && !info.onXAxis)) return;
+    const current = getCurrentDateRangeIndices();
+    if (!current || current.maxIndex <= current.minIndex) return;
+    event.preventDefault();
+    hideChartEventTooltip();
+    hideChartHoverOverlays();
+    stopDateRangePlayback({ restoreOriginalRange: false });
+    chartRangeDragState = {
+      pointerId: event.pointerId,
+      canvas,
+      startClientX: event.clientX,
+      startIndex: current.startIndex,
+      endIndex: current.endIndex,
+      minIndex: current.minIndex,
+      maxIndex: current.maxIndex,
+      plotWidth: info.plotWidth,
+      moved: false,
+    };
+    canvas.classList.add("dragging");
+    try {
+      canvas.setPointerCapture(event.pointerId);
+    } catch (_) {
+      // Ignore capture failures.
+    }
+  }
+
+  function moveChartRangeDrag(event) {
+    if (!chartRangeDragState) return;
+    if (Number.isFinite(chartRangeDragState.pointerId) && event.pointerId !== chartRangeDragState.pointerId) return;
+    event.preventDefault();
+    const dx = event.clientX - chartRangeDragState.startClientX;
+    if (Math.abs(dx) > 3) chartRangeDragState.moved = true;
+    const span = Math.max(0, chartRangeDragState.endIndex - chartRangeDragState.startIndex);
+    const rawShift = Math.round((-dx / Math.max(1, chartRangeDragState.plotWidth)) * Math.max(1, span));
+    const minShift = chartRangeDragState.minIndex - chartRangeDragState.startIndex;
+    const maxShift = chartRangeDragState.maxIndex - chartRangeDragState.endIndex;
+    const shift = Math.max(minShift, Math.min(maxShift, rawShift));
+    applyDateRangeIndices(chartRangeDragState.startIndex + shift, chartRangeDragState.endIndex + shift, {
+      stopPlayback: false,
+    });
+  }
+
+  function endChartRangeDrag(event) {
+    if (!chartRangeDragState) return;
+    if (Number.isFinite(chartRangeDragState.pointerId) && event?.pointerId !== chartRangeDragState.pointerId) return;
+    const canvas = chartRangeDragState.canvas;
+    try {
+      canvas?.releasePointerCapture?.(chartRangeDragState.pointerId);
+    } catch (_) {
+      // Ignore capture failures.
+    }
+    canvas?.classList.remove("dragging");
+    chartRangeDragState = null;
+  }
+
+  function bindChartRangeInteractions(canvas) {
+    if (!canvas || canvas.dataset.rangeInteractionsBound === "1") return;
+    canvas.dataset.rangeInteractionsBound = "1";
+    canvas.addEventListener("wheel", (event) => handleChartRangeWheel(canvas, event), { passive: false });
+    canvas.addEventListener("pointerdown", (event) => beginChartRangeDrag(canvas, event));
+    canvas.addEventListener("pointermove", moveChartRangeDrag);
+    canvas.addEventListener("pointerup", endChartRangeDrag);
+    canvas.addEventListener("pointercancel", endChartRangeDrag);
+    canvas.addEventListener("lostpointercapture", () => {
+      if (chartRangeDragState?.canvas !== canvas) return;
+      canvas.classList.remove("dragging");
+      chartRangeDragState = null;
+    });
   }
 
   function initDatePickers() {
@@ -7349,6 +7747,7 @@
       .filter((v) => Number.isFinite(v) && (isLinear || v > 0));
     if (!vals.length) {
       if (canvas.id) chartEventMarkersById[canvas.id] = [];
+      if (canvas.id) chartHoverMetaById[canvas.id] = null;
       return;
     }
 
@@ -7640,10 +8039,20 @@
 
     if (canvas.id) {
       chartEventMarkersById[canvas.id] = markerStates;
+      chartHoverMetaById[canvas.id] = {
+        series,
+        pad,
+        chartW,
+        chartH,
+        color: opts.color,
+        tooltipLabel: opts.tooltipLabel || "",
+        tooltipFormatter: opts.tooltipFormatter || opts.linearFormatter || null,
+      };
     }
   }
 
   function renderAll() {
+    hideChartHoverOverlays();
     applyCurrencyOrdering();
 
     const scaleMode = getDashboardScaleMode();
@@ -7867,18 +8276,24 @@
     if (el.usdBtcBig) el.usdBtcBig.style.color = leftColor;
     if (el.btcUsdBig) el.btcUsdBig.style.color = rightColor;
 
-    const leftSeries = adjustedRows.map((r) => {
+    const leftSeries = adjustedRows.map((r, index) => {
       const baseValue = primaryCurrency === "BTC" ? r.satsPerSecondary : r.inversePrice;
+      const rawRow = transformedRows[index] || r;
+      const rawValue = primaryCurrency === "BTC" ? rawRow.satsPerSecondary : rawRow.inversePrice;
       return {
         date: r.date,
         value: baseValue,
+        rawValue,
       };
     });
-    const rightSeries = adjustedRows.map((r) => {
+    const rightSeries = adjustedRows.map((r, index) => {
       const baseValue = secondaryCurrency === "BTC" ? r.directPrice * 100000000 : r.directPrice;
+      const rawRow = transformedRows[index] || r;
+      const rawValue = secondaryCurrency === "BTC" ? rawRow.directPrice * 100000000 : rawRow.directPrice;
       return {
         date: r.date,
         value: baseValue,
+        rawValue,
       };
     });
 
@@ -7988,6 +8403,16 @@
         return formatCompactOunceYAxisLabel(value);
       }
       return formatCompactYAxisLabel(value, secondaryCurrency);
+    };
+    const leftTooltipFormatter = (value) => {
+      if (primaryCurrency === "BTC") return fmtSats(value);
+      if (isPreciousMetalCurrency(primaryCurrency)) return formatOunceAmount(value);
+      return formatRateValue(value, primaryCurrency);
+    };
+    const rightTooltipFormatter = (value) => {
+      if (secondaryCurrency === "BTC") return fmtSats(value);
+      if (isPreciousMetalCurrency(secondaryCurrency)) return formatOunceAmount(value);
+      return formatRateValue(value, secondaryCurrency);
     };
 
     const leftEventMarkers = [];
@@ -8350,6 +8775,8 @@
         tickSide: "left",
         yAxisCurrency: primaryCurrency,
         linearFormatter: leftFormatter,
+        tooltipLabel: `1 ${getTitleUnitLabel(secondaryCurrency)} in ${primaryCurrency}`,
+        tooltipFormatter: leftTooltipFormatter,
         overlapLabelFn: leftOverlapLabelFn,
         eventMarkers: leftEventMarkers,
         edgeTrackEl: el.usdBtcDateEdges,
@@ -8381,6 +8808,8 @@
         tickSide: "left",
         yAxisCurrency: secondaryCurrency,
         linearFormatter: rightFormatter,
+        tooltipLabel: `1 ${getTitleUnitLabel(primaryCurrency)} in ${secondaryCurrency}`,
+        tooltipFormatter: rightTooltipFormatter,
         overlapLabelFn: rightOverlapLabelFn,
         eventMarkers: rightEventMarkers,
         edgeTrackEl: el.btcUsdDateEdges,
@@ -8435,6 +8864,8 @@
     bindTimeZonePreferenceSync();
     bindChartEventHover(el.usdBtcChart);
     bindChartEventHover(el.btcUsdChart);
+    bindChartRangeInteractions(el.usdBtcChart);
+    bindChartRangeInteractions(el.btcUsdChart);
     bindDateRangeExportUnloadGuard();
     primeKeyboardFocus();
     bindDateRangePlaybackArrowScrubbing();
