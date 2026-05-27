@@ -1229,6 +1229,7 @@
     .spent-alpha-stepper input {
       width: 42px;
       padding: 0 4px;
+      appearance: textfield;
       -moz-appearance: textfield;
     }
     .spent-alpha-stepper input::-webkit-outer-spin-button,
@@ -1433,8 +1434,9 @@
     }
     .reset-dashboard-btn:disabled,
     .reset-dashboard-btn:disabled:hover {
-      border-color: var(--line);
-      color: var(--muted);
+      opacity: 0.38;
+      cursor: default;
+      pointer-events: none;
       background: transparent;
     }
     .reset-dashboard-btn--undo {
@@ -1458,8 +1460,6 @@
     }
     :root:not([data-theme="light"]) .reset-dashboard-btn:disabled,
     :root:not([data-theme="light"]) .reset-dashboard-btn:disabled:hover {
-      border-color: var(--line);
-      color: var(--muted);
       background: transparent;
     }
     :root:not([data-theme="light"]) .reset-dashboard-btn--undo {
@@ -1958,9 +1958,6 @@
         width: 6.2ch;
         min-width: 6.2ch;
         line-height: 1;
-        transform: scale(0.76);
-        transform-origin: right center;
-        margin-left: -1.5ch;
       }
       .date-range-days-suffix {
         font-size: 12px;
@@ -2840,6 +2837,37 @@
       .reset-dashboard-btn.reset-dashboard-btn--undo::before {
         -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8'/%3E%3Cpath d='M3 3v5h5'/%3E%3C/svg%3E");
         mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8'/%3E%3Cpath d='M3 3v5h5'/%3E%3C/svg%3E");
+      }
+    }
+    @media (max-width: 900px) {
+      #blockSearchInput,
+      #windowDaysInput,
+      #hashrateWindowInput,
+      #patoshiIncludeInput,
+      #patoshiExcludeInput,
+      #markerScaleInput,
+      #yMaxInput,
+      #startInput,
+      #endInput {
+        font-size: 16px !important;
+        line-height: 1.15 !important;
+        font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace !important;
+      }
+      #windowDaysInput,
+      #hashrateWindowInput {
+        width: 5.8ch;
+        min-width: 5.8ch;
+      }
+      #markerScaleInput {
+        width: 46px;
+      }
+      #yMaxInput {
+        width: 78px;
+        flex-basis: 78px;
+      }
+      #patoshiIncludeInput,
+      #patoshiExcludeInput {
+        height: 34px;
       }
     }
   </style>
