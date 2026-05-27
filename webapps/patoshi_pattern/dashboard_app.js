@@ -110,13 +110,18 @@
   let updatedKpiTimeZone = DASHBOARD_TIME?.getPreferredTimeZone?.() || "UTC";
   let diffMarkerHitboxes = [];
   let blockMarkerHitboxes = [];
+  let slopeMeasurementHitboxes = null;
   let chartPlotArea = null;
   let chartXDomain = null;
+  let chartYDomain = null;
   let xAxisHitArea = null;
   let yAxisHitArea = null;
   let yAxisRestoreMode = null;
   let chartInteractionMode = "pan";
   let timeMeasurement = null;
+  let slopeMeasurement = null;
+  let measurementHoverHeight = null;
+  let slopeHoverHeight = null;
   let measurementRenderRaf = 0;
   let spentRewardsPanelOpen = false;
   let highlightedSpentBlockHeight = null;
@@ -171,6 +176,7 @@
     chartTooltip: $("chartTooltip"),
     chartPanModeBtn: $("chartPanModeBtn"),
     chartMeasureModeBtn: $("chartMeasureModeBtn"),
+    chartSlopeModeBtn: $("chartSlopeModeBtn"),
     filtersBtn: $("filtersBtn"),
     filtersPanel: $("filtersPanel"),
     filtersClose: $("filtersClose"),
@@ -253,6 +259,7 @@
         highlightedSpentBlockCentered,
         chartInteractionMode,
         timeMeasurement: serializeTimeMeasurement(),
+        slopeMeasurement: serializeSlopeMeasurement(),
         updatedKpiTimeZone,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(copy));
@@ -324,6 +331,7 @@
       delete parsed.highlightedSpentBlockCentered;
       delete parsed.chartInteractionMode;
       delete parsed.timeMeasurement;
+      delete parsed.slopeMeasurement;
       Object.assign(state, parsed);
       state.playing = false;
       state.paused = !!state.paused;
@@ -700,18 +708,31 @@
 
   function syncChartInteractionModeButtons() {
     const panActive = chartInteractionMode === "pan";
+    const measureActive = chartInteractionMode === "measure";
+    const slopeActive = chartInteractionMode === "slope";
     els.chartPanModeBtn?.classList.toggle("is-active", panActive);
     els.chartPanModeBtn?.setAttribute("aria-pressed", panActive ? "true" : "false");
-    els.chartMeasureModeBtn?.classList.toggle("is-active", !panActive);
-    els.chartMeasureModeBtn?.setAttribute("aria-pressed", !panActive ? "true" : "false");
+    els.chartMeasureModeBtn?.classList.toggle("is-active", measureActive);
+    els.chartMeasureModeBtn?.setAttribute("aria-pressed", measureActive ? "true" : "false");
+    els.chartSlopeModeBtn?.classList.toggle("is-active", slopeActive);
+    els.chartSlopeModeBtn?.setAttribute("aria-pressed", slopeActive ? "true" : "false");
     canvas.classList.toggle("measure-mode", !panActive);
   }
 
   function setChartInteractionMode(mode) {
-    const nextMode = mode === "measure" ? "measure" : "pan";
+    const nextMode = mode === "measure" || mode === "slope" ? mode : "pan";
     if (chartInteractionMode === nextMode) return;
     chartInteractionMode = nextMode;
-    if (chartInteractionMode === "pan") timeMeasurement = null;
+    if (chartInteractionMode === "pan") {
+      timeMeasurement = null;
+      slopeMeasurement = null;
+    } else if (chartInteractionMode === "measure") {
+      slopeMeasurement = null;
+    } else if (chartInteractionMode === "slope") {
+      timeMeasurement = null;
+    }
+    measurementHoverHeight = null;
+    slopeHoverHeight = null;
     if (measurementRenderRaf) {
       window.cancelAnimationFrame(measurementRenderRaf);
       measurementRenderRaf = 0;
@@ -739,6 +760,24 @@
     };
   }
 
+  function serializeSlopeMeasurement() {
+    if (!slopeMeasurement || !Number.isFinite(slopeMeasurement.startMs) || !Number.isFinite(slopeMeasurement.startValue) || !Number.isFinite(slopeMeasurement.endMs) || !Number.isFinite(slopeMeasurement.endValue)) return null;
+    return {
+      startMs: Math.round(slopeMeasurement.startMs),
+      startValue: Math.round(slopeMeasurement.startValue * 100) / 100,
+      endMs: Math.round(slopeMeasurement.endMs),
+      endValue: Math.round(slopeMeasurement.endValue * 100) / 100,
+      startHeight: Number.isFinite(slopeMeasurement.startHeight) ? slopeMeasurement.startHeight : null,
+      endHeight: Number.isFinite(slopeMeasurement.endHeight) ? slopeMeasurement.endHeight : null,
+    };
+  }
+
+  function normalizeOptionalNumber(value) {
+    if (value == null || value === "") return null;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  }
+
   function normalizeTimeMeasurementSnapshot(value) {
     if (!value || typeof value !== "object") return null;
     const startMs = Number(value.startMs);
@@ -748,16 +787,40 @@
       startMs,
       hoverMs: endMs,
       endMs,
-      startHeight: Number.isFinite(Number(value.startHeight)) ? Number(value.startHeight) : null,
-      endHeight: Number.isFinite(Number(value.endHeight)) ? Number(value.endHeight) : null,
-      y: Number.isFinite(Number(value.y)) ? Number(value.y) : null,
+      startHeight: normalizeOptionalNumber(value.startHeight),
+      endHeight: normalizeOptionalNumber(value.endHeight),
+      y: normalizeOptionalNumber(value.y),
+    };
+  }
+
+  function normalizeSlopeMeasurementSnapshot(value) {
+    if (!value || typeof value !== "object") return null;
+    const startMs = Number(value.startMs);
+    const startValue = Number(value.startValue);
+    const endMs = Number(value.endMs);
+    const endValue = Number(value.endValue);
+    if (!Number.isFinite(startMs) || !Number.isFinite(startValue) || !Number.isFinite(endMs) || !Number.isFinite(endValue)) return null;
+    return {
+      startMs,
+      startValue,
+      hoverMs: endMs,
+      hoverValue: endValue,
+      endMs,
+      endValue,
+      startHeight: normalizeOptionalNumber(value.startHeight),
+      hoverHeight: normalizeOptionalNumber(value.endHeight),
+      endHeight: normalizeOptionalNumber(value.endHeight),
     };
   }
 
   function applyChartInteractionSnapshot(snapshot) {
-    chartInteractionMode = snapshot?.chartInteractionMode === "measure" ? "measure" : "pan";
+    chartInteractionMode = snapshot?.chartInteractionMode === "measure" || snapshot?.chartInteractionMode === "slope" ? snapshot.chartInteractionMode : "pan";
     timeMeasurement = normalizeTimeMeasurementSnapshot(snapshot?.timeMeasurement);
+    slopeMeasurement = normalizeSlopeMeasurementSnapshot(snapshot?.slopeMeasurement);
     if (chartInteractionMode !== "measure") timeMeasurement = null;
+    if (chartInteractionMode !== "slope") slopeMeasurement = null;
+    measurementHoverHeight = null;
+    slopeHoverHeight = null;
   }
 
   function getMinWindowMs() {
@@ -1020,6 +1083,7 @@
       highlightedSpentBlockCentered,
       chartInteractionMode,
       timeMeasurement: serializeTimeMeasurement(),
+      slopeMeasurement: serializeSlopeMeasurement(),
     };
   }
 
@@ -1056,6 +1120,7 @@
       highlightedSpentBlockCentered: false,
       chartInteractionMode: "pan",
       timeMeasurement: null,
+      slopeMeasurement: null,
     };
   }
 
@@ -3236,6 +3301,7 @@
     if (!rows.length) {
       chartPlotArea = null;
       chartXDomain = null;
+      chartYDomain = null;
       xAxisHitArea = null;
       yAxisHitArea = null;
       return;
@@ -3283,6 +3349,7 @@
     const x = (ms) => plot.left + ((ms - xDomainStart) / (xDomainEnd - xDomainStart)) * width;
     const y = (value) => plot.bottom - ((value - yMin) / (yDomainMax - yMin)) * height;
     chartXDomain = { startMs: xDomainStart, endMs: xDomainEnd };
+    chartYDomain = { min: yMin, max: yDomainMax, visibleMin: 0, visibleMax: yMax };
 
     ctx.save();
     ctx.strokeStyle = c.muted;
@@ -3335,6 +3402,7 @@
     const points = visible.map((row) => [x(row.ms), y(row.extranonce), row]);
     diffMarkerHitboxes = [];
     blockMarkerHitboxes = [];
+    slopeMeasurementHitboxes = null;
     const isDrawableRow = (row) => state.showSpent || !row.isSpent;
     const orderRows = rowsWithLeftContinuity(visible, isDrawableRow);
     if (state.showOrder) {
@@ -3355,6 +3423,9 @@
     drawPoints(drawablePoints, c, mobile, isPatoshiRow);
     drawHighlightedSpentReward(x, y, plot, c, mobile);
     drawTimeMeasurement(x, y, plot, c, mobile);
+    drawMeasurementHoverAnchor(x, y, plot, c, mobile);
+    drawSlopeMeasurement(x, y, plot, c, mobile, yMax);
+    drawSlopeHoverAnchor(x, y, plot, c, mobile);
 
     const dateLabelInset = rect.width - plot.right;
     const lightMode = document.documentElement.dataset.theme === "light";
@@ -3464,15 +3535,30 @@
     return parts.join(" ");
   }
 
-  function drawMeasurementBlockAnchor(row, x, y, plot, c, mobile) {
+  function getMeasurementY(plot, mobile) {
+    return plot.top - (mobile ? 14 : 16);
+  }
+
+  function drawMeasurementBlockAnchor(row, x, y, plot, c, mobile, measureY = null, options = {}) {
     if (!row || row.ms < state.startMs || row.ms > state.endMs) return;
     const xx = x(row.ms);
     const yy = y(row.extranonce);
-    if (xx < plot.left - 2 || xx > plot.right + 2 || yy < plot.top - 24 || yy > plot.bottom + 2) return;
+    const topOverflow = Number.isFinite(options.topOverflow) ? options.topOverflow : 24;
+    if (xx < plot.left - 2 || xx > plot.right + 2 || yy < plot.top - topOverflow || yy > plot.bottom + 2) return;
     const ringRadius = Math.max(mobile ? 6 : 8, (mobile ? 5.5 : 7) * getMarkerScale());
     const label = fmtInt(row.height);
     const labelSize = mobile ? 11 : 13;
-    const labelY = Math.max(plot.top + labelSize, yy - ringRadius - 9);
+    const labelHalfHeight = labelSize / 2;
+    const labelGap = mobile ? 4 : 5;
+    const minAboveLabelY = plot.top + labelHalfHeight + 2;
+    const aboveIdealY = yy - ringRadius - labelHalfHeight - labelGap;
+    const aboveTooCloseToTop = aboveIdealY < minAboveLabelY;
+    const aboveLabelY = aboveTooCloseToTop ? minAboveLabelY : aboveIdealY;
+    const aboveOverlapsMeasure = Number.isFinite(measureY)
+      && measureY >= aboveLabelY - labelHalfHeight - labelGap
+      && measureY <= aboveLabelY + labelHalfHeight + labelGap;
+    const belowLabelY = Math.min(plot.bottom - labelSize, yy + ringRadius + 9);
+    const labelY = aboveTooCloseToTop || aboveOverlapsMeasure ? belowLabelY : aboveLabelY;
     const labelX = clamp(xx, plot.left + textWidth(label, labelSize) / 2 + 2, plot.right - textWidth(label, labelSize) / 2 - 2);
     const lightMode = theme === "light";
     const highlightColor = lightMode ? "#000000" : c.fg;
@@ -3492,6 +3578,80 @@
     ctx.restore();
   }
 
+  function drawSlopePointAnchor(point, x, y, plot, c, mobile) {
+    if (!point || !Number.isFinite(point.ms) || !Number.isFinite(point.value)) return null;
+    if (point.ms < state.startMs || point.ms > state.endMs || point.value < 0) return null;
+    const candidateRow = Number.isFinite(point.height) ? rowsByHeight.get(point.height) : null;
+    const row = candidateRow
+      && Math.abs(candidateRow.ms - point.ms) < 1000
+      && Math.abs(candidateRow.extranonce - point.value) < 0.01
+        ? candidateRow
+        : null;
+    const xx = row ? x(row.ms) : x(point.ms);
+    const ringRadius = Math.max(mobile ? 6 : 8, (mobile ? 5.5 : 7) * getMarkerScale());
+    const rawY = row ? y(row.extranonce) : y(point.value);
+    const yy = rawY;
+    if (xx < plot.left - 2 || xx > plot.right + 2 || yy < plot.top - 72 || yy > plot.bottom + 2) return null;
+    const lightMode = theme === "light";
+    const highlightColor = lightMode ? "#000000" : c.fg;
+    ctx.save();
+    ctx.strokeStyle = highlightColor;
+    ctx.lineWidth = mobile ? 2 : 2.4;
+    ctx.beginPath();
+    ctx.arc(xx, yy, ringRadius, 0, Math.PI * 2);
+    ctx.stroke();
+    if (row) {
+      const label = fmtInt(row.height);
+      const labelSize = mobile ? 11 : 13;
+      const labelWidth = textWidth(label, labelSize);
+      const labelX = clamp(xx, plot.left + labelWidth / 2 + 2, plot.right - labelWidth / 2 - 2);
+      const labelY = yy < plot.top + ringRadius + labelSize + 8
+        ? yy + ringRadius + labelSize / 2 + 5
+        : yy - ringRadius - labelSize / 2 - 5;
+      drawText(label, labelX, clamp(labelY, labelSize / 2 + 2, plot.bottom - labelSize / 2 - 2), {
+        align: "center",
+        color: highlightColor,
+        size: labelSize,
+        weight: 700,
+        shadow: lightMode ? false : "rgba(0, 0, 0, 0.95)",
+      });
+    }
+    ctx.restore();
+    return { x: xx, y: yy, r: Math.max(mobile ? 12 : 13, ringRadius + 5) };
+  }
+
+  function drawTimeMeasurementStart(timePoint, x, y, plot, c, mobile) {
+    if (!timePoint || !Number.isFinite(timePoint.startMs) || timePoint.startMs < state.startMs || timePoint.startMs > state.endMs) return;
+    const xx = x(timePoint.startMs);
+    const measureY = getMeasurementY(plot, mobile);
+    const lightMode = theme === "light";
+    const lineColor = lightMode ? "rgba(0, 0, 0, 0.78)" : "rgba(241, 245, 247, 0.9)";
+    const mutedLine = lightMode ? "rgba(0, 0, 0, 0.38)" : "rgba(241, 245, 247, 0.45)";
+    const starterEndX = Math.min(plot.right, xx + (mobile ? 38 : 46));
+    ctx.save();
+    ctx.lineWidth = mobile ? 1.2 : 1.4;
+    ctx.strokeStyle = mutedLine;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(xx, measureY);
+    ctx.lineTo(xx, plot.bottom);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.strokeStyle = lineColor;
+    ctx.lineWidth = mobile ? 1.6 : 1.8;
+    ctx.beginPath();
+    ctx.moveTo(xx, measureY);
+    ctx.lineTo(starterEndX, measureY);
+    ctx.stroke();
+    const cap = mobile ? 5 : 6;
+    ctx.beginPath();
+    ctx.moveTo(xx, measureY - cap);
+    ctx.lineTo(xx, measureY + cap);
+    ctx.stroke();
+    ctx.restore();
+    drawMeasurementBlockAnchor(rowsByHeight.get(timePoint.startHeight), x, y, plot, c, mobile, measureY);
+  }
+
   function drawTimeMeasurement(x, y, plot, c, mobile) {
     if (!timeMeasurement || !Number.isFinite(timeMeasurement.startMs)) return;
     const startMs = timeMeasurement.startMs;
@@ -3499,7 +3659,10 @@
     if (!Number.isFinite(endMs)) return;
     const visibleStartMs = clamp(Math.min(startMs, endMs), state.startMs, state.endMs);
     const visibleEndMs = clamp(Math.max(startMs, endMs), state.startMs, state.endMs);
-    if (visibleStartMs >= visibleEndMs) return;
+    if (visibleStartMs >= visibleEndMs) {
+      drawTimeMeasurementStart(timeMeasurement, x, y, plot, c, mobile);
+      return;
+    }
     const startX = x(startMs);
     const endX = x(endMs);
     const lineStartX = x(visibleStartMs);
@@ -3510,7 +3673,7 @@
     const actualEndMs = Math.max(startMs, endMs);
     const showStartArrow = actualStartMs >= state.startMs && actualStartMs <= state.endMs;
     const showEndArrow = actualEndMs >= state.startMs && actualEndMs <= state.endMs;
-    const measureY = plot.top - (mobile ? 14 : 16);
+    const measureY = getMeasurementY(plot, mobile);
     const lightMode = theme === "light";
     const lineColor = lightMode ? "rgba(0, 0, 0, 0.78)" : "rgba(241, 245, 247, 0.9)";
     const mutedLine = lightMode ? "rgba(0, 0, 0, 0.38)" : "rgba(241, 245, 247, 0.45)";
@@ -3600,10 +3763,187 @@
     const startRow = Number.isFinite(timeMeasurement.startHeight) ? rowsByHeight.get(timeMeasurement.startHeight) : null;
     const endHeight = Number.isFinite(timeMeasurement.endHeight) ? timeMeasurement.endHeight : timeMeasurement.hoverHeight;
     const endRow = Number.isFinite(endHeight) ? rowsByHeight.get(endHeight) : null;
-    drawMeasurementBlockAnchor(startRow, x, y, plot, c, mobile);
+    drawMeasurementBlockAnchor(startRow, x, y, plot, c, mobile, measureY);
     if (!startRow || !endRow || startRow.height !== endRow.height) {
-      drawMeasurementBlockAnchor(endRow, x, y, plot, c, mobile);
+      drawMeasurementBlockAnchor(endRow, x, y, plot, c, mobile, measureY);
     }
+  }
+
+  function drawMeasurementHoverAnchor(x, y, plot, c, mobile) {
+    if (chartInteractionMode !== "measure" || timeMeasurement || !Number.isFinite(measurementHoverHeight)) return;
+    drawMeasurementBlockAnchor(rowsByHeight.get(measurementHoverHeight), x, y, plot, c, mobile, getMeasurementY(plot, mobile));
+  }
+
+  function formatSlopeValue(value) {
+    if (!Number.isFinite(value)) return "∞/hr";
+    return `${value.toFixed(2)}/hr`;
+  }
+
+  function drawSlopeMeasurementStart(slopePoint, x, y, plot, c, mobile) {
+    if (!slopePoint || !Number.isFinite(slopePoint.startMs) || !Number.isFinite(slopePoint.startValue)) return;
+    if (slopePoint.startMs < state.startMs || slopePoint.startMs > state.endMs) return;
+    const xx = x(slopePoint.startMs);
+    const yy = y(slopePoint.startValue);
+    if (yy < plot.top - 2 || yy > plot.bottom + 2) return;
+    const lightMode = theme === "light";
+    const lineColor = lightMode ? "rgba(0, 0, 0, 0.76)" : "rgba(241, 245, 247, 0.88)";
+    const starterEndX = Math.min(plot.right, xx + (mobile ? 38 : 46));
+    ctx.save();
+    ctx.strokeStyle = lineColor;
+    ctx.lineWidth = mobile ? 1.2 : 1.4;
+    ctx.lineCap = "round";
+    ctx.setLineDash([0.5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(xx, yy);
+    ctx.lineTo(starterEndX, yy);
+    ctx.stroke();
+    ctx.restore();
+    drawSlopePointAnchor({
+      ms: slopePoint.startMs,
+      value: slopePoint.startValue,
+      height: slopePoint.startHeight,
+    }, x, y, plot, c, mobile);
+  }
+
+  function slopeSegmentClipPoints(startMs, startValue, endMs, endValue, minMs, maxMs, minValue, maxValue) {
+    const dx = endMs - startMs;
+    const dy = endValue - startValue;
+    const eps = 1e-7;
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) return [];
+    if (Math.abs(dx) < eps) {
+      if (startMs < minMs || startMs > maxMs) return [];
+      const segmentMin = Math.max(Math.min(startValue, endValue), minValue);
+      const segmentMax = Math.min(Math.max(startValue, endValue), maxValue);
+      if (segmentMin >= segmentMax) return [];
+      return [
+        { ms: startMs, value: segmentMin },
+        { ms: startMs, value: segmentMax },
+      ];
+    }
+    if (Math.abs(dy) < eps) {
+      if (startValue < minValue || startValue > maxValue) return [];
+      const segmentMin = Math.max(Math.min(startMs, endMs), minMs);
+      const segmentMax = Math.min(Math.max(startMs, endMs), maxMs);
+      if (segmentMin >= segmentMax) return [];
+      return [
+        { ms: segmentMin, value: startValue },
+        { ms: segmentMax, value: startValue },
+      ];
+    }
+    const candidates = [];
+    const addCandidate = (t) => {
+      if (t < -eps || t > 1 + eps) return;
+      const ms = startMs + dx * t;
+      const value = startValue + dy * t;
+      if (ms < minMs - eps || ms > maxMs + eps || value < minValue - eps || value > maxValue + eps) return;
+      if (candidates.some((item) => Math.abs(item.ms - ms) < 0.5 && Math.abs(item.value - value) < 0.5)) return;
+      candidates.push({
+        t,
+        ms: clamp(ms, minMs, maxMs),
+        value: clamp(value, minValue, maxValue),
+      });
+    };
+    addCandidate((minMs - startMs) / dx);
+    addCandidate((maxMs - startMs) / dx);
+    addCandidate((minValue - startValue) / dy);
+    addCandidate((maxValue - startValue) / dy);
+    addCandidate(0);
+    addCandidate(1);
+    return candidates.sort((a, b) => a.t - b.t).slice(0, 2);
+  }
+
+  function drawSlopeMeasurement(x, y, plot, c, mobile, yMax) {
+    if (!slopeMeasurement || !Number.isFinite(slopeMeasurement.startMs) || !Number.isFinite(slopeMeasurement.startValue)) return;
+    const startMs = slopeMeasurement.startMs;
+    const startValue = slopeMeasurement.startValue;
+    const endMs = Number.isFinite(slopeMeasurement.endMs) ? slopeMeasurement.endMs : slopeMeasurement.hoverMs;
+    const endValue = Number.isFinite(slopeMeasurement.endValue) ? slopeMeasurement.endValue : slopeMeasurement.hoverValue;
+    if (!Number.isFinite(endMs) || !Number.isFinite(endValue)) return;
+    const clipped = slopeSegmentClipPoints(startMs, startValue, endMs, endValue, state.startMs, state.endMs, Math.min(0, startValue, endValue), Math.max(yMax, startValue, endValue));
+    if (clipped.length < 2) {
+      drawSlopeMeasurementStart(slopeMeasurement, x, y, plot, c, mobile);
+      return;
+    }
+    const lightMode = theme === "light";
+    const lineColor = lightMode ? "rgba(0, 0, 0, 0.76)" : "rgba(241, 245, 247, 0.88)";
+    ctx.save();
+    ctx.strokeStyle = lineColor;
+    ctx.lineWidth = mobile ? 1.2 : 1.4;
+    ctx.lineCap = "round";
+    ctx.setLineDash([0.5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(x(clipped[0].ms), y(clipped[0].value));
+    ctx.lineTo(x(clipped[1].ms), y(clipped[1].value));
+    ctx.stroke();
+    ctx.restore();
+    slopeMeasurementHitboxes = {
+      start: null,
+      end: null,
+      segment: {
+        x1: x(clipped[0].ms),
+        y1: y(clipped[0].value),
+        x2: x(clipped[1].ms),
+        y2: y(clipped[1].value),
+        r: mobile ? 12 : 10,
+      },
+    };
+
+    const slopePerHour = Math.abs(endMs - startMs) < 1 ? Infinity : (endValue - startValue) / ((endMs - startMs) / HOUR);
+    const label = formatSlopeValue(slopePerHour);
+    const labelSize = mobile ? 11 : 12;
+    const labelPadX = 7;
+    const labelWidth = textWidth(label, labelSize) + labelPadX * 2;
+    const labelHeight = labelSize + 9;
+    const labelHalfWidth = labelWidth / 2;
+    const lineScreen = {
+      x1: x(clipped[0].ms),
+      y1: y(clipped[0].value),
+      x2: x(clipped[1].ms),
+      y2: y(clipped[1].value),
+    };
+    const visibleLine = clipScreenSegmentToRect(lineScreen.x1, lineScreen.y1, lineScreen.x2, lineScreen.y2, plot.left, 0, plot.right, plot.bottom) || lineScreen;
+    const labelX = clamp((visibleLine.x1 + visibleLine.x2) / 2, plot.left + labelHalfWidth + 2, plot.right - labelHalfWidth - 2);
+    const labelY = clamp((visibleLine.y1 + visibleLine.y2) / 2, plot.top + labelHeight / 2 + 2, plot.bottom - labelHeight / 2 - 2);
+    ctx.save();
+    ctx.fillStyle = lightMode ? "rgba(255, 255, 255, 0.92)" : "rgba(0, 0, 0, 0.78)";
+    ctx.strokeStyle = lightMode ? "rgba(0, 0, 0, 0.18)" : "rgba(255, 255, 255, 0.18)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(labelX - labelWidth / 2, labelY - labelHeight / 2, labelWidth, labelHeight, 5);
+    ctx.fill();
+    ctx.stroke();
+    drawText(label, labelX, labelY + 0.5, {
+      align: "center",
+      color: lineColor,
+      size: labelSize,
+      weight: 700,
+      shadow: false,
+    });
+    ctx.restore();
+
+    const startAnchor = drawSlopePointAnchor({
+      ms: startMs,
+      value: startValue,
+      height: slopeMeasurement.startHeight,
+    }, x, y, plot, c, mobile);
+    const endHeight = Number.isFinite(slopeMeasurement.endHeight) ? slopeMeasurement.endHeight : slopeMeasurement.hoverHeight;
+    const sameBlockEndpoint = Number.isFinite(slopeMeasurement.startHeight)
+      && Number.isFinite(endHeight)
+      && slopeMeasurement.startHeight === endHeight;
+    const endAnchor = sameBlockEndpoint ? null : drawSlopePointAnchor({
+      ms: endMs,
+      value: endValue,
+      height: endHeight,
+    }, x, y, plot, c, mobile);
+    if (slopeMeasurementHitboxes) {
+      slopeMeasurementHitboxes.start = startAnchor;
+      slopeMeasurementHitboxes.end = endAnchor || startAnchor;
+    }
+  }
+
+  function drawSlopeHoverAnchor(x, y, plot, c, mobile) {
+    if (chartInteractionMode !== "slope" || slopeMeasurement || !Number.isFinite(slopeHoverHeight)) return;
+    drawMeasurementBlockAnchor(rowsByHeight.get(slopeHoverHeight), x, y, plot, c, mobile);
   }
 
   function drawSpecialMarkers(visible, x, y, plot, c, mobile) {
@@ -4039,13 +4379,33 @@
   }
 
   function handleChartPointerMove(event) {
+    const onXAxis = eventIsOnXAxis(event);
+    const onYAxis = eventIsOnYAxis(event);
+    canvas.classList.toggle("axis-x-hover", onXAxis && !onYAxis);
+    canvas.classList.toggle("axis-y-hover", onYAxis);
+    if (patternBlockPickMode) {
+      const marker = onXAxis || onYAxis ? null : getNearestBlockMarkerAt(event);
+      canvas.classList.toggle("target-pick-hover", !!marker);
+      canvas.classList.remove("slope-grab-hover");
+      hideChartTooltip();
+      return;
+    }
     if (chartInteractionMode === "measure") {
       updateMeasurementHover(event);
+      canvas.classList.remove("slope-grab-hover");
+      canvas.classList.remove("target-pick-hover");
+      hideChartTooltip();
+      return;
+    }
+    if (chartInteractionMode === "slope") {
+      canvas.classList.toggle("slope-grab-hover", !onXAxis && !onYAxis && !!getSlopeDragTarget(event));
+      updateSlopeHover(event);
       canvas.classList.remove("target-pick-hover");
       hideChartTooltip();
       return;
     }
     if (chartDrag) {
+      canvas.classList.remove("slope-grab-hover");
       canvas.classList.remove("target-pick-hover");
       hideChartTooltip();
       return;
@@ -4114,6 +4474,35 @@
     return clamp(ms, state.startMs, state.endMs);
   }
 
+  function getUnboundedChartMsFromEvent(event) {
+    if (!chartPlotArea || !chartXDomain) return null;
+    const point = getChartPointFromEvent(event);
+    const ratio = (point.x - chartPlotArea.left) / Math.max(1, chartPlotArea.right - chartPlotArea.left);
+    return chartXDomain.startMs + ratio * (chartXDomain.endMs - chartXDomain.startMs);
+  }
+
+  function getChartValueFromEvent(event) {
+    if (!chartPlotArea || !chartYDomain) return null;
+    const point = getChartPointFromEvent(event);
+    const ratio = clamp((chartPlotArea.bottom - point.y) / Math.max(1, chartPlotArea.bottom - chartPlotArea.top), 0, 1);
+    const value = chartYDomain.min + ratio * (chartYDomain.max - chartYDomain.min);
+    return clamp(value, chartYDomain.visibleMin, chartYDomain.visibleMax);
+  }
+
+  function getChartMsValueFromEvent(event) {
+    return {
+      ms: getChartMsFromEvent(event),
+      value: getChartValueFromEvent(event),
+    };
+  }
+
+  function getUnboundedChartMsValueFromEvent(event) {
+    return {
+      ms: getUnboundedChartMsFromEvent(event),
+      value: getChartValueFromEvent(event),
+    };
+  }
+
   function getMeasurementPointFromEvent(event) {
     const marker = getNearestBlockMarkerAt(event);
     const point = getChartPointFromEvent(event);
@@ -4124,6 +4513,140 @@
     };
   }
 
+  function getSlopePointFromEvent(event) {
+    const marker = getNearestBlockMarkerAt(event);
+    if (marker?.row) {
+      return {
+        ms: marker.row.ms,
+        value: marker.row.extranonce,
+        height: marker.row.height,
+      };
+    }
+    return {
+      ms: getChartMsFromEvent(event),
+      value: getChartValueFromEvent(event),
+      height: null,
+    };
+  }
+
+  function distanceToSegmentSquared(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const lengthSquared = dx * dx + dy * dy;
+    if (!lengthSquared) {
+      const pointDx = px - x1;
+      const pointDy = py - y1;
+      return pointDx * pointDx + pointDy * pointDy;
+    }
+    const t = clamp(((px - x1) * dx + (py - y1) * dy) / lengthSquared, 0, 1);
+    const closestX = x1 + t * dx;
+    const closestY = y1 + t * dy;
+    const pointDx = px - closestX;
+    const pointDy = py - closestY;
+    return pointDx * pointDx + pointDy * pointDy;
+  }
+
+  function clipScreenSegmentToRect(x1, y1, x2, y2, left, top, right, bottom) {
+    let t0 = 0;
+    let t1 = 1;
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const clip = (p, q) => {
+      if (p === 0) return q >= 0;
+      const r = q / p;
+      if (p < 0) {
+        if (r > t1) return false;
+        if (r > t0) t0 = r;
+      } else {
+        if (r < t0) return false;
+        if (r < t1) t1 = r;
+      }
+      return true;
+    };
+    if (!clip(-dx, x1 - left) || !clip(dx, right - x1) || !clip(-dy, y1 - top) || !clip(dy, bottom - y1)) return null;
+    return {
+      x1: x1 + dx * t0,
+      y1: y1 + dy * t0,
+      x2: x1 + dx * t1,
+      y2: y1 + dy * t1,
+    };
+  }
+
+  function getClosestSlopePointForEvent(event) {
+    if (!slopeMeasurementHitboxes?.segment || !slopeMeasurement || !Number.isFinite(slopeMeasurement.endMs)) return null;
+    const point = getChartPointFromEvent(event);
+    const segment = slopeMeasurementHitboxes.segment;
+    const dx = segment.x2 - segment.x1;
+    const dy = segment.y2 - segment.y1;
+    const lengthSquared = dx * dx + dy * dy;
+    const t = lengthSquared
+      ? clamp(((point.x - segment.x1) * dx + (point.y - segment.y1) * dy) / lengthSquared, 0, 1)
+      : 0;
+    return {
+      ms: slopeMeasurement.startMs + (slopeMeasurement.endMs - slopeMeasurement.startMs) * t,
+      value: slopeMeasurement.startValue + (slopeMeasurement.endValue - slopeMeasurement.startValue) * t,
+    };
+  }
+
+  function getSlopeDragTarget(event) {
+    if (chartInteractionMode !== "slope" || !slopeMeasurementHitboxes || !slopeMeasurement || !Number.isFinite(slopeMeasurement.endMs)) return null;
+    const point = getChartPointFromEvent(event);
+    const endpointHit = (hitbox) => {
+      if (!hitbox) return false;
+      const dx = point.x - hitbox.x;
+      const dy = point.y - hitbox.y;
+      return dx * dx + dy * dy <= hitbox.r * hitbox.r;
+    };
+    if (endpointHit(slopeMeasurementHitboxes.start)) return "start";
+    if (endpointHit(slopeMeasurementHitboxes.end)) return "end";
+    const segment = slopeMeasurementHitboxes.segment;
+    if (!segment) return null;
+    return distanceToSegmentSquared(point.x, point.y, segment.x1, segment.y1, segment.x2, segment.y2) <= segment.r * segment.r
+      ? "line"
+      : null;
+  }
+
+  function slopePointToScreen(ms, value) {
+    if (!chartPlotArea || !chartXDomain || !chartYDomain) return null;
+    const xRatio = (ms - chartXDomain.startMs) / Math.max(1, chartXDomain.endMs - chartXDomain.startMs);
+    const yRatio = (value - chartYDomain.min) / Math.max(1, chartYDomain.max - chartYDomain.min);
+    return {
+      x: chartPlotArea.left + xRatio * (chartPlotArea.right - chartPlotArea.left),
+      y: chartPlotArea.bottom - yRatio * (chartPlotArea.bottom - chartPlotArea.top),
+    };
+  }
+
+  function findSlopeEndpointBlockSnap(startMs, startValue, endMs, endValue) {
+    const startPoint = slopePointToScreen(startMs, startValue);
+    const endPoint = slopePointToScreen(endMs, endValue);
+    if (!startPoint || !endPoint) return null;
+    const threshold = 16;
+    const thresholdSq = threshold * threshold;
+    const nearestRow = (point, excludeHeight = null) => rows.reduce((best, row) => {
+      if (row.ms < state.startMs || row.ms > state.endMs || row.height === excludeHeight) return best;
+      const screen = slopePointToScreen(row.ms, row.extranonce);
+      if (!screen) return best;
+      const dx = screen.x - point.x;
+      const dy = screen.y - point.y;
+      const distanceSquared = dx * dx + dy * dy;
+      if (distanceSquared > thresholdSq) return best;
+      if (!best || distanceSquared < best.distanceSquared) return { row, distanceSquared };
+      return best;
+    }, null);
+    const startMatch = nearestRow(startPoint);
+    if (!startMatch) return null;
+    const endMatch = nearestRow(endPoint, startMatch.row.height);
+    if (!endMatch) return null;
+    const translatedDeltaMs = endMs - startMs;
+    const translatedDeltaValue = endValue - startValue;
+    const blockDeltaMs = endMatch.row.ms - startMatch.row.ms;
+    const blockDeltaValue = endMatch.row.extranonce - startMatch.row.extranonce;
+    const msTolerance = 1000;
+    const valueTolerance = 0.01;
+    if (Math.abs(blockDeltaMs - translatedDeltaMs) > msTolerance || Math.abs(blockDeltaValue - translatedDeltaValue) > valueTolerance) return null;
+    return { startRow: startMatch.row, endRow: endMatch.row };
+  }
+
   function handleMeasurementClick(event) {
     const point = getMeasurementPointFromEvent(event);
     if (!Number.isFinite(point.ms)) return;
@@ -4132,6 +4655,7 @@
     hideChartTooltip();
     if (state.playing) pauseAnimation();
     if (!timeMeasurement || Number.isFinite(timeMeasurement.endMs)) {
+      measurementHoverHeight = null;
       timeMeasurement = {
         startMs: point.ms,
         hoverMs: point.ms,
@@ -4154,13 +4678,78 @@
     saveState();
   }
 
+  function handleSlopeClick(event) {
+    const point = getSlopePointFromEvent(event);
+    if (!Number.isFinite(point.ms) || !Number.isFinite(point.value)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    hideChartTooltip();
+    if (state.playing) pauseAnimation();
+    if (!slopeMeasurement || Number.isFinite(slopeMeasurement.endMs)) {
+      slopeHoverHeight = null;
+      slopeMeasurement = {
+        startMs: point.ms,
+        startValue: point.value,
+        hoverMs: point.ms,
+        hoverValue: point.value,
+        endMs: null,
+        endValue: null,
+        startHeight: Number.isFinite(point.height) ? point.height : null,
+        hoverHeight: Number.isFinite(point.height) ? point.height : null,
+        endHeight: null,
+      };
+      render();
+      saveState();
+      return;
+    }
+    slopeMeasurement.endMs = point.ms;
+    slopeMeasurement.endValue = point.value;
+    slopeMeasurement.hoverMs = point.ms;
+    slopeMeasurement.hoverValue = point.value;
+    slopeMeasurement.endHeight = Number.isFinite(point.height) ? point.height : null;
+    slopeMeasurement.hoverHeight = slopeMeasurement.endHeight;
+    render();
+    saveState();
+  }
+
   function updateMeasurementHover(event) {
-    if (chartInteractionMode !== "measure" || !timeMeasurement || Number.isFinite(timeMeasurement.endMs)) return;
+    if (chartInteractionMode !== "measure") return;
     const point = getMeasurementPointFromEvent(event);
     if (!Number.isFinite(point.ms)) return;
-    timeMeasurement.hoverMs = point.ms;
-    timeMeasurement.hoverHeight = Number.isFinite(point.height) ? point.height : null;
-    timeMeasurement.y = point.y;
+    if (timeMeasurement && !Number.isFinite(timeMeasurement.endMs)) {
+      timeMeasurement.hoverMs = point.ms;
+      timeMeasurement.hoverHeight = Number.isFinite(point.height) ? point.height : null;
+      timeMeasurement.y = point.y;
+    } else {
+      const nextHoverHeight = Number.isFinite(point.height) ? point.height : null;
+      if (measurementHoverHeight === nextHoverHeight) return;
+      measurementHoverHeight = nextHoverHeight;
+    }
+    if (!measurementRenderRaf) {
+      measurementRenderRaf = window.requestAnimationFrame(() => {
+        measurementRenderRaf = 0;
+        render();
+      });
+    }
+  }
+
+  function updateSlopeHover(event) {
+    if (chartInteractionMode !== "slope") return;
+    if (slopeMeasurement && Number.isFinite(slopeMeasurement.endMs) && getSlopeDragTarget(event)) {
+      slopeHoverHeight = null;
+      return;
+    }
+    const point = getSlopePointFromEvent(event);
+    if (!Number.isFinite(point.ms) || !Number.isFinite(point.value)) return;
+    if (slopeMeasurement && !Number.isFinite(slopeMeasurement.endMs)) {
+      slopeMeasurement.hoverMs = point.ms;
+      slopeMeasurement.hoverValue = point.value;
+      slopeMeasurement.hoverHeight = Number.isFinite(point.height) ? point.height : null;
+    } else {
+      const nextHoverHeight = Number.isFinite(point.height) ? point.height : null;
+      if (slopeHoverHeight === nextHoverHeight) return;
+      slopeHoverHeight = nextHoverHeight;
+    }
     if (!measurementRenderRaf) {
       measurementRenderRaf = window.requestAnimationFrame(() => {
         measurementRenderRaf = 0;
@@ -4170,8 +4759,11 @@
   }
 
   function cancelActiveMeasurement() {
-    if (!timeMeasurement || Number.isFinite(timeMeasurement.endMs)) return false;
+    if (!timeMeasurement && !slopeMeasurement) return false;
     timeMeasurement = null;
+    slopeMeasurement = null;
+    measurementHoverHeight = null;
+    slopeHoverHeight = null;
     if (measurementRenderRaf) {
       window.cancelAnimationFrame(measurementRenderRaf);
       measurementRenderRaf = 0;
@@ -4201,13 +4793,18 @@
       suppressNextChartClick = false;
       return;
     }
+    if (eventIsOnXAxis(event) || eventIsOnYAxis(event)) return;
+    if (patternBlockPickMode) {
+      const marker = getNearestBlockMarkerAt(event);
+      if (marker) addPatternBlockFromMarker(patternBlockPickMode, marker.row.height);
+      return;
+    }
     if (chartInteractionMode === "measure") {
       handleMeasurementClick(event);
       return;
     }
-    if (patternBlockPickMode) {
-      const marker = getNearestBlockMarkerAt(event);
-      if (marker) addPatternBlockFromMarker(patternBlockPickMode, marker.row.height);
+    if (chartInteractionMode === "slope") {
+      handleSlopeClick(event);
       return;
     }
     if (state.playing) return;
@@ -4244,11 +4841,25 @@
   }
 
   function handleChartDoubleClick(event) {
-    if (chartInteractionMode === "measure") return;
     if (blockClickTimer) {
       window.clearTimeout(blockClickTimer);
       blockClickTimer = 0;
     }
+    if (eventIsOnYAxis(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      hideChartTooltip();
+      resetYModeToRollingPatoshi();
+      return;
+    }
+    if (eventIsOnXAxis(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      hideChartTooltip();
+      snapWindowToClosestPreset();
+      return;
+    }
+    if (chartInteractionMode === "measure" || chartInteractionMode === "slope") return;
     if (!patternBlockPickMode) {
       const marker = getNearestBlockMarkerAt(event);
       if (marker) {
@@ -4260,18 +4871,6 @@
         return;
       }
     }
-    if (eventIsOnYAxis(event)) {
-      event.preventDefault();
-      event.stopPropagation();
-      hideChartTooltip();
-      resetYModeToRollingPatoshi();
-      return;
-    }
-    if (!eventIsOnXAxis(event)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    hideChartTooltip();
-    snapWindowToClosestPreset();
   }
 
   function toggleSpentRewardsPanel(event) {
@@ -4448,7 +5047,76 @@
 
   function startChartDrag(event) {
     if (event.button != null && event.button !== 0) return;
-    if (chartInteractionMode === "measure") {
+    if ((chartInteractionMode === "measure" || chartInteractionMode === "slope") && eventIsOnYAxis(event)) {
+      event.preventDefault();
+      hideChartTooltip();
+      if (state.playing) pauseAnimation();
+      chartDrag = {
+        kind: "y-axis",
+        pointerId: event.pointerId,
+        clientY: event.clientY,
+        startYMax: getCurrentEffectiveYMax(),
+        moved: false,
+      };
+      canvas.classList.add("dragging");
+      try { canvas.setPointerCapture?.(event.pointerId); } catch (_) {}
+      return;
+    }
+    if ((chartInteractionMode === "measure" || chartInteractionMode === "slope") && eventIsOnXAxis(event)) {
+      event.preventDefault();
+      hideChartTooltip();
+      if (state.playing) pauseAnimation();
+      chartDrag = {
+        kind: "chart-pan",
+        pointerId: event.pointerId,
+        clientX: event.clientX,
+        startMs: state.startMs,
+        endMs: state.endMs,
+        moved: false,
+      };
+      canvas.classList.add("dragging");
+      try { canvas.setPointerCapture?.(event.pointerId); } catch (_) {}
+      return;
+    }
+    if (patternBlockPickMode && !eventIsOnXAxis(event) && !eventIsOnYAxis(event) && getNearestBlockMarkerAt(event)) {
+      event.preventDefault();
+      hideChartTooltip();
+      return;
+    }
+    if (chartInteractionMode === "slope") {
+      const target = getSlopeDragTarget(event);
+      if (target) {
+        const origin = getChartMsValueFromEvent(event);
+        if (!Number.isFinite(origin.ms) || !Number.isFinite(origin.value)) return;
+        const lineAnchor = target === "line" ? getClosestSlopePointForEvent(event) : null;
+        event.preventDefault();
+        hideChartTooltip();
+        if (state.playing) pauseAnimation();
+        chartDrag = {
+          kind: "slope",
+          target,
+          pointerId: event.pointerId,
+          clientX: event.clientX,
+          clientY: event.clientY,
+          originMs: lineAnchor?.ms ?? origin.ms,
+          originValue: lineAnchor?.value ?? origin.value,
+          startMs: slopeMeasurement.startMs,
+          startValue: slopeMeasurement.startValue,
+          endMs: slopeMeasurement.endMs,
+          endValue: slopeMeasurement.endValue,
+          startHeight: slopeMeasurement.startHeight,
+          endHeight: slopeMeasurement.endHeight,
+          moved: false,
+        };
+        canvas.classList.add("dragging");
+        canvas.classList.add("slope-grab-hover");
+        try { canvas.setPointerCapture?.(event.pointerId); } catch (_) {}
+      } else {
+        hideChartTooltip();
+      }
+      return;
+    }
+    if (chartInteractionMode === "measure" || chartInteractionMode === "slope") {
       hideChartTooltip();
       return;
     }
@@ -4487,6 +5155,62 @@
   function moveChartDrag(event) {
     if (!chartDrag) return;
     event.preventDefault();
+    if (chartDrag.kind === "slope") {
+      const point = getSlopePointFromEvent(event);
+      const rawPoint = getChartMsValueFromEvent(event);
+      const unboundedRawPoint = chartDrag.target === "line" ? getUnboundedChartMsValueFromEvent(event) : null;
+      const nextMs = chartDrag.target === "line" ? unboundedRawPoint.ms : (point && Number.isFinite(point.ms) ? point.ms : rawPoint.ms);
+      const nextValue = chartDrag.target === "line" ? rawPoint.value : (point && Number.isFinite(point.value) ? point.value : rawPoint.value);
+      if (!Number.isFinite(nextMs) || !Number.isFinite(nextValue)) return;
+      if (Math.abs(event.clientX - (chartDrag.clientX || event.clientX)) > 3 || Math.abs(event.clientY - (chartDrag.clientY || event.clientY)) > 3) chartDrag.moved = true;
+      if (chartDrag.target === "start") {
+        slopeMeasurement.startMs = nextMs;
+        slopeMeasurement.startValue = nextValue;
+        slopeMeasurement.startHeight = Number.isFinite(point.height) ? point.height : null;
+      } else if (chartDrag.target === "end") {
+        slopeMeasurement.endMs = nextMs;
+        slopeMeasurement.endValue = nextValue;
+        slopeMeasurement.hoverMs = nextMs;
+        slopeMeasurement.hoverValue = nextValue;
+        slopeMeasurement.endHeight = Number.isFinite(point.height) ? point.height : null;
+        slopeMeasurement.hoverHeight = slopeMeasurement.endHeight;
+      } else {
+        const deltaMs = nextMs - chartDrag.originMs;
+        const deltaValue = nextValue - chartDrag.originValue;
+        const minEndpointValue = Math.min(chartDrag.startValue, chartDrag.endValue);
+        const maxEndpointValue = Math.max(chartDrag.startValue, chartDrag.endValue);
+        const safeDeltaValue = clamp(deltaValue, -minEndpointValue, getMaxDatasetExtraNonce() - maxEndpointValue);
+        const translatedStartMs = chartDrag.startMs + deltaMs;
+        const translatedEndMs = chartDrag.endMs + deltaMs;
+        const translatedStartValue = chartDrag.startValue + safeDeltaValue;
+        const translatedEndValue = chartDrag.endValue + safeDeltaValue;
+        const snap = findSlopeEndpointBlockSnap(translatedStartMs, translatedStartValue, translatedEndMs, translatedEndValue);
+        if (snap) {
+          slopeMeasurement.startMs = snap.startRow.ms;
+          slopeMeasurement.startValue = snap.startRow.extranonce;
+          slopeMeasurement.startHeight = snap.startRow.height;
+          slopeMeasurement.endMs = snap.endRow.ms;
+          slopeMeasurement.endValue = snap.endRow.extranonce;
+          slopeMeasurement.hoverMs = slopeMeasurement.endMs;
+          slopeMeasurement.hoverValue = slopeMeasurement.endValue;
+          slopeMeasurement.endHeight = snap.endRow.height;
+          slopeMeasurement.hoverHeight = slopeMeasurement.endHeight;
+          render();
+          return;
+        }
+        slopeMeasurement.startMs = translatedStartMs;
+        slopeMeasurement.endMs = translatedEndMs;
+        slopeMeasurement.hoverMs = slopeMeasurement.endMs;
+        slopeMeasurement.startValue = translatedStartValue;
+        slopeMeasurement.endValue = translatedEndValue;
+        slopeMeasurement.hoverValue = slopeMeasurement.endValue;
+        slopeMeasurement.startHeight = null;
+        slopeMeasurement.endHeight = null;
+        slopeMeasurement.hoverHeight = null;
+      }
+      render();
+      return;
+    }
     if (chartDrag.kind === "y-axis") {
       const dy = event.clientY - chartDrag.clientY;
       if (Math.abs(dy) > 3) chartDrag.moved = true;
@@ -4514,10 +5238,14 @@
   function endChartDrag() {
     if (!chartDrag) return;
     const wasYAxisDrag = chartDrag.kind === "y-axis";
-    suppressNextChartClick = chartDrag.moved;
+    const wasSlopeDrag = chartDrag.kind === "slope";
+    suppressNextChartClick = chartDrag.moved || wasSlopeDrag;
     chartDrag = null;
     canvas.classList.remove("dragging");
-    if (wasYAxisDrag) saveState();
+    canvas.classList.remove("slope-grab-hover");
+    canvas.classList.remove("axis-x-hover");
+    canvas.classList.remove("axis-y-hover");
+    if (wasYAxisDrag || wasSlopeDrag) saveState();
     window.setTimeout(() => {
       suppressNextChartClick = false;
     }, 0);
@@ -4670,6 +5398,7 @@
     els.downloadPanelBtn?.addEventListener("click", exportVideo);
     els.chartPanModeBtn?.addEventListener("click", () => setChartInteractionMode("pan"));
     els.chartMeasureModeBtn?.addEventListener("click", () => setChartInteractionMode("measure"));
+    els.chartSlopeModeBtn?.addEventListener("click", () => setChartInteractionMode("slope"));
     els.filtersBtn?.addEventListener("click", toggleFiltersPanel);
     els.filtersClose?.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -4899,6 +5628,17 @@
     canvas.addEventListener("dblclick", handleChartDoubleClick);
     canvas.addEventListener("mouseleave", () => {
       canvas.classList.remove("target-pick-hover");
+      canvas.classList.remove("slope-grab-hover");
+      canvas.classList.remove("axis-x-hover");
+      canvas.classList.remove("axis-y-hover");
+      if (chartInteractionMode === "measure" && !timeMeasurement && Number.isFinite(measurementHoverHeight)) {
+        measurementHoverHeight = null;
+        render();
+      }
+      if (chartInteractionMode === "slope" && !slopeMeasurement && Number.isFinite(slopeHoverHeight)) {
+        slopeHoverHeight = null;
+        render();
+      }
       hideChartTooltip();
     });
     canvas.addEventListener("wheel", handleChartWheel, { passive: false });
@@ -4922,7 +5662,7 @@
       }
     });
     window.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && chartInteractionMode === "measure" && cancelActiveMeasurement()) {
+      if (event.key === "Escape" && (chartInteractionMode === "measure" || chartInteractionMode === "slope") && cancelActiveMeasurement()) {
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation?.();
@@ -5014,6 +5754,7 @@
       Object.assign(state, shared);
       delete state.chartInteractionMode;
       delete state.timeMeasurement;
+      delete state.slopeMeasurement;
       applyChartInteractionSnapshot(shared);
       spentRewardsPanelOpen = !!shared.sidePanelOpen;
       const sharedHighlightedHeight = Number(shared.highlightedSpentBlockHeight);
