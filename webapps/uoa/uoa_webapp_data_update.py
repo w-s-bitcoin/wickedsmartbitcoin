@@ -314,6 +314,98 @@ CURRENCY_NAME_OVERRIDES = {
     "XPT": "platinum",
 }
 
+PEGGED_CURRENCY_REFERENCES = {
+    "AED": "USD",
+    "ANG": "USD",
+    "AWG": "USD",
+    "BAM": "EUR",
+    "BBD": "USD",
+    "BHD": "USD",
+    "BMD": "USD",
+    "BND": "SGD",
+    "BSD": "USD",
+    "BTN": "INR",
+    "BZD": "USD",
+    "CVE": "EUR",
+    "DJF": "USD",
+    "DKK": "EUR",
+    "ERN": "USD",
+    "FKP": "GBP",
+    "GGP": "GBP",
+    "GIP": "GBP",
+    "HKD": "USD",
+    "IMP": "GBP",
+    "JEP": "GBP",
+    "JOD": "USD",
+    "KMF": "EUR",
+    "KYD": "USD",
+    "LSL": "ZAR",
+    "MOP": "HKD",
+    "NAD": "ZAR",
+    "NPR": "INR",
+    "OMR": "USD",
+    "PAB": "USD",
+    "QAR": "USD",
+    "SAR": "USD",
+    "SHP": "GBP",
+    "STN": "EUR",
+    "SVC": "USD",
+    "SZL": "ZAR",
+    "TMT": "USD",
+    "XAF": "EUR",
+    "XCD": "USD",
+    "XCG": "USD",
+    "XOF": "EUR",
+    "XPF": "EUR",
+}
+
+CURRENCY_GROUP_DEFINITIONS = {
+    "g10": {
+        "label": "G10",
+        "currencies": ["USD", "EUR", "JPY", "GBP", "CHF", "CAD", "AUD", "NZD", "SEK", "NOK"],
+    },
+    "g20": {
+        "label": "G20",
+        "currencies": ["ARS", "AUD", "BRL", "CAD", "CNY", "EUR", "GBP", "IDR", "INR", "JPY", "KRW", "MXN", "RUB", "SAR", "TRY", "USD", "ZAR"],
+    },
+    "americas": {
+        "label": "Americas",
+        "currencies": ["ARS", "BBD", "BMD", "BOB", "BRL", "BSD", "BZD", "CAD", "CLP", "COP", "CRC", "CUP", "DOP", "GTQ", "GYD", "HNL", "HTG", "JMD", "KYD", "MXN", "PAB", "PEN", "PYG", "SRD", "TTD", "USD", "UYU", "VES", "XCD"],
+    },
+    "latam": {
+        "label": "LATAM",
+        "currencies": ["ARS", "BOB", "BRL", "CLP", "COP", "CRC", "CUP", "DOP", "GTQ", "HNL", "HTG", "MXN", "PAB", "PEN", "PYG", "SRD", "UYU", "VES"],
+    },
+    "mena": {
+        "label": "MENA",
+        "currencies": ["AED", "BHD", "DZD", "EGP", "ILS", "IQD", "IRR", "JOD", "KWD", "LBP", "LYD", "MAD", "OMR", "QAR", "SAR", "SYP", "TND", "TRY", "YER"],
+    },
+    "africa": {
+        "label": "Africa",
+        "currencies": ["AOA", "BIF", "BWP", "CDF", "CVE", "DJF", "DZD", "EGP", "ERN", "ETB", "GHS", "GMD", "GNF", "KES", "KMF", "LRD", "LSL", "LYD", "MAD", "MGA", "MRU", "MUR", "MWK", "MZN", "NAD", "NGN", "RWF", "SCR", "SDG", "SHP", "SLE", "SOS", "SSP", "STN", "SZL", "TND", "TZS", "UGX", "XAF", "XOF", "ZAR", "ZMW", "ZWG"],
+    },
+    "asia": {
+        "label": "Asia",
+        "currencies": ["AED", "AFN", "AMD", "AZN", "BDT", "BHD", "BND", "BTN", "CNY", "GEL", "HKD", "IDR", "ILS", "INR", "IQD", "IRR", "JOD", "JPY", "KGS", "KHR", "KPW", "KRW", "KWD", "KZT", "LAK", "LBP", "LKR", "MNT", "MOP", "MMK", "MVR", "MYR", "NPR", "OMR", "PHP", "PKR", "QAR", "SAR", "SGD", "SYP", "THB", "TJS", "TMT", "TWD", "UZS", "VND", "YER"],
+    },
+    "europe": {
+        "label": "Europe",
+        "currencies": ["ALL", "AMD", "AZN", "BAM", "BGN", "BYN", "CHF", "CZK", "DKK", "EUR", "GBP", "GEL", "GGP", "GIP", "HUF", "IMP", "ISK", "JEP", "MDL", "MKD", "NOK", "PLN", "RON", "RSD", "RUB", "SEK", "TRY", "UAH"],
+    },
+    "southeast_asia": {
+        "label": "Southeast Asia",
+        "currencies": ["BND", "IDR", "KHR", "LAK", "MMK", "MYR", "PHP", "SGD", "THB", "VND"],
+    },
+    "nordics": {
+        "label": "Nordics",
+        "currencies": ["DKK", "EUR", "ISK", "NOK", "SEK"],
+    },
+    "monetary_metals": {
+        "label": "Monetary Metals",
+        "currencies": ["XAU", "XAG", "XPT", "XPD"],
+    },
+}
+
 MANUAL_FX_SCALE_CORRECTIONS = [
     {
         "column": "sypusd",
@@ -377,6 +469,13 @@ MANUAL_FX_SCALE_CORRECTIONS = [
         "end_date": "2026-05-11",
         "value": 0.000046,
         "reason": "Replace isolated bad upstream LAK/USD point; market sources stayed near 21,900 LAK/USD.",
+    },
+    {
+        "column": "lakusd",
+        "start_date": "2026-05-14",
+        "end_date": "2026-05-15",
+        "value": 0.0000456,
+        "reason": "Replace bad upstream LAK/USD spike; historical sources stayed near 21,900 LAK/USD.",
     },
 ]
 
@@ -1297,29 +1396,47 @@ def main():
     })
     usd_defaults = CURRENCY_FORMAT_OVERRIDES.get("USD", {"symbol": "$", "symbol_position": "left", "minor_unit": 2})
     currency_name = lambda code: CURRENCY_NAME_OVERRIDES.get(code, supported_currencies.get(code, code))
-
-    rebuilt_currencies = {
-        "BTC": btc_currency,
-        "USD": {
-            "name": currency_name("USD"),
-            "code": "USD",
-            "symbol": usd_defaults["symbol"],
-            "symbol_position": usd_defaults["symbol_position"],
-            "minor_unit": usd_defaults["minor_unit"],
-        },
+    currency_group_memberships = {
+        code: [
+            group_id
+            for group_id, group in CURRENCY_GROUP_DEFINITIONS.items()
+            if code in group["currencies"]
+        ]
+        for code in set(["BTC", "USD", *target_currencies])
     }
+    currency_group_memberships["BTC"] = ["universal"]
+    btc_currency["groups"] = currency_group_memberships["BTC"]
 
-    for code in target_currencies:
-        fmt = CURRENCY_FORMAT_OVERRIDES.get(code, {"symbol": code, "symbol_position": "left", "minor_unit": 2})
-        rebuilt_currencies[code] = {
+    def currency_metadata(code, fmt):
+        metadata = {
             "name": currency_name(code),
             "code": code,
             "symbol": fmt["symbol"],
             "symbol_position": fmt["symbol_position"],
             "minor_unit": fmt["minor_unit"],
         }
+        if code in PEGGED_CURRENCY_REFERENCES:
+            metadata["pegged"] = True
+            metadata["peg_reference"] = PEGGED_CURRENCY_REFERENCES[code]
+        groups = currency_group_memberships.get(code, [])
+        if groups:
+            metadata["groups"] = groups
+        return metadata
+
+    rebuilt_currencies = {
+        "BTC": btc_currency,
+        "USD": currency_metadata("USD", usd_defaults),
+    }
+
+    for code in target_currencies:
+        fmt = CURRENCY_FORMAT_OVERRIDES.get(code, {"symbol": code, "symbol_position": "left", "minor_unit": 2})
+        rebuilt_currencies[code] = currency_metadata(code, fmt)
 
     uoa_data["currencies"] = rebuilt_currencies
+    uoa_data["currency_groups"] = [
+        {"id": group_id, "label": group["label"]}
+        for group_id, group in CURRENCY_GROUP_DEFINITIONS.items()
+    ]
 
     # Update pairs list to reflect all available pairs.
     rebuilt_pairs = []
