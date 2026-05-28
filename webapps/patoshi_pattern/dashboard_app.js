@@ -520,6 +520,16 @@
     return { startMs: safeStart, endMs: safeStart + windowMs };
   }
 
+  function isHighlightedBlockCenteredInWindow() {
+    if (!highlightedSpentBlockCentered) return false;
+    const row = getHighlightedSpentRow();
+    if (!row || !Number.isFinite(row.ms)) return false;
+    const windowMs = getWindowMs();
+    if (windowMs <= 0) return false;
+    const midpoint = state.startMs + windowMs / 2;
+    return Math.abs(row.ms - midpoint) <= Math.max(HOUR / 2, windowMs * 0.01);
+  }
+
   function renderSpentRewardsPanel() {
     const previousScrollTop = els.spentRewardsList ? els.spentRewardsList.scrollTop : 0;
     document.body?.classList.toggle("patoshi-side-panel-open", spentRewardsPanelOpen);
@@ -4978,7 +4988,7 @@
   function setWindowMsAroundChartPoint(nextWindowMs, event) {
     const maxWindowMs = Math.max(getMinWindowMs(), maxMs - minMs);
     const windowMs = clamp(nextWindowMs, getMinWindowMs(), maxWindowMs);
-    if (highlightedSpentBlockCentered) {
+    if (isHighlightedBlockCenteredInWindow()) {
       const centeredRange = getRangeCenteredOnRow(getHighlightedSpentRow(), windowMs);
       if (centeredRange) {
         setLastAdjustedHandle("range");
