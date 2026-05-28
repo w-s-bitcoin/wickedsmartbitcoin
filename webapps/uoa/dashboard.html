@@ -26,6 +26,44 @@
               Compares any selected currency pair in both directions. The left chart shows the secondary currency priced in the primary currency; the right chart shows the primary currency priced in the secondary currency.
             </div>
           </div>
+          <div class="filters-menu-wrap uoa-settings-menu-wrap">
+            <button class="info-btn filters-btn uoa-settings-btn" type="button" id="uoaSettingsBtn" aria-label="Show dashboard settings" aria-haspopup="dialog" aria-expanded="false" aria-controls="uoaSettingsPanel">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5.5h8.3M16.7 5.5H21M3 12h4.3M12.7 12H21M3 18.5h10.3M18.7 18.5H21"></path><circle cx="14" cy="5.5" r="2.65"></circle><circle cx="10" cy="12" r="2.65"></circle><circle cx="16" cy="18.5" r="2.65"></circle></svg>
+            </button>
+            <div class="filters-panel uoa-settings-panel" id="uoaSettingsPanel" role="dialog" aria-label="Dashboard settings">
+              <div class="filters-panel-header uoa-settings-panel-header">
+                <h2 class="filters-panel-title uoa-settings-panel-title">Dashboard Settings</h2>
+                <button id="uoaSettingsClose" type="button" class="uoa-settings-panel-close filters-panel-close" aria-label="Close settings">×</button>
+              </div>
+              <div class="uoa-settings-row">
+                <label class="toggle chip-toggle uoa-settings-toggle" for="vesRedenomAdjustToggle">
+                  <input id="vesRedenomAdjustToggle" type="checkbox" />
+                  Redenomination Adjustment
+                </label>
+              </div>
+              <div class="uoa-settings-row">
+                <label class="toggle chip-toggle uoa-settings-toggle" for="showPeggedCurrenciesToggle">
+                  <input id="showPeggedCurrenciesToggle" type="checkbox" checked />
+                  Show Pegged Currencies
+                </label>
+              </div>
+              <div class="uoa-settings-row">
+                <label class="toggle chip-toggle uoa-settings-toggle" for="showMonetaryMetalsToggle">
+                  <input id="showMonetaryMetalsToggle" type="checkbox" checked />
+                  Show Monetary Metals
+                </label>
+              </div>
+              <div class="uoa-settings-row">
+                <span class="uoa-settings-label">Monetary Metals Denomination</span>
+                <div class="uoa-metal-denomination-options" id="metalDenominationOptions" role="group" aria-label="Monetary metals denomination">
+                  <button type="button" class="uoa-setting-option" data-metal-denomination="grain">grain</button>
+                  <button type="button" class="uoa-setting-option" data-metal-denomination="gram">gram</button>
+                  <button type="button" class="uoa-setting-option is-selected" data-metal-denomination="troy_ounce">troy ounce</button>
+                  <button type="button" class="uoa-setting-option" data-metal-denomination="kilogram">kilogram</button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="title-actions">
           <button type="button" class="copy-link-btn" id="copyDashboardLink" aria-label="Copy shareable dashboard link" data-tooltip="Copy shareable dashboard link">
@@ -50,11 +88,22 @@
             </div>
             <select id="updatedTimeZoneSelect" class="chip-menu-select chip-kpi-select-overlay dca-native-select" aria-label="Updated timestamp time zone"></select>
           </div>
-          <span id="pairKpiChip" class="chip"><span class="chip-label">Pair</span> <span id="pairKpiValue" class="chip-value"><span class="pair-primary">BTC</span><span class="pair-separator">/</span><span class="pair-secondary">USD</span></span></span>
-          <span id="primaryRankKpiChip" class="chip"><span class="chip-label">Primary Rank</span> <span id="primaryRankKpiValue" class="chip-value" data-loading-placeholder="000"></span></span>
-          <span id="secondaryRankKpiChip" class="chip"><span class="chip-label">Secondary Rank</span> <span id="secondaryRankKpiValue" class="chip-value" data-loading-placeholder="000"></span></span>
+          <span id="pairKpiChip" class="chip"><span class="chip-label">Pair</span> <span id="pairKpiValue" class="chip-value"><span class="pair-primary">BTC</span><span class="pair-separator"> </span><span class="pair-secondary">USD</span></span></span>
+          <span id="primaryRankKpiChip" class="chip"><span id="primaryRankKpiLabel" class="chip-label">BTC Rank</span> <span id="primaryRankKpiValue" class="chip-value" data-loading-placeholder="000"></span></span>
+          <span id="secondaryRankKpiChip" class="chip"><span id="secondaryRankKpiLabel" class="chip-label">USD Rank</span> <span id="secondaryRankKpiValue" class="chip-value" data-loading-placeholder="000"></span></span>
         </div>
         <div class="controls mono" aria-label="UoA filters">
+          <label class="chip">UoA Group
+            <div id="uoaGroupDropdown" class="dca-dropdown">
+              <span id="uoaGroupValue" class="dca-dropdown-value">All</span>
+              <button id="uoaGroupDropdownTrigger" class="dca-dropdown-trigger" type="button" aria-label="UoA Group"></button>
+              <span class="dca-dropdown-overlay" aria-hidden="true"></span>
+              <div id="uoaGroupDropdownMenu" class="dca-dropdown-menu" role="listbox" aria-label="UoA Group options"></div>
+            </div>
+            <select id="uoaGroupSelect" class="dca-native-select">
+              <option value="all" selected>All</option>
+            </select>
+          </label>
           <label class="chip">Primary UoA
             <div id="primaryUoaDropdown" class="dca-dropdown">
               <input id="primaryUoaValue" class="dca-dropdown-value dca-dropdown-input" type="text" value="BTC" aria-label="Search primary UoA" autocomplete="off" spellcheck="false" />
@@ -106,10 +155,6 @@
               <option value="log" selected>Log</option>
               <option value="linear">Linear</option>
             </select>
-          </label>
-          <label class="toggle chip-toggle" for="vesRedenomAdjustToggle">
-            <input id="vesRedenomAdjustToggle" type="checkbox" />
-            Redenomination Adjustment
           </label>
         </div>
       </header>

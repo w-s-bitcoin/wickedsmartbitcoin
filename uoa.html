@@ -141,7 +141,10 @@
         var iframe = document.getElementById('modal-embed');
         if (!iframe) return;
         if (!iframe.getAttribute('src')) {
-          iframe.setAttribute('src', 'webapps/uoa/dashboard.html');
+          var dashboardUrl = new URL('webapps/uoa/dashboard.html', window.location.href);
+          var state = new URLSearchParams(window.location.search || '').get('state');
+          if (state) dashboardUrl.searchParams.set('state', state);
+          iframe.setAttribute('src', dashboardUrl.pathname + dashboardUrl.search + dashboardUrl.hash);
         }
       })();
 
