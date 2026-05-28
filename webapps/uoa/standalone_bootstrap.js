@@ -105,6 +105,18 @@
     return normalizeJoinedPath(`${getPageBasePath() || ""}/`);
   }
 
+  function getDashboardUrl() {
+    try {
+      const url = new URL(DASHBOARD_URL, window.location.href);
+      const state = new URLSearchParams(window.location.search || "").get("state");
+      if (state) url.searchParams.set("state", state);
+      return `${url.pathname}${url.search}${url.hash}`;
+    } catch (_) {
+      const state = new URLSearchParams(window.location.search || "").get("state");
+      return state ? `${DASHBOARD_URL}?state=${encodeURIComponent(state)}` : DASHBOARD_URL;
+    }
+  }
+
   function slugFromFilename(filename) {
     return String(filename || "").replace(/\.png$/i, "");
   }
@@ -264,7 +276,7 @@
     document.body.style.overflow = "hidden";
     if (modalEmbedWrap) modalEmbedWrap.hidden = false;
     if (modalEmbed && !modalEmbed.getAttribute("src")) {
-      modalEmbed.setAttribute("src", DASHBOARD_URL);
+      modalEmbed.setAttribute("src", getDashboardUrl());
     }
     if (modalImg) {
       modalImg.style.opacity = "0";

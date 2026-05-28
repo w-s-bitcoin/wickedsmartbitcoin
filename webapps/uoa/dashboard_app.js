@@ -78,6 +78,10 @@
   };
   const LOG_MIN_POSITIVE = 1e-300;
   const DEFAULT_RANGE_PLAYBACK_FPS = 60;
+  const DEFAULT_UOA_GROUP = "all";
+  const MONETARY_METALS_GROUP = "monetary_metals";
+  const DEFAULT_SHOW_PEGGED_CURRENCIES = true;
+  const DEFAULT_SHOW_MONETARY_METALS = true;
   const DATE_RANGE_PLAYBACK_FPS_OPTIONS = [30, 60, 120, 240];
   const DATE_RANGE_THUMB_WIDTH_PX = 12;
   const DATE_RANGE_EXPORT_VIDEO_FPS = 30;
@@ -89,7 +93,15 @@
   const YELLOW_METAL_CURRENCIES = new Set(["XAU"]);
   const SILVER_METAL_CURRENCIES = new Set(["XAG", "XPT", "XPD"]);
   const GRAINS_PER_TROY_OUNCE = 480;
-  const GRAIN_AXIS_OUNCE_THRESHOLD = 0.01;
+  const GRAMS_PER_TROY_OUNCE = 31.1034768;
+  const DEFAULT_METAL_DENOMINATION = "troy_ounce";
+  const METAL_DENOMINATION_VALUES = ["grain", "gram", "troy_ounce", "kilogram"];
+  const METAL_DENOMINATION_META = {
+    grain: { unit: "gr", unitsPerOunce: GRAINS_PER_TROY_OUNCE },
+    gram: { unit: "g", unitsPerOunce: GRAMS_PER_TROY_OUNCE },
+    troy_ounce: { unit: "oz", unitsPerOunce: 1 },
+    kilogram: { unit: "kg", unitsPerOunce: GRAMS_PER_TROY_OUNCE / 1000 },
+  };
   const MONETARY_METAL_COLORS = {
     dark: {
       yellow: "#facc15",
@@ -167,10 +179,18 @@
   const el = {
     copyDashboardLink: document.getElementById("copyDashboardLink"),
     resetDashboard: document.getElementById("resetDashboard"),
+    uoaSettingsBtn: document.getElementById("uoaSettingsBtn"),
+    uoaSettingsPanel: document.getElementById("uoaSettingsPanel"),
+    uoaSettingsClose: document.getElementById("uoaSettingsClose"),
+    metalDenominationOptions: document.getElementById("metalDenominationOptions"),
+    showPeggedCurrenciesToggle: document.getElementById("showPeggedCurrenciesToggle"),
+    showMonetaryMetalsToggle: document.getElementById("showMonetaryMetalsToggle"),
     updatedKpiValue: document.getElementById("updatedKpiValue"),
     blockHeightKpiValue: document.getElementById("blockHeightKpiValue"),
     pairKpiValue: document.getElementById("pairKpiValue"),
+    primaryRankKpiLabel: document.getElementById("primaryRankKpiLabel"),
     primaryRankKpiValue: document.getElementById("primaryRankKpiValue"),
+    secondaryRankKpiLabel: document.getElementById("secondaryRankKpiLabel"),
     secondaryRankKpiValue: document.getElementById("secondaryRankKpiValue"),
     startDateBtn: document.getElementById("startDateBtn"),
     endDateBtn: document.getElementById("endDateBtn"),
@@ -214,6 +234,7 @@
     dateRangeStartSlider: document.getElementById("dateRangeStartSlider"),
     dateRangeEndSlider: document.getElementById("dateRangeEndSlider"),
     dateRangeRemaining: document.getElementById("dateRangeRemaining"),
+    uoaGroupSelect: document.getElementById("uoaGroupSelect"),
     primaryUoaSelect: document.getElementById("primaryUoaSelect"),
     secondaryUoaSelect: document.getElementById("secondaryUoaSelect"),
     scaleSelect: document.getElementById("scaleSelect"),
@@ -256,6 +277,10 @@
   let availableCurrencies = ["BTC", "USD"]; // Will be populated from uoaPairs
   let lastPrimaryUoa = "BTC";
   let lastSecondaryUoa = "USD";
+  let selectedUoaGroup = DEFAULT_UOA_GROUP;
+  let monetaryMetalDenomination = DEFAULT_METAL_DENOMINATION;
+  let showPeggedCurrencies = DEFAULT_SHOW_PEGGED_CURRENCIES;
+  let showMonetaryMetals = DEFAULT_SHOW_MONETARY_METALS;
   let preResetStateSnapshot = null;
   let suppressResetSnapshotClear = false;
   let customTooltipBound = false;
@@ -3603,17 +3628,67 @@
     return decodeShareState(params.get(SHARE_STATE_PARAM) || "");
   }
 
+  function normalizeUoaGroup(value) {
+    const id = String(value || DEFAULT_UOA_GROUP).trim().toLowerCase();
+    const options = getUoaGroupOptions();
+    return options.some((option) => option.id === id) ? id : DEFAULT_UOA_GROUP;
+  }
+
+  function getInitialUoaGroupSetting() {
+    const shareState = getDashboardShareStateFromUrl();
+    const stored = shareState || safeReadJson(UOA_FILTERS_KEY) || {};
+    return normalizeUoaGroup(stored.uoaGroup);
+  }
+
+  function getInitialShowPeggedCurrenciesSetting() {
+    const shareState = getDashboardShareStateFromUrl();
+    const stored = shareState || safeReadJson(UOA_FILTERS_KEY) || {};
+    return stored.showPeggedCurrencies === false ? false : DEFAULT_SHOW_PEGGED_CURRENCIES;
+  }
+
+  function getInitialShowMonetaryMetalsSetting() {
+    const shareState = getDashboardShareStateFromUrl();
+    const stored = shareState || safeReadJson(UOA_FILTERS_KEY) || {};
+    return stored.showMonetaryMetals === false ? false : DEFAULT_SHOW_MONETARY_METALS;
+  }
+
+  function getCurrencyPegReference(currencyCode) {
+    const reference = String(uoaPairs?.currencies?.[currencyCode]?.peg_reference || "").trim().toUpperCase();
+    return reference || "";
+  }
+
+  function resolveCurrencyForPegFilter(currencyCode) {
+    const code = String(currencyCode || "").trim().toUpperCase();
+    if (!code) return "";
+    if (availableCurrencies.includes(code)) return code;
+    if (!getShowPeggedCurrenciesSetting()) {
+      const reference = getCurrencyPegReference(code);
+      if (reference && availableCurrencies.includes(reference)) return reference;
+    }
+    return "";
+  }
+
+  function resolvePairForPegFilter(primary, secondary) {
+    const resolvedPrimary = resolveCurrencyForPegFilter(primary) || "BTC";
+    let resolvedSecondary = resolveCurrencyForPegFilter(secondary) || getFallbackSecondary(resolvedPrimary);
+    if (resolvedSecondary === resolvedPrimary) {
+      resolvedSecondary = resolvedPrimary === "BTC" ? getFallbackSecondary(resolvedPrimary) : "BTC";
+    }
+    if (!availableCurrencies.includes(resolvedSecondary) || resolvedSecondary === resolvedPrimary) {
+      resolvedSecondary = getFallbackSecondary(resolvedPrimary);
+    }
+    return { primary: resolvedPrimary, secondary: resolvedSecondary };
+  }
+
   function loadStoredFilters(bounds) {
     const shareState = getDashboardShareStateFromUrl();
     const stored = shareState || safeReadJson(UOA_FILTERS_KEY) || {};
 
-    const validPrimary = availableCurrencies.includes(stored.primaryUoa) ? stored.primaryUoa : "BTC";
-    const validSecondaryCandidate = availableCurrencies.includes(stored.secondaryUoa)
-      ? stored.secondaryUoa
-      : getFallbackSecondary(validPrimary);
-    const validSecondary = validSecondaryCandidate === validPrimary
-      ? getFallbackSecondary(validPrimary)
-      : validSecondaryCandidate;
+    const uoaGroup = normalizeUoaGroup(stored.uoaGroup);
+    selectedUoaGroup = uoaGroup;
+    const resolvedPair = resolvePairForPegFilter(stored.primaryUoa, stored.secondaryUoa);
+    const validPrimary = resolvedPair.primary;
+    const validSecondary = resolvedPair.secondary;
 
     const defaultPrimaryBounds = getCurrencyDateIndexBounds(validPrimary);
     const defaultStart = defaultPrimaryBounds?.minIso || bounds.min;
@@ -3643,6 +3718,9 @@
     const scale = stored.scaleMode === "linear" ? "linear" : "log";
     const orderMode = ORDER_MODES.includes(stored.orderMode) ? stored.orderMode : "alpha-asc";
     const smoothVesRedenom = stored.smoothVesRedenom === false ? false : true;
+    const metalDenomination = normalizeMetalDenomination(stored.metalDenomination);
+    const storedShowPeggedCurrencies = stored.showPeggedCurrencies === false ? false : DEFAULT_SHOW_PEGGED_CURRENCIES;
+    const storedShowMonetaryMetals = stored.showMonetaryMetals === false ? false : DEFAULT_SHOW_MONETARY_METALS;
     const storedPlaybackFps = Number(stored.playbackFps);
     const playbackFps = Number.isFinite(storedPlaybackFps) && storedPlaybackFps > 0
       ? storedPlaybackFps
@@ -3674,7 +3752,11 @@
       secondaryUoa: validSecondary,
       scaleMode: scale,
       orderMode,
+      uoaGroup,
       smoothVesRedenom,
+      metalDenomination,
+      showPeggedCurrencies: storedShowPeggedCurrencies,
+      showMonetaryMetals: storedShowMonetaryMetals,
       playbackFps,
       chartMode,
       timeZone,
@@ -3689,16 +3771,17 @@
     const shareState = getDashboardShareStateFromUrl();
     const stored = shareState || safeReadJson(UOA_FILTERS_KEY) || {};
 
-    const validPrimary = availableCurrencies.includes(stored.primaryUoa) ? stored.primaryUoa : "BTC";
-    const validSecondaryCandidate = availableCurrencies.includes(stored.secondaryUoa)
-      ? stored.secondaryUoa
-      : getFallbackSecondary(validPrimary);
-    const validSecondary = validSecondaryCandidate === validPrimary
-      ? getFallbackSecondary(validPrimary)
-      : validSecondaryCandidate;
+    const uoaGroup = normalizeUoaGroup(stored.uoaGroup);
+    selectedUoaGroup = uoaGroup;
+    const resolvedPair = resolvePairForPegFilter(stored.primaryUoa, stored.secondaryUoa);
+    const validPrimary = resolvedPair.primary;
+    const validSecondary = resolvedPair.secondary;
     const scaleMode = stored.scaleMode === "linear" ? "linear" : "log";
     const orderMode = ORDER_MODES.includes(stored.orderMode) ? stored.orderMode : "alpha-asc";
     const smoothVesRedenom = stored.smoothVesRedenom === false ? false : true;
+    const metalDenomination = normalizeMetalDenomination(stored.metalDenomination);
+    const storedShowPeggedCurrencies = stored.showPeggedCurrencies === false ? false : DEFAULT_SHOW_PEGGED_CURRENCIES;
+    const storedShowMonetaryMetals = stored.showMonetaryMetals === false ? false : DEFAULT_SHOW_MONETARY_METALS;
     const storedPlaybackFps = Number(stored.playbackFps);
     const playbackFps = Number.isFinite(storedPlaybackFps) && storedPlaybackFps > 0
       ? storedPlaybackFps
@@ -3716,7 +3799,11 @@
       secondaryUoa: validSecondary,
       scaleMode,
       orderMode,
+      uoaGroup,
       smoothVesRedenom,
+      metalDenomination,
+      showPeggedCurrencies: storedShowPeggedCurrencies,
+      showMonetaryMetals: storedShowMonetaryMetals,
       playbackFps,
       chartMode,
       timeZone,
@@ -3726,9 +3813,16 @@
   function hydrateTitleAndFilterShell(shellState = loadStoredFilterShellState()) {
     if (el.primaryUoaSelect) el.primaryUoaSelect.value = shellState.primaryUoa;
     if (el.secondaryUoaSelect) el.secondaryUoaSelect.value = shellState.secondaryUoa;
+    selectedUoaGroup = normalizeUoaGroup(shellState.uoaGroup);
+    syncUoaGroupSelect();
     if (el.scaleSelect) el.scaleSelect.value = shellState.scaleMode;
     if (el.orderBySelect) el.orderBySelect.value = shellState.orderMode;
     if (el.vesRedenomAdjustToggle) el.vesRedenomAdjustToggle.checked = shellState.smoothVesRedenom;
+    showPeggedCurrencies = shellState.showPeggedCurrencies !== false;
+    showMonetaryMetals = shellState.showMonetaryMetals !== false;
+    if (el.showPeggedCurrenciesToggle) el.showPeggedCurrenciesToggle.checked = showPeggedCurrencies;
+    if (el.showMonetaryMetalsToggle) el.showMonetaryMetalsToggle.checked = showMonetaryMetals;
+    setMetalDenomination(shellState.metalDenomination, { persist: false, render: false, updateReset: false, force: true });
 
     updatedKpiTimeZone = shellState.timeZone || getPreferredDashboardTimeZone();
     const updatedTimeZoneSelectEl = document.getElementById("updatedTimeZoneSelect");
@@ -3779,11 +3873,15 @@
         endDate: endDateValue,
         rangePreset,
         rollingDaysToToday,
+        uoaGroup: getActiveUoaGroup(),
         primaryUoa: el.primaryUoaSelect?.value || "",
         secondaryUoa: el.secondaryUoaSelect?.value || "",
         scaleMode: el.scaleSelect?.value === "linear" ? "linear" : "log",
         orderMode: ORDER_MODES.includes(el.orderBySelect?.value) ? el.orderBySelect.value : "alpha-asc",
         smoothVesRedenom: !!el.vesRedenomAdjustToggle?.checked,
+        metalDenomination: getMetalDenominationSetting(),
+        showPeggedCurrencies: getShowPeggedCurrenciesSetting(),
+        showMonetaryMetals: getShowMonetaryMetalsSetting(),
         playbackFps: getSelectedDateRangePlaybackFps(),
         chartMode: getVisibleChartMode(),
         timeZone: updatedKpiTimeZone || "UTC",
@@ -3805,11 +3903,15 @@
     return {
       startDate,
       endDate,
+      uoaGroup: DEFAULT_UOA_GROUP,
       primaryUoa,
       secondaryUoa,
       scaleMode: "log",
       orderMode: "alpha-asc",
       smoothVesRedenom: true,
+      metalDenomination: DEFAULT_METAL_DENOMINATION,
+      showPeggedCurrencies: DEFAULT_SHOW_PEGGED_CURRENCIES,
+      showMonetaryMetals: DEFAULT_SHOW_MONETARY_METALS,
       playbackFps: DEFAULT_RANGE_PLAYBACK_FPS,
       chartMode: "both",
       timeZone: "UTC",
@@ -3820,11 +3922,15 @@
     return {
       startDate: requestedDateRange.startIso || el.startDateInput?.value || "",
       endDate: requestedDateRange.endIso || el.endDateInput?.value || "",
+      uoaGroup: getActiveUoaGroup(),
       primaryUoa: el.primaryUoaSelect?.value || "BTC",
       secondaryUoa: el.secondaryUoaSelect?.value || "USD",
       scaleMode: el.scaleSelect?.value === "linear" ? "linear" : "log",
       orderMode: ORDER_MODES.includes(el.orderBySelect?.value) ? el.orderBySelect.value : "alpha-asc",
       smoothVesRedenom: !!el.vesRedenomAdjustToggle?.checked,
+      metalDenomination: getMetalDenominationSetting(),
+      showPeggedCurrencies: getShowPeggedCurrenciesSetting(),
+      showMonetaryMetals: getShowMonetaryMetalsSetting(),
       playbackFps: getSelectedDateRangePlaybackFps(),
       chartMode: getVisibleChartMode(),
       timeZone: updatedKpiTimeZone || "UTC",
@@ -3838,9 +3944,17 @@
 
     suppressResetSnapshotClear = true;
     try {
-      const primary = availableCurrencies.includes(snapshot.primaryUoa) ? snapshot.primaryUoa : "BTC";
-      const secondaryCandidate = availableCurrencies.includes(snapshot.secondaryUoa) ? snapshot.secondaryUoa : getFallbackSecondary(primary);
-      const secondary = secondaryCandidate === primary ? getFallbackSecondary(primary) : secondaryCandidate;
+      showPeggedCurrencies = snapshot.showPeggedCurrencies !== false;
+      showMonetaryMetals = snapshot.showMonetaryMetals !== false;
+      selectedUoaGroup = normalizeUoaGroup(snapshot.uoaGroup);
+      syncUoaGroupSelect();
+      syncShowPeggedCurrenciesToggle();
+      syncShowMonetaryMetalsToggle();
+      populateCurrencyDropdowns({ preserveSelection: true });
+      applyCurrencyOrdering();
+      const resolvedPair = resolvePairForPegFilter(snapshot.primaryUoa, snapshot.secondaryUoa);
+      const primary = resolvedPair.primary;
+      const secondary = resolvedPair.secondary;
       const startDate = clampIsoDate(snapshot.startDate, bounds.min, bounds.max, bounds.min);
       const endDate = clampIsoDate(snapshot.endDate, bounds.min, bounds.max, bounds.max);
 
@@ -3854,6 +3968,7 @@
         el.orderBySelect.value = ORDER_MODES.includes(snapshot.orderMode) ? snapshot.orderMode : "alpha-asc";
       }
       if (el.vesRedenomAdjustToggle) el.vesRedenomAdjustToggle.checked = snapshot.smoothVesRedenom !== false;
+      setMetalDenomination(snapshot.metalDenomination, { persist: false, render: false, updateReset: false, force: true });
       updatedKpiTimeZone = setPreferredDashboardTimeZone(String(snapshot.timeZone || "UTC"));
       if (document.getElementById("updatedTimeZoneSelect")) {
         document.getElementById("updatedTimeZoneSelect").value = updatedKpiTimeZone;
@@ -3906,11 +4021,15 @@
   function statesMatch(current, defaults) {
     return current.startDate === defaults.startDate
       && current.endDate === defaults.endDate
+      && current.uoaGroup === defaults.uoaGroup
       && current.primaryUoa === defaults.primaryUoa
       && current.secondaryUoa === defaults.secondaryUoa
       && current.scaleMode === defaults.scaleMode
       && current.orderMode === defaults.orderMode
       && current.smoothVesRedenom === defaults.smoothVesRedenom
+      && current.metalDenomination === defaults.metalDenomination
+      && current.showPeggedCurrencies === defaults.showPeggedCurrencies
+      && current.showMonetaryMetals === defaults.showMonetaryMetals
       && Number(current.playbackFps) === Number(defaults.playbackFps)
       && current.chartMode === defaults.chartMode
       && current.timeZone === defaults.timeZone;
@@ -4030,6 +4149,176 @@
     updateResetButtonUi();
   }
 
+  function syncMetalDenominationButtons() {
+    const current = getMetalDenominationSetting();
+    el.metalDenominationOptions?.querySelectorAll("[data-metal-denomination]").forEach((button) => {
+      const selected = normalizeMetalDenomination(button.dataset.metalDenomination) === current;
+      button.classList.toggle("is-selected", selected);
+      button.setAttribute("aria-pressed", String(selected));
+    });
+  }
+
+  function setMetalDenomination(value, options = {}) {
+    const next = normalizeMetalDenomination(value);
+    const changed = next !== monetaryMetalDenomination;
+    monetaryMetalDenomination = next;
+    syncMetalDenominationButtons();
+    if (!changed && !options.force) return;
+    if (options.persist !== false) persistFilters();
+    if (options.render !== false) renderAll();
+    if (options.updateReset !== false) updateResetButtonUi();
+  }
+
+  function getActiveUoaGroup() {
+    return normalizeUoaGroup(el.uoaGroupSelect?.value || selectedUoaGroup);
+  }
+
+  function syncUoaGroupSelect() {
+    if (el.uoaGroupSelect) {
+      el.uoaGroupSelect.value = normalizeUoaGroup(selectedUoaGroup);
+    }
+  }
+
+  function setUoaGroup(value, options = {}) {
+    const next = normalizeUoaGroup(value);
+    const changed = next !== selectedUoaGroup;
+    selectedUoaGroup = next;
+    syncUoaGroupSelect();
+    if (!changed && !options.force) return;
+    populateCurrencyDropdowns({ preserveSelection: true });
+    applyCurrencyOrdering();
+    syncPairControls();
+    if (options.persist !== false) persistFilters();
+    if (options.render !== false) renderAll();
+    if (options.updateReset !== false) updateResetButtonUi();
+  }
+
+  function getShowPeggedCurrenciesSetting() {
+    return showPeggedCurrencies !== false;
+  }
+
+  function getShowMonetaryMetalsSetting() {
+    return showMonetaryMetals !== false;
+  }
+
+  function syncShowPeggedCurrenciesToggle() {
+    if (el.showPeggedCurrenciesToggle) {
+      el.showPeggedCurrenciesToggle.checked = getShowPeggedCurrenciesSetting();
+    }
+  }
+
+  function syncShowMonetaryMetalsToggle() {
+    if (el.showMonetaryMetalsToggle) {
+      el.showMonetaryMetalsToggle.checked = getShowMonetaryMetalsSetting();
+    }
+  }
+
+  function setShowPeggedCurrencies(value, options = {}) {
+    const next = value !== false;
+    const changed = next !== showPeggedCurrencies;
+    showPeggedCurrencies = next;
+    syncShowPeggedCurrenciesToggle();
+    if (!changed && !options.force) return;
+    populateCurrencyDropdowns({ preserveSelection: true });
+    applyCurrencyOrdering();
+    syncPairControls();
+    if (options.persist !== false) persistFilters();
+    if (options.render !== false) renderAll();
+    if (options.updateReset !== false) updateResetButtonUi();
+  }
+
+  function setShowMonetaryMetals(value, options = {}) {
+    const next = value !== false;
+    const changed = next !== showMonetaryMetals;
+    showMonetaryMetals = next;
+    syncShowMonetaryMetalsToggle();
+    if (!changed && !options.force) return;
+    populateCurrencyDropdowns({ preserveSelection: true });
+    applyCurrencyOrdering();
+    syncPairControls();
+    if (options.persist !== false) persistFilters();
+    if (options.render !== false) renderAll();
+    if (options.updateReset !== false) updateResetButtonUi();
+  }
+
+  function positionUoaSettingsPanel() {
+    if (!el.uoaSettingsBtn || !el.uoaSettingsPanel) return;
+    const topbar = el.uoaSettingsBtn.closest(".topbar");
+    if (!topbar) return;
+    const topbarRect = topbar.getBoundingClientRect();
+    const buttonRect = el.uoaSettingsBtn.getBoundingClientRect();
+    const topbarStyle = window.getComputedStyle(topbar);
+    const contentLeft = topbarRect.left + (parseFloat(topbarStyle.paddingLeft) || 0);
+    el.uoaSettingsPanel.style.setProperty("--filters-panel-left", `${Math.round(contentLeft - buttonRect.left)}px`);
+    const panelTop = buttonRect.bottom + 8;
+    const playbackPanel = document.querySelector(".date-range-panel");
+    const playbackBottom = playbackPanel?.getBoundingClientRect().bottom || (window.innerHeight - 12);
+    const viewportBottom = window.innerHeight - 12;
+    const availableHeight = Math.min(playbackBottom, viewportBottom) - panelTop;
+    el.uoaSettingsPanel.style.setProperty("--filters-panel-max-height", `${Math.max(1, Math.floor(availableHeight))}px`);
+  }
+
+  function setUoaSettingsPanelOpen(open) {
+    if (!el.uoaSettingsBtn || !el.uoaSettingsPanel) return;
+    if (open) positionUoaSettingsPanel();
+    el.uoaSettingsPanel.classList.toggle("open", open);
+    el.uoaSettingsBtn.classList.toggle("is-open", open);
+    el.uoaSettingsBtn.setAttribute("aria-expanded", String(open));
+  }
+
+  function bindUoaSettingsPanel() {
+    if (el.uoaSettingsBtn && el.uoaSettingsBtn.dataset.bound !== "1") {
+      el.uoaSettingsBtn.dataset.bound = "1";
+      el.uoaSettingsBtn.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setUoaSettingsPanelOpen(!el.uoaSettingsPanel?.classList.contains("open"));
+      });
+    }
+    if (el.uoaSettingsClose && el.uoaSettingsClose.dataset.bound !== "1") {
+      el.uoaSettingsClose.dataset.bound = "1";
+      el.uoaSettingsClose.addEventListener("click", (event) => {
+        event.stopPropagation();
+        setUoaSettingsPanelOpen(false);
+      });
+    }
+    if (el.uoaSettingsPanel && el.uoaSettingsPanel.dataset.bound !== "1") {
+      el.uoaSettingsPanel.dataset.bound = "1";
+      el.uoaSettingsPanel.addEventListener("click", (event) => {
+        event.stopPropagation();
+      });
+    }
+    if (el.metalDenominationOptions && el.metalDenominationOptions.dataset.bound !== "1") {
+      el.metalDenominationOptions.dataset.bound = "1";
+      el.metalDenominationOptions.addEventListener("click", (event) => {
+        const button = event.target?.closest?.("[data-metal-denomination]");
+        if (!button) return;
+        setMetalDenomination(button.dataset.metalDenomination);
+      });
+    }
+    if (el.showPeggedCurrenciesToggle && el.showPeggedCurrenciesToggle.dataset.bound !== "1") {
+      el.showPeggedCurrenciesToggle.dataset.bound = "1";
+      el.showPeggedCurrenciesToggle.addEventListener("change", () => {
+        setShowPeggedCurrencies(el.showPeggedCurrenciesToggle.checked);
+      });
+    }
+    if (el.showMonetaryMetalsToggle && el.showMonetaryMetalsToggle.dataset.bound !== "1") {
+      el.showMonetaryMetalsToggle.dataset.bound = "1";
+      el.showMonetaryMetalsToggle.addEventListener("change", () => {
+        setShowMonetaryMetals(el.showMonetaryMetalsToggle.checked);
+      });
+    }
+    if (bindUoaSettingsPanel.bound !== true) {
+      bindUoaSettingsPanel.bound = true;
+      window.addEventListener("resize", () => {
+        if (el.uoaSettingsPanel?.classList.contains("open")) positionUoaSettingsPanel();
+      });
+    }
+    syncMetalDenominationButtons();
+    syncShowPeggedCurrenciesToggle();
+    syncShowMonetaryMetalsToggle();
+  }
+
   function bindDateRangeSessionPersistence() {
     if (dateRangeSessionPersistenceBound) return;
     dateRangeSessionPersistenceBound = true;
@@ -4055,6 +4344,13 @@
       triggerId: "updatedTimeZoneDropdownTrigger",
       menuId: "updatedTimeZoneDropdownMenu",
       valueId: null,
+    },
+    {
+      selectId: "uoaGroupSelect",
+      dropdownId: "uoaGroupDropdown",
+      triggerId: "uoaGroupDropdownTrigger",
+      menuId: "uoaGroupDropdownMenu",
+      valueId: "uoaGroupValue",
     },
     {
       selectId: "primaryUoaSelect",
@@ -4261,10 +4557,77 @@
     return Array.from(byIso.values()).sort((a, b) => a.date - b.date);
   }
 
-  function populateCurrencyDropdowns() {
-    if (!uoaPairs || !uoaPairs.currencies) return;
+  function isCurrencyPegged(currencyCode) {
+    return Boolean(uoaPairs?.currencies?.[currencyCode]?.pegged);
+  }
+
+  function isMonetaryMetalCurrency(currencyCode) {
+    return isPreciousMetalCurrency(String(currencyCode || "").trim().toUpperCase());
+  }
+
+  function getUoaGroupOptions() {
+    const groups = Array.isArray(uoaPairs?.currency_groups)
+      ? uoaPairs.currency_groups
+      : [];
+    const normalizedGroups = groups
+      .map((group) => ({
+        id: String(group?.id || "").trim().toLowerCase(),
+        label: String(group?.label || group?.id || "").trim(),
+      }))
+      .filter((group) => group.id && group.id !== DEFAULT_UOA_GROUP && group.label);
+    return [{ id: DEFAULT_UOA_GROUP, label: "All" }, ...normalizedGroups];
+  }
+
+  function populateUoaGroupSelect() {
+    if (!el.uoaGroupSelect) return;
+    const options = getUoaGroupOptions();
+    el.uoaGroupSelect.innerHTML = options
+      .map((group) => `<option value="${group.id}">${group.label}</option>`)
+      .join("");
+    selectedUoaGroup = normalizeUoaGroup(selectedUoaGroup);
+    el.uoaGroupSelect.value = selectedUoaGroup;
+    if (!isRenderingDateRangeExportFrame) syncAllDropdowns();
+  }
+
+  function getCurrencyGroupIds(currencyCode) {
+    const groups = uoaPairs?.currencies?.[currencyCode]?.groups;
+    return Array.isArray(groups)
+      ? groups.map((group) => String(group || "").trim().toLowerCase()).filter(Boolean)
+      : [];
+  }
+
+  function currencyMatchesActiveGroup(currencyCode) {
+    const code = String(currencyCode || "").trim().toUpperCase();
+    if (code === "BTC") return true;
+    const group = getActiveUoaGroup();
+    if (group === DEFAULT_UOA_GROUP) return true;
+    return getCurrencyGroupIds(code).includes(group);
+  }
+
+  function getAvailableCurrencyCodes() {
+    if (!uoaPairs || !uoaPairs.currencies) return ["BTC", "USD"];
     const currencies = Object.keys(uoaPairs.currencies);
-    availableCurrencies = ["BTC", ...currencies.filter(c => c !== "BTC")];
+    return ["BTC", ...currencies.filter((code) => {
+      if (code === "BTC") return false;
+      if (!currencyMatchesActiveGroup(code)) return false;
+      if (
+        !getShowMonetaryMetalsSetting()
+        && getActiveUoaGroup() !== MONETARY_METALS_GROUP
+        && isMonetaryMetalCurrency(code)
+      ) return false;
+      return getShowPeggedCurrenciesSetting() || !isCurrencyPegged(code);
+    })];
+  }
+
+  function populateCurrencyDropdowns(options = {}) {
+    if (!uoaPairs || !uoaPairs.currencies) return;
+    const preserveSelection = options.preserveSelection === true;
+    const previousPrimary = preserveSelection ? el.primaryUoaSelect?.value : "";
+    const previousSecondary = preserveSelection ? el.secondaryUoaSelect?.value : "";
+    availableCurrencies = getAvailableCurrencyCodes();
+    const resolvedPair = preserveSelection
+      ? resolvePairForPegFilter(previousPrimary, previousSecondary)
+      : { primary: "BTC", secondary: "USD" };
 
     // Update primary UoA select
     const primarySelect = el.primaryUoaSelect;
@@ -4272,7 +4635,7 @@
       primarySelect.innerHTML = availableCurrencies
         .map((c) => `<option value="${c}">${c}</option>`)
         .join("");
-      primarySelect.value = "BTC";
+      primarySelect.value = availableCurrencies.includes(resolvedPair.primary) ? resolvedPair.primary : "BTC";
     }
 
     // Update secondary UoA select
@@ -4281,7 +4644,10 @@
       secondarySelect.innerHTML = availableCurrencies
         .map((c) => `<option value="${c}">${c}</option>`)
         .join("");
-      secondarySelect.value = "USD";
+      const primary = primarySelect?.value || "BTC";
+      const fallbackSecondary = getFallbackSecondary(primary);
+      const nextSecondary = availableCurrencies.includes(resolvedPair.secondary) ? resolvedPair.secondary : fallbackSecondary;
+      secondarySelect.value = nextSecondary === primary ? fallbackSecondary : nextSecondary;
     }
 
     if (!isRenderingDateRangeExportFrame) syncAllDropdowns();
@@ -4439,7 +4805,19 @@
     ranked.forEach((code, index) => {
       rankMap[code] = index + 1;
     });
+    Object.defineProperty(rankMap, "__total", {
+      value: ranked.length,
+      enumerable: false,
+      configurable: true,
+    });
     return rankMap;
+  }
+
+  function formatCurrencyRankValue(rankMap, currencyCode) {
+    const rank = rankMap?.[currencyCode];
+    if (!Number.isFinite(rank)) return "";
+    const total = Number(rankMap?.__total);
+    return Number.isFinite(total) && total > 0 ? `${String(rank).padStart(String(total).length, " ")}/${total}` : String(rank);
   }
 
   function fmtUsd(v) {
@@ -4593,13 +4971,10 @@
   }
 
   function getTitleUnitLabel(currencyCode) {
-    const preciousMetalUnits = {
-      XAU: "oz gold",
-      XAG: "oz silver",
-      XPT: "oz platinum",
-      XPD: "oz palladium",
-    };
-    return preciousMetalUnits[currencyCode] || currencyCode;
+    if (isPreciousMetalCurrency(currencyCode)) {
+      return `${getMetalDenominationUnitLabel()} ${getPreciousMetalShortName(currencyCode)}`;
+    }
+    return currencyCode;
   }
 
   function getCurrencySymbolPosition(currencyCode) {
@@ -4612,10 +4987,10 @@
 
   function formatCurrencyWithSymbol(amountText, currencyCode) {
     const preciousMetalUnitByCode = {
-      XAU: "oz",
-      XAG: "oz",
-      XPT: "oz",
-      XPD: "oz",
+      XAU: getMetalDenominationUnitLabel(),
+      XAG: getMetalDenominationUnitLabel(),
+      XPT: getMetalDenominationUnitLabel(),
+      XPD: getMetalDenominationUnitLabel(),
     };
     if (preciousMetalUnitByCode[currencyCode]) {
       return `${amountText} ${preciousMetalUnitByCode[currencyCode]}`;
@@ -4678,64 +5053,49 @@
     return currencyCode === "XAU" || currencyCode === "XAG" || currencyCode === "XPT" || currencyCode === "XPD";
   }
 
-  function formatCompactOunceYAxisLabel(ouncesValue) {
-    if (!Number.isFinite(ouncesValue) || ouncesValue < 0) return "0";
-    if (ouncesValue === 0) return "0 oz";
-    if (ouncesValue < GRAIN_AXIS_OUNCE_THRESHOLD) {
-      return formatCompactGrainYAxisLabel(ouncesValue * GRAINS_PER_TROY_OUNCE);
-    }
+  function getPreciousMetalShortName(currencyCode) {
+    const names = {
+      XAU: "gold",
+      XAG: "silver",
+      XPT: "platinum",
+      XPD: "palladium",
+    };
+    return names[currencyCode] || String(currencyCode || "").toLowerCase();
+  }
 
-    let formatted;
-    if (ouncesValue >= 1000000000000) {
-      const t = ouncesValue / 1000000000000;
-      formatted = t >= 10 ? `${t.toFixed(0)}T` : `${t.toFixed(1)}T`;
-    } else if (ouncesValue >= 1000000000) {
-      const b = ouncesValue / 1000000000;
-      formatted = b >= 10 ? `${b.toFixed(0)}B` : `${b.toFixed(1)}B`;
-    } else if (ouncesValue >= 1000000) {
-      const m = ouncesValue / 1000000;
-      formatted = m >= 10 ? `${m.toFixed(0)}M` : `${m.toFixed(1)}M`;
-    } else if (ouncesValue >= 100000) {
-      const k = ouncesValue / 1000;
-      formatted = k >= 100 ? `${k.toFixed(0)}k` : `${k.toFixed(1)}k`;
-    } else if (ouncesValue >= 1000) {
-      const k = ouncesValue / 1000;
-      const kDecimals = k < 10 ? 2 : 1;
-      formatted = `${k.toFixed(kDecimals)}k`;
-    } else if (ouncesValue >= 100) {
-      formatted = `${Math.round(ouncesValue)}`;
-    } else if (ouncesValue >= 10) {
-      formatted = `${ouncesValue.toFixed(1)}`;
-    } else if (ouncesValue >= 1) {
-      formatted = `${ouncesValue.toFixed(2)}`;
-    } else {
-      if (ouncesValue > 0 && ouncesValue < 1e-8) {
-        formatted = ouncesValue
-          .toExponential(2)
-          .replace("e+", "e")
-          .replace(/e-0+/, "e-");
-      } else {
-        let decimals = 4;
-        if (ouncesValue < 0.01) {
-          decimals = 5;
-        }
-        if (ouncesValue < 0.001) {
-          decimals = Math.min(24, Math.max(6, -Math.floor(Math.log10(ouncesValue)) + 3));
-        }
-        formatted = `${ouncesValue.toFixed(decimals)}`;
-      }
-    }
+  function normalizeMetalDenomination(value) {
+    const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+    return METAL_DENOMINATION_VALUES.includes(normalized) ? normalized : DEFAULT_METAL_DENOMINATION;
+  }
 
-    if (formatted.includes(".") && !formatted.includes("e")) {
-      formatted = formatted.replace(/\.0+(?=[a-zA-Z]$)/, "");
-      formatted = formatted.replace(/(\.\d*?[1-9])0+(?=[a-zA-Z]$)/, "$1");
-      formatted = formatted.replace(/0+$/, "");
-      if (formatted.endsWith(".")) {
-        formatted = formatted.slice(0, -1);
-      }
-    }
+  function getMetalDenominationSetting() {
+    return normalizeMetalDenomination(monetaryMetalDenomination);
+  }
 
-    return `${formatted} oz`;
+  function getMetalDenominationMeta(denomination = getMetalDenominationSetting()) {
+    return METAL_DENOMINATION_META[normalizeMetalDenomination(denomination)] || METAL_DENOMINATION_META[DEFAULT_METAL_DENOMINATION];
+  }
+
+  function getMetalDenominationUnitLabel(denomination = getMetalDenominationSetting()) {
+    return getMetalDenominationMeta(denomination).unit;
+  }
+
+  function getMetalUnitsPerTroyOunce(denomination = getMetalDenominationSetting()) {
+    return getMetalDenominationMeta(denomination).unitsPerOunce || 1;
+  }
+
+  function convertTroyOuncesToMetalDenomination(ouncesValue, denomination = getMetalDenominationSetting()) {
+    if (!Number.isFinite(ouncesValue)) return ouncesValue;
+    return ouncesValue * getMetalUnitsPerTroyOunce(denomination);
+  }
+
+  function convertPairDenominatedValue(value, yCurrencyCode, pricedCurrencyCode) {
+    if (!Number.isFinite(value)) return value;
+    const yIsMetal = isPreciousMetalCurrency(yCurrencyCode);
+    const pricedIsMetal = isPreciousMetalCurrency(pricedCurrencyCode);
+    if (yIsMetal && !pricedIsMetal) return convertTroyOuncesToMetalDenomination(value);
+    if (!yIsMetal && pricedIsMetal) return value / getMetalUnitsPerTroyOunce();
+    return value;
   }
 
   function formatCompactGrainYAxisLabel(grainsValue) {
@@ -4776,28 +5136,118 @@
     return `${formatted} gr`;
   }
 
-  function formatOunceAmount(ouncesValue) {
-    if (!Number.isFinite(ouncesValue) || ouncesValue <= 0) return "0 oz";
-
-    const magnitude = Math.floor(Math.log10(Math.max(ouncesValue, 1e-12)));
-    const decimals = Math.min(8, Math.max(4, 3 - magnitude));
-
-    let txt = ouncesValue.toLocaleString("en-US", {
-      minimumFractionDigits: decimals,
-      maximumFractionDigits: decimals,
-    });
-
-    if (txt.includes(".")) {
-      txt = txt.replace(/0+$/, "");
-      if (txt.endsWith(".")) txt = txt.slice(0, -1);
+  function formatFixedMetalAmount(value, denomination = getMetalDenominationSetting()) {
+    const unit = getMetalDenominationUnitLabel(denomination);
+    if (!Number.isFinite(value) || value <= 0) return `0 ${unit}`;
+    if (normalizeMetalDenomination(denomination) === "grain") {
+      return formatCompactGrainYAxisLabel(value);
     }
 
-    return `${txt} oz`;
+    let formatted;
+    if (value >= 1000000000000) {
+      const t = value / 1000000000000;
+      formatted = t >= 10 ? `${t.toFixed(0)}T` : `${t.toFixed(1)}T`;
+    } else if (value >= 1000000000) {
+      const b = value / 1000000000;
+      formatted = b >= 10 ? `${b.toFixed(0)}B` : `${b.toFixed(1)}B`;
+    } else if (value >= 1000000) {
+      const m = value / 1000000;
+      formatted = m >= 10 ? `${m.toFixed(0)}M` : `${m.toFixed(1)}M`;
+    } else if (value >= 1000) {
+      const k = value / 1000;
+      formatted = k >= 100 ? `${k.toFixed(0)}k` : `${k.toFixed(k < 10 ? 2 : 1)}k`;
+    } else if (value >= 100) {
+      formatted = `${Math.round(value)}`;
+    } else if (value >= 10) {
+      formatted = `${value.toFixed(2)}`;
+    } else if (value >= 1) {
+      formatted = `${value.toFixed(3)}`;
+    } else if (value > 0 && value < 1e-8) {
+      formatted = value
+        .toExponential(2)
+        .replace("e+", "e")
+        .replace(/e-0+/, "e-");
+    } else {
+      const magnitude = Math.floor(Math.log10(Math.max(value, 1e-12)));
+      const decimals = Math.min(10, Math.max(4, 3 - magnitude));
+      formatted = value.toLocaleString("en-US", {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
+      });
+    }
+
+    if (formatted.includes(".") && !formatted.includes("e")) {
+      formatted = formatted.replace(/\.0+(?=[a-zA-Z]$)/, "");
+      formatted = formatted.replace(/(\.\d*?[1-9])0+(?=[a-zA-Z]$)/, "$1");
+      formatted = formatted.replace(/0+$/, "");
+      if (formatted.endsWith(".")) formatted = formatted.slice(0, -1);
+    }
+
+    return `${formatted} ${unit}`;
+  }
+
+  function formatMetalFullAmount(value, denomination = getMetalDenominationSetting()) {
+    const unit = getMetalDenominationUnitLabel(denomination);
+    if (!Number.isFinite(value) || value <= 0) return `0 ${unit}`;
+    if (normalizeMetalDenomination(denomination) === "grain") {
+      return formatFixedMetalAmount(value, denomination);
+    }
+
+    let formatted;
+    if (value >= 1000000000000) {
+      formatted = `${(value / 1000000000000).toFixed(2)}T`;
+    } else if (value >= 1000000000) {
+      formatted = `${(value / 1000000000).toFixed(2)}B`;
+    } else if (value >= 1000000) {
+      formatted = `${(value / 1000000).toFixed(2)}M`;
+    } else if (value > 100000) {
+      formatted = value.toLocaleString("en-US", {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+      });
+    } else if (value >= 1) {
+      formatted = value.toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
+    } else if (value > 0 && value < 1e-8) {
+      formatted = value
+        .toExponential(2)
+        .replace("e+", "e")
+        .replace(/e-0+/, "e-");
+    } else {
+      const magnitude = Math.floor(Math.log10(Math.max(value, 1e-12)));
+      const decimals = Math.min(10, Math.max(4, 3 - magnitude));
+      formatted = value.toLocaleString("en-US", {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
+      });
+    }
+
+    if (formatted.includes(".") && !formatted.includes("e") && /[TMB]$/.test(formatted)) {
+      formatted = formatted.replace(/\.0+(?=[TMB]$)/, "");
+      formatted = formatted.replace(/(\.\d*?[1-9])0+(?=[TMB]$)/, "$1");
+    }
+
+    return `${formatted} ${unit}`;
+  }
+
+  function formatMetalDisplayAmount(value) {
+    return formatMetalFullAmount(value, getMetalDenominationSetting());
+  }
+
+  function formatMetalSubtextFromOunces(ouncesValue) {
+    const denomination = getMetalDenominationSetting();
+    return formatMetalFullAmount(convertTroyOuncesToMetalDenomination(ouncesValue, denomination), denomination);
+  }
+
+  function formatMetalAxisLabel(value) {
+    return formatFixedMetalAmount(value, getMetalDenominationSetting());
   }
 
   function formatSatSubtextValue(value, currencyCode) {
     if (isPreciousMetalCurrency(currencyCode)) {
-      return formatCompactGrainYAxisLabel(value * GRAINS_PER_TROY_OUNCE);
+      return formatMetalSubtextFromOunces(value);
     }
     return formatSatValue(value, currencyCode);
   }
@@ -7170,41 +7620,9 @@
 
   function buildMetalYAxisTicks(min, max, isLinear, count = 8) {
     if (!Number.isFinite(min) || !Number.isFinite(max)) return [];
-    const ticks = [];
-    const addTick = (value) => {
-      if (!Number.isFinite(value) || (!isLinear && value <= 0)) return;
-      if (value < min || value > max) return;
-      const normalized = Number(value.toPrecision(15));
-      const valueScale = Math.max(Math.abs(normalized), LOG_MIN_POSITIVE);
-      const isDuplicate = ticks.some((tick) => Math.abs(tick - normalized) <= valueScale * 1e-10);
-      if (!isDuplicate) ticks.push(normalized);
-    };
-
-    if (max >= GRAIN_AXIS_OUNCE_THRESHOLD) {
-      const ounceMin = Math.max(min, GRAIN_AXIS_OUNCE_THRESHOLD);
-      const ounceTicks = isLinear
-        ? buildLinearTicks(ounceMin, max, Math.max(3, Math.ceil(count / 2)))
-        : buildLogTicks(ounceMin, max);
-      ounceTicks
-        .filter((value) => value >= GRAIN_AXIS_OUNCE_THRESHOLD)
-        .forEach(addTick);
-    }
-
-    if (min < GRAIN_AXIS_OUNCE_THRESHOLD) {
-      const grainMin = Math.max(min * GRAINS_PER_TROY_OUNCE, isLinear ? 0 : LOG_MIN_POSITIVE);
-      const grainMax = Math.min(max, GRAIN_AXIS_OUNCE_THRESHOLD) * GRAINS_PER_TROY_OUNCE;
-      if (grainMax > 0 && grainMax >= grainMin) {
-        const grainTicks = isLinear
-          ? buildLinearTicks(grainMin, grainMax, Math.max(3, Math.ceil(count / 2)))
-          : buildLogTicks(Math.max(grainMin, LOG_MIN_POSITIVE), grainMax);
-        grainTicks
-          .map((value) => value / GRAINS_PER_TROY_OUNCE)
-          .filter((value) => value < GRAIN_AXIS_OUNCE_THRESHOLD)
-          .forEach(addTick);
-      }
-    }
-
-    return ticks.sort((a, b) => a - b);
+    return isLinear
+      ? buildLinearTicks(min, max, count)
+      : buildLogTicks(Math.max(min, LOG_MIN_POSITIVE), max);
   }
 
   function clampYAxisTicksBySpacing(ticks, yFor, min, max, minSpacingPx) {
@@ -7247,12 +7665,14 @@
 
   function renderPairKpiValue(primary, secondary) {
     if (!el.pairKpiValue) return;
-    el.pairKpiValue.innerHTML = `<span class="pair-primary">${primary}</span><span class="pair-separator">/</span><span class="pair-secondary">${secondary}</span>`;
+    el.pairKpiValue.innerHTML = `<span class="pair-primary">${primary}</span><span class="pair-separator"> </span><span class="pair-secondary">${secondary}</span>`;
     const primaryEl = el.pairKpiValue.querySelector(".pair-primary");
     const secondaryEl = el.pairKpiValue.querySelector(".pair-secondary");
     const chartColors = getChartAccentColors(primary, secondary);
     if (primaryEl) primaryEl.style.color = chartColors.left;
     if (secondaryEl) secondaryEl.style.color = chartColors.right;
+    if (el.primaryRankKpiLabel) el.primaryRankKpiLabel.textContent = `${primary} Rank`;
+    if (el.secondaryRankKpiLabel) el.secondaryRankKpiLabel.textContent = `${secondary} Rank`;
   }
 
   function syncPairControls(changedControlId) {
@@ -7510,6 +7930,13 @@
     setDateRangePlaybackFps(saved.playbackFps);
     setVisibleChartMode(saved.chartMode);
 
+    selectedUoaGroup = normalizeUoaGroup(saved.uoaGroup);
+    if (el.uoaGroupSelect) {
+      el.uoaGroupSelect.value = selectedUoaGroup;
+      el.uoaGroupSelect.addEventListener("change", () => {
+        setUoaGroup(el.uoaGroupSelect.value);
+      });
+    }
     if (el.primaryUoaSelect) {
       el.primaryUoaSelect.value = saved.primaryUoa;
       el.primaryUoaSelect.addEventListener("change", () => {
@@ -7546,6 +7973,11 @@
         renderAll();
       });
     }
+    showPeggedCurrencies = saved.showPeggedCurrencies !== false;
+    showMonetaryMetals = saved.showMonetaryMetals !== false;
+    syncShowPeggedCurrenciesToggle();
+    syncShowMonetaryMetalsToggle();
+    setMetalDenomination(saved.metalDenomination, { persist: false, render: false, updateReset: false, force: true });
 
     const updatedTimeZoneSelect = document.getElementById("updatedTimeZoneSelect");
     if (updatedTimeZoneSelect) {
@@ -7567,6 +7999,7 @@
     initDatePickers();
     bindRangePresetButtons();
     bindDashboardActionButtons();
+    bindUoaSettingsPanel();
     updateDateRangePlayButton();
     updateDateRangeStopButton();
     updateResetButtonUi();
@@ -8073,8 +8506,8 @@
     const selectedBlockHeight = selectedEndBtcRow?.blockHeight;
     const selectedBlockHeightText = Number.isFinite(selectedBlockHeight) ? selectedBlockHeight.toLocaleString("en-US") : "";
     const ranksByCurrency = getCurrencyRanksFromSatsValues(getCurrencySatsValuesForRow(selectedEndBtcRow));
-    if (el.primaryRankKpiValue) el.primaryRankKpiValue.textContent = ranksByCurrency[primaryCurrency] ? String(ranksByCurrency[primaryCurrency]) : "";
-    if (el.secondaryRankKpiValue) el.secondaryRankKpiValue.textContent = ranksByCurrency[secondaryCurrency] ? String(ranksByCurrency[secondaryCurrency]) : "";
+    if (el.primaryRankKpiValue) el.primaryRankKpiValue.textContent = formatCurrencyRankValue(ranksByCurrency, primaryCurrency);
+    if (el.secondaryRankKpiValue) el.secondaryRankKpiValue.textContent = formatCurrencyRankValue(ranksByCurrency, secondaryCurrency);
     if (el.blockHeightText) {
       el.blockHeightText.textContent = selectedBlockHeightText ? `BLOCK HEIGHT: ${selectedBlockHeightText}` : "BLOCK HEIGHT: --";
     }
@@ -8198,59 +8631,72 @@
       { value: 100000000, label: "1 BTC" },
     ];
 
-    const hasPreciousMetalInPair = isPreciousMetalCurrency(primaryCurrency) || isPreciousMetalCurrency(secondaryCurrency);
-    const leftMainValue = isPreciousMetalCurrency(primaryCurrency)
-      ? latest.inversePrice
-      : latest.inversePrice;
-    const rightMainValue = isPreciousMetalCurrency(secondaryCurrency)
-      ? latest.directPrice
-      : latest.directPrice;
-    const showSubtext = hasBtcInPair || hasPreciousMetalInPair;
+    const primaryIsPreciousMetal = isPreciousMetalCurrency(primaryCurrency);
+    const secondaryIsPreciousMetal = isPreciousMetalCurrency(secondaryCurrency);
+    const hasPreciousMetalInPair = primaryIsPreciousMetal || secondaryIsPreciousMetal;
+    const isPreciousMetalComparison = primaryIsPreciousMetal && secondaryIsPreciousMetal;
+    const leftMainValue = latest.inversePrice;
+    const rightMainValue = latest.directPrice;
+    const showSubtext = hasBtcInPair || (hasPreciousMetalInPair && !isPreciousMetalComparison);
     if (el.satUsdText) el.satUsdText.style.display = showSubtext ? "" : "none";
     if (el.usdSatText) el.usdSatText.style.display = showSubtext ? "" : "none";
 
+    const leftDisplayValue = primaryCurrency === "BTC"
+      ? convertPairDenominatedValue(latest.inversePrice, primaryCurrency, secondaryCurrency) * 100000000
+      : convertPairDenominatedValue(leftMainValue, primaryCurrency, secondaryCurrency);
+    const rightDisplayValue = secondaryCurrency === "BTC"
+      ? convertPairDenominatedValue(latest.directPrice, secondaryCurrency, primaryCurrency) * 100000000
+      : convertPairDenominatedValue(rightMainValue, secondaryCurrency, primaryCurrency);
+
     el.usdBtcBig.textContent = primaryCurrency === "BTC"
-      ? fmtSats(latest.satsPerSecondary)
-      : isPreciousMetalCurrency(primaryCurrency)
-        ? formatOunceAmount(leftMainValue)
-        : formatRateValue(leftMainValue, primaryCurrency);
+      ? fmtSats(leftDisplayValue)
+      : primaryIsPreciousMetal
+        ? formatMetalDisplayAmount(leftDisplayValue)
+        : formatRateValue(leftDisplayValue, primaryCurrency);
     el.btcUsdBig.textContent = secondaryCurrency === "BTC"
-      ? fmtSats(latest.directPrice * 100000000)
-      : isPreciousMetalCurrency(secondaryCurrency)
-        ? formatOunceAmount(rightMainValue)
-        : formatRateValue(rightMainValue, secondaryCurrency);
+      ? fmtSats(rightDisplayValue)
+      : secondaryIsPreciousMetal
+        ? formatMetalDisplayAmount(rightDisplayValue)
+        : formatRateValue(rightDisplayValue, secondaryCurrency);
 
     const primaryUnit = formatCurrencyUnit(primaryCurrency);
     const secondaryUnit = formatCurrencyUnit(secondaryCurrency);
 
     if (hasBtcInPair) {
       if (primaryCurrency === "BTC") {
-        el.satUsdText.textContent = fmtCurrencyToBtcSubtext(secondaryUnit, latest.inversePrice);
+        const btcPerSecondaryUnit = convertPairDenominatedValue(latest.inversePrice, primaryCurrency, secondaryCurrency);
+        el.satUsdText.textContent = fmtCurrencyToBtcSubtext(secondaryUnit, btcPerSecondaryUnit);
         el.usdSatText.textContent = `1 sat = ${formatSatSubtextValue(latest.satValueInSecondary, secondaryCurrency)}`;
       } else {
         const satValueInPrimary = latest.inversePrice / 100000000;
+        const btcPerPrimaryUnit = convertPairDenominatedValue(latest.directPrice, secondaryCurrency, primaryCurrency);
         el.satUsdText.textContent = `1 sat = ${formatSatSubtextValue(satValueInPrimary, primaryCurrency)}`;
-        el.usdSatText.textContent = `${primaryUnit} = ${fmtBtc(latest.directPrice)}`;
+        el.usdSatText.textContent = `${primaryUnit} = ${fmtBtc(btcPerPrimaryUnit)}`;
       }
+    } else if (isPreciousMetalComparison) {
+      if (el.satUsdText) el.satUsdText.textContent = "";
+      if (el.usdSatText) el.usdSatText.textContent = "";
     } else if (hasPreciousMetalInPair) {
       if (primaryCurrency !== secondaryCurrency) {
         let nonMetalCurrency;
         let nonMetalPerOunce;
         let ouncesPerNonMetal;
 
-        if (isPreciousMetalCurrency(primaryCurrency) && !isPreciousMetalCurrency(secondaryCurrency)) {
+        if (primaryIsPreciousMetal && !secondaryIsPreciousMetal) {
           nonMetalCurrency = secondaryCurrency;
           nonMetalPerOunce = latest.directPrice;
           ouncesPerNonMetal = latest.inversePrice;
-        } else if (!isPreciousMetalCurrency(primaryCurrency) && isPreciousMetalCurrency(secondaryCurrency)) {
+        } else if (!primaryIsPreciousMetal && secondaryIsPreciousMetal) {
           nonMetalCurrency = primaryCurrency;
           nonMetalPerOunce = latest.inversePrice;
           ouncesPerNonMetal = latest.directPrice;
         }
 
         if (nonMetalCurrency && Number.isFinite(nonMetalPerOunce) && Number.isFinite(ouncesPerNonMetal)) {
-          el.satUsdText.textContent = `1 oz = ${formatRateValue(nonMetalPerOunce, nonMetalCurrency)}`;
-          el.usdSatText.textContent = `${formatCurrencyUnit(nonMetalCurrency)} = ${formatOunceAmount(ouncesPerNonMetal)}`;
+          const metalUnit = getMetalDenominationUnitLabel();
+          const nonMetalPerSelectedMetalUnit = nonMetalPerOunce / getMetalUnitsPerTroyOunce();
+          el.satUsdText.textContent = `1 ${metalUnit} = ${formatRateValue(nonMetalPerSelectedMetalUnit, nonMetalCurrency)}`;
+          el.usdSatText.textContent = `${formatCurrencyUnit(nonMetalCurrency)} = ${formatMetalSubtextFromOunces(ouncesPerNonMetal)}`;
         } else {
           el.satUsdText.textContent = "N/A";
           el.usdSatText.textContent = "N/A";
@@ -8277,9 +8723,13 @@
     if (el.btcUsdBig) el.btcUsdBig.style.color = rightColor;
 
     const leftSeries = adjustedRows.map((r, index) => {
-      const baseValue = primaryCurrency === "BTC" ? r.satsPerSecondary : r.inversePrice;
+      const baseValue = primaryCurrency === "BTC"
+        ? convertPairDenominatedValue(r.satsPerSecondary / 100000000, primaryCurrency, secondaryCurrency) * 100000000
+        : convertPairDenominatedValue(r.inversePrice, primaryCurrency, secondaryCurrency);
       const rawRow = transformedRows[index] || r;
-      const rawValue = primaryCurrency === "BTC" ? rawRow.satsPerSecondary : rawRow.inversePrice;
+      const rawValue = primaryCurrency === "BTC"
+        ? convertPairDenominatedValue(rawRow.satsPerSecondary / 100000000, primaryCurrency, secondaryCurrency) * 100000000
+        : convertPairDenominatedValue(rawRow.inversePrice, primaryCurrency, secondaryCurrency);
       return {
         date: r.date,
         value: baseValue,
@@ -8287,9 +8737,13 @@
       };
     });
     const rightSeries = adjustedRows.map((r, index) => {
-      const baseValue = secondaryCurrency === "BTC" ? r.directPrice * 100000000 : r.directPrice;
+      const baseValue = secondaryCurrency === "BTC"
+        ? convertPairDenominatedValue(r.directPrice, secondaryCurrency, primaryCurrency) * 100000000
+        : convertPairDenominatedValue(r.directPrice, secondaryCurrency, primaryCurrency);
       const rawRow = transformedRows[index] || r;
-      const rawValue = secondaryCurrency === "BTC" ? rawRow.directPrice * 100000000 : rawRow.directPrice;
+      const rawValue = secondaryCurrency === "BTC"
+        ? convertPairDenominatedValue(rawRow.directPrice, secondaryCurrency, primaryCurrency) * 100000000
+        : convertPairDenominatedValue(rawRow.directPrice, secondaryCurrency, primaryCurrency);
       return {
         date: r.date,
         value: baseValue,
@@ -8355,14 +8809,18 @@
     };
 
     const leftSeriesAllForAxis = adjustedAllRows.map((r) => {
-      const baseValue = primaryCurrency === "BTC" ? r.satsPerSecondary : r.inversePrice;
+      const baseValue = primaryCurrency === "BTC"
+        ? convertPairDenominatedValue(r.satsPerSecondary / 100000000, primaryCurrency, secondaryCurrency) * 100000000
+        : convertPairDenominatedValue(r.inversePrice, primaryCurrency, secondaryCurrency);
       return {
         date: r.date,
         value: baseValue,
       };
     });
     const rightSeriesAllForAxis = adjustedAllRows.map((r) => {
-      const baseValue = secondaryCurrency === "BTC" ? r.directPrice * 100000000 : r.directPrice;
+      const baseValue = secondaryCurrency === "BTC"
+        ? convertPairDenominatedValue(r.directPrice, secondaryCurrency, primaryCurrency) * 100000000
+        : convertPairDenominatedValue(r.directPrice, secondaryCurrency, primaryCurrency);
       return {
         date: r.date,
         value: baseValue,
@@ -8392,7 +8850,7 @@
       if (!Number.isFinite(value) || value < 0) return "0";
       if (primaryCurrency === "BTC") return fmtSatAxisLabel(value);
       if (isPreciousMetalCurrency(primaryCurrency)) {
-        return formatCompactOunceYAxisLabel(value);
+        return formatMetalAxisLabel(value);
       }
       return formatCompactYAxisLabel(value, primaryCurrency);
     };
@@ -8400,18 +8858,18 @@
       if (!Number.isFinite(value) || value < 0) return "0";
       if (secondaryCurrency === "BTC") return fmtSatAxisLabel(value);
       if (isPreciousMetalCurrency(secondaryCurrency)) {
-        return formatCompactOunceYAxisLabel(value);
+        return formatMetalAxisLabel(value);
       }
       return formatCompactYAxisLabel(value, secondaryCurrency);
     };
     const leftTooltipFormatter = (value) => {
       if (primaryCurrency === "BTC") return fmtSats(value);
-      if (isPreciousMetalCurrency(primaryCurrency)) return formatOunceAmount(value);
+      if (isPreciousMetalCurrency(primaryCurrency)) return formatMetalDisplayAmount(value);
       return formatRateValue(value, primaryCurrency);
     };
     const rightTooltipFormatter = (value) => {
       if (secondaryCurrency === "BTC") return fmtSats(value);
-      if (isPreciousMetalCurrency(secondaryCurrency)) return formatOunceAmount(value);
+      if (isPreciousMetalCurrency(secondaryCurrency)) return formatMetalDisplayAmount(value);
       return formatRateValue(value, secondaryCurrency);
     };
 
@@ -8848,6 +9306,10 @@
     refreshedAtText = await refreshedAtPromise;
 
     // Populate the title/filter shell as soon as the small metadata files are ready.
+    selectedUoaGroup = getInitialUoaGroupSetting();
+    showPeggedCurrencies = getInitialShowPeggedCurrenciesSetting();
+    showMonetaryMetals = getInitialShowMonetaryMetalsSetting();
+    populateUoaGroupSelect();
     populateCurrencyDropdowns();
     populateUpdatedTimeZoneSelect();
     hydrateTitleAndFilterShell();
