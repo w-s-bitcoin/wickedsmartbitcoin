@@ -70,6 +70,8 @@
     markerScale: getDefaultMarkerScale(),
     showSpent: true,
     markSpent: false,
+    showTimeBack: true,
+    markTimeBack: false,
     showPatoshiLine: true,
     showOrder: false,
     speedIndex: 1,
@@ -215,6 +217,8 @@
     markerScalePlus: $("markerScalePlus"),
     showSpent: $("showSpent"),
     markSpent: $("markSpent"),
+    showTimeBack: $("showTimeBack"),
+    markTimeBack: $("markTimeBack"),
     showPatoshiLine: $("showPatoshiLine"),
     showOrder: $("showOrder"),
   };
@@ -222,7 +226,7 @@
   function parseCsv(text) {
     const lines = text.trim().split(/\r?\n/);
     const header = lines.shift().split(",");
-    return lines.map((line) => {
+    const parsedRows = lines.map((line) => {
       const parts = line.split(",");
       const item = {};
       header.forEach((key, index) => { item[key] = parts[index]; });
@@ -243,6 +247,14 @@
         targetHashrate: Number(item.target_hashrate),
       };
     });
+    parsedRows.forEach((row, index) => {
+      const previous = parsedRows[index - 1];
+      row.timeGoesBack = !!previous
+        && Number.isFinite(row.timestamp)
+        && Number.isFinite(previous.timestamp)
+        && row.timestamp < previous.timestamp;
+    });
+    return parsedRows;
   }
 
   function saveState({ preserveResetUndo = false } = {}) {
@@ -348,6 +360,8 @@
       state.patoshiIncludeBlocks = sanitizePatternBlocksText(state.patoshiIncludeBlocks);
       state.patoshiExcludeBlocks = sanitizePatternBlocksText(state.patoshiExcludeBlocks);
       syncPatternBlockSets();
+      state.showTimeBack = parsed.showTimeBack !== false;
+      state.markTimeBack = !!parsed.markTimeBack;
       state.showPatoshiLine = state.showPatoshiLine !== false;
       if (typeof parsed.updatedKpiTimeZone === "string" && parsed.updatedKpiTimeZone.trim()) {
         updatedKpiTimeZone = parsed.updatedKpiTimeZone.trim();
@@ -485,6 +499,15 @@
     if (highlightedSpentBlockSource !== "panel" || !Number.isFinite(highlightedSpentBlockHeight)) return;
     if (spentRewardsPanelOpen && getSpentRewardRows().some((row) => row.height === highlightedSpentBlockHeight)) return;
     clearHighlightedSpentReward();
+  }
+
+  function refreshSpentRewardsPanelFilter() {
+    spentRewardsVisibleCount = SPENT_REWARDS_PAGE_SIZE;
+    spentRewardsLoading = false;
+    spentRewardsLoadGeneration += 1;
+    if (els.spentRewardsList) els.spentRewardsList.scrollTop = 0;
+    clearPanelHighlightIfHiddenFromSpentRewards();
+    renderSpentRewardsPanel();
   }
 
   function setHighlightedBlock(row, options = {}) {
@@ -701,6 +724,8 @@
     syncDropdownLabels();
     els.showSpent.checked = state.showSpent;
     els.markSpent.checked = state.markSpent;
+    if (els.showTimeBack) els.showTimeBack.checked = state.showTimeBack;
+    if (els.markTimeBack) els.markTimeBack.checked = state.markTimeBack;
     els.showPatoshiLine.checked = state.showPatoshiLine;
     els.showOrder.checked = state.showOrder;
     els.speedBtn.textContent = speeds[state.speedIndex]?.label || "1x";
@@ -954,6 +979,7 @@
     if (input) input.value = state[key];
     if (otherInput) otherInput.value = state[otherKey];
     syncPatternBlockSets();
+    refreshSpentRewardsPanelFilter();
     render();
     saveState();
   }
@@ -1021,6 +1047,8 @@
       markerScale: getDefaultMarkerScale(),
       showSpent: true,
       markSpent: false,
+      showTimeBack: true,
+      markTimeBack: false,
       showPatoshiLine: true,
       showOrder: false,
       speedIndex: 1,
@@ -1083,6 +1111,8 @@
       markerScale: normalizeMarkerScale(state.markerScale),
       showSpent: !!state.showSpent,
       markSpent: !!state.markSpent,
+      showTimeBack: state.showTimeBack !== false,
+      markTimeBack: !!state.markTimeBack,
       showPatoshiLine: !!state.showPatoshiLine,
       showOrder: !!state.showOrder,
       speedIndex: clamp(Math.round(Number(state.speedIndex) || 1), 0, speeds.length - 1),
@@ -1121,6 +1151,8 @@
       markerScale: getDefaultMarkerScale(),
       showSpent: true,
       markSpent: false,
+      showTimeBack: true,
+      markTimeBack: false,
       showPatoshiLine: true,
       showOrder: false,
       speedIndex: 1,
@@ -1205,6 +1237,8 @@
       markerScale: snapshot.markerScale,
       showSpent: !!snapshot.showSpent,
       markSpent: !!snapshot.markSpent,
+      showTimeBack: snapshot.showTimeBack !== false,
+      markTimeBack: !!snapshot.markTimeBack,
       showPatoshiLine: snapshot.showPatoshiLine !== false,
       showOrder: !!snapshot.showOrder,
       speedIndex: snapshot.speedIndex,
@@ -1394,6 +1428,8 @@
       state.blockClickAction,
       state.showSpent ? 1 : 0,
       state.markSpent ? 1 : 0,
+      state.showTimeBack ? 1 : 0,
+      state.markTimeBack ? 1 : 0,
       state.showPatoshiLine ? 1 : 0,
       state.showOrder ? 1 : 0,
       settings.orientation,
@@ -3490,7 +3526,7 @@
     diffMarkerHitboxes = [];
     blockMarkerHitboxes = [];
     slopeMeasurementHitboxes = null;
-    const isDrawableRow = (row) => state.showSpent || !row.isSpent;
+    const isDrawableRow = (row) => (state.showSpent || !row.isSpent) && (state.showTimeBack || !row.timeGoesBack);
     const orderRows = rowsWithLeftContinuity(visible, isDrawableRow);
     if (state.showOrder) {
       drawLine(
@@ -3503,7 +3539,7 @@
     }
 
     const drawableRows = rowsWithLeftContinuity(visible, (row) => isDrawableRow(row) && isPatoshiRow(row));
-    const drawablePoints = points.filter(([, , row]) => state.showSpent || !row.isSpent);
+    const drawablePoints = points.filter(([, , row]) => isDrawableRow(row));
     drawSpecialMarkers(visible, x, y, plot, c, mobile);
     drawPoints(drawablePoints, c, mobile, (row) => !isPatoshiRow(row));
     if (state.showPatoshiLine && state.patoshiPattern !== "none") drawPatoshiSegments(drawableRows, x, y, plot);
@@ -3547,12 +3583,16 @@
 
   function drawPoints(points, c, mobile, includeRow = () => true) {
     const radius = (mobile ? 2.2 : 2.8) * getMarkerScale();
+    const markedRow = (row) => (state.markSpent && row.isSpent) || (state.markTimeBack && row.timeGoesBack);
+    const drawablePoints = points
+      .filter(([, , row]) => includeRow(row))
+      .sort((a, b) => Number(markedRow(a[2])) - Number(markedRow(b[2])));
+    const markerColor = theme === "light" ? COLORS.spentLight : COLORS.spentDark;
     ctx.save();
-    points.forEach(([xx, yy, row]) => {
-      if (!includeRow(row)) return;
+    drawablePoints.forEach(([xx, yy, row]) => {
       ctx.globalAlpha = 1;
       if (state.markSpent && row.isSpent) {
-        ctx.strokeStyle = theme === "light" ? COLORS.spentLight : COLORS.spentDark;
+        ctx.strokeStyle = markerColor;
         ctx.lineWidth = 1.5;
         const s = radius * 1.75;
         ctx.beginPath();
@@ -3560,6 +3600,18 @@
         ctx.lineTo(xx + s, yy + s);
         ctx.moveTo(xx + s, yy - s);
         ctx.lineTo(xx - s, yy + s);
+        ctx.stroke();
+      }
+      if (state.markTimeBack && row.timeGoesBack) {
+        ctx.strokeStyle = markerColor;
+        ctx.lineWidth = 1.4;
+        const s = radius * 2.15;
+        ctx.beginPath();
+        ctx.moveTo(xx, yy - s);
+        ctx.lineTo(xx + s, yy);
+        ctx.lineTo(xx, yy + s);
+        ctx.lineTo(xx - s, yy);
+        ctx.closePath();
         ctx.stroke();
       }
       ctx.fillStyle = isPatoshiRow(row) ? COLORS.patoshi : COLORS.other;
@@ -5622,6 +5674,7 @@
         if (els.yMode) els.yMode.value = "custom";
       }
       syncControls();
+      refreshSpentRewardsPanelFilter();
       render();
       saveState();
     }
@@ -5670,6 +5723,7 @@
       }
       state[key] = input.value;
       syncPatternBlockSets();
+      refreshSpentRewardsPanelFilter();
       render();
       saveState();
     }
@@ -5692,7 +5746,7 @@
     });
 
     [
-      "yMode", "countMetric", "spentRewardsSort", "spentRewardsPatoshiOnly", "showSpent", "markSpent", "showPatoshiLine", "showOrder",
+      "yMode", "countMetric", "spentRewardsSort", "spentRewardsPatoshiOnly", "showSpent", "markSpent", "showTimeBack", "markTimeBack", "showPatoshiLine", "showOrder",
     ].forEach((id) => {
       const el = els[id];
       if (!el) return;
@@ -5890,6 +5944,8 @@
       state.patoshiIncludeBlocks = sanitizePatternBlocksText(state.patoshiIncludeBlocks);
       state.patoshiExcludeBlocks = sanitizePatternBlocksText(state.patoshiExcludeBlocks);
       syncPatternBlockSets();
+      state.showTimeBack = shared.showTimeBack !== false;
+      state.markTimeBack = !!shared.markTimeBack;
       state.showPatoshiLine = state.showPatoshiLine !== false;
       if (typeof shared.updatedKpiTimeZone === "string" && shared.updatedKpiTimeZone.trim()) {
         updatedKpiTimeZone = shared.updatedKpiTimeZone.trim();
