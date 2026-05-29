@@ -320,13 +320,17 @@
     document.body.style.overflow = "hidden";
     if (modalEmbedWrap) modalEmbedWrap.hidden = false;
     if (modalEmbed && !modalEmbed.getAttribute("src")) {
-      modalEmbed.setAttribute("src", DASHBOARD_URL);
+      modalEmbed.setAttribute("src", getDashboardUrl());
     }
     if (modalImg) {
       modalImg.style.opacity = "0";
       modalImg.style.visibility = "hidden";
       modalImg.style.transform = "translate3d(-9999px,-9999px,0) scale(1)";
     }
+  }
+
+  function getDashboardUrl() {
+    return IS_LOCAL_HOST ? `${DASHBOARD_URL}?_=${Date.now()}` : DASHBOARD_URL;
   }
 
   function navigateToImage(filename) {
