@@ -92,6 +92,7 @@
   let rowsByHeight = new Map();
   let metadata = null;
   let dataSignature = null;
+  let updatedKpiSignature = null;
   let autoRefreshTimer = 0;
   let refreshCheckInFlight = false;
   let minMs = 0;
@@ -1963,33 +1964,109 @@
   function getDataSignature(meta) {
     if (!meta || typeof meta !== "object") return "";
     return [
-      meta.generated_at,
       meta.block_count,
       meta.patoshi_count,
       meta.patoshi_original_count,
       meta.patoshi_updated_count,
       meta.spent_count,
       meta.spending_height_count,
-      meta.spending_height_last_queried_height,
+      meta.spent_without_spending_height_count,
+      meta.first_height,
+      meta.last_height,
+      meta.first_datetime,
+      meta.last_datetime,
       meta.max_extranonce,
     ].map((value) => value ?? "").join("|");
   }
 
-  async function fetchLatestDataSignature() {
+  function getUpdatedKpiSignature(meta) {
+    if (!meta || typeof meta !== "object") return "";
+    return [
+      meta.generated_at,
+      meta.spending_height_last_queried_height,
+      meta.source_block_height,
+      meta.latest_block_height,
+      meta.block_height,
+    ].map((value) => value ?? "").join("|");
+  }
+
+  async function fetchLatestMetadata() {
     const url = `${META_URL}?refresh=${Date.now()}`;
     const response = await fetch(url, { cache: "no-store" });
     if (!response.ok) throw new Error(`Failed to load ${META_URL} (${response.status})`);
-    return getDataSignature(await response.json());
+    return response.json();
+  }
+
+  async function fetchLatestRows() {
+    const url = `${DATA_URL}?refresh=${Date.now()}`;
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) throw new Error(`Failed to load ${DATA_URL} (${response.status})`);
+    return parseCsv(await response.text());
+  }
+
+  function applyPatoshiRows(nextRows) {
+    if (!Array.isArray(nextRows) || !nextRows.length) return false;
+    rows = nextRows;
+    maxDatasetExtraNonce = getMaxDatasetExtraNonce();
+    state.yMaxCustom = normalizeYMaxCustom(state.yMaxCustom);
+    rowsByHeight = new Map(rows.map((row) => [row.height, row]));
+    if (Number.isFinite(highlightedSpentBlockHeight) && !rowsByHeight.has(highlightedSpentBlockHeight)) {
+      highlightedSpentBlockHeight = null;
+      highlightedSpentBlockSource = null;
+      highlightedSpentBlockCentered = false;
+    }
+    minMs = rows[0].ms;
+    maxMs = rows[rows.length - 1].ms;
+    const currentWindowMs = Math.max(getMinWindowMs(), state.endMs - state.startMs || getDefaultWindowMs());
+    const timelineMin = getTimelineMinMs(currentWindowMs);
+    const animationMin = getAnimationStartMinMs();
+    state.animationStartMs = Number.isFinite(state.animationStartMs) ? clamp(state.animationStartMs, animationMin, maxMs) : animationMin;
+    state.animationEndMs = Number.isFinite(state.animationEndMs) ? clamp(state.animationEndMs, animationMin, maxMs) : getDefaultAnimationEndMs();
+    if (state.animationStartMs >= state.animationEndMs) {
+      state.animationStartMs = animationMin;
+      state.animationEndMs = getDefaultAnimationEndMs();
+    }
+    state.startMs = clamp(state.startMs, timelineMin, maxMs);
+    state.endMs = clamp(state.endMs, timelineMin, maxMs);
+    if (state.startMs >= state.endMs) {
+      state.startMs = Math.max(timelineMin, state.endMs - currentWindowMs);
+    }
+    if (state.endMs - state.startMs < getMinWindowMs()) {
+      state.startMs = Math.max(timelineMin, state.endMs - getMinWindowMs());
+      state.endMs = Math.min(maxMs, state.startMs + getMinWindowMs());
+    }
+    if (state.startMs < state.animationStartMs || state.endMs > state.animationEndMs) {
+      const windowMs = getWindowMs();
+      state.endMs = clamp(state.endMs, state.animationStartMs, state.animationEndMs);
+      state.startMs = Math.max(getTimelineMinMs(windowMs), state.endMs - windowMs);
+    }
+    state.finalEndMs = state.animationEndMs;
+    syncControls();
+    renderSpentRewardsPanel();
+    render();
+    saveState();
+    return true;
   }
 
   async function refreshIfDataChanged() {
     if (!dataSignature || refreshCheckInFlight) return;
     refreshCheckInFlight = true;
     try {
-      const latestSignature = await fetchLatestDataSignature();
-      if (!latestSignature || latestSignature === dataSignature) return;
-      saveState();
-      window.location.reload();
+      const latestMetadata = await fetchLatestMetadata();
+      const latestUpdatedKpiSignature = getUpdatedKpiSignature(latestMetadata);
+      const latestDataSignature = getDataSignature(latestMetadata);
+      if (latestUpdatedKpiSignature && latestUpdatedKpiSignature !== updatedKpiSignature) {
+        metadata = latestMetadata;
+        updatedKpiSignature = latestUpdatedKpiSignature;
+        updateUpdatedKpi();
+      }
+      if (!latestDataSignature || latestDataSignature === dataSignature) return;
+      const latestRows = await fetchLatestRows();
+      metadata = latestMetadata;
+      dataSignature = latestDataSignature;
+      updatedKpiSignature = latestUpdatedKpiSignature;
+      updateUpdatedKpi();
+      applyPatoshiRows(latestRows);
     } catch (error) {
       console.warn("Patoshi auto-refresh check failed:", error);
     } finally {
@@ -3789,6 +3866,15 @@
     return `${value.toFixed(2)}/hr`;
   }
 
+  function slopePointsMatch(startMs, startValue, endMs, endValue) {
+    return Number.isFinite(startMs)
+      && Number.isFinite(startValue)
+      && Number.isFinite(endMs)
+      && Number.isFinite(endValue)
+      && Math.abs(endMs - startMs) < 1
+      && Math.abs(endValue - startValue) < 1e-7;
+  }
+
   function drawSlopeMeasurementStart(slopePoint, x, y, plot, c, mobile) {
     if (!slopePoint || !Number.isFinite(slopePoint.startMs) || !Number.isFinite(slopePoint.startValue)) return;
     if (slopePoint.startMs < state.startMs || slopePoint.startMs > state.endMs) return;
@@ -3869,6 +3955,19 @@
     const endMs = Number.isFinite(slopeMeasurement.endMs) ? slopeMeasurement.endMs : slopeMeasurement.hoverMs;
     const endValue = Number.isFinite(slopeMeasurement.endValue) ? slopeMeasurement.endValue : slopeMeasurement.hoverValue;
     if (!Number.isFinite(endMs) || !Number.isFinite(endValue)) return;
+    if (Number.isFinite(slopeMeasurement.endMs) && slopePointsMatch(startMs, startValue, endMs, endValue)) {
+      slopeMeasurementHitboxes = {
+        start: drawSlopePointAnchor({
+          ms: startMs,
+          value: startValue,
+          height: slopeMeasurement.startHeight,
+        }, x, y, plot, c, mobile),
+        end: null,
+        segment: null,
+      };
+      slopeMeasurementHitboxes.end = slopeMeasurementHitboxes.start;
+      return;
+    }
     const clipped = slopeSegmentClipPoints(startMs, startValue, endMs, endValue, state.startMs, state.endMs, Math.min(0, startValue, endValue), Math.max(yMax, startValue, endValue));
     if (clipped.length < 2) {
       drawSlopeMeasurementStart(slopeMeasurement, x, y, plot, c, mobile);
@@ -5755,6 +5854,7 @@
     }
     metadata = metaText;
     dataSignature = getDataSignature(metadata);
+    updatedKpiSignature = getUpdatedKpiSignature(metadata);
     updateUpdatedKpi();
     minMs = rows[0].ms;
     maxMs = rows[rows.length - 1].ms;
