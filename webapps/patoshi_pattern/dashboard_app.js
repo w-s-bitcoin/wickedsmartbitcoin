@@ -3707,7 +3707,7 @@
     return { x: xx, y: yy, r: Math.max(mobile ? 12 : 13, ringRadius + 5) };
   }
 
-  function drawTimeMeasurementStart(timePoint, x, y, plot, c, mobile) {
+  function drawTimeMeasurementStart(timePoint, x, y, plot, c, mobile, showStarter = true) {
     if (!timePoint || !Number.isFinite(timePoint.startMs) || timePoint.startMs < state.startMs || timePoint.startMs > state.endMs) return;
     const xx = x(timePoint.startMs);
     const measureY = getMeasurementY(plot, mobile);
@@ -3723,18 +3723,20 @@
     ctx.moveTo(xx, measureY);
     ctx.lineTo(xx, plot.bottom);
     ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.strokeStyle = lineColor;
-    ctx.lineWidth = mobile ? 1.6 : 1.8;
-    ctx.beginPath();
-    ctx.moveTo(xx, measureY);
-    ctx.lineTo(starterEndX, measureY);
-    ctx.stroke();
-    const cap = mobile ? 5 : 6;
-    ctx.beginPath();
-    ctx.moveTo(xx, measureY - cap);
-    ctx.lineTo(xx, measureY + cap);
-    ctx.stroke();
+    if (showStarter) {
+      ctx.setLineDash([]);
+      ctx.strokeStyle = lineColor;
+      ctx.lineWidth = mobile ? 1.6 : 1.8;
+      ctx.beginPath();
+      ctx.moveTo(xx, measureY);
+      ctx.lineTo(starterEndX, measureY);
+      ctx.stroke();
+      const cap = mobile ? 5 : 6;
+      ctx.beginPath();
+      ctx.moveTo(xx, measureY - cap);
+      ctx.lineTo(xx, measureY + cap);
+      ctx.stroke();
+    }
     ctx.restore();
     drawMeasurementBlockAnchor(rowsByHeight.get(timePoint.startHeight), x, y, plot, c, mobile, measureY);
   }
@@ -3747,7 +3749,7 @@
     const visibleStartMs = clamp(Math.min(startMs, endMs), state.startMs, state.endMs);
     const visibleEndMs = clamp(Math.max(startMs, endMs), state.startMs, state.endMs);
     if (visibleStartMs >= visibleEndMs) {
-      drawTimeMeasurementStart(timeMeasurement, x, y, plot, c, mobile);
+      drawTimeMeasurementStart(timeMeasurement, x, y, plot, c, mobile, Math.abs(endMs - startMs) >= 1);
       return;
     }
     const startX = x(startMs);
