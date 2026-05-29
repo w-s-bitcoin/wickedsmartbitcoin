@@ -3955,7 +3955,7 @@
     const endMs = Number.isFinite(slopeMeasurement.endMs) ? slopeMeasurement.endMs : slopeMeasurement.hoverMs;
     const endValue = Number.isFinite(slopeMeasurement.endValue) ? slopeMeasurement.endValue : slopeMeasurement.hoverValue;
     if (!Number.isFinite(endMs) || !Number.isFinite(endValue)) return;
-    if (Number.isFinite(slopeMeasurement.endMs) && slopePointsMatch(startMs, startValue, endMs, endValue)) {
+    if (slopePointsMatch(startMs, startValue, endMs, endValue)) {
       slopeMeasurementHitboxes = {
         start: drawSlopePointAnchor({
           ms: startMs,
