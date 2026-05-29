@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="assets/styles.css" />
     <link rel="manifest" href="manifest.json" />
     <link rel="preload" href="assets/image_list.json" as="fetch" crossorigin />
-    <link rel="prefetch" href="webapps/patoshi_pattern/dashboard.html" />
+    <link rel="prefetch" href="webapps/patoshi_pattern/dashboard.html" id="dashboardPrefetchLink" />
     <style>
       body[data-standalone-modal-shell="1"] {
         margin: 0;
@@ -136,11 +136,23 @@
     </div>
 
     <script>
+      function getPatoshiDashboardUrl() {
+        var base = 'webapps/patoshi_pattern/dashboard.html';
+        var host = String(window.location.hostname || '').toLowerCase();
+        var isLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+        return isLocal ? base + '?_=' + Date.now() : base;
+      }
+
+      (function syncDashboardPrefetch() {
+        var link = document.getElementById('dashboardPrefetchLink');
+        if (link) link.setAttribute('href', getPatoshiDashboardUrl());
+      })();
+
       (function primeStandaloneDashboard() {
         var iframe = document.getElementById('modal-embed');
         if (!iframe) return;
         if (!iframe.getAttribute('src')) {
-          iframe.setAttribute('src', 'webapps/patoshi_pattern/dashboard.html');
+          iframe.setAttribute('src', getPatoshiDashboardUrl());
         }
       })();
 
