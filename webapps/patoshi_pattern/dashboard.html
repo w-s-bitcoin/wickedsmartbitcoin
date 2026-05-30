@@ -242,22 +242,37 @@
       overflow: hidden;
       vertical-align: top;
     }
-    .block-search-icon {
+    .block-search-target {
       width: 34px;
       align-self: stretch;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      color: var(--muted);
+      border: 0;
       border-right: 1px solid var(--card-border);
       padding: 5px 0;
+      margin: 0;
+      border-radius: 999px 0 0 999px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
     }
-    .block-search-icon svg {
-      width: 14px;
-      height: 14px;
+    .block-search-target:hover:not(:disabled),
+    .block-search-target:focus-visible,
+    .block-search-target.is-active {
+      color: var(--accent);
+    }
+    .block-search-target:disabled {
+      color: var(--control-disabled);
+      cursor: not-allowed;
+      opacity: 0.58;
+    }
+    .block-search-target svg {
+      width: 15px;
+      height: 15px;
       fill: none;
       stroke: currentColor;
-      stroke-width: 2;
+      stroke-width: 2.1;
       stroke-linecap: round;
       stroke-linejoin: round;
     }
@@ -3010,7 +3025,7 @@
           <div id="updatedTimeZoneDropdown" class="dca-dropdown dca-dropdown-overlay"><button id="updatedTimeZoneDropdownTrigger" type="button" class="dca-dropdown-trigger" aria-label="Updated timestamp time zone"></button><div id="updatedTimeZoneDropdownMenu" class="dca-dropdown-menu" aria-label="Updated timestamp time zone options"></div></div>
           <select id="updatedTimeZoneSelect" class="chip-menu-select chip-kpi-select-overlay dca-native-select" aria-label="Updated timestamp time zone"></select>
         </div>
-        <div class="chip block-search-pill" id="blockSearchPill"><span class="block-search-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></span><input id="blockSearchInput" class="block-search-input" type="text" inputmode="numeric" autocomplete="off" placeholder="Search block" aria-label="Search block height" /><button id="blockSearchClear" class="block-search-clear" type="button" aria-label="Clear block search"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button></div>
+        <div class="chip block-search-pill" id="blockSearchPill"><button id="blockSearchTarget" class="block-search-target" type="button" aria-label="Center KPIs on highlighted block" aria-pressed="false" disabled><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="7"></circle><circle cx="12" cy="12" r="1.6"></circle><path d="M12 2.8v3"></path><path d="M12 18.2v3"></path><path d="M2.8 12h3"></path><path d="M18.2 12h3"></path></svg></button><input id="blockSearchInput" class="block-search-input" type="text" inputmode="numeric" autocomplete="off" placeholder="Search block" aria-label="Search block height" /><button id="blockSearchClear" class="block-search-clear" type="button" aria-label="Clear block search"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button></div>
       </div>
       <div class="title-actions">
         <button class="copy-link-btn" type="button" id="copyLinkBtn" aria-label="Copy shareable dashboard link" data-tooltip="Copy shareable dashboard link">
