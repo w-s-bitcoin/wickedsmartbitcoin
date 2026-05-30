@@ -130,6 +130,7 @@
   let highlightedSpentBlockHeight = null;
   let highlightedSpentBlockSource = null;
   let highlightedSpentBlockCentered = false;
+  let highlightedKpiFocusActive = false;
   let spentRewardsVisibleCount = SPENT_REWARDS_PAGE_SIZE;
   let spentRewardsLoading = false;
   let spentRewardsLoadGeneration = 0;
@@ -191,6 +192,7 @@
     spentRewardsPatoshiOnly: $("spentRewardsPatoshiOnly"),
     blockSearchPill: $("blockSearchPill"),
     blockSearchInput: $("blockSearchInput"),
+    blockSearchTarget: $("blockSearchTarget"),
     blockSearchClear: $("blockSearchClear"),
     updatedKpiValue: $("updatedKpiValue"),
     updatedTimeZoneSelect: $("updatedTimeZoneSelect"),
@@ -270,6 +272,7 @@
         highlightedSpentBlockHeight: Number.isFinite(highlightedSpentBlockHeight) ? highlightedSpentBlockHeight : null,
         highlightedSpentBlockSource,
         highlightedSpentBlockCentered,
+        highlightedKpiFocusActive,
         chartInteractionMode,
         timeMeasurement: serializeTimeMeasurement(),
         slopeMeasurement: serializeSlopeMeasurement(),
@@ -331,11 +334,13 @@
         ? (parsed.highlightedSpentBlockSource === "search" ? "search" : "panel")
         : null;
       highlightedSpentBlockCentered = Number.isFinite(highlightedSpentBlockHeight) && parsed.highlightedSpentBlockCentered !== false;
+      highlightedKpiFocusActive = Number.isFinite(highlightedSpentBlockHeight) && !!parsed.highlightedKpiFocusActive;
       applyChartInteractionSnapshot(parsed);
       delete parsed.sidePanelOpen;
       delete parsed.highlightedSpentBlockHeight;
       delete parsed.highlightedSpentBlockSource;
       delete parsed.highlightedSpentBlockCentered;
+      delete parsed.highlightedKpiFocusActive;
       delete parsed.chartInteractionMode;
       delete parsed.timeMeasurement;
       delete parsed.slopeMeasurement;
@@ -483,13 +488,29 @@
     if (els.blockSearchClear) els.blockSearchClear.hidden = !hasValue;
   }
 
+  function syncBlockSearchTargetButton() {
+    const canFocus = Number.isFinite(highlightedSpentBlockHeight);
+    if (!canFocus) highlightedKpiFocusActive = false;
+    if (!els.blockSearchTarget) return;
+    els.blockSearchTarget.disabled = !canFocus;
+    els.blockSearchTarget.classList.toggle("is-active", canFocus && highlightedKpiFocusActive);
+    els.blockSearchTarget.setAttribute("aria-pressed", canFocus && highlightedKpiFocusActive ? "true" : "false");
+  }
+
+  function syncHighlightedKpiFocus() {
+    if (highlightedKpiFocusActive && !isHighlightedBlockCenteredInWindow()) highlightedKpiFocusActive = false;
+    syncBlockSearchTargetButton();
+  }
+
   function clearHighlightedSpentReward() {
     if (!Number.isFinite(highlightedSpentBlockHeight)) return;
     highlightedSpentBlockHeight = null;
     highlightedSpentBlockSource = null;
     highlightedSpentBlockCentered = false;
+    highlightedKpiFocusActive = false;
     if (els.blockSearchInput) els.blockSearchInput.value = "";
     syncBlockSearchClearButton();
+    syncBlockSearchTargetButton();
     if (spentRewardsPanelOpen) syncSpentRewardsActiveItem();
     saveState();
     render();
@@ -512,12 +533,14 @@
 
   function setHighlightedBlock(row, options = {}) {
     if (!row || !Number.isFinite(row.height)) return;
-    const { source = "panel", updateInput = true, center = true } = options;
+    const { source = "panel", updateInput = true, center = true, focusKpis = false } = options;
     highlightedSpentBlockHeight = row.height;
     highlightedSpentBlockSource = source;
     highlightedSpentBlockCentered = !!center;
+    highlightedKpiFocusActive = !!focusKpis;
     if (updateInput && els.blockSearchInput) els.blockSearchInput.value = formatBlockSearchHeight(row.height);
     syncBlockSearchClearButton();
+    syncBlockSearchTargetButton();
     if (spentRewardsPanelOpen) syncSpentRewardsActiveItem();
     if (!center || !centerChartOnRow(row)) {
       saveState();
@@ -532,6 +555,26 @@
     if (!centeredRange) return false;
     setLastAdjustedHandle("range");
     setRange(centeredRange.startMs, centeredRange.endMs);
+    return true;
+  }
+
+  function focusKpisOnHighlightedBlock() {
+    const row = getHighlightedSpentRow();
+    if (!row) return false;
+    if (highlightedKpiFocusActive) {
+      highlightedKpiFocusActive = false;
+      syncBlockSearchTargetButton();
+      render();
+      saveState();
+      return true;
+    }
+    highlightedSpentBlockCentered = true;
+    highlightedKpiFocusActive = true;
+    syncBlockSearchTargetButton();
+    if (!centerChartOnRow(row)) {
+      render();
+      saveState();
+    }
     return true;
   }
 
@@ -720,6 +763,7 @@
       els.blockSearchInput.value = Number.isFinite(highlightedSpentBlockHeight) ? formatBlockSearchHeight(highlightedSpentBlockHeight) : "";
     }
     syncBlockSearchClearButton();
+    syncBlockSearchTargetButton();
     updateMarkerScaleControls();
     syncDropdownLabels();
     els.showSpent.checked = state.showSpent;
@@ -1027,6 +1071,8 @@
     const animationEndMs = getDefaultAnimationEndMs();
     highlightedSpentBlockHeight = null;
     highlightedSpentBlockSource = null;
+    highlightedSpentBlockCentered = false;
+    highlightedKpiFocusActive = false;
     Object.assign(state, {
       startMs: animationStartMs,
       endMs: animationEndMs,
@@ -1122,6 +1168,7 @@
       highlightedSpentBlockHeight: Number.isFinite(highlightedSpentBlockHeight) ? highlightedSpentBlockHeight : null,
       highlightedSpentBlockSource,
       highlightedSpentBlockCentered,
+      highlightedKpiFocusActive,
       chartInteractionMode,
       timeMeasurement: serializeTimeMeasurement(),
       slopeMeasurement: serializeSlopeMeasurement(),
@@ -1162,6 +1209,7 @@
       highlightedSpentBlockHeight: null,
       highlightedSpentBlockSource: null,
       highlightedSpentBlockCentered: false,
+      highlightedKpiFocusActive: false,
       chartInteractionMode: "pan",
       timeMeasurement: null,
       slopeMeasurement: null,
@@ -1258,6 +1306,7 @@
       ? (snapshot.highlightedSpentBlockSource === "search" ? "search" : "panel")
       : null;
     highlightedSpentBlockCentered = Number.isFinite(highlightedSpentBlockHeight) && snapshot.highlightedSpentBlockCentered !== false;
+    highlightedKpiFocusActive = Number.isFinite(highlightedSpentBlockHeight) && !!snapshot.highlightedKpiFocusActive;
     applyChartInteractionSnapshot(snapshot);
     syncPatternBlockSets();
     normalizeExportSettings();
@@ -2050,6 +2099,7 @@
       highlightedSpentBlockHeight = null;
       highlightedSpentBlockSource = null;
       highlightedSpentBlockCentered = false;
+      highlightedKpiFocusActive = false;
     }
     minMs = rows[0].ms;
     maxMs = rows[rows.length - 1].ms;
@@ -2797,6 +2847,7 @@
     }
     state.startMs = startMs;
     state.endMs = endMs;
+    syncHighlightedKpiFocus();
     if (!preserveFinal) state.finalEndMs = state.animationEndMs;
     syncControls();
     render();
@@ -3066,8 +3117,8 @@
     return rows.filter((row) => row.ms >= state.startMs && row.ms <= state.endMs);
   }
 
-  function getRowsThroughEnd() {
-    return rows.filter((row) => row.ms <= state.endMs);
+  function getRowsThroughEnd(endMs = state.endMs) {
+    return rows.filter((row) => row.ms <= endMs);
   }
 
   function getThemeColors() {
@@ -3364,7 +3415,12 @@
     return previous ? [previous, ...drawable] : drawable;
   }
 
-  function updateKpis(visible, throughEnd) {
+  function getKpiEndMs() {
+    const row = getHighlightedSpentRow();
+    return highlightedKpiFocusActive && row && isHighlightedBlockCenteredInWindow() ? row.ms : state.endMs;
+  }
+
+  function updateKpis(visible, throughEnd, kpiEndMs = state.endMs) {
     const last = throughEnd[throughEnd.length - 1] || rows[rows.length - 1];
     const windowRows = visible.length ? visible : [];
     const cumulativeRows = throughEnd.length ? throughEnd : [];
@@ -3380,8 +3436,8 @@
     $("kpiPatoshi").textContent = `${fmtInt(cumulativePatoshiRows.length)} (${(cumulativePatoshiRows.length / totalCumulativeBlocks * 100).toFixed(1)}%)`;
     $("kpiOther").textContent = `${fmtInt(cumulativeOtherRows.length)} (${(cumulativeOtherRows.length / totalCumulativeBlocks * 100).toFixed(1)}%)`;
     if (state.countMetric === "time") {
-      $("kpiPatoshiSub").textContent = lastPatoshi ? `${Math.max(0, (state.endMs - lastPatoshi.ms) / HOUR).toFixed(1)}h since last` : "";
-      $("kpiOtherSub").textContent = lastOther ? `${Math.max(0, (state.endMs - lastOther.ms) / HOUR).toFixed(1)}h since last` : "";
+      $("kpiPatoshiSub").textContent = lastPatoshi ? `${Math.max(0, (kpiEndMs - lastPatoshi.ms) / HOUR).toFixed(1)}h since last` : "";
+      $("kpiOtherSub").textContent = lastOther ? `${Math.max(0, (kpiEndMs - lastOther.ms) / HOUR).toFixed(1)}h since last` : "";
     } else {
       $("kpiPatoshiSub").textContent = `${fmtInt(spentPatoshi)}/${fmtInt(cumulativePatoshiRows.length)} (${(cumulativePatoshiRows.length ? spentPatoshi / cumulativePatoshiRows.length * 100 : 0).toFixed(1)}%) Spent`;
       $("kpiOtherSub").textContent = `${fmtInt(spentOther)}/${fmtInt(cumulativeOtherRows.length)} (${(cumulativeOtherRows.length ? spentOther / cumulativeOtherRows.length * 100 : 0).toFixed(1)}%) Spent`;
@@ -3392,8 +3448,8 @@
     $("kpiDiffChange").textContent = prevDiff ? `${diffPct >= 0 ? "▲" : "▼"} ${Math.abs(diffPct).toFixed(2)}%` : "▲ 0.00%";
     $("kpiDiffChange").style.color = diffPct > 0 ? COLORS.green : diffPct < 0 ? COLORS.red : "var(--muted)";
     const hashrateWindowMs = getEffectiveHashrateWindowMs();
-    const hashrateStartMs = state.endMs - hashrateWindowMs;
-    const hashrateRows = rows.filter((row) => row.ms >= hashrateStartMs && row.ms <= state.endMs);
+    const hashrateStartMs = kpiEndMs - hashrateWindowMs;
+    const hashrateRows = rows.filter((row) => row.ms >= hashrateStartMs && row.ms <= kpiEndMs);
     const hashrateDurationSeconds = Math.max(1, hashrateWindowMs / 1000);
     const workFor = (items) => items.reduce((sum, row) => sum + row.difficulty * 2 ** 32, 0);
     const avgHashrate = workFor(hashrateRows) / hashrateDurationSeconds;
@@ -3438,7 +3494,10 @@
 
     const visible = getVisibleRows();
     const throughEnd = getRowsThroughEnd();
-    updateKpis(visible, throughEnd);
+    syncHighlightedKpiFocus();
+    const kpiEndMs = getKpiEndMs();
+    const kpiThroughEnd = kpiEndMs === state.endMs ? throughEnd : getRowsThroughEnd(kpiEndMs);
+    updateKpis(visible, kpiThroughEnd, kpiEndMs);
 
     const mobile = rect.width < 620;
     const yMax = yMaxFor(visible, throughEnd);
@@ -3526,7 +3585,11 @@
     diffMarkerHitboxes = [];
     blockMarkerHitboxes = [];
     slopeMeasurementHitboxes = null;
-    const isDrawableRow = (row) => (state.showSpent || !row.isSpent) && (state.showTimeBack || !row.timeGoesBack);
+    const isDrawableRow = (row) => {
+      if (!state.showSpent && row.isSpent) return false;
+      if (!state.showTimeBack && row.timeGoesBack && !isPatoshiRow(row)) return false;
+      return true;
+    };
     const orderRows = rowsWithLeftContinuity(visible, isDrawableRow);
     if (state.showOrder) {
       drawLine(
@@ -4943,7 +5006,7 @@
 
   function highlightAndCenterBlockMarker(marker) {
     if (!marker?.row) return;
-    setHighlightedBlock(marker.row, { source: "search", center: true });
+    setHighlightedBlock(marker.row, { source: "search", center: true, focusKpis: true });
   }
 
   function openBlockInMempool(marker) {
@@ -5067,7 +5130,7 @@
       clearHighlightedSpentReward();
       return;
     }
-    setHighlightedBlock(row);
+    setHighlightedBlock(row, { focusKpis: true });
   }
 
   function parseBlockSearchHeight(value) {
@@ -5612,6 +5675,11 @@
       event.stopPropagation();
       clearBlockSearch();
     });
+    els.blockSearchTarget?.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      focusKpisOnHighlightedBlock();
+    });
     els.blockSearchInput?.addEventListener("keydown", (event) => {
       if (event.key !== "Enter") return;
       event.preventDefault();
@@ -5906,6 +5974,7 @@
       highlightedSpentBlockHeight = null;
       highlightedSpentBlockSource = null;
       highlightedSpentBlockCentered = false;
+      highlightedKpiFocusActive = false;
       saveState();
     }
     metadata = metaText;
@@ -5928,6 +5997,7 @@
         ? (shared.highlightedSpentBlockSource === "search" ? "search" : "panel")
         : null;
       highlightedSpentBlockCentered = Number.isFinite(highlightedSpentBlockHeight) && shared.highlightedSpentBlockCentered !== false;
+      highlightedKpiFocusActive = Number.isFinite(highlightedSpentBlockHeight) && !!shared.highlightedKpiFocusActive;
       state.playing = false;
       state.paused = false;
       if (state.yMode === "fixed_2650") state.yMode = "custom";
@@ -5958,6 +6028,7 @@
       highlightedSpentBlockHeight = null;
       highlightedSpentBlockSource = null;
       highlightedSpentBlockCentered = false;
+      highlightedKpiFocusActive = false;
     }
     const currentWindowMs = Math.max(getMinWindowMs(), state.endMs - state.startMs || getDefaultWindowMs());
     const timelineMin = getTimelineMinMs(currentWindowMs);
