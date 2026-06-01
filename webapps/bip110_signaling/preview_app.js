@@ -82,9 +82,18 @@
     });
   }
 
-  function decodeBlockPoints(buffer, startHeight, periodSize) {
+  function decodeBlockPoints(buffer, startHeight, periodSize, datasetMeta = {}) {
     const view = new DataView(buffer);
-    const recordSize = 5;
+    const declaredRecordSize = Number(datasetMeta?.record_size);
+    const declaredRows = Number(datasetMeta?.rows);
+    const inferredRecordSize = Number.isFinite(declaredRows) && declaredRows > 0
+      ? buffer.byteLength / declaredRows
+      : null;
+    const recordSize = (declaredRecordSize === 9 || declaredRecordSize === 5)
+      ? declaredRecordSize
+      : (inferredRecordSize === 9 || inferredRecordSize === 5
+        ? inferredRecordSize
+        : (buffer.byteLength % 9 === 0 ? 9 : 5));
     const count = Math.floor(view.byteLength / recordSize);
     const rows = new Array(count);
 
@@ -92,12 +101,14 @@
       const offset = index * recordSize;
       const height = view.getUint32(offset, true);
       const isSignaling = view.getUint8(offset + 4);
+      const version = recordSize >= 9 ? view.getUint32(offset + 5, true) : null;
       const relativeHeight = height - startHeight;
       const period = Math.floor(relativeHeight / periodSize) + 1;
 
       rows[index] = {
         height,
         is_signaling: isSignaling,
+        version,
         period,
       };
     }
@@ -187,7 +198,7 @@
     const datasetMeta = state.metadata?.datasets?.bip110_blocks || {};
     const startHeight = Number(datasetMeta.start_height || 0);
     const periodSize = Number(datasetMeta.period_size || state.metadata?.chart?.period_size || 2016);
-    state.bip110Blocks = decodeBlockPoints(await blockPointsResp.arrayBuffer(), startHeight, periodSize);
+    state.bip110Blocks = decodeBlockPoints(await blockPointsResp.arrayBuffer(), startHeight, periodSize, datasetMeta);
   }
 
   async function init() {

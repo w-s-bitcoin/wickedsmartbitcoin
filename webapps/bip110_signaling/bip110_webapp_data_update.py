@@ -45,12 +45,15 @@ def export_block_points_bin(path: Path, rows, *, period_size: int):
     payload = bytearray()
     min_h = None
     max_h = None
+    record_size = 9
 
     for row in rows:
         h = int(row["height"])
         sig = 1 if int(row.get("is_signaling", 0)) == 1 else 0
+        version = int(row.get("version", 0)) & 0xFFFFFFFF
         payload.extend(h.to_bytes(4, byteorder="little", signed=False))
         payload.append(sig)
+        payload.extend(version.to_bytes(4, byteorder="little", signed=False))
         min_h = h if min_h is None else min(min_h, h)
         max_h = h if max_h is None else max(max_h, h)
 
@@ -60,6 +63,7 @@ def export_block_points_bin(path: Path, rows, *, period_size: int):
         "start_height": int(min_h) if min_h is not None else 0,
         "end_height": int(max_h) if max_h is not None else 0,
         "period_size": int(period_size),
+        "record_size": int(record_size),
     }
 
 def build_release_url(label: str) -> str:
@@ -554,6 +558,7 @@ if bip110_plot_max_height is not None and bip110_plot_max_height >= BIP110_START
                 "period": period,
                 "height": h,
                 "y_in_period": h - period_start,
+                "version": version,
                 "is_signaling": int((version & (1 << 4)) != 0),
             })
 
@@ -669,6 +674,7 @@ if needs_segwit_rebuild:
                 "period": period,
                 "height": h,
                 "y_in_period": h - period_start,
+                "version": version,
                 "is_signaling": int((version & (1 << 1)) != 0),
             })
 
@@ -717,12 +723,26 @@ if needs_segwit_rebuild:
     export_csv(webapp_dir / "segwit_month_ticks.csv", segwit_tick_rows, ["x", "label"])
 else:
     segwit_bin = webapp_dir / "segwit_block_points.bin"
-    rows = segwit_bin.stat().st_size // 5
+    segwit_bin_size = segwit_bin.stat().st_size
+    segwit_record_size = 5
+    existing_static_path = webapp_dir / "chart_static.json"
+    if existing_static_path.exists():
+        try:
+            with existing_static_path.open("r", encoding="utf-8") as f:
+                existing_static = json.load(f)
+            existing_rows = int(existing_static.get("datasets", {}).get("segwit_blocks", {}).get("rows") or 0)
+            inferred_size = (segwit_bin_size // existing_rows) if existing_rows > 0 and segwit_bin_size % existing_rows == 0 else 0
+            if inferred_size in (5, 9):
+                segwit_record_size = inferred_size
+        except Exception:
+            segwit_record_size = 5
+    rows = segwit_bin_size // segwit_record_size
     segwit_blocks_meta = {
         "rows": int(rows),
         "start_height": int(SEGWIT_START),
         "end_height": int(SEGWIT_START + rows - 1),
         "period_size": int(PERIOD_SIZE),
+        "record_size": int(segwit_record_size),
     }
     print("SegWit datasets unchanged (already present).")
 
