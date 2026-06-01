@@ -33,6 +33,13 @@
     const SHARE_STATE_PARAM = "bip110_state";
     const LOCAL_RUNTIME_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
     const IS_LOCAL_RUNTIME = LOCAL_RUNTIME_HOSTS.has(window.location.hostname);
+    const missingMinerIconSlugs = new Set();
+    window.__bip110MinerIconMissing = (slug) => {
+      const safeSlug = String(slug || "").trim().toLowerCase();
+      if (/^[a-z0-9-]+$/.test(safeSlug)) {
+        missingMinerIconSlugs.add(safeSlug);
+      }
+    };
 
     const ICONS = {
       copyLink: '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>',
@@ -287,6 +294,7 @@
     const periodGridOverlay = document.getElementById("periodGridOverlay");
     const periodGridDialog = document.getElementById("periodGridDialog");
     const periodGridHeader = document.getElementById("periodGridHeader");
+    const periodGridLegend = document.getElementById("periodGridLegend");
     const periodGridClose = document.getElementById("periodGridClose");
     const periodGridPeriodChip = document.getElementById("periodGridPeriodChip");
     const periodGridPeriodLabel = document.getElementById("periodGridPeriodLabel");
@@ -294,6 +302,7 @@
     const periodGridRangeValue = document.getElementById("periodGridRangeValue");
     const periodGridSignalValue = document.getElementById("periodGridSignalValue");
     const periodGridContent = document.getElementById("periodGridContent");
+    const periodGridLowActivityLegendItem = document.getElementById("periodGridLowActivityLegendItem");
     const vizInfoBtn = document.getElementById("vizInfoBtn");
     const segwitResizeHandle = document.getElementById("segwitResizeHandle");
     const bip110ResizeHandle = document.getElementById("bip110ResizeHandle");
@@ -945,12 +954,18 @@
         {},
         { cache: "no-store" }
       );
+      const segwitLowActivityBlocks = await loadOptionalJson(
+        "webapp_data/segwit_low_activity_blocks.json",
+        {},
+        { cache: "no-store" }
+      );
 
       return {
         metadata: staticMetadata || (await loadStaticMetadataOnly()).metadata,
         segwitPeriods: castRows(parseCsv(await segwitPeriodsResp.text())),
         segwitBlocks: [],
         segwitMiners,
+        segwitLowActivityBlocks,
         segwitReleases: castRows(parseCsv(await segwitReleasesResp.text())).map((d) => ({
           ...d,
           display_label: String(d.display_label || "").replaceAll("\\n", "\n"),
@@ -1010,11 +1025,17 @@
       }
 
       const bip110SignalMiners = await loadOptionalJson(
-        withBust("webapp_data/bip110_signal_miners.json"),
+        withBust("webapp_data/bip110_miners.json"),
         previousDynamicData?.bip110SignalMiners || {},
         { cache: "no-store" }
       );
-
+      if (Object.keys(bip110SignalMiners).length === 0) {
+        Object.assign(bip110SignalMiners, await loadOptionalJson(
+          withBust("webapp_data/bip110_signal_miners.json"),
+          previousDynamicData?.bip110SignalMiners || {},
+          { cache: "no-store" }
+        ));
+      }
       return {
         metadata,
         signature,
@@ -1055,6 +1076,7 @@
         segwitBlocks: staticData?.segwitBlocks || previousData?.segwitBlocks || [],
         bip110Blocks: dynamicData?.bip110Blocks || previousData?.bip110Blocks || [],
         segwitMiners: staticData?.segwitMiners || previousData?.segwitMiners || {},
+        segwitLowActivityBlocks: staticData?.segwitLowActivityBlocks || previousData?.segwitLowActivityBlocks || {},
         segwitReleases: staticData?.segwitReleases || previousData?.segwitReleases || [],
         bip110Releases: dynamicData?.bip110Releases || previousData?.bip110Releases || [],
         segwitTicks: staticData?.segwitTicks || previousData?.segwitTicks || [],
@@ -1161,6 +1183,26 @@
             : null;
         return miner?.name ? { ...block, miner } : block;
       });
+    }
+
+    function getLowActivityBlockSet(lowActivityBlockData) {
+      const values = Array.isArray(lowActivityBlockData)
+        ? lowActivityBlockData
+        : Array.isArray(lowActivityBlockData?.low_activity)
+          ? lowActivityBlockData.low_activity
+          : [];
+      return new Set(values.map((height) => Number(height)).filter((height) => Number.isFinite(height)));
+    }
+
+    function attachLowActivityBlockData(blocks, lowActivityBlockData) {
+      if (!Array.isArray(blocks)) return blocks;
+      const lowActivityBlocks = getLowActivityBlockSet(lowActivityBlockData);
+      if (lowActivityBlocks.size === 0) return blocks;
+      return blocks.map((block) => (
+        lowActivityBlocks.has(Number(block?.height))
+          ? { ...block, is_low_activity_block: 1 }
+          : block
+      ));
     }
 
     function getDataSignature(meta) {
@@ -2388,6 +2430,12 @@
           const x1 = signaling
             ? xScale(p + stripeOffset + stripeHalf)
             : xScale(p - stripeOffset + stripeHalf);
+          const barHoverEdge = signaling
+            ? xScale(p + chart.bar.width / 2)
+            : xScale(p - chart.bar.width / 2);
+          const sideMidpoint = signaling
+            ? xScale(p + 0.5)
+            : xScale(p - 0.5);
 
           ctx.globalAlpha = 0.98;
           const markerBounds = drawBlockStripeMarker(
@@ -2402,10 +2450,12 @@
           );
 
           state.stripeMaps[key].push({
-            x0: markerBounds.x0,
-            x1: markerBounds.x1,
+            x0: Math.min(markerBounds.x0, signaling ? barHoverEdge : sideMidpoint),
+            x1: Math.max(markerBounds.x1, signaling ? sideMidpoint : barHoverEdge),
             y0: y - markerBounds.yPad,
             y1: y + markerBounds.yPad,
+            markerX0: markerBounds.x0,
+            markerX1: markerBounds.x1,
             data: b,
           });
         });
@@ -3393,6 +3443,36 @@
       }
     }
 
+    function cyclePeriodGridPeriod(delta) {
+      const availablePeriods = getPeriodGridAvailablePeriods();
+      if (!availablePeriods.length) return;
+      const current = getSelectedPeriodGridPeriod();
+      const currentIndex = Math.max(0, availablePeriods.indexOf(current));
+      const nextIndex = (currentIndex + delta + availablePeriods.length) % availablePeriods.length;
+      setPeriodGridSelectedPeriod(availablePeriods[nextIndex]);
+      renderCurrentPeriodGridOverlay();
+    }
+
+    function handlePeriodGridModalKeydown(event) {
+      if (!isPeriodGridOverlayOpen()) return;
+      const isArrowLeft = event.key === "ArrowLeft";
+      const isArrowRight = event.key === "ArrowRight";
+      const isSpace = event.key === " " || event.key === "Spacebar" || event.code === "Space";
+      if (!isArrowLeft && !isArrowRight && !isSpace) return;
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === "function") {
+        event.stopImmediatePropagation();
+      }
+      if (isSpace) {
+        closePeriodGridOverlay();
+        return;
+      }
+      cyclePeriodGridPeriod(isArrowRight ? 1 : -1);
+    }
+
     function buildCurrentPeriodGridCells() {
       const datasetKey = getPeriodGridDataset();
       const selectedPeriod = getSelectedPeriodGridPeriod();
@@ -3429,11 +3509,13 @@
 
         if (hasMinedBlock && block) {
           const isSignaling = Number(block.is_signaling) === 1;
+          const isLowActivityBlock = datasetKey === "segwit" && Number(block.is_low_activity_block) === 1;
           cells.push({
             height,
             isSignaling,
+            isLowActivityBlock,
             isMined: true,
-            className: isSignaling ? "is-signaling" : "is-nonsignaling",
+            className: `${isSignaling ? "is-signaling" : "is-nonsignaling"}${isLowActivityBlock ? " is-low-activity-block" : ""}`,
             tooltip: formatStripeTooltip(block, datasetKey),
             clickable: true,
           });
@@ -3517,13 +3599,14 @@
         const pool = String(poolLine || "").replace(/^MinerPool:\s*/i, "").trim();
         const subMiner = String(subMinerLine || "").replace(/^MinerSub:\s*/i, "").trim();
         const safeSlug = /^[a-z0-9-]+$/.test(slug) ? slug : "";
-        const iconHtml = safeSlug
-          ? `<img class="tooltip-miner-icon" src="https://mempool.space/resources/mining-pools/${escapeHtml(safeSlug)}.svg" alt="" aria-hidden="true" onerror="this.remove()">`
-          : "";
-
-        if (!iconHtml) {
-          return escapeHtml(raw);
-        }
+        const defaultIconSrc = "assets/mining-pools/default.svg";
+        const iconSrc = safeSlug && !missingMinerIconSlugs.has(safeSlug)
+          ? `assets/mining-pools/${escapeHtml(safeSlug)}.svg`
+          : defaultIconSrc;
+        const onError = safeSlug && !missingMinerIconSlugs.has(safeSlug)
+          ? `window.__bip110MinerIconMissing&&window.__bip110MinerIconMissing('${safeSlug}');this.onerror=null;this.src='${defaultIconSrc}'`
+          : `this.onerror=null`;
+        const iconHtml = `<img class="tooltip-miner-icon" src="${iconSrc}" alt="" aria-hidden="true" onerror="${onError}">`;
 
         if (subMiner && pool) {
           return [
@@ -3543,6 +3626,22 @@
         ].join("");
       };
 
+      const renderSignalingValue = (value) => {
+        const raw = String(value || "").trim();
+        const match = raw.match(/^([0-9][0-9,]*)(\s*\([^)]*\))?$/);
+        if (!match) {
+          return escapeHtml(raw);
+        }
+        const count = Number(match[1].replace(/,/g, ""));
+        if (!Number.isFinite(count) || count <= 0) {
+          return escapeHtml(raw);
+        }
+        return [
+          `<span class="chip-value-signal">${escapeHtml(match[1])}</span>`,
+          escapeHtml(match[2] || ""),
+        ].join("");
+      };
+
       return lines
         .map((line) => {
           const match = line.match(/^([^:]+:)(\s*)(.*)$/);
@@ -3557,7 +3656,9 @@
             ? renderVersionValue(match[3])
             : label === "miner:"
               ? renderMinerValue(match[3])
-              : escapeHtml(match[3]);
+              : label === "signaling:"
+                ? renderSignalingValue(match[3])
+                : escapeHtml(match[3]);
           const lineClass = label === "miner:" ? " tooltip-line-miner" : "";
           const valueClass = label === "miner:" ? " tooltip-value-miner" : "";
           return `<div class="tooltip-line${lineClass}"><span class="tooltip-label">${escapeHtml(match[1])}</span><span class="tooltip-value${valueClass}">${valueHtml}</span></div>`;
@@ -3565,12 +3666,20 @@
         .join("");
     }
 
-    function showPeriodGridTooltip(content, clientX, clientY) {
+    let activePeriodGridTooltipContent = "";
+
+    function showPeriodGridTooltip(content, clientX, clientY, options = {}) {
       if (!periodGridTooltip || !isPeriodGridOverlayOpen()) return;
-      periodGridTooltip.innerHTML = renderTooltipHtml(content);
+      const normalizedContent = String(content || "");
+      if (activePeriodGridTooltipContent !== normalizedContent) {
+        periodGridTooltip.innerHTML = renderTooltipHtml(normalizedContent);
+        activePeriodGridTooltipContent = normalizedContent;
+      }
+      periodGridTooltip.classList.toggle("is-compact", !!options.compact);
+      const contentRect = options.constrainToGrid === false ? null : periodGridContent?.getBoundingClientRect();
       const dialogRect = periodGridDialog?.getBoundingClientRect();
       const overlayRect = periodGridOverlay?.getBoundingClientRect();
-      const bounds = dialogRect || overlayRect || {
+      const bounds = contentRect || dialogRect || overlayRect || {
         left: 0,
         top: 0,
         right: window.innerWidth,
@@ -3587,12 +3696,25 @@
       const maxX = bounds.right - edgePad - half;
       const clampedX = clamp(clientX, Math.min(minX, maxX), Math.max(minX, maxX));
 
-      const minY = bounds.top + edgePad + tipH + yOffset;
-      const maxY = bounds.bottom - edgePad + yOffset;
+      const roomAbove = clientY - bounds.top - edgePad;
+      const showBelow = options.placement === "below"
+        ? true
+        : options.placement === "above"
+          ? false
+          : roomAbove < tipH + yOffset;
+      const minY = showBelow
+        ? bounds.top + edgePad - yOffset
+        : bounds.top + edgePad + tipH + yOffset;
+      const maxY = showBelow
+        ? bounds.bottom - edgePad - tipH - yOffset
+        : bounds.bottom - edgePad + yOffset;
       const clampedY = clamp(clientY, Math.min(minY, maxY), Math.max(minY, maxY));
 
       periodGridTooltip.style.left = `${clampedX}px`;
       periodGridTooltip.style.top = `${clampedY}px`;
+      periodGridTooltip.style.transform = showBelow
+        ? "translate(-50%, 14px)"
+        : "translate(-50%, calc(-100% - 14px))";
       periodGridTooltip.classList.add("show");
     }
 
@@ -3630,6 +3752,8 @@
       const dialogStyle = periodGridDialog ? getComputedStyle(periodGridDialog) : null;
       const headerRect = periodGridHeader?.getBoundingClientRect();
       const headerStyle = periodGridHeader ? getComputedStyle(periodGridHeader) : null;
+      const legendRect = periodGridLegend?.getBoundingClientRect();
+      const legendStyle = periodGridLegend ? getComputedStyle(periodGridLegend) : null;
 
       const overlayPadLeft = parseFloat(overlayStyle?.paddingLeft || "0");
       const overlayPadRight = parseFloat(overlayStyle?.paddingRight || "0");
@@ -3651,9 +3775,13 @@
 
       const headerHeight = headerRect?.height || 0;
       const headerMarginBottom = parseFloat(headerStyle?.marginBottom || "0");
+      const legendHeight = legendRect?.height || 0;
+      const legendMarginTop = parseFloat(legendStyle?.marginTop || "0");
+      const legendMarginBottom = parseFloat(legendStyle?.marginBottom || "0");
+      const legendSpace = legendHeight + legendMarginTop + legendMarginBottom;
 
       const availableWidth = Math.max(40, maxDialogWidth - dialogPadX);
-      const availableHeight = Math.max(40, maxDialogHeight - dialogPadY - headerHeight - headerMarginBottom);
+      const availableHeight = Math.max(40, maxDialogHeight - dialogPadY - headerHeight - headerMarginBottom - legendSpace);
 
       return { availableWidth, availableHeight };
     }
@@ -3797,6 +3925,11 @@
       if (periodGridPeriodSelect) {
         periodGridPeriodSelect.value = String(summary.period || getSelectedPeriodGridPeriod());
       }
+      if (periodGridLowActivityLegendItem) {
+        const showLowActivityLegend = datasetKey === "segwit";
+        periodGridLowActivityLegendItem.hidden = !showLowActivityLegend;
+        periodGridLowActivityLegendItem.style.display = showLowActivityLegend ? "" : "none";
+      }
       if (periodGridRangeValue) periodGridRangeValue.textContent = String(summary.range || "").replace(/^Height Range:\s*/i, "");
       if (periodGridSignalValue) {
         periodGridSignalValue.innerHTML = formatSignalingValueWithOrangeNumerator(
@@ -3915,12 +4048,18 @@
       return panel.getBoundingClientRect();
     }
 
+    let activeTooltipContent = "";
+
     function showTooltip(content, clientX, clientY, boundsRect = null) {
       if (isPeriodGridOverlayOpen()) {
         tooltip.classList.remove("show");
         return;
       }
-      tooltip.innerHTML = renderTooltipHtml(content);
+      const normalizedContent = String(content || "");
+      if (activeTooltipContent !== normalizedContent) {
+        tooltip.innerHTML = renderTooltipHtml(normalizedContent);
+        activeTooltipContent = normalizedContent;
+      }
       const edgePad = 12;
       const viewportBounds = {
         left: 0,
@@ -3952,11 +4091,20 @@
       const half = tipW / 2;
       const clampedX = clamp(clientX, bounds.left + edgePad + half, bounds.right - edgePad - half);
       const offsetY = 14;
-      const minAnchorY = bounds.top + edgePad + tipH + offsetY;
-      const maxAnchorY = bounds.bottom - edgePad + offsetY;
+      const roomAbove = clientY - bounds.top - edgePad;
+      const showBelow = roomAbove < tipH + offsetY;
+      const minAnchorY = showBelow
+        ? bounds.top + edgePad - offsetY
+        : bounds.top + edgePad + tipH + offsetY;
+      const maxAnchorY = showBelow
+        ? bounds.bottom - edgePad - tipH - offsetY
+        : bounds.bottom - edgePad + offsetY;
       const clampedY = clamp(clientY, Math.min(minAnchorY, maxAnchorY), Math.max(minAnchorY, maxAnchorY));
       tooltip.style.left = `${clampedX}px`;
       tooltip.style.top = `${clampedY}px`;
+      tooltip.style.transform = showBelow
+        ? "translate(-50%, 14px)"
+        : "translate(-50%, calc(-100% - 14px))";
       tooltip.classList.add("show");
     }
 
@@ -4040,10 +4188,10 @@
         if (loadToken !== state.phasedLoadToken || !state.data) return;
 
         if (key === "segwit") {
-          state.staticData.segwitBlocks = attachMinerData(
+          state.staticData.segwitBlocks = attachLowActivityBlockData(attachMinerData(
             blocks,
             state.staticData?.segwitMiners
-          );
+          ), state.staticData?.segwitLowActivityBlocks);
         } else {
           state.dynamicData.bip110Blocks = attachMinerData(
             blocks,
@@ -4272,8 +4420,34 @@
         openPeriodGridOverlay(null, "bip110");
       });
 
+      window.addEventListener("keydown", handlePeriodGridModalKeydown, true);
+
+      const showPeriodGridLegendTooltip = (event) => {
+        if (!periodGridLowActivityLegendItem || periodGridLowActivityLegendItem.hidden) return;
+        const content = String(periodGridLowActivityLegendItem.getAttribute("data-period-grid-tooltip") || "").trim();
+        if (!content) return;
+        const rect = periodGridLowActivityLegendItem.getBoundingClientRect();
+        const x = Number.isFinite(event?.clientX) ? event.clientX : rect.left + rect.width / 2;
+        const y = Number.isFinite(event?.clientY) ? event.clientY : rect.top + rect.height / 2;
+        showPeriodGridTooltip(content, x, y, { compact: true, constrainToGrid: false, placement: "below" });
+      };
+
+      periodGridLowActivityLegendItem?.addEventListener("mouseenter", showPeriodGridLegendTooltip);
+      periodGridLowActivityLegendItem?.addEventListener("mousemove", showPeriodGridLegendTooltip);
+      periodGridLowActivityLegendItem?.addEventListener("mouseleave", () => {
+        hidePeriodGridTooltip();
+      });
+
       periodGridOverlay?.addEventListener("mousemove", (event) => {
         const cell = event.target instanceof Element ? event.target.closest(".period-grid-cell") : null;
+        const legendTooltipTarget = event.target instanceof Element ? event.target.closest("[data-period-grid-tooltip]") : null;
+        if (legendTooltipTarget && !legendTooltipTarget.hidden) {
+          const content = String(legendTooltipTarget.getAttribute("data-period-grid-tooltip") || "").trim();
+          if (content) {
+            showPeriodGridTooltip(content, event.clientX, event.clientY, { compact: true, constrainToGrid: false, placement: "below" });
+            return;
+          }
+        }
         if (!cell) {
           hidePeriodGridTooltip();
           return;
@@ -4315,15 +4489,7 @@
 
         if (event.key === "ArrowUp" || event.key === "ArrowDown") {
           event.preventDefault();
-          const availablePeriods = getPeriodGridAvailablePeriods();
-          if (!availablePeriods.length) return;
-          const current = getSelectedPeriodGridPeriod();
-          const currentIndex = Math.max(0, availablePeriods.indexOf(current));
-          const delta = event.key === "ArrowUp" ? 1 : -1;
-          const nextIndex = (currentIndex + delta + availablePeriods.length) % availablePeriods.length;
-          const next = availablePeriods[nextIndex];
-          setPeriodGridSelectedPeriod(next);
-          renderCurrentPeriodGridOverlay();
+          cyclePeriodGridPeriod(event.key === "ArrowUp" ? 1 : -1);
           return;
         }
 
@@ -4421,6 +4587,7 @@
           segwitPeriods: [],
           segwitBlocks: [],
           segwitMiners: {},
+          segwitLowActivityBlocks: {},
           segwitReleases: [],
           segwitTicks: [],
         };
