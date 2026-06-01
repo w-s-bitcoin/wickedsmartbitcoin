@@ -117,6 +117,28 @@ def bip110_display_label(label: str) -> str:
         return f"Knots\n{version.replace('.knots', '')}"
     return label
 
+SEGWIT_RELEASE_TIMES_UTC = {
+    "Core:v0.13.2": "2017-01-03 10:48 UTC",
+    "UASF:v0.14.0rc1": "2017-02-17 20:59 UTC",
+    "UASF:v0.14.0rc2": "2017-02-23 20:41 UTC",
+    "UASF:v0.14.0rc3": "2017-02-28 12:56 UTC",
+    "UASF:v0.14.0": "2017-03-07 10:52 UTC",
+    "Core:v0.14.0": "2017-03-08 15:20 UTC",
+    "UASF:v0.14.0.uasfsegwit": "2017-03-26 16:03 UTC",
+    "UASF:v0.14.0.uasfsegwit1.1": "2017-03-28 16:04 UTC",
+    "UASF:v0.14.1rc1": "2017-04-05 07:20 UTC",
+    "UASF:v0.14.0.uasfsegwit3": "2017-04-07 14:32 UTC",
+    "UASF:v0.14.0-uasfsegwit0.3": "2017-04-07 14:35 UTC",
+    "UASF:v0.14.1rc2": "2017-04-14 10:50 UTC",
+    "UASF:v0.14.1": "2017-04-20 19:45 UTC",
+    "Core:v0.14.1": "2017-04-22 14:19 UTC",
+    "UASF:v0.14.2rc1": "2017-06-01 20:03 UTC",
+    "UASF:v0.14.2rc2": "2017-06-06 14:46 UTC",
+    "UASF:v0.14.2": "2017-06-15 12:08 UTC",
+    "UASF:v0.14.2-uasfsegwit1.0": "2017-07-10 16:29 UTC",
+    "SegWit2x:v1.14.4": "2017-07-17 22:48 UTC",
+}
+
 def block_time_at_height(rpc, height: int) -> int:
     tip = int(rpc.getblockcount())
     tip_hash = rpc.getblockhash(tip)
@@ -680,7 +702,7 @@ if needs_segwit_rebuild:
             "y_in_period": y,
             "label_dy": int(dy),
             "label_anchor": "below" if dy < 0 else "above",
-            "release_time_utc": "",
+            "release_time_utc": SEGWIT_RELEASE_TIMES_UTC.get(label, ""),
             "github_url": build_release_url(label),
         })
 
