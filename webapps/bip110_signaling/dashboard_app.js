@@ -857,6 +857,22 @@
       return fallbackResp;
     }
 
+    async function loadOptionalJson(path, fallbackValue = {}, options = {}) {
+      try {
+        const resp = await fetch(path, options);
+        if (!resp.ok) {
+          if (resp.status !== 404) {
+            console.warn(`Optional data failed to load: ${path} (${resp.status})`);
+          }
+          return fallbackValue;
+        }
+        return await resp.json();
+      } catch (err) {
+        console.warn(`Optional data failed to load: ${path}`, err);
+        return fallbackValue;
+      }
+    }
+
     function buildMetadataSignature(meta, resp = null) {
       const etag = String(resp?.headers?.get("etag") || "");
       const lastModified = String(resp?.headers?.get("last-modified") || "");
@@ -986,6 +1002,12 @@
         signature = metadataResult.signature;
       }
 
+      const bip110SignalMiners = await loadOptionalJson(
+        withBust("webapp_data/bip110_signal_miners.json"),
+        previousDynamicData?.bip110SignalMiners || {},
+        { cache: "no-store" }
+      );
+
       return {
         metadata,
         signature,
@@ -1000,6 +1022,7 @@
         bip110Ticks: bip110TicksResp
           ? castRows(parseCsv(await bip110TicksResp.text()))
           : (previousDynamicData?.bip110Ticks || []),
+        bip110SignalMiners,
       };
     }
 
@@ -1109,6 +1132,18 @@
       const startHeight = Number(datasetMeta?.start_height || 0);
 
       return decodeBlockPoints(await resp.arrayBuffer(), startHeight, periodSize, datasetMeta);
+    }
+
+    function attachBip110MinerData(blocks, minerMap) {
+      if (!Array.isArray(blocks) || !minerMap || typeof minerMap !== "object") {
+        return blocks;
+      }
+
+      return blocks.map((block) => {
+        if (Number(block?.is_signaling) !== 1) return block;
+        const miner = String(minerMap[String(block.height)] || "").trim();
+        return miner ? { ...block, miner } : block;
+      });
     }
 
     function getDataSignature(meta) {
@@ -3222,6 +3257,10 @@
       const versionHex = formatBlockVersionHex(data.version);
       lines.push(`Version: ${versionHex || "Loading..."}`);
       lines.push(`Mode: ${mode}`);
+      const miner = String(data.miner || "").trim();
+      if (chartType === "bip110" && Number(data.is_signaling) === 1 && miner) {
+        lines.push(`Miner: ${miner}`);
+      }
       return lines.join("\n");
     }
 
@@ -3422,16 +3461,37 @@
         ].join("");
       };
 
+      const renderMinerValue = (value) => {
+        const raw = String(value || "").trim();
+        const oceanMatch = raw.match(/^(.+?)\s*\(\s*OCEAN\s*\)$/i);
+        if (!oceanMatch) {
+          return escapeHtml(raw);
+        }
+
+        return [
+          `<span class="tooltip-miner-ocean">`,
+          `<span class="tooltip-miner-name">${escapeHtml(oceanMatch[1].trim())}</span>`,
+          `<img class="tooltip-miner-icon" src="https://mempool.space/resources/mining-pools/ocean.svg" alt="" aria-hidden="true">`,
+          `<span class="tooltip-miner-pool">OCEAN</span>`,
+          `</span>`,
+        ].join("");
+      };
+
       return lines
         .map((line) => {
           const match = line.match(/^([^:]+:)(\s*)(.*)$/);
           if (!match) {
             return `<div class="tooltip-line"><span class="tooltip-value">${escapeHtml(line)}</span></div>`;
           }
-          const valueHtml = match[1].toLowerCase() === "version:"
+          const label = match[1].toLowerCase();
+          const valueHtml = label === "version:"
             ? renderVersionValue(match[3])
-            : escapeHtml(match[3]);
-          return `<div class="tooltip-line"><span class="tooltip-label">${escapeHtml(match[1])}</span><span class="tooltip-value">${valueHtml}</span></div>`;
+            : label === "miner:"
+              ? renderMinerValue(match[3])
+              : escapeHtml(match[3]);
+          const lineClass = label === "miner:" ? " tooltip-line-miner" : "";
+          const valueClass = label === "miner:" ? " tooltip-value-miner" : "";
+          return `<div class="tooltip-line${lineClass}"><span class="tooltip-label">${escapeHtml(match[1])}</span><span class="tooltip-value${valueClass}">${valueHtml}</span></div>`;
         })
         .join("");
     }
@@ -3913,7 +3973,10 @@
         if (key === "segwit") {
           state.staticData.segwitBlocks = blocks;
         } else {
-          state.dynamicData.bip110Blocks = blocks;
+          state.dynamicData.bip110Blocks = attachBip110MinerData(
+            blocks,
+            state.dynamicData?.bip110SignalMiners
+          );
           if (options.reconcile !== false) {
             state.dynamicData = reconcileBip110PeriodsFromBlocks(state.dynamicData, metadata);
           }
@@ -4295,6 +4358,7 @@
           bip110Blocks: [],
           bip110Releases: [],
           bip110Ticks: [],
+          bip110SignalMiners: {},
         };
         state.data = buildCombinedData(state.staticData, state.dynamicData);
         state.dataSignature = dynamicMetadataResult.signature;
