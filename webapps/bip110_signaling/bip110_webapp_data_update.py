@@ -642,7 +642,17 @@ segwit_required = [
     webapp_dir / "segwit_month_ticks.csv",
     webapp_dir / "segwit_block_points.bin",
 ]
-needs_segwit_rebuild = force_refresh_segwit or any(not p.exists() for p in segwit_required)
+needs_segwit_version_rebuild = False
+chart_static_path = webapp_dir / "chart_static.json"
+if chart_static_path.exists() and (webapp_dir / "segwit_block_points.bin").exists():
+    try:
+        with chart_static_path.open("r", encoding="utf-8") as f:
+            existing_static = json.load(f)
+        existing_segwit_meta = existing_static.get("datasets", {}).get("segwit_blocks", {})
+        needs_segwit_version_rebuild = int(existing_segwit_meta.get("record_size") or 0) != 9
+    except Exception:
+        needs_segwit_version_rebuild = True
+needs_segwit_rebuild = force_refresh_segwit or any(not p.exists() for p in segwit_required) or needs_segwit_version_rebuild
 
 if needs_segwit_rebuild:
     print("Rebuilding static SegWit datasets...")
@@ -746,7 +756,6 @@ else:
     }
     print("SegWit datasets unchanged (already present).")
 
-chart_static_path = webapp_dir / "chart_static.json"
 needs_chart_static_refresh = needs_segwit_rebuild or not chart_static_path.exists()
 
 if needs_chart_static_refresh:

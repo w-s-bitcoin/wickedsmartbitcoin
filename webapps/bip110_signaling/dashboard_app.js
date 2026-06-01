@@ -1097,7 +1097,7 @@
         ? withBust("webapp_data/segwit_block_points.bin")
         : withBust("webapp_data/bip110_block_points.bin");
 
-      const resp = await fetch(file);
+      const resp = await fetch(file, { cache: "no-store" });
       if (!resp.ok) {
         throw new Error(`Failed to load ${file} (${resp.status})`);
       }
@@ -3209,7 +3209,7 @@
 
     function formatBlockVersionHex(version) {
       const n = Number(version);
-      if (!Number.isFinite(n)) return "";
+      if (!Number.isFinite(n) || n === 0) return "";
       return `0x${(n >>> 0).toString(16).padStart(8, "0")}`;
     }
 
@@ -3220,9 +3220,7 @@
         : `Non-signaling for ${fork}`;
       const lines = [`Height: ${Number(data.height).toLocaleString()}`];
       const versionHex = formatBlockVersionHex(data.version);
-      if (versionHex) {
-        lines.push(`Version: ${versionHex}`);
-      }
+      lines.push(`Version: ${versionHex || "Loading..."}`);
       lines.push(`Mode: ${mode}`);
       return lines.join("\n");
     }
@@ -3383,14 +3381,57 @@
         .replace(/\"/g, "&quot;")
         .replace(/'/g, "&#39;");
 
-      return String(content || "")
-        .split("\n")
+      const lines = String(content || "").split("\n");
+      const tooltipFork = (() => {
+        const modeLine = lines.find((line) => /^Mode:/i.test(String(line || "").trim()));
+        const modeText = String(modeLine || "");
+        if (/SegWit/i.test(modeText)) return "segwit";
+        if (/BIP-110/i.test(modeText)) return "bip110";
+        return "";
+      })();
+
+      const renderVersionValue = (value) => {
+        const raw = String(value || "").trim();
+        if (/^Loading\.\.\.$/i.test(raw)) {
+          return `<span class="tooltip-version-loading">${escapeHtml(raw)}</span>`;
+        }
+        if (!/^0x[0-9a-f]{8}$/i.test(raw)) {
+          return escapeHtml(value);
+        }
+
+        const version = Number.parseInt(raw.slice(2), 16);
+        if (!Number.isFinite(version)) {
+          return escapeHtml(value);
+        }
+
+        let signalNibbleIndex = -1;
+        if (tooltipFork === "segwit" && (version & (1 << 1)) !== 0) {
+          signalNibbleIndex = raw.length - 1;
+        } else if (tooltipFork === "bip110" && (version & (1 << 4)) !== 0) {
+          signalNibbleIndex = raw.length - 2;
+        }
+
+        if (signalNibbleIndex < 0) {
+          return escapeHtml(value);
+        }
+
+        return [
+          escapeHtml(raw.slice(0, signalNibbleIndex)),
+          `<span class="tooltip-version-signal-bit">${escapeHtml(raw.charAt(signalNibbleIndex))}</span>`,
+          escapeHtml(raw.slice(signalNibbleIndex + 1)),
+        ].join("");
+      };
+
+      return lines
         .map((line) => {
           const match = line.match(/^([^:]+:)(\s*)(.*)$/);
           if (!match) {
             return `<div class="tooltip-line"><span class="tooltip-value">${escapeHtml(line)}</span></div>`;
           }
-          return `<div class="tooltip-line"><span class="tooltip-label">${escapeHtml(match[1])}</span><span class="tooltip-value">${escapeHtml(match[3])}</span></div>`;
+          const valueHtml = match[1].toLowerCase() === "version:"
+            ? renderVersionValue(match[3])
+            : escapeHtml(match[3]);
+          return `<div class="tooltip-line"><span class="tooltip-label">${escapeHtml(match[1])}</span><span class="tooltip-value">${valueHtml}</span></div>`;
         })
         .join("");
     }
@@ -3866,14 +3907,16 @@
     }
 
     async function loadAndApplyBlockDataPhased(loadToken, metadata, datasetKeys = ["segwit", "bip110"], cacheBust = null) {
-      const applyBlocks = async (key, blocks) => {
+      const applyBlocks = async (key, blocks, options = {}) => {
         if (loadToken !== state.phasedLoadToken || !state.data) return;
 
         if (key === "segwit") {
           state.staticData.segwitBlocks = blocks;
         } else {
           state.dynamicData.bip110Blocks = blocks;
-          state.dynamicData = reconcileBip110PeriodsFromBlocks(state.dynamicData, metadata);
+          if (options.reconcile !== false) {
+            state.dynamicData = reconcileBip110PeriodsFromBlocks(state.dynamicData, metadata);
+          }
         }
 
         state.data = buildCombinedData(state.staticData, state.dynamicData, state.data);
@@ -3882,7 +3925,15 @@
       };
 
       const loadPromises = datasetKeys.map((key) => loadBlockPointsForDataset(key, metadata, cacheBust)
-        .then((blocks) => applyBlocks(key, blocks))
+        .then(async (blocks) => {
+          if (key === "bip110") {
+            const signalingBlocks = blocks.filter((block) => Number(block.is_signaling) === 1);
+            if (signalingBlocks.length > 0 && signalingBlocks.length < blocks.length) {
+              await applyBlocks(key, signalingBlocks, { reconcile: false });
+            }
+          }
+          await applyBlocks(key, blocks);
+        })
         .catch((err) => {
           console.warn(`${key === "segwit" ? "SegWit" : "BIP-110"} block markers failed to load:`, err);
         }));
