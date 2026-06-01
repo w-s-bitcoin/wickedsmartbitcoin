@@ -27,6 +27,8 @@
     const PANEL_RESIZE_MIN_HEIGHT = 220;
     const PANEL_RESIZE_VIEWPORT_PAD = 24;
     const PANEL_RESIZE_SNAP_PX = 18;
+    const EXPECTED_FORK_HEIGHT = 961632;
+    const EXPECTED_BLOCK_INTERVAL_MS = 10 * 60 * 1000;
     const DASHBOARD_TIME = window.WSBDashboardTime || null;
     const SHARE_STATE_PARAM = "bip110_state";
     const LOCAL_RUNTIME_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
@@ -388,7 +390,7 @@
       const raw = String(value || "").trim();
       if (!raw) return "n/a";
 
-      const parsed = new Date(raw);
+      const parsed = parseUtcTimestamp(raw);
       if (Number.isNaN(parsed.getTime())) {
         return raw;
       }
@@ -415,6 +417,30 @@
       } catch (_) {
         return `${formatGeneratedUtc(value).replace(/\s+UTC$/, "")} (${timeZone})`;
       }
+    }
+
+    function parseUtcTimestamp(value) {
+      const raw = String(value || "").trim();
+      if (!raw) return new Date(NaN);
+      const normalized = raw
+        .replace(/\s+UTC$/i, "Z")
+        .replace(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)Z$/, "$1T$2Z");
+      return new Date(normalized);
+    }
+
+    function estimateExpectedForkDate(meta) {
+      const sourceHeight = Number(meta?.source_block_height);
+      const sourceTime = parseUtcTimestamp(meta?.source_block_time_utc || meta?.generated_utc);
+      if (!Number.isFinite(sourceHeight) || sourceHeight <= 0 || Number.isNaN(sourceTime.getTime())) {
+        return null;
+      }
+
+      const blocksRemaining = Math.max(0, EXPECTED_FORK_HEIGHT - sourceHeight);
+      return {
+        height: EXPECTED_FORK_HEIGHT,
+        blocksRemaining,
+        date: new Date(sourceTime.getTime() + blocksRemaining * EXPECTED_BLOCK_INTERVAL_MS),
+      };
     }
 
       const SELECT_DROPDOWN_CONFIGS = [
@@ -1794,11 +1820,28 @@
       const currentPeriodBlocks = Number(s.blocks_into_current_period || 0);
       const periodSize = Number(meta?.chart?.period_size || 2016);
 
-      const appendStatusChip = (label, valueHtml) => {
+      const appendStatusChip = (label, valueHtml, tooltipText = "") => {
         const div = document.createElement("div");
         div.className = "chip";
         div.innerHTML = `<span class="chip-label">${label}</span> <span class="chip-value">${valueHtml}</span>`;
+        setCustomTooltip(div, tooltipText);
         statusChips.appendChild(div);
+      };
+
+      const appendExpectedForkTimeChip = () => {
+        const estimate = estimateExpectedForkDate(meta);
+        if (!estimate) {
+          appendStatusChip("Expected Fork Time", "n/a");
+          return;
+        }
+
+        const dateText = formatGeneratedDateTimeForSelectedTimeZone(estimate.date.toISOString());
+        const heightText = estimate.height.toLocaleString("en-US");
+        const blocksText = estimate.blocksRemaining.toLocaleString("en-US");
+        const tooltipText = estimate.blocksRemaining > 0
+          ? `Estimated from block ${Number(meta.source_block_height).toLocaleString("en-US")} at 10 minutes per block. ${blocksText} blocks remain until height ${heightText}.`
+          : `Height ${heightText} has been reached or passed.`;
+        appendStatusChip("Expected Fork Time", dateText, tooltipText);
       };
 
       statusChips.innerHTML = "";
@@ -1809,11 +1852,13 @@
           "Period",
           `${s.current_period_index ?? "N/A"} <span class="chip-label">Signaling</span> <span class="chip-value-signal">${currentSignal.toLocaleString()}</span> (${currentSignalPct})`
         );
+        appendExpectedForkTimeChip();
       } else {
         appendStatusChip(
           "Period",
           `${s.current_period_index ?? "N/A"} ${currentPeriodBlocks.toLocaleString()} / ${periodSize.toLocaleString()} Blocks Mined`
         );
+        appendExpectedForkTimeChip();
       }
       bindTimeZoneChipEvents();
       syncSelectDropdown('updatedTimeZoneSelect', 'updatedTimeZoneDropdownTrigger', 'updatedTimeZoneDropdownMenu');

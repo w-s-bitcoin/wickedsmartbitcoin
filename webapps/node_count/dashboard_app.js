@@ -2053,22 +2053,12 @@
         },
         {
           x,
-          y: knotsPlot,
-          type: 'scatter',
-          mode: 'lines',
-          name: `Knots${smooth > 1 ? ` (${smooth}d avg)` : ''}`,
-          line: { color: HISTORY_COLORS.knots, width: 1.8 },
-          hovertemplate: 'Knots: %{y:,.0f}<extra></extra>',
-          visible: state.hiddenHistorySeries.has('knots') ? 'legendonly' : true,
-        },
-        {
-          x,
           y: core30Plot,
           type: 'scatter',
           mode: 'lines',
-          name: `Core v30${smooth > 1 ? ` (${smooth}d avg)` : ''}`,
+          name: `Core v30+${smooth > 1 ? ` (${smooth}d avg)` : ''}`,
           line: { color: HISTORY_COLORS.core, width: 1.8 },
-          hovertemplate: 'Core v30: %{y:,.0f}<extra></extra>',
+          hovertemplate: 'Core v30+: %{y:,.0f}<extra></extra>',
           visible: state.hiddenHistorySeries.has('core') ? 'legendonly' : true,
         },
         {
@@ -2080,6 +2070,16 @@
           line: { color: HISTORY_COLORS.bip110, width: 1.8 },
           hovertemplate: 'BIP-110: %{y:,.0f}<extra></extra>',
           visible: state.hiddenHistorySeries.has('bip110') ? 'legendonly' : true,
+        },
+        {
+          x,
+          y: knotsPlot,
+          type: 'scatter',
+          mode: 'lines',
+          name: `Knots (Non-BIP-110)${smooth > 1 ? ` (${smooth}d avg)` : ''}`,
+          line: { color: HISTORY_COLORS.knots, width: 1.8 },
+          hovertemplate: 'Knots (Non-BIP-110): %{y:,.0f}<extra></extra>',
+          visible: state.hiddenHistorySeries.has('knots') ? 'legendonly' : true,
         },
       ];
 
@@ -2109,9 +2109,9 @@
         { key: 'total', label: `Total${smooth > 1 ? ` (${smooth}d avg)` : ''}`, color: HISTORY_COLORS.total },
         { key: 'unreachable', label: `Non-listening${smooth > 1 ? ` (${smooth}d avg)` : ''}`, color: HISTORY_COLORS.unreachable },
         { key: 'listening', label: `Listening${smooth > 1 ? ` (${smooth}d avg)` : ''}`, color: HISTORY_COLORS.listening },
-        { key: 'knots', label: `Knots${smooth > 1 ? ` (${smooth}d avg)` : ''}`, color: HISTORY_COLORS.knots },
-        { key: 'core', label: `Core v30${smooth > 1 ? ` (${smooth}d avg)` : ''}`, color: HISTORY_COLORS.core },
+        { key: 'core', label: `Core v30+${smooth > 1 ? ` (${smooth}d avg)` : ''}`, color: HISTORY_COLORS.core },
         { key: 'bip110', label: `BIP-110${smooth > 1 ? ` (${smooth}d avg)` : ''}`, color: HISTORY_COLORS.bip110 },
+        { key: 'knots', label: `Knots (Non-BIP-110)${smooth > 1 ? ` (${smooth}d avg)` : ''}`, color: HISTORY_COLORS.knots },
       ]);
 
       Plotly.react('historyChart', traces, {
