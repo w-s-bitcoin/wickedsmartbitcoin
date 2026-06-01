@@ -698,7 +698,7 @@
       line-height: inherit;
     }
 
-    .tooltip-miner-ocean {
+    .tooltip-miner-with-icon {
       display: inline-flex;
       align-items: center;
       gap: 8px;
@@ -719,6 +719,10 @@
       display: inline-block;
     }
 
+    .tooltip-miner-unavailable {
+      color: rgba(255, 255, 255, 0.42);
+    }
+
     .tooltip-version-signal-bit {
       color: var(--signal);
       font-weight: 700;
@@ -730,6 +734,10 @@
     }
 
     :root[data-theme="light"] .tooltip-version-loading {
+      color: rgba(0, 0, 0, 0.42);
+    }
+
+    :root[data-theme="light"] .tooltip-miner-unavailable {
       color: rgba(0, 0, 0, 0.42);
     }
 

@@ -940,10 +940,17 @@
         }
       });
 
+      const segwitMiners = await loadOptionalJson(
+        "webapp_data/segwit_miners.json",
+        {},
+        { cache: "no-store" }
+      );
+
       return {
         metadata: staticMetadata || (await loadStaticMetadataOnly()).metadata,
         segwitPeriods: castRows(parseCsv(await segwitPeriodsResp.text())),
         segwitBlocks: [],
+        segwitMiners,
         segwitReleases: castRows(parseCsv(await segwitReleasesResp.text())).map((d) => ({
           ...d,
           display_label: String(d.display_label || "").replaceAll("\\n", "\n"),
@@ -1047,6 +1054,7 @@
         bip110Periods: dynamicData?.bip110Periods || previousData?.bip110Periods || [],
         segwitBlocks: staticData?.segwitBlocks || previousData?.segwitBlocks || [],
         bip110Blocks: dynamicData?.bip110Blocks || previousData?.bip110Blocks || [],
+        segwitMiners: staticData?.segwitMiners || previousData?.segwitMiners || {},
         segwitReleases: staticData?.segwitReleases || previousData?.segwitReleases || [],
         bip110Releases: dynamicData?.bip110Releases || previousData?.bip110Releases || [],
         segwitTicks: staticData?.segwitTicks || previousData?.segwitTicks || [],
@@ -1134,15 +1142,24 @@
       return decodeBlockPoints(await resp.arrayBuffer(), startHeight, periodSize, datasetMeta);
     }
 
-    function attachBip110MinerData(blocks, minerMap) {
+    function attachMinerData(blocks, minerMap) {
       if (!Array.isArray(blocks) || !minerMap || typeof minerMap !== "object") {
         return blocks;
       }
 
       return blocks.map((block) => {
-        if (Number(block?.is_signaling) !== 1) return block;
-        const miner = String(minerMap[String(block.height)] || "").trim();
-        return miner ? { ...block, miner } : block;
+        const rawMiner = minerMap[String(block.height)];
+        const miner = typeof rawMiner === "string"
+          ? { name: rawMiner.trim(), slug: "" }
+          : rawMiner && typeof rawMiner === "object"
+            ? {
+                name: String(rawMiner.name || "").trim(),
+                slug: String(rawMiner.slug || "").trim(),
+                pool: String(rawMiner.pool || "").trim(),
+                subMiner: String(rawMiner.sub_miner || rawMiner.subMiner || "").trim(),
+              }
+            : null;
+        return miner?.name ? { ...block, miner } : block;
       });
     }
 
@@ -3248,6 +3265,24 @@
       return `0x${(n >>> 0).toString(16).padStart(8, "0")}`;
     }
 
+    function normalizeMinerTooltipData(miner) {
+      if (!miner) {
+        return { name: "", slug: "", pool: "", subMiner: "" };
+      }
+      if (typeof miner === "string") {
+        return { name: miner.trim(), slug: "", pool: "", subMiner: "" };
+      }
+      if (typeof miner === "object") {
+        return {
+          name: String(miner.name || "").trim(),
+          slug: String(miner.slug || "").trim(),
+          pool: String(miner.pool || "").trim(),
+          subMiner: String(miner.subMiner || miner.sub_miner || "").trim(),
+        };
+      }
+      return { name: "", slug: "", pool: "", subMiner: "" };
+    }
+
     function formatStripeTooltip(data, chartType) {
       const fork = chartType === "segwit" ? "SegWit" : "BIP-110";
       const mode = Number(data.is_signaling) === 1
@@ -3257,9 +3292,18 @@
       const versionHex = formatBlockVersionHex(data.version);
       lines.push(`Version: ${versionHex || "Loading..."}`);
       lines.push(`Mode: ${mode}`);
-      const miner = String(data.miner || "").trim();
-      if (chartType === "bip110" && Number(data.is_signaling) === 1 && miner) {
-        lines.push(`Miner: ${miner}`);
+      const miner = normalizeMinerTooltipData(data.miner);
+      if (chartType === "bip110" || chartType === "segwit") {
+        lines.push(`Miner: ${miner.name || "Unavailable"}`);
+        if (miner.slug) {
+          lines.push(`MinerSlug: ${miner.slug}`);
+        }
+        if (miner.pool) {
+          lines.push(`MinerPool: ${miner.pool}`);
+        }
+        if (miner.subMiner) {
+          lines.push(`MinerSub: ${miner.subMiner}`);
+        }
       }
       return lines.join("\n");
     }
@@ -3463,16 +3507,38 @@
 
       const renderMinerValue = (value) => {
         const raw = String(value || "").trim();
-        const oceanMatch = raw.match(/^(.+?)\s*\(\s*OCEAN\s*\)$/i);
-        if (!oceanMatch) {
+        if (/^Unavailable$/i.test(raw)) {
+          return `<span class="tooltip-miner-unavailable">${escapeHtml(raw)}</span>`;
+        }
+        const slugLine = lines.find((line) => /^MinerSlug:/i.test(String(line || "").trim()));
+        const poolLine = lines.find((line) => /^MinerPool:/i.test(String(line || "").trim()));
+        const subMinerLine = lines.find((line) => /^MinerSub:/i.test(String(line || "").trim()));
+        const slug = String(slugLine || "").replace(/^MinerSlug:\s*/i, "").trim().toLowerCase();
+        const pool = String(poolLine || "").replace(/^MinerPool:\s*/i, "").trim();
+        const subMiner = String(subMinerLine || "").replace(/^MinerSub:\s*/i, "").trim();
+        const safeSlug = /^[a-z0-9-]+$/.test(slug) ? slug : "";
+        const iconHtml = safeSlug
+          ? `<img class="tooltip-miner-icon" src="https://mempool.space/resources/mining-pools/${escapeHtml(safeSlug)}.svg" alt="" aria-hidden="true" onerror="this.remove()">`
+          : "";
+
+        if (!iconHtml) {
           return escapeHtml(raw);
         }
 
+        if (subMiner && pool) {
+          return [
+            `<span class="tooltip-miner-with-icon">`,
+            `<span class="tooltip-miner-name">${escapeHtml(subMiner)}</span>`,
+            iconHtml,
+            `<span class="tooltip-miner-pool">${escapeHtml(pool)}</span>`,
+            `</span>`,
+          ].join("");
+        }
+
         return [
-          `<span class="tooltip-miner-ocean">`,
-          `<span class="tooltip-miner-name">${escapeHtml(oceanMatch[1].trim())}</span>`,
-          `<img class="tooltip-miner-icon" src="https://mempool.space/resources/mining-pools/ocean.svg" alt="" aria-hidden="true">`,
-          `<span class="tooltip-miner-pool">OCEAN</span>`,
+          `<span class="tooltip-miner-with-icon">`,
+          iconHtml,
+          `<span class="tooltip-miner-name">${escapeHtml(raw)}</span>`,
           `</span>`,
         ].join("");
       };
@@ -3484,6 +3550,9 @@
             return `<div class="tooltip-line"><span class="tooltip-value">${escapeHtml(line)}</span></div>`;
           }
           const label = match[1].toLowerCase();
+          if (label === "minerslug:" || label === "minerpool:" || label === "minersub:") {
+            return "";
+          }
           const valueHtml = label === "version:"
             ? renderVersionValue(match[3])
             : label === "miner:"
@@ -3971,9 +4040,12 @@
         if (loadToken !== state.phasedLoadToken || !state.data) return;
 
         if (key === "segwit") {
-          state.staticData.segwitBlocks = blocks;
+          state.staticData.segwitBlocks = attachMinerData(
+            blocks,
+            state.staticData?.segwitMiners
+          );
         } else {
-          state.dynamicData.bip110Blocks = attachBip110MinerData(
+          state.dynamicData.bip110Blocks = attachMinerData(
             blocks,
             state.dynamicData?.bip110SignalMiners
           );
@@ -4348,6 +4420,7 @@
           metadata: staticMetadataResult.metadata,
           segwitPeriods: [],
           segwitBlocks: [],
+          segwitMiners: {},
           segwitReleases: [],
           segwitTicks: [],
         };

@@ -21,6 +21,7 @@ BIP110_START = 927_360
 BIP110_SIGNAL_END = 963_648
 BIP110_LAST_PERIOD = 18
 X_MAX = 20
+SEGWIT_MINER_SAMPLE_SIZE = 15
 
 SEGWIT_SIGNAL_COUNTS = [
     451, 487, 520, 521, 489, 468, 485, 537, 532, 582,
@@ -65,6 +66,32 @@ def export_block_points_bin(path: Path, rows, *, period_size: int):
         "period_size": int(period_size),
         "record_size": int(record_size),
     }
+
+def read_block_points_bin(path: Path, *, start_height: int, period_size: int, record_size: int):
+    if not path.exists():
+        return []
+    payload = path.read_bytes()
+    rows = []
+    size = int(record_size or 0)
+    if size not in (5, 9):
+        return rows
+
+    count = len(payload) // size
+    for idx in range(count):
+        offset = idx * size
+        height = int.from_bytes(payload[offset:offset + 4], byteorder="little", signed=False)
+        is_signaling = int(payload[offset + 4])
+        version = int.from_bytes(payload[offset + 5:offset + 9], byteorder="little", signed=False) if size >= 9 else 0
+        rel = height - int(start_height)
+        period = (rel // int(period_size)) + 1
+        rows.append({
+            "period": int(period),
+            "height": int(height),
+            "y_in_period": int(rel % int(period_size)),
+            "version": int(version),
+            "is_signaling": int(is_signaling),
+        })
+    return rows
 
 def build_release_url(label: str) -> str:
     raw = str(label or "")
@@ -390,7 +417,7 @@ def patch_missing_release_metadata(bip110_release_rows):
 
 MEMPOOL_BLOCKS_API = "https://mempool.space/api/v1/blocks"
 
-def normalize_mempool_miner_name(block):
+def normalize_mempool_miner_attribution(block):
     extras = block.get("extras") if isinstance(block.get("extras"), dict) else {}
     pool = extras.get("pool")
 
@@ -404,26 +431,31 @@ def normalize_mempool_miner_name(block):
                     text = str(value or "").strip()
                     normalized = text.replace(".", "").replace(" ", "").lower()
                     if text and normalized not in ("ocean", "oceanxyz"):
-                        return f"{text} ({pool_name or 'OCEAN'})"
+                        return {
+                            "name": f"{text} ({pool_name or 'OCEAN'})",
+                            "slug": pool_slug,
+                            "pool": pool_name or "OCEAN",
+                            "sub_miner": text,
+                        }
             if pool_name:
-                return pool_name
+                return {"name": pool_name, "slug": pool_slug, "pool": pool_name}
 
     candidates = []
     if isinstance(pool, dict):
-        candidates.extend([pool.get("name"), pool.get("slug")])
+        candidates.append((pool.get("name"), pool.get("slug")))
     candidates.extend([
-        extras.get("poolName"),
-        extras.get("minerName"),
-        extras.get("miner"),
-        block.get("poolName"),
-        block.get("miner"),
+        (extras.get("poolName"), extras.get("poolSlug")),
+        (extras.get("minerName"), extras.get("minerSlug")),
+        (extras.get("miner"), extras.get("minerSlug")),
+        (block.get("poolName"), block.get("poolSlug")),
+        (block.get("miner"), block.get("minerSlug")),
     ])
 
-    for value in candidates:
+    for value, slug in candidates:
         text = str(value or "").strip()
         if text:
-            return text
-    return ""
+            return {"name": text, "slug": str(slug or "").strip().lower()}
+    return {}
 
 def load_existing_signal_miners(path: Path):
     if not path.exists():
@@ -442,12 +474,22 @@ def load_existing_signal_miners(path: Path):
             h = int(height)
         except (TypeError, ValueError):
             continue
+        if isinstance(miner, dict):
+            name = str(miner.get("name") or "").strip()
+            if name:
+                miners[h] = {
+                    "name": name,
+                    "slug": str(miner.get("slug") or "").strip().lower(),
+                    "pool": str(miner.get("pool") or "").strip(),
+                    "sub_miner": str(miner.get("sub_miner") or "").strip(),
+                }
+            continue
         text = str(miner or "").strip()
         if text:
-            miners[h] = text
+            miners[h] = {"name": text, "slug": "", "pool": "", "sub_miner": ""}
     return miners
 
-def fetch_bip110_signal_miners(heights):
+def fetch_block_miners(heights, *, log_label="blocks"):
     pending = set(int(h) for h in heights)
     miners = {}
     headers = {
@@ -462,7 +504,7 @@ def fetch_bip110_signal_miners(heights):
             r.raise_for_status()
             payload = r.json()
         except Exception as exc:
-            print(f"[bip110] mempool.space miner lookup failed at height {start_height}: {exc}")
+            print(f"[{log_label}] mempool.space miner lookup failed at height {start_height}: {exc}")
             pending.remove(start_height)
             continue
 
@@ -479,8 +521,8 @@ def fetch_bip110_signal_miners(heights):
                 continue
 
             seen_heights.add(height)
-            miner = normalize_mempool_miner_name(block)
-            if miner:
+            miner = normalize_mempool_miner_attribution(block)
+            if miner.get("name"):
                 miners[height] = miner
 
         if not seen_heights:
@@ -491,25 +533,45 @@ def fetch_bip110_signal_miners(heights):
 
     return miners
 
-def export_signal_miners(path: Path, heights):
-    signal_heights = sorted(set(int(h) for h in heights))
+def export_block_miners(path: Path, heights, *, log_label="blocks"):
+    target_heights = sorted(set(int(h) for h in heights))
     existing = load_existing_signal_miners(path)
     miners = {
         height: miner
         for height, miner in existing.items()
-        if height in signal_heights
+        if height in target_heights
     }
-    fetched = fetch_bip110_signal_miners(signal_heights)
+    fetched = fetch_block_miners(target_heights, log_label=log_label)
     miners.update(fetched)
 
     payload = {
         str(height): miners[height]
-        for height in signal_heights
-        if miners.get(height)
+        for height in target_heights
+        if miners.get(height, {}).get("name")
     }
     with path.open("w", encoding="utf-8") as f:
         json.dump(payload, f, separators=(",", ":"), ensure_ascii=True)
     return {"rows": len(payload), "source": MEMPOOL_BLOCKS_API}
+
+def export_signal_miners(path: Path, heights):
+    return export_block_miners(path, heights, log_label="bip110")
+
+def select_segwit_miner_sample_heights(block_rows):
+    heights = []
+
+    def sample(period, is_signaling, *, from_end=False):
+        rows = [
+            row for row in block_rows
+            if int(row.get("period", 0)) == int(period)
+            and int(row.get("is_signaling", 0)) == int(is_signaling)
+        ]
+        rows.sort(key=lambda row: int(row["height"]), reverse=from_end)
+        return [int(row["height"]) for row in rows[:SEGWIT_MINER_SAMPLE_SIZE]]
+
+    heights.extend(sample(19, 0, from_end=True))
+    heights.extend(sample(1, 1))
+    heights.extend(sample(2, 1))
+    return sorted(set(heights))
 
 def parse_iso_utc(ts: str):
     if not ts:
@@ -881,7 +943,20 @@ else:
         "period_size": int(PERIOD_SIZE),
         "record_size": int(segwit_record_size),
     }
+    segwit_block_rows = read_block_points_bin(
+        segwit_bin,
+        start_height=SEGWIT_START,
+        period_size=PERIOD_SIZE,
+        record_size=segwit_record_size,
+    )
     print("SegWit datasets unchanged (already present).")
+
+segwit_miner_sample_heights = select_segwit_miner_sample_heights(segwit_block_rows)
+segwit_miners_meta = export_block_miners(
+    webapp_dir / "segwit_miners.json",
+    segwit_miner_sample_heights,
+    log_label="segwit",
+)
 
 needs_chart_static_refresh = needs_segwit_rebuild or not chart_static_path.exists()
 
@@ -931,6 +1006,7 @@ if needs_chart_static_refresh:
         },
         "datasets": {
             "segwit_blocks": segwit_blocks_meta,
+            "segwit_miners": segwit_miners_meta,
         },
     }
 
@@ -940,7 +1016,10 @@ if needs_chart_static_refresh:
 else:
     with chart_static_path.open("r", encoding="utf-8") as f:
         chart_static = json.load(f)
-    print("Static chart bundle unchanged.")
+    chart_static.setdefault("datasets", {})["segwit_miners"] = segwit_miners_meta
+    with chart_static_path.open("w", encoding="utf-8") as f:
+        json.dump(chart_static, f, separators=(",", ":"), ensure_ascii=True)
+    print("Static chart bundle refreshed with SegWit miner metadata.")
 
 bip110_metadata = {
     "generated_utc": datetime.now(timezone.utc).isoformat(),
