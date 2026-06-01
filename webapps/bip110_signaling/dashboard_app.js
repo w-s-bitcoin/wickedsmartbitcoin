@@ -803,9 +803,18 @@
       });
     }
 
-    function decodeBlockPoints(buffer, startHeight, periodSize) {
+    function decodeBlockPoints(buffer, startHeight, periodSize, datasetMeta = {}) {
       const view = new DataView(buffer);
-      const recordSize = 5;
+      const declaredRecordSize = Number(datasetMeta?.record_size);
+      const declaredRows = Number(datasetMeta?.rows);
+      const inferredRecordSize = Number.isFinite(declaredRows) && declaredRows > 0
+        ? buffer.byteLength / declaredRows
+        : null;
+      const recordSize = (declaredRecordSize === 9 || declaredRecordSize === 5)
+        ? declaredRecordSize
+        : (inferredRecordSize === 9 || inferredRecordSize === 5
+          ? inferredRecordSize
+          : (buffer.byteLength % 9 === 0 ? 9 : 5));
       const count = Math.floor(view.byteLength / recordSize);
       const rows = new Array(count);
 
@@ -813,6 +822,7 @@
         const offset = i * recordSize;
         const height = view.getUint32(offset, true);
         const isSignaling = view.getUint8(offset + 4);
+        const version = recordSize >= 9 ? view.getUint32(offset + 5, true) : null;
         const rel = height - startHeight;
         const period = Math.floor(rel / periodSize) + 1;
         const yInPeriod = ((rel % periodSize) + periodSize) % periodSize;
@@ -820,6 +830,7 @@
         rows[i] = {
           height,
           is_signaling: isSignaling,
+          version,
           period,
           y_in_period: yInPeriod,
         };
@@ -1092,11 +1103,12 @@
       }
 
       const periodSize = Number(metadata?.chart?.period_size || 2016);
-      const segwitStart = Number(metadata?.datasets?.segwit_blocks?.start_height || 0);
-      const bip110Start = Number(metadata?.datasets?.bip110_blocks?.start_height || 0);
-      const startHeight = isSegwit ? segwitStart : bip110Start;
+      const datasetMeta = isSegwit
+        ? (metadata?.datasets?.segwit_blocks || {})
+        : (metadata?.datasets?.bip110_blocks || {});
+      const startHeight = Number(datasetMeta?.start_height || 0);
 
-      return decodeBlockPoints(await resp.arrayBuffer(), startHeight, periodSize);
+      return decodeBlockPoints(await resp.arrayBuffer(), startHeight, periodSize, datasetMeta);
     }
 
     function getDataSignature(meta) {
@@ -3195,15 +3207,24 @@
       ].join("\n");
     }
 
+    function formatBlockVersionHex(version) {
+      const n = Number(version);
+      if (!Number.isFinite(n)) return "";
+      return `0x${(n >>> 0).toString(16).padStart(8, "0")}`;
+    }
+
     function formatStripeTooltip(data, chartType) {
       const fork = chartType === "segwit" ? "SegWit" : "BIP-110";
       const mode = Number(data.is_signaling) === 1
         ? `Signaling for ${fork}`
         : `Non-signaling for ${fork}`;
-      return [
-        `Height: ${Number(data.height).toLocaleString()}`,
-        `Mode: ${mode}`,
-      ].join("\n");
+      const lines = [`Height: ${Number(data.height).toLocaleString()}`];
+      const versionHex = formatBlockVersionHex(data.version);
+      if (versionHex) {
+        lines.push(`Version: ${versionHex}`);
+      }
+      lines.push(`Mode: ${mode}`);
+      return lines.join("\n");
     }
 
     function getPeriodGridDataset() {
@@ -3332,7 +3353,7 @@
             isSignaling,
             isMined: true,
             className: isSignaling ? "is-signaling" : "is-nonsignaling",
-            tooltip: formatStripeTooltip({ height, is_signaling: isSignaling ? 1 : 0 }, datasetKey),
+            tooltip: formatStripeTooltip(block, datasetKey),
             clickable: true,
           });
           continue;
