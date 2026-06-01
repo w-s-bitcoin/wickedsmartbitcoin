@@ -1249,13 +1249,24 @@
         <div class="chip" id="kpiTotal"><span class="chip-label">Total</span> <span class="chip-value">-</span></div>
         <div class="chip" id="kpiUnreachable"><span class="chip-label">Non-listening</span> <span class="chip-value chip-value-unreachable">-</span></div>
         <div class="chip" id="kpiListening"><span class="chip-label">Listening</span> <span class="chip-value chip-value-listening">-</span></div>
-        <div class="chip" id="kpiKnots"><span class="chip-label">Knots</span> <span class="chip-value chip-value-knots">-</span></div>
-        <div class="chip" id="kpiCore30"><span class="chip-label">Core v30</span> <span class="chip-value chip-value-core">-</span></div>
+        <div class="chip" id="kpiCore30"><span class="chip-label">Core v30+</span> <span class="chip-value chip-value-core">-</span></div>
         <div class="chip" id="kpiBip110"><span class="chip-label">BIP-110</span> <span class="chip-value chip-value-bip110">-</span></div>
+        <div class="chip" id="kpiKnots"><span class="chip-label">Knots (Non-BIP-110)</span> <span class="chip-value chip-value-knots">-</span></div>
       </div>
       <div class="controls">
         <label class="toggle" for="toggleHistoryPanel"><input type="checkbox" id="toggleHistoryPanel" checked /> Node Count</label>
         <label class="toggle" for="toggleSoftwarePanel"><input type="checkbox" id="toggleSoftwarePanel" checked /> Software Versions</label>
+        <button type="button" class="swap-panels-control" id="swapPanelsBtn" title="Swap panel order" aria-label="Swap panel order">
+          <span class="swap-panels-btn" aria-hidden="true">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <line x1="3" y1="5" x2="13" y2="5"></line>
+              <polyline points="10.5,2.8 13,5 10.5,7.2"></polyline>
+              <line x1="13" y1="11" x2="3" y2="11"></line>
+              <polyline points="5.5,8.8 3,11 5.5,13.2"></polyline>
+            </svg>
+          </span>
+          <span class="label">Swap panel order</span>
+        </button>
         <label class="chip">Range
           <div id="rangeDropdown" class="dca-dropdown">
             <span id="rangeDropdownValue" class="dca-dropdown-value">All</span>
@@ -1286,17 +1297,6 @@
           <input id="topNInput" type="range" min="6" max="30" value="12" />
           <span id="topNLabel">12</span>
         </label>
-        <button type="button" class="swap-panels-control" id="swapPanelsBtn" title="Swap panel order" aria-label="Swap panel order">
-          <span class="swap-panels-btn" aria-hidden="true">
-            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-              <line x1="3" y1="5" x2="13" y2="5"></line>
-              <polyline points="10.5,2.8 13,5 10.5,7.2"></polyline>
-              <line x1="13" y1="11" x2="3" y2="11"></line>
-              <polyline points="5.5,8.8 3,11 5.5,13.2"></polyline>
-            </svg>
-          </span>
-          <span class="label">Swap panel order</span>
-        </button>
       </div>
     </section>
 
