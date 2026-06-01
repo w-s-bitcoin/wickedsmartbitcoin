@@ -2,6 +2,7 @@
 # coding: utf-8
 
 import csv
+import concurrent.futures
 import json
 import os
 import socket
@@ -21,7 +22,20 @@ BIP110_START = 927_360
 BIP110_SIGNAL_END = 963_648
 BIP110_LAST_PERIOD = 18
 X_MAX = 20
-SEGWIT_MINER_SAMPLE_SIZE = 15
+SEGWIT_INITIAL_SIGNAL_MINER_SAMPLE_SIZE = None
+SEGWIT_INITIAL_PERIOD2_SIGNAL_MINER_SAMPLE_SIZE = 15
+SEGWIT_LATE_NONSIGNAL_MINER_SAMPLE_SIZE = None
+LOW_ACTIVITY_WINDOW = 72
+LOW_ACTIVITY_MAX_MEDIAN_RATIO = 0.35
+LOW_ACTIVITY_MAX_BLOCK_SIZE = 250_000
+LOW_ACTIVITY_MIN_MEDIAN_SIZE = 750_000
+LOW_ACTIVITY_MIN_LOW_FEE_RATE = 10
+LOW_ACTIVITY_CRITERIA_ID = (
+    f"size<{LOW_ACTIVITY_MAX_BLOCK_SIZE}"
+    f"&size<{LOW_ACTIVITY_MAX_MEDIAN_RATIO:g}*trailing{LOW_ACTIVITY_WINDOW}median"
+    f"&trailing{LOW_ACTIVITY_WINDOW}median>{LOW_ACTIVITY_MIN_MEDIAN_SIZE}"
+    f"&low_fee_rate>={LOW_ACTIVITY_MIN_LOW_FEE_RATE}"
+)
 
 SEGWIT_SIGNAL_COUNTS = [
     451, 487, 520, 521, 489, 468, 485, 537, 532, 582,
@@ -92,6 +106,205 @@ def read_block_points_bin(path: Path, *, start_height: int, period_size: int, re
             "is_signaling": int(is_signaling),
         })
     return rows
+
+def load_low_activity_block_cache(path: Path):
+    if not path.exists():
+        return {}, {}, {}
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return {}, {}, {}
+
+    if not isinstance(data, dict):
+        return {}, {}, {}
+
+    sizes_raw = data.get("sizes", {})
+    times_raw = data.get("block_times", {})
+    low_fee_rates_raw = data.get("low_fee_rates", {})
+    sizes = {}
+    block_times = {}
+    low_fee_rates = {}
+    if isinstance(sizes_raw, dict):
+        for height, size in sizes_raw.items():
+            try:
+                parsed_height = int(height)
+                parsed_size = int(size)
+            except (TypeError, ValueError):
+                continue
+            if parsed_size > 0:
+                sizes[parsed_height] = parsed_size
+    if isinstance(times_raw, dict):
+        for height, block_time in times_raw.items():
+            try:
+                parsed_height = int(height)
+                parsed_time = int(block_time)
+            except (TypeError, ValueError):
+                continue
+            if parsed_time > 0:
+                block_times[parsed_height] = parsed_time
+    if isinstance(low_fee_rates_raw, dict):
+        for height, fee_rate in low_fee_rates_raw.items():
+            try:
+                parsed_height = int(height)
+                parsed_fee_rate = float(fee_rate)
+            except (TypeError, ValueError):
+                continue
+            if parsed_fee_rate >= 0:
+                low_fee_rates[parsed_height] = parsed_fee_rate
+    return sizes, block_times, low_fee_rates
+
+def load_low_fee_rate_cache(path: Path):
+    if not path.exists():
+        return {}
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+
+    values = data.get("low_fee_rates", data)
+    if not isinstance(values, dict):
+        return {}
+
+    low_fee_rates = {}
+    for height, fee_rate in values.items():
+        try:
+            parsed_height = int(height)
+            parsed_fee_rate = float(fee_rate)
+        except (TypeError, ValueError):
+            continue
+        if parsed_fee_rate >= 0:
+            low_fee_rates[parsed_height] = parsed_fee_rate
+    return low_fee_rates
+
+def write_low_fee_rate_cache(path: Path, target_heights, low_fee_rates):
+    target_set = set(int(height) for height in target_heights)
+    payload = {
+        "source": "https://mempool.space/api/v1/blocks/:height extras.feeRange[0]",
+        "low_fee_rates": {
+            str(height): low_fee_rates[height]
+            for height in sorted(target_set)
+            if height in low_fee_rates
+        },
+    }
+    tmp_path = path.with_suffix(f"{path.suffix}.tmp")
+    with tmp_path.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, separators=(",", ":"), ensure_ascii=True)
+    tmp_path.replace(path)
+    return payload
+
+def fetch_block_size_times(heights, existing_sizes=None):
+    existing_sizes = existing_sizes or {}
+    sizes = {}
+    block_times = {}
+    for height in heights:
+        try:
+            block_hash = rpc.getblockhash(int(height))
+            if int(height) in existing_sizes:
+                block_header = rpc.getblockheader(block_hash)
+                block_size = int(existing_sizes[int(height)])
+                block_time = int(block_header.get("time", 0))
+            else:
+                block = rpc.getblock(block_hash, 1)
+                block_size = int(block.get("size", 0))
+                block_time = int(block.get("time", 0))
+        except Exception as exc:
+            print(f"[low-activity-blocks] lookup failed at height {height}: {exc}")
+            continue
+        if block_size > 0:
+            sizes[int(height)] = block_size
+        if block_time > 0:
+            block_times[int(height)] = block_time
+    return sizes, block_times
+
+def median(values):
+    if not values:
+        return 0
+    sorted_values = sorted(values)
+    mid = len(sorted_values) // 2
+    if len(sorted_values) % 2:
+        return sorted_values[mid]
+    return (sorted_values[mid - 1] + sorted_values[mid]) / 2
+
+def export_low_activity_block_cache(path: Path, rows):
+    target_heights = sorted(set(int(row["height"]) for row in rows))
+    target_height_set = set(target_heights)
+    sizes, block_times, low_fee_rates = load_low_activity_block_cache(path)
+    sizes = {height: size for height, size in sizes.items() if height in target_height_set}
+    block_times = {height: block_time for height, block_time in block_times.items() if height in target_height_set}
+    low_fee_rates = {height: fee_rate for height, fee_rate in low_fee_rates.items() if height in target_height_set}
+    fee_rate_cache_path = path.parent / "segwit_low_activity_fee_rates.json"
+    cached_fee_rates = load_low_fee_rate_cache(fee_rate_cache_path)
+    low_fee_rates.update({
+        height: fee_rate
+        for height, fee_rate in cached_fee_rates.items()
+        if height in target_height_set
+    })
+    missing = [height for height in target_heights if height not in sizes or height not in block_times]
+
+    if missing:
+        fetched_sizes, fetched_times = fetch_block_size_times(missing, existing_sizes=sizes)
+        sizes.update(fetched_sizes)
+        block_times.update(fetched_times)
+
+    missing_fee_heights = [height for height in target_heights if height not in low_fee_rates]
+    if missing_fee_heights:
+        def persist_fee_batch(batch_fee_rates):
+            low_fee_rates.update(batch_fee_rates)
+            write_low_fee_rate_cache(fee_rate_cache_path, target_heights, low_fee_rates)
+
+        low_fee_rates.update(fetch_block_low_fee_rates(missing_fee_heights, on_batch=persist_fee_batch))
+        write_low_fee_rate_cache(fee_rate_cache_path, target_heights, low_fee_rates)
+
+    low_activity = []
+    size_window = []
+    for height in target_heights:
+        block_size = sizes.get(height)
+        low_fee_rate = low_fee_rates.get(height)
+        if not block_size or low_fee_rate is None:
+            continue
+        trailing_median = median(size_window[-LOW_ACTIVITY_WINDOW:])
+        if (
+            trailing_median > 0
+            and trailing_median > LOW_ACTIVITY_MIN_MEDIAN_SIZE
+            and block_size < LOW_ACTIVITY_MAX_BLOCK_SIZE
+            and block_size < trailing_median * LOW_ACTIVITY_MAX_MEDIAN_RATIO
+            and low_fee_rate >= LOW_ACTIVITY_MIN_LOW_FEE_RATE
+        ):
+            low_activity.append(height)
+        size_window.append(block_size)
+
+    payload = {
+        "criteria": LOW_ACTIVITY_CRITERIA_ID,
+        "window": LOW_ACTIVITY_WINDOW,
+        "max_median_ratio": LOW_ACTIVITY_MAX_MEDIAN_RATIO,
+        "max_block_size": LOW_ACTIVITY_MAX_BLOCK_SIZE,
+        "min_median_size": LOW_ACTIVITY_MIN_MEDIAN_SIZE,
+        "min_low_fee_rate": LOW_ACTIVITY_MIN_LOW_FEE_RATE,
+        "fee_rate_source": "https://mempool.space/api/v1/blocks/:height extras.feeRange[0]",
+        "checked": [str(height) for height in target_heights if height in sizes and height in block_times],
+        "sizes": {str(height): sizes[height] for height in target_heights if height in sizes},
+        "block_times": {str(height): block_times[height] for height in target_heights if height in block_times},
+        "low_fee_rates": {str(height): low_fee_rates[height] for height in target_heights if height in low_fee_rates},
+        "low_activity": [str(height) for height in low_activity],
+    }
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, separators=(",", ":"), ensure_ascii=True)
+
+    return {
+        "checked": len(payload["checked"]),
+        "rows": len(low_activity),
+        "criteria": LOW_ACTIVITY_CRITERIA_ID,
+        "window": LOW_ACTIVITY_WINDOW,
+        "max_median_ratio": LOW_ACTIVITY_MAX_MEDIAN_RATIO,
+        "max_block_size": LOW_ACTIVITY_MAX_BLOCK_SIZE,
+        "min_median_size": LOW_ACTIVITY_MIN_MEDIAN_SIZE,
+        "min_low_fee_rate": LOW_ACTIVITY_MIN_LOW_FEE_RATE,
+        "fee_rate_source": "https://mempool.space/api/v1/blocks/:height extras.feeRange[0]",
+    }
 
 def build_release_url(label: str) -> str:
     raw = str(label or "")
@@ -489,27 +702,143 @@ def load_existing_signal_miners(path: Path):
             miners[h] = {"name": text, "slug": "", "pool": "", "sub_miner": ""}
     return miners
 
-def fetch_block_miners(heights, *, log_label="blocks"):
+def extract_block_low_fee_rate(block):
+    extras = block.get("extras") if isinstance(block.get("extras"), dict) else {}
+    fee_range = extras.get("feeRange")
+    if not isinstance(fee_range, list) or not fee_range:
+        return None
+    try:
+        fee_rate = float(fee_range[0])
+    except (TypeError, ValueError):
+        return None
+    return fee_rate if fee_rate >= 0 else None
+
+def fetch_block_low_fee_rates(heights, *, on_batch=None):
     pending = set(int(h) for h in heights)
+    total = len(pending)
+    low_fee_rates = {}
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "bip110-low-activity-updater",
+    }
+
+    def fetch_batch(start_height):
+        try:
+            r = requests.get(f"{MEMPOOL_BLOCKS_API}/{start_height}", headers=headers, timeout=20)
+            if r.status_code == 429:
+                return {"rate_limited": True, "start_height": start_height, "seen": set(), "fees": {}}
+            r.raise_for_status()
+            payload = r.json()
+        except Exception as exc:
+            return {"error": str(exc), "start_height": start_height, "seen": {start_height}, "fees": {}}
+
+        blocks = payload if isinstance(payload, list) else [payload]
+        seen_heights = set()
+        batch_fee_rates = {}
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            try:
+                height = int(block.get("height"))
+            except (TypeError, ValueError):
+                continue
+            if height not in pending:
+                continue
+
+            seen_heights.add(height)
+            fee_rate = extract_block_low_fee_rate(block)
+            if fee_rate is not None:
+                batch_fee_rates[height] = fee_rate
+        return {"start_height": start_height, "seen": seen_heights or {start_height}, "fees": batch_fee_rates}
+
+    batch_starts = []
+    cursor = max(pending) if pending else 0
+    min_height = min(pending) if pending else 0
+    while cursor >= min_height:
+        batch_starts.append(cursor)
+        cursor -= 15
+
+    processed = 0
+    rate_limited = False
+    wave_size = 64
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        for offset in range(0, len(batch_starts), wave_size):
+            wave_added = 0
+            futures = {
+                executor.submit(fetch_batch, start_height): start_height
+                for start_height in batch_starts[offset:offset + wave_size]
+            }
+            for future in concurrent.futures.as_completed(futures):
+                result = future.result()
+                start_height = int(result.get("start_height") or futures[future])
+                if result.get("rate_limited"):
+                    print(f"[low-activity-blocks] mempool.space rate limited fee-rate lookup at height {start_height}; leaving remaining fee-rate data for a future run.")
+                    rate_limited = True
+                    break
+                if result.get("error"):
+                    print(f"[low-activity-blocks] mempool.space fee-rate lookup failed at height {start_height}: {result['error']}")
+
+                seen_heights = set(result.get("seen") or {start_height})
+                pending.difference_update(seen_heights)
+                batch_fee_rates = result.get("fees") or {}
+                if batch_fee_rates:
+                    low_fee_rates.update(batch_fee_rates)
+                    if on_batch:
+                        on_batch(batch_fee_rates)
+
+                processed += len(seen_heights)
+                if processed <= 15 or processed % 1500 < len(seen_heights) or not pending:
+                    completed = total - len(pending)
+                    print(f"[low-activity-blocks] fee-rate lookup progress: {completed:,}/{total:,} heights")
+            if rate_limited:
+                break
+
+    if pending:
+        fetched_heights = set(low_fee_rates)
+        unresolved = sorted(pending - fetched_heights)
+        if unresolved:
+            completed = total - len(pending)
+            print(f"[low-activity-blocks] fee-rate lookup progress: {completed:,}/{total:,} heights")
+
+    return low_fee_rates
+
+def write_block_miners_payload(path: Path, target_heights, miners):
+    target_set = set(int(height) for height in target_heights)
+    payload = {
+        str(height): miners[height]
+        for height in sorted(target_set)
+        if miners.get(height, {}).get("name")
+    }
+    tmp_path = path.with_suffix(f"{path.suffix}.tmp")
+    with tmp_path.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, separators=(",", ":"), ensure_ascii=True)
+    tmp_path.replace(path)
+    return payload
+
+def fetch_block_miners(heights, *, log_label="blocks", on_batch=None):
+    pending = set(int(h) for h in heights)
+    if not pending:
+        return {}
+    total = len(pending)
     miners = {}
     headers = {
         "Accept": "application/json",
         "User-Agent": "bip110-miner-attribution-updater",
     }
 
-    while pending:
-        start_height = max(pending)
+    def fetch_batch(start_height):
         try:
             r = requests.get(f"{MEMPOOL_BLOCKS_API}/{start_height}", headers=headers, timeout=20)
+            if r.status_code == 429:
+                return {"rate_limited": True, "start_height": start_height, "seen": set(), "miners": {}}
             r.raise_for_status()
             payload = r.json()
         except Exception as exc:
-            print(f"[{log_label}] mempool.space miner lookup failed at height {start_height}: {exc}")
-            pending.remove(start_height)
-            continue
+            return {"error": str(exc), "start_height": start_height, "seen": {start_height}, "miners": {}}
 
         blocks = payload if isinstance(payload, list) else [payload]
         seen_heights = set()
+        batch_miners = {}
         for block in blocks:
             if not isinstance(block, dict):
                 continue
@@ -523,13 +852,54 @@ def fetch_block_miners(heights, *, log_label="blocks"):
             seen_heights.add(height)
             miner = normalize_mempool_miner_attribution(block)
             if miner.get("name"):
-                miners[height] = miner
+                batch_miners[height] = miner
+        return {"start_height": start_height, "seen": seen_heights or {start_height}, "miners": batch_miners}
 
-        if not seen_heights:
-            pending.remove(start_height)
-        else:
-            pending.difference_update(seen_heights)
-        time.sleep(0.1)
+    batch_starts = []
+    cursor = max(pending) if pending else 0
+    min_height = min(pending) if pending else 0
+    while cursor >= min_height:
+        batch_starts.append(cursor)
+        cursor -= 15
+
+    processed = 0
+    rate_limited = False
+    wave_size = 64
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        for offset in range(0, len(batch_starts), wave_size):
+            wave_added = 0
+            futures = {
+                executor.submit(fetch_batch, start_height): start_height
+                for start_height in batch_starts[offset:offset + wave_size]
+            }
+            for future in concurrent.futures.as_completed(futures):
+                result = future.result()
+                start_height = int(result.get("start_height") or futures[future])
+                if result.get("rate_limited"):
+                    print(f"[{log_label}] mempool.space rate limited miner lookup at height {start_height}; leaving remaining miner data for a future run.")
+                    rate_limited = True
+                    break
+                if result.get("error"):
+                    print(f"[{log_label}] mempool.space miner lookup failed at height {start_height}: {result['error']}")
+
+                seen_heights = set(result.get("seen") or {start_height})
+                pending.difference_update(seen_heights)
+                batch_miners = result.get("miners") or {}
+                if batch_miners:
+                    wave_added += len(batch_miners)
+                    miners.update(batch_miners)
+                    if on_batch:
+                        on_batch(batch_miners)
+
+                processed += len(seen_heights)
+                if processed <= 15 or processed % 1500 < len(seen_heights) or not pending:
+                    completed = total - len(pending)
+                    print(f"[{log_label}] miner lookup progress: {completed:,}/{total:,} heights")
+            if rate_limited:
+                break
+            if wave_added == 0:
+                print(f"[{log_label}] miner lookup found no new attributions in the latest wave; leaving remaining miner data for a future run.")
+                break
 
     return miners
 
@@ -541,37 +911,29 @@ def export_block_miners(path: Path, heights, *, log_label="blocks"):
         for height, miner in existing.items()
         if height in target_heights
     }
-    fetched = fetch_block_miners(target_heights, log_label=log_label)
+    missing_heights = [height for height in target_heights if height not in miners]
+    def persist_batch(batch_miners):
+        miners.update(batch_miners)
+        write_block_miners_payload(path, target_heights, miners)
+
+    fetched = fetch_block_miners(missing_heights, log_label=log_label, on_batch=persist_batch)
     miners.update(fetched)
 
-    payload = {
-        str(height): miners[height]
-        for height in target_heights
-        if miners.get(height, {}).get("name")
-    }
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(payload, f, separators=(",", ":"), ensure_ascii=True)
+    payload = write_block_miners_payload(path, target_heights, miners)
     return {"rows": len(payload), "source": MEMPOOL_BLOCKS_API}
 
 def export_signal_miners(path: Path, heights):
     return export_block_miners(path, heights, log_label="bip110")
 
+def export_bip110_miners(path: Path, heights):
+    return export_block_miners(path, heights, log_label="bip110")
+
 def select_segwit_miner_sample_heights(block_rows):
-    heights = []
-
-    def sample(period, is_signaling, *, from_end=False):
-        rows = [
-            row for row in block_rows
-            if int(row.get("period", 0)) == int(period)
-            and int(row.get("is_signaling", 0)) == int(is_signaling)
-        ]
-        rows.sort(key=lambda row: int(row["height"]), reverse=from_end)
-        return [int(row["height"]) for row in rows[:SEGWIT_MINER_SAMPLE_SIZE]]
-
-    heights.extend(sample(19, 0, from_end=True))
-    heights.extend(sample(1, 1))
-    heights.extend(sample(2, 1))
-    return sorted(set(heights))
+    return sorted(
+        int(row["height"])
+        for row in block_rows
+        if 1 <= int(row.get("period", 0)) <= SEGWIT_LAST_PERIOD
+    )
 
 def parse_iso_utc(ts: str):
     if not ts:
@@ -752,10 +1114,15 @@ bip110_blocks_meta = export_block_points_bin(
     bip110_block_rows,
     period_size=PERIOD_SIZE,
 )
-bip110_signal_miners_meta = export_signal_miners(
-    webapp_dir / "bip110_signal_miners.json",
-    [row["height"] for row in bip110_block_rows if int(row.get("is_signaling", 0)) == 1],
+bip110_miner_heights = [row["height"] for row in bip110_block_rows]
+bip110_miners_path = webapp_dir / "bip110_miners.json"
+bip110_signal_miners_path = webapp_dir / "bip110_signal_miners.json"
+bip110_miners_meta = export_bip110_miners(
+    bip110_miners_path,
+    bip110_miner_heights,
 )
+bip110_signal_miners_path.write_bytes(bip110_miners_path.read_bytes())
+bip110_signal_miners_meta = dict(bip110_miners_meta)
 
 static_release_points = []
 for label, height, period in bip110_releases:
@@ -957,6 +1324,10 @@ segwit_miners_meta = export_block_miners(
     segwit_miner_sample_heights,
     log_label="segwit",
 )
+segwit_low_activity_blocks_meta = export_low_activity_block_cache(
+    webapp_dir / "segwit_low_activity_blocks.json",
+    segwit_block_rows,
+)
 
 needs_chart_static_refresh = needs_segwit_rebuild or not chart_static_path.exists()
 
@@ -1007,6 +1378,7 @@ if needs_chart_static_refresh:
         "datasets": {
             "segwit_blocks": segwit_blocks_meta,
             "segwit_miners": segwit_miners_meta,
+            "segwit_low_activity_blocks": segwit_low_activity_blocks_meta,
         },
     }
 
@@ -1017,6 +1389,9 @@ else:
     with chart_static_path.open("r", encoding="utf-8") as f:
         chart_static = json.load(f)
     chart_static.setdefault("datasets", {})["segwit_miners"] = segwit_miners_meta
+    chart_static.setdefault("datasets", {}).pop("segwit_empty_blocks", None)
+    chart_static.setdefault("datasets", {}).pop("bip110_low_activity_blocks", None)
+    chart_static.setdefault("datasets", {})["segwit_low_activity_blocks"] = segwit_low_activity_blocks_meta
     with chart_static_path.open("w", encoding="utf-8") as f:
         json.dump(chart_static, f, separators=(",", ":"), ensure_ascii=True)
     print("Static chart bundle refreshed with SegWit miner metadata.")
@@ -1028,6 +1403,7 @@ bip110_metadata = {
     "state": state,
     "datasets": {
         "bip110_blocks": bip110_blocks_meta,
+        "bip110_miners": bip110_miners_meta,
         "bip110_signal_miners": bip110_signal_miners_meta,
     },
 }
