@@ -388,6 +388,129 @@ def get_release_metadata(label):
 def patch_missing_release_metadata(bip110_release_rows):
     return bip110_release_rows
 
+MEMPOOL_BLOCKS_API = "https://mempool.space/api/v1/blocks"
+
+def normalize_mempool_miner_name(block):
+    extras = block.get("extras") if isinstance(block.get("extras"), dict) else {}
+    pool = extras.get("pool")
+
+    if isinstance(pool, dict):
+        pool_name = str(pool.get("name") or "").strip()
+        pool_slug = str(pool.get("slug") or "").strip().lower()
+        miner_names = pool.get("minerNames")
+        if pool_name.upper() == "OCEAN" or pool_slug == "ocean":
+            if isinstance(miner_names, list):
+                for value in miner_names:
+                    text = str(value or "").strip()
+                    normalized = text.replace(".", "").replace(" ", "").lower()
+                    if text and normalized not in ("ocean", "oceanxyz"):
+                        return f"{text} ({pool_name or 'OCEAN'})"
+            if pool_name:
+                return pool_name
+
+    candidates = []
+    if isinstance(pool, dict):
+        candidates.extend([pool.get("name"), pool.get("slug")])
+    candidates.extend([
+        extras.get("poolName"),
+        extras.get("minerName"),
+        extras.get("miner"),
+        block.get("poolName"),
+        block.get("miner"),
+    ])
+
+    for value in candidates:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+def load_existing_signal_miners(path: Path):
+    if not path.exists():
+        return {}
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+
+    miners = {}
+    for height, miner in data.items():
+        try:
+            h = int(height)
+        except (TypeError, ValueError):
+            continue
+        text = str(miner or "").strip()
+        if text:
+            miners[h] = text
+    return miners
+
+def fetch_bip110_signal_miners(heights):
+    pending = set(int(h) for h in heights)
+    miners = {}
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "bip110-miner-attribution-updater",
+    }
+
+    while pending:
+        start_height = max(pending)
+        try:
+            r = requests.get(f"{MEMPOOL_BLOCKS_API}/{start_height}", headers=headers, timeout=20)
+            r.raise_for_status()
+            payload = r.json()
+        except Exception as exc:
+            print(f"[bip110] mempool.space miner lookup failed at height {start_height}: {exc}")
+            pending.remove(start_height)
+            continue
+
+        blocks = payload if isinstance(payload, list) else [payload]
+        seen_heights = set()
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            try:
+                height = int(block.get("height"))
+            except (TypeError, ValueError):
+                continue
+            if height not in pending:
+                continue
+
+            seen_heights.add(height)
+            miner = normalize_mempool_miner_name(block)
+            if miner:
+                miners[height] = miner
+
+        if not seen_heights:
+            pending.remove(start_height)
+        else:
+            pending.difference_update(seen_heights)
+        time.sleep(0.1)
+
+    return miners
+
+def export_signal_miners(path: Path, heights):
+    signal_heights = sorted(set(int(h) for h in heights))
+    existing = load_existing_signal_miners(path)
+    miners = {
+        height: miner
+        for height, miner in existing.items()
+        if height in signal_heights
+    }
+    fetched = fetch_bip110_signal_miners(signal_heights)
+    miners.update(fetched)
+
+    payload = {
+        str(height): miners[height]
+        for height in signal_heights
+        if miners.get(height)
+    }
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, separators=(",", ":"), ensure_ascii=True)
+    return {"rows": len(payload), "source": MEMPOOL_BLOCKS_API}
+
 def parse_iso_utc(ts: str):
     if not ts:
         return None
@@ -566,6 +689,10 @@ bip110_blocks_meta = export_block_points_bin(
     webapp_dir / "bip110_block_points.bin",
     bip110_block_rows,
     period_size=PERIOD_SIZE,
+)
+bip110_signal_miners_meta = export_signal_miners(
+    webapp_dir / "bip110_signal_miners.json",
+    [row["height"] for row in bip110_block_rows if int(row.get("is_signaling", 0)) == 1],
 )
 
 static_release_points = []
@@ -822,6 +949,7 @@ bip110_metadata = {
     "state": state,
     "datasets": {
         "bip110_blocks": bip110_blocks_meta,
+        "bip110_signal_miners": bip110_signal_miners_meta,
     },
 }
 
