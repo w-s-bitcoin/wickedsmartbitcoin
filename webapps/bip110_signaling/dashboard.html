@@ -710,8 +710,11 @@
     .tooltip-miner-icon {
       width: 1em;
       height: 1em;
+      max-width: 1em;
+      max-height: 1em;
       display: inline-block;
       flex: 0 0 auto;
+      object-fit: contain;
     }
 
     .tooltip-miner-name,
@@ -749,6 +752,20 @@
 
     #periodGridTooltip {
       z-index: 130;
+    }
+
+    #periodGridTooltip.is-compact {
+      width: min(360px, calc(100vw - 24px));
+      max-width: min(360px, calc(100vw - 24px));
+      white-space: normal;
+    }
+
+    #periodGridTooltip.is-compact .tooltip-line {
+      display: block;
+    }
+
+    #periodGridTooltip.is-compact .tooltip-value {
+      overflow-wrap: anywhere;
     }
 
     .error {
@@ -928,7 +945,7 @@
       align-items: flex-start;
       justify-content: space-between;
       gap: 8px;
-      margin: 2px 0 8px;
+      margin: 2px 0 4px;
       padding: 2px 2px 6px;
     }
 
@@ -973,6 +990,81 @@
 
     .period-grid-kpis .chip-value {
       color: var(--fg);
+    }
+
+    .period-grid-legend {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.74rem;
+      line-height: 1.2;
+      margin: 0 2px 8px;
+    }
+
+    .period-grid-legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap;
+    }
+
+    .period-grid-legend-item[hidden] {
+      display: none;
+    }
+
+    .period-grid-legend-item[data-period-grid-tooltip] {
+      cursor: help;
+    }
+
+    .period-grid-legend-swatch {
+      width: 10px;
+      height: 10px;
+      display: inline-block;
+      flex: 0 0 10px;
+      background: var(--nonsignal);
+    }
+
+    .period-grid-legend-swatch.is-signaling {
+      background: var(--signal);
+    }
+
+    .period-grid-legend-low-activity,
+    .period-grid-cell.is-low-activity-block {
+      --low-activity-block-marker: #ff3b30;
+      box-shadow: inset 0 0 0 1.5px var(--low-activity-block-marker);
+    }
+
+    .period-grid-legend-low-activity {
+      width: 10px;
+      height: 10px;
+      display: inline-block;
+      position: relative;
+      flex: 0 0 10px;
+      background: transparent;
+    }
+
+    .period-grid-legend-low-activity::before,
+    .period-grid-legend-low-activity::after,
+    .period-grid-cell.is-low-activity-block::before,
+    .period-grid-cell.is-low-activity-block::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 142%;
+      height: 1.5px;
+      background: var(--low-activity-block-marker);
+      border-radius: 999px;
+      transform: translate(-50%, -50%) rotate(-45deg);
+      pointer-events: none;
+    }
+
+    .period-grid-legend-low-activity::before,
+    .period-grid-cell.is-low-activity-block::before {
+      transform: translate(-50%, -50%) rotate(45deg);
     }
 
     .period-grid-period-chip {
@@ -1050,6 +1142,7 @@
       height: var(--period-grid-cell-size, 10px);
       background: var(--future);
       cursor: pointer;
+      position: relative;
     }
 
     .period-grid-cell.is-signaling {
@@ -1385,6 +1478,16 @@
           <div class="chip period-grid-kpi"><span class="chip-label">Signaling</span> <span class="chip-value" id="periodGridSignalValue">-</span></div>
         </div>
         <button id="periodGridClose" type="button" class="period-grid-close" aria-label="Close period grid overlay">&times;</button>
+      </div>
+      <div class="period-grid-legend" id="periodGridLegend" aria-label="Block signaling legend">
+        <span class="period-grid-legend-item"><span class="period-grid-legend-swatch is-signaling" aria-hidden="true"></span>Signaling</span>
+        <span class="period-grid-legend-item"><span class="period-grid-legend-swatch" aria-hidden="true"></span>Non-signaling</span>
+        <span
+          class="period-grid-legend-item"
+          id="periodGridLowActivityLegendItem"
+          data-period-grid-tooltip="Marks SegWit blocks smaller than 250,000 bytes and less than 35% of the trailing 72-block median, when the block's low-end included fee rate was at least 10 sat/vB."
+          hidden
+        ><span class="period-grid-legend-low-activity" aria-hidden="true"></span>Small relative block</span>
       </div>
       <div class="period-grid-content" id="periodGridContent"></div>
     </div>
