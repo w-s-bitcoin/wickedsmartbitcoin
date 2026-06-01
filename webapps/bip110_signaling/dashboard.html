@@ -1251,6 +1251,17 @@
       <div class="controls">
         <label class="toggle" for="toggleSegwitWindow"><input type="checkbox" id="toggleSegwitWindow" /> SegWit periods</label>
         <label class="toggle" for="toggleBip110Window"><input type="checkbox" id="toggleBip110Window" checked /> BIP-110 periods</label>
+        <button type="button" class="swap-panels-control" id="swapPanelsBtn" title="Swap panel order" aria-label="Swap panel order">
+          <span class="swap-panels-btn" aria-hidden="true">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <line x1="4" y1="13" x2="4" y2="3"></line>
+              <polyline points="2,5.5 4,3 6,5.5"></polyline>
+              <line x1="12" y1="3" x2="12" y2="13"></line>
+              <polyline points="10,10.5 12,13 14,10.5"></polyline>
+            </svg>
+          </span>
+          <span class="label">Swap panel order</span>
+        </button>
         <label class="toggle" for="toggleStripes"><input type="checkbox" id="toggleStripes" checked /> Block markers</label>
         <div class="chip-menu-wrap single-select" id="blockSymbolWrap">
           <div class="chip chip-kpi-display" id="blockSymbolDisplay"><span class="chip-label">Block symbol</span> <span class="chip-value">■</span></div>
@@ -1266,17 +1277,6 @@
         </div>
         <label class="toggle" for="toggleMarkers"><input type="checkbox" id="toggleMarkers" checked /> Release markers</label>
         <label class="toggle" for="toggleLabels"><input type="checkbox" id="toggleLabels" checked /> Percentage labels</label>
-        <button type="button" class="swap-panels-control" id="swapPanelsBtn" title="Swap panel order" aria-label="Swap panel order">
-          <span class="swap-panels-btn" aria-hidden="true">
-            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-              <line x1="4" y1="13" x2="4" y2="3"></line>
-              <polyline points="2,5.5 4,3 6,5.5"></polyline>
-              <line x1="12" y1="3" x2="12" y2="13"></line>
-              <polyline points="10,10.5 12,13 14,10.5"></polyline>
-            </svg>
-          </span>
-          <span class="label">Swap panel order</span>
-        </button>
       </div>
     </section>
 
