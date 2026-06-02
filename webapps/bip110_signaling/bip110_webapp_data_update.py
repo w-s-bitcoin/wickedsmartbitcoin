@@ -51,7 +51,7 @@ def height_to_period(height: int, start_height: int, period_size: int) -> int:
 def export_csv(path: Path, rows, fieldnames):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=fieldnames, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 
@@ -60,15 +60,17 @@ def export_block_points_bin(path: Path, rows, *, period_size: int):
     payload = bytearray()
     min_h = None
     max_h = None
-    record_size = 9
+    record_size = 13
 
     for row in rows:
         h = int(row["height"])
         sig = 1 if int(row.get("is_signaling", 0)) == 1 else 0
         version = int(row.get("version", 0)) & 0xFFFFFFFF
+        block_time = int(row.get("block_time", row.get("time", 0))) & 0xFFFFFFFF
         payload.extend(h.to_bytes(4, byteorder="little", signed=False))
         payload.append(sig)
         payload.extend(version.to_bytes(4, byteorder="little", signed=False))
+        payload.extend(block_time.to_bytes(4, byteorder="little", signed=False))
         min_h = h if min_h is None else min(min_h, h)
         max_h = h if max_h is None else max(max_h, h)
 
@@ -87,7 +89,7 @@ def read_block_points_bin(path: Path, *, start_height: int, period_size: int, re
     payload = path.read_bytes()
     rows = []
     size = int(record_size or 0)
-    if size not in (5, 9):
+    if size not in (5, 9, 13):
         return rows
 
     count = len(payload) // size
@@ -96,6 +98,7 @@ def read_block_points_bin(path: Path, *, start_height: int, period_size: int, re
         height = int.from_bytes(payload[offset:offset + 4], byteorder="little", signed=False)
         is_signaling = int(payload[offset + 4])
         version = int.from_bytes(payload[offset + 5:offset + 9], byteorder="little", signed=False) if size >= 9 else 0
+        block_time = int.from_bytes(payload[offset + 9:offset + 13], byteorder="little", signed=False) if size >= 13 else 0
         rel = height - int(start_height)
         period = (rel // int(period_size)) + 1
         rows.append({
@@ -103,6 +106,7 @@ def read_block_points_bin(path: Path, *, start_height: int, period_size: int, re
             "height": int(height),
             "y_in_period": int(rel % int(period_size)),
             "version": int(version),
+            "block_time": int(block_time),
             "is_signaling": int(is_signaling),
         })
     return rows
@@ -1100,12 +1104,14 @@ if bip110_plot_max_height is not None and bip110_plot_max_height >= BIP110_START
 
         for h in range(period_start, effective_end + 1):
             bh = rpc.getblockhash(h)
-            version = int(rpc.getblockheader(bh)["version"])
+            header = rpc.getblockheader(bh)
+            version = int(header["version"])
             bip110_block_rows.append({
                 "period": period,
                 "height": h,
                 "y_in_period": h - period_start,
                 "version": version,
+                "block_time": int(header.get("time", 0)),
                 "is_signaling": int((version & (1 << 4)) != 0),
             })
 
@@ -1205,7 +1211,7 @@ if chart_static_path.exists() and (webapp_dir / "segwit_block_points.bin").exist
         with chart_static_path.open("r", encoding="utf-8") as f:
             existing_static = json.load(f)
         existing_segwit_meta = existing_static.get("datasets", {}).get("segwit_blocks", {})
-        needs_segwit_version_rebuild = int(existing_segwit_meta.get("record_size") or 0) != 9
+        needs_segwit_version_rebuild = int(existing_segwit_meta.get("record_size") or 0) != 13
     except Exception:
         needs_segwit_version_rebuild = True
 needs_segwit_rebuild = force_refresh_segwit or any(not p.exists() for p in segwit_required) or needs_segwit_version_rebuild
@@ -1235,12 +1241,14 @@ if needs_segwit_rebuild:
         period_start = SEGWIT_START + (period - 1) * PERIOD_SIZE
         for h in range(period_start, period_start + PERIOD_SIZE):
             bh = rpc.getblockhash(h)
-            version = int(rpc.getblockheader(bh)["version"])
+            header = rpc.getblockheader(bh)
+            version = int(header["version"])
             segwit_block_rows.append({
                 "period": period,
                 "height": h,
                 "y_in_period": h - period_start,
                 "version": version,
+                "block_time": int(header.get("time", 0)),
                 "is_signaling": int((version & (1 << 1)) != 0),
             })
 
@@ -1298,7 +1306,7 @@ else:
                 existing_static = json.load(f)
             existing_rows = int(existing_static.get("datasets", {}).get("segwit_blocks", {}).get("rows") or 0)
             inferred_size = (segwit_bin_size // existing_rows) if existing_rows > 0 and segwit_bin_size % existing_rows == 0 else 0
-            if inferred_size in (5, 9):
+            if inferred_size in (5, 9, 13):
                 segwit_record_size = inferred_size
         except Exception:
             segwit_record_size = 5
