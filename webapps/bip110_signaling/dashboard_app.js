@@ -819,11 +819,12 @@
       const inferredRecordSize = Number.isFinite(declaredRows) && declaredRows > 0
         ? buffer.byteLength / declaredRows
         : null;
-      const recordSize = (declaredRecordSize === 9 || declaredRecordSize === 5)
+      const supportedRecordSizes = new Set([5, 9, 13]);
+      const recordSize = supportedRecordSizes.has(declaredRecordSize)
         ? declaredRecordSize
-        : (inferredRecordSize === 9 || inferredRecordSize === 5
+        : (supportedRecordSizes.has(inferredRecordSize)
           ? inferredRecordSize
-          : (buffer.byteLength % 9 === 0 ? 9 : 5));
+          : (buffer.byteLength % 13 === 0 ? 13 : (buffer.byteLength % 9 === 0 ? 9 : 5)));
       const count = Math.floor(view.byteLength / recordSize);
       const rows = new Array(count);
 
@@ -832,6 +833,7 @@
         const height = view.getUint32(offset, true);
         const isSignaling = view.getUint8(offset + 4);
         const version = recordSize >= 9 ? view.getUint32(offset + 5, true) : null;
+        const blockTime = recordSize >= 13 ? view.getUint32(offset + 9, true) : null;
         const rel = height - startHeight;
         const period = Math.floor(rel / periodSize) + 1;
         const yInPeriod = ((rel % periodSize) + periodSize) % periodSize;
@@ -840,6 +842,7 @@
           height,
           is_signaling: isSignaling,
           version,
+          block_time: blockTime,
           period,
           y_in_period: yInPeriod,
         };
@@ -3333,12 +3336,21 @@
       return { name: "", slug: "", pool: "", subMiner: "" };
     }
 
+    function formatBlockTooltipDate(blockTime) {
+      const timestamp = Number(blockTime);
+      if (!Number.isFinite(timestamp) || timestamp <= 0) return "";
+      return formatGeneratedDateTimeForSelectedTimeZone(new Date(timestamp * 1000).toISOString());
+    }
+
     function formatStripeTooltip(data, chartType) {
       const fork = chartType === "segwit" ? "SegWit" : "BIP-110";
       const mode = Number(data.is_signaling) === 1
         ? `Signaling for ${fork}`
         : `Non-signaling for ${fork}`;
-      const lines = [`Height: ${Number(data.height).toLocaleString()}`];
+      const dateText = formatBlockTooltipDate(data.block_time);
+      const lines = dateText
+        ? [`Date: ${dateText}`, `Height: ${Number(data.height).toLocaleString()}`]
+        : [`Height: ${Number(data.height).toLocaleString()}`];
       const versionHex = formatBlockVersionHex(data.version);
       lines.push(`Version: ${versionHex || "Loading..."}`);
       lines.push(`Mode: ${mode}`);
