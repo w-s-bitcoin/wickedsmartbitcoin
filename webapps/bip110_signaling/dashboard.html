@@ -613,11 +613,26 @@
       display: block;
     }
 
+    .dashboard-loader,
     .panel-loader {
       gap: 0;
       background: transparent;
     }
 
+    .dashboard-loader {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: calc(100vh - 220px);
+      min-height: var(--panel-min-height, 320px);
+      background: var(--card-bg);
+    }
+
+    .dashboard-loader.hidden {
+      display: none;
+    }
+
+    .dashboard-loader .circle,
     .panel-loader .circle {
       width: 32px;
       height: 32px;
@@ -628,14 +643,21 @@
       animation: bip110-chart-loading-spin 0.8s linear infinite;
     }
 
+    .dashboard-loader .label,
     .panel-loader .label {
       display: none;
     }
 
+    :root[data-theme="light"] .dashboard-loader,
     :root[data-theme="light"] .panel-loader {
       background: transparent;
     }
 
+    :root[data-theme="light"] .dashboard-loader {
+      background: var(--card-bg);
+    }
+
+    :root[data-theme="light"] .dashboard-loader .circle,
     :root[data-theme="light"] .panel-loader .circle {
       border-color: rgba(17, 24, 39, 0.13);
       border-top-color: var(--signal);
@@ -1397,7 +1419,7 @@
       </div>
       <div class="controls">
         <label class="toggle" for="toggleSegwitWindow"><input type="checkbox" id="toggleSegwitWindow" /> SegWit periods</label>
-        <label class="toggle" for="toggleBip110Window"><input type="checkbox" id="toggleBip110Window" checked /> BIP-110 periods</label>
+        <label class="toggle" for="toggleBip110Window"><input type="checkbox" id="toggleBip110Window" /> BIP-110 periods</label>
         <button type="button" class="swap-panels-control" id="swapPanelsBtn" title="Swap panel order" aria-label="Swap panel order">
           <span class="swap-panels-btn" aria-hidden="true">
             <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
@@ -1427,7 +1449,12 @@
       </div>
     </section>
 
-    <section class="card" id="segwitPanel">
+    <div class="card dashboard-loader" id="dashboardLoader" aria-live="polite" aria-label="Loading signaling charts">
+      <div class="circle" aria-hidden="true"></div>
+      <div class="label">Loading signaling charts...</div>
+    </div>
+
+    <section class="card hidden" id="segwitPanel">
       <div class="canvas-box" id="segwitCanvasBox">
         <div class="panel-loader hidden" id="segwitLoader" aria-live="polite" aria-label="Loading SegWit signaling chart">
           <div class="circle" aria-hidden="true"></div>
@@ -1445,7 +1472,7 @@
       </div>
     </section>
 
-    <section class="card" id="bip110Panel">
+    <section class="card hidden" id="bip110Panel">
       <div class="canvas-box" id="bip110CanvasBox">
         <div class="panel-loader hidden" id="bip110Loader" aria-live="polite" aria-label="Loading BIP-110 signaling chart">
           <div class="circle" aria-hidden="true"></div>
