@@ -89,11 +89,12 @@
     const inferredRecordSize = Number.isFinite(declaredRows) && declaredRows > 0
       ? buffer.byteLength / declaredRows
       : null;
-    const recordSize = (declaredRecordSize === 9 || declaredRecordSize === 5)
+    const supportedRecordSizes = new Set([5, 9, 13]);
+    const recordSize = supportedRecordSizes.has(declaredRecordSize)
       ? declaredRecordSize
-      : (inferredRecordSize === 9 || inferredRecordSize === 5
+      : (supportedRecordSizes.has(inferredRecordSize)
         ? inferredRecordSize
-        : (buffer.byteLength % 9 === 0 ? 9 : 5));
+        : (buffer.byteLength % 13 === 0 ? 13 : (buffer.byteLength % 9 === 0 ? 9 : 5)));
     const count = Math.floor(view.byteLength / recordSize);
     const rows = new Array(count);
 
@@ -102,6 +103,7 @@
       const height = view.getUint32(offset, true);
       const isSignaling = view.getUint8(offset + 4);
       const version = recordSize >= 9 ? view.getUint32(offset + 5, true) : null;
+      const blockTime = recordSize >= 13 ? view.getUint32(offset + 9, true) : null;
       const relativeHeight = height - startHeight;
       const period = Math.floor(relativeHeight / periodSize) + 1;
 
@@ -109,6 +111,7 @@
         height,
         is_signaling: isSignaling,
         version,
+        block_time: blockTime,
         period,
       };
     }
