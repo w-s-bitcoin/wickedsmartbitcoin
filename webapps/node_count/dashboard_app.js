@@ -686,6 +686,7 @@
     const state = {
       history: [],
       software: [],
+      softwareDetails: [],
       softwareExpandedKeys: new Set(),
       hiddenHistorySeries: new Set(),
       preResetStateSnapshot: null,
@@ -709,18 +710,19 @@
       dataSignature: '',
     };
 
-    function getDataSignature(historyRows, softwareRows, refreshedAtText) {
+    function getDataSignature(historyRows, softwareRows, refreshedAtText, softwareDetailRows = []) {
       const latestDatetime = historyRows.length
         ? String(historyRows[historyRows.length - 1].datetime || '').trim()
         : '';
       const refreshed = String(refreshedAtText || '').trim();
-      return `${refreshed}|${latestDatetime}|${historyRows.length}|${softwareRows.length}`;
+      return `${refreshed}|${latestDatetime}|${historyRows.length}|${softwareRows.length}|${softwareDetailRows.length}`;
     }
 
     async function loadDashboardData(cacheBust = null) {
-      const [historyCsv, softwareCsv, refreshedAtRaw] = await Promise.all([
+      const [historyCsv, softwareCsv, softwareDetailCsv, refreshedAtRaw] = await Promise.all([
         fetchTextWithFallbackCacheBust('webapp_data/bitcoin_node_history.csv', null, cacheBust),
         fetchTextWithFallbackCacheBust('webapp_data/node_software_counts_grouped.csv', null, cacheBust),
+        fetchTextWithFallbackCacheBust('webapp_data/node_software_counts_with_reachability.csv', null, cacheBust).catch(() => ''),
         fetchTextWithFallbackCacheBust('webapp_data/last_updated.txt', '../../assets/last_updated.txt', cacheBust).catch(() => ''),
       ]);
 
@@ -732,12 +734,16 @@
         })).filter((r) => !!r.datetime)
       );
       const softwareRows = parseCsv(softwareCsv);
+      const softwareDetailRows = String(softwareDetailCsv || '').trim()
+        ? parseCsv(softwareDetailCsv)
+        : [];
 
       return {
         historyRows,
         softwareRows,
+        softwareDetailRows,
         refreshedAtText,
-        signature: getDataSignature(historyRows, softwareRows, refreshedAtText),
+        signature: getDataSignature(historyRows, softwareRows, refreshedAtText, softwareDetailRows),
       };
     }
 
@@ -792,6 +798,7 @@
 
         state.history = data.historyRows;
         state.software = data.softwareRows;
+        state.softwareDetails = data.softwareDetailRows;
         state.refreshedAtText = data.refreshedAtText;
         state.dataSignature = data.signature;
         state.lastSuccessfulRefreshAt = Date.now();
@@ -1823,6 +1830,15 @@
       return v;
     }
 
+    function isKnotsBasedBip110Row(row) {
+      const software = normalizeSoftwareLabel(row?.software);
+      const ua = String(row?.ua || row?.user_agent || '').toLowerCase();
+      const mainVersion = String(row?.main_version || '').trim().toLowerCase();
+      const isBip110Marked = software === 'BIP110' || ua.includes('uasf-bip110') || ua.includes('+bip110');
+      if (mainVersion === 'v29' && ua.includes('knots:20260508')) return true;
+      return isBip110Marked && ua.includes('knots:');
+    }
+
     function updateKpis(filtered) {
       const latest = filtered[filtered.length - 1] || {};
       const total = num(latest.total_count);
@@ -2177,7 +2193,7 @@
         return s.toLowerCase() === 'other' ? 'Other' : s;
       };
 
-      const softwareRows = state.software.filter(
+      const softwareRows = (state.softwareDetails.length ? state.softwareDetails : state.software).filter(
         (r) => !String(r.software || '').toLowerCase().includes('(excluded)')
       );
 
@@ -2191,7 +2207,9 @@
           || sourceSoftwareLc === 'bitcoinj'
         ) ? 'other' : sourceSoftwareRaw;
 
-        const software = normalizeSoftwareLabel(r.software);
+        const normalizedSoftware = normalizeSoftwareLabel(r.software);
+        const isKnotsBip110 = isKnotsBasedBip110Row(r);
+        const software = normalizedSoftware === 'BIP110' && isKnotsBip110 ? 'Bitcoin Knots' : normalizedSoftware;
         const mainVersionRaw = displayMainVersion(r.main_version);
         const subVersionRaw = String(r.sub_version || 'unknown').trim() || 'unknown';
         const mainVersion = software === 'other' ? '' : mainVersionRaw;
@@ -2207,18 +2225,22 @@
             software,
             mainVersion,
             totalCount: 0,
+            bip110Count: 0,
             subRows: [],
           });
         }
 
         const group = groupedMap.get(key);
+        const isBip110 = software === 'Bitcoin Knots' && isKnotsBip110;
         group.totalCount += total;
+        if (isBip110) group.bip110Count += total;
         group.subRows.push({
           software,
           sourceSoftware,
           mainVersion,
           subVersion,
           totalCount: total,
+          isBip110,
         });
       });
 
@@ -2235,7 +2257,25 @@
         const softwareName = displaySoftwareName(String(r.software || '').replace(/^bitcoin\s+/i, ''));
         return `${softwareName}${r.mainVersion ? ` ${r.mainVersion}` : ''}`.trim();
       });
-      const y = ranked.map((r) => r.totalCount);
+      const y = ranked.map((r) => Number(r.totalCount));
+      const nonBip110Hover = ranked.map((r) => [Math.max(0, Number(r.totalCount) - Number(r.bip110Count || 0))]);
+      const totalHover = ranked.map((r) => (
+        r.software === 'Bitcoin Knots' && Number(r.bip110Count) > 0
+          ? 'Non-BIP-110: %{customdata[0]:,.0f}<extra></extra>'
+          : 'Total: %{y:,.0f}<extra></extra>'
+      ));
+      const bip110Overlay = ranked.map((r) => (
+        r.software === 'Bitcoin Knots' && Number(r.bip110Count) > 0
+          ? Number(r.bip110Count)
+          : null
+      ));
+      const bip110OverlayHover = ranked.map((r) => [Number(r.bip110Count || 0)]);
+      const bip110OverlayBase = y.slice();
+      ranked.forEach((r, idx) => {
+        if (r.software === 'Bitcoin Knots' && Number(r.bip110Count) > 0) {
+          bip110OverlayBase[idx] = Math.max(0, Number(r.totalCount) - Number(r.bip110Count || 0));
+        }
+      });
       const colors = ranked.map((r) => {
         const s = String(r.software || '').toLowerCase();
         if (s.includes('core')) return SOFTWARE_COLORS.core;
@@ -2244,19 +2284,43 @@
         return SOFTWARE_COLORS.other;
       });
 
-      Plotly.react('softwareChart', [{
-        type: 'bar',
-        x,
-        y,
-        marker: { color: colors, line: { width: 0 } },
-        hovertemplate: 'Total: %{y:,.0f}<extra></extra>',
-      }], {
+      Plotly.react('softwareChart', [
+        {
+          type: 'bar',
+          x,
+          y,
+          customdata: nonBip110Hover,
+          marker: { color: colors, line: { width: 0 } },
+          hovertemplate: totalHover,
+        },
+        {
+          type: 'bar',
+          x,
+          y: bip110Overlay,
+          base: bip110OverlayBase,
+          customdata: bip110OverlayHover,
+          marker: {
+            color: 'rgba(65, 105, 225, 0.22)',
+            line: { color: SOFTWARE_COLORS.bip110, width: 1.2 },
+            pattern: {
+              shape: 'x',
+              fgcolor: SOFTWARE_COLORS.bip110,
+              bgcolor: 'rgba(0,0,0,0)',
+              size: 7,
+              solidity: 0.36,
+            },
+          },
+          hovertemplate: 'BIP-110: %{customdata[0]:,.0f}<extra></extra>',
+        },
+      ], {
         margin: { l: 64, r: 18, t: 6, b: 62 },
         paper_bgcolor: PLOTLY_LIVE_BG,
         plot_bgcolor: PLOTLY_LIVE_BG,
         font: { color: _thFg, family: '"IBM Plex Mono", monospace', size: 12 },
         hoverlabel: getPlotlyHoverlabel(),
         hovermode: 'x unified',
+        showlegend: false,
+        barmode: 'overlay',
         xaxis: { tickangle: -28, automargin: true, gridcolor: _thGrid, showspikes: false },
         yaxis: { title: 'Nodes', gridcolor: _thGrid, showspikes: false },
       }, getPlotlyConfig('softwareChart', 'bitcoin-node-software-versions'));
@@ -2769,6 +2833,7 @@
         const data = await loadDashboardData(null);
         state.history = data.historyRows;
         state.software = data.softwareRows;
+        state.softwareDetails = data.softwareDetailRows;
         state.refreshedAtText = data.refreshedAtText;
         state.dataSignature = data.signature;
         state.lastSuccessfulRefreshAt = Date.now();
