@@ -29,6 +29,7 @@
     const PANEL_RESIZE_SNAP_PX = 18;
     const EXPECTED_FORK_HEIGHT = 961632;
     const EXPECTED_BLOCK_INTERVAL_MS = 10 * 60 * 1000;
+    const MAX_DOWNWARD_DIFFICULTY_ADJUSTMENT = 4;
     const DASHBOARD_TIME = window.WSBDashboardTime || null;
     const SHARE_STATE_PARAM = "bip110_state";
     const LOCAL_RUNTIME_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
@@ -999,9 +1000,15 @@
         {},
         { cache: "no-store" }
       );
+      const topKpis = await loadOptionalJson(
+        "../../assets/top_kpis.json",
+        {},
+        { cache: "no-store" }
+      );
 
       return {
         metadata: staticMetadata || (await loadStaticMetadataOnly()).metadata,
+        topKpis,
         segwitPeriods: castRows(parseCsv(await segwitPeriodsResp.text())),
         segwitBlocks: [],
         segwitMiners,
@@ -1113,6 +1120,7 @@
         },
         segwitPeriods: staticData?.segwitPeriods || previousData?.segwitPeriods || [],
         bip110Periods: dynamicData?.bip110Periods || previousData?.bip110Periods || [],
+        topKpis: staticData?.topKpis || previousData?.topKpis || {},
         segwitBlocks: staticData?.segwitBlocks || previousData?.segwitBlocks || [],
         bip110Blocks: dynamicData?.bip110Blocks || previousData?.bip110Blocks || [],
         segwitMiners: staticData?.segwitMiners || previousData?.segwitMiners || {},
@@ -1960,10 +1968,10 @@
         statusChips.appendChild(div);
       };
 
-      const appendExpectedForkTimeChip = () => {
+      const appendExpectedForkTimeChip = (signalingHashrate) => {
         const estimate = estimateExpectedForkDate(meta);
         if (!estimate) {
-          appendStatusChip("Expected Fork Time", "n/a");
+          appendStatusChip("Est. Fork Time", "n/a");
           return;
         }
 
@@ -1971,14 +1979,34 @@
         const heightText = estimate.height.toLocaleString("en-US");
         const blocksText = estimate.blocksRemaining.toLocaleString("en-US");
         const tooltipText = estimate.blocksRemaining > 0
-          ? `Estimated from block ${Number(meta.source_block_height).toLocaleString("en-US")} at 10 minutes per block. ${blocksText} blocks remain until height ${heightText}.`
-          : `Height ${heightText} has been reached or passed.`;
-        appendStatusChip("Expected Fork Time", dateText, tooltipText);
+          ? `The fork would likely happen when mandatory signaling begins at height ${heightText}. This projection assumes blocks continue arriving every 10 minutes and starts from block ${Number(meta.source_block_height).toLocaleString("en-US")}; ${blocksText} blocks remain.`
+          : `The fork would likely happen when mandatory signaling begins at height ${heightText}. That height has already been reached or passed.`;
+        const activationEstimate = estimateActivationAfterFork(estimate, signalingHashrate, meta);
+        const activationText = activationEstimate
+          ? `Activation would come after the signaling chain mines the mandatory signaling period and then the lock-in period. Given the current 14 day signaling share of ${signalingHashrate.shareText}, the signaling chain would take about ${formatBlockInterval(activationEstimate.mandatoryPeriodMs)} to mine the 2,016-block mandatory signaling period, then receive the maximum ${MAX_DOWNWARD_DIFFICULTY_ADJUSTMENT}x downward difficulty adjustment. At that reduced difficulty, the following 2,016-block lock-in period would take about ${formatBlockInterval(activationEstimate.lockInPeriodMs)}, putting activation around ${formatGeneratedDateTimeForSelectedTimeZone(activationEstimate.date.toISOString())}.`
+          : "Activation would come after the signaling chain mines the mandatory signaling period and then the lock-in period. This projection will appear once the 14 day signaling-share data is loaded.";
+        appendStatusChip("Est. Fork Time", dateText, `${tooltipText}\n\n${activationText}`);
+      };
+
+      const appendExpectedBlockTimeChip = (signalingHashrate) => {
+        if (!signalingHashrate) {
+          appendStatusChip(
+            "Est. Block Time",
+            "...",
+            "Block time shows how long blocks would take after the fork if hashrate splits between the BIP-110 signaling chain and the legacy chain. Waiting for 14 day signaling block data."
+          );
+          return;
+        }
+
+        const forkBlockTime = estimateBlockIntervalForShare(signalingHashrate.signalingShare);
+        const legacyBlockTime = estimateBlockIntervalForShare(1 - signalingHashrate.signalingShare);
+        const tooltipText = `Block time shows how long blocks would take after the fork if hashrate splits between the BIP-110 signaling chain and the legacy chain. The BIP-110 signaling chain would find a block about every ${formatBlockInterval(forkBlockTime)}, while the legacy chain would find a block about every ${formatBlockInterval(legacyBlockTime)}. This is calculated by dividing Bitcoin's 10 minute target block interval by each chain's hashrate share. The signaling share is ${signalingHashrate.shareText} (${signalingHashrate.signalingBlocks.toLocaleString("en-US")} / ${signalingHashrate.totalBlocks.toLocaleString("en-US")} blocks over the past 14 days), so this KPI uses a 14 day average.`;
+
+        appendStatusChip("Est. Block Time", formatBlockInterval(forkBlockTime), tooltipText);
       };
 
       statusChips.innerHTML = "";
       statusChips.appendChild(buildUpdatedChip(meta));
-      appendStatusChip("BIP-110 Periods Complete", `${s.completed_periods}/${s.bip110_total_periods}`);
       const periodSignalValue = currentSignal != null
         ? `<span class="chip-value-signal">${currentSignal.toLocaleString()}</span> (${currentSignalPct})`
         : `<span class="chip-value-signal">...</span>`;
@@ -1986,7 +2014,16 @@
         "Period",
         `${s.current_period_index ?? "N/A"} <span class="chip-label">Signaling</span> ${periodSignalValue}`
       );
-      appendExpectedForkTimeChip();
+      const signalingHashrate = estimateSignalingHashrateKpi(data);
+      appendStatusChip(
+        "Signaling Hashrate",
+        signalingHashrate ? formatHashrate(signalingHashrate.value) : "...",
+        signalingHashrate
+          ? `Signaling share: ${signalingHashrate.shareText} (${signalingHashrate.signalingBlocks.toLocaleString("en-US")} / ${signalingHashrate.totalBlocks.toLocaleString("en-US")} blocks over the past 14 days). This KPI uses a 14 day average.`
+          : "Waiting for 14 day signaling block data. This KPI uses a 14 day average."
+      );
+      appendExpectedForkTimeChip(signalingHashrate);
+      appendExpectedBlockTimeChip(signalingHashrate);
       bindTimeZoneChipEvents();
       syncSelectDropdown('updatedTimeZoneSelect', 'updatedTimeZoneDropdownTrigger', 'updatedTimeZoneDropdownMenu');
       bindSelectDropdowns();
@@ -2016,6 +2053,124 @@
       const pct = (signal / periodSize) * 100;
       if (pct > 0 && pct < 0.1) return "< 0.1%";
       return `${pct.toFixed(1)}%`;
+    }
+
+    function formatHashrate(value) {
+      const n = Number(value);
+      if (!Number.isFinite(n) || n < 0) return "n/a";
+      const units = ["H/s", "kH/s", "MH/s", "GH/s", "TH/s", "PH/s", "EH/s", "ZH/s", "YH/s"];
+      let scaled = n;
+      let unitIndex = 0;
+      while (scaled >= 1000 && unitIndex < units.length - 1) {
+        scaled /= 1000;
+        unitIndex += 1;
+      }
+      return `${scaled.toFixed(2)} ${units[unitIndex]}`;
+    }
+
+    function formatSharePct(numerator, denominator) {
+      const top = Number(numerator);
+      const bottom = Number(denominator);
+      if (!Number.isFinite(top) || !Number.isFinite(bottom) || bottom <= 0) return "n/a";
+      const pct = (top / bottom) * 100;
+      if (pct > 0 && pct < 0.01) return "< 0.01%";
+      return `${pct.toFixed(2)}%`;
+    }
+
+    function estimateBlockIntervalForShare(share) {
+      const n = Number(share);
+      if (!Number.isFinite(n) || n <= 0) return Infinity;
+      return EXPECTED_BLOCK_INTERVAL_MS / n;
+    }
+
+    function estimateActivationAfterFork(forkEstimate, signalingHashrate, meta) {
+      const periodSize = Number(meta?.chart?.period_size || 2016);
+      const forkTime = forkEstimate?.date instanceof Date ? forkEstimate.date.getTime() : NaN;
+      const signalingShare = Number(signalingHashrate?.signalingShare);
+      if (
+        !Number.isFinite(periodSize)
+        || periodSize <= 0
+        || !Number.isFinite(forkTime)
+        || !Number.isFinite(signalingShare)
+        || signalingShare <= 0
+      ) {
+        return null;
+      }
+
+      const forkBlockTime = estimateBlockIntervalForShare(signalingShare);
+      const mandatoryPeriodMs = periodSize * forkBlockTime;
+      const reducedDifficultyBlockTime = forkBlockTime / MAX_DOWNWARD_DIFFICULTY_ADJUSTMENT;
+      const lockInPeriodMs = periodSize * reducedDifficultyBlockTime;
+
+      return {
+        mandatoryPeriodMs,
+        lockInPeriodMs,
+        date: new Date(forkTime + mandatoryPeriodMs + lockInPeriodMs),
+      };
+    }
+
+    function formatBlockInterval(ms) {
+      const n = Number(ms);
+      if (!Number.isFinite(n) || n <= 0) return "n/a";
+      if (n < 60 * 60 * 1000) {
+        const totalSeconds = Math.max(1, Math.round(n / 1000));
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        if (!minutes) return `${seconds}s`;
+        return `${minutes}m ${seconds}s`;
+      }
+
+      const oneDayMs = 24 * 60 * 60 * 1000;
+      const oneYearMs = 365 * oneDayMs;
+      if (n >= oneYearMs) {
+        return `${(n / oneYearMs).toFixed(1)} years`;
+      }
+      if (n >= oneDayMs) {
+        return `${(n / oneDayMs).toFixed(1)} days`;
+      }
+
+      const totalMinutes = Math.max(1, Math.round(n / (60 * 1000)));
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      const parts = [];
+
+      if (hours) parts.push(`${hours}h`);
+      parts.push(`${minutes}m`);
+      return parts.join(" ");
+    }
+
+    function estimateSignalingHashrateKpi(data) {
+      const blocks = Array.isArray(data?.bip110Blocks) ? data.bip110Blocks : [];
+      const networkHashrate = Number(data?.topKpis?.target_hashrate_hps);
+      const windowSeconds = 14 * 24 * 60 * 60;
+      const latestBlockTime = blocks.reduce((latest, block) => {
+        const t = Number(block?.block_time);
+        return Number.isFinite(t) && t > latest ? t : latest;
+      }, 0);
+
+      if (!Number.isFinite(networkHashrate) || networkHashrate <= 0 || !latestBlockTime) {
+        return null;
+      }
+
+      const windowStart = latestBlockTime - windowSeconds;
+      const recentBlocks = blocks.filter((block) => {
+        const t = Number(block?.block_time);
+        return Number.isFinite(t) && t > windowStart && t <= latestBlockTime;
+      });
+      const totalBlocks = recentBlocks.length;
+      if (!totalBlocks) return null;
+
+      const signalingBlocks = recentBlocks.reduce((sum, block) => (
+        sum + (Number(block?.is_signaling) === 1 ? 1 : 0)
+      ), 0);
+      const signalingShare = signalingBlocks / totalBlocks;
+      return {
+        value: networkHashrate * signalingShare,
+        signalingBlocks,
+        totalBlocks,
+        signalingShare,
+        shareText: formatSharePct(signalingBlocks, totalBlocks),
+      };
     }
 
     function formatGeneratedUtc(value) {
@@ -2281,11 +2436,11 @@
       const key = raw.toLowerCase().replace(/\s+/g, " ");
       const maxHeightMatch = raw.match(/^\s*max(?:imum)?\s+activation\s+height\b(.*)$/i);
       if (maxHeightMatch) {
-        const suffix = maxHeightMatch[1] || "";
-        return `Max Activation Height${suffix}`;
+        return "Latest Activation Period";
       }
       const isTargetLabel = key.startsWith("mandatory signaling period")
         || key.startsWith("latest lock-in")
+        || key.startsWith("latest activation period")
         || key.startsWith("maximum activation height")
         || key.startsWith("max activation height");
       if (isTargetLabel) {
@@ -2878,15 +3033,51 @@
       }
     }
 
-      function setupSwapButton() {
-        if (!swapPanelsBtn) return;
-        swapPanelsBtn.addEventListener("click", () => {
-          state.controls.panelsSwapped = !state.controls.panelsSwapped;
-          applyPanelOrder();
-          persistControls();
-          updateResetButtonUi();
-        });
+    function formatBip110Status(status) {
+      if (status === "completed") return "Completed";
+      if (status === "in_progress") return "In progress";
+      if (status === "future" || status === "post_window") return "Future";
+      return String(status || "").replace(/_/g, " ").replace(/^\w/, (char) => char.toUpperCase());
+    }
+
+    function getBip110PostWindowHeights(data, periodSize) {
+      const period = Number(data?.period);
+      const periods = Array.isArray(state?.data?.bip110Periods)
+        ? state.data.bip110Periods
+        : [];
+      const knownStarts = periods
+        .map((row) => Number(row?.period_start_height))
+        .filter((height) => Number.isFinite(height) && height > 0);
+      const startPeriod = periods.find((row) => Number(row?.period) === 1);
+      const baseHeight = Number(startPeriod?.period_start_height);
+      const fallbackBase = knownStarts.length ? Math.min(...knownStarts) : NaN;
+      const firstHeight = Number.isFinite(baseHeight) && baseHeight > 0 ? baseHeight : fallbackBase;
+
+      if (!Number.isFinite(period) || !Number.isFinite(firstHeight)) {
+        return { start: NaN, end: NaN };
       }
+
+      const start = firstHeight + ((period - 1) * periodSize);
+      return { start, end: start + periodSize - 1 };
+    }
+
+    function getBip110TooltipPeriodLabel(data) {
+      const period = Number(data?.period);
+      if (period === 18) return "Mandatory Signaling";
+      if (period === 19) return "Latest Lock-In";
+      if (period === 20) return "Latest Activation";
+      return `BIP-110 ${data?.period}`;
+    }
+
+    function setupSwapButton() {
+      if (!swapPanelsBtn) return;
+      swapPanelsBtn.addEventListener("click", () => {
+        state.controls.panelsSwapped = !state.controls.panelsSwapped;
+        applyPanelOrder();
+        persistControls();
+        updateResetButtonUi();
+      });
+    }
 
     function panelResizeMaxHeightPx() {
       return Math.max(PANEL_RESIZE_MIN_HEIGHT, window.innerHeight - PANEL_RESIZE_VIEWPORT_PAD);
@@ -3300,17 +3491,27 @@
       const non = clamp(elapsed - signal, 0, periodSize);
       const unmined = clamp(periodSize - elapsed, 0, periodSize);
       const status = String(data.status || "");
+      const displayStatus = formatBip110Status(status);
+      const heightStart = Number(data.period_start_height);
+      const heightEnd = Number(data.period_end_height);
+      const inferredHeights = status === "post_window" ? getBip110PostWindowHeights(data, periodSize) : null;
+      const startHeight = Number.isFinite(heightStart) && heightStart > 0 ? heightStart : Number(inferredHeights?.start);
+      const endHeight = Number.isFinite(heightEnd) && heightEnd > 0 ? heightEnd : Number(inferredHeights?.end);
+      const heightLine = Number.isFinite(startHeight) && Number.isFinite(endHeight)
+        ? `Height: ${startHeight.toLocaleString()} - ${endHeight.toLocaleString()}`
+        : "Height: Unavailable";
 
       const lines = [
-        `Period: BIP-110 ${data.period}`,
-        `Status: ${status}`,
-        data.period_start_height ? `Height: ${Number(data.period_start_height).toLocaleString()}-${Number(data.period_end_height).toLocaleString()}` : "Status: Outside signaling window",
-        `Signaling: ${signal.toLocaleString()} (${pctLabel(signal, periodSize)})`,
+        `Period: ${getBip110TooltipPeriodLabel(data)}`,
+        `Status: ${displayStatus}`,
+        heightLine,
       ];
 
       if (status === "completed") {
+        lines.push(`Signaling: ${signal.toLocaleString()} (${pctLabel(signal, periodSize)})`);
         lines.push(`Non-signaling: ${non.toLocaleString()}`);
       } else if (status === "in_progress") {
+        lines.push(`Signaling: ${signal.toLocaleString()} (${pctLabel(signal, periodSize)})`);
         lines.push(`Non-signaling: ${non.toLocaleString()}`);
         lines.push(`Mined | Unmined: ${elapsed.toLocaleString()} | ${unmined.toLocaleString()}`);
       } else {
@@ -4233,6 +4434,9 @@
         }
 
         state.data = buildCombinedData(state.staticData, state.dynamicData, state.data);
+        if (options.reconcile !== false) {
+          setStatus(state.data);
+        }
         await renderSelectedPanelsWithSharedLoader([key]);
         await nextPaint();
       };
