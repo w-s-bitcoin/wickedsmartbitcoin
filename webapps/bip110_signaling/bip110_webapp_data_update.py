@@ -1377,7 +1377,7 @@ if needs_chart_static_refresh:
             "special_period_labels": [
                 {"period": 18, "text": "Mandatory Signaling Period", "rotation": 90},
                 {"period": 19, "text": "Latest Lock-In Period", "rotation": 90},
-                {"period": 20, "text": "Max Activation Height (965,664)", "rotation": 90},
+                {"period": 20, "text": "Latest Activation Period", "rotation": 90},
             ],
             "footer": {
                 "source_url": "https://wickedsmartbitcoin.com/bip110_signaling",
