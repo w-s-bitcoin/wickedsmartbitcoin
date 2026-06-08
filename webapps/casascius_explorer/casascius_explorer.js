@@ -31,6 +31,7 @@
   const tabs = document.getElementById('coinTabs');
   const versionTabs = document.getElementById('versionTabs');
   const app = document.getElementById('app');
+  const casasciusLoadingOverlay = document.getElementById('casasciusLoadingOverlay');
   const comparisonStage = document.getElementById('comparisonStage');
   const scene = document.getElementById('scene');
   const gradedMediaViewer = document.getElementById('gradedMediaViewer');
@@ -76,6 +77,11 @@
   const coinInfoPanel = document.getElementById('coinInfoPanel');
   const barAddressOverlay = document.getElementById('barAddressOverlay');
   const coinBackAddressOverlay = document.getElementById('coinBackAddressOverlay');
+
+  function releaseCasasciusLoadingOverlay() {
+    root.classList.remove('casascius-loading');
+    if (casasciusLoadingOverlay) casasciusLoadingOverlay.setAttribute('aria-hidden', 'true');
+  }
 
   const COIN_SEGMENTS = 160;
   const SMOOTH_EDGE_SEGMENTS = COIN_SEGMENTS * 2;
@@ -8026,6 +8032,7 @@
               if (activeGroupKey === ALL_ITEMS_GROUP_KEY) releaseInitialAllItemsQuarterBoot();
               else if (quarterComparisonInput.checked) releaseInitialQuarterBoot();
               else app.classList.remove('quarter-booting', 'all-items-booting');
+              releaseCasasciusLoadingOverlay();
               if (readBalanceChartOpen()) openBalanceChartModal();
             });
           });

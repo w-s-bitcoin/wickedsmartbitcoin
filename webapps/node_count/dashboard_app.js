@@ -1839,6 +1839,28 @@
       return isBip110Marked && ua.includes('knots:');
     }
 
+    function bip110SubVersionFromUserAgent(row) {
+      const ua = String(row?.ua || row?.user_agent || '');
+      const match = ua.match(/\+bip110-([^/]+)/i);
+      return match ? match[1].trim() : '';
+    }
+
+    function softwareVersionMajor(value) {
+      const match = String(value || '').match(/v?(\d+)/i);
+      return match ? Number(match[1]) : NaN;
+    }
+
+    function softwareSubVersionCategory({ normalizedSoftware, software, mainVersion, subVersion, isKnotsBip110 }) {
+      if (normalizedSoftware === 'BIP110' || software === 'BIP110' || isKnotsBip110) return 'bip110';
+      if (software === 'Bitcoin Knots') return 'knots';
+      if (software === 'Bitcoin Core') {
+        const mainMajor = softwareVersionMajor(mainVersion);
+        const subMajor = softwareVersionMajor(subVersion);
+        if (mainMajor >= 30 || subMajor >= 30) return 'core';
+      }
+      return '';
+    }
+
     function updateKpis(filtered) {
       const latest = filtered[filtered.length - 1] || {};
       const total = num(latest.total_count);
@@ -2216,6 +2238,10 @@
         const subVersion = software === 'other'
           ? (mainVersionRaw || 'unknown')
           : subVersionRaw;
+        const displayedSoftware = isKnotsBip110 ? 'UASF-BIP110' : software;
+        const displayedSubVersion = isKnotsBip110
+          ? (bip110SubVersionFromUserAgent(r) || subVersion)
+          : subVersion;
         const total = num(r.total_count);
         const key = `${software}||${mainVersion}`;
 
@@ -2232,15 +2258,26 @@
 
         const group = groupedMap.get(key);
         const isBip110 = software === 'Bitcoin Knots' && isKnotsBip110;
+        const category = softwareSubVersionCategory({
+          normalizedSoftware,
+          software,
+          mainVersion,
+          subVersion,
+          isKnotsBip110,
+        });
         group.totalCount += total;
         if (isBip110) group.bip110Count += total;
         group.subRows.push({
           software,
           sourceSoftware,
+          displayedSoftware,
+          rawClientName: String(r.ua || r.user_agent || sourceSoftwareRaw || '').trim(),
           mainVersion,
           subVersion,
+          displayedSubVersion,
           totalCount: total,
           isBip110,
+          category,
         });
       });
 
@@ -2351,11 +2388,14 @@
             const subShare = (sub.totalCount / totalAll) * 100;
             const subSoftwareLabel = group.software === 'other'
               ? (sub.sourceSoftware || 'other')
-              : sub.software;
+              : (sub.displayedSoftware || sub.software);
+            const subVersionLabel = sub.displayedSubVersion || sub.subVersion;
+            const categoryClass = sub.category ? ` software-category-${sub.category}` : '';
+            const rawClientName = sub.rawClientName || `${displaySoftwareName(subSoftwareLabel)} ${subVersionLabel}`.trim();
             return `
-              <tr class="software-sub-row">
+              <tr class="software-sub-row${categoryClass}" title="${escapeHtml(rawClientName)}">
                 <td>${displaySoftwareName(subSoftwareLabel)}</td>
-                <td>${sub.subVersion}</td>
+                <td>${subVersionLabel}</td>
                 <td>${fmtInt(sub.totalCount)}</td>
                 <td class="tiny">${fmtPct(subShare)}</td>
               </tr>
