@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Casascius Explorer</title>
+<link rel="icon" href="data:," />
+<link rel="stylesheet" href="casascius_explorer.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="title-row">
+      <h1>Casascius Explorer</h1>
+      <div class="address-search" id="addressSearchControl">
+        <span class="search-icon" aria-hidden="true"></span>
+        <input id="addressSearch" type="search" placeholder="Search address" autocomplete="off" spellcheck="false" aria-label="Search address" />
+        <button class="search-close" id="addressSearchClose" type="button" aria-label="Close search"></button>
+      </div>
+      <button class="keyboard-shortcuts-btn" id="keyboardShortcutsBtn" type="button" aria-label="Show keyboard shortcuts" aria-haspopup="dialog" aria-expanded="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <rect x="3" y="6" width="18" height="12" rx="2"></rect>
+          <path d="M7 10h.01M10 10h.01M13 10h.01M16 10h.01M7 14h.01M10 14h7"></path>
+        </svg>
+      </button>
+      <div class="panel-toggle-actions" aria-label="Panel controls">
+        <button class="panel-toggle-btn is-open" id="leftPanelBtn" type="button" aria-label="Hide recent spends panel" aria-expanded="true">
+          <svg class="panel-icon-closed" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16"></rect><path d="M9 4v16"></path></svg>
+          <svg class="panel-icon-open" viewBox="0 0 24 24" aria-hidden="true"><rect class="panel-icon-fill" x="3" y="4" width="6" height="16"></rect><rect x="3" y="4" width="18" height="16"></rect><path d="M9 4v16"></path></svg>
+        </button>
+        <button class="panel-toggle-btn is-open" id="bottomPanelBtn" type="button" aria-label="Hide bottom controls panel" aria-expanded="true">
+          <svg class="panel-icon-closed" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16"></rect><path d="M3 15h18"></path></svg>
+          <svg class="panel-icon-open" viewBox="0 0 24 24" aria-hidden="true"><rect class="panel-icon-fill" x="3" y="15" width="18" height="5"></rect><rect x="3" y="4" width="18" height="16"></rect><path d="M3 15h18"></path></svg>
+        </button>
+        <button class="panel-toggle-btn is-open" id="rightPanelBtn" type="button" aria-label="Hide coin information panel" aria-expanded="true">
+          <svg class="panel-icon-closed" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16"></rect><path d="M15 4v16"></path></svg>
+          <svg class="panel-icon-open" viewBox="0 0 24 24" aria-hidden="true"><rect class="panel-icon-fill" x="15" y="4" width="6" height="16"></rect><rect x="3" y="4" width="18" height="16"></rect><path d="M15 4v16"></path></svg>
+        </button>
+      </div>
+    </div>
+    <nav class="coin-tabs" id="coinTabs" aria-label="Select coin"></nav>
+    <nav class="version-tabs" id="versionTabs" aria-label="Select year and version"></nav>
+  </header>
+
+  <main class="app" id="app">
+    <div class="comparison-stage" id="comparisonStage">
+      <div class="scene" id="scene" aria-label="Interactive 3D model">
+        <div class="model" id="model">
+          <div class="face front"></div>
+          <div class="face back"><div class="coin-back-address-overlay" id="coinBackAddressOverlay" aria-hidden="true"></div></div>
+          <div class="rim-shadow"></div>
+          <div class="bar-address-overlay" id="barAddressOverlay" data-address="1AvCZVKE" aria-label="Address 1AvCZVKE"></div>
+        </div>
+      </div>
+      <div class="graded-media-viewer" id="gradedMediaViewer" aria-label="Graded coin image viewer" aria-hidden="true">
+        <img id="gradedMediaImage" alt="" draggable="false" />
+      </div>
+      <div class="graded-case-scene" id="gradedCaseScene" aria-label="Interactive 3D graded holder" aria-hidden="true">
+        <div class="graded-case-model" id="gradedCaseModel">
+          <div class="graded-case-image graded-case-image-front"></div>
+          <div class="graded-case-image graded-case-image-back"></div>
+        </div>
+      </div>
+      <div class="graded-case-crosshair" id="gradedCaseCrosshair" aria-hidden="true"></div>
+      <div class="all-items-stage" id="allItemsStage" aria-label="All coins and bars"></div>
+      <div class="scene quarter-scene" id="quarterScene" aria-label="Interactive 3D quarter comparison">
+        <div class="model quarter-model" id="quarterModel">
+          <div class="face front"></div>
+          <div class="face back"></div>
+          <div class="rim-shadow"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <div class="graded-media-dots" id="gradedMediaDots" aria-label="Graded coin view">
+    <button class="graded-media-dot active" type="button" data-graded-media-mode="model" aria-label="Show 3D coin" aria-pressed="true"></button>
+    <button class="graded-media-dot" type="button" data-graded-media-mode="case" aria-label="Show 3D graded holder" aria-pressed="false"></button>
+  </div>
+
+  <aside class="data-panel data-panel-left" id="leftDataPanel" aria-label="Recent spends">
+    <div class="data-panel-header">
+      <h2 id="leftPanelTitle">Redeemed</h2>
+      <button class="left-panel-mode-toggle" id="leftPanelModeToggle" type="button"><span class="left-panel-mode-text">Active</span></button>
+    </div>
+    <div class="data-panel-body left-panel-body" id="recentSpendsPanel">
+      <div class="left-panel-track">
+        <div class="left-panel-view left-panel-view-recent" id="recentSpendsView">Loading…</div>
+        <div class="left-panel-view left-panel-view-active" id="activeCoinsView">Loading…</div>
+        <div class="left-panel-view left-panel-view-graded" id="gradedCoinsView">Loading…</div>
+      </div>
+    </div>
+  </aside>
+
+  <aside class="data-panel data-panel-right" id="rightDataPanel" aria-label="Coin information">
+    <div class="coin-name right-panel-title data-panel-header" id="rightPanelCoinName" aria-hidden="true"></div>
+    <div class="data-panel-body" id="coinInfoPanel">Loading…</div>
+  </aside>
+
+  <div class="bottom-stack bottom-booting">
+    <section class="hud" aria-label="Controls">
+      <div class="controls">
+        <button class="control-btn playback-btn" id="toggle" aria-label="Spin">
+          <span class="spin-orbit-marker" aria-hidden="true"></span>
+          <svg class="playback-icon" viewBox="0 0 48 30" aria-hidden="true">
+            <path class="playback-play" d="M3 4L25 15L3 26Z" />
+            <path class="playback-pause playback-pause-left" d="M30 4H36V26H30Z" />
+            <path class="playback-pause playback-pause-right" d="M40 4H46V26H40Z" />
+          </svg>
+        </button>
+        <button class="tilt-control" id="tiltControl" type="button" aria-label="Tilt coin" aria-valuemin="-55" aria-valuemax="55" aria-valuenow="-10">
+          <span class="tilt-control-line" aria-hidden="true"></span>
+          <span class="tilt-control-mid" aria-hidden="true"></span>
+          <span class="tilt-control-dot" aria-hidden="true"></span>
+        </button>
+        <div class="position-group" aria-label="Position">
+          <div class="position-panel">
+            <button class="control-btn position-btn" id="frontBtn">Front</button>
+            <button class="control-btn position-btn" id="backBtn">Back</button>
+            <button class="control-btn position-btn" id="hologramBtn">Hologram</button>
+          </div>
+        </div>
+        <div class="range-pair">
+          <label class="range speed-range">Speed <input id="speedValue" class="zoom-value" type="text" inputmode="numeric" pattern="[0-9]*%?" value="100%" aria-label="Rotation speed percentage" /><span class="speed-control"><input id="speed" type="range" min="13.5" max="216" step="0.5" value="54" /><span class="speed-tick" aria-hidden="true"></span></span></label>
+          <label class="range">Zoom <input id="zoomValue" class="zoom-value" type="text" inputmode="numeric" pattern="[0-9]*%?" value="100%" aria-label="Zoom percentage" /><span class="zoom-control"><input id="zoom" type="range" min="75" max="200" value="100" /><span class="zoom-tick" aria-hidden="true"></span></span></label>
+        </div>
+        <label class="comparison-toggle"><input id="quarterComparison" type="checkbox" /> <span>Show U.S. Quarter</span></label>
+      </div>
+    </section>
+  </div>
+
+<script src="assets/right_panel_data.js"></script>
+<script src="casascius_explorer.js"></script>
+</body>
+</html>

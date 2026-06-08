@@ -119,6 +119,7 @@ const HOMEPAGE_GRID_CARD_DATA_SOURCES = Object.freeze({
     "bip110_signaling.png": ["webapps/bip110_signaling/webapp_data/bip110_metadata.json"],
     "bitcoin_dominance.png": ["webapps/bitcoin_dominance/webapp_data/last_updated.txt"],
     "bitcoin_net_worth.png": ["webapps/bitcoin_net_worth/webapp_data/demo_history.csv"],
+    "casascius_explorer.png": ["webapps/casascius_explorer/data/casascius_explorer.csv"],
     "dca_comparison.png": ["webapps/dca_comparison/webapp_data/last_updated.txt"],
     "dca_cost_basis.png": ["webapps/dca_cost_basis/webapp_data/dca_cost_basis_metadata.json"],
     "node_count.png": ["webapps/node_count/webapp_data/last_updated.txt"],
@@ -348,6 +349,7 @@ fetch(IMAGE_LIST_URL)
     .then(res => res.json())
     .then(data => {
         const dashboardFilenames = new Set([
+            'casascius_explorer.png',
             'bitcoin_net_worth.png',
             'quantum_exposure.png',
             'dca_cost_basis.png',

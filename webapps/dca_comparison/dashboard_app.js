@@ -223,6 +223,14 @@
     return new Date(Date.UTC(y, m - 1, d));
   }
 
+  function getLocalTodayIso() {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
   function addDays(iso, days) {
     const d = dateFromIso(iso);
     d.setUTCDate(d.getUTCDate() + days);
@@ -370,6 +378,11 @@
 
   function getActiveAvailableBounds() {
     return getPairAvailableBounds(state.settings);
+  }
+
+  function getLatestPresetEndIso(settings = state.settings) {
+    const available = getPairAvailableBounds(settings);
+    return clampIso(getLocalTodayIso(), available.minIso, available.maxIso);
   }
 
   function rememberDesiredRange(startIso = state.settings.rangeStart, endIso = state.settings.rangeEnd) {
@@ -2069,8 +2082,7 @@
     s.endFrameHold = s.endFrameHold !== false;
     s.preset = ["", "ytd", "1y", "2y", "4y", "8y", "full"].includes(s.preset) ? s.preset : "";
     if (s.preset) {
-      const bounds = getActiveAvailableBounds();
-      s.rangeEnd = bounds.maxIso;
+      s.rangeEnd = getLatestPresetEndIso(s);
       s.rangeStart = getPresetStartIso(s.preset, s.rangeEnd);
       state.desiredRangeStart = s.rangeStart;
       state.desiredRangeEnd = s.rangeEnd;
@@ -2774,7 +2786,7 @@
   function applyPreset(preset) {
     clearPreResetSnapshot();
     const available = getActiveAvailableBounds();
-    const max = available.maxIso;
+    const max = getLatestPresetEndIso();
     const start = getPresetStartIso(preset, max);
     state.settings.preset = preset;
     state.desiredRangeStart = start;
@@ -4002,6 +4014,7 @@
         state.settings.preset = "";
       }
       normalizeSettings();
+      if (state.settings.preset) state.currentIso = state.settings.rangeEnd;
       normalizeExportSettings();
       render();
       primeKeyboardFocus();

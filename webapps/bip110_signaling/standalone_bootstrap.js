@@ -176,6 +176,7 @@
       node_count: 'node_count.html',
       bitcoin_dominance: 'bitcoin_dominance.html',
       bitcoin_net_worth: 'bitcoin_net_worth.html',
+      casascius_explorer: 'casascius_explorer.html',
       uoa: 'uoa.html',
     };
 
@@ -395,12 +396,25 @@
     try {
       const raw = sessionStorage.getItem(MODAL_NAV_SNAPSHOT_KEY);
       const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed)
+      const snapshot = Array.isArray(parsed)
         ? parsed.map((value) => String(value || "").trim()).filter(Boolean)
         : [];
+      return normalizeModalNavigationSnapshot(snapshot);
     } catch (_) {
       return [];
     }
+  }
+
+  function normalizeModalNavigationSnapshot(snapshot) {
+    if (!Array.isArray(snapshot) || !snapshot.length) return [];
+    const normalized = snapshot.slice();
+    const casasciusIndex = normalized.indexOf("casascius_explorer.png");
+    const netWorthIndex = normalized.indexOf("bitcoin_net_worth.png");
+    if (casasciusIndex > 0 && netWorthIndex >= 0 && netWorthIndex < casasciusIndex) {
+      const [casascius] = normalized.splice(casasciusIndex, 1);
+      normalized.unshift(casascius);
+    }
+    return normalized;
   }
 
   function parseStoredBoolean(value) {

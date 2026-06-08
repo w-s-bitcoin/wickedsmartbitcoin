@@ -47,6 +47,11 @@ const DASHBOARD_CARD_PREVIEW_SPECS = Object.freeze({
     width: 1280,
     height: 720,
   },
+  'casascius_explorer.png': {
+    url: 'webapps/casascius_explorer/preview.html',
+    width: 1280,
+    height: 720,
+  },
 });
 
 let dashboardPreviewResizeObserver = null;
