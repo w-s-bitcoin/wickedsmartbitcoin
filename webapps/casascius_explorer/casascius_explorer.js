@@ -31,7 +31,6 @@
   const tabs = document.getElementById('coinTabs');
   const versionTabs = document.getElementById('versionTabs');
   const app = document.getElementById('app');
-  const casasciusLoadingOverlay = document.getElementById('casasciusLoadingOverlay');
   const comparisonStage = document.getElementById('comparisonStage');
   const scene = document.getElementById('scene');
   const gradedMediaViewer = document.getElementById('gradedMediaViewer');
@@ -77,31 +76,6 @@
   const coinInfoPanel = document.getElementById('coinInfoPanel');
   const barAddressOverlay = document.getElementById('barAddressOverlay');
   const coinBackAddressOverlay = document.getElementById('coinBackAddressOverlay');
-
-  function releaseCasasciusLoadingOverlay() {
-    if (!root.classList.contains('casascius-loading')) return;
-    root.classList.remove('casascius-loading');
-    if (casasciusLoadingOverlay) casasciusLoadingOverlay.setAttribute('aria-hidden', 'true');
-  }
-
-  function releaseCasasciusLoadingOverlayWhenImageReady(image) {
-    if (!root.classList.contains('casascius-loading')) return;
-    if (!image) {
-      releaseCasasciusLoadingOverlay();
-      return;
-    }
-    if (image.complete) {
-      releaseCasasciusLoadingOverlay();
-      return;
-    }
-    image.addEventListener('load', releaseCasasciusLoadingOverlay, { once: true });
-    image.addEventListener('error', releaseCasasciusLoadingOverlay, { once: true });
-  }
-
-  function releaseCasasciusLoadingOverlayWhenAllItemsReady() {
-    const centerTile = allItemsStage?.querySelector('.all-items-tile[data-tile-x="0"][data-tile-y="0"]');
-    releaseCasasciusLoadingOverlayWhenImageReady(centerTile);
-  }
 
   const COIN_SEGMENTS = 160;
   const SMOOTH_EDGE_SEGMENTS = COIN_SEGMENTS * 2;
@@ -6064,7 +6038,6 @@
     allItemsBuilt = true;
     if (allItemsCrosshairTarget) setAllItemsCrosshairTarget(allItemsCrosshairTarget);
     renderAllItems({ syncTarget });
-    releaseCasasciusLoadingOverlayWhenAllItemsReady();
   }
 
   function renderAllItems({ wrap = true, updateQuarter = true, updateOverlay = true, syncTarget = true } = {}) {
@@ -6930,7 +6903,6 @@
       requestAnimationFrame(() => {
         if (token === selectionToken) {
           model.classList.add('loaded');
-          releaseCasasciusLoadingOverlay();
         }
       });
     });
