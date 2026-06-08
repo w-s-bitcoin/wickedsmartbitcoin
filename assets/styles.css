@@ -363,10 +363,6 @@ footer {
     background-color: #fff;
 }
 
-:root[data-theme="light"] .buy-coffee-btn:hover,
-:root[data-theme="light"] .buy-coffee-btn:focus-visible,
-:root[data-theme="light"] .shell-theme-toggle:hover,
-:root[data-theme="light"] .shell-theme-toggle:focus-visible,
 :root[data-theme="light"] .kebab-btn:hover,
 :root[data-theme="light"] .kebab-btn:focus,
 :root[data-theme="light"] .kebab-btn:focus-visible,
@@ -374,16 +370,19 @@ footer {
 :root[data-theme="light"] .kebab-btn[aria-expanded='true']:hover,
 :root[data-theme="light"] .kebab-btn[aria-expanded='true']:focus,
 :root[data-theme="light"] .kebab-btn[aria-expanded='true']:focus-visible,
-:root[data-theme="light"] .modal-controls button:hover,
-:root[data-theme="light"] .modal-controls button:focus-visible,
-:root[data-theme="light"] .modal-controls .close-btn:hover,
-:root[data-theme="light"] .modal-controls .close-btn:focus-visible,
-:root[data-theme="light"] #modal-fav-btn:hover,
-:root[data-theme="light"] #modal-fav-btn:focus-visible,
 :root[data-theme="light"] .home-bip110-kpis .chip-menu-wrap.single-select:hover .chip-kpi-display,
 :root[data-theme="light"] .home-bip110-kpis .chip-menu-wrap.single-select:focus-within .chip-kpi-display {
     background: #fff !important;
     background-color: #fff !important;
+}
+:root[data-theme="light"] .buy-coffee-btn,
+:root[data-theme="light"] .buy-coffee-btn:hover,
+:root[data-theme="light"] .buy-coffee-btn:focus-visible,
+:root[data-theme="light"] .shell-theme-toggle,
+:root[data-theme="light"] .shell-theme-toggle:hover,
+:root[data-theme="light"] .shell-theme-toggle:focus-visible {
+    background: transparent !important;
+    background-color: transparent !important;
 }
 .search-container:focus-within .search-input {
     background-color: var(--control-bg-hover);
@@ -660,7 +659,7 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
     padding: 0 0.75rem;
     border: 1px solid var(--border);
     border-radius: 999px;
-    background-color: var(--control-bg);
+    background-color: transparent;
     color: var(--ink);
     font-family: monospace;
     font-size: 0.85rem;
@@ -677,7 +676,7 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
 }
 .buy-coffee-btn:hover,
 .buy-coffee-btn:focus-visible {
-    background-color: var(--control-bg-hover);
+    background-color: transparent;
     border-color: var(--brand);
     color: var(--brand);
     outline: none;
@@ -1482,8 +1481,26 @@ body.patoshi-pattern-dashboard-expanded .buy-coffee {
     MODAL BUTTONS
    =========================== */
 .modal-controls button,
-.modal-controls .close-btn,
-#modal-fav-btn,
+.modal-controls .close-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--ink);
+    font-size: var(--modal-control-font-size);
+    width: var(--modal-control-size);
+    height: var(--modal-control-size);
+    border-radius: var(--modal-control-radius);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.25s ease, border-color 0.25s ease, color 0.25s ease;
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
 .buy-coffee-close {
     background: var(--control-bg);
     border: 1px solid var(--border);
@@ -1508,8 +1525,13 @@ body.patoshi-pattern-dashboard-expanded .buy-coffee {
 .modal-controls button:focus-visible,
 .modal-controls .close-btn:hover,
 .modal-controls .close-btn:focus-visible,
-#modal-fav-btn:hover,
-#modal-fav-btn:focus-visible,
+.modal-controls #modal-fav-btn:hover,
+.modal-controls #modal-fav-btn:focus-visible {
+    background: transparent;
+    border-color: var(--brand);
+    color: var(--brand);
+    outline: none;
+}
 .buy-coffee-close:hover,
 .buy-coffee-close:focus-visible {
     background: var(--control-bg-hover);
@@ -1528,6 +1550,18 @@ body.patoshi-pattern-dashboard-expanded .buy-coffee {
 }
 .close-btn {
     font-size: var(--modal-close-font-size);
+}
+.modal-controls .modal-home-btn::before {
+    content: "";
+    width: 16px;
+    height: 16px;
+    background-color: currentColor;
+    -webkit-mask:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 11.5 12 4l9 7.5'/%3E%3Cpath d='M5.5 10.5V20h13v-9.5'/%3E%3Cpath d='M9.5 20v-5h5v5'/%3E%3C/svg%3E")
+        center / contain no-repeat;
+    mask:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 11.5 12 4l9 7.5'/%3E%3Cpath d='M5.5 10.5V20h13v-9.5'/%3E%3Cpath d='M9.5 20v-5h5v5'/%3E%3C/svg%3E")
+        center / contain no-repeat;
 }
 .modal-controls .close-btn svg,
 .modal-controls .modal-link svg {

@@ -122,20 +122,22 @@
     const rows = cachedRows;
     if (!rows.length) { chart.innerHTML = ''; return; }
 
-    const firstNonZero = rows.findIndex((r) => num(r.total_count) > 0);
+    const firstNonZero = rows.findIndex((r) => (
+      num(r.knots_count) > 0
+      || num(r.core_v30_count) > 0
+      || num(r.bip110_count) > 0
+    ));
     const data = firstNonZero > 0 ? rows.slice(firstNonZero) : rows;
     if (!data.length) { chart.innerHTML = ''; return; }
 
+    const width = Math.max(chart.clientWidth || 0, 420);
+    const lineWidth = Math.max(2, Math.min(4.2, width / 340));
     const series = [
-      { values: data.map((r) => num(r.total_count)), color: HISTORY_COLORS.total, width: 2.6 },
-      { values: data.map((r) => num(r.est_unreachable)), color: HISTORY_COLORS.unreachable, width: 1.8 },
-      { values: data.map((r) => num(r.listening)), color: HISTORY_COLORS.listening, width: 1.8 },
-      { values: data.map((r) => Math.max(0, num(r.knots_count) - num(r.bip110_count))), color: HISTORY_COLORS.knots, width: 1.8 },
-      { values: data.map((r) => num(r.core_v30_count)), color: HISTORY_COLORS.core, width: 1.8 },
-      { values: data.map((r) => num(r.bip110_count)), color: HISTORY_COLORS.bip110, width: 1.8 },
+      { values: data.map((r) => Math.max(0, num(r.knots_count) - num(r.bip110_count))), color: HISTORY_COLORS.knots, width: lineWidth },
+      { values: data.map((r) => num(r.core_v30_count)), color: HISTORY_COLORS.core, width: lineWidth },
+      { values: data.map((r) => num(r.bip110_count)), color: HISTORY_COLORS.bip110, width: lineWidth },
     ];
 
-    const width = Math.max(chart.clientWidth || 0, 420);
     const height = Math.max(chart.clientHeight || 0, 220);
     const pad = { top: 12, right: 18, bottom: 16, left: 18 };
     const plotW = Math.max(1, width - pad.left - pad.right);
@@ -143,6 +145,7 @@
     const n = data.length;
 
     const allValues = series.flatMap((s) => s.values).filter((v) => Number.isFinite(v) && v > 0);
+    if (!allValues.length) { chart.innerHTML = ''; return; }
     const minY = 0;
     const maxY = Math.max(...allValues) * 1.05;
     const spanY = Math.max(1, maxY - minY);

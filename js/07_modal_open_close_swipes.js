@@ -36,13 +36,21 @@ function readModalNavigationSnapshotFromSession() {
 
 function normalizeModalNavigationSnapshot(snapshot) {
     if (!Array.isArray(snapshot) || !snapshot.length) return [];
-    if (snapshot.includes('patoshi_pattern.png')) return snapshot;
+    let normalized = snapshot.slice();
 
-    const quantumIndex = snapshot.indexOf('quantum_exposure.png');
-    const uoaIndex = snapshot.indexOf('uoa.png');
-    if (quantumIndex < 0 || uoaIndex < 0 || quantumIndex >= uoaIndex) return snapshot;
+    const casasciusIndex = normalized.indexOf('casascius_explorer.png');
+    const netWorthIndex = normalized.indexOf('bitcoin_net_worth.png');
+    if (casasciusIndex > 0 && netWorthIndex >= 0 && netWorthIndex < casasciusIndex) {
+        const [casascius] = normalized.splice(casasciusIndex, 1);
+        normalized.unshift(casascius);
+    }
 
-    const normalized = snapshot.slice();
+    if (normalized.includes('patoshi_pattern.png')) return normalized;
+
+    const quantumIndex = normalized.indexOf('quantum_exposure.png');
+    const uoaIndex = normalized.indexOf('uoa.png');
+    if (quantumIndex < 0 || uoaIndex < 0 || quantumIndex >= uoaIndex) return normalized;
+
     normalized.splice(quantumIndex + 1, 0, 'patoshi_pattern.png');
     return normalized;
 }
@@ -148,6 +156,8 @@ function openModalByIndex(index) {
         ? '/webapps/quantum_exposure/dashboard.html'
         : (fname === 'bitcoin_net_worth.png'
         ? '/webapps/bitcoin_net_worth/dashboard.html'
+        : (fname === 'casascius_explorer.png'
+        ? '/webapps/casascius_explorer/dashboard.html'
         : (fname === 'dca_cost_basis.png'
         ? '/webapps/dca_cost_basis/dashboard.html'
         : (fname === 'dca_comparison.png'
@@ -156,7 +166,7 @@ function openModalByIndex(index) {
         ? '/webapps/bip110_signaling/dashboard.html'
         : (fname === 'node_count.png'
             ? '/webapps/node_count/dashboard.html'
-            : (fname === `${DOM_BASE}.png` ? '/webapps/bitcoin_dominance/dashboard.html' : ''))))));
+            : (fname === `${DOM_BASE}.png` ? '/webapps/bitcoin_dominance/dashboard.html' : '')))))));
     const embedPath = String(image.embed_url || '').trim() || fallbackEmbedPath;
     const shouldEmbed = modalType === 'embed' || !!embedPath;
     const embedUrl = shouldEmbed ? modalEmbedSrc(embedPath) : '';
@@ -167,6 +177,14 @@ function openModalByIndex(index) {
         modal.classList.add('embed-active');
         if (modalEmbedWrap) modalEmbedWrap.hidden = false;
         if (modalEmbed) {
+            const focusCasasciusEmbed = () => {
+                if (fname !== 'casascius_explorer.png') return;
+                try { modalEmbed.focus({ preventScroll: true }); }
+                catch (_) { modalEmbed.focus(); }
+            };
+            if (fname === 'casascius_explorer.png') {
+                modalEmbed.addEventListener('load', focusCasasciusEmbed, { once: true });
+            }
             if (window.__deferGridLazyUntilModalSettled === true) {
                 const resumeOnce = () => resumeDeferredGridLoadingIfNeeded();
                 modalEmbed.addEventListener('load', resumeOnce, { once: true });
@@ -175,7 +193,10 @@ function openModalByIndex(index) {
                 setTimeout(resumeDeferredGridLoadingIfNeeded, 1200);
             }
             if (modalEmbed.src !== embedUrl) modalEmbed.src = embedUrl;
-            else if (window.__deferGridLazyUntilModalSettled === true) resumeDeferredGridLoadingIfNeeded();
+            else {
+                focusCasasciusEmbed();
+                if (window.__deferGridLazyUntilModalSettled === true) resumeDeferredGridLoadingIfNeeded();
+            }
         }
         modalImg.style.opacity = '0';
         modalImg.style.visibility = 'hidden';
@@ -257,6 +278,7 @@ function openModalByIndex(index) {
             const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
             const text = (btn.textContent || '').toLowerCase().trim();
             return (
+                ariaLabel.includes('home') ||
                 ariaLabel.includes('close') ||
                 text === '×' ||
                 text === 'x' ||
