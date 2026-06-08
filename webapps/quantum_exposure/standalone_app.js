@@ -177,6 +177,7 @@
       node_count: 'node_count.html',
       bitcoin_dominance: 'bitcoin_dominance.html',
       bitcoin_net_worth: 'bitcoin_net_worth.html',
+      casascius_explorer: 'casascius_explorer.html',
       uoa: 'uoa.html',
     };
 
@@ -413,13 +414,21 @@
 
   function normalizeModalNavigationSnapshot(snapshot) {
     if (!Array.isArray(snapshot) || !snapshot.length) return [];
-    if (snapshot.includes("patoshi_pattern.png")) return snapshot;
+    let normalized = snapshot.slice();
 
-    const quantumIndex = snapshot.indexOf("quantum_exposure.png");
-    const uoaIndex = snapshot.indexOf("uoa.png");
-    if (quantumIndex < 0 || uoaIndex < 0 || quantumIndex >= uoaIndex) return snapshot;
+    const casasciusIndex = normalized.indexOf("casascius_explorer.png");
+    const netWorthIndex = normalized.indexOf("bitcoin_net_worth.png");
+    if (casasciusIndex > 0 && netWorthIndex >= 0 && netWorthIndex < casasciusIndex) {
+      const [casascius] = normalized.splice(casasciusIndex, 1);
+      normalized.unshift(casascius);
+    }
 
-    const normalized = snapshot.slice();
+    if (normalized.includes("patoshi_pattern.png")) return normalized;
+
+    const quantumIndex = normalized.indexOf("quantum_exposure.png");
+    const uoaIndex = normalized.indexOf("uoa.png");
+    if (quantumIndex < 0 || uoaIndex < 0 || quantumIndex >= uoaIndex) return normalized;
+
     normalized.splice(quantumIndex + 1, 0, "patoshi_pattern.png");
     return normalized;
   }

@@ -1,5 +1,14 @@
 [
   {
+    "filename": "casascius_explorer.png",
+    "title": "Casascius Explorer",
+    "description": "Explore Casascius coins and bars with interactive 3D views, mintage details, active and redeemed status, and recent spend activity",
+    "latest_x": "",
+    "latest_youtube": "",
+    "modal_type": "embed",
+    "embed_url": "/webapps/casascius_explorer/dashboard.html"
+  },
+  {
     "filename": "bitcoin_net_worth.png",
     "title": "Bitcoin Net Worth",
     "description": "This dashboard tracks Bitcoin-denominated net worth across assets and liabilities with snapshot history, charting, and optional local encryption for live data",

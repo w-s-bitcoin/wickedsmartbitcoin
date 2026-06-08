@@ -130,6 +130,32 @@ document.addEventListener('keydown', e => {
         }
     }
 }, true);
+
+function isCasasciusModalActive() {
+    if (modal?.style?.display !== 'flex') return false;
+    const activeFilename = String(modalImg?.dataset?.filename || '').toLowerCase();
+    const modalSrc = String(modalEmbed?.getAttribute?.('src') || '').toLowerCase();
+    return activeFilename === 'casascius_explorer.png' || modalSrc.includes('/webapps/casascius_explorer/dashboard.html');
+}
+
+function forwardCasasciusModalShortcut(e) {
+    if (!isCasasciusModalActive() || !modalEmbed?.contentWindow) return false;
+    try {
+        const forwarded = new KeyboardEvent('keydown', {
+            key: e.key,
+            code: e.code,
+            bubbles: true,
+            cancelable: true,
+        });
+        modalEmbed.contentWindow.document.dispatchEvent(forwarded);
+        try { modalEmbed.focus({ preventScroll: true }); }
+        catch (_) { modalEmbed.focus(); }
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
 document.addEventListener('keydown', e => {
     if (isBuyMeVisible) return;
     if (modal.style.display !== 'flex') return;
@@ -141,9 +167,19 @@ document.addEventListener('keydown', e => {
         }
     };
     if (e.key === 'ArrowLeft') {
+        if (isCasasciusModalActive()) {
+            swallow();
+            forwardCasasciusModalShortcut(e);
+            return;
+        }
         swallow();
         prevImage();
     } else if (e.key === 'ArrowRight') {
+        if (isCasasciusModalActive()) {
+            swallow();
+            forwardCasasciusModalShortcut(e);
+            return;
+        }
         swallow();
         nextImage();
     } else if (e.key === 'Escape') {
@@ -160,6 +196,15 @@ document.addEventListener('keydown', e => {
 document.addEventListener('keydown', e => {
     if (isBuyMeVisible) return;
     if (!(e.key === ' ' || e.code === 'Space')) return;
+    if (isCasasciusModalActive()) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof e.stopImmediatePropagation === 'function') {
+            e.stopImmediatePropagation();
+        }
+        forwardCasasciusModalShortcut(e);
+        return;
+    }
     if (e.altKey || e.ctrlKey || e.metaKey) return;
     const active = document.activeElement;
     if (
