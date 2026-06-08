@@ -609,6 +609,36 @@
     return !allItemsMode && gradedMediaMode === 'case' && app?.classList.contains('graded-media-case-mode');
   }
 
+  function gradedCaseInteractionRect() {
+    const leftRect = leftPanelOpen ? leftDataPanel?.getBoundingClientRect() : null;
+    const rightRect = rightPanelOpen ? rightDataPanel?.getBoundingClientRect() : null;
+    const bottomRect = bottomPanelOpen ? bottomStack?.getBoundingClientRect() : null;
+    return {
+      left: leftRect?.right ?? 0,
+      right: rightRect?.left ?? window.innerWidth,
+      top: topControlsBottom(),
+      bottom: bottomRect?.top ?? window.innerHeight
+    };
+  }
+
+  function eventInGradedCaseInteractionRect(e) {
+    if (!gradedCaseModeActive()) return false;
+    const rect = gradedCaseInteractionRect();
+    return e.clientX >= rect.left
+      && e.clientX <= rect.right
+      && e.clientY >= rect.top
+      && e.clientY <= rect.bottom;
+  }
+
+  function updateGradedCaseCursor(e) {
+    const inWindow = e ? eventInGradedCaseInteractionRect(e) : false;
+    app?.classList.toggle('graded-case-interaction-hover', inWindow && !gradedCaseCursorExcludedTarget(e.target));
+  }
+
+  function clearGradedCaseCursor() {
+    app?.classList.remove('graded-case-interaction-hover', 'graded-case-panning');
+  }
+
   function applyGradedCasePan() {
     root.style.setProperty('--graded-case-pan-x', `${gradedCasePanX.toFixed(2)}px`);
     root.style.setProperty('--graded-case-pan-y', `${gradedCasePanY.toFixed(2)}px`);
@@ -2612,25 +2642,29 @@
     const arrowOutset = t * gradedCaseArrowOutsetRatio;
     const arrowSlide = t * gradedCaseArrowSlideRatio;
     if (straightLenX > 0) addGradedCaseEdgeSegment(edgeFrag, 0, -halfH, 0, straightLenX, t, 'top');
-    addGradedCaseEdgeArrow(arrowFrag, 0, -halfH - arrowOutset, 0, 180, arrowSlide, .38, 'horizontal', t * .55);
+    // Case arrows are hidden for now; keep the geometry here so they can be restored later.
+    // addGradedCaseEdgeArrow(arrowFrag, 0, -halfH - arrowOutset, 0, 180, arrowSlide, .38, 'horizontal', t * .55);
     for (let a = 270; a <= 360.001; a += arcStep) {
       const rad = a * Math.PI / 180;
       addGradedCaseEdgeSegment(edgeFrag, halfW - r + Math.cos(rad) * r, -halfH + r + Math.sin(rad) * r, a + 90, arcLen, t, 'top-right-arc');
     }
     if (straightLenY > 0) addGradedCaseEdgeSegment(edgeFrag, halfW, 0, 90, straightLenY, t, 'right');
-    [-0.31, 0, 0.31].forEach(pos => addGradedCaseEdgeArrow(arrowFrag, halfW + arrowOutset, pos * straightLenY, 90, 180, arrowSlide, .26, '', t * .55));
+    // Side case arrows are hidden for now; keep the geometry here so they can be restored later.
+    // [-0.31, 0, 0.31].forEach(pos => addGradedCaseEdgeArrow(arrowFrag, halfW + arrowOutset, pos * straightLenY, 90, 180, arrowSlide, .26, '', t * .55));
     for (let a = 0; a <= 90.001; a += arcStep) {
       const rad = a * Math.PI / 180;
       addGradedCaseEdgeSegment(edgeFrag, halfW - r + Math.cos(rad) * r, halfH - r + Math.sin(rad) * r, a + 90, arcLen, t, 'bottom-right-arc');
     }
     if (straightLenX > 0) addGradedCaseEdgeSegment(edgeFrag, 0, halfH, 180, straightLenX, t, 'bottom');
-    addGradedCaseEdgeArrow(arrowFrag, 0, halfH + arrowOutset, 180, 180, arrowSlide, .38, 'horizontal', t * .55);
+    // Case arrows are hidden for now; keep the geometry here so they can be restored later.
+    // addGradedCaseEdgeArrow(arrowFrag, 0, halfH + arrowOutset, 180, 180, arrowSlide, .38, 'horizontal', t * .55);
     for (let a = 90; a <= 180.001; a += arcStep) {
       const rad = a * Math.PI / 180;
       addGradedCaseEdgeSegment(edgeFrag, -halfW + r + Math.cos(rad) * r, halfH - r + Math.sin(rad) * r, a + 90, arcLen, t, 'bottom-left-arc');
     }
     if (straightLenY > 0) addGradedCaseEdgeSegment(edgeFrag, -halfW, 0, 270, straightLenY, t, 'left');
-    [-0.31, 0, 0.31].forEach(pos => addGradedCaseEdgeArrow(arrowFrag, -halfW - arrowOutset, pos * straightLenY, 270, 180, arrowSlide, .26, '', t * .55));
+    // Side case arrows are hidden for now; keep the geometry here so they can be restored later.
+    // [-0.31, 0, 0.31].forEach(pos => addGradedCaseEdgeArrow(arrowFrag, -halfW - arrowOutset, pos * straightLenY, 270, 180, arrowSlide, .26, '', t * .55));
     for (let a = 180; a <= 270.001; a += arcStep) {
       const rad = a * Math.PI / 180;
       addGradedCaseEdgeSegment(edgeFrag, -halfW + r + Math.cos(rad) * r, -halfH + r + Math.sin(rad) * r, a + 90, arcLen, t, 'top-left-arc');
@@ -2658,6 +2692,7 @@
     root.classList.toggle('graded-media-available', available);
     root.classList.toggle('graded-media-image-mode', available && gradedMediaMode !== 'model' && gradedMediaMode !== 'case');
     root.classList.toggle('graded-media-case-mode', available && gradedMediaMode === 'case');
+    if (!(available && gradedMediaMode === 'case')) clearGradedCaseCursor();
     if (available) {
       const imageWidth = Number(selected.media.imageWidthPx) || 1;
       const imageHeight = Number(selected.media.imageHeightPx) || 1;
@@ -7170,6 +7205,28 @@
     ].join(',')));
   }
 
+  function gradedCaseCursorExcludedTarget(target) {
+    if (!target?.closest) return false;
+    return Boolean(target.closest([
+      '.graded-media-dots',
+      '.data-panel',
+      '.bottom-stack',
+      '.modal-controls',
+      '.panel-toggle-actions',
+      '.keyboard-shortcuts-btn',
+      '.balance-chart-modal',
+      '.shortcuts-modal',
+      '.shortcuts-floating-close',
+      'button',
+      'a',
+      'input',
+      'select',
+      'textarea',
+      '[role="button"]',
+      '[data-balance-chart-open]'
+    ].join(',')));
+  }
+
   function startDrag(e, targetScene) {
     if (allItemsMode && targetScene === scene) {
       if (!allItemsSelectedItemClientHit(e)) {
@@ -7268,6 +7325,7 @@
 
   function startGradedCasePan(e) {
     if (!gradedCaseModeActive() || gradedCasePanning || gradedCasePanExcludedTarget(e.target)) return;
+    if (!eventInGradedCaseInteractionRect(e)) return;
     if (e.button !== undefined && e.button !== 0) return;
     cancelTransformAnimation();
     gradedCasePanning = true;
@@ -7279,6 +7337,7 @@
     gradedCasePanDistance = 0;
     try { document.documentElement.setPointerCapture?.(e.pointerId); } catch (_) {}
     gradedCaseScene?.classList.add('panning');
+    app?.classList.add('graded-case-panning');
     e.preventDefault();
   }
 
@@ -7304,15 +7363,21 @@
     try { document.documentElement.releasePointerCapture?.(gradedCasePanPointerId); } catch (_) {}
     gradedCasePanPointerId = null;
     gradedCaseScene?.classList.remove('panning');
+    app?.classList.remove('graded-case-panning');
+    if (e) updateGradedCaseCursor(e);
     if (endedAsClick) e.preventDefault();
   }
 
   function addModelInteraction(targetScene) {
-    targetScene.addEventListener('pointerdown', e => startDrag(e, targetScene));
+    targetScene.addEventListener('pointerdown', e => {
+      if (targetScene === gradedCaseScene && !eventInGradedCaseInteractionRect(e)) return;
+      startDrag(e, targetScene);
+    });
     targetScene.addEventListener('pointermove', moveDrag);
     targetScene.addEventListener('pointerup', stopDrag);
     targetScene.addEventListener('pointercancel', stopDrag);
     targetScene.addEventListener('wheel', e => {
+      if (targetScene === gradedCaseScene && !eventInGradedCaseInteractionRect(e)) return;
       e.preventDefault();
       if (allItemsMode) {
         scheduleAllItemsWheelZoom(e.deltaY);
@@ -7337,11 +7402,14 @@
   addModelInteraction(quarterScene);
 
   document.addEventListener('pointerdown', startGradedCasePan, true);
+  document.addEventListener('pointermove', updateGradedCaseCursor, true);
   document.addEventListener('pointermove', moveGradedCasePan, true);
   document.addEventListener('pointerup', stopGradedCasePan, true);
   document.addEventListener('pointercancel', stopGradedCasePan, true);
+  document.addEventListener('pointerleave', clearGradedCaseCursor, true);
   document.addEventListener('wheel', e => {
     if (!gradedCaseModeActive() || gradedCaseScene?.contains(e.target)) return;
+    if (!eventInGradedCaseInteractionRect(e) || gradedCasePanExcludedTarget(e.target)) return;
     e.preventDefault();
     scheduleGradedCaseWheelZoom(e.deltaY);
   }, { passive: false, capture: true });

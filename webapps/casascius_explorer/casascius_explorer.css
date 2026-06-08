@@ -937,18 +937,19 @@
     transform: translate(var(--graded-case-pan-x, 0px), var(--graded-case-pan-y, 0px)) scale(var(--zoom));
     transform-origin: center center;
     transition: transform .42s cubic-bezier(.22, 1, .36, 1);
-    cursor: grab;
+    cursor: default;
     pointer-events: auto;
   }
-  .app.graded-media-case-mode:not(.all-items-mode) {
+  .app.graded-case-interaction-hover:not(.all-items-mode) {
     cursor: grab;
   }
-  :root.graded-media-case-mode .topbar,
-  :root.graded-media-case-mode .coin-tabs,
-  :root.graded-media-case-mode .version-tabs {
+  .app.graded-case-interaction-hover:not(.all-items-mode) .graded-case-scene {
     cursor: grab;
   }
   .graded-case-scene.dragging {
+    cursor: grabbing;
+  }
+  .app.graded-case-panning:not(.all-items-mode) {
     cursor: grabbing;
   }
   .graded-case-model {
@@ -1085,9 +1086,9 @@
     box-shadow:
       inset 0 1px 2px rgba(255,255,255,.70),
       inset 0 calc(var(--graded-case-thickness, 28px) * .16) calc(var(--graded-case-thickness, 28px) * .08) rgba(255,255,255,.34),
-      inset 0 calc(var(--graded-case-thickness, 28px) * -.16) calc(var(--graded-case-thickness, 28px) * .08) rgba(11,16,20,.28),
-      inset 0 -1px 2px rgba(255,255,255,.28),
-      inset 0 -4px 7px rgba(31,38,44,.34),
+      inset 0 calc(var(--graded-case-thickness, 28px) * -.16) calc(var(--graded-case-thickness, 28px) * .08) rgba(255,255,255,.24),
+      inset 0 -1px 2px rgba(255,255,255,.42),
+      inset 0 -4px 7px rgba(116,128,135,.16),
       0 0 0 .6px rgba(26,32,36,.26),
       0 0 calc(var(--graded-case-thickness, 28px) * .18) rgba(255,255,255,.20);
     backface-visibility: visible;
@@ -1121,9 +1122,9 @@
     background:
       linear-gradient(180deg,
         rgba(35,45,52,.32) 0 5%,
-        rgba(5,8,11,.40) 7% 12%,
+        rgba(45,55,62,.24) 7% 12%,
         transparent 15% 85%,
-        rgba(5,8,11,.40) 88% 93%,
+        rgba(45,55,62,.24) 88% 93%,
         rgba(35,45,52,.32) 95% 100%);
     mix-blend-mode: multiply;
   }
