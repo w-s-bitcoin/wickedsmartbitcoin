@@ -1,0 +1,271 @@
+{
+  "width": 3180,
+  "height": 2309,
+  "pixelsPerMm": 12,
+  "packingWidthMm": 265.0,
+  "packingHeightMm": 192.378,
+  "colorToSlug": {
+    "1,0,0": "cas_bar_diy_gold_s2",
+    "2,0,0": "cas_bar_100btc_gp",
+    "3,0,0": "cas_bar_500btc_gp_s2",
+    "4,0,0": "cas_bar_1000btc_gp",
+    "5,0,0": "cas_bar_500btc_gp",
+    "6,0,0": "cas_bar_100btc_gp_s2",
+    "7,0,0": "cas_1000btc_gold",
+    "8,0,0": "cas_1btc_2013_silver",
+    "9,0,0": "cas_10btc_2012_silver",
+    "10,0,0": "cas_1btc_2013_gold_rim_silver",
+    "11,0,0": "cas_25btc_2011_gp_s2",
+    "12,0,0": "cas_25btc_2011_gp",
+    "13,0,0": "cas_10btc_2012_silver_gold_b",
+    "14,0,0": "cas_5btc_2012_bitnickel",
+    "15,0,0": "cas_5btc_2012_bitnickel_mule",
+    "16,0,0": "cas_aluminum_2013",
+    "17,0,0": "cas_1btc_2012_s2",
+    "18,0,0": "cas_1btc_2011_mule_demo",
+    "19,0,0": "cas_0p5btc_2013_silver_s25",
+    "20,0,0": "cas_1btc_2011_s2",
+    "21,0,0": "cas_0p5btc_2013_silver_s3",
+    "22,0,0": "cas_1btc_2013_brass",
+    "23,0,0": "cas_1btc_2011_s1",
+    "24,0,0": "cas_5btc_2012_bitnickel_s2",
+    "25,0,0": "cas_05btc_2013_brass",
+    "26,0,0": "cas_0p1btc_2013_silver_s3"
+  },
+  "items": [
+    {
+      "slug": "cas_bar_diy_gold_s2",
+      "index": 1,
+      "rgb": [
+        1,
+        0,
+        0
+      ]
+    },
+    {
+      "slug": "cas_bar_100btc_gp",
+      "index": 2,
+      "rgb": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "slug": "cas_bar_500btc_gp_s2",
+      "index": 3,
+      "rgb": [
+        3,
+        0,
+        0
+      ]
+    },
+    {
+      "slug": "cas_bar_1000btc_gp",
+      "index": 4,
+      "rgb": [
+        4,
+        0,
+        0
+      ]
+    },
+    {
+      "slug": "cas_bar_500btc_gp",
+      "index": 5,
+      "rgb": [
+        5,
+        0,
+        0
+      ]
+    },
+    {
+      "slug": "cas_bar_100btc_gp_s2",
+      "index": 6,
+      "rgb": [
+        6,
+        0,
+        0
+      ]
+    },
+    {
+      "slug": "cas_1000btc_gold",
+      "index": 7,
+      "rgb": [
+        7,
+        0,
+        0
+      ]
+    },
+    {
+      "slug": "cas_1btc_2013_silver",
+      "index": 8,
+      "rgb": [
+        8,
+        0,
+        0
+      ]
+    },
+    {
+      "slug": "cas_10btc_2012_silver",
+      "index": 9,
+      "rgb": [
+        9,
+        0,
+        0
+      ]
+    },
+    {
+      "slug": "cas_1btc_2013_gold_rim_silver",
+      "index": 10,
+      "rgb": [
+        10,
+        0,
+        0
+      ]
+    },
+    {
+      "slug": "cas_25btc_2011_gp_s2",
+      "index": 11,
+      "rgb": [
+        11,
+        0,
+        0
+      ]
+    },
+    {
+      "slug": "cas_25btc_2011_gp",
+      "index": 12,
+      "rgb": [
+        12,
+        0,
+        0
+      ]
+    },
+    {
+      "slug": "cas_10btc_2012_silver_gold_b",
+      "index": 13,
+      "rgb": [
+        13,
+        0,
+        0
+      ]
+    },
+    {
+      "slug": "cas_5btc_2012_bitnickel",
+      "index": 14,
+      "rgb": [
+        14,
+        0,
+        0
+      ]
+    },
+    {
+      "slug": "cas_5btc_2012_bitnickel_mule",
+      "index": 15,
+      "rgb": [
+        15,
+        0,
+        0
+      ]
+    },
+    {
+      "slug": "cas_aluminum_2013",
+      "index": 16,
+      "rgb": [
+        16,
+        0,
+        0
+      ]
+    },
+    {
+      "slug": "cas_1btc_2012_s2",
+      "index": 17,
+      "rgb": [
+        17,
+        0,
+        0
+      ]
+    },
+    {
+      "slug": "cas_1btc_2011_mule_demo",
+      "index": 18,
+      "rgb": [
+        18,
+        0,
+        0
+      ]
+    },
+    {
+      "slug": "cas_0p5btc_2013_silver_s25",
+      "index": 19,
+      "rgb": [
+        19,
+        0,
+        0
+      ]
+    },
+    {
+      "slug": "cas_1btc_2011_s2",
+      "index": 20,
+      "rgb": [
+        20,
+        0,
+        0
+      ]
+    },
+    {
+      "slug": "cas_0p5btc_2013_silver_s3",
+      "index": 21,
+      "rgb": [
+        21,
+        0,
+        0
+      ]
+    },
+    {
+      "slug": "cas_1btc_2013_brass",
+      "index": 22,
+      "rgb": [
+        22,
+        0,
+        0
+      ]
+    },
+    {
+      "slug": "cas_1btc_2011_s1",
+      "index": 23,
+      "rgb": [
+        23,
+        0,
+        0
+      ]
+    },
+    {
+      "slug": "cas_5btc_2012_bitnickel_s2",
+      "index": 24,
+      "rgb": [
+        24,
+        0,
+        0
+      ]
+    },
+    {
+      "slug": "cas_05btc_2013_brass",
+      "index": 25,
+      "rgb": [
+        25,
+        0,
+        0
+      ]
+    },
+    {
+      "slug": "cas_0p1btc_2013_silver_s3",
+      "index": 26,
+      "rgb": [
+        26,
+        0,
+        0
+      ]
+    }
+  ]
+}
