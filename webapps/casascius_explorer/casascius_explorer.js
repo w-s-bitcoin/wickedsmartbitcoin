@@ -79,8 +79,28 @@
   const coinBackAddressOverlay = document.getElementById('coinBackAddressOverlay');
 
   function releaseCasasciusLoadingOverlay() {
+    if (!root.classList.contains('casascius-loading')) return;
     root.classList.remove('casascius-loading');
     if (casasciusLoadingOverlay) casasciusLoadingOverlay.setAttribute('aria-hidden', 'true');
+  }
+
+  function releaseCasasciusLoadingOverlayWhenImageReady(image) {
+    if (!root.classList.contains('casascius-loading')) return;
+    if (!image) {
+      releaseCasasciusLoadingOverlay();
+      return;
+    }
+    if (image.complete) {
+      releaseCasasciusLoadingOverlay();
+      return;
+    }
+    image.addEventListener('load', releaseCasasciusLoadingOverlay, { once: true });
+    image.addEventListener('error', releaseCasasciusLoadingOverlay, { once: true });
+  }
+
+  function releaseCasasciusLoadingOverlayWhenAllItemsReady() {
+    const centerTile = allItemsStage?.querySelector('.all-items-tile[data-tile-x="0"][data-tile-y="0"]');
+    releaseCasasciusLoadingOverlayWhenImageReady(centerTile);
   }
 
   const COIN_SEGMENTS = 160;
@@ -6044,6 +6064,7 @@
     allItemsBuilt = true;
     if (allItemsCrosshairTarget) setAllItemsCrosshairTarget(allItemsCrosshairTarget);
     renderAllItems({ syncTarget });
+    releaseCasasciusLoadingOverlayWhenAllItemsReady();
   }
 
   function renderAllItems({ wrap = true, updateQuarter = true, updateOverlay = true, syncTarget = true } = {}) {
@@ -6909,6 +6930,7 @@
       requestAnimationFrame(() => {
         if (token === selectionToken) {
           model.classList.add('loaded');
+          releaseCasasciusLoadingOverlay();
         }
       });
     });
@@ -8032,7 +8054,6 @@
               if (activeGroupKey === ALL_ITEMS_GROUP_KEY) releaseInitialAllItemsQuarterBoot();
               else if (quarterComparisonInput.checked) releaseInitialQuarterBoot();
               else app.classList.remove('quarter-booting', 'all-items-booting');
-              releaseCasasciusLoadingOverlay();
               if (readBalanceChartOpen()) openBalanceChartModal();
             });
           });
