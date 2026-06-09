@@ -453,6 +453,10 @@
   let allItemsModelDragTarget = null;
   let allItemsModelDragStartX = 0;
   let allItemsModelDragStartY = 0;
+  let allItemsSelectedClickTimer = 0;
+  let allItemsSelectedClickTime = 0;
+  let allItemsSelectedClickX = 0;
+  let allItemsSelectedClickY = 0;
   let lastModelTapTime = 0;
   let lastModelTapX = 0;
   let lastModelTapY = 0;
@@ -1261,8 +1265,6 @@
   let shortcutCommandPressed = false;
   let gradedMediaMode = 'model';
   let gradedMediaAddress = '';
-  const gradedCaseArrowOutsetRatio = .02;
-  const gradedCaseArrowSlideRatio = .52;
   let balanceChartUnit = readBalanceChartUnit();
   let balanceChartBackgroundHidden = readBalanceChartBackgroundHidden();
   let balanceChartBackgroundHideDeferred = false;
@@ -1271,6 +1273,8 @@
   let panelRenderToken = 0;
   let trackerIndexPromise = null;
   let gradedIndexPromise = null;
+  let trackerIndexWithGradedPromise = null;
+  let dataPanelsRefreshQueued = false;
   let dailyPriceIndexPromise = null;
   let dailyPriceIndexCache = null;
   const leftPanelRowsCache = new Map();
@@ -1546,7 +1550,7 @@
     const slug = trackerSlugForRow(row, s3OneGoldRimMinIndex, s3HalfSeries2MaxIndex);
     if (!slug || !row.Address) return null;
     return {
-      ...row,
+      Status: row.Status,
       address: String(row.Address),
       slug,
       index: finiteNumber(row.Index),
@@ -1555,8 +1559,7 @@
       createBlock: finiteNumber(row['Create Block']),
       createTime: finiteNumber(row['Create Time']),
       redeemBlock: finiteNumber(row['Redeem Block']),
-      redeemTime: finiteNumber(row['Redeem Time']),
-      updateTime: finiteNumber(row['Update Time'])
+      redeemTime: finiteNumber(row['Redeem Time'])
     };
   }
 
@@ -1605,17 +1608,27 @@
 
   function trackerIndex() {
     if (!trackerIndexPromise) {
-      trackerIndexPromise = Promise.all([
-        loadTextFile(TRACKER_CSV_URL).then(text => buildTrackerIndex(parseCsv(text))),
-        gradedIndex()
-      ])
-        .then(([entries, gradedRecords]) => entries.map(entry => {
-          const gradedRecord = gradedRecords.get(gradedAddressKey(entry.address));
-          return gradedRecord ? { ...entry, gradedRecord } : entry;
-        }))
+      trackerIndexPromise = loadTextFile(TRACKER_CSV_URL)
+        .then(text => buildTrackerIndex(parseCsv(text)))
         .catch(() => []);
     }
     return trackerIndexPromise;
+  }
+
+  function mergeGradedRecords(entries, gradedRecords) {
+    return entries.map(entry => {
+      const gradedRecord = gradedRecords.get(gradedAddressKey(entry.address));
+      return gradedRecord ? { ...entry, gradedRecord } : entry;
+    });
+  }
+
+  function trackerIndexWithGraded() {
+    if (!trackerIndexWithGradedPromise) {
+      trackerIndexWithGradedPromise = Promise.all([trackerIndex(), gradedIndex()])
+        .then(([entries, gradedRecords]) => mergeGradedRecords(entries, gradedRecords))
+        .catch(() => trackerIndex());
+    }
+    return trackerIndexWithGradedPromise;
   }
 
   function dailyPriceRowDay(row) {
@@ -1928,6 +1941,7 @@
   function showLeftPanelMode(mode) {
     mode = validLeftPanelMode(mode);
     if (mode === leftPanelMode) return;
+    if (mode === 'graded') hydrateGradedPanelForCurrentSelection();
     if (!allItemsMode) {
       syncSelectedLeftPanelAddress(mode, { forceDefault: true });
     }
@@ -2359,6 +2373,27 @@
     if (pendingApplied && leftPanelMode === 'graded') scrollLeftPanelAddressToTop('graded', selectedLeftPanelAddressByMode.graded);
   }
 
+  function hydrateGradedPanelForCurrentSelection() {
+    const token = panelRenderToken;
+    const slug = activeSlug;
+    trackerIndexWithGraded().then(entries => {
+      if (token !== panelRenderToken || slug !== activeSlug) return;
+      leftPanelRowsCache.clear();
+      updateLeftPanelCounts(entries);
+      refreshingLeftPanelData = true;
+      renderGradedCoins(entries);
+      refreshingLeftPanelData = false;
+      renderCoinInfo(entries);
+      syncLeftPanelHeader();
+      if (leftPanelMode === 'graded') {
+        syncLeftPanelMode();
+      } else {
+        renderLeftPanelRows('graded');
+      }
+      updateLeftPanelLayout();
+    });
+  }
+
   function allItemsEntrySlug(entry) {
     const slug = SHARED_STATS_SLUGS[entry?.slug] || entry?.slug;
     return ALL_ITEMS_PACKING.items.some(item => item.slug === slug) ? slug : '';
@@ -2485,7 +2520,6 @@
       updateSelectedCoinDetailSection();
     }
     refreshBalanceChartHover();
-    revealLeftPanelAddress(mode, address, { render: false });
   }
 
   function precalculatedRightPanelInfo() {
@@ -2572,6 +2606,13 @@
     return media ? { entry, address, media } : null;
   }
 
+  function selectedAddressHasGradedMedia(rows = currentBalanceChartRows) {
+    if (allItemsMode) return false;
+    const entry = selectedTrackerEntry(rows);
+    const address = String(entry?.address || '').trim();
+    return Boolean(address && GRADED_MEDIA_BY_ADDRESS[address]);
+  }
+
   function updateGradedMediaDots() {
     gradedMediaDots?.querySelectorAll('.graded-media-dot').forEach(button => {
       const active = button.dataset.gradedMediaMode === gradedMediaMode;
@@ -2611,19 +2652,9 @@
     frag.appendChild(el);
   }
 
-  function addGradedCaseEdgeArrow(frag, x, y, angleDeg, symbolRotationDeg = -angleDeg, depthShift = 0, outlineAlpha = .26, variant = '', zLift = 2) {
-    const el = document.createElement('i');
-    el.className = variant ? `graded-case-edge-arrow graded-case-edge-arrow-${variant}` : 'graded-case-edge-arrow';
-    el.style.setProperty('--arrow-normalize', `${symbolRotationDeg.toFixed(2)}deg`);
-    el.style.setProperty('--arrow-depth-shift', `${depthShift.toFixed(2)}px`);
-    el.style.setProperty('--arrow-outline-alpha', outlineAlpha.toFixed(2));
-    el.style.transform = `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, ${zLift.toFixed(2)}px) rotateZ(${angleDeg.toFixed(2)}deg) rotateX(90deg)`;
-    frag.appendChild(el);
-  }
-
   function buildGradedCaseEdges() {
     if (!gradedCaseModel || !gradedCaseScene) return;
-    gradedCaseModel.querySelectorAll('.graded-case-edge-segment, .graded-case-edge-arrow').forEach(el => el.remove());
+    gradedCaseModel.querySelectorAll('.graded-case-edge-segment').forEach(el => el.remove());
     const styles = getComputedStyle(root);
     const sceneRect = gradedCaseScene.getBoundingClientRect();
     const w = parseFloat(styles.getPropertyValue('--graded-case-w')) || sceneRect.width || 420;
@@ -2638,39 +2669,27 @@
     const arcLen = Math.max(4, (2 * Math.PI * r) * (arcStep / 360) + 1);
     const frag = document.createDocumentFragment();
     const edgeFrag = document.createDocumentFragment();
-    const arrowFrag = document.createDocumentFragment();
-    const arrowOutset = t * gradedCaseArrowOutsetRatio;
-    const arrowSlide = t * gradedCaseArrowSlideRatio;
     if (straightLenX > 0) addGradedCaseEdgeSegment(edgeFrag, 0, -halfH, 0, straightLenX, t, 'top');
-    // Case arrows are hidden for now; keep the geometry here so they can be restored later.
-    // addGradedCaseEdgeArrow(arrowFrag, 0, -halfH - arrowOutset, 0, 180, arrowSlide, .38, 'horizontal', t * .55);
     for (let a = 270; a <= 360.001; a += arcStep) {
       const rad = a * Math.PI / 180;
       addGradedCaseEdgeSegment(edgeFrag, halfW - r + Math.cos(rad) * r, -halfH + r + Math.sin(rad) * r, a + 90, arcLen, t, 'top-right-arc');
     }
     if (straightLenY > 0) addGradedCaseEdgeSegment(edgeFrag, halfW, 0, 90, straightLenY, t, 'right');
-    // Side case arrows are hidden for now; keep the geometry here so they can be restored later.
-    // [-0.31, 0, 0.31].forEach(pos => addGradedCaseEdgeArrow(arrowFrag, halfW + arrowOutset, pos * straightLenY, 90, 180, arrowSlide, .26, '', t * .55));
     for (let a = 0; a <= 90.001; a += arcStep) {
       const rad = a * Math.PI / 180;
       addGradedCaseEdgeSegment(edgeFrag, halfW - r + Math.cos(rad) * r, halfH - r + Math.sin(rad) * r, a + 90, arcLen, t, 'bottom-right-arc');
     }
     if (straightLenX > 0) addGradedCaseEdgeSegment(edgeFrag, 0, halfH, 180, straightLenX, t, 'bottom');
-    // Case arrows are hidden for now; keep the geometry here so they can be restored later.
-    // addGradedCaseEdgeArrow(arrowFrag, 0, halfH + arrowOutset, 180, 180, arrowSlide, .38, 'horizontal', t * .55);
     for (let a = 90; a <= 180.001; a += arcStep) {
       const rad = a * Math.PI / 180;
       addGradedCaseEdgeSegment(edgeFrag, -halfW + r + Math.cos(rad) * r, halfH - r + Math.sin(rad) * r, a + 90, arcLen, t, 'bottom-left-arc');
     }
     if (straightLenY > 0) addGradedCaseEdgeSegment(edgeFrag, -halfW, 0, 270, straightLenY, t, 'left');
-    // Side case arrows are hidden for now; keep the geometry here so they can be restored later.
-    // [-0.31, 0, 0.31].forEach(pos => addGradedCaseEdgeArrow(arrowFrag, -halfW - arrowOutset, pos * straightLenY, 270, 180, arrowSlide, .26, '', t * .55));
     for (let a = 180; a <= 270.001; a += arcStep) {
       const rad = a * Math.PI / 180;
       addGradedCaseEdgeSegment(edgeFrag, -halfW + r + Math.cos(rad) * r, -halfH + r + Math.sin(rad) * r, a + 90, arcLen, t, 'top-left-arc');
     }
     frag.appendChild(edgeFrag);
-    frag.appendChild(arrowFrag);
     gradedCaseModel.insertBefore(frag, gradedCaseModel.firstChild);
   }
 
@@ -2719,7 +2738,7 @@
       root.style.removeProperty('--graded-case-w');
       root.style.removeProperty('--graded-case-h');
       root.style.removeProperty('--graded-case-thickness');
-      gradedCaseModel?.querySelectorAll('.graded-case-edge-segment, .graded-case-edge-arrow').forEach(el => el.remove());
+      gradedCaseModel?.querySelectorAll('.graded-case-edge-segment').forEach(el => el.remove());
     }
     if (gradedMediaViewer) gradedMediaViewer.setAttribute('aria-hidden', String(!(available && gradedMediaMode !== 'model' && gradedMediaMode !== 'case')));
     if (gradedCaseScene) gradedCaseScene.setAttribute('aria-hidden', String(!(available && gradedMediaMode === 'case')));
@@ -2908,6 +2927,22 @@
     if (!section) return;
     section.outerHTML = selectedCoinDetailHtml(currentBalanceChartRows);
     syncGradedMediaViewer(currentBalanceChartRows);
+  }
+
+  function scheduleDataPanelsRefresh() {
+    if (dataPanelsRefreshQueued) return;
+    dataPanelsRefreshQueued = true;
+    const run = () => {
+      dataPanelsRefreshQueued = false;
+      refreshDataPanels();
+    };
+    requestAnimationFrame(() => {
+      if ('requestIdleCallback' in window) {
+        window.requestIdleCallback(run, { timeout: 700 });
+      } else {
+        setTimeout(run, 80);
+      }
+    });
   }
 
   function currentChartRows(entries) {
@@ -4110,6 +4145,7 @@
     if (!recentSpendsPanel || !coinInfoPanel) return;
     const token = ++panelRenderToken;
     const slug = activeSlug;
+    leftPanelRowsCache.clear();
     leftDataPanel?.classList.remove('data-ready');
     for (const mode of LEFT_PANEL_MODES) leftPanelScrollTopByMode[mode] = 0;
     resetLeftPanelPagination();
@@ -4126,7 +4162,6 @@
       refreshingLeftPanelData = true;
       renderRecentSpends(entries);
       renderActiveCoins(entries);
-      renderGradedCoins(entries);
       refreshingLeftPanelData = false;
       const restoredAllItemsSelection = restoreSavedAllItemsSelection(entries);
       if (allItemsMode && allItemsSelectionRestorePending === false && !restoredAllItemsSelection) {
@@ -4139,6 +4174,26 @@
         updateLeftPanelLayout();
         leftDataPanel?.classList.add('data-ready');
       });
+      if (leftPanelMode === 'graded' || selectedAddressHasGradedMedia(entries)) {
+        trackerIndexWithGraded().then(gradedEntries => {
+          if (token !== panelRenderToken || slug !== activeSlug) return;
+          leftPanelRowsCache.clear();
+          updateLeftPanelCounts(gradedEntries);
+          refreshingLeftPanelData = true;
+          renderGradedCoins(gradedEntries);
+          refreshingLeftPanelData = false;
+          renderCoinInfo(gradedEntries);
+          syncLeftPanelHeader();
+          if (leftPanelMode === 'graded') syncLeftPanelMode();
+          requestAnimationFrame(() => {
+            if (token !== panelRenderToken || slug !== activeSlug) return;
+            updateLeftPanelLayout();
+          });
+        });
+      } else if (gradedCoinsView) {
+        leftPanelRowsByMode.graded = [];
+        renderLeftPanelRows('graded');
+      }
     });
   }
 
@@ -4574,7 +4629,7 @@
   async function runAddressSearch() {
     if (!addressSearchInput) return;
     const query = addressSearchInput.value;
-    const entries = await trackerIndex();
+    const entries = await trackerIndexWithGraded();
     const trackerEntry = entries.find(entry => addressValueMatches(query, entry.address));
     const match = trackerEntry
       ? { coin: COINS.find(c => c.slug === trackerEntry.slug), address: trackerEntry.address, entry: trackerEntry }
@@ -6132,7 +6187,7 @@
     syncNavigation();
     updateBottomReservedSpace();
     updateAllItemsQuarterPlacement();
-    refreshDataPanels();
+    scheduleDataPanelsRefresh();
     animateAllItemsQuarterEntry(previousQuarterLayout);
     app.classList.remove('layout-switching');
     if (bootingAllItems) {
@@ -6148,6 +6203,7 @@
 
   function exitAllItemsMode() {
     if (!allItemsMode) return;
+    clearPendingAllItemsSelectedRecenter();
     allItemsMode = false;
     allItemsBootCrosshairTarget = null;
     cancelAllItemsModelPositionTrack();
@@ -6883,7 +6939,6 @@
     if (playQuarterLayoutAnimation) playQuarterLayoutAnimation();
     renderBarAddress(c.addressFirstbits || '', c);
     renderCoinBackAddress(c.backAddressFirstbits || '', c);
-    refreshDataPanels();
     frontFace.style.backgroundImage = cssUrl(c.frontData);
     backFace.style.backgroundImage = cssUrl(c.backData);
     frontFace.style.backgroundPosition = c.frontPosition || 'center';
@@ -6903,6 +6958,7 @@
       requestAnimationFrame(() => {
         if (token === selectionToken) {
           model.classList.add('loaded');
+          scheduleDataPanelsRefresh();
         }
       });
     });
@@ -7171,8 +7227,41 @@
 
   function recenterCurrentAllItemsSelection() {
     const placement = nearestAllItemsFocusedTile();
-    centerAllItemsOnPlacement({ slug: allItemsFocusedSlug, tileX: placement.tileX, tileY: placement.tileY }, { animate: true, save: true, animateTransform: false });
+    centerAllItemsOnPlacement({ slug: allItemsFocusedSlug, tileX: placement.tileX, tileY: placement.tileY }, {
+      animate: true,
+      save: true,
+      syncSelection: false,
+      animateTransform: false
+    });
     setAllItemsCrosshairTarget(allItemsObjectTargetOffset(), { save: true });
+  }
+
+  function clearPendingAllItemsSelectedRecenter() {
+    clearTimeout(allItemsSelectedClickTimer);
+    allItemsSelectedClickTimer = 0;
+  }
+
+  function scheduleAllItemsSelectedRecenter(e) {
+    const now = e?.timeStamp || performance.now();
+    const x = Number(e?.clientX);
+    const y = Number(e?.clientY);
+    const doubleClick = allItemsSelectedClickTimer
+      && now - allItemsSelectedClickTime < 340
+      && Math.hypot(x - allItemsSelectedClickX, y - allItemsSelectedClickY) < 28;
+    if (doubleClick) {
+      clearPendingAllItemsSelectedRecenter();
+      allItemsSelectedClickTime = 0;
+      return false;
+    }
+    clearPendingAllItemsSelectedRecenter();
+    allItemsSelectedClickTime = now;
+    allItemsSelectedClickX = x;
+    allItemsSelectedClickY = y;
+    allItemsSelectedClickTimer = setTimeout(() => {
+      allItemsSelectedClickTimer = 0;
+      recenterCurrentAllItemsSelection();
+    }, 260);
+    return true;
   }
 
   function recenterGradedCasePanIfNeeded() {
@@ -7247,6 +7336,7 @@
     if (allItemsModelDragPending && e.pointerId === allItemsModelDragPointerId) {
       const moved = Math.hypot(e.clientX - allItemsModelDragStartX, e.clientY - allItemsModelDragStartY);
       if (moved < 8) return;
+      clearPendingAllItemsSelectedRecenter();
       const targetScene = allItemsModelDragTarget;
       const startEvent = {
         clientX: allItemsModelDragStartX,
@@ -7288,7 +7378,7 @@
           selectCoin(allItemsFocusedSlug);
           return;
         }
-        recenterCurrentAllItemsSelection();
+        scheduleAllItemsSelectedRecenter(e);
       }
       return;
     }
@@ -7393,6 +7483,7 @@
     }, { passive: false });
     targetScene.addEventListener('dblclick', e => {
       e.preventDefault();
+      if (allItemsMode && targetScene === scene) clearPendingAllItemsSelectedRecenter();
       flattenToNearestFace();
     });
   }
@@ -7469,13 +7560,19 @@
           selectCoin(placement.slug);
           return;
         }
-        centerAllItemsOnPlacement(placement, { animate: true, save: true });
-        setAllItemsCrosshairTarget(allItemsObjectTargetOffset(), { save: true });
+        if (placement.slug === allItemsFocusedSlug) {
+          scheduleAllItemsSelectedRecenter(e);
+        } else {
+          clearPendingAllItemsSelectedRecenter();
+          centerAllItemsOnPlacement(placement, { animate: true, save: true });
+          setAllItemsCrosshairTarget(allItemsObjectTargetOffset(), { save: true });
+        }
       }
       saveAllItemsCrosshair();
       return;
     }
     normalizeAllItemsTileOffset();
+    clearPendingAllItemsSelectedRecenter();
     rememberAllItemsCenteredWorldPoint();
     syncAllItemsLeftPanelSelectionToCentered({ save: true });
     saveAllItemsCrosshair();
