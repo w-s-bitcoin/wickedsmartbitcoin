@@ -148,8 +148,8 @@
     coinDiameterPx: 995,
     caseWidthMm: 62.75,
     caseHeightMm: 82.2,
-    caseThicknessMm: 10,
-    caseCornerRatio: 0.058,
+    caseThicknessMm: 7.5,
+    caseCornerRatio: 0.118,
     caseStyle: 'pcgs'
   };
   function ngcGradedMedia(stem, overrides = {}) {
@@ -2466,7 +2466,13 @@
       const row = view?.querySelector(`.spend-row[data-address="${CSS.escape(String(address))}"]`);
       if (!row) return;
       const hasRowAbove = Boolean(row.previousElementSibling);
-      recentSpendsPanel.classList.toggle('left-panel-selected-flush', hasRowAbove);
+      const hasScrollableOverflow = recentSpendsPanel.scrollHeight > recentSpendsPanel.clientHeight + 1;
+      recentSpendsPanel.classList.toggle('left-panel-selected-flush', hasScrollableOverflow && hasRowAbove);
+      if (!hasScrollableOverflow) {
+        recentSpendsPanel.scrollTop = 0;
+        leftPanelScrollTopByMode[mode] = 0;
+        return;
+      }
       const top = hasRowAbove ? Math.max(0, row.offsetTop) : 0;
       recentSpendsPanel.scrollTop = top;
       leftPanelScrollTopByMode[mode] = top;
@@ -2675,8 +2681,16 @@
     return address ? { mode, address } : null;
   }
 
-  function currentSingleViewSelectionForAllItems() {
+  function currentSingleViewSelectionForAllItems({ preferGraded = false } = {}) {
     if (allItemsMode) return null;
+    if (preferGraded) {
+      const graded = selectedGradedMediaEntry(currentBalanceChartRows);
+      const gradedAddress = String(graded?.address || '').trim();
+      const gradedSlug = allItemsEntrySlug(graded?.entry) || (allItemsPackingItem(activeCoin().slug)?.slug || '');
+      if (gradedAddress && gradedSlug) {
+        return { mode: 'graded', address: gradedAddress, slug: gradedSlug };
+      }
+    }
     const mode = validLeftPanelMode(leftPanelMode);
     const entry = selectedTrackerEntry(currentBalanceChartRows, mode);
     const address = String(entry?.address || '');
@@ -2684,8 +2698,8 @@
     return address && slug ? { mode, address, slug } : null;
   }
 
-  function enterAllItemsModeWithSingleSelection() {
-    const selection = currentSingleViewSelectionForAllItems();
+  function enterAllItemsModeWithSingleSelection(options = {}) {
+    const selection = currentSingleViewSelectionForAllItems(options);
     if (!selection) {
       enterAllItemsMode({ align: true });
       return;
@@ -2971,7 +2985,7 @@
     const r = Math.min(w, h) * cornerRatio;
     const straightLenX = Math.max(0, w - 2 * r);
     const straightLenY = Math.max(0, h - 2 * r);
-    const arcStep = 6;
+    const arcStep = gradedCaseStyle === 'pcgs' ? 3 : 6;
     const arcLen = Math.max(4, (2 * Math.PI * r) * (arcStep / 360) + 1);
     const frag = document.createDocumentFragment();
     const edgeFrag = document.createDocumentFragment();
@@ -7968,7 +7982,7 @@
       || (finishedTarget === gradedCaseScene && gradedCaseModeActive());
     if (!allItemsMode && singleViewCommandTarget && endedAsClick && e?.metaKey) {
       e.preventDefault();
-      enterAllItemsModeWithSingleSelection();
+      enterAllItemsModeWithSingleSelection({ preferGraded: finishedTarget === gradedCaseScene });
       return;
     }
     if (finishedTarget === gradedCaseScene && endedAsClick && recenterGradedCasePanIfNeeded()) {
