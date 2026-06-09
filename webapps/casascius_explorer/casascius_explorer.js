@@ -1,6 +1,26 @@
 (() => {
   const root = document.documentElement;
   const SHARED_THEME_KEY = 'quantum-research-dashboard-theme';
+  const WEBP_SUPPORTED = (() => {
+    try {
+      const canvas = document.createElement('canvas');
+      return canvas.toDataURL('image/webp').startsWith('data:image/webp');
+    } catch (_) {
+      return false;
+    }
+  })();
+  const USE_COMPACT_IMAGE_ASSETS = (() => {
+    try {
+      const ua = String(navigator.userAgent || '');
+      const mobileUa = /iPhone|iPod|Android/i.test(ua);
+      return WEBP_SUPPORTED
+        && Number(window.devicePixelRatio || 1) >= 2
+        && (mobileUa || Number(navigator.maxTouchPoints || 0) > 0 || matchMedia('(pointer: coarse)').matches)
+        && Math.min(window.innerWidth || 0, window.innerHeight || 0) <= 680;
+    } catch (_) {
+      return false;
+    }
+  })();
 
   function applySharedTheme(theme) {
     root.dataset.theme = theme === 'light' ? 'light' : 'dark';
@@ -27,6 +47,12 @@
   if (window.self !== window.top) {
     root.classList.add('wsb-modal-embedded');
   }
+  try {
+    const ua = String(navigator.userAgent || '');
+    if (/iPhone|iPod/.test(ua) && /(Twitter|Twitter for iPhone|Twitter-iPhone|X\/[0-9])/i.test(ua)) {
+      root.classList.add('wsb-twitter-ios-webview');
+    }
+  } catch (_) {}
   const topbar = document.querySelector('.topbar');
   const tabs = document.getElementById('coinTabs');
   const versionTabs = document.getElementById('versionTabs');
@@ -105,17 +131,26 @@
   const DEFAULT_ACTIVE_SLUG = 'all:coins-bars';
   const TRACKER_CSV_URL = 'data/casascius_explorer.csv';
   const GRADED_CSV_URL = 'data/casascius_graded.csv';
+  const NGC_GRADED_MEDIA_DEFAULTS = {
+    imageWidthPx: 2113,
+    imageHeightPx: 3010,
+    coinDiameterPx: 960,
+    caseWidthMm: 64.3,
+    caseHeightMm: 85.9,
+    caseThicknessMm: 7.2
+  };
+  function ngcGradedMedia(stem, overrides = {}) {
+    return {
+      front: `gradings_and_auctions/NGC_${stem}_front.png`,
+      back: `gradings_and_auctions/NGC_${stem}_back.png`,
+      ...NGC_GRADED_MEDIA_DEFAULTS,
+      ...overrides
+    };
+  }
   const GRADED_MEDIA_BY_ADDRESS = {
-    '133RXZaTtyyDLCTCdyFHCW4TV2nH4xxj2K': {
-      front: 'gradings_and_auctions/NGC_133RXZaT_front.png',
-      back: 'gradings_and_auctions/NGC_133RXZaT_back.png',
-      imageWidthPx: 2113,
-      imageHeightPx: 3010,
-      coinDiameterPx: 960,
-      caseWidthMm: 64.3,
-      caseHeightMm: 85.9,
-      caseThicknessMm: 7.2
-    }
+    '133RXZaTtyyDLCTCdyFHCW4TV2nH4xxj2K': ngcGradedMedia('133RXZaT'),
+    '1NSNKCP2ZRT9Si3FHTQKCicVvb73MYVJdn': ngcGradedMedia('1NSNKCP2'),
+    '19MyvLp3LJi1n2p7jqtXnqENnvAZkQmgwT': ngcGradedMedia('19MyvLp3')
   };
   const DAILY_PRICE_CSV_URL = '../../assets/daily_price.csv';
   const ALL_ITEMS_GROUP_KEY = 'all:coins-bars';
@@ -3819,7 +3854,6 @@
               <h3 class="shortcuts-section-title" id="shortcutsAllModeTitle">All Coins &amp; Bars</h3>
               ${shortcutRows([
                 ['click item', 'Select and center that coin or bar.'],
-                ['click selected', 'Recenter the current selection.'],
                 ['drag outside', 'Pan the all-mode image.'],
                 ['drag selected', 'Spin and tilt the selected 3D item.'],
                 ['double click', 'Snap only the selected 3D item to its closest face.'],
@@ -5260,13 +5294,21 @@
   }
 
   function imageUrl(data) {
-    return objectUrlForDataUrl(data);
+    const url = objectUrlForDataUrl(data);
+    if (!USE_COMPACT_IMAGE_ASSETS || !String(url || '').endsWith('.png')) return url;
+    if (url.startsWith('assets/all_')) {
+      return url.replace(/^assets\/(.+)\.png$/, 'assets/mobile/$1.webp');
+    }
+    if (url.startsWith('coins_and_bars/')) {
+      return url.replace(/^coins_and_bars\/(.+)\.png$/, 'coins_and_bars/mobile/$1.webp');
+    }
+    return url;
   }
 
   function cssUrl(data) { return `url("${imageUrl(data)}")`; }
 
   function allItemsImagePath() {
-    return ALL_ITEMS_IMAGE_PATHS[allItemsViewMode] || ALL_ITEMS_IMAGE_PATHS.front;
+    return imageUrl(ALL_ITEMS_IMAGE_PATHS[allItemsViewMode] || ALL_ITEMS_IMAGE_PATHS.front);
   }
 
   function allItemsScalePx(zoomValue = Number(zoomInput.value)) {
@@ -6202,6 +6244,28 @@
     });
   }
 
+  function scheduleAllItemsAtlasPreload() {
+    if (!allItemsMode) return;
+    const currentPath = allItemsImagePath();
+    const paths = Object.values(ALL_ITEMS_IMAGE_PATHS)
+      .map(path => imageUrl(path))
+      .filter(path => path && path !== currentPath);
+    if (!paths.length) return;
+    const run = () => {
+      if (!allItemsMode) return;
+      paths.forEach(path => {
+        const img = new Image();
+        img.decoding = 'async';
+        img.src = path;
+      });
+    };
+    if ('requestIdleCallback' in window) {
+      window.requestIdleCallback(run, { timeout: 1800 });
+    } else {
+      setTimeout(run, 900);
+    }
+  }
+
   function setAllItemsControls(enabled) {
     toggle.disabled = !enabled;
     speedInput.disabled = !enabled;
@@ -6249,6 +6313,7 @@
     syncGradedMediaViewer();
     setSelectedTitle(ALL_ITEMS_LABEL);
     if (!allItemsBuilt) buildAllItemsLayout({ syncTarget: !allItemsWindowHasSavedState });
+    scheduleAllItemsAtlasPreload();
     if (allItemsWindowHasSavedState) {
       allItemsStage?.classList.add('grid-locked');
       renderAllItems({ wrap: false, syncTarget: false });

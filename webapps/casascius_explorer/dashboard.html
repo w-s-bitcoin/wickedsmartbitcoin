@@ -8,6 +8,10 @@
 <script>
   try {
     if (window.self !== window.top) document.documentElement.classList.add('wsb-modal-embedded');
+    const ua = String(navigator.userAgent || '');
+    if (/iPhone|iPod/.test(ua) && /(Twitter|Twitter for iPhone|Twitter-iPhone|X\/[0-9])/i.test(ua)) {
+      document.documentElement.classList.add('wsb-twitter-ios-webview');
+    }
   } catch (_) {}
 </script>
 <link rel="stylesheet" href="casascius_explorer.css" />
