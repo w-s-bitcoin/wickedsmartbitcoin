@@ -3481,7 +3481,7 @@
           `Period: SegWit ${data.period}`,
           `Height: ${Number(data.period_start_height).toLocaleString()}-${Number(data.period_end_height).toLocaleString()}`,
           `Signaling: ${signal.toLocaleString()} (${pctLabel(signal, periodSize)})`,
-          `Non-signaling: ${non.toLocaleString()}`,
+          `Non-signaling: ${non.toLocaleString()} (${pctLabel(non, periodSize)})`,
         ].join("\n");
       }
 
@@ -3509,13 +3509,13 @@
 
       if (status === "completed") {
         lines.push(`Signaling: ${signal.toLocaleString()} (${pctLabel(signal, periodSize)})`);
-        lines.push(`Non-signaling: ${non.toLocaleString()}`);
+        lines.push(`Non-signaling: ${non.toLocaleString()} (${pctLabel(non, periodSize)})`);
       } else if (status === "in_progress") {
         lines.push(`Signaling: ${signal.toLocaleString()} (${pctLabel(signal, periodSize)})`);
-        lines.push(`Non-signaling: ${non.toLocaleString()}`);
-        lines.push(`Mined | Unmined: ${elapsed.toLocaleString()} | ${unmined.toLocaleString()}`);
+        lines.push(`Non-signaling: ${non.toLocaleString()} (${pctLabel(non, periodSize)})`);
+        lines.push(`Unmined: ${unmined.toLocaleString()} (${pctLabel(unmined, periodSize)})`);
       } else {
-        lines.push(`Mined | Unmined: ${elapsed.toLocaleString()} | ${unmined.toLocaleString()}`);
+        lines.push(`Unmined: ${unmined.toLocaleString()} (${pctLabel(unmined, periodSize)})`);
       }
 
       return lines.join("\n");
