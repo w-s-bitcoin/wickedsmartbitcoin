@@ -1412,11 +1412,17 @@
   .front { background-image: var(--front-image); transform: translateZ(calc(var(--thickness) / 2)); }
   .back { background-image: var(--back-image); transform: rotateY(180deg) translateZ(calc(var(--thickness) / 2)); }
   .quarter-model .front {
-    background-image: url("coins_and_bars/us-quarter-front.png");
+    background-image: image-set(
+      url("coins_and_bars/mobile/us-quarter-front.webp") type("image/webp"),
+      url("coins_and_bars/us-quarter-front.png") type("image/png")
+    );
     transform: translateZ(calc(var(--quarter-thickness) / 2 + .6px));
   }
   .quarter-model .back {
-    background-image: url("coins_and_bars/us-quarter-back.png");
+    background-image: image-set(
+      url("coins_and_bars/mobile/us-quarter-back.webp") type("image/webp"),
+      url("coins_and_bars/us-quarter-back.png") type("image/png")
+    );
     transform: rotateY(180deg) translateZ(calc(var(--quarter-thickness) / 2 + .6px));
   }
   .face::after {
@@ -3269,6 +3275,31 @@
     .zoom-value { width: 42px; }
     .speed-control { width: 84px; }
     .zoom-control { width: 84px; }
+  }
+  @media (max-width: 680px) {
+    :root.wsb-twitter-ios-webview {
+      --panel-side-margin: 8px;
+    }
+    :root.wsb-twitter-ios-webview .title-row {
+      column-gap: 5px;
+    }
+    :root.wsb-twitter-ios-webview h1 {
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: clamp(15px, 4vw, 17px);
+    }
+    :root.wsb-twitter-ios-webview .address-search:not(.expanded):not(:focus-within),
+    :root.wsb-twitter-ios-webview .address-search:not(.expanded):not(:focus-within) input,
+    :root.wsb-twitter-ios-webview .keyboard-shortcuts-btn,
+    :root.wsb-twitter-ios-webview .panel-toggle-btn {
+      width: 29px;
+      height: 29px;
+    }
+    :root.wsb-twitter-ios-webview .panel-toggle-actions {
+      gap: 1px;
+    }
   }
   @media (max-width: 520px) {
     .range-pair {
