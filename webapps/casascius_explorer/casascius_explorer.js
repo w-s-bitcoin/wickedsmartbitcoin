@@ -483,6 +483,12 @@
   let tiltPointerId = null;
   let lastViewStateSave = 0;
   let transformAnimationToken = 0;
+  const pinchPointers = new Map();
+  let pinchActive = false;
+  let pinchStartDistance = 0;
+  let pinchStartZoom = 100;
+  let pinchTargetMode = 'model';
+  let pinchAnchorPoint = null;
 
   function saveViewState(force = false) {
     const now = performance.now();
@@ -1294,9 +1300,78 @@
   )) || 80;
   const CSS_PX_PER_MM = 96 / 25.4;
   const DISPLAY_SIZE_CORRECTION = 1.47;
+  const APPLE_DISPLAY_PROFILES = [
+    { name: 'iPhone 17 / 17 Pro / 16 Pro', width: 402, height: 874, dpr: 3, ppi: 460 },
+    { name: 'iPhone 17 Pro Max / 16 Pro Max', width: 440, height: 956, dpr: 3, ppi: 460 },
+    { name: 'iPhone Air', width: 420, height: 912, dpr: 3, ppi: 460 },
+    { name: 'iPhone 17e / 15 / 14 / 13', width: 390, height: 844, dpr: 3, ppi: 460 },
+    { name: 'iPhone 16', width: 393, height: 852, dpr: 3, ppi: 460 },
+    { name: 'iPhone 16 Plus / 15 Plus / 14 Plus', width: 430, height: 932, dpr: 3, ppi: 460 },
+    { name: 'iPad mini', width: 744, height: 1133, dpr: 2, ppi: 326 },
+    { name: 'iPad 11-inch / iPad Air 11-inch', width: 820, height: 1180, dpr: 2, ppi: 264 },
+    { name: 'iPad Pro 11-inch', width: 834, height: 1194, dpr: 2, ppi: 264 },
+    { name: 'iPad Air 13-inch / iPad Pro 13-inch', width: 1032, height: 1376, dpr: 2, ppi: 264 },
+    { name: 'iPad Pro 12.9-inch', width: 1024, height: 1366, dpr: 2, ppi: 264 }
+  ];
+
+  function normalizedDisplaySize(width, height) {
+    const w = Math.round(Number(width) || 0);
+    const h = Math.round(Number(height) || 0);
+    if (!w || !h) return null;
+    return {
+      width: Math.min(w, h),
+      height: Math.max(w, h),
+      dpr: Number(window.devicePixelRatio) || 1
+    };
+  }
+
+  function normalizedDisplayCandidates() {
+    const candidates = [
+      normalizedDisplaySize(window.screen?.width, window.screen?.height),
+      normalizedDisplaySize(window.innerWidth, window.innerHeight),
+      normalizedDisplaySize(window.visualViewport?.width, window.visualViewport?.height)
+    ].filter(Boolean);
+    return candidates.filter((candidate, index) => {
+      return candidates.findIndex(item => item.width === candidate.width && item.height === candidate.height) === index;
+    });
+  }
+
+  function isAppleHandheld() {
+    const platform = String(navigator.platform || '');
+    const ua = String(navigator.userAgent || '');
+    return /iPhone|iPad|iPod/.test(platform)
+      || /iPhone|iPad|iPod/.test(ua)
+      || (platform === 'MacIntel' && Number(navigator.maxTouchPoints || 0) > 1);
+  }
+
+  function displayProfilePxPerMm() {
+    if (!isAppleHandheld()) return null;
+    const displayCandidates = normalizedDisplayCandidates();
+    const displaySize = displayCandidates.reduce((best, candidate) => {
+      if (!best) return candidate;
+      return candidate.width * candidate.height > best.width * best.height ? candidate : best;
+    }, null);
+    const profile = APPLE_DISPLAY_PROFILES.find(candidate => {
+      return displayCandidates.some(display => {
+        const sizeMatch = Math.abs(display.width - candidate.width) <= 2
+          && Math.abs(display.height - candidate.height) <= 2;
+        return sizeMatch && Math.abs(display.dpr - candidate.dpr) < 0.15;
+      });
+    });
+    const ppi = profile?.ppi
+      || (displaySize?.dpr >= 2.8 ? 460 : null)
+      || (displaySize?.dpr >= 1.8 && displaySize.width <= 760 ? 326 : null)
+      || (displaySize?.dpr >= 1.8 && displaySize.width <= 1100 ? 264 : null);
+    if (!ppi || !displaySize?.dpr) return null;
+    root.dataset.physicalSizeProfile = profile?.name || `Apple ${displaySize.width}x${displaySize.height}@${displaySize.dpr}`;
+    return ppi / (25.4 * displaySize.dpr);
+  }
 
   function baseObjectSizePx() {
+    const profilePxPerMm = displayProfilePxPerMm();
+    if (profilePxPerMm) return MAX_PHYSICAL_MM * profilePxPerMm;
     // Match a calibrated 16.2" MacBook Pro ruler scale instead of browser-default CSS mm.
+    root.dataset.physicalSizeProfile = 'Calibrated MacBook fallback';
     return MAX_PHYSICAL_MM * CSS_PX_PER_MM * DISPLAY_SIZE_CORRECTION;
   }
 
@@ -7208,6 +7283,129 @@
     targetScene.classList.add('dragging');
   }
 
+  function pinchDistance(points) {
+    if (points.length < 2) return 0;
+    return Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+  }
+
+  function pinchMidpoint(points) {
+    return {
+      x: (points[0].x + points[1].x) / 2,
+      y: (points[0].y + points[1].y) / 2
+    };
+  }
+
+  function allItemsPinchAnchor(point) {
+    const rect = stageCenterRect();
+    return {
+      x: point.x - (rect.left + rect.width / 2),
+      y: point.y - (rect.top + rect.height / 2)
+    };
+  }
+
+  function clearDragForPinch() {
+    if (dragging) {
+      dragTarget?.classList.remove('dragging');
+      try { dragTarget?.releasePointerCapture(pointerId); } catch (_) {}
+      dragging = false;
+      dragTarget = null;
+      pointerId = null;
+    }
+    if (allItemsDragging) stopAllItemsDrag();
+    if (allItemsModelDragPending) {
+      try { allItemsModelDragTarget?.releasePointerCapture(allItemsModelDragPointerId); } catch (_) {}
+      clearAllItemsModelDragPending();
+    }
+    if (gradedCasePanning) stopGradedCasePan();
+  }
+
+  function beginPinchIfReady() {
+    if (pinchActive || pinchPointers.size < 2) return;
+    const points = [...pinchPointers.values()].slice(-2);
+    const distance = pinchDistance(points);
+    if (distance < 12) return;
+    const midpoint = pinchMidpoint(points);
+    clearDragForPinch();
+    cancelTransformAnimation();
+    pinchActive = true;
+    pinchStartDistance = distance;
+    pinchStartZoom = Number(zoomInput.value) || 100;
+    pinchTargetMode = allItemsMode ? 'all-items' : 'model';
+    pinchAnchorPoint = allItemsMode ? allItemsPinchAnchor(midpoint) : null;
+    clearViewMode();
+    points.forEach(point => point.target?.classList?.add('zooming'));
+  }
+
+  function trackPinchPointer(e, target) {
+    if (e.pointerType === 'mouse') return false;
+    pinchPointers.set(e.pointerId, {
+      x: e.clientX,
+      y: e.clientY,
+      target
+    });
+    beginPinchIfReady();
+    if (!pinchActive) return false;
+    e.preventDefault();
+    return true;
+  }
+
+  function updatePinchPointer(e) {
+    if (!pinchPointers.has(e.pointerId)) return false;
+    const point = pinchPointers.get(e.pointerId);
+    point.x = e.clientX;
+    point.y = e.clientY;
+    if (!pinchActive) {
+      beginPinchIfReady();
+      return pinchActive;
+    }
+    const points = [...pinchPointers.values()].slice(-2);
+    const distance = pinchDistance(points);
+    if (!distance || !pinchStartDistance) return true;
+    const min = Number(zoomInput.min);
+    const max = Number(zoomInput.max);
+    const nextZoom = clampNumber(pinchStartZoom * distance / pinchStartDistance, pinchStartZoom, min, max);
+    if (pinchTargetMode === 'all-items') {
+      setZoomValue(nextZoom, {
+        save: false,
+        snap: true,
+        allItemsAnchor: pinchAnchorPoint,
+        deferAllItemsSync: true
+      });
+    } else {
+      setZoomValue(nextZoom, { save: false, snap: true });
+    }
+    e.preventDefault();
+    return true;
+  }
+
+  function finishPinchPointer(e) {
+    if (!pinchPointers.has(e.pointerId) && !pinchActive) return false;
+    pinchPointers.delete(e.pointerId);
+    if (!pinchActive) return false;
+    if (pinchPointers.size >= 2) {
+      const points = [...pinchPointers.values()].slice(-2);
+      pinchStartDistance = pinchDistance(points);
+      pinchStartZoom = Number(zoomInput.value) || pinchStartZoom;
+      pinchAnchorPoint = pinchTargetMode === 'all-items' ? allItemsPinchAnchor(pinchMidpoint(points)) : null;
+      return true;
+    }
+    pinchActive = false;
+    pinchStartDistance = 0;
+    pinchTargetMode = 'model';
+    pinchAnchorPoint = null;
+    scene.classList.remove('zooming');
+    quarterScene.classList.remove('zooming');
+    gradedCaseScene?.classList.remove('zooming');
+    gradedMediaViewer?.classList.remove('zooming');
+    if (allItemsMode) {
+      rememberAllItemsCenteredWorldPoint();
+      syncAllItemsLeftPanelSelectionToCentered({ save: true });
+    }
+    saveViewState(true);
+    if (e) e.preventDefault();
+    return true;
+  }
+
   function clearAllItemsModelDragPending() {
     allItemsModelDragPending = false;
     allItemsModelDragPointerId = null;
@@ -7329,6 +7527,7 @@
   }
 
   function moveDrag(e) {
+    if (pinchActive) return;
     if (allItemsDragging && e.pointerId === allItemsPointerId) {
       moveAllItemsDrag(e);
       return;
@@ -7362,6 +7561,10 @@
   }
 
   function stopDrag(e) {
+    if (pinchActive && e) {
+      finishPinchPointer(e);
+      return;
+    }
     if (allItemsDragging && (!e || e.pointerId === allItemsPointerId)) {
       stopAllItemsDrag(e);
       return;
@@ -7414,6 +7617,7 @@
   }
 
   function startGradedCasePan(e) {
+    if (pinchActive) return;
     if (!gradedCaseModeActive() || gradedCasePanning || gradedCasePanExcludedTarget(e.target)) return;
     if (!eventInGradedCaseInteractionRect(e)) return;
     if (e.button !== undefined && e.button !== 0) return;
@@ -7461,6 +7665,7 @@
   function addModelInteraction(targetScene) {
     targetScene.addEventListener('pointerdown', e => {
       if (targetScene === gradedCaseScene && !eventInGradedCaseInteractionRect(e)) return;
+      if (trackPinchPointer(e, targetScene)) return;
       startDrag(e, targetScene);
     });
     targetScene.addEventListener('pointermove', moveDrag);
@@ -7491,9 +7696,18 @@
   addModelInteraction(scene);
   if (gradedCaseScene) addModelInteraction(gradedCaseScene);
   addModelInteraction(quarterScene);
+  gradedMediaViewer?.addEventListener('pointerdown', e => {
+    trackPinchPointer(e, gradedMediaViewer);
+  });
 
   document.addEventListener('pointerdown', startGradedCasePan, true);
   document.addEventListener('pointermove', updateGradedCaseCursor, true);
+  document.addEventListener('pointermove', e => {
+    if (updatePinchPointer(e)) e.preventDefault();
+  }, { passive: false, capture: true });
+  document.addEventListener('pointerup', finishPinchPointer, { passive: false, capture: true });
+  document.addEventListener('pointercancel', finishPinchPointer, { passive: false, capture: true });
+  document.addEventListener('pointerleave', finishPinchPointer, { passive: false, capture: true });
   document.addEventListener('pointermove', moveGradedCasePan, true);
   document.addEventListener('pointerup', stopGradedCasePan, true);
   document.addEventListener('pointercancel', stopGradedCasePan, true);
@@ -7522,9 +7736,11 @@
   }
 
   allItemsStage?.addEventListener('pointerdown', e => {
+    if (trackPinchPointer(e, allItemsStage)) return;
     startAllItemsDrag(e, allItemsStage);
   });
   function moveAllItemsDrag(e) {
+    if (pinchActive) return;
     if (!allItemsDragging || e.pointerId !== allItemsPointerId) return;
     e.preventDefault();
     const dx = e.clientX - allItemsLastX;
