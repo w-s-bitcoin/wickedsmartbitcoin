@@ -23,7 +23,8 @@
       --object-h: var(--object-w);
       --face-radius: 50%;
       --thickness: calc(var(--object-w) * .083333);
-      --tilt: 8deg;
+      --tilt: 0deg;
+      --spin-tilt: 8deg;
       --spin: 0deg;
       --front-image: url("preview_assets/coin-1000-gold-2012-front.png");
       --back-image: url("preview_assets/coin-1000-gold-2012-back.png");
@@ -82,8 +83,12 @@
       opacity: 1;
       transform-style: preserve-3d;
       transform: rotateX(var(--tilt)) rotateY(var(--spin));
-      animation: casascius-spin 6s linear infinite;
       will-change: transform;
+    }
+
+    .stage.is-ready .model {
+      --tilt: var(--spin-tilt);
+      animation: casascius-spin 6s linear infinite;
     }
 
     .face {
@@ -173,7 +178,7 @@
   </style>
 </head>
 <body>
-  <main class="stage" aria-label="Spinning Casascius 1,000 BTC gold coin preview">
+  <main class="stage" id="stage" aria-label="Spinning Casascius 1,000 BTC gold coin preview">
     <div class="scene" aria-hidden="true">
       <div class="model" id="model">
         <div class="face front"></div>
@@ -187,8 +192,11 @@
     (() => {
       window.WSBPreviewShared?.initThemeSync?.();
 
+      const stage = document.getElementById('stage');
       const model = document.getElementById('model');
       const segmentCount = 160;
+      const frontImageSrc = 'preview_assets/coin-1000-gold-2012-front.png';
+      const backImageSrc = 'preview_assets/coin-1000-gold-2012-back.png';
 
       function buildCoinEdges() {
         model.querySelectorAll('.edge').forEach(edge => edge.remove());
@@ -213,7 +221,40 @@
         model.insertBefore(frag, model.firstChild);
       }
 
-      buildCoinEdges();
+      function waitForImage(src) {
+        return new Promise(resolve => {
+          const image = new Image();
+          let done = false;
+          const finish = () => {
+            if (done) return;
+            done = true;
+            resolve();
+          };
+          image.onload = finish;
+          image.onerror = resolve;
+          image.decoding = 'async';
+          image.src = src;
+          if (image.complete) finish();
+        });
+      }
+
+      function nextPaint() {
+        return new Promise(resolve => {
+          requestAnimationFrame(() => requestAnimationFrame(resolve));
+        });
+      }
+
+      async function startWhenComplete() {
+        buildCoinEdges();
+        await Promise.all([
+          waitForImage(frontImageSrc),
+          waitForImage(backImageSrc),
+          nextPaint()
+        ]);
+        stage?.classList.add('is-ready');
+      }
+
+      startWhenComplete();
       window.addEventListener('resize', buildCoinEdges);
     })();
   </script>
