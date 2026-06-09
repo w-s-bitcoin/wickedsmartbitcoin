@@ -126,6 +126,7 @@
   const STORAGE_ALL_ITEMS_VIEW_MODE = 'casasciusSpinnerAllItemsViewMode';
   const STORAGE_ALL_ITEMS_SELECTION = 'casasciusSpinnerAllItemsSelection';
   const STORAGE_GRADED_MEDIA_MODE = 'casasciusSpinnerGradedMediaMode';
+  const STORAGE_GRADED_MEDIA_SELECTION = 'casasciusSpinnerGradedMediaSelection';
   const MOBILE_PANEL_QUERY = '(max-width: 680px)';
   const LEGACY_DEFAULT_ACTIVE_SLUG = 'cas_1btc_2011_s1';
   const DEFAULT_ACTIVE_SLUG = 'all:coins-bars';
@@ -137,7 +138,19 @@
     coinDiameterPx: 960,
     caseWidthMm: 64.3,
     caseHeightMm: 85.9,
-    caseThicknessMm: 7.2
+    caseThicknessMm: 7.2,
+    caseCornerRatio: 0.16,
+    caseStyle: 'ngc'
+  };
+  const PCGS_GRADED_MEDIA_DEFAULTS = {
+    imageWidthPx: 2190,
+    imageHeightPx: 2918,
+    coinDiameterPx: 995,
+    caseWidthMm: 62.75,
+    caseHeightMm: 82.2,
+    caseThicknessMm: 10,
+    caseCornerRatio: 0.058,
+    caseStyle: 'pcgs'
   };
   function ngcGradedMedia(stem, overrides = {}) {
     return {
@@ -147,10 +160,28 @@
       ...overrides
     };
   }
+  function pcgsGradedMedia(stem, overrides = {}) {
+    return {
+      front: `gradings_and_auctions/PGCS_${stem}_front.png`,
+      back: `gradings_and_auctions/PGCS_${stem}_back.png`,
+      ...PCGS_GRADED_MEDIA_DEFAULTS,
+      ...overrides
+    };
+  }
   const GRADED_MEDIA_BY_ADDRESS = {
     '133RXZaTtyyDLCTCdyFHCW4TV2nH4xxj2K': ngcGradedMedia('133RXZaT'),
+    '15eTzCSj3G5gngyFYeztApydy1xNyh4pz3': pcgsGradedMedia('15eTzCSj'),
     '1NSNKCP2ZRT9Si3FHTQKCicVvb73MYVJdn': ngcGradedMedia('1NSNKCP2'),
     '19MyvLp3LJi1n2p7jqtXnqENnvAZkQmgwT': ngcGradedMedia('19MyvLp3')
+  };
+  const GRADED_SELECTION_SLUGS_BY_ADDRESS = {
+    '133RXZaTtyyDLCTCdyFHCW4TV2nH4xxj2K': 'cas_1btc_2013_brass',
+    '1NSNKCP2ZRT9Si3FHTQKCicVvb73MYVJdn': 'cas_1btc_2011_s1',
+    '19MyvLp3LJi1n2p7jqtXnqENnvAZkQmgwT': 'cas_1btc_2011_s1',
+    '15eTzCSj3G5gngyFYeztApydy1xNyh4pz3': 'cas_1btc_2011_s1'
+  };
+  const GRADED_UNFUNDED_SLUGS_BY_ADDRESS = {
+    '15eTzCSj3G5gngyFYeztApydy1xNyh4pz3': 'cas_1btc_2011_s1'
   };
   const DAILY_PRICE_CSV_URL = '../../assets/daily_price.csv';
   const ALL_ITEMS_GROUP_KEY = 'all:coins-bars';
@@ -451,10 +482,44 @@
     }
   }
 
+  function readSavedGradedMediaSelection() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_GRADED_MEDIA_SELECTION) || 'null');
+      if (!saved || typeof saved !== 'object') return null;
+      const address = String(saved.address || '').trim();
+      const rawSlug = String(saved.slug || '').trim();
+      const slug = ALL_ITEMS_PACKING.items.some(item => item.slug === rawSlug)
+        ? rawSlug
+        : (GRADED_SELECTION_SLUGS_BY_ADDRESS[address] || '');
+      return address ? { address, mode: validLeftPanelMode(saved.mode), slug } : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   function saveGradedMediaMode(mode) {
     const normalized = normalizeGradedMediaMode(mode) || 'model';
     try {
       localStorage.setItem(STORAGE_GRADED_MEDIA_MODE, normalized);
+    } catch (_) {}
+  }
+
+  function saveGradedMediaSelection(mode = leftPanelMode) {
+    const selected = selectedTrackerEntry(currentBalanceChartRows, mode);
+    const address = String(selected?.address || '').trim();
+    const slug = selected
+      ? (SHARED_STATS_SLUGS[selected.slug] || selected.slug || GRADED_SELECTION_SLUGS_BY_ADDRESS[address] || '')
+      : '';
+    try {
+      if (!address) {
+        localStorage.removeItem(STORAGE_GRADED_MEDIA_SELECTION);
+        return;
+      }
+      localStorage.setItem(STORAGE_GRADED_MEDIA_SELECTION, JSON.stringify({
+        address,
+        mode: validLeftPanelMode(mode),
+        slug
+      }));
     } catch (_) {}
   }
 
@@ -1219,7 +1284,13 @@
   const savedAllItemsWindow = readSavedAllItemsWindow();
   const savedAllItemsLegacyDefault = savedAllItemsWindow?.slug === DEFAULT_ALL_ITEMS_FOCUS_SLUG;
   const savedAllItemsAutoLatest = savedAllItemsWindow?.autoLatest === true;
-  let activeSlug = readSavedSlug()
+  const savedGradedMediaMode = readSavedGradedMediaMode();
+  const savedGradedMediaSelection = readSavedGradedMediaSelection();
+  const savedGradedActiveSlug = savedGradedMediaMode !== 'model' && savedGradedMediaSelection?.slug
+    ? savedGradedMediaSelection.slug
+    : null;
+  let activeSlug = savedGradedActiveSlug
+    || readSavedSlug()
     || DEFAULT_ACTIVE_SLUG
     || COINS[0]?.slug
     || COINS[0].slug;
@@ -1297,6 +1368,7 @@
   const leftPanelScrollTopByMode = { recent: 0, active: 0, graded: 0 };
   const selectedLeftPanelAddressByMode = { recent: '', active: '', graded: '' };
   let searchAddressNotFound = false;
+  let searchedUnfundedEntry = null;
   let pendingSearchSelection = null;
   let currentBalanceChartRows = [];
   let balanceChartModal = null;
@@ -1304,8 +1376,17 @@
   let shortcutsCloseButton = null;
   let shortcutsPausedBalanceChart = false;
   let shortcutCommandPressed = false;
-  let gradedMediaMode = 'model';
+  let gradedMediaMode = savedGradedMediaMode;
   let gradedMediaAddress = '';
+  let gradedCaseStyle = 'ngc';
+  if (!allItemsMode && savedGradedMediaMode !== 'model' && savedGradedMediaSelection?.address) {
+    leftPanelMode = savedGradedMediaSelection.mode;
+    selectedLeftPanelAddressByMode[leftPanelMode] = savedGradedMediaSelection.address;
+    pendingSearchSelection = {
+      address: savedGradedMediaSelection.address,
+      mode: leftPanelMode
+    };
+  }
   let balanceChartUnit = readBalanceChartUnit();
   let balanceChartBackgroundHidden = readBalanceChartBackgroundHidden();
   let balanceChartBackgroundHideDeferred = false;
@@ -1313,6 +1394,7 @@
   const balanceChartVisibleSeries = readBalanceChartVisibleSeries();
   let panelRenderToken = 0;
   let trackerIndexPromise = null;
+  let unfundedIndexPromise = null;
   let gradedIndexPromise = null;
   let trackerIndexWithGradedPromise = null;
   let dataPanelsRefreshQueued = false;
@@ -1651,13 +1733,18 @@
     return TRACKER_TYPE_SLUGS[row.Type] || null;
   }
 
+  function unfundedFallbackSlugForRow(row) {
+    if (!isUnfundedStatus(row)) return null;
+    return GRADED_UNFUNDED_SLUGS_BY_ADDRESS[gradedAddressKey(row.Address)] || null;
+  }
+
   function finiteNumber(value) {
     const n = Number(value);
     return Number.isFinite(n) ? n : null;
   }
 
   function trackerEntryFromRow(row, s3OneGoldRimMinIndex, s3HalfSeries2MaxIndex) {
-    const slug = trackerSlugForRow(row, s3OneGoldRimMinIndex, s3HalfSeries2MaxIndex);
+    const slug = trackerSlugForRow(row, s3OneGoldRimMinIndex, s3HalfSeries2MaxIndex) || unfundedFallbackSlugForRow(row);
     if (!slug || !row.Address) return null;
     return {
       Status: row.Status,
@@ -1670,6 +1757,23 @@
       createTime: finiteNumber(row['Create Time']),
       redeemBlock: finiteNumber(row['Redeem Block']),
       redeemTime: finiteNumber(row['Redeem Time'])
+    };
+  }
+
+  function unfundedEntryFromRow(row) {
+    if (!isUnfundedStatus(row) || !row.Address) return null;
+    return {
+      Status: row.Status || 'Unfunded',
+      address: String(row.Address),
+      slug: unfundedFallbackSlugForRow(row),
+      index: finiteNumber(row.Index),
+      value: finiteNumber(row.Value),
+      balance: finiteNumber(row.Balance),
+      createBlock: finiteNumber(row['Create Block']),
+      createTime: finiteNumber(row['Create Time']),
+      redeemBlock: finiteNumber(row['Redeem Block']),
+      redeemTime: finiteNumber(row['Redeem Time']),
+      unfundedOnly: true
     };
   }
 
@@ -1723,6 +1827,15 @@
         .catch(() => []);
     }
     return trackerIndexPromise;
+  }
+
+  function unfundedIndex() {
+    if (!unfundedIndexPromise) {
+      unfundedIndexPromise = loadTextFile(TRACKER_CSV_URL)
+        .then(text => parseCsv(text).map(unfundedEntryFromRow).filter(Boolean))
+        .catch(() => []);
+    }
+    return unfundedIndexPromise;
   }
 
   function mergeGradedRecords(entries, gradedRecords) {
@@ -1832,6 +1945,31 @@
     return `${formatInteger(value)} <span class="info-percent">(${percent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%)</span>`;
   }
 
+  function statusKey(entryOrStatus) {
+    const value = typeof entryOrStatus === 'string' ? entryOrStatus : entryOrStatus?.Status;
+    return String(value || '').trim().toLowerCase();
+  }
+
+  function isActiveStatus(entryOrStatus) {
+    return statusKey(entryOrStatus) === 'active';
+  }
+
+  function isRedeemedStatus(entryOrStatus) {
+    return statusKey(entryOrStatus) === 'redeemed';
+  }
+
+  function isUnfundedStatus(entryOrStatus) {
+    const key = statusKey(entryOrStatus);
+    return key === 'unfunded' || key === 'unloaded';
+  }
+
+  function statusLabel(entryOrStatus) {
+    if (isActiveStatus(entryOrStatus)) return 'Active';
+    if (isRedeemedStatus(entryOrStatus)) return 'Redeemed';
+    if (isUnfundedStatus(entryOrStatus)) return 'Unfunded';
+    return 'Unknown';
+  }
+
   function formatBtc(value) {
     return Number.isFinite(value)
       ? `${value.toLocaleString(undefined, { maximumFractionDigits: 8 })} BTC`
@@ -1905,8 +2043,8 @@
       return;
     }
     const rows = rowsForCoin(entries, coin);
-    leftPanelCounts.recent = rows.filter(entry => String(entry.Status || '').toLowerCase() === 'redeemed').length;
-    leftPanelCounts.active = rows.filter(entry => String(entry.Status || '').toLowerCase() === 'active').length;
+    leftPanelCounts.recent = rows.filter(isRedeemedStatus).length;
+    leftPanelCounts.active = rows.filter(isActiveStatus).length;
     leftPanelCounts.graded = rows.filter(isGradedEntry).length;
   }
 
@@ -2010,7 +2148,7 @@
     recentSpendsPanel?.classList.toggle('show-active', leftPanelMode === 'active');
     recentSpendsPanel?.classList.toggle('show-graded', leftPanelMode === 'graded');
     recentSpendsPanel?.classList.remove('returning-recent', 'return-to-recent', 'wrap-graded-recent', 'wrap-to-recent', 'wrap-graded-active', 'wrap-to-active', 'wrap-active-recent', 'no-panel-transition');
-    syncSelectedLeftPanelAddress(leftPanelMode, { forceDefault: true });
+    syncSelectedLeftPanelAddress(leftPanelMode, { forceDefault: !selectedLeftPanelAddressByMode[leftPanelMode] });
     renderLeftPanelRows(leftPanelMode);
     syncLeftPanelHeader();
     restoreLeftPanelScroll();
@@ -2155,7 +2293,7 @@
     const isBar = coin.shape === 'bar';
     const address = String(entry.address || '');
     const selected = selectedLeftPanelAddressByMode[mode] === address;
-    const selectedStatusMode = String(entry.Status || '').toLowerCase() === 'active' ? 'active' : 'recent';
+    const selectedStatusMode = isActiveStatus(entry) ? 'active' : (isUnfundedStatus(entry) ? 'unfunded' : 'recent');
     const iconImage = cssUrl(coin.frontData);
     const iconPosition = coin.thumbPosition || coin.frontPosition || 'center';
     const iconSize = isBar ? 'contain' : (coin.thumbBackgroundSize || coin.frontBackgroundSize || 'cover');
@@ -2276,7 +2414,7 @@
 
   function leftPanelModeForEntry(entry) {
     if (isGradedEntry(entry)) return 'graded';
-    return String(entry?.Status || '').toLowerCase() === 'active' ? 'active' : 'recent';
+    return isActiveStatus(entry) ? 'active' : 'recent';
   }
 
   function entryBelongsToCoin(entry, coin = activeCoin()) {
@@ -2413,6 +2551,8 @@
     }
     if (mode === leftPanelMode && allItemsMode) centerAllItemsOnEntry(entry, { animate: true, save: true, syncSelection: false });
     if (mode === leftPanelMode && !allItemsMode) applySelectedAddressToObject(address, COINS.find(c => c.slug === entry.slug) || activeCoin());
+    if (allItemsMode) saveAllItemsSelection(mode, address, allItemsEntrySlug(entry));
+    searchedUnfundedEntry = null;
     pendingSearchSelection = null;
     return true;
   }
@@ -2427,10 +2567,10 @@
     const rows = rowsForCoin(entries);
     const cached = {
       recent: rows
-        .filter(entry => String(entry.Status || '').toLowerCase() === 'redeemed')
+        .filter(isRedeemedStatus)
         .sort((a, b) => (b.redeemTime || 0) - (a.redeemTime || 0) || (b.index || 0) - (a.index || 0)),
       active: rows
-        .filter(entry => String(entry.Status || '').toLowerCase() === 'active')
+        .filter(isActiveStatus)
         .sort((a, b) => (b.createTime || 0) - (a.createTime || 0) || (b.createBlock || 0) - (a.createBlock || 0) || (b.index || 0) - (a.index || 0)),
       graded: rows
         .filter(isGradedEntry)
@@ -2477,7 +2617,7 @@
     } else if (allItemsMode && !allItemsSelectionRestorePending) {
       syncAllItemsLeftPanelSelectionToCentered({ mode: 'graded', render: false });
     } else {
-      syncSelectedLeftPanelAddress('graded', { forceDefault: true, apply: leftPanelMode === 'graded' });
+      syncSelectedLeftPanelAddress('graded', { forceDefault: false, apply: leftPanelMode === 'graded' });
     }
     renderLeftPanelRows('graded');
     if (pendingApplied && leftPanelMode === 'graded') scrollLeftPanelAddressToTop('graded', selectedLeftPanelAddressByMode.graded);
@@ -2519,6 +2659,47 @@
     const rows = leftPanelRowsByMode[mode] || [];
     const statsSlug = SHARED_STATS_SLUGS[slug] || slug;
     return rows.find(entry => allItemsEntrySlug(entry) === statsSlug) || null;
+  }
+
+  function currentAllItemsSelectionForSingleView(slug = allItemsFocusedSlug) {
+    if (!allItemsMode) return null;
+    const targetSlug = SHARED_STATS_SLUGS[slug] || slug;
+    const mode = validLeftPanelMode(leftPanelMode);
+    const selectedAddress = String(selectedLeftPanelAddressByMode[mode] || '');
+    const rows = leftPanelRowsByMode[mode] || [];
+    const selected = selectedAddress
+      ? rows.find(entry => String(entry.address || '') === selectedAddress && allItemsEntrySlug(entry) === targetSlug)
+      : null;
+    const entry = selected || allItemsRowForCenteredSlug(mode, targetSlug);
+    const address = String(entry?.address || '');
+    return address ? { mode, address } : null;
+  }
+
+  function currentSingleViewSelectionForAllItems() {
+    if (allItemsMode) return null;
+    const mode = validLeftPanelMode(leftPanelMode);
+    const entry = selectedTrackerEntry(currentBalanceChartRows, mode);
+    const address = String(entry?.address || '');
+    const slug = allItemsEntrySlug(entry) || (allItemsPackingItem(activeCoin().slug)?.slug || '');
+    return address && slug ? { mode, address, slug } : null;
+  }
+
+  function enterAllItemsModeWithSingleSelection() {
+    const selection = currentSingleViewSelectionForAllItems();
+    if (!selection) {
+      enterAllItemsMode({ align: true });
+      return;
+    }
+    allItemsFocusedSlug = selection.slug;
+    allItemsDefaultFocusPending = false;
+    allItemsSelectionRestorePending = false;
+    selectedLeftPanelAddressByMode[selection.mode] = selection.address;
+    pendingSearchSelection = {
+      mode: selection.mode,
+      address: selection.address
+    };
+    setLeftPanelModeInstant(selection.mode);
+    enterAllItemsMode({ align: false });
   }
 
   function syncAllItemsLeftPanelSelectionToCentered({ mode = leftPanelMode, render = true, save = false } = {}) {
@@ -2611,6 +2792,7 @@
   function selectLeftPanelAddressFromRow(row) {
     if (!row) return;
     searchAddressNotFound = false;
+    searchedUnfundedEntry = null;
     pendingSearchSelection = null;
     const mode = validLeftPanelMode(row.dataset.panelMode);
     const address = String(row.dataset.address || '');
@@ -2744,21 +2926,34 @@
   function addGradedCaseEdgeSegment(frag, x, y, angleDeg, len, thick, region = '') {
     const el = document.createElement('i');
     const isArc = region.includes('arc');
-    el.className = `graded-case-edge-segment ${isArc ? 'graded-case-edge-arc' : 'graded-case-edge-straight'}`;
+    const styleClass = gradedCaseStyle === 'pcgs' ? 'graded-case-edge-pcgs' : 'graded-case-edge-ngc';
+    el.className = `graded-case-edge-segment ${styleClass} ${isArc ? 'graded-case-edge-arc' : 'graded-case-edge-straight'}`;
     el.style.width = `${len}px`;
     el.style.height = `${thick}px`;
     el.style.marginLeft = `${-len / 2}px`;
     el.style.marginTop = `${-thick / 2}px`;
     el.style.transform = `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0) rotateZ(${angleDeg.toFixed(2)}deg) rotateX(90deg)`;
-    el.style.setProperty('--case-edge-a', '#e7ecee');
-    el.style.setProperty('--case-edge-b', '#9fa8aa');
-    el.style.setProperty('--case-edge-c', '#7e898c');
-    el.style.setProperty('--case-edge-ridge', '0.420');
-    el.style.setProperty('--case-edge-shadow', '0.160');
-    el.style.setProperty('--case-edge-shadow-soft', '0.115');
-    el.style.setProperty('--case-edge-glint', '0.340');
-    el.style.setProperty('--case-edge-glint-mid', '0.190');
-    el.style.setProperty('--case-edge-glint-low', '0.145');
+    if (gradedCaseStyle === 'pcgs') {
+      el.style.setProperty('--case-edge-a', '#f8fbff');
+      el.style.setProperty('--case-edge-b', '#cad5dc');
+      el.style.setProperty('--case-edge-c', '#8e9ba4');
+      el.style.setProperty('--case-edge-ridge', '0.070');
+      el.style.setProperty('--case-edge-shadow', '0.105');
+      el.style.setProperty('--case-edge-shadow-soft', '0.075');
+      el.style.setProperty('--case-edge-glint', '0.420');
+      el.style.setProperty('--case-edge-glint-mid', '0.260');
+      el.style.setProperty('--case-edge-glint-low', '0.185');
+    } else {
+      el.style.setProperty('--case-edge-a', '#e7ecee');
+      el.style.setProperty('--case-edge-b', '#9fa8aa');
+      el.style.setProperty('--case-edge-c', '#7e898c');
+      el.style.setProperty('--case-edge-ridge', '0.420');
+      el.style.setProperty('--case-edge-shadow', '0.160');
+      el.style.setProperty('--case-edge-shadow-soft', '0.115');
+      el.style.setProperty('--case-edge-glint', '0.340');
+      el.style.setProperty('--case-edge-glint-mid', '0.190');
+      el.style.setProperty('--case-edge-glint-low', '0.145');
+    }
     frag.appendChild(el);
   }
 
@@ -2770,9 +2965,10 @@
     const w = parseFloat(styles.getPropertyValue('--graded-case-w')) || sceneRect.width || 420;
     const h = parseFloat(styles.getPropertyValue('--graded-case-h')) || sceneRect.height || 560;
     const t = parseFloat(styles.getPropertyValue('--graded-case-thickness')) || Math.max(12, w * 0.045);
+    const cornerRatio = parseFloat(styles.getPropertyValue('--graded-case-corner-ratio')) || 0.16;
     const halfW = w / 2;
     const halfH = h / 2;
-    const r = Math.min(w, h) * 0.16;
+    const r = Math.min(w, h) * cornerRatio;
     const straightLenX = Math.max(0, w - 2 * r);
     const straightLenY = Math.max(0, h - 2 * r);
     const arcStep = 6;
@@ -2818,9 +3014,11 @@
     app?.classList.toggle('graded-media-available', available);
     app?.classList.toggle('graded-media-image-mode', available && gradedMediaMode !== 'model' && gradedMediaMode !== 'case');
     app?.classList.toggle('graded-media-case-mode', available && gradedMediaMode === 'case');
+    app?.classList.toggle('graded-media-pcgs-case', available && selected?.media?.caseStyle === 'pcgs');
     root.classList.toggle('graded-media-available', available);
     root.classList.toggle('graded-media-image-mode', available && gradedMediaMode !== 'model' && gradedMediaMode !== 'case');
     root.classList.toggle('graded-media-case-mode', available && gradedMediaMode === 'case');
+    root.classList.toggle('graded-media-pcgs-case', available && selected?.media?.caseStyle === 'pcgs');
     if (!(available && gradedMediaMode === 'case')) clearGradedCaseCursor();
     if (available) {
       const imageWidth = Number(selected.media.imageWidthPx) || 1;
@@ -2828,15 +3026,18 @@
       const coinDiameter = Number(selected.media.coinDiameterPx) || imageWidth;
       const coin = COINS.find(c => c.slug === selected.entry?.slug) || comparisonCoin();
       const caseThicknessMm = Number(selected.media.caseThicknessMm) || 7.2;
+      const caseCornerRatio = Number(selected.media.caseCornerRatio) || 0.16;
       const coinDiameterMm = Number(coin?.diameterMm) || 28.5;
       const objectW = parseFloat(getComputedStyle(root).getPropertyValue('--object-w')) || 420;
       const caseWidthRatio = imageWidth / coinDiameter;
       const caseHeightRatio = imageHeight / coinDiameter;
+      gradedCaseStyle = selected.media.caseStyle === 'pcgs' ? 'pcgs' : 'ngc';
       root.style.setProperty('--graded-media-width-ratio', (imageWidth / coinDiameter).toFixed(6));
       root.style.setProperty('--graded-media-aspect-ratio', `${imageWidth} / ${imageHeight}`);
       root.style.setProperty('--graded-case-w', `${(objectW * caseWidthRatio).toFixed(2)}px`);
       root.style.setProperty('--graded-case-h', `${(objectW * caseHeightRatio).toFixed(2)}px`);
       root.style.setProperty('--graded-case-thickness', `${(objectW * caseThicknessMm / coinDiameterMm).toFixed(2)}px`);
+      root.style.setProperty('--graded-case-corner-ratio', caseCornerRatio.toFixed(4));
       const caseFront = gradedCaseModel?.querySelector('.graded-case-image-front');
       const caseBack = gradedCaseModel?.querySelector('.graded-case-image-back');
       if (caseFront) caseFront.style.backgroundImage = cssUrl(selected.media.front);
@@ -2848,6 +3049,8 @@
       root.style.removeProperty('--graded-case-w');
       root.style.removeProperty('--graded-case-h');
       root.style.removeProperty('--graded-case-thickness');
+      root.style.removeProperty('--graded-case-corner-ratio');
+      gradedCaseStyle = 'ngc';
       gradedCaseModel?.querySelectorAll('.graded-case-edge-segment').forEach(el => el.remove());
     }
     if (gradedMediaViewer) gradedMediaViewer.setAttribute('aria-hidden', String(!(available && gradedMediaMode !== 'model' && gradedMediaMode !== 'case')));
@@ -2864,13 +3067,17 @@
         : '';
     }
     updateGradedMediaDots();
+    if (available && gradedMediaMode !== 'model' && !pendingSearchSelection) saveGradedMediaSelection();
     updateComparisonSpacing();
   }
 
   function setGradedMediaMode(mode, { persist = true } = {}) {
     if (!['model', 'case', 'front', 'back'].includes(mode)) return;
     gradedMediaMode = mode;
-    if (persist) saveGradedMediaMode(mode);
+    if (persist) {
+      saveGradedMediaMode(mode);
+      if (mode !== 'model') saveGradedMediaSelection();
+    }
     syncGradedMediaViewer();
   }
 
@@ -2895,7 +3102,7 @@
   } = {}) {
     const coin = coinOverride || COINS.find(c => c.slug === entry?.slug) || comparisonCoin();
     const isBar = coin.shape === 'bar';
-    const status = entry ? (String(entry.Status || '').toLowerCase() === 'active' ? 'active' : 'recent') : 'none';
+    const status = entry ? (isActiveStatus(entry) ? 'active' : (isUnfundedStatus(entry) ? 'unfunded' : 'recent')) : 'none';
     const iconImage = cssUrl(iconImageOverride || coin.frontData);
     const iconPosition = iconPositionOverride || coin.thumbPosition || coin.frontPosition || 'center';
     const iconSize = iconSizeOverride || (isBar ? 'contain' : (coin.thumbBackgroundSize || coin.frontBackgroundSize || 'cover'));
@@ -2931,7 +3138,8 @@
     const denomination = entry && coin?.slug === 'cas_bar_diy_gold_s2'
       ? formatBtc(entry?.value)
       : info?.denomination || denominationInfoText(coin, sameCoinRows.length ? sameCoinRows : rows);
-    const redeemedText = String(entry?.Status || '').toLowerCase() === 'active'
+    const fundedText = isUnfundedStatus(entry) ? '—' : formatBlockDay(entry?.createBlock, entry?.createTime);
+    const redeemedText = isActiveStatus(entry) || isUnfundedStatus(entry)
       ? '—'
       : formatBlockDay(entry?.redeemBlock, entry?.redeemTime);
     const gradedRecord = entry?.gradedRecord || null;
@@ -2977,10 +3185,11 @@
           <tr><th>Series</th><td>${escapeHtml(series)}</td></tr>
           <tr><th>Year</th><td>${escapeHtml(info?.year || coin.year || '—')}</td></tr>
           <tr><th>Denomination</th><td>${escapeHtml(denomination)}</td></tr>
+          <tr><th>Status</th><td>${escapeHtml(statusLabel(entry))}</td></tr>
           <tr><th>Balance</th><td>${escapeHtml(formatBtc(entry?.balance))}</td></tr>
           <tr><th>Dimensions</th><td>${escapeHtml(dimensions)}</td></tr>
           <tr><th>Weight</th><td>${escapeHtml(info?.weight || coin.weight || '—')}</td></tr>
-          <tr><th>Funded</th><td>${escapeHtml(formatBlockDay(entry?.createBlock, entry?.createTime))}</td></tr>
+          <tr><th>Funded</th><td>${escapeHtml(fundedText)}</td></tr>
           <tr><th>Redeemed</th><td>${escapeHtml(redeemedText)}</td></tr>
           ${gradedRowsHtml}
         </tbody>
@@ -2992,11 +3201,44 @@
     return Boolean(coin?.nonFundedStats || isMuleCoin(coin));
   }
 
+  function selectedUnknownUnfundedInfoRowsHtml(entry) {
+    return `
+      <table class="info-table selected-coin-info-table">
+        <tbody>
+          <tr><th>Type</th><td>—</td></tr>
+          <tr><th>Material</th><td>—</td></tr>
+          <tr><th>Series</th><td>—</td></tr>
+          <tr><th>Year</th><td>—</td></tr>
+          <tr><th>Denomination</th><td>—</td></tr>
+          <tr><th>Status</th><td>${escapeHtml(statusLabel(entry))}</td></tr>
+          <tr><th>Balance</th><td>${escapeHtml(formatBtc(entry?.balance))}</td></tr>
+          <tr><th>Dimensions</th><td>—</td></tr>
+          <tr><th>Weight</th><td>—</td></tr>
+          <tr><th>Funded</th><td>—</td></tr>
+          <tr><th>Redeemed</th><td>—</td></tr>
+        </tbody>
+      </table>
+    `;
+  }
+
   function selectedCoinDetailHtml(rows) {
     const currentCoin = comparisonCoin();
-    const forceAddressless = addresslessSelectedCoin(currentCoin);
-    const entry = forceAddressless ? null : selectedTrackerEntry(rows);
+    const selectedEntry = selectedTrackerEntry(rows);
+    const forceAddressless = addresslessSelectedCoin(currentCoin) && !selectedEntry;
+    const entry = forceAddressless ? null : selectedEntry;
     const coin = forceAddressless || allItemsMode ? currentCoin : (entry ? COINS.find(c => c.slug === entry.slug) || currentCoin : currentCoin);
+    if (searchedUnfundedEntry) {
+      const unfundedCoin = coinBySlug(searchedUnfundedEntry.slug) || coinBySlug('cas_1btc_2011_mule_demo') || coin;
+      const infoRowsHtml = searchedUnfundedEntry.slug
+        ? selectedCoinInfoRowsHtml(searchedUnfundedEntry, rows, unfundedCoin)
+        : selectedUnknownUnfundedInfoRowsHtml(searchedUnfundedEntry);
+      return `
+        <section class="selected-coin-detail" aria-label="Selected coin">
+          ${selectedCoinAddressHtml(searchedUnfundedEntry, unfundedCoin)}
+          ${infoRowsHtml}
+        </section>
+      `;
+    }
     if (searchAddressNotFound) {
       const notFoundIconCoin = coinBySlug('cas_1btc_2011_mule_demo') || coin;
       return `
@@ -3064,11 +3306,10 @@
     rows.forEach(entry => {
       const value = Number(entry.value);
       if (!Number.isFinite(value) || value <= 0) return;
-      const status = String(entry.Status || '').toLowerCase();
       if (Number.isFinite(entry.createTime) && entry.createTime > 0) {
         events.push({ time: entry.createTime, activeDelta: value, redeemedDelta: 0 });
       }
-      if (status === 'redeemed' && Number.isFinite(entry.redeemTime) && entry.redeemTime > 0) {
+      if (isRedeemedStatus(entry) && Number.isFinite(entry.redeemTime) && entry.redeemTime > 0) {
         events.push({ time: entry.redeemTime, activeDelta: -value, redeemedDelta: value });
       }
     });
@@ -4171,8 +4412,12 @@
     }
     if (allItemsSelected()) {
       const rows = entries;
-      const active = rows.filter(entry => String(entry.Status || '').toLowerCase() === 'active').length;
-      const redeemed = rows.filter(entry => String(entry.Status || '').toLowerCase() === 'redeemed').length;
+      const active = rows.filter(isActiveStatus).length;
+      const redeemed = rows.filter(isRedeemedStatus).length;
+      const unfunded = rows.filter(isUnfundedStatus).length;
+      const unfundedRow = unfunded
+        ? `<tr><th><span class="info-label-dot info-label-dot-unfunded"></span>Unfunded</th><td>${formatCountShare(unfunded, rows.length)}</td></tr>`
+        : '';
       const firstCreated = rows
         .filter(entry => Number.isFinite(entry.createBlock) || Number.isFinite(entry.createTime))
         .sort((a, b) => (a.createBlock || Infinity) - (b.createBlock || Infinity) || (a.createTime || Infinity) - (b.createTime || Infinity))[0];
@@ -4185,6 +4430,7 @@
             <tr><th><span class="info-label-dot info-label-dot-minted"></span>Minted</th><td>${escapeHtml(formatInteger(rows.length))}</td></tr>
             <tr><th><span class="info-label-dot info-label-dot-active"></span>Active</th><td>${formatCountShare(active, rows.length)}</td></tr>
             <tr><th><span class="info-label-dot info-label-dot-redeemed"></span>Redeemed</th><td>${formatCountShare(redeemed, rows.length)}</td></tr>
+            ${unfundedRow}
             <tr><th>First Funding</th><td>${escapeHtml(formatBlockDay(firstCreated?.createBlock, firstCreated?.createTime))}</td></tr>
             <tr><th>Last Spend</th><td>${escapeHtml(formatBlockDay(latestRedeemed?.redeemBlock, latestRedeemed?.redeemTime))}</td></tr>
           </tbody>
@@ -4198,12 +4444,13 @@
     const coin = activeCoin();
     const rows = statsRowsForCoin(entries, coin);
     const statuses = rows.reduce((counts, entry) => {
-      const status = String(entry.Status || 'unknown').toLowerCase();
+      const status = statusKey(entry) || 'unknown';
       counts[status] = (counts[status] || 0) + 1;
       return counts;
     }, {});
     const active = statuses.active || 0;
     const redeemed = statuses.redeemed || 0;
+    const unfunded = (statuses.unfunded || 0) + (statuses.unloaded || 0);
     const firstCreated = rows
       .filter(entry => Number.isFinite(entry.createBlock) || Number.isFinite(entry.createTime))
       .sort((a, b) => (a.createBlock || Infinity) - (b.createBlock || Infinity) || (a.createTime || Infinity) - (b.createTime || Infinity))[0];
@@ -4232,6 +4479,9 @@
     const noteRow = mintageNote
       ? `<tr class="info-note-row"><td colspan="2"><span class="info-note-mark">*</span>${escapeHtml(mintageNote)}</td></tr>`
       : '';
+    const unfundedRow = !showDashStats && unfunded
+      ? `<tr><th><span class="info-label-dot info-label-dot-unfunded"></span>Unfunded</th><td>${formatCountShare(unfunded, rows.length)}</td></tr>`
+      : '';
 
     coinInfoPanel.innerHTML = `
       <table class="info-table">
@@ -4239,6 +4489,7 @@
           <tr><th><span class="info-label-dot info-label-dot-minted"></span>Minted</th><td>${statsCells.minted}</td></tr>
           <tr><th><span class="info-label-dot info-label-dot-active"></span>Active</th><td>${statsCells.active}</td></tr>
           <tr><th><span class="info-label-dot info-label-dot-redeemed"></span>Redeemed</th><td>${statsCells.redeemed}</td></tr>
+          ${unfundedRow}
           <tr><th>First Funding</th><td>${escapeHtml(formatBlockDay(firstCreated?.createBlock, firstCreated?.createTime))}</td></tr>
           <tr><th>Last Spend</th><td>${escapeHtml(formatBlockDay(latestRedeemed?.redeemBlock, latestRedeemed?.redeemTime))}</td></tr>
           ${noteRow}
@@ -4740,13 +4991,29 @@
     const query = addressSearchInput.value;
     const entries = await trackerIndexWithGraded();
     const trackerEntry = entries.find(entry => addressValueMatches(query, entry.address));
+    const unfundedEntry = trackerEntry ? null : (await unfundedIndex()).find(entry => addressValueMatches(query, entry.address));
     const match = trackerEntry
       ? { coin: COINS.find(c => c.slug === trackerEntry.slug), address: trackerEntry.address, entry: trackerEntry }
       : findEmbeddedCoinByAddress(query);
-    addressSearchInput.classList.toggle('search-miss', Boolean(addressSearchInput.value.trim()) && !match);
+    addressSearchInput.classList.toggle('search-miss', Boolean(addressSearchInput.value.trim()) && !match && !unfundedEntry);
+    if (unfundedEntry && !match?.entry) {
+      pendingSearchSelection = null;
+      searchAddressNotFound = false;
+      searchedUnfundedEntry = unfundedEntry;
+      for (const mode of LEFT_PANEL_MODES) {
+        selectedLeftPanelAddressByMode[mode] = '';
+        renderLeftPanelRows(mode);
+      }
+      updateSelectedCoinDetailSection();
+      refreshBalanceChartHover();
+      const fallbackCoin = coinBySlug(unfundedEntry.slug) || coinBySlug('cas_1btc_2011_mule_demo') || activeCoin();
+      renderSearchedAddress(fallbackCoin, unfundedEntry.address);
+      return;
+    }
     if (!match?.entry) {
       pendingSearchSelection = null;
       searchAddressNotFound = Boolean(addressSearchInput.value.trim());
+      searchedUnfundedEntry = null;
       for (const mode of LEFT_PANEL_MODES) {
         selectedLeftPanelAddressByMode[mode] = '';
         renderLeftPanelRows(mode);
@@ -4756,6 +5023,7 @@
       return;
     }
     searchAddressNotFound = false;
+    searchedUnfundedEntry = null;
     const targetMode = leftPanelModeForEntry(match.entry);
     const shouldStayInCurrentView = allItemsMode || entryBelongsToCoin(match.entry, activeCoin());
     pendingSearchSelection = {
@@ -7043,10 +7311,16 @@
     }
   }
 
-  async function selectCoin(slug, { alignGroup = true } = {}) {
+  async function selectCoin(slug, { alignGroup = true, preservedSelection = null } = {}) {
     const token = ++selectionToken;
     searchAddressNotFound = false;
-    pendingSearchSelection = null;
+    searchedUnfundedEntry = null;
+    pendingSearchSelection = preservedSelection?.address
+      ? {
+          address: String(preservedSelection.address || ''),
+          mode: validLeftPanelMode(preservedSelection.mode)
+        }
+      : null;
     const requestedCoin = COINS.find(x => x.slug === slug);
     const c = requestedCoin || COINS.find(x => !x.allModeOnly) || COINS[0];
     const frontFace = model.querySelector('.front');
@@ -7325,6 +7599,13 @@
       return;
     }
     setViewMode(target.mode, { targetAngle: target.angle, targetZoom: 100 });
+  }
+
+  function resetSingleViewInteraction(targetScene) {
+    if (targetScene === gradedCaseScene && gradedCaseModeActive()) {
+      resetGradedCasePan();
+    }
+    flattenToNearestFace();
   }
 
   function render(now) {
@@ -7665,7 +7946,9 @@
         e.preventDefault();
         if (allItemsSelectionClickLocked()) return;
         if (e.metaKey) {
-          selectCoin(allItemsFocusedSlug);
+          selectCoin(allItemsFocusedSlug, {
+            preservedSelection: currentAllItemsSelectionForSingleView(allItemsFocusedSlug)
+          });
           return;
         }
         scheduleAllItemsSelectedRecenter(e);
@@ -7681,6 +7964,13 @@
     const finishedTarget = dragTarget;
     dragTarget = null;
     pointerId = null;
+    const singleViewCommandTarget = finishedTarget === scene
+      || (finishedTarget === gradedCaseScene && gradedCaseModeActive());
+    if (!allItemsMode && singleViewCommandTarget && endedAsClick && e?.metaKey) {
+      e.preventDefault();
+      enterAllItemsModeWithSingleSelection();
+      return;
+    }
     if (finishedTarget === gradedCaseScene && endedAsClick && recenterGradedCasePanIfNeeded()) {
       e.preventDefault();
     }
@@ -7768,6 +8058,10 @@
       if (allItemsMode && targetScene === scene && allItemsSelectionClickLocked()) return;
       if (allItemsMode && targetScene === scene && allItemsSelectedItemClientHit(e)) {
         handleAllItemsSelectedDoubleActivate(e);
+        return;
+      }
+      if (!allItemsMode && (targetScene === scene || (targetScene === gradedCaseScene && gradedCaseModeActive()))) {
+        resetSingleViewInteraction(targetScene);
       }
     });
   }
@@ -7856,7 +8150,11 @@
       if (placement) {
         if (e.metaKey) {
           e.preventDefault();
-          selectCoin(placement.slug);
+          selectCoin(placement.slug, {
+            preservedSelection: placement.slug === allItemsFocusedSlug
+              ? currentAllItemsSelectionForSingleView(placement.slug)
+              : null
+          });
           return;
         }
         if (placement.slug === allItemsFocusedSlug) {
