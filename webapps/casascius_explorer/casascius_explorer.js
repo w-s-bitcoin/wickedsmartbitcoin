@@ -162,8 +162,8 @@
   }
   function pcgsGradedMedia(stem, overrides = {}) {
     return {
-      front: `gradings_and_auctions/PGCS_${stem}_front.png`,
-      back: `gradings_and_auctions/PGCS_${stem}_back.png`,
+      front: `gradings_and_auctions/PCGS_${stem}_front.png`,
+      back: `gradings_and_auctions/PCGS_${stem}_back.png`,
       ...PCGS_GRADED_MEDIA_DEFAULTS,
       ...overrides
     };
