@@ -7082,6 +7082,7 @@
     running = false;
     toggle.classList.remove('is-running');
     toggle.setAttribute('aria-label', 'Spin');
+    if (allItemsMode) clearAllItemsRenderedSceneTransform();
     const startAngle = normalizeAngle(angle);
     const startTilt = tilt;
     const startZoom = Number(zoomInput.value);
@@ -7273,6 +7274,7 @@
 
   function beginModelDrag(e, targetScene) {
     cancelTransformAnimation();
+    if (allItemsMode && targetScene === scene) clearAllItemsRenderedSceneTransform();
     dragging = true;
     dragTarget = targetScene;
     pointerId = e.pointerId;
@@ -7434,6 +7436,26 @@
     setAllItemsCrosshairTarget(allItemsObjectTargetOffset(), { save: true });
   }
 
+  function allItemsFocusedSelectionCentered() {
+    const placement = nearestAllItemsFocusedTile();
+    return Number(placement?.distance || 0) <= 6;
+  }
+
+  function handleAllItemsSelectedDoubleActivate(e) {
+    clearPendingAllItemsSelectedRecenter();
+    allItemsSelectedClickTime = 0;
+    if (allItemsFocusedSelectionCentered()) {
+      e?.preventDefault?.();
+      flattenToNearestFace();
+      return;
+    }
+    recenterCurrentAllItemsSelection();
+  }
+
+  function allItemsSelectionClickLocked() {
+    return allItemsStage?.classList.contains('layout-shifting');
+  }
+
   function clearPendingAllItemsSelectedRecenter() {
     clearTimeout(allItemsSelectedClickTimer);
     allItemsSelectedClickTimer = 0;
@@ -7447,8 +7469,7 @@
       && now - allItemsSelectedClickTime < 340
       && Math.hypot(x - allItemsSelectedClickX, y - allItemsSelectedClickY) < 28;
     if (doubleClick) {
-      clearPendingAllItemsSelectedRecenter();
-      allItemsSelectedClickTime = 0;
+      handleAllItemsSelectedDoubleActivate(e);
       return false;
     }
     clearPendingAllItemsSelectedRecenter();
@@ -7577,6 +7598,7 @@
       clearAllItemsModelDragPending();
       if (endedAsClick) {
         e.preventDefault();
+        if (allItemsSelectionClickLocked()) return;
         if (e.metaKey) {
           selectCoin(allItemsFocusedSlug);
           return;
@@ -7588,32 +7610,22 @@
     if (!dragging || (e && e.pointerId !== pointerId)) return;
     const endedAsClick = e && dragDistance < 8;
     const endedAsTap = e && e.pointerType !== 'mouse' && dragDistance < 8;
-    const tapDistance = endedAsTap ? Math.hypot(e.clientX - lastModelTapX, e.clientY - lastModelTapY) : Infinity;
-    const tapDelay = endedAsTap ? e.timeStamp - lastModelTapTime : Infinity;
-    const isDoubleTap = endedAsTap && dragTarget === lastModelTapTarget && tapDelay > 0 && tapDelay < 340 && tapDistance < 28;
     dragging = false;
     dragTarget?.classList.remove('dragging');
     try { dragTarget?.releasePointerCapture(pointerId); } catch (_) {}
     const finishedTarget = dragTarget;
     dragTarget = null;
     pointerId = null;
-    if (isDoubleTap) {
-      lastModelTapTime = 0;
-      lastModelTapTarget = null;
+    if (finishedTarget === gradedCaseScene && endedAsClick && recenterGradedCasePanIfNeeded()) {
       e.preventDefault();
-      flattenToNearestFace();
-    } else {
-      if (finishedTarget === gradedCaseScene && endedAsClick && recenterGradedCasePanIfNeeded()) {
-        e.preventDefault();
-      }
-      if (endedAsTap) {
-        lastModelTapTime = e.timeStamp;
-        lastModelTapX = e.clientX;
-        lastModelTapY = e.clientY;
-        lastModelTapTarget = finishedTarget;
-      }
-      saveViewState(true);
     }
+    if (endedAsTap) {
+      lastModelTapTime = e.timeStamp;
+      lastModelTapX = e.clientX;
+      lastModelTapY = e.clientY;
+      lastModelTapTarget = finishedTarget;
+    }
+    saveViewState(true);
   }
 
   function startGradedCasePan(e) {
@@ -7688,8 +7700,10 @@
     }, { passive: false });
     targetScene.addEventListener('dblclick', e => {
       e.preventDefault();
-      if (allItemsMode && targetScene === scene) clearPendingAllItemsSelectedRecenter();
-      flattenToNearestFace();
+      if (allItemsMode && targetScene === scene && allItemsSelectionClickLocked()) return;
+      if (allItemsMode && targetScene === scene && allItemsSelectedItemClientHit(e)) {
+        handleAllItemsSelectedDoubleActivate(e);
+      }
     });
   }
 
@@ -7769,6 +7783,10 @@
     allItemsStage.classList.remove('dragging');
     app.classList.remove('all-items-dragging');
     if (endedAsClick) {
+      if (allItemsSelectionClickLocked()) {
+        e.preventDefault();
+        return;
+      }
       const placement = allItemsHitPlacement(e);
       if (placement) {
         if (e.metaKey) {
