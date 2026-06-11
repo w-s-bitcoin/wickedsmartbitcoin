@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA_JS = ROOT / "assets" / "casascius_data.js"
+MANIFEST_JS = ROOT / "assets" / "casascius_data_manifest.js"
 APP_JS = ROOT / "casascius_explorer.js"
 TRACKER_CSV = ROOT / "data" / "casascius_explorer.csv"
 OUT_JS = ROOT / "assets" / "right_panel_data.js"
@@ -29,7 +29,7 @@ BITNICKEL_MATERIAL = "Nickel Plated Alloy"
 
 
 def read_coins():
-    text = DATA_JS.read_text()
+    text = MANIFEST_JS.read_text()
     match = re.search(r"const COINS = (\[.*\]);\s*$", text, re.S)
     if not match:
         raise RuntimeError("Could not find COINS array")
