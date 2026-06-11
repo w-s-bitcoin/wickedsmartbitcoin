@@ -10,7 +10,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 STEPS = [
-    ("embedded face data", [sys.executable, "scripts/update_casascius_data_images.py"]),
     ("all-mode atlas images", [sys.executable, "scripts/generate_all_atlas.py"]),
     ("right panel summary data", [sys.executable, "scripts/generate_right_panel_data.py"]),
 ]

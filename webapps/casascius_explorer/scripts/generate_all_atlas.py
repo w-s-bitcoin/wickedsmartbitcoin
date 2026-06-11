@@ -14,7 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "casascius_explorer.js"
-DATA_SOURCE = ROOT / "assets" / "casascius_data.js"
+MANIFEST_JS = ROOT / "assets" / "casascius_data_manifest.js"
 ASSET_DIR = ROOT / "assets"
 CHROME = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
 PIXELS_PER_MM = 12
@@ -36,7 +36,7 @@ def load_image_file_map() -> dict[str, tuple[str, str]]:
 
 
 def load_source_data() -> tuple[list[dict], dict]:
-    data_text = DATA_SOURCE.read_text()
+    data_text = MANIFEST_JS.read_text()
     coins_match = re.search(r"^const COINS = (\[.*?\]);$", data_text, re.M)
     if not coins_match:
         raise SystemExit("Could not locate COINS array")

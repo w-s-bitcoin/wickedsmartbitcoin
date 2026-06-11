@@ -16,9 +16,6 @@ STATE_PATH = ROOT / "data" / "casascius_explorer_update_state.json"
 ENV_PATH = ROOT.parent.parent / ".env"
 RIGHT_PANEL_SCRIPT = ROOT / "scripts" / "generate_right_panel_data.py"
 ASSETS_DIR = ROOT / "assets"
-DATA_JS = ASSETS_DIR / "casascius_data.js"
-DATA_BASE_JS = ASSETS_DIR / "casascius_data_base.js"
-DATA_CHUNK_GLOB = "casascius_data_chunk_*.js"
 SATOSHIS_PER_BTC = Decimal("100000000")
 
 
@@ -379,30 +376,7 @@ def apply_updates(rows, recomputed, tip_time):
     return changed
 
 
-def rebuild_casascius_data_js():
-    """Rebuild assets/casascius_data.js from the split base + chunk files."""
-    if not DATA_BASE_JS.exists():
-        raise RuntimeError(f"Missing required data base file: {DATA_BASE_JS}")
-
-    chunk_paths = sorted(ASSETS_DIR.glob(DATA_CHUNK_GLOB))
-    if not chunk_paths:
-        raise RuntimeError(f"No Casascius data chunk files found in {ASSETS_DIR}")
-
-    tmp_path = DATA_JS.with_suffix(DATA_JS.suffix + ".tmp")
-    with tmp_path.open("w", encoding="utf-8") as outfile:
-        outfile.write(DATA_BASE_JS.read_text(encoding="utf-8").rstrip())
-        outfile.write("\n")
-        for chunk_path in chunk_paths:
-            outfile.write("\n")
-            outfile.write(f"// {chunk_path.name}\n")
-            outfile.write(chunk_path.read_text(encoding="utf-8").rstrip())
-            outfile.write("\n")
-    tmp_path.replace(DATA_JS)
-    return DATA_JS
-
-
 def regenerate_right_panel():
-    rebuild_casascius_data_js()
     result = subprocess.run(
         [sys.executable, str(RIGHT_PANEL_SCRIPT)],
         cwd=ROOT,
