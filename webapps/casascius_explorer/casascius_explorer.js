@@ -127,6 +127,7 @@
   const STORAGE_ALL_ITEMS_SELECTION = 'casasciusSpinnerAllItemsSelection';
   const STORAGE_GRADED_MEDIA_MODE = 'casasciusSpinnerGradedMediaMode';
   const STORAGE_GRADED_MEDIA_SELECTION = 'casasciusSpinnerGradedMediaSelection';
+  const CASASCIUS_ITEM_DATA_PATH = 'assets/items/';
   const MOBILE_PANEL_QUERY = '(max-width: 680px)';
   const LEGACY_DEFAULT_ACTIVE_SLUG = 'cas_1btc_2011_s1';
   const DEFAULT_ACTIVE_SLUG = 'all:coins-bars';
@@ -225,7 +226,8 @@
   };
   const ALL_ITEMS_TILE_GAP_MM = 5;
   const DEFAULT_ALL_ITEMS_FOCUS_SLUG = 'cas_1000btc_gold';
-  const BAR_EDGE_CACHE_KEY = 'shared-bar-edge-v12';
+  const ALL_ITEMS_REVEAL_PAINT_BUFFER_MS = 120;
+  const BAR_EDGE_CACHE_KEY = 'shared-bar-edge-v13';
   const BAR_EDGE_STRAIGHT_STEP_RATIO = 0.026;
   const BAR_EDGE_MIN_STEP_PX = 5.5;
   const BAR_EDGE_ARC_STEP_DEGREES = 6;
@@ -855,6 +857,7 @@
 
   function cancelTransformAnimation() {
     transformAnimationToken++;
+    if (allItemsMode) clearAllItemsRenderedSceneTransform();
   }
 
   function getOrbitGeometry() {
@@ -973,7 +976,7 @@
     allItemsWheelZoomSettleTimer = 0;
     if (!allItemsMode) return;
     rememberAllItemsCenteredWorldPoint();
-    syncAllItemsLeftPanelSelectionToCentered({ save: true });
+    syncAllItemsLeftPanelSelectionToCentered({ save: true, revealModel: false });
     saveViewState(true);
   }
 
@@ -1251,10 +1254,14 @@
     return group.coins.find(c => c.slug === rememberedGroupSlug(group)) || group.coins[0];
   }
 
+  function coinFrontThumbData(c) {
+    return c?.frontThumbData || c?.frontData || '';
+  }
+
   function applyTabThumb(thumb, c) {
     if (!thumb || !c) return;
     const isBar = c.shape === 'bar';
-    thumb.style.backgroundImage = cssUrl(c.frontData);
+    thumb.style.backgroundImage = cssUrl(coinFrontThumbData(c), { compact: true });
     thumb.style.backgroundPosition = c.thumbPosition || c.frontPosition || 'center';
     thumb.style.backgroundSize = isBar ? '12px 24px' : (c.thumbBackgroundSize || c.frontBackgroundSize || 'cover');
   }
@@ -1272,7 +1279,7 @@
       const c = COINS.find(coin => coin.slug === slug);
       if (!el || !c) return;
       const isBar = c.shape === 'bar';
-      el.style.backgroundImage = cssUrl(c.frontData);
+      el.style.backgroundImage = cssUrl(coinFrontThumbData(c), { compact: true });
       el.style.backgroundPosition = c.thumbPosition || c.frontPosition || 'center';
       el.style.backgroundSize = isBar ? 'contain' : (c.thumbBackgroundSize || c.frontBackgroundSize || 'cover');
     });
@@ -1403,6 +1410,108 @@
   const leftPanelRowsCache = new Map();
   const smoothEdgePaletteCache = new Map();
   const barEdgeTemplateCache = new Map();
+  const coinDataLoadPromises = new Map();
+  const loadedCoinDataSlugs = new Set();
+  let allItemsRevealedModelSlug = null;
+  let allItemsModelRevealToken = 0;
+
+  function coinHasInline3dData(coin) {
+    return String(coin?.frontData || '').startsWith('data:')
+      && String(coin?.backData || '').startsWith('data:');
+  }
+
+  COINS.forEach((coin) => {
+    if (coinHasInline3dData(coin)) loadedCoinDataSlugs.add(coin.slug);
+  });
+
+  function coin3dDataLoaded(slug) {
+    const coin = COINS.find(c => c.slug === slug);
+    return Boolean(coin && (loadedCoinDataSlugs.has(slug) || coinHasInline3dData(coin)));
+  }
+
+  function allItemsFocusedModelRevealed(slug = allItemsFocusedSlug) {
+    return Boolean(
+      slug
+      && allItemsRevealedModelSlug === slug
+      && coin3dDataLoaded(slug)
+      && model.classList.contains('loaded')
+      && !app.classList.contains('all-items-model-pending')
+      && !app.classList.contains('all-items-model-hidden')
+    );
+  }
+
+  function hideAllItemsFocusedModel({ invalidateReveal = true } = {}) {
+    if (invalidateReveal) allItemsModelRevealToken++;
+    allItemsRevealedModelSlug = null;
+    app.classList.add('all-items-model-pending', 'all-items-model-hidden');
+    model.classList.remove('loaded');
+    model.style.opacity = '0';
+    scene.style.opacity = '0';
+    scene.style.visibility = 'hidden';
+    scene.style.pointerEvents = 'none';
+    clearAllItemsRenderedSceneTransform();
+    clearAllItemsExtraScene();
+  }
+
+  function loadScriptOnce(src) {
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = src;
+      script.async = true;
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error(`Unable to load ${src}`));
+      document.head.appendChild(script);
+    });
+  }
+
+  function mergeLoadedCoinData(slug) {
+    const item = window.CASASCIUS_ITEM_DATA?.[slug];
+    const coin = COINS.find(c => c.slug === slug);
+    if (!item || !coin) return false;
+    const frontThumbData = coin.frontThumbData || coin.frontData;
+    const backThumbData = coin.backThumbData || coin.backData;
+    Object.assign(coin, item);
+    coin.frontThumbData = frontThumbData;
+    coin.backThumbData = backThumbData;
+    loadedCoinDataSlugs.add(slug);
+    return true;
+  }
+
+  function loadCoin3dData(slug) {
+    const coin = COINS.find(c => c.slug === slug);
+    if (!coin) return Promise.resolve(null);
+    if (coin3dDataLoaded(slug)) return Promise.resolve(coin);
+    if (coinDataLoadPromises.has(slug)) return coinDataLoadPromises.get(slug);
+    const src = `${CASASCIUS_ITEM_DATA_PATH}${encodeURIComponent(slug)}.js`;
+    const promise = loadScriptOnce(src)
+      .then(() => {
+        if (!mergeLoadedCoinData(slug)) throw new Error(`Missing Casascius item data for ${slug}`);
+        return coin;
+      })
+      .catch((error) => {
+        coinDataLoadPromises.delete(slug);
+        throw error;
+      });
+    coinDataLoadPromises.set(slug, promise);
+    return promise;
+  }
+
+  function scheduleRemainingCoinDataLoad() {
+    const slugs = COINS.map(c => c.slug).filter(slug => !coin3dDataLoaded(slug));
+    if (!slugs.length) return;
+    let index = 0;
+    const loadNext = () => {
+      if (index >= slugs.length) return;
+      const slug = slugs[index++];
+      loadCoin3dData(slug).catch(() => {});
+      schedule(loadNext);
+    };
+    const schedule = (fn) => {
+      if ('requestIdleCallback' in window) window.requestIdleCallback(fn, { timeout: 2500 });
+      else setTimeout(fn, 650);
+    };
+    schedule(loadNext);
+  }
 
   const metalVars = {
     gold:   ['#fff0a9', '#d09b36', '#5b3912', '#f8c85a'],
@@ -2294,7 +2403,7 @@
     const address = String(entry.address || '');
     const selected = selectedLeftPanelAddressByMode[mode] === address;
     const selectedStatusMode = isActiveStatus(entry) ? 'active' : (isUnfundedStatus(entry) ? 'unfunded' : 'recent');
-    const iconImage = cssUrl(coin.frontData);
+    const iconImage = cssUrl(coinFrontThumbData(coin), { compact: true });
     const iconPosition = coin.thumbPosition || coin.frontPosition || 'center';
     const iconSize = isBar ? 'contain' : (coin.thumbBackgroundSize || coin.frontBackgroundSize || 'cover');
     const gradedRecord = mode === 'graded' ? entry.gradedRecord : null;
@@ -2356,7 +2465,7 @@
       selectedLeftPanelAddressByMode[mode] = '';
       if (apply && mode === leftPanelMode) {
         if (allItemsMode) {
-          syncFocusedAllItemsModel();
+          syncFocusedAllItemsModelWhenLoaded();
         } else {
           applySelectedAddressToObject('', activeCoin());
         }
@@ -2716,7 +2825,7 @@
     enterAllItemsMode({ align: false });
   }
 
-  function syncAllItemsLeftPanelSelectionToCentered({ mode = leftPanelMode, render = true, save = false } = {}) {
+  function syncAllItemsLeftPanelSelectionToCentered({ mode = leftPanelMode, render = true, save = false, revealModel = true } = {}) {
     if (!allItemsMode) return;
     const slug = allItemsPackingItem(allItemsFocusedSlug)?.slug || DEFAULT_ALL_ITEMS_FOCUS_SLUG;
     const row = allItemsRowForCenteredSlug(mode, slug);
@@ -2727,7 +2836,7 @@
     } else if (render) {
       renderLeftPanelRows(mode);
     }
-    syncFocusedAllItemsModel();
+    syncFocusedAllItemsModelWhenLoaded({ reveal: revealModel });
     updateSelectedCoinDetailSection();
     refreshBalanceChartHover();
     if (save) {
@@ -3117,7 +3226,7 @@
     const coin = coinOverride || COINS.find(c => c.slug === entry?.slug) || comparisonCoin();
     const isBar = coin.shape === 'bar';
     const status = entry ? (isActiveStatus(entry) ? 'active' : (isUnfundedStatus(entry) ? 'unfunded' : 'recent')) : 'none';
-    const iconImage = cssUrl(iconImageOverride || coin.frontData);
+    const iconImage = cssUrl(iconImageOverride || coinFrontThumbData(coin), { compact: true });
     const iconPosition = iconPositionOverride || coin.thumbPosition || coin.frontPosition || 'center';
     const iconSize = iconSizeOverride || (isBar ? 'contain' : (coin.thumbBackgroundSize || coin.frontBackgroundSize || 'cover'));
     const displayAddress = addressText || entry?.address || 'No selected address';
@@ -5222,7 +5331,7 @@
     if (c.shape === 'bar') {
       const w = base * Number(c.widthMm || 40) / MAX_PHYSICAL_MM;
       const h = base * Number(c.heightMm || 80) / MAX_PHYSICAL_MM;
-      const radius = w * 0.105;
+      const radius = w * 0.12;
       root.style.setProperty('--object-w', `${w.toFixed(2)}px`);
       root.style.setProperty('--object-h', `${h.toFixed(2)}px`);
       root.style.setProperty('--face-radius', `${radius.toFixed(2)}px`);
@@ -5575,9 +5684,8 @@
     }
   }
 
-  function imageUrl(data) {
-    const url = objectUrlForDataUrl(data);
-    if (!USE_COMPACT_IMAGE_ASSETS || !String(url || '').endsWith('.png')) return url;
+  function compactAssetUrl(url) {
+    if (!String(url || '').endsWith('.png')) return url;
     if (url.startsWith('assets/all_')) {
       return url.replace(/^assets\/(.+)\.png$/, 'assets/mobile/$1.webp');
     }
@@ -5587,7 +5695,13 @@
     return url;
   }
 
-  function cssUrl(data) { return `url("${imageUrl(data)}")`; }
+  function imageUrl(data, { compact = false } = {}) {
+    const url = objectUrlForDataUrl(data);
+    if ((compact || USE_COMPACT_IMAGE_ASSETS) && String(url || '').endsWith('.png')) return compactAssetUrl(url);
+    return url;
+  }
+
+  function cssUrl(data, options) { return `url("${imageUrl(data, options)}")`; }
 
   function allItemsImagePath() {
     return imageUrl(ALL_ITEMS_IMAGE_PATHS[allItemsViewMode] || ALL_ITEMS_IMAGE_PATHS.front);
@@ -5932,7 +6046,14 @@
     const objectHeight = numericCssVar('--object-h') || rect.height;
     root.style.setProperty('--all-selected-left', `${(rect.centerX - objectWidth / 2).toFixed(2)}px`);
     root.style.setProperty('--all-selected-top', `${(rect.centerY - objectHeight / 2).toFixed(2)}px`);
-    if (allItemsMode) app.classList.remove('all-items-model-pending');
+    if (
+      allItemsMode
+      && allItemsRevealedModelSlug === allItemsFocusedSlug
+      && model.classList.contains('loaded')
+      && !app.classList.contains('all-items-model-hidden')
+    ) {
+      app.classList.remove('all-items-model-pending');
+    }
     return true;
   }
 
@@ -6083,7 +6204,7 @@
 
   function allItemsMaskedPlacements() {
     const focused = allItemsPackingItem(allItemsFocusedSlug)?.slug;
-    return focused ? allItemsClosestFocusedPlacements(focused, 2) : [];
+    return focused && allItemsFocusedModelRevealed(focused) ? allItemsClosestFocusedPlacements(focused, 2) : [];
   }
 
   function allItemsCutoutShape(slug, tileW, tileH, scale) {
@@ -6263,8 +6384,9 @@
     refreshBalanceChartHover();
     applyDimensions(c);
     setMetal(c.metal || 'gold');
+    hideAllItemsFocusedModel();
     if (startingRect) updateAllItemsFocusedModelPositionFromRect(startingRect);
-    syncFocusedAllItemsModel({ updateOverlay: !startingRect });
+    syncFocusedAllItemsModelWhenLoaded({ updateOverlay: false, reveal: false });
     updateComparisonSpacing();
     allItemsOffsetX = target.x;
     allItemsOffsetY = target.y;
@@ -6272,7 +6394,8 @@
     renderAllItems({ wrap: false });
     allItemsStage?.getBoundingClientRect();
     rememberAllItemsCenteredWorldPoint();
-    syncAllItemsLeftPanelSelectionToCentered({ save: true });
+    syncAllItemsLeftPanelSelectionToCentered({ save: true, revealModel: false });
+    revealFocusedAllItemsModel({ updateOverlay: true });
     requestAnimationFrame(() => {
       allItemsStage?.classList.remove('grid-locked');
     });
@@ -6364,25 +6487,31 @@
       : { x: allItemsOffsetX, y: allItemsOffsetY };
     const startingRect = animate ? allItemsItemScreenRectForOffset(item.slug, tileX, tileY, startOffset.x, startOffset.y) : null;
     const previousSlug = allItemsFocusedSlug;
+    const previousCoin = allItemsFocusedCoin();
     const changedFocus = item.slug !== previousSlug;
-    const handoffAngle = angle;
-    const handoffTilt = tilt;
     allItemsFocusedSlug = item.slug;
     const c = allItemsFocusedCoin();
+    const pausedHologramTargetAngle = pausedHologramShapeTargetAngle(previousCoin, c);
+    if (pausedHologramTargetAngle !== null) {
+      angle = pausedHologramTargetAngle;
+      setTransform({ save: false });
+    }
     refreshBalanceChartHover();
     clearAllItemsRenderedSceneTransform();
     applyDimensions(c);
     setMetal(c.metal || 'gold');
     scene.style.opacity = '';
     scene.style.transition = '';
-    if (startingRect) {
+    if (changedFocus) {
+      hideAllItemsFocusedModel();
+      syncFocusedAllItemsModelWhenLoaded({ updateOverlay: false, reveal: false });
+    } else {
+      syncFocusedAllItemsModelWhenLoaded({ updateOverlay: !startingRect });
+    }
+    if (startingRect && !changedFocus) {
       app.classList.add('all-items-model-positioning');
       updateAllItemsFocusedModelPositionFromRect(startingRect);
       scene?.getBoundingClientRect();
-    }
-    syncFocusedAllItemsModel({ updateOverlay: !startingRect });
-    if (startingRect && changedFocus && animateTransform) {
-      animateAllItemsSelectionTransform(c, handoffAngle, handoffTilt);
     }
     updateComparisonSpacing();
     const token = ++allItemsLayoutAnimationToken;
@@ -6393,21 +6522,29 @@
     allItemsOffsetY = target.y;
     syncAllItemsCursorToCenter();
     renderAllItems({ wrap: false, updateOverlay: !startingRect });
-    if (startingRect && animate) {
+    if (startingRect && animate && !changedFocus) {
       scene?.getBoundingClientRect();
       trackAllItemsFocusedModelPosition(item.slug, tileX, tileY, startOffset, target, token);
     } else {
       cancelAllItemsModelPositionTrack();
       app.classList.remove('all-items-model-positioning');
-      updateAllItemsFocusedModelPosition();
+      if (!changedFocus) updateAllItemsFocusedModelPosition();
     }
     rememberAllItemsCenteredWorldPoint();
-    if (syncSelection) syncAllItemsLeftPanelSelectionToCentered({ save });
+    if (syncSelection) syncAllItemsLeftPanelSelectionToCentered({ save, revealModel: !changedFocus });
     if (!animate) {
       normalizeAllItemsTileOffset();
       rememberAllItemsCenteredWorldPoint();
-      if (syncSelection) syncAllItemsLeftPanelSelectionToCentered({ save });
+      if (syncSelection) syncAllItemsLeftPanelSelectionToCentered({ save, revealModel: !changedFocus });
       if (save) saveAllItemsWindow();
+      if (changedFocus) {
+        revealFocusedAllItemsModel({
+          updateOverlay: true,
+          animateTransform,
+          targetAngle: pausedHologramTargetAngle ?? angle,
+          targetTilt: tilt
+        });
+      }
       return;
     }
     centerAllItemsOnPlacement.timer = setTimeout(() => {
@@ -6418,8 +6555,16 @@
       normalizeAllItemsTileOffset();
       renderAllItems({ wrap: false });
       rememberAllItemsCenteredWorldPoint();
-      if (syncSelection) syncAllItemsLeftPanelSelectionToCentered({ save });
+      if (syncSelection) syncAllItemsLeftPanelSelectionToCentered({ save, revealModel: !changedFocus });
       if (save) saveAllItemsWindow();
+      if (changedFocus) {
+        revealFocusedAllItemsModel({
+          updateOverlay: true,
+          animateTransform,
+          targetAngle: pausedHologramTargetAngle ?? angle,
+          targetTilt: tilt
+        });
+      }
     }, 560);
   }
 
@@ -6586,7 +6731,7 @@
     activeGroupKey = ALL_ITEMS_GROUP_KEY;
     saveActiveSlug(ALL_ITEMS_GROUP_KEY);
     applyAllItemsViewMode(allItemsViewMode, { updateImages: false });
-    syncFocusedAllItemsModel();
+    syncFocusedAllItemsModelWhenLoaded();
     versionTabs.innerHTML = '';
     root.style.setProperty('--version-panel-height', '0px');
     root.style.setProperty('--version-collapse-offset', '0px');
@@ -6630,11 +6775,13 @@
     allItemsBootCrosshairTarget = null;
     cancelAllItemsModelPositionTrack();
     clearAllItemsRenderedSceneTransform();
+    allItemsRevealedModelSlug = null;
+    allItemsModelRevealToken++;
     clearAllItemsExtraScene();
     scene.style.opacity = '';
     scene.style.visibility = '';
     scene.style.transition = '';
-    app.classList.remove('all-items-mode', 'all-items-model-pending', 'all-items-model-positioning');
+    app.classList.remove('all-items-mode', 'all-items-model-pending', 'all-items-model-hidden', 'all-items-model-positioning');
     clearAllItemsQuarterPosition();
     clearViewMode();
     setAllItemsControls(true);
@@ -7282,7 +7429,7 @@
     }
   }
 
-  function syncFocusedAllItemsModel({ updateOverlay = true } = {}) {
+  function syncFocusedAllItemsModel({ updateOverlay = true, show = true } = {}) {
     if (!allItemsMode) return;
     const c = allItemsFocusedCoin();
     const frontFace = model.querySelector('.front');
@@ -7304,10 +7451,100 @@
     renderBarAddress(c.shape === 'bar' ? firstbits : '', c);
     renderCoinBackAddress(c.shape === 'bar' ? '' : firstbits, c);
     buildEdges();
+    model.style.opacity = '';
     model.classList.add('loaded');
+    allItemsRevealedModelSlug = c.slug;
+    if (show) {
+      scene.style.opacity = '';
+      scene.style.visibility = '';
+      scene.style.pointerEvents = '';
+      app.classList.remove('all-items-model-pending', 'all-items-model-hidden');
+    }
     clearAllItemsExtraScene();
     if (updateOverlay) syncAllItemsFocusedOverlay();
-    syncAllItemsExtraModelPosition();
+    if (show) syncAllItemsExtraModelPosition();
+  }
+
+  function syncFocusedAllItemsModelWhenLoaded({ updateOverlay = true, reveal = true } = {}) {
+    if (!allItemsMode) return Promise.resolve(false);
+    const slug = allItemsFocusedSlug;
+    const shouldReveal = reveal && !app.classList.contains('all-items-model-hidden');
+    if (coin3dDataLoaded(slug)) {
+      if (shouldReveal) syncFocusedAllItemsModel({ updateOverlay });
+      return Promise.resolve(true);
+    }
+    if (shouldReveal) hideAllItemsFocusedModel();
+    return loadCoin3dData(slug)
+      .then(() => {
+        if (!allItemsMode || allItemsFocusedSlug !== slug) return false;
+        if (shouldReveal) {
+          syncFocusedAllItemsModel({ updateOverlay });
+          renderAllItems({ wrap: false, updateOverlay });
+        }
+        return true;
+      })
+      .catch(() => false);
+  }
+
+  function waitForAllItemsRevealPaint(slug, token) {
+    return new Promise(resolve => {
+      let frames = 2;
+      const valid = () => token === allItemsModelRevealToken && allItemsMode && allItemsFocusedSlug === slug;
+      const step = () => {
+        if (!valid()) {
+          resolve(false);
+          return;
+        }
+        if (frames > 0) {
+          frames -= 1;
+          requestAnimationFrame(step);
+          return;
+        }
+        setTimeout(() => resolve(valid()), ALL_ITEMS_REVEAL_PAINT_BUFFER_MS);
+      };
+      requestAnimationFrame(step);
+    });
+  }
+
+  function revealFocusedAllItemsModel({ updateOverlay = true, animateTransform = false, targetAngle = angle, targetTilt = tilt } = {}) {
+    if (!allItemsMode) return Promise.resolve(false);
+    const slug = allItemsFocusedSlug;
+    hideAllItemsFocusedModel({ invalidateReveal: false });
+    const token = ++allItemsModelRevealToken;
+    return loadCoin3dData(slug)
+      .then(() => {
+        if (token !== allItemsModelRevealToken || !allItemsMode || allItemsFocusedSlug !== slug) return false;
+        const c = allItemsFocusedCoin();
+        const startAngle = viewAngle(allItemsViewMode, c);
+        return Promise.allSettled([loadImage(c.frontData), loadImage(c.backData)]).then(() => {
+          if (token !== allItemsModelRevealToken || !allItemsMode || allItemsFocusedSlug !== slug) return false;
+          syncFocusedAllItemsModel({ updateOverlay, show: false });
+          setAllItemsPrimarySceneTransform(startAngle, FACE_ON_TILT);
+          scene.style.opacity = '';
+          scene.style.visibility = '';
+          scene.style.pointerEvents = '';
+          app.classList.remove('all-items-model-pending', 'all-items-model-hidden');
+          scene.getBoundingClientRect();
+          return waitForAllItemsRevealPaint(slug, token).then((painted) => {
+            if (!painted) return false;
+            renderAllItems({ wrap: false, updateOverlay });
+            syncAllItemsExtraModelPosition();
+            return waitForAllItemsRevealPaint(slug, token).then((masked) => {
+              if (!masked) return false;
+              if (animateTransform) animateAllItemsSelectionTransform(c, targetAngle, targetTilt);
+              else clearAllItemsRenderedSceneTransform();
+              return true;
+            });
+          });
+        });
+      })
+      .catch(() => false);
+  }
+
+  function pausedHologramShapeTargetAngle(previousCoin, nextCoin) {
+    if (running || activeViewMode !== 'hologram' || !previousCoin || !nextCoin) return null;
+    if (previousCoin.shape === nextCoin.shape) return null;
+    return viewAngle('hologram', nextCoin);
   }
 
   function syncQuarterComparison() {
@@ -7337,12 +7574,17 @@
       : null;
     const requestedCoin = COINS.find(x => x.slug === slug);
     const c = requestedCoin || COINS.find(x => !x.allModeOnly) || COINS[0];
+    const previousCoin = activeCoin();
+    const pausedHologramTargetAngle = pausedHologramShapeTargetAngle(previousCoin, c);
     const frontFace = model.querySelector('.front');
     const backFace = model.querySelector('.back');
     const previousQuarterLayout = captureQuarterLayout();
     if (previousQuarterLayout) app.classList.add('layout-switching');
     exitAllItemsMode();
     activeSlug = c.slug;
+    if (pausedHologramTargetAngle !== null) {
+      angle = pausedHologramTargetAngle;
+    }
     activeGroupKey = groupKey(c);
     refreshBalanceChartHover();
     saveActiveSlug(c.slug);
@@ -7365,6 +7607,10 @@
     const playQuarterLayoutAnimation = prepareQuarterLayoutAnimation(previousQuarterLayout);
     app.classList.remove('layout-switching');
     if (playQuarterLayoutAnimation) playQuarterLayoutAnimation();
+    try {
+      await loadCoin3dData(c.slug);
+    } catch (_) {}
+    if (token !== selectionToken) return;
     renderBarAddress(c.addressFirstbits || '', c);
     renderCoinBackAddress(c.backAddressFirstbits || '', c);
     frontFace.style.backgroundImage = cssUrl(c.frontData);
@@ -8124,6 +8370,11 @@
 
   allItemsStage?.addEventListener('pointerdown', e => {
     if (trackPinchPointer(e, allItemsStage)) return;
+    const placement = allItemsHitPlacement(e);
+    if (placement && placement.slug !== allItemsFocusedSlug) {
+      hideAllItemsFocusedModel();
+      renderAllItems({ wrap: false, updateOverlay: false });
+    }
     startAllItemsDrag(e, allItemsStage);
   });
   function moveAllItemsDrag(e) {
@@ -8185,7 +8436,7 @@
     normalizeAllItemsTileOffset();
     clearPendingAllItemsSelectedRecenter();
     rememberAllItemsCenteredWorldPoint();
-    syncAllItemsLeftPanelSelectionToCentered({ save: true });
+    syncAllItemsLeftPanelSelectionToCentered({ save: true, revealModel: false });
     saveAllItemsCrosshair();
     saveAllItemsWindow();
   }
@@ -8735,6 +8986,7 @@
               else if (quarterComparisonInput.checked) releaseInitialQuarterBoot();
               else app.classList.remove('quarter-booting', 'all-items-booting');
               if (readBalanceChartOpen()) openBalanceChartModal();
+              scheduleRemainingCoinDataLoad();
             });
           });
         });

@@ -1306,13 +1306,17 @@
       transform .42s cubic-bezier(.22, 1, .36, 1),
       opacity .22s ease;
   }
-  .app.all-items-mode.all-items-model-pending #scene {
-    opacity: 0;
+  .app.all-items-mode.all-items-model-pending #scene,
+  .app.all-items-mode.all-items-model-hidden #scene {
+    opacity: 0 !important;
+    visibility: hidden !important;
     pointer-events: none;
     transition: none;
   }
-  .app.all-items-mode.all-items-model-pending .all-items-extra-scene {
-    opacity: 0;
+  .app.all-items-mode.all-items-model-pending .all-items-extra-scene,
+  .app.all-items-mode.all-items-model-hidden .all-items-extra-scene {
+    opacity: 0 !important;
+    visibility: hidden !important;
     pointer-events: none;
     transition: none;
   }
