@@ -1169,6 +1169,11 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
     inset: 0;
     overflow: hidden;
     background: var(--card-preview-bg);
+    opacity: 0;
+}
+
+.chart-wrapper.card-ready .dashboard-preview-viewport {
+    opacity: 1;
 }
 
 .dashboard-preview-scene {
@@ -1195,11 +1200,17 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
     height: 100%;
     object-fit: contain;
     border-radius: 8px;
+    opacity: 0;
+}
+
+.chart-wrapper.card-ready img {
+    opacity: 1;
 }
 .chart-loading {
     position: absolute;
     top: 50%;
     left: 50%;
+    z-index: 2;
     transform: translate(-50%, -50%);
     border: 2px solid rgba(255, 255, 255, 0.15);
     border-top: 2px solid var(--brand);
@@ -1208,7 +1219,6 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
     width: 32px;
     height: 32px;
     animation: spin 0.8s linear infinite;
-    z-index: 1;
 }
 @keyframes spin {
     0% {

@@ -227,6 +227,7 @@
     window.WSBPreviewShared?.initThemeSync({ onThemeChanged: render });
     await loadData();
     render();
+    window.WSBPreviewShared?.markReady?.({ filename: "quantum_exposure.png" });
     window.addEventListener('resize', render);
     window.WSBPreviewShared
       ?.createAutoRefresher({

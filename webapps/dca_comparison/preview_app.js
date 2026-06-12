@@ -276,6 +276,7 @@
     window.WSBPreviewShared?.initThemeSync({ onThemeChanged: render });
     await load();
     render();
+    window.WSBPreviewShared?.markReady?.({ filename: "dca_comparison.png" });
     window.addEventListener("resize", render);
     window.WSBPreviewShared
       ?.createAutoRefresher({
@@ -291,5 +292,6 @@
   init().catch((error) => {
     console.error(error);
     renderFallback();
+    window.WSBPreviewShared?.markReady?.({ filename: "dca_comparison.png" });
   });
 }());

@@ -112,6 +112,7 @@
   async function init() {
     window.WSBPreviewShared?.initThemeSync({ onThemeChanged: render });
     await render();
+    window.WSBPreviewShared?.markReady?.({ filename: "uoa.png" });
     window.addEventListener("resize", render);
     window.WSBPreviewShared
       ?.createAutoRefresher({

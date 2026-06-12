@@ -100,6 +100,53 @@ function ensureDashboardPreviewObservers() {
   }
 }
 
+function setGridCardLoading(card) {
+  const wrapper = card?.wrapper;
+  if (!wrapper) return;
+  wrapper.classList.remove('card-ready');
+  wrapper.classList.add('card-loading');
+  if (card.spinner && !card.spinner.isConnected) {
+    wrapper.insertBefore(card.spinner, wrapper.firstChild);
+  }
+}
+
+function nextGridCardPaint() {
+  return new Promise(resolve => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  });
+}
+
+async function markGridCardReady(card, { loaded = true } = {}) {
+  const wrapper = card?.wrapper;
+  if (!wrapper || wrapper.classList.contains('card-ready')) return;
+  await nextGridCardPaint();
+  if (!wrapper.isConnected) return;
+  wrapper.classList.remove('card-loading');
+  wrapper.classList.add('card-ready');
+  if (card.spinner?.parentElement) card.spinner.remove();
+  if (card.img) {
+    card.img.style.opacity = '';
+    card.img.dataset.loaded = loaded ? '1' : '0';
+  }
+}
+
+function setupDashboardPreviewReadyListener() {
+  if (setupDashboardPreviewReadyListener.bound) return;
+  setupDashboardPreviewReadyListener.bound = true;
+  window.addEventListener('message', (event) => {
+    if (window.location.protocol !== 'file:' && event.origin !== window.location.origin) return;
+    if (event.data?.type !== 'wsb-preview-ready') return;
+    const filename = String(event.data.filename || '').trim().toLowerCase();
+    for (const card of cardByFilename.values()) {
+      const preview = card?.preview;
+      if (!preview?.iframe || preview.iframe.contentWindow !== event.source) continue;
+      if (filename && String(preview.filename || '').trim().toLowerCase() !== filename) continue;
+      markGridCardReady(card);
+      return;
+    }
+  });
+}
+
 function openModalByFilename(fname){
   if(!fname) return;
   const idx = visibleImages.findIndex(x => x.filename === fname);
@@ -122,6 +169,7 @@ function buildGridOnce(){
     chartContainer.className = 'chart-container';
     const chartWrapper = document.createElement('div');
     chartWrapper.className = 'chart-wrapper';
+    chartWrapper.classList.add('card-loading');
     const spinner = document.createElement('div');
     spinner.className = 'chart-loading';
     const img = document.createElement('img');
@@ -160,8 +208,14 @@ function buildGridOnce(){
       onOpen(e);
     });
 
-    img.onload = () => { spinner.remove(); img.style.opacity = 1; img.dataset.loaded = "1"; };
-    img.onerror = () => { spinner.remove(); img.style.opacity = 1; img.dataset.loaded = "0"; };
+    img.onload = () => {
+      const card = cardByFilename.get(_cardKey(filename));
+      markGridCardReady(card, { loaded: true });
+    };
+    img.onerror = () => {
+      const card = cardByFilename.get(_cardKey(filename));
+      markGridCardReady(card, { loaded: false });
+    };
     const star = document.createElement('div');
     star.className = 'favorite-star';
     const favOn = isFavorite(filename);
@@ -191,17 +245,17 @@ function buildGridOnce(){
       iframe.className = 'dashboard-preview-frame';
       iframe.src = previewSpec.url;
       iframe.dataset.baseSrc = previewSpec.url;
+      iframe.dataset.filename = filename;
       iframe.title = `${title || filename} preview`;
       iframe.setAttribute('aria-hidden', 'true');
       iframe.tabIndex = -1;
       iframe.addEventListener('load', () => {
-        spinner.remove();
         if (typeof postThemeToPreviewFrames === 'function') {
           postThemeToPreviewFrames(
             typeof getStoredDashboardTheme === 'function' ? getStoredDashboardTheme() : 'dark'
           );
         }
-      }, { once: true });
+      });
 
       scene.appendChild(iframe);
       viewport.appendChild(scene);
@@ -215,7 +269,10 @@ function buildGridOnce(){
         titleElem,
         desc: null,
         star,
+        wrapper: chartWrapper,
+        spinner,
         preview: {
+          filename,
           viewport,
           scene,
           iframe,
@@ -227,7 +284,7 @@ function buildGridOnce(){
     } else {
       chartWrapper.appendChild(spinner);
       chartWrapper.appendChild(img);
-      cardByFilename.set(_cardKey(filename), {container, img, titleElem, desc: null, star});
+      cardByFilename.set(_cardKey(filename), {container, img, titleElem, desc: null, star, wrapper: chartWrapper, spinner});
     }
 
     chartContainer.appendChild(chartWrapper);
@@ -243,6 +300,7 @@ function buildGridOnce(){
   }
 
   ensureDashboardPreviewObservers();
+  setupDashboardPreviewReadyListener();
   if (dashboardPreviewResizeObserver) {
     for (const card of cardByFilename.values()) {
       if (card?.preview?.viewport) {
