@@ -231,6 +231,7 @@
       hoverTooltip: null,
       periodGridDataset: "bip110",
       periodGridSelectedPeriod: null,
+      leaderboardWindow: "all",
       controls: {
         stripes: true,
         stripesExplicit: false,
@@ -293,6 +294,7 @@
     const tooltip = document.getElementById("tooltip");
     const periodGridTooltip = document.getElementById("periodGridTooltip");
     const periodGridBtn = document.getElementById("periodGridBtn");
+    const leaderboardBtn = document.getElementById("leaderboardBtn");
     const periodGridOverlay = document.getElementById("periodGridOverlay");
     const periodGridDialog = document.getElementById("periodGridDialog");
     const periodGridHeader = document.getElementById("periodGridHeader");
@@ -305,6 +307,13 @@
     const periodGridSignalValue = document.getElementById("periodGridSignalValue");
     const periodGridContent = document.getElementById("periodGridContent");
     const periodGridLowActivityLegendItem = document.getElementById("periodGridLowActivityLegendItem");
+    const leaderboardOverlay = document.getElementById("leaderboardOverlay");
+    const leaderboardDialog = document.getElementById("leaderboardDialog");
+    const leaderboardClose = document.getElementById("leaderboardClose");
+    const leaderboardTotalValue = document.getElementById("leaderboardTotalValue");
+    const leaderboardMinerCountValue = document.getElementById("leaderboardMinerCountValue");
+    const leaderboardWindowButtons = Array.from(document.querySelectorAll("[data-leaderboard-window]"));
+    const leaderboardContent = document.getElementById("leaderboardContent");
     const vizInfoBtn = document.getElementById("vizInfoBtn");
     const segwitResizeHandle = document.getElementById("segwitResizeHandle");
     const bip110ResizeHandle = document.getElementById("bip110ResizeHandle");
@@ -335,6 +344,7 @@
       [
         vizInfoBtn,
         periodGridBtn,
+        leaderboardBtn,
         swapPanelsBtn,
         segwitFillHeightBtn,
         bip110FillHeightBtn,
@@ -1083,6 +1093,11 @@
           { cache: "no-store" }
         ));
       }
+      const bip110LeaderboardMiners = await loadOptionalJson(
+        withBust("webapp_data/bip110_signal_miners.json"),
+        previousDynamicData?.bip110LeaderboardMiners || bip110SignalMiners,
+        { cache: "no-store" }
+      );
       return {
         metadata,
         signature,
@@ -1098,6 +1113,7 @@
           ? castRows(parseCsv(await bip110TicksResp.text()))
           : (previousDynamicData?.bip110Ticks || []),
         bip110SignalMiners,
+        bip110LeaderboardMiners,
       };
     }
 
@@ -1129,6 +1145,8 @@
         bip110Releases: dynamicData?.bip110Releases || previousData?.bip110Releases || [],
         segwitTicks: staticData?.segwitTicks || previousData?.segwitTicks || [],
         bip110Ticks: dynamicData?.bip110Ticks || previousData?.bip110Ticks || [],
+        bip110SignalMiners: dynamicData?.bip110SignalMiners || previousData?.bip110SignalMiners || {},
+        bip110LeaderboardMiners: dynamicData?.bip110LeaderboardMiners || previousData?.bip110LeaderboardMiners || {},
       };
     }
 
@@ -4199,6 +4217,7 @@
 
     function openPeriodGridOverlay(periodOverride = null, datasetKey = "bip110") {
       if (!periodGridOverlay || !periodGridDialog) return;
+      closeLeaderboardOverlay();
       state.periodGridDataset = datasetKey === "segwit" ? "segwit" : "bip110";
       const hasExplicitOverride = periodOverride !== null && periodOverride !== undefined && periodOverride !== "";
       const requestedPeriod = hasExplicitOverride ? Number(periodOverride) : NaN;
@@ -4216,6 +4235,237 @@
       renderCurrentPeriodGridOverlay();
       periodGridDialog.focus({ preventScroll: true });
       notifyParentPeriodGridOverlayState(true);
+    }
+
+    function getBip110LeaderboardMinerMap() {
+      const explicit = state.dynamicData?.bip110LeaderboardMiners || state.data?.bip110LeaderboardMiners;
+      if (explicit && typeof explicit === "object" && Object.keys(explicit).length > 0) {
+        return explicit;
+      }
+      const fallback = state.dynamicData?.bip110SignalMiners || state.data?.bip110SignalMiners;
+      return fallback && typeof fallback === "object" ? fallback : {};
+    }
+
+    function normalizeLeaderboardMiner(rawMiner) {
+      const miner = normalizeMinerTooltipData(rawMiner);
+      const name = miner.subMiner || miner.name || "Unknown";
+      const pool = miner.subMiner ? (miner.pool || miner.name || "") : miner.pool;
+      const slug = String(miner.slug || "").trim().toLowerCase();
+      return {
+        name,
+        pool,
+        slug,
+        key: [
+          slug && /^[a-z0-9-]+$/.test(slug) ? slug : "",
+          String(name || "").trim().toLowerCase(),
+          String(pool || "").trim().toLowerCase(),
+        ].join("|"),
+      };
+    }
+
+    function getLeaderboardWindowMs() {
+      switch (state.leaderboardWindow) {
+        case "past24h":
+          return 24 * 60 * 60 * 1000;
+        case "past7d":
+          return 7 * 24 * 60 * 60 * 1000;
+        case "past14d":
+          return 14 * 24 * 60 * 60 * 1000;
+        case "all":
+        default:
+          return 0;
+      }
+    }
+
+    function getLeaderboardWindowLabel() {
+      switch (state.leaderboardWindow) {
+        case "last":
+          return "the last completed period";
+        case "current":
+          return "the current period";
+        case "past24h":
+          return "the past 24 hours";
+        case "past7d":
+          return "the past 7 days";
+        case "past14d":
+          return "the past 14 days";
+        case "all":
+        default:
+          return "all loaded blocks";
+      }
+    }
+
+    function getLeaderboardWindowStartMs(blocks) {
+      const windowMs = getLeaderboardWindowMs();
+      if (!windowMs) return null;
+      const maxBlockTimeMs = Math.max(
+        ...blocks
+          .map((block) => Number(block?.block_time || 0) * 1000)
+          .filter((timeMs) => Number.isFinite(timeMs) && timeMs > 0)
+      );
+      if (!Number.isFinite(maxBlockTimeMs) || maxBlockTimeMs <= 0) return null;
+      return maxBlockTimeMs - windowMs;
+    }
+
+    function updateLeaderboardWindowButtons() {
+      leaderboardWindowButtons.forEach((button) => {
+        const active = button.dataset.leaderboardWindow === state.leaderboardWindow;
+        button.classList.toggle("is-active", active);
+        button.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+    }
+
+    function getLeaderboardPeriodFilter() {
+      const currentPeriod = getCurrentBip110PeriodNumber();
+      if (!Number.isFinite(currentPeriod)) return null;
+      if (state.leaderboardWindow === "current") {
+        return currentPeriod;
+      }
+      if (state.leaderboardWindow === "last") {
+        return Math.max(1, currentPeriod - 1);
+      }
+      return null;
+    }
+
+    function buildBip110LeaderboardRows() {
+      const minerMap = getBip110LeaderboardMinerMap();
+      const blocks = state.data?.bip110Blocks || state.dynamicData?.bip110Blocks || [];
+      const windowStartMs = getLeaderboardWindowStartMs(blocks);
+      const periodFilter = getLeaderboardPeriodFilter();
+      const signalingBlocks = blocks.filter((block) => {
+        if (Number(block?.is_signaling) !== 1) return false;
+        if (periodFilter != null) return Number(block?.period) === periodFilter;
+        if (windowStartMs == null) return true;
+        const blockTimeMs = Number(block?.block_time || 0) * 1000;
+        return Number.isFinite(blockTimeMs) && blockTimeMs >= windowStartMs;
+      });
+      const total = signalingBlocks.length;
+      const counts = new Map();
+
+      signalingBlocks.forEach((block) => {
+        const height = Number(block?.height);
+        if (!Number.isFinite(height)) return;
+        const rawMiner = minerMap[String(height)] || block.miner || null;
+        const miner = normalizeLeaderboardMiner(rawMiner);
+        const current = counts.get(miner.key) || {
+          name: miner.name,
+          pool: miner.pool,
+          slug: miner.slug,
+          count: 0,
+        };
+        current.count += 1;
+        if (!current.slug && miner.slug) current.slug = miner.slug;
+        if (!current.pool && miner.pool) current.pool = miner.pool;
+        counts.set(miner.key, current);
+      });
+
+      const rows = Array.from(counts.values())
+        .sort((left, right) => {
+          if (right.count !== left.count) return right.count - left.count;
+          return String(left.name || "").localeCompare(String(right.name || ""));
+        })
+        .map((row, index) => ({
+          ...row,
+          rank: index + 1,
+          pct: total > 0 ? row.count / total : 0,
+        }));
+
+      return { total, rows, windowLabel: getLeaderboardWindowLabel() };
+    }
+
+    function setMinerIconSource(img, slug) {
+      const safeSlug = /^[a-z0-9-]+$/.test(String(slug || "")) ? String(slug).toLowerCase() : "";
+      const defaultIconSrc = "assets/mining-pools/default.svg";
+      img.src = safeSlug && !missingMinerIconSlugs.has(safeSlug)
+        ? `assets/mining-pools/${safeSlug}.svg`
+        : defaultIconSrc;
+      img.onerror = () => {
+        if (safeSlug) missingMinerIconSlugs.add(safeSlug);
+        img.onerror = null;
+        img.src = defaultIconSrc;
+      };
+    }
+
+    function renderBip110LeaderboardOverlay() {
+      if (!leaderboardContent) return;
+      updateLeaderboardWindowButtons();
+      const { total, rows, windowLabel } = buildBip110LeaderboardRows();
+      if (leaderboardTotalValue) leaderboardTotalValue.textContent = total.toLocaleString();
+      if (leaderboardMinerCountValue) leaderboardMinerCountValue.textContent = rows.length.toLocaleString();
+      leaderboardContent.innerHTML = "";
+
+      if (!rows.length) {
+        const empty = document.createElement("div");
+        empty.className = "leaderboard-empty";
+        empty.textContent = `No signaling miner attribution is available for ${windowLabel}.`;
+        leaderboardContent.appendChild(empty);
+        return;
+      }
+
+      const list = document.createElement("ol");
+      list.className = "leaderboard-list";
+      rows.forEach((row) => {
+        const item = document.createElement("li");
+        item.className = "leaderboard-row";
+
+        const rank = document.createElement("div");
+        rank.className = "leaderboard-rank";
+        rank.textContent = `#${row.rank}`;
+
+        const miner = document.createElement("div");
+        miner.className = "leaderboard-miner";
+        const icon = document.createElement("img");
+        icon.className = "leaderboard-miner-icon";
+        icon.alt = "";
+        icon.setAttribute("aria-hidden", "true");
+        setMinerIconSource(icon, row.slug);
+
+        const minerText = document.createElement("div");
+        minerText.className = "leaderboard-miner-text";
+        const name = document.createElement("div");
+        name.className = "leaderboard-miner-name";
+        name.textContent = row.name || "Unknown";
+        minerText.appendChild(name);
+        if (row.pool) {
+          const pool = document.createElement("div");
+          pool.className = "leaderboard-miner-pool";
+          pool.textContent = row.pool;
+          minerText.appendChild(pool);
+        }
+        miner.appendChild(icon);
+        miner.appendChild(minerText);
+
+        const count = document.createElement("div");
+        count.className = "leaderboard-count";
+        count.textContent = row.count.toLocaleString();
+        const pct = document.createElement("span");
+        pct.className = "leaderboard-pct";
+        pct.textContent = formatPercentCompact(row.count, total);
+        count.appendChild(pct);
+
+        item.appendChild(rank);
+        item.appendChild(miner);
+        item.appendChild(count);
+        list.appendChild(item);
+      });
+      leaderboardContent.appendChild(list);
+    }
+
+    function closeLeaderboardOverlay() {
+      if (!leaderboardOverlay) return;
+      leaderboardOverlay.classList.remove("show");
+      leaderboardOverlay.setAttribute("aria-hidden", "true");
+    }
+
+    function openLeaderboardOverlay() {
+      if (!leaderboardOverlay || !leaderboardDialog) return;
+      closePeriodGridOverlay();
+      hideTooltip();
+      hideCustomTooltip();
+      renderBip110LeaderboardOverlay();
+      leaderboardOverlay.classList.add("show");
+      leaderboardOverlay.setAttribute("aria-hidden", "false");
+      leaderboardDialog.focus({ preventScroll: true });
     }
 
     function getReleaseGithubUrl(data) {
@@ -4565,6 +4815,9 @@
       if (isPeriodGridOverlayOpen()) {
         renderCurrentPeriodGridOverlay();
       }
+      if (leaderboardOverlay?.classList.contains("show")) {
+        renderBip110LeaderboardOverlay();
+      }
     }
 
     function hasVisibleSelectedPanel(keys) {
@@ -4598,6 +4851,7 @@
       setCustomTooltip(copyDashboardLinkButton, "Copy shareable dashboard link");
       setCustomTooltip(resetDashboardButton, state.preResetStateSnapshot ? "Undo the last restore defaults action" : "Reset dashboard to defaults");
       setCustomTooltip(periodGridBtn, "Show current 2,016-block period grid");
+      setCustomTooltip(leaderboardBtn, "Show signaling miner leaderboard");
 
       stripes.addEventListener("change", () => {
         state.controls.stripes = stripes.checked;
@@ -4669,6 +4923,19 @@
       periodGridBtn?.addEventListener("click", () => {
         if (!state.data) return;
         openPeriodGridOverlay(null, "bip110");
+      });
+
+      leaderboardBtn?.addEventListener("click", () => {
+        if (!state.data) return;
+        openLeaderboardOverlay();
+      });
+
+      leaderboardWindowButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const value = String(button.dataset.leaderboardWindow || "all");
+          state.leaderboardWindow = ["all", "last", "current", "past14d", "past7d", "past24h"].includes(value) ? value : "all";
+          renderBip110LeaderboardOverlay();
+        });
       });
 
       window.addEventListener("keydown", handlePeriodGridModalKeydown, true);
@@ -4778,6 +5045,22 @@
 
       periodGridClose?.addEventListener("click", () => {
         closePeriodGridOverlay();
+      });
+
+      leaderboardOverlay?.addEventListener("click", (event) => {
+        if (event.target === leaderboardOverlay) {
+          closeLeaderboardOverlay();
+        }
+      });
+
+      leaderboardOverlay?.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          closeLeaderboardOverlay();
+        }
+      });
+
+      leaderboardClose?.addEventListener("click", () => {
+        closeLeaderboardOverlay();
       });
 
       resetDashboardButton?.addEventListener("click", () => {
