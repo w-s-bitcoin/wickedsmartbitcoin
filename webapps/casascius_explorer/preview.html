@@ -253,6 +253,7 @@
         buildCoinEdges();
         await nextPaint();
         stage?.classList.add('is-ready');
+        window.WSBPreviewShared?.markReady?.({ filename: 'casascius_explorer.png' });
       }
 
       startWhenComplete();

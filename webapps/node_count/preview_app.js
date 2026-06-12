@@ -182,6 +182,7 @@
     window.WSBPreviewShared?.initThemeSync({ onThemeChanged: render });
     await load();
     render();
+    window.WSBPreviewShared?.markReady?.({ filename: "node_count.png" });
     window.addEventListener('resize', render);
     window.WSBPreviewShared
       ?.createAutoRefresher({
@@ -198,5 +199,6 @@
     console.error(error);
     const chart = document.getElementById('historyChart');
     if (chart) chart.innerHTML = '';
+    window.WSBPreviewShared?.markReady?.({ filename: "node_count.png" });
   });
 }());

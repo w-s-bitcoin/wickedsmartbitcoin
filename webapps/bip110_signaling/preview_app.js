@@ -208,6 +208,7 @@
     window.WSBPreviewShared?.initThemeSync({ onThemeChanged: render });
     await load();
     render();
+    window.WSBPreviewShared?.markReady?.({ filename: "bip110_signaling.png" });
     window.addEventListener("resize", render);
     window.WSBPreviewShared
       ?.createAutoRefresher({

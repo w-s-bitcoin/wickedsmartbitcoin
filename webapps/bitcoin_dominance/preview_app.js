@@ -54,6 +54,38 @@
 
   let cachedRows = null;
 
+  function iconPathForRow(row) {
+    return row['Primary Key']
+      ? `icons/${encodeURIComponent(row['Primary Key'])}.png`
+      : (row['Symbol'] ? `icons/${encodeURIComponent(row['Symbol'].toUpperCase())}.png` : null);
+  }
+
+  function preloadImage(path) {
+    return new Promise(resolve => {
+      if (!path) {
+        resolve();
+        return;
+      }
+      const image = new Image();
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        resolve();
+      };
+      image.onload = finish;
+      image.onerror = finish;
+      image.decoding = 'async';
+      image.src = path;
+      if (image.complete) finish();
+    });
+  }
+
+  function preloadIconImages(rows) {
+    const paths = [...new Set((rows || []).map(iconPathForRow).filter(Boolean))];
+    return Promise.all(paths.map(preloadImage));
+  }
+
   function render() {
     const chartEl = document.getElementById('previewChart');
     if (!chartEl || !cachedRows) return;
@@ -88,9 +120,7 @@
       const barColor = row['Primary Key'] === 'BTCBitcoin'
         ? '#ff9f1c'
         : (row['Is Stable'] ? '#35b56a' : (isLight ? 'rgba(0,0,0,0.28)' : 'rgba(255,255,255,0.34)'));
-      const iconPath = row['Primary Key']
-        ? `icons/${encodeURIComponent(row['Primary Key'])}.png`
-        : (row['Symbol'] ? `icons/${encodeURIComponent(row['Symbol'].toUpperCase())}.png` : null);
+      const iconPath = iconPathForRow(row);
       const rowTop = padT + idx * rowH;
       const barTop = rowTop + Math.round((rowH - barH) / 2);
       const iconTop = rowTop + Math.round((rowH - iconSize) / 2);
@@ -127,13 +157,16 @@
   async function init() {
     window.WSBPreviewShared?.initThemeSync({ onThemeChanged: render });
     await load();
+    await preloadIconImages(cachedRows);
     render();
+    window.WSBPreviewShared?.markReady?.({ filename: "bitcoin_dominance.png" });
     window.addEventListener('resize', render);
     window.WSBPreviewShared
       ?.createAutoRefresher({
         intervalMs: AUTO_REFRESH_MS,
         refresh: async () => {
           await load();
+          await preloadIconImages(cachedRows);
           render();
         },
       })

@@ -217,6 +217,7 @@
     window.WSBPreviewShared?.initThemeSync({ onThemeChanged: render });
     await load();
     render();
+    window.WSBPreviewShared?.markReady?.({ filename: "dca_cost_basis.png" });
     window.addEventListener("resize", render);
     window.WSBPreviewShared
       ?.createAutoRefresher({
@@ -232,5 +233,6 @@
   init().catch((error) => {
     console.error(error);
     renderCardPreviewFromRows([]);
+    window.WSBPreviewShared?.markReady?.({ filename: "dca_cost_basis.png" });
   });
 }());
