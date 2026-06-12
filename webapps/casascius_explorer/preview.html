@@ -80,7 +80,7 @@
       z-index: 1;
       width: 100%;
       height: 100%;
-      opacity: 1;
+      opacity: 0;
       transform-style: preserve-3d;
       transform: rotateX(var(--tilt)) rotateY(var(--spin));
       will-change: transform;
@@ -88,6 +88,7 @@
 
     .stage.is-ready .model {
       --tilt: var(--spin-tilt);
+      opacity: 1;
       animation: casascius-spin 6s linear infinite;
     }
 
@@ -245,12 +246,12 @@
       }
 
       async function startWhenComplete() {
-        buildCoinEdges();
         await Promise.all([
           waitForImage(frontImageSrc),
-          waitForImage(backImageSrc),
-          nextPaint()
+          waitForImage(backImageSrc)
         ]);
+        buildCoinEdges();
+        await nextPaint();
         stage?.classList.add('is-ready');
       }
 
