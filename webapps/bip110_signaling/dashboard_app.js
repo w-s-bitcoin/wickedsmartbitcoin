@@ -4397,7 +4397,9 @@
       if (!rows.length) {
         const empty = document.createElement("div");
         empty.className = "leaderboard-empty";
-        empty.textContent = `No signaling miner attribution is available for ${windowLabel}.`;
+        empty.textContent = total === 0
+          ? `No BIP-110 signaling blocks were found for ${windowLabel}.`
+          : `No signaling miner attribution is available for ${windowLabel}.`;
         leaderboardContent.appendChild(empty);
         return;
       }
