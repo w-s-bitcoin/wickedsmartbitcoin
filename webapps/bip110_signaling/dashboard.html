@@ -900,7 +900,8 @@
       transition: opacity 120ms ease, transform 120ms ease;
     }
 
-    .period-grid-btn {
+    .period-grid-btn,
+    .leaderboard-btn {
       width: 24px;
       height: 24px;
       padding: 0;
@@ -914,19 +915,22 @@
       cursor: pointer;
     }
 
-    .period-grid-btn:hover {
+    .period-grid-btn:hover,
+    .leaderboard-btn:hover {
       color: var(--signal);
       border-color: color-mix(in srgb, var(--signal) 55%, var(--line));
       background: var(--surface);
     }
 
-    .period-grid-btn svg {
+    .period-grid-btn svg,
+    .leaderboard-btn svg {
       width: 14px;
       height: 14px;
       display: block;
     }
 
-    .period-grid-overlay {
+    .period-grid-overlay,
+    .leaderboard-overlay {
       position: fixed;
       inset: 0;
       z-index: 120;
@@ -941,11 +945,13 @@
       backdrop-filter: blur(1.5px);
     }
 
-    .period-grid-overlay.show {
+    .period-grid-overlay.show,
+    .leaderboard-overlay.show {
       display: flex;
     }
 
-    .period-grid-dialog {
+    .period-grid-dialog,
+    .leaderboard-dialog {
       width: max-content;
       max-height: 90vh;
       max-width: min(92vw, 1220px);
@@ -957,12 +963,22 @@
       overflow: hidden;
     }
 
+    .leaderboard-dialog {
+      width: min(92vw, 560px);
+      max-width: min(92vw, 560px);
+      display: flex;
+      flex-direction: column;
+    }
+
     .period-grid-dialog:focus,
-    .period-grid-dialog:focus-visible {
+    .period-grid-dialog:focus-visible,
+    .leaderboard-dialog:focus,
+    .leaderboard-dialog:focus-visible {
       outline: none;
     }
 
-    .period-grid-header {
+    .period-grid-header,
+    .leaderboard-header {
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
@@ -971,7 +987,13 @@
       padding: 2px 2px 6px;
     }
 
-    .period-grid-kpis {
+    .leaderboard-header {
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .period-grid-kpis,
+    .leaderboard-kpis {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
@@ -979,7 +1001,29 @@
       flex: 1;
     }
 
-    .period-grid-close {
+    .leaderboard-kpis {
+      margin: 0 2px 10px;
+    }
+
+    .leaderboard-title {
+      color: var(--fg);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 1rem;
+      font-weight: 700;
+      line-height: 1.2;
+      margin: 0;
+    }
+
+    .leaderboard-title-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 0 2px 8px;
+    }
+
+    .period-grid-close,
+    .leaderboard-close {
       width: 30px;
       height: 30px;
       border-radius: 50%;
@@ -997,12 +1041,14 @@
       transition: background 160ms ease, color 160ms ease;
     }
 
-    .period-grid-close:hover {
+    .period-grid-close:hover,
+    .leaderboard-close:hover {
       background: var(--surface-soft);
       color: var(--ink);
     }
 
-    .period-grid-kpis .chip {
+    .period-grid-kpis .chip,
+    .leaderboard-kpis .chip {
       font-size: 0.76rem;
       max-width: 100%;
       overflow: hidden;
@@ -1010,7 +1056,8 @@
       line-height: 1.2;
     }
 
-    .period-grid-kpis .chip-value {
+    .period-grid-kpis .chip-value,
+    .leaderboard-kpis .chip-value {
       color: var(--fg);
     }
 
@@ -1184,8 +1231,208 @@
       outline: none;
     }
 
-    .period-grid-close:focus-visible {
+    .period-grid-close:focus-visible,
+    .leaderboard-close:focus-visible {
       outline: none;
+    }
+
+    .leaderboard-content {
+      overflow: auto;
+      max-height: min(68vh, 620px);
+      padding: 2px;
+    }
+
+    .leaderboard-window-controls {
+      display: inline-flex;
+      flex-wrap: wrap;
+      align-items: stretch;
+      border: 0;
+      border-radius: 0;
+      overflow: visible;
+      min-height: 28px;
+      gap: 0;
+      flex: 1 1 auto;
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    .leaderboard-window-label {
+      display: inline-flex;
+      align-items: center;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.8rem;
+      line-height: 1;
+      margin-right: 6px;
+      white-space: nowrap;
+    }
+
+    .leaderboard-window-btn {
+      appearance: none;
+      -webkit-appearance: none;
+      min-width: 0;
+      height: 28px;
+      border: 1px solid var(--card-border);
+      border-radius: 0;
+      margin-right: -1px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.72rem;
+      line-height: 1;
+      padding: 0 8px;
+      position: relative;
+      z-index: 1;
+      text-align: center;
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: border-color 120ms ease, background 120ms ease, color 120ms ease, box-shadow 120ms ease;
+    }
+
+    .leaderboard-window-btn:first-child {
+      border-top-left-radius: 8px;
+      border-bottom-left-radius: 8px;
+    }
+
+    .leaderboard-window-btn:last-child {
+      border-top-right-radius: 8px;
+      border-bottom-right-radius: 8px;
+      margin-right: 0;
+    }
+
+    .leaderboard-window-btn:hover,
+    .leaderboard-window-btn:focus-visible {
+      color: var(--fg);
+      border-color: rgba(255, 255, 255, 0.35);
+      background: transparent;
+      z-index: 3;
+    }
+
+    .leaderboard-window-btn:focus,
+    .leaderboard-window-btn:focus-visible {
+      outline: none !important;
+      box-shadow: none !important;
+      border-color: var(--card-border);
+      background: transparent;
+      z-index: 1;
+    }
+
+    :root[data-theme="light"] .leaderboard-window-btn:hover,
+    :root[data-theme="light"] .leaderboard-window-btn:focus-visible {
+      border-color: rgba(0, 0, 0, 0.35);
+      background: transparent;
+    }
+
+    .leaderboard-window-btn.is-active {
+      color: #000000;
+      border: 1px solid var(--panel-border-opaque) !important;
+      background: var(--signal);
+      box-shadow: inset 0 0 0 1px var(--panel-border-opaque);
+      text-shadow: none;
+      z-index: 4;
+    }
+
+    .leaderboard-window-btn.is-active:hover,
+    .leaderboard-window-btn.is-active:focus-visible {
+      border-color: var(--panel-border-opaque) !important;
+      background: var(--signal);
+    }
+
+    .leaderboard-empty {
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.86rem;
+      padding: 22px 8px 26px;
+      text-align: center;
+    }
+
+    .leaderboard-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .leaderboard-row {
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      background: var(--surface);
+      padding: 8px 10px;
+    }
+
+    .leaderboard-rank {
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.78rem;
+      text-align: right;
+    }
+
+    .leaderboard-miner {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: 24px minmax(0, 1fr);
+      align-items: center;
+      gap: 8px;
+    }
+
+    .leaderboard-miner-icon {
+      width: 24px;
+      height: 24px;
+      display: block;
+      border-radius: 50%;
+      background: var(--surface-soft);
+    }
+
+    .leaderboard-miner-text {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+
+    .leaderboard-miner-name {
+      color: var(--fg);
+      font-size: 0.88rem;
+      font-weight: 700;
+      line-height: 1.15;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .leaderboard-miner-pool {
+      color: var(--muted);
+      font-size: 0.72rem;
+      line-height: 1.15;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .leaderboard-count {
+      color: var(--fg);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.82rem;
+      font-weight: 700;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .leaderboard-pct {
+      color: var(--muted);
+      display: block;
+      font-size: 0.68rem;
+      font-weight: 500;
+      margin-top: 1px;
     }
 
     .copy-link-btn {
@@ -1393,6 +1640,15 @@
               <rect x="9" y="9" width="6" height="6" rx="1" fill="#ff9800"></rect>
             </svg>
           </button>
+          <button type="button" class="leaderboard-btn" id="leaderboardBtn" aria-label="Show BIP-110 signaling miner leaderboard" data-tooltip="Show signaling miner leaderboard">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M8 21h8"></path>
+              <path d="M12 17v4"></path>
+              <path d="M7 4h10v5a5 5 0 0 1-10 0V4z"></path>
+              <path d="M7 6H4a2 2 0 0 0 2 5h1"></path>
+              <path d="M17 6h3a2 2 0 0 1-2 5h-1"></path>
+            </svg>
+          </button>
           <div class="info-popover" id="vizInfoPopover" role="tooltip">
             This dashboard focuses on miner signaling across each 2,016-block period for BIP-110. Bars show signaling vs non-signaling blocks, markers denote notable releases, and the threshold line tracks the BIP-110 activation target. SegWit signaling periods are included as a historical comparison panel when enabled.
           </div>
@@ -1519,9 +1775,33 @@
       <div class="period-grid-content" id="periodGridContent"></div>
     </div>
   </div>
+  <div class="leaderboard-overlay" id="leaderboardOverlay" aria-hidden="true">
+    <div class="leaderboard-dialog" id="leaderboardDialog" role="dialog" aria-modal="true" aria-label="BIP-110 signaling miner leaderboard" tabindex="-1">
+      <div class="leaderboard-title-row">
+        <h2 class="leaderboard-title">BIP-110 Signaling Leaderboard</h2>
+        <button id="leaderboardClose" type="button" class="leaderboard-close" aria-label="Close leaderboard overlay">&times;</button>
+      </div>
+      <div class="leaderboard-header">
+        <div class="leaderboard-window-controls" role="group" aria-label="Leaderboard time window">
+          <span class="leaderboard-window-label">Period</span>
+          <button type="button" class="leaderboard-window-btn is-active" data-leaderboard-window="all" aria-pressed="true">All</button>
+          <button type="button" class="leaderboard-window-btn" data-leaderboard-window="current" aria-pressed="false">Current</button>
+          <button type="button" class="leaderboard-window-btn" data-leaderboard-window="last" aria-pressed="false">Last</button>
+          <button type="button" class="leaderboard-window-btn" data-leaderboard-window="past14d" aria-pressed="false">Past 14D</button>
+          <button type="button" class="leaderboard-window-btn" data-leaderboard-window="past7d" aria-pressed="false">Past 7D</button>
+          <button type="button" class="leaderboard-window-btn" data-leaderboard-window="past24h" aria-pressed="false">Past 24H</button>
+        </div>
+      </div>
+      <div class="leaderboard-kpis">
+        <div class="chip leaderboard-kpi"><span class="chip-label">Signaling Blocks</span> <span class="chip-value" id="leaderboardTotalValue">-</span></div>
+        <div class="chip leaderboard-kpi"><span class="chip-label">Ranked Miners</span> <span class="chip-value" id="leaderboardMinerCountValue">-</span></div>
+      </div>
+      <div class="leaderboard-content" id="leaderboardContent"></div>
+    </div>
+  </div>
   <div class="tooltip" id="periodGridTooltip"></div>
 
   <script src="../../js/11_dashboard_timezone_preferences.js"></script>
-  <script src="dashboard_app.js?v=20260505c"></script>
+  <script src="dashboard_app.js?v=20260612-leaderboard-periods"></script>
 </body>
 </html>
