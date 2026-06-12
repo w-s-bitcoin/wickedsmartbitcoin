@@ -123,13 +123,15 @@
   function markReady(options = {}) {
     const filename = String(options.filename || "").trim();
     const delayFrames = Math.max(1, Number(options.frames) || 2);
+    const repeatCount = Math.max(1, Number(options.repeatCount) || 5);
+    const repeatMs = Math.max(100, Number(options.repeatMs) || 500);
+    let sentCount = 0;
     let remainingFrames = delayFrames;
-    const send = () => {
-      if (remainingFrames > 0) {
-        remainingFrames -= 1;
-        requestAnimationFrame(send);
-        return;
-      }
+    const postReady = () => {
+      sentCount += 1;
+      try {
+        document.documentElement.dataset.previewReady = "1";
+      } catch (_) {}
       try {
         const targetOrigin = window.location.protocol === "file:" ? "*" : window.location.origin;
         window.parent?.postMessage(
@@ -140,8 +142,19 @@
           targetOrigin
         );
       } catch (_) {}
+      if (sentCount < repeatCount) {
+        window.setTimeout(postReady, repeatMs);
+      }
     };
-    requestAnimationFrame(send);
+    const waitForPaint = () => {
+      if (remainingFrames > 0) {
+        remainingFrames -= 1;
+        requestAnimationFrame(waitForPaint);
+        return;
+      }
+      postReady();
+    };
+    requestAnimationFrame(waitForPaint);
   }
 
   window.WSBPreviewShared = {

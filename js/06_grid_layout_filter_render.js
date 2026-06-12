@@ -54,6 +54,7 @@ const DASHBOARD_CARD_PREVIEW_SPECS = Object.freeze({
   },
 });
 
+const DASHBOARD_CARD_PREVIEW_CACHE_VERSION = '20260612-grid-ready-v2';
 let dashboardPreviewResizeObserver = null;
 let dashboardPreviewWindowResizeBound = false;
 const GRID_FOCUS_RESTORE_KEY = 'wsb_pending_grid_focus_filename_v1';
@@ -62,6 +63,19 @@ let layoutBeforeNarrowForce = null;
 
 function getDashboardCardPreviewSpec(filename) {
   return DASHBOARD_CARD_PREVIEW_SPECS[String(filename || '').trim().toLowerCase()] || null;
+}
+
+function getDashboardPreviewUrl(url, paramName = 'preview') {
+  const raw = String(url || '').trim();
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw, window.location.href);
+    parsed.searchParams.set(paramName, DASHBOARD_CARD_PREVIEW_CACHE_VERSION);
+    return parsed.href;
+  } catch (_) {
+    const separator = raw.includes('?') ? '&' : '?';
+    return `${raw}${separator}${encodeURIComponent(paramName)}=${encodeURIComponent(DASHBOARD_CARD_PREVIEW_CACHE_VERSION)}`;
+  }
 }
 
 function updateDashboardPreviewScale(card) {
@@ -128,6 +142,31 @@ async function markGridCardReady(card, { loaded = true } = {}) {
     card.img.style.opacity = '';
     card.img.dataset.loaded = loaded ? '1' : '0';
   }
+}
+
+function startDashboardPreviewReadyPolling(card) {
+  const iframe = card?.preview?.iframe;
+  if (!iframe) return;
+  const token = Symbol('dashboard-preview-ready-poll');
+  card.preview.readyPollToken = token;
+  const startedAt = Date.now();
+  const poll = () => {
+    if (card.preview.readyPollToken !== token) return;
+    if (!iframe.isConnected || card.wrapper?.classList.contains('card-ready')) return;
+    try {
+      const doc = iframe.contentDocument;
+      if (doc?.documentElement?.dataset?.previewReady === '1') {
+        markGridCardReady(card);
+        return;
+      }
+    } catch (_) {
+      return;
+    }
+    if (Date.now() - startedAt < 20000) {
+      window.setTimeout(poll, 100);
+    }
+  };
+  window.setTimeout(poll, 0);
 }
 
 function setupDashboardPreviewReadyListener() {
@@ -243,13 +282,15 @@ function buildGridOnce(){
       scene.style.height = `${previewSpec.height}px`;
       const iframe = document.createElement('iframe');
       iframe.className = 'dashboard-preview-frame';
-      iframe.src = previewSpec.url;
+      iframe.src = getDashboardPreviewUrl(previewSpec.url);
       iframe.dataset.baseSrc = previewSpec.url;
       iframe.dataset.filename = filename;
       iframe.title = `${title || filename} preview`;
       iframe.setAttribute('aria-hidden', 'true');
       iframe.tabIndex = -1;
       iframe.addEventListener('load', () => {
+        const card = cardByFilename.get(_cardKey(filename));
+        startDashboardPreviewReadyPolling(card);
         if (typeof postThemeToPreviewFrames === 'function') {
           postThemeToPreviewFrames(
             typeof getStoredDashboardTheme === 'function' ? getStoredDashboardTheme() : 'dark'
