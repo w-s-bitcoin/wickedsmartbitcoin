@@ -233,7 +233,9 @@ function reloadHomepageDashboardCard(filename) {
             setGridCardLoading(card);
         }
         const baseSrc = iframe.dataset.baseSrc || card.preview.url || iframe.getAttribute("src") || "";
-        iframe.src = withRefreshParam(baseSrc, "refresh");
+        iframe.src = typeof getDashboardPreviewUrl === "function"
+            ? getDashboardPreviewUrl(baseSrc, "refresh")
+            : withRefreshParam(baseSrc, "refresh");
     }
 
     const currentModalFilename = String(modalImg?.dataset?.filename || "").trim().toLowerCase();

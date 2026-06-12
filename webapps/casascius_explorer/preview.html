@@ -188,7 +188,7 @@
       </div>
     </div>
   </main>
-  <script src="../shared/preview_shared.js"></script>
+  <script src="../shared/preview_shared.js?v=20260612-grid-ready-v2"></script>
   <script>
     (() => {
       window.WSBPreviewShared?.initThemeSync?.();
@@ -253,6 +253,7 @@
         buildCoinEdges();
         await nextPaint();
         stage?.classList.add('is-ready');
+        document.documentElement.dataset.previewReady = '1';
         window.WSBPreviewShared?.markReady?.({ filename: 'casascius_explorer.png' });
       }
 
