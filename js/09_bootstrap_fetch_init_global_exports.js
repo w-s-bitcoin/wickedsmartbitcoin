@@ -229,6 +229,9 @@ function reloadHomepageDashboardCard(filename) {
     const card = cardByFilename.get(key);
     const iframe = card?.preview?.iframe;
     if (iframe) {
+        if (typeof setGridCardLoading === "function") {
+            setGridCardLoading(card);
+        }
         const baseSrc = iframe.dataset.baseSrc || card.preview.url || iframe.getAttribute("src") || "";
         iframe.src = withRefreshParam(baseSrc, "refresh");
     }

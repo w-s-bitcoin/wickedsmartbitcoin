@@ -120,8 +120,33 @@
     };
   }
 
+  function markReady(options = {}) {
+    const filename = String(options.filename || "").trim();
+    const delayFrames = Math.max(1, Number(options.frames) || 2);
+    let remainingFrames = delayFrames;
+    const send = () => {
+      if (remainingFrames > 0) {
+        remainingFrames -= 1;
+        requestAnimationFrame(send);
+        return;
+      }
+      try {
+        const targetOrigin = window.location.protocol === "file:" ? "*" : window.location.origin;
+        window.parent?.postMessage(
+          {
+            type: "wsb-preview-ready",
+            filename,
+          },
+          targetOrigin
+        );
+      } catch (_) {}
+    };
+    requestAnimationFrame(send);
+  }
+
   window.WSBPreviewShared = {
     initThemeSync,
     createAutoRefresher,
+    markReady,
   };
 }());

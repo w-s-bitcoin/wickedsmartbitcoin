@@ -77,13 +77,9 @@
 
   fetch(DATA_URL, { cache: "force-cache" }).then((r) => r.text()).then((text) => {
     const rows = parseCsv(text);
+    window.WSBPreviewShared?.initThemeSync?.({ onThemeChanged: () => draw(rows) });
     draw(rows);
+    window.WSBPreviewShared?.markReady?.({ filename: "patoshi_pattern.png" });
     window.addEventListener("resize", () => draw(rows));
-    window.addEventListener("message", (event) => {
-      if (event.data?.type === "quantum-dashboard-theme") {
-        document.documentElement.dataset.theme = event.data.theme;
-        draw(rows);
-      }
-    });
   });
 })();
