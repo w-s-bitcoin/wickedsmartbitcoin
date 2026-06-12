@@ -830,6 +830,7 @@
     transform: scale(var(--zoom));
     transform-origin: center center;
     cursor: grab;
+    touch-action: none;
     transition:
       transform .42s cubic-bezier(.22, 1, .36, 1),
       margin-right .42s cubic-bezier(.22, 1, .36, 1),
@@ -908,6 +909,7 @@
     transform-origin: center center;
     transition: transform .42s cubic-bezier(.22, 1, .36, 1);
     cursor: grab;
+    touch-action: none;
     pointer-events: auto;
   }
   .graded-case-scene.dragging {
@@ -938,6 +940,7 @@
     transform-origin: center center;
     transition: transform .42s cubic-bezier(.22, 1, .36, 1);
     cursor: default;
+    touch-action: none;
     pointer-events: auto;
   }
   .app.graded-case-interaction-hover:not(.all-items-mode) {

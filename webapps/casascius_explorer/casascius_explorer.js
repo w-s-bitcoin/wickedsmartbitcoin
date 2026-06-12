@@ -8096,6 +8096,27 @@
     return true;
   }
 
+  function handleSingleViewTap(e, targetScene) {
+    if (!e || e.pointerType === 'mouse' || allItemsMode) return false;
+    const singleViewCommandTarget = targetScene === scene
+      || (targetScene === gradedCaseScene && gradedCaseModeActive());
+    if (!singleViewCommandTarget) return false;
+    const now = e.timeStamp || performance.now();
+    const doubleTap = lastModelTapTarget === targetScene
+      && now - lastModelTapTime < 340
+      && Math.hypot(e.clientX - lastModelTapX, e.clientY - lastModelTapY) < 28;
+    lastModelTapTime = now;
+    lastModelTapX = e.clientX;
+    lastModelTapY = e.clientY;
+    lastModelTapTarget = targetScene;
+    if (!doubleTap) return false;
+    lastModelTapTime = 0;
+    lastModelTapTarget = null;
+    e.preventDefault();
+    resetSingleViewInteraction(targetScene);
+    return true;
+  }
+
   function gradedCasePanExcludedTarget(target) {
     if (!target?.closest) return false;
     return Boolean(target.closest([
@@ -8235,10 +8256,7 @@
       e.preventDefault();
     }
     if (endedAsTap) {
-      lastModelTapTime = e.timeStamp;
-      lastModelTapX = e.clientX;
-      lastModelTapY = e.clientY;
-      lastModelTapTarget = finishedTarget;
+      handleSingleViewTap(e, finishedTarget);
     }
     saveViewState(true);
   }
