@@ -311,7 +311,7 @@
     const leaderboardDialog = document.getElementById("leaderboardDialog");
     const leaderboardClose = document.getElementById("leaderboardClose");
     const leaderboardTotalValue = document.getElementById("leaderboardTotalValue");
-    const leaderboardMinerCountValue = document.getElementById("leaderboardMinerCountValue");
+    const leaderboardRangeValue = document.getElementById("leaderboardRangeValue");
     const leaderboardWindowButtons = Array.from(document.querySelectorAll("[data-leaderboard-window]"));
     const leaderboardContent = document.getElementById("leaderboardContent");
     const vizInfoBtn = document.getElementById("vizInfoBtn");
@@ -4327,19 +4327,43 @@
       return null;
     }
 
-    function buildBip110LeaderboardRows() {
-      const minerMap = getBip110LeaderboardMinerMap();
-      const blocks = state.data?.bip110Blocks || state.dynamicData?.bip110Blocks || [];
+    function getLeaderboardFilteredBlocks(blocks) {
       const windowStartMs = getLeaderboardWindowStartMs(blocks);
       const periodFilter = getLeaderboardPeriodFilter();
-      const signalingBlocks = blocks.filter((block) => {
-        if (Number(block?.is_signaling) !== 1) return false;
+      return blocks.filter((block) => {
         if (periodFilter != null) return Number(block?.period) === periodFilter;
         if (windowStartMs == null) return true;
         const blockTimeMs = Number(block?.block_time || 0) * 1000;
         return Number.isFinite(blockTimeMs) && blockTimeMs >= windowStartMs;
       });
+    }
+
+    function formatLeaderboardRange(blocks) {
+      if (!Array.isArray(blocks) || blocks.length === 0) return "-";
+
+      const heights = blocks
+        .map((block) => Number(block?.height))
+        .filter((height) => Number.isFinite(height));
+      if (!heights.length) return "-";
+      const minHeight = Math.min(...heights);
+      const maxHeight = Math.max(...heights);
+      return `${minHeight.toLocaleString()} - ${maxHeight.toLocaleString()}`;
+    }
+
+    function formatLeaderboardSignalingValue(signalingBlocks, totalBlocks) {
+      const signalingCount = Number(signalingBlocks) || 0;
+      const blockCount = Number(totalBlocks) || 0;
+      const percentText = blockCount > 0 ? pctLabel(signalingCount, blockCount) : "0.0%";
+      return `<span class="chip-value-signal">${signalingCount.toLocaleString()}</span> / ${blockCount.toLocaleString()} (${percentText})`;
+    }
+
+    function buildBip110LeaderboardRows() {
+      const minerMap = getBip110LeaderboardMinerMap();
+      const blocks = state.data?.bip110Blocks || state.dynamicData?.bip110Blocks || [];
+      const filteredBlocks = getLeaderboardFilteredBlocks(blocks);
+      const signalingBlocks = filteredBlocks.filter((block) => Number(block?.is_signaling) === 1);
       const total = signalingBlocks.length;
+      const blockTotal = filteredBlocks.length;
       const counts = new Map();
 
       signalingBlocks.forEach((block) => {
@@ -4370,7 +4394,13 @@
           pct: total > 0 ? row.count / total : 0,
         }));
 
-      return { total, rows, windowLabel: getLeaderboardWindowLabel() };
+      return {
+        total,
+        blockTotal,
+        rows,
+        windowLabel: getLeaderboardWindowLabel(),
+        rangeLabel: formatLeaderboardRange(filteredBlocks),
+      };
     }
 
     function setMinerIconSource(img, slug) {
@@ -4389,9 +4419,9 @@
     function renderBip110LeaderboardOverlay() {
       if (!leaderboardContent) return;
       updateLeaderboardWindowButtons();
-      const { total, rows, windowLabel } = buildBip110LeaderboardRows();
-      if (leaderboardTotalValue) leaderboardTotalValue.textContent = total.toLocaleString();
-      if (leaderboardMinerCountValue) leaderboardMinerCountValue.textContent = rows.length.toLocaleString();
+      const { total, blockTotal, rows, windowLabel, rangeLabel } = buildBip110LeaderboardRows();
+      if (leaderboardTotalValue) leaderboardTotalValue.innerHTML = formatLeaderboardSignalingValue(total, blockTotal);
+      if (leaderboardRangeValue) leaderboardRangeValue.textContent = rangeLabel;
       leaderboardContent.innerHTML = "";
 
       if (!rows.length) {
