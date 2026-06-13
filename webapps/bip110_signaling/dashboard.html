@@ -1243,9 +1243,10 @@
     }
 
     .leaderboard-window-controls {
-      display: inline-flex;
+      display: flex;
+      flex-direction: column;
       flex-wrap: wrap;
-      align-items: stretch;
+      align-items: flex-start;
       border: 0;
       border-radius: 0;
       overflow: visible;
@@ -1263,8 +1264,15 @@
       font-family: "IBM Plex Mono", monospace;
       font-size: 0.8rem;
       line-height: 1;
-      margin-right: 6px;
+      margin: 0 0 6px;
       white-space: nowrap;
+    }
+
+    .leaderboard-window-button-panel {
+      display: inline-flex;
+      flex-wrap: wrap;
+      align-items: stretch;
+      max-width: 100%;
     }
 
     .leaderboard-window-btn {
@@ -1784,17 +1792,19 @@
       <div class="leaderboard-header">
         <div class="leaderboard-window-controls" role="group" aria-label="Leaderboard time window">
           <span class="leaderboard-window-label">Period</span>
-          <button type="button" class="leaderboard-window-btn is-active" data-leaderboard-window="all" aria-pressed="true">All</button>
-          <button type="button" class="leaderboard-window-btn" data-leaderboard-window="current" aria-pressed="false">Current</button>
-          <button type="button" class="leaderboard-window-btn" data-leaderboard-window="last" aria-pressed="false">Last</button>
-          <button type="button" class="leaderboard-window-btn" data-leaderboard-window="past14d" aria-pressed="false">Past 14D</button>
-          <button type="button" class="leaderboard-window-btn" data-leaderboard-window="past7d" aria-pressed="false">Past 7D</button>
-          <button type="button" class="leaderboard-window-btn" data-leaderboard-window="past24h" aria-pressed="false">Past 24H</button>
+          <div class="leaderboard-window-button-panel">
+            <button type="button" class="leaderboard-window-btn is-active" data-leaderboard-window="all" aria-pressed="true">All</button>
+            <button type="button" class="leaderboard-window-btn" data-leaderboard-window="current" aria-pressed="false">Current</button>
+            <button type="button" class="leaderboard-window-btn" data-leaderboard-window="last" aria-pressed="false">Last</button>
+            <button type="button" class="leaderboard-window-btn" data-leaderboard-window="past14d" aria-pressed="false">Past 14D</button>
+            <button type="button" class="leaderboard-window-btn" data-leaderboard-window="past7d" aria-pressed="false">Past 7D</button>
+            <button type="button" class="leaderboard-window-btn" data-leaderboard-window="past24h" aria-pressed="false">Past 24H</button>
+          </div>
         </div>
       </div>
       <div class="leaderboard-kpis">
-        <div class="chip leaderboard-kpi"><span class="chip-label">Signaling Blocks</span> <span class="chip-value" id="leaderboardTotalValue">-</span></div>
-        <div class="chip leaderboard-kpi"><span class="chip-label">Ranked Miners</span> <span class="chip-value" id="leaderboardMinerCountValue">-</span></div>
+        <div class="chip leaderboard-kpi"><span class="chip-label">Height Range</span> <span class="chip-value" id="leaderboardRangeValue">-</span></div>
+        <div class="chip leaderboard-kpi"><span class="chip-label">Signaling</span> <span class="chip-value" id="leaderboardTotalValue">-</span></div>
       </div>
       <div class="leaderboard-content" id="leaderboardContent"></div>
     </div>
