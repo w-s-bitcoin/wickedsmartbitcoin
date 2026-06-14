@@ -16,6 +16,15 @@ function updateModalSafePadding() {
 
 let modalNavigationFilenamesSnapshot = [];
 
+function flushCasasciusEmbedViewState() {
+    if (!modalEmbed) return;
+    const src = String(modalEmbed.getAttribute?.('src') || modalEmbed.src || '');
+    if (!src.includes('casascius_explorer/dashboard.html')) return;
+    try {
+        modalEmbed.contentWindow?.postMessage({ type: 'casascius-flush-view-state' }, window.location.origin);
+    } catch (_) {}
+}
+
 function parseStoredBooleanForModalNav(value) {
     if (typeof value === 'boolean') return value;
     const normalized = String(value == null ? '' : value).trim().toLowerCase();
@@ -205,6 +214,7 @@ function openModalByIndex(index) {
         modalContentMode = 'image';
         modal.classList.remove('embed-active');
         if (modalEmbedWrap) modalEmbedWrap.hidden = true;
+        flushCasasciusEmbedViewState();
         if (modalEmbed) modalEmbed.src = 'about:blank';
         showModalSpinner();
         const token = ++modalImgLoadToken;
@@ -310,6 +320,7 @@ function closeModal() {
     document.body?.classList?.remove('dca-comparison-dashboard-expanded');
     document.body?.classList?.remove('patoshi-pattern-dashboard-expanded');
     if (modalEmbedWrap) modalEmbedWrap.hidden = true;
+    flushCasasciusEmbedViewState();
     if (modalEmbed) modalEmbed.src = 'about:blank';
     resumeDeferredGridLoadingIfNeeded();
     if (modalDlBtn) modalDlBtn.style.display = '';

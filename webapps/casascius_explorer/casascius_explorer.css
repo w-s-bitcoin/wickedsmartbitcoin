@@ -2475,6 +2475,30 @@
     padding-top: 13px;
     border-top: 1px solid rgba(248,241,223,.14);
   }
+  .selected-price-chart {
+    display: block;
+    width: 100%;
+    height: 118px;
+    margin-top: 12px;
+    padding: 0;
+    border: 1px solid rgba(248,241,223,.16);
+    border-radius: 4px;
+    overflow: hidden;
+    background: rgba(0,0,0,.08);
+    cursor: zoom-in;
+  }
+  :root.balance-chart-open .selected-price-chart {
+    cursor: zoom-out;
+  }
+  .selected-price-chart:focus,
+  .selected-price-chart:focus-visible {
+    outline: none;
+  }
+  .selected-price-chart-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
   .selected-coin-address {
     display: grid;
     grid-template-columns: 2px 24px minmax(0, 1fr);
@@ -2856,7 +2880,7 @@
     padding: 8px 10px;
     border: 1px solid rgba(248,241,223,.18);
     border-radius: 6px;
-    background: transparent;
+    background: #000;
     color: #f8f1df;
     font-size: 12px;
     line-height: 1.35;
@@ -2887,6 +2911,12 @@
   }
   .balance-chart-tooltip-swatch-redeemed {
     background: #e05243;
+  }
+  .balance-chart-tooltip-swatch-price-funded {
+    background: var(--active-orange);
+  }
+  .balance-chart-tooltip-swatch-price-premium {
+    background: #8f98a3;
   }
   .hud {
     width: 100%;
@@ -3573,7 +3603,7 @@
   }
   :root[data-theme="light"] .balance-chart-tooltip {
     border-color: var(--casascius-light-line);
-    background: rgba(255, 251, 242, .9);
+    background: #fffbf2;
     color: var(--casascius-light-ink);
     box-shadow: none;
   }
@@ -3589,6 +3619,10 @@
   :root[data-theme="light"] .data-panel-right .info-table td,
   :root[data-theme="light"] .data-panel-right .selected-coin-detail {
     border-color: rgba(88, 62, 28, .28);
+  }
+  :root[data-theme="light"] .selected-price-chart {
+    border-color: var(--casascius-light-line);
+    background: rgba(255, 251, 242, .5);
   }
   :root[data-theme="light"] .shortcut-row {
     border-top-color: rgba(88, 62, 28, .2);
