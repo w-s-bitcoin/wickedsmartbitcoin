@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CSV_PATH = ROOT / "data" / "casascius_explorer.csv"
 STATE_PATH = ROOT / "data" / "casascius_explorer_update_state.json"
-ENV_PATH = ROOT.parent.parent / ".env"
+ENV_PATH = Path(os.getenv("CASASCIUS_EXPLORER_ENV_FILE", str(ROOT.parent.parent / ".env"))).expanduser()
 RIGHT_PANEL_SCRIPT = ROOT / "scripts" / "generate_right_panel_data.py"
 ASSETS_DIR = ROOT / "assets"
 SATOSHIS_PER_BTC = Decimal("100000000")
@@ -413,7 +413,11 @@ def main():
         if args.dry_run:
             print(f"dry run: no new blocks after {from_height}; affected 0, changed 0")
         else:
-            write_state(args.state, new_state)
+            if (
+                int_or_none(state.get("last_checked_height")) != to_height
+                or state.get("last_checked_block_time") != tip_time
+            ):
+                write_state(args.state, new_state)
             print(f"no new blocks after {from_height}")
             print("affected addresses: 0")
             print("changed CSV rows: 0")
