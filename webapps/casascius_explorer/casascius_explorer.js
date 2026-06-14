@@ -116,9 +116,12 @@
   const STORAGE_QUARTER_COMPARISON = 'casasciusSpinnerQuarterComparison';
   const STORAGE_PANEL_STATE = 'casasciusSpinnerPanelState';
   const STORAGE_BALANCE_CHART_OPEN = 'casasciusSpinnerBalanceChartOpen';
+  const STORAGE_CHART_MODAL_MODE = 'casasciusSpinnerChartModalMode';
   const LEFT_PANEL_MODES = ['recent', 'active', 'graded'];
   const LEFT_PANEL_MODE_TITLES = { recent: 'Redeemed', active: 'Active', graded: 'Graded' };
   const STORAGE_BALANCE_CHART_UNIT = 'casasciusSpinnerBalanceChartUnit';
+  const STORAGE_PRICE_CHART_UNIT = 'casasciusSpinnerPriceChartUnit';
+  const STORAGE_PRICE_CHART_VISIBLE_GROUPS = 'casasciusSpinnerPriceChartVisibleGroups';
   const STORAGE_BALANCE_CHART_BACKGROUND_HIDDEN = 'casasciusSpinnerBalanceChartBackgroundHidden';
   const STORAGE_BALANCE_CHART_VISIBLE_SERIES = 'casasciusSpinnerBalanceChartVisibleSeries';
   const STORAGE_ALL_ITEMS_CROSSHAIR = 'casasciusSpinnerAllItemsCrosshair';
@@ -133,6 +136,7 @@
   const DEFAULT_ACTIVE_SLUG = 'all:coins-bars';
   const TRACKER_CSV_URL = 'data/casascius_explorer.csv';
   const GRADED_CSV_URL = 'data/casascius_graded.csv';
+  const SERIES_PRICE_CSV_URL = 'data/casascius_coin_series_dates_prices.csv';
   const NGC_GRADED_MEDIA_DEFAULTS = {
     imageWidthPx: 2113,
     imageHeightPx: 3010,
@@ -184,6 +188,12 @@
   const GRADED_UNFUNDED_SLUGS_BY_ADDRESS = {
     '15eTzCSj3G5gngyFYeztApydy1xNyh4pz3': 'cas_1btc_2011_s1'
   };
+  const S2_TEN_SILVER_VARIANT_SLUGS_BY_ADDRESS = {
+    '1Agk3CAk2QbDwENywK6mMKB5fP2XTe8FUt': 'cas_10btc_2012_silver'
+  };
+  const S3_ONE_SILVER_VARIANT_SLUGS_BY_ADDRESS = {
+    '1Ag6z4rQCA3czTJUYb4qKbtZrnKyecC8RK': 'cas_1btc_2013_gold_rim_silver'
+  };
   const DAILY_PRICE_CSV_URL = '../../assets/daily_price.csv';
   const ALL_ITEMS_GROUP_KEY = 'all:coins-bars';
   const ALL_ITEMS_LABEL = 'All Coins & Bars';
@@ -234,7 +244,7 @@
   const BAR_EDGE_SEGMENT_OVERLAP_PX = 1.25;
   const BAR_BOTTOM_EDGE_INSET_RATIO = 0;
   const BALANCE_CHART_SERIES = [
-    { key: 'minted', label: 'Minted', color: '#ff9900', defaultVisible: false },
+    { key: 'minted', label: 'Funded', color: '#ff9900', defaultVisible: false },
     { key: 'active', label: 'Active', color: '#38c172', defaultVisible: true },
     { key: 'redeemed', label: 'Redeemed', color: '#e05243', defaultVisible: true }
   ];
@@ -379,6 +389,20 @@
     } catch (_) {}
   }
 
+  function readChartModalMode() {
+    try {
+      return localStorage.getItem(STORAGE_CHART_MODAL_MODE) === 'price' ? 'price' : 'balance';
+    } catch (_) {
+      return 'balance';
+    }
+  }
+
+  function saveChartModalMode(mode) {
+    try {
+      localStorage.setItem(STORAGE_CHART_MODAL_MODE, mode === 'price' ? 'price' : 'balance');
+    } catch (_) {}
+  }
+
   function readBalanceChartUnit() {
     try {
       return localStorage.getItem(STORAGE_BALANCE_CHART_UNIT) === 'usd' ? 'usd' : 'btc';
@@ -390,6 +414,44 @@
   function saveBalanceChartUnit(unit) {
     try {
       localStorage.setItem(STORAGE_BALANCE_CHART_UNIT, unit === 'usd' ? 'usd' : 'btc');
+    } catch (_) {}
+  }
+
+  function readPriceChartUnit() {
+    try {
+      return localStorage.getItem(STORAGE_PRICE_CHART_UNIT) === 'usd' ? 'usd' : 'btc';
+    } catch (_) {
+      return 'btc';
+    }
+  }
+
+  function savePriceChartUnit(unit) {
+    try {
+      localStorage.setItem(STORAGE_PRICE_CHART_UNIT, unit === 'usd' ? 'usd' : 'btc');
+    } catch (_) {}
+  }
+
+  function defaultPriceChartVisibleGroups() {
+    return { funded: true, premium: true };
+  }
+
+  function readPriceChartVisibleGroups() {
+    const defaults = defaultPriceChartVisibleGroups();
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_PRICE_CHART_VISIBLE_GROUPS) || 'null');
+      if (!saved || typeof saved !== 'object') return defaults;
+      return {
+        funded: typeof saved.funded === 'boolean' ? saved.funded : defaults.funded,
+        premium: typeof saved.premium === 'boolean' ? saved.premium : defaults.premium
+      };
+    } catch (_) {
+      return defaults;
+    }
+  }
+
+  function savePriceChartVisibleGroups() {
+    try {
+      localStorage.setItem(STORAGE_PRICE_CHART_VISIBLE_GROUPS, JSON.stringify(priceChartVisibleGroups));
     } catch (_) {}
   }
 
@@ -1361,6 +1423,8 @@
   let allItemsExtraScene = null;
   let versionsCollapsed = readVersionsCollapsed();
   const savedPanelState = readPanelState();
+  const savedChartOpen = readBalanceChartOpen();
+  const savedChartModalMode = readChartModalMode();
   let leftPanelOpen = savedPanelState.left;
   let bottomPanelOpen = savedPanelState.bottom;
   let rightPanelOpen = savedPanelState.right;
@@ -1386,7 +1450,9 @@
   let gradedMediaMode = savedGradedMediaMode;
   let gradedMediaAddress = '';
   let gradedCaseStyle = 'ngc';
-  if (!allItemsMode && savedGradedMediaMode !== 'model' && savedGradedMediaSelection?.address) {
+  if (!allItemsMode
+    && savedGradedMediaSelection?.address
+    && (savedGradedMediaMode !== 'model' || (savedChartOpen && savedChartModalMode === 'price'))) {
     leftPanelMode = savedGradedMediaSelection.mode;
     selectedLeftPanelAddressByMode[leftPanelMode] = savedGradedMediaSelection.address;
     pendingSearchSelection = {
@@ -1395,10 +1461,13 @@
     };
   }
   let balanceChartUnit = readBalanceChartUnit();
+  let priceChartUnit = readPriceChartUnit();
   let balanceChartBackgroundHidden = readBalanceChartBackgroundHidden();
   let balanceChartBackgroundHideDeferred = false;
   let balanceChartHoverPoint = null;
+  let activeChartModalMode = savedChartOpen ? savedChartModalMode : 'balance';
   const balanceChartVisibleSeries = readBalanceChartVisibleSeries();
+  const priceChartVisibleGroups = readPriceChartVisibleGroups();
   let panelRenderToken = 0;
   let trackerIndexPromise = null;
   let unfundedIndexPromise = null;
@@ -1407,6 +1476,9 @@
   let dataPanelsRefreshQueued = false;
   let dailyPriceIndexPromise = null;
   let dailyPriceIndexCache = null;
+  let seriesPriceIndexPromise = null;
+  let seriesPriceIndexCache = null;
+  let currentTrackerEntries = [];
   const leftPanelRowsCache = new Map();
   const smoothEdgePaletteCache = new Map();
   const barEdgeTemplateCache = new Map();
@@ -1642,9 +1714,20 @@
     return min === max ? btcDenominationText(min) : `${btcDenominationText(min)} - ${btcDenominationText(max)}`;
   }
 
+  function diyBarLoadedValue(entry) {
+    const values = [entry?.value, entry?.balance].filter(Number.isFinite);
+    return values.length ? Math.max(...values) : null;
+  }
+
+  function entryDenominationText(entry, coin = null) {
+    const slug = coin?.slug || entry?.slug;
+    if (slug === 'cas_bar_diy_gold_s2') return btcDenominationText(diyBarLoadedValue(entry));
+    return formatBtc(entry?.value);
+  }
+
   function denominationInfoText(coin, rows = []) {
     if (coin?.slug === 'cas_bar_diy_gold_s2') {
-      return btcDenominationRangeText(rows.map(entry => entry.value));
+      return btcDenominationRangeText(rows.map(diyBarLoadedValue));
     }
     const denomination = denominationValue(coin);
     return Number.isFinite(denomination) ? `${mmText(denomination)} BTC` : '—';
@@ -1830,6 +1913,8 @@
 
   function trackerSlugForRow(row, s3OneGoldRimMinIndex, s3HalfSeries2MaxIndex) {
     if (row.Type === 'S3-COIN-1-AG') {
+      const overrideSlug = S3_ONE_SILVER_VARIANT_SLUGS_BY_ADDRESS[String(row.Address || '').trim()];
+      if (overrideSlug) return overrideSlug;
       return Number(row.Index) >= s3OneGoldRimMinIndex
         ? 'cas_1btc_2013_gold_rim_silver'
         : 'cas_1btc_2013_silver';
@@ -1858,6 +1943,7 @@
     return {
       Status: row.Status,
       address: String(row.Address),
+      type: String(row.Type || ''),
       slug,
       index: finiteNumber(row.Index),
       value: finiteNumber(row.Value),
@@ -1874,6 +1960,7 @@
     return {
       Status: row.Status || 'Unfunded',
       address: String(row.Address),
+      type: String(row.Type || ''),
       slug: unfundedFallbackSlugForRow(row),
       index: finiteNumber(row.Index),
       value: finiteNumber(row.Value),
@@ -1915,7 +2002,11 @@
     rows.forEach(row => {
       const address = gradedAddressKey(row.address);
       if (!address) return;
-      recordsByAddress.set(address, row);
+      recordsByAddress.set(address, {
+        ...row,
+        'auction sold date': row['auction sold date'] || row['auction date'] || '',
+        'auction sold amount': row['auction sold amount'] || row['auction sale amount'] || ''
+      });
     });
     return recordsByAddress;
   }
@@ -2019,6 +2110,113 @@
     return index.pricesByDay.get(index.days[Math.max(0, high)]) || 0;
   }
 
+  function parseFirstNumber(value) {
+    const match = String(value || '').replace(/,/g, '').match(/-?\d+(?:\.\d+)?/);
+    if (!match) return null;
+    const number = Number(match[0]);
+    return Number.isFinite(number) ? number : null;
+  }
+
+  function parseSeriesPriceDate(value) {
+    const text = String(value || '').trim();
+    const isoDate = text.match(/\d{4}-\d{2}-\d{2}/)?.[0];
+    if (isoDate) {
+      const [year, month, day] = isoDate.split('-').map(Number);
+      if ([year, month, day].every(Number.isFinite)) return Date.UTC(year, month - 1, day) / 1000;
+    }
+    const parsed = Date.parse(/\bUTC\b/i.test(text) ? text.replace(/\s+UTC\b/i, ' UTC') : `${text} UTC`);
+    return Number.isFinite(parsed) ? startOfUtcDaySeconds(parsed / 1000) : null;
+  }
+
+  function parseBtcPriceText(value) {
+    const text = String(value || '').trim();
+    if (!text || !/\d/.test(text) || /^formula\b/i.test(text)) return null;
+    const eachMatches = Array.from(text.matchAll(/(-?\d+(?:\.\d+)?)\s*BTC\s*each\b/gi));
+    if (/\bper\s+dozen\b/i.test(text) && eachMatches.length) {
+      const eachPrice = Number(eachMatches[eachMatches.length - 1][1]);
+      if (Number.isFinite(eachPrice)) return eachPrice;
+    }
+    return parseFirstNumber(text);
+  }
+
+  function parseUsdPriceText(value) {
+    const text = String(value || '').trim();
+    if (!text || !/\$/.test(text) || isNotSoldAuctionAmount(text)) return null;
+    return parseFirstNumber(text);
+  }
+
+  function seriesTrackerTypes(value) {
+    return String(value || '')
+      .split(/[;|]/)
+      .map(part => part.trim())
+      .filter(Boolean);
+  }
+
+  function priceVariantKeyForSeriesRow(row) {
+    const trackerTypes = seriesTrackerTypes(row?.tracker_type);
+    const text = [
+      row?.item_or_series,
+      row?.series_or_variant
+    ].join(' ');
+    if (trackerTypes.includes('S2-COIN-10')) {
+      if (/\bgold\b/i.test(text)) return 'gold-b';
+      if (/\bplain\b|\bwithout\b/i.test(text)) return 'plain';
+    }
+    if (trackerTypes.includes('S3-COIN-1-AG')) {
+      if (/\bgold[-\s]?rim\b|\bgold[-\s]?plated\b|\bgold\b/i.test(text)) return 'gold-rim';
+      if (/\bplain\b|\bsilver\b/i.test(text)) return 'plain';
+    }
+    return '';
+  }
+
+  function buildSeriesPriceIndex(rows) {
+    const byType = new Map();
+    rows.forEach(row => {
+      const date = parseSeriesPriceDate(row?.verified_sale_or_listing_date);
+      const postedBtc = parseBtcPriceText(row?.posted_price_btc);
+      const denomination = parseFirstNumber(row?.denomination_btc);
+      if (!Number.isFinite(date) || !Number.isFinite(postedBtc)) return;
+      const listedUnfunded = Number(denomination) <= 0
+        || /\bunfunded\b|\bno\s+btc\s+value\b|\bnon-denominated\b/i.test([
+          row?.item_or_series,
+          row?.denomination_btc,
+          row?.series_or_variant,
+          row?.notes
+        ].join(' '));
+      seriesTrackerTypes(row?.tracker_type).forEach(type => {
+        const points = byType.get(type) || [];
+        points.push({
+          kind: 'initial',
+          time: date,
+          btc: postedBtc,
+          denomination: Number.isFinite(denomination) ? denomination : 0,
+          listedUnfunded,
+          variantKey: priceVariantKeyForSeriesRow(row),
+          label: row?.item_or_series || 'Initial price'
+        });
+        byType.set(type, points);
+      });
+    });
+    byType.forEach(points => points.sort((a, b) => a.time - b.time || a.btc - b.btc));
+    return byType;
+  }
+
+  function seriesPriceIndex() {
+    if (seriesPriceIndexCache) return Promise.resolve(seriesPriceIndexCache);
+    if (!seriesPriceIndexPromise) {
+      seriesPriceIndexPromise = loadTextFile(SERIES_PRICE_CSV_URL)
+        .then(text => {
+          seriesPriceIndexCache = buildSeriesPriceIndex(parseCsv(text));
+          return seriesPriceIndexCache;
+        })
+        .catch(() => {
+          seriesPriceIndexCache = new Map();
+          return seriesPriceIndexCache;
+        });
+    }
+    return seriesPriceIndexPromise;
+  }
+
   function addressValueMatches(query, value) {
     const q = normalizeSearchAddress(query);
     const v = normalizeSearchAddress(value);
@@ -2087,7 +2285,40 @@
 
   function formatAuctionAmount(value) {
     const text = String(value || '').trim();
+    if (/^not\s+sold$/i.test(text)) return 'Not Sold';
     return text.replace(/\.00$/, '');
+  }
+
+  function isNotSoldAuctionAmount(value) {
+    return /^not\s+sold$/i.test(String(value || '').trim());
+  }
+
+  function formatAuctionResult(date, amount, { soldPrefix = true } = {}) {
+    const dateText = String(date || '').trim();
+    const amountText = formatAuctionAmount(amount);
+    if (dateText && amountText) {
+      if (isNotSoldAuctionAmount(amount)) return `No Sale on ${dateText}`;
+      return soldPrefix ? `Sold on ${dateText} for ${amountText}` : `${dateText} for ${amountText}`;
+    }
+    if (amountText) return isNotSoldAuctionAmount(amount) ? 'No Sale' : `Sold for ${amountText}`;
+    if (dateText) return `Auction on ${dateText}`;
+    return 'No auction data available';
+  }
+
+  function gradedAuctionTime(entry) {
+    return parseSeriesPriceDate(entry?.gradedRecord?.['auction sold date']) || 0;
+  }
+
+  function gradedAuctionPrice(entry) {
+    return parseUsdPriceText(entry?.gradedRecord?.['auction sold amount']) || 0;
+  }
+
+  function compareGradedAuctionRows(a, b) {
+    return gradedAuctionTime(b) - gradedAuctionTime(a)
+      || gradedAuctionPrice(b) - gradedAuctionPrice(a)
+      || (b.createTime || 0) - (a.createTime || 0)
+      || (b.createBlock || 0) - (a.createBlock || 0)
+      || (b.index || 0) - (a.index || 0);
   }
 
   function externalInfoLinkHtml(text, url) {
@@ -2134,10 +2365,51 @@
     return `${blockText} · ${dateText}`;
   }
 
+  function s2TenSilverVariantKeyForSlug(slug) {
+    if (slug === 'cas_10btc_2012_silver') return 'plain';
+    if (slug === 'cas_10btc_2012_silver_gold_b') return 'gold-b';
+    return '';
+  }
+
+  function s2TenSilverOverrideSlugForEntry(entry) {
+    return S2_TEN_SILVER_VARIANT_SLUGS_BY_ADDRESS[String(entry?.address || '').trim()] || '';
+  }
+
+  function s2TenSilverVariantKeyForEntry(entry) {
+    return s2TenSilverVariantKeyForSlug(s2TenSilverOverrideSlugForEntry(entry));
+  }
+
+  function s3OneSilverVariantKeyForSlug(slug) {
+    if (slug === 'cas_1btc_2013_silver') return 'plain';
+    if (slug === 'cas_1btc_2013_gold_rim_silver') return 'gold-rim';
+    return '';
+  }
+
+  function s3OneSilverOverrideSlugForEntry(entry) {
+    return S3_ONE_SILVER_VARIANT_SLUGS_BY_ADDRESS[String(entry?.address || '').trim()] || '';
+  }
+
+  function s3OneSilverVariantKeyForEntry(entry) {
+    return s3OneSilverVariantKeyForSlug(s3OneSilverOverrideSlugForEntry(entry) || entry?.slug);
+  }
+
+  function entryBelongsToCoin(entry, coin = activeCoin()) {
+    const coinSlug = coin?.slug || '';
+    const statsSlug = SHARED_STATS_SLUGS[coinSlug] || coinSlug;
+    if (!entry?.slug || !statsSlug || entry.slug !== statsSlug) return false;
+    const targetVariant = s2TenSilverVariantKeyForSlug(coinSlug);
+    const targetS3Variant = s3OneSilverVariantKeyForSlug(coinSlug);
+    if (!targetVariant && !targetS3Variant) return true;
+    const entryVariant = targetVariant
+      ? s2TenSilverVariantKeyForEntry(entry)
+      : s3OneSilverVariantKeyForEntry(entry);
+    const target = targetVariant || targetS3Variant;
+    return !entryVariant || entryVariant === target;
+  }
+
   function rowsForCoin(entries, coin = activeCoin()) {
     if (allItemsSelected()) return entries;
-    const statsSlug = SHARED_STATS_SLUGS[coin.slug] || coin.slug;
-    return entries.filter(entry => entry.slug === statsSlug);
+    return entries.filter(entry => entryBelongsToCoin(entry, coin));
   }
 
   function statsRowsForCoin(entries, coin = activeCoin()) {
@@ -2410,14 +2682,13 @@
     const graderText = String(gradedRecord?.grader || '').trim();
     const gradeText = String(gradedRecord?.grade || '').trim();
     const soldDate = String(gradedRecord?.['auction sold date'] || '').trim();
-    const soldAmount = formatAuctionAmount(gradedRecord?.['auction sold amount']);
+    const soldAmount = gradedRecord?.['auction sold amount'];
     const gradeByGraderText = gradeText && graderText
       ? `${gradeText} by ${graderText}`
       : (gradeText || graderText);
-    const gradedLine = [formatBtc(entry.value), gradeByGraderText].filter(Boolean).join(' ');
-    const gradedSaleLine = soldDate && soldAmount
-      ? `Sold on ${soldDate} for ${soldAmount}`
-      : 'No auction data available';
+    const valueText = entryDenominationText(entry, coin);
+    const gradedLine = [valueText, gradeByGraderText].filter(Boolean).join(' ');
+    const gradedSaleLine = formatAuctionResult(soldDate, soldAmount);
     return `
       <div
         class="spend-row${selected ? ` spend-row-selected spend-row-selected-${mode === 'graded' ? selectedStatusMode : mode}` : ''}"
@@ -2435,7 +2706,7 @@
           ></span>
           <div class="spend-copy">
             <div class="spend-address">${escapeHtml(address)}</div>
-            <div class="spend-line">${escapeHtml(mode === 'graded' && gradedRecord ? gradedLine : `${formatBtc(entry.value)} ${action}`)}</div>
+            <div class="spend-line">${escapeHtml(mode === 'graded' && gradedRecord ? gradedLine : `${valueText} ${action}`)}</div>
           </div>
         </div>
         <div class="spend-time">${escapeHtml(mode === 'graded' && gradedRecord ? gradedSaleLine : `${formatInteger(block)} · ${formatUtcDateTime(time)}`)}</div>
@@ -2524,11 +2795,6 @@
   function leftPanelModeForEntry(entry) {
     if (isGradedEntry(entry)) return 'graded';
     return isActiveStatus(entry) ? 'active' : 'recent';
-  }
-
-  function entryBelongsToCoin(entry, coin = activeCoin()) {
-    const statsSlug = SHARED_STATS_SLUGS[coin?.slug] || coin?.slug;
-    return Boolean(entry?.slug && statsSlug && entry.slug === statsSlug);
   }
 
   function setLeftPanelModeInstant(mode) {
@@ -2645,6 +2911,7 @@
     } else if (!allItemsMode) {
       const coin = COINS.find(c => c.slug === entry.slug) || activeCoin();
       applySelectedAddressToObject(address, coin);
+      if (mode === 'graded') saveGradedMediaSelection(mode);
     }
     for (const panelMode of LEFT_PANEL_MODES) renderLeftPanelRows(panelMode);
     updateSelectedCoinDetailSection();
@@ -2689,7 +2956,7 @@
         .sort((a, b) => (b.createTime || 0) - (a.createTime || 0) || (b.createBlock || 0) - (a.createBlock || 0) || (b.index || 0) - (a.index || 0)),
       graded: rows
         .filter(isGradedEntry)
-        .sort((a, b) => (b.createTime || 0) - (a.createTime || 0) || (b.createBlock || 0) - (a.createBlock || 0) || (b.index || 0) - (a.index || 0))
+        .sort(compareGradedAuctionRows)
     };
     leftPanelRowsCache.set(cacheKey, cached);
     return cached;
@@ -2931,6 +3198,7 @@
       updateSelectedCoinDetailSection();
     } else {
       applySelectedAddressToObject(address, coin);
+      if (mode === 'graded') saveGradedMediaSelection(mode);
       renderLeftPanelRows(mode);
       updateSelectedCoinDetailSection();
     }
@@ -2970,12 +3238,19 @@
     const noteRow = mintageNote
       ? `<tr class="info-note-row"><td colspan="2"><span class="info-note-mark">*</span>${escapeHtml(mintageNote)}</td></tr>`
       : '';
+    const minted = Number(info?.minted);
+    const unfunded = Number(info?.unfunded);
+    const physicalTotal = (Number.isFinite(minted) ? minted : 0) + (Number.isFinite(unfunded) ? unfunded : 0);
+    const unfundedRow = info?.statsMode !== 'dash' && Number.isFinite(unfunded) && unfunded > 0
+      ? `<tr><th><span class="info-label-dot info-label-dot-unfunded"></span>Unfunded</th><td>${formatCountShare(unfunded, physicalTotal)}</td></tr>`
+      : '';
     return `
       <table class="info-table">
         <tbody>
-          <tr><th><span class="info-label-dot info-label-dot-minted"></span>Minted</th><td>${statsCells.minted}</td></tr>
+          <tr><th><span class="info-label-dot info-label-dot-minted"></span>Funded</th><td>${statsCells.minted}</td></tr>
           <tr><th><span class="info-label-dot info-label-dot-active"></span>Active</th><td>${statsCells.active}</td></tr>
           <tr><th><span class="info-label-dot info-label-dot-redeemed"></span>Redeemed</th><td>${statsCells.redeemed}</td></tr>
+          ${unfundedRow}
           <tr><th>First Funding</th><td>${escapeHtml(formatBlockDay(info?.firstBlock, info?.firstTime))}</td></tr>
           <tr><th>Last Spend</th><td>${escapeHtml(formatBlockDay(info?.lastBlock, info?.lastTime))}</td></tr>
           ${noteRow}
@@ -2996,13 +3271,17 @@
 
   function selectedTrackerEntry(rows = currentBalanceChartRows, mode = leftPanelMode) {
     const panelRows = leftPanelRowsByMode[mode] || [];
-    if (!panelRows.length) return null;
     const selectedAddress = selectedLeftPanelAddressByMode[mode];
     const selected = selectedAddress && panelRows.find(entry => String(entry.address || '') === selectedAddress);
     if (selected) return selected;
     const selectedInRows = selectedAddress && rows?.find(entry => String(entry.address || '') === selectedAddress);
     if (selectedInRows) return selectedInRows;
+    if (!panelRows.length) return null;
     return null;
+  }
+
+  function selectedPriceChartEntry(rows = currentBalanceChartRows) {
+    return selectedTrackerEntry(rows, 'graded') || selectedTrackerEntry(rows);
   }
 
   function selectedObjectAddress(mode = leftPanelMode) {
@@ -3259,7 +3538,7 @@
     const series = info?.series || (isMuleCoin(coin) ? 'Mule' : coin.series || `Series ${seriesValue(coin)}`);
     const dimensions = info?.dimensions || dimensionsOnlyText(coin) || '—';
     const denomination = entry && coin?.slug === 'cas_bar_diy_gold_s2'
-      ? formatBtc(entry?.value)
+      ? btcDenominationText(diyBarLoadedValue(entry))
       : info?.denomination || denominationInfoText(coin, sameCoinRows.length ? sameCoinRows : rows);
     const fundedText = isUnfundedStatus(entry) ? '—' : formatBlockDay(entry?.createBlock, entry?.createTime);
     const redeemedText = isActiveStatus(entry) || isUnfundedStatus(entry)
@@ -3270,11 +3549,9 @@
     const gradeText = String(gradedRecord?.grade || '').trim();
     const graderLink = String(gradedRecord?.['grader link'] || '').trim();
     const auctionSoldDate = String(gradedRecord?.['auction sold date'] || '').trim();
-    const auctionSoldAmount = formatAuctionAmount(gradedRecord?.['auction sold amount']);
+    const auctionSoldAmount = gradedRecord?.['auction sold amount'];
     const auctionLink = String(gradedRecord?.['auction link'] || '').trim();
-    const auctionText = auctionSoldDate && auctionSoldAmount
-      ? `${auctionSoldDate} for ${auctionSoldAmount}`
-      : 'No auction data available';
+    const auctionText = formatAuctionResult(auctionSoldDate, auctionSoldAmount, { soldPrefix: false });
     const combinedGradeText = gradeText && graderText
       ? `${gradeText} by ${graderText}`
       : (gradeText || graderText || '—');
@@ -3317,6 +3594,160 @@
           ${gradedRowsHtml}
         </tbody>
       </table>
+    `;
+  }
+
+  function initialPricePointForSeries(point, seriesKey, unit) {
+    const premiumBtc = Math.max(0, (point.btc || 0) - (point.denomination || 0));
+    const btcValue = seriesKey === 'funded' ? point.btc : premiumBtc;
+    const usdPrice = priceForDaySeconds(point.time);
+    return {
+      time: point.time,
+      value: unit === 'usd' ? btcValue * usdPrice : btcValue,
+      source: 'Initial',
+      seriesKey,
+      tooltipLabel: seriesKey === 'funded' ? 'Funded' : (point.listedUnfunded ? 'Unfunded' : 'Premium'),
+      label: point.label
+    };
+  }
+
+  function auctionSeriesKeyForEntry(entry, usdValue, time) {
+    if (isUnfundedStatus(entry) || isRedeemedStatus(entry)) return 'premium';
+    const denomination = Math.max(0, Number(entry?.value) || 0);
+    const btcPrice = priceForDaySeconds(time);
+    const denominationUsd = denomination * btcPrice;
+    if (denominationUsd > 0 && usdValue < denominationUsd) return 'premium';
+    return 'funded';
+  }
+
+  function auctionPricePointForEntry(entry, unit) {
+    const record = entry?.gradedRecord;
+    const time = parseSeriesPriceDate(record?.['auction sold date']);
+    const usdValue = parseUsdPriceText(record?.['auction sold amount']);
+    if (!Number.isFinite(time) || !Number.isFinite(usdValue)) return null;
+    const btcPrice = priceForDaySeconds(time);
+    const seriesKey = auctionSeriesKeyForEntry(entry, usdValue, time);
+    const tooltipLabel = seriesKey === 'funded'
+      ? 'Funded'
+      : (isUnfundedStatus(entry) ? 'Unfunded' : (isRedeemedStatus(entry) ? 'Redeemed' : 'Premium'));
+    return {
+      time,
+      value: unit === 'usd' ? usdValue : (btcPrice > 0 ? usdValue / btcPrice : 0),
+      source: 'Auction',
+      seriesKey,
+      tooltipLabel,
+      label: record?.grade || entry.address || 'Auction',
+      address: String(entry?.address || ''),
+      slug: String(entry?.slug || ''),
+      status: statusKey(entry),
+      createTime: Number(entry?.createTime) || 0,
+      createBlock: Number(entry?.createBlock) || 0
+    };
+  }
+
+  function priceChartTypeTitle(entry) {
+    const coin = COINS.find(c => c.slug === entry?.slug) || null;
+    if (coin?.slug === 'cas_bar_diy_gold_s2') return '2011 DIY Series 2 Gold Plated Alloy Bars';
+    return coin ? chartDisplayName(coin) : String(entry?.type || '').trim();
+  }
+
+  function priceChartTitleText(entry) {
+    return titleCaseChartText(`${priceChartTypeTitle(entry)} Price History`);
+  }
+
+  function priceVariantKeyForEntry(entry) {
+    const type = String(entry?.type || '').trim();
+    if (type === 'S2-COIN-10') {
+      const overrideVariant = s2TenSilverVariantKeyForEntry(entry);
+      if (overrideVariant) return overrideVariant;
+      return entry?.slug === 'cas_10btc_2012_silver_gold_b' ? 'gold-b' : '';
+    }
+    if (type === 'S3-COIN-1-AG') {
+      const overrideVariant = s3OneSilverVariantKeyForEntry(entry);
+      if (overrideVariant) return overrideVariant;
+      return entry?.slug === 'cas_1btc_2013_gold_rim_silver' ? 'gold-rim' : 'plain';
+    }
+    return '';
+  }
+
+  function selectedPriceVariantKeyForEntry(entry) {
+    const type = String(entry?.type || '').trim();
+    if (type === 'S2-COIN-10') {
+      if (!allItemsSelected()) {
+        const activeVariant = s2TenSilverVariantKeyForSlug(activeCoin()?.slug);
+        if (activeVariant) return activeVariant;
+      }
+      return priceVariantKeyForEntry(entry) || 'plain';
+    }
+    if (type === 'S3-COIN-1-AG') {
+      if (!allItemsSelected()) {
+        const activeVariant = s3OneSilverVariantKeyForSlug(activeCoin()?.slug);
+        if (activeVariant) return activeVariant;
+      }
+      return priceVariantKeyForEntry(entry) || 'plain';
+    }
+    return '';
+  }
+
+  function pricePointMatchesVariant(point, variantKey) {
+    return !variantKey || !point?.variantKey || point.variantKey === variantKey;
+  }
+
+  function selectedInitialPricePoints(entry) {
+    const type = String(entry?.type || '').trim();
+    if (!type || !entry?.gradedRecord || !seriesPriceIndexCache) return [];
+    const variantKey = selectedPriceVariantKeyForEntry(entry);
+    return (seriesPriceIndexCache.get(type) || [])
+      .filter(point => pricePointMatchesVariant(point, variantKey));
+  }
+
+  function selectedPriceChartSeries(entry, unit = priceChartUnit) {
+    const empty = { funded: [], premium: [], points: [] };
+    const type = String(entry?.type || '').trim();
+    if (!type || !entry?.gradedRecord || !seriesPriceIndexCache) return empty;
+    const variantKey = selectedPriceVariantKeyForEntry(entry);
+    const initialPoints = selectedInitialPricePoints(entry);
+    if (!initialPoints.length) return empty;
+    const funded = initialPoints
+      .filter(point => Number(point?.denomination) > 0)
+      .map(point => initialPricePointForSeries(point, 'funded', unit))
+      .filter(point => Number.isFinite(point.time) && Number.isFinite(point.value) && point.value > 0);
+    const premium = initialPoints
+      .map(point => initialPricePointForSeries(point, 'premium', unit))
+      .filter(point => Number.isFinite(point.time) && Number.isFinite(point.value) && point.value >= 0);
+    currentTrackerEntries
+      .filter(row => (
+        String(row?.type || '').trim() === type
+        && row?.gradedRecord
+        && pricePointMatchesVariant({ variantKey: priceVariantKeyForEntry(row) }, variantKey)
+      ))
+      .map(row => auctionPricePointForEntry(row, unit))
+      .filter(point => point && Number.isFinite(point.time) && Number.isFinite(point.value) && point.value > 0)
+      .forEach(point => {
+        if (point.seriesKey === 'funded') funded.push(point);
+        else premium.push(point);
+      });
+    const sortPoints = (a, b) => a.time - b.time || a.value - b.value;
+    funded.sort(sortPoints);
+    premium.sort(sortPoints);
+    return {
+      funded,
+      premium,
+      points: [...funded, ...premium].sort(sortPoints)
+    };
+  }
+
+  function selectedPriceChartHtml(entry) {
+    if (!entry?.gradedRecord || !String(entry.type || '').trim()) return '';
+    if (!seriesPriceIndexCache) {
+      seriesPriceIndex().then(() => updateSelectedCoinDetailSection());
+      return '';
+    }
+    if (!dailyPriceIndexCache) dailyPriceIndex().then(() => renderSelectedPriceChartPreview());
+    return `
+      <button class="selected-price-chart" type="button" data-selected-price-chart-open aria-label="Open price history chart">
+        <canvas class="selected-price-chart-canvas" width="320" height="118" aria-label="Price history chart"></canvas>
+      </button>
     `;
   }
 
@@ -3393,6 +3824,7 @@
       <section class="selected-coin-detail" aria-label="Selected coin">
         ${selectedCoinAddressHtml(entry, coin)}
         ${selectedCoinInfoRowsHtml(entry, rows, coin)}
+        ${selectedPriceChartHtml(entry)}
       </section>
     `;
   }
@@ -3402,6 +3834,7 @@
     if (!section) return;
     section.outerHTML = selectedCoinDetailHtml(currentBalanceChartRows);
     syncGradedMediaViewer(currentBalanceChartRows);
+    renderSelectedPriceChartPreview();
   }
 
   function scheduleDataPanelsRefresh() {
@@ -3970,6 +4403,331 @@
     return meta;
   }
 
+  function drawSelectedPriceChart(canvas, entry, { unit = priceChartUnit, compact = false } = {}) {
+    if (!canvas) return null;
+    if (!dailyPriceIndexCache) {
+      dailyPriceIndex().then(() => {
+        renderSelectedPriceChartPreview();
+        redrawOpenBalanceChart();
+      });
+      return null;
+    }
+    const chartData = selectedPriceChartSeries(entry, unit);
+    const { points, funded, premium } = chartData;
+    const rect = canvas.getBoundingClientRect();
+    const cssWidth = Math.max(1, Math.round(rect.width || canvas.width || 320));
+    const cssHeight = Math.max(1, Math.round(rect.height || canvas.height || 118));
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(cssWidth * dpr);
+    canvas.height = Math.round(cssHeight * dpr);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssWidth, cssHeight);
+    const palette = balanceChartPalette();
+    const priceColors = {
+      funded: '#ff9900',
+      premium: '#8f98a3'
+    };
+    const baseTopPad = cssWidth < 700 ? 88 : 96;
+    let titleFontSize = cssWidth < 700 ? 18 : 22;
+    const titleMaxWidth = Math.max(160, cssWidth - (cssWidth < 700 ? 360 : 420));
+    let titleLines = [];
+    if (!compact) {
+      ctx.save();
+      const titleText = priceChartTitleText(entry);
+      while (titleFontSize > 14) {
+        ctx.font = `700 ${titleFontSize}px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+        titleLines = wrapCanvasText(ctx, titleText, titleMaxWidth);
+        if (titleLines.length <= 2 || titleLines.every(line => ctx.measureText(line).width <= titleMaxWidth)) break;
+        titleFontSize -= 1;
+      }
+      if (!titleLines.length) titleLines = wrapCanvasText(ctx, titleText, titleMaxWidth);
+      ctx.restore();
+    }
+    const titleLineHeight = titleFontSize + 4;
+    const titleExtraHeight = compact ? 0 : Math.max(0, titleLines.length - 1) * titleLineHeight;
+    if (!points.length) {
+      const emptyPad = compact
+        ? { left: 10, right: 10, top: 10, bottom: 10 }
+        : {
+            left: cssWidth < 700 ? 24 : 34,
+            right: cssWidth < 700 ? 82 : 112,
+            top: baseTopPad + titleExtraHeight,
+            bottom: cssWidth < 700 ? 62 : 72
+          };
+      const emptyPlotW = Math.max(1, cssWidth - emptyPad.left - emptyPad.right);
+      const emptyPlotH = Math.max(1, cssHeight - emptyPad.top - emptyPad.bottom);
+      ctx.save();
+      ctx.strokeStyle = palette.grid;
+      ctx.lineWidth = 1;
+      const horizontalLines = compact ? 3 : 6;
+      for (let index = 1; index <= horizontalLines; index += 1) {
+        const y = emptyPad.top + emptyPlotH * index / (horizontalLines + 1);
+        ctx.beginPath();
+        ctx.moveTo(emptyPad.left, y);
+        ctx.lineTo(emptyPad.left + emptyPlotW, y);
+        ctx.stroke();
+      }
+      ctx.restore();
+      canvas._priceChartMeta = null;
+      canvas._balanceChartMeta = null;
+      canvas._balanceChartLegendHitBoxes = [];
+      canvas._priceChartLegendHitBoxes = [];
+      canvas._priceChartPointHitBoxes = [];
+      if (!compact || activeChartModalMode === 'price') hideBalanceChartHover();
+      return null;
+    }
+
+    const visiblePoints = points.filter(point => priceChartVisibleGroups[point.seriesKey === 'funded' ? 'funded' : 'premium'] !== false);
+    const minTime = Math.min(...points.map(point => point.time));
+    const todayTime = startOfUtcDaySeconds(Date.now() / 1000);
+    const maxTime = Math.max(todayTime, ...points.map(point => point.time));
+    const axisPoints = visiblePoints.length ? visiblePoints : points;
+    const axisValues = axisPoints.map(point => Number(point.value)).filter(value => Number.isFinite(value));
+    const maxValue = axisValues.length ? Math.max(...axisValues) : 0;
+    const axisTickFontSize = compact ? 0 : (cssWidth < 700 ? 14 : 15);
+    let axisLabelWidth = 0;
+    let measuredRightPad = cssWidth < 700 ? 82 : 112;
+    if (!compact) {
+      ctx.save();
+      ctx.font = `${axisTickFontSize}px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+      axisLabelWidth = ctx.measureText(formatBalanceTickValue(maxValue * 1.04, unit)).width;
+      ctx.restore();
+      measuredRightPad = Math.max(
+        measuredRightPad,
+        Math.ceil(axisLabelWidth + 24)
+      );
+      measuredRightPad = Math.min(measuredRightPad, Math.max(96, cssWidth - 96));
+    }
+    const pad = compact
+      ? { left: 10, right: 10, top: 10, bottom: 10 }
+      : {
+          left: cssWidth < 700 ? 24 : 34,
+          right: measuredRightPad,
+          top: baseTopPad + titleExtraHeight,
+          bottom: cssWidth < 700 ? 62 : 72
+        };
+    const plotW = Math.max(1, cssWidth - pad.left - pad.right);
+    const plotH = Math.max(1, cssHeight - pad.top - pad.bottom);
+    const availableRightLabelWidth = Math.max(24, pad.right - 18);
+    const fittedAxisTickFontSize = !compact && axisLabelWidth > availableRightLabelWidth
+      ? Math.max(10, Math.floor(axisTickFontSize * (availableRightLabelWidth / axisLabelWidth)))
+      : axisTickFontSize;
+    const span = Math.max(1, maxTime - minTime);
+    const yMax = maxValue > 0 ? maxValue * 1.04 : 1;
+    const yTicks = compact ? [] : buildLinearTicks(0, yMax, Math.max(4, Math.min(8, Math.floor(plotH / 84))));
+    const yAxisMax = Math.max(yMax, ...yTicks);
+    const xTicks = compact ? [] : buildBalanceTimeTicks(minTime, maxTime, plotW);
+    const xFor = time => pad.left + ((time - minTime) / span) * plotW;
+    const yFor = value => pad.top + plotH - (value / yAxisMax) * plotH;
+
+    if (!compact) {
+      ctx.save();
+      ctx.strokeStyle = palette.grid;
+      ctx.lineWidth = 1;
+      yTicks.map(value => 1 - (value / yAxisMax)).forEach(ratio => {
+        const y = pad.top + plotH * ratio;
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(pad.left + plotW, y);
+        ctx.stroke();
+      });
+      ctx.strokeStyle = palette.axis;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
+      ctx.font = `${fittedAxisTickFontSize}px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+      ctx.fillStyle = palette.tick;
+      yTicks.forEach(value => {
+        const y = yFor(value);
+        ctx.fillText(formatBalanceTickValue(value, unit), pad.left + plotW + 10, y);
+      });
+      ctx.textBaseline = 'top';
+      ctx.textAlign = 'center';
+      xTicks.forEach(tick => {
+        const x = xFor(tick.time);
+        ctx.beginPath();
+        ctx.moveTo(x, pad.top + plotH);
+        ctx.lineTo(x, pad.top + plotH + 5);
+        ctx.stroke();
+        ctx.fillText(tick.label, x, pad.top + plotH + fittedAxisTickFontSize);
+      });
+      ctx.beginPath();
+      ctx.moveTo(pad.left + plotW, pad.top);
+      ctx.lineTo(pad.left + plotW, pad.top + plotH);
+      ctx.lineTo(pad.left, pad.top + plotH);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    const drawPricePointMarker = (x, y, {
+      color = priceColors.funded,
+      original = false,
+      size = compact ? 3.2 : 4
+    } = {}) => {
+      ctx.fillStyle = color;
+      ctx.strokeStyle = palette.currentStroke;
+      ctx.lineWidth = compact ? 1.5 : 2;
+      ctx.beginPath();
+      if (original) {
+        const outerRadius = size;
+        const innerRadius = size * 0.48;
+        for (let index = 0; index < 10; index += 1) {
+          const angle = -Math.PI / 2 + index * Math.PI / 5;
+          const radius = index % 2 ? innerRadius : outerRadius;
+          const px = x + Math.cos(angle) * radius;
+          const py = y + Math.sin(angle) * radius;
+          if (index) ctx.lineTo(px, py);
+          else ctx.moveTo(px, py);
+        }
+        ctx.closePath();
+      } else {
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+      }
+      ctx.fill();
+      ctx.stroke();
+    };
+
+    const pointHitBoxes = [];
+    const selectedPricePointHighlights = [];
+    const selectedGradedPriceAddress = String(selectedLeftPanelAddressByMode.graded || '');
+    ctx.save();
+    visiblePoints.forEach(point => {
+      const x = xFor(point.time);
+      const y = yFor(point.value);
+      const markerSize = point.source === 'Auction' ? (compact ? 3.2 : 4) : (compact ? 6.6 : 8.1);
+      drawPricePointMarker(x, y, {
+        color: point.seriesKey === 'funded' ? priceColors.funded : priceColors.premium,
+        original: point.source === 'Initial',
+        size: markerSize
+      });
+      if (!compact && point.source === 'Auction' && point.address) {
+        pointHitBoxes.push({
+          point,
+          x,
+          y,
+          radius: Math.max(10, markerSize + 6)
+        });
+      }
+      if (point.source === 'Auction' && selectedGradedPriceAddress && point.address === selectedGradedPriceAddress) {
+        selectedPricePointHighlights.push({ point, x, y, markerSize });
+      }
+    });
+    selectedPricePointHighlights.forEach(({ point, x, y, markerSize }) => {
+      const color = point.status === 'active'
+        ? '#38c172'
+        : (point.status === 'redeemed' ? '#e05243' : '#8f98a3');
+      const highlightRadius = markerSize + (compact ? 1 : 2.5);
+      ctx.lineWidth = compact ? 2 : 2.5;
+      ctx.strokeStyle = palette.currentStroke;
+      ctx.beginPath();
+      ctx.arc(x, y, highlightRadius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.lineWidth = compact ? 1.5 : 2;
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+      ctx.arc(x, y, highlightRadius, 0, Math.PI * 2);
+      ctx.stroke();
+    });
+    ctx.restore();
+
+    if (!compact) {
+      ctx.save();
+      ctx.font = `700 ${titleFontSize}px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+      ctx.textBaseline = 'top';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = palette.title;
+      const titleBlockTop = cssWidth < 700 ? 20 : 21;
+      titleLines.forEach((line, index) => {
+        ctx.fillText(line, cssWidth / 2, titleBlockTop + index * titleLineHeight);
+      });
+      ctx.font = `600 ${cssWidth < 700 ? 12 : 13}px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+      ctx.textBaseline = 'middle';
+      const hasOriginalPremiumPoint = points.some(point => point.source === 'Initial' && point.seriesKey !== 'funded');
+      const originalPremiumLabel = entry?.slug === 'cas_bar_diy_gold_s2' ? 'Original Unfunded Price' : 'Original Premium';
+      const nonFundedSalePoints = points.filter(point => point.source === 'Auction' && point.seriesKey !== 'funded');
+      const nonFundedSaleLabels = new Set(nonFundedSalePoints.map(point => String(point.tooltipLabel || '').toLowerCase()));
+      const nonFundedSaleLegendLabel = nonFundedSaleLabels.size === 1 && nonFundedSaleLabels.has('unfunded')
+        ? 'Unfunded Sale'
+        : (nonFundedSaleLabels.size === 1 && nonFundedSaleLabels.has('redeemed') ? 'Redeemed Sale' : 'Unfunded/Redeemed Sale');
+      const legendItems = [
+        points.some(point => point.source === 'Initial' && point.seriesKey === 'funded')
+          ? { key: 'funded', label: 'Original Funded Price', color: priceColors.funded, original: true, visible: priceChartVisibleGroups.funded !== false }
+          : null,
+        points.some(point => point.source === 'Auction' && point.seriesKey === 'funded')
+          ? { key: 'funded', label: 'Funded Sale', color: priceColors.funded, original: false, visible: priceChartVisibleGroups.funded !== false }
+          : null,
+        hasOriginalPremiumPoint
+          ? { key: 'premium', label: originalPremiumLabel, color: priceColors.premium, original: true, visible: priceChartVisibleGroups.premium !== false }
+          : null,
+        nonFundedSalePoints.length
+          ? { key: 'premium', label: nonFundedSaleLegendLabel, color: priceColors.premium, original: false, visible: priceChartVisibleGroups.premium !== false }
+          : null
+      ].filter(Boolean);
+      const markerW = cssWidth < 700 ? 12 : 13;
+      const gap = cssWidth < 700 ? 13 : 18;
+      const rowGap = cssWidth < 700 ? 17 : 18;
+      const itemWidths = legendItems.map(item => markerW + 7 + ctx.measureText(item.label).width);
+      const maxLegendWidth = Math.max(180, cssWidth - pad.left - pad.right - 8);
+      const legendRows = [];
+      legendItems.forEach((item, index) => {
+        const itemWidth = itemWidths[index];
+        const row = legendRows[legendRows.length - 1];
+        if (!row || (row.width && row.width + gap + itemWidth > maxLegendWidth)) {
+          legendRows.push({ items: [{ item, width: itemWidth }], width: itemWidth });
+        } else {
+          row.items.push({ item, width: itemWidth });
+          row.width += gap + itemWidth;
+        }
+      });
+      const legendY = Math.max(58, pad.top - 28);
+      const legendHitBoxes = [];
+      legendRows.forEach((row, rowIndex) => {
+        let legendX = Math.max(pad.left, (cssWidth - row.width) / 2);
+        const y = legendY + rowIndex * rowGap;
+        row.items.forEach(({ item, width }, index) => {
+          if (index) legendX += gap;
+          const itemStartX = legendX;
+          ctx.globalAlpha = item.visible ? 1 : 0.35;
+          drawPricePointMarker(legendX + markerW / 2, y, {
+            color: item.color,
+            original: item.original,
+            size: item.original ? (cssWidth < 700 ? 7.5 : 8.4) : (cssWidth < 700 ? 4 : 4.4)
+          });
+          legendX += markerW + 7;
+          ctx.fillStyle = item.visible ? palette.legend : palette.legendMuted;
+          ctx.textAlign = 'left';
+          ctx.fillText(item.label, legendX, y);
+          legendX += width - markerW - 7;
+          ctx.globalAlpha = 1;
+          legendHitBoxes.push({
+            key: item.key,
+            x: itemStartX - 8,
+            y: y - Math.max(12, cssWidth < 700 ? 12 : 13),
+            width: width + 16,
+            height: Math.max(24, (cssWidth < 700 ? 12 : 13) + 10)
+          });
+        });
+      });
+      canvas._priceChartLegendHitBoxes = legendHitBoxes;
+      ctx.restore();
+    }
+    if (compact) canvas._priceChartLegendHitBoxes = [];
+    canvas._priceChartPointHitBoxes = compact ? [] : pointHitBoxes;
+    const meta = { points: visiblePoints, allPoints: points, funded, premium, minTime, maxTime, yMax: yAxisMax, pad, plotW, plotH, cssWidth, cssHeight, unit };
+    canvas._priceChartMeta = meta;
+    canvas._balanceChartMeta = meta;
+    canvas._balanceChartLegendHitBoxes = [];
+    return meta;
+  }
+
+  function renderSelectedPriceChartPreview() {
+    const canvas = coinInfoPanel?.querySelector('.selected-price-chart-canvas');
+    if (!canvas) return;
+    const entry = selectedPriceChartEntry(currentBalanceChartRows);
+    drawSelectedPriceChart(canvas, entry, { unit: priceChartUnit, compact: true });
+  }
+
   function renderBalanceChartThumbnail(rows) {
     currentBalanceChartRows = rows || [];
     redrawBalanceChartThumbnail();
@@ -4020,13 +4778,19 @@
   function syncBalanceChartThumbState() {
     const open = root.classList.contains('balance-chart-open') || balanceChartIsOpen();
     coinInfoPanel?.querySelectorAll('[data-balance-chart-open]').forEach(button => {
-      button.setAttribute('aria-label', open ? 'Close balance chart' : 'Open balance chart');
+      const closeLabel = activeChartModalMode === 'balance' ? 'Close balance chart' : 'Close chart';
+      button.setAttribute('aria-label', open ? closeLabel : 'Open balance chart');
+    });
+    coinInfoPanel?.querySelectorAll('[data-selected-price-chart-open]').forEach(button => {
+      const closeLabel = activeChartModalMode === 'price' ? 'Close price history chart' : 'Close chart';
+      button.setAttribute('aria-label', open ? closeLabel : 'Open price history chart');
     });
   }
 
   function syncBalanceChartUnitButtons() {
+    const activeUnit = activeChartModalMode === 'price' ? priceChartUnit : balanceChartUnit;
     balanceChartModal?.querySelectorAll('[data-balance-chart-unit]').forEach(button => {
-      const active = button.dataset.balanceChartUnit === balanceChartUnit;
+      const active = button.dataset.balanceChartUnit === activeUnit;
       button.classList.toggle('active', active);
       button.setAttribute('aria-pressed', active ? 'true' : 'false');
     });
@@ -4089,6 +4853,23 @@
 
   function cycleBalanceChartUnit() {
     setBalanceChartUnit(balanceChartUnit === 'usd' ? 'btc' : 'usd');
+  }
+
+  async function setPriceChartUnit(unit) {
+    const nextUnit = unit === 'usd' ? 'usd' : 'btc';
+    if (nextUnit === priceChartUnit) return;
+    priceChartUnit = nextUnit;
+    savePriceChartUnit(nextUnit);
+    syncBalanceChartUnitButtons();
+    hideBalanceChartHover();
+    if (nextUnit === 'usd') await dailyPriceIndex();
+    if (priceChartUnit !== nextUnit) return;
+    renderSelectedPriceChartPreview();
+    redrawOpenBalanceChart();
+  }
+
+  function cyclePriceChartUnit() {
+    setPriceChartUnit(priceChartUnit === 'usd' ? 'btc' : 'usd');
   }
 
   function shortcutKeyId(key) {
@@ -4336,11 +5117,16 @@
     document.body.appendChild(balanceChartModal);
     balanceChartModal.querySelector('.balance-chart-background-toggle')?.addEventListener('click', toggleBalanceChartBackground);
     balanceChartModal.querySelector('.balance-chart-close')?.addEventListener('click', closeBalanceChartModal);
-    balanceChartModal.querySelector('.balance-chart-unit-toggle')?.addEventListener('click', () => {
-      cycleBalanceChartUnit();
+    balanceChartModal.querySelector('.balance-chart-unit-toggle')?.addEventListener('click', event => {
+      const button = event.target?.closest?.('[data-balance-chart-unit]');
+      if (!button) return;
+      if (activeChartModalMode === 'price') cyclePriceChartUnit();
+      else setBalanceChartUnit(button.dataset.balanceChartUnit);
     });
     balanceChartModal.addEventListener('click', event => {
-      if (handleBalanceChartLegendClick(event)) return;
+      if (activeChartModalMode === 'price' && handlePriceChartLegendClick(event)) return;
+      if (activeChartModalMode === 'price' && handlePriceChartPointClick(event)) return;
+      if (activeChartModalMode === 'balance' && handleBalanceChartLegendClick(event)) return;
       if (event.target === balanceChartModal) closeBalanceChartModal();
     });
     balanceChartModal.addEventListener('pointermove', updateBalanceChartHover);
@@ -4348,8 +5134,14 @@
     return balanceChartModal;
   }
 
-  function openBalanceChartModal() {
+  function openBalanceChartModal(mode = 'balance') {
+    activeChartModalMode = mode === 'price' ? 'price' : 'balance';
     const modal = ensureBalanceChartModal();
+    modal.classList.toggle('price-chart-mode', activeChartModalMode === 'price');
+    const canvas = modal.querySelector('.balance-chart-full-canvas');
+    if (canvas) {
+      canvas.setAttribute('aria-label', activeChartModalMode === 'price' ? 'Price history chart' : 'Balance chart');
+    }
     syncBalanceChartUnitButtons();
     updateBalanceChartModalBounds();
     modal.classList.add('open');
@@ -4360,8 +5152,11 @@
       updateDockedPanelLayout();
     }, { layoutDurationMs: 320 });
     saveBalanceChartOpen(true);
+    saveChartModalMode(activeChartModalMode);
+    if (activeChartModalMode === 'price' && selectedLeftPanelAddressByMode.graded) {
+      saveGradedMediaSelection('graded');
+    }
     syncBalanceChartThumbState();
-    const canvas = modal.querySelector('.balance-chart-full-canvas');
     modal.getBoundingClientRect();
     redrawOpenBalanceChart();
     hideBalanceChartHover();
@@ -4381,6 +5176,8 @@
   }
 
   function balanceChartSelectionSuppressesHover() {
+    if (activeChartModalMode === 'price') return false;
+    if (activeChartModalMode !== 'balance') return true;
     if (isMuleCoin(allItemsSelected() ? allItemsFocusedCoin() : activeCoin())) return true;
     const selectedEntry = selectedTrackerEntry(currentBalanceChartRows);
     const selectedCoin = selectedEntry?.slug ? COINS.find(c => c.slug === selectedEntry.slug) : null;
@@ -4421,6 +5218,32 @@
     };
   }
 
+  function formatPriceTooltipRange(points, unit) {
+    const values = points
+      .map(point => Number(point?.value))
+      .filter(Number.isFinite)
+      .sort((a, b) => a - b);
+    if (!values.length) return formatBalanceTooltipValue(0, unit);
+    const min = values[0];
+    const max = values[values.length - 1];
+    const epsilon = unit === 'usd' ? 0.005 : 0.000000005;
+    if (Math.abs(max - min) <= epsilon) return formatBalanceTooltipValue(min, unit);
+    return `${formatBalanceTooltipValue(min, unit)} - ${formatBalanceTooltipValue(max, unit)}`;
+  }
+
+  function priceTooltipRowsForPoints(points, unit) {
+    const groups = new Map();
+    points.forEach(point => {
+      const label = point.tooltipLabel || (point.seriesKey === 'funded' ? 'Funded' : 'Premium');
+      const key = `${point.seriesKey || 'premium'}|${label}`;
+      if (!groups.has(key)) groups.set(key, { label, seriesKey: point.seriesKey || 'premium', points: [] });
+      groups.get(key).points.push(point);
+    });
+    return Array.from(groups.values()).map(group => (
+      `<div><span class="balance-chart-tooltip-swatch balance-chart-tooltip-swatch-price-${group.seriesKey}"></span>${escapeHtml(group.label)} ${escapeHtml(formatPriceTooltipRange(group.points, unit))}</div>`
+    )).join('');
+  }
+
   function balanceChartLegendHit(canvas, event) {
     const point = balanceChartCanvasPoint(canvas, event);
     if (!point) return null;
@@ -4430,6 +5253,38 @@
       && point.y >= box.y
       && point.y <= box.y + box.height
     )) || null;
+  }
+
+  function priceChartLegendHit(canvas, event) {
+    const point = balanceChartCanvasPoint(canvas, event);
+    if (!point) return null;
+    return (canvas._priceChartLegendHitBoxes || []).find(box => (
+      point.x >= box.x
+      && point.x <= box.x + box.width
+      && point.y >= box.y
+      && point.y <= box.y + box.height
+    )) || null;
+  }
+
+  function priceChartAuctionPointHit(canvas, event) {
+    const point = balanceChartCanvasPoint(canvas, event);
+    if (!point) return null;
+    const candidates = (canvas._priceChartPointHitBoxes || [])
+      .map(box => {
+        const distance = Math.hypot(point.x - box.x, point.y - box.y);
+        return { ...box, distance };
+      })
+      .filter(box => box.distance <= box.radius)
+      .sort((a, b) => a.distance - b.distance);
+    if (!candidates.length) return null;
+    const nearest = candidates[0];
+    const sameDot = candidates.filter(box => (
+      Math.abs(box.x - nearest.x) <= 0.75
+      && Math.abs(box.y - nearest.y) <= 0.75
+    ));
+    return sameDot
+      .map(box => box.point)
+      .sort((a, b) => (b.createTime || 0) - (a.createTime || 0) || (b.createBlock || 0) - (a.createBlock || 0))[0] || null;
   }
 
   function handleBalanceChartLegendClick(event) {
@@ -4446,8 +5301,128 @@
     return true;
   }
 
+  function handlePriceChartLegendClick(event) {
+    const canvas = balanceChartModal?.querySelector('.balance-chart-full-canvas');
+    const hit = priceChartLegendHit(canvas, event);
+    if (!hit || !Object.prototype.hasOwnProperty.call(priceChartVisibleGroups, hit.key)) return false;
+    priceChartVisibleGroups[hit.key] = priceChartVisibleGroups[hit.key] === false;
+    savePriceChartVisibleGroups();
+    hideBalanceChartHover();
+    renderSelectedPriceChartPreview();
+    redrawOpenBalanceChart();
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+  }
+
+  function handlePriceChartPointClick(event) {
+    const canvas = balanceChartModal?.querySelector('.balance-chart-full-canvas');
+    const hit = priceChartAuctionPointHit(canvas, event);
+    const address = String(hit?.address || '');
+    if (!address) return false;
+    const entry = currentTrackerEntries.find(row => String(row.address || '') === address);
+    if (!entry) return false;
+    applySearchSelectionToPanels(entry, currentTrackerEntries);
+    hideBalanceChartHover();
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+  }
+
+  function updatePriceChartHover(event) {
+    if (!balanceChartModal?.classList.contains('open')) return;
+    const canvas = balanceChartModal.querySelector('.balance-chart-full-canvas');
+    const meta = canvas?._priceChartMeta;
+    if (!canvas || !meta) return;
+    const point = balanceChartCanvasPoint(canvas, event);
+    if (!point) return;
+    if (priceChartLegendHit(canvas, event)) {
+      canvas.style.cursor = 'pointer';
+      hideBalanceChartHover({ clearHover: false });
+      canvas.style.cursor = 'pointer';
+      return;
+    }
+    const auctionPointHit = priceChartAuctionPointHit(canvas, event);
+    canvas.style.removeProperty('cursor');
+    if (!Array.isArray(meta.points) || !meta.points.length) return;
+    const { x: localX, y: localY, rect, drawWidth, drawHeight } = point;
+    const insidePlot = localX >= meta.pad.left && localX <= meta.pad.left + meta.plotW
+      && localY >= meta.pad.top && localY <= meta.pad.top + meta.plotH;
+    if (!insidePlot) {
+      hideBalanceChartHover();
+      return;
+    }
+    balanceChartHoverPoint = { clientX: event.clientX, clientY: event.clientY };
+    canvas.style.cursor = auctionPointHit ? 'pointer' : 'crosshair';
+
+    const xFor = time => meta.pad.left + ((time - meta.minTime) / Math.max(1, meta.maxTime - meta.minTime)) * meta.plotW;
+    const nearestTime = meta.points.reduce((best, chartPoint) => {
+      const distance = Math.abs(xFor(chartPoint.time) - localX);
+      return !best || distance < best.distance
+        ? { time: chartPoint.time, distance }
+        : best;
+    }, null)?.time;
+    if (!Number.isFinite(nearestTime)) {
+      hideBalanceChartHover();
+      return;
+    }
+    const datePoints = meta.points
+      .filter(chartPoint => chartPoint.time === nearestTime)
+      .sort((a, b) => {
+        if (a.seriesKey === b.seriesKey) return b.value - a.value;
+        return a.seriesKey === 'funded' ? -1 : 1;
+      });
+    if (!datePoints.length) {
+      hideBalanceChartHover();
+      return;
+    }
+
+    const line = balanceChartModal.querySelector('.balance-chart-hover-line');
+    const tooltip = balanceChartModal.querySelector('.balance-chart-tooltip');
+    if (!line || !tooltip) return;
+
+    const hoverX = xFor(nearestTime);
+    const cssX = rect.left + (hoverX / drawWidth) * rect.width;
+    const modalRect = balanceChartModal.getBoundingClientRect();
+    const modalLocalX = cssX - modalRect.left;
+    const cssPlotTop = rect.top + (meta.pad.top / drawHeight) * rect.height;
+    const cssPlotHeight = (meta.plotH / drawHeight) * rect.height;
+
+    line.classList.add('visible');
+    line.style.left = `${modalLocalX}px`;
+    line.style.top = `${cssPlotTop - modalRect.top}px`;
+    line.style.height = `${cssPlotHeight}px`;
+
+    const rows = priceTooltipRowsForPoints(datePoints, meta.unit);
+    tooltip.innerHTML = `
+      <div class="balance-chart-tooltip-date">${escapeHtml(formatBalanceTickDate(new Date(nearestTime * 1000)))}</div>
+      ${rows}
+    `;
+    tooltip.classList.add('visible');
+
+    const tooltipWidth = tooltip.offsetWidth || 190;
+    const tooltipHeight = tooltip.offsetHeight || 74;
+    const gap = 10;
+    const modalWidth = modalRect.width || window.innerWidth;
+    const modalHeight = modalRect.height || window.innerHeight;
+    const plotRight = rect.left + ((meta.pad.left + meta.plotW) / drawWidth) * rect.width - modalRect.left;
+    const right = modalLocalX + gap;
+    const left = right + tooltipWidth <= Math.min(plotRight, modalWidth - 10)
+      ? right
+      : Math.max(10, modalLocalX - gap - tooltipWidth);
+    const plotBottom = cssPlotTop - modalRect.top + cssPlotHeight;
+    const maxTop = Math.max(10, Math.min(modalHeight - tooltipHeight - 10, plotBottom - tooltipHeight - gap));
+    const top = Math.max(10, Math.min(event.clientY - modalRect.top - tooltipHeight / 2, maxTop));
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+  }
+
   function updateBalanceChartHover(event) {
     if (!balanceChartModal?.classList.contains('open')) return;
+    if (activeChartModalMode === 'price') {
+      updatePriceChartHover(event);
+      return;
+    }
     if (balanceChartSelectionSuppressesHover()) {
       hideBalanceChartHover({ clearHover: false });
       return;
@@ -4516,19 +5491,23 @@
     const left = rightFitsBeforeCurrentDate
       ? rightOfDate
       : Math.max(10, leftOfDate);
-    const top = Math.max(10, Math.min(event.clientY - modalRect.top - tooltipHeight / 2, modalHeight - tooltipHeight - 10));
+    const plotBottom = cssPlotTop - modalRect.top + cssPlotHeight;
+    const maxTop = Math.max(10, Math.min(modalHeight - tooltipHeight - 10, plotBottom - tooltipHeight - gap));
+    const top = Math.max(10, Math.min(event.clientY - modalRect.top - tooltipHeight / 2, maxTop));
     tooltip.style.left = `${left}px`;
     tooltip.style.top = `${top}px`;
   }
 
   function renderCoinInfo(entries) {
     if (!coinInfoPanel) return;
+    currentTrackerEntries = Array.isArray(entries) ? entries : [];
     const precalculatedInfo = precalculatedRightPanelInfo();
     if (precalculatedInfo) {
       const rows = currentChartRows(entries);
       const keepEmptyChartThumb = !allItemsSelected() && (activeCoin().nonFundedStats || isMuleCoin(activeCoin()));
       coinInfoPanel.innerHTML = rightPanelTableHtml(precalculatedInfo) + balanceChartHtml(rows, { keepEmpty: keepEmptyChartThumb }) + selectedCoinDetailHtml(rows);
       renderBalanceChartThumbnail(rows);
+      renderSelectedPriceChartPreview();
       syncGradedMediaViewer(rows);
       updateSidePanelLayouts();
       return;
@@ -4538,8 +5517,10 @@
       const active = rows.filter(isActiveStatus).length;
       const redeemed = rows.filter(isRedeemedStatus).length;
       const unfunded = rows.filter(isUnfundedStatus).length;
+      const funded = active + redeemed;
+      const physicalTotal = funded + unfunded;
       const unfundedRow = unfunded
-        ? `<tr><th><span class="info-label-dot info-label-dot-unfunded"></span>Unfunded</th><td>${formatCountShare(unfunded, rows.length)}</td></tr>`
+        ? `<tr><th><span class="info-label-dot info-label-dot-unfunded"></span>Unfunded</th><td>${formatCountShare(unfunded, physicalTotal)}</td></tr>`
         : '';
       const firstCreated = rows
         .filter(entry => Number.isFinite(entry.createBlock) || Number.isFinite(entry.createTime))
@@ -4550,9 +5531,9 @@
       coinInfoPanel.innerHTML = `
         <table class="info-table">
           <tbody>
-            <tr><th><span class="info-label-dot info-label-dot-minted"></span>Minted</th><td>${escapeHtml(formatInteger(rows.length))}</td></tr>
-            <tr><th><span class="info-label-dot info-label-dot-active"></span>Active</th><td>${formatCountShare(active, rows.length)}</td></tr>
-            <tr><th><span class="info-label-dot info-label-dot-redeemed"></span>Redeemed</th><td>${formatCountShare(redeemed, rows.length)}</td></tr>
+            <tr><th><span class="info-label-dot info-label-dot-minted"></span>Funded</th><td>${escapeHtml(formatInteger(funded))}</td></tr>
+            <tr><th><span class="info-label-dot info-label-dot-active"></span>Active</th><td>${formatCountShare(active, funded)}</td></tr>
+            <tr><th><span class="info-label-dot info-label-dot-redeemed"></span>Redeemed</th><td>${formatCountShare(redeemed, funded)}</td></tr>
             ${unfundedRow}
             <tr><th>First Funding</th><td>${escapeHtml(formatBlockDay(firstCreated?.createBlock, firstCreated?.createTime))}</td></tr>
             <tr><th>Last Spend</th><td>${escapeHtml(formatBlockDay(latestRedeemed?.redeemBlock, latestRedeemed?.redeemTime))}</td></tr>
@@ -4560,6 +5541,7 @@
         </table>
       ` + balanceChartHtml(rows) + selectedCoinDetailHtml(rows);
       renderBalanceChartThumbnail(rows);
+      renderSelectedPriceChartPreview();
       syncGradedMediaViewer(rows);
       updateSidePanelLayouts();
       return;
@@ -4574,6 +5556,8 @@
     const active = statuses.active || 0;
     const redeemed = statuses.redeemed || 0;
     const unfunded = (statuses.unfunded || 0) + (statuses.unloaded || 0);
+    const funded = active + redeemed;
+    const physicalTotal = funded + unfunded;
     const firstCreated = rows
       .filter(entry => Number.isFinite(entry.createBlock) || Number.isFinite(entry.createTime))
       .sort((a, b) => (a.createBlock || Infinity) - (b.createBlock || Infinity) || (a.createTime || Infinity) - (b.createTime || Infinity))[0];
@@ -4586,9 +5570,9 @@
       active: '—',
       redeemed: '—'
     } : {
-      minted: formatInteger(rows.length),
-      active: formatCountShare(active, rows.length),
-      redeemed: formatCountShare(redeemed, rows.length)
+      minted: formatInteger(funded),
+      active: formatCountShare(active, funded),
+      redeemed: formatCountShare(redeemed, funded)
     };
     const statsCells = showDashStats ? {
       minted: escapeHtml(statsText.minted),
@@ -4603,13 +5587,13 @@
       ? `<tr class="info-note-row"><td colspan="2"><span class="info-note-mark">*</span>${escapeHtml(mintageNote)}</td></tr>`
       : '';
     const unfundedRow = !showDashStats && unfunded
-      ? `<tr><th><span class="info-label-dot info-label-dot-unfunded"></span>Unfunded</th><td>${formatCountShare(unfunded, rows.length)}</td></tr>`
+      ? `<tr><th><span class="info-label-dot info-label-dot-unfunded"></span>Unfunded</th><td>${formatCountShare(unfunded, physicalTotal)}</td></tr>`
       : '';
 
     coinInfoPanel.innerHTML = `
       <table class="info-table">
         <tbody>
-          <tr><th><span class="info-label-dot info-label-dot-minted"></span>Minted</th><td>${statsCells.minted}</td></tr>
+          <tr><th><span class="info-label-dot info-label-dot-minted"></span>Funded</th><td>${statsCells.minted}</td></tr>
           <tr><th><span class="info-label-dot info-label-dot-active"></span>Active</th><td>${statsCells.active}</td></tr>
           <tr><th><span class="info-label-dot info-label-dot-redeemed"></span>Redeemed</th><td>${statsCells.redeemed}</td></tr>
           ${unfundedRow}
@@ -4620,6 +5604,7 @@
       </table>
     ` + balanceChartHtml(rows, { keepEmpty: showDashStats }) + selectedCoinDetailHtml(rows);
     renderBalanceChartThumbnail(rows);
+    renderSelectedPriceChartPreview();
     syncGradedMediaViewer(rows);
     updateSidePanelLayouts();
   }
@@ -4657,7 +5642,11 @@
         updateLeftPanelLayout();
         leftDataPanel?.classList.add('data-ready');
       });
-      if (leftPanelMode === 'graded' || selectedAddressHasGradedMedia(entries)) {
+      const shouldHydrateGraded = leftPanelMode === 'graded'
+        || activeChartModalMode === 'price'
+        || Boolean(selectedLeftPanelAddressByMode.graded)
+        || selectedAddressHasGradedMedia(entries);
+      if (shouldHydrateGraded) {
         trackerIndexWithGraded().then(gradedEntries => {
           if (token !== panelRenderToken || slug !== activeSlug) return;
           leftPanelRowsCache.clear();
@@ -4666,6 +5655,7 @@
           renderGradedCoins(gradedEntries);
           refreshingLeftPanelData = false;
           renderCoinInfo(gradedEntries);
+          redrawOpenBalanceChart();
           syncLeftPanelHeader();
           if (leftPanelMode === 'graded') syncLeftPanelMode();
           requestAnimationFrame(() => {
@@ -4915,21 +5905,35 @@
 
   function redrawOpenBalanceChart() {
     if (!balanceChartModal?.classList.contains('open')) return;
-    if (balanceChartUnit === 'usd' && !dailyPriceIndexCache) {
+    const unit = activeChartModalMode === 'price' ? priceChartUnit : balanceChartUnit;
+    const needsDailyPrices = activeChartModalMode === 'price' || unit === 'usd';
+    if (needsDailyPrices && !dailyPriceIndexCache) {
       dailyPriceIndex().then(() => {
-        if (balanceChartUnit === 'usd') redrawOpenBalanceChart();
+        if ((activeChartModalMode === 'price' || balanceChartUnit === 'usd') && balanceChartModal?.classList.contains('open')) {
+          redrawOpenBalanceChart();
+        }
       });
       return;
     }
-    drawBalanceChart(balanceChartModal.querySelector('.balance-chart-full-canvas'), currentBalanceChartRows, {
+    const canvas = balanceChartModal.querySelector('.balance-chart-full-canvas');
+    if (activeChartModalMode === 'price') {
+      drawSelectedPriceChart(canvas, selectedPriceChartEntry(currentBalanceChartRows), {
+        compact: false,
+        unit
+      });
+      refreshBalanceChartHover();
+      return;
+    }
+    drawBalanceChart(canvas, currentBalanceChartRows, {
       compact: false,
-      unit: balanceChartUnit
+      unit
     });
     refreshBalanceChartHover();
   }
 
   document.addEventListener('casascius-theme-change', () => {
     redrawBalanceChartThumbnail();
+    renderSelectedPriceChartPreview();
     redrawOpenBalanceChart();
   });
 
@@ -8753,10 +9757,13 @@
     selectLeftPanelAddressFromRow(e.target?.closest?.('.spend-row'));
   });
   coinInfoPanel?.addEventListener('click', (e) => {
-    if (!e.target?.closest?.('[data-balance-chart-open]')) return;
+    const balanceTarget = e.target?.closest?.('[data-balance-chart-open]');
+    const priceTarget = e.target?.closest?.('[data-selected-price-chart-open]');
+    if (!balanceTarget && !priceTarget) return;
     if (shortcutsModal?.classList.contains('open')) closeShortcutsModal({ restoreChart: false });
-    if (balanceChartIsOpen()) closeBalanceChartModal();
-    else openBalanceChartModal();
+    const nextMode = priceTarget ? 'price' : 'balance';
+    if (balanceChartIsOpen() && activeChartModalMode === nextMode) closeBalanceChartModal();
+    else openBalanceChartModal(nextMode);
   });
   gradedMediaDots?.addEventListener('click', (e) => {
     const button = e.target?.closest?.('.graded-media-dot[data-graded-media-mode]');
@@ -8814,7 +9821,16 @@
     e.stopPropagation();
     bottomDragMoved = false;
   }, true);
-  window.addEventListener('beforeunload', () => saveViewState(true));
+  function flushViewStateForHost() {
+    saveViewState(true);
+  }
+
+  window.addEventListener('pagehide', flushViewStateForHost);
+  window.addEventListener('beforeunload', flushViewStateForHost);
+  window.addEventListener('message', (event) => {
+    if (event.origin !== window.location.origin) return;
+    if (event.data?.type === 'casascius-flush-view-state') flushViewStateForHost();
+  });
   document.addEventListener('keydown', (e) => {
     const shortcutPressId = shortcutsModal?.classList.contains('open') ? shortcutIdForKeyboardEvent(e) : '';
     if (shortcutsModal?.classList.contains('open') && e.key === 'Meta') {
@@ -9003,7 +10019,7 @@
               if (activeGroupKey === ALL_ITEMS_GROUP_KEY) releaseInitialAllItemsQuarterBoot();
               else if (quarterComparisonInput.checked) releaseInitialQuarterBoot();
               else app.classList.remove('quarter-booting', 'all-items-booting');
-              if (readBalanceChartOpen()) openBalanceChartModal();
+              if (readBalanceChartOpen()) openBalanceChartModal(readChartModalMode());
               scheduleRemainingCoinDataLoad();
             });
           });

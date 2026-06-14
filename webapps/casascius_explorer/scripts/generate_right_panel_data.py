@@ -18,6 +18,9 @@ S3_ONE_GOLD_RIM_ESTIMATED_COUNT = 700
 SHARED_STATS_SLUGS = {
     "cas_10btc_2012_silver_gold_b": "cas_10btc_2012_silver",
 }
+S3_ONE_SILVER_VARIANT_SLUGS_BY_ADDRESS = {
+    "1Ag6z4rQCA3czTJUYb4qKbtZrnKyecC8RK": "cas_1btc_2013_gold_rim_silver",
+}
 MINTAGE_NOTES = {
     "cas_0p5btc_2013_silver_s25": "An estimated 45 half-BTC coins were made with the Series 2 sticker and are assumed to be the ones with the earliest indexes.",
     "cas_0p5btc_2013_silver_s3": "An estimated 45 half-BTC coins were made with the Series 2 sticker and are assumed to be the ones with the earliest indexes.",
@@ -54,6 +57,9 @@ def finite_number(value):
 
 def tracker_slug_for_row(row, s3_one_gold_rim_min_index, s3_half_series2_max_index, type_slugs):
     if row.get("Type") == "S3-COIN-1-AG":
+        override_slug = S3_ONE_SILVER_VARIANT_SLUGS_BY_ADDRESS.get(str(row.get("Address") or "").strip())
+        if override_slug:
+            return override_slug
         index = finite_number(row.get("Index"))
         return "cas_1btc_2013_gold_rim_silver" if index is not None and index >= s3_one_gold_rim_min_index else "cas_1btc_2013_silver"
     if row.get("Type") == "S3-COIN-0.5-AG":
@@ -202,12 +208,14 @@ def latest_redeemed(rows):
 def info_for_rows(rows):
     active = sum(1 for row in rows if row["status"] == "active")
     redeemed = sum(1 for row in rows if row["status"] == "redeemed")
+    unfunded = sum(1 for row in rows if row["status"] in ("unfunded", "unloaded"))
     first = first_created(rows)
     latest = latest_redeemed(rows)
     return {
-        "minted": len(rows),
+        "minted": active + redeemed,
         "active": active,
         "redeemed": redeemed,
+        "unfunded": unfunded,
         "firstBlock": first.get("createBlock"),
         "firstTime": first.get("createTime"),
         "lastBlock": latest.get("redeemBlock"),
