@@ -372,6 +372,11 @@
     } catch (_) {
       // Ignore storage failures.
     }
+    try {
+      modalEmbed?.contentWindow?.postMessage({ type: "casascius-flush-view-state" }, window.location.origin);
+    } catch (_) {
+      // Ignore embed lifecycle failures.
+    }
     window.location.href = getHomeUrl();
   }
 
