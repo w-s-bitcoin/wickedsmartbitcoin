@@ -12,11 +12,34 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CSV_PATH = ROOT / "data" / "casascius_explorer.csv"
+GRADED_CSV_PATH = ROOT / "data" / "casascius_graded.csv"
 STATE_PATH = ROOT / "data" / "casascius_explorer_update_state.json"
 ENV_PATH = Path(os.getenv("CASASCIUS_EXPLORER_ENV_FILE", str(ROOT.parent.parent / ".env"))).expanduser()
 RIGHT_PANEL_SCRIPT = ROOT / "scripts" / "generate_right_panel_data.py"
 ASSETS_DIR = ROOT / "assets"
 SATOSHIS_PER_BTC = Decimal("100000000")
+TRACKER_TYPE_YEARS = {
+    "S1-BAR-100": "2011",
+    "S1-BAR-500": "2011",
+    "S1-BAR-1000": "2011",
+    "S2-BAR-100": "2011",
+    "S2-BAR-500": "2011",
+    "S2-BAR-DIY": "2011",
+    "S1-COIN-1": "2011",
+    "S1-COIN-5": "2012",
+    "S1-COIN-25": "2011",
+    "S1-COIN-1000": "2012",
+    "S2-COIN-0.5": "2013",
+    "S2-COIN-1-2011": "2011",
+    "S2-COIN-1-2012": "2012",
+    "S2-COIN-1-2013": "2013",
+    "S2-COIN-5": "2012",
+    "S2-COIN-10": "2012",
+    "S2-COIN-25": "2011",
+    "S3-COIN-0.1-AG": "2013",
+    "S3-COIN-0.5-AG": "2013",
+    "S3-COIN-1-AG": "2013",
+}
 
 
 def parse_args():
@@ -123,7 +146,7 @@ def read_csv_rows(path):
 def write_csv_rows(path, fieldnames, rows):
     tmp_path = path.with_suffix(path.suffix + ".tmp")
     with tmp_path.open("w", newline="") as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
     tmp_path.replace(path)
@@ -147,6 +170,57 @@ def int_or_none(value):
         return int(text) if text else None
     except ValueError:
         return None
+
+
+def valid_year(value):
+    text = str(value or "").strip()
+    return text if is_year_text(text) else ""
+
+
+def is_year_text(text):
+    return len(text) == 4 and text.isdigit()
+
+
+def ensure_year_field(fieldnames):
+    fieldnames = list(fieldnames)
+    if "Year" in fieldnames:
+        return fieldnames
+    try:
+        address_index = fieldnames.index("Address")
+    except ValueError:
+        fieldnames.append("Year")
+        return fieldnames
+    return fieldnames[: address_index + 1] + ["Year"] + fieldnames[address_index + 1 :]
+
+
+def read_graded_years(path=GRADED_CSV_PATH):
+    if not path.exists():
+        return {}
+    with path.open(newline="") as csvfile:
+        reader = csv.DictReader(csvfile)
+        years = {}
+        for row in reader:
+            address = (row.get("address") or row.get("Address") or "").strip()
+            year = valid_year(row.get("Year"))
+            if address and year:
+                years[address] = year
+        return years
+
+
+def default_year_for_row(row):
+    return TRACKER_TYPE_YEARS.get((row.get("Type") or "").strip(), "2013")
+
+
+def apply_year_overrides(rows, graded_years=None):
+    graded_years = graded_years if graded_years is not None else read_graded_years()
+    changed = []
+    for row in rows:
+        address = (row.get("Address") or "").strip()
+        before = dict(row)
+        row["Year"] = graded_years.get(address) or default_year_for_row(row)
+        if row != before:
+            changed.append((address, before, dict(row)))
+    return changed
 
 
 def initial_checked_height(rows):
@@ -393,6 +467,8 @@ def regenerate_right_panel():
 def main():
     args = parse_args()
     rows, fieldnames = read_csv_rows(args.csv)
+    fieldnames = ensure_year_field(fieldnames)
+    initial_year_changes = apply_year_overrides(rows)
     state = read_state(args.state)
     env_values = read_env(ENV_PATH)
     from_height = args.from_height
@@ -408,19 +484,22 @@ def main():
             "last_checked_block_time": tip_time,
             "previous_checked_height": from_height,
             "affected_address_count": 0,
-            "changed_row_count": 0,
+            "changed_row_count": len(initial_year_changes),
         }
         if args.dry_run:
-            print(f"dry run: no new blocks after {from_height}; affected 0, changed 0")
+            print(f"dry run: no new blocks after {from_height}; affected 0, changed {len(initial_year_changes)}")
         else:
+            if initial_year_changes:
+                write_csv_rows(args.csv, fieldnames, rows)
             if (
                 int_or_none(state.get("last_checked_height")) != to_height
                 or state.get("last_checked_block_time") != tip_time
+                or initial_year_changes
             ):
                 write_state(args.state, new_state)
             print(f"no new blocks after {from_height}")
             print("affected addresses: 0")
-            print("changed CSV rows: 0")
+            print(f"changed CSV rows: {len(initial_year_changes)}")
         return
 
     with tempfile.TemporaryDirectory(prefix="casascius_update_") as tmpdir:
@@ -429,31 +508,38 @@ def main():
 
     tip_time = fetch_tip_time(env_values, to_height)
     changed = apply_updates(rows, recomputed, tip_time)
+    year_changes = apply_year_overrides(rows)
+    changed_addresses = {
+        address for address, _, _ in changed + initial_year_changes + year_changes if address
+    }
     new_state = {
         "last_checked_height": to_height,
         "last_checked_block_time": tip_time,
         "previous_checked_height": from_height,
         "affected_address_count": len(affected),
-        "changed_row_count": len(changed),
+        "changed_row_count": len(changed_addresses),
     }
 
     if missing_archives:
         new_state["missing_stxo_archive_tables"] = missing_archives
 
     if args.dry_run:
-        print(f"dry run: checked {from_height + 1}-{to_height}, affected {len(affected)}, changed {len(changed)}")
+        print(f"dry run: checked {from_height + 1}-{to_height}, affected {len(affected)}, changed {len(changed_addresses)}")
         for address, before, after in changed[:20]:
             print(
                 f"{address}: {before.get('Status')} {before.get('Balance')} -> "
                 f"{after.get('Status')} {after.get('Balance')}"
             )
         if len(changed) > 20:
-            print(f"... {len(changed) - 20} more changed rows")
+            print(f"... {len(changed) - 20} more balance/status changed rows")
+        total_year_changes = len(initial_year_changes) + len(year_changes)
+        if total_year_changes:
+            print(f"year overrides changed rows: {total_year_changes}")
         if missing_archives:
             print("missing stxo archive tables: " + ", ".join(missing_archives))
         return
 
-    if changed:
+    if changed or initial_year_changes or year_changes:
         write_csv_rows(args.csv, fieldnames, rows)
     write_state(args.state, new_state)
     if changed and not args.skip_right_panel:

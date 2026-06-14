@@ -157,6 +157,21 @@
     caseCornerRatio: 0.118,
     caseStyle: 'pcgs'
   };
+  const GRADED_ONLY_ENTRIES_BY_LABEL = {
+    '2012 Mule Bitnickel': {
+      slug: 'cas_5btc_2012_bitnickel_mule',
+      Status: 'Unfunded',
+      type: 'MULE-BITNICKEL-2012',
+      value: 5,
+      balance: 0,
+      index: null,
+      createBlock: null,
+      createTime: null,
+      redeemBlock: null,
+      redeemTime: null,
+      displayOnlyAddress: true
+    }
+  };
   function ngcGradedMedia(stem, overrides = {}) {
     return {
       front: `gradings_and_auctions/NGC_${stem}_front.png`,
@@ -174,6 +189,10 @@
     };
   }
   const GRADED_MEDIA_BY_ADDRESS = {
+    '2012 Mule Bitnickel': pcgsGradedMedia('mule_bitnickel', {
+      front: 'gradings_and_auctions/PCGS_mule_bitnickel_front.jpeg',
+      back: 'gradings_and_auctions/PCGS_mule_bitnickel_back.jpeg'
+    }),
     '133RXZaTtyyDLCTCdyFHCW4TV2nH4xxj2K': ngcGradedMedia('133RXZaT'),
     '15eTzCSj3G5gngyFYeztApydy1xNyh4pz3': pcgsGradedMedia('15eTzCSj'),
     '1NSNKCP2ZRT9Si3FHTQKCicVvb73MYVJdn': ngcGradedMedia('1NSNKCP2'),
@@ -1997,6 +2016,18 @@
     return String(address || '').trim();
   }
 
+  function isDisplayOnlyAddress(entryOrAddress) {
+    if (entryOrAddress && typeof entryOrAddress === 'object') {
+      return Boolean(entryOrAddress.displayOnlyAddress);
+    }
+    return Boolean(GRADED_ONLY_ENTRIES_BY_LABEL[gradedAddressKey(entryOrAddress)]);
+  }
+
+  function linkableBitcoinAddress(address) {
+    const text = String(address || '').trim();
+    return /^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$|^bc1[ac-hj-np-z02-9]{11,71}$/i.test(text);
+  }
+
   function buildGradedIndex(rows) {
     const recordsByAddress = new Map();
     rows.forEach(row => {
@@ -2039,10 +2070,20 @@
   }
 
   function mergeGradedRecords(entries, gradedRecords) {
-    return entries.map(entry => {
+    const merged = entries.map(entry => {
       const gradedRecord = gradedRecords.get(gradedAddressKey(entry.address));
       return gradedRecord ? { ...entry, gradedRecord } : entry;
     });
+    Object.entries(GRADED_ONLY_ENTRIES_BY_LABEL).forEach(([label, baseEntry]) => {
+      const gradedRecord = gradedRecords.get(gradedAddressKey(label));
+      if (!gradedRecord) return;
+      merged.push({
+        ...baseEntry,
+        address: label,
+        gradedRecord
+      });
+    });
+    return merged;
   }
 
   function trackerIndexWithGraded() {
@@ -2715,6 +2756,9 @@
   }
 
   function applySelectedAddressToObject(address, coin = activeCoin()) {
+    if (isDisplayOnlyAddress(address) || !linkableBitcoinAddress(address)) {
+      address = '';
+    }
     const firstbits = String(address || '').slice(0, 8);
     if (coin.shape === 'bar') {
       renderBarAddress(firstbits, coin);
@@ -3289,6 +3333,7 @@
     if (!rows.length) return '';
     const selectedAddress = selectedLeftPanelAddressByMode[mode];
     const selected = selectedAddress && rows.find(entry => String(entry.address || '') === selectedAddress);
+    if (isDisplayOnlyAddress(selected)) return '';
     return String(selected?.address || '');
   }
 
@@ -3510,7 +3555,7 @@
     const iconSize = iconSizeOverride || (isBar ? 'contain' : (coin.thumbBackgroundSize || coin.frontBackgroundSize || 'cover'));
     const displayAddress = addressText || entry?.address || 'No selected address';
     const realAddress = entry?.address ? String(entry.address) : '';
-    const addressHtml = realAddress
+    const addressHtml = realAddress && !isDisplayOnlyAddress(entry) && linkableBitcoinAddress(realAddress)
       ? `<a class="spend-address selected-coin-address-text selected-coin-address-link" href="https://mempool.space/address/${encodeURIComponent(realAddress)}" target="_blank" rel="noopener noreferrer">${escapeHtml(displayAddress)}</a>`
       : `<span class="spend-address selected-coin-address-text">${escapeHtml(displayAddress)}</span>`;
     return `
@@ -3606,7 +3651,7 @@
       value: unit === 'usd' ? btcValue * usdPrice : btcValue,
       source: 'Initial',
       seriesKey,
-      tooltipLabel: seriesKey === 'funded' ? 'Funded' : (point.listedUnfunded ? 'Unfunded' : 'Premium'),
+      tooltipLabel: seriesKey === 'funded' ? 'Original Funded Price' : 'Original Premium',
       label: point.label
     };
   }
@@ -3628,7 +3673,7 @@
     const btcPrice = priceForDaySeconds(time);
     const seriesKey = auctionSeriesKeyForEntry(entry, usdValue, time);
     const tooltipLabel = seriesKey === 'funded'
-      ? 'Funded'
+      ? 'Funded Sale'
       : (isUnfundedStatus(entry) ? 'Unfunded' : (isRedeemedStatus(entry) ? 'Redeemed' : 'Premium'));
     return {
       time,
@@ -5231,6 +5276,24 @@
     return `${formatBalanceTooltipValue(min, unit)} - ${formatBalanceTooltipValue(max, unit)}`;
   }
 
+  function priceTooltipHasRange(points, unit) {
+    const values = points
+      .map(point => Number(point?.value))
+      .filter(Number.isFinite)
+      .sort((a, b) => a - b);
+    if (values.length < 2) return false;
+    const epsilon = unit === 'usd' ? 0.005 : 0.000000005;
+    return Math.abs(values[values.length - 1] - values[0]) > epsilon;
+  }
+
+  function priceTooltipDisplayLabel(group, unit) {
+    const label = String(group?.label || '').trim();
+    const isAuction = group?.points?.some(point => point.source === 'Auction');
+    if (!isAuction) return label;
+    const baseLabel = label.replace(/\s+Sales?$/i, '');
+    return `${baseLabel} ${priceTooltipHasRange(group.points, unit) ? 'Sales' : 'Sale'}`;
+  }
+
   function priceTooltipRowsForPoints(points, unit) {
     const groups = new Map();
     points.forEach(point => {
@@ -5240,7 +5303,7 @@
       groups.get(key).points.push(point);
     });
     return Array.from(groups.values()).map(group => (
-      `<div><span class="balance-chart-tooltip-swatch balance-chart-tooltip-swatch-price-${group.seriesKey}"></span>${escapeHtml(group.label)} ${escapeHtml(formatPriceTooltipRange(group.points, unit))}</div>`
+      `<div><span class="balance-chart-tooltip-swatch balance-chart-tooltip-swatch-price-${group.seriesKey}"></span>${escapeHtml(priceTooltipDisplayLabel(group, unit))} ${escapeHtml(formatPriceTooltipRange(group.points, unit))}</div>`
     )).join('');
   }
 
