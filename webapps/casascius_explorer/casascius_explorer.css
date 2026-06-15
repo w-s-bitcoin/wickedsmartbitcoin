@@ -908,7 +908,7 @@
     display: none;
     align-items: center;
     justify-content: center;
-    width: calc(var(--object-w) * var(--graded-media-width-ratio, 2.201042));
+    width: var(--graded-media-w, calc(var(--object-w) * var(--graded-media-width-ratio, 2.201042)));
     max-width: min(calc(100vw - var(--left-reserved-space) - var(--right-reserved-space) - 40px), 72vw);
     aspect-ratio: var(--graded-media-aspect-ratio, 2113 / 3010);
     max-height: calc(100vh - var(--top-reserved-space) - var(--bottom-reserved-space) - 72px);
