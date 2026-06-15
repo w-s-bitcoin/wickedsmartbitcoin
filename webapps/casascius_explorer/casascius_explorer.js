@@ -174,30 +174,94 @@
   };
   function ngcGradedMedia(stem, overrides = {}) {
     return {
-      front: `gradings_and_auctions/NGC_${stem}_front.png`,
-      back: `gradings_and_auctions/NGC_${stem}_back.png`,
+      front: `gradings/NGC_${stem}_front.png`,
+      back: `gradings/NGC_${stem}_back.png`,
       ...NGC_GRADED_MEDIA_DEFAULTS,
       ...overrides
     };
   }
   function pcgsGradedMedia(stem, overrides = {}) {
     return {
-      front: `gradings_and_auctions/PCGS_${stem}_front.png`,
-      back: `gradings_and_auctions/PCGS_${stem}_back.png`,
+      front: `gradings/PCGS_${stem}_front.png`,
+      back: `gradings/PCGS_${stem}_back.png`,
       ...PCGS_GRADED_MEDIA_DEFAULTS,
       ...overrides
     };
   }
   const GRADED_MEDIA_BY_ADDRESS = {
     '2012 Mule Bitnickel': pcgsGradedMedia('mule_bitnickel', {
-      front: 'gradings_and_auctions/PCGS_mule_bitnickel_front.jpeg',
-      back: 'gradings_and_auctions/PCGS_mule_bitnickel_back.jpeg'
+      front: 'gradings/PCGS_mule_bitnickel_front.png',
+      back: 'gradings/PCGS_mule_bitnickel_back.png'
+    }),
+    '2factor 1AuHc241cAwfLQ7u': ngcGradedMedia('1AuHc241', {
+      front: 'gradings/NGC_1AuHc241_front.png',
+      back: 'gradings/NGC_1AuHc241_back.png'
+    }),
+    '2factor 1Au9Aag4jVYqbu3L': ngcGradedMedia('1Au9Aag4', {
+      front: 'gradings/NGC_1Au9Aag4_front.png',
+      back: 'gradings/NGC_1Au9Aag4_back.png'
+    }),
+    '2factor 1Auiao8gP7YEnaUF': ngcGradedMedia('1Auiao8g', {
+      front: 'gradings/NGC_1Auiao8g_front.png',
+      back: 'gradings/NGC_1Auiao8g_back.png'
+    }),
+    '2factor 1AuDhxo8TLQFPU3C': ngcGradedMedia('1AuDhxo8', {
+      front: 'gradings/NGC_1AuDhxo8_front.png',
+      back: 'gradings/NGC_1AuDhxo8_back.png'
+    }),
+    '2factor 1AuEVPghdbbQuDfz': ngcGradedMedia('1AuEVPgh', {
+      front: 'gradings/NGC_1AuEVPgh_front.png',
+      back: 'gradings/NGC_1AuEVPgh_back.png'
     }),
     '133RXZaTtyyDLCTCdyFHCW4TV2nH4xxj2K': ngcGradedMedia('133RXZaT'),
     '15eTzCSj3G5gngyFYeztApydy1xNyh4pz3': pcgsGradedMedia('15eTzCSj'),
     '1NSNKCP2ZRT9Si3FHTQKCicVvb73MYVJdn': ngcGradedMedia('1NSNKCP2'),
     '19MyvLp3LJi1n2p7jqtXnqENnvAZkQmgwT': ngcGradedMedia('19MyvLp3')
   };
+  const READY_GRADED_MEDIA_STEMS = new Set([
+    'NGC_133RXZaT',
+    'NGC_19MyvLp3',
+    'NGC_1A2Qg7aB',
+    'NGC_1AgMX8Kb',
+    'NGC_1Agk99qw',
+    'NGC_1Agsmd1m',
+    'NGC_1Agw6y5i',
+    'NGC_1AgyAERK',
+    'NGC_1AgyC8At',
+    'NGC_1AgyzVmd',
+    'NGC_1Au9Aag4',
+    'NGC_1AuDhxo8',
+    'NGC_1AuEVPgh',
+    'NGC_1AuHc241',
+    'NGC_1Auiao8g',
+    'NGC_1CAH8ptQ',
+    'NGC_1CAU8zUx',
+    'NGC_1CAYauRp',
+    'NGC_1CCJGmuS',
+    'NGC_1EWgq7NL',
+    'NGC_1GDmtdSt',
+    'NGC_1NSNKCP2',
+    'PCGS_1241ZPxy',
+    'PCGS_12424P5N',
+    'PCGS_1256uomj',
+    'PCGS_12583Cxf',
+    'PCGS_1331BaAy',
+    'PCGS_133Z3Duk',
+    'PCGS_136aiDov',
+    'PCGS_137czggS',
+    'PCGS_15eTzCSj',
+    'PCGS_1Ag1kGst',
+    'PCGS_1Ag2icXL',
+    'PCGS_1Ag6z4rQ',
+    'PCGS_1AgQSDDn',
+    'PCGS_1AgQtm5R',
+    'PCGS_1Agk3CAk',
+    'PCGS_1Agy2FRJ',
+    'PCGS_1AgypFuk',
+    'PCGS_1AgyyPm3',
+    'PCGS_1QBWPrTP',
+    'PCGS_mule_bitnickel'
+  ]);
   const GRADED_SELECTION_SLUGS_BY_ADDRESS = {
     '133RXZaTtyyDLCTCdyFHCW4TV2nH4xxj2K': 'cas_1btc_2013_brass',
     '1NSNKCP2ZRT9Si3FHTQKCicVvb73MYVJdn': 'cas_1btc_2011_s1',
@@ -2028,6 +2092,38 @@
     return /^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$|^bc1[ac-hj-np-z02-9]{11,71}$/i.test(text);
   }
 
+  function gradedAddressFirstbits(address) {
+    const text = String(address || '').trim();
+    const match = text.match(/\b([13][a-km-zA-HJ-NP-Z1-9]{7,34}|bc1[ac-hj-np-z02-9]{7,71})\b/i);
+    return match ? match[1].slice(0, 8) : text.slice(0, 8);
+  }
+
+  function gradedMediaFromStem(stem) {
+    if (!READY_GRADED_MEDIA_STEMS.has(stem)) return null;
+    if (stem.startsWith('NGC_')) return ngcGradedMedia(stem.slice(4));
+    if (stem.startsWith('PCGS_')) return pcgsGradedMedia(stem.slice(5));
+    return null;
+  }
+
+  function gradedMediaForEntry(entryOrAddress) {
+    const address = typeof entryOrAddress === 'object'
+      ? String(entryOrAddress?.address || '')
+      : String(entryOrAddress || '');
+    const explicit = GRADED_MEDIA_BY_ADDRESS[gradedAddressKey(address)];
+    if (explicit) return explicit;
+    const firstbits = gradedAddressFirstbits(address);
+    if (!firstbits) return null;
+    const preferredGrader = String(entryOrAddress?.gradedRecord?.grader || '').trim().toUpperCase();
+    const graders = preferredGrader === 'NGC' || preferredGrader === 'PCGS'
+      ? [preferredGrader, preferredGrader === 'NGC' ? 'PCGS' : 'NGC']
+      : ['NGC', 'PCGS'];
+    for (const grader of graders) {
+      const media = gradedMediaFromStem(`${grader}_${firstbits}`);
+      if (media) return media;
+    }
+    return null;
+  }
+
   function buildGradedIndex(rows) {
     const recordsByAddress = new Map();
     rows.forEach(row => {
@@ -3341,7 +3437,7 @@
     if (allItemsMode) return null;
     const entry = selectedTrackerEntry(rows);
     const address = String(entry?.address || '');
-    const media = GRADED_MEDIA_BY_ADDRESS[address];
+    const media = gradedMediaForEntry(entry);
     return media ? { entry, address, media } : null;
   }
 
@@ -3349,7 +3445,7 @@
     if (allItemsMode) return false;
     const entry = selectedTrackerEntry(rows);
     const address = String(entry?.address || '').trim();
-    return Boolean(address && GRADED_MEDIA_BY_ADDRESS[address]);
+    return Boolean(address && gradedMediaForEntry(entry));
   }
 
   function updateGradedMediaDots() {
@@ -3470,20 +3566,19 @@
     if (available) {
       const imageWidth = Number(selected.media.imageWidthPx) || 1;
       const imageHeight = Number(selected.media.imageHeightPx) || 1;
-      const coinDiameter = Number(selected.media.coinDiameterPx) || imageWidth;
-      const coin = COINS.find(c => c.slug === selected.entry?.slug) || comparisonCoin();
       const caseThicknessMm = Number(selected.media.caseThicknessMm) || 7.2;
       const caseCornerRatio = Number(selected.media.caseCornerRatio) || 0.16;
-      const coinDiameterMm = Number(coin?.diameterMm) || 28.5;
-      const objectW = parseFloat(getComputedStyle(root).getPropertyValue('--object-w')) || 420;
-      const caseWidthRatio = imageWidth / coinDiameter;
-      const caseHeightRatio = imageHeight / coinDiameter;
+      const caseWidthMm = Number(selected.media.caseWidthMm) || 64.3;
+      const caseHeightMm = Number(selected.media.caseHeightMm) || 85.9;
+      const pxPerMm = baseObjectSizePx() / MAX_PHYSICAL_MM;
+      const caseW = caseWidthMm * pxPerMm;
+      const caseH = caseHeightMm * pxPerMm;
       gradedCaseStyle = selected.media.caseStyle === 'pcgs' ? 'pcgs' : 'ngc';
-      root.style.setProperty('--graded-media-width-ratio', (imageWidth / coinDiameter).toFixed(6));
+      root.style.setProperty('--graded-media-w', `${caseW.toFixed(2)}px`);
       root.style.setProperty('--graded-media-aspect-ratio', `${imageWidth} / ${imageHeight}`);
-      root.style.setProperty('--graded-case-w', `${(objectW * caseWidthRatio).toFixed(2)}px`);
-      root.style.setProperty('--graded-case-h', `${(objectW * caseHeightRatio).toFixed(2)}px`);
-      root.style.setProperty('--graded-case-thickness', `${(objectW * caseThicknessMm / coinDiameterMm).toFixed(2)}px`);
+      root.style.setProperty('--graded-case-w', `${caseW.toFixed(2)}px`);
+      root.style.setProperty('--graded-case-h', `${caseH.toFixed(2)}px`);
+      root.style.setProperty('--graded-case-thickness', `${(caseThicknessMm * pxPerMm).toFixed(2)}px`);
       root.style.setProperty('--graded-case-corner-ratio', caseCornerRatio.toFixed(4));
       const caseFront = gradedCaseModel?.querySelector('.graded-case-image-front');
       const caseBack = gradedCaseModel?.querySelector('.graded-case-image-back');
@@ -3492,6 +3587,7 @@
       buildGradedCaseEdges();
     } else {
       root.style.removeProperty('--graded-media-width-ratio');
+      root.style.removeProperty('--graded-media-w');
       root.style.removeProperty('--graded-media-aspect-ratio');
       root.style.removeProperty('--graded-case-w');
       root.style.removeProperty('--graded-case-h');
@@ -4450,8 +4546,13 @@
 
   function drawSelectedPriceChart(canvas, entry, { unit = priceChartUnit, compact = false } = {}) {
     if (!canvas) return null;
-    if (!dailyPriceIndexCache) {
-      dailyPriceIndex().then(() => {
+    const needsSeriesPrices = !seriesPriceIndexCache;
+    const needsDailyPrices = !dailyPriceIndexCache;
+    if (needsSeriesPrices || needsDailyPrices) {
+      Promise.all([
+        needsSeriesPrices ? seriesPriceIndex() : Promise.resolve(seriesPriceIndexCache),
+        needsDailyPrices ? dailyPriceIndex() : Promise.resolve(dailyPriceIndexCache)
+      ]).then(() => {
         renderSelectedPriceChartPreview();
         redrawOpenBalanceChart();
       });
@@ -4531,13 +4632,17 @@
     const axisPoints = visiblePoints.length ? visiblePoints : points;
     const axisValues = axisPoints.map(point => Number(point.value)).filter(value => Number.isFinite(value));
     const maxValue = axisValues.length ? Math.max(...axisValues) : 0;
+    const minValue = axisValues.length ? Math.min(...axisValues) : 0;
     const axisTickFontSize = compact ? 0 : (cssWidth < 700 ? 14 : 15);
     let axisLabelWidth = 0;
     let measuredRightPad = cssWidth < 700 ? 82 : 112;
     if (!compact) {
       ctx.save();
       ctx.font = `${axisTickFontSize}px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-      axisLabelWidth = ctx.measureText(formatBalanceTickValue(maxValue * 1.04, unit)).width;
+      axisLabelWidth = Math.max(
+        ctx.measureText(formatBalanceTickValue(maxValue, unit)).width,
+        ctx.measureText(formatBalanceTickValue(minValue, unit)).width
+      );
       ctx.restore();
       measuredRightPad = Math.max(
         measuredRightPad,
@@ -4560,19 +4665,28 @@
       ? Math.max(10, Math.floor(axisTickFontSize * (availableRightLabelWidth / axisLabelWidth)))
       : axisTickFontSize;
     const span = Math.max(1, maxTime - minTime);
-    const yMax = maxValue > 0 ? maxValue * 1.04 : 1;
-    const yTicks = compact ? [] : buildLinearTicks(0, yMax, Math.max(4, Math.min(8, Math.floor(plotH / 84))));
+    const valueRange = Math.max(0, maxValue - minValue);
+    const yPad = valueRange > 0
+      ? valueRange * 0.08
+      : Math.max(Math.abs(maxValue) * 0.08, unit === 'usd' ? 1 : 0.00000001);
+    let yMin = minValue - yPad;
+    let yMax = maxValue + yPad;
+    if (minValue >= 0 && minValue <= Math.max(yPad * 1.5, maxValue * 0.08)) yMin = 0;
+    if (yMax <= yMin) yMax = yMin + Math.max(Math.abs(yMin) * 0.08, unit === 'usd' ? 1 : 0.00000001);
+    const yTicks = compact ? [] : buildLinearTicks(yMin, yMax, Math.max(4, Math.min(8, Math.floor(plotH / 84))));
+    const yAxisMin = Math.min(yMin, ...yTicks);
     const yAxisMax = Math.max(yMax, ...yTicks);
+    const yAxisSpan = Math.max(1e-12, yAxisMax - yAxisMin);
     const xTicks = compact ? [] : buildBalanceTimeTicks(minTime, maxTime, plotW);
     const xFor = time => pad.left + ((time - minTime) / span) * plotW;
-    const yFor = value => pad.top + plotH - (value / yAxisMax) * plotH;
+    const yFor = value => pad.top + plotH - ((value - yAxisMin) / yAxisSpan) * plotH;
 
     if (!compact) {
       ctx.save();
       ctx.strokeStyle = palette.grid;
       ctx.lineWidth = 1;
-      yTicks.map(value => 1 - (value / yAxisMax)).forEach(ratio => {
-        const y = pad.top + plotH * ratio;
+      yTicks.forEach(value => {
+        const y = yFor(value);
         ctx.beginPath();
         ctx.moveTo(pad.left, y);
         ctx.lineTo(pad.left + plotW, y);
@@ -4759,7 +4873,7 @@
     }
     if (compact) canvas._priceChartLegendHitBoxes = [];
     canvas._priceChartPointHitBoxes = compact ? [] : pointHitBoxes;
-    const meta = { points: visiblePoints, allPoints: points, funded, premium, minTime, maxTime, yMax: yAxisMax, pad, plotW, plotH, cssWidth, cssHeight, unit };
+    const meta = { points: visiblePoints, allPoints: points, funded, premium, minTime, maxTime, yMin: yAxisMin, yMax: yAxisMax, pad, plotW, plotH, cssWidth, cssHeight, unit };
     canvas._priceChartMeta = meta;
     canvas._balanceChartMeta = meta;
     canvas._balanceChartLegendHitBoxes = [];
@@ -5969,10 +6083,16 @@
   function redrawOpenBalanceChart() {
     if (!balanceChartModal?.classList.contains('open')) return;
     const unit = activeChartModalMode === 'price' ? priceChartUnit : balanceChartUnit;
-    const needsDailyPrices = activeChartModalMode === 'price' || unit === 'usd';
-    if (needsDailyPrices && !dailyPriceIndexCache) {
-      dailyPriceIndex().then(() => {
-        if ((activeChartModalMode === 'price' || balanceChartUnit === 'usd') && balanceChartModal?.classList.contains('open')) {
+    const needsDailyPrices = (activeChartModalMode === 'price' || unit === 'usd') && !dailyPriceIndexCache;
+    const needsSeriesPrices = activeChartModalMode === 'price' && !seriesPriceIndexCache;
+    if (needsDailyPrices || needsSeriesPrices) {
+      Promise.all([
+        needsDailyPrices ? dailyPriceIndex() : Promise.resolve(dailyPriceIndexCache),
+        needsSeriesPrices ? seriesPriceIndex() : Promise.resolve(seriesPriceIndexCache)
+      ]).then(() => {
+        const stillNeedsPriceRedraw = activeChartModalMode === 'price';
+        const stillNeedsBalanceUsdRedraw = activeChartModalMode === 'balance' && balanceChartUnit === 'usd';
+        if ((stillNeedsPriceRedraw || stillNeedsBalanceUsdRedraw) && balanceChartModal?.classList.contains('open')) {
           redrawOpenBalanceChart();
         }
       });
