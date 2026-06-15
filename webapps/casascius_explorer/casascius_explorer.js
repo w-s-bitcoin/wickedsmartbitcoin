@@ -66,6 +66,7 @@
   const gradedCaseModel = document.getElementById('gradedCaseModel');
   const gradedCaseCrosshair = document.getElementById('gradedCaseCrosshair');
   const allItemsStage = document.getElementById('allItemsStage');
+  const stageLoadingRing = document.getElementById('stageLoadingRing');
   const model = document.getElementById('model');
   const quarterScene = document.getElementById('quarterScene');
   const quarterModel = document.getElementById('quarterModel');
@@ -465,6 +466,19 @@
         leftMode: validLeftPanelMode(leftMode)
       }));
     } catch (_) {}
+  }
+
+  function syncStageLoadingRing() {
+    const loading = stageLoadingKeys.size > 0;
+    app?.classList.toggle('stage-model-loading', loading);
+    if (stageLoadingRing) stageLoadingRing.setAttribute('aria-hidden', String(!loading));
+  }
+
+  function setStageLoading(key, loading) {
+    if (!key) return;
+    if (loading) stageLoadingKeys.add(key);
+    else stageLoadingKeys.delete(key);
+    syncStageLoadingRing();
   }
 
   function readBalanceChartOpen() {
@@ -1499,6 +1513,7 @@
   let leftPanelDragMoved = false;
   let leftPanelSuppressClick = false;
   let selectionToken = 0;
+  const stageLoadingKeys = new Set();
   let quarterLayoutAnimationToken = 0;
   let sceneLayoutAnimationToken = 0;
   let allItemsLayoutAnimationToken = 0;
@@ -3617,7 +3632,9 @@
     root.classList.toggle('graded-media-pcgs-case', available && selected?.media?.caseStyle === 'pcgs');
     if (!(available && gradedMediaMode === 'case')) clearGradedCaseCursor();
     const caseLoadToken = ++gradedCaseLoadToken;
+    const caseLoadingKey = `graded-case:${caseLoadToken}`;
     gradedCaseModel?.classList.remove('loaded');
+    if (available && gradedMediaMode === 'case') setStageLoading(caseLoadingKey, true);
     if (available) {
       const imageWidth = Number(selected.media.imageWidthPx) || 1;
       const imageHeight = Number(selected.media.imageHeightPx) || 1;
@@ -3646,9 +3663,13 @@
           if (caseBack) caseBack.style.backgroundImage = cssUrl(selected.media.back);
           buildGradedCaseEdges();
           gradedCaseModel?.classList.add('loaded');
+          setStageLoading(caseLoadingKey, false);
         });
+      }).finally(() => {
+        if (caseLoadToken !== gradedCaseLoadToken || gradedMediaMode !== 'case') setStageLoading(caseLoadingKey, false);
       });
     } else {
+      setStageLoading(caseLoadingKey, false);
       root.style.removeProperty('--graded-media-width-ratio');
       root.style.removeProperty('--graded-media-w');
       root.style.removeProperty('--graded-media-aspect-ratio');
@@ -8732,6 +8753,8 @@
       return Promise.resolve(true);
     }
     if (shouldReveal) hideAllItemsFocusedModel();
+    const loadingKey = `all-items-sync:${slug}:${allItemsModelRevealToken}`;
+    if (shouldReveal) setStageLoading(loadingKey, true);
     return loadCoin3dData(slug)
       .then(() => {
         if (!allItemsMode || allItemsFocusedSlug !== slug) return false;
@@ -8741,7 +8764,8 @@
         }
         return true;
       })
-      .catch(() => false);
+      .catch(() => false)
+      .finally(() => setStageLoading(loadingKey, false));
   }
 
   function waitForAllItemsRevealPaint(slug, token) {
@@ -8769,6 +8793,8 @@
     const slug = allItemsFocusedSlug;
     hideAllItemsFocusedModel({ invalidateReveal: false });
     const token = ++allItemsModelRevealToken;
+    const loadingKey = `all-items-reveal:${token}`;
+    setStageLoading(loadingKey, true);
     return loadCoin3dData(slug)
       .then(() => {
         if (token !== allItemsModelRevealToken || !allItemsMode || allItemsFocusedSlug !== slug) return false;
@@ -8796,7 +8822,8 @@
           });
         });
       })
-      .catch(() => false);
+      .catch(() => false)
+      .finally(() => setStageLoading(loadingKey, false));
   }
 
   function pausedHologramShapeTargetAngle(previousCoin, nextCoin) {
@@ -8822,6 +8849,8 @@
 
   async function selectCoin(slug, { alignGroup = true, preservedSelection = null } = {}) {
     const token = ++selectionToken;
+    const loadingKey = `model:${token}`;
+    setStageLoading(loadingKey, true);
     searchAddressNotFound = false;
     searchedUnfundedEntry = null;
     pendingSearchSelection = preservedSelection?.address
@@ -8866,34 +8895,41 @@
     app.classList.remove('layout-switching');
     if (playQuarterLayoutAnimation) playQuarterLayoutAnimation();
     try {
-      await loadCoin3dData(c.slug);
-    } catch (_) {}
-    if (token !== selectionToken) return;
-    renderBarAddress(c.addressFirstbits || '', c);
-    renderCoinBackAddress(c.backAddressFirstbits || '', c);
-    frontFace.style.backgroundImage = cssUrl(c.frontData);
-    backFace.style.backgroundImage = cssUrl(c.backData);
-    frontFace.style.backgroundPosition = c.frontPosition || 'center';
-    backFace.style.backgroundPosition = c.backPosition || 'center';
-    const fittedFaceBackgroundSize = c.shape === 'bar'
-      ? (c.faceDiameterScale ? `${(clampNumber(c.faceDiameterScale, 1, 0.7, 1.18) * 100).toFixed(3)}%` : 'cover')
-      : '100% 100%';
-    frontFace.style.backgroundSize = c.shape === 'bar' ? (c.frontBackgroundSize || fittedFaceBackgroundSize) : fittedFaceBackgroundSize;
-    backFace.style.backgroundSize = c.shape === 'bar' ? (c.backBackgroundSize || fittedFaceBackgroundSize) : fittedFaceBackgroundSize;
-    root.style.setProperty('--front-image', 'none');
-    root.style.setProperty('--back-image', 'none');
-    buildEdges();
-    if (quarterComparisonInput.checked) buildQuarterEdges();
-    setTransform();
-    Promise.allSettled([loadImage(c.frontData), loadImage(c.backData)]).then(() => {
+      try {
+        await loadCoin3dData(c.slug);
+      } catch (_) {}
       if (token !== selectionToken) return;
-      requestAnimationFrame(() => {
-        if (token === selectionToken) {
-          model.classList.add('loaded');
-          scheduleDataPanelsRefresh();
-        }
+      renderBarAddress(c.addressFirstbits || '', c);
+      renderCoinBackAddress(c.backAddressFirstbits || '', c);
+      frontFace.style.backgroundImage = cssUrl(c.frontData);
+      backFace.style.backgroundImage = cssUrl(c.backData);
+      frontFace.style.backgroundPosition = c.frontPosition || 'center';
+      backFace.style.backgroundPosition = c.backPosition || 'center';
+      const fittedFaceBackgroundSize = c.shape === 'bar'
+        ? (c.faceDiameterScale ? `${(clampNumber(c.faceDiameterScale, 1, 0.7, 1.18) * 100).toFixed(3)}%` : 'cover')
+        : '100% 100%';
+      frontFace.style.backgroundSize = c.shape === 'bar' ? (c.frontBackgroundSize || fittedFaceBackgroundSize) : fittedFaceBackgroundSize;
+      backFace.style.backgroundSize = c.shape === 'bar' ? (c.backBackgroundSize || fittedFaceBackgroundSize) : fittedFaceBackgroundSize;
+      root.style.setProperty('--front-image', 'none');
+      root.style.setProperty('--back-image', 'none');
+      buildEdges();
+      if (quarterComparisonInput.checked) buildQuarterEdges();
+      setTransform();
+      Promise.allSettled([loadImage(c.frontData), loadImage(c.backData)]).then(() => {
+        if (token !== selectionToken) return;
+        requestAnimationFrame(() => {
+          if (token === selectionToken) {
+            model.classList.add('loaded');
+            scheduleDataPanelsRefresh();
+            setStageLoading(loadingKey, false);
+          }
+        });
+      }).finally(() => {
+        if (token !== selectionToken) setStageLoading(loadingKey, false);
       });
-    });
+    } finally {
+      if (token !== selectionToken) setStageLoading(loadingKey, false);
+    }
   }
 
   function setTransform({ save = true, orbitAngle = angle } = {}) {
