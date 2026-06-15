@@ -157,6 +157,12 @@
     caseCornerRatio: 0.118,
     caseStyle: 'pcgs'
   };
+  const PCGS_BAR_GRADED_MEDIA_DEFAULTS = {
+    ...PCGS_GRADED_MEDIA_DEFAULTS,
+    caseWidthMm: 116.6,
+    caseHeightMm: 154.76,
+    caseThicknessMm: 10
+  };
   const GRADED_ONLY_ENTRIES_BY_LABEL = {
     '2012 Mule Bitnickel': {
       slug: 'cas_5btc_2012_bitnickel_mule',
@@ -259,6 +265,9 @@
     'PCGS_1Agy2FRJ',
     'PCGS_1AgypFuk',
     'PCGS_1AgyyPm3',
+    'PCGS_1GCufn8u',
+    'PCGS_1Gcy3Yy4',
+    'PCGS_1GdgTNBL',
     'PCGS_1QBWPrTP',
     'PCGS_mule_bitnickel'
   ]);
@@ -1533,6 +1542,7 @@
   let gradedMediaMode = savedGradedMediaMode;
   let gradedMediaAddress = '';
   let gradedCaseStyle = 'ngc';
+  let gradedCaseLoadToken = 0;
   if (!allItemsMode
     && savedGradedMediaSelection?.address
     && (savedGradedMediaMode !== 'model' || (savedChartOpen && savedChartModalMode === 'price'))) {
@@ -2105,12 +2115,21 @@
     return null;
   }
 
+  function applyGradedMediaCaseProfile(media, entry) {
+    if (!media) return null;
+    const coin = COINS.find(c => c.slug === entry?.slug);
+    if (media.caseStyle === 'pcgs' && coin?.shape === 'bar') {
+      return { ...media, ...PCGS_BAR_GRADED_MEDIA_DEFAULTS };
+    }
+    return media;
+  }
+
   function gradedMediaForEntry(entryOrAddress) {
     const address = typeof entryOrAddress === 'object'
       ? String(entryOrAddress?.address || '')
       : String(entryOrAddress || '');
     const explicit = GRADED_MEDIA_BY_ADDRESS[gradedAddressKey(address)];
-    if (explicit) return explicit;
+    if (explicit) return applyGradedMediaCaseProfile(explicit, entryOrAddress);
     const firstbits = gradedAddressFirstbits(address);
     if (!firstbits) return null;
     const preferredGrader = String(entryOrAddress?.gradedRecord?.grader || '').trim().toUpperCase();
@@ -2119,7 +2138,7 @@
       : ['NGC', 'PCGS'];
     for (const grader of graders) {
       const media = gradedMediaFromStem(`${grader}_${firstbits}`);
-      if (media) return media;
+      if (media) return applyGradedMediaCaseProfile(media, entryOrAddress);
     }
     return null;
   }
@@ -2707,6 +2726,14 @@
   function showLeftPanelMode(mode) {
     mode = validLeftPanelMode(mode);
     if (mode === leftPanelMode) return;
+    if (
+      leftPanelMode === 'graded'
+      && mode === 'recent'
+      && activeChartModalMode === 'price'
+      && balanceChartModal?.classList.contains('open')
+    ) {
+      closeBalanceChartModal();
+    }
     if (mode === 'graded') hydrateGradedPanelForCurrentSelection();
     if (!allItemsMode) {
       syncSelectedLeftPanelAddress(mode, { forceDefault: true });
@@ -2973,6 +3000,26 @@
     leftPanelWindowStartByMode[mode] = Math.max(0, Math.min(preferredStart, Math.max(0, rows.length - size)));
   }
 
+  function maxUsefulLeftPanelScrollTop(mode = leftPanelMode) {
+    if (!recentSpendsPanel) return 0;
+    const view = activeLeftPanelView(mode);
+    const list = view?.querySelector('.spend-list');
+    const contentBottom = list
+      ? list.offsetTop + list.scrollHeight
+      : (view?.scrollHeight || recentSpendsPanel.scrollHeight || 0);
+    return Math.max(0, Math.ceil(contentBottom - recentSpendsPanel.clientHeight));
+  }
+
+  function clampLeftPanelScroll(mode = leftPanelMode) {
+    if (!recentSpendsPanel) return 0;
+    const maxScrollTop = maxUsefulLeftPanelScrollTop(mode);
+    const clamped = Math.max(0, Math.min(recentSpendsPanel.scrollTop || 0, maxScrollTop));
+    if (Math.abs((recentSpendsPanel.scrollTop || 0) - clamped) > 0.5) {
+      recentSpendsPanel.scrollTop = clamped;
+    }
+    return clamped;
+  }
+
   function applyLeftPanelAddressScroll(mode, address, { force = false, async = true } = {}) {
     if (!recentSpendsPanel || !address || (!force && mode !== leftPanelMode)) return;
     const applyScroll = () => {
@@ -2981,19 +3028,24 @@
       const row = view?.querySelector(`.spend-row[data-address="${CSS.escape(String(address))}"]`);
       if (!row) return;
       const hasRowAbove = Boolean(row.previousElementSibling);
-      const hasScrollableOverflow = recentSpendsPanel.scrollHeight > recentSpendsPanel.clientHeight + 1;
-      recentSpendsPanel.classList.toggle('left-panel-selected-flush', hasScrollableOverflow && hasRowAbove);
+      recentSpendsPanel.classList.remove('left-panel-selected-flush');
+      const maxUsefulScrollTop = maxUsefulLeftPanelScrollTop(mode);
+      const hasScrollableOverflow = maxUsefulScrollTop > 1;
       if (!hasScrollableOverflow) {
         recentSpendsPanel.scrollTop = 0;
         leftPanelScrollTopByMode[mode] = 0;
         return;
       }
-      const top = hasRowAbove ? Math.max(0, row.offsetTop) : 0;
+      const top = hasRowAbove ? Math.min(Math.max(0, row.offsetTop), maxUsefulScrollTop) : 0;
+      recentSpendsPanel.classList.toggle('left-panel-selected-flush', top > 0);
       recentSpendsPanel.scrollTop = top;
       leftPanelScrollTopByMode[mode] = top;
     };
     if (async) {
-      requestAnimationFrame(applyScroll);
+      requestAnimationFrame(() => {
+        applyScroll();
+        requestAnimationFrame(applyScroll);
+      });
     } else {
       applyScroll();
     }
@@ -3303,18 +3355,19 @@
     if (rows.length <= LEFT_PANEL_MAX_RENDERED_ROWS) return;
     const visibleRows = Math.min(LEFT_PANEL_MAX_RENDERED_ROWS, leftPanelVisibleRowsByMode[leftPanelMode] || LEFT_PANEL_MAX_RENDERED_ROWS);
     const start = normalizedLeftPanelWindowStart(leftPanelMode);
-    const bottomDistance = recentSpendsPanel.scrollHeight - recentSpendsPanel.scrollTop - recentSpendsPanel.clientHeight;
+    const maxScrollTop = maxUsefulLeftPanelScrollTop(leftPanelMode);
+    const bottomDistance = maxScrollTop - recentSpendsPanel.scrollTop;
     if (bottomDistance <= 8 && start + visibleRows < rows.length) {
       leftPanelWindowStartByMode[leftPanelMode] = Math.min(start + LEFT_PANEL_BATCH_SIZE, Math.max(0, rows.length - visibleRows));
       renderLeftPanelRows(leftPanelMode);
-      recentSpendsPanel.scrollTop = Math.max(0, (recentSpendsPanel.scrollHeight - recentSpendsPanel.clientHeight) / 2);
+      recentSpendsPanel.scrollTop = Math.max(0, maxUsefulLeftPanelScrollTop(leftPanelMode) / 2);
       updateLeftPanelLayout();
       return;
     }
     if (recentSpendsPanel.scrollTop <= 8 && start > 0) {
       leftPanelWindowStartByMode[leftPanelMode] = Math.max(0, start - LEFT_PANEL_BATCH_SIZE);
       renderLeftPanelRows(leftPanelMode);
-      recentSpendsPanel.scrollTop = Math.max(0, (recentSpendsPanel.scrollHeight - recentSpendsPanel.clientHeight) / 2);
+      recentSpendsPanel.scrollTop = Math.max(0, maxUsefulLeftPanelScrollTop(leftPanelMode) / 2);
       updateLeftPanelLayout();
     }
   }
@@ -3563,6 +3616,8 @@
     root.classList.toggle('graded-media-case-mode', available && gradedMediaMode === 'case');
     root.classList.toggle('graded-media-pcgs-case', available && selected?.media?.caseStyle === 'pcgs');
     if (!(available && gradedMediaMode === 'case')) clearGradedCaseCursor();
+    const caseLoadToken = ++gradedCaseLoadToken;
+    gradedCaseModel?.classList.remove('loaded');
     if (available) {
       const imageWidth = Number(selected.media.imageWidthPx) || 1;
       const imageHeight = Number(selected.media.imageHeightPx) || 1;
@@ -3582,9 +3637,17 @@
       root.style.setProperty('--graded-case-corner-ratio', caseCornerRatio.toFixed(4));
       const caseFront = gradedCaseModel?.querySelector('.graded-case-image-front');
       const caseBack = gradedCaseModel?.querySelector('.graded-case-image-back');
-      if (caseFront) caseFront.style.backgroundImage = cssUrl(selected.media.front);
-      if (caseBack) caseBack.style.backgroundImage = cssUrl(selected.media.back);
-      buildGradedCaseEdges();
+      gradedCaseModel?.querySelectorAll('.graded-case-edge-segment').forEach(el => el.remove());
+      Promise.allSettled([loadImage(selected.media.front), loadImage(selected.media.back)]).then(() => {
+        if (caseLoadToken !== gradedCaseLoadToken || !available || gradedMediaAddress !== selected.address) return;
+        requestAnimationFrame(() => {
+          if (caseLoadToken !== gradedCaseLoadToken || gradedMediaAddress !== selected.address) return;
+          if (caseFront) caseFront.style.backgroundImage = cssUrl(selected.media.front);
+          if (caseBack) caseBack.style.backgroundImage = cssUrl(selected.media.back);
+          buildGradedCaseEdges();
+          gradedCaseModel?.classList.add('loaded');
+        });
+      });
     } else {
       root.style.removeProperty('--graded-media-width-ratio');
       root.style.removeProperty('--graded-media-w');
@@ -3594,6 +3657,10 @@
       root.style.removeProperty('--graded-case-thickness');
       root.style.removeProperty('--graded-case-corner-ratio');
       gradedCaseStyle = 'ngc';
+      const caseFront = gradedCaseModel?.querySelector('.graded-case-image-front');
+      const caseBack = gradedCaseModel?.querySelector('.graded-case-image-back');
+      if (caseFront) caseFront.style.backgroundImage = '';
+      if (caseBack) caseBack.style.backgroundImage = '';
       gradedCaseModel?.querySelectorAll('.graded-case-edge-segment').forEach(el => el.remove());
     }
     if (gradedMediaViewer) gradedMediaViewer.setAttribute('aria-hidden', String(!(available && gradedMediaMode !== 'model' && gradedMediaMode !== 'case')));
@@ -5969,6 +6036,10 @@
     updateSidePanelLayouts();
     if (updateLeftPanelScrollbarGutter()) {
       updateSidePanelLayouts();
+    }
+    if (!leftPanelMeasureMode) {
+      clampLeftPanelScroll();
+      saveLeftPanelScroll();
     }
     updateDockedPanelLayout();
   }
@@ -9889,11 +9960,12 @@
   });
   recentSpendsPanel?.addEventListener('scroll', () => {
     if (leftPanelMeasureMode) return;
+    clampLeftPanelScroll();
     saveLeftPanelScroll();
     maybeLoadMoreLeftPanelRows();
   }, { passive: true });
   function leftPanelCanDragScroll() {
-    return Boolean(recentSpendsPanel && recentSpendsPanel.scrollHeight > recentSpendsPanel.clientHeight + 1);
+    return Boolean(recentSpendsPanel && maxUsefulLeftPanelScrollTop(leftPanelMode) > 1);
   }
 
   function leftPanelDragBlocked(target) {
