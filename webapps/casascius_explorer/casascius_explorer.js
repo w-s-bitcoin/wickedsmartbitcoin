@@ -1545,6 +1545,7 @@
   const leftPanelWindowStartByMode = { recent: 0, active: 0, graded: 0 };
   const leftPanelScrollTopByMode = { recent: 0, active: 0, graded: 0 };
   const selectedLeftPanelAddressByMode = { recent: '', active: '', graded: '' };
+  const selectedLeftPanelRecordIdByMode = { recent: '', active: '', graded: '' };
   let searchAddressNotFound = false;
   let searchedUnfundedEntry = null;
   let pendingSearchSelection = null;
@@ -2158,25 +2159,45 @@
     return null;
   }
 
+  function normalizedGradedRecord(row, index = 0) {
+    const address = gradedAddressKey(row.address);
+    return {
+      ...row,
+      address,
+      gradedRecordId: `${address || 'graded'}:${index}`,
+      gradedRecordIndex: index,
+      'auction sold date': row['auction sold date'] || row['auction date'] || '',
+      'auction sold amount': row['auction sold amount'] || row['auction sale amount'] || ''
+    };
+  }
+
+  function compareGradedRecords(a, b) {
+    return (parseSeriesPriceDate(b?.['auction sold date']) || 0) - (parseSeriesPriceDate(a?.['auction sold date']) || 0)
+      || (parseUsdPriceText(b?.['auction sold amount']) || 0) - (parseUsdPriceText(a?.['auction sold amount']) || 0)
+      || (Number(b?.gradedRecordIndex) || 0) - (Number(a?.gradedRecordIndex) || 0);
+  }
+
   function buildGradedIndex(rows) {
     const recordsByAddress = new Map();
-    rows.forEach(row => {
+    rows.forEach((row, index) => {
       const address = gradedAddressKey(row.address);
       if (!address) return;
-      recordsByAddress.set(address, {
-        ...row,
-        'auction sold date': row['auction sold date'] || row['auction date'] || '',
-        'auction sold amount': row['auction sold amount'] || row['auction sale amount'] || ''
-      });
+      if (!recordsByAddress.has(address)) recordsByAddress.set(address, []);
+      recordsByAddress.get(address).push(normalizedGradedRecord(row, index));
     });
-    return recordsByAddress;
+    const latestByAddress = new Map();
+    recordsByAddress.forEach((records, address) => {
+      records.sort(compareGradedRecords);
+      latestByAddress.set(address, records[0]);
+    });
+    return { recordsByAddress, latestByAddress };
   }
 
   function gradedIndex() {
     if (!gradedIndexPromise) {
       gradedIndexPromise = loadTextFile(GRADED_CSV_URL)
         .then(text => buildGradedIndex(parseCsv(text)))
-        .catch(() => new Map());
+        .catch(() => ({ recordsByAddress: new Map(), latestByAddress: new Map() }));
     }
     return gradedIndexPromise;
   }
@@ -2199,18 +2220,26 @@
     return unfundedIndexPromise;
   }
 
-  function mergeGradedRecords(entries, gradedRecords) {
+  function entryWithGradedRecord(entry, gradedRecord, records = []) {
+    return gradedRecord ? { ...entry, gradedRecord, gradedRecords: records } : entry;
+  }
+
+  function mergeGradedRecords(entries, gradedIndexData) {
+    const latestByAddress = gradedIndexData?.latestByAddress || new Map();
+    const recordsByAddress = gradedIndexData?.recordsByAddress || new Map();
     const merged = entries.map(entry => {
-      const gradedRecord = gradedRecords.get(gradedAddressKey(entry.address));
-      return gradedRecord ? { ...entry, gradedRecord } : entry;
+      const address = gradedAddressKey(entry.address);
+      return entryWithGradedRecord(entry, latestByAddress.get(address), recordsByAddress.get(address) || []);
     });
     Object.entries(GRADED_ONLY_ENTRIES_BY_LABEL).forEach(([label, baseEntry]) => {
-      const gradedRecord = gradedRecords.get(gradedAddressKey(label));
+      const address = gradedAddressKey(label);
+      const gradedRecord = latestByAddress.get(address);
       if (!gradedRecord) return;
       merged.push({
         ...baseEntry,
         address: label,
-        gradedRecord
+        gradedRecord,
+        gradedRecords: recordsByAddress.get(address) || []
       });
     });
     return merged;
@@ -2492,6 +2521,17 @@
       || (b.index || 0) - (a.index || 0);
   }
 
+  function gradedAuctionEntriesForEntry(entry) {
+    const records = Array.isArray(entry?.gradedRecords) && entry.gradedRecords.length
+      ? entry.gradedRecords
+      : (entry?.gradedRecord ? [entry.gradedRecord] : []);
+    return records.map(record => ({
+      ...entry,
+      gradedRecord: record,
+      gradedRecordId: record?.gradedRecordId || entry?.gradedRecordId || ''
+    }));
+  }
+
   function externalInfoLinkHtml(text, url) {
     const label = String(text || '').trim();
     const href = String(url || '').trim();
@@ -2597,7 +2637,7 @@
     const rows = rowsForCoin(entries, coin);
     leftPanelCounts.recent = rows.filter(isRedeemedStatus).length;
     leftPanelCounts.active = rows.filter(isActiveStatus).length;
-    leftPanelCounts.graded = rows.filter(isGradedEntry).length;
+    leftPanelCounts.graded = rows.filter(isGradedEntry).flatMap(gradedAuctionEntriesForEntry).length;
   }
 
   function leftPanelToggleText() {
@@ -2852,7 +2892,9 @@
     const coin = allItemsSelected() ? COINS.find(c => c.slug === entry.slug) || activeCoin() : activeCoin();
     const isBar = coin.shape === 'bar';
     const address = String(entry.address || '');
-    const selected = selectedLeftPanelAddressByMode[mode] === address;
+    const gradedRecordId = mode === 'graded' ? String(entry.gradedRecordId || entry.gradedRecord?.gradedRecordId || '') : '';
+    const selected = selectedLeftPanelAddressByMode[mode] === address
+      && (mode !== 'graded' || !selectedLeftPanelRecordIdByMode.graded || selectedLeftPanelRecordIdByMode.graded === gradedRecordId);
     const selectedStatusMode = isActiveStatus(entry) ? 'active' : (isUnfundedStatus(entry) ? 'unfunded' : 'recent');
     const iconImage = cssUrl(coinFrontThumbData(coin), { compact: true });
     const iconPosition = coin.thumbPosition || coin.frontPosition || 'center';
@@ -2875,6 +2917,7 @@
         tabindex="0"
         data-panel-mode="${escapeHtml(mode)}"
         data-address="${escapeHtml(address)}"
+        data-graded-record-id="${escapeHtml(gradedRecordId)}"
         data-slug="${escapeHtml(entry.slug || '')}"
       >
         <div class="spend-main">
@@ -2916,6 +2959,7 @@
     const rows = leftPanelRowsByMode[mode] || [];
     if (!rows.length) {
       selectedLeftPanelAddressByMode[mode] = '';
+      selectedLeftPanelRecordIdByMode[mode] = '';
       if (apply && mode === leftPanelMode) {
         if (allItemsMode) {
           syncFocusedAllItemsModelWhenLoaded();
@@ -2936,6 +2980,14 @@
     const hasCurrent = current && rows.some(entry => String(entry.address || '') === current);
     if (forceDefault || !hasCurrent) {
       selectedLeftPanelAddressByMode[mode] = String(rows[0].address || '');
+      selectedLeftPanelRecordIdByMode[mode] = mode === 'graded' ? String(rows[0].gradedRecordId || rows[0].gradedRecord?.gradedRecordId || '') : '';
+    } else if (mode === 'graded') {
+      const currentRecordId = selectedLeftPanelRecordIdByMode.graded;
+      const hasCurrentRecord = currentRecordId && rows.some(entry => leftPanelRowMatchesSelection(entry, current, currentRecordId, mode));
+      if (!hasCurrentRecord) {
+        const firstCurrent = rows.find(entry => String(entry.address || '') === current);
+        selectedLeftPanelRecordIdByMode.graded = String(firstCurrent?.gradedRecordId || firstCurrent?.gradedRecord?.gradedRecordId || '');
+      }
     }
     if (apply && !allItemsMode) {
       const selectedAddress = selectedLeftPanelAddressByMode[mode];
@@ -3081,6 +3133,12 @@
     scrollLeftPanelAddressToTop(mode, address);
   }
 
+  function leftPanelRowMatchesSelection(row, address, gradedRecordId = '', mode = leftPanelMode) {
+    if (String(row?.address || '') !== String(address || '')) return false;
+    if (mode !== 'graded' || !gradedRecordId) return true;
+    return String(row.gradedRecordId || row.gradedRecord?.gradedRecordId || '') === String(gradedRecordId);
+  }
+
   function prepareLeftPanelModeForTransition(mode) {
     if (!recentSpendsPanel) return;
     if (allItemsMode) {
@@ -3107,9 +3165,11 @@
       leftPanelRowsByMode[panelMode] = cachedRows[panelMode] || [];
     }
     const rows = leftPanelRowsByMode[mode] || [];
-    const index = rows.findIndex(row => String(row.address || '') === address);
+    const gradedRecordId = String(entry.gradedRecordId || entry.gradedRecord?.gradedRecordId || '');
+    const index = rows.findIndex(row => leftPanelRowMatchesSelection(row, address, gradedRecordId, mode));
     if (index < 0) return false;
     selectedLeftPanelAddressByMode[mode] = address;
+    selectedLeftPanelRecordIdByMode[mode] = mode === 'graded' ? gradedRecordId : '';
     setLeftPanelWindowForIndex(mode, index, { center: true });
     setLeftPanelModeInstant(mode);
     if (allItemsMode && centerAll) {
@@ -3134,6 +3194,7 @@
     const entry = rows.find(row => String(row.address || '') === address);
     if (!entry) return false;
     selectedLeftPanelAddressByMode[mode] = address;
+    selectedLeftPanelRecordIdByMode[mode] = mode === 'graded' ? String(entry.gradedRecordId || entry.gradedRecord?.gradedRecordId || '') : '';
     const index = rows.findIndex(row => String(row.address || '') === address);
     if (index >= 0) {
       setLeftPanelWindowForIndex(mode, index, { center: true });
@@ -3163,6 +3224,7 @@
         .sort((a, b) => (b.createTime || 0) - (a.createTime || 0) || (b.createBlock || 0) - (a.createBlock || 0) || (b.index || 0) - (a.index || 0)),
       graded: rows
         .filter(isGradedEntry)
+        .flatMap(gradedAuctionEntriesForEntry)
         .sort(compareGradedAuctionRows)
     };
     leftPanelRowsCache.set(cacheKey, cached);
@@ -3394,10 +3456,12 @@
     pendingSearchSelection = null;
     const mode = validLeftPanelMode(row.dataset.panelMode);
     const address = String(row.dataset.address || '');
+    const gradedRecordId = String(row.dataset.gradedRecordId || '');
     if (!address) return;
     selectedLeftPanelAddressByMode[mode] = address;
+    selectedLeftPanelRecordIdByMode[mode] = mode === 'graded' ? gradedRecordId : '';
     const rows = leftPanelRowsByMode[mode] || [];
-    const entry = rows.find(item => String(item.address || '') === address);
+    const entry = rows.find(item => leftPanelRowMatchesSelection(item, address, gradedRecordId, mode));
     const coin = allItemsMode ? COINS.find(c => c.slug === (entry?.slug || row.dataset.slug)) || activeCoin() : activeCoin();
     if (allItemsMode) {
       centerAllItemsOnEntry(entry || { slug: row.dataset.slug }, { animate: true, save: true, syncSelection: false });
@@ -3480,7 +3544,8 @@
   function selectedTrackerEntry(rows = currentBalanceChartRows, mode = leftPanelMode) {
     const panelRows = leftPanelRowsByMode[mode] || [];
     const selectedAddress = selectedLeftPanelAddressByMode[mode];
-    const selected = selectedAddress && panelRows.find(entry => String(entry.address || '') === selectedAddress);
+    const selectedRecordId = mode === 'graded' ? selectedLeftPanelRecordIdByMode.graded : '';
+    const selected = selectedAddress && panelRows.find(entry => leftPanelRowMatchesSelection(entry, selectedAddress, selectedRecordId, mode));
     if (selected) return selected;
     const selectedInRows = selectedAddress && rows?.find(entry => String(entry.address || '') === selectedAddress);
     if (selectedInRows) return selectedInRows;
@@ -3866,7 +3931,11 @@
       seriesKey,
       tooltipLabel,
       label: record?.grade || entry.address || 'Auction',
+      grade: String(record?.grade || '').trim(),
+      usdValue,
+      btcValue: btcPrice > 0 ? usdValue / btcPrice : 0,
       address: String(entry?.address || ''),
+      gradedRecordId: String(entry?.gradedRecordId || record?.gradedRecordId || ''),
       slug: String(entry?.slug || ''),
       status: statusKey(entry),
       createTime: Number(entry?.createTime) || 0,
@@ -3950,6 +4019,7 @@
         && row?.gradedRecord
         && pricePointMatchesVariant({ variantKey: priceVariantKeyForEntry(row) }, variantKey)
       ))
+      .flatMap(gradedAuctionEntriesForEntry)
       .map(row => auctionPricePointForEntry(row, unit))
       .filter(point => point && Number.isFinite(point.time) && Number.isFinite(point.value) && point.value > 0)
       .forEach(point => {
@@ -3978,6 +4048,17 @@
         <canvas class="selected-price-chart-canvas" width="320" height="118" aria-label="Price history chart"></canvas>
       </button>
     `;
+  }
+
+  function latestDetailEntryForRightPanel(entry, rows = currentBalanceChartRows) {
+    const address = String(entry?.address || '');
+    if (!address || !entry?.gradedRecord) return entry;
+    const latest = rows?.find(row => (
+      String(row.address || '') === address
+      && row.gradedRecord
+      && Array.isArray(row.gradedRecords)
+    ));
+    return latest || entryWithGradedRecord(entry, entry.gradedRecords?.[0] || entry.gradedRecord, entry.gradedRecords || []);
   }
 
   function addresslessSelectedCoin(coin = comparisonCoin()) {
@@ -4051,9 +4132,9 @@
     }
     return `
       <section class="selected-coin-detail" aria-label="Selected coin">
-        ${selectedCoinAddressHtml(entry, coin)}
-        ${selectedCoinInfoRowsHtml(entry, rows, coin)}
-        ${selectedPriceChartHtml(entry)}
+        ${selectedCoinAddressHtml(latestDetailEntryForRightPanel(entry, rows), coin)}
+        ${selectedCoinInfoRowsHtml(latestDetailEntryForRightPanel(entry, rows), rows, coin)}
+        ${selectedPriceChartHtml(latestDetailEntryForRightPanel(entry, rows))}
       </section>
     `;
   }
@@ -4848,12 +4929,13 @@
         original: point.source === 'Initial',
         size: markerSize
       });
-      if (!compact && point.source === 'Auction' && point.address) {
+      if (!compact) {
         pointHitBoxes.push({
           point,
           x,
           y,
-          radius: Math.max(10, markerSize + 6)
+          radius: Math.max(10, markerSize + 6),
+          clickable: point.source === 'Auction' && Boolean(point.address)
         });
       }
       if (point.source === 'Auction' && selectedGradedPriceAddress && point.address === selectedGradedPriceAddress) {
@@ -5509,6 +5591,68 @@
     )).join('');
   }
 
+  function gradeSortValue(grade) {
+    const text = String(grade || '').toUpperCase();
+    const numeric = text.match(/(?:MS|PR|PF|SP|AU|XF|VF|F|VG|G)?\s*(\d+(?:\.\d+)?)/);
+    if (!numeric) return -1;
+    const prefix = (text.match(/\b(MS|PR|PF|SP|AU|XF|VF|F|VG|G)\b/) || [])[1] || '';
+    const prefixBonus = { MS: 900, PR: 850, PF: 850, SP: 825, AU: 800, XF: 700, VF: 600, F: 500, VG: 400, G: 300 }[prefix] || 0;
+    const plusBonus = /\d(?:\.\d+)?\s*\+/.test(text) ? 0.25 : 0;
+    return prefixBonus + Number(numeric[1]) + plusBonus;
+  }
+
+  function formatPriceTooltipBtcValue(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return '0.00000000 BTC';
+    return `${number.toLocaleString(undefined, { minimumFractionDigits: 8, maximumFractionDigits: 8 })} BTC`;
+  }
+
+  function formatPriceTooltipPointValue(point, unit) {
+    if (point?.source === 'Auction' && unit === 'usd' && Number.isFinite(point.usdValue)) {
+      return formatBalanceTooltipValue(point.usdValue, 'usd');
+    }
+    if (point?.source === 'Auction' && Number.isFinite(point.btcValue) && point.btcValue > 0) {
+      return formatPriceTooltipBtcValue(point.btcValue);
+    }
+    if (unit !== 'usd') {
+      return formatPriceTooltipBtcValue(point?.value || 0);
+    }
+    return formatBalanceTooltipValue(point?.value || 0, unit);
+  }
+
+  function priceTooltipPointLabel(point) {
+    if (point?.source === 'Initial') {
+      return point.seriesKey === 'funded' ? 'Original price' : 'Original premium';
+    }
+    return String(point.grade || point.label || point.tooltipLabel || 'Sale').trim();
+  }
+
+  function priceTooltipSortValue(point, unit) {
+    if (point?.source === 'Auction' && unit === 'usd' && Number.isFinite(point.usdValue)) return point.usdValue;
+    if (point?.source === 'Auction' && Number.isFinite(point.btcValue)) return point.btcValue;
+    return Number(point?.value) || 0;
+  }
+
+  function priceTooltipMarkerRows(points, unit) {
+    const sortedPoints = [...points].sort((a, b) => (
+      priceTooltipSortValue(b, unit) - priceTooltipSortValue(a, unit)
+      || gradeSortValue(b.grade || b.label) - gradeSortValue(a.grade || a.label)
+      || (a.seriesKey === b.seriesKey ? 0 : (a.seriesKey === 'funded' ? -1 : 1))
+      || (Number(b.value) || 0) - (Number(a.value) || 0)
+      || String(a.label || '').localeCompare(String(b.label || ''))
+    ));
+    const rows = sortedPoints.map(point => {
+      const label = priceTooltipPointLabel(point);
+      const seriesKey = point.seriesKey === 'funded' ? 'funded' : 'premium';
+      const markerClass = point.source === 'Initial' ? 'balance-chart-tooltip-star' : 'balance-chart-tooltip-swatch';
+      return `
+        <span class="balance-chart-tooltip-sale-label"><span class="${markerClass} balance-chart-tooltip-swatch-price-${seriesKey}"></span>${escapeHtml(label)}</span>
+        <span class="balance-chart-tooltip-sale-value">${escapeHtml(formatPriceTooltipPointValue(point, unit))}</span>
+      `;
+    }).join('');
+    return `<div class="balance-chart-tooltip-sales">${rows}</div>`;
+  }
+
   function balanceChartLegendHit(canvas, event) {
     const point = balanceChartCanvasPoint(canvas, event);
     if (!point) return null;
@@ -5535,6 +5679,7 @@
     const point = balanceChartCanvasPoint(canvas, event);
     if (!point) return null;
     const candidates = (canvas._priceChartPointHitBoxes || [])
+      .filter(box => box.clickable)
       .map(box => {
         const distance = Math.hypot(point.x - box.x, point.y - box.y);
         return { ...box, distance };
@@ -5550,6 +5695,29 @@
     return sameDot
       .map(box => box.point)
       .sort((a, b) => (b.createTime || 0) - (a.createTime || 0) || (b.createBlock || 0) - (a.createBlock || 0))[0] || null;
+  }
+
+  function priceChartClosestMarkerHit(canvas, event) {
+    const point = balanceChartCanvasPoint(canvas, event);
+    if (!point) return null;
+    const candidates = (canvas._priceChartPointHitBoxes || [])
+      .map(box => {
+        const distance = Math.hypot(point.x - box.x, point.y - box.y);
+        return { ...box, distance };
+      })
+      .sort((a, b) => a.distance - b.distance);
+    if (!candidates.length) return null;
+    const nearest = candidates[0];
+    const samePosition = candidates.filter(box => (
+      Math.abs(box.x - nearest.x) <= 0.75
+      && Math.abs(box.y - nearest.y) <= 0.75
+    ));
+    return {
+      x: nearest.x,
+      y: nearest.y,
+      point: nearest.point,
+      points: samePosition.map(box => box.point)
+    };
   }
 
   function handleBalanceChartLegendClick(event) {
@@ -5585,7 +5753,10 @@
     const hit = priceChartAuctionPointHit(canvas, event);
     const address = String(hit?.address || '');
     if (!address) return false;
-    const entry = currentTrackerEntries.find(row => String(row.address || '') === address);
+    const gradedRecordId = String(hit?.gradedRecordId || '');
+    const entry = currentTrackerEntries
+      .flatMap(gradedAuctionEntriesForEntry)
+      .find(row => String(row.address || '') === address && (!gradedRecordId || String(row.gradedRecordId || '') === gradedRecordId));
     if (!entry) return false;
     applySearchSelectionToPanels(entry, currentTrackerEntries);
     hideBalanceChartHover();
@@ -5621,22 +5792,23 @@
     canvas.style.cursor = auctionPointHit ? 'pointer' : 'crosshair';
 
     const xFor = time => meta.pad.left + ((time - meta.minTime) / Math.max(1, meta.maxTime - meta.minTime)) * meta.plotW;
-    const nearestTime = meta.points.reduce((best, chartPoint) => {
+    const nearestDate = meta.points.reduce((best, chartPoint) => {
       const distance = Math.abs(xFor(chartPoint.time) - localX);
       return !best || distance < best.distance
         ? { time: chartPoint.time, distance }
         : best;
-    }, null)?.time;
+    }, null);
+    const maxTooltipSnapDistance = Math.max(14, Math.min(32, meta.plotW * 0.035));
+    const nearestTime = nearestDate?.time;
+    if (!nearestDate || nearestDate.distance > maxTooltipSnapDistance) {
+      hideBalanceChartHover();
+      return;
+    }
     if (!Number.isFinite(nearestTime)) {
       hideBalanceChartHover();
       return;
     }
-    const datePoints = meta.points
-      .filter(chartPoint => chartPoint.time === nearestTime)
-      .sort((a, b) => {
-        if (a.seriesKey === b.seriesKey) return b.value - a.value;
-        return a.seriesKey === 'funded' ? -1 : 1;
-      });
+    const datePoints = meta.points.filter(chartPoint => chartPoint.time === nearestTime);
     if (!datePoints.length) {
       hideBalanceChartHover();
       return;
@@ -5658,7 +5830,7 @@
     line.style.top = `${cssPlotTop - modalRect.top}px`;
     line.style.height = `${cssPlotHeight}px`;
 
-    const rows = priceTooltipRowsForPoints(datePoints, meta.unit);
+    const rows = priceTooltipMarkerRows(datePoints, meta.unit);
     tooltip.innerHTML = `
       <div class="balance-chart-tooltip-date">${escapeHtml(formatBalanceTickDate(new Date(nearestTime * 1000)))}</div>
       ${rows}
