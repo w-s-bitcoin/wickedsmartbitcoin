@@ -957,9 +957,20 @@
     position: absolute;
     inset: 0;
     border-radius: inherit;
-    border: 3px solid rgba(248,241,223,.18);
-    border-top-color: var(--active-orange);
-    border-right-color: rgba(255,184,76,.72);
+    padding: 3px;
+    background:
+      conic-gradient(from -35deg,
+        rgba(255, 154, 18, 0) 0deg,
+        rgba(255, 154, 18, .24) 48deg,
+        rgba(255, 184, 76, .78) 118deg,
+        var(--active-orange) 178deg,
+        rgba(255, 184, 76, .86) 222deg,
+        rgba(248,241,223,.20) 274deg,
+        rgba(248,241,223,.12) 360deg);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
     animation: stage-loading-spin .82s linear infinite;
   }
   .app.stage-model-loading:not(.all-items-mode) .stage-loading-ring,
@@ -2955,7 +2966,22 @@
   }
   .balance-chart-tooltip-date {
     margin-bottom: 5px;
-    font-weight: 800;
+  }
+  .balance-chart-tooltip-sales {
+    display: grid;
+    grid-template-columns: max-content max-content;
+    column-gap: 8px;
+    row-gap: 2px;
+    align-items: baseline;
+  }
+  .balance-chart-tooltip-sale-label {
+    display: inline-flex;
+    align-items: baseline;
+  }
+  .balance-chart-tooltip-sale-value {
+    font-family: "SFMono-Regular", "Roboto Mono", "Cascadia Mono", "Liberation Mono", monospace;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
   }
   .balance-chart-tooltip-swatch {
     display: inline-block;
@@ -2964,6 +2990,14 @@
     margin-right: 6px;
     border-radius: 50%;
     vertical-align: 1px;
+  }
+  .balance-chart-tooltip-star {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    margin-right: 5px;
+    clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 56%, 79% 91%, 50% 69%, 21% 91%, 32% 56%, 2% 35%, 39% 35%);
+    vertical-align: 0;
   }
   .balance-chart-tooltip-swatch-minted {
     background: var(--active-orange);
