@@ -341,6 +341,7 @@
     { key: 'active', label: 'Active', color: '#38c172', defaultVisible: true },
     { key: 'redeemed', label: 'Redeemed', color: '#e05243', defaultVisible: true }
   ];
+  const FUNDED_AUCTION_DENOMINATION_BUFFER = 0.95;
   const LEFT_PANEL_ADDRESS_CHARS = 34;
   const LEFT_PANEL_ADDRESS_FONT = '11px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace';
   const LEFT_PANEL_HORIZONTAL_PADDING = 68;
@@ -3906,11 +3907,11 @@
   }
 
   function auctionSeriesKeyForEntry(entry, usdValue, time) {
-    if (isUnfundedStatus(entry) || isRedeemedStatus(entry)) return 'premium';
     const denomination = Math.max(0, Number(entry?.value) || 0);
     const btcPrice = priceForDaySeconds(time);
     const denominationUsd = denomination * btcPrice;
-    if (denominationUsd > 0 && usdValue < denominationUsd) return 'premium';
+    if (denominationUsd > 0 && usdValue < denominationUsd * FUNDED_AUCTION_DENOMINATION_BUFFER) return 'premium';
+    if (denominationUsd <= 0 && (isUnfundedStatus(entry) || isRedeemedStatus(entry))) return 'premium';
     return 'funded';
   }
 
@@ -4916,10 +4917,40 @@
       ctx.stroke();
     };
 
+    const drawAddressSaleLines = () => {
+      const addressGroups = new Map();
+      visiblePoints
+        .filter(point => point.source === 'Auction' && point.address)
+        .forEach(point => {
+          const address = String(point.address || '');
+          if (!addressGroups.has(address)) addressGroups.set(address, []);
+          addressGroups.get(address).push(point);
+        });
+      ctx.save();
+      ctx.lineWidth = compact ? 0.75 : 1;
+      ctx.globalAlpha = compact ? 0.42 : 0.55;
+      addressGroups.forEach(addressPoints => {
+        addressPoints
+          .sort((a, b) => a.time - b.time || (Number(a.value) || 0) - (Number(b.value) || 0))
+          .forEach((point, index, sortedPoints) => {
+            const nextPoint = sortedPoints[index + 1];
+            if (!nextPoint || nextPoint.seriesKey !== point.seriesKey) return;
+            const seriesKey = point.seriesKey === 'funded' ? 'funded' : 'premium';
+            ctx.strokeStyle = seriesKey === 'funded' ? priceColors.funded : priceColors.premium;
+            ctx.beginPath();
+            ctx.moveTo(xFor(point.time), yFor(point.value));
+            ctx.lineTo(xFor(nextPoint.time), yFor(nextPoint.value));
+            ctx.stroke();
+          });
+      });
+      ctx.restore();
+    };
+
     const pointHitBoxes = [];
     const selectedPricePointHighlights = [];
     const selectedGradedPriceAddress = String(selectedLeftPanelAddressByMode.graded || '');
     ctx.save();
+    drawAddressSaleLines();
     visiblePoints.forEach(point => {
       const x = xFor(point.time);
       const y = yFor(point.value);
@@ -5633,6 +5664,14 @@
     return Number(point?.value) || 0;
   }
 
+  function priceTooltipMarkerRowParts(point, unit) {
+    const label = priceTooltipPointLabel(point);
+    const seriesKey = point.seriesKey === 'funded' ? 'funded' : 'premium';
+    const markerClass = point.source === 'Initial' ? 'balance-chart-tooltip-star' : 'balance-chart-tooltip-swatch';
+    const value = formatPriceTooltipPointValue(point, unit);
+    return { label, seriesKey, markerClass, value };
+  }
+
   function priceTooltipMarkerRows(points, unit) {
     const sortedPoints = [...points].sort((a, b) => (
       priceTooltipSortValue(b, unit) - priceTooltipSortValue(a, unit)
@@ -5641,13 +5680,23 @@
       || (Number(b.value) || 0) - (Number(a.value) || 0)
       || String(a.label || '').localeCompare(String(b.label || ''))
     ));
-    const rows = sortedPoints.map(point => {
-      const label = priceTooltipPointLabel(point);
-      const seriesKey = point.seriesKey === 'funded' ? 'funded' : 'premium';
-      const markerClass = point.source === 'Initial' ? 'balance-chart-tooltip-star' : 'balance-chart-tooltip-swatch';
+    const groupedRows = [];
+    sortedPoints.forEach(point => {
+      const row = priceTooltipMarkerRowParts(point, unit);
+      const key = [row.markerClass, row.seriesKey, row.label, row.value].join('|');
+      const existing = groupedRows.find(group => group.key === key);
+      if (existing) {
+        existing.count += 1;
+        return;
+      }
+      groupedRows.push({ key, ...row, count: 1 });
+    });
+    const rows = groupedRows.map(row => {
+      const countSuffix = row.count > 1 ? ` x ${row.count}` : '';
       return `
-        <span class="balance-chart-tooltip-sale-label"><span class="${markerClass} balance-chart-tooltip-swatch-price-${seriesKey}"></span>${escapeHtml(label)}</span>
-        <span class="balance-chart-tooltip-sale-value">${escapeHtml(formatPriceTooltipPointValue(point, unit))}</span>
+        <span class="balance-chart-tooltip-sale-label"><span class="${row.markerClass} balance-chart-tooltip-swatch-price-${row.seriesKey}"></span>${escapeHtml(row.label)}</span>
+        <span class="balance-chart-tooltip-sale-value">${escapeHtml(row.value)}</span>
+        <span class="balance-chart-tooltip-sale-count">${escapeHtml(countSuffix)}</span>
       `;
     }).join('');
     return `<div class="balance-chart-tooltip-sales">${rows}</div>`;
