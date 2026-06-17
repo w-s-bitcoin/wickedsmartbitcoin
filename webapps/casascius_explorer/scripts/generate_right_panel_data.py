@@ -71,6 +71,10 @@ def tracker_slug_for_row(row, s3_one_gold_rim_min_index, s3_half_series2_max_ind
 def read_tracker_entries(type_slugs):
     with TRACKER_CSV.open(newline="") as csvfile:
         rows = list(csv.DictReader(csvfile))
+    all_unfunded_count = sum(
+        1 for row in rows
+        if str(row.get("Status") or "").strip().lower() in ("unfunded", "unloaded")
+    )
     s3_one_indexes = sorted(
         index for index in (finite_number(row.get("Index")) for row in rows if row.get("Type") == "S3-COIN-1-AG")
         if index is not None
@@ -95,7 +99,7 @@ def read_tracker_entries(type_slugs):
             "redeemBlock": finite_number(row.get("Redeem Block")),
             "redeemTime": finite_number(row.get("Redeem Time")),
         })
-    return entries
+    return entries, all_unfunded_count
 
 
 def mm_text(value):
@@ -249,8 +253,10 @@ def info_for_coin(coin, rows):
     return info
 
 
-def all_info(coins, rows):
+def all_info(coins, rows, all_unfunded_count=None):
     info = info_for_rows(rows)
+    if all_unfunded_count is not None:
+        info["unfunded"] = all_unfunded_count
     info.update({
         "type": "All Coins & Bars",
         "material": "Mixed",
@@ -279,12 +285,12 @@ def clean_numbers(value):
 def main():
     coins = read_coins()
     type_slugs = read_tracker_type_slugs()
-    entries = read_tracker_entries(type_slugs)
+    entries, all_unfunded_count = read_tracker_entries(type_slugs)
     rows_by_slug = {}
     for entry in entries:
         rows_by_slug.setdefault(entry["slug"], []).append(entry)
 
-    items = {ALL_ITEMS_GROUP_KEY: all_info(coins, entries)}
+    items = {ALL_ITEMS_GROUP_KEY: all_info(coins, entries, all_unfunded_count)}
     for coin in coins:
         stats_slug = SHARED_STATS_SLUGS.get(coin["slug"], coin["slug"])
         items[coin["slug"]] = info_for_coin(coin, rows_by_slug.get(stats_slug, []))
