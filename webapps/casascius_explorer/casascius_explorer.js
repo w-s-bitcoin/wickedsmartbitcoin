@@ -1581,8 +1581,11 @@
   const savedGradedActiveSlug = savedGradedMediaMode !== 'model' && savedGradedMediaSelection?.slug
     ? savedGradedMediaSelection.slug
     : null;
-  let activeSlug = savedGradedActiveSlug
-    || readSavedSlug()
+  const savedActiveSlug = readSavedSlug();
+  let activeSlug = savedActiveSlug === ALL_ITEMS_GROUP_KEY
+    ? ALL_ITEMS_GROUP_KEY
+    : savedGradedActiveSlug
+    || savedActiveSlug
     || DEFAULT_ACTIVE_SLUG
     || COINS[0]?.slug
     || COINS[0].slug;
