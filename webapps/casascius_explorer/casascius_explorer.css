@@ -942,14 +942,13 @@
     left: 50%;
     top: 50%;
     z-index: 18;
-    width: 54px;
-    height: 54px;
-    margin: -27px 0 0 -27px;
+    width: 32px;
+    height: 32px;
+    margin: -16px 0 0 -16px;
     border-radius: 50%;
     opacity: 0;
     transform: scale(.86);
     pointer-events: none;
-    filter: drop-shadow(0 6px 18px rgba(0,0,0,.42));
     transition: opacity .16s ease, transform .16s ease;
   }
   .stage-loading-ring::before {
@@ -957,21 +956,10 @@
     position: absolute;
     inset: 0;
     border-radius: inherit;
-    padding: 3px;
-    background:
-      conic-gradient(from -35deg,
-        rgba(255, 154, 18, 0) 0deg,
-        rgba(255, 154, 18, .24) 48deg,
-        rgba(255, 184, 76, .78) 118deg,
-        var(--active-orange) 178deg,
-        rgba(255, 184, 76, .86) 222deg,
-        rgba(248,241,223,.20) 274deg,
-        rgba(248,241,223,.12) 360deg);
-    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    mask-composite: exclude;
-    animation: stage-loading-spin .82s linear infinite;
+    border: 2px solid rgba(255, 255, 255, 0.15);
+    border-top-color: var(--active-orange);
+    border-right-color: var(--active-orange);
+    animation: stage-loading-spin .8s linear infinite;
   }
   .app.stage-model-loading:not(.all-items-mode) .stage-loading-ring,
   .app.stage-model-loading.all-items-model-pending .stage-loading-ring {
@@ -2819,14 +2807,20 @@
   :root.balance-chart-open .app #scene,
   :root.balance-chart-open .app .all-items-stage,
   :root.balance-chart-open .app .all-items-extra-scene,
-  :root.balance-chart-open .app .quarter-scene {
+  :root.balance-chart-open .app .quarter-scene,
+  :root.balance-chart-open .app .graded-media-viewer,
+  :root.balance-chart-open .app .graded-case-scene,
+  :root.balance-chart-open .app .graded-case-crosshair {
     transition: opacity .32s ease;
   }
   :root.balance-chart-background-hidden .app #scene,
   :root.balance-chart-background-hidden .app.all-items-mode #scene,
   :root.balance-chart-background-hidden .app .all-items-stage,
   :root.balance-chart-background-hidden .app .all-items-extra-scene,
-  :root.balance-chart-background-hidden .app .quarter-scene {
+  :root.balance-chart-background-hidden .app .quarter-scene,
+  :root.balance-chart-background-hidden .app .graded-media-viewer,
+  :root.balance-chart-background-hidden .app .graded-case-scene,
+  :root.balance-chart-background-hidden .app .graded-case-crosshair {
     opacity: 0 !important;
   }
   .balance-chart-background-toggle {
@@ -2895,6 +2889,14 @@
     border-radius: 6px;
     background: rgba(0,0,0,.26);
     cursor: pointer;
+  }
+  .price-chart-scale-toggle {
+    left: 60px;
+    right: auto;
+    display: none;
+  }
+  .balance-chart-modal.price-chart-mode .price-chart-scale-toggle {
+    display: inline-flex;
   }
   .balance-chart-unit-btn {
     min-width: 42px;
