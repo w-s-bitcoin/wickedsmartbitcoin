@@ -3714,11 +3714,9 @@
     const noteRow = mintageNote
       ? `<tr class="info-note-row"><td colspan="2"><span class="info-note-mark">*</span>${escapeHtml(mintageNote)}</td></tr>`
       : '';
-    const minted = Number(info?.minted);
     const unfunded = Number(info?.unfunded);
-    const physicalTotal = (Number.isFinite(minted) ? minted : 0) + (Number.isFinite(unfunded) ? unfunded : 0);
     const unfundedRow = info?.statsMode !== 'dash' && Number.isFinite(unfunded) && unfunded > 0
-      ? `<tr><th><span class="info-label-dot info-label-dot-unfunded"></span>Unfunded</th><td>${formatCountShare(unfunded, physicalTotal)}</td></tr>`
+      ? `<tr><th><span class="info-label-dot info-label-dot-unfunded"></span>Unfunded</th><td>${escapeHtml(formatInteger(unfunded))}</td></tr>`
       : '';
     return `
       <table class="info-table">
@@ -3728,7 +3726,7 @@
           <tr><th><span class="info-label-dot info-label-dot-redeemed"></span>Redeemed</th><td>${statsCells.redeemed}</td></tr>
           ${unfundedRow}
           <tr><th>First Funding</th><td>${escapeHtml(formatBlockDay(info?.firstBlock, info?.firstTime))}</td></tr>
-          <tr><th>Last Spend</th><td>${escapeHtml(formatBlockDay(info?.lastBlock, info?.lastTime))}</td></tr>
+          <tr><th>Last Redeem</th><td>${escapeHtml(formatBlockDay(info?.lastBlock, info?.lastTime))}</td></tr>
           ${noteRow}
         </tbody>
       </table>
@@ -6668,9 +6666,8 @@
       const redeemed = rows.filter(isRedeemedStatus).length;
       const unfunded = rows.filter(isUnfundedStatus).length;
       const funded = active + redeemed;
-      const physicalTotal = funded + unfunded;
       const unfundedRow = unfunded
-        ? `<tr><th><span class="info-label-dot info-label-dot-unfunded"></span>Unfunded</th><td>${formatCountShare(unfunded, physicalTotal)}</td></tr>`
+        ? `<tr><th><span class="info-label-dot info-label-dot-unfunded"></span>Unfunded</th><td>${escapeHtml(formatInteger(unfunded))}</td></tr>`
         : '';
       const firstCreated = rows
         .filter(entry => Number.isFinite(entry.createBlock) || Number.isFinite(entry.createTime))
@@ -6686,7 +6683,7 @@
             <tr><th><span class="info-label-dot info-label-dot-redeemed"></span>Redeemed</th><td>${formatCountShare(redeemed, funded)}</td></tr>
             ${unfundedRow}
             <tr><th>First Funding</th><td>${escapeHtml(formatBlockDay(firstCreated?.createBlock, firstCreated?.createTime))}</td></tr>
-            <tr><th>Last Spend</th><td>${escapeHtml(formatBlockDay(latestRedeemed?.redeemBlock, latestRedeemed?.redeemTime))}</td></tr>
+            <tr><th>Last Redeem</th><td>${escapeHtml(formatBlockDay(latestRedeemed?.redeemBlock, latestRedeemed?.redeemTime))}</td></tr>
           </tbody>
         </table>
       ` + balanceChartHtml(rows) + selectedCoinDetailHtml(rows);
@@ -6707,7 +6704,6 @@
     const redeemed = statuses.redeemed || 0;
     const unfunded = (statuses.unfunded || 0) + (statuses.unloaded || 0);
     const funded = active + redeemed;
-    const physicalTotal = funded + unfunded;
     const firstCreated = rows
       .filter(entry => Number.isFinite(entry.createBlock) || Number.isFinite(entry.createTime))
       .sort((a, b) => (a.createBlock || Infinity) - (b.createBlock || Infinity) || (a.createTime || Infinity) - (b.createTime || Infinity))[0];
@@ -6737,7 +6733,7 @@
       ? `<tr class="info-note-row"><td colspan="2"><span class="info-note-mark">*</span>${escapeHtml(mintageNote)}</td></tr>`
       : '';
     const unfundedRow = !showDashStats && unfunded
-      ? `<tr><th><span class="info-label-dot info-label-dot-unfunded"></span>Unfunded</th><td>${formatCountShare(unfunded, physicalTotal)}</td></tr>`
+      ? `<tr><th><span class="info-label-dot info-label-dot-unfunded"></span>Unfunded</th><td>${escapeHtml(formatInteger(unfunded))}</td></tr>`
       : '';
 
     coinInfoPanel.innerHTML = `
@@ -6748,7 +6744,7 @@
           <tr><th><span class="info-label-dot info-label-dot-redeemed"></span>Redeemed</th><td>${statsCells.redeemed}</td></tr>
           ${unfundedRow}
           <tr><th>First Funding</th><td>${escapeHtml(formatBlockDay(firstCreated?.createBlock, firstCreated?.createTime))}</td></tr>
-          <tr><th>Last Spend</th><td>${escapeHtml(formatBlockDay(latestRedeemed?.redeemBlock, latestRedeemed?.redeemTime))}</td></tr>
+          <tr><th>Last Redeem</th><td>${escapeHtml(formatBlockDay(latestRedeemed?.redeemBlock, latestRedeemed?.redeemTime))}</td></tr>
           ${noteRow}
         </tbody>
       </table>
@@ -9418,7 +9414,7 @@
   function buildCoinEdges(c) {
     const edgeClass = c.edgeStyle === 'reeded' ? 'reeded' : 'smooth';
     const coinSize = parseFloat(getComputedStyle(root).getPropertyValue('--object-w')) || 420;
-    const radius = coinSize / 2 + 0.4;
+    const radius = coinSize / 2;
     const segmentCount = edgeClass === 'smooth' ? SMOOTH_EDGE_SEGMENTS : COIN_SEGMENTS;
     const segmentWidth = Math.ceil((2 * Math.PI * radius) / segmentCount) + (edgeClass === 'smooth' ? 3 : 1);
     const cachedPalette = smoothEdgePaletteCache.get(c.slug);
@@ -9615,8 +9611,8 @@
     const fittedFaceBackgroundSize = c.shape === 'bar'
       ? (c.faceDiameterScale ? `${(clampNumber(c.faceDiameterScale, 1, 0.7, 1.18) * 100).toFixed(3)}%` : 'cover')
       : '100% 100%';
-    frontFace.style.backgroundSize = c.shape === 'bar' ? (c.frontBackgroundSize || fittedFaceBackgroundSize) : fittedFaceBackgroundSize;
-    backFace.style.backgroundSize = c.shape === 'bar' ? (c.backBackgroundSize || fittedFaceBackgroundSize) : fittedFaceBackgroundSize;
+    frontFace.style.backgroundSize = c.frontBackgroundSize || fittedFaceBackgroundSize;
+    backFace.style.backgroundSize = c.backBackgroundSize || fittedFaceBackgroundSize;
     root.style.setProperty('--front-image', 'none');
     root.style.setProperty('--back-image', 'none');
     renderBarAddress(c.shape === 'bar' ? firstbits : '', c);
@@ -9800,8 +9796,8 @@
       const fittedFaceBackgroundSize = c.shape === 'bar'
         ? (c.faceDiameterScale ? `${(clampNumber(c.faceDiameterScale, 1, 0.7, 1.18) * 100).toFixed(3)}%` : 'cover')
         : '100% 100%';
-      frontFace.style.backgroundSize = c.shape === 'bar' ? (c.frontBackgroundSize || fittedFaceBackgroundSize) : fittedFaceBackgroundSize;
-      backFace.style.backgroundSize = c.shape === 'bar' ? (c.backBackgroundSize || fittedFaceBackgroundSize) : fittedFaceBackgroundSize;
+      frontFace.style.backgroundSize = c.frontBackgroundSize || fittedFaceBackgroundSize;
+      backFace.style.backgroundSize = c.backBackgroundSize || fittedFaceBackgroundSize;
       root.style.setProperty('--front-image', 'none');
       root.style.setProperty('--back-image', 'none');
       buildEdges();
