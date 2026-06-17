@@ -7949,9 +7949,12 @@
   }
 
   function syncStageLoadingPosition() {
-    const bounds = usableViewportBounds();
-    root.style.setProperty('--stage-loading-left', `${((bounds.left + bounds.right) / 2).toFixed(2)}px`);
-    root.style.setProperty('--stage-loading-top', `${((bounds.top + bounds.bottom) / 2).toFixed(2)}px`);
+    const center = usableViewportCenterPoint();
+    const rect = comparisonStage?.getBoundingClientRect();
+    const stageLeft = rect?.left || 0;
+    const stageTop = rect?.top || 0;
+    root.style.setProperty('--stage-loading-left', `${(center.x - stageLeft).toFixed(2)}px`);
+    root.style.setProperty('--stage-loading-top', `${(center.y - stageTop).toFixed(2)}px`);
   }
 
   function resetSingleItemViewportCenter() {
