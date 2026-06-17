@@ -283,8 +283,12 @@
     '15eTzCSj3G5gngyFYeztApydy1xNyh4pz3': 'cas_1btc_2011_s1'
   };
   const S2_TEN_SILVER_VARIANT_SLUGS_BY_ADDRESS = {
-    '1Agk3CAk2QbDwENywK6mMKB5fP2XTe8FUt': 'cas_10btc_2012_silver'
+    '1Agk3CAk2QbDwENywK6mMKB5fP2XTe8FUt': 'cas_10btc_2012_silver',
+    '1AgacUuq7BffwMEteEGAYjd6dHRDdWayvk': 'cas_10btc_2012_silver_gold_b',
+    '1Ag1bos9Ko1DRwr3BS9MQxCyHmuPVLZU5D': 'cas_10btc_2012_silver_gold_b',
+    '1AgRPnVgEyJejCfFP5Qg2AEEM4rtMaYiSF': 'cas_10btc_2012_silver_gold_b'
   };
+  const S3_HALF_SILVER_VARIANT_SLUGS_BY_ADDRESS = {};
   const S3_ONE_SILVER_VARIANT_SLUGS_BY_ADDRESS = {
     '1Ag6z4rQCA3czTJUYb4qKbtZrnKyecC8RK': 'cas_1btc_2013_gold_rim_silver'
   };
@@ -554,7 +558,12 @@
   }
 
   function defaultPriceChartVisibleGroups() {
-    return { funded: true, premium: true };
+    return {
+      originalFunded: true,
+      fundedSale: true,
+      originalPremium: true,
+      redeemedSale: true
+    };
   }
 
   function readPriceChartVisibleGroups() {
@@ -562,15 +571,15 @@
     try {
       const saved = JSON.parse(localStorage.getItem(STORAGE_PRICE_CHART_VISIBLE_GROUPS) || 'null');
       if (!saved || typeof saved !== 'object') return defaults;
-      const fundedParts = [saved.originalFunded, saved.fundedSale].filter(value => typeof value === 'boolean');
-      const premiumParts = [saved.originalPremium, saved.premiumSale].filter(value => typeof value === 'boolean');
+      const legacyFunded = typeof saved.funded === 'boolean' ? saved.funded : defaults.originalFunded;
+      const legacyPremium = typeof saved.premium === 'boolean' ? saved.premium : defaults.originalPremium;
       return {
-        funded: typeof saved.funded === 'boolean'
-          ? saved.funded
-          : (fundedParts.length ? fundedParts.some(Boolean) : defaults.funded),
-        premium: typeof saved.premium === 'boolean'
-          ? saved.premium
-          : (premiumParts.length ? premiumParts.some(Boolean) : defaults.premium)
+        originalFunded: typeof saved.originalFunded === 'boolean' ? saved.originalFunded : legacyFunded,
+        fundedSale: typeof saved.fundedSale === 'boolean' ? saved.fundedSale : legacyFunded,
+        originalPremium: typeof saved.originalPremium === 'boolean' ? saved.originalPremium : legacyPremium,
+        redeemedSale: typeof saved.redeemedSale === 'boolean'
+          ? saved.redeemedSale
+          : (typeof saved.premiumSale === 'boolean' ? saved.premiumSale : legacyPremium)
       };
     } catch (_) {
       return defaults;
@@ -584,7 +593,11 @@
   }
 
   function priceChartVisibilityKey(point) {
-    return point?.seriesKey === 'funded' ? 'funded' : 'premium';
+    if (point?.visibilityKey && Object.prototype.hasOwnProperty.call(defaultPriceChartVisibleGroups(), point.visibilityKey)) {
+      return point.visibilityKey;
+    }
+    if (point?.source === 'Initial') return point?.seriesKey === 'funded' ? 'originalFunded' : 'originalPremium';
+    return point?.seriesKey === 'funded' ? 'fundedSale' : 'redeemedSale';
   }
 
   function clampPriceChartPointToPlot(point, meta) {
@@ -2476,6 +2489,9 @@
       if (/\bgold\b/i.test(text)) return 'gold-b';
       if (/\bplain\b|\bwithout\b/i.test(text)) return 'plain';
     }
+    if (trackerTypes.includes('S3-COIN-0.5-AG')) {
+      return 'series-3';
+    }
     if (trackerTypes.includes('S3-COIN-1-AG')) {
       if (/\bgold[-\s]?rim\b|\bgold[-\s]?plated\b|\bgold\b/i.test(text)) return 'gold-rim';
       if (/\bplain\b|\bsilver\b/i.test(text)) return 'plain';
@@ -2700,8 +2716,39 @@
     return S2_TEN_SILVER_VARIANT_SLUGS_BY_ADDRESS[String(entry?.address || '').trim()] || '';
   }
 
+  function s2TenSilverVariantKeyForGradedRecord(record) {
+    const text = [
+      record?.label,
+      record?.description,
+      record?.grade,
+      record?.['auction link'],
+      record?.['grader link']
+    ].join(' ');
+    if (/\bgold[-\s]?b\b|\bgold[-\s]?bitcoin\s+logo\b|\bgold[-\s]?plated\s+bitcoin\s+logo\b/i.test(text)) return 'gold-b';
+    if (/\bplain\s+silver\b|\bwithout\s+gold\b/i.test(text)) return 'plain';
+    return '';
+  }
+
   function s2TenSilverVariantKeyForEntry(entry) {
-    return s2TenSilverVariantKeyForSlug(s2TenSilverOverrideSlugForEntry(entry));
+    return s2TenSilverVariantKeyForSlug(s2TenSilverOverrideSlugForEntry(entry))
+      || s2TenSilverVariantKeyForGradedRecord(entry?.gradedRecord);
+  }
+
+  function s3HalfSilverVariantKeyForSlug(slug) {
+    if (slug === 'cas_0p5btc_2013_silver_s25') return 'series-2';
+    if (slug === 'cas_0p5btc_2013_silver_s3') return 'series-3';
+    return '';
+  }
+
+  function s3HalfSilverOverrideSlugForEntry(entry) {
+    return S3_HALF_SILVER_VARIANT_SLUGS_BY_ADDRESS[String(entry?.address || '').trim()] || '';
+  }
+
+  function s3HalfSilverVariantKeyForEntry(entry) {
+    const overrideVariant = s3HalfSilverVariantKeyForSlug(s3HalfSilverOverrideSlugForEntry(entry));
+    if (overrideVariant) return overrideVariant;
+    if (entry?.gradedRecord && String(entry?.type || '').trim() === 'S3-COIN-0.5-AG') return 'series-3';
+    return s3HalfSilverVariantKeyForSlug(entry?.slug);
   }
 
   function s3OneSilverVariantKeyForSlug(slug) {
@@ -2721,14 +2768,18 @@
   function entryBelongsToCoin(entry, coin = activeCoin()) {
     const coinSlug = coin?.slug || '';
     const statsSlug = SHARED_STATS_SLUGS[coinSlug] || coinSlug;
-    if (!entry?.slug || !statsSlug || entry.slug !== statsSlug) return false;
     const targetVariant = s2TenSilverVariantKeyForSlug(coinSlug);
+    const targetS3HalfVariant = s3HalfSilverVariantKeyForSlug(coinSlug);
     const targetS3Variant = s3OneSilverVariantKeyForSlug(coinSlug);
-    if (!targetVariant && !targetS3Variant) return true;
+    if (targetS3HalfVariant && isGradedEntry(entry) && String(entry?.type || '').trim() === 'S3-COIN-0.5-AG') {
+      return s3HalfSilverVariantKeyForEntry(entry) === targetS3HalfVariant;
+    }
+    if (!entry?.slug || !statsSlug || entry.slug !== statsSlug) return false;
+    if (!targetVariant && !targetS3HalfVariant && !targetS3Variant) return true;
     const entryVariant = targetVariant
       ? s2TenSilverVariantKeyForEntry(entry)
-      : s3OneSilverVariantKeyForEntry(entry);
-    const target = targetVariant || targetS3Variant;
+      : (targetS3HalfVariant ? s3HalfSilverVariantKeyForEntry(entry) : s3OneSilverVariantKeyForEntry(entry));
+    const target = targetVariant || targetS3HalfVariant || targetS3Variant;
     return !entryVariant || entryVariant === target;
   }
 
@@ -4043,6 +4094,7 @@
       value: unit === 'usd' ? btcValue * usdPrice : btcValue,
       source: 'Initial',
       seriesKey,
+      visibilityKey: seriesKey === 'funded' ? 'originalFunded' : 'originalPremium',
       tooltipLabel: seriesKey === 'funded' ? 'Original Funded Price' : 'Original Premium',
       label: point.label
     };
@@ -4072,6 +4124,7 @@
       value: unit === 'usd' ? usdValue : (btcPrice > 0 ? usdValue / btcPrice : 0),
       source: 'Auction',
       seriesKey,
+      visibilityKey: seriesKey === 'funded' ? 'fundedSale' : 'redeemedSale',
       tooltipLabel,
       label: record?.grade || entry.address || 'Auction',
       grade: String(record?.grade || '').trim(),
@@ -4103,6 +4156,9 @@
       if (overrideVariant) return overrideVariant;
       return entry?.slug === 'cas_10btc_2012_silver_gold_b' ? 'gold-b' : '';
     }
+    if (type === 'S3-COIN-0.5-AG') {
+      return s3HalfSilverVariantKeyForEntry(entry);
+    }
     if (type === 'S3-COIN-1-AG') {
       const overrideVariant = s3OneSilverVariantKeyForEntry(entry);
       if (overrideVariant) return overrideVariant;
@@ -4119,6 +4175,13 @@
         if (activeVariant) return activeVariant;
       }
       return priceVariantKeyForEntry(entry) || 'plain';
+    }
+    if (type === 'S3-COIN-0.5-AG') {
+      if (!allItemsSelected()) {
+        const activeVariant = s3HalfSilverVariantKeyForSlug(activeCoin()?.slug);
+        if (activeVariant) return activeVariant;
+      }
+      return priceVariantKeyForEntry(entry) || 'series-3';
     }
     if (type === 'S3-COIN-1-AG') {
       if (!allItemsSelected()) {
@@ -4993,9 +5056,13 @@
     }
 
     const visiblePoints = points.filter(point => priceChartVisibleGroups[priceChartVisibilityKey(point)] !== false);
-    const fullMinTime = Math.min(...points.map(point => point.time));
-    const todayTime = startOfUtcDaySeconds(Date.now() / 1000);
-    const fullMaxTime = Math.max(todayTime, ...points.map(point => point.time));
+    const domainPoints = visiblePoints.length ? visiblePoints : points;
+    let fullMinTime = Math.min(...domainPoints.map(point => point.time));
+    let fullMaxTime = Math.max(...domainPoints.map(point => point.time));
+    if (fullMaxTime <= fullMinTime) {
+      fullMinTime -= 43200;
+      fullMaxTime += 43200;
+    }
     const activeZoom = !compact
       && priceChartZoom
       && priceChartZoom.type === String(entry?.type || '')
@@ -5139,11 +5206,13 @@
     const drawPricePointMarker = (x, y, {
       color = priceColors.funded,
       original = false,
-      size = compact ? 3.2 : 4
+      size = compact ? 3.2 : 4,
+      fill = true,
+      stroke = true
     } = {}) => {
       ctx.fillStyle = color;
       ctx.strokeStyle = palette.currentStroke;
-      ctx.lineWidth = compact ? 1.5 : 2;
+      ctx.lineWidth = compact ? 2 : 2.6;
       ctx.beginPath();
       if (original) {
         const outerRadius = size;
@@ -5160,8 +5229,8 @@
       } else {
         ctx.arc(x, y, size, 0, Math.PI * 2);
       }
-      ctx.fill();
-      ctx.stroke();
+      if (stroke) ctx.stroke();
+      if (fill) ctx.fill();
     };
 
     const drawAddressSaleLines = () => {
@@ -5194,6 +5263,7 @@
     };
 
     const pointHitBoxes = [];
+    const priceMarkerDraws = [];
     const selectedPricePointHighlights = [];
     const selectedGradedPriceAddress = String(selectedLeftPanelAddressByMode.graded || '');
     const selectedGradedPriceRecordId = String(selectedLeftPanelRecordIdByMode.graded || '');
@@ -5203,7 +5273,9 @@
       const x = xFor(point.time);
       const y = yFor(point.value);
       const markerSize = point.source === 'Auction' ? (compact ? 3.2 : 4) : (compact ? 6.6 : 8.1);
-      drawPricePointMarker(x, y, {
+      priceMarkerDraws.push({
+        x,
+        y,
         color: point.seriesKey === 'funded' ? priceColors.funded : priceColors.premium,
         original: point.source === 'Initial',
         size: markerSize
@@ -5226,6 +5298,24 @@
       ) {
         selectedPricePointHighlights.push({ point, x, y, markerSize });
       }
+    });
+    priceMarkerDraws.forEach(marker => {
+      drawPricePointMarker(marker.x, marker.y, {
+        color: marker.color,
+        original: marker.original,
+        size: marker.size,
+        fill: false,
+        stroke: true
+      });
+    });
+    priceMarkerDraws.forEach(marker => {
+      drawPricePointMarker(marker.x, marker.y, {
+        color: marker.color,
+        original: marker.original,
+        size: marker.size,
+        fill: true,
+        stroke: false
+      });
     });
     selectedPricePointHighlights.forEach(({ point, x, y, markerSize }) => {
       const color = point.status === 'active'
@@ -5273,16 +5363,16 @@
         : (nonFundedSaleLabels.size === 1 && nonFundedSaleLabels.has('redeemed') ? 'Redeemed Sale' : 'Unfunded/Redeemed Sale');
       const legendItems = [
         points.some(point => point.source === 'Initial' && point.seriesKey === 'funded')
-          ? { key: 'funded', label: 'Original Funded Price', color: priceColors.funded, original: true, visible: priceChartVisibleGroups.funded !== false }
-          : null,
-        points.some(point => point.source === 'Auction' && point.seriesKey === 'funded')
-          ? { key: 'funded', label: 'Funded Sale', color: priceColors.funded, original: false, visible: priceChartVisibleGroups.funded !== false }
+          ? { key: 'originalFunded', label: 'Original Funded Price', color: priceColors.funded, original: true, visible: priceChartVisibleGroups.originalFunded !== false }
           : null,
         hasOriginalPremiumPoint
-          ? { key: 'premium', label: originalPremiumLabel, color: priceColors.premium, original: true, visible: priceChartVisibleGroups.premium !== false }
+          ? { key: 'originalPremium', label: originalPremiumLabel, color: priceColors.premium, original: true, visible: priceChartVisibleGroups.originalPremium !== false }
+          : null,
+        points.some(point => point.source === 'Auction' && point.seriesKey === 'funded')
+          ? { key: 'fundedSale', label: 'Funded Sale', color: priceColors.funded, original: false, visible: priceChartVisibleGroups.fundedSale !== false }
           : null,
         nonFundedSalePoints.length
-          ? { key: 'premium', label: nonFundedSaleLegendLabel, color: priceColors.premium, original: false, visible: priceChartVisibleGroups.premium !== false }
+          ? { key: 'redeemedSale', label: nonFundedSaleLegendLabel, color: priceColors.premium, original: false, visible: priceChartVisibleGroups.redeemedSale !== false }
           : null
       ].filter(Boolean);
       const markerW = cssWidth < 700 ? 12 : 13;
@@ -6129,6 +6219,8 @@
     const hit = priceChartLegendHit(canvas, event);
     if (!hit || !Object.prototype.hasOwnProperty.call(priceChartVisibleGroups, hit.key)) return false;
     priceChartVisibleGroups[hit.key] = priceChartVisibleGroups[hit.key] === false;
+    priceChartZoom = null;
+    priceChartDrag = null;
     savePriceChartVisibleGroups();
     hideBalanceChartHover();
     drawSelectedPriceChart(canvas, canvas?._priceChartMeta?.entry || selectedPriceChartEntry(currentBalanceChartRows), {
