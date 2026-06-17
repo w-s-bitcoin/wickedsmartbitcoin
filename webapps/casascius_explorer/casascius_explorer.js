@@ -122,6 +122,7 @@
   const LEFT_PANEL_MODE_TITLES = { recent: 'Redeemed', active: 'Active', graded: 'Graded' };
   const STORAGE_BALANCE_CHART_UNIT = 'casasciusSpinnerBalanceChartUnit';
   const STORAGE_PRICE_CHART_UNIT = 'casasciusSpinnerPriceChartUnit';
+  const STORAGE_PRICE_CHART_SCALE = 'casasciusSpinnerPriceChartScale';
   const STORAGE_PRICE_CHART_VISIBLE_GROUPS = 'casasciusSpinnerPriceChartVisibleGroups';
   const STORAGE_BALANCE_CHART_BACKGROUND_HIDDEN = 'casasciusSpinnerBalanceChartBackgroundHidden';
   const STORAGE_BALANCE_CHART_VISIBLE_SERIES = 'casasciusSpinnerBalanceChartVisibleSeries';
@@ -538,6 +539,20 @@
     } catch (_) {}
   }
 
+  function readPriceChartScale() {
+    try {
+      return localStorage.getItem(STORAGE_PRICE_CHART_SCALE) === 'log' ? 'log' : 'linear';
+    } catch (_) {
+      return 'linear';
+    }
+  }
+
+  function savePriceChartScale(scale) {
+    try {
+      localStorage.setItem(STORAGE_PRICE_CHART_SCALE, scale === 'log' ? 'log' : 'linear');
+    } catch (_) {}
+  }
+
   function defaultPriceChartVisibleGroups() {
     return { funded: true, premium: true };
   }
@@ -547,9 +562,15 @@
     try {
       const saved = JSON.parse(localStorage.getItem(STORAGE_PRICE_CHART_VISIBLE_GROUPS) || 'null');
       if (!saved || typeof saved !== 'object') return defaults;
+      const fundedParts = [saved.originalFunded, saved.fundedSale].filter(value => typeof value === 'boolean');
+      const premiumParts = [saved.originalPremium, saved.premiumSale].filter(value => typeof value === 'boolean');
       return {
-        funded: typeof saved.funded === 'boolean' ? saved.funded : defaults.funded,
-        premium: typeof saved.premium === 'boolean' ? saved.premium : defaults.premium
+        funded: typeof saved.funded === 'boolean'
+          ? saved.funded
+          : (fundedParts.length ? fundedParts.some(Boolean) : defaults.funded),
+        premium: typeof saved.premium === 'boolean'
+          ? saved.premium
+          : (premiumParts.length ? premiumParts.some(Boolean) : defaults.premium)
       };
     } catch (_) {
       return defaults;
@@ -560,6 +581,83 @@
     try {
       localStorage.setItem(STORAGE_PRICE_CHART_VISIBLE_GROUPS, JSON.stringify(priceChartVisibleGroups));
     } catch (_) {}
+  }
+
+  function priceChartVisibilityKey(point) {
+    return point?.seriesKey === 'funded' ? 'funded' : 'premium';
+  }
+
+  function clampPriceChartPointToPlot(point, meta) {
+    if (!point || !meta?.pad) return null;
+    return {
+      x: Math.max(meta.pad.left, Math.min(meta.pad.left + meta.plotW, point.x)),
+      y: Math.max(meta.pad.top, Math.min(meta.pad.top + meta.plotH, point.y))
+    };
+  }
+
+  function priceChartTimeAtCanvasX(meta, x) {
+    if (!meta) return null;
+    const ratio = (x - meta.pad.left) / Math.max(1, meta.plotW);
+    return meta.minTime + ratio * Math.max(1, meta.maxTime - meta.minTime);
+  }
+
+  function priceChartValueAtCanvasY(meta, y) {
+    if (!meta) return null;
+    const ratio = 1 - ((y - meta.pad.top) / Math.max(1, meta.plotH));
+    if (meta.scale === 'log') {
+      const logMin = Math.log10(Math.max(Number.MIN_VALUE, meta.yMin));
+      const logMax = Math.log10(Math.max(Number.MIN_VALUE, meta.yMax));
+      return 10 ** (logMin + ratio * Math.max(1e-12, logMax - logMin));
+    }
+    return meta.yMin + ratio * Math.max(1e-12, meta.yMax - meta.yMin);
+  }
+
+  function balanceChartValueAtCanvasY(meta, y) {
+    if (!meta) return null;
+    const ratio = 1 - ((y - meta.pad.top) / Math.max(1, meta.plotH));
+    return meta.yMin + ratio * Math.max(1e-12, meta.yMax - meta.yMin);
+  }
+
+  function priceChartDragSelection(meta, drag = priceChartDrag) {
+    if (!meta || !drag || !drag.active) return null;
+    const start = clampPriceChartPointToPlot({ x: drag.startX, y: drag.startY }, meta);
+    const current = clampPriceChartPointToPlot({ x: drag.currentX, y: drag.currentY }, meta);
+    if (!start || !current) return null;
+    const dx = current.x - start.x;
+    const dy = current.y - start.y;
+    const horizontalOnly = Math.abs(dy) < 24;
+    const left = Math.min(start.x, current.x);
+    const right = Math.max(start.x, current.x);
+    const top = horizontalOnly ? meta.pad.top : Math.min(start.y, current.y);
+    const bottom = horizontalOnly ? meta.pad.top + meta.plotH : Math.max(start.y, current.y);
+    return {
+      left,
+      right,
+      top,
+      bottom,
+      width: Math.max(0, right - left),
+      height: Math.max(0, bottom - top),
+      horizontalOnly,
+      moved: Math.hypot(dx, dy) >= 4
+    };
+  }
+
+  function drawChartDragOverlay(ctx, meta, selection) {
+    if (!ctx || !meta || !selection?.moved || selection.width < 2 || selection.height < 2) return;
+    const plotLeft = meta.pad.left;
+    const plotTop = meta.pad.top;
+    const plotRight = meta.pad.left + meta.plotW;
+    const plotBottom = meta.pad.top + meta.plotH;
+    ctx.save();
+    ctx.fillStyle = root.dataset.theme === 'light' ? 'rgba(0,0,0,.42)' : 'rgba(248,241,223,.16)';
+    ctx.fillRect(plotLeft, plotTop, meta.plotW, selection.top - plotTop);
+    ctx.fillRect(plotLeft, selection.bottom, meta.plotW, plotBottom - selection.bottom);
+    ctx.fillRect(plotLeft, selection.top, selection.left - plotLeft, selection.height);
+    ctx.fillRect(selection.right, selection.top, plotRight - selection.right, selection.height);
+    ctx.strokeStyle = root.dataset.theme === 'light' ? 'rgba(248,241,223,.72)' : 'rgba(0,0,0,.82)';
+    ctx.lineWidth = 1.25;
+    ctx.strokeRect(selection.left, selection.top, selection.width, selection.height);
+    ctx.restore();
   }
 
   function defaultBalanceChartVisibleSeries() {
@@ -658,11 +756,12 @@
       const saved = JSON.parse(localStorage.getItem(STORAGE_GRADED_MEDIA_SELECTION) || 'null');
       if (!saved || typeof saved !== 'object') return null;
       const address = String(saved.address || '').trim();
+      const gradedRecordId = String(saved.gradedRecordId || '').trim();
       const rawSlug = String(saved.slug || '').trim();
       const slug = ALL_ITEMS_PACKING.items.some(item => item.slug === rawSlug)
         ? rawSlug
         : (GRADED_SELECTION_SLUGS_BY_ADDRESS[address] || '');
-      return address ? { address, mode: validLeftPanelMode(saved.mode), slug } : null;
+      return address ? { address, gradedRecordId, mode: validLeftPanelMode(saved.mode), slug } : null;
     } catch (_) {
       return null;
     }
@@ -678,6 +777,7 @@
   function saveGradedMediaSelection(mode = leftPanelMode) {
     const selected = selectedTrackerEntry(currentBalanceChartRows, mode);
     const address = String(selected?.address || '').trim();
+    const gradedRecordId = mode === 'graded' ? String(selected?.gradedRecordId || selected?.gradedRecord?.gradedRecordId || '').trim() : '';
     const slug = selected
       ? (SHARED_STATS_SLUGS[selected.slug] || selected.slug || GRADED_SELECTION_SLUGS_BY_ADDRESS[address] || '')
       : '';
@@ -688,6 +788,7 @@
       }
       localStorage.setItem(STORAGE_GRADED_MEDIA_SELECTION, JSON.stringify({
         address,
+        gradedRecordId,
         mode: validLeftPanelMode(mode),
         slug
       }));
@@ -837,9 +938,10 @@
       if (!saved || typeof saved !== 'object') return null;
       const mode = validLeftPanelMode(saved?.mode);
       const address = String(saved?.address || '').trim();
+      const gradedRecordId = String(saved?.gradedRecordId || '').trim();
       const rawSlug = String(saved?.slug || '').trim();
       const slug = ALL_ITEMS_PACKING.items.some(item => item.slug === rawSlug) ? rawSlug : '';
-      return { mode, address, slug };
+      return { mode, address, gradedRecordId, slug };
     } catch (_) {
       return null;
     }
@@ -853,6 +955,7 @@
       localStorage.setItem(STORAGE_ALL_ITEMS_SELECTION, JSON.stringify({
         mode: validLeftPanelMode(mode),
         address: normalizedAddress,
+        gradedRecordId: mode === 'graded' ? selectedLeftPanelRecordId(mode) : '',
         slug: normalizedSlug
       }));
     } catch (_) {}
@@ -1565,19 +1668,28 @@
     && (savedGradedMediaMode !== 'model' || (savedChartOpen && savedChartModalMode === 'price'))) {
     leftPanelMode = savedGradedMediaSelection.mode;
     selectedLeftPanelAddressByMode[leftPanelMode] = savedGradedMediaSelection.address;
+    selectedLeftPanelRecordIdByMode[leftPanelMode] = savedGradedMediaSelection.gradedRecordId || '';
     pendingSearchSelection = {
       address: savedGradedMediaSelection.address,
+      gradedRecordId: savedGradedMediaSelection.gradedRecordId || '',
       mode: leftPanelMode
     };
   }
   let balanceChartUnit = readBalanceChartUnit();
   let priceChartUnit = readPriceChartUnit();
+  let priceChartScale = readPriceChartScale();
   let balanceChartBackgroundHidden = readBalanceChartBackgroundHidden();
   let balanceChartBackgroundHideDeferred = false;
   let balanceChartHoverPoint = null;
   let activeChartModalMode = savedChartOpen ? savedChartModalMode : 'balance';
   const balanceChartVisibleSeries = readBalanceChartVisibleSeries();
   const priceChartVisibleGroups = readPriceChartVisibleGroups();
+  let balanceChartZoom = null;
+  let balanceChartDrag = null;
+  let balanceChartSuppressClick = false;
+  let priceChartZoom = null;
+  let priceChartDrag = null;
+  let priceChartSuppressClick = false;
   let panelRenderToken = 0;
   let trackerIndexPromise = null;
   let unfundedIndexPromise = null;
@@ -1589,6 +1701,7 @@
   let seriesPriceIndexPromise = null;
   let seriesPriceIndexCache = null;
   let currentTrackerEntries = [];
+  let currentGradedTrackerEntries = [];
   const leftPanelRowsCache = new Map();
   const smoothEdgePaletteCache = new Map();
   const barEdgeTemplateCache = new Map();
@@ -2885,6 +2998,14 @@
     }
   }
 
+  function entryGradedRecordId(entry) {
+    return String(entry?.gradedRecordId || entry?.gradedRecord?.gradedRecordId || '');
+  }
+
+  function selectedLeftPanelRecordId(mode = leftPanelMode) {
+    return mode === 'graded' ? String(selectedLeftPanelRecordIdByMode.graded || '') : '';
+  }
+
   function leftPanelRowHtml(entry, mode) {
     const fundedMode = mode === 'active' || mode === 'graded';
     const block = fundedMode ? entry.createBlock : entry.redeemBlock;
@@ -2893,9 +3014,9 @@
     const coin = allItemsSelected() ? COINS.find(c => c.slug === entry.slug) || activeCoin() : activeCoin();
     const isBar = coin.shape === 'bar';
     const address = String(entry.address || '');
-    const gradedRecordId = mode === 'graded' ? String(entry.gradedRecordId || entry.gradedRecord?.gradedRecordId || '') : '';
+    const gradedRecordId = mode === 'graded' ? entryGradedRecordId(entry) : '';
     const selected = selectedLeftPanelAddressByMode[mode] === address
-      && (mode !== 'graded' || !selectedLeftPanelRecordIdByMode.graded || selectedLeftPanelRecordIdByMode.graded === gradedRecordId);
+      && (mode !== 'graded' || selectedLeftPanelRecordIdByMode.graded === gradedRecordId);
     const selectedStatusMode = isActiveStatus(entry) ? 'active' : (isUnfundedStatus(entry) ? 'unfunded' : 'recent');
     const iconImage = cssUrl(coinFrontThumbData(coin), { compact: true });
     const iconPosition = coin.thumbPosition || coin.frontPosition || 'center';
@@ -2981,23 +3102,24 @@
     const hasCurrent = current && rows.some(entry => String(entry.address || '') === current);
     if (forceDefault || !hasCurrent) {
       selectedLeftPanelAddressByMode[mode] = String(rows[0].address || '');
-      selectedLeftPanelRecordIdByMode[mode] = mode === 'graded' ? String(rows[0].gradedRecordId || rows[0].gradedRecord?.gradedRecordId || '') : '';
+      selectedLeftPanelRecordIdByMode[mode] = mode === 'graded' ? entryGradedRecordId(rows[0]) : '';
     } else if (mode === 'graded') {
       const currentRecordId = selectedLeftPanelRecordIdByMode.graded;
       const hasCurrentRecord = currentRecordId && rows.some(entry => leftPanelRowMatchesSelection(entry, current, currentRecordId, mode));
       if (!hasCurrentRecord) {
         const firstCurrent = rows.find(entry => String(entry.address || '') === current);
-        selectedLeftPanelRecordIdByMode.graded = String(firstCurrent?.gradedRecordId || firstCurrent?.gradedRecord?.gradedRecordId || '');
+        selectedLeftPanelRecordIdByMode.graded = entryGradedRecordId(firstCurrent);
       }
     }
     if (apply && !allItemsMode) {
       const selectedAddress = selectedLeftPanelAddressByMode[mode];
-      const selectedEntry = rows.find(entry => String(entry.address || '') === selectedAddress) || rows[0];
+      const selectedRecordId = selectedLeftPanelRecordId(mode);
+      const selectedEntry = rows.find(entry => leftPanelRowMatchesSelection(entry, selectedAddress, selectedRecordId, mode)) || rows[0];
       const coin = COINS.find(c => c.slug === selectedEntry?.slug) || activeCoin();
       applySelectedAddressToObject(selectedEntry?.address, coin);
       updateSelectedCoinDetailSection();
       refreshBalanceChartHover();
-      revealLeftPanelAddress(mode, selectedEntry?.address, { render: false });
+      revealLeftPanelAddress(mode, selectedEntry?.address, { gradedRecordId: selectedRecordId, render: false });
     }
   }
 
@@ -3088,12 +3210,19 @@
     return clamped;
   }
 
-  function applyLeftPanelAddressScroll(mode, address, { force = false, async = true } = {}) {
+  function leftPanelRowElementForSelection(view, mode, address, gradedRecordId = '') {
+    if (!view || !address) return null;
+    return [...view.querySelectorAll(`.spend-row[data-address="${CSS.escape(String(address))}"]`)]
+      .find(row => mode !== 'graded' || !gradedRecordId || String(row.dataset.gradedRecordId || '') === String(gradedRecordId))
+      || null;
+  }
+
+  function applyLeftPanelAddressScroll(mode, address, { force = false, async = true, gradedRecordId = '' } = {}) {
     if (!recentSpendsPanel || !address || (!force && mode !== leftPanelMode)) return;
     const applyScroll = () => {
       if (!force && mode !== leftPanelMode) return;
       const view = activeLeftPanelView(mode);
-      const row = view?.querySelector(`.spend-row[data-address="${CSS.escape(String(address))}"]`);
+      const row = leftPanelRowElementForSelection(view, mode, address, gradedRecordId);
       if (!row) return;
       const hasRowAbove = Boolean(row.previousElementSibling);
       recentSpendsPanel.classList.remove('left-panel-selected-flush');
@@ -3119,19 +3248,19 @@
     }
   }
 
-  function scrollLeftPanelAddressToTop(mode, address) {
-    applyLeftPanelAddressScroll(mode, address);
+  function scrollLeftPanelAddressToTop(mode, address, options = {}) {
+    applyLeftPanelAddressScroll(mode, address, options);
   }
 
-  function revealLeftPanelAddress(mode, address, { render = true } = {}) {
+  function revealLeftPanelAddress(mode, address, { render = true, gradedRecordId = '' } = {}) {
     if (!address) return;
     const rows = leftPanelRowsByMode[mode] || [];
-    const index = rows.findIndex(row => String(row.address || '') === String(address));
+    const index = rows.findIndex(row => leftPanelRowMatchesSelection(row, address, gradedRecordId, mode));
     if (index >= 0) {
       setLeftPanelWindowForIndex(mode, index, { center: true });
       if (render) renderLeftPanelRows(mode);
     }
-    scrollLeftPanelAddressToTop(mode, address);
+    scrollLeftPanelAddressToTop(mode, address, { gradedRecordId });
   }
 
   function leftPanelRowMatchesSelection(row, address, gradedRecordId = '', mode = leftPanelMode) {
@@ -3150,7 +3279,7 @@
     renderLeftPanelRows(mode);
     const address = selectedLeftPanelAddressByMode[mode];
     if (address) {
-      applyLeftPanelAddressScroll(mode, address, { force: true, async: false });
+      applyLeftPanelAddressScroll(mode, address, { force: true, async: false, gradedRecordId: selectedLeftPanelRecordId(mode) });
     } else {
       recentSpendsPanel.classList.remove('left-panel-selected-flush');
       recentSpendsPanel.scrollTop = leftPanelScrollTopByMode[mode] || 0;
@@ -3166,7 +3295,7 @@
       leftPanelRowsByMode[panelMode] = cachedRows[panelMode] || [];
     }
     const rows = leftPanelRowsByMode[mode] || [];
-    const gradedRecordId = String(entry.gradedRecordId || entry.gradedRecord?.gradedRecordId || '');
+    const gradedRecordId = entryGradedRecordId(entry);
     const index = rows.findIndex(row => leftPanelRowMatchesSelection(row, address, gradedRecordId, mode));
     if (index < 0) return false;
     selectedLeftPanelAddressByMode[mode] = address;
@@ -3184,7 +3313,8 @@
     for (const panelMode of LEFT_PANEL_MODES) renderLeftPanelRows(panelMode);
     updateSelectedCoinDetailSection();
     refreshBalanceChartHover();
-    if (scroll) revealLeftPanelAddress(mode, address, { render: false });
+    redrawOpenBalanceChart();
+    if (scroll) revealLeftPanelAddress(mode, address, { gradedRecordId, render: false });
     return true;
   }
 
@@ -3192,11 +3322,12 @@
     if (pendingSearchSelection?.mode !== mode) return false;
     const rows = leftPanelRowsByMode[mode] || [];
     const address = String(pendingSearchSelection.address || '');
-    const entry = rows.find(row => String(row.address || '') === address);
+    const pendingRecordId = String(pendingSearchSelection.gradedRecordId || '');
+    const entry = rows.find(row => leftPanelRowMatchesSelection(row, address, pendingRecordId, mode));
     if (!entry) return false;
     selectedLeftPanelAddressByMode[mode] = address;
-    selectedLeftPanelRecordIdByMode[mode] = mode === 'graded' ? String(entry.gradedRecordId || entry.gradedRecord?.gradedRecordId || '') : '';
-    const index = rows.findIndex(row => String(row.address || '') === address);
+    selectedLeftPanelRecordIdByMode[mode] = mode === 'graded' ? entryGradedRecordId(entry) : '';
+    const index = rows.findIndex(row => leftPanelRowMatchesSelection(row, address, selectedLeftPanelRecordIdByMode[mode], mode));
     if (index >= 0) {
       setLeftPanelWindowForIndex(mode, index, { center: true });
     }
@@ -3272,7 +3403,11 @@
       syncSelectedLeftPanelAddress('graded', { forceDefault: false, apply: leftPanelMode === 'graded' });
     }
     renderLeftPanelRows('graded');
-    if (pendingApplied && leftPanelMode === 'graded') scrollLeftPanelAddressToTop('graded', selectedLeftPanelAddressByMode.graded);
+    if (pendingApplied && leftPanelMode === 'graded') {
+      scrollLeftPanelAddressToTop('graded', selectedLeftPanelAddressByMode.graded, {
+        gradedRecordId: selectedLeftPanelRecordIdByMode.graded
+      });
+    }
   }
 
   function hydrateGradedPanelForCurrentSelection() {
@@ -3318,13 +3453,14 @@
     const targetSlug = SHARED_STATS_SLUGS[slug] || slug;
     const mode = validLeftPanelMode(leftPanelMode);
     const selectedAddress = String(selectedLeftPanelAddressByMode[mode] || '');
+    const selectedRecordId = selectedLeftPanelRecordId(mode);
     const rows = leftPanelRowsByMode[mode] || [];
     const selected = selectedAddress
-      ? rows.find(entry => String(entry.address || '') === selectedAddress && allItemsEntrySlug(entry) === targetSlug)
+      ? rows.find(entry => leftPanelRowMatchesSelection(entry, selectedAddress, selectedRecordId, mode) && allItemsEntrySlug(entry) === targetSlug)
       : null;
     const entry = selected || allItemsRowForCenteredSlug(mode, targetSlug);
     const address = String(entry?.address || '');
-    return address ? { mode, address } : null;
+    return address ? { mode, address, gradedRecordId: entryGradedRecordId(entry) } : null;
   }
 
   function currentSingleViewSelectionForAllItems({ preferGraded = false } = {}) {
@@ -3334,14 +3470,14 @@
       const gradedAddress = String(graded?.address || '').trim();
       const gradedSlug = allItemsEntrySlug(graded?.entry) || (allItemsPackingItem(activeCoin().slug)?.slug || '');
       if (gradedAddress && gradedSlug) {
-        return { mode: 'graded', address: gradedAddress, slug: gradedSlug };
+        return { mode: 'graded', address: gradedAddress, gradedRecordId: entryGradedRecordId(graded?.entry), slug: gradedSlug };
       }
     }
     const mode = validLeftPanelMode(leftPanelMode);
     const entry = selectedTrackerEntry(currentBalanceChartRows, mode);
     const address = String(entry?.address || '');
     const slug = allItemsEntrySlug(entry) || (allItemsPackingItem(activeCoin().slug)?.slug || '');
-    return address && slug ? { mode, address, slug } : null;
+    return address && slug ? { mode, address, gradedRecordId: entryGradedRecordId(entry), slug } : null;
   }
 
   function enterAllItemsModeWithSingleSelection(options = {}) {
@@ -3354,9 +3490,11 @@
     allItemsDefaultFocusPending = false;
     allItemsSelectionRestorePending = false;
     selectedLeftPanelAddressByMode[selection.mode] = selection.address;
+    selectedLeftPanelRecordIdByMode[selection.mode] = selection.mode === 'graded' ? (selection.gradedRecordId || '') : '';
     pendingSearchSelection = {
       mode: selection.mode,
-      address: selection.address
+      address: selection.address,
+      gradedRecordId: selection.gradedRecordId || ''
     };
     setLeftPanelModeInstant(selection.mode);
     enterAllItemsMode({ align: false });
@@ -3368,8 +3506,9 @@
     const row = allItemsRowForCenteredSlug(mode, slug);
     const nextAddress = row ? String(row.address || '') : '';
     selectedLeftPanelAddressByMode[mode] = nextAddress;
+    selectedLeftPanelRecordIdByMode[mode] = mode === 'graded' ? entryGradedRecordId(row) : '';
     if (nextAddress) {
-      revealLeftPanelAddress(mode, nextAddress, { render });
+      revealLeftPanelAddress(mode, nextAddress, { gradedRecordId: selectedLeftPanelRecordId(mode), render });
     } else if (render) {
       renderLeftPanelRows(mode);
     }
@@ -3396,7 +3535,8 @@
     const mode = address ? validLeftPanelMode(savedAllItemsSelection.mode) : leftPanelMode;
     const savedSlug = String(savedAllItemsSelection.slug || '').trim();
     const rows = leftPanelRowsByMode[mode] || cachedLeftPanelRows(entries)[mode] || [];
-    const entry = address ? rows.find(row => String(row.address || '') === address) : null;
+    const savedRecordId = String(savedAllItemsSelection?.gradedRecordId || '').trim();
+    const entry = address ? rows.find(row => leftPanelRowMatchesSelection(row, address, savedRecordId, mode)) : null;
     const targetSlug = allItemsEntrySlug(entry) || (allItemsPackingItem(savedSlug)?.slug || '');
     allItemsSelectionRestorePending = false;
     if (!targetSlug) {
@@ -3408,11 +3548,12 @@
     }
     allItemsDefaultFocusPending = false;
     selectedLeftPanelAddressByMode[mode] = entry ? address : '';
+    selectedLeftPanelRecordIdByMode[mode] = mode === 'graded' && entry ? entryGradedRecordId(entry) : '';
     setLeftPanelModeInstant(mode);
     centerAllItemsOnPlacement(nearestAllItemsPlacement(targetSlug), { animate: false, save: true, syncSelection: false });
     saveAllItemsSelection(mode, entry ? address : '', targetSlug);
     for (const panelMode of LEFT_PANEL_MODES) renderLeftPanelRows(panelMode);
-    if (entry) revealLeftPanelAddress(mode, address, { render: false });
+    if (entry) revealLeftPanelAddress(mode, address, { gradedRecordId: selectedLeftPanelRecordId(mode), render: false });
     updateSelectedCoinDetailSection();
     refreshBalanceChartHover();
     return true;
@@ -3475,6 +3616,7 @@
       renderLeftPanelRows(mode);
       updateSelectedCoinDetailSection();
     }
+    redrawOpenBalanceChart();
     refreshBalanceChartHover();
   }
 
@@ -4014,7 +4156,8 @@
     const premium = initialPoints
       .map(point => initialPricePointForSeries(point, 'premium', unit))
       .filter(point => Number.isFinite(point.time) && Number.isFinite(point.value) && point.value >= 0);
-    currentTrackerEntries
+    const saleSourceEntries = currentGradedTrackerEntries.length ? currentGradedTrackerEntries : currentTrackerEntries;
+    saleSourceEntries
       .filter(row => (
         String(row?.type || '').trim() === type
         && row?.gradedRecord
@@ -4049,17 +4192,6 @@
         <canvas class="selected-price-chart-canvas" width="320" height="118" aria-label="Price history chart"></canvas>
       </button>
     `;
-  }
-
-  function latestDetailEntryForRightPanel(entry, rows = currentBalanceChartRows) {
-    const address = String(entry?.address || '');
-    if (!address || !entry?.gradedRecord) return entry;
-    const latest = rows?.find(row => (
-      String(row.address || '') === address
-      && row.gradedRecord
-      && Array.isArray(row.gradedRecords)
-    ));
-    return latest || entryWithGradedRecord(entry, entry.gradedRecords?.[0] || entry.gradedRecord, entry.gradedRecords || []);
   }
 
   function addresslessSelectedCoin(coin = comparisonCoin()) {
@@ -4133,9 +4265,9 @@
     }
     return `
       <section class="selected-coin-detail" aria-label="Selected coin">
-        ${selectedCoinAddressHtml(latestDetailEntryForRightPanel(entry, rows), coin)}
-        ${selectedCoinInfoRowsHtml(latestDetailEntryForRightPanel(entry, rows), rows, coin)}
-        ${selectedPriceChartHtml(latestDetailEntryForRightPanel(entry, rows))}
+        ${selectedCoinAddressHtml(entry, coin)}
+        ${selectedCoinInfoRowsHtml(entry, rows, coin)}
+        ${selectedPriceChartHtml(entry)}
       </section>
     `;
   }
@@ -4288,6 +4420,26 @@
     return ticks.length >= 3
       ? ticks
       : Array.from({ length: count }, (_, index) => min + ((max - min) * index) / (count - 1));
+  }
+
+  function buildLogTicks(min, max, count = 6) {
+    if (!Number.isFinite(min) || !Number.isFinite(max) || min <= 0 || max <= 0 || max < min) return [];
+    const minExp = Math.floor(Math.log10(min));
+    const maxExp = Math.ceil(Math.log10(max));
+    const multipliers = [1, 2, 5];
+    const ticks = [];
+    for (let exp = minExp; exp <= maxExp; exp += 1) {
+      multipliers.forEach(multiplier => {
+        const value = multiplier * (10 ** exp);
+        if (value >= min && value <= max) ticks.push(value);
+      });
+    }
+    if (ticks.length <= Math.max(3, count + 2)) return ticks;
+    const decadeTicks = ticks.filter(value => {
+      const exp = Math.round(Math.log10(value));
+      return Math.abs(value - (10 ** exp)) <= value * 1e-9;
+    });
+    return decadeTicks.length >= 3 ? decadeTicks : ticks.filter((_, index) => index % Math.ceil(ticks.length / count) === 0);
   }
 
   function makeUtcDate(year, month, day = 1) {
@@ -4485,6 +4637,10 @@
     return Math.max(1, ...points.flatMap(point => seriesItems.map(series => point[series.key] || 0)));
   }
 
+  function balanceChartScopeKey() {
+    return allItemsSelected() ? ALL_ITEMS_GROUP_KEY : activeCoin().slug;
+  }
+
   function drawBalanceChart(canvas, rows, { compact = false, unit = 'btc' } = {}) {
     if (!canvas) return null;
     const rect = canvas.getBoundingClientRect();
@@ -4499,11 +4655,34 @@
     ctx.clearRect(0, 0, cssWidth, cssHeight);
     const palette = balanceChartPalette();
 
-    const { points, minTime, maxTime } = projectedBalanceChartSeries(rows, unit);
+    const { points, minTime: fullMinTime, maxTime: fullMaxTime } = projectedBalanceChartSeries(rows, unit);
     const visibleSeries = visibleBalanceChartSeries({ compact });
     const chartSeries = visibleSeries.length ? visibleSeries : [];
-    const maxY = balanceChartSeriesMax(points, chartSeries);
-    const currentPoint = points[points.length - 1] || { minted: 0, active: 0, redeemed: 0 };
+    const activeZoom = !compact
+      && balanceChartZoom
+      && balanceChartZoom.scope === balanceChartScopeKey()
+      && balanceChartZoom.unit === unit
+      ? balanceChartZoom
+      : null;
+    let minTime = Number.isFinite(activeZoom?.minTime) ? activeZoom.minTime : fullMinTime;
+    let maxTime = Number.isFinite(activeZoom?.maxTime) ? activeZoom.maxTime : fullMaxTime;
+    if (maxTime <= minTime) {
+      minTime = fullMinTime;
+      maxTime = fullMaxTime;
+    }
+    const timeFilteredPoints = points.filter(point => point.time >= minTime && point.time <= maxTime);
+    const chartPoints = points.length
+      ? [
+          { time: minTime, ...balanceValuesAtTime(points, minTime) },
+          ...timeFilteredPoints.filter(point => point.time > minTime && point.time < maxTime),
+          { time: maxTime, ...balanceValuesAtTime(points, maxTime) }
+        ]
+      : [];
+    const domainPoints = chartPoints.length ? chartPoints : points;
+    const domainValues = domainPoints.flatMap(point => chartSeries.map(series => Number(point[series.key]) || 0));
+    const minSeriesValue = domainValues.length ? Math.min(...domainValues) : 0;
+    const maxY = domainValues.length ? Math.max(1, ...domainValues) : 1;
+    const currentPoint = balanceValuesAtTime(points, maxTime);
     const currentValueFontSize = compact ? 0 : (cssWidth < 700 ? 17 : 19);
     const axisTickFontSize = compact ? 0 : (cssWidth < 700 ? 14 : 15);
     let measuredRightPad = cssWidth < 700 ? 82 : 112;
@@ -4551,16 +4730,24 @@
         };
     const plotW = Math.max(1, cssWidth - pad.left - pad.right);
     const plotH = Math.max(1, cssHeight - pad.top - pad.bottom);
-    const yMax = Math.max(1, maxY * 1.04);
-    const yTicks = compact ? [] : buildLinearTicks(0, yMax, Math.max(4, Math.min(8, Math.floor(plotH / 84))));
+    const zoomHasY = Number.isFinite(activeZoom?.yMin) && Number.isFinite(activeZoom?.yMax) && activeZoom.yMax > activeZoom.yMin;
+    const valueRange = Math.max(0, maxY - minSeriesValue);
+    const yPad = valueRange > 0
+      ? valueRange * 0.04
+      : Math.max(Math.abs(maxY) * 0.04, unit === 'usd' ? 1 : 0.00000001);
+    const yMin = zoomHasY ? activeZoom.yMin : Math.max(0, minSeriesValue - yPad);
+    const yMax = zoomHasY ? activeZoom.yMax : Math.max(1, maxY + yPad);
+    const yTicks = compact ? [] : buildLinearTicks(yMin, yMax, Math.max(4, Math.min(8, Math.floor(plotH / 84))));
+    const yAxisMin = Math.min(yMin, ...yTicks);
     const yAxisMax = Math.max(yMax, ...yTicks);
+    const yAxisSpan = Math.max(1e-12, yAxisMax - yAxisMin);
     const xTicks = compact ? [] : buildBalanceTimeTicks(minTime, maxTime, plotW);
 
     if (!compact) {
       ctx.strokeStyle = palette.grid;
       ctx.lineWidth = 1;
-      yTicks.map(value => 1 - (value / yAxisMax)).forEach(ratio => {
-        const y = pad.top + plotH * ratio;
+      yTicks.forEach(value => {
+        const y = pad.top + plotH - ((value - yAxisMin) / yAxisSpan) * plotH;
         ctx.beginPath();
         ctx.moveTo(pad.left, y);
         ctx.lineTo(pad.left + plotW, y);
@@ -4571,7 +4758,7 @@
     if (!points.length) return null;
     const span = Math.max(1, maxTime - minTime);
     const xFor = time => pad.left + (time - minTime) / span * plotW;
-    const yFor = value => pad.top + plotH - (value / yAxisMax) * plotH;
+    const yFor = value => pad.top + plotH - ((value - yAxisMin) / yAxisSpan) * plotH;
     const currentLabels = compact ? [] : chartSeries.map(series => ({
       key: series.key,
       value: currentPoint[series.key] || 0,
@@ -4618,7 +4805,7 @@
       ctx.lineJoin = 'round';
       ctx.lineCap = 'round';
       ctx.beginPath();
-      points.forEach((point, index) => {
+      chartPoints.forEach((point, index) => {
         const x = xFor(point.time);
         const y = yFor(point[key]);
         if (index === 0) ctx.moveTo(x, y);
@@ -4626,9 +4813,16 @@
       });
       ctx.stroke();
     };
+    if (!compact) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(pad.left, pad.top, plotW, plotH);
+      ctx.clip();
+    }
     if (chartSeries.some(series => series.key === 'minted')) drawLine('minted', '#ff9900');
     if (chartSeries.some(series => series.key === 'redeemed')) drawLine('redeemed', '#e05243');
     if (chartSeries.some(series => series.key === 'active')) drawLine('active', '#38c172');
+    if (!compact) ctx.restore();
 
     let renderedTitleLines = [];
     if (!compact) {
@@ -4708,13 +4902,16 @@
       canvas._balanceChartLegendHitBoxes = legendHitBoxes;
       ctx.restore();
     }
+    if (!compact && balanceChartDrag?.active) {
+      drawChartDragOverlay(ctx, { pad, plotW, plotH }, priceChartDragSelection({ pad, plotW, plotH }, balanceChartDrag));
+    }
     if (compact) canvas._balanceChartLegendHitBoxes = [];
-    const meta = { pad, plotW, plotH, cssWidth, cssHeight, minTime, maxTime, yMax: yAxisMax, points, unit, titleLines: renderedTitleLines };
+    const meta = { pad, plotW, plotH, cssWidth, cssHeight, minTime, maxTime, fullMinTime, fullMaxTime, yMin: yAxisMin, yMax: yAxisMax, points, chartPoints, unit, titleLines: renderedTitleLines };
     canvas._balanceChartMeta = meta;
     return meta;
   }
 
-  function drawSelectedPriceChart(canvas, entry, { unit = priceChartUnit, compact = false } = {}) {
+  function drawSelectedPriceChart(canvas, entry, { unit = priceChartUnit, compact = false, scale = compact ? 'linear' : priceChartScale } = {}) {
     if (!canvas) return null;
     const needsSeriesPrices = !seriesPriceIndexCache;
     const needsDailyPrices = !dailyPriceIndexCache;
@@ -4795,14 +4992,49 @@
       return null;
     }
 
-    const visiblePoints = points.filter(point => priceChartVisibleGroups[point.seriesKey === 'funded' ? 'funded' : 'premium'] !== false);
-    const minTime = Math.min(...points.map(point => point.time));
+    const visiblePoints = points.filter(point => priceChartVisibleGroups[priceChartVisibilityKey(point)] !== false);
+    const fullMinTime = Math.min(...points.map(point => point.time));
     const todayTime = startOfUtcDaySeconds(Date.now() / 1000);
-    const maxTime = Math.max(todayTime, ...points.map(point => point.time));
-    const axisPoints = visiblePoints.length ? visiblePoints : points;
+    const fullMaxTime = Math.max(todayTime, ...points.map(point => point.time));
+    const activeZoom = !compact
+      && priceChartZoom
+      && priceChartZoom.type === String(entry?.type || '')
+      && priceChartZoom.unit === unit
+      && priceChartZoom.scale === (scale === 'log' ? 'log' : 'linear')
+      ? priceChartZoom
+      : null;
+    let minTime = Number.isFinite(activeZoom?.minTime) ? activeZoom.minTime : fullMinTime;
+    let maxTime = Number.isFinite(activeZoom?.maxTime) ? activeZoom.maxTime : fullMaxTime;
+    if (maxTime <= minTime) {
+      minTime = fullMinTime;
+      maxTime = fullMaxTime;
+    }
+    const timeFilteredVisiblePoints = visiblePoints.filter(point => point.time >= minTime && point.time <= maxTime);
+    const chartPoints = timeFilteredVisiblePoints;
+    const axisPoints = chartPoints.length ? chartPoints : (visiblePoints.length ? visiblePoints : points);
     const axisValues = axisPoints.map(point => Number(point.value)).filter(value => Number.isFinite(value));
     const maxValue = axisValues.length ? Math.max(...axisValues) : 0;
     const minValue = axisValues.length ? Math.min(...axisValues) : 0;
+    const positiveAxisValues = axisValues.filter(value => value > 0);
+    const useLogScale = !compact && scale === 'log' && positiveAxisValues.length > 0;
+    const yPaddingRatio = 0.08;
+    const valueRangeForDomain = Math.max(0, maxValue - minValue);
+    const linearYPad = valueRangeForDomain > 0
+      ? valueRangeForDomain * yPaddingRatio
+      : Math.max(Math.abs(maxValue) * yPaddingRatio, unit === 'usd' ? 1 : 0.00000001);
+    const zoomHasY = Number.isFinite(activeZoom?.yMin) && Number.isFinite(activeZoom?.yMax) && activeZoom.yMax > activeZoom.yMin;
+    let linearAxisMin = zoomHasY && !useLogScale ? activeZoom.yMin : minValue - linearYPad;
+    let linearAxisMax = zoomHasY && !useLogScale ? activeZoom.yMax : maxValue + linearYPad;
+    if (linearAxisMax <= linearAxisMin) linearAxisMax = linearAxisMin + Math.max(Math.abs(linearAxisMin) * yPaddingRatio, unit === 'usd' ? 1 : 0.00000001);
+    const minPositiveForDomain = useLogScale ? Math.min(...positiveAxisValues) : 1;
+    const maxPositiveForDomain = useLogScale ? Math.max(...positiveAxisValues) : 10;
+    const logMinValue = Math.log10(minPositiveForDomain);
+    const logMaxValue = Math.log10(maxPositiveForDomain);
+    const logYPad = logMaxValue > logMinValue ? (logMaxValue - logMinValue) * yPaddingRatio : yPaddingRatio;
+    const paddedLogAxisMin = zoomHasY && useLogScale && activeZoom.yMin > 0 ? activeZoom.yMin : 10 ** (logMinValue - logYPad);
+    const paddedLogAxisMax = zoomHasY && useLogScale && activeZoom.yMax > paddedLogAxisMin ? activeZoom.yMax : 10 ** (logMaxValue + logYPad);
+    const axisMinForLabels = useLogScale ? paddedLogAxisMin : linearAxisMin;
+    const axisMaxForLabels = useLogScale ? paddedLogAxisMax : linearAxisMax;
     const axisTickFontSize = compact ? 0 : (cssWidth < 700 ? 14 : 15);
     let axisLabelWidth = 0;
     let measuredRightPad = cssWidth < 700 ? 82 : 112;
@@ -4810,8 +5042,8 @@
       ctx.save();
       ctx.font = `${axisTickFontSize}px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
       axisLabelWidth = Math.max(
-        ctx.measureText(formatBalanceTickValue(maxValue, unit)).width,
-        ctx.measureText(formatBalanceTickValue(minValue, unit)).width
+        ctx.measureText(formatBalanceTickValue(axisMaxForLabels, unit)).width,
+        ctx.measureText(formatBalanceTickValue(axisMinForLabels, unit)).width
       );
       ctx.restore();
       measuredRightPad = Math.max(
@@ -4835,21 +5067,36 @@
       ? Math.max(10, Math.floor(axisTickFontSize * (availableRightLabelWidth / axisLabelWidth)))
       : axisTickFontSize;
     const span = Math.max(1, maxTime - minTime);
-    const valueRange = Math.max(0, maxValue - minValue);
-    const yPad = valueRange > 0
-      ? valueRange * 0.08
-      : Math.max(Math.abs(maxValue) * 0.08, unit === 'usd' ? 1 : 0.00000001);
-    let yMin = minValue - yPad;
-    let yMax = maxValue + yPad;
-    if (minValue >= 0 && minValue <= Math.max(yPad * 1.5, maxValue * 0.08)) yMin = 0;
-    if (yMax <= yMin) yMax = yMin + Math.max(Math.abs(yMin) * 0.08, unit === 'usd' ? 1 : 0.00000001);
-    const yTicks = compact ? [] : buildLinearTicks(yMin, yMax, Math.max(4, Math.min(8, Math.floor(plotH / 84))));
-    const yAxisMin = Math.min(yMin, ...yTicks);
-    const yAxisMax = Math.max(yMax, ...yTicks);
-    const yAxisSpan = Math.max(1e-12, yAxisMax - yAxisMin);
+    let yTicks = [];
+    let yAxisMin = 0;
+    let yAxisMax = 1;
+    let yAxisSpan = 1;
+    let logAxisMin = 1;
+    let logAxisMax = 10;
+    let logAxisSpan = 1;
+    if (useLogScale) {
+      logAxisMin = paddedLogAxisMin;
+      logAxisMax = paddedLogAxisMax;
+      if (logAxisMax <= logAxisMin) logAxisMax = logAxisMin * 10;
+      yTicks = buildLogTicks(logAxisMin, logAxisMax, Math.max(4, Math.min(8, Math.floor(plotH / 84))));
+      yAxisMin = logAxisMin;
+      yAxisMax = logAxisMax;
+      logAxisSpan = Math.max(1e-12, Math.log10(logAxisMax) - Math.log10(logAxisMin));
+    } else {
+      yTicks = compact ? [] : buildLinearTicks(linearAxisMin, linearAxisMax, Math.max(4, Math.min(8, Math.floor(plotH / 84))));
+      yAxisMin = Math.min(linearAxisMin, ...yTicks);
+      yAxisMax = Math.max(linearAxisMax, ...yTicks);
+      yAxisSpan = Math.max(1e-12, yAxisMax - yAxisMin);
+    }
     const xTicks = compact ? [] : buildBalanceTimeTicks(minTime, maxTime, plotW);
     const xFor = time => pad.left + ((time - minTime) / span) * plotW;
-    const yFor = value => pad.top + plotH - ((value - yAxisMin) / yAxisSpan) * plotH;
+    const yFor = value => {
+      if (useLogScale) {
+        if (!Number.isFinite(value) || value <= 0) return pad.top + plotH;
+        return pad.top + plotH - ((Math.log10(value) - Math.log10(logAxisMin)) / logAxisSpan) * plotH;
+      }
+      return pad.top + plotH - ((value - yAxisMin) / yAxisSpan) * plotH;
+    };
 
     if (!compact) {
       ctx.save();
@@ -4919,7 +5166,7 @@
 
     const drawAddressSaleLines = () => {
       const addressGroups = new Map();
-      visiblePoints
+      chartPoints
         .filter(point => point.source === 'Auction' && point.address)
         .forEach(point => {
           const address = String(point.address || '');
@@ -4949,9 +5196,10 @@
     const pointHitBoxes = [];
     const selectedPricePointHighlights = [];
     const selectedGradedPriceAddress = String(selectedLeftPanelAddressByMode.graded || '');
+    const selectedGradedPriceRecordId = String(selectedLeftPanelRecordIdByMode.graded || '');
     ctx.save();
     drawAddressSaleLines();
-    visiblePoints.forEach(point => {
+    chartPoints.forEach(point => {
       const x = xFor(point.time);
       const y = yFor(point.value);
       const markerSize = point.source === 'Auction' ? (compact ? 3.2 : 4) : (compact ? 6.6 : 8.1);
@@ -4969,7 +5217,13 @@
           clickable: point.source === 'Auction' && Boolean(point.address)
         });
       }
-      if (point.source === 'Auction' && selectedGradedPriceAddress && point.address === selectedGradedPriceAddress) {
+      if (
+        point.source === 'Auction'
+        && selectedGradedPriceAddress
+        && selectedGradedPriceRecordId
+        && point.address === selectedGradedPriceAddress
+        && String(point.gradedRecordId || '') === selectedGradedPriceRecordId
+      ) {
         selectedPricePointHighlights.push({ point, x, y, markerSize });
       }
     });
@@ -4991,6 +5245,12 @@
     });
     ctx.restore();
 
+    if (!compact && priceChartDrag?.active) {
+      const dragMeta = { pad, plotW, plotH };
+      const selection = priceChartDragSelection(dragMeta);
+      drawChartDragOverlay(ctx, { pad, plotW, plotH }, selection);
+    }
+
     if (!compact) {
       ctx.save();
       ctx.font = `700 ${titleFontSize}px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
@@ -5001,7 +5261,8 @@
       titleLines.forEach((line, index) => {
         ctx.fillText(line, cssWidth / 2, titleBlockTop + index * titleLineHeight);
       });
-      ctx.font = `600 ${cssWidth < 700 ? 12 : 13}px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+      const legendFontSize = cssWidth < 700 ? 12 : 13;
+      ctx.font = `600 ${legendFontSize}px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
       ctx.textBaseline = 'middle';
       const hasOriginalPremiumPoint = points.some(point => point.source === 'Initial' && point.seriesKey !== 'funded');
       const originalPremiumLabel = entry?.slug === 'cas_bar_diy_gold_s2' ? 'Original Unfunded Price' : 'Original Premium';
@@ -5062,10 +5323,10 @@
           ctx.globalAlpha = 1;
           legendHitBoxes.push({
             key: item.key,
-            x: itemStartX - 8,
-            y: y - Math.max(12, cssWidth < 700 ? 12 : 13),
-            width: width + 16,
-            height: Math.max(24, (cssWidth < 700 ? 12 : 13) + 10)
+            x: itemStartX - 12,
+            y: y - Math.max(16, rowGap * 0.72),
+            width: width + 24,
+            height: Math.max(32, legendFontSize + 18)
           });
         });
       });
@@ -5074,7 +5335,7 @@
     }
     if (compact) canvas._priceChartLegendHitBoxes = [];
     canvas._priceChartPointHitBoxes = compact ? [] : pointHitBoxes;
-    const meta = { points: visiblePoints, allPoints: points, funded, premium, minTime, maxTime, yMin: yAxisMin, yMax: yAxisMax, pad, plotW, plotH, cssWidth, cssHeight, unit };
+    const meta = { entry, points: chartPoints, allPoints: points, funded, premium, minTime, maxTime, fullMinTime, fullMaxTime, yMin: yAxisMin, yMax: yAxisMax, pad, plotW, plotH, cssWidth, cssHeight, unit, scale: useLogScale ? 'log' : 'linear' };
     canvas._priceChartMeta = meta;
     canvas._balanceChartMeta = meta;
     canvas._balanceChartLegendHitBoxes = [];
@@ -5154,6 +5415,11 @@
       button.classList.toggle('active', active);
       button.setAttribute('aria-pressed', active ? 'true' : 'false');
     });
+    balanceChartModal?.querySelectorAll('[data-price-chart-scale]').forEach(button => {
+      const active = button.dataset.priceChartScale === priceChartScale;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
   }
 
   function syncBalanceChartBackgroundLayers({ hiddenOverride = null } = {}) {
@@ -5201,7 +5467,21 @@
   async function setBalanceChartUnit(unit) {
     const nextUnit = unit === 'usd' ? 'usd' : 'btc';
     if (nextUnit === balanceChartUnit) return;
+    const canvas = balanceChartModal?.querySelector('.balance-chart-full-canvas');
+    const meta = canvas?._balanceChartMeta;
+    const preserveZoom = balanceChartZoom && meta && meta.unit === balanceChartUnit
+      && balanceChartZoom.scope === balanceChartScopeKey()
+      && (meta.minTime > meta.fullMinTime || meta.maxTime < meta.fullMaxTime)
+      ? {
+          scope: balanceChartScopeKey(),
+          unit: nextUnit,
+          minTime: meta.minTime,
+          maxTime: meta.maxTime
+        }
+      : null;
     balanceChartUnit = nextUnit;
+    balanceChartZoom = preserveZoom;
+    balanceChartDrag = null;
     saveBalanceChartUnit(nextUnit);
     syncBalanceChartUnitButtons();
     hideBalanceChartHover();
@@ -5218,18 +5498,50 @@
   async function setPriceChartUnit(unit) {
     const nextUnit = unit === 'usd' ? 'usd' : 'btc';
     if (nextUnit === priceChartUnit) return;
+    const canvas = balanceChartModal?.querySelector('.balance-chart-full-canvas');
+    const meta = canvas?._priceChartMeta;
+    const preserveZoom = priceChartZoom && meta && meta.unit === priceChartUnit && meta.scale === priceChartScale
+      && priceChartZoom.type === String(meta.entry?.type || '')
+      && (meta.minTime > meta.fullMinTime || meta.maxTime < meta.fullMaxTime)
+      ? {
+          type: String(meta.entry?.type || ''),
+          unit: nextUnit,
+          scale: priceChartScale,
+          minTime: meta.minTime,
+          maxTime: meta.maxTime
+        }
+      : null;
     priceChartUnit = nextUnit;
+    priceChartZoom = preserveZoom;
+    priceChartDrag = null;
     savePriceChartUnit(nextUnit);
     syncBalanceChartUnitButtons();
     hideBalanceChartHover();
     if (nextUnit === 'usd') await dailyPriceIndex();
     if (priceChartUnit !== nextUnit) return;
     renderSelectedPriceChartPreview();
-    redrawOpenBalanceChart();
+    if (activeChartModalMode === 'price' && balanceChartModal?.classList.contains('open')) {
+      redrawCurrentPriceChartCanvas(canvas);
+      refreshBalanceChartHover();
+    } else {
+      redrawOpenBalanceChart();
+    }
   }
 
   function cyclePriceChartUnit() {
     setPriceChartUnit(priceChartUnit === 'usd' ? 'btc' : 'usd');
+  }
+
+  function setPriceChartScale(scale) {
+    const nextScale = scale === 'log' ? 'log' : 'linear';
+    if (nextScale === priceChartScale) return;
+    priceChartScale = nextScale;
+    priceChartZoom = null;
+    priceChartDrag = null;
+    savePriceChartScale(nextScale);
+    syncBalanceChartUnitButtons();
+    hideBalanceChartHover();
+    redrawOpenBalanceChart();
   }
 
   function shortcutKeyId(key) {
@@ -5465,6 +5777,10 @@
         <button class="balance-chart-unit-btn active" type="button" data-balance-chart-unit="btc" aria-pressed="true">BTC</button>
         <button class="balance-chart-unit-btn" type="button" data-balance-chart-unit="usd" aria-pressed="false">USD</button>
       </div>
+      <div class="balance-chart-unit-toggle price-chart-scale-toggle" role="group" aria-label="Price chart scale">
+        <button class="balance-chart-unit-btn active" type="button" data-price-chart-scale="linear" aria-pressed="true">LIN</button>
+        <button class="balance-chart-unit-btn" type="button" data-price-chart-scale="log" aria-pressed="false">LOG</button>
+      </div>
       <button class="balance-chart-close" type="button" aria-label="Close balance chart">
         <svg class="balance-chart-close-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
           <path d="M6 6L18 18M18 6L6 18"></path>
@@ -5483,12 +5799,36 @@
       if (activeChartModalMode === 'price') cyclePriceChartUnit();
       else setBalanceChartUnit(button.dataset.balanceChartUnit);
     });
+    balanceChartModal.querySelector('.price-chart-scale-toggle')?.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      setPriceChartScale(priceChartScale === 'log' ? 'linear' : 'log');
+    });
     balanceChartModal.addEventListener('click', event => {
+      if (activeChartModalMode === 'balance' && balanceChartSuppressClick) {
+        balanceChartSuppressClick = false;
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      if (activeChartModalMode === 'price' && priceChartSuppressClick) {
+        priceChartSuppressClick = false;
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       if (activeChartModalMode === 'price' && handlePriceChartLegendClick(event)) return;
       if (activeChartModalMode === 'price' && handlePriceChartPointClick(event)) return;
       if (activeChartModalMode === 'balance' && handleBalanceChartLegendClick(event)) return;
       if (event.target === balanceChartModal) closeBalanceChartModal();
     });
+    balanceChartModal.addEventListener('pointerdown', handleBalanceChartPointerDown);
+    balanceChartModal.addEventListener('pointerup', handleBalanceChartPointerUp);
+    balanceChartModal.addEventListener('pointercancel', handleBalanceChartPointerCancel);
+    balanceChartModal.addEventListener('pointerdown', handlePriceChartPointerDown);
+    balanceChartModal.addEventListener('pointerup', handlePriceChartPointerUp);
+    balanceChartModal.addEventListener('pointercancel', handlePriceChartPointerCancel);
+    balanceChartModal.addEventListener('dblclick', handlePriceChartDoubleClick);
     balanceChartModal.addEventListener('pointermove', updateBalanceChartHover);
     balanceChartModal.addEventListener('pointerleave', hideBalanceChartHover);
     return balanceChartModal;
@@ -5562,7 +5902,7 @@
   }
 
   function balanceChartCanvasPoint(canvas, event) {
-    const meta = canvas?._balanceChartMeta;
+    const meta = canvas?._balanceChartMeta || canvas?._priceChartMeta;
     if (!canvas || !meta) return null;
     const rect = canvas.getBoundingClientRect();
     const drawWidth = Number(meta.cssWidth) || canvas.clientWidth || rect.width || 1;
@@ -5716,11 +6056,12 @@
   function priceChartLegendHit(canvas, event) {
     const point = balanceChartCanvasPoint(canvas, event);
     if (!point) return null;
+    const tolerance = 6;
     return (canvas._priceChartLegendHitBoxes || []).find(box => (
-      point.x >= box.x
-      && point.x <= box.x + box.width
-      && point.y >= box.y
-      && point.y <= box.y + box.height
+      point.x >= box.x - tolerance
+      && point.x <= box.x + box.width + tolerance
+      && point.y >= box.y - tolerance
+      && point.y <= box.y + box.height + tolerance
     )) || null;
   }
 
@@ -5790,11 +6131,102 @@
     priceChartVisibleGroups[hit.key] = priceChartVisibleGroups[hit.key] === false;
     savePriceChartVisibleGroups();
     hideBalanceChartHover();
+    drawSelectedPriceChart(canvas, canvas?._priceChartMeta?.entry || selectedPriceChartEntry(currentBalanceChartRows), {
+      compact: false,
+      unit: priceChartUnit,
+      scale: priceChartScale
+    });
     renderSelectedPriceChartPreview();
-    redrawOpenBalanceChart();
     event.preventDefault();
     event.stopPropagation();
     return true;
+  }
+
+  function redrawCurrentBalanceChartCanvas(canvas = balanceChartModal?.querySelector('.balance-chart-full-canvas')) {
+    if (!canvas || activeChartModalMode !== 'balance') return;
+    drawBalanceChart(canvas, currentBalanceChartRows, {
+      compact: false,
+      unit: balanceChartUnit
+    });
+  }
+
+  function handleBalanceChartPointerDown(event) {
+    if (activeChartModalMode !== 'balance' || event.button !== 0) return;
+    const canvas = balanceChartModal?.querySelector('.balance-chart-full-canvas');
+    const meta = canvas?._balanceChartMeta;
+    const point = balanceChartCanvasPoint(canvas, event);
+    if (!canvas || !meta || !point) return;
+    if (balanceChartLegendHit(canvas, event)) return;
+    const insidePlot = point.x >= meta.pad.left && point.x <= meta.pad.left + meta.plotW
+      && point.y >= meta.pad.top && point.y <= meta.pad.top + meta.plotH;
+    if (!insidePlot) return;
+    balanceChartDrag = {
+      active: true,
+      pointerId: event.pointerId,
+      startX: point.x,
+      startY: point.y,
+      currentX: point.x,
+      currentY: point.y
+    };
+    hideBalanceChartHover();
+    canvas.setPointerCapture?.(event.pointerId);
+  }
+
+  function handleBalanceChartPointerMove(event) {
+    if (activeChartModalMode !== 'balance' || !balanceChartDrag?.active) return false;
+    if (balanceChartDrag.pointerId !== event.pointerId) return true;
+    const canvas = balanceChartModal?.querySelector('.balance-chart-full-canvas');
+    const point = balanceChartCanvasPoint(canvas, event);
+    if (!canvas || !point) return true;
+    balanceChartDrag.currentX = point.x;
+    balanceChartDrag.currentY = point.y;
+    hideBalanceChartHover();
+    redrawCurrentBalanceChartCanvas(canvas);
+    event.preventDefault();
+    return true;
+  }
+
+  function handleBalanceChartPointerUp(event) {
+    if (activeChartModalMode !== 'balance' || !balanceChartDrag?.active) return false;
+    if (balanceChartDrag.pointerId !== event.pointerId) return true;
+    const canvas = balanceChartModal?.querySelector('.balance-chart-full-canvas');
+    const meta = canvas?._balanceChartMeta;
+    const selection = priceChartDragSelection(meta, balanceChartDrag);
+    balanceChartDrag = null;
+    canvas?.releasePointerCapture?.(event.pointerId);
+    if (selection?.moved && selection.width >= 10 && (selection.horizontalOnly || selection.height >= 10)) {
+      const minTime = priceChartTimeAtCanvasX(meta, selection.left);
+      const maxTime = priceChartTimeAtCanvasX(meta, selection.right);
+      const yTopValue = balanceChartValueAtCanvasY(meta, selection.top);
+      const yBottomValue = balanceChartValueAtCanvasY(meta, selection.bottom);
+      const yMin = selection.horizontalOnly ? meta.yMin : Math.min(yTopValue, yBottomValue);
+      const yMax = selection.horizontalOnly ? meta.yMax : Math.max(yTopValue, yBottomValue);
+      if (Number.isFinite(minTime) && Number.isFinite(maxTime) && maxTime > minTime && Number.isFinite(yMin) && Number.isFinite(yMax) && yMax > yMin) {
+        balanceChartZoom = {
+          scope: balanceChartScopeKey(),
+          unit: meta.unit,
+          minTime,
+          maxTime,
+          yMin,
+          yMax
+        };
+      }
+      balanceChartSuppressClick = true;
+      hideBalanceChartHover();
+      redrawCurrentBalanceChartCanvas(canvas);
+      event.preventDefault();
+      return true;
+    }
+    redrawCurrentBalanceChartCanvas(canvas);
+    return false;
+  }
+
+  function handleBalanceChartPointerCancel(event) {
+    if (!balanceChartDrag?.active || balanceChartDrag.pointerId !== event.pointerId) return;
+    const canvas = balanceChartModal?.querySelector('.balance-chart-full-canvas');
+    balanceChartDrag = null;
+    canvas?.releasePointerCapture?.(event.pointerId);
+    redrawCurrentBalanceChartCanvas(canvas);
   }
 
   function handlePriceChartPointClick(event) {
@@ -5803,19 +6235,145 @@
     const address = String(hit?.address || '');
     if (!address) return false;
     const gradedRecordId = String(hit?.gradedRecordId || '');
-    const entry = currentTrackerEntries
+    const saleSourceEntries = currentGradedTrackerEntries.length ? currentGradedTrackerEntries : currentTrackerEntries;
+    const entry = saleSourceEntries
       .flatMap(gradedAuctionEntriesForEntry)
       .find(row => String(row.address || '') === address && (!gradedRecordId || String(row.gradedRecordId || '') === gradedRecordId));
     if (!entry) return false;
-    applySearchSelectionToPanels(entry, currentTrackerEntries);
+    applySearchSelectionToPanels(entry, saleSourceEntries);
     hideBalanceChartHover();
     event.preventDefault();
     event.stopPropagation();
     return true;
   }
 
+  function redrawCurrentPriceChartCanvas(canvas = balanceChartModal?.querySelector('.balance-chart-full-canvas')) {
+    if (!canvas || activeChartModalMode !== 'price') return;
+    drawSelectedPriceChart(canvas, canvas?._priceChartMeta?.entry || selectedPriceChartEntry(currentBalanceChartRows), {
+      compact: false,
+      unit: priceChartUnit,
+      scale: priceChartScale
+    });
+  }
+
+  function handlePriceChartPointerDown(event) {
+    if (activeChartModalMode !== 'price' || event.button !== 0) return;
+    const canvas = balanceChartModal?.querySelector('.balance-chart-full-canvas');
+    const meta = canvas?._priceChartMeta;
+    const point = balanceChartCanvasPoint(canvas, event);
+    if (!canvas || !meta || !point) return;
+    if (priceChartLegendHit(canvas, event)) return;
+    const insidePlot = point.x >= meta.pad.left && point.x <= meta.pad.left + meta.plotW
+      && point.y >= meta.pad.top && point.y <= meta.pad.top + meta.plotH;
+    if (!insidePlot) return;
+    priceChartDrag = {
+      active: true,
+      pointerId: event.pointerId,
+      startX: point.x,
+      startY: point.y,
+      currentX: point.x,
+      currentY: point.y
+    };
+    hideBalanceChartHover();
+    canvas.setPointerCapture?.(event.pointerId);
+  }
+
+  function handlePriceChartPointerMove(event) {
+    if (activeChartModalMode !== 'price' || !priceChartDrag?.active) return false;
+    if (priceChartDrag.pointerId !== event.pointerId) return true;
+    const canvas = balanceChartModal?.querySelector('.balance-chart-full-canvas');
+    const point = balanceChartCanvasPoint(canvas, event);
+    if (!canvas || !point) return true;
+    priceChartDrag.currentX = point.x;
+    priceChartDrag.currentY = point.y;
+    hideBalanceChartHover();
+    redrawCurrentPriceChartCanvas(canvas);
+    event.preventDefault();
+    return true;
+  }
+
+  function handlePriceChartPointerUp(event) {
+    if (activeChartModalMode !== 'price' || !priceChartDrag?.active) return false;
+    if (priceChartDrag.pointerId !== event.pointerId) return true;
+    const canvas = balanceChartModal?.querySelector('.balance-chart-full-canvas');
+    const meta = canvas?._priceChartMeta;
+    const selection = priceChartDragSelection(meta);
+    priceChartDrag = null;
+    canvas?.releasePointerCapture?.(event.pointerId);
+    if (selection?.moved && selection.width >= 10 && (selection.horizontalOnly || selection.height >= 10)) {
+      const minTime = priceChartTimeAtCanvasX(meta, selection.left);
+      const maxTime = priceChartTimeAtCanvasX(meta, selection.right);
+      const yTopValue = priceChartValueAtCanvasY(meta, selection.top);
+      const yBottomValue = priceChartValueAtCanvasY(meta, selection.bottom);
+      const yMin = selection.horizontalOnly ? meta.yMin : Math.min(yTopValue, yBottomValue);
+      const yMax = selection.horizontalOnly ? meta.yMax : Math.max(yTopValue, yBottomValue);
+      if (Number.isFinite(minTime) && Number.isFinite(maxTime) && maxTime > minTime && Number.isFinite(yMin) && Number.isFinite(yMax) && yMax > yMin) {
+        priceChartZoom = {
+          type: String(meta.entry?.type || ''),
+          unit: meta.unit,
+          scale: meta.scale,
+          minTime,
+          maxTime,
+          yMin,
+          yMax
+        };
+      }
+      priceChartSuppressClick = true;
+      hideBalanceChartHover();
+      redrawCurrentPriceChartCanvas(canvas);
+      event.preventDefault();
+      return true;
+    }
+    redrawCurrentPriceChartCanvas(canvas);
+    return false;
+  }
+
+  function handlePriceChartPointerCancel(event) {
+    if (!priceChartDrag?.active || priceChartDrag.pointerId !== event.pointerId) return;
+    const canvas = balanceChartModal?.querySelector('.balance-chart-full-canvas');
+    priceChartDrag = null;
+    canvas?.releasePointerCapture?.(event.pointerId);
+    redrawCurrentPriceChartCanvas(canvas);
+  }
+
+  function handlePriceChartDoubleClick(event) {
+    if (activeChartModalMode === 'balance') {
+      const canvas = balanceChartModal?.querySelector('.balance-chart-full-canvas');
+      const point = balanceChartCanvasPoint(canvas, event);
+      const meta = canvas?._balanceChartMeta;
+      if (!point || !meta) return;
+      const insidePlot = point.x >= meta.pad.left && point.x <= meta.pad.left + meta.plotW
+        && point.y >= meta.pad.top && point.y <= meta.pad.top + meta.plotH;
+      if (!insidePlot) return;
+      balanceChartZoom = null;
+      balanceChartDrag = null;
+      balanceChartSuppressClick = true;
+      hideBalanceChartHover();
+      redrawCurrentBalanceChartCanvas(canvas);
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    if (activeChartModalMode !== 'price') return;
+    const canvas = balanceChartModal?.querySelector('.balance-chart-full-canvas');
+    const point = balanceChartCanvasPoint(canvas, event);
+    const meta = canvas?._priceChartMeta;
+    if (!point || !meta) return;
+    const insidePlot = point.x >= meta.pad.left && point.x <= meta.pad.left + meta.plotW
+      && point.y >= meta.pad.top && point.y <= meta.pad.top + meta.plotH;
+    if (!insidePlot) return;
+    priceChartZoom = null;
+    priceChartDrag = null;
+    priceChartSuppressClick = true;
+    hideBalanceChartHover();
+    redrawCurrentPriceChartCanvas(canvas);
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
   function updatePriceChartHover(event) {
     if (!balanceChartModal?.classList.contains('open')) return;
+    if (handlePriceChartPointerMove(event)) return;
     const canvas = balanceChartModal.querySelector('.balance-chart-full-canvas');
     const meta = canvas?._priceChartMeta;
     if (!canvas || !meta) return;
@@ -5909,6 +6467,7 @@
       updatePriceChartHover(event);
       return;
     }
+    if (handleBalanceChartPointerMove(event)) return;
     if (balanceChartSelectionSuppressesHover()) {
       hideBalanceChartHover({ clearHover: false });
       return;
@@ -5987,6 +6546,9 @@
   function renderCoinInfo(entries) {
     if (!coinInfoPanel) return;
     currentTrackerEntries = Array.isArray(entries) ? entries : [];
+    if (currentTrackerEntries.some(entry => entry?.gradedRecord)) {
+      currentGradedTrackerEntries = currentTrackerEntries;
+    }
     const precalculatedInfo = precalculatedRightPanelInfo();
     if (precalculatedInfo) {
       const rows = currentChartRows(entries);
@@ -6398,11 +6960,16 @@
     const unit = activeChartModalMode === 'price' ? priceChartUnit : balanceChartUnit;
     const needsDailyPrices = (activeChartModalMode === 'price' || unit === 'usd') && !dailyPriceIndexCache;
     const needsSeriesPrices = activeChartModalMode === 'price' && !seriesPriceIndexCache;
-    if (needsDailyPrices || needsSeriesPrices) {
+    const needsGradedEntries = activeChartModalMode === 'price' && !currentGradedTrackerEntries.length;
+    if (needsDailyPrices || needsSeriesPrices || needsGradedEntries) {
       Promise.all([
         needsDailyPrices ? dailyPriceIndex() : Promise.resolve(dailyPriceIndexCache),
-        needsSeriesPrices ? seriesPriceIndex() : Promise.resolve(seriesPriceIndexCache)
-      ]).then(() => {
+        needsSeriesPrices ? seriesPriceIndex() : Promise.resolve(seriesPriceIndexCache),
+        needsGradedEntries ? trackerIndexWithGraded() : Promise.resolve(currentGradedTrackerEntries)
+      ]).then(([, , gradedEntries]) => {
+        if (Array.isArray(gradedEntries) && gradedEntries.some(entry => entry?.gradedRecord)) {
+          currentGradedTrackerEntries = gradedEntries;
+        }
         const stillNeedsPriceRedraw = activeChartModalMode === 'price';
         const stillNeedsBalanceUsdRedraw = activeChartModalMode === 'balance' && balanceChartUnit === 'usd';
         if ((stillNeedsPriceRedraw || stillNeedsBalanceUsdRedraw) && balanceChartModal?.classList.contains('open')) {
@@ -6415,7 +6982,8 @@
     if (activeChartModalMode === 'price') {
       drawSelectedPriceChart(canvas, selectedPriceChartEntry(currentBalanceChartRows), {
         compact: false,
-        unit
+        unit,
+        scale: priceChartScale
       });
       refreshBalanceChartHover();
       return;
@@ -6651,6 +7219,7 @@
     const shouldStayInCurrentView = allItemsMode || entryBelongsToCoin(match.entry, activeCoin());
     pendingSearchSelection = {
       address: String(match.entry.address || ''),
+      gradedRecordId: entryGradedRecordId(match.entry),
       mode: targetMode
     };
     const willTriggerRefresh = !shouldStayInCurrentView;
