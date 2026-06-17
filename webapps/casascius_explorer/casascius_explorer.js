@@ -774,7 +774,7 @@
       const slug = ALL_ITEMS_PACKING.items.some(item => item.slug === rawSlug)
         ? rawSlug
         : (GRADED_SELECTION_SLUGS_BY_ADDRESS[address] || '');
-      return address ? { address, gradedRecordId, mode: validLeftPanelMode(saved.mode), slug } : null;
+      return address ? { address, gradedRecordId, mode: validLeftPanelMode(saved.mode), slug, allItems: saved.allItems === true } : null;
     } catch (_) {
       return null;
     }
@@ -803,8 +803,10 @@
         address,
         gradedRecordId,
         mode: validLeftPanelMode(mode),
-        slug
+        slug,
+        allItems: allItemsSelected()
       }));
+      if (allItemsSelected()) saveActiveSlug(ALL_ITEMS_GROUP_KEY);
     } catch (_) {}
   }
 
@@ -965,6 +967,7 @@
     const normalizedAddress = String(address || '').trim();
     const normalizedSlug = allItemsPackingItem(slug)?.slug || allItemsPackingItem(allItemsFocusedSlug)?.slug || DEFAULT_ALL_ITEMS_FOCUS_SLUG;
     try {
+      saveActiveSlug(ALL_ITEMS_GROUP_KEY);
       localStorage.setItem(STORAGE_ALL_ITEMS_SELECTION, JSON.stringify({
         mode: validLeftPanelMode(mode),
         address: normalizedAddress,
@@ -1578,10 +1581,13 @@
   const savedAllItemsAutoLatest = savedAllItemsWindow?.autoLatest === true;
   const savedGradedMediaMode = readSavedGradedMediaMode();
   const savedGradedMediaSelection = readSavedGradedMediaSelection();
-  const savedGradedActiveSlug = savedGradedMediaMode !== 'model' && savedGradedMediaSelection?.slug
+  const savedActiveSlug = readSavedSlug();
+  const savedGradedActiveSlug = savedActiveSlug !== ALL_ITEMS_GROUP_KEY
+    && savedGradedMediaMode !== 'model'
+    && savedGradedMediaSelection?.slug
+    && savedGradedMediaSelection.allItems !== true
     ? savedGradedMediaSelection.slug
     : null;
-  const savedActiveSlug = readSavedSlug();
   let activeSlug = savedActiveSlug === ALL_ITEMS_GROUP_KEY
     ? ALL_ITEMS_GROUP_KEY
     : savedGradedActiveSlug
@@ -1679,7 +1685,8 @@
   let gradedMediaAddress = '';
   let gradedCaseStyle = 'ngc';
   let gradedCaseLoadToken = 0;
-  if (!allItemsMode
+  if (activeSlug !== ALL_ITEMS_GROUP_KEY
+    && !allItemsMode
     && savedGradedMediaSelection?.address
     && (savedGradedMediaMode !== 'model' || (savedChartOpen && savedChartModalMode === 'price'))) {
     leftPanelMode = savedGradedMediaSelection.mode;
