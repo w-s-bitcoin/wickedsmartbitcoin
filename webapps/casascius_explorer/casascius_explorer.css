@@ -33,6 +33,8 @@
     --right-panel-top: 178px;
     --right-panel-max-height: calc(100vh - 178px);
     --bottom-reserved-space: 128px;
+    --stage-loading-left: 50vw;
+    --stage-loading-top: 50vh;
     --mobile-browser-bottom-space: 0px;
     --panel-top-overlap: 1px;
     --tilt: 0deg;
@@ -939,8 +941,8 @@
   }
   .stage-loading-ring {
     position: absolute;
-    left: 50%;
-    top: 50%;
+    left: var(--stage-loading-left);
+    top: var(--stage-loading-top);
     z-index: 18;
     width: 32px;
     height: 32px;

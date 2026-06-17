@@ -476,6 +476,7 @@
 
   function syncStageLoadingRing() {
     const loading = stageLoadingKeys.size > 0;
+    syncStageLoadingPosition();
     app?.classList.toggle('stage-model-loading', loading);
     if (stageLoadingRing) stageLoadingRing.setAttribute('aria-hidden', String(!loading));
   }
@@ -7017,6 +7018,7 @@
     root.style.setProperty('--bottom-reserved-space', `${bottomHeight}px`);
     root.style.setProperty('--side-panel-bottom', `${bottomPanelCountsForViewport() && fullWidthBottom ? bottomHeight : 0}px`);
     updateBalanceChartModalBounds(leftWidth, rightWidth);
+    syncStageLoadingPosition();
     scheduleOpenBalanceChartRedraw();
     if (allItemsMode && allItemsBuilt) {
       syncAllItemsTargetCursor();
@@ -7944,6 +7946,12 @@
       x: (bounds.left + bounds.right) / 2,
       y: (bounds.top + bounds.bottom) / 2
     };
+  }
+
+  function syncStageLoadingPosition() {
+    const bounds = usableViewportBounds();
+    root.style.setProperty('--stage-loading-left', `${((bounds.left + bounds.right) / 2).toFixed(2)}px`);
+    root.style.setProperty('--stage-loading-top', `${((bounds.top + bounds.bottom) / 2).toFixed(2)}px`);
   }
 
   function resetSingleItemViewportCenter() {
