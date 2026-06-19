@@ -237,6 +237,10 @@
     uoaGroupSelect: document.getElementById("uoaGroupSelect"),
     primaryUoaSelect: document.getElementById("primaryUoaSelect"),
     secondaryUoaSelect: document.getElementById("secondaryUoaSelect"),
+    primaryScaleToggles: document.getElementById("primaryScaleToggles"),
+    secondaryScaleToggles: document.getElementById("secondaryScaleToggles"),
+    primaryScaleCurrencyLabel: document.getElementById("primaryScaleCurrencyLabel"),
+    secondaryScaleCurrencyLabel: document.getElementById("secondaryScaleCurrencyLabel"),
     scaleSelect: document.getElementById("scaleSelect"),
     orderBySelect: document.getElementById("orderBySelect"),
     vesRedenomAdjustToggle: document.getElementById("vesRedenomAdjustToggle"),
@@ -1165,8 +1169,32 @@
     };
   }
 
+  function getScaleToggleValue(group, fallback = "log") {
+    const active = group?.querySelector(".uoa-scale-toggle-btn.is-active[data-value]")?.dataset.value;
+    return normalizeScaleMode(active, fallback);
+  }
+
+  function setScaleToggleValue(group, value) {
+    if (!group) return;
+    const normalized = normalizeScaleMode(value);
+    const buttons = Array.from(group.querySelectorAll(".uoa-scale-toggle-btn[data-value]"));
+    buttons.forEach((button) => {
+      const isActive = button.dataset.value === normalized;
+      button.classList.toggle("is-active", isActive);
+      button.setAttribute("aria-pressed", isActive ? "true" : "false");
+    });
+  }
+
+  function getDashboardScaleModes() {
+    const fallback = el.scaleSelect?.value === "linear" ? "linear" : "log";
+    return {
+      left: getScaleToggleValue(el.primaryScaleToggles, fallback),
+      right: getScaleToggleValue(el.secondaryScaleToggles, fallback),
+    };
+  }
+
   function getDashboardScaleMode() {
-    return el.scaleSelect?.value === "linear" ? "linear" : "log";
+    return getDashboardScaleModes().left;
   }
 
   function normalizeScaleMode(value, fallback = "log") {
@@ -1356,6 +1384,44 @@
       rightButton.style.setProperty("--date-range-chart-right", chartColors.right);
     }
     applyVisibleChartMode();
+  }
+
+  function syncDashboardScaleControls() {
+    const primary = el.primaryUoaSelect?.value || "BTC";
+    const secondary = el.secondaryUoaSelect?.value || "USD";
+    const chartColors = getChartAccentColors(primary, secondary);
+    if (el.primaryScaleCurrencyLabel) {
+      el.primaryScaleCurrencyLabel.textContent = primary;
+    }
+    if (el.secondaryScaleCurrencyLabel) {
+      el.secondaryScaleCurrencyLabel.textContent = secondary;
+    }
+    if (el.primaryScaleToggles) {
+      el.primaryScaleToggles.dataset.side = "primary";
+      el.primaryScaleToggles.setAttribute("aria-label", `${primary} scale`);
+      el.primaryScaleToggles.style.setProperty("--uoa-scale-primary", chartColors.left);
+    }
+    if (el.secondaryScaleToggles) {
+      el.secondaryScaleToggles.dataset.side = "secondary";
+      el.secondaryScaleToggles.setAttribute("aria-label", `${secondary} scale`);
+      el.secondaryScaleToggles.style.setProperty("--uoa-scale-secondary", chartColors.right);
+    }
+  }
+
+  function bindDashboardScaleToggles() {
+    [el.primaryScaleToggles, el.secondaryScaleToggles].forEach((group) => {
+      if (!group || group.dataset.bound === "1") return;
+      group.dataset.bound = "1";
+      const buttons = Array.from(group.querySelectorAll(".uoa-scale-toggle-btn[data-value]"));
+      buttons.forEach((button) => {
+        button.addEventListener("click", () => {
+          setScaleToggleValue(group, button.dataset.value);
+          persistFilters();
+          renderAll();
+        });
+      });
+    });
+    syncDashboardScaleControls();
   }
 
   function toggleVisibleChartButton(button) {
@@ -2684,6 +2750,7 @@
     }
     if (!allRows.length || !el.dateRangeStartSlider || !el.dateRangeEndSlider) return;
     const settings = normalizeDownloadSettings(downloadSettings);
+    const dashboardScaleModes = getDashboardScaleModes();
     const layoutSettings = getExportReferenceLayoutSettings(settings);
     const selectedPlaybackFps = Math.max(1, Number(settings.fps) || getSelectedDateRangePlaybackFps());
     const exportVideoFps = DATE_RANGE_EXPORT_VIDEO_FPS;
@@ -2705,9 +2772,9 @@
     const exportSnapshot = {
       primaryCurrency: el.primaryUoaSelect?.value || "BTC",
       secondaryCurrency: el.secondaryUoaSelect?.value || "USD",
-      scaleMode: getDashboardScaleMode(),
-      leftScaleMode: settings.leftScale,
-      rightScaleMode: settings.rightScale,
+      scaleMode: dashboardScaleModes.left,
+      leftScaleMode: settings.leftScale || dashboardScaleModes.left,
+      rightScaleMode: settings.rightScale || dashboardScaleModes.right,
       orderMode: ORDER_MODES.includes(el.orderBySelect?.value) ? el.orderBySelect.value : "alpha-asc",
       smoothVesRedenom: !!el.vesRedenomAdjustToggle?.checked,
       exportTheme: settings.theme,
@@ -3634,6 +3701,15 @@
     return options.some((option) => option.id === id) ? id : DEFAULT_UOA_GROUP;
   }
 
+  function normalizeStoredDashboardScaleModes(stored = {}) {
+    const sharedScale = normalizeScaleMode(stored.scaleMode, "log");
+    return {
+      primary: normalizeScaleMode(stored.primaryScaleMode ?? stored.leftScaleMode, sharedScale),
+      secondary: normalizeScaleMode(stored.secondaryScaleMode ?? stored.rightScaleMode, sharedScale),
+      shared: sharedScale,
+    };
+  }
+
   function getInitialUoaGroupSetting() {
     const shareState = getDashboardShareStateFromUrl();
     const stored = shareState || safeReadJson(UOA_FILTERS_KEY) || {};
@@ -3715,7 +3791,7 @@
     }
     const requestedStartDate = startDate;
     const requestedEndDate = endDate;
-    const scale = stored.scaleMode === "linear" ? "linear" : "log";
+    const scaleModes = normalizeStoredDashboardScaleModes(stored);
     const orderMode = ORDER_MODES.includes(stored.orderMode) ? stored.orderMode : "alpha-asc";
     const smoothVesRedenom = stored.smoothVesRedenom === false ? false : true;
     const metalDenomination = normalizeMetalDenomination(stored.metalDenomination);
@@ -3750,7 +3826,9 @@
       endDate,
       primaryUoa: validPrimary,
       secondaryUoa: validSecondary,
-      scaleMode: scale,
+      scaleMode: scaleModes.shared,
+      primaryScaleMode: scaleModes.primary,
+      secondaryScaleMode: scaleModes.secondary,
       orderMode,
       uoaGroup,
       smoothVesRedenom,
@@ -3776,7 +3854,7 @@
     const resolvedPair = resolvePairForPegFilter(stored.primaryUoa, stored.secondaryUoa);
     const validPrimary = resolvedPair.primary;
     const validSecondary = resolvedPair.secondary;
-    const scaleMode = stored.scaleMode === "linear" ? "linear" : "log";
+    const scaleModes = normalizeStoredDashboardScaleModes(stored);
     const orderMode = ORDER_MODES.includes(stored.orderMode) ? stored.orderMode : "alpha-asc";
     const smoothVesRedenom = stored.smoothVesRedenom === false ? false : true;
     const metalDenomination = normalizeMetalDenomination(stored.metalDenomination);
@@ -3797,7 +3875,9 @@
     return {
       primaryUoa: validPrimary,
       secondaryUoa: validSecondary,
-      scaleMode,
+      scaleMode: scaleModes.shared,
+      primaryScaleMode: scaleModes.primary,
+      secondaryScaleMode: scaleModes.secondary,
       orderMode,
       uoaGroup,
       smoothVesRedenom,
@@ -3815,7 +3895,8 @@
     if (el.secondaryUoaSelect) el.secondaryUoaSelect.value = shellState.secondaryUoa;
     selectedUoaGroup = normalizeUoaGroup(shellState.uoaGroup);
     syncUoaGroupSelect();
-    if (el.scaleSelect) el.scaleSelect.value = shellState.scaleMode;
+    setScaleToggleValue(el.primaryScaleToggles, shellState.primaryScaleMode || shellState.scaleMode);
+    setScaleToggleValue(el.secondaryScaleToggles, shellState.secondaryScaleMode || shellState.scaleMode);
     if (el.orderBySelect) el.orderBySelect.value = shellState.orderMode;
     if (el.vesRedenomAdjustToggle) el.vesRedenomAdjustToggle.checked = shellState.smoothVesRedenom;
     showPeggedCurrencies = shellState.showPeggedCurrencies !== false;
@@ -3837,6 +3918,7 @@
     setVisibleChartMode(shellState.chartMode);
     renderPairKpiValue(shellState.primaryUoa, shellState.secondaryUoa);
     syncDateRangeChartToggleLabels();
+    syncDashboardScaleControls();
     syncDownloadChartModeLabels();
     syncAllDropdowns();
     if (el.updatedKpiValue) el.updatedKpiValue.textContent = withUpdatedKpiBlockHeight(formatUpdatedDisplayText(refreshedAtText));
@@ -3876,7 +3958,9 @@
         uoaGroup: getActiveUoaGroup(),
         primaryUoa: el.primaryUoaSelect?.value || "",
         secondaryUoa: el.secondaryUoaSelect?.value || "",
-        scaleMode: el.scaleSelect?.value === "linear" ? "linear" : "log",
+        scaleMode: getDashboardScaleMode(),
+        primaryScaleMode: getDashboardScaleModes().left,
+        secondaryScaleMode: getDashboardScaleModes().right,
         orderMode: ORDER_MODES.includes(el.orderBySelect?.value) ? el.orderBySelect.value : "alpha-asc",
         smoothVesRedenom: !!el.vesRedenomAdjustToggle?.checked,
         metalDenomination: getMetalDenominationSetting(),
@@ -3907,6 +3991,8 @@
       primaryUoa,
       secondaryUoa,
       scaleMode: "log",
+      primaryScaleMode: "log",
+      secondaryScaleMode: "log",
       orderMode: "alpha-asc",
       smoothVesRedenom: true,
       metalDenomination: DEFAULT_METAL_DENOMINATION,
@@ -3925,7 +4011,9 @@
       uoaGroup: getActiveUoaGroup(),
       primaryUoa: el.primaryUoaSelect?.value || "BTC",
       secondaryUoa: el.secondaryUoaSelect?.value || "USD",
-      scaleMode: el.scaleSelect?.value === "linear" ? "linear" : "log",
+      scaleMode: getDashboardScaleMode(),
+      primaryScaleMode: getDashboardScaleModes().left,
+      secondaryScaleMode: getDashboardScaleModes().right,
       orderMode: ORDER_MODES.includes(el.orderBySelect?.value) ? el.orderBySelect.value : "alpha-asc",
       smoothVesRedenom: !!el.vesRedenomAdjustToggle?.checked,
       metalDenomination: getMetalDenominationSetting(),
@@ -3963,7 +4051,9 @@
       if (el.secondaryUoaSelect) el.secondaryUoaSelect.value = secondary;
       lastPrimaryUoa = primary;
       lastSecondaryUoa = secondary;
-      if (el.scaleSelect) el.scaleSelect.value = snapshot.scaleMode === "linear" ? "linear" : "log";
+      const snapshotScaleModes = normalizeStoredDashboardScaleModes(snapshot);
+      setScaleToggleValue(el.primaryScaleToggles, snapshotScaleModes.primary);
+      setScaleToggleValue(el.secondaryScaleToggles, snapshotScaleModes.secondary);
       if (el.orderBySelect) {
         el.orderBySelect.value = ORDER_MODES.includes(snapshot.orderMode) ? snapshot.orderMode : "alpha-asc";
       }
@@ -3981,6 +4071,7 @@
 
       renderPairKpiValue(primary, secondary);
       syncDateRangeChartToggleLabels();
+      syncDashboardScaleControls();
       syncDownloadChartModeLabels();
       syncAllDropdowns();
       applyRequestedDateRangeToControls();
@@ -4025,6 +4116,8 @@
       && current.primaryUoa === defaults.primaryUoa
       && current.secondaryUoa === defaults.secondaryUoa
       && current.scaleMode === defaults.scaleMode
+      && current.primaryScaleMode === defaults.primaryScaleMode
+      && current.secondaryScaleMode === defaults.secondaryScaleMode
       && current.orderMode === defaults.orderMode
       && current.smoothVesRedenom === defaults.smoothVesRedenom
       && current.metalDenomination === defaults.metalDenomination
@@ -4367,13 +4460,6 @@
       menuId: "secondaryUoaDropdownMenu",
       valueId: "secondaryUoaValue",
       searchable: true,
-    },
-    {
-      selectId: "scaleSelect",
-      dropdownId: "scaleDropdown",
-      triggerId: "scaleDropdownTrigger",
-      menuId: "scaleDropdownMenu",
-      valueId: "scaleValue",
     },
     {
       selectId: "orderBySelect",
@@ -7709,6 +7795,7 @@
 
     renderPairKpiValue(primary, secondary);
     syncDateRangeChartToggleLabels();
+    syncDashboardScaleControls();
     syncDownloadChartModeLabels();
 
     syncAllDropdowns();
@@ -7925,6 +8012,7 @@
     bindDateRangePlaybackFpsButtons();
     bindDashboardExpandButton();
     bindDateRangeChartToggles();
+    bindDashboardScaleToggles();
     bindDateRangeDaysInput();
     bindDateRangeDownloadControls();
     setDateRangePlaybackFps(saved.playbackFps);
@@ -7949,14 +8037,9 @@
         syncPairControls("secondaryUoaSelect");
       });
     }
-    if (el.scaleSelect) {
-      el.scaleSelect.value = saved.scaleMode;
-      el.scaleSelect.addEventListener("change", () => {
-        syncAllDropdowns();
-        persistFilters();
-        renderAll();
-      });
-    }
+    setScaleToggleValue(el.primaryScaleToggles, saved.primaryScaleMode || saved.scaleMode);
+    setScaleToggleValue(el.secondaryScaleToggles, saved.secondaryScaleMode || saved.scaleMode);
+    syncDashboardScaleControls();
     if (el.orderBySelect) {
       el.orderBySelect.value = saved.orderMode;
       el.orderBySelect.addEventListener("change", () => {
@@ -8488,9 +8571,9 @@
     hideChartHoverOverlays();
     applyCurrencyOrdering();
 
-    const scaleMode = getDashboardScaleMode();
-    const leftScaleMode = normalizeScaleMode(activeDateRangeExportScaleModes?.left, scaleMode);
-    const rightScaleMode = normalizeScaleMode(activeDateRangeExportScaleModes?.right, scaleMode);
+    const dashboardScaleModes = getDashboardScaleModes();
+    const leftScaleMode = normalizeScaleMode(activeDateRangeExportScaleModes?.left, dashboardScaleModes.left);
+    const rightScaleMode = normalizeScaleMode(activeDateRangeExportScaleModes?.right, dashboardScaleModes.right);
     const primaryCurrency = el.primaryUoaSelect?.value || "BTC";
     const secondaryCurrency = el.secondaryUoaSelect?.value || "USD";
     
@@ -8500,6 +8583,7 @@
     // Update pair KPI
     renderPairKpiValue(primaryCurrency, secondaryCurrency);
     syncDateRangeChartToggleLabels();
+    syncDashboardScaleControls();
     const fallbackEndRow = rows[rows.length - 1] || allRows[allRows.length - 1] || null;
     const selectedEndIso = el.endDateInput?.value || requestedDateRange.endIso || (fallbackEndRow ? toIsoDate(fallbackEndRow.date) : "");
     const selectedEndBtcRow = getBtcRowOnOrBeforeIso(selectedEndIso);
