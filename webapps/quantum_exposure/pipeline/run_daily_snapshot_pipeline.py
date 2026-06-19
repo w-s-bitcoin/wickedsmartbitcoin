@@ -338,21 +338,28 @@ def main() -> None:
     runtime_env["PYTHON_BIN"] = sys.executable
 
     run_command(
-        ["bash", "run_pipeline_parallel.sh"],
+        ["bash", "run_exposure_table_build.sh"],
         cwd=PIPELINE_DIR,
         env=runtime_env,
         dry_run=args.dry_run,
     )
 
     run_command(
-        [sys.executable, str(PIPELINE_DIR / "clean_new_webapp_data.py"), str(next_interval)],
+        [sys.executable, str(PIPELINE_DIR / "normalize_snapshot_csvs.py"), str(next_interval)],
         cwd=PIPELINE_DIR,
         env=runtime_env,
         dry_run=args.dry_run,
     )
 
     run_command(
-        [sys.executable, str(PIPELINE_DIR / "fill_identity_details.py"), str(next_interval)],
+        [sys.executable, str(PIPELINE_DIR / "sync_display_group_identity_details.py"), str(next_interval)],
+        cwd=PIPELINE_DIR,
+        env=runtime_env,
+        dry_run=args.dry_run,
+    )
+
+    run_command(
+        [sys.executable, str(PIPELINE_DIR / "sync_identity_consensus_from_snapshots.py"), str(next_interval)],
         cwd=PIPELINE_DIR,
         env=runtime_env,
         dry_run=args.dry_run,
@@ -362,7 +369,8 @@ def main() -> None:
     if not args.dry_run and not expected_ge1_csv.exists():
         raise RuntimeError(f"Pipeline completed but snapshot output is missing: {expected_ge1_csv}")
 
-    # Diff summary must run before archiving so the prior snapshot is still in the live dir.
+    # Diff summary must run after identity consensus and before archiving so the
+    # report uses final labels while the prior snapshot is still in the live dir.
     run_command(
         [sys.executable, str(PIPELINE_DIR / "summarize_snapshot_diff.py"), str(next_interval)],
         cwd=PIPELINE_DIR,
@@ -384,7 +392,7 @@ def main() -> None:
     )
 
     run_command(
-        [sys.executable, str(PIPELINE_DIR / "generate_eco_files.py")],
+        [sys.executable, str(PIPELINE_DIR / "regenerate_snapshot_indexes.py")],
         cwd=PIPELINE_DIR,
         env=runtime_env,
         dry_run=args.dry_run,

@@ -92,8 +92,8 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         default=False,
         help=(
-            "Skip clean_new_webapp_data.py, fill_identity_details.py, and "
-            "generate_eco_files.py after historical builds"
+            "Skip normalize_snapshot_csvs.py, sync_display_group_identity_details.py, and "
+            "regenerate_snapshot_indexes.py after historical builds"
         ),
     )
     return parser.parse_args()
@@ -1677,7 +1677,7 @@ def run_main_pipeline_postprocess(snapshot_heights: list[int], out_dir: Path, en
             f"{out_dir_resolved} (expected {default_out_dir_resolved})"
         )
         print(
-            "Run clean_new_webapp_data.py, fill_identity_details.py, and generate_eco_files.py "
+            "Run normalize_snapshot_csvs.py, sync_display_group_identity_details.py, and regenerate_snapshot_indexes.py "
             "manually against your custom output directory if needed."
         )
         archived = archive_non_50k_snapshots(unique_heights, out_dir)
@@ -1690,8 +1690,8 @@ def run_main_pipeline_postprocess(snapshot_heights: list[int], out_dir: Path, en
     height_args = [str(height) for height in unique_heights]
 
     steps = [
-        [sys.executable, str(PIPELINE_DIR / "clean_new_webapp_data.py"), *height_args],
-        [sys.executable, str(PIPELINE_DIR / "fill_identity_details.py"), *height_args],
+        [sys.executable, str(PIPELINE_DIR / "normalize_snapshot_csvs.py"), *height_args],
+        [sys.executable, str(PIPELINE_DIR / "sync_display_group_identity_details.py"), *height_args],
     ]
 
     print("\nRunning main-pipeline postprocess steps for historical snapshots...")
@@ -1703,7 +1703,7 @@ def run_main_pipeline_postprocess(snapshot_heights: list[int], out_dir: Path, en
     if archived:
         print(f"Archived non-50k snapshots: {archived}")
 
-    generate_cmd = [sys.executable, str(PIPELINE_DIR / "generate_eco_files.py")]
+    generate_cmd = [sys.executable, str(PIPELINE_DIR / "regenerate_snapshot_indexes.py")]
     print(f"$ ({PIPELINE_DIR}) {' '.join(generate_cmd)}")
     subprocess.run(generate_cmd, cwd=PIPELINE_DIR, env=env, check=True)
 
@@ -1833,7 +1833,7 @@ def main() -> None:
 
                 # Generate ECO files for this snapshot immediately
                 print(f"generating ECO files for snapshot {height}...")
-                eco_cmd = [sys.executable, str(PIPELINE_DIR / "generate_eco_files.py")]
+                eco_cmd = [sys.executable, str(PIPELINE_DIR / "regenerate_snapshot_indexes.py")]
                 try:
                     subprocess.run(eco_cmd, cwd=PIPELINE_DIR, check=True, capture_output=True)
                     print(f"ECO files generated for snapshot {height}")

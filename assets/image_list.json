@@ -3,8 +3,8 @@
     "filename": "casascius_explorer.png",
     "title": "Casascius Explorer",
     "description": "Explore Casascius coins and bars with interactive 3D views, mintage details, active and redeemed status, and recent spend activity",
-    "latest_x": "",
-    "latest_youtube": "",
+    "latest_x": "https://x.com/w_s_bitcoin/status/2067296424488808619",
+    "latest_youtube": "https://youtu.be/HoJaCeDQMbY",
     "modal_type": "embed",
     "embed_url": "/webapps/casascius_explorer/dashboard.html"
   },
