@@ -71,7 +71,7 @@ def main() -> None:
 
     print("\nRefreshing generated files...")
     run_script("update_blockheight_datetime_lookup.py", args.dry_run)
-    run_script("generate_eco_files.py", args.dry_run)
+    run_script("regenerate_snapshot_indexes.py", args.dry_run)
 
     if args.skip_standalone_sync:
         print("Standalone sync skipped by flag.")

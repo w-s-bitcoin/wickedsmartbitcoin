@@ -276,11 +276,11 @@ def validate_consistency(snapshot_heights, reference_identities):
 def main():
     """Main execution."""
     if len(sys.argv) < 2:
-        print("Usage: python3 clean_new_webapp_data.py <blockheight> [blockheight2] [blockheight_start:blockheight_end]")
+        print("Usage: python3 normalize_snapshot_csvs.py <blockheight> [blockheight2] [blockheight_start:blockheight_end]")
         print("\nExamples:")
-        print("  python3 clean_new_webapp_data.py 943974")
-        print("  python3 clean_new_webapp_data.py 943974 943100")
-        print("  python3 clean_new_webapp_data.py 943000:943974")
+        print("  python3 normalize_snapshot_csvs.py 943974")
+        print("  python3 normalize_snapshot_csvs.py 943974 943100")
+        print("  python3 normalize_snapshot_csvs.py 943000:943974")
         sys.exit(1)
 
     # Parse block heights from arguments
