@@ -629,10 +629,6 @@ body.uoa-dashboard-expanded .topbar {
   min-width: 50px;
 }
 
-#scaleDropdown {
-  min-width: 74px;
-}
-
 #orderByDropdown {
   min-width: 172px;
 }
@@ -981,7 +977,8 @@ body.uoa-dashboard-expanded .topbar {
 }
 
 .date-range-presets,
-.date-range-chart-toggles {
+.date-range-chart-toggles,
+.uoa-scale-toggles {
   display: inline-flex;
   flex-wrap: nowrap;
   gap: 0;
@@ -1041,7 +1038,8 @@ body.uoa-dashboard-expanded .topbar {
   color: var(--fg);
 }
 
-.date-range-chart-toggle-wrap {
+.date-range-chart-toggle-wrap,
+.uoa-scale-toggle-wrap {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1051,8 +1049,13 @@ body.uoa-dashboard-expanded .topbar {
   white-space: nowrap;
 }
 
-.date-range-chart-toggle-label {
+.date-range-chart-toggle-label,
+.uoa-scale-toggle-label {
   display: inline-block;
+}
+
+.uoa-scale-toggle-wrap {
+  min-width: 0;
 }
 
 .date-range-playback-controls {
@@ -1658,7 +1661,8 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 }
 
 .date-range-preset-btn,
-.date-range-chart-toggle-btn {
+.date-range-chart-toggle-btn,
+.uoa-scale-toggle-btn {
   border: 1px solid var(--panel-border);
   border-radius: 0;
   margin-right: -1px;
@@ -1674,13 +1678,15 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 }
 
 .date-range-preset-btn:first-child,
-.date-range-chart-toggle-btn:first-child {
+.date-range-chart-toggle-btn:first-child,
+.uoa-scale-toggle-btn:first-child {
   border-top-left-radius: 8px;
   border-bottom-left-radius: 8px;
 }
 
 .date-range-preset-btn:last-child,
-.date-range-chart-toggle-btn:last-child {
+.date-range-chart-toggle-btn:last-child,
+.uoa-scale-toggle-btn:last-child {
   margin-right: 0;
   border-top-right-radius: 8px;
   border-bottom-right-radius: 8px;
@@ -1689,7 +1695,9 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 .date-range-preset-btn:hover,
 .date-range-preset-btn:focus-visible,
 .date-range-chart-toggle-btn:hover,
-.date-range-chart-toggle-btn:focus-visible {
+.date-range-chart-toggle-btn:focus-visible,
+.uoa-scale-toggle-btn:hover,
+.uoa-scale-toggle-btn:focus-visible {
   color: var(--fg);
   border-color: rgba(255, 255, 255, 0.35);
   z-index: 3;
@@ -1697,15 +1705,19 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 
 .date-range-chart-toggle-btn:focus,
 .date-range-chart-toggle-btn:focus-visible,
+.uoa-scale-toggle-btn:focus,
+.uoa-scale-toggle-btn:focus-visible,
 .date-range-preset-btn:focus,
 .date-range-preset-btn:focus-visible,
-.date-range-chart-toggle-wrap:focus-within {
+.date-range-chart-toggle-wrap:focus-within,
+.uoa-scale-toggle-wrap:focus-within {
   outline: none !important;
   box-shadow: none !important;
 }
 
 .date-range-preset-btn.is-active,
-.date-range-chart-toggle-btn.is-active {
+.date-range-chart-toggle-btn.is-active,
+.uoa-scale-toggle-btn.is-active {
   color: #000000;
   border: 1px solid var(--panel-border-opaque) !important;
   background: var(--accent);
@@ -1722,27 +1734,41 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
   background: var(--date-range-chart-right, var(--right));
 }
 
+.uoa-scale-toggles[data-side="primary"] .uoa-scale-toggle-btn.is-active {
+  background: var(--uoa-scale-primary, var(--accent));
+}
+
+.uoa-scale-toggles[data-side="secondary"] .uoa-scale-toggle-btn.is-active {
+  background: var(--uoa-scale-secondary, var(--right));
+}
+
 .date-range-preset-btn.is-active:hover,
 .date-range-preset-btn.is-active:focus-visible,
 .date-range-chart-toggle-btn.is-active:hover,
-.date-range-chart-toggle-btn.is-active:focus-visible {
+.date-range-chart-toggle-btn.is-active:focus-visible,
+.uoa-scale-toggle-btn.is-active:hover,
+.uoa-scale-toggle-btn.is-active:focus-visible {
   border-color: var(--panel-border-opaque) !important;
 }
 
 .date-range-preset-btn.is-active + .date-range-preset-btn,
-.date-range-chart-toggle-btn.is-active + .date-range-chart-toggle-btn {
+.date-range-chart-toggle-btn.is-active + .date-range-chart-toggle-btn,
+.uoa-scale-toggle-btn.is-active + .uoa-scale-toggle-btn {
   border-left-color: var(--panel-border);
 }
 
 :root[data-theme="light"] .date-range-preset-btn:hover,
 :root[data-theme="light"] .date-range-preset-btn:focus-visible,
 :root[data-theme="light"] .date-range-chart-toggle-btn:hover,
-:root[data-theme="light"] .date-range-chart-toggle-btn:focus-visible {
+:root[data-theme="light"] .date-range-chart-toggle-btn:focus-visible,
+:root[data-theme="light"] .uoa-scale-toggle-btn:hover,
+:root[data-theme="light"] .uoa-scale-toggle-btn:focus-visible {
   border-color: rgba(0, 0, 0, 0.35);
 }
 
 :root[data-theme="light"] .date-range-preset-btn.is-active,
-:root[data-theme="light"] .date-range-chart-toggle-btn.is-active {
+:root[data-theme="light"] .date-range-chart-toggle-btn.is-active,
+:root[data-theme="light"] .uoa-scale-toggle-btn.is-active {
   border-color: var(--panel-border-opaque) !important;
   background: var(--accent);
 }
@@ -1755,10 +1781,20 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
   background: var(--date-range-chart-right, var(--right));
 }
 
+:root[data-theme="light"] .uoa-scale-toggles[data-side="primary"] .uoa-scale-toggle-btn.is-active {
+  background: var(--uoa-scale-primary, var(--accent));
+}
+
+:root[data-theme="light"] .uoa-scale-toggles[data-side="secondary"] .uoa-scale-toggle-btn.is-active {
+  background: var(--uoa-scale-secondary, var(--right));
+}
+
 :root[data-theme="light"] .date-range-preset-btn.is-active:hover,
 :root[data-theme="light"] .date-range-preset-btn.is-active:focus-visible,
 :root[data-theme="light"] .date-range-chart-toggle-btn.is-active:hover,
-:root[data-theme="light"] .date-range-chart-toggle-btn.is-active:focus-visible {
+:root[data-theme="light"] .date-range-chart-toggle-btn.is-active:focus-visible,
+:root[data-theme="light"] .uoa-scale-toggle-btn.is-active:hover,
+:root[data-theme="light"] .uoa-scale-toggle-btn.is-active:focus-visible {
   border-color: var(--panel-border-opaque) !important;
 }
 
@@ -2440,6 +2476,17 @@ body.uoa-loading .chart-panel::after {
     text-overflow: ellipsis;
   }
 
+  .topbar .controls > .chip:has(.dca-dropdown),
+  .topbar .chips > .chip-menu-wrap {
+    overflow: visible;
+  }
+
+  .topbar .controls > .chip:has(.dca-dropdown.is-open),
+  .topbar .chips > .chip-menu-wrap.is-open {
+    position: relative;
+    z-index: 4000;
+  }
+
   .panel-title {
     max-width: 100%;
     overflow-wrap: anywhere;
@@ -2455,15 +2502,18 @@ body.uoa-loading .chart-panel::after {
   .date-range-header > *,
   .date-range-range-control,
   .date-range-chart-toggle-wrap,
+  .uoa-scale-toggle-wrap,
   .date-range-presets,
   .date-range-chart-toggles,
+  .uoa-scale-toggles,
   .date-range-playback-controls {
     max-width: 100%;
     min-width: 0;
   }
 
   .date-range-range-control,
-  .date-range-chart-toggle-wrap {
+  .date-range-chart-toggle-wrap,
+  .uoa-scale-toggle-wrap {
     flex: 0 1 auto;
     flex-wrap: wrap;
     white-space: normal;
@@ -2471,6 +2521,7 @@ body.uoa-loading .chart-panel::after {
 
   .date-range-presets,
   .date-range-chart-toggles,
+  .uoa-scale-toggles,
   .date-range-playback-controls {
     flex-wrap: wrap;
   }

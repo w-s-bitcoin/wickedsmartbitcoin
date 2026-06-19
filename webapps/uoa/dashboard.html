@@ -144,18 +144,20 @@
               <option value="value-asc">Value Low to High</option>
             </select>
           </label>
-          <label class="chip">Scale
-            <div id="scaleDropdown" class="dca-dropdown">
-              <span id="scaleValue" class="dca-dropdown-value">Log</span>
-              <button id="scaleDropdownTrigger" class="dca-dropdown-trigger" type="button" aria-label="Scale"></button>
-              <span class="dca-dropdown-overlay" aria-hidden="true"></span>
-              <div id="scaleDropdownMenu" class="dca-dropdown-menu" role="listbox" aria-label="Scale options"></div>
+          <div class="uoa-scale-toggle-wrap">
+            <span class="uoa-scale-toggle-label"><span id="primaryScaleCurrencyLabel" class="uoa-scale-currency-label">BTC</span> Scale</span>
+            <div class="uoa-scale-toggles" id="primaryScaleToggles" role="group" aria-label="BTC scale">
+              <button type="button" class="uoa-scale-toggle-btn" data-value="linear" aria-pressed="false">Linear</button>
+              <button type="button" class="uoa-scale-toggle-btn is-active" data-value="log" aria-pressed="true">Log</button>
             </div>
-            <select id="scaleSelect" class="dca-native-select">
-              <option value="log" selected>Log</option>
-              <option value="linear">Linear</option>
-            </select>
-          </label>
+          </div>
+          <div class="uoa-scale-toggle-wrap">
+            <span class="uoa-scale-toggle-label"><span id="secondaryScaleCurrencyLabel" class="uoa-scale-currency-label">USD</span> Scale</span>
+            <div class="uoa-scale-toggles" id="secondaryScaleToggles" role="group" aria-label="USD scale">
+              <button type="button" class="uoa-scale-toggle-btn" data-value="linear" aria-pressed="false">Linear</button>
+              <button type="button" class="uoa-scale-toggle-btn is-active" data-value="log" aria-pressed="true">Log</button>
+            </div>
+          </div>
         </div>
       </header>
 
