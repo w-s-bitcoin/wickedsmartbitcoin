@@ -21,6 +21,8 @@ SEGWIT_LAST_PERIOD = 20
 BIP110_START = 927_360
 BIP110_SIGNAL_END = 963_648
 BIP110_LAST_PERIOD = 18
+BIP110_MANDATORY_SIGNALING_HEIGHT = 961_632
+BIP110_MONITOR_URL = "https://bip110.org/monitor"
 X_MAX = 20
 SEGWIT_INITIAL_SIGNAL_MINER_SAMPLE_SIZE = None
 SEGWIT_INITIAL_PERIOD2_SIGNAL_MINER_SAMPLE_SIZE = 15
@@ -706,6 +708,59 @@ def load_existing_signal_miners(path: Path):
             miners[h] = {"name": text, "slug": "", "pool": "", "sub_miner": ""}
     return miners
 
+def fetch_bip110_monitor_tip():
+    headers = {
+        "Accept": "text/html,application/xhtml+xml",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+        "User-Agent": "wickedsmartbitcoin-bip110-dashboard-updater",
+    }
+    fetched_utc = datetime.now(timezone.utc).isoformat()
+
+    try:
+        r = requests.get(BIP110_MONITOR_URL, headers=headers, timeout=20)
+        r.raise_for_status()
+        html = r.text
+    except Exception as exc:
+        return {
+            "source": BIP110_MONITOR_URL,
+            "fetched_utc": fetched_utc,
+            "ok": False,
+            "error": str(exc),
+            "chain_tip": None,
+            "indexed_tip": None,
+        }
+
+    def parse_monitor_field(field_name):
+        pattern = (
+            rf'data-monitor-field=["\']{re.escape(field_name)}["\'][^>]*>'
+            r'\s*([0-9][0-9,]*)\s*<'
+        )
+        match = re.search(pattern, html, re.IGNORECASE)
+        if not match:
+            return None
+        try:
+            return int(match.group(1).replace(",", ""))
+        except ValueError:
+            return None
+
+    chain_tip = parse_monitor_field("chain-tip")
+    indexed_tip = parse_monitor_field("indexed-tip")
+
+    if chain_tip is None:
+        match = re.search(r'og/monitor\.png\?[^"\']*?\btip=(\d+)\b', html, re.IGNORECASE)
+        if match:
+            chain_tip = int(match.group(1))
+
+    return {
+        "source": BIP110_MONITOR_URL,
+        "fetched_utc": fetched_utc,
+        "ok": chain_tip is not None,
+        "error": None if chain_tip is not None else "chain tip not found in monitor HTML",
+        "chain_tip": chain_tip,
+        "indexed_tip": indexed_tip,
+    }
+
 def extract_block_low_fee_rate(block):
     extras = block.get("extras") if isinstance(block.get("extras"), dict) else {}
     fee_range = extras.get("feeRange")
@@ -1194,6 +1249,30 @@ print(f"Current height: {current_height:,}")
 print(f"BIP-110 periods complete: {completed_periods}/{bip110_total_periods}")
 print("Updated dynamic BIP-110 datasets.")
 
+bip110_monitor = fetch_bip110_monitor_tip()
+chain_split_active = current_height >= BIP110_MANDATORY_SIGNALING_HEIGHT
+chain_split_detected = (
+    chain_split_active
+    and bip110_monitor.get("chain_tip") is not None
+    and int(bip110_monitor["chain_tip"]) != int(current_height)
+)
+chain_split_monitor = {
+    "mandatory_signaling_height": int(BIP110_MANDATORY_SIGNALING_HEIGHT),
+    "active": bool(chain_split_active),
+    "detected": bool(chain_split_detected),
+    "source_block_height": int(current_height),
+    "bip110_chain_tip": int(bip110_monitor["chain_tip"]) if bip110_monitor.get("chain_tip") is not None else None,
+    "bip110_indexed_tip": int(bip110_monitor["indexed_tip"]) if bip110_monitor.get("indexed_tip") is not None else None,
+    "source": bip110_monitor.get("source", BIP110_MONITOR_URL),
+    "fetched_utc": bip110_monitor.get("fetched_utc"),
+    "ok": bool(bip110_monitor.get("ok")),
+    "error": bip110_monitor.get("error"),
+}
+if chain_split_monitor["ok"]:
+    print(f"BIP-110 monitor chain tip: {chain_split_monitor['bip110_chain_tip']:,}")
+else:
+    print(f"BIP-110 monitor chain tip unavailable: {chain_split_monitor['error']}")
+
 
 # Static datasets + split metadata
 force_refresh_segwit = False
@@ -1409,6 +1488,7 @@ bip110_metadata = {
     "source_block_height": int(current_height),
     "source_block_time_utc": date_str,
     "state": state,
+    "chain_split_monitor": chain_split_monitor,
     "datasets": {
         "bip110_blocks": bip110_blocks_meta,
         "bip110_miners": bip110_miners_meta,
