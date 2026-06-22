@@ -500,6 +500,47 @@
       };
     }
 
+    function getChainSplitMonitor(meta) {
+      const monitor = meta?.chain_split_monitor;
+      if (!monitor || typeof monitor !== "object") return null;
+
+      const mandatoryHeight = Number(monitor.mandatory_signaling_height || EXPECTED_FORK_HEIGHT);
+      const sourceHeight = Number(monitor.source_block_height ?? meta?.source_block_height);
+      const bip110Tip = Number(monitor.bip110_chain_tip);
+      const active = Boolean(monitor.active)
+        || (Number.isFinite(sourceHeight) && Number.isFinite(mandatoryHeight) && sourceHeight >= mandatoryHeight);
+
+      if (!active) return null;
+
+      const hasBip110Tip = Number.isFinite(bip110Tip) && bip110Tip > 0;
+      return {
+        active,
+        ok: Boolean(monitor.ok) && hasBip110Tip,
+        detected: Boolean(monitor.detected),
+        sourceHeight: Number.isFinite(sourceHeight) ? sourceHeight : null,
+        bip110Tip: hasBip110Tip ? bip110Tip : null,
+        mandatoryHeight: Number.isFinite(mandatoryHeight) ? mandatoryHeight : EXPECTED_FORK_HEIGHT,
+        source: String(monitor.source || "https://bip110.org/monitor"),
+        fetchedUtc: String(monitor.fetched_utc || ""),
+        error: String(monitor.error || ""),
+      };
+    }
+
+    function buildChainSplitTooltip(monitor) {
+      const mandatory = monitor.mandatoryHeight.toLocaleString("en-US");
+      if (!monitor.ok) {
+        const details = monitor.error ? ` Error: ${monitor.error}` : "";
+        return `Shown after mandatory signaling begins at height ${mandatory}. The dashboard could not read the BIP-110 node chain tip from ${monitor.source}.${details}`;
+      }
+
+      const localTip = monitor.sourceHeight == null ? "n/a" : monitor.sourceHeight.toLocaleString("en-US");
+      const bip110Tip = monitor.bip110Tip == null ? "n/a" : monitor.bip110Tip.toLocaleString("en-US");
+      const fetched = monitor.fetchedUtc
+        ? ` Fetched ${formatGeneratedDateTimeForSelectedTimeZone(monitor.fetchedUtc)}.`
+        : "";
+      return `Shown after mandatory signaling begins at height ${mandatory}. Chain split is detected when this dashboard's local source tip (${localTip}) differs from the BIP-110 node chain tip reported by ${monitor.source} (${bip110Tip}).${fetched}`;
+    }
+
       const SELECT_DROPDOWN_CONFIGS = [
         {
           selectId: 'updatedTimeZoneSelect',
@@ -2032,6 +2073,20 @@
         "Period",
         `${s.current_period_index ?? "N/A"} <span class="chip-label">Signaling</span> ${periodSignalValue}`
       );
+      const chainSplitMonitor = getChainSplitMonitor(meta);
+      if (chainSplitMonitor) {
+        const valueClass = chainSplitMonitor.ok
+          ? (chainSplitMonitor.detected ? "chip-value-alert" : "chip-value-ok")
+          : "";
+        const valueText = chainSplitMonitor.ok
+          ? (chainSplitMonitor.detected ? "Yes" : "No")
+          : "Unknown";
+        appendStatusChip(
+          "Chain Split",
+          `<span class="${valueClass}">${valueText}</span>`,
+          buildChainSplitTooltip(chainSplitMonitor)
+        );
+      }
       const signalingHashrate = estimateSignalingHashrateKpi(data);
       appendStatusChip(
         "Signaling Hashrate",
