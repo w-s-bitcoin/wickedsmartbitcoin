@@ -2718,7 +2718,7 @@
     const startHoldFrames = includeEndFrameHold ? Math.max(0, Math.round(EXPORT_START_HOLD_SECONDS * EXPORT_VIDEO_FPS)) : 0;
     const endHoldFrames = includeEndFrameHold ? Math.max(0, Math.round(EXPORT_END_HOLD_SECONDS * EXPORT_VIDEO_FPS)) : 0;
     const frames = [
-      ...Array.from({ length: startHoldFrames }, () => motion[0]),
+      ...Array.from({ length: startHoldFrames }, () => motion[motion.length - 1]),
     ];
     motion.forEach((index) => {
       frames.push(index);
