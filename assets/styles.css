@@ -1406,6 +1406,8 @@ body.dca-dashboard-expanded .modal-controls,
 body.dca-dashboard-expanded .buy-coffee,
 body.dca-comparison-dashboard-expanded .modal-controls,
 body.dca-comparison-dashboard-expanded .buy-coffee,
+body.issuance-dashboard-expanded .modal-controls,
+body.issuance-dashboard-expanded .buy-coffee,
 body.patoshi-pattern-dashboard-expanded .modal-controls,
 body.patoshi-pattern-dashboard-expanded .buy-coffee {
     opacity: 0;
