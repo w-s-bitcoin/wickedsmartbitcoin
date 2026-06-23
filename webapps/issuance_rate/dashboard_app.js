@@ -1659,6 +1659,7 @@
     }
     yTicks.forEach((y) => {
       const py = yFor(y);
+      if (!Number.isFinite(py) || py < y0) return;
       ctx.beginPath();
       ctx.moveTo(x0, py);
       ctx.lineTo(x1, py);
