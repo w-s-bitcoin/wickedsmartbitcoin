@@ -93,6 +93,11 @@ window.addEventListener('message', e => {
         window.dateRangeExportActive = !!data.active;
         return;
     }
+    if (data.type === 'wsb-issuance-date-range-export-active') {
+        window.wsbDashboardExportActive = !!data.active;
+        window.dateRangeExportActive = !!data.active;
+        return;
+    }
     if (data.type === 'wsb-uoa-dashboard-expanded') {
         document.body?.classList?.toggle('uoa-dashboard-expanded', !!data.expanded);
         return;
@@ -103,6 +108,10 @@ window.addEventListener('message', e => {
     }
     if (data.type === 'wsb-dca-comparison-dashboard-expanded') {
         document.body?.classList?.toggle('dca-comparison-dashboard-expanded', !!data.expanded);
+        return;
+    }
+    if (data.type === 'wsb-issuance-dashboard-expanded') {
+        document.body?.classList?.toggle('issuance-dashboard-expanded', !!data.expanded);
         return;
     }
     if (data.type === 'wsb-patoshi-pattern-dashboard-expanded') {
