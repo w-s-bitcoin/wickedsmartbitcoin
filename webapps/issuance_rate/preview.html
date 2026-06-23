@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style id="wsb-early-black">html,body{background:#000;color:#f1f5f7;}:root[data-theme="light"],:root[data-theme="light"] body{background:#ffffff;color:#111827;}</style>
+  <title>Bitcoin Issuance Rate Preview</title>
+  <link rel="preload" href="webapp_data/issuance_rate_data.json" as="fetch" crossorigin />
+  <style>
+    :root {
+      --bg: #000;
+      --fg: #f1f5f7;
+      --muted: #95a6ae;
+      --line: rgba(255, 255, 255, 0.22);
+      --target: #ff9900;
+      --actual: #f1f5f7;
+    }
+
+    :root[data-theme="light"] {
+      --bg: #ffffff;
+      --fg: #1c1b19;
+      --muted: #6f685f;
+      --line: rgba(0, 0, 0, 0.16);
+      --target: #ff9900;
+      --actual: #1c1b19;
+    }
+
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: "Space Grotesk", "Helvetica Neue", sans-serif;
+    }
+
+    body {
+      display: flex;
+      align-items: stretch;
+      justify-content: stretch;
+    }
+
+    #issuancePreview {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="issuancePreview"></canvas>
+  <script src="../shared/preview_shared.js?v=20260612-grid-ready-v2"></script>
+  <script src="preview_app.js?v=20260612-grid-ready-v2"></script>
+</body>
+</html>

@@ -1,7 +1,7 @@
 (() => {
-  const STANDALONE_FILENAME = "node_count.png";
+  const STANDALONE_FILENAME = "issuance_rate.png";
   const IMAGE_LIST_URL = "assets/image_list.json";
-  const DASHBOARD_URL = "webapps/node_count/dashboard.html";
+  const DASHBOARD_URL = "webapps/issuance_rate/dashboard.html";
   const FAVORITES_STORAGE_KEY = "favorites";
   const MODAL_NAV_SNAPSHOT_KEY = "wsb_modal_nav_snapshot_v2";
   const GRID_FOCUS_RESTORE_KEY = "wsb_pending_grid_focus_filename_v1";
@@ -22,7 +22,7 @@
 
   let currentImage = {
     filename: STANDALONE_FILENAME,
-    title: "Node Count",
+    title: "Bitcoin Issuance Rate",
     description: "",
     latest_x: "",
     latest_nostr: "",
@@ -72,8 +72,8 @@
   function getStandalonePath() {
     const base = getPageBasePath();
     const path = IS_LOCAL_HOST
-      ? `${base}/node_count.html`
-      : `${base}/node_count`;
+      ? `${base}/issuance_rate.html`
+      : `${base}/issuance_rate`;
     return normalizeJoinedPath(path);
   }
 
@@ -90,18 +90,18 @@
     const localStandaloneBySlug = {
       quantum_exposure: 'quantum_exposure.html',
       bip110_signaling: 'bip110_signaling.html',
+      node_count: 'node_count.html',
       dca_cost_basis: 'dca_cost_basis.html',
       dca_comparison: 'dca_comparison.html',
       patoshi_pattern: 'patoshi_pattern.html',
-      node_count: 'node_count.html',
+      issuance_rate: 'issuance_rate.html',
       bitcoin_dominance: 'bitcoin_dominance.html',
       bitcoin_net_worth: 'bitcoin_net_worth.html',
-            issuance_rate: 'issuance_rate.html',
       casascius_explorer: 'casascius_explorer.html',
       uoa: 'uoa.html',
     };
 
-    if (slug === "node_count") return getStandalonePath();
+    if (slug === "issuance_rate") return getStandalonePath();
 
     const base = getPageBasePath();
     if (IS_LOCAL_HOST) {
@@ -192,7 +192,7 @@
   function setCurrentImage(image, index) {
     currentImage = image || currentImage;
     currentIndex = Number.isInteger(index) ? index : currentIndex;
-    document.title = `${currentImage.title || "Node Count"} | Wicked Smart Bitcoin`;
+    document.title = `${currentImage.title || "Bitcoin Issuance Rate"} | Wicked Smart Bitcoin`;
     if (modalImg) {
       modalImg.dataset.filename = currentImage.filename;
       modalImg.alt = currentImage.title || "";
@@ -446,6 +446,10 @@
       if (event.origin !== window.location.origin) return;
       if (event.source !== modalEmbed?.contentWindow) return;
       const data = event.data || {};
+      if (data.type === "wsb-issuance-dashboard-expanded") {
+        document.body?.classList?.toggle("issuance-dashboard-expanded", !!data.expanded);
+        return;
+      }
       if (data.type !== "wsb-dashboard-nav-key") return;
       const key = String(data.key || "");
       if (!key) return;
