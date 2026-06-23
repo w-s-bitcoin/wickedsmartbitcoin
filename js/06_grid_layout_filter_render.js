@@ -12,6 +12,11 @@ const DASHBOARD_CARD_PREVIEW_SPECS = Object.freeze({
     width: 1280,
     height: 720,
   },
+  'issuance_rate.png': {
+    url: 'webapps/issuance_rate/preview.html',
+    width: 1280,
+    height: 720,
+  },
   'dca_comparison.png': {
     url: 'webapps/dca_comparison/preview.html',
     width: 1280,

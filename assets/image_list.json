@@ -43,6 +43,15 @@
     "latest_x": "",
     "latest_youtube": ""
   },
+    {
+        "filename": "issuance_rate.png",
+        "title": "Bitcoin Issuance Rate",
+        "description": "Replay Bitcoin's annualized issuance rate with epoch-aware halving transitions and notebook-matched playback controls",
+        "modal_type": "embed",
+        "embed_url": "/webapps/issuance_rate/dashboard.html",
+        "latest_x": "",
+        "latest_youtube": ""
+    },
   {
     "filename": "dca_comparison.png",
     "title": "DCA Comparison",
