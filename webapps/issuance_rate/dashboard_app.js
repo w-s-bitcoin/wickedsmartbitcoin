@@ -2004,7 +2004,7 @@
     ];
     if (state.showPerfectIssuanceMarkers) {
       dailyIssuanceLabelParts.push({ text: `(144 x ${fmtNumber(subsidy, subsidyDigits)} BTC)`, color: colors.perfect, size: labelSize });
-      dailyIssuanceValueParts.push({ text: `(${fmtNumber(targetIssuance, 0)} BTC)`, color: colors.perfect, size: secondaryValueSize });
+      dailyIssuanceValueParts.push({ text: `(${fmtNumberTrim(targetIssuance, 8)} BTC)`, color: colors.perfect, size: secondaryValueSize });
     }
     drawRichTextRight(ctx, dailyIssuanceLabelParts, right, topY + metricY[1], { family, baseline: "top", strokeWidth, gap: labelGap });
     drawRichTextRight(ctx, dailyIssuanceValueParts, right, topY + metricY[1] + valueOffset, { family, baseline: "top", strokeWidth, gap: valueGap });
