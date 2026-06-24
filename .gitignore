@@ -62,5 +62,5 @@ webapps/quantum_exposure/webapp_data/arkham/
 # Local dev-only helpers
 dev/
 
-# Casascius grading source images that are not ready for the dashboard
-webapps/casascius_explorer/gradings/raw/
+# Casascius grading images retained locally but not shipped through GitHub Pages
+webapps/casascius_explorer/gradings/
