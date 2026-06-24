@@ -35,6 +35,7 @@
   const EXPORT_MAX_BATCH_FRAMES = 90;
   const EXPORT_ESTIMATE_FRAME_OVERHEAD_MS = 2.5;
   const MS_PER_DAY = 24 * 60 * 60 * 1000;
+  const AUTO_REFRESH_MS = 60000;
   const DASHBOARD_TIME = window.WSBDashboardTime || null;
   const UPDATED_TIME_ZONE_DROPDOWN = {
     selectId: "updatedTimeZoneSelect",
@@ -75,6 +76,9 @@
       extension: "webm",
       endFrameHold: true,
     },
+    dataSignature: "",
+    autoRefreshTimer: null,
+    refreshInFlight: false,
   };
 
   const els = {};
@@ -4166,6 +4170,105 @@
     if (state.isPlaying || state.isPaused) stopPlayback(false);
   }
 
+  function withBust(url, cacheBust = null) {
+    if (cacheBust == null) return url;
+    const separator = String(url).includes("?") ? "&" : "?";
+    return `${url}${separator}_=${cacheBust}`;
+  }
+
+  function getIssuanceDataSignature(data) {
+    const generated = String(data?.generated_utc || "");
+    const height = String(data?.source?.latest_block_height ?? "");
+    return `${generated}|${height}`;
+  }
+
+  function normalizeIssuanceRows(data) {
+    const rows = Array.isArray(data?.rows) ? data.rows : [];
+    rows.forEach((row) => {
+      row.date_num = dateNum(row.date);
+    });
+    return rows;
+  }
+
+  async function loadIssuanceData(cacheBust = null) {
+    const resp = await fetch(withBust("webapp_data/issuance_rate_data.json", cacheBust), { cache: "no-store" });
+    if (!resp.ok) throw new Error(`Failed to load issuance data (${resp.status})`);
+    return resp.json();
+  }
+
+  function findRowIndexByDate(rows, date, fallback) {
+    const idx = rows.findIndex((row) => row.date === date);
+    return idx >= 0 ? idx : fallback;
+  }
+
+  function applyIssuanceData(data, { preserveSelection = false } = {}) {
+    const oldRows = state.rows;
+    const oldMax = Math.max(0, oldRows.length - 1);
+    const oldStartDate = oldRows[state.startIndex]?.date || "";
+    const oldEndDate = oldRows[state.endIndex]?.date || "";
+    const oldCurrentDate = oldRows[state.currentIndex]?.date || "";
+    const endWasLatest = state.endIndex >= oldMax;
+    const currentWasLatest = state.currentIndex >= oldMax;
+
+    state.data = data;
+    state.rows = normalizeIssuanceRows(data);
+    state.dataSignature = getIssuanceDataSignature(data);
+    timeZoneAdjustedRowsCache.clear();
+    epochLogMinCache.clear();
+    epochTargetLogMinCache.clear();
+
+    if (!state.rows.length) throw new Error("No issuance rows found.");
+
+    const max = Math.max(0, state.rows.length - 1);
+    if (preserveSelection && oldRows.length) {
+      state.startIndex = clamp(findRowIndexByDate(state.rows, oldStartDate, state.startIndex), 0, max);
+      state.endIndex = endWasLatest ? max : clamp(findRowIndexByDate(state.rows, oldEndDate, state.endIndex), state.startIndex, max);
+      if (state.endIndex < state.startIndex) state.endIndex = state.startIndex;
+      state.currentIndex = currentWasLatest
+        ? state.endIndex
+        : clamp(findRowIndexByDate(state.rows, oldCurrentDate, state.currentIndex), state.startIndex, state.endIndex);
+    } else {
+      state.endIndex = max;
+      state.currentIndex = max;
+    }
+  }
+
+  async function refreshIfDataChanged() {
+    if (!state.data || state.refreshInFlight || isDateRangeExporting) return;
+    state.refreshInFlight = true;
+    try {
+      const latestData = await loadIssuanceData(Date.now());
+      const latestSignature = getIssuanceDataSignature(latestData);
+      if (!latestSignature || latestSignature === state.dataSignature) return;
+      applyIssuanceData(latestData, { preserveSelection: true });
+      applyTopKpiWidthLocks();
+      syncControls();
+      renderChart();
+    } catch (error) {
+      console.warn("Issuance data auto-refresh check failed:", error);
+    } finally {
+      state.refreshInFlight = false;
+    }
+  }
+
+  function triggerRefreshSoon(delayMs = 150) {
+    window.setTimeout(refreshIfDataChanged, delayMs);
+  }
+
+  function setupRefreshWakeEvents() {
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") triggerRefreshSoon(0);
+    });
+    window.addEventListener("focus", () => triggerRefreshSoon(0));
+    window.addEventListener("pageshow", () => triggerRefreshSoon(0));
+    window.addEventListener("online", () => triggerRefreshSoon(0));
+  }
+
+  function startAutoRefresh() {
+    if (state.autoRefreshTimer) clearInterval(state.autoRefreshTimer);
+    state.autoRefreshTimer = setInterval(refreshIfDataChanged, AUTO_REFRESH_MS);
+  }
+
   function indexForDate(date) {
     const idx = state.rows.findIndex((row) => row.date === date);
     return idx >= 0 ? idx : state.endIndex;
@@ -4177,22 +4280,15 @@
     bindDateRangeExportUnloadGuard();
     populateUpdatedTimeZoneSelect();
     bindEvents();
-    const resp = await fetch("webapp_data/issuance_rate_data.json", { cache: "no-store" });
-    if (!resp.ok) throw new Error(`Failed to load issuance data (${resp.status})`);
-    state.data = await resp.json();
-    state.rows = Array.isArray(state.data.rows) ? state.data.rows : [];
-    state.rows.forEach((row) => {
-      row.date_num = dateNum(row.date);
-    });
-    if (!state.rows.length) throw new Error("No issuance rows found.");
-    state.endIndex = state.rows.length - 1;
-    state.currentIndex = state.endIndex;
+    applyIssuanceData(await loadIssuanceData());
     applyTopKpiWidthLocks();
     restoreState();
     bindDateRangeSessionPersistence();
     syncDownloadSettingsControls();
     syncControls();
     renderChart();
+    setupRefreshWakeEvents();
+    startAutoRefresh();
     if (state.isPaused) bindDateRangePlaybackOutsidePointerActions();
     document.body.classList.remove("issuance-loading");
     if (els.chartLoading) els.chartLoading.hidden = true;
