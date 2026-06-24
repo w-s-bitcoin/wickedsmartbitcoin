@@ -398,6 +398,9 @@ def main() -> None:
         dry_run=args.dry_run,
     )
 
+    # Keep this as the final mutating pipeline step. The standalone repo should
+    # only receive fully cleaned, labeled, archived, and re-indexed data.
+    print("\n=== Final standalone repo sync ===")
     sync_to_standalone_repo(dry_run=args.dry_run)
 
     print("\nDaily 1000-block pipeline flow completed successfully.")
