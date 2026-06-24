@@ -165,6 +165,7 @@
     caseHeightMm: 154.76,
     caseThicknessMm: 10
   };
+  const GRADED_MEDIA_FILES_AVAILABLE = false;
   const GRADED_ONLY_ENTRIES_BY_LABEL = {
     '2012 Mule Bitnickel': {
       slug: 'cas_5btc_2012_bitnickel_mule',
@@ -3880,7 +3881,7 @@
 
   function syncGradedMediaViewer(rows = currentBalanceChartRows) {
     const selected = selectedGradedMediaEntry(rows);
-    const available = Boolean(selected);
+    const available = Boolean(selected && GRADED_MEDIA_FILES_AVAILABLE);
     if (!available) {
       gradedMediaMode = 'model';
       gradedMediaAddress = '';
