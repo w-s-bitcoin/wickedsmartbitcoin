@@ -463,6 +463,22 @@ function snapshotBasePath(snapshot) {
   return `webapp_data/${height}`;
 }
 
+async function hasArchivedSnapshotDataFolder(archivedValues) {
+  const probeHeight = (archivedValues || [])
+    .map((height) => String(height || "").trim())
+    .find((height) => /^\d+$/.test(height));
+  if (!probeHeight) return false;
+
+  try {
+    const resp = await fetch(`webapp_data/archived/${probeHeight}/dashboard_pubkeys_aggregates.csv`, {
+      cache: "no-store",
+    });
+    return resp.ok;
+  } catch (_err) {
+    return false;
+  }
+}
+
 function snapshotHeightLabel(snapshot) {
   const height = String(snapshot || "").trim();
   if (!height) return "";
@@ -6590,7 +6606,7 @@ async function loadAvailableSnapshots() {
       .map((row) => (row.snapshot_blockheight || "").trim())
       .filter((value) => /^\d+$/.test(value));
 
-    state.archivedSnapshotsAvailable = archivedValues.length > 0;
+    state.archivedSnapshotsAvailable = await hasArchivedSnapshotDataFolder(archivedValues);
     if (!state.archivedSnapshotsAvailable) {
       state.archivedSnapshotsEnabled = false;
     }
