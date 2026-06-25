@@ -1425,12 +1425,6 @@
       const row = Math.floor(index / columns);
       const cardX = x + col * (cardW + gap);
       const cardY = y + row * (cardH + gap);
-      roundRectPath(ctx, cardX, cardY, cardW, cardH, 10);
-      ctx.fillStyle = palette.panel;
-      ctx.fill();
-      ctx.strokeStyle = palette.border;
-      ctx.lineWidth = 1;
-      ctx.stroke();
       ctx.font = `400 ${titleFontSize}px ${CHART_MONO_FONT}`;
       ctx.fillStyle = palette.muted;
       ctx.textBaseline = "middle";
