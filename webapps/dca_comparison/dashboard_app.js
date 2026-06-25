@@ -33,10 +33,10 @@
     BTC: { name: "Bitcoin", label: "Bitcoin", unit: "btc", color: "#ff9900" },
     XAU: { name: "Gold", label: "Gold", unit: "gold oz", color: "#ffd000", cssClass: "gold" },
     XAG: { name: "Silver", label: "Silver", unit: "silver oz", color: "#c7d2dc", cssClass: "silver" },
-    SPY: { name: "SPY", label: "SPY", unit: "SPY", color: "#4da3ff" },
-    QQQ: { name: "QQQ", label: "QQQ", unit: "QQQ", color: "#b77cff" },
-    TLT: { name: "TLT", label: "TLT", unit: "TLT", color: "#7dd3fc" },
-    MSTR: { name: "MSTR", label: "$MSTR", unit: "MSTR", color: "#f97316" },
+    SPY: { name: "$SPY", label: "$SPY", unit: "SPY", color: "#4da3ff" },
+    QQQ: { name: "$QQQ", label: "$QQQ", unit: "QQQ", color: "#b77cff" },
+    TLT: { name: "$TLT", label: "$TLT", unit: "TLT", color: "#7dd3fc" },
+    MSTR: { name: "$MSTR", label: "$MSTR", unit: "MSTR", color: "#f97316" },
   };
   const LEGACY_ASSET_CODES = {
     SPX: "SPY",
