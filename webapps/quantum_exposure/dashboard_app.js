@@ -3364,6 +3364,39 @@ function resetHistoricalSeriesState() {
   state.historicalProgressiveYMaxSats = null;
 }
 
+async function loadHistoricalAggregateCsvRowsBySnapshot({ includeArchived = false } = {}) {
+  const groupedBySnapshot = new Map();
+
+  const mergeHistoricalCsv = async (path, { skipExistingSnapshots = false } = {}) => {
+    const resp = await fetch(path);
+    if (!resp.ok) return;
+
+    parseCsv(await resp.text()).forEach((row) => {
+      const snapshot = String(row.snapshot || "").trim();
+      if (!snapshot || (skipExistingSnapshots && groupedBySnapshot.has(snapshot))) return;
+
+      const aggregatesRow = { ...row };
+      delete aggregatesRow.snapshot;
+
+      if (!groupedBySnapshot.has(snapshot)) {
+        groupedBySnapshot.set(snapshot, []);
+      }
+      groupedBySnapshot.get(snapshot).push(aggregatesRow);
+    });
+  };
+
+  await mergeHistoricalCsv("webapp_data/historical_eco.csv");
+  if (includeArchived) {
+    try {
+      await mergeHistoricalCsv("webapp_data/historical_archived.csv", { skipExistingSnapshots: true });
+    } catch (_err) {
+      // Best effort only; callers can still use active snapshot aggregates.
+    }
+  }
+
+  return groupedBySnapshot;
+}
+
 async function ensureHistoricalSeriesLoaded() {
   if (state.historicalSeries.length || state.historicalSeriesLoading) {
     return;
@@ -3372,52 +3405,14 @@ async function ensureHistoricalSeriesLoaded() {
   state.historicalSeriesLoading = true;
   try {
     if (isLiteMode()) {
-      const ecoResp = await fetch("webapp_data/historical_eco.csv");
-      if (!ecoResp.ok) {
-        throw new Error("Could not load webapp_data/historical_eco.csv");
-      }
-
-      const groupedBySnapshot = new Map();
-      parseCsv(await ecoResp.text()).forEach((row) => {
-        const snapshot = String(row.snapshot || "").trim();
-        if (!snapshot) return;
-
-        const aggregatesRow = { ...row };
-        delete aggregatesRow.snapshot;
-
-        if (!groupedBySnapshot.has(snapshot)) {
-          groupedBySnapshot.set(snapshot, []);
-        }
-        groupedBySnapshot.get(snapshot).push(aggregatesRow);
+      const groupedBySnapshot = await loadHistoricalAggregateCsvRowsBySnapshot({
+        includeArchived: state.archivedSnapshotsEnabled,
       });
 
       if (state.archivedSnapshotsEnabled) {
-        let archivedMergedCount = 0;
-        const activeSnapshotSet = new Set(groupedBySnapshot.keys());
-        try {
-          const archivedResp = await fetch("webapp_data/historical_archived.csv");
-          if (archivedResp.ok) {
-            parseCsv(await archivedResp.text()).forEach((row) => {
-              const snapshot = String(row.snapshot || "").trim();
-              if (!snapshot || activeSnapshotSet.has(snapshot)) return;
-
-              const aggregatesRow = { ...row };
-              delete aggregatesRow.snapshot;
-
-              if (!groupedBySnapshot.has(snapshot)) {
-                groupedBySnapshot.set(snapshot, []);
-              }
-              groupedBySnapshot.get(snapshot).push(aggregatesRow);
-              archivedMergedCount += 1;
-            });
-          }
-        } catch (_err) {
-          // Best effort only; historical chart still renders active snapshots.
-        }
-
         // Fallback: if archived mode is enabled but the historical_archived.csv
         // merge yielded nothing, load archived snapshot aggregates directly.
-        if (archivedMergedCount === 0) {
+        if (!Array.from(groupedBySnapshot.keys()).some((snapshot) => state.snapshotLocationByHeight[snapshot] === "archived")) {
           const archivedSnapshots = Object.entries(state.snapshotLocationByHeight || {})
             .filter(([, location]) => location === "archived")
             .map(([height]) => String(height).trim())
@@ -3448,19 +3443,36 @@ async function ensureHistoricalSeriesLoaded() {
       return;
     }
 
+    const aggregateRowsBySnapshot = await loadHistoricalAggregateCsvRowsBySnapshot({
+      includeArchived: state.archivedSnapshotsEnabled,
+    });
     const snapshotsAsc = [...state.availableSnapshots].sort(
       (left, right) => Number.parseInt(left, 10) - Number.parseInt(right, 10)
     );
 
     const series = [];
     for (const snapshot of snapshotsAsc) {
-      const resp = await fetch(`${snapshotBasePath(snapshot)}/dashboard_pubkeys_aggregates.csv`);
-      if (!resp.ok) {
+      let aggregatesRows = null;
+      try {
+        const resp = await fetch(`${snapshotBasePath(snapshot)}/dashboard_pubkeys_aggregates.csv`);
+        if (resp.ok) {
+          aggregatesRows = parseCsv(await resp.text());
+        }
+      } catch (_err) {
+        // Fall back to compact historical CSV aggregates below.
+      }
+
+      if (!aggregatesRows) {
+        aggregatesRows = aggregateRowsBySnapshot.get(String(snapshot)) || null;
+      }
+
+      if (!aggregatesRows) {
         throw new Error(`Could not load historical aggregates for snapshot ${snapshot}`);
       }
+
       series.push({
         snapshot,
-        aggregatesRows: parseCsv(await resp.text()),
+        aggregatesRows,
         ge1FilteredSumsByKey: {},
       });
       // Yield between files to keep the renderer responsive on first load.
