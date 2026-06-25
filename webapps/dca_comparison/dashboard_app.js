@@ -2491,9 +2491,6 @@
     const yLabelWidth = yAxis.ticktext.reduce((max, label) => Math.max(max, ctx.measureText(String(label || "")).width), 0);
     const left = opts.export ? 8 : 24;
     const right = Math.max(opts.export ? 54 : 72, yLabelWidth + (opts.export ? 10 : 22), rightYearOverhang + (opts.export ? 6 : 4));
-    const legendFontSize = opts.export
-      ? Math.max(11, Number((tickLabelFontSize * 0.76).toFixed(2)))
-      : Math.max(12, Number((tickLabelFontSize * 0.76).toFixed(2)));
     const topTitleY = opts.export ? 42 : 24;
     const top = opts.export ? 72 : 58;
     const bottom = opts.export
@@ -2577,10 +2574,6 @@
     drawLine("invested", green, chartLineWidth);
     if (hasB) drawLine("valueB", assetB.color, chartLineWidth);
     drawLine("valueA", assetA.color, chartLineWidth);
-
-    if (opts.export) {
-      drawChartLegend(ctx, legendItems, left, 18, legendFontSize);
-    }
 
     ctx.font = `400 ${Math.max(11, tickLabelFontSize * 0.78)}px ${CHART_MONO_FONT}`;
     ctx.fillStyle = muted;
