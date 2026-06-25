@@ -36,6 +36,7 @@
     SPY: { name: "SPY", label: "SPY", unit: "SPY", color: "#4da3ff" },
     QQQ: { name: "QQQ", label: "QQQ", unit: "QQQ", color: "#b77cff" },
     TLT: { name: "TLT", label: "TLT", unit: "TLT", color: "#7dd3fc" },
+    MSTR: { name: "MSTR", label: "$MSTR", unit: "MSTR", color: "#f97316" },
   };
   const LEGACY_ASSET_CODES = {
     SPX: "SPY",
@@ -2012,6 +2013,7 @@
     const spyIdx = indexHeader.indexOf("spy");
     const qqqIdx = indexHeader.indexOf("qqq");
     const tltIdx = indexHeader.indexOf("tlt");
+    const mstrIdx = indexHeader.indexOf("mstr");
     const byDate = new Map();
     const ensureRow = (iso) => {
       if (!iso) return null;
@@ -2043,9 +2045,11 @@
       const spy = Number(r[spyIdx]);
       const qqq = Number(r[qqqIdx]);
       const tlt = Number(r[tltIdx]);
+      const mstr = Number(r[mstrIdx]);
       if (Number.isFinite(spy) && spy > 0) target.SPY = spy;
       if (Number.isFinite(qqq) && qqq > 0) target.QQQ = qqq;
       if (Number.isFinite(tlt) && tlt > 0) target.TLT = tlt;
+      if (Number.isFinite(mstr) && mstr > 0) target.MSTR = mstr;
     }
     state.rows = [...byDate.values()]
       .filter((r) => Object.keys(ASSETS).some((asset) => Number.isFinite(r[asset]) && r[asset] > 0))
