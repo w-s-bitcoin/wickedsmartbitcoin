@@ -439,7 +439,7 @@ function updateArchivedSnapshotsToggleUi() {
   const archivedToggleButton = document.getElementById("archivedSnapshotsToggle");
   if (!archivedToggleButton) return;
 
-  const shouldShow = IS_LOCAL_RUNTIME && state.archivedSnapshotsAvailable;
+  const shouldShow = state.archivedSnapshotsAvailable;
 
   archivedToggleButton.classList.toggle("is-hidden", !shouldShow);
   archivedToggleButton.classList.toggle("is-on", shouldShow && state.archivedSnapshotsEnabled);
@@ -453,16 +453,14 @@ function updateArchivedSnapshotsToggleUi() {
   setCustomTooltip(
     archivedToggleButton,
     shouldShow
-      ? "Include archived snapshot heights in filters and historical charts"
-      : "Archived snapshots are only available when running locally with webapp_data/archived present"
+      ? "Include archived snapshot heights in historical charts"
+      : "Archived historical snapshots are not available in this data bundle"
   );
 }
 
 function snapshotBasePath(snapshot) {
   const height = String(snapshot || "").trim();
-  return state.snapshotLocationByHeight[height] === "archived"
-    ? `webapp_data/archived/${height}`
-    : `webapp_data/${height}`;
+  return `webapp_data/${height}`;
 }
 
 function snapshotHeightLabel(snapshot) {
@@ -6579,15 +6577,13 @@ async function loadAvailableSnapshots() {
     });
 
     let archivedRows = [];
-    if (IS_LOCAL_RUNTIME) {
-      try {
-        const archivedResp = await fetch("webapp_data/archived_index.csv");
-        if (archivedResp.ok) {
-          archivedRows = parseCsv(await archivedResp.text());
-        }
-      } catch (_err) {
-        archivedRows = [];
+    try {
+      const archivedResp = await fetch("webapp_data/archived_index.csv");
+      if (archivedResp.ok) {
+        archivedRows = parseCsv(await archivedResp.text());
       }
+    } catch (_err) {
+      archivedRows = [];
     }
 
     const archivedValues = archivedRows
@@ -6600,20 +6596,8 @@ async function loadAvailableSnapshots() {
     }
     updateArchivedSnapshotsToggleUi();
 
-    const mergedValues = [...values];
-    if (state.archivedSnapshotsEnabled) {
-      archivedValues.forEach((height) => {
-        if (!state.snapshotLocationByHeight[height]) {
-          state.snapshotLocationByHeight[height] = "archived";
-        }
-        if (!mergedValues.includes(height)) {
-          mergedValues.push(height);
-        }
-      });
-    }
-
     if (values.length) {
-      mergedValues.sort((left, right) => Number.parseInt(right, 10) - Number.parseInt(left, 10));
+      values.sort((left, right) => Number.parseInt(right, 10) - Number.parseInt(left, 10));
       // Pre-populate snapshot label datetimes from the embedded snapshot_time column.
       // This makes dropdown labels available immediately, with no need to load the large
       // blockheight_datetime_lookup.csv or individual per-snapshot meta CSVs for this purpose.
@@ -6637,7 +6621,7 @@ async function loadAvailableSnapshots() {
           }
         });
       }
-      return mergedValues;
+      return values;
     }
   }
 
@@ -7011,7 +6995,7 @@ function attachEvents() {
 
   if (archivedSnapshotsToggleButton) {
     archivedSnapshotsToggleButton.addEventListener("click", async () => {
-      if (!IS_LOCAL_RUNTIME || !state.archivedSnapshotsAvailable) return;
+      if (!state.archivedSnapshotsAvailable) return;
 
       const snapshotFilter = document.getElementById("snapshotFilter");
       const previousSnapshot = String(state.snapshotHeight || snapshotFilter?.value || "").trim();
