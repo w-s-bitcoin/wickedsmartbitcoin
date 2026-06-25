@@ -3446,7 +3446,13 @@ async function ensureHistoricalSeriesLoaded() {
     const aggregateRowsBySnapshot = await loadHistoricalAggregateCsvRowsBySnapshot({
       includeArchived: state.archivedSnapshotsEnabled,
     });
-    const snapshotsAsc = [...state.availableSnapshots].sort(
+    const historicalSnapshots = new Set(state.availableSnapshots);
+    if (state.archivedSnapshotsEnabled) {
+      aggregateRowsBySnapshot.forEach((_rows, snapshot) => {
+        if (snapshot) historicalSnapshots.add(String(snapshot));
+      });
+    }
+    const snapshotsAsc = [...historicalSnapshots].sort(
       (left, right) => Number.parseInt(left, 10) - Number.parseInt(right, 10)
     );
 
@@ -7409,6 +7415,7 @@ function attachEvents() {
 (async function init() {
   try {
     runtimeLiteMode = resolveInitialRuntimeLiteMode();
+    loadArchivedSnapshotsEnabled();
     applyPersistedFilterState(readPersistedFilters());
     const urlPrefs = readFiltersFromUrl();
     if (urlPrefs) {
