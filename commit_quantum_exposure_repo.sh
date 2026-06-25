@@ -31,8 +31,12 @@ ensure_no_git_operation_in_progress() {
     /*) ;;
     *) git_dir="$repo_dir/$git_dir" ;;
   esac
-  [[ -e "$git_dir/MERGE_HEAD" ]] && die "merge already in progress in $repo_dir"
-  [[ -d "$git_dir/rebase-merge" || -d "$git_dir/rebase-apply" ]] && die "rebase already in progress in $repo_dir"
+  if [[ -e "$git_dir/MERGE_HEAD" ]]; then
+    die "merge already in progress in $repo_dir"
+  fi
+  if [[ -d "$git_dir/rebase-merge" || -d "$git_dir/rebase-apply" ]]; then
+    die "rebase already in progress in $repo_dir"
+  fi
 }
 
 commit_current_changes() {
