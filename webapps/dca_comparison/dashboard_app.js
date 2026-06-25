@@ -2491,8 +2491,8 @@
     const yLabelWidth = yAxis.ticktext.reduce((max, label) => Math.max(max, ctx.measureText(String(label || "")).width), 0);
     const left = opts.export ? 8 : 24;
     const right = Math.max(opts.export ? 54 : 72, yLabelWidth + (opts.export ? 10 : 22), rightYearOverhang + (opts.export ? 6 : 4));
-    const topTitleY = opts.export ? 42 : 24;
-    const top = opts.export ? 72 : 58;
+    const topTitleY = opts.export ? 24 : 24;
+    const top = opts.export ? 48 : 58;
     const bottom = opts.export
       ? Math.max(52, rotatedHeight + bottomSpacing + bottomMargin)
       : rotatedHeight + bottomSpacing + bottomMargin;
