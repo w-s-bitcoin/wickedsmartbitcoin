@@ -1985,7 +1985,6 @@
     const epoch = Number(row.epoch);
     const supplyDigits = Math.max(0, epoch - 2);
     const issueDigits = Math.max(0, epoch - 2);
-    const subsidyDigits = epoch <= 2 ? 0 : 3;
     const targetIssuance = Number(row.target_issuance);
     const dailyIssuance = Number(row.daily_issuance);
     const subsidy = Number(row.subsidy);
@@ -2003,7 +2002,7 @@
       { text: `${fmtNumber(dailyIssuance, issueDigits)} BTC`, color: colors.fg, size: secondaryValueSize },
     ];
     if (state.showPerfectIssuanceMarkers) {
-      dailyIssuanceLabelParts.push({ text: `(144 x ${fmtNumber(subsidy, subsidyDigits)} BTC)`, color: colors.perfect, size: labelSize });
+      dailyIssuanceLabelParts.push({ text: `(144 x ${fmtNumberTrim(subsidy, 8)} BTC)`, color: colors.perfect, size: labelSize });
       dailyIssuanceValueParts.push({ text: `(${fmtNumberTrim(targetIssuance, 8)} BTC)`, color: colors.perfect, size: secondaryValueSize });
     }
     drawRichTextRight(ctx, dailyIssuanceLabelParts, right, topY + metricY[1], { family, baseline: "top", strokeWidth, gap: labelGap });
