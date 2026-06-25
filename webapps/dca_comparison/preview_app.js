@@ -14,6 +14,7 @@
     SPY: { column: "SPY", cssVar: "--ink-dim" },
     QQQ: { column: "QQQ", cssVar: "--muted" },
     TLT: { column: "TLT", cssVar: "--link" },
+    MSTR: { column: "MSTR", cssVar: "--accent" },
   };
 
   let cachedRows = [];
@@ -237,6 +238,7 @@
     const spyIdx = indexHeader.indexOf("spy");
     const qqqIdx = indexHeader.indexOf("qqq");
     const tltIdx = indexHeader.indexOf("tlt");
+    const mstrIdx = indexHeader.indexOf("mstr");
     const byDate = new Map();
 
     for (const row of btcRows) {
@@ -262,9 +264,11 @@
       const spy = toNumber(row[spyIdx]);
       const qqq = toNumber(row[qqqIdx]);
       const tlt = toNumber(row[tltIdx]);
+      const mstr = toNumber(row[mstrIdx]);
       if (Number.isFinite(spy) && spy > 0) target.SPY = spy;
       if (Number.isFinite(qqq) && qqq > 0) target.QQQ = qqq;
       if (Number.isFinite(tlt) && tlt > 0) target.TLT = tlt;
+      if (Number.isFinite(mstr) && mstr > 0) target.MSTR = mstr;
     }
 
     cachedRows = [...byDate.values()]

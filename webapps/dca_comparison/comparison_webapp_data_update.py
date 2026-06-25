@@ -13,11 +13,12 @@ from urllib.request import Request, urlopen
 
 START_DATE = "1971-02-05"
 YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-OUTPUT_COLUMNS = ["date", "spy", "qqq", "tlt"]
+OUTPUT_COLUMNS = ["date", "spy", "qqq", "tlt", "mstr"]
 INDEX_SOURCES = {
     "spy": {"symbol": "SPY", "label": "SPY"},
     "qqq": {"symbol": "QQQ", "label": "QQQ"},
     "tlt": {"symbol": "TLT", "label": "TLT"},
+    "mstr": {"symbol": "MSTR", "label": "MSTR"},
 }
 
 
@@ -121,16 +122,16 @@ def write_csv(path: Path, rows_by_date: dict[str, dict[str, str]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     dates = sorted(rows_by_date)
     with path.open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=OUTPUT_COLUMNS)
+        writer = csv.DictWriter(f, fieldnames=OUTPUT_COLUMNS, lineterminator="\n")
         writer.writeheader()
         for iso in dates:
             source = rows_by_date[iso]
-            writer.writerow({
-                "date": iso,
-                "spy": fmt_price(source.get("spy")),
-                "qqq": fmt_price(source.get("qqq")),
-                "tlt": fmt_price(source.get("tlt")),
-            })
+            row = {"date": iso}
+            for column in OUTPUT_COLUMNS:
+                if column == "date":
+                    continue
+                row[column] = fmt_price(source.get(column))
+            writer.writerow(row)
 
 
 def main() -> None:
@@ -143,14 +144,14 @@ def main() -> None:
         data = fetch_yahoo_chart(config["symbol"], START_DATE)
         fetched_any = True
         for iso, price in data.items():
-            rows_by_date.setdefault(iso, {"date": iso, "spy": "", "qqq": "", "tlt": ""})
+            rows_by_date.setdefault(iso, {column: "" for column in OUTPUT_COLUMNS})
             rows_by_date[iso][column] = fmt_price(price)
         print(f"Updated {config['label']}: {len(data):,} daily rows")
 
     if not fetched_any:
         raise RuntimeError("No index data was fetched")
 
-    rows_by_date = fill_daily_calendar(rows_by_date, ["spy", "qqq", "tlt"])
+    rows_by_date = fill_daily_calendar(rows_by_date, ["spy", "qqq", "tlt", "mstr"])
     write_csv(csv_path, rows_by_date)
     (out_dir / "last_updated.txt").write_text(
         datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC") + "\n"
