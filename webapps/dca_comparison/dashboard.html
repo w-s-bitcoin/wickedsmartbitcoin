@@ -888,6 +888,10 @@
       align-items: stretch;
     }
 
+    .date-range-play-row .date-range-scale-control {
+      margin-right: 8px;
+    }
+
     .date-range-days-segment {
       border: 1px solid var(--card-border);
       border-radius: 8px 0 0 8px;
@@ -2509,18 +2513,6 @@
           </select>
         </label>
 
-        <label class="chip">Scale
-          <div id="scaleDropdown" class="dca-dropdown">
-            <span id="scaleDropdownValue" class="dca-dropdown-value">Linear</span>
-            <button id="scaleDropdownTrigger" type="button" class="dca-dropdown-trigger" aria-label="Chart scale"></button>
-            <div id="scaleDropdownMenu" class="dca-dropdown-menu" aria-label="Chart scale options"></div>
-          </div>
-          <select id="scaleSelect" class="dca-comparison-native-select">
-            <option value="linear" selected>Linear</option>
-            <option value="log">Log</option>
-          </select>
-        </label>
-
       </div>
       <div class="chips kpi-cards" id="statusChips">
         <article class="kpi-card">
@@ -2582,6 +2574,17 @@
           </div>
         </div>
         <div class="date-range-play-row" aria-label="Playback controls">
+          <div class="date-range-range-control date-range-scale-control">
+            <span class="date-range-range-label">Scale</span>
+            <div class="date-range-button-row date-range-scale-buttons" aria-label="Y-axis scale">
+              <button type="button" class="date-range-btn is-active" data-scale-mode="linear">Linear</button>
+              <button type="button" class="date-range-btn" data-scale-mode="log">Log</button>
+            </div>
+          </div>
+          <select id="scaleSelect" class="dca-comparison-native-select" aria-label="Chart scale">
+            <option value="linear" selected>Linear</option>
+            <option value="log">Log</option>
+          </select>
           <button type="button" id="dateRangePlayBtn" class="date-range-playback-btn date-range-play-btn" aria-label="Play">▶</button>
           <button type="button" id="dateRangePauseBtn" class="date-range-playback-btn date-range-pause-btn" aria-label="Pause" disabled>❚❚</button>
           <button type="button" id="dateRangeStopBtn" class="date-range-playback-btn date-range-stop-btn" aria-label="Stop" disabled>■</button>
