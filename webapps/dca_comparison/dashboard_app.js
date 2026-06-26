@@ -25,7 +25,6 @@
   const EXPORT_REFERENCE_CHART_LINE_WIDTH = 5.8;
   const SELECT_DROPDOWN_CONFIGS = [
     { selectId: "cadenceSelect", dropdownId: "cadenceDropdown", triggerId: "cadenceDropdownTrigger", menuId: "cadenceDropdownMenu" },
-    { selectId: "scaleSelect", dropdownId: "scaleDropdown", triggerId: "scaleDropdownTrigger", menuId: "scaleDropdownMenu" },
     { selectId: "assetASelect", dropdownId: "assetADropdown", triggerId: "assetADropdownTrigger", menuId: "assetADropdownMenu" },
     { selectId: "assetBSelect", dropdownId: "assetBDropdown", triggerId: "assetBDropdownTrigger", menuId: "assetBDropdownMenu" },
   ];
@@ -61,6 +60,7 @@
     assetA: "BTC",
     assetB: "XAU",
     preset: "4y",
+    rangeTracksLatestEnd: false,
     speed: 1,
     quality: 720,
     scale: "linear",
@@ -153,6 +153,7 @@
     maxIso: "",
     desiredRangeStart: "",
     desiredRangeEnd: "",
+    manualRangeSelection: false,
     currentIso: "",
     isPlaying: false,
     paused: false,
@@ -325,6 +326,12 @@
       const presetStart = normalizeCadenceStartIso(getPresetStartIso(preset, endIso), state.settings.cadence);
       return clampIso(presetStart, bounds.minIso, bounds.maxIso) === startIso;
     }) || "";
+  }
+
+  function inferLatestRangePreset(startIso, endIso, settings = state.settings) {
+    if (!startIso || !endIso) return "";
+    if (endIso !== getLatestPresetEndIso(settings)) return "";
+    return inferRangePreset(startIso, endIso);
   }
 
   function findDateIndex(iso) {
@@ -1575,6 +1582,7 @@
       assetA: state.settings.assetA,
       assetB: state.settings.assetB,
       preset: state.settings.preset,
+      rangeTracksLatestEnd: !!state.settings.rangeTracksLatestEnd,
       speed: state.settings.speed,
       scale: state.settings.scale,
       currentIso: state.currentIso,
@@ -1591,6 +1599,7 @@
       dcaStart: startIso,
       rangeStart: startIso,
       rangeEnd: endIso,
+      rangeTracksLatestEnd: true,
       currentIso: endIso,
     };
   }
@@ -1608,6 +1617,7 @@
       && current.assetA === defaults.assetA
       && current.assetB === defaults.assetB
       && current.preset === defaults.preset
+      && !!current.rangeTracksLatestEnd === !!defaults.rangeTracksLatestEnd
       && Number(current.speed) === Number(defaults.speed)
       && current.scale === defaults.scale
       && current.currentIso === defaults.currentIso;
@@ -1652,6 +1662,7 @@
     if (!snapshot || typeof snapshot !== "object") return;
     stopAnimation(false);
     state.settings = { ...DEFAULTS, ...snapshot };
+    state.manualRangeSelection = !state.settings.preset && !!(state.settings.rangeStart || state.settings.rangeEnd);
     state.currentIso = typeof snapshot.currentIso === "string" ? snapshot.currentIso : state.settings.rangeEnd;
     normalizeSettings();
     render();
@@ -2079,11 +2090,22 @@
     s.theme = ["light", "dark"].includes(s.theme) ? s.theme : getTheme();
     s.endFrameHold = s.endFrameHold !== false;
     s.preset = ["", "ytd", "1y", "2y", "4y", "8y", "full"].includes(s.preset) ? s.preset : "";
+    s.rangeTracksLatestEnd = s.rangeTracksLatestEnd === true;
     if (s.preset) {
+      state.manualRangeSelection = false;
       s.rangeEnd = getLatestPresetEndIso(s);
       s.rangeStart = getPresetStartIso(s.preset, s.rangeEnd);
       state.desiredRangeStart = s.rangeStart;
       state.desiredRangeEnd = s.rangeEnd;
+      s.rangeTracksLatestEnd = true;
+    } else if (s.rangeTracksLatestEnd && s.rangeStart && s.rangeEnd) {
+      const latestEnd = getLatestPresetEndIso(s);
+      const spanDays = Math.max(0, dayDiff(s.rangeStart, s.rangeEnd));
+      s.rangeEnd = latestEnd;
+      s.rangeStart = addDays(latestEnd, -spanDays);
+      state.desiredRangeStart = s.rangeStart;
+      state.desiredRangeEnd = s.rangeEnd;
+      state.currentIso = s.rangeEnd;
     }
     const available = getActiveAvailableBounds();
     if (!state.desiredRangeStart) state.desiredRangeStart = s.rangeStart || s.dcaStart || available.minIso;
@@ -2095,7 +2117,10 @@
       s.rangeEnd = clampIso(s.rangeStart, available.minIso, available.maxIso);
     }
     if (s.rangeStart > s.rangeEnd) s.rangeStart = s.rangeEnd;
-    s.preset = inferRangePreset(s.rangeStart, s.rangeEnd);
+    const livePreset = inferLatestRangePreset(s.rangeStart, s.rangeEnd, s);
+    if (livePreset) state.manualRangeSelection = false;
+    s.preset = state.manualRangeSelection ? "" : livePreset;
+    s.rangeTracksLatestEnd = !!s.preset || s.rangeEnd === getLatestPresetEndIso(s);
     s.dcaStart = s.rangeStart;
     state.currentIso = clampIso(state.currentIso || s.rangeEnd, s.rangeStart, s.rangeEnd);
   }
@@ -2151,6 +2176,7 @@
     syncAllSelectDropdowns();
     el.speedBtn.textContent = `${s.speed}x`;
     document.querySelectorAll("[data-range-preset]").forEach((b) => b.classList.toggle("is-active", b.dataset.rangePreset === s.preset));
+    document.querySelectorAll("[data-scale-mode]").forEach((b) => b.classList.toggle("is-active", b.dataset.scaleMode === s.scale));
     const exportSettings = state.exportSettings;
     const settingsGroups = {
       downloadScaleSelect: exportSettings.scale,
@@ -2703,7 +2729,13 @@
     state.settings.rangeEnd = end;
     if (state.settings.dcaStart < state.settings.rangeStart) state.settings.dcaStart = state.settings.rangeStart;
     state.currentIso = state.settings.rangeEnd;
-    state.settings.preset = preset || inferRangePreset(state.settings.rangeStart, state.settings.rangeEnd);
+    if (Object.prototype.hasOwnProperty.call(options, "preset")) {
+      state.manualRangeSelection = !options.preset;
+      state.settings.rangeTracksLatestEnd = !!options.preset;
+    }
+    state.settings.preset = Object.prototype.hasOwnProperty.call(options, "preset")
+      ? options.preset
+      : (preset || inferLatestRangePreset(state.settings.rangeStart, state.settings.rangeEnd));
     render();
   }
 
@@ -2742,7 +2774,7 @@
       endIdx = maxIdx;
       startIdx = Math.max(minIdx, endIdx - days + 1);
     }
-    setDateRangeByIndexes(startIdx, endIdx, "");
+    setDateRangeByIndexes(startIdx, endIdx, "", { preset: "" });
   }
 
   function commitRangeDaysInput() {
@@ -2779,7 +2811,9 @@
     const available = getActiveAvailableBounds();
     const max = getLatestPresetEndIso();
     const start = getPresetStartIso(preset, max);
+    state.manualRangeSelection = false;
     state.settings.preset = preset;
+    state.settings.rangeTracksLatestEnd = true;
     state.desiredRangeStart = start;
     state.desiredRangeEnd = max;
     state.settings.rangeStart = clampIso(start, available.minIso, available.maxIso);
@@ -2933,7 +2967,9 @@
         state.currentIso = nextEnd;
       }
     }
+    state.manualRangeSelection = true;
     state.settings.preset = "";
+    state.settings.rangeTracksLatestEnd = false;
     render();
   }
 
@@ -2989,6 +3025,7 @@
     if (!shift) return false;
     stopAnimation(false);
     setDateRangeByIndexes(current.startIdx + shift, current.endIdx + shift, "", {
+      preset: "",
       preserveSpanAfterCadenceSnap: true,
       cadenceSnapDirection: shift < 0 ? "floor" : "ceil",
     });
@@ -3022,6 +3059,7 @@
 
     stopAnimation(false);
     setDateRangeByIndexes(nextStart, nextEnd, "", {
+      preset: "",
       preserveSpanAfterCadenceSnap: true,
       cadenceSnapDirection: nextStart < current.startIdx ? "floor" : "ceil",
     });
@@ -3121,6 +3159,7 @@
     const maxShift = chartRangeDragState.maxIdx - chartRangeDragState.endIdx;
     const shift = Math.max(minShift, Math.min(maxShift, rawShift));
     setDateRangeByIndexes(chartRangeDragState.startIdx + shift, chartRangeDragState.endIdx + shift, "", {
+      preset: "",
       preserveSpanAfterCadenceSnap: true,
       cadenceSnapDirection: shift < 0 ? "floor" : "ceil",
     });
@@ -3243,7 +3282,7 @@
       ? Math.max(startIdx, Math.min(maxIdx, endIdx + delta))
       : endIdx;
     if (nextStartIdx === startIdx && nextEndIdx === endIdx) return false;
-    setDateRangeByIndexes(nextStartIdx, nextEndIdx, "");
+    setDateRangeByIndexes(nextStartIdx, nextEndIdx, "", { preset: "" });
     return true;
   }
 
@@ -3644,7 +3683,9 @@
           clearPreResetSnapshot();
           setLastAdjustedHandle("start");
           state.settings.rangeStart = isoVal;
+          state.manualRangeSelection = true;
           state.settings.preset = "";
+          state.settings.rangeTracksLatestEnd = false;
           if (state.settings.dcaStart < state.settings.rangeStart) state.settings.dcaStart = state.settings.rangeStart;
           if (state.currentIso < state.settings.rangeStart) state.currentIso = state.settings.rangeStart;
           stopAnimation(false);
@@ -3662,7 +3703,9 @@
           clearPreResetSnapshot();
           setLastAdjustedHandle("end");
           state.settings.rangeEnd = isoVal;
+          state.manualRangeSelection = true;
           state.settings.preset = "";
+          state.settings.rangeTracksLatestEnd = false;
           state.currentIso = state.settings.rangeEnd;
           stopAnimation(false);
           render();
@@ -3808,7 +3851,11 @@
       }
       clampSettingsToAvailableRange({ preserveDesired: changedKey !== "rangeStart" && changedKey !== "rangeEnd" });
       state.currentIso = state.settings.rangeEnd;
-      if (changedKey !== "assetA" && changedKey !== "assetB") state.settings.preset = "";
+      if (changedKey !== "assetA" && changedKey !== "assetB") {
+        state.manualRangeSelection = true;
+        state.settings.preset = "";
+        state.settings.rangeTracksLatestEnd = false;
+      }
       stopAnimation(false);
       render();
     };
@@ -3862,6 +3909,17 @@
         else restoreDashboardDefaults();
       });
     }
+    document.querySelector(".date-range-scale-buttons")?.addEventListener("click", (event) => {
+      const button = event.target instanceof Element ? event.target.closest("[data-scale-mode]") : null;
+      if (!button) return;
+      const scaleMode = button.getAttribute("data-scale-mode");
+      if (!["linear", "log"].includes(scaleMode) || state.settings.scale === scaleMode) return;
+      clearPreResetSnapshot();
+      state.settings.scale = scaleMode;
+      if (el.scaleSelect) el.scaleSelect.value = scaleMode;
+      stopAnimation(false);
+      render();
+    });
     el.startSlider?.addEventListener("input", () => {
       clearPreResetSnapshot();
       setLastAdjustedHandle("start");
@@ -3871,7 +3929,9 @@
       state.desiredRangeStart = nextIso;
       state.settings.rangeStart = clampIso(nextIso, available.minIso, state.settings.rangeEnd);
       if (state.settings.dcaStart < state.settings.rangeStart) state.settings.dcaStart = state.settings.rangeStart;
+      state.manualRangeSelection = true;
       state.settings.preset = "";
+      state.settings.rangeTracksLatestEnd = false;
       render();
     });
     el.endSlider?.addEventListener("input", () => {
@@ -3883,7 +3943,9 @@
       state.desiredRangeEnd = nextIso;
       state.settings.rangeEnd = clampIso(nextIso, state.settings.rangeStart, available.maxIso);
       state.currentIso = state.settings.rangeEnd;
+      state.manualRangeSelection = true;
       state.settings.preset = "";
+      state.settings.rangeTracksLatestEnd = false;
       render();
     });
     el.startMarker?.addEventListener("pointerdown", (event) => startDrag("start", event));
@@ -3988,6 +4050,7 @@
     try {
       primeKeyboardFocus();
       state.settings = readStoredSettings();
+      state.manualRangeSelection = !state.settings.preset && !!(state.settings.rangeStart || state.settings.rangeEnd);
       if (typeof state.settings.currentIso === "string") state.currentIso = state.settings.currentIso;
       state.exportSettings = readStoredExportSettings();
       const pausedPlaybackSession = readStoredPlaybackSession();
@@ -4002,7 +4065,9 @@
         state.currentIso = clampIso(pausedPlaybackSession.currentIso, state.settings.rangeStart, state.settings.rangeEnd);
         state.isPlaying = false;
         state.paused = true;
+        state.manualRangeSelection = true;
         state.settings.preset = "";
+        state.settings.rangeTracksLatestEnd = false;
       }
       normalizeSettings();
       if (state.settings.preset) state.currentIso = state.settings.rangeEnd;
