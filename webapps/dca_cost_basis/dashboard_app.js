@@ -76,6 +76,7 @@ const state = {
     endIso: "",
     currentEndIso: "",
     selectedPreset: "full",
+    rangeTracksLatestEnd: false,
     playbackSpeed: 1,
     isPlaying: false,
     isPaused: false,
@@ -110,12 +111,6 @@ const SELECT_DROPDOWN_CONFIGS = [
     dropdownId: "cadenceDropdown",
     triggerId: "cadenceDropdownTrigger",
     menuId: "cadenceDropdownMenu",
-  },
-  {
-    selectId: "scaleSelect",
-    dropdownId: "scaleDropdown",
-    triggerId: "scaleDropdownTrigger",
-    menuId: "scaleDropdownMenu",
   },
 ];
 
@@ -787,6 +782,9 @@ function applyControlValuesToUi() {
   if (cadenceSelect) cadenceSelect.value = state.cadence;
   if (scaleSelect) scaleSelect.value = state.yScale;
   if (toggleHalvings) toggleHalvings.checked = state.showHalvings;
+  document.querySelectorAll("[data-scale-mode]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.scaleMode === state.yScale);
+  });
   syncAllSelectDropdowns();
 }
 
@@ -1285,12 +1283,34 @@ function getPresetStartIso(preset, endIso) {
   return minIso;
 }
 
+function inferDateRangePreset(startIso, endIso) {
+  if (!startIso || !endIso) return "";
+  const { minIso, maxIso } = getDataBounds();
+  if (!minIso || !maxIso) return "";
+  if (startIso === minIso && endIso === maxIso) return "full";
+  const presets = ["ytd", "1y", "2y", "4y", "8y"];
+  return presets.find((preset) => getPresetStartIso(preset, endIso) === startIso) || "";
+}
+
+function inferLatestDateRangePreset(startIso, endIso) {
+  const { maxIso } = getDataBounds();
+  if (!maxIso || endIso !== maxIso) return "";
+  return inferDateRangePreset(startIso, endIso);
+}
+
+function syncDateRangeSelectionMetadata(preferredPreset = "custom") {
+  const livePreset = inferLatestDateRangePreset(state.dateRange.startIso, state.dateRange.endIso);
+  state.dateRange.selectedPreset = livePreset || preferredPreset || "custom";
+  state.dateRange.rangeTracksLatestEnd = state.dateRange.endIso === getDataBounds().maxIso;
+}
+
 function loadDateRangeState() {
   try {
     const parsed = getDashboardShareStateFromUrl() || JSON.parse(localStorage.getItem(DATE_RANGE_STORAGE_KEY) || "{}");
     if (typeof parsed.startIso === "string") state.dateRange.startIso = parsed.startIso;
     if (typeof parsed.endIso === "string") state.dateRange.endIso = parsed.endIso;
     if (typeof parsed.selectedPreset === "string") state.dateRange.selectedPreset = parsed.selectedPreset;
+    state.dateRange.rangeTracksLatestEnd = parsed.rangeTracksLatestEnd === true;
     const speed = Number(parsed.playbackSpeed);
     if (PLAYBACK_SPEEDS.includes(speed)) state.dateRange.playbackSpeed = speed;
     if (
@@ -1324,6 +1344,7 @@ function saveDateRangeState() {
       startIso: state.dateRange.startIso,
       endIso: state.dateRange.endIso,
       selectedPreset: state.dateRange.selectedPreset,
+      rangeTracksLatestEnd: !!state.dateRange.rangeTracksLatestEnd,
       playbackSpeed: state.dateRange.playbackSpeed,
       pausedPlaybackSession,
     }));
@@ -1344,6 +1365,7 @@ function getDefaultDashboardState() {
     endIso: maxIso || "",
     currentEndIso: maxIso || "",
     selectedPreset: "full",
+    rangeTracksLatestEnd: true,
     playbackSpeed: 1,
   };
 }
@@ -1358,6 +1380,7 @@ function captureResetSnapshot() {
     endIso: state.dateRange.endIso || "",
     currentEndIso: state.dateRange.currentEndIso || state.dateRange.endIso || "",
     selectedPreset: state.dateRange.selectedPreset || "custom",
+    rangeTracksLatestEnd: !!state.dateRange.rangeTracksLatestEnd,
     playbackSpeed: state.dateRange.playbackSpeed || 1,
   };
 }
@@ -1376,6 +1399,7 @@ function restoreResetSnapshot(snapshot) {
     state.dateRange.endIso = clampIsoToData(snapshot.endIso || "");
     state.dateRange.currentEndIso = clampIsoToData(snapshot.currentEndIso || snapshot.endIso || "");
     state.dateRange.selectedPreset = typeof snapshot.selectedPreset === "string" ? snapshot.selectedPreset : "custom";
+    state.dateRange.rangeTracksLatestEnd = snapshot.rangeTracksLatestEnd === true;
     const playbackSpeed = Number(snapshot.playbackSpeed);
     state.dateRange.playbackSpeed = PLAYBACK_SPEEDS.includes(playbackSpeed) ? playbackSpeed : 1;
     state.dateRange.isPlaying = false;
@@ -1431,6 +1455,7 @@ function statesMatch(current, defaults) {
     && current.endIso === defaults.endIso
     && current.currentEndIso === defaults.currentEndIso
     && current.selectedPreset === defaults.selectedPreset
+    && !!current.rangeTracksLatestEnd === !!defaults.rangeTracksLatestEnd
     && Number(current.playbackSpeed) === Number(defaults.playbackSpeed);
 }
 
@@ -1564,14 +1589,28 @@ function initializeDateRangeState() {
     state.dateRange.isPlaying = false;
     state.dateRange.isPaused = true;
     state.dateRange.selectedPreset = "custom";
+    state.dateRange.rangeTracksLatestEnd = false;
   } else if (state.dateRange.selectedPreset && state.dateRange.selectedPreset !== "custom") {
     state.dateRange.endIso = maxIso;
     state.dateRange.startIso = getPresetStartIso(state.dateRange.selectedPreset, maxIso);
     state.dateRange.currentEndIso = state.dateRange.endIso;
+    state.dateRange.rangeTracksLatestEnd = true;
+  } else if (state.dateRange.rangeTracksLatestEnd && state.dateRange.startIso && state.dateRange.endIso) {
+    const spanDays = Math.max(0, diffDays(state.dateRange.startIso, state.dateRange.endIso));
+    state.dateRange.endIso = maxIso;
+    state.dateRange.startIso = addDaysIso(maxIso, -spanDays);
+    state.dateRange.currentEndIso = state.dateRange.endIso;
+    syncDateRangeSelectionMetadata("custom");
   } else {
     state.dateRange.currentEndIso = state.dateRange.endIso;
+    syncDateRangeSelectionMetadata("custom");
   }
   normalizeDateRangeState();
+  if (!state.dateRange.isPaused) {
+    syncDateRangeSelectionMetadata(state.dateRange.selectedPreset && state.dateRange.selectedPreset !== "custom"
+      ? state.dateRange.selectedPreset
+      : "custom");
+  }
   syncDateRangeControls();
   syncDownloadSettingsControls();
   if (state.dateRange.isPaused) {
@@ -1741,6 +1780,9 @@ function syncDateRangeControls() {
   document.querySelectorAll("[data-range-preset]").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.rangePreset === state.dateRange.selectedPreset);
   });
+  document.querySelectorAll("[data-scale-mode]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.scaleMode === state.yScale);
+  });
   updateDownloadEstimates();
 }
 
@@ -1749,8 +1791,9 @@ function setDateRange(startIso, endIso, preset = "custom") {
   state.dateRange.startIso = clampIsoToData(startIso);
   state.dateRange.endIso = clampIsoToData(endIso);
   state.dateRange.currentEndIso = state.dateRange.endIso;
-  state.dateRange.selectedPreset = preset;
+  syncDateRangeSelectionMetadata(preset);
   normalizeDateRangeState();
+  syncDateRangeSelectionMetadata(preset);
   saveDateRangeState();
   syncDateRangeControls();
   renderChart();
@@ -1793,7 +1836,7 @@ function applyDateRangeIndices(startIdx, endIdx, options = {}) {
   state.dateRange.startIso = nextStart;
   state.dateRange.endIso = nextEnd;
   state.dateRange.currentEndIso = nextEnd;
-  state.dateRange.selectedPreset = "custom";
+  syncDateRangeSelectionMetadata("custom");
   saveDateRangeState();
   syncDateRangeControls();
   renderChart();
@@ -1943,7 +1986,7 @@ function nudgeLastAdjustedDateRangeHandle(delta) {
   state.dateRange.startIso = nextStart;
   state.dateRange.endIso = nextEnd;
   state.dateRange.currentEndIso = nextEnd;
-  state.dateRange.selectedPreset = "custom";
+  syncDateRangeSelectionMetadata("custom");
   saveDateRangeState();
   syncDateRangeControls();
   renderChart();
@@ -2339,7 +2382,7 @@ function setDateRangeHandleFromPointerEvent(event) {
   state.dateRange.startIso = nextStart;
   state.dateRange.endIso = nextEnd;
   state.dateRange.currentEndIso = nextEnd;
-  state.dateRange.selectedPreset = "custom";
+  syncDateRangeSelectionMetadata("custom");
   saveDateRangeState();
   syncDateRangeControls();
   renderChart();
@@ -2603,6 +2646,7 @@ function blurDateRangeSliderIfFocused() {
     || active === document.getElementById("dateRangeStopBtn")
     || active === document.getElementById("dateRangeSpeedBtn")
     || active?.matches?.("[data-range-preset]")
+    || active?.matches?.("[data-scale-mode]")
   ) {
     active.blur();
   }
@@ -5475,9 +5519,16 @@ function bindControls() {
     renderChart();
   });
 
-  scaleSelect?.addEventListener("change", () => {
-    state.yScale = scaleSelect.value;
-    syncSelectDropdown("scaleSelect", "scaleDropdownTrigger", "scaleDropdownMenu");
+  document.querySelector(".date-range-scale-buttons")?.addEventListener("click", (event) => {
+    const button = event.target instanceof Element ? event.target.closest("[data-scale-mode]") : null;
+    if (!button) return;
+    const scaleMode = button.getAttribute("data-scale-mode");
+    if (!["linear", "log"].includes(scaleMode) || state.yScale === scaleMode) return;
+    state.yScale = scaleMode;
+    if (scaleSelect) scaleSelect.value = scaleMode;
+    document.querySelectorAll("[data-scale-mode]").forEach((scaleButton) => {
+      scaleButton.classList.toggle("is-active", scaleButton.dataset.scaleMode === state.yScale);
+    });
     saveControls();
     renderChart();
   });
@@ -5557,7 +5608,7 @@ function bindControls() {
     if (!state.priceRows[index]) return;
     state.dateRange.startIso = state.priceRows[index].dateIso;
     state.dateRange.currentEndIso = state.dateRange.endIso;
-    state.dateRange.selectedPreset = "custom";
+    syncDateRangeSelectionMetadata("custom");
     saveDateRangeState();
     syncDateRangeControls();
     renderChart();
@@ -5572,7 +5623,7 @@ function bindControls() {
     if (!state.priceRows[index]) return;
     state.dateRange.endIso = state.priceRows[index].dateIso;
     state.dateRange.currentEndIso = state.dateRange.endIso;
-    state.dateRange.selectedPreset = "custom";
+    syncDateRangeSelectionMetadata("custom");
     saveDateRangeState();
     syncDateRangeControls();
     renderChart();
