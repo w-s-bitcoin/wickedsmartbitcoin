@@ -169,6 +169,8 @@ function openModalByIndex(index) {
         ? '/webapps/casascius_explorer/dashboard.html'
         : (fname === 'dca_cost_basis.png'
         ? '/webapps/dca_cost_basis/dashboard.html'
+        : (fname === 'days_since_ath.png'
+        ? '/webapps/days_since_ath/dashboard.html'
         : (fname === 'issuance_rate.png'
         ? '/webapps/issuance_rate/dashboard.html'
         : (fname === 'dca_comparison.png'
@@ -177,7 +179,7 @@ function openModalByIndex(index) {
         ? '/webapps/bip110_signaling/dashboard.html'
         : (fname === 'node_count.png'
             ? '/webapps/node_count/dashboard.html'
-            : (fname === `${DOM_BASE}.png` ? '/webapps/bitcoin_dominance/dashboard.html' : ''))))))));
+            : (fname === `${DOM_BASE}.png` ? '/webapps/bitcoin_dominance/dashboard.html' : '')))))))));
     const embedPath = String(image.embed_url || '').trim() || fallbackEmbedPath;
     const shouldEmbed = modalType === 'embed' || !!embedPath;
     const embedUrl = shouldEmbed ? modalEmbedSrc(embedPath) : '';
@@ -322,6 +324,7 @@ function closeModal() {
     document.body?.classList?.remove('dca-comparison-dashboard-expanded');
     document.body?.classList?.remove('issuance-dashboard-expanded');
     document.body?.classList?.remove('patoshi-pattern-dashboard-expanded');
+    document.body?.classList?.remove('days-since-ath-dashboard-expanded');
     if (modalEmbedWrap) modalEmbedWrap.hidden = true;
     flushCasasciusEmbedViewState();
     if (modalEmbed) modalEmbed.src = 'about:blank';

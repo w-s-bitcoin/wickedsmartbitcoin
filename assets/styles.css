@@ -1409,7 +1409,9 @@ body.dca-comparison-dashboard-expanded .buy-coffee,
 body.issuance-dashboard-expanded .modal-controls,
 body.issuance-dashboard-expanded .buy-coffee,
 body.patoshi-pattern-dashboard-expanded .modal-controls,
-body.patoshi-pattern-dashboard-expanded .buy-coffee {
+body.patoshi-pattern-dashboard-expanded .buy-coffee,
+body.days-since-ath-dashboard-expanded .modal-controls,
+body.days-since-ath-dashboard-expanded .buy-coffee {
     opacity: 0;
     pointer-events: none;
 }

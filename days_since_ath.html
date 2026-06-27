@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <style id="wsb-early-black">html,body{background:#000;color:#f1f5f7;}:root[data-theme="light"],:root[data-theme="light"] body{background:#f4f5f7;color:#111827;}</style>
+    <title>Days Since ATH | Wicked Smart Bitcoin</title>
+    <link rel="icon" type="image/png" href="assets/favicon.png" />
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
+    <link rel="stylesheet" href="assets/styles.css" />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="preload" href="assets/image_list.json" as="fetch" crossorigin />
+    <link rel="prefetch" href="webapps/days_since_ath/dashboard.html" />
+    <style>
+      body[data-standalone-modal-shell="1"] {
+        margin: 0;
+        background: var(--bg);
+      }
+
+      body[data-standalone-modal-shell="1"] .buy-coffee {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .shell-theme-toggle {
+        width: 34px;
+        min-width: 34px;
+        min-height: 34px;
+        padding: 0;
+      }
+
+      .shell-theme-icon {
+        font-size: 0.9rem;
+        line-height: 1;
+      }
+
+      body[data-standalone-modal-shell="1"] .modal {
+        display: flex;
+      }
+
+      body[data-standalone-modal-shell="1"] #modal-img {
+        display: none;
+      }
+
+      body.days-since-ath-dashboard-expanded .modal-controls,
+      body.days-since-ath-dashboard-expanded .buy-coffee {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body data-standalone-modal-shell="1">
+    <div class="buy-coffee">
+      <button class="buy-coffee-btn" id="buyCoffeeBtn" type="button">
+        <span id="buyCoffeeIcon">☕</span>
+        <span id="buyCoffeeText">· Buy me a coffee</span>
+      </button>
+      <button
+        class="buy-coffee-btn shell-theme-toggle"
+        id="shellThemeToggle"
+        type="button"
+        aria-label="Toggle light or dark mode"
+        aria-pressed="false"
+        title="Switch to dark mode"
+      >
+        <span id="shellThemeIcon" class="shell-theme-icon">☼</span>
+      </button>
+    </div>
+
+    <div class="modal" id="modal">
+      <div class="modal-controls">
+        <button class="close-btn modal-home-btn" onclick="closeModal()" aria-label="Home"></button>
+        <button class="close-btn" onclick="prevImage()" aria-label="Previous dashboard">&#8249;</button>
+        <button class="close-btn" onclick="nextImage()" aria-label="Next dashboard">&#8250;</button>
+        <button id="modal-fav-btn" class="close-btn" onclick="toggleFavoriteFromModal()" aria-label="Toggle favorite">★</button>
+        <a id="x-link" class="close-btn modal-link" href="#" target="_blank" rel="noopener noreferrer" aria-label="X/Twitter">
+          <svg width="16" height="16" viewBox="0 0 16 16">
+            <path d="M12.6.75h2.454l-5.36 6.142L16 15.25h-4.937l-3.867-5.07-4.425 5.07H.316l5.733-6.57L0 .75h5.063l3.495 4.633L12.601.75Zm-.86 13.028h1.36L4.323 2.145H2.865z" />
+          </svg>
+        </a>
+        <a id="youtube-link" class="close-btn modal-link" href="#" target="_blank" rel="noopener noreferrer" aria-label="YouTube">
+          <svg height="20" viewBox="0 0 576 512">
+            <path d="M549.7 124.1c-6.3-23.8-25-42.4-48.8-48.8C456.5 64 288 64 288 64s-168.5 0-212.9 11.3c-23.8 6.3-42.5 25-48.8 48.8C16 168.5 16 256 16 256s0 87.5 10.3 131.9c6.3 23.8 25 42.4 48.8 48.8C119.5 448 288 448 288 448s168.5 0 212.9-11.3c23.8-6.3 42.5-25 48.8-48.8C560 343.5 560 256 560 256s0-87.5-10.3-131.9zM232 336V176l142 80-142 80z" />
+          </svg>
+        </a>
+      </div>
+
+      <img id="modal-img" src="" alt="Full size image" draggable="false" />
+      <div id="modal-embed-wrap" class="modal-embed-wrap" hidden>
+        <iframe id="modal-embed" class="modal-embed" title="Days Since ATH dashboard" loading="eager"></iframe>
+      </div>
+
+      <div id="youtube-overlay" class="youtube-overlay hidden" role="dialog" aria-modal="true">
+        <div class="youtube-overlay-content">
+          <button type="button" class="youtube-overlay-close" id="youtubeOverlayClose" aria-label="Close YouTube video">×</button>
+          <div class="youtube-embed-container">
+            <iframe id="youtube-iframe" class="youtube-iframe" title="YouTube video" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function primeStandaloneDashboard() {
+        var iframe = document.getElementById('modal-embed');
+        if (!iframe) return;
+        if (!iframe.getAttribute('src')) {
+          var dashboardUrl = new URL('webapps/days_since_ath/dashboard.html', window.location.href);
+          var state = new URLSearchParams(window.location.search || '').get('state');
+          if (state) dashboardUrl.searchParams.set('state', state);
+          iframe.setAttribute('src', dashboardUrl.pathname + dashboardUrl.search + dashboardUrl.hash);
+        }
+      })();
+
+      (function initShellTheme() {
+        var THEME_KEY = 'quantum-research-dashboard-theme';
+        function applyShellTheme(t) {
+          document.documentElement.dataset.theme = (t === 'light' ? 'light' : 'dark');
+        }
+        function postTheme(t) {
+          var iframe = document.getElementById('modal-embed');
+          if (iframe && iframe.contentWindow) {
+            iframe.contentWindow.postMessage({ type: 'quantum-dashboard-theme', theme: t }, window.location.origin);
+          }
+        }
+        var stored;
+        try { stored = localStorage.getItem(THEME_KEY); } catch (_) {}
+        var theme = (stored === 'light' || stored === 'dark') ? stored : 'dark';
+        applyShellTheme(theme);
+        var embed = document.getElementById('modal-embed');
+        if (embed) {
+          embed.addEventListener('load', function () { postTheme(theme); });
+        }
+        window.addEventListener('storage', function (e) {
+          if (e.key === THEME_KEY && (e.newValue === 'light' || e.newValue === 'dark')) {
+            theme = e.newValue;
+            applyShellTheme(theme);
+            postTheme(theme);
+          }
+        });
+      }());
+    </script>
+    <script>
+      var BUY_COFFEE_METHOD_KEY = 'buyCoffeeMethod';
+      var lastThanksPreloadMode = null;
+      var thanksOverlay = null;
+      var thanksToastTimeout = null;
+      var hasThanksOverlayEverLoaded = false;
+      var isBuyMeVisible = false;
+      var buyCoffeeCloseBtn = null;
+      var buyCoffeeMethodBtns = [];
+      var modal = document.getElementById('modal');
+      function isDonateRouteActive() { return false; }
+      function setDonateRouteUrl() {}
+    </script>
+    <script src="js/08_buy_me_button_thanks_overlay.js" defer></script>
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        var buyCoffeeBtn = document.getElementById('buyCoffeeBtn');
+        if (buyCoffeeBtn) {
+          buyCoffeeBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            showThanksPopup({ fromRoute: false });
+          });
+        }
+      });
+
+      window.addEventListener('resize', function () {
+        if (!isBuyMeVisible) return;
+        if (typeof positionThanksMethodButtonsForOrientation === 'function') {
+          positionThanksMethodButtonsForOrientation();
+        }
+      });
+      window.addEventListener('orientationchange', function () {
+        if (!isBuyMeVisible) return;
+        if (typeof positionThanksMethodButtonsForOrientation === 'function') {
+          positionThanksMethodButtonsForOrientation();
+        }
+      });
+      window.addEventListener('resize', function () {
+        if (typeof handleThanksOverlayResize === 'function') handleThanksOverlayResize();
+      });
+      window.addEventListener('orientationchange', function () {
+        if (typeof handleThanksOverlayResize === 'function') handleThanksOverlayResize();
+      });
+    </script>
+    <script src="webapps/days_since_ath/standalone_bootstrap.js" defer></script>
+  </body>
+</html>

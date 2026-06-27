@@ -122,6 +122,7 @@ const HOMEPAGE_GRID_CARD_DATA_SOURCES = Object.freeze({
     "casascius_explorer.png": ["webapps/casascius_explorer/data/casascius_explorer.csv"],
     "dca_comparison.png": ["webapps/dca_comparison/webapp_data/last_updated.txt"],
     "dca_cost_basis.png": ["webapps/dca_cost_basis/webapp_data/dca_cost_basis_metadata.json"],
+    "days_since_ath.png": ["assets/daily_price.csv"],
     "issuance_rate.png": ["webapps/issuance_rate/webapp_data/issuance_rate_data.json"],
     "node_count.png": ["webapps/node_count/webapp_data/last_updated.txt"],
     "quantum_exposure.png": ["webapps/quantum_exposure/webapp_data/latest_snapshot.txt"],
@@ -359,6 +360,7 @@ fetch(IMAGE_LIST_URL)
             'bitcoin_net_worth.png',
             'quantum_exposure.png',
             'dca_cost_basis.png',
+            'days_since_ath.png',
             'issuance_rate.png',
             'dca_comparison.png',
             'patoshi_pattern.png',
@@ -375,6 +377,9 @@ fetch(IMAGE_LIST_URL)
         rawImageList = imageList.map((item) => ({ ...item }));
         visibleImages = [...imageList];
         const standaloneShell = isStandaloneModalShell();
+        if (standaloneShell && redirectStandaloneHashToLocalPageIfNeeded()) {
+            return;
+        }
         let initialFilename = getImageNameFromPath();
         if (standaloneShell && !initialFilename) {
             window.location.replace((getPageBasePath() || '') + '/');
