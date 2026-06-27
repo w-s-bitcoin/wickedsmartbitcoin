@@ -22,7 +22,7 @@
 
   let currentImage = {
     filename: STANDALONE_FILENAME,
-    title: "Bitcoin Issuance Rate",
+    title: "Issuance Rate",
     description: "",
     latest_x: "",
     latest_nostr: "",
@@ -92,6 +92,7 @@
       bip110_signaling: 'bip110_signaling.html',
       node_count: 'node_count.html',
       dca_cost_basis: 'dca_cost_basis.html',
+      days_since_ath: 'days_since_ath.html',
       dca_comparison: 'dca_comparison.html',
       patoshi_pattern: 'patoshi_pattern.html',
       issuance_rate: 'issuance_rate.html',
@@ -192,7 +193,7 @@
   function setCurrentImage(image, index) {
     currentImage = image || currentImage;
     currentIndex = Number.isInteger(index) ? index : currentIndex;
-    document.title = `${currentImage.title || "Bitcoin Issuance Rate"} | Wicked Smart Bitcoin`;
+    document.title = `${currentImage.title || "Issuance Rate"} | Wicked Smart Bitcoin`;
     if (modalImg) {
       modalImg.dataset.filename = currentImage.filename;
       modalImg.alt = currentImage.title || "";
