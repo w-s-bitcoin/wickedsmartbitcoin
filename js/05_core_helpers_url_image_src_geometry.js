@@ -400,6 +400,7 @@ function getVisualizationUrl(filename) {
         const localStandaloneBySlug = {
             quantum_exposure: 'quantum_exposure.html',
             dca_cost_basis: 'dca_cost_basis.html',
+            days_since_ath: 'days_since_ath.html',
             issuance_rate: 'issuance_rate.html',
             dca_comparison: 'dca_comparison.html',
             patoshi_pattern: 'patoshi_pattern.html',
@@ -417,6 +418,44 @@ function getVisualizationUrl(filename) {
         return `${base}/view.html#${encodeURIComponent(slug)}`.replace(/\/{2,}/g, '/');
     }
     return `${base}/${slug}`.replace(/\/{2,}/g, '/');
+}
+
+function getLocalStandaloneUrlForSlug(slugRaw) {
+    const slug = String(slugRaw || '').trim().toLowerCase();
+    if (!slug) return '';
+    const localStandaloneBySlug = {
+        quantum_exposure: 'quantum_exposure.html',
+        dca_cost_basis: 'dca_cost_basis.html',
+        days_since_ath: 'days_since_ath.html',
+        issuance_rate: 'issuance_rate.html',
+        dca_comparison: 'dca_comparison.html',
+        patoshi_pattern: 'patoshi_pattern.html',
+        bip110_signaling: 'bip110_signaling.html',
+        node_count: 'node_count.html',
+        bitcoin_dominance: 'bitcoin_dominance.html',
+        bitcoin_net_worth: 'bitcoin_net_worth.html',
+        casascius_explorer: 'casascius_explorer.html',
+        uoa: 'uoa.html',
+    };
+    return localStandaloneBySlug[slug] || '';
+}
+
+function isLocalHostName() {
+    const host = String(location.hostname || '').toLowerCase();
+    return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+}
+
+function redirectStandaloneHashToLocalPageIfNeeded() {
+    if (!isStandaloneModalShell() || !isLocalHostName()) return false;
+    const rawHash = String(window.location.hash || '').replace(/^#/, '');
+    const hashSlug = rawHash.split('?')[0].trim().toLowerCase();
+    const localStandalone = getLocalStandaloneUrlForSlug(hashSlug);
+    if (!localStandalone) return false;
+
+    const base = getPageBasePath();
+    const nextUrl = `${base}/${localStandalone}${window.location.search || ''}`.replace(/\/{2,}/g, '/');
+    window.location.replace(nextUrl);
+    return true;
 }
 
 function isDonateRouteActive() {
@@ -446,8 +485,13 @@ function setDonateRouteUrl(active, { push = false } = {}) {
 function replaceUrlForFilename(filename) {
     const nextUrl = getVisualizationUrl(filename);
     if (!nextUrl) return;
-    if (isStandaloneModalShell() && location.hostname === 'localhost') {
+    if (isStandaloneModalShell() && isLocalHostName()) {
         const slug = getVisualizationSlug(filename);
+        const localStandalone = getLocalStandaloneUrlForSlug(slug);
+        if (localStandalone) {
+            history.replaceState(null, '', `${getPageBasePath()}/${localStandalone}`.replace(/\/{2,}/g, '/'));
+            return;
+        }
         history.replaceState(null, '', `${getPageBasePath()}/view.html#${encodeURIComponent(slug)}`.replace(/\/{2,}/g, '/'));
         return;
     }

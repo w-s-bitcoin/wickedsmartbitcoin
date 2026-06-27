@@ -98,6 +98,11 @@ window.addEventListener('message', e => {
         window.dateRangeExportActive = !!data.active;
         return;
     }
+    if (data.type === 'wsb-days-since-ath-date-range-export-active') {
+        window.wsbDashboardExportActive = !!data.active;
+        window.dateRangeExportActive = !!data.active;
+        return;
+    }
     if (data.type === 'wsb-uoa-dashboard-expanded') {
         document.body?.classList?.toggle('uoa-dashboard-expanded', !!data.expanded);
         return;
@@ -116,6 +121,10 @@ window.addEventListener('message', e => {
     }
     if (data.type === 'wsb-patoshi-pattern-dashboard-expanded') {
         document.body?.classList?.toggle('patoshi-pattern-dashboard-expanded', !!data.expanded);
+        return;
+    }
+    if (data.type === 'wsb-days-since-ath-dashboard-expanded') {
+        document.body?.classList?.toggle('days-since-ath-dashboard-expanded', !!data.expanded);
     }
 }, true);
 document.addEventListener('keydown', e => {

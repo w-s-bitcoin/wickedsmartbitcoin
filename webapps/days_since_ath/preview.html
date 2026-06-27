@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style id="wsb-early-black">html,body{background:#000;color:#f1f5f7;}:root[data-theme="light"],:root[data-theme="light"] body{background:#ffffff;color:#111827;}</style>
+  <title>Days Since ATH Preview</title>
+  <link rel="preload" href="../../assets/daily_price.csv" as="fetch" crossorigin />
+  <style>
+    :root {
+      --bg: #000;
+      --panel-border: rgba(255, 255, 255, 0.14);
+      --accent: #ff9900;
+      --muted: #95a6ae;
+    }
+
+    :root[data-theme="light"] {
+      --bg: #ffffff;
+      --panel-border: rgba(0, 0, 0, 0.11);
+      --muted: #6f685f;
+    }
+
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+    }
+
+    #daysSinceAthPreview {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="daysSinceAthPreview"></canvas>
+  <script src="../shared/preview_shared.js?v=20260612-grid-ready-v2"></script>
+  <script src="preview_app.js?v=20260626-simple-panels-v1"></script>
+</body>
+</html>
