@@ -43,9 +43,18 @@
     "latest_x": "",
     "latest_youtube": ""
   },
+  {
+    "filename": "days_since_ath.png",
+    "title": "Days Since ATH",
+    "description": "Tracks Bitcoin all-time-high price, daily high, drawdown, and days since the most recent ATH with notebook-inspired two-panel charts",
+    "modal_type": "embed",
+    "embed_url": "/webapps/days_since_ath/dashboard.html",
+    "latest_x": "",
+    "latest_youtube": ""
+  },
     {
         "filename": "issuance_rate.png",
-        "title": "Bitcoin Issuance Rate",
+        "title": "Issuance Rate",
         "description": "Replay Bitcoin's annualized issuance rate with epoch-aware halving transitions and notebook-matched playback controls",
         "modal_type": "embed",
         "embed_url": "/webapps/issuance_rate/dashboard.html",

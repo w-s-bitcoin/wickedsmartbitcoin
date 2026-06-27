@@ -1,7 +1,7 @@
 (() => {
-  const STANDALONE_FILENAME = "dca_comparison.png";
+  const STANDALONE_FILENAME = "days_since_ath.png";
   const IMAGE_LIST_URL = "assets/image_list.json";
-  const DASHBOARD_URL = "webapps/dca_comparison/dashboard.html";
+  const DASHBOARD_URL = "webapps/days_since_ath/dashboard.html";
   const FAVORITES_STORAGE_KEY = "favorites";
   const MODAL_NAV_SNAPSHOT_KEY = "wsb_modal_nav_snapshot_v2";
   const GRID_FOCUS_RESTORE_KEY = "wsb_pending_grid_focus_filename_v1";
@@ -22,7 +22,7 @@
 
   let currentImage = {
     filename: STANDALONE_FILENAME,
-    title: "DCA Comparison",
+    title: "Days Since ATH",
     description: "",
     latest_x: "",
     latest_nostr: "",
@@ -32,100 +32,18 @@
   let imageListCache = null;
   let imageListPromise = null;
   let currentYoutubeUrl = "";
-  let halFinneyControlsAnchor = null;
-  let halFinneyControlsOriginalParent = null;
-  let halFinneyControlsUnderlay = null;
-
-  function getModalControls() {
-    const controls = document.querySelector(".modal-controls");
-    return controls instanceof HTMLElement ? controls : null;
-  }
-
-  function ensureHalFinneyControlsUnderlay() {
-    if (halFinneyControlsUnderlay instanceof HTMLElement && halFinneyControlsUnderlay.isConnected) {
-      return halFinneyControlsUnderlay;
-    }
-    if (!(modal instanceof HTMLElement)) return null;
-
-    const underlay = document.createElement("div");
-    underlay.className = "modal-controls-underlay";
-    underlay.hidden = true;
-    underlay.setAttribute("aria-hidden", "true");
-    modal.appendChild(underlay);
-    halFinneyControlsUnderlay = underlay;
-    return underlay;
-  }
-
-  function parkHalFinneyControls() {
-    const controls = getModalControls();
-    const underlay = ensureHalFinneyControlsUnderlay();
-    if (!controls || !underlay || controls.parentElement === underlay) return;
-
-    halFinneyControlsOriginalParent = controls.parentNode;
-    halFinneyControlsAnchor = document.createComment("hal-finney-controls-anchor");
-    halFinneyControlsOriginalParent?.insertBefore(halFinneyControlsAnchor, controls);
-    underlay.hidden = false;
-    underlay.appendChild(controls);
-  }
-
-  function restoreHalFinneyControls() {
-    const controls = getModalControls();
-    const underlay = halFinneyControlsUnderlay;
-    if (!controls || !(underlay instanceof HTMLElement) || controls.parentElement !== underlay) return;
-
-    const targetParent = halFinneyControlsAnchor?.parentNode || halFinneyControlsOriginalParent;
-    if (targetParent instanceof Node) {
-      if (halFinneyControlsAnchor?.parentNode === targetParent) {
-        targetParent.insertBefore(controls, halFinneyControlsAnchor);
-      } else {
-        targetParent.appendChild(controls);
-      }
-    }
-
-    halFinneyControlsAnchor?.remove();
-    halFinneyControlsAnchor = null;
-    halFinneyControlsOriginalParent = null;
-    underlay.hidden = true;
-  }
-
-  function setHalFinneyShellState(isOpen) {
-    const active = !!isOpen;
-
-    const modalControls = getModalControls();
-    if (modalControls instanceof HTMLElement) {
-      modalControls.setAttribute("aria-hidden", active ? "true" : "false");
-      modalControls.toggleAttribute("inert", active);
-    }
-
-    if (
-      active
-      && document.activeElement instanceof HTMLElement
-      && modalControls instanceof HTMLElement
-      && modalControls.contains(document.activeElement)
-    ) {
-      document.activeElement.blur();
-    }
-
-    if (active) {
-      parkHalFinneyControls();
-    } else {
-      restoreHalFinneyControls();
-    }
-  }
 
   function applyStandaloneFocusOrder() {
     if (!document.body || document.body.getAttribute("data-standalone-modal-shell") !== "1") return;
 
     const modalControls = document.querySelector(".modal-controls");
     const orderedFocusables = [];
-
     if (modalControls) {
       const controls = Array.from(modalControls.querySelectorAll("button.close-btn, a.close-btn"));
       controls.forEach((el) => {
         if (!(el instanceof HTMLElement)) return;
         const isDisabledLink = el.getAttribute("aria-disabled") === "true" || el.getAttribute("tabindex") === "-1";
-        if (isDisabledLink) return;
-        orderedFocusables.push(el);
+        if (!isDisabledLink) orderedFocusables.push(el);
       });
     }
 
@@ -151,9 +69,7 @@
 
   function getStandalonePath() {
     const base = getPageBasePath();
-    const path = IS_LOCAL_HOST
-      ? `${base}/dca_comparison.html`
-      : `${base}/dca_comparison`;
+    const path = IS_LOCAL_HOST ? `${base}/days_since_ath.html` : `${base}/days_since_ath`;
     return normalizeJoinedPath(path);
   }
 
@@ -168,35 +84,29 @@
   function getMainRouteUrl(filename) {
     const slug = slugFromFilename(filename);
     const localStandaloneBySlug = {
-    quantum_exposure: 'quantum_exposure.html',
-    bip110_signaling: 'bip110_signaling.html',
-    node_count: 'node_count.html',
-    bitcoin_dominance: 'bitcoin_dominance.html',
-    bitcoin_net_worth: 'bitcoin_net_worth.html',
-    dca_cost_basis: 'dca_cost_basis.html',
-    days_since_ath: 'days_since_ath.html',
-    dca_comparison: 'dca_comparison.html',
-      patoshi_pattern: 'patoshi_pattern.html',
-          issuance_rate: 'issuance_rate.html',
-      casascius_explorer: 'casascius_explorer.html',
-    uoa: 'uoa.html',
-  };
+      quantum_exposure: "quantum_exposure.html",
+      bip110_signaling: "bip110_signaling.html",
+      node_count: "node_count.html",
+      bitcoin_dominance: "bitcoin_dominance.html",
+      bitcoin_net_worth: "bitcoin_net_worth.html",
+      dca_cost_basis: "dca_cost_basis.html",
+      days_since_ath: "days_since_ath.html",
+      dca_comparison: "dca_comparison.html",
+      patoshi_pattern: "patoshi_pattern.html",
+      issuance_rate: "issuance_rate.html",
+      casascius_explorer: "casascius_explorer.html",
+      uoa: "uoa.html",
+    };
 
-    if (slug === "dca_comparison") return getStandalonePath();
+    if (slug === "days_since_ath") return getStandalonePath();
 
     const base = getPageBasePath();
     if (IS_LOCAL_HOST) {
       const localStandalone = localStandaloneBySlug[slug];
-      if (localStandalone) {
-        return normalizeJoinedPath(`${base}/${localStandalone}`);
-      }
+      if (localStandalone) return normalizeJoinedPath(`${base}/${localStandalone}`);
       return normalizeJoinedPath(`${getPageBasePath()}/view.html#${encodeURIComponent(slug)}`);
     }
     return normalizeJoinedPath(`${base}/${slug}`);
-  }
-
-  function imgSrc(filename) {
-    return normalizeJoinedPath(`${getPageBasePath()}/assets/${filename}`);
   }
 
   function readFavorites() {
@@ -273,7 +183,7 @@
   function setCurrentImage(image, index) {
     currentImage = image || currentImage;
     currentIndex = Number.isInteger(index) ? index : currentIndex;
-    document.title = `${currentImage.title || "DCA Comparison"} | Wicked Smart Bitcoin`;
+    document.title = `${currentImage.title || "Days Since ATH"} | Wicked Smart Bitcoin`;
     if (modalImg) {
       modalImg.dataset.filename = currentImage.filename;
       modalImg.alt = currentImage.title || "";
@@ -307,9 +217,7 @@
     try {
       const list = await loadImageList();
       const index = list.findIndex((item) => String(item?.filename).toLowerCase() === STANDALONE_FILENAME);
-      if (index >= 0) {
-        setCurrentImage(list[index], index);
-      }
+      if (index >= 0) setCurrentImage(list[index], index);
     } catch (error) {
       console.warn("Standalone image list failed to load:", error);
     }
@@ -343,55 +251,10 @@
     return raw.endsWith(".png") ? raw : `${raw}.png`;
   }
 
-  async function navigateRelative(delta) {
-    try {
-      const list = await loadImageList();
-      if (!list.length) return;
-      const navList = getFilteredNavigationList(list);
-      if (!navList.length) return;
-      const currentNavIndex = navList.findIndex((item) => String(item?.filename).toLowerCase() === String(currentImage.filename).toLowerCase());
-      const baseIndex = currentNavIndex >= 0
-        ? currentNavIndex
-        : (delta >= 0 ? 0 : navList.length - 1);
-      const nextIndex = (baseIndex + delta + navList.length) % navList.length;
-      const target = navList[nextIndex];
-      if (!target?.filename) return;
-      navigateToImage(target.filename);
-    } catch (error) {
-      console.warn("Standalone navigation failed:", error);
-    }
-  }
-
-  function getFilteredNavigationList(list) {
-    const showFavoritesOnly = parseStoredBoolean(localStorage.getItem("showFavoritesOnly"));
-    const favorites = new Set(readFavorites());
-
-    const filtered = list.filter((item) => {
-      const filename = String(item?.filename || "").trim();
-      if (!filename) return false;
-      if (showFavoritesOnly && !favorites.has(filename)) return false;
-      return true;
-    });
-
-    const snapshot = readModalNavigationSnapshot();
-    if (!snapshot.length) return filtered;
-
-    const filteredFilenames = filtered.map((item) => String(item?.filename || "").trim()).filter(Boolean);
-    const snapshotSet = new Set(snapshot);
-    const snapshotCoversFiltered = filteredFilenames.every((filename) => snapshotSet.has(filename));
-    if (!snapshotCoversFiltered) return filtered;
-
-    const candidates = filtered.filter((item) => snapshotSet.has(String(item?.filename || "").trim()));
-    if (!candidates.length) return filtered;
-
-    const candidateByFilename = new Map(candidates.map((item) => [String(item.filename), item]));
-    const ordered = snapshot.map((filename) => candidateByFilename.get(filename)).filter(Boolean);
-    if (!ordered.length) return filtered;
-
-    const anchorFilename = String(currentImage?.filename || STANDALONE_FILENAME).trim();
-    return ordered.some((item) => String(item?.filename || "").trim() === anchorFilename)
-      ? ordered
-      : filtered;
+  function parseStoredBoolean(value) {
+    if (typeof value === "boolean") return value;
+    const normalized = String(value == null ? "" : value).trim().toLowerCase();
+    return normalized === "true" || normalized === "1" || normalized === "yes";
   }
 
   function readModalNavigationSnapshot() {
@@ -419,10 +282,49 @@
     return normalized;
   }
 
-  function parseStoredBoolean(value) {
-    if (typeof value === "boolean") return value;
-    const normalized = String(value == null ? "" : value).trim().toLowerCase();
-    return normalized === "true" || normalized === "1" || normalized === "yes";
+  function getFilteredNavigationList(list) {
+    const showFavoritesOnly = parseStoredBoolean(localStorage.getItem("showFavoritesOnly"));
+    const favorites = new Set(readFavorites());
+    const filtered = list.filter((item) => {
+      const filename = String(item?.filename || "").trim();
+      if (!filename) return false;
+      if (showFavoritesOnly && !favorites.has(filename)) return false;
+      return true;
+    });
+
+    const snapshot = readModalNavigationSnapshot();
+    if (!snapshot.length) return filtered;
+
+    const filteredFilenames = filtered.map((item) => String(item?.filename || "").trim()).filter(Boolean);
+    const snapshotSet = new Set(snapshot);
+    const snapshotCoversFiltered = filteredFilenames.every((filename) => snapshotSet.has(filename));
+    if (!snapshotCoversFiltered) return filtered;
+
+    const candidates = filtered.filter((item) => snapshotSet.has(String(item?.filename || "").trim()));
+    if (!candidates.length) return filtered;
+
+    const candidateByFilename = new Map(candidates.map((item) => [String(item.filename), item]));
+    const ordered = snapshot.map((filename) => candidateByFilename.get(filename)).filter(Boolean);
+    if (!ordered.length) return filtered;
+
+    const anchorFilename = String(currentImage?.filename || STANDALONE_FILENAME).trim();
+    return ordered.some((item) => String(item?.filename || "").trim() === anchorFilename) ? ordered : filtered;
+  }
+
+  async function navigateRelative(delta) {
+    try {
+      const list = await loadImageList();
+      if (!list.length) return;
+      const navList = getFilteredNavigationList(list);
+      if (!navList.length) return;
+      const currentNavIndex = navList.findIndex((item) => String(item?.filename).toLowerCase() === String(currentImage.filename).toLowerCase());
+      const baseIndex = currentNavIndex >= 0 ? currentNavIndex : (delta >= 0 ? 0 : navList.length - 1);
+      const nextIndex = (baseIndex + delta + navList.length) % navList.length;
+      const target = navList[nextIndex];
+      if (target?.filename) navigateToImage(target.filename);
+    } catch (error) {
+      console.warn("Standalone navigation failed:", error);
+    }
   }
 
   function toggleFavoriteFromModal() {
@@ -441,9 +343,7 @@
   function closeModal() {
     try {
       const filename = String(currentImage?.filename || STANDALONE_FILENAME).trim();
-      if (filename) {
-        sessionStorage.setItem(GRID_FOCUS_RESTORE_KEY, filename);
-      }
+      if (filename) sessionStorage.setItem(GRID_FOCUS_RESTORE_KEY, filename);
     } catch (_) {
       // Ignore storage failures.
     }
@@ -469,9 +369,7 @@
       nextImage();
       return;
     }
-    if (key === " " || key === "Spacebar") {
-      closeModal();
-    }
+    if (key === " " || key === "Spacebar") closeModal();
   }
 
   function handleKeydown(event) {
@@ -510,35 +408,31 @@
       if (!href) return;
       event.preventDefault();
       const opened = openYoutubeOverlay();
-      if (!opened) {
-        window.open(href, "_blank", "noopener");
-      }
+      if (!opened) window.open(href, "_blank", "noopener");
     });
     youtubeOverlayClose?.addEventListener("click", (event) => {
       event.preventDefault();
       closeYoutubeOverlay();
     });
     youtubeOverlay?.addEventListener("click", (event) => {
-      if (event.target === youtubeOverlay) {
-        closeYoutubeOverlay();
-      }
+      if (event.target === youtubeOverlay) closeYoutubeOverlay();
     });
     window.addEventListener("message", (event) => {
       if (event.origin !== window.location.origin) return;
       if (event.source !== modalEmbed?.contentWindow) return;
       const data = event.data || {};
-      if (data.type === "dca-hal-finney-overlay") {
-        setHalFinneyShellState(!!data.open);
+      if (data.type === "wsb-days-since-ath-dashboard-expanded") {
+        document.body?.classList?.toggle("days-since-ath-dashboard-expanded", !!data.expanded);
         return;
       }
-      if (data.type === "wsb-dca-comparison-dashboard-expanded") {
-        document.body?.classList?.toggle("dca-comparison-dashboard-expanded", !!data.expanded);
+      if (data.type === "wsb-days-since-ath-date-range-export-active") {
+        window.wsbDashboardExportActive = !!data.active;
+        window.dateRangeExportActive = !!data.active;
         return;
       }
       if (data.type !== "wsb-dashboard-nav-key") return;
       const key = String(data.key || "");
-      if (!key) return;
-      handleNavKey(key);
+      if (key) handleNavKey(key);
     });
     document.addEventListener("keydown", handleKeydown);
   }
@@ -555,7 +449,6 @@
     }
 
     showShell();
-    setHalFinneyShellState(false);
     bindEvents();
     applyStandaloneFocusOrder();
     updateFavoriteButton();

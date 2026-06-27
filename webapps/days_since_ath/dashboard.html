@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style id="wsb-early-black">html,body{background:#000;color:#f1f5f7;}:root[data-theme="light"],:root[data-theme="light"] body{background:#f4f5f7;color:#111827;}</style>
+  <title>Days Since ATH</title>
+  <script src="../shared/dashboard_embed_modal.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../shared/dashboard_shared.css" />
+  <link rel="stylesheet" href="dashboard.css" />
+</head>
+<body>
+  <div class="wrap days-wrap">
+    <header class="topbar days-topbar" aria-label="Days Since ATH controls">
+      <div class="title-row">
+        <h1 class="title">Days Since ATH</h1>
+        <div class="info-wrap">
+          <button type="button" class="info-btn" aria-label="About this dashboard" aria-describedby="daysInfoPopover">?</button>
+          <div class="info-popover" id="daysInfoPopover" role="tooltip">
+            Tracks Bitcoin daily highs, all-time-high price, drawdown from ATH, and the number of days since the most recent ATH.
+          </div>
+        </div>
+      </div>
+      <div class="title-actions">
+        <button type="button" class="copy-link-btn" id="copyDashboardLink" aria-label="Copy shareable dashboard link" data-tooltip="Copy shareable dashboard link">
+          <span class="btn-icon" aria-hidden="true"><svg id="copyDashboardIcon" viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></span>
+          <span class="btn-label">Copy Link</span>
+        </button>
+        <button type="button" class="reset-dashboard-btn" id="resetDashboard" disabled aria-label="Restore dashboard defaults" data-tooltip="Reset dashboard to defaults">
+          <span class="btn-icon" aria-hidden="true"><svg id="resetDashboardIcon" viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path></svg></span>
+          <span class="btn-label">Restore Defaults</span>
+        </button>
+      </div>
+      <div class="chips kpi-row" id="kpiRow" aria-label="Days Since ATH KPIs">
+        <span class="chip" id="chipUpdated"><span class="chip-label">Updated</span> <span id="updatedKpi" class="chip-value">Loading</span></span>
+        <span class="chip" id="chipHeight"><span class="chip-label">Height</span> <span id="heightKpi" class="chip-value">-</span></span>
+        <span class="chip" id="chipDailyHigh"><span class="chip-label">Daily High</span> <span id="dailyHighKpi" class="chip-value">-</span></span>
+        <span class="chip" id="chipAth"><span class="chip-label">All Time High</span> <span id="athKpi" class="chip-value">-</span></span>
+        <span class="chip" id="chipDrawdown"><span class="chip-label">Drawdown</span> <span id="drawdownKpi" class="chip-value">-</span></span>
+        <span class="chip" id="chipDays"><span class="chip-label">Days Since ATH</span> <span id="daysKpi" class="chip-value">-</span></span>
+      </div>
+      <div class="controls days-display-controls" aria-label="Chart display controls">
+        <div class="date-range-range-control date-range-scale-control">
+          <span class="date-range-range-label">Daily High Price Scale</span>
+          <div class="date-range-button-row date-range-scale-buttons" id="priceScaleButtons" aria-label="Daily High Price Scale">
+            <button type="button" class="date-range-btn" data-price-scale="linear">Linear</button>
+            <button type="button" class="date-range-btn" data-price-scale="log">Log</button>
+          </div>
+        </div>
+        <div class="date-range-range-control date-range-scale-control">
+          <span class="date-range-range-label">Days Since ATH Scale</span>
+          <div class="date-range-button-row date-range-scale-buttons" id="daysScaleButtons" aria-label="Days Since ATH Scale">
+            <button type="button" class="date-range-btn" data-days-scale="linear">Linear</button>
+            <button type="button" class="date-range-btn" data-days-scale="log">Log</button>
+          </div>
+        </div>
+        <label class="toggle" for="toggleAthLabels">
+          <input id="toggleAthLabels" type="checkbox" checked /> ATH Labels
+        </label>
+        <label class="toggle" for="toggleAthMarkers">
+          <input id="toggleAthMarkers" type="checkbox" checked /> ATH Markers
+        </label>
+        <label class="toggle" for="toggleHalvings">
+          <input id="toggleHalvings" type="checkbox" checked /> Halvings
+        </label>
+      </div>
+    </header>
+
+    <section class="date-range-panel days-range-panel" aria-label="Date range controls">
+      <div class="date-range-header mono">
+        <div class="date-range-range-control date-range-chart-control">
+          <span class="date-range-range-label">Charts</span>
+          <div class="date-range-button-row date-range-chart-buttons" id="dateRangeChartControls" role="group" aria-label="Visible charts">
+            <button type="button" class="date-range-btn date-range-chart-btn is-selected" data-chart-mode="price" aria-pressed="true">Price</button>
+            <button type="button" class="date-range-btn date-range-chart-btn is-selected" data-chart-mode="days" aria-pressed="true">Days Since ATH</button>
+          </div>
+        </div>
+        <label class="chip" for="startDateInput">Start
+          <button id="startDateBtn" class="date-range-btn" type="button"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg><span class="date-range-btn-placeholder" aria-hidden="true">00/00/00</span></button>
+          <input id="startDateInput" type="date" style="display:none" />
+        </label>
+        <label class="chip" for="endDateInput">End
+          <button id="endDateBtn" class="date-range-btn" type="button"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg><span class="date-range-btn-placeholder" aria-hidden="true">00/00/00</span></button>
+          <input id="endDateInput" type="date" style="display:none" />
+        </label>
+        <div class="date-range-range-control">
+          <span class="date-range-range-label">Range</span>
+          <div class="date-range-presets date-range-range-buttons" id="rangeButtons" role="group" aria-label="Quick date ranges">
+            <label class="date-range-days-segment" for="rangeDaysInput">
+              <input id="rangeDaysInput" class="date-range-days-input" type="text" inputmode="numeric" autocomplete="off" aria-label="Range length in days" />
+              <span class="date-range-days-suffix">Days</span>
+            </label>
+            <button type="button" class="date-range-preset-btn" data-range-preset="ytd">YTD</button>
+            <button type="button" class="date-range-preset-btn" data-range-preset="1y">1Y</button>
+            <button type="button" class="date-range-preset-btn" data-range-preset="2y">2Y</button>
+            <button type="button" class="date-range-preset-btn" data-range-preset="4y">4Y</button>
+            <button type="button" class="date-range-preset-btn" data-range-preset="8y">8Y</button>
+            <button type="button" class="date-range-preset-btn" data-range-preset="full">All</button>
+          </div>
+        </div>
+        <div class="date-range-play-row" id="dateRangePlaybackControls" aria-label="Playback controls">
+          <button type="button" id="playBtn" class="date-range-playback-btn date-range-play-btn" aria-label="Play date range animation" aria-pressed="false" title="Play range animation">▶</button>
+          <button type="button" id="pauseBtn" class="date-range-playback-btn date-range-pause-btn" aria-label="Pause date range animation" title="Pause range animation" disabled>❚❚</button>
+          <button type="button" id="stopBtn" class="date-range-playback-btn date-range-stop-btn" aria-label="Stop and reset range animation" title="Stop and reset" disabled>■</button>
+          <button type="button" id="speedBtn" class="date-range-playback-btn date-range-speed-btn" aria-label="Playback speed" title="Playback speed">1x</button>
+          <button type="button" id="dashboardExpandBtn" class="date-range-playback-btn dashboard-expand-btn" aria-label="Expand video layout" aria-pressed="false" title="Expand video layout">
+            <svg class="dashboard-expand-icon dashboard-expand-icon-expand" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 9V4h5" />
+              <path d="M20 9V4h-5" />
+              <path d="M4 15v5h5" />
+              <path d="M20 15v5h-5" />
+            </svg>
+            <svg class="dashboard-expand-icon dashboard-expand-icon-shrink" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M9 4v5H4" />
+              <path d="M15 4v5h5" />
+              <path d="M9 20v-5H4" />
+              <path d="M15 20v-5h5" />
+            </svg>
+          </button>
+          <button type="button" id="dateRangeDownloadBtn" class="date-range-playback-btn date-range-download-btn" aria-label="Download date range animation" title="Download animation">↓</button>
+          <div class="date-range-download-settings" id="dateRangeDownloadSettings">
+            <button type="button" id="dateRangeSettingsBtn" class="date-range-playback-btn date-range-settings-btn" aria-haspopup="dialog" aria-expanded="false" aria-label="Download settings" title="Download settings">⚙</button>
+            <div id="dateRangeSettingsMenu" class="date-range-download-settings-menu" role="dialog" aria-label="Download options">
+              <div class="download-setting-field">Charts
+                <div id="downloadChartModeSelect" class="download-setting-button-row download-chart-mode-row" role="group" aria-label="Download charts">
+                  <button type="button" class="download-setting-option is-selected" data-value="left" aria-pressed="true">Price</button>
+                  <button type="button" class="download-setting-option is-selected" data-value="right" aria-pressed="true">Days Since ATH</button>
+                </div>
+              </div>
+              <div class="download-setting-field download-scale-field">Scale
+                <div class="download-scale-grid">
+                  <div id="downloadPriceScaleSelect" class="download-setting-button-row download-scale-row" data-side="left" role="group" aria-label="Price scale">
+                    <button type="button" class="download-setting-option" data-value="linear" aria-pressed="false">Linear</button>
+                    <button type="button" class="download-setting-option is-selected" data-value="log" aria-pressed="true">Log</button>
+                  </div>
+                  <div id="downloadDaysScaleSelect" class="download-setting-button-row download-scale-row" data-side="right" role="group" aria-label="Days Since ATH scale">
+                    <button type="button" class="download-setting-option is-selected" data-value="linear" aria-pressed="true">Linear</button>
+                    <button type="button" class="download-setting-option" data-value="log" aria-pressed="false">Log</button>
+                  </div>
+                </div>
+              </div>
+              <div class="download-setting-field">Orientation
+                <div id="downloadOrientationSelect" class="download-setting-button-row" role="group" aria-label="Download orientation">
+                  <button type="button" class="download-setting-option is-selected" data-value="landscape" aria-pressed="true">Landscape</button>
+                  <button type="button" class="download-setting-option" data-value="portrait" aria-pressed="false">Portrait</button>
+                  <button type="button" class="download-setting-option" data-value="square" aria-pressed="false">Square</button>
+                </div>
+              </div>
+              <div class="download-setting-field">Quality
+                <div id="downloadQualitySelect" class="download-setting-button-row" role="group" aria-label="Download quality">
+                  <button type="button" class="download-setting-option is-selected" data-value="720" aria-pressed="true">720p</button>
+                  <button type="button" class="download-setting-option" data-value="1080" aria-pressed="false">1080p</button>
+                  <button type="button" class="download-setting-option" data-value="1440" aria-pressed="false">1440p</button>
+                  <button type="button" class="download-setting-option" data-value="2160" aria-pressed="false">4K</button>
+                </div>
+              </div>
+              <div class="download-setting-field">Playback Speed
+                <div id="downloadFpsSelect" class="download-setting-button-row" role="group" aria-label="Download playback speed">
+                  <button type="button" class="download-setting-option" data-value="30" aria-pressed="false">0.5x</button>
+                  <button type="button" class="download-setting-option is-selected" data-value="60" aria-pressed="true">1x</button>
+                  <button type="button" class="download-setting-option" data-value="120" aria-pressed="false">2x</button>
+                  <button type="button" class="download-setting-option" data-value="240" aria-pressed="false">4x</button>
+                </div>
+              </div>
+              <div class="download-setting-field">Theme
+                <div id="downloadThemeSelect" class="download-setting-button-row" role="group" aria-label="Download theme">
+                  <button type="button" class="download-setting-option is-selected" data-value="light" aria-pressed="true">Light</button>
+                  <button type="button" class="download-setting-option" data-value="dark" aria-pressed="false">Dark</button>
+                </div>
+              </div>
+              <label class="download-setting-checkbox">
+                <input type="checkbox" id="downloadEndFrameHoldToggle" checked>
+                <span>1s start / 3s end hold</span>
+              </label>
+              <div id="downloadEstimatePanel" class="download-estimate-panel" aria-live="polite">
+                <div class="download-estimate-row">
+                  <span>File Size</span>
+                  <strong id="downloadEstimateSize">--</strong>
+                </div>
+                <div class="download-estimate-row">
+                  <span>Video Length</span>
+                  <strong id="downloadEstimateLength">--</strong>
+                </div>
+                <div class="download-estimate-row">
+                  <span>Download Time</span>
+                  <strong id="downloadEstimateTime">--</strong>
+                </div>
+              </div>
+              <div class="download-setting-actions">
+                <button type="button" id="downloadSettingsDownloadBtn">Download Animation</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="date-range-slider-wrap" id="dateRangeSliderWrap">
+        <div class="date-range-available-track" id="dateRangeAvailableTrack"></div>
+        <input id="dateRangeStartSlider" class="date-range-slider" type="range" min="0" max="0" value="0" step="1" aria-label="Start date slider" />
+        <input id="dateRangeEndSlider" class="date-range-slider" type="range" min="0" max="0" value="0" step="1" aria-label="End date slider" />
+        <div class="date-range-remaining" id="dateRangeSelection"></div>
+      </div>
+    </section>
+
+    <main class="chart-grid" id="chartGrid" aria-label="Days Since ATH charts">
+      <section class="chart-panel price-panel" id="pricePanel">
+        <canvas id="priceCanvas"></canvas>
+      </section>
+      <section class="chart-panel days-panel" id="daysPanel">
+        <canvas id="daysCanvas"></canvas>
+      </section>
+    </main>
+  </div>
+  <script src="dashboard_app.js"></script>
+</body>
+</html>
