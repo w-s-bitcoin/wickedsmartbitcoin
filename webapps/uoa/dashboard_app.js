@@ -87,9 +87,6 @@
   const DATE_RANGE_EXPORT_VIDEO_FPS = 30;
   const DATE_RANGE_EXPORT_START_HOLD_SECONDS = 1;
   const DATE_RANGE_EXPORT_END_HOLD_SECONDS = 3;
-  const DATE_RANGE_EXPORT_BATCH_MEMORY_BUDGET = 220 * 1024 * 1024;
-  const DATE_RANGE_EXPORT_MIN_BATCH_FRAMES = 12;
-  const DATE_RANGE_EXPORT_MAX_BATCH_FRAMES = 90;
   const YELLOW_METAL_CURRENCIES = new Set(["XAU"]);
   const SILVER_METAL_CURRENCIES = new Set(["XAG", "XPT", "XPD"]);
   const GRAINS_PER_TROY_OUNCE = 480;
@@ -290,6 +287,17 @@
   let customTooltipBound = false;
   let customTooltipAnchor = null;
   let updatedKpiTimeZone = DASHBOARD_TIME?.getPreferredTimeZone?.() || "UTC";
+  const updatedTimeZoneChip = window.WSBDashboardComponents?.createUpdatedTimeZoneChipController?.({
+    chip: "#updatedKpiChip",
+    value: "#updatedKpiValue",
+    getTimeZone: () => updatedKpiTimeZone || DASHBOARD_TIME?.getPreferredTimeZone?.() || "UTC",
+    setTimeZone: (value) => setPreferredDashboardTimeZone(value),
+    onChange: (timeZone) => {
+      updatedKpiTimeZone = timeZone || updatedKpiTimeZone;
+      persistFilters();
+      renderAll();
+    },
+  });
   let globalTimeZoneSyncBound = false;
   let refreshedAtText = "";
   const chartEventMarkersById = {
@@ -331,6 +339,10 @@
   let activeDateRangeExportScaleModes = null;
   let downloadSettings = { ...DEFAULT_DOWNLOAD_SETTINGS };
   let downloadSettingsHasStoredValue = false;
+  const downloadEstimateCalibrationCache = new Map();
+  const downloadEstimateCalibrationPending = new Set();
+  let downloadEstimateCalibrationTimer = null;
+  let downloadEstimateCalibrationRequestId = 0;
   const exportNumericMeasureCache = new Map();
   let dateRangePlaybackState = {
     isPlaying: false,
@@ -1064,19 +1076,11 @@
   }
 
   function formatDownloadEstimateDuration(seconds) {
-    if (!Number.isFinite(seconds) || seconds < 0) return "--";
-    const rounded = Math.max(0, Math.round(seconds));
-    const minutes = Math.floor(rounded / 60);
-    const secs = rounded % 60;
-    if (minutes <= 0) return `${secs}s`;
-    return `${minutes}m ${String(secs).padStart(2, "0")}s`;
+    return window.WSBDashboardExport.formatDuration(seconds);
   }
 
   function formatDownloadEstimateSize(bytes) {
-    if (!Number.isFinite(bytes) || bytes <= 0) return "--";
-    const mib = bytes / (1024 * 1024);
-    if (mib < 10) return `${mib.toFixed(1)} MB`;
-    return `${Math.round(mib)} MB`;
+    return window.WSBDashboardExport.formatSize(bytes);
   }
 
   function getDateRangeExportEstimateRange() {
@@ -1098,7 +1102,100 @@
   }
 
   function getDateRangeExportBitrate(settings) {
-    return Math.max(4_000_000, Number(settings.quality) * 8000);
+    return window.WSBDashboardExport.getBitrate(settings);
+  }
+
+  function getDownloadEstimateCalibrationKey(settings, frameIndices) {
+    const { width, height } = getDownloadDimensions(settings);
+    return [
+      settings.chartMode || DEFAULT_DOWNLOAD_SETTINGS.chartMode,
+      settings.orientation,
+      settings.quality,
+      settings.theme,
+      settings.leftScale,
+      settings.rightScale,
+      settings.fps,
+      settings.endFrameHold ? "hold" : "no-hold",
+      width,
+      height,
+      frameIndices.length,
+      new Set(frameIndices).size,
+    ].join("|");
+  }
+
+  function getRepresentativeExportFrameIndices(frameIndices) {
+    const uniqueFrames = Array.from(new Set(frameIndices || []));
+    if (uniqueFrames.length <= 3) return uniqueFrames;
+    const samples = [];
+    const lastIndex = uniqueFrames.length - 1;
+    for (let i = 0; i < 3; i += 1) {
+      samples.push(uniqueFrames[Math.round((lastIndex * i) / 2)]);
+    }
+    return samples;
+  }
+
+  function getExportEstimateSnapshot(settings, startIndex, endIndex) {
+    const dashboardScaleModes = getDashboardScaleModes();
+    return {
+      primaryCurrency: el.primaryUoaSelect?.value || "BTC",
+      secondaryCurrency: el.secondaryUoaSelect?.value || "USD",
+      scaleMode: dashboardScaleModes.left,
+      leftScaleMode: settings.leftScale || dashboardScaleModes.left,
+      rightScaleMode: settings.rightScale || dashboardScaleModes.right,
+      orderMode: ORDER_MODES.includes(el.orderBySelect?.value) ? el.orderBySelect.value : "alpha-asc",
+      smoothVesRedenom: !!el.vesRedenomAdjustToggle?.checked,
+      exportTheme: settings.theme,
+      startIso: toIsoDate(allRows[startIndex]?.date),
+      endIso: toIsoDate(allRows[endIndex]?.date),
+    };
+  }
+
+  async function calibrateDownloadEstimate(settings, frameIndices, startIndex, endIndex, key) {
+    if (isDateRangeExporting || downloadEstimateCalibrationCache.has(key) || downloadEstimateCalibrationPending.has(key)) return;
+    const representativeFrames = getRepresentativeExportFrameIndices(frameIndices);
+    if (!representativeFrames.length) return;
+    downloadEstimateCalibrationPending.add(key);
+    const requestId = ++downloadEstimateCalibrationRequestId;
+    try {
+      await waitForDateRangeExportFonts();
+      if (requestId !== downloadEstimateCalibrationRequestId) return;
+      const layoutSettings = getExportReferenceLayoutSettings(settings);
+      const exportRefs = createExportRenderSurface(layoutSettings);
+      const exportSnapshot = getExportEstimateSnapshot(settings, startIndex, endIndex);
+      const layoutCanvas = document.createElement("canvas");
+      const sampleDurations = [];
+      for (const frameIndex of representativeFrames) {
+        if (requestId !== downloadEstimateCalibrationRequestId) return;
+        const started = performance.now();
+        renderExportFrameToSurface(exportRefs, exportSnapshot, startIndex, frameIndex);
+        await composeDateRangeExportFrame(layoutCanvas, layoutSettings, exportRefs);
+        sampleDurations.push(performance.now() - started);
+      }
+      sampleDurations.sort((a, b) => a - b);
+      const msPerFrame = sampleDurations[Math.floor(sampleDurations.length / 2)];
+      if (!Number.isFinite(msPerFrame) || msPerFrame <= 0) return;
+      downloadEstimateCalibrationCache.set(key, {
+        msPerFrame,
+        sampleCount: representativeFrames.length,
+      });
+      if (requestId === downloadEstimateCalibrationRequestId) updateDownloadEstimates();
+    } catch (error) {
+      console.warn("Unable to calibrate UOA export estimate.", error);
+    } finally {
+      downloadEstimateCalibrationPending.delete(key);
+    }
+  }
+
+  function scheduleDownloadEstimateCalibration(settings, frameIndices, startIndex, endIndex, key) {
+    if (downloadEstimateCalibrationCache.has(key) || downloadEstimateCalibrationPending.has(key)) return;
+    if (downloadEstimateCalibrationTimer) {
+      window.clearTimeout(downloadEstimateCalibrationTimer);
+      downloadEstimateCalibrationTimer = null;
+    }
+    downloadEstimateCalibrationTimer = window.setTimeout(() => {
+      downloadEstimateCalibrationTimer = null;
+      calibrateDownloadEstimate({ ...settings }, [...frameIndices], startIndex, endIndex, key);
+    }, 180);
   }
 
   function updateDownloadEstimates() {
@@ -1115,14 +1212,29 @@
     const frameIndices = buildDateRangeExportFrameIndices(range.startIndex, range.endIndex, selectedPlaybackFps, settings.endFrameHold);
     const uniqueFrameCount = new Set(frameIndices).size;
     const videoSeconds = frameIndices.length / DATE_RANGE_EXPORT_VIDEO_FPS;
-    const bitrate = getDateRangeExportBitrate(settings);
-    const extensionMultiplier = settings.extension === "webm" ? 0.78 : 1;
-    const estimatedBytes = (bitrate * videoSeconds / 8) * extensionMultiplier;
-    const renderSeconds = Math.max(1, uniqueFrameCount * 0.035);
-    const processingSeconds = videoSeconds + renderSeconds;
-    el.downloadEstimateSize.textContent = formatDownloadEstimateSize(estimatedBytes);
-    el.downloadEstimateLength.textContent = formatDownloadEstimateDuration(videoSeconds);
-    el.downloadEstimateTime.textContent = `~${formatDownloadEstimateDuration(processingSeconds)}`;
+    const { width, height } = getDownloadDimensions(settings);
+    const megapixels = Math.max(1, (width * height) / (1280 * 720));
+    const chartCount = settings.chartMode === "both" ? 2 : 1;
+    const calibrationKey = getDownloadEstimateCalibrationKey(settings, frameIndices);
+    const calibration = downloadEstimateCalibrationCache.get(calibrationKey);
+    const estimatedChartCount = calibration ? 1 : chartCount;
+    const estimate = window.WSBDashboardExport.estimateDownload(settings, {
+      frameCount: frameIndices.length,
+      uniqueFrameCount,
+      videoSeconds,
+      dimensions: { width, height },
+      chartCount: estimatedChartCount,
+      bitrate: getDateRangeExportBitrate(settings),
+      calibration,
+      fallbackFrameSeconds: 0.006 * Math.sqrt(megapixels),
+      encodeFrameSeconds: 0.0005,
+    });
+    el.downloadEstimateSize.textContent = estimate.sizeText;
+    el.downloadEstimateLength.textContent = estimate.lengthText;
+    el.downloadEstimateTime.textContent = estimate.timeText;
+    if (!calibration && frameIndices.length) {
+      scheduleDownloadEstimateCalibration(settings, frameIndices, range.startIndex, range.endIndex, calibrationKey);
+    }
   }
 
   function getExportThemePalette(theme) {
@@ -1233,72 +1345,34 @@
   }
 
   function getDownloadSettingGroupValue(group) {
-    if (group === el.downloadChartModeSelect) {
-      const leftSelected = !!group.querySelector('.download-setting-option.is-selected[data-value="left"]');
-      const rightSelected = !!group.querySelector('.download-setting-option.is-selected[data-value="right"]');
-      if (leftSelected && rightSelected) return "both";
-      if (leftSelected) return "left";
-      if (rightSelected) return "right";
-      return DEFAULT_DOWNLOAD_SETTINGS.chartMode;
-    }
-    const selected = group?.querySelector?.(".download-setting-option.is-selected[data-value]");
-    return selected?.dataset.value || "";
+    return window.WSBDashboardComponents.getButtonGroupValue(group, {
+      multi: group === el.downloadChartModeSelect,
+      defaultValue: group === el.downloadChartModeSelect ? DEFAULT_DOWNLOAD_SETTINGS.chartMode : "",
+    });
   }
 
   function setDownloadSettingGroupValue(group, value) {
-    if (!group) return;
-    const buttons = Array.from(group.querySelectorAll(".download-setting-option[data-value]"));
-    if (group === el.downloadChartModeSelect) {
-      const mode = ["both", "left", "right"].includes(value) ? value : DEFAULT_DOWNLOAD_SETTINGS.chartMode;
-      buttons.forEach((button) => {
-        const isSelected = mode === "both" || button.dataset.value === mode;
-        button.classList.toggle("is-selected", isSelected);
-        button.setAttribute("aria-pressed", isSelected ? "true" : "false");
-      });
-      return;
-    }
-    buttons.forEach((button) => {
-      const isSelected = button.dataset.value === String(value);
-      button.classList.toggle("is-selected", isSelected);
-      button.setAttribute("aria-pressed", isSelected ? "true" : "false");
+    window.WSBDashboardComponents.setButtonGroupValue(group, value, {
+      multi: group === el.downloadChartModeSelect,
+      defaultValue: DEFAULT_DOWNLOAD_SETTINGS.chartMode,
     });
   }
 
   function toggleDownloadChartModeButton(button) {
     const group = el.downloadChartModeSelect;
     if (!group || !button) return;
-    const nextSelected = !button.classList.contains("is-selected");
-    button.classList.toggle("is-selected", nextSelected);
-    button.setAttribute("aria-pressed", nextSelected ? "true" : "false");
-
-    const leftButton = group.querySelector('.download-setting-option[data-value="left"]');
-    const rightButton = group.querySelector('.download-setting-option[data-value="right"]');
-    const leftSelected = !!leftButton?.classList.contains("is-selected");
-    const rightSelected = !!rightButton?.classList.contains("is-selected");
-    if (!leftSelected && !rightSelected) {
-      const fallbackButton = button.dataset.value === "left" ? rightButton : leftButton;
-      if (fallbackButton) {
-        fallbackButton.classList.add("is-selected");
-        fallbackButton.setAttribute("aria-pressed", "true");
-      }
-    }
+    window.WSBDashboardComponents.toggleRequiredButtonGroupItem(group, button);
     syncDownloadScaleAvailability();
   }
 
   function syncDownloadScaleAvailability() {
-    if (!el.downloadChartModeSelect) return;
-    const syncSide = (side, group) => {
-      if (!group) return;
-      const chartButton = el.downloadChartModeSelect.querySelector(`.download-setting-option[data-value="${side}"]`);
-      const isEnabled = !!chartButton?.classList.contains("is-selected");
-      group.classList.toggle("is-disabled", !isEnabled);
-      group.querySelectorAll(".download-setting-option[data-value]").forEach((button) => {
-        button.disabled = !isEnabled;
-        button.setAttribute("aria-disabled", isEnabled ? "false" : "true");
-      });
-    };
-    syncSide("left", el.downloadLeftScaleSelect);
-    syncSide("right", el.downloadRightScaleSelect);
+    window.WSBDashboardComponents.syncDependentButtonGroupAvailability({
+      chartGroup: el.downloadChartModeSelect,
+      sides: [
+        { value: "left", group: el.downloadLeftScaleSelect },
+        { value: "right", group: el.downloadRightScaleSelect },
+      ],
+    });
   }
 
   function getDownloadChartModeLabels() {
@@ -1527,29 +1601,18 @@
   }
 
   function constrainDownloadSettingsMenuToViewport() {
-    const menu = el.dateRangeDownloadSettingsMenu;
-    if (!menu?.classList.contains("open")) return;
-    menu.style.setProperty("--download-settings-menu-shift-x", "0px");
-    const rect = menu.getBoundingClientRect();
-    const margin = 8;
-    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || rect.right;
-    let shiftX = 0;
-    if (rect.left < margin) {
-      shiftX = margin - rect.left;
-    } else if (rect.right > viewportWidth - margin) {
-      shiftX = (viewportWidth - margin) - rect.right;
-    }
-    menu.style.setProperty("--download-settings-menu-shift-x", `${Math.round(shiftX)}px`);
+    window.WSBDashboardComponents.constrainFloatingMenuToViewport(el.dateRangeDownloadSettingsMenu);
   }
 
   function openDownloadSettingsMenu() {
     if (!el.dateRangeDownloadSettingsMenu || !el.dateRangeDownloadSettingsBtn) return;
     syncDownloadSettingsControls();
     syncDownloadSettingsDownloadButton();
-    el.dateRangeDownloadSettingsMenu.classList.add("open");
-    el.dateRangeDownloadSettingsBtn.classList.add("is-open");
-    el.dateRangeDownloadSettingsBtn.setAttribute("aria-expanded", "true");
-    constrainDownloadSettingsMenuToViewport();
+    window.WSBDashboardComponents.setFloatingMenuOpen({
+      menu: el.dateRangeDownloadSettingsMenu,
+      button: el.dateRangeDownloadSettingsBtn,
+      onOpen: syncDownloadSettingsDownloadButton,
+    }, true);
     if (!dateRangeDownloadSettingsViewportHandler) {
       dateRangeDownloadSettingsViewportHandler = () => constrainDownloadSettingsMenuToViewport();
       window.addEventListener("resize", dateRangeDownloadSettingsViewportHandler);
@@ -1645,22 +1708,15 @@
   }
 
   function getDownloadDimensions(settings) {
-    const quality = Number(settings.quality) || 1080;
-    if (settings.orientation === "portrait") return { width: quality, height: Math.round(quality * 16 / 9) };
-    if (settings.orientation === "square") return { width: quality, height: quality };
-    return { width: Math.round(quality * 16 / 9), height: quality };
+    return window.WSBDashboardExport.getDimensions(settings);
   }
 
   function getExportLayoutMetrics(settings) {
-    const { width, height } = getDownloadDimensions(settings);
-    const panelGap = Math.max(8, Math.round(Math.min(width, height) * 0.012));
-    const outerMargin = panelGap;
-    const footerHeight = Math.max(34, Math.round(Math.min(width, height) * 0.052));
-    return { width, height, outerMargin, panelGap, footerHeight };
+    return window.WSBDashboardExport.getLayoutMetrics(settings);
   }
 
   function getExportReferenceLayoutSettings(settings) {
-    return { ...settings, quality: "1440" };
+    return window.WSBDashboardExport.getReferenceSettings(settings, 1440);
   }
 
   function shouldExportChart(settings, chartSide) {
@@ -1685,192 +1741,6 @@
     ctx.restore();
   }
 
-  function getDateRangeExportBatchSize(settings) {
-    const { width, height } = getDownloadDimensions(settings);
-    const frameBytes = Math.max(1, width * height * 4);
-    const budgetFrames = Math.floor(DATE_RANGE_EXPORT_BATCH_MEMORY_BUDGET / frameBytes);
-    return Math.max(
-      DATE_RANGE_EXPORT_MIN_BATCH_FRAMES,
-      Math.min(DATE_RANGE_EXPORT_MAX_BATCH_FRAMES, budgetFrames)
-    );
-  }
-
-  function closeDateRangeExportFrames(frameCache) {
-    frameCache.forEach((frame) => {
-      if (typeof frame?.close === "function") frame.close();
-    });
-    frameCache.clear();
-  }
-
-  function concatUint8Arrays(arrays) {
-    const totalLength = arrays.reduce((sum, item) => sum + item.length, 0);
-    const out = new Uint8Array(totalLength);
-    let offset = 0;
-    arrays.forEach((item) => {
-      out.set(item, offset);
-      offset += item.length;
-    });
-    return out;
-  }
-
-  function ebmlIdBytes(id) {
-    const hex = id.toString(16).padStart(2, "0");
-    const padded = hex.length % 2 ? `0${hex}` : hex;
-    const bytes = new Uint8Array(padded.length / 2);
-    for (let i = 0; i < bytes.length; i += 1) {
-      bytes[i] = Number.parseInt(padded.slice(i * 2, i * 2 + 2), 16);
-    }
-    return bytes;
-  }
-
-  function ebmlSizeBytes(size) {
-    if (size < 0x7f) return Uint8Array.of(0x80 | size);
-    if (size < 0x3fff) return Uint8Array.of(0x40 | (size >> 8), size & 0xff);
-    if (size < 0x1fffff) return Uint8Array.of(0x20 | (size >> 16), (size >> 8) & 0xff, size & 0xff);
-    if (size < 0x0fffffff) {
-      return Uint8Array.of(
-        0x10 | (size >> 24),
-        (size >> 16) & 0xff,
-        (size >> 8) & 0xff,
-        size & 0xff,
-      );
-    }
-    const bytes = new Uint8Array(8);
-    bytes[0] = 0x01;
-    let value = size;
-    for (let i = 7; i >= 1; i -= 1) {
-      bytes[i] = value & 0xff;
-      value = Math.floor(value / 256);
-    }
-    return bytes;
-  }
-
-  function ebmlUnknownSizeBytes() {
-    return Uint8Array.of(0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff);
-  }
-
-  function ebmlElement(id, data) {
-    return concatUint8Arrays([ebmlIdBytes(id), ebmlSizeBytes(data.length), data]);
-  }
-
-  function ebmlUint(value, byteLength = 0) {
-    let length = byteLength;
-    if (!length) {
-      length = 1;
-      let probe = Math.max(0, Number(value) || 0);
-      while (probe > 0xff) {
-        length += 1;
-        probe = Math.floor(probe / 256);
-      }
-    }
-    const bytes = new Uint8Array(length);
-    let next = Math.max(0, Number(value) || 0);
-    for (let i = length - 1; i >= 0; i -= 1) {
-      bytes[i] = next & 0xff;
-      next = Math.floor(next / 256);
-    }
-    return bytes;
-  }
-
-  function ebmlFloat64(value) {
-    const bytes = new Uint8Array(8);
-    new DataView(bytes.buffer).setFloat64(0, Number(value) || 0, false);
-    return bytes;
-  }
-
-  function ebmlAscii(value) {
-    return new TextEncoder().encode(String(value || ""));
-  }
-
-  function webmSimpleBlock(trackNumber, relativeTimecode, keyFrame, data) {
-    const header = new Uint8Array(4);
-    header[0] = 0x80 | Math.max(1, Math.min(126, trackNumber));
-    new DataView(header.buffer).setInt16(1, Math.max(-32768, Math.min(32767, Math.round(relativeTimecode))), false);
-    header[3] = keyFrame ? 0x80 : 0x00;
-    return ebmlElement(0xa3, concatUint8Arrays([header, data]));
-  }
-
-  function buildWebMBlob(encodedFrames, width, height, fps, codecId) {
-    const durationSeconds = encodedFrames.length / Math.max(1, fps);
-    const ebmlHeader = ebmlElement(0x1a45dfa3, concatUint8Arrays([
-      ebmlElement(0x4286, ebmlUint(1)),
-      ebmlElement(0x42f7, ebmlUint(1)),
-      ebmlElement(0x42f2, ebmlUint(4)),
-      ebmlElement(0x42f3, ebmlUint(8)),
-      ebmlElement(0x4282, ebmlAscii("webm")),
-      ebmlElement(0x4287, ebmlUint(4)),
-      ebmlElement(0x4285, ebmlUint(2)),
-    ]));
-    const info = ebmlElement(0x1549a966, concatUint8Arrays([
-      ebmlElement(0x2ad7b1, ebmlUint(1000000)),
-      ebmlElement(0x4489, ebmlFloat64(durationSeconds)),
-      ebmlElement(0x4d80, ebmlAscii("wickedsmartbitcoin")),
-      ebmlElement(0x5741, ebmlAscii("wickedsmartbitcoin")),
-    ]));
-    const video = ebmlElement(0xe0, concatUint8Arrays([
-      ebmlElement(0xb0, ebmlUint(width)),
-      ebmlElement(0xba, ebmlUint(height)),
-    ]));
-    const trackEntry = ebmlElement(0xae, concatUint8Arrays([
-      ebmlElement(0xd7, ebmlUint(1)),
-      ebmlElement(0x73c5, ebmlUint(1)),
-      ebmlElement(0x83, ebmlUint(1)),
-      ebmlElement(0x86, ebmlAscii(codecId)),
-      ebmlElement(0x258688, ebmlAscii("Unit of Account")),
-      video,
-    ]));
-    const tracks = ebmlElement(0x1654ae6b, trackEntry);
-    const clusters = [];
-    let clusterStartMs = -1;
-    let clusterBlocks = [];
-    const flushCluster = () => {
-      if (clusterStartMs < 0 || !clusterBlocks.length) return;
-      clusters.push(ebmlElement(0x1f43b675, concatUint8Arrays([
-        ebmlElement(0xe7, ebmlUint(clusterStartMs)),
-        ...clusterBlocks,
-      ])));
-      clusterStartMs = -1;
-      clusterBlocks = [];
-    };
-    encodedFrames.forEach((frame) => {
-      const timeMs = Math.round(frame.timestamp / 1000);
-      if (clusterStartMs < 0 || timeMs - clusterStartMs > 30000) {
-        flushCluster();
-        clusterStartMs = timeMs;
-      }
-      clusterBlocks.push(webmSimpleBlock(1, timeMs - clusterStartMs, frame.type === "key", frame.data));
-    });
-    flushCluster();
-    const segmentPayload = concatUint8Arrays([info, tracks, ...clusters]);
-    const segment = concatUint8Arrays([ebmlIdBytes(0x18538067), ebmlUnknownSizeBytes(), segmentPayload]);
-    return new Blob([ebmlHeader, segment], { type: "video/webm" });
-  }
-
-  async function getSupportedWebCodecsExportConfig(width, height, settings) {
-    if (!window.VideoEncoder || !window.VideoFrame || typeof VideoEncoder.isConfigSupported !== "function") return null;
-    const candidates = [
-      { codec: "vp09.00.10.08", webmCodecId: "V_VP9" },
-      { codec: "vp8", webmCodecId: "V_VP8" },
-    ];
-    for (const candidate of candidates) {
-      const config = {
-        codec: candidate.codec,
-        width,
-        height,
-        bitrate: getDateRangeExportBitrate(settings),
-        framerate: DATE_RANGE_EXPORT_VIDEO_FPS,
-        latencyMode: "quality",
-      };
-      try {
-        const support = await VideoEncoder.isConfigSupported(config);
-        if (support?.supported) return { ...candidate, config: support.config || config };
-      } catch (_) {
-        // Try the next codec.
-      }
-    }
-    return null;
-  }
-
   async function encodeDateRangeAnimationWebM({
     exportCanvas,
     layoutCanvas,
@@ -1881,160 +1751,22 @@
     startIndex,
     frameIndices,
   }) {
-    const encoderConfig = await getSupportedWebCodecsExportConfig(exportCanvas.width, exportCanvas.height, settings);
-    if (!encoderConfig) return null;
-    const encodedFrames = [];
-    const frameDurationUs = Math.round(1000000 / DATE_RANGE_EXPORT_VIDEO_FPS);
-    let frameIndex = 0;
-    let encodeError = null;
-    const encoder = new VideoEncoder({
-      output: (chunk) => {
-        const data = new Uint8Array(chunk.byteLength);
-        chunk.copyTo(data);
-        encodedFrames.push({
-          timestamp: chunk.timestamp,
-          type: chunk.type,
-          data,
-        });
-      },
-      error: (error) => {
-        encodeError = error;
-      },
-    });
-    encoder.configure(encoderConfig.config);
-    for (const index of frameIndices) {
-      if (dateRangeExportCancelRequested) break;
-      renderExportFrameToSurface(exportRefs, exportSnapshot, startIndex, index);
-      await composeDateRangeExportFrame(layoutCanvas, layoutSettings, exportRefs);
-      drawScaledExportFrame(layoutCanvas, exportCanvas, settings);
-      const timestamp = frameIndex * frameDurationUs;
-      const frame = new VideoFrame(exportCanvas, {
-        timestamp,
-        duration: frameDurationUs,
-      });
-      encoder.encode(frame, { keyFrame: frameIndex % DATE_RANGE_EXPORT_VIDEO_FPS === 0 });
-      frame.close();
-      if (encodeError) throw encodeError;
-      frameIndex += 1;
-      renderDateRangeDownloadButtonProgress(frameIndex / Math.max(1, frameIndices.length));
-      if (encoder.encodeQueueSize > 8) {
-        await encoder.flush();
-        await waitMs(0);
-      } else if (frameIndex % 6 === 0) {
-        await waitMs(0);
-      }
-    }
-    await encoder.flush();
-    if (encodeError) throw encodeError;
-    encoder.close();
-    if (dateRangeExportCancelRequested) return null;
-    encodedFrames.sort((a, b) => a.timestamp - b.timestamp);
-    return buildWebMBlob(encodedFrames, exportCanvas.width, exportCanvas.height, DATE_RANGE_EXPORT_VIDEO_FPS, encoderConfig.webmCodecId);
-  }
-
-  async function encodeDateRangeAnimationMp4({
-    exportCanvas,
-    layoutCanvas,
-    layoutSettings,
-    exportRefs,
-    exportSnapshot,
-    settings,
-    startIndex,
-    frameIndices,
-  }) {
-    const muxer = window.WSBMp4Muxer;
-    if (!muxer?.getSupportedAvcConfig || !muxer?.buildMp4Blob) return null;
-    const encoderConfig = await muxer.getSupportedAvcConfig(
-      exportCanvas.width,
-      exportCanvas.height,
-      getDateRangeExportBitrate(settings),
-      DATE_RANGE_EXPORT_VIDEO_FPS
-    );
-    if (!encoderConfig) return null;
-    const samples = [];
-    const frameDurationUs = Math.round(1000000 / DATE_RANGE_EXPORT_VIDEO_FPS);
-    let frameIndex = 0;
-    let encodeError = null;
-    let avcConfig = null;
-    const encoder = new VideoEncoder({
-      output: (chunk, metadata) => {
-        const data = new Uint8Array(chunk.byteLength);
-        chunk.copyTo(data);
-        const description = metadata?.decoderConfig?.description;
-        if (description && !avcConfig) avcConfig = new Uint8Array(description);
-        samples.push({
-          data,
-          key: chunk.type === "key",
-        });
-      },
-      error: (error) => {
-        encodeError = error;
-      },
-    });
-    encoder.configure(encoderConfig);
-    for (const index of frameIndices) {
-      if (dateRangeExportCancelRequested) break;
-      renderExportFrameToSurface(exportRefs, exportSnapshot, startIndex, index);
-      await composeDateRangeExportFrame(layoutCanvas, layoutSettings, exportRefs);
-      drawScaledExportFrame(layoutCanvas, exportCanvas, settings);
-      const timestamp = frameIndex * frameDurationUs;
-      const frame = new VideoFrame(exportCanvas, {
-        timestamp,
-        duration: frameDurationUs,
-      });
-      encoder.encode(frame, { keyFrame: frameIndex % DATE_RANGE_EXPORT_VIDEO_FPS === 0 });
-      frame.close();
-      if (encodeError) throw encodeError;
-      frameIndex += 1;
-      renderDateRangeDownloadButtonProgress(frameIndex / Math.max(1, frameIndices.length));
-      if (encoder.encodeQueueSize > 8) {
-        await encoder.flush();
-        await waitMs(0);
-      } else if (frameIndex % 6 === 0) {
-        await waitMs(0);
-      }
-    }
-    await encoder.flush();
-    if (encodeError) throw encodeError;
-    encoder.close();
-    if (dateRangeExportCancelRequested) return null;
-    return muxer.buildMp4Blob({
+    return window.WSBDashboardExport.encodeWebM({
+      canvas: exportCanvas,
       width: exportCanvas.width,
       height: exportCanvas.height,
       fps: DATE_RANGE_EXPORT_VIDEO_FPS,
-      samples,
-      avcConfig,
+      settings,
+      frames: frameIndices,
+      title: "Unit of Account",
+      isCanceled: () => dateRangeExportCancelRequested,
+      onProgress: renderDateRangeDownloadButtonProgress,
+      renderFrame: async (index) => {
+        renderExportFrameToSurface(exportRefs, exportSnapshot, startIndex, index);
+        await composeDateRangeExportFrame(layoutCanvas, layoutSettings, exportRefs);
+        drawScaledExportFrame(layoutCanvas, exportCanvas, settings);
+      },
     });
-  }
-
-  function transitionMediaRecorder(recorder, eventName, action) {
-    return new Promise((resolve, reject) => {
-      recorder.addEventListener(eventName, resolve, { once: true });
-      recorder.addEventListener("error", () => reject(recorder.error || new Error("Recording failed")), { once: true });
-      action();
-    });
-  }
-
-  function getSupportedDownloadRecorder(requestedExtension) {
-    const candidatesByExtension = {
-      mp4: [
-        { mimeType: "video/mp4;codecs=avc1.42E01E", extension: "mp4" },
-        { mimeType: "video/mp4", extension: "mp4" },
-      ],
-      webm: [
-        { mimeType: "video/webm;codecs=vp9", extension: "webm" },
-        { mimeType: "video/webm;codecs=vp8", extension: "webm" },
-        { mimeType: "video/webm", extension: "webm" },
-      ],
-    };
-    const fallbackCandidates = [
-      { mimeType: "video/webm;codecs=vp9", extension: "webm" },
-      { mimeType: "video/webm;codecs=vp8", extension: "webm" },
-      { mimeType: "video/webm", extension: "webm" },
-    ];
-    const candidates = [...(candidatesByExtension[requestedExtension] || []), ...fallbackCandidates];
-    if (!window.MediaRecorder || typeof MediaRecorder.isTypeSupported !== "function") return null;
-    return candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate.mimeType)) || null;
   }
 
   function getDateRangeExportFilename(settings, actualExtension, snapshot = {}) {
@@ -2289,78 +2021,12 @@
     });
   }
 
-  function copyComputedExportStyles(source, target) {
-    if (!source || !target || source.nodeType !== Node.ELEMENT_NODE) return;
-    const computed = getComputedStyle(source);
-    [
-      "align-items",
-      "background",
-      "background-color",
-      "border",
-      "border-radius",
-      "box-sizing",
-      "color",
-      "display",
-      "flex-direction",
-      "font",
-      "font-family",
-      "font-feature-settings",
-      "font-size",
-      "font-stretch",
-      "font-style",
-      "font-variant",
-      "font-variant-numeric",
-      "font-weight",
-      "gap",
-      "grid-template-columns",
-      "grid-template-rows",
-      "height",
-      "justify-content",
-      "left",
-      "letter-spacing",
-      "line-height",
-      "margin",
-      "max-height",
-      "max-width",
-      "min-height",
-      "min-width",
-      "object-fit",
-      "opacity",
-      "overflow",
-      "overflow-x",
-      "overflow-y",
-      "padding",
-      "pointer-events",
-      "position",
-      "right",
-      "text-rendering",
-      "text-align",
-      "top",
-      "transform",
-      "-webkit-font-smoothing",
-      "white-space",
-      "width",
-    ].forEach((property) => {
-      const value = computed.getPropertyValue(property);
-      if (value) target.style.setProperty(property, value);
-    });
-  }
-
   function isExportNumericTextNode(node) {
     if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
     return node.classList.contains("big-value")
       || node.classList.contains("sub-value")
       || node.classList.contains("chart-date-edges")
       || node.parentElement?.classList.contains("chart-date-edges");
-  }
-
-  function applyExportNumericTextFeatures(source, target) {
-    if (!isExportNumericTextNode(source) || !target?.style) return;
-    target.style.setProperty("font-variant-numeric", "tabular-nums", "important");
-    target.style.setProperty("font-feature-settings", "\"tnum\" 1", "important");
-    target.style.setProperty("letter-spacing", "0", "important");
-    target.style.setProperty("text-rendering", "geometricPrecision", "important");
-    target.style.setProperty("-webkit-font-smoothing", "antialiased", "important");
   }
 
   function getExportNumericDigitWidth(node) {
@@ -2457,108 +2123,13 @@
     ].forEach(stabilizeExportNumericTextNode);
   }
 
-  function cloneExportNodeForSnapshot(node) {
-    if (node.nodeType === Node.TEXT_NODE) return document.createTextNode(node.textContent || "");
-    if (node.nodeType !== Node.ELEMENT_NODE) return null;
-    if (node instanceof HTMLCanvasElement) {
-      const img = document.createElement("img");
-      copyComputedExportStyles(node, img);
-      const rect = node.getBoundingClientRect();
-      img.src = node.toDataURL("image/png");
-      img.style.width = `${rect.width}px`;
-      img.style.height = `${rect.height}px`;
-      img.style.display = "block";
-      img.setAttribute("width", `${Math.max(1, Math.round(rect.width))}`);
-      img.setAttribute("height", `${Math.max(1, Math.round(rect.height))}`);
-      return img;
-    }
-    const clone = document.createElement(node.tagName.toLowerCase());
-    copyComputedExportStyles(node, clone);
-    applyExportNumericTextFeatures(node, clone);
-    Array.from(node.attributes).forEach((attribute) => {
-      if (attribute.name !== "style") clone.setAttribute(attribute.name, attribute.value);
-    });
-    node.childNodes.forEach((child) => {
-      const childClone = cloneExportNodeForSnapshot(child);
-      if (childClone) clone.appendChild(childClone);
-    });
-    return clone;
-  }
 
-  async function drawExportSurfaceSnapshot(ctx, exportRefs, width, surfaceHeight) {
-    const clone = cloneExportNodeForSnapshot(exportRefs.surface);
-    if (!clone) return false;
-    clone.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
-    clone.style.position = "static";
-    clone.style.left = "auto";
-    clone.style.top = "auto";
-    clone.style.width = `${width}px`;
-    clone.style.height = `${surfaceHeight}px`;
-    const markup = new XMLSerializer().serializeToString(clone);
-    const svg = [
-      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${surfaceHeight}" viewBox="0 0 ${width} ${surfaceHeight}">`,
-      `<foreignObject width="100%" height="100%">${markup}</foreignObject>`,
-      "</svg>",
-    ].join("");
-    const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
-    try {
-      const image = new Image();
-      image.decoding = "sync";
-      const loaded = new Promise((resolve, reject) => {
-        image.onload = resolve;
-        image.onerror = reject;
-      });
-      image.src = url;
-      await loaded;
-      ctx.drawImage(image, 0, 0, width, surfaceHeight);
-      return true;
-    } catch (error) {
-      console.warn("Falling back to manual animation frame composition.", error);
-      return false;
-    } finally {
-      URL.revokeObjectURL(url);
-    }
-  }
-
-  function canvasHasPixelVariance(canvas) {
-    const ctx = canvas.getContext("2d");
-    if (!ctx || canvas.width < 1 || canvas.height < 1) return false;
-    const stepX = Math.max(1, Math.floor(canvas.width / 28));
-    const stepY = Math.max(1, Math.floor(canvas.height / 18));
-    let reference = null;
-    for (let y = 0; y < canvas.height; y += stepY) {
-      for (let x = 0; x < canvas.width; x += stepX) {
-        let pixel;
-        try {
-          pixel = ctx.getImageData(x, y, 1, 1).data;
-        } catch (_) {
-          return false;
-        }
-        if (pixel[3] === 0) continue;
-        if (!reference) {
-          reference = pixel;
-          continue;
-        }
-        if (
-          Math.abs(pixel[0] - reference[0]) > 4
-          || Math.abs(pixel[1] - reference[1]) > 4
-          || Math.abs(pixel[2] - reference[2]) > 4
-          || Math.abs(pixel[3] - reference[3]) > 4
-        ) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  async function composeDateRangeExportFrame(canvas, settings, exportRefs, options = {}) {
+  async function composeDateRangeExportFrame(canvas, settings, exportRefs) {
     const { width, height, footerHeight } = getExportLayoutMetrics(settings);
     if (canvas.width !== width) canvas.width = width;
     if (canvas.height !== height) canvas.height = height;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    const preferDomSnapshot = options.preferDomSnapshot !== false;
     const palette = getExportThemePalette(settings.theme);
     const bg = palette["--bg"];
     ctx.fillStyle = bg;
@@ -2678,60 +2249,38 @@
       ctx.restore();
     };
 
-    let usedDomSnapshot = false;
-    if (preferDomSnapshot) {
-      const snapshotCanvas = document.createElement("canvas");
-      const snapshotHeight = Math.max(1, height - footerHeight);
-      snapshotCanvas.width = width;
-      snapshotCanvas.height = snapshotHeight;
-      const snapshotCtx = snapshotCanvas.getContext("2d");
-      if (snapshotCtx) {
-        const didDrawSnapshot = await drawExportSurfaceSnapshot(snapshotCtx, exportRefs, width, snapshotHeight);
-        if (didDrawSnapshot && canvasHasPixelVariance(snapshotCanvas)) {
-          ctx.drawImage(snapshotCanvas, 0, 0);
-          usedDomSnapshot = true;
-        }
-      }
+    if (shouldExportChart(settings, "left")) {
+      drawPanel(
+        exportRefs.usdBtcPanel,
+        exportRefs.usdBtcTitle,
+        exportRefs.usdBtcBig,
+        exportRefs.satUsdText,
+        exportRefs.usdBtcDateEdges,
+        exportRefs.usdBtcStartDateEdge,
+        exportRefs.usdBtcEndDateEdge,
+        exportRefs.usdBtcChart
+      );
     }
-    if (!usedDomSnapshot) {
-      if (shouldExportChart(settings, "left")) {
-        drawPanel(
-          exportRefs.usdBtcPanel,
-          exportRefs.usdBtcTitle,
-          exportRefs.usdBtcBig,
-          exportRefs.satUsdText,
-          exportRefs.usdBtcDateEdges,
-          exportRefs.usdBtcStartDateEdge,
-          exportRefs.usdBtcEndDateEdge,
-          exportRefs.usdBtcChart
-        );
-      }
-      if (shouldExportChart(settings, "right")) {
-        drawPanel(
-          exportRefs.btcUsdPanel,
-          exportRefs.btcUsdTitle,
-          exportRefs.btcUsdBig,
-          exportRefs.usdSatText,
-          exportRefs.btcUsdDateEdges,
-          exportRefs.btcUsdStartDateEdge,
-          exportRefs.btcUsdEndDateEdge,
-          exportRefs.btcUsdChart
-        );
-      }
+    if (shouldExportChart(settings, "right")) {
+      drawPanel(
+        exportRefs.btcUsdPanel,
+        exportRefs.btcUsdTitle,
+        exportRefs.btcUsdBig,
+        exportRefs.usdSatText,
+        exportRefs.btcUsdDateEdges,
+        exportRefs.btcUsdStartDateEdge,
+        exportRefs.btcUsdEndDateEdge,
+        exportRefs.btcUsdChart
+      );
     }
     ctx.save();
     ctx.fillStyle = bg;
     ctx.fillRect(0, height - footerHeight, width, footerHeight);
-    ctx.fillStyle = settings.theme === "dark" ? "#6f7f87" : "#8f887f";
-    ctx.font = `500 ${Math.max(30, Math.round(footerHeight * 0.6))}px IBM Plex Mono, monospace`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("https://wickedsmartbitcoin.com/uoa", width / 2, height - footerHeight * 0.68);
+    window.WSBDashboardExport.drawFooterUrl(ctx, "https://wickedsmartbitcoin.com/uoa", { width, height, footerHeight }, {
+      ...settings,
+      referenceQuality: 1440,
+    });
     ctx.restore();
-  }
-
-  function waitMs(ms) {
-    return new Promise((resolve) => window.setTimeout(resolve, ms));
   }
 
   async function waitForDateRangeExportFonts() {
@@ -2753,7 +2302,6 @@
     const dashboardScaleModes = getDashboardScaleModes();
     const layoutSettings = getExportReferenceLayoutSettings(settings);
     const selectedPlaybackFps = Math.max(1, Number(settings.fps) || getSelectedDateRangePlaybackFps());
-    const exportVideoFps = DATE_RANGE_EXPORT_VIDEO_FPS;
     const { width: exportWidth, height: exportHeight } = getExportLayoutMetrics(settings);
 
     const maxIndex = Math.max(0, allRows.length - 1);
@@ -2792,206 +2340,42 @@
     exportCanvas.height = exportHeight;
     const layoutCanvas = document.createElement("canvas");
     let exportRefs = null;
-    let track = null;
-    let recorder = null;
     let wasCanceled = false;
-    const chunks = [];
-    const cachedFrames = new Map();
 
     try {
       exportRefs = createExportRenderSurface(layoutSettings);
       await waitForDateRangeExportFonts();
-      await waitForDateRangeExportFonts();
       const frameIndices = buildDateRangeExportFrameIndices(startIndex, endIndex, selectedPlaybackFps, settings.endFrameHold);
-      if (settings.extension === "mp4") {
-        try {
-          const mp4Blob = await encodeDateRangeAnimationMp4({
-            exportCanvas,
-            layoutCanvas,
-            layoutSettings,
-            exportRefs,
-            exportSnapshot,
-            settings,
-            startIndex,
-            frameIndices,
-          });
-          if (mp4Blob && !dateRangeExportCancelRequested) {
-            renderDateRangeDownloadButtonProgress(1);
-            downloadDateRangeExportBlob(mp4Blob, "mp4", settings, exportSnapshot);
-            return;
-          }
-          if (dateRangeExportCancelRequested) {
-            wasCanceled = true;
-            return;
-          }
-        } catch (error) {
-          console.warn("Deterministic WebCodecs MP4 export unavailable; falling back to recorder export.", error);
-        }
-      }
 
-      if (settings.extension === "webm") {
-        try {
-          const webmBlob = await encodeDateRangeAnimationWebM({
-            exportCanvas,
-            layoutCanvas,
-            layoutSettings,
-            exportRefs,
-            exportSnapshot,
-            settings,
-            startIndex,
-            frameIndices,
-          });
-          if (webmBlob && !dateRangeExportCancelRequested) {
-            renderDateRangeDownloadButtonProgress(1);
-            downloadDateRangeExportBlob(webmBlob, "webm", settings, exportSnapshot);
-            return;
-          }
-          if (dateRangeExportCancelRequested) {
-            wasCanceled = true;
-            return;
-          }
-        } catch (error) {
-          console.warn("Deterministic WebCodecs export unavailable; falling back to recorder export.", error);
-        }
-      }
-
-      const recorderInfo = getSupportedDownloadRecorder(settings.extension);
-      if (!recorderInfo || typeof HTMLCanvasElement.prototype.captureStream !== "function") {
-        throw new Error("Recording export unavailable.");
-      }
-
-      const batchSize = getDateRangeExportBatchSize(settings);
-      const totalWorkUnits = Math.max(1, frameIndices.length * 2);
-      let completedWorkUnits = 0;
-
-      const exportCtx = exportCanvas.getContext("2d");
-      if (!exportCtx) throw new Error("Export canvas context unavailable.");
-      let stream;
-      try {
-        stream = exportCanvas.captureStream(0);
-      } catch (_) {
-        stream = exportCanvas.captureStream(exportVideoFps);
-      }
-      [track] = stream.getVideoTracks();
-      if (!track || typeof track.requestFrame !== "function") {
-        if (track) track.stop();
-        stream = exportCanvas.captureStream(exportVideoFps);
-        [track] = stream.getVideoTracks();
-      }
-      recorder = new MediaRecorder(stream, {
-        mimeType: recorderInfo.mimeType,
-        videoBitsPerSecond: getDateRangeExportBitrate(settings),
+      const webmBlob = await encodeDateRangeAnimationWebM({
+        exportCanvas,
+        layoutCanvas,
+        layoutSettings,
+        exportRefs,
+        exportSnapshot,
+        settings,
+        startIndex,
+        frameIndices,
       });
 
-      recorder.addEventListener("dataavailable", (event) => {
-        if (event.data && event.data.size > 0) chunks.push(event.data);
-      });
-
-      const recorderDone = new Promise((resolve, reject) => {
-        recorder.addEventListener("stop", resolve, { once: true });
-        recorder.addEventListener("error", () => reject(recorder.error || new Error("Recording failed")), { once: true });
-      });
-
-      const renderFrameBatch = async (batchStart) => {
-        closeDateRangeExportFrames(cachedFrames);
-        const batchIndices = frameIndices.slice(batchStart, batchStart + batchSize);
-        const uniqueBatchIndices = [];
-        const seenBatchIndices = new Set();
-        batchIndices.forEach((index) => {
-          if (seenBatchIndices.has(index)) return;
-          seenBatchIndices.add(index);
-          uniqueBatchIndices.push(index);
-        });
-        for (const index of uniqueBatchIndices) {
-          if (dateRangeExportCancelRequested) {
-            wasCanceled = true;
-            break;
-          }
-          renderExportFrameToSurface(exportRefs, exportSnapshot, startIndex, index);
-          await composeDateRangeExportFrame(layoutCanvas, layoutSettings, exportRefs);
-          drawScaledExportFrame(layoutCanvas, exportCanvas, settings);
-          const frameImage = typeof createImageBitmap === "function"
-            ? await createImageBitmap(exportCanvas)
-            : (() => {
-                const canvas = document.createElement("canvas");
-                canvas.width = exportCanvas.width;
-                canvas.height = exportCanvas.height;
-                canvas.getContext("2d")?.drawImage(exportCanvas, 0, 0);
-                return canvas;
-              })();
-          cachedFrames.set(index, frameImage);
-          completedWorkUnits += 1;
-          renderDateRangeDownloadButtonProgress(completedWorkUnits / totalWorkUnits);
-        }
-      };
-
-      recorder.start();
-      if (typeof recorder.pause !== "function" || typeof recorder.resume !== "function") {
-        throw new Error("MediaRecorder pause/resume unavailable.");
+      if (!webmBlob) {
+        if (dateRangeExportCancelRequested) wasCanceled = true;
+        else throw new Error("Deterministic WebCodecs export unavailable.");
+        return;
       }
-      await transitionMediaRecorder(recorder, "pause", () => recorder.pause());
-
-      let recordedFrames = 0;
-      const frameDurationMs = 1000 / exportVideoFps;
-      for (let batchStart = 0; batchStart < frameIndices.length; batchStart += batchSize) {
-        await renderFrameBatch(batchStart);
-        if (wasCanceled || dateRangeExportCancelRequested) {
-          wasCanceled = true;
-          break;
-        }
-        await transitionMediaRecorder(recorder, "resume", () => recorder.resume());
-        let lastCaptureTime = performance.now() - frameDurationMs;
-        const batchEnd = Math.min(frameIndices.length, batchStart + batchSize);
-        for (let frameIndex = batchStart; frameIndex < batchEnd; frameIndex += 1) {
-          const index = frameIndices[frameIndex];
-          if (dateRangeExportCancelRequested) {
-            wasCanceled = true;
-            break;
-          }
-          const frameImage = cachedFrames.get(index);
-          if (!frameImage) throw new Error("Cached export frame unavailable.");
-          const elapsedSinceLastCapture = performance.now() - lastCaptureTime;
-          if (elapsedSinceLastCapture < frameDurationMs) {
-            await waitMs(frameDurationMs - elapsedSinceLastCapture);
-          }
-          exportCtx.clearRect(0, 0, exportCanvas.width, exportCanvas.height);
-          exportCtx.drawImage(frameImage, 0, 0);
-          if (dateRangeExportCancelRequested) {
-            wasCanceled = true;
-            break;
-          }
-          if (track && typeof track.requestFrame === "function") track.requestFrame();
-          lastCaptureTime = performance.now();
-          recordedFrames += 1;
-          completedWorkUnits += 1;
-          renderDateRangeDownloadButtonProgress(completedWorkUnits / totalWorkUnits);
-        }
-        if (wasCanceled || dateRangeExportCancelRequested) break;
-        if (batchEnd < frameIndices.length) {
-          await transitionMediaRecorder(recorder, "pause", () => recorder.pause());
-        }
-      }
-      recorder.stop();
-      await recorderDone;
-      if (wasCanceled || dateRangeExportCancelRequested) {
-        chunks.length = 0;
+      if (dateRangeExportCancelRequested) {
+        wasCanceled = true;
         return;
       }
       renderDateRangeDownloadButtonProgress(1);
-
-      const blob = new Blob(chunks, { type: recorderInfo.mimeType });
-      downloadDateRangeExportBlob(blob, recorderInfo.extension, settings, exportSnapshot);
+      downloadDateRangeExportBlob(webmBlob, "webm", settings, exportSnapshot);
     } catch (error) {
       if (!wasCanceled && !dateRangeExportCancelRequested) {
         console.error(error);
         window.alert("The animation export could not be completed in this browser.");
       }
     } finally {
-      if (recorder && recorder.state !== "inactive") recorder.stop();
-      if (track) track.stop();
-      closeDateRangeExportFrames(cachedFrames);
       if (exportRefs?.surface) exportRefs.surface.remove();
-      chunks.length = 0;
       isDateRangeExporting = false;
       dateRangeExportCancelRequested = false;
       broadcastDateRangeExportActive(false);
@@ -3921,7 +3305,7 @@
     syncDashboardScaleControls();
     syncDownloadChartModeLabels();
     syncAllDropdowns();
-    if (el.updatedKpiValue) el.updatedKpiValue.textContent = withUpdatedKpiBlockHeight(formatUpdatedDisplayText(refreshedAtText));
+    setUpdatedKpiValue(refreshedAtText);
     return shellState;
   }
 
@@ -4134,26 +3518,15 @@
 
   function updateResetButtonUi() {
     const btn = el.resetDashboard || document.getElementById("resetDashboard");
-    if (!btn) return;
-    const labelEl = btn.querySelector(".btn-label");
-    if (preResetStateSnapshot) {
-      if (labelEl) labelEl.textContent = "Undo Restore";
-      else btn.textContent = "Undo Restore";
-      setButtonIcon("resetDashboardIcon", ICONS.resetUndo);
-      btn.classList.add("reset-dashboard-btn--undo");
-      btn.setAttribute("aria-label", "Undo the last restore defaults action");
-      setCustomTooltip(btn, "Undo the last restore defaults action");
-      btn.disabled = false;
-      return;
-    }
-
-    if (labelEl) labelEl.textContent = "Restore Defaults";
-    else btn.textContent = "Restore Defaults";
-    setButtonIcon("resetDashboardIcon", ICONS.resetDefaults);
-    btn.classList.remove("reset-dashboard-btn--undo");
-    btn.setAttribute("aria-label", "Restore dashboard defaults");
-    setCustomTooltip(btn, "Reset dashboard to defaults");
-    btn.disabled = isDefaultState();
+    window.WSBDashboardComponents.setResetButtonState({
+      button: btn,
+      isUndo: !!preResetStateSnapshot,
+      disabled: isDefaultState(),
+      undoIcon: ICONS.resetUndo,
+      defaultIcon: ICONS.resetDefaults,
+      setIcon: (icon) => setButtonIcon("resetDashboardIcon", icon),
+    });
+    setCustomTooltip(btn, preResetStateSnapshot ? "Undo the last restore defaults action" : "Reset dashboard to defaults");
   }
 
   function getShareRouteBaseUrl() {
@@ -4183,38 +3556,13 @@
   }
 
   async function copyDashboardLinkToClipboard(buttonEl) {
-    const link = buildShareableDashboardUrl();
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(link);
-    } else {
-      const textArea = document.createElement("textarea");
-      textArea.value = link;
-      textArea.setAttribute("readonly", "readonly");
-      textArea.style.position = "absolute";
-      textArea.style.left = "-9999px";
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand("copy");
-      document.body.removeChild(textArea);
-    }
-
-    if (!buttonEl) return;
-    const labelEl = buttonEl.querySelector(".btn-label");
-    const original = labelEl ? labelEl.textContent : buttonEl.textContent;
-    if (buttonEl.__copyFeedbackTimer) {
-      window.clearTimeout(buttonEl.__copyFeedbackTimer);
-    }
-    buttonEl.classList.add("copy-link-btn--copied");
-    setButtonIcon("copyDashboardIcon", ICONS.copyCopied);
-    if (labelEl) labelEl.textContent = "Copied!";
-    else buttonEl.textContent = "Copied!";
-    buttonEl.__copyFeedbackTimer = window.setTimeout(() => {
-      setButtonIcon("copyDashboardIcon", ICONS.copyLink);
-      if (labelEl) labelEl.textContent = original || "Copy Link";
-      else buttonEl.textContent = original || "Copy Link";
-      buttonEl.classList.remove("copy-link-btn--copied");
-      buttonEl.__copyFeedbackTimer = null;
-    }, 1400);
+    await window.WSBDashboardComponents.copyDashboardLink({
+      button: buttonEl,
+      getUrl: buildShareableDashboardUrl,
+      copiedIcon: ICONS.copyCopied,
+      defaultIcon: ICONS.copyLink,
+      setIcon: (icon) => setButtonIcon("copyDashboardIcon", icon),
+    });
   }
 
   function bindDashboardActionButtons() {
@@ -4431,13 +3779,6 @@
   }
 
   const DROPDOWNS = [
-    {
-      selectId: "updatedTimeZoneSelect",
-      dropdownId: "updatedTimeZoneDropdown",
-      triggerId: "updatedTimeZoneDropdownTrigger",
-      menuId: "updatedTimeZoneDropdownMenu",
-      valueId: null,
-    },
     {
       selectId: "uoaGroupSelect",
       dropdownId: "uoaGroupDropdown",
@@ -6235,11 +5576,31 @@
     return normalized && heightText ? `${normalized} | ${heightText}` : normalized;
   }
 
+  function setUpdatedKpiValue(rawText, fallbackDate = null) {
+    const cleaned = String(rawText || "").trim();
+    const heightText = getUpdatedKpiBlockHeightText();
+    if (updatedTimeZoneChip) {
+      let value = cleaned;
+      if (!value && fallbackDate instanceof Date && !Number.isNaN(fallbackDate.getTime())) {
+        value = fallbackDate.toISOString();
+      }
+      updatedTimeZoneChip.setUpdated(value, {
+        includeHeight: !!heightText,
+        height: heightText,
+      });
+      return;
+    }
+    if (!el.updatedKpiValue) return;
+    const updatedText = cleaned
+      ? formatUpdatedDisplayText(cleaned)
+      : formatUpdatedKpiTimestamp(fallbackDate);
+    el.updatedKpiValue.textContent = withUpdatedKpiBlockHeight(updatedText);
+  }
+
   function syncUpdatedTimeZonePreference(nextTimeZone) {
     const next = String(nextTimeZone || getPreferredDashboardTimeZone() || "UTC").trim() || "UTC";
     if (updatedKpiTimeZone === next) {
-      const dropdownConfig = DROPDOWNS.find((config) => config.selectId === "updatedTimeZoneSelect");
-      if (dropdownConfig) syncDropdownMenu(dropdownConfig);
+      updatedTimeZoneChip?.syncDropdown?.();
       return;
     }
     updatedKpiTimeZone = next;
@@ -6249,11 +5610,10 @@
       if (hasOption) {
         select.value = next;
       } else {
-        populateUpdatedTimeZoneSelect();
+        updatedTimeZoneChip?.populate?.();
       }
     }
-    const dropdownConfig = DROPDOWNS.find((config) => config.selectId === "updatedTimeZoneSelect");
-    if (dropdownConfig) syncDropdownMenu(dropdownConfig);
+    updatedTimeZoneChip?.syncDropdown?.();
     persistFilters();
     renderAll();
   }
@@ -6399,331 +5759,7 @@
   }
 
   function makeDatePicker(opts) {
-    let popup = null;
-    let pickerYear;
-    let pickerMonth;
-    let pickerView = "days";
-    let pickerExpandedYear = null;
-    const align = opts.align === "left" ? "left" : "right";
-
-    function isoToDate(iso) {
-      if (!iso) return null;
-      const [y, m, d] = iso.split("-").map(Number);
-      const dt = new Date(y, m - 1, d);
-      dt.setHours(0, 0, 0, 0);
-      return dt;
-    }
-
-    function buildCalendar() {
-      const selectedIso = opts.getSelected();
-      const minDate = isoToDate(opts.getMin());
-      const maxDate = isoToDate(opts.getMax());
-
-      const year = pickerYear;
-      const month = pickerMonth;
-      const monthLabel = new Date(year, month, 1).toLocaleString("default", { month: "long", year: "numeric" });
-
-      const wrap = document.createElement("div");
-      wrap.className = "date-picker-popup";
-
-      const header = document.createElement("div");
-      header.className = "date-picker-header";
-      const prev = document.createElement("button");
-      prev.className = "date-picker-nav";
-      prev.textContent = "\u2039";
-      prev.type = "button";
-      prev.addEventListener("click", (event) => {
-        event.stopPropagation();
-        pickerMonth -= 1;
-        if (pickerMonth < 0) {
-          pickerMonth = 11;
-          pickerYear -= 1;
-        }
-        rebuildCalendar();
-      });
-      const next = document.createElement("button");
-      next.className = "date-picker-nav";
-      next.textContent = "\u203a";
-      next.type = "button";
-      next.addEventListener("click", (event) => {
-        event.stopPropagation();
-        pickerMonth += 1;
-        if (pickerMonth > 11) {
-          pickerMonth = 0;
-          pickerYear += 1;
-        }
-        rebuildCalendar();
-      });
-      const lbl = document.createElement("span");
-      lbl.textContent = monthLabel;
-      lbl.className = "date-picker-header-label";
-      lbl.title = "Select year / month";
-      lbl.addEventListener("click", (event) => {
-        event.stopPropagation();
-        pickerView = "years";
-        pickerExpandedYear = null;
-        rebuildCalendar();
-      });
-      header.append(prev, lbl, next);
-      wrap.appendChild(header);
-
-      const grid = document.createElement("div");
-      grid.className = "date-picker-grid";
-      ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].forEach((d) => {
-        const dow = document.createElement("div");
-        dow.className = "date-picker-dow";
-        dow.textContent = d;
-        grid.appendChild(dow);
-      });
-
-      const firstDay = new Date(year, month, 1).getDay();
-      for (let i = 0; i < firstDay; i += 1) {
-        const blank = document.createElement("div");
-        blank.className = "date-picker-day dp-empty";
-        grid.appendChild(blank);
-      }
-
-      const daysInMonth = new Date(year, month + 1, 0).getDate();
-      for (let d = 1; d <= daysInMonth; d += 1) {
-        const date = new Date(year, month, d);
-        date.setHours(0, 0, 0, 0);
-        const isoVal = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-        const isSelected = isoVal === selectedIso;
-        const outOfRange = (minDate && date < minDate) || (maxDate && date > maxDate);
-        const extraDisabled = opts.isDisabled ? opts.isDisabled(isoVal) : false;
-
-        const cell = document.createElement("div");
-        cell.className = "date-picker-day";
-        cell.textContent = String(d);
-
-        if (isSelected) {
-          cell.classList.add("dp-selected");
-        }
-
-        if (outOfRange || extraDisabled) {
-          cell.classList.add("dp-disabled");
-        } else {
-          cell.addEventListener("click", (event) => {
-            event.stopPropagation();
-            closePopup();
-            opts.onSelect(isoVal);
-          });
-        }
-        grid.appendChild(cell);
-      }
-
-      wrap.appendChild(grid);
-      return wrap;
-    }
-
-    function buildYearGrid() {
-      const minDate = isoToDate(opts.getMin());
-      const maxDate = isoToDate(opts.getMax());
-      const minYear = minDate ? minDate.getFullYear() : pickerYear - 10;
-      const maxYear = maxDate ? maxDate.getFullYear() : pickerYear + 5;
-
-      const wrap = document.createElement("div");
-      wrap.className = "date-picker-popup dp-year-grid-popup";
-
-      const header = document.createElement("div");
-      header.className = "date-picker-header";
-      const backBtn = document.createElement("button");
-      backBtn.className = "date-picker-nav";
-      backBtn.textContent = "\u2039";
-      backBtn.type = "button";
-      backBtn.title = "Back to calendar";
-      backBtn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        pickerView = "days";
-        rebuildCalendar();
-      });
-      const lbl = document.createElement("span");
-      lbl.className = "date-picker-header-label";
-      lbl.textContent = "Select Year";
-      header.append(backBtn, lbl);
-      wrap.appendChild(header);
-
-      const grid = document.createElement("div");
-      grid.className = "dp-year-grid";
-      for (let y = minYear; y <= maxYear; y += 1) {
-        const cell = document.createElement("div");
-        cell.className = "dp-year-cell";
-        if (y === pickerYear) cell.classList.add("dp-year-current");
-        const yearLbl = document.createElement("span");
-        yearLbl.textContent = String(y);
-        const yearChevron = document.createElement("span");
-        yearChevron.className = "dp-accordion-chevron";
-        yearChevron.textContent = "\u203a";
-        cell.append(yearLbl, yearChevron);
-        cell.addEventListener("click", (event) => {
-          event.stopPropagation();
-          pickerView = "year";
-          pickerExpandedYear = y;
-          rebuildCalendar();
-        });
-        grid.appendChild(cell);
-      }
-      wrap.appendChild(grid);
-      return wrap;
-    }
-
-    function buildYearAccordion() {
-      const minDate = isoToDate(opts.getMin());
-      const maxDate = isoToDate(opts.getMax());
-      const minYear = minDate ? minDate.getFullYear() : pickerYear - 10;
-      const maxYear = maxDate ? maxDate.getFullYear() : pickerYear + 5;
-      const expandedYear = pickerExpandedYear !== null ? pickerExpandedYear : pickerYear;
-      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-      const wrap = document.createElement("div");
-      wrap.className = "date-picker-popup dp-year-grid-popup";
-
-      const header = document.createElement("div");
-      header.className = "date-picker-header";
-      const backBtn = document.createElement("button");
-      backBtn.className = "date-picker-nav";
-      backBtn.textContent = "\u2039";
-      backBtn.type = "button";
-      backBtn.title = "Back to year list";
-      backBtn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        pickerView = "years";
-        pickerExpandedYear = null;
-        rebuildCalendar();
-      });
-      const lbl = document.createElement("span");
-      lbl.className = "date-picker-header-label";
-      lbl.textContent = "Select Month";
-      header.append(backBtn, lbl);
-      wrap.appendChild(header);
-
-      const list = document.createElement("div");
-      list.className = "dp-accordion-list";
-
-      for (let y = minYear; y <= maxYear; y += 1) {
-        const yearRow = document.createElement("div");
-        yearRow.className = `dp-accordion-year${y === expandedYear ? " dp-accordion-open" : ""}`;
-
-        const yearBtn = document.createElement("button");
-        yearBtn.type = "button";
-        yearBtn.className = "dp-accordion-year-btn";
-        yearBtn.textContent = String(y);
-        const chevron = document.createElement("span");
-        chevron.className = "dp-accordion-chevron";
-        chevron.textContent = "\u203a";
-        yearBtn.appendChild(chevron);
-        yearBtn.addEventListener("click", (event) => {
-          event.stopPropagation();
-          pickerExpandedYear = pickerExpandedYear === y ? null : y;
-          rebuildCalendar();
-        });
-        yearRow.appendChild(yearBtn);
-
-        if (y === expandedYear) {
-          const monthGrid = document.createElement("div");
-          monthGrid.className = "dp-month-grid";
-          monthNames.forEach((name, m) => {
-            const minMonth = minDate && y === minDate.getFullYear() ? minDate.getMonth() : -1;
-            const maxMonth = maxDate && y === maxDate.getFullYear() ? maxDate.getMonth() : 12;
-            const disabled = m < minMonth || m > maxMonth;
-            const cell = document.createElement("div");
-            cell.className = `dp-month-cell${disabled ? " dp-disabled" : ""}`;
-            if (y === pickerYear && m === pickerMonth) cell.classList.add("dp-month-current");
-            cell.textContent = name;
-            if (!disabled) {
-              cell.addEventListener("click", (event) => {
-                event.stopPropagation();
-                pickerYear = y;
-                pickerMonth = m;
-                pickerView = "days";
-                pickerExpandedYear = null;
-                rebuildCalendar();
-              });
-            }
-            monthGrid.appendChild(cell);
-          });
-          yearRow.appendChild(monthGrid);
-        }
-        list.appendChild(yearRow);
-      }
-      wrap.appendChild(list);
-      return wrap;
-    }
-
-    function positionPopup() {
-      if (!popup) return;
-      const rect = opts.anchorEl.getBoundingClientRect();
-      popup.style.top = `${rect.bottom + 6}px`;
-      const idealLeft = align === "left" ? rect.left : rect.right - popup.offsetWidth;
-      const maxLeft = Math.max(4, window.innerWidth - popup.offsetWidth - 4);
-      const left = Math.min(Math.max(4, idealLeft), maxLeft);
-      popup.style.left = `${left}px`;
-    }
-
-    function rebuildCalendar() {
-      if (!popup) return;
-      const fresh = pickerView === "years" ? buildYearGrid() : pickerView === "year" ? buildYearAccordion() : buildCalendar();
-      popup.replaceChildren(...fresh.childNodes);
-      popup.className = fresh.className;
-      requestAnimationFrame(() => {
-        positionPopup();
-        if (pickerView === "years") {
-          const grid = popup.querySelector(".dp-year-grid");
-          const selectedYear = popup.querySelector(".dp-year-current");
-          if (grid && selectedYear) {
-            grid.scrollTop = Math.max(0, selectedYear.offsetTop + selectedYear.offsetHeight - grid.clientHeight);
-          }
-        } else if (pickerView === "year") {
-          const list = popup.querySelector(".dp-accordion-list");
-          const openRow = popup.querySelector(".dp-accordion-year.dp-accordion-open");
-          if (list && openRow) {
-            const yearButton = openRow.querySelector(".dp-accordion-year-btn");
-            const desiredTop = Math.max(0, (yearButton || openRow).offsetTop - 2);
-            list.scrollTop = Math.min(desiredTop, Math.max(0, list.scrollHeight - list.clientHeight));
-          }
-        }
-      });
-    }
-
-    function openPopup() {
-      closeAllOverlays();
-      pickerView = "days";
-      pickerExpandedYear = null;
-      const selectedIso = opts.getSelected();
-      if (selectedIso) {
-        const [y, m] = selectedIso.split("-").map(Number);
-        pickerYear = y;
-        pickerMonth = m - 1;
-      } else {
-        const now = new Date();
-        pickerYear = now.getFullYear();
-        pickerMonth = now.getMonth();
-      }
-      popup = buildCalendar();
-      document.body.appendChild(popup);
-      requestAnimationFrame(positionPopup);
-      window.addEventListener("scroll", positionPopup, true);
-      window.addEventListener("resize", positionPopup);
-    }
-
-    function closePopup() {
-      if (!popup) return;
-      popup.remove();
-      popup = null;
-      window.removeEventListener("scroll", positionPopup, true);
-      window.removeEventListener("resize", positionPopup);
-    }
-
-    function toggle(event) {
-      event.stopPropagation();
-      if (popup) closePopup();
-      else openPopup();
-    }
-
-    document.addEventListener("click", closePopup);
-    overlayClosers.add(closePopup);
-
-    return { toggle, closePopup, rebuildCalendar };
+    return window.WSBDashboardComponents.createDatePicker(opts);
   }
 
   function refreshDateButtonLabels() {
@@ -8062,19 +7098,6 @@
     syncShowMonetaryMetalsToggle();
     setMetalDenomination(saved.metalDenomination, { persist: false, render: false, updateReset: false, force: true });
 
-    const updatedTimeZoneSelect = document.getElementById("updatedTimeZoneSelect");
-    if (updatedTimeZoneSelect) {
-      updatedTimeZoneSelect.addEventListener("change", () => {
-        const next = String(updatedTimeZoneSelect.value || "UTC");
-        updatedKpiTimeZone = setPreferredDashboardTimeZone(next);
-        syncAllDropdowns();
-        updatedTimeZoneSelect.blur();
-        closeAllDropdowns();
-        persistFilters();
-        renderAll();
-      });
-    }
-
     syncPairControls();
     bindCustomDropdowns();
     bindSecondaryArrowCycling();
@@ -8619,7 +7642,7 @@
       el.satUsdText.textContent = "N/A";
       el.usdSatText.textContent = "N/A";
       if (el.rightAsOf) el.rightAsOf.textContent = "--";
-      if (el.updatedKpiValue) el.updatedKpiValue.textContent = withUpdatedKpiBlockHeight(formatUpdatedDisplayText(refreshedAtText));
+      setUpdatedKpiValue(refreshedAtText);
       clearCanvas(el.usdBtcChart);
       clearCanvas(el.btcUsdChart);
       return;
@@ -8792,12 +7815,7 @@
     }
 
     if (el.rightAsOf) el.rightAsOf.textContent = fmtDate(latestOriginal.date);
-    if (el.updatedKpiValue) {
-      const updatedText = refreshedAtText
-        ? formatUpdatedDisplayText(refreshedAtText)
-        : formatUpdatedKpiTimestamp(latestOriginal.date);
-      el.updatedKpiValue.textContent = withUpdatedKpiBlockHeight(updatedText);
-    }
+    setUpdatedKpiValue(refreshedAtText, latestOriginal.date);
 
     // Determine colors and labels based on pair
     const chartColors = getChartAccentColors(primaryCurrency, secondaryCurrency);
@@ -9395,7 +8413,7 @@
     showMonetaryMetals = getInitialShowMonetaryMetalsSetting();
     populateUoaGroupSelect();
     populateCurrencyDropdowns();
-    populateUpdatedTimeZoneSelect();
+    updatedTimeZoneChip?.populate?.();
     hydrateTitleAndFilterShell();
 
     const fxRatesPromise = loadFxRates();

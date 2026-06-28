@@ -1686,45 +1686,13 @@ function readFiltersFromUrl() {
 }
 
 async function copyDashboardLinkToClipboard(buttonEl) {
-  const link = buildShareableDashboardUrl();
-
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(link);
-  } else {
-    const textArea = document.createElement("textarea");
-    textArea.value = link;
-    textArea.setAttribute("readonly", "readonly");
-    textArea.style.position = "absolute";
-    textArea.style.left = "-9999px";
-    document.body.appendChild(textArea);
-    textArea.select();
-    document.execCommand("copy");
-    document.body.removeChild(textArea);
-  }
-
-  if (!buttonEl) return;
-  const labelEl = buttonEl.querySelector(".btn-label");
-  const originalLabel = (labelEl ? labelEl.textContent : buttonEl.textContent) || "Copy Link";
-  if (buttonEl.__copyFeedbackTimer) {
-    window.clearTimeout(buttonEl.__copyFeedbackTimer);
-  }
-  buttonEl.classList.add("copy-link-btn--copied");
-  if (labelEl) {
-    labelEl.textContent = "Copied!";
-  } else {
-    buttonEl.textContent = "Copied!";
-  }
-  setButtonIcon("copyDashboardIcon", ICONS.copyCopied);
-  buttonEl.__copyFeedbackTimer = window.setTimeout(() => {
-    if (labelEl) {
-      labelEl.textContent = originalLabel;
-    } else {
-      buttonEl.textContent = originalLabel;
-    }
-    setButtonIcon("copyDashboardIcon", ICONS.copyLink);
-    buttonEl.classList.remove("copy-link-btn--copied");
-    buttonEl.__copyFeedbackTimer = null;
-  }, 1400);
+  await window.WSBDashboardComponents.copyDashboardLink({
+    button: buttonEl,
+    getUrl: buildShareableDashboardUrl,
+    copiedIcon: ICONS.copyCopied,
+    defaultIcon: ICONS.copyLink,
+    setIcon: (icon) => setButtonIcon("copyDashboardIcon", icon),
+  });
 }
 
 function parseCsvLine(line) {
@@ -3911,7 +3879,7 @@ function showHistoricalLoadingOverlay(container, message) {
   if (!card || !messageEl) {
     overlay.innerHTML = `
       <div class="historical-chart-loading-card" role="status" aria-live="polite">
-        <span class="historical-chart-loading-spinner" aria-hidden="true"></span>
+        <span class="chart-loader-ring" aria-hidden="true"></span>
         <span class="historical-chart-loading-message"></span>
       </div>
     `;
@@ -4765,31 +4733,15 @@ function isDefaultFilterState() {
 
 function updateResetButtonUi() {
   const btn = document.getElementById("resetDashboard");
-  if (!btn) return;
-  const labelEl = btn.querySelector(".btn-label");
-  if (state.preResetStateSnapshot) {
-    setButtonIcon("resetDashboardIcon", ICONS.resetUndo);
-    if (labelEl) {
-      labelEl.textContent = "Undo Restore";
-    } else {
-      btn.textContent = "Undo Restore";
-    }
-    btn.classList.add("reset-dashboard-btn--undo");
-    btn.setAttribute("aria-label", "Undo the last restore defaults action");
-    setCustomTooltip(btn, "Undo the last restore defaults action");
-    btn.disabled = false;
-  } else {
-    setButtonIcon("resetDashboardIcon", ICONS.resetDefaults);
-    if (labelEl) {
-      labelEl.textContent = "Restore Defaults";
-    } else {
-      btn.textContent = "Restore Defaults";
-    }
-    btn.classList.remove("reset-dashboard-btn--undo");
-    btn.setAttribute("aria-label", "Restore dashboard defaults");
-    setCustomTooltip(btn, "Reset dashboard to defaults");
-    btn.disabled = isDefaultFilterState();
-  }
+  window.WSBDashboardComponents.setResetButtonState({
+    button: btn,
+    isUndo: !!state.preResetStateSnapshot,
+    disabled: isDefaultFilterState(),
+    undoIcon: ICONS.resetUndo,
+    defaultIcon: ICONS.resetDefaults,
+    setIcon: (icon) => setButtonIcon("resetDashboardIcon", icon),
+  });
+  setCustomTooltip(btn, state.preResetStateSnapshot ? "Undo the last restore defaults action" : "Reset dashboard to defaults");
 }
 
 function clearPreResetSnapshot() {
@@ -6814,10 +6766,25 @@ async function loadSnapshotData(snapshot) {
     }
 
     // Phase 2a: Load lightweight top100 version first, but initially render only 50 rows.
-    const ecoRespLite = await fetch(`${basePath}/dashboard_pubkeys_ge_1btc_top100.csv`);
-    if (!ecoRespLite.ok) {
+    let ecoRespLite = null;
+    try {
+      ecoRespLite = await fetch(`${basePath}/dashboard_pubkeys_ge_1btc_top100.csv`);
+    } catch (err) {
+      console.warn(`Could not request top_100 CSV from ${basePath}:`, err);
+    }
+    if (!ecoRespLite?.ok) {
       state.topExposuresLoading = false;
-      throw new Error(`Could not load top_100 CSV from ${basePath}/`);
+      state.ge1Rows = [];
+      state.ge1IsUsingEcoSubset = false;
+      console.warn(`Could not load top_100 CSV from ${basePath}/; keeping aggregate dashboard data visible.`);
+      renderTopExposureTagFilters();
+      updateTopExposures();
+      state.snapshotDataCache.set(requestedSnapshot, {
+        snapshotHeight: state.snapshotHeight,
+        aggregatesRows,
+        ge1Rows: [],
+      });
+      return;
     }
 
     const ge1RowsEcoSubset = parseCsv(await ecoRespLite.text());

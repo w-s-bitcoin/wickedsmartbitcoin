@@ -1,12 +1,13 @@
 :root {
   color-scheme: dark;
-  --bg: #000000;
+  --bg: var(--dashboard-page-bg, #000000);
   --fg: #f1f5f7;
   --ink: #f1f5f7;
   --muted: #95a6ae;
   --accent: #ff9900;
   --green: #35c779;
-  --panel: #000000;
+  --panel: var(--dashboard-panel-bg, #000000);
+  --chart-bg: var(--dashboard-chart-bg, #000000);
   --surface: #000000;
   --surface-soft: #000000;
   --line: rgba(255, 255, 255, 0.16);
@@ -18,11 +19,12 @@
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg: #ffffff;
+  --bg: var(--dashboard-page-bg, #f4f5f7);
   --fg: #171717;
   --ink: #171717;
   --muted: #6f685f;
-  --panel: #ffffff;
+  --panel: var(--dashboard-panel-bg, #ffffff);
+  --chart-bg: var(--dashboard-chart-bg, #ffffff);
   --surface: #ffffff;
   --surface-soft: #ffffff;
   --line: rgba(0, 0, 0, 0.12);
@@ -69,6 +71,7 @@ body {
 
 .topbar {
   position: relative;
+  z-index: 80;
   display: grid;
   gap: 8px;
   padding: 10px 12px;
@@ -314,7 +317,23 @@ body {
   visibility: hidden;
 }
 
-#chipUpdated { width: 22ch; }
+#updatedChipWrap {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+#updatedChipWrap .chip-kpi-display,
+#chipUpdated {
+  width: 100%;
+  overflow: hidden;
+}
+
+#chipUpdated {
+  width: var(--kpi-width-updated, 22ch);
+  min-width: var(--kpi-width-updated, 22ch);
+  padding-right: 24px;
+}
+
 #chipHeight { width: 17ch; }
 #chipDailyHigh { width: 25ch; }
 #chipAth { width: 48ch; }
@@ -408,237 +427,6 @@ body {
 .date-range-header label.chip:has(.date-range-btn):focus-within {
   outline: none !important;
   box-shadow: none !important;
-}
-
-.date-picker-popup {
-  position: fixed;
-  z-index: 200;
-  background: var(--panel);
-  border: 1px solid var(--panel-border);
-  border-radius: 12px;
-  padding: 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.28);
-  width: 224px;
-  user-select: none;
-}
-
-.date-picker-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-  gap: 4px;
-}
-
-.date-picker-header span {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--fg);
-  flex: 1;
-  text-align: center;
-}
-
-.date-picker-nav {
-  background: none;
-  border: none;
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 1rem;
-  padding: 2px 6px;
-  border-radius: 6px;
-  line-height: 1;
-}
-
-.date-picker-nav:hover {
-  color: var(--fg);
-  background: rgba(255, 255, 255, 0.12);
-}
-
-:root[data-theme="light"] .date-picker-nav:hover {
-  background: rgba(0, 0, 0, 0.08);
-}
-
-.date-picker-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 2px;
-}
-
-.date-picker-dow {
-  font-size: 0.68rem;
-  color: var(--muted);
-  text-align: center;
-  padding: 2px 0 4px;
-  font-weight: 500;
-}
-
-.date-picker-day {
-  font-size: 0.78rem;
-  text-align: center;
-  padding: 4px 2px;
-  border-radius: 6px;
-  cursor: pointer;
-  color: var(--fg);
-  transition: background 100ms ease;
-}
-
-.date-picker-day:hover:not(.dp-disabled):not(.dp-empty) {
-  background: rgba(59, 130, 246, 0.22);
-}
-
-.date-picker-day.dp-disabled {
-  color: var(--muted);
-  opacity: 0.45;
-  cursor: not-allowed;
-  text-decoration: line-through;
-}
-
-.date-picker-day.dp-empty {
-  cursor: default;
-}
-
-.date-picker-day.dp-selected {
-  background: var(--accent);
-  color: #ffffff;
-  font-weight: 700;
-  border-radius: 6px;
-}
-
-.date-picker-header-label {
-  cursor: pointer;
-}
-
-.date-picker-header-label:hover {
-  color: var(--accent);
-}
-
-.dp-year-grid-popup .date-picker-header {
-  position: relative;
-}
-
-.dp-year-grid-popup .date-picker-header-label {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  pointer-events: none;
-}
-
-.dp-year-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 2px 0;
-  max-height: 184px;
-  overflow-y: auto;
-  scrollbar-width: none;
-}
-
-.dp-year-grid::-webkit-scrollbar {
-  display: none;
-}
-
-.dp-year-cell {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 0.82rem;
-  font-weight: 500;
-  padding: 6px 8px;
-  border-radius: 6px;
-  cursor: pointer;
-  color: var(--fg);
-  transition: background 100ms ease;
-}
-
-.dp-year-cell:hover {
-  background: rgba(59, 130, 246, 0.22);
-}
-
-.dp-year-cell.dp-year-current {
-  font-weight: 700;
-  color: var(--accent);
-}
-
-.dp-accordion-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: 184px;
-  overflow-y: auto;
-  overflow-x: hidden;
-  scrollbar-width: none;
-}
-
-.dp-accordion-list::-webkit-scrollbar {
-  display: none;
-}
-
-.dp-accordion-year-btn {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: none;
-  border: none;
-  color: var(--fg);
-  font-size: 0.82rem;
-  font-family: inherit;
-  font-weight: 500;
-  padding: 6px 8px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 100ms ease;
-}
-
-.dp-accordion-year-btn:hover {
-  background: rgba(59, 130, 246, 0.22);
-}
-
-.dp-accordion-open .dp-accordion-year-btn {
-  font-weight: 700;
-  color: var(--accent);
-}
-
-.dp-accordion-chevron {
-  display: inline-block;
-  transition: transform 140ms ease;
-}
-
-.dp-accordion-open .dp-accordion-chevron {
-  transform: rotate(90deg);
-}
-
-.dp-month-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 4px;
-  padding: 4px 8px 8px;
-}
-
-.dp-month-cell {
-  font-size: 0.78rem;
-  text-align: center;
-  padding: 6px 4px;
-  border-radius: 6px;
-  cursor: pointer;
-  color: var(--fg);
-  transition: background 100ms ease;
-}
-
-.dp-month-cell:hover:not(.dp-disabled) {
-  background: rgba(59, 130, 246, 0.22);
-}
-
-.dp-month-cell.dp-month-current {
-  background: var(--accent);
-  color: #ffffff;
-  font-weight: 700;
-}
-
-.dp-month-cell.dp-disabled {
-  color: var(--muted);
-  opacity: 0.45;
-  cursor: not-allowed;
 }
 
 .date-range-days-segment {

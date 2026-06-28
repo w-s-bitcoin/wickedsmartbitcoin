@@ -344,6 +344,7 @@ const el = {
   historyCount: document.getElementById("historyCount"),
   historyTableBody: document.getElementById("historyTableBody"),
   alChart: document.getElementById("alChart"),
+  alChartLoader: document.getElementById("alChartLoader"),
   alChartTitle: document.getElementById("alChartTitle"),
   alChartLegend: document.getElementById("alChartLegend"),
   alChartModeToggle: document.getElementById("alChartModeToggle"),
@@ -354,6 +355,7 @@ const el = {
   netChartSeparateAxes: document.getElementById("netChartSeparateAxes"),
   netChartLegend: document.getElementById("netChartLegend"),
   netChart: document.getElementById("netChart"),
+  netChartLoader: document.getElementById("netChartLoader"),
   undoBtn: document.getElementById("undoBtn"),
   redoBtn: document.getElementById("redoBtn"),
   clearDataBtn: document.getElementById("clearDataBtn"),
@@ -609,297 +611,7 @@ function closeAllOverlays() {
 // opts.isDisabled  – (isoVal) => bool            (extra per-day disabled check)
 // opts.onSelect    – (isoVal) => void
 function makeDatePicker(opts) {
-  let popup = null;
-  let pickerYear, pickerMonth;
-  let pickerView = "days"; // "days" | "years" | "year"
-  let pickerExpandedYear = null;
-  const align = opts.align === "left" ? "left" : "right";
-
-  function isoToDate(iso) {
-    if (!iso) return null;
-    const [y, m, d] = iso.split("-").map(Number);
-    const dt = new Date(y, m - 1, d);
-    dt.setHours(0, 0, 0, 0);
-    return dt;
-  }
-
-  function buildCalendar() {
-    const selectedIso = opts.getSelected();
-    const minDate = isoToDate(opts.getMin());
-    const maxDate = isoToDate(opts.getMax());
-
-    const year = pickerYear;
-    const month = pickerMonth;
-    const monthLabel = new Date(year, month, 1).toLocaleString("default", { month: "long", year: "numeric" });
-
-    const wrap = document.createElement("div");
-    wrap.className = "date-picker-popup";
-
-    // Header
-    const header = document.createElement("div");
-    header.className = "date-picker-header";
-    const prev = document.createElement("button");
-    prev.className = "date-picker-nav";
-    prev.textContent = "‹";
-    prev.type = "button";
-    prev.addEventListener("click", (e) => { e.stopPropagation(); pickerMonth--; if (pickerMonth < 0) { pickerMonth = 11; pickerYear--; } rebuildCalendar(); });
-    const next = document.createElement("button");
-    next.className = "date-picker-nav";
-    next.textContent = "›";
-    next.type = "button";
-    next.addEventListener("click", (e) => { e.stopPropagation(); pickerMonth++; if (pickerMonth > 11) { pickerMonth = 0; pickerYear++; } rebuildCalendar(); });
-    const lbl = document.createElement("span");
-    lbl.textContent = monthLabel;
-    lbl.className = "date-picker-header-label";
-    lbl.title = "Select year / month";
-    lbl.addEventListener("click", (e) => { e.stopPropagation(); pickerView = "years"; pickerExpandedYear = null; rebuildCalendar(); });
-    header.append(prev, lbl, next);
-    wrap.appendChild(header);
-
-    // Day-of-week row
-    const grid = document.createElement("div");
-    grid.className = "date-picker-grid";
-    ["Su","Mo","Tu","We","Th","Fr","Sa"].forEach((d) => {
-      const dow = document.createElement("div");
-      dow.className = "date-picker-dow";
-      dow.textContent = d;
-      grid.appendChild(dow);
-    });
-
-    // Blank cells
-    const firstDay = new Date(year, month, 1).getDay();
-    for (let i = 0; i < firstDay; i++) {
-      const blank = document.createElement("div");
-      blank.className = "date-picker-day dp-empty";
-      grid.appendChild(blank);
-    }
-
-    // Day cells
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    for (let d = 1; d <= daysInMonth; d++) {
-      const date = new Date(year, month, d);
-      date.setHours(0, 0, 0, 0);
-      const isoVal = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-      const isSelected = isoVal === selectedIso;
-      const outOfRange = (minDate && date < minDate) || (maxDate && date > maxDate);
-      const extraDisabled = opts.isDisabled ? opts.isDisabled(isoVal) : false;
-
-      const cell = document.createElement("div");
-      cell.className = "date-picker-day";
-      cell.textContent = d;
-
-      if (isSelected) {
-        cell.classList.add("dp-selected");
-      }
-
-      if (outOfRange || extraDisabled) {
-        cell.classList.add("dp-disabled");
-      } else {
-        cell.addEventListener("click", (e) => {
-          e.stopPropagation();
-          closePopup();
-          opts.onSelect(isoVal);
-        });
-      }
-      grid.appendChild(cell);
-    }
-    wrap.appendChild(grid);
-    return wrap;
-  }
-
-  function buildYearGrid() {
-    const minDate = isoToDate(opts.getMin());
-    const maxDate = isoToDate(opts.getMax());
-    const minYear = minDate ? minDate.getFullYear() : pickerYear - 10;
-    const maxYear = maxDate ? maxDate.getFullYear() : pickerYear + 5;
-
-    const wrap = document.createElement("div");
-    wrap.className = "date-picker-popup dp-year-grid-popup";
-
-    const header = document.createElement("div");
-    header.className = "date-picker-header";
-    const backBtn = document.createElement("button");
-    backBtn.className = "date-picker-nav";
-    backBtn.textContent = "‹";
-    backBtn.type = "button";
-    backBtn.title = "Back to calendar";
-    backBtn.addEventListener("click", (e) => { e.stopPropagation(); pickerView = "days"; rebuildCalendar(); });
-    const lbl = document.createElement("span");
-    lbl.className = "date-picker-header-label";
-    lbl.textContent = "Select Year";
-    header.append(backBtn, lbl);
-    wrap.appendChild(header);
-
-    const grid = document.createElement("div");
-    grid.className = "dp-year-grid";
-    for (let y = minYear; y <= maxYear; y++) {
-      const cell = document.createElement("div");
-      cell.className = "dp-year-cell";
-      if (y === pickerYear) cell.classList.add("dp-year-current");
-      const yearLbl = document.createElement("span");
-      yearLbl.textContent = y;
-      const yearChevron = document.createElement("span");
-      yearChevron.className = "dp-accordion-chevron";
-      yearChevron.textContent = "›";
-      cell.append(yearLbl, yearChevron);
-      cell.addEventListener("click", (e) => {
-        e.stopPropagation();
-        pickerView = "year";
-        pickerExpandedYear = y;
-        rebuildCalendar();
-      });
-      grid.appendChild(cell);
-    }
-    wrap.appendChild(grid);
-    return wrap;
-  }
-
-  function buildYearAccordion() {
-    const minDate = isoToDate(opts.getMin());
-    const maxDate = isoToDate(opts.getMax());
-    const minYear = minDate ? minDate.getFullYear() : pickerYear - 10;
-    const maxYear = maxDate ? maxDate.getFullYear() : pickerYear + 5;
-    const expandedYear = pickerExpandedYear !== null ? pickerExpandedYear : pickerYear;
-
-    const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-
-    const wrap = document.createElement("div");
-    wrap.className = "date-picker-popup dp-year-grid-popup";
-
-    const header = document.createElement("div");
-    header.className = "date-picker-header";
-    const backBtn = document.createElement("button");
-    backBtn.className = "date-picker-nav";
-    backBtn.textContent = "‹";
-    backBtn.type = "button";
-    backBtn.title = "Back to year list";
-    backBtn.addEventListener("click", (e) => { e.stopPropagation(); pickerView = "years"; pickerExpandedYear = null; rebuildCalendar(); });
-    const lbl = document.createElement("span");
-    lbl.className = "date-picker-header-label";
-    lbl.textContent = "Select Month";
-    header.append(backBtn, lbl);
-    wrap.appendChild(header);
-
-    const list = document.createElement("div");
-    list.className = "dp-accordion-list";
-
-    for (let y = minYear; y <= maxYear; y++) {
-      const yearRow = document.createElement("div");
-      yearRow.className = "dp-accordion-year" + (y === expandedYear ? " dp-accordion-open" : "");
-
-      const yearBtn = document.createElement("button");
-      yearBtn.type = "button";
-      yearBtn.className = "dp-accordion-year-btn";
-      yearBtn.textContent = y;
-      const chevron = document.createElement("span");
-      chevron.className = "dp-accordion-chevron";
-      chevron.textContent = "›";
-      yearBtn.appendChild(chevron);
-      yearBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        pickerExpandedYear = (pickerExpandedYear === y) ? null : y;
-        rebuildCalendar();
-      });
-      yearRow.appendChild(yearBtn);
-
-      if (y === expandedYear) {
-        const monthGrid = document.createElement("div");
-        monthGrid.className = "dp-month-grid";
-        MONTH_NAMES.forEach((name, m) => {
-          const minMonth = minDate && y === minDate.getFullYear() ? minDate.getMonth() : -1;
-          const maxMonth = maxDate && y === maxDate.getFullYear() ? maxDate.getMonth() : 12;
-          const disabled = m < minMonth || m > maxMonth;
-          const cell = document.createElement("div");
-          cell.className = "dp-month-cell" + (disabled ? " dp-disabled" : "");
-          if (y === pickerYear && m === pickerMonth) cell.classList.add("dp-month-current");
-          cell.textContent = name;
-          if (!disabled) {
-            cell.addEventListener("click", (e) => {
-              e.stopPropagation();
-              pickerYear = y;
-              pickerMonth = m;
-              pickerView = "days";
-              pickerExpandedYear = null;
-              rebuildCalendar();
-            });
-          }
-          monthGrid.appendChild(cell);
-        });
-        yearRow.appendChild(monthGrid);
-      }
-      list.appendChild(yearRow);
-    }
-    wrap.appendChild(list);
-    return wrap;
-  }
-
-  function rebuildCalendar() {
-    if (!popup) return;
-    const fresh = pickerView === "years" ? buildYearGrid()
-                : pickerView === "year"  ? buildYearAccordion()
-                : buildCalendar();
-    popup.replaceChildren(...fresh.childNodes);
-    popup.className = fresh.className;
-    requestAnimationFrame(() => {
-      positionPopup();
-      if (pickerView === "years") {
-        const grid = popup.querySelector(".dp-year-grid");
-        if (grid) grid.scrollTop = grid.scrollHeight;
-      } else if (pickerView === "year") {
-        const openRow = popup.querySelector(".dp-accordion-year.dp-accordion-open");
-        if (openRow) openRow.scrollIntoView({ block: "nearest" });
-      }
-    });
-  }
-
-  function positionPopup() {
-    if (!popup) return;
-    const rect = opts.anchorEl.getBoundingClientRect();
-    popup.style.top = `${rect.bottom + 6}px`;
-    const idealLeft = align === "left" ? rect.left : (rect.right - popup.offsetWidth);
-    const maxLeft = Math.max(4, window.innerWidth - popup.offsetWidth - 4);
-    const left = Math.min(Math.max(4, idealLeft), maxLeft);
-    popup.style.left = `${left}px`;
-  }
-
-  function openPopup() {
-    closeAllOverlays();
-    pickerView = "days";
-    pickerExpandedYear = null;
-    // Start on month of current selection, or today
-    const selIso = opts.getSelected();
-    if (selIso) {
-      const [y, m] = selIso.split("-").map(Number);
-      pickerYear = y; pickerMonth = m - 1;
-    } else {
-      const now = new Date();
-      pickerYear = now.getFullYear(); pickerMonth = now.getMonth();
-    }
-    popup = buildCalendar();
-    document.body.appendChild(popup);
-    requestAnimationFrame(positionPopup);
-    window.addEventListener("scroll", positionPopup, true);
-    window.addEventListener("resize", positionPopup);
-  }
-
-  function closePopup() {
-    if (popup) {
-      popup.remove();
-      popup = null;
-      window.removeEventListener("scroll", positionPopup, true);
-      window.removeEventListener("resize", positionPopup);
-    }
-  }
-
-  function toggle(e) {
-    e.stopPropagation();
-    if (popup) { closePopup(); } else { openPopup(); }
-  }
-
-  document.addEventListener("click", closePopup);
-
-  _overlayClosers.add(closePopup);
-  return { toggle, closePopup, rebuildCalendar };
+  return window.WSBDashboardComponents.createDatePicker(opts);
 }
 
 // ── History panel date picker ─────────────────────────────────────────────────
@@ -1920,54 +1632,65 @@ function parseSnapshotsRaw(raw) {
 }
 
 async function bootstrap() {
-  // Always start from a neutral view.
-  snapshots = [];
-  formState = freshFormState(currentMode === "demo" ? "demo" : "live");
-  editingSnapshotDate = mmddyy(new Date());
+  try {
+    // Always start from a neutral view.
+    snapshots = [];
+    formState = freshFormState(currentMode === "demo" ? "demo" : "live");
+    editingSnapshotDate = mmddyy(new Date());
 
-  renderAll();
-  startAutoQuoteRefresh();
-  requestBackgroundQuoteRefresh();
-  updateModeToggleUI();
-  await fetchHistoricalPrices();
+    renderAll();
+    startAutoQuoteRefresh();
+    requestBackgroundQuoteRefresh();
+    updateModeToggleUI();
+    const historicalPricesPromise = fetchHistoricalPrices();
 
-  if (currentMode === "demo") {
-    const loadedDemo = await loadDemoData();
-    if (!loadedDemo) snapshots = loadSnapshots();
-  } else {
-    formState = loadForm();
-    if (liveEncryptionEnabled && localStorage.getItem(STORE_KEY_LIVE_ENC)) {
-      const pw = await promptForPasswordWithLiveReset({
-        confirm: false,
-        message: "Enter your encryption password to unlock live data.",
-        forceDemoOnCancel: false,
-        returnClearAction: true,
-        validator: async (p) => {
-          const ok = await unlockLiveEncryptedData(p);
-          return ok ? null : "Incorrect password. Please try again.";
-        }
-      });
-      if (pw === RESET_LIVE_DATA_ACTION) {
-        currentMode = "live";
-        localStorage.setItem(MODE_KEY, currentMode);
-        snapshots = loadSnapshots();
-        formState = loadForm();
-        liveEncryptionPassword = null;
-      } else if (pw) {
-        liveEncryptionPassword = pw;
+    if (currentMode === "demo") {
+      const loadedDemo = await loadDemoData();
+      if (!loadedDemo) snapshots = loadSnapshots();
+      await historicalPricesPromise;
+      if (loadedDemo) {
+        await loadDemoData();
       } else {
-        currentMode = "demo";
-        localStorage.setItem(MODE_KEY, currentMode);
-        formState = freshFormState("demo");
-        snapshots = loadSnapshots();
+        renderAll();
       }
     } else {
-      snapshots = loadSnapshots();
+      await historicalPricesPromise;
+      formState = loadForm();
+      if (liveEncryptionEnabled && localStorage.getItem(STORE_KEY_LIVE_ENC)) {
+        const pw = await promptForPasswordWithLiveReset({
+          confirm: false,
+          message: "Enter your encryption password to unlock live data.",
+          forceDemoOnCancel: false,
+          returnClearAction: true,
+          validator: async (p) => {
+            const ok = await unlockLiveEncryptedData(p);
+            return ok ? null : "Incorrect password. Please try again.";
+          }
+        });
+        if (pw === RESET_LIVE_DATA_ACTION) {
+          currentMode = "live";
+          localStorage.setItem(MODE_KEY, currentMode);
+          snapshots = loadSnapshots();
+          formState = loadForm();
+          liveEncryptionPassword = null;
+        } else if (pw) {
+          liveEncryptionPassword = pw;
+        } else {
+          currentMode = "demo";
+          localStorage.setItem(MODE_KEY, currentMode);
+          formState = freshFormState("demo");
+          snapshots = loadSnapshots();
+        }
+      } else {
+        snapshots = loadSnapshots();
+      }
+      seedTodayFormStateFromHistory({ save: true });
     }
-    seedTodayFormStateFromHistory({ save: true });
-  }
 
-  renderAll();
+    renderAll();
+  } finally {
+    window.WSBDashboardComponents?.bindChartLoaders?.([el.netChartLoader, el.alChartLoader])?.hide?.();
+  }
 }
 
 function clearAutoQuoteRefreshTimers() {
