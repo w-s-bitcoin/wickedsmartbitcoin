@@ -543,12 +543,6 @@
 
       const SELECT_DROPDOWN_CONFIGS = [
         {
-          selectId: 'updatedTimeZoneSelect',
-          dropdownId: 'updatedTimeZoneDropdown',
-          triggerId: 'updatedTimeZoneDropdownTrigger',
-          menuId: 'updatedTimeZoneDropdownMenu',
-        },
-        {
           selectId: 'blockSymbolSelect',
           dropdownId: 'blockSymbolDropdown',
           triggerId: 'blockSymbolDropdownTrigger',
@@ -557,6 +551,7 @@
       ];
 
       let selectDropdownGlobalListenersBound = false;
+      let updatedTimeZoneChip = null;
 
       function setDropdownOpen(dropdownEl, menuEl, isOpen) {
         if (!menuEl) return;
@@ -1710,39 +1705,13 @@
     }
 
     async function copyDashboardLinkToClipboard(buttonEl) {
-      const link = buildShareableDashboardUrl();
-      try {
-        if (!navigator.clipboard?.writeText) throw new Error("Clipboard API unavailable");
-        await navigator.clipboard.writeText(link);
-      } catch (_) {
-        const textArea = document.createElement("textarea");
-        textArea.value = link;
-        textArea.setAttribute("readonly", "readonly");
-        textArea.style.position = "absolute";
-        textArea.style.left = "-9999px";
-        document.body.appendChild(textArea);
-        textArea.select();
-        document.execCommand("copy");
-        document.body.removeChild(textArea);
-      }
-
-      if (!buttonEl) return;
-      const labelEl = buttonEl.querySelector(".btn-label");
-      const original = labelEl ? labelEl.textContent : buttonEl.textContent;
-      if (buttonEl.__copyFeedbackTimer) {
-        window.clearTimeout(buttonEl.__copyFeedbackTimer);
-      }
-      buttonEl.classList.add("copy-link-btn--copied");
-      setButtonIcon("copyDashboardIcon", ICONS.copyCopied);
-      if (labelEl) labelEl.textContent = "Copied!";
-      else buttonEl.textContent = "Copied!";
-      buttonEl.__copyFeedbackTimer = window.setTimeout(() => {
-        setButtonIcon("copyDashboardIcon", ICONS.copyLink);
-        if (labelEl) labelEl.textContent = original || "Copy Link";
-        else buttonEl.textContent = original || "Copy Link";
-        buttonEl.classList.remove("copy-link-btn--copied");
-        buttonEl.__copyFeedbackTimer = null;
-      }, 1400);
+      await window.WSBDashboardComponents.copyDashboardLink({
+        button: buttonEl,
+        getUrl: buildShareableDashboardUrl,
+        copiedIcon: ICONS.copyCopied,
+        defaultIcon: ICONS.copyLink,
+        setIcon: (icon) => setButtonIcon("copyDashboardIcon", icon),
+      });
     }
 
     function captureResetSnapshot() {
@@ -1970,31 +1939,19 @@
 
     function updateResetButtonUi() {
       const btn = document.getElementById('resetDashboard');
-      if (!btn) return;
-      const labelEl = btn.querySelector('.btn-label');
-
       if (!state.controlsEnabled) {
-        btn.disabled = true;
+        if (btn) btn.disabled = true;
         return;
       }
-
-      if (state.preResetStateSnapshot) {
-        if (labelEl) labelEl.textContent = 'Undo Restore';
-        else btn.textContent = 'Undo Restore';
-        setButtonIcon('resetDashboardIcon', ICONS.resetUndo);
-        btn.classList.add('reset-dashboard-btn--undo');
-        btn.setAttribute('aria-label', 'Undo the last restore defaults action');
-        setCustomTooltip(btn, 'Undo the last restore defaults action');
-        btn.disabled = false;
-      } else {
-        if (labelEl) labelEl.textContent = 'Restore Defaults';
-        else btn.textContent = 'Restore Defaults';
-        setButtonIcon('resetDashboardIcon', ICONS.resetDefaults);
-        btn.classList.remove('reset-dashboard-btn--undo');
-        btn.setAttribute('aria-label', 'Restore dashboard defaults');
-        setCustomTooltip(btn, 'Reset dashboard to defaults');
-        btn.disabled = isDefaultState();
-      }
+      window.WSBDashboardComponents.setResetButtonState({
+        button: btn,
+        isUndo: !!state.preResetStateSnapshot,
+        disabled: isDefaultState(),
+        undoIcon: ICONS.resetUndo,
+        defaultIcon: ICONS.resetDefaults,
+        setIcon: (icon) => setButtonIcon('resetDashboardIcon', icon),
+      });
+      setCustomTooltip(btn, state.preResetStateSnapshot ? 'Undo the last restore defaults action' : 'Reset dashboard to defaults');
     }
 
     function applyNarrowWindowDefaults() {
@@ -2066,6 +2023,24 @@
 
       statusChips.innerHTML = "";
       statusChips.appendChild(buildUpdatedChip(meta));
+      updatedTimeZoneChip = window.WSBDashboardComponents?.createUpdatedTimeZoneChipController?.({
+        chip: "#updatedTimeZoneDisplay",
+        value: "#updatedTimeZoneDisplay .chip-value",
+        getTimeZone: () => state.timeZone || DASHBOARD_TIME?.getPreferredTimeZone?.() || "UTC",
+        setTimeZone: (value) => {
+          state.timeZone = setPreferredDashboardTimeZone(value);
+          return state.timeZone;
+        },
+        onChange: (timeZone) => {
+          state.timeZone = timeZone || state.timeZone;
+          if (state.data) setStatus(state.data);
+        },
+      });
+      const updatedHeight = Number(meta?.source_block_height);
+      updatedTimeZoneChip?.setUpdated(meta?.generated_utc, {
+        includeHeight: Number.isFinite(updatedHeight) && updatedHeight > 0,
+        height: updatedHeight,
+      });
       const periodSignalValue = currentSignal != null
         ? `<span class="chip-value-signal">${currentSignal.toLocaleString()}</span> (${currentSignalPct})`
         : `<span class="chip-value-signal">...</span>`;
@@ -2097,8 +2072,6 @@
       );
       appendExpectedForkTimeChip(signalingHashrate);
       appendExpectedBlockTimeChip(signalingHashrate);
-      bindTimeZoneChipEvents();
-      syncSelectDropdown('updatedTimeZoneSelect', 'updatedTimeZoneDropdownTrigger', 'updatedTimeZoneDropdownMenu');
       bindSelectDropdowns();
     }
 
@@ -2296,7 +2269,7 @@
         dropdown.appendChild(menu);
 
         const select = document.createElement("select");
-        select.className = "dca-native-select";
+        select.className = "chip-menu-select chip-kpi-select-overlay dca-native-select";
         select.id = "updatedTimeZoneSelect";
         select.setAttribute("aria-label", "Updated timestamp time zone");
 

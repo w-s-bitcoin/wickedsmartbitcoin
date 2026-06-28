@@ -50,12 +50,6 @@
 
     const SELECT_DROPDOWN_CONFIGS = [
       {
-        selectId: 'updatedTimeZoneSelect',
-        dropdownId: 'updatedTimeZoneDropdown',
-        triggerId: 'updatedTimeZoneDropdownTrigger',
-        menuId: 'updatedTimeZoneDropdownMenu',
-      },
-      {
         selectId: 'rangeSelect',
         dropdownId: 'rangeDropdown',
         triggerId: 'rangeDropdownTrigger',
@@ -532,6 +526,18 @@
         },
       },
     };
+    const updatedTimeZoneChip = window.WSBDashboardComponents?.createUpdatedTimeZoneChipController?.({
+      chip: '#updatedTimeZoneDisplay',
+      getTimeZone: () => state.timeZone || DASHBOARD_TIME?.getPreferredTimeZone?.() || 'UTC',
+      setTimeZone: (value) => {
+        state.timeZone = DASHBOARD_TIME?.setPreferredTimeZone?.(value) || value || 'UTC';
+        return state.timeZone;
+      },
+      onChange: (timeZone) => {
+        state.timeZone = timeZone || state.timeZone;
+        setLastUpdated();
+      },
+    });
 
     let snapshotResizeObserver = null;
     let snapshotResizeFrame = 0;
@@ -859,38 +865,13 @@
     }
 
     async function copyDashboardLinkToClipboard(buttonEl) {
-      const link = buildShareableDashboardUrl();
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(link);
-      } else {
-        const textArea = document.createElement('textarea');
-        textArea.value = link;
-        textArea.setAttribute('readonly', 'readonly');
-        textArea.style.position = 'absolute';
-        textArea.style.left = '-9999px';
-        document.body.appendChild(textArea);
-        textArea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textArea);
-      }
-
-      if (!buttonEl) return;
-      const labelEl = buttonEl.querySelector('.btn-label');
-      const original = labelEl ? labelEl.textContent : buttonEl.textContent;
-      if (buttonEl.__copyFeedbackTimer) {
-        window.clearTimeout(buttonEl.__copyFeedbackTimer);
-      }
-      buttonEl.classList.add('copy-link-btn--copied');
-      setButtonIcon('copyDashboardIcon', ICONS.copyCopied);
-      if (labelEl) labelEl.textContent = 'Copied!';
-      else buttonEl.textContent = 'Copied!';
-      buttonEl.__copyFeedbackTimer = window.setTimeout(() => {
-        setButtonIcon('copyDashboardIcon', ICONS.copyLink);
-        if (labelEl) labelEl.textContent = original || 'Copy Link';
-        else buttonEl.textContent = original || 'Copy Link';
-        buttonEl.classList.remove('copy-link-btn--copied');
-        buttonEl.__copyFeedbackTimer = null;
-      }, 1400);
+      await window.WSBDashboardComponents.copyDashboardLink({
+        button: buttonEl,
+        getUrl: buildShareableDashboardUrl,
+        copiedIcon: ICONS.copyCopied,
+        defaultIcon: ICONS.copyLink,
+        setIcon: (icon) => setButtonIcon('copyDashboardIcon', icon),
+      });
     }
 
     function captureResetSnapshot() {
@@ -976,7 +957,7 @@
         if (rangeSelect) rangeSelect.value = state.range;
         if (smoothSelect) smoothSelect.value = state.smooth;
 
-        populateUpdatedTimeZoneSelect();
+        updatedTimeZoneChip?.populate?.();
         syncAllSelectDropdowns();
         syncPanelToggleUi();
         applyPanelOrder();
@@ -1037,7 +1018,7 @@
       if (rangeSelect) rangeSelect.value = '0';
       if (smoothSelect) smoothSelect.value = '1';
 
-      populateUpdatedTimeZoneSelect();
+      updatedTimeZoneChip?.populate?.();
       syncAllSelectDropdowns();
       syncPanelToggleUi();
       applyPanelOrder();
@@ -1081,25 +1062,15 @@
 
     function updateResetButtonUi() {
       const btn = document.getElementById('resetDashboard');
-      if (!btn) return;
-      const labelEl = btn.querySelector('.btn-label');
-      if (state.preResetStateSnapshot) {
-        if (labelEl) labelEl.textContent = 'Undo Restore';
-        else btn.textContent = 'Undo Restore';
-        setButtonIcon('resetDashboardIcon', ICONS.resetUndo);
-        btn.classList.add('reset-dashboard-btn--undo');
-        btn.setAttribute('aria-label', 'Undo the last restore defaults action');
-        setCustomTooltip(btn, 'Undo the last restore defaults action');
-        btn.disabled = false;
-      } else {
-        if (labelEl) labelEl.textContent = 'Restore Defaults';
-        else btn.textContent = 'Restore Defaults';
-        setButtonIcon('resetDashboardIcon', ICONS.resetDefaults);
-        btn.classList.remove('reset-dashboard-btn--undo');
-        btn.setAttribute('aria-label', 'Restore dashboard defaults');
-        setCustomTooltip(btn, 'Reset dashboard to defaults');
-        btn.disabled = isDefaultState();
-      }
+      window.WSBDashboardComponents.setResetButtonState({
+        button: btn,
+        isUndo: !!state.preResetStateSnapshot,
+        disabled: isDefaultState(),
+        undoIcon: ICONS.resetUndo,
+        defaultIcon: ICONS.resetDefaults,
+        setIcon: (icon) => setButtonIcon('resetDashboardIcon', icon),
+      });
+      setCustomTooltip(btn, state.preResetStateSnapshot ? 'Undo the last restore defaults action' : 'Reset dashboard to defaults');
     }
 
     function parseCsv(text) {
@@ -1754,6 +1725,13 @@
       };
       if (!source) {
         valueEl.textContent = 'n/a';
+        return;
+      }
+      if (updatedTimeZoneChip) {
+        updatedTimeZoneChip.setUpdated(source, {
+          includeHeight: !!state.updateBlockHeightText,
+          height: state.updateBlockHeightText,
+        });
         return;
       }
       if (DASHBOARD_TIME?.formatUtcTimestamp) {
@@ -2840,7 +2818,6 @@
 
     function bindControls() {
       bindCustomTooltips();
-      const updatedTimeZoneSelect = document.getElementById('updatedTimeZoneSelect');
       const includeStablesToggle = document.getElementById('toggleIncludeStables');
       const stackedDominanceToggle = document.getElementById('toggleStackedDominance');
       const showPriceToggle = document.getElementById('toggleShowPrice');
@@ -2854,15 +2831,6 @@
 
       setCustomTooltip(copyDashboardLinkButton, 'Copy shareable dashboard link');
       setCustomTooltip(resetDashboardButton, state.preResetStateSnapshot ? 'Undo the last restore defaults action' : 'Reset dashboard to defaults');
-
-      updatedTimeZoneSelect?.addEventListener('change', () => {
-        state.timeZone = DASHBOARD_TIME?.setPreferredTimeZone?.(updatedTimeZoneSelect.value) || updatedTimeZoneSelect.value;
-        updatedTimeZoneSelect.blur();
-        closeAllSelectDropdowns();
-        setLastUpdated();
-        saveControlsToStorage();
-        updateResetButtonUi();
-      });
 
       includeStablesToggle?.addEventListener('change', () => {
         state.includeStables = !!includeStablesToggle.checked;
@@ -3030,7 +2998,7 @@
         if (smoothSelect && Array.from(smoothSelect.options).some((opt) => opt.value === state.smooth)) {
           smoothSelect.value = state.smooth;
         }
-        populateUpdatedTimeZoneSelect();
+        updatedTimeZoneChip?.populate?.();
         syncAllSelectDropdowns();
         bindSelectDropdowns();
         bindControls();

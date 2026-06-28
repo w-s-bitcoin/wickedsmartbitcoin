@@ -111,6 +111,19 @@
   let activeDatePicker = null;
   let theme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
   let updatedKpiTimeZone = DASHBOARD_TIME?.getPreferredTimeZone?.() || "UTC";
+  const updatedTimeZoneChip = window.WSBDashboardComponents?.createUpdatedTimeZoneChipController?.({
+    value: "#updatedKpiValue",
+    getTimeZone: () => updatedKpiTimeZone || DASHBOARD_TIME?.getPreferredTimeZone?.() || "UTC",
+    setTimeZone: (value) => {
+      updatedKpiTimeZone = DASHBOARD_TIME?.setPreferredTimeZone?.(value) || value || "UTC";
+      return updatedKpiTimeZone;
+    },
+    onChange: (timeZone) => {
+      updatedKpiTimeZone = timeZone || updatedKpiTimeZone;
+      updateUpdatedKpi();
+      saveState();
+    },
+  });
   let diffMarkerHitboxes = [];
   let blockMarkerHitboxes = [];
   let slopeMeasurementHitboxes = null;
@@ -1242,25 +1255,14 @@
 
   function updateResetButtonUi() {
     const btn = els.restoreBtn;
-    if (!btn) return;
-    const labelEl = btn.querySelector(".btn-label");
-    if (preResetStateSnapshot) {
-      if (labelEl) labelEl.textContent = "Undo Restore";
-      setButtonIcon(btn, ICONS.resetUndo);
-      btn.classList.add("reset-dashboard-btn--undo");
-      btn.setAttribute("aria-label", "Undo the last restore defaults action");
-      btn.dataset.tooltip = "Undo the last restore defaults action";
-      btn.title = "Undo the last restore defaults action";
-      btn.disabled = false;
-      return;
-    }
-    if (labelEl) labelEl.textContent = "Restore Defaults";
-    setButtonIcon(btn, ICONS.resetDefaults);
-    btn.classList.remove("reset-dashboard-btn--undo");
-    btn.setAttribute("aria-label", "Restore dashboard defaults");
-    btn.dataset.tooltip = "Reset dashboard to defaults";
-    btn.title = "Reset dashboard to defaults";
-    btn.disabled = isDefaultState();
+    window.WSBDashboardComponents.setResetButtonState({
+      button: btn,
+      isUndo: !!preResetStateSnapshot,
+      disabled: isDefaultState(),
+      undoIcon: ICONS.resetUndo,
+      defaultIcon: ICONS.resetDefaults,
+      setIcon: (icon) => setButtonIcon(btn, icon),
+    });
   }
 
   function restoreDashboardSnapshot(snapshot) {
@@ -1367,30 +1369,13 @@
   }
 
   async function copyDashboardLinkToClipboard(buttonEl) {
-    const link = buildShareableDashboardUrl();
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(link);
-    } else {
-      const textArea = document.createElement("textarea");
-      textArea.value = link;
-      textArea.setAttribute("readonly", "readonly");
-      textArea.style.position = "absolute";
-      textArea.style.left = "-9999px";
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand("copy");
-      document.body.removeChild(textArea);
-    }
-    const labelEl = buttonEl?.querySelector(".btn-label");
-    const original = labelEl ? labelEl.textContent : "";
-    if (buttonEl?.__copyFeedbackTimer) window.clearTimeout(buttonEl.__copyFeedbackTimer);
-    setButtonIcon(buttonEl, ICONS.copyCopied);
-    if (labelEl) labelEl.textContent = "Copied!";
-    buttonEl.__copyFeedbackTimer = window.setTimeout(() => {
-      setButtonIcon(buttonEl, ICONS.copyLink);
-      if (labelEl) labelEl.textContent = original || "Copy Link";
-      buttonEl.__copyFeedbackTimer = null;
-    }, 1400);
+    await window.WSBDashboardComponents.copyDashboardLink({
+      button: buttonEl,
+      getUrl: buildShareableDashboardUrl,
+      copiedIcon: ICONS.copyCopied,
+      defaultIcon: ICONS.copyLink,
+      setIcon: (icon) => setButtonIcon(buttonEl, icon),
+    });
   }
 
   function getSelectedDownloadSetting(groupId, fallback) {
@@ -1415,10 +1400,7 @@
   }
 
   function getExportDimensions(settings = state.exportSettings) {
-    const quality = Number(settings.quality) || DEFAULT_EXPORT_SETTINGS.quality;
-    if (settings.orientation === "portrait") return { width: quality, height: Math.round(quality * 16 / 9) };
-    if (settings.orientation === "square") return { width: quality, height: quality };
-    return { width: Math.round(quality * 16 / 9), height: quality };
+    return window.WSBDashboardExport.getDimensions(settings);
   }
 
   function getExportBaseDimensions(settings = state.exportSettings) {
@@ -1570,15 +1552,24 @@
     const calibrationKey = getDownloadEstimateCalibrationKey(settings, frameEnds);
     const calibration = downloadEstimateCalibrationCache.get(calibrationKey);
     const deterministicExport = hasDeterministicExportSupport();
-    const estimatedMb = Math.max(1, Math.round((getExportBitrate(settings) * seconds) / 8_000_000));
     const fallbackFrameSeconds = deterministicExport ? 0.006 * Math.sqrt(megapixels) : 0.018 * megapixels;
-    const estimatedRenderSeconds = calibration
-      ? Math.max(1, (frameCount * calibration.msPerFrame) / 1000)
-      : Math.max(1, frameCount * fallbackFrameSeconds);
-    const estimatedTotalSeconds = deterministicExport ? estimatedRenderSeconds : seconds + estimatedRenderSeconds;
-    els.downloadEstimateSize.textContent = `${estimatedMb.toLocaleString("en-US")} MB`;
-    els.downloadEstimateLength.textContent = formatDuration(seconds);
-    els.downloadEstimateTime.textContent = `~${formatDuration(estimatedTotalSeconds)}`;
+    const estimate = window.WSBDashboardExport.estimateDownload(settings, {
+      frameCount,
+      uniqueFrameCount: frameCount,
+      videoSeconds: seconds,
+      dimensions: { width, height },
+      bitrate: getExportBitrate(settings),
+      calibration,
+      fallbackFrameSeconds,
+      extensionMultiplier: 1,
+      minEncodeSeconds: 0,
+      encodeFrameSeconds: 0,
+    });
+    els.downloadEstimateSize.textContent = estimate.sizeText;
+    els.downloadEstimateLength.textContent = estimate.lengthText;
+    els.downloadEstimateTime.textContent = deterministicExport
+      ? estimate.timeText
+      : `~${formatDuration(seconds + estimate.processingSeconds)}`;
     if (!calibration && frameEnds.length) scheduleDownloadEstimateCalibration(settings, frameEnds, calibrationKey);
   }
 
@@ -1799,13 +1790,12 @@
     targetCtx.drawImage(chartCanvas, outerPad, chartY, chartW, chartH);
     targetCtx.restore();
 
-    targetCtx.fillStyle = palette.muted;
-    targetCtx.textAlign = "center";
-    targetCtx.textBaseline = "middle";
-    const footerTextSize = Math.max(20, Math.round(footerH * 0.6));
-    const footerCenterY = layout.height - footerH * 0.68;
-    targetCtx.font = `500 ${footerTextSize}px "IBM Plex Mono"`;
-    targetCtx.fillText("https://wickedsmartbitcoin.com/patoshi_pattern", layout.width / 2, footerCenterY);
+    window.WSBDashboardExport.drawFooterUrl(
+      targetCtx,
+      "https://wickedsmartbitcoin.com/patoshi_pattern",
+      { width: layout.width, height: layout.height, footerHeight: footerH },
+      { ...settings, referenceQuality: 1440 },
+    );
   }
 
   function updateRangeFill() {
@@ -2043,7 +2033,21 @@
   }
 
   function updateUpdatedKpi() {
-    if (els.updatedKpiValue) els.updatedKpiValue.textContent = formatUpdatedKpiText();
+    const raw = metadata?.generated_at;
+    const height = Number(
+      metadata?.spending_height_last_queried_height
+      ?? metadata?.source_block_height
+      ?? metadata?.latest_block_height
+      ?? metadata?.block_height
+    );
+    if (updatedTimeZoneChip) {
+      updatedTimeZoneChip.setUpdated(raw, {
+        includeHeight: Number.isFinite(height) && height > 0,
+        height,
+      });
+    } else if (els.updatedKpiValue) {
+      els.updatedKpiValue.textContent = formatUpdatedKpiText();
+    }
   }
 
   function getDataSignature(meta) {
@@ -2177,82 +2181,13 @@
 
   function syncUpdatedTimeZoneSelect(value = getPreferredDashboardTimeZone()) {
     updatedKpiTimeZone = value || "UTC";
-    if (els.updatedTimeZoneSelect) {
-      els.updatedTimeZoneSelect.value = updatedKpiTimeZone;
-    }
-    const trigger = $("updatedTimeZoneDropdownTrigger");
-    if (trigger) trigger.textContent = "";
-    sizeUpdatedTimeZoneDropdownMenu(els.updatedTimeZoneSelect, $("updatedTimeZoneDropdown"), $("updatedTimeZoneDropdownMenu"), trigger);
+    updatedTimeZoneChip?.populate?.();
     updateUpdatedKpi();
   }
 
   function installUpdatedTimeZoneDropdown() {
-    const selectEl = els.updatedTimeZoneSelect;
-    const dropdown = $("updatedTimeZoneDropdown");
-    const menu = $("updatedTimeZoneDropdownMenu");
-    const chipWrap = $("updatedChipWrap");
-    if (!selectEl || !dropdown || !menu) return;
-    const options = getDashboardTimeZoneOptions();
-    selectEl.innerHTML = "";
-    options.forEach((option) => {
-      const item = document.createElement("option");
-      item.value = option.value;
-      item.textContent = option.label;
-      selectEl.appendChild(item);
-    });
+    updatedTimeZoneChip?.populate?.();
     syncUpdatedTimeZoneSelect();
-
-    const renderMenu = () => {
-      menu.innerHTML = "";
-      options.forEach((option) => {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "dca-option-btn";
-        button.textContent = option.label;
-        button.classList.toggle("dca-option-btn--selected", option.value === updatedKpiTimeZone);
-        button.addEventListener("click", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          setPreferredDashboardTimeZone(option.value);
-          syncUpdatedTimeZoneSelect(option.value);
-          saveState();
-          closeDropdowns();
-        });
-        menu.appendChild(button);
-      });
-    };
-
-    renderMenu();
-    (chipWrap || dropdown).addEventListener("click", (event) => {
-      if (menu.contains(event.target)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const isOpen = menu.classList.contains("open");
-      closeDropdowns(dropdown);
-      renderMenu();
-      menu.classList.toggle("open", !isOpen);
-      dropdown.classList.toggle("is-open", !isOpen);
-      chipWrap?.classList.toggle("is-open", !isOpen);
-    });
-    selectEl.addEventListener("change", () => {
-      setPreferredDashboardTimeZone(selectEl.value);
-      syncUpdatedTimeZoneSelect(selectEl.value);
-      selectEl.blur();
-      closeDropdowns();
-      saveState();
-    });
-    if (DASHBOARD_TIME?.CHANGE_EVENT) {
-      window.addEventListener(DASHBOARD_TIME.CHANGE_EVENT, (event) => {
-        const next = String(event.detail?.timeZone || "").trim() || getPreferredDashboardTimeZone();
-        syncUpdatedTimeZoneSelect(next);
-      });
-    }
-    if (DASHBOARD_TIME?.STORAGE_KEY) {
-      window.addEventListener("storage", (event) => {
-        if (event.key !== DASHBOARD_TIME.STORAGE_KEY) return;
-        syncUpdatedTimeZoneSelect(getPreferredDashboardTimeZone());
-      });
-    }
   }
 
   function closeDropdowns(except = null) {
@@ -3123,10 +3058,12 @@
 
   function getThemeColors() {
     theme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
+    const styles = getComputedStyle(document.documentElement);
+    const cssColor = (name, fallback) => styles.getPropertyValue(name).trim() || fallback;
     return {
-      bg: theme === "light" ? "#ffffff" : "#000000",
-      fg: theme === "light" ? "#1c1b19" : "#f1f5f7",
-      muted: theme === "light" ? "#6f685f" : "#95a6ae",
+      bg: cssColor("--chart-bg", theme === "light" ? "#ffffff" : "#000000"),
+      fg: cssColor("--fg", theme === "light" ? "#1c1b19" : "#f1f5f7"),
+      muted: cssColor("--muted", theme === "light" ? "#6f685f" : "#95a6ae"),
       grid: theme === "light" ? COLORS.gridLight : COLORS.gridDark,
       faint: theme === "light" ? "rgba(0,0,0,0.22)" : "rgba(255,255,255,0.22)",
     };
@@ -3477,6 +3414,13 @@
   }
 
   function render() {
+    resizeCanvas();
+    const c = getThemeColors();
+    const rect = exportRenderRect || canvas.getBoundingClientRect();
+    ctx.clearRect(0, 0, rect.width, rect.height);
+    ctx.fillStyle = c.bg;
+    ctx.fillRect(0, 0, rect.width, rect.height);
+
     if (!rows.length) {
       chartPlotArea = null;
       chartXDomain = null;
@@ -3485,12 +3429,6 @@
       yAxisHitArea = null;
       return;
     }
-    resizeCanvas();
-    const c = getThemeColors();
-    const rect = exportRenderRect || canvas.getBoundingClientRect();
-    ctx.clearRect(0, 0, rect.width, rect.height);
-    ctx.fillStyle = c.bg;
-    ctx.fillRect(0, 0, rect.width, rect.height);
 
     const visible = getVisibleRows();
     const throughEnd = getRowsThroughEnd();
@@ -4317,204 +4255,23 @@
     return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
   }
 
-  function concatUint8Arrays(arrays) {
-    const totalLength = arrays.reduce((sum, item) => sum + item.length, 0);
-    const out = new Uint8Array(totalLength);
-    let offset = 0;
-    arrays.forEach((item) => {
-      out.set(item, offset);
-      offset += item.length;
-    });
-    return out;
-  }
-
-  function ebmlIdBytes(id) {
-    const hex = id.toString(16).padStart(2, "0");
-    const padded = hex.length % 2 ? `0${hex}` : hex;
-    const bytes = new Uint8Array(padded.length / 2);
-    for (let i = 0; i < bytes.length; i += 1) bytes[i] = Number.parseInt(padded.slice(i * 2, i * 2 + 2), 16);
-    return bytes;
-  }
-
-  function ebmlSizeBytes(size) {
-    if (size < 0x7f) return Uint8Array.of(0x80 | size);
-    if (size < 0x3fff) return Uint8Array.of(0x40 | (size >> 8), size & 0xff);
-    if (size < 0x1fffff) return Uint8Array.of(0x20 | (size >> 16), (size >> 8) & 0xff, size & 0xff);
-    if (size < 0x0fffffff) return Uint8Array.of(0x10 | (size >> 24), (size >> 16) & 0xff, (size >> 8) & 0xff, size & 0xff);
-    const bytes = new Uint8Array(8);
-    bytes[0] = 0x01;
-    let value = size;
-    for (let i = 7; i >= 1; i -= 1) {
-      bytes[i] = value & 0xff;
-      value = Math.floor(value / 256);
-    }
-    return bytes;
-  }
-
-  function ebmlUnknownSizeBytes() {
-    return Uint8Array.of(0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff);
-  }
-
-  function ebmlElement(id, data) {
-    return concatUint8Arrays([ebmlIdBytes(id), ebmlSizeBytes(data.length), data]);
-  }
-
-  function ebmlUint(value, byteLength = 0) {
-    let length = byteLength || 1;
-    if (!byteLength) {
-      let probe = Math.max(0, Number(value) || 0);
-      while (probe > 0xff) {
-        length += 1;
-        probe = Math.floor(probe / 256);
-      }
-    }
-    const bytes = new Uint8Array(length);
-    let next = Math.max(0, Number(value) || 0);
-    for (let i = length - 1; i >= 0; i -= 1) {
-      bytes[i] = next & 0xff;
-      next = Math.floor(next / 256);
-    }
-    return bytes;
-  }
-
-  function ebmlFloat64(value) {
-    const bytes = new Uint8Array(8);
-    new DataView(bytes.buffer).setFloat64(0, Number(value) || 0, false);
-    return bytes;
-  }
-
-  function ebmlAscii(value) {
-    return new TextEncoder().encode(String(value || ""));
-  }
-
-  function webmSimpleBlock(trackNumber, relativeTimecode, keyFrame, data) {
-    const header = new Uint8Array(4);
-    header[0] = 0x80 | Math.max(1, Math.min(126, trackNumber));
-    new DataView(header.buffer).setInt16(1, Math.max(-32768, Math.min(32767, Math.round(relativeTimecode))), false);
-    header[3] = keyFrame ? 0x80 : 0x00;
-    return ebmlElement(0xa3, concatUint8Arrays([header, data]));
-  }
-
-  function buildWebMBlob(encodedFrames, width, height, fps, codecId) {
-    const durationSeconds = encodedFrames.length / Math.max(1, fps);
-    const ebmlHeader = ebmlElement(0x1a45dfa3, concatUint8Arrays([
-      ebmlElement(0x4286, ebmlUint(1)),
-      ebmlElement(0x42f7, ebmlUint(1)),
-      ebmlElement(0x42f2, ebmlUint(4)),
-      ebmlElement(0x42f3, ebmlUint(8)),
-      ebmlElement(0x4282, ebmlAscii("webm")),
-      ebmlElement(0x4287, ebmlUint(4)),
-      ebmlElement(0x4285, ebmlUint(2)),
-    ]));
-    const info = ebmlElement(0x1549a966, concatUint8Arrays([
-      ebmlElement(0x2ad7b1, ebmlUint(1000000)),
-      ebmlElement(0x4489, ebmlFloat64(durationSeconds)),
-      ebmlElement(0x4d80, ebmlAscii("wickedsmartbitcoin")),
-      ebmlElement(0x5741, ebmlAscii("wickedsmartbitcoin")),
-    ]));
-    const video = ebmlElement(0xe0, concatUint8Arrays([
-      ebmlElement(0xb0, ebmlUint(width)),
-      ebmlElement(0xba, ebmlUint(height)),
-    ]));
-    const trackEntry = ebmlElement(0xae, concatUint8Arrays([
-      ebmlElement(0xd7, ebmlUint(1)),
-      ebmlElement(0x73c5, ebmlUint(1)),
-      ebmlElement(0x83, ebmlUint(1)),
-      ebmlElement(0x86, ebmlAscii(codecId)),
-      ebmlElement(0x258688, ebmlAscii("Patoshi Pattern")),
-      video,
-    ]));
-    const tracks = ebmlElement(0x1654ae6b, trackEntry);
-    const clusters = [];
-    let clusterStartMs = -1;
-    let clusterBlocks = [];
-    const flushCluster = () => {
-      if (clusterStartMs < 0 || !clusterBlocks.length) return;
-      clusters.push(ebmlElement(0x1f43b675, concatUint8Arrays([
-        ebmlElement(0xe7, ebmlUint(clusterStartMs)),
-        ...clusterBlocks,
-      ])));
-      clusterStartMs = -1;
-      clusterBlocks = [];
-    };
-    encodedFrames.forEach((frame) => {
-      const timeMs = Math.round(frame.timestamp / 1000);
-      if (clusterStartMs < 0 || timeMs - clusterStartMs > 30000) {
-        flushCluster();
-        clusterStartMs = timeMs;
-      }
-      clusterBlocks.push(webmSimpleBlock(1, timeMs - clusterStartMs, frame.type === "key", frame.data));
-    });
-    flushCluster();
-    const segmentPayload = concatUint8Arrays([info, tracks, ...clusters]);
-    const segment = concatUint8Arrays([ebmlIdBytes(0x18538067), ebmlUnknownSizeBytes(), segmentPayload]);
-    return new Blob([ebmlHeader, segment], { type: "video/webm" });
-  }
-
-  async function getSupportedWebCodecsExportConfig(width, height, settings) {
-    if (!window.VideoEncoder || !window.VideoFrame || typeof VideoEncoder.isConfigSupported !== "function") return null;
-    const candidates = [
-      { codec: "vp09.00.10.08", webmCodecId: "V_VP9" },
-      { codec: "vp8", webmCodecId: "V_VP8" },
-    ];
-    for (const candidate of candidates) {
-      const config = {
-        codec: candidate.codec,
-        width,
-        height,
-        bitrate: getExportBitrate(settings),
-        framerate: EXPORT_FPS,
-        latencyMode: "quality",
-      };
-      try {
-        const support = await VideoEncoder.isConfigSupported(config);
-        if (support?.supported) return { ...candidate, config: support.config || config };
-      } catch (_) {}
-    }
-    return null;
-  }
-
   async function encodeExportWebM({ canvas: exportCanvas, settings, frameEnds }) {
-    const encoderConfig = await getSupportedWebCodecsExportConfig(exportCanvas.width, exportCanvas.height, settings);
-    if (!encoderConfig) return null;
-    const encodedFrames = [];
-    const frameDurationUs = Math.round(1000000 / EXPORT_FPS);
-    let frameIndex = 0;
-    let encodeError = null;
-    const encoder = new VideoEncoder({
-      output: (chunk) => {
-        const data = new Uint8Array(chunk.byteLength);
-        chunk.copyTo(data);
-        encodedFrames.push({ timestamp: chunk.timestamp, type: chunk.type, data });
-      },
-      error: (error) => { encodeError = error; },
+    return window.WSBDashboardExport.encodeWebM({
+      canvas: exportCanvas,
+      width: exportCanvas.width,
+      height: exportCanvas.height,
+      fps: EXPORT_FPS,
+      settings,
+      frames: frameEnds,
+      title: "Patoshi Pattern",
+      bitrate: getExportBitrate(settings),
+      isCanceled: () => state.exportCancelRequested,
+      onProgress: renderExportProgress,
+      renderFrame: (endMs) => drawExportFrame(exportCanvas, endMs, settings, {
+        width: exportCanvas.width,
+        height: exportCanvas.height,
+      }),
     });
-    encoder.configure(encoderConfig.config);
-    for (const endMs of frameEnds) {
-      if (state.exportCancelRequested) break;
-      drawExportFrame(exportCanvas, endMs, settings, { width: exportCanvas.width, height: exportCanvas.height });
-      const frame = new VideoFrame(exportCanvas, {
-        timestamp: frameIndex * frameDurationUs,
-        duration: frameDurationUs,
-      });
-      encoder.encode(frame, { keyFrame: frameIndex % EXPORT_FPS === 0 });
-      frame.close();
-      if (encodeError) throw encodeError;
-      frameIndex += 1;
-      renderExportProgress(frameIndex / Math.max(1, frameEnds.length));
-      if (encoder.encodeQueueSize > 8) {
-        await encoder.flush();
-        await wait(0);
-      } else if (frameIndex % 6 === 0) {
-        await wait(0);
-      }
-    }
-    await encoder.flush();
-    if (encodeError) throw encodeError;
-    encoder.close();
-    if (state.exportCancelRequested) return null;
-    encodedFrames.sort((a, b) => a.timestamp - b.timestamp);
-    return buildWebMBlob(encodedFrames, exportCanvas.width, exportCanvas.height, EXPORT_FPS, encoderConfig.webmCodecId);
   }
 
   function downloadExportBlob(blob, settings) {
@@ -5962,6 +5719,7 @@
   async function init() {
     const hasSavedState = loadState();
     installEvents();
+    render();
     const [csvText, metaText] = await Promise.all([
       fetch(DATA_URL, { cache: "no-store" }).then((r) => r.text()),
       fetch(META_URL, { cache: "no-store" }).then((r) => r.json()).catch(() => null),
