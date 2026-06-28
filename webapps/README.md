@@ -38,6 +38,12 @@ The corresponding root-level files are:
 
 Common dashboard shell/layout rules are centralized in `webapps/shared/` and should be referenced by every dashboard.
 
+- `shared/dashboard_components.js`
+  - Shared date picker, date range, button group, two-panel mode, scale button, floating settings menu, copy/reset, manifest runtime, and playback keyboard helpers
+- `shared/dashboard_charting.js`
+  - Shared canvas chart helpers for plot rectangles, linear/log ticks, grid lines, right-side y-axis labels, and standard number/date/currency formatting
+- `shared/dashboard_export.js`
+  - Shared deterministic WebM export, output dimensions, bitrate, footer URL, and download estimate utilities
 - `shared/dashboard_shared.css`
   - Shared topbar/title/info-popover/chip/control/toggle shell rules
   - Shared compact action controls (swap button + resize-handle baseline)
@@ -59,10 +65,15 @@ Add these references in every `dashboard.html` file (path is relative to each da
 
 ```html
 <script src="../shared/dashboard_embed_modal.js"></script>
+<script src="dashboard_manifest.js"></script>
+<script src="../shared/dashboard_components.js"></script>
+<script src="../shared/dashboard_charting.js"></script>
+<script src="../shared/dashboard_export.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="../shared/dashboard_shared.css" />
+<link rel="stylesheet" href="../shared/dashboard_controls.css" />
 ```
 
 Map the shared accent token in dashboard-local `:root`:
@@ -542,12 +553,19 @@ Recommended expectations for future dashboards:
 
 ## Implementation checklist for a new dashboard
 
+Start from the generator unless there is a specific reason not to:
+
+```bash
+scripts/create_dashboard.sh <slug> "Dashboard Title"
+```
+
 Before calling a new dashboard finished, check all of the following:
 
 **Foundation**
-- The dashboard references `../shared/dashboard_embed_modal.js`, `../shared/dashboard_shared.css`, and the Google Fonts link in `<head>`.
+- The dashboard references `dashboard_manifest.js`, `../shared/dashboard_embed_modal.js`, `../shared/dashboard_components.js`, `../shared/dashboard_charting.js`, `../shared/dashboard_export.js`, `../shared/dashboard_shared.css`, `../shared/dashboard_controls.css`, and the Google Fonts link in `<head>`.
+- `dashboard_manifest.js` assigns `window.WSBDashboardManifest` with at least `slug`, `title`, `description`, and `url`.
 - `preview.html` loads `../shared/preview_shared.js` before `preview_app.js`.
-- `dashboard_app.js` starts with the required theme sync IIFE.
+- `dashboard_app.js` uses `window.WSBDashboardComponents.initDashboardRuntime()` for shared title, description, copy-link, and reset-shell wiring.
 - `preview_app.js` calls `window.WSBPreviewShared?.initThemeSync({ onThemeChanged: render })`.
 - The root-level `/<dashboard>.html` standalone shell page exists with `data-standalone-modal-shell="1"`, the correct prefetch href, and a script tag loading `webapps/<dashboard>/standalone_bootstrap.js`.
 
@@ -555,6 +573,13 @@ Before calling a new dashboard finished, check all of the following:
 - The new dashboard's entry was added to `localStandaloneBySlug` in **every** existing `standalone_bootstrap.js` (and `standalone_app.js` for quantum_exposure).
 - A `DASHBOARD_CARD_PREVIEW_SPECS` entry was added to `js/06_grid_layout_filter_render.js`.
 - `standalone_bootstrap.js` has the correct `STANDALONE_FILENAME` and `DASHBOARD_URL` constants and updated `getStandalonePath()` / `getMainRouteUrl()` logic.
+- Date controls use `WSBDashboardComponents.createDatePicker()` or `bindDateRangePickers()`.
+- Updated timestamp KPIs use `WSBDashboardComponents.createUpdatedTimeZoneChipController()` with the standard `#updatedChipWrap`, `#chipUpdated`, `#updatedKpi`, `#updatedTimeZoneDropdown`, `#updatedTimeZoneDropdownTrigger`, `#updatedTimeZoneDropdownMenu`, and `#updatedTimeZoneSelect` markup. Dashboards that include the block height should call `setUpdated(value, { includeHeight: true, height })`.
+- Playback keyboard controls use `WSBDashboardComponents.bindPlaybackKeyboardShortcuts()`.
+- Copy-link and reset button state use `WSBDashboardComponents.copyDashboardLink()`, `setResetButtonState()`, or `bindDashboardActions()`.
+- Animation exports use `WSBDashboardExport.encodeWebM()`, `estimateDownload()`, and `drawFooterUrl()`. MP4 export paths are retired.
+- Canvas dashboards should use `WSBDashboardCharting` for repeated y-axis ticks, right-side labels, current-value labels, date ticks, and linear/log scale math before adding dashboard-local chart helpers.
+- Run `scripts/check_dashboard_contract.sh webapps/<dashboard>` before handoff; run `scripts/check_all_dashboards.sh --smoke` before landing shared-file changes.
 
 **Visuals and behavior**
 - Shared shell rules are reused; duplicated copies of shared rules were not pasted into the dashboard file.

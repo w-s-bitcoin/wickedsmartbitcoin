@@ -43,10 +43,12 @@
     }());
   </script>
   <script src="../shared/dashboard_embed_modal.js"></script>
+  <script src="../shared/dashboard_components.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="../shared/dashboard_shared.css" />
+    <link rel="stylesheet" href="../shared/dashboard_controls.css" />
   <style>
     :root {
       --analysis-min-height: 500px;
@@ -1871,11 +1873,6 @@
       background: rgba(0, 0, 0, 0.18);
     }
 
-    :root[data-theme="light"] .historical-chart-loading-spinner {
-      border-color: rgba(0, 0, 0, 0.1);
-      border-top-color: var(--dashboard-accent, #ff9f1c);
-    }
-
     .historical-chart-loading-card {
       display: inline-flex;
       align-items: center;
@@ -1888,15 +1885,6 @@
       font-size: 12px;
       font-weight: 600;
       letter-spacing: 0.2px;
-    }
-
-    .historical-chart-loading-spinner {
-      width: 28px;
-      height: 28px;
-      border-radius: 999px;
-      border: 3px solid rgba(255, 255, 255, 0.2);
-      border-top-color: var(--dashboard-accent, #ff9f1c);
-      animation: dash-spin 850ms linear infinite;
     }
 
     .historical-svg {

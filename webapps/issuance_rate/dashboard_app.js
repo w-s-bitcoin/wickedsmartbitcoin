@@ -37,6 +37,7 @@
   const MS_PER_DAY = 24 * 60 * 60 * 1000;
   const AUTO_REFRESH_MS = 60000;
   const DASHBOARD_TIME = window.WSBDashboardTime || null;
+  const DASHBOARD_COMPONENTS = window.WSBDashboardComponents || {};
   const UPDATED_TIME_ZONE_DROPDOWN = {
     selectId: "updatedTimeZoneSelect",
     dropdownId: "updatedTimeZoneDropdown",
@@ -60,7 +61,7 @@
     isPaused: false,
     playbackSpeed: 1,
     timerId: null,
-    timeZone: "UTC",
+    timeZone: DASHBOARD_TIME?.getPreferredTimeZone?.() || "UTC",
     selectedPreset: "custom",
     viewMode: "single",
     scaleMode: "linear",
@@ -80,6 +81,18 @@
     autoRefreshTimer: null,
     refreshInFlight: false,
   };
+  const updatedTimeZoneChip = DASHBOARD_COMPONENTS.createUpdatedTimeZoneChipController?.({
+    getTimeZone: () => state.timeZone || DASHBOARD_TIME?.getPreferredTimeZone?.() || "UTC",
+    setTimeZone: (value) => {
+      state.timeZone = DASHBOARD_TIME?.setPreferredTimeZone?.(value) || value || "UTC";
+      return state.timeZone;
+    },
+    onChange: (timeZone) => {
+      state.timeZone = timeZone || state.timeZone;
+      updateStatus();
+      if (state.dailyCalculationsUseSelectedTimeZone) renderChart();
+    },
+  });
 
   const els = {};
   let updatedTimeZoneDropdownListenersBound = false;
@@ -385,307 +398,8 @@
     return `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>${fmtDatePickerLabel(isoVal)}`;
   }
 
-  function isoToLocalDate(iso) {
-    if (!iso) return null;
-    const [year, month, day] = String(iso).split("-").map(Number);
-    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
-    const date = new Date(year, month - 1, day);
-    date.setHours(0, 0, 0, 0);
-    return date;
-  }
-
   function makeDatePicker({ anchorEl, align = "left", getSelected, getMin, getMax, onSelect }) {
-    let popup = null;
-    let pickerYear;
-    let pickerMonth;
-    let pickerView = "days";
-    let pickerExpandedYear = null;
-    const popupAlign = align === "right" ? "right" : "left";
-
-    function buildCalendar() {
-      const selectedIso = getSelected();
-      const minDate = isoToLocalDate(getMin());
-      const maxDate = isoToLocalDate(getMax());
-      const year = pickerYear;
-      const month = pickerMonth;
-      const monthLabel = new Date(year, month, 1).toLocaleString("default", { month: "long", year: "numeric" });
-      const wrap = document.createElement("div");
-      wrap.className = "date-picker-popup";
-      const header = document.createElement("div");
-      header.className = "date-picker-header";
-      const prev = document.createElement("button");
-      prev.className = "date-picker-nav";
-      prev.textContent = "\u2039";
-      prev.type = "button";
-      prev.addEventListener("click", (event) => {
-        event.stopPropagation();
-        pickerMonth -= 1;
-        if (pickerMonth < 0) {
-          pickerMonth = 11;
-          pickerYear -= 1;
-        }
-        rebuildCalendar();
-      });
-      const next = document.createElement("button");
-      next.className = "date-picker-nav";
-      next.textContent = "\u203a";
-      next.type = "button";
-      next.addEventListener("click", (event) => {
-        event.stopPropagation();
-        pickerMonth += 1;
-        if (pickerMonth > 11) {
-          pickerMonth = 0;
-          pickerYear += 1;
-        }
-        rebuildCalendar();
-      });
-      const label = document.createElement("span");
-      label.textContent = monthLabel;
-      label.className = "date-picker-header-label";
-      label.addEventListener("click", (event) => {
-        event.stopPropagation();
-        pickerView = "years";
-        pickerExpandedYear = null;
-        rebuildCalendar();
-      });
-      header.append(prev, label, next);
-      wrap.appendChild(header);
-      const grid = document.createElement("div");
-      grid.className = "date-picker-grid";
-      ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].forEach((dayName) => {
-        const day = document.createElement("div");
-        day.className = "date-picker-dow";
-        day.textContent = dayName;
-        grid.appendChild(day);
-      });
-      const firstDay = new Date(year, month, 1).getDay();
-      for (let i = 0; i < firstDay; i += 1) {
-        const blank = document.createElement("div");
-        blank.className = "date-picker-day dp-empty";
-        grid.appendChild(blank);
-      }
-      const daysInMonth = new Date(year, month + 1, 0).getDate();
-      for (let dayNum = 1; dayNum <= daysInMonth; dayNum += 1) {
-        const date = new Date(year, month, dayNum);
-        date.setHours(0, 0, 0, 0);
-        const isoVal = `${year}-${String(month + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
-        const outOfRange = (minDate && date < minDate) || (maxDate && date > maxDate);
-        const cell = document.createElement("div");
-        cell.className = "date-picker-day";
-        cell.textContent = String(dayNum);
-        if (isoVal === selectedIso) cell.classList.add("dp-selected");
-        if (outOfRange) {
-          cell.classList.add("dp-disabled");
-        } else {
-          cell.addEventListener("click", (event) => {
-            event.stopPropagation();
-            closePopup();
-            onSelect(isoVal);
-          });
-        }
-        grid.appendChild(cell);
-      }
-      wrap.appendChild(grid);
-      return wrap;
-    }
-
-    function buildYearGrid() {
-      const minDate = isoToLocalDate(getMin());
-      const maxDate = isoToLocalDate(getMax());
-      const minYear = minDate ? minDate.getFullYear() : pickerYear - 10;
-      const maxYear = maxDate ? maxDate.getFullYear() : pickerYear + 5;
-      const wrap = document.createElement("div");
-      wrap.className = "date-picker-popup dp-year-grid-popup";
-      const header = document.createElement("div");
-      header.className = "date-picker-header";
-      const backBtn = document.createElement("button");
-      backBtn.className = "date-picker-nav";
-      backBtn.textContent = "\u2039";
-      backBtn.type = "button";
-      backBtn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        pickerView = "days";
-        rebuildCalendar();
-      });
-      const label = document.createElement("span");
-      label.className = "date-picker-header-label";
-      label.textContent = "Select Year";
-      header.append(backBtn, label);
-      wrap.appendChild(header);
-      const grid = document.createElement("div");
-      grid.className = "dp-year-grid";
-      for (let year = minYear; year <= maxYear; year += 1) {
-        const cell = document.createElement("div");
-        cell.className = "dp-year-cell";
-        if (year === pickerYear) cell.classList.add("dp-year-current");
-        const yearLabel = document.createElement("span");
-        yearLabel.textContent = String(year);
-        const chevron = document.createElement("span");
-        chevron.className = "dp-accordion-chevron";
-        chevron.textContent = "\u203a";
-        cell.append(yearLabel, chevron);
-        cell.addEventListener("click", (event) => {
-          event.stopPropagation();
-          pickerView = "year";
-          pickerExpandedYear = year;
-          rebuildCalendar();
-        });
-        grid.appendChild(cell);
-      }
-      wrap.appendChild(grid);
-      return wrap;
-    }
-
-    function buildYearAccordion() {
-      const minDate = isoToLocalDate(getMin());
-      const maxDate = isoToLocalDate(getMax());
-      const minYear = minDate ? minDate.getFullYear() : pickerYear - 10;
-      const maxYear = maxDate ? maxDate.getFullYear() : pickerYear + 5;
-      const expandedYear = pickerExpandedYear !== null ? pickerExpandedYear : pickerYear;
-      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      const wrap = document.createElement("div");
-      wrap.className = "date-picker-popup dp-year-grid-popup";
-      const header = document.createElement("div");
-      header.className = "date-picker-header";
-      const backBtn = document.createElement("button");
-      backBtn.className = "date-picker-nav";
-      backBtn.textContent = "\u2039";
-      backBtn.type = "button";
-      backBtn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        pickerView = "years";
-        pickerExpandedYear = null;
-        rebuildCalendar();
-      });
-      const label = document.createElement("span");
-      label.className = "date-picker-header-label";
-      label.textContent = "Select Month";
-      header.append(backBtn, label);
-      wrap.appendChild(header);
-      const list = document.createElement("div");
-      list.className = "dp-accordion-list";
-      for (let year = minYear; year <= maxYear; year += 1) {
-        const yearRow = document.createElement("div");
-        yearRow.className = `dp-accordion-year${year === expandedYear ? " dp-accordion-open" : ""}`;
-        const yearBtn = document.createElement("button");
-        yearBtn.type = "button";
-        yearBtn.className = "dp-accordion-year-btn";
-        yearBtn.textContent = String(year);
-        const chevron = document.createElement("span");
-        chevron.className = "dp-accordion-chevron";
-        chevron.textContent = "\u203a";
-        yearBtn.appendChild(chevron);
-        yearBtn.addEventListener("click", (event) => {
-          event.stopPropagation();
-          pickerExpandedYear = pickerExpandedYear === year ? null : year;
-          rebuildCalendar();
-        });
-        yearRow.appendChild(yearBtn);
-        if (year === expandedYear) {
-          const monthGrid = document.createElement("div");
-          monthGrid.className = "dp-month-grid";
-          monthNames.forEach((name, monthIndex) => {
-            const minMonth = minDate && year === minDate.getFullYear() ? minDate.getMonth() : -1;
-            const maxMonth = maxDate && year === maxDate.getFullYear() ? maxDate.getMonth() : 12;
-            const disabled = monthIndex < minMonth || monthIndex > maxMonth;
-            const cell = document.createElement("div");
-            cell.className = `dp-month-cell${disabled ? " dp-disabled" : ""}`;
-            if (year === pickerYear && monthIndex === pickerMonth) cell.classList.add("dp-month-current");
-            cell.textContent = name;
-            if (!disabled) {
-              cell.addEventListener("click", (event) => {
-                event.stopPropagation();
-                pickerYear = year;
-                pickerMonth = monthIndex;
-                pickerView = "days";
-                pickerExpandedYear = null;
-                rebuildCalendar();
-              });
-            }
-            monthGrid.appendChild(cell);
-          });
-          yearRow.appendChild(monthGrid);
-        }
-        list.appendChild(yearRow);
-      }
-      wrap.appendChild(list);
-      return wrap;
-    }
-
-    function positionPopup() {
-      if (!popup || !anchorEl) return;
-      const rect = anchorEl.getBoundingClientRect();
-      popup.style.top = `${rect.bottom + 6}px`;
-      const idealLeft = popupAlign === "left" ? rect.left : rect.right - popup.offsetWidth;
-      const maxLeft = Math.max(4, window.innerWidth - popup.offsetWidth - 4);
-      popup.style.left = `${Math.min(Math.max(4, idealLeft), maxLeft)}px`;
-    }
-
-    function rebuildCalendar() {
-      if (!popup) return;
-      const fresh = pickerView === "years" ? buildYearGrid() : pickerView === "year" ? buildYearAccordion() : buildCalendar();
-      popup.replaceChildren(...fresh.childNodes);
-      popup.className = fresh.className;
-      requestAnimationFrame(() => {
-        positionPopup();
-        if (pickerView === "years") {
-          const grid = popup.querySelector(".dp-year-grid");
-          const selectedYear = popup.querySelector(".dp-year-current");
-          if (grid && selectedYear) {
-            grid.scrollTop = Math.max(0, selectedYear.offsetTop + selectedYear.offsetHeight - grid.clientHeight);
-          }
-        } else if (pickerView === "year") {
-          const list = popup.querySelector(".dp-accordion-list");
-          const openRow = popup.querySelector(".dp-accordion-year.dp-accordion-open");
-          if (list && openRow) {
-            const yearButton = openRow.querySelector(".dp-accordion-year-btn");
-            const desiredTop = Math.max(0, (yearButton || openRow).offsetTop - 2);
-            list.scrollTop = Math.min(desiredTop, Math.max(0, list.scrollHeight - list.clientHeight));
-          }
-        }
-      });
-    }
-
-    function openPopup() {
-      if (activeDatePickerClose && activeDatePickerClose !== closePopup) {
-        activeDatePickerClose();
-      }
-      closeUpdatedTimeZoneDropdown();
-      const selectedIso = getSelected();
-      const selectedDate = isoToLocalDate(selectedIso);
-      const fallbackDate = isoToLocalDate(getMax()) || new Date();
-      pickerYear = (selectedDate || fallbackDate).getFullYear();
-      pickerMonth = (selectedDate || fallbackDate).getMonth();
-      pickerView = "days";
-      pickerExpandedYear = null;
-      popup = buildCalendar();
-      activeDatePickerClose = closePopup;
-      document.body.appendChild(popup);
-      requestAnimationFrame(positionPopup);
-      window.addEventListener("scroll", positionPopup, true);
-      window.addEventListener("resize", positionPopup);
-    }
-
-    function closePopup() {
-      if (!popup) return;
-      popup.remove();
-      popup = null;
-      if (activeDatePickerClose === closePopup) activeDatePickerClose = null;
-      window.removeEventListener("scroll", positionPopup, true);
-      window.removeEventListener("resize", positionPopup);
-    }
-
-    function toggle(event) {
-      event.stopPropagation();
-      if (popup) closePopup();
-      else openPopup();
-    }
-
-    document.addEventListener("click", closePopup);
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") closePopup();
-    });
-    return { toggle, closePopup, rebuildCalendar };
+    return window.WSBDashboardComponents.createDatePicker({ anchorEl, align, getSelected, getMin, getMax, onSelect });
   }
 
   function getPresetStartIndex(preset, endIndex) {
@@ -1598,7 +1312,7 @@
     const canvas = els.issuanceChart;
     const { ctx, width, height } = setupCanvas(canvas);
     const colors = {
-      bg: getCss("--bg") || "#000",
+      bg: getCss("--chart-bg") || getCss("--panel") || getCss("--bg") || "#000",
       fg: getCss("--fg") || "#fff",
       muted: getCss("--muted") || "#999",
       target: getCss("--target") || "#ff9900",
@@ -2025,9 +1739,9 @@
   function updateStatus() {
     const row = getDisplayRow(state.currentIndex);
     const updatedRaw = String(state.data?.generated_utc || "").trim();
-    const updatedText = updatedRaw ? formatUpdatedForSelectedTimeZone(updatedRaw) : "-";
     const value = els.chipUpdated?.querySelector(".chip-value");
-    if (value) value.textContent = updatedText;
+    if (updatedTimeZoneChip) updatedTimeZoneChip.setUpdated(updatedRaw);
+    else if (value) value.textContent = "-";
     const formattedKpis = getFormattedRowKpis(row);
     const heightValue = els.chipHeight?.querySelector(".chip-value");
     if (heightValue) heightValue.textContent = formattedKpis.height;
@@ -2243,23 +1957,15 @@
 
   function updateResetButtonUi() {
     const btn = els.resetDashboard;
-    if (!btn) return;
-    const label = btn.querySelector(".btn-label");
-    if (preResetStateSnapshot) {
-      if (label) label.textContent = "Undo Restore";
-      setButtonIcon("resetDashboardIcon", ICONS.resetUndo);
-      btn.classList.add("reset-dashboard-btn--undo");
-      btn.setAttribute("aria-label", "Undo the last restore defaults action");
-      setCustomTooltip(btn, "Undo the last restore defaults action");
-      btn.disabled = false;
-      return;
-    }
-    if (label) label.textContent = "Restore Defaults";
-    setButtonIcon("resetDashboardIcon", ICONS.resetRestore);
-    btn.classList.remove("reset-dashboard-btn--undo");
-    btn.setAttribute("aria-label", "Restore dashboard defaults");
-    setCustomTooltip(btn, "Reset dashboard to defaults");
-    btn.disabled = isDefaultState();
+    window.WSBDashboardComponents.setResetButtonState({
+      button: btn,
+      isUndo: !!preResetStateSnapshot,
+      disabled: isDefaultState(),
+      undoIcon: ICONS.resetUndo,
+      defaultIcon: ICONS.resetRestore,
+      setIcon: (icon) => setButtonIcon("resetDashboardIcon", icon),
+    });
+    setCustomTooltip(btn, preResetStateSnapshot ? "Undo the last restore defaults action" : "Reset dashboard to defaults");
   }
 
   function persistState() {
@@ -2692,10 +2398,7 @@
   }
 
   function getDownloadDimensions(settings) {
-    const quality = Number(settings.quality) || 720;
-    if (settings.orientation === "portrait") return { width: quality, height: Math.round(quality * 16 / 9) };
-    if (settings.orientation === "square") return { width: quality, height: quality };
-    return { width: Math.round(quality * 16 / 9), height: quality };
+    return window.WSBDashboardExport.getDimensions(settings);
   }
 
   function getDownloadLayoutDimensions(settings) {
@@ -2853,24 +2556,29 @@
     };
     const { width, height } = getDownloadDimensions(settings);
     const frames = getDateRangeExportFrameIndices(state.startIndex, state.endIndex, Number(settings.speed) || 1, settings.endFrameHold);
+    const uniqueFrameCount = new Set(frames).size;
     const seconds = frames.length / EXPORT_VIDEO_FPS;
     const bitrate = getDateRangeExportBitrate(settings);
     const calibrationKey = getDownloadEstimateCalibrationKey(settings, frames);
     const calibration = downloadEstimateCalibrationCache.get(calibrationKey);
-    const mb = (seconds * bitrate / 8) / (1024 * 1024) * 0.78;
     const fallbackMsPerFrame = 35 * (width * height) / (1280 * 720);
     const calibratedMsPerFrame = calibration?.msPerUniqueFrame;
-    const renderSeconds = Math.max(
-      1,
-      (frames.length * (Number.isFinite(calibratedMsPerFrame) ? calibratedMsPerFrame : fallbackMsPerFrame)
-        + frames.length * EXPORT_ESTIMATE_FRAME_OVERHEAD_MS) / 1000
-    );
-    const exportSeconds = canUseDeterministicWebCodecsExport()
-      ? renderSeconds
-      : seconds + renderSeconds;
-    els.downloadEstimateSize.textContent = `${Math.max(1, Math.round(mb)).toLocaleString("en-US")} MB`;
-    els.downloadEstimateLength.textContent = formatDuration(seconds);
-    els.downloadEstimateTime.textContent = `~${formatDuration(exportSeconds)}`;
+    const deterministicExport = canUseDeterministicWebCodecsExport();
+    const estimate = window.WSBDashboardExport.estimateDownload(settings, {
+      frameCount: frames.length,
+      uniqueFrameCount,
+      videoSeconds: seconds,
+      dimensions: { width, height },
+      bitrate,
+      calibration: Number.isFinite(calibratedMsPerFrame) ? { msPerFrame: calibratedMsPerFrame } : null,
+      fallbackFrameSeconds: fallbackMsPerFrame / 1000,
+      encodeFrameSeconds: EXPORT_ESTIMATE_FRAME_OVERHEAD_MS / 1000,
+    });
+    els.downloadEstimateSize.textContent = estimate.sizeText;
+    els.downloadEstimateLength.textContent = estimate.lengthText;
+    els.downloadEstimateTime.textContent = deterministicExport
+      ? estimate.timeText
+      : `~${formatDuration(seconds + estimate.processingSeconds)}`;
     if (!calibration && frames.length) {
       scheduleDownloadEstimateCalibration(settings, frames, calibrationKey);
     }
@@ -2990,218 +2698,20 @@
     syncDownloadSettingsDownloadButton();
   }
 
-  function concatUint8Arrays(arrays) {
-    const totalLength = arrays.reduce((sum, item) => sum + item.length, 0);
-    const out = new Uint8Array(totalLength);
-    let offset = 0;
-    arrays.forEach((item) => {
-      out.set(item, offset);
-      offset += item.length;
-    });
-    return out;
-  }
-
-  function ebmlIdBytes(id) {
-    const hex = id.toString(16).padStart(2, "0");
-    const padded = hex.length % 2 ? `0${hex}` : hex;
-    const bytes = new Uint8Array(padded.length / 2);
-    for (let i = 0; i < bytes.length; i += 1) {
-      bytes[i] = Number.parseInt(padded.slice(i * 2, i * 2 + 2), 16);
-    }
-    return bytes;
-  }
-
-  function ebmlSizeBytes(size) {
-    if (size < 0x7f) return Uint8Array.of(0x80 | size);
-    if (size < 0x3fff) return Uint8Array.of(0x40 | (size >> 8), size & 0xff);
-    if (size < 0x1fffff) return Uint8Array.of(0x20 | (size >> 16), (size >> 8) & 0xff, size & 0xff);
-    if (size < 0x0fffffff) {
-      return Uint8Array.of(0x10 | (size >> 24), (size >> 16) & 0xff, (size >> 8) & 0xff, size & 0xff);
-    }
-    const bytes = new Uint8Array(8);
-    bytes[0] = 0x01;
-    let value = size;
-    for (let i = 7; i >= 1; i -= 1) {
-      bytes[i] = value & 0xff;
-      value = Math.floor(value / 256);
-    }
-    return bytes;
-  }
-
-  function ebmlUnknownSizeBytes() {
-    return Uint8Array.of(0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff);
-  }
-
-  function ebmlElement(id, data) {
-    return concatUint8Arrays([ebmlIdBytes(id), ebmlSizeBytes(data.length), data]);
-  }
-
-  function ebmlUint(value, byteLength = 0) {
-    let length = byteLength;
-    if (!length) {
-      length = 1;
-      let probe = Math.max(0, Number(value) || 0);
-      while (probe > 0xff) {
-        length += 1;
-        probe = Math.floor(probe / 256);
-      }
-    }
-    const bytes = new Uint8Array(length);
-    let next = Math.max(0, Number(value) || 0);
-    for (let i = length - 1; i >= 0; i -= 1) {
-      bytes[i] = next & 0xff;
-      next = Math.floor(next / 256);
-    }
-    return bytes;
-  }
-
-  function ebmlFloat64(value) {
-    const bytes = new Uint8Array(8);
-    new DataView(bytes.buffer).setFloat64(0, Number(value) || 0, false);
-    return bytes;
-  }
-
-  function ebmlAscii(value) {
-    return new TextEncoder().encode(String(value || ""));
-  }
-
-  function webmSimpleBlock(trackNumber, relativeTimecode, keyFrame, data) {
-    const header = new Uint8Array(4);
-    header[0] = 0x80 | Math.max(1, Math.min(126, trackNumber));
-    new DataView(header.buffer).setInt16(1, Math.max(-32768, Math.min(32767, Math.round(relativeTimecode))), false);
-    header[3] = keyFrame ? 0x80 : 0x00;
-    return ebmlElement(0xa3, concatUint8Arrays([header, data]));
-  }
-
-  function buildWebMBlob(encodedFrames, width, height, fps, codecId) {
-    const durationSeconds = encodedFrames.length / Math.max(1, fps);
-    const ebmlHeader = ebmlElement(0x1a45dfa3, concatUint8Arrays([
-      ebmlElement(0x4286, ebmlUint(1)),
-      ebmlElement(0x42f7, ebmlUint(1)),
-      ebmlElement(0x42f2, ebmlUint(4)),
-      ebmlElement(0x42f3, ebmlUint(8)),
-      ebmlElement(0x4282, ebmlAscii("webm")),
-      ebmlElement(0x4287, ebmlUint(4)),
-      ebmlElement(0x4285, ebmlUint(2)),
-    ]));
-    const info = ebmlElement(0x1549a966, concatUint8Arrays([
-      ebmlElement(0x2ad7b1, ebmlUint(1000000)),
-      ebmlElement(0x4489, ebmlFloat64(durationSeconds)),
-      ebmlElement(0x4d80, ebmlAscii("wickedsmartbitcoin")),
-      ebmlElement(0x5741, ebmlAscii("wickedsmartbitcoin")),
-    ]));
-    const video = ebmlElement(0xe0, concatUint8Arrays([
-      ebmlElement(0xb0, ebmlUint(width)),
-      ebmlElement(0xba, ebmlUint(height)),
-    ]));
-    const trackEntry = ebmlElement(0xae, concatUint8Arrays([
-      ebmlElement(0xd7, ebmlUint(1)),
-      ebmlElement(0x73c5, ebmlUint(1)),
-      ebmlElement(0x83, ebmlUint(1)),
-      ebmlElement(0x86, ebmlAscii(codecId)),
-      ebmlElement(0x258688, ebmlAscii("Bitcoin Issuance Rate")),
-      video,
-    ]));
-    const tracks = ebmlElement(0x1654ae6b, trackEntry);
-    const clusters = [];
-    let clusterStartMs = -1;
-    let clusterBlocks = [];
-    const flushCluster = () => {
-      if (clusterStartMs < 0 || !clusterBlocks.length) return;
-      clusters.push(ebmlElement(0x1f43b675, concatUint8Arrays([
-        ebmlElement(0xe7, ebmlUint(clusterStartMs)),
-        ...clusterBlocks,
-      ])));
-      clusterStartMs = -1;
-      clusterBlocks = [];
-    };
-    encodedFrames.forEach((frame) => {
-      const timeMs = Math.round(frame.timestamp / 1000);
-      if (clusterStartMs < 0 || timeMs - clusterStartMs > 30000) {
-        flushCluster();
-        clusterStartMs = timeMs;
-      }
-      clusterBlocks.push(webmSimpleBlock(1, timeMs - clusterStartMs, frame.type === "key", frame.data));
-    });
-    flushCluster();
-    const segmentPayload = concatUint8Arrays([info, tracks, ...clusters]);
-    const segment = concatUint8Arrays([ebmlIdBytes(0x18538067), ebmlUnknownSizeBytes(), segmentPayload]);
-    return new Blob([ebmlHeader, segment], { type: "video/webm" });
-  }
-
-  async function getSupportedWebCodecsExportConfig(width, height, settings) {
-    if (!window.VideoEncoder || !window.VideoFrame || typeof VideoEncoder.isConfigSupported !== "function") return null;
-    const candidates = [
-      { codec: "vp09.00.10.08", webmCodecId: "V_VP9" },
-      { codec: "vp8", webmCodecId: "V_VP8" },
-    ];
-    for (const candidate of candidates) {
-      const config = {
-        codec: candidate.codec,
-        width,
-        height,
-        bitrate: getDateRangeExportBitrate(settings),
-        framerate: EXPORT_VIDEO_FPS,
-        latencyMode: "quality",
-      };
-      try {
-        const support = await VideoEncoder.isConfigSupported(config);
-        if (support?.supported) return { ...candidate, config: support.config || config };
-      } catch (_) {
-        // Try the next codec.
-      }
-    }
-    return null;
-  }
-
   async function encodeDateRangeAnimationWebM({ canvas, settings, frameIndices }) {
-    const encoderConfig = await getSupportedWebCodecsExportConfig(canvas.width, canvas.height, settings);
-    if (!encoderConfig) return null;
-    const encodedFrames = [];
-    const frameDurationUs = Math.round(1000000 / EXPORT_VIDEO_FPS);
-    let frameNumber = 0;
-    let encodeError = null;
-    const encoder = new VideoEncoder({
-      output: (chunk) => {
-        const data = new Uint8Array(chunk.byteLength);
-        chunk.copyTo(data);
-        encodedFrames.push({
-          timestamp: chunk.timestamp,
-          type: chunk.type,
-          data,
-        });
-      },
-      error: (error) => {
-        encodeError = error;
-      },
+    return window.WSBDashboardExport.encodeWebM({
+      canvas,
+      width: canvas.width,
+      height: canvas.height,
+      fps: EXPORT_VIDEO_FPS,
+      settings,
+      frames: frameIndices,
+      title: "Issuance Rate",
+      bitrate: getDateRangeExportBitrate(settings),
+      isCanceled: () => dateRangeExportCancelRequested,
+      onProgress: renderDateRangeDownloadButtonProgress,
+      renderFrame: (frameIndex) => renderExportFrame(canvas, frameIndex, settings),
     });
-    encoder.configure(encoderConfig.config);
-    for (const frameIndex of frameIndices) {
-      if (dateRangeExportCancelRequested) break;
-      renderExportFrame(canvas, frameIndex, settings);
-      const timestamp = frameNumber * frameDurationUs;
-      const frame = new VideoFrame(canvas, {
-        timestamp,
-        duration: frameDurationUs,
-      });
-      encoder.encode(frame, { keyFrame: frameNumber % EXPORT_VIDEO_FPS === 0 });
-      frame.close();
-      if (encodeError) throw encodeError;
-      frameNumber += 1;
-      renderDateRangeDownloadButtonProgress(frameNumber / Math.max(1, frameIndices.length));
-      if (encoder.encodeQueueSize > 8) {
-        await encoder.flush();
-        await wait(0);
-      } else if (frameNumber % 6 === 0) {
-        await wait(0);
-      }
-    }
-    await encoder.flush();
-    if (encodeError) throw encodeError;
-    encoder.close();
-    if (dateRangeExportCancelRequested) return null;
-    encodedFrames.sort((a, b) => a.timestamp - b.timestamp);
-    return buildWebMBlob(encodedFrames, canvas.width, canvas.height, EXPORT_VIDEO_FPS, encoderConfig.webmCodecId);
   }
 
   function getSupportedRecorder() {
@@ -3306,11 +2816,12 @@
         ctx.drawImage(chartCanvas, 0, 0, pixelWidth, chartPixelHeight);
         ctx.fillStyle = bg;
         ctx.fillRect(0, chartPixelHeight, pixelWidth, footerPixelHeight);
-        ctx.fillStyle = settings.theme === "light" ? "#8f887f" : "#6f7f87";
-        ctx.font = `500 ${Math.max(14, Math.round(footerPixelHeight * 0.6))}px "IBM Plex Mono", monospace`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText("https://wickedsmartbitcoin.com/issuance_rate", pixelWidth / 2, chartPixelHeight + footerPixelHeight * 0.32);
+        window.WSBDashboardExport.drawFooterUrl(
+          ctx,
+          "https://wickedsmartbitcoin.com/issuance_rate",
+          { width: pixelWidth, height: pixelHeight, footerHeight: footerPixelHeight },
+          { ...settings, referenceQuality: 1440 },
+        );
         ctx.restore();
       }
     } finally {
@@ -4024,24 +3535,15 @@
     });
     els.copyDashboardLink?.addEventListener("click", async () => {
       try {
-        await navigator.clipboard.writeText(window.location.href);
+        await window.WSBDashboardComponents.copyDashboardLink({
+          button: els.copyDashboardLink,
+          url: window.location.href,
+          copiedIcon: ICONS.copyCopied,
+          defaultIcon: ICONS.copyLink,
+          setIcon: (icon) => setButtonIcon("copyDashboardIcon", icon),
+        });
       } catch (_) {
         // Best effort only.
-      }
-      const button = els.copyDashboardLink;
-      const label = button?.querySelector(".btn-label");
-      const original = label ? label.textContent : "";
-      if (button?.__copyFeedbackTimer) window.clearTimeout(button.__copyFeedbackTimer);
-      button?.classList.add("copy-link-btn--copied");
-      setButtonIcon("copyDashboardIcon", ICONS.copyCopied);
-      if (label) label.textContent = "Copied!";
-      if (button) {
-        button.__copyFeedbackTimer = window.setTimeout(() => {
-          setButtonIcon("copyDashboardIcon", ICONS.copyLink);
-          if (label) label.textContent = original || "Copy Link";
-          button.classList.remove("copy-link-btn--copied");
-          button.__copyFeedbackTimer = null;
-        }, 1400);
       }
     });
     els.resetDashboard?.addEventListener("click", () => {
@@ -4067,8 +3569,6 @@
         dailyCalculationsUseSelectedTimeZone: false,
       });
     });
-    bindUpdatedTimeZoneDropdown();
-    bindTimeZoneChipEvents();
     bindCustomTooltips();
     bindDateRangeKeyboardShortcuts();
     primeKeyboardFocus();
@@ -4277,7 +3777,7 @@
     cacheElements();
     loadDownloadSettings();
     bindDateRangeExportUnloadGuard();
-    populateUpdatedTimeZoneSelect();
+    updatedTimeZoneChip?.populate?.();
     bindEvents();
     applyIssuanceData(await loadIssuanceData());
     applyTopKpiWidthLocks();

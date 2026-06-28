@@ -6,10 +6,13 @@
   <style id="wsb-early-black">html,body{background:#000;color:#f1f5f7;}:root[data-theme="light"],:root[data-theme="light"] body{background:#f4f5f7;color:#111827;}</style>
   <title>Days Since ATH</title>
   <script src="../shared/dashboard_embed_modal.js"></script>
+  <script src="../shared/dashboard_components.js"></script>
+  <script src="../shared/dashboard_export.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="../shared/dashboard_shared.css" />
+    <link rel="stylesheet" href="../shared/dashboard_controls.css" />
   <link rel="stylesheet" href="dashboard.css" />
 </head>
 <body>
@@ -35,7 +38,14 @@
         </button>
       </div>
       <div class="chips kpi-row" id="kpiRow" aria-label="Days Since ATH KPIs">
-        <span class="chip" id="chipUpdated"><span class="chip-label">Updated</span> <span id="updatedKpi" class="chip-value">Loading</span></span>
+        <div class="chip-menu-wrap single-select" id="updatedChipWrap">
+          <div class="chip chip-kpi-display" id="chipUpdated"><span class="chip-label">Updated</span> <span id="updatedKpi" class="chip-value">Loading</span></div>
+          <div id="updatedTimeZoneDropdown" class="dca-dropdown dca-dropdown-overlay">
+            <button id="updatedTimeZoneDropdownTrigger" type="button" class="dca-dropdown-trigger" aria-label="Updated timestamp time zone"></button>
+            <div id="updatedTimeZoneDropdownMenu" class="dca-dropdown-menu" aria-label="Updated timestamp time zone options"></div>
+          </div>
+          <select id="updatedTimeZoneSelect" class="chip-menu-select chip-kpi-select-overlay dca-native-select" aria-label="Updated timestamp time zone"></select>
+        </div>
         <span class="chip" id="chipHeight"><span class="chip-label">Height</span> <span id="heightKpi" class="chip-value">-</span></span>
         <span class="chip" id="chipDailyHigh"><span class="chip-label">Daily High</span> <span id="dailyHighKpi" class="chip-value">-</span></span>
         <span class="chip" id="chipAth"><span class="chip-label">All Time High</span> <span id="athKpi" class="chip-value">-</span></span>
@@ -207,12 +217,19 @@
     <main class="chart-grid" id="chartGrid" aria-label="Days Since ATH charts">
       <section class="chart-panel price-panel" id="pricePanel">
         <canvas id="priceCanvas"></canvas>
+        <div class="dashboard-ring-loader" id="priceChartLoader" role="status" aria-live="polite" aria-label="Loading price chart">
+          <span class="chart-loader-ring" aria-hidden="true"></span>
+        </div>
       </section>
       <section class="chart-panel days-panel" id="daysPanel">
         <canvas id="daysCanvas"></canvas>
+        <div class="dashboard-ring-loader" id="daysChartLoader" role="status" aria-live="polite" aria-label="Loading days since ATH chart">
+          <span class="chart-loader-ring" aria-hidden="true"></span>
+        </div>
       </section>
     </main>
   </div>
+  <script src="../../js/11_dashboard_timezone_preferences.js"></script>
   <script src="dashboard_app.js"></script>
 </body>
 </html>
