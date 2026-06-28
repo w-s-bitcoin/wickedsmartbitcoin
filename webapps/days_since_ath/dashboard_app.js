@@ -1,4 +1,6 @@
 (function () {
+  const DASHBOARD_COMPONENTS = window.WSBDashboardComponents || {};
+  const DASHBOARD_TIME = window.WSBDashboardTime || null;
   const STORAGE_KEY = "days_since_ath_dashboard_state_v1";
   const DOWNLOAD_SETTINGS_KEY = "days_since_ath_download_settings_v1";
   const THEME_KEY = "quantum-research-dashboard-theme";
@@ -70,9 +72,22 @@
     showAthLabels: true,
     showAthMarkers: true,
     showHalvings: true,
+    timeZone: DASHBOARD_TIME?.getPreferredTimeZone?.() || "UTC",
     playing: false,
     timer: null,
   };
+
+  const dateRangeController = DASHBOARD_COMPONENTS.createIndexDateRangeController?.({
+    getRows: () => state.rows,
+    getDate: (row) => row?.date,
+    onRange: ({ startIso, endIso }, options = {}) => {
+      state.startIso = startIso || state.startIso;
+      state.endIso = endIso || state.endIso;
+      state.currentIso = state.endIso;
+      state.preset = inferPreset(state.startIso, state.endIso) || options.preset || "";
+      render();
+    },
+  });
 
   const el = {
     updatedKpi: document.getElementById("updatedKpi"),
@@ -103,6 +118,8 @@
     daysScaleButtons: document.getElementById("daysScaleButtons"),
     priceCanvas: document.getElementById("priceCanvas"),
     daysCanvas: document.getElementById("daysCanvas"),
+    priceChartLoader: document.getElementById("priceChartLoader"),
+    daysChartLoader: document.getElementById("daysChartLoader"),
     athLabelsToggle: document.getElementById("toggleAthLabels"),
     athMarkersToggle: document.getElementById("toggleAthMarkers"),
     halvingsToggle: document.getElementById("toggleHalvings"),
@@ -126,8 +143,41 @@
     reset: document.getElementById("resetDashboard"),
   };
 
+  const updatedTimeZoneChip = DASHBOARD_COMPONENTS.createUpdatedTimeZoneChipController?.({
+    getTimeZone: () => state.timeZone,
+    setTimeZone: (value) => {
+      state.timeZone = DASHBOARD_TIME?.setPreferredTimeZone?.(value) || value || "UTC";
+      return state.timeZone;
+    },
+    onChange: (timeZone) => {
+      state.timeZone = timeZone || state.timeZone;
+      syncControls();
+    },
+  });
+
   let downloadSettings = { ...DEFAULT_DOWNLOAD_SETTINGS };
   let downloadSettingsHasStoredValue = false;
+  const downloadSettingsController = window.WSBDashboardComponents?.createDownloadSettingsController({
+    storageKey: DOWNLOAD_SETTINGS_KEY,
+    defaults: DEFAULT_DOWNLOAD_SETTINGS,
+    normalize: normalizeDownloadSettings,
+    groups: {
+      chartMode: { group: el.downloadChartModeSelect, multi: true, defaultValue: DEFAULT_DOWNLOAD_SETTINGS.chartMode },
+      leftScale: { group: el.downloadPriceScaleSelect },
+      rightScale: { group: el.downloadDaysScaleSelect },
+      orientation: { group: el.downloadOrientationSelect },
+      quality: { group: el.downloadQualitySelect },
+      fps: { group: el.downloadFpsSelect },
+      theme: { group: el.downloadThemeSelect },
+    },
+    checkboxes: {
+      endFrameHold: { checkbox: el.downloadEndFrameHoldToggle, defaultValue: DEFAULT_DOWNLOAD_SETTINGS.endFrameHold },
+    },
+    afterWrite: () => {
+      syncDownloadScaleAvailability();
+      updateDownloadEstimates();
+    },
+  });
   let isDateRangeExporting = false;
   let dateRangeExportCancelRequested = false;
   let activeExportTheme = "";
@@ -287,21 +337,7 @@
   }
 
   function findIndex(iso, mode = "nearest") {
-    const rows = state.rows;
-    if (!rows.length) return -1;
-    let lo = 0;
-    let hi = rows.length - 1;
-    while (lo < hi) {
-      const mid = Math.floor((lo + hi) / 2);
-      if (rows[mid].date < iso) lo = mid + 1;
-      else hi = mid;
-    }
-    if (rows[lo].date === iso) return lo;
-    if (mode === "ceil") return lo;
-    if (mode === "floor") return Math.max(0, lo - 1);
-    if (lo === 0) return 0;
-    const prior = lo - 1;
-    return Math.abs(dayDiff(rows[lo].date, iso)) < Math.abs(dayDiff(rows[prior].date, iso)) ? lo : prior;
+    return dateRangeController?.findIndex(iso, mode) ?? -1;
   }
 
   function getPresetStart(preset, endIso) {
@@ -336,48 +372,24 @@
   }
 
   function maxRangeIndex() {
-    return Math.max(0, state.rows.length - 1);
+    return dateRangeController?.maxIndex() ?? Math.max(0, state.rows.length - 1);
   }
 
   function indexPercent(index) {
-    const maxIdx = Math.max(1, maxRangeIndex());
-    return (Math.max(0, Math.min(maxIdx, index)) / maxIdx) * 100;
+    return dateRangeController?.indexPercent(index) ?? 0;
   }
 
   function getCurrentRangeIndices() {
-    const maxIdx = maxRangeIndex();
-    let startIndex = findIndex(state.startIso, "ceil");
-    let endIndex = findIndex(state.endIso, "floor");
-    if (!Number.isFinite(startIndex) || startIndex < 0) startIndex = 0;
-    if (!Number.isFinite(endIndex) || endIndex < 0) endIndex = maxIdx;
-    startIndex = Math.max(0, Math.min(maxIdx, startIndex));
-    endIndex = Math.max(0, Math.min(maxIdx, endIndex));
-    if (startIndex > endIndex) {
-      const tmp = startIndex;
-      startIndex = endIndex;
-      endIndex = tmp;
-    }
-    return { startIndex, endIndex, minIndex: 0, maxIndex: maxIdx };
+    return dateRangeController?.getRangeIndices(state.startIso, state.endIso)
+      || { startIndex: 0, endIndex: maxRangeIndex(), minIndex: 0, maxIndex: maxRangeIndex() };
   }
 
   function setRangeByIndices(startIndex, endIndex, options = {}) {
-    if (!state.rows.length) return;
-    const maxIdx = maxRangeIndex();
-    const safeStart = Math.max(0, Math.min(maxIdx, Math.round(startIndex)));
-    const safeEnd = Math.max(safeStart, Math.min(maxIdx, Math.round(endIndex)));
-    state.startIso = state.rows[safeStart]?.date || state.startIso;
-    state.endIso = state.rows[safeEnd]?.date || state.endIso;
-    state.currentIso = state.endIso;
-    state.preset = inferPreset(state.startIso, state.endIso) || options.preset || "";
-    render();
+    dateRangeController?.setRangeByIndices(startIndex, endIndex, options);
   }
 
   function getDateRangeIndexFromPointerX(clientX) {
-    if (!el.sliderWrap || !state.rows.length) return null;
-    const rect = el.sliderWrap.getBoundingClientRect();
-    if (!Number.isFinite(rect.width) || rect.width <= 0) return null;
-    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    return Math.round(ratio * maxRangeIndex());
+    return dateRangeController?.indexFromPointer(clientX, el.sliderWrap);
   }
 
   function applyPlaybackEndScrubIndex(nextIndex) {
@@ -450,99 +462,90 @@
   }
 
   function getDownloadSettingGroupValue(group) {
-    if (group === el.downloadChartModeSelect) {
-      const leftSelected = !!group?.querySelector?.('.download-setting-option.is-selected[data-value="left"]');
-      const rightSelected = !!group?.querySelector?.('.download-setting-option.is-selected[data-value="right"]');
-      if (leftSelected && rightSelected) return "both";
-      if (leftSelected) return "left";
-      if (rightSelected) return "right";
-      return DEFAULT_DOWNLOAD_SETTINGS.chartMode;
-    }
-    return group?.querySelector?.(".download-setting-option.is-selected[data-value]")?.dataset.value || "";
+    const groupMap = new Map([
+      [el.downloadChartModeSelect, "chartMode"],
+      [el.downloadPriceScaleSelect, "leftScale"],
+      [el.downloadDaysScaleSelect, "rightScale"],
+      [el.downloadOrientationSelect, "orientation"],
+      [el.downloadQualitySelect, "quality"],
+      [el.downloadFpsSelect, "fps"],
+      [el.downloadThemeSelect, "theme"],
+    ]);
+    const key = groupMap.get(group);
+    if (key && downloadSettingsController) return downloadSettingsController.getGroupValue(key);
+    return window.WSBDashboardComponents.getButtonGroupValue(group, {
+      multi: group === el.downloadChartModeSelect,
+      defaultValue: group === el.downloadChartModeSelect ? DEFAULT_DOWNLOAD_SETTINGS.chartMode : "",
+    });
   }
 
   function setDownloadSettingGroupValue(group, value) {
-    if (!group) return;
-    const buttons = Array.from(group.querySelectorAll(".download-setting-option[data-value]"));
-    if (group === el.downloadChartModeSelect) {
-      const mode = ["both", "left", "right"].includes(value) ? value : DEFAULT_DOWNLOAD_SETTINGS.chartMode;
-      buttons.forEach((button) => {
-        const selected = mode === "both" || button.dataset.value === mode;
-        button.classList.toggle("is-selected", selected);
-        button.setAttribute("aria-pressed", selected ? "true" : "false");
-      });
+    const groupMap = new Map([
+      [el.downloadChartModeSelect, "chartMode"],
+      [el.downloadPriceScaleSelect, "leftScale"],
+      [el.downloadDaysScaleSelect, "rightScale"],
+      [el.downloadOrientationSelect, "orientation"],
+      [el.downloadQualitySelect, "quality"],
+      [el.downloadFpsSelect, "fps"],
+      [el.downloadThemeSelect, "theme"],
+    ]);
+    const key = groupMap.get(group);
+    if (key && downloadSettingsController) {
+      downloadSettingsController.setGroupValue(key, value);
       return;
     }
-    buttons.forEach((button) => {
-      const selected = button.dataset.value === String(value);
-      button.classList.toggle("is-selected", selected);
-      button.setAttribute("aria-pressed", selected ? "true" : "false");
+    window.WSBDashboardComponents.setButtonGroupValue(group, value, {
+      multi: group === el.downloadChartModeSelect,
+      defaultValue: DEFAULT_DOWNLOAD_SETTINGS.chartMode,
     });
   }
 
   function syncDownloadScaleAvailability() {
-    const syncSide = (side, group) => {
-      if (!group || !el.downloadChartModeSelect) return;
-      const chartButton = el.downloadChartModeSelect.querySelector(`.download-setting-option[data-value="${side}"]`);
-      const enabled = !!chartButton?.classList.contains("is-selected");
-      group.classList.toggle("is-disabled", !enabled);
-      group.querySelectorAll(".download-setting-option[data-value]").forEach((button) => {
-        button.disabled = !enabled;
-        button.setAttribute("aria-disabled", enabled ? "false" : "true");
-      });
-    };
-    syncSide("left", el.downloadPriceScaleSelect);
-    syncSide("right", el.downloadDaysScaleSelect);
-  }
-
-  function readDownloadSettingsControls() {
-    return normalizeDownloadSettings({
-      chartMode: getDownloadSettingGroupValue(el.downloadChartModeSelect),
-      leftScale: getDownloadSettingGroupValue(el.downloadPriceScaleSelect),
-      rightScale: getDownloadSettingGroupValue(el.downloadDaysScaleSelect),
-      orientation: getDownloadSettingGroupValue(el.downloadOrientationSelect),
-      quality: getDownloadSettingGroupValue(el.downloadQualitySelect),
-      fps: getDownloadSettingGroupValue(el.downloadFpsSelect),
-      theme: getDownloadSettingGroupValue(el.downloadThemeSelect),
-      endFrameHold: el.downloadEndFrameHoldToggle?.checked !== false,
+    window.WSBDashboardComponents.syncDependentButtonGroupAvailability({
+      chartGroup: el.downloadChartModeSelect,
+      sides: [
+        { value: "left", group: el.downloadPriceScaleSelect },
+        { value: "right", group: el.downloadDaysScaleSelect },
+      ],
     });
   }
 
+  function readDownloadSettingsControls() {
+    return downloadSettingsController?.readControls()
+      || normalizeDownloadSettings({
+        chartMode: getDownloadSettingGroupValue(el.downloadChartModeSelect),
+        leftScale: getDownloadSettingGroupValue(el.downloadPriceScaleSelect),
+        rightScale: getDownloadSettingGroupValue(el.downloadDaysScaleSelect),
+        orientation: getDownloadSettingGroupValue(el.downloadOrientationSelect),
+        quality: getDownloadSettingGroupValue(el.downloadQualitySelect),
+        fps: getDownloadSettingGroupValue(el.downloadFpsSelect),
+        theme: getDownloadSettingGroupValue(el.downloadThemeSelect),
+        endFrameHold: el.downloadEndFrameHoldToggle?.checked !== false,
+      });
+  }
+
   function syncDownloadSettingsControls() {
-    const settings = normalizeDownloadSettings(downloadSettings);
-    downloadSettings = settings;
-    setDownloadSettingGroupValue(el.downloadChartModeSelect, settings.chartMode);
-    setDownloadSettingGroupValue(el.downloadPriceScaleSelect, settings.leftScale);
-    setDownloadSettingGroupValue(el.downloadDaysScaleSelect, settings.rightScale);
-    setDownloadSettingGroupValue(el.downloadOrientationSelect, settings.orientation);
-    setDownloadSettingGroupValue(el.downloadQualitySelect, settings.quality);
-    setDownloadSettingGroupValue(el.downloadFpsSelect, settings.fps);
-    setDownloadSettingGroupValue(el.downloadThemeSelect, settings.theme);
-    if (el.downloadEndFrameHoldToggle) el.downloadEndFrameHoldToggle.checked = settings.endFrameHold;
-    syncDownloadScaleAvailability();
-    updateDownloadEstimates();
+    downloadSettings = normalizeDownloadSettings(downloadSettings);
+    if (downloadSettingsController) {
+      downloadSettingsController.setSettings(downloadSettings);
+      downloadSettings = downloadSettingsController.getSettings();
+      return;
+    }
   }
 
   function persistDownloadSettingsFromControls() {
-    downloadSettings = normalizeDownloadSettings(readDownloadSettingsControls());
-    downloadSettingsHasStoredValue = true;
-    try {
-      localStorage.setItem(DOWNLOAD_SETTINGS_KEY, JSON.stringify(downloadSettings));
-    } catch (_) {}
-    syncDownloadScaleAvailability();
-    updateDownloadEstimates();
+    if (downloadSettingsController) {
+      downloadSettings = downloadSettingsController.save();
+      downloadSettingsHasStoredValue = downloadSettingsController.hasStoredSettings();
+      return;
+    }
   }
 
   function loadDownloadSettings() {
-    let stored = null;
-    try {
-      stored = JSON.parse(localStorage.getItem(DOWNLOAD_SETTINGS_KEY) || "null");
-    } catch (_) {
-      stored = null;
+    if (downloadSettingsController) {
+      downloadSettings = downloadSettingsController.load();
+      downloadSettingsHasStoredValue = downloadSettingsController.hasStoredSettings();
     }
-    downloadSettingsHasStoredValue = !!stored && typeof stored === "object";
-    downloadSettings = normalizeDownloadSettings(stored || DEFAULT_DOWNLOAD_SETTINGS);
-    syncDownloadSettingsControls();
   }
 
   function getPlaybackSpeedMultiplier(fps) {
@@ -590,36 +593,23 @@
   }
 
   function formatDownloadEstimateDuration(seconds) {
-    if (!Number.isFinite(seconds) || seconds < 0) return "--";
-    const rounded = Math.max(0, Math.round(seconds));
-    const minutes = Math.floor(rounded / 60);
-    const secs = rounded % 60;
-    if (minutes <= 0) return `${secs}s`;
-    return `${minutes}m ${String(secs).padStart(2, "0")}s`;
+    return window.WSBDashboardExport.formatDuration(seconds);
   }
 
   function formatDownloadEstimateSize(bytes) {
-    if (!Number.isFinite(bytes) || bytes <= 0) return "--";
-    const mib = bytes / (1024 * 1024);
-    if (mib < 10) return `${mib.toFixed(1)} MB`;
-    return `${Math.round(mib)} MB`;
+    return window.WSBDashboardExport.formatSize(bytes);
   }
 
   function getDownloadDimensions(settings) {
-    const quality = Math.max(720, Number(settings.quality) || 720);
-    if (settings.orientation === "portrait") return { width: Math.round(quality * 9 / 16), height: quality };
-    if (settings.orientation === "square") return { width: quality, height: quality };
-    return { width: Math.round(quality * 16 / 9), height: quality };
+    return window.WSBDashboardExport.getDimensions(settings);
   }
 
   function getExportLayoutMetrics(settings) {
-    const { width, height } = getDownloadDimensions(settings);
-    const footerHeight = Math.max(34, Math.round(Math.min(width, height) * 0.052));
-    return { width, height, footerHeight };
+    return window.WSBDashboardExport.getLayoutMetrics(settings);
   }
 
   function getExportReferenceLayoutSettings(settings) {
-    return { ...settings, quality: "720" };
+    return window.WSBDashboardExport.getReferenceSettings(settings, 720);
   }
 
   function drawScaledExportFrame(sourceCanvas, targetCanvas, settings) {
@@ -640,7 +630,7 @@
   }
 
   function getExportBitrate(settings) {
-    return Math.max(4_000_000, Number(settings.quality) * 8000);
+    return window.WSBDashboardExport.getBitrate(settings);
   }
 
   function updateDownloadEstimates() {
@@ -651,18 +641,19 @@
     const frameIndices = buildExportFrameIndices(startIndex, endIndex, Number(settings.fps), settings.endFrameHold);
     const uniqueFrameCount = new Set(frameIndices).size;
     const videoSeconds = frameIndices.length / DATE_RANGE_EXPORT_VIDEO_FPS;
-    const dimensions = getDownloadDimensions(settings);
-    const referenceDimensions = getDownloadDimensions(getExportReferenceLayoutSettings(settings));
-    const outputMegapixels = (dimensions.width * dimensions.height) / 1_000_000;
-    const referenceMegapixels = (referenceDimensions.width * referenceDimensions.height) / 1_000_000;
     const chartCount = settings.chartMode === "both" ? 2 : 1;
-    const estimatedBytes = (getExportBitrate(settings) * videoSeconds / 8) * 0.78;
-    const renderSeconds = Math.max(1, uniqueFrameCount * chartCount * Math.max(0.0018, 0.0018 + referenceMegapixels * 0.0005));
-    const encodeSeconds = Math.max(1, frameIndices.length * Math.max(0.0002, 0.0002 + outputMegapixels * 0.00025));
-    const processingSeconds = renderSeconds + encodeSeconds;
-    el.downloadEstimateSize.textContent = formatDownloadEstimateSize(estimatedBytes);
-    el.downloadEstimateLength.textContent = formatDownloadEstimateDuration(videoSeconds);
-    el.downloadEstimateTime.textContent = `~${formatDownloadEstimateDuration(processingSeconds)}`;
+    const estimate = window.WSBDashboardExport.estimateDownload(settings, {
+      frameCount: frameIndices.length,
+      uniqueFrameCount,
+      videoSeconds,
+      chartCount,
+      bitrate: getExportBitrate(settings),
+      fallbackFrameSeconds: 0.004,
+      encodeFrameSeconds: 0.0005,
+    });
+    el.downloadEstimateSize.textContent = estimate.sizeText;
+    el.downloadEstimateLength.textContent = estimate.lengthText;
+    el.downloadEstimateTime.textContent = estimate.timeText;
   }
 
   function setupCanvas(canvas) {
@@ -692,11 +683,12 @@
     const start = rows[0];
     const end = rows[rows.length - 1];
     if (!start || !end) return;
+    const colors = chartColors();
     ctx.save();
-    ctx.strokeStyle = "rgba(255,255,255,.65)";
+    ctx.strokeStyle = colors.halving;
     ctx.setLineDash([6, 6]);
     ctx.lineWidth = 1;
-    ctx.fillStyle = css("--fg", "#fff");
+    ctx.fillStyle = colors.halvingLabel;
     ctx.font = ATH_LABEL_FONT;
     HALVINGS.forEach((halving) => {
       const visible = mode === "height"
@@ -834,11 +826,15 @@
   function chartColors() {
     const isLight = activeExportTheme ? activeExportTheme === "light" : document.documentElement.dataset.theme === "light";
     return {
-      bg: isLight ? "#ffffff" : "#000000",
+      isLight,
+      bg: css("--chart-bg", isLight ? "#ffffff" : "#000000"),
       fg: css("--fg", isLight ? "#1c1b19" : "#f1f5f7"),
       muted: css("--muted", isLight ? "#6f685f" : "#95a6ae"),
       grid: isLight ? "#e6e6e6" : "#242424",
       overlappedTick: isLight ? "rgba(0,0,0,0.26)" : "rgba(255,255,255,0.22)",
+      halving: isLight ? "rgba(28,27,25,0.48)" : "rgba(255,255,255,0.65)",
+      halvingLabel: isLight ? "rgba(28,27,25,0.82)" : "#f1f5f7",
+      athLabel: isLight ? "rgba(28,27,25,0.54)" : "lightgray",
     };
   }
 
@@ -938,13 +934,14 @@
   }
 
   function drawOutlinedText(ctx, text, x, y, options = {}) {
-    const color = options.color || "lightgray";
+    const colors = chartColors();
+    const color = options.color || colors.athLabel;
     ctx.save();
     ctx.font = options.font || ATH_LABEL_FONT;
     ctx.textAlign = options.align || "right";
     ctx.textBaseline = options.baseline || "bottom";
     ctx.lineJoin = "round";
-    ctx.strokeStyle = options.stroke || css("--bg", "#000");
+    ctx.strokeStyle = options.stroke || colors.bg;
     ctx.lineWidth = options.strokeWidth || 5;
     ctx.strokeText(text, x, y);
     ctx.fillStyle = color;
@@ -962,320 +959,7 @@
   }
 
   function makeDatePicker(opts) {
-    let popup = null;
-    let pickerYear;
-    let pickerMonth;
-    let pickerView = "days";
-    let pickerExpandedYear = null;
-    const align = opts.align === "left" ? "left" : "right";
-
-    function isoToDate(iso) {
-      if (!iso) return null;
-      const [y, m, d] = iso.split("-").map(Number);
-      const dt = new Date(y, m - 1, d);
-      dt.setHours(0, 0, 0, 0);
-      return dt;
-    }
-
-    function buildCalendar() {
-      const selectedIso = opts.getSelected();
-      const minDate = isoToDate(opts.getMin());
-      const maxDate = isoToDate(opts.getMax());
-      const year = pickerYear;
-      const month = pickerMonth;
-      const monthLabel = new Date(year, month, 1).toLocaleString("default", { month: "long", year: "numeric" });
-
-      const wrap = document.createElement("div");
-      wrap.className = "date-picker-popup";
-
-      const header = document.createElement("div");
-      header.className = "date-picker-header";
-      const prev = document.createElement("button");
-      prev.className = "date-picker-nav";
-      prev.textContent = "\u2039";
-      prev.type = "button";
-      prev.addEventListener("click", (event) => {
-        event.stopPropagation();
-        pickerMonth -= 1;
-        if (pickerMonth < 0) {
-          pickerMonth = 11;
-          pickerYear -= 1;
-        }
-        rebuildCalendar();
-      });
-      const next = document.createElement("button");
-      next.className = "date-picker-nav";
-      next.textContent = "\u203a";
-      next.type = "button";
-      next.addEventListener("click", (event) => {
-        event.stopPropagation();
-        pickerMonth += 1;
-        if (pickerMonth > 11) {
-          pickerMonth = 0;
-          pickerYear += 1;
-        }
-        rebuildCalendar();
-      });
-      const lbl = document.createElement("span");
-      lbl.textContent = monthLabel;
-      lbl.className = "date-picker-header-label";
-      lbl.title = "Select year / month";
-      lbl.addEventListener("click", (event) => {
-        event.stopPropagation();
-        pickerView = "years";
-        pickerExpandedYear = null;
-        rebuildCalendar();
-      });
-      header.append(prev, lbl, next);
-      wrap.appendChild(header);
-
-      const grid = document.createElement("div");
-      grid.className = "date-picker-grid";
-      ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].forEach((d) => {
-        const dow = document.createElement("div");
-        dow.className = "date-picker-dow";
-        dow.textContent = d;
-        grid.appendChild(dow);
-      });
-
-      const firstDay = new Date(year, month, 1).getDay();
-      for (let i = 0; i < firstDay; i += 1) {
-        const blank = document.createElement("div");
-        blank.className = "date-picker-day dp-empty";
-        grid.appendChild(blank);
-      }
-
-      const daysInMonth = new Date(year, month + 1, 0).getDate();
-      for (let d = 1; d <= daysInMonth; d += 1) {
-        const date = new Date(year, month, d);
-        date.setHours(0, 0, 0, 0);
-        const isoVal = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-        const outOfRange = (minDate && date < minDate) || (maxDate && date > maxDate);
-        const extraDisabled = opts.isDisabled ? opts.isDisabled(isoVal) : false;
-        const cell = document.createElement("div");
-        cell.className = "date-picker-day";
-        cell.textContent = String(d);
-        if (isoVal === selectedIso) cell.classList.add("dp-selected");
-        if (outOfRange || extraDisabled) {
-          cell.classList.add("dp-disabled");
-        } else {
-          cell.addEventListener("click", (event) => {
-            event.stopPropagation();
-            closePopup();
-            opts.onSelect(isoVal);
-          });
-        }
-        grid.appendChild(cell);
-      }
-
-      wrap.appendChild(grid);
-      return wrap;
-    }
-
-    function buildYearGrid() {
-      const minDate = isoToDate(opts.getMin());
-      const maxDate = isoToDate(opts.getMax());
-      const minYear = minDate ? minDate.getFullYear() : pickerYear - 10;
-      const maxYear = maxDate ? maxDate.getFullYear() : pickerYear + 5;
-
-      const wrap = document.createElement("div");
-      wrap.className = "date-picker-popup dp-year-grid-popup";
-
-      const header = document.createElement("div");
-      header.className = "date-picker-header";
-      const backBtn = document.createElement("button");
-      backBtn.className = "date-picker-nav";
-      backBtn.textContent = "\u2039";
-      backBtn.type = "button";
-      backBtn.title = "Back to calendar";
-      backBtn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        pickerView = "days";
-        rebuildCalendar();
-      });
-      const lbl = document.createElement("span");
-      lbl.className = "date-picker-header-label";
-      lbl.textContent = "Select Year";
-      header.append(backBtn, lbl);
-      wrap.appendChild(header);
-
-      const grid = document.createElement("div");
-      grid.className = "dp-year-grid";
-      for (let y = minYear; y <= maxYear; y += 1) {
-        const cell = document.createElement("div");
-        cell.className = "dp-year-cell";
-        if (y === pickerYear) cell.classList.add("dp-year-current");
-        const yearLbl = document.createElement("span");
-        yearLbl.textContent = String(y);
-        const yearChevron = document.createElement("span");
-        yearChevron.className = "dp-accordion-chevron";
-        yearChevron.textContent = "\u203a";
-        cell.append(yearLbl, yearChevron);
-        cell.addEventListener("click", (event) => {
-          event.stopPropagation();
-          pickerView = "year";
-          pickerExpandedYear = y;
-          rebuildCalendar();
-        });
-        grid.appendChild(cell);
-      }
-      wrap.appendChild(grid);
-      return wrap;
-    }
-
-    function buildYearAccordion() {
-      const minDate = isoToDate(opts.getMin());
-      const maxDate = isoToDate(opts.getMax());
-      const minYear = minDate ? minDate.getFullYear() : pickerYear - 10;
-      const maxYear = maxDate ? maxDate.getFullYear() : pickerYear + 5;
-      const expandedYear = pickerExpandedYear !== null ? pickerExpandedYear : pickerYear;
-      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-      const wrap = document.createElement("div");
-      wrap.className = "date-picker-popup dp-year-grid-popup";
-
-      const header = document.createElement("div");
-      header.className = "date-picker-header";
-      const backBtn = document.createElement("button");
-      backBtn.className = "date-picker-nav";
-      backBtn.textContent = "\u2039";
-      backBtn.type = "button";
-      backBtn.title = "Back to year list";
-      backBtn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        pickerView = "years";
-        pickerExpandedYear = null;
-        rebuildCalendar();
-      });
-      const lbl = document.createElement("span");
-      lbl.className = "date-picker-header-label";
-      lbl.textContent = "Select Month";
-      header.append(backBtn, lbl);
-      wrap.appendChild(header);
-
-      const list = document.createElement("div");
-      list.className = "dp-accordion-list";
-      for (let y = minYear; y <= maxYear; y += 1) {
-        const yearRow = document.createElement("div");
-        yearRow.className = `dp-accordion-year${y === expandedYear ? " dp-accordion-open" : ""}`;
-        const yearBtn = document.createElement("button");
-        yearBtn.type = "button";
-        yearBtn.className = "dp-accordion-year-btn";
-        yearBtn.textContent = String(y);
-        const chevron = document.createElement("span");
-        chevron.className = "dp-accordion-chevron";
-        chevron.textContent = "\u203a";
-        yearBtn.appendChild(chevron);
-        yearBtn.addEventListener("click", (event) => {
-          event.stopPropagation();
-          pickerExpandedYear = pickerExpandedYear === y ? null : y;
-          rebuildCalendar();
-        });
-        yearRow.appendChild(yearBtn);
-
-        if (y === expandedYear) {
-          const monthGrid = document.createElement("div");
-          monthGrid.className = "dp-month-grid";
-          monthNames.forEach((name, m) => {
-            const minMonth = minDate && y === minDate.getFullYear() ? minDate.getMonth() : -1;
-            const maxMonth = maxDate && y === maxDate.getFullYear() ? maxDate.getMonth() : 12;
-            const disabled = m < minMonth || m > maxMonth;
-            const cell = document.createElement("div");
-            cell.className = `dp-month-cell${disabled ? " dp-disabled" : ""}`;
-            if (y === pickerYear && m === pickerMonth) cell.classList.add("dp-month-current");
-            cell.textContent = name;
-            if (!disabled) {
-              cell.addEventListener("click", (event) => {
-                event.stopPropagation();
-                pickerYear = y;
-                pickerMonth = m;
-                pickerView = "days";
-                pickerExpandedYear = null;
-                rebuildCalendar();
-              });
-            }
-            monthGrid.appendChild(cell);
-          });
-          yearRow.appendChild(monthGrid);
-        }
-        list.appendChild(yearRow);
-      }
-      wrap.appendChild(list);
-      return wrap;
-    }
-
-    function positionPopup() {
-      if (!popup) return;
-      const rect = opts.anchorEl.getBoundingClientRect();
-      popup.style.top = `${rect.bottom + 6}px`;
-      const idealLeft = align === "left" ? rect.left : rect.right - popup.offsetWidth;
-      const maxLeft = Math.max(4, window.innerWidth - popup.offsetWidth - 4);
-      popup.style.left = `${Math.min(Math.max(4, idealLeft), maxLeft)}px`;
-    }
-
-    function rebuildCalendar() {
-      if (!popup) return;
-      const fresh = pickerView === "years" ? buildYearGrid() : pickerView === "year" ? buildYearAccordion() : buildCalendar();
-      popup.replaceChildren(...fresh.childNodes);
-      popup.className = fresh.className;
-      requestAnimationFrame(() => {
-        positionPopup();
-        if (pickerView === "years") {
-          const grid = popup.querySelector(".dp-year-grid");
-          const selectedYear = popup.querySelector(".dp-year-current");
-          if (grid && selectedYear) {
-            grid.scrollTop = Math.max(0, selectedYear.offsetTop + selectedYear.offsetHeight - grid.clientHeight);
-          }
-        } else if (pickerView === "year") {
-          const list = popup.querySelector(".dp-accordion-list");
-          const openRow = popup.querySelector(".dp-accordion-year.dp-accordion-open");
-          if (list && openRow) {
-            const yearButton = openRow.querySelector(".dp-accordion-year-btn");
-            const desiredTop = Math.max(0, (yearButton || openRow).offsetTop - 2);
-            list.scrollTop = Math.min(desiredTop, Math.max(0, list.scrollHeight - list.clientHeight));
-          }
-        }
-      });
-    }
-
-    function openPopup() {
-      setSettingsMenuOpen(false);
-      pickerView = "days";
-      pickerExpandedYear = null;
-      const selectedIso = opts.getSelected();
-      if (selectedIso) {
-        const [y, m] = selectedIso.split("-").map(Number);
-        pickerYear = y;
-        pickerMonth = m - 1;
-      } else {
-        const now = new Date();
-        pickerYear = now.getFullYear();
-        pickerMonth = now.getMonth();
-      }
-      popup = buildCalendar();
-      document.body.appendChild(popup);
-      requestAnimationFrame(positionPopup);
-      window.addEventListener("scroll", positionPopup, true);
-      window.addEventListener("resize", positionPopup);
-    }
-
-    function closePopup() {
-      if (!popup) return;
-      popup.remove();
-      popup = null;
-      window.removeEventListener("scroll", positionPopup, true);
-      window.removeEventListener("resize", positionPopup);
-    }
-
-    function toggle(event) {
-      event.preventDefault();
-      event.stopPropagation();
-      if (popup) closePopup();
-      else openPopup();
-    }
-
-    document.addEventListener("click", closePopup);
-    return { toggle, closePopup, rebuildCalendar };
+    return window.WSBDashboardComponents.createDatePicker(opts);
   }
 
   function buildTimeTicks(rows, plotW) {
@@ -1424,7 +1108,7 @@
   function drawPriceChart(canvas = el.priceCanvas) {
     const { ctx, width, height } = setupCanvas(canvas);
     const rows = visibleRows();
-    const bg = css("--bg", "#000");
+    const bg = css("--chart-bg", css("--panel", "#000"));
     const accent = css("--accent", "#ff9900");
     const green = css("--green", "#35c779");
     ctx.fillStyle = bg;
@@ -1532,7 +1216,6 @@
           priceLabelBoxes.push(box);
         }
         drawOutlinedText(ctx, label, labelX, y, {
-          color: "lightgray",
           align: "right",
           baseline: "bottom",
         });
@@ -1544,7 +1227,7 @@
   function drawDaysChart(canvas = el.daysCanvas) {
     const { ctx, width, height } = setupCanvas(canvas);
     const rows = visibleRows();
-    const bg = css("--bg", "#000");
+    const bg = css("--chart-bg", css("--panel", "#000"));
     const accent = css("--accent", "#ff9900");
     const green = css("--green", "#35c779");
     ctx.fillStyle = bg;
@@ -1589,7 +1272,12 @@
     );
     drawXAxisTicks(ctx, buildTimeTicks(rows, plotW), xForIso, pad, plotW, plotH, 18);
     if (state.showHalvings) drawHalvings(ctx, rows, xFor, pad.top, pad.top + plotH, "date");
-    for (let i = 4; i >= 1; i -= 1) drawLine(ctx, rows, xFor, yFor, "daysSinceAth", `rgba(0,0,0,${0.09 * i})`, 2 + i);
+    const colors = chartColors();
+    for (let i = 4; i >= 1; i -= 1) {
+      const alpha = colors.isLight ? 0.08 * i : 0.09 * i;
+      const halo = colors.isLight ? `rgba(255,255,255,${alpha})` : `rgba(0,0,0,${alpha})`;
+      drawLine(ctx, rows, xFor, yFor, "daysSinceAth", halo, 2 + i);
+    }
     drawLine(ctx, rows, xFor, yFor, "daysSinceAth", accent, 2.2);
     if (state.showAthMarkers) drawAthResetMarkers(ctx, rows, xFor, yFor, pad, plotW, plotH, green);
 
@@ -1627,7 +1315,6 @@
         if (!Number.isFinite(x) || !Number.isFinite(peakY) || !Number.isFinite(y)) return;
         if (x < pad.left || x > pad.left + plotW || peakY < pad.top || peakY > pad.top + plotH) return;
         drawOutlinedText(ctx, cycle.days.toLocaleString("en-US"), x + 4, y, {
-          color: "lightgray",
           align: "right",
           baseline: "bottom",
         });
@@ -1639,7 +1326,11 @@
   function syncControls() {
     const latest = state.rows[findIndex(state.currentIso, "floor")] || state.rows[state.rows.length - 1];
     if (!latest) return;
-    el.updatedKpi.textContent = fmtDate(latest.date);
+    if (updatedTimeZoneChip) {
+      updatedTimeZoneChip.setUpdated(latest.timestamp || latest.date, { mode: latest.timestamp ? "timestamp" : "date" });
+    } else {
+      el.updatedKpi.textContent = fmtDate(latest.date);
+    }
     el.heightKpi.textContent = latest.height.toLocaleString("en-US");
     el.dailyHighKpi.textContent = fmtUsd(latest.price);
     if (isNotValued(latest.price)) {
@@ -1671,12 +1362,8 @@
     if (document.activeElement !== el.rangeDaysInput) el.rangeDaysInput.value = days.toLocaleString("en-US");
     el.speedBtn.textContent = `${state.speed}x`;
     syncChartModeControls();
-    el.priceScaleButtons?.querySelectorAll("[data-price-scale]").forEach((btn) => {
-      btn.classList.toggle("is-active", btn.dataset.priceScale === state.priceScaleMode);
-    });
-    el.daysScaleButtons?.querySelectorAll("[data-days-scale]").forEach((btn) => {
-      btn.classList.toggle("is-active", btn.dataset.daysScale === state.daysScaleMode);
-    });
+    window.WSBDashboardComponents.syncScaleButtonGroup(el.priceScaleButtons, state.priceScaleMode, { buttonSelector: "[data-price-scale]" });
+    window.WSBDashboardComponents.syncScaleButtonGroup(el.daysScaleButtons, state.daysScaleMode, { buttonSelector: "[data-days-scale]" });
     if (el.athLabelsToggle) el.athLabelsToggle.checked = state.showAthLabels;
     if (el.athMarkersToggle) el.athMarkersToggle.checked = state.showAthMarkers;
     if (el.halvingsToggle) el.halvingsToggle.checked = state.showHalvings;
@@ -1737,16 +1424,19 @@
   }
 
   function syncChartModeControls() {
-    const showPrice = state.chartMode !== "days";
-    const showDays = state.chartMode !== "price";
-    el.chartGrid?.classList.toggle("is-price-only", showPrice && !showDays);
-    el.chartGrid?.classList.toggle("is-days-only", showDays && !showPrice);
-    el.pricePanel?.classList.toggle("is-hidden", !showPrice);
-    el.daysPanel?.classList.toggle("is-hidden", !showDays);
-    el.chartModeButtons?.querySelectorAll("[data-chart-mode]").forEach((button) => {
-      const selected = button.dataset.chartMode === "price" ? showPrice : showDays;
-      button.classList.toggle("is-selected", selected);
-      button.setAttribute("aria-pressed", selected ? "true" : "false");
+    window.WSBDashboardComponents.setTwoPanelMode({
+      mode: state.chartMode,
+      leftValue: "price",
+      rightValue: "days",
+      activeClass: "is-selected",
+      selectedClass: "is-selected",
+      buttonSelector: "[data-chart-mode]",
+      group: el.chartModeButtons,
+      grid: el.chartGrid,
+      leftPanel: el.pricePanel,
+      rightPanel: el.daysPanel,
+      leftOnlyClass: "is-price-only",
+      rightOnlyClass: "is-days-only",
     });
   }
 
@@ -1758,28 +1448,15 @@
   }
 
   function setSettingsMenuOpen(open) {
-    el.settingsMenu?.classList.toggle("open", open);
-    el.settingsBtn?.classList.toggle("is-open", open);
-    el.settingsBtn?.setAttribute("aria-expanded", open ? "true" : "false");
-    if (open) {
-      syncDownloadSettingsControls();
-      constrainDownloadSettingsMenuToViewport();
-    } else {
-      el.settingsMenu?.style.removeProperty("--download-settings-menu-shift-x");
-    }
+    window.WSBDashboardComponents.setFloatingMenuOpen({
+      menu: el.settingsMenu,
+      button: el.settingsBtn,
+      onOpen: syncDownloadSettingsControls,
+    }, open);
   }
 
   function constrainDownloadSettingsMenuToViewport() {
-    const menu = el.settingsMenu;
-    if (!menu?.classList.contains("open")) return;
-    menu.style.setProperty("--download-settings-menu-shift-x", "0px");
-    const rect = menu.getBoundingClientRect();
-    const margin = 8;
-    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || rect.right;
-    let shiftX = 0;
-    if (rect.left < margin) shiftX = margin - rect.left;
-    else if (rect.right > viewportWidth - margin) shiftX = (viewportWidth - margin) - rect.right;
-    menu.style.setProperty("--download-settings-menu-shift-x", `${Math.round(shiftX)}px`);
+    window.WSBDashboardComponents.constrainFloatingMenuToViewport(el.settingsMenu);
   }
 
   function syncDownloadSettingsButtons() {
@@ -1865,160 +1542,6 @@
     } catch (_) {}
   }
 
-  function concatUint8Arrays(arrays) {
-    const totalLength = arrays.reduce((sum, item) => sum + item.length, 0);
-    const out = new Uint8Array(totalLength);
-    let offset = 0;
-    arrays.forEach((item) => {
-      out.set(item, offset);
-      offset += item.length;
-    });
-    return out;
-  }
-
-  function ebmlIdBytes(id) {
-    const hex = id.toString(16).padStart(2, "0");
-    const padded = hex.length % 2 ? `0${hex}` : hex;
-    const bytes = new Uint8Array(padded.length / 2);
-    for (let i = 0; i < bytes.length; i += 1) bytes[i] = Number.parseInt(padded.slice(i * 2, i * 2 + 2), 16);
-    return bytes;
-  }
-
-  function ebmlSizeBytes(size) {
-    if (size < 0x7f) return Uint8Array.of(0x80 | size);
-    if (size < 0x3fff) return Uint8Array.of(0x40 | (size >> 8), size & 0xff);
-    if (size < 0x1fffff) return Uint8Array.of(0x20 | (size >> 16), (size >> 8) & 0xff, size & 0xff);
-    if (size < 0x0fffffff) return Uint8Array.of(0x10 | (size >> 24), (size >> 16) & 0xff, (size >> 8) & 0xff, size & 0xff);
-    const bytes = new Uint8Array(8);
-    bytes[0] = 0x01;
-    let value = size;
-    for (let i = 7; i >= 1; i -= 1) {
-      bytes[i] = value & 0xff;
-      value = Math.floor(value / 256);
-    }
-    return bytes;
-  }
-
-  function ebmlUnknownSizeBytes() {
-    return Uint8Array.of(0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff);
-  }
-
-  function ebmlElement(id, data) {
-    return concatUint8Arrays([ebmlIdBytes(id), ebmlSizeBytes(data.length), data]);
-  }
-
-  function ebmlUint(value, byteLength = 0) {
-    let length = byteLength || 1;
-    if (!byteLength) {
-      let probe = Math.max(0, Number(value) || 0);
-      while (probe > 0xff) {
-        length += 1;
-        probe = Math.floor(probe / 256);
-      }
-    }
-    const bytes = new Uint8Array(length);
-    let next = Math.max(0, Number(value) || 0);
-    for (let i = length - 1; i >= 0; i -= 1) {
-      bytes[i] = next & 0xff;
-      next = Math.floor(next / 256);
-    }
-    return bytes;
-  }
-
-  function ebmlFloat64(value) {
-    const bytes = new Uint8Array(8);
-    new DataView(bytes.buffer).setFloat64(0, Number(value) || 0, false);
-    return bytes;
-  }
-
-  function ebmlAscii(value) {
-    return new TextEncoder().encode(String(value || ""));
-  }
-
-  function webmSimpleBlock(trackNumber, relativeTimecode, keyFrame, data) {
-    const header = new Uint8Array(4);
-    header[0] = 0x80 | Math.max(1, Math.min(126, trackNumber));
-    new DataView(header.buffer).setInt16(1, Math.max(-32768, Math.min(32767, Math.round(relativeTimecode))), false);
-    header[3] = keyFrame ? 0x80 : 0x00;
-    return ebmlElement(0xa3, concatUint8Arrays([header, data]));
-  }
-
-  function buildWebMBlob(encodedFrames, width, height, fps, codecId) {
-    const durationSeconds = encodedFrames.length / Math.max(1, fps);
-    const ebmlHeader = ebmlElement(0x1a45dfa3, concatUint8Arrays([
-      ebmlElement(0x4286, ebmlUint(1)),
-      ebmlElement(0x42f7, ebmlUint(1)),
-      ebmlElement(0x42f2, ebmlUint(4)),
-      ebmlElement(0x42f3, ebmlUint(8)),
-      ebmlElement(0x4282, ebmlAscii("webm")),
-      ebmlElement(0x4287, ebmlUint(4)),
-      ebmlElement(0x4285, ebmlUint(2)),
-    ]));
-    const info = ebmlElement(0x1549a966, concatUint8Arrays([
-      ebmlElement(0x2ad7b1, ebmlUint(1000000)),
-      ebmlElement(0x4489, ebmlFloat64(durationSeconds)),
-      ebmlElement(0x4d80, ebmlAscii("wickedsmartbitcoin")),
-      ebmlElement(0x5741, ebmlAscii("wickedsmartbitcoin")),
-    ]));
-    const video = ebmlElement(0xe0, concatUint8Arrays([
-      ebmlElement(0xb0, ebmlUint(width)),
-      ebmlElement(0xba, ebmlUint(height)),
-    ]));
-    const trackEntry = ebmlElement(0xae, concatUint8Arrays([
-      ebmlElement(0xd7, ebmlUint(1)),
-      ebmlElement(0x73c5, ebmlUint(1)),
-      ebmlElement(0x83, ebmlUint(1)),
-      ebmlElement(0x86, ebmlAscii(codecId)),
-      ebmlElement(0x258688, ebmlAscii("Days Since ATH")),
-      video,
-    ]));
-    const tracks = ebmlElement(0x1654ae6b, trackEntry);
-    const clusters = [];
-    let clusterStartMs = -1;
-    let clusterBlocks = [];
-    const flushCluster = () => {
-      if (clusterStartMs < 0 || !clusterBlocks.length) return;
-      clusters.push(ebmlElement(0x1f43b675, concatUint8Arrays([ebmlElement(0xe7, ebmlUint(clusterStartMs)), ...clusterBlocks])));
-      clusterStartMs = -1;
-      clusterBlocks = [];
-    };
-    encodedFrames.forEach((frame) => {
-      const timeMs = Math.round(frame.timestamp / 1000);
-      if (clusterStartMs < 0 || timeMs - clusterStartMs > 30000) {
-        flushCluster();
-        clusterStartMs = timeMs;
-      }
-      clusterBlocks.push(webmSimpleBlock(1, timeMs - clusterStartMs, frame.type === "key", frame.data));
-    });
-    flushCluster();
-    const segmentPayload = concatUint8Arrays([info, tracks, ...clusters]);
-    const segment = concatUint8Arrays([ebmlIdBytes(0x18538067), ebmlUnknownSizeBytes(), segmentPayload]);
-    return new Blob([ebmlHeader, segment], { type: "video/webm" });
-  }
-
-  async function getSupportedWebCodecsConfig(width, height, settings) {
-    if (!window.VideoEncoder || !window.VideoFrame || typeof VideoEncoder.isConfigSupported !== "function") return null;
-    const candidates = [
-      { codec: "vp09.00.10.08", webmCodecId: "V_VP9" },
-      { codec: "vp8", webmCodecId: "V_VP8" },
-    ];
-    for (const candidate of candidates) {
-      const config = {
-        codec: candidate.codec,
-        width,
-        height,
-        bitrate: getExportBitrate(settings),
-        framerate: DATE_RANGE_EXPORT_VIDEO_FPS,
-        latencyMode: "quality",
-      };
-      try {
-        const support = await VideoEncoder.isConfigSupported(config);
-        if (support?.supported) return { ...candidate, config: support.config || config };
-      } catch (_) {}
-    }
-    return null;
-  }
-
   function waitMs(ms) {
     return new Promise((resolve) => window.setTimeout(resolve, ms));
   }
@@ -2091,15 +1614,12 @@
     ctx.fillStyle = bg;
     ctx.fillRect(0, height - footerHeight, width, footerHeight);
     ctx.fillStyle = settings.theme === "dark" ? "#6f7f87" : "#8f887f";
-    const uoaReferenceDimensions = getDownloadDimensions({ ...outputSettings, quality: "1440" });
-    const uoaReferenceFooterHeight = Math.max(34, Math.round(Math.min(uoaReferenceDimensions.width, uoaReferenceDimensions.height) * 0.052));
-    const uoaReferenceFontSize = Math.max(30, Math.round(uoaReferenceFooterHeight * 0.6));
-    const uoaOutputScale = outputDimensions.height / Math.max(1, uoaReferenceDimensions.height);
-    const footerFontSize = Math.max(12, uoaReferenceFontSize * uoaOutputScale / pixelScale);
-    ctx.font = `500 ${footerFontSize}px IBM Plex Mono, monospace`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("https://wickedsmartbitcoin.com/days_since_ath", width / 2, height - footerHeight * 0.68);
+    window.WSBDashboardExport.drawFooterUrl(
+      ctx,
+      "https://wickedsmartbitcoin.com/days_since_ath",
+      { width, height, footerHeight },
+      { ...outputSettings, theme: settings.theme, pixelScale, referenceQuality: 1440 },
+    );
     ctx.restore();
   }
 
@@ -2119,48 +1639,21 @@
 
   async function encodeAnimationWebM(settings, frameIndices) {
     const { width, height } = getDownloadDimensions(settings);
-    const encoderConfig = await getSupportedWebCodecsConfig(width, height, settings);
-    if (!encoderConfig) throw new Error("Deterministic WebCodecs WebM export is unavailable in this browser.");
     const exportCanvas = document.createElement("canvas");
-    const encodedFrames = [];
-    const frameDurationUs = Math.round(1000000 / DATE_RANGE_EXPORT_VIDEO_FPS);
-    let frameIndex = 0;
-    let encodeError = null;
-    const encoder = new VideoEncoder({
-      output: (chunk) => {
-        const data = new Uint8Array(chunk.byteLength);
-        chunk.copyTo(data);
-        encodedFrames.push({ timestamp: chunk.timestamp, type: chunk.type, data });
-      },
-      error: (error) => {
-        encodeError = error;
-      },
+    const blob = await window.WSBDashboardExport.encodeWebM({
+      canvas: exportCanvas,
+      width,
+      height,
+      fps: DATE_RANGE_EXPORT_VIDEO_FPS,
+      settings,
+      frames: frameIndices,
+      title: "Days Since ATH",
+      renderFrame: (index) => drawExportFrame(index, settings, exportCanvas),
+      isCanceled: () => dateRangeExportCancelRequested,
+      onProgress: renderDateRangeDownloadButtonProgress,
     });
-    encoder.configure(encoderConfig.config);
-    for (const index of frameIndices) {
-      if (dateRangeExportCancelRequested) break;
-      drawExportFrame(index, settings, exportCanvas);
-      const frame = new VideoFrame(exportCanvas, {
-        timestamp: frameIndex * frameDurationUs,
-        duration: frameDurationUs,
-      });
-      encoder.encode(frame, { keyFrame: frameIndex % DATE_RANGE_EXPORT_VIDEO_FPS === 0 });
-      frame.close();
-      if (encodeError) throw encodeError;
-      frameIndex += 1;
-      renderDateRangeDownloadButtonProgress(frameIndex / Math.max(1, frameIndices.length));
-      if (encoder.encodeQueueSize > 8) {
-        await encoder.flush();
-      } else if (frameIndex % 6 === 0) {
-        await waitMs(0);
-      }
-    }
-    await encoder.flush();
-    if (encodeError) throw encodeError;
-    encoder.close();
-    if (dateRangeExportCancelRequested) return null;
-    encodedFrames.sort((a, b) => a.timestamp - b.timestamp);
-    return buildWebMBlob(encodedFrames, width, height, DATE_RANGE_EXPORT_VIDEO_FPS, encoderConfig.webmCodecId);
+    if (!blob) throw new Error("Deterministic WebCodecs WebM export is unavailable in this browser.");
+    return blob;
   }
 
   function downloadBlob(blob, settings) {
@@ -2581,10 +2074,8 @@
 
     const deltaPx = event.clientX - dateRangeDragState.startClientX;
     const deltaIndex = Math.round((deltaPx / Math.max(1, dateRangeDragState.wrapWidth)) * Math.max(1, dateRangeDragState.maxIndex));
-    const minShift = -dateRangeDragState.startIndex;
-    const maxShift = dateRangeDragState.maxIndex - dateRangeDragState.endIndex;
-    const shift = Math.max(minShift, Math.min(maxShift, deltaIndex));
-    setRangeByIndices(dateRangeDragState.startIndex + shift, dateRangeDragState.endIndex + shift);
+    const nextRange = dateRangeController?.moveRangeByDelta(dateRangeDragState.startIndex, dateRangeDragState.endIndex, deltaIndex);
+    if (nextRange) setRangeByIndices(nextRange.startIndex, nextRange.endIndex);
   }
 
   function endDateRangeSegmentDrag(event) {
@@ -2660,8 +2151,13 @@
     el.sliderWrap?.addEventListener("pointermove", moveDateRangeSegmentDrag);
     el.sliderWrap?.addEventListener("pointerup", endDateRangeSegmentDrag);
     el.sliderWrap?.addEventListener("pointercancel", endDateRangeSegmentDrag);
-    document.addEventListener("keydown", handleDateRangeSpaceShortcut, true);
-    document.addEventListener("keydown", handleDateRangeArrowScrubbing, true);
+    window.WSBDashboardComponents.bindPlaybackKeyboardShortcuts({
+      onSpace: handleDateRangeSpaceShortcut,
+      isArrowActive: () => dateRangePlaybackState.hasSession,
+      onArrow: (_direction, event) => handleDateRangeArrowScrubbing(event),
+      isEscapeActive: () => dateRangePlaybackState.hasSession,
+      onEscape: () => stopPlayback({ restoreOriginalRange: true }),
+    });
     el.playBtn.addEventListener("click", play);
     el.pauseBtn.addEventListener("click", pause);
     el.stopBtn.addEventListener("click", () => stopPlayback({ restoreOriginalRange: true }));
@@ -2672,29 +2168,28 @@
     });
     el.chartModeButtons?.addEventListener("click", (event) => {
       const button = event.target instanceof Element ? event.target.closest("[data-chart-mode]") : null;
-      const side = button?.dataset?.chartMode;
-      if (side !== "price" && side !== "days") return;
-      let showPrice = state.chartMode !== "days";
-      let showDays = state.chartMode !== "price";
-      if (side === "price") showPrice = !showPrice;
-      if (side === "days") showDays = !showDays;
-      if (!showPrice && !showDays) {
-        if (side === "price") showDays = true;
-        if (side === "days") showPrice = true;
-      }
-      setChartModeFromVisible(showPrice, showDays);
+      const nextMode = window.WSBDashboardComponents.toggleTwoPanelMode({
+        group: el.chartModeButtons,
+        currentMode: state.chartMode,
+        leftValue: "price",
+        rightValue: "days",
+        activeClass: "is-selected",
+        buttonSelector: "[data-chart-mode]",
+      }, button);
+      if (!isChartMode(nextMode) || nextMode === state.chartMode) return;
+      state.chartMode = nextMode;
       render();
     });
     el.priceScaleButtons?.addEventListener("click", (event) => {
       const button = event.target instanceof Element ? event.target.closest("[data-price-scale]") : null;
-      const scaleMode = button?.dataset?.priceScale;
+      const scaleMode = window.WSBDashboardComponents.getScaleButtonValue(button);
       if (!isScaleMode(scaleMode) || state.priceScaleMode === scaleMode) return;
       state.priceScaleMode = scaleMode;
       render();
     });
     el.daysScaleButtons?.addEventListener("click", (event) => {
       const button = event.target instanceof Element ? event.target.closest("[data-days-scale]") : null;
-      const scaleMode = button?.dataset?.daysScale;
+      const scaleMode = window.WSBDashboardComponents.getScaleButtonValue(button);
       if (!isScaleMode(scaleMode) || state.daysScaleMode === scaleMode) return;
       state.daysScaleMode = scaleMode;
       render();
@@ -2716,16 +2211,7 @@
       const button = event.target instanceof Element ? event.target.closest(".download-setting-option[data-value]") : null;
       if (!button) return;
       if (button.closest("#downloadChartModeSelect")) {
-        const nextSelected = !button.classList.contains("is-selected");
-        button.classList.toggle("is-selected", nextSelected);
-        button.setAttribute("aria-pressed", nextSelected ? "true" : "false");
-        const leftButton = el.downloadChartModeSelect?.querySelector('.download-setting-option[data-value="left"]');
-        const rightButton = el.downloadChartModeSelect?.querySelector('.download-setting-option[data-value="right"]');
-        if (!leftButton?.classList.contains("is-selected") && !rightButton?.classList.contains("is-selected")) {
-          const fallbackButton = button.dataset.value === "left" ? rightButton : leftButton;
-          fallbackButton?.classList.add("is-selected");
-          fallbackButton?.setAttribute("aria-pressed", "true");
-        }
+        window.WSBDashboardComponents.toggleRequiredButtonGroupItem(el.downloadChartModeSelect, button);
       } else {
         setDownloadSettingGroupValue(button.closest(".download-setting-button-row"), button.dataset.value);
       }
@@ -2751,24 +2237,25 @@
       state.showHalvings = el.halvingsToggle.checked;
       render();
     });
-    el.reset.addEventListener("click", () => {
-      localStorage.removeItem(STORAGE_KEY);
-      state.preset = "full";
-      state.speed = 1;
-      state.chartMode = "both";
-      state.priceScaleMode = "log";
-      state.daysScaleMode = "linear";
-      state.showAthLabels = true;
-      state.showAthMarkers = true;
-      state.showHalvings = true;
-      applyPreset("full");
-    });
-    el.copyLink.addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText(window.location.href);
-        setButtonIcon("copyDashboardIcon", ICONS.copyCopied);
-        window.setTimeout(() => setButtonIcon("copyDashboardIcon", ICONS.copyLink), 1200);
-      } catch (_) {}
+    window.WSBDashboardComponents.bindDashboardActions({
+      copyButton: el.copyLink,
+      resetButton: el.reset,
+      getShareUrl: () => window.location.href,
+      copyDefaultIcon: ICONS.copyLink,
+      copyCopiedIcon: ICONS.copyCopied,
+      setCopyIcon: (icon) => setButtonIcon("copyDashboardIcon", icon),
+      onReset: () => {
+        localStorage.removeItem(STORAGE_KEY);
+        state.preset = "full";
+        state.speed = 1;
+        state.chartMode = "both";
+        state.priceScaleMode = "log";
+        state.daysScaleMode = "linear";
+        state.showAthLabels = true;
+        state.showAthMarkers = true;
+        state.showHalvings = true;
+        applyPreset("full");
+      },
     });
     window.addEventListener("resize", render);
     window.addEventListener("resize", constrainDownloadSettingsMenuToViewport);
@@ -2780,6 +2267,7 @@
     const rows = parseCsv(await resp.text())
       .map((row) => ({
         date: isoFromRow(row),
+        timestamp: row.timestamp || row.date || "",
         price: Math.max(Number(row.daily_high || row.price) || 0, PRICE_FALLBACK),
         height: Number(row.block_height) || 0,
       }))
@@ -2809,11 +2297,14 @@
       state.currentIso = state.endIso;
     }
     render();
+    DASHBOARD_COMPONENTS.bindChartLoaders?.([el.priceChartLoader, el.daysChartLoader])?.hide?.();
   }
 
   bindEvents();
   loadData().catch((error) => {
+    DASHBOARD_COMPONENTS.bindChartLoaders?.([el.priceChartLoader, el.daysChartLoader])?.hide?.();
     console.error("Unable to load Days Since ATH dashboard.", error);
-    el.updatedKpi.textContent = "Load failed";
+    if (updatedTimeZoneChip) updatedTimeZoneChip.setText("Load failed");
+    else el.updatedKpi.textContent = "Load failed";
   });
 }());

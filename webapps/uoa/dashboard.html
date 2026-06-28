@@ -6,6 +6,8 @@
     <style id="wsb-early-black">html,body{background:#000;color:#f1f5f7;}:root[data-theme="light"],:root[data-theme="light"] body{background:#f4f5f7;color:#111827;}</style>
     <title>UoA BTC/USD</title>
     <script src="../shared/dashboard_embed_modal.js"></script>
+  <script src="../shared/dashboard_components.js"></script>
+  <script src="../shared/dashboard_export.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -13,6 +15,7 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="../shared/dashboard_shared.css" />
+    <link rel="stylesheet" href="../shared/dashboard_controls.css" />
     <link rel="stylesheet" href="dashboard.css" />
   </head>
   <body class="uoa-loading">
@@ -375,6 +378,9 @@
             <span id="usdBtcEndDateEdge">--</span>
           </div>
           <canvas id="usdBtcChart" width="1200" height="720"></canvas>
+          <div class="dashboard-ring-loader" role="status" aria-live="polite" aria-label="Loading USDBTC chart">
+            <span class="chart-loader-ring" aria-hidden="true"></span>
+          </div>
         </section>
 
         <section class="panel chart-panel chart-panel-right" aria-label="BTCUSD chart panel">
@@ -386,12 +392,14 @@
             <span id="btcUsdEndDateEdge">--</span>
           </div>
           <canvas id="btcUsdChart" width="1200" height="720"></canvas>
+          <div class="dashboard-ring-loader" role="status" aria-live="polite" aria-label="Loading BTCUSD chart">
+            <span class="chart-loader-ring" aria-hidden="true"></span>
+          </div>
         </section>
       </main>
     </div>
 
     <script src="../../js/11_dashboard_timezone_preferences.js"></script>
-    <script src="../../js/12_mp4_muxer.js"></script>
     <script>
       window.WSBWebappDataAutoRefresh = { urls: ["webapp_data/last_updated.txt"] };
     </script>

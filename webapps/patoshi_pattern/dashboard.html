@@ -21,14 +21,18 @@
   </script>
   <title>Patoshi Pattern</title>
   <script src="../shared/dashboard_embed_modal.js"></script>
+  <script src="../shared/dashboard_components.js"></script>
+  <script src="../shared/dashboard_export.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="../shared/dashboard_shared.css" />
+    <link rel="stylesheet" href="../shared/dashboard_controls.css" />
   <style>
     :root {
-      --bg: #000;
-      --panel: #000;
+      --bg: var(--dashboard-page-bg, #000);
+      --panel: var(--dashboard-panel-bg, #000);
+      --chart-bg: var(--dashboard-chart-bg, #000);
       --surface: #000;
       --surface-soft: #000;
       --panel-border: rgba(255, 255, 255, 0.14);
@@ -57,8 +61,9 @@
     }
 
     :root[data-theme="light"] {
-      --bg: #f4f5f7;
-      --panel: #fff;
+      --bg: var(--dashboard-page-bg, #f4f5f7);
+      --panel: var(--dashboard-panel-bg, #fff);
+      --chart-bg: var(--dashboard-chart-bg, #fff);
       --surface: #fff;
       --surface-soft: #faf6ef;
       --panel-border: rgba(0, 0, 0, 0.11);
@@ -540,7 +545,7 @@
       height: 100%;
       display: block;
       min-height: calc(var(--panel-min-height) - 18px);
-      background: var(--panel);
+      background: var(--chart-bg);
       cursor: grab;
       touch-action: none;
     }
@@ -567,26 +572,6 @@
     }
     #patoshiChart.target-pick-hover.target-pick-exclude {
       cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='%230066ff' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='6'/%3E%3Cpath d='M12 2.5v3.5M12 18v3.5M2.5 12H6M18 12h3.5'/%3E%3C/g%3E%3Ccircle cx='12' cy='12' r='1.8' fill='%230066ff'/%3E%3C/svg%3E") 12 12, crosshair;
-    }
-    .loading-ring {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      width: 32px;
-      height: 32px;
-      border: 2px solid rgba(255, 255, 255, 0.15);
-      border-top-color: var(--accent);
-      border-right-color: var(--accent);
-      border-radius: 50%;
-      transform: translate(-50%, -50%);
-      animation: patoshi-chart-loading-spin 0.8s linear infinite;
-      z-index: 1;
-      pointer-events: none;
-    }
-    :root[data-theme="light"] .loading-ring {
-      border-color: rgba(17, 24, 39, 0.13);
-      border-top-color: var(--accent);
-      border-right-color: var(--accent);
     }
     .chart-tooltip {
       position: fixed;
@@ -1164,10 +1149,6 @@
     @keyframes spent-rewards-bounce {
       0%, 100% { transform: translateY(0); opacity: 0.45; }
       50% { transform: translateY(4px); opacity: 0.9; }
-    }
-    @keyframes patoshi-chart-loading-spin {
-      0% { transform: translate(-50%, -50%) rotate(0deg); }
-      100% { transform: translate(-50%, -50%) rotate(360deg); }
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -3157,7 +3138,9 @@
 
     <main class="panel chart-panel" aria-label="Patoshi chart panel">
       <canvas id="patoshiChart"></canvas>
-      <div class="loading-ring" id="loadingRing"></div>
+      <div class="dashboard-ring-loader" id="loadingRing" role="status" aria-live="polite" aria-label="Loading Patoshi chart">
+        <span class="chart-loader-ring" aria-hidden="true"></span>
+      </div>
       <div class="chart-tooltip" id="chartTooltip" role="tooltip"></div>
     </main>
 

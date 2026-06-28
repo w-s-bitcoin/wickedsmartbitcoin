@@ -6,10 +6,12 @@
   <style id="wsb-early-black">html,body{background:#000;color:#f1f5f7;}:root[data-theme="light"],:root[data-theme="light"] body{background:#f4f5f7;color:#111827;}</style>
     <title>BIP-110 Signaling</title>
   <script src="../shared/dashboard_embed_modal.js"></script>
+  <script src="../shared/dashboard_components.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="../shared/dashboard_shared.css" />
+    <link rel="stylesheet" href="../shared/dashboard_controls.css" />
   <link rel="preload" href="webapp_data/chart_static.json" as="fetch" crossorigin />
   <link rel="preload" href="webapp_data/bip110_metadata.json" as="fetch" crossorigin />
   <style>
@@ -623,7 +625,7 @@
 
     .dashboard-loader,
     .panel-loader {
-      gap: 0;
+      --panel-loader-accent: var(--signal);
       background: transparent;
     }
 
@@ -640,8 +642,7 @@
       display: none;
     }
 
-    .dashboard-loader .circle,
-    .panel-loader .circle {
+    .dashboard-loader .circle {
       width: 32px;
       height: 32px;
       border: 2px solid rgba(255, 255, 255, 0.15);
@@ -651,22 +652,15 @@
       animation: bip110-chart-loading-spin 0.8s linear infinite;
     }
 
-    .dashboard-loader .label,
-    .panel-loader .label {
+    .dashboard-loader .label {
       display: none;
-    }
-
-    :root[data-theme="light"] .dashboard-loader,
-    :root[data-theme="light"] .panel-loader {
-      background: transparent;
     }
 
     :root[data-theme="light"] .dashboard-loader {
       background: var(--card-bg);
     }
 
-    :root[data-theme="light"] .dashboard-loader .circle,
-    :root[data-theme="light"] .panel-loader .circle {
+    :root[data-theme="light"] .dashboard-loader .circle {
       border-color: rgba(17, 24, 39, 0.13);
       border-top-color: var(--signal);
       border-right-color: var(--signal);
