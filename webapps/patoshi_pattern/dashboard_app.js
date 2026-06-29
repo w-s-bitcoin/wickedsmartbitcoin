@@ -1139,15 +1139,6 @@
     state.exportSettings.endFrameHold = state.exportSettings.endFrameHold !== false;
   }
 
-  function formatDuration(seconds) {
-    const total = Math.max(0, Math.round(seconds || 0));
-    const hours = Math.floor(total / 3600);
-    const minutes = Math.floor((total % 3600) / 60);
-    const secs = total % 60;
-    if (hours) return `${hours}h ${minutes}m ${secs}s`;
-    return minutes ? `${minutes}m ${secs}s` : `${secs}s`;
-  }
-
   function captureDashboardState() {
     normalizeExportSettings();
     return {
@@ -1439,7 +1430,7 @@
   }
 
   function hasDeterministicExportSupport() {
-    return !!(window.VideoEncoder && window.VideoFrame && typeof VideoEncoder.isConfigSupported === "function");
+    return !!window.WSBDashboardExport?.hasWebCodecsExportSupport?.();
   }
 
   function getDownloadEstimateCalibrationKey(settings, frameEnds) {
@@ -1552,7 +1543,7 @@
     const calibrationKey = getDownloadEstimateCalibrationKey(settings, frameEnds);
     const calibration = downloadEstimateCalibrationCache.get(calibrationKey);
     const deterministicExport = hasDeterministicExportSupport();
-    const fallbackFrameSeconds = deterministicExport ? 0.006 * Math.sqrt(megapixels) : 0.018 * megapixels;
+    const fallbackFrameSeconds = 0.006 * Math.sqrt(megapixels);
     const estimate = window.WSBDashboardExport.estimateDownload(settings, {
       frameCount,
       uniqueFrameCount: frameCount,
@@ -1567,9 +1558,7 @@
     });
     els.downloadEstimateSize.textContent = estimate.sizeText;
     els.downloadEstimateLength.textContent = estimate.lengthText;
-    els.downloadEstimateTime.textContent = deterministicExport
-      ? estimate.timeText
-      : `~${formatDuration(seconds + estimate.processingSeconds)}`;
+    els.downloadEstimateTime.textContent = deterministicExport ? estimate.timeText : "--";
     if (!calibration && frameEnds.length) scheduleDownloadEstimateCalibration(settings, frameEnds, calibrationKey);
   }
 
@@ -1583,8 +1572,11 @@
       els.downloadEndFrameHoldToggle.checked = !!state.exportSettings.endFrameHold;
     }
     if (els.downloadPanelBtn) {
+      const canDownload = hasDeterministicExportSupport();
       els.downloadPanelBtn.classList.toggle("is-stop-download", !!state.isExporting);
+      els.downloadPanelBtn.disabled = !state.isExporting && !canDownload;
       els.downloadPanelBtn.textContent = state.isExporting ? "Stop Download" : "Download Animation";
+      els.downloadPanelBtn.setAttribute("title", canDownload ? "Download animation" : "Animation download requires WebCodecs support");
     }
     updateDownloadEstimate();
   }
@@ -1954,48 +1946,9 @@
     els.yMaxInput.value = formatYMaxInput(value);
   }
 
-  function parseCssPx(value, fallback = 0) {
-    const n = Number.parseFloat(String(value || "").trim());
-    return Number.isFinite(n) ? n : fallback;
-  }
-
-  function sizeUpdatedTimeZoneDropdownMenu(select, dropdown, menu, probeEl) {
-    if (!select || !dropdown || !menu || !probeEl) return;
-    const style = window.getComputedStyle(probeEl);
-    const canvas = document.createElement("canvas");
-    const context = canvas.getContext("2d");
-    if (!context) return;
-    context.font = style.font || `${style.fontWeight} ${style.fontSize} / ${style.lineHeight} ${style.fontFamily}`;
-
-    let maxTextWidth = 0;
-    Array.from(select.options).forEach((option) => {
-      maxTextWidth = Math.max(maxTextWidth, context.measureText(String(option.textContent || "")).width);
-    });
-
-    const menuStyle = window.getComputedStyle(menu);
-    const leftPad = parseCssPx(menuStyle.getPropertyValue("--dca-dropdown-content-pad"), 10);
-    const rightPad = parseCssPx(menuStyle.getPropertyValue("--dca-dropdown-content-pad"), 10);
-    const desired = Math.ceil(maxTextWidth + leftPad + rightPad + 44);
-    const pillWidth = Math.ceil(dropdown.getBoundingClientRect().width + 8);
-    const minWidth = Math.max(pillWidth, 360);
-    const maxWidth = Math.max(minWidth, Math.floor(window.innerWidth - 24));
-    const width = Math.max(minWidth, Math.min(desired, maxWidth));
-
-    menu.style.left = "0px";
-    menu.style.width = `${width}px`;
-    menu.style.minWidth = `${width}px`;
-    menu.style.maxWidth = `${width}px`;
-  }
-
   function normalizeTimeZoneText(text) {
     const clean = String(text || "").trim();
     return clean.replace(/\s+([A-Z]{2,5}|GMT[+-]?\d{1,2}|UTC)$/, " ($1)");
-  }
-
-  function getDashboardTimeZoneOptions() {
-    return DASHBOARD_TIME?.getTimeZoneOptions?.() || [
-      { value: "UTC", label: "UTC - Greenwich Mean Time (GMT)" },
-    ];
   }
 
   function getPreferredDashboardTimeZone() {
@@ -3281,16 +3234,6 @@
     setYMaxCustomFromAxis(getCurrentEffectiveYMax() * safeFactor);
   }
 
-  function restoreYModeBeforeAxisCustom() {
-    if (!yAxisRestoreMode) return;
-    state.yMode = yAxisRestoreMode;
-    if (els.yMode) els.yMode.value = state.yMode;
-    yAxisRestoreMode = null;
-    syncDropdownLabels();
-    render();
-    saveState();
-  }
-
   function resetYModeToRollingPatoshi() {
     state.yMode = "rolling_patoshi";
     if (els.yMode) els.yMode.value = state.yMode;
@@ -4200,13 +4143,6 @@
     requestAnimationFrame(render);
   }
 
-  function openSettingsPanel() {
-    if (!els.settingsPanel) return;
-    els.settingsPanel.classList.add("open");
-    updateSettingsOptions();
-    updateActiveButtons();
-  }
-
   function renderExportProgress(progress = 0) {
     if (!els.downloadBtn) return;
     const pct = `${Math.max(0, Math.min(1, Number(progress) || 0)) * 100}%`;
@@ -4231,16 +4167,19 @@
   }
 
   function resetExportProgress() {
+    const canDownload = hasDeterministicExportSupport();
     if (els.downloadBtn) {
       els.downloadBtn.classList.remove("is-exporting", "is-canceling");
-      els.downloadBtn.disabled = false;
+      els.downloadBtn.disabled = !canDownload;
       els.downloadBtn.setAttribute("aria-label", "Download window animation");
-      els.downloadBtn.setAttribute("title", "Download animation");
+      els.downloadBtn.setAttribute("title", canDownload ? "Download animation" : "Animation download requires WebCodecs support");
       els.downloadBtn.textContent = "↓";
     }
     if (els.downloadPanelBtn) {
       els.downloadPanelBtn.classList.remove("is-stop-download");
+      els.downloadPanelBtn.disabled = !canDownload;
       els.downloadPanelBtn.textContent = "Download Animation";
+      els.downloadPanelBtn.setAttribute("title", canDownload ? "Download animation" : "Animation download requires WebCodecs support");
     }
   }
 
@@ -4249,10 +4188,6 @@
     state.exportCancelRequested = true;
     els.downloadBtn?.classList.add("is-canceling");
     return true;
-  }
-
-  function wait(ms = 0) {
-    return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
   }
 
   async function encodeExportWebM({ canvas: exportCanvas, settings, frameEnds }) {
@@ -4288,9 +4223,13 @@
 
   async function exportVideo() {
     if (requestExportCancel()) return;
+    if (!hasDeterministicExportSupport()) {
+      resetExportProgress();
+      updateDownloadEstimate();
+      return;
+    }
     state.isExporting = true;
     state.exportCancelRequested = false;
-    let recorder = null;
     try {
       normalizeExportSettings();
       const settings = getExportSettingsSnapshot();
@@ -4300,60 +4239,15 @@
       exportCanvas.height = height;
       if (!exportCanvas.getContext("2d")) throw new Error("Export canvas context unavailable.");
       const frames = getExportFrameEndTimes(settings);
-      try {
-        const webmBlob = await encodeExportWebM({ canvas: exportCanvas, settings, frameEnds: frames });
-        if (webmBlob && !state.exportCancelRequested) {
-          renderExportProgress(1);
-          downloadExportBlob(webmBlob, settings);
-          return;
-        }
-        if (state.exportCancelRequested) return;
-      } catch (error) {
-        console.warn("Deterministic WebCodecs WebM export unavailable; falling back to recorder export.", error);
+      const webmBlob = await encodeExportWebM({ canvas: exportCanvas, settings, frameEnds: frames });
+      if (webmBlob && !state.exportCancelRequested) {
+        renderExportProgress(1);
+        downloadExportBlob(webmBlob, settings);
       }
-
-      const paintExportFrame = (endMs) => drawExportFrame(exportCanvas, endMs, settings, { width, height });
-      if (frames.length) paintExportFrame(frames[0]);
-      let stream;
-      try {
-        stream = exportCanvas.captureStream(0);
-      } catch (_) {
-        stream = exportCanvas.captureStream(EXPORT_FPS);
-      }
-      let videoTrack = stream.getVideoTracks?.()[0] || null;
-      if (!videoTrack || typeof videoTrack.requestFrame !== "function") {
-        videoTrack?.stop?.();
-        stream = exportCanvas.captureStream(EXPORT_FPS);
-        videoTrack = stream.getVideoTracks?.()[0] || null;
-      }
-      const chunks = [];
-      const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9") ? "video/webm;codecs=vp9" : "video/webm";
-      recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: getExportBitrate(settings) });
-      recorder.ondataavailable = (event) => { if (event.data?.size) chunks.push(event.data); };
-      const done = new Promise((resolve) => { recorder.onstop = resolve; });
-      renderExportProgress(0);
-      recorder.start();
-      const frameDurationMs = 1000 / EXPORT_FPS;
-      let nextFrameAt = performance.now();
-      for (let i = 0; i < frames.length; i += 1) {
-        if (state.exportCancelRequested) break;
-        paintExportFrame(frames[i]);
-        if (typeof videoTrack?.requestFrame === "function") videoTrack.requestFrame();
-        renderExportProgress((i + 1) / frames.length);
-        nextFrameAt += frameDurationMs;
-        await wait(Math.max(0, nextFrameAt - performance.now()));
-      }
-      if (recorder.state !== "inactive") recorder.stop();
-      await done;
-      if (state.exportCancelRequested) return;
-      downloadExportBlob(new Blob(chunks, { type: "video/webm" }), settings);
     } catch (error) {
       console.error("Unable to export Patoshi animation:", error);
       window.alert("The animation export could not be completed in this browser.");
     } finally {
-      if (recorder && recorder.state !== "inactive") {
-        try { recorder.stop(); } catch {}
-      }
       state.isExporting = false;
       state.exportCancelRequested = false;
       resetExportProgress();
@@ -5661,59 +5555,31 @@
       if (event.key === "Escape" && els.filtersPanel?.classList.contains("open")) {
         closeDropdowns();
       }
-      if ((event.key === " " || event.code === "Space") && !event.altKey && !event.ctrlKey && !event.metaKey && !isTextEntry(document.activeElement)) {
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation?.();
-        blurControlIfFocused();
-        togglePlayback();
-        requestAnimationFrame(blurControlIfFocused);
-        return;
-      }
-      if (event.key === "Escape" && (state.playing || state.paused)) {
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation?.();
-        stopAnimation();
-        return;
-      }
-      const isArrowLeft = event.key === "ArrowLeft";
-      const isArrowRight = event.key === "ArrowRight";
-      const isComma = event.key === "," || event.code === "Comma";
-      const isPeriod = event.key === "." || event.code === "Period";
-      if ((isArrowLeft || isArrowRight || isComma || isPeriod) && !event.altKey && !event.ctrlKey && !event.metaKey && !isTextEntry(document.activeElement)) {
-        if (state.playing || state.paused) {
-          event.preventDefault();
-          event.stopPropagation();
-          event.stopImmediatePropagation?.();
-          blurControlIfFocused();
-          const frameStep = getPlaybackFrameMs();
-          const bigStep = frameStep * 300;
-          let delta = 0;
-          if (isArrowRight) delta = bigStep;
-          else if (isArrowLeft) delta = -bigStep;
-          else if (isPeriod) delta = frameStep;
-          else if (isComma) delta = -frameStep;
-          const minShift = state.animationStartMs - state.endMs;
-          const maxShift = state.animationEndMs - state.endMs;
-          const safeShift = clamp(delta, minShift, maxShift);
-          setLastAdjustedHandle("range");
-          setRange(state.startMs + safeShift, state.endMs + safeShift);
-          if (isArrowRight && state.playing && safeShift === maxShift) pauseAnimation();
-          requestAnimationFrame(blurControlIfFocused);
-          return;
-        }
-        if (!isArrowLeft && !isArrowRight) return;
-        if (lastAdjustedHandle !== "start" && lastAdjustedHandle !== "end" && lastAdjustedHandle !== "range") return;
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation?.();
-        blurControlIfFocused();
-        const step = lastAdjustedHandle === "range" ? getPlaybackFrameMs() : HOUR;
-        nudgeLastAdjustedHandle(event.key === "ArrowRight" ? step : -step);
-        requestAnimationFrame(blurControlIfFocused);
-      }
     }, true);
+    window.WSBDashboardComponents?.bindPlaybackKeyboardShortcuts?.({
+      blurControls: blurControlIfFocused,
+      isTextEntry: (active) => isTextEntry(active),
+      isPlaybackActive: () => state.playing || state.paused,
+      isEscapeActive: () => state.playing || state.paused,
+      isInactiveArrowActive: () => lastAdjustedHandle === "start" || lastAdjustedHandle === "end" || lastAdjustedHandle === "range",
+      onSpace: togglePlayback,
+      onEscape: stopAnimation,
+      onInactiveArrow: (direction) => {
+        const step = lastAdjustedHandle === "range" ? getPlaybackFrameMs() : HOUR;
+        nudgeLastAdjustedHandle(direction * step);
+      },
+      onArrow: (direction, _event, detail = {}) => {
+        const frameStep = getPlaybackFrameMs();
+        const bigStep = frameStep * 300;
+        const delta = direction * (detail.isStep ? frameStep : bigStep);
+        const minShift = state.animationStartMs - state.endMs;
+        const maxShift = state.animationEndMs - state.endMs;
+        const safeShift = clamp(delta, minShift, maxShift);
+        setLastAdjustedHandle("range");
+        setRange(state.startMs + safeShift, state.endMs + safeShift);
+        if (direction > 0 && state.playing && safeShift === maxShift) pauseAnimation();
+      },
+    });
   }
 
   async function init() {

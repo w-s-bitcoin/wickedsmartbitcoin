@@ -2541,11 +2541,31 @@
     }
 
     @media (max-width: 750px) {
-      .title-actions {
+      .title-panel {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-areas:
+          "title"
+          "toggle"
+          "filters"
+          "divider"
+          "kpis";
+      }
+
+      .title-panel .title-row {
+        padding-right: 0 !important;
+      }
+
+      .title-panel.topbar .title-actions {
+        position: static !important;
+        inset: auto !important;
+        grid-area: toggle;
         display: flex;
         flex-wrap: nowrap;
-        margin-top: -4px;
-        margin-right: -5px;
+        justify-self: start;
+        justify-content: flex-start;
+        margin: 0;
+        width: 100%;
+        max-width: 100%;
       }
 
       .runtime-mode-btn {
@@ -2726,7 +2746,7 @@
         align-self: flex-start;
         justify-content: flex-start;
         width: 100%;
-        margin-top: -4px;
+        margin-top: 0;
         margin-left: -2px;
         margin-right: 0;
       }

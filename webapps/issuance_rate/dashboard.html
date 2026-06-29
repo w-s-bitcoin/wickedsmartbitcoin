@@ -357,39 +357,6 @@
       border-color: rgba(255, 152, 0, 0.55);
       background: transparent;
     }
-    .info-wrap {
-      position: relative;
-      display: inline-flex;
-      align-items: center;
-      z-index: 100;
-    }
-    .info-btn {
-      width: 18px;
-      height: 18px;
-      border-radius: 999px;
-      border: 1px solid var(--panel-border);
-      background: transparent;
-      color: #d6e1e6;
-      font-family: "IBM Plex Mono", monospace;
-      font-size: 0.66rem;
-      font-weight: 600;
-      line-height: 1;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      padding: 0;
-    }
-    .info-btn:hover,
-    .info-btn:focus-visible {
-      color: var(--dashboard-accent);
-      border-color: var(--dashboard-accent);
-      outline: none;
-    }
-    :root[data-theme="light"] .info-btn {
-      border-color: var(--panel-border);
-      color: var(--muted, #6f685f);
-    }
     .info-popover {
       display: none;
       position: absolute;
@@ -410,26 +377,6 @@
     .title-heading .info-popover {
       left: 0;
       right: auto;
-    }
-    .issuance-settings-menu-wrap {
-      position: relative;
-      display: inline-flex;
-      align-items: center;
-      z-index: 110;
-    }
-    .issuance-settings-btn svg {
-      width: 15px;
-      height: 15px;
-      display: block;
-      fill: none;
-      stroke: currentColor;
-      stroke-width: 2.2;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-    .issuance-settings-btn.is-open {
-      color: var(--dashboard-accent);
-      border-color: var(--dashboard-accent);
     }
     .issuance-settings-panel {
       position: absolute;
@@ -1424,10 +1371,8 @@
               Bitcoin's issuance rate is the annualized pace at which new BTC enters circulation through block subsidies. Roughly every 210,000 blocks, a halving cuts that subsidy in half, lowering the target issuance rate for the next epoch.
             </div>
           </div>
-          <div class="issuance-settings-menu-wrap">
-            <button class="info-btn issuance-settings-btn" type="button" id="issuanceSettingsBtn" aria-label="Show dashboard settings" aria-haspopup="dialog" aria-expanded="false" aria-controls="issuanceSettingsPanel">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5.5h8.3M16.7 5.5H21M3 12h4.3M12.7 12H21M3 18.5h10.3M18.7 18.5H21"></path><circle cx="14" cy="5.5" r="2.65"></circle><circle cx="10" cy="12" r="2.65"></circle><circle cx="16" cy="18.5" r="2.65"></circle></svg>
-            </button>
+          <div class="filters-menu-wrap issuance-settings-menu-wrap">
+            <button class="info-btn filters-btn issuance-settings-btn" type="button" id="issuanceSettingsBtn" aria-label="Show dashboard settings" aria-haspopup="dialog" aria-expanded="false" aria-controls="issuanceSettingsPanel" data-title-settings-button></button>
             <div class="issuance-settings-panel" id="issuanceSettingsPanel" role="dialog" aria-label="Dashboard settings">
               <div class="issuance-settings-panel-header">
                 <h2 class="issuance-settings-panel-title">Dashboard Settings</h2>
@@ -1522,18 +1467,19 @@
               <button type="button" class="date-range-btn" data-scale-mode="log">Log</button>
             </div>
           </div>
-          <button type="button" id="dateRangePlayBtn" class="date-range-playback-btn date-range-play-btn" aria-label="Play">▶</button>
-          <button type="button" id="dateRangePauseBtn" class="date-range-playback-btn date-range-pause-btn" aria-label="Pause" disabled>❚❚</button>
-          <button type="button" id="dateRangeStopBtn" class="date-range-playback-btn date-range-stop-btn" aria-label="Stop" disabled>■</button>
-          <button type="button" id="dateRangeSpeedBtn" class="date-range-playback-btn date-range-speed-btn">1x</button>
-          <button type="button" id="dashboardExpandBtn" class="date-range-playback-btn dashboard-expand-btn" aria-label="Expand video layout" aria-pressed="false" title="Expand video layout">
-            <svg class="dashboard-expand-icon dashboard-expand-icon-expand" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5" /><path d="M20 9V4h-5" /><path d="M4 15v5h5" /><path d="M20 15v5h-5" /></svg>
-            <svg class="dashboard-expand-icon dashboard-expand-icon-shrink" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4v5H4" /><path d="M15 4v5h5" /><path d="M9 20v-5H4" /><path d="M15 20v-5h5" /></svg>
-          </button>
-          <button type="button" id="dateRangeDownloadBtn" class="date-range-playback-btn date-range-download-btn" aria-label="Download date range animation" title="Download animation">↓</button>
-          <div class="date-range-download-wrap">
-            <button type="button" id="dateRangeSettingsBtn" class="date-range-playback-btn date-range-settings-btn" aria-label="Download settings">⚙</button>
-            <div id="dateRangeSettingsMenu" class="date-range-settings-menu" role="dialog" aria-label="Download settings">
+          <div class="date-range-playback-button-group" role="group" aria-label="Playback controls">
+            <button type="button" id="dateRangePlayBtn" class="date-range-playback-btn date-range-play-btn" aria-label="Play">▶</button>
+            <button type="button" id="dateRangePauseBtn" class="date-range-playback-btn date-range-pause-btn" aria-label="Pause" disabled>❚❚</button>
+            <button type="button" id="dateRangeStopBtn" class="date-range-playback-btn date-range-stop-btn" aria-label="Stop" disabled>■</button>
+            <button type="button" id="dateRangeSpeedBtn" class="date-range-playback-btn date-range-speed-btn">1x</button>
+            <button type="button" id="dashboardExpandBtn" class="date-range-playback-btn dashboard-expand-btn" aria-label="Expand video layout" aria-pressed="false" title="Expand video layout">
+              <svg class="dashboard-expand-icon dashboard-expand-icon-expand" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5" /><path d="M20 9V4h-5" /><path d="M4 15v5h5" /><path d="M20 15v5h-5" /></svg>
+              <svg class="dashboard-expand-icon dashboard-expand-icon-shrink" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4v5H4" /><path d="M15 4v5h5" /><path d="M9 20v-5H4" /><path d="M15 20v-5h5" /></svg>
+            </button>
+            <button type="button" id="dateRangeDownloadBtn" class="date-range-playback-btn date-range-download-btn" aria-label="Download date range animation" title="Download animation">↓</button>
+            <div class="date-range-download-wrap">
+              <button type="button" id="dateRangeSettingsBtn" class="date-range-playback-btn date-range-settings-btn" aria-label="Download settings">⚙</button>
+              <div id="dateRangeSettingsMenu" class="date-range-settings-menu" role="dialog" aria-label="Download settings">
               <div class="download-setting-field">Scale
                 <div id="downloadScaleSelect" class="download-setting-button-row">
                   <button type="button" class="download-setting-option is-selected" data-value="linear">Linear</button>
@@ -1579,6 +1525,7 @@
                 <div class="download-estimate-row"><span>Download Time</span><strong id="downloadEstimateTime">--</strong></div>
               </div>
               <button type="button" id="downloadSettingsDownloadBtn">Download Animation</button>
+              </div>
             </div>
           </div>
         </div>

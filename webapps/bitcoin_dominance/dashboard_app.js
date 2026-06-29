@@ -36,7 +36,6 @@
     const STACKED_SNAPSHOT_MIN_HEIGHT = 260;
     const STACKED_HISTORY_DEFAULT_RATIO = 0.56;
     const PLOTLY_LIVE_BG = 'rgba(0,0,0,0)';
-    const PLOTLY_EXPORT_BG = '#000';
     const STABLE_USD_GREEN = '#35b56a';
     const SHARE_STATE_PARAM = 'state';
     const LOCAL_RUNTIME_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
@@ -1740,20 +1739,6 @@
         return;
       }
       valueEl.textContent = withUpdateBlockHeight(withParenthesizedZone(source));
-    }
-
-    function populateUpdatedTimeZoneSelect() {
-      const select = document.getElementById('updatedTimeZoneSelect');
-      if (!select) return;
-      const preferred = DASHBOARD_TIME?.getPreferredTimeZone?.() || state.timeZone || 'UTC';
-      state.timeZone = preferred;
-      const options = DASHBOARD_TIME?.getTimeZoneOptions?.() || [{ value: 'UTC', label: 'UTC' }];
-      select.innerHTML = options.map((option) => {
-        const selected = option.value === preferred ? ' selected' : '';
-        return `<option value="${option.value}"${selected}>${option.label}</option>`;
-      }).join('');
-      setLastUpdated();
-      syncSelectDropdown('updatedTimeZoneSelect', 'updatedTimeZoneDropdownTrigger', 'updatedTimeZoneDropdownMenu');
     }
 
     function updateHistoryInputs() {

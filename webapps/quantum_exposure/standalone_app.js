@@ -474,20 +474,49 @@
     navigateRelative(1);
   }
 
-  function handleNavKey(key) {
-    if (youtubeOverlay && !youtubeOverlay.classList.contains("hidden")) return;
+  let touchStartX = 0;
+  let touchStartY = 0;
+
+  function handleTouchStart(event) {
+    const touch = event.changedTouches?.[0];
+    if (!touch) return;
+    touchStartX = touch.screenX;
+    touchStartY = touch.screenY;
+  }
+
+  function isHorizontalSwipeDelta(deltaX, deltaY, threshold = 12) {
+    return Math.abs(deltaX) > threshold && Math.abs(deltaX) > Math.abs(deltaY);
+  }
+
+  function handleTouchMove(event) {
     if (!modal || modal.style.display !== "flex") return;
-    if (key === "ArrowLeft") {
-      prevImage();
-      return;
-    }
-    if (key === "ArrowRight") {
-      nextImage();
-      return;
-    }
-    if (key === " " || key === "Spacebar") {
-      closeModal();
-    }
+    if (youtubeOverlay && !youtubeOverlay.classList.contains("hidden")) return;
+    const touch = event.changedTouches?.[0] || event.touches?.[0];
+    if (!touch) return;
+    const deltaX = touch.screenX - touchStartX;
+    const deltaY = touch.screenY - touchStartY;
+    if (isHorizontalSwipeDelta(deltaX, deltaY)) event.preventDefault();
+  }
+
+  function handleTouchEnd(event) {
+    if (!modal || modal.style.display !== "flex") return;
+    if (youtubeOverlay && !youtubeOverlay.classList.contains("hidden")) return;
+    const touch = event.changedTouches?.[0];
+    if (!touch) return;
+    const deltaX = touch.screenX - touchStartX;
+    const deltaY = touch.screenY - touchStartY;
+    if (!isHorizontalSwipeDelta(deltaX, deltaY)) return;
+    event.preventDefault();
+    const threshold = 50;
+    if (Math.abs(deltaX) <= threshold) return;
+    if (deltaX < 0) nextImage();
+    else prevImage();
+  }
+
+  function bindSwipeGestures() {
+    modal?.addEventListener("touchstart", handleTouchStart, { passive: true });
+    modal?.addEventListener("touchmove", handleTouchMove, { passive: false });
+    modal?.addEventListener("touchend", handleTouchEnd, { passive: false });
   }
 
   function handleKeydown(event) {
@@ -499,21 +528,6 @@
       return;
     }
     if (!modal || modal.style.display !== "flex") return;
-    if (event.key === "ArrowLeft") {
-      event.preventDefault();
-      handleNavKey("ArrowLeft");
-      return;
-    }
-    if (event.key === "ArrowRight") {
-      event.preventDefault();
-      handleNavKey("ArrowRight");
-      return;
-    }
-    if (event.key === " " || event.key === "Spacebar" || event.code === "Space") {
-      event.preventDefault();
-      handleNavKey(" ");
-      return;
-    }
     if (event.key === "Escape") {
       event.preventDefault();
       closeModal();
@@ -543,16 +557,18 @@
       if (event.origin !== window.location.origin) return;
       if (event.source !== modalEmbed?.contentWindow) return;
       const data = event.data || {};
+      if (data.type === "wsb-dashboard-swipe") {
+        if (data.direction === "next") nextImage();
+        else if (data.direction === "prev") prevImage();
+        return;
+      }
       if (data.type === "quantum-snapshot-report-modal") {
         setSnapshotReportShellState(!!data.open);
         return;
       }
-      if (data.type !== "wsb-dashboard-nav-key") return;
-      const key = String(data.key || "");
-      if (!key) return;
-      handleNavKey(key);
     });
     document.addEventListener("keydown", handleKeydown);
+    bindSwipeGestures();
   }
 
   async function init() {

@@ -100,6 +100,12 @@
         root.classList.add('embedded-in-modal');
         document.body?.classList?.add('embedded-in-modal');
         root.style.setProperty('--modal-controls-clearance', `${clearance}px`);
+        root.style.overscrollBehaviorX = 'contain';
+        root.style.touchAction = 'pan-y';
+        if (document.body) {
+          document.body.style.overscrollBehaviorX = 'contain';
+          document.body.style.touchAction = 'pan-y';
+        }
       };
 
       update();
@@ -112,36 +118,142 @@
     }
   }
 
-  function forwardEmbeddedNavigationKeys() {
+  function forwardEmbeddedSwipeGestures() {
     try {
       if (window.self === window.top) return;
 
-      const isEditableTarget = (target) => {
+      let swipeStartX = 0;
+      let swipeStartY = 0;
+      let swipePointerId = null;
+      let swipeTracking = false;
+      let swipeBlocked = false;
+      let lastPostedSwipeAt = 0;
+
+      const isInputTarget = (target) => {
         if (!(target instanceof Element)) return false;
-        if (target.closest('input, textarea, select, button, [contenteditable="true"], [contenteditable=""], [contenteditable]')) {
-          return true;
-        }
-        if (target instanceof HTMLElement && target.isContentEditable) {
-          return true;
-        }
-        return false;
+        return !!target.closest('input, textarea, select, option, [contenteditable="true"], [contenteditable=""], [contenteditable]');
       };
 
-      document.addEventListener('keydown', (event) => {
-        if (event.defaultPrevented) return;
-        if (isEditableTarget(event.target)) return;
+      const isDragSurface = (target) => {
+        if (!(target instanceof Element)) return false;
+        return !!target.closest(
+          [
+            '[data-no-dashboard-swipe]',
+            '.date-range-slider-wrap',
+            '.date-range-slider-track',
+            '.date-range-start-marker',
+            '.date-range-end-marker',
+            '.date-range-current-marker',
+            '.range-slider',
+            '.slider',
+            '.chart-canvas',
+            'canvas'
+          ].join(', ')
+        );
+      };
 
-        const key = event.key;
-        const code = event.code;
-        const isLeft = key === 'ArrowLeft';
-        const isRight = key === 'ArrowRight';
-        const isSpace = key === ' ' || key === 'Spacebar' || code === 'Space';
-        if (!isLeft && !isRight && !isSpace) return;
+      const isHorizontalSwipe = (deltaX, deltaY, threshold = 12) => (
+        Math.abs(deltaX) > threshold && Math.abs(deltaX) > Math.abs(deltaY)
+      );
 
+      const isEdgeSwipeStart = (clientX) => clientX <= 28 || clientX >= window.innerWidth - 28;
+      const shouldBlockSwipe = (target, clientX) => (
+        isInputTarget(target) || (!isEdgeSwipeStart(clientX) && isDragSurface(target))
+      );
+
+      const postSwipe = (deltaX) => {
+        const now = Date.now();
+        if (now - lastPostedSwipeAt < 250) return;
+        lastPostedSwipeAt = now;
+        window.parent?.postMessage({
+          type: 'wsb-dashboard-swipe',
+          direction: deltaX < 0 ? 'next' : 'prev',
+        }, window.location.origin);
+      };
+
+      document.addEventListener('touchstart', (event) => {
+        const touch = event.changedTouches?.[0] || event.touches?.[0];
+        if (!touch) return;
+        swipeStartX = touch.clientX;
+        swipeStartY = touch.clientY;
+        swipeTracking = true;
+        swipeBlocked = shouldBlockSwipe(event.target, swipeStartX);
+
+        // Suppress browser history edge-swipe early while preserving form controls
+        // and intentional chart/range drags.
+        if (!swipeBlocked && isEdgeSwipeStart(swipeStartX)) {
+          event.preventDefault();
+        }
+      }, { passive: false, capture: true });
+
+      document.addEventListener('touchmove', (event) => {
+        if (!swipeTracking || swipeBlocked) return;
+        const touch = event.changedTouches?.[0] || event.touches?.[0];
+        if (!touch) return;
+        const deltaX = touch.clientX - swipeStartX;
+        const deltaY = touch.clientY - swipeStartY;
+        if (isHorizontalSwipe(deltaX, deltaY)) event.preventDefault();
+      }, { passive: false, capture: true });
+
+      document.addEventListener('touchend', (event) => {
+        if (!swipeTracking || swipeBlocked) {
+          swipeTracking = false;
+          swipeBlocked = false;
+          return;
+        }
+        const touch = event.changedTouches?.[0];
+        if (!touch) return;
+        const deltaX = touch.clientX - swipeStartX;
+        const deltaY = touch.clientY - swipeStartY;
+        swipeTracking = false;
+        swipeBlocked = false;
+        if (!isHorizontalSwipe(deltaX, deltaY, 50)) return;
         event.preventDefault();
         event.stopPropagation();
-        window.parent?.postMessage({ type: 'wsb-dashboard-nav-key', key }, window.location.origin);
-      }, true);
+        postSwipe(deltaX);
+      }, { passive: false, capture: true });
+
+      document.addEventListener('touchcancel', () => {
+        swipeTracking = false;
+        swipeBlocked = false;
+      }, { passive: true, capture: true });
+
+      document.addEventListener('pointerdown', (event) => {
+        if (event.pointerType !== 'touch') return;
+        swipePointerId = event.pointerId;
+        swipeStartX = event.clientX;
+        swipeStartY = event.clientY;
+        swipeTracking = true;
+        swipeBlocked = shouldBlockSwipe(event.target, swipeStartX);
+      }, { passive: true, capture: true });
+
+      document.addEventListener('pointermove', (event) => {
+        if (event.pointerType !== 'touch' || event.pointerId !== swipePointerId || !swipeTracking || swipeBlocked) return;
+        const deltaX = event.clientX - swipeStartX;
+        const deltaY = event.clientY - swipeStartY;
+        if (isHorizontalSwipe(deltaX, deltaY)) event.preventDefault();
+      }, { passive: false, capture: true });
+
+      document.addEventListener('pointerup', (event) => {
+        if (event.pointerType !== 'touch' || event.pointerId !== swipePointerId) return;
+        const deltaX = event.clientX - swipeStartX;
+        const deltaY = event.clientY - swipeStartY;
+        const blocked = swipeBlocked;
+        swipePointerId = null;
+        swipeTracking = false;
+        swipeBlocked = false;
+        if (blocked || !isHorizontalSwipe(deltaX, deltaY, 50)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        postSwipe(deltaX);
+      }, { passive: false, capture: true });
+
+      document.addEventListener('pointercancel', (event) => {
+        if (event.pointerType !== 'touch' || event.pointerId !== swipePointerId) return;
+        swipePointerId = null;
+        swipeTracking = false;
+        swipeBlocked = false;
+      }, { passive: true, capture: true });
     } catch (_) {
     }
   }
@@ -183,12 +295,12 @@
   window.WSBDashboardShared = window.WSBDashboardShared || {};
   window.WSBDashboardShared.applyEmbeddedModalTopClearance = applyEmbeddedModalTopClearance;
   window.WSBDashboardShared.createDashboardControlLock = createDashboardControlLock;
-  window.WSBDashboardShared.forwardEmbeddedNavigationKeys = forwardEmbeddedNavigationKeys;
+  window.WSBDashboardShared.forwardEmbeddedSwipeGestures = forwardEmbeddedSwipeGestures;
   window.WSBDashboardShared.updateInfoPopoverPosition = updateInfoPopoverPosition;
   window.WSBDashboardShared.setupInfoPopoverPlacement = setupInfoPopoverPlacement;
 
   // Apply as early as possible to avoid top-padding jumps when embedded in modal.
   applyEmbeddedModalTopClearance();
-  forwardEmbeddedNavigationKeys();
+  forwardEmbeddedSwipeGestures();
   setupInfoPopoverPlacement();
 }());
