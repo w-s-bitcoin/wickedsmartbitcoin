@@ -45,6 +45,8 @@
   const ATH_LABEL_FONT_FAMILY = "IBM Plex Mono, monospace";
   const ATH_LABEL_FONT = `500 ${ATH_LABEL_FONT_SIZE}px ${ATH_LABEL_FONT_FAMILY}`;
   const CURRENT_ATH_LABEL_FONT = `700 ${ATH_LABEL_FONT_SIZE}px ${ATH_LABEL_FONT_FAMILY}`;
+  const Y_VALUE_TOP_FRACTION = 0.01;
+  const Y_VALUE_BOTTOM_FRACTION = 1;
   const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const HALVINGS = [
     { height: 210000, label: "1st Halving", date: "2012-11-28" },
@@ -928,6 +930,64 @@
     ctx.restore();
   }
 
+  function offscreenLeftAth(rows) {
+    const latest = rows[rows.length - 1];
+    if (!latest || isNotValued(latest.athPrice)) return null;
+    return latest.athDate && latest.athDate < rows[0].date
+      ? { price: latest.athPrice, date: latest.athDate }
+      : null;
+  }
+
+  function drawLeftEdgeAthMarker(ctx, ath, y, pad, plotW, bg, color, options = {}) {
+    if (!ath || !Number.isFinite(y)) return;
+    const plotLeft = pad.left;
+    const plotRight = pad.left + plotW;
+    const markerX = plotLeft;
+    const markerY = y;
+    const label = options.labelMode === "date" ? fmtDate(ath.date) : fmtCurrentPrice(ath.price);
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(markerX, markerY);
+    ctx.lineTo(markerX + 8, markerY - 4);
+    ctx.lineTo(markerX + 8, markerY + 4);
+    ctx.closePath();
+    ctx.fill();
+
+    let fontSize = ATH_LABEL_FONT_SIZE;
+    ctx.font = `${fontSize}px ${ATH_LABEL_FONT_FAMILY}`;
+    const labelX = markerX + 15;
+    const availableWidth = Math.max(24, plotRight - labelX - 4);
+    while (ctx.measureText(label).width > availableWidth && fontSize > 8) {
+      fontSize -= 1;
+      ctx.font = `${fontSize}px ${ATH_LABEL_FONT_FAMILY}`;
+    }
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = bg;
+    ctx.lineWidth = 5;
+    ctx.strokeText(label, labelX, markerY);
+    ctx.fillStyle = color;
+    ctx.fillText(label, labelX, markerY);
+    ctx.restore();
+  }
+
+  function shouldPlaceCurrentAthLabelRight(ctx, markerX, athPrice, athDate) {
+    if (!Number.isFinite(markerX)) return false;
+    const labels = [
+      { text: fmtCurrentPrice(athPrice), font: CURRENT_ATH_LABEL_FONT },
+      { text: fmtDate(athDate), font: ATH_LABEL_FONT },
+    ];
+    return labels.some(({ text, font }) => {
+      ctx.save();
+      ctx.font = font;
+      const textWidth = ctx.measureText(text).width;
+      ctx.restore();
+      return markerX - 8 - textWidth < 4;
+    });
+  }
+
   function boxesOverlap(a, b) {
     return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
   }
@@ -1084,6 +1144,32 @@
     return Array.from(new Set(ticks.filter((value) => value <= max))).sort((a, b) => a - b);
   }
 
+  function paddedTransformedDomain(minValue, maxValue, transform) {
+    let minTransformed = transform(minValue);
+    let maxTransformed = transform(maxValue);
+    if (!Number.isFinite(minTransformed) || !Number.isFinite(maxTransformed)) {
+      minTransformed = 0;
+      maxTransformed = 1;
+    }
+    if (minTransformed > maxTransformed) {
+      [minTransformed, maxTransformed] = [maxTransformed, minTransformed];
+    }
+    if (minTransformed === maxTransformed) {
+      const span = Math.max(1, Math.abs(minTransformed) * 0.1);
+      minTransformed -= span / 2;
+      maxTransformed += span / 2;
+    }
+
+    const minNorm = 1 - Y_VALUE_BOTTOM_FRACTION;
+    const maxNorm = 1 - Y_VALUE_TOP_FRACTION;
+    const domainSpan = (maxTransformed - minTransformed) / Math.max(1e-9, maxNorm - minNorm);
+    const domainMin = minTransformed - (minNorm * domainSpan);
+    return {
+      min: domainMin,
+      max: domainMin + domainSpan,
+    };
+  }
+
   function drawPriceChart(canvas = el.priceCanvas) {
     const { ctx, width, height } = setupCanvas(canvas);
     const rows = visibleRows();
@@ -1106,18 +1192,21 @@
       ? PRICE_FALLBACK
       : (values.length ? Math.min(...values) : Math.max(PRICE_FALLBACK, fallbackMaxPrice / 10));
     const rawMaxPrice = values.length ? Math.max(...values) : fallbackMaxPrice;
-    const maxPrice = rawMaxPrice * 1.035;
-    const minPrice = rawMinPrice >= maxPrice ? Math.max(PRICE_FALLBACK, maxPrice / 10) : Math.max(PRICE_FALLBACK, rawMinPrice);
     const usePriceLog = (activeExportPriceScaleMode || state.priceScaleMode) === "log";
-    const minLog = Math.log10(minPrice);
-    const maxLog = Math.max(minLog + 1e-9, Math.log10(maxPrice));
+    const priceDomain = paddedTransformedDomain(
+      Math.max(PRICE_FALLBACK, rawMinPrice),
+      Math.max(PRICE_FALLBACK, rawMaxPrice),
+      (value) => usePriceLog ? Math.log10(Math.max(value, PRICE_FALLBACK)) : Math.max(value, PRICE_FALLBACK),
+    );
+    const minLog = priceDomain.min;
+    const maxLog = priceDomain.max;
+    const minPrice = usePriceLog ? (10 ** minLog) : Math.max(PRICE_FALLBACK, priceDomain.min);
+    const maxPrice = usePriceLog ? (10 ** maxLog) : Math.max(minPrice + 1e-9, priceDomain.max);
     const priceRange = Math.max(1e-12, maxPrice - minPrice);
     const xFor = (row) => pad.left + ((Date.parse(`${row.date}T00:00:00Z`) - startMs) / (endMs - startMs)) * plotW;
     const yPriceScale = (value) => {
       const safeValue = Math.max(value, PRICE_FALLBACK);
-      if (usePriceLog) {
-        return pad.top + (1 - ((Math.log10(safeValue) - minLog) / (maxLog - minLog))) * plotH;
-      }
+      if (usePriceLog) return pad.top + (1 - ((Math.log10(safeValue) - minLog) / (maxLog - minLog))) * plotH;
       return pad.top + (1 - ((safeValue - minPrice) / priceRange)) * plotH;
     };
     const xForIso = (iso) => xFor({ date: iso });
@@ -1135,14 +1224,19 @@
     if (state.showHalvings) drawHalvings(ctx, rows, xFor, pad.top, pad.top + plotH, "date");
     drawPriceLine(ctx, rows, xFor, yPriceValue, accent, 2.2);
     if (state.showAthMarkers) drawAthMarkers(ctx, rows, xFor, yPriceValue, pad, plotW, plotH, green);
+    if (state.showAthMarkers) {
+      drawLeftEdgeAthMarker(ctx, offscreenLeftAth(rows), pad.top - 10, pad, plotW, bg, green);
+    }
 
-    if (!isNotValued(latest.price)) {
-      const athRow = rows.reduce((best, row) => row.price >= best.price ? row : best, rows[0]);
+    if (!isNotValued(latest.price) && latest.athDate >= rows[0].date) {
+      const athRow = rows.find((row) => row.date === latest.athDate) || rows.reduce((best, row) => row.price >= best.price ? row : best, rows[0]);
       ctx.fillStyle = green;
       const athMarkerX = Math.max(pad.left + 5, Math.min(pad.left + plotW, xFor(athRow)));
       const athPointY = Math.max(pad.top + 4, Math.min(pad.top + plotH, yPriceScale(athRow.price)));
       const triangleTopY = athPointY - 18;
       const priceLabelY = triangleTopY - 1;
+      const labelOnRight = shouldPlaceCurrentAthLabelRight(ctx, athMarkerX, athRow.price, athRow.date);
+      const priceLabelX = labelOnRight ? athMarkerX + 8 : athMarkerX - 8;
       ctx.beginPath();
       ctx.moveTo(athMarkerX, athPointY - 10);
       ctx.lineTo(athMarkerX - 4, triangleTopY);
@@ -1151,14 +1245,14 @@
       ctx.fill();
       ctx.save();
       ctx.font = CURRENT_ATH_LABEL_FONT;
-      ctx.textAlign = "right";
+      ctx.textAlign = labelOnRight ? "left" : "right";
       ctx.textBaseline = "top";
       ctx.lineJoin = "round";
       ctx.strokeStyle = bg;
       ctx.lineWidth = 5;
-      ctx.strokeText(fmtCurrentPrice(athRow.price), athMarkerX - 8, priceLabelY);
+      ctx.strokeText(fmtCurrentPrice(athRow.price), priceLabelX, priceLabelY);
       ctx.fillStyle = green;
-      ctx.fillText(fmtCurrentPrice(athRow.price), athMarkerX - 8, priceLabelY);
+      ctx.fillText(fmtCurrentPrice(athRow.price), priceLabelX, priceLabelY);
       ctx.restore();
     }
     if (state.showAthLabels) {
@@ -1218,11 +1312,25 @@
     const plotH = height - pad.top - pad.bottom;
     const startMs = Date.parse(`${rows[0].date}T00:00:00Z`);
     const endMs = Math.max(startMs + 86400000, Date.parse(`${rows[rows.length - 1].date}T00:00:00Z`));
-    const maxDays = Math.max(6, ...rows.map((r) => r.daysSinceAth));
+    const minVisibleDays = Math.min(...rows.map((r) => r.daysSinceAth));
+    const maxVisibleDays = Math.max(...rows.map((r) => r.daysSinceAth));
+    const maxDays = Math.max(6, maxVisibleDays);
     const useDaysLog = (activeExportDaysScaleMode || state.daysScaleMode) === "log";
     const daysLogMin = 0.1;
-    const daysLogMinPow = Math.log10(daysLogMin);
-    const daysLogMaxPow = Math.max(daysLogMinPow + 1e-9, Math.log10(Math.max(1, maxDays)));
+    const daysDomain = paddedTransformedDomain(
+      Math.max(0, minVisibleDays),
+      Math.max(0, maxVisibleDays),
+      (value) => {
+        if (!useDaysLog) return Math.max(0, Number(value) || 0);
+        const safeValue = Math.max(0, Number(value) || 0);
+        return Math.log10(safeValue <= 0 ? daysLogMin : Math.max(daysLogMin, safeValue));
+      },
+    );
+    const daysLogMinPow = daysDomain.min;
+    const daysLogMaxPow = daysDomain.max;
+    const minDays = useDaysLog ? (10 ** daysLogMinPow) : daysDomain.min;
+    const maxDaysDomain = useDaysLog ? (10 ** daysLogMaxPow) : Math.max(minDays + 1e-9, daysDomain.max);
+    const daysRange = Math.max(1e-9, maxDaysDomain - minDays);
     const xFor = (row) => pad.left + ((Date.parse(`${row.date}T00:00:00Z`) - startMs) / (endMs - startMs)) * plotW;
     const yFor = (value) => {
       const safeValue = Math.max(0, Number(value) || 0);
@@ -1230,7 +1338,7 @@
         const logValue = Math.log10(safeValue <= 0 ? daysLogMin : Math.max(daysLogMin, safeValue));
         return pad.top + (1 - ((logValue - daysLogMinPow) / (daysLogMaxPow - daysLogMinPow))) * plotH;
       }
-      return pad.top + (1 - (safeValue / maxDays)) * plotH;
+      return pad.top + (1 - ((safeValue - minDays) / daysRange)) * plotH;
     };
     const xForIso = (iso) => xFor({ date: iso });
 
@@ -1259,6 +1367,9 @@
     }
     drawLine(ctx, rows, xFor, yFor, "daysSinceAth", accent, 2.2);
     if (state.showAthMarkers) drawAthResetMarkers(ctx, rows, xFor, yFor, pad, plotW, plotH, green);
+    if (state.showAthMarkers) {
+      drawLeftEdgeAthMarker(ctx, offscreenLeftAth(rows), pad.top + plotH + 10, pad, plotW, bg, green, { labelMode: "date" });
+    }
 
     const athDate = latest.athDate;
     if (!isNotValued(latest.price) && athDate >= rows[0].date && athDate <= latest.date) {
@@ -1268,6 +1379,8 @@
       const resetPointY = pad.top + plotH;
       const triangleBottomY = resetPointY + 14;
       const daysLabelY = triangleBottomY + 3;
+      const labelOnRight = shouldPlaceCurrentAthLabelRight(ctx, safeX, latest.athPrice, athDate);
+      const daysLabelX = labelOnRight ? safeX + 8 : safeX - 8;
       ctx.beginPath();
       ctx.moveTo(safeX, resetPointY + 6);
       ctx.lineTo(safeX - 4, triangleBottomY);
@@ -1276,14 +1389,14 @@
       ctx.fill();
       ctx.save();
       ctx.font = ATH_LABEL_FONT;
-      ctx.textAlign = "right";
+      ctx.textAlign = labelOnRight ? "left" : "right";
       ctx.textBaseline = "bottom";
       ctx.lineJoin = "round";
       ctx.strokeStyle = bg;
       ctx.lineWidth = 5;
-      ctx.strokeText(fmtDate(athDate), safeX - 8, daysLabelY);
+      ctx.strokeText(fmtDate(athDate), daysLabelX, daysLabelY);
       ctx.fillStyle = green;
-      ctx.fillText(fmtDate(athDate), safeX - 8, daysLabelY);
+      ctx.fillText(fmtDate(athDate), daysLabelX, daysLabelY);
       ctx.restore();
     }
     if (state.showAthLabels) {
