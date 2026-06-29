@@ -134,7 +134,7 @@
       };
 
       const shouldSuppressTooltipForAnchor = (anchor) => {
-        if (isPeriodGridOverlayOpen()) return true;
+        if (isPeriodGridOverlayOpen() || isMinerTimelineOverlayOpen()) return true;
         if (!anchor) return true;
         if (!isMobileUiViewport()) return false;
         if (anchor instanceof Element && anchor.closest("#scriptBars .bar-stack-track")) {
@@ -232,6 +232,8 @@
       periodGridDataset: "bip110",
       periodGridSelectedPeriod: null,
       leaderboardWindow: "all",
+      minerTimelineWindow: "all",
+      minerTimelineMiners: "all",
       controls: {
         stripes: true,
         stripesExplicit: false,
@@ -295,6 +297,7 @@
     const periodGridTooltip = document.getElementById("periodGridTooltip");
     const periodGridBtn = document.getElementById("periodGridBtn");
     const leaderboardBtn = document.getElementById("leaderboardBtn");
+    const minerTimelineBtn = document.getElementById("minerTimelineBtn");
     const periodGridOverlay = document.getElementById("periodGridOverlay");
     const periodGridDialog = document.getElementById("periodGridDialog");
     const periodGridHeader = document.getElementById("periodGridHeader");
@@ -314,6 +317,14 @@
     const leaderboardRangeValue = document.getElementById("leaderboardRangeValue");
     const leaderboardWindowButtons = Array.from(document.querySelectorAll("[data-leaderboard-window]"));
     const leaderboardContent = document.getElementById("leaderboardContent");
+    const minerTimelineOverlay = document.getElementById("minerTimelineOverlay");
+    const minerTimelineDialog = document.getElementById("minerTimelineDialog");
+    const minerTimelineClose = document.getElementById("minerTimelineClose");
+    const minerTimelineContent = document.getElementById("minerTimelineContent");
+    const minerTimelineRangeValue = document.getElementById("minerTimelineRangeValue");
+    const minerTimelineSignalValue = document.getElementById("minerTimelineSignalValue");
+    const minerTimelineWindowButtons = Array.from(document.querySelectorAll("[data-miner-timeline-window]"));
+    const minerTimelineMinerButtons = Array.from(document.querySelectorAll("[data-miner-timeline-miners]"));
     const vizInfoBtn = document.getElementById("vizInfoBtn");
     const segwitResizeHandle = document.getElementById("segwitResizeHandle");
     const bip110ResizeHandle = document.getElementById("bip110ResizeHandle");
@@ -345,6 +356,7 @@
         vizInfoBtn,
         periodGridBtn,
         leaderboardBtn,
+        minerTimelineBtn,
         swapPanelsBtn,
         segwitFillHeightBtn,
         bip110FillHeightBtn,
@@ -409,12 +421,6 @@
       });
     }
 
-    function setPanelLoaderVisible(key, visible) {
-      setDashboardLoaderVisible(visible);
-      const loader = key === "segwit" ? segwitLoader : bip110Loader;
-      if (loader) loader.classList.add("hidden");
-    }
-
     function getPreferredDashboardTimeZone() {
       if (!DASHBOARD_TIME?.getPreferredTimeZone) return state.timeZone || "UTC";
       return DASHBOARD_TIME.getPreferredTimeZone();
@@ -434,13 +440,6 @@
         return [{ value: "UTC", label: "UTC" }];
       }
       return DASHBOARD_TIME.getTimeZoneOptions();
-    }
-
-    function formatGeneratedForSelectedTimeZone(value) {
-      if (!DASHBOARD_TIME?.formatUtcTimestamp) {
-        return formatGeneratedUtc(value);
-      }
-      return DASHBOARD_TIME.formatUtcTimestamp(value, state.timeZone || "UTC").text;
     }
 
     function formatGeneratedDateTimeForSelectedTimeZone(value) {
@@ -719,12 +718,6 @@
         }
       }
 
-      function syncAllSelectDropdowns() {
-        SELECT_DROPDOWN_CONFIGS.forEach(({ selectId, triggerId, menuId }) => {
-          syncSelectDropdown(selectId, triggerId, menuId);
-        });
-      }
-
       function bindSelectDropdowns() {
         SELECT_DROPDOWN_CONFIGS.forEach(({ selectId, dropdownId, triggerId, menuId }) => {
           const select = document.getElementById(selectId);
@@ -794,23 +787,6 @@
           closeAllSelectDropdowns();
         });
       }
-
-    function bindTimeZoneChipEvents() {
-      const select = document.getElementById("updatedTimeZoneSelect");
-      if (!select) return;
-
-      select.addEventListener("change", () => {
-        setPreferredDashboardTimeZone(select.value);
-        setDropdownOpen(
-          document.getElementById("updatedTimeZoneDropdown"),
-          document.getElementById("updatedTimeZoneDropdownMenu"),
-          false,
-        );
-        if (state.data) {
-          setStatus(state.data);
-        }
-      });
-    }
 
     function nextPaint() {
       return new Promise((resolve) => {
@@ -3946,16 +3922,19 @@
     let activePeriodGridTooltipContent = "";
 
     function showPeriodGridTooltip(content, clientX, clientY, options = {}) {
-      if (!periodGridTooltip || !isPeriodGridOverlayOpen()) return;
+      if (!periodGridTooltip || (!isPeriodGridOverlayOpen() && !isMinerTimelineOverlayOpen())) return;
       const normalizedContent = String(content || "");
       if (activePeriodGridTooltipContent !== normalizedContent) {
         periodGridTooltip.innerHTML = renderTooltipHtml(normalizedContent);
         activePeriodGridTooltipContent = normalizedContent;
       }
       periodGridTooltip.classList.toggle("is-compact", !!options.compact);
-      const contentRect = options.constrainToGrid === false ? null : periodGridContent?.getBoundingClientRect();
-      const dialogRect = periodGridDialog?.getBoundingClientRect();
-      const overlayRect = periodGridOverlay?.getBoundingClientRect();
+      const activeContent = isMinerTimelineOverlayOpen() ? minerTimelineContent : periodGridContent;
+      const activeDialog = isMinerTimelineOverlayOpen() ? minerTimelineDialog : periodGridDialog;
+      const activeOverlay = isMinerTimelineOverlayOpen() ? minerTimelineOverlay : periodGridOverlay;
+      const contentRect = options.constrainToGrid === false ? null : activeContent?.getBoundingClientRect();
+      const dialogRect = activeDialog?.getBoundingClientRect();
+      const overlayRect = activeOverlay?.getBoundingClientRect();
       const bounds = contentRect || dialogRect || overlayRect || {
         left: 0,
         top: 0,
@@ -4002,6 +3981,10 @@
 
     function isPeriodGridOverlayOpen() {
       return Boolean(periodGridOverlay?.classList.contains("show"));
+    }
+
+    function isMinerTimelineOverlayOpen() {
+      return Boolean(minerTimelineOverlay?.classList.contains("show"));
     }
 
     function notifyParentPeriodGridOverlayState(isOpen) {
@@ -4246,6 +4229,7 @@
     function openPeriodGridOverlay(periodOverride = null, datasetKey = "bip110") {
       if (!periodGridOverlay || !periodGridDialog) return;
       closeLeaderboardOverlay();
+      closeMinerTimelineOverlay();
       state.periodGridDataset = datasetKey === "segwit" ? "segwit" : "bip110";
       const hasExplicitOverride = periodOverride !== null && periodOverride !== undefined && periodOverride !== "";
       const requestedPeriod = hasExplicitOverride ? Number(periodOverride) : NaN;
@@ -4291,8 +4275,8 @@
       };
     }
 
-    function getLeaderboardWindowMs() {
-      switch (state.leaderboardWindow) {
+    function getWindowMs(windowName) {
+      switch (windowName) {
         case "past24h":
           return 24 * 60 * 60 * 1000;
         case "past7d":
@@ -4303,6 +4287,10 @@
         default:
           return 0;
       }
+    }
+
+    function getLeaderboardWindowMs() {
+      return getWindowMs(state.leaderboardWindow);
     }
 
     function getLeaderboardWindowLabel() {
@@ -4343,21 +4331,63 @@
       });
     }
 
-    function getLeaderboardPeriodFilter() {
+    function updateMinerTimelineWindowButtons() {
+      minerTimelineWindowButtons.forEach((button) => {
+        const active = button.dataset.minerTimelineWindow === state.minerTimelineWindow;
+        button.classList.toggle("is-active", active);
+        button.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+    }
+
+    function updateMinerTimelineMinerButtons() {
+      minerTimelineMinerButtons.forEach((button) => {
+        const active = button.dataset.minerTimelineMiners === state.minerTimelineMiners;
+        button.classList.toggle("is-active", active);
+        button.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+    }
+
+    function getPeriodFilterForWindow(windowName) {
       const currentPeriod = getCurrentBip110PeriodNumber();
       if (!Number.isFinite(currentPeriod)) return null;
-      if (state.leaderboardWindow === "current") {
+      if (windowName === "current") {
         return currentPeriod;
       }
-      if (state.leaderboardWindow === "last") {
+      if (windowName === "last") {
         return Math.max(1, currentPeriod - 1);
       }
       return null;
     }
 
+    function getLeaderboardPeriodFilter() {
+      return getPeriodFilterForWindow(state.leaderboardWindow);
+    }
+
     function getLeaderboardFilteredBlocks(blocks) {
       const windowStartMs = getLeaderboardWindowStartMs(blocks);
       const periodFilter = getLeaderboardPeriodFilter();
+      return blocks.filter((block) => {
+        if (periodFilter != null) return Number(block?.period) === periodFilter;
+        if (windowStartMs == null) return true;
+        const blockTimeMs = Number(block?.block_time || 0) * 1000;
+        return Number.isFinite(blockTimeMs) && blockTimeMs >= windowStartMs;
+      });
+    }
+
+    function getFilteredBlocksForWindow(blocks, windowName) {
+      const periodFilter = getPeriodFilterForWindow(windowName);
+      const windowMs = getWindowMs(windowName);
+      let windowStartMs = null;
+      if (windowMs) {
+        const maxBlockTimeMs = Math.max(
+          ...blocks
+            .map((block) => Number(block?.block_time || 0) * 1000)
+            .filter((timeMs) => Number.isFinite(timeMs) && timeMs > 0)
+        );
+        if (Number.isFinite(maxBlockTimeMs) && maxBlockTimeMs > 0) {
+          windowStartMs = maxBlockTimeMs - windowMs;
+        }
+      }
       return blocks.filter((block) => {
         if (periodFilter != null) return Number(block?.period) === periodFilter;
         if (windowStartMs == null) return true;
@@ -4511,6 +4541,477 @@
       leaderboardContent.appendChild(list);
     }
 
+    function getBip110TimelineMinerMap() {
+      const full = state.dynamicData?.bip110SignalMiners || state.data?.bip110SignalMiners;
+      if (full && typeof full === "object" && Object.keys(full).length > 0) {
+        return full;
+      }
+      return getBip110LeaderboardMinerMap();
+    }
+
+    function getTimelineIndexForBlock(block, firstPeriod, periodSize) {
+      const height = Number(block?.height);
+      const period = Number(block?.period);
+      if (!Number.isFinite(height) || !Number.isFinite(period)) return null;
+      const yInPeriod = Number.isFinite(Number(block?.y_in_period))
+        ? Number(block.y_in_period)
+        : (height % periodSize);
+      return ((period - firstPeriod) * periodSize) + clamp(yInPeriod, 0, periodSize - 1);
+    }
+
+    const MINER_TIMELINE_LEFT_PADDING_PX = 12;
+    const MINER_TIMELINE_RIGHT_PADDING_PX = 6;
+    const MINER_TIMELINE_ALL_RIGHT_PADDING_PX = 18;
+    const MINER_TIMELINE_STICKY_COLUMNS_WIDTH_PX = 220 + 72 + 72 + 72;
+
+    function getMinerTimelineRightPadding() {
+      return state.minerTimelineWindow === "all"
+        ? MINER_TIMELINE_ALL_RIGHT_PADDING_PX
+        : MINER_TIMELINE_RIGHT_PADDING_PX;
+    }
+
+    function getTimelineWindowMetricsForBlocks(blocks, firstPeriod, periodSize) {
+      const indexes = Array.isArray(blocks)
+        ? blocks
+          .map((block) => getTimelineIndexForBlock(block, firstPeriod, periodSize))
+          .filter((index) => Number.isFinite(index))
+        : [];
+      if (!indexes.length) {
+        return {
+          startIndex: 0,
+          endIndex: 0,
+          span: 0,
+        };
+      }
+      const startIndex = Math.min(...indexes);
+      const endIndex = Math.max(...indexes);
+      return {
+        startIndex,
+        endIndex,
+        span: Math.max(1, endIndex - startIndex + 1),
+      };
+    }
+
+    function getBip110TimelineBlocks() {
+      const allBlocks = state.data?.bip110Blocks || state.dynamicData?.bip110Blocks || [];
+      const blocks = getFilteredBlocksForWindow(allBlocks, state.minerTimelineWindow);
+      const periodSize = Number(state.data?.metadata?.chart?.period_size || 2016);
+      const loadedPeriods = blocks
+        .map((block) => Number(block?.period))
+        .filter((period) => Number.isFinite(period));
+      if (!loadedPeriods.length) {
+        return {
+          periodSize,
+          firstPeriod: null,
+          lastPeriod: null,
+          blocks: [],
+        };
+      }
+      const firstPeriod = Math.min(...loadedPeriods);
+      const lastPeriod = Math.max(...loadedPeriods);
+      const filtered = blocks
+        .filter((block) => {
+          const period = Number(block?.period);
+          const height = Number(block?.height);
+          return Number.isFinite(period)
+            && Number.isFinite(height)
+            && period >= firstPeriod
+            && period <= lastPeriod;
+        })
+        .sort((left, right) => Number(left.height) - Number(right.height));
+      return {
+        periodSize,
+        firstPeriod,
+        lastPeriod,
+        blocks: filtered,
+      };
+    }
+
+    function buildBip110MinerTimelineRows() {
+      const minerMap = getBip110TimelineMinerMap();
+      const { periodSize, firstPeriod, lastPeriod, blocks } = getBip110TimelineBlocks();
+      if (!Number.isFinite(firstPeriod) || !Number.isFinite(lastPeriod) || blocks.length === 0) {
+        return {
+          periodSize,
+          firstPeriod,
+          lastPeriod,
+          periodCount: 0,
+          totalBlocks: 0,
+          blockTotal: 0,
+          signalingTotal: 0,
+          rows: [],
+          rangeLabel: "-",
+        };
+      }
+
+      const minerRows = new Map();
+      const compactTimeline = getWindowMs(state.minerTimelineWindow) > 0;
+      const rawTimelineIndexes = blocks
+        .map((block) => getTimelineIndexForBlock(block, firstPeriod, periodSize))
+        .filter((index) => Number.isFinite(index));
+      const timelineOffset = compactTimeline && rawTimelineIndexes.length
+        ? Math.min(...rawTimelineIndexes)
+        : 0;
+      blocks.forEach((block) => {
+        const height = Number(block?.height);
+        if (!Number.isFinite(height)) return;
+        const rawMiner = block.miner || minerMap[String(height)] || null;
+        const miner = normalizeLeaderboardMiner(rawMiner);
+        const rawTimelineIndex = getTimelineIndexForBlock(block, firstPeriod, periodSize);
+        if (!Number.isFinite(rawTimelineIndex)) return;
+        const timelineIndex = Math.max(0, rawTimelineIndex - timelineOffset);
+        const row = minerRows.get(miner.key) || {
+          key: miner.key,
+          name: miner.name,
+          pool: miner.pool,
+          slug: miner.slug,
+          totalBlocks: 0,
+          signalingBlocks: 0,
+          nonSignalingBlocks: 0,
+          latestSignalHeight: -Infinity,
+          latestBlockHeight: -Infinity,
+          latestBlockIsSignaling: false,
+          latestBlock: null,
+          blocks: [],
+        };
+        row.totalBlocks += 1;
+        if (!row.slug && miner.slug) row.slug = miner.slug;
+        if (!row.pool && miner.pool) row.pool = miner.pool;
+        if (height > row.latestBlockHeight) {
+          row.latestBlockHeight = height;
+          row.latestBlockIsSignaling = Number(block?.is_signaling) === 1;
+          row.latestBlock = block;
+        }
+        if (Number(block?.is_signaling) === 1) {
+          row.signalingBlocks += 1;
+          row.latestSignalHeight = Math.max(row.latestSignalHeight, height);
+        } else {
+          row.nonSignalingBlocks += 1;
+        }
+        row.blocks.push({
+          block,
+          timelineIndex,
+        });
+        minerRows.set(miner.key, row);
+      });
+
+      const sortMinerTimelineRows = (left, right) => {
+        if (state.minerTimelineMiners !== "all") {
+          if (right.totalBlocks !== left.totalBlocks) return right.totalBlocks - left.totalBlocks;
+          if (right.latestBlockHeight !== left.latestBlockHeight) return right.latestBlockHeight - left.latestBlockHeight;
+          return String(left.name || "").localeCompare(String(right.name || ""));
+        }
+        if (left.latestBlockIsSignaling !== right.latestBlockIsSignaling) {
+          return right.latestBlockIsSignaling ? 1 : -1;
+        }
+        if (right.totalBlocks !== left.totalBlocks) return right.totalBlocks - left.totalBlocks;
+        if (right.latestBlockHeight !== left.latestBlockHeight) return right.latestBlockHeight - left.latestBlockHeight;
+        return String(left.name || "").localeCompare(String(right.name || ""));
+      };
+
+      const visibleRows = Array.from(minerRows.values()).filter((row) => {
+        if (state.minerTimelineMiners === "signaling") return row.latestBlockIsSignaling;
+        if (state.minerTimelineMiners === "nonsignaling") return !row.latestBlockIsSignaling;
+        return true;
+      }).sort(sortMinerTimelineRows);
+      const visibleBlocks = visibleRows.flatMap((row) => row.blocks.map((item) => item.block));
+      const heights = visibleBlocks.map((block) => Number(block.height)).filter((height) => Number.isFinite(height));
+      const signalingTotal = visibleBlocks.filter((block) => Number(block?.is_signaling) === 1).length;
+      const total = visibleBlocks.length;
+      const periodCount = lastPeriod - firstPeriod + 1;
+      const maxTimelineIndex = blocks.reduce((maxValue, block) => {
+        const rawTimelineIndex = getTimelineIndexForBlock(block, firstPeriod, periodSize);
+        if (!Number.isFinite(rawTimelineIndex)) return maxValue;
+        const timelineIndex = Math.max(0, rawTimelineIndex - timelineOffset);
+        return Math.max(maxValue, timelineIndex);
+      }, -1);
+      const allBlocks = state.data?.bip110Blocks || state.dynamicData?.bip110Blocks || [];
+      const latest14dBlocks = state.minerTimelineWindow === "all"
+        ? getFilteredBlocksForWindow(allBlocks, "past14d")
+        : [];
+      const visibleWindowMetrics = state.minerTimelineWindow === "all"
+        ? getTimelineWindowMetricsForBlocks(latest14dBlocks, firstPeriod, periodSize)
+        : { startIndex: 0, endIndex: 0, span: 0 };
+      const rangeStartIndex = state.minerTimelineWindow === "all"
+        ? visibleWindowMetrics.startIndex
+        : 0;
+      const rangeEndIndex = state.minerTimelineWindow === "all"
+        ? visibleWindowMetrics.endIndex
+        : Math.max(0, maxTimelineIndex);
+      const rangeStartPeriod = (() => {
+        if (state.minerTimelineWindow === "all" && latest14dBlocks.length) {
+          const firstWindowBlock = latest14dBlocks.reduce((earliest, block) => {
+            const blockIndex = getTimelineIndexForBlock(block, firstPeriod, periodSize);
+            const earliestIndex = getTimelineIndexForBlock(earliest, firstPeriod, periodSize);
+            if (!Number.isFinite(blockIndex)) return earliest;
+            if (!earliest || !Number.isFinite(earliestIndex)) return block;
+            return blockIndex < earliestIndex ? block : earliest;
+          }, null);
+          const period = Number(firstWindowBlock?.period);
+          return Number.isFinite(period) ? period : firstPeriod;
+        }
+        return firstPeriod;
+      })();
+      return {
+        periodSize,
+        firstPeriod,
+        lastPeriod,
+        periodCount,
+        totalBlocks: Math.max(1, maxTimelineIndex + 1),
+        visibleWindowBlocks: visibleWindowMetrics.span,
+        rangeStartIndex,
+        rangeEndIndex,
+        rangeStartPeriod,
+        timelineOffset,
+        compactTimeline,
+        blockTotal: total,
+        signalingTotal,
+        rows: visibleRows,
+        rangeLabel: heights.length
+          ? `${Math.min(...heights).toLocaleString()} - ${Math.max(...heights).toLocaleString()}`
+          : "-",
+      };
+    }
+
+    function getMinerTimelineCellSize(data) {
+      const totalBlocks = Number(data?.totalBlocks || 1);
+      const size = state.minerTimelineWindow === "all"
+        ? Math.max(1, Number(data?.visibleWindowBlocks || 0) || totalBlocks)
+        : Math.max(1, totalBlocks);
+      const dialogWidth = Number(minerTimelineDialog?.getBoundingClientRect?.().width || 0);
+      const contentWidth = Number(minerTimelineContent?.getBoundingClientRect?.().width || 0);
+      const fallbackWidth = Math.min(window.innerWidth * 0.92, 1180) - 24;
+      const availableWidth = Math.max(180, (contentWidth || dialogWidth || fallbackWidth) - MINER_TIMELINE_STICKY_COLUMNS_WIDTH_PX - 18);
+      const gutterWidth = MINER_TIMELINE_LEFT_PADDING_PX + getMinerTimelineRightPadding();
+      return Math.max(0.35, Math.max(80, availableWidth - gutterWidth) / Math.max(1, size));
+    }
+
+    function renderBip110MinerTimelineOverlay() {
+      if (!minerTimelineContent) return;
+      const data = buildBip110MinerTimelineRows();
+      const cellSize = getMinerTimelineCellSize(data);
+      minerTimelineContent.innerHTML = "";
+      minerTimelineContent.style.setProperty("--miner-timeline-total-blocks", String(Math.max(data.totalBlocks || 0, 1)));
+      minerTimelineContent.style.setProperty("--miner-timeline-cell-size", `${cellSize}px`);
+      minerTimelineContent.style.setProperty("--miner-timeline-left-padding", `${MINER_TIMELINE_LEFT_PADDING_PX}px`);
+      minerTimelineContent.style.setProperty("--miner-timeline-right-padding", `${getMinerTimelineRightPadding()}px`);
+      const timelineOffset = Number(data.timelineOffset || 0);
+      const rangeStartIndex = Number(data.rangeStartIndex || 0);
+      const rangeEndIndex = Number(data.rangeEndIndex || rangeStartIndex);
+      const effectiveRangeStartIndex = data.compactTimeline ? 0 : rangeStartIndex;
+      const effectiveRangeOffset = data.compactTimeline ? timelineOffset : rangeStartIndex;
+      const offsetInPeriod = data.periodSize
+        ? ((effectiveRangeOffset % data.periodSize) + data.periodSize) % data.periodSize
+        : 0;
+      minerTimelineContent.dataset.latestWindowLeft = String(rangeStartIndex * cellSize);
+      minerTimelineContent.dataset.latestWindowRight = String(
+        MINER_TIMELINE_LEFT_PADDING_PX
+          + ((Math.max(rangeStartIndex, rangeEndIndex) + 1) * cellSize)
+          + getMinerTimelineRightPadding()
+      );
+      minerTimelineContent.dataset.latestPeriodLeft = String(
+        data.periodSize && Number.isFinite(data.firstPeriod) && Number.isFinite(data.lastPeriod)
+          ? MINER_TIMELINE_LEFT_PADDING_PX + Math.max(0, (((data.lastPeriod - data.firstPeriod) * data.periodSize) - timelineOffset) * cellSize)
+          : 0
+      );
+      updateMinerTimelineWindowButtons();
+      updateMinerTimelineMinerButtons();
+      if (minerTimelineRangeValue) minerTimelineRangeValue.textContent = data.rangeLabel;
+      if (minerTimelineSignalValue) {
+        minerTimelineSignalValue.innerHTML = formatLeaderboardSignalingValue(data.signalingTotal, data.blockTotal);
+      }
+
+      if (!data.rows.length) {
+        const empty = document.createElement("div");
+        empty.className = "miner-timeline-empty";
+        empty.textContent = "No BIP-110 miner attribution is available for the signaling window.";
+        minerTimelineContent.appendChild(empty);
+        return;
+      }
+
+      const axis = document.createElement("div");
+      axis.className = "miner-timeline-axis";
+      const axisLabel = document.createElement("div");
+      axisLabel.className = "miner-timeline-axis-label";
+      axisLabel.textContent = "Miner";
+      const axisNon = document.createElement("div");
+      axisNon.className = "miner-timeline-axis-count is-nonsignaling";
+      axisNon.textContent = "Non";
+      const axisSig = document.createElement("div");
+      axisSig.className = "miner-timeline-axis-count is-signaling";
+      axisSig.textContent = "Sig";
+      const axisLatest = document.createElement("div");
+      axisLatest.className = "miner-timeline-axis-count is-latest";
+      axisLatest.textContent = "Latest";
+      const axisTrack = document.createElement("div");
+      axisTrack.className = "miner-timeline-axis-track";
+      const renderPeriodMarker = (period, markerIndex, options = {}) => {
+        const marker = document.createElement("div");
+        marker.className = "miner-timeline-period-marker";
+        if (options.rangeStart) marker.classList.add("is-range-start");
+        if (!options.divider) marker.classList.add("is-floating-label");
+        marker.style.left = `${MINER_TIMELINE_LEFT_PADDING_PX + (markerIndex * cellSize)}px`;
+        marker.textContent = `Period ${period.toLocaleString()}`;
+        axisTrack.appendChild(marker);
+      };
+      const periodDividers = [];
+      const shouldRenderRangeStartLabel = data.compactTimeline;
+      const suppressInitialRangeDivider = state.minerTimelineWindow === "current" || state.minerTimelineWindow === "last";
+      if (shouldRenderRangeStartLabel) {
+        const renderRangeDivider = offsetInPeriod === 0 && !suppressInitialRangeDivider;
+        if (renderRangeDivider) {
+          periodDividers.push(effectiveRangeStartIndex);
+        }
+        const nextBoundaryIndex = offsetInPeriod === 0
+          ? data.periodSize
+          : data.periodSize - offsetInPeriod;
+        const spaceToNextBoundary = Number.isFinite(nextBoundaryIndex) && nextBoundaryIndex > 0
+          ? Math.min(nextBoundaryIndex, data.totalBlocks) * cellSize
+          : data.totalBlocks * cellSize;
+        const startPeriod = Number(data.rangeStartPeriod || data.firstPeriod || 0);
+        const startPeriodLabel = `Period ${startPeriod.toLocaleString()}`;
+        const estimatedStartLabelWidth = (startPeriodLabel.length * 7) + 18;
+        if (spaceToNextBoundary >= estimatedStartLabelWidth) {
+          renderPeriodMarker(startPeriod, effectiveRangeStartIndex, {
+            rangeStart: true,
+            divider: renderRangeDivider,
+          });
+        }
+      }
+      for (let period = data.firstPeriod; period <= data.lastPeriod; period += 1) {
+        const markerIndex = ((period - data.firstPeriod) * data.periodSize) - timelineOffset;
+        if (markerIndex < 0 || markerIndex > data.totalBlocks) continue;
+        if (shouldRenderRangeStartLabel && markerIndex === effectiveRangeStartIndex) continue;
+        renderPeriodMarker(period, markerIndex, { divider: true });
+        periodDividers.push(markerIndex);
+      }
+      axis.appendChild(axisLabel);
+      axis.appendChild(axisNon);
+      axis.appendChild(axisSig);
+      axis.appendChild(axisLatest);
+      axis.appendChild(axisTrack);
+      minerTimelineContent.appendChild(axis);
+
+      const fragment = document.createDocumentFragment();
+      data.rows.forEach((row) => {
+        const rowEl = document.createElement("div");
+        rowEl.className = "miner-timeline-row";
+
+        const minerEl = document.createElement("div");
+        minerEl.className = "miner-timeline-miner";
+        const icon = document.createElement("img");
+        icon.className = "miner-timeline-miner-icon";
+        icon.alt = "";
+        icon.setAttribute("aria-hidden", "true");
+        setMinerIconSource(icon, row.slug);
+        const minerText = document.createElement("div");
+        minerText.className = "miner-timeline-miner-text";
+        const name = document.createElement("div");
+        name.className = "miner-timeline-miner-name";
+        name.textContent = row.name || "Unknown";
+        minerText.appendChild(name);
+        minerEl.appendChild(icon);
+        minerEl.appendChild(minerText);
+
+        const nonCount = document.createElement("div");
+        nonCount.className = "miner-timeline-count is-nonsignaling";
+        nonCount.textContent = row.nonSignalingBlocks > 0 ? row.nonSignalingBlocks.toLocaleString() : "";
+        const signalCount = document.createElement("div");
+        signalCount.className = "miner-timeline-count is-signaling";
+        signalCount.textContent = row.signalingBlocks > 0 ? row.signalingBlocks.toLocaleString() : "";
+        const latestCell = document.createElement("div");
+        latestCell.className = "miner-timeline-count is-latest";
+        if (row.latestBlock) {
+          const latestMark = document.createElement("button");
+          latestMark.type = "button";
+          latestMark.className = `miner-timeline-latest-block${Number(row.latestBlock?.is_signaling) === 1 ? " is-signaling" : ""}`;
+          latestMark.dataset.tooltip = formatStripeTooltip(row.latestBlock, "bip110");
+          latestMark.dataset.height = String(row.latestBlock.height);
+          latestMark.setAttribute("aria-label", `Latest block ${Number(row.latestBlock.height).toLocaleString()}`);
+          latestCell.appendChild(latestMark);
+        }
+
+        const track = document.createElement("div");
+        track.className = "miner-timeline-track";
+        periodDividers.forEach((markerIndex) => {
+          const divider = document.createElement("div");
+          divider.className = "miner-timeline-period-divider";
+          divider.style.left = `${MINER_TIMELINE_LEFT_PADDING_PX + (markerIndex * cellSize)}px`;
+          track.appendChild(divider);
+        });
+        row.blocks.forEach(({ block, timelineIndex }) => {
+          const mark = document.createElement("button");
+          mark.type = "button";
+          mark.className = `miner-timeline-block${Number(block?.is_signaling) === 1 ? " is-signaling" : ""}`;
+          mark.style.left = `${MINER_TIMELINE_LEFT_PADDING_PX + (timelineIndex * cellSize)}px`;
+          mark.dataset.tooltip = formatStripeTooltip(block, "bip110");
+          mark.dataset.height = String(block.height);
+          mark.setAttribute("aria-label", `Block ${Number(block.height).toLocaleString()}`);
+          track.appendChild(mark);
+        });
+
+        rowEl.appendChild(minerEl);
+        rowEl.appendChild(nonCount);
+        rowEl.appendChild(signalCount);
+        rowEl.appendChild(latestCell);
+        rowEl.appendChild(track);
+        fragment.appendChild(rowEl);
+      });
+      minerTimelineContent.appendChild(fragment);
+    }
+
+    function scrollMinerTimelineToLatestPeriod() {
+      if (!minerTimelineContent) return;
+      const latestLeft = state.minerTimelineWindow === "all"
+        ? Number(minerTimelineContent.dataset.latestWindowLeft || 0)
+        : Number(minerTimelineContent.dataset.latestPeriodLeft || 0);
+      const latestRight = Number(minerTimelineContent.dataset.latestWindowRight || 0);
+      const scrollBackoff = state.minerTimelineWindow === "all" ? 0 : 24;
+      requestAnimationFrame(() => {
+        if (state.minerTimelineWindow === "all" && latestRight > 0) {
+          const trackViewportWidth = Math.max(0, minerTimelineContent.clientWidth - MINER_TIMELINE_STICKY_COLUMNS_WIDTH_PX);
+          minerTimelineContent.scrollLeft = Math.max(0, latestRight - trackViewportWidth);
+          return;
+        }
+        minerTimelineContent.scrollLeft = Math.max(0, latestLeft - scrollBackoff);
+      });
+    }
+
+    function closeMinerTimelineOverlay() {
+      if (!minerTimelineOverlay) return;
+      minerTimelineOverlay.classList.remove("show");
+      minerTimelineOverlay.classList.remove("is-loading");
+      minerTimelineOverlay.setAttribute("aria-hidden", "true");
+      hidePeriodGridTooltip();
+    }
+
+    function waitForMinerTimelineFeedbackPaint() {
+      return new Promise((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(resolve);
+        });
+      });
+    }
+
+    async function openMinerTimelineOverlay() {
+      if (!minerTimelineOverlay || !minerTimelineDialog) return;
+      closePeriodGridOverlay();
+      closeLeaderboardOverlay();
+      state.pinnedTooltip = null;
+      hideTooltip();
+      hideCustomTooltip();
+      hidePeriodGridTooltip();
+      minerTimelineOverlay.classList.add("is-loading");
+      minerTimelineOverlay.classList.add("show");
+      minerTimelineOverlay.setAttribute("aria-hidden", "false");
+      await waitForMinerTimelineFeedbackPaint();
+      if (!minerTimelineOverlay.classList.contains("show")) return;
+      renderBip110MinerTimelineOverlay();
+      scrollMinerTimelineToLatestPeriod();
+      minerTimelineOverlay.classList.remove("is-loading");
+      minerTimelineDialog.focus({ preventScroll: true });
+    }
+
     function closeLeaderboardOverlay() {
       if (!leaderboardOverlay) return;
       leaderboardOverlay.classList.remove("show");
@@ -4520,6 +5021,7 @@
     function openLeaderboardOverlay() {
       if (!leaderboardOverlay || !leaderboardDialog) return;
       closePeriodGridOverlay();
+      closeMinerTimelineOverlay();
       hideTooltip();
       hideCustomTooltip();
       renderBip110LeaderboardOverlay();
@@ -4592,7 +5094,7 @@
     let activeTooltipContent = "";
 
     function showTooltip(content, clientX, clientY, boundsRect = null) {
-      if (isPeriodGridOverlayOpen()) {
+      if (isPeriodGridOverlayOpen() || isMinerTimelineOverlayOpen()) {
         tooltip.classList.remove("show");
         return;
       }
@@ -4878,6 +5380,9 @@
       if (leaderboardOverlay?.classList.contains("show")) {
         renderBip110LeaderboardOverlay();
       }
+      if (isMinerTimelineOverlayOpen()) {
+        renderBip110MinerTimelineOverlay();
+      }
     }
 
     function hasVisibleSelectedPanel(keys) {
@@ -4912,6 +5417,7 @@
       setCustomTooltip(resetDashboardButton, state.preResetStateSnapshot ? "Undo the last restore defaults action" : "Reset dashboard to defaults");
       setCustomTooltip(periodGridBtn, "Show current 2,016-block period grid");
       setCustomTooltip(leaderboardBtn, "Show signaling miner leaderboard");
+      setCustomTooltip(minerTimelineBtn, "Show miner signaling timeline");
 
       stripes.addEventListener("change", () => {
         state.controls.stripes = stripes.checked;
@@ -4990,11 +5496,34 @@
         openLeaderboardOverlay();
       });
 
+      minerTimelineBtn?.addEventListener("click", () => {
+        if (!state.data) return;
+        openMinerTimelineOverlay();
+      });
+
       leaderboardWindowButtons.forEach((button) => {
         button.addEventListener("click", () => {
           const value = String(button.dataset.leaderboardWindow || "all");
           state.leaderboardWindow = ["all", "last", "current", "past14d", "past7d", "past24h"].includes(value) ? value : "all";
           renderBip110LeaderboardOverlay();
+        });
+      });
+
+      minerTimelineWindowButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const value = String(button.dataset.minerTimelineWindow || "all");
+          state.minerTimelineWindow = ["all", "last", "current", "past14d", "past7d", "past24h"].includes(value) ? value : "all";
+          renderBip110MinerTimelineOverlay();
+          scrollMinerTimelineToLatestPeriod();
+        });
+      });
+
+      minerTimelineMinerButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const value = String(button.dataset.minerTimelineMiners || "all");
+          state.minerTimelineMiners = ["all", "nonsignaling", "signaling"].includes(value) ? value : "all";
+          renderBip110MinerTimelineOverlay();
+          scrollMinerTimelineToLatestPeriod();
         });
       });
 
@@ -5121,6 +5650,65 @@
 
       leaderboardClose?.addEventListener("click", () => {
         closeLeaderboardOverlay();
+      });
+
+      minerTimelineOverlay?.addEventListener("mousemove", (event) => {
+        const mark = event.target instanceof Element
+          ? event.target.closest(".miner-timeline-block, .miner-timeline-latest-block")
+          : null;
+        if (!mark) {
+          hidePeriodGridTooltip();
+          return;
+        }
+        const content = String(mark.getAttribute("data-tooltip") || "").trim();
+        if (!content) {
+          hidePeriodGridTooltip();
+          return;
+        }
+        showPeriodGridTooltip(content, event.clientX, event.clientY, { constrainToGrid: false });
+      });
+
+      minerTimelineOverlay?.addEventListener("mouseleave", () => {
+        hidePeriodGridTooltip();
+      });
+
+      minerTimelineOverlay?.addEventListener("click", (event) => {
+        const mark = event.target instanceof Element
+          ? event.target.closest(".miner-timeline-block, .miner-timeline-latest-block")
+          : null;
+        if (mark) {
+          const height = Number(mark.getAttribute("data-height"));
+          if (Number.isFinite(height)) {
+            window.open(`https://mempool.space/block/${height}`, "_blank", "noopener,noreferrer");
+          }
+          return;
+        }
+
+        if (event.target === minerTimelineOverlay) {
+          closeMinerTimelineOverlay();
+        }
+      });
+
+      minerTimelineOverlay?.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          closeMinerTimelineOverlay();
+          return;
+        }
+
+        if (event.key !== "Enter" && event.key !== " ") return;
+        const mark = event.target instanceof Element
+          ? event.target.closest(".miner-timeline-block, .miner-timeline-latest-block")
+          : null;
+        if (!mark) return;
+        event.preventDefault();
+        const height = Number(mark.getAttribute("data-height"));
+        if (Number.isFinite(height)) {
+          window.open(`https://mempool.space/block/${height}`, "_blank", "noopener,noreferrer");
+        }
+      });
+
+      minerTimelineClose?.addEventListener("click", () => {
+        closeMinerTimelineOverlay();
       });
 
       resetDashboardButton?.addEventListener("click", () => {

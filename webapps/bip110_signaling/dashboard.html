@@ -903,7 +903,8 @@
     }
 
     .period-grid-btn,
-    .leaderboard-btn {
+    .leaderboard-btn,
+    .miner-timeline-btn {
       width: 24px;
       height: 24px;
       padding: 0;
@@ -918,21 +919,29 @@
     }
 
     .period-grid-btn:hover,
-    .leaderboard-btn:hover {
+    .leaderboard-btn:hover,
+    .miner-timeline-btn:hover {
       color: var(--signal);
       border-color: color-mix(in srgb, var(--signal) 55%, var(--line));
       background: var(--surface);
     }
 
     .period-grid-btn svg,
-    .leaderboard-btn svg {
+    .leaderboard-btn svg,
+    .miner-timeline-btn svg {
       width: 14px;
       height: 14px;
       display: block;
     }
 
+    .miner-timeline-btn svg {
+      width: 19px;
+      height: 19px;
+    }
+
     .period-grid-overlay,
-    .leaderboard-overlay {
+    .leaderboard-overlay,
+    .miner-timeline-overlay {
       position: fixed;
       inset: 0;
       z-index: 120;
@@ -948,12 +957,14 @@
     }
 
     .period-grid-overlay.show,
-    .leaderboard-overlay.show {
+    .leaderboard-overlay.show,
+    .miner-timeline-overlay.show {
       display: flex;
     }
 
     .period-grid-dialog,
-    .leaderboard-dialog {
+    .leaderboard-dialog,
+    .miner-timeline-dialog {
       width: max-content;
       max-height: 90vh;
       max-width: min(92vw, 1220px);
@@ -972,15 +983,45 @@
       flex-direction: column;
     }
 
+    .miner-timeline-dialog {
+      width: min(96vw, 1600px);
+      max-width: min(96vw, 1600px);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .miner-timeline-overlay.is-loading .miner-timeline-dialog {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .miner-timeline-opening-loader {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .miner-timeline-overlay.is-loading .miner-timeline-opening-loader {
+      display: flex;
+    }
+
     .period-grid-dialog:focus,
     .period-grid-dialog:focus-visible,
     .leaderboard-dialog:focus,
-    .leaderboard-dialog:focus-visible {
+    .leaderboard-dialog:focus-visible,
+    .miner-timeline-dialog:focus,
+    .miner-timeline-dialog:focus-visible {
       outline: none;
     }
 
     .period-grid-header,
-    .leaderboard-header {
+    .leaderboard-header,
+    .miner-timeline-header {
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
@@ -995,7 +1036,8 @@
     }
 
     .period-grid-kpis,
-    .leaderboard-kpis {
+    .leaderboard-kpis,
+    .miner-timeline-kpis {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
@@ -1025,7 +1067,8 @@
     }
 
     .period-grid-close,
-    .leaderboard-close {
+    .leaderboard-close,
+    .miner-timeline-close {
       width: 30px;
       height: 30px;
       border-radius: 50%;
@@ -1044,13 +1087,15 @@
     }
 
     .period-grid-close:hover,
-    .leaderboard-close:hover {
+    .leaderboard-close:hover,
+    .miner-timeline-close:hover {
       background: var(--surface-soft);
       color: var(--ink);
     }
 
     .period-grid-kpis .chip,
-    .leaderboard-kpis .chip {
+    .leaderboard-kpis .chip,
+    .miner-timeline-kpis .chip {
       font-size: 0.76rem;
       max-width: 100%;
       overflow: hidden;
@@ -1059,7 +1104,8 @@
     }
 
     .period-grid-kpis .chip-value,
-    .leaderboard-kpis .chip-value {
+    .leaderboard-kpis .chip-value,
+    .miner-timeline-kpis .chip-value {
       color: var(--fg);
     }
 
@@ -1234,7 +1280,8 @@
     }
 
     .period-grid-close:focus-visible,
-    .leaderboard-close:focus-visible {
+    .leaderboard-close:focus-visible,
+    .miner-timeline-close:focus-visible {
       outline: none;
     }
 
@@ -1242,6 +1289,273 @@
       overflow: auto;
       max-height: min(68vh, 620px);
       padding: 2px;
+    }
+
+    .miner-timeline-kpis {
+      margin: 0;
+    }
+
+    .miner-timeline-dialog .leaderboard-header {
+      justify-content: flex-start;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+
+    .miner-timeline-dialog .leaderboard-window-controls {
+      flex: 0 0 auto;
+      flex-direction: row;
+      align-items: center;
+      gap: 6px;
+      min-height: 28px;
+    }
+
+    .miner-timeline-dialog .leaderboard-window-label {
+      margin: 0;
+    }
+
+    .miner-timeline-dialog .miner-timeline-kpis {
+      display: flex;
+      flex: 0 1 auto;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .miner-timeline-content {
+      --miner-timeline-cell-size: 0.45px;
+      --miner-timeline-row-height: 28px;
+      --miner-timeline-left-padding: 12px;
+      --miner-timeline-right-padding: 6px;
+      overflow: auto;
+      max-height: min(70vh, 680px);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--surface);
+      overscroll-behavior: contain;
+      scrollbar-width: thin;
+    }
+
+    .miner-timeline-empty {
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.82rem;
+      padding: 18px;
+    }
+
+    .miner-timeline-axis,
+    .miner-timeline-row {
+      display: grid;
+      grid-template-columns: minmax(190px, 220px) 72px 72px 72px max-content;
+      min-width: max-content;
+    }
+
+    .miner-timeline-axis {
+      position: sticky;
+      top: 0;
+      z-index: 4;
+      background: var(--card-bg);
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.7rem;
+      font-weight: 700;
+    }
+
+    .miner-timeline-axis-label,
+    .miner-timeline-axis-count,
+    .miner-timeline-miner,
+    .miner-timeline-count {
+      position: sticky;
+      left: 0;
+      z-index: 3;
+      background: var(--card-bg);
+      border-right: 1px solid var(--line);
+    }
+
+    .miner-timeline-axis-count,
+    .miner-timeline-count {
+      justify-content: flex-end;
+      text-align: right;
+    }
+
+    .miner-timeline-axis-count.is-nonsignaling,
+    .miner-timeline-count.is-nonsignaling {
+      left: 220px;
+    }
+
+    .miner-timeline-axis-count.is-signaling,
+    .miner-timeline-count.is-signaling {
+      left: 292px;
+    }
+
+    .miner-timeline-axis-count.is-latest,
+    .miner-timeline-count.is-latest {
+      left: 364px;
+    }
+
+    .miner-timeline-axis-count.is-latest,
+    .miner-timeline-count.is-latest {
+      justify-content: center;
+      text-align: center;
+    }
+
+    .miner-timeline-axis-label,
+    .miner-timeline-axis-count {
+      padding: 7px 10px;
+    }
+
+    .miner-timeline-axis-track,
+    .miner-timeline-track {
+      position: relative;
+      width: calc(var(--miner-timeline-left-padding) + (var(--miner-timeline-total-blocks, 2016) * var(--miner-timeline-cell-size)) + var(--miner-timeline-right-padding));
+      min-width: calc(var(--miner-timeline-left-padding) + (var(--miner-timeline-total-blocks, 2016) * var(--miner-timeline-cell-size)) + var(--miner-timeline-right-padding));
+    }
+
+    .miner-timeline-axis-track {
+      height: 30px;
+    }
+
+    .miner-timeline-period-marker {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      border-left: 1px solid var(--line);
+      color: var(--muted);
+      padding-left: 10px;
+      display: flex;
+      align-items: center;
+      white-space: nowrap;
+    }
+
+    .miner-timeline-period-marker.is-floating-label {
+      border-left: 0;
+    }
+
+    .miner-timeline-period-divider {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 1px;
+      background: color-mix(in srgb, var(--line) 75%, transparent);
+      pointer-events: none;
+    }
+
+    .miner-timeline-row {
+      min-height: var(--miner-timeline-row-height);
+      border-bottom: 1px solid color-mix(in srgb, var(--line) 62%, transparent);
+    }
+
+    .miner-timeline-row:last-child {
+      border-bottom: 0;
+    }
+
+    .miner-timeline-miner {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 10px;
+      min-height: var(--miner-timeline-row-height);
+      color: var(--fg);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.76rem;
+      line-height: 1.15;
+    }
+
+    .miner-timeline-count {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      padding: 4px 10px;
+      min-height: var(--miner-timeline-row-height);
+      color: var(--fg);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.74rem;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .miner-timeline-count.is-nonsignaling {
+      color: var(--muted);
+    }
+
+    .miner-timeline-count.is-signaling {
+      color: var(--signal);
+    }
+
+    .miner-timeline-miner-icon {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      flex: 0 0 18px;
+      object-fit: contain;
+      background: var(--surface-soft);
+    }
+
+    .miner-timeline-miner-text {
+      min-width: 0;
+    }
+
+    .miner-timeline-miner-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 700;
+    }
+
+    .miner-timeline-miner-meta {
+      color: var(--muted);
+      font-size: 0.66rem;
+      margin-top: 1px;
+      white-space: nowrap;
+    }
+
+    .miner-timeline-track {
+      height: var(--miner-timeline-row-height);
+    }
+
+    .miner-timeline-block {
+      position: absolute;
+      top: 50%;
+      width: 5px;
+      height: 5px;
+      border: 0;
+      border-radius: 0;
+      padding: 0;
+      margin: 0;
+      background: var(--nonsignal);
+      transform: translate(-50%, -50%);
+      cursor: pointer;
+    }
+
+    .miner-timeline-block.is-signaling {
+      background: var(--signal);
+    }
+
+    .miner-timeline-block:focus-visible {
+      outline: 1px solid var(--fg);
+      outline-offset: 2px;
+    }
+
+    .miner-timeline-latest-block {
+      width: 5px;
+      height: 5px;
+      border: 0;
+      border-radius: 0;
+      padding: 0;
+      margin: 0;
+      background: var(--nonsignal);
+      cursor: pointer;
+    }
+
+    .miner-timeline-latest-block.is-signaling {
+      background: var(--signal);
+    }
+
+    .miner-timeline-latest-block:focus-visible {
+      outline: 1px solid var(--fg);
+      outline-offset: 2px;
     }
 
     .leaderboard-window-controls {
@@ -1300,6 +1614,21 @@
       align-items: center;
       justify-content: center;
       transition: border-color 120ms ease, background 120ms ease, color 120ms ease, box-shadow 120ms ease;
+    }
+
+    .leaderboard-window-btn-label-short {
+      display: none;
+    }
+
+    .leaderboard-dialog .leaderboard-window-controls {
+      flex-direction: row;
+      align-items: center;
+      gap: 6px;
+      min-height: 28px;
+    }
+
+    .leaderboard-dialog .leaderboard-window-label {
+      margin: 0;
     }
 
     .leaderboard-window-btn:first-child {
@@ -1632,6 +1961,97 @@
         -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8'/%3E%3Cpath d='M3 3v5h5'/%3E%3C/svg%3E");
         mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8'/%3E%3Cpath d='M3 3v5h5'/%3E%3C/svg%3E");
       }
+
+      .miner-timeline-dialog {
+        width: min(92vw, 720px);
+        max-width: min(92vw, 720px);
+        max-height: calc(
+          100svh
+          - var(--modal-controls-clearance)
+          - clamp(16px, 3vw, 34px)
+          - env(safe-area-inset-bottom, 0px)
+          - var(--dashboard-mobile-bottom-clearance, 56px)
+        );
+      }
+
+      .miner-timeline-overlay {
+        padding-bottom: calc(
+          clamp(16px, 3vw, 34px)
+          + env(safe-area-inset-bottom, 0px)
+          + var(--dashboard-mobile-bottom-clearance, 56px)
+        );
+      }
+
+      .miner-timeline-dialog .leaderboard-header {
+        flex-direction: row;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .miner-timeline-dialog .leaderboard-window-controls {
+        width: auto;
+        max-width: 100%;
+        flex-wrap: wrap;
+      }
+
+      .miner-timeline-dialog .leaderboard-window-button-panel {
+        display: flex;
+        flex-wrap: wrap;
+        width: 100%;
+      }
+
+      .miner-timeline-dialog .leaderboard-window-btn {
+        flex: 0 0 auto;
+        min-width: 0;
+      }
+
+      .miner-timeline-dialog .miner-timeline-kpis {
+        width: 100%;
+      }
+
+      .leaderboard-window-btn-label-full {
+        display: none;
+      }
+
+      .leaderboard-window-btn-label-short {
+        display: inline;
+      }
+
+      .leaderboard-dialog .leaderboard-window-controls {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0;
+      }
+
+      .leaderboard-dialog .leaderboard-window-label {
+        margin: 0 0 6px;
+      }
+
+      .miner-timeline-axis,
+      .miner-timeline-row {
+        grid-template-columns: 220px 72px 72px 72px;
+      }
+
+      .miner-timeline-axis-track,
+      .miner-timeline-track {
+        display: none;
+      }
+
+      .miner-timeline-axis-count,
+      .miner-timeline-count {
+        position: static;
+      }
+
+      .miner-timeline-axis-label,
+      .miner-timeline-miner {
+        position: sticky;
+        left: 0;
+        z-index: 5;
+      }
+
+      .miner-timeline-axis-label {
+        z-index: 6;
+      }
     }
   </style>
 </head>
@@ -1657,6 +2077,12 @@
               <path d="M7 4h10v5a5 5 0 0 1-10 0V4z"></path>
               <path d="M7 6H4a2 2 0 0 0 2 5h1"></path>
               <path d="M17 6h3a2 2 0 0 1-2 5h-1"></path>
+            </svg>
+          </button>
+          <button type="button" class="miner-timeline-btn" id="minerTimelineBtn" aria-label="Show BIP-110 miner signaling timeline" data-tooltip="Show miner signaling timeline">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4.2 6.9c4.4 0 5.7 4.5 9.6 7.2 1.7 1.2 3.5 3 6 3" stroke="var(--nonsignal)" stroke-width="2.25"></path>
+              <path d="M4.2 17.1c4.4 0 5.7-4.5 9.6-7.2 1.7-1.2 3.5-3 6-3" stroke="var(--signal)" stroke-width="2.25"></path>
             </svg>
           </button>
           <div class="info-popover" id="vizInfoPopover" role="tooltip">
@@ -1798,9 +2224,9 @@
             <button type="button" class="leaderboard-window-btn is-active" data-leaderboard-window="all" aria-pressed="true">All</button>
             <button type="button" class="leaderboard-window-btn" data-leaderboard-window="current" aria-pressed="false">Current</button>
             <button type="button" class="leaderboard-window-btn" data-leaderboard-window="last" aria-pressed="false">Last</button>
-            <button type="button" class="leaderboard-window-btn" data-leaderboard-window="past14d" aria-pressed="false">Past 14D</button>
-            <button type="button" class="leaderboard-window-btn" data-leaderboard-window="past7d" aria-pressed="false">Past 7D</button>
-            <button type="button" class="leaderboard-window-btn" data-leaderboard-window="past24h" aria-pressed="false">Past 24H</button>
+            <button type="button" class="leaderboard-window-btn" data-leaderboard-window="past14d" aria-pressed="false"><span class="leaderboard-window-btn-label-full">Past 14D</span><span class="leaderboard-window-btn-label-short">14D</span></button>
+            <button type="button" class="leaderboard-window-btn" data-leaderboard-window="past7d" aria-pressed="false"><span class="leaderboard-window-btn-label-full">Past 7D</span><span class="leaderboard-window-btn-label-short">7D</span></button>
+            <button type="button" class="leaderboard-window-btn" data-leaderboard-window="past24h" aria-pressed="false"><span class="leaderboard-window-btn-label-full">Past 24H</span><span class="leaderboard-window-btn-label-short">24H</span></button>
           </div>
         </div>
       </div>
@@ -1809,6 +2235,47 @@
         <div class="chip leaderboard-kpi"><span class="chip-label">Signaling</span> <span class="chip-value" id="leaderboardTotalValue">-</span></div>
       </div>
       <div class="leaderboard-content" id="leaderboardContent"></div>
+    </div>
+  </div>
+  <div class="miner-timeline-overlay" id="minerTimelineOverlay" aria-hidden="true">
+    <div class="miner-timeline-opening-loader dashboard-ring-loader" id="minerTimelineOpeningLoader" aria-live="polite" aria-label="Loading miner signaling timeline">
+      <span class="chart-loader-ring" aria-hidden="true"></span>
+    </div>
+    <div class="miner-timeline-dialog" id="minerTimelineDialog" role="dialog" aria-modal="true" aria-label="BIP-110 miner signaling timeline" tabindex="-1">
+      <div class="leaderboard-title-row">
+        <h2 class="leaderboard-title">Miner Signaling Timeline</h2>
+        <button id="minerTimelineClose" type="button" class="miner-timeline-close" aria-label="Close miner signaling timeline">&times;</button>
+      </div>
+      <div class="leaderboard-header">
+        <div class="leaderboard-window-controls" role="group" aria-label="Miner timeline time window">
+          <span class="leaderboard-window-label">Period</span>
+          <div class="leaderboard-window-button-panel">
+            <button type="button" class="leaderboard-window-btn is-active" data-miner-timeline-window="all" aria-pressed="true">All</button>
+            <button type="button" class="leaderboard-window-btn" data-miner-timeline-window="current" aria-pressed="false">Current</button>
+            <button type="button" class="leaderboard-window-btn" data-miner-timeline-window="last" aria-pressed="false">Last</button>
+            <button type="button" class="leaderboard-window-btn" data-miner-timeline-window="past14d" aria-pressed="false">14D</button>
+            <button type="button" class="leaderboard-window-btn" data-miner-timeline-window="past7d" aria-pressed="false">7D</button>
+            <button type="button" class="leaderboard-window-btn" data-miner-timeline-window="past24h" aria-pressed="false">24H</button>
+          </div>
+        </div>
+        <div class="leaderboard-window-controls" role="group" aria-label="Miner timeline miner filter">
+          <span class="leaderboard-window-label">Miners</span>
+          <div class="leaderboard-window-button-panel">
+            <button type="button" class="leaderboard-window-btn is-active" data-miner-timeline-miners="all" aria-pressed="true">All</button>
+            <button type="button" class="leaderboard-window-btn" data-miner-timeline-miners="signaling" aria-pressed="false">Signaling</button>
+            <button type="button" class="leaderboard-window-btn" data-miner-timeline-miners="nonsignaling" aria-pressed="false">Non-signaling</button>
+          </div>
+        </div>
+        <div class="miner-timeline-kpis">
+          <div class="chip leaderboard-kpi"><span class="chip-label">Height Range</span> <span class="chip-value" id="minerTimelineRangeValue">-</span></div>
+          <div class="chip leaderboard-kpi"><span class="chip-label">Signaling</span> <span class="chip-value" id="minerTimelineSignalValue">-</span></div>
+        </div>
+      </div>
+      <div class="period-grid-legend" aria-label="Block signaling legend">
+        <span class="period-grid-legend-item"><span class="period-grid-legend-swatch is-signaling" aria-hidden="true"></span>Signaling</span>
+        <span class="period-grid-legend-item"><span class="period-grid-legend-swatch" aria-hidden="true"></span>Non-signaling</span>
+      </div>
+      <div class="miner-timeline-content" id="minerTimelineContent" aria-label="BIP-110 miner signaling timeline"></div>
     </div>
   </div>
   <div class="tooltip" id="periodGridTooltip"></div>

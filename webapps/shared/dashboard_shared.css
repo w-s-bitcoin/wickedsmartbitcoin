@@ -5,6 +5,7 @@
   --dashboard-page-bg: #000000;
   --dashboard-panel-bg: #000000;
   --dashboard-chart-bg: var(--dashboard-panel-bg);
+  --dashboard-mobile-bottom-clearance: 56px;
   --bg: var(--dashboard-page-bg);
   --panel: var(--dashboard-panel-bg);
   --chart-bg: var(--dashboard-chart-bg);
@@ -58,6 +59,7 @@ body {
   overflow-y: auto;
   overflow-x: hidden;
   align-content: start;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: var(--wrap-grid-template-rows, none);
 }
 
@@ -79,14 +81,21 @@ body {
   position: relative;
 }
 
+html.embedded-in-modal,
+html.embedded-in-modal body {
+  overscroll-behavior-x: contain;
+  touch-action: pan-y;
+}
+
 body.embedded-in-modal .wrap,
 html.embedded-in-modal body .wrap {
   padding-top: calc(var(--wrap-pad) + var(--modal-controls-clearance));
 }
 
 @media (max-width: 860px) {
-  .wrap {
-    padding-bottom: calc(var(--wrap-pad) + env(safe-area-inset-bottom, 0px) + 56px);
+  .wrap,
+  .app-shell {
+    padding-bottom: calc(var(--wrap-pad) + env(safe-area-inset-bottom, 0px) + var(--dashboard-mobile-bottom-clearance)) !important;
   }
 }
 
@@ -236,6 +245,61 @@ h1 {
   line-height: 1 !important;
 }
 
+@media (max-width: 900px) {
+  .topbar .title-row {
+    padding-right: 72px !important;
+  }
+
+  .topbar .title-actions {
+    position: absolute !important;
+    inset: auto !important;
+    right: clamp(8px, 2vw, 12px) !important;
+    top: clamp(8px, 2vw, 12px) !important;
+    gap: 6px !important;
+    flex: 0 0 auto !important;
+    margin-left: auto !important;
+  }
+
+  .topbar .title-actions .copy-link-btn.copy-link-btn,
+  .topbar .title-actions .reset-dashboard-btn.reset-dashboard-btn {
+    width: 30px !important;
+    min-width: 30px !important;
+    max-width: 30px !important;
+    height: 30px !important;
+    min-height: 30px !important;
+    padding: 0 !important;
+    gap: 0 !important;
+    overflow: hidden !important;
+    border-radius: 999px !important;
+  }
+
+  .topbar .title-actions .copy-link-btn.copy-link-btn::before,
+  .topbar .title-actions .reset-dashboard-btn.reset-dashboard-btn::before {
+    content: none !important;
+    display: none !important;
+  }
+
+  .topbar .title-actions .copy-link-btn.copy-link-btn .btn-label,
+  .topbar .title-actions .reset-dashboard-btn.reset-dashboard-btn .btn-label {
+    display: none !important;
+  }
+
+  .topbar .title-actions .copy-link-btn.copy-link-btn .btn-icon,
+  .topbar .title-actions .reset-dashboard-btn.reset-dashboard-btn .btn-icon {
+    display: inline-flex !important;
+    width: 15px !important;
+    height: 15px !important;
+    flex: 0 0 15px !important;
+    margin: 0 !important;
+  }
+
+  .topbar .title-actions .copy-link-btn.copy-link-btn .btn-icon svg,
+  .topbar .title-actions .reset-dashboard-btn.reset-dashboard-btn .btn-icon svg {
+    width: 15px !important;
+    height: 15px !important;
+  }
+}
+
 .info-wrap {
   position: relative;
   display: inline-flex;
@@ -266,6 +330,45 @@ h1 {
   color: var(--dashboard-accent);
   border-color: var(--dashboard-accent);
   outline: none;
+}
+
+.filters-menu-wrap,
+.issuance-settings-menu-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.filters-btn,
+.issuance-settings-btn {
+  width: 28px !important;
+  min-width: 28px !important;
+  max-width: 28px !important;
+  height: 28px !important;
+  min-height: 28px !important;
+  max-height: 28px !important;
+  color: var(--muted);
+  padding: 0 !important;
+  flex: 0 0 28px !important;
+}
+
+.filters-btn svg,
+.issuance-settings-btn svg {
+  width: 15px !important;
+  height: 15px !important;
+  flex: 0 0 15px !important;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.filters-btn.is-open,
+.issuance-settings-btn.is-open {
+  color: var(--dashboard-accent, var(--accent));
+  border-color: var(--dashboard-accent, var(--accent));
 }
 
 .info-popover {
@@ -317,6 +420,28 @@ h1 {
   flex-wrap: wrap;
   align-items: center;
   border-top: 1px solid var(--panel-border);
+}
+
+.topbar:has(.filters-panel.open),
+.topbar:has(.issuance-settings-panel.open),
+.date-range-panel:has(.date-range-settings-menu.open),
+.date-range-panel:has(.date-range-download-settings-menu.open) {
+  z-index: 30000 !important;
+  overflow: visible !important;
+}
+
+.filters-menu-wrap:has(.filters-panel.open),
+.issuance-settings-menu-wrap:has(.issuance-settings-panel.open),
+.date-range-download-wrap:has(.date-range-settings-menu.open),
+.date-range-download-settings:has(.date-range-download-settings-menu.open) {
+  z-index: 30010 !important;
+}
+
+.filters-panel,
+.issuance-settings-panel,
+.date-range-settings-menu,
+.date-range-download-settings-menu {
+  z-index: 30020 !important;
 }
 
 .topbar.ui-locked .toggle,
@@ -388,6 +513,75 @@ h1 {
 .controls {
   max-width: 100%;
   min-width: 0;
+}
+
+.date-range-panel,
+.date-range-panel > *,
+.date-range-header,
+.date-range-play-row,
+.date-range-slider-wrap {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.date-range-header,
+.date-range-slider-wrap {
+  width: 100%;
+}
+
+.date-range-play-row {
+  width: auto;
+}
+
+.date-range-playback-button-group,
+.date-range-playback-controls {
+  display: inline-flex !important;
+  align-items: stretch;
+  flex: 0 0 auto !important;
+  width: max-content !important;
+  max-width: 100%;
+  min-width: max-content !important;
+  gap: 0;
+  white-space: nowrap !important;
+}
+
+.date-range-playback-button-group > .date-range-playback-btn,
+.date-range-playback-controls > .date-range-playback-btn,
+.date-range-playback-button-group > .date-range-download-wrap,
+.date-range-playback-controls > .date-range-download-wrap,
+.date-range-playback-controls > .date-range-download-settings,
+.date-range-playback-controls > .date-range-fps-dropdown {
+  flex: 0 0 auto !important;
+}
+
+.date-range-play-row .date-range-scale-control {
+  flex: 0 0 auto !important;
+  min-width: max-content !important;
+  white-space: nowrap !important;
+}
+
+.date-range-play-row .date-range-scale-buttons,
+.date-range-play-row .date-range-scale-control .date-range-button-row {
+  flex: 0 0 auto !important;
+  width: max-content !important;
+  min-width: max-content !important;
+  max-width: 100%;
+  overflow: visible !important;
+}
+
+@media (max-width: 700px) {
+  .date-range-play-row {
+    width: 100%;
+    flex-wrap: wrap !important;
+  }
+
+  .date-range-play-row .date-range-scale-control ~ .date-range-playback-button-group {
+    flex: 0 0 100% !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100%;
+    margin-top: 8px !important;
+  }
 }
 
 #kpiRow,
@@ -804,12 +998,12 @@ h1 {
 
 .dca-option-btn--selected,
 .dca-dropdown-option.is-selected {
-  color: var(--accent);
+  color: var(--dashboard-accent, var(--accent));
 }
 
 .chip-menu-wrap.single-select:hover .chip-kpi-display,
 .chip-menu-wrap.single-select:focus-within .chip-kpi-display {
-  color: var(--accent);
+  color: var(--dashboard-accent, var(--accent));
   border-color: rgba(255, 152, 0, 0.55);
   background: transparent;
 }

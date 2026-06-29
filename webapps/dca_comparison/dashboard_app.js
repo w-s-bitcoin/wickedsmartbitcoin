@@ -745,12 +745,6 @@
     return `${years.toFixed(2)} Years`;
   }
 
-  function fmtUnits(v, unit) {
-    if (!Number.isFinite(v)) return "";
-    const digits = v >= 100 ? 2 : v >= 1 ? 4 : 6;
-    return `${v.toLocaleString("en-US", { maximumFractionDigits: digits })} ${unit}`;
-  }
-
   function assetUnitPhrase(code) {
     if (code === "BTC") return "BTC";
     if (code === "XAU") return "oz gold";
@@ -1023,32 +1017,6 @@
     };
   }
 
-  function drawChartLegend(ctx, items, xStart, y, fontSize) {
-    const swatchWidth = Math.max(22, Math.round(fontSize * 1.6));
-    const swatchStroke = Math.max(3, fontSize * 0.22);
-    const itemGap = Math.max(18, Math.round(fontSize * 1.15));
-    const textGap = Math.max(7, Math.round(fontSize * 0.45));
-    let x = xStart;
-    ctx.save();
-    ctx.font = `400 ${fontSize}px ${CHART_MONO_FONT}`;
-    ctx.textBaseline = "middle";
-    items.forEach((item) => {
-      ctx.beginPath();
-      ctx.strokeStyle = item.color;
-      ctx.lineWidth = swatchStroke;
-      ctx.lineCap = "round";
-      ctx.moveTo(x, y);
-      ctx.lineTo(x + swatchWidth, y);
-      ctx.stroke();
-      const textX = x + swatchWidth + textGap;
-      ctx.fillStyle = item.textColor;
-      ctx.textAlign = "left";
-      ctx.fillText(item.label, textX, y);
-      x = textX + ctx.measureText(item.label).width + itemGap;
-    });
-    ctx.restore();
-  }
-
   function syncCustomLegend(items) {
     if (!el.chartLegend) return;
     el.chartLegend.innerHTML = items.map((item) => {
@@ -1058,21 +1026,6 @@
         : `background: ${item.color};`;
       return `<span class="legend-item"><span class="${swatchClass}" style="${swatchStyle}"></span>${escapeHtml(item.label)}</span>`;
     }).join("");
-  }
-
-  function roundRectPath(ctx, x, y, width, height, radius) {
-    const r = Math.max(0, Math.min(radius, width / 2, height / 2));
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.lineTo(x + width - r, y);
-    ctx.quadraticCurveTo(x + width, y, x + width, y + r);
-    ctx.lineTo(x + width, y + height - r);
-    ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
-    ctx.lineTo(x + r, y + height);
-    ctx.quadraticCurveTo(x, y + height, x, y + height - r);
-    ctx.lineTo(x, y + r);
-    ctx.quadraticCurveTo(x, y, x + r, y);
-    ctx.closePath();
   }
 
   function drawCenteredSegments(ctx, segments, centerX, y, font, baseline = "middle", maxWidth = Infinity) {
@@ -1237,15 +1190,6 @@
       { width, height, footerHeight: footerH },
       { ...settings, referenceQuality: 1440 },
     );
-  }
-
-  function formatDuration(seconds) {
-    const total = Math.max(0, Math.round(Number(seconds) || 0));
-    const hours = Math.floor(total / 3600);
-    const minutes = Math.floor((total % 3600) / 60);
-    const rest = total % 60;
-    if (hours) return `${hours}h ${minutes}m ${rest}s`;
-    return minutes ? `${minutes}m ${rest}s` : `${rest}s`;
   }
 
   function encodeShareState(payload) {
@@ -1514,7 +1458,7 @@
   }
 
   function hasDeterministicExportSupport() {
-    return !!(window.VideoEncoder && window.VideoFrame && typeof VideoEncoder.isConfigSupported === "function");
+    return !!window.WSBDashboardExport?.hasWebCodecsExportSupport?.();
   }
 
   function getDownloadEstimateCalibrationKey(settings, frameDates) {
@@ -1606,7 +1550,7 @@
     const calibrationKey = getDownloadEstimateCalibrationKey(settings, frames);
     const calibration = downloadEstimateCalibrationCache.get(calibrationKey);
     const deterministicExport = hasDeterministicExportSupport();
-    const fallbackFrameSeconds = deterministicExport ? 0.006 * Math.sqrt(megapixels) : 0.018 * megapixels;
+    const fallbackFrameSeconds = 0.006 * Math.sqrt(megapixels);
     const estimate = window.WSBDashboardExport.estimateDownload(settings, {
       frameCount,
       uniqueFrameCount: frameCount,
@@ -1621,9 +1565,7 @@
     });
     el.downloadEstimateSize.textContent = estimate.sizeText;
     el.downloadEstimateLength.textContent = estimate.lengthText;
-    el.downloadEstimateTime.textContent = deterministicExport
-      ? estimate.timeText
-      : `~${formatDuration(seconds + estimate.processingSeconds)}`;
+    el.downloadEstimateTime.textContent = deterministicExport ? estimate.timeText : "--";
     if (!calibration && frames.length) scheduleDownloadEstimateCalibration(settings, frames, calibrationKey);
   }
 
@@ -1918,8 +1860,11 @@
     });
     if (el.downloadEndFrameHoldToggle) el.downloadEndFrameHoldToggle.checked = !!exportSettings.endFrameHold;
     if (el.downloadPanelBtn) {
+      const canDownload = hasDeterministicExportSupport();
       el.downloadPanelBtn.classList.toggle("is-stop-download", state.isExporting);
+      el.downloadPanelBtn.disabled = !state.isExporting && !canDownload;
       el.downloadPanelBtn.textContent = state.isExporting ? "Stop Download" : "Download Animation";
+      el.downloadPanelBtn.setAttribute("title", canDownload ? "Download animation" : "Animation download requires WebCodecs support");
     }
     updateDownloadEstimates();
     const playbackActive = state.isPlaying || state.paused;
@@ -2032,20 +1977,6 @@
     return points;
   }
 
-  function niceTicks(min, max, count = 5) {
-    if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) return [0, max || 1];
-    const span = max - min;
-    const raw = span / Math.max(1, count - 1);
-    const mag = 10 ** Math.floor(Math.log10(raw));
-    const norm = raw / mag;
-    const step = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * mag;
-    const start = Math.floor(min / step) * step;
-    const end = Math.ceil(max / step) * step;
-    const ticks = [];
-    for (let v = start; v <= end + step / 2; v += step) ticks.push(v);
-    return ticks;
-  }
-
   const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
   function makeUtcDate(year, month, day = 1) {
@@ -2144,12 +2075,6 @@
         date: d,
         label: d.getUTCMonth() === 0 ? String(d.getUTCFullYear()) : MONTH_SHORT[d.getUTCMonth()],
       }));
-  }
-
-  function getResponsiveTickLabelFontSize(isExport = false) {
-    const width = window.innerWidth;
-    const baseSize = width < 640 ? 12 : width < 980 ? 14 : 18;
-    return isExport ? Math.round(baseSize * 1.5) : baseSize;
   }
 
   function getTheme() {
@@ -3048,16 +2973,19 @@
   }
 
   function resetExportProgress() {
+    const canDownload = hasDeterministicExportSupport();
     if (el.downloadBtn) {
       el.downloadBtn.classList.remove("is-exporting", "is-canceling");
-      el.downloadBtn.disabled = false;
+      el.downloadBtn.disabled = !canDownload;
       el.downloadBtn.setAttribute("aria-label", "Download date range animation");
-      el.downloadBtn.setAttribute("title", "Download animation");
+      el.downloadBtn.setAttribute("title", canDownload ? "Download animation" : "Animation download requires WebCodecs support");
       el.downloadBtn.textContent = "↓";
     }
     if (el.downloadPanelBtn) {
       el.downloadPanelBtn.classList.remove("is-stop-download");
+      el.downloadPanelBtn.disabled = !canDownload;
       el.downloadPanelBtn.textContent = "Download Animation";
+      el.downloadPanelBtn.setAttribute("title", canDownload ? "Download animation" : "Animation download requires WebCodecs support");
     }
   }
 
@@ -3066,10 +2994,6 @@
     state.exportCancelRequested = true;
     el.downloadBtn?.classList.add("is-canceling");
     return true;
-  }
-
-  function wait(ms = 0) {
-    return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
   }
 
   async function encodeExportWebM({ canvas, settings, frameDates }) {
@@ -3100,9 +3024,13 @@
 
   async function exportVideo() {
     if (requestExportCancel()) return;
+    if (!hasDeterministicExportSupport()) {
+      resetExportProgress();
+      updateDownloadEstimates();
+      return;
+    }
     state.isExporting = true;
     state.exportCancelRequested = false;
-    let recorder = null;
     try {
       normalizeSettings();
       normalizeExportSettings();
@@ -3115,78 +3043,23 @@
       const frames = getFrameDates(settings);
       const priorTheme = state.settings.theme;
       const exportSettings = { ...settings, theme: settings.theme || priorTheme };
-      try {
-        const webmBlob = await encodeExportWebM({
-          canvas,
-          settings: exportSettings,
-          frameDates: frames,
-        });
-        if (webmBlob && !state.exportCancelRequested) {
-          renderExportProgress(1);
-          downloadExportBlob(webmBlob, settings);
-          return;
-        }
-        if (state.exportCancelRequested) return;
-      } catch (error) {
-        console.warn("Deterministic WebCodecs WebM export unavailable; falling back to recorder export.", error);
-      }
-      const paintExportFrame = (iso) => {
-        drawExportFrame(canvas, iso, exportSettings, { width, height });
-      };
-      if (frames.length) paintExportFrame(frames[0]);
-      let stream;
-      try {
-        stream = canvas.captureStream(0);
-      } catch (_) {
-        stream = canvas.captureStream(EXPORT_FPS);
-      }
-      let videoTrack = stream.getVideoTracks?.()[0] || null;
-      if (!videoTrack || typeof videoTrack.requestFrame !== "function") {
-        videoTrack?.stop?.();
-        stream = canvas.captureStream(EXPORT_FPS);
-        videoTrack = stream.getVideoTracks?.()[0] || null;
-      }
-      const chunks = [];
-      const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
-        ? "video/webm;codecs=vp9"
-        : "video/webm";
-      recorder = new MediaRecorder(stream, {
-        mimeType,
-        videoBitsPerSecond: getExportBitrate(settings),
+      const webmBlob = await encodeExportWebM({
+        canvas,
+        settings: exportSettings,
+        frameDates: frames,
       });
-      recorder.ondataavailable = (e) => { if (e.data?.size) chunks.push(e.data); };
-      const done = new Promise((resolve) => { recorder.onstop = resolve; });
-      renderExportProgress(0);
-      recorder.start();
-      const frameDurationMs = 1000 / EXPORT_FPS;
-      let nextFrameAt = performance.now();
-      for (let i = 0; i < frames.length; i += 1) {
-        if (state.exportCancelRequested) break;
-        const iso = frames[i];
-        paintExportFrame(iso);
-        if (typeof videoTrack?.requestFrame === "function") videoTrack.requestFrame();
-        renderExportProgress((i + 1) / frames.length);
-        nextFrameAt += frameDurationMs;
-        await new Promise((resolve) => {
-          setTimeout(resolve, Math.max(0, nextFrameAt - performance.now()));
-        });
+      if (webmBlob && !state.exportCancelRequested) {
+        renderExportProgress(1);
+        downloadExportBlob(webmBlob, settings);
       }
-      if (recorder.state !== "inactive") recorder.stop();
-      await done;
-      const canceled = state.exportCancelRequested;
-      if (canceled) return;
-      const blob = new Blob(chunks, { type: "video/webm" });
-      downloadExportBlob(blob, settings);
     } catch (err) {
       console.error("Unable to export DCA comparison animation:", err);
       window.alert("The animation export could not be completed in this browser.");
     } finally {
-      if (recorder && recorder.state !== "inactive") {
-        try { recorder.stop(); } catch {}
-      }
       state.isExporting = false;
       state.exportCancelRequested = false;
       resetExportProgress();
+      updateSettingsOptions();
     }
   }
 
@@ -3516,61 +3389,32 @@
     window.addEventListener("pagehide", saveSettings);
     window.addEventListener("beforeunload", saveSettings);
     window.addEventListener("resize", render);
-    window.addEventListener("keydown", (e) => {
-      if ((e.key === " " || e.code === "Space") && !e.altKey && !e.ctrlKey && !e.metaKey && !isTextEntry(document.activeElement)) {
-        e.preventDefault();
-        e.stopPropagation();
-        e.stopImmediatePropagation?.();
-        blurControlIfFocused();
-        togglePlayback();
-        requestAnimationFrame(blurControlIfFocused);
-        return;
-      }
-      if (e.key === "Escape") {
+    DASHBOARD_COMPONENTS.bindPlaybackKeyboardShortcuts?.({
+      blurControls: blurControlIfFocused,
+      isTextEntry: (active) => isTextEntry(active),
+      isPlaybackActive: () => state.isPlaying || state.paused,
+      isEscapeActive: () => el.settingsPanel?.classList.contains("open") || state.isPlaying || state.paused,
+      isInactiveArrowActive: () => state.lastAdjustedHandle === "start" || state.lastAdjustedHandle === "end",
+      onSpace: togglePlayback,
+      onEscape: () => {
         closeSettingsPanel();
-        if (state.isPlaying || state.paused) {
-          e.preventDefault();
-          e.stopPropagation();
-          e.stopImmediatePropagation?.();
-          stopAnimation(true);
+        if (state.isPlaying || state.paused) stopAnimation(true);
+      },
+      onInactiveArrow: (direction) => nudgeLastAdjustedHandle(direction),
+      onArrow: (direction, _event, detail = {}) => {
+        const startIdx = findDateIndexByMode(state.settings.rangeStart, "ceil");
+        const endIdx = findDateIndexByMode(state.settings.rangeEnd, "floor");
+        const currentIdx = findDateIndexByMode(state.currentIso, "floor");
+        const daysPerSecond = 30 * Math.max(0.5, Number(state.settings.speed) || 1);
+        const bigStep = Math.max(1, Math.round(10 * daysPerSecond));
+        const delta = detail.isStep ? direction : direction * bigStep;
+        const nextIdx = Math.max(startIdx, Math.min(endIdx, currentIdx + delta));
+        if (nextIdx !== currentIdx) {
+          setCurrentByIndex(nextIdx);
+          if (direction > 0 && state.isPlaying && nextIdx === endIdx) pause();
         }
-        return;
-      }
-      const isArrowLeft = e.key === "ArrowLeft";
-      const isArrowRight = e.key === "ArrowRight";
-      const isComma = e.key === "," || e.code === "Comma";
-      const isPeriod = e.key === "." || e.code === "Period";
-      if (!isArrowLeft && !isArrowRight && !isComma && !isPeriod) return;
-      if (e.altKey || e.ctrlKey || e.metaKey || isTextEntry(document.activeElement)) return;
-      if (!state.isPlaying && !state.paused) {
-        if (!isArrowLeft && !isArrowRight) return;
-        if (state.lastAdjustedHandle !== "start" && state.lastAdjustedHandle !== "end") return;
-        e.preventDefault();
-        e.stopPropagation();
-        e.stopImmediatePropagation?.();
-        blurControlIfFocused();
-        nudgeLastAdjustedHandle(isArrowRight ? 1 : -1);
-        requestAnimationFrame(blurControlIfFocused);
-        return;
-      }
-      e.preventDefault();
-      e.stopPropagation();
-      e.stopImmediatePropagation?.();
-      const startIdx = findDateIndexByMode(state.settings.rangeStart, "ceil");
-      const endIdx = findDateIndexByMode(state.settings.rangeEnd, "floor");
-      const currentIdx = findDateIndexByMode(state.currentIso, "floor");
-      const daysPerSecond = 30 * Math.max(0.5, Number(state.settings.speed) || 1);
-      const bigStep = Math.max(1, Math.round(10 * daysPerSecond));
-      let nextIdx = currentIdx;
-      if (isArrowRight) nextIdx = Math.min(endIdx, currentIdx + bigStep);
-      else if (isArrowLeft) nextIdx = Math.max(startIdx, currentIdx - bigStep);
-      else if (isPeriod) nextIdx = Math.min(endIdx, currentIdx + 1);
-      else if (isComma) nextIdx = Math.max(startIdx, currentIdx - 1);
-      if (nextIdx !== currentIdx) {
-        setCurrentByIndex(nextIdx);
-        if (isArrowRight && state.isPlaying && nextIdx === endIdx) pause();
-      }
-    }, true);
+      },
+    });
   }
 
   async function init() {
