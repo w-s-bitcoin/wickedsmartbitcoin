@@ -30,20 +30,10 @@
   const EXPORT_VIDEO_FPS = 30;
   const EXPORT_START_HOLD_SECONDS = 1;
   const EXPORT_END_HOLD_SECONDS = 3;
-  const EXPORT_BATCH_MEMORY_BUDGET = 220 * 1024 * 1024;
-  const EXPORT_MIN_BATCH_FRAMES = 12;
-  const EXPORT_MAX_BATCH_FRAMES = 90;
-  const EXPORT_ESTIMATE_FRAME_OVERHEAD_MS = 2.5;
   const MS_PER_DAY = 24 * 60 * 60 * 1000;
   const AUTO_REFRESH_MS = 60000;
   const DASHBOARD_TIME = window.WSBDashboardTime || null;
   const DASHBOARD_COMPONENTS = window.WSBDashboardComponents || {};
-  const UPDATED_TIME_ZONE_DROPDOWN = {
-    selectId: "updatedTimeZoneSelect",
-    dropdownId: "updatedTimeZoneDropdown",
-    triggerId: "updatedTimeZoneDropdownTrigger",
-    menuId: "updatedTimeZoneDropdownMenu",
-  };
   const ICONS = {
     copyLink: '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>',
     copyCopied: '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>',
@@ -95,10 +85,8 @@
   });
 
   const els = {};
-  let updatedTimeZoneDropdownListenersBound = false;
   let customTooltipBound = false;
   let customTooltipAnchor = null;
-  let activeDatePickerClose = null;
   let preResetStateSnapshot = null;
   let dateRangeCurrentMarkerDrag = null;
   let dateRangeHandleDrag = null;
@@ -379,12 +367,6 @@
       epoch += 1;
     }
     return supply;
-  }
-
-  function fmtDate(value) {
-    const d = parseIso(value);
-    if (Number.isNaN(d.getTime())) return "-";
-    return new Intl.DateTimeFormat("en-US", { month: "2-digit", day: "2-digit", year: "2-digit", timeZone: "UTC" }).format(d);
   }
 
   function fmtDatePickerLabel(isoVal) {
@@ -728,150 +710,8 @@
     setChipMinWidth("chipIssuanceRate", "--kpi-width-issuance-rate", "Issuance Rate", formattedRows.map((row) => row.issuanceRate), 21);
   }
 
-  function escapeHtml(value) {
-    return String(value ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/\"/g, "&quot;")
-      .replace(/'/g, "&#39;");
-  }
-
   function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
-  }
-
-  function ease(value) {
-    const t = clamp(value, 0, 1);
-    return t * t * (3 - (2 * t));
-  }
-
-  function setDropdownOpen(dropdownEl, menuEl, isOpen) {
-    if (!menuEl) return;
-    const open = !!isOpen;
-    if (open && activeDatePickerClose) activeDatePickerClose();
-    menuEl.classList.toggle("open", open);
-    if (dropdownEl) dropdownEl.classList.toggle("is-open", open);
-    if (dropdownEl?.parentElement?.classList.contains("chip-menu-wrap")) {
-      dropdownEl.parentElement.classList.toggle("is-open", open);
-    }
-  }
-
-  function closeUpdatedTimeZoneDropdown() {
-    setDropdownOpen(els.updatedTimeZoneDropdown, els.updatedTimeZoneDropdownMenu, false);
-  }
-
-  function parseCssPx(value, fallback = 0) {
-    const n = Number.parseFloat(String(value || "").trim());
-    return Number.isFinite(n) ? n : fallback;
-  }
-
-  function sizeUpdatedTimeZoneDropdownMenu() {
-    const select = els.updatedTimeZoneSelect;
-    const dropdown = els.updatedTimeZoneDropdown;
-    const menu = els.updatedTimeZoneDropdownMenu;
-    const probeEl = els.updatedTimeZoneDropdownTrigger;
-    if (!select || !dropdown || !menu || !probeEl) return;
-
-    const style = window.getComputedStyle(probeEl);
-    const font = style.font || `${style.fontWeight} ${style.fontSize} / ${style.lineHeight} ${style.fontFamily}`;
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.font = font;
-
-    let maxTextWidth = 0;
-    Array.from(select.options).forEach((option) => {
-      maxTextWidth = Math.max(maxTextWidth, ctx.measureText(String(option.textContent || "")).width);
-    });
-
-    const menuStyle = window.getComputedStyle(menu);
-    const leftPad = parseCssPx(menuStyle.getPropertyValue("--dca-dropdown-content-pad"), 10);
-    const rightPad = parseCssPx(menuStyle.getPropertyValue("--dca-dropdown-content-pad"), 10);
-    const desired = Math.ceil(maxTextWidth + leftPad + rightPad + 44);
-    const pillWidth = Math.ceil(dropdown.getBoundingClientRect().width + 8);
-    const minWidth = Math.max(pillWidth, 360);
-    const maxWidth = Math.max(minWidth, Math.floor(window.innerWidth - 24));
-    const width = Math.max(minWidth, Math.min(desired, maxWidth));
-
-    menu.style.left = "0px";
-    menu.style.width = `${width}px`;
-    menu.style.minWidth = `${width}px`;
-    menu.style.maxWidth = `${width}px`;
-  }
-
-  function syncUpdatedTimeZoneDropdown() {
-    const select = els.updatedTimeZoneSelect;
-    const trigger = els.updatedTimeZoneDropdownTrigger;
-    const menu = els.updatedTimeZoneDropdownMenu;
-    if (!select || !menu) return;
-
-    const selectedOption = select.options[select.selectedIndex];
-    if (trigger) trigger.textContent = selectedOption ? selectedOption.textContent : "";
-    menu.innerHTML = Array.from(select.options)
-      .map((option) => {
-        const selectedClass = option.value === select.value ? " dca-option-btn--selected" : "";
-        return `<button type="button" class="dca-option-btn${selectedClass}" data-value="${escapeHtml(option.value)}">${escapeHtml(option.textContent || "")}</button>`;
-      })
-      .join("");
-    sizeUpdatedTimeZoneDropdownMenu();
-  }
-
-  function getPreferredDashboardTimeZone() {
-    if (!DASHBOARD_TIME?.getPreferredTimeZone) return state.timeZone || "UTC";
-    return DASHBOARD_TIME.getPreferredTimeZone();
-  }
-
-  function setPreferredDashboardTimeZone(value) {
-    if (!DASHBOARD_TIME?.setPreferredTimeZone) {
-      state.timeZone = String(value || "UTC").trim() || "UTC";
-      return state.timeZone;
-    }
-    state.timeZone = DASHBOARD_TIME.setPreferredTimeZone(value);
-    return state.timeZone;
-  }
-
-  function getDashboardTimeZoneOptions() {
-    if (!DASHBOARD_TIME?.getTimeZoneOptions) {
-      return [{ value: "UTC", label: "UTC - Greenwich Mean Time (GMT)" }];
-    }
-    return DASHBOARD_TIME.getTimeZoneOptions();
-  }
-
-  function formatUpdatedForSelectedTimeZone(value) {
-    const raw = String(value || "").trim();
-    if (!raw) return "-";
-
-    const withParenthesizedZone = (text) => {
-      const normalized = String(text || "").trim();
-      if (!normalized) return normalized;
-      if (/\([^()]+\)\s*$/.test(normalized)) return normalized;
-      const match = normalized.match(/^(.*\d{2}:\d{2})(?:\s+([A-Za-z][A-Za-z0-9_:+\/-]*))$/);
-      if (!match) return normalized;
-      return `${match[1].trimEnd()} (${match[2].trim()})`;
-    };
-
-    if (DASHBOARD_TIME?.formatUtcTimestamp) {
-      return withParenthesizedZone(
-        DASHBOARD_TIME.formatUtcTimestamp(raw, state.timeZone || "UTC").text
-      );
-    }
-
-    const parsed = new Date(raw);
-    if (Number.isNaN(parsed.getTime())) return raw;
-    return withParenthesizedZone(`${parsed.toISOString().replace("T", " ").slice(0, 16)} UTC`);
-  }
-
-  function populateUpdatedTimeZoneSelect() {
-    const select = els.updatedTimeZoneSelect;
-    if (!select) return;
-    const preferred = getPreferredDashboardTimeZone();
-    state.timeZone = preferred;
-    select.innerHTML = getDashboardTimeZoneOptions().map((opt) => {
-      const selected = opt.value === preferred ? " selected" : "";
-      return `<option value="${escapeHtml(opt.value)}"${selected}>${escapeHtml(opt.label)}</option>`;
-    }).join("");
-    syncUpdatedTimeZoneDropdown();
   }
 
   function getHalvingDates() {
@@ -2216,20 +2056,7 @@
     }
   }
 
-  function isSpaceShortcutTextEntry(active) {
-    const textInputTypes = ["text", "search", "email", "password", "url", "tel", "number"];
-    return !!(
-      active
-      && (
-        (active.tagName === "INPUT" && textInputTypes.includes(String(active.type || "").toLowerCase()))
-        || active.tagName === "TEXTAREA"
-        || active.tagName === "SELECT"
-        || active.isContentEditable
-      )
-    );
-  }
-
-  function isArrowShortcutFormEntry(active) {
+  function isKeyboardShortcutTextEntry(active) {
     return !!(
       active
       && (
@@ -2274,65 +2101,26 @@
     if (dateRangeKeyboardShortcutsBound) return;
     dateRangeKeyboardShortcutsBound = true;
 
-    window.addEventListener("keydown", (event) => {
-      if (!(event.key === " " || event.code === "Space")) return;
-      if (event.altKey || event.ctrlKey || event.metaKey) return;
-      if (isSpaceShortcutTextEntry(document.activeElement)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      event.stopImmediatePropagation?.();
-      blurDateRangeSliderIfFocused();
-      togglePlayback();
-      requestAnimationFrame(blurDateRangeSliderIfFocused);
-    }, true);
-
-    window.addEventListener("keydown", (event) => {
-      const playbackActive = isDateRangePlaybackActive();
-
-      if (event.key === "Escape") {
-        if (!playbackActive) return;
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation?.();
-        stopPlayback(true);
-        return;
-      }
-
-      const isArrowLeft = event.key === "ArrowLeft";
-      const isArrowRight = event.key === "ArrowRight";
-      const isComma = event.key === "," || event.code === "Comma";
-      const isPeriod = event.key === "." || event.code === "Period";
-      if (!isArrowLeft && !isArrowRight && !isComma && !isPeriod) return;
-      if (event.altKey || event.ctrlKey || event.metaKey) return;
-      if (isArrowShortcutFormEntry(document.activeElement)) return;
-
-      if (!playbackActive) {
-        if (!isArrowLeft && !isArrowRight) return;
-        if (dateRangeLastAdjustedHandle !== "start" && dateRangeLastAdjustedHandle !== "end") return;
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation?.();
-        blurDateRangeSliderIfFocused();
-        nudgeLastAdjustedDateRangeHandle(isArrowRight ? 1 : -1);
-        requestAnimationFrame(blurDateRangeSliderIfFocused);
-        return;
-      }
-
-      event.preventDefault();
-      event.stopPropagation();
-      event.stopImmediatePropagation?.();
-      const daysPerSecond = 30 * Math.max(0.5, Number(state.playbackSpeed) || 1);
-      const framesFor10Seconds = Math.max(1, Math.round(10 * daysPerSecond));
-      let nextIndex = state.currentIndex;
-      if (isArrowRight) nextIndex = Math.min(state.endIndex, state.currentIndex + framesFor10Seconds);
-      else if (isArrowLeft) nextIndex = Math.max(state.startIndex, state.currentIndex - framesFor10Seconds);
-      else if (isPeriod) nextIndex = Math.min(state.endIndex, state.currentIndex + 1);
-      else if (isComma) nextIndex = Math.max(state.startIndex, state.currentIndex - 1);
-      if (nextIndex !== state.currentIndex) {
-        setCurrentIndexByIndex(nextIndex);
-        if (isArrowRight && state.isPlaying && nextIndex === state.endIndex) pause();
-      }
-    }, true);
+    DASHBOARD_COMPONENTS.bindPlaybackKeyboardShortcuts?.({
+      blurControls: blurDateRangeSliderIfFocused,
+      isTextEntry: (active) => isKeyboardShortcutTextEntry(active),
+      isPlaybackActive: isDateRangePlaybackActive,
+      isEscapeActive: isDateRangePlaybackActive,
+      isInactiveArrowActive: () => dateRangeLastAdjustedHandle === "start" || dateRangeLastAdjustedHandle === "end",
+      onSpace: togglePlayback,
+      onEscape: () => stopPlayback(true),
+      onInactiveArrow: (direction) => nudgeLastAdjustedDateRangeHandle(direction),
+      onArrow: (direction, _event, detail = {}) => {
+        const daysPerSecond = 30 * Math.max(0.5, Number(state.playbackSpeed) || 1);
+        const framesFor10Seconds = Math.max(1, Math.round(10 * daysPerSecond));
+        const delta = detail.isStep ? direction : direction * framesFor10Seconds;
+        const nextIndex = Math.max(state.startIndex, Math.min(state.endIndex, state.currentIndex + delta));
+        if (nextIndex !== state.currentIndex) {
+          setCurrentIndexByIndex(nextIndex);
+          if (direction > 0 && state.isPlaying && nextIndex === state.endIndex) pause();
+        }
+      },
+    });
   }
 
   function primeKeyboardFocus() {
@@ -2432,15 +2220,6 @@
     });
     frames.push(...Array.from({ length: endHoldFrames }, () => motion[motion.length - 1]));
     return frames;
-  }
-
-  function formatDuration(seconds) {
-    const total = Math.max(0, Math.round(seconds));
-    const hours = Math.floor(total / 3600);
-    const minutes = Math.floor((total % 3600) / 60);
-    const rest = total % 60;
-    if (hours) return `${hours}h ${minutes}m ${rest}s`;
-    return minutes ? `${minutes}m ${rest}s` : `${rest}s`;
   }
 
   function getDownloadEstimateCalibrationKey(settings, frames) {
@@ -2545,7 +2324,7 @@
   }
 
   function canUseDeterministicWebCodecsExport() {
-    return !!(window.VideoEncoder && window.VideoFrame && typeof VideoEncoder.isConfigSupported === "function");
+    return !!window.WSBDashboardExport?.hasWebCodecsExportSupport?.();
   }
 
   function updateDownloadEstimates() {
@@ -2561,7 +2340,7 @@
     const bitrate = getDateRangeExportBitrate(settings);
     const calibrationKey = getDownloadEstimateCalibrationKey(settings, frames);
     const calibration = downloadEstimateCalibrationCache.get(calibrationKey);
-    const fallbackMsPerFrame = 35 * (width * height) / (1280 * 720);
+    const megapixels = Math.max(1, (width * height) / (1280 * 720));
     const calibratedMsPerFrame = calibration?.msPerUniqueFrame;
     const deterministicExport = canUseDeterministicWebCodecsExport();
     const estimate = window.WSBDashboardExport.estimateDownload(settings, {
@@ -2571,14 +2350,12 @@
       dimensions: { width, height },
       bitrate,
       calibration: Number.isFinite(calibratedMsPerFrame) ? { msPerFrame: calibratedMsPerFrame } : null,
-      fallbackFrameSeconds: fallbackMsPerFrame / 1000,
-      encodeFrameSeconds: EXPORT_ESTIMATE_FRAME_OVERHEAD_MS / 1000,
+      fallbackFrameSeconds: 0.006 * Math.sqrt(megapixels),
+      encodeFrameSeconds: 0.0005,
     });
     els.downloadEstimateSize.textContent = estimate.sizeText;
     els.downloadEstimateLength.textContent = estimate.lengthText;
-    els.downloadEstimateTime.textContent = deterministicExport
-      ? estimate.timeText
-      : `~${formatDuration(seconds + estimate.processingSeconds)}`;
+    els.downloadEstimateTime.textContent = deterministicExport ? estimate.timeText : "--";
     if (!calibration && frames.length) {
       scheduleDownloadEstimateCalibration(settings, frames, calibrationKey);
     }
@@ -2591,20 +2368,6 @@
     if (pixels >= 2560 * 1440) return 18_000_000;
     if (pixels >= 1920 * 1080) return 10_000_000;
     return 5_000_000;
-  }
-
-  function getDateRangeExportBatchSize(settings) {
-    const { width, height } = getDownloadDimensions(settings);
-    const frameBytes = Math.max(1, width * height * 4);
-    const budgetFrames = Math.floor(EXPORT_BATCH_MEMORY_BUDGET / frameBytes);
-    return clamp(budgetFrames, EXPORT_MIN_BATCH_FRAMES, EXPORT_MAX_BATCH_FRAMES);
-  }
-
-  function closeDateRangeExportFrames(frameCache) {
-    frameCache.forEach((frame) => {
-      if (typeof frame?.close === "function") frame.close();
-    });
-    frameCache.clear();
   }
 
   function broadcastDateRangeExportActive(active) {
@@ -2677,9 +2440,9 @@
     const downloadBtn = els.dateRangeDownloadBtn;
     if (!downloadBtn) return;
     downloadBtn.classList.remove("is-exporting", "is-canceling");
-    downloadBtn.disabled = false;
+    downloadBtn.disabled = !canUseDeterministicWebCodecsExport();
     downloadBtn.setAttribute("aria-label", "Download date range animation");
-    downloadBtn.setAttribute("title", "Download animation");
+    downloadBtn.setAttribute("title", canUseDeterministicWebCodecsExport() ? "Download animation" : "Animation download requires WebCodecs support");
     downloadBtn.textContent = "↓";
     syncDownloadSettingsDownloadButton();
   }
@@ -2687,8 +2450,11 @@
   function syncDownloadSettingsDownloadButton() {
     const button = els.downloadSettingsDownloadBtn;
     if (!button) return;
+    const canDownload = canUseDeterministicWebCodecsExport();
     button.classList.toggle("is-stop-download", isDateRangeExporting);
+    button.disabled = !canDownload && !isDateRangeExporting;
     button.textContent = isDateRangeExporting ? "Stop Download" : "Download Animation";
+    button.title = canDownload ? "" : "Animation download requires WebCodecs support";
   }
 
   function requestDateRangeExportCancel() {
@@ -2712,29 +2478,6 @@
       onProgress: renderDateRangeDownloadButtonProgress,
       renderFrame: (frameIndex) => renderExportFrame(canvas, frameIndex, settings),
     });
-  }
-
-  function getSupportedRecorder() {
-    if (!window.MediaRecorder || typeof MediaRecorder.isTypeSupported !== "function") return null;
-    const candidates = [
-      "video/webm;codecs=vp9",
-      "video/webm;codecs=vp8",
-      "video/webm",
-    ];
-    const mimeType = candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate));
-    return mimeType ? { mimeType, extension: "webm" } : null;
-  }
-
-  function transitionMediaRecorder(recorder, eventName, action) {
-    return new Promise((resolve, reject) => {
-      recorder.addEventListener(eventName, resolve, { once: true });
-      recorder.addEventListener("error", () => reject(recorder.error || new Error("Recording failed")), { once: true });
-      action();
-    });
-  }
-
-  function wait(ms) {
-    return new Promise((resolve) => window.setTimeout(resolve, ms));
   }
 
   async function waitForDateRangeExportFonts() {
@@ -2854,6 +2597,11 @@
       requestDateRangeExportCancel();
       return;
     }
+    if (!canUseDeterministicWebCodecsExport()) {
+      resetDateRangeDownloadButton();
+      updateDownloadEstimates();
+      return;
+    }
     const normalizedSettings = normalizeDownloadSettings(state.downloadSettings);
     const settings = {
       ...normalizedSettings,
@@ -2873,8 +2621,7 @@
     canvas.__exportPixelHeight = height;
     canvas.width = width;
     canvas.height = height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    if (!canvas.getContext("2d")) return;
 
     isDateRangeExporting = true;
     dateRangeExportCancelRequested = false;
@@ -2907,156 +2654,11 @@
         return;
       }
     } catch (error) {
-      console.warn("Deterministic WebCodecs export unavailable; falling back to recorder export.", error);
-    }
-
-    const recorderInfo = getSupportedRecorder();
-    if (!recorderInfo || typeof HTMLCanvasElement.prototype.captureStream !== "function") {
-      isDateRangeExporting = false;
-      dateRangeExportCancelRequested = false;
-      broadcastDateRangeExportActive(false);
-      resetDateRangeDownloadButton();
-      updateDownloadEstimates();
-      window.alert("This browser does not support dashboard video export.");
-      return;
-    }
-
-    let recorder = null;
-    let stream = null;
-    let track = null;
-    const chunks = [];
-    const cachedFrames = new Map();
-    const batchSize = getDateRangeExportBatchSize(settings);
-    const totalWork = Math.max(1, frameIndices.length * 2);
-    let completedWork = 0;
-    let wasCanceled = false;
-    let exportSucceeded = false;
-    try {
-      await waitForDateRangeExportFonts();
-      try {
-        stream = canvas.captureStream(0);
-      } catch (_) {
-        stream = canvas.captureStream(EXPORT_VIDEO_FPS);
-      }
-      [track] = stream.getVideoTracks();
-      if (!track || typeof track.requestFrame !== "function") {
-        stream?.getTracks?.().forEach((streamTrack) => streamTrack.stop());
-        stream = canvas.captureStream(EXPORT_VIDEO_FPS);
-        [track] = stream.getVideoTracks();
-      }
-      recorder = new MediaRecorder(stream, {
-        mimeType: recorderInfo.mimeType,
-        videoBitsPerSecond: getDateRangeExportBitrate(settings),
-      });
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size) chunks.push(event.data);
-      };
-      const stopped = new Promise((resolve, reject) => {
-        recorder.addEventListener("stop", resolve, { once: true });
-        recorder.addEventListener("error", () => reject(recorder.error || new Error("Recording failed")), { once: true });
-      });
-      recorder.start();
-      if (typeof recorder.pause !== "function" || typeof recorder.resume !== "function") {
-        throw new Error("MediaRecorder pause/resume unavailable.");
-      }
-
-      const renderFrameBatch = async (batchStart) => {
-        closeDateRangeExportFrames(cachedFrames);
-        const batchIndices = frameIndices.slice(batchStart, batchStart + batchSize);
-        const uniqueBatchIndices = [];
-        const seenBatchIndices = new Set();
-        batchIndices.forEach((frameIndex) => {
-          if (seenBatchIndices.has(frameIndex)) return;
-          seenBatchIndices.add(frameIndex);
-          uniqueBatchIndices.push(frameIndex);
-        });
-
-        for (const frameIndex of uniqueBatchIndices) {
-          if (dateRangeExportCancelRequested) {
-            wasCanceled = true;
-            break;
-          }
-          renderExportFrame(canvas, frameIndex, settings);
-          const frameImage = typeof createImageBitmap === "function"
-            ? await createImageBitmap(canvas)
-            : (() => {
-                const fallbackCanvas = document.createElement("canvas");
-                fallbackCanvas.width = canvas.width;
-                fallbackCanvas.height = canvas.height;
-                fallbackCanvas.getContext("2d")?.drawImage(canvas, 0, 0);
-                return fallbackCanvas;
-              })();
-          cachedFrames.set(frameIndex, frameImage);
-          completedWork += 1;
-          renderDateRangeDownloadButtonProgress(completedWork / totalWork);
-          await wait(0);
-        }
-      };
-
-      renderExportFrame(canvas, frameIndices[0], settings);
-      if (track && typeof track.requestFrame === "function") track.requestFrame();
-      await transitionMediaRecorder(recorder, "pause", () => recorder.pause());
-
-      const frameDurationMs = 1000 / EXPORT_VIDEO_FPS;
-      for (let batchStart = 0; batchStart < frameIndices.length; batchStart += batchSize) {
-        await renderFrameBatch(batchStart);
-        if (wasCanceled || dateRangeExportCancelRequested) {
-          wasCanceled = true;
-          break;
-        }
-
-        await transitionMediaRecorder(recorder, "resume", () => recorder.resume());
-        let lastCaptureTime = performance.now() - frameDurationMs;
-        const batchEnd = Math.min(frameIndices.length, batchStart + batchSize);
-        for (let i = batchStart; i < batchEnd; i += 1) {
-          if (dateRangeExportCancelRequested) {
-            wasCanceled = true;
-            break;
-          }
-          const frameIndex = frameIndices[i];
-          const frameImage = cachedFrames.get(frameIndex);
-          if (!frameImage) throw new Error("Cached export frame unavailable.");
-          const elapsedSinceLastCapture = performance.now() - lastCaptureTime;
-          if (elapsedSinceLastCapture < frameDurationMs) {
-            await wait(frameDurationMs - elapsedSinceLastCapture);
-          }
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(frameImage, 0, 0);
-          if (track && typeof track.requestFrame === "function") track.requestFrame();
-          lastCaptureTime = performance.now();
-          completedWork += 1;
-          renderDateRangeDownloadButtonProgress(completedWork / totalWork);
-        }
-
-        if (wasCanceled || dateRangeExportCancelRequested) break;
-        if (batchEnd < frameIndices.length) {
-          await transitionMediaRecorder(recorder, "pause", () => recorder.pause());
-        }
-      }
-      if (recorder.state !== "inactive") recorder.stop();
-      await stopped;
-      if (!wasCanceled && !dateRangeExportCancelRequested && chunks.length) {
-        recordMeasuredDownloadEstimate(settings, frameIndices, performance.now() - exportStartedAt);
-        renderDateRangeDownloadButtonProgress(1);
-        downloadDateRangeExportBlob(new Blob(chunks, { type: recorderInfo.mimeType }), recorderInfo.extension);
-        exportSucceeded = true;
-      }
-    } catch (error) {
       console.error("Unable to export issuance rate animation.", error);
       if (!dateRangeExportCancelRequested) window.alert(`Unable to export animation: ${error.message || error}`);
     } finally {
       isDateRangeExporting = false;
       dateRangeExportCancelRequested = false;
-      if (recorder && recorder.state !== "inactive") {
-        try {
-          recorder.stop();
-        } catch (_) {
-          // Ignore cleanup failures.
-        }
-      }
-      stream?.getTracks?.().forEach((track) => track.stop());
-      closeDateRangeExportFrames(cachedFrames);
-      if (!exportSucceeded) chunks.length = 0;
       broadcastDateRangeExportActive(false);
       resetDateRangeDownloadButton();
       updateDownloadEstimates();
@@ -3584,85 +3186,6 @@
       sliderResizeObserver.observe(els.dateRangeSliderWrap);
     }
     document.addEventListener("dashboard-theme-change", () => requestAnimationFrame(renderChart));
-  }
-
-  function bindUpdatedTimeZoneDropdown() {
-    const { dropdownId, triggerId, menuId } = UPDATED_TIME_ZONE_DROPDOWN;
-    const select = els.updatedTimeZoneSelect;
-    const dropdown = $(dropdownId);
-    const trigger = $(triggerId);
-    const menu = $(menuId);
-    if (!select || !dropdown || !trigger || !menu) return;
-    const toggleRoot = $("updatedChipWrap");
-    toggleRoot?.classList.add("dca-dropdown-pill");
-
-    if (toggleRoot && toggleRoot.dataset.dropdownPillBound !== "1") {
-      toggleRoot.dataset.dropdownPillBound = "1";
-      toggleRoot.addEventListener("click", (event) => {
-        if (menu.contains(event.target)) return;
-        event.preventDefault();
-        event.stopPropagation();
-        setDropdownOpen(dropdown, menu, !menu.classList.contains("open"));
-      });
-    }
-
-    if (menu.dataset.bound !== "1") {
-      menu.dataset.bound = "1";
-      menu.addEventListener("click", (event) => {
-        const btn = event.target.closest(".dca-option-btn");
-        if (!btn) return;
-        event.preventDefault();
-        event.stopPropagation();
-        const nextValue = String(btn.dataset.value || "");
-        if (select.value !== nextValue) {
-          select.value = nextValue;
-          select.dispatchEvent(new Event("change", { bubbles: true }));
-        }
-        syncUpdatedTimeZoneDropdown();
-        setDropdownOpen(dropdown, menu, false);
-      });
-    }
-
-    if (updatedTimeZoneDropdownListenersBound) return;
-    updatedTimeZoneDropdownListenersBound = true;
-    document.addEventListener("click", (event) => {
-      if (dropdown.contains(event.target)) return;
-      closeUpdatedTimeZoneDropdown();
-    });
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") closeUpdatedTimeZoneDropdown();
-    });
-  }
-
-  function bindTimeZoneChipEvents() {
-    const select = els.updatedTimeZoneSelect;
-    if (!select || select.dataset.bound === "1") return;
-    const refreshForTimeZoneChange = () => {
-      updateStatus();
-      if (state.dailyCalculationsUseSelectedTimeZone) renderChart();
-    };
-    select.dataset.bound = "1";
-    select.addEventListener("change", () => {
-      setPreferredDashboardTimeZone(select.value);
-      select.blur();
-      closeUpdatedTimeZoneDropdown();
-      syncUpdatedTimeZoneDropdown();
-      refreshForTimeZoneChange();
-    });
-
-    if (DASHBOARD_TIME?.CHANGE_EVENT) {
-      window.addEventListener(DASHBOARD_TIME.CHANGE_EVENT, () => {
-        populateUpdatedTimeZoneSelect();
-        refreshForTimeZoneChange();
-      });
-    }
-    if (DASHBOARD_TIME?.STORAGE_KEY) {
-      window.addEventListener("storage", (event) => {
-        if (event.key !== DASHBOARD_TIME.STORAGE_KEY) return;
-        populateUpdatedTimeZoneSelect();
-        refreshForTimeZoneChange();
-      });
-    }
   }
 
   function pauseIfActive() {

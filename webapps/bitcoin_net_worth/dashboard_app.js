@@ -31,7 +31,6 @@ const LIVE_ENCRYPTION_ENABLED_KEY = "bitcoinNetWorthTrackerLiveEncryptionEnabled
 const LIVE_HISTORY_FILE_KEY = "bitcoinNetWorthTrackerLiveFileV1";
 const LIVE_LAST_VIEWED_FILE_KEY = "bitcoinNetWorthTrackerLastViewedLiveFileV1";
 const MODE_KEY = "bitcoinNetWorthTrackerModeV1";
-const THEME_KEY = "quantum-research-dashboard-theme";
 const BTCUSD_CACHE_KEY = "bitcoinNetWorthTrackerBtcusdCacheV1";
 const FILTER_KEY_DEMO = "bitcoinNetWorthTrackerFiltersDemoV1";
 const FILTER_KEY_LIVE = "bitcoinNetWorthTrackerFiltersLiveV1";
@@ -42,7 +41,6 @@ const UOA_SELECTION_KEY = "bitcoinNetWorthTrackerUoaSelectionsV1";
 const RESET_LIVE_DATA_ACTION = "__reset_live_data__";
 const QUOTE_AUTO_REFRESH_MS = 60_000;
 const QUOTE_AUTO_REFRESH_OFFSET_MS = 1_000;
-const serverAvailable = false; // always false in web version (no local server)
 
 const FX_RATE_URLS = [
   "../uoa/webapp_data/daily_fx_rates.csv",
@@ -175,7 +173,6 @@ let liveHistoryFile = localStorage.getItem(LIVE_HISTORY_FILE_KEY)
   || localStorage.getItem(LIVE_LAST_VIEWED_FILE_KEY)
   || "my_history.csv";
 let liveAccessLocked = false;
-const liveFilePasswords = new Map(); // filename -> password (session-only)
 let chartRange = { startDate: null, endDate: null };
 let excludedAssets = new Set();
 let excludedLiabilities = new Set();
@@ -600,7 +597,6 @@ const _overlayClosers = new Set();
 function closeAllOverlays() {
   _overlayClosers.forEach((fn) => fn());
   closeAllFilterDropdowns();
-  closeLiveFileDropdown();
 }
 
 // ── Reusable custom date picker ───────────────────────────────────────────────
@@ -706,7 +702,6 @@ document.getElementById("liabilitiesFilterDropdown").addEventListener("click", (
 });
 document.addEventListener("click", (e) => {
   if (!e.target.closest(".filter-dropdown")) closeAllFilterDropdowns();
-  if (!e.target.closest(".live-file-dropdown")) closeLiveFileDropdown();
 });
 document.addEventListener("keydown", handleUndoRedoHotkeys);
 attachChartInteractions();
@@ -862,20 +857,8 @@ function themeValue(name) {
   return getComputedStyle(document.body).getPropertyValue(name).trim();
 }
 
-function startServerHeartbeat() {
-  // No-op in website mode (no local Python server heartbeat endpoint).
-}
-
 function applyTheme() {
   document.documentElement.dataset.theme = (currentTheme === "light" ? "light" : "dark");
-}
-
-function setTheme(nextTheme) {
-  if (nextTheme === currentTheme) return;
-  currentTheme = nextTheme;
-  localStorage.setItem(THEME_KEY, currentTheme);
-  document.documentElement.dataset.theme = (currentTheme === "light" ? "light" : "dark");
-  renderAll();
 }
 
 function updateAlChartModeLabels() {
@@ -1259,13 +1242,6 @@ function yyyymmddToMMDDYY(yyyymmdd) {
   const dd = yyyymmdd.slice(6, 8);
   const yy = yyyy.slice(-2);
   return `${mm}${dd}${yy}`;
-}
-
-function parseYYYYMMDD(yyyymmdd) {
-  const yyyy = Number(yyyymmdd.slice(0, 4));
-  const mm = Number(yyyymmdd.slice(4, 6));
-  const dd = Number(yyyymmdd.slice(6, 8));
-  return new Date(yyyy, mm - 1, dd);
 }
 
 function snapshotRowsToFormRows(rows) {
@@ -1843,96 +1819,6 @@ async function decryptText(payload, password) {
   return new TextDecoder().decode(plainBuf);
 }
 
-// Prompt user for a new history filename. existingFiles blocks same-stem names.
-async function promptForFilename({ existingFiles = [] } = {}) {
-  return new Promise((resolve) => {
-    const overlay = document.createElement("div");
-    overlay.className = "enc-overlay";
-
-    const box = document.createElement("div");
-    box.className = "enc-dialog";
-
-    const msg = document.createElement("p");
-    msg.textContent = "Enter a name for the new history file.";
-    box.appendChild(msg);
-
-    const nameInput = document.createElement("input");
-    nameInput.type = "text";
-    nameInput.placeholder = "e.g. my_history.csv or wallet.enc";
-    nameInput.className = "enc-input";
-    box.appendChild(nameInput);
-
-    const hint = document.createElement("p");
-    hint.className = "enc-error";
-    hint.style.display = "";
-    hint.style.color = "var(--text-muted, #888)";
-    hint.textContent = "Name must end with .csv or .enc";
-    box.appendChild(hint);
-
-    const btnRow = document.createElement("div");
-    btnRow.className = "enc-btn-row";
-
-    const cancelBtn = document.createElement("button");
-    cancelBtn.textContent = "Cancel";
-    cancelBtn.className = "enc-btn enc-btn-cancel";
-    cancelBtn.type = "button";
-
-    const okBtn = document.createElement("button");
-    okBtn.textContent = "Create";
-    okBtn.className = "enc-btn enc-btn-ok";
-    okBtn.type = "button";
-    okBtn.disabled = true;
-
-    btnRow.appendChild(cancelBtn);
-    btnRow.appendChild(okBtn);
-    box.appendChild(btnRow);
-    overlay.appendChild(box);
-    document.body.appendChild(overlay);
-    nameInput.focus();
-
-    const validate = () => {
-      const v = nameInput.value.trim().toLowerCase();
-      const isValidExt = v.endsWith(".csv") || v.endsWith(".enc");
-      if (!isValidExt) {
-        hint.style.color = "var(--text-muted, #888)";
-        hint.textContent = "Name must end with .csv or .enc";
-        okBtn.disabled = true;
-        return;
-      }
-      const cleaned = v.replace(/[^a-zA-Z0-9_.\-]/g, "_");
-      const stem = cleaned.replace(/\.(csv|enc)$/, "");
-      const conflict = existingFiles.find((f) => f.replace(/\.(csv|enc)$/i, "").toLowerCase() === stem);
-      if (conflict) {
-        hint.style.color = "var(--color-error, #ef4444)";
-        hint.textContent = `"${conflict}" already exists. Choose a different name.`;
-        okBtn.disabled = true;
-      } else {
-        hint.style.color = "var(--text-muted, #888)";
-        hint.textContent = "Name must end with .csv or .enc";
-        okBtn.disabled = false;
-      }
-    };
-    nameInput.addEventListener("input", validate);
-
-    const cleanup = (val) => {
-      document.body.removeChild(overlay);
-      resolve(val);
-    };
-
-    cancelBtn.addEventListener("click", () => cleanup(null));
-    overlay.addEventListener("click", (e) => { if (e.target === overlay) cleanup(null); });
-
-    const submit = () => {
-      if (okBtn.disabled) return;
-      const cleaned = nameInput.value.trim().replace(/[^a-zA-Z0-9_.\-]/g, "_");
-      cleanup(cleaned);
-    };
-
-    okBtn.addEventListener("click", submit);
-    nameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); if (e.key === "Escape") cleanup(null); });
-  });
-}
-
 async function promptForPassword({
   confirm: needConfirm = false,
   message = "",
@@ -2048,25 +1934,6 @@ async function promptForPassword({
 
     setTimeout(() => pwInput.focus(), 50);
   });
-}
-
-// ── Server file I/O ─────────────────────────────────────────────────────────
-
-async function probeServer() {
-  return false;
-}
-
-async function fetchLiveHistoryFile(filenameOverride = null) {
-  void filenameOverride;
-  return null;
-}
-
-async function writeLiveHistoryFile(content, encrypted = false, { strict = false, filename = null } = {}) {
-  void content;
-  void encrypted;
-  void filename;
-  if (strict) throw new Error("Server writes are unavailable in website mode");
-  return false;
 }
 
 // Parse my_history.csv text into snapshots array.
@@ -2262,17 +2129,6 @@ function parseLegacyDictField(rawValue) {
   return {};
 }
 
-function legacyDictToUsdRows(dictLike) {
-  const dict = parseLegacyDictField(dictLike);
-  return Object.entries(dict)
-    .map(([name, value]) => ({
-      name: String(name || "").trim(),
-      value: Number(value),
-      unit: "USD"
-    }))
-    .filter((row) => row.name && Number.isFinite(row.value) && row.value !== 0);
-}
-
 function collectLegacyFieldNames(rows, kind) {
   const usdKey = `${kind}_usd`;
   const btcKey = `${kind}_btc`;
@@ -2437,145 +2293,6 @@ async function parseHistoryCsvWithLegacyPrompt(rawCsv, filename, { encrypted = f
     filename
   });
   return { parsed, cancelled: false };
-}
-
-// Load live snapshots from server (or fall back to localStorage).
-async function loadLiveSnapshotsFromServer() {
-  const isEncrypted = liveHistoryFile.endsWith(".enc");
-  const raw = await fetchLiveHistoryFile();
-  if (raw === null) {
-    return [];
-  }
-  if (!isEncrypted) {
-    const result = await parseHistoryCsvWithLegacyPrompt(raw, liveHistoryFile, { encrypted: false });
-    if (result.cancelled) return [];
-    const parsed = result.parsed;
-    if (parsed.length > 0) {
-      // Sync to localStorage so offline access works
-      localStorage.setItem(STORE_KEY_LIVE, JSON.stringify(parsed));
-    }
-    return parsed;
-  }
-  // Encrypted path
-  if (!liveEncryptionPassword) return [];
-  try {
-    const plain = await decryptText(raw, liveEncryptionPassword);
-    const result = await parseHistoryCsvWithLegacyPrompt(plain, liveHistoryFile, { encrypted: true });
-    if (result.cancelled) return [];
-    const parsed = result.parsed;
-    return parsed;
-  } catch {
-    return [];
-  }
-}
-
-// Load live snapshots from bundled static CSV (no API server required).
-async function loadLiveSnapshotsFromStaticCsv(filenameOverride = null) {
-  const file = filenameOverride
-    || liveHistoryFile
-    || localStorage.getItem(LIVE_LAST_VIEWED_FILE_KEY)
-    || "my_history.csv";
-  if (!file || !file.endsWith(".csv")) return [];
-  try {
-    let res = await fetch(`history_files/${file}`, { cache: "no-cache" });
-    if (!res.ok) {
-      res = await fetch(`/history_files/${file}`, { cache: "no-cache" });
-    }
-    if (!res.ok) return [];
-    const raw = await res.text();
-    const result = await parseHistoryCsvWithLegacyPrompt(raw, file, { encrypted: false });
-    if (result.cancelled) return [];
-    const parsed = result.parsed;
-    if (parsed.length > 0) {
-      liveHistoryFile = file;
-      persistLiveFileSelection(file);
-      localStorage.setItem(STORE_KEY_LIVE, JSON.stringify(parsed));
-    }
-    return parsed;
-  } catch {
-    return [];
-  }
-}
-
-// If the selected live file is missing on the server, recreate a clean decrypted base file.
-async function ensureLiveBaseFileIfMissing() {
-  if (!serverAvailable || currentMode !== "live") return false;
-
-  const selected = liveHistoryFile || "";
-  const selectedRaw = selected ? await fetchLiveHistoryFile(selected) : null;
-  if (selectedRaw !== null) return false;
-
-  const prevBtcusd = Number(formState.btcusd || 0);
-  const prevManualBtcusd = formState.manualBtcusd;
-  const prevUseManual = formState.useManualBtcusd;
-
-  liveHistoryFile = "my_history.csv";
-  liveEncryptionEnabled = false;
-  liveEncryptionPassword = null;
-  liveAccessLocked = false;
-  persistLiveFileSelection(liveHistoryFile);
-  localStorage.setItem(LIVE_ENCRYPTION_ENABLED_KEY, "0");
-
-  snapshots = [];
-  formState = structuredClone(DEFAULT_FORM_LIVE);
-  formState.btcusd = prevBtcusd;
-  formState.manualBtcusd = prevManualBtcusd;
-  formState.useManualBtcusd = prevUseManual;
-  editingSnapshotDate = mmddyy(new Date());
-  hasUnsavedAssetLiabilityChanges = false;
-  hoveredSnapshotDate = null;
-  chartRange = { startDate: null, endDate: null };
-  netChartRange = { startDate: null, endDate: null };
-  alChartRange = { startDate: null, endDate: null };
-  if (el.chartStartDate) el.chartStartDate.value = "";
-  if (el.chartEndDate) el.chartEndDate.value = "";
-
-  localStorage.setItem(STORE_KEY_LIVE, JSON.stringify([]));
-  localStorage.setItem(FORM_KEY_LIVE, JSON.stringify(formState));
-  localStorage.removeItem(STORE_KEY_LIVE_ENC);
-  localStorage.removeItem(FORM_KEY_LIVE_ENC);
-  await writeLiveHistoryFile(snapshotsToCsv([]), false);
-  return true;
-}
-
-// Save live snapshots to server (and localStorage as fallback).
-async function saveLiveSnapshotsToServer() {
-  const csv = snapshotsToCsv(snapshots);
-  const isEncrypted = liveHistoryFile.endsWith(".enc");
-  if (isEncrypted) {
-    if (!liveEncryptionPassword) {
-      const cached = liveFilePasswords.get(liveHistoryFile);
-      if (cached) {
-        liveEncryptionPassword = cached;
-      } else {
-        const pw = await promptForPasswordWithLiveReset({ confirm: false, message: `Enter password for ${liveHistoryFile}.` });
-        if (!pw) return;
-        liveEncryptionPassword = pw;
-        liveFilePasswords.set(liveHistoryFile, pw);
-      }
-    }
-    const enc = await encryptText(csv, liveEncryptionPassword);
-    localStorage.setItem(STORE_KEY_LIVE_ENC, enc);
-    await writeLiveHistoryFile(enc, true);
-  } else {
-    localStorage.setItem(STORE_KEY_LIVE, JSON.stringify(snapshots));
-    await writeLiveHistoryFile(csv, false);
-  }
-}
-
-async function saveDemoSnapshotsToServer() {
-  const csv = snapshotsToCsv(snapshots);
-  // demo source file is always plain CSV
-  await writeLiveHistoryFile(csv, false, { filename: "demo_history.csv" });
-}
-
-// Fetch list of available history files from server.
-async function fetchAvailableLiveFiles() {
-  return [];
-}
-
-function closeLiveFileDropdown() {
-  // No-op: file picker UI is not used in website mode.
 }
 
 function resetLiveDataToEmpty() {
@@ -2904,172 +2621,6 @@ function setLiveAccessLocked() {
   renderAll();
 }
 
-// Populate the custom file menu from the server file list.
-async function populateLiveFileMenu() {
-  return;
-}
-
-// Switch to a different history file, prompting for password if it's encrypted.
-async function switchLiveFile(filename) {
-  const isEnc = filename.endsWith(".enc");
-  if (isEnc) {
-    const raw = await fetchLiveHistoryFile(filename);
-
-    const requestPassword = async () => {
-      if (raw === null) {
-        return await promptForPasswordWithLiveReset({ confirm: false, message: `Enter password for ${filename}.` });
-      }
-      return await promptForPasswordWithLiveReset({
-        confirm: false,
-        message: `Enter password for ${filename}.`,
-        validator: async (entered) => {
-          try {
-            const plain = await decryptText(raw, entered);
-            parseLiveHistoryCsv(plain);
-            return null;
-          } catch {
-            return "Incorrect password. Please try again.";
-          }
-        }
-      });
-    };
-
-    const pw = await requestPassword();
-    if (!pw) {
-      setLiveAccessLocked();
-      await populateLiveFileMenu();
-      return;
-    }
-
-    if (raw !== null) {
-      try {
-        const plain = await decryptText(raw, pw);
-        const result = await parseHistoryCsvWithLegacyPrompt(plain, filename, { encrypted: true });
-        if (result.cancelled) return;
-        snapshots = result.parsed;
-      } catch {
-        setLiveAccessLocked();
-        await populateLiveFileMenu();
-        return;
-      }
-    } else {
-      snapshots = []; // new empty encrypted file
-    }
-    liveEncryptionPassword = pw;
-    liveFilePasswords.set(filename, pw);
-    liveHistoryFile = filename;
-    persistLiveFileSelection(liveHistoryFile);
-    liveAccessLocked = false;
-    liveEncryptionEnabled = true;
-    localStorage.setItem(LIVE_ENCRYPTION_ENABLED_KEY, "1");
-    el.liveEncryptionEnabled.checked = true;
-  } else {
-    const raw = await fetchLiveHistoryFile(filename);
-    if (raw !== null) {
-      const result = await parseHistoryCsvWithLegacyPrompt(raw, filename, { encrypted: false });
-      if (result.cancelled) return;
-      snapshots = result.parsed;
-    } else {
-      snapshots = [];
-    }
-    liveHistoryFile = filename;
-    persistLiveFileSelection(liveHistoryFile);
-    liveAccessLocked = false;
-    liveEncryptionEnabled = false;
-    liveEncryptionPassword = null;
-    localStorage.setItem(LIVE_ENCRYPTION_ENABLED_KEY, "0");
-    el.liveEncryptionEnabled.checked = false;
-  }
-
-  const prevBtcusd = formState.btcusd;
-  const prevManualBtcusd = formState.manualBtcusd;
-  const prevUseManual = formState.useManualBtcusd;
-  formState = structuredClone(DEFAULT_FORM_LIVE);
-  formState.btcusd = prevBtcusd;
-  formState.manualBtcusd = prevManualBtcusd;
-  formState.useManualBtcusd = prevUseManual;
-  editingSnapshotDate = mmddyy(new Date());
-  hasUnsavedAssetLiabilityChanges = false;
-  hoveredSnapshotDate = null;
-  chartRange = { startDate: null, endDate: null };
-  netChartRange = { startDate: null, endDate: null };
-  alChartRange = { startDate: null, endDate: null };
-  if (el.chartStartDate) el.chartStartDate.value = "";
-  if (el.chartEndDate) el.chartEndDate.value = "";
-  seedTodayFormStateFromHistory({ save: false });
-  updateModeToggleUI();
-  renderAll();
-}
-
-// Create a new live history file and switch to it.
-async function createLiveFile(filename) {
-  if (!serverAvailable) return;
-
-  const exists = (await fetchLiveHistoryFile(filename)) !== null;
-  if (exists) {
-    const overwrite = confirm(`${filename} already exists. Overwrite it?`);
-    if (!overwrite) return;
-  }
-
-  const prevFile = liveHistoryFile;
-  liveHistoryFile = filename;
-  persistLiveFileSelection(liveHistoryFile);
-
-  const prevBtcusd = Number(formState.btcusd || 0);
-  const prevManualBtcusd = formState.manualBtcusd;
-  const prevUseManual = formState.useManualBtcusd;
-
-  if (filename.endsWith(".enc")) {
-    const pw = await promptForPassword({
-      confirm: true,
-      message: `Set a password for ${filename}.`
-    });
-    if (!pw) {
-      liveHistoryFile = prevFile;
-      persistLiveFileSelection(liveHistoryFile);
-      return;
-    }
-
-    snapshots = [];
-    formState = structuredClone(DEFAULT_FORM_LIVE);
-    formState.btcusd = prevBtcusd;
-    formState.manualBtcusd = prevManualBtcusd;
-    formState.useManualBtcusd = prevUseManual;
-    liveEncryptionEnabled = true;
-    liveEncryptionPassword = pw;
-    liveFilePasswords.set(filename, pw);
-    localStorage.setItem(LIVE_ENCRYPTION_ENABLED_KEY, "1");
-    el.liveEncryptionEnabled.checked = true;
-
-    const enc = await encryptText(snapshotsToCsv([]), pw);
-    localStorage.setItem(STORE_KEY_LIVE_ENC, enc);
-    localStorage.removeItem(STORE_KEY_LIVE);
-    localStorage.removeItem(FORM_KEY_LIVE);
-    await writeLiveHistoryFile(enc, true);
-  } else {
-    snapshots = [];
-    formState = structuredClone(DEFAULT_FORM_LIVE);
-    formState.btcusd = prevBtcusd;
-    formState.manualBtcusd = prevManualBtcusd;
-    formState.useManualBtcusd = prevUseManual;
-
-    liveEncryptionEnabled = false;
-    liveEncryptionPassword = null;
-    localStorage.setItem(LIVE_ENCRYPTION_ENABLED_KEY, "0");
-    el.liveEncryptionEnabled.checked = false;
-
-    localStorage.setItem(STORE_KEY_LIVE, JSON.stringify([]));
-    localStorage.setItem(FORM_KEY_LIVE, JSON.stringify(formState));
-    localStorage.removeItem(STORE_KEY_LIVE_ENC);
-    localStorage.removeItem(FORM_KEY_LIVE_ENC);
-    await writeLiveHistoryFile(snapshotsToCsv([]), false);
-  }
-
-  seedTodayFormStateFromHistory({ save: false });
-  updateModeToggleUI();
-  renderAll();
-}
-
 function loadForm() {
   // Synchronous path: demo mode, or live without encryption.
   // Encrypted live data is loaded separately via loadLiveEncryptedData().
@@ -3083,11 +2634,6 @@ function loadForm() {
     const defaultForm = currentMode === "demo" ? DEFAULT_FORM_DEMO : DEFAULT_FORM_LIVE;
     return structuredClone(defaultForm);
   }
-}
-
-function resetDemoState() {
-  localStorage.removeItem(STORE_KEY_DEMO);
-  localStorage.removeItem(FORM_KEY_DEMO);
 }
 
 function saveForm() {
@@ -3296,12 +2842,6 @@ function removeRow(key, idx) {
   });
 }
 
-function sanitizeRows(rows) {
-  return rows
-    .map((r) => ({ name: String(r.name || "").trim(), amount: parseRowAmount(r.amount) }))
-    .filter((r) => r.name && Number.isFinite(r.amount));
-}
-
 function canonicalRowName(name) {
   return String(name || "").trim().toLowerCase();
 }
@@ -3351,14 +2891,6 @@ function isRowComplete(row) {
   const name = String(row.name || "").trim();
   const amount = parseRowAmount(row.amount);
   return Boolean(name) && Number.isFinite(amount);
-}
-
-function rowsToObject(rows) {
-  const out = {};
-  uniqueValidRows(rows).forEach((r) => {
-    out[r.name] = (out[r.name] || 0) + Number(r.amount);
-  });
-  return out;
 }
 
 function mmddyyToIsoOrToday(dateKey) {
@@ -3494,10 +3026,6 @@ function sum(arr) {
   return arr.reduce((acc, n) => acc + Number(n || 0), 0);
 }
 
-function saveSnapshot() {
-  persistSnapshotForActiveSelection({ render: true });
-}
-
 function propagateNameRenameAcrossSnapshots(rowKey, oldNameRaw, newNameRaw, currentDate) {
   const oldName = String(oldNameRaw || "").trim();
   const newName = String(newNameRaw || "").trim();
@@ -3614,20 +3142,6 @@ function comparableRowsFromForm(rows) {
     .sort((a, b) => (a.name + a.unit).localeCompare(b.name + b.unit));
 }
 
-function comparableRowsFromSnapshot(rows) {
-  return (rows || [])
-    .map((r) => ({
-      name: String(r.name || "").trim(),
-      value: parseRowAmount(r.value),
-      unit: normalizeUnit(r.unit)
-    }))
-    .filter((r) => r.name && Number.isFinite(r.value))
-    .sort((a, b) => (a.name + a.unit).localeCompare(b.name + b.unit));
-}
-
-function rowsSignature(rows) {
-  return JSON.stringify(rows.map((r) => [r.name, r.unit, Number(r.value).toFixed(8)]));
-}
 function selectSnapshot(date) {
   const today = mmddyy(new Date());
   
@@ -5645,15 +5159,6 @@ function drawLineChartDualYAxis(canvas, datasets, labels, opts = {}) {
   ctx.textBaseline = "alphabetic";
 }
 
-function formatSatsCompact(sats) {
-  if (sats === 0) return "0 sats";
-  const abs = Math.abs(sats);
-  if (abs >= 1e9) return (sats / 1e9).toFixed(Number.isInteger(sats / 1e9) ? 0 : 1) + "B sats";
-  if (abs >= 1e6) return (sats / 1e6).toFixed(Number.isInteger(sats / 1e6) ? 0 : 1) + "M sats";
-  if (abs >= 1e3) return (sats / 1e3).toFixed(Number.isInteger(sats / 1e3) ? 0 : 1) + "k sats";
-  return sats + " sats";
-}
-
 function renderChartLegendRow(container, datasets = []) {
   if (!container) return;
   container.innerHTML = "";
@@ -6348,22 +5853,6 @@ async function loadDemoData() {
   }
 }
 
-function toCsv(rows, headers) {
-  const escape = (v) => {
-    const s = String(v ?? "");
-    if (s.includes(",") || s.includes("\"") || s.includes("\n")) {
-      return `"${s.replaceAll("\"", "\"\"")}"`;
-    }
-    return s;
-  };
-
-  const lines = [headers.join(",")];
-  rows.forEach((row) => {
-    lines.push(headers.map((h) => escape(row[h])).join(","));
-  });
-  return lines.join("\n");
-}
-
 function download(filename, content, mime = "text/csv;charset=utf-8") {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -6374,25 +5863,4 @@ function download(filename, content, mime = "text/csv;charset=utf-8") {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
-}
-
-function exportNetWorthCsv() {
-  const rows = snapshots.map((s) => ({
-    date: s.date,
-    usd: Number(s.totals.net_usd).toFixed(2),
-    btc: Number(s.totals.net_btc).toFixed(8)
-  }));
-  const csv = toCsv(rows, ["date", "usd", "btc"]);
-  download("total_net_worth_usd_vs_btc.csv", csv);
-}
-
-function exportHistoricCsv() {
-  const sorted = snapshots.slice().sort((a, b) => parseMMDDYY(b.date) - parseMMDDYY(a.date));
-  const rows = sorted.map((s) => ({
-    date: s.date,
-    assets: JSON.stringify(s.assets || []),
-    liabilities: JSON.stringify(s.liabilities || [])
-  }));
-  const csv = toCsv(rows, ["date", "assets", "liabilities"]);
-  download("historic_net_worth.csv", csv);
 }

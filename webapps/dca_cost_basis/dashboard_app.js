@@ -49,12 +49,7 @@ const PLAYBACK_SPEEDS = [0.5, 1, 2, 4];
 const EXPORT_VIDEO_FPS = 30;
 const EXPORT_START_HOLD_SECONDS = 1;
 const EXPORT_END_HOLD_SECONDS = 3;
-const EXPORT_BATCH_MEMORY_BUDGET = 220 * 1024 * 1024;
-const EXPORT_MIN_BATCH_FRAMES = 12;
-const EXPORT_MAX_BATCH_FRAMES = 90;
 const EXPORT_CHART_TEXT_SCALE = 1.72;
-const CHART_MONO_FONT = '"IBM Plex Mono", monospace';
-const CHART_TITLE_FONT = '"Space Grotesk", "Helvetica Neue", sans-serif';
 const CHART_MONO_FONT_ATTR = "IBM Plex Mono, monospace";
 const CHART_TITLE_FONT_ATTR = "Space Grotesk, Helvetica Neue, sans-serif";
 const MS_PER_DAY = 86400000;
@@ -534,64 +529,6 @@ function setPreferredDashboardTimeZone(value) {
   return state.timeZone;
 }
 
-function getDashboardTimeZoneOptions() {
-  if (!DASHBOARD_TIME?.getTimeZoneOptions) {
-    return [{ value: "UTC", label: "UTC - Greenwich Mean Time (GMT)" }];
-  }
-  return DASHBOARD_TIME.getTimeZoneOptions();
-}
-
-function formatUpdatedForSelectedTimeZone(value) {
-  const raw = String(value || "").trim();
-  if (!raw) return "-";
-
-  const withParenthesizedZone = (text) => {
-    const normalized = String(text || "").trim();
-    if (!normalized) return normalized;
-    if (/\([^()]+\)\s*$/.test(normalized)) return normalized;
-    const match = normalized.match(/^(.*\d{2}:\d{2})(?:\s+([A-Za-z][A-Za-z0-9_:+\/-]*))$/);
-    if (!match) return normalized;
-    const prefix = match[1].trimEnd();
-    const zone = match[2].trim();
-    return `${prefix} (${zone})`;
-  };
-
-  if (DASHBOARD_TIME?.formatUtcTimestamp) {
-    return withParenthesizedZone(
-      DASHBOARD_TIME.formatUtcTimestamp(raw, state.timeZone || "UTC").text
-    );
-  }
-
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) return raw;
-  return withParenthesizedZone(`${parsed.toISOString().replace("T", " ").slice(0, 16)} UTC`);
-}
-
-function populateUpdatedTimeZoneSelect() {
-  const select = document.getElementById("updatedTimeZoneSelect");
-  if (!select) return;
-  const preferred = getPreferredDashboardTimeZone();
-  state.timeZone = preferred;
-  const options = getDashboardTimeZoneOptions();
-  select.innerHTML = options.map((opt) => {
-    const selected = opt.value === preferred ? " selected" : "";
-    return `<option value="${opt.value}"${selected}>${opt.label}</option>`;
-  }).join("");
-  syncSelectDropdown("updatedTimeZoneSelect", "updatedTimeZoneDropdownTrigger", "updatedTimeZoneDropdownMenu");
-}
-
-function bindTimeZoneChipEvents() {
-  const select = document.getElementById("updatedTimeZoneSelect");
-  if (!select) return;
-  select.addEventListener("change", () => {
-    setPreferredDashboardTimeZone(select.value);
-    select.blur();
-    closeAllSelectDropdowns();
-    saveControls();
-    renderChart();
-  });
-}
-
 function parseCsv(text) {
   const rows = [];
   let row = [];
@@ -662,15 +599,6 @@ function fmtUsd(value, decimals = 0) {
   });
 }
 
-function fmtUsdCompactTick(value) {
-  if (!Number.isFinite(value) || value <= 0) return "";
-  const abs = Math.abs(value);
-  if (abs >= 1e9) return `$${(value / 1e9).toFixed(value % 1e9 === 0 ? 0 : 1)}b`;
-  if (abs >= 1e6) return `$${(value / 1e6).toFixed(value % 1e6 === 0 ? 0 : 1)}m`;
-  if (abs >= 1e3) return `$${(value / 1e3).toFixed(value % 1e3 === 0 ? 0 : 1)}k`;
-  return `$${Math.round(value).toLocaleString("en-US")}`;
-}
-
 function encodeShareState(payload) {
   try {
     const json = JSON.stringify(payload);
@@ -730,42 +658,6 @@ function loadControls() {
   } catch (_) {
     // Ignore invalid cached controls.
   }
-}
-
-function formatRangeOptionLabel(days) {
-  if (!Number.isFinite(days) || days <= 0) return "All";
-
-  const roundedDays = Math.round(days);
-  const approxYears = roundedDays / 365.25;
-  const wholeWeeks = roundedDays / 7;
-
-  if (approxYears >= 1 && Math.abs(approxYears - Math.round(approxYears)) < 0.03) {
-    return `${Math.round(approxYears)}Y`;
-  }
-  if (roundedDays >= 14 && Number.isInteger(wholeWeeks)) {
-    return `${wholeWeeks}W`;
-  }
-  return `${roundedDays}D`;
-}
-
-function ensureCustomRangeOption(rangeSelect, days) {
-  if (!rangeSelect || !Number.isFinite(days) || days <= 0) return;
-
-  const value = String(Math.round(days));
-  if (Array.from(rangeSelect.options).some((opt) => opt.value === value)) return;
-
-  const customOption = document.createElement("option");
-  customOption.value = value;
-  customOption.textContent = `${formatRangeOptionLabel(days)} (Custom)`;
-
-  const allOption = Array.from(rangeSelect.options).find((opt) => opt.value === "0");
-  if (allOption) {
-    rangeSelect.insertBefore(customOption, allOption);
-  } else {
-    rangeSelect.appendChild(customOption);
-  }
-
-  syncSelectDropdown("rangeSelect", "rangeDropdownTrigger", "rangeDropdownMenu");
 }
 
 function saveControls() {
@@ -868,7 +760,17 @@ function datePickerButtonHtml(isoVal) {
 }
 
 function makeDatePicker({ anchorEl, align = "left", getSelected, getMin, getMax, onSelect }) {
-  return window.WSBDashboardComponents.createDatePicker({ anchorEl, align, getSelected, getMin, getMax, onSelect });
+  if (window.WSBDashboardComponents && typeof window.WSBDashboardComponents.createDatePicker === "function") {
+    return window.WSBDashboardComponents.createDatePicker({ anchorEl, align, getSelected, getMin, getMax, onSelect });
+  }
+  if (typeof DASHBOARD_COMPONENTS.createDatePicker === "function") {
+    return DASHBOARD_COMPONENTS.createDatePicker({ anchorEl, align, getSelected, getMin, getMax, onSelect });
+  }
+  return {
+    toggle: () => {},
+    close: () => {},
+    rebuildCalendar: () => {},
+  };
 }
 
 function buildPriceRowsFromSeries(rows) {
@@ -1162,7 +1064,7 @@ function isDefaultState() {
 
 function updateResetButtonUi() {
   const btn = document.getElementById("resetDashboard");
-  window.WSBDashboardComponents.setResetButtonState({
+  DASHBOARD_COMPONENTS.setResetButtonState?.({
     button: btn,
     isUndo: !!preResetStateSnapshot,
     disabled: isDefaultState(),
@@ -2272,20 +2174,7 @@ function bindDateRangeSessionPersistence() {
   window.addEventListener("beforeunload", persistSessionSnapshot);
 }
 
-function isSpaceShortcutTextEntry(active) {
-  const textInputTypes = ["text", "search", "email", "password", "url", "tel", "number"];
-  return !!(
-    active
-    && (
-      (active.tagName === "INPUT" && textInputTypes.includes(String(active.type || "").toLowerCase()))
-      || active.tagName === "TEXTAREA"
-      || active.tagName === "SELECT"
-      || active.isContentEditable
-    )
-  );
-}
-
-function isArrowShortcutFormEntry(active) {
+function isKeyboardShortcutTextEntry(active) {
   return !!(
     active
     && (
@@ -2329,90 +2218,36 @@ function bindDateRangeKeyboardShortcuts() {
   if (dateRangeKeyboardShortcutsBound) return;
   dateRangeKeyboardShortcutsBound = true;
 
-  window.addEventListener("keydown", (event) => {
-    if (!(event.key === " " || event.code === "Space")) return;
-    if (event.altKey || event.ctrlKey || event.metaKey) return;
-    if (isSpaceShortcutTextEntry(document.activeElement)) return;
-
-    event.preventDefault();
-    event.stopPropagation();
-    if (typeof event.stopImmediatePropagation === "function") {
-      event.stopImmediatePropagation();
-    }
-
-    blurDateRangeSliderIfFocused();
-    toggleDateRangePlayback();
-    requestAnimationFrame(blurDateRangeSliderIfFocused);
-  }, true);
-
-  window.addEventListener("keydown", (event) => {
-    const isPlaybackActive = state.dateRange.isPlaying || state.dateRange.isPaused;
-
-    if (event.key === "Escape") {
-      if (!isPlaybackActive) return;
-      event.preventDefault();
-      event.stopPropagation();
-      if (typeof event.stopImmediatePropagation === "function") {
-        event.stopImmediatePropagation();
-      }
+  DASHBOARD_COMPONENTS.bindPlaybackKeyboardShortcuts?.({
+    blurControls: blurDateRangeSliderIfFocused,
+    isTextEntry: (active) => isKeyboardShortcutTextEntry(active),
+    isPlaybackActive: () => state.dateRange.isPlaying || state.dateRange.isPaused,
+    isEscapeActive: () => state.dateRange.isPlaying || state.dateRange.isPaused,
+    isInactiveArrowActive: () => dateRangeLastAdjustedHandle === "start" || dateRangeLastAdjustedHandle === "end",
+    onSpace: toggleDateRangePlayback,
+    onEscape: () => {
       stopDateRangePlayback(true);
       renderChart();
-      return;
-    }
+    },
+    onInactiveArrow: (direction) => nudgeLastAdjustedDateRangeHandle(direction),
+    onArrow: (direction, _event, detail = {}) => {
+      const startIdx = findDateIndex(state.dateRange.startIso, "ceil");
+      const endIdx = findDateIndex(state.dateRange.endIso, "floor");
+      const currentIdx = findDateIndex(state.dateRange.currentEndIso, "floor");
+      if (startIdx < 0 || endIdx < 0 || currentIdx < 0 || endIdx < startIdx) return;
 
-    const isArrowLeft = event.key === "ArrowLeft";
-    const isArrowRight = event.key === "ArrowRight";
-    const isComma = event.key === "," || event.code === "Comma";
-    const isPeriod = event.key === "." || event.code === "Period";
-    if (!isArrowLeft && !isArrowRight && !isComma && !isPeriod) return;
-    if (event.altKey || event.ctrlKey || event.metaKey) return;
-    if (isArrowShortcutFormEntry(document.activeElement)) return;
-
-    if (!isPlaybackActive) {
-      if (!isArrowLeft && !isArrowRight) return;
-      if (dateRangeLastAdjustedHandle !== "start" && dateRangeLastAdjustedHandle !== "end") return;
-      event.preventDefault();
-      event.stopPropagation();
-      if (typeof event.stopImmediatePropagation === "function") {
-        event.stopImmediatePropagation();
+      const daysPerSecond = 30 * Math.max(0.5, Number(state.dateRange.playbackSpeed) || 1);
+      const framesFor10Seconds = Math.max(1, Math.round(10 * daysPerSecond));
+      const delta = detail.isStep ? direction : direction * framesFor10Seconds;
+      const nextIdx = Math.max(startIdx, Math.min(endIdx, currentIdx + delta));
+      if (nextIdx !== currentIdx) {
+        setDateRangeCurrentEndByIndex(nextIdx);
+        if (direction > 0 && state.dateRange.isPlaying && nextIdx === endIdx) {
+          pauseDateRangePlayback();
+        }
       }
-      blurDateRangeSliderIfFocused();
-      nudgeLastAdjustedDateRangeHandle(isArrowRight ? 1 : -1);
-      requestAnimationFrame(blurDateRangeSliderIfFocused);
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-    if (typeof event.stopImmediatePropagation === "function") {
-      event.stopImmediatePropagation();
-    }
-
-    const startIdx = findDateIndex(state.dateRange.startIso, "ceil");
-    const endIdx = findDateIndex(state.dateRange.endIso, "floor");
-    const currentIdx = findDateIndex(state.dateRange.currentEndIso, "floor");
-    if (startIdx < 0 || endIdx < 0 || currentIdx < 0 || endIdx < startIdx) return;
-
-    const daysPerSecond = 30 * Math.max(0.5, Number(state.dateRange.playbackSpeed) || 1);
-    const framesFor10Seconds = Math.max(1, Math.round(10 * daysPerSecond));
-    let nextIdx = currentIdx;
-    if (isArrowRight) {
-      nextIdx = Math.min(endIdx, currentIdx + framesFor10Seconds);
-    } else if (isArrowLeft) {
-      nextIdx = Math.max(startIdx, currentIdx - framesFor10Seconds);
-    } else if (isPeriod) {
-      nextIdx = Math.min(endIdx, currentIdx + 1);
-    } else if (isComma) {
-      nextIdx = Math.max(startIdx, currentIdx - 1);
-    }
-
-    if (nextIdx !== currentIdx) {
-      setDateRangeCurrentEndByIndex(nextIdx);
-      if (isArrowRight && state.dateRange.isPlaying && nextIdx === endIdx) {
-        pauseDateRangePlayback();
-      }
-    }
-  }, true);
+    },
+  });
 }
 
 function primeKeyboardFocus() {
@@ -2590,15 +2425,6 @@ function scheduleDownloadEstimateCalibration(settings, frameDates, key) {
   }, 180);
 }
 
-function formatDuration(seconds) {
-  const total = Math.max(0, Math.round(seconds));
-  const hours = Math.floor(total / 3600);
-  const minutes = Math.floor((total % 3600) / 60);
-  const rest = total % 60;
-  if (hours) return `${hours}h ${minutes}m ${rest}s`;
-  return minutes ? `${minutes}m ${rest}s` : `${rest}s`;
-}
-
 function updateDownloadEstimates() {
   const sizeEl = document.getElementById("downloadEstimateSize");
   const lengthEl = document.getElementById("downloadEstimateLength");
@@ -2606,11 +2432,13 @@ function updateDownloadEstimates() {
   if (!sizeEl || !lengthEl || !timeEl) return;
   const settings = normalizeDownloadSettings(state.downloadSettings);
   const { width, height } = getDownloadDimensions(settings);
+  const megapixels = Math.max(1, (width * height) / (1280 * 720));
   const seconds = getDownloadVideoSeconds(settings);
   const frameDates = getDateRangeExportFrameDates(state.dateRange.startIso, state.dateRange.endIso, Number(settings.speed) || 1, settings.endFrameHold);
   const uniqueFrameCount = new Set(frameDates).size;
   const calibrationKey = getDownloadEstimateCalibrationKey(settings, frameDates);
   const calibration = downloadEstimateCalibrationCache.get(calibrationKey);
+  const canDownload = canUseDeterministicWebCodecsExport();
   const estimate = window.WSBDashboardExport.estimateDownload(settings, {
     frameCount: frameDates.length,
     uniqueFrameCount,
@@ -2618,14 +2446,19 @@ function updateDownloadEstimates() {
     dimensions: { width, height },
     bitrate: getDateRangeExportBitrate(settings),
     calibration,
-    fallbackFrameSeconds: 0.035 * (width * height) / (1280 * 720),
+    fallbackFrameSeconds: 0.006 * Math.sqrt(megapixels),
+    encodeFrameSeconds: 0.0005,
   });
   sizeEl.textContent = estimate.sizeText;
   lengthEl.textContent = estimate.lengthText;
-  timeEl.textContent = estimate.timeText;
+  timeEl.textContent = canDownload ? estimate.timeText : "--";
   if (!calibration && frameDates.length) {
     scheduleDownloadEstimateCalibration(settings, frameDates, calibrationKey);
   }
+}
+
+function canUseDeterministicWebCodecsExport() {
+  return !!window.WSBDashboardExport?.hasWebCodecsExportSupport?.();
 }
 
 function syncDownloadSettingsControls() {
@@ -2677,9 +2510,9 @@ function resetDateRangeDownloadButton() {
   const downloadBtn = document.getElementById("dateRangeDownloadBtn");
   if (!downloadBtn) return;
   downloadBtn.classList.remove("is-exporting", "is-canceling");
-  downloadBtn.disabled = false;
+  downloadBtn.disabled = !canUseDeterministicWebCodecsExport();
   downloadBtn.setAttribute("aria-label", "Download date range animation");
-  downloadBtn.setAttribute("title", "Download animation");
+  downloadBtn.setAttribute("title", canUseDeterministicWebCodecsExport() ? "Download animation" : "Animation download requires WebCodecs support");
   downloadBtn.textContent = "↓";
   syncDownloadSettingsDownloadButton();
 }
@@ -2687,8 +2520,11 @@ function resetDateRangeDownloadButton() {
 function syncDownloadSettingsDownloadButton() {
   const button = document.getElementById("downloadSettingsDownloadBtn");
   if (!button) return;
+  const canDownload = canUseDeterministicWebCodecsExport();
   button.classList.toggle("is-stop-download", isDateRangeExporting);
+  button.disabled = !canDownload && !isDateRangeExporting;
   button.textContent = isDateRangeExporting ? "Stop Download" : "Download Animation";
+  button.title = canDownload ? "" : "Animation download requires WebCodecs support";
 }
 
 function requestDateRangeExportCancel() {
@@ -2925,42 +2761,8 @@ function scaleSvgRoot(svgMarkup, width, height, viewWidth, viewHeight) {
   );
 }
 
-function getSupportedRecorder(extension = "webm") {
-  if (!window.MediaRecorder || typeof MediaRecorder.isTypeSupported !== "function") return null;
-  const byExtension = {
-    webm: ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"],
-  };
-  const fallback = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
-  const candidates = [...(byExtension[extension] || []), ...fallback];
-  const mimeType = candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate));
-  if (!mimeType) return null;
-  return { mimeType, extension: "webm" };
-}
-
 function getDateRangeExportBitrate(settings) {
   return Math.max(4_000_000, Number(settings.quality) * 8000);
-}
-
-function getDateRangeExportBatchSize(settings) {
-  const { width, height } = getDownloadDimensions(settings);
-  const frameBytes = Math.max(1, width * height * 4);
-  const budgetFrames = Math.floor(EXPORT_BATCH_MEMORY_BUDGET / frameBytes);
-  return Math.max(EXPORT_MIN_BATCH_FRAMES, Math.min(EXPORT_MAX_BATCH_FRAMES, budgetFrames));
-}
-
-function closeDateRangeExportFrames(frameCache) {
-  frameCache.forEach((frame) => {
-    if (typeof frame?.close === "function") frame.close();
-  });
-  frameCache.clear();
-}
-
-function transitionMediaRecorder(recorder, eventName, action) {
-  return new Promise((resolve, reject) => {
-    recorder.addEventListener(eventName, resolve, { once: true });
-    recorder.addEventListener("error", () => reject(recorder.error || new Error("Recording failed")), { once: true });
-    action();
-  });
 }
 
 async function encodeDateRangeAnimationWebM({ canvas, ctx, settings, theme, palette, frameDates }) {
@@ -3025,10 +2827,6 @@ async function drawExportFrame(ctx, canvas, frameEndIso, settings, palette, prec
   );
 }
 
-function wait(ms) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
 function downloadDateRangeExportBlob(blob, extension, settings) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -3047,6 +2845,11 @@ async function downloadDateRangeAnimation() {
   }
 
   const settings = normalizeDownloadSettings(state.downloadSettings);
+  if (!canUseDeterministicWebCodecsExport()) {
+    resetDateRangeDownloadButton();
+    updateDownloadEstimates();
+    return;
+  }
 
   stopDateRangePlayback(false);
   const { width, height } = getDownloadDimensions(settings);
@@ -3069,216 +2872,25 @@ async function downloadDateRangeAnimation() {
 
   try {
     await waitForDateRangeExportFonts();
-    await waitForDateRangeExportFonts();
     await drawExportFrame(ctx, canvas, finalDate, { ...settings, theme }, palette, getFrameRows(state.dateRange.startIso, finalDate));
-  } catch (error) {
-    console.error(error);
-    isDateRangeExporting = false;
-    dateRangeExportCancelRequested = false;
-    broadcastDateRangeExportActive(false);
-    resetDateRangeDownloadButton();
-    window.alert("The animation export could not be completed in this browser.");
-    return;
-  }
-
-  if (settings.extension === "webm") {
-    try {
-      const webmBlob = await encodeDateRangeAnimationWebM({
-        canvas,
-        ctx,
-        settings,
-        theme,
-        palette,
-        frameDates,
-      });
-      if (webmBlob && !dateRangeExportCancelRequested) {
-        renderDateRangeDownloadButtonProgress(1);
-        downloadDateRangeExportBlob(webmBlob, "webm", settings);
-        isDateRangeExporting = false;
-        dateRangeExportCancelRequested = false;
-        broadcastDateRangeExportActive(false);
-        resetDateRangeDownloadButton();
-        return;
-      }
-      if (dateRangeExportCancelRequested) {
-        isDateRangeExporting = false;
-        dateRangeExportCancelRequested = false;
-        broadcastDateRangeExportActive(false);
-        resetDateRangeDownloadButton();
-        return;
-      }
-    } catch (error) {
-      console.warn("Deterministic WebCodecs export unavailable; falling back to recorder export.", error);
-    }
-  }
-
-  const recorderInfo = getSupportedRecorder(settings.extension);
-  if (!recorderInfo || typeof HTMLCanvasElement.prototype.captureStream !== "function") {
-    isDateRangeExporting = false;
-    dateRangeExportCancelRequested = false;
-    broadcastDateRangeExportActive(false);
-    resetDateRangeDownloadButton();
-    window.alert("The animation export could not be completed in this browser.");
-    return;
-  }
-
-  const chunks = [];
-  let stream = null;
-  let track = null;
-  let recorder = null;
-  try {
-    try {
-      stream = canvas.captureStream(0);
-    } catch (_) {
-      stream = canvas.captureStream(EXPORT_VIDEO_FPS);
-    }
-    [track] = stream.getVideoTracks();
-    if (!track || typeof track.requestFrame !== "function") {
-      if (track) track.stop();
-      stream = canvas.captureStream(EXPORT_VIDEO_FPS);
-      [track] = stream.getVideoTracks();
-    }
-    recorder = new MediaRecorder(stream, {
-      mimeType: recorderInfo.mimeType,
-      videoBitsPerSecond: getDateRangeExportBitrate(settings),
+    const webmBlob = await encodeDateRangeAnimationWebM({
+      canvas,
+      ctx,
+      settings,
+      theme,
+      palette,
+      frameDates,
     });
+    if (webmBlob && !dateRangeExportCancelRequested) {
+      renderDateRangeDownloadButtonProgress(1);
+      downloadDateRangeExportBlob(webmBlob, "webm", settings);
+    }
   } catch (error) {
-    console.error(error);
-    stream?.getTracks?.().forEach((streamTrack) => streamTrack.stop());
-    isDateRangeExporting = false;
-    dateRangeExportCancelRequested = false;
-    broadcastDateRangeExportActive(false);
-    resetDateRangeDownloadButton();
-    window.alert("The animation export could not be completed in this browser.");
-    return;
-  }
-  recorder.ondataavailable = (event) => {
-    if (event.data?.size) chunks.push(event.data);
-  };
-
-  const finished = new Promise((resolve, reject) => {
-    recorder.addEventListener("stop", resolve, { once: true });
-    recorder.addEventListener("error", () => reject(recorder.error || new Error("Recording failed")), { once: true });
-  });
-
-  const totalWork = Math.max(1, frameDates.length * 2);
-  let completedWork = 0;
-  let wasCanceled = false;
-  const batchSize = getDateRangeExportBatchSize(settings);
-  const cachedFrames = new Map();
-  const cachedRows = new Map();
-  let exportSucceeded = false;
-
-  const renderFrameBatch = async (batchStart) => {
-    closeDateRangeExportFrames(cachedFrames);
-    cachedRows.clear();
-    const batchDates = frameDates.slice(batchStart, batchStart + batchSize);
-    const uniqueBatchDates = [];
-    const seenBatchDates = new Set();
-    batchDates.forEach((dateIso) => {
-      if (seenBatchDates.has(dateIso)) return;
-      seenBatchDates.add(dateIso);
-      uniqueBatchDates.push(dateIso);
-    });
-
-    for (const dateIso of uniqueBatchDates) {
-      if (dateRangeExportCancelRequested) {
-        wasCanceled = true;
-        break;
-      }
-      cachedRows.set(dateIso, getFrameRows(state.dateRange.startIso, dateIso));
-    }
-    if (wasCanceled) return;
-
-    for (const dateIso of uniqueBatchDates) {
-      if (dateRangeExportCancelRequested) {
-        wasCanceled = true;
-        break;
-      }
-      const rows = cachedRows.get(dateIso) || [];
-      await drawExportFrame(ctx, canvas, dateIso, { ...settings, theme }, palette, rows);
-      const frameImage = typeof createImageBitmap === "function"
-        ? await createImageBitmap(canvas)
-        : (() => {
-            const fallbackCanvas = document.createElement("canvas");
-            fallbackCanvas.width = canvas.width;
-            fallbackCanvas.height = canvas.height;
-            fallbackCanvas.getContext("2d")?.drawImage(canvas, 0, 0);
-            return fallbackCanvas;
-          })();
-      cachedFrames.set(dateIso, frameImage);
-      completedWork += 1;
-      renderDateRangeDownloadButtonProgress(completedWork / totalWork);
-    }
-  };
-
-  try {
-    recorder.start();
-    if (typeof recorder.pause !== "function" || typeof recorder.resume !== "function") {
-      throw new Error("MediaRecorder pause/resume unavailable.");
-    }
-    if (track && typeof track.requestFrame === "function") track.requestFrame();
-    await transitionMediaRecorder(recorder, "pause", () => recorder.pause());
-
-    let recordedFrames = 0;
-    const frameDurationMs = 1000 / EXPORT_VIDEO_FPS;
-    for (let batchStart = 0; batchStart < frameDates.length; batchStart += batchSize) {
-      await renderFrameBatch(batchStart);
-      if (wasCanceled || dateRangeExportCancelRequested) {
-        wasCanceled = true;
-        break;
-      }
-
-      await transitionMediaRecorder(recorder, "resume", () => recorder.resume());
-      let lastCaptureTime = performance.now() - frameDurationMs;
-      const batchEnd = Math.min(frameDates.length, batchStart + batchSize);
-      for (let frameIndex = batchStart; frameIndex < batchEnd; frameIndex += 1) {
-        const dateIso = frameDates[frameIndex];
-        if (dateRangeExportCancelRequested) {
-          wasCanceled = true;
-          break;
-        }
-        const frameImage = cachedFrames.get(dateIso);
-        if (!frameImage) throw new Error("Cached export frame unavailable.");
-        const elapsedSinceLastCapture = performance.now() - lastCaptureTime;
-        if (elapsedSinceLastCapture < frameDurationMs) {
-          await wait(frameDurationMs - elapsedSinceLastCapture);
-        }
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(frameImage, 0, 0);
-        if (track && typeof track.requestFrame === "function") track.requestFrame();
-        lastCaptureTime = performance.now();
-        recordedFrames += 1;
-        completedWork += 1;
-        renderDateRangeDownloadButtonProgress(completedWork / totalWork);
-      }
-      if (wasCanceled || dateRangeExportCancelRequested) break;
-      if (batchEnd < frameDates.length) {
-        await transitionMediaRecorder(recorder, "pause", () => recorder.pause());
-      }
-    }
-    recorder.stop();
-    await finished;
-    if (wasCanceled || dateRangeExportCancelRequested) {
-      chunks.length = 0;
-      return;
-    }
-    renderDateRangeDownloadButtonProgress(1);
-
-    const blob = new Blob(chunks, { type: recorderInfo.mimeType });
-    downloadDateRangeExportBlob(blob, recorderInfo.extension, settings);
-    exportSucceeded = true;
-  } catch (error) {
-    if (!wasCanceled && !dateRangeExportCancelRequested) {
+    if (!dateRangeExportCancelRequested) {
       console.error(error);
       window.alert("The animation export could not be completed in this browser.");
     }
   } finally {
-    if (recorder.state !== "inactive") recorder.stop();
-    stream.getTracks().forEach((streamTrack) => streamTrack.stop());
-    closeDateRangeExportFrames(cachedFrames);
-    cachedRows.clear();
-    if (!exportSucceeded) chunks.length = 0;
     isDateRangeExporting = false;
     dateRangeExportCancelRequested = false;
     broadcastDateRangeExportActive(false);
@@ -3498,13 +3110,11 @@ function updateKpis(rows) {
   if (!rows.length) return;
 
   const latest = rows.find((row) => row.daysAgo === 1) || rows[rows.length - 1];
-  const spot = Number.isFinite(latest.currentPrice) ? latest.currentPrice : latest.historicalPrice;
 
   const updatedRaw = String(state.metadata?.generated_utc || "").trim();
   const updatedHeight = Number(state.metadata?.source?.latest_block_height ?? latest.blockHeight);
 
   const chipUpdatedValue = document.querySelector("#chipUpdated .chip-value");
-  const chipSpotValue = document.querySelector("#chipSpot .chip-value");
   if (updatedTimeZoneChip) {
     updatedTimeZoneChip.setUpdated(updatedRaw, {
       includeHeight: Number.isFinite(updatedHeight) && updatedHeight > 0,
@@ -3513,7 +3123,6 @@ function updateKpis(rows) {
   } else if (chipUpdatedValue) {
     chipUpdatedValue.textContent = "-";
   }
-  if (chipSpotValue) chipSpotValue.textContent = fmtUsd(spot, 0);
 
   const total = rows.length;
   const profitCount = rows.filter((r) => r.isPriceAbove > 0.5).length;
@@ -3703,43 +3312,10 @@ function syncCurrentPriceOverlay(chart, currentPrice, colors) {
   overlay.hidden = false;
 }
 
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
-}
-
 function snapSvgLineCoord(value, strokeWidth = 1) {
   const lineWidth = Math.max(1, Math.round(Number(strokeWidth) || 1));
   const offset = lineWidth % 2 === 1 ? 0.5 : 0;
   return Math.round(Number(value) || 0) + offset;
-}
-
-function formatPriceAxisTick(value) {
-  if (!Number.isFinite(value)) return "";
-  if (Math.abs(value) < 1e-9) return "$0";
-  if (value < 0) return "";
-  if (value >= 1000) return fmtUsdCompactTick(value);
-  if (value >= 100) return fmtUsd(value, 0);
-  if (value >= 10) return fmtUsd(value, 1);
-  return fmtUsd(value, 2);
-}
-
-function niceNumber(value, shouldRound) {
-  if (!Number.isFinite(value) || value <= 0) return 1;
-  const exponent = Math.floor(Math.log10(value));
-  const fraction = value / (10 ** exponent);
-  let niceFraction;
-
-  if (shouldRound) {
-    if (fraction < 1.5) niceFraction = 1;
-    else if (fraction < 3) niceFraction = 2;
-    else if (fraction < 7) niceFraction = 5;
-    else niceFraction = 10;
-  } else if (fraction <= 1) niceFraction = 1;
-  else if (fraction <= 2) niceFraction = 2;
-  else if (fraction <= 5) niceFraction = 5;
-  else niceFraction = 10;
-
-  return niceFraction * (10 ** exponent);
 }
 
 function formatCompactUsdAxisLabel(value) {

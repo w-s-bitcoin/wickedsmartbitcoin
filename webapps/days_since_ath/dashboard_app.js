@@ -592,14 +592,6 @@
     return frames.length ? frames : [start, end];
   }
 
-  function formatDownloadEstimateDuration(seconds) {
-    return window.WSBDashboardExport.formatDuration(seconds);
-  }
-
-  function formatDownloadEstimateSize(bytes) {
-    return window.WSBDashboardExport.formatSize(bytes);
-  }
-
   function getDownloadDimensions(settings) {
     return window.WSBDashboardExport.getDimensions(settings);
   }
@@ -612,25 +604,12 @@
     return window.WSBDashboardExport.getReferenceSettings(settings, 720);
   }
 
-  function drawScaledExportFrame(sourceCanvas, targetCanvas, settings) {
-    const { width, height } = getDownloadDimensions(settings);
-    if (targetCanvas.width !== width) targetCanvas.width = width;
-    if (targetCanvas.height !== height) targetCanvas.height = height;
-    const ctx = targetCanvas.getContext("2d");
-    if (!ctx) return;
-    const bg = EXPORT_THEME_PALETTES[settings.theme]?.["--bg"] || css("--bg", "#000");
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, width, height);
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(sourceCanvas, 0, 0, width, height);
-    ctx.restore();
-  }
-
   function getExportBitrate(settings) {
     return window.WSBDashboardExport.getBitrate(settings);
+  }
+
+  function canUseDeterministicWebCodecsExport() {
+    return !!window.WSBDashboardExport?.hasWebCodecsExportSupport?.();
   }
 
   function updateDownloadEstimates() {
@@ -653,7 +632,7 @@
     });
     el.downloadEstimateSize.textContent = estimate.sizeText;
     el.downloadEstimateLength.textContent = estimate.lengthText;
-    el.downloadEstimateTime.textContent = estimate.timeText;
+    el.downloadEstimateTime.textContent = canUseDeterministicWebCodecsExport() ? estimate.timeText : "--";
   }
 
   function setupCanvas(canvas) {
@@ -1440,13 +1419,6 @@
     });
   }
 
-  function setChartModeFromVisible(showPrice, showDays) {
-    if (showPrice && showDays) state.chartMode = "both";
-    else if (showPrice) state.chartMode = "price";
-    else if (showDays) state.chartMode = "days";
-    else state.chartMode = "both";
-  }
-
   function setSettingsMenuOpen(open) {
     window.WSBDashboardComponents.setFloatingMenuOpen({
       menu: el.settingsMenu,
@@ -1511,18 +1483,22 @@
 
   function resetDateRangeDownloadButton() {
     if (!el.downloadBtn) return;
+    const canDownload = canUseDeterministicWebCodecsExport();
     el.downloadBtn.classList.remove("is-exporting", "is-canceling");
-    el.downloadBtn.disabled = false;
+    el.downloadBtn.disabled = !canDownload;
     el.downloadBtn.setAttribute("aria-label", "Download date range animation");
-    el.downloadBtn.setAttribute("title", "Download animation");
+    el.downloadBtn.setAttribute("title", canDownload ? "Download animation" : "Animation download requires WebCodecs support");
     el.downloadBtn.textContent = "↓";
     syncDownloadSettingsDownloadButton();
   }
 
   function syncDownloadSettingsDownloadButton() {
     if (!el.settingsDownloadBtn) return;
+    const canDownload = canUseDeterministicWebCodecsExport();
     el.settingsDownloadBtn.classList.toggle("is-stop-download", isDateRangeExporting);
+    el.settingsDownloadBtn.disabled = !isDateRangeExporting && !canDownload;
     el.settingsDownloadBtn.textContent = isDateRangeExporting ? "Stop Download" : "Download Animation";
+    el.settingsDownloadBtn.setAttribute("title", canDownload ? "Download animation" : "Animation download requires WebCodecs support");
   }
 
   function requestExportCancel() {
@@ -1540,10 +1516,6 @@
         window.parent.postMessage({ type: "wsb-days-since-ath-date-range-export-active", active: !!active }, window.location.origin);
       }
     } catch (_) {}
-  }
-
-  function waitMs(ms) {
-    return new Promise((resolve) => window.setTimeout(resolve, ms));
   }
 
   async function waitForExportFonts() {
@@ -1671,6 +1643,11 @@
   async function downloadDateRangeAnimation() {
     if (isDateRangeExporting) {
       requestExportCancel();
+      return;
+    }
+    if (!canUseDeterministicWebCodecsExport()) {
+      resetDateRangeDownloadButton();
+      updateDownloadEstimates();
       return;
     }
     if (!state.rows.length) return;
@@ -1863,38 +1840,13 @@
     }
   }
 
-  function handleDateRangeSpaceShortcut(event) {
-    if (!(event.key === " " || event.key === "Spacebar" || event.code === "Space")) return;
-    if (event.altKey || event.ctrlKey || event.metaKey || isKeyboardTextEntryActive()) return;
-    event.preventDefault();
-    event.stopPropagation();
-    if (typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
-    blurDateRangeKeyboardControlIfFocused();
+  function handleDateRangeSpaceShortcut() {
     if (state.playing) pause();
     else play();
-    requestAnimationFrame(blurDateRangeKeyboardControlIfFocused);
   }
 
-  function handleDateRangeArrowScrubbing(event) {
+  function handleDateRangeArrowScrubbing(direction, detail = {}) {
     if (!dateRangePlaybackState.hasSession) return;
-    if (event.altKey || event.ctrlKey || event.metaKey || isKeyboardTextEntryActive()) return;
-
-    if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      if (typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
-      stopPlayback({ restoreOriginalRange: true });
-      return;
-    }
-
-    const isArrowLeft = event.key === "ArrowLeft";
-    const isArrowRight = event.key === "ArrowRight";
-    if (!isArrowLeft && !isArrowRight) return;
-
-    event.preventDefault();
-    event.stopPropagation();
-    if (typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
-
     const maxIdx = maxRangeIndex();
     const sessionStart = Math.max(0, Math.min(maxIdx, Math.round(dateRangePlaybackState.startIndex)));
     const sessionEnd = Math.max(sessionStart, Math.min(maxIdx, Math.round(dateRangePlaybackState.targetEndIndex)));
@@ -1902,14 +1854,13 @@
     if (!Number.isFinite(currentEnd)) currentEnd = dateRangePlaybackState.currentEndIndex || sessionStart;
     currentEnd = Math.max(sessionStart, Math.min(sessionEnd, Math.round(currentEnd)));
     const step = Math.max(1, Math.round(10 * DEFAULT_RANGE_PLAYBACK_FPS));
-    const nextEnd = isArrowRight
-      ? Math.min(sessionEnd, currentEnd + step)
-      : Math.max(sessionStart, currentEnd - step);
+    const delta = detail.isStep ? direction : direction * step;
+    const nextEnd = Math.max(sessionStart, Math.min(sessionEnd, currentEnd + delta));
     if (nextEnd === currentEnd) return;
 
     setRangeByIndices(sessionStart, nextEnd);
     dateRangePlaybackState.currentEndIndex = nextEnd;
-    if (isArrowRight && state.playing && nextEnd === sessionEnd) pause();
+    if (direction > 0 && state.playing && nextEnd === sessionEnd) pause();
   }
 
   function beginDateRangeEndSliderScrub(event) {
@@ -2152,9 +2103,11 @@
     el.sliderWrap?.addEventListener("pointerup", endDateRangeSegmentDrag);
     el.sliderWrap?.addEventListener("pointercancel", endDateRangeSegmentDrag);
     window.WSBDashboardComponents.bindPlaybackKeyboardShortcuts({
+      blurControls: blurDateRangeKeyboardControlIfFocused,
+      isTextEntry: () => isKeyboardTextEntryActive(),
       onSpace: handleDateRangeSpaceShortcut,
-      isArrowActive: () => dateRangePlaybackState.hasSession,
-      onArrow: (_direction, event) => handleDateRangeArrowScrubbing(event),
+      isPlaybackActive: () => dateRangePlaybackState.hasSession,
+      onArrow: (direction, _event, detail) => handleDateRangeArrowScrubbing(direction, detail),
       isEscapeActive: () => dateRangePlaybackState.hasSession,
       onEscape: () => stopPlayback({ restoreOriginalRange: true }),
     });

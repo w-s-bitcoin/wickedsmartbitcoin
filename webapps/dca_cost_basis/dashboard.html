@@ -836,7 +836,6 @@
 
       body.dca-dashboard-expanded .wrap {
         height: auto;
-        padding-bottom: calc(var(--wrap-pad) + env(safe-area-inset-bottom, 0px) + 56px);
       }
     }
 
@@ -2005,7 +2004,6 @@
           </div>
           <select id="updatedTimeZoneSelect" class="chip-menu-select chip-kpi-select-overlay dca-native-select" aria-label="Updated timestamp time zone"></select>
         </div>
-        <div class="chip" id="chipSpot"><span class="chip-label">Price</span> <span class="chip-value">-</span></div>
         <div class="chip" id="chipProfitPct"><span class="chip-label">In Profit</span> <span class="chip-pct chip-pct-profit">-%</span></div>
         <div class="chip" id="chipLossPct"><span class="chip-label">At a Loss</span> <span class="chip-pct chip-pct-loss">-%</span></div>
       </div>
@@ -2066,28 +2064,29 @@
             <option value="linear" selected>Linear</option>
             <option value="log">Log</option>
           </select>
-          <button type="button" id="dateRangePlayBtn" class="date-range-playback-btn date-range-play-btn" aria-label="Play">▶</button>
-          <button type="button" id="dateRangePauseBtn" class="date-range-playback-btn date-range-pause-btn" aria-label="Pause" disabled>❚❚</button>
-          <button type="button" id="dateRangeStopBtn" class="date-range-playback-btn date-range-stop-btn" aria-label="Stop" disabled>■</button>
-          <button type="button" id="dateRangeSpeedBtn" class="date-range-playback-btn date-range-speed-btn">1x</button>
-          <button type="button" id="dashboardExpandBtn" class="date-range-playback-btn dashboard-expand-btn" aria-label="Expand video layout" aria-pressed="false" title="Expand video layout">
-            <svg class="dashboard-expand-icon dashboard-expand-icon-expand" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M4 9V4h5" />
-              <path d="M20 9V4h-5" />
-              <path d="M4 15v5h5" />
-              <path d="M20 15v5h-5" />
-            </svg>
-            <svg class="dashboard-expand-icon dashboard-expand-icon-shrink" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M9 4v5H4" />
-              <path d="M15 4v5h5" />
-              <path d="M9 20v-5H4" />
-              <path d="M15 20v-5h5" />
-            </svg>
-          </button>
-          <button type="button" id="dateRangeDownloadBtn" class="date-range-playback-btn date-range-download-btn" aria-label="Download date range animation" title="Download animation">↓</button>
-          <div class="date-range-download-wrap">
-            <button type="button" id="dateRangeSettingsBtn" class="date-range-playback-btn date-range-settings-btn" aria-label="Download settings">⚙</button>
-            <div id="dateRangeSettingsMenu" class="date-range-settings-menu" role="dialog" aria-label="Download settings">
+          <div class="date-range-playback-button-group" role="group" aria-label="Playback controls">
+            <button type="button" id="dateRangePlayBtn" class="date-range-playback-btn date-range-play-btn" aria-label="Play">▶</button>
+            <button type="button" id="dateRangePauseBtn" class="date-range-playback-btn date-range-pause-btn" aria-label="Pause" disabled>❚❚</button>
+            <button type="button" id="dateRangeStopBtn" class="date-range-playback-btn date-range-stop-btn" aria-label="Stop" disabled>■</button>
+            <button type="button" id="dateRangeSpeedBtn" class="date-range-playback-btn date-range-speed-btn">1x</button>
+            <button type="button" id="dashboardExpandBtn" class="date-range-playback-btn dashboard-expand-btn" aria-label="Expand video layout" aria-pressed="false" title="Expand video layout">
+              <svg class="dashboard-expand-icon dashboard-expand-icon-expand" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 9V4h5" />
+                <path d="M20 9V4h-5" />
+                <path d="M4 15v5h5" />
+                <path d="M20 15v5h-5" />
+              </svg>
+              <svg class="dashboard-expand-icon dashboard-expand-icon-shrink" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M9 4v5H4" />
+                <path d="M15 4v5h5" />
+                <path d="M9 20v-5H4" />
+                <path d="M15 20v-5h5" />
+              </svg>
+            </button>
+            <button type="button" id="dateRangeDownloadBtn" class="date-range-playback-btn date-range-download-btn" aria-label="Download date range animation" title="Download animation">↓</button>
+            <div class="date-range-download-wrap">
+              <button type="button" id="dateRangeSettingsBtn" class="date-range-playback-btn date-range-settings-btn" aria-label="Download settings">⚙</button>
+              <div id="dateRangeSettingsMenu" class="date-range-settings-menu" role="dialog" aria-label="Download settings">
               <div class="download-setting-field">Scale
                 <div id="downloadScaleSelect" class="download-setting-button-row">
                   <button type="button" class="download-setting-option is-selected" data-value="linear">Linear</button>
@@ -2133,6 +2132,7 @@
                 <div class="download-estimate-row"><span>Download Time</span><strong id="downloadEstimateTime">--</strong></div>
               </div>
               <button type="button" id="downloadSettingsDownloadBtn">Download Animation</button>
+              </div>
             </div>
           </div>
         </div>

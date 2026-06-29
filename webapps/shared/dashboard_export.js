@@ -290,7 +290,7 @@
   }
 
   async function getSupportedWebCodecsConfig(width, height, settings = {}, opts = {}) {
-    if (!window.VideoEncoder || !window.VideoFrame || typeof VideoEncoder.isConfigSupported !== "function") return null;
+    if (!hasWebCodecsExportSupport()) return null;
     const fps = Math.max(1, Number(opts.fps) || DEFAULT_FPS);
     const candidates = opts.candidates || [
       { codec: "vp09.00.10.08", webmCodecId: "V_VP9" },
@@ -313,6 +313,10 @@
       }
     }
     return null;
+  }
+
+  function hasWebCodecsExportSupport() {
+    return !!(window.VideoEncoder && window.VideoFrame && typeof VideoEncoder.isConfigSupported === "function");
   }
 
   async function encodeWebM({
@@ -427,6 +431,7 @@
   ns.getRepresentativeFrames = getRepresentativeFrames;
   ns.buildWebMBlob = buildWebMBlob;
   ns.getSupportedWebCodecsConfig = getSupportedWebCodecsConfig;
+  ns.hasWebCodecsExportSupport = hasWebCodecsExportSupport;
   ns.encodeWebM = encodeWebM;
   ns.drawFooterUrl = drawFooterUrl;
   ns.writeEstimateElements = writeEstimateElements;
