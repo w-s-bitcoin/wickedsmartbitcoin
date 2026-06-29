@@ -5638,6 +5638,13 @@
         if (cell) {
           if (cell.getAttribute("data-clickable") === "1") {
             const height = Number(cell.getAttribute("data-height"));
+            if (Number.isFinite(height) && shouldDeferMobileActivation("period-grid-block", height)) {
+              const content = String(cell.getAttribute("data-tooltip") || "").trim();
+              if (content) {
+                showPeriodGridTooltip(content, event.clientX, event.clientY);
+              }
+              return;
+            }
             if (Number.isFinite(height)) {
               window.open(`https://mempool.space/block/${height}`, "_blank", "noopener,noreferrer");
             }
@@ -5646,6 +5653,7 @@
         }
 
         if (event.target === periodGridOverlay) {
+          clearMobilePendingActivation();
           closePeriodGridOverlay();
         }
       });
