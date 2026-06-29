@@ -228,6 +228,7 @@
       lastSuccessfulRefreshAt: 0,
       controlsEnabled: true,
       pinnedTooltip: null,
+      mobilePendingActivation: null,
       hoverTooltip: null,
       periodGridDataset: "bip110",
       periodGridSelectedPeriod: null,
@@ -3979,6 +3980,24 @@
       periodGridTooltip.classList.remove("show");
     }
 
+    function clearMobilePendingActivation() {
+      state.mobilePendingActivation = null;
+    }
+
+    function shouldDeferMobileActivation(kind, id) {
+      if (!isMobileUiViewport()) return false;
+      const key = String(kind || "");
+      const value = String(id || "");
+      if (!key || !value) return false;
+      const pending = state.mobilePendingActivation;
+      if (pending && pending.kind === key && pending.id === value) {
+        clearMobilePendingActivation();
+        return false;
+      }
+      state.mobilePendingActivation = { kind: key, id: value };
+      return true;
+    }
+
     function isPeriodGridOverlayOpen() {
       return Boolean(periodGridOverlay?.classList.contains("show"));
     }
@@ -4001,6 +4020,7 @@
 
     function closePeriodGridOverlay() {
       if (!periodGridOverlay) return;
+      clearMobilePendingActivation();
       periodGridOverlay.classList.remove("show");
       periodGridOverlay.setAttribute("aria-hidden", "true");
       hidePeriodGridTooltip();
@@ -4239,6 +4259,7 @@
         setPeriodGridSelectedPeriod(getDefaultPeriodGridPeriod(state.periodGridDataset));
       }
       state.pinnedTooltip = null;
+      clearMobilePendingActivation();
       hideTooltip();
       hideCustomTooltip();
       hidePeriodGridTooltip();
@@ -4986,6 +5007,7 @@
 
     function closeMinerTimelineOverlay() {
       if (!minerTimelineOverlay) return;
+      clearMobilePendingActivation();
       minerTimelineOverlay.classList.remove("show");
       minerTimelineOverlay.classList.remove("is-loading");
       minerTimelineOverlay.setAttribute("aria-hidden", "true");
@@ -5005,6 +5027,7 @@
       closePeriodGridOverlay();
       closeLeaderboardOverlay();
       state.pinnedTooltip = null;
+      clearMobilePendingActivation();
       hideTooltip();
       hideCustomTooltip();
       hidePeriodGridTooltip();
@@ -5021,6 +5044,7 @@
 
     function closeLeaderboardOverlay() {
       if (!leaderboardOverlay) return;
+      clearMobilePendingActivation();
       leaderboardOverlay.classList.remove("show");
       leaderboardOverlay.setAttribute("aria-hidden", "true");
     }
@@ -5029,6 +5053,7 @@
       if (!leaderboardOverlay || !leaderboardDialog) return;
       closePeriodGridOverlay();
       closeMinerTimelineOverlay();
+      clearMobilePendingActivation();
       hideTooltip();
       hideCustomTooltip();
       renderBip110LeaderboardOverlay();
@@ -5164,6 +5189,34 @@
       }
     }
 
+    function getCanvasHitTooltipContent(key, hit) {
+      if (!hit) return "";
+      return hit.type === "release"
+        ? formatReleaseTooltip(hit.data)
+        : hit.type === "stripe"
+          ? formatStripeTooltip(hit.data, key)
+          : formatPeriodTooltip(hit.data, key);
+    }
+
+    function getCanvasHitMobileActivation(hit, key) {
+      if (!hit) return null;
+      if (hit.type === "stripe") {
+        const height = Number(hit.data?.height);
+        return Number.isFinite(height) ? { kind: "canvas-stripe", id: `${key}:${height}` } : null;
+      }
+      if ((key === "bip110" || key === "segwit") && hit.type === "period") {
+        const period = Number(hit.data?.period);
+        return Number.isFinite(period) ? { kind: "canvas-period", id: `${key}:${period}` } : null;
+      }
+      return null;
+    }
+
+    function pinCanvasHitTooltip(canvas, key, hit, ev) {
+      const content = getCanvasHitTooltipContent(key, hit);
+      state.pinnedTooltip = { content, x: ev.clientX, y: ev.clientY };
+      showTooltip(content, ev.clientX, ev.clientY, getTooltipPanelBounds(canvas));
+    }
+
     function attachPointer(canvas, key) {
       canvas.addEventListener("mousemove", (ev) => {
         if (!state.data) return;
@@ -5198,7 +5251,14 @@
 
         if (!hit) {
           state.pinnedTooltip = null;
+          clearMobilePendingActivation();
           hideTooltip();
+          return;
+        }
+
+        const mobileActivation = getCanvasHitMobileActivation(hit, key);
+        if (mobileActivation && shouldDeferMobileActivation(mobileActivation.kind, mobileActivation.id)) {
+          pinCanvasHitTooltip(canvas, key, hit, ev);
           return;
         }
 
@@ -5211,6 +5271,7 @@
         }
 
         if (hit.type === "release") {
+          clearMobilePendingActivation();
           const url = getReleaseGithubUrl(hit.data);
           window.open(url, "_blank", "noopener,noreferrer");
           return;
@@ -5222,14 +5283,8 @@
           return;
         }
 
-        const content = hit.type === "release"
-          ? formatReleaseTooltip(hit.data)
-          : hit.type === "stripe"
-            ? formatStripeTooltip(hit.data, key)
-          : formatPeriodTooltip(hit.data, key);
-
-        state.pinnedTooltip = { content, x: ev.clientX, y: ev.clientY };
-        showTooltip(content, ev.clientX, ev.clientY, getTooltipPanelBounds(canvas));
+        clearMobilePendingActivation();
+        pinCanvasHitTooltip(canvas, key, hit, ev);
       });
     }
 
@@ -5685,6 +5740,13 @@
           : null;
         if (mark) {
           const height = Number(mark.getAttribute("data-height"));
+          if (Number.isFinite(height) && shouldDeferMobileActivation("miner-timeline-block", height)) {
+            const content = String(mark.getAttribute("data-tooltip") || "").trim();
+            if (content) {
+              showPeriodGridTooltip(content, event.clientX, event.clientY, { constrainToGrid: false });
+            }
+            return;
+          }
           if (Number.isFinite(height)) {
             window.open(`https://mempool.space/block/${height}`, "_blank", "noopener,noreferrer");
           }
@@ -5692,6 +5754,7 @@
         }
 
         if (event.target === minerTimelineOverlay) {
+          clearMobilePendingActivation();
           closeMinerTimelineOverlay();
         }
       });
