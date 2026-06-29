@@ -1330,6 +1330,7 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
     flex-direction: column;
     z-index: 9999;
     touch-action: pan-y;
+    overscroll-behavior-x: contain;
     overflow: hidden;
 }
 .modal img {

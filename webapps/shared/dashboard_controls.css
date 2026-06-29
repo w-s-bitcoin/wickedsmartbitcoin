@@ -67,6 +67,49 @@
   background: rgba(255, 255, 255, 0.06);
 }
 
+@media (max-width: 900px) {
+  .copy-link-btn,
+  .reset-dashboard-btn {
+    width: 30px !important;
+    min-width: 30px !important;
+    max-width: 30px !important;
+    height: 30px !important;
+    min-height: 30px !important;
+    padding: 0 !important;
+    gap: 0 !important;
+    overflow: hidden !important;
+    border-radius: 999px !important;
+  }
+
+  .copy-link-btn::before,
+  .reset-dashboard-btn::before {
+    content: none !important;
+    display: none !important;
+  }
+
+  .copy-link-btn .btn-label,
+  .reset-dashboard-btn .btn-label {
+    display: none !important;
+  }
+
+  .copy-link-btn .btn-icon,
+  .reset-dashboard-btn .btn-icon {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 15px !important;
+    height: 15px !important;
+    flex: 0 0 15px !important;
+    margin: 0 !important;
+  }
+
+  .copy-link-btn svg,
+  .reset-dashboard-btn svg {
+    width: 15px !important;
+    height: 15px !important;
+  }
+}
+
 :root[data-theme="light"] .copy-link-btn:hover,
 :root[data-theme="light"] .copy-link-btn:focus-visible,
 :root[data-theme="light"] .reset-dashboard-btn--undo:hover,

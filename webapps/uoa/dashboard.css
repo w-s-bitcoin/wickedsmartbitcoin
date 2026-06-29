@@ -284,41 +284,6 @@ body.uoa-dashboard-expanded .topbar {
   line-height: 1;
 }
 
-.filters-menu-wrap {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-}
-
-.filters-btn {
-  width: 28px;
-  height: 28px;
-  color: var(--muted);
-}
-
-.filters-btn svg {
-  width: 15px;
-  height: 15px;
-  display: block;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2.2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.filters-btn.is-open {
-  color: var(--accent);
-  border-color: var(--accent);
-}
-
-:root[data-theme="light"] .filters-btn.is-open,
-:root[data-theme="light"] .filters-btn.is-open:hover,
-:root[data-theme="light"] .filters-btn.is-open:focus-visible {
-  color: var(--accent);
-  border-color: var(--accent);
-}
-
 .filters-panel {
   position: absolute;
   top: calc(100% + 8px);
@@ -2463,10 +2428,6 @@ canvas.dragging {
     min-width: 120px;
   }
 
-  .wrap {
-    padding-bottom: calc(var(--wrap-pad) + env(safe-area-inset-bottom, 0px) + 56px);
-  }
-
   body.uoa-dashboard-expanded {
     overflow-x: hidden;
     overflow-y: auto;
@@ -2474,7 +2435,6 @@ canvas.dragging {
 
   body.uoa-dashboard-expanded .wrap {
     height: auto;
-    padding-bottom: calc(var(--wrap-pad) + env(safe-area-inset-bottom, 0px) + 56px);
   }
 }
 

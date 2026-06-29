@@ -605,15 +605,6 @@
     };
   }
 
-  function rowSupportsCurrencyPair(row, primaryCurrency, secondaryCurrency) {
-    if (!row?.date) return false;
-    const isoDate = toIsoDate(row.date);
-    const primaryInUsd = getCurrencyValueInUsd(primaryCurrency, row, isoDate);
-    const secondaryInUsd = getCurrencyValueInUsd(secondaryCurrency, row, isoDate);
-    return Number.isFinite(primaryInUsd) && primaryInUsd > 0
-      && Number.isFinite(secondaryInUsd) && secondaryInUsd > 0;
-  }
-
   function rowSupportsCurrency(row, currencyCode) {
     if (!row?.date) return false;
     const isoDate = toIsoDate(row.date);
@@ -1075,14 +1066,6 @@
     return frames.length ? frames : [start, end];
   }
 
-  function formatDownloadEstimateDuration(seconds) {
-    return window.WSBDashboardExport.formatDuration(seconds);
-  }
-
-  function formatDownloadEstimateSize(bytes) {
-    return window.WSBDashboardExport.formatSize(bytes);
-  }
-
   function getDateRangeExportEstimateRange() {
     if (!allRows.length || !el.dateRangeStartSlider || !el.dateRangeEndSlider) return null;
     const maxIndex = Math.max(0, allRows.length - 1);
@@ -1103,6 +1086,10 @@
 
   function getDateRangeExportBitrate(settings) {
     return window.WSBDashboardExport.getBitrate(settings);
+  }
+
+  function canUseDeterministicWebCodecsExport() {
+    return !!window.WSBDashboardExport?.hasWebCodecsExportSupport?.();
   }
 
   function getDownloadEstimateCalibrationKey(settings, frameIndices) {
@@ -1231,7 +1218,7 @@
     });
     el.downloadEstimateSize.textContent = estimate.sizeText;
     el.downloadEstimateLength.textContent = estimate.lengthText;
-    el.downloadEstimateTime.textContent = estimate.timeText;
+    el.downloadEstimateTime.textContent = canUseDeterministicWebCodecsExport() ? estimate.timeText : "--";
     if (!calibration && frameIndices.length) {
       scheduleDownloadEstimateCalibration(settings, frameIndices, range.startIndex, range.endIndex, calibrationKey);
     }
@@ -1661,18 +1648,22 @@
 
   function resetDateRangeDownloadButton() {
     if (!el.dateRangeDownloadBtn) return;
+    const canDownload = canUseDeterministicWebCodecsExport();
     el.dateRangeDownloadBtn.classList.remove("is-exporting", "is-canceling");
-    el.dateRangeDownloadBtn.disabled = false;
+    el.dateRangeDownloadBtn.disabled = !canDownload;
     el.dateRangeDownloadBtn.setAttribute("aria-label", "Download date range animation");
-    el.dateRangeDownloadBtn.setAttribute("title", "Download animation");
+    el.dateRangeDownloadBtn.setAttribute("title", canDownload ? "Download animation" : "Animation download requires WebCodecs support");
     el.dateRangeDownloadBtn.textContent = "↓";
     syncDownloadSettingsDownloadButton();
   }
 
   function syncDownloadSettingsDownloadButton() {
     if (!el.downloadSettingsDownloadBtn) return;
+    const canDownload = canUseDeterministicWebCodecsExport();
     el.downloadSettingsDownloadBtn.classList.toggle("is-stop-download", isDateRangeExporting);
+    el.downloadSettingsDownloadBtn.disabled = !isDateRangeExporting && !canDownload;
     el.downloadSettingsDownloadBtn.textContent = isDateRangeExporting ? "Stop Download" : "Download Animation";
+    el.downloadSettingsDownloadBtn.setAttribute("title", canDownload ? "Download animation" : "Animation download requires WebCodecs support");
   }
 
   function requestDateRangeExportCancel() {
@@ -2021,14 +2012,6 @@
     });
   }
 
-  function isExportNumericTextNode(node) {
-    if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
-    return node.classList.contains("big-value")
-      || node.classList.contains("sub-value")
-      || node.classList.contains("chart-date-edges")
-      || node.parentElement?.classList.contains("chart-date-edges");
-  }
-
   function getExportNumericDigitWidth(node) {
     if (!node) return 0;
     const style = getComputedStyle(node);
@@ -2295,6 +2278,11 @@
   async function downloadDateRangeAnimation() {
     if (isDateRangeExporting) {
       requestDateRangeExportCancel();
+      return;
+    }
+    if (!canUseDeterministicWebCodecsExport()) {
+      resetDateRangeDownloadButton();
+      updateDownloadEstimates();
       return;
     }
     if (!allRows.length || !el.dateRangeStartSlider || !el.dateRangeEndSlider) return;
@@ -2787,7 +2775,7 @@
     stopDateRangePlayback({ restoreOriginalRange: true });
   }
 
-  function bindDateRangePlaybackSpaceShortcut() {
+  function bindDateRangePlaybackKeyboardShortcuts() {
     if (dateRangeSpaceShortcutBound) return;
     dateRangeSpaceShortcutBound = true;
 
@@ -2806,40 +2794,64 @@
       }
     };
 
-    document.addEventListener("keydown", (event) => {
-      if (!(event.key === " " || event.code === "Space")) return;
-      if (event.altKey || event.ctrlKey || event.metaKey) return;
-
-      const active = document.activeElement;
-      const isTextEntryInput = (
-        active
-        && active.tagName === "INPUT"
-        && ["text", "search", "email", "password", "url", "tel", "number"].includes(
-          String(active.type || "").toLowerCase()
-        )
-      );
-      if (
+    const isDateRangeShortcutTextEntry = (active) => {
+      const textInputTypes = ["text", "search", "email", "password", "url", "tel", "number"];
+      return !!(
         active
         && (
-          isTextEntryInput
+          (active.tagName === "INPUT" && textInputTypes.includes(String(active.type || "").toLowerCase()))
           || active.tagName === "TEXTAREA"
           || active.tagName === "SELECT"
           || active.isContentEditable
         )
-      ) {
-        return;
-      }
+      );
+    };
 
-      event.preventDefault();
-      event.stopPropagation();
-      if (typeof event.stopImmediatePropagation === "function") {
-        event.stopImmediatePropagation();
-      }
+    window.WSBDashboardComponents?.bindPlaybackKeyboardShortcuts?.({
+      blurControls: blurDateRangeControlIfFocused,
+      isTextEntry: (active) => isDateRangeShortcutTextEntry(active),
+      isPlaybackActive: () => dateRangePlaybackState.hasSession,
+      isEscapeActive: () => dateRangePlaybackState.hasSession,
+      onSpace: toggleDateRangePlayback,
+      onEscape: () => stopDateRangePlayback({ restoreOriginalRange: true }),
+      onArrow: (direction, _event, detail = {}) => {
+        const maxIndex = Math.max(0, allRows.length - 1);
+        const rawStartIndex = Number(dateRangePlaybackState.startIndex);
+        const rawTargetEndIndex = Number(dateRangePlaybackState.targetEndIndex);
+        const sessionStartIndex = Number.isFinite(rawStartIndex)
+          ? Math.max(0, Math.min(maxIndex, Math.round(rawStartIndex)))
+          : 0;
+        const sessionTargetEndIndex = Number.isFinite(rawTargetEndIndex)
+          ? Math.max(0, Math.min(maxIndex, Math.round(rawTargetEndIndex)))
+          : maxIndex;
+        const minSessionEndIndex = sessionStartIndex;
+        const maxSessionEndIndex = sessionTargetEndIndex;
 
-      blurDateRangeControlIfFocused();
-      toggleDateRangePlayback();
-      requestAnimationFrame(blurDateRangeControlIfFocused);
-    }, true);
+        if (maxSessionEndIndex < minSessionEndIndex) return;
+
+        let currentEndIndex = Number(el.dateRangeEndSlider?.value);
+        if (!Number.isFinite(currentEndIndex)) currentEndIndex = dateRangePlaybackState.currentEndIndex || minSessionEndIndex;
+        currentEndIndex = Math.max(minSessionEndIndex, Math.min(maxSessionEndIndex, Math.round(currentEndIndex)));
+
+        const fps = dateRangePlaybackState.fps || DEFAULT_RANGE_PLAYBACK_FPS;
+        const framesFor10Seconds = Math.max(1, Math.round(10 * fps));
+        const delta = detail.isStep ? direction : direction * framesFor10Seconds;
+        const nextEndIndex = Math.max(minSessionEndIndex, Math.min(maxSessionEndIndex, currentEndIndex + delta));
+
+        if (nextEndIndex !== currentEndIndex) {
+          setDateRangeByIndices(sessionStartIndex, nextEndIndex);
+          dateRangePlaybackState.currentEndIndex = nextEndIndex;
+
+          if (direction > 0 && dateRangePlaybackState.isPlaying && nextEndIndex === maxSessionEndIndex) {
+            pauseDateRangePlayback();
+          }
+        }
+      },
+    });
+  }
+
+  function bindDateRangePlaybackSpaceShortcut() {
+    bindDateRangePlaybackKeyboardShortcuts();
   }
 
   function bindDateRangePlaybackFpsButtons() {
@@ -2954,86 +2966,7 @@
   }
 
   function bindDateRangePlaybackArrowScrubbing() {
-    document.addEventListener("keydown", (event) => {
-      // Check if playback is active (playing or paused with an active session)
-      const isPlaybackActive = dateRangePlaybackState.hasSession;
-      if (!isPlaybackActive) return;
-
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        if (typeof event.stopImmediatePropagation === "function") {
-          event.stopImmediatePropagation();
-        }
-        stopDateRangePlayback({ restoreOriginalRange: true });
-        return;
-      }
-
-      const isArrowLeft = event.key === "ArrowLeft";
-      const isArrowRight = event.key === "ArrowRight";
-      const isComma = event.key === "," || event.code === "Comma";
-      const isPeriod = event.key === "." || event.code === "Period";
-      if (!isArrowLeft && !isArrowRight && !isComma && !isPeriod) return;
-      if (event.altKey || event.ctrlKey || event.metaKey) return;
-
-      // Don't interfere if focus is on a form element
-      const active = document.activeElement;
-      const isFormElement = (
-        active
-        && (
-          (active.tagName === "INPUT" && !["range"].includes(String(active.type || "").toLowerCase()))
-          || active.tagName === "TEXTAREA"
-          || active.tagName === "SELECT"
-          || active.isContentEditable
-        )
-      );
-      if (isFormElement) return;
-
-      event.preventDefault();
-      event.stopPropagation();
-
-      const maxIndex = Math.max(0, allRows.length - 1);
-      const rawStartIndex = Number(dateRangePlaybackState.startIndex);
-      const rawTargetEndIndex = Number(dateRangePlaybackState.targetEndIndex);
-      const sessionStartIndex = Number.isFinite(rawStartIndex)
-        ? Math.max(0, Math.min(maxIndex, Math.round(rawStartIndex)))
-        : 0;
-      const sessionTargetEndIndex = Number.isFinite(rawTargetEndIndex)
-        ? Math.max(0, Math.min(maxIndex, Math.round(rawTargetEndIndex)))
-        : maxIndex;
-      const minSessionEndIndex = sessionStartIndex;
-      const maxSessionEndIndex = sessionTargetEndIndex;
-
-      if (maxSessionEndIndex < minSessionEndIndex) return;
-
-      let currentEndIndex = Number(el.dateRangeEndSlider?.value);
-      if (!Number.isFinite(currentEndIndex)) currentEndIndex = dateRangePlaybackState.currentEndIndex || minSessionEndIndex;
-      currentEndIndex = Math.max(minSessionEndIndex, Math.min(maxSessionEndIndex, Math.round(currentEndIndex)));
-
-      const fps = dateRangePlaybackState.fps || DEFAULT_RANGE_PLAYBACK_FPS;
-      const framesFor10Seconds = Math.max(1, Math.round(10 * fps));
-
-      let nextEndIndex = currentEndIndex;
-      if (isArrowRight) {
-        nextEndIndex = Math.min(maxSessionEndIndex, currentEndIndex + framesFor10Seconds);
-      } else if (isArrowLeft) {
-        nextEndIndex = Math.max(minSessionEndIndex, currentEndIndex - framesFor10Seconds);
-      } else if (isPeriod) {
-        nextEndIndex = Math.min(maxSessionEndIndex, currentEndIndex + 1);
-      } else if (isComma) {
-        nextEndIndex = Math.max(minSessionEndIndex, currentEndIndex - 1);
-      }
-
-      if (nextEndIndex !== currentEndIndex) {
-        setDateRangeByIndices(sessionStartIndex, nextEndIndex);
-        dateRangePlaybackState.currentEndIndex = nextEndIndex;
-
-        // If right arrow scrubbing reaches the end of animation during playback, pause instead of advancing to next modal
-        if (isArrowRight && dateRangePlaybackState.isPlaying && nextEndIndex === maxSessionEndIndex) {
-          pauseDateRangePlayback();
-        }
-      }
-    }, true);
+    bindDateRangePlaybackKeyboardShortcuts();
   }
 
   function getFallbackSecondary(primary) {
@@ -4085,14 +4018,6 @@
     return ORDER_MODES.includes(selected) ? selected : "alpha-asc";
   }
 
-  function getLatestBtcRow() {
-    for (let i = allRows.length - 1; i >= 0; i -= 1) {
-      const row = allRows[i];
-      if (Number.isFinite(row?.price) && row.price > 0) return row;
-    }
-    return null;
-  }
-
   function getLatestCurrencySatsValues() {
     const rowPool = allRows;
     if (!rowPool.length) return {};
@@ -4218,11 +4143,6 @@
     syncAllDropdowns();
   }
 
-  function getCurrencyRanksByValue() {
-    const values = getLatestCurrencySatsValues();
-    return getCurrencyRanksFromSatsValues(values);
-  }
-
   function getCurrencyRanksFromSatsValues(values) {
     const ranked = Object.keys(values).sort((a, b) => {
       if (values[a] === values[b]) return a.localeCompare(b);
@@ -4245,10 +4165,6 @@
     if (!Number.isFinite(rank)) return "";
     const total = Number(rankMap?.__total);
     return Number.isFinite(total) && total > 0 ? `${String(rank).padStart(String(total).length, " ")}/${total}` : String(rank);
-  }
-
-  function fmtUsd(v) {
-    return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(v);
   }
 
   function fmtSats(v) {
@@ -4333,15 +4249,6 @@
     const usats = v * 1000000;
     const usatText = usats >= 100 ? usats.toFixed(0) : usats >= 10 ? usats.toFixed(1) : usats.toFixed(2);
     return `${usatText.replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1")} μsat`;
-  }
-
-  function fmtUsdSix(v) {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-      minimumFractionDigits: 6,
-      maximumFractionDigits: 6,
-    }).format(v);
   }
 
   function fmtBtc(v) {
@@ -4433,14 +4340,6 @@
 
   function formatCurrencyUnit(currencyCode) {
     return formatCurrencyWithSymbol("1", currencyCode);
-  }
-
-  function getCurrencyMinorUnits(currencyCode) {
-    if (currencyCode === "BTC") return 8;
-    if (!uoaPairs || !uoaPairs.currencies || !uoaPairs.currencies[currencyCode]) {
-      return 2;
-    }
-    return uoaPairs.currencies[currencyCode].minor_unit || 2;
   }
 
   function formatSatValue(satPriceInCurrency, currency) {
@@ -5210,18 +5109,6 @@
     ctx.closePath();
   }
 
-  function dedupeByLabel(items) {
-    const seen = new Set();
-    const out = [];
-    items.forEach((item) => {
-      const key = `${item.label}|${item.value}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      out.push(item);
-    });
-    return out;
-  }
-
   function setDropdownOpen(dropdownEl, menuEl, isOpen) {
     if (!menuEl) return;
     const open = !!isOpen;
@@ -5495,23 +5382,6 @@
       : `<button type="button" class="dca-option-btn" disabled>No matches</button>`;
   }
 
-  function populateUpdatedTimeZoneSelect() {
-    const select = document.getElementById("updatedTimeZoneSelect");
-    if (!select) return;
-
-    const options = getDashboardTimeZoneOptions();
-    select.innerHTML = options
-      .map((option) => `<option value="${option.value}">${option.label}</option>`)
-      .join("");
-
-    const preferred = getPreferredDashboardTimeZone();
-    const hasPreferred = options.some((option) => option.value === preferred);
-    updatedKpiTimeZone = hasPreferred ? preferred : (options[0]?.value || "UTC");
-    select.value = updatedKpiTimeZone;
-    const dropdownConfig = DROPDOWNS.find((config) => config.selectId === "updatedTimeZoneSelect");
-    if (dropdownConfig) syncDropdownMenu(dropdownConfig);
-  }
-
   function getPreferredDashboardTimeZone() {
     if (DASHBOARD_TIME?.getPreferredTimeZone) return DASHBOARD_TIME.getPreferredTimeZone();
     return updatedKpiTimeZone || "UTC";
@@ -5525,11 +5395,6 @@
     }
     updatedKpiTimeZone = normalized || next;
     return updatedKpiTimeZone;
-  }
-
-  function getDashboardTimeZoneOptions() {
-    if (DASHBOARD_TIME?.getTimeZoneOptions) return DASHBOARD_TIME.getTimeZoneOptions();
-    return [{ value: "UTC", label: "UTC - Greenwich Mean Time (GMT)" }];
   }
 
   function withParenthesizedZone(text) {
@@ -6766,25 +6631,6 @@
     return ticks.filter((tick) => keptValues.has(tick.value));
   }
 
-  function measureLabelWidth(ticks, fontSpec) {
-    if (!fontSpec) {
-      const tickLabelFontSize = getResponsiveTickLabelFontSize();
-      fontSpec = `500 ${tickLabelFontSize}px Space Grotesk`;
-    }
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return 40;
-    ctx.font = fontSpec;
-    let maxWidth = 40;
-    if (ticks && Array.isArray(ticks)) {
-      ticks.forEach((tick) => {
-        const metrics = ctx.measureText(tick.label);
-        maxWidth = Math.max(maxWidth, metrics.width);
-      });
-    }
-    return maxWidth;
-  }
-
   function renderPairKpiValue(primary, secondary) {
     if (!el.pairKpiValue) return;
     el.pairKpiValue.innerHTML = `<span class="pair-primary">${primary}</span><span class="pair-separator"> </span><span class="pair-secondary">${secondary}</span>`;
@@ -7149,13 +6995,6 @@
 
   function makeUtcDate(year, month, day = 1) {
     return new Date(Date.UTC(year, month, day));
-  }
-
-  function clampTickCountByWidth(ticks, chartW, minTargetPx = 88) {
-    const maxTicks = Math.max(4, Math.floor(chartW / minTargetPx));
-    if (ticks.length <= maxTicks) return ticks;
-    const stride = Math.ceil(ticks.length / maxTicks);
-    return ticks.filter((_, i) => i % stride === 0);
   }
 
   function snapCanvasLineCoord(value, lineWidth = 1, dpr = 1) {

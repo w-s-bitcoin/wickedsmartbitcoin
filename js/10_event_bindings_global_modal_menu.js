@@ -43,15 +43,28 @@ modal.addEventListener('click', e => {
 modal.addEventListener('touchstart', e => {
     touchStartX = e.changedTouches[0].screenX;
     touchStartY = e.changedTouches[0].screenY;
-});
+}, { passive: true });
+modal.addEventListener('touchmove', e => {
+    if (isPinching || currentScale > 1.001 || modal.classList.contains('zoomed')) return;
+    const touch = e.changedTouches?.[0] || e.touches?.[0];
+    if (!touch) return;
+    const deltaX = touch.screenX - touchStartX;
+    const deltaY = touch.screenY - touchStartY;
+    if (Math.abs(deltaX) > 12 && Math.abs(deltaX) > Math.abs(deltaY)) {
+        e.preventDefault();
+    }
+}, { passive: false });
 modal.addEventListener('touchend', e => {
     touchEndX = e.changedTouches[0].screenX;
     touchEndY = e.changedTouches[0].screenY;
+    if (Math.abs(touchEndX - touchStartX) > 12 && Math.abs(touchEndX - touchStartX) > Math.abs(touchEndY - touchStartY)) {
+        e.preventDefault();
+    }
     if (!gestureConsumed) {
         handleSwipe();
         handleVerticalSwipe();
     }
-});
+}, { passive: false });
 buyMeBtn?.addEventListener('click', e => {
     e.preventDefault();
     if (modal && modal.style.display === 'flex') return;
@@ -67,27 +80,72 @@ function onToolbarButtonKeydown(e) {
 gridIcon?.addEventListener('keydown', onToolbarButtonKeydown);
 listIcon?.addEventListener('keydown', onToolbarButtonKeydown);
 favoritesToggleBtn?.addEventListener('keydown', onToolbarButtonKeydown);
+
+const PLAYBACK_DASHBOARD_MODAL_MATCHES = [
+    { filename: 'uoa.png', path: '/webapps/uoa/dashboard.html' },
+    { filename: 'days_since_ath.png', path: '/webapps/days_since_ath/dashboard.html' },
+    { filename: 'dca_comparison.png', path: '/webapps/dca_comparison/dashboard.html' },
+    { filename: 'dca_cost_basis.png', path: '/webapps/dca_cost_basis/dashboard.html' },
+    { filename: 'issuance_rate.png', path: '/webapps/issuance_rate/dashboard.html' },
+    { filename: 'patoshi_pattern.png', path: '/webapps/patoshi_pattern/dashboard.html' },
+];
+
+function isPlaybackDashboardModalActive() {
+    if (modal?.style?.display !== 'flex') return false;
+    const activeFilename = String(modalImg?.dataset?.filename || '').toLowerCase();
+    const modalSrc = String(modalEmbed?.getAttribute?.('src') || modalEmbed?.src || '').toLowerCase();
+    return PLAYBACK_DASHBOARD_MODAL_MATCHES.some((entry) => (
+        activeFilename === entry.filename || modalSrc.includes(entry.path)
+    ));
+}
+
+function forwardModalEmbedKeydown(e) {
+    if (!modalEmbed?.contentWindow) return false;
+    try {
+        const forwarded = new KeyboardEvent('keydown', {
+            key: e.key,
+            code: e.code,
+            bubbles: true,
+            cancelable: true,
+        });
+        modalEmbed.contentWindow.document.dispatchEvent(forwarded);
+        try { modalEmbed.focus({ preventScroll: true }); }
+        catch (_) { modalEmbed.focus(); }
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
 document.addEventListener('keydown', e => {
     if (isBuyMeVisible) return;
-    if (!(e.key === ' ' || e.key === 'Spacebar' || e.code === 'Space')) return;
     if (modal?.style?.display !== 'flex') return;
-
-    const activeFilename = String(modalImg?.dataset?.filename || '').toLowerCase();
-    const modalSrc = String(modalEmbed?.getAttribute?.('src') || '').toLowerCase();
-    const isUoaModal = activeFilename === 'uoa.png' || modalSrc.includes('/webapps/uoa/dashboard.html');
-    if (!isUoaModal) return;
-
-    // Prevent native Space activation (e.g. focused close button) from exiting UOA.
+    const isBlockedModalControlKey = (
+        e.key === 'ArrowLeft' ||
+        e.key === 'ArrowRight' ||
+        e.key === ' ' ||
+        e.key === 'Spacebar' ||
+        e.code === 'Space'
+    );
+    if (!isBlockedModalControlKey) return;
+    const active = document.activeElement;
+    if (!active?.closest?.('.modal-controls')) return;
     e.preventDefault();
     e.stopPropagation();
     if (typeof e.stopImmediatePropagation === 'function') {
         e.stopImmediatePropagation();
     }
 }, true);
+
 window.addEventListener('message', e => {
     if (e.origin !== window.location.origin) return;
     if (e.source !== modalEmbed?.contentWindow) return;
     const data = e.data || {};
+    if (data.type === 'wsb-dashboard-swipe') {
+        if (data.direction === 'next') nextImage();
+        else if (data.direction === 'prev') prevImage();
+        return;
+    }
     if (data.type === 'wsb-uoa-date-range-export-active') {
         window.wsbDashboardExportActive = !!data.active;
         window.dateRangeExportActive = !!data.active;
@@ -149,31 +207,6 @@ document.addEventListener('keydown', e => {
     }
 }, true);
 
-function isCasasciusModalActive() {
-    if (modal?.style?.display !== 'flex') return false;
-    const activeFilename = String(modalImg?.dataset?.filename || '').toLowerCase();
-    const modalSrc = String(modalEmbed?.getAttribute?.('src') || '').toLowerCase();
-    return activeFilename === 'casascius_explorer.png' || modalSrc.includes('/webapps/casascius_explorer/dashboard.html');
-}
-
-function forwardCasasciusModalShortcut(e) {
-    if (!isCasasciusModalActive() || !modalEmbed?.contentWindow) return false;
-    try {
-        const forwarded = new KeyboardEvent('keydown', {
-            key: e.key,
-            code: e.code,
-            bubbles: true,
-            cancelable: true,
-        });
-        modalEmbed.contentWindow.document.dispatchEvent(forwarded);
-        try { modalEmbed.focus({ preventScroll: true }); }
-        catch (_) { modalEmbed.focus(); }
-        return true;
-    } catch (_) {
-        return false;
-    }
-}
-
 document.addEventListener('keydown', e => {
     if (isBuyMeVisible) return;
     if (modal.style.display !== 'flex') return;
@@ -184,22 +217,10 @@ document.addEventListener('keydown', e => {
             e.stopImmediatePropagation();
         }
     };
-    if (e.key === 'ArrowLeft') {
-        if (isCasasciusModalActive()) {
-            swallow();
-            forwardCasasciusModalShortcut(e);
-            return;
-        }
+    if (e.key === 'Escape' && isPlaybackDashboardModalActive()) {
         swallow();
-        prevImage();
-    } else if (e.key === 'ArrowRight') {
-        if (isCasasciusModalActive()) {
-            swallow();
-            forwardCasasciusModalShortcut(e);
-            return;
-        }
-        swallow();
-        nextImage();
+        forwardModalEmbedKeydown(e);
+        return;
     } else if (e.key === 'Escape') {
         swallow();
         // Check if YouTube overlay is open - if so, close it instead of the modal
@@ -214,15 +235,6 @@ document.addEventListener('keydown', e => {
 document.addEventListener('keydown', e => {
     if (isBuyMeVisible) return;
     if (!(e.key === ' ' || e.code === 'Space')) return;
-    if (isCasasciusModalActive()) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (typeof e.stopImmediatePropagation === 'function') {
-            e.stopImmediatePropagation();
-        }
-        forwardCasasciusModalShortcut(e);
-        return;
-    }
     if (e.altKey || e.ctrlKey || e.metaKey) return;
     const active = document.activeElement;
     if (

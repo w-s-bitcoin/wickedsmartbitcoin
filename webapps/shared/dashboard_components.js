@@ -1099,26 +1099,57 @@
   }
 
   function bindPlaybackKeyboardShortcuts(config = {}) {
+    window.WSBDashboardPlaybackKeyboardShortcutsActive = true;
+    const getActiveElement = () => document.activeElement;
+    const isTextEntry = (event) => {
+      if (typeof config.isTextEntry === "function") return !!config.isTextEntry(getActiveElement(), event);
+      return isTextEntryElementActive(getActiveElement());
+    };
+    const blurControls = () => {
+      if (typeof config.blurControls !== "function") return;
+      config.blurControls();
+      requestAnimationFrame(() => config.blurControls());
+    };
+    const isPlaybackActive = () => {
+      if (typeof config.isPlaybackActive === "function") return !!config.isPlaybackActive();
+      if (typeof config.isArrowActive === "function") return !!config.isArrowActive();
+      return false;
+    };
+    const isInactiveArrowActive = () => (
+      typeof config.isInactiveArrowActive === "function" ? !!config.isInactiveArrowActive() : typeof config.onInactiveArrow === "function"
+    );
     const handler = (event) => {
       if (event.altKey || event.ctrlKey || event.metaKey) return;
       const isSpace = event.key === " " || event.key === "Spacebar" || event.code === "Space";
       const isArrow = event.key === "ArrowLeft" || event.key === "ArrowRight";
+      const isStep = event.key === "," || event.code === "Comma" || event.key === "." || event.code === "Period";
       const isEscape = event.key === "Escape";
-      if (!isSpace && !isArrow && !isEscape) return;
-      if (isTextEntryElementActive()) return;
+      if (!isSpace && !isArrow && !isStep && !isEscape) return;
+      if (!isEscape && isTextEntry(event)) return;
       if (isSpace) {
         consumeKeyboardEvent(event);
+        blurControls();
         if (typeof config.onSpace === "function") config.onSpace(event);
-        return;
-      }
-      if (isArrow && (typeof config.isArrowActive !== "function" || config.isArrowActive())) {
-        consumeKeyboardEvent(event);
-        if (typeof config.onArrow === "function") config.onArrow(event.key === "ArrowRight" ? 1 : -1, event);
         return;
       }
       if (isEscape && (typeof config.isEscapeActive !== "function" || config.isEscapeActive())) {
         consumeKeyboardEvent(event);
         if (typeof config.onEscape === "function") config.onEscape(event);
+        return;
+      }
+      if ((isArrow || isStep) && isPlaybackActive()) {
+        consumeKeyboardEvent(event);
+        blurControls();
+        const direction = (event.key === "ArrowRight" || event.key === "." || event.code === "Period") ? 1 : -1;
+        const detail = { isArrow, isStep, key: event.key, code: event.code };
+        if (isStep && typeof config.onStep === "function") config.onStep(direction, event, detail);
+        else if (typeof config.onArrow === "function") config.onArrow(direction, event, detail);
+        return;
+      }
+      if (isArrow && !isPlaybackActive() && isInactiveArrowActive()) {
+        consumeKeyboardEvent(event);
+        blurControls();
+        if (typeof config.onInactiveArrow === "function") config.onInactiveArrow(event.key === "ArrowRight" ? 1 : -1, event);
       }
     };
     document.addEventListener("keydown", handler, true);
@@ -1231,6 +1262,61 @@
     return api;
   }
 
+  function createTitleSettingsButton(config = {}) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = config.className || "info-btn filters-btn";
+    if (config.id) button.id = config.id;
+    button.setAttribute("aria-label", config.ariaLabel || "Show dashboard settings");
+    button.setAttribute("aria-haspopup", config.haspopup || "dialog");
+    button.setAttribute("aria-expanded", String(!!config.expanded));
+    if (config.controls) button.setAttribute("aria-controls", config.controls);
+    if (config.title) button.title = config.title;
+
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("focusable", "false");
+    svg.setAttribute("aria-hidden", "true");
+    [
+      "M3 5.5h8.3M16.7 5.5H21M3 12h4.3M12.7 12H21M3 18.5h10.3M18.7 18.5H21",
+    ].forEach((d) => {
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", d);
+      svg.appendChild(path);
+    });
+    [
+      { cx: "14", cy: "5.5", r: "2.65" },
+      { cx: "10", cy: "12", r: "2.65" },
+      { cx: "16", cy: "18.5", r: "2.65" },
+    ].forEach((attrs) => {
+      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      Object.entries(attrs).forEach(([key, value]) => circle.setAttribute(key, value));
+      svg.appendChild(circle);
+    });
+    button.appendChild(svg);
+    return button;
+  }
+
+  function renderTitleSettingsButtonIcon(button) {
+    if (!button) return null;
+    button.querySelectorAll("svg").forEach((svg) => svg.remove());
+    const iconButton = createTitleSettingsButton();
+    const icon = iconButton.querySelector("svg");
+    if (icon) button.appendChild(icon);
+    return button;
+  }
+
+  function hydrateTitleSettingsButtons(root = document) {
+    const scope = root && typeof root.querySelectorAll === "function" ? root : document;
+    scope.querySelectorAll("[data-title-settings-button]").forEach(renderTitleSettingsButtonIcon);
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => hydrateTitleSettingsButtons(), { once: true });
+  } else {
+    hydrateTitleSettingsButtons();
+  }
+
   ns.createDatePicker = createDatePicker;
   ns.makeDatePicker = createDatePicker;
   ns.bindDateRangePickers = bindDateRangePickers;
@@ -1258,6 +1344,9 @@
   ns.bindPlaybackKeyboardShortcuts = bindPlaybackKeyboardShortcuts;
   ns.getDashboardManifest = getDashboardManifest;
   ns.initDashboardRuntime = initDashboardRuntime;
+  ns.createTitleSettingsButton = createTitleSettingsButton;
+  ns.renderTitleSettingsButtonIcon = renderTitleSettingsButtonIcon;
+  ns.hydrateTitleSettingsButtons = hydrateTitleSettingsButtons;
   ns.createChartLoader = createChartLoader;
   ns.setChartLoaderVisible = setChartLoaderVisible;
   ns.bindChartLoaders = bindChartLoaders;

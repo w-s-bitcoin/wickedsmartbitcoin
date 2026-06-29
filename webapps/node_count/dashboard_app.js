@@ -661,18 +661,6 @@
       return cleaned.filter((_, idx) => !badIndexes.has(idx));
     }
 
-    function getEmbedState() {
-      const inIframe = window.self !== window.top;
-      if (!inIframe) return false;
-      try {
-        const hostDoc = window.parent?.document;
-        if (!hostDoc?.body) return false;
-        return hostDoc.body.classList.contains('modal-open') || hostDoc.getElementById('modal');
-      } catch (_) {
-        return true;
-      }
-    }
-
     function applyEmbeddedModalLayout() {
       window.WSBDashboardShared?.applyEmbeddedModalTopClearance?.();
     }
@@ -859,11 +847,6 @@
       return window.matchMedia(`(max-width: ${MOBILE_STACK_BREAKPOINT}px)`).matches;
     }
 
-    function getPreferredDashboardTimeZone() {
-      if (!DASHBOARD_TIME?.getPreferredTimeZone) return state.timeZone || 'UTC';
-      return DASHBOARD_TIME.getPreferredTimeZone();
-    }
-
     function setPreferredDashboardTimeZone(value) {
       if (!DASHBOARD_TIME?.setPreferredTimeZone) {
         state.timeZone = String(value || 'UTC').trim() || 'UTC';
@@ -871,13 +854,6 @@
       }
       state.timeZone = DASHBOARD_TIME.setPreferredTimeZone(value);
       return state.timeZone;
-    }
-
-    function getDashboardTimeZoneOptions() {
-      if (!DASHBOARD_TIME?.getTimeZoneOptions) {
-        return [{ value: 'UTC', label: 'UTC - Greenwich Mean Time (GMT)' }];
-      }
-      return DASHBOARD_TIME.getTimeZoneOptions();
     }
 
     function formatUpdatedForSelectedTimeZone(value) {
@@ -919,30 +895,6 @@
       if (!latest) return '';
       const stamp = new Date(latest.datetime);
       return `${stamp.toISOString().replace('T', ' ').slice(0, 16)} UTC`;
-    }
-
-    function populateUpdatedTimeZoneSelect() {
-      const select = document.getElementById('updatedTimeZoneSelect');
-      if (!select) return;
-      const preferred = getPreferredDashboardTimeZone();
-      state.timeZone = preferred;
-      const options = getDashboardTimeZoneOptions();
-      select.innerHTML = options.map((opt) => {
-        const selected = opt.value === preferred ? ' selected' : '';
-        return `<option value="${opt.value}"${selected}>${opt.label}</option>`;
-      }).join('');
-      syncSelectDropdown('updatedTimeZoneSelect', 'updatedTimeZoneDropdownTrigger', 'updatedTimeZoneDropdownMenu');
-    }
-
-    function bindTimeZoneChipEvents() {
-      const select = document.getElementById('updatedTimeZoneSelect');
-      if (!select) return;
-      select.addEventListener('change', () => {
-        setPreferredDashboardTimeZone(select.value);
-        select.blur();
-        closeAllSelectDropdowns();
-        setLastUpdated();
-      });
     }
 
     function loadControlsFromStorage() {
