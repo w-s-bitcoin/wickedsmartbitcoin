@@ -1395,6 +1395,10 @@
       left: 364px;
     }
 
+    .miner-timeline-axis-count.is-nonsignaling,
+    .miner-timeline-count.is-nonsignaling,
+    .miner-timeline-axis-count.is-signaling,
+    .miner-timeline-count.is-signaling,
     .miner-timeline-axis-count.is-latest,
     .miner-timeline-count.is-latest {
       justify-content: center;
@@ -2009,6 +2013,10 @@
         width: 100%;
       }
 
+      .miner-timeline-dialog .miner-timeline-legend {
+        display: none;
+      }
+
       .leaderboard-window-btn-label-full {
         display: none;
       }
@@ -2029,12 +2037,17 @@
 
       .miner-timeline-axis,
       .miner-timeline-row {
-        grid-template-columns: 220px 72px 72px 72px;
+        --miner-timeline-mobile-miner-width: min(220px, max(140px, calc((100vw - 96px) / 2)));
+        grid-template-columns: var(--miner-timeline-mobile-miner-width) 72px 72px 72px;
       }
 
       .miner-timeline-axis-track,
       .miner-timeline-track {
         display: none;
+      }
+
+      .miner-timeline-axis {
+        z-index: 12;
       }
 
       .miner-timeline-axis-count,
@@ -2046,11 +2059,45 @@
       .miner-timeline-miner {
         position: sticky;
         left: 0;
-        z-index: 5;
       }
 
       .miner-timeline-axis-label {
-        z-index: 6;
+        z-index: 13;
+      }
+
+      .miner-timeline-miner {
+        z-index: 5;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .miner-timeline-axis,
+      .miner-timeline-row {
+        --miner-timeline-mobile-miner-width: min(190px, max(128px, calc((100vw - 80px) / 2)));
+        grid-template-columns: var(--miner-timeline-mobile-miner-width) 56px 56px 56px;
+      }
+
+      .miner-timeline-axis-label,
+      .miner-timeline-axis-count {
+        padding: 6px;
+        font-size: 0.66rem;
+      }
+
+      .miner-timeline-miner {
+        gap: 6px;
+        padding: 4px 6px;
+        font-size: 0.72rem;
+      }
+
+      .miner-timeline-count {
+        padding: 4px 6px;
+        font-size: 0.7rem;
+      }
+
+      .miner-timeline-miner-icon {
+        width: 16px;
+        height: 16px;
+        flex-basis: 16px;
       }
     }
   </style>
@@ -2080,9 +2127,28 @@
             </svg>
           </button>
           <button type="button" class="miner-timeline-btn" id="minerTimelineBtn" aria-label="Show BIP-110 miner signaling timeline" data-tooltip="Show miner signaling timeline">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M4.2 6.9c4.4 0 5.7 4.5 9.6 7.2 1.7 1.2 3.5 3 6 3" stroke="var(--nonsignal)" stroke-width="2.25"></path>
-              <path d="M4.2 17.1c4.4 0 5.7-4.5 9.6-7.2 1.7-1.2 3.5-3 6-3" stroke="var(--signal)" stroke-width="2.25"></path>
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <g fill="none" stroke="color-mix(in srgb, var(--line) 82%, transparent)" stroke-linecap="round" stroke-width="1.25">
+                <path d="M5.2 7h15.4"></path>
+                <path d="M5.2 12h15.4"></path>
+                <path d="M5.2 17h15.4"></path>
+              </g>
+              <g fill="var(--nonsignal)">
+                <rect x="5" y="5.75" width="2.5" height="2.5" rx="0.3"></rect>
+                <rect x="5" y="10.75" width="2.5" height="2.5" rx="0.3"></rect>
+                <rect x="9.4" y="10.75" width="2.5" height="2.5" rx="0.3"></rect>
+                <rect x="5" y="15.75" width="2.5" height="2.5" rx="0.3"></rect>
+                <rect x="9.4" y="15.75" width="2.5" height="2.5" rx="0.3"></rect>
+                <rect x="13.8" y="15.75" width="2.5" height="2.5" rx="0.3"></rect>
+              </g>
+              <g fill="var(--signal)">
+                <rect x="9.3" y="5.65" width="2.7" height="2.7" rx="0.3"></rect>
+                <rect x="13.7" y="5.65" width="2.7" height="2.7" rx="0.3"></rect>
+                <rect x="18.1" y="5.65" width="2.7" height="2.7" rx="0.3"></rect>
+                <rect x="13.7" y="10.65" width="2.7" height="2.7" rx="0.3"></rect>
+                <rect x="18.1" y="10.65" width="2.7" height="2.7" rx="0.3"></rect>
+                <rect x="18.1" y="15.65" width="2.7" height="2.7" rx="0.3"></rect>
+              </g>
             </svg>
           </button>
           <div class="info-popover" id="vizInfoPopover" role="tooltip">
@@ -2271,7 +2337,7 @@
           <div class="chip leaderboard-kpi"><span class="chip-label">Signaling</span> <span class="chip-value" id="minerTimelineSignalValue">-</span></div>
         </div>
       </div>
-      <div class="period-grid-legend" aria-label="Block signaling legend">
+      <div class="period-grid-legend miner-timeline-legend" aria-label="Block signaling legend">
         <span class="period-grid-legend-item"><span class="period-grid-legend-swatch is-signaling" aria-hidden="true"></span>Signaling</span>
         <span class="period-grid-legend-item"><span class="period-grid-legend-swatch" aria-hidden="true"></span>Non-signaling</span>
       </div>
