@@ -4882,6 +4882,13 @@
         const markerIndex = ((period - data.firstPeriod) * data.periodSize) - timelineOffset;
         if (markerIndex < 0 || markerIndex > data.totalBlocks) continue;
         if (shouldRenderRangeStartLabel && markerIndex === effectiveRangeStartIndex) continue;
+        if (suppressInitialRangeDivider && markerIndex === 0) {
+          renderPeriodMarker(period, markerIndex, {
+            rangeStart: true,
+            divider: false,
+          });
+          continue;
+        }
         renderPeriodMarker(period, markerIndex, { divider: true });
         periodDividers.push(markerIndex);
       }
