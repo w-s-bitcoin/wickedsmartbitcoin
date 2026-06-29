@@ -2037,8 +2037,9 @@
 
       .miner-timeline-axis,
       .miner-timeline-row {
-        --miner-timeline-mobile-miner-width: min(220px, max(140px, calc((100vw - 96px) / 2)));
-        grid-template-columns: var(--miner-timeline-mobile-miner-width) 72px 72px 72px;
+        grid-template-columns: minmax(140px, 1fr) 72px 72px 72px;
+        min-width: 100%;
+        width: 100%;
       }
 
       .miner-timeline-axis-track,
@@ -2073,8 +2074,7 @@
     @media (max-width: 480px) {
       .miner-timeline-axis,
       .miner-timeline-row {
-        --miner-timeline-mobile-miner-width: min(190px, max(128px, calc((100vw - 80px) / 2)));
-        grid-template-columns: var(--miner-timeline-mobile-miner-width) 56px 56px 56px;
+        grid-template-columns: minmax(128px, 1fr) 56px 56px 56px;
       }
 
       .miner-timeline-axis-label,
