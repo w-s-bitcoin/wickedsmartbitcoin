@@ -235,6 +235,8 @@
       leaderboardWindow: "all",
       minerTimelineWindow: "all",
       minerTimelineMiners: "all",
+      minerTimelineOrder: "total",
+      minerTimelineSignalersFirst: true,
       controls: {
         stripes: true,
         stripesExplicit: false,
@@ -326,6 +328,8 @@
     const minerTimelineSignalValue = document.getElementById("minerTimelineSignalValue");
     const minerTimelineWindowButtons = Array.from(document.querySelectorAll("[data-miner-timeline-window]"));
     const minerTimelineMinerButtons = Array.from(document.querySelectorAll("[data-miner-timeline-miners]"));
+    const minerTimelineOrderButtons = Array.from(document.querySelectorAll("[data-miner-timeline-order]"));
+    const minerTimelineSignalersFirst = document.getElementById("minerTimelineSignalersFirst");
     const vizInfoBtn = document.getElementById("vizInfoBtn");
     const segwitResizeHandle = document.getElementById("segwitResizeHandle");
     const bip110ResizeHandle = document.getElementById("bip110ResizeHandle");
@@ -1302,6 +1306,8 @@
 
       state.refreshInFlight = true;
       try {
+        const periodGridWasFollowingDefault = isPeriodGridOverlayOpen()
+          && getSelectedPeriodGridPeriod() === getDefaultPeriodGridPeriod();
         const latestSig = await fetchLatestBip110MetadataSignature();
         if (!latestSig || latestSig === state.dataSignature) {
           return;
@@ -1324,6 +1330,7 @@
 
         await loadAndApplyBlockDataPhased(loadToken, state.data.metadata, ["bip110"], loadBuster);
         setStatus(state.data);
+        refreshOpenOverlays({ followDefaultPeriodGrid: periodGridWasFollowingDefault });
       } catch (err) {
         console.warn("Auto-refresh check failed:", err);
       } finally {
@@ -2684,42 +2691,44 @@
       ctx.stroke();
       ctx.globalAlpha = 1;
 
-      const thresholdX = xScale(0.375);
-      const thresholdPctText = `${thresholdPct}%`;
-      const thresholdCountText = Number(threshold).toLocaleString();
-      const firstBarLeft = xScale(1) - barWidth / 2;
-      const halfSpace = Math.max(
-        10,
-        Math.min(
-          thresholdX - plot.x - 2,
-          firstBarLeft - thresholdX - 2
-        )
-      );
-      const thresholdMaxWidth = Math.max(20, halfSpace * 2);
-      const thresholdFontSize = numericTypography?.fontSize
-        ? Math.min(
-            numericTypography.fontSize,
-            fitFontPx(ctx, thresholdPctText, thresholdMaxWidth, numericTypography.fontSize, 6, '"IBM Plex Mono", monospace'),
-            fitFontPx(ctx, thresholdCountText, thresholdMaxWidth, numericTypography.fontSize, 6, '"IBM Plex Mono", monospace')
+      if (renderLabels) {
+        const thresholdX = xScale(0.375);
+        const thresholdPctText = `${thresholdPct}%`;
+        const thresholdCountText = Number(threshold).toLocaleString();
+        const firstBarLeft = xScale(1) - barWidth / 2;
+        const halfSpace = Math.max(
+          10,
+          Math.min(
+            thresholdX - plot.x - 2,
+            firstBarLeft - thresholdX - 2
           )
-        : Math.min(
-            fitFontPx(ctx, thresholdPctText, thresholdMaxWidth, isMobile ? 10 : 11, 6, '"IBM Plex Mono", monospace'),
-            fitFontPx(ctx, thresholdCountText, thresholdMaxWidth, isMobile ? 10 : 11, 6, '"IBM Plex Mono", monospace')
-          );
-      const thresholdOffset = Math.max(4, Math.round(thresholdFontSize * 0.6));
-      const useVerticalThresholdLabels = isMobile || barWidth < 16;
+        );
+        const thresholdMaxWidth = Math.max(20, halfSpace * 2);
+        const thresholdFontSize = numericTypography?.fontSize
+          ? Math.min(
+              numericTypography.fontSize,
+              fitFontPx(ctx, thresholdPctText, thresholdMaxWidth, numericTypography.fontSize, 6, '"IBM Plex Mono", monospace'),
+              fitFontPx(ctx, thresholdCountText, thresholdMaxWidth, numericTypography.fontSize, 6, '"IBM Plex Mono", monospace')
+            )
+          : Math.min(
+              fitFontPx(ctx, thresholdPctText, thresholdMaxWidth, isMobile ? 10 : 11, 6, '"IBM Plex Mono", monospace'),
+              fitFontPx(ctx, thresholdCountText, thresholdMaxWidth, isMobile ? 10 : 11, 6, '"IBM Plex Mono", monospace')
+            );
+        const thresholdOffset = Math.max(4, Math.round(thresholdFontSize * 0.6));
+        const useVerticalThresholdLabels = isMobile || barWidth < 16;
 
-      ctx.fillStyle = colors.threshold;
-      ctx.font = `${thresholdFontSize}px "IBM Plex Mono", monospace`;
-      if (useVerticalThresholdLabels) {
-        drawVerticalText(ctx, thresholdPctText, thresholdX, thresholdY - thresholdOffset, "up");
-        drawVerticalText(ctx, thresholdCountText, thresholdX, thresholdY + thresholdOffset, "up", "backward");
-      } else {
-        ctx.textAlign = "center";
-        ctx.textBaseline = "bottom";
-        ctx.fillText(thresholdPctText, thresholdX, thresholdY - thresholdOffset);
-        ctx.textBaseline = "top";
-        ctx.fillText(thresholdCountText, thresholdX, thresholdY + thresholdOffset);
+        ctx.fillStyle = colors.threshold;
+        ctx.font = `${thresholdFontSize}px "IBM Plex Mono", monospace`;
+        if (useVerticalThresholdLabels) {
+          drawVerticalText(ctx, thresholdPctText, thresholdX, thresholdY - thresholdOffset, "up");
+          drawVerticalText(ctx, thresholdCountText, thresholdX, thresholdY + thresholdOffset, "up", "backward");
+        } else {
+          ctx.textAlign = "center";
+          ctx.textBaseline = "bottom";
+          ctx.fillText(thresholdPctText, thresholdX, thresholdY - thresholdOffset);
+          ctx.textBaseline = "top";
+          ctx.fillText(thresholdCountText, thresholdX, thresholdY + thresholdOffset);
+        }
       }
 
       if (renderLabels) {
@@ -4368,6 +4377,22 @@
       });
     }
 
+    function normalizeMinerTimelineOrder(value) {
+      return value === "recent" ? "recent" : "total";
+    }
+
+    function updateMinerTimelineOrderControls() {
+      state.minerTimelineOrder = normalizeMinerTimelineOrder(state.minerTimelineOrder);
+      minerTimelineOrderButtons.forEach((button) => {
+        const active = button.dataset.minerTimelineOrder === state.minerTimelineOrder;
+        button.classList.toggle("is-active", active);
+        button.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+      if (minerTimelineSignalersFirst) {
+        minerTimelineSignalersFirst.checked = state.minerTimelineSignalersFirst !== false;
+      }
+    }
+
     function getPeriodFilterForWindow(windowName) {
       const currentPeriod = getCurrentBip110PeriodNumber();
       if (!Number.isFinite(currentPeriod)) return null;
@@ -4716,18 +4741,22 @@
         minerRows.set(miner.key, row);
       });
 
-      const sortMinerTimelineRows = (left, right) => {
-        if (state.minerTimelineMiners !== "all") {
-          if (right.totalBlocks !== left.totalBlocks) return right.totalBlocks - left.totalBlocks;
+      const compareMinerTimelineRowsByOrder = (left, right) => {
+        if (normalizeMinerTimelineOrder(state.minerTimelineOrder) === "recent") {
           if (right.latestBlockHeight !== left.latestBlockHeight) return right.latestBlockHeight - left.latestBlockHeight;
+          if (right.totalBlocks !== left.totalBlocks) return right.totalBlocks - left.totalBlocks;
           return String(left.name || "").localeCompare(String(right.name || ""));
-        }
-        if (left.latestBlockIsSignaling !== right.latestBlockIsSignaling) {
-          return right.latestBlockIsSignaling ? 1 : -1;
         }
         if (right.totalBlocks !== left.totalBlocks) return right.totalBlocks - left.totalBlocks;
         if (right.latestBlockHeight !== left.latestBlockHeight) return right.latestBlockHeight - left.latestBlockHeight;
         return String(left.name || "").localeCompare(String(right.name || ""));
+      };
+
+      const sortMinerTimelineRows = (left, right) => {
+        if (state.minerTimelineSignalersFirst !== false && left.latestBlockIsSignaling !== right.latestBlockIsSignaling) {
+          return right.latestBlockIsSignaling ? 1 : -1;
+        }
+        return compareMinerTimelineRowsByOrder(left, right);
       };
 
       const visibleRows = Array.from(minerRows.values()).filter((row) => {
@@ -4837,6 +4866,7 @@
       );
       updateMinerTimelineWindowButtons();
       updateMinerTimelineMinerButtons();
+      updateMinerTimelineOrderControls();
       if (minerTimelineRangeValue) minerTimelineRangeValue.textContent = data.rangeLabel;
       if (minerTimelineSignalValue) {
         minerTimelineSignalValue.innerHTML = formatLeaderboardSignalingValue(data.signalingTotal, data.blockTotal);
@@ -5436,13 +5466,22 @@
 
     function renderAll() {
       renderSelectedPanels(["segwit", "bip110"]);
+      refreshOpenOverlays();
+    }
+
+    function refreshOpenOverlays(options = {}) {
       if (isPeriodGridOverlayOpen()) {
+        hidePeriodGridTooltip();
+        if (options.followDefaultPeriodGrid) {
+          setPeriodGridSelectedPeriod(getDefaultPeriodGridPeriod());
+        }
         renderCurrentPeriodGridOverlay();
       }
       if (leaderboardOverlay?.classList.contains("show")) {
         renderBip110LeaderboardOverlay();
       }
       if (isMinerTimelineOverlayOpen()) {
+        hidePeriodGridTooltip();
         renderBip110MinerTimelineOverlay();
       }
     }
@@ -5587,6 +5626,20 @@
           renderBip110MinerTimelineOverlay();
           scrollMinerTimelineToLatestPeriod();
         });
+      });
+
+      minerTimelineOrderButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          state.minerTimelineOrder = normalizeMinerTimelineOrder(button.dataset.minerTimelineOrder);
+          renderBip110MinerTimelineOverlay();
+          scrollMinerTimelineToLatestPeriod();
+        });
+      });
+
+      minerTimelineSignalersFirst?.addEventListener("change", () => {
+        state.minerTimelineSignalersFirst = minerTimelineSignalersFirst.checked;
+        renderBip110MinerTimelineOverlay();
+        scrollMinerTimelineToLatestPeriod();
       });
 
       window.addEventListener("keydown", handlePeriodGridModalKeydown, true);
