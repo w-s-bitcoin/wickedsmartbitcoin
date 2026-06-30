@@ -1323,6 +1323,28 @@
       align-items: center;
     }
 
+    .miner-timeline-order-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 28px;
+      margin: 0;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.72rem;
+      line-height: 1.1;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+
+    .miner-timeline-order-toggle input {
+      width: 14px;
+      height: 14px;
+      margin: 0;
+      accent-color: var(--signal);
+      cursor: pointer;
+    }
+
     .miner-timeline-content {
       --miner-timeline-cell-size: 0.45px;
       --miner-timeline-row-height: 28px;
@@ -2332,6 +2354,17 @@
             <button type="button" class="leaderboard-window-btn" data-miner-timeline-miners="nonsignaling" aria-pressed="false">Non-signaling</button>
           </div>
         </div>
+        <div class="leaderboard-window-controls" role="group" aria-label="Miner timeline order">
+          <span class="leaderboard-window-label">Order by</span>
+          <div class="leaderboard-window-button-panel">
+            <button type="button" class="leaderboard-window-btn is-active" data-miner-timeline-order="total" aria-pressed="true">Total Block Count</button>
+            <button type="button" class="leaderboard-window-btn" data-miner-timeline-order="recent" aria-pressed="false">Most Recent Block</button>
+          </div>
+        </div>
+        <label class="miner-timeline-order-toggle" for="minerTimelineSignalersFirst">
+          <input id="minerTimelineSignalersFirst" type="checkbox" checked />
+          Signaling miners on top
+        </label>
         <div class="miner-timeline-kpis">
           <div class="chip leaderboard-kpi"><span class="chip-label">Height Range</span> <span class="chip-value" id="minerTimelineRangeValue">-</span></div>
           <div class="chip leaderboard-kpi"><span class="chip-label">Signaling</span> <span class="chip-value" id="minerTimelineSignalValue">-</span></div>
