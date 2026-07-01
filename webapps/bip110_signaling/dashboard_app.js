@@ -24,6 +24,7 @@
     /* ────────────────────────────────────────────────────────────────── */
     const AUTO_REFRESH_MS = 60000;
     const CONTROLS_STORAGE_KEY = "bip110_signaling_controls_v3";
+    const BIP110_OVERLAY_SELECTIONS_STORAGE_KEY = "bip110_signaling_overlay_selections_v1";
     const PANEL_RESIZE_MIN_HEIGHT = 220;
     const PANEL_RESIZE_VIEWPORT_PAD = 24;
     const PANEL_RESIZE_SNAP_PX = 18;
@@ -1416,6 +1417,71 @@
       }
     }
 
+    function normalizeBip110OverlayWindow(value) {
+      const normalized = String(value || "all");
+      return ["all", "last", "current", "past14d", "past7d", "past24h"].includes(normalized) ? normalized : "all";
+    }
+
+    function normalizeBip110TimelineMinerFilter(value) {
+      const normalized = String(value || "all");
+      return ["all", "nonsignaling", "signaling"].includes(normalized) ? normalized : "all";
+    }
+
+    function persistBip110OverlaySelections() {
+      try {
+        const payload = {
+          leaderboardWindow: normalizeBip110OverlayWindow(state.leaderboardWindow),
+          minerTimelineWindow: normalizeBip110OverlayWindow(state.minerTimelineWindow),
+          minerTimelineMiners: normalizeBip110TimelineMinerFilter(state.minerTimelineMiners),
+          minerTimelineOrder: normalizeMinerTimelineOrder(state.minerTimelineOrder),
+          minerTimelineSignalersFirst: state.minerTimelineSignalersFirst !== false,
+        };
+        localStorage.setItem(BIP110_OVERLAY_SELECTIONS_STORAGE_KEY, JSON.stringify(payload));
+      } catch (_) {
+        // Ignore storage failures (private mode or unavailable storage).
+      }
+    }
+
+    function restoreBip110OverlaySelections() {
+      try {
+        const raw = localStorage.getItem(BIP110_OVERLAY_SELECTIONS_STORAGE_KEY);
+        if (!raw) return false;
+
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") return false;
+
+        state.leaderboardWindow = normalizeBip110OverlayWindow(parsed.leaderboardWindow);
+        state.minerTimelineWindow = normalizeBip110OverlayWindow(parsed.minerTimelineWindow);
+        state.minerTimelineMiners = normalizeBip110TimelineMinerFilter(parsed.minerTimelineMiners);
+        state.minerTimelineOrder = normalizeMinerTimelineOrder(parsed.minerTimelineOrder);
+        state.minerTimelineSignalersFirst = typeof parsed.minerTimelineSignalersFirst === "boolean"
+          ? parsed.minerTimelineSignalersFirst
+          : true;
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    function syncBip110OverlaySelectionControls() {
+      updateLeaderboardWindowButtons();
+      updateMinerTimelineWindowButtons();
+      updateMinerTimelineMinerButtons();
+      updateMinerTimelineOrderControls();
+    }
+
+    function refreshBip110OverlaySelectionsFromStorage() {
+      if (!restoreBip110OverlaySelections()) return;
+      syncBip110OverlaySelectionControls();
+      if (leaderboardOverlay?.classList.contains("show")) {
+        renderBip110LeaderboardOverlay();
+      }
+      if (isMinerTimelineOverlayOpen()) {
+        renderBip110MinerTimelineOverlay();
+        scrollMinerTimelineToLatestPeriod();
+      }
+    }
+
     function restorePersistedControls() {
       try {
         const raw = localStorage.getItem(CONTROLS_STORAGE_KEY);
@@ -1822,6 +1888,7 @@
       try {
         try {
           localStorage.removeItem(CONTROLS_STORAGE_KEY);
+          localStorage.removeItem(BIP110_OVERLAY_SELECTIONS_STORAGE_KEY);
         } catch (_) {
         }
         try {
@@ -1843,6 +1910,11 @@
         state.controls.showSegwit = false;
         state.controls.showBip110 = true;
         state.controls.panelsSwapped = false;
+        state.leaderboardWindow = "all";
+        state.minerTimelineWindow = "all";
+        state.minerTimelineMiners = "all";
+        state.minerTimelineOrder = "total";
+        state.minerTimelineSignalersFirst = true;
 
         state.filledPanels.segwit = true;
         state.filledPanels.bip110 = true;
@@ -5605,7 +5677,8 @@
       leaderboardWindowButtons.forEach((button) => {
         button.addEventListener("click", () => {
           const value = String(button.dataset.leaderboardWindow || "all");
-          state.leaderboardWindow = ["all", "last", "current", "past14d", "past7d", "past24h"].includes(value) ? value : "all";
+          state.leaderboardWindow = normalizeBip110OverlayWindow(value);
+          persistBip110OverlaySelections();
           renderBip110LeaderboardOverlay();
         });
       });
@@ -5613,7 +5686,8 @@
       minerTimelineWindowButtons.forEach((button) => {
         button.addEventListener("click", () => {
           const value = String(button.dataset.minerTimelineWindow || "all");
-          state.minerTimelineWindow = ["all", "last", "current", "past14d", "past7d", "past24h"].includes(value) ? value : "all";
+          state.minerTimelineWindow = normalizeBip110OverlayWindow(value);
+          persistBip110OverlaySelections();
           renderBip110MinerTimelineOverlay();
           scrollMinerTimelineToLatestPeriod();
         });
@@ -5622,7 +5696,8 @@
       minerTimelineMinerButtons.forEach((button) => {
         button.addEventListener("click", () => {
           const value = String(button.dataset.minerTimelineMiners || "all");
-          state.minerTimelineMiners = ["all", "nonsignaling", "signaling"].includes(value) ? value : "all";
+          state.minerTimelineMiners = normalizeBip110TimelineMinerFilter(value);
+          persistBip110OverlaySelections();
           renderBip110MinerTimelineOverlay();
           scrollMinerTimelineToLatestPeriod();
         });
@@ -5631,6 +5706,7 @@
       minerTimelineOrderButtons.forEach((button) => {
         button.addEventListener("click", () => {
           state.minerTimelineOrder = normalizeMinerTimelineOrder(button.dataset.minerTimelineOrder);
+          persistBip110OverlaySelections();
           renderBip110MinerTimelineOverlay();
           scrollMinerTimelineToLatestPeriod();
         });
@@ -5638,6 +5714,7 @@
 
       minerTimelineSignalersFirst?.addEventListener("change", () => {
         state.minerTimelineSignalersFirst = minerTimelineSignalersFirst.checked;
+        persistBip110OverlaySelections();
         renderBip110MinerTimelineOverlay();
         scrollMinerTimelineToLatestPeriod();
       });
@@ -5867,6 +5944,7 @@
         const loadToken = ++state.phasedLoadToken;
         state.timeZone = getPreferredDashboardTimeZone();
         const restoredPersistedControls = restorePersistedControls();
+        restoreBip110OverlaySelections();
         if (!restoredPersistedControls) {
           applyNarrowWindowDefaults();
 
@@ -5971,6 +6049,10 @@
         });
 
         window.addEventListener("storage", (ev) => {
+          if (ev.key === BIP110_OVERLAY_SELECTIONS_STORAGE_KEY) {
+            refreshBip110OverlaySelectionsFromStorage();
+            return;
+          }
           if (!DASHBOARD_TIME?.STORAGE_KEY || ev.key !== DASHBOARD_TIME.STORAGE_KEY) return;
           const newTz = DASHBOARD_TIME.getPreferredTimeZone?.() || "UTC";
           if (newTz !== state.timeZone) {
