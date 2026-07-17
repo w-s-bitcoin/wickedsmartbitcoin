@@ -389,6 +389,10 @@ SEGWIT_RELEASE_TIMES_UTC = {
     "SegWit2x:v1.14.4": "2017-07-17 22:48 UTC",
 }
 
+BIP110_EXCLUDED_RELEASE_LABELS = {
+    "core:v29.4",
+}
+
 def block_time_at_height(rpc, height: int) -> int:
     tip = int(rpc.getblockcount())
     tip_hash = rpc.getblockhash(tip)
@@ -1187,6 +1191,8 @@ bip110_signal_miners_meta = dict(bip110_miners_meta)
 
 static_release_points = []
 for label, height, period in bip110_releases:
+    if str(label).lower() in BIP110_EXCLUDED_RELEASE_LABELS:
+        continue
     if period is None or not (1 <= period <= BIP110_LAST_PERIOD):
         continue
     static_release_points.append((str(label), int(height), int(period)))
@@ -1195,6 +1201,8 @@ dynamic_release_points = build_dynamic_release_points(current_height)
 
 release_point_map = {label: (height, period) for label, height, period in static_release_points}
 for label, height, period in dynamic_release_points:
+    if str(label).lower() in BIP110_EXCLUDED_RELEASE_LABELS:
+        continue
     if label not in release_point_map:
         release_point_map[label] = (height, period)
 
