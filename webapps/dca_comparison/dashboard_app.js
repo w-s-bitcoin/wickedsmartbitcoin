@@ -25,6 +25,9 @@
   const DASHBOARD_CHART_LINE_WIDTH = 2;
   const EXPORT_GRID_LINE_WIDTH = 1;
   const EXPORT_REFERENCE_CHART_LINE_WIDTH = 5.8;
+  const BITCOIN_HALVING_INTERVAL = 210000;
+  const BITCOIN_INITIAL_SUBSIDY = 50;
+  const BITCOIN_MAX_SUPPLY = 21000000;
   const SELECT_DROPDOWN_CONFIGS = [
     { selectId: "cadenceSelect", dropdownId: "cadenceDropdown", triggerId: "cadenceDropdownTrigger", menuId: "cadenceDropdownMenu" },
     { selectId: "assetASelect", dropdownId: "assetADropdown", triggerId: "assetADropdownTrigger", menuId: "assetADropdownMenu" },
@@ -69,6 +72,8 @@
     orientation: "landscape",
     theme: "",
     endFrameHold: true,
+    maxBtcPurchasePct: 1,
+    capBtcTotalToSupply: true,
   };
   const DEFAULT_EXPORT_SETTINGS = {
     scale: DEFAULTS.scale,
@@ -83,6 +88,7 @@
     cadenceSelect: document.getElementById("cadenceSelect"),
     scaleSelect: document.getElementById("scaleSelect"),
     amountInput: document.getElementById("amountInput"),
+    dcaCapWarning: document.getElementById("dcaCapWarning"),
     assetASelect: document.getElementById("assetASelect"),
     assetBSelect: document.getElementById("assetBSelect"),
     rangeStartInput: document.getElementById("dateRangeStartInput"),
@@ -102,6 +108,11 @@
     downloadBtn: document.getElementById("dateRangeDownloadBtn"),
     settingsBtn: document.getElementById("dateRangeSettingsBtn"),
     settingsPanel: document.getElementById("dateRangeSettingsMenu"),
+    dashboardSettingsBtn: document.getElementById("dcaComparisonSettingsBtn"),
+    dashboardSettingsPanel: document.getElementById("dcaComparisonSettingsPanel"),
+    dashboardSettingsClose: document.getElementById("dcaComparisonSettingsClose"),
+    maxBtcPurchasePctInput: document.getElementById("maxBtcPurchasePctInput"),
+    capBtcTotalToSupplyToggle: document.getElementById("capBtcTotalToSupplyToggle"),
     downloadPanelBtn: document.getElementById("downloadSettingsDownloadBtn"),
     downloadScaleSelect: document.getElementById("downloadScaleSelect"),
     downloadOrientationSelect: document.getElementById("downloadOrientationSelect"),
@@ -568,6 +579,16 @@
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
   }
 
+  function parsePercentValue(value) {
+    const parsed = Number.parseFloat(String(value || "").replace(/[^0-9.]/g, ""));
+    return Number.isFinite(parsed) ? Math.max(0, Math.min(100, parsed)) : DEFAULTS.maxBtcPurchasePct;
+  }
+
+  function formatPercentInputValue(value) {
+    const parsed = parsePercentValue(value);
+    return Number.isInteger(parsed) ? String(parsed) : parsed.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
+  }
+
   function formatAmountValue(value) {
     const parsed = parseAmountValue(value);
     return parsed > 0 ? parsed.toLocaleString("en-US") : "";
@@ -745,8 +766,40 @@
     return `${years.toFixed(2)} Years`;
   }
 
+  function estimateBitcoinSupplyAtHeight(height) {
+    const safeHeight = Math.max(0, Math.floor(Number(height)));
+    if (!Number.isFinite(safeHeight)) return BITCOIN_MAX_SUPPLY;
+    let remainingBlocks = safeHeight + 1;
+    let subsidy = BITCOIN_INITIAL_SUBSIDY;
+    let supply = 0;
+    while (remainingBlocks > 0 && subsidy > 0 && supply < BITCOIN_MAX_SUPPLY) {
+      const blocks = Math.min(BITCOIN_HALVING_INTERVAL, remainingBlocks);
+      supply += blocks * subsidy;
+      remainingBlocks -= blocks;
+      subsidy /= 2;
+    }
+    return Math.min(BITCOIN_MAX_SUPPLY, supply);
+  }
+
+  function estimateBitcoinSupply(row) {
+    if (Number.isFinite(row?.height)) return estimateBitcoinSupplyAtHeight(row.height);
+    return BITCOIN_MAX_SUPPLY;
+  }
+
+  function applyBitcoinPurchaseCaps({ asset, row, requestedUnits, currentUnits, settings }) {
+    if (asset !== "BTC" || !Number.isFinite(requestedUnits) || requestedUnits <= 0) {
+      return { units: requestedUnits, capped: false };
+    }
+    const supply = estimateBitcoinSupply(row);
+    const perPurchaseCap = supply * (parsePercentValue(settings.maxBtcPurchasePct) / 100);
+    const totalCap = settings.capBtcTotalToSupply === false ? BITCOIN_MAX_SUPPLY : Math.max(0, supply - currentUnits);
+    const cappedUnits = Math.max(0, Math.min(requestedUnits, perPurchaseCap, totalCap));
+    const units = Number.isFinite(cappedUnits) ? cappedUnits : 0;
+    return { units, capped: units + LOG_MIN_POSITIVE < requestedUnits };
+  }
+
   function assetUnitPhrase(code) {
-    if (code === "BTC") return "BTC";
+    if (code === "BTC") return "bitcoin";
     if (code === "XAU") return "oz gold";
     if (code === "XAG") return "oz silver";
     return ASSETS[code]?.label || code;
@@ -765,7 +818,7 @@
   function fmtDcaUnits(value, code) {
     if (!Number.isFinite(value)) return "";
     const digits = code === "BTC" ? 8 : 2;
-    return `${value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })} ${code === "BTC" ? "BTC" : assetUnitPhrase(code)}`;
+    return `${value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })} ${code === "BTC" ? "bitcoin" : assetUnitPhrase(code)}`;
   }
 
   function fmtAxisUsd(v) {
@@ -1250,6 +1303,8 @@
       amount: state.settings.amount,
       assetA: state.settings.assetA,
       assetB: state.settings.assetB,
+      maxBtcPurchasePct: state.settings.maxBtcPurchasePct,
+      capBtcTotalToSupply: !!state.settings.capBtcTotalToSupply,
       preset: state.settings.preset,
       rangeTracksLatestEnd: !!state.settings.rangeTracksLatestEnd,
       speed: state.settings.speed,
@@ -1285,6 +1340,8 @@
       && Number(current.amount) === Number(defaults.amount)
       && current.assetA === defaults.assetA
       && current.assetB === defaults.assetB
+      && Number(current.maxBtcPurchasePct) === Number(defaults.maxBtcPurchasePct)
+      && !!current.capBtcTotalToSupply === !!defaults.capBtcTotalToSupply
       && current.preset === defaults.preset
       && !!current.rangeTracksLatestEnd === !!defaults.rangeTracksLatestEnd
       && Number(current.speed) === Number(defaults.speed)
@@ -1468,6 +1525,8 @@
       settings.assetB,
       settings.cadence,
       settings.amount,
+      settings.maxBtcPurchasePct,
+      settings.capBtcTotalToSupply ? 1 : 0,
       settings.rangeStart,
       settings.rangeEnd,
       settings.scale,
@@ -1732,6 +1791,8 @@
     s.orientation = ["landscape", "portrait", "square"].includes(s.orientation) ? s.orientation : DEFAULTS.orientation;
     s.theme = ["light", "dark"].includes(s.theme) ? s.theme : getTheme();
     s.endFrameHold = s.endFrameHold !== false;
+    s.maxBtcPurchasePct = parsePercentValue(s.maxBtcPurchasePct);
+    s.capBtcTotalToSupply = s.capBtcTotalToSupply !== false;
     s.preset = ["", "ytd", "1y", "2y", "4y", "8y", "full"].includes(s.preset) ? s.preset : "";
     s.rangeTracksLatestEnd = s.rangeTracksLatestEnd === true;
     if (s.preset) {
@@ -1837,6 +1898,10 @@
     el.scaleSelect.value = s.scale;
     if (document.activeElement !== el.amountInput) el.amountInput.value = Number(s.amount).toLocaleString("en-US");
     syncAmountInputWidth();
+    if (el.maxBtcPurchasePctInput && document.activeElement !== el.maxBtcPurchasePctInput) {
+      el.maxBtcPurchasePctInput.value = formatPercentInputValue(s.maxBtcPurchasePct);
+    }
+    if (el.capBtcTotalToSupplyToggle) el.capBtcTotalToSupplyToggle.checked = s.capBtcTotalToSupply !== false;
     el.assetASelect.value = s.assetA;
     el.assetBSelect.value = s.assetB;
     syncAllSelectDropdowns();
@@ -1947,6 +2012,7 @@
     let unitsB = 0;
     let invested = 0;
     let count = 0;
+    let capHitCount = 0;
     const points = [];
     for (const r of state.rows) {
       if (r.date < s.rangeStart || r.date > endIso) continue;
@@ -1956,9 +2022,31 @@
       if (hasB && (!Number.isFinite(priceB) || priceB <= 0)) continue;
       if (r.date >= s.dcaStart && isDcaDate(r.date, s.dcaStart, s.cadence)) {
         invested += s.amount;
-        unitsA += s.amount / priceA;
-        if (hasB) unitsB += s.amount / priceB;
+        let capHit = false;
+        const rawUnitsA = s.amount / priceA;
+        const cappedA = applyBitcoinPurchaseCaps({
+          asset: s.assetA,
+          row: r,
+          requestedUnits: rawUnitsA,
+          currentUnits: unitsA,
+          settings: s,
+        });
+        unitsA += cappedA.units;
+        capHit = capHit || cappedA.capped;
+        if (hasB) {
+          const rawUnitsB = s.amount / priceB;
+          const cappedB = applyBitcoinPurchaseCaps({
+            asset: s.assetB,
+            row: r,
+            requestedUnits: rawUnitsB,
+            currentUnits: unitsB,
+            settings: s,
+          });
+          unitsB += cappedB.units;
+          capHit = capHit || cappedB.capped;
+        }
         count += 1;
+        if (capHit) capHitCount += 1;
       }
       if (r.date >= s.dcaStart && invested > 0) {
         points.push({
@@ -1971,6 +2059,7 @@
           unitsA,
           unitsB: hasB ? unitsB : null,
           count,
+          capHitCount,
         });
       }
     }
@@ -2293,6 +2382,12 @@
       el.assetBDcaValue.textContent = "";
       el.assetADcaUnits.textContent = "";
       el.assetBDcaUnits.textContent = "";
+      if (el.dcaCapWarning) {
+        el.dcaCapWarning.textContent = "";
+        el.dcaCapWarning.setAttribute("data-cap-tooltip", "");
+        el.dcaCapWarning.setAttribute("aria-label", "");
+        el.dcaCapWarning.classList.remove("is-visible");
+      }
       el.assetADcaValue.style.color = a.color;
       if (hasB) el.assetBDcaValue.style.color = b.color;
       return;
@@ -2314,6 +2409,23 @@
     el.assetBDcaValue.textContent = hasB ? fmtKpiUsd(latest.valueB) : "";
     el.assetADcaUnits.textContent = fmtDcaUnits(latest.unitsA, s.assetA);
     el.assetBDcaUnits.textContent = hasB ? fmtDcaUnits(latest.unitsB, s.assetB) : "";
+    if (el.dcaCapWarning) {
+      const capHitCount = Number(latest.capHitCount) || 0;
+      const visible = capHitCount > 0;
+      const threshold = formatPercentInputValue(s.maxBtcPurchasePct);
+      const totalCapText = s.capBtcTotalToSupply !== false
+        ? " and total bitcoin cannot exceed that day's estimated supply"
+        : "";
+      const tooltipText = `Each bitcoin DCA is capped at ${threshold}% of that day's estimated supply${totalCapText}.`;
+      el.dcaCapWarning.classList.toggle("is-visible", visible);
+      el.dcaCapWarning.setAttribute("data-cap-tooltip", visible ? tooltipText : "");
+      el.dcaCapWarning.setAttribute("aria-label", visible
+        ? `Bitcoin purchase limit reached ${capHitCount.toLocaleString("en-US")} ${capHitCount === 1 ? "time" : "times"}. ${tooltipText}`
+        : "");
+      el.dcaCapWarning.textContent = visible
+        ? `Bitcoin purchase limit reached ${capHitCount.toLocaleString("en-US")} ${capHitCount === 1 ? "time" : "times"}`
+        : "";
+    }
     el.assetADcaValue.style.color = a.color;
     if (hasB) el.assetBDcaValue.style.color = b.color;
   }
@@ -3068,6 +3180,32 @@
       el.settingsPanel?.classList.remove("open");
       el.settingsBtn?.classList.remove("is-open");
     };
+    const positionDashboardSettingsPanel = () => {
+      const panel = el.dashboardSettingsPanel;
+      const button = el.dashboardSettingsBtn;
+      if (!panel || !button) return;
+      const topbar = button.closest(".topbar");
+      if (!topbar) return;
+      const topbarRect = topbar.getBoundingClientRect();
+      const buttonRect = button.getBoundingClientRect();
+      const topbarStyle = window.getComputedStyle(topbar);
+      const contentLeft = topbarRect.left + (parseFloat(topbarStyle.paddingLeft) || 0);
+      panel.style.setProperty("--dca-comparison-settings-panel-left", `${Math.round(contentLeft - buttonRect.left)}px`);
+      const panelTop = buttonRect.bottom + 8;
+      const playbackPanel = document.querySelector(".date-range-panel");
+      const playbackBottom = playbackPanel?.getBoundingClientRect().bottom || (window.innerHeight - 12);
+      const viewportBottom = window.innerHeight - 12;
+      const availableHeight = Math.min(playbackBottom, viewportBottom) - panelTop;
+      panel.style.setProperty("--dca-comparison-settings-panel-max-height", `${Math.max(1, Math.floor(availableHeight))}px`);
+    };
+    const setDashboardSettingsPanelOpen = (open) => {
+      const isOpen = !!open;
+      if (isOpen) positionDashboardSettingsPanel();
+      el.dashboardSettingsPanel?.classList.toggle("open", isOpen);
+      el.dashboardSettingsBtn?.classList.toggle("is-open", isOpen);
+      el.dashboardSettingsBtn?.setAttribute("aria-expanded", isOpen ? "true" : "false");
+    };
+    const closeDashboardSettingsPanel = () => setDashboardSettingsPanelOpen(false);
     bindSelectDropdowns();
     bindSecondaryAssetArrowCycling();
     let startPicker = null;
@@ -3281,6 +3419,25 @@
       el.amountInput.blur();
     });
     el.amountInput?.addEventListener("input", handleAmountInput);
+    el.maxBtcPurchasePctInput?.addEventListener("input", () => {
+      clearPreResetSnapshot();
+      state.settings.maxBtcPurchasePct = parsePercentValue(el.maxBtcPurchasePctInput.value);
+      stopAnimation(false);
+      render();
+    });
+    el.maxBtcPurchasePctInput?.addEventListener("change", () => {
+      clearPreResetSnapshot();
+      state.settings.maxBtcPurchasePct = parsePercentValue(el.maxBtcPurchasePctInput.value);
+      el.maxBtcPurchasePctInput.value = formatPercentInputValue(state.settings.maxBtcPurchasePct);
+      stopAnimation(false);
+      render();
+    });
+    el.capBtcTotalToSupplyToggle?.addEventListener("change", () => {
+      clearPreResetSnapshot();
+      state.settings.capBtcTotalToSupply = !!el.capBtcTotalToSupplyToggle.checked;
+      stopAnimation(false);
+      render();
+    });
     [el.rangeStartBtn, el.rangeEndBtn].forEach((button) => {
       button?.addEventListener("click", () => {
         openDateInputForButton(button);
@@ -3292,6 +3449,24 @@
     });
     el.rangePanel?.addEventListener("click", handleRangePanelClick, true);
     el.settingsPanel?.addEventListener("click", (event) => event.stopPropagation());
+    if (el.dashboardSettingsBtn && el.dashboardSettingsBtn.dataset.bound !== "1") {
+      el.dashboardSettingsBtn.dataset.bound = "1";
+      el.dashboardSettingsBtn.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setDashboardSettingsPanelOpen(!el.dashboardSettingsPanel?.classList.contains("open"));
+      });
+    }
+    if (el.dashboardSettingsClose && el.dashboardSettingsClose.dataset.bound !== "1") {
+      el.dashboardSettingsClose.dataset.bound = "1";
+      el.dashboardSettingsClose.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        closeDashboardSettingsPanel();
+        el.dashboardSettingsBtn?.focus();
+      });
+    }
+    el.dashboardSettingsPanel?.addEventListener("click", (event) => event.stopPropagation());
     if (el.copyLinkBtn && el.copyLinkBtn.dataset.bound !== "1") {
       el.copyLinkBtn.dataset.bound = "1";
       el.copyLinkBtn.addEventListener("click", async () => {
@@ -3384,20 +3559,26 @@
     document.addEventListener("click", (event) => {
       if (el.settingsPanel?.contains(event.target) || el.settingsBtn?.contains(event.target)) return;
       closeSettingsPanel();
+      if (el.dashboardSettingsPanel?.contains(event.target) || el.dashboardSettingsBtn?.contains(event.target)) return;
+      closeDashboardSettingsPanel();
     });
     document.addEventListener("pointerdown", handlePlaybackPanelOutsidePointer, true);
     window.addEventListener("pagehide", saveSettings);
     window.addEventListener("beforeunload", saveSettings);
-    window.addEventListener("resize", render);
+    window.addEventListener("resize", () => {
+      if (el.dashboardSettingsPanel?.classList.contains("open")) positionDashboardSettingsPanel();
+      render();
+    });
     DASHBOARD_COMPONENTS.bindPlaybackKeyboardShortcuts?.({
       blurControls: blurControlIfFocused,
       isTextEntry: (active) => isTextEntry(active),
       isPlaybackActive: () => state.isPlaying || state.paused,
-      isEscapeActive: () => el.settingsPanel?.classList.contains("open") || state.isPlaying || state.paused,
+      isEscapeActive: () => el.settingsPanel?.classList.contains("open") || el.dashboardSettingsPanel?.classList.contains("open") || state.isPlaying || state.paused,
       isInactiveArrowActive: () => state.lastAdjustedHandle === "start" || state.lastAdjustedHandle === "end",
       onSpace: togglePlayback,
       onEscape: () => {
         closeSettingsPanel();
+        closeDashboardSettingsPanel();
         if (state.isPlaying || state.paused) stopAnimation(true);
       },
       onInactiveArrow: (direction) => nudgeLastAdjustedHandle(direction),
