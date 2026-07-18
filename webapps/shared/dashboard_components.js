@@ -789,7 +789,22 @@
 
   function createUpdatedTimeZoneChipController(config = {}) {
     const root = config.root || document;
-    const timeApi = config.timeApi || window.WSBDashboardTime || null;
+    let timeApi = null;
+    function resolveTimeApi() {
+      if (config.timeApi) return config.timeApi;
+      if (window.WSBDashboardTime) return window.WSBDashboardTime;
+      try {
+        if (window.parent && window.parent !== window && window.parent.WSBDashboardTime) {
+          return window.parent.WSBDashboardTime;
+        }
+      } catch (_) {
+      }
+      return null;
+    }
+    function getTimeApi() {
+      if (!timeApi) timeApi = resolveTimeApi();
+      return timeApi;
+    }
     const wrap = resolveDashboardElement(config.wrap || "#updatedChipWrap", root);
     const chip = resolveDashboardElement(config.chip || "#chipUpdated", root);
     const valueEl = resolveDashboardElement(config.value || "#updatedKpi", root) || chip?.querySelector(".chip-value");
@@ -797,14 +812,14 @@
     const dropdown = resolveDashboardElement(config.dropdown || "#updatedTimeZoneDropdown", root);
     const trigger = resolveDashboardElement(config.trigger || "#updatedTimeZoneDropdownTrigger", root);
     const menu = resolveDashboardElement(config.menu || "#updatedTimeZoneDropdownMenu", root);
-    const fallbackTimeZone = timeApi?.FALLBACK_TIME_ZONE || "UTC";
+    const fallbackTimeZone = getTimeApi()?.FALLBACK_TIME_ZONE || "UTC";
     const getTimeZone = typeof config.getTimeZone === "function"
       ? config.getTimeZone
-      : () => select?.value || timeApi?.getPreferredTimeZone?.() || fallbackTimeZone;
+      : () => select?.value || getTimeApi()?.getPreferredTimeZone?.() || fallbackTimeZone;
     const setTimeZone = typeof config.setTimeZone === "function"
       ? config.setTimeZone
       : (value) => {
-        const normalized = timeApi?.setPreferredTimeZone?.(value) || value || fallbackTimeZone;
+        const normalized = getTimeApi()?.setPreferredTimeZone?.(value) || value || fallbackTimeZone;
         if (select) select.value = normalized;
         return normalized;
       };
@@ -864,12 +879,12 @@
 
     function getOptions() {
       if (typeof config.getOptions === "function") return config.getOptions();
-      return timeApi?.getTimeZoneOptions?.() || [{ value: fallbackTimeZone, label: fallbackTimeZone }];
+      return getTimeApi()?.getTimeZoneOptions?.() || [{ value: fallbackTimeZone, label: fallbackTimeZone }];
     }
 
     function populate() {
       const options = getOptions();
-      const current = getTimeZone() || timeApi?.getPreferredTimeZone?.() || fallbackTimeZone;
+      const current = getTimeZone() || getTimeApi()?.getPreferredTimeZone?.() || fallbackTimeZone;
       if (select) {
         select.innerHTML = "";
         options.forEach((option) => {
@@ -908,7 +923,7 @@
           return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
         }
       }
-      const formatted = timeApi?.formatUtcTimestamp?.(normalizeTimestamp(raw), getTimeZone());
+      const formatted = getTimeApi()?.formatUtcTimestamp?.(normalizeTimestamp(raw), getTimeZone());
       let text = (formatted?.text || raw).replace(/\s+([A-Z]{2,5}|GMT[^\s]*)$/, " ($1)");
       if (options.includeHeight && options.height != null && options.height !== "") {
         const height = Number(options.height);
