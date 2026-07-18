@@ -506,6 +506,59 @@
       --dca-dropdown-arrow-gap: 18px;
     }
 
+    .dca-cap-warning {
+      position: relative;
+      display: none;
+      align-items: center;
+      min-height: 30px;
+      padding: 5px 10px;
+      border: 1px solid rgba(255, 159, 28, 0.48);
+      border-radius: 999px;
+      background: rgba(255, 159, 28, 0.08);
+      color: var(--accent);
+      font: 0.76rem "IBM Plex Mono", monospace;
+      line-height: 1.25;
+      max-width: min(560px, 100%);
+      white-space: normal;
+    }
+
+    .dca-cap-warning.is-visible {
+      display: inline-flex;
+    }
+
+    .dca-cap-warning::after {
+      content: attr(data-cap-tooltip);
+      position: absolute;
+      left: 0;
+      top: calc(100% + 8px);
+      width: min(440px, calc(100vw - 24px));
+      padding: 9px 10px;
+      border: 1px solid var(--tooltip-border);
+      border-radius: 8px;
+      background: var(--tooltip-bg);
+      color: var(--tooltip-fg);
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.32);
+      font: 0.76rem/1.35 "IBM Plex Mono", monospace;
+      white-space: normal;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(-3px);
+      transition: opacity 120ms ease, transform 120ms ease;
+      z-index: 300;
+    }
+
+    .dca-cap-warning:hover::after,
+    .dca-cap-warning:focus-visible::after {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    :root[data-theme="light"] .dca-cap-warning {
+      background: rgba(255, 159, 28, 0.12);
+      border-color: rgba(143, 82, 0, 0.34);
+      color: #8f5200;
+    }
+
     .date-range-panel {
       border: 1px solid var(--card-border);
       border-radius: 14px;
@@ -2146,6 +2199,128 @@
       gap: 8px;
     }
 
+    .dca-comparison-settings-panel {
+      position: absolute;
+      top: calc(100% + 8px);
+      left: var(--dca-comparison-settings-panel-left, 0px);
+      width: min(440px, calc(100vw - 32px));
+      max-height: var(--dca-comparison-settings-panel-max-height, min(72vh, 560px));
+      overflow-x: hidden;
+      overflow-y: auto;
+      padding: 12px;
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      background: var(--card-bg);
+      box-shadow: 0 12px 34px rgba(0, 0, 0, 0.32);
+      z-index: 1200;
+      display: none;
+    }
+
+    .dca-comparison-settings-panel.open {
+      display: block;
+    }
+
+    .dca-comparison-settings-panel-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .dca-comparison-settings-panel-title {
+      margin: 0;
+      font: 700 0.94rem "Space Grotesk", sans-serif;
+      color: var(--fg);
+    }
+
+    .dca-comparison-settings-panel-close {
+      width: 28px;
+      height: 28px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--panel-border);
+      border-radius: 999px;
+      background: transparent;
+      color: var(--muted);
+      font: 700 18px/1 "Space Grotesk", sans-serif;
+      cursor: pointer;
+    }
+
+    .dca-comparison-settings-panel-close:hover,
+    .dca-comparison-settings-panel-close:focus-visible {
+      color: var(--fg);
+      border-color: var(--dashboard-accent);
+      outline: none;
+    }
+
+    .dca-comparison-settings-row {
+      display: flex;
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 7px;
+      color: var(--muted);
+      font: 0.8rem "IBM Plex Mono", monospace;
+    }
+
+    .dca-comparison-settings-row + .dca-comparison-settings-row {
+      margin-top: 12px;
+    }
+
+    .dca-comparison-settings-label {
+      color: var(--muted);
+      font: 0.78rem "IBM Plex Mono", monospace;
+    }
+
+    .dca-comparison-percent-field {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      width: min(190px, 100%);
+      min-height: 34px;
+      padding: 0 10px;
+      border: 1px solid var(--card-border);
+      border-radius: 999px;
+      background: transparent;
+      color: var(--fg);
+      font: 0.86rem "IBM Plex Mono", monospace;
+    }
+
+    .dca-comparison-percent-field input {
+      width: 100%;
+      min-width: 0;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--fg);
+      font: inherit;
+    }
+
+    .dca-comparison-percent-field span {
+      color: var(--muted);
+    }
+
+    .toggle {
+      font-family: "Space Grotesk", "Helvetica Neue", sans-serif;
+    }
+
+    .chip-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 2px;
+      color: var(--fg);
+      font-size: 0.78rem;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    .chip-toggle input[type="checkbox"] {
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
     .hal-finney-btn {
       width: 26px;
       height: 26px;
@@ -2210,6 +2385,28 @@
             <button type="button" class="info-btn" aria-label="About this dashboard" aria-describedby="dcaComparisonInfoPopover">?</button>
             <div class="info-popover" id="dcaComparisonInfoPopover" role="tooltip">
               Compares two assets dollar cost averaged with the same start date, cadence, and amount against a USD savings baseline.
+            </div>
+          </div>
+          <div class="filters-menu-wrap dca-comparison-settings-menu-wrap">
+            <button class="info-btn filters-btn dca-comparison-settings-btn" type="button" id="dcaComparisonSettingsBtn" aria-label="Show dashboard settings" aria-haspopup="dialog" aria-expanded="false" aria-controls="dcaComparisonSettingsPanel" data-title-settings-button></button>
+            <div class="dca-comparison-settings-panel" id="dcaComparisonSettingsPanel" role="dialog" aria-label="Dashboard settings">
+              <div class="dca-comparison-settings-panel-header">
+                <h2 class="dca-comparison-settings-panel-title">Dashboard Settings</h2>
+                <button id="dcaComparisonSettingsClose" type="button" class="dca-comparison-settings-panel-close" aria-label="Close settings">×</button>
+              </div>
+              <div class="dca-comparison-settings-row">
+                <label class="dca-comparison-settings-label" for="maxBtcPurchasePctInput">Max Bitcoin Purchase Per DCA as % of Day-of Supply</label>
+                <div class="dca-comparison-percent-field">
+                  <input id="maxBtcPurchasePctInput" type="number" min="0" max="100" step="0.01" value="1" inputmode="decimal" />
+                  <span>%</span>
+                </div>
+              </div>
+              <div class="dca-comparison-settings-row">
+                <label class="toggle chip-toggle dca-comparison-settings-toggle" for="capBtcTotalToSupplyToggle">
+                  <input id="capBtcTotalToSupplyToggle" type="checkbox" checked />
+                  Cap total bitcoin purchased to day-of supply
+                </label>
+              </div>
             </div>
           </div>
         </div>
@@ -2288,11 +2485,12 @@
             <option value="monthly">Monthly DCA</option>
           </select>
         </label>
+        <div id="dcaCapWarning" class="dca-cap-warning" role="status" aria-live="polite" tabindex="0"></div>
 
       </div>
       <div class="chips kpi-cards" id="statusChips">
         <article class="kpi-card">
-          <div class="kpi-title" id="assetAPriceTitle">1 BTC</div>
+          <div class="kpi-title" id="assetAPriceTitle">1 bitcoin</div>
           <div class="kpi-value" id="assetAPrice"></div>
           <div class="kpi-foot" id="assetAPriceLabel"></div>
         </article>
