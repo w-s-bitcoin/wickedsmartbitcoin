@@ -149,7 +149,7 @@ For dashboard layout conventions and shared patterns, see `webapps/README.md`.
 
 ## Donation
 
-Lightning address: `wicked@getalby.com`
+Lightning address: `wicked@primal.net`
 
 ![Lightning Donation QR](assets/lightning_donation_qr.png)
 
