@@ -369,11 +369,14 @@ fetch(IMAGE_LIST_URL)
             'bitcoin_dominance.png',
             'uoa.png'
         ]);
-        imageList = Array.isArray(data)
+        const filteredImageList = Array.isArray(data)
             ? data
                 .filter((item) => dashboardFilenames.has(String(item?.filename || '').trim().toLowerCase()))
                 .map((item) => ({ ...item }))
             : [];
+        imageList = typeof applyStoredDashboardGridOrder === 'function'
+            ? applyStoredDashboardGridOrder(filteredImageList)
+            : filteredImageList;
         rawImageList = imageList.map((item) => ({ ...item }));
         visibleImages = [...imageList];
         const standaloneShell = isStandaloneModalShell();

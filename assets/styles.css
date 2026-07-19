@@ -1117,6 +1117,69 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
     align-items: center;
 }
 
+.image-grid.is-reordering {
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.image-grid.is-reordering > div {
+    will-change: transform;
+}
+
+.image-grid.is-reordering .chart-container {
+    cursor: grab;
+    touch-action: none;
+}
+
+.image-grid.is-reordering .chart-container:hover .chart-description {
+    opacity: 0;
+}
+
+.image-grid.is-reordering .favorite-star {
+    opacity: 1;
+}
+
+.grid-card-jiggle .chart-container {
+    animation: grid-card-jiggle 180ms ease-in-out infinite alternate;
+    transform-origin: 50% 92%;
+}
+
+.grid-card-jiggle:nth-child(2n) .chart-container {
+    animation-delay: -80ms;
+}
+
+.grid-card-jiggle:nth-child(3n) .chart-container {
+    animation-duration: 210ms;
+}
+
+.grid-card-dragging {
+    animation: none !important;
+    position: relative;
+    z-index: 30;
+    pointer-events: none;
+    filter: drop-shadow(0 14px 24px rgba(0, 0, 0, 0.42));
+}
+
+.grid-card-dragging .chart-container {
+    animation: none !important;
+    cursor: grabbing;
+}
+
+@keyframes grid-card-jiggle {
+    0% {
+        transform: rotate(-0.55deg) translate3d(-0.5px, 0, 0);
+    }
+    100% {
+        transform: rotate(0.55deg) translate3d(0.5px, -0.5px, 0);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .grid-card-jiggle .chart-container {
+        animation: none;
+    }
+}
+
 /* ===========================
     CHART CARDS
     =========================== */

@@ -331,6 +331,7 @@ function resetDashboardsToDefaults() {
         'searchTitles',
         'searchDescriptions',
         'preferredLayout',
+        'wsb_dashboard_grid_order_v1',
         'showFavoritesOnly',
         'wicked_dashboard_timezone_v1',
         'quantum-research-dashboard-theme',
@@ -490,6 +491,7 @@ function toggleFavoritesView() {
 document.addEventListener('keydown', (e) => {
   if (modal?.style.display === 'flex') return;
   if (isBuyMeVisible) return;
+  if (document.body.classList.contains('grid-reorder-mode')) return;
     const isActivate = (
         e.key === 'Enter'
         || e.key === ' '

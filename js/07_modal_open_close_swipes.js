@@ -45,23 +45,14 @@ function readModalNavigationSnapshotFromSession() {
 
 function normalizeModalNavigationSnapshot(snapshot) {
     if (!Array.isArray(snapshot) || !snapshot.length) return [];
-    let normalized = snapshot.slice();
-
-    const casasciusIndex = normalized.indexOf('casascius_explorer.png');
-    const netWorthIndex = normalized.indexOf('bitcoin_net_worth.png');
-    if (casasciusIndex > 0 && netWorthIndex >= 0 && netWorthIndex < casasciusIndex) {
-        const [casascius] = normalized.splice(casasciusIndex, 1);
-        normalized.unshift(casascius);
-    }
-
-    if (normalized.includes('patoshi_pattern.png')) return normalized;
-
-    const quantumIndex = normalized.indexOf('quantum_exposure.png');
-    const uoaIndex = normalized.indexOf('uoa.png');
-    if (quantumIndex < 0 || uoaIndex < 0 || quantumIndex >= uoaIndex) return normalized;
-
-    normalized.splice(quantumIndex + 1, 0, 'patoshi_pattern.png');
-    return normalized;
+    const seen = new Set();
+    return snapshot
+        .map((value) => String(value || '').trim())
+        .filter((filename) => {
+            if (!filename || seen.has(filename)) return false;
+            seen.add(filename);
+            return true;
+        });
 }
 
 function getStandaloneFilteredNavigationImages() {
@@ -700,8 +691,14 @@ function nextImage() {
 function getVisibleGridCardFilenames() {
     const out = [];
     const seen = new Set();
-    const cards = document.querySelectorAll('#image-grid .chart-container[data-filename]');
-    cards.forEach((card) => {
+    const cards = Array.from(document.querySelectorAll('#image-grid .chart-container[data-filename]'))
+        .map((card, domIndex) => {
+            const item = card.closest('#image-grid > div');
+            const order = Number.parseInt(item?.style?.order || '', 10);
+            return { card, domIndex, order: Number.isFinite(order) ? order : domIndex };
+        })
+        .sort((a, b) => a.order - b.order || a.domIndex - b.domIndex);
+    cards.forEach(({ card }) => {
         if (!card || card.offsetParent === null) return;
         const filename = String(card.dataset.filename || '').trim();
         if (!filename || seen.has(filename)) return;
@@ -727,9 +724,9 @@ function getModalNavigationImages() {
         return visibleImages.slice();
     }
 
-    const allowed = new Set(effectiveVisibleFilenames);
-    const filtered = visibleImages.filter(img => allowed.has(img.filename));
-    return filtered.length ? filtered : visibleImages.slice();
+    const visibleMap = new Map(visibleImages.map((img) => [String(img.filename || ''), img]));
+    const ordered = effectiveVisibleFilenames.map((filename) => visibleMap.get(filename)).filter(Boolean);
+    return ordered.length ? ordered : visibleImages.slice();
 }
 function toggleFavoriteFromModal() {
     const filename = visibleImages[currentIndex].filename;

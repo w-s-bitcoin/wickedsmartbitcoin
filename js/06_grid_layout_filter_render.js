@@ -70,6 +70,337 @@ let dashboardPreviewWindowResizeBound = false;
 const GRID_FOCUS_RESTORE_KEY = 'wsb_pending_grid_focus_filename_v1';
 let layoutForcedByNarrowWidth = false;
 let layoutBeforeNarrowForce = null;
+let gridReorderMode = false;
+let gridReorderLongPressTimer = null;
+let gridReorderPressState = null;
+let gridReorderDragState = null;
+let gridReorderSuppressClickUntil = 0;
+
+function normalizeDashboardGridOrder(order) {
+  if (!Array.isArray(order)) return [];
+  const seen = new Set();
+  return order
+    .map((value) => String(value || '').trim())
+    .filter((filename) => {
+      if (!filename || seen.has(filename)) return false;
+      seen.add(filename);
+      return true;
+    });
+}
+
+function readDashboardGridOrder() {
+  try {
+    return normalizeDashboardGridOrder(JSON.parse(localStorage.getItem(DASHBOARD_GRID_ORDER_KEY) || '[]'));
+  } catch (_) {
+    return [];
+  }
+}
+
+function writeDashboardGridOrder() {
+  if (!Array.isArray(imageList) || !imageList.length) return;
+  try {
+    localStorage.setItem(DASHBOARD_GRID_ORDER_KEY, JSON.stringify(imageList.map((item) => item.filename).filter(Boolean)));
+  } catch (_) {}
+}
+
+function applyStoredDashboardGridOrder(list) {
+  if (!Array.isArray(list) || !list.length) return [];
+  const storedOrder = readDashboardGridOrder();
+  if (!storedOrder.length) return list.slice();
+  const orderIndex = new Map(storedOrder.map((filename, index) => [filename, index]));
+  return list
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => {
+      const aOrder = orderIndex.has(a.item.filename) ? orderIndex.get(a.item.filename) : Number.POSITIVE_INFINITY;
+      const bOrder = orderIndex.has(b.item.filename) ? orderIndex.get(b.item.filename) : Number.POSITIVE_INFINITY;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return a.index - b.index;
+    })
+    .map(({ item }) => item);
+}
+
+function moveDashboardGridItem(filename, targetFilename, position = 'before') {
+  if (!filename || !targetFilename || filename === targetFilename) return false;
+  const fromIndex = imageList.findIndex((item) => item.filename === filename);
+  const targetIndex = imageList.findIndex((item) => item.filename === targetFilename);
+  if (fromIndex < 0 || targetIndex < 0) return false;
+  const [item] = imageList.splice(fromIndex, 1);
+  let insertIndex = imageList.findIndex((entry) => entry.filename === targetFilename);
+  if (insertIndex < 0) {
+    imageList.splice(fromIndex, 0, item);
+    return false;
+  }
+  if (position === 'after') insertIndex += 1;
+  imageList.splice(insertIndex, 0, item);
+  writeDashboardGridOrder();
+  return true;
+}
+
+function getVisibleGridCardEntries() {
+  return Array.from(cardByFilename.values()).filter((card) => {
+    const container = card?.container;
+    if (!container?.isConnected || container.style.display === 'none' || container.offsetParent === null) return false;
+    const chartContainer = container.querySelector('.chart-container');
+    return !!chartContainer;
+  });
+}
+
+function captureVisibleGridCardRects() {
+  const rects = new Map();
+  getVisibleGridCardEntries().forEach((card) => {
+    const filename = card?.img?.dataset?.filename || card?.container?.querySelector?.('.chart-container')?.dataset?.filename || '';
+    if (!filename) return;
+    rects.set(filename, card.container.getBoundingClientRect());
+  });
+  return rects;
+}
+
+function getGridCardLayoutRect(container) {
+  if (!container) return null;
+  const previousTransition = container.style.transition;
+  const previousTransform = container.style.transform;
+  container.style.transition = 'none';
+  container.style.transform = '';
+  const rect = container.getBoundingClientRect();
+  container.style.transition = previousTransition;
+  container.style.transform = previousTransform;
+  return rect;
+}
+
+function animateGridReorderFromRects(previousRects) {
+  if (!previousRects || !previousRects.size) return;
+  getVisibleGridCardEntries().forEach((card) => {
+    const container = card.container;
+    const filename = card?.img?.dataset?.filename || container.querySelector?.('.chart-container')?.dataset?.filename || '';
+    if (!filename || gridReorderDragState?.filename === filename) return;
+    const previous = previousRects.get(filename);
+    if (!previous) return;
+    const next = container.getBoundingClientRect();
+    const dx = previous.left - next.left;
+    const dy = previous.top - next.top;
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+    container.style.transition = 'none';
+    container.style.transform = `translate3d(${dx}px, ${dy}px, 0)`;
+    requestAnimationFrame(() => {
+      container.style.transition = 'transform 190ms cubic-bezier(0.2, 0, 0, 1)';
+      container.style.transform = '';
+      window.setTimeout(() => {
+        if (container.classList.contains('grid-card-dragging')) return;
+        container.style.transition = '';
+        container.style.transform = '';
+      }, 220);
+    });
+  });
+}
+
+function applyGridDomOrder() {
+  if (!imageGrid || !Array.isArray(imageList)) return;
+  imageList.forEach((item, index) => {
+    const card = cardByFilename.get(_cardKey(item.filename));
+    if (card?.container) card.container.style.order = String(index);
+  });
+}
+
+function setGridReorderMode(active) {
+  const isActive = !!active;
+  if (gridReorderMode === isActive) return;
+  gridReorderMode = isActive;
+  document.body.classList.toggle('grid-reorder-mode', isActive);
+  imageGrid?.classList?.toggle('is-reordering', isActive);
+  getVisibleGridCardEntries().forEach((card) => {
+    card.container.classList.toggle('grid-card-jiggle', isActive);
+  });
+  if (!isActive) {
+    endGridReorderDrag();
+    gridReorderPressState = null;
+  }
+}
+
+function updateGridReorderDragTransform(event) {
+  const state = gridReorderDragState;
+  if (!state?.container) return;
+  const layoutRect = getGridCardLayoutRect(state.container);
+  if (!layoutRect) return;
+  state.visualLeft = event.clientX - state.offsetX;
+  state.visualTop = event.clientY - state.offsetY;
+  state.visualCenterX = state.visualLeft + state.width / 2;
+  state.visualCenterY = state.visualTop + state.height / 2;
+  const x = state.visualLeft - layoutRect.left;
+  const y = state.visualTop - layoutRect.top;
+  state.container.style.transform = `translate3d(${Math.round(x)}px, ${Math.round(y)}px, 0)`;
+}
+
+function findGridReorderTarget(event) {
+  const state = gridReorderDragState;
+  if (!state) return null;
+  const centerX = Number.isFinite(state.visualCenterX) ? state.visualCenterX : event.clientX;
+  const centerY = Number.isFinite(state.visualCenterY) ? state.visualCenterY : event.clientY;
+  for (const card of getVisibleGridCardEntries()) {
+    const chart = card.container.querySelector?.('.chart-container[data-filename]');
+    const filename = chart?.dataset?.filename || '';
+    if (!filename || filename === state.filename) continue;
+    const rect = getGridCardLayoutRect(card.container);
+    if (!rect) continue;
+    const isInside = centerX >= rect.left && centerX <= rect.right && centerY >= rect.top && centerY <= rect.bottom;
+    if (!isInside) continue;
+    const horizontal = rect.width >= rect.height
+      ? Math.abs(centerX - (rect.left + rect.width / 2)) >= Math.abs(centerY - (rect.top + rect.height / 2))
+      : Math.abs(centerX - (rect.left + rect.width / 2)) > Math.abs(centerY - (rect.top + rect.height / 2));
+    const after = horizontal
+      ? centerX > rect.left + rect.width / 2
+      : centerY > rect.top + rect.height / 2;
+    return { filename, position: after ? 'after' : 'before' };
+  }
+  return null;
+}
+
+function updateGridReorderTarget(event) {
+  const target = findGridReorderTarget(event);
+  if (!target || target.filename === gridReorderDragState?.lastTargetFilename && target.position === gridReorderDragState?.lastTargetPosition) return;
+  const previousRects = captureVisibleGridCardRects();
+  if (!moveDashboardGridItem(gridReorderDragState.filename, target.filename, target.position)) return;
+  gridReorderDragState.lastTargetFilename = target.filename;
+  gridReorderDragState.lastTargetPosition = target.position;
+  applyGridDomOrder();
+  filterImages({ preserveReorderDrag: true, skipPreviewRefresh: true });
+  animateGridReorderFromRects(previousRects);
+  updateGridReorderDragTransform(event);
+}
+
+function beginGridReorderDrag(chartContainer, event) {
+  const filename = String(chartContainer?.dataset?.filename || '').trim();
+  const card = cardByFilename.get(_cardKey(filename));
+  if (!filename || !card?.container) return;
+  setGridReorderMode(true);
+  const rect = card.container.getBoundingClientRect();
+  gridReorderDragState = {
+    pointerId: event.pointerId,
+    filename,
+    container: card.container,
+    pointerType: event.pointerType || '',
+    width: rect.width,
+    height: rect.height,
+    offsetX: event.clientX - rect.left,
+    offsetY: event.clientY - rect.top,
+    visualLeft: rect.left,
+    visualTop: rect.top,
+    visualCenterX: rect.left + rect.width / 2,
+    visualCenterY: rect.top + rect.height / 2,
+    lastTargetFilename: '',
+    lastTargetPosition: '',
+  };
+  card.container.classList.add('grid-card-dragging');
+  try {
+    chartContainer.setPointerCapture?.(event.pointerId);
+  } catch (_) {}
+  updateGridReorderDragTransform(event);
+}
+
+function endGridReorderDrag() {
+  if (!gridReorderDragState) return;
+  const container = gridReorderDragState.container;
+  container?.classList?.remove('grid-card-dragging');
+  if (container) {
+    container.style.transition = 'transform 160ms cubic-bezier(0.2, 0, 0, 1)';
+    container.style.transform = '';
+    window.setTimeout(() => {
+      if (!container.classList.contains('grid-card-dragging')) {
+        container.style.transition = '';
+        container.style.transform = '';
+      }
+    }, 180);
+  }
+  gridReorderDragState = null;
+  gridReorderSuppressClickUntil = Date.now() + 350;
+  filterImages();
+}
+
+function cancelGridReorderLongPress() {
+  if (gridReorderLongPressTimer) {
+    window.clearTimeout(gridReorderLongPressTimer);
+    gridReorderLongPressTimer = null;
+  }
+  gridReorderPressState = null;
+}
+
+function bindGridReorderInteractions(chartContainer) {
+  if (!chartContainer || chartContainer.dataset.reorderBound === '1') return;
+  chartContainer.dataset.reorderBound = '1';
+  chartContainer.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0 || modal?.style?.display === 'flex') return;
+    if (event.target?.closest?.('.favorite-star, a, button, input, select, textarea')) return;
+    const filename = String(chartContainer.dataset.filename || '').trim();
+    if (!filename) return;
+    gridReorderPressState = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      chartContainer,
+    };
+    if (gridReorderMode) {
+      event.preventDefault();
+      beginGridReorderDrag(chartContainer, event);
+      return;
+    }
+    gridReorderLongPressTimer = window.setTimeout(() => {
+      gridReorderLongPressTimer = null;
+      if (!gridReorderPressState || gridReorderPressState.pointerId !== event.pointerId) return;
+      beginGridReorderDrag(chartContainer, event);
+    }, 520);
+  });
+  chartContainer.addEventListener('pointermove', (event) => {
+    if (!gridReorderPressState || gridReorderPressState.pointerId !== event.pointerId) return;
+    const dx = event.clientX - gridReorderPressState.startX;
+    const dy = event.clientY - gridReorderPressState.startY;
+    if (Math.hypot(dx, dy) > 10) cancelGridReorderLongPress();
+  });
+  chartContainer.addEventListener('pointerup', (event) => {
+    if (gridReorderDragState?.pointerId === event.pointerId) {
+      event.preventDefault();
+      event.stopPropagation();
+      endGridReorderDrag();
+      return;
+    }
+    cancelGridReorderLongPress();
+  });
+  chartContainer.addEventListener('pointercancel', () => {
+    cancelGridReorderLongPress();
+    endGridReorderDrag();
+  });
+  chartContainer.addEventListener('lostpointercapture', () => {
+    cancelGridReorderLongPress();
+  });
+  chartContainer.addEventListener('click', (event) => {
+    if (!gridReorderMode && Date.now() >= gridReorderSuppressClickUntil) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
+  }, true);
+  chartContainer.addEventListener('contextmenu', (event) => {
+    if (!gridReorderMode && !gridReorderPressState) return;
+    event.preventDefault();
+  });
+}
+
+document.addEventListener('pointermove', (event) => {
+  if (gridReorderDragState?.pointerId !== event.pointerId) return;
+  event.preventDefault();
+  updateGridReorderDragTransform(event);
+  updateGridReorderTarget(event);
+}, true);
+
+document.addEventListener('pointerup', (event) => {
+  if (gridReorderDragState?.pointerId !== event.pointerId) return;
+  event.preventDefault();
+  event.stopPropagation();
+  endGridReorderDrag();
+}, true);
+
+document.addEventListener('pointercancel', (event) => {
+  if (gridReorderDragState?.pointerId !== event.pointerId) return;
+  cancelGridReorderLongPress();
+  endGridReorderDrag();
+}, true);
 
 function getDashboardCardPreviewSpec(filename) {
   return DASHBOARD_CARD_PREVIEW_SPECS[String(filename || '').trim().toLowerCase()] || null;
@@ -139,6 +470,21 @@ function nextGridCardPaint() {
     requestAnimationFrame(() => requestAnimationFrame(resolve));
   });
 }
+
+document.addEventListener('click', (event) => {
+  if (!gridReorderMode) return;
+  if (Date.now() < gridReorderSuppressClickUntil) return;
+  if (event.target?.closest?.('#image-grid .chart-container')) return;
+  setGridReorderMode(false);
+}, true);
+
+document.addEventListener('keydown', (event) => {
+  if (!gridReorderMode || event.key !== 'Escape') return;
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation?.();
+  setGridReorderMode(false);
+}, true);
 
 async function markGridCardReady(card, { loaded = true } = {}) {
   const wrapper = card?.wrapper;
@@ -227,6 +573,12 @@ function buildGridOnce(){
     img.dataset.src = imgSrc(filename);
     img.alt = title || '';
     const onOpen = (e) => {
+      if (gridReorderMode || Date.now() < gridReorderSuppressClickUntil) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
       if (typeof e.stopImmediatePropagation === 'function') {
@@ -245,6 +597,7 @@ function buildGridOnce(){
 
     chartContainer.dataset.filename = filename;
     chartContainer.tabIndex = 0;
+    bindGridReorderInteractions(chartContainer);
     chartContainer.addEventListener('click', onOpen);
     chartContainer.addEventListener('keydown', (e) => {
       const isActivate = (
@@ -363,7 +716,7 @@ function buildGridOnce(){
   updateAllDashboardPreviewScales();
   initLazyImages();
 }
-function filterImages(){
+function filterImages(options = {}){
   buildGridOnce();
   const query = (document.getElementById('search-input')?.value || '').toLowerCase();
   const {inTitle, inDesc} = readSearchPrefs();
@@ -378,6 +731,7 @@ function filterImages(){
   });
   const message = document.getElementById('no-favorites-message');
   if(message) message.style.display = (showFavoritesOnly && visibleImages.length === 0) ? 'block' : 'none';
+  applyGridDomOrder();
   const visibleKeys = new Set();
   visibleImages.forEach((item, index) => {
     const card = cardByFilename.get(_cardKey(item.filename));
@@ -398,10 +752,20 @@ function filterImages(){
   for (const [key, card] of cardByFilename.entries()) {
     if (visibleKeys.has(key)) continue;
     card.container.style.display = 'none';
+    card.container.classList.remove('grid-card-jiggle', 'grid-card-dragging');
+    card.container.style.transform = '';
+    card.container.style.transition = '';
   }
-  updateLayoutBasedOnWidth();
-  updateAllDashboardPreviewScales();
-  initLazyImages();
+  if (gridReorderMode) {
+    getVisibleGridCardEntries().forEach((card) => {
+      card.container.classList.toggle('grid-card-jiggle', true);
+    });
+  }
+  if (!options.skipPreviewRefresh) {
+    updateLayoutBasedOnWidth();
+    updateAllDashboardPreviewScales();
+    initLazyImages();
+  }
 
   // If a modal close triggered a return to homepage, restore focus to that card.
   try {
