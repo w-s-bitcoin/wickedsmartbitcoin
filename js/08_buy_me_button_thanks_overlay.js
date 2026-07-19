@@ -1,7 +1,7 @@
 /* ===========================
  * BUY ME: BUTTON + THANKS OVERLAY
  * =========================== */
-const DONATION_LIGHTNING = 'wicked@getalby.com';
+const DONATION_LIGHTNING = 'wicked@primal.net';
 const DONATION_LIQUID = 'VJLDEF7n8TBjyJY2BaAgeVvzPSRMJ7VAP5opW9mB5A7ChyiKHnaguTugZNznxNiV2ZDyPxJyQoeZ2KhM';
 const DONATION_ONCHAIN = 'bc1q8mql8fucypd3dllkawqafytmrnwtv77gzxy346';
 const DASHBOARD_TZ_STORAGE_KEY = 'wicked_dashboard_timezone_v1';
