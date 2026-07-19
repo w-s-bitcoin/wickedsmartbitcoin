@@ -4,6 +4,7 @@
   const DASHBOARD_URL = "webapps/issuance_rate/dashboard.html";
   const FAVORITES_STORAGE_KEY = "favorites";
   const MODAL_NAV_SNAPSHOT_KEY = "wsb_modal_nav_snapshot_v2";
+  const DASHBOARD_GRID_ORDER_KEY = "wsb_dashboard_grid_order_v1";
   const GRID_FOCUS_RESTORE_KEY = "wsb_pending_grid_focus_filename_v1";
   const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
   const IS_LOCAL_HOST = LOCAL_HOSTS.has(String(location.hostname || "").toLowerCase());
@@ -133,6 +134,31 @@
     localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favorites));
   }
 
+  function readDashboardGridOrder() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(DASHBOARD_GRID_ORDER_KEY) || "[]");
+      return normalizeModalNavigationSnapshot(Array.isArray(parsed) ? parsed : []);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function applyStoredDashboardGridOrder(list) {
+    if (!Array.isArray(list) || !list.length) return [];
+    const storedOrder = readDashboardGridOrder();
+    if (!storedOrder.length) return list.slice();
+    const orderIndex = new Map(storedOrder.map((filename, index) => [filename, index]));
+    return list
+      .map((item, index) => ({ item, index }))
+      .sort((a, b) => {
+        const aOrder = orderIndex.has(a.item.filename) ? orderIndex.get(a.item.filename) : Number.POSITIVE_INFINITY;
+        const bOrder = orderIndex.has(b.item.filename) ? orderIndex.get(b.item.filename) : Number.POSITIVE_INFINITY;
+        if (aOrder !== bOrder) return aOrder - bOrder;
+        return a.index - b.index;
+      })
+      .map(({ item }) => item);
+  }
+
   function isFavorite(filename) {
     return readFavorites().includes(filename);
   }
@@ -212,7 +238,7 @@
           return response.json();
         })
         .then((data) => {
-          imageListCache = Array.isArray(data) ? data : [];
+          imageListCache = applyStoredDashboardGridOrder(Array.isArray(data) ? data : []);
           return imageListCache;
         })
         .catch((error) => {
@@ -329,14 +355,14 @@
 
   function normalizeModalNavigationSnapshot(snapshot) {
     if (!Array.isArray(snapshot) || !snapshot.length) return [];
-    const normalized = snapshot.slice();
-    const casasciusIndex = normalized.indexOf("casascius_explorer.png");
-    const netWorthIndex = normalized.indexOf("bitcoin_net_worth.png");
-    if (casasciusIndex > 0 && netWorthIndex >= 0 && netWorthIndex < casasciusIndex) {
-      const [casascius] = normalized.splice(casasciusIndex, 1);
-      normalized.unshift(casascius);
-    }
-    return normalized;
+    const seen = new Set();
+    return snapshot
+      .map((value) => String(value || "").trim())
+      .filter((filename) => {
+        if (!filename || seen.has(filename)) return false;
+        seen.add(filename);
+        return true;
+      });
   }
 
   function parseStoredBoolean(value) {

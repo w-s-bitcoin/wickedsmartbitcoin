@@ -4377,6 +4377,20 @@
       };
     }
 
+    function hasUsableMinerAttribution(rawMiner) {
+      const miner = normalizeMinerTooltipData(rawMiner);
+      return !!(miner.name || miner.subMiner || miner.pool || miner.slug);
+    }
+
+    function getMaxAttributedMinerHeight(minerMap) {
+      if (!minerMap || typeof minerMap !== "object") return -Infinity;
+      return Object.entries(minerMap).reduce((maxHeight, [heightRaw, rawMiner]) => {
+        if (!hasUsableMinerAttribution(rawMiner)) return maxHeight;
+        const height = Number(heightRaw);
+        return Number.isFinite(height) ? Math.max(maxHeight, height) : maxHeight;
+      }, -Infinity);
+    }
+
     function getWindowMs(windowName) {
       switch (windowName) {
         case "past24h":
@@ -4747,6 +4761,7 @@
 
     function buildBip110MinerTimelineRows() {
       const minerMap = getBip110TimelineMinerMap();
+      const maxAttributedMinerHeight = getMaxAttributedMinerHeight(minerMap);
       const { periodSize, firstPeriod, lastPeriod, blocks } = getBip110TimelineBlocks();
       if (!Number.isFinite(firstPeriod) || !Number.isFinite(lastPeriod) || blocks.length === 0) {
         return {
@@ -4775,6 +4790,9 @@
         if (!Number.isFinite(height)) return;
         const rawMiner = block.miner || minerMap[String(height)] || null;
         const miner = normalizeLeaderboardMiner(rawMiner);
+        const isPendingMinerAttribution = !hasUsableMinerAttribution(rawMiner)
+          && Number.isFinite(maxAttributedMinerHeight)
+          && height > maxAttributedMinerHeight;
         const rawTimelineIndex = getTimelineIndexForBlock(block, firstPeriod, periodSize);
         if (!Number.isFinite(rawTimelineIndex)) return;
         const timelineIndex = Math.max(0, rawTimelineIndex - timelineOffset);
@@ -4790,8 +4808,10 @@
           latestBlockHeight: -Infinity,
           latestBlockIsSignaling: false,
           latestBlock: null,
+          pendingMinerAttribution: false,
           blocks: [],
         };
+        if (isPendingMinerAttribution) row.pendingMinerAttribution = true;
         row.totalBlocks += 1;
         if (!row.slug && miner.slug) row.slug = miner.slug;
         if (!row.pool && miner.pool) row.pool = miner.pool;
@@ -5038,7 +5058,9 @@
         minerText.className = "miner-timeline-miner-text";
         const name = document.createElement("div");
         name.className = "miner-timeline-miner-name";
-        name.textContent = row.name || "Unknown";
+        name.textContent = row.pendingMinerAttribution && (row.name || "Unknown") === "Unknown"
+          ? "Loading..."
+          : (row.name || "Unknown");
         minerText.appendChild(name);
         minerEl.appendChild(icon);
         minerEl.appendChild(minerText);

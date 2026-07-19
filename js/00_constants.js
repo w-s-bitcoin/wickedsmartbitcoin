@@ -7,6 +7,7 @@ const MAX_SCALE = 5;
 const DOUBLE_TAP_DELAY = 300;
 const MAX_TAP_MOVE_PX = 12;
 const BUY_COFFEE_METHOD_KEY = 'buyCoffeeMethod';
+const DASHBOARD_GRID_ORDER_KEY = 'wsb_dashboard_grid_order_v1';
 const ASSET_BASE = 'assets/';
 const BUY_BEER_IMG_URLS = [
   ASSET_BASE+'thanks_for_the_beer_landscape.png',
