@@ -69,7 +69,6 @@
     if (!canvas) return;
     const { ctx, width, height } = setupCanvas(canvas);
     const bg = getCss("--bg", "#000");
-    const line = getCss("--line", "rgba(255,255,255,.22)");
     const actual = getCss("--actual", "#f1f5f7");
     const target = getCss("--target", "#ff9900");
 
@@ -113,18 +112,6 @@
       return pad.left + (idx / Math.max(1, rows.length - 1)) * plotW;
     };
     const yFor = (value) => pad.top + ((maxY - value) / Math.max(1e-9, maxY - minY)) * plotH;
-
-    ctx.save();
-    ctx.strokeStyle = line;
-    ctx.lineWidth = 1;
-    for (let i = 1; i <= 2; i += 1) {
-      const y = pad.top + (i / 2) * plotH;
-      ctx.beginPath();
-      ctx.moveTo(pad.left, y);
-      ctx.lineTo(pad.left + plotW, y);
-      ctx.stroke();
-    }
-    ctx.restore();
 
     drawLine(ctx, rows, xFor, yFor, "issuance_rate", actual, 1.6);
     drawLine(ctx, rows, xFor, yFor, "target_rate", bg, 5);
