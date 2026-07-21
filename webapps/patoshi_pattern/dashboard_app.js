@@ -74,6 +74,7 @@
     markTimeBack: false,
     showPatoshiLine: true,
     showOrder: false,
+    colorByConfidence: false,
     speedIndex: 1,
     playing: false,
     paused: false,
@@ -236,6 +237,7 @@
     markTimeBack: $("markTimeBack"),
     showPatoshiLine: $("showPatoshiLine"),
     showOrder: $("showOrder"),
+    colorByConfidence: $("colorByConfidence"),
   };
 
   function parseCsv(text) {
@@ -258,6 +260,7 @@
         patoshi: item.patoshi === "1",
         patoshiOriginal: item.patoshi_original ? item.patoshi_original === "1" : item.patoshi === "1",
         patoshiUpdated: item.patoshi_updated ? item.patoshi_updated === "1" : item.patoshi === "1",
+        patoshiConfidence: Number.isFinite(Number(item.patoshi_confidence)) ? Number(item.patoshi_confidence) : null,
         difficulty: Number(item.difficulty),
         targetHashrate: Number(item.target_hashrate),
       };
@@ -381,6 +384,7 @@
       state.showTimeBack = parsed.showTimeBack !== false;
       state.markTimeBack = !!parsed.markTimeBack;
       state.showPatoshiLine = state.showPatoshiLine !== false;
+      state.colorByConfidence = !!parsed.colorByConfidence;
       if (typeof parsed.updatedKpiTimeZone === "string" && parsed.updatedKpiTimeZone.trim()) {
         updatedKpiTimeZone = parsed.updatedKpiTimeZone.trim();
       }
@@ -434,6 +438,11 @@
     if (!Number.isFinite(value)) return "0.00%";
     const sign = value > 0 ? "+" : value < 0 ? "-" : "";
     return `${sign}${Math.abs(value).toFixed(2)}%`;
+  }
+
+  function fmtConfidenceScore(value) {
+    if (!Number.isFinite(value)) return "Not scored";
+    return `${(clamp(value, 0, 1) * 100).toFixed(1)}%`;
   }
 
   function fmtDateTime(ms, withTime = true) {
@@ -785,6 +794,7 @@
     if (els.markTimeBack) els.markTimeBack.checked = state.markTimeBack;
     els.showPatoshiLine.checked = state.showPatoshiLine;
     els.showOrder.checked = state.showOrder;
+    if (els.colorByConfidence) els.colorByConfidence.checked = !!state.colorByConfidence;
     els.speedBtn.textContent = speeds[state.speedIndex]?.label || "1x";
     syncChartInteractionModeButtons();
     updateSettingsOptions();
@@ -1053,6 +1063,29 @@
     return !!row.patoshiUpdated;
   }
 
+  function getConfidenceScore(row) {
+    const score = Number(row?.patoshiConfidence);
+    return Number.isFinite(score) ? clamp(score, 0, 1) : null;
+  }
+
+  function colorByConfidenceScore(score) {
+    const normalized = clamp(score, 0, 1);
+    const red = { r: 255, g: 23, b: 68 };
+    const green = { r: 0, g: 230, b: 118 };
+    const r = Math.round(red.r + (green.r - red.r) * normalized);
+    const g = Math.round(red.g + (green.g - red.g) * normalized);
+    const b = Math.round(red.b + (green.b - red.b) * normalized);
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+
+  function getBlockPointColor(row) {
+    const isPatoshi = isPatoshiRow(row);
+    if (!state.colorByConfidence) return isPatoshi ? COLORS.patoshi : COLORS.other;
+    if (!isPatoshi) return theme === "light" ? "#767676" : "#b8b8b8";
+    const score = getConfidenceScore(row);
+    return score == null ? COLORS.patoshi : colorByConfidenceScore(score);
+  }
+
   function getTimelineMinMs(windowMs = getWindowMs()) {
     return minMs - Math.max(getMinWindowMs(), windowMs);
   }
@@ -1110,6 +1143,7 @@
       markTimeBack: false,
       showPatoshiLine: true,
       showOrder: false,
+      colorByConfidence: false,
       speedIndex: 1,
       playing: false,
       paused: false,
@@ -1165,6 +1199,7 @@
       markTimeBack: !!state.markTimeBack,
       showPatoshiLine: !!state.showPatoshiLine,
       showOrder: !!state.showOrder,
+      colorByConfidence: !!state.colorByConfidence,
       speedIndex: clamp(Math.round(Number(state.speedIndex) || 1), 0, speeds.length - 1),
       exportSettings: { ...DEFAULT_EXPORT_SETTINGS, ...(state.exportSettings || {}) },
       updatedKpiTimeZone: updatedKpiTimeZone || getPreferredDashboardTimeZone(),
@@ -1206,6 +1241,7 @@
       markTimeBack: false,
       showPatoshiLine: true,
       showOrder: false,
+      colorByConfidence: false,
       speedIndex: 1,
       exportSettings: { ...DEFAULT_EXPORT_SETTINGS },
       updatedKpiTimeZone: getPreferredDashboardTimeZone(),
@@ -1282,6 +1318,7 @@
       markTimeBack: !!snapshot.markTimeBack,
       showPatoshiLine: snapshot.showPatoshiLine !== false,
       showOrder: !!snapshot.showOrder,
+      colorByConfidence: !!snapshot.colorByConfidence,
       speedIndex: snapshot.speedIndex,
       playing: false,
       paused: false,
@@ -1454,6 +1491,7 @@
       state.markTimeBack ? 1 : 0,
       state.showPatoshiLine ? 1 : 0,
       state.showOrder ? 1 : 0,
+      state.colorByConfidence ? 1 : 0,
       settings.orientation,
       settings.quality,
       settings.speed,
@@ -3558,7 +3596,7 @@
         ctx.closePath();
         ctx.stroke();
       }
-      ctx.fillStyle = isPatoshiRow(row) ? COLORS.patoshi : COLORS.other;
+      ctx.fillStyle = getBlockPointColor(row);
       ctx.beginPath();
       ctx.arc(xx, yy, radius, 0, Math.PI * 2);
       ctx.fill();
@@ -4109,7 +4147,11 @@
   function showBlockTooltip(event, marker) {
     if (!els.chartTooltip) return;
     const row = marker.row;
-    const ownerColor = isPatoshiRow(row) ? COLORS.patoshi : COLORS.other;
+    const ownerColor = getBlockPointColor(row);
+    const confidenceScore = getConfidenceScore(row);
+    const confidenceLine = state.colorByConfidence
+      ? `<br><strong>Confidence</strong> ${fmtConfidenceScore(confidenceScore)}`
+      : "";
     const statusText = row.isSpent
       ? `Spent${Number.isFinite(row.spendingHeight) ? ` ${fmtInt(row.spendingHeight)}` : ""}`
       : "Unspent";
@@ -4118,7 +4160,8 @@
       `<strong>Date</strong> ${fmtDateTime(row.ms)}<br>` +
       `<strong>ExtraNonce</strong> ${fmtInt(row.extranonce)}<br>` +
       `<strong>Miner</strong> <span style="color:${ownerColor}">${isPatoshiRow(row) ? "Satoshi" : "Other"}</span><br>` +
-      `<strong>Status</strong> ${statusText}`;
+      `<strong>Status</strong> ${statusText}` +
+      confidenceLine;
     positionChartTooltip(event);
   }
 
@@ -5465,7 +5508,7 @@
     });
 
     [
-      "yMode", "countMetric", "spentRewardsSort", "spentRewardsPatoshiOnly", "showSpent", "markSpent", "showTimeBack", "markTimeBack", "showPatoshiLine", "showOrder",
+      "yMode", "countMetric", "spentRewardsSort", "spentRewardsPatoshiOnly", "showSpent", "markSpent", "showTimeBack", "markTimeBack", "showPatoshiLine", "showOrder", "colorByConfidence",
     ].forEach((id) => {
       const el = els[id];
       if (!el) return;
@@ -5641,6 +5684,7 @@
       state.showTimeBack = shared.showTimeBack !== false;
       state.markTimeBack = !!shared.markTimeBack;
       state.showPatoshiLine = state.showPatoshiLine !== false;
+      state.colorByConfidence = !!shared.colorByConfidence;
       if (typeof shared.updatedKpiTimeZone === "string" && shared.updatedKpiTimeZone.trim()) {
         updatedKpiTimeZone = shared.updatedKpiTimeZone.trim();
       }

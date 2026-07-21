@@ -372,6 +372,7 @@ function bindGridReorderInteractions(chartContainer) {
   });
   chartContainer.addEventListener('click', (event) => {
     if (!gridReorderMode && Date.now() >= gridReorderSuppressClickUntil) return;
+    if (gridReorderMode && event.target?.closest?.('.favorite-star')) return;
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation?.();
