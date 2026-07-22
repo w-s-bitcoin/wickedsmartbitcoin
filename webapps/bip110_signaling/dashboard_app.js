@@ -24,7 +24,7 @@
     /* ────────────────────────────────────────────────────────────────── */
     const AUTO_REFRESH_MS = 60000;
     const CONTROLS_STORAGE_KEY = "bip110_signaling_controls_v3";
-    const BIP110_OVERLAY_SELECTIONS_STORAGE_KEY = "bip110_signaling_overlay_selections_v1";
+    const BIP110_OVERLAY_SELECTIONS_STORAGE_KEY = "bip110_signaling_overlay_selections_v2";
     const PANEL_RESIZE_MIN_HEIGHT = 220;
     const PANEL_RESIZE_VIEWPORT_PAD = 24;
     const PANEL_RESIZE_SNAP_PX = 18;
@@ -234,9 +234,9 @@
       periodGridDataset: "bip110",
       periodGridSelectedPeriod: null,
       leaderboardWindow: "all",
-      minerTimelineWindow: "all",
+      minerTimelineWindow: "past14d",
       minerTimelineMiners: "all",
-      minerTimelineOrder: "total",
+      minerTimelineOrder: "recent",
       minerTimelineSignalersFirst: true,
       controls: {
         stripes: true,
@@ -1911,9 +1911,9 @@
         state.controls.showBip110 = true;
         state.controls.panelsSwapped = false;
         state.leaderboardWindow = "all";
-        state.minerTimelineWindow = "all";
+        state.minerTimelineWindow = "past14d";
         state.minerTimelineMiners = "all";
-        state.minerTimelineOrder = "total";
+        state.minerTimelineOrder = "recent";
         state.minerTimelineSignalersFirst = true;
 
         state.filledPanels.segwit = true;
