@@ -145,10 +145,24 @@ function getVisibleGridCardEntries() {
   });
 }
 
+function getGridCardEntryFilename(card) {
+  return card?.img?.dataset?.filename || card?.container?.querySelector?.('.chart-container[data-filename]')?.dataset?.filename || '';
+}
+
+function getLayoutSortedGridCardEntries() {
+  return getVisibleGridCardEntries()
+    .map((card) => ({ card, rect: getGridCardLayoutRect(card.container) }))
+    .filter((entry) => entry.rect)
+    .sort((a, b) => {
+      if (Math.abs(a.rect.top - b.rect.top) > 8) return a.rect.top - b.rect.top;
+      return a.rect.left - b.rect.left;
+    });
+}
+
 function captureVisibleGridCardRects() {
   const rects = new Map();
   getVisibleGridCardEntries().forEach((card) => {
-    const filename = card?.img?.dataset?.filename || card?.container?.querySelector?.('.chart-container')?.dataset?.filename || '';
+    const filename = getGridCardEntryFilename(card);
     if (!filename) return;
     rects.set(filename, card.container.getBoundingClientRect());
   });
@@ -235,12 +249,10 @@ function findGridReorderTarget(event) {
   if (!state) return null;
   const centerX = Number.isFinite(state.visualCenterX) ? state.visualCenterX : event.clientX;
   const centerY = Number.isFinite(state.visualCenterY) ? state.visualCenterY : event.clientY;
-  for (const card of getVisibleGridCardEntries()) {
-    const chart = card.container.querySelector?.('.chart-container[data-filename]');
-    const filename = chart?.dataset?.filename || '';
+  const layoutEntries = getLayoutSortedGridCardEntries();
+  for (const { card, rect } of layoutEntries) {
+    const filename = getGridCardEntryFilename(card);
     if (!filename || filename === state.filename) continue;
-    const rect = getGridCardLayoutRect(card.container);
-    if (!rect) continue;
     const isInside = centerX >= rect.left && centerX <= rect.right && centerY >= rect.top && centerY <= rect.bottom;
     if (!isInside) continue;
     const horizontal = rect.width >= rect.height
@@ -250,6 +262,15 @@ function findGridReorderTarget(event) {
       ? centerX > rect.left + rect.width / 2
       : centerY > rect.top + rect.height / 2;
     return { filename, position: after ? 'after' : 'before' };
+  }
+  const trailingEntries = layoutEntries.filter(({ card }) => getGridCardEntryFilename(card) !== state.filename);
+  const lastEntry = trailingEntries[trailingEntries.length - 1];
+  if (lastEntry) {
+    const rect = lastEntry.rect;
+    const inBottomRightTrailingZone = centerX >= rect.left + rect.width / 2 && centerY >= rect.top + rect.height / 2;
+    if (inBottomRightTrailingZone) {
+      return { filename: getGridCardEntryFilename(lastEntry.card), position: 'after' };
+    }
   }
   return null;
 }
