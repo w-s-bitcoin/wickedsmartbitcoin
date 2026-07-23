@@ -32,6 +32,8 @@
       --signal: #ff9800;
       --nonsignal: #8b8f93;
       --threshold: #00e676;
+      --ok: #00e676;
+      --bad: #ff4d5f;
       --future: #171717;
       --marker: #4169e1;
       --accent: #79d8ff;
@@ -72,6 +74,8 @@
       --fg-dim: #514d47;
       --link: #1f4f78;
       --threshold: #1a8c50;
+      --ok: #1a8c50;
+      --bad: #d92d3f;
       --future: #e8e0d4;
       --card-bg: #ffffff;
       --card-border: var(--panel-border);
@@ -1617,6 +1621,31 @@
       max-width: 100%;
     }
 
+    .node-window-controls {
+      flex-direction: row;
+      align-items: center;
+      flex: 0 0 auto;
+      gap: 6px;
+      max-width: max-content;
+    }
+
+    .node-window-controls .leaderboard-window-label {
+      margin: 0;
+    }
+
+    .period-grid-node-controls {
+      flex: 0 0 auto;
+      flex-direction: row;
+      align-items: center;
+      gap: 6px;
+      margin-left: 8px;
+      min-height: 0;
+    }
+
+    .period-grid-node-controls .leaderboard-window-label {
+      margin: 0;
+    }
+
     .leaderboard-window-btn {
       appearance: none;
       -webkit-appearance: none;
@@ -2200,6 +2229,13 @@
       <div class="controls">
         <label class="toggle" for="toggleSegwitWindow"><input type="checkbox" id="toggleSegwitWindow" /> SegWit periods</label>
         <label class="toggle" for="toggleBip110Window"><input type="checkbox" id="toggleBip110Window" /> BIP-110 periods</label>
+        <div class="leaderboard-window-controls node-window-controls" role="group" aria-label="BIP-110 node panels">
+          <div class="leaderboard-window-label">View</div>
+          <div class="leaderboard-window-button-panel">
+            <button type="button" class="leaderboard-window-btn" id="legacyNodePanelBtn" data-node-panel="legacy" aria-pressed="true">Legacy</button>
+            <button type="button" class="leaderboard-window-btn" id="bip110NodePanelBtn" data-node-panel="bip110" aria-pressed="false">BIP-110</button>
+          </div>
+        </div>
         <button type="button" class="swap-panels-control" id="swapPanelsBtn" title="Swap panel order" aria-label="Swap panel order">
           <span class="swap-panels-btn" aria-hidden="true">
             <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
@@ -2270,6 +2306,24 @@
       </div>
     </section>
 
+    <section class="card hidden" id="bip110NodePanel">
+      <div class="canvas-box" id="bip110NodeCanvasBox">
+        <div class="panel-loader hidden" id="bip110NodeLoader" aria-live="polite" aria-label="Loading BIP-110 node signaling chart">
+          <div class="circle" aria-hidden="true"></div>
+          <div class="label">Loading BIP-110 node signaling...</div>
+        </div>
+        <button type="button" class="panel-fill-btn" id="bip110NodeFillHeightBtn" aria-label="Fill BIP-110 node chart height" title="Fill chart height">
+          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <line x1="8" y1="3.8" x2="8" y2="12.2"></line>
+            <polyline points="5.2,6.2 8,3.4 10.8,6.2"></polyline>
+            <polyline points="5.2,9.8 8,12.6 10.8,9.8"></polyline>
+          </svg>
+        </button>
+        <canvas id="bip110NodeCanvas" aria-label="BIP-110 node signaling chart"></canvas>
+        <button type="button" class="panel-resize-handle" id="bip110NodeResizeHandle" aria-label="Resize BIP-110 node chart height"></button>
+      </div>
+    </section>
+
   </main>
 
   <div class="tooltip" id="tooltip"></div>
@@ -2277,6 +2331,13 @@
     <div class="period-grid-dialog" id="periodGridDialog" role="dialog" aria-modal="true" aria-label="Current BIP-110 period block grid" tabindex="-1">
       <div class="period-grid-header" id="periodGridHeader">
         <div class="period-grid-kpis">
+          <div class="leaderboard-window-controls period-grid-node-controls" id="periodGridNodeControls" role="group" aria-label="Period grid node view">
+            <span class="leaderboard-window-label">View</span>
+            <div class="leaderboard-window-button-panel">
+              <button type="button" class="leaderboard-window-btn is-active" data-period-grid-node="legacy" aria-pressed="true">Legacy</button>
+              <button type="button" class="leaderboard-window-btn" data-period-grid-node="bip110" aria-pressed="false">BIP-110</button>
+            </div>
+          </div>
           <div class="chip period-grid-kpi period-grid-period-chip" id="periodGridPeriodChip">
             <span class="chip-label" id="periodGridPeriodLabel">BIP-110 Signaling Period</span>
             <select class="chip-value period-grid-period-select" id="periodGridPeriodSelect" aria-label="BIP-110 signaling period"></select>
@@ -2335,6 +2396,13 @@
         <button id="minerTimelineClose" type="button" class="miner-timeline-close" aria-label="Close miner signaling timeline">&times;</button>
       </div>
       <div class="leaderboard-header">
+        <div class="leaderboard-window-controls" role="group" aria-label="Miner timeline node view">
+          <span class="leaderboard-window-label">View</span>
+          <div class="leaderboard-window-button-panel">
+            <button type="button" class="leaderboard-window-btn is-active" data-miner-timeline-node="legacy" aria-pressed="true">Legacy</button>
+            <button type="button" class="leaderboard-window-btn" data-miner-timeline-node="bip110" aria-pressed="false">BIP-110</button>
+          </div>
+        </div>
         <div class="leaderboard-window-controls" role="group" aria-label="Miner timeline time window">
           <span class="leaderboard-window-label">Period</span>
           <div class="leaderboard-window-button-panel">

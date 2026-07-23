@@ -23,7 +23,6 @@ BIP110_START = 927_360
 BIP110_SIGNAL_END = 963_648
 BIP110_LAST_PERIOD = 18
 BIP110_MANDATORY_SIGNALING_HEIGHT = 961_632
-BIP110_MONITOR_URL = "https://bip110.org/monitor"
 X_MAX = 20
 SEGWIT_INITIAL_SIGNAL_MINER_SAMPLE_SIZE = None
 SEGWIT_INITIAL_PERIOD2_SIGNAL_MINER_SAMPLE_SIZE = 15
@@ -530,6 +529,13 @@ rpc_password = os.getenv("RPC_PASSWORD")
 if not rpc_user or not rpc_password:
     raise RuntimeError("RPC_USER / RPC_PASSWORD not set in environment.")
 
+BIP110_RPC_HOST = os.getenv("BIP110_RPC_HOST", "127.0.0.1")
+BIP110_RPC_PORT = os.getenv("BIP110_RPC_PORT", "8335")
+BIP110_RPC_USER = os.getenv("BIP110_RPC_USER", rpc_user)
+BIP110_RPC_PASSWORD = os.getenv("BIP110_RPC_PASSWORD", rpc_password)
+BIP110_NODE_SYNC_MAX_ATTEMPTS = int(os.getenv("BIP110_NODE_SYNC_MAX_ATTEMPTS", "6"))
+BIP110_NODE_SYNC_RETRY_SECONDS = float(os.getenv("BIP110_NODE_SYNC_RETRY_SECONDS", "10"))
+
 RPC_RETRY_EXCEPTIONS = (ConnectionError, OSError, RemoteDisconnected, socket.timeout, TimeoutError)
 
 def _make_rpc(max_attempts: int = 10, retry_delay: float = 6.0) -> AuthServiceProxy:
@@ -565,6 +571,148 @@ def rpc_call(method_name: str, *args, max_attempts: int = 3, retry_delay: float 
             rpc = _make_rpc(max_attempts=3, retry_delay=retry_delay)
             time.sleep(retry_delay)
     raise RuntimeError(f"Bitcoin RPC {method_name} unavailable after {max_attempts} attempts: {last_err}") from last_err
+
+def _make_bip110_rpc() -> AuthServiceProxy:
+    url = (
+        f"http://{quote(BIP110_RPC_USER, safe='')}:{quote(BIP110_RPC_PASSWORD, safe='')}"
+        f"@{BIP110_RPC_HOST}:{BIP110_RPC_PORT}"
+    )
+    return AuthServiceProxy(url, timeout=30)
+
+def find_latest_common_height(bip110_rpc, max_height: int) -> int | None:
+    upper = int(max_height)
+    if upper < 0:
+        return None
+
+    try:
+        if str(bip110_rpc.getblockhash(upper)) == str(rpc_call("getblockhash", upper)):
+            return upper
+    except Exception:
+        pass
+
+    lo = 0
+    hi = upper
+    latest_common = None
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        try:
+            legacy_hash = str(rpc_call("getblockhash", mid))
+            bip110_hash = str(bip110_rpc.getblockhash(mid))
+        except Exception:
+            hi = mid - 1
+            continue
+
+        if legacy_hash == bip110_hash:
+            latest_common = mid
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    return latest_common
+
+def check_bip110_node_sync(legacy_height: int, legacy_hash: str) -> dict:
+    max_attempts = max(1, BIP110_NODE_SYNC_MAX_ATTEMPTS)
+    retry_seconds = max(0.0, BIP110_NODE_SYNC_RETRY_SECONDS)
+    last_error = None
+    bip110_height = None
+    bip110_hash_at_legacy_height = None
+    latest_common_height = None
+    relation = "not_checked"
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            bip110_rpc = _make_bip110_rpc()
+            bip110_height = int(bip110_rpc.getblockcount())
+            print(
+                f"[bip110] node sync check attempt {attempt}/{max_attempts}: "
+                f"legacy={legacy_height:,} bip110={bip110_height:,}"
+            )
+
+            if bip110_height >= legacy_height:
+                bip110_hash_at_legacy_height = str(bip110_rpc.getblockhash(legacy_height))
+                if bip110_hash_at_legacy_height == str(legacy_hash):
+                    relation = "bip110_ahead" if bip110_height > legacy_height else "same_tip"
+                    print(f"[bip110] node sync check: in sync ({relation}).")
+                    return {
+                        "checked_utc": datetime.now(timezone.utc).isoformat(),
+                        "in_sync": True,
+                        "status": "in_sync",
+                        "relation": relation,
+                        "legacy_height": int(legacy_height),
+                        "legacy_hash": str(legacy_hash),
+                        "bip110_height": int(bip110_height),
+                        "bip110_hash_at_legacy_height": bip110_hash_at_legacy_height,
+                        "height_delta": int(bip110_height - legacy_height),
+                        "blocks_behind": 0,
+                        "latest_common_height": int(legacy_height),
+                        "blocks_since_common_height": 0,
+                        "attempts": int(attempt),
+                        "max_attempts": int(max_attempts),
+                        "retry_seconds": float(retry_seconds),
+                        "error": None,
+                    }
+                relation = "hash_mismatch"
+                last_error = (
+                    f"BIP-110 hash at legacy height {legacy_height:,} was "
+                    f"{bip110_hash_at_legacy_height}, expected {legacy_hash}"
+                )
+            else:
+                relation = "bip110_behind"
+                last_error = f"BIP-110 node is behind legacy height {legacy_height:,}."
+        except Exception as exc:
+            relation = "rpc_error"
+            last_error = str(exc)
+            print(f"[bip110] node sync check failed (attempt {attempt}/{max_attempts}): {exc}")
+
+        if attempt < max_attempts:
+            time.sleep(retry_seconds)
+
+    try:
+        bip110_rpc = _make_bip110_rpc()
+        if bip110_height is None:
+            bip110_height = int(bip110_rpc.getblockcount())
+        common_search_height = min(int(legacy_height), int(bip110_height))
+        latest_common_height = find_latest_common_height(bip110_rpc, common_search_height)
+        if latest_common_height is not None and relation == "bip110_behind":
+            try:
+                bip110_tip_hash = str(bip110_rpc.getblockhash(int(bip110_height)))
+                legacy_hash_at_bip110_tip = str(rpc_call("getblockhash", int(bip110_height)))
+                if bip110_tip_hash != legacy_hash_at_bip110_tip:
+                    relation = "hash_mismatch"
+                    last_error = (
+                        f"BIP-110 tip hash at height {int(bip110_height):,} differs from the legacy hash; "
+                        f"latest common height is {latest_common_height:,}."
+                    )
+            except Exception as exc:
+                last_error = f"{last_error or ''} Latest common height check was incomplete: {exc}".strip()
+    except Exception as exc:
+        last_error = f"{last_error or ''} Latest common height check failed: {exc}".strip()
+
+    print(f"[bip110] node sync check: out of sync ({relation}): {last_error}")
+    height_delta = int(bip110_height - legacy_height) if bip110_height is not None else None
+    blocks_behind = max(0, int(legacy_height - bip110_height)) if bip110_height is not None else None
+    blocks_since_common = (
+        int(legacy_height - latest_common_height)
+        if latest_common_height is not None
+        else None
+    )
+    return {
+        "checked_utc": datetime.now(timezone.utc).isoformat(),
+        "in_sync": False,
+        "status": "out_of_sync",
+        "relation": relation,
+        "legacy_height": int(legacy_height),
+        "legacy_hash": str(legacy_hash),
+        "bip110_height": int(bip110_height) if bip110_height is not None else None,
+        "bip110_hash_at_legacy_height": bip110_hash_at_legacy_height,
+        "height_delta": height_delta,
+        "blocks_behind": blocks_behind,
+        "latest_common_height": int(latest_common_height) if latest_common_height is not None else None,
+        "blocks_since_common_height": blocks_since_common,
+        "attempts": int(max_attempts),
+        "max_attempts": int(max_attempts),
+        "retry_seconds": float(retry_seconds),
+        "error": last_error,
+    }
 
 module_dir = here
 if not (module_dir / "segwit_releases.py").exists() or not (module_dir / "bip110_releases.py").exists():
@@ -1288,59 +1436,6 @@ def invalidate_reorged_miner_attributions(miners, target_heights):
             miners[height]["hash"] = postgres_hash
     return stale_heights
 
-def fetch_bip110_monitor_tip():
-    headers = {
-        "Accept": "text/html,application/xhtml+xml",
-        "Cache-Control": "no-cache",
-        "Pragma": "no-cache",
-        "User-Agent": "wickedsmartbitcoin-bip110-dashboard-updater",
-    }
-    fetched_utc = datetime.now(timezone.utc).isoformat()
-
-    try:
-        r = requests.get(BIP110_MONITOR_URL, headers=headers, timeout=20)
-        r.raise_for_status()
-        html = r.text
-    except Exception as exc:
-        return {
-            "source": BIP110_MONITOR_URL,
-            "fetched_utc": fetched_utc,
-            "ok": False,
-            "error": str(exc),
-            "chain_tip": None,
-            "indexed_tip": None,
-        }
-
-    def parse_monitor_field(field_name):
-        pattern = (
-            rf'data-monitor-field=["\']{re.escape(field_name)}["\'][^>]*>'
-            r'\s*([0-9][0-9,]*)\s*<'
-        )
-        match = re.search(pattern, html, re.IGNORECASE)
-        if not match:
-            return None
-        try:
-            return int(match.group(1).replace(",", ""))
-        except ValueError:
-            return None
-
-    chain_tip = parse_monitor_field("chain-tip")
-    indexed_tip = parse_monitor_field("indexed-tip")
-
-    if chain_tip is None:
-        match = re.search(r'og/monitor\.png\?[^"\']*?\btip=(\d+)\b', html, re.IGNORECASE)
-        if match:
-            chain_tip = int(match.group(1))
-
-    return {
-        "source": BIP110_MONITOR_URL,
-        "fetched_utc": fetched_utc,
-        "ok": chain_tip is not None,
-        "error": None if chain_tip is not None else "chain tip not found in monitor HTML",
-        "chain_tip": chain_tip,
-        "indexed_tip": indexed_tip,
-    }
-
 def extract_block_low_fee_rate(block):
     extras = block.get("extras") if isinstance(block.get("extras"), dict) else {}
     fee_range = extras.get("feeRange")
@@ -1902,31 +1997,6 @@ print(f"Current height: {current_height:,}")
 print(f"BIP-110 periods complete: {completed_periods}/{bip110_total_periods}")
 print("Updated dynamic BIP-110 datasets.")
 
-bip110_monitor = fetch_bip110_monitor_tip()
-chain_split_active = current_height >= BIP110_MANDATORY_SIGNALING_HEIGHT
-chain_split_detected = (
-    chain_split_active
-    and bip110_monitor.get("chain_tip") is not None
-    and int(bip110_monitor["chain_tip"]) != int(current_height)
-)
-chain_split_monitor = {
-    "mandatory_signaling_height": int(BIP110_MANDATORY_SIGNALING_HEIGHT),
-    "active": bool(chain_split_active),
-    "detected": bool(chain_split_detected),
-    "source_block_height": int(current_height),
-    "bip110_chain_tip": int(bip110_monitor["chain_tip"]) if bip110_monitor.get("chain_tip") is not None else None,
-    "bip110_indexed_tip": int(bip110_monitor["indexed_tip"]) if bip110_monitor.get("indexed_tip") is not None else None,
-    "source": bip110_monitor.get("source", BIP110_MONITOR_URL),
-    "fetched_utc": bip110_monitor.get("fetched_utc"),
-    "ok": bool(bip110_monitor.get("ok")),
-    "error": bip110_monitor.get("error"),
-}
-if chain_split_monitor["ok"]:
-    print(f"BIP-110 monitor chain tip: {chain_split_monitor['bip110_chain_tip']:,}")
-else:
-    print(f"BIP-110 monitor chain tip unavailable: {chain_split_monitor['error']}")
-
-
 # Static datasets + split metadata
 force_refresh_segwit = False
 
@@ -2136,13 +2206,15 @@ else:
         json.dump(chart_static, f, separators=(",", ":"), ensure_ascii=True)
     print("Static chart bundle refreshed with SegWit miner metadata.")
 
+node_sync = check_bip110_node_sync(int(current_height), str(current_hash))
+
 bip110_metadata = {
     "generated_utc": datetime.now(timezone.utc).isoformat(),
     "source_block_height": int(current_height),
     "source_block_hash": str(current_hash),
     "source_block_time_utc": date_str,
     "state": state,
-    "chain_split_monitor": chain_split_monitor,
+    "node_sync": node_sync,
     "datasets": {
         "bip110_blocks": bip110_blocks_meta,
         "bip110_miners": bip110_miners_meta,
