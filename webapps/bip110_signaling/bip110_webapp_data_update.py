@@ -292,7 +292,7 @@ def export_low_activity_block_cache(path: Path, rows):
         for height in target_heights
         if height in sizes or height in block_times or height in low_fee_rates
     }
-    stale_heights = find_stale_cached_block_heights(
+    stale_heights, postgres_hashes = find_stale_cached_block_heights(
         target_heights,
         cached_hashes_for_recheck,
         log_label="low-activity-blocks",
@@ -302,6 +302,9 @@ def export_low_activity_block_cache(path: Path, rows):
         block_times.pop(height, None)
         low_fee_rates.pop(height, None)
         block_hashes.pop(height, None)
+    for height, postgres_hash in postgres_hashes.items():
+        if height not in stale_heights and not block_hashes.get(height):
+            block_hashes[height] = postgres_hash
 
     missing = [height for height in target_heights if height not in sizes or height not in block_times]
 
@@ -839,7 +842,7 @@ def find_stale_cached_block_heights(target_heights, cached_hashes, *, log_label)
     recheck_heights = select_block_hash_recheck_heights(target_heights, cached_hashes)
     postgres_hashes = fetch_postgres_block_hashes(recheck_heights)
     if not postgres_hashes:
-        return set()
+        return set(), {}
 
     stale_heights = set()
     for height in recheck_heights:
@@ -847,7 +850,7 @@ def find_stale_cached_block_heights(target_heights, cached_hashes, *, log_label)
         if not postgres_hash:
             continue
         cached_hash = str(cached_hashes.get(height) or "").strip()
-        if cached_hash != postgres_hash:
+        if cached_hash and cached_hash != postgres_hash:
             stale_heights.add(height)
 
     if stale_heights:
@@ -857,16 +860,19 @@ def find_stale_cached_block_heights(target_heights, cached_hashes, *, log_label)
             f"[{log_label}] queued reanalysis for {len(stale_heights):,} block(s) "
             f"after PostgreSQL hash recheck: {sample}{suffix}"
         )
-    return stale_heights
+    return stale_heights, postgres_hashes
 
 def invalidate_reorged_miner_attributions(miners, target_heights):
     cached_hashes = {
         height: str((miner or {}).get("hash") or "").strip()
         for height, miner in miners.items()
     }
-    stale_heights = find_stale_cached_block_heights(target_heights, cached_hashes, log_label="bip110")
+    stale_heights, postgres_hashes = find_stale_cached_block_heights(target_heights, cached_hashes, log_label="bip110")
     for height in stale_heights:
         miners.pop(height, None)
+    for height, postgres_hash in postgres_hashes.items():
+        if height not in stale_heights and height in miners and not str((miners[height] or {}).get("hash") or "").strip():
+            miners[height]["hash"] = postgres_hash
     return stale_heights
 
 def fetch_bip110_monitor_tip():
