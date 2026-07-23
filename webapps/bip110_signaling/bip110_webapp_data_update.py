@@ -128,9 +128,11 @@ def load_low_activity_block_cache(path: Path):
     sizes_raw = data.get("sizes", {})
     times_raw = data.get("block_times", {})
     low_fee_rates_raw = data.get("low_fee_rates", {})
+    block_hashes_raw = data.get("block_hashes", {})
     sizes = {}
     block_times = {}
     low_fee_rates = {}
+    block_hashes = {}
     if isinstance(sizes_raw, dict):
         for height, size in sizes_raw.items():
             try:
@@ -158,24 +160,35 @@ def load_low_activity_block_cache(path: Path):
                 continue
             if parsed_fee_rate >= 0:
                 low_fee_rates[parsed_height] = parsed_fee_rate
-    return sizes, block_times, low_fee_rates
+    if isinstance(block_hashes_raw, dict):
+        for height, block_hash in block_hashes_raw.items():
+            try:
+                parsed_height = int(height)
+            except (TypeError, ValueError):
+                continue
+            text = str(block_hash or "").strip()
+            if text:
+                block_hashes[parsed_height] = text
+    return sizes, block_times, low_fee_rates, block_hashes
 
 def load_low_fee_rate_cache(path: Path):
     if not path.exists():
-        return {}
+        return {}, {}
     try:
         with path.open("r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception:
-        return {}
+        return {}, {}
     if not isinstance(data, dict):
-        return {}
+        return {}, {}
 
     values = data.get("low_fee_rates", data)
     if not isinstance(values, dict):
-        return {}
+        return {}, {}
+    block_hashes_raw = data.get("block_hashes", {})
 
     low_fee_rates = {}
+    block_hashes = {}
     for height, fee_rate in values.items():
         try:
             parsed_height = int(height)
@@ -184,16 +197,31 @@ def load_low_fee_rate_cache(path: Path):
             continue
         if parsed_fee_rate >= 0:
             low_fee_rates[parsed_height] = parsed_fee_rate
-    return low_fee_rates
+    if isinstance(block_hashes_raw, dict):
+        for height, block_hash in block_hashes_raw.items():
+            try:
+                parsed_height = int(height)
+            except (TypeError, ValueError):
+                continue
+            text = str(block_hash or "").strip()
+            if text:
+                block_hashes[parsed_height] = text
+    return low_fee_rates, block_hashes
 
-def write_low_fee_rate_cache(path: Path, target_heights, low_fee_rates):
+def write_low_fee_rate_cache(path: Path, target_heights, low_fee_rates, block_hashes=None):
     target_set = set(int(height) for height in target_heights)
+    block_hashes = block_hashes or {}
     payload = {
         "source": "https://mempool.space/api/v1/blocks/:height extras.feeRange[0]",
         "low_fee_rates": {
             str(height): low_fee_rates[height]
             for height in sorted(target_set)
             if height in low_fee_rates
+        },
+        "block_hashes": {
+            str(height): block_hashes[height]
+            for height in sorted(target_set)
+            if block_hashes.get(height)
         },
     }
     tmp_path = path.with_suffix(f"{path.suffix}.tmp")
@@ -206,6 +234,7 @@ def fetch_block_size_times(heights, existing_sizes=None):
     existing_sizes = existing_sizes or {}
     sizes = {}
     block_times = {}
+    block_hashes = {}
     for height in heights:
         try:
             block_hash = rpc.getblockhash(int(height))
@@ -224,7 +253,9 @@ def fetch_block_size_times(heights, existing_sizes=None):
             sizes[int(height)] = block_size
         if block_time > 0:
             block_times[int(height)] = block_time
-    return sizes, block_times
+        if block_hash:
+            block_hashes[int(height)] = str(block_hash)
+    return sizes, block_times, block_hashes
 
 def median(values):
     if not values:
@@ -238,32 +269,59 @@ def median(values):
 def export_low_activity_block_cache(path: Path, rows):
     target_heights = sorted(set(int(row["height"]) for row in rows))
     target_height_set = set(target_heights)
-    sizes, block_times, low_fee_rates = load_low_activity_block_cache(path)
+    sizes, block_times, low_fee_rates, block_hashes = load_low_activity_block_cache(path)
     sizes = {height: size for height, size in sizes.items() if height in target_height_set}
     block_times = {height: block_time for height, block_time in block_times.items() if height in target_height_set}
     low_fee_rates = {height: fee_rate for height, fee_rate in low_fee_rates.items() if height in target_height_set}
+    block_hashes = {height: block_hash for height, block_hash in block_hashes.items() if height in target_height_set}
     fee_rate_cache_path = path.parent / "segwit_low_activity_fee_rates.json"
-    cached_fee_rates = load_low_fee_rate_cache(fee_rate_cache_path)
+    cached_fee_rates, cached_fee_hashes = load_low_fee_rate_cache(fee_rate_cache_path)
     low_fee_rates.update({
         height: fee_rate
         for height, fee_rate in cached_fee_rates.items()
         if height in target_height_set
     })
+    block_hashes.update({
+        height: block_hash
+        for height, block_hash in cached_fee_hashes.items()
+        if height in target_height_set
+    })
+
+    cached_hashes_for_recheck = {
+        height: block_hashes.get(height, "")
+        for height in target_heights
+        if height in sizes or height in block_times or height in low_fee_rates
+    }
+    stale_heights = find_stale_cached_block_heights(
+        target_heights,
+        cached_hashes_for_recheck,
+        log_label="low-activity-blocks",
+    )
+    for height in stale_heights:
+        sizes.pop(height, None)
+        block_times.pop(height, None)
+        low_fee_rates.pop(height, None)
+        block_hashes.pop(height, None)
+
     missing = [height for height in target_heights if height not in sizes or height not in block_times]
 
     if missing:
-        fetched_sizes, fetched_times = fetch_block_size_times(missing, existing_sizes=sizes)
+        fetched_sizes, fetched_times, fetched_hashes = fetch_block_size_times(missing, existing_sizes=sizes)
         sizes.update(fetched_sizes)
         block_times.update(fetched_times)
+        block_hashes.update(fetched_hashes)
 
     missing_fee_heights = [height for height in target_heights if height not in low_fee_rates]
     if missing_fee_heights:
-        def persist_fee_batch(batch_fee_rates):
+        def persist_fee_batch(batch_fee_rates, batch_hashes):
             low_fee_rates.update(batch_fee_rates)
-            write_low_fee_rate_cache(fee_rate_cache_path, target_heights, low_fee_rates)
+            block_hashes.update(batch_hashes)
+            write_low_fee_rate_cache(fee_rate_cache_path, target_heights, low_fee_rates, block_hashes)
 
-        low_fee_rates.update(fetch_block_low_fee_rates(missing_fee_heights, on_batch=persist_fee_batch))
-        write_low_fee_rate_cache(fee_rate_cache_path, target_heights, low_fee_rates)
+        fetched_fee_rates, fetched_fee_hashes = fetch_block_low_fee_rates(missing_fee_heights, on_batch=persist_fee_batch)
+        low_fee_rates.update(fetched_fee_rates)
+        block_hashes.update(fetched_fee_hashes)
+        write_low_fee_rate_cache(fee_rate_cache_path, target_heights, low_fee_rates, block_hashes)
 
     low_activity = []
     size_window = []
@@ -295,6 +353,7 @@ def export_low_activity_block_cache(path: Path, rows):
         "sizes": {str(height): sizes[height] for height in target_heights if height in sizes},
         "block_times": {str(height): block_times[height] for height in target_heights if height in block_times},
         "low_fee_rates": {str(height): low_fee_rates[height] for height in target_heights if height in low_fee_rates},
+        "block_hashes": {str(height): block_hashes[height] for height in target_heights if block_hashes.get(height)},
         "low_activity": [str(height) for height in low_activity],
     }
     with path.open("w", encoding="utf-8") as f:
@@ -639,6 +698,9 @@ def patch_missing_release_metadata(bip110_release_rows):
     return bip110_release_rows
 
 MEMPOOL_BLOCKS_API = "https://mempool.space/api/v1/blocks"
+MEMPOOL_MINER_ATTRIBUTION_RETRY_DELAY_SECONDS = 10
+MEMPOOL_MINER_ATTRIBUTION_MAX_RETRIES = 6
+POSTGRES_BLOCK_HASH_RECHECK_INTERVAL = 100
 
 def normalize_mempool_miner_attribution(block):
     extras = block.get("extras") if isinstance(block.get("extras"), dict) else {}
@@ -705,12 +767,109 @@ def load_existing_signal_miners(path: Path):
                     "slug": str(miner.get("slug") or "").strip().lower(),
                     "pool": str(miner.get("pool") or "").strip(),
                     "sub_miner": str(miner.get("sub_miner") or "").strip(),
+                    "hash": str(miner.get("hash") or miner.get("block_hash") or miner.get("id") or "").strip(),
                 }
             continue
         text = str(miner or "").strip()
         if text:
             miners[h] = {"name": text, "slug": "", "pool": "", "sub_miner": ""}
     return miners
+
+def fetch_postgres_block_hashes(heights):
+    target_heights = sorted(set(int(height) for height in heights))
+    if not target_heights:
+        return {}
+
+    try:
+        import psycopg2  # type: ignore
+    except Exception as exc:
+        print(f"[bip110] PostgreSQL block hash recheck skipped: psycopg2 unavailable ({exc}).")
+        return {}
+
+    database = os.getenv("POSTGRES_DB") or os.getenv("PGDATABASE")
+    user = os.getenv("POSTGRES_USER") or os.getenv("PGUSER")
+    password = os.getenv("POSTGRES_PASSWORD") or os.getenv("PGPASSWORD")
+    host = os.getenv("POSTGRES_HOST") or os.getenv("PGHOST") or "localhost"
+    port = os.getenv("POSTGRES_PORT") or os.getenv("PGPORT") or "5432"
+    if not database or not user:
+        print("[bip110] PostgreSQL block hash recheck skipped: POSTGRES_DB/POSTGRES_USER not configured.")
+        return {}
+
+    try:
+        conn = psycopg2.connect(host=host, port=port, database=database, user=user, password=password)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT blockheight, blockhash
+                    FROM blockheader
+                    WHERE blockheight = ANY(%s)
+                    """,
+                    (target_heights,),
+                )
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+    except Exception as exc:
+        print(f"[bip110] PostgreSQL block hash recheck skipped: {exc}.")
+        return {}
+
+    hashes = {}
+    for height, block_hash in rows:
+        text = str(block_hash or "").strip()
+        if text:
+            hashes[int(height)] = text
+    return hashes
+
+def select_block_hash_recheck_heights(target_heights, cached_hashes):
+    sorted_heights = sorted(set(int(height) for height in target_heights))
+    if not sorted_heights:
+        return []
+    first_height = sorted_heights[0]
+    last_height = sorted_heights[-1]
+    return [
+        height
+        for height in sorted_heights
+        if height in cached_hashes
+        and (
+            height == last_height
+            or (height - first_height) % POSTGRES_BLOCK_HASH_RECHECK_INTERVAL == 0
+        )
+    ]
+
+def find_stale_cached_block_heights(target_heights, cached_hashes, *, log_label):
+    recheck_heights = select_block_hash_recheck_heights(target_heights, cached_hashes)
+    postgres_hashes = fetch_postgres_block_hashes(recheck_heights)
+    if not postgres_hashes:
+        return set()
+
+    stale_heights = set()
+    for height in recheck_heights:
+        postgres_hash = str(postgres_hashes.get(height) or "").strip()
+        if not postgres_hash:
+            continue
+        cached_hash = str(cached_hashes.get(height) or "").strip()
+        if cached_hash != postgres_hash:
+            stale_heights.add(height)
+
+    if stale_heights:
+        sample = ", ".join(f"{height:,}" for height in sorted(stale_heights)[:8])
+        suffix = "..." if len(stale_heights) > 8 else ""
+        print(
+            f"[{log_label}] queued reanalysis for {len(stale_heights):,} block(s) "
+            f"after PostgreSQL hash recheck: {sample}{suffix}"
+        )
+    return stale_heights
+
+def invalidate_reorged_miner_attributions(miners, target_heights):
+    cached_hashes = {
+        height: str((miner or {}).get("hash") or "").strip()
+        for height, miner in miners.items()
+    }
+    stale_heights = find_stale_cached_block_heights(target_heights, cached_hashes, log_label="bip110")
+    for height in stale_heights:
+        miners.pop(height, None)
+    return stale_heights
 
 def fetch_bip110_monitor_tip():
     headers = {
@@ -780,6 +939,7 @@ def fetch_block_low_fee_rates(heights, *, on_batch=None):
     pending = set(int(h) for h in heights)
     total = len(pending)
     low_fee_rates = {}
+    block_hashes = {}
     headers = {
         "Accept": "application/json",
         "User-Agent": "bip110-low-activity-updater",
@@ -789,15 +949,16 @@ def fetch_block_low_fee_rates(heights, *, on_batch=None):
         try:
             r = requests.get(f"{MEMPOOL_BLOCKS_API}/{start_height}", headers=headers, timeout=20)
             if r.status_code == 429:
-                return {"rate_limited": True, "start_height": start_height, "seen": set(), "fees": {}}
+                return {"rate_limited": True, "start_height": start_height, "seen": set(), "fees": {}, "hashes": {}}
             r.raise_for_status()
             payload = r.json()
         except Exception as exc:
-            return {"error": str(exc), "start_height": start_height, "seen": {start_height}, "fees": {}}
+            return {"error": str(exc), "start_height": start_height, "seen": {start_height}, "fees": {}, "hashes": {}}
 
         blocks = payload if isinstance(payload, list) else [payload]
         seen_heights = set()
         batch_fee_rates = {}
+        batch_hashes = {}
         for block in blocks:
             if not isinstance(block, dict):
                 continue
@@ -809,10 +970,13 @@ def fetch_block_low_fee_rates(heights, *, on_batch=None):
                 continue
 
             seen_heights.add(height)
+            block_hash = str(block.get("id") or block.get("hash") or block.get("block_hash") or "").strip()
+            if block_hash:
+                batch_hashes[height] = block_hash
             fee_rate = extract_block_low_fee_rate(block)
             if fee_rate is not None:
                 batch_fee_rates[height] = fee_rate
-        return {"start_height": start_height, "seen": seen_heights or {start_height}, "fees": batch_fee_rates}
+        return {"start_height": start_height, "seen": seen_heights or {start_height}, "fees": batch_fee_rates, "hashes": batch_hashes}
 
     batch_starts = []
     cursor = max(pending) if pending else 0
@@ -844,10 +1008,12 @@ def fetch_block_low_fee_rates(heights, *, on_batch=None):
                 seen_heights = set(result.get("seen") or {start_height})
                 pending.difference_update(seen_heights)
                 batch_fee_rates = result.get("fees") or {}
+                batch_hashes = result.get("hashes") or {}
                 if batch_fee_rates:
                     low_fee_rates.update(batch_fee_rates)
+                    block_hashes.update(batch_hashes)
                     if on_batch:
-                        on_batch(batch_fee_rates)
+                        on_batch(batch_fee_rates, batch_hashes)
 
                 processed += len(seen_heights)
                 if processed <= 15 or processed % 1500 < len(seen_heights) or not pending:
@@ -863,7 +1029,7 @@ def fetch_block_low_fee_rates(heights, *, on_batch=None):
             completed = total - len(pending)
             print(f"[low-activity-blocks] fee-rate lookup progress: {completed:,}/{total:,} heights")
 
-    return low_fee_rates
+    return low_fee_rates, block_hashes
 
 def write_block_miners_payload(path: Path, target_heights, miners):
     target_set = set(int(height) for height in target_heights)
@@ -915,6 +1081,9 @@ def fetch_block_miners(heights, *, log_label="blocks", on_batch=None):
             seen_heights.add(height)
             miner = normalize_mempool_miner_attribution(block)
             if miner.get("name"):
+                block_hash = str(block.get("id") or block.get("hash") or block.get("block_hash") or "").strip()
+                if block_hash:
+                    miner["hash"] = block_hash
                 batch_miners[height] = miner
         return {"start_height": start_height, "seen": seen_heights or {start_height}, "miners": batch_miners}
 
@@ -974,6 +1143,7 @@ def export_block_miners(path: Path, heights, *, log_label="blocks"):
         for height, miner in existing.items()
         if height in target_heights
     }
+    invalidate_reorged_miner_attributions(miners, target_heights)
     missing_heights = [height for height in target_heights if height not in miners]
     def persist_batch(batch_miners):
         miners.update(batch_miners)
@@ -990,6 +1160,40 @@ def export_signal_miners(path: Path, heights):
 
 def export_bip110_miners(path: Path, heights):
     return export_block_miners(path, heights, log_label="bip110")
+
+
+def max_attributed_miner_height(miners):
+    heights = [
+        int(height)
+        for height, miner in miners.items()
+        if isinstance(miner, dict) and str(miner.get("name") or "").strip()
+    ]
+    return max(heights) if heights else None
+
+
+def export_bip110_miners_with_tip_retry(path: Path, heights, tip_height):
+    target_tip = int(tip_height) if tip_height is not None else None
+    meta = export_bip110_miners(path, heights)
+    miners = load_existing_signal_miners(path)
+    max_height = max_attributed_miner_height(miners)
+
+    for retry in range(1, MEMPOOL_MINER_ATTRIBUTION_MAX_RETRIES + 1):
+        if target_tip is None or (max_height is not None and max_height >= target_tip):
+            break
+        attributed_label = f"{max_height:,}" if max_height is not None else "none"
+        print(
+            f"[bip110] miner attribution for latest block {target_tip:,} is missing "
+            f"(attributed through {attributed_label}); retrying in "
+            f"{MEMPOOL_MINER_ATTRIBUTION_RETRY_DELAY_SECONDS}s "
+            f"({retry}/{MEMPOOL_MINER_ATTRIBUTION_MAX_RETRIES})."
+        )
+        time.sleep(MEMPOOL_MINER_ATTRIBUTION_RETRY_DELAY_SECONDS)
+        meta = export_bip110_miners(path, heights)
+        miners = load_existing_signal_miners(path)
+        max_height = max_attributed_miner_height(miners)
+
+    return meta, miners, max_height
+
 
 def select_segwit_miner_sample_heights(block_rows):
     return sorted(
@@ -1079,93 +1283,94 @@ def build_dynamic_release_points(current_height: int):
     return [(label, hp[0], hp[1]) for label, hp in dedup.items()]
 
 
-# Dynamic update: BIP-110 datasets (changes over time)
-current_height = int(rpc.getblockcount())
-current_hash = rpc.getblockhash(current_height)
-current_time_utc = datetime.fromtimestamp(int(rpc.getblockheader(current_hash)["time"]), tz=timezone.utc)
-date_str = current_time_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
-
 bip110_total_periods = (BIP110_SIGNAL_END - BIP110_START) // PERIOD_SIZE
-bip110_scan_end = min(current_height + 1, BIP110_SIGNAL_END)
-bip110_signal = [0] * bip110_total_periods
 
-for h in range(BIP110_START, bip110_scan_end):
-    bh = rpc.getblockhash(h)
-    version = int(rpc.getblockheader(bh)["version"])
-    if (version & (1 << 4)) != 0:
-        idx = (h - BIP110_START) // PERIOD_SIZE
-        if 0 <= idx < bip110_total_periods:
-            bip110_signal[idx] += 1
 
-effective_height = clamp(current_height, BIP110_START, BIP110_SIGNAL_END)
-blocks_into_window = effective_height - BIP110_START
-completed_periods = int(clamp(blocks_into_window // PERIOD_SIZE, 0, bip110_total_periods))
-in_window = (current_height >= BIP110_START) and (current_height < BIP110_SIGNAL_END)
-has_inprogress = in_window and (completed_periods < bip110_total_periods)
-blocks_into_current_period = int((blocks_into_window % PERIOD_SIZE) if has_inprogress else 0)
-current_period_index = int(completed_periods + 1) if has_inprogress else None
+def compute_bip110_progress(height):
+    scan_end = min(height + 1, BIP110_SIGNAL_END)
+    signal_counts = [0] * bip110_total_periods
 
-bip110_period_rows = []
-for period in range(1, X_MAX + 1):
-    in_signaling_window = period <= bip110_total_periods
-    period_start = BIP110_START + (period - 1) * PERIOD_SIZE if in_signaling_window else ""
-    period_end = period_start + PERIOD_SIZE - 1 if in_signaling_window else ""
+    for block_height in range(BIP110_START, scan_end):
+        block_hash = rpc.getblockhash(block_height)
+        version = int(rpc.getblockheader(block_hash)["version"])
+        if (version & (1 << 4)) != 0:
+            idx = (block_height - BIP110_START) // PERIOD_SIZE
+            if 0 <= idx < bip110_total_periods:
+                signal_counts[idx] += 1
 
-    signal = 0
-    elapsed = 0
-    status = "future"
+    effective = clamp(height, BIP110_START, BIP110_SIGNAL_END)
+    blocks_into_window_value = effective - BIP110_START
+    completed = int(clamp(blocks_into_window_value // PERIOD_SIZE, 0, bip110_total_periods))
+    in_active_window = (height >= BIP110_START) and (height < BIP110_SIGNAL_END)
+    has_inprogress_period = in_active_window and (completed < bip110_total_periods)
+    blocks_into_current = int((blocks_into_window_value % PERIOD_SIZE) if has_inprogress_period else 0)
+    current_period = int(completed + 1) if has_inprogress_period else None
 
-    if in_signaling_window and period <= completed_periods:
-        signal = int(bip110_signal[period - 1])
-        elapsed = PERIOD_SIZE
-        status = "completed"
-    elif has_inprogress and current_period_index is not None and period == int(current_period_index):
-        elapsed = int(blocks_into_current_period)
-        signal = int(clamp(float(bip110_signal[period - 1]), 0.0, float(elapsed)))
-        status = "in_progress"
-    elif in_signaling_window:
+    period_rows = []
+    for period in range(1, X_MAX + 1):
+        in_signaling_window = period <= bip110_total_periods
+        period_start = BIP110_START + (period - 1) * PERIOD_SIZE if in_signaling_window else ""
+        period_end = period_start + PERIOD_SIZE - 1 if in_signaling_window else ""
+
+        signal = 0
+        elapsed = 0
         status = "future"
 
-    if period > bip110_total_periods:
-        status = "post_window"
+        if in_signaling_window and period <= completed:
+            signal = int(signal_counts[period - 1])
+            elapsed = PERIOD_SIZE
+            status = "completed"
+        elif has_inprogress_period and current_period is not None and period == int(current_period):
+            elapsed = int(blocks_into_current)
+            signal = int(clamp(float(signal_counts[period - 1]), 0.0, float(elapsed)))
+            status = "in_progress"
+        elif in_signaling_window:
+            status = "future"
 
-    bip110_period_rows.append({
-        "period": period,
-        "period_start_height": period_start,
-        "period_end_height": period_end,
-        "status": status,
-        "signal_blocks": signal,
-        "elapsed_blocks": elapsed,
-    })
+        if period > bip110_total_periods:
+            status = "post_window"
 
-export_csv(
-    webapp_dir / "bip110_periods.csv",
-    bip110_period_rows,
-    ["period", "period_start_height", "period_end_height", "status", "signal_blocks", "elapsed_blocks"],
-)
+        period_rows.append({
+            "period": period,
+            "period_start_height": period_start,
+            "period_end_height": period_end,
+            "status": status,
+            "signal_blocks": signal,
+            "elapsed_blocks": elapsed,
+        })
 
-bip110_plot_max_height = None
-if current_height < BIP110_START:
-    bip110_plot_max_height = BIP110_START - 1
-elif current_height < BIP110_SIGNAL_END:
-    bip110_plot_max_height = current_height
-else:
-    bip110_plot_max_height = BIP110_SIGNAL_END - 1
+    return {
+        "completed_periods": completed,
+        "current_period_index": current_period,
+        "blocks_into_current_period": blocks_into_current,
+        "period_rows": period_rows,
+    }
 
-bip110_block_rows = []
-if bip110_plot_max_height is not None and bip110_plot_max_height >= BIP110_START:
+
+def get_bip110_plot_max_height(height):
+    if height < BIP110_START:
+        return BIP110_START - 1
+    if height < BIP110_SIGNAL_END:
+        return height
+    return BIP110_SIGNAL_END - 1
+
+
+def build_bip110_block_rows(plot_max_height):
+    rows = []
+    if plot_max_height is None or plot_max_height < BIP110_START:
+        return rows
     for period in range(1, bip110_total_periods + 1):
         period_start = BIP110_START + (period - 1) * PERIOD_SIZE
         period_end = period_start + PERIOD_SIZE - 1
-        if period_start > bip110_plot_max_height:
+        if period_start > plot_max_height:
             break
-        effective_end = min(period_end, bip110_plot_max_height)
+        effective_end = min(period_end, plot_max_height)
 
         for h in range(period_start, effective_end + 1):
             bh = rpc.getblockhash(h)
             header = rpc.getblockheader(bh)
             version = int(header["version"])
-            bip110_block_rows.append({
+            rows.append({
                 "period": period,
                 "height": h,
                 "y_in_period": h - period_start,
@@ -1173,19 +1378,61 @@ if bip110_plot_max_height is not None and bip110_plot_max_height >= BIP110_START
                 "block_time": int(header.get("time", 0)),
                 "is_signaling": int((version & (1 << 4)) != 0),
             })
+    return rows
 
+
+# Dynamic update: BIP-110 datasets (changes over time)
+node_tip_height = int(rpc.getblockcount())
+candidate_bip110_plot_max_height = get_bip110_plot_max_height(node_tip_height)
+candidate_bip110_block_rows = build_bip110_block_rows(candidate_bip110_plot_max_height)
+candidate_bip110_miner_heights = [row["height"] for row in candidate_bip110_block_rows]
+bip110_miners_path = webapp_dir / "bip110_miners.json"
+bip110_signal_miners_path = webapp_dir / "bip110_signal_miners.json"
+_, bip110_miners, max_bip110_attributed_height = export_bip110_miners_with_tip_retry(
+    bip110_miners_path,
+    candidate_bip110_miner_heights,
+    candidate_bip110_plot_max_height,
+)
+
+current_height = node_tip_height
+bip110_plot_max_height = candidate_bip110_plot_max_height
+if (
+    candidate_bip110_block_rows
+    and max_bip110_attributed_height is not None
+    and max_bip110_attributed_height < candidate_bip110_plot_max_height
+):
+    current_height = max_bip110_attributed_height
+    bip110_plot_max_height = get_bip110_plot_max_height(current_height)
+    print(
+        f"BIP-110 publish height gated at {current_height:,}; "
+        f"node tip {node_tip_height:,} is still waiting for miner attribution."
+    )
+
+current_hash = rpc.getblockhash(current_height)
+current_time_utc = datetime.fromtimestamp(int(rpc.getblockheader(current_hash)["time"]), tz=timezone.utc)
+date_str = current_time_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+bip110_progress = compute_bip110_progress(current_height)
+completed_periods = bip110_progress["completed_periods"]
+current_period_index = bip110_progress["current_period_index"]
+blocks_into_current_period = bip110_progress["blocks_into_current_period"]
+bip110_period_rows = bip110_progress["period_rows"]
+
+export_csv(
+    webapp_dir / "bip110_periods.csv",
+    bip110_period_rows,
+    ["period", "period_start_height", "period_end_height", "status", "signal_blocks", "elapsed_blocks"],
+)
+
+bip110_block_rows = build_bip110_block_rows(bip110_plot_max_height)
+bip110_miner_heights = [row["height"] for row in bip110_block_rows]
 bip110_blocks_meta = export_block_points_bin(
     webapp_dir / "bip110_block_points.bin",
     bip110_block_rows,
     period_size=PERIOD_SIZE,
 )
-bip110_miner_heights = [row["height"] for row in bip110_block_rows]
-bip110_miners_path = webapp_dir / "bip110_miners.json"
-bip110_signal_miners_path = webapp_dir / "bip110_signal_miners.json"
-bip110_miners_meta = export_bip110_miners(
-    bip110_miners_path,
-    bip110_miner_heights,
-)
+bip110_miner_payload = write_block_miners_payload(bip110_miners_path, bip110_miner_heights, bip110_miners)
+bip110_miners_meta = {"rows": len(bip110_miner_payload), "source": MEMPOOL_BLOCKS_API}
 bip110_signal_miners_path.write_bytes(bip110_miners_path.read_bytes())
 bip110_signal_miners_meta = dict(bip110_miners_meta)
 
@@ -1494,6 +1741,7 @@ else:
 bip110_metadata = {
     "generated_utc": datetime.now(timezone.utc).isoformat(),
     "source_block_height": int(current_height),
+    "source_block_hash": str(current_hash),
     "source_block_time_utc": date_str,
     "state": state,
     "chain_split_monitor": chain_split_monitor,
