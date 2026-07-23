@@ -701,6 +701,7 @@ def patch_missing_release_metadata(bip110_release_rows):
     return bip110_release_rows
 
 MEMPOOL_BLOCKS_API = "https://mempool.space/api/v1/blocks"
+MEMPOOL_REQUEST_TIMEOUT_SECONDS = (5, 20)
 POSTGRES_BLOCK_HASH_RECHECK_INTERVAL = 100
 
 def normalize_mempool_miner_attribution(block):
@@ -951,7 +952,7 @@ def fetch_block_low_fee_rates(heights, *, on_batch=None):
 
     def fetch_batch(start_height):
         try:
-            r = requests.get(f"{MEMPOOL_BLOCKS_API}/{start_height}", headers=headers, timeout=20)
+            r = requests.get(f"{MEMPOOL_BLOCKS_API}/{start_height}", headers=headers, timeout=MEMPOOL_REQUEST_TIMEOUT_SECONDS)
             if r.status_code == 429:
                 return {"rate_limited": True, "start_height": start_height, "seen": set(), "fees": {}, "hashes": {}}
             r.raise_for_status()
@@ -1061,7 +1062,7 @@ def fetch_block_miners(heights, *, log_label="blocks", on_batch=None):
 
     def fetch_batch(start_height):
         try:
-            r = requests.get(f"{MEMPOOL_BLOCKS_API}/{start_height}", headers=headers, timeout=20)
+            r = requests.get(f"{MEMPOOL_BLOCKS_API}/{start_height}", headers=headers, timeout=MEMPOOL_REQUEST_TIMEOUT_SECONDS)
             if r.status_code == 429:
                 return {"rate_limited": True, "start_height": start_height, "seen": set(), "miners": {}}
             r.raise_for_status()
