@@ -7,9 +7,29 @@ const DONATION_ONCHAIN = 'bc1q8mql8fucypd3dllkawqafytmrnwtv77gzxy346';
 const DASHBOARD_TZ_STORAGE_KEY = 'wicked_dashboard_timezone_v1';
 const DASHBOARD_TZ_CHANGE_EVENT = 'wsb:timezonechange';
 const DASHBOARD_THEME_STORAGE_KEY = 'quantum-research-dashboard-theme';
+const PRESENTATION_MODE_PARAMS = ['presentation', 'presentationMode', 'present', 'kiosk'];
+const PRESENTATION_MODE_TRUE_VALUES = new Set(['', '1', 'true', 'yes', 'on']);
 let allThanksImagesPreloaded = false;
 let lastThanksOverlayFootprint = null;
 let pendingThanksImageSrc = '';
+
+function isPresentationModeUrlActive() {
+    const params = new URLSearchParams(window.location.search || '');
+    return PRESENTATION_MODE_PARAMS.some((name) => {
+        if (!params.has(name)) return false;
+        const value = String(params.get(name) || '').trim().toLowerCase();
+        return PRESENTATION_MODE_TRUE_VALUES.has(value);
+    });
+}
+
+function applyShellPresentationMode() {
+    const active = isPresentationModeUrlActive();
+    document.documentElement.classList.toggle('presentation-mode', active);
+    document.body?.classList?.toggle('presentation-mode', active);
+    if (active && isBuyMeVisible) {
+        hideThanksPopup({ fromRoute: false });
+    }
+}
 
 function preloadThanksImagesIfNeeded(force = false) {
     const drink = isBeerTime() ? 'beer' : 'coffee';
@@ -1032,6 +1052,7 @@ function handleDonationTimeZoneChanged() {
         positionThanksMethodButtonsForOrientation();
 }
 document.addEventListener("DOMContentLoaded", () => {
+    applyShellPresentationMode();
     applySiteTheme(getStoredDashboardTheme());
     ensureShellThemeToggle();
     updateShellThemeToggleUi(getStoredDashboardTheme());
@@ -1045,6 +1066,7 @@ document.addEventListener("DOMContentLoaded", () => {
   preloadThanksImagesIfNeeded(true);
   preloadAllThanksImagesOnce();
 });
+window.addEventListener('popstate', applyShellPresentationMode);
 setInterval(updateBuyMeButton, 5 * 60 * 1000);
 window.addEventListener(DASHBOARD_TZ_CHANGE_EVENT, handleDonationTimeZoneChanged);
 window.addEventListener('storage', e => {
