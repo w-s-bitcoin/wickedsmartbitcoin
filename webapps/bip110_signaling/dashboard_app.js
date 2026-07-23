@@ -233,8 +233,10 @@
       hoverTooltip: null,
       periodGridDataset: "bip110",
       periodGridSelectedPeriod: null,
+      periodGridNodeView: "legacy",
       leaderboardWindow: "all",
       minerTimelineWindow: "past14d",
+      minerTimelineNodeView: "legacy",
       minerTimelineMiners: "all",
       minerTimelineOrder: "recent",
       minerTimelineSignalersFirst: true,
@@ -246,40 +248,50 @@
         labels: true,
         showSegwit: false,
         showBip110: true,
+        showLegacyNode: true,
+        showBip110Node: false,
         panelsSwapped: false,
       },
       manualPanelHeights: {
         segwit: null,
         bip110: null,
+        bip110Node: null,
       },
       manualPanelHeightRatios: {
         segwit: null,
         bip110: null,
+        bip110Node: null,
       },
       filledPanels: {
         segwit: true,
         bip110: true,
+        bip110Node: true,
       },
       lastVisibleCount: -1,
       hitMaps: {
         segwit: [],
         bip110: [],
+        bip110Node: [],
       },
       releaseMaps: {
         segwit: [],
         bip110: [],
+        bip110Node: [],
       },
       stripeMaps: {
         segwit: [],
         bip110: [],
+        bip110Node: [],
       },
       barMaps: {
         segwit: [],
         bip110: [],
+        bip110Node: [],
       },
       deferredEnhancementRaf: {
         segwit: null,
         bip110: null,
+        bip110Node: null,
       },
       dpr: Math.max(1, window.devicePixelRatio || 1),
       timeZone: DASHBOARD_TIME?.getPreferredTimeZone?.() || "UTC",
@@ -287,13 +299,17 @@
 
     const segwitCanvas = document.getElementById("segwitCanvas");
     const bip110Canvas = document.getElementById("bip110Canvas");
+    const bip110NodeCanvas = document.getElementById("bip110NodeCanvas");
     const segwitPanel = document.getElementById("segwitPanel");
     const bip110Panel = document.getElementById("bip110Panel");
+    const bip110NodePanel = document.getElementById("bip110NodePanel");
     const segwitCanvasBox = document.getElementById("segwitCanvasBox");
     const bip110CanvasBox = document.getElementById("bip110CanvasBox");
+    const bip110NodeCanvasBox = document.getElementById("bip110NodeCanvasBox");
     const dashboardLoader = document.getElementById("dashboardLoader");
     const segwitLoader = document.getElementById("segwitLoader");
     const bip110Loader = document.getElementById("bip110Loader");
+    const bip110NodeLoader = document.getElementById("bip110NodeLoader");
     const mainWrap = document.getElementById("mainWrap");
     const topbar = document.getElementById("topbar");
     const statusChips = document.getElementById("statusChips");
@@ -314,6 +330,8 @@
     const periodGridSignalValue = document.getElementById("periodGridSignalValue");
     const periodGridContent = document.getElementById("periodGridContent");
     const periodGridLowActivityLegendItem = document.getElementById("periodGridLowActivityLegendItem");
+    const periodGridNodeControls = document.getElementById("periodGridNodeControls");
+    const periodGridNodeButtons = Array.from(document.querySelectorAll("[data-period-grid-node]"));
     const leaderboardOverlay = document.getElementById("leaderboardOverlay");
     const leaderboardDialog = document.getElementById("leaderboardDialog");
     const leaderboardClose = document.getElementById("leaderboardClose");
@@ -327,6 +345,7 @@
     const minerTimelineContent = document.getElementById("minerTimelineContent");
     const minerTimelineRangeValue = document.getElementById("minerTimelineRangeValue");
     const minerTimelineSignalValue = document.getElementById("minerTimelineSignalValue");
+    const minerTimelineNodeButtons = Array.from(document.querySelectorAll("[data-miner-timeline-node]"));
     const minerTimelineWindowButtons = Array.from(document.querySelectorAll("[data-miner-timeline-window]"));
     const minerTimelineMinerButtons = Array.from(document.querySelectorAll("[data-miner-timeline-miners]"));
     const minerTimelineOrderButtons = Array.from(document.querySelectorAll("[data-miner-timeline-order]"));
@@ -334,16 +353,24 @@
     const vizInfoBtn = document.getElementById("vizInfoBtn");
     const segwitResizeHandle = document.getElementById("segwitResizeHandle");
     const bip110ResizeHandle = document.getElementById("bip110ResizeHandle");
+    const bip110NodeResizeHandle = document.getElementById("bip110NodeResizeHandle");
     const segwitFillHeightBtn = document.getElementById("segwitFillHeightBtn");
     const bip110FillHeightBtn = document.getElementById("bip110FillHeightBtn");
+    const bip110NodeFillHeightBtn = document.getElementById("bip110NodeFillHeightBtn");
     const swapPanelsBtn = document.getElementById("swapPanelsBtn");
+    const nodePanelButtons = Array.from(document.querySelectorAll("[data-node-panel]"));
+    const PANEL_KEYS = ["segwit", "bip110", "bip110Node"];
+    const BIP110_PANEL_KEYS = ["bip110", "bip110Node"];
     const dashboardControlLock = window.WSBDashboardShared?.createDashboardControlLock?.({
       topbar,
       extraControls: [
         segwitResizeHandle,
         bip110ResizeHandle,
+        bip110NodeResizeHandle,
         segwitFillHeightBtn,
         bip110FillHeightBtn,
+        bip110NodeFillHeightBtn,
+        ...nodePanelButtons,
       ],
     });
 
@@ -352,6 +379,7 @@
       if (dashboardControlLock) {
         dashboardControlLock.setEnabled(enabled);
         syncSwapButtonEnabledState();
+        syncNodePanelButtons();
         updateResetButtonUi();
         return;
       }
@@ -366,8 +394,11 @@
         swapPanelsBtn,
         segwitFillHeightBtn,
         bip110FillHeightBtn,
+        bip110NodeFillHeightBtn,
         segwitResizeHandle,
         bip110ResizeHandle,
+        bip110NodeResizeHandle,
+        ...nodePanelButtons,
         ...topbar.querySelectorAll('input[type="checkbox"]'),
         ...topbar.querySelectorAll('select'),
       ].filter(Boolean).forEach((control) => {
@@ -375,30 +406,124 @@
       });
 
       syncSwapButtonEnabledState();
+      syncNodePanelButtons();
       updateResetButtonUi();
+    }
+
+    function isBip110PanelKey(key) {
+      return key === "bip110" || key === "bip110Node";
+    }
+
+    function chartTypeForPanelKey(key) {
+      return isBip110PanelKey(key) ? "bip110" : "segwit";
+    }
+
+    function getPanelElement(key) {
+      if (key === "segwit") return segwitPanel;
+      if (key === "bip110Node") return bip110NodePanel;
+      return bip110Panel;
+    }
+
+    function getCanvasBoxElement(key) {
+      if (key === "segwit") return segwitCanvasBox;
+      if (key === "bip110Node") return bip110NodeCanvasBox;
+      return bip110CanvasBox;
+    }
+
+    function getCanvasElement(key) {
+      if (key === "segwit") return segwitCanvas;
+      if (key === "bip110Node") return bip110NodeCanvas;
+      return bip110Canvas;
+    }
+
+    function getFillButtonElement(key) {
+      if (key === "segwit") return segwitFillHeightBtn;
+      if (key === "bip110Node") return bip110NodeFillHeightBtn;
+      return bip110FillHeightBtn;
+    }
+
+    function getVisibleBip110PanelKeys() {
+      if (!state.controls.showBip110) return [];
+      return BIP110_PANEL_KEYS.filter((key) => key === "bip110" ? state.controls.showLegacyNode : state.controls.showBip110Node);
+    }
+
+    function getVisiblePanelKeys() {
+      const keys = [];
+      if (state.controls.showSegwit) keys.push("segwit");
+      keys.push(...getVisibleBip110PanelKeys());
+      return keys;
+    }
+
+    function getVisibleChartCanvases() {
+      return getVisiblePanelKeys()
+        .map(getCanvasElement)
+        .filter(Boolean);
+    }
+
+    function getPanelLabel(key) {
+      if (key === "segwit") return "SegWit";
+      if (key === "bip110Node") return "BIP-110 node";
+      return "Legacy node";
     }
 
     function syncSwapButtonEnabledState() {
       if (!swapPanelsBtn) return;
-      const bothVisible = Boolean(state.controls.showSegwit && state.controls.showBip110);
-      swapPanelsBtn.disabled = !bothVisible;
+      swapPanelsBtn.disabled = getVisiblePanelKeys().length < 2;
+    }
+
+    function enforceNodePanelSelectionRules() {
+      if (!state.controls.showLegacyNode && !state.controls.showBip110Node) {
+        state.controls.showLegacyNode = true;
+      }
+      const bothNodesSelected = Boolean(state.controls.showLegacyNode && state.controls.showBip110Node);
+      if (bothNodesSelected && state.controls.showSegwit) {
+        state.controls.showSegwit = false;
+      }
     }
 
     function ensureAtLeastOnePanelVisible(preferredKey = "bip110") {
-      if (state.controls.showSegwit || state.controls.showBip110) return false;
+      enforceNodePanelSelectionRules();
+      if (getVisiblePanelKeys().length > 0) return false;
       if (preferredKey === "segwit") {
         state.controls.showSegwit = true;
       } else {
         state.controls.showBip110 = true;
+        state.controls.showLegacyNode = true;
       }
       return true;
     }
 
+    function syncNodePanelButtons() {
+      enforceNodePanelSelectionRules();
+      nodePanelButtons.forEach((button) => {
+        const key = button.getAttribute("data-node-panel");
+        const pressed = key === "legacy" ? state.controls.showLegacyNode : state.controls.showBip110Node;
+        button.classList.toggle("is-active", Boolean(pressed));
+        button.setAttribute("aria-pressed", pressed ? "true" : "false");
+        button.disabled = !state.controlsEnabled || !state.controls.showBip110;
+      });
+    }
+
     function syncPanelCheckboxes() {
+      enforceNodePanelSelectionRules();
       const segwitWindow = document.getElementById("toggleSegwitWindow");
       const bip110Window = document.getElementById("toggleBip110Window");
-      if (segwitWindow) segwitWindow.checked = state.controls.showSegwit;
-      if (bip110Window) bip110Window.checked = state.controls.showBip110;
+      const bothNodesSelected = Boolean(state.controls.showLegacyNode && state.controls.showBip110Node);
+      if (segwitWindow) {
+        segwitWindow.checked = state.controls.showSegwit;
+        segwitWindow.disabled = bothNodesSelected || !state.controlsEnabled;
+        setCustomTooltip(
+          segwitWindow.closest("label"),
+          bothNodesSelected
+            ? "SegWit periods are unavailable while both Legacy and BIP-110 node panels are shown."
+            : ""
+        );
+      }
+      if (bip110Window) {
+        bip110Window.checked = state.controls.showBip110;
+        bip110Window.disabled = !state.controlsEnabled;
+      }
+      syncNodePanelButtons();
     }
 
     function getDashboardLoaderHeight() {
@@ -505,45 +630,51 @@
       };
     }
 
-    function getChainSplitMonitor(meta) {
-      const monitor = meta?.chain_split_monitor;
-      if (!monitor || typeof monitor !== "object") return null;
-
-      const mandatoryHeight = Number(monitor.mandatory_signaling_height || EXPECTED_FORK_HEIGHT);
-      const sourceHeight = Number(monitor.source_block_height ?? meta?.source_block_height);
-      const bip110Tip = Number(monitor.bip110_chain_tip);
-      const active = Boolean(monitor.active)
-        || (Number.isFinite(sourceHeight) && Number.isFinite(mandatoryHeight) && sourceHeight >= mandatoryHeight);
-
-      if (!active) return null;
-
-      const hasBip110Tip = Number.isFinite(bip110Tip) && bip110Tip > 0;
-      return {
-        active,
-        ok: Boolean(monitor.ok) && hasBip110Tip,
-        detected: Boolean(monitor.detected),
-        sourceHeight: Number.isFinite(sourceHeight) ? sourceHeight : null,
-        bip110Tip: hasBip110Tip ? bip110Tip : null,
-        mandatoryHeight: Number.isFinite(mandatoryHeight) ? mandatoryHeight : EXPECTED_FORK_HEIGHT,
-        source: String(monitor.source || "https://bip110.org/monitor"),
-        fetchedUtc: String(monitor.fetched_utc || ""),
-        error: String(monitor.error || ""),
-      };
-    }
-
-    function buildChainSplitTooltip(monitor) {
-      const mandatory = monitor.mandatoryHeight.toLocaleString("en-US");
-      if (!monitor.ok) {
-        const details = monitor.error ? ` Error: ${monitor.error}` : "";
-        return `Shown after mandatory signaling begins at height ${mandatory}. The dashboard could not read the BIP-110 node chain tip from ${monitor.source}.${details}`;
+    function getNodeSyncStatus(meta) {
+      const sync = meta?.node_sync;
+      if (!sync || typeof sync !== "object") {
+        return {
+          ok: null,
+          relation: "missing",
+          tooltip: "Node sync status is not available in this metadata bundle.",
+        };
       }
 
-      const localTip = monitor.sourceHeight == null ? "n/a" : monitor.sourceHeight.toLocaleString("en-US");
-      const bip110Tip = monitor.bip110Tip == null ? "n/a" : monitor.bip110Tip.toLocaleString("en-US");
-      const fetched = monitor.fetchedUtc
-        ? ` Fetched ${formatGeneratedDateTimeForSelectedTimeZone(monitor.fetchedUtc)}.`
+      const legacyHeight = Number(sync.legacy_height);
+      const bip110Height = Number(sync.bip110_height);
+      const heightDelta = Number(sync.height_delta);
+      const blocksBehind = Number(sync.blocks_behind);
+      const latestCommonHeight = Number(sync.latest_common_height);
+      const blocksSinceCommon = Number(sync.blocks_since_common_height);
+      const attempts = Number(sync.attempts);
+      const maxAttempts = Number(sync.max_attempts);
+      const checkedText = sync.checked_utc
+        ? formatGeneratedDateTimeForSelectedTimeZone(sync.checked_utc)
         : "";
-      return `Shown after mandatory signaling begins at height ${mandatory}. Chain split is detected when this dashboard's local source tip (${localTip}) differs from the BIP-110 node chain tip reported by ${monitor.source} (${bip110Tip}).${fetched}`;
+      const legacyText = Number.isFinite(legacyHeight) ? legacyHeight.toLocaleString("en-US") : "n/a";
+      const bip110Text = Number.isFinite(bip110Height) ? bip110Height.toLocaleString("en-US") : "n/a";
+      const heightDeltaText = Number.isFinite(heightDelta) ? heightDelta.toLocaleString("en-US") : "n/a";
+      const behindText = Number.isFinite(blocksBehind) ? blocksBehind.toLocaleString("en-US") : "n/a";
+      const commonText = Number.isFinite(latestCommonHeight) ? latestCommonHeight.toLocaleString("en-US") : "n/a";
+      const sinceCommonText = Number.isFinite(blocksSinceCommon) ? blocksSinceCommon.toLocaleString("en-US") : "n/a";
+      const attemptsText = Number.isFinite(attempts) && Number.isFinite(maxAttempts)
+        ? `${attempts.toLocaleString("en-US")} / ${maxAttempts.toLocaleString("en-US")}`
+        : "n/a";
+      const relationText = String(sync.relation || "unknown").replace(/_/g, " ");
+      const errorText = sync.error ? ` Error: ${sync.error}` : "";
+      const hashText = sync.bip110_hash_at_legacy_height
+        ? " The BIP-110 hash at the legacy height matched the legacy block hash."
+        : "";
+      const aheadText = sync.relation === "bip110_ahead"
+        ? " The BIP-110 node was ahead, but the earlier legacy-height block matched, so it is treated as in sync."
+        : "";
+      const checkedSuffix = checkedText ? ` Checked ${checkedText}.` : "";
+
+      return {
+        ok: Boolean(sync.in_sync),
+        relation: relationText,
+        tooltip: `Compares the legacy source node tip against the local BIP-110 node. Legacy height: ${legacyText}. BIP-110 height: ${bip110Text}. Height delta: ${heightDeltaText}. BIP-110 blocks behind: ${behindText}. Latest common height: ${commonText}. Blocks since latest common height: ${sinceCommonText}. Attempts: ${attemptsText}. Relation: ${relationText}.${hashText}${aheadText}${checkedSuffix}${errorText}`,
+      };
     }
 
       const SELECT_DROPDOWN_CONFIGS = [
@@ -1116,11 +1247,27 @@
         previousDynamicData?.bip110LeaderboardMiners || bip110SignalMiners,
         { cache: "no-store" }
       );
+      const bip110NodePeriodsResp = await fetch(withBust("webapp_data/bip110_node_periods.csv"), { cache: "no-store" }).catch(() => null);
+      const bip110NodePeriods = bip110NodePeriodsResp?.ok
+        ? castRows(parseCsv(await bip110NodePeriodsResp.text()))
+        : (previousDynamicData?.bip110NodePeriods || []);
+      const bip110NodeMiners = await loadOptionalJson(
+        withBust("webapp_data/bip110_node_miners.json"),
+        previousDynamicData?.bip110NodeMiners || {},
+        { cache: "no-store" }
+      );
+      const bip110NodeSignalMiners = await loadOptionalJson(
+        withBust("webapp_data/bip110_node_signal_miners.json"),
+        previousDynamicData?.bip110NodeSignalMiners || bip110NodeMiners,
+        { cache: "no-store" }
+      );
       return {
         metadata,
         signature,
         bip110Periods: castRows(parseCsv(await bip110PeriodsResp.text())),
         bip110Blocks: [],
+        bip110NodePeriods,
+        bip110NodeBlocks: previousDynamicData?.bip110NodeBlocks || [],
         bip110Releases: bip110ReleasesResp
           ? castRows(parseCsv(await bip110ReleasesResp.text())).map((d) => ({
               ...d,
@@ -1132,6 +1279,8 @@
           : (previousDynamicData?.bip110Ticks || []),
         bip110SignalMiners,
         bip110LeaderboardMiners,
+        bip110NodeMiners,
+        bip110NodeSignalMiners,
       };
     }
 
@@ -1154,9 +1303,11 @@
         },
         segwitPeriods: staticData?.segwitPeriods || previousData?.segwitPeriods || [],
         bip110Periods: dynamicData?.bip110Periods || previousData?.bip110Periods || [],
+        bip110NodePeriods: dynamicData?.bip110NodePeriods || previousData?.bip110NodePeriods || [],
         topKpis: staticData?.topKpis || previousData?.topKpis || {},
         segwitBlocks: staticData?.segwitBlocks || previousData?.segwitBlocks || [],
         bip110Blocks: dynamicData?.bip110Blocks || previousData?.bip110Blocks || [],
+        bip110NodeBlocks: dynamicData?.bip110NodeBlocks || previousData?.bip110NodeBlocks || [],
         segwitMiners: staticData?.segwitMiners || previousData?.segwitMiners || {},
         segwitLowActivityBlocks: staticData?.segwitLowActivityBlocks || previousData?.segwitLowActivityBlocks || {},
         segwitReleases: staticData?.segwitReleases || previousData?.segwitReleases || [],
@@ -1165,6 +1316,8 @@
         bip110Ticks: dynamicData?.bip110Ticks || previousData?.bip110Ticks || [],
         bip110SignalMiners: dynamicData?.bip110SignalMiners || previousData?.bip110SignalMiners || {},
         bip110LeaderboardMiners: dynamicData?.bip110LeaderboardMiners || previousData?.bip110LeaderboardMiners || {},
+        bip110NodeMiners: dynamicData?.bip110NodeMiners || previousData?.bip110NodeMiners || {},
+        bip110NodeSignalMiners: dynamicData?.bip110NodeSignalMiners || previousData?.bip110NodeSignalMiners || {},
       };
     }
 
@@ -1230,19 +1383,25 @@
       };
 
       const isSegwit = datasetKey === "segwit";
+      const isBip110Node = datasetKey === "bip110Node";
       const file = isSegwit
         ? withBust("webapp_data/segwit_block_points.bin")
-        : withBust("webapp_data/bip110_block_points.bin");
+        : isBip110Node
+          ? withBust("webapp_data/bip110_node_block_points.bin")
+          : withBust("webapp_data/bip110_block_points.bin");
 
       const resp = await fetch(file, { cache: "no-store" });
       if (!resp.ok) {
+        if (isBip110Node && resp.status === 404) return [];
         throw new Error(`Failed to load ${file} (${resp.status})`);
       }
 
       const periodSize = Number(metadata?.chart?.period_size || 2016);
       const datasetMeta = isSegwit
         ? (metadata?.datasets?.segwit_blocks || {})
-        : (metadata?.datasets?.bip110_blocks || {});
+        : isBip110Node
+          ? (metadata?.datasets?.bip110_node_blocks || metadata?.datasets?.bip110_blocks || {})
+          : (metadata?.datasets?.bip110_blocks || {});
       const startHeight = Number(datasetMeta?.start_height || 0);
 
       return decodeBlockPoints(await resp.arrayBuffer(), startHeight, periodSize, datasetMeta);
@@ -1327,9 +1486,9 @@
         hideTooltip();
         await nextPaint();
         if (loadToken !== state.phasedLoadToken) return;
-        await renderSelectedPanelsWithSharedLoader(["bip110"]);
+        await renderSelectedPanelsWithSharedLoader(BIP110_PANEL_KEYS);
 
-        await loadAndApplyBlockDataPhased(loadToken, state.data.metadata, ["bip110"], loadBuster);
+        await loadAndApplyBlockDataPhased(loadToken, state.data.metadata, ["bip110", "bip110Node"], loadBuster);
         setStatus(state.data);
         refreshOpenOverlays({ followDefaultPeriodGrid: periodGridWasFollowingDefault });
       } catch (err) {
@@ -1386,6 +1545,11 @@
           : (Number.isFinite(state.manualPanelHeights.bip110)
             ? (state.manualPanelHeights.bip110 / (window.innerHeight || 1))
             : null);
+        const bip110NodeRatio = Number.isFinite(state.manualPanelHeightRatios.bip110Node)
+          ? state.manualPanelHeightRatios.bip110Node
+          : (Number.isFinite(state.manualPanelHeights.bip110Node)
+            ? (state.manualPanelHeights.bip110Node / (window.innerHeight || 1))
+            : null);
         const payload = {
           stripes: Boolean(state.controls.stripes),
           stripesExplicit: Boolean(state.controls.stripesExplicit),
@@ -1394,6 +1558,8 @@
           labels: Boolean(state.controls.labels),
           showSegwit: Boolean(state.controls.showSegwit),
           showBip110: Boolean(state.controls.showBip110),
+          showLegacyNode: Boolean(state.controls.showLegacyNode),
+          showBip110Node: Boolean(state.controls.showBip110Node),
           panelsSwapped: Boolean(state.controls.panelsSwapped),
           manualPanelHeights: {
             segwit: Number.isFinite(segwitRatio)
@@ -1402,10 +1568,14 @@
             bip110: Number.isFinite(bip110Ratio)
               ? parseFloat(bip110Ratio.toFixed(4))
               : null,
+            bip110Node: Number.isFinite(bip110NodeRatio)
+              ? parseFloat(bip110NodeRatio.toFixed(4))
+              : null,
           },
           filledPanels: {
             segwit: Boolean(state.filledPanels.segwit),
             bip110: Boolean(state.filledPanels.bip110),
+            bip110Node: Boolean(state.filledPanels.bip110Node),
           },
         };
         localStorage.setItem(CONTROLS_STORAGE_KEY, JSON.stringify(payload));
@@ -1427,11 +1597,17 @@
       return ["all", "nonsignaling", "signaling"].includes(normalized) ? normalized : "all";
     }
 
+    function normalizeBip110NodeView(value) {
+      return String(value || "").toLowerCase() === "bip110" ? "bip110" : "legacy";
+    }
+
     function persistBip110OverlaySelections() {
       try {
         const payload = {
+          periodGridNodeView: normalizeBip110NodeView(state.periodGridNodeView),
           leaderboardWindow: normalizeBip110OverlayWindow(state.leaderboardWindow),
           minerTimelineWindow: normalizeBip110OverlayWindow(state.minerTimelineWindow),
+          minerTimelineNodeView: normalizeBip110NodeView(state.minerTimelineNodeView),
           minerTimelineMiners: normalizeBip110TimelineMinerFilter(state.minerTimelineMiners),
           minerTimelineOrder: normalizeMinerTimelineOrder(state.minerTimelineOrder),
           minerTimelineSignalersFirst: state.minerTimelineSignalersFirst !== false,
@@ -1450,8 +1626,10 @@
         const parsed = JSON.parse(raw);
         if (!parsed || typeof parsed !== "object") return false;
 
+        state.periodGridNodeView = normalizeBip110NodeView(parsed.periodGridNodeView);
         state.leaderboardWindow = normalizeBip110OverlayWindow(parsed.leaderboardWindow);
         state.minerTimelineWindow = normalizeBip110OverlayWindow(parsed.minerTimelineWindow);
+        state.minerTimelineNodeView = normalizeBip110NodeView(parsed.minerTimelineNodeView);
         state.minerTimelineMiners = normalizeBip110TimelineMinerFilter(parsed.minerTimelineMiners);
         state.minerTimelineOrder = normalizeMinerTimelineOrder(parsed.minerTimelineOrder);
         state.minerTimelineSignalersFirst = typeof parsed.minerTimelineSignalersFirst === "boolean"
@@ -1465,6 +1643,8 @@
 
     function syncBip110OverlaySelectionControls() {
       updateLeaderboardWindowButtons();
+      updatePeriodGridNodeViewButtons();
+      updateMinerTimelineNodeViewButtons();
       updateMinerTimelineWindowButtons();
       updateMinerTimelineMinerButtons();
       updateMinerTimelineOrderControls();
@@ -1500,6 +1680,8 @@
         state.controls.labels = typeof parsed.labels === "boolean" ? parsed.labels : true;
         state.controls.showSegwit = typeof parsed.showSegwit === "boolean" ? parsed.showSegwit : false;
         state.controls.showBip110 = typeof parsed.showBip110 === "boolean" ? parsed.showBip110 : true;
+        state.controls.showLegacyNode = typeof parsed.showLegacyNode === "boolean" ? parsed.showLegacyNode : true;
+        state.controls.showBip110Node = typeof parsed.showBip110Node === "boolean" ? parsed.showBip110Node : false;
         ensureAtLeastOnePanelVisible("bip110");
         state.controls.panelsSwapped = typeof parsed.panelsSwapped === "boolean" ? parsed.panelsSwapped : false;
 
@@ -1512,8 +1694,10 @@
 
         const segwitHeight = parseStoredHeight(parsed?.manualPanelHeights?.segwit);
         const bip110Height = parseStoredHeight(parsed?.manualPanelHeights?.bip110);
+        const bip110NodeHeight = parseStoredHeight(parsed?.manualPanelHeights?.bip110Node);
         applyManualPanelHeightFromRatio("segwit", segwitHeight);
         applyManualPanelHeightFromRatio("bip110", bip110Height);
+        applyManualPanelHeightFromRatio("bip110Node", bip110NodeHeight);
 
         state.filledPanels.segwit = typeof parsed?.filledPanels?.segwit === "boolean"
           ? parsed.filledPanels.segwit
@@ -1521,10 +1705,13 @@
         state.filledPanels.bip110 = typeof parsed?.filledPanels?.bip110 === "boolean"
           ? parsed.filledPanels.bip110
           : true;
+        state.filledPanels.bip110Node = typeof parsed?.filledPanels?.bip110Node === "boolean"
+          ? parsed.filledPanels.bip110Node
+          : true;
         normalizeDefaultFilledPanelHeights();
 
         // In filled mode, height is derived from viewport; manual ratios should remain unset.
-        ["segwit", "bip110"].forEach((key) => {
+        PANEL_KEYS.forEach((key) => {
           if (state.filledPanels[key]) {
             state.manualPanelHeights[key] = null;
             state.manualPanelHeightRatios[key] = null;
@@ -1589,20 +1776,22 @@
       if (!decoded || typeof decoded !== "object") return false;
       const controls = decoded.controls;
       if (controls && typeof controls === "object") {
-        const controlKeys = ["stripes", "stripesExplicit", "blockSymbol", "markers", "labels", "showSegwit", "showBip110", "panelsSwapped"];
+        const controlKeys = ["stripes", "stripesExplicit", "blockSymbol", "markers", "labels", "showSegwit", "showBip110", "showLegacyNode", "showBip110Node", "panelsSwapped"];
         if (controlKeys.some((key) => Object.prototype.hasOwnProperty.call(controls, key))) return true;
       }
       const manualHeights = decoded.manualPanelHeights;
       if (manualHeights && typeof manualHeights === "object") {
         if (Object.prototype.hasOwnProperty.call(manualHeights, "segwit")
-          || Object.prototype.hasOwnProperty.call(manualHeights, "bip110")) {
+          || Object.prototype.hasOwnProperty.call(manualHeights, "bip110")
+          || Object.prototype.hasOwnProperty.call(manualHeights, "bip110Node")) {
           return true;
         }
       }
       const filled = decoded.filledPanels;
       if (filled && typeof filled === "object") {
         if (Object.prototype.hasOwnProperty.call(filled, "segwit")
-          || Object.prototype.hasOwnProperty.call(filled, "bip110")) {
+          || Object.prototype.hasOwnProperty.call(filled, "bip110")
+          || Object.prototype.hasOwnProperty.call(filled, "bip110Node")) {
           return true;
         }
       }
@@ -1629,15 +1818,19 @@
           labels: true,
           showSegwit: false,
           showBip110: true,
+          showLegacyNode: true,
+          showBip110Node: false,
           panelsSwapped: false,
         },
         manualPanelHeights: {
           segwit: null,
           bip110: null,
+          bip110Node: null,
         },
         filledPanels: {
           segwit: true,
           bip110: true,
+          bip110Node: true,
         },
         timeZone: "UTC",
       };
@@ -1651,15 +1844,19 @@
           labels: Boolean(state.controls.labels),
           showSegwit: Boolean(state.controls.showSegwit),
           showBip110: Boolean(state.controls.showBip110),
+          showLegacyNode: Boolean(state.controls.showLegacyNode),
+          showBip110Node: Boolean(state.controls.showBip110Node),
           panelsSwapped: Boolean(state.controls.panelsSwapped),
         },
         manualPanelHeights: {
           segwit: Number.isFinite(state.manualPanelHeightRatios.segwit) ? state.manualPanelHeightRatios.segwit : null,
           bip110: Number.isFinite(state.manualPanelHeightRatios.bip110) ? state.manualPanelHeightRatios.bip110 : null,
+          bip110Node: Number.isFinite(state.manualPanelHeightRatios.bip110Node) ? state.manualPanelHeightRatios.bip110Node : null,
         },
         filledPanels: {
           segwit: Boolean(state.filledPanels.segwit),
           bip110: Boolean(state.filledPanels.bip110),
+          bip110Node: Boolean(state.filledPanels.bip110Node),
         },
         timeZone: String(state.timeZone || "UTC"),
       };
@@ -1714,6 +1911,8 @@
         if (typeof controls.labels === "boolean") state.controls.labels = controls.labels;
         if (typeof controls.showSegwit === "boolean") state.controls.showSegwit = controls.showSegwit;
         if (typeof controls.showBip110 === "boolean") state.controls.showBip110 = controls.showBip110;
+        if (typeof controls.showLegacyNode === "boolean") state.controls.showLegacyNode = controls.showLegacyNode;
+        if (typeof controls.showBip110Node === "boolean") state.controls.showBip110Node = controls.showBip110Node;
         ensureAtLeastOnePanelVisible("bip110");
         if (typeof controls.panelsSwapped === "boolean") state.controls.panelsSwapped = controls.panelsSwapped;
       }
@@ -1724,6 +1923,7 @@
       if (heights) {
         applyManualPanelHeightFromRatio("segwit", heights.segwit);
         applyManualPanelHeightFromRatio("bip110", heights.bip110);
+        applyManualPanelHeightFromRatio("bip110Node", heights.bip110Node);
       }
 
       const filled = decoded.filledPanels && typeof decoded.filledPanels === "object"
@@ -1732,6 +1932,7 @@
       if (filled) {
         if (typeof filled.segwit === "boolean") state.filledPanels.segwit = filled.segwit;
         if (typeof filled.bip110 === "boolean") state.filledPanels.bip110 = filled.bip110;
+        if (typeof filled.bip110Node === "boolean") state.filledPanels.bip110Node = filled.bip110Node;
       }
       normalizeDefaultFilledPanelHeights();
 
@@ -1780,15 +1981,19 @@
           labels: Boolean(state.controls.labels),
           showSegwit: Boolean(state.controls.showSegwit),
           showBip110: Boolean(state.controls.showBip110),
+          showLegacyNode: Boolean(state.controls.showLegacyNode),
+          showBip110Node: Boolean(state.controls.showBip110Node),
           panelsSwapped: Boolean(state.controls.panelsSwapped),
         },
         filledPanels: {
           segwit: Boolean(state.filledPanels.segwit),
           bip110: Boolean(state.filledPanels.bip110),
+          bip110Node: Boolean(state.filledPanels.bip110Node),
         },
         manualPanelHeightRatios: {
           segwit: Number.isFinite(state.manualPanelHeightRatios.segwit) ? state.manualPanelHeightRatios.segwit : null,
           bip110: Number.isFinite(state.manualPanelHeightRatios.bip110) ? state.manualPanelHeightRatios.bip110 : null,
+          bip110Node: Number.isFinite(state.manualPanelHeightRatios.bip110Node) ? state.manualPanelHeightRatios.bip110Node : null,
         },
         timeZone: String(state.timeZone || 'UTC'),
         checkboxState: {
@@ -1828,21 +2033,27 @@
         state.controls.showBip110 = typeof checkboxState.toggleBip110Window === 'boolean'
           ? checkboxState.toggleBip110Window
           : Boolean(controls.showBip110);
+        state.controls.showLegacyNode = typeof controls.showLegacyNode === "boolean" ? controls.showLegacyNode : true;
+        state.controls.showBip110Node = typeof controls.showBip110Node === "boolean" ? controls.showBip110Node : false;
         ensureAtLeastOnePanelVisible("bip110");
         state.controls.panelsSwapped = Boolean(controls.panelsSwapped);
 
         const filledPanels = snapshot.filledPanels || {};
         state.filledPanels.segwit = Boolean(filledPanels.segwit);
         state.filledPanels.bip110 = Boolean(filledPanels.bip110);
+        state.filledPanels.bip110Node = typeof filledPanels.bip110Node === "boolean" ? Boolean(filledPanels.bip110Node) : true;
 
         state.manualPanelHeights.segwit = null;
         state.manualPanelHeights.bip110 = null;
+        state.manualPanelHeights.bip110Node = null;
         state.manualPanelHeightRatios.segwit = null;
         state.manualPanelHeightRatios.bip110 = null;
+        state.manualPanelHeightRatios.bip110Node = null;
 
         const ratios = snapshot.manualPanelHeightRatios || {};
         applyManualPanelHeightFromRatio('segwit', ratios.segwit);
         applyManualPanelHeightFromRatio('bip110', ratios.bip110);
+        applyManualPanelHeightFromRatio('bip110Node', ratios.bip110Node);
         normalizeDefaultFilledPanelHeights();
         state.timeZone = setPreferredDashboardTimeZone(String(snapshot.timeZone || 'UTC'));
 
@@ -1865,6 +2076,7 @@
         updatePanelVisibility();
         updateFillButtonState('segwit');
         updateFillButtonState('bip110');
+        updateFillButtonState('bip110Node');
         if (state.data) {
           setStatus(state.data);
           renderAll();
@@ -1909,22 +2121,30 @@
         state.controls.labels = true;
         state.controls.showSegwit = false;
         state.controls.showBip110 = true;
+        state.controls.showLegacyNode = true;
+        state.controls.showBip110Node = false;
         state.controls.panelsSwapped = false;
+        state.periodGridNodeView = "legacy";
         state.leaderboardWindow = "all";
         state.minerTimelineWindow = "past14d";
+        state.minerTimelineNodeView = "legacy";
         state.minerTimelineMiners = "all";
         state.minerTimelineOrder = "recent";
         state.minerTimelineSignalersFirst = true;
 
         state.filledPanels.segwit = true;
         state.filledPanels.bip110 = true;
+        state.filledPanels.bip110Node = true;
         state.manualPanelHeights.segwit = null;
         state.manualPanelHeights.bip110 = null;
+        state.manualPanelHeights.bip110Node = null;
         state.manualPanelHeightRatios.segwit = null;
         state.manualPanelHeightRatios.bip110 = null;
+        state.manualPanelHeightRatios.bip110Node = null;
         // Keep manual height metadata cleared so reload stays in default state.
         state.filledPanels.segwit = true;
         state.filledPanels.bip110 = true;
+        state.filledPanels.bip110Node = true;
 
         state.timeZone = setPreferredDashboardTimeZone("UTC");
 
@@ -1947,6 +2167,7 @@
         updatePanelVisibility();
         updateFillButtonState("segwit");
         updateFillButtonState("bip110");
+        updateFillButtonState("bip110Node");
         if (state.data) {
           setStatus(state.data);
           renderAll();
@@ -1980,14 +2201,18 @@
       if (labels && !labels.checked) return false;
       if (segwitWindow && segwitWindow.checked) return false;
       if (bip110Window && !bip110Window.checked) return false;
+      if (!state.controls.showLegacyNode) return false;
+      if (state.controls.showBip110Node) return false;
       if (state.controls.panelsSwapped) return false;
       if (!state.filledPanels.segwit) return false;
       if (!state.filledPanels.bip110) return false;
+      if (!state.filledPanels.bip110Node) return false;
       // In filled mode, viewport-derived height can introduce tiny persisted ratios.
       // Treat filled panel state as canonical default and only enforce null manual ratios
       // for panels that are NOT in filled mode.
       if (!state.filledPanels.segwit && state.manualPanelHeightRatios.segwit != null) return false;
       if (!state.filledPanels.bip110 && state.manualPanelHeightRatios.bip110 != null) return false;
+      if (!state.filledPanels.bip110Node && state.manualPanelHeightRatios.bip110Node != null) return false;
       if (state.timeZone !== 'UTC') return false;
 
       return true;
@@ -2079,6 +2304,14 @@
 
       statusChips.innerHTML = "";
       statusChips.appendChild(buildUpdatedChip(meta));
+      const nodeSync = getNodeSyncStatus(meta);
+      const nodeSyncText = nodeSync.ok === true ? "In-sync" : nodeSync.ok === false ? "Out-of-sync" : "unknown";
+      const nodeSyncClass = nodeSync.ok === true ? "chip-value-ok" : nodeSync.ok === false ? "chip-value-alert" : "";
+      appendStatusChip(
+        "Legacy & BIP-110",
+        `<span class="${nodeSyncClass}">${escapeHtml(nodeSyncText)}</span>`,
+        nodeSync.tooltip
+      );
       updatedTimeZoneChip = window.WSBDashboardComponents?.createUpdatedTimeZoneChipController?.({
         chip: "#updatedTimeZoneDisplay",
         value: "#updatedTimeZoneDisplay .chip-value",
@@ -2104,20 +2337,6 @@
         "Period",
         `${s.current_period_index ?? "N/A"} <span class="chip-label">Signaling</span> ${periodSignalValue}`
       );
-      const chainSplitMonitor = getChainSplitMonitor(meta);
-      if (chainSplitMonitor) {
-        const valueClass = chainSplitMonitor.ok
-          ? (chainSplitMonitor.detected ? "chip-value-alert" : "chip-value-ok")
-          : "";
-        const valueText = chainSplitMonitor.ok
-          ? (chainSplitMonitor.detected ? "Yes" : "No")
-          : "Unknown";
-        appendStatusChip(
-          "Chain Split",
-          `<span class="${valueClass}">${valueText}</span>`,
-          buildChainSplitTooltip(chainSplitMonitor)
-        );
-      }
       const signalingHashrate = estimateSignalingHashrateKpi(data);
       appendStatusChip(
         "Signaling Hashrate",
@@ -2553,7 +2772,7 @@
       return raw;
     }
 
-    function drawPanel({ canvas, key, title, periods, blocks, releases, ticks, threshold, thresholdPct, showBottomAxis, specialLabels = [], markerTypography = null, numericTypography = null, renderStripes = true, renderLabels = true, renderMarkers = true, renderSpecialLabels = true }) {
+    function drawPanel({ canvas, key, title, panelTag = "", periods, blocks, releases, ticks, threshold, thresholdPct, showBottomAxis, specialLabels = [], markerTypography = null, numericTypography = null, renderStripes = true, renderLabels = true, renderMarkers = true, renderSpecialLabels = true }) {
       const { metadata } = state.data;
       const chart = metadata.chart;
       const periodSize = chart.period_size;
@@ -2585,7 +2804,7 @@
         + yTickLabelPad;
 
       const margin = {
-        top: isMobile ? 44 : 46,
+        top: isMobile ? 51 : 53,
         right: isMobile ? 10 : 14,
         bottom: showBottomAxis ? (isMobile ? 44 : 50) : (isMobile ? 18 : 20),
         left: Math.max(isMobile ? 44 : 56, Math.ceil(minLeftMarginForYAxis)),
@@ -2640,7 +2859,7 @@
         let nonsignal = clamp(periodSize - signalRaw, 0, periodSize);
         let unmined = 0;
 
-        if (key === "bip110") {
+        if (isBip110PanelKey(key)) {
           const status = String(row.status || "");
           const elapsed = Number(row.elapsed_blocks || 0);
           if (status === "completed") {
@@ -2748,7 +2967,7 @@
       ctx.lineWidth = 1;
       ctx.globalAlpha = 0.84;
       ctx.beginPath();
-      if (key === "bip110") {
+      if (isBip110PanelKey(key)) {
         const mandatoryRampX = xScale(17.5);
         const mandatoryEndX = xScale(18.5);
         const mandatoryY = yScale(periodSize);
@@ -2808,8 +3027,8 @@
           const p = Number(row.period);
           const signalRaw = Number(row.signal_blocks || 0);
           const status = String(row.status || "completed");
-          if (key === "bip110" && status === "future") return;
-          if (key === "bip110" && status === "post_window") return;
+          if (isBip110PanelKey(key) && status === "future") return;
+          if (isBip110PanelKey(key) && status === "post_window") return;
 
           const x = xScale(p);
           const pct = pctLabel(signalRaw, periodSize);
@@ -2945,7 +3164,7 @@
         ctx.restore();
       });
 
-      const xAxisLabelMax = key === "bip110"
+      const xAxisLabelMax = isBip110PanelKey(key)
         ? periods.reduce((maxPeriod, row) => {
             const period = Number(row.period);
             const status = String(row.status || "");
@@ -2963,6 +3182,7 @@
         xAxisLabelMax,
         periodSize,
         title,
+        panelTag,
         ticks,
         showBottomAxis,
         chart,
@@ -3028,14 +3248,14 @@
 
       const combinedReleases = [...segwitReleases, ...bip110Releases];
       const combinedLines = combinedReleases.map((r) => markerLabelLines(String(r.display_label || r.label || "")));
-      const barW1 = estimateBarWidthForCanvas(segwitCanvas, chart);
-      const barW2 = estimateBarWidthForCanvas(bip110Canvas, chart);
-      const widthCandidates = [barW1, barW2].filter((w) => Number.isFinite(w) && w > 8);
+      const visibleCanvases = getVisibleChartCanvases();
+      const widthCandidates = visibleCanvases
+        .map((canvas) => estimateBarWidthForCanvas(canvas, chart))
+        .filter((w) => Number.isFinite(w) && w > 8);
       const targetWidth = Math.max(38, (widthCandidates.length ? Math.min(...widthCandidates) : 30) * 1.55);
-      const visibleWidths = [
-        segwitCanvas.getBoundingClientRect().width,
-        bip110Canvas.getBoundingClientRect().width,
-      ].filter((w) => Number.isFinite(w) && w > 8);
+      const visibleWidths = visibleCanvases
+        .map((canvas) => canvas.getBoundingClientRect().width)
+        .filter((w) => Number.isFinite(w) && w > 8);
       const isMobile = (visibleWidths.length ? Math.min(...visibleWidths) : window.innerWidth) < 760;
       const fontSize = fitUniformMultilineFontPx(
         tmpCtx,
@@ -3061,11 +3281,13 @@
         return { fontSize: fallbackSize };
       }
 
-      const segBarW = estimateBarWidthForCanvas(segwitCanvas, chart);
-      const bipBarW = estimateBarWidthForCanvas(bip110Canvas, chart);
-      const segThrW = estimateThresholdLabelWidthForCanvas(segwitCanvas, chart);
-      const bipThrW = estimateThresholdLabelWidthForCanvas(bip110Canvas, chart);
-      const widthCandidates = [segBarW - 4, bipBarW - 4, segThrW, bipThrW].filter((w) => Number.isFinite(w) && w > 8);
+      const visibleCanvases = getVisibleChartCanvases();
+      const widthCandidates = visibleCanvases
+        .flatMap((canvas) => [
+          estimateBarWidthForCanvas(canvas, chart) - 4,
+          estimateThresholdLabelWidthForCanvas(canvas, chart),
+        ])
+        .filter((w) => Number.isFinite(w) && w > 8);
       const maxWidth = Math.max(14, widthCandidates.length ? Math.min(...widthCandidates) : 18);
 
       const texts = [
@@ -3079,10 +3301,9 @@
         Number(chart.thresholds.bip110.blocks).toLocaleString(),
       ];
 
-      const visibleWidths = [
-        segwitCanvas.getBoundingClientRect().width,
-        bip110Canvas.getBoundingClientRect().width,
-      ].filter((w) => Number.isFinite(w) && w > 8);
+      const visibleWidths = visibleCanvases
+        .map((canvas) => canvas.getBoundingClientRect().width)
+        .filter((w) => Number.isFinite(w) && w > 8);
       const isMobile = (visibleWidths.length ? Math.min(...visibleWidths) : window.innerWidth) < 760;
       const base = isMobile ? 10 : 11;
       const size = texts.reduce((acc, txt) => {
@@ -3096,29 +3317,27 @@
     function updatePanelVisibility() {
       const prevCount = state.lastVisibleCount;
       const hasPriorVisibility = prevCount >= 0;
+      enforceNodePanelSelectionRules();
 
       if (hasPriorVisibility) {
         // Preserve the user-visible panel heights when toggling panel visibility.
-        if (!segwitPanel.classList.contains("hidden")) {
-          const segwitHeight = segwitPanel.getBoundingClientRect().height;
-          if (Number.isFinite(segwitHeight) && segwitHeight > 0) {
-            setManualPanelHeight("segwit", segwitHeight);
+        PANEL_KEYS.forEach((key) => {
+          const panel = getPanelElement(key);
+          if (!panel || panel.classList.contains("hidden")) return;
+          const panelHeight = panel.getBoundingClientRect().height;
+          if (Number.isFinite(panelHeight) && panelHeight > 0) {
+            setManualPanelHeight(key, panelHeight);
           }
-        }
-        if (!bip110Panel.classList.contains("hidden")) {
-          const bip110Height = bip110Panel.getBoundingClientRect().height;
-          if (Number.isFinite(bip110Height) && bip110Height > 0) {
-            setManualPanelHeight("bip110", bip110Height);
-          }
-        }
+        });
       }
 
       segwitPanel.classList.toggle("hidden", !state.controls.showSegwit);
-      bip110Panel.classList.toggle("hidden", !state.controls.showBip110);
+      bip110Panel.classList.toggle("hidden", !(state.controls.showBip110 && state.controls.showLegacyNode));
+      bip110NodePanel.classList.toggle("hidden", !(state.controls.showBip110 && state.controls.showBip110Node));
 
-      const visibleCount = (state.controls.showSegwit ? 1 : 0) + (state.controls.showBip110 ? 1 : 0);
-      const solo = visibleCount === 1;
+      const visibleCount = getVisiblePanelKeys().length;
       state.lastVisibleCount = visibleCount;
+      syncPanelCheckboxes();
       syncSwapButtonEnabledState();
 
       if (hasPriorVisibility && visibleCount !== prevCount) {
@@ -3130,11 +3349,20 @@
     }
 
     function applyPanelOrder() {
-      if (state.controls.panelsSwapped) {
-        mainWrap.insertBefore(bip110Panel, segwitPanel);
-      } else {
-        mainWrap.insertBefore(segwitPanel, bip110Panel);
-      }
+      const bothBip110NodesVisible = Boolean(
+        state.controls.showBip110
+        && state.controls.showLegacyNode
+        && state.controls.showBip110Node
+      );
+      const orderedKeys = bothBip110NodesVisible
+        ? (state.controls.panelsSwapped ? ["bip110Node", "bip110", "segwit"] : ["bip110", "bip110Node", "segwit"])
+        : (state.controls.panelsSwapped ? ["bip110", "segwit", "bip110Node"] : ["segwit", "bip110", "bip110Node"]);
+
+      orderedKeys.forEach((key) => {
+        const panel = getPanelElement(key);
+        if (!panel) return;
+        mainWrap.appendChild(panel);
+      });
     }
 
     function formatBip110Status(status) {
@@ -3221,7 +3449,7 @@
     }
 
     function syncManualPanelHeightsToViewport() {
-      ["segwit", "bip110"].forEach((key) => {
+      PANEL_KEYS.forEach((key) => {
         if (state.filledPanels[key]) {
           state.manualPanelHeights[key] = null;
           state.manualPanelHeightRatios[key] = null;
@@ -3244,7 +3472,7 @@
     }
 
     function normalizeDefaultFilledPanelHeights() {
-      ["segwit", "bip110"].forEach((key) => {
+      PANEL_KEYS.forEach((key) => {
         if (panelHasManualHeight(key)) return;
         state.filledPanels[key] = true;
       });
@@ -3255,13 +3483,11 @@
     }
 
     function applyDynamicPanelHeights() {
-      const visiblePanels = [];
-      if (state.controls.showSegwit) visiblePanels.push({ key: "segwit", box: segwitCanvasBox });
-      if (state.controls.showBip110) visiblePanels.push({ key: "bip110", box: bip110CanvasBox });
+      const visiblePanels = getVisiblePanelKeys().map((key) => ({ key, box: getCanvasBoxElement(key) }));
       if (!visiblePanels.length) return;
 
       visiblePanels.forEach(({ key, box }) => {
-        const panel = key === "segwit" ? segwitPanel : bip110Panel;
+        const panel = getPanelElement(key);
         const manual = state.manualPanelHeights[key];
         const isFilledPanel = state.filledPanels[key];
         const targetHeight = isFilledPanel || !Number.isFinite(manual)
@@ -3274,8 +3500,11 @@
       if (!state.controls.showSegwit) {
         segwitPanel.style.height = "";
       }
-      if (!state.controls.showBip110) {
+      if (!(state.controls.showBip110 && state.controls.showLegacyNode)) {
         bip110Panel.style.height = "";
+      }
+      if (!(state.controls.showBip110 && state.controls.showBip110Node)) {
+        bip110NodePanel.style.height = "";
       }
     }
 
@@ -3303,7 +3532,7 @@
     }
 
     function getVisiblePanelCount() {
-      return (state.controls.showSegwit ? 1 : 0) + (state.controls.showBip110 ? 1 : 0);
+      return getVisiblePanelKeys().length;
     }
 
     function getCompactTargetHeight(visibleCount) {
@@ -3333,7 +3562,7 @@
     }
 
     function applyPanelResizeMode(key, mode, targetHeight) {
-      const panel = key === "segwit" ? segwitPanel : bip110Panel;
+      const panel = getPanelElement(key);
       if (!panel) return;
 
       if (mode === "fill") {
@@ -3368,14 +3597,14 @@
     const FILL_BTN_SVG_COMPACT = `<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><line x1="8" y1="3.8" x2="8" y2="12.2"></line><polyline points="5.2,3.4 8,6.2 10.8,3.4"></polyline><polyline points="5.2,12.6 8,9.8 10.8,12.6"></polyline></svg>`;
 
     function updateFillButtonState(key) {
-      const btn = key === "segwit" ? segwitFillHeightBtn : bip110FillHeightBtn;
+      const btn = getFillButtonElement(key);
       if (!btn) return;
       const filled = isPanelViewportFilled(key);
       btn.innerHTML = filled ? FILL_BTN_SVG_COMPACT : FILL_BTN_SVG_EXPAND;
       btn.title = filled ? "Compact chart height" : "Fill chart height";
       btn.setAttribute("aria-label", filled
-        ? `Compact ${key === "segwit" ? "SegWit" : "BIP-110"} chart height`
-        : `Fill ${key === "segwit" ? "SegWit" : "BIP-110"} chart height`);
+        ? `Compact ${getPanelLabel(key)} chart height`
+        : `Fill ${getPanelLabel(key)} chart height`);
     }
 
     function fillSinglePanelToViewportHeight(key) {
@@ -3393,7 +3622,7 @@
     }
 
     function compactSinglePanel(key) {
-      const visibleCount = (state.controls.showSegwit ? 1 : 0) + (state.controls.showBip110 ? 1 : 0);
+      const visibleCount = getVisiblePanelCount();
       if (visibleCount === 1) {
         setManualPanelHeight(key, getHalfPanelHeight());
       } else {
@@ -3424,11 +3653,18 @@
           else fillSinglePanelToViewportHeight("bip110");
         });
       }
+
+      if (bip110NodeFillHeightBtn) {
+        bip110NodeFillHeightBtn.addEventListener("click", () => {
+          if (state.filledPanels.bip110Node) compactSinglePanel("bip110Node");
+          else fillSinglePanelToViewportHeight("bip110Node");
+        });
+      }
     }
 
     function setupPanelResizeHandles() {
       const bindHandle = (handle, key, box) => {
-        const panel = key === "segwit" ? segwitPanel : bip110Panel;
+        const panel = getPanelElement(key);
         if (!handle || !box) return;
 
         handle.addEventListener("pointerdown", (ev) => {
@@ -3476,9 +3712,27 @@
 
       bindHandle(segwitResizeHandle, "segwit", segwitCanvasBox);
       bindHandle(bip110ResizeHandle, "bip110", bip110CanvasBox);
+      bindHandle(bip110NodeResizeHandle, "bip110Node", bip110NodeCanvasBox);
     }
 
-    function drawAxes(ctx, { plot, panelWidth, xScale, yScale, xMax, xAxisLabelMax = xMax, periodSize, title, ticks, showBottomAxis, chart, isMobile }) {
+    function drawPanelTag(ctx, { text, chart, plot, isMobile }) {
+      const label = String(text || "").trim();
+      if (!label) return;
+
+      const colors = getCanvasColors(chart.colors);
+      const x = isMobile ? 10 : 12;
+      const y = plot.y - 28;
+
+      ctx.save();
+      ctx.font = `${isMobile ? 10 : 11}px "IBM Plex Mono", monospace`;
+      ctx.fillStyle = colors.muted || colors.foreground;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "bottom";
+      ctx.fillText(label, x, y);
+      ctx.restore();
+    }
+
+    function drawAxes(ctx, { plot, panelWidth, xScale, yScale, xMax, xAxisLabelMax = xMax, periodSize, title, panelTag = "", ticks, showBottomAxis, chart, isMobile }) {
       const colors = getCanvasColors(chart.colors);
       const fg = colors.foreground;
       const yTicks = [0, 250, 500, 750, 1000, 1250, 1500, 1750, 2000];
@@ -3544,6 +3798,7 @@
       ctx.textAlign = canCenterTitle ? "center" : "left";
       ctx.textBaseline = "bottom";
       ctx.fillText(title, canCenterTitle ? (plot.x + plot.w / 2) : titleLeftPad, plot.y - 28);
+      drawPanelTag(ctx, { text: panelTag, chart, plot, isMobile });
 
       ctx.textAlign = "center";
       ctx.textBaseline = "bottom";
@@ -3697,18 +3952,45 @@
       return state.periodGridDataset === "segwit" ? "segwit" : "bip110";
     }
 
+    function getBip110PeriodsForNodeView(nodeView) {
+      const view = normalizeBip110NodeView(nodeView);
+      if (view === "bip110") {
+        const nodePeriods = state.data?.bip110NodePeriods || state.dynamicData?.bip110NodePeriods;
+        if (Array.isArray(nodePeriods) && nodePeriods.length) return nodePeriods;
+      }
+      return state.data?.bip110Periods || state.dynamicData?.bip110Periods || [];
+    }
+
+    function getBip110BlocksForNodeView(nodeView) {
+      const view = normalizeBip110NodeView(nodeView);
+      if (view === "bip110") {
+        const nodeBlocks = state.data?.bip110NodeBlocks || state.dynamicData?.bip110NodeBlocks;
+        if (Array.isArray(nodeBlocks) && nodeBlocks.length) return nodeBlocks;
+      }
+      return state.data?.bip110Blocks || state.dynamicData?.bip110Blocks || [];
+    }
+
+    function getBip110MinerMapForNodeView(nodeView) {
+      const view = normalizeBip110NodeView(nodeView);
+      if (view === "bip110") {
+        const nodeMinerMap = state.dynamicData?.bip110NodeSignalMiners || state.data?.bip110NodeSignalMiners || state.dynamicData?.bip110NodeMiners || state.data?.bip110NodeMiners;
+        if (nodeMinerMap && typeof nodeMinerMap === "object" && Object.keys(nodeMinerMap).length > 0) return nodeMinerMap;
+      }
+      return null;
+    }
+
     function getPeriodGridRows(datasetKey = getPeriodGridDataset()) {
       if (!state.data) return [];
       return datasetKey === "segwit"
         ? (state.data.segwitPeriods || [])
-        : (state.data.bip110Periods || []);
+        : getBip110PeriodsForNodeView(state.periodGridNodeView);
     }
 
     function getPeriodGridBlocks(datasetKey = getPeriodGridDataset()) {
       if (!state.data) return [];
       return datasetKey === "segwit"
         ? (state.data.segwitBlocks || [])
-        : (state.data.bip110Blocks || []);
+        : getBip110BlocksForNodeView(state.periodGridNodeView);
     }
 
     function getPeriodGridRow(periodNumber, datasetKey = getPeriodGridDataset()) {
@@ -3775,6 +4057,20 @@
       state.periodGridSelectedPeriod = normalized;
       if (periodGridPeriodSelect) {
         periodGridPeriodSelect.value = String(normalized);
+      }
+    }
+
+    function updatePeriodGridNodeViewButtons() {
+      state.periodGridNodeView = normalizeBip110NodeView(state.periodGridNodeView);
+      periodGridNodeButtons.forEach((button) => {
+        const active = normalizeBip110NodeView(button.dataset.periodGridNode) === state.periodGridNodeView;
+        button.classList.toggle("is-active", active);
+        button.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+      if (periodGridNodeControls) {
+        const show = getPeriodGridDataset() === "bip110";
+        periodGridNodeControls.hidden = !show;
+        periodGridNodeControls.style.display = show ? "" : "none";
       }
     }
 
@@ -4291,6 +4587,7 @@
         periodGridLowActivityLegendItem.hidden = !showLowActivityLegend;
         periodGridLowActivityLegendItem.style.display = showLowActivityLegend ? "" : "none";
       }
+      updatePeriodGridNodeViewButtons();
       if (periodGridRangeValue) periodGridRangeValue.textContent = String(summary.range || "").replace(/^Height Range:\s*/i, "");
       if (periodGridSignalValue) {
         periodGridSignalValue.innerHTML = formatSignalingValueWithOrangeNumerator(
@@ -4327,11 +4624,14 @@
       periodGridContent.appendChild(fragment);
     }
 
-    function openPeriodGridOverlay(periodOverride = null, datasetKey = "bip110") {
+    function openPeriodGridOverlay(periodOverride = null, datasetKey = "bip110", nodeViewOverride = null) {
       if (!periodGridOverlay || !periodGridDialog) return;
       closeLeaderboardOverlay();
       closeMinerTimelineOverlay();
       state.periodGridDataset = datasetKey === "segwit" ? "segwit" : "bip110";
+      if (state.periodGridDataset === "bip110" && nodeViewOverride != null) {
+        state.periodGridNodeView = normalizeBip110NodeView(nodeViewOverride);
+      }
       const hasExplicitOverride = periodOverride !== null && periodOverride !== undefined && periodOverride !== "";
       const requestedPeriod = hasExplicitOverride ? Number(periodOverride) : NaN;
       if (hasExplicitOverride && Number.isFinite(requestedPeriod)) {
@@ -4339,6 +4639,7 @@
       } else {
         setPeriodGridSelectedPeriod(getDefaultPeriodGridPeriod(state.periodGridDataset));
       }
+      updatePeriodGridNodeViewButtons();
       state.pinnedTooltip = null;
       clearMobilePendingActivation();
       hideTooltip();
@@ -4477,6 +4778,15 @@
       if (minerTimelineSignalersFirst) {
         minerTimelineSignalersFirst.checked = state.minerTimelineSignalersFirst !== false;
       }
+    }
+
+    function updateMinerTimelineNodeViewButtons() {
+      state.minerTimelineNodeView = normalizeBip110NodeView(state.minerTimelineNodeView);
+      minerTimelineNodeButtons.forEach((button) => {
+        const active = normalizeBip110NodeView(button.dataset.minerTimelineNode) === state.minerTimelineNodeView;
+        button.classList.toggle("is-active", active);
+        button.setAttribute("aria-pressed", active ? "true" : "false");
+      });
     }
 
     function getPeriodFilterForWindow(windowName) {
@@ -4674,6 +4984,8 @@
     }
 
     function getBip110TimelineMinerMap() {
+      const selectedMap = getBip110MinerMapForNodeView(state.minerTimelineNodeView);
+      if (selectedMap) return selectedMap;
       const full = state.dynamicData?.bip110SignalMiners || state.data?.bip110SignalMiners;
       if (full && typeof full === "object" && Object.keys(full).length > 0) {
         return full;
@@ -4725,7 +5037,7 @@
     }
 
     function getBip110TimelineBlocks() {
-      const allBlocks = state.data?.bip110Blocks || state.dynamicData?.bip110Blocks || [];
+      const allBlocks = getBip110BlocksForNodeView(state.minerTimelineNodeView);
       const blocks = getFilteredBlocksForWindow(allBlocks, state.minerTimelineWindow);
       const periodSize = Number(state.data?.metadata?.chart?.period_size || 2016);
       const loadedPeriods = blocks
@@ -4867,7 +5179,7 @@
         const timelineIndex = Math.max(0, rawTimelineIndex - timelineOffset);
         return Math.max(maxValue, timelineIndex);
       }, -1);
-      const allBlocks = state.data?.bip110Blocks || state.dynamicData?.bip110Blocks || [];
+      const allBlocks = getBip110BlocksForNodeView(state.minerTimelineNodeView);
       const latest14dBlocks = state.minerTimelineWindow === "all"
         ? getFilteredBlocksForWindow(allBlocks, "past14d")
         : [];
@@ -4930,6 +5242,7 @@
 
     function renderBip110MinerTimelineOverlay() {
       if (!minerTimelineContent) return;
+      updateMinerTimelineNodeViewButtons();
       const data = buildBip110MinerTimelineRows();
       const cellSize = getMinerTimelineCellSize(data);
       minerTimelineContent.innerHTML = "";
@@ -5318,8 +5631,8 @@
       return hit.type === "release"
         ? formatReleaseTooltip(hit.data)
         : hit.type === "stripe"
-          ? formatStripeTooltip(hit.data, key)
-          : formatPeriodTooltip(hit.data, key);
+          ? formatStripeTooltip(hit.data, chartTypeForPanelKey(key))
+          : formatPeriodTooltip(hit.data, chartTypeForPanelKey(key));
     }
 
     function getCanvasHitMobileActivation(hit, key) {
@@ -5328,7 +5641,7 @@
         const height = Number(hit.data?.height);
         return Number.isFinite(height) ? { kind: "canvas-stripe", id: `${key}:${height}` } : null;
       }
-      if ((key === "bip110" || key === "segwit") && hit.type === "period") {
+      if ((isBip110PanelKey(key) || key === "segwit") && hit.type === "period") {
         const period = Number(hit.data?.period);
         return Number.isFinite(period) ? { kind: "canvas-period", id: `${key}:${period}` } : null;
       }
@@ -5358,8 +5671,8 @@
         const content = hit.type === "release"
           ? formatReleaseTooltip(hit.data)
           : hit.type === "stripe"
-            ? formatStripeTooltip(hit.data, key)
-          : formatPeriodTooltip(hit.data, key);
+            ? formatStripeTooltip(hit.data, chartTypeForPanelKey(key))
+          : formatPeriodTooltip(hit.data, chartTypeForPanelKey(key));
         showTooltip(content, ev.clientX, ev.clientY, getTooltipPanelBounds(canvas));
       });
 
@@ -5401,9 +5714,13 @@
           return;
         }
 
-        if ((key === "bip110" || key === "segwit") && hit.type === "period") {
+        if ((isBip110PanelKey(key) || key === "segwit") && hit.type === "period") {
           const period = Number(hit.data?.period);
-          openPeriodGridOverlay(Number.isFinite(period) ? period : null, key);
+          openPeriodGridOverlay(
+            Number.isFinite(period) ? period : null,
+            chartTypeForPanelKey(key),
+            key === "bip110Node" ? "bip110" : key === "bip110" ? "legacy" : null
+          );
           return;
         }
 
@@ -5412,7 +5729,7 @@
       });
     }
 
-    async function loadAndApplyBlockDataPhased(loadToken, metadata, datasetKeys = ["segwit", "bip110"], cacheBust = null) {
+    async function loadAndApplyBlockDataPhased(loadToken, metadata, datasetKeys = ["segwit", "bip110", "bip110Node"], cacheBust = null) {
       const applyBlocks = async (key, blocks, options = {}) => {
         if (loadToken !== state.phasedLoadToken || !state.data) return;
 
@@ -5421,6 +5738,11 @@
             blocks,
             state.staticData?.segwitMiners
           ), state.staticData?.segwitLowActivityBlocks);
+        } else if (key === "bip110Node") {
+          state.dynamicData.bip110NodeBlocks = attachMinerData(
+            blocks,
+            state.dynamicData?.bip110NodeSignalMiners || state.dynamicData?.bip110NodeMiners
+          );
         } else {
           state.dynamicData.bip110Blocks = attachMinerData(
             blocks,
@@ -5435,7 +5757,7 @@
         if (options.reconcile !== false) {
           setStatus(state.data);
         }
-        await renderSelectedPanelsWithSharedLoader([key]);
+        await renderSelectedPanelsWithSharedLoader(key === "bip110" || key === "bip110Node" ? BIP110_PANEL_KEYS : [key]);
         await nextPaint();
       };
 
@@ -5531,11 +5853,35 @@
         });
       }
 
-      if (selected.has("bip110") && state.controls.showBip110) {
+      if (selected.has("bip110") && state.controls.showBip110 && state.controls.showLegacyNode) {
         drawPanel({
           canvas: bip110Canvas,
           key: "bip110",
           title: "Reduced Data Temporary Softfork (BIP-110) Signaling Periods",
+          panelTag: "Legacy: Core v28",
+          periods: state.data.bip110Periods,
+          blocks: state.data.bip110Blocks,
+          releases: state.data.bip110Releases,
+          ticks: state.data.bip110Ticks,
+          threshold: bipThreshold,
+          thresholdPct: Number(metadata.chart.thresholds.bip110.pct),
+          showBottomAxis: true,
+          specialLabels: metadata.chart.special_period_labels,
+          markerTypography: sharedMarkerTypography,
+          numericTypography: sharedNumericTypography,
+          renderStripes: shouldRenderStripes,
+          renderLabels: shouldRenderLabels,
+          renderMarkers: shouldRenderMarkers,
+          renderSpecialLabels: shouldRenderSpecialLabels,
+        });
+      }
+
+      if (selected.has("bip110Node") && state.controls.showBip110 && state.controls.showBip110Node) {
+        drawPanel({
+          canvas: bip110NodeCanvas,
+          key: "bip110Node",
+          title: "Reduced Data Temporary Softfork (BIP-110) Signaling Periods",
+          panelTag: "BIP-110: Knots v29",
           periods: state.data.bip110Periods,
           blocks: state.data.bip110Blocks,
           releases: state.data.bip110Releases,
@@ -5559,7 +5905,7 @@
     }
 
     function renderAll() {
-      renderSelectedPanels(["segwit", "bip110"]);
+      renderSelectedPanels(PANEL_KEYS);
       refreshOpenOverlays();
     }
 
@@ -5583,7 +5929,8 @@
     function hasVisibleSelectedPanel(keys) {
       return keys.some((key) => (
         (key === "segwit" && state.controls.showSegwit)
-        || (key === "bip110" && state.controls.showBip110)
+        || (key === "bip110" && state.controls.showBip110 && state.controls.showLegacyNode)
+        || (key === "bip110Node" && state.controls.showBip110 && state.controls.showBip110Node)
       ));
     }
 
@@ -5619,7 +5966,7 @@
         state.controls.stripesExplicit = true;
         persistControls();
         updateResetButtonUi();
-        void renderSelectedPanelsWithSharedLoader(["segwit", "bip110"]);
+        void renderSelectedPanelsWithSharedLoader(PANEL_KEYS);
       });
 
       if (blockSymbolSelect) {
@@ -5631,7 +5978,7 @@
           syncBlockSymbolControl();
           persistControls();
           updateResetButtonUi();
-          void renderSelectedPanelsWithSharedLoader(["segwit", "bip110"]);
+          void renderSelectedPanelsWithSharedLoader(PANEL_KEYS);
         });
       }
 
@@ -5639,26 +5986,54 @@
         state.controls.markers = markers.checked;
         persistControls();
         updateResetButtonUi();
-        void renderSelectedPanelsWithSharedLoader(["segwit", "bip110"]);
+        void renderSelectedPanelsWithSharedLoader(PANEL_KEYS);
       });
 
       labels.addEventListener("change", () => {
         state.controls.labels = labels.checked;
         persistControls();
         updateResetButtonUi();
-        void renderSelectedPanelsWithSharedLoader(["segwit", "bip110"]);
+        void renderSelectedPanelsWithSharedLoader(PANEL_KEYS);
+      });
+
+      nodePanelButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const key = button.getAttribute("data-node-panel");
+          if (key === "legacy") {
+            state.controls.showLegacyNode = !state.controls.showLegacyNode;
+          } else if (key === "bip110") {
+            state.controls.showBip110Node = !state.controls.showBip110Node;
+          }
+          enforceNodePanelSelectionRules();
+          if (state.controls.showLegacyNode && state.controls.showBip110Node) {
+            state.controls.showSegwit = false;
+          }
+          ensureAtLeastOnePanelVisible("bip110");
+          syncPanelCheckboxes();
+          persistControls();
+          updateResetButtonUi();
+          updatePanelVisibility();
+          void renderSelectedPanelsWithSharedLoader(PANEL_KEYS);
+        });
       });
 
       segwitWindow.addEventListener("change", () => {
+        if (segwitWindow.disabled) {
+          segwitWindow.checked = false;
+          return;
+        }
         if (!segwitWindow.checked && !bip110Window.checked) {
           bip110Window.checked = true;
         }
         state.controls.showSegwit = segwitWindow.checked;
         state.controls.showBip110 = bip110Window.checked;
+        enforceNodePanelSelectionRules();
+        ensureAtLeastOnePanelVisible("bip110");
+        syncPanelCheckboxes();
         persistControls();
         updateResetButtonUi();
         updatePanelVisibility();
-        void renderSelectedPanelsWithSharedLoader(["segwit", "bip110"]);
+        void renderSelectedPanelsWithSharedLoader(PANEL_KEYS);
       });
 
       bip110Window.addEventListener("change", () => {
@@ -5667,10 +6042,13 @@
         }
         state.controls.showSegwit = segwitWindow.checked;
         state.controls.showBip110 = bip110Window.checked;
+        enforceNodePanelSelectionRules();
+        ensureAtLeastOnePanelVisible("bip110");
+        syncPanelCheckboxes();
         persistControls();
         updateResetButtonUi();
         updatePanelVisibility();
-        void renderSelectedPanelsWithSharedLoader(["segwit", "bip110"]);
+        void renderSelectedPanelsWithSharedLoader(PANEL_KEYS);
       });
 
       copyDashboardLinkButton?.addEventListener("click", async () => {
@@ -5702,6 +6080,24 @@
           state.leaderboardWindow = normalizeBip110OverlayWindow(value);
           persistBip110OverlaySelections();
           renderBip110LeaderboardOverlay();
+        });
+      });
+
+      periodGridNodeButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          state.periodGridNodeView = normalizeBip110NodeView(button.dataset.periodGridNode);
+          setPeriodGridSelectedPeriod(getSelectedPeriodGridPeriod());
+          persistBip110OverlaySelections();
+          renderCurrentPeriodGridOverlay();
+        });
+      });
+
+      minerTimelineNodeButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          state.minerTimelineNodeView = normalizeBip110NodeView(button.dataset.minerTimelineNode);
+          persistBip110OverlaySelections();
+          renderBip110MinerTimelineOverlay();
+          scrollMinerTimelineToLatestPeriod();
         });
       });
 
@@ -5842,6 +6238,7 @@
       periodGridPeriodChip?.addEventListener("click", (event) => {
         if (!periodGridPeriodSelect) return;
         if (event.target instanceof Element && event.target.closest("#periodGridPeriodSelect")) return;
+        if (event.target instanceof Element && event.target.closest("[data-period-grid-node]")) return;
         periodGridPeriodSelect.focus({ preventScroll: true });
         try {
           if (typeof periodGridPeriodSelect.showPicker === "function") {
@@ -5972,12 +6369,17 @@
 
           state.controls.showSegwit = false;
           state.controls.showBip110 = true;
+          state.controls.showLegacyNode = true;
+          state.controls.showBip110Node = false;
           state.filledPanels.segwit = true;
           state.filledPanels.bip110 = true;
+          state.filledPanels.bip110Node = true;
           state.manualPanelHeights.segwit = null;
           state.manualPanelHeightRatios.segwit = null;
           state.manualPanelHeights.bip110 = null;
           state.manualPanelHeightRatios.bip110 = null;
+          state.manualPanelHeights.bip110Node = null;
+          state.manualPanelHeightRatios.bip110Node = null;
 
           syncPanelCheckboxes();
 
@@ -6028,20 +6430,22 @@
         setupPanelFillButtons();
         updateFillButtonState("segwit");
         updateFillButtonState("bip110");
+        updateFillButtonState("bip110Node");
         setupPanelResizeHandles();
         updatePanelVisibility();
         attachPointer(segwitCanvas, "segwit");
         attachPointer(bip110Canvas, "bip110");
+        attachPointer(bip110NodeCanvas, "bip110Node");
         updateResetButtonUi();
         setupRefreshWakeEvents();
         startAutoRefresh();
-        await renderSelectedPanelsWithSharedLoader(["segwit", "bip110"], { enhanced: false, scheduleEnhancements: true });
+        await renderSelectedPanelsWithSharedLoader(PANEL_KEYS, { enhanced: false, scheduleEnhancements: true });
         // Keep controls responsive while block marker data finishes loading in the background.
         setControlsEnabled(true);
         updateResetButtonUi();
         if (loadToken !== state.phasedLoadToken) return;
 
-        await loadAndApplyBlockDataPhased(loadToken, state.data.metadata, ["segwit", "bip110"]);
+        await loadAndApplyBlockDataPhased(loadToken, state.data.metadata, ["segwit", "bip110", "bip110Node"]);
         updateResetButtonUi();
         // Ensure button state is properly set after all rendering and loading completes
         if (typeof window.requestIdleCallback === 'function') {
