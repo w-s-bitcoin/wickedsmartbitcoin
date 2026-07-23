@@ -721,9 +721,120 @@ def patch_missing_release_metadata(bip110_release_rows):
 MEMPOOL_BLOCKS_API = "https://mempool.space/api/v1/blocks"
 MEMPOOL_REQUEST_TIMEOUT_SECONDS = (5, 20)
 POSTGRES_BLOCK_HASH_RECHECK_INTERVAL = 100
+MINER_ATTRIBUTION_LOOKUP_VERSION = 2
 
 def skip_mempool_fetches():
     return str(os.getenv("BIP110_SKIP_MEMPOOL_FETCH", "")).strip().lower() in {"1", "true", "yes", "on"}
+
+def slugify_miner_name(value):
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+
+def normalize_lookup_text(value):
+    text = str(value or "").lower()
+    return re.sub(r"[^a-z0-9]+", "", text)
+
+def decode_coinbase_scriptsig_text(value):
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        raw = bytes.fromhex(text)
+    except ValueError:
+        return ""
+    decoded = "".join(chr(byte) if 32 <= byte <= 126 else " " for byte in raw)
+    return re.sub(r"\s+", " ", decoded).strip()
+
+def extract_printable_after_marker(raw, marker):
+    lower_raw = raw.lower()
+    marker_lower = marker.lower()
+    idx = lower_raw.find(marker_lower)
+    if idx < 0:
+        return ""
+    tail = raw[idx + len(marker):]
+    if tail and 1 <= tail[0] <= 75:
+        pushed = tail[1:1 + tail[0]]
+        pushed_text = []
+        for byte in pushed:
+            if byte == 0 or byte < 32 or byte > 126:
+                break
+            pushed_text.append(chr(byte))
+        if pushed_text:
+            return "".join(pushed_text).strip(" /|:-")
+    chars = []
+    for byte in tail:
+        if byte == 0 or byte < 32 or byte > 126:
+            break
+        chars.append(chr(byte))
+    return "".join(chars).strip(" /|:-")
+
+def normalize_miner_payload(miner):
+    if not isinstance(miner, dict):
+        text = str(miner or "").strip()
+        return {"name": text, "slug": "", "pool": "", "sub_miner": ""} if text else {}
+    name = str(miner.get("name") or "").strip()
+    if not name:
+        return {}
+    return {
+        "name": name,
+        "slug": str(miner.get("slug") or "").strip().lower() or slugify_miner_name(name),
+        "pool": str(miner.get("pool") or "").strip(),
+        "sub_miner": str(miner.get("sub_miner") or miner.get("subMiner") or "").strip(),
+        "hash": str(miner.get("hash") or miner.get("block_hash") or miner.get("id") or "").strip(),
+        "source": str(miner.get("source") or "").strip(),
+        "matched_tag": str(miner.get("matched_tag") or "").strip(),
+    }
+
+def is_placeholder_miner(miner):
+    name = normalize_lookup_text((miner or {}).get("name") if isinstance(miner, dict) else miner)
+    return name in {"unknown", "loading", "unavailable"}
+
+def serialize_miner_payload(miner):
+    normalized = normalize_miner_payload(miner)
+    if not normalized:
+        return {}
+    return {
+        key: value
+        for key, value in normalized.items()
+        if key in {"name", "slug", "pool", "sub_miner", "hash"} or value
+    }
+
+def ocean_miner_from_coinbase_scriptsig(scriptsig):
+    try:
+        raw = bytes.fromhex(str(scriptsig or "").strip())
+    except ValueError:
+        raw = b""
+    sub_miner = extract_printable_after_marker(raw, b"< OCEAN.XYZ >") if raw else ""
+    if sub_miner:
+        normalized = normalize_lookup_text(sub_miner)
+        if normalized not in {"ocean", "oceanxyz"}:
+            return {
+                "name": f"{sub_miner} (OCEAN)",
+                "slug": "ocean",
+                "pool": "OCEAN",
+                "sub_miner": sub_miner,
+                "source": "local_coinbase_tag",
+                "matched_tag": f"OCEAN:{sub_miner}",
+            }
+    return None
+
+def ocean_miner_from_coinbase_text(decoded_text):
+    match = re.search(r"<\s*OCEAN\.XYZ\s*>\s*([^<>\x00\r\n]{1,48})", decoded_text, re.IGNORECASE)
+    if not match:
+        return None
+    sub_miner = re.split(r"\s{2,}|\s+[A-Fa-f0-9]{6,}\b", match.group(1).strip())[0].strip(" /|:-")
+    if not sub_miner:
+        return {"name": "OCEAN", "slug": "ocean", "pool": "OCEAN", "sub_miner": ""}
+    normalized = normalize_lookup_text(sub_miner)
+    if normalized in {"ocean", "oceanxyz"}:
+        return {"name": "OCEAN", "slug": "ocean", "pool": "OCEAN", "sub_miner": ""}
+    return {
+        "name": f"{sub_miner} (OCEAN)",
+        "slug": "ocean",
+        "pool": "OCEAN",
+        "sub_miner": sub_miner,
+        "source": "local_coinbase_tag",
+        "matched_tag": f"OCEAN:{sub_miner}",
+    }
 
 def normalize_mempool_miner_attribution(block):
     extras = block.get("extras") if isinstance(block.get("extras"), dict) else {}
@@ -744,9 +855,10 @@ def normalize_mempool_miner_attribution(block):
                             "slug": pool_slug,
                             "pool": pool_name or "OCEAN",
                             "sub_miner": text,
+                            "source": "mempool.space",
                         }
             if pool_name:
-                return {"name": pool_name, "slug": pool_slug, "pool": pool_name}
+                return {"name": pool_name, "slug": pool_slug, "pool": pool_name, "source": "mempool.space"}
 
     candidates = []
     if isinstance(pool, dict):
@@ -762,7 +874,7 @@ def normalize_mempool_miner_attribution(block):
     for value, slug in candidates:
         text = str(value or "").strip()
         if text:
-            return {"name": text, "slug": str(slug or "").strip().lower()}
+            return {"name": text, "slug": str(slug or "").strip().lower(), "source": "mempool.space"}
     return {}
 
 def load_existing_signal_miners(path: Path):
@@ -783,31 +895,21 @@ def load_existing_signal_miners(path: Path):
         except (TypeError, ValueError):
             continue
         if isinstance(miner, dict):
-            name = str(miner.get("name") or "").strip()
-            if name:
-                miners[h] = {
-                    "name": name,
-                    "slug": str(miner.get("slug") or "").strip().lower(),
-                    "pool": str(miner.get("pool") or "").strip(),
-                    "sub_miner": str(miner.get("sub_miner") or "").strip(),
-                    "hash": str(miner.get("hash") or miner.get("block_hash") or miner.get("id") or "").strip(),
-                }
+            normalized = normalize_miner_payload(miner)
+            if normalized:
+                miners[h] = normalized
             continue
         text = str(miner or "").strip()
         if text:
             miners[h] = {"name": text, "slug": "", "pool": "", "sub_miner": ""}
     return miners
 
-def fetch_postgres_block_hashes(heights):
-    target_heights = sorted(set(int(height) for height in heights))
-    if not target_heights:
-        return {}
-
+def postgres_connect():
     try:
         import psycopg2  # type: ignore
     except Exception as exc:
-        print(f"[bip110] PostgreSQL block hash recheck skipped: psycopg2 unavailable ({exc}).")
-        return {}
+        print(f"[bip110] PostgreSQL lookup skipped: psycopg2 unavailable ({exc}).")
+        return None
 
     database = os.getenv("POSTGRES_DB") or os.getenv("PGDATABASE")
     user = os.getenv("POSTGRES_USER") or os.getenv("PGUSER")
@@ -815,11 +917,25 @@ def fetch_postgres_block_hashes(heights):
     host = os.getenv("POSTGRES_HOST") or os.getenv("PGHOST") or "localhost"
     port = os.getenv("POSTGRES_PORT") or os.getenv("PGPORT") or "5432"
     if not database or not user:
-        print("[bip110] PostgreSQL block hash recheck skipped: POSTGRES_DB/POSTGRES_USER not configured.")
+        print("[bip110] PostgreSQL lookup skipped: POSTGRES_DB/POSTGRES_USER not configured.")
+        return None
+
+    try:
+        return psycopg2.connect(host=host, port=port, database=database, user=user, password=password)
+    except Exception as exc:
+        print(f"[bip110] PostgreSQL lookup skipped: {exc}.")
+        return None
+
+def fetch_postgres_block_hashes(heights):
+    target_heights = sorted(set(int(height) for height in heights))
+    if not target_heights:
+        return {}
+
+    conn = postgres_connect()
+    if conn is None:
         return {}
 
     try:
-        conn = psycopg2.connect(host=host, port=port, database=database, user=user, password=password)
         try:
             with conn.cursor() as cur:
                 cur.execute(
@@ -843,6 +959,281 @@ def fetch_postgres_block_hashes(heights):
         if text:
             hashes[int(height)] = text
     return hashes
+
+def fetch_postgres_coinbase_attribution_rows(heights):
+    target_heights = sorted(set(int(height) for height in heights))
+    if not target_heights:
+        return {}
+
+    conn = postgres_connect()
+    if conn is None:
+        return {}
+
+    try:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        bh.blockheight,
+                        bh.blockhash,
+                        bh.coinbasescriptsig,
+                        COALESCE(
+                            array_agg(o.address ORDER BY o.vout)
+                                FILTER (
+                                    WHERE o.address IS NOT NULL
+                                      AND o.address <> ''
+                                      AND o.address <> 'OP_RETURN'
+                                ),
+                            '{}'
+                        ) AS coinbase_addresses
+                    FROM blockheader bh
+                    LEFT JOIN outputs o
+                        ON o.blockheight = bh.blockheight
+                       AND o.transactionnum = 1
+                       AND o.fromcoinbase = true
+                    WHERE bh.blockheight = ANY(%s)
+                    GROUP BY bh.blockheight, bh.blockhash, bh.coinbasescriptsig
+                    """,
+                    (target_heights,),
+                )
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+    except Exception as exc:
+        print(f"[bip110] PostgreSQL coinbase attribution lookup skipped: {exc}.")
+        return {}
+
+    payload = {}
+    for height, block_hash, scriptsig, addresses in rows:
+        payload[int(height)] = {
+            "hash": str(block_hash or "").strip(),
+            "coinbase_scriptsig": str(scriptsig or "").strip(),
+            "coinbase_text": decode_coinbase_scriptsig_text(scriptsig),
+            "coinbase_addresses": [str(address or "").strip() for address in (addresses or []) if str(address or "").strip()],
+        }
+    return payload
+
+def load_miner_attribution_lookup(path: Path):
+    if not path.exists():
+        return None
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    if int(data.get("version") or 0) != MINER_ATTRIBUTION_LOOKUP_VERSION:
+        return None
+
+    def load_mapping(raw):
+        if not isinstance(raw, dict):
+            return {}
+        mapping = {}
+        for key, miner in raw.items():
+            normalized = normalize_miner_payload(miner)
+            if key and normalized and not is_placeholder_miner(normalized):
+                mapping[str(key)] = normalized
+        return mapping
+
+    return {
+        "tag_map": load_mapping(data.get("tag_map")),
+        "address_map": load_mapping(data.get("address_map")),
+        "generated_utc": str(data.get("generated_utc") or ""),
+    }
+
+def write_miner_attribution_lookup(path: Path, tag_map, address_map):
+    payload = {
+        "version": MINER_ATTRIBUTION_LOOKUP_VERSION,
+        "generated_utc": datetime.now(timezone.utc).isoformat(),
+        "source": "learned from local blockheader.coinbasescriptsig, coinbase outputs, and existing dashboard miner labels",
+        "tag_map": {
+            tag: {key: value for key, value in serialize_miner_payload(miner).items() if key != "hash"}
+            for tag, miner in sorted(tag_map.items())
+            if tag and normalize_miner_payload(miner)
+        },
+        "address_map": {
+            address: {key: value for key, value in serialize_miner_payload(miner).items() if key != "hash"}
+            for address, miner in sorted(address_map.items())
+            if address and normalize_miner_payload(miner)
+        },
+    }
+    tmp_path = path.with_suffix(f"{path.suffix}.tmp")
+    with tmp_path.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, separators=(",", ":"), ensure_ascii=True)
+    tmp_path.replace(path)
+    return payload
+
+def miner_key(miner):
+    normalized = normalize_miner_payload(miner)
+    if not normalized:
+        return ""
+    return "|".join([
+        normalized.get("name", ""),
+        normalized.get("slug", ""),
+        normalized.get("pool", ""),
+        normalized.get("sub_miner", ""),
+    ])
+
+def build_miner_attribution_learning(existing_miners, target_heights, lookup_path: Path):
+    cached_lookup = load_miner_attribution_lookup(lookup_path)
+    if cached_lookup:
+        return (
+            fetch_postgres_coinbase_attribution_rows(target_heights),
+            cached_lookup["tag_map"],
+            cached_lookup["address_map"],
+        )
+
+    learning_heights = sorted(set(int(height) for height in existing_miners) | set(int(height) for height in target_heights))
+    postgres_rows = fetch_postgres_coinbase_attribution_rows(learning_heights)
+    miner_by_key = {}
+    tag_counts = {}
+    address_counts = {}
+
+    for height, miner in existing_miners.items():
+        normalized_miner = normalize_miner_payload(miner)
+        key = miner_key(normalized_miner)
+        if not key or is_placeholder_miner(normalized_miner):
+            continue
+        miner_by_key[key] = normalized_miner
+        row = postgres_rows.get(int(height)) or {}
+        decoded_text = row.get("coinbase_text") or ""
+        lookup_text = normalize_lookup_text(decoded_text)
+        if lookup_text:
+            candidates = {
+                normalized_miner.get("name", ""),
+                normalized_miner.get("sub_miner", ""),
+                normalized_miner.get("pool", ""),
+                normalized_miner.get("name", "").replace(" (OCEAN)", ""),
+                normalized_miner.get("name", "").replace(" Pool", ""),
+            }
+            for value in candidates:
+                token = normalize_lookup_text(value)
+                if len(token) >= 4 and token in lookup_text:
+                    tag_counts.setdefault(token, {}).setdefault(key, 0)
+                    tag_counts[token][key] += 1
+
+        for address in row.get("coinbase_addresses") or []:
+            if not address:
+                continue
+            address_counts.setdefault(address, {}).setdefault(key, 0)
+            address_counts[address][key] += 1
+
+    manual_tags = {
+        "foundryusapool": "Foundry USA",
+        "foundryusa": "Foundry USA",
+        "maramadeinusa": "MARA Pool",
+        "marapool": "MARA Pool",
+        "antpool": "AntPool",
+        "f2pool": "F2Pool",
+        "spiderpool": "SpiderPool",
+        "luxortech": "Luxor",
+        "luxor": "Luxor",
+        "viabtc": "ViaBTC",
+        "binance": "Binance Pool",
+        "secpool": "SECPOOL",
+        "slush": "Braiins Pool",
+        "braiins": "Braiins Pool",
+        "sbi": "SBI Crypto",
+        "sbicrypto": "SBI Crypto",
+        "btccom": "BTC.com",
+        "whitepool": "WhitePool",
+        "ultimus": "ULTIMUSPOOL",
+        "ultimuspool": "ULTIMUSPOOL",
+        "publicpool": "Public Pool",
+    }
+    miner_by_name = {
+        normalize_lookup_text(miner.get("name")): miner
+        for miner in miner_by_key.values()
+        if miner.get("name")
+    }
+    for tag, name in manual_tags.items():
+        miner = miner_by_name.get(normalize_lookup_text(name))
+        if miner:
+            tag_counts.setdefault(tag, {}).setdefault(miner_key(miner), 0)
+            tag_counts[tag][miner_key(miner)] += 1000
+
+    def winner(counts, *, min_count=1):
+        if not counts:
+            return None
+        ranked = sorted(counts.items(), key=lambda item: item[1], reverse=True)
+        if ranked[0][1] < min_count:
+            return None
+        if len(ranked) > 1 and ranked[0][1] == ranked[1][1]:
+            return None
+        return ranked[0][0]
+
+    tag_map = {
+        tag: miner_by_key[key]
+        for tag, counts in tag_counts.items()
+        for key in [winner(counts)]
+        if key and key in miner_by_key
+    }
+    address_map = {
+        address: miner_by_key[key]
+        for address, counts in address_counts.items()
+        for key in [winner(counts, min_count=2)]
+        if key and key in miner_by_key
+    }
+    write_miner_attribution_lookup(lookup_path, tag_map, address_map)
+    return postgres_rows, tag_map, address_map
+
+def attribute_miners_locally(heights, existing_miners, *, lookup_path: Path, log_label="blocks"):
+    target_heights = sorted(set(int(height) for height in heights))
+    if not target_heights:
+        return {}
+
+    postgres_rows, tag_map, address_map = build_miner_attribution_learning(existing_miners, target_heights, lookup_path)
+    locally_attributed = {}
+
+    for height in target_heights:
+        row = postgres_rows.get(height)
+        if not row:
+            continue
+        block_hash = str(row.get("hash") or "").strip()
+        decoded_text = row.get("coinbase_text") or ""
+        ocean_miner = ocean_miner_from_coinbase_scriptsig(row.get("coinbase_scriptsig")) or ocean_miner_from_coinbase_text(decoded_text)
+        if ocean_miner:
+            miner = dict(ocean_miner)
+            if block_hash:
+                miner["hash"] = block_hash
+            locally_attributed[height] = miner
+            continue
+
+        lookup_text = normalize_lookup_text(decoded_text)
+        matched = None
+        for tag, miner in sorted(tag_map.items(), key=lambda item: len(item[0]), reverse=True):
+            if tag and tag in lookup_text:
+                matched = (tag, miner)
+                break
+        if matched:
+            tag, miner = matched
+            local_miner = normalize_miner_payload(miner)
+            local_miner["source"] = "local_coinbase_tag"
+            local_miner["matched_tag"] = tag
+            if block_hash:
+                local_miner["hash"] = block_hash
+            locally_attributed[height] = local_miner
+            continue
+
+        for address in row.get("coinbase_addresses") or []:
+            miner = address_map.get(address)
+            if miner:
+                local_miner = normalize_miner_payload(miner)
+                local_miner["source"] = "local_coinbase_address"
+                local_miner["matched_tag"] = address
+                if block_hash:
+                    local_miner["hash"] = block_hash
+                locally_attributed[height] = local_miner
+                break
+
+    if locally_attributed:
+        print(
+            f"[{log_label}] local coinbase attribution filled "
+            f"{len(locally_attributed):,}/{len(target_heights):,} missing miner(s)."
+        )
+    return locally_attributed
 
 def select_block_hash_recheck_heights(target_heights, cached_hashes):
     sorted_heights = sorted(set(int(height) for height in target_heights))
@@ -1063,7 +1454,7 @@ def fetch_block_low_fee_rates(heights, *, on_batch=None):
 def write_block_miners_payload(path: Path, target_heights, miners):
     target_set = set(int(height) for height in target_heights)
     payload = {
-        str(height): miners[height]
+        str(height): serialize_miner_payload(miners[height])
         for height in sorted(target_set)
         if miners.get(height, {}).get("name")
     }
@@ -1176,16 +1567,33 @@ def export_block_miners(path: Path, heights, *, log_label="blocks"):
         if height in target_heights
     }
     invalidate_reorged_miner_attributions(miners, target_heights)
+    for height in list(miners):
+        miner = miners.get(height) or {}
+        if (
+            str(miner.get("source") or "") == "local_coinbase_tag"
+            and str(miner.get("matched_tag") or "").startswith("OCEAN:")
+        ):
+            miners.pop(height, None)
     missing_heights = [height for height in target_heights if height not in miners]
     def persist_batch(batch_miners):
         miners.update(batch_miners)
         write_block_miners_payload(path, target_heights, miners)
 
-    fetched = fetch_block_miners(missing_heights, log_label=log_label, on_batch=persist_batch)
+    local = attribute_miners_locally(
+        missing_heights,
+        miners,
+        lookup_path=path.with_name("miner_attribution_lookup.json"),
+        log_label=log_label,
+    )
+    if local:
+        persist_batch(local)
+
+    remaining_heights = [height for height in missing_heights if height not in miners]
+    fetched = fetch_block_miners(remaining_heights, log_label=log_label, on_batch=persist_batch)
     miners.update(fetched)
 
     payload = write_block_miners_payload(path, target_heights, miners)
-    return {"rows": len(payload), "source": MEMPOOL_BLOCKS_API}
+    return {"rows": len(payload), "source": f"local coinbase tags/addresses with {MEMPOOL_BLOCKS_API} fallback"}
 
 def export_signal_miners(path: Path, heights):
     return export_block_miners(path, heights, log_label="bip110")
