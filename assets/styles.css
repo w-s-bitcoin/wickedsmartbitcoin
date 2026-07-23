@@ -1479,6 +1479,12 @@ body.days-since-ath-dashboard-expanded .buy-coffee {
     opacity: 0;
     pointer-events: none;
 }
+html.presentation-mode .modal-controls,
+html.presentation-mode .buy-coffee,
+body.presentation-mode .modal-controls,
+body.presentation-mode .buy-coffee {
+    display: none !important;
+}
 .close-btn {
     font-size: 2rem;
     background: none;
