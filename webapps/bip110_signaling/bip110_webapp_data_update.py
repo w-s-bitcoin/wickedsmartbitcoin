@@ -9,6 +9,7 @@ import socket
 import sys
 import time
 from datetime import datetime, timezone
+from http.client import RemoteDisconnected
 from pathlib import Path
 from urllib.parse import quote
 
@@ -115,15 +116,15 @@ def read_block_points_bin(path: Path, *, start_height: int, period_size: int, re
 
 def load_low_activity_block_cache(path: Path):
     if not path.exists():
-        return {}, {}, {}
+        return {}, {}, {}, {}
     try:
         with path.open("r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception:
-        return {}, {}, {}
+        return {}, {}, {}, {}
 
     if not isinstance(data, dict):
-        return {}, {}, {}
+        return {}, {}, {}, {}
 
     sizes_raw = data.get("sizes", {})
     times_raw = data.get("block_times", {})
@@ -237,13 +238,13 @@ def fetch_block_size_times(heights, existing_sizes=None):
     block_hashes = {}
     for height in heights:
         try:
-            block_hash = rpc.getblockhash(int(height))
+            block_hash = rpc_call("getblockhash", int(height))
             if int(height) in existing_sizes:
-                block_header = rpc.getblockheader(block_hash)
+                block_header = rpc_call("getblockheader", block_hash)
                 block_size = int(existing_sizes[int(height)])
                 block_time = int(block_header.get("time", 0))
             else:
-                block = rpc.getblock(block_hash, 1)
+                block = rpc_call("getblock", block_hash, 1)
                 block_size = int(block.get("size", 0))
                 block_time = int(block.get("time", 0))
         except Exception as exc:
@@ -456,12 +457,12 @@ BIP110_EXCLUDED_RELEASE_LABELS = {
 }
 
 def block_time_at_height(rpc, height: int) -> int:
-    tip = int(rpc.getblockcount())
-    tip_hash = rpc.getblockhash(tip)
-    tip_ts = int(rpc.getblockheader(tip_hash)["time"] )
+    tip = int(rpc_call("getblockcount"))
+    tip_hash = rpc_call("getblockhash", tip)
+    tip_ts = int(rpc_call("getblockheader", tip_hash)["time"] )
     if height <= tip:
-        h = rpc.getblockhash(int(height))
-        return int(rpc.getblockheader(h)["time"] )
+        h = rpc_call("getblockhash", int(height))
+        return int(rpc_call("getblockheader", h)["time"] )
     return tip_ts + (height - tip) * 600
 
 def height_at_or_before_timestamp(rpc, ts: int, lo: int, hi: int) -> int:
@@ -529,6 +530,8 @@ rpc_password = os.getenv("RPC_PASSWORD")
 if not rpc_user or not rpc_password:
     raise RuntimeError("RPC_USER / RPC_PASSWORD not set in environment.")
 
+RPC_RETRY_EXCEPTIONS = (ConnectionError, OSError, RemoteDisconnected, socket.timeout, TimeoutError)
+
 def _make_rpc(max_attempts: int = 10, retry_delay: float = 6.0) -> AuthServiceProxy:
     url = f"http://{quote(rpc_user, safe='')}:{quote(rpc_password, safe='')}@127.0.0.1:8332"
     last_err: Exception | None = None
@@ -537,7 +540,7 @@ def _make_rpc(max_attempts: int = 10, retry_delay: float = 6.0) -> AuthServicePr
             conn = AuthServiceProxy(url, timeout=120)
             conn.getblockcount()  # verify RPC is actually responsive
             return conn
-        except (OSError, socket.timeout, TimeoutError) as exc:
+        except RPC_RETRY_EXCEPTIONS as exc:
             last_err = exc
             print(f"[bip110] RPC not ready (attempt {attempt}/{max_attempts}): {exc}")
             if attempt < max_attempts:
@@ -547,6 +550,21 @@ def _make_rpc(max_attempts: int = 10, retry_delay: float = 6.0) -> AuthServicePr
     raise RuntimeError(f"Bitcoin RPC unavailable after {max_attempts} attempts: {last_err}")
 
 rpc = _make_rpc()
+
+def rpc_call(method_name: str, *args, max_attempts: int = 3, retry_delay: float = 2.0):
+    global rpc
+    last_err: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return getattr(rpc, method_name)(*args)
+        except RPC_RETRY_EXCEPTIONS as exc:
+            last_err = exc
+            print(f"[bip110] RPC {method_name} failed (attempt {attempt}/{max_attempts}): {exc}")
+            if attempt >= max_attempts:
+                break
+            rpc = _make_rpc(max_attempts=3, retry_delay=retry_delay)
+            time.sleep(retry_delay)
+    raise RuntimeError(f"Bitcoin RPC {method_name} unavailable after {max_attempts} attempts: {last_err}") from last_err
 
 module_dir = here
 if not (module_dir / "segwit_releases.py").exists() or not (module_dir / "bip110_releases.py").exists():
@@ -1272,8 +1290,8 @@ def compute_bip110_progress(height):
     signal_counts = [0] * bip110_total_periods
 
     for block_height in range(BIP110_START, scan_end):
-        block_hash = rpc.getblockhash(block_height)
-        version = int(rpc.getblockheader(block_hash)["version"])
+        block_hash = rpc_call("getblockhash", block_height)
+        version = int(rpc_call("getblockheader", block_hash)["version"])
         if (version & (1 << 4)) != 0:
             idx = (block_height - BIP110_START) // PERIOD_SIZE
             if 0 <= idx < bip110_total_periods:
@@ -1348,8 +1366,8 @@ def build_bip110_block_rows(plot_max_height):
         effective_end = min(period_end, plot_max_height)
 
         for h in range(period_start, effective_end + 1):
-            bh = rpc.getblockhash(h)
-            header = rpc.getblockheader(bh)
+            bh = rpc_call("getblockhash", h)
+            header = rpc_call("getblockheader", bh)
             version = int(header["version"])
             rows.append({
                 "period": period,
@@ -1363,7 +1381,7 @@ def build_bip110_block_rows(plot_max_height):
 
 
 # Dynamic update: BIP-110 datasets (changes over time)
-node_tip_height = int(rpc.getblockcount())
+node_tip_height = int(rpc_call("getblockcount"))
 candidate_bip110_plot_max_height = get_bip110_plot_max_height(node_tip_height)
 candidate_bip110_block_rows = build_bip110_block_rows(candidate_bip110_plot_max_height)
 candidate_bip110_miner_heights = [row["height"] for row in candidate_bip110_block_rows]
@@ -1380,8 +1398,8 @@ if candidate_bip110_block_rows and candidate_bip110_plot_max_height not in bip11
         "without miner attribution; it will be retried on the next run."
     )
 
-current_hash = rpc.getblockhash(current_height)
-current_time_utc = datetime.fromtimestamp(int(rpc.getblockheader(current_hash)["time"]), tz=timezone.utc)
+current_hash = rpc_call("getblockhash", current_height)
+current_time_utc = datetime.fromtimestamp(int(rpc_call("getblockheader", current_hash)["time"]), tz=timezone.utc)
 date_str = current_time_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
 
 bip110_progress = compute_bip110_progress(current_height)
@@ -1546,8 +1564,8 @@ if needs_segwit_rebuild:
     for period in range(1, SEGWIT_LAST_PERIOD + 1):
         period_start = SEGWIT_START + (period - 1) * PERIOD_SIZE
         for h in range(period_start, period_start + PERIOD_SIZE):
-            bh = rpc.getblockhash(h)
-            header = rpc.getblockheader(bh)
+            bh = rpc_call("getblockhash", h)
+            header = rpc_call("getblockheader", bh)
             version = int(header["version"])
             segwit_block_rows.append({
                 "period": period,
