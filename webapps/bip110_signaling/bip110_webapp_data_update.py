@@ -704,6 +704,9 @@ MEMPOOL_BLOCKS_API = "https://mempool.space/api/v1/blocks"
 MEMPOOL_REQUEST_TIMEOUT_SECONDS = (5, 20)
 POSTGRES_BLOCK_HASH_RECHECK_INTERVAL = 100
 
+def skip_mempool_fetches():
+    return str(os.getenv("BIP110_SKIP_MEMPOOL_FETCH", "")).strip().lower() in {"1", "true", "yes", "on"}
+
 def normalize_mempool_miner_attribution(block):
     extras = block.get("extras") if isinstance(block.get("extras"), dict) else {}
     pool = extras.get("pool")
@@ -943,6 +946,9 @@ def extract_block_low_fee_rate(block):
 def fetch_block_low_fee_rates(heights, *, on_batch=None):
     pending = set(int(h) for h in heights)
     total = len(pending)
+    if pending and skip_mempool_fetches():
+        print(f"[low-activity-blocks] mempool.space fee-rate lookup skipped by BIP110_SKIP_MEMPOOL_FETCH for {total:,} height(s).")
+        return {}, {}
     low_fee_rates = {}
     block_hashes = {}
     headers = {
@@ -1054,6 +1060,9 @@ def fetch_block_miners(heights, *, log_label="blocks", on_batch=None):
     if not pending:
         return {}
     total = len(pending)
+    if skip_mempool_fetches():
+        print(f"[{log_label}] mempool.space miner lookup skipped by BIP110_SKIP_MEMPOOL_FETCH for {total:,} height(s).")
+        return {}
     miners = {}
     headers = {
         "Accept": "application/json",
