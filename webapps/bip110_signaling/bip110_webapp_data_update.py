@@ -698,8 +698,6 @@ def patch_missing_release_metadata(bip110_release_rows):
     return bip110_release_rows
 
 MEMPOOL_BLOCKS_API = "https://mempool.space/api/v1/blocks"
-MEMPOOL_MINER_ATTRIBUTION_RETRY_DELAY_SECONDS = 10
-MEMPOOL_MINER_ATTRIBUTION_MAX_RETRIES = 6
 POSTGRES_BLOCK_HASH_RECHECK_INTERVAL = 100
 
 def normalize_mempool_miner_attribution(block):
@@ -1162,39 +1160,6 @@ def export_bip110_miners(path: Path, heights):
     return export_block_miners(path, heights, log_label="bip110")
 
 
-def max_attributed_miner_height(miners):
-    heights = [
-        int(height)
-        for height, miner in miners.items()
-        if isinstance(miner, dict) and str(miner.get("name") or "").strip()
-    ]
-    return max(heights) if heights else None
-
-
-def export_bip110_miners_with_tip_retry(path: Path, heights, tip_height):
-    target_tip = int(tip_height) if tip_height is not None else None
-    meta = export_bip110_miners(path, heights)
-    miners = load_existing_signal_miners(path)
-    max_height = max_attributed_miner_height(miners)
-
-    for retry in range(1, MEMPOOL_MINER_ATTRIBUTION_MAX_RETRIES + 1):
-        if target_tip is None or (max_height is not None and max_height >= target_tip):
-            break
-        attributed_label = f"{max_height:,}" if max_height is not None else "none"
-        print(
-            f"[bip110] miner attribution for latest block {target_tip:,} is missing "
-            f"(attributed through {attributed_label}); retrying in "
-            f"{MEMPOOL_MINER_ATTRIBUTION_RETRY_DELAY_SECONDS}s "
-            f"({retry}/{MEMPOOL_MINER_ATTRIBUTION_MAX_RETRIES})."
-        )
-        time.sleep(MEMPOOL_MINER_ATTRIBUTION_RETRY_DELAY_SECONDS)
-        meta = export_bip110_miners(path, heights)
-        miners = load_existing_signal_miners(path)
-        max_height = max_attributed_miner_height(miners)
-
-    return meta, miners, max_height
-
-
 def select_segwit_miner_sample_heights(block_rows):
     return sorted(
         int(row["height"])
@@ -1388,24 +1353,15 @@ candidate_bip110_block_rows = build_bip110_block_rows(candidate_bip110_plot_max_
 candidate_bip110_miner_heights = [row["height"] for row in candidate_bip110_block_rows]
 bip110_miners_path = webapp_dir / "bip110_miners.json"
 bip110_signal_miners_path = webapp_dir / "bip110_signal_miners.json"
-_, bip110_miners, max_bip110_attributed_height = export_bip110_miners_with_tip_retry(
-    bip110_miners_path,
-    candidate_bip110_miner_heights,
-    candidate_bip110_plot_max_height,
-)
+export_bip110_miners(bip110_miners_path, candidate_bip110_miner_heights)
+bip110_miners = load_existing_signal_miners(bip110_miners_path)
 
 current_height = node_tip_height
 bip110_plot_max_height = candidate_bip110_plot_max_height
-if (
-    candidate_bip110_block_rows
-    and max_bip110_attributed_height is not None
-    and max_bip110_attributed_height < candidate_bip110_plot_max_height
-):
-    current_height = max_bip110_attributed_height
-    bip110_plot_max_height = get_bip110_plot_max_height(current_height)
+if candidate_bip110_block_rows and candidate_bip110_plot_max_height not in bip110_miners:
     print(
-        f"BIP-110 publish height gated at {current_height:,}; "
-        f"node tip {node_tip_height:,} is still waiting for miner attribution."
+        f"[bip110] publishing latest block {candidate_bip110_plot_max_height:,} "
+        "without miner attribution; it will be retried on the next run."
     )
 
 current_hash = rpc.getblockhash(current_height)
