@@ -27,6 +27,7 @@
     const BIP110_OVERLAY_SELECTIONS_STORAGE_KEY = "bip110_signaling_overlay_selections_v2";
     const PANEL_RESIZE_MIN_HEIGHT = 220;
     const PANEL_RESIZE_VIEWPORT_PAD = 24;
+    const PANEL_VIEWPORT_FILL_SAFETY_PX = 2;
     const PANEL_RESIZE_SNAP_PX = 18;
     const EXPECTED_FORK_HEIGHT = 961632;
     const EXPECTED_BLOCK_INTERVAL_MS = 10 * 60 * 1000;
@@ -526,14 +527,27 @@
       syncNodePanelButtons();
     }
 
-    function getDashboardLoaderHeight() {
+    function getMainWrapViewportHeight() {
+      return Math.floor(mainWrap?.clientHeight || window.innerHeight || 0);
+    }
+
+    function getSinglePanelAvailableHeight() {
       const wrapStyle = getComputedStyle(mainWrap);
       const padTop = parseFloat(wrapStyle.paddingTop) || 0;
       const padBottom = parseFloat(wrapStyle.paddingBottom) || 0;
       const gap = parseFloat(wrapStyle.rowGap || wrapStyle.gap) || 0;
-      const viewportH = window.innerHeight;
       const topbarH = topbar.getBoundingClientRect().height;
-      return Math.max(PANEL_RESIZE_MIN_HEIGHT, Math.floor(viewportH - topbarH - padTop - padBottom - gap));
+      const available = getMainWrapViewportHeight()
+        - topbarH
+        - padTop
+        - padBottom
+        - gap
+        - PANEL_VIEWPORT_FILL_SAFETY_PX;
+      return Math.max(PANEL_RESIZE_MIN_HEIGHT, Math.floor(available));
+    }
+
+    function getDashboardLoaderHeight() {
+      return getSinglePanelAvailableHeight();
     }
 
     function setDashboardLoaderVisible(visible) {
@@ -3509,15 +3523,7 @@
     }
 
     function getViewportFillHeightForSinglePanel() {
-      const wrapStyle = getComputedStyle(mainWrap);
-      const padTop = parseFloat(wrapStyle.paddingTop) || 0;
-      const padBottom = parseFloat(wrapStyle.paddingBottom) || 0;
-      const gap = parseFloat(wrapStyle.rowGap || wrapStyle.gap) || 0;
-      const viewportH = window.innerHeight;
-      const topbarH = topbar.getBoundingClientRect().height;
-      const gapsOutsidePanels = gap;
-      const availableForPanel = viewportH - topbarH - padTop - padBottom - gapsOutsidePanels;
-      return clampPanelResizeHeight(availableForPanel);
+      return clampPanelResizeHeight(getSinglePanelAvailableHeight());
     }
 
     function getHalfPanelHeight() {
@@ -3525,9 +3531,13 @@
       const padTop = parseFloat(wrapStyle.paddingTop) || 0;
       const padBottom = parseFloat(wrapStyle.paddingBottom) || 0;
       const gap = parseFloat(wrapStyle.rowGap || wrapStyle.gap) || 0;
-      const viewportH = window.innerHeight;
       const topbarH = topbar.getBoundingClientRect().height;
-      const availableForPanels = viewportH - topbarH - padTop - padBottom - gap * 2;
+      const availableForPanels = getMainWrapViewportHeight()
+        - topbarH
+        - padTop
+        - padBottom
+        - gap * 2
+        - PANEL_VIEWPORT_FILL_SAFETY_PX;
       return Math.max(300, Math.floor(availableForPanels / 2));
     }
 
@@ -3585,10 +3595,14 @@
       const padTop = parseFloat(wrapStyle.paddingTop) || 0;
       const padBottom = parseFloat(wrapStyle.paddingBottom) || 0;
       const gap = parseFloat(wrapStyle.rowGap || wrapStyle.gap) || 0;
-      const viewportH = window.innerHeight;
       const topbarH = topbar.getBoundingClientRect().height;
       const gapsOutsidePanels = gap * count;
-      const availableForPanels = viewportH - topbarH - padTop - padBottom - gapsOutsidePanels;
+      const availableForPanels = getMainWrapViewportHeight()
+        - topbarH
+        - padTop
+        - padBottom
+        - gapsOutsidePanels
+        - PANEL_VIEWPORT_FILL_SAFETY_PX;
       const minPerPanel = count === 1 ? 600 : 300;
       return clampPanelResizeHeight(Math.max(minPerPanel, Math.floor(availableForPanels / count)));
     }

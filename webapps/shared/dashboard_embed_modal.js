@@ -73,7 +73,113 @@
     };
   }
 
+  const PRESENTATION_MODE_PARAMS = ['presentation', 'presentationMode', 'present', 'kiosk'];
+  const PRESENTATION_MODE_TRUE_VALUES = new Set(['', '1', 'true', 'yes', 'on']);
+
+  function searchParamsEnablePresentation(search) {
+    const params = new URLSearchParams(String(search || ''));
+    return PRESENTATION_MODE_PARAMS.some((name) => {
+      if (!params.has(name)) return false;
+      const value = String(params.get(name) || '').trim().toLowerCase();
+      return PRESENTATION_MODE_TRUE_VALUES.has(value);
+    });
+  }
+
+  function isDashboardPresentationModeEnabled() {
+    if (searchParamsEnablePresentation(window.location.search)) return true;
+
+    try {
+      if (window.parent && window.parent !== window) {
+        return searchParamsEnablePresentation(window.parent.location.search);
+      }
+    } catch (_) {
+    }
+
+    return false;
+  }
+
+  function setDashboardPresentationModeClasses(active) {
+    document.documentElement.classList.toggle('dashboard-presentation-mode', active);
+    document.documentElement.classList.toggle('presentation-mode', active);
+    document.body?.classList?.toggle('dashboard-presentation-mode', active);
+    document.body?.classList?.toggle('presentation-mode', active);
+  }
+
+  function ensureDashboardPresentationModeStyles() {
+    if (document.getElementById('wsb-dashboard-presentation-mode-style')) return;
+    const style = document.createElement('style');
+    style.id = 'wsb-dashboard-presentation-mode-style';
+    style.textContent = [
+      'html.presentation-mode body .copy-link-btn.copy-link-btn,',
+      'html.presentation-mode body .reset-dashboard-btn.reset-dashboard-btn,',
+      'html.presentation-mode body #copyDashboardLink,',
+      'html.presentation-mode body #resetDashboard,',
+      'html.presentation-mode body #restoreBtn,',
+      'html.dashboard-presentation-mode body .copy-link-btn.copy-link-btn,',
+      'html.dashboard-presentation-mode body .reset-dashboard-btn.reset-dashboard-btn,',
+      'html.dashboard-presentation-mode body #copyDashboardLink,',
+      'html.dashboard-presentation-mode body #resetDashboard,',
+      'html.dashboard-presentation-mode body #restoreBtn {',
+      '  display: none !important;',
+      '  visibility: hidden !important;',
+      '  pointer-events: none !important;',
+      '}'
+    ].join('\n');
+    (document.head || document.documentElement).appendChild(style);
+  }
+
+  function applyDashboardPresentationModeControls() {
+    ensureDashboardPresentationModeStyles();
+    const active = isDashboardPresentationModeEnabled();
+    setDashboardPresentationModeClasses(active);
+
+    const controls = document.querySelectorAll([
+      '#copyDashboardLink',
+      '#resetDashboard',
+      '#restoreBtn',
+      '.copy-link-btn',
+      '.reset-dashboard-btn'
+    ].join(', '));
+
+    controls.forEach((control) => {
+      if (!(control instanceof HTMLElement)) return;
+      control.hidden = active;
+      control.setAttribute('aria-hidden', active ? 'true' : 'false');
+      if (active) {
+        if (!control.dataset.presentationPreviousTabindex) {
+          control.dataset.presentationPreviousTabindex = control.hasAttribute('tabindex')
+            ? control.getAttribute('tabindex')
+            : '__unset__';
+        }
+        control.setAttribute('tabindex', '-1');
+      } else {
+        const previousTabindex = control.dataset.presentationPreviousTabindex;
+        if (previousTabindex === '__unset__') {
+          control.removeAttribute('tabindex');
+        } else if (previousTabindex) {
+          control.setAttribute('tabindex', previousTabindex);
+        }
+        delete control.dataset.presentationPreviousTabindex;
+      }
+    });
+  }
+
+  function watchDashboardPresentationModeControls() {
+    const apply = () => applyDashboardPresentationModeControls();
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', apply, { once: true });
+    } else {
+      apply();
+    }
+
+    window.addEventListener('load', apply, { once: true });
+    setTimeout(apply, 0);
+    setTimeout(apply, 250);
+  }
+
   function computeModalControlsClearance() {
+    if (isDashboardPresentationModeEnabled()) return 0;
+
     const minClearance = 30;
     const extraGap = -4;
     let clearance = minClearance;
@@ -92,11 +198,14 @@
 
   function applyEmbeddedModalTopClearance() {
     try {
+      setDashboardPresentationModeClasses(isDashboardPresentationModeEnabled());
       if (window.self === window.top) return;
 
       const root = document.documentElement;
       const update = () => {
-        const clearance = computeModalControlsClearance();
+        const presentationMode = isDashboardPresentationModeEnabled();
+        const clearance = presentationMode ? 0 : computeModalControlsClearance();
+        setDashboardPresentationModeClasses(presentationMode);
         root.classList.add('embedded-in-modal');
         document.body?.classList?.add('embedded-in-modal');
         root.style.setProperty('--modal-controls-clearance', `${clearance}px`);
@@ -298,9 +407,13 @@
   window.WSBDashboardShared.forwardEmbeddedSwipeGestures = forwardEmbeddedSwipeGestures;
   window.WSBDashboardShared.updateInfoPopoverPosition = updateInfoPopoverPosition;
   window.WSBDashboardShared.setupInfoPopoverPlacement = setupInfoPopoverPlacement;
+  window.WSBDashboardShared.isPresentationModeEnabled = isDashboardPresentationModeEnabled;
+  window.WSBDashboardShared.applyPresentationModeControls = applyDashboardPresentationModeControls;
 
   // Apply as early as possible to avoid top-padding jumps when embedded in modal.
+  ensureDashboardPresentationModeStyles();
   applyEmbeddedModalTopClearance();
+  watchDashboardPresentationModeControls();
   forwardEmbeddedSwipeGestures();
   setupInfoPopoverPlacement();
 }());
