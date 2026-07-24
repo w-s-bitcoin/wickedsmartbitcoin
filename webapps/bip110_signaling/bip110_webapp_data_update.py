@@ -881,6 +881,18 @@ def normalize_lookup_text(value):
     text = str(value or "").lower()
     return re.sub(r"[^a-z0-9]+", "", text)
 
+OCEAN_SUB_MINER_ALIASES = {
+    "pyblockdatum": "PyBLOCKDatum",
+}
+
+
+def canonical_ocean_sub_miner(value):
+    sub_miner = str(value or "").strip()
+    if not sub_miner:
+        return ""
+    return OCEAN_SUB_MINER_ALIASES.get(normalize_lookup_text(sub_miner), sub_miner)
+
+
 def decode_coinbase_scriptsig_text(value):
     text = str(value or "").strip()
     if not text:
@@ -955,11 +967,12 @@ def ocean_miner_from_coinbase_scriptsig(scriptsig):
     if sub_miner:
         normalized = normalize_lookup_text(sub_miner)
         if normalized not in {"ocean", "oceanxyz"}:
+            canonical_sub_miner = canonical_ocean_sub_miner(sub_miner)
             return {
-                "name": f"{sub_miner} (OCEAN)",
+                "name": f"{canonical_sub_miner} (OCEAN)",
                 "slug": "ocean",
                 "pool": "OCEAN",
-                "sub_miner": sub_miner,
+                "sub_miner": canonical_sub_miner,
                 "source": "local_coinbase_tag",
                 "matched_tag": f"OCEAN:{sub_miner}",
             }
@@ -975,11 +988,12 @@ def ocean_miner_from_coinbase_text(decoded_text):
     normalized = normalize_lookup_text(sub_miner)
     if normalized in {"ocean", "oceanxyz"}:
         return {"name": "OCEAN", "slug": "ocean", "pool": "OCEAN", "sub_miner": ""}
+    canonical_sub_miner = canonical_ocean_sub_miner(sub_miner)
     return {
-        "name": f"{sub_miner} (OCEAN)",
+        "name": f"{canonical_sub_miner} (OCEAN)",
         "slug": "ocean",
         "pool": "OCEAN",
-        "sub_miner": sub_miner,
+        "sub_miner": canonical_sub_miner,
         "source": "local_coinbase_tag",
         "matched_tag": f"OCEAN:{sub_miner}",
     }
@@ -998,11 +1012,12 @@ def normalize_mempool_miner_attribution(block):
                     text = str(value or "").strip()
                     normalized = text.replace(".", "").replace(" ", "").lower()
                     if text and normalized not in ("ocean", "oceanxyz"):
+                        canonical_text = canonical_ocean_sub_miner(text)
                         return {
-                            "name": f"{text} ({pool_name or 'OCEAN'})",
+                            "name": f"{canonical_text} ({pool_name or 'OCEAN'})",
                             "slug": pool_slug,
                             "pool": pool_name or "OCEAN",
-                            "sub_miner": text,
+                            "sub_miner": canonical_text,
                             "source": "mempool.space",
                         }
             if pool_name:
