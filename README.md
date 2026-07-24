@@ -5,6 +5,8 @@ Repository: https://github.com/w-s-bitcoin/wickedsmartbitcoin
 
 Wicked Smart Bitcoin is a static site that publishes Bitcoin data visualizations as shareable pages.
 
+This repository is fully free and open-source software (FOSS). The site source, dashboard code, data update scripts, generated dashboard data, and documentation are published openly so they can be used, studied, modified, and redistributed.
+
 ## What This Repo Contains
 
 - Static frontend files (HTML/CSS/JS)
@@ -155,4 +157,8 @@ Lightning address: `wicked@primal.net`
 
 ## License
 
-© 2025 Wicked Smart Bitcoin. Reuse of charts requires attribution.
+Wicked Smart Bitcoin is fully open source / FOSS.
+
+Unless otherwise noted, all code, dashboard source, data update scripts, generated dashboard data, and documentation in this repository are released under the MIT License.
+
+© 2025-2026 Wicked Smart Bitcoin.
