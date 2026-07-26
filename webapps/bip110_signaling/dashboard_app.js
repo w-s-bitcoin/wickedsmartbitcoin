@@ -245,6 +245,8 @@
       chainSplitHandlingScroll: false,
       chainSplitFollowLatest: true,
       chainSplitAgeTimer: null,
+      chainSplitDrag: null,
+      chainSplitSuppressClickUntil: 0,
       controls: {
         stripes: true,
         stripesExplicit: false,
@@ -5719,11 +5721,19 @@
         || null;
       if (!Number.isFinite(targetHeight)) return null;
       const boundaryIndex = targetHeight - model.rangeStart;
-      const emptyGap = Math.max(0, metrics.gap - metrics.cubeDepth - metrics.cubeSize);
+      const emptyGap = Math.max(0, metrics.gap - getChainSplitSideDepth(metrics.cubeDepth) - metrics.cubeSize);
       const boundaryX = metrics.startX + boundaryIndex * metrics.gap - (emptyGap / 2);
+      const viewportWidth = Number(chainSplitContent.clientWidth || 0);
+      const localPad = Math.max(metrics.startX, metrics.gap);
+      const periodStartX = metrics.startX + boundaryIndex * metrics.gap;
+      const mobileInset = Math.max(10, Math.round(viewportWidth * 0.04));
+      // Virtual render x is globalX - scrollLeft, so this puts the first period cube at the inset.
+      const targetScrollLeft = Number.isFinite(viewportWidth) && viewportWidth < 760
+        ? periodStartX - mobileInset
+        : boundaryX;
       return {
         height: targetHeight,
-        scrollLeft: clamp(boundaryX + Math.max(metrics.startX, metrics.gap), 0, Math.max(0, chainSplitContent.scrollWidth - chainSplitContent.clientWidth)),
+        scrollLeft: clamp(targetScrollLeft, 0, Math.max(0, chainSplitContent.scrollWidth - chainSplitContent.clientWidth)),
       };
     }
 
@@ -5737,13 +5747,27 @@
       updateChainSplitPeriodBackButton();
     }
 
+    function getChainSplitCurrentRightPad(cubeSize, cubeDepth, gap, options = {}) {
+      const viewportWidth = Number(chainSplitContent?.clientWidth || window.innerWidth || 0);
+      const cubeRightEdge = getChainSplitSideDepth(cubeDepth) + Number(cubeSize || 0);
+      const spacing = Number(gap || 0);
+      const desktopPad = cubeRightEdge + spacing * (options.split ? 2 : 1);
+      if (!Number.isFinite(viewportWidth) || viewportWidth >= 760) return desktopPad;
+      return cubeRightEdge + clamp(viewportWidth * 0.2, 30, 50);
+    }
+
     function getChainSplitLatestScrollLeft() {
       if (!chainSplitContent) return 0;
       const currentTipX = Number(chainSplitContent.dataset.currentTipX);
       const currentRightPad = Number(chainSplitContent.dataset.currentRightPad);
+      const currentTipLocalPad = Number(chainSplitContent.dataset.currentTipLocalPad || 0);
       const maxScrollLeft = Math.max(0, chainSplitContent.scrollWidth - chainSplitContent.clientWidth);
       if (!Number.isFinite(currentTipX) || !Number.isFinite(currentRightPad)) return maxScrollLeft;
-      const target = currentTipX - (chainSplitContent.clientWidth - currentRightPad);
+      const localPad = Number.isFinite(currentTipLocalPad) ? currentTipLocalPad : 0;
+      const isVirtualScrollSpace = chainSplitContent.dataset.virtualScrollSpace === "1";
+      const target = currentTipX
+        + (isVirtualScrollSpace ? 0 : localPad)
+        - (chainSplitContent.clientWidth - currentRightPad);
       return clamp(target, 0, maxScrollLeft);
     }
 
@@ -6038,21 +6062,31 @@
 
     function getChainSplitLayoutMetrics() {
       const targetHeight = clamp(window.innerHeight - 220, 500, 760);
-      const scale = clamp(targetHeight / 690, 0.74, 1.1);
+      const viewportWidth = Number(chainSplitContent?.clientWidth || window.innerWidth || 0);
+      const heightScale = clamp(targetHeight / 690, 0.74, 1.1);
+      const widthScale = Number.isFinite(viewportWidth) && viewportWidth < 760
+        ? clamp(viewportWidth / 455, 0.78, 1)
+        : 1;
+      const scale = heightScale * widthScale;
       const scaled = (value) => Math.round(value * scale);
       const cubeSize = scaled(146);
       const cubeDepth = scaled(27);
       const labelOffset = Math.max(13, Math.round(17 * scale));
       const visibleHeight = Number(chainSplitContent?.clientHeight || 0);
+      const bottomGutter = Math.max(18, Math.round(28 * scale));
       const straightHeight = Number.isFinite(visibleHeight) && visibleHeight > 0
-        ? Math.max(scaled(490), Math.round(visibleHeight))
+        ? Math.max(scaled(490), Math.max(1, Math.round(visibleHeight - bottomGutter)))
         : scaled(490);
-      const straightY = Math.max(labelOffset + 2, Math.round((straightHeight / 2) - cubeDepth - (cubeSize / 2)));
+      const centeringHeight = Number.isFinite(visibleHeight) && visibleHeight > 0
+        ? visibleHeight
+        : straightHeight;
+      const straightY = Math.max(labelOffset + 2, Math.round((centeringHeight / 2) - cubeDepth - (cubeSize / 2)));
       return {
         scale,
         cubeSize,
         cubeDepth,
         labelOffset,
+        bottomGutter,
         gap: scaled(200),
         startX: Math.max(42, scaled(56)),
         reservedHeight: scaled(690),
@@ -6091,7 +6125,7 @@
           }
           const previousX = Number(previous.x);
           const nextX = Number(position.x);
-          const emptyGap = Math.max(0, nextX - previousX - cubeDepth - cubeSize);
+          const emptyGap = Math.max(0, nextX - previousX - getChainSplitSideDepth(cubeDepth) - cubeSize);
           const x = Math.round(nextX - (emptyGap / 2));
           if (!Number.isFinite(x)) return "";
           const label = getChainSplitPeriodBoundaryLabel(nextPeriod);
@@ -6117,12 +6151,19 @@
       return Math.max(Number.isFinite(minimum) ? minimum : 1, Math.min(preferred, fitSize));
     }
 
+    function getChainSplitSideDepth(depth) {
+      const numericDepth = Number(depth);
+      if (!Number.isFinite(numericDepth) || numericDepth <= 0) return 0;
+      return Math.round(numericDepth * 1.28);
+    }
+
     function renderChainSplitCube(block, x, y, options = {}) {
       const height = Number(block?.height);
       const size = options.size || 154;
       const depth = options.depth || 28;
+      const sideDepth = getChainSplitSideDepth(depth);
       const nodeView = normalizeBip110NodeView(options.nodeView || "legacy");
-      const frontX = x + depth;
+      const frontX = x + sideDepth;
       const frontY = y + depth;
       const labelX = x + size / 2;
       const scale = Number(options.scale || 1);
@@ -6178,8 +6219,9 @@
       const numericHeight = Number(height);
       const size = options.size || 154;
       const depth = options.depth || 28;
+      const sideDepth = getChainSplitSideDepth(depth);
       const scale = Number(options.scale || 1);
-      const frontX = x + depth;
+      const frontX = x + sideDepth;
       const frontY = y + depth;
       const labelX = x + size / 2;
       const labelY = y - (Number(options.labelOffset) || Math.max(13, Math.round(17 * scale)));
@@ -6202,7 +6244,7 @@
       const blockCount = Math.max(0, Number(count) || 0);
       const spacing = Number(gap);
       if (!Number.isFinite(spacing) || spacing <= 0) return 1120;
-      return Math.max(1120, startX + Math.max(0, blockCount - 1) * spacing + cubeSize + cubeDepth + spacing);
+      return Math.max(1120, startX + Math.max(0, blockCount - 1) * spacing + cubeSize + getChainSplitSideDepth(cubeDepth) + spacing);
     }
 
     function getChainSplitScrollRange(rangeStart, rangeEnd, gap, startX, cubeSize, cubeDepth, options = {}) {
@@ -6252,7 +6294,7 @@
       const startHeight = Number(rangeStart);
       const yTop = -1;
       const yBottom = Number(metrics.straightHeight || 0) + 1;
-      const emptyGap = Math.max(0, metrics.gap - metrics.cubeDepth - metrics.cubeSize);
+      const emptyGap = Math.max(0, metrics.gap - getChainSplitSideDepth(metrics.cubeDepth) - metrics.cubeSize);
       return (Array.isArray(periods) ? periods : [])
         .map((period) => {
           const periodStart = Number(period?.period_start_height);
@@ -6351,11 +6393,13 @@
         }));
         const allPositions = [...trunkPositions, ...bip110Positions, ...legacyPositions];
         const longestTipX = allPositions.reduce((max, item) => Math.max(max, Number(item.x) || 0), startX);
-        const currentRightPad = cubeDepth + cubeSize + (gap * 2);
+        const currentRightPad = getChainSplitCurrentRightPad(cubeSize, cubeDepth, gap, { split: true });
         const width = Math.max(1120, longestTipX + currentRightPad);
         const height = reservedHeight;
         chainSplitContent.dataset.currentTipX = String(longestTipX);
         chainSplitContent.dataset.currentRightPad = String(currentRightPad);
+        chainSplitContent.dataset.currentTipLocalPad = "0";
+        chainSplitContent.dataset.virtualScrollSpace = "0";
         const preservedScrollLeft = Number(chainSplitContent.scrollLeft || 0);
         const cubes = allPositions.map((item) => renderChainSplitCube(item.block, item.x, item.y, { size: cubeSize, depth: cubeDepth, scale, labelOffset, nodeView: item.nodeView })).join("");
         const markers = [
@@ -6378,13 +6422,18 @@
         chainSplitContent.innerHTML = `<div class="chain-split-empty">No BIP-110 block data is available for the chain split view.</div>`;
         return;
       }
-      const viewportWidth = Math.max(980, Number(chainSplitContent.clientWidth || 0));
+      const viewportClientWidth = Math.max(1, Number(chainSplitContent.clientWidth || 0));
+      const viewportWidth = Math.max(980, viewportClientWidth);
       const totalBlockCount = Math.floor(rangeEnd - rangeStart + 1);
       const currentTipX = startX + Math.max(0, totalBlockCount - 1) * gap;
-      const currentRightPad = cubeDepth + cubeSize + gap;
-      const targetStageWidth = getChainSplitStageWidth(totalBlockCount, gap, startX, cubeSize, cubeDepth);
+      const currentRightPad = getChainSplitCurrentRightPad(cubeSize, cubeDepth, gap);
+      const localPad = Math.max(startX, gap);
+      const targetStageWidth = Math.max(
+        getChainSplitStageWidth(totalBlockCount, gap, startX, cubeSize, cubeDepth),
+        currentTipX + localPad + currentRightPad
+      );
       const targetScrollLeft = shouldFollowLatest
-        ? clamp(currentTipX - (viewportWidth - currentRightPad), 0, Math.max(0, targetStageWidth - viewportWidth))
+        ? clamp(currentTipX - (viewportClientWidth - currentRightPad), 0, Math.max(0, targetStageWidth - viewportClientWidth))
         : Number(chainSplitContent.scrollLeft || 0);
       const virtualRange = getChainSplitScrollRange(rangeStart, rangeEnd, gap, startX, cubeSize, cubeDepth, { scrollLeft: targetScrollLeft });
       if (!virtualRange) {
@@ -6392,7 +6441,6 @@
         return;
       }
       const positions = [];
-      const localPad = Math.max(startX, gap);
       const viewportLeft = targetScrollLeft;
       const xOffset = Math.max(0, viewportLeft - localPad);
       for (let index = virtualRange.renderStartIndex; index <= virtualRange.renderEndIndex; index += 1) {
@@ -6402,11 +6450,13 @@
         const detailLoaded = index >= virtualRange.detailStartIndex && index <= virtualRange.detailEndIndex && block;
         positions.push({ height, block, x, y: straightY, detailLoaded });
       }
-      const stageWidth = virtualRange.width;
+      const stageWidth = Math.max(virtualRange.width, targetStageWidth);
       const width = viewportWidth + localPad * 2;
       const height = straightHeight;
       chainSplitContent.dataset.currentTipX = String(currentTipX);
       chainSplitContent.dataset.currentRightPad = String(currentRightPad);
+      chainSplitContent.dataset.currentTipLocalPad = String(localPad);
+      chainSplitContent.dataset.virtualScrollSpace = "1";
       const markers = renderChainSplitVirtualMarkers(rangeStart, rangeEnd, virtualRange, metrics, model.straightNodeView, xOffset);
       const cubes = positions.map((item) => (
         item.detailLoaded
@@ -6414,9 +6464,16 @@
           : renderChainSplitPlaceholderCube(item.height, item.x, item.y, { size: cubeSize, depth: cubeDepth, scale, labelOffset })
       )).join("");
       const preservedScrollLeft = targetScrollLeft;
-      chainSplitContent.innerHTML = `<div class="chain-split-virtual-stage" style="width:${stageWidth}px;height:${height}px"><svg class="chain-split-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Latest BIP-110 signaling chain">${cubes}${markers}</svg></div>`;
+      chainSplitContent.innerHTML = `<div class="chain-split-virtual-stage" style="width:${stageWidth}px;height:${height}px"><svg class="chain-split-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" style="left:${xOffset}px" role="img" aria-label="Latest BIP-110 signaling chain">${cubes}${markers}</svg></div>`;
       chainSplitContent.dataset.virtualRenderScrollLeft = String(preservedScrollLeft);
-      if (shouldFollowLatest) scrollChainSplitToLatest();
+      if (shouldFollowLatest) {
+        state.chainSplitHandlingScroll = true;
+        chainSplitContent.scrollLeft = getChainSplitLatestScrollLeft();
+        requestAnimationFrame(() => {
+          state.chainSplitHandlingScroll = false;
+          scrollChainSplitToLatest();
+        });
+      }
       else {
         state.chainSplitHandlingScroll = true;
         chainSplitContent.scrollLeft = clamp(preservedScrollLeft, 0, Math.max(0, chainSplitContent.scrollWidth - chainSplitContent.clientWidth));
@@ -6487,6 +6544,52 @@
       });
     }
 
+    function handleChainSplitPointerDown(event) {
+      if (!chainSplitContent || event.button !== 0) return;
+      if (event.target instanceof Element && event.target.closest("button, input, select, textarea, a")) return;
+      state.chainSplitDrag = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        startScrollLeft: Number(chainSplitContent.scrollLeft || 0),
+        active: false,
+      };
+      chainSplitContent.setPointerCapture?.(event.pointerId);
+    }
+
+    function handleChainSplitPointerMove(event) {
+      const drag = state.chainSplitDrag;
+      if (!chainSplitContent || !drag || drag.pointerId !== event.pointerId) return;
+      const dx = event.clientX - drag.startX;
+      const dy = event.clientY - drag.startY;
+      if (!drag.active) {
+        if (Math.abs(dx) < 7 || Math.abs(dx) < Math.abs(dy) * 1.15) return;
+        drag.active = true;
+        chainSplitContent.classList.add("is-dragging");
+        state.chainSplitSuppressClickUntil = Date.now() + 450;
+      }
+      event.preventDefault();
+      chainSplitContent.scrollLeft = drag.startScrollLeft - dx;
+      state.chainSplitFollowLatest = isChainSplitAtLatest(0.5);
+      updateChainSplitScrollButtons();
+    }
+
+    function finishChainSplitPointerDrag(event) {
+      const drag = state.chainSplitDrag;
+      if (!chainSplitContent || !drag || drag.pointerId !== event.pointerId) return;
+      if (drag.active) {
+        state.chainSplitSuppressClickUntil = Date.now() + 450;
+      }
+      state.chainSplitDrag = null;
+      chainSplitContent.classList.remove("is-dragging");
+      chainSplitContent.releasePointerCapture?.(event.pointerId);
+      updateChainSplitScrollButtons();
+    }
+
+    function stopChainSplitDashboardSwipe(event) {
+      event.stopPropagation();
+    }
+
     function snapChainSplitToLatest() {
       state.chainSplitScrollAdjustment = null;
       state.chainSplitFollowLatest = true;
@@ -6499,8 +6602,9 @@
       const target = getChainSplitPreviousPeriodBoundary();
       if (!target) return;
       state.chainSplitHandlingScroll = true;
+      state.chainSplitFollowLatest = false;
       chainSplitContent.scrollLeft = target.scrollLeft;
-      renderBip110ChainSplitOverlay();
+      renderBip110ChainSplitOverlay({ suppressFollowLatest: true });
       chainSplitContent.scrollLeft = target.scrollLeft;
       requestAnimationFrame(() => {
         state.chainSplitHandlingScroll = false;
@@ -7429,6 +7533,11 @@
       });
 
       chainSplitOverlay?.addEventListener("click", (event) => {
+        if (Date.now() < state.chainSplitSuppressClickUntil) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
         const cube = event.target instanceof Element
           ? event.target.closest(".chain-split-cube")
           : null;
@@ -7476,6 +7585,13 @@
       });
 
       chainSplitContent?.addEventListener("scroll", handleChainSplitScroll, { passive: true });
+      chainSplitContent?.addEventListener("pointerdown", handleChainSplitPointerDown);
+      chainSplitContent?.addEventListener("pointermove", handleChainSplitPointerMove);
+      chainSplitContent?.addEventListener("pointerup", finishChainSplitPointerDrag);
+      chainSplitContent?.addEventListener("pointercancel", finishChainSplitPointerDrag);
+      chainSplitContent?.addEventListener("touchstart", stopChainSplitDashboardSwipe, { capture: true, passive: true });
+      chainSplitContent?.addEventListener("touchmove", stopChainSplitDashboardSwipe, { capture: true, passive: true });
+      chainSplitContent?.addEventListener("touchend", stopChainSplitDashboardSwipe, { capture: true, passive: true });
 
       chainSplitPeriodBack?.addEventListener("click", () => {
         jumpChainSplitToPreviousPeriod();
