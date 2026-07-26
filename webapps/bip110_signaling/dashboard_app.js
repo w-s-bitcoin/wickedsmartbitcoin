@@ -241,6 +241,8 @@
       minerTimelineMiners: "all",
       minerTimelineOrder: "recent",
       minerTimelineSignalersFirst: true,
+      chainSplitScrollAdjustment: null,
+      chainSplitHandlingScroll: false,
       controls: {
         stripes: true,
         stripesExplicit: false,
@@ -319,6 +321,7 @@
     const periodGridBtn = document.getElementById("periodGridBtn");
     const leaderboardBtn = document.getElementById("leaderboardBtn");
     const minerTimelineBtn = document.getElementById("minerTimelineBtn");
+    const chainSplitBtn = document.getElementById("chainSplitBtn");
     const periodGridOverlay = document.getElementById("periodGridOverlay");
     const periodGridDialog = document.getElementById("periodGridDialog");
     const periodGridHeader = document.getElementById("periodGridHeader");
@@ -351,6 +354,15 @@
     const minerTimelineMinerButtons = Array.from(document.querySelectorAll("[data-miner-timeline-miners]"));
     const minerTimelineOrderButtons = Array.from(document.querySelectorAll("[data-miner-timeline-order]"));
     const minerTimelineSignalersFirst = document.getElementById("minerTimelineSignalersFirst");
+    const chainSplitOverlay = document.getElementById("chainSplitOverlay");
+    const chainSplitDialog = document.getElementById("chainSplitDialog");
+    const chainSplitClose = document.getElementById("chainSplitClose");
+    const chainSplitContent = document.getElementById("chainSplitContent");
+    const chainSplitPeriodBack = document.getElementById("chainSplitPeriodBack");
+    const chainSplitSnapLatest = document.getElementById("chainSplitSnapLatest");
+    const chainSplitLegacyHeightValue = document.getElementById("chainSplitLegacyHeightValue");
+    const chainSplitBip110HeightValue = document.getElementById("chainSplitBip110HeightValue");
+    const chainSplitStatusValue = document.getElementById("chainSplitStatusValue");
     const vizInfoBtn = document.getElementById("vizInfoBtn");
     const segwitResizeHandle = document.getElementById("segwitResizeHandle");
     const bip110ResizeHandle = document.getElementById("bip110ResizeHandle");
@@ -392,6 +404,7 @@
         periodGridBtn,
         leaderboardBtn,
         minerTimelineBtn,
+        chainSplitBtn,
         swapPanelsBtn,
         segwitFillHeightBtn,
         bip110FillHeightBtn,
@@ -4314,16 +4327,28 @@
     let activePeriodGridTooltipContent = "";
 
     function showPeriodGridTooltip(content, clientX, clientY, options = {}) {
-      if (!periodGridTooltip || (!isPeriodGridOverlayOpen() && !isMinerTimelineOverlayOpen())) return;
+      if (!periodGridTooltip || (!isPeriodGridOverlayOpen() && !isMinerTimelineOverlayOpen() && !isChainSplitOverlayOpen())) return;
       const normalizedContent = String(content || "");
       if (activePeriodGridTooltipContent !== normalizedContent) {
         periodGridTooltip.innerHTML = renderTooltipHtml(normalizedContent);
         activePeriodGridTooltipContent = normalizedContent;
       }
       periodGridTooltip.classList.toggle("is-compact", !!options.compact);
-      const activeContent = isMinerTimelineOverlayOpen() ? minerTimelineContent : periodGridContent;
-      const activeDialog = isMinerTimelineOverlayOpen() ? minerTimelineDialog : periodGridDialog;
-      const activeOverlay = isMinerTimelineOverlayOpen() ? minerTimelineOverlay : periodGridOverlay;
+      const activeContent = isChainSplitOverlayOpen()
+        ? chainSplitContent
+        : isMinerTimelineOverlayOpen()
+          ? minerTimelineContent
+          : periodGridContent;
+      const activeDialog = isChainSplitOverlayOpen()
+        ? chainSplitDialog
+        : isMinerTimelineOverlayOpen()
+          ? minerTimelineDialog
+          : periodGridDialog;
+      const activeOverlay = isChainSplitOverlayOpen()
+        ? chainSplitOverlay
+        : isMinerTimelineOverlayOpen()
+          ? minerTimelineOverlay
+          : periodGridOverlay;
       const contentRect = options.constrainToGrid === false ? null : activeContent?.getBoundingClientRect();
       const dialogRect = activeDialog?.getBoundingClientRect();
       const overlayRect = activeOverlay?.getBoundingClientRect();
@@ -4395,6 +4420,10 @@
 
     function isMinerTimelineOverlayOpen() {
       return Boolean(minerTimelineOverlay?.classList.contains("show"));
+    }
+
+    function isChainSplitOverlayOpen() {
+      return Boolean(chainSplitOverlay?.classList.contains("show"));
     }
 
     function notifyParentPeriodGridOverlayState(isOpen) {
@@ -4642,6 +4671,7 @@
       if (!periodGridOverlay || !periodGridDialog) return;
       closeLeaderboardOverlay();
       closeMinerTimelineOverlay();
+      closeChainSplitOverlay();
       state.periodGridDataset = datasetKey === "segwit" ? "segwit" : "bip110";
       if (state.periodGridDataset === "bip110" && nodeViewOverride != null) {
         state.periodGridNodeView = normalizeBip110NodeView(nodeViewOverride);
@@ -5477,6 +5507,7 @@
       if (!minerTimelineOverlay || !minerTimelineDialog) return;
       closePeriodGridOverlay();
       closeLeaderboardOverlay();
+      closeChainSplitOverlay();
       state.pinnedTooltip = null;
       clearMobilePendingActivation();
       hideTooltip();
@@ -5493,6 +5524,846 @@
       minerTimelineDialog.focus({ preventScroll: true });
     }
 
+    function closeChainSplitOverlay() {
+      if (!chainSplitOverlay) return;
+      clearMobilePendingActivation();
+      chainSplitOverlay.classList.remove("show");
+      chainSplitOverlay.classList.remove("is-loading");
+      chainSplitOverlay.setAttribute("aria-hidden", "true");
+      hidePeriodGridTooltip();
+    }
+
+    function getChainSplitSyncMeta() {
+      const sync = state.data?.metadata?.node_sync || state.dynamicData?.metadata?.node_sync;
+      return sync && typeof sync === "object" ? sync : null;
+    }
+
+    function getBlockMapByHeight(blocks) {
+      const map = new Map();
+      (Array.isArray(blocks) ? blocks : []).forEach((block) => {
+        const height = Number(block?.height);
+        if (Number.isFinite(height)) map.set(height, block);
+      });
+      return map;
+    }
+
+    function getLatestBlockHeight(blocks) {
+      const heights = (Array.isArray(blocks) ? blocks : [])
+        .map((block) => Number(block?.height))
+        .filter((height) => Number.isFinite(height));
+      return heights.length ? Math.max(...heights) : null;
+    }
+
+    function getMinBlockHeight(blocks) {
+      const heights = (Array.isArray(blocks) ? blocks : [])
+        .map((block) => Number(block?.height))
+        .filter((height) => Number.isFinite(height));
+      return heights.length ? Math.min(...heights) : null;
+    }
+
+    function getChainSplitBranchBlocks(blockMap, startHeight, endHeight, limit) {
+      const start = Number(startHeight);
+      const end = Number(endHeight);
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return [];
+      const blocks = [];
+      for (let height = start; height <= end && blocks.length < limit; height += 1) {
+        const block = blockMap.get(height);
+        if (block) blocks.push(block);
+      }
+      return blocks;
+    }
+
+    function getLatestChainSplitBranchBlocks(blockMap, startHeight, endHeight, limit) {
+      const start = Number(startHeight);
+      const end = Number(endHeight);
+      const count = Math.max(1, Number(limit) || 1);
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return [];
+      return getChainSplitBranchBlocks(blockMap, Math.max(start, end - count + 1), end, count);
+    }
+
+    function getLatestChainRun(blockMap, tipHeight, limit) {
+      const tip = Number(tipHeight);
+      if (!Number.isFinite(tip)) return [];
+      const start = Math.max(0, tip - limit + 1);
+      const blocks = [];
+      for (let height = start; height <= tip; height += 1) {
+        const block = blockMap.get(height);
+        if (block) blocks.push(block);
+      }
+      return blocks;
+    }
+
+    const CHAIN_SPLIT_DETAIL_BUFFER_BLOCKS = 24;
+    const CHAIN_SPLIT_PLACEHOLDER_BUFFER_BLOCKS = 12;
+    const CHAIN_SPLIT_FIRST_SIGNALING_HEIGHT = 927360;
+
+    function hasChainSplitDemoFlag() {
+      try {
+        if (new URLSearchParams(window.location.search).has("chainSplitDemo")) return true;
+      } catch (_) {}
+      try {
+        if (window.parent && window.parent !== window && new URLSearchParams(window.parent.location.search).has("chainSplitDemo")) return true;
+      } catch (_) {}
+      return false;
+    }
+
+    function getFirstBip110PeriodStartHeight(nodeView = "legacy") {
+      const periods = getBip110PeriodsForNodeView(nodeView);
+      const starts = (Array.isArray(periods) ? periods : [])
+        .map((row) => Number(row?.period_start_height))
+        .filter((height) => Number.isFinite(height));
+      if (starts.length) return Math.max(CHAIN_SPLIT_FIRST_SIGNALING_HEIGHT, Math.min(...starts));
+      return CHAIN_SPLIT_FIRST_SIGNALING_HEIGHT;
+    }
+
+    function updateChainSplitSnapLatestButton() {
+      if (!chainSplitSnapLatest) return;
+      const maxScrollLeft = chainSplitContent
+        ? Math.max(0, chainSplitContent.scrollWidth - chainSplitContent.clientWidth)
+        : 0;
+      const scrollLeft = Number(chainSplitContent?.scrollLeft || 0);
+      const latestScrollLeft = chainSplitContent ? getChainSplitLatestScrollLeft() : maxScrollLeft;
+      const currentBlockVisible = scrollLeft >= latestScrollLeft - 2;
+      const show = !currentBlockVisible;
+      chainSplitSnapLatest.hidden = !show;
+    }
+
+    function getChainSplitPreviousPeriodBoundary() {
+      if (!chainSplitContent) return null;
+      const model = getChainSplitModel();
+      if (model.splitDetected || !Number.isFinite(model.rangeStart) || !Number.isFinite(model.rangeEnd)) return null;
+      const metrics = getChainSplitLayoutMetrics();
+      const periods = getBip110PeriodsForNodeView(model.straightNodeView);
+      const starts = (Array.isArray(periods) ? periods : [])
+        .map((period) => Number(period?.period_start_height))
+        .filter((height) => Number.isFinite(height) && height > model.rangeStart && height <= model.rangeEnd)
+        .sort((a, b) => a - b);
+      if (!starts.length) return null;
+      const currentApproxHeight = model.rangeStart + Math.floor(Math.max(0, chainSplitContent.scrollLeft - metrics.startX) / metrics.gap);
+      const targetHeight = starts.filter((height) => height < currentApproxHeight - 1).pop()
+        || starts.filter((height) => height <= currentApproxHeight + 1).pop()
+        || null;
+      if (!Number.isFinite(targetHeight)) return null;
+      const boundaryIndex = targetHeight - model.rangeStart;
+      const emptyGap = Math.max(0, metrics.gap - metrics.cubeDepth - metrics.cubeSize);
+      const boundaryX = metrics.startX + boundaryIndex * metrics.gap - (emptyGap / 2);
+      return {
+        height: targetHeight,
+        scrollLeft: clamp(boundaryX + Math.max(metrics.startX, metrics.gap), 0, Math.max(0, chainSplitContent.scrollWidth - chainSplitContent.clientWidth)),
+      };
+    }
+
+    function updateChainSplitPeriodBackButton() {
+      if (!chainSplitPeriodBack) return;
+      chainSplitPeriodBack.hidden = !getChainSplitPreviousPeriodBoundary();
+    }
+
+    function updateChainSplitScrollButtons() {
+      updateChainSplitSnapLatestButton();
+      updateChainSplitPeriodBackButton();
+    }
+
+    function getChainSplitLatestScrollLeft() {
+      if (!chainSplitContent) return 0;
+      const currentTipX = Number(chainSplitContent.dataset.currentTipX);
+      const currentRightPad = Number(chainSplitContent.dataset.currentRightPad);
+      const maxScrollLeft = Math.max(0, chainSplitContent.scrollWidth - chainSplitContent.clientWidth);
+      if (!Number.isFinite(currentTipX) || !Number.isFinite(currentRightPad)) return maxScrollLeft;
+      const target = currentTipX - (chainSplitContent.clientWidth - currentRightPad);
+      return clamp(target, 0, maxScrollLeft);
+    }
+
+    function isChainSplitDetected(sync) {
+      if (!sync || sync.in_sync === true) return false;
+      const legacyHeight = Number(sync.legacy_height);
+      const bip110Height = Number(sync.bip110_height);
+      const latestCommonHeight = Number(sync.latest_common_height);
+      const legacyHash = String(sync.legacy_hash || "");
+      const bip110HashAtLegacyHeight = String(sync.bip110_hash_at_legacy_height || "");
+      if (!Number.isFinite(legacyHeight) || !Number.isFinite(bip110Height) || !Number.isFinite(latestCommonHeight)) {
+        return false;
+      }
+      if (latestCommonHeight >= Math.min(legacyHeight, bip110Height)) return false;
+      if (legacyHash && bip110HashAtLegacyHeight && legacyHash !== bip110HashAtLegacyHeight) return true;
+      return String(sync.relation || "").toLowerCase().includes("split")
+        || String(sync.relation || "").toLowerCase().includes("mismatch");
+    }
+
+    function getChainSplitDemoBlock(height, options = {}) {
+      const h = Number(height);
+      const periodSize = Number(state.data?.metadata?.datasets?.bip110?.period_size || state.data?.metadata?.chart?.period_size || 2016);
+      const rel = h - CHAIN_SPLIT_FIRST_SIGNALING_HEIGHT;
+      return {
+        height: h,
+        is_signaling: options.signaling ? 1 : 0,
+        version: options.signaling ? 0x20000010 : 0x20000000,
+        block_time: Math.floor(Date.now() / 1000),
+        is_demo: true,
+        period: Number.isFinite(periodSize) && periodSize > 0 ? Math.floor(rel / periodSize) + 1 : null,
+        y_in_period: Number.isFinite(periodSize) && periodSize > 0 ? ((rel % periodSize) + periodSize) % periodSize : null,
+        miner: {
+          name: options.minerName,
+          slug: options.minerSlug,
+          pool: options.pool || "",
+          sub_miner: options.subMiner || "",
+        },
+      };
+    }
+
+    function getChainSplitModel() {
+      const legacyBlocks = getBip110BlocksForNodeView("legacy");
+      const bip110Blocks = getBip110BlocksForNodeView("bip110");
+      const legacyMap = getBlockMapByHeight(legacyBlocks);
+      const bip110Map = getBlockMapByHeight(bip110Blocks);
+      const legacyTip = getLatestBlockHeight(legacyBlocks);
+      const bip110Tip = getLatestBlockHeight(bip110Blocks);
+      const legacyMin = getMinBlockHeight(legacyBlocks);
+      const sync = getChainSplitSyncMeta();
+      const splitDetected = isChainSplitDetected(sync);
+      const commonHeight = Number(sync?.latest_common_height);
+
+      if (hasChainSplitDemoFlag()) {
+        const currentTip = Math.max(
+          Number.isFinite(legacyTip) ? legacyTip : -Infinity,
+          Number.isFinite(bip110Tip) ? bip110Tip : -Infinity
+        );
+        const demoHeight = Number.isFinite(currentTip) ? currentTip + 1 : null;
+        if (!Number.isFinite(demoHeight)) {
+          return {
+            splitDetected: false,
+            straightMap: legacyMap,
+            straightNodeView: "legacy",
+            canPageEarlier: false,
+            rangeStart: null,
+            rangeEnd: null,
+          };
+        }
+        const common = demoHeight - 1;
+        const trunkBlocks = getLatestChainRun(legacyMap, common, 12);
+        const legacyBranch = [
+          getChainSplitDemoBlock(demoHeight, {
+            signaling: false,
+            minerName: "Foundry USA",
+            minerSlug: "foundryusa",
+          }),
+          getChainSplitDemoBlock(demoHeight + 1, {
+            signaling: false,
+            minerName: "AntPool",
+            minerSlug: "antpool",
+          }),
+        ];
+        const bip110Branch = [getChainSplitDemoBlock(demoHeight, {
+          signaling: true,
+          minerName: "Roughnecks",
+          minerSlug: "ocean",
+          pool: "OCEAN",
+          subMiner: "Roughnecks",
+        })];
+        const heights = [...trunkBlocks, ...legacyBranch, ...bip110Branch]
+          .map((block) => Number(block.height))
+          .filter((height) => Number.isFinite(height));
+        return {
+          splitDetected: true,
+          demoSplit: true,
+          legacyHeight: demoHeight + 1,
+          bip110Height: demoHeight,
+          trunkBlocks,
+          legacyBranch,
+          bip110Branch,
+          canPageEarlier: false,
+          rangeStart: heights.length ? Math.min(...heights) : null,
+          rangeEnd: heights.length ? Math.max(...heights) : null,
+        };
+      }
+
+      if (splitDetected && Number.isFinite(commonHeight)) {
+        const trunkBlocks = getLatestChainRun(legacyMap, commonHeight, 24);
+        const legacyBranch = getLatestChainRun(legacyMap, legacyTip, 72).filter((block) => Number(block?.height) > commonHeight);
+        const bip110Branch = getLatestChainRun(bip110Map, bip110Tip, 72).filter((block) => Number(block?.height) > commonHeight);
+        const heights = [...trunkBlocks, ...legacyBranch, ...bip110Branch]
+          .map((block) => Number(block.height))
+          .filter((height) => Number.isFinite(height));
+        return {
+          splitDetected: true,
+          demoSplit: false,
+          legacyHeight: legacyTip,
+          bip110Height: bip110Tip,
+          trunkBlocks,
+          legacyBranch,
+          bip110Branch,
+          canPageEarlier: false,
+          rangeStart: heights.length ? Math.min(...heights) : null,
+          rangeEnd: heights.length ? Math.max(...heights) : null,
+        };
+      }
+
+      const straightTip = Number.isFinite(legacyTip) ? legacyTip : bip110Tip;
+      const straightMap = Number.isFinite(legacyTip) ? legacyMap : bip110Map;
+      const nodeView = Number.isFinite(legacyTip) ? "legacy" : "bip110";
+      const straightMin = getFirstBip110PeriodStartHeight(nodeView);
+      const fallbackMin = Number.isFinite(legacyTip) ? legacyMin : getMinBlockHeight(bip110Blocks);
+      const rawRangeStart = Number.isFinite(straightMin) ? straightMin : fallbackMin;
+      const rangeStart = Number.isFinite(rawRangeStart)
+        ? Math.max(CHAIN_SPLIT_FIRST_SIGNALING_HEIGHT, rawRangeStart)
+        : CHAIN_SPLIT_FIRST_SIGNALING_HEIGHT;
+      const rangeEnd = straightTip;
+      return {
+        splitDetected: false,
+        demoSplit: false,
+        legacyHeight: legacyTip,
+        bip110Height: bip110Tip,
+        straightMap,
+        straightNodeView: nodeView,
+        canPageEarlier: false,
+        rangeStart: Number.isFinite(rangeStart) ? rangeStart : null,
+        rangeEnd: Number.isFinite(rangeEnd) ? rangeEnd : null,
+      };
+    }
+
+    function getChainSplitCurrentPeriodSignaling() {
+      const currentPeriod = Number(state.data?.metadata?.state?.current_period_index);
+      const rows = getBip110PeriodsForNodeView("legacy");
+      const row = rows.find((periodRow) => Number(periodRow?.period) === currentPeriod) || null;
+      if (!Number.isFinite(currentPeriod) || !row) {
+        return {
+          label: "Period Signaling",
+          labelHtml: "Period Signaling",
+          valueHtml: "-",
+        };
+      }
+
+      const signal = Number(row.signal_blocks || 0);
+      const elapsed = Number(row.elapsed_blocks || 0);
+      const periodSize = Number(state.data?.metadata?.chart?.period_size || 2016);
+      const denominator = Number.isFinite(elapsed) && elapsed > 0 ? elapsed : periodSize;
+      const percentText = Number.isFinite(periodSize) && periodSize > 0 ? pctLabel(signal, periodSize) : "0.0%";
+      return {
+        label: `Period ${currentPeriod.toLocaleString("en-US")} Signaling`,
+        labelHtml: `Period <span class="chain-split-period-num">${currentPeriod.toLocaleString("en-US")}</span> Signaling`,
+        valueHtml: `<span class="period-grid-signal-num">${signal.toLocaleString("en-US")}</span>/${denominator.toLocaleString("en-US")} (${percentText})`,
+      };
+    }
+
+    function formatChainSplitHeightKpi(height, referenceHeight) {
+      const h = Number(height);
+      const ref = Number(referenceHeight);
+      if (!Number.isFinite(h)) return "-";
+      const delta = Number.isFinite(ref) ? h - ref : 0;
+      const sign = delta >= 0 ? "+" : "";
+      return `${h.toLocaleString("en-US")} (${sign}${delta.toLocaleString("en-US")})`;
+    }
+
+    function getChainSplitMiner(block, nodeView = "legacy") {
+      const height = Number(block?.height);
+      const selectedMap = normalizeBip110NodeView(nodeView) === "bip110"
+        ? getBip110MinerMapForNodeView("bip110")
+        : getBip110LeaderboardMinerMap();
+      const fallbackMap = getBip110LeaderboardMinerMap();
+      const map = selectedMap && Object.keys(selectedMap).length ? selectedMap : fallbackMap;
+      const rawMiner = block?.miner || (Number.isFinite(height) && map ? map[String(height)] : null);
+      const miner = normalizeLeaderboardMiner(rawMiner);
+      const label = String(miner.name || "").trim() || "Loading...";
+      const safeSlug = /^[a-z0-9-]+$/.test(String(miner.slug || "")) ? String(miner.slug).toLowerCase() : "";
+      return {
+        label: label.length > 18 ? `${label.slice(0, 16)}...` : label,
+        slug: safeSlug,
+        iconSrc: safeSlug && !missingMinerIconSlugs.has(safeSlug)
+          ? `assets/mining-pools/${safeSlug}.svg`
+          : "assets/mining-pools/default.svg",
+      };
+    }
+
+    function formatChainSplitRelativeTime(blockTime) {
+      const timestamp = Number(blockTime);
+      if (!Number.isFinite(timestamp) || timestamp <= 0) return "Time loading";
+      const deltaMs = Date.now() - (timestamp * 1000);
+      const absMs = Math.abs(deltaMs);
+      const suffix = deltaMs >= 0 ? "ago" : "from now";
+      const minuteMs = 60 * 1000;
+      const hourMs = 60 * minuteMs;
+      const dayMs = 24 * hourMs;
+      if (absMs < minuteMs) return "just now";
+      if (absMs < hourMs) {
+        const minutes = Math.max(1, Math.round(absMs / minuteMs));
+        return `${minutes} minute${minutes === 1 ? "" : "s"} ${suffix}`;
+      }
+      if (absMs < dayMs) {
+        const hours = Math.max(1, Math.round(absMs / hourMs));
+        return `${hours} hour${hours === 1 ? "" : "s"} ${suffix}`;
+      }
+      const days = Math.max(1, Math.round(absMs / dayMs));
+      return `${days} day${days === 1 ? "" : "s"} ${suffix}`;
+    }
+
+    function getChainSplitFaceRows(block) {
+      const versionHex = formatBlockVersionHex(block?.version) || "Version loading";
+      const mode = Number(block?.is_signaling) === 1 ? "Signaling" : "Non-signaling";
+      return {
+        version: versionHex,
+        mode,
+        time: block?.is_demo ? "Demo" : formatChainSplitRelativeTime(block?.block_time),
+      };
+    }
+
+    function getChainSplitLayoutMetrics() {
+      const targetHeight = clamp(window.innerHeight - 220, 500, 760);
+      const scale = clamp(targetHeight / 690, 0.74, 1.1);
+      const scaled = (value) => Math.round(value * scale);
+      const cubeSize = scaled(146);
+      const cubeDepth = scaled(27);
+      const labelOffset = Math.max(13, Math.round(17 * scale));
+      const visibleHeight = Number(chainSplitContent?.clientHeight || 0);
+      const straightHeight = Number.isFinite(visibleHeight) && visibleHeight > 0
+        ? Math.max(scaled(490), Math.round(visibleHeight))
+        : scaled(490);
+      const straightY = Math.max(labelOffset + 2, Math.round((straightHeight / 2) - cubeDepth - (cubeSize / 2)));
+      return {
+        scale,
+        cubeSize,
+        cubeDepth,
+        labelOffset,
+        gap: scaled(200),
+        startX: Math.max(42, scaled(56)),
+        reservedHeight: scaled(690),
+        straightHeight,
+        straightY,
+        splitY: straightY,
+        bip110Y: straightY - scaled(130),
+        legacyY: straightY + scaled(130),
+      };
+    }
+
+    function getChainSplitPeriodBoundaryLabel(period) {
+      const p = Number(period);
+      if (p === 18) return "Mandatory Signaling Period";
+      if (p === 19) return "Latest Lock-In Period";
+      if (p === 20) return "Latest Activation Period";
+      return Number.isFinite(p) ? `Period ${p.toLocaleString("en-US")}` : "Period";
+    }
+
+    function renderChainSplitPeriodMarkers(positions, options = {}) {
+      if (!Array.isArray(positions) || positions.length < 2) return "";
+      const yTop = Number(options.yTop);
+      const yBottom = Number(options.yBottom);
+      const labelOffset = Number(options.labelOffset || 12);
+      const cubeSize = Number(options.cubeSize || 0);
+      const cubeDepth = Number(options.cubeDepth || 0);
+      if (!Number.isFinite(yTop) || !Number.isFinite(yBottom)) return "";
+      return positions
+        .slice(1)
+        .map((position, index) => {
+          const previous = positions[index];
+          const previousPeriod = Number(previous?.block?.period);
+          const nextPeriod = Number(position?.block?.period);
+          if (!Number.isFinite(previousPeriod) || !Number.isFinite(nextPeriod) || previousPeriod === nextPeriod) {
+            return "";
+          }
+          const previousX = Number(previous.x);
+          const nextX = Number(position.x);
+          const emptyGap = Math.max(0, nextX - previousX - cubeDepth - cubeSize);
+          const x = Math.round(nextX - (emptyGap / 2));
+          if (!Number.isFinite(x)) return "";
+          const label = getChainSplitPeriodBoundaryLabel(nextPeriod);
+          return `
+            <g class="chain-split-period-boundary-group">
+              <line class="chain-split-period-boundary" x1="${x}" y1="${yTop}" x2="${x}" y2="${yBottom}"></line>
+              <text class="chain-split-period-boundary-label" x="${x + labelOffset}" y="${yTop + labelOffset}" transform="rotate(90 ${x + labelOffset} ${yTop + labelOffset})">${escapeHtml(label)}</text>
+            </g>
+          `;
+        })
+        .join("");
+    }
+
+    function fitChainSplitFontSize(text, preferredSize, minSize, maxWidth, ratio = 0.68) {
+      const length = Math.max(1, String(text || "").length);
+      const width = Number(maxWidth);
+      const preferred = Number(preferredSize);
+      const minimum = Number(minSize);
+      if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(preferred)) {
+        return Math.max(Number.isFinite(minimum) ? minimum : 1, preferred || 1);
+      }
+      const fitSize = Math.floor(width / (length * ratio));
+      return Math.max(Number.isFinite(minimum) ? minimum : 1, Math.min(preferred, fitSize));
+    }
+
+    function renderChainSplitCube(block, x, y, options = {}) {
+      const height = Number(block?.height);
+      const size = options.size || 154;
+      const depth = options.depth || 28;
+      const frontX = x + depth;
+      const frontY = y + depth;
+      const labelX = x + size / 2;
+      const scale = Number(options.scale || 1);
+      const faceRows = getChainSplitFaceRows(block);
+      const miner = getChainSplitMiner(block, options.nodeView || "legacy");
+      const faceMaxWidth = size * 0.72;
+      const heightFontSize = fitChainSplitFontSize(
+        Number.isFinite(height) ? height.toLocaleString("en-US") : "",
+        Math.round(13 * scale),
+        10,
+        size * 0.96,
+        0.62
+      );
+      const faceVersionFontSize = fitChainSplitFontSize(faceRows.version, Math.round(13 * scale), 9, faceMaxWidth, 0.72);
+      const faceModeFontSize = fitChainSplitFontSize(faceRows.mode, Math.round(13 * scale), 9, faceMaxWidth, 0.68);
+      const faceTimeFontSize = fitChainSplitFontSize(faceRows.time, Math.round(12 * scale), 8, faceMaxWidth, 0.68);
+      const minerFontSize = fitChainSplitFontSize(miner?.label || "", Math.round(11.5 * scale), 8, size * 0.76, 0.62);
+      const minerIconSize = Math.max(9, Math.round(13 * scale));
+      const minerGap = Math.max(6, Math.round(8 * scale));
+      const labelOffset = Number(options.labelOffset) || Math.max(13, Math.round(17 * scale));
+      const labelY = y - labelOffset;
+      const minerY = frontY + size + labelOffset;
+      const classes = Number(block?.is_signaling) === 1
+        ? "chain-split-cube is-signaling"
+        : "chain-split-cube is-nonsignaling";
+      const minerLabelWidth = Math.min(size * 0.72, Math.max(28, miner.label.length * minerFontSize * 0.7));
+      const minerGroupCenterX = frontX + size / 2;
+      const minerStartX = minerGroupCenterX - ((minerIconSize + minerGap + minerLabelWidth) / 2);
+      const faceTextX = frontX + size / 2;
+      const front = `${frontX},${frontY} ${frontX + size},${frontY} ${frontX + size},${frontY + size} ${frontX},${frontY + size}`;
+      const top = `${x},${y} ${x + size},${y} ${frontX + size},${frontY} ${frontX},${frontY}`;
+      const side = `${x},${y} ${frontX},${frontY} ${frontX},${frontY + size} ${x},${y + size}`;
+      return `
+        <g class="${classes}" tabindex="0" role="button" aria-label="Open block ${Number.isFinite(height) ? height.toLocaleString("en-US") : ""}" data-height="${Number.isFinite(height) ? height : ""}" data-miner-slug="${escapeHtml(miner.slug)}">
+          <text class="chain-split-height-label" x="${labelX}" y="${labelY}" style="font-size:${heightFontSize}px">${Number.isFinite(height) ? height.toLocaleString("en-US") : ""}</text>
+          <polygon class="chain-split-cube-face chain-split-cube-top" points="${top}"></polygon>
+          <polygon class="chain-split-cube-face chain-split-cube-side" points="${side}"></polygon>
+          <polygon class="chain-split-cube-face chain-split-cube-front" points="${front}"></polygon>
+          <text class="chain-split-face-text" x="${faceTextX}" y="${frontY + size * 0.34}" style="font-size:${faceVersionFontSize}px">${escapeHtml(faceRows.version)}</text>
+          <text class="chain-split-face-text is-mode" x="${faceTextX}" y="${frontY + size * 0.52}" style="font-size:${faceModeFontSize}px">${escapeHtml(faceRows.mode)}</text>
+          <text class="chain-split-face-text is-time" x="${faceTextX}" y="${frontY + size * 0.70}" style="font-size:${faceTimeFontSize}px">${escapeHtml(faceRows.time)}</text>
+          <image class="chain-split-miner-icon" href="${escapeHtml(miner.iconSrc)}" x="${minerStartX}" y="${minerY - minerIconSize / 2}" width="${minerIconSize}" height="${minerIconSize}" style="width:${minerIconSize}px;height:${minerIconSize}px" aria-hidden="true"></image>
+          <text class="chain-split-miner-label" x="${minerStartX + minerIconSize + minerGap}" y="${minerY}" style="font-size:${minerFontSize}px">${escapeHtml(miner.label)}</text>
+        </g>
+      `;
+    }
+
+    function renderChainSplitPlaceholderCube(height, x, y, options = {}) {
+      const numericHeight = Number(height);
+      const size = options.size || 154;
+      const depth = options.depth || 28;
+      const scale = Number(options.scale || 1);
+      const frontX = x + depth;
+      const frontY = y + depth;
+      const labelX = x + size / 2;
+      const labelY = y - (Number(options.labelOffset) || Math.max(13, Math.round(17 * scale)));
+      const heightText = Number.isFinite(numericHeight) ? numericHeight.toLocaleString("en-US") : "";
+      const heightFontSize = fitChainSplitFontSize(heightText, Math.round(13 * scale), 10, size * 0.96, 0.62);
+      const front = `${frontX},${frontY} ${frontX + size},${frontY} ${frontX + size},${frontY + size} ${frontX},${frontY + size}`;
+      const top = `${x},${y} ${x + size},${y} ${frontX + size},${frontY} ${frontX},${frontY}`;
+      const side = `${x},${y} ${frontX},${frontY} ${frontX},${frontY + size} ${x},${y + size}`;
+      return `
+        <g class="chain-split-cube chain-split-placeholder-cube" aria-hidden="true">
+          <text class="chain-split-height-label" x="${labelX}" y="${labelY}" style="font-size:${heightFontSize}px">${heightText}</text>
+          <polygon class="chain-split-cube-face chain-split-cube-top" points="${top}"></polygon>
+          <polygon class="chain-split-cube-face chain-split-cube-side" points="${side}"></polygon>
+          <polygon class="chain-split-cube-face chain-split-cube-front" points="${front}"></polygon>
+        </g>
+      `;
+    }
+
+    function getChainSplitStageWidth(count, gap, startX, cubeSize, cubeDepth) {
+      const blockCount = Math.max(0, Number(count) || 0);
+      const spacing = Number(gap);
+      if (!Number.isFinite(spacing) || spacing <= 0) return 1120;
+      return Math.max(1120, startX + Math.max(0, blockCount - 1) * spacing + cubeSize + cubeDepth + spacing);
+    }
+
+    function getChainSplitScrollRange(rangeStart, rangeEnd, gap, startX, cubeSize, cubeDepth, options = {}) {
+      const start = Number(rangeStart);
+      const end = Number(rangeEnd);
+      const spacing = Number(gap);
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end < start || !Number.isFinite(spacing) || spacing <= 0) {
+        return null;
+      }
+      const scrollLeft = Number.isFinite(options.scrollLeft)
+        ? Number(options.scrollLeft)
+        : Number(chainSplitContent?.scrollLeft || 0);
+      const clientWidth = Number(chainSplitContent?.clientWidth || 1120);
+      const count = Math.floor(end - start + 1);
+      const firstVisibleIndex = Math.max(0, Math.floor((scrollLeft - startX) / spacing));
+      const lastVisibleIndex = Math.min(count - 1, Math.ceil((scrollLeft + clientWidth - startX) / spacing));
+      const detailStartIndex = Math.max(0, firstVisibleIndex - CHAIN_SPLIT_DETAIL_BUFFER_BLOCKS);
+      const detailEndIndex = Math.min(count - 1, lastVisibleIndex + CHAIN_SPLIT_DETAIL_BUFFER_BLOCKS);
+      const renderStartIndex = Math.max(0, detailStartIndex - CHAIN_SPLIT_PLACEHOLDER_BUFFER_BLOCKS);
+      const renderEndIndex = Math.min(count - 1, detailEndIndex + CHAIN_SPLIT_PLACEHOLDER_BUFFER_BLOCKS);
+      return {
+        count,
+        width: getChainSplitStageWidth(count, spacing, startX, cubeSize, cubeDepth),
+        firstVisibleIndex,
+        lastVisibleIndex,
+        detailStartIndex,
+        detailEndIndex,
+        renderStartIndex,
+        renderEndIndex,
+      };
+    }
+
+    function getChainSplitPeriodForHeight(height, nodeView = "legacy") {
+      const numericHeight = Number(height);
+      if (!Number.isFinite(numericHeight)) return null;
+      const periods = getBip110PeriodsForNodeView(nodeView);
+      return (Array.isArray(periods) ? periods : []).find((row) => {
+        const start = Number(row?.period_start_height);
+        const end = Number(row?.period_end_height);
+        return Number.isFinite(start) && Number.isFinite(end) && numericHeight >= start && numericHeight <= end;
+      }) || null;
+    }
+
+    function renderChainSplitVirtualMarkers(rangeStart, rangeEnd, range, metrics, nodeView = "legacy", xOffset = 0) {
+      if (!range) return "";
+      const periods = getBip110PeriodsForNodeView(nodeView);
+      const startHeight = Number(rangeStart);
+      const yTop = -1;
+      const yBottom = Number(metrics.straightHeight || 0) + 1;
+      const emptyGap = Math.max(0, metrics.gap - metrics.cubeDepth - metrics.cubeSize);
+      return (Array.isArray(periods) ? periods : [])
+        .map((period) => {
+          const periodStart = Number(period?.period_start_height);
+          const periodNumber = Number(period?.period);
+          if (!Number.isFinite(periodStart) || periodStart <= Number(rangeStart) || periodStart > Number(rangeEnd)) return "";
+          const boundaryIndex = periodStart - startHeight;
+          if (boundaryIndex < range.renderStartIndex || boundaryIndex > range.renderEndIndex + 1) return "";
+          const x = Math.round(metrics.startX + boundaryIndex * metrics.gap - (emptyGap / 2) - xOffset);
+          const label = getChainSplitPeriodBoundaryLabel(periodNumber);
+          const labelOffset = 12;
+          return `
+            <g class="chain-split-period-boundary-group">
+              <line class="chain-split-period-boundary" x1="${x}" y1="${yTop}" x2="${x}" y2="${yBottom}"></line>
+              <text class="chain-split-period-boundary-label" x="${x + labelOffset}" y="${yTop + labelOffset}" transform="rotate(90 ${x + labelOffset} ${yTop + labelOffset})">${escapeHtml(label)}</text>
+            </g>
+          `;
+        })
+        .join("");
+    }
+
+    function renderBip110ChainSplitOverlay(options = {}) {
+      if (!chainSplitContent) return;
+      const maxScrollBefore = Math.max(0, chainSplitContent.scrollWidth - chainSplitContent.clientWidth);
+      const shouldFollowLatest = !!options.forceFollowLatest || (
+        !options.suppressFollowLatest
+        && (maxScrollBefore <= 2 || Number(chainSplitContent.scrollLeft || 0) >= maxScrollBefore - 2)
+      );
+      const model = getChainSplitModel();
+      const legacyHeight = Number(model.legacyHeight);
+      const bip110Height = Number(model.bip110Height);
+      if (chainSplitLegacyHeightValue) {
+        chainSplitLegacyHeightValue.textContent = formatChainSplitHeightKpi(legacyHeight, bip110Height);
+      }
+      if (chainSplitBip110HeightValue) {
+        chainSplitBip110HeightValue.textContent = formatChainSplitHeightKpi(bip110Height, legacyHeight);
+      }
+      if (chainSplitStatusValue) {
+        const nodeSync = getNodeSyncStatus(state.data?.metadata || state.dynamicData?.metadata || {});
+        const demoOutOfSync = !!model.demoSplit;
+        const nodeSyncText = demoOutOfSync ? "Out-of-sync" : nodeSync.ok === true ? "In-sync" : nodeSync.ok === false ? "Out-of-sync" : "unknown";
+        const nodeSyncClass = demoOutOfSync ? "chip-value chip-value-alert" : nodeSync.ok === true ? "chip-value chip-value-ok" : nodeSync.ok === false ? "chip-value chip-value-alert" : "chip-value";
+        chainSplitStatusValue.textContent = nodeSyncText;
+        chainSplitStatusValue.className = nodeSyncClass;
+        if (chainSplitStatusValue.parentElement) {
+          setCustomTooltip(chainSplitStatusValue.parentElement, demoOutOfSync ? "Demo split mode is showing different legacy and BIP-110 branch tips." : nodeSync.tooltip);
+        }
+      }
+
+      const metrics = getChainSplitLayoutMetrics();
+      const {
+        cubeSize,
+        cubeDepth,
+        gap,
+        scale,
+        labelOffset,
+        startX,
+        reservedHeight,
+        straightHeight,
+        straightY,
+        splitY,
+        bip110Y,
+        legacyY,
+      } = metrics;
+      chainSplitContent.dataset.windowGap = String(gap);
+      chainSplitContent.dataset.canPageEarlier = model.canPageEarlier ? "1" : "0";
+      chainSplitContent.classList.toggle("is-split", !!model.splitDetected);
+      updateChainSplitScrollButtons();
+
+      if (model.splitDetected) {
+        const trunk = model.trunkBlocks || [];
+        const legacyBranch = model.legacyBranch || [];
+        const bip110Branch = model.bip110Branch || [];
+        if (!trunk.length && !legacyBranch.length && !bip110Branch.length) {
+          chainSplitContent.innerHTML = `<div class="chain-split-empty">No BIP-110 block data is available for the split view.</div>`;
+          return;
+        }
+
+        const trunkPositions = trunk.map((block, index) => ({
+          block,
+          nodeView: "legacy",
+          x: startX + index * gap,
+          y: splitY,
+        }));
+        const forkX = startX + Math.max(0, trunk.length - 1) * gap + gap;
+        const bip110Positions = bip110Branch.map((block, index) => ({
+          block,
+          nodeView: "bip110",
+          x: forkX + index * gap,
+          y: bip110Y,
+        }));
+        const legacyPositions = legacyBranch.map((block, index) => ({
+          block,
+          nodeView: "legacy",
+          x: forkX + index * gap,
+          y: legacyY,
+        }));
+        const allPositions = [...trunkPositions, ...bip110Positions, ...legacyPositions];
+        const longestTipX = allPositions.reduce((max, item) => Math.max(max, Number(item.x) || 0), startX);
+        const currentRightPad = cubeDepth + cubeSize + (gap * 2);
+        const width = Math.max(1120, longestTipX + currentRightPad);
+        const height = reservedHeight;
+        chainSplitContent.dataset.currentTipX = String(longestTipX);
+        chainSplitContent.dataset.currentRightPad = String(currentRightPad);
+        const cubes = allPositions.map((item) => renderChainSplitCube(item.block, item.x, item.y, { size: cubeSize, depth: cubeDepth, scale, labelOffset, nodeView: item.nodeView })).join("");
+        const markers = [
+          renderChainSplitPeriodMarkers(trunkPositions, { yTop: -1, yBottom: height + 1, cubeSize, cubeDepth }),
+          renderChainSplitPeriodMarkers(bip110Positions, { yTop: -1, yBottom: height + 1, cubeSize, cubeDepth }),
+          renderChainSplitPeriodMarkers(legacyPositions, { yTop: -1, yBottom: height + 1, cubeSize, cubeDepth }),
+        ].join("");
+        chainSplitContent.innerHTML = `<svg class="chain-split-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="BIP-110 chain split visualization">${cubes}${markers}</svg>`;
+        applyChainSplitPendingScrollAdjustment();
+        if (shouldFollowLatest) scrollChainSplitToLatest();
+        return;
+      }
+
+      const rangeStart = Number.isFinite(model.rangeStart) ? model.rangeStart : NaN;
+      const rangeEnd = Number.isFinite(model.rangeEnd) ? model.rangeEnd : NaN;
+      if (!Number.isFinite(rangeStart) || !Number.isFinite(rangeEnd) || rangeEnd < rangeStart) {
+        chainSplitContent.innerHTML = `<div class="chain-split-empty">No BIP-110 block data is available for the chain split view.</div>`;
+        return;
+      }
+      const viewportWidth = Math.max(980, Number(chainSplitContent.clientWidth || 0));
+      const totalBlockCount = Math.floor(rangeEnd - rangeStart + 1);
+      const currentTipX = startX + Math.max(0, totalBlockCount - 1) * gap;
+      const currentRightPad = cubeDepth + cubeSize + gap;
+      const targetStageWidth = getChainSplitStageWidth(totalBlockCount, gap, startX, cubeSize, cubeDepth);
+      const targetScrollLeft = shouldFollowLatest
+        ? clamp(currentTipX - (viewportWidth - currentRightPad), 0, Math.max(0, targetStageWidth - viewportWidth))
+        : Number(chainSplitContent.scrollLeft || 0);
+      const virtualRange = getChainSplitScrollRange(rangeStart, rangeEnd, gap, startX, cubeSize, cubeDepth, { scrollLeft: targetScrollLeft });
+      if (!virtualRange) {
+        chainSplitContent.innerHTML = `<div class="chain-split-empty">No BIP-110 block data is available for the chain split view.</div>`;
+        return;
+      }
+      const positions = [];
+      const localPad = Math.max(startX, gap);
+      const viewportLeft = targetScrollLeft;
+      const xOffset = Math.max(0, viewportLeft - localPad);
+      for (let index = virtualRange.renderStartIndex; index <= virtualRange.renderEndIndex; index += 1) {
+        const height = rangeStart + index;
+        const block = model.straightMap?.get(height);
+        const x = startX + index * gap - xOffset;
+        const detailLoaded = index >= virtualRange.detailStartIndex && index <= virtualRange.detailEndIndex && block;
+        positions.push({ height, block, x, y: straightY, detailLoaded });
+      }
+      const stageWidth = virtualRange.width;
+      const width = viewportWidth + localPad * 2;
+      const height = straightHeight;
+      chainSplitContent.dataset.currentTipX = String(currentTipX);
+      chainSplitContent.dataset.currentRightPad = String(currentRightPad);
+      const markers = renderChainSplitVirtualMarkers(rangeStart, rangeEnd, virtualRange, metrics, model.straightNodeView, xOffset);
+      const cubes = positions.map((item) => (
+        item.detailLoaded
+          ? renderChainSplitCube(item.block, item.x, item.y, { size: cubeSize, depth: cubeDepth, scale, labelOffset, nodeView: model.straightNodeView })
+          : renderChainSplitPlaceholderCube(item.height, item.x, item.y, { size: cubeSize, depth: cubeDepth, scale, labelOffset })
+      )).join("");
+      chainSplitContent.innerHTML = `<div class="chain-split-virtual-stage" style="width:${stageWidth}px;height:${height}px"><svg class="chain-split-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Latest BIP-110 signaling chain">${cubes}${markers}</svg></div>`;
+      if (shouldFollowLatest) scrollChainSplitToLatest();
+      applyChainSplitPendingScrollAdjustment();
+      updateChainSplitScrollButtons();
+    }
+
+    function applyChainSplitPendingScrollAdjustment() {
+      if (!chainSplitContent || !state.chainSplitScrollAdjustment) return;
+      const adjustment = state.chainSplitScrollAdjustment;
+      state.chainSplitScrollAdjustment = null;
+      requestAnimationFrame(() => {
+        state.chainSplitHandlingScroll = true;
+        const target = clamp(
+          Number(adjustment.scrollLeft || 0),
+          0,
+          Math.max(0, chainSplitContent.scrollWidth - chainSplitContent.clientWidth)
+        );
+        chainSplitContent.scrollLeft = target;
+        updateChainSplitScrollButtons();
+        requestAnimationFrame(() => {
+          state.chainSplitHandlingScroll = false;
+          updateChainSplitScrollButtons();
+        });
+      });
+    }
+
+    function scrollChainSplitToLatest() {
+      if (!chainSplitContent) return;
+      requestAnimationFrame(() => {
+        state.chainSplitHandlingScroll = true;
+        chainSplitContent.scrollLeft = getChainSplitLatestScrollLeft();
+        updateChainSplitScrollButtons();
+        requestAnimationFrame(() => {
+          renderBip110ChainSplitOverlay({ suppressFollowLatest: true });
+          chainSplitContent.scrollLeft = getChainSplitLatestScrollLeft();
+          state.chainSplitHandlingScroll = false;
+          updateChainSplitScrollButtons();
+        });
+      });
+    }
+
+    function handleChainSplitScroll() {
+      if (!chainSplitContent || state.chainSplitHandlingScroll) return;
+      updateChainSplitScrollButtons();
+      if (state.chainSplitRenderFrame) return;
+      state.chainSplitRenderFrame = requestAnimationFrame(() => {
+        state.chainSplitRenderFrame = null;
+        renderBip110ChainSplitOverlay();
+        updateChainSplitScrollButtons();
+      });
+    }
+
+    function snapChainSplitToLatest() {
+      state.chainSplitScrollAdjustment = null;
+      renderBip110ChainSplitOverlay();
+      scrollChainSplitToLatest();
+    }
+
+    function jumpChainSplitToPreviousPeriod() {
+      if (!chainSplitContent) return;
+      const target = getChainSplitPreviousPeriodBoundary();
+      if (!target) return;
+      state.chainSplitHandlingScroll = true;
+      chainSplitContent.scrollLeft = target.scrollLeft;
+      renderBip110ChainSplitOverlay();
+      chainSplitContent.scrollLeft = target.scrollLeft;
+      requestAnimationFrame(() => {
+        state.chainSplitHandlingScroll = false;
+        updateChainSplitScrollButtons();
+      });
+    }
+
+    async function openChainSplitOverlay() {
+      if (!chainSplitOverlay || !chainSplitDialog) return;
+      closePeriodGridOverlay();
+      closeLeaderboardOverlay();
+      closeMinerTimelineOverlay();
+      clearMobilePendingActivation();
+      hideTooltip();
+      hideCustomTooltip();
+      hidePeriodGridTooltip();
+      chainSplitOverlay.classList.add("is-loading");
+      chainSplitOverlay.classList.add("show");
+      chainSplitOverlay.setAttribute("aria-hidden", "false");
+      await waitForMinerTimelineFeedbackPaint();
+      if (!chainSplitOverlay.classList.contains("show")) return;
+      renderBip110ChainSplitOverlay({ forceFollowLatest: true });
+      chainSplitOverlay.classList.remove("is-loading");
+      chainSplitDialog.focus({ preventScroll: true });
+    }
+
     function closeLeaderboardOverlay() {
       if (!leaderboardOverlay) return;
       clearMobilePendingActivation();
@@ -5504,6 +6375,7 @@
       if (!leaderboardOverlay || !leaderboardDialog) return;
       closePeriodGridOverlay();
       closeMinerTimelineOverlay();
+      closeChainSplitOverlay();
       clearMobilePendingActivation();
       hideTooltip();
       hideCustomTooltip();
@@ -5938,6 +6810,10 @@
         hidePeriodGridTooltip();
         renderBip110MinerTimelineOverlay();
       }
+      if (isChainSplitOverlayOpen()) {
+        hidePeriodGridTooltip();
+        renderBip110ChainSplitOverlay();
+      }
     }
 
     function hasVisibleSelectedPanel(keys) {
@@ -5974,6 +6850,7 @@
       setCustomTooltip(periodGridBtn, "Show current 2,016-block period grid");
       setCustomTooltip(leaderboardBtn, "Show signaling miner leaderboard");
       setCustomTooltip(minerTimelineBtn, "Show miner signaling timeline");
+      setCustomTooltip(chainSplitBtn, "Show chain split view");
 
       stripes.addEventListener("change", () => {
         state.controls.stripes = stripes.checked;
@@ -6088,6 +6965,11 @@
         openMinerTimelineOverlay();
       });
 
+      chainSplitBtn?.addEventListener("click", () => {
+        if (!state.data) return;
+        openChainSplitOverlay();
+      });
+
       leaderboardWindowButtons.forEach((button) => {
         button.addEventListener("click", () => {
           const value = String(button.dataset.leaderboardWindow || "all");
@@ -6152,6 +7034,12 @@
       });
 
       window.addEventListener("keydown", handlePeriodGridModalKeydown, true);
+
+      window.addEventListener("resize", () => {
+        if (!isChainSplitOverlayOpen()) return;
+        renderBip110ChainSplitOverlay();
+        scrollChainSplitToLatest();
+      });
 
       const showPeriodGridLegendTooltip = (event) => {
         if (!periodGridLowActivityLegendItem || periodGridLowActivityLegendItem.hidden) return;
@@ -6351,6 +7239,94 @@
       minerTimelineClose?.addEventListener("click", () => {
         closeMinerTimelineOverlay();
       });
+
+      chainSplitOverlay?.addEventListener("mousemove", (event) => {
+        const cube = event.target instanceof Element
+          ? event.target.closest(".chain-split-cube")
+          : null;
+        if (!cube) {
+          hidePeriodGridTooltip();
+          return;
+        }
+        const content = String(cube.getAttribute("data-tooltip") || "").trim();
+        if (!content) {
+          hidePeriodGridTooltip();
+          return;
+        }
+        showPeriodGridTooltip(content, event.clientX, event.clientY, { constrainToGrid: false });
+      });
+
+      chainSplitOverlay?.addEventListener("mouseleave", () => {
+        hidePeriodGridTooltip();
+      });
+
+      chainSplitOverlay?.addEventListener("click", (event) => {
+        const cube = event.target instanceof Element
+          ? event.target.closest(".chain-split-cube")
+          : null;
+        if (cube) {
+          const height = Number(cube.getAttribute("data-height"));
+          if (Number.isFinite(height) && shouldDeferMobileActivation("chain-split-block", height)) {
+            const content = String(cube.getAttribute("data-tooltip") || "").trim();
+            if (content) {
+              showPeriodGridTooltip(content, event.clientX, event.clientY, { constrainToGrid: false });
+            }
+            return;
+          }
+          if (Number.isFinite(height)) {
+            window.open(`https://mempool.space/block/${height}`, "_blank", "noopener,noreferrer");
+          }
+          return;
+        }
+
+        if (event.target === chainSplitOverlay) {
+          clearMobilePendingActivation();
+          closeChainSplitOverlay();
+        }
+      });
+
+      chainSplitOverlay?.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          closeChainSplitOverlay();
+          return;
+        }
+
+        if (event.key !== "Enter" && event.key !== " ") return;
+        const cube = event.target instanceof Element
+          ? event.target.closest(".chain-split-cube")
+          : null;
+        if (!cube) return;
+        event.preventDefault();
+        const height = Number(cube.getAttribute("data-height"));
+        if (Number.isFinite(height)) {
+          window.open(`https://mempool.space/block/${height}`, "_blank", "noopener,noreferrer");
+        }
+      });
+
+      chainSplitClose?.addEventListener("click", () => {
+        closeChainSplitOverlay();
+      });
+
+      chainSplitContent?.addEventListener("scroll", handleChainSplitScroll, { passive: true });
+
+      chainSplitPeriodBack?.addEventListener("click", () => {
+        jumpChainSplitToPreviousPeriod();
+      });
+
+      chainSplitSnapLatest?.addEventListener("click", () => {
+        snapChainSplitToLatest();
+      });
+
+      chainSplitOverlay?.addEventListener("error", (event) => {
+        const image = event.target instanceof Element
+          ? event.target.closest(".chain-split-miner-icon")
+          : null;
+        if (!image) return;
+        const cube = image.closest(".chain-split-cube");
+        const slug = String(cube?.getAttribute("data-miner-slug") || "").trim().toLowerCase();
+        if (slug) missingMinerIconSlugs.add(slug);
+        image.setAttribute("href", "assets/mining-pools/default.svg");
+      }, true);
 
       resetDashboardButton?.addEventListener("click", () => {
         if (!state.preResetStateSnapshot && isDefaultState()) {
