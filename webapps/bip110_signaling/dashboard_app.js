@@ -467,6 +467,13 @@
       return BIP110_PANEL_KEYS.filter((key) => key === "bip110" ? state.controls.showLegacyNode : state.controls.showBip110Node);
     }
 
+    function getVisibleBip110PanelKeysFromDom() {
+      return BIP110_PANEL_KEYS.filter((key) => {
+        const panel = getPanelElement(key);
+        return panel && !panel.classList.contains("hidden");
+      });
+    }
+
     function getVisiblePanelKeys() {
       const keys = [];
       if (state.controls.showSegwit) keys.push("segwit");
@@ -3355,6 +3362,7 @@
     function updatePanelVisibility() {
       const prevCount = state.lastVisibleCount;
       const hasPriorVisibility = prevCount >= 0;
+      const previousBip110PanelKeys = hasPriorVisibility ? getVisibleBip110PanelKeysFromDom() : [];
       enforceNodePanelSelectionRules();
 
       if (hasPriorVisibility) {
@@ -3374,6 +3382,22 @@
       bip110NodePanel.classList.toggle("hidden", !(state.controls.showBip110 && state.controls.showBip110Node));
 
       const visibleCount = getVisiblePanelKeys().length;
+      const visibleBip110PanelKeys = getVisibleBip110PanelKeys();
+      if (hasPriorVisibility && previousBip110PanelKeys.length !== visibleBip110PanelKeys.length) {
+        if (previousBip110PanelKeys.length === 1 && visibleBip110PanelKeys.length === 2) {
+          const splitHeight = getEqualSplitPanelHeight(2);
+          visibleBip110PanelKeys.forEach((key) => {
+            setManualPanelHeight(key, splitHeight);
+            state.filledPanels[key] = false;
+            updateFillButtonState(key);
+          });
+        } else if (previousBip110PanelKeys.length === 2 && visibleBip110PanelKeys.length === 1) {
+          const [key] = visibleBip110PanelKeys;
+          clearManualPanelHeight(key);
+          state.filledPanels[key] = true;
+          updateFillButtonState(key);
+        }
+      }
       state.lastVisibleCount = visibleCount;
       syncPanelCheckboxes();
       syncSwapButtonEnabledState();
@@ -3474,6 +3498,11 @@
       state.manualPanelHeights[key] = clamped;
       state.manualPanelHeightRatios[key] = panelHeightPxToViewportRatio(clamped);
       return clamped;
+    }
+
+    function clearManualPanelHeight(key) {
+      state.manualPanelHeights[key] = null;
+      state.manualPanelHeightRatios[key] = null;
     }
 
     function applyManualPanelHeightFromRatio(key, ratio) {
@@ -3677,27 +3706,56 @@
       }
     }
 
+    function togglePanelFillMode(key) {
+      if (state.filledPanels[key]) compactSinglePanel(key);
+      else fillSinglePanelToViewportHeight(key);
+    }
+
+    function bindPanelFillButton(btn, key) {
+      if (!btn) return;
+      let lastTouchActivation = 0;
+      const activate = (event, fromTouch = false) => {
+        event?.stopPropagation?.();
+        if (event?.cancelable) event.preventDefault();
+        if (fromTouch) {
+          const now = Date.now();
+          if (now - lastTouchActivation < 180) return;
+          lastTouchActivation = now;
+        }
+        hideTooltip();
+        hideCustomTooltip();
+        clearMobilePendingActivation();
+        togglePanelFillMode(key);
+      };
+
+      btn.addEventListener("pointerdown", (event) => {
+        event.stopPropagation();
+      });
+      btn.addEventListener("touchstart", (event) => {
+        event.stopPropagation();
+      }, { passive: true });
+      btn.addEventListener("touchend", (event) => {
+        activate(event, true);
+      }, { passive: false });
+      btn.addEventListener("pointerup", (event) => {
+        if (event.pointerType === "touch" || event.pointerType === "pen") {
+          activate(event, true);
+        }
+      });
+      btn.addEventListener("click", (event) => {
+        if (Date.now() - lastTouchActivation < 700) {
+          event.stopPropagation();
+          if (event.cancelable) event.preventDefault();
+          return;
+        }
+        activate(event, false);
+      });
+    }
+
     function setupPanelFillButtons() {
-      if (segwitFillHeightBtn) {
-        segwitFillHeightBtn.addEventListener("click", () => {
-          if (state.filledPanels.segwit) compactSinglePanel("segwit");
-          else fillSinglePanelToViewportHeight("segwit");
-        });
-      }
-
-      if (bip110FillHeightBtn) {
-        bip110FillHeightBtn.addEventListener("click", () => {
-          if (state.filledPanels.bip110) compactSinglePanel("bip110");
-          else fillSinglePanelToViewportHeight("bip110");
-        });
-      }
-
-      if (bip110NodeFillHeightBtn) {
-        bip110NodeFillHeightBtn.addEventListener("click", () => {
-          if (state.filledPanels.bip110Node) compactSinglePanel("bip110Node");
-          else fillSinglePanelToViewportHeight("bip110Node");
-        });
-      }
+      bindPanelFillButton(segwitFillHeightBtn, "segwit");
+      bindPanelFillButton(bip110FillHeightBtn, "bip110");
+      bindPanelFillButton(bip110NodeFillHeightBtn, "bip110Node");
     }
 
     function setupPanelResizeHandles() {
