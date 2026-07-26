@@ -1349,11 +1349,24 @@
       background: var(--surface);
       overscroll-behavior: contain;
       scrollbar-width: thin;
+      cursor: grab;
+      touch-action: pan-y;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    .chain-split-content.is-dragging {
+      cursor: grabbing;
+    }
+
+    .chain-split-content.is-dragging .chain-split-cube {
+      cursor: grabbing;
     }
 
     .chain-split-content-wrap {
       position: relative;
       min-height: 0;
+      flex: 1 1 auto;
     }
 
     .chain-split-snap-latest,
@@ -1422,10 +1435,17 @@
     }
 
     .chain-split-virtual-stage .chain-split-svg {
-      position: sticky;
+      position: absolute;
       top: 0;
       left: 0;
       min-width: 0;
+    }
+
+    @media (max-width: 760px) {
+      .chain-split-content {
+        height: min(62vh, clamp(300px, calc(100vh - 245px), 520px));
+        max-height: min(62vh, clamp(300px, calc(100vh - 245px), 520px));
+      }
     }
 
     .chain-split-cube {
@@ -2752,7 +2772,7 @@
         <span class="period-grid-legend-item"><span class="period-grid-legend-swatch" aria-hidden="true"></span>Non-signaling</span>
       </div>
       <div class="chain-split-content-wrap">
-        <div class="chain-split-content" id="chainSplitContent" aria-label="BIP-110 chain split visualization"></div>
+        <div class="chain-split-content" id="chainSplitContent" aria-label="BIP-110 chain split visualization" data-no-dashboard-swipe></div>
         <button type="button" class="chain-split-period-back" id="chainSplitPeriodBack" aria-label="Jump chain split view to the previous signaling period" hidden>
           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
             <path d="M16 5l-7 7 7 7"></path>
