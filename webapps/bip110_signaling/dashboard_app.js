@@ -243,6 +243,7 @@
       minerTimelineSignalersFirst: true,
       chainSplitScrollAdjustment: null,
       chainSplitHandlingScroll: false,
+      chainSplitFollowLatest: true,
       controls: {
         stripes: true,
         stripesExplicit: false,
@@ -5618,14 +5619,15 @@
 
     function updateChainSplitSnapLatestButton() {
       if (!chainSplitSnapLatest) return;
-      const maxScrollLeft = chainSplitContent
-        ? Math.max(0, chainSplitContent.scrollWidth - chainSplitContent.clientWidth)
-        : 0;
-      const scrollLeft = Number(chainSplitContent?.scrollLeft || 0);
-      const latestScrollLeft = chainSplitContent ? getChainSplitLatestScrollLeft() : maxScrollLeft;
-      const currentBlockVisible = scrollLeft >= latestScrollLeft - 2;
-      const show = !currentBlockVisible;
+      const show = !isChainSplitAtLatest(0.5);
       chainSplitSnapLatest.hidden = !show;
+    }
+
+    function isChainSplitAtLatest(tolerance = 0.5) {
+      if (!chainSplitContent) return true;
+      const scrollLeft = Number(chainSplitContent.scrollLeft || 0);
+      const latestScrollLeft = getChainSplitLatestScrollLeft();
+      return Math.abs(scrollLeft - latestScrollLeft) <= tolerance;
     }
 
     function getChainSplitPreviousPeriodBoundary() {
@@ -5636,7 +5638,7 @@
       const periods = getBip110PeriodsForNodeView(model.straightNodeView);
       const starts = (Array.isArray(periods) ? periods : [])
         .map((period) => Number(period?.period_start_height))
-        .filter((height) => Number.isFinite(height) && height > model.rangeStart && height <= model.rangeEnd)
+        .filter((height) => Number.isFinite(height) && height >= model.rangeStart && height <= model.rangeEnd)
         .sort((a, b) => a - b);
       if (!starts.length) return null;
       const currentApproxHeight = model.rangeStart + Math.floor(Math.max(0, chainSplitContent.scrollLeft - metrics.startX) / metrics.gap);
@@ -6121,7 +6123,7 @@
         .map((period) => {
           const periodStart = Number(period?.period_start_height);
           const periodNumber = Number(period?.period);
-          if (!Number.isFinite(periodStart) || periodStart <= Number(rangeStart) || periodStart > Number(rangeEnd)) return "";
+          if (!Number.isFinite(periodStart) || periodStart < Number(rangeStart) || periodStart > Number(rangeEnd)) return "";
           const boundaryIndex = periodStart - startHeight;
           if (boundaryIndex < range.renderStartIndex || boundaryIndex > range.renderEndIndex + 1) return "";
           const x = Math.round(metrics.startX + boundaryIndex * metrics.gap - (emptyGap / 2) - xOffset);
@@ -6142,7 +6144,7 @@
       const maxScrollBefore = Math.max(0, chainSplitContent.scrollWidth - chainSplitContent.clientWidth);
       const shouldFollowLatest = !!options.forceFollowLatest || (
         !options.suppressFollowLatest
-        && (maxScrollBefore <= 2 || Number(chainSplitContent.scrollLeft || 0) >= maxScrollBefore - 2)
+        && (maxScrollBefore <= 2 || state.chainSplitFollowLatest === true)
       );
       const model = getChainSplitModel();
       const legacyHeight = Number(model.legacyHeight);
@@ -6220,6 +6222,7 @@
         const height = reservedHeight;
         chainSplitContent.dataset.currentTipX = String(longestTipX);
         chainSplitContent.dataset.currentRightPad = String(currentRightPad);
+        const preservedScrollLeft = Number(chainSplitContent.scrollLeft || 0);
         const cubes = allPositions.map((item) => renderChainSplitCube(item.block, item.x, item.y, { size: cubeSize, depth: cubeDepth, scale, labelOffset, nodeView: item.nodeView })).join("");
         const markers = [
           renderChainSplitPeriodMarkers(trunkPositions, { yTop: -1, yBottom: height + 1, cubeSize, cubeDepth }),
@@ -6229,6 +6232,9 @@
         chainSplitContent.innerHTML = `<svg class="chain-split-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="BIP-110 chain split visualization">${cubes}${markers}</svg>`;
         applyChainSplitPendingScrollAdjustment();
         if (shouldFollowLatest) scrollChainSplitToLatest();
+        else {
+          chainSplitContent.scrollLeft = clamp(preservedScrollLeft, 0, Math.max(0, chainSplitContent.scrollWidth - chainSplitContent.clientWidth));
+        }
         return;
       }
 
@@ -6273,8 +6279,18 @@
           ? renderChainSplitCube(item.block, item.x, item.y, { size: cubeSize, depth: cubeDepth, scale, labelOffset, nodeView: model.straightNodeView })
           : renderChainSplitPlaceholderCube(item.height, item.x, item.y, { size: cubeSize, depth: cubeDepth, scale, labelOffset })
       )).join("");
+      const preservedScrollLeft = targetScrollLeft;
       chainSplitContent.innerHTML = `<div class="chain-split-virtual-stage" style="width:${stageWidth}px;height:${height}px"><svg class="chain-split-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Latest BIP-110 signaling chain">${cubes}${markers}</svg></div>`;
+      chainSplitContent.dataset.virtualRenderScrollLeft = String(preservedScrollLeft);
       if (shouldFollowLatest) scrollChainSplitToLatest();
+      else {
+        state.chainSplitHandlingScroll = true;
+        chainSplitContent.scrollLeft = clamp(preservedScrollLeft, 0, Math.max(0, chainSplitContent.scrollWidth - chainSplitContent.clientWidth));
+        requestAnimationFrame(() => {
+          state.chainSplitHandlingScroll = false;
+          updateChainSplitScrollButtons();
+        });
+      }
       applyChainSplitPendingScrollAdjustment();
       updateChainSplitScrollButtons();
     }
@@ -6301,6 +6317,7 @@
 
     function scrollChainSplitToLatest() {
       if (!chainSplitContent) return;
+      state.chainSplitFollowLatest = true;
       requestAnimationFrame(() => {
         state.chainSplitHandlingScroll = true;
         chainSplitContent.scrollLeft = getChainSplitLatestScrollLeft();
@@ -6316,17 +6333,29 @@
 
     function handleChainSplitScroll() {
       if (!chainSplitContent || state.chainSplitHandlingScroll) return;
+      state.chainSplitFollowLatest = isChainSplitAtLatest(0.5);
       updateChainSplitScrollButtons();
+      const renderScrollLeft = Number(chainSplitContent.dataset.virtualRenderScrollLeft);
+      const gap = Number(chainSplitContent.dataset.windowGap || 0);
+      if (!chainSplitContent.classList.contains("is-split")
+        && Number.isFinite(renderScrollLeft)
+        && Number.isFinite(gap)
+        && gap > 0
+        && Math.abs(Number(chainSplitContent.scrollLeft || 0) - renderScrollLeft) < gap * 0.5) {
+        return;
+      }
       if (state.chainSplitRenderFrame) return;
       state.chainSplitRenderFrame = requestAnimationFrame(() => {
         state.chainSplitRenderFrame = null;
-        renderBip110ChainSplitOverlay();
+        state.chainSplitFollowLatest = isChainSplitAtLatest(0.5);
+        renderBip110ChainSplitOverlay({ suppressFollowLatest: !state.chainSplitFollowLatest });
         updateChainSplitScrollButtons();
       });
     }
 
     function snapChainSplitToLatest() {
       state.chainSplitScrollAdjustment = null;
+      state.chainSplitFollowLatest = true;
       renderBip110ChainSplitOverlay();
       scrollChainSplitToLatest();
     }
@@ -6354,6 +6383,7 @@
       hideTooltip();
       hideCustomTooltip();
       hidePeriodGridTooltip();
+      state.chainSplitFollowLatest = true;
       chainSplitOverlay.classList.add("is-loading");
       chainSplitOverlay.classList.add("show");
       chainSplitOverlay.setAttribute("aria-hidden", "false");
@@ -7037,8 +7067,7 @@
 
       window.addEventListener("resize", () => {
         if (!isChainSplitOverlayOpen()) return;
-        renderBip110ChainSplitOverlay();
-        scrollChainSplitToLatest();
+        renderBip110ChainSplitOverlay({ suppressFollowLatest: !state.chainSplitFollowLatest });
       });
 
       const showPeriodGridLegendTooltip = (event) => {
