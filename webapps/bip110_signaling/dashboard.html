@@ -587,6 +587,13 @@
       align-items: center;
       justify-content: center;
       padding: 0;
+      touch-action: manipulation;
+    }
+
+    .panel-fill-btn::before {
+      content: "";
+      position: absolute;
+      inset: -8px;
     }
 
     .panel-fill-btn:hover,
