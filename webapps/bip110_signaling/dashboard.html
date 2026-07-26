@@ -908,7 +908,8 @@
 
     .period-grid-btn,
     .leaderboard-btn,
-    .miner-timeline-btn {
+    .miner-timeline-btn,
+    .chain-split-btn {
       width: 24px;
       height: 24px;
       padding: 0;
@@ -924,7 +925,8 @@
 
     .period-grid-btn:hover,
     .leaderboard-btn:hover,
-    .miner-timeline-btn:hover {
+    .miner-timeline-btn:hover,
+    .chain-split-btn:hover {
       color: var(--signal);
       border-color: color-mix(in srgb, var(--signal) 55%, var(--line));
       background: var(--surface);
@@ -932,7 +934,8 @@
 
     .period-grid-btn svg,
     .leaderboard-btn svg,
-    .miner-timeline-btn svg {
+    .miner-timeline-btn svg,
+    .chain-split-btn svg {
       width: 14px;
       height: 14px;
       display: block;
@@ -943,9 +946,15 @@
       height: 19px;
     }
 
+    .chain-split-btn svg {
+      width: 20px;
+      height: 20px;
+    }
+
     .period-grid-overlay,
     .leaderboard-overlay,
-    .miner-timeline-overlay {
+    .miner-timeline-overlay,
+    .chain-split-overlay {
       position: fixed;
       inset: 0;
       z-index: 120;
@@ -962,13 +971,15 @@
 
     .period-grid-overlay.show,
     .leaderboard-overlay.show,
-    .miner-timeline-overlay.show {
+    .miner-timeline-overlay.show,
+    .chain-split-overlay.show {
       display: flex;
     }
 
     .period-grid-dialog,
     .leaderboard-dialog,
-    .miner-timeline-dialog {
+    .miner-timeline-dialog,
+    .chain-split-dialog {
       width: max-content;
       max-height: 90vh;
       max-width: min(92vw, 1220px);
@@ -994,13 +1005,22 @@
       flex-direction: column;
     }
 
-    .miner-timeline-overlay.is-loading .miner-timeline-dialog {
+    .chain-split-dialog {
+      width: min(96vw, 1600px);
+      max-width: min(96vw, 1600px);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .miner-timeline-overlay.is-loading .miner-timeline-dialog,
+    .chain-split-overlay.is-loading .chain-split-dialog {
       opacity: 0;
       visibility: hidden;
       pointer-events: none;
     }
 
-    .miner-timeline-opening-loader {
+    .miner-timeline-opening-loader,
+    .chain-split-opening-loader {
       position: fixed;
       inset: 0;
       display: none;
@@ -1010,7 +1030,8 @@
       z-index: 1;
     }
 
-    .miner-timeline-overlay.is-loading .miner-timeline-opening-loader {
+    .miner-timeline-overlay.is-loading .miner-timeline-opening-loader,
+    .chain-split-overlay.is-loading .chain-split-opening-loader {
       display: flex;
     }
 
@@ -1019,13 +1040,16 @@
     .leaderboard-dialog:focus,
     .leaderboard-dialog:focus-visible,
     .miner-timeline-dialog:focus,
-    .miner-timeline-dialog:focus-visible {
+    .miner-timeline-dialog:focus-visible,
+    .chain-split-dialog:focus,
+    .chain-split-dialog:focus-visible {
       outline: none;
     }
 
     .period-grid-header,
     .leaderboard-header,
-    .miner-timeline-header {
+    .miner-timeline-header,
+    .chain-split-header {
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
@@ -1041,7 +1065,8 @@
 
     .period-grid-kpis,
     .leaderboard-kpis,
-    .miner-timeline-kpis {
+    .miner-timeline-kpis,
+    .chain-split-kpis {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
@@ -1072,7 +1097,8 @@
 
     .period-grid-close,
     .leaderboard-close,
-    .miner-timeline-close {
+    .miner-timeline-close,
+    .chain-split-close {
       width: 30px;
       height: 30px;
       border-radius: 50%;
@@ -1092,14 +1118,16 @@
 
     .period-grid-close:hover,
     .leaderboard-close:hover,
-    .miner-timeline-close:hover {
+    .miner-timeline-close:hover,
+    .chain-split-close:hover {
       background: var(--surface-soft);
       color: var(--ink);
     }
 
     .period-grid-kpis .chip,
     .leaderboard-kpis .chip,
-    .miner-timeline-kpis .chip {
+    .miner-timeline-kpis .chip,
+    .chain-split-kpis .chip {
       font-size: 0.76rem;
       max-width: 100%;
       overflow: hidden;
@@ -1109,8 +1137,22 @@
 
     .period-grid-kpis .chip-value,
     .leaderboard-kpis .chip-value,
-    .miner-timeline-kpis .chip-value {
+    .miner-timeline-kpis .chip-value,
+    .chain-split-kpis .chip-value {
       color: var(--fg);
+    }
+
+    .chain-split-kpis .chip-value-ok {
+      color: var(--ok);
+    }
+
+    .chain-split-kpis .chip-value-alert {
+      color: var(--bad);
+    }
+
+    .chain-split-period-num {
+      color: var(--fg);
+      font-weight: 700;
     }
 
     .period-grid-legend {
@@ -1285,8 +1327,237 @@
 
     .period-grid-close:focus-visible,
     .leaderboard-close:focus-visible,
-    .miner-timeline-close:focus-visible {
+    .miner-timeline-close:focus-visible,
+    .chain-split-close:focus-visible {
       outline: none;
+    }
+
+    .chain-split-content {
+      overflow-x: auto;
+      overflow-y: hidden;
+      height: min(76vh, 760px);
+      max-height: min(76vh, 760px);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--surface);
+      overscroll-behavior: contain;
+      scrollbar-width: thin;
+    }
+
+    .chain-split-content-wrap {
+      position: relative;
+      min-height: 0;
+    }
+
+    .chain-split-snap-latest,
+    .chain-split-period-back {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+      background: color-mix(in srgb, var(--surface) 54%, transparent);
+      color: var(--fg);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      cursor: pointer;
+      backdrop-filter: blur(3px);
+      z-index: 3;
+    }
+
+    .chain-split-snap-latest {
+      right: 14px;
+    }
+
+    .chain-split-period-back {
+      left: 14px;
+    }
+
+    .chain-split-snap-latest[hidden],
+    .chain-split-period-back[hidden] {
+      display: none;
+    }
+
+    .chain-split-snap-latest:hover,
+    .chain-split-period-back:hover {
+      border-color: color-mix(in srgb, var(--signal) 58%, var(--line));
+      color: var(--signal);
+    }
+
+    .chain-split-snap-latest svg,
+    .chain-split-period-back svg {
+      width: 19px;
+      height: 19px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .chain-split-svg {
+      display: block;
+      width: auto;
+      min-width: 980px;
+      max-width: none;
+      height: auto;
+      color: var(--fg);
+      font-family: "IBM Plex Mono", monospace;
+    }
+
+    .chain-split-virtual-stage {
+      position: relative;
+      min-height: 100%;
+    }
+
+    .chain-split-virtual-stage .chain-split-svg {
+      position: sticky;
+      top: 0;
+      left: 0;
+      min-width: 0;
+    }
+
+    .chain-split-cube {
+      cursor: pointer;
+      outline: none;
+    }
+
+    .chain-split-cube-face {
+      stroke: none;
+      stroke-width: 0;
+      vector-effect: non-scaling-stroke;
+    }
+
+    .chain-split-cube.is-signaling {
+      --chain-split-cube-edge: #ff9800;
+    }
+
+    .chain-split-cube.is-nonsignaling {
+      --chain-split-cube-edge: #8b8f93;
+    }
+
+    .chain-split-cube.is-signaling .chain-split-cube-front {
+      fill: var(--signal);
+    }
+
+    .chain-split-cube.is-signaling .chain-split-cube-top {
+      fill: #3a2b20;
+    }
+
+    .chain-split-cube.is-signaling .chain-split-cube-side {
+      fill: #271d18;
+    }
+
+    .chain-split-cube.is-nonsignaling .chain-split-cube-front {
+      fill: var(--nonsignal);
+    }
+
+    .chain-split-cube.is-nonsignaling .chain-split-cube-top {
+      fill: #2a2d39;
+    }
+
+    .chain-split-cube.is-nonsignaling .chain-split-cube-side {
+      fill: #1c2029;
+    }
+
+    .chain-split-placeholder-cube {
+      pointer-events: none;
+      opacity: 0.42;
+    }
+
+    .chain-split-placeholder-cube .chain-split-cube-front {
+      fill: color-mix(in srgb, var(--muted) 30%, transparent);
+    }
+
+    .chain-split-placeholder-cube .chain-split-cube-top,
+    .chain-split-placeholder-cube .chain-split-cube-side {
+      fill: color-mix(in srgb, var(--muted) 18%, transparent);
+    }
+
+    .chain-split-cube:focus-visible .chain-split-cube-face {
+      filter: drop-shadow(0 0 0.8px var(--fg));
+    }
+
+    .chain-split-height-label {
+      fill: var(--fg);
+      font-weight: 700;
+      text-anchor: middle;
+      dominant-baseline: central;
+      paint-order: stroke;
+      stroke: var(--surface);
+      stroke-width: 4px;
+      stroke-linejoin: round;
+    }
+
+    .chain-split-miner-label {
+      fill: var(--fg);
+      font-weight: 700;
+      text-anchor: start;
+      dominant-baseline: central;
+      paint-order: stroke;
+      stroke: var(--surface);
+      stroke-width: 4px;
+      stroke-linejoin: round;
+    }
+
+    .chain-split-face-text {
+      fill: var(--fg);
+      font-weight: 700;
+      text-anchor: middle;
+      dominant-baseline: central;
+      pointer-events: none;
+    }
+
+    .chain-split-face-text.is-mode {
+      fill: var(--fg);
+    }
+
+    .chain-split-face-text.is-time {
+      font-size: 13px;
+      font-weight: 600;
+      opacity: 0.92;
+    }
+
+    .chain-split-branch-label {
+      fill: var(--muted);
+      font-size: 14px;
+      font-weight: 700;
+      dominant-baseline: middle;
+    }
+
+    .chain-split-branch-label.is-bip110 {
+      fill: var(--signal);
+    }
+
+    .chain-split-period-boundary {
+      stroke: color-mix(in srgb, var(--fg) 72%, var(--muted));
+      stroke-width: 1.6;
+      stroke-dasharray: 5 6;
+      opacity: 0.88;
+      vector-effect: non-scaling-stroke;
+    }
+
+    .chain-split-period-boundary-label {
+      fill: color-mix(in srgb, var(--fg) 78%, var(--muted));
+      font-size: 12px;
+      font-weight: 700;
+      text-anchor: start;
+      dominant-baseline: middle;
+      paint-order: stroke;
+      stroke: var(--surface);
+      stroke-width: 4px;
+      stroke-linejoin: round;
+    }
+
+    .chain-split-empty {
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.82rem;
+      padding: 18px;
     }
 
     .leaderboard-content {
@@ -2202,6 +2473,17 @@
               </g>
             </svg>
           </button>
+          <button type="button" class="chain-split-btn" id="chainSplitBtn" aria-label="Show BIP-110 chain split view" data-tooltip="Show chain split view">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <rect x="1.65" y="10.65" width="2.7" height="2.7" rx="0.3" fill="var(--nonsignal)"></rect>
+              <rect x="5.65" y="10.65" width="2.7" height="2.7" rx="0.3" fill="var(--nonsignal)"></rect>
+              <rect x="9.65" y="7.65" width="2.7" height="2.7" rx="0.3" fill="var(--signal)"></rect>
+              <rect x="13.65" y="7.65" width="2.7" height="2.7" rx="0.3" fill="var(--signal)"></rect>
+              <rect x="9.65" y="13.65" width="2.7" height="2.7" rx="0.3" fill="var(--nonsignal)"></rect>
+              <rect x="13.65" y="13.65" width="2.7" height="2.7" rx="0.3" fill="var(--nonsignal)"></rect>
+              <rect x="17.65" y="13.65" width="2.7" height="2.7" rx="0.3" fill="var(--nonsignal)"></rect>
+            </svg>
+          </button>
           <div class="info-popover" id="vizInfoPopover" role="tooltip">
             This dashboard focuses on miner signaling across each 2,016-block period for BIP-110. Bars show signaling vs non-signaling blocks, markers denote notable releases, and the threshold line tracks the BIP-110 activation target. SegWit signaling periods are included as a historical comparison panel when enabled.
           </div>
@@ -2443,6 +2725,38 @@
         <span class="period-grid-legend-item"><span class="period-grid-legend-swatch" aria-hidden="true"></span>Non-signaling</span>
       </div>
       <div class="miner-timeline-content" id="minerTimelineContent" aria-label="BIP-110 miner signaling timeline"></div>
+    </div>
+  </div>
+  <div class="chain-split-overlay" id="chainSplitOverlay" aria-hidden="true">
+    <div class="chain-split-opening-loader dashboard-ring-loader" id="chainSplitOpeningLoader" aria-live="polite" aria-label="Loading chain split view">
+      <span class="chart-loader-ring" aria-hidden="true"></span>
+    </div>
+    <div class="chain-split-dialog" id="chainSplitDialog" role="dialog" aria-modal="true" aria-label="BIP-110 chain split view" tabindex="-1">
+      <div class="chain-split-header">
+        <div class="chain-split-kpis">
+          <div class="chip"><span class="chip-label">Legacy &amp; BIP-110</span> <span class="chip-value" id="chainSplitStatusValue">-</span></div>
+          <div class="chip"><span class="chip-label">Legacy Height</span> <span class="chip-value" id="chainSplitLegacyHeightValue">-</span></div>
+          <div class="chip"><span class="chip-label">BIP-110 Height</span> <span class="chip-value" id="chainSplitBip110HeightValue">-</span></div>
+        </div>
+        <button id="chainSplitClose" type="button" class="chain-split-close" aria-label="Close chain split view">&times;</button>
+      </div>
+      <div class="period-grid-legend" aria-label="Block signaling legend">
+        <span class="period-grid-legend-item"><span class="period-grid-legend-swatch is-signaling" aria-hidden="true"></span>Signaling</span>
+        <span class="period-grid-legend-item"><span class="period-grid-legend-swatch" aria-hidden="true"></span>Non-signaling</span>
+      </div>
+      <div class="chain-split-content-wrap">
+        <div class="chain-split-content" id="chainSplitContent" aria-label="BIP-110 chain split visualization"></div>
+        <button type="button" class="chain-split-period-back" id="chainSplitPeriodBack" aria-label="Jump chain split view to the previous signaling period" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M16 5l-7 7 7 7"></path>
+          </svg>
+        </button>
+        <button type="button" class="chain-split-snap-latest" id="chainSplitSnapLatest" aria-label="Snap chain split view back to the current block" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M8 5l7 7-7 7"></path>
+          </svg>
+        </button>
+      </div>
     </div>
   </div>
   <div class="tooltip" id="periodGridTooltip"></div>
