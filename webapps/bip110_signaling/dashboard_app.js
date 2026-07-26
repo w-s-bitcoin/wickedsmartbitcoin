@@ -244,6 +244,7 @@
       chainSplitScrollAdjustment: null,
       chainSplitHandlingScroll: false,
       chainSplitFollowLatest: true,
+      chainSplitAgeTimer: null,
       controls: {
         stripes: true,
         stripesExplicit: false,
@@ -431,6 +432,10 @@
 
     function chartTypeForPanelKey(key) {
       return isBip110PanelKey(key) ? "bip110" : "segwit";
+    }
+
+    function nodeViewForPanelKey(key) {
+      return key === "bip110Node" ? "bip110" : "legacy";
     }
 
     function getPanelElement(key) {
@@ -1496,6 +1501,8 @@
       try {
         const periodGridWasFollowingDefault = isPeriodGridOverlayOpen()
           && getSelectedPeriodGridPeriod() === getDefaultPeriodGridPeriod();
+        const chainSplitWasFollowingLatest = isChainSplitOverlayOpen()
+          && (state.chainSplitFollowLatest === true || isChainSplitAtLatest(1));
         const latestSig = await fetchLatestBip110MetadataSignature();
         if (!latestSig || latestSig === state.dataSignature) {
           return;
@@ -1518,7 +1525,10 @@
 
         await loadAndApplyBlockDataPhased(loadToken, state.data.metadata, ["bip110", "bip110Node"], loadBuster);
         setStatus(state.data);
-        refreshOpenOverlays({ followDefaultPeriodGrid: periodGridWasFollowingDefault });
+        refreshOpenOverlays({
+          followDefaultPeriodGrid: periodGridWasFollowingDefault,
+          followLatestChainSplit: chainSplitWasFollowingLatest,
+        });
       } catch (err) {
         console.warn("Auto-refresh check failed:", err);
       } finally {
@@ -3962,7 +3972,7 @@
       lines.push(`Mode: ${mode}`);
       const miner = normalizeMinerTooltipData(data.miner);
       if (chartType === "bip110" || chartType === "segwit") {
-        lines.push(`Miner: ${miner.name || "Unavailable"}`);
+        lines.push(`Miner: ${miner.name || "Loading"}`);
         if (miner.slug) {
           lines.push(`MinerSlug: ${miner.slug}`);
         }
@@ -4659,6 +4669,7 @@
         cellEl.dataset.height = String(cell.height);
         cellEl.dataset.tooltip = cell.tooltip;
         cellEl.dataset.clickable = cell.clickable ? "1" : "0";
+        cellEl.dataset.nodeView = datasetKey === "bip110" ? normalizeBip110NodeView(state.periodGridNodeView) : "legacy";
         if (!cell.clickable) {
           cellEl.setAttribute("aria-disabled", "true");
         }
@@ -5417,7 +5428,7 @@
         const name = document.createElement("div");
         name.className = "miner-timeline-miner-name";
         name.textContent = row.pendingMinerAttribution && (row.name || "Unknown") === "Unknown"
-          ? "Loading..."
+          ? "Loading"
           : (row.name || "Unknown");
         minerText.appendChild(name);
         minerEl.appendChild(icon);
@@ -5437,6 +5448,7 @@
           latestMark.className = `miner-timeline-latest-block${Number(row.latestBlock?.is_signaling) === 1 ? " is-signaling" : ""}`;
           latestMark.dataset.tooltip = formatStripeTooltip(row.latestBlock, "bip110");
           latestMark.dataset.height = String(row.latestBlock.height);
+          latestMark.dataset.nodeView = normalizeBip110NodeView(state.minerTimelineNodeView);
           latestMark.setAttribute("aria-label", `Latest block ${Number(row.latestBlock.height).toLocaleString()}`);
           latestCell.appendChild(latestMark);
         }
@@ -5456,6 +5468,7 @@
           mark.style.left = `${MINER_TIMELINE_LEFT_PADDING_PX + (timelineIndex * cellSize)}px`;
           mark.dataset.tooltip = formatStripeTooltip(block, "bip110");
           mark.dataset.height = String(block.height);
+          mark.dataset.nodeView = normalizeBip110NodeView(state.minerTimelineNodeView);
           mark.setAttribute("aria-label", `Block ${Number(block.height).toLocaleString()}`);
           track.appendChild(mark);
         });
@@ -5528,6 +5541,7 @@
     function closeChainSplitOverlay() {
       if (!chainSplitOverlay) return;
       clearMobilePendingActivation();
+      stopChainSplitAgeTimer();
       chainSplitOverlay.classList.remove("show");
       chainSplitOverlay.classList.remove("is-loading");
       chainSplitOverlay.setAttribute("aria-hidden", "true");
@@ -5689,6 +5703,41 @@
       if (legacyHash && bip110HashAtLegacyHeight && legacyHash !== bip110HashAtLegacyHeight) return true;
       return String(sync.relation || "").toLowerCase().includes("split")
         || String(sync.relation || "").toLowerCase().includes("mismatch");
+    }
+
+    function shouldUseBip110BlockExplorer(height, nodeView = "legacy") {
+      const h = Number(height);
+      if (!Number.isFinite(h) || normalizeBip110NodeView(nodeView) !== "bip110") return false;
+
+      if (hasChainSplitDemoFlag()) {
+        const legacyTip = getLatestBlockHeight(state.data?.bip110Blocks || state.dynamicData?.bip110Blocks || []);
+        const bip110Tip = getLatestBlockHeight(state.data?.bip110NodeBlocks || state.dynamicData?.bip110NodeBlocks || []);
+        const common = Math.max(
+          Number.isFinite(legacyTip) ? legacyTip : -Infinity,
+          Number.isFinite(bip110Tip) ? bip110Tip : -Infinity
+        );
+        return Number.isFinite(common) && h > common;
+      }
+
+      const sync = getChainSplitSyncMeta();
+      if (!isChainSplitDetected(sync)) return false;
+      const common = Number(sync.latest_common_height);
+      return Number.isFinite(common) && h > common;
+    }
+
+    function getBlockExplorerUrl(height, nodeView = "legacy") {
+      const h = Number(height);
+      if (!Number.isFinite(h)) return "";
+      const baseUrl = shouldUseBip110BlockExplorer(h, nodeView)
+        ? "https://mempool.guide"
+        : "https://mempool.space";
+      return `${baseUrl}/block/${h}`;
+    }
+
+    function openBlockExplorer(height, nodeView = "legacy") {
+      const url = getBlockExplorerUrl(height, nodeView);
+      if (!url) return;
+      window.open(url, "_blank", "noopener,noreferrer");
     }
 
     function getChainSplitDemoBlock(height, options = {}) {
@@ -5864,7 +5913,9 @@
       const map = selectedMap && Object.keys(selectedMap).length ? selectedMap : fallbackMap;
       const rawMiner = block?.miner || (Number.isFinite(height) && map ? map[String(height)] : null);
       const miner = normalizeLeaderboardMiner(rawMiner);
-      const label = String(miner.name || "").trim() || "Loading...";
+      const label = hasUsableMinerAttribution(rawMiner)
+        ? String(miner.name || "").trim() || "Unknown"
+        : "Loading";
       const safeSlug = /^[a-z0-9-]+$/.test(String(miner.slug || "")) ? String(miner.slug).toLowerCase() : "";
       return {
         label: label.length > 18 ? `${label.slice(0, 16)}...` : label,
@@ -5895,6 +5946,26 @@
       }
       const days = Math.max(1, Math.round(absMs / dayMs));
       return `${days} day${days === 1 ? "" : "s"} ${suffix}`;
+    }
+
+    function updateChainSplitAgeLabels() {
+      if (!isChainSplitOverlayOpen() || !chainSplitContent) return;
+      chainSplitContent.querySelectorAll(".chain-split-face-text.is-time[data-block-time]").forEach((label) => {
+        const blockTime = Number(label.getAttribute("data-block-time"));
+        if (!Number.isFinite(blockTime) || blockTime <= 0) return;
+        label.textContent = formatChainSplitRelativeTime(blockTime);
+      });
+    }
+
+    function startChainSplitAgeTimer() {
+      if (state.chainSplitAgeTimer) return;
+      state.chainSplitAgeTimer = window.setInterval(updateChainSplitAgeLabels, 15000);
+    }
+
+    function stopChainSplitAgeTimer() {
+      if (!state.chainSplitAgeTimer) return;
+      window.clearInterval(state.chainSplitAgeTimer);
+      state.chainSplitAgeTimer = null;
     }
 
     function getChainSplitFaceRows(block) {
@@ -5992,11 +6063,16 @@
       const height = Number(block?.height);
       const size = options.size || 154;
       const depth = options.depth || 28;
+      const nodeView = normalizeBip110NodeView(options.nodeView || "legacy");
       const frontX = x + depth;
       const frontY = y + depth;
       const labelX = x + size / 2;
       const scale = Number(options.scale || 1);
       const faceRows = getChainSplitFaceRows(block);
+      const blockTime = Number(block?.block_time);
+      const timeAttrs = !block?.is_demo && Number.isFinite(blockTime) && blockTime > 0
+        ? ` data-block-time="${blockTime}"`
+        : "";
       const miner = getChainSplitMiner(block, options.nodeView || "legacy");
       const faceMaxWidth = size * 0.72;
       const heightFontSize = fitChainSplitFontSize(
@@ -6026,14 +6102,14 @@
       const top = `${x},${y} ${x + size},${y} ${frontX + size},${frontY} ${frontX},${frontY}`;
       const side = `${x},${y} ${frontX},${frontY} ${frontX},${frontY + size} ${x},${y + size}`;
       return `
-        <g class="${classes}" tabindex="0" role="button" aria-label="Open block ${Number.isFinite(height) ? height.toLocaleString("en-US") : ""}" data-height="${Number.isFinite(height) ? height : ""}" data-miner-slug="${escapeHtml(miner.slug)}">
+        <g class="${classes}" tabindex="0" role="button" aria-label="Open block ${Number.isFinite(height) ? height.toLocaleString("en-US") : ""}" data-height="${Number.isFinite(height) ? height : ""}" data-node-view="${nodeView}" data-miner-slug="${escapeHtml(miner.slug)}">
           <text class="chain-split-height-label" x="${labelX}" y="${labelY}" style="font-size:${heightFontSize}px">${Number.isFinite(height) ? height.toLocaleString("en-US") : ""}</text>
           <polygon class="chain-split-cube-face chain-split-cube-top" points="${top}"></polygon>
           <polygon class="chain-split-cube-face chain-split-cube-side" points="${side}"></polygon>
           <polygon class="chain-split-cube-face chain-split-cube-front" points="${front}"></polygon>
           <text class="chain-split-face-text" x="${faceTextX}" y="${frontY + size * 0.34}" style="font-size:${faceVersionFontSize}px">${escapeHtml(faceRows.version)}</text>
           <text class="chain-split-face-text is-mode" x="${faceTextX}" y="${frontY + size * 0.52}" style="font-size:${faceModeFontSize}px">${escapeHtml(faceRows.mode)}</text>
-          <text class="chain-split-face-text is-time" x="${faceTextX}" y="${frontY + size * 0.70}" style="font-size:${faceTimeFontSize}px">${escapeHtml(faceRows.time)}</text>
+          <text class="chain-split-face-text is-time" x="${faceTextX}" y="${frontY + size * 0.70}" style="font-size:${faceTimeFontSize}px"${timeAttrs}>${escapeHtml(faceRows.time)}</text>
           <image class="chain-split-miner-icon" href="${escapeHtml(miner.iconSrc)}" x="${minerStartX}" y="${minerY - minerIconSize / 2}" width="${minerIconSize}" height="${minerIconSize}" style="width:${minerIconSize}px;height:${minerIconSize}px" aria-hidden="true"></image>
           <text class="chain-split-miner-label" x="${minerStartX + minerIconSize + minerGap}" y="${minerY}" style="font-size:${minerFontSize}px">${escapeHtml(miner.label)}</text>
         </g>
@@ -6390,6 +6466,8 @@
       await waitForMinerTimelineFeedbackPaint();
       if (!chainSplitOverlay.classList.contains("show")) return;
       renderBip110ChainSplitOverlay({ forceFollowLatest: true });
+      updateChainSplitAgeLabels();
+      startChainSplitAgeTimer();
       chainSplitOverlay.classList.remove("is-loading");
       chainSplitDialog.focus({ preventScroll: true });
     }
@@ -6618,7 +6696,7 @@
         if (hit.type === "stripe") {
           const h = Number(hit.data.height);
           if (Number.isFinite(h)) {
-            window.open(`https://mempool.space/block/${h}`, "_blank", "noopener,noreferrer");
+            openBlockExplorer(h, nodeViewForPanelKey(key));
           }
           return;
         }
@@ -6798,8 +6876,8 @@
           key: "bip110Node",
           title: "Reduced Data Temporary Softfork (BIP-110) Signaling Periods",
           panelTag: "BIP-110: Knots v29",
-          periods: state.data.bip110Periods,
-          blocks: state.data.bip110Blocks,
+          periods: getBip110PeriodsForNodeView("bip110"),
+          blocks: getBip110BlocksForNodeView("bip110"),
           releases: state.data.bip110Releases,
           ticks: state.data.bip110Ticks,
           threshold: bipThreshold,
@@ -6842,7 +6920,10 @@
       }
       if (isChainSplitOverlayOpen()) {
         hidePeriodGridTooltip();
-        renderBip110ChainSplitOverlay();
+        if (options.followLatestChainSplit) {
+          state.chainSplitFollowLatest = true;
+        }
+        renderBip110ChainSplitOverlay({ forceFollowLatest: !!options.followLatestChainSplit });
       }
     }
 
@@ -7125,7 +7206,7 @@
               return;
             }
             if (Number.isFinite(height)) {
-              window.open(`https://mempool.space/block/${height}`, "_blank", "noopener,noreferrer");
+              openBlockExplorer(height, cell.getAttribute("data-node-view"));
             }
           }
           return;
@@ -7156,7 +7237,7 @@
         event.preventDefault();
         const height = Number(cell.getAttribute("data-height"));
         if (Number.isFinite(height)) {
-          window.open(`https://mempool.space/block/${height}`, "_blank", "noopener,noreferrer");
+          openBlockExplorer(height, cell.getAttribute("data-node-view"));
         }
       });
 
@@ -7236,7 +7317,7 @@
             return;
           }
           if (Number.isFinite(height)) {
-            window.open(`https://mempool.space/block/${height}`, "_blank", "noopener,noreferrer");
+            openBlockExplorer(height, mark.getAttribute("data-node-view"));
           }
           return;
         }
@@ -7261,7 +7342,7 @@
         event.preventDefault();
         const height = Number(mark.getAttribute("data-height"));
         if (Number.isFinite(height)) {
-          window.open(`https://mempool.space/block/${height}`, "_blank", "noopener,noreferrer");
+          openBlockExplorer(height, mark.getAttribute("data-node-view"));
         }
       });
 
@@ -7303,7 +7384,7 @@
             return;
           }
           if (Number.isFinite(height)) {
-            window.open(`https://mempool.space/block/${height}`, "_blank", "noopener,noreferrer");
+            openBlockExplorer(height, cube.getAttribute("data-node-view"));
           }
           return;
         }
@@ -7328,7 +7409,7 @@
         event.preventDefault();
         const height = Number(cube.getAttribute("data-height"));
         if (Number.isFinite(height)) {
-          window.open(`https://mempool.space/block/${height}`, "_blank", "noopener,noreferrer");
+          openBlockExplorer(height, cube.getAttribute("data-node-view"));
         }
       });
 
