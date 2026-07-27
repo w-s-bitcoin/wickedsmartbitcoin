@@ -138,6 +138,9 @@
       const shouldSuppressTooltipForAnchor = (anchor) => {
         if (isPeriodGridOverlayOpen() || isMinerTimelineOverlayOpen()) return true;
         if (!anchor) return true;
+        if (anchor instanceof Element && anchor.closest(".miner-timeline-chain-split-cube")) {
+          return true;
+        }
         if (!isMobileUiViewport()) return false;
         if (anchor instanceof Element && anchor.closest("#scriptBars .bar-stack-track")) {
           return false;
@@ -263,6 +266,7 @@
       mainChainSplitPendingScrollRender: false,
       mainChainSplitDrag: null,
       mainChainSplitSuppressClickUntil: 0,
+      mainChainSplitDataReady: false,
       controls: {
         stripes: true,
         stripesExplicit: false,
@@ -516,7 +520,7 @@
     }
 
     function isMainChainPanelVisible() {
-      return Boolean(state.controls.showMainChainView);
+      return Boolean(state.controls.showMainChainView && state.mainChainSplitDataReady);
     }
 
     function syncMainChainPanelVisibility() {
@@ -524,7 +528,7 @@
         mainChainSplitPanel.classList.toggle("hidden", !isMainChainPanelVisible());
       }
       if (mainChainViewToggle) {
-        mainChainViewToggle.checked = isMainChainPanelVisible();
+        mainChainViewToggle.checked = Boolean(state.controls.showMainChainView);
       }
     }
 
@@ -3500,12 +3504,26 @@
         ? (state.controls.panelsSwapped ? ["bip110Node", "bip110", "segwit"] : ["bip110", "bip110Node", "segwit"])
         : (state.controls.panelsSwapped ? ["bip110", "segwit", "bip110Node"] : ["segwit", "bip110", "bip110Node"]);
 
+      const orderedPanels = orderedKeys.map(getPanelElement).filter(Boolean);
       if (mainChainSplitPanel) {
-        mainWrap.appendChild(mainChainSplitPanel);
+        const chainBefore = dashboardLoader?.parentElement === mainWrap
+          ? dashboardLoader
+          : orderedPanels[0] || null;
+        if (chainBefore) {
+          mainWrap.insertBefore(mainChainSplitPanel, chainBefore);
+        } else {
+          mainWrap.appendChild(mainChainSplitPanel);
+        }
       }
-      orderedKeys.forEach((key) => {
-        const panel = getPanelElement(key);
-        if (!panel) return;
+      if (dashboardLoader) {
+        const loaderBefore = orderedPanels[0] || null;
+        if (loaderBefore) {
+          mainWrap.insertBefore(dashboardLoader, loaderBefore);
+        } else {
+          mainWrap.appendChild(dashboardLoader);
+        }
+      }
+      orderedPanels.forEach((panel) => {
         mainWrap.appendChild(panel);
       });
     }
@@ -4482,6 +4500,29 @@
 
     let activePeriodGridTooltipContent = "";
 
+    function getNonOverlappingTooltipPosition(tipW, tipH, avoidRect, bounds, gap = 12) {
+      if (!avoidRect || !bounds || !Number.isFinite(tipW) || !Number.isFinite(tipH)) return null;
+      const edgePad = 10;
+      const centerX = avoidRect.left + avoidRect.width / 2;
+      const centerY = avoidRect.top + avoidRect.height / 2;
+      const candidates = [
+        { left: avoidRect.right + gap, top: centerY - tipH / 2 },
+        { left: avoidRect.left - tipW - gap, top: centerY - tipH / 2 },
+        { left: centerX - tipW / 2, top: avoidRect.top - tipH - gap },
+        { left: centerX - tipW / 2, top: avoidRect.bottom + gap },
+      ].map((candidate) => ({
+        left: clamp(candidate.left, bounds.left + edgePad, bounds.right - tipW - edgePad),
+        top: clamp(candidate.top, bounds.top + edgePad, bounds.bottom - tipH - edgePad),
+      }));
+      const overlaps = (candidate) => (
+        candidate.left < avoidRect.right + gap
+        && candidate.left + tipW > avoidRect.left - gap
+        && candidate.top < avoidRect.bottom + gap
+        && candidate.top + tipH > avoidRect.top - gap
+      );
+      return candidates.find((candidate) => !overlaps(candidate)) || candidates[2] || null;
+    }
+
     function showPeriodGridTooltip(content, clientX, clientY, options = {}) {
       if (!periodGridTooltip || (!isPeriodGridOverlayOpen() && !isMinerTimelineOverlayOpen() && !isChainSplitOverlayOpen())) return;
       const normalizedContent = String(content || "");
@@ -4517,6 +4558,14 @@
 
       const tipW = periodGridTooltip.offsetWidth || 320;
       const tipH = periodGridTooltip.offsetHeight || 64;
+      const avoidPosition = getNonOverlappingTooltipPosition(tipW, tipH, options.avoidRect, bounds, 12);
+      if (avoidPosition) {
+        periodGridTooltip.style.left = `${avoidPosition.left}px`;
+        periodGridTooltip.style.top = `${avoidPosition.top}px`;
+        periodGridTooltip.style.transform = "none";
+        periodGridTooltip.classList.add("show");
+        return;
+      }
       const edgePad = 10;
       const yOffset = 14;
       const half = tipW / 2;
@@ -6106,14 +6155,18 @@
       return `${h.toLocaleString("en-US")} (${sign}${delta.toLocaleString("en-US")})`;
     }
 
-    function getChainSplitMiner(block, nodeView = "legacy") {
+    function getChainSplitRawMiner(block, nodeView = "legacy") {
       const height = Number(block?.height);
       const selectedMap = normalizeBip110NodeView(nodeView) === "bip110"
         ? getBip110MinerMapForNodeView("bip110")
         : getBip110LeaderboardMinerMap();
       const fallbackMap = getBip110LeaderboardMinerMap();
       const map = selectedMap && Object.keys(selectedMap).length ? selectedMap : fallbackMap;
-      const rawMiner = block?.miner || (Number.isFinite(height) && map ? map[String(height)] : null);
+      return block?.miner || (Number.isFinite(height) && map ? map[String(height)] : null);
+    }
+
+    function getChainSplitMiner(block, nodeView = "legacy") {
+      const rawMiner = getChainSplitRawMiner(block, nodeView);
       const miner = normalizeLeaderboardMiner(rawMiner);
       const label = hasUsableMinerAttribution(rawMiner)
         ? String(miner.name || "").trim() || "Unknown"
@@ -6126,6 +6179,14 @@
           ? `assets/mining-pools/${safeSlug}.svg`
           : "assets/mining-pools/default.svg",
       };
+    }
+
+    function formatChainSplitTooltip(block, nodeView = "legacy") {
+      const rawMiner = getChainSplitRawMiner(block, nodeView);
+      const tooltipBlock = hasUsableMinerAttribution(rawMiner)
+        ? { ...block, miner: normalizeMinerTooltipData(rawMiner) }
+        : block;
+      return formatStripeTooltip(tooltipBlock, "bip110");
     }
 
     function formatChainSplitRelativeTime(blockTime) {
@@ -6454,7 +6515,7 @@
       const top = `${x},${y} ${x + size},${y} ${frontX + size},${frontY} ${frontX},${frontY}`;
       const side = `${x},${y} ${frontX},${frontY} ${frontX},${frontY + size} ${x},${y + size}`;
       const front = `${frontX},${frontY} ${frontX + size},${frontY} ${frontX + size},${frontY + size} ${frontX},${frontY + size}`;
-      const tooltip = formatStripeTooltip(block, "bip110");
+      const tooltip = formatChainSplitTooltip(block, nodeView);
       return `
         <g class="${classes}" tabindex="0" role="button" data-height="${Number.isFinite(height) ? height : ""}" data-node-view="${nodeView}" data-miner-slug="${escapeHtml(miner.slug || "")}" data-tooltip="${escapeHtml(tooltip)}" aria-label="Open block ${Number.isFinite(height) ? height.toLocaleString("en-US") : ""}">
           <text class="miner-timeline-chain-split-height-label" x="${labelX}" y="${y - 8}">${Number.isFinite(height) ? height.toLocaleString("en-US") : ""}</text>
@@ -7701,7 +7762,7 @@
 
     let activeTooltipContent = "";
 
-    function showTooltip(content, clientX, clientY, boundsRect = null) {
+    function showTooltip(content, clientX, clientY, boundsRect = null, options = {}) {
       if (isPeriodGridOverlayOpen() || isMinerTimelineOverlayOpen()) {
         tooltip.classList.remove("show");
         return;
@@ -7739,6 +7800,14 @@
       tooltip.style.maxWidth = `${maxWidth}px`;
       const tipW = tooltip.offsetWidth || 320;
       const tipH = tooltip.offsetHeight || 0;
+      const avoidPosition = getNonOverlappingTooltipPosition(tipW, tipH, options.avoidRect, bounds, 12);
+      if (avoidPosition) {
+        tooltip.style.left = `${avoidPosition.left}px`;
+        tooltip.style.top = `${avoidPosition.top}px`;
+        tooltip.style.transform = "none";
+        tooltip.classList.add("show");
+        return;
+      }
       const half = tipW / 2;
       const clampedX = clamp(clientX, bounds.left + edgePad + half, bounds.right - edgePad - half);
       const offsetY = 14;
@@ -7897,6 +7966,9 @@
           setStatus(state.data);
         }
         await renderSelectedPanelsWithSharedLoader(key === "bip110" || key === "bip110Node" ? BIP110_PANEL_KEYS : [key]);
+        if ((key === "bip110" || key === "bip110Node") && isMainChainPanelVisible()) {
+          renderMainChainSplitPanel({ forceFollowLatest: true });
+        }
         await nextPaint();
       };
 
@@ -7915,6 +7987,16 @@
         }));
 
       await Promise.all(loadPromises);
+      if (datasetKeys.some((key) => key === "bip110" || key === "bip110Node")) {
+        state.mainChainSplitDataReady = true;
+        syncMainChainPanelVisibility();
+        applyPanelOrder();
+        applyDynamicPanelHeights();
+        setDashboardLoaderVisible(false);
+        renderMainChainSplitPanel({ forceFollowLatest: true });
+        renderSelectedPanels(PANEL_KEYS);
+        await nextPaint();
+      }
     }
 
     function cancelDeferredEnhancement(keys = ["segwit", "bip110"]) {
@@ -8467,7 +8549,11 @@
           hidePeriodGridTooltip();
           return;
         }
-        showPeriodGridTooltip(content, event.clientX, event.clientY, { constrainToGrid: false });
+        const isChainCube = mark.classList.contains("miner-timeline-chain-split-cube");
+        showPeriodGridTooltip(content, event.clientX, event.clientY, {
+          constrainToGrid: false,
+          avoidRect: isChainCube ? mark.getBoundingClientRect() : null,
+        });
       });
 
       minerTimelineOverlay?.addEventListener("mouseleave", () => {
@@ -8490,7 +8576,11 @@
           if (Number.isFinite(height) && shouldDeferMobileActivation("miner-timeline-block", height)) {
             const content = String(mark.getAttribute("data-tooltip") || "").trim();
             if (content) {
-              showPeriodGridTooltip(content, event.clientX, event.clientY, { constrainToGrid: false });
+              const isChainCube = mark.classList.contains("miner-timeline-chain-split-cube");
+              showPeriodGridTooltip(content, event.clientX, event.clientY, {
+                constrainToGrid: false,
+                avoidRect: isChainCube ? mark.getBoundingClientRect() : null,
+              });
             }
             return;
           }
@@ -8558,19 +8648,21 @@
           ? event.target.closest(".miner-timeline-chain-split-cube")
           : null;
         if (!cube) {
-          hidePeriodGridTooltip();
+          hideTooltip();
           return;
         }
         const content = String(cube.getAttribute("data-tooltip") || "").trim();
         if (!content) {
-          hidePeriodGridTooltip();
+          hideTooltip();
           return;
         }
-        showPeriodGridTooltip(content, event.clientX, event.clientY, { constrainToGrid: false });
+        showTooltip(content, event.clientX, event.clientY, mainChainSplit.getBoundingClientRect(), {
+          avoidRect: cube.getBoundingClientRect(),
+        });
       });
 
       mainChainSplit?.addEventListener("mouseleave", () => {
-        hidePeriodGridTooltip();
+        hideTooltip();
       });
 
       mainChainSplit?.addEventListener("click", (event) => {
@@ -8627,7 +8719,10 @@
           hidePeriodGridTooltip();
           return;
         }
-        showPeriodGridTooltip(content, event.clientX, event.clientY, { constrainToGrid: false });
+        showPeriodGridTooltip(content, event.clientX, event.clientY, {
+          constrainToGrid: false,
+          avoidRect: cube.getBoundingClientRect(),
+        });
       });
 
       chainSplitOverlay?.addEventListener("mouseleave", () => {
@@ -8648,7 +8743,10 @@
           if (Number.isFinite(height) && shouldDeferMobileActivation("chain-split-block", height)) {
             const content = String(cube.getAttribute("data-tooltip") || "").trim();
             if (content) {
-              showPeriodGridTooltip(content, event.clientX, event.clientY, { constrainToGrid: false });
+              showPeriodGridTooltip(content, event.clientX, event.clientY, {
+                constrainToGrid: false,
+                avoidRect: cube.getBoundingClientRect(),
+              });
             }
             return;
           }
