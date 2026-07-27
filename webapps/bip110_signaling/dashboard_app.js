@@ -7382,9 +7382,6 @@
         const nodeSyncClass = demoOutOfSync ? "chip-value chip-value-alert" : nodeSync.ok === true ? "chip-value chip-value-ok" : nodeSync.ok === false ? "chip-value chip-value-alert" : "chip-value";
         chainSplitStatusValue.textContent = nodeSyncText;
         chainSplitStatusValue.className = nodeSyncClass;
-        if (chainSplitStatusValue.parentElement) {
-          setCustomTooltip(chainSplitStatusValue.parentElement, demoOutOfSync ? "Demo split mode is showing different legacy and BIP-110 branch tips." : nodeSync.tooltip);
-        }
       }
 
       const metrics = getChainSplitLayoutMetrics();
