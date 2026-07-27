@@ -1008,6 +1008,7 @@
     .miner-timeline-dialog {
       width: min(96vw, 1600px);
       max-width: min(96vw, 1600px);
+      max-height: calc(100vh - var(--modal-controls-clearance, 0px) - clamp(16px, 3vw, 34px) - clamp(16px, 3vw, 34px));
       display: flex;
       flex-direction: column;
     }
@@ -1350,7 +1351,7 @@
       overscroll-behavior: contain;
       scrollbar-width: thin;
       cursor: grab;
-      touch-action: pan-y;
+      touch-action: none;
       user-select: none;
       -webkit-user-select: none;
     }
@@ -1647,13 +1648,19 @@
       cursor: pointer;
     }
 
+    .miner-timeline-miner-filter-controls.is-temporarily-hidden {
+      display: none;
+    }
+
     .miner-timeline-content {
       --miner-timeline-cell-size: 0.45px;
       --miner-timeline-row-height: 28px;
       --miner-timeline-left-padding: 12px;
       --miner-timeline-right-padding: 6px;
+      flex: 1 1 auto;
+      min-height: 0;
       overflow: auto;
-      max-height: min(70vh, 680px);
+      max-height: none;
       border: 1px solid var(--line);
       border-radius: 10px;
       background: var(--surface);
@@ -1884,6 +1891,211 @@
     .miner-timeline-latest-block:focus-visible {
       outline: 1px solid var(--fg);
       outline-offset: 2px;
+    }
+
+    .miner-timeline-chain-split {
+      display: block;
+      flex: 0 0 190px;
+      height: 190px;
+      min-height: 190px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--surface);
+      scrollbar-width: thin;
+      cursor: grab;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    .miner-timeline-chain-split-wrap {
+      position: relative;
+      flex: 0 0 190px;
+      margin-top: 8px;
+      min-height: 190px;
+    }
+
+    .miner-timeline-chain-split-wrap[hidden] {
+      display: none;
+    }
+
+    .main-chain-split-panel {
+      display: block;
+      height: 190px;
+      min-height: 0;
+      padding: 0;
+    }
+
+    .main-chain-split-panel.hidden {
+      display: none;
+    }
+
+    .main-chain-split-panel .miner-timeline-chain-split-wrap {
+      display: block;
+      height: 190px;
+      margin-top: 0;
+      min-height: 190px;
+    }
+
+    .main-chain-split-panel .miner-timeline-chain-split {
+      height: 190px;
+      min-height: 190px;
+    }
+
+    .miner-timeline-chain-split.is-dragging {
+      cursor: grabbing;
+    }
+
+    .miner-timeline-chain-split.is-dragging .miner-timeline-chain-split-cube {
+      cursor: grabbing;
+    }
+
+    .miner-timeline-chain-split-svg {
+      display: block;
+      width: auto;
+      max-width: none;
+      height: auto;
+      color: var(--fg);
+      font-family: "IBM Plex Mono", monospace;
+    }
+
+    .miner-timeline-chain-split-cube {
+      cursor: pointer;
+      outline: none;
+    }
+
+    .miner-timeline-chain-split-cube-face {
+      stroke: none;
+      vector-effect: non-scaling-stroke;
+    }
+
+    .miner-timeline-chain-split-cube.is-signaling .miner-timeline-chain-split-cube-front {
+      fill: var(--signal);
+    }
+
+    .miner-timeline-chain-split-cube.is-signaling .miner-timeline-chain-split-cube-top {
+      fill: color-mix(in srgb, var(--signal) 74%, #1d1f2a);
+    }
+
+    .miner-timeline-chain-split-cube.is-signaling .miner-timeline-chain-split-cube-side {
+      fill: color-mix(in srgb, var(--signal) 38%, #10131c);
+    }
+
+    .miner-timeline-chain-split-cube.is-nonsignaling .miner-timeline-chain-split-cube-front {
+      fill: var(--nonsignal);
+    }
+
+    .miner-timeline-chain-split-cube.is-nonsignaling .miner-timeline-chain-split-cube-top {
+      fill: #2a2d39;
+    }
+
+    .miner-timeline-chain-split-cube.is-nonsignaling .miner-timeline-chain-split-cube-side {
+      fill: #1a1e2a;
+    }
+
+    .miner-timeline-chain-split-placeholder-cube .miner-timeline-chain-split-cube-front {
+      fill: color-mix(in srgb, var(--future) 70%, transparent);
+    }
+
+    .miner-timeline-chain-split-placeholder-cube .miner-timeline-chain-split-cube-top,
+    .miner-timeline-chain-split-placeholder-cube .miner-timeline-chain-split-cube-side {
+      fill: color-mix(in srgb, #2a2d39 72%, transparent);
+    }
+
+    .miner-timeline-chain-split-height-label {
+      fill: var(--fg);
+      text-anchor: middle;
+      dominant-baseline: middle;
+      font-weight: 800;
+      pointer-events: none;
+    }
+
+    .miner-timeline-chain-split-height-label {
+      font-size: 9px;
+    }
+
+    .miner-timeline-chain-split-miner-icon {
+      pointer-events: none;
+    }
+
+    .miner-timeline-chain-split-period-boundary {
+      stroke: color-mix(in srgb, var(--fg) 62%, var(--muted));
+      stroke-width: 1.2;
+      stroke-dasharray: 4 5;
+      opacity: 0.82;
+      vector-effect: non-scaling-stroke;
+    }
+
+    .miner-timeline-chain-split-period-boundary-label {
+      fill: var(--fg);
+      font-size: 9px;
+      font-weight: 800;
+      text-anchor: start;
+      dominant-baseline: middle;
+      pointer-events: none;
+    }
+
+    .miner-timeline-chain-split-virtual-stage {
+      position: relative;
+      min-height: 100%;
+    }
+
+    .miner-timeline-chain-split-virtual-stage .miner-timeline-chain-split-svg {
+      position: absolute;
+      top: 0;
+      left: 0;
+      min-width: 0;
+    }
+
+    .miner-timeline-chain-split-snap-latest,
+    .miner-timeline-chain-split-period-back {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+      background: color-mix(in srgb, var(--surface) 54%, transparent);
+      color: var(--fg);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      cursor: pointer;
+      backdrop-filter: blur(3px);
+      z-index: 3;
+    }
+
+    .miner-timeline-chain-split-period-back {
+      left: 12px;
+    }
+
+    .miner-timeline-chain-split-snap-latest {
+      right: 12px;
+    }
+
+    .miner-timeline-chain-split-snap-latest[hidden],
+    .miner-timeline-chain-split-period-back[hidden] {
+      display: none;
+    }
+
+    .miner-timeline-chain-split-snap-latest:hover,
+    .miner-timeline-chain-split-period-back:hover {
+      border-color: color-mix(in srgb, var(--signal) 58%, var(--line));
+      color: var(--signal);
+    }
+
+    .miner-timeline-chain-split-snap-latest svg,
+    .miner-timeline-chain-split-period-back svg {
+      width: 17px;
+      height: 17px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
     }
 
     .leaderboard-window-controls {
@@ -2366,6 +2578,18 @@
         display: none;
       }
 
+      .miner-timeline-content {
+        max-height: min(70vh, 680px);
+      }
+
+      .miner-timeline-dialog .miner-timeline-chain-split-wrap {
+        display: none;
+      }
+
+      .miner-timeline-chain-view-toggle {
+        display: none;
+      }
+
       .leaderboard-window-btn-label-full {
         display: none;
       }
@@ -2571,6 +2795,7 @@
         </div>
         <label class="toggle" for="toggleMarkers"><input type="checkbox" id="toggleMarkers" checked /> Release markers</label>
         <label class="toggle" for="toggleLabels"><input type="checkbox" id="toggleLabels" checked /> Percentage labels</label>
+        <label class="toggle" for="toggleMainChainView"><input type="checkbox" id="toggleMainChainView" /> Show chain</label>
       </div>
     </section>
 
@@ -2578,6 +2803,22 @@
       <div class="circle" aria-hidden="true"></div>
       <div class="label">Loading signaling charts...</div>
     </div>
+
+    <section class="card main-chain-split-panel hidden" id="mainChainSplitPanel">
+      <div class="miner-timeline-chain-split-wrap" id="mainChainSplitWrap">
+        <div class="miner-timeline-chain-split" id="mainChainSplit" aria-label="BIP-110 chain preview" data-no-dashboard-swipe></div>
+        <button type="button" class="miner-timeline-chain-split-period-back" id="mainChainSplitPeriodBack" aria-label="Jump chain preview to the previous signaling period" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M16 5l-7 7 7 7"></path>
+          </svg>
+        </button>
+        <button type="button" class="miner-timeline-chain-split-snap-latest" id="mainChainSplitSnapLatest" aria-label="Snap chain preview back to the current block" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M8 5l7 7-7 7"></path>
+          </svg>
+        </button>
+      </div>
+    </section>
 
     <section class="card hidden" id="segwitPanel">
       <div class="canvas-box" id="segwitCanvasBox">
@@ -2723,7 +2964,7 @@
             <button type="button" class="leaderboard-window-btn" data-miner-timeline-window="past24h" aria-pressed="false">24H</button>
           </div>
         </div>
-        <div class="leaderboard-window-controls" role="group" aria-label="Miner timeline miner filter">
+        <div class="leaderboard-window-controls miner-timeline-miner-filter-controls is-temporarily-hidden" role="group" aria-label="Miner timeline miner filter">
           <span class="leaderboard-window-label">Miners</span>
           <div class="leaderboard-window-button-panel">
             <button type="button" class="leaderboard-window-btn is-active" data-miner-timeline-miners="all" aria-pressed="true">All</button>
@@ -2742,6 +2983,10 @@
           <input id="minerTimelineSignalersFirst" type="checkbox" checked />
           Signaling miners on top
         </label>
+        <label class="miner-timeline-order-toggle miner-timeline-chain-view-toggle" for="minerTimelineShowChainView">
+          <input id="minerTimelineShowChainView" type="checkbox" checked />
+          Show chain
+        </label>
         <div class="miner-timeline-kpis">
           <div class="chip leaderboard-kpi"><span class="chip-label">Height Range</span> <span class="chip-value" id="minerTimelineRangeValue">-</span></div>
           <div class="chip leaderboard-kpi"><span class="chip-label">Signaling</span> <span class="chip-value" id="minerTimelineSignalValue">-</span></div>
@@ -2752,6 +2997,19 @@
         <span class="period-grid-legend-item"><span class="period-grid-legend-swatch" aria-hidden="true"></span>Non-signaling</span>
       </div>
       <div class="miner-timeline-content" id="minerTimelineContent" aria-label="BIP-110 miner signaling timeline"></div>
+      <div class="miner-timeline-chain-split-wrap" id="minerTimelineChainSplitWrap">
+        <div class="miner-timeline-chain-split" id="minerTimelineChainSplit" aria-label="BIP-110 chain split preview" data-no-dashboard-swipe></div>
+        <button type="button" class="miner-timeline-chain-split-period-back" id="minerTimelineChainSplitPeriodBack" aria-label="Jump timeline chain preview to the previous signaling period" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M16 5l-7 7 7 7"></path>
+          </svg>
+        </button>
+        <button type="button" class="miner-timeline-chain-split-snap-latest" id="minerTimelineChainSplitSnapLatest" aria-label="Snap timeline chain preview back to the current block" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M8 5l7 7-7 7"></path>
+          </svg>
+        </button>
+      </div>
     </div>
   </div>
   <div class="chain-split-overlay" id="chainSplitOverlay" aria-hidden="true">
