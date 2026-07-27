@@ -1572,6 +1572,7 @@
       if (state.refreshInFlight) return;
 
       state.refreshInFlight = true;
+      let dashboardLoaderShown = false;
       try {
         const periodGridWasFollowingDefault = isPeriodGridOverlayOpen()
           && getSelectedPeriodGridPeriod() === getDefaultPeriodGridPeriod();
@@ -1579,13 +1580,13 @@
           && (state.chainSplitFollowLatest === true || isChainSplitAtLatest(1));
         const latestSig = await fetchLatestBip110MetadataSignature();
         if (!latestSig || latestSig === state.dataSignature) {
+          state.refreshInFlight = false;
           return;
         }
 
         setControlsEnabled(false);
         const loadBuster = Date.now();
         const loadToken = ++state.phasedLoadToken;
-        let dashboardLoaderShown = false;
         state.dynamicData = await loadDynamicData(loadBuster, null, null, state.dynamicData);
         state.data = buildCombinedData(state.staticData, state.dynamicData, state.data);
         state.dataSignature = state.dynamicData.signature || getDataSignature(state.dynamicData.metadata);
