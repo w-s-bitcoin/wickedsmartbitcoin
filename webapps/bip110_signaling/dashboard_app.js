@@ -1585,6 +1585,7 @@
         setControlsEnabled(false);
         const loadBuster = Date.now();
         const loadToken = ++state.phasedLoadToken;
+        let dashboardLoaderShown = false;
         state.dynamicData = await loadDynamicData(loadBuster, null, null, state.dynamicData);
         state.data = buildCombinedData(state.staticData, state.dynamicData, state.data);
         state.dataSignature = state.dynamicData.signature || getDataSignature(state.dynamicData.metadata);
@@ -1595,9 +1596,14 @@
         hideTooltip();
         await nextPaint();
         if (loadToken !== state.phasedLoadToken) return;
-        await renderSelectedPanelsWithSharedLoader(BIP110_PANEL_KEYS);
+        if (hasVisibleSelectedPanel(BIP110_PANEL_KEYS) || isMainChainPanelVisible()) {
+          dashboardLoaderShown = true;
+          setDashboardLoaderVisible(true);
+          await nextPaint();
+        }
 
-        await loadAndApplyBlockDataPhased(loadToken, state.data.metadata, ["bip110", "bip110Node"], loadBuster);
+        await loadAndApplyBlockDataPhased(loadToken, state.data.metadata, ["bip110", "bip110Node"], loadBuster, { renderAfterEach: false });
+        if (loadToken !== state.phasedLoadToken) return;
         setStatus(state.data);
         refreshOpenOverlays({
           followDefaultPeriodGrid: periodGridWasFollowingDefault,
@@ -1607,6 +1613,9 @@
         console.warn("Auto-refresh check failed:", err);
       } finally {
         state.refreshInFlight = false;
+        if (dashboardLoaderShown) {
+          setDashboardLoaderVisible(false);
+        }
         setControlsEnabled(true);
       }
     }
@@ -6390,6 +6399,7 @@
           <text class="chain-split-face-text" x="${faceTextX}" y="${frontY + size * 0.34}" style="font-size:${faceVersionFontSize}px">${escapeHtml(faceRows.version)}</text>
           <text class="chain-split-face-text is-mode" x="${faceTextX}" y="${frontY + size * 0.52}" style="font-size:${faceModeFontSize}px">${escapeHtml(faceRows.mode)}</text>
           <text class="chain-split-face-text is-time" x="${faceTextX}" y="${frontY + size * 0.70}" style="font-size:${faceTimeFontSize}px"${timeAttrs}>${escapeHtml(faceRows.time)}</text>
+          <circle class="chain-split-miner-icon-bg" cx="${minerStartX + minerIconSize / 2}" cy="${minerY}" r="${minerIconSize / 2 + 3.5}" aria-hidden="true"></circle>
           <image class="chain-split-miner-icon" href="${escapeHtml(miner.iconSrc)}" x="${minerStartX}" y="${minerY - minerIconSize / 2}" width="${minerIconSize}" height="${minerIconSize}" style="width:${minerIconSize}px;height:${minerIconSize}px" aria-hidden="true"></image>
           <text class="chain-split-miner-label" x="${minerStartX + minerIconSize + minerGap}" y="${minerY}" style="font-size:${minerFontSize}px">${escapeHtml(miner.label)}</text>
         </g>
@@ -6522,6 +6532,7 @@
           <polygon class="miner-timeline-chain-split-cube-face miner-timeline-chain-split-cube-top" points="${top}"></polygon>
           <polygon class="miner-timeline-chain-split-cube-face miner-timeline-chain-split-cube-side" points="${side}"></polygon>
           <polygon class="miner-timeline-chain-split-cube-face miner-timeline-chain-split-cube-front" points="${front}"></polygon>
+          <circle class="miner-timeline-chain-split-miner-icon-bg" cx="${minerIconX + minerIconSize / 2}" cy="${minerIconY + minerIconSize / 2}" r="${minerIconSize / 2 + 5}" aria-hidden="true"></circle>
           <image class="miner-timeline-chain-split-miner-icon" href="${escapeHtml(miner.iconSrc)}" x="${minerIconX}" y="${minerIconY}" width="${minerIconSize}" height="${minerIconSize}" aria-hidden="true"></image>
         </g>
       `;
@@ -6835,10 +6846,11 @@
       const startX = 24;
       const topY = 0;
       const height = 190;
-      const straightY = 66;
-      const splitY = 76;
-      const bip110Y = 45;
-      const legacyY = 115;
+      const previewVerticalOffset = 3;
+      const straightY = 66 + previewVerticalOffset;
+      const splitY = 76 + previewVerticalOffset;
+      const bip110Y = 45 + previewVerticalOffset;
+      const legacyY = 115 + previewVerticalOffset;
       const currentRightPad = sideDepth + size + gap;
       const localPad = Math.max(startX, gap);
       let width = 0;
@@ -7089,10 +7101,11 @@
       const startX = 24;
       const topY = 0;
       const height = 190;
-      const straightY = 66;
-      const splitY = 76;
-      const bip110Y = 45;
-      const legacyY = 115;
+      const previewVerticalOffset = 3;
+      const straightY = 66 + previewVerticalOffset;
+      const splitY = 76 + previewVerticalOffset;
+      const bip110Y = 45 + previewVerticalOffset;
+      const legacyY = 115 + previewVerticalOffset;
       const currentRightPad = sideDepth + size + gap;
       const localPad = Math.max(startX, gap);
       let width = 0;
@@ -7937,8 +7950,9 @@
       });
     }
 
-    async function loadAndApplyBlockDataPhased(loadToken, metadata, datasetKeys = ["segwit", "bip110", "bip110Node"], cacheBust = null) {
-      const applyBlocks = async (key, blocks, options = {}) => {
+    async function loadAndApplyBlockDataPhased(loadToken, metadata, datasetKeys = ["segwit", "bip110", "bip110Node"], cacheBust = null, options = {}) {
+      const renderAfterEach = options.renderAfterEach !== false;
+      const applyBlocks = async (key, blocks, applyOptions = {}) => {
         if (loadToken !== state.phasedLoadToken || !state.data) return;
 
         if (key === "segwit") {
@@ -7956,20 +7970,22 @@
             blocks,
             state.dynamicData?.bip110SignalMiners
           );
-          if (options.reconcile !== false) {
+          if (applyOptions.reconcile !== false) {
             state.dynamicData = reconcileBip110PeriodsFromBlocks(state.dynamicData, metadata);
           }
         }
 
         state.data = buildCombinedData(state.staticData, state.dynamicData, state.data);
-        if (options.reconcile !== false) {
+        if (applyOptions.reconcile !== false) {
           setStatus(state.data);
         }
-        await renderSelectedPanelsWithSharedLoader(key === "bip110" || key === "bip110Node" ? BIP110_PANEL_KEYS : [key]);
-        if ((key === "bip110" || key === "bip110Node") && isMainChainPanelVisible()) {
-          renderMainChainSplitPanel({ forceFollowLatest: true });
+        if (renderAfterEach) {
+          await renderSelectedPanelsWithSharedLoader(key === "bip110" || key === "bip110Node" ? BIP110_PANEL_KEYS : [key]);
+          if ((key === "bip110" || key === "bip110Node") && isMainChainPanelVisible()) {
+            renderMainChainSplitPanel({ forceFollowLatest: true });
+          }
+          await nextPaint();
         }
-        await nextPaint();
       };
 
       const loadPromises = datasetKeys.map((key) => loadBlockPointsForDataset(key, metadata, cacheBust)
