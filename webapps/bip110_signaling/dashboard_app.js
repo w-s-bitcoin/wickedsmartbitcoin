@@ -241,12 +241,28 @@
       minerTimelineMiners: "all",
       minerTimelineOrder: "recent",
       minerTimelineSignalersFirst: true,
+      minerTimelineShowChainView: true,
       chainSplitScrollAdjustment: null,
       chainSplitHandlingScroll: false,
       chainSplitFollowLatest: true,
+      chainSplitPendingScrollRender: false,
       chainSplitAgeTimer: null,
       chainSplitDrag: null,
       chainSplitSuppressClickUntil: 0,
+      minerTimelineChainSplitScrollAdjustment: null,
+      minerTimelineChainSplitHandlingScroll: false,
+      minerTimelineChainSplitFollowLatest: true,
+      minerTimelineChainSplitRenderFrame: null,
+      minerTimelineChainSplitPendingScrollRender: false,
+      minerTimelineChainSplitDrag: null,
+      minerTimelineChainSplitSuppressClickUntil: 0,
+      mainChainSplitScrollAdjustment: null,
+      mainChainSplitHandlingScroll: false,
+      mainChainSplitFollowLatest: true,
+      mainChainSplitRenderFrame: null,
+      mainChainSplitPendingScrollRender: false,
+      mainChainSplitDrag: null,
+      mainChainSplitSuppressClickUntil: 0,
       controls: {
         stripes: true,
         stripesExplicit: false,
@@ -258,6 +274,7 @@
         showLegacyNode: true,
         showBip110Node: false,
         panelsSwapped: false,
+        showMainChainView: false,
       },
       manualPanelHeights: {
         segwit: null,
@@ -310,6 +327,11 @@
     const segwitPanel = document.getElementById("segwitPanel");
     const bip110Panel = document.getElementById("bip110Panel");
     const bip110NodePanel = document.getElementById("bip110NodePanel");
+    const mainChainSplitPanel = document.getElementById("mainChainSplitPanel");
+    const mainChainSplitWrap = document.getElementById("mainChainSplitWrap");
+    const mainChainSplit = document.getElementById("mainChainSplit");
+    const mainChainSplitPeriodBack = document.getElementById("mainChainSplitPeriodBack");
+    const mainChainSplitSnapLatest = document.getElementById("mainChainSplitSnapLatest");
     const segwitCanvasBox = document.getElementById("segwitCanvasBox");
     const bip110CanvasBox = document.getElementById("bip110CanvasBox");
     const bip110NodeCanvasBox = document.getElementById("bip110NodeCanvasBox");
@@ -351,6 +373,10 @@
     const minerTimelineDialog = document.getElementById("minerTimelineDialog");
     const minerTimelineClose = document.getElementById("minerTimelineClose");
     const minerTimelineContent = document.getElementById("minerTimelineContent");
+    const minerTimelineChainSplitWrap = document.getElementById("minerTimelineChainSplitWrap");
+    const minerTimelineChainSplit = document.getElementById("minerTimelineChainSplit");
+    const minerTimelineChainSplitPeriodBack = document.getElementById("minerTimelineChainSplitPeriodBack");
+    const minerTimelineChainSplitSnapLatest = document.getElementById("minerTimelineChainSplitSnapLatest");
     const minerTimelineRangeValue = document.getElementById("minerTimelineRangeValue");
     const minerTimelineSignalValue = document.getElementById("minerTimelineSignalValue");
     const minerTimelineNodeButtons = Array.from(document.querySelectorAll("[data-miner-timeline-node]"));
@@ -358,6 +384,7 @@
     const minerTimelineMinerButtons = Array.from(document.querySelectorAll("[data-miner-timeline-miners]"));
     const minerTimelineOrderButtons = Array.from(document.querySelectorAll("[data-miner-timeline-order]"));
     const minerTimelineSignalersFirst = document.getElementById("minerTimelineSignalersFirst");
+    const minerTimelineShowChainView = document.getElementById("minerTimelineShowChainView");
     const chainSplitOverlay = document.getElementById("chainSplitOverlay");
     const chainSplitDialog = document.getElementById("chainSplitDialog");
     const chainSplitClose = document.getElementById("chainSplitClose");
@@ -375,6 +402,7 @@
     const bip110FillHeightBtn = document.getElementById("bip110FillHeightBtn");
     const bip110NodeFillHeightBtn = document.getElementById("bip110NodeFillHeightBtn");
     const swapPanelsBtn = document.getElementById("swapPanelsBtn");
+    const mainChainViewToggle = document.getElementById("toggleMainChainView");
     const nodePanelButtons = Array.from(document.querySelectorAll("[data-node-panel]"));
     const PANEL_KEYS = ["segwit", "bip110", "bip110Node"];
     const BIP110_PANEL_KEYS = ["bip110", "bip110Node"];
@@ -387,6 +415,8 @@
         segwitFillHeightBtn,
         bip110FillHeightBtn,
         bip110NodeFillHeightBtn,
+        mainChainSplitPeriodBack,
+        mainChainSplitSnapLatest,
         ...nodePanelButtons,
       ],
     });
@@ -413,6 +443,8 @@
         segwitFillHeightBtn,
         bip110FillHeightBtn,
         bip110NodeFillHeightBtn,
+        mainChainSplitPeriodBack,
+        mainChainSplitSnapLatest,
         segwitResizeHandle,
         bip110ResizeHandle,
         bip110NodeResizeHandle,
@@ -481,6 +513,19 @@
       if (state.controls.showSegwit) keys.push("segwit");
       keys.push(...getVisibleBip110PanelKeys());
       return keys;
+    }
+
+    function isMainChainPanelVisible() {
+      return Boolean(state.controls.showMainChainView);
+    }
+
+    function syncMainChainPanelVisibility() {
+      if (mainChainSplitPanel) {
+        mainChainSplitPanel.classList.toggle("hidden", !isMainChainPanelVisible());
+      }
+      if (mainChainViewToggle) {
+        mainChainViewToggle.checked = isMainChainPanelVisible();
+      }
     }
 
     function getVisibleChartCanvases() {
@@ -552,11 +597,25 @@
         bip110Window.checked = state.controls.showBip110;
         bip110Window.disabled = !state.controlsEnabled;
       }
+      if (mainChainViewToggle) {
+        mainChainViewToggle.checked = Boolean(state.controls.showMainChainView);
+        mainChainViewToggle.disabled = !state.controlsEnabled;
+      }
+      syncMainChainPanelVisibility();
       syncNodePanelButtons();
     }
 
     function getMainWrapViewportHeight() {
       return Math.floor(mainWrap?.clientHeight || window.innerHeight || 0);
+    }
+
+    function getMainChainPanelHeightBudget(gap = 0) {
+      if (!isMainChainPanelVisible() || !mainChainSplitPanel || mainChainSplitPanel.classList.contains("hidden")) {
+        return 0;
+      }
+      const rectHeight = mainChainSplitPanel.getBoundingClientRect().height;
+      const measuredHeight = Number.isFinite(rectHeight) && rectHeight > 0 ? rectHeight : 190;
+      return measuredHeight + (Number(gap) || 0);
     }
 
     function getSinglePanelAvailableHeight() {
@@ -565,11 +624,13 @@
       const padBottom = parseFloat(wrapStyle.paddingBottom) || 0;
       const gap = parseFloat(wrapStyle.rowGap || wrapStyle.gap) || 0;
       const topbarH = topbar.getBoundingClientRect().height;
+      const chainPanelH = getMainChainPanelHeightBudget(gap);
       const available = getMainWrapViewportHeight()
         - topbarH
         - padTop
         - padBottom
         - gap
+        - chainPanelH
         - PANEL_VIEWPORT_FILL_SAFETY_PX;
       return Math.max(PANEL_RESIZE_MIN_HEIGHT, Math.floor(available));
     }
@@ -1608,6 +1669,7 @@
           showLegacyNode: Boolean(state.controls.showLegacyNode),
           showBip110Node: Boolean(state.controls.showBip110Node),
           panelsSwapped: Boolean(state.controls.panelsSwapped),
+          showMainChainView: Boolean(state.controls.showMainChainView),
           manualPanelHeights: {
             segwit: Number.isFinite(segwitRatio)
               ? parseFloat(segwitRatio.toFixed(4))
@@ -1658,6 +1720,7 @@
           minerTimelineMiners: normalizeBip110TimelineMinerFilter(state.minerTimelineMiners),
           minerTimelineOrder: normalizeMinerTimelineOrder(state.minerTimelineOrder),
           minerTimelineSignalersFirst: state.minerTimelineSignalersFirst !== false,
+          minerTimelineShowChainView: state.minerTimelineShowChainView !== false,
         };
         localStorage.setItem(BIP110_OVERLAY_SELECTIONS_STORAGE_KEY, JSON.stringify(payload));
       } catch (_) {
@@ -1681,6 +1744,9 @@
         state.minerTimelineOrder = normalizeMinerTimelineOrder(parsed.minerTimelineOrder);
         state.minerTimelineSignalersFirst = typeof parsed.minerTimelineSignalersFirst === "boolean"
           ? parsed.minerTimelineSignalersFirst
+          : true;
+        state.minerTimelineShowChainView = typeof parsed.minerTimelineShowChainView === "boolean"
+          ? parsed.minerTimelineShowChainView
           : true;
         return true;
       } catch (_) {
@@ -1731,6 +1797,7 @@
         state.controls.showBip110Node = typeof parsed.showBip110Node === "boolean" ? parsed.showBip110Node : false;
         ensureAtLeastOnePanelVisible("bip110");
         state.controls.panelsSwapped = typeof parsed.panelsSwapped === "boolean" ? parsed.panelsSwapped : false;
+        state.controls.showMainChainView = typeof parsed.showMainChainView === "boolean" ? parsed.showMainChainView : false;
 
         const parseStoredHeight = (value) => {
           if (value == null || value === "") return null;
@@ -1823,7 +1890,7 @@
       if (!decoded || typeof decoded !== "object") return false;
       const controls = decoded.controls;
       if (controls && typeof controls === "object") {
-        const controlKeys = ["stripes", "stripesExplicit", "blockSymbol", "markers", "labels", "showSegwit", "showBip110", "showLegacyNode", "showBip110Node", "panelsSwapped"];
+        const controlKeys = ["stripes", "stripesExplicit", "blockSymbol", "markers", "labels", "showSegwit", "showBip110", "showLegacyNode", "showBip110Node", "panelsSwapped", "showMainChainView"];
         if (controlKeys.some((key) => Object.prototype.hasOwnProperty.call(controls, key))) return true;
       }
       const manualHeights = decoded.manualPanelHeights;
@@ -1868,6 +1935,7 @@
           showLegacyNode: true,
           showBip110Node: false,
           panelsSwapped: false,
+          showMainChainView: false,
         },
         manualPanelHeights: {
           segwit: null,
@@ -1894,6 +1962,7 @@
           showLegacyNode: Boolean(state.controls.showLegacyNode),
           showBip110Node: Boolean(state.controls.showBip110Node),
           panelsSwapped: Boolean(state.controls.panelsSwapped),
+          showMainChainView: Boolean(state.controls.showMainChainView),
         },
         manualPanelHeights: {
           segwit: Number.isFinite(state.manualPanelHeightRatios.segwit) ? state.manualPanelHeightRatios.segwit : null,
@@ -1962,6 +2031,7 @@
         if (typeof controls.showBip110Node === "boolean") state.controls.showBip110Node = controls.showBip110Node;
         ensureAtLeastOnePanelVisible("bip110");
         if (typeof controls.panelsSwapped === "boolean") state.controls.panelsSwapped = controls.panelsSwapped;
+        if (typeof controls.showMainChainView === "boolean") state.controls.showMainChainView = controls.showMainChainView;
       }
 
       const heights = decoded.manualPanelHeights && typeof decoded.manualPanelHeights === "object"
@@ -2049,6 +2119,7 @@
           toggleLabels: Boolean(labels?.checked ?? state.controls.labels),
           toggleSegwitWindow: Boolean(segwitWindow?.checked ?? state.controls.showSegwit),
           toggleBip110Window: Boolean(bip110Window?.checked ?? state.controls.showBip110),
+          toggleMainChainView: Boolean(mainChainViewToggle?.checked ?? state.controls.showMainChainView),
           blockSymbol: normalizeBlockSymbol(blockSymbolSelect?.value ?? state.controls.blockSymbol),
         },
       };
@@ -2084,6 +2155,9 @@
         state.controls.showBip110Node = typeof controls.showBip110Node === "boolean" ? controls.showBip110Node : false;
         ensureAtLeastOnePanelVisible("bip110");
         state.controls.panelsSwapped = Boolean(controls.panelsSwapped);
+        state.controls.showMainChainView = typeof checkboxState.toggleMainChainView === "boolean"
+          ? checkboxState.toggleMainChainView
+          : Boolean(controls.showMainChainView);
 
         const filledPanels = snapshot.filledPanels || {};
         state.filledPanels.segwit = Boolean(filledPanels.segwit);
@@ -2171,6 +2245,7 @@
         state.controls.showLegacyNode = true;
         state.controls.showBip110Node = false;
         state.controls.panelsSwapped = false;
+        state.controls.showMainChainView = false;
         state.periodGridNodeView = "legacy";
         state.leaderboardWindow = "all";
         state.minerTimelineWindow = "past14d";
@@ -2178,6 +2253,7 @@
         state.minerTimelineMiners = "all";
         state.minerTimelineOrder = "recent";
         state.minerTimelineSignalersFirst = true;
+        state.minerTimelineShowChainView = true;
 
         state.filledPanels.segwit = true;
         state.filledPanels.bip110 = true;
@@ -2248,6 +2324,7 @@
       if (labels && !labels.checked) return false;
       if (segwitWindow && segwitWindow.checked) return false;
       if (bip110Window && !bip110Window.checked) return false;
+      if (state.controls.showMainChainView) return false;
       if (!state.controls.showLegacyNode) return false;
       if (state.controls.showBip110Node) return false;
       if (state.controls.panelsSwapped) return false;
@@ -3382,6 +3459,7 @@
       segwitPanel.classList.toggle("hidden", !state.controls.showSegwit);
       bip110Panel.classList.toggle("hidden", !(state.controls.showBip110 && state.controls.showLegacyNode));
       bip110NodePanel.classList.toggle("hidden", !(state.controls.showBip110 && state.controls.showBip110Node));
+      syncMainChainPanelVisibility();
 
       const visibleCount = getVisiblePanelKeys().length;
       const visibleBip110PanelKeys = getVisibleBip110PanelKeys();
@@ -3422,6 +3500,9 @@
         ? (state.controls.panelsSwapped ? ["bip110Node", "bip110", "segwit"] : ["bip110", "bip110Node", "segwit"])
         : (state.controls.panelsSwapped ? ["bip110", "segwit", "bip110Node"] : ["segwit", "bip110", "bip110Node"]);
 
+      if (mainChainSplitPanel) {
+        mainWrap.appendChild(mainChainSplitPanel);
+      }
       orderedKeys.forEach((key) => {
         const panel = getPanelElement(key);
         if (!panel) return;
@@ -3587,10 +3668,12 @@
       const padBottom = parseFloat(wrapStyle.paddingBottom) || 0;
       const gap = parseFloat(wrapStyle.rowGap || wrapStyle.gap) || 0;
       const topbarH = topbar.getBoundingClientRect().height;
+      const chainPanelH = getMainChainPanelHeightBudget(gap);
       const availableForPanels = getMainWrapViewportHeight()
         - topbarH
         - padTop
         - padBottom
+        - chainPanelH
         - gap * 2
         - PANEL_VIEWPORT_FILL_SAFETY_PX;
       return Math.max(300, Math.floor(availableForPanels / 2));
@@ -3652,11 +3735,13 @@
       const gap = parseFloat(wrapStyle.rowGap || wrapStyle.gap) || 0;
       const topbarH = topbar.getBoundingClientRect().height;
       const gapsOutsidePanels = gap * count;
+      const chainPanelH = getMainChainPanelHeightBudget(gap);
       const availableForPanels = getMainWrapViewportHeight()
         - topbarH
         - padTop
         - padBottom
         - gapsOutsidePanels
+        - chainPanelH
         - PANEL_VIEWPORT_FILL_SAFETY_PX;
       const minPerPanel = count === 1 ? 600 : 300;
       return clampPanelResizeHeight(Math.max(minPerPanel, Math.floor(availableForPanels / count)));
@@ -4884,6 +4969,22 @@
       return value === "recent" ? "recent" : "total";
     }
 
+    function shouldShowMinerTimelineChainView() {
+      const isMobile = window.matchMedia?.("(max-width: 750px)")?.matches === true;
+      return state.minerTimelineShowChainView !== false && !isMobile;
+    }
+
+    function syncMinerTimelineChainViewControls() {
+      if (minerTimelineShowChainView) {
+        minerTimelineShowChainView.checked = state.minerTimelineShowChainView !== false;
+      }
+      const visible = shouldShowMinerTimelineChainView();
+      if (minerTimelineChainSplitWrap) {
+        minerTimelineChainSplitWrap.hidden = !visible;
+      }
+      return visible;
+    }
+
     function updateMinerTimelineOrderControls() {
       state.minerTimelineOrder = normalizeMinerTimelineOrder(state.minerTimelineOrder);
       minerTimelineOrderButtons.forEach((button) => {
@@ -4894,6 +4995,7 @@
       if (minerTimelineSignalersFirst) {
         minerTimelineSignalersFirst.checked = state.minerTimelineSignalersFirst !== false;
       }
+      syncMinerTimelineChainViewControls();
     }
 
     function updateMinerTimelineNodeViewButtons() {
@@ -5398,6 +5500,7 @@
         empty.className = "miner-timeline-empty";
         empty.textContent = "No BIP-110 miner attribution is available for the signaling window.";
         minerTimelineContent.appendChild(empty);
+        renderMinerTimelineMiniChainSplit();
         return;
       }
 
@@ -5541,6 +5644,7 @@
         fragment.appendChild(rowEl);
       });
       minerTimelineContent.appendChild(fragment);
+      renderMinerTimelineMiniChainSplit();
     }
 
     function scrollMinerTimelineToLatestPeriod() {
@@ -5567,6 +5671,8 @@
       minerTimelineOverlay.classList.remove("is-loading");
       minerTimelineOverlay.setAttribute("aria-hidden", "true");
       hidePeriodGridTooltip();
+      state.minerTimelineChainSplitDrag = null;
+      state.minerTimelineChainSplitRenderFrame = null;
     }
 
     function waitForMinerTimelineFeedbackPaint() {
@@ -5587,6 +5693,7 @@
       hideTooltip();
       hideCustomTooltip();
       hidePeriodGridTooltip();
+      state.minerTimelineChainSplitFollowLatest = true;
       minerTimelineOverlay.classList.add("is-loading");
       minerTimelineOverlay.classList.add("show");
       minerTimelineOverlay.setAttribute("aria-hidden", "false");
@@ -5702,6 +5809,19 @@
       const scrollLeft = Number(chainSplitContent.scrollLeft || 0);
       const latestScrollLeft = getChainSplitLatestScrollLeft();
       return Math.abs(scrollLeft - latestScrollLeft) <= tolerance;
+    }
+
+    function clampChainSplitScrollToLatest() {
+      if (!chainSplitContent) return false;
+      const latestScrollLeft = getChainSplitLatestScrollLeft();
+      const currentScrollLeft = Number(chainSplitContent.scrollLeft || 0);
+      if (!Number.isFinite(latestScrollLeft) || currentScrollLeft <= latestScrollLeft + 0.5) return false;
+      state.chainSplitHandlingScroll = true;
+      chainSplitContent.scrollLeft = latestScrollLeft;
+      requestAnimationFrame(() => {
+        finishChainSplitHandlingScroll();
+      });
+      return true;
     }
 
     function getChainSplitPreviousPeriodBoundary() {
@@ -6257,7 +6377,7 @@
       const scrollLeft = Number.isFinite(options.scrollLeft)
         ? Number(options.scrollLeft)
         : Number(chainSplitContent?.scrollLeft || 0);
-      const clientWidth = Number(chainSplitContent?.clientWidth || 1120);
+      const clientWidth = Number(options.clientWidth || chainSplitContent?.clientWidth || 1120);
       const count = Math.floor(end - start + 1);
       const firstVisibleIndex = Math.max(0, Math.floor((scrollLeft - startX) / spacing));
       const lastVisibleIndex = Math.min(count - 1, Math.ceil((scrollLeft + clientWidth - startX) / spacing));
@@ -6313,6 +6433,844 @@
           `;
         })
         .join("");
+    }
+
+    function renderMinerTimelineMiniChainCube(block, x, y, options = {}) {
+      const height = Number(block?.height);
+      const size = Number(options.size || 46);
+      const depth = Number(options.depth || 9);
+      const sideDepth = getChainSplitSideDepth(depth);
+      const frontX = x + sideDepth;
+      const frontY = y + depth;
+      const nodeView = normalizeBip110NodeView(options.nodeView || "legacy");
+      const miner = getChainSplitMiner(block, nodeView);
+      const classes = Number(block?.is_signaling) === 1
+        ? "miner-timeline-chain-split-cube is-signaling"
+        : "miner-timeline-chain-split-cube is-nonsignaling";
+      const labelX = x + size / 2;
+      const minerIconSize = Math.max(14, Math.min(20, size * 0.38));
+      const minerIconX = frontX + (size / 2) - (minerIconSize / 2);
+      const minerIconY = frontY + (size / 2) - (minerIconSize / 2);
+      const top = `${x},${y} ${x + size},${y} ${frontX + size},${frontY} ${frontX},${frontY}`;
+      const side = `${x},${y} ${frontX},${frontY} ${frontX},${frontY + size} ${x},${y + size}`;
+      const front = `${frontX},${frontY} ${frontX + size},${frontY} ${frontX + size},${frontY + size} ${frontX},${frontY + size}`;
+      const tooltip = formatStripeTooltip(block, "bip110");
+      return `
+        <g class="${classes}" tabindex="0" role="button" data-height="${Number.isFinite(height) ? height : ""}" data-node-view="${nodeView}" data-miner-slug="${escapeHtml(miner.slug || "")}" data-tooltip="${escapeHtml(tooltip)}" aria-label="Open block ${Number.isFinite(height) ? height.toLocaleString("en-US") : ""}">
+          <text class="miner-timeline-chain-split-height-label" x="${labelX}" y="${y - 8}">${Number.isFinite(height) ? height.toLocaleString("en-US") : ""}</text>
+          <polygon class="miner-timeline-chain-split-cube-face miner-timeline-chain-split-cube-top" points="${top}"></polygon>
+          <polygon class="miner-timeline-chain-split-cube-face miner-timeline-chain-split-cube-side" points="${side}"></polygon>
+          <polygon class="miner-timeline-chain-split-cube-face miner-timeline-chain-split-cube-front" points="${front}"></polygon>
+          <image class="miner-timeline-chain-split-miner-icon" href="${escapeHtml(miner.iconSrc)}" x="${minerIconX}" y="${minerIconY}" width="${minerIconSize}" height="${minerIconSize}" aria-hidden="true"></image>
+        </g>
+      `;
+    }
+
+    function renderMinerTimelineMiniChainPlaceholderCube(height, x, y, options = {}) {
+      const numericHeight = Number(height);
+      const size = Number(options.size || 38);
+      const depth = Number(options.depth || 7);
+      const sideDepth = getChainSplitSideDepth(depth);
+      const frontX = x + sideDepth;
+      const frontY = y + depth;
+      const labelX = x + size / 2;
+      const top = `${x},${y} ${x + size},${y} ${frontX + size},${frontY} ${frontX},${frontY}`;
+      const side = `${x},${y} ${frontX},${frontY} ${frontX},${frontY + size} ${x},${y + size}`;
+      const front = `${frontX},${frontY} ${frontX + size},${frontY} ${frontX + size},${frontY + size} ${frontX},${frontY + size}`;
+      return `
+        <g class="miner-timeline-chain-split-cube miner-timeline-chain-split-placeholder-cube" aria-hidden="true">
+          <text class="miner-timeline-chain-split-height-label" x="${labelX}" y="${y - 8}">${Number.isFinite(numericHeight) ? numericHeight.toLocaleString("en-US") : ""}</text>
+          <polygon class="miner-timeline-chain-split-cube-face miner-timeline-chain-split-cube-top" points="${top}"></polygon>
+          <polygon class="miner-timeline-chain-split-cube-face miner-timeline-chain-split-cube-side" points="${side}"></polygon>
+          <polygon class="miner-timeline-chain-split-cube-face miner-timeline-chain-split-cube-front" points="${front}"></polygon>
+        </g>
+      `;
+    }
+
+    function renderMinerTimelineMiniChainPeriodMarkers(positions, options = {}) {
+      if (!Array.isArray(positions) || positions.length < 2) return "";
+      const size = Number(options.size || 46);
+      const depth = Number(options.depth || 9);
+      const yTop = Number(options.yTop || 0);
+      const yBottom = Number(options.yBottom || 0);
+      return positions.slice(1).map((position, index) => {
+        const previous = positions[index];
+        const previousPeriod = Number(previous?.block?.period);
+        const nextPeriod = Number(position?.block?.period);
+        if (!Number.isFinite(previousPeriod) || !Number.isFinite(nextPeriod) || previousPeriod === nextPeriod) return "";
+        const previousX = Number(previous.x);
+        const nextX = Number(position.x);
+        const emptyGap = Math.max(0, nextX - previousX - getChainSplitSideDepth(depth) - size);
+        const x = Math.round(nextX - (emptyGap / 2));
+        const label = getChainSplitPeriodBoundaryLabel(nextPeriod);
+        return `
+            <g class="miner-timeline-chain-split-period-boundary-group">
+              <line class="miner-timeline-chain-split-period-boundary" x1="${x}" y1="${yTop}" x2="${x}" y2="${yBottom}"></line>
+              <text class="miner-timeline-chain-split-period-boundary-label" x="${x + 5}" y="${Math.max(12, yTop + 12)}">${escapeHtml(label)}</text>
+            </g>
+          `;
+      }).join("");
+    }
+
+    function getMinerTimelineMiniChainLatestScrollLeft() {
+      if (!minerTimelineChainSplit) return 0;
+      const currentTipX = Number(minerTimelineChainSplit.dataset.currentTipX);
+      const currentRightPad = Number(minerTimelineChainSplit.dataset.currentRightPad);
+      const currentTipLocalPad = Number(minerTimelineChainSplit.dataset.currentTipLocalPad || 0);
+      const maxScrollLeft = Math.max(0, minerTimelineChainSplit.scrollWidth - minerTimelineChainSplit.clientWidth);
+      if (!Number.isFinite(currentTipX) || !Number.isFinite(currentRightPad)) return maxScrollLeft;
+      const localPad = Number.isFinite(currentTipLocalPad) ? currentTipLocalPad : 0;
+      const isVirtualScrollSpace = minerTimelineChainSplit.dataset.virtualScrollSpace === "1";
+      const target = currentTipX
+        + (isVirtualScrollSpace ? 0 : localPad)
+        - (minerTimelineChainSplit.clientWidth - currentRightPad);
+      return clamp(target, 0, maxScrollLeft);
+    }
+
+    function isMinerTimelineMiniChainAtLatest(tolerance = 0.5) {
+      if (!minerTimelineChainSplit) return true;
+      const scrollLeft = Number(minerTimelineChainSplit.scrollLeft || 0);
+      const latestScrollLeft = getMinerTimelineMiniChainLatestScrollLeft();
+      return Math.abs(scrollLeft - latestScrollLeft) <= tolerance;
+    }
+
+    function clampMinerTimelineMiniChainScrollToLatest() {
+      if (!minerTimelineChainSplit) return false;
+      const latestScrollLeft = getMinerTimelineMiniChainLatestScrollLeft();
+      const currentScrollLeft = Number(minerTimelineChainSplit.scrollLeft || 0);
+      if (!Number.isFinite(latestScrollLeft) || currentScrollLeft <= latestScrollLeft + 0.5) return false;
+      state.minerTimelineChainSplitHandlingScroll = true;
+      minerTimelineChainSplit.scrollLeft = latestScrollLeft;
+      requestAnimationFrame(() => {
+        finishMinerTimelineMiniChainHandlingScroll();
+      });
+      return true;
+    }
+
+    function updateMinerTimelineMiniChainSnapLatestButton() {
+      if (!minerTimelineChainSplitSnapLatest) return;
+      minerTimelineChainSplitSnapLatest.hidden = isMinerTimelineMiniChainAtLatest(1);
+    }
+
+    function getMinerTimelineMiniChainPreviousPeriodBoundary() {
+      if (!minerTimelineChainSplit) return null;
+      const model = getChainSplitModel();
+      if (model.splitDetected || !Number.isFinite(model.rangeStart) || !Number.isFinite(model.rangeEnd)) return null;
+      const size = 38;
+      const depth = 7;
+      const gap = 52;
+      const startX = 24;
+      const periods = getBip110PeriodsForNodeView(model.straightNodeView);
+      const starts = (Array.isArray(periods) ? periods : [])
+        .map((period) => Number(period?.period_start_height))
+        .filter((height) => Number.isFinite(height) && height >= model.rangeStart && height <= model.rangeEnd)
+        .sort((a, b) => a - b);
+      if (!starts.length) return null;
+      const currentApproxHeight = model.rangeStart + Math.floor(Math.max(0, minerTimelineChainSplit.scrollLeft - startX) / gap);
+      const targetHeight = starts.filter((height) => height < currentApproxHeight - 1).pop()
+        || starts.filter((height) => height <= currentApproxHeight + 1).pop()
+        || null;
+      if (!Number.isFinite(targetHeight)) return null;
+      const boundaryIndex = targetHeight - model.rangeStart;
+      const emptyGap = Math.max(0, gap - getChainSplitSideDepth(depth) - size);
+      const boundaryX = startX + boundaryIndex * gap - (emptyGap / 2);
+      return {
+        height: targetHeight,
+        scrollLeft: clamp(boundaryX, 0, Math.max(0, minerTimelineChainSplit.scrollWidth - minerTimelineChainSplit.clientWidth)),
+      };
+    }
+
+    function updateMinerTimelineMiniChainPeriodBackButton() {
+      if (!minerTimelineChainSplitPeriodBack) return;
+      minerTimelineChainSplitPeriodBack.hidden = !getMinerTimelineMiniChainPreviousPeriodBoundary();
+    }
+
+    function updateMinerTimelineMiniChainScrollButtons() {
+      updateMinerTimelineMiniChainSnapLatestButton();
+      updateMinerTimelineMiniChainPeriodBackButton();
+    }
+
+    function finishMinerTimelineMiniChainHandlingScroll() {
+      state.minerTimelineChainSplitHandlingScroll = false;
+      updateMinerTimelineMiniChainScrollButtons();
+      if (!state.minerTimelineChainSplitPendingScrollRender || !isMinerTimelineOverlayOpen()) return;
+      state.minerTimelineChainSplitPendingScrollRender = false;
+      handleMinerTimelineMiniChainScroll();
+    }
+
+    function renderMinerTimelineMiniChainVirtualMarkers(rangeStart, rangeEnd, range, metrics, nodeView = "legacy", xOffset = 0) {
+      if (!range) return "";
+      const periods = getBip110PeriodsForNodeView(nodeView);
+      const startHeight = Number(rangeStart);
+      const emptyGap = Math.max(0, metrics.gap - getChainSplitSideDepth(metrics.depth) - metrics.size);
+      return (Array.isArray(periods) ? periods : [])
+        .map((period) => {
+          const periodStart = Number(period?.period_start_height);
+          if (!Number.isFinite(periodStart) || periodStart < Number(rangeStart) || periodStart > Number(rangeEnd)) return "";
+          const boundaryIndex = periodStart - startHeight;
+          if (boundaryIndex < range.renderStartIndex || boundaryIndex > range.renderEndIndex + 1) return "";
+          const x = Math.round(metrics.startX + boundaryIndex * metrics.gap - (emptyGap / 2) - xOffset);
+          const periodNumber = Number(period?.period);
+          const label = getChainSplitPeriodBoundaryLabel(periodNumber);
+          return `
+            <g class="miner-timeline-chain-split-period-boundary-group">
+              <line class="miner-timeline-chain-split-period-boundary" x1="${x}" y1="${metrics.yTop}" x2="${x}" y2="${metrics.yBottom}"></line>
+              <text class="miner-timeline-chain-split-period-boundary-label" x="${x + 5}" y="${Math.max(12, Number(metrics.yTop || 0) + 12)}">${escapeHtml(label)}</text>
+            </g>
+          `;
+        })
+        .join("");
+    }
+
+    function applyMinerTimelineMiniChainPendingScrollAdjustment() {
+      if (!minerTimelineChainSplit || !state.minerTimelineChainSplitScrollAdjustment) return;
+      const adjustment = state.minerTimelineChainSplitScrollAdjustment;
+      state.minerTimelineChainSplitScrollAdjustment = null;
+      requestAnimationFrame(() => {
+        state.minerTimelineChainSplitHandlingScroll = true;
+        const target = clamp(
+          Number(adjustment.scrollLeft || 0),
+          0,
+          Math.max(0, minerTimelineChainSplit.scrollWidth - minerTimelineChainSplit.clientWidth)
+        );
+        minerTimelineChainSplit.scrollLeft = target;
+        updateMinerTimelineMiniChainScrollButtons();
+        requestAnimationFrame(() => {
+          finishMinerTimelineMiniChainHandlingScroll();
+        });
+      });
+    }
+
+    function scrollMinerTimelineMiniChainToLatest() {
+      if (!minerTimelineChainSplit) return;
+      state.minerTimelineChainSplitFollowLatest = true;
+      requestAnimationFrame(() => {
+        state.minerTimelineChainSplitHandlingScroll = true;
+        minerTimelineChainSplit.scrollLeft = getMinerTimelineMiniChainLatestScrollLeft();
+        updateMinerTimelineMiniChainScrollButtons();
+        requestAnimationFrame(() => {
+          renderMinerTimelineMiniChainSplit({ suppressFollowLatest: true });
+          minerTimelineChainSplit.scrollLeft = getMinerTimelineMiniChainLatestScrollLeft();
+          finishMinerTimelineMiniChainHandlingScroll();
+        });
+      });
+    }
+
+    function jumpMinerTimelineMiniChainToPreviousPeriod() {
+      if (!minerTimelineChainSplit) return;
+      const target = getMinerTimelineMiniChainPreviousPeriodBoundary();
+      if (!target) return;
+      state.minerTimelineChainSplitHandlingScroll = true;
+      state.minerTimelineChainSplitFollowLatest = false;
+      minerTimelineChainSplit.scrollLeft = target.scrollLeft;
+      renderMinerTimelineMiniChainSplit({ suppressFollowLatest: true });
+      minerTimelineChainSplit.scrollLeft = target.scrollLeft;
+      requestAnimationFrame(() => {
+        finishMinerTimelineMiniChainHandlingScroll();
+      });
+    }
+
+    function snapMinerTimelineMiniChainToLatest() {
+      state.minerTimelineChainSplitScrollAdjustment = null;
+      state.minerTimelineChainSplitFollowLatest = true;
+      renderMinerTimelineMiniChainSplit();
+      scrollMinerTimelineMiniChainToLatest();
+    }
+
+    function handleMinerTimelineMiniChainScroll() {
+      if (!minerTimelineChainSplit) return;
+      if (state.minerTimelineChainSplitHandlingScroll) {
+        state.minerTimelineChainSplitPendingScrollRender = true;
+        return;
+      }
+      if (clampMinerTimelineMiniChainScrollToLatest()) {
+        state.minerTimelineChainSplitFollowLatest = true;
+        renderMinerTimelineMiniChainSplit({ suppressFollowLatest: true });
+        return;
+      }
+      state.minerTimelineChainSplitFollowLatest = isMinerTimelineMiniChainAtLatest(0.5);
+      updateMinerTimelineMiniChainScrollButtons();
+      if (state.minerTimelineChainSplitDrag?.active) return;
+      const renderScrollLeft = Number(minerTimelineChainSplit.dataset.virtualRenderScrollLeft);
+      const gap = Number(minerTimelineChainSplit.dataset.windowGap || 0);
+      if (!minerTimelineChainSplit.classList.contains("is-split")
+        && Number.isFinite(renderScrollLeft)
+        && Number.isFinite(gap)
+        && gap > 0
+        && Math.abs(Number(minerTimelineChainSplit.scrollLeft || 0) - renderScrollLeft) < gap * 0.5) {
+        return;
+      }
+      if (state.minerTimelineChainSplitRenderFrame) return;
+      state.minerTimelineChainSplitRenderFrame = requestAnimationFrame(() => {
+        state.minerTimelineChainSplitRenderFrame = null;
+        state.minerTimelineChainSplitFollowLatest = isMinerTimelineMiniChainAtLatest(0.5);
+        renderMinerTimelineMiniChainSplit({ suppressFollowLatest: !state.minerTimelineChainSplitFollowLatest });
+        updateMinerTimelineMiniChainScrollButtons();
+      });
+    }
+
+    function handleMinerTimelineMiniChainPointerDown(event) {
+      if (!minerTimelineChainSplit || event.button !== 0) return;
+      if (event.target instanceof Element && event.target.closest("button, input, select, textarea, a")) return;
+      state.minerTimelineChainSplitDrag = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        startScrollLeft: Number(minerTimelineChainSplit.scrollLeft || 0),
+        active: false,
+      };
+      minerTimelineChainSplit.setPointerCapture?.(event.pointerId);
+    }
+
+    function handleMinerTimelineMiniChainPointerMove(event) {
+      const drag = state.minerTimelineChainSplitDrag;
+      if (!minerTimelineChainSplit || !drag || drag.pointerId !== event.pointerId) return;
+      const dx = event.clientX - drag.startX;
+      const dy = event.clientY - drag.startY;
+      if (!drag.active) {
+        if (Math.abs(dx) < 7 || Math.abs(dx) < Math.abs(dy) * 1.15) return;
+        drag.active = true;
+        minerTimelineChainSplit.classList.add("is-dragging");
+        state.minerTimelineChainSplitSuppressClickUntil = Date.now() + 450;
+      }
+      event.preventDefault();
+      minerTimelineChainSplit.scrollLeft = Math.min(drag.startScrollLeft - dx, getMinerTimelineMiniChainLatestScrollLeft());
+      state.minerTimelineChainSplitFollowLatest = isMinerTimelineMiniChainAtLatest(0.5);
+      updateMinerTimelineMiniChainScrollButtons();
+    }
+
+    function finishMinerTimelineMiniChainPointerDrag(event) {
+      const drag = state.minerTimelineChainSplitDrag;
+      if (!minerTimelineChainSplit || !drag || drag.pointerId !== event.pointerId) return;
+      if (drag.active) {
+        state.minerTimelineChainSplitSuppressClickUntil = Date.now() + 450;
+      }
+      state.minerTimelineChainSplitDrag = null;
+      minerTimelineChainSplit.classList.remove("is-dragging");
+      minerTimelineChainSplit.releasePointerCapture?.(event.pointerId);
+      if (drag.active) {
+        renderMinerTimelineMiniChainSplit({ suppressFollowLatest: true });
+      }
+      updateMinerTimelineMiniChainScrollButtons();
+    }
+
+    function renderMinerTimelineMiniChainSplit(options = {}) {
+      if (!minerTimelineChainSplit) return;
+      if (!syncMinerTimelineChainViewControls()) {
+        minerTimelineChainSplit.innerHTML = "";
+        updateMinerTimelineMiniChainScrollButtons();
+        return;
+      }
+      const maxScrollBefore = Math.max(0, minerTimelineChainSplit.scrollWidth - minerTimelineChainSplit.clientWidth);
+      const shouldFollowLatest = !!options.forceFollowLatest || (
+        !options.suppressFollowLatest
+        && (maxScrollBefore <= 2 || state.minerTimelineChainSplitFollowLatest === true)
+      );
+      const model = getChainSplitModel();
+      const size = 38;
+      const depth = 7;
+      const sideDepth = getChainSplitSideDepth(depth);
+      const gap = 52;
+      const startX = 24;
+      const topY = 0;
+      const height = 190;
+      const straightY = 66;
+      const splitY = 76;
+      const bip110Y = 45;
+      const legacyY = 115;
+      const currentRightPad = sideDepth + size + gap;
+      const localPad = Math.max(startX, gap);
+      let width = 0;
+      let cubes = "";
+      let markers = "";
+      minerTimelineChainSplit.dataset.windowGap = String(gap);
+
+      if (model.splitDetected) {
+        const trunk = (model.trunkBlocks || []).slice(-10);
+        const legacyBranch = (model.legacyBranch || []).slice(0, 8);
+        const bip110Branch = (model.bip110Branch || []).slice(0, 8);
+        const forkX = startX + Math.max(0, trunk.length - 1) * gap + gap;
+        const trunkPositions = trunk.map((block, index) => ({ block, x: startX + index * gap, y: splitY, nodeView: "legacy" }));
+        const bip110Positions = bip110Branch.map((block, index) => ({ block, x: forkX + index * gap, y: bip110Y, nodeView: "bip110" }));
+        const legacyPositions = legacyBranch.map((block, index) => ({ block, x: forkX + index * gap, y: legacyY, nodeView: "legacy" }));
+        const positions = [...trunkPositions, ...bip110Positions, ...legacyPositions];
+        if (!positions.length) {
+          minerTimelineChainSplit.innerHTML = "";
+          return;
+        }
+        const longestTipX = positions.reduce((max, item) => Math.max(max, Number(item.x) || 0), startX);
+        width = Math.max(720, longestTipX + currentRightPad);
+        minerTimelineChainSplit.dataset.currentTipX = String(longestTipX);
+        minerTimelineChainSplit.dataset.currentRightPad = String(currentRightPad);
+        minerTimelineChainSplit.dataset.currentTipLocalPad = "0";
+        minerTimelineChainSplit.dataset.virtualScrollSpace = "0";
+        minerTimelineChainSplit.classList.add("is-split");
+        cubes = positions.map((item) => renderMinerTimelineMiniChainCube(item.block, item.x, item.y, {
+          size,
+          depth,
+          nodeView: item.nodeView,
+        })).join("");
+        markers = [
+          renderMinerTimelineMiniChainPeriodMarkers(trunkPositions, { size, depth, yTop: topY, yBottom: height }),
+          renderMinerTimelineMiniChainPeriodMarkers(bip110Positions, { size, depth, yTop: topY, yBottom: height }),
+          renderMinerTimelineMiniChainPeriodMarkers(legacyPositions, { size, depth, yTop: topY, yBottom: height }),
+        ].join("");
+        const preservedScrollLeft = Number(minerTimelineChainSplit.scrollLeft || 0);
+        minerTimelineChainSplit.innerHTML = `<svg class="miner-timeline-chain-split-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Compact BIP-110 chain split preview">${markers}${cubes}</svg>`;
+        applyMinerTimelineMiniChainPendingScrollAdjustment();
+        if (shouldFollowLatest) scrollMinerTimelineMiniChainToLatest();
+        else {
+          minerTimelineChainSplit.scrollLeft = clamp(preservedScrollLeft, 0, Math.max(0, minerTimelineChainSplit.scrollWidth - minerTimelineChainSplit.clientWidth));
+          updateMinerTimelineMiniChainScrollButtons();
+        }
+        return;
+      } else {
+        const rangeEnd = Number(model.rangeEnd);
+        const rangeStart = Number(model.rangeStart);
+        const map = model.straightMap;
+        if (!Number.isFinite(rangeStart) || !Number.isFinite(rangeEnd) || !map) {
+          minerTimelineChainSplit.innerHTML = "";
+          return;
+        }
+        minerTimelineChainSplit.classList.remove("is-split");
+        const viewportClientWidth = Math.max(1, Number(minerTimelineChainSplit.clientWidth || 0));
+        const viewportWidth = Math.max(720, viewportClientWidth);
+        const totalBlockCount = Math.floor(rangeEnd - rangeStart + 1);
+        const currentTipX = startX + Math.max(0, totalBlockCount - 1) * gap;
+        const targetStageWidth = Math.max(
+          getChainSplitStageWidth(totalBlockCount, gap, startX, size, depth),
+          currentTipX + localPad + currentRightPad
+        );
+        const latestScrollLeft = clamp(
+          currentTipX - (viewportClientWidth - currentRightPad),
+          0,
+          Math.max(0, targetStageWidth - viewportClientWidth)
+        );
+        const targetScrollLeft = shouldFollowLatest
+          ? latestScrollLeft
+          : clamp(Number(minerTimelineChainSplit.scrollLeft || 0), 0, latestScrollLeft);
+        const virtualRange = getChainSplitScrollRange(rangeStart, rangeEnd, gap, startX, size, depth, {
+          scrollLeft: targetScrollLeft,
+          clientWidth: viewportClientWidth,
+        });
+        if (!virtualRange) {
+          minerTimelineChainSplit.innerHTML = "";
+          return;
+        }
+        const viewportLeft = targetScrollLeft;
+        const xOffset = Math.max(0, viewportLeft - localPad);
+        const positions = [];
+        for (let index = virtualRange.renderStartIndex; index <= virtualRange.renderEndIndex; index += 1) {
+          const heightValue = rangeStart + index;
+          const block = map.get(heightValue);
+          const x = startX + index * gap - xOffset;
+          const detailLoaded = index >= virtualRange.detailStartIndex && index <= virtualRange.detailEndIndex && block;
+          positions.push({ height: heightValue, block, x, y: straightY, detailLoaded });
+        }
+        const stageWidth = Math.max(virtualRange.width, targetStageWidth);
+        width = viewportWidth + localPad * 2;
+        minerTimelineChainSplit.dataset.currentTipX = String(currentTipX);
+        minerTimelineChainSplit.dataset.currentRightPad = String(currentRightPad);
+        minerTimelineChainSplit.dataset.currentTipLocalPad = String(localPad);
+        minerTimelineChainSplit.dataset.virtualScrollSpace = "1";
+        markers = renderMinerTimelineMiniChainVirtualMarkers(rangeStart, rangeEnd, virtualRange, {
+          size,
+          depth,
+          gap,
+          startX,
+          yTop: topY,
+          yBottom: height,
+        }, model.straightNodeView, xOffset);
+        cubes = positions.map((item) => (
+          item.detailLoaded
+            ? renderMinerTimelineMiniChainCube(item.block, item.x, item.y, { size, depth, nodeView: model.straightNodeView })
+            : renderMinerTimelineMiniChainPlaceholderCube(item.height, item.x, item.y, { size, depth })
+        )).join("");
+        const preservedScrollLeft = targetScrollLeft;
+        minerTimelineChainSplit.innerHTML = `<div class="miner-timeline-chain-split-virtual-stage" style="width:${stageWidth}px;height:${height}px"><svg class="miner-timeline-chain-split-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" style="left:${xOffset}px" role="img" aria-label="Compact BIP-110 chain split preview">${markers}${cubes}</svg></div>`;
+        minerTimelineChainSplit.dataset.virtualRenderScrollLeft = String(preservedScrollLeft);
+        if (shouldFollowLatest) {
+          state.minerTimelineChainSplitHandlingScroll = true;
+          minerTimelineChainSplit.scrollLeft = getMinerTimelineMiniChainLatestScrollLeft();
+          requestAnimationFrame(() => {
+            finishMinerTimelineMiniChainHandlingScroll();
+            scrollMinerTimelineMiniChainToLatest();
+          });
+        } else {
+          state.minerTimelineChainSplitHandlingScroll = true;
+          minerTimelineChainSplit.scrollLeft = clamp(preservedScrollLeft, 0, Math.max(0, minerTimelineChainSplit.scrollWidth - minerTimelineChainSplit.clientWidth));
+          requestAnimationFrame(() => {
+            finishMinerTimelineMiniChainHandlingScroll();
+          });
+        }
+        applyMinerTimelineMiniChainPendingScrollAdjustment();
+        updateMinerTimelineMiniChainScrollButtons();
+        return;
+      }
+    }
+
+    function getMainChainSplitLatestScrollLeft() {
+      if (!mainChainSplit) return 0;
+      const currentTipX = Number(mainChainSplit.dataset.currentTipX);
+      const currentRightPad = Number(mainChainSplit.dataset.currentRightPad);
+      const currentTipLocalPad = Number(mainChainSplit.dataset.currentTipLocalPad || 0);
+      const maxScrollLeft = Math.max(0, mainChainSplit.scrollWidth - mainChainSplit.clientWidth);
+      if (!Number.isFinite(currentTipX) || !Number.isFinite(currentRightPad)) return maxScrollLeft;
+      const localPad = Number.isFinite(currentTipLocalPad) ? currentTipLocalPad : 0;
+      const isVirtualScrollSpace = mainChainSplit.dataset.virtualScrollSpace === "1";
+      const target = currentTipX
+        + (isVirtualScrollSpace ? 0 : localPad)
+        - (mainChainSplit.clientWidth - currentRightPad);
+      return clamp(target, 0, maxScrollLeft);
+    }
+
+    function isMainChainSplitAtLatest(tolerance = 0.5) {
+      if (!mainChainSplit) return true;
+      return Math.abs(Number(mainChainSplit.scrollLeft || 0) - getMainChainSplitLatestScrollLeft()) <= tolerance;
+    }
+
+    function getMainChainSplitPreviousPeriodBoundary() {
+      if (!mainChainSplit) return null;
+      const model = getChainSplitModel();
+      if (model.splitDetected || !Number.isFinite(model.rangeStart) || !Number.isFinite(model.rangeEnd)) return null;
+      const size = 38;
+      const depth = 7;
+      const gap = 52;
+      const startX = 24;
+      const periods = getBip110PeriodsForNodeView(model.straightNodeView);
+      const starts = (Array.isArray(periods) ? periods : [])
+        .map((period) => Number(period?.period_start_height))
+        .filter((height) => Number.isFinite(height) && height >= model.rangeStart && height <= model.rangeEnd)
+        .sort((a, b) => a - b);
+      if (!starts.length) return null;
+      const currentApproxHeight = model.rangeStart + Math.floor(Math.max(0, mainChainSplit.scrollLeft - startX) / gap);
+      const targetHeight = starts.filter((height) => height < currentApproxHeight - 1).pop()
+        || starts.filter((height) => height <= currentApproxHeight + 1).pop()
+        || null;
+      if (!Number.isFinite(targetHeight)) return null;
+      const boundaryIndex = targetHeight - model.rangeStart;
+      const emptyGap = Math.max(0, gap - getChainSplitSideDepth(depth) - size);
+      const boundaryX = startX + boundaryIndex * gap - (emptyGap / 2);
+      return {
+        height: targetHeight,
+        scrollLeft: clamp(boundaryX, 0, Math.max(0, mainChainSplit.scrollWidth - mainChainSplit.clientWidth)),
+      };
+    }
+
+    function updateMainChainSplitScrollButtons() {
+      if (mainChainSplitSnapLatest) {
+        mainChainSplitSnapLatest.hidden = isMainChainSplitAtLatest(1);
+      }
+      if (mainChainSplitPeriodBack) {
+        mainChainSplitPeriodBack.hidden = !getMainChainSplitPreviousPeriodBoundary();
+      }
+    }
+
+    function finishMainChainSplitHandlingScroll() {
+      state.mainChainSplitHandlingScroll = false;
+      updateMainChainSplitScrollButtons();
+      if (!state.mainChainSplitPendingScrollRender || !isMainChainPanelVisible()) return;
+      state.mainChainSplitPendingScrollRender = false;
+      handleMainChainSplitScroll();
+    }
+
+    function applyMainChainSplitPendingScrollAdjustment() {
+      if (!mainChainSplit || !state.mainChainSplitScrollAdjustment) return;
+      const adjustment = state.mainChainSplitScrollAdjustment;
+      state.mainChainSplitScrollAdjustment = null;
+      requestAnimationFrame(() => {
+        state.mainChainSplitHandlingScroll = true;
+        mainChainSplit.scrollLeft = clamp(
+          Number(adjustment.scrollLeft || 0),
+          0,
+          Math.max(0, mainChainSplit.scrollWidth - mainChainSplit.clientWidth)
+        );
+        updateMainChainSplitScrollButtons();
+        requestAnimationFrame(() => {
+          finishMainChainSplitHandlingScroll();
+        });
+      });
+    }
+
+    function scrollMainChainSplitToLatest() {
+      if (!mainChainSplit) return;
+      state.mainChainSplitFollowLatest = true;
+      requestAnimationFrame(() => {
+        state.mainChainSplitHandlingScroll = true;
+        mainChainSplit.scrollLeft = getMainChainSplitLatestScrollLeft();
+        updateMainChainSplitScrollButtons();
+        requestAnimationFrame(() => {
+          renderMainChainSplitPanel({ suppressFollowLatest: true });
+          mainChainSplit.scrollLeft = getMainChainSplitLatestScrollLeft();
+          finishMainChainSplitHandlingScroll();
+        });
+      });
+    }
+
+    function renderMainChainSplitPanel(options = {}) {
+      if (!mainChainSplit) return;
+      syncMainChainPanelVisibility();
+      if (!isMainChainPanelVisible()) {
+        mainChainSplit.innerHTML = "";
+        updateMainChainSplitScrollButtons();
+        return;
+      }
+      const maxScrollBefore = Math.max(0, mainChainSplit.scrollWidth - mainChainSplit.clientWidth);
+      const shouldFollowLatest = !!options.forceFollowLatest || (
+        !options.suppressFollowLatest
+        && (maxScrollBefore <= 2 || state.mainChainSplitFollowLatest === true)
+      );
+      const model = getChainSplitModel();
+      const size = 38;
+      const depth = 7;
+      const sideDepth = getChainSplitSideDepth(depth);
+      const gap = 52;
+      const startX = 24;
+      const topY = 0;
+      const height = 190;
+      const straightY = 66;
+      const splitY = 76;
+      const bip110Y = 45;
+      const legacyY = 115;
+      const currentRightPad = sideDepth + size + gap;
+      const localPad = Math.max(startX, gap);
+      let width = 0;
+      let cubes = "";
+      let markers = "";
+      mainChainSplit.dataset.windowGap = String(gap);
+
+      if (model.splitDetected) {
+        const trunk = (model.trunkBlocks || []).slice(-10);
+        const legacyBranch = (model.legacyBranch || []).slice(0, 8);
+        const bip110Branch = (model.bip110Branch || []).slice(0, 8);
+        const forkX = startX + Math.max(0, trunk.length - 1) * gap + gap;
+        const trunkPositions = trunk.map((block, index) => ({ block, x: startX + index * gap, y: splitY, nodeView: "legacy" }));
+        const bip110Positions = bip110Branch.map((block, index) => ({ block, x: forkX + index * gap, y: bip110Y, nodeView: "bip110" }));
+        const legacyPositions = legacyBranch.map((block, index) => ({ block, x: forkX + index * gap, y: legacyY, nodeView: "legacy" }));
+        const positions = [...trunkPositions, ...bip110Positions, ...legacyPositions];
+        if (!positions.length) {
+          mainChainSplit.innerHTML = "";
+          return;
+        }
+        const longestTipX = positions.reduce((max, item) => Math.max(max, Number(item.x) || 0), startX);
+        width = Math.max(720, longestTipX + currentRightPad);
+        mainChainSplit.dataset.currentTipX = String(longestTipX);
+        mainChainSplit.dataset.currentRightPad = String(currentRightPad);
+        mainChainSplit.dataset.currentTipLocalPad = "0";
+        mainChainSplit.dataset.virtualScrollSpace = "0";
+        mainChainSplit.classList.add("is-split");
+        cubes = positions.map((item) => renderMinerTimelineMiniChainCube(item.block, item.x, item.y, {
+          size,
+          depth,
+          nodeView: item.nodeView,
+        })).join("");
+        markers = [
+          renderMinerTimelineMiniChainPeriodMarkers(trunkPositions, { size, depth, yTop: topY, yBottom: height }),
+          renderMinerTimelineMiniChainPeriodMarkers(bip110Positions, { size, depth, yTop: topY, yBottom: height }),
+          renderMinerTimelineMiniChainPeriodMarkers(legacyPositions, { size, depth, yTop: topY, yBottom: height }),
+        ].join("");
+        const preservedScrollLeft = Number(mainChainSplit.scrollLeft || 0);
+        mainChainSplit.innerHTML = `<svg class="miner-timeline-chain-split-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Compact BIP-110 chain preview">${markers}${cubes}</svg>`;
+        applyMainChainSplitPendingScrollAdjustment();
+        if (shouldFollowLatest) scrollMainChainSplitToLatest();
+        else {
+          mainChainSplit.scrollLeft = clamp(preservedScrollLeft, 0, Math.max(0, mainChainSplit.scrollWidth - mainChainSplit.clientWidth));
+          updateMainChainSplitScrollButtons();
+        }
+        return;
+      }
+
+      const rangeEnd = Number(model.rangeEnd);
+      const rangeStart = Number(model.rangeStart);
+      const map = model.straightMap;
+      if (!Number.isFinite(rangeStart) || !Number.isFinite(rangeEnd) || !map) {
+        mainChainSplit.innerHTML = "";
+        return;
+      }
+      mainChainSplit.classList.remove("is-split");
+      const viewportClientWidth = Math.max(1, Number(mainChainSplit.clientWidth || 0));
+      const viewportWidth = Math.max(720, viewportClientWidth);
+      const totalBlockCount = Math.floor(rangeEnd - rangeStart + 1);
+      const currentTipX = startX + Math.max(0, totalBlockCount - 1) * gap;
+      const targetStageWidth = Math.max(
+        getChainSplitStageWidth(totalBlockCount, gap, startX, size, depth),
+        currentTipX + localPad + currentRightPad
+      );
+      const latestScrollLeft = clamp(
+        currentTipX - (viewportClientWidth - currentRightPad),
+        0,
+        Math.max(0, targetStageWidth - viewportClientWidth)
+      );
+      const targetScrollLeft = shouldFollowLatest
+        ? latestScrollLeft
+        : clamp(Number(mainChainSplit.scrollLeft || 0), 0, latestScrollLeft);
+      const virtualRange = getChainSplitScrollRange(rangeStart, rangeEnd, gap, startX, size, depth, {
+        scrollLeft: targetScrollLeft,
+        clientWidth: viewportClientWidth,
+      });
+      if (!virtualRange) {
+        mainChainSplit.innerHTML = "";
+        return;
+      }
+      const viewportLeft = targetScrollLeft;
+      const xOffset = Math.max(0, viewportLeft - localPad);
+      const positions = [];
+      for (let index = virtualRange.renderStartIndex; index <= virtualRange.renderEndIndex; index += 1) {
+        const heightValue = rangeStart + index;
+        const block = map.get(heightValue);
+        const x = startX + index * gap - xOffset;
+        const detailLoaded = index >= virtualRange.detailStartIndex && index <= virtualRange.detailEndIndex && block;
+        positions.push({ height: heightValue, block, x, y: straightY, detailLoaded });
+      }
+      const stageWidth = Math.max(virtualRange.width, targetStageWidth);
+      width = viewportWidth + localPad * 2;
+      mainChainSplit.dataset.currentTipX = String(currentTipX);
+      mainChainSplit.dataset.currentRightPad = String(currentRightPad);
+      mainChainSplit.dataset.currentTipLocalPad = String(localPad);
+      mainChainSplit.dataset.virtualScrollSpace = "1";
+      markers = renderMinerTimelineMiniChainVirtualMarkers(rangeStart, rangeEnd, virtualRange, {
+        size,
+        depth,
+        gap,
+        startX,
+        yTop: topY,
+        yBottom: height,
+      }, model.straightNodeView, xOffset);
+      cubes = positions.map((item) => (
+        item.detailLoaded
+          ? renderMinerTimelineMiniChainCube(item.block, item.x, item.y, { size, depth, nodeView: model.straightNodeView })
+          : renderMinerTimelineMiniChainPlaceholderCube(item.height, item.x, item.y, { size, depth })
+      )).join("");
+      const preservedScrollLeft = targetScrollLeft;
+      mainChainSplit.innerHTML = `<div class="miner-timeline-chain-split-virtual-stage" style="width:${stageWidth}px;height:${height}px"><svg class="miner-timeline-chain-split-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" style="left:${xOffset}px" role="img" aria-label="Compact BIP-110 chain preview">${markers}${cubes}</svg></div>`;
+      mainChainSplit.dataset.virtualRenderScrollLeft = String(preservedScrollLeft);
+      if (shouldFollowLatest) {
+        state.mainChainSplitHandlingScroll = true;
+        mainChainSplit.scrollLeft = getMainChainSplitLatestScrollLeft();
+        requestAnimationFrame(() => {
+          finishMainChainSplitHandlingScroll();
+          scrollMainChainSplitToLatest();
+        });
+      } else {
+        state.mainChainSplitHandlingScroll = true;
+        mainChainSplit.scrollLeft = clamp(preservedScrollLeft, 0, Math.max(0, mainChainSplit.scrollWidth - mainChainSplit.clientWidth));
+        requestAnimationFrame(() => {
+          finishMainChainSplitHandlingScroll();
+        });
+      }
+      applyMainChainSplitPendingScrollAdjustment();
+      updateMainChainSplitScrollButtons();
+    }
+
+    function clampMainChainSplitScrollToLatest() {
+      if (!mainChainSplit) return false;
+      const latestScrollLeft = getMainChainSplitLatestScrollLeft();
+      const currentScrollLeft = Number(mainChainSplit.scrollLeft || 0);
+      if (!Number.isFinite(latestScrollLeft) || currentScrollLeft <= latestScrollLeft + 0.5) return false;
+      state.mainChainSplitHandlingScroll = true;
+      mainChainSplit.scrollLeft = latestScrollLeft;
+      requestAnimationFrame(() => {
+        finishMainChainSplitHandlingScroll();
+      });
+      return true;
+    }
+
+    function handleMainChainSplitScroll() {
+      if (!mainChainSplit) return;
+      if (state.mainChainSplitHandlingScroll) {
+        state.mainChainSplitPendingScrollRender = true;
+        return;
+      }
+      if (clampMainChainSplitScrollToLatest()) {
+        state.mainChainSplitFollowLatest = true;
+        renderMainChainSplitPanel({ suppressFollowLatest: true });
+        return;
+      }
+      state.mainChainSplitFollowLatest = isMainChainSplitAtLatest(0.5);
+      updateMainChainSplitScrollButtons();
+      if (state.mainChainSplitDrag?.active) return;
+      const renderScrollLeft = Number(mainChainSplit.dataset.virtualRenderScrollLeft);
+      const gap = Number(mainChainSplit.dataset.windowGap || 0);
+      if (!mainChainSplit.classList.contains("is-split")
+        && Number.isFinite(renderScrollLeft)
+        && Number.isFinite(gap)
+        && gap > 0
+        && Math.abs(Number(mainChainSplit.scrollLeft || 0) - renderScrollLeft) < gap * 0.5) {
+        return;
+      }
+      if (state.mainChainSplitRenderFrame) return;
+      state.mainChainSplitRenderFrame = requestAnimationFrame(() => {
+        state.mainChainSplitRenderFrame = null;
+        state.mainChainSplitFollowLatest = isMainChainSplitAtLatest(0.5);
+        renderMainChainSplitPanel({ suppressFollowLatest: !state.mainChainSplitFollowLatest });
+        updateMainChainSplitScrollButtons();
+      });
+    }
+
+    function handleMainChainSplitPointerDown(event) {
+      if (!mainChainSplit || event.button !== 0) return;
+      if (event.target instanceof Element && event.target.closest("button, input, select, textarea, a")) return;
+      state.mainChainSplitDrag = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        startScrollLeft: Number(mainChainSplit.scrollLeft || 0),
+        active: false,
+      };
+      mainChainSplit.setPointerCapture?.(event.pointerId);
+    }
+
+    function handleMainChainSplitPointerMove(event) {
+      const drag = state.mainChainSplitDrag;
+      if (!mainChainSplit || !drag || drag.pointerId !== event.pointerId) return;
+      const dx = event.clientX - drag.startX;
+      const dy = event.clientY - drag.startY;
+      if (!drag.active) {
+        if (Math.abs(dx) < 7 || Math.abs(dx) < Math.abs(dy) * 1.15) return;
+        drag.active = true;
+        mainChainSplit.classList.add("is-dragging");
+        state.mainChainSplitSuppressClickUntil = Date.now() + 450;
+      }
+      event.preventDefault();
+      mainChainSplit.scrollLeft = Math.min(drag.startScrollLeft - dx, getMainChainSplitLatestScrollLeft());
+      state.mainChainSplitFollowLatest = isMainChainSplitAtLatest(0.5);
+      updateMainChainSplitScrollButtons();
+    }
+
+    function finishMainChainSplitPointerDrag(event) {
+      const drag = state.mainChainSplitDrag;
+      if (!mainChainSplit || !drag || drag.pointerId !== event.pointerId) return;
+      if (drag.active) {
+        state.mainChainSplitSuppressClickUntil = Date.now() + 450;
+      }
+      state.mainChainSplitDrag = null;
+      mainChainSplit.classList.remove("is-dragging");
+      mainChainSplit.releasePointerCapture?.(event.pointerId);
+      if (drag.active) {
+        renderMainChainSplitPanel({ suppressFollowLatest: true });
+      }
+      updateMainChainSplitScrollButtons();
+    }
+
+    function jumpMainChainSplitToPreviousPeriod() {
+      if (!mainChainSplit) return;
+      const target = getMainChainSplitPreviousPeriodBoundary();
+      if (!target) return;
+      state.mainChainSplitHandlingScroll = true;
+      state.mainChainSplitFollowLatest = false;
+      mainChainSplit.scrollLeft = target.scrollLeft;
+      renderMainChainSplitPanel({ suppressFollowLatest: true });
+      mainChainSplit.scrollLeft = target.scrollLeft;
+      requestAnimationFrame(() => {
+        finishMainChainSplitHandlingScroll();
+      });
+    }
+
+    function snapMainChainSplitToLatest() {
+      state.mainChainSplitScrollAdjustment = null;
+      state.mainChainSplitFollowLatest = true;
+      renderMainChainSplitPanel();
+      scrollMainChainSplitToLatest();
     }
 
     function renderBip110ChainSplitOverlay(options = {}) {
@@ -6432,9 +7390,14 @@
         getChainSplitStageWidth(totalBlockCount, gap, startX, cubeSize, cubeDepth),
         currentTipX + localPad + currentRightPad
       );
+      const latestScrollLeft = clamp(
+        currentTipX - (viewportClientWidth - currentRightPad),
+        0,
+        Math.max(0, targetStageWidth - viewportClientWidth)
+      );
       const targetScrollLeft = shouldFollowLatest
-        ? clamp(currentTipX - (viewportClientWidth - currentRightPad), 0, Math.max(0, targetStageWidth - viewportClientWidth))
-        : Number(chainSplitContent.scrollLeft || 0);
+        ? latestScrollLeft
+        : clamp(Number(chainSplitContent.scrollLeft || 0), 0, latestScrollLeft);
       const virtualRange = getChainSplitScrollRange(rangeStart, rangeEnd, gap, startX, cubeSize, cubeDepth, { scrollLeft: targetScrollLeft });
       if (!virtualRange) {
         chainSplitContent.innerHTML = `<div class="chain-split-empty">No BIP-110 block data is available for the chain split view.</div>`;
@@ -6470,7 +7433,7 @@
         state.chainSplitHandlingScroll = true;
         chainSplitContent.scrollLeft = getChainSplitLatestScrollLeft();
         requestAnimationFrame(() => {
-          state.chainSplitHandlingScroll = false;
+          finishChainSplitHandlingScroll();
           scrollChainSplitToLatest();
         });
       }
@@ -6478,8 +7441,7 @@
         state.chainSplitHandlingScroll = true;
         chainSplitContent.scrollLeft = clamp(preservedScrollLeft, 0, Math.max(0, chainSplitContent.scrollWidth - chainSplitContent.clientWidth));
         requestAnimationFrame(() => {
-          state.chainSplitHandlingScroll = false;
-          updateChainSplitScrollButtons();
+          finishChainSplitHandlingScroll();
         });
       }
       applyChainSplitPendingScrollAdjustment();
@@ -6500,10 +7462,17 @@
         chainSplitContent.scrollLeft = target;
         updateChainSplitScrollButtons();
         requestAnimationFrame(() => {
-          state.chainSplitHandlingScroll = false;
-          updateChainSplitScrollButtons();
+          finishChainSplitHandlingScroll();
         });
       });
+    }
+
+    function finishChainSplitHandlingScroll() {
+      state.chainSplitHandlingScroll = false;
+      updateChainSplitScrollButtons();
+      if (!state.chainSplitPendingScrollRender || !isChainSplitOverlayOpen()) return;
+      state.chainSplitPendingScrollRender = false;
+      handleChainSplitScroll();
     }
 
     function scrollChainSplitToLatest() {
@@ -6516,16 +7485,25 @@
         requestAnimationFrame(() => {
           renderBip110ChainSplitOverlay({ suppressFollowLatest: true });
           chainSplitContent.scrollLeft = getChainSplitLatestScrollLeft();
-          state.chainSplitHandlingScroll = false;
-          updateChainSplitScrollButtons();
+          finishChainSplitHandlingScroll();
         });
       });
     }
 
     function handleChainSplitScroll() {
-      if (!chainSplitContent || state.chainSplitHandlingScroll) return;
+      if (!chainSplitContent) return;
+      if (state.chainSplitHandlingScroll) {
+        state.chainSplitPendingScrollRender = true;
+        return;
+      }
+      if (clampChainSplitScrollToLatest()) {
+        state.chainSplitFollowLatest = true;
+        renderBip110ChainSplitOverlay({ suppressFollowLatest: true });
+        return;
+      }
       state.chainSplitFollowLatest = isChainSplitAtLatest(0.5);
       updateChainSplitScrollButtons();
+      if (state.chainSplitDrag?.active) return;
       const renderScrollLeft = Number(chainSplitContent.dataset.virtualRenderScrollLeft);
       const gap = Number(chainSplitContent.dataset.windowGap || 0);
       if (!chainSplitContent.classList.contains("is-split")
@@ -6569,7 +7547,7 @@
         state.chainSplitSuppressClickUntil = Date.now() + 450;
       }
       event.preventDefault();
-      chainSplitContent.scrollLeft = drag.startScrollLeft - dx;
+      chainSplitContent.scrollLeft = Math.min(drag.startScrollLeft - dx, getChainSplitLatestScrollLeft());
       state.chainSplitFollowLatest = isChainSplitAtLatest(0.5);
       updateChainSplitScrollButtons();
     }
@@ -6583,11 +7561,17 @@
       state.chainSplitDrag = null;
       chainSplitContent.classList.remove("is-dragging");
       chainSplitContent.releasePointerCapture?.(event.pointerId);
+      if (drag.active) {
+        renderBip110ChainSplitOverlay({ suppressFollowLatest: true });
+      }
       updateChainSplitScrollButtons();
     }
 
     function stopChainSplitDashboardSwipe(event) {
       event.stopPropagation();
+      if (event.cancelable) {
+        event.preventDefault();
+      }
     }
 
     function snapChainSplitToLatest() {
@@ -6607,8 +7591,7 @@
       renderBip110ChainSplitOverlay({ suppressFollowLatest: true });
       chainSplitContent.scrollLeft = target.scrollLeft;
       requestAnimationFrame(() => {
-        state.chainSplitHandlingScroll = false;
-        updateChainSplitScrollButtons();
+        finishChainSplitHandlingScroll();
       });
     }
 
@@ -7062,6 +8045,7 @@
 
     function renderAll() {
       renderSelectedPanels(PANEL_KEYS);
+      renderMainChainSplitPanel({ forceFollowLatest: true });
       refreshOpenOverlays();
     }
 
@@ -7079,6 +8063,12 @@
       if (isMinerTimelineOverlayOpen()) {
         hidePeriodGridTooltip();
         renderBip110MinerTimelineOverlay();
+      }
+      if (isMainChainPanelVisible()) {
+        if (options.followLatestChainSplit) {
+          state.mainChainSplitFollowLatest = true;
+        }
+        renderMainChainSplitPanel({ forceFollowLatest: !!options.followLatestChainSplit });
       }
       if (isChainSplitOverlayOpen()) {
         hidePeriodGridTooltip();
@@ -7155,6 +8145,18 @@
 
       labels.addEventListener("change", () => {
         state.controls.labels = labels.checked;
+        persistControls();
+        updateResetButtonUi();
+        void renderSelectedPanelsWithSharedLoader(PANEL_KEYS);
+      });
+
+      mainChainViewToggle?.addEventListener("change", () => {
+        state.controls.showMainChainView = mainChainViewToggle.checked;
+        state.mainChainSplitFollowLatest = true;
+        syncMainChainPanelVisibility();
+        applyPanelOrder();
+        applyDynamicPanelHeights();
+        renderMainChainSplitPanel({ forceFollowLatest: true });
         persistControls();
         updateResetButtonUi();
         void renderSelectedPanelsWithSharedLoader(PANEL_KEYS);
@@ -7306,6 +8308,13 @@
         scrollMinerTimelineToLatestPeriod();
       });
 
+      minerTimelineShowChainView?.addEventListener("change", () => {
+        state.minerTimelineShowChainView = minerTimelineShowChainView.checked;
+        state.minerTimelineChainSplitFollowLatest = true;
+        persistBip110OverlaySelections();
+        renderMinerTimelineMiniChainSplit({ forceFollowLatest: true });
+      });
+
       window.addEventListener("keydown", handlePeriodGridModalKeydown, true);
 
       window.addEventListener("resize", () => {
@@ -7447,7 +8456,7 @@
 
       minerTimelineOverlay?.addEventListener("mousemove", (event) => {
         const mark = event.target instanceof Element
-          ? event.target.closest(".miner-timeline-block, .miner-timeline-latest-block")
+          ? event.target.closest(".miner-timeline-block, .miner-timeline-latest-block, .miner-timeline-chain-split-cube")
           : null;
         if (!mark) {
           hidePeriodGridTooltip();
@@ -7466,8 +8475,15 @@
       });
 
       minerTimelineOverlay?.addEventListener("click", (event) => {
+        if (Date.now() < state.minerTimelineChainSplitSuppressClickUntil
+          && event.target instanceof Element
+          && event.target.closest(".miner-timeline-chain-split")) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
         const mark = event.target instanceof Element
-          ? event.target.closest(".miner-timeline-block, .miner-timeline-latest-block")
+          ? event.target.closest(".miner-timeline-block, .miner-timeline-latest-block, .miner-timeline-chain-split-cube")
           : null;
         if (mark) {
           const height = Number(mark.getAttribute("data-height"));
@@ -7498,7 +8514,7 @@
 
         if (event.key !== "Enter" && event.key !== " ") return;
         const mark = event.target instanceof Element
-          ? event.target.closest(".miner-timeline-block, .miner-timeline-latest-block")
+          ? event.target.closest(".miner-timeline-block, .miner-timeline-latest-block, .miner-timeline-chain-split-cube")
           : null;
         if (!mark) return;
         event.preventDefault();
@@ -7510,6 +8526,92 @@
 
       minerTimelineClose?.addEventListener("click", () => {
         closeMinerTimelineOverlay();
+      });
+
+      minerTimelineOverlay?.addEventListener("error", (event) => {
+        const image = event.target instanceof Element
+          ? event.target.closest(".miner-timeline-chain-split-miner-icon")
+          : null;
+        if (!image) return;
+        const cube = image.closest(".miner-timeline-chain-split-cube");
+        const slug = String(cube?.getAttribute("data-miner-slug") || "").trim().toLowerCase();
+        if (slug) missingMinerIconSlugs.add(slug);
+        image.setAttribute("href", "assets/mining-pools/default.svg");
+      }, true);
+
+      minerTimelineChainSplit?.addEventListener("scroll", handleMinerTimelineMiniChainScroll, { passive: true });
+      minerTimelineChainSplit?.addEventListener("pointerdown", handleMinerTimelineMiniChainPointerDown);
+      minerTimelineChainSplit?.addEventListener("pointermove", handleMinerTimelineMiniChainPointerMove);
+      minerTimelineChainSplit?.addEventListener("pointerup", finishMinerTimelineMiniChainPointerDrag);
+      minerTimelineChainSplit?.addEventListener("pointercancel", finishMinerTimelineMiniChainPointerDrag);
+
+      minerTimelineChainSplitPeriodBack?.addEventListener("click", () => {
+        jumpMinerTimelineMiniChainToPreviousPeriod();
+      });
+
+      minerTimelineChainSplitSnapLatest?.addEventListener("click", () => {
+        snapMinerTimelineMiniChainToLatest();
+      });
+
+      mainChainSplit?.addEventListener("mousemove", (event) => {
+        const cube = event.target instanceof Element
+          ? event.target.closest(".miner-timeline-chain-split-cube")
+          : null;
+        if (!cube) {
+          hidePeriodGridTooltip();
+          return;
+        }
+        const content = String(cube.getAttribute("data-tooltip") || "").trim();
+        if (!content) {
+          hidePeriodGridTooltip();
+          return;
+        }
+        showPeriodGridTooltip(content, event.clientX, event.clientY, { constrainToGrid: false });
+      });
+
+      mainChainSplit?.addEventListener("mouseleave", () => {
+        hidePeriodGridTooltip();
+      });
+
+      mainChainSplit?.addEventListener("click", (event) => {
+        if (Date.now() < state.mainChainSplitSuppressClickUntil) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+        const cube = event.target instanceof Element
+          ? event.target.closest(".miner-timeline-chain-split-cube")
+          : null;
+        if (!cube) return;
+        const height = Number(cube.getAttribute("data-height"));
+        if (Number.isFinite(height)) {
+          openBlockExplorer(height, cube.getAttribute("data-node-view"));
+        }
+      });
+
+      mainChainSplit?.addEventListener("error", (event) => {
+        const image = event.target instanceof Element
+          ? event.target.closest(".miner-timeline-chain-split-miner-icon")
+          : null;
+        if (!image) return;
+        const cube = image.closest(".miner-timeline-chain-split-cube");
+        const slug = String(cube?.getAttribute("data-miner-slug") || "").trim().toLowerCase();
+        if (slug) missingMinerIconSlugs.add(slug);
+        image.setAttribute("href", "assets/mining-pools/default.svg");
+      }, true);
+
+      mainChainSplit?.addEventListener("scroll", handleMainChainSplitScroll, { passive: true });
+      mainChainSplit?.addEventListener("pointerdown", handleMainChainSplitPointerDown);
+      mainChainSplit?.addEventListener("pointermove", handleMainChainSplitPointerMove);
+      mainChainSplit?.addEventListener("pointerup", finishMainChainSplitPointerDrag);
+      mainChainSplit?.addEventListener("pointercancel", finishMainChainSplitPointerDrag);
+
+      mainChainSplitPeriodBack?.addEventListener("click", () => {
+        jumpMainChainSplitToPreviousPeriod();
+      });
+
+      mainChainSplitSnapLatest?.addEventListener("click", () => {
+        snapMainChainSplitToLatest();
       });
 
       chainSplitOverlay?.addEventListener("mousemove", (event) => {
@@ -7589,9 +8691,9 @@
       chainSplitContent?.addEventListener("pointermove", handleChainSplitPointerMove);
       chainSplitContent?.addEventListener("pointerup", finishChainSplitPointerDrag);
       chainSplitContent?.addEventListener("pointercancel", finishChainSplitPointerDrag);
-      chainSplitContent?.addEventListener("touchstart", stopChainSplitDashboardSwipe, { capture: true, passive: true });
-      chainSplitContent?.addEventListener("touchmove", stopChainSplitDashboardSwipe, { capture: true, passive: true });
-      chainSplitContent?.addEventListener("touchend", stopChainSplitDashboardSwipe, { capture: true, passive: true });
+      chainSplitContent?.addEventListener("touchstart", stopChainSplitDashboardSwipe, { capture: true, passive: false });
+      chainSplitContent?.addEventListener("touchmove", stopChainSplitDashboardSwipe, { capture: true, passive: false });
+      chainSplitContent?.addEventListener("touchend", stopChainSplitDashboardSwipe, { capture: true, passive: false });
 
       chainSplitPeriodBack?.addEventListener("click", () => {
         jumpChainSplitToPreviousPeriod();
