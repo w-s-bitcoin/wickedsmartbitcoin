@@ -1570,7 +1570,6 @@
           return;
         }
 
-        setControlsEnabled(false);
         const loadBuster = Date.now();
         const loadToken = ++state.phasedLoadToken;
         state.dynamicData = await loadDynamicData(loadBuster, null, null, state.dynamicData);
@@ -1583,11 +1582,6 @@
         hideTooltip();
         await nextPaint();
         if (loadToken !== state.phasedLoadToken) return;
-        if (hasVisibleSelectedPanel(BIP110_PANEL_KEYS) || isMainChainPanelVisible()) {
-          dashboardLoaderShown = true;
-          setDashboardLoaderVisible(true);
-          await nextPaint();
-        }
 
         await loadAndApplyBlockDataPhased(loadToken, state.data.metadata, ["bip110", "bip110Node"], loadBuster, { renderAfterEach: false });
         if (loadToken !== state.phasedLoadToken) return;
