@@ -7321,6 +7321,18 @@
       mainChainSplit.classList.remove("is-dragging");
       mainChainSplit.releasePointerCapture?.(event.pointerId);
       if (drag.active) {
+        // Cancel any scheduled render that might reset scrollLeft
+        if (state.mainChainSplitRenderFrame != null) {
+          cancelAnimationFrame(state.mainChainSplitRenderFrame);
+          state.mainChainSplitRenderFrame = null;
+        }
+        // Clear pending scroll render flag and ensure we don't snap to latest
+        state.mainChainSplitPendingScrollRender = false;
+        state.mainChainSplitFollowLatest = false;
+        // Keep the virtual render scroll position in sync with the user's final position
+        try {
+          mainChainSplit.dataset.virtualRenderScrollLeft = String(Number(mainChainSplit.scrollLeft || 0));
+        } catch (_) {}
         renderMainChainSplitPanel({ suppressFollowLatest: true });
       }
       updateMainChainSplitScrollButtons();
