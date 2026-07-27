@@ -505,13 +505,6 @@
       return BIP110_PANEL_KEYS.filter((key) => key === "bip110" ? state.controls.showLegacyNode : state.controls.showBip110Node);
     }
 
-    function getVisibleBip110PanelKeysFromDom() {
-      return BIP110_PANEL_KEYS.filter((key) => {
-        const panel = getPanelElement(key);
-        return panel && !panel.classList.contains("hidden");
-      });
-    }
-
     function getVisiblePanelKeys() {
       const keys = [];
       if (state.controls.showSegwit) keys.push("segwit");
@@ -550,12 +543,11 @@
     }
 
     function enforceNodePanelSelectionRules() {
+      if (state.controls.showLegacyNode && state.controls.showBip110Node) {
+        state.controls.showBip110Node = false;
+      }
       if (!state.controls.showLegacyNode && !state.controls.showBip110Node) {
         state.controls.showLegacyNode = true;
-      }
-      const bothNodesSelected = Boolean(state.controls.showLegacyNode && state.controls.showBip110Node);
-      if (bothNodesSelected && state.controls.showSegwit) {
-        state.controls.showSegwit = false;
       }
     }
 
@@ -586,16 +578,10 @@
       enforceNodePanelSelectionRules();
       const segwitWindow = document.getElementById("toggleSegwitWindow");
       const bip110Window = document.getElementById("toggleBip110Window");
-      const bothNodesSelected = Boolean(state.controls.showLegacyNode && state.controls.showBip110Node);
       if (segwitWindow) {
         segwitWindow.checked = state.controls.showSegwit;
-        segwitWindow.disabled = bothNodesSelected || !state.controlsEnabled;
-        setCustomTooltip(
-          segwitWindow.closest("label"),
-          bothNodesSelected
-            ? "SegWit periods are unavailable while both Legacy and BIP-110 node panels are shown."
-            : ""
-        );
+        segwitWindow.disabled = !state.controlsEnabled;
+        setCustomTooltip(segwitWindow.closest("label"), "");
       }
       if (bip110Window) {
         bip110Window.checked = state.controls.showBip110;
@@ -3455,7 +3441,6 @@
     function updatePanelVisibility() {
       const prevCount = state.lastVisibleCount;
       const hasPriorVisibility = prevCount >= 0;
-      const previousBip110PanelKeys = hasPriorVisibility ? getVisibleBip110PanelKeysFromDom() : [];
       enforceNodePanelSelectionRules();
 
       if (hasPriorVisibility) {
@@ -3476,22 +3461,6 @@
       syncMainChainPanelVisibility();
 
       const visibleCount = getVisiblePanelKeys().length;
-      const visibleBip110PanelKeys = getVisibleBip110PanelKeys();
-      if (hasPriorVisibility && previousBip110PanelKeys.length !== visibleBip110PanelKeys.length) {
-        if (previousBip110PanelKeys.length === 1 && visibleBip110PanelKeys.length === 2) {
-          const splitHeight = getEqualSplitPanelHeight(2);
-          visibleBip110PanelKeys.forEach((key) => {
-            setManualPanelHeight(key, splitHeight);
-            state.filledPanels[key] = false;
-            updateFillButtonState(key);
-          });
-        } else if (previousBip110PanelKeys.length === 2 && visibleBip110PanelKeys.length === 1) {
-          const [key] = visibleBip110PanelKeys;
-          clearManualPanelHeight(key);
-          state.filledPanels[key] = true;
-          updateFillButtonState(key);
-        }
-      }
       state.lastVisibleCount = visibleCount;
       syncPanelCheckboxes();
       syncSwapButtonEnabledState();
@@ -3505,15 +3474,9 @@
     }
 
     function applyPanelOrder() {
-      const bothBip110NodesVisible = Boolean(
-        state.controls.showBip110
-        && state.controls.showLegacyNode
-        && state.controls.showBip110Node
-      );
-      const orderedKeys = bothBip110NodesVisible
-        ? (state.controls.panelsSwapped ? ["bip110Node", "bip110", "segwit"] : ["bip110", "bip110Node", "segwit"])
-        : (state.controls.panelsSwapped ? ["bip110", "segwit", "bip110Node"] : ["segwit", "bip110", "bip110Node"]);
-
+      const orderedKeys = state.controls.panelsSwapped
+        ? ["bip110", "segwit", "bip110Node"]
+        : ["segwit", "bip110", "bip110Node"];
       const orderedPanels = orderedKeys.map(getPanelElement).filter(Boolean);
       if (mainChainSplitPanel) {
         const chainBefore = dashboardLoader?.parentElement === mainWrap
@@ -8274,14 +8237,13 @@
         button.addEventListener("click", () => {
           const key = button.getAttribute("data-node-panel");
           if (key === "legacy") {
-            state.controls.showLegacyNode = !state.controls.showLegacyNode;
+            state.controls.showLegacyNode = true;
+            state.controls.showBip110Node = false;
           } else if (key === "bip110") {
-            state.controls.showBip110Node = !state.controls.showBip110Node;
+            state.controls.showLegacyNode = false;
+            state.controls.showBip110Node = true;
           }
           enforceNodePanelSelectionRules();
-          if (state.controls.showLegacyNode && state.controls.showBip110Node) {
-            state.controls.showSegwit = false;
-          }
           ensureAtLeastOnePanelVisible("bip110");
           syncPanelCheckboxes();
           persistControls();
@@ -8316,8 +8278,10 @@
         }
         state.controls.showSegwit = segwitWindow.checked;
         state.controls.showBip110 = bip110Window.checked;
+        if (!state.controls.showSegwit && state.controls.showBip110 && !state.controls.showLegacyNode && !state.controls.showBip110Node) {
+          state.controls.showLegacyNode = true;
+        }
         enforceNodePanelSelectionRules();
-        ensureAtLeastOnePanelVisible("bip110");
         syncPanelCheckboxes();
         persistControls();
         updateResetButtonUi();
