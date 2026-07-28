@@ -1524,12 +1524,10 @@
     .chain-split-miner-label {
       fill: var(--fg);
       font-weight: 700;
-      text-anchor: start;
+      text-anchor: middle;
       dominant-baseline: central;
-      paint-order: stroke;
-      stroke: var(--surface);
-      stroke-width: 4px;
-      stroke-linejoin: round;
+      stroke: none;
+      stroke-width: 0;
     }
 
     .chain-split-miner-icon-bg,
@@ -1550,10 +1548,6 @@
       text-anchor: middle;
       dominant-baseline: central;
       pointer-events: none;
-    }
-
-    .chain-split-face-text.is-mode {
-      fill: var(--fg);
     }
 
     .chain-split-face-text.is-time {
@@ -3040,6 +3034,8 @@
           <div class="chip"><span class="chip-label">Legacy &amp; BIP-110</span> <span class="chip-value" id="chainSplitStatusValue">-</span></div>
           <div class="chip"><span class="chip-label">Legacy Height</span> <span class="chip-value" id="chainSplitLegacyHeightValue">-</span></div>
           <div class="chip"><span class="chip-label">BIP-110 Height</span> <span class="chip-value" id="chainSplitBip110HeightValue">-</span></div>
+          <div class="chip"><span class="chip-label">Signaling Hashrate</span> <span class="chip-value" id="chainSplitSignalingHashrateValue">-</span></div>
+          <div class="chip"><span class="chip-label">Non-signaling Hashrate</span> <span class="chip-value" id="chainSplitNonSignalingHashrateValue">-</span></div>
         </div>
         <button id="chainSplitClose" type="button" class="chain-split-close" aria-label="Close chain split view">&times;</button>
       </div>
