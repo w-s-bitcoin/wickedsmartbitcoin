@@ -397,6 +397,8 @@
     const chainSplitSnapLatest = document.getElementById("chainSplitSnapLatest");
     const chainSplitLegacyHeightValue = document.getElementById("chainSplitLegacyHeightValue");
     const chainSplitBip110HeightValue = document.getElementById("chainSplitBip110HeightValue");
+    const chainSplitSignalingHashrateValue = document.getElementById("chainSplitSignalingHashrateValue");
+    const chainSplitNonSignalingHashrateValue = document.getElementById("chainSplitNonSignalingHashrateValue");
     const chainSplitStatusValue = document.getElementById("chainSplitStatusValue");
     const vizInfoBtn = document.getElementById("vizInfoBtn");
     const segwitResizeHandle = document.getElementById("segwitResizeHandle");
@@ -6200,10 +6202,8 @@
 
     function getChainSplitFaceRows(block) {
       const versionHex = formatBlockVersionHex(block?.version) || "Version loading";
-      const mode = Number(block?.is_signaling) === 1 ? "Signaling" : "Non-signaling";
       return {
         version: versionHex,
-        mode,
         time: block?.is_demo ? "Demo" : formatChainSplitRelativeTime(block?.block_time),
       };
     }
@@ -6330,20 +6330,21 @@
         0.62
       );
       const faceVersionFontSize = fitChainSplitFontSize(faceRows.version, Math.round(13 * scale), 9, faceMaxWidth, 0.72);
-      const faceModeFontSize = fitChainSplitFontSize(faceRows.mode, Math.round(13 * scale), 9, faceMaxWidth, 0.68);
       const faceTimeFontSize = fitChainSplitFontSize(faceRows.time, Math.round(12 * scale), 8, faceMaxWidth, 0.68);
       const minerFontSize = fitChainSplitFontSize(miner?.label || "", Math.round(11.5 * scale), 8, size * 0.76, 0.62);
-      const minerIconSize = Math.max(9, Math.round(13 * scale));
-      const minerGap = Math.max(6, Math.round(8 * scale));
+      const minerIconSize = Math.max(30, Math.round(size * 0.28));
+      const minerIconBgRadius = Math.round(minerIconSize * 0.9);
       const labelOffset = Number(options.labelOffset) || Math.max(13, Math.round(17 * scale));
       const labelY = y - labelOffset;
-      const minerY = frontY + size + labelOffset;
+      const minerCenterX = frontX + size / 2;
+      const minerCenterY = frontY + size * 0.52;
+      const minerIconTop = minerCenterY - minerIconBgRadius;
+      const versionY = frontY + Math.round((minerIconTop - frontY) / 2);
+      const timeY = frontY + size + labelOffset;
+      const minerLabelY = frontY + size * 0.87;
       const classes = Number(block?.is_signaling) === 1
         ? "chain-split-cube is-signaling"
         : "chain-split-cube is-nonsignaling";
-      const minerLabelWidth = Math.min(size * 0.72, Math.max(28, miner.label.length * minerFontSize * 0.7));
-      const minerGroupCenterX = frontX + size / 2;
-      const minerStartX = minerGroupCenterX - ((minerIconSize + minerGap + minerLabelWidth) / 2);
       const faceTextX = frontX + size / 2;
       const front = `${frontX},${frontY} ${frontX + size},${frontY} ${frontX + size},${frontY + size} ${frontX},${frontY + size}`;
       const top = `${x},${y} ${x + size},${y} ${frontX + size},${frontY} ${frontX},${frontY}`;
@@ -6354,12 +6355,11 @@
           <polygon class="chain-split-cube-face chain-split-cube-top" points="${top}"></polygon>
           <polygon class="chain-split-cube-face chain-split-cube-side" points="${side}"></polygon>
           <polygon class="chain-split-cube-face chain-split-cube-front" points="${front}"></polygon>
-          <text class="chain-split-face-text" x="${faceTextX}" y="${frontY + size * 0.34}" style="font-size:${faceVersionFontSize}px">${escapeHtml(faceRows.version)}</text>
-          <text class="chain-split-face-text is-mode" x="${faceTextX}" y="${frontY + size * 0.52}" style="font-size:${faceModeFontSize}px">${escapeHtml(faceRows.mode)}</text>
-          <text class="chain-split-face-text is-time" x="${faceTextX}" y="${frontY + size * 0.70}" style="font-size:${faceTimeFontSize}px"${timeAttrs}>${escapeHtml(faceRows.time)}</text>
-          <circle class="chain-split-miner-icon-bg" cx="${minerStartX + minerIconSize / 2}" cy="${minerY}" r="${minerIconSize / 2 + 3.5}" aria-hidden="true"></circle>
-          <image class="chain-split-miner-icon" href="${escapeHtml(miner.iconSrc)}" x="${minerStartX}" y="${minerY - minerIconSize / 2}" width="${minerIconSize}" height="${minerIconSize}" style="width:${minerIconSize}px;height:${minerIconSize}px" aria-hidden="true"></image>
-          <text class="chain-split-miner-label" x="${minerStartX + minerIconSize + minerGap}" y="${minerY}" style="font-size:${minerFontSize}px">${escapeHtml(miner.label)}</text>
+          <text class="chain-split-face-text" x="${faceTextX}" y="${versionY}" style="font-size:${faceVersionFontSize}px">${escapeHtml(faceRows.version)}</text>
+          <circle class="chain-split-miner-icon-bg" cx="${minerCenterX}" cy="${minerCenterY}" r="${minerIconBgRadius}" aria-hidden="true"></circle>
+          <image class="chain-split-miner-icon" href="${escapeHtml(miner.iconSrc)}" x="${minerCenterX - (minerIconSize / 2)}" y="${minerCenterY - (minerIconSize / 2)}" width="${minerIconSize}" height="${minerIconSize}" aria-hidden="true"></image>
+          <text class="chain-split-miner-label" x="${minerCenterX}" y="${minerLabelY}" text-anchor="middle" style="font-size:${minerFontSize}px">${escapeHtml(miner.label)}</text>
+          <text class="chain-split-face-text is-time" x="${minerCenterX}" y="${timeY}" style="font-size:${faceTimeFontSize}px"${timeAttrs}>${escapeHtml(faceRows.time)}</text>
         </g>
       `;
     }
@@ -7332,6 +7332,17 @@
       }
       if (chainSplitBip110HeightValue) {
         chainSplitBip110HeightValue.textContent = formatChainSplitHeightKpi(bip110Height, legacyHeight);
+      }
+      const signalingHashrate = estimateSignalingHashrateKpi(state.data || state.dynamicData || {});
+      if (chainSplitSignalingHashrateValue) {
+        chainSplitSignalingHashrateValue.textContent = signalingHashrate
+          ? `${formatHashrate(signalingHashrate.value)} (${signalingHashrate.shareText})`
+          : "...";
+      }
+      if (chainSplitNonSignalingHashrateValue) {
+        chainSplitNonSignalingHashrateValue.textContent = signalingHashrate
+          ? `${formatHashrate((state.data?.topKpis?.target_hashrate_hps || state.dynamicData?.topKpis?.target_hashrate_hps || 0) * (1 - signalingHashrate.signalingShare))} (${formatSharePct((signalingHashrate.totalBlocks || 0) - signalingHashrate.signalingBlocks, signalingHashrate.totalBlocks)})`
+          : "...";
       }
       if (chainSplitStatusValue) {
         const nodeSync = getNodeSyncStatus(state.data?.metadata || state.dynamicData?.metadata || {});
