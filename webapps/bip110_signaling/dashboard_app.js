@@ -768,7 +768,7 @@
       return {
         ok: Boolean(sync.in_sync),
         relation: relationText,
-        tooltip: `Compares the legacy source node tip against the local BIP-110 node. Legacy height: ${legacyText}. BIP-110 height: ${bip110Text}. Height delta: ${heightDeltaText}. BIP-110 blocks behind: ${behindText}. Latest common height: ${commonText}. Blocks since latest common height: ${sinceCommonText}. Attempts: ${attemptsText}. Relation: ${relationText}.${hashText}${aheadText}${checkedSuffix}${errorText}`,
+        tooltip: `Compares the legacy source node tip against the local BIP-110 node.`,
       };
     }
 
