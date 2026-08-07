@@ -5604,11 +5604,15 @@
         icon.alt = "";
         icon.setAttribute("aria-hidden", "true");
         setMinerIconSource(icon, row.slug);
+        const isPendingLoadingMiner = row.pendingMinerAttribution && (row.name || "Unknown") === "Unknown";
+        if (isPendingLoadingMiner) {
+          icon.classList.add("is-loading-miner");
+        }
         const minerText = document.createElement("div");
         minerText.className = "miner-timeline-miner-text";
         const name = document.createElement("div");
         name.className = "miner-timeline-miner-name";
-        name.textContent = row.pendingMinerAttribution && (row.name || "Unknown") === "Unknown"
+        name.textContent = isPendingLoadingMiner
           ? "Loading"
           : (row.name || "Unknown");
         minerText.appendChild(name);
@@ -6144,6 +6148,7 @@
       return {
         label: label.length > 18 ? `${label.slice(0, 16)}...` : label,
         slug: safeSlug,
+        isLoading: !hasUsableMinerAttribution(rawMiner),
         iconSrc: safeSlug && !missingMinerIconSlugs.has(safeSlug)
           ? `assets/mining-pools/${safeSlug}.svg`
           : "assets/mining-pools/default.svg",
@@ -6342,9 +6347,11 @@
       const versionY = frontY + Math.round((minerIconTop - frontY) / 2);
       const timeY = frontY + size + labelOffset;
       const minerLabelY = frontY + size * 0.87;
-      const classes = Number(block?.is_signaling) === 1
-        ? "chain-split-cube is-signaling"
-        : "chain-split-cube is-nonsignaling";
+      const classes = [
+        "chain-split-cube",
+        Number(block?.is_signaling) === 1 ? "is-signaling" : "is-nonsignaling",
+        miner.isLoading ? "has-loading-miner" : "",
+      ].filter(Boolean).join(" ");
       const faceTextX = frontX + size / 2;
       const front = `${frontX},${frontY} ${frontX + size},${frontY} ${frontX + size},${frontY + size} ${frontX},${frontY + size}`;
       const top = `${x},${y} ${x + size},${y} ${frontX + size},${frontY} ${frontX},${frontY}`;
@@ -6357,6 +6364,7 @@
           <polygon class="chain-split-cube-face chain-split-cube-front" points="${front}"></polygon>
           <text class="chain-split-face-text" x="${faceTextX}" y="${versionY}" style="font-size:${faceVersionFontSize}px">${escapeHtml(faceRows.version)}</text>
           <circle class="chain-split-miner-icon-bg" cx="${minerCenterX}" cy="${minerCenterY}" r="${minerIconBgRadius}" aria-hidden="true"></circle>
+          ${miner.isLoading ? `<circle class="chain-split-miner-loading-ring" cx="${minerCenterX}" cy="${minerCenterY}" r="${minerIconBgRadius + 2}" aria-hidden="true"></circle>` : ""}
           <image class="chain-split-miner-icon" href="${escapeHtml(miner.iconSrc)}" x="${minerCenterX - (minerIconSize / 2)}" y="${minerCenterY - (minerIconSize / 2)}" width="${minerIconSize}" height="${minerIconSize}" aria-hidden="true"></image>
           <text class="chain-split-miner-label" x="${minerCenterX}" y="${minerLabelY}" text-anchor="middle" style="font-size:${minerFontSize}px">${escapeHtml(miner.label)}</text>
           <text class="chain-split-face-text is-time" x="${minerCenterX}" y="${timeY}" style="font-size:${faceTimeFontSize}px"${timeAttrs}>${escapeHtml(faceRows.time)}</text>
@@ -6473,9 +6481,11 @@
       const frontY = y + depth;
       const nodeView = normalizeBip110NodeView(options.nodeView || "legacy");
       const miner = getChainSplitMiner(block, nodeView);
-      const classes = Number(block?.is_signaling) === 1
-        ? "miner-timeline-chain-split-cube is-signaling"
-        : "miner-timeline-chain-split-cube is-nonsignaling";
+      const classes = [
+        "miner-timeline-chain-split-cube",
+        Number(block?.is_signaling) === 1 ? "is-signaling" : "is-nonsignaling",
+        miner.isLoading ? "has-loading-miner" : "",
+      ].filter(Boolean).join(" ");
       const labelX = x + size / 2;
       const minerIconSize = Math.max(14, Math.min(20, size * 0.38));
       const minerIconX = frontX + (size / 2) - (minerIconSize / 2);
@@ -6491,6 +6501,7 @@
           <polygon class="miner-timeline-chain-split-cube-face miner-timeline-chain-split-cube-side" points="${side}"></polygon>
           <polygon class="miner-timeline-chain-split-cube-face miner-timeline-chain-split-cube-front" points="${front}"></polygon>
           <circle class="miner-timeline-chain-split-miner-icon-bg" cx="${minerIconX + minerIconSize / 2}" cy="${minerIconY + minerIconSize / 2}" r="${minerIconSize / 2 + 5}" aria-hidden="true"></circle>
+          ${miner.isLoading ? `<circle class="miner-timeline-chain-split-miner-loading-ring" cx="${minerIconX + minerIconSize / 2}" cy="${minerIconY + minerIconSize / 2}" r="${minerIconSize / 2 + 7}" aria-hidden="true"></circle>` : ""}
           <image class="miner-timeline-chain-split-miner-icon" href="${escapeHtml(miner.iconSrc)}" x="${minerIconX}" y="${minerIconY}" width="${minerIconSize}" height="${minerIconSize}" aria-hidden="true"></image>
         </g>
       `;
