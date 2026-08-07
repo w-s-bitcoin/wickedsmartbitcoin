@@ -686,6 +686,25 @@
       }
     }
 
+    .chain-split-miner-loading-ring,
+    .miner-timeline-chain-split-miner-loading-ring {
+      fill: none;
+      stroke: var(--signal);
+      stroke-width: 2.5px;
+      stroke-linecap: round;
+      stroke-dasharray: 26 48;
+      opacity: 0.95;
+      pointer-events: none;
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: bip110-chart-loading-spin 0.8s linear infinite;
+    }
+
+    .miner-timeline-chain-split-miner-loading-ring {
+      stroke-width: 1.8px;
+      stroke-dasharray: 14 28;
+    }
+
     .tooltip {
       position: fixed;
       z-index: 20;
@@ -1832,6 +1851,21 @@
       flex: 0 0 18px;
       object-fit: contain;
       background: var(--surface-soft);
+    }
+
+    .miner-timeline-miner-icon.is-loading-miner {
+      box-shadow: 0 0 0 2px var(--signal), 0 0 0 5px color-mix(in srgb, var(--signal) 22%, transparent);
+      animation: bip110-miner-loading-pulse 0.9s ease-in-out infinite;
+    }
+
+    @keyframes bip110-miner-loading-pulse {
+      0%,
+      100% {
+        box-shadow: 0 0 0 2px var(--signal), 0 0 0 4px color-mix(in srgb, var(--signal) 10%, transparent);
+      }
+      50% {
+        box-shadow: 0 0 0 2px var(--signal), 0 0 0 6px color-mix(in srgb, var(--signal) 30%, transparent);
+      }
     }
 
     .miner-timeline-miner-text {
