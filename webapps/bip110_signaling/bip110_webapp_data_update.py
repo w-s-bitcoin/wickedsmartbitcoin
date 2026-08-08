@@ -23,6 +23,8 @@ BIP110_START = 927_360
 BIP110_SIGNAL_END = 963_648
 BIP110_LAST_PERIOD = 18
 BIP110_MANDATORY_SIGNALING_HEIGHT = 961_632
+BIP110_BLOCK_POINT_TAIL_REBUILD_DEPTH = 12
+BIP110_MINER_TAIL_LOOKUP_DEPTH = 48
 X_MAX = 20
 SEGWIT_INITIAL_SIGNAL_MINER_SAMPLE_SIZE = None
 SEGWIT_INITIAL_PERIOD2_SIGNAL_MINER_SAMPLE_SIZE = 15
@@ -46,6 +48,9 @@ SEGWIT_SIGNAL_COUNTS = [
 
 def clamp(x, lo, hi):
     return max(lo, min(hi, x))
+
+def truthy_env(name: str, default: str = "") -> bool:
+    return str(os.getenv(name, default)).strip().lower() in {"1", "true", "yes", "on"}
 
 def height_to_period(height: int, start_height: int, period_size: int) -> int:
     return ((height - start_height) // period_size) + 1
@@ -112,6 +117,74 @@ def read_block_points_bin(path: Path, *, start_height: int, period_size: int, re
             "is_signaling": int(is_signaling),
         })
     return rows
+
+def build_bip110_block_rows_range(start_height, plot_max_height, rpc_get=None):
+    if rpc_get is None:
+        rpc_get = rpc_call
+    rows = []
+    if plot_max_height is None or plot_max_height < BIP110_START:
+        return rows
+    start = max(int(start_height), BIP110_START)
+    end = min(int(plot_max_height), BIP110_SIGNAL_END - 1)
+    if start > end:
+        return rows
+
+    for h in range(start, end + 1):
+        bh = rpc_get("getblockhash", h)
+        header = rpc_get("getblockheader", bh)
+        version = int(header["version"])
+        period = height_to_period(h, BIP110_START, PERIOD_SIZE)
+        period_start = BIP110_START + (period - 1) * PERIOD_SIZE
+        rows.append({
+            "period": int(period),
+            "height": int(h),
+            "y_in_period": int(h - period_start),
+            "version": version,
+            "block_time": int(header.get("time", 0)),
+            "is_signaling": int((version & (1 << 4)) != 0),
+        })
+    return rows
+
+def load_or_update_bip110_block_rows(path: Path, plot_max_height, rpc_get=None, *, log_label="bip110"):
+    if rpc_get is None:
+        rpc_get = rpc_call
+    if plot_max_height is None or plot_max_height < BIP110_START:
+        return []
+
+    target_end = min(int(plot_max_height), BIP110_SIGNAL_END - 1)
+    cached_rows = read_block_points_bin(
+        path,
+        start_height=BIP110_START,
+        period_size=PERIOD_SIZE,
+        record_size=13,
+    )
+    cached_rows = [
+        row
+        for row in cached_rows
+        if BIP110_START <= int(row.get("height", 0)) <= target_end
+    ]
+
+    is_contiguous = bool(cached_rows) and int(cached_rows[0]["height"]) == BIP110_START
+    if is_contiguous:
+        for prev, cur in zip(cached_rows, cached_rows[1:]):
+            if int(cur["height"]) != int(prev["height"]) + 1:
+                is_contiguous = False
+                break
+
+    if not is_contiguous:
+        print(f"[{log_label}] rebuilding BIP-110 block points cache through {target_end:,}.")
+        return build_bip110_block_rows_range(BIP110_START, target_end, rpc_get=rpc_get)
+
+    cached_end = int(cached_rows[-1]["height"])
+    tail_start = max(
+        BIP110_START,
+        min(cached_end, target_end) - max(0, BIP110_BLOCK_POINT_TAIL_REBUILD_DEPTH - 1),
+    )
+    prefix_rows = [row for row in cached_rows if int(row["height"]) < tail_start]
+    refreshed_rows = build_bip110_block_rows_range(tail_start, target_end, rpc_get=rpc_get)
+    if target_end > cached_end:
+        print(f"[{log_label}] appended BIP-110 block points {cached_end + 1:,}-{target_end:,}.")
+    return prefix_rows + refreshed_rows
 
 def load_low_activity_block_cache(path: Path):
     if not path.exists():
@@ -617,8 +690,10 @@ def check_bip110_node_sync(legacy_height: int, legacy_hash: str) -> dict:
     bip110_hash_at_legacy_height = None
     latest_common_height = None
     relation = "not_checked"
+    attempts_used = 0
 
     for attempt in range(1, max_attempts + 1):
+        attempts_used = attempt
         try:
             bip110_rpc = _make_bip110_rpc()
             bip110_height = int(bip110_rpc.getblockcount())
@@ -655,9 +730,26 @@ def check_bip110_node_sync(legacy_height: int, legacy_hash: str) -> dict:
                     f"BIP-110 hash at legacy height {legacy_height:,} was "
                     f"{bip110_hash_at_legacy_height}, expected {legacy_hash}"
                 )
+                break
             else:
                 relation = "bip110_behind"
                 last_error = f"BIP-110 node is behind legacy height {legacy_height:,}."
+                try:
+                    bip110_tip_hash = str(bip110_rpc.getblockhash(int(bip110_height)))
+                    legacy_hash_at_bip110_tip = str(rpc_call("getblockhash", int(bip110_height)))
+                    if bip110_tip_hash != legacy_hash_at_bip110_tip:
+                        relation = "hash_mismatch"
+                        common_search_height = min(int(legacy_height), int(bip110_height))
+                        latest_common_height = find_latest_common_height(bip110_rpc, common_search_height)
+                        last_error = (
+                            f"BIP-110 tip hash at height {int(bip110_height):,} differs from the legacy hash; "
+                            f"latest common height is {latest_common_height:,}."
+                            if latest_common_height is not None
+                            else f"BIP-110 tip hash at height {int(bip110_height):,} differs from the legacy hash."
+                        )
+                        break
+                except Exception as exc:
+                    last_error = f"{last_error} Hash comparison at BIP-110 tip failed: {exc}"
         except Exception as exc:
             relation = "rpc_error"
             last_error = str(exc)
@@ -708,7 +800,7 @@ def check_bip110_node_sync(legacy_height: int, legacy_hash: str) -> dict:
         "blocks_behind": blocks_behind,
         "latest_common_height": int(latest_common_height) if latest_common_height is not None else None,
         "blocks_since_common_height": blocks_since_common,
-        "attempts": int(max_attempts),
+        "attempts": int(attempts_used or max_attempts),
         "max_attempts": int(max_attempts),
         "retry_seconds": float(retry_seconds),
         "error": last_error,
@@ -744,11 +836,31 @@ print(f"Using webapp data dir: {webapp_dir}")
 import requests
 import re
 
-def fetch_github_release_metadata():
+def fetch_github_release_metadata(cache_path: Path | None = None, *, allow_network: bool = False):
     """
     Returns a dict mapping (repo, short_label) to dict with 'published_at', 'html_url', and 'tag_name'.
     For BIP110, matches tags containing the version string (e.g., v0.4, v0.4.1) anywhere in the tag.
     """
+    empty = {"bip110": {}, "core": {}, "knots": {}}
+
+    if cache_path and cache_path.exists() and not allow_network:
+        try:
+            with cache_path.open("r", encoding="utf-8") as f:
+                cached = json.load(f)
+            print(f"[bip110] Using cached release metadata from {cache_path.name}.")
+            return {
+                "bip110": cached.get("bip110", {}),
+                "core": cached.get("core", {}),
+                "knots": cached.get("knots", {}),
+            }
+        except Exception as exc:
+            print(f"[bip110] Release metadata cache unreadable; using empty cache: {exc}")
+            return empty
+
+    if not allow_network:
+        print("[bip110] Release metadata network refresh skipped.")
+        return empty
+
     github_token = os.getenv("GITHUB_TOKEN")
     headers = {
         "Accept": "application/vnd.github+json",
@@ -768,10 +880,26 @@ def fetch_github_release_metadata():
             url = r.links.get('next', {}).get('url')
         return releases
 
-    # Fetch releases for the release-marker repos
-    bip110_releases = fetch_all_releases("dathonohm", "bitcoin")
-    core_releases = fetch_all_releases("bitcoin", "bitcoin")
-    knots_releases = fetch_all_releases("bitcoinknots", "bitcoin")
+    try:
+        # Fetch releases for the release-marker repos
+        bip110_releases = fetch_all_releases("dathonohm", "bitcoin")
+        core_releases = fetch_all_releases("bitcoin", "bitcoin")
+        knots_releases = fetch_all_releases("bitcoinknots", "bitcoin")
+    except Exception as exc:
+        if cache_path and cache_path.exists():
+            try:
+                with cache_path.open("r", encoding="utf-8") as f:
+                    cached = json.load(f)
+                print(f"[bip110] GitHub release refresh failed; using cached metadata: {exc}")
+                return {
+                    "bip110": cached.get("bip110", {}),
+                    "core": cached.get("core", {}),
+                    "knots": cached.get("knots", {}),
+                }
+            except Exception:
+                pass
+        print(f"[bip110] GitHub release refresh failed; release metadata unavailable: {exc}")
+        return empty
 
     # For BIP110, match tags containing the version string (e.g., v0.4, v0.4.1) anywhere in the tag
     bip110_map = {}
@@ -798,10 +926,45 @@ def fetch_github_release_metadata():
         url = rel.get("html_url")
         if tag and published and ".knots" in tag.lower():
             knots_map[tag] = {"published_at": published, "html_url": url, "tag_name": tag}
-    return {"bip110": bip110_map, "core": core_map, "knots": knots_map}
+    payload = {"bip110": bip110_map, "core": core_map, "knots": knots_map}
+    if cache_path:
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            with cache_path.open("w", encoding="utf-8") as f:
+                json.dump(payload, f, separators=(",", ":"), ensure_ascii=True)
+            print(f"[bip110] Refreshed release metadata cache at {cache_path.name}.")
+        except Exception as exc:
+            print(f"[bip110] Failed to write release metadata cache: {exc}")
+    return payload
 
 # Build a mapping from label to release metadata (datetime, url, tag)
-release_metadata_map = fetch_github_release_metadata()
+release_metadata_map = fetch_github_release_metadata(
+    webapp_dir / "release_metadata_cache.json",
+    allow_network=truthy_env("BIP110_REFRESH_RELEASE_METADATA"),
+)
+
+def load_existing_release_metadata(path: Path):
+    if not path.exists():
+        return {}
+    try:
+        with path.open("r", newline="", encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+    except Exception:
+        return {}
+    metadata = {}
+    for row in rows:
+        label = str(row.get("label") or "").strip()
+        if not label:
+            continue
+        metadata[label] = {
+            "release_time_utc": str(row.get("release_time_utc") or "").strip(),
+            "github_url": str(row.get("github_url") or "").strip(),
+            "tag_name": str(row.get("github_tag") or "").strip(),
+        }
+    return metadata
+
+existing_release_metadata_by_label = load_existing_release_metadata(webapp_dir / "bip110_releases.csv")
+
 def get_release_metadata(label):
     if ":" in label:
         prefix, version = label.split(":", 1)
@@ -858,6 +1021,9 @@ def get_release_metadata(label):
             except Exception:
                 dt_fmt = dt
             return {"release_time_utc": dt_fmt, "github_url": meta["html_url"], "tag_name": meta["tag_name"]}
+    fallback = existing_release_metadata_by_label.get(label)
+    if fallback:
+        return fallback
     return {"release_time_utc": "", "github_url": "", "tag_name": ""}
 
 # --- Patch for missing BIP110 datetimes/urls ---
@@ -872,7 +1038,15 @@ POSTGRES_BLOCK_HASH_RECHECK_INTERVAL = 100
 MINER_ATTRIBUTION_LOOKUP_VERSION = 2
 
 def skip_mempool_fetches():
-    return str(os.getenv("BIP110_SKIP_MEMPOOL_FETCH", "")).strip().lower() in {"1", "true", "yes", "on"}
+    explicit_skip = os.getenv("BIP110_SKIP_MEMPOOL_FETCH")
+    if explicit_skip is not None:
+        return truthy_env("BIP110_SKIP_MEMPOOL_FETCH")
+    return not truthy_env("BIP110_ENABLE_MEMPOOL_FETCH")
+
+def mempool_skip_reason():
+    if os.getenv("BIP110_SKIP_MEMPOOL_FETCH") is not None:
+        return "BIP110_SKIP_MEMPOOL_FETCH"
+    return "fast local-only mode"
 
 def slugify_miner_name(value):
     return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
@@ -1518,7 +1692,7 @@ def fetch_block_low_fee_rates(heights, *, on_batch=None):
     pending = set(int(h) for h in heights)
     total = len(pending)
     if pending and skip_mempool_fetches():
-        print(f"[low-activity-blocks] mempool.space fee-rate lookup skipped by BIP110_SKIP_MEMPOOL_FETCH for {total:,} height(s).")
+        print(f"[low-activity-blocks] mempool.space fee-rate lookup skipped by {mempool_skip_reason()} for {total:,} height(s).")
         return {}, {}
     low_fee_rates = {}
     block_hashes = {}
@@ -1632,7 +1806,7 @@ def fetch_block_miners(heights, *, log_label="blocks", on_batch=None):
         return {}
     total = len(pending)
     if skip_mempool_fetches():
-        print(f"[{log_label}] mempool.space miner lookup skipped by BIP110_SKIP_MEMPOOL_FETCH for {total:,} height(s).")
+        print(f"[{log_label}] mempool.space miner lookup skipped by {mempool_skip_reason()} for {total:,} height(s).")
         return {}
     miners = {}
     headers = {
@@ -1720,26 +1894,48 @@ def fetch_block_miners(heights, *, log_label="blocks", on_batch=None):
 
     return miners
 
-def export_block_miners(path: Path, heights, *, log_label="blocks"):
+def export_block_miners(
+    path: Path,
+    heights,
+    *,
+    log_label="blocks",
+    return_payload: bool = False,
+    fast_tail_only: bool = False,
+):
     target_heights = sorted(set(int(h) for h in heights))
+    target_set = set(target_heights)
     existing = load_existing_signal_miners(path)
     miners = {
         height: miner
         for height, miner in existing.items()
-        if height in target_heights
+        if height in target_set
     }
-    invalidate_reorged_miner_attributions(miners, target_heights)
+    changed = False
+    stale_heights = invalidate_reorged_miner_attributions(miners, target_heights)
+    if stale_heights:
+        changed = True
     for height in list(miners):
         miner = miners.get(height) or {}
         if (
             str(miner.get("source") or "") == "local_coinbase_tag"
             and str(miner.get("matched_tag") or "").startswith("OCEAN:")
+            and not str(miner.get("sub_miner") or "").strip()
         ):
             miners.pop(height, None)
-    missing_heights = [height for height in target_heights if height not in miners]
-    def persist_batch(batch_miners):
+            changed = True
+
+    lookup_heights = target_heights
+    if fast_tail_only and target_heights:
+        tail_start = max(target_heights[0], target_heights[-1] - BIP110_MINER_TAIL_LOOKUP_DEPTH + 1)
+        lookup_heights = [height for height in target_heights if height >= tail_start]
+
+    missing_heights = [height for height in lookup_heights if height not in miners]
+    def persist_batch(batch_miners, *, persist: bool = False):
+        nonlocal changed
         miners.update(batch_miners)
-        write_block_miners_payload(path, target_heights, miners)
+        changed = True
+        if persist:
+            write_block_miners_payload(path, target_heights, miners)
 
     local = attribute_miners_locally(
         missing_heights,
@@ -1751,17 +1947,37 @@ def export_block_miners(path: Path, heights, *, log_label="blocks"):
         persist_batch(local)
 
     remaining_heights = [height for height in missing_heights if height not in miners]
-    fetched = fetch_block_miners(remaining_heights, log_label=log_label, on_batch=persist_batch)
-    miners.update(fetched)
+    fetched = fetch_block_miners(
+        remaining_heights,
+        log_label=log_label,
+        on_batch=lambda batch: persist_batch(batch, persist=True),
+    )
+    if fetched:
+        miners.update(fetched)
+        changed = True
 
-    payload = write_block_miners_payload(path, target_heights, miners)
-    return {"rows": len(payload), "source": f"local coinbase tags/addresses with {MEMPOOL_BLOCKS_API} fallback"}
+    payload = None
+    if changed or not path.exists():
+        payload = write_block_miners_payload(path, target_heights, miners)
+        rows = len(payload)
+    else:
+        rows = sum(1 for height in target_heights if miners.get(height, {}).get("name"))
+    meta = {"rows": rows, "source": f"local coinbase tags/addresses with {MEMPOOL_BLOCKS_API} fallback"}
+    if return_payload:
+        return meta, miners, payload, changed
+    return meta
 
 def export_signal_miners(path: Path, heights):
     return export_block_miners(path, heights, log_label="bip110")
 
-def export_bip110_miners(path: Path, heights):
-    return export_block_miners(path, heights, log_label="bip110")
+def export_bip110_miners(path: Path, heights, *, return_payload: bool = False):
+    return export_block_miners(
+        path,
+        heights,
+        log_label="bip110",
+        return_payload=return_payload,
+        fast_tail_only=truthy_env("BIP110_FAST_MINER_UPDATE", "1"),
+    )
 
 
 def select_segwit_miner_sample_heights(block_rows):
@@ -1989,12 +2205,20 @@ def make_rpc_getter(conn, *, label: str, max_attempts: int = 3, retry_delay: flo
 # Dynamic update: BIP-110 datasets (changes over time)
 node_tip_height = int(rpc_call("getblockcount"))
 candidate_bip110_plot_max_height = get_bip110_plot_max_height(node_tip_height)
-candidate_bip110_block_rows = build_bip110_block_rows(candidate_bip110_plot_max_height)
+bip110_blocks_path = webapp_dir / "bip110_block_points.bin"
+candidate_bip110_block_rows = load_or_update_bip110_block_rows(
+    bip110_blocks_path,
+    candidate_bip110_plot_max_height,
+    log_label="bip110",
+)
 candidate_bip110_miner_heights = [row["height"] for row in candidate_bip110_block_rows]
 bip110_miners_path = webapp_dir / "bip110_miners.json"
 bip110_signal_miners_path = webapp_dir / "bip110_signal_miners.json"
-export_bip110_miners(bip110_miners_path, candidate_bip110_miner_heights)
-bip110_miners = load_existing_signal_miners(bip110_miners_path)
+bip110_miners_meta, bip110_miners, _bip110_miner_payload, bip110_miners_changed = export_bip110_miners(
+    bip110_miners_path,
+    candidate_bip110_miner_heights,
+    return_payload=True,
+)
 
 current_height = node_tip_height
 bip110_plot_max_height = candidate_bip110_plot_max_height
@@ -2008,7 +2232,7 @@ current_hash = rpc_call("getblockhash", current_height)
 current_time_utc = datetime.fromtimestamp(int(rpc_call("getblockheader", current_hash)["time"]), tz=timezone.utc)
 date_str = current_time_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
 
-bip110_progress = compute_bip110_progress(current_height)
+bip110_progress = compute_bip110_progress_from_block_rows(current_height, candidate_bip110_block_rows)
 completed_periods = bip110_progress["completed_periods"]
 current_period_index = bip110_progress["current_period_index"]
 blocks_into_current_period = bip110_progress["blocks_into_current_period"]
@@ -2020,16 +2244,15 @@ export_csv(
     ["period", "period_start_height", "period_end_height", "status", "signal_blocks", "elapsed_blocks"],
 )
 
-bip110_block_rows = build_bip110_block_rows(bip110_plot_max_height)
+bip110_block_rows = candidate_bip110_block_rows
 bip110_miner_heights = [row["height"] for row in bip110_block_rows]
 bip110_blocks_meta = export_block_points_bin(
-    webapp_dir / "bip110_block_points.bin",
+    bip110_blocks_path,
     bip110_block_rows,
     period_size=PERIOD_SIZE,
 )
-bip110_miner_payload = write_block_miners_payload(bip110_miners_path, bip110_miner_heights, bip110_miners)
-bip110_miners_meta = {"rows": len(bip110_miner_payload), "source": MEMPOOL_BLOCKS_API}
-bip110_signal_miners_path.write_bytes(bip110_miners_path.read_bytes())
+if bip110_miners_changed or not bip110_signal_miners_path.exists():
+    bip110_signal_miners_path.write_bytes(bip110_miners_path.read_bytes())
 bip110_signal_miners_meta = dict(bip110_miners_meta)
 
 static_release_points = []
@@ -2111,6 +2334,7 @@ segwit_required = [
 ]
 needs_segwit_version_rebuild = False
 chart_static_path = webapp_dir / "chart_static.json"
+existing_static = None
 if chart_static_path.exists() and (webapp_dir / "segwit_block_points.bin").exists():
     try:
         with chart_static_path.open("r", encoding="utf-8") as f:
@@ -2223,24 +2447,30 @@ else:
         "period_size": int(PERIOD_SIZE),
         "record_size": int(segwit_record_size),
     }
-    segwit_block_rows = read_block_points_bin(
-        segwit_bin,
-        start_height=SEGWIT_START,
-        period_size=PERIOD_SIZE,
-        record_size=segwit_record_size,
-    )
     print("SegWit datasets unchanged (already present).")
 
-segwit_miner_sample_heights = select_segwit_miner_sample_heights(segwit_block_rows)
-segwit_miners_meta = export_block_miners(
-    webapp_dir / "segwit_miners.json",
-    segwit_miner_sample_heights,
-    log_label="segwit",
-)
-segwit_low_activity_blocks_meta = export_low_activity_block_cache(
-    webapp_dir / "segwit_low_activity_blocks.json",
-    segwit_block_rows,
-)
+if needs_segwit_rebuild:
+    segwit_miner_sample_heights = select_segwit_miner_sample_heights(segwit_block_rows)
+    segwit_miners_meta = export_block_miners(
+        webapp_dir / "segwit_miners.json",
+        segwit_miner_sample_heights,
+        log_label="segwit",
+    )
+    segwit_low_activity_blocks_meta = export_low_activity_block_cache(
+        webapp_dir / "segwit_low_activity_blocks.json",
+        segwit_block_rows,
+    )
+else:
+    existing_datasets = (existing_static or {}).get("datasets", {})
+    segwit_miners_meta = existing_datasets.get("segwit_miners", {
+        "rows": 0,
+        "source": "cached chart_static.json",
+    })
+    segwit_low_activity_blocks_meta = existing_datasets.get("segwit_low_activity_blocks", {
+        "checked": 0,
+        "rows": 0,
+        "source": "cached chart_static.json",
+    })
 
 needs_chart_static_refresh = needs_segwit_rebuild or not chart_static_path.exists()
 
@@ -2299,15 +2529,11 @@ if needs_chart_static_refresh:
         json.dump(chart_static, f, separators=(",", ":"), ensure_ascii=True)
     print("Wrote static chart bundle.")
 else:
-    with chart_static_path.open("r", encoding="utf-8") as f:
-        chart_static = json.load(f)
-    chart_static.setdefault("datasets", {})["segwit_miners"] = segwit_miners_meta
-    chart_static.setdefault("datasets", {}).pop("segwit_empty_blocks", None)
-    chart_static.setdefault("datasets", {}).pop("bip110_low_activity_blocks", None)
-    chart_static.setdefault("datasets", {})["segwit_low_activity_blocks"] = segwit_low_activity_blocks_meta
-    with chart_static_path.open("w", encoding="utf-8") as f:
-        json.dump(chart_static, f, separators=(",", ":"), ensure_ascii=True)
-    print("Static chart bundle refreshed with SegWit miner metadata.")
+    chart_static = existing_static
+    if chart_static is None:
+        with chart_static_path.open("r", encoding="utf-8") as f:
+            chart_static = json.load(f)
+    print("Static chart bundle unchanged.")
 
 bip110_node_blocks_meta = None
 bip110_node_miners_meta = None
@@ -2326,10 +2552,16 @@ try:
         )
         bip110_node_height = int(bip110_node_height)
         bip110_node_plot_max_height = get_bip110_plot_max_height(bip110_node_height)
-        bip110_node_block_rows = build_bip110_block_rows(bip110_node_plot_max_height, rpc_get=bip110_node_get)
-        bip110_node_miner_heights = [row["height"] for row in bip110_node_block_rows]
+        bip110_node_blocks_path = webapp_dir / "bip110_node_block_points.bin"
         bip110_node_miners_path = webapp_dir / "bip110_node_miners.json"
         bip110_node_signal_miners_path = webapp_dir / "bip110_node_signal_miners.json"
+        bip110_node_block_rows = load_or_update_bip110_block_rows(
+            bip110_node_blocks_path,
+            bip110_node_plot_max_height,
+            rpc_get=bip110_node_get,
+            log_label="bip110-node",
+        )
+        bip110_node_miner_heights = [row["height"] for row in bip110_node_block_rows]
 
         bip110_node_progress = compute_bip110_progress_from_block_rows(
             bip110_node_height,
@@ -2341,7 +2573,7 @@ try:
             ["period", "period_start_height", "period_end_height", "status", "signal_blocks", "elapsed_blocks"],
         )
         bip110_node_blocks_meta = export_block_points_bin(
-            webapp_dir / "bip110_node_block_points.bin",
+            bip110_node_blocks_path,
             bip110_node_block_rows,
             period_size=PERIOD_SIZE,
         )
@@ -2369,8 +2601,22 @@ try:
             if latest_common_height is None or int(height) > int(latest_common_height)
         ]
         if node_specific_miner_heights:
+            node_specific_miner_height_set = set(node_specific_miner_heights)
+            existing_node_miners = load_existing_signal_miners(bip110_node_miners_path)
+            bip110_node_miners.update({
+                height: miner
+                for height, miner in existing_node_miners.items()
+                if int(height) in node_specific_miner_height_set
+            })
+
+        missing_node_specific_miner_heights = [
+            height
+            for height in node_specific_miner_heights
+            if int(height) not in bip110_node_miners
+        ]
+        if missing_node_specific_miner_heights:
             local_node_miners = attribute_miners_locally(
-                node_specific_miner_heights,
+                missing_node_specific_miner_heights,
                 bip110_miners,
                 lookup_path=bip110_node_miners_path.with_name("miner_attribution_lookup.json"),
                 log_label="bip110-node",
