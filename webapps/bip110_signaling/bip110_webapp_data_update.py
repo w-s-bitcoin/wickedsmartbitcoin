@@ -1239,11 +1239,54 @@ def miner_key(miner):
         normalized.get("sub_miner", ""),
     ])
 
-def build_miner_attribution_learning(existing_miners, target_heights, lookup_path: Path):
+def fetch_rpc_coinbase_attribution_rows(heights, rpc_get, *, log_label="blocks"):
+    target_heights = sorted(set(int(height) for height in heights))
+    rows = {}
+    for height in target_heights:
+        try:
+            block_hash = str(rpc_get("getblockhash", height) or "").strip()
+            block = rpc_get("getblock", block_hash, 2)
+        except Exception as exc:
+            print(f"[{log_label}] RPC coinbase attribution lookup skipped at height {height:,}: {exc}")
+            continue
+
+        txs = block.get("tx") if isinstance(block, dict) else []
+        coinbase_tx = txs[0] if isinstance(txs, list) and txs and isinstance(txs[0], dict) else {}
+        vins = coinbase_tx.get("vin") if isinstance(coinbase_tx, dict) else []
+        vin0 = vins[0] if isinstance(vins, list) and vins and isinstance(vins[0], dict) else {}
+        scriptsig = str(vin0.get("coinbase") or "").strip()
+
+        coinbase_addresses = []
+        vouts = coinbase_tx.get("vout") if isinstance(coinbase_tx, dict) else []
+        for vout in vouts if isinstance(vouts, list) else []:
+            script_pub_key = vout.get("scriptPubKey") if isinstance(vout, dict) else {}
+            if not isinstance(script_pub_key, dict):
+                continue
+            candidates = []
+            if script_pub_key.get("address"):
+                candidates.append(script_pub_key.get("address"))
+            addresses = script_pub_key.get("addresses")
+            if isinstance(addresses, list):
+                candidates.extend(addresses)
+            for address in candidates:
+                text = str(address or "").strip()
+                if text and text != "OP_RETURN":
+                    coinbase_addresses.append(text)
+
+        rows[height] = {
+            "hash": block_hash,
+            "coinbase_scriptsig": scriptsig,
+            "coinbase_text": decode_coinbase_scriptsig_text(scriptsig),
+            "coinbase_addresses": coinbase_addresses,
+        }
+    return rows
+
+def build_miner_attribution_learning(existing_miners, target_heights, lookup_path: Path, *, target_row_fetcher=None):
     cached_lookup = load_miner_attribution_lookup(lookup_path)
     if cached_lookup:
+        fetch_rows = target_row_fetcher or fetch_postgres_coinbase_attribution_rows
         return (
-            fetch_postgres_coinbase_attribution_rows(target_heights),
+            fetch_rows(target_heights),
             cached_lookup["tag_map"],
             cached_lookup["address_map"],
         )
@@ -1340,14 +1383,23 @@ def build_miner_attribution_learning(existing_miners, target_heights, lookup_pat
         if key and key in miner_by_key
     }
     write_miner_attribution_lookup(lookup_path, tag_map, address_map)
+    if target_row_fetcher:
+        target_rows = dict(postgres_rows)
+        target_rows.update(target_row_fetcher(target_heights))
+        return target_rows, tag_map, address_map
     return postgres_rows, tag_map, address_map
 
-def attribute_miners_locally(heights, existing_miners, *, lookup_path: Path, log_label="blocks"):
+def attribute_miners_locally(heights, existing_miners, *, lookup_path: Path, log_label="blocks", target_row_fetcher=None):
     target_heights = sorted(set(int(height) for height in heights))
     if not target_heights:
         return {}
 
-    postgres_rows, tag_map, address_map = build_miner_attribution_learning(existing_miners, target_heights, lookup_path)
+    postgres_rows, tag_map, address_map = build_miner_attribution_learning(
+        existing_miners,
+        target_heights,
+        lookup_path,
+        target_row_fetcher=target_row_fetcher,
+    )
     locally_attributed = {}
 
     for height in target_heights:
@@ -2302,26 +2354,42 @@ try:
             for height in bip110_node_miner_heights
             if latest_common_height is not None and int(height) <= int(latest_common_height)
         ]
+        bip110_node_miners = {}
         if common_miner_heights:
             common_miner_height_set = set(common_miner_heights)
-            bip110_node_miner_payload = write_block_miners_payload(
-                bip110_node_miners_path,
-                bip110_node_miner_heights,
-                {
-                    height: miner
-                    for height, miner in bip110_miners.items()
-                    if int(height) in common_miner_height_set
-                },
+            bip110_node_miners.update({
+                height: miner
+                for height, miner in bip110_miners.items()
+                if int(height) in common_miner_height_set
+            })
+
+        node_specific_miner_heights = [
+            height
+            for height in bip110_node_miner_heights
+            if latest_common_height is None or int(height) > int(latest_common_height)
+        ]
+        if node_specific_miner_heights:
+            local_node_miners = attribute_miners_locally(
+                node_specific_miner_heights,
+                bip110_miners,
+                lookup_path=bip110_node_miners_path.with_name("miner_attribution_lookup.json"),
+                log_label="bip110-node",
+                target_row_fetcher=lambda heights: fetch_rpc_coinbase_attribution_rows(
+                    heights,
+                    bip110_node_get,
+                    log_label="bip110-node",
+                ),
             )
-        else:
-            bip110_node_miner_payload = write_block_miners_payload(
-                bip110_node_miners_path,
-                bip110_node_miner_heights,
-                {},
-            )
+            bip110_node_miners.update(local_node_miners)
+
+        bip110_node_miner_payload = write_block_miners_payload(
+            bip110_node_miners_path,
+            bip110_node_miner_heights,
+            bip110_node_miners,
+        )
         bip110_node_miners_meta = {
             "rows": len(bip110_node_miner_payload),
-            "source": "legacy-chain miner attributions through latest common height",
+            "source": "legacy-chain miner attributions through latest common height; local BIP-110 node coinbase tags/addresses after split",
         }
         bip110_node_signal_miners_path.write_bytes(bip110_node_miners_path.read_bytes())
         bip110_node_signal_miners_meta = dict(bip110_node_miners_meta)
