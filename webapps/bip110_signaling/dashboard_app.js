@@ -6367,7 +6367,7 @@
           <polygon class="chain-split-cube-face chain-split-cube-front" points="${front}"></polygon>
           <text class="chain-split-face-text" x="${faceTextX}" y="${versionY}" style="font-size:${faceVersionFontSize}px">${escapeHtml(faceRows.version)}</text>
           <circle class="chain-split-miner-icon-bg" cx="${minerCenterX}" cy="${minerCenterY}" r="${minerIconBgRadius}" aria-hidden="true"></circle>
-          ${miner.isLoading ? `<circle class="chain-split-miner-loading-ring" cx="${minerCenterX}" cy="${minerCenterY}" r="${minerIconBgRadius + 2}" aria-hidden="true"></circle>` : ""}
+          ${miner.isLoading ? `<circle class="chain-split-miner-loading-ring-base" cx="${minerCenterX}" cy="${minerCenterY}" r="${minerIconBgRadius + 2}" aria-hidden="true"></circle><circle class="chain-split-miner-loading-ring" cx="${minerCenterX}" cy="${minerCenterY}" r="${minerIconBgRadius + 2}" pathLength="100" aria-hidden="true"></circle>` : ""}
           <image class="chain-split-miner-icon" href="${escapeHtml(miner.iconSrc)}" x="${minerCenterX - (minerIconSize / 2)}" y="${minerCenterY - (minerIconSize / 2)}" width="${minerIconSize}" height="${minerIconSize}" aria-hidden="true"></image>
           <text class="chain-split-miner-label" x="${minerCenterX}" y="${minerLabelY}" text-anchor="middle" style="font-size:${minerFontSize}px">${escapeHtml(miner.label)}</text>
           <text class="chain-split-face-text is-time" x="${minerCenterX}" y="${timeY}" style="font-size:${faceTimeFontSize}px"${timeAttrs}>${escapeHtml(faceRows.time)}</text>
@@ -6504,7 +6504,7 @@
           <polygon class="miner-timeline-chain-split-cube-face miner-timeline-chain-split-cube-side" points="${side}"></polygon>
           <polygon class="miner-timeline-chain-split-cube-face miner-timeline-chain-split-cube-front" points="${front}"></polygon>
           <circle class="miner-timeline-chain-split-miner-icon-bg" cx="${minerIconX + minerIconSize / 2}" cy="${minerIconY + minerIconSize / 2}" r="${minerIconSize / 2 + 5}" aria-hidden="true"></circle>
-          ${miner.isLoading ? `<circle class="miner-timeline-chain-split-miner-loading-ring" cx="${minerIconX + minerIconSize / 2}" cy="${minerIconY + minerIconSize / 2}" r="${minerIconSize / 2 + 7}" aria-hidden="true"></circle>` : ""}
+          ${miner.isLoading ? `<circle class="miner-timeline-chain-split-miner-loading-ring-base" cx="${minerIconX + minerIconSize / 2}" cy="${minerIconY + minerIconSize / 2}" r="${minerIconSize / 2 + 7}" aria-hidden="true"></circle><circle class="miner-timeline-chain-split-miner-loading-ring" cx="${minerIconX + minerIconSize / 2}" cy="${minerIconY + minerIconSize / 2}" r="${minerIconSize / 2 + 7}" pathLength="100" aria-hidden="true"></circle>` : ""}
           <image class="miner-timeline-chain-split-miner-icon" href="${escapeHtml(miner.iconSrc)}" x="${minerIconX}" y="${minerIconY}" width="${minerIconSize}" height="${minerIconSize}" aria-hidden="true"></image>
         </g>
       `;
