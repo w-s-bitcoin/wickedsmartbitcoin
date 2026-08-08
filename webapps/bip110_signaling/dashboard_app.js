@@ -228,6 +228,7 @@
       preResetStateSnapshot: null,
       suppressResetSnapshotClear: false,
       autoRefreshTimer: null,
+      forkEstimateTimer: null,
       phasedLoadToken: 0,
       refreshInFlight: false,
       lastSuccessfulRefreshAt: 0,
@@ -712,8 +713,7 @@
 
     function estimateExpectedForkDate(meta) {
       const sourceHeight = Number(meta?.source_block_height);
-      const sourceTime = parseUtcTimestamp(meta?.source_block_time_utc || meta?.generated_utc);
-      if (!Number.isFinite(sourceHeight) || sourceHeight <= 0 || Number.isNaN(sourceTime.getTime())) {
+      if (!Number.isFinite(sourceHeight) || sourceHeight <= 0) {
         return null;
       }
 
@@ -721,7 +721,53 @@
       return {
         height: EXPECTED_FORK_HEIGHT,
         blocksRemaining,
-        date: new Date(sourceTime.getTime() + blocksRemaining * EXPECTED_BLOCK_INTERVAL_MS),
+        date: new Date(Date.now() + blocksRemaining * EXPECTED_BLOCK_INTERVAL_MS),
+      };
+    }
+
+    function getFirstDetectedForkBlock(meta) {
+      const sync = meta?.node_sync || getChainSplitSyncMeta();
+      if (!sync || sync.in_sync === true) return null;
+
+      const legacyHeight = Number(sync?.legacy_height);
+      const bip110Height = Number(sync?.bip110_height);
+      const latestCommonHeight = Number(sync?.latest_common_height);
+      const splitHeight = Number.isFinite(latestCommonHeight) ? latestCommonHeight + 1 : null;
+      if (!Number.isFinite(splitHeight)) return null;
+      const latestKnownHeight = Math.max(
+        Number.isFinite(legacyHeight) ? legacyHeight : -Infinity,
+        Number.isFinite(bip110Height) ? bip110Height : -Infinity
+      );
+      const hasDetectedSplit = isChainSplitDetected(sync);
+      const hasPostMandatoryUnsharedTip = splitHeight >= EXPECTED_FORK_HEIGHT
+        && Number.isFinite(latestKnownHeight)
+        && latestKnownHeight >= splitHeight;
+      if (!hasDetectedSplit && !hasPostMandatoryUnsharedTip) return null;
+
+      const legacyBlock = getBlockMapByHeight(getBip110BlocksForNodeView("legacy")).get(splitHeight) || null;
+      const bip110Block = getBlockMapByHeight(getBip110BlocksForNodeView("bip110")).get(splitHeight) || null;
+      const sourceHeight = Number(meta?.source_block_height);
+      const sourceTime = Number.isFinite(sourceHeight) && sourceHeight === splitHeight
+        ? parseUtcTimestamp(meta?.source_block_time_utc || meta?.generated_utc)
+        : null;
+      const sourceCandidate = sourceTime && !Number.isNaN(sourceTime.getTime())
+        ? { height: splitHeight, block_time: Math.floor(sourceTime.getTime() / 1000) }
+        : null;
+      const candidates = [legacyBlock, bip110Block]
+        .concat(sourceCandidate ? [sourceCandidate] : [])
+        .filter(Boolean)
+        .map((block) => ({
+          block,
+          time: Number(block?.block_time),
+        }))
+        .filter((entry) => Number.isFinite(entry.time) && entry.time > 0)
+        .sort((a, b) => a.time - b.time);
+
+      if (!candidates.length) return null;
+      return {
+        height: splitHeight,
+        block: candidates[0].block,
+        date: new Date(candidates[0].time * 1000),
       };
     }
 
@@ -1637,6 +1683,15 @@
       state.autoRefreshTimer = setInterval(refreshIfDataChanged, AUTO_REFRESH_MS);
     }
 
+    function startForkEstimateTimer() {
+      if (state.forkEstimateTimer) {
+        clearInterval(state.forkEstimateTimer);
+      }
+      state.forkEstimateTimer = setInterval(() => {
+        if (state.data) setStatus(state.data);
+      }, AUTO_REFRESH_MS);
+    }
+
     function persistControls() {
       try {
         const segwitRatio = Number.isFinite(state.manualPanelHeightRatios.segwit)
@@ -2386,6 +2441,18 @@
       };
 
       const appendExpectedForkTimeChip = (signalingHashrate) => {
+        const forkBlock = getFirstDetectedForkBlock(meta);
+        if (forkBlock?.date instanceof Date && !Number.isNaN(forkBlock.date.getTime())) {
+          const dateText = formatGeneratedDateTimeForSelectedTimeZone(forkBlock.date.toISOString());
+          const heightText = forkBlock.height.toLocaleString("en-US");
+          appendStatusChip(
+            "Fork Time",
+            dateText,
+            `Chains split at height ${heightText}. This is the timestamp of the first block after the last common height.`
+          );
+          return;
+        }
+
         const estimate = estimateExpectedForkDate(meta);
         if (!estimate) {
           appendStatusChip("Est. Fork Time", "n/a");
@@ -2396,7 +2463,7 @@
         const heightText = estimate.height.toLocaleString("en-US");
         const blocksText = estimate.blocksRemaining.toLocaleString("en-US");
         const tooltipText = estimate.blocksRemaining > 0
-          ? `The fork would likely happen when mandatory signaling begins at height ${heightText}. This projection assumes blocks continue arriving every 10 minutes and starts from block ${Number(meta.source_block_height).toLocaleString("en-US")}; ${blocksText} blocks remain.`
+          ? `The fork would likely happen when mandatory signaling begins at height ${heightText}. This projection assumes blocks continue arriving every 10 minutes from the current clock time and starts from block ${Number(meta.source_block_height).toLocaleString("en-US")}; ${blocksText} blocks remain.`
           : `The fork would likely happen when mandatory signaling begins at height ${heightText}. That height has already been reached or passed.`;
         const activationEstimate = estimateActivationAfterFork(estimate, signalingHashrate, meta);
         const activationText = activationEstimate
@@ -8922,6 +8989,7 @@
         updateResetButtonUi();
         setupRefreshWakeEvents();
         startAutoRefresh();
+        startForkEstimateTimer();
         await renderSelectedPanelsWithSharedLoader(PANEL_KEYS, { enhanced: false, scheduleEnhancements: true });
         // Keep controls responsive while block marker data finishes loading in the background.
         setControlsEnabled(true);
