@@ -5599,6 +5599,8 @@
 
         const minerEl = document.createElement("div");
         minerEl.className = "miner-timeline-miner";
+        const iconWrap = document.createElement("span");
+        iconWrap.className = "miner-timeline-miner-icon-wrap";
         const icon = document.createElement("img");
         icon.className = "miner-timeline-miner-icon";
         icon.alt = "";
@@ -5606,8 +5608,9 @@
         setMinerIconSource(icon, row.slug);
         const isPendingLoadingMiner = row.pendingMinerAttribution && (row.name || "Unknown") === "Unknown";
         if (isPendingLoadingMiner) {
-          icon.classList.add("is-loading-miner");
+          iconWrap.classList.add("is-loading-miner");
         }
+        iconWrap.appendChild(icon);
         const minerText = document.createElement("div");
         minerText.className = "miner-timeline-miner-text";
         const name = document.createElement("div");
@@ -5616,7 +5619,7 @@
           ? "Loading"
           : (row.name || "Unknown");
         minerText.appendChild(name);
-        minerEl.appendChild(icon);
+        minerEl.appendChild(iconWrap);
         minerEl.appendChild(minerText);
 
         const nonCount = document.createElement("div");
