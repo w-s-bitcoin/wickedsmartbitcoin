@@ -1803,18 +1803,7 @@ def build_dynamic_release_points(current_height: int):
 bip110_total_periods = (BIP110_SIGNAL_END - BIP110_START) // PERIOD_SIZE
 
 
-def compute_bip110_progress(height):
-    scan_end = min(height + 1, BIP110_SIGNAL_END)
-    signal_counts = [0] * bip110_total_periods
-
-    for block_height in range(BIP110_START, scan_end):
-        block_hash = rpc_call("getblockhash", block_height)
-        version = int(rpc_call("getblockheader", block_hash)["version"])
-        if (version & (1 << 4)) != 0:
-            idx = (block_height - BIP110_START) // PERIOD_SIZE
-            if 0 <= idx < bip110_total_periods:
-                signal_counts[idx] += 1
-
+def format_bip110_progress(height, signal_counts):
     effective = clamp(height, BIP110_START, BIP110_SIGNAL_END)
     blocks_into_window_value = effective - BIP110_START
     completed = int(clamp(blocks_into_window_value // PERIOD_SIZE, 0, bip110_total_periods))
@@ -1864,6 +1853,35 @@ def compute_bip110_progress(height):
     }
 
 
+def compute_bip110_progress(height, rpc_get=rpc_call):
+    scan_end = min(height + 1, BIP110_SIGNAL_END)
+    signal_counts = [0] * bip110_total_periods
+
+    for block_height in range(BIP110_START, scan_end):
+        block_hash = rpc_get("getblockhash", block_height)
+        version = int(rpc_get("getblockheader", block_hash)["version"])
+        if (version & (1 << 4)) != 0:
+            idx = (block_height - BIP110_START) // PERIOD_SIZE
+            if 0 <= idx < bip110_total_periods:
+                signal_counts[idx] += 1
+
+    return format_bip110_progress(height, signal_counts)
+
+
+def compute_bip110_progress_from_block_rows(height, block_rows):
+    signal_counts = [0] * bip110_total_periods
+    for row in block_rows:
+        block_height = int(row.get("height", 0))
+        if block_height < BIP110_START or block_height >= BIP110_SIGNAL_END:
+            continue
+        if int(row.get("is_signaling", 0)) != 1:
+            continue
+        idx = (block_height - BIP110_START) // PERIOD_SIZE
+        if 0 <= idx < bip110_total_periods:
+            signal_counts[idx] += 1
+    return format_bip110_progress(height, signal_counts)
+
+
 def get_bip110_plot_max_height(height):
     if height < BIP110_START:
         return BIP110_START - 1
@@ -1872,7 +1890,7 @@ def get_bip110_plot_max_height(height):
     return BIP110_SIGNAL_END - 1
 
 
-def build_bip110_block_rows(plot_max_height):
+def build_bip110_block_rows(plot_max_height, rpc_get=rpc_call):
     rows = []
     if plot_max_height is None or plot_max_height < BIP110_START:
         return rows
@@ -1884,8 +1902,8 @@ def build_bip110_block_rows(plot_max_height):
         effective_end = min(period_end, plot_max_height)
 
         for h in range(period_start, effective_end + 1):
-            bh = rpc_call("getblockhash", h)
-            header = rpc_call("getblockheader", bh)
+            bh = rpc_get("getblockhash", h)
+            header = rpc_get("getblockheader", bh)
             version = int(header["version"])
             rows.append({
                 "period": period,
@@ -1896,6 +1914,24 @@ def build_bip110_block_rows(plot_max_height):
                 "is_signaling": int((version & (1 << 4)) != 0),
             })
     return rows
+
+
+def make_rpc_getter(conn, *, label: str, max_attempts: int = 3, retry_delay: float = 2.0, reconnect=None):
+    def rpc_get(method_name: str, *args):
+        nonlocal conn
+        last_err: Exception | None = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                return getattr(conn, method_name)(*args)
+            except RPC_RETRY_EXCEPTIONS as exc:
+                last_err = exc
+                print(f"[{label}] RPC {method_name} failed (attempt {attempt}/{max_attempts}): {exc}")
+                if attempt < max_attempts:
+                    if reconnect is not None:
+                        conn = reconnect()
+                    time.sleep(retry_delay)
+        raise RuntimeError(f"{label} RPC {method_name} unavailable after {max_attempts} attempts: {last_err}") from last_err
+    return rpc_get
 
 
 # Dynamic update: BIP-110 datasets (changes over time)
@@ -2221,7 +2257,77 @@ else:
         json.dump(chart_static, f, separators=(",", ":"), ensure_ascii=True)
     print("Static chart bundle refreshed with SegWit miner metadata.")
 
+bip110_node_blocks_meta = None
+bip110_node_miners_meta = None
+bip110_node_signal_miners_meta = None
+
 node_sync = check_bip110_node_sync(int(current_height), str(current_hash))
+
+try:
+    bip110_node_height = node_sync.get("bip110_height")
+    if bip110_node_height is not None:
+        bip110_node_rpc = _make_bip110_rpc()
+        bip110_node_get = make_rpc_getter(
+            bip110_node_rpc,
+            label="bip110-node",
+            reconnect=_make_bip110_rpc,
+        )
+        bip110_node_height = int(bip110_node_height)
+        bip110_node_plot_max_height = get_bip110_plot_max_height(bip110_node_height)
+        bip110_node_block_rows = build_bip110_block_rows(bip110_node_plot_max_height, rpc_get=bip110_node_get)
+        bip110_node_miner_heights = [row["height"] for row in bip110_node_block_rows]
+        bip110_node_miners_path = webapp_dir / "bip110_node_miners.json"
+        bip110_node_signal_miners_path = webapp_dir / "bip110_node_signal_miners.json"
+
+        bip110_node_progress = compute_bip110_progress_from_block_rows(
+            bip110_node_height,
+            bip110_node_block_rows,
+        )
+        export_csv(
+            webapp_dir / "bip110_node_periods.csv",
+            bip110_node_progress["period_rows"],
+            ["period", "period_start_height", "period_end_height", "status", "signal_blocks", "elapsed_blocks"],
+        )
+        bip110_node_blocks_meta = export_block_points_bin(
+            webapp_dir / "bip110_node_block_points.bin",
+            bip110_node_block_rows,
+            period_size=PERIOD_SIZE,
+        )
+
+        latest_common_height = node_sync.get("latest_common_height")
+        if latest_common_height is None and node_sync.get("in_sync"):
+            latest_common_height = current_height
+        common_miner_heights = [
+            height
+            for height in bip110_node_miner_heights
+            if latest_common_height is not None and int(height) <= int(latest_common_height)
+        ]
+        if common_miner_heights:
+            common_miner_height_set = set(common_miner_heights)
+            bip110_node_miner_payload = write_block_miners_payload(
+                bip110_node_miners_path,
+                bip110_node_miner_heights,
+                {
+                    height: miner
+                    for height, miner in bip110_miners.items()
+                    if int(height) in common_miner_height_set
+                },
+            )
+        else:
+            bip110_node_miner_payload = write_block_miners_payload(
+                bip110_node_miners_path,
+                bip110_node_miner_heights,
+                {},
+            )
+        bip110_node_miners_meta = {
+            "rows": len(bip110_node_miner_payload),
+            "source": "legacy-chain miner attributions through latest common height",
+        }
+        bip110_node_signal_miners_path.write_bytes(bip110_node_miners_path.read_bytes())
+        bip110_node_signal_miners_meta = dict(bip110_node_miners_meta)
+        print(f"[bip110] Exported BIP-110 node datasets through {bip110_node_plot_max_height:,}.")
+except Exception as exc:
+    print(f"[bip110] Skipped BIP-110 node dataset export: {exc}")
 
 bip110_metadata = {
     "generated_utc": datetime.now(timezone.utc).isoformat(),
@@ -2236,6 +2342,12 @@ bip110_metadata = {
         "bip110_signal_miners": bip110_signal_miners_meta,
     },
 }
+if bip110_node_blocks_meta:
+    bip110_metadata["datasets"]["bip110_node_blocks"] = bip110_node_blocks_meta
+if bip110_node_miners_meta:
+    bip110_metadata["datasets"]["bip110_node_miners"] = bip110_node_miners_meta
+if bip110_node_signal_miners_meta:
+    bip110_metadata["datasets"]["bip110_node_signal_miners"] = bip110_node_signal_miners_meta
 
 with (webapp_dir / "bip110_metadata.json").open("w", encoding="utf-8") as f:
     json.dump(bip110_metadata, f, separators=(",", ":"), ensure_ascii=True)
