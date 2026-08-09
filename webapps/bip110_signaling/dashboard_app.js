@@ -725,6 +725,15 @@
       };
     }
 
+    function getSelectedMainNodeHeight(meta, nodeView = getSelectedMainNodeView()) {
+      const view = normalizeBip110NodeView(nodeView);
+      const sync = meta?.node_sync;
+      const selectedHeight = view === "bip110" ? Number(sync?.bip110_height) : Number(sync?.legacy_height);
+      if (Number.isFinite(selectedHeight) && selectedHeight > 0) return selectedHeight;
+      const sourceHeight = Number(meta?.source_block_height);
+      return Number.isFinite(sourceHeight) && sourceHeight > 0 ? sourceHeight : null;
+    }
+
     function getFirstDetectedForkBlock(meta) {
       const sync = meta?.node_sync || getChainSplitSyncMeta();
       if (!sync || sync.in_sync === true) return null;
@@ -1370,6 +1379,7 @@
         metadata = metadataResult.metadata;
         signature = metadataResult.signature;
       }
+      const hasBip110NodeDataset = Boolean(metadata?.datasets?.bip110_node_blocks);
 
       const bip110SignalMiners = await loadOptionalJson(
         withBust("webapp_data/bip110_miners.json"),
@@ -1388,10 +1398,12 @@
         previousDynamicData?.bip110LeaderboardMiners || bip110SignalMiners,
         { cache: "no-store" }
       );
-      const bip110NodePeriodsResp = await fetch(withBust("webapp_data/bip110_node_periods.csv"), { cache: "no-store" }).catch(() => null);
+      const bip110NodePeriodsResp = hasBip110NodeDataset
+        ? await fetch(withBust("webapp_data/bip110_node_periods.csv"), { cache: "no-store" }).catch(() => null)
+        : null;
       const bip110NodePeriods = bip110NodePeriodsResp?.ok
         ? castRows(parseCsv(await bip110NodePeriodsResp.text()))
-        : (previousDynamicData?.bip110NodePeriods || []);
+        : (hasBip110NodeDataset ? (previousDynamicData?.bip110NodePeriods || []) : []);
       const bip110NodeMiners = await loadOptionalJson(
         withBust("webapp_data/bip110_node_miners.json"),
         previousDynamicData?.bip110NodeMiners || {},
@@ -1408,7 +1420,7 @@
         bip110Periods: castRows(parseCsv(await bip110PeriodsResp.text())),
         bip110Blocks: [],
         bip110NodePeriods,
-        bip110NodeBlocks: previousDynamicData?.bip110NodeBlocks || [],
+        bip110NodeBlocks: hasBip110NodeDataset ? (previousDynamicData?.bip110NodeBlocks || []) : [],
         bip110Releases: bip110ReleasesResp
           ? castRows(parseCsv(await bip110ReleasesResp.text())).map((d) => ({
               ...d,
@@ -1462,18 +1474,13 @@
       };
     }
 
-    function reconcileBip110PeriodsFromBlocks(dynamicData, metadata) {
-      if (!dynamicData || !Array.isArray(dynamicData.bip110Periods) || dynamicData.bip110Periods.length === 0) {
-        return dynamicData;
-      }
-      if (!Array.isArray(dynamicData.bip110Blocks) || dynamicData.bip110Blocks.length === 0) {
-        return dynamicData;
-      }
-
+    function reconcilePeriodRowsFromBlocks(periodRows, blocks, metadata) {
+      if (!Array.isArray(periodRows) || periodRows.length === 0) return periodRows;
+      if (!Array.isArray(blocks) || blocks.length === 0) return periodRows;
       const periodSize = Number(metadata?.chart?.period_size || 2016);
       const perPeriodCounts = new Map();
 
-      dynamicData.bip110Blocks.forEach((block) => {
+      blocks.forEach((block) => {
         const period = Number(block?.period);
         if (!Number.isFinite(period)) return;
 
@@ -1485,7 +1492,7 @@
         perPeriodCounts.set(period, counts);
       });
 
-      const reconciledPeriods = dynamicData.bip110Periods.map((row) => {
+      return periodRows.map((row) => {
         const period = Number(row?.period);
         const status = String(row?.status || "");
         const counts = perPeriodCounts.get(period);
@@ -1509,10 +1516,14 @@
 
         return row;
       });
+    }
 
+    function reconcileBip110PeriodsFromBlocks(dynamicData, metadata) {
+      if (!dynamicData) return dynamicData;
       return {
         ...dynamicData,
-        bip110Periods: reconciledPeriods,
+        bip110Periods: reconcilePeriodRowsFromBlocks(dynamicData.bip110Periods, dynamicData.bip110Blocks, metadata),
+        bip110NodePeriods: reconcilePeriodRowsFromBlocks(dynamicData.bip110NodePeriods, dynamicData.bip110NodeBlocks, metadata),
       };
     }
 
@@ -1538,10 +1549,14 @@
       }
 
       const periodSize = Number(metadata?.chart?.period_size || 2016);
+      const nodeDatasetMeta = metadata?.datasets?.bip110_node_blocks || null;
+      if (isBip110Node && !nodeDatasetMeta) {
+        return [];
+      }
       const datasetMeta = isSegwit
         ? (metadata?.datasets?.segwit_blocks || {})
         : isBip110Node
-          ? (metadata?.datasets?.bip110_node_blocks || metadata?.datasets?.bip110_blocks || {})
+          ? nodeDatasetMeta
           : (metadata?.datasets?.bip110_blocks || {});
       const startHeight = Number(datasetMeta?.start_height || 0);
 
@@ -1759,6 +1774,26 @@
 
     function normalizeBip110NodeView(value) {
       return String(value || "").toLowerCase() === "bip110" ? "bip110" : "legacy";
+    }
+
+    function getSelectedMainNodeView() {
+      return state.controls.showBip110Node ? "bip110" : "legacy";
+    }
+
+    function getBip110PeriodsForDataNodeView(data, nodeView) {
+      const view = normalizeBip110NodeView(nodeView);
+      if (view === "bip110" && Array.isArray(data?.bip110NodePeriods) && data.bip110NodePeriods.length) {
+        return data.bip110NodePeriods;
+      }
+      return Array.isArray(data?.bip110Periods) ? data.bip110Periods : [];
+    }
+
+    function getBip110BlocksForDataNodeView(data, nodeView) {
+      const view = normalizeBip110NodeView(nodeView);
+      if (view === "bip110" && Array.isArray(data?.bip110NodeBlocks) && data.bip110NodeBlocks.length) {
+        return data.bip110NodeBlocks;
+      }
+      return Array.isArray(data?.bip110Blocks) ? data.bip110Blocks : [];
     }
 
     function persistBip110OverlaySelections() {
@@ -2426,7 +2461,14 @@
       const meta = data.metadata;
       const s = meta.state;
       const currentPeriod = Number(s.current_period_index);
-      const currentPeriodRow = data.bip110Periods.find((row) => Number(row.period) === currentPeriod) || null;
+      const currentPeriodNodeView = getSelectedMainNodeView();
+      const currentPeriodRows = getBip110PeriodsForDataNodeView(data, currentPeriodNodeView);
+      const currentPeriodRow = currentPeriodRows.find((row) => Number(row.period) === currentPeriod)
+        || currentPeriodRows[currentPeriodRows.length - 1]
+        || null;
+      const currentPeriodLabel = Number.isFinite(Number(currentPeriodRow?.period))
+        ? Number(currentPeriodRow.period)
+        : currentPeriod;
       const currentSignal = currentPeriodRow ? Number(currentPeriodRow.signal_blocks || 0) : null;
       const currentSignalPct = currentPeriodRow
         ? pctLabel(Number(currentPeriodRow.signal_blocks || 0), Number(meta.chart.period_size))
@@ -2512,9 +2554,9 @@
           if (state.data) setStatus(state.data);
         },
       });
-      const updatedHeight = Number(meta?.source_block_height);
+      const updatedHeight = getSelectedMainNodeHeight(meta, currentPeriodNodeView);
       updatedTimeZoneChip?.setUpdated(meta?.generated_utc, {
-        includeHeight: Number.isFinite(updatedHeight) && updatedHeight > 0,
+        includeHeight: Number.isFinite(Number(updatedHeight)) && Number(updatedHeight) > 0,
         height: updatedHeight,
       });
       const periodSignalValue = currentSignal != null
@@ -2522,9 +2564,10 @@
         : `<span class="chip-value-signal">...</span>`;
       appendStatusChip(
         "Period",
-        `${s.current_period_index ?? "N/A"} <span class="chip-label">Signaling</span> ${periodSignalValue}`
+        `${Number.isFinite(currentPeriodLabel) ? currentPeriodLabel : "N/A"} <span class="chip-label">Signaling</span> ${periodSignalValue}`,
+        currentPeriodNodeView === "bip110" ? "Shown for the BIP-110 node view." : "Shown for the legacy node view."
       );
-      const signalingHashrate = estimateSignalingHashrateKpi(data);
+      const signalingHashrate = estimateSignalingHashrateKpi(data, currentPeriodNodeView);
       appendStatusChip(
         "Signaling Hashrate",
         signalingHashrate ? formatHashrate(signalingHashrate.value) : "...",
@@ -2647,8 +2690,8 @@
       return parts.join(" ");
     }
 
-    function estimateSignalingHashrateKpi(data) {
-      const blocks = Array.isArray(data?.bip110Blocks) ? data.bip110Blocks : [];
+    function estimateSignalingHashrateKpi(data, nodeView = "legacy") {
+      const blocks = getBip110BlocksForDataNodeView(data, nodeView);
       const networkHashrate = Number(data?.topKpis?.target_hashrate_hps);
       const windowSeconds = 14 * 24 * 60 * 60;
       const latestBlockTime = blocks.reduce((latest, block) => {
@@ -2706,7 +2749,7 @@
         const display = document.createElement("div");
         display.className = "chip chip-kpi-display";
         display.id = "updatedTimeZoneDisplay";
-        const height = Number(meta?.source_block_height);
+        const height = Number(getSelectedMainNodeHeight(meta));
         const heightText = Number.isFinite(height) && height > 0 ? height.toLocaleString("en-US") : "";
         const updatedText = formatGeneratedDateTimeForSelectedTimeZone(meta.generated_utc);
         const updatedDisplayText = updatedText && heightText ? `${updatedText} | ${heightText}` : updatedText;
@@ -3459,7 +3502,7 @@
       };
     }
 
-    function getSharedNumericTypography(metadata, segwitPeriods, bip110Periods) {
+    function getSharedNumericTypography(metadata, segwitPeriods, bip110Periods, bip110NodePeriods = []) {
       const chart = metadata.chart;
       const tmpCanvas = document.createElement("canvas");
       const tmpCtx = tmpCanvas.getContext("2d");
@@ -3482,6 +3525,8 @@
         ...segwitPeriods.map((r) => Number(r.signal_blocks || 0).toLocaleString()),
         ...bip110Periods.map((r) => pctLabel(Number(r.signal_blocks || 0), Number(chart.period_size))),
         ...bip110Periods.map((r) => Number(r.signal_blocks || 0).toLocaleString()),
+        ...bip110NodePeriods.map((r) => pctLabel(Number(r.signal_blocks || 0), Number(chart.period_size))),
+        ...bip110NodePeriods.map((r) => Number(r.signal_blocks || 0).toLocaleString()),
         `${Number(chart.thresholds.segwit.pct)}%`,
         `${Number(chart.thresholds.bip110.pct)}%`,
         Number(chart.thresholds.segwit.blocks).toLocaleString(),
@@ -4466,7 +4511,7 @@
         const slug = String(slugLine || "").replace(/^MinerSlug:\s*/i, "").trim().toLowerCase();
         const pool = String(poolLine || "").replace(/^MinerPool:\s*/i, "").trim();
         const subMiner = String(subMinerLine || "").replace(/^MinerSub:\s*/i, "").trim();
-        const safeSlug = /^[a-z0-9-]+$/.test(slug) ? slug : "";
+        const safeSlug = normalizeMinerIconSlug(slug, raw);
         const defaultIconSrc = "assets/mining-pools/default.svg";
         const iconSrc = safeSlug && !missingMinerIconSlugs.has(safeSlug)
           ? `assets/mining-pools/${escapeHtml(safeSlug)}.svg`
@@ -4951,7 +4996,7 @@
       const miner = normalizeMinerTooltipData(rawMiner);
       const name = miner.subMiner || miner.name || "Unknown";
       const pool = miner.subMiner ? (miner.pool || miner.name || "") : miner.pool;
-      const slug = String(miner.slug || "").trim().toLowerCase();
+      const slug = normalizeMinerIconSlug(miner.slug, name);
       return {
         name,
         pool,
@@ -4964,9 +5009,18 @@
       };
     }
 
+    function normalizeMinerIconSlug(slug, label = "") {
+      const safeSlug = /^[a-z0-9-]+$/.test(String(slug || "")) ? String(slug).toLowerCase() : "";
+      if (safeSlug) return safeSlug;
+      return /^unknown$/i.test(String(label || "").trim()) ? "unknown" : "";
+    }
+
     function hasUsableMinerAttribution(rawMiner) {
       const miner = normalizeMinerTooltipData(rawMiner);
-      return !!(miner.name || miner.subMiner || miner.pool || miner.slug);
+      const hasAnyValue = !!(miner.name || miner.subMiner || miner.pool || miner.slug);
+      if (!hasAnyValue) return false;
+      const name = String(miner.name || "").trim().toLowerCase();
+      return name !== "loading" && name !== "unavailable";
     }
 
     function getMaxAttributedMinerHeight(minerMap) {
@@ -5206,8 +5260,8 @@
       };
     }
 
-    function setMinerIconSource(img, slug) {
-      const safeSlug = /^[a-z0-9-]+$/.test(String(slug || "")) ? String(slug).toLowerCase() : "";
+    function setMinerIconSource(img, slug, label = "") {
+      const safeSlug = normalizeMinerIconSlug(slug, label);
       const defaultIconSrc = "assets/mining-pools/default.svg";
       img.src = safeSlug && !missingMinerIconSlugs.has(safeSlug)
         ? `assets/mining-pools/${safeSlug}.svg`
@@ -5253,7 +5307,7 @@
         icon.className = "leaderboard-miner-icon";
         icon.alt = "";
         icon.setAttribute("aria-hidden", "true");
-        setMinerIconSource(icon, row.slug);
+        setMinerIconSource(icon, row.slug, row.name);
 
         const minerText = document.createElement("div");
         minerText.className = "leaderboard-miner-text";
@@ -5672,7 +5726,7 @@
         icon.className = "miner-timeline-miner-icon";
         icon.alt = "";
         icon.setAttribute("aria-hidden", "true");
-        setMinerIconSource(icon, row.slug);
+        setMinerIconSource(icon, row.slug, row.name);
         const isPendingLoadingMiner = row.pendingMinerAttribution && (row.name || "Unknown") === "Unknown";
         if (isPendingLoadingMiner) {
           iconWrap.classList.add("is-loading-miner");
@@ -6288,14 +6342,15 @@
     function getChainSplitMiner(block, nodeView = "legacy") {
       const rawMiner = getChainSplitRawMiner(block, nodeView);
       const miner = normalizeLeaderboardMiner(rawMiner);
-      const label = hasUsableMinerAttribution(rawMiner)
+      const hasAttribution = hasUsableMinerAttribution(rawMiner);
+      const label = hasAttribution
         ? String(miner.name || "").trim() || "Unknown"
         : "Loading";
-      const safeSlug = /^[a-z0-9-]+$/.test(String(miner.slug || "")) ? String(miner.slug).toLowerCase() : "";
+      const safeSlug = hasAttribution ? normalizeMinerIconSlug(miner.slug, label) : "";
       return {
         label: label.length > 18 ? `${label.slice(0, 16)}...` : label,
         slug: safeSlug,
-        isLoading: !hasUsableMinerAttribution(rawMiner),
+        isLoading: !hasAttribution,
         iconSrc: safeSlug && !missingMinerIconSlugs.has(safeSlug)
           ? `assets/mining-pools/${safeSlug}.svg`
           : "assets/mining-pools/default.svg",
@@ -6510,11 +6565,13 @@
           <polygon class="chain-split-cube-face chain-split-cube-side" points="${side}"></polygon>
           <polygon class="chain-split-cube-face chain-split-cube-front" points="${front}"></polygon>
           <text class="chain-split-face-text" x="${faceTextX}" y="${versionY}" style="font-size:${faceVersionFontSize}px">${escapeHtml(faceRows.version)}</text>
-          <circle class="chain-split-miner-icon-bg" cx="${minerCenterX}" cy="${minerCenterY}" r="${minerIconBgRadius}" aria-hidden="true"></circle>
-          ${miner.isLoading ? `<circle class="chain-split-miner-loading-ring-base" cx="${minerCenterX}" cy="${minerCenterY}" r="${minerIconBgRadius + 2}" aria-hidden="true"></circle><circle class="chain-split-miner-loading-ring" cx="${minerCenterX}" cy="${minerCenterY}" r="${minerIconBgRadius + 2}" pathLength="100" aria-hidden="true"></circle>` : ""}
-          <image class="chain-split-miner-icon" href="${escapeHtml(miner.iconSrc)}" x="${minerCenterX - (minerIconSize / 2)}" y="${minerCenterY - (minerIconSize / 2)}" width="${minerIconSize}" height="${minerIconSize}" aria-hidden="true"></image>
           <text class="chain-split-miner-label" x="${minerCenterX}" y="${minerLabelY}" text-anchor="middle" style="font-size:${minerFontSize}px">${escapeHtml(miner.label)}</text>
           <text class="chain-split-face-text is-time" x="${minerCenterX}" y="${timeY}" style="font-size:${faceTimeFontSize}px"${timeAttrs}>${escapeHtml(faceRows.time)}</text>
+          <g class="chain-split-miner-layer" aria-hidden="true">
+            <circle class="chain-split-miner-icon-bg" cx="${minerCenterX}" cy="${minerCenterY}" r="${minerIconBgRadius}"></circle>
+            ${miner.isLoading ? `<circle class="chain-split-miner-loading-ring-base" cx="${minerCenterX}" cy="${minerCenterY}" r="${minerIconBgRadius + 2}"></circle><circle class="chain-split-miner-loading-ring" cx="${minerCenterX}" cy="${minerCenterY}" r="${minerIconBgRadius + 2}" pathLength="100"></circle>` : ""}
+            <image class="chain-split-miner-icon" href="${escapeHtml(miner.iconSrc)}" x="${minerCenterX - (minerIconSize / 2)}" y="${minerCenterY - (minerIconSize / 2)}" width="${minerIconSize}" height="${minerIconSize}"></image>
+          </g>
         </g>
       `;
     }
@@ -6686,9 +6743,11 @@
           <polygon class="miner-timeline-chain-split-cube-face miner-timeline-chain-split-cube-top" points="${top}"></polygon>
           <polygon class="miner-timeline-chain-split-cube-face miner-timeline-chain-split-cube-side" points="${side}"></polygon>
           <polygon class="miner-timeline-chain-split-cube-face miner-timeline-chain-split-cube-front" points="${front}"></polygon>
-          <circle class="miner-timeline-chain-split-miner-icon-bg" cx="${minerIconX + minerIconSize / 2}" cy="${minerIconY + minerIconSize / 2}" r="${minerIconSize / 2 + 5}" aria-hidden="true"></circle>
-          ${miner.isLoading ? `<circle class="miner-timeline-chain-split-miner-loading-ring-base" cx="${minerIconX + minerIconSize / 2}" cy="${minerIconY + minerIconSize / 2}" r="${minerIconSize / 2 + 7}" aria-hidden="true"></circle><circle class="miner-timeline-chain-split-miner-loading-ring" cx="${minerIconX + minerIconSize / 2}" cy="${minerIconY + minerIconSize / 2}" r="${minerIconSize / 2 + 7}" pathLength="100" aria-hidden="true"></circle>` : ""}
-          <image class="miner-timeline-chain-split-miner-icon" href="${escapeHtml(miner.iconSrc)}" x="${minerIconX}" y="${minerIconY}" width="${minerIconSize}" height="${minerIconSize}" aria-hidden="true"></image>
+          <g class="miner-timeline-chain-split-miner-layer" aria-hidden="true">
+            <circle class="miner-timeline-chain-split-miner-icon-bg" cx="${minerIconX + minerIconSize / 2}" cy="${minerIconY + minerIconSize / 2}" r="${minerIconSize / 2 + 5}"></circle>
+            ${miner.isLoading ? `<circle class="miner-timeline-chain-split-miner-loading-ring-base" cx="${minerIconX + minerIconSize / 2}" cy="${minerIconY + minerIconSize / 2}" r="${minerIconSize / 2 + 7}"></circle><circle class="miner-timeline-chain-split-miner-loading-ring" cx="${minerIconX + minerIconSize / 2}" cy="${minerIconY + minerIconSize / 2}" r="${minerIconSize / 2 + 7}" pathLength="100"></circle>` : ""}
+            <image class="miner-timeline-chain-split-miner-icon" href="${escapeHtml(miner.iconSrc)}" x="${minerIconX}" y="${minerIconY}" width="${minerIconSize}" height="${minerIconSize}"></image>
+          </g>
         </g>
       `;
     }
@@ -7606,7 +7665,7 @@
       if (chainSplitBip110HeightValue) {
         chainSplitBip110HeightValue.textContent = formatChainSplitHeightKpi(bip110Height, legacyHeight);
       }
-      const signalingHashrate = estimateSignalingHashrateKpi(state.data || state.dynamicData || {});
+      const signalingHashrate = estimateSignalingHashrateKpi(state.data || state.dynamicData || {}, "legacy");
       if (chainSplitSignalingHashrateValue) {
         chainSplitSignalingHashrateValue.textContent = signalingHashrate
           ? `${formatHashrate(signalingHashrate.value)} (${signalingHashrate.shareText})`
@@ -8240,6 +8299,9 @@
             blocks,
             state.dynamicData?.bip110NodeSignalMiners || state.dynamicData?.bip110NodeMiners
           );
+          if (applyOptions.reconcile !== false) {
+            state.dynamicData = reconcileBip110PeriodsFromBlocks(state.dynamicData, metadata);
+          }
         } else {
           state.dynamicData.bip110Blocks = attachMinerData(
             blocks,
@@ -8336,7 +8398,8 @@
         ? getSharedNumericTypography(
             metadata,
             state.data.segwitPeriods,
-            state.data.bip110Periods
+            state.data.bip110Periods,
+            state.data.bip110NodePeriods
           )
         : null;
 
@@ -8551,6 +8614,7 @@
           persistControls();
           updateResetButtonUi();
           updatePanelVisibility();
+          if (state.data) setStatus(state.data);
           void renderSelectedPanelsWithSharedLoader(PANEL_KEYS);
         });
       });
