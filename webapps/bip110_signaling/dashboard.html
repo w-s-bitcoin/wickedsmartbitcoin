@@ -706,6 +706,7 @@
       stroke-width: 2px;
       stroke-linecap: butt;
       stroke-dasharray: 50 100;
+      opacity: 1;
       pointer-events: none;
       transform-box: fill-box;
       transform-origin: center;
@@ -1567,12 +1568,21 @@
     .chain-split-miner-icon-bg,
     .miner-timeline-chain-split-miner-icon-bg {
       fill: #000000;
-      opacity: 0.8;
+      opacity: 1;
+      pointer-events: none;
+    }
+
+    .chain-split-miner-layer,
+    .miner-timeline-chain-split-miner-layer {
+      opacity: 1;
+      mix-blend-mode: normal;
+      isolation: isolate;
       pointer-events: none;
     }
 
     .chain-split-miner-icon,
     .miner-timeline-chain-split-miner-icon {
+      opacity: 1;
       pointer-events: none;
     }
 
@@ -2090,7 +2100,7 @@
 
     .miner-timeline-chain-split-miner-icon-bg {
       fill: #000000;
-      opacity: 0.8;
+      opacity: 1;
       pointer-events: none;
     }
 
