@@ -2077,7 +2077,7 @@ def format_bip110_progress(height, signal_counts):
     completed = int(clamp(blocks_into_window_value // PERIOD_SIZE, 0, bip110_total_periods))
     in_active_window = (height >= BIP110_START) and (height < BIP110_SIGNAL_END)
     has_inprogress_period = in_active_window and (completed < bip110_total_periods)
-    blocks_into_current = int((blocks_into_window_value % PERIOD_SIZE) if has_inprogress_period else 0)
+    blocks_into_current = int(((blocks_into_window_value % PERIOD_SIZE) + 1) if has_inprogress_period else 0)
     current_period = int(completed + 1) if has_inprogress_period else None
 
     period_rows = []

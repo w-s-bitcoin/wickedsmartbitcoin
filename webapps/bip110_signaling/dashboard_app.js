@@ -6133,6 +6133,7 @@
           demoSplit: false,
           legacyHeight: legacyTip,
           bip110Height: bip110Tip,
+          latestCommonHeight: commonHeight,
           trunkBlocks,
           legacyBranch,
           bip110Branch,
@@ -6899,12 +6900,23 @@
 
       if (model.splitDetected) {
         const trunk = (model.trunkBlocks || []).slice(-10);
-        const legacyBranch = (model.legacyBranch || []).slice(0, 8);
-        const bip110Branch = (model.bip110Branch || []).slice(0, 8);
+        const legacyBranch = model.legacyBranch || [];
+        const bip110Branch = model.bip110Branch || [];
+        const latestCommonHeight = Number.isFinite(Number(model.latestCommonHeight))
+          ? Number(model.latestCommonHeight)
+          : Math.max(...trunk.map((block) => Number(block?.height)).filter((heightValue) => Number.isFinite(heightValue)));
+        const branchStartHeight = Number.isFinite(latestCommonHeight) ? latestCommonHeight + 1 : null;
         const forkX = startX + Math.max(0, trunk.length - 1) * gap + gap;
         const trunkPositions = trunk.map((block, index) => ({ block, x: startX + index * gap, y: splitY, nodeView: "legacy" }));
-        const bip110Positions = bip110Branch.map((block, index) => ({ block, x: forkX + index * gap, y: bip110Y, nodeView: "bip110" }));
-        const legacyPositions = legacyBranch.map((block, index) => ({ block, x: forkX + index * gap, y: legacyY, nodeView: "legacy" }));
+        const positionBranchBlock = (block, fallbackIndex, y, nodeView) => {
+          const heightValue = Number(block?.height);
+          const branchIndex = Number.isFinite(branchStartHeight) && Number.isFinite(heightValue)
+            ? Math.max(0, heightValue - branchStartHeight)
+            : fallbackIndex;
+          return { block, x: forkX + branchIndex * gap, y, nodeView };
+        };
+        const bip110Positions = bip110Branch.map((block, index) => positionBranchBlock(block, index, bip110Y, "bip110"));
+        const legacyPositions = legacyBranch.map((block, index) => positionBranchBlock(block, index, legacyY, "legacy"));
         const positions = [...trunkPositions, ...bip110Positions, ...legacyPositions];
         if (!positions.length) {
           minerTimelineChainSplit.innerHTML = "";
@@ -7154,12 +7166,23 @@
 
       if (model.splitDetected) {
         const trunk = (model.trunkBlocks || []).slice(-10);
-        const legacyBranch = (model.legacyBranch || []).slice(0, 8);
-        const bip110Branch = (model.bip110Branch || []).slice(0, 8);
+        const legacyBranch = model.legacyBranch || [];
+        const bip110Branch = model.bip110Branch || [];
+        const latestCommonHeight = Number.isFinite(Number(model.latestCommonHeight))
+          ? Number(model.latestCommonHeight)
+          : Math.max(...trunk.map((block) => Number(block?.height)).filter((heightValue) => Number.isFinite(heightValue)));
+        const branchStartHeight = Number.isFinite(latestCommonHeight) ? latestCommonHeight + 1 : null;
         const forkX = startX + Math.max(0, trunk.length - 1) * gap + gap;
         const trunkPositions = trunk.map((block, index) => ({ block, x: startX + index * gap, y: splitY, nodeView: "legacy" }));
-        const bip110Positions = bip110Branch.map((block, index) => ({ block, x: forkX + index * gap, y: bip110Y, nodeView: "bip110" }));
-        const legacyPositions = legacyBranch.map((block, index) => ({ block, x: forkX + index * gap, y: legacyY, nodeView: "legacy" }));
+        const positionBranchBlock = (block, fallbackIndex, y, nodeView) => {
+          const heightValue = Number(block?.height);
+          const branchIndex = Number.isFinite(branchStartHeight) && Number.isFinite(heightValue)
+            ? Math.max(0, heightValue - branchStartHeight)
+            : fallbackIndex;
+          return { block, x: forkX + branchIndex * gap, y, nodeView };
+        };
+        const bip110Positions = bip110Branch.map((block, index) => positionBranchBlock(block, index, bip110Y, "bip110"));
+        const legacyPositions = legacyBranch.map((block, index) => positionBranchBlock(block, index, legacyY, "legacy"));
         const positions = [...trunkPositions, ...bip110Positions, ...legacyPositions];
         if (!positions.length) {
           mainChainSplit.innerHTML = "";
