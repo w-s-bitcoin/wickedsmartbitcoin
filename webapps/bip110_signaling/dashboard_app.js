@@ -5890,6 +5890,19 @@
       return CHAIN_SPLIT_FIRST_SIGNALING_HEIGHT;
     }
 
+    function getChainSplitHistoryRangeStart(nodeView = "legacy", fallbackHeight = null) {
+      const firstPeriodStart = getFirstBip110PeriodStartHeight(nodeView);
+      const fallback = Number(fallbackHeight);
+      const rawStart = Number.isFinite(firstPeriodStart) ? firstPeriodStart : fallback;
+      return Number.isFinite(rawStart)
+        ? Math.max(CHAIN_SPLIT_FIRST_SIGNALING_HEIGHT, rawStart)
+        : CHAIN_SPLIT_FIRST_SIGNALING_HEIGHT;
+    }
+
+    function getChainSplitPeriodNodeView(model) {
+      return normalizeBip110NodeView(model?.periodNodeView || model?.straightNodeView || "legacy");
+    }
+
     function updateChainSplitSnapLatestButton() {
       if (!chainSplitSnapLatest) return;
       const show = !isChainSplitAtLatest(0.5);
@@ -5919,9 +5932,9 @@
     function getChainSplitPreviousPeriodBoundary() {
       if (!chainSplitContent) return null;
       const model = getChainSplitModel();
-      if (model.splitDetected || !Number.isFinite(model.rangeStart) || !Number.isFinite(model.rangeEnd)) return null;
+      if (!Number.isFinite(model.rangeStart) || !Number.isFinite(model.rangeEnd)) return null;
       const metrics = getChainSplitLayoutMetrics();
-      const periods = getBip110PeriodsForNodeView(model.straightNodeView);
+      const periods = getBip110PeriodsForNodeView(getChainSplitPeriodNodeView(model));
       const starts = (Array.isArray(periods) ? periods : [])
         .map((period) => Number(period?.period_start_height))
         .filter((height) => Number.isFinite(height) && height >= model.rangeStart && height <= model.rangeEnd)
@@ -6139,20 +6152,38 @@
           pool: "OCEAN",
           subMiner: "Roughnecks",
         })];
+        const demoLegacyMap = new Map(legacyMap);
+        const demoBip110Map = new Map(bip110Map);
+        legacyBranch.forEach((block) => {
+          const height = Number(block?.height);
+          if (Number.isFinite(height)) demoLegacyMap.set(height, block);
+        });
+        bip110Branch.forEach((block) => {
+          const height = Number(block?.height);
+          if (Number.isFinite(height)) demoBip110Map.set(height, block);
+        });
         const heights = [...trunkBlocks, ...legacyBranch, ...bip110Branch]
           .map((block) => Number(block.height))
           .filter((height) => Number.isFinite(height));
+        const rangeStart = getChainSplitHistoryRangeStart("legacy", legacyMin);
+        const rangeEnd = demoHeight + 1;
         return {
           splitDetected: true,
           demoSplit: true,
           legacyHeight: demoHeight + 1,
           bip110Height: demoHeight,
+          latestCommonHeight: common,
+          legacyMap: demoLegacyMap,
+          bip110Map: demoBip110Map,
+          periodNodeView: "legacy",
           trunkBlocks,
           legacyBranch,
           bip110Branch,
           canPageEarlier: false,
-          rangeStart: heights.length ? Math.min(...heights) : null,
-          rangeEnd: heights.length ? Math.max(...heights) : null,
+          visibleRangeStart: heights.length ? Math.min(...heights) : null,
+          visibleRangeEnd: heights.length ? Math.max(...heights) : null,
+          rangeStart: Number.isFinite(rangeStart) ? rangeStart : null,
+          rangeEnd: Number.isFinite(rangeEnd) ? rangeEnd : null,
         };
       }
 
@@ -6163,18 +6194,28 @@
         const heights = [...trunkBlocks, ...legacyBranch, ...bip110Branch]
           .map((block) => Number(block.height))
           .filter((height) => Number.isFinite(height));
+        const rangeStart = getChainSplitHistoryRangeStart("legacy", legacyMin);
+        const rangeEnd = Math.max(
+          Number.isFinite(legacyTip) ? legacyTip : -Infinity,
+          Number.isFinite(bip110Tip) ? bip110Tip : -Infinity
+        );
         return {
           splitDetected: true,
           demoSplit: false,
           legacyHeight: legacyTip,
           bip110Height: bip110Tip,
           latestCommonHeight: commonHeight,
+          legacyMap,
+          bip110Map,
+          periodNodeView: "legacy",
           trunkBlocks,
           legacyBranch,
           bip110Branch,
           canPageEarlier: false,
-          rangeStart: heights.length ? Math.min(...heights) : null,
-          rangeEnd: heights.length ? Math.max(...heights) : null,
+          visibleRangeStart: heights.length ? Math.min(...heights) : null,
+          visibleRangeEnd: heights.length ? Math.max(...heights) : null,
+          rangeStart: Number.isFinite(rangeStart) ? rangeStart : null,
+          rangeEnd: Number.isFinite(rangeEnd) ? rangeEnd : null,
         };
       }
 
@@ -6540,6 +6581,45 @@
       };
     }
 
+    function getVirtualSplitChainPositions(model, rangeStart, range, gap, startX, xOffset, yPositions) {
+      if (!model || !range || !yPositions) return [];
+      const startHeight = Number(rangeStart);
+      const commonHeight = Number(model.latestCommonHeight);
+      const legacyHeight = Number(model.legacyHeight);
+      const bip110Height = Number(model.bip110Height);
+      const legacyMap = model.legacyMap;
+      const bip110Map = model.bip110Map;
+      if (!Number.isFinite(startHeight) || !Number.isFinite(commonHeight)) return [];
+      const positions = [];
+      const addPosition = (height, map, y, nodeView, detailLoaded) => {
+        const block = map?.get(height);
+        positions.push({
+          height,
+          block,
+          x: startX + (height - startHeight) * gap - xOffset,
+          y,
+          nodeView,
+          detailLoaded: !!(detailLoaded && block),
+        });
+      };
+
+      for (let index = range.renderStartIndex; index <= range.renderEndIndex; index += 1) {
+        const height = startHeight + index;
+        const detailLoaded = index >= range.detailStartIndex && index <= range.detailEndIndex;
+        if (height <= commonHeight) {
+          addPosition(height, legacyMap, yPositions.trunkY, "legacy", detailLoaded);
+          continue;
+        }
+        if (Number.isFinite(bip110Height) && height <= bip110Height) {
+          addPosition(height, bip110Map, yPositions.bip110Y, "bip110", detailLoaded);
+        }
+        if (Number.isFinite(legacyHeight) && height <= legacyHeight) {
+          addPosition(height, legacyMap, yPositions.legacyY, "legacy", detailLoaded);
+        }
+      }
+      return positions;
+    }
+
     function getChainSplitPeriodForHeight(height, nodeView = "legacy") {
       const numericHeight = Number(height);
       if (!Number.isFinite(numericHeight)) return null;
@@ -6702,12 +6782,12 @@
     function getMinerTimelineMiniChainPreviousPeriodBoundary() {
       if (!minerTimelineChainSplit) return null;
       const model = getChainSplitModel();
-      if (model.splitDetected || !Number.isFinite(model.rangeStart) || !Number.isFinite(model.rangeEnd)) return null;
+      if (!Number.isFinite(model.rangeStart) || !Number.isFinite(model.rangeEnd)) return null;
       const size = 38;
       const depth = 7;
       const gap = 52;
       const startX = 24;
-      const periods = getBip110PeriodsForNodeView(model.straightNodeView);
+      const periods = getBip110PeriodsForNodeView(getChainSplitPeriodNodeView(model));
       const starts = (Array.isArray(periods) ? periods : [])
         .map((period) => Number(period?.period_start_height))
         .filter((height) => Number.isFinite(height) && height >= model.rangeStart && height <= model.rangeEnd)
@@ -6934,70 +7014,81 @@
       minerTimelineChainSplit.dataset.windowGap = String(gap);
 
       if (model.splitDetected) {
-        const trunk = (model.trunkBlocks || []).slice(-10);
-        const legacyBranch = model.legacyBranch || [];
-        const bip110Branch = model.bip110Branch || [];
-        const latestCommonHeight = Number.isFinite(Number(model.latestCommonHeight))
-          ? Number(model.latestCommonHeight)
-          : Math.max(...trunk.map((block) => Number(block?.height)).filter((heightValue) => Number.isFinite(heightValue)));
-        const branchStartHeight = Number.isFinite(latestCommonHeight) ? latestCommonHeight + 1 : null;
-        const forkX = startX + Math.max(0, trunk.length - 1) * gap + gap;
-        const trunkPositions = trunk.map((block, index) => ({ block, x: startX + index * gap, y: splitY, nodeView: "legacy" }));
-        const positionBranchBlock = (block, fallbackIndex, y, nodeView) => {
-          const heightValue = Number(block?.height);
-          const branchIndex = Number.isFinite(branchStartHeight) && Number.isFinite(heightValue)
-            ? Math.max(0, heightValue - branchStartHeight)
-            : fallbackIndex;
-          return { block, x: forkX + branchIndex * gap, y, nodeView };
-        };
-        const bip110Positions = bip110Branch.map((block, index) => positionBranchBlock(block, index, bip110Y, "bip110"));
-        const legacyPositions = legacyBranch.map((block, index) => positionBranchBlock(block, index, legacyY, "legacy"));
-        let positions = [...trunkPositions, ...bip110Positions, ...legacyPositions];
-        let markerTrunkPositions = trunkPositions;
-        let markerBip110Positions = bip110Positions;
-        let markerLegacyPositions = legacyPositions;
-        if (!positions.length) {
+        const rangeEnd = Number(model.rangeEnd);
+        const rangeStart = Number(model.rangeStart);
+        if (!Number.isFinite(rangeStart) || !Number.isFinite(rangeEnd) || rangeEnd < rangeStart) {
           minerTimelineChainSplit.innerHTML = "";
           return;
         }
-        const longestTipHeight = Math.max(
-          Number.isFinite(Number(model.legacyHeight)) ? Number(model.legacyHeight) : -Infinity,
-          Number.isFinite(Number(model.bip110Height)) ? Number(model.bip110Height) : -Infinity
-        );
-        const rawCurrentTipX = Number.isFinite(branchStartHeight) && Number.isFinite(longestTipHeight)
-          ? forkX + Math.max(0, longestTipHeight - branchStartHeight) * gap
-          : positions.reduce((max, item) => Math.max(max, Number(item.x) || 0), startX);
-        const anchoredLayout = getAnchoredSplitChainLayout(minerTimelineChainSplit, rawCurrentTipX, currentRightPad, 720, gap);
-        if (anchoredLayout.xShift > 0) {
-          positions = positions.map((item) => ({ ...item, x: item.x + anchoredLayout.xShift }));
-          markerTrunkPositions = trunkPositions.map((item) => ({ ...item, x: item.x + anchoredLayout.xShift }));
-          markerBip110Positions = bip110Positions.map((item) => ({ ...item, x: item.x + anchoredLayout.xShift }));
-          markerLegacyPositions = legacyPositions.map((item) => ({ ...item, x: item.x + anchoredLayout.xShift }));
-        }
-        width = anchoredLayout.width;
-        minerTimelineChainSplit.dataset.currentTipX = String(anchoredLayout.currentTipX);
-        minerTimelineChainSplit.dataset.currentRightPad = String(currentRightPad);
-        minerTimelineChainSplit.dataset.currentTipLocalPad = "0";
-        minerTimelineChainSplit.dataset.virtualScrollSpace = "0";
         minerTimelineChainSplit.classList.add("is-split");
-        cubes = positions.map((item) => renderMinerTimelineMiniChainCube(item.block, item.x, item.y, {
+        const viewportClientWidth = Math.max(1, Number(minerTimelineChainSplit.clientWidth || 0));
+        const viewportWidth = Math.max(720, viewportClientWidth);
+        const totalBlockCount = Math.floor(rangeEnd - rangeStart + 1);
+        const currentTipX = startX + Math.max(0, totalBlockCount - 1) * gap;
+        const targetStageWidth = Math.max(
+          getChainSplitStageWidth(totalBlockCount, gap, startX, size, depth),
+          currentTipX + localPad + currentRightPad
+        );
+        const latestScrollLeft = clamp(
+          currentTipX - (viewportClientWidth - currentRightPad),
+          0,
+          Math.max(0, targetStageWidth - viewportClientWidth)
+        );
+        const targetScrollLeft = shouldFollowLatest
+          ? latestScrollLeft
+          : clamp(Number(minerTimelineChainSplit.scrollLeft || 0), 0, latestScrollLeft);
+        const virtualRange = getChainSplitScrollRange(rangeStart, rangeEnd, gap, startX, size, depth, {
+          scrollLeft: targetScrollLeft,
+          clientWidth: viewportClientWidth,
+        });
+        if (!virtualRange) {
+          minerTimelineChainSplit.innerHTML = "";
+          return;
+        }
+        const xOffset = Math.max(0, targetScrollLeft - localPad);
+        const positions = getVirtualSplitChainPositions(model, rangeStart, virtualRange, gap, startX, xOffset, {
+          trunkY: splitY,
+          bip110Y,
+          legacyY,
+        });
+        const stageWidth = Math.max(virtualRange.width, targetStageWidth);
+        width = viewportWidth + localPad * 2;
+        minerTimelineChainSplit.dataset.currentTipX = String(currentTipX);
+        minerTimelineChainSplit.dataset.currentRightPad = String(currentRightPad);
+        minerTimelineChainSplit.dataset.currentTipLocalPad = String(localPad);
+        minerTimelineChainSplit.dataset.virtualScrollSpace = "1";
+        markers = renderMinerTimelineMiniChainVirtualMarkers(rangeStart, rangeEnd, virtualRange, {
           size,
           depth,
-          nodeView: item.nodeView,
-        })).join("");
-        markers = [
-          renderMinerTimelineMiniChainPeriodMarkers(markerTrunkPositions, { size, depth, yTop: topY, yBottom: height }),
-          renderMinerTimelineMiniChainPeriodMarkers(markerBip110Positions, { size, depth, yTop: topY, yBottom: height }),
-          renderMinerTimelineMiniChainPeriodMarkers(markerLegacyPositions, { size, depth, yTop: topY, yBottom: height }),
-        ].join("");
-        const preservedScrollLeft = Number(minerTimelineChainSplit.scrollLeft || 0);
-        minerTimelineChainSplit.innerHTML = `<svg class="miner-timeline-chain-split-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Compact BIP-110 chain split preview">${markers}${cubes}</svg>`;
-        applyMinerTimelineMiniChainPendingScrollAdjustment();
-        if (shouldFollowLatest) scrollMinerTimelineMiniChainToLatest();
-        else {
+          gap,
+          startX,
+          yTop: topY,
+          yBottom: height,
+        }, getChainSplitPeriodNodeView(model), xOffset);
+        cubes = positions.map((item) => (
+          item.detailLoaded
+            ? renderMinerTimelineMiniChainCube(item.block, item.x, item.y, { size, depth, nodeView: item.nodeView })
+            : renderMinerTimelineMiniChainPlaceholderCube(item.height, item.x, item.y, { size, depth })
+        )).join("");
+        const preservedScrollLeft = targetScrollLeft;
+        minerTimelineChainSplit.innerHTML = `<div class="miner-timeline-chain-split-virtual-stage" style="width:${stageWidth}px;height:${height}px"><svg class="miner-timeline-chain-split-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" style="left:${xOffset}px" role="img" aria-label="Compact BIP-110 chain split preview">${markers}${cubes}</svg></div>`;
+        minerTimelineChainSplit.dataset.virtualRenderScrollLeft = String(preservedScrollLeft);
+        if (shouldFollowLatest) {
+          state.minerTimelineChainSplitHandlingScroll = true;
+          minerTimelineChainSplit.scrollLeft = getMinerTimelineMiniChainLatestScrollLeft();
+          requestAnimationFrame(() => {
+            finishMinerTimelineMiniChainHandlingScroll();
+            scrollMinerTimelineMiniChainToLatest();
+          });
+        } else {
+          state.minerTimelineChainSplitHandlingScroll = true;
           minerTimelineChainSplit.scrollLeft = clamp(preservedScrollLeft, 0, Math.max(0, minerTimelineChainSplit.scrollWidth - minerTimelineChainSplit.clientWidth));
-          updateMinerTimelineMiniChainScrollButtons();
+          requestAnimationFrame(() => {
+            finishMinerTimelineMiniChainHandlingScroll();
+          });
         }
+        applyMinerTimelineMiniChainPendingScrollAdjustment();
+        updateMinerTimelineMiniChainScrollButtons();
         return;
       } else {
         const rangeEnd = Number(model.rangeEnd);
@@ -7107,12 +7198,12 @@
     function getMainChainSplitPreviousPeriodBoundary() {
       if (!mainChainSplit) return null;
       const model = getChainSplitModel();
-      if (model.splitDetected || !Number.isFinite(model.rangeStart) || !Number.isFinite(model.rangeEnd)) return null;
+      if (!Number.isFinite(model.rangeStart) || !Number.isFinite(model.rangeEnd)) return null;
       const size = 38;
       const depth = 7;
       const gap = 52;
       const startX = 24;
-      const periods = getBip110PeriodsForNodeView(model.straightNodeView);
+      const periods = getBip110PeriodsForNodeView(getChainSplitPeriodNodeView(model));
       const starts = (Array.isArray(periods) ? periods : [])
         .map((period) => Number(period?.period_start_height))
         .filter((height) => Number.isFinite(height) && height >= model.rangeStart && height <= model.rangeEnd)
@@ -7216,70 +7307,81 @@
       mainChainSplit.dataset.windowGap = String(gap);
 
       if (model.splitDetected) {
-        const trunk = (model.trunkBlocks || []).slice(-10);
-        const legacyBranch = model.legacyBranch || [];
-        const bip110Branch = model.bip110Branch || [];
-        const latestCommonHeight = Number.isFinite(Number(model.latestCommonHeight))
-          ? Number(model.latestCommonHeight)
-          : Math.max(...trunk.map((block) => Number(block?.height)).filter((heightValue) => Number.isFinite(heightValue)));
-        const branchStartHeight = Number.isFinite(latestCommonHeight) ? latestCommonHeight + 1 : null;
-        const forkX = startX + Math.max(0, trunk.length - 1) * gap + gap;
-        const trunkPositions = trunk.map((block, index) => ({ block, x: startX + index * gap, y: splitY, nodeView: "legacy" }));
-        const positionBranchBlock = (block, fallbackIndex, y, nodeView) => {
-          const heightValue = Number(block?.height);
-          const branchIndex = Number.isFinite(branchStartHeight) && Number.isFinite(heightValue)
-            ? Math.max(0, heightValue - branchStartHeight)
-            : fallbackIndex;
-          return { block, x: forkX + branchIndex * gap, y, nodeView };
-        };
-        const bip110Positions = bip110Branch.map((block, index) => positionBranchBlock(block, index, bip110Y, "bip110"));
-        const legacyPositions = legacyBranch.map((block, index) => positionBranchBlock(block, index, legacyY, "legacy"));
-        let positions = [...trunkPositions, ...bip110Positions, ...legacyPositions];
-        let markerTrunkPositions = trunkPositions;
-        let markerBip110Positions = bip110Positions;
-        let markerLegacyPositions = legacyPositions;
-        if (!positions.length) {
+        const rangeEnd = Number(model.rangeEnd);
+        const rangeStart = Number(model.rangeStart);
+        if (!Number.isFinite(rangeStart) || !Number.isFinite(rangeEnd) || rangeEnd < rangeStart) {
           mainChainSplit.innerHTML = "";
           return;
         }
-        const longestTipHeight = Math.max(
-          Number.isFinite(Number(model.legacyHeight)) ? Number(model.legacyHeight) : -Infinity,
-          Number.isFinite(Number(model.bip110Height)) ? Number(model.bip110Height) : -Infinity
-        );
-        const rawCurrentTipX = Number.isFinite(branchStartHeight) && Number.isFinite(longestTipHeight)
-          ? forkX + Math.max(0, longestTipHeight - branchStartHeight) * gap
-          : positions.reduce((max, item) => Math.max(max, Number(item.x) || 0), startX);
-        const anchoredLayout = getAnchoredSplitChainLayout(mainChainSplit, rawCurrentTipX, currentRightPad, 720, gap);
-        if (anchoredLayout.xShift > 0) {
-          positions = positions.map((item) => ({ ...item, x: item.x + anchoredLayout.xShift }));
-          markerTrunkPositions = trunkPositions.map((item) => ({ ...item, x: item.x + anchoredLayout.xShift }));
-          markerBip110Positions = bip110Positions.map((item) => ({ ...item, x: item.x + anchoredLayout.xShift }));
-          markerLegacyPositions = legacyPositions.map((item) => ({ ...item, x: item.x + anchoredLayout.xShift }));
-        }
-        width = anchoredLayout.width;
-        mainChainSplit.dataset.currentTipX = String(anchoredLayout.currentTipX);
-        mainChainSplit.dataset.currentRightPad = String(currentRightPad);
-        mainChainSplit.dataset.currentTipLocalPad = "0";
-        mainChainSplit.dataset.virtualScrollSpace = "0";
         mainChainSplit.classList.add("is-split");
-        cubes = positions.map((item) => renderMinerTimelineMiniChainCube(item.block, item.x, item.y, {
+        const viewportClientWidth = Math.max(1, Number(mainChainSplit.clientWidth || 0));
+        const viewportWidth = Math.max(720, viewportClientWidth);
+        const totalBlockCount = Math.floor(rangeEnd - rangeStart + 1);
+        const currentTipX = startX + Math.max(0, totalBlockCount - 1) * gap;
+        const targetStageWidth = Math.max(
+          getChainSplitStageWidth(totalBlockCount, gap, startX, size, depth),
+          currentTipX + localPad + currentRightPad
+        );
+        const latestScrollLeft = clamp(
+          currentTipX - (viewportClientWidth - currentRightPad),
+          0,
+          Math.max(0, targetStageWidth - viewportClientWidth)
+        );
+        const targetScrollLeft = shouldFollowLatest
+          ? latestScrollLeft
+          : clamp(Number(mainChainSplit.scrollLeft || 0), 0, latestScrollLeft);
+        const virtualRange = getChainSplitScrollRange(rangeStart, rangeEnd, gap, startX, size, depth, {
+          scrollLeft: targetScrollLeft,
+          clientWidth: viewportClientWidth,
+        });
+        if (!virtualRange) {
+          mainChainSplit.innerHTML = "";
+          return;
+        }
+        const xOffset = Math.max(0, targetScrollLeft - localPad);
+        const positions = getVirtualSplitChainPositions(model, rangeStart, virtualRange, gap, startX, xOffset, {
+          trunkY: splitY,
+          bip110Y,
+          legacyY,
+        });
+        const stageWidth = Math.max(virtualRange.width, targetStageWidth);
+        width = viewportWidth + localPad * 2;
+        mainChainSplit.dataset.currentTipX = String(currentTipX);
+        mainChainSplit.dataset.currentRightPad = String(currentRightPad);
+        mainChainSplit.dataset.currentTipLocalPad = String(localPad);
+        mainChainSplit.dataset.virtualScrollSpace = "1";
+        markers = renderMinerTimelineMiniChainVirtualMarkers(rangeStart, rangeEnd, virtualRange, {
           size,
           depth,
-          nodeView: item.nodeView,
-        })).join("");
-        markers = [
-          renderMinerTimelineMiniChainPeriodMarkers(markerTrunkPositions, { size, depth, yTop: topY, yBottom: height }),
-          renderMinerTimelineMiniChainPeriodMarkers(markerBip110Positions, { size, depth, yTop: topY, yBottom: height }),
-          renderMinerTimelineMiniChainPeriodMarkers(markerLegacyPositions, { size, depth, yTop: topY, yBottom: height }),
-        ].join("");
-        const preservedScrollLeft = Number(mainChainSplit.scrollLeft || 0);
-        mainChainSplit.innerHTML = `<svg class="miner-timeline-chain-split-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Compact BIP-110 chain preview">${markers}${cubes}</svg>`;
-        applyMainChainSplitPendingScrollAdjustment();
-        if (shouldFollowLatest) scrollMainChainSplitToLatest();
-        else {
+          gap,
+          startX,
+          yTop: topY,
+          yBottom: height,
+        }, getChainSplitPeriodNodeView(model), xOffset);
+        cubes = positions.map((item) => (
+          item.detailLoaded
+            ? renderMinerTimelineMiniChainCube(item.block, item.x, item.y, { size, depth, nodeView: item.nodeView })
+            : renderMinerTimelineMiniChainPlaceholderCube(item.height, item.x, item.y, { size, depth })
+        )).join("");
+        const preservedScrollLeft = targetScrollLeft;
+        mainChainSplit.innerHTML = `<div class="miner-timeline-chain-split-virtual-stage" style="width:${stageWidth}px;height:${height}px"><svg class="miner-timeline-chain-split-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" style="left:${xOffset}px" role="img" aria-label="Compact BIP-110 chain preview">${markers}${cubes}</svg></div>`;
+        mainChainSplit.dataset.virtualRenderScrollLeft = String(preservedScrollLeft);
+        if (shouldFollowLatest) {
+          state.mainChainSplitHandlingScroll = true;
+          mainChainSplit.scrollLeft = getMainChainSplitLatestScrollLeft();
+          requestAnimationFrame(() => {
+            finishMainChainSplitHandlingScroll();
+            scrollMainChainSplitToLatest();
+          });
+        } else {
+          state.mainChainSplitHandlingScroll = true;
           mainChainSplit.scrollLeft = clamp(preservedScrollLeft, 0, Math.max(0, mainChainSplit.scrollWidth - mainChainSplit.clientWidth));
-          updateMainChainSplitScrollButtons();
+          requestAnimationFrame(() => {
+            finishMainChainSplitHandlingScroll();
+          });
         }
+        applyMainChainSplitPendingScrollAdjustment();
+        updateMainChainSplitScrollButtons();
         return;
       }
 
@@ -7545,72 +7647,79 @@
       updateChainSplitScrollButtons();
 
       if (model.splitDetected) {
-        const trunk = model.trunkBlocks || [];
-        const legacyBranch = model.legacyBranch || [];
-        const bip110Branch = model.bip110Branch || [];
-        if (!trunk.length && !legacyBranch.length && !bip110Branch.length) {
+        const rangeStart = Number(model.rangeStart);
+        const rangeEnd = Number(model.rangeEnd);
+        if (!Number.isFinite(rangeStart) || !Number.isFinite(rangeEnd) || rangeEnd < rangeStart) {
           chainSplitContent.innerHTML = `<div class="chain-split-empty">No BIP-110 block data is available for the split view.</div>`;
           return;
         }
-
-        const latestCommonHeight = Number.isFinite(Number(model.latestCommonHeight))
-          ? Number(model.latestCommonHeight)
-          : Math.max(...trunk.map((block) => Number(block?.height)).filter((heightValue) => Number.isFinite(heightValue)));
-        const branchStartHeight = Number.isFinite(latestCommonHeight) ? latestCommonHeight + 1 : null;
-        const trunkPositions = trunk.map((block, index) => ({
-          block,
-          nodeView: "legacy",
-          x: startX + index * gap,
-          y: splitY,
-        }));
-        const forkX = startX + Math.max(0, trunk.length - 1) * gap + gap;
+        const viewportClientWidth = Math.max(1, Number(chainSplitContent.clientWidth || 0));
+        const viewportWidth = Math.max(980, viewportClientWidth);
+        const totalBlockCount = Math.floor(rangeEnd - rangeStart + 1);
+        const currentTipX = startX + Math.max(0, totalBlockCount - 1) * gap;
         const currentRightPad = getChainSplitCurrentRightPad(cubeSize, cubeDepth, gap, { split: true });
-        const positionBranchBlock = (block, fallbackIndex, y, nodeView) => {
-          const heightValue = Number(block?.height);
-          const branchIndex = Number.isFinite(branchStartHeight) && Number.isFinite(heightValue)
-            ? Math.max(0, heightValue - branchStartHeight)
-            : fallbackIndex;
-          return { block, nodeView, x: forkX + branchIndex * gap, y };
-        };
-        const bip110Positions = bip110Branch.map((block, index) => positionBranchBlock(block, index, bip110Y, "bip110"));
-        const legacyPositions = legacyBranch.map((block, index) => positionBranchBlock(block, index, legacyY, "legacy"));
-        let allPositions = [...trunkPositions, ...bip110Positions, ...legacyPositions];
-        let markerTrunkPositions = trunkPositions;
-        let markerBip110Positions = bip110Positions;
-        let markerLegacyPositions = legacyPositions;
-        const longestTipHeight = Math.max(
-          Number.isFinite(Number(model.legacyHeight)) ? Number(model.legacyHeight) : -Infinity,
-          Number.isFinite(Number(model.bip110Height)) ? Number(model.bip110Height) : -Infinity
+        const localPad = Math.max(startX, gap);
+        const targetStageWidth = Math.max(
+          getChainSplitStageWidth(totalBlockCount, gap, startX, cubeSize, cubeDepth),
+          currentTipX + localPad + currentRightPad
         );
-        const rawCurrentTipX = Number.isFinite(branchStartHeight) && Number.isFinite(longestTipHeight)
-          ? forkX + Math.max(0, longestTipHeight - branchStartHeight) * gap
-          : allPositions.reduce((max, item) => Math.max(max, Number(item.x) || 0), startX);
-        const anchoredLayout = getAnchoredSplitChainLayout(chainSplitContent, rawCurrentTipX, currentRightPad, 1120, gap);
-        if (anchoredLayout.xShift > 0) {
-          allPositions = allPositions.map((item) => ({ ...item, x: item.x + anchoredLayout.xShift }));
-          markerTrunkPositions = trunkPositions.map((item) => ({ ...item, x: item.x + anchoredLayout.xShift }));
-          markerBip110Positions = bip110Positions.map((item) => ({ ...item, x: item.x + anchoredLayout.xShift }));
-          markerLegacyPositions = legacyPositions.map((item) => ({ ...item, x: item.x + anchoredLayout.xShift }));
+        const latestScrollLeft = clamp(
+          currentTipX - (viewportClientWidth - currentRightPad),
+          0,
+          Math.max(0, targetStageWidth - viewportClientWidth)
+        );
+        const targetScrollLeft = shouldFollowLatest
+          ? latestScrollLeft
+          : clamp(Number(chainSplitContent.scrollLeft || 0), 0, latestScrollLeft);
+        const virtualRange = getChainSplitScrollRange(rangeStart, rangeEnd, gap, startX, cubeSize, cubeDepth, {
+          scrollLeft: targetScrollLeft,
+          clientWidth: viewportClientWidth,
+        });
+        if (!virtualRange) {
+          chainSplitContent.innerHTML = `<div class="chain-split-empty">No BIP-110 block data is available for the split view.</div>`;
+          return;
         }
-        const width = anchoredLayout.width;
+        const xOffset = Math.max(0, targetScrollLeft - localPad);
+        const positions = getVirtualSplitChainPositions(model, rangeStart, virtualRange, gap, startX, xOffset, {
+          trunkY: splitY,
+          bip110Y,
+          legacyY,
+        });
+        const stageWidth = Math.max(virtualRange.width, targetStageWidth);
+        const width = viewportWidth + localPad * 2;
         const height = reservedHeight;
-        chainSplitContent.dataset.currentTipX = String(anchoredLayout.currentTipX);
+        chainSplitContent.dataset.currentTipX = String(currentTipX);
         chainSplitContent.dataset.currentRightPad = String(currentRightPad);
-        chainSplitContent.dataset.currentTipLocalPad = "0";
-        chainSplitContent.dataset.virtualScrollSpace = "0";
-        const preservedScrollLeft = Number(chainSplitContent.scrollLeft || 0);
-        const cubes = allPositions.map((item) => renderChainSplitCube(item.block, item.x, item.y, { size: cubeSize, depth: cubeDepth, scale, labelOffset, nodeView: item.nodeView })).join("");
-        const markers = [
-          renderChainSplitPeriodMarkers(markerTrunkPositions, { yTop: -1, yBottom: height + 1, cubeSize, cubeDepth }),
-          renderChainSplitPeriodMarkers(markerBip110Positions, { yTop: -1, yBottom: height + 1, cubeSize, cubeDepth }),
-          renderChainSplitPeriodMarkers(markerLegacyPositions, { yTop: -1, yBottom: height + 1, cubeSize, cubeDepth }),
-        ].join("");
-        chainSplitContent.innerHTML = `<svg class="chain-split-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="BIP-110 chain split visualization">${cubes}${markers}</svg>`;
-        applyChainSplitPendingScrollAdjustment();
-        if (shouldFollowLatest) scrollChainSplitToLatest();
-        else {
+        chainSplitContent.dataset.currentTipLocalPad = String(localPad);
+        chainSplitContent.dataset.virtualScrollSpace = "1";
+        const markers = renderChainSplitVirtualMarkers(rangeStart, rangeEnd, virtualRange, {
+          ...metrics,
+          straightHeight: reservedHeight,
+        }, getChainSplitPeriodNodeView(model), xOffset);
+        const cubes = positions.map((item) => (
+          item.detailLoaded
+            ? renderChainSplitCube(item.block, item.x, item.y, { size: cubeSize, depth: cubeDepth, scale, labelOffset, nodeView: item.nodeView })
+            : renderChainSplitPlaceholderCube(item.height, item.x, item.y, { size: cubeSize, depth: cubeDepth, scale, labelOffset })
+        )).join("");
+        const preservedScrollLeft = targetScrollLeft;
+        chainSplitContent.innerHTML = `<div class="chain-split-virtual-stage" style="width:${stageWidth}px;height:${height}px"><svg class="chain-split-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" style="left:${xOffset}px" role="img" aria-label="BIP-110 chain split visualization">${cubes}${markers}</svg></div>`;
+        chainSplitContent.dataset.virtualRenderScrollLeft = String(preservedScrollLeft);
+        if (shouldFollowLatest) {
+          state.chainSplitHandlingScroll = true;
+          chainSplitContent.scrollLeft = getChainSplitLatestScrollLeft();
+          requestAnimationFrame(() => {
+            finishChainSplitHandlingScroll();
+            scrollChainSplitToLatest();
+          });
+        } else {
+          state.chainSplitHandlingScroll = true;
           chainSplitContent.scrollLeft = clamp(preservedScrollLeft, 0, Math.max(0, chainSplitContent.scrollWidth - chainSplitContent.clientWidth));
+          requestAnimationFrame(() => {
+            finishChainSplitHandlingScroll();
+          });
         }
+        applyChainSplitPendingScrollAdjustment();
+        updateChainSplitScrollButtons();
         return;
       }
 
