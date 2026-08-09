@@ -26,6 +26,8 @@ BIP110_MANDATORY_SIGNALING_HEIGHT = 961_632
 BIP110_BLOCK_POINT_TAIL_REBUILD_DEPTH = 12
 BIP110_MINER_TAIL_LOOKUP_DEPTH = 48
 X_MAX = 20
+BIP110_DASHBOARD_END = BIP110_START + (X_MAX * PERIOD_SIZE)
+BIP110_FINAL_UPDATE_HEIGHT = BIP110_DASHBOARD_END - 1
 SEGWIT_INITIAL_SIGNAL_MINER_SAMPLE_SIZE = None
 SEGWIT_INITIAL_PERIOD2_SIGNAL_MINER_SAMPLE_SIZE = 15
 SEGWIT_LATE_NONSIGNAL_MINER_SAMPLE_SIZE = None
@@ -125,7 +127,7 @@ def build_bip110_block_rows_range(start_height, plot_max_height, rpc_get=None):
     if plot_max_height is None or plot_max_height < BIP110_START:
         return rows
     start = max(int(start_height), BIP110_START)
-    end = min(int(plot_max_height), BIP110_SIGNAL_END - 1)
+    end = min(int(plot_max_height), BIP110_FINAL_UPDATE_HEIGHT)
     if start > end:
         return rows
 
@@ -151,7 +153,7 @@ def load_or_update_bip110_block_rows(path: Path, plot_max_height, rpc_get=None, 
     if plot_max_height is None or plot_max_height < BIP110_START:
         return []
 
-    target_end = min(int(plot_max_height), BIP110_SIGNAL_END - 1)
+    target_end = min(int(plot_max_height), BIP110_FINAL_UPDATE_HEIGHT)
     cached_rows = read_block_points_bin(
         path,
         start_height=BIP110_START,
@@ -822,6 +824,24 @@ from bip110_releases import bip110_releases
 
 webapp_dir = Path(os.getenv("BIP110_WEBAPP_DATA_DIR", str(here / "webapp_data"))).expanduser()
 webapp_dir.mkdir(parents=True, exist_ok=True)
+
+def load_existing_bip110_metadata(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+def existing_bip110_dashboard_is_finalized(path: Path) -> bool:
+    metadata = load_existing_bip110_metadata(path)
+    try:
+        source_height = int(metadata.get("source_block_height"))
+    except Exception:
+        return False
+    return source_height >= BIP110_FINAL_UPDATE_HEIGHT
 
 for stale in ("segwit_block_points.csv", "bip110_block_points.csv"):
     stale_path = webapp_dir / stale
@@ -2153,9 +2173,9 @@ def compute_bip110_progress_from_block_rows(height, block_rows):
 def get_bip110_plot_max_height(height):
     if height < BIP110_START:
         return BIP110_START - 1
-    if height < BIP110_SIGNAL_END:
+    if height < BIP110_DASHBOARD_END:
         return height
-    return BIP110_SIGNAL_END - 1
+    return BIP110_FINAL_UPDATE_HEIGHT
 
 
 def build_bip110_block_rows(plot_max_height, rpc_get=rpc_call):
@@ -2203,7 +2223,20 @@ def make_rpc_getter(conn, *, label: str, max_attempts: int = 3, retry_delay: flo
 
 
 # Dynamic update: BIP-110 datasets (changes over time)
-node_tip_height = int(rpc_call("getblockcount"))
+raw_node_tip_height = int(rpc_call("getblockcount"))
+if raw_node_tip_height > BIP110_FINAL_UPDATE_HEIGHT and existing_bip110_dashboard_is_finalized(webapp_dir / "bip110_metadata.json"):
+    print(
+        f"[bip110] Dashboard finalized at height {BIP110_FINAL_UPDATE_HEIGHT:,}; "
+        f"node tip is {raw_node_tip_height:,}. Skipping BIP-110 data update."
+    )
+    sys.exit(0)
+
+node_tip_height = min(raw_node_tip_height, BIP110_FINAL_UPDATE_HEIGHT)
+if raw_node_tip_height > BIP110_FINAL_UPDATE_HEIGHT:
+    print(
+        f"[bip110] Node tip {raw_node_tip_height:,} is beyond the latest activation period; "
+        f"finalizing dashboard at height {BIP110_FINAL_UPDATE_HEIGHT:,}."
+    )
 candidate_bip110_plot_max_height = get_bip110_plot_max_height(node_tip_height)
 bip110_blocks_path = webapp_dir / "bip110_block_points.bin"
 candidate_bip110_block_rows = load_or_update_bip110_block_rows(
@@ -2317,9 +2350,13 @@ state = {
     "blocks_into_current_period": int(blocks_into_current_period),
     "bip110_total_periods": int(bip110_total_periods),
     "bip110_last_period": int(BIP110_LAST_PERIOD),
+    "final_update_height": int(BIP110_FINAL_UPDATE_HEIGHT),
+    "finalized": bool(current_height >= BIP110_FINAL_UPDATE_HEIGHT),
 }
 
 print(f"Current height: {current_height:,}")
+if raw_node_tip_height != current_height:
+    print(f"Raw node tip: {raw_node_tip_height:,}")
 print(f"BIP-110 periods complete: {completed_periods}/{bip110_total_periods}")
 print("Updated dynamic BIP-110 datasets.")
 
