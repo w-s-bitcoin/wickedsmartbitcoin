@@ -32,9 +32,8 @@
     const EXPECTED_FORK_HEIGHT = 961632;
     const EXPECTED_BLOCK_INTERVAL_MS = 10 * 60 * 1000;
     const MAX_DOWNWARD_DIFFICULTY_ADJUSTMENT = 4;
-    const CHAIN_SPLIT_COLLAPSE_PRE_COMMON_BLOCKS = 4;
-    const CHAIN_SPLIT_COLLAPSE_BRANCH_HEAD_BLOCKS = 4;
-    const CHAIN_SPLIT_COLLAPSE_LEGACY_TAIL_BLOCKS = 8;
+    const CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS = 3;
+    const CHAIN_SPLIT_COLLAPSE_FULL_BLOCKS = 2;
     const DASHBOARD_TIME = window.WSBDashboardTime || null;
     const SHARE_STATE_PARAM = "bip110_state";
     const LOCAL_RUNTIME_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
@@ -6761,6 +6760,9 @@
       const size = Number(options.size);
       const depth = Number(options.depth);
       const yPositions = options.yPositions || {};
+      const preCommonBlocks = Math.max(0, Math.floor(Number(options.preCommonBlocks ?? CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS)));
+      const branchHeadBlocks = Math.max(1, Math.floor(Number(options.branchHeadBlocks ?? CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS)));
+      const legacyTailBlocks = Math.max(1, Math.floor(Number(options.legacyTailBlocks ?? CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS)));
       if (!Number.isFinite(commonHeight)
         || !Number.isFinite(legacyHeight)
         || !Number.isFinite(rangeStart)
@@ -6774,8 +6776,8 @@
       }
 
       const splitStart = commonHeight + 1;
-      const headEnd = Math.min(legacyHeight, splitStart + CHAIN_SPLIT_COLLAPSE_BRANCH_HEAD_BLOCKS - 1);
-      const rawTailStart = legacyHeight - CHAIN_SPLIT_COLLAPSE_LEGACY_TAIL_BLOCKS + 1;
+      const headEnd = Math.min(legacyHeight, splitStart + branchHeadBlocks - 1);
+      const rawTailStart = legacyHeight - legacyTailBlocks + 1;
       const tailStart = Math.max(headEnd + 1, rawTailStart);
       const hiddenStart = headEnd + 1;
       const hiddenEnd = tailStart - 1;
@@ -6784,7 +6786,7 @@
       const positions = [];
       const slotMap = new Map();
       const slotHeights = [];
-      const visibleStart = Math.max(rangeStart, commonHeight - CHAIN_SPLIT_COLLAPSE_PRE_COMMON_BLOCKS + 1);
+      const visibleStart = Math.max(rangeStart, commonHeight - preCommonBlocks + 1);
       const visibleEnd = Math.min(rangeEnd, legacyHeight);
 
       const addSlot = (key) => {
@@ -6849,6 +6851,14 @@
         stageCount,
         stageWidth,
       };
+    }
+
+    function getCollapsedSplitChainRightAnchorShift(layout, viewportWidth, currentRightPad) {
+      const currentTipX = Number(layout?.currentTipX);
+      const visibleWidth = Number(viewportWidth);
+      const rightPad = Number(currentRightPad);
+      if (!Number.isFinite(currentTipX) || !Number.isFinite(visibleWidth) || !Number.isFinite(rightPad)) return 0;
+      return Math.max(0, visibleWidth - rightPad - currentTipX);
     }
 
     function renderChainSplitEllipsis(x, y, options = {}) {
@@ -7300,6 +7310,9 @@
           depth,
           gap,
           startX,
+          preCommonBlocks: CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS,
+          branchHeadBlocks: CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS,
+          legacyTailBlocks: CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS,
           yPositions: {
             trunkY: splitY,
             bip110Y,
@@ -7307,9 +7320,12 @@
           },
         });
         if (collapsedLayout) {
-          const currentTipX = collapsedLayout.currentTipX;
+          const anchorShift = getCollapsedSplitChainRightAnchorShift(collapsedLayout, viewportClientWidth, currentRightPad);
+          const displayPositions = collapsedLayout.positions.map((item) => ({ ...item, x: item.x + anchorShift }));
+          const displayEllipsis = { ...collapsedLayout.ellipsis, x: collapsedLayout.ellipsis.x + anchorShift };
+          const currentTipX = collapsedLayout.currentTipX + anchorShift;
           const targetStageWidth = Math.max(
-            collapsedLayout.stageWidth,
+            collapsedLayout.stageWidth + anchorShift,
             currentTipX + localPad + currentRightPad
           );
           const latestScrollLeft = clamp(
@@ -7326,14 +7342,14 @@
           minerTimelineChainSplit.dataset.currentRightPad = String(currentRightPad);
           minerTimelineChainSplit.dataset.currentTipLocalPad = String(localPad);
           minerTimelineChainSplit.dataset.virtualScrollSpace = "0";
-          markers = renderMinerTimelineMiniChainPeriodMarkers(collapsedLayout.positions, {
+          markers = renderMinerTimelineMiniChainPeriodMarkers(displayPositions, {
             size,
             depth,
             yTop: topY,
             yBottom: height,
           });
-          const ellipsis = renderMinerTimelineMiniChainEllipsis(collapsedLayout.ellipsis.x, collapsedLayout.ellipsis.y, { size, depth });
-          cubes = collapsedLayout.positions.map((item) => (
+          const ellipsis = renderMinerTimelineMiniChainEllipsis(displayEllipsis.x, displayEllipsis.y, { size, depth });
+          cubes = displayPositions.map((item) => (
             item.detailLoaded
               ? renderMinerTimelineMiniChainCube(item.block, item.x, item.y, { size, depth, nodeView: item.nodeView })
               : renderMinerTimelineMiniChainPlaceholderCube(item.height, item.x, item.y, { size, depth })
@@ -7648,6 +7664,9 @@
           depth,
           gap,
           startX,
+          preCommonBlocks: CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS,
+          branchHeadBlocks: CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS,
+          legacyTailBlocks: CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS,
           yPositions: {
             trunkY: splitY,
             bip110Y,
@@ -7655,9 +7674,12 @@
           },
         });
         if (collapsedLayout) {
-          const currentTipX = collapsedLayout.currentTipX;
+          const anchorShift = getCollapsedSplitChainRightAnchorShift(collapsedLayout, viewportClientWidth, currentRightPad);
+          const displayPositions = collapsedLayout.positions.map((item) => ({ ...item, x: item.x + anchorShift }));
+          const displayEllipsis = { ...collapsedLayout.ellipsis, x: collapsedLayout.ellipsis.x + anchorShift };
+          const currentTipX = collapsedLayout.currentTipX + anchorShift;
           const targetStageWidth = Math.max(
-            collapsedLayout.stageWidth,
+            collapsedLayout.stageWidth + anchorShift,
             currentTipX + localPad + currentRightPad
           );
           const latestScrollLeft = clamp(
@@ -7674,14 +7696,14 @@
           mainChainSplit.dataset.currentRightPad = String(currentRightPad);
           mainChainSplit.dataset.currentTipLocalPad = String(localPad);
           mainChainSplit.dataset.virtualScrollSpace = "0";
-          markers = renderMinerTimelineMiniChainPeriodMarkers(collapsedLayout.positions, {
+          markers = renderMinerTimelineMiniChainPeriodMarkers(displayPositions, {
             size,
             depth,
             yTop: topY,
             yBottom: height,
           });
-          const ellipsis = renderMinerTimelineMiniChainEllipsis(collapsedLayout.ellipsis.x, collapsedLayout.ellipsis.y, { size, depth });
-          cubes = collapsedLayout.positions.map((item) => (
+          const ellipsis = renderMinerTimelineMiniChainEllipsis(displayEllipsis.x, displayEllipsis.y, { size, depth });
+          cubes = displayPositions.map((item) => (
             item.detailLoaded
               ? renderMinerTimelineMiniChainCube(item.block, item.x, item.y, { size, depth, nodeView: item.nodeView })
               : renderMinerTimelineMiniChainPlaceholderCube(item.height, item.x, item.y, { size, depth })
@@ -8044,6 +8066,9 @@
           depth: cubeDepth,
           gap,
           startX,
+          preCommonBlocks: CHAIN_SPLIT_COLLAPSE_FULL_BLOCKS,
+          branchHeadBlocks: CHAIN_SPLIT_COLLAPSE_FULL_BLOCKS,
+          legacyTailBlocks: CHAIN_SPLIT_COLLAPSE_FULL_BLOCKS,
           yPositions: {
             trunkY: splitY,
             bip110Y,
@@ -8051,9 +8076,12 @@
           },
         });
         if (collapsedLayout) {
-          const currentTipX = collapsedLayout.currentTipX;
+          const anchorShift = getCollapsedSplitChainRightAnchorShift(collapsedLayout, viewportClientWidth, currentRightPad);
+          const displayPositions = collapsedLayout.positions.map((item) => ({ ...item, x: item.x + anchorShift }));
+          const displayEllipsis = { ...collapsedLayout.ellipsis, x: collapsedLayout.ellipsis.x + anchorShift };
+          const currentTipX = collapsedLayout.currentTipX + anchorShift;
           const targetStageWidth = Math.max(
-            collapsedLayout.stageWidth,
+            collapsedLayout.stageWidth + anchorShift,
             currentTipX + localPad + currentRightPad
           );
           const latestScrollLeft = clamp(
@@ -8071,17 +8099,17 @@
           chainSplitContent.dataset.currentRightPad = String(currentRightPad);
           chainSplitContent.dataset.currentTipLocalPad = String(localPad);
           chainSplitContent.dataset.virtualScrollSpace = "0";
-          const markers = renderChainSplitPeriodMarkers(collapsedLayout.positions, {
+          const markers = renderChainSplitPeriodMarkers(displayPositions, {
             ...metrics,
             yTop: -1,
             yBottom: height + 1,
             straightHeight: reservedHeight,
           });
-          const ellipsis = renderChainSplitEllipsis(collapsedLayout.ellipsis.x, collapsedLayout.ellipsis.y, {
+          const ellipsis = renderChainSplitEllipsis(displayEllipsis.x, displayEllipsis.y, {
             size: cubeSize,
             depth: cubeDepth,
           });
-          const cubes = collapsedLayout.positions.map((item) => (
+          const cubes = displayPositions.map((item) => (
             item.detailLoaded
               ? renderChainSplitCube(item.block, item.x, item.y, { size: cubeSize, depth: cubeDepth, scale, labelOffset, nodeView: item.nodeView })
               : renderChainSplitPlaceholderCube(item.height, item.x, item.y, { size: cubeSize, depth: cubeDepth, scale, labelOffset })
