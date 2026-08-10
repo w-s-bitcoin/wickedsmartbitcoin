@@ -653,7 +653,8 @@
       display: none;
     }
 
-    .dashboard-loader .circle {
+    .dashboard-loader .circle,
+    .miner-timeline-chain-split-loading .circle {
       width: 32px;
       height: 32px;
       border: 2px solid rgba(255, 255, 255, 0.15);
@@ -671,7 +672,8 @@
       background: var(--card-bg);
     }
 
-    :root[data-theme="light"] .dashboard-loader .circle {
+    :root[data-theme="light"] .dashboard-loader .circle,
+    :root[data-theme="light"] .miner-timeline-chain-split-loading .circle {
       border-color: rgba(17, 24, 39, 0.13);
       border-top-color: var(--signal);
       border-right-color: var(--signal);
@@ -1468,10 +1470,8 @@
 
     .chain-split-collapse-gap:hover,
     .chain-split-collapse-gap:focus-visible,
-    .chain-split-collapse-gap.is-active,
     .miner-timeline-chain-split-collapse-gap:hover,
-    .miner-timeline-chain-split-collapse-gap:focus-visible,
-    .miner-timeline-chain-split-collapse-gap.is-active {
+    .miner-timeline-chain-split-collapse-gap:focus-visible {
       color: var(--signal);
       border-color: color-mix(in srgb, var(--signal) 58%, var(--line));
     }
@@ -2086,6 +2086,15 @@
     .main-chain-split-panel .miner-timeline-chain-split {
       height: 190px;
       min-height: 190px;
+    }
+
+    .miner-timeline-chain-split-loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+      min-height: inherit;
     }
 
     .miner-timeline-chain-split.is-dragging {
@@ -2946,19 +2955,18 @@
         </div>
         <label class="toggle" for="toggleMarkers"><input type="checkbox" id="toggleMarkers" checked /> Release markers</label>
         <label class="toggle" for="toggleLabels"><input type="checkbox" id="toggleLabels" checked /> Percentage labels</label>
-        <label class="toggle" for="toggleMainChainView"><input type="checkbox" id="toggleMainChainView" /> Show chain</label>
+        <label class="toggle" for="toggleMainChainView"><input type="checkbox" id="toggleMainChainView" checked /> Show chain</label>
       </div>
     </section>
 
-    <div class="card dashboard-loader" id="dashboardLoader" aria-live="polite" aria-label="Loading signaling charts">
-      <div class="circle" aria-hidden="true"></div>
-      <div class="label">Loading signaling charts...</div>
-    </div>
-
-    <section class="card main-chain-split-panel hidden" id="mainChainSplitPanel">
+    <section class="card main-chain-split-panel" id="mainChainSplitPanel">
       <div class="miner-timeline-chain-split-wrap" id="mainChainSplitWrap">
-        <div class="miner-timeline-chain-split" id="mainChainSplit" aria-label="BIP-110 chain preview" data-no-dashboard-swipe></div>
-        <button type="button" class="miner-timeline-chain-split-collapse-gap" id="mainChainSplitCollapseGap" aria-label="Collapse legacy chain gap" aria-pressed="false" title="Collapse legacy chain gap" hidden>
+        <div class="miner-timeline-chain-split" id="mainChainSplit" aria-label="BIP-110 chain preview" data-no-dashboard-swipe>
+          <div class="miner-timeline-chain-split-loading" aria-live="polite" aria-label="Loading chain preview">
+            <div class="circle" aria-hidden="true"></div>
+          </div>
+        </div>
+        <button type="button" class="miner-timeline-chain-split-collapse-gap" id="mainChainSplitCollapseGap" aria-label="compress legacy chain" aria-pressed="false" data-tooltip="compress legacy chain" hidden>
           <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
             <line x1="3.4" y1="8" x2="12.6" y2="8"></line>
             <polyline points="6.2,5.2 3.4,8 6.2,10.8"></polyline>
@@ -2977,6 +2985,11 @@
         </button>
       </div>
     </section>
+
+    <div class="card dashboard-loader" id="dashboardLoader" aria-live="polite" aria-label="Loading signaling charts">
+      <div class="circle" aria-hidden="true"></div>
+      <div class="label">Loading signaling charts...</div>
+    </div>
 
     <section class="card hidden" id="segwitPanel">
       <div class="canvas-box" id="segwitCanvasBox">
@@ -3157,7 +3170,7 @@
       <div class="miner-timeline-content" id="minerTimelineContent" aria-label="BIP-110 miner signaling timeline"></div>
       <div class="miner-timeline-chain-split-wrap" id="minerTimelineChainSplitWrap">
         <div class="miner-timeline-chain-split" id="minerTimelineChainSplit" aria-label="BIP-110 chain split preview" data-no-dashboard-swipe></div>
-        <button type="button" class="miner-timeline-chain-split-collapse-gap" id="minerTimelineChainSplitCollapseGap" aria-label="Collapse legacy chain gap" aria-pressed="false" title="Collapse legacy chain gap" hidden>
+        <button type="button" class="miner-timeline-chain-split-collapse-gap" id="minerTimelineChainSplitCollapseGap" aria-label="compress legacy chain" aria-pressed="false" data-tooltip="compress legacy chain" hidden>
           <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
             <line x1="3.4" y1="8" x2="12.6" y2="8"></line>
             <polyline points="6.2,5.2 3.4,8 6.2,10.8"></polyline>
@@ -3198,7 +3211,7 @@
       </div>
       <div class="chain-split-content-wrap">
         <div class="chain-split-content" id="chainSplitContent" aria-label="BIP-110 chain split visualization" data-no-dashboard-swipe></div>
-        <button type="button" class="chain-split-collapse-gap" id="chainSplitCollapseGap" aria-label="Collapse legacy chain gap" aria-pressed="false" title="Collapse legacy chain gap" hidden>
+        <button type="button" class="chain-split-collapse-gap" id="chainSplitCollapseGap" aria-label="compress legacy chain" aria-pressed="false" data-tooltip="compress legacy chain" hidden>
           <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
             <line x1="3.4" y1="8" x2="12.6" y2="8"></line>
             <polyline points="6.2,5.2 3.4,8 6.2,10.8"></polyline>
