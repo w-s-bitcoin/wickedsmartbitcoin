@@ -58,6 +58,8 @@
     showPerfectIssuanceMarkers: true,
     showTargetIssuanceRate: true,
     dailyCalculationsUseSelectedTimeZone: false,
+    endTracksLatest: true,
+    currentTracksLatest: true,
     downloadSettings: {
       scale: "linear",
       orientation: "landscape",
@@ -598,6 +600,11 @@
     const endIndex = clamp(safeIndex(end, max), startIndex + 1, max);
     const currentIndex = clamp(safeIndex(current, endIndex), startIndex, endIndex);
     return { startIndex, endIndex, currentIndex };
+  }
+
+  function isLatestRowIndex(index) {
+    const max = state.rows.length - 1;
+    return max >= 0 && Number(index) >= max;
   }
 
   function renderRangePresetButtons() {
@@ -1791,6 +1798,8 @@
     state.startIndex = normalized.startIndex;
     state.endIndex = normalized.endIndex;
     state.currentIndex = normalized.currentIndex;
+    state.endTracksLatest = isLatestRowIndex(state.endIndex);
+    state.currentTracksLatest = state.currentIndex === state.endIndex && state.endTracksLatest;
     syncControls();
     renderChart();
   }
@@ -1810,10 +1819,16 @@
 
   function persistState() {
     try {
+      const latestDate = state.rows[state.rows.length - 1]?.date || "";
+      const endTracksLatest = isLatestRowIndex(state.endIndex);
+      const currentTracksLatest = state.currentIndex === state.endIndex && endTracksLatest;
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
         start: state.rows[state.startIndex]?.date,
         end: state.rows[state.endIndex]?.date,
         current: state.rows[state.currentIndex]?.date,
+        latestDate,
+        endTracksLatest,
+        currentTracksLatest,
         speed: state.playbackSpeed,
         playbackState: state.isPlaying ? "playing" : (state.isPaused ? "paused" : "stopped"),
         preset: state.selectedPreset,
@@ -1839,14 +1854,31 @@
       const defaultEnd = state.rows.length - 1;
       const defaultStart = getPresetStartIndex(defaultPreset, defaultEnd);
       const hasStoredRange = typeof parsed.start === "string" || typeof parsed.end === "string" || typeof parsed.current === "string";
+      const storedPreset = typeof parsed.preset === "string" ? parsed.preset : "";
+      const storedLatestDate = typeof parsed.latestDate === "string" ? parsed.latestDate : "";
+      const storedPresetTracksLatest = Number.isFinite(getEpochFromPreset(storedPreset)) && (!storedLatestDate || parsed.end === storedLatestDate);
+      const latestDate = state.rows[defaultEnd]?.date || "";
+      const parsedEndDateNum = typeof parsed.end === "string" ? dateNum(parsed.end) : NaN;
+      const latestDateNum = latestDate ? dateNum(latestDate) : NaN;
+      const hasExplicitLatestTracking = typeof parsed.endTracksLatest === "boolean" || !!storedLatestDate;
+      const legacyRecentEndTracksLatest = !hasExplicitLatestTracking
+        && parsed.current === parsed.end
+        && Number.isFinite(parsedEndDateNum)
+        && Number.isFinite(latestDateNum)
+        && latestDateNum >= parsedEndDateNum
+        && latestDateNum - parsedEndDateNum <= 7 * MS_PER_DAY;
+      const endTracksLatest = parsed.endTracksLatest === true || storedPresetTracksLatest || legacyRecentEndTracksLatest;
+      const currentTracksLatest = parsed.currentTracksLatest === true || (endTracksLatest && parsed.current === parsed.end);
       const normalized = normalizeRangeIndices(
         hasStoredRange ? indexForDate(parsed.start, defaultStart) : defaultStart,
-        indexForDate(parsed.end, state.rows.length - 1),
-        indexForDate(parsed.current, state.rows.length - 1)
+        endTracksLatest ? defaultEnd : indexForDate(parsed.end, defaultEnd),
+        currentTracksLatest ? defaultEnd : indexForDate(parsed.current, defaultEnd)
       );
       state.startIndex = normalized.startIndex;
       state.endIndex = normalized.endIndex;
       state.currentIndex = normalized.currentIndex;
+      state.endTracksLatest = isLatestRowIndex(state.endIndex);
+      state.currentTracksLatest = state.currentIndex === state.endIndex && state.endTracksLatest;
       const speed = Number(parsed.speed);
       state.playbackSpeed = PLAYBACK_SPEEDS.includes(speed) ? speed : 1;
       const playbackState = String(parsed.playbackState || "");
@@ -1865,6 +1897,8 @@
       state.startIndex = getPresetStartIndex(defaultPreset, state.rows.length - 1);
       state.endIndex = state.rows.length - 1;
       state.currentIndex = state.endIndex;
+      state.endTracksLatest = true;
+      state.currentTracksLatest = true;
       state.playbackSpeed = 1;
       state.isPlaying = false;
       state.isPaused = false;
@@ -1893,6 +1927,8 @@
     state.startIndex = normalized.startIndex;
     state.endIndex = normalized.endIndex;
     state.currentIndex = normalized.currentIndex;
+    state.endTracksLatest = isLatestRowIndex(state.endIndex);
+    state.currentTracksLatest = state.currentIndex === state.endIndex && state.endTracksLatest;
     state.selectedPreset = preset === "custom" ? inferPresetForRange(state.startIndex, state.endIndex) : preset;
     if (preResetStateSnapshot) preResetStateSnapshot = null;
     syncControls();
