@@ -32,6 +32,7 @@
     const EXPECTED_FORK_HEIGHT = 961632;
     const EXPECTED_BLOCK_INTERVAL_MS = 10 * 60 * 1000;
     const MAX_DOWNWARD_DIFFICULTY_ADJUSTMENT = 4;
+    const CHAIN_SPLIT_COLLAPSE_PRE_COMMON_BLOCKS = 4;
     const CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS = 3;
     const CHAIN_SPLIT_COLLAPSE_FULL_BLOCKS = 2;
     const DASHBOARD_TIME = window.WSBDashboardTime || null;
@@ -6101,7 +6102,7 @@
       const viewportWidth = Number(chainSplitContent?.clientWidth || window.innerWidth || 0);
       const cubeRightEdge = getChainSplitSideDepth(cubeDepth) + Number(cubeSize || 0);
       const spacing = Number(gap || 0);
-      const desktopPad = cubeRightEdge + spacing * (options.split ? 2 : 1);
+      const desktopPad = cubeRightEdge + spacing * (options.collapsed ? 0.45 : options.split ? 2 : 1);
       if (!Number.isFinite(viewportWidth) || viewportWidth >= 760) return desktopPad;
       return cubeRightEdge + clamp(viewportWidth * 0.2, 30, 50);
     }
@@ -6532,6 +6533,19 @@
       return Number.isFinite(p) ? `Period ${p.toLocaleString("en-US")}` : "Period";
     }
 
+    function getChainSplitPeriodBoundaryLabelLines(period) {
+      const p = Number(period);
+      if (p === 18) return ["Mandatory", "Signaling"];
+      return [getChainSplitPeriodBoundaryLabel(p)];
+    }
+
+    function renderChainSplitPeriodBoundaryText(className, period, x, y, lineHeight = 12) {
+      const safeLineHeight = Number.isFinite(Number(lineHeight)) ? Number(lineHeight) : 12;
+      return `<text class="${className}" x="${x}" y="${y}">${getChainSplitPeriodBoundaryLabelLines(period).map((line, index) => (
+        `<tspan x="${x}" dy="${index === 0 ? 0 : safeLineHeight}">${escapeHtml(line)}</tspan>`
+      )).join("")}</text>`;
+    }
+
     function renderChainSplitPeriodMarkers(positions, options = {}) {
       if (!Array.isArray(positions) || positions.length < 2) return "";
       const yTop = Number(options.yTop);
@@ -6554,11 +6568,10 @@
           const emptyGap = Math.max(0, nextX - previousX - getChainSplitSideDepth(cubeDepth) - cubeSize);
           const x = Math.round(nextX - (emptyGap / 2));
           if (!Number.isFinite(x)) return "";
-          const label = getChainSplitPeriodBoundaryLabel(nextPeriod);
           return `
             <g class="chain-split-period-boundary-group">
               <line class="chain-split-period-boundary" x1="${x}" y1="${yTop}" x2="${x}" y2="${yBottom}"></line>
-              <text class="chain-split-period-boundary-label" x="${x + labelOffset}" y="${yTop + labelOffset}" transform="rotate(90 ${x + labelOffset} ${yTop + labelOffset})">${escapeHtml(label)}</text>
+              ${renderChainSplitPeriodBoundaryText("chain-split-period-boundary-label", nextPeriod, x + labelOffset, yTop + labelOffset, 13)}
             </g>
           `;
         })
@@ -6760,7 +6773,7 @@
       const size = Number(options.size);
       const depth = Number(options.depth);
       const yPositions = options.yPositions || {};
-      const preCommonBlocks = Math.max(0, Math.floor(Number(options.preCommonBlocks ?? CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS)));
+      const preCommonBlocks = Math.max(0, Math.floor(Number(options.preCommonBlocks ?? CHAIN_SPLIT_COLLAPSE_PRE_COMMON_BLOCKS)));
       const branchHeadBlocks = Math.max(1, Math.floor(Number(options.branchHeadBlocks ?? CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS)));
       const legacyTailBlocks = Math.max(1, Math.floor(Number(options.legacyTailBlocks ?? CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS)));
       if (!Number.isFinite(commonHeight)
@@ -6866,7 +6879,7 @@
       const depth = Number(options.depth || 28);
       const sideDepth = getChainSplitSideDepth(depth);
       const square = Math.max(6, Math.round(size * 0.12));
-      const squareGap = Math.max(4, Math.round(square * 0.75));
+      const squareGap = Math.max(8, Math.round(square * 1.35));
       const centerX = x + sideDepth + size / 2;
       const centerY = y + depth + size / 2;
       const firstX = centerX - square * 1.5 - squareGap;
@@ -6885,7 +6898,7 @@
       const depth = Number(options.depth || 7);
       const sideDepth = getChainSplitSideDepth(depth);
       const square = Math.max(4, Math.round(size * 0.14));
-      const squareGap = Math.max(3, Math.round(square * 0.75));
+      const squareGap = Math.max(5, Math.round(square * 1.25));
       const centerX = x + sideDepth + size / 2;
       const centerY = y + depth + size / 2;
       const firstX = centerX - square * 1.5 - squareGap;
@@ -6925,12 +6938,11 @@
           const boundaryIndex = periodStart - startHeight;
           if (boundaryIndex < range.renderStartIndex || boundaryIndex > range.renderEndIndex + 1) return "";
           const x = Math.round(metrics.startX + boundaryIndex * metrics.gap - (emptyGap / 2) - xOffset);
-          const label = getChainSplitPeriodBoundaryLabel(periodNumber);
           const labelOffset = 12;
           return `
             <g class="chain-split-period-boundary-group">
               <line class="chain-split-period-boundary" x1="${x}" y1="${yTop}" x2="${x}" y2="${yBottom}"></line>
-              <text class="chain-split-period-boundary-label" x="${x + labelOffset}" y="${yTop + labelOffset}" transform="rotate(90 ${x + labelOffset} ${yTop + labelOffset})">${escapeHtml(label)}</text>
+              ${renderChainSplitPeriodBoundaryText("chain-split-period-boundary-label", periodNumber, x + labelOffset, yTop + labelOffset, 13)}
             </g>
           `;
         })
@@ -7010,11 +7022,10 @@
         const nextX = Number(position.x);
         const emptyGap = Math.max(0, nextX - previousX - getChainSplitSideDepth(depth) - size);
         const x = Math.round(nextX - (emptyGap / 2));
-        const label = getChainSplitPeriodBoundaryLabel(nextPeriod);
         return `
             <g class="miner-timeline-chain-split-period-boundary-group">
               <line class="miner-timeline-chain-split-period-boundary" x1="${x}" y1="${yTop}" x2="${x}" y2="${yBottom}"></line>
-              <text class="miner-timeline-chain-split-period-boundary-label" x="${x + 5}" y="${Math.max(12, yTop + 12)}">${escapeHtml(label)}</text>
+              ${renderChainSplitPeriodBoundaryText("miner-timeline-chain-split-period-boundary-label", nextPeriod, x + 5, Math.max(12, yTop + 12), 10)}
             </g>
           `;
       }).join("");
@@ -7119,11 +7130,10 @@
           if (boundaryIndex < range.renderStartIndex || boundaryIndex > range.renderEndIndex + 1) return "";
           const x = Math.round(metrics.startX + boundaryIndex * metrics.gap - (emptyGap / 2) - xOffset);
           const periodNumber = Number(period?.period);
-          const label = getChainSplitPeriodBoundaryLabel(periodNumber);
           return `
             <g class="miner-timeline-chain-split-period-boundary-group">
               <line class="miner-timeline-chain-split-period-boundary" x1="${x}" y1="${metrics.yTop}" x2="${x}" y2="${metrics.yBottom}"></line>
-              <text class="miner-timeline-chain-split-period-boundary-label" x="${x + 5}" y="${Math.max(12, Number(metrics.yTop || 0) + 12)}">${escapeHtml(label)}</text>
+              ${renderChainSplitPeriodBoundaryText("miner-timeline-chain-split-period-boundary-label", periodNumber, x + 5, Math.max(12, Number(metrics.yTop || 0) + 12), 10)}
             </g>
           `;
         })
@@ -7310,7 +7320,7 @@
           depth,
           gap,
           startX,
-          preCommonBlocks: CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS,
+          preCommonBlocks: CHAIN_SPLIT_COLLAPSE_PRE_COMMON_BLOCKS,
           branchHeadBlocks: CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS,
           legacyTailBlocks: CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS,
           yPositions: {
@@ -7664,7 +7674,7 @@
           depth,
           gap,
           startX,
-          preCommonBlocks: CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS,
+          preCommonBlocks: CHAIN_SPLIT_COLLAPSE_PRE_COMMON_BLOCKS,
           branchHeadBlocks: CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS,
           legacyTailBlocks: CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS,
           yPositions: {
@@ -8059,14 +8069,14 @@
         }
         const viewportClientWidth = Math.max(1, Number(chainSplitContent.clientWidth || 0));
         const viewportWidth = Math.max(980, viewportClientWidth);
-        const currentRightPad = getChainSplitCurrentRightPad(cubeSize, cubeDepth, gap, { split: true });
+        const splitCurrentRightPad = getChainSplitCurrentRightPad(cubeSize, cubeDepth, gap, { split: true });
         const localPad = Math.max(startX, gap);
         const collapsedLayout = getCollapsedSplitChainLayout(model, {
           size: cubeSize,
           depth: cubeDepth,
           gap,
           startX,
-          preCommonBlocks: CHAIN_SPLIT_COLLAPSE_FULL_BLOCKS,
+          preCommonBlocks: CHAIN_SPLIT_COLLAPSE_PRE_COMMON_BLOCKS,
           branchHeadBlocks: CHAIN_SPLIT_COLLAPSE_FULL_BLOCKS,
           legacyTailBlocks: CHAIN_SPLIT_COLLAPSE_FULL_BLOCKS,
           yPositions: {
@@ -8076,6 +8086,7 @@
           },
         });
         if (collapsedLayout) {
+          const currentRightPad = getChainSplitCurrentRightPad(cubeSize, cubeDepth, gap, { split: true, collapsed: true });
           const anchorShift = getCollapsedSplitChainRightAnchorShift(collapsedLayout, viewportClientWidth, currentRightPad);
           const displayPositions = collapsedLayout.positions.map((item) => ({ ...item, x: item.x + anchorShift }));
           const displayEllipsis = { ...collapsedLayout.ellipsis, x: collapsedLayout.ellipsis.x + anchorShift };
@@ -8127,6 +8138,7 @@
         }
         const totalBlockCount = Math.floor(rangeEnd - rangeStart + 1);
         const currentTipX = startX + Math.max(0, totalBlockCount - 1) * gap;
+        const currentRightPad = splitCurrentRightPad;
         const targetStageWidth = Math.max(
           getChainSplitStageWidth(totalBlockCount, gap, startX, cubeSize, cubeDepth),
           currentTipX + localPad + currentRightPad
