@@ -32,6 +32,9 @@
     const EXPECTED_FORK_HEIGHT = 961632;
     const EXPECTED_BLOCK_INTERVAL_MS = 10 * 60 * 1000;
     const MAX_DOWNWARD_DIFFICULTY_ADJUSTMENT = 4;
+    const CHAIN_SPLIT_COLLAPSE_PRE_COMMON_BLOCKS = 4;
+    const CHAIN_SPLIT_COLLAPSE_BRANCH_HEAD_BLOCKS = 4;
+    const CHAIN_SPLIT_COLLAPSE_LEGACY_TAIL_BLOCKS = 8;
     const DASHBOARD_TIME = window.WSBDashboardTime || null;
     const SHARE_STATE_PARAM = "bip110_state";
     const LOCAL_RUNTIME_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
@@ -280,6 +283,7 @@
         showBip110Node: false,
         panelsSwapped: false,
         showMainChainView: false,
+        collapseSplitLegacy: false,
       },
       manualPanelHeights: {
         segwit: null,
@@ -335,6 +339,7 @@
     const mainChainSplitPanel = document.getElementById("mainChainSplitPanel");
     const mainChainSplitWrap = document.getElementById("mainChainSplitWrap");
     const mainChainSplit = document.getElementById("mainChainSplit");
+    const mainChainSplitCollapseGap = document.getElementById("mainChainSplitCollapseGap");
     const mainChainSplitPeriodBack = document.getElementById("mainChainSplitPeriodBack");
     const mainChainSplitSnapLatest = document.getElementById("mainChainSplitSnapLatest");
     const segwitCanvasBox = document.getElementById("segwitCanvasBox");
@@ -380,6 +385,7 @@
     const minerTimelineContent = document.getElementById("minerTimelineContent");
     const minerTimelineChainSplitWrap = document.getElementById("minerTimelineChainSplitWrap");
     const minerTimelineChainSplit = document.getElementById("minerTimelineChainSplit");
+    const minerTimelineChainSplitCollapseGap = document.getElementById("minerTimelineChainSplitCollapseGap");
     const minerTimelineChainSplitPeriodBack = document.getElementById("minerTimelineChainSplitPeriodBack");
     const minerTimelineChainSplitSnapLatest = document.getElementById("minerTimelineChainSplitSnapLatest");
     const minerTimelineRangeValue = document.getElementById("minerTimelineRangeValue");
@@ -394,6 +400,7 @@
     const chainSplitDialog = document.getElementById("chainSplitDialog");
     const chainSplitClose = document.getElementById("chainSplitClose");
     const chainSplitContent = document.getElementById("chainSplitContent");
+    const chainSplitCollapseGap = document.getElementById("chainSplitCollapseGap");
     const chainSplitPeriodBack = document.getElementById("chainSplitPeriodBack");
     const chainSplitSnapLatest = document.getElementById("chainSplitSnapLatest");
     const chainSplitLegacyHeightValue = document.getElementById("chainSplitLegacyHeightValue");
@@ -422,8 +429,15 @@
         segwitFillHeightBtn,
         bip110FillHeightBtn,
         bip110NodeFillHeightBtn,
+        mainChainSplitCollapseGap,
         mainChainSplitPeriodBack,
         mainChainSplitSnapLatest,
+        minerTimelineChainSplitCollapseGap,
+        minerTimelineChainSplitPeriodBack,
+        minerTimelineChainSplitSnapLatest,
+        chainSplitCollapseGap,
+        chainSplitPeriodBack,
+        chainSplitSnapLatest,
         ...nodePanelButtons,
       ],
     });
@@ -450,8 +464,15 @@
         segwitFillHeightBtn,
         bip110FillHeightBtn,
         bip110NodeFillHeightBtn,
+        mainChainSplitCollapseGap,
         mainChainSplitPeriodBack,
         mainChainSplitSnapLatest,
+        minerTimelineChainSplitCollapseGap,
+        minerTimelineChainSplitPeriodBack,
+        minerTimelineChainSplitSnapLatest,
+        chainSplitCollapseGap,
+        chainSplitPeriodBack,
+        chainSplitSnapLatest,
         segwitResizeHandle,
         bip110ResizeHandle,
         bip110NodeResizeHandle,
@@ -525,6 +546,49 @@
       }
       if (mainChainViewToggle) {
         mainChainViewToggle.checked = Boolean(state.controls.showMainChainView);
+      }
+    }
+
+    const CHAIN_SPLIT_COLLAPSE_ICON = `<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><line x1="3.4" y1="8" x2="12.6" y2="8"></line><polyline points="6.2,5.2 3.4,8 6.2,10.8"></polyline><polyline points="9.8,5.2 12.6,8 9.8,10.8"></polyline></svg>`;
+    const CHAIN_SPLIT_EXPAND_ICON = `<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><line x1="3.4" y1="8" x2="12.6" y2="8"></line><polyline points="3.4,5.2 6.2,8 3.4,10.8"></polyline><polyline points="12.6,5.2 9.8,8 12.6,10.8"></polyline></svg>`;
+
+    function syncChainSplitCollapseButtons(model = null) {
+      const splitModel = model || getChainSplitModel();
+      const isAvailable = !!splitModel?.splitDetected;
+      const isCollapsed = Boolean(state.controls.collapseSplitLegacy);
+      const label = isCollapsed ? "Show full legacy chain" : "Collapse legacy chain gap";
+      const icon = isCollapsed ? CHAIN_SPLIT_EXPAND_ICON : CHAIN_SPLIT_COLLAPSE_ICON;
+      [
+        mainChainSplitCollapseGap,
+        minerTimelineChainSplitCollapseGap,
+        chainSplitCollapseGap,
+      ].filter(Boolean).forEach((button) => {
+        button.hidden = !isAvailable;
+        button.disabled = !isAvailable;
+        button.classList.toggle("is-active", isAvailable && isCollapsed);
+        button.setAttribute("aria-pressed", isAvailable && isCollapsed ? "true" : "false");
+        button.setAttribute("aria-label", label);
+        button.setAttribute("title", label);
+        if (button.innerHTML !== icon) button.innerHTML = icon;
+      });
+    }
+
+    function toggleChainSplitLegacyCollapse() {
+      state.controls.collapseSplitLegacy = !state.controls.collapseSplitLegacy;
+      state.chainSplitFollowLatest = true;
+      state.minerTimelineChainSplitFollowLatest = true;
+      state.mainChainSplitFollowLatest = true;
+      persistControls();
+      updateResetButtonUi();
+      syncChainSplitCollapseButtons();
+      if (isMainChainPanelVisible()) {
+        renderMainChainSplitPanel({ forceFollowLatest: true });
+      }
+      if (isMinerTimelineOverlayOpen()) {
+        renderMinerTimelineMiniChainSplit({ forceFollowLatest: true });
+      }
+      if (isChainSplitOverlayOpen()) {
+        renderBip110ChainSplitOverlay({ forceFollowLatest: true });
       }
     }
 
@@ -1736,6 +1800,7 @@
           showBip110Node: Boolean(state.controls.showBip110Node),
           panelsSwapped: Boolean(state.controls.panelsSwapped),
           showMainChainView: Boolean(state.controls.showMainChainView),
+          collapseSplitLegacy: Boolean(state.controls.collapseSplitLegacy),
           manualPanelHeights: {
             segwit: Number.isFinite(segwitRatio)
               ? parseFloat(segwitRatio.toFixed(4))
@@ -1884,6 +1949,7 @@
         ensureAtLeastOnePanelVisible("bip110");
         state.controls.panelsSwapped = typeof parsed.panelsSwapped === "boolean" ? parsed.panelsSwapped : false;
         state.controls.showMainChainView = typeof parsed.showMainChainView === "boolean" ? parsed.showMainChainView : false;
+        state.controls.collapseSplitLegacy = typeof parsed.collapseSplitLegacy === "boolean" ? parsed.collapseSplitLegacy : false;
 
         const parseStoredHeight = (value) => {
           if (value == null || value === "") return null;
@@ -1976,7 +2042,7 @@
       if (!decoded || typeof decoded !== "object") return false;
       const controls = decoded.controls;
       if (controls && typeof controls === "object") {
-        const controlKeys = ["stripes", "stripesExplicit", "blockSymbol", "markers", "labels", "showSegwit", "showBip110", "showLegacyNode", "showBip110Node", "panelsSwapped", "showMainChainView"];
+        const controlKeys = ["stripes", "stripesExplicit", "blockSymbol", "markers", "labels", "showSegwit", "showBip110", "showLegacyNode", "showBip110Node", "panelsSwapped", "showMainChainView", "collapseSplitLegacy"];
         if (controlKeys.some((key) => Object.prototype.hasOwnProperty.call(controls, key))) return true;
       }
       const manualHeights = decoded.manualPanelHeights;
@@ -2022,6 +2088,7 @@
           showBip110Node: false,
           panelsSwapped: false,
           showMainChainView: false,
+          collapseSplitLegacy: false,
         },
         manualPanelHeights: {
           segwit: null,
@@ -2049,6 +2116,7 @@
           showBip110Node: Boolean(state.controls.showBip110Node),
           panelsSwapped: Boolean(state.controls.panelsSwapped),
           showMainChainView: Boolean(state.controls.showMainChainView),
+          collapseSplitLegacy: Boolean(state.controls.collapseSplitLegacy),
         },
         manualPanelHeights: {
           segwit: Number.isFinite(state.manualPanelHeightRatios.segwit) ? state.manualPanelHeightRatios.segwit : null,
@@ -2118,6 +2186,7 @@
         ensureAtLeastOnePanelVisible("bip110");
         if (typeof controls.panelsSwapped === "boolean") state.controls.panelsSwapped = controls.panelsSwapped;
         if (typeof controls.showMainChainView === "boolean") state.controls.showMainChainView = controls.showMainChainView;
+        if (typeof controls.collapseSplitLegacy === "boolean") state.controls.collapseSplitLegacy = controls.collapseSplitLegacy;
       }
 
       const heights = decoded.manualPanelHeights && typeof decoded.manualPanelHeights === "object"
@@ -2187,6 +2256,7 @@
           showLegacyNode: Boolean(state.controls.showLegacyNode),
           showBip110Node: Boolean(state.controls.showBip110Node),
           panelsSwapped: Boolean(state.controls.panelsSwapped),
+          collapseSplitLegacy: Boolean(state.controls.collapseSplitLegacy),
         },
         filledPanels: {
           segwit: Boolean(state.filledPanels.segwit),
@@ -2244,6 +2314,7 @@
         state.controls.showMainChainView = typeof checkboxState.toggleMainChainView === "boolean"
           ? checkboxState.toggleMainChainView
           : Boolean(controls.showMainChainView);
+        state.controls.collapseSplitLegacy = typeof controls.collapseSplitLegacy === "boolean" ? controls.collapseSplitLegacy : false;
 
         const filledPanels = snapshot.filledPanels || {};
         state.filledPanels.segwit = Boolean(filledPanels.segwit);
@@ -2332,6 +2403,7 @@
         state.controls.showBip110Node = false;
         state.controls.panelsSwapped = false;
         state.controls.showMainChainView = false;
+        state.controls.collapseSplitLegacy = false;
         state.periodGridNodeView = "legacy";
         state.leaderboardWindow = "all";
         state.minerTimelineWindow = "past14d";
@@ -6677,6 +6749,146 @@
       return positions;
     }
 
+    function getCollapsedSplitChainLayout(model, options = {}) {
+      if (!model?.splitDetected || !state.controls.collapseSplitLegacy) return null;
+      const commonHeight = Number(model.latestCommonHeight);
+      const legacyHeight = Number(model.legacyHeight);
+      const bip110Height = Number(model.bip110Height);
+      const rangeStart = Number(model.rangeStart);
+      const rangeEnd = Number(model.rangeEnd);
+      const gap = Number(options.gap);
+      const startX = Number(options.startX);
+      const size = Number(options.size);
+      const depth = Number(options.depth);
+      const yPositions = options.yPositions || {};
+      if (!Number.isFinite(commonHeight)
+        || !Number.isFinite(legacyHeight)
+        || !Number.isFinite(rangeStart)
+        || !Number.isFinite(rangeEnd)
+        || !Number.isFinite(gap)
+        || !Number.isFinite(startX)
+        || !Number.isFinite(size)
+        || !Number.isFinite(depth)
+        || legacyHeight <= commonHeight) {
+        return null;
+      }
+
+      const splitStart = commonHeight + 1;
+      const headEnd = Math.min(legacyHeight, splitStart + CHAIN_SPLIT_COLLAPSE_BRANCH_HEAD_BLOCKS - 1);
+      const rawTailStart = legacyHeight - CHAIN_SPLIT_COLLAPSE_LEGACY_TAIL_BLOCKS + 1;
+      const tailStart = Math.max(headEnd + 1, rawTailStart);
+      const hiddenStart = headEnd + 1;
+      const hiddenEnd = tailStart - 1;
+      if (hiddenEnd < hiddenStart) return null;
+
+      const positions = [];
+      const slotMap = new Map();
+      const slotHeights = [];
+      const visibleStart = Math.max(rangeStart, commonHeight - CHAIN_SPLIT_COLLAPSE_PRE_COMMON_BLOCKS + 1);
+      const visibleEnd = Math.min(rangeEnd, legacyHeight);
+
+      const addSlot = (key) => {
+        const slotKey = String(key);
+        if (!slotMap.has(slotKey)) {
+          slotMap.set(slotKey, slotHeights.length);
+          slotHeights.push(key);
+        }
+        return slotMap.get(slotKey);
+      };
+
+      const addPosition = (height, nodeView, y) => {
+        const h = Number(height);
+        if (!Number.isFinite(h) || h < rangeStart || h > rangeEnd) return;
+        const slot = addSlot(h);
+        const map = nodeView === "bip110" ? model.bip110Map : model.legacyMap;
+        const block = map?.get(h);
+        positions.push({
+          height: h,
+          block,
+          x: startX + slot * gap,
+          y,
+          nodeView,
+          detailLoaded: !!block,
+        });
+      };
+
+      for (let height = visibleStart; height <= Math.min(commonHeight, visibleEnd); height += 1) {
+        addPosition(height, "legacy", yPositions.trunkY);
+      }
+
+      for (let height = splitStart; height <= headEnd; height += 1) {
+        if (height <= legacyHeight) addPosition(height, "legacy", yPositions.legacyY);
+        if (Number.isFinite(bip110Height) && height <= bip110Height) {
+          addPosition(height, "bip110", yPositions.bip110Y);
+        }
+      }
+
+      const ellipsisSlot = addSlot("legacy-gap");
+
+      for (let height = tailStart; height <= legacyHeight; height += 1) {
+        addPosition(height, "legacy", yPositions.legacyY);
+        if (Number.isFinite(bip110Height) && height <= bip110Height && height > headEnd) {
+          addPosition(height, "bip110", yPositions.bip110Y);
+        }
+      }
+
+      const currentTipSlot = slotMap.get(String(legacyHeight));
+      const currentTipX = startX + (Number.isFinite(currentTipSlot) ? currentTipSlot : Math.max(0, slotHeights.length - 1)) * gap;
+      const ellipsisX = startX + ellipsisSlot * gap;
+      const stageCount = Math.max(1, slotHeights.length);
+      const stageWidth = getChainSplitStageWidth(stageCount, gap, startX, size, depth);
+      return {
+        positions,
+        ellipsis: {
+          x: ellipsisX,
+          y: yPositions.legacyY,
+          hiddenStart,
+          hiddenEnd,
+        },
+        currentTipX,
+        stageCount,
+        stageWidth,
+      };
+    }
+
+    function renderChainSplitEllipsis(x, y, options = {}) {
+      const size = Number(options.size || 154);
+      const depth = Number(options.depth || 28);
+      const sideDepth = getChainSplitSideDepth(depth);
+      const square = Math.max(6, Math.round(size * 0.12));
+      const squareGap = Math.max(4, Math.round(square * 0.75));
+      const centerX = x + sideDepth + size / 2;
+      const centerY = y + depth + size / 2;
+      const firstX = centerX - square * 1.5 - squareGap;
+      const yTop = centerY - square / 2;
+      return `
+        <g class="chain-split-ellipsis" aria-hidden="true">
+          <rect class="chain-split-ellipsis-square" x="${firstX}" y="${yTop}" width="${square}" height="${square}" rx="${Math.max(1, Math.round(square * 0.16))}"></rect>
+          <rect class="chain-split-ellipsis-square" x="${firstX + square + squareGap}" y="${yTop}" width="${square}" height="${square}" rx="${Math.max(1, Math.round(square * 0.16))}"></rect>
+          <rect class="chain-split-ellipsis-square" x="${firstX + (square + squareGap) * 2}" y="${yTop}" width="${square}" height="${square}" rx="${Math.max(1, Math.round(square * 0.16))}"></rect>
+        </g>
+      `;
+    }
+
+    function renderMinerTimelineMiniChainEllipsis(x, y, options = {}) {
+      const size = Number(options.size || 38);
+      const depth = Number(options.depth || 7);
+      const sideDepth = getChainSplitSideDepth(depth);
+      const square = Math.max(4, Math.round(size * 0.14));
+      const squareGap = Math.max(3, Math.round(square * 0.75));
+      const centerX = x + sideDepth + size / 2;
+      const centerY = y + depth + size / 2;
+      const firstX = centerX - square * 1.5 - squareGap;
+      const yTop = centerY - square / 2;
+      return `
+        <g class="miner-timeline-chain-split-ellipsis" aria-hidden="true">
+          <rect class="miner-timeline-chain-split-ellipsis-square" x="${firstX}" y="${yTop}" width="${square}" height="${square}" rx="${Math.max(1, Math.round(square * 0.16))}"></rect>
+          <rect class="miner-timeline-chain-split-ellipsis-square" x="${firstX + square + squareGap}" y="${yTop}" width="${square}" height="${square}" rx="${Math.max(1, Math.round(square * 0.16))}"></rect>
+          <rect class="miner-timeline-chain-split-ellipsis-square" x="${firstX + (square + squareGap) * 2}" y="${yTop}" width="${square}" height="${square}" rx="${Math.max(1, Math.round(square * 0.16))}"></rect>
+        </g>
+      `;
+    }
+
     function getChainSplitPeriodForHeight(height, nodeView = "legacy") {
       const numericHeight = Number(height);
       if (!Number.isFinite(numericHeight)) return null;
@@ -7053,6 +7265,7 @@
         && (maxScrollBefore <= 2 || state.minerTimelineChainSplitFollowLatest === true)
       );
       const model = getChainSplitModel();
+      syncChainSplitCollapseButtons(model);
       const size = 38;
       const depth = 7;
       const sideDepth = getChainSplitSideDepth(depth);
@@ -7082,6 +7295,60 @@
         minerTimelineChainSplit.classList.add("is-split");
         const viewportClientWidth = Math.max(1, Number(minerTimelineChainSplit.clientWidth || 0));
         const viewportWidth = Math.max(720, viewportClientWidth);
+        const collapsedLayout = getCollapsedSplitChainLayout(model, {
+          size,
+          depth,
+          gap,
+          startX,
+          yPositions: {
+            trunkY: splitY,
+            bip110Y,
+            legacyY,
+          },
+        });
+        if (collapsedLayout) {
+          const currentTipX = collapsedLayout.currentTipX;
+          const targetStageWidth = Math.max(
+            collapsedLayout.stageWidth,
+            currentTipX + localPad + currentRightPad
+          );
+          const latestScrollLeft = clamp(
+            currentTipX - (viewportClientWidth - currentRightPad),
+            0,
+            Math.max(0, targetStageWidth - viewportClientWidth)
+          );
+          const targetScrollLeft = shouldFollowLatest
+            ? latestScrollLeft
+            : clamp(Number(minerTimelineChainSplit.scrollLeft || 0), 0, latestScrollLeft);
+          const stageWidth = Math.max(targetStageWidth, viewportWidth);
+          width = stageWidth;
+          minerTimelineChainSplit.dataset.currentTipX = String(currentTipX);
+          minerTimelineChainSplit.dataset.currentRightPad = String(currentRightPad);
+          minerTimelineChainSplit.dataset.currentTipLocalPad = String(localPad);
+          minerTimelineChainSplit.dataset.virtualScrollSpace = "0";
+          markers = renderMinerTimelineMiniChainPeriodMarkers(collapsedLayout.positions, {
+            size,
+            depth,
+            yTop: topY,
+            yBottom: height,
+          });
+          const ellipsis = renderMinerTimelineMiniChainEllipsis(collapsedLayout.ellipsis.x, collapsedLayout.ellipsis.y, { size, depth });
+          cubes = collapsedLayout.positions.map((item) => (
+            item.detailLoaded
+              ? renderMinerTimelineMiniChainCube(item.block, item.x, item.y, { size, depth, nodeView: item.nodeView })
+              : renderMinerTimelineMiniChainPlaceholderCube(item.height, item.x, item.y, { size, depth })
+          )).join("");
+          minerTimelineChainSplit.innerHTML = `<div class="miner-timeline-chain-split-virtual-stage" style="width:${stageWidth}px;height:${height}px"><svg class="miner-timeline-chain-split-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Compact BIP-110 chain split preview">${markers}${ellipsis}${cubes}</svg></div>`;
+          minerTimelineChainSplit.dataset.virtualRenderScrollLeft = String(targetScrollLeft);
+          state.minerTimelineChainSplitHandlingScroll = true;
+          minerTimelineChainSplit.scrollLeft = targetScrollLeft;
+          requestAnimationFrame(() => {
+            finishMinerTimelineMiniChainHandlingScroll();
+          });
+          applyMinerTimelineMiniChainPendingScrollAdjustment();
+          updateMinerTimelineMiniChainScrollButtons();
+          return;
+        }
         const totalBlockCount = Math.floor(rangeEnd - rangeStart + 1);
         const currentTipX = startX + Math.max(0, totalBlockCount - 1) * gap;
         const targetStageWidth = Math.max(
@@ -7346,6 +7613,7 @@
         && (maxScrollBefore <= 2 || state.mainChainSplitFollowLatest === true)
       );
       const model = getChainSplitModel();
+      syncChainSplitCollapseButtons(model);
       const size = 38;
       const depth = 7;
       const sideDepth = getChainSplitSideDepth(depth);
@@ -7375,6 +7643,60 @@
         mainChainSplit.classList.add("is-split");
         const viewportClientWidth = Math.max(1, Number(mainChainSplit.clientWidth || 0));
         const viewportWidth = Math.max(720, viewportClientWidth);
+        const collapsedLayout = getCollapsedSplitChainLayout(model, {
+          size,
+          depth,
+          gap,
+          startX,
+          yPositions: {
+            trunkY: splitY,
+            bip110Y,
+            legacyY,
+          },
+        });
+        if (collapsedLayout) {
+          const currentTipX = collapsedLayout.currentTipX;
+          const targetStageWidth = Math.max(
+            collapsedLayout.stageWidth,
+            currentTipX + localPad + currentRightPad
+          );
+          const latestScrollLeft = clamp(
+            currentTipX - (viewportClientWidth - currentRightPad),
+            0,
+            Math.max(0, targetStageWidth - viewportClientWidth)
+          );
+          const targetScrollLeft = shouldFollowLatest
+            ? latestScrollLeft
+            : clamp(Number(mainChainSplit.scrollLeft || 0), 0, latestScrollLeft);
+          const stageWidth = Math.max(targetStageWidth, viewportWidth);
+          width = stageWidth;
+          mainChainSplit.dataset.currentTipX = String(currentTipX);
+          mainChainSplit.dataset.currentRightPad = String(currentRightPad);
+          mainChainSplit.dataset.currentTipLocalPad = String(localPad);
+          mainChainSplit.dataset.virtualScrollSpace = "0";
+          markers = renderMinerTimelineMiniChainPeriodMarkers(collapsedLayout.positions, {
+            size,
+            depth,
+            yTop: topY,
+            yBottom: height,
+          });
+          const ellipsis = renderMinerTimelineMiniChainEllipsis(collapsedLayout.ellipsis.x, collapsedLayout.ellipsis.y, { size, depth });
+          cubes = collapsedLayout.positions.map((item) => (
+            item.detailLoaded
+              ? renderMinerTimelineMiniChainCube(item.block, item.x, item.y, { size, depth, nodeView: item.nodeView })
+              : renderMinerTimelineMiniChainPlaceholderCube(item.height, item.x, item.y, { size, depth })
+          )).join("");
+          mainChainSplit.innerHTML = `<div class="miner-timeline-chain-split-virtual-stage" style="width:${stageWidth}px;height:${height}px"><svg class="miner-timeline-chain-split-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Compact BIP-110 chain preview">${markers}${ellipsis}${cubes}</svg></div>`;
+          mainChainSplit.dataset.virtualRenderScrollLeft = String(targetScrollLeft);
+          state.mainChainSplitHandlingScroll = true;
+          mainChainSplit.scrollLeft = targetScrollLeft;
+          requestAnimationFrame(() => {
+            finishMainChainSplitHandlingScroll();
+          });
+          applyMainChainSplitPendingScrollAdjustment();
+          updateMainChainSplitScrollButtons();
+          return;
+        }
         const totalBlockCount = Math.floor(rangeEnd - rangeStart + 1);
         const currentTipX = startX + Math.max(0, totalBlockCount - 1) * gap;
         const targetStageWidth = Math.max(
@@ -7657,6 +7979,7 @@
         && (maxScrollBefore <= 2 || state.chainSplitFollowLatest === true)
       );
       const model = getChainSplitModel();
+      syncChainSplitCollapseButtons(model);
       const legacyHeight = Number(model.legacyHeight);
       const bip110Height = Number(model.bip110Height);
       if (chainSplitLegacyHeightValue) {
@@ -7714,10 +8037,68 @@
         }
         const viewportClientWidth = Math.max(1, Number(chainSplitContent.clientWidth || 0));
         const viewportWidth = Math.max(980, viewportClientWidth);
-        const totalBlockCount = Math.floor(rangeEnd - rangeStart + 1);
-        const currentTipX = startX + Math.max(0, totalBlockCount - 1) * gap;
         const currentRightPad = getChainSplitCurrentRightPad(cubeSize, cubeDepth, gap, { split: true });
         const localPad = Math.max(startX, gap);
+        const collapsedLayout = getCollapsedSplitChainLayout(model, {
+          size: cubeSize,
+          depth: cubeDepth,
+          gap,
+          startX,
+          yPositions: {
+            trunkY: splitY,
+            bip110Y,
+            legacyY,
+          },
+        });
+        if (collapsedLayout) {
+          const currentTipX = collapsedLayout.currentTipX;
+          const targetStageWidth = Math.max(
+            collapsedLayout.stageWidth,
+            currentTipX + localPad + currentRightPad
+          );
+          const latestScrollLeft = clamp(
+            currentTipX - (viewportClientWidth - currentRightPad),
+            0,
+            Math.max(0, targetStageWidth - viewportClientWidth)
+          );
+          const targetScrollLeft = shouldFollowLatest
+            ? latestScrollLeft
+            : clamp(Number(chainSplitContent.scrollLeft || 0), 0, latestScrollLeft);
+          const stageWidth = Math.max(targetStageWidth, viewportWidth);
+          const width = stageWidth;
+          const height = reservedHeight;
+          chainSplitContent.dataset.currentTipX = String(currentTipX);
+          chainSplitContent.dataset.currentRightPad = String(currentRightPad);
+          chainSplitContent.dataset.currentTipLocalPad = String(localPad);
+          chainSplitContent.dataset.virtualScrollSpace = "0";
+          const markers = renderChainSplitPeriodMarkers(collapsedLayout.positions, {
+            ...metrics,
+            yTop: -1,
+            yBottom: height + 1,
+            straightHeight: reservedHeight,
+          });
+          const ellipsis = renderChainSplitEllipsis(collapsedLayout.ellipsis.x, collapsedLayout.ellipsis.y, {
+            size: cubeSize,
+            depth: cubeDepth,
+          });
+          const cubes = collapsedLayout.positions.map((item) => (
+            item.detailLoaded
+              ? renderChainSplitCube(item.block, item.x, item.y, { size: cubeSize, depth: cubeDepth, scale, labelOffset, nodeView: item.nodeView })
+              : renderChainSplitPlaceholderCube(item.height, item.x, item.y, { size: cubeSize, depth: cubeDepth, scale, labelOffset })
+          )).join("");
+          chainSplitContent.innerHTML = `<div class="chain-split-virtual-stage" style="width:${stageWidth}px;height:${height}px"><svg class="chain-split-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="BIP-110 chain split visualization">${markers}${ellipsis}${cubes}</svg></div>`;
+          chainSplitContent.dataset.virtualRenderScrollLeft = String(targetScrollLeft);
+          state.chainSplitHandlingScroll = true;
+          chainSplitContent.scrollLeft = targetScrollLeft;
+          requestAnimationFrame(() => {
+            finishChainSplitHandlingScroll();
+          });
+          applyChainSplitPendingScrollAdjustment();
+          updateChainSplitScrollButtons();
+          return;
+        }
+        const totalBlockCount = Math.floor(rangeEnd - rangeStart + 1);
+        const currentTipX = startX + Math.max(0, totalBlockCount - 1) * gap;
         const targetStageWidth = Math.max(
           getChainSplitStageWidth(totalBlockCount, gap, startX, cubeSize, cubeDepth),
           currentTipX + localPad + currentRightPad
@@ -8681,6 +9062,18 @@
       chainSplitBtn?.addEventListener("click", () => {
         if (!state.data) return;
         openChainSplitOverlay();
+      });
+
+      [
+        mainChainSplitCollapseGap,
+        minerTimelineChainSplitCollapseGap,
+        chainSplitCollapseGap,
+      ].filter(Boolean).forEach((button) => {
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          toggleChainSplitLegacyCollapse();
+        });
       });
 
       leaderboardWindowButtons.forEach((button) => {
