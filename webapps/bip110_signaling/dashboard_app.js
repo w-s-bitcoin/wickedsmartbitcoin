@@ -33,6 +33,7 @@
     const EXPECTED_BLOCK_INTERVAL_MS = 10 * 60 * 1000;
     const MAX_DOWNWARD_DIFFICULTY_ADJUSTMENT = 4;
     const CHAIN_SPLIT_COLLAPSE_PRE_COMMON_BLOCKS = 4;
+    const CHAIN_SPLIT_COLLAPSE_MAX_PRE_COMMON_BLOCKS = 72;
     const CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS = 3;
     const CHAIN_SPLIT_COLLAPSE_FULL_BLOCKS = 2;
     const DASHBOARD_TIME = window.WSBDashboardTime || null;
@@ -282,7 +283,7 @@
         showLegacyNode: true,
         showBip110Node: false,
         panelsSwapped: false,
-        showMainChainView: false,
+        showMainChainView: true,
         collapseSplitLegacy: false,
       },
       manualPanelHeights: {
@@ -537,7 +538,7 @@
     }
 
     function isMainChainPanelVisible() {
-      return Boolean(state.controls.showMainChainView && state.mainChainSplitDataReady);
+      return Boolean(state.controls.showMainChainView);
     }
 
     function syncMainChainPanelVisibility() {
@@ -556,7 +557,7 @@
       const splitModel = model || getChainSplitModel();
       const isAvailable = !!splitModel?.splitDetected;
       const isCollapsed = Boolean(state.controls.collapseSplitLegacy);
-      const label = isCollapsed ? "Show full legacy chain" : "Collapse legacy chain gap";
+      const label = isCollapsed ? "expand legacy chain" : "compress legacy chain";
       const icon = isCollapsed ? CHAIN_SPLIT_EXPAND_ICON : CHAIN_SPLIT_COLLAPSE_ICON;
       [
         mainChainSplitCollapseGap,
@@ -568,7 +569,7 @@
         button.classList.toggle("is-active", isAvailable && isCollapsed);
         button.setAttribute("aria-pressed", isAvailable && isCollapsed ? "true" : "false");
         button.setAttribute("aria-label", label);
-        button.setAttribute("title", label);
+        setCustomTooltip(button, label);
         if (button.innerHTML !== icon) button.innerHTML = icon;
       });
     }
@@ -1948,7 +1949,7 @@
         state.controls.showBip110Node = typeof parsed.showBip110Node === "boolean" ? parsed.showBip110Node : false;
         ensureAtLeastOnePanelVisible("bip110");
         state.controls.panelsSwapped = typeof parsed.panelsSwapped === "boolean" ? parsed.panelsSwapped : false;
-        state.controls.showMainChainView = typeof parsed.showMainChainView === "boolean" ? parsed.showMainChainView : false;
+        state.controls.showMainChainView = typeof parsed.showMainChainView === "boolean" ? parsed.showMainChainView : true;
         state.controls.collapseSplitLegacy = typeof parsed.collapseSplitLegacy === "boolean" ? parsed.collapseSplitLegacy : false;
 
         const parseStoredHeight = (value) => {
@@ -2087,7 +2088,7 @@
           showLegacyNode: true,
           showBip110Node: false,
           panelsSwapped: false,
-          showMainChainView: false,
+          showMainChainView: true,
           collapseSplitLegacy: false,
         },
         manualPanelHeights: {
@@ -2402,7 +2403,7 @@
         state.controls.showLegacyNode = true;
         state.controls.showBip110Node = false;
         state.controls.panelsSwapped = false;
-        state.controls.showMainChainView = false;
+        state.controls.showMainChainView = true;
         state.controls.collapseSplitLegacy = false;
         state.periodGridNodeView = "legacy";
         state.leaderboardWindow = "all";
@@ -2482,7 +2483,7 @@
       if (labels && !labels.checked) return false;
       if (segwitWindow && segwitWindow.checked) return false;
       if (bip110Window && !bip110Window.checked) return false;
-      if (state.controls.showMainChainView) return false;
+      if (!state.controls.showMainChainView) return false;
       if (!state.controls.showLegacyNode) return false;
       if (state.controls.showBip110Node) return false;
       if (state.controls.panelsSwapped) return false;
@@ -6874,6 +6875,27 @@
       return Math.max(0, visibleWidth - rightPad - currentTipX);
     }
 
+    function getCollapsedSplitPreCommonBlockCount(viewportWidth, currentRightPad, options = {}) {
+      const gap = Number(options.gap);
+      const startX = Number(options.startX);
+      const branchHeadBlocks = Math.max(1, Math.floor(Number(options.branchHeadBlocks ?? CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS)));
+      const legacyTailBlocks = Math.max(1, Math.floor(Number(options.legacyTailBlocks ?? CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS)));
+      const minimum = Math.max(0, Math.floor(Number(options.min ?? CHAIN_SPLIT_COLLAPSE_PRE_COMMON_BLOCKS)));
+      const maximum = Math.max(minimum, Math.floor(Number(options.max ?? CHAIN_SPLIT_COLLAPSE_MAX_PRE_COMMON_BLOCKS)));
+      const visibleWidth = Number(viewportWidth);
+      const rightPad = Number(currentRightPad);
+      if (!Number.isFinite(visibleWidth)
+        || !Number.isFinite(rightPad)
+        || !Number.isFinite(gap)
+        || gap <= 0
+        || !Number.isFinite(startX)) {
+        return minimum;
+      }
+      const fixedSlotsBeforeTip = branchHeadBlocks + 1 + legacyTailBlocks - 1;
+      const slotsNeeded = Math.floor(Math.max(0, visibleWidth - rightPad - startX) / gap);
+      return Math.floor(clamp(slotsNeeded - fixedSlotsBeforeTip, minimum, maximum));
+    }
+
     function renderChainSplitEllipsis(x, y, options = {}) {
       const size = Number(options.size || 154);
       const depth = Number(options.depth || 28);
@@ -7315,14 +7337,22 @@
         minerTimelineChainSplit.classList.add("is-split");
         const viewportClientWidth = Math.max(1, Number(minerTimelineChainSplit.clientWidth || 0));
         const viewportWidth = Math.max(720, viewportClientWidth);
+        const branchHeadBlocks = CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS;
+        const legacyTailBlocks = CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS;
+        const preCommonBlocks = getCollapsedSplitPreCommonBlockCount(viewportClientWidth, currentRightPad, {
+          gap,
+          startX,
+          branchHeadBlocks,
+          legacyTailBlocks,
+        });
         const collapsedLayout = getCollapsedSplitChainLayout(model, {
           size,
           depth,
           gap,
           startX,
-          preCommonBlocks: CHAIN_SPLIT_COLLAPSE_PRE_COMMON_BLOCKS,
-          branchHeadBlocks: CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS,
-          legacyTailBlocks: CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS,
+          preCommonBlocks,
+          branchHeadBlocks,
+          legacyTailBlocks,
           yPositions: {
             trunkY: splitY,
             bip110Y,
@@ -7633,6 +7663,17 @@
         updateMainChainSplitScrollButtons();
         return;
       }
+      if (!state.mainChainSplitDataReady || !state.data) {
+        mainChainSplit.classList.remove("is-split");
+        mainChainSplit.dataset.virtualScrollSpace = "0";
+        mainChainSplit.innerHTML = `
+          <div class="miner-timeline-chain-split-loading" aria-live="polite" aria-label="Loading chain preview">
+            <div class="circle" aria-hidden="true"></div>
+          </div>
+        `;
+        updateMainChainSplitScrollButtons();
+        return;
+      }
       const maxScrollBefore = Math.max(0, mainChainSplit.scrollWidth - mainChainSplit.clientWidth);
       const shouldFollowLatest = !!options.forceFollowLatest || (
         !options.suppressFollowLatest
@@ -7669,14 +7710,22 @@
         mainChainSplit.classList.add("is-split");
         const viewportClientWidth = Math.max(1, Number(mainChainSplit.clientWidth || 0));
         const viewportWidth = Math.max(720, viewportClientWidth);
+        const branchHeadBlocks = CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS;
+        const legacyTailBlocks = CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS;
+        const preCommonBlocks = getCollapsedSplitPreCommonBlockCount(viewportClientWidth, currentRightPad, {
+          gap,
+          startX,
+          branchHeadBlocks,
+          legacyTailBlocks,
+        });
         const collapsedLayout = getCollapsedSplitChainLayout(model, {
           size,
           depth,
           gap,
           startX,
-          preCommonBlocks: CHAIN_SPLIT_COLLAPSE_PRE_COMMON_BLOCKS,
-          branchHeadBlocks: CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS,
-          legacyTailBlocks: CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS,
+          preCommonBlocks,
+          branchHeadBlocks,
+          legacyTailBlocks,
           yPositions: {
             trunkY: splitY,
             bip110Y,
@@ -8070,15 +8119,24 @@
         const viewportClientWidth = Math.max(1, Number(chainSplitContent.clientWidth || 0));
         const viewportWidth = Math.max(980, viewportClientWidth);
         const splitCurrentRightPad = getChainSplitCurrentRightPad(cubeSize, cubeDepth, gap, { split: true });
+        const collapsedCurrentRightPad = getChainSplitCurrentRightPad(cubeSize, cubeDepth, gap, { split: true, collapsed: true });
         const localPad = Math.max(startX, gap);
+        const branchHeadBlocks = CHAIN_SPLIT_COLLAPSE_FULL_BLOCKS;
+        const legacyTailBlocks = CHAIN_SPLIT_COLLAPSE_FULL_BLOCKS;
+        const preCommonBlocks = getCollapsedSplitPreCommonBlockCount(viewportClientWidth, collapsedCurrentRightPad, {
+          gap,
+          startX,
+          branchHeadBlocks,
+          legacyTailBlocks,
+        });
         const collapsedLayout = getCollapsedSplitChainLayout(model, {
           size: cubeSize,
           depth: cubeDepth,
           gap,
           startX,
-          preCommonBlocks: CHAIN_SPLIT_COLLAPSE_PRE_COMMON_BLOCKS,
-          branchHeadBlocks: CHAIN_SPLIT_COLLAPSE_FULL_BLOCKS,
-          legacyTailBlocks: CHAIN_SPLIT_COLLAPSE_FULL_BLOCKS,
+          preCommonBlocks,
+          branchHeadBlocks,
+          legacyTailBlocks,
           yPositions: {
             trunkY: splitY,
             bip110Y,
@@ -8086,7 +8144,7 @@
           },
         });
         if (collapsedLayout) {
-          const currentRightPad = getChainSplitCurrentRightPad(cubeSize, cubeDepth, gap, { split: true, collapsed: true });
+          const currentRightPad = collapsedCurrentRightPad;
           const anchorShift = getCollapsedSplitChainRightAnchorShift(collapsedLayout, viewportClientWidth, currentRightPad);
           const displayPositions = collapsedLayout.positions.map((item) => ({ ...item, x: item.x + anchorShift }));
           const displayEllipsis = { ...collapsedLayout.ellipsis, x: collapsedLayout.ellipsis.x + anchorShift };
