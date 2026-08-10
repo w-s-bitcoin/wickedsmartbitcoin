@@ -1433,6 +1433,65 @@
       left: 14px;
     }
 
+    .chain-split-collapse-gap,
+    .miner-timeline-chain-split-collapse-gap {
+      position: absolute;
+      top: 8px;
+      right: 14px;
+      width: 22px;
+      height: 22px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--fill-btn-bg);
+      color: var(--fg-dim);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      cursor: pointer;
+      z-index: 4;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .miner-timeline-chain-split-collapse-gap {
+      top: 7px;
+      right: 10px;
+      width: 20px;
+      height: 20px;
+    }
+
+    .chain-split-collapse-gap[hidden],
+    .miner-timeline-chain-split-collapse-gap[hidden] {
+      display: none;
+    }
+
+    .chain-split-collapse-gap:hover,
+    .chain-split-collapse-gap:focus-visible,
+    .chain-split-collapse-gap.is-active,
+    .miner-timeline-chain-split-collapse-gap:hover,
+    .miner-timeline-chain-split-collapse-gap:focus-visible,
+    .miner-timeline-chain-split-collapse-gap.is-active {
+      color: var(--signal);
+      border-color: color-mix(in srgb, var(--signal) 58%, var(--line));
+    }
+
+    .chain-split-collapse-gap:focus-visible,
+    .miner-timeline-chain-split-collapse-gap:focus-visible {
+      outline: none;
+    }
+
+    .chain-split-collapse-gap svg,
+    .miner-timeline-chain-split-collapse-gap svg {
+      width: 13px;
+      height: 13px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.9;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
     .chain-split-snap-latest[hidden],
     .chain-split-period-back[hidden] {
       display: none;
@@ -1487,6 +1546,13 @@
     .chain-split-cube {
       cursor: pointer;
       outline: none;
+    }
+
+    .chain-split-ellipsis-square,
+    .miner-timeline-chain-split-ellipsis-square {
+      fill: color-mix(in srgb, var(--fg) 62%, var(--muted));
+      opacity: 0.9;
+      pointer-events: none;
     }
 
     .chain-split-cube-face {
@@ -2892,6 +2958,13 @@
     <section class="card main-chain-split-panel hidden" id="mainChainSplitPanel">
       <div class="miner-timeline-chain-split-wrap" id="mainChainSplitWrap">
         <div class="miner-timeline-chain-split" id="mainChainSplit" aria-label="BIP-110 chain preview" data-no-dashboard-swipe></div>
+        <button type="button" class="miner-timeline-chain-split-collapse-gap" id="mainChainSplitCollapseGap" aria-label="Collapse legacy chain gap" aria-pressed="false" title="Collapse legacy chain gap" hidden>
+          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <line x1="3.4" y1="8" x2="12.6" y2="8"></line>
+            <polyline points="6.2,5.2 3.4,8 6.2,10.8"></polyline>
+            <polyline points="9.8,5.2 12.6,8 9.8,10.8"></polyline>
+          </svg>
+        </button>
         <button type="button" class="miner-timeline-chain-split-period-back" id="mainChainSplitPeriodBack" aria-label="Jump chain preview to the previous signaling period" hidden>
           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
             <path d="M16 5l-7 7 7 7"></path>
@@ -3084,6 +3157,13 @@
       <div class="miner-timeline-content" id="minerTimelineContent" aria-label="BIP-110 miner signaling timeline"></div>
       <div class="miner-timeline-chain-split-wrap" id="minerTimelineChainSplitWrap">
         <div class="miner-timeline-chain-split" id="minerTimelineChainSplit" aria-label="BIP-110 chain split preview" data-no-dashboard-swipe></div>
+        <button type="button" class="miner-timeline-chain-split-collapse-gap" id="minerTimelineChainSplitCollapseGap" aria-label="Collapse legacy chain gap" aria-pressed="false" title="Collapse legacy chain gap" hidden>
+          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <line x1="3.4" y1="8" x2="12.6" y2="8"></line>
+            <polyline points="6.2,5.2 3.4,8 6.2,10.8"></polyline>
+            <polyline points="9.8,5.2 12.6,8 9.8,10.8"></polyline>
+          </svg>
+        </button>
         <button type="button" class="miner-timeline-chain-split-period-back" id="minerTimelineChainSplitPeriodBack" aria-label="Jump timeline chain preview to the previous signaling period" hidden>
           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
             <path d="M16 5l-7 7 7 7"></path>
@@ -3118,6 +3198,13 @@
       </div>
       <div class="chain-split-content-wrap">
         <div class="chain-split-content" id="chainSplitContent" aria-label="BIP-110 chain split visualization" data-no-dashboard-swipe></div>
+        <button type="button" class="chain-split-collapse-gap" id="chainSplitCollapseGap" aria-label="Collapse legacy chain gap" aria-pressed="false" title="Collapse legacy chain gap" hidden>
+          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <line x1="3.4" y1="8" x2="12.6" y2="8"></line>
+            <polyline points="6.2,5.2 3.4,8 6.2,10.8"></polyline>
+            <polyline points="9.8,5.2 12.6,8 9.8,10.8"></polyline>
+          </svg>
+        </button>
         <button type="button" class="chain-split-period-back" id="chainSplitPeriodBack" aria-label="Jump chain split view to the previous signaling period" hidden>
           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
             <path d="M16 5l-7 7 7 7"></path>
