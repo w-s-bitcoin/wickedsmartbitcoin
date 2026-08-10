@@ -36,6 +36,7 @@
     const CHAIN_SPLIT_COLLAPSE_MAX_PRE_COMMON_BLOCKS = 72;
     const CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS = 3;
     const CHAIN_SPLIT_COLLAPSE_FULL_BLOCKS = 2;
+    const CHAIN_SPLIT_COLLAPSE_FULL_HEAD_BLOCKS = 3;
     const DASHBOARD_TIME = window.WSBDashboardTime || null;
     const SHARE_STATE_PARAM = "bip110_state";
     const LOCAL_RUNTIME_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
@@ -3927,7 +3928,7 @@
       if (!btn) return;
       const filled = isPanelViewportFilled(key);
       btn.innerHTML = filled ? FILL_BTN_SVG_COMPACT : FILL_BTN_SVG_EXPAND;
-      btn.title = filled ? "Compact chart height" : "Fill chart height";
+      setCustomTooltip(btn, filled ? "Compact chart height" : "Fill chart height");
       btn.setAttribute("aria-label", filled
         ? `Compact ${getPanelLabel(key)} chart height`
         : `Fill ${getPanelLabel(key)} chart height`);
@@ -8121,7 +8122,7 @@
         const splitCurrentRightPad = getChainSplitCurrentRightPad(cubeSize, cubeDepth, gap, { split: true });
         const collapsedCurrentRightPad = getChainSplitCurrentRightPad(cubeSize, cubeDepth, gap, { split: true, collapsed: true });
         const localPad = Math.max(startX, gap);
-        const branchHeadBlocks = CHAIN_SPLIT_COLLAPSE_FULL_BLOCKS;
+        const branchHeadBlocks = CHAIN_SPLIT_COLLAPSE_FULL_HEAD_BLOCKS;
         const legacyTailBlocks = CHAIN_SPLIT_COLLAPSE_FULL_BLOCKS;
         const preCommonBlocks = getCollapsedSplitPreCommonBlockCount(viewportClientWidth, collapsedCurrentRightPad, {
           gap,
