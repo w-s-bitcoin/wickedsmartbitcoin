@@ -32,6 +32,8 @@
     const EXPECTED_FORK_HEIGHT = 961632;
     const EXPECTED_BLOCK_INTERVAL_MS = 10 * 60 * 1000;
     const MAX_DOWNWARD_DIFFICULTY_ADJUSTMENT = 4;
+    const HASHRATE_AVERAGE_WINDOWS_DAYS = [1, 3, 7, 14, 30];
+    const DEFAULT_HASHRATE_AVERAGE_DAYS = 14;
     const CHAIN_SPLIT_COLLAPSE_PRE_COMMON_BLOCKS = 4;
     const CHAIN_SPLIT_COLLAPSE_MAX_PRE_COMMON_BLOCKS = 72;
     const CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS = 3;
@@ -255,6 +257,7 @@
       chainSplitHandlingScroll: false,
       chainSplitFollowLatest: true,
       chainSplitPendingScrollRender: false,
+      chainSplitHashrateAverageDays: DEFAULT_HASHRATE_AVERAGE_DAYS,
       chainSplitAgeTimer: null,
       chainSplitDrag: null,
       chainSplitSuppressClickUntil: 0,
@@ -407,8 +410,11 @@
     const chainSplitSnapLatest = document.getElementById("chainSplitSnapLatest");
     const chainSplitLegacyHeightValue = document.getElementById("chainSplitLegacyHeightValue");
     const chainSplitBip110HeightValue = document.getElementById("chainSplitBip110HeightValue");
+    const chainSplitSignalingHashrateLabel = document.getElementById("chainSplitSignalingHashrateLabel");
+    const chainSplitNonSignalingHashrateLabel = document.getElementById("chainSplitNonSignalingHashrateLabel");
     const chainSplitSignalingHashrateValue = document.getElementById("chainSplitSignalingHashrateValue");
     const chainSplitNonSignalingHashrateValue = document.getElementById("chainSplitNonSignalingHashrateValue");
+    const chainSplitHashrateDaysButtons = Array.from(document.querySelectorAll("[data-chain-split-hashrate-days]"));
     const chainSplitStatusValue = document.getElementById("chainSplitStatusValue");
     const vizInfoBtn = document.getElementById("vizInfoBtn");
     const segwitResizeHandle = document.getElementById("segwitResizeHandle");
@@ -440,6 +446,7 @@
         chainSplitCollapseGap,
         chainSplitPeriodBack,
         chainSplitSnapLatest,
+        ...chainSplitHashrateDaysButtons,
         ...nodePanelButtons,
       ],
     });
@@ -475,6 +482,7 @@
         chainSplitCollapseGap,
         chainSplitPeriodBack,
         chainSplitSnapLatest,
+        ...chainSplitHashrateDaysButtons,
         segwitResizeHandle,
         bip110ResizeHandle,
         bip110NodeResizeHandle,
@@ -2764,10 +2772,36 @@
       return parts.join(" ");
     }
 
-    function estimateSignalingHashrateKpi(data, nodeView = "legacy") {
+    function normalizeHashrateAverageDays(value) {
+      const days = Number(value);
+      return HASHRATE_AVERAGE_WINDOWS_DAYS.includes(days) ? days : DEFAULT_HASHRATE_AVERAGE_DAYS;
+    }
+
+    function formatHashrateAverageLabel(days) {
+      return `${normalizeHashrateAverageDays(days)}D`;
+    }
+
+    function syncChainSplitHashrateControls() {
+      const days = normalizeHashrateAverageDays(state.chainSplitHashrateAverageDays);
+      state.chainSplitHashrateAverageDays = days;
+      const label = formatHashrateAverageLabel(days);
+      if (chainSplitSignalingHashrateLabel) {
+        chainSplitSignalingHashrateLabel.textContent = `Signaling Hashrate (${label})`;
+      }
+      if (chainSplitNonSignalingHashrateLabel) {
+        chainSplitNonSignalingHashrateLabel.textContent = `Non-signaling Hashrate (${label})`;
+      }
+      chainSplitHashrateDaysButtons.forEach((button) => {
+        const isActive = normalizeHashrateAverageDays(button.getAttribute("data-chain-split-hashrate-days")) === days;
+        button.setAttribute("aria-pressed", isActive ? "true" : "false");
+      });
+    }
+
+    function estimateSignalingHashrateKpi(data, nodeView = "legacy", averageDays = DEFAULT_HASHRATE_AVERAGE_DAYS) {
       const blocks = getBip110BlocksForDataNodeView(data, nodeView);
       const networkHashrate = Number(data?.topKpis?.target_hashrate_hps);
-      const windowSeconds = 14 * 24 * 60 * 60;
+      const windowDays = normalizeHashrateAverageDays(averageDays);
+      const windowSeconds = windowDays * 24 * 60 * 60;
       const latestBlockTime = blocks.reduce((latest, block) => {
         const t = Number(block?.block_time);
         return Number.isFinite(t) && t > latest ? t : latest;
@@ -2789,12 +2823,18 @@
         sum + (Number(block?.is_signaling) === 1 ? 1 : 0)
       ), 0);
       const signalingShare = signalingBlocks / totalBlocks;
+      const nonSignalingBlocks = totalBlocks - signalingBlocks;
       return {
         value: networkHashrate * signalingShare,
+        nonSignalingValue: networkHashrate * (1 - signalingShare),
         signalingBlocks,
+        nonSignalingBlocks,
         totalBlocks,
         signalingShare,
+        windowDays,
+        windowLabel: formatHashrateAverageLabel(windowDays),
         shareText: formatSharePct(signalingBlocks, totalBlocks),
+        nonSignalingShareText: formatSharePct(nonSignalingBlocks, totalBlocks),
       };
     }
 
@@ -7360,13 +7400,14 @@
             legacyY,
           },
         });
-        if (collapsedLayout) {
+        if (collapsedLayout && (shouldFollowLatest || state.minerTimelineChainSplitFollowLatest === true)) {
           const anchorShift = getCollapsedSplitChainRightAnchorShift(collapsedLayout, viewportClientWidth, currentRightPad);
-          const displayPositions = collapsedLayout.positions.map((item) => ({ ...item, x: item.x + anchorShift }));
-          const displayEllipsis = { ...collapsedLayout.ellipsis, x: collapsedLayout.ellipsis.x + anchorShift };
-          const currentTipX = collapsedLayout.currentTipX + anchorShift;
+          const totalBlockCount = Math.floor(rangeEnd - rangeStart + 1);
+          const fullCurrentTipX = startX + Math.max(0, totalBlockCount - 1) * gap;
+          const fullHistoryShift = Math.max(anchorShift, fullCurrentTipX - collapsedLayout.currentTipX);
+          const currentTipX = collapsedLayout.currentTipX + fullHistoryShift;
           const targetStageWidth = Math.max(
-            collapsedLayout.stageWidth + anchorShift,
+            getChainSplitStageWidth(totalBlockCount, gap, startX, size, depth),
             currentTipX + localPad + currentRightPad
           );
           const latestScrollLeft = clamp(
@@ -7374,15 +7415,16 @@
             0,
             Math.max(0, targetStageWidth - viewportClientWidth)
           );
-          const targetScrollLeft = shouldFollowLatest
-            ? latestScrollLeft
-            : clamp(Number(minerTimelineChainSplit.scrollLeft || 0), 0, latestScrollLeft);
+          const targetScrollLeft = latestScrollLeft;
+          const xOffset = Math.max(0, targetScrollLeft - localPad);
+          const displayPositions = collapsedLayout.positions.map((item) => ({ ...item, x: item.x + fullHistoryShift - xOffset }));
+          const displayEllipsis = { ...collapsedLayout.ellipsis, x: collapsedLayout.ellipsis.x + fullHistoryShift - xOffset };
           const stageWidth = Math.max(targetStageWidth, viewportWidth);
-          width = stageWidth;
+          width = viewportWidth + localPad * 2;
           minerTimelineChainSplit.dataset.currentTipX = String(currentTipX);
           minerTimelineChainSplit.dataset.currentRightPad = String(currentRightPad);
           minerTimelineChainSplit.dataset.currentTipLocalPad = String(localPad);
-          minerTimelineChainSplit.dataset.virtualScrollSpace = "0";
+          minerTimelineChainSplit.dataset.virtualScrollSpace = "1";
           markers = renderMinerTimelineMiniChainPeriodMarkers(displayPositions, {
             size,
             depth,
@@ -7395,7 +7437,7 @@
               ? renderMinerTimelineMiniChainCube(item.block, item.x, item.y, { size, depth, nodeView: item.nodeView })
               : renderMinerTimelineMiniChainPlaceholderCube(item.height, item.x, item.y, { size, depth })
           )).join("");
-          minerTimelineChainSplit.innerHTML = `<div class="miner-timeline-chain-split-virtual-stage" style="width:${stageWidth}px;height:${height}px"><svg class="miner-timeline-chain-split-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Compact BIP-110 chain split preview">${markers}${ellipsis}${cubes}</svg></div>`;
+          minerTimelineChainSplit.innerHTML = `<div class="miner-timeline-chain-split-virtual-stage" style="width:${stageWidth}px;height:${height}px"><svg class="miner-timeline-chain-split-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" style="left:${xOffset}px" role="img" aria-label="Compact BIP-110 chain split preview">${markers}${ellipsis}${cubes}</svg></div>`;
           minerTimelineChainSplit.dataset.virtualRenderScrollLeft = String(targetScrollLeft);
           state.minerTimelineChainSplitHandlingScroll = true;
           minerTimelineChainSplit.scrollLeft = targetScrollLeft;
@@ -7733,13 +7775,14 @@
             legacyY,
           },
         });
-        if (collapsedLayout) {
+        if (collapsedLayout && (shouldFollowLatest || state.mainChainSplitFollowLatest === true)) {
           const anchorShift = getCollapsedSplitChainRightAnchorShift(collapsedLayout, viewportClientWidth, currentRightPad);
-          const displayPositions = collapsedLayout.positions.map((item) => ({ ...item, x: item.x + anchorShift }));
-          const displayEllipsis = { ...collapsedLayout.ellipsis, x: collapsedLayout.ellipsis.x + anchorShift };
-          const currentTipX = collapsedLayout.currentTipX + anchorShift;
+          const totalBlockCount = Math.floor(rangeEnd - rangeStart + 1);
+          const fullCurrentTipX = startX + Math.max(0, totalBlockCount - 1) * gap;
+          const fullHistoryShift = Math.max(anchorShift, fullCurrentTipX - collapsedLayout.currentTipX);
+          const currentTipX = collapsedLayout.currentTipX + fullHistoryShift;
           const targetStageWidth = Math.max(
-            collapsedLayout.stageWidth + anchorShift,
+            getChainSplitStageWidth(totalBlockCount, gap, startX, size, depth),
             currentTipX + localPad + currentRightPad
           );
           const latestScrollLeft = clamp(
@@ -7747,15 +7790,16 @@
             0,
             Math.max(0, targetStageWidth - viewportClientWidth)
           );
-          const targetScrollLeft = shouldFollowLatest
-            ? latestScrollLeft
-            : clamp(Number(mainChainSplit.scrollLeft || 0), 0, latestScrollLeft);
+          const targetScrollLeft = latestScrollLeft;
+          const xOffset = Math.max(0, targetScrollLeft - localPad);
+          const displayPositions = collapsedLayout.positions.map((item) => ({ ...item, x: item.x + fullHistoryShift - xOffset }));
+          const displayEllipsis = { ...collapsedLayout.ellipsis, x: collapsedLayout.ellipsis.x + fullHistoryShift - xOffset };
           const stageWidth = Math.max(targetStageWidth, viewportWidth);
-          width = stageWidth;
+          width = viewportWidth + localPad * 2;
           mainChainSplit.dataset.currentTipX = String(currentTipX);
           mainChainSplit.dataset.currentRightPad = String(currentRightPad);
           mainChainSplit.dataset.currentTipLocalPad = String(localPad);
-          mainChainSplit.dataset.virtualScrollSpace = "0";
+          mainChainSplit.dataset.virtualScrollSpace = "1";
           markers = renderMinerTimelineMiniChainPeriodMarkers(displayPositions, {
             size,
             depth,
@@ -7768,7 +7812,7 @@
               ? renderMinerTimelineMiniChainCube(item.block, item.x, item.y, { size, depth, nodeView: item.nodeView })
               : renderMinerTimelineMiniChainPlaceholderCube(item.height, item.x, item.y, { size, depth })
           )).join("");
-          mainChainSplit.innerHTML = `<div class="miner-timeline-chain-split-virtual-stage" style="width:${stageWidth}px;height:${height}px"><svg class="miner-timeline-chain-split-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Compact BIP-110 chain preview">${markers}${ellipsis}${cubes}</svg></div>`;
+          mainChainSplit.innerHTML = `<div class="miner-timeline-chain-split-virtual-stage" style="width:${stageWidth}px;height:${height}px"><svg class="miner-timeline-chain-split-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" style="left:${xOffset}px" role="img" aria-label="Compact BIP-110 chain preview">${markers}${ellipsis}${cubes}</svg></div>`;
           mainChainSplit.dataset.virtualRenderScrollLeft = String(targetScrollLeft);
           state.mainChainSplitHandlingScroll = true;
           mainChainSplit.scrollLeft = targetScrollLeft;
@@ -8070,7 +8114,12 @@
       if (chainSplitBip110HeightValue) {
         chainSplitBip110HeightValue.textContent = formatChainSplitHeightKpi(bip110Height, legacyHeight);
       }
-      const signalingHashrate = estimateSignalingHashrateKpi(state.data || state.dynamicData || {}, "legacy");
+      syncChainSplitHashrateControls();
+      const signalingHashrate = estimateSignalingHashrateKpi(
+        state.data || state.dynamicData || {},
+        "legacy",
+        state.chainSplitHashrateAverageDays
+      );
       if (chainSplitSignalingHashrateValue) {
         chainSplitSignalingHashrateValue.textContent = signalingHashrate
           ? `${formatHashrate(signalingHashrate.value)} (${signalingHashrate.shareText})`
@@ -8078,7 +8127,7 @@
       }
       if (chainSplitNonSignalingHashrateValue) {
         chainSplitNonSignalingHashrateValue.textContent = signalingHashrate
-          ? `${formatHashrate((state.data?.topKpis?.target_hashrate_hps || state.dynamicData?.topKpis?.target_hashrate_hps || 0) * (1 - signalingHashrate.signalingShare))} (${formatSharePct((signalingHashrate.totalBlocks || 0) - signalingHashrate.signalingBlocks, signalingHashrate.totalBlocks)})`
+          ? `${formatHashrate(signalingHashrate.nonSignalingValue)} (${signalingHashrate.nonSignalingShareText})`
           : "...";
       }
       if (chainSplitStatusValue) {
@@ -8144,14 +8193,15 @@
             legacyY,
           },
         });
-        if (collapsedLayout) {
+        if (collapsedLayout && (shouldFollowLatest || state.chainSplitFollowLatest === true)) {
           const currentRightPad = collapsedCurrentRightPad;
           const anchorShift = getCollapsedSplitChainRightAnchorShift(collapsedLayout, viewportClientWidth, currentRightPad);
-          const displayPositions = collapsedLayout.positions.map((item) => ({ ...item, x: item.x + anchorShift }));
-          const displayEllipsis = { ...collapsedLayout.ellipsis, x: collapsedLayout.ellipsis.x + anchorShift };
-          const currentTipX = collapsedLayout.currentTipX + anchorShift;
+          const totalBlockCount = Math.floor(rangeEnd - rangeStart + 1);
+          const fullCurrentTipX = startX + Math.max(0, totalBlockCount - 1) * gap;
+          const fullHistoryShift = Math.max(anchorShift, fullCurrentTipX - collapsedLayout.currentTipX);
+          const currentTipX = collapsedLayout.currentTipX + fullHistoryShift;
           const targetStageWidth = Math.max(
-            collapsedLayout.stageWidth + anchorShift,
+            getChainSplitStageWidth(totalBlockCount, gap, startX, cubeSize, cubeDepth),
             currentTipX + localPad + currentRightPad
           );
           const latestScrollLeft = clamp(
@@ -8159,16 +8209,17 @@
             0,
             Math.max(0, targetStageWidth - viewportClientWidth)
           );
-          const targetScrollLeft = shouldFollowLatest
-            ? latestScrollLeft
-            : clamp(Number(chainSplitContent.scrollLeft || 0), 0, latestScrollLeft);
+          const targetScrollLeft = latestScrollLeft;
+          const xOffset = Math.max(0, targetScrollLeft - localPad);
+          const displayPositions = collapsedLayout.positions.map((item) => ({ ...item, x: item.x + fullHistoryShift - xOffset }));
+          const displayEllipsis = { ...collapsedLayout.ellipsis, x: collapsedLayout.ellipsis.x + fullHistoryShift - xOffset };
           const stageWidth = Math.max(targetStageWidth, viewportWidth);
-          const width = stageWidth;
+          const width = viewportWidth + localPad * 2;
           const height = reservedHeight;
           chainSplitContent.dataset.currentTipX = String(currentTipX);
           chainSplitContent.dataset.currentRightPad = String(currentRightPad);
           chainSplitContent.dataset.currentTipLocalPad = String(localPad);
-          chainSplitContent.dataset.virtualScrollSpace = "0";
+          chainSplitContent.dataset.virtualScrollSpace = "1";
           const markers = renderChainSplitPeriodMarkers(displayPositions, {
             ...metrics,
             yTop: -1,
@@ -8184,7 +8235,7 @@
               ? renderChainSplitCube(item.block, item.x, item.y, { size: cubeSize, depth: cubeDepth, scale, labelOffset, nodeView: item.nodeView })
               : renderChainSplitPlaceholderCube(item.height, item.x, item.y, { size: cubeSize, depth: cubeDepth, scale, labelOffset })
           )).join("");
-          chainSplitContent.innerHTML = `<div class="chain-split-virtual-stage" style="width:${stageWidth}px;height:${height}px"><svg class="chain-split-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="BIP-110 chain split visualization">${markers}${ellipsis}${cubes}</svg></div>`;
+          chainSplitContent.innerHTML = `<div class="chain-split-virtual-stage" style="width:${stageWidth}px;height:${height}px"><svg class="chain-split-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" style="left:${xOffset}px" role="img" aria-label="BIP-110 chain split visualization">${markers}${ellipsis}${cubes}</svg></div>`;
           chainSplitContent.dataset.virtualRenderScrollLeft = String(targetScrollLeft);
           state.chainSplitHandlingScroll = true;
           chainSplitContent.scrollLeft = targetScrollLeft;
@@ -9647,6 +9698,19 @@
 
       chainSplitSnapLatest?.addEventListener("click", () => {
         snapChainSplitToLatest();
+      });
+
+      chainSplitHashrateDaysButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const days = normalizeHashrateAverageDays(button.getAttribute("data-chain-split-hashrate-days"));
+          button.blur();
+          if (days === state.chainSplitHashrateAverageDays) {
+            syncChainSplitHashrateControls();
+            return;
+          }
+          state.chainSplitHashrateAverageDays = days;
+          renderBip110ChainSplitOverlay({ suppressFollowLatest: !state.chainSplitFollowLatest });
+        });
       });
 
       chainSplitOverlay?.addEventListener("error", (event) => {
