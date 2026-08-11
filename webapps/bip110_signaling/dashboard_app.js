@@ -2793,6 +2793,7 @@
       }
       chainSplitHashrateDaysButtons.forEach((button) => {
         const isActive = normalizeHashrateAverageDays(button.getAttribute("data-chain-split-hashrate-days")) === days;
+        button.classList.toggle("is-active", isActive);
         button.setAttribute("aria-pressed", isActive ? "true" : "false");
       });
     }
