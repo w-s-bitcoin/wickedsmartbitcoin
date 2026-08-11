@@ -1195,6 +1195,70 @@
       color: var(--bad);
     }
 
+    .chain-split-hashrate-controls-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      position: relative;
+      flex-wrap: wrap;
+    }
+
+    .chain-split-hashrate-controls-wrap::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 100%;
+      height: 8px;
+    }
+
+    .chain-split-hashrate-controls {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      display: inline-flex;
+      align-items: center;
+      flex: 0 0 auto;
+      flex-direction: row;
+      gap: 6px;
+      min-height: 28px;
+      width: max-content;
+      max-width: calc(100vw - 32px);
+      padding: 0;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transform: translateY(-4px);
+      transition:
+        opacity 160ms ease,
+        transform 160ms ease,
+        visibility 0s linear 160ms;
+      z-index: 30;
+    }
+
+    .chain-split-hashrate-controls-wrap:hover .chain-split-hashrate-controls {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      transform: translateY(0);
+      transition:
+        opacity 160ms ease,
+        transform 160ms ease,
+        visibility 0s linear 0s;
+    }
+
+    .chain-split-hashrate-controls .leaderboard-window-button-panel {
+      flex-wrap: nowrap;
+      background: rgba(0, 0, 0, 0.82);
+      border-radius: 8px;
+      box-shadow: 0 8px 18px rgba(0, 0, 0, 0.34);
+    }
+
+    :root[data-theme="light"] .chain-split-hashrate-controls .leaderboard-window-button-panel {
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: 0 8px 18px rgba(0, 0, 0, 0.16);
+    }
+
     .chain-split-period-num {
       color: var(--fg);
       font-weight: 700;
@@ -3200,8 +3264,19 @@
           <div class="chip"><span class="chip-label">Legacy &amp; BIP-110</span> <span class="chip-value" id="chainSplitStatusValue">-</span></div>
           <div class="chip"><span class="chip-label">BIP-110 Height</span> <span class="chip-value" id="chainSplitBip110HeightValue">-</span></div>
           <div class="chip"><span class="chip-label">Legacy Height</span> <span class="chip-value" id="chainSplitLegacyHeightValue">-</span></div>
-          <div class="chip"><span class="chip-label">Signaling Hashrate</span> <span class="chip-value" id="chainSplitSignalingHashrateValue">-</span></div>
-          <div class="chip"><span class="chip-label">Non-signaling Hashrate</span> <span class="chip-value" id="chainSplitNonSignalingHashrateValue">-</span></div>
+          <div class="chain-split-hashrate-controls-wrap" id="chainSplitHashrateControlsWrap">
+            <div class="chip"><span class="chip-label" id="chainSplitSignalingHashrateLabel">Signaling Hashrate (14D)</span> <span class="chip-value" id="chainSplitSignalingHashrateValue">-</span></div>
+            <div class="chip"><span class="chip-label" id="chainSplitNonSignalingHashrateLabel">Non-signaling Hashrate (14D)</span> <span class="chip-value" id="chainSplitNonSignalingHashrateValue">-</span></div>
+            <div class="chain-split-hashrate-controls leaderboard-window-controls" role="group" aria-label="Chain split hashrate average window">
+              <div class="leaderboard-window-button-panel">
+                <button type="button" class="leaderboard-window-btn" data-chain-split-hashrate-days="1" aria-pressed="false">1D</button>
+                <button type="button" class="leaderboard-window-btn" data-chain-split-hashrate-days="3" aria-pressed="false">3D</button>
+                <button type="button" class="leaderboard-window-btn" data-chain-split-hashrate-days="7" aria-pressed="false">7D</button>
+                <button type="button" class="leaderboard-window-btn" data-chain-split-hashrate-days="14" aria-pressed="true">14D</button>
+                <button type="button" class="leaderboard-window-btn" data-chain-split-hashrate-days="30" aria-pressed="false">30D</button>
+              </div>
+            </div>
+          </div>
         </div>
         <button id="chainSplitClose" type="button" class="chain-split-close" aria-label="Close chain split view">&times;</button>
       </div>
