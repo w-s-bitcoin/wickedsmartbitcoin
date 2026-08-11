@@ -2989,7 +2989,7 @@
         <div class="leaderboard-window-controls node-window-controls" role="group" aria-label="BIP-110 node panels">
           <div class="leaderboard-window-label">View</div>
           <div class="leaderboard-window-button-panel">
-            <button type="button" class="leaderboard-window-btn" id="legacyNodePanelBtn" data-node-panel="legacy" aria-pressed="true">Legacy</button>
+            <button type="button" class="leaderboard-window-btn" id="legacyNodePanelBtn" data-node-panel="legacy" aria-pressed="true">Main</button>
             <button type="button" class="leaderboard-window-btn" id="bip110NodePanelBtn" data-node-panel="bip110" aria-pressed="false">BIP-110</button>
           </div>
         </div>
@@ -3030,7 +3030,7 @@
             <div class="circle" aria-hidden="true"></div>
           </div>
         </div>
-        <button type="button" class="miner-timeline-chain-split-collapse-gap" id="mainChainSplitCollapseGap" aria-label="compress legacy chain" aria-pressed="false" data-tooltip="compress legacy chain" hidden>
+        <button type="button" class="miner-timeline-chain-split-collapse-gap" id="mainChainSplitCollapseGap" aria-label="compress main chain" aria-pressed="false" data-tooltip="compress main chain" hidden>
           <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
             <line x1="3.4" y1="8" x2="12.6" y2="8"></line>
             <polyline points="6.2,5.2 3.4,8 6.2,10.8"></polyline>
@@ -3119,7 +3119,7 @@
           <div class="leaderboard-window-controls period-grid-node-controls" id="periodGridNodeControls" role="group" aria-label="Period grid node view">
             <span class="leaderboard-window-label">View</span>
             <div class="leaderboard-window-button-panel">
-              <button type="button" class="leaderboard-window-btn is-active" data-period-grid-node="legacy" aria-pressed="true">Legacy</button>
+              <button type="button" class="leaderboard-window-btn is-active" data-period-grid-node="legacy" aria-pressed="true">Main</button>
               <button type="button" class="leaderboard-window-btn" data-period-grid-node="bip110" aria-pressed="false">BIP-110</button>
             </div>
           </div>
@@ -3184,7 +3184,7 @@
         <div class="leaderboard-window-controls" role="group" aria-label="Miner timeline node view">
           <span class="leaderboard-window-label">View</span>
           <div class="leaderboard-window-button-panel">
-            <button type="button" class="leaderboard-window-btn is-active" data-miner-timeline-node="legacy" aria-pressed="true">Legacy</button>
+            <button type="button" class="leaderboard-window-btn is-active" data-miner-timeline-node="legacy" aria-pressed="true">Main</button>
             <button type="button" class="leaderboard-window-btn" data-miner-timeline-node="bip110" aria-pressed="false">BIP-110</button>
           </div>
         </div>
@@ -3234,7 +3234,7 @@
       <div class="miner-timeline-content" id="minerTimelineContent" aria-label="BIP-110 miner signaling timeline"></div>
       <div class="miner-timeline-chain-split-wrap" id="minerTimelineChainSplitWrap">
         <div class="miner-timeline-chain-split" id="minerTimelineChainSplit" aria-label="BIP-110 chain split preview" data-no-dashboard-swipe></div>
-        <button type="button" class="miner-timeline-chain-split-collapse-gap" id="minerTimelineChainSplitCollapseGap" aria-label="compress legacy chain" aria-pressed="false" data-tooltip="compress legacy chain" hidden>
+        <button type="button" class="miner-timeline-chain-split-collapse-gap" id="minerTimelineChainSplitCollapseGap" aria-label="compress main chain" aria-pressed="false" data-tooltip="compress main chain" hidden>
           <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
             <line x1="3.4" y1="8" x2="12.6" y2="8"></line>
             <polyline points="6.2,5.2 3.4,8 6.2,10.8"></polyline>
@@ -3261,9 +3261,9 @@
     <div class="chain-split-dialog" id="chainSplitDialog" role="dialog" aria-modal="true" aria-label="BIP-110 chain split view" tabindex="-1">
       <div class="chain-split-header">
         <div class="chain-split-kpis">
-          <div class="chip"><span class="chip-label">Legacy &amp; BIP-110</span> <span class="chip-value" id="chainSplitStatusValue">-</span></div>
+          <div class="chip"><span class="chip-label">Main &amp; BIP-110</span> <span class="chip-value" id="chainSplitStatusValue">-</span></div>
           <div class="chip"><span class="chip-label">BIP-110 Height</span> <span class="chip-value" id="chainSplitBip110HeightValue">-</span></div>
-          <div class="chip"><span class="chip-label">Legacy Height</span> <span class="chip-value" id="chainSplitLegacyHeightValue">-</span></div>
+          <div class="chip"><span class="chip-label">Main Height</span> <span class="chip-value" id="chainSplitLegacyHeightValue">-</span></div>
           <div class="chain-split-hashrate-controls-wrap" id="chainSplitHashrateControlsWrap">
             <div class="chip"><span class="chip-label" id="chainSplitSignalingHashrateLabel">Signaling Hashrate (14D)</span> <span class="chip-value" id="chainSplitSignalingHashrateValue">-</span></div>
             <div class="chip"><span class="chip-label" id="chainSplitNonSignalingHashrateLabel">Non-signaling Hashrate (14D)</span> <span class="chip-value" id="chainSplitNonSignalingHashrateValue">-</span></div>
@@ -3286,7 +3286,7 @@
       </div>
       <div class="chain-split-content-wrap">
         <div class="chain-split-content" id="chainSplitContent" aria-label="BIP-110 chain split visualization" data-no-dashboard-swipe></div>
-        <button type="button" class="chain-split-collapse-gap" id="chainSplitCollapseGap" aria-label="compress legacy chain" aria-pressed="false" data-tooltip="compress legacy chain" hidden>
+        <button type="button" class="chain-split-collapse-gap" id="chainSplitCollapseGap" aria-label="compress main chain" aria-pressed="false" data-tooltip="compress main chain" hidden>
           <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
             <line x1="3.4" y1="8" x2="12.6" y2="8"></line>
             <polyline points="6.2,5.2 3.4,8 6.2,10.8"></polyline>

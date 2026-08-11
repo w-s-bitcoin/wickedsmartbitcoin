@@ -729,13 +729,13 @@ def check_bip110_node_sync(legacy_height: int, legacy_hash: str) -> dict:
                     }
                 relation = "hash_mismatch"
                 last_error = (
-                    f"BIP-110 hash at legacy height {legacy_height:,} was "
+                    f"BIP-110 hash at main height {legacy_height:,} was "
                     f"{bip110_hash_at_legacy_height}, expected {legacy_hash}"
                 )
                 break
             else:
                 relation = "bip110_behind"
-                last_error = f"BIP-110 node is behind legacy height {legacy_height:,}."
+                last_error = f"BIP-110 node is behind main height {legacy_height:,}."
                 try:
                     bip110_tip_hash = str(bip110_rpc.getblockhash(int(bip110_height)))
                     legacy_hash_at_bip110_tip = str(rpc_call("getblockhash", int(bip110_height)))
