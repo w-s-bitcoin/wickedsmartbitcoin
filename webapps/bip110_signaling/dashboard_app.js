@@ -566,7 +566,7 @@
       const splitModel = model || getChainSplitModel();
       const isAvailable = !!splitModel?.splitDetected;
       const isCollapsed = Boolean(state.controls.collapseSplitLegacy);
-      const label = isCollapsed ? "expand legacy chain" : "compress legacy chain";
+      const label = isCollapsed ? "expand main chain" : "compress main chain";
       const icon = isCollapsed ? CHAIN_SPLIT_EXPAND_ICON : CHAIN_SPLIT_COLLAPSE_ICON;
       [
         mainChainSplitCollapseGap,
@@ -611,7 +611,7 @@
     function getPanelLabel(key) {
       if (key === "segwit") return "SegWit";
       if (key === "bip110Node") return "BIP-110 node";
-      return "Legacy node";
+      return "Main node";
     }
 
     function syncSwapButtonEnabledState() {
@@ -887,17 +887,17 @@
       const relationText = String(sync.relation || "unknown").replace(/_/g, " ");
       const errorText = sync.error ? ` Error: ${sync.error}` : "";
       const hashText = sync.bip110_hash_at_legacy_height
-        ? " The BIP-110 hash at the legacy height matched the legacy block hash."
+        ? " The BIP-110 hash at the main height matched the main block hash."
         : "";
       const aheadText = sync.relation === "bip110_ahead"
-        ? " The BIP-110 node was ahead, but the earlier legacy-height block matched, so it is treated as in sync."
+        ? " The BIP-110 node was ahead, but the earlier main-height block matched, so it is treated as in sync."
         : "";
       const checkedSuffix = checkedText ? ` Checked ${checkedText}.` : "";
 
       return {
         ok: Boolean(sync.in_sync),
         relation: relationText,
-        tooltip: `Compares the legacy source node tip against the local BIP-110 node.`,
+        tooltip: `Compares the main source node tip against the local BIP-110 node.`,
       };
     }
 
@@ -2601,14 +2601,14 @@
           appendStatusChip(
             "Est. Block Time",
             "...",
-            "Block time shows how long blocks would take after the fork if hashrate splits between the BIP-110 signaling chain and the legacy chain. Waiting for 14 day signaling block data."
+            "Block time shows how long blocks would take after the fork if hashrate splits between the BIP-110 signaling chain and the main chain. Waiting for 14 day signaling block data."
           );
           return;
         }
 
         const forkBlockTime = estimateBlockIntervalForShare(signalingHashrate.signalingShare);
         const legacyBlockTime = estimateBlockIntervalForShare(1 - signalingHashrate.signalingShare);
-        const tooltipText = `Block time shows how long blocks would take after the fork if hashrate splits between the BIP-110 signaling chain and the legacy chain. The BIP-110 signaling chain would find a block about every ${formatBlockInterval(forkBlockTime)}, while the legacy chain would find a block about every ${formatBlockInterval(legacyBlockTime)}. This is calculated by dividing Bitcoin's 10 minute target block interval by each chain's hashrate share. The signaling share is ${signalingHashrate.shareText} (${signalingHashrate.signalingBlocks.toLocaleString("en-US")} / ${signalingHashrate.totalBlocks.toLocaleString("en-US")} blocks over the past 14 days), so this KPI uses a 14 day average.`;
+        const tooltipText = `Block time shows how long blocks would take after the fork if hashrate splits between the BIP-110 signaling chain and the main chain. The BIP-110 signaling chain would find a block about every ${formatBlockInterval(forkBlockTime)}, while the main chain would find a block about every ${formatBlockInterval(legacyBlockTime)}. This is calculated by dividing Bitcoin's 10 minute target block interval by each chain's hashrate share. The signaling share is ${signalingHashrate.shareText} (${signalingHashrate.signalingBlocks.toLocaleString("en-US")} / ${signalingHashrate.totalBlocks.toLocaleString("en-US")} blocks over the past 14 days), so this KPI uses a 14 day average.`;
 
         appendStatusChip("Est. Block Time", formatBlockInterval(forkBlockTime), tooltipText);
       };
@@ -2619,7 +2619,7 @@
       const nodeSyncText = nodeSync.ok === true ? "In-sync" : nodeSync.ok === false ? "Out-of-sync" : "unknown";
       const nodeSyncClass = nodeSync.ok === true ? "chip-value-ok" : nodeSync.ok === false ? "chip-value-alert" : "";
       appendStatusChip(
-        "Legacy & BIP-110",
+        "Main & BIP-110",
         `<span class="${nodeSyncClass}">${escapeHtml(nodeSyncText)}</span>`,
         nodeSync.tooltip
       );
@@ -2647,7 +2647,7 @@
       appendStatusChip(
         "Period",
         `${Number.isFinite(currentPeriodLabel) ? currentPeriodLabel : "N/A"} <span class="chip-label">Signaling</span> ${periodSignalValue}`,
-        currentPeriodNodeView === "bip110" ? "Shown for the BIP-110 node view." : "Shown for the legacy node view."
+        currentPeriodNodeView === "bip110" ? "Shown for the BIP-110 node view." : "Shown for the main node view."
       );
       const signalingHashrate = estimateSignalingHashrateKpi(data, currentPeriodNodeView);
       appendStatusChip(
@@ -6944,7 +6944,7 @@
       const sideDepth = getChainSplitSideDepth(depth);
       const square = Math.max(6, Math.round(size * 0.12));
       const squareGap = Math.max(8, Math.round(square * 1.35));
-      const centerX = x + sideDepth + size / 2;
+      const centerX = x + (sideDepth + size) / 2;
       const centerY = y + depth + size / 2;
       const firstX = centerX - square * 1.5 - squareGap;
       const yTop = centerY - square / 2;
@@ -6963,7 +6963,7 @@
       const sideDepth = getChainSplitSideDepth(depth);
       const square = Math.max(4, Math.round(size * 0.14));
       const squareGap = Math.max(5, Math.round(square * 1.25));
-      const centerX = x + sideDepth + size / 2;
+      const centerX = x + (sideDepth + size) / 2;
       const centerY = y + depth + size / 2;
       const firstX = centerX - square * 1.5 - squareGap;
       const yTop = centerY - square / 2;
@@ -8965,7 +8965,7 @@
           canvas: bip110Canvas,
           key: "bip110",
           title: "Reduced Data Temporary Softfork (BIP-110) Signaling Periods",
-          panelTag: "Legacy: Core v28",
+          panelTag: "Main: Core v28",
           periods: state.data.bip110Periods,
           blocks: state.data.bip110Blocks,
           releases: state.data.bip110Releases,
