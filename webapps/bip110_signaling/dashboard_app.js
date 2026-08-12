@@ -6277,8 +6277,8 @@
       const bip110Blocks = getBip110BlocksForNodeView("bip110");
       const legacyMap = getBlockMapByHeight(legacyBlocks);
       const bip110Map = getBlockMapByHeight(bip110Blocks);
-      const legacyTip = getLatestBlockHeight(legacyBlocks);
-      const bip110Tip = getLatestBlockHeight(bip110Blocks);
+      const legacyBlockTip = getLatestBlockHeight(legacyBlocks);
+      const bip110BlockTip = getLatestBlockHeight(bip110Blocks);
       const legacyMin = getMinBlockHeight(legacyBlocks);
       const sync = getChainSplitSyncMeta();
       const splitDetected = isChainSplitDetected(sync);
@@ -6286,8 +6286,8 @@
 
       if (hasChainSplitDemoFlag()) {
         const currentTip = Math.max(
-          Number.isFinite(legacyTip) ? legacyTip : -Infinity,
-          Number.isFinite(bip110Tip) ? bip110Tip : -Infinity
+          Number.isFinite(legacyBlockTip) ? legacyBlockTip : -Infinity,
+          Number.isFinite(bip110BlockTip) ? bip110BlockTip : -Infinity
         );
         const demoHeight = Number.isFinite(currentTip) ? currentTip + 1 : null;
         if (!Number.isFinite(demoHeight)) {
@@ -6356,6 +6356,11 @@
         };
       }
 
+      const syncLegacyTip = Number(sync?.legacy_height);
+      const syncBip110Tip = Number(sync?.bip110_height);
+      const legacyTip = splitDetected && Number.isFinite(syncLegacyTip) ? syncLegacyTip : legacyBlockTip;
+      const bip110Tip = splitDetected && Number.isFinite(syncBip110Tip) ? syncBip110Tip : bip110BlockTip;
+
       if (splitDetected && Number.isFinite(commonHeight)) {
         const trunkBlocks = getLatestChainRun(legacyMap, commonHeight, 24);
         const legacyBranch = getLatestChainRun(legacyMap, legacyTip, 72).filter((block) => Number(block?.height) > commonHeight);
@@ -6388,11 +6393,11 @@
         };
       }
 
-      const straightTip = Number.isFinite(legacyTip) ? legacyTip : bip110Tip;
-      const straightMap = Number.isFinite(legacyTip) ? legacyMap : bip110Map;
-      const nodeView = Number.isFinite(legacyTip) ? "legacy" : "bip110";
+      const straightTip = Number.isFinite(legacyBlockTip) ? legacyBlockTip : bip110BlockTip;
+      const straightMap = Number.isFinite(legacyBlockTip) ? legacyMap : bip110Map;
+      const nodeView = Number.isFinite(legacyBlockTip) ? "legacy" : "bip110";
       const straightMin = getFirstBip110PeriodStartHeight(nodeView);
-      const fallbackMin = Number.isFinite(legacyTip) ? legacyMin : getMinBlockHeight(bip110Blocks);
+      const fallbackMin = Number.isFinite(legacyBlockTip) ? legacyMin : getMinBlockHeight(bip110Blocks);
       const rawRangeStart = Number.isFinite(straightMin) ? straightMin : fallbackMin;
       const rangeStart = Number.isFinite(rawRangeStart)
         ? Math.max(CHAIN_SPLIT_FIRST_SIGNALING_HEIGHT, rawRangeStart)
@@ -6401,8 +6406,8 @@
       return {
         splitDetected: false,
         demoSplit: false,
-        legacyHeight: legacyTip,
-        bip110Height: bip110Tip,
+        legacyHeight: legacyBlockTip,
+        bip110Height: bip110BlockTip,
         straightMap,
         straightNodeView: nodeView,
         canPageEarlier: false,
@@ -6838,6 +6843,10 @@
       const hiddenStart = headEnd + 1;
       const hiddenEnd = tailStart - 1;
       if (hiddenEnd < hiddenStart) return null;
+      const bip110BranchTailBlocks = Math.max(branchHeadBlocks, legacyTailBlocks);
+      const bip110TailStart = Number.isFinite(bip110Height) && bip110Height > headEnd
+        ? Math.max(headEnd + 1, bip110Height - bip110BranchTailBlocks + 1)
+        : null;
 
       const positions = [];
       const slotMap = new Map();
@@ -6881,13 +6890,16 @@
         }
       }
 
+      if (Number.isFinite(bip110TailStart) && Number.isFinite(bip110Height)) {
+        for (let height = bip110TailStart; height <= bip110Height; height += 1) {
+          if (height > headEnd && height <= rangeEnd) addPosition(height, "bip110", yPositions.bip110Y);
+        }
+      }
+
       const ellipsisSlot = addSlot("legacy-gap");
 
       for (let height = tailStart; height <= legacyHeight; height += 1) {
         addPosition(height, "legacy", yPositions.legacyY);
-        if (Number.isFinite(bip110Height) && height <= bip110Height && height > headEnd) {
-          addPosition(height, "bip110", yPositions.bip110Y);
-        }
       }
 
       const currentTipSlot = slotMap.get(String(legacyHeight));
