@@ -2786,10 +2786,10 @@
       state.chainSplitHashrateAverageDays = days;
       const label = formatHashrateAverageLabel(days);
       if (chainSplitSignalingHashrateLabel) {
-        chainSplitSignalingHashrateLabel.textContent = `Signaling Hashrate (${label})`;
+        chainSplitSignalingHashrateLabel.textContent = `BIP-110 Hashrate (${label})`;
       }
       if (chainSplitNonSignalingHashrateLabel) {
-        chainSplitNonSignalingHashrateLabel.textContent = `Non-signaling Hashrate (${label})`;
+        chainSplitNonSignalingHashrateLabel.textContent = `Main Hashrate (${label})`;
       }
       chainSplitHashrateDaysButtons.forEach((button) => {
         const isActive = normalizeHashrateAverageDays(button.getAttribute("data-chain-split-hashrate-days")) === days;
@@ -2836,6 +2836,78 @@
         windowLabel: formatHashrateAverageLabel(windowDays),
         shareText: formatSharePct(signalingBlocks, totalBlocks),
         nonSignalingShareText: formatSharePct(nonSignalingBlocks, totalBlocks),
+      };
+    }
+
+    function getLatestBlockTime(blocks) {
+      return (Array.isArray(blocks) ? blocks : []).reduce((latest, block) => {
+        const t = Number(block?.block_time);
+        return Number.isFinite(t) && t > latest ? t : latest;
+      }, 0);
+    }
+
+    function countBlocksInHashrateWindow(blocks, { minHeight = -Infinity, maxHeight = Infinity, windowStart, windowEnd }) {
+      return (Array.isArray(blocks) ? blocks : []).reduce((count, block) => {
+        const height = Number(block?.height);
+        const time = Number(block?.block_time);
+        if (!Number.isFinite(height) || !Number.isFinite(time)) return count;
+        if (height <= minHeight || height > maxHeight) return count;
+        if (time <= windowStart || time > windowEnd) return count;
+        return count + 1;
+      }, 0);
+    }
+
+    function estimateChainSplitBranchHashrateKpi(data, averageDays = DEFAULT_HASHRATE_AVERAGE_DAYS) {
+      const networkHashrate = Number(data?.topKpis?.target_hashrate_hps);
+      const windowDays = normalizeHashrateAverageDays(averageDays);
+      const windowSeconds = windowDays * 24 * 60 * 60;
+      const legacyBlocks = getBip110BlocksForDataNodeView(data, "legacy");
+      const bip110Blocks = getBip110BlocksForDataNodeView(data, "bip110");
+      const model = getChainSplitModel();
+      const legacyTip = Number(model.legacyHeight);
+      const bip110Tip = Number(model.bip110Height);
+      const commonHeight = Number(model.latestCommonHeight);
+      const latestBlockTime = Math.max(getLatestBlockTime(legacyBlocks), getLatestBlockTime(bip110Blocks));
+
+      if (!Number.isFinite(networkHashrate) || networkHashrate <= 0 || !latestBlockTime) {
+        return null;
+      }
+
+      const windowEnd = latestBlockTime;
+      const windowStart = windowEnd - windowSeconds;
+      const splitDetected = model.splitDetected && Number.isFinite(commonHeight);
+      const branchMinHeight = splitDetected ? commonHeight : -Infinity;
+      const mainCount = countBlocksInHashrateWindow(legacyBlocks, {
+        minHeight: branchMinHeight,
+        maxHeight: Number.isFinite(legacyTip) ? legacyTip : Infinity,
+        windowStart,
+        windowEnd,
+      });
+      const bip110Count = splitDetected
+        ? countBlocksInHashrateWindow(bip110Blocks, {
+          minHeight: branchMinHeight,
+          maxHeight: Number.isFinite(bip110Tip) ? bip110Tip : Infinity,
+          windowStart,
+          windowEnd,
+        })
+        : 0;
+      const totalBlocks = mainCount + bip110Count;
+      if (!totalBlocks) return null;
+
+      const bip110Share = bip110Count / totalBlocks;
+      const mainShare = mainCount / totalBlocks;
+      return {
+        bip110Value: networkHashrate * bip110Share,
+        mainValue: networkHashrate * mainShare,
+        bip110Blocks: bip110Count,
+        mainBlocks: mainCount,
+        totalBlocks,
+        bip110Share,
+        mainShare,
+        windowDays,
+        windowLabel: formatHashrateAverageLabel(windowDays),
+        bip110ShareText: formatSharePct(bip110Count, totalBlocks),
+        mainShareText: formatSharePct(mainCount, totalBlocks),
       };
     }
 
@@ -8183,19 +8255,18 @@
         chainSplitBip110HeightValue.textContent = formatChainSplitHeightKpi(bip110Height, legacyHeight);
       }
       syncChainSplitHashrateControls();
-      const signalingHashrate = estimateSignalingHashrateKpi(
+      const branchHashrate = estimateChainSplitBranchHashrateKpi(
         state.data || state.dynamicData || {},
-        "legacy",
         state.chainSplitHashrateAverageDays
       );
       if (chainSplitSignalingHashrateValue) {
-        chainSplitSignalingHashrateValue.textContent = signalingHashrate
-          ? `${formatHashrate(signalingHashrate.value)} (${signalingHashrate.shareText})`
+        chainSplitSignalingHashrateValue.textContent = branchHashrate
+          ? `${formatHashrate(branchHashrate.bip110Value)} (${branchHashrate.bip110ShareText})`
           : "...";
       }
       if (chainSplitNonSignalingHashrateValue) {
-        chainSplitNonSignalingHashrateValue.textContent = signalingHashrate
-          ? `${formatHashrate(signalingHashrate.nonSignalingValue)} (${signalingHashrate.nonSignalingShareText})`
+        chainSplitNonSignalingHashrateValue.textContent = branchHashrate
+          ? `${formatHashrate(branchHashrate.mainValue)} (${branchHashrate.mainShareText})`
           : "...";
       }
       if (chainSplitStatusValue) {
