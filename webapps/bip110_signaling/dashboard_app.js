@@ -30,8 +30,7 @@
     const PANEL_VIEWPORT_FILL_SAFETY_PX = 2;
     const PANEL_RESIZE_SNAP_PX = 18;
     const EXPECTED_FORK_HEIGHT = 961632;
-    const EXPECTED_BLOCK_INTERVAL_MS = 10 * 60 * 1000;
-    const MAX_DOWNWARD_DIFFICULTY_ADJUSTMENT = 4;
+    const FORK_TIME_UTC = "2026-08-08T19:35:00Z";
     const HASHRATE_AVERAGE_WINDOWS_DAYS = [1, 3, 7, 14, 30];
     const DEFAULT_HASHRATE_AVERAGE_DAYS = 14;
     const CHAIN_SPLIT_COLLAPSE_PRE_COMMON_BLOCKS = 4;
@@ -235,7 +234,6 @@
       preResetStateSnapshot: null,
       suppressResetSnapshotClear: false,
       autoRefreshTimer: null,
-      forkEstimateTimer: null,
       phasedLoadToken: 0,
       refreshInFlight: false,
       lastSuccessfulRefreshAt: 0,
@@ -258,6 +256,7 @@
       chainSplitFollowLatest: true,
       chainSplitPendingScrollRender: false,
       chainSplitHashrateAverageDays: DEFAULT_HASHRATE_AVERAGE_DAYS,
+      mainHashrateAverageDays: DEFAULT_HASHRATE_AVERAGE_DAYS,
       chainSplitAgeTimer: null,
       chainSplitDrag: null,
       chainSplitSuppressClickUntil: 0,
@@ -785,20 +784,6 @@
       return new Date(normalized);
     }
 
-    function estimateExpectedForkDate(meta) {
-      const sourceHeight = Number(meta?.source_block_height);
-      if (!Number.isFinite(sourceHeight) || sourceHeight <= 0) {
-        return null;
-      }
-
-      const blocksRemaining = Math.max(0, EXPECTED_FORK_HEIGHT - sourceHeight);
-      return {
-        height: EXPECTED_FORK_HEIGHT,
-        blocksRemaining,
-        date: new Date(Date.now() + blocksRemaining * EXPECTED_BLOCK_INTERVAL_MS),
-      };
-    }
-
     function getSelectedMainNodeHeight(meta, nodeView = getSelectedMainNodeView()) {
       const view = normalizeBip110NodeView(nodeView);
       const sync = meta?.node_sync;
@@ -808,49 +793,12 @@
       return Number.isFinite(sourceHeight) && sourceHeight > 0 ? sourceHeight : null;
     }
 
-    function getFirstDetectedForkBlock(meta) {
-      const sync = meta?.node_sync || getChainSplitSyncMeta();
-      if (!sync || sync.in_sync === true) return null;
-
-      const legacyHeight = Number(sync?.legacy_height);
-      const bip110Height = Number(sync?.bip110_height);
-      const latestCommonHeight = Number(sync?.latest_common_height);
-      const splitHeight = Number.isFinite(latestCommonHeight) ? latestCommonHeight + 1 : null;
-      if (!Number.isFinite(splitHeight)) return null;
-      const latestKnownHeight = Math.max(
-        Number.isFinite(legacyHeight) ? legacyHeight : -Infinity,
-        Number.isFinite(bip110Height) ? bip110Height : -Infinity
-      );
-      const hasDetectedSplit = isChainSplitDetected(sync);
-      const hasPostMandatoryUnsharedTip = splitHeight >= EXPECTED_FORK_HEIGHT
-        && Number.isFinite(latestKnownHeight)
-        && latestKnownHeight >= splitHeight;
-      if (!hasDetectedSplit && !hasPostMandatoryUnsharedTip) return null;
-
-      const legacyBlock = getBlockMapByHeight(getBip110BlocksForNodeView("legacy")).get(splitHeight) || null;
-      const bip110Block = getBlockMapByHeight(getBip110BlocksForNodeView("bip110")).get(splitHeight) || null;
-      const sourceHeight = Number(meta?.source_block_height);
-      const sourceTime = Number.isFinite(sourceHeight) && sourceHeight === splitHeight
-        ? parseUtcTimestamp(meta?.source_block_time_utc || meta?.generated_utc)
-        : null;
-      const sourceCandidate = sourceTime && !Number.isNaN(sourceTime.getTime())
-        ? { height: splitHeight, block_time: Math.floor(sourceTime.getTime() / 1000) }
-        : null;
-      const candidates = [legacyBlock, bip110Block]
-        .concat(sourceCandidate ? [sourceCandidate] : [])
-        .filter(Boolean)
-        .map((block) => ({
-          block,
-          time: Number(block?.block_time),
-        }))
-        .filter((entry) => Number.isFinite(entry.time) && entry.time > 0)
-        .sort((a, b) => a.time - b.time);
-
-      if (!candidates.length) return null;
+    function getHardCodedForkBlock() {
+      const date = parseUtcTimestamp(FORK_TIME_UTC);
+      if (Number.isNaN(date.getTime())) return null;
       return {
-        height: splitHeight,
-        block: candidates[0].block,
-        date: new Date(candidates[0].time * 1000),
+        height: EXPECTED_FORK_HEIGHT,
+        date,
       };
     }
 
@@ -1772,15 +1720,6 @@
       state.autoRefreshTimer = setInterval(refreshIfDataChanged, AUTO_REFRESH_MS);
     }
 
-    function startForkEstimateTimer() {
-      if (state.forkEstimateTimer) {
-        clearInterval(state.forkEstimateTimer);
-      }
-      state.forkEstimateTimer = setInterval(() => {
-        if (state.data) setStatus(state.data);
-      }, AUTO_REFRESH_MS);
-    }
-
     function persistControls() {
       try {
         const segwitRatio = Number.isFinite(state.manualPanelHeightRatios.segwit)
@@ -2564,53 +2503,70 @@
         statusChips.appendChild(div);
       };
 
-      const appendExpectedForkTimeChip = (signalingHashrate) => {
-        const forkBlock = getFirstDetectedForkBlock(meta);
-        if (forkBlock?.date instanceof Date && !Number.isNaN(forkBlock.date.getTime())) {
-          const dateText = formatGeneratedDateTimeForSelectedTimeZone(forkBlock.date.toISOString());
-          const heightText = forkBlock.height.toLocaleString("en-US");
-          appendStatusChip(
-            "Fork Time",
-            dateText,
-            `Chains split at height ${heightText}. This is the timestamp of the first block after the last common height.`
-          );
-          return;
-        }
-
-        const estimate = estimateExpectedForkDate(meta);
-        if (!estimate) {
-          appendStatusChip("Est. Fork Time", "n/a");
-          return;
-        }
-
-        const dateText = formatGeneratedDateTimeForSelectedTimeZone(estimate.date.toISOString());
-        const heightText = estimate.height.toLocaleString("en-US");
-        const blocksText = estimate.blocksRemaining.toLocaleString("en-US");
-        const tooltipText = estimate.blocksRemaining > 0
-          ? `The fork would likely happen when mandatory signaling begins at height ${heightText}. This projection assumes blocks continue arriving every 10 minutes from the current clock time and starts from block ${Number(meta.source_block_height).toLocaleString("en-US")}; ${blocksText} blocks remain.`
-          : `The fork would likely happen when mandatory signaling begins at height ${heightText}. That height has already been reached or passed.`;
-        const activationEstimate = estimateActivationAfterFork(estimate, signalingHashrate, meta);
-        const activationText = activationEstimate
-          ? `Activation would come after the signaling chain mines the mandatory signaling period and then the lock-in period. Given the current 14 day signaling share of ${signalingHashrate.shareText}, the signaling chain would take about ${formatBlockInterval(activationEstimate.mandatoryPeriodMs)} to mine the 2,016-block mandatory signaling period, then receive the maximum ${MAX_DOWNWARD_DIFFICULTY_ADJUSTMENT}x downward difficulty adjustment. At that reduced difficulty, the following 2,016-block lock-in period would take about ${formatBlockInterval(activationEstimate.lockInPeriodMs)}, putting activation around ${formatGeneratedDateTimeForSelectedTimeZone(activationEstimate.date.toISOString())}.`
-          : "Activation would come after the signaling chain mines the mandatory signaling period and then the lock-in period. This projection will appear once the 14 day signaling-share data is loaded.";
-        appendStatusChip("Est. Fork Time", dateText, `${tooltipText}\n\n${activationText}`);
+      const appendForkTimeChip = () => {
+        const forkBlock = getHardCodedForkBlock();
+        const dateText = forkBlock ? formatGeneratedDateTimeForSelectedTimeZone(forkBlock.date.toISOString()) : "n/a";
+        const heightText = EXPECTED_FORK_HEIGHT.toLocaleString("en-US");
+        appendStatusChip(
+          "Fork Time",
+          dateText,
+          `Chains split at height ${heightText}. This is the timestamp of the first post-common-height block.`
+        );
       };
 
-      const appendExpectedBlockTimeChip = (signalingHashrate) => {
-        if (!signalingHashrate) {
-          appendStatusChip(
-            "Est. Block Time",
-            "...",
-            "Block time shows how long blocks would take after the fork if hashrate splits between the BIP-110 signaling chain and the main chain. Waiting for 14 day signaling block data."
-          );
-          return;
-        }
+      const appendMainHashrateChip = () => {
+        const days = normalizeHashrateAverageDays(state.mainHashrateAverageDays);
+        state.mainHashrateAverageDays = days;
+        const windowLabel = formatHashrateAverageLabel(days);
+        const view = getSelectedMainNodeView();
+        const isBip110View = view === "bip110";
+        const branchHashrate = estimateChainSplitBranchHashrateKpi(data, days);
+        const hashrateValue = branchHashrate
+          ? (isBip110View ? branchHashrate.bip110Value : branchHashrate.mainValue)
+          : null;
+        const shareText = branchHashrate
+          ? (isBip110View ? branchHashrate.bip110ShareText : branchHashrate.mainShareText)
+          : "n/a";
+        const blockCount = branchHashrate
+          ? (isBip110View ? branchHashrate.bip110Blocks : branchHashrate.mainBlocks)
+          : 0;
+        const label = `${isBip110View ? "BIP-110" : "Main"} Hashrate (${windowLabel})`;
+        const valueText = branchHashrate ? `${formatHashrate(hashrateValue)} (${shareText})` : "...";
+        const tooltipText = branchHashrate
+          ? `${label} is based on ${blockCount.toLocaleString("en-US")} / ${branchHashrate.totalBlocks.toLocaleString("en-US")} post-fork blocks found over the past ${windowLabel}.`
+          : `Waiting for ${windowLabel} branch block data.`;
+        const wrap = document.createElement("div");
+        wrap.className = "status-hashrate-controls-wrap";
+        const chip = document.createElement("div");
+        chip.className = "chip";
+        chip.innerHTML = `<span class="chip-label">${label}</span> <span class="chip-value">${valueText}</span>`;
+        setCustomTooltip(chip, tooltipText);
+        wrap.appendChild(chip);
 
-        const forkBlockTime = estimateBlockIntervalForShare(signalingHashrate.signalingShare);
-        const legacyBlockTime = estimateBlockIntervalForShare(1 - signalingHashrate.signalingShare);
-        const tooltipText = `Block time shows how long blocks would take after the fork if hashrate splits between the BIP-110 signaling chain and the main chain. The BIP-110 signaling chain would find a block about every ${formatBlockInterval(forkBlockTime)}, while the main chain would find a block about every ${formatBlockInterval(legacyBlockTime)}. This is calculated by dividing Bitcoin's 10 minute target block interval by each chain's hashrate share. The signaling share is ${signalingHashrate.shareText} (${signalingHashrate.signalingBlocks.toLocaleString("en-US")} / ${signalingHashrate.totalBlocks.toLocaleString("en-US")} blocks over the past 14 days), so this KPI uses a 14 day average.`;
-
-        appendStatusChip("Est. Block Time", formatBlockInterval(forkBlockTime), tooltipText);
+        const controls = document.createElement("div");
+        controls.className = "status-hashrate-controls leaderboard-window-controls";
+        controls.setAttribute("role", "group");
+        controls.setAttribute("aria-label", "Main dashboard hashrate average window");
+        const panel = document.createElement("div");
+        panel.className = "leaderboard-window-button-panel";
+        HASHRATE_AVERAGE_WINDOWS_DAYS.forEach((optionDays) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "leaderboard-window-btn";
+          if (optionDays === days) button.classList.add("is-active");
+          button.setAttribute("aria-pressed", optionDays === days ? "true" : "false");
+          button.setAttribute("data-main-hashrate-days", String(optionDays));
+          button.textContent = formatHashrateAverageLabel(optionDays);
+          button.addEventListener("click", () => {
+            button.blur();
+            state.mainHashrateAverageDays = optionDays;
+            if (state.data) setStatus(state.data);
+          });
+          panel.appendChild(button);
+        });
+        controls.appendChild(panel);
+        wrap.appendChild(controls);
+        statusChips.appendChild(wrap);
       };
 
       statusChips.innerHTML = "";
@@ -2623,6 +2579,7 @@
         `<span class="${nodeSyncClass}">${escapeHtml(nodeSyncText)}</span>`,
         nodeSync.tooltip
       );
+      appendForkTimeChip();
       updatedTimeZoneChip = window.WSBDashboardComponents?.createUpdatedTimeZoneChipController?.({
         chip: "#updatedTimeZoneDisplay",
         value: "#updatedTimeZoneDisplay .chip-value",
@@ -2649,16 +2606,7 @@
         `${Number.isFinite(currentPeriodLabel) ? currentPeriodLabel : "N/A"} <span class="chip-label">Signaling</span> ${periodSignalValue}`,
         currentPeriodNodeView === "bip110" ? "Shown for the BIP-110 node view." : "Shown for the main node view."
       );
-      const signalingHashrate = estimateSignalingHashrateKpi(data, currentPeriodNodeView);
-      appendStatusChip(
-        "Signaling Hashrate",
-        signalingHashrate ? formatHashrate(signalingHashrate.value) : "...",
-        signalingHashrate
-          ? `Signaling share: ${signalingHashrate.shareText} (${signalingHashrate.signalingBlocks.toLocaleString("en-US")} / ${signalingHashrate.totalBlocks.toLocaleString("en-US")} blocks over the past 14 days). This KPI uses a 14 day average.`
-          : "Waiting for 14 day signaling block data. This KPI uses a 14 day average."
-      );
-      appendExpectedForkTimeChip(signalingHashrate);
-      appendExpectedBlockTimeChip(signalingHashrate);
+      appendMainHashrateChip();
       bindSelectDropdowns();
     }
 
@@ -2710,68 +2658,6 @@
       return `${pct.toFixed(2)}%`;
     }
 
-    function estimateBlockIntervalForShare(share) {
-      const n = Number(share);
-      if (!Number.isFinite(n) || n <= 0) return Infinity;
-      return EXPECTED_BLOCK_INTERVAL_MS / n;
-    }
-
-    function estimateActivationAfterFork(forkEstimate, signalingHashrate, meta) {
-      const periodSize = Number(meta?.chart?.period_size || 2016);
-      const forkTime = forkEstimate?.date instanceof Date ? forkEstimate.date.getTime() : NaN;
-      const signalingShare = Number(signalingHashrate?.signalingShare);
-      if (
-        !Number.isFinite(periodSize)
-        || periodSize <= 0
-        || !Number.isFinite(forkTime)
-        || !Number.isFinite(signalingShare)
-        || signalingShare <= 0
-      ) {
-        return null;
-      }
-
-      const forkBlockTime = estimateBlockIntervalForShare(signalingShare);
-      const mandatoryPeriodMs = periodSize * forkBlockTime;
-      const reducedDifficultyBlockTime = forkBlockTime / MAX_DOWNWARD_DIFFICULTY_ADJUSTMENT;
-      const lockInPeriodMs = periodSize * reducedDifficultyBlockTime;
-
-      return {
-        mandatoryPeriodMs,
-        lockInPeriodMs,
-        date: new Date(forkTime + mandatoryPeriodMs + lockInPeriodMs),
-      };
-    }
-
-    function formatBlockInterval(ms) {
-      const n = Number(ms);
-      if (!Number.isFinite(n) || n <= 0) return "n/a";
-      if (n < 60 * 60 * 1000) {
-        const totalSeconds = Math.max(1, Math.round(n / 1000));
-        const minutes = Math.floor(totalSeconds / 60);
-        const seconds = totalSeconds % 60;
-        if (!minutes) return `${seconds}s`;
-        return `${minutes}m ${seconds}s`;
-      }
-
-      const oneDayMs = 24 * 60 * 60 * 1000;
-      const oneYearMs = 365 * oneDayMs;
-      if (n >= oneYearMs) {
-        return `${(n / oneYearMs).toFixed(1)} years`;
-      }
-      if (n >= oneDayMs) {
-        return `${(n / oneDayMs).toFixed(1)} days`;
-      }
-
-      const totalMinutes = Math.max(1, Math.round(n / (60 * 1000)));
-      const hours = Math.floor(totalMinutes / 60);
-      const minutes = totalMinutes % 60;
-      const parts = [];
-
-      if (hours) parts.push(`${hours}h`);
-      parts.push(`${minutes}m`);
-      return parts.join(" ");
-    }
-
     function normalizeHashrateAverageDays(value) {
       const days = Number(value);
       return HASHRATE_AVERAGE_WINDOWS_DAYS.includes(days) ? days : DEFAULT_HASHRATE_AVERAGE_DAYS;
@@ -2796,47 +2682,6 @@
         button.classList.toggle("is-active", isActive);
         button.setAttribute("aria-pressed", isActive ? "true" : "false");
       });
-    }
-
-    function estimateSignalingHashrateKpi(data, nodeView = "legacy", averageDays = DEFAULT_HASHRATE_AVERAGE_DAYS) {
-      const blocks = getBip110BlocksForDataNodeView(data, nodeView);
-      const networkHashrate = Number(data?.topKpis?.target_hashrate_hps);
-      const windowDays = normalizeHashrateAverageDays(averageDays);
-      const windowSeconds = windowDays * 24 * 60 * 60;
-      const latestBlockTime = blocks.reduce((latest, block) => {
-        const t = Number(block?.block_time);
-        return Number.isFinite(t) && t > latest ? t : latest;
-      }, 0);
-
-      if (!Number.isFinite(networkHashrate) || networkHashrate <= 0 || !latestBlockTime) {
-        return null;
-      }
-
-      const windowStart = latestBlockTime - windowSeconds;
-      const recentBlocks = blocks.filter((block) => {
-        const t = Number(block?.block_time);
-        return Number.isFinite(t) && t > windowStart && t <= latestBlockTime;
-      });
-      const totalBlocks = recentBlocks.length;
-      if (!totalBlocks) return null;
-
-      const signalingBlocks = recentBlocks.reduce((sum, block) => (
-        sum + (Number(block?.is_signaling) === 1 ? 1 : 0)
-      ), 0);
-      const signalingShare = signalingBlocks / totalBlocks;
-      const nonSignalingBlocks = totalBlocks - signalingBlocks;
-      return {
-        value: networkHashrate * signalingShare,
-        nonSignalingValue: networkHashrate * (1 - signalingShare),
-        signalingBlocks,
-        nonSignalingBlocks,
-        totalBlocks,
-        signalingShare,
-        windowDays,
-        windowLabel: formatHashrateAverageLabel(windowDays),
-        shareText: formatSharePct(signalingBlocks, totalBlocks),
-        nonSignalingShareText: formatSharePct(nonSignalingBlocks, totalBlocks),
-      };
     }
 
     function getLatestBlockTime(blocks) {
@@ -9966,7 +9811,6 @@
         updateResetButtonUi();
         setupRefreshWakeEvents();
         startAutoRefresh();
-        startForkEstimateTimer();
         await renderSelectedPanelsWithSharedLoader(PANEL_KEYS, { enhanced: false, scheduleEnhancements: true });
         // Keep controls responsive while block marker data finishes loading in the background.
         setControlsEnabled(true);
