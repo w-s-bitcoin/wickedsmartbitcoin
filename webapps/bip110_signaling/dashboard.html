@@ -1203,6 +1203,23 @@
       flex-wrap: wrap;
     }
 
+    .status-hashrate-controls-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      position: relative;
+      flex: 0 0 auto;
+    }
+
+    .status-hashrate-controls-wrap::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 100%;
+      width: 8px;
+    }
+
     .chain-split-hashrate-controls-wrap::after {
       content: "";
       position: absolute;
@@ -1212,10 +1229,9 @@
       height: 8px;
     }
 
-    .chain-split-hashrate-controls {
+    .chain-split-hashrate-controls,
+    .status-hashrate-controls {
       position: absolute;
-      top: calc(100% + 4px);
-      left: 0;
       display: inline-flex;
       align-items: center;
       flex: 0 0 auto;
@@ -1236,7 +1252,19 @@
       z-index: 30;
     }
 
-    .chain-split-hashrate-controls-wrap:hover .chain-split-hashrate-controls {
+    .chain-split-hashrate-controls {
+      top: calc(100% + 4px);
+      left: 0;
+    }
+
+    .status-hashrate-controls {
+      top: 50%;
+      left: calc(100% + 8px);
+      transform: translate(-4px, -50%);
+    }
+
+    .chain-split-hashrate-controls-wrap:hover .chain-split-hashrate-controls,
+    .status-hashrate-controls-wrap:hover .status-hashrate-controls {
       opacity: 1;
       visibility: visible;
       pointer-events: auto;
@@ -1247,14 +1275,20 @@
         visibility 0s linear 0s;
     }
 
-    .chain-split-hashrate-controls .leaderboard-window-button-panel {
+    .status-hashrate-controls-wrap:hover .status-hashrate-controls {
+      transform: translate(0, -50%);
+    }
+
+    .chain-split-hashrate-controls .leaderboard-window-button-panel,
+    .status-hashrate-controls .leaderboard-window-button-panel {
       flex-wrap: nowrap;
       background: rgba(0, 0, 0, 0.82);
       border-radius: 8px;
       box-shadow: 0 8px 18px rgba(0, 0, 0, 0.34);
     }
 
-    :root[data-theme="light"] .chain-split-hashrate-controls .leaderboard-window-button-panel {
+    :root[data-theme="light"] .chain-split-hashrate-controls .leaderboard-window-button-panel,
+    :root[data-theme="light"] .status-hashrate-controls .leaderboard-window-button-panel {
       background: rgba(255, 255, 255, 0.92);
       box-shadow: 0 8px 18px rgba(0, 0, 0, 0.16);
     }
