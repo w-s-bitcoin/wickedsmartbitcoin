@@ -6843,14 +6843,20 @@
       const hiddenStart = headEnd + 1;
       const hiddenEnd = tailStart - 1;
       if (hiddenEnd < hiddenStart) return null;
-      const bip110BranchTailBlocks = Math.max(branchHeadBlocks, legacyTailBlocks);
-      const bip110TailStart = Number.isFinite(bip110Height) && bip110Height > headEnd
-        ? Math.max(headEnd + 1, bip110Height - bip110BranchTailBlocks + 1)
-        : null;
+      const bip110Tip = Number.isFinite(bip110Height) ? Math.min(bip110Height, rangeEnd) : null;
+      const bip110PostSplitCount = Number.isFinite(bip110Tip) && bip110Tip >= splitStart
+        ? Math.floor(bip110Tip - splitStart + 1)
+        : 0;
+      const bip110ShouldCollapse = bip110PostSplitCount > branchHeadBlocks + 1;
+      const bip110HeadBlocks = bip110PostSplitCount > 0
+        ? (bip110ShouldCollapse ? Math.max(1, branchHeadBlocks - 1) : Math.min(branchHeadBlocks, bip110PostSplitCount))
+        : 0;
+      const bip110HeadEnd = bip110HeadBlocks > 0 ? splitStart + bip110HeadBlocks - 1 : null;
 
       const positions = [];
       const slotMap = new Map();
       const slotHeights = [];
+      const ellipsisSlots = [];
       const visibleStart = Math.max(rangeStart, commonHeight - preCommonBlocks + 1);
       const visibleEnd = Math.min(rangeEnd, legacyHeight);
 
@@ -6879,24 +6885,50 @@
         });
       };
 
+      const addEllipsis = (key, nodeView, y, ellipsisHiddenStart, ellipsisHiddenEnd) => {
+        const hiddenStartHeight = Number(ellipsisHiddenStart);
+        const hiddenEndHeight = Number(ellipsisHiddenEnd);
+        if (!Number.isFinite(hiddenStartHeight) || !Number.isFinite(hiddenEndHeight) || hiddenEndHeight < hiddenStartHeight) return null;
+        const slot = addSlot(key);
+        const item = {
+          slot,
+          nodeView,
+          y,
+          hiddenStart: hiddenStartHeight,
+          hiddenEnd: hiddenEndHeight,
+        };
+        ellipsisSlots.push(item);
+        return item;
+      };
+
       for (let height = visibleStart; height <= Math.min(commonHeight, visibleEnd); height += 1) {
         addPosition(height, "legacy", yPositions.trunkY);
       }
 
       for (let height = splitStart; height <= headEnd; height += 1) {
         if (height <= legacyHeight) addPosition(height, "legacy", yPositions.legacyY);
-        if (Number.isFinite(bip110Height) && height <= bip110Height) {
+      }
+
+      if (Number.isFinite(bip110HeadEnd)) {
+        for (let height = splitStart; height <= bip110HeadEnd; height += 1) {
           addPosition(height, "bip110", yPositions.bip110Y);
         }
       }
 
-      if (Number.isFinite(bip110TailStart) && Number.isFinite(bip110Height)) {
-        for (let height = bip110TailStart; height <= bip110Height; height += 1) {
-          if (height > headEnd && height <= rangeEnd) addPosition(height, "bip110", yPositions.bip110Y);
+      if (Number.isFinite(bip110Tip) && bip110Tip > headEnd) {
+        if (bip110ShouldCollapse && Number.isFinite(bip110HeadEnd)) {
+          addEllipsis("bip110-gap", "bip110", yPositions.bip110Y, bip110HeadEnd + 1, bip110Tip - 1);
+          addPosition(bip110Tip, "bip110", yPositions.bip110Y);
+        } else {
+          const start = Number.isFinite(bip110HeadEnd) ? bip110HeadEnd + 1 : splitStart;
+          for (let height = start; height <= bip110Tip; height += 1) {
+            if (height > headEnd) addPosition(height, "bip110", yPositions.bip110Y);
+          }
         }
       }
 
-      const ellipsisSlot = addSlot("legacy-gap");
+      const legacyEllipsisKey = Number.isFinite(bip110Tip) && bip110Tip > headEnd ? bip110Tip : "legacy-gap";
+      const legacyEllipsis = addEllipsis(legacyEllipsisKey, "legacy", yPositions.legacyY, hiddenStart, hiddenEnd);
 
       for (let height = tailStart; height <= legacyHeight; height += 1) {
         addPosition(height, "legacy", yPositions.legacyY);
@@ -6904,21 +6936,40 @@
 
       const currentTipSlot = slotMap.get(String(legacyHeight));
       const currentTipX = startX + (Number.isFinite(currentTipSlot) ? currentTipSlot : Math.max(0, slotHeights.length - 1)) * gap;
-      const ellipsisX = startX + ellipsisSlot * gap;
+      const ellipses = ellipsisSlots.map((item) => ({
+        x: startX + item.slot * gap,
+        y: item.y,
+        nodeView: item.nodeView,
+        hiddenStart: item.hiddenStart,
+        hiddenEnd: item.hiddenEnd,
+      }));
       const stageCount = Math.max(1, slotHeights.length);
       const stageWidth = getChainSplitStageWidth(stageCount, gap, startX, size, depth);
       return {
         positions,
-        ellipsis: {
-          x: ellipsisX,
-          y: yPositions.legacyY,
-          hiddenStart,
-          hiddenEnd,
-        },
+        ellipsis: legacyEllipsis ? ellipses.find((item) => item.nodeView === "legacy") || null : ellipses[0] || null,
+        ellipses,
         currentTipX,
         stageCount,
         stageWidth,
       };
+    }
+
+    function getCollapsedSplitDisplayEllipses(layout, xShift, xOffset) {
+      const shift = Number(xShift) || 0;
+      const offset = Number(xOffset) || 0;
+      const ellipses = Array.isArray(layout?.ellipses) && layout.ellipses.length
+        ? layout.ellipses
+        : layout?.ellipsis
+          ? [layout.ellipsis]
+          : [];
+      return ellipses
+        .filter(Boolean)
+        .map((item) => ({
+          ...item,
+          x: Number(item.x) + shift - offset,
+        }))
+        .filter((item) => Number.isFinite(item.x) && Number.isFinite(Number(item.y)));
     }
 
     function getCollapsedSplitChainRightAnchorShift(layout, viewportWidth, currentRightPad) {
@@ -7431,7 +7482,7 @@
           const targetScrollLeft = latestScrollLeft;
           const xOffset = Math.max(0, targetScrollLeft - localPad);
           const displayPositions = collapsedLayout.positions.map((item) => ({ ...item, x: item.x + fullHistoryShift - xOffset }));
-          const displayEllipsis = { ...collapsedLayout.ellipsis, x: collapsedLayout.ellipsis.x + fullHistoryShift - xOffset };
+          const displayEllipses = getCollapsedSplitDisplayEllipses(collapsedLayout, fullHistoryShift, xOffset);
           const stageWidth = Math.max(targetStageWidth, viewportWidth);
           width = viewportWidth + localPad * 2;
           minerTimelineChainSplit.dataset.currentTipX = String(currentTipX);
@@ -7444,7 +7495,9 @@
             yTop: topY,
             yBottom: height,
           });
-          const ellipsis = renderMinerTimelineMiniChainEllipsis(displayEllipsis.x, displayEllipsis.y, { size, depth });
+          const ellipsis = displayEllipses
+            .map((item) => renderMinerTimelineMiniChainEllipsis(item.x, item.y, { size, depth }))
+            .join("");
           cubes = displayPositions.map((item) => (
             item.detailLoaded
               ? renderMinerTimelineMiniChainCube(item.block, item.x, item.y, { size, depth, nodeView: item.nodeView })
@@ -7806,7 +7859,7 @@
           const targetScrollLeft = latestScrollLeft;
           const xOffset = Math.max(0, targetScrollLeft - localPad);
           const displayPositions = collapsedLayout.positions.map((item) => ({ ...item, x: item.x + fullHistoryShift - xOffset }));
-          const displayEllipsis = { ...collapsedLayout.ellipsis, x: collapsedLayout.ellipsis.x + fullHistoryShift - xOffset };
+          const displayEllipses = getCollapsedSplitDisplayEllipses(collapsedLayout, fullHistoryShift, xOffset);
           const stageWidth = Math.max(targetStageWidth, viewportWidth);
           width = viewportWidth + localPad * 2;
           mainChainSplit.dataset.currentTipX = String(currentTipX);
@@ -7819,7 +7872,9 @@
             yTop: topY,
             yBottom: height,
           });
-          const ellipsis = renderMinerTimelineMiniChainEllipsis(displayEllipsis.x, displayEllipsis.y, { size, depth });
+          const ellipsis = displayEllipses
+            .map((item) => renderMinerTimelineMiniChainEllipsis(item.x, item.y, { size, depth }))
+            .join("");
           cubes = displayPositions.map((item) => (
             item.detailLoaded
               ? renderMinerTimelineMiniChainCube(item.block, item.x, item.y, { size, depth, nodeView: item.nodeView })
@@ -8225,7 +8280,7 @@
           const targetScrollLeft = latestScrollLeft;
           const xOffset = Math.max(0, targetScrollLeft - localPad);
           const displayPositions = collapsedLayout.positions.map((item) => ({ ...item, x: item.x + fullHistoryShift - xOffset }));
-          const displayEllipsis = { ...collapsedLayout.ellipsis, x: collapsedLayout.ellipsis.x + fullHistoryShift - xOffset };
+          const displayEllipses = getCollapsedSplitDisplayEllipses(collapsedLayout, fullHistoryShift, xOffset);
           const stageWidth = Math.max(targetStageWidth, viewportWidth);
           const width = viewportWidth + localPad * 2;
           const height = reservedHeight;
@@ -8239,10 +8294,12 @@
             yBottom: height + 1,
             straightHeight: reservedHeight,
           });
-          const ellipsis = renderChainSplitEllipsis(displayEllipsis.x, displayEllipsis.y, {
-            size: cubeSize,
-            depth: cubeDepth,
-          });
+          const ellipsis = displayEllipses
+            .map((item) => renderChainSplitEllipsis(item.x, item.y, {
+              size: cubeSize,
+              depth: cubeDepth,
+            }))
+            .join("");
           const cubes = displayPositions.map((item) => (
             item.detailLoaded
               ? renderChainSplitCube(item.block, item.x, item.y, { size: cubeSize, depth: cubeDepth, scale, labelOffset, nodeView: item.nodeView })
