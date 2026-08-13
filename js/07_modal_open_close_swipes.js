@@ -15,6 +15,8 @@ function updateModalSafePadding() {
 }
 
 let modalNavigationFilenamesSnapshot = [];
+const MODAL_NAV_SNAPSHOT_KEY = 'wsb_modal_nav_snapshot_v2';
+const MODAL_NAV_SNAPSHOT_VERSION = 3;
 
 function flushCasasciusEmbedViewState() {
     if (!modalEmbed) return;
@@ -31,13 +33,20 @@ function parseStoredBooleanForModalNav(value) {
     return normalized === 'true' || normalized === '1' || normalized === 'yes';
 }
 
-function readModalNavigationSnapshotFromSession() {
+function readModalNavigationSnapshotFromSession(currentFilename = '') {
     try {
-        const raw = sessionStorage.getItem('wsb_modal_nav_snapshot_v2');
-        const parsed = raw ? JSON.parse(raw) : [];
-        if (!Array.isArray(parsed)) return [];
-        const snapshot = parsed.map((value) => String(value || '').trim()).filter(Boolean);
-        return normalizeModalNavigationSnapshot(snapshot);
+        const raw = sessionStorage.getItem(MODAL_NAV_SNAPSHOT_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        if (!parsed) return [];
+        if (Array.isArray(parsed)) {
+            sessionStorage.removeItem(MODAL_NAV_SNAPSHOT_KEY);
+            return [];
+        }
+        if (typeof parsed !== 'object' || parsed.version !== MODAL_NAV_SNAPSHOT_VERSION) return [];
+        const snapshot = normalizeModalNavigationSnapshot(parsed.filenames);
+        const anchorFilename = String(currentFilename || parsed.sourceFilename || '').trim();
+        if (anchorFilename && !snapshot.includes(anchorFilename)) return [];
+        return snapshot;
     } catch (_) {
         return [];
     }
@@ -53,6 +62,42 @@ function normalizeModalNavigationSnapshot(snapshot) {
             seen.add(filename);
             return true;
         });
+}
+
+function getCurrentModalNavigationFilenames() {
+    const visibleFilenames = getVisibleGridCardFilenames();
+    if (visibleFilenames.length) return visibleFilenames;
+
+    if (Array.isArray(visibleImages) && visibleImages.length) {
+        return normalizeModalNavigationSnapshot(visibleImages.map((img) => img?.filename));
+    }
+
+    if (Array.isArray(modalNavigationFilenamesSnapshot) && modalNavigationFilenamesSnapshot.length) {
+        return normalizeModalNavigationSnapshot(modalNavigationFilenamesSnapshot);
+    }
+
+    return [];
+}
+
+function persistModalNavigationSnapshot(filenames, sourceFilename = '') {
+    const snapshot = normalizeModalNavigationSnapshot(
+        Array.isArray(filenames) ? filenames : getCurrentModalNavigationFilenames()
+    );
+    if (!snapshot.length) return;
+    try {
+        sessionStorage.setItem(MODAL_NAV_SNAPSHOT_KEY, JSON.stringify({
+            version: MODAL_NAV_SNAPSHOT_VERSION,
+            createdAt: Date.now(),
+            sourceFilename: String(sourceFilename || '').trim(),
+            filenames: snapshot,
+        }));
+    } catch (_) {}
+}
+
+function clearModalNavigationSnapshot() {
+    try {
+        sessionStorage.removeItem(MODAL_NAV_SNAPSHOT_KEY);
+    } catch (_) {}
 }
 
 function getStandaloneFilteredNavigationImages() {
@@ -71,18 +116,18 @@ function getStandaloneFilteredNavigationImages() {
         return true;
     });
 
-    const snapshot = readModalNavigationSnapshotFromSession();
+    const currentFilename =
+        modalImg?.dataset?.filename ||
+        visibleImages[currentIndex]?.filename ||
+        lastOpenedFilename ||
+        '';
+    const snapshot = readModalNavigationSnapshotFromSession(currentFilename);
     if (!snapshot.length) return filtered;
 
     const filteredMap = new Map(filtered.map((item) => [String(item.filename), item]));
     const ordered = snapshot.map((filename) => filteredMap.get(filename)).filter(Boolean);
     if (!ordered.length) return filtered;
 
-    const currentFilename =
-        modalImg?.dataset?.filename ||
-        visibleImages[currentIndex]?.filename ||
-        lastOpenedFilename ||
-        '';
     return ordered.some((item) => item?.filename === currentFilename)
         ? ordered
         : filtered;
@@ -103,10 +148,10 @@ function openModalByIndex(index) {
     const image = visibleImages[index];
     if (!image) return;
     if (!isStandaloneModalShell()) {
-        try {
-            const snapshot = getModalNavigationImages().map((img) => String(img?.filename || '').trim()).filter(Boolean);
-            sessionStorage.setItem('wsb_modal_nav_snapshot_v2', JSON.stringify(snapshot));
-        } catch (_) {}
+        persistModalNavigationSnapshot(
+            getModalNavigationImages().map((img) => img?.filename),
+            image.filename
+        );
         window.location.href = getVisualizationUrl(image.filename);
         return;
     }
@@ -330,6 +375,7 @@ function closeModal() {
                 sessionStorage.setItem(GRID_FOCUS_RESTORE_KEY, String(closedFilename));
             }
         } catch (_) {}
+        clearModalNavigationSnapshot();
         const home = `${getPageBasePath() || ''}/`.replace(/\/{2,}/g, '/');
         window.location.href = home;
         return;
