@@ -69,6 +69,26 @@ rm -rf "$DIST"/webapps/*/scripts
 rm -rf "$DIST"/webapps/*/gradings
 rm -rf "$DIST"/webapps/quantum_exposure/webapp_data/archived
 rm -rf "$DIST"/webapps/quantum_exposure/webapp_data/arkham
+
+# Quantum Pages ships compact aggregates/top-100 rows for historical snapshots.
+# Keep the full >=1 BTC table only for the current snapshot, where explicit
+# address search or table expansion can request it on demand.
+QUANTUM_DATA="$DIST/webapps/quantum_exposure/webapp_data"
+QUANTUM_INDEX="$QUANTUM_DATA/snapshots_index.csv"
+if [[ -f "$QUANTUM_INDEX" ]]; then
+  QUANTUM_CURRENT_SNAPSHOT="$(awk -F, 'NR == 2 { gsub(/\r/, "", $1); print $1; exit }' "$QUANTUM_INDEX")"
+  if [[ ! "$QUANTUM_CURRENT_SNAPSHOT" =~ ^[0-9]+$ ]]; then
+    echo "Could not determine current Quantum snapshot from $QUANTUM_INDEX" >&2
+    exit 1
+  fi
+  find "$QUANTUM_DATA" -mindepth 2 -maxdepth 2 -name "dashboard_pubkeys_ge_1btc.csv" \
+    ! -path "$QUANTUM_DATA/$QUANTUM_CURRENT_SNAPSHOT/dashboard_pubkeys_ge_1btc.csv" -delete
+  if [[ ! -f "$QUANTUM_DATA/$QUANTUM_CURRENT_SNAPSHOT/dashboard_pubkeys_ge_1btc.csv" ]]; then
+    echo "Missing current Quantum full-row snapshot: $QUANTUM_CURRENT_SNAPSHOT" >&2
+    exit 1
+  fi
+fi
+
 rm -f "$DIST"/webapps/bip110_signaling/webapp_data/bip110_miners.json
 rm -f "$DIST"/webapps/bip110_signaling/webapp_data/bip110_signal_miners.json
 rm -f "$DIST"/webapps/bip110_signaling/webapp_data/bip110_node_miners.json
