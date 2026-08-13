@@ -4,6 +4,7 @@
   const DASHBOARD_URL = "webapps/bitcoin_dominance/dashboard.html";
   const FAVORITES_STORAGE_KEY = "favorites";
   const MODAL_NAV_SNAPSHOT_KEY = "wsb_modal_nav_snapshot_v2";
+  const MODAL_NAV_SNAPSHOT_VERSION = 3;
   const DASHBOARD_GRID_ORDER_KEY = "wsb_dashboard_grid_order_v1";
   const GRID_FOCUS_RESTORE_KEY = "wsb_pending_grid_focus_filename_v1";
   const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
@@ -322,11 +323,7 @@
     const snapshot = readModalNavigationSnapshot();
     if (!snapshot.length) return filtered;
 
-    const filteredFilenames = filtered.map((item) => String(item?.filename || "").trim()).filter(Boolean);
     const snapshotSet = new Set(snapshot);
-    const snapshotCoversFiltered = filteredFilenames.every((filename) => snapshotSet.has(filename));
-    if (!snapshotCoversFiltered) return filtered;
-
     const candidates = filtered.filter((item) => snapshotSet.has(String(item?.filename || "").trim()));
     if (!candidates.length) return filtered;
 
@@ -343,11 +340,17 @@
   function readModalNavigationSnapshot() {
     try {
       const raw = sessionStorage.getItem(MODAL_NAV_SNAPSHOT_KEY);
-      const parsed = raw ? JSON.parse(raw) : [];
-      const snapshot = Array.isArray(parsed)
-        ? parsed.map((value) => String(value || "").trim()).filter(Boolean)
-        : [];
-      return normalizeModalNavigationSnapshot(snapshot);
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (!parsed) return [];
+      if (Array.isArray(parsed)) {
+        sessionStorage.removeItem(MODAL_NAV_SNAPSHOT_KEY);
+        return [];
+      }
+      if (typeof parsed !== "object" || parsed.version !== MODAL_NAV_SNAPSHOT_VERSION) return [];
+      const snapshot = normalizeModalNavigationSnapshot(parsed.filenames);
+      const anchorFilename = String(currentImage?.filename || STANDALONE_FILENAME).trim();
+      if (anchorFilename && !snapshot.includes(anchorFilename)) return [];
+      return snapshot;
     } catch (_) {
       return [];
     }
@@ -393,6 +396,9 @@
     } catch (_) {
       // Ignore storage failures.
     }
+    try {
+      sessionStorage.removeItem(MODAL_NAV_SNAPSHOT_KEY);
+    } catch (_) {}
     window.location.href = getHomeUrl();
   }
 
