@@ -64,9 +64,14 @@ const DASHBOARD_CARD_PREVIEW_SPECS = Object.freeze({
   },
 });
 
-const DASHBOARD_CARD_PREVIEW_CACHE_VERSION = '20260612-grid-ready-v2';
+const DASHBOARD_CARD_PREVIEW_CACHE_VERSION = '20260813-home-perf-v1';
+const DASHBOARD_PREVIEW_ROOT_MARGIN = '720px 0px';
+const DASHBOARD_PREVIEW_LOAD_STAGGER_MS = 140;
 let dashboardPreviewResizeObserver = null;
 let dashboardPreviewWindowResizeBound = false;
+let dashboardPreviewLoadObserver = null;
+let dashboardPreviewLoadPassQueued = false;
+let dashboardPreviewIdleLoadHandle = null;
 const GRID_FOCUS_RESTORE_KEY = 'wsb_pending_grid_focus_filename_v1';
 let layoutForcedByNarrowWidth = false;
 let layoutBeforeNarrowForce = null;
@@ -477,6 +482,118 @@ function ensureDashboardPreviewObservers() {
   }
 }
 
+function loadDashboardPreviewFrame(card) {
+  const preview = card?.preview;
+  const iframe = preview?.iframe;
+  if (!preview || !iframe || preview.loaded || preview.loading) return false;
+  const container = card?.container;
+  if (!container?.isConnected || container.style.display === 'none' || container.offsetParent === null) return false;
+  const src = iframe.dataset.src || preview.src || '';
+  if (!src) return false;
+  preview.loading = true;
+  preview.loaded = true;
+  iframe.src = src;
+  return true;
+}
+
+function getVisibleDashboardPreviewCards() {
+  if (!Array.isArray(visibleImages) || !visibleImages.length) return [];
+  return visibleImages
+    .map((item) => cardByFilename.get(_cardKey(item.filename)))
+    .filter((card) => {
+      const container = card?.container;
+      return !!(
+        card?.preview?.iframe
+        && container?.isConnected
+        && container.style.display !== 'none'
+        && container.offsetParent !== null
+      );
+    });
+}
+
+function getDashboardPreviewInitialBatchSize() {
+  const width = Number(window.innerWidth || document.documentElement?.clientWidth || 0);
+  if (width && width <= 760) return 2;
+  if (width && width <= 1200) return 4;
+  return 5;
+}
+
+function isDashboardPreviewCardInViewport(card) {
+  const container = card?.container;
+  if (!container?.isConnected) return false;
+  const rect = container.getBoundingClientRect();
+  const viewportHeight = Number(window.innerHeight || document.documentElement?.clientHeight || 0);
+  const viewportWidth = Number(window.innerWidth || document.documentElement?.clientWidth || 0);
+  if (!viewportHeight || !viewportWidth) return false;
+  return rect.bottom >= 0 && rect.top <= viewportHeight && rect.right >= 0 && rect.left <= viewportWidth;
+}
+
+function scheduleDashboardPreviewIdleLoads(cards, startIndex = 0) {
+  if (!cards.length) return;
+  if (dashboardPreviewIdleLoadHandle) {
+    if (typeof cancelIdleCallback === 'function') cancelIdleCallback(dashboardPreviewIdleLoadHandle);
+    else window.clearTimeout(dashboardPreviewIdleLoadHandle);
+    dashboardPreviewIdleLoadHandle = null;
+  }
+  const run = () => {
+    dashboardPreviewIdleLoadHandle = null;
+    cards.forEach((card, index) => {
+      window.setTimeout(() => loadDashboardPreviewFrame(card), (startIndex + index) * DASHBOARD_PREVIEW_LOAD_STAGGER_MS);
+    });
+  };
+  if (typeof requestIdleCallback === 'function') {
+    dashboardPreviewIdleLoadHandle = requestIdleCallback(run, { timeout: 2500 });
+  } else {
+    dashboardPreviewIdleLoadHandle = window.setTimeout(run, 900);
+  }
+}
+
+function scheduleDashboardPreviewLoading() {
+  if (dashboardPreviewLoadPassQueued) return;
+  dashboardPreviewLoadPassQueued = true;
+  requestAnimationFrame(() => {
+    dashboardPreviewLoadPassQueued = false;
+    const cards = getVisibleDashboardPreviewCards();
+    if (!cards.length) return;
+
+    const immediateLimit = getDashboardPreviewInitialBatchSize();
+    const immediateCards = cards.slice(0, immediateLimit);
+    immediateCards.forEach((card, index) => {
+      window.setTimeout(() => loadDashboardPreviewFrame(card), index * DASHBOARD_PREVIEW_LOAD_STAGGER_MS);
+    });
+
+    const deferredCards = cards.slice(immediateLimit).filter((card) => !card.preview?.loaded);
+    if (!deferredCards.length) return;
+
+    const hasIntersectionObserver = 'IntersectionObserver' in window;
+    const onscreenDeferredCards = deferredCards.filter(isDashboardPreviewCardInViewport);
+    const offscreenDeferredCards = deferredCards.filter((card) => !isDashboardPreviewCardInViewport(card));
+    if (hasIntersectionObserver && offscreenDeferredCards.length) {
+      if (!dashboardPreviewLoadObserver) {
+        dashboardPreviewLoadObserver = new IntersectionObserver((entries) => {
+          entries.forEach((entry) => {
+            if (!entry.isIntersecting) return;
+            dashboardPreviewLoadObserver.unobserve(entry.target);
+            const filename = entry.target?.dataset?.filename || '';
+            const card = filename ? cardByFilename.get(_cardKey(filename)) : null;
+            loadDashboardPreviewFrame(card);
+          });
+        }, { root: null, rootMargin: DASHBOARD_PREVIEW_ROOT_MARGIN, threshold: 0.01 });
+      }
+      offscreenDeferredCards.forEach((card) => {
+        const target = card?.container?.querySelector?.('.chart-container') || card?.container;
+        if (!target || card.preview?.loaded) return;
+        dashboardPreviewLoadObserver.observe(target);
+      });
+    }
+
+    scheduleDashboardPreviewIdleLoads(
+      hasIntersectionObserver ? onscreenDeferredCards : deferredCards,
+      immediateCards.length
+    );
+  });
+}
+
 function setGridCardLoading(card) {
   const wrapper = card?.wrapper;
   if (!wrapper) return;
@@ -670,9 +787,10 @@ function buildGridOnce(){
       scene.style.height = `${previewSpec.height}px`;
       const iframe = document.createElement('iframe');
       iframe.className = 'dashboard-preview-frame';
-      iframe.src = getDashboardPreviewUrl(previewSpec.url);
+      iframe.dataset.src = getDashboardPreviewUrl(previewSpec.url);
       iframe.dataset.baseSrc = previewSpec.url;
       iframe.dataset.filename = filename;
+      iframe.loading = 'lazy';
       iframe.title = `${title || filename} preview`;
       iframe.setAttribute('aria-hidden', 'true');
       iframe.tabIndex = -1;
@@ -706,8 +824,11 @@ function buildGridOnce(){
           scene,
           iframe,
           url: previewSpec.url,
+          src: iframe.dataset.src,
           width: previewSpec.width,
           height: previewSpec.height,
+          loading: false,
+          loaded: false,
         },
       });
     } else {
@@ -790,6 +911,7 @@ function filterImages(options = {}){
     updateLayoutBasedOnWidth();
     updateAllDashboardPreviewScales();
     initLazyImages();
+    scheduleDashboardPreviewLoading();
   }
 
   // If a modal close triggered a return to homepage, restore focus to that card.

@@ -249,8 +249,30 @@ def main() -> None:
     with out_path.open("w", encoding="utf-8") as f:
         json.dump(payload, f, separators=(",", ":"), ensure_ascii=True)
 
+    latest_epoch = int(daily_rows[-1]["epoch"]) if daily_rows else 0
+    domain_padding_blocks = int(0.025 * HALVING_INTERVAL)
+    epoch_start_height = (latest_epoch - 1) * HALVING_INTERVAL if latest_epoch > 0 else 0
+    preview_start_height = max(0, epoch_start_height - domain_padding_blocks)
+    preview_end_height = epoch_start_height + HALVING_INTERVAL + domain_padding_blocks
+    preview_rows = [
+        row
+        for row in daily_rows
+        if preview_start_height <= int(row.get("height", 0)) <= preview_end_height
+    ]
+    preview_payload = {
+        "generated_utc": payload["generated_utc"],
+        "source": payload["source"],
+        "chart": payload["chart"],
+        "rows": preview_rows,
+    }
+    preview_out_path = output_dir / "issuance_rate_preview.json"
+    with preview_out_path.open("w", encoding="utf-8") as f:
+        json.dump(preview_payload, f, separators=(",", ":"), ensure_ascii=True)
+
     print(f"Wrote {out_path}")
+    print(f"Wrote {preview_out_path}")
     print(f"Rows: {len(daily_rows):,}")
+    print(f"Preview rows: {len(preview_rows):,}")
     print(f"Latest height: {latest_height:,}")
     print(f"Latest date: {daily_rows[-1]['date']}")
 
