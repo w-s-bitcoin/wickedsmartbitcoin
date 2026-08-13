@@ -4,6 +4,7 @@
   const DASHBOARD_URL = "webapps/quantum_exposure/dashboard.html";
   const FAVORITES_STORAGE_KEY = "favorites";
   const MODAL_NAV_SNAPSHOT_KEY = "wsb_modal_nav_snapshot_v2";
+  const MODAL_NAV_SNAPSHOT_VERSION = 3;
   const GRID_FOCUS_RESTORE_KEY = "wsb_pending_grid_focus_filename_v1";
   const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
   const IS_LOCAL_HOST = LOCAL_HOSTS.has(String(location.hostname || "").toLowerCase());
@@ -404,11 +405,17 @@
   function readModalNavigationSnapshot() {
     try {
       const raw = sessionStorage.getItem(MODAL_NAV_SNAPSHOT_KEY);
-      const parsed = raw ? JSON.parse(raw) : [];
-      const snapshot = Array.isArray(parsed)
-        ? parsed.map((value) => String(value || "").trim()).filter(Boolean)
-        : [];
-      return normalizeModalNavigationSnapshot(snapshot);
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (!parsed) return [];
+      if (Array.isArray(parsed)) {
+        sessionStorage.removeItem(MODAL_NAV_SNAPSHOT_KEY);
+        return [];
+      }
+      if (typeof parsed !== "object" || parsed.version !== MODAL_NAV_SNAPSHOT_VERSION) return [];
+      const snapshot = normalizeModalNavigationSnapshot(parsed.filenames);
+      const anchorFilename = String(currentImage?.filename || STANDALONE_FILENAME).trim();
+      if (anchorFilename && !snapshot.includes(anchorFilename)) return [];
+      return snapshot;
     } catch (_) {
       return [];
     }
@@ -416,23 +423,14 @@
 
   function normalizeModalNavigationSnapshot(snapshot) {
     if (!Array.isArray(snapshot) || !snapshot.length) return [];
-    let normalized = snapshot.slice();
-
-    const casasciusIndex = normalized.indexOf("casascius_explorer.png");
-    const netWorthIndex = normalized.indexOf("bitcoin_net_worth.png");
-    if (casasciusIndex > 0 && netWorthIndex >= 0 && netWorthIndex < casasciusIndex) {
-      const [casascius] = normalized.splice(casasciusIndex, 1);
-      normalized.unshift(casascius);
-    }
-
-    if (normalized.includes("patoshi_pattern.png")) return normalized;
-
-    const quantumIndex = normalized.indexOf("quantum_exposure.png");
-    const uoaIndex = normalized.indexOf("uoa.png");
-    if (quantumIndex < 0 || uoaIndex < 0 || quantumIndex >= uoaIndex) return normalized;
-
-    normalized.splice(quantumIndex + 1, 0, "patoshi_pattern.png");
-    return normalized;
+    const seen = new Set();
+    return snapshot
+      .map((value) => String(value || "").trim())
+      .filter((filename) => {
+        if (!filename || seen.has(filename)) return false;
+        seen.add(filename);
+        return true;
+      });
   }
 
   function parseStoredBoolean(value) {
@@ -463,6 +461,9 @@
     } catch (_) {
       // Ignore storage failures.
     }
+    try {
+      sessionStorage.removeItem(MODAL_NAV_SNAPSHOT_KEY);
+    } catch (_) {}
     window.location.href = getHomeUrl();
   }
 

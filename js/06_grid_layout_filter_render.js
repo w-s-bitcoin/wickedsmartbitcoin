@@ -611,6 +611,9 @@ function buildGridOnce(){
         ? getVisualizationUrl(filename)
         : '';
       if (routeUrl) {
+        if (typeof persistModalNavigationSnapshot === 'function') {
+          persistModalNavigationSnapshot(undefined, filename);
+        }
         window.location.href = routeUrl;
         return;
       }
