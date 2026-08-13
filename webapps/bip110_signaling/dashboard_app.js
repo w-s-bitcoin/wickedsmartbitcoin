@@ -1321,6 +1321,11 @@
 
     function buildMinerMapFromAttributionPayload(payload, datasetKey) {
       if (!payload || typeof payload !== "object") return {};
+      const metadataKeys = {
+        bip110Signal: "bip110_signal",
+        bip110Node: "bip110_node",
+        bip110NodeSignal: "bip110_node_signal",
+      };
       const fallbackAliases = {
         segwit: "s",
         bip110: "b",
@@ -1329,7 +1334,8 @@
         bip110Node: "n",
         bip110NodeSignal: "n",
       };
-      const datasetMeta = payload.datasets?.[datasetKey] || {};
+      const metadataKey = metadataKeys[datasetKey] || datasetKey;
+      const datasetMeta = payload.datasets?.[datasetKey] || payload.datasets?.[metadataKey] || {};
       const alias = String(datasetMeta.alias || fallbackAliases[datasetKey] || datasetKey);
       const source = payload.miners?.[alias] || payload.miners?.[datasetKey] || {};
       if (!source || typeof source !== "object") return {};
@@ -6275,19 +6281,25 @@
     }
 
     function isChainSplitDetected(sync) {
-      if (!sync || sync.in_sync === true) return false;
+      if (!sync) return false;
       const legacyHeight = Number(sync.legacy_height);
       const bip110Height = Number(sync.bip110_height);
       const latestCommonHeight = Number(sync.latest_common_height);
       const legacyHash = String(sync.legacy_hash || "");
       const bip110HashAtLegacyHeight = String(sync.bip110_hash_at_legacy_height || "");
+      const relation = String(sync.relation || "").toLowerCase();
+      const reportsDivergence = relation.includes("split")
+        || relation.includes("mismatch")
+        || (legacyHash && bip110HashAtLegacyHeight && legacyHash !== bip110HashAtLegacyHeight);
       if (!Number.isFinite(legacyHeight) || !Number.isFinite(bip110Height) || !Number.isFinite(latestCommonHeight)) {
         return false;
       }
       if (latestCommonHeight >= Math.min(legacyHeight, bip110Height)) return false;
-      if (legacyHash && bip110HashAtLegacyHeight && legacyHash !== bip110HashAtLegacyHeight) return true;
-      return String(sync.relation || "").toLowerCase().includes("split")
-        || String(sync.relation || "").toLowerCase().includes("mismatch");
+      // Some producers briefly leave `in_sync` true while publishing the new
+      // divergent tips. The common height and relation/hash evidence are the
+      // authoritative split signal; trusting the stale boolean hides both
+      // branches and the expand/contract control until the next refresh.
+      return reportsDivergence || sync.in_sync === false;
     }
 
     function shouldUseBip110BlockExplorer(height, nodeView = "legacy") {
