@@ -69,6 +69,17 @@ rm -rf "$DIST"/webapps/*/scripts
 rm -rf "$DIST"/webapps/*/gradings
 rm -rf "$DIST"/webapps/quantum_exposure/webapp_data/archived
 rm -rf "$DIST"/webapps/quantum_exposure/webapp_data/arkham
+rm -f "$DIST"/webapps/bip110_signaling/webapp_data/bip110_miners.json
+rm -f "$DIST"/webapps/bip110_signaling/webapp_data/bip110_signal_miners.json
+rm -f "$DIST"/webapps/bip110_signaling/webapp_data/bip110_node_miners.json
+rm -f "$DIST"/webapps/bip110_signaling/webapp_data/bip110_node_signal_miners.json
+rm -f "$DIST"/webapps/bip110_signaling/webapp_data/segwit_miners.json
+
+BIP110_ATTRIBUTIONS="$DIST/webapps/bip110_signaling/webapp_data/miner_attributions.json"
+if [[ -d "$DIST/webapps/bip110_signaling/webapp_data" && ! -f "$BIP110_ATTRIBUTIONS" ]]; then
+  echo "Missing required BIP-110 runtime file: $BIP110_ATTRIBUTIONS" >&2
+  exit 1
+fi
 
 find "$DIST" -name "__pycache__" -type d -prune -exec rm -rf {} +
 find "$DIST" -name "*.py" -type f -delete
