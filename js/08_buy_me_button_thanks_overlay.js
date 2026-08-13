@@ -10,7 +10,6 @@ const DASHBOARD_THEME_STORAGE_KEY = 'quantum-research-dashboard-theme';
 const PRESENTATION_MODE_PARAMS = ['presentation', 'presentationMode', 'present', 'kiosk'];
 const PRESENTATION_MODE_TRUE_VALUES = new Set(['', '1', 'true', 'yes', 'on']);
 let allThanksImagesPreloaded = false;
-let lastThanksPreloadMode = null;
 let lastThanksOverlayFootprint = null;
 let pendingThanksImageSrc = '';
 let thanksIdlePreloadHandle = null;
