@@ -2666,12 +2666,39 @@ bip110_node_blocks_meta = None
 bip110_node_miners_meta = None
 bip110_node_signal_miners_meta = None
 bip110_node_miners = load_existing_signal_miners(webapp_dir / "bip110_node_miners.json")
+previous_bip110_metadata = load_existing_bip110_metadata(webapp_dir / "bip110_metadata.json")
+previous_node_sync = previous_bip110_metadata.get("node_sync", {})
+previous_node_datasets = {
+    key: value
+    for key, value in previous_bip110_metadata.get("datasets", {}).items()
+    if key.startswith("bip110_node_") and isinstance(value, dict)
+}
 
 node_sync = check_bip110_node_sync(int(current_height), str(current_hash))
+if node_sync.get("relation") == "rpc_error" and isinstance(previous_node_sync, dict):
+    # Retain the last observed BIP-110 topology while clearly marking it stale.
+    # Otherwise a temporary RPC outage discards the node heights/common ancestor,
+    # collapsing a real split into a single-chain view on the next publish.
+    for key in (
+        "bip110_height",
+        "bip110_hash_at_legacy_height",
+        "latest_common_height",
+        "height_delta",
+        "blocks_behind",
+        "blocks_since_common_height",
+    ):
+        if node_sync.get(key) is None and previous_node_sync.get(key) is not None:
+            node_sync[key] = previous_node_sync[key]
+    node_sync["status"] = "rpc_unavailable"
+    node_sync["data_stale"] = True
+    node_sync["last_successful_check_utc"] = (
+        previous_node_sync.get("last_successful_check_utc")
+        or previous_node_sync.get("checked_utc")
+    )
 
 try:
     bip110_node_height = node_sync.get("bip110_height")
-    if bip110_node_height is not None:
+    if bip110_node_height is not None and node_sync.get("status") != "rpc_unavailable":
         bip110_node_rpc = _make_bip110_rpc()
         bip110_node_get = make_rpc_getter(
             bip110_node_rpc,
@@ -2800,6 +2827,11 @@ if bip110_node_miners_meta:
     bip110_metadata["datasets"]["bip110_node_miners"] = bip110_node_miners_meta
 if bip110_node_signal_miners_meta:
     bip110_metadata["datasets"]["bip110_node_signal_miners"] = bip110_node_signal_miners_meta
+if node_sync.get("status") == "rpc_unavailable":
+    # The node files remain valid snapshots. Preserve their decoding metadata so
+    # clients can continue showing both chains until the RPC becomes available.
+    for key, value in previous_node_datasets.items():
+        bip110_metadata["datasets"].setdefault(key, value)
 
 with (webapp_dir / "bip110_metadata.json").open("w", encoding="utf-8") as f:
     json.dump(bip110_metadata, f, separators=(",", ":"), ensure_ascii=True)
