@@ -3,6 +3,7 @@
 
 import csv
 import concurrent.futures
+import hashlib
 import json
 import os
 import socket
@@ -1820,6 +1821,93 @@ def write_block_miners_payload(path: Path, target_heights, miners):
     tmp_path.replace(path)
     return payload
 
+MINER_ATTRIBUTION_ENCODING = ["name", "slug", "pool", "sub_miner", "hash"]
+
+def compact_miner_attribution(miner):
+    if isinstance(miner, str):
+        miner = {"name": miner}
+    if not isinstance(miner, dict):
+        return None
+
+    values = [
+        str(miner.get("name") or "").strip(),
+        str(miner.get("slug") or "").strip(),
+        str(miner.get("pool") or "").strip(),
+        str(miner.get("sub_miner") or miner.get("subMiner") or "").strip(),
+        str(miner.get("hash") or "").strip(),
+    ]
+    if not values[0]:
+        return None
+    while values and values[-1] == "":
+        values.pop()
+    return values
+
+def build_compact_miner_attribution_entries(miners):
+    entries = {}
+    heights = []
+    normalized_items = []
+    for raw_height, miner in (miners or {}).items():
+        try:
+            height = int(raw_height)
+        except (TypeError, ValueError):
+            continue
+        normalized_items.append((height, miner))
+
+    for height, miner in sorted(normalized_items, key=lambda item: item[0]):
+        compact = compact_miner_attribution(miner)
+        if not compact:
+            continue
+        entries[str(height)] = compact
+        heights.append(height)
+    return entries, heights
+
+def write_compact_miner_attributions(path: Path, miner_maps):
+    source_keys = {
+        "segwit": "s",
+        "bip110": "b",
+        "bip110_node": "n",
+    }
+    miners_payload = {}
+    dataset_meta = {}
+
+    for dataset_name, alias in source_keys.items():
+        entries, heights = build_compact_miner_attribution_entries(miner_maps.get(dataset_name, {}))
+        miners_payload[alias] = entries
+        meta = {
+            "alias": alias,
+            "rows": len(entries),
+        }
+        if heights:
+            meta["start_height"] = min(heights)
+            meta["end_height"] = max(heights)
+        dataset_meta[dataset_name] = meta
+
+    dataset_meta["bip110_signal"] = dict(dataset_meta.get("bip110", {"alias": "b", "rows": 0}))
+    dataset_meta["bip110_signal"]["alias"] = "b"
+    dataset_meta["bip110_node_signal"] = dict(dataset_meta.get("bip110_node", {"alias": "n", "rows": 0}))
+    dataset_meta["bip110_node_signal"]["alias"] = "n"
+
+    payload = {
+        "version": 1,
+        "encoding": MINER_ATTRIBUTION_ENCODING,
+        "datasets": dataset_meta,
+        "miners": miners_payload,
+    }
+    tmp_path = path.with_suffix(f"{path.suffix}.tmp")
+    with tmp_path.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, separators=(",", ":"), ensure_ascii=True)
+    tmp_path.replace(path)
+    content_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+
+    return {
+        "version": 1,
+        "encoding": MINER_ATTRIBUTION_ENCODING,
+        "rows": sum(len(entries) for entries in miners_payload.values()),
+        "source": "compact consolidated miner attribution maps",
+        "sha256": content_hash,
+        "datasets": dataset_meta,
+    }
+
 def fetch_block_miners(heights, *, log_label="blocks", on_batch=None):
     pending = set(int(h) for h in heights)
     if not pending:
@@ -2488,10 +2576,11 @@ else:
 
 if needs_segwit_rebuild:
     segwit_miner_sample_heights = select_segwit_miner_sample_heights(segwit_block_rows)
-    segwit_miners_meta = export_block_miners(
+    segwit_miners_meta, segwit_miners, _segwit_miner_payload, _segwit_miners_changed = export_block_miners(
         webapp_dir / "segwit_miners.json",
         segwit_miner_sample_heights,
         log_label="segwit",
+        return_payload=True,
     )
     segwit_low_activity_blocks_meta = export_low_activity_block_cache(
         webapp_dir / "segwit_low_activity_blocks.json",
@@ -2499,6 +2588,7 @@ if needs_segwit_rebuild:
     )
 else:
     existing_datasets = (existing_static or {}).get("datasets", {})
+    segwit_miners = load_existing_signal_miners(webapp_dir / "segwit_miners.json")
     segwit_miners_meta = existing_datasets.get("segwit_miners", {
         "rows": 0,
         "source": "cached chart_static.json",
@@ -2575,6 +2665,7 @@ else:
 bip110_node_blocks_meta = None
 bip110_node_miners_meta = None
 bip110_node_signal_miners_meta = None
+bip110_node_miners = load_existing_signal_miners(webapp_dir / "bip110_node_miners.json")
 
 node_sync = check_bip110_node_sync(int(current_height), str(current_hash))
 
@@ -2680,6 +2771,15 @@ try:
 except Exception as exc:
     print(f"[bip110] Skipped BIP-110 node dataset export: {exc}")
 
+miner_attributions_meta = write_compact_miner_attributions(
+    webapp_dir / "miner_attributions.json",
+    {
+        "segwit": segwit_miners,
+        "bip110": bip110_miners,
+        "bip110_node": bip110_node_miners,
+    },
+)
+
 bip110_metadata = {
     "generated_utc": datetime.now(timezone.utc).isoformat(),
     "source_block_height": int(current_height),
@@ -2691,6 +2791,7 @@ bip110_metadata = {
         "bip110_blocks": bip110_blocks_meta,
         "bip110_miners": bip110_miners_meta,
         "bip110_signal_miners": bip110_signal_miners_meta,
+        "miner_attributions": miner_attributions_meta,
     },
 }
 if bip110_node_blocks_meta:
