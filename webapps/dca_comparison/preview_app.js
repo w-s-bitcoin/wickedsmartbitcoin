@@ -99,6 +99,30 @@
     return d.toISOString().slice(0, 10);
   }
 
+  function parsePreviewRows(text) {
+    const rows = parseCsv(text);
+    const header = rows.shift() || [];
+    const dateIdx = header.indexOf("date");
+    const btcIdx = header.indexOf("BTC");
+    const xauIdx = header.indexOf("XAU");
+    if (dateIdx < 0 || btcIdx < 0 || xauIdx < 0) return [];
+    return rows
+      .map((row) => {
+        const date = isoFromMaybeUsDate(row[dateIdx]);
+        const btc = toNumber(row[btcIdx]);
+        const xau = toNumber(row[xauIdx]);
+        return { date, BTC: btc, XAU: xau };
+      })
+      .filter((row) => row.date && row.BTC > 0 && row.XAU > 0)
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  async function loadCompactPreviewRows() {
+    const response = await fetch("webapp_data/dca_comparison_preview.csv", { cache: "default" });
+    if (!response.ok) throw new Error(`DCA preview data request failed (${response.status})`);
+    return parsePreviewRows(await response.text());
+  }
+
   function getThemeColors() {
     const style = getComputedStyle(document.documentElement);
     return {
@@ -216,7 +240,7 @@
     drawLine(ctx, points, "valueB", mapX, mapY, colors.assetB, lineWidth);
   }
 
-  async function load() {
+  async function loadFullSourceRows() {
     const [btcText, fxText, indicesText] = await Promise.all([
       fetch("../../assets/daily_price.csv", { cache: "default" }).then((resp) => resp.text()),
       fetch("../uoa/webapp_data/daily_fx_rates.csv", { cache: "default" }).then((resp) => resp.text()),
@@ -274,6 +298,19 @@
     cachedRows = [...byDate.values()]
       .filter((row) => Number.isFinite(row.BTC) && Number.isFinite(row.XAU))
       .sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  async function load() {
+    try {
+      const rows = await loadCompactPreviewRows();
+      if (rows.length) {
+        cachedRows = rows;
+        return;
+      }
+    } catch (_) {
+      // Older deployments may not have the compact preview file yet.
+    }
+    await loadFullSourceRows();
   }
 
   async function init() {

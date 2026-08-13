@@ -10,8 +10,10 @@ const DASHBOARD_THEME_STORAGE_KEY = 'quantum-research-dashboard-theme';
 const PRESENTATION_MODE_PARAMS = ['presentation', 'presentationMode', 'present', 'kiosk'];
 const PRESENTATION_MODE_TRUE_VALUES = new Set(['', '1', 'true', 'yes', 'on']);
 let allThanksImagesPreloaded = false;
+let lastThanksPreloadMode = null;
 let lastThanksOverlayFootprint = null;
 let pendingThanksImageSrc = '';
+let thanksIdlePreloadHandle = null;
 
 function isPresentationModeUrlActive() {
     const params = new URLSearchParams(window.location.search || '');
@@ -95,6 +97,19 @@ function preloadAllThanksImagesOnce() {
     }
 
     allThanksImagesPreloaded = true;
+}
+
+function scheduleThanksImagesIdlePreload() {
+    if (allThanksImagesPreloaded || thanksIdlePreloadHandle) return;
+    const run = () => {
+        thanksIdlePreloadHandle = null;
+        preloadThanksImagesIfNeeded(false);
+    };
+    if (typeof requestIdleCallback === 'function') {
+        thanksIdlePreloadHandle = requestIdleCallback(run, { timeout: 9000 });
+    } else {
+        thanksIdlePreloadHandle = setTimeout(run, 6500);
+    }
 }
 
 function applySiteTheme(themeRaw) {
@@ -1042,7 +1057,6 @@ function updateBuyMeButton() {
         icon.textContent = "☕";
         text.textContent = "· Buy me a coffee";
     }
-    preloadThanksImagesIfNeeded(false);
 }
 function handleDonationTimeZoneChanged() {
         updateBuyMeButton();
@@ -1063,8 +1077,12 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
   updateBuyMeButton();
-  preloadThanksImagesIfNeeded(true);
-  preloadAllThanksImagesOnce();
+  const buyCoffeeBtn = document.getElementById("buyCoffeeBtn");
+  if (buyCoffeeBtn) {
+      buyCoffeeBtn.addEventListener('pointerenter', () => preloadThanksImagesIfNeeded(true), { once: true, passive: true });
+      buyCoffeeBtn.addEventListener('focus', () => preloadThanksImagesIfNeeded(true), { once: true });
+  }
+  scheduleThanksImagesIdlePreload();
 });
 window.addEventListener('popstate', applyShellPresentationMode);
 setInterval(updateBuyMeButton, 5 * 60 * 1000);

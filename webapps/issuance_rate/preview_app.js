@@ -119,10 +119,25 @@
 
   }
 
+  async function fetchJsonWithFallback(urls) {
+    let lastError = null;
+    for (const url of urls) {
+      try {
+        const resp = await fetch(url, { cache: "no-store" });
+        if (!resp.ok) throw new Error(`Failed to load ${url} (${resp.status}).`);
+        return await resp.json();
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError || new Error("Failed to load issuance preview data.");
+  }
+
   async function load() {
-    const resp = await fetch("webapp_data/issuance_rate_data.json", { cache: "no-store" });
-    if (!resp.ok) throw new Error(`Failed to load issuance_rate_data.json (${resp.status}).`);
-    const data = await resp.json();
+    const data = await fetchJsonWithFallback([
+      "webapp_data/issuance_rate_preview.json",
+      "webapp_data/issuance_rate_data.json",
+    ]);
     cachedRows = Array.isArray(data?.rows) ? data.rows.filter((row) => (
       Number.isFinite(toNumber(row.issuance_rate)) &&
       Number.isFinite(toNumber(row.target_rate))
