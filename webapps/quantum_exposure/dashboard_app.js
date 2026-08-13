@@ -124,6 +124,10 @@ function isLiteMode() {
   return IS_LOCAL_RUNTIME ? runtimeLiteMode : true;
 }
 
+function hasFullGe1Data() {
+  return Array.isArray(state.ge1Rows) && state.ge1Rows.length > 0 && !state.ge1IsUsingEcoSubset;
+}
+
 function persistRuntimeMode() {
   if (!IS_LOCAL_RUNTIME) return;
   try {
@@ -2675,7 +2679,6 @@ function handleTagCheckboxChange(changedEl, checkboxGetter, triggerId) {
   }
 
   resetTopExposurePagination();
-  triggerEcoFullDataLoadFromFirstFilter();
   updateTagTriggerLabel(triggerId, checkedValues);
   clearPreResetSnapshot();
   update();
@@ -2794,7 +2797,7 @@ function buildScriptBarsData(filters) {
   const discreteThresholds = [0, 1 * SATS_PER_BTC, 10 * SATS_PER_BTC, 100 * SATS_PER_BTC, 1000 * SATS_PER_BTC];
   const isDiscreteBalanceValue = !isLiteMode() && discreteThresholds.includes(filters.balanceThresholdSats);
   const useCustomInactiveThreshold = !isLiteMode() && Number(filters.inactiveThresholdYears || INACTIVE_THRESHOLD_MIN_YEARS) !== INACTIVE_THRESHOLD_MIN_YEARS;
-  const useGe1RowsPath = !isLiteMode() && state.ge1Rows.length && (!isDiscreteBalanceValue || useCustomInactiveThreshold);
+  const useGe1RowsPath = !isLiteMode() && hasFullGe1Data() && (!isDiscreteBalanceValue || useCustomInactiveThreshold);
 
   if (useGe1RowsPath) {
     let baselineRows = [];
@@ -3588,79 +3591,6 @@ function buildHistoricalThresholdAwareFullReferenceSpendSplit(point, filters, fa
   };
 }
 
-async function ensureHistoricalSeriesGe1LoadedBatch(filterLoads, signal, activeLoadSignature = null) {
-  if (!state.historicalSeries.length) return;
-
-  const normalizedFilterLoads = Array.from(
-    new Map(
-      (Array.isArray(filterLoads) ? filterLoads : [])
-        .filter((entry) => entry && entry.key && entry.filters)
-        .map((entry) => [entry.key, entry])
-    ).values()
-  );
-
-  if (!normalizedFilterLoads.length) return;
-
-  // Sort descending so the most recent snapshot loads and renders first.
-  const missingSeries = state.historicalSeries
-    .filter((point) =>
-      normalizedFilterLoads.some(({ key }) => !point.ge1FilteredSumsByKey?.[key])
-    )
-    .sort((a, b) => Number(b.snapshot) - Number(a.snapshot));
-
-  if (!missingSeries.length) return;
-
-  state.historicalSeriesGe1Loading = true;
-  state.historicalSeriesGe1LoadProgress = { loaded: 0, total: missingSeries.length };
-  try {
-    for (const point of missingSeries) {
-      if (signal?.aborted) break;
-
-      let resp;
-      try {
-        resp = await fetch(`${snapshotBasePath(point.snapshot)}/dashboard_pubkeys_ge_1btc.csv`, signal ? { signal } : {});
-      } catch (err) {
-        if (err.name === "AbortError") break;
-        throw err;
-      }
-
-      if (!resp.ok) {
-        throw new Error(`Could not load historical ge1 rows for snapshot ${point.snapshot}`);
-      }
-
-      let text;
-      try {
-        text = await resp.text();
-      } catch (err) {
-        if (err.name === "AbortError") break;
-        throw err;
-      }
-
-      const snapshotUnixTime = toInt(state.snapshotUnixTimeByHeight[String(point.snapshot)]);
-      if (!point.ge1FilteredSumsByKey) point.ge1FilteredSumsByKey = {};
-
-      normalizedFilterLoads.forEach(({ key, filters }) => {
-        if (point.ge1FilteredSumsByKey[key]) return;
-        const sums = buildFilteredExposedFromGe1Csv(text, filters, snapshotUnixTime);
-        point.ge1FilteredSumsByKey[key] = sums;
-        saveGe1PersistentSum(point.snapshot, key, sums);
-      });
-
-      state.historicalSeriesGe1LoadProgress.loaded++;
-      // Re-render after each snapshot so bars update progressively.
-      update();
-      // Yield to the main thread before the next fetch.
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    }
-  } finally {
-    state.historicalSeriesGe1Loading = false;
-    state.historicalSeriesGe1LoadProgress = null;
-    if (!activeLoadSignature || state.historicalSeriesGe1ActiveFilterKey === activeLoadSignature) {
-      state.historicalSeriesGe1ActiveFilterKey = null;
-    }
-  }
-}
-
 function buildFilteredExposedFromGe1Csv(csvText, filters, snapshotUnixTimeOverride = 0) {
   const sums = {
     never_spent: 0,
@@ -3761,7 +3691,9 @@ function buildHistoricalStackedData(filters) {
   const isDiscreteBalanceValue = !isLiteMode() && discreteThresholds.includes(filters.balanceThresholdSats);
   const useContinuousBalanceData = !isLiteMode() && !isDiscreteBalanceValue;
   const useCustomInactiveThreshold = !isLiteMode() && Number(filters.inactiveThresholdYears || INACTIVE_THRESHOLD_MIN_YEARS) !== INACTIVE_THRESHOLD_MIN_YEARS;
-  const needsGe1Data = tagFiltersActive || useContinuousBalanceData || useCustomInactiveThreshold;
+  // Historical charts stay aggregate-only. Loading every full snapshot for a
+  // dashboard filter made a single interaction download the entire archive.
+  const needsGe1Data = false;
 
   const spendFilterSet = new Set(filters.spendActivities);
   const showAllSpends = spendFilterSet.has("all");
@@ -3950,7 +3882,9 @@ function renderHistoricalStackedChart(filters) {
   const isDiscreteBalanceValue = !isLiteMode() && discreteThresholds.includes(filters.balanceThresholdSats);
   const useContinuousBalanceData = !isLiteMode() && !isDiscreteBalanceValue;
   const useCustomInactiveThreshold = !isLiteMode() && Number(filters.inactiveThresholdYears || INACTIVE_THRESHOLD_MIN_YEARS) !== INACTIVE_THRESHOLD_MIN_YEARS;
-  const needsGe1Data = tagFiltersActive || useContinuousBalanceData || useCustomInactiveThreshold;
+  // Full row archives are reserved for explicit address search/table expansion.
+  // Historical charts use compact aggregate snapshots only.
+  const needsGe1Data = false;
   
   let isRenderingProgressively = false;
   let loadingOverlayMessage = "Loading historical chart...";
@@ -4031,12 +3965,7 @@ function renderHistoricalStackedChart(filters) {
         const controller = new AbortController();
         state.historicalSeriesGe1AbortController = controller;
         state.historicalSeriesGe1ActiveFilterKey = activeLoadSignature;
-        ensureHistoricalSeriesGe1LoadedBatch(requiredFilterLoads, controller.signal, activeLoadSignature)
-          .then(() => update())
-          .catch((err) => {
-            if (err.name !== "AbortError") console.error(err);
-            update();
-          });
+        state.historicalSeriesGe1ActiveFilterKey = null;
       }
 
       // Build a progress message for the overlay while loading.
@@ -5460,9 +5389,9 @@ function renderTopExposures(rows) {
     const filters = readFilters();
     const hasAddressQuery = Boolean(String(filters.topExposureAddressQuery || "").trim());
 
-    if (isLiteMode() && state.ge1IsUsingEcoSubset && hasAddressQuery) {
+    if (state.ge1IsUsingEcoSubset && hasAddressQuery) {
       if (!state.ge1FullDataLoadTriggered && !state.topExposuresLoading) {
-        triggerEcoFullDataLoadFromSearchFocus();
+        triggerEcoFullDataLoadIfEligible();
       }
 
       if (state.topExposuresLoading || state.ge1FullDataLoadTriggered) {
@@ -5476,7 +5405,7 @@ function renderTopExposures(rows) {
     }
     
     // In ECO mode using the top100 subset, provide helpful guidance if filters don't match.
-    if (isLiteMode() && state.ge1IsUsingEcoSubset) {
+    if (state.ge1IsUsingEcoSubset) {
       if (isTagFilterActive(filters)) {
         container.innerHTML = `<div class="bar-empty" style="padding: 12px;">
           No addresses match the current filters in the top 100 addresses. 
@@ -5572,7 +5501,7 @@ function renderTopExposures(rows) {
 
   // Also show a footer in ECO mode while showing the lightweight subset, indicating
   // that full data can be loaded by scrolling to the bottom of the list.
-  const ecoExpandPending = isLiteMode() && state.ge1IsUsingEcoSubset && !state.ge1FullDataLoadTriggered;
+  const ecoExpandPending = state.ge1IsUsingEcoSubset && !state.ge1FullDataLoadTriggered;
   const footerHtml = visibleCount < rows.length || ecoExpandPending
     ? `<div id="topExposuresFooter" class="top-list-footer is-hidden">${
         state.topExposuresLoading
@@ -5606,7 +5535,7 @@ function syncTopExposuresShowMoreVisibility() {
 
   const remainingScroll = container.scrollHeight - container.scrollTop - container.clientHeight;
   const atBottom = remainingScroll <= TOP_EXPOSURES_BOTTOM_THRESHOLD_PX;
-  const ecoExpandPending = isLiteMode() && state.ge1IsUsingEcoSubset && !state.ge1FullDataLoadTriggered;
+  const ecoExpandPending = state.ge1IsUsingEcoSubset && !state.ge1FullDataLoadTriggered;
   footer.classList.toggle("is-hidden", !atBottom && !state.topExposuresLoading && !ecoExpandPending);
 }
 
@@ -5625,7 +5554,7 @@ function tryLoadMoreTopExposures() {
 
   // ECO mode: first reveal rows 51-100 from the lightweight subset, then start
   // the full ge1 CSV + large lookup CSV load in the background.
-  if (isLiteMode() && state.ge1IsUsingEcoSubset && !state.ge1FullDataLoadTriggered) {
+  if (state.ge1IsUsingEcoSubset && !state.ge1FullDataLoadTriggered) {
     if (atBottom) {
       const ecoPrefetchTarget = Math.min(ECO_TOP_EXPOSURES_PREFETCH_COUNT, state.topExposuresTotalCount);
       if (state.topExposuresVisibleCount < ecoPrefetchTarget) {
@@ -5665,18 +5594,8 @@ function tryLoadMoreTopExposures() {
   }, TOP_EXPOSURES_LOAD_DELAY_MS);
 }
 
-function triggerEcoFullDataLoadFromSearchFocus() {
-  triggerEcoFullDataLoadIfEligible();
-}
-
-function triggerEcoFullDataLoadFromFirstFilter() {
-  triggerEcoFullDataLoadIfEligible();
-}
-
 function triggerEcoFullDataLoadIfEligible() {
   const canPrefetchFromFocus =
-    isLiteMode() &&
-    isLatestSnapshotSelected() &&
     state.ge1IsUsingEcoSubset &&
     !state.ge1FullDataLoadTriggered &&
     !state.topExposuresLoading;
@@ -5698,7 +5617,7 @@ async function triggerFullDataLoad() {
   update();
 
   try {
-    const basePath = `webapp_data/${snapshotHeight}`;
+    const basePath = snapshotBasePath(snapshotHeight);
     // Load full ge1 CSV and the large lookup CSV concurrently.
     const [ge1Text, lookupText] = await Promise.all([
       fetch(`${basePath}/dashboard_pubkeys_ge_1btc.csv`)
@@ -5730,6 +5649,7 @@ async function triggerFullDataLoad() {
         snapshotHeight: state.snapshotHeight,
         aggregatesRows: state.aggregatesRows,
         ge1Rows: ge1RowsFull,
+        ge1IsUsingEcoSubset: false,
       });
     }
   } catch (err) {
@@ -5773,7 +5693,6 @@ function handleScriptCheckboxChange(changedEl) {
 
   updateScriptTriggerLabel();
   resetTopExposurePagination();
-  triggerEcoFullDataLoadFromFirstFilter();
   clearPreResetSnapshot();
   update();
 }
@@ -5798,7 +5717,6 @@ function handleSpendCheckboxChange(changedEl) {
 
   updateSpendTriggerLabel();
   resetTopExposurePagination();
-  triggerEcoFullDataLoadFromFirstFilter();
   clearPreResetSnapshot();
   update();
 }
@@ -5868,7 +5786,7 @@ function aggregateFilteredExposedSupplyBySpend(filters) {
   };
   if (!filters) return sums;
   const addressQuery = String(filters.topExposureAddressQuery || "").trim();
-  const useGe1Filtering = !isLiteMode() || isTagFilterActive(filters) || !!addressQuery;
+  const useGe1Filtering = hasFullGe1Data() && (!isLiteMode() || isTagFilterActive(filters) || !!addressQuery);
 
   if (useGe1Filtering) {
     state.ge1Rows.forEach((row) => {
@@ -5943,7 +5861,7 @@ function buildThresholdAwareFullReferenceSpendSplit(filters) {
     !isLiteMode() &&
     Number(filters?.inactiveThresholdYears || INACTIVE_THRESHOLD_MIN_YEARS) !== INACTIVE_THRESHOLD_MIN_YEARS;
 
-  if (!useCustomInactiveThreshold || !state.ge1Rows.length) {
+  if (!useCustomInactiveThreshold || !hasFullGe1Data()) {
     return {
       never_spent: fullNever,
       inactive: fullInactive,
@@ -6290,7 +6208,8 @@ function updateKpisAndCharts() {
   const isDiscreteBalanceValue = !isLiteMode() && discreteThresholds.includes(filters.balanceThresholdSats);
 
   // Use ge1 KPIs for non-discrete (in-between) values in FULL mode, or if tag filters are active
-  const useGe1Kpis = ((!isLiteMode() && state.ge1Rows.length > 0 && !isDiscreteBalanceValue) || isTagFilterActive(filters));
+  const useGe1Kpis = hasFullGe1Data()
+    && ((!isLiteMode() && !isDiscreteBalanceValue) || isTagFilterActive(filters));
   const subset = useGe1Kpis ? aggregateKpisFromGe1(filters, true) : aggregateAllKpis(filters);
   const total = aggregateAllKpis({
     balance: "all",
@@ -6692,6 +6611,7 @@ async function loadSnapshotData(snapshot) {
     state.aggregatesRows = cached.aggregatesRows;
     state.ge1Rows = cached.ge1Rows;
     state.snapshotHeight = cached.snapshotHeight;
+    state.ge1IsUsingEcoSubset = cached.ge1IsUsingEcoSubset === true;
     state.topExposuresLoading = false;
 
     const snapshotFilter = document.getElementById("snapshotFilter");
@@ -6744,89 +6664,46 @@ async function loadSnapshotData(snapshot) {
   renderTopExposureTagFilters();
   // Progressive rendering: show KPIs/charts immediately using fast aggregates
   updateKpisAndCharts();
-  // In full mode, also render top exposures; in ECO mode, wait for ge1 data
-  if (!isLiteMode()) {
-    updateTopExposures();
+  updateTopExposures();
+
+  // Phase 2: every runtime mode starts from the lightweight top-100 subset.
+  // The full row file is reserved for explicit search or table expansion.
+  let top100Resp = null;
+  try {
+    top100Resp = await fetch(`${basePath}/dashboard_pubkeys_ge_1btc_top100.csv`);
+  } catch (err) {
+    console.warn(`Could not request top-100 CSV from ${basePath}:`, err);
   }
-
-  if (isLiteMode()) {
-    const isLatestSnapshot = requestedSnapshot === latestSnapshotHeight();
-    if (!isLatestSnapshot) {
-      state.ge1Rows = [];
-      state.topExposuresLoading = false;
-      state.ge1IsUsingEcoSubset = false;
-      renderTopExposureTagFilters();
-      state.snapshotDataCache.set(requestedSnapshot, {
-        snapshotHeight: state.snapshotHeight,
-        aggregatesRows,
-        ge1Rows: [],
-      });
-      updateTopExposures();
-      return;
-    }
-
-    // Phase 2a: Load lightweight top100 version first, but initially render only 50 rows.
-    let ecoRespLite = null;
-    try {
-      ecoRespLite = await fetch(`${basePath}/dashboard_pubkeys_ge_1btc_top100.csv`);
-    } catch (err) {
-      console.warn(`Could not request top_100 CSV from ${basePath}:`, err);
-    }
-    if (!ecoRespLite?.ok) {
-      state.topExposuresLoading = false;
-      state.ge1Rows = [];
-      state.ge1IsUsingEcoSubset = false;
-      console.warn(`Could not load top_100 CSV from ${basePath}/; keeping aggregate dashboard data visible.`);
-      renderTopExposureTagFilters();
-      updateTopExposures();
-      state.snapshotDataCache.set(requestedSnapshot, {
-        snapshotHeight: state.snapshotHeight,
-        aggregatesRows,
-        ge1Rows: [],
-      });
-      return;
-    }
-
-    const ge1RowsEcoSubset = parseCsv(await ecoRespLite.text());
-    state.ge1Rows = ge1RowsEcoSubset;
-    state.ge1IsUsingEcoSubset = true;
-    state.topExposuresVisibleCount = Math.min(ECO_TOP_EXPOSURES_INITIAL_COUNT, ge1RowsEcoSubset.length);
+  if (!top100Resp?.ok) {
     state.topExposuresLoading = false;
+    state.ge1Rows = [];
+    state.ge1IsUsingEcoSubset = false;
+    console.warn(`Could not load top-100 CSV from ${basePath}/; keeping aggregate dashboard data visible.`);
     renderTopExposureTagFilters();
     updateTopExposures();
-
-    // Full ge1 data and the large lookup CSV are loaded on-demand either when the user
-    // focuses address search or when they scroll past the initial 50 rows.
     state.snapshotDataCache.set(requestedSnapshot, {
       snapshotHeight: state.snapshotHeight,
       aggregatesRows,
-      ge1Rows: ge1RowsEcoSubset,
+      ge1Rows: [],
+      ge1IsUsingEcoSubset: false,
     });
     return;
   }
 
-  const ge1Resp = await fetch(`${basePath}/dashboard_pubkeys_ge_1btc.csv`);
-  if (!ge1Resp.ok) {
-    state.topExposuresLoading = false;
-    throw new Error(`Could not load one or more CSV files from ${basePath}/`);
-  }
-
-  const ge1Rows = parseCsv(await ge1Resp.text());
-  state.ge1Rows = ge1Rows;
+  const top100Rows = parseCsv(await top100Resp.text());
+  state.ge1Rows = top100Rows;
+  state.ge1IsUsingEcoSubset = true;
+  state.topExposuresVisibleCount = Math.min(ECO_TOP_EXPOSURES_INITIAL_COUNT, top100Rows.length);
   state.topExposuresLoading = false;
-
-  // Rebuild filters now that full identity/detail options are available.
   renderTopExposureTagFilters();
+  updateTopExposures();
 
   state.snapshotDataCache.set(requestedSnapshot, {
     snapshotHeight: state.snapshotHeight,
     aggregatesRows,
-    ge1Rows,
+    ge1Rows: top100Rows,
+    ge1IsUsingEcoSubset: true,
   });
-
-  // In full mode, recompute KPIs/charts and top exposures after ge1 data loads.
-  updateKpisAndCharts();
-  updateTopExposures();
 }
 
 function attachEvents() {
@@ -6854,7 +6731,6 @@ function attachEvents() {
       // Manual balance changes should always override auto-revert behavior.
       state.balanceAutoForcedFromAllByTopFilters = false;
       resetTopExposurePagination();
-      triggerEcoFullDataLoadFromFirstFilter();
       clearPreResetSnapshot();
       update();
     });
@@ -6885,7 +6761,6 @@ function attachEvents() {
       setFullBalanceThresholdBtc(thresholdBtc, { updateSlider: true, updateSelect: true });
       state.balanceAutoForcedFromAllByTopFilters = false;
       resetTopExposurePagination();
-      triggerEcoFullDataLoadFromFirstFilter();
       clearPreResetSnapshot();
       update();
     });
@@ -6901,7 +6776,6 @@ function attachEvents() {
       if (isLiteMode()) return;
       setInactiveThresholdYears(inactiveThresholdSlider.value, { updateSlider: true });
       resetTopExposurePagination();
-      triggerEcoFullDataLoadFromFirstFilter();
       clearPreResetSnapshot();
       update();
     });
@@ -7119,13 +6993,12 @@ function attachEvents() {
 
   if (topExposureAddressSearch) {
     topExposureAddressSearch.value = state.topExposureAddressQuery;
-    topExposureAddressSearch.addEventListener("focus", () => {
-      triggerEcoFullDataLoadFromSearchFocus();
-    });
     topExposureAddressSearch.addEventListener("input", () => {
       state.topExposureAddressQuery = topExposureAddressSearch.value.trim();
       resetTopExposurePagination();
-      triggerEcoFullDataLoadFromFirstFilter();
+      if (state.topExposureAddressQuery) {
+        triggerEcoFullDataLoadIfEligible();
+      }
       clearPreResetSnapshot();
       update();
     });
