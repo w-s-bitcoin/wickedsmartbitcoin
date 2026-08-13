@@ -123,7 +123,7 @@ const HOMEPAGE_GRID_CARD_DATA_SOURCES = Object.freeze({
     "dca_comparison.png": ["webapps/dca_comparison/webapp_data/last_updated.txt"],
     "dca_cost_basis.png": ["webapps/dca_cost_basis/webapp_data/dca_cost_basis_metadata.json"],
     "days_since_ath.png": ["assets/daily_price.csv"],
-    "issuance_rate.png": ["webapps/issuance_rate/webapp_data/issuance_rate_data.json"],
+    "issuance_rate.png": ["webapps/issuance_rate/webapp_data/issuance_rate_preview.json"],
     "node_count.png": ["webapps/node_count/webapp_data/last_updated.txt"],
     "quantum_exposure.png": ["webapps/quantum_exposure/webapp_data/latest_snapshot.txt"],
     "uoa.png": ["webapps/uoa/webapp_data/last_updated.txt"],
@@ -132,6 +132,7 @@ const HOMEPAGE_GRID_CARD_DATA_SOURCES = Object.freeze({
 let homepageCardRefreshTimer = null;
 let homepageCardRefreshInFlight = false;
 let homepageCardDataSignatures = Object.create(null);
+let homepageGridCardWakeRefreshEnabled = false;
 
 function isDashboardExportActive() {
     return !!(window.wsbDashboardExportActive || window.dateRangeExportActive);
@@ -141,7 +142,9 @@ function triggerHomepageRefreshSoon(delayMs = 150) {
     window.setTimeout(() => {
         if (isDashboardExportActive()) return;
         refreshHomepageLastUpdatedStamp();
-        refreshHomepageGridCards();
+        if (homepageGridCardWakeRefreshEnabled) {
+            refreshHomepageGridCards();
+        }
     }, delayMs);
 }
 
@@ -156,8 +159,10 @@ function setupHomepageRefreshWakeEvents() {
         triggerHomepageRefreshSoon(0);
     });
 
-    window.addEventListener("pageshow", () => {
-        triggerHomepageRefreshSoon(0);
+    window.addEventListener("pageshow", (event) => {
+        if (event.persisted) {
+            triggerHomepageRefreshSoon(0);
+        }
     });
 
     window.addEventListener("online", () => {
@@ -203,6 +208,20 @@ function withHomepageCacheBust(url) {
 
 async function fetchHomepageSignaturePart(path) {
     const url = withHomepageCacheBust(resolveHomepageDataUrl(path));
+    try {
+        const headResponse = await fetch(url, { method: "HEAD", cache: "no-store" });
+        if (headResponse.ok) {
+            const etag = headResponse.headers.get("etag") || "";
+            const lastModified = headResponse.headers.get("last-modified") || "";
+            const contentLength = headResponse.headers.get("content-length") || "";
+            const contentType = headResponse.headers.get("content-type") || "";
+            if (etag || lastModified || contentLength) {
+                return [path, etag, lastModified, contentLength, contentType].join("|");
+            }
+        }
+    } catch (_) {
+        // Fall back to a body fetch for local/file-style servers that do not support HEAD.
+    }
     const response = await fetch(url, { cache: "no-store" });
     if (!response.ok) throw new Error(`Homepage card data request failed: ${path} (${response.status})`);
     return (await response.text()).trim();
@@ -231,13 +250,33 @@ function reloadHomepageDashboardCard(filename) {
     const card = cardByFilename.get(key);
     const iframe = card?.preview?.iframe;
     if (iframe) {
+        const baseSrc = iframe.dataset.baseSrc || card.preview.url || iframe.getAttribute("src") || "";
+        const nextSrc = typeof getDashboardPreviewUrl === "function"
+            ? getDashboardPreviewUrl(baseSrc, "refresh")
+            : withRefreshParam(baseSrc, "refresh");
+        iframe.dataset.src = nextSrc;
+        if (card.preview) {
+            card.preview.src = nextSrc;
+            card.preview.loading = false;
+            card.preview.loaded = false;
+        }
+        const isVisible = !!(
+            card?.container?.isConnected
+            && card.container.style.display !== "none"
+            && card.container.offsetParent !== null
+        );
+        if (!isVisible) {
+            iframe.removeAttribute("src");
+            return;
+        }
         if (typeof setGridCardLoading === "function") {
             setGridCardLoading(card);
         }
-        const baseSrc = iframe.dataset.baseSrc || card.preview.url || iframe.getAttribute("src") || "";
-        iframe.src = typeof getDashboardPreviewUrl === "function"
-            ? getDashboardPreviewUrl(baseSrc, "refresh")
-            : withRefreshParam(baseSrc, "refresh");
+        if (typeof loadDashboardPreviewFrame === "function") {
+            loadDashboardPreviewFrame(card);
+        } else {
+            iframe.src = nextSrc;
+        }
     }
 
     const currentModalFilename = String(modalImg?.dataset?.filename || "").trim().toLowerCase();
@@ -282,7 +321,15 @@ function startHomepageGridCardRefresh() {
     if (homepageCardRefreshTimer) {
         clearInterval(homepageCardRefreshTimer);
     }
-    refreshHomepageGridCards();
+    const initialRefresh = () => refreshHomepageGridCards();
+    setTimeout(() => {
+        homepageGridCardWakeRefreshEnabled = true;
+        if (typeof requestIdleCallback === "function") {
+            requestIdleCallback(initialRefresh, { timeout: 5000 });
+        } else {
+            initialRefresh();
+        }
+    }, 5000);
     homepageCardRefreshTimer = setInterval(refreshHomepageGridCards, HOMEPAGE_AUTO_REFRESH_MS);
 }
 

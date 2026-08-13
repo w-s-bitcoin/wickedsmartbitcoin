@@ -14,12 +14,18 @@ from urllib.request import Request, urlopen
 START_DATE = "1971-02-05"
 YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 OUTPUT_COLUMNS = ["date", "spy", "qqq", "tlt", "mstr"]
+DCA_PREVIEW_COLUMNS = ["date", "BTC", "XAU"]
+DCA_PREVIEW_RANGE_YEARS = 4
 INDEX_SOURCES = {
     "spy": {"symbol": "SPY", "label": "SPY"},
     "qqq": {"symbol": "QQQ", "label": "QQQ"},
     "tlt": {"symbol": "TLT", "label": "TLT"},
     "mstr": {"symbol": "MSTR", "label": "MSTR"},
 }
+
+
+def repo_root() -> Path:
+    return Path(__file__).resolve().parents[2]
 
 
 def output_dir() -> Path:
@@ -30,6 +36,20 @@ def output_dir() -> Path:
 def date_to_epoch(iso: str) -> int:
     dt = datetime.strptime(iso, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     return int(dt.timestamp())
+
+
+def normalize_iso_date(value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if len(raw) >= 10 and raw[4:5] == "-" and raw[7:8] == "-":
+        return raw[:10]
+    for fmt in ("%m/%d/%y", "%m/%d/%Y"):
+        try:
+            return datetime.strptime(raw, fmt).date().isoformat()
+        except ValueError:
+            continue
+    return ""
 
 
 def fetch_yahoo_chart(symbol: str, start_iso: str) -> dict[str, float]:
@@ -95,6 +115,52 @@ def fmt_price(value: float | str | None) -> str:
     return f"{numeric:.6f}".rstrip("0").rstrip(".")
 
 
+def read_column_csv(path: Path, date_column: str, value_column: str) -> dict[str, str]:
+    if not path.exists():
+        raise FileNotFoundError(f"Missing source file for DCA comparison preview: {path}")
+    rows: dict[str, str] = {}
+    with path.open(newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            iso = normalize_iso_date(row.get(date_column, ""))
+            value = fmt_price(row.get(value_column, ""))
+            if iso and value:
+                rows[iso] = value
+    return rows
+
+
+def subtract_calendar_years(iso: str, years: int) -> str:
+    dt = datetime.strptime(iso, "%Y-%m-%d").date()
+    try:
+        start = dt.replace(year=dt.year - years)
+    except ValueError:
+        start = dt.replace(year=dt.year - years, day=28)
+    return start.isoformat()
+
+
+def write_dca_preview_csv(out_dir: Path) -> Path:
+    root = repo_root()
+    btc_by_date = read_column_csv(root / "assets" / "daily_price.csv", "date", "price")
+    xau_by_date = read_column_csv(root / "webapps" / "uoa" / "webapp_data" / "daily_fx_rates.csv", "date", "xauusd")
+    common_dates = sorted(set(btc_by_date) & set(xau_by_date))
+    if not common_dates:
+        raise RuntimeError("No overlapping BTC/XAU rows were available for DCA comparison preview")
+
+    end_iso = common_dates[-1]
+    start_iso = subtract_calendar_years(end_iso, DCA_PREVIEW_RANGE_YEARS)
+    rows = [
+        {"date": iso, "BTC": btc_by_date[iso], "XAU": xau_by_date[iso]}
+        for iso in common_dates
+        if iso >= start_iso
+    ]
+    preview_path = out_dir / "dca_comparison_preview.csv"
+    with preview_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=DCA_PREVIEW_COLUMNS, lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(rows)
+    return preview_path
+
+
 def fill_daily_calendar(rows_by_date: dict[str, dict[str, str]], columns: list[str]) -> dict[str, dict[str, str]]:
     dates = sorted(rows_by_date)
     if not dates:
@@ -153,10 +219,12 @@ def main() -> None:
 
     rows_by_date = fill_daily_calendar(rows_by_date, ["spy", "qqq", "tlt", "mstr"])
     write_csv(csv_path, rows_by_date)
+    preview_path = write_dca_preview_csv(out_dir)
     (out_dir / "last_updated.txt").write_text(
         datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC") + "\n"
     )
     print(f"Wrote {csv_path}")
+    print(f"Wrote {preview_path}")
 
 
 if __name__ == "__main__":
