@@ -42,6 +42,9 @@
     const SHARE_STATE_PARAM = "bip110_state";
     const LOCAL_RUNTIME_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
     const IS_LOCAL_RUNTIME = LOCAL_RUNTIME_HOSTS.has(window.location.hostname);
+    const STATIC_FETCH_OPTIONS = { cache: "force-cache" };
+    const DYNAMIC_FETCH_OPTIONS = { cache: "no-store" };
+    const MINER_ATTRIBUTIONS_PATH = "webapp_data/miner_attributions.json";
     const missingMinerIconSlugs = new Set();
     window.__bip110MinerIconMissing = (slug) => {
       const safeSlug = String(slug || "").trim().toLowerCase();
@@ -237,6 +240,9 @@
       phasedLoadToken: 0,
       refreshInFlight: false,
       lastSuccessfulRefreshAt: 0,
+      minerAttributions: null,
+      minerAttributionPromise: null,
+      minerAttributionSignature: null,
       controlsEnabled: true,
       pinnedTooltip: null,
       mobilePendingActivation: null,
@@ -1260,10 +1266,207 @@
       return `${getDataSignature(meta)}|${etag}|${lastModified}`;
     }
 
+    function withCacheBust(path, cacheBust = null) {
+      if (cacheBust == null) return path;
+      const sep = path.includes("?") ? "&" : "?";
+      return `${path}${sep}_=${cacheBust}`;
+    }
+
+    function withCacheVersion(path, version = null) {
+      const value = String(version || "").trim();
+      if (!value) return path;
+      const sep = path.includes("?") ? "&" : "?";
+      return `${path}${sep}v=${encodeURIComponent(value)}`;
+    }
+
+    function getMinerAttributionCacheVersion() {
+      const dataset = state.dynamicData?.metadata?.datasets?.miner_attributions
+        || state.data?.metadata?.datasets?.miner_attributions
+        || state.staticData?.metadata?.datasets?.miner_attributions
+        || null;
+      return dataset?.sha256 || state.dataSignature || "";
+    }
+
+    function normalizeMinerAttribution(rawMiner) {
+      if (Array.isArray(rawMiner)) {
+        const [name = "", slug = "", pool = "", subMiner = "", hash = ""] = rawMiner;
+        const miner = {
+          name: String(name || "").trim(),
+          slug: String(slug || "").trim(),
+          pool: String(pool || "").trim(),
+          subMiner: String(subMiner || "").trim(),
+          hash: String(hash || "").trim(),
+        };
+        return miner.name ? miner : null;
+      }
+
+      if (typeof rawMiner === "string") {
+        const name = rawMiner.trim();
+        return name ? { name, slug: "" } : null;
+      }
+
+      if (rawMiner && typeof rawMiner === "object") {
+        const miner = {
+          name: String(rawMiner.name || "").trim(),
+          slug: String(rawMiner.slug || "").trim(),
+          pool: String(rawMiner.pool || "").trim(),
+          subMiner: String(rawMiner.sub_miner || rawMiner.subMiner || "").trim(),
+          hash: String(rawMiner.hash || "").trim(),
+        };
+        return miner.name ? miner : null;
+      }
+
+      return null;
+    }
+
+    function buildMinerMapFromAttributionPayload(payload, datasetKey) {
+      if (!payload || typeof payload !== "object") return {};
+      const fallbackAliases = {
+        segwit: "s",
+        bip110: "b",
+        bip110Signal: "b",
+        bip110_node: "n",
+        bip110Node: "n",
+        bip110NodeSignal: "n",
+      };
+      const datasetMeta = payload.datasets?.[datasetKey] || {};
+      const alias = String(datasetMeta.alias || fallbackAliases[datasetKey] || datasetKey);
+      const source = payload.miners?.[alias] || payload.miners?.[datasetKey] || {};
+      if (!source || typeof source !== "object") return {};
+
+      const map = {};
+      Object.entries(source).forEach(([height, rawMiner]) => {
+        const miner = normalizeMinerAttribution(rawMiner);
+        if (miner?.name) {
+          map[String(height)] = miner;
+        }
+      });
+      return map;
+    }
+
+    async function loadLegacyMinerAttributionPayload(cacheBust = null) {
+      const [segwit, bip110, bip110Signal, bip110Node, bip110NodeSignal] = await Promise.all([
+        loadOptionalJson(withCacheBust("webapp_data/segwit_miners.json", cacheBust), {}, DYNAMIC_FETCH_OPTIONS),
+        loadOptionalJson(withCacheBust("webapp_data/bip110_miners.json", cacheBust), {}, DYNAMIC_FETCH_OPTIONS),
+        loadOptionalJson(withCacheBust("webapp_data/bip110_signal_miners.json", cacheBust), {}, DYNAMIC_FETCH_OPTIONS),
+        loadOptionalJson(withCacheBust("webapp_data/bip110_node_miners.json", cacheBust), {}, DYNAMIC_FETCH_OPTIONS),
+        loadOptionalJson(withCacheBust("webapp_data/bip110_node_signal_miners.json", cacheBust), {}, DYNAMIC_FETCH_OPTIONS),
+      ]);
+      const bip110Map = Object.keys(bip110).length ? bip110 : bip110Signal;
+      const bip110NodeMap = Object.keys(bip110NodeSignal).length ? bip110NodeSignal : bip110Node;
+      return {
+        version: 1,
+        datasets: {
+          segwit: { alias: "segwit" },
+          bip110: { alias: "bip110" },
+          bip110Signal: { alias: "bip110" },
+          bip110Node: { alias: "bip110Node" },
+          bip110NodeSignal: { alias: "bip110Node" },
+        },
+        miners: {
+          segwit,
+          bip110: bip110Map,
+          bip110Node: bip110NodeMap,
+        },
+      };
+    }
+
+    function applyMinerAttributionPayload(payload) {
+      const segwitMiners = buildMinerMapFromAttributionPayload(payload, "segwit");
+      const bip110SignalMiners = buildMinerMapFromAttributionPayload(payload, "bip110");
+      const bip110NodeMiners = buildMinerMapFromAttributionPayload(payload, "bip110Node");
+
+      if (state.staticData) {
+        state.staticData.segwitMiners = segwitMiners;
+        state.staticData.segwitBlocks = attachLowActivityBlockData(
+          attachMinerData(state.staticData.segwitBlocks || [], segwitMiners),
+          state.staticData.segwitLowActivityBlocks
+        );
+      }
+
+      if (state.dynamicData) {
+        state.dynamicData.bip110SignalMiners = bip110SignalMiners;
+        state.dynamicData.bip110LeaderboardMiners = bip110SignalMiners;
+        state.dynamicData.bip110NodeMiners = bip110NodeMiners;
+        state.dynamicData.bip110NodeSignalMiners = bip110NodeMiners;
+        state.dynamicData.bip110Blocks = attachMinerData(state.dynamicData.bip110Blocks || [], bip110SignalMiners);
+        state.dynamicData.bip110NodeBlocks = attachMinerData(state.dynamicData.bip110NodeBlocks || [], bip110NodeMiners);
+      }
+
+      state.data = buildCombinedData(state.staticData, state.dynamicData, state.data);
+    }
+
+    async function loadMinerAttributions(cacheVersion = null) {
+      const payload = await loadOptionalJson(
+        withCacheVersion(MINER_ATTRIBUTIONS_PATH, cacheVersion),
+        null,
+        STATIC_FETCH_OPTIONS
+      );
+      if (payload && typeof payload === "object" && payload.miners) {
+        return payload;
+      }
+      return loadLegacyMinerAttributionPayload(Date.now());
+    }
+
+    async function ensureMinerAttributionsLoaded({ force = false } = {}) {
+      const cacheVersion = getMinerAttributionCacheVersion();
+      const signature = `${state.dataSignature || state.dynamicData?.signature || ""}|${cacheVersion}`;
+      if (!force && state.minerAttributions && state.minerAttributionSignature === signature) {
+        return state.minerAttributions;
+      }
+      if (!force && state.minerAttributionPromise) {
+        return state.minerAttributionPromise;
+      }
+
+      state.minerAttributionPromise = loadMinerAttributions(cacheVersion)
+        .then((payload) => {
+          if (payload) {
+            state.minerAttributions = payload;
+            state.minerAttributionSignature = signature;
+            applyMinerAttributionPayload(payload);
+          }
+          return payload;
+        })
+        .finally(() => {
+          state.minerAttributionPromise = null;
+        });
+      return state.minerAttributionPromise;
+    }
+
+    function scheduleMinerAttributionRefreshAfterInitialPaint({ force = false } = {}) {
+      const run = () => {
+        ensureMinerAttributionsLoaded({ force })
+          .then(() => {
+            if (isMainChainPanelVisible()) {
+              renderMainChainSplitPanel({ forceFollowLatest: state.mainChainSplitFollowLatest !== false });
+            }
+            if (isChainSplitOverlayOpen()) {
+              renderBip110ChainSplitOverlay({ forceFollowLatest: state.chainSplitFollowLatest !== false });
+            }
+            if (isMinerTimelineOverlayOpen()) {
+              renderBip110MinerTimelineOverlay();
+            }
+            if (leaderboardOverlay?.classList.contains("show")) {
+              renderBip110LeaderboardOverlay();
+            }
+          })
+          .catch((err) => {
+            console.warn("Miner attributions failed to load:", err);
+          });
+      };
+
+      if (typeof window.requestIdleCallback === "function") {
+        window.requestIdleCallback(run, { timeout: 2500 });
+      } else {
+        window.setTimeout(run, 250);
+      }
+    }
+
     async function loadStaticMetadataOnly() {
       const metadataResp = await fetchJsonWithFallback(
         "webapp_data/chart_static.json",
-        "webapp_data/chart_metadata.json"
+        "webapp_data/chart_metadata.json",
+        STATIC_FETCH_OPTIONS
       );
 
       if (!metadataResp.ok) {
@@ -1276,15 +1479,10 @@
     }
 
     async function loadDynamicMetadataOnly(cacheBust = null) {
-      const withBust = (path) => {
-        if (cacheBust == null) return path;
-        const sep = path.includes("?") ? "&" : "?";
-        return `${path}${sep}_=${cacheBust}`;
-      };
-
       const metadataResp = await fetchJsonWithFallback(
-        withBust("webapp_data/bip110_metadata.json"),
-        withBust("webapp_data/chart_metadata.json")
+        withCacheBust("webapp_data/bip110_metadata.json", cacheBust),
+        withCacheBust("webapp_data/chart_metadata.json", cacheBust),
+        DYNAMIC_FETCH_OPTIONS
       );
 
       if (!metadataResp.ok) {
@@ -1306,7 +1504,7 @@
         segwitTicks: "webapp_data/segwit_month_ticks.csv",
       };
 
-      const responses = await Promise.all(Object.values(files).map((file) => fetch(file)));
+      const responses = await Promise.all(Object.values(files).map((file) => fetch(file, STATIC_FETCH_OPTIONS)));
       const [segwitPeriodsResp, segwitReleasesResp, segwitTicksResp] = responses;
 
       const requiredResponses = [
@@ -1321,15 +1519,10 @@
         }
       });
 
-      const segwitMiners = await loadOptionalJson(
-        "webapp_data/segwit_miners.json",
-        {},
-        { cache: "no-store" }
-      );
       const segwitLowActivityBlocks = await loadOptionalJson(
         "webapp_data/segwit_low_activity_blocks.json",
         {},
-        { cache: "no-store" }
+        STATIC_FETCH_OPTIONS
       );
       const topKpis = await loadOptionalJson(
         "../../assets/top_kpis.json",
@@ -1342,7 +1535,7 @@
         topKpis,
         segwitPeriods: castRows(parseCsv(await segwitPeriodsResp.text())),
         segwitBlocks: [],
-        segwitMiners,
+        segwitMiners: {},
         segwitLowActivityBlocks,
         segwitReleases: castRows(parseCsv(await segwitReleasesResp.text())).map((d) => ({
           ...d,
@@ -1353,29 +1546,26 @@
     }
 
     async function loadDynamicData(cacheBust = null, dynamicMetadata = null, metadataSignature = null, previousDynamicData = null) {
-      const withBust = (path) => {
-        if (cacheBust == null) return path;
-        const sep = path.includes("?") ? "&" : "?";
-        return `${path}${sep}_=${cacheBust}`;
-      };
-
       const reuseReleases = Array.isArray(previousDynamicData?.bip110Releases)
         && previousDynamicData.bip110Releases.length > 0;
       const reuseTicks = Array.isArray(previousDynamicData?.bip110Ticks)
         && previousDynamicData.bip110Ticks.length > 0;
 
       const files = {
-        bip110Periods: withBust("webapp_data/bip110_periods.csv"),
+        bip110Periods: withCacheBust("webapp_data/bip110_periods.csv", cacheBust),
       };
       if (!reuseReleases) {
-        files.bip110Releases = withBust("webapp_data/bip110_releases.csv");
+        files.bip110Releases = "webapp_data/bip110_releases.csv";
       }
       if (!reuseTicks) {
-        files.bip110Ticks = withBust("webapp_data/bip110_month_ticks.csv");
+        files.bip110Ticks = "webapp_data/bip110_month_ticks.csv";
       }
 
       const entries = Object.entries(files);
-      const responsesList = await Promise.all(entries.map(([, path]) => fetch(path)));
+      const responsesList = await Promise.all(entries.map(([key, path]) => fetch(
+        path,
+        key === "bip110Periods" ? DYNAMIC_FETCH_OPTIONS : STATIC_FETCH_OPTIONS
+      )));
       const responseMap = Object.fromEntries(entries.map(([key], idx) => [key, responsesList[idx]]));
 
       const bip110PeriodsResp = responseMap.bip110Periods;
@@ -1403,39 +1593,16 @@
       }
       const hasBip110NodeDataset = Boolean(metadata?.datasets?.bip110_node_blocks);
 
-      const bip110SignalMiners = await loadOptionalJson(
-        withBust("webapp_data/bip110_miners.json"),
-        previousDynamicData?.bip110SignalMiners || {},
-        { cache: "no-store" }
-      );
-      if (Object.keys(bip110SignalMiners).length === 0) {
-        Object.assign(bip110SignalMiners, await loadOptionalJson(
-          withBust("webapp_data/bip110_signal_miners.json"),
-          previousDynamicData?.bip110SignalMiners || {},
-          { cache: "no-store" }
-        ));
-      }
-      const bip110LeaderboardMiners = await loadOptionalJson(
-        withBust("webapp_data/bip110_signal_miners.json"),
-        previousDynamicData?.bip110LeaderboardMiners || bip110SignalMiners,
-        { cache: "no-store" }
-      );
       const bip110NodePeriodsResp = hasBip110NodeDataset
-        ? await fetch(withBust("webapp_data/bip110_node_periods.csv"), { cache: "no-store" }).catch(() => null)
+        ? await fetch(withCacheBust("webapp_data/bip110_node_periods.csv", cacheBust), DYNAMIC_FETCH_OPTIONS).catch(() => null)
         : null;
       const bip110NodePeriods = bip110NodePeriodsResp?.ok
         ? castRows(parseCsv(await bip110NodePeriodsResp.text()))
         : (hasBip110NodeDataset ? (previousDynamicData?.bip110NodePeriods || []) : []);
-      const bip110NodeMiners = await loadOptionalJson(
-        withBust("webapp_data/bip110_node_miners.json"),
-        previousDynamicData?.bip110NodeMiners || {},
-        { cache: "no-store" }
-      );
-      const bip110NodeSignalMiners = await loadOptionalJson(
-        withBust("webapp_data/bip110_node_signal_miners.json"),
-        previousDynamicData?.bip110NodeSignalMiners || bip110NodeMiners,
-        { cache: "no-store" }
-      );
+      const bip110SignalMiners = previousDynamicData?.bip110SignalMiners || {};
+      const bip110LeaderboardMiners = previousDynamicData?.bip110LeaderboardMiners || bip110SignalMiners;
+      const bip110NodeMiners = previousDynamicData?.bip110NodeMiners || {};
+      const bip110NodeSignalMiners = previousDynamicData?.bip110NodeSignalMiners || bip110NodeMiners;
       return {
         metadata,
         signature,
@@ -1550,21 +1717,15 @@
     }
 
     async function loadBlockPointsForDataset(datasetKey, metadata, cacheBust = null) {
-      const withBust = (path) => {
-        if (cacheBust == null) return path;
-        const sep = path.includes("?") ? "&" : "?";
-        return `${path}${sep}_=${cacheBust}`;
-      };
-
       const isSegwit = datasetKey === "segwit";
       const isBip110Node = datasetKey === "bip110Node";
       const file = isSegwit
-        ? withBust("webapp_data/segwit_block_points.bin")
+        ? "webapp_data/segwit_block_points.bin"
         : isBip110Node
-          ? withBust("webapp_data/bip110_node_block_points.bin")
-          : withBust("webapp_data/bip110_block_points.bin");
+          ? withCacheBust("webapp_data/bip110_node_block_points.bin", cacheBust)
+          : withCacheBust("webapp_data/bip110_block_points.bin", cacheBust);
 
-      const resp = await fetch(file, { cache: "no-store" });
+      const resp = await fetch(file, isSegwit ? STATIC_FETCH_OPTIONS : DYNAMIC_FETCH_OPTIONS);
       if (!resp.ok) {
         if (isBip110Node && resp.status === 404) return [];
         throw new Error(`Failed to load ${file} (${resp.status})`);
@@ -1592,16 +1753,7 @@
 
       return blocks.map((block) => {
         const rawMiner = minerMap[String(block.height)];
-        const miner = typeof rawMiner === "string"
-          ? { name: rawMiner.trim(), slug: "" }
-          : rawMiner && typeof rawMiner === "object"
-            ? {
-                name: String(rawMiner.name || "").trim(),
-                slug: String(rawMiner.slug || "").trim(),
-                pool: String(rawMiner.pool || "").trim(),
-                subMiner: String(rawMiner.sub_miner || rawMiner.subMiner || "").trim(),
-              }
-            : null;
+        const miner = normalizeMinerAttribution(rawMiner);
         return miner?.name ? { ...block, miner } : block;
       });
     }
@@ -1670,6 +1822,9 @@
 
         await loadAndApplyBlockDataPhased(loadToken, state.data.metadata, ["bip110", "bip110Node"], loadBuster, { renderAfterEach: false });
         if (loadToken !== state.phasedLoadToken) return;
+        if (state.minerAttributions || isMainChainPanelVisible() || isMinerTimelineOverlayOpen() || isChainSplitOverlayOpen() || leaderboardOverlay?.classList.contains("show")) {
+          scheduleMinerAttributionRefreshAfterInitialPaint();
+        }
         setStatus(state.data);
         refreshOpenOverlays({
           followDefaultPeriodGrid: periodGridWasFollowingDefault,
@@ -5877,6 +6032,8 @@
       minerTimelineOverlay.setAttribute("aria-hidden", "false");
       await waitForMinerTimelineFeedbackPaint();
       if (!minerTimelineOverlay.classList.contains("show")) return;
+      await ensureMinerAttributionsLoaded();
+      if (!minerTimelineOverlay.classList.contains("show")) return;
       renderBip110MinerTimelineOverlay();
       scrollMinerTimelineToLatestPeriod();
       minerTimelineOverlay.classList.remove("is-loading");
@@ -8549,7 +8706,7 @@
       leaderboardOverlay.setAttribute("aria-hidden", "true");
     }
 
-    function openLeaderboardOverlay() {
+    async function openLeaderboardOverlay() {
       if (!leaderboardOverlay || !leaderboardDialog) return;
       closePeriodGridOverlay();
       closeMinerTimelineOverlay();
@@ -8557,9 +8714,11 @@
       clearMobilePendingActivation();
       hideTooltip();
       hideCustomTooltip();
-      renderBip110LeaderboardOverlay();
       leaderboardOverlay.classList.add("show");
       leaderboardOverlay.setAttribute("aria-hidden", "false");
+      await ensureMinerAttributionsLoaded();
+      if (!leaderboardOverlay.classList.contains("show")) return;
+      renderBip110LeaderboardOverlay();
       leaderboardDialog.focus({ preventScroll: true });
     }
 
@@ -8865,6 +9024,9 @@
         setDashboardLoaderVisible(false);
         renderMainChainSplitPanel({ forceFollowLatest: true });
         renderSelectedPanels(PANEL_KEYS);
+        if (isMainChainPanelVisible() || isMinerTimelineOverlayOpen() || isChainSplitOverlayOpen() || leaderboardOverlay?.classList.contains("show")) {
+          scheduleMinerAttributionRefreshAfterInitialPaint();
+        }
         await nextPaint();
       }
     }
@@ -9818,6 +9980,9 @@
         if (loadToken !== state.phasedLoadToken) return;
 
         await loadAndApplyBlockDataPhased(loadToken, state.data.metadata, ["segwit", "bip110", "bip110Node"]);
+        if (isMainChainPanelVisible()) {
+          scheduleMinerAttributionRefreshAfterInitialPaint();
+        }
         updateResetButtonUi();
         // Ensure button state is properly set after all rendering and loading completes
         if (typeof window.requestIdleCallback === 'function') {
