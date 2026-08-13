@@ -2694,8 +2694,8 @@
         const label = `${isBip110View ? "BIP-110" : "Main"} Hashrate (${windowLabel})`;
         const valueText = branchHashrate ? `${formatHashrate(hashrateValue)} (${shareText})` : "...";
         const tooltipText = branchHashrate
-          ? `${label} is based on ${blockCount.toLocaleString("en-US")} / ${branchHashrate.totalBlocks.toLocaleString("en-US")} post-fork blocks found over the past ${windowLabel}.`
-          : `Waiting for ${windowLabel} branch block data.`;
+          ? `${label} is based on all ${blockCount.toLocaleString("en-US")} blocks in this chain's history over the past ${windowLabel}, including ${branchHashrate.sharedBlocks.toLocaleString("en-US")} shared pre-fork blocks when the window crosses the split. Signaling and non-signaling blocks are both included.`
+          : `Waiting for ${windowLabel} chain block data.`;
         const wrap = document.createElement("div");
         wrap.className = "status-hashrate-controls-wrap";
         const chip = document.createElement("div");
@@ -2882,22 +2882,33 @@
       const windowEnd = latestBlockTime;
       const windowStart = windowEnd - windowSeconds;
       const splitDetected = model.splitDetected && Number.isFinite(commonHeight);
-      const branchMinHeight = splitDetected ? commonHeight : -Infinity;
-      const mainCount = countBlocksInHashrateWindow(legacyBlocks, {
-        minHeight: branchMinHeight,
-        maxHeight: Number.isFinite(legacyTip) ? legacyTip : Infinity,
+      const sharedCount = countBlocksInHashrateWindow(legacyBlocks, {
+        minHeight: -Infinity,
+        maxHeight: splitDetected ? commonHeight : Infinity,
         windowStart,
         windowEnd,
       });
-      const bip110Count = splitDetected
+      const mainBranchCount = splitDetected ? countBlocksInHashrateWindow(legacyBlocks, {
+        minHeight: commonHeight,
+        maxHeight: Number.isFinite(legacyTip) ? legacyTip : Infinity,
+        windowStart,
+        windowEnd,
+      }) : 0;
+      const bip110BranchCount = splitDetected
         ? countBlocksInHashrateWindow(bip110Blocks, {
-          minHeight: branchMinHeight,
+          minHeight: commonHeight,
           maxHeight: Number.isFinite(bip110Tip) ? bip110Tip : Infinity,
           windowStart,
           windowEnd,
         })
         : 0;
-      const totalBlocks = mainCount + bip110Count;
+      const mainCount = sharedCount + mainBranchCount;
+      const bip110Count = sharedCount + bip110BranchCount;
+      // Shared pre-fork work belongs to the history of both chains, but counts
+      // only once in the observed network-work denominator. Consequently the
+      // two historical-average shares can sum above 100% when the selected
+      // window crosses the split (and are both 100% before a split).
+      const totalBlocks = sharedCount + mainBranchCount + bip110BranchCount;
       if (!totalBlocks) return null;
 
       const bip110Share = bip110Count / totalBlocks;
@@ -2907,6 +2918,9 @@
         mainValue: networkHashrate * mainShare,
         bip110Blocks: bip110Count,
         mainBlocks: mainCount,
+        sharedBlocks: sharedCount,
+        bip110BranchBlocks: bip110BranchCount,
+        mainBranchBlocks: mainBranchCount,
         totalBlocks,
         bip110Share,
         mainShare,
