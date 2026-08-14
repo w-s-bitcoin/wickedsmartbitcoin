@@ -132,7 +132,6 @@
   const STORAGE_ALL_ITEMS_SELECTION = 'casasciusSpinnerAllItemsSelection';
   const STORAGE_GRADED_MEDIA_MODE = 'casasciusSpinnerGradedMediaMode';
   const STORAGE_GRADED_MEDIA_SELECTION = 'casasciusSpinnerGradedMediaSelection';
-  const CASASCIUS_ITEM_DATA_PATH = 'assets/items/';
   const MOBILE_PANEL_QUERY = '(max-width: 680px)';
   const LEGACY_DEFAULT_ACTIVE_SLUG = 'cas_1btc_2011_s1';
   const DEFAULT_ACTIVE_SLUG = 'all:coins-bars';
@@ -328,11 +327,17 @@
       { slug: 'cas_0p1btc_2013_silver_s3', x: -84.5517, y: 83.6089 },
     ]
   };
-  const ALL_ITEMS_IMAGE_PATHS = {
+  const ALL_ITEMS_PREVIEW_IMAGE_PATHS = {
+    front: 'assets/mobile/all_front.webp',
+    back: 'assets/mobile/all_back.webp',
+    hologram: 'assets/mobile/all_hologram.webp'
+  };
+  const ALL_ITEMS_FULL_IMAGE_PATHS = {
     front: 'assets/all_front.png',
     back: 'assets/all_back.png',
     hologram: 'assets/all_hologram.png'
   };
+  const FULL_RESOLUTION_ZOOM_THRESHOLD = 145;
   const ALL_ITEMS_TILE_GAP_MM = 5;
   const DEFAULT_ALL_ITEMS_FOCUS_SLUG = 'cas_1000btc_gold';
   const ALL_ITEMS_REVEAL_PAINT_BUFFER_MS = 120;
@@ -1088,7 +1093,9 @@
     root.style.setProperty('--zoom', preciseZoom / 100);
     if (oldGradedCaseZoom) adjustGradedCasePanForZoom(oldGradedCaseZoom, preciseZoom / 100);
     updateComparisonSpacing(preciseZoom);
+    syncActiveCoinImageResolution();
     if (allItemsMode) {
+      updateAllItemsImages();
       lockAllItemsGridForFrame();
       lockAllItemsZoomForFrame();
       lockAllItemsModelPositionForZoom();
@@ -1551,7 +1558,7 @@
   function applyTabThumb(thumb, c) {
     if (!thumb || !c) return;
     const isBar = c.shape === 'bar';
-    thumb.style.backgroundImage = cssUrl(coinFrontThumbData(c), { compact: true });
+    thumb.style.backgroundImage = cssUrl(coinFrontThumbData(c), { thumbnail: true });
     thumb.style.backgroundPosition = c.thumbPosition || c.frontPosition || 'center';
     thumb.style.backgroundSize = isBar ? '12px 24px' : (c.thumbBackgroundSize || c.frontBackgroundSize || 'cover');
   }
@@ -1569,7 +1576,7 @@
       const c = COINS.find(coin => coin.slug === slug);
       if (!el || !c) return;
       const isBar = c.shape === 'bar';
-      el.style.backgroundImage = cssUrl(coinFrontThumbData(c), { compact: true });
+      el.style.backgroundImage = cssUrl(coinFrontThumbData(c), { thumbnail: true });
       el.style.backgroundPosition = c.thumbPosition || c.frontPosition || 'center';
       el.style.backgroundSize = isBar ? 'contain' : (c.thumbBackgroundSize || c.frontBackgroundSize || 'cover');
     });
@@ -1716,6 +1723,7 @@
   let priceChartDrag = null;
   let priceChartSuppressClick = false;
   let panelRenderToken = 0;
+  let trackerDataPromise = null;
   let trackerIndexPromise = null;
   let unfundedIndexPromise = null;
   let gradedIndexPromise = null;
@@ -1730,30 +1738,22 @@
   const leftPanelRowsCache = new Map();
   const smoothEdgePaletteCache = new Map();
   const barEdgeTemplateCache = new Map();
-  const coinDataLoadPromises = new Map();
-  const loadedCoinDataSlugs = new Set();
+  const imageLoadPromises = new Map();
   let allItemsRevealedModelSlug = null;
   let allItemsModelRevealToken = 0;
+  let modelImageSwapToken = 0;
+  let allItemsImageSwapToken = 0;
 
-  function coinHasInline3dData(coin) {
-    return String(coin?.frontData || '').startsWith('data:')
-      && String(coin?.backData || '').startsWith('data:');
-  }
-
-  COINS.forEach((coin) => {
-    if (coinHasInline3dData(coin)) loadedCoinDataSlugs.add(coin.slug);
-  });
-
-  function coin3dDataLoaded(slug) {
+  function coinFacesAvailable(slug) {
     const coin = COINS.find(c => c.slug === slug);
-    return Boolean(coin && (loadedCoinDataSlugs.has(slug) || coinHasInline3dData(coin)));
+    return Boolean(coin?.frontData && coin?.backData);
   }
 
   function allItemsFocusedModelRevealed(slug = allItemsFocusedSlug) {
     return Boolean(
       slug
       && allItemsRevealedModelSlug === slug
-      && coin3dDataLoaded(slug)
+      && coinFacesAvailable(slug)
       && model.classList.contains('loaded')
       && !app.classList.contains('all-items-model-pending')
       && !app.classList.contains('all-items-model-hidden')
@@ -1771,66 +1771,6 @@
     scene.style.pointerEvents = 'none';
     clearAllItemsRenderedSceneTransform();
     clearAllItemsExtraScene();
-  }
-
-  function loadScriptOnce(src) {
-    return new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = src;
-      script.async = true;
-      script.onload = () => resolve();
-      script.onerror = () => reject(new Error(`Unable to load ${src}`));
-      document.head.appendChild(script);
-    });
-  }
-
-  function mergeLoadedCoinData(slug) {
-    const item = window.CASASCIUS_ITEM_DATA?.[slug];
-    const coin = COINS.find(c => c.slug === slug);
-    if (!item || !coin) return false;
-    const frontThumbData = coin.frontThumbData || coin.frontData;
-    const backThumbData = coin.backThumbData || coin.backData;
-    Object.assign(coin, item);
-    coin.frontThumbData = frontThumbData;
-    coin.backThumbData = backThumbData;
-    loadedCoinDataSlugs.add(slug);
-    return true;
-  }
-
-  function loadCoin3dData(slug) {
-    const coin = COINS.find(c => c.slug === slug);
-    if (!coin) return Promise.resolve(null);
-    if (coin3dDataLoaded(slug)) return Promise.resolve(coin);
-    if (coinDataLoadPromises.has(slug)) return coinDataLoadPromises.get(slug);
-    const src = `${CASASCIUS_ITEM_DATA_PATH}${encodeURIComponent(slug)}.js`;
-    const promise = loadScriptOnce(src)
-      .then(() => {
-        if (!mergeLoadedCoinData(slug)) throw new Error(`Missing Casascius item data for ${slug}`);
-        return coin;
-      })
-      .catch((error) => {
-        coinDataLoadPromises.delete(slug);
-        throw error;
-      });
-    coinDataLoadPromises.set(slug, promise);
-    return promise;
-  }
-
-  function scheduleRemainingCoinDataLoad() {
-    const slugs = COINS.map(c => c.slug).filter(slug => !coin3dDataLoaded(slug));
-    if (!slugs.length) return;
-    let index = 0;
-    const loadNext = () => {
-      if (index >= slugs.length) return;
-      const slug = slugs[index++];
-      loadCoin3dData(slug).catch(() => {});
-      schedule(loadNext);
-    };
-    const schedule = (fn) => {
-      if ('requestIdleCallback' in window) window.requestIdleCallback(fn, { timeout: 2500 });
-      else setTimeout(fn, 650);
-    };
-    schedule(loadNext);
   }
 
   const metalVars = {
@@ -2341,20 +2281,31 @@
     return gradedIndexPromise;
   }
 
+  function trackerData() {
+    if (!trackerDataPromise) {
+      trackerDataPromise = loadTextFile(TRACKER_CSV_URL)
+        .then(text => {
+          const rows = parseCsv(text);
+          return {
+            entries: buildTrackerIndex(rows),
+            unfunded: rows.map(unfundedEntryFromRow).filter(Boolean)
+          };
+        })
+        .catch(() => ({ entries: [], unfunded: [] }));
+    }
+    return trackerDataPromise;
+  }
+
   function trackerIndex() {
     if (!trackerIndexPromise) {
-      trackerIndexPromise = loadTextFile(TRACKER_CSV_URL)
-        .then(text => buildTrackerIndex(parseCsv(text)))
-        .catch(() => []);
+      trackerIndexPromise = trackerData().then(data => data.entries);
     }
     return trackerIndexPromise;
   }
 
   function unfundedIndex() {
     if (!unfundedIndexPromise) {
-      unfundedIndexPromise = loadTextFile(TRACKER_CSV_URL)
-        .then(text => parseCsv(text).map(unfundedEntryFromRow).filter(Boolean))
-        .catch(() => []);
+      unfundedIndexPromise = trackerData().then(data => data.unfunded);
     }
     return unfundedIndexPromise;
   }
@@ -3081,7 +3032,7 @@
     const selected = selectedLeftPanelAddressByMode[mode] === address
       && (mode !== 'graded' || selectedLeftPanelRecordIdByMode.graded === gradedRecordId);
     const selectedStatusMode = isActiveStatus(entry) ? 'active' : (isUnfundedStatus(entry) ? 'unfunded' : 'recent');
-    const iconImage = cssUrl(coinFrontThumbData(coin), { compact: true });
+    const iconImage = cssUrl(coinFrontThumbData(coin), { thumbnail: true });
     const iconPosition = coin.thumbPosition || coin.frontPosition || 'center';
     const iconSize = isBar ? 'contain' : (coin.thumbBackgroundSize || coin.frontBackgroundSize || 'cover');
     const gradedRecord = mode === 'graded' ? entry.gradedRecord : null;
@@ -3626,8 +3577,10 @@
     if (!allItemsMode || !allItemsDefaultFocusPending || !allItemsBuilt) return false;
     const slug = latestRedeemedAllItemsSlug();
     if (!slug) return false;
+    const alreadyFocused = allItemsFocusedSlug === slug;
     allItemsDefaultFocusPending = false;
     centerAllItemsOnPlacement(nearestAllItemsPlacement(slug), { animate, save: true, animateTransform: false });
+    if (alreadyFocused) revealFocusedAllItemsModel({ updateOverlay: true });
     return true;
   }
 
@@ -4003,7 +3956,7 @@
     const coin = coinOverride || COINS.find(c => c.slug === entry?.slug) || comparisonCoin();
     const isBar = coin.shape === 'bar';
     const status = entry ? (isActiveStatus(entry) ? 'active' : (isUnfundedStatus(entry) ? 'unfunded' : 'recent')) : 'none';
-    const iconImage = cssUrl(iconImageOverride || coinFrontThumbData(coin), { compact: true });
+    const iconImage = cssUrl(iconImageOverride || coinFrontThumbData(coin), { thumbnail: true });
     const iconPosition = iconPositionOverride || coin.thumbPosition || coin.frontPosition || 'center';
     const iconSize = iconSizeOverride || (isBar ? 'contain' : (coin.thumbBackgroundSize || coin.frontBackgroundSize || 'cover'));
     const displayAddress = addressText || entry?.address || 'No selected address';
@@ -7865,16 +7818,85 @@
     return url;
   }
 
-  function imageUrl(data, { compact = false } = {}) {
+  function thumbnailAssetUrl(url) {
+    if (!String(url || '').endsWith('.png')) return url;
+    if (url.startsWith('coins_and_bars/')) {
+      return url.replace(/^coins_and_bars\/(.+)\.png$/, 'coins_and_bars/thumbs/$1.webp');
+    }
+    return compactAssetUrl(url);
+  }
+
+  function imageUrl(data, { compact = false, thumbnail = false, full = false } = {}) {
     const url = objectUrlForDataUrl(data);
-    if ((compact || USE_COMPACT_IMAGE_ASSETS) && String(url || '').endsWith('.png')) return compactAssetUrl(url);
+    if (full || !WEBP_SUPPORTED || !String(url || '').endsWith('.png')) return url;
+    if (thumbnail) return thumbnailAssetUrl(url);
+    if (compact || USE_COMPACT_IMAGE_ASSETS) return compactAssetUrl(url);
     return url;
   }
 
   function cssUrl(data, options) { return `url("${imageUrl(data, options)}")`; }
 
+  function coinImageTier(zoomValue = Number(zoomInput.value || 100)) {
+    return !WEBP_SUPPORTED || Number(zoomValue) >= FULL_RESOLUTION_ZOOM_THRESHOLD ? 'full' : 'preview';
+  }
+
+  function coinImageOptions(tier = coinImageTier()) {
+    return tier === 'full' ? { full: true } : { compact: true };
+  }
+
+  function coinFaceImageKey(c, tier = coinImageTier()) {
+    return `${c?.slug || ''}:${tier}`;
+  }
+
+  function applyCoinFaceImages(c, tier = coinImageTier()) {
+    if (!c) return;
+    const options = coinImageOptions(tier);
+    const frontFace = model.querySelector('.front');
+    const backFace = model.querySelector('.back');
+    if (frontFace) frontFace.style.backgroundImage = cssUrl(c.frontData, options);
+    if (backFace) backFace.style.backgroundImage = cssUrl(c.backData, options);
+    model.dataset.faceImageKey = coinFaceImageKey(c, tier);
+  }
+
+  function preloadCoinFaceImages(c, tier = coinImageTier()) {
+    if (!c?.frontData || !c?.backData) return Promise.reject(new Error('Missing coin face images'));
+    const loadTier = (candidateTier) => {
+      const options = coinImageOptions(candidateTier);
+      return Promise.all([
+        loadImage(c.frontData, options),
+        loadImage(c.backData, options)
+      ]).then(() => candidateTier);
+    };
+    return loadTier(tier).catch((error) => {
+      if (tier === 'full') throw error;
+      return loadTier('full');
+    });
+  }
+
+  function syncActiveCoinImageResolution() {
+    if (!model.classList.contains('loaded')) return Promise.resolve(false);
+    const c = allItemsMode ? allItemsFocusedCoin() : activeCoin();
+    if (!c) return Promise.resolve(false);
+    const tier = coinImageTier();
+    const key = coinFaceImageKey(c, tier);
+    if (model.dataset.faceImageKey === key) return Promise.resolve(true);
+    const token = ++modelImageSwapToken;
+    return preloadCoinFaceImages(c, tier).then((loadedTier) => {
+      const current = allItemsMode ? allItemsFocusedCoin() : activeCoin();
+      if (token !== modelImageSwapToken || current?.slug !== c.slug || coinImageTier() !== tier) return false;
+      applyCoinFaceImages(c, loadedTier);
+      return true;
+    });
+  }
+
+  function useFullAllItemsAtlas() {
+    return !WEBP_SUPPORTED || Number(zoomInput.value || 100) >= FULL_RESOLUTION_ZOOM_THRESHOLD;
+  }
+
   function allItemsImagePath() {
-    return imageUrl(ALL_ITEMS_IMAGE_PATHS[allItemsViewMode] || ALL_ITEMS_IMAGE_PATHS.front);
+    const full = useFullAllItemsAtlas();
+    const paths = full ? ALL_ITEMS_FULL_IMAGE_PATHS : ALL_ITEMS_PREVIEW_IMAGE_PATHS;
+    return imageUrl(paths[allItemsViewMode] || paths.front, { full });
   }
 
   function allItemsScalePx(zoomValue = Number(zoomInput.value)) {
@@ -8551,7 +8573,7 @@
     return true;
   }
 
-  function setAllItemsFocusPlacement(placement) {
+  function setAllItemsFocusPlacement(placement, { revealModel = true } = {}) {
     const item = allItemsPackingItem(placement?.slug);
     if (!item) return;
     const tileX = Number(placement?.tileX || 0);
@@ -8574,7 +8596,7 @@
     allItemsStage?.getBoundingClientRect();
     rememberAllItemsCenteredWorldPoint();
     syncAllItemsLeftPanelSelectionToCentered({ save: true, revealModel: false });
-    revealFocusedAllItemsModel({ updateOverlay: true });
+    if (revealModel) revealFocusedAllItemsModel({ updateOverlay: true });
     requestAnimationFrame(() => {
       allItemsStage?.classList.remove('grid-locked');
     });
@@ -8844,32 +8866,18 @@
   }
 
   function updateAllItemsImages() {
-    if (!allItemsBuilt) return;
-    allItemsStage.querySelectorAll('.all-items-static img').forEach(image => {
-      image.src = allItemsImagePath();
-    });
-  }
-
-  function scheduleAllItemsAtlasPreload() {
-    if (!allItemsMode) return;
-    const currentPath = allItemsImagePath();
-    const paths = Object.values(ALL_ITEMS_IMAGE_PATHS)
-      .map(path => imageUrl(path))
-      .filter(path => path && path !== currentPath);
-    if (!paths.length) return;
-    const run = () => {
-      if (!allItemsMode) return;
-      paths.forEach(path => {
-        const img = new Image();
-        img.decoding = 'async';
-        img.src = path;
+    if (!allItemsBuilt) return Promise.resolve(false);
+    const nextPath = allItemsImagePath();
+    const images = Array.from(allItemsStage.querySelectorAll('.all-items-static img'));
+    if (!images.some(image => image.getAttribute('src') !== nextPath)) return Promise.resolve(true);
+    const token = ++allItemsImageSwapToken;
+    return loadImage(nextPath, { full: true }).then(() => {
+      if (token !== allItemsImageSwapToken || nextPath !== allItemsImagePath()) return false;
+      images.forEach(image => {
+        if (image.getAttribute('src') !== nextPath) image.src = nextPath;
       });
-    };
-    if ('requestIdleCallback' in window) {
-      window.requestIdleCallback(run, { timeout: 1800 });
-    } else {
-      setTimeout(run, 900);
-    }
+      return true;
+    }).catch(() => false);
   }
 
   function setAllItemsControls(enabled) {
@@ -8910,7 +8918,6 @@
     activeGroupKey = ALL_ITEMS_GROUP_KEY;
     saveActiveSlug(ALL_ITEMS_GROUP_KEY);
     applyAllItemsViewMode(allItemsViewMode, { updateImages: false });
-    syncFocusedAllItemsModelWhenLoaded();
     versionTabs.innerHTML = '';
     root.style.setProperty('--version-panel-height', '0px');
     root.style.setProperty('--version-collapse-offset', '0px');
@@ -8919,13 +8926,13 @@
     syncGradedMediaViewer();
     setSelectedTitle(ALL_ITEMS_LABEL);
     if (!allItemsBuilt) buildAllItemsLayout({ syncTarget: !allItemsWindowHasSavedState });
-    scheduleAllItemsAtlasPreload();
     if (allItemsWindowHasSavedState) {
+      syncFocusedAllItemsModelWhenLoaded();
       allItemsStage?.classList.add('grid-locked');
       renderAllItems({ wrap: false, syncTarget: false });
       requestAnimationFrame(() => allItemsStage?.classList.remove('grid-locked'));
     } else {
-      setAllItemsFocusSlug(allItemsFocusedSlug);
+      setAllItemsFocusSlug(allItemsFocusedSlug, { revealModel: !allItemsDefaultFocusPending });
       if (!allItemsDefaultFocusPending) saveAllItemsWindow();
     }
     rememberAllItemsCenteredWorldPoint();
@@ -9372,13 +9379,24 @@
     return samples.right;
   }
 
-  function loadImage(dataUrl) {
-    return new Promise((resolve, reject) => {
+  function loadImage(dataUrl, options) {
+    const src = imageUrl(dataUrl, options);
+    if (imageLoadPromises.has(src)) return imageLoadPromises.get(src);
+    const promise = new Promise((resolve, reject) => {
       const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = reject;
-      img.src = imageUrl(dataUrl);
+      img.decoding = 'async';
+      img.onload = () => {
+        imageLoadPromises.delete(src);
+        resolve(img);
+      };
+      img.onerror = () => {
+        imageLoadPromises.delete(src);
+        reject(new Error(`Unable to load ${src}`));
+      };
+      img.src = src;
     });
+    imageLoadPromises.set(src, promise);
+    return promise;
   }
 
   async function sampleCoinEdgePalette(c) {
@@ -9386,10 +9404,13 @@
     if (smoothEdgePaletteCache.has(cacheKey)) return smoothEdgePaletteCache.get(cacheKey);
 
     const readSamples = async (dataUrl) => {
-      const img = await loadImage(dataUrl);
+      const img = await loadImage(dataUrl, { compact: true });
       const canvas = document.createElement('canvas');
-      canvas.width = img.naturalWidth || img.width;
-      canvas.height = img.naturalHeight || img.height;
+      const naturalWidth = img.naturalWidth || img.width;
+      const naturalHeight = img.naturalHeight || img.height;
+      const sampleScale = Math.min(1, 256 / Math.max(naturalWidth, naturalHeight));
+      canvas.width = Math.max(1, Math.round(naturalWidth * sampleScale));
+      canvas.height = Math.max(1, Math.round(naturalHeight * sampleScale));
       const ctx = canvas.getContext('2d', { willReadFrequently: true });
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       const cx = canvas.width / 2;
@@ -9608,7 +9629,7 @@
     }
   }
 
-  function syncFocusedAllItemsModel({ updateOverlay = true, show = true } = {}) {
+  function syncFocusedAllItemsModel({ updateOverlay = true, show = true, imageTier = coinImageTier() } = {}) {
     if (!allItemsMode) return;
     const c = allItemsFocusedCoin();
     const frontFace = model.querySelector('.front');
@@ -9616,8 +9637,7 @@
     const firstbits = selectedObjectAddress().slice(0, 8);
     model.classList.toggle('bar-active', c.shape === 'bar');
     model.classList.toggle('coin-back-address-active', c.shape !== 'bar' && Boolean(firstbits));
-    frontFace.style.backgroundImage = cssUrl(c.frontData);
-    backFace.style.backgroundImage = cssUrl(c.backData);
+    applyCoinFaceImages(c, imageTier);
     frontFace.style.backgroundPosition = c.frontPosition || 'center';
     backFace.style.backgroundPosition = c.backPosition || 'center';
     const fittedFaceBackgroundSize = c.shape === 'bar'
@@ -9632,6 +9652,7 @@
     buildEdges();
     model.style.opacity = '';
     model.classList.add('loaded');
+    if (imageTier !== coinImageTier()) syncActiveCoinImageResolution();
     allItemsRevealedModelSlug = c.slug;
     if (show) {
       scene.style.opacity = '';
@@ -9647,21 +9668,31 @@
   function syncFocusedAllItemsModelWhenLoaded({ updateOverlay = true, reveal = true } = {}) {
     if (!allItemsMode) return Promise.resolve(false);
     const slug = allItemsFocusedSlug;
+    const c = allItemsFocusedCoin();
     const shouldReveal = reveal && !app.classList.contains('all-items-model-hidden');
-    if (coin3dDataLoaded(slug)) {
-      if (shouldReveal) syncFocusedAllItemsModel({ updateOverlay });
+    if (!coinFacesAvailable(slug)) {
+      if (shouldReveal) hideAllItemsFocusedModel();
+      return Promise.resolve(false);
+    }
+    if (!shouldReveal) return Promise.resolve(true);
+    const imageTier = coinImageTier();
+    if (model.dataset.faceImageKey === coinFaceImageKey(c, imageTier) && model.classList.contains('loaded')) {
+      syncFocusedAllItemsModel({ updateOverlay, imageTier });
       return Promise.resolve(true);
     }
-    if (shouldReveal) hideAllItemsFocusedModel();
-    const loadingKey = `all-items-sync:${slug}:${allItemsModelRevealToken}`;
-    if (shouldReveal) setStageLoading(loadingKey, true);
-    return loadCoin3dData(slug)
-      .then(() => {
-        if (!allItemsMode || allItemsFocusedSlug !== slug) return false;
-        if (shouldReveal) {
-          syncFocusedAllItemsModel({ updateOverlay });
-          renderAllItems({ wrap: false, updateOverlay });
-        }
+    hideAllItemsFocusedModel();
+    const revealToken = allItemsModelRevealToken;
+    const loadingKey = `all-items-sync:${slug}:${revealToken}`;
+    setStageLoading(loadingKey, true);
+    return preloadCoinFaceImages(c, imageTier)
+      .then((loadedTier) => {
+        if (
+          revealToken !== allItemsModelRevealToken
+          || !allItemsMode
+          || allItemsFocusedSlug !== slug
+        ) return false;
+        syncFocusedAllItemsModel({ updateOverlay, imageTier: loadedTier });
+        renderAllItems({ wrap: false, updateOverlay });
         return true;
       })
       .catch(() => false)
@@ -9691,34 +9722,37 @@
   function revealFocusedAllItemsModel({ updateOverlay = true, animateTransform = false, targetAngle = angle, targetTilt = tilt } = {}) {
     if (!allItemsMode) return Promise.resolve(false);
     const slug = allItemsFocusedSlug;
+    const c = allItemsFocusedCoin();
+    if (!coinFacesAvailable(slug)) return Promise.resolve(false);
+    const imageTier = coinImageTier();
     hideAllItemsFocusedModel({ invalidateReveal: false });
     const token = ++allItemsModelRevealToken;
     const loadingKey = `all-items-reveal:${token}`;
     setStageLoading(loadingKey, true);
-    return loadCoin3dData(slug)
-      .then(() => {
-        if (token !== allItemsModelRevealToken || !allItemsMode || allItemsFocusedSlug !== slug) return false;
-        const c = allItemsFocusedCoin();
+    return preloadCoinFaceImages(c, imageTier)
+      .then((loadedTier) => {
+        if (
+          token !== allItemsModelRevealToken
+          || !allItemsMode
+          || allItemsFocusedSlug !== slug
+        ) return false;
         const startAngle = viewAngle(allItemsViewMode, c);
-        return Promise.allSettled([loadImage(c.frontData), loadImage(c.backData)]).then(() => {
-          if (token !== allItemsModelRevealToken || !allItemsMode || allItemsFocusedSlug !== slug) return false;
-          syncFocusedAllItemsModel({ updateOverlay, show: false });
-          setAllItemsPrimarySceneTransform(startAngle, FACE_ON_TILT);
-          scene.style.opacity = '';
-          scene.style.visibility = '';
-          scene.style.pointerEvents = '';
-          app.classList.remove('all-items-model-pending', 'all-items-model-hidden');
-          scene.getBoundingClientRect();
-          return waitForAllItemsRevealPaint(slug, token).then((painted) => {
-            if (!painted) return false;
-            renderAllItems({ wrap: false, updateOverlay });
-            syncAllItemsExtraModelPosition();
-            return waitForAllItemsRevealPaint(slug, token).then((masked) => {
-              if (!masked) return false;
-              if (animateTransform) animateAllItemsSelectionTransform(c, targetAngle, targetTilt);
-              else clearAllItemsRenderedSceneTransform();
-              return true;
-            });
+        syncFocusedAllItemsModel({ updateOverlay, show: false, imageTier: loadedTier });
+        setAllItemsPrimarySceneTransform(startAngle, FACE_ON_TILT);
+        scene.style.opacity = '';
+        scene.style.visibility = '';
+        scene.style.pointerEvents = '';
+        app.classList.remove('all-items-model-pending', 'all-items-model-hidden');
+        scene.getBoundingClientRect();
+        return waitForAllItemsRevealPaint(slug, token).then((painted) => {
+          if (!painted) return false;
+          renderAllItems({ wrap: false, updateOverlay });
+          syncAllItemsExtraModelPosition();
+          return waitForAllItemsRevealPaint(slug, token).then((masked) => {
+            if (!masked) return false;
+            if (animateTransform) animateAllItemsSelectionTransform(c, targetAngle, targetTilt);
+            else clearAllItemsRenderedSceneTransform();
+            return true;
           });
         });
       })
@@ -9777,6 +9811,7 @@
     saveActiveSlug(c.slug);
     rememberGroupSelection(c);
     updateGroupThumb(c);
+    modelImageSwapToken++;
     model.classList.remove('loaded');
     clearEdges();
     applyDimensions(c);
@@ -9794,15 +9829,13 @@
     const playQuarterLayoutAnimation = prepareQuarterLayoutAnimation(previousQuarterLayout);
     app.classList.remove('layout-switching');
     if (playQuarterLayoutAnimation) playQuarterLayoutAnimation();
+    const imageTier = coinImageTier();
     try {
-      try {
-        await loadCoin3dData(c.slug);
-      } catch (_) {}
+      const loadedImageTier = await preloadCoinFaceImages(c, imageTier);
       if (token !== selectionToken) return;
       renderBarAddress(c.addressFirstbits || '', c);
       renderCoinBackAddress(c.backAddressFirstbits || '', c);
-      frontFace.style.backgroundImage = cssUrl(c.frontData);
-      backFace.style.backgroundImage = cssUrl(c.backData);
+      applyCoinFaceImages(c, loadedImageTier);
       frontFace.style.backgroundPosition = c.frontPosition || 'center';
       backFace.style.backgroundPosition = c.backPosition || 'center';
       const fittedFaceBackgroundSize = c.shape === 'bar'
@@ -9815,17 +9848,13 @@
       buildEdges();
       if (quarterComparisonInput.checked) buildQuarterEdges();
       setTransform();
-      Promise.allSettled([loadImage(c.frontData), loadImage(c.backData)]).then(() => {
-        if (token !== selectionToken) return;
-        requestAnimationFrame(() => {
-          if (token === selectionToken) {
-            model.classList.add('loaded');
-            scheduleDataPanelsRefresh();
-            setStageLoading(loadingKey, false);
-          }
-        });
-      }).finally(() => {
-        if (token !== selectionToken) setStageLoading(loadingKey, false);
+      requestAnimationFrame(() => {
+        if (token === selectionToken) {
+          model.classList.add('loaded');
+          if (imageTier !== coinImageTier()) syncActiveCoinImageResolution();
+          scheduleDataPanelsRefresh();
+          setStageLoading(loadingKey, false);
+        }
       });
     } finally {
       if (token !== selectionToken) setStageLoading(loadingKey, false);
@@ -11187,7 +11216,6 @@
   applyQuarterDimensions();
   updateBottomReservedSpace();
   updateComparisonSpacing();
-  buildQuarterEdges();
   syncQuarterComparison();
   renderBarAddress();
   const initialSelection = activeSlug === ALL_ITEMS_GROUP_KEY
@@ -11211,7 +11239,6 @@
               else if (quarterComparisonInput.checked) releaseInitialQuarterBoot();
               else app.classList.remove('quarter-booting', 'all-items-booting');
               if (readBalanceChartOpen()) openBalanceChartModal(readChartModalMode());
-              scheduleRemainingCoinDataLoad();
             });
           });
         });
