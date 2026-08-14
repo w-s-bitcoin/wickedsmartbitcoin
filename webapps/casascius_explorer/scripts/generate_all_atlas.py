@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Render All Coins & Bars atlas PNGs and hitmap metadata with browser canvas."""
+"""Render Casascius atlases and reproducible WebP previews/thumbnails."""
 
 from __future__ import annotations
 
 import json
-import importlib.util
 import re
+import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -23,24 +24,21 @@ MODES = {
     "back": "all_back.png",
     "hologram": "all_hologram.png",
 }
+ATLAS_PREVIEW_MAX_SIDE = 1900
+MODEL_PREVIEW_MAX_SIDE = 1600
+THUMBNAIL_MAX_SIDE = 128
 
 
-def load_image_file_map() -> dict[str, tuple[str, str]]:
-    module_path = ROOT / "scripts" / "update_casascius_data_images.py"
-    spec = importlib.util.spec_from_file_location("update_casascius_data_images", module_path)
-    if spec is None or spec.loader is None:
-        raise SystemExit(f"Could not load image map from {module_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.IMAGE_FILES
-
-
-def load_source_data() -> tuple[list[dict], dict]:
+def load_manifest_coins() -> list[dict]:
     data_text = MANIFEST_JS.read_text()
     coins_match = re.search(r"^const COINS = (\[.*?\]);$", data_text, re.M)
     if not coins_match:
         raise SystemExit("Could not locate COINS array")
-    coins = json.loads(coins_match.group(1))
+    return json.loads(coins_match.group(1))
+
+
+def load_source_data() -> tuple[list[dict], dict]:
+    coins = load_manifest_coins()
 
     text = SOURCE.read_text()
     packing_block = re.search(r"const ALL_ITEMS_PACKING = \{(.*?)\n  \};", text, re.S)
@@ -53,14 +51,12 @@ def load_source_data() -> tuple[list[dict], dict]:
         {"slug": slug, "x": float(x), "y": float(y)}
         for slug, x, y in re.findall(r"\{\s*slug:\s*'([^']+)'\s*,\s*x:\s*([-\d.]+)\s*,\s*y:\s*([-\d.]+)\s*\}", block)
     ]
-    image_files = load_image_file_map()
     for coin in coins:
-        slug = coin.get("slug")
-        if slug not in image_files:
-            raise SystemExit(f"No source image mapping for {slug}")
-        front, back = image_files[slug]
-        coin["frontData"] = (ROOT / "coins_and_bars" / front).as_uri()
-        coin["backData"] = (ROOT / "coins_and_bars" / back).as_uri()
+        for field in ("frontData", "backData"):
+            image_path = ROOT / str(coin.get(field) or "")
+            if not image_path.is_file():
+                raise SystemExit(f"Missing {field} for {coin.get('slug')}: {image_path}")
+            coin[field] = image_path.as_uri()
 
     return coins, {"widthMm": width, "heightMm": height, "items": items}
 
@@ -69,6 +65,84 @@ def load_source_data() -> tuple[list[dict], dict]:
 def color_for_index(index: int) -> tuple[int, int, int]:
     value = index + 1
     return value & 255, (value >> 8) & 255, (value >> 16) & 255
+
+
+def png_dimensions(path: Path) -> tuple[int, int]:
+    with path.open("rb") as image_file:
+        header = image_file.read(24)
+    if len(header) != 24 or header[:8] != b"\x89PNG\r\n\x1a\n":
+        raise SystemExit(f"Expected a PNG image: {path}")
+    return struct.unpack(">II", header[16:24])
+
+
+def write_webp_preview(source: Path, output: Path, *, max_side: int, quality: int) -> None:
+    cwebp = shutil.which("cwebp")
+    if not cwebp:
+        raise SystemExit("cwebp is required to rebuild Casascius WebP assets")
+    if not source.exists():
+        raise SystemExit(f"Missing source image: {source}")
+    width, height = png_dimensions(source)
+    scale = min(1.0, max_side / max(width, height))
+    resized_width = max(1, round(width * scale))
+    resized_height = max(1, round(height * scale))
+    output.parent.mkdir(parents=True, exist_ok=True)
+    command = [
+        cwebp,
+        "-quiet",
+        "-q",
+        str(quality),
+        "-alpha_q",
+        "90",
+        "-m",
+        "6",
+        "-metadata",
+        "none",
+    ]
+    if scale < 1.0:
+        command.extend(["-resize", str(resized_width), str(resized_height)])
+    command.extend([str(source), "-o", str(output)])
+    subprocess.run(command, check=True)
+
+
+def write_atlas_previews(requested_modes: list[str]) -> None:
+    for mode in requested_modes:
+        filename = MODES[mode]
+        write_webp_preview(
+            ASSET_DIR / filename,
+            ASSET_DIR / "mobile" / Path(filename).with_suffix(".webp").name,
+            max_side=ATLAS_PREVIEW_MAX_SIDE,
+            quality=80,
+        )
+
+
+def write_coin_previews() -> None:
+    coins = load_manifest_coins()
+    image_paths = sorted({str(coin[field]) for coin in coins for field in ("frontData", "backData")})
+    for relative_path in image_paths:
+        source = ROOT / relative_path
+        webp_name = source.with_suffix(".webp").name
+        write_webp_preview(
+            source,
+            ROOT / "coins_and_bars" / "mobile" / webp_name,
+            max_side=MODEL_PREVIEW_MAX_SIDE,
+            quality=84,
+        )
+
+    thumbnail_paths = sorted({str(coin["frontData"]) for coin in coins})
+    thumbnail_dir = ROOT / "coins_and_bars" / "thumbs"
+    expected_thumbnails = {Path(path).with_suffix(".webp").name for path in thumbnail_paths}
+    for stale_thumbnail in thumbnail_dir.glob("*.webp"):
+        if stale_thumbnail.name not in expected_thumbnails:
+            stale_thumbnail.unlink()
+    for relative_path in thumbnail_paths:
+        source = ROOT / relative_path
+        webp_name = source.with_suffix(".webp").name
+        write_webp_preview(
+            source,
+            thumbnail_dir / webp_name,
+            max_side=THUMBNAIL_MAX_SIDE,
+            quality=78,
+        )
 
 
 def render_html(coins: list[dict], packing: dict) -> str:
@@ -211,6 +285,19 @@ def chrome_screenshot(html_uri: str, output: Path, mode: str, width: int, height
 
 
 def main() -> int:
+    args = sys.argv[1:]
+    previews_only = "--previews-only" in args
+    requested_modes = [arg for arg in args if arg != "--previews-only"] or list(MODES)
+    unknown_modes = sorted(set(requested_modes) - set(MODES))
+    if unknown_modes:
+        raise SystemExit(f"Unknown atlas mode(s): {', '.join(unknown_modes)}")
+
+    if previews_only:
+        write_atlas_previews(requested_modes)
+        write_coin_previews()
+        print(f"Wrote WebP previews and thumbnails beneath {ROOT}")
+        return 0
+
     if not CHROME.exists():
         raise SystemExit(f"Chrome not found: {CHROME}")
     coins, packing = load_source_data()
@@ -222,13 +309,12 @@ def main() -> int:
         tmp_path = Path(tmp)
         html_path = tmp_path / "atlas.html"
         html_path.write_text(render_html(coins, packing))
-        requested_modes = sys.argv[1:] or list(MODES)
-        unknown_modes = sorted(set(requested_modes) - set(MODES))
-        if unknown_modes:
-            raise SystemExit(f"Unknown atlas mode(s): {', '.join(unknown_modes)}")
         for mode in requested_modes:
             filename = MODES[mode]
             chrome_screenshot(html_path.as_uri(), ASSET_DIR / filename, mode, width, height, tmp_path / "profile")
+
+    write_atlas_previews(requested_modes)
+    write_coin_previews()
 
     refs = []
     for index, packed in enumerate(packing["items"]):
@@ -244,7 +330,7 @@ def main() -> int:
         "items": refs,
     }
     (ASSET_DIR / "all_items_map.json").write_text(json.dumps(metadata, indent=2) + "\n")
-    print(f"Wrote atlas {width}x{height} to {ASSET_DIR}")
+    print(f"Wrote atlas {width}x{height}, WebP previews, and thumbnails beneath {ROOT}")
     return 0
 
 

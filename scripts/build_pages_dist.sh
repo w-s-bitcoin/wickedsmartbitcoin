@@ -67,6 +67,8 @@ rm -f "$DIST"/assets/btcusd_10m_prices.csv
 rm -rf "$DIST"/webapps/*/pipeline
 rm -rf "$DIST"/webapps/*/scripts
 rm -rf "$DIST"/webapps/*/gradings
+# Casascius item scripts are legacy base64 copies of manifest-referenced images.
+rm -rf "$DIST"/webapps/casascius_explorer/assets/items
 rm -rf "$DIST"/webapps/quantum_exposure/webapp_data/archived
 rm -rf "$DIST"/webapps/quantum_exposure/webapp_data/arkham
 
