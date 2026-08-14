@@ -613,14 +613,22 @@
 
       window.addEventListener('resize', function () {
         if (!isBuyMeVisible) return;
-        positionThanksMethodButtonsForOrientation();
+        if (typeof positionThanksMethodButtonsForOrientation === 'function') {
+          positionThanksMethodButtonsForOrientation();
+        }
       });
       window.addEventListener('orientationchange', function () {
         if (!isBuyMeVisible) return;
-        positionThanksMethodButtonsForOrientation();
+        if (typeof positionThanksMethodButtonsForOrientation === 'function') {
+          positionThanksMethodButtonsForOrientation();
+        }
       });
-      window.addEventListener('resize', handleThanksOverlayResize);
-      window.addEventListener('orientationchange', handleThanksOverlayResize);
+      window.addEventListener('resize', function () {
+        if (typeof handleThanksOverlayResize === 'function') handleThanksOverlayResize();
+      });
+      window.addEventListener('orientationchange', function () {
+        if (typeof handleThanksOverlayResize === 'function') handleThanksOverlayResize();
+      });
     </script>
     <script src="webapps/issuance_rate/standalone_bootstrap.js" defer></script>
   </body>
