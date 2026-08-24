@@ -4475,7 +4475,8 @@
       const view = normalizeBip110NodeView(nodeView);
       if (view === "bip110") {
         const nodePeriods = state.data?.bip110NodePeriods || state.dynamicData?.bip110NodePeriods;
-        if (Array.isArray(nodePeriods) && nodePeriods.length) return nodePeriods;
+        const hasNodeDataset = Boolean(state.data?.metadata?.datasets?.bip110_node_blocks);
+        if (Array.isArray(nodePeriods) && (nodePeriods.length || hasNodeDataset)) return nodePeriods;
       }
       return state.data?.bip110Periods || state.dynamicData?.bip110Periods || [];
     }
@@ -4484,7 +4485,8 @@
       const view = normalizeBip110NodeView(nodeView);
       if (view === "bip110") {
         const nodeBlocks = state.data?.bip110NodeBlocks || state.dynamicData?.bip110NodeBlocks;
-        if (Array.isArray(nodeBlocks) && nodeBlocks.length) return nodeBlocks;
+        const hasNodeDataset = Boolean(state.data?.metadata?.datasets?.bip110_node_blocks);
+        if (Array.isArray(nodeBlocks) && (nodeBlocks.length || hasNodeDataset)) return nodeBlocks;
       }
       return state.data?.bip110Blocks || state.dynamicData?.bip110Blocks || [];
     }
@@ -4518,9 +4520,34 @@
       return getPeriodGridRows(datasetKey).find((row) => Number(row.period) === target) || null;
     }
 
-    function getCurrentBip110PeriodNumber() {
-      const currentPeriod = Number(state.data?.metadata?.state?.current_period_index);
-      return Number.isFinite(currentPeriod) ? currentPeriod : null;
+    function getCurrentBip110PeriodNumber(nodeView = "legacy") {
+      const view = normalizeBip110NodeView(nodeView);
+      const blocks = getBip110BlocksForNodeView(view);
+      const latestBlock = blocks.reduce((latest, block) => {
+        const height = Number(block?.height);
+        if (!Number.isFinite(height)) return latest;
+        return !latest || height > Number(latest.height) ? block : latest;
+      }, null);
+      const blockPeriod = Number(latestBlock?.period);
+      if (Number.isFinite(blockPeriod)) return blockPeriod;
+
+      const selectedHeight = Number(getSelectedMainNodeHeight(state.data?.metadata, view));
+      const heightRow = Number.isFinite(selectedHeight)
+        ? getBip110PeriodsForNodeView(view).find((row) => {
+          const start = Number(row?.period_start_height);
+          const end = Number(row?.period_end_height);
+          return Number.isFinite(start) && Number.isFinite(end) && selectedHeight >= start && selectedHeight <= end;
+        })
+        : null;
+      const heightPeriod = Number(heightRow?.period);
+      if (Number.isFinite(heightPeriod)) return heightPeriod;
+
+      if (view === "legacy") {
+        const rawMetadataPeriod = state.data?.metadata?.state?.current_period_index;
+        const metadataPeriod = Number(rawMetadataPeriod);
+        if (rawMetadataPeriod !== null && rawMetadataPeriod !== "" && Number.isFinite(metadataPeriod)) return metadataPeriod;
+      }
+      return null;
     }
 
     function getPeriodGridAvailablePeriods(datasetKey = getPeriodGridDataset()) {
@@ -4533,7 +4560,7 @@
     function getDefaultPeriodGridPeriod(datasetKey = getPeriodGridDataset()) {
       const availablePeriods = getPeriodGridAvailablePeriods(datasetKey);
       if (datasetKey === "bip110") {
-        const currentPeriod = getCurrentBip110PeriodNumber();
+        const currentPeriod = getCurrentBip110PeriodNumber(state.periodGridNodeView);
         if (Number.isFinite(currentPeriod) && availablePeriods.includes(currentPeriod)) {
           return currentPeriod;
         }
@@ -5383,8 +5410,8 @@
       });
     }
 
-    function getPeriodFilterForWindow(windowName) {
-      const currentPeriod = getCurrentBip110PeriodNumber();
+    function getPeriodFilterForWindow(windowName, nodeView = "legacy") {
+      const currentPeriod = getCurrentBip110PeriodNumber(nodeView);
       if (!Number.isFinite(currentPeriod)) return null;
       if (windowName === "current") {
         return currentPeriod;
@@ -5396,7 +5423,7 @@
     }
 
     function getLeaderboardPeriodFilter() {
-      return getPeriodFilterForWindow(state.leaderboardWindow);
+      return getPeriodFilterForWindow(state.leaderboardWindow, "legacy");
     }
 
     function getLeaderboardFilteredBlocks(blocks) {
@@ -5410,8 +5437,8 @@
       });
     }
 
-    function getFilteredBlocksForWindow(blocks, windowName) {
-      const periodFilter = getPeriodFilterForWindow(windowName);
+    function getFilteredBlocksForWindow(blocks, windowName, nodeView = "legacy") {
+      const periodFilter = getPeriodFilterForWindow(windowName, nodeView);
       const windowMs = getWindowMs(windowName);
       let windowStartMs = null;
       if (windowMs) {
@@ -5580,6 +5607,7 @@
     function getBip110TimelineMinerMap() {
       const selectedMap = getBip110MinerMapForNodeView(state.minerTimelineNodeView);
       if (selectedMap) return selectedMap;
+      if (normalizeBip110NodeView(state.minerTimelineNodeView) === "bip110") return {};
       const full = state.dynamicData?.bip110SignalMiners || state.data?.bip110SignalMiners;
       if (full && typeof full === "object" && Object.keys(full).length > 0) {
         return full;
@@ -5632,7 +5660,7 @@
 
     function getBip110TimelineBlocks() {
       const allBlocks = getBip110BlocksForNodeView(state.minerTimelineNodeView);
-      const blocks = getFilteredBlocksForWindow(allBlocks, state.minerTimelineWindow);
+      const blocks = getFilteredBlocksForWindow(allBlocks, state.minerTimelineWindow, state.minerTimelineNodeView);
       const periodSize = Number(state.data?.metadata?.chart?.period_size || 2016);
       const loadedPeriods = blocks
         .map((block) => Number(block?.period))
@@ -5775,7 +5803,7 @@
       }, -1);
       const allBlocks = getBip110BlocksForNodeView(state.minerTimelineNodeView);
       const latest14dBlocks = state.minerTimelineWindow === "all"
-        ? getFilteredBlocksForWindow(allBlocks, "past14d")
+        ? getFilteredBlocksForWindow(allBlocks, "past14d", state.minerTimelineNodeView)
         : [];
       const visibleWindowMetrics = state.minerTimelineWindow === "all"
         ? getTimelineWindowMetricsForBlocks(latest14dBlocks, firstPeriod, periodSize)
@@ -7049,7 +7077,7 @@
 
       if (Number.isFinite(bip110Tip) && bip110Tip > headEnd) {
         if (bip110ShouldCollapse && Number.isFinite(bip110HeadEnd)) {
-          addEllipsis("bip110-gap", "bip110", yPositions.bip110Y, bip110HeadEnd + 1, bip110Tip - 1);
+          addEllipsis(headEnd, "bip110", yPositions.bip110Y, bip110HeadEnd + 1, bip110Tip - 1);
           addPosition(bip110Tip, "bip110", yPositions.bip110Y);
         } else {
           const start = Number.isFinite(bip110HeadEnd) ? bip110HeadEnd + 1 : splitStart;
