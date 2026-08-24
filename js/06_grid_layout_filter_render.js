@@ -33,7 +33,7 @@ const DASHBOARD_CARD_PREVIEW_SPECS = Object.freeze({
     height: 720,
   },
   'bip110_signaling.png': {
-    url: 'webapps/bip110_signaling/preview.html',
+    url: 'webapps/bip110_signaling/preview.html?v=20260824-period-bars-v1',
     width: 1280,
     height: 720,
   },
