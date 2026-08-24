@@ -564,8 +564,8 @@
       }
     }
 
-    const CHAIN_SPLIT_COLLAPSE_ICON = `<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><line x1="3.4" y1="8" x2="12.6" y2="8"></line><polyline points="6.2,5.2 3.4,8 6.2,10.8"></polyline><polyline points="9.8,5.2 12.6,8 9.8,10.8"></polyline></svg>`;
-    const CHAIN_SPLIT_EXPAND_ICON = `<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><line x1="3.4" y1="8" x2="12.6" y2="8"></line><polyline points="3.4,5.2 6.2,8 3.4,10.8"></polyline><polyline points="12.6,5.2 9.8,8 12.6,10.8"></polyline></svg>`;
+    const CHAIN_SPLIT_COLLAPSE_ICON = `<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><polyline points="3.4,5.2 6.2,8 3.4,10.8"></polyline><polyline points="12.6,5.2 9.8,8 12.6,10.8"></polyline></svg>`;
+    const CHAIN_SPLIT_EXPAND_ICON = `<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><polyline points="6.2,5.2 3.4,8 6.2,10.8"></polyline><polyline points="9.8,5.2 12.6,8 9.8,10.8"></polyline></svg>`;
 
     function syncChainSplitCollapseButtons(model = null) {
       const splitModel = model || getChainSplitModel();
@@ -4083,8 +4083,8 @@
       return clampPanelResizeHeight(Math.max(minPerPanel, Math.floor(availableForPanels / count)));
     }
 
-    const FILL_BTN_SVG_EXPAND = `<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><line x1="8" y1="3.8" x2="8" y2="12.2"></line><polyline points="5.2,6.2 8,3.4 10.8,6.2"></polyline><polyline points="5.2,9.8 8,12.6 10.8,9.8"></polyline></svg>`;
-    const FILL_BTN_SVG_COMPACT = `<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><line x1="8" y1="3.8" x2="8" y2="12.2"></line><polyline points="5.2,3.4 8,6.2 10.8,3.4"></polyline><polyline points="5.2,12.6 8,9.8 10.8,12.6"></polyline></svg>`;
+    const FILL_BTN_SVG_EXPAND = `<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><polyline points="5.2,6.2 8,3.4 10.8,6.2"></polyline><polyline points="5.2,9.8 8,12.6 10.8,9.8"></polyline></svg>`;
+    const FILL_BTN_SVG_COMPACT = `<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><polyline points="5.2,3.4 8,6.2 10.8,3.4"></polyline><polyline points="5.2,12.6 8,9.8 10.8,12.6"></polyline></svg>`;
 
     function updateFillButtonState(key) {
       const btn = getFillButtonElement(key);
@@ -7019,6 +7019,7 @@
       const ellipsisSlots = [];
       const visibleStart = Math.max(rangeStart, commonHeight - preCommonBlocks + 1);
       const visibleEnd = Math.min(rangeEnd, legacyHeight);
+      const baseSlotOffset = Math.max(0, visibleStart - rangeStart);
 
       const addSlot = (key) => {
         const slotKey = String(key);
@@ -7038,7 +7039,7 @@
         positions.push({
           height: h,
           block,
-          x: startX + slot * gap,
+          x: startX + (baseSlotOffset + slot) * gap,
           y,
           nodeView,
           detailLoaded: !!block,
@@ -7095,15 +7096,15 @@
       }
 
       const currentTipSlot = slotMap.get(String(legacyHeight));
-      const currentTipX = startX + (Number.isFinite(currentTipSlot) ? currentTipSlot : Math.max(0, slotHeights.length - 1)) * gap;
+      const currentTipX = startX + (baseSlotOffset + (Number.isFinite(currentTipSlot) ? currentTipSlot : Math.max(0, slotHeights.length - 1))) * gap;
       const ellipses = ellipsisSlots.map((item) => ({
-        x: startX + item.slot * gap,
+        x: startX + (baseSlotOffset + item.slot) * gap,
         y: item.y,
         nodeView: item.nodeView,
         hiddenStart: item.hiddenStart,
         hiddenEnd: item.hiddenEnd,
       }));
-      const stageCount = Math.max(1, slotHeights.length);
+      const stageCount = Math.max(1, baseSlotOffset + slotHeights.length);
       const stageWidth = getChainSplitStageWidth(stageCount, gap, startX, size, depth);
       return {
         positions,
@@ -7112,6 +7113,67 @@
         currentTipX,
         stageCount,
         stageWidth,
+        visibleStart,
+      };
+    }
+
+    function getCollapsedSplitViewportLayout(model, layout, options = {}) {
+      if (!model || !layout) return null;
+      const rangeStart = Number(model.rangeStart);
+      const commonHeight = Number(model.latestCommonHeight);
+      const gap = Number(options.gap);
+      const startX = Number(options.startX);
+      const size = Number(options.size);
+      const depth = Number(options.depth);
+      const viewportClientWidth = Number(options.viewportClientWidth);
+      const viewportWidth = Number(options.viewportWidth);
+      const currentRightPad = Number(options.currentRightPad);
+      const localPad = Number(options.localPad);
+      const currentScrollLeft = Number(options.currentScrollLeft || 0);
+      const shouldFollowLatest = Boolean(options.shouldFollowLatest);
+      if (![rangeStart, commonHeight, gap, startX, size, depth, viewportClientWidth, viewportWidth, currentRightPad, localPad]
+        .every(Number.isFinite)) return null;
+
+      const anchorShift = getCollapsedSplitChainRightAnchorShift(layout, viewportClientWidth, currentRightPad);
+      const currentTipX = Number(layout.currentTipX) + anchorShift;
+      const targetStageWidth = Math.max(
+        getChainSplitStageWidth(layout.stageCount, gap, startX, size, depth),
+        currentTipX + localPad + currentRightPad
+      );
+      const latestScrollLeft = clamp(
+        currentTipX - (viewportClientWidth - currentRightPad),
+        0,
+        Math.max(0, targetStageWidth - viewportClientWidth)
+      );
+      const targetScrollLeft = shouldFollowLatest
+        ? latestScrollLeft
+        : clamp(currentScrollLeft, 0, latestScrollLeft);
+      const xOffset = Math.max(0, targetScrollLeft - localPad);
+      const collapsedPositions = layout.positions.map((item) => ({
+        ...item,
+        x: Number(item.x) + anchorShift - xOffset,
+      }));
+      const ellipses = getCollapsedSplitDisplayEllipses(layout, anchorShift, xOffset);
+      const trunkRange = getChainSplitScrollRange(rangeStart, commonHeight, gap, startX, size, depth, {
+        scrollLeft: targetScrollLeft,
+        clientWidth: viewportClientWidth,
+      });
+      const trunkPositions = trunkRange
+        ? getVirtualSplitChainPositions(model, rangeStart, trunkRange, gap, startX, xOffset, options.yPositions)
+          .filter((item) => Number(item.height) < Number(layout.visibleStart))
+        : [];
+
+      return {
+        anchorShift,
+        collapsedPositions,
+        currentTipX,
+        ellipses,
+        latestScrollLeft,
+        positions: [...trunkPositions, ...collapsedPositions],
+        stageWidth: Math.max(targetStageWidth, viewportWidth),
+        targetScrollLeft,
+        trunkRange,
+        xOffset,
       };
     }
 
@@ -7626,32 +7688,38 @@
             legacyY,
           },
         });
-        if (collapsedLayout && (shouldFollowLatest || state.minerTimelineChainSplitFollowLatest === true)) {
-          const anchorShift = getCollapsedSplitChainRightAnchorShift(collapsedLayout, viewportClientWidth, currentRightPad);
-          const totalBlockCount = Math.floor(rangeEnd - rangeStart + 1);
-          const fullCurrentTipX = startX + Math.max(0, totalBlockCount - 1) * gap;
-          const fullHistoryShift = Math.max(anchorShift, fullCurrentTipX - collapsedLayout.currentTipX);
-          const currentTipX = collapsedLayout.currentTipX + fullHistoryShift;
-          const targetStageWidth = Math.max(
-            getChainSplitStageWidth(totalBlockCount, gap, startX, size, depth),
-            currentTipX + localPad + currentRightPad
-          );
-          const latestScrollLeft = clamp(
-            currentTipX - (viewportClientWidth - currentRightPad),
-            0,
-            Math.max(0, targetStageWidth - viewportClientWidth)
-          );
-          const targetScrollLeft = latestScrollLeft;
-          const xOffset = Math.max(0, targetScrollLeft - localPad);
-          const displayPositions = collapsedLayout.positions.map((item) => ({ ...item, x: item.x + fullHistoryShift - xOffset }));
-          const displayEllipses = getCollapsedSplitDisplayEllipses(collapsedLayout, fullHistoryShift, xOffset);
-          const stageWidth = Math.max(targetStageWidth, viewportWidth);
+        if (collapsedLayout) {
+          const collapsedViewport = getCollapsedSplitViewportLayout(model, collapsedLayout, {
+            gap,
+            startX,
+            size,
+            depth,
+            viewportClientWidth,
+            viewportWidth,
+            currentRightPad,
+            localPad,
+            currentScrollLeft: minerTimelineChainSplit.scrollLeft,
+            shouldFollowLatest,
+            yPositions: { trunkY: splitY, bip110Y, legacyY },
+          });
+          if (!collapsedViewport) return;
+          const { collapsedPositions, currentTipX, ellipses: displayEllipses, positions: displayPositions, stageWidth, targetScrollLeft, trunkRange, xOffset } = collapsedViewport;
           width = viewportWidth + localPad * 2;
           minerTimelineChainSplit.dataset.currentTipX = String(currentTipX);
           minerTimelineChainSplit.dataset.currentRightPad = String(currentRightPad);
           minerTimelineChainSplit.dataset.currentTipLocalPad = String(localPad);
           minerTimelineChainSplit.dataset.virtualScrollSpace = "1";
-          markers = renderMinerTimelineMiniChainPeriodMarkers(displayPositions, {
+          const historicalMarkers = trunkRange
+            ? renderMinerTimelineMiniChainVirtualMarkers(rangeStart, Number(model.latestCommonHeight), trunkRange, {
+              size,
+              depth,
+              gap,
+              startX,
+              yTop: topY,
+              yBottom: height,
+            }, "legacy", xOffset)
+            : "";
+          markers = historicalMarkers + renderMinerTimelineMiniChainPeriodMarkers(collapsedPositions, {
             size,
             depth,
             yTop: topY,
@@ -8004,32 +8072,38 @@
             legacyY,
           },
         });
-        if (collapsedLayout && (shouldFollowLatest || state.mainChainSplitFollowLatest === true)) {
-          const anchorShift = getCollapsedSplitChainRightAnchorShift(collapsedLayout, viewportClientWidth, currentRightPad);
-          const totalBlockCount = Math.floor(rangeEnd - rangeStart + 1);
-          const fullCurrentTipX = startX + Math.max(0, totalBlockCount - 1) * gap;
-          const fullHistoryShift = Math.max(anchorShift, fullCurrentTipX - collapsedLayout.currentTipX);
-          const currentTipX = collapsedLayout.currentTipX + fullHistoryShift;
-          const targetStageWidth = Math.max(
-            getChainSplitStageWidth(totalBlockCount, gap, startX, size, depth),
-            currentTipX + localPad + currentRightPad
-          );
-          const latestScrollLeft = clamp(
-            currentTipX - (viewportClientWidth - currentRightPad),
-            0,
-            Math.max(0, targetStageWidth - viewportClientWidth)
-          );
-          const targetScrollLeft = latestScrollLeft;
-          const xOffset = Math.max(0, targetScrollLeft - localPad);
-          const displayPositions = collapsedLayout.positions.map((item) => ({ ...item, x: item.x + fullHistoryShift - xOffset }));
-          const displayEllipses = getCollapsedSplitDisplayEllipses(collapsedLayout, fullHistoryShift, xOffset);
-          const stageWidth = Math.max(targetStageWidth, viewportWidth);
+        if (collapsedLayout) {
+          const collapsedViewport = getCollapsedSplitViewportLayout(model, collapsedLayout, {
+            gap,
+            startX,
+            size,
+            depth,
+            viewportClientWidth,
+            viewportWidth,
+            currentRightPad,
+            localPad,
+            currentScrollLeft: mainChainSplit.scrollLeft,
+            shouldFollowLatest,
+            yPositions: { trunkY: splitY, bip110Y, legacyY },
+          });
+          if (!collapsedViewport) return;
+          const { collapsedPositions, currentTipX, ellipses: displayEllipses, positions: displayPositions, stageWidth, targetScrollLeft, trunkRange, xOffset } = collapsedViewport;
           width = viewportWidth + localPad * 2;
           mainChainSplit.dataset.currentTipX = String(currentTipX);
           mainChainSplit.dataset.currentRightPad = String(currentRightPad);
           mainChainSplit.dataset.currentTipLocalPad = String(localPad);
           mainChainSplit.dataset.virtualScrollSpace = "1";
-          markers = renderMinerTimelineMiniChainPeriodMarkers(displayPositions, {
+          const historicalMarkers = trunkRange
+            ? renderMinerTimelineMiniChainVirtualMarkers(rangeStart, Number(model.latestCommonHeight), trunkRange, {
+              size,
+              depth,
+              gap,
+              startX,
+              yTop: topY,
+              yBottom: height,
+            }, "legacy", xOffset)
+            : "";
+          markers = historicalMarkers + renderMinerTimelineMiniChainPeriodMarkers(collapsedPositions, {
             size,
             depth,
             yTop: topY,
@@ -8424,34 +8498,36 @@
             legacyY,
           },
         });
-        if (collapsedLayout && (shouldFollowLatest || state.chainSplitFollowLatest === true)) {
+        if (collapsedLayout) {
           const currentRightPad = collapsedCurrentRightPad;
-          const anchorShift = getCollapsedSplitChainRightAnchorShift(collapsedLayout, viewportClientWidth, currentRightPad);
-          const totalBlockCount = Math.floor(rangeEnd - rangeStart + 1);
-          const fullCurrentTipX = startX + Math.max(0, totalBlockCount - 1) * gap;
-          const fullHistoryShift = Math.max(anchorShift, fullCurrentTipX - collapsedLayout.currentTipX);
-          const currentTipX = collapsedLayout.currentTipX + fullHistoryShift;
-          const targetStageWidth = Math.max(
-            getChainSplitStageWidth(totalBlockCount, gap, startX, cubeSize, cubeDepth),
-            currentTipX + localPad + currentRightPad
-          );
-          const latestScrollLeft = clamp(
-            currentTipX - (viewportClientWidth - currentRightPad),
-            0,
-            Math.max(0, targetStageWidth - viewportClientWidth)
-          );
-          const targetScrollLeft = latestScrollLeft;
-          const xOffset = Math.max(0, targetScrollLeft - localPad);
-          const displayPositions = collapsedLayout.positions.map((item) => ({ ...item, x: item.x + fullHistoryShift - xOffset }));
-          const displayEllipses = getCollapsedSplitDisplayEllipses(collapsedLayout, fullHistoryShift, xOffset);
-          const stageWidth = Math.max(targetStageWidth, viewportWidth);
+          const collapsedViewport = getCollapsedSplitViewportLayout(model, collapsedLayout, {
+            gap,
+            startX,
+            size: cubeSize,
+            depth: cubeDepth,
+            viewportClientWidth,
+            viewportWidth,
+            currentRightPad,
+            localPad,
+            currentScrollLeft: chainSplitContent.scrollLeft,
+            shouldFollowLatest,
+            yPositions: { trunkY: splitY, bip110Y, legacyY },
+          });
+          if (!collapsedViewport) return;
+          const { collapsedPositions, currentTipX, ellipses: displayEllipses, positions: displayPositions, stageWidth, targetScrollLeft, trunkRange, xOffset } = collapsedViewport;
           const width = viewportWidth + localPad * 2;
           const height = reservedHeight;
           chainSplitContent.dataset.currentTipX = String(currentTipX);
           chainSplitContent.dataset.currentRightPad = String(currentRightPad);
           chainSplitContent.dataset.currentTipLocalPad = String(localPad);
           chainSplitContent.dataset.virtualScrollSpace = "1";
-          const markers = renderChainSplitPeriodMarkers(displayPositions, {
+          const historicalMarkers = trunkRange
+            ? renderChainSplitVirtualMarkers(rangeStart, Number(model.latestCommonHeight), trunkRange, {
+              ...metrics,
+              straightHeight: reservedHeight,
+            }, "legacy", xOffset)
+            : "";
+          const markers = historicalMarkers + renderChainSplitPeriodMarkers(collapsedPositions, {
             ...metrics,
             yTop: -1,
             yBottom: height + 1,
