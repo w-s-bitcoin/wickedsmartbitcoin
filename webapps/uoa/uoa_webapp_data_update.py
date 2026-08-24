@@ -4,6 +4,7 @@
 import argparse
 import csv
 import json
+import os
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 import time
@@ -52,6 +53,7 @@ EXCLUDED_SOURCE_CURRENCIES = {"CNH", "MRO"}
 CUP_INFORMAL_API_URL = "https://api.cambiocuba.money/api/v1/x-rates-by-date-range"
 CUP_INFORMAL_PERIOD = "2Y"
 CUP_INFORMAL_SOURCE_LABEL = "elTOQUE TRMI via CUP=X"
+OUTPUT_DIR_ENV = "UOA_WEBAPP_DATA_DIR"
 VES_REDENOMINATION_EVENTS = [
     {"date": "2018-05-29", "ratio": 100000, "ratioLabel": "100,000:1"},
     {"date": "2018-08-20", "ratio": 100000, "ratioLabel": "100,000:1"},
@@ -96,6 +98,24 @@ REDENOMINATION_EVENTS = {
     "TJS": TJS_REDENOMINATION_EVENTS,
     "TMT": TMT_REDENOMINATION_EVENTS,
 }
+
+
+def source_data_dir():
+    return Path(__file__).resolve().parent / "webapp_data"
+
+
+def output_data_dir():
+    return Path(os.getenv(OUTPUT_DIR_ENV, str(source_data_dir()))).expanduser()
+
+
+def input_data_path(output_dir, filename):
+    """Read staged data when present, otherwise seed from the tracked dataset."""
+    staged_path = output_dir / filename
+    if staged_path.exists():
+        return staged_path
+    return source_data_dir() / filename
+
+
 NOTABLE_EVENTS = {    "VES": [
         {
             "date": "2013-02-19",
@@ -636,6 +656,42 @@ def apply_cup_informal_rates(df, period=CUP_INFORMAL_PERIOD):
     return out, len(rates), rates[0][0], rates[-1][0]
 
 
+def restore_existing_cup_rates(df, existing_df):
+    """Keep the last deployed informal CUP series when its optional API is down."""
+    out = df.copy()
+    if "cupusd" not in out.columns or "cupusd" not in existing_df.columns:
+        return out
+
+    existing = existing_df[["date", "cupusd"]].copy()
+    existing["date"] = pd.to_datetime(existing["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    existing["cupusd"] = pd.to_numeric(existing["cupusd"], errors="coerce")
+    existing = existing.dropna(subset=["date", "cupusd"]).drop_duplicates("date", keep="last")
+    if existing.empty:
+        return out
+
+    rate_map = dict(zip(existing["date"], existing["cupusd"]))
+    date_iso = pd.to_datetime(out["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    carried = date_iso.map(rate_map).ffill()
+    current = pd.to_numeric(out["cupusd"], errors="coerce")
+    out["cupusd"] = carried.combine_first(current)
+    return out
+
+
+def apply_cup_informal_rates_best_effort(df, existing_df):
+    """Refresh optional informal CUP data without blocking the primary FX update."""
+    try:
+        out, count, start, end = apply_cup_informal_rates(df)
+        print(f"  Applied informal CUP/USD rates: {count} rows ({start}..{end})")
+        return out, count, start, end
+    except Exception as exc:
+        out = restore_existing_cup_rates(df, existing_df)
+        print(
+            "  WARNING: Informal CUP/USD refresh failed; retaining and forward-filling "
+            f"the last deployed informal series ({type(exc).__name__}: {exc})"
+        )
+        return out, 0, None, None
+
+
 def fill_missing_dates(df, start_date, end_date):
     """Forward-fill missing dates (weekends/holidays) in dataframe"""
     # Create a complete date range
@@ -1173,9 +1229,12 @@ def annotate_cup_informal_source(uoa_data):
 
 def refresh_cup_only():
     """Refresh only the `cupusd` column using the informal-market source."""
-    webapp_data_dir = Path(__file__).parent / "webapp_data"
+    webapp_data_dir = output_data_dir()
+    webapp_data_dir.mkdir(parents=True, exist_ok=True)
     fx_rates_file = webapp_data_dir / "daily_fx_rates.csv"
     uoa_pairs_file = webapp_data_dir / "uoa_pairs.json"
+    fx_rates_input_file = input_data_path(webapp_data_dir, "daily_fx_rates.csv")
+    uoa_pairs_input_file = input_data_path(webapp_data_dir, "uoa_pairs.json")
 
     print("=" * 60)
     print("Updating CUP/USD informal-market rates only")
@@ -1184,7 +1243,7 @@ def refresh_cup_only():
     rates = fetch_cup_informal_usd_rates()
     rate_map = {date_value: rate for date_value, rate in rates}
     tmp_file = fx_rates_file.with_suffix(fx_rates_file.suffix + ".tmp")
-    with open(fx_rates_file, newline="", encoding="utf-8") as src, open(tmp_file, "w", newline="", encoding="utf-8") as dst:
+    with open(fx_rates_input_file, newline="", encoding="utf-8") as src, open(tmp_file, "w", newline="", encoding="utf-8") as dst:
         reader = csv.DictReader(src)
         fieldnames = list(reader.fieldnames or [])
         if "date" not in fieldnames:
@@ -1210,7 +1269,7 @@ def refresh_cup_only():
         f"({first_date}..{last_date})"
     )
 
-    with open(uoa_pairs_file, "r") as f:
+    with open(uoa_pairs_input_file, "r") as f:
         uoa_data = json.load(f)
     annotate_cup_informal_source(uoa_data)
     uoa_data["generated_at_utc"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -1240,9 +1299,12 @@ def main():
     if pd is None or np is None:
         raise RuntimeError("Full refresh requires numpy and pandas; use --cup-only for the lightweight CUP refresh.")
 
-    webapp_data_dir = Path(__file__).parent / "webapp_data"
+    webapp_data_dir = output_data_dir()
+    webapp_data_dir.mkdir(parents=True, exist_ok=True)
     fx_rates_file = webapp_data_dir / "daily_fx_rates.csv"
     uoa_pairs_file = webapp_data_dir / "uoa_pairs.json"
+    fx_rates_input_file = input_data_path(webapp_data_dir, "daily_fx_rates.csv")
+    uoa_pairs_input_file = input_data_path(webapp_data_dir, "uoa_pairs.json")
 
     print("=" * 60)
     print("Updating FX Rates for Multiple Currency Pairs")
@@ -1250,7 +1312,7 @@ def main():
 
     # Load existing CSV to get current range and refresh from the latest stored day forward.
     print("\nLoading existing FX rates...")
-    existing_df = pd.read_csv(fx_rates_file)
+    existing_df = pd.read_csv(fx_rates_input_file)
     existing_df['date'] = pd.to_datetime(existing_df['date'])
     min_date = existing_df['date'].min().strftime('%Y-%m-%d')
     max_date = existing_df['date'].max().strftime('%Y-%m-%d')
@@ -1336,10 +1398,9 @@ def main():
     cup_rates_start = None
     cup_rates_end = None
     if "cupusd" in df_combined.columns:
-        df_combined, cup_rates_count, cup_rates_start, cup_rates_end = apply_cup_informal_rates(df_combined)
-        print(
-            "  Applied informal CUP/USD rates: "
-            f"{cup_rates_count} rows ({cup_rates_start}..{cup_rates_end})"
+        df_combined, cup_rates_count, cup_rates_start, cup_rates_end = apply_cup_informal_rates_best_effort(
+            df_combined,
+            existing_df,
         )
 
     # Keep raw source values in vesusd; apply only targeted lag cleanup post-event.
@@ -1382,7 +1443,7 @@ def main():
 
     # Update uoa_pairs.json
     print("\nUpdating uoa_pairs.json...")
-    with open(uoa_pairs_file, 'r') as f:
+    with open(uoa_pairs_input_file, 'r') as f:
         uoa_data = json.load(f)
 
     # Rebuild currencies from source-supported set (plus BTC/USD), preserving BTC metadata.
