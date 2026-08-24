@@ -1,15 +1,19 @@
 (function () {
   const AUTO_REFRESH_MS = 60000;
-  const GRID_LAYOUT = Object.freeze({
-    cols: 63,
-    cellSizePx: 19,
-    gapPx: 1,
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const LATEST_LOCK_IN_PERIOD = 19;
+  const CHART = Object.freeze({
+    width: 1280,
+    height: 720,
+    padX: 36,
+    padY: 40,
+    maxBarWidth: 46,
+    minimumSignalHeight: 5.5,
   });
 
   const state = {
     metadata: null,
     periods: [],
-    bip110Blocks: [],
   };
 
   function parseCsv(text) {
@@ -82,126 +86,150 @@
     });
   }
 
-  function decodeBlockPoints(buffer, startHeight, periodSize, datasetMeta = {}) {
-    const view = new DataView(buffer);
-    const declaredRecordSize = Number(datasetMeta?.record_size);
-    const declaredRows = Number(datasetMeta?.rows);
-    const inferredRecordSize = Number.isFinite(declaredRows) && declaredRows > 0
-      ? buffer.byteLength / declaredRows
-      : null;
-    const supportedRecordSizes = new Set([5, 9, 13]);
-    const recordSize = supportedRecordSizes.has(declaredRecordSize)
-      ? declaredRecordSize
-      : (supportedRecordSizes.has(inferredRecordSize)
-        ? inferredRecordSize
-        : (buffer.byteLength % 13 === 0 ? 13 : (buffer.byteLength % 9 === 0 ? 9 : 5)));
-    const count = Math.floor(view.byteLength / recordSize);
-    const rows = new Array(count);
-
-    for (let index = 0; index < count; index += 1) {
-      const offset = index * recordSize;
-      const height = view.getUint32(offset, true);
-      const isSignaling = view.getUint8(offset + 4);
-      const version = recordSize >= 9 ? view.getUint32(offset + 5, true) : null;
-      const blockTime = recordSize >= 13 ? view.getUint32(offset + 9, true) : null;
-      const relativeHeight = height - startHeight;
-      const period = Math.floor(relativeHeight / periodSize) + 1;
-
-      rows[index] = {
-        height,
-        is_signaling: isSignaling,
-        version,
-        block_time: blockTime,
-        period,
-      };
-    }
-
-    return rows;
-  }
-
   function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
   }
 
-  function getCurrentPeriodNumber() {
-    const currentPeriod = Number(state.metadata?.state?.current_period_index);
-    return Number.isFinite(currentPeriod) ? currentPeriod : null;
+  function getPeriodSize() {
+    const periodSize = Number(
+      state.metadata?.chart?.period_size
+      || state.metadata?.datasets?.bip110_blocks?.period_size
+      || 2016
+    );
+    return Number.isFinite(periodSize) && periodSize > 0 ? periodSize : 2016;
   }
 
-  function getCurrentPeriodRow() {
-    const currentPeriod = getCurrentPeriodNumber();
-    if (!Number.isFinite(currentPeriod)) return null;
-    return state.periods.find((row) => Number(row.period) === currentPeriod) || null;
-  }
+  function getMainChainPeriod() {
+    const inProgress = state.periods.find((row) => String(row.status || "") === "in_progress");
+    const inProgressPeriod = Number(inProgress?.period);
+    if (Number.isFinite(inProgressPeriod)) return inProgressPeriod;
 
-  function buildCurrentPeriodCells() {
-    const periodSize = Number(state.metadata?.chart?.period_size || 2016);
-    const row = getCurrentPeriodRow();
-    if (!row) return [];
-
-    const currentPeriod = Number(row.period);
-    const startHeight = Number(row.period_start_height);
-    if (!Number.isFinite(startHeight)) return [];
-
-    const currentPeriodBlocks = state.bip110Blocks.filter((block) => Number(block.period) === currentPeriod);
-    const blockByHeight = new Map();
-    currentPeriodBlocks.forEach((block) => {
-      blockByHeight.set(Number(block.height), block);
-    });
-    const mined = clamp(currentPeriodBlocks.length, 0, periodSize);
-
-    const cells = [];
-    for (let offset = 0; offset < periodSize; offset += 1) {
-      const height = startHeight + offset;
-      const block = blockByHeight.get(height) || null;
-      if (block) {
-        cells.push(Number(block.is_signaling) === 1 ? "is-signaling" : "is-nonsignaling");
-        continue;
-      }
-      cells.push(offset < mined ? "is-nonsignaling" : "");
+    const periodSize = getPeriodSize();
+    const firstPeriod = state.periods.find((row) => Number(row.period) === 1);
+    const firstHeight = Number(firstPeriod?.period_start_height);
+    const sourceHeight = Number(state.metadata?.source_block_height);
+    if (Number.isFinite(firstHeight) && Number.isFinite(sourceHeight) && sourceHeight >= firstHeight) {
+      return Math.floor((sourceHeight - firstHeight) / periodSize) + 1;
     }
-    return cells;
+
+    const metadataPeriod = Number(state.metadata?.state?.current_period_index);
+    if (Number.isFinite(metadataPeriod)) return metadataPeriod;
+
+    const completedPeriods = Number(state.metadata?.state?.completed_periods);
+    return Number.isFinite(completedPeriods) ? completedPeriods : null;
+  }
+
+  function getVisiblePeriods() {
+    const currentMainPeriod = getMainChainPeriod();
+    if (!Number.isFinite(currentMainPeriod)) return [];
+    const lastVisiblePeriod = Math.min(LATEST_LOCK_IN_PERIOD, currentMainPeriod);
+    return state.periods
+      .filter((row) => {
+        const period = Number(row.period);
+        return Number.isFinite(period) && period >= 1 && period <= lastVisiblePeriod;
+      })
+      .sort((left, right) => Number(left.period) - Number(right.period));
+  }
+
+  function createSvgElement(tagName, attributes = {}) {
+    const element = document.createElementNS(SVG_NS, tagName);
+    Object.entries(attributes).forEach(([name, value]) => {
+      element.setAttribute(name, String(value));
+    });
+    return element;
+  }
+
+  function minedBlocksForPeriod(row, currentMainPeriod, periodSize) {
+    const period = Number(row.period);
+    const status = String(row.status || "");
+    if (status === "completed" || period < currentMainPeriod) return periodSize;
+
+    const elapsed = Number(row.elapsed_blocks);
+    if (Number.isFinite(elapsed)) return clamp(elapsed, 0, periodSize);
+
+    const startHeight = Number(row.period_start_height);
+    const sourceHeight = Number(state.metadata?.source_block_height);
+    if (period === currentMainPeriod && Number.isFinite(startHeight) && Number.isFinite(sourceHeight)) {
+      return clamp(sourceHeight - startHeight + 1, 0, periodSize);
+    }
+    return 0;
   }
 
   function render() {
-    const grid = document.getElementById("previewGrid");
-    if (!grid) return;
+    const chart = document.getElementById("previewChart");
+    if (!chart) return;
+    chart.replaceChildren();
 
-    grid.style.setProperty("--grid-cols", String(GRID_LAYOUT.cols));
-    grid.style.setProperty("--grid-cell-size", `${GRID_LAYOUT.cellSizePx}px`);
-    grid.style.setProperty("--grid-gap", `${GRID_LAYOUT.gapPx}px`);
+    const rows = getVisiblePeriods();
+    if (!rows.length) return;
 
-    const cells = buildCurrentPeriodCells();
-    grid.innerHTML = "";
+    const periodSize = getPeriodSize();
+    const currentMainPeriod = getMainChainPeriod();
+    const plotWidth = CHART.width - (CHART.padX * 2);
+    const plotHeight = CHART.height - (CHART.padY * 2);
+    const step = plotWidth / rows.length;
+    const barWidth = Math.min(CHART.maxBarWidth, step * 0.72);
+    const baseline = CHART.height - CHART.padY;
 
     const fragment = document.createDocumentFragment();
-    cells.forEach((className) => {
-      const cell = document.createElement("div");
-      cell.className = `preview-cell${className ? ` ${className}` : ""}`;
-      fragment.appendChild(cell);
+    rows.forEach((row, index) => {
+      const period = Number(row.period);
+      const minedBlocks = minedBlocksForPeriod(row, currentMainPeriod, periodSize);
+      const signalBlocks = clamp(Number(row.signal_blocks) || 0, 0, minedBlocks);
+      const minedHeight = (minedBlocks / periodSize) * plotHeight;
+      const actualSignalHeight = (signalBlocks / periodSize) * plotHeight;
+      const signalHeight = signalBlocks > 0
+        ? Math.min(minedHeight, Math.max(actualSignalHeight, CHART.minimumSignalHeight))
+        : 0;
+      const x = CHART.padX + (index * step) + ((step - barWidth) / 2);
+      const group = createSvgElement("g", {
+        "data-period": period,
+        "data-mined-blocks": minedBlocks,
+        "data-signal-blocks": signalBlocks,
+      });
+      const title = createSvgElement("title");
+      title.textContent = `Period ${period}: ${signalBlocks.toLocaleString()} signaling blocks out of ${minedBlocks.toLocaleString()} mined`;
+      group.appendChild(title);
+
+      if (minedHeight > 0) {
+        group.appendChild(createSvgElement("rect", {
+          class: "period-nonsignal",
+          x,
+          y: baseline - minedHeight,
+          width: barWidth,
+          height: minedHeight,
+        }));
+      }
+      if (signalHeight > 0) {
+        group.appendChild(createSvgElement("rect", {
+          class: "period-signal",
+          x,
+          y: baseline - signalHeight,
+          width: barWidth,
+          height: signalHeight,
+        }));
+      }
+      fragment.appendChild(group);
     });
-    grid.appendChild(fragment);
+    chart.appendChild(fragment);
+    chart.setAttribute(
+      "aria-label",
+      `Main-chain BIP-110 signaling periods 1 through ${Number(rows[rows.length - 1].period)}`
+    );
   }
 
   async function load() {
-    const [metadataResp, periodsResp, blockPointsResp] = await Promise.all([
+    const [metadataResp, periodsResp] = await Promise.all([
       fetch("webapp_data/bip110_metadata.json", { cache: "no-store" }),
       fetch("webapp_data/bip110_periods.csv", { cache: "no-store" }),
-      fetch("webapp_data/bip110_block_points.bin", { cache: "no-store" }),
     ]);
 
     if (!metadataResp.ok) throw new Error(`Failed to load webapp_data/bip110_metadata.json (${metadataResp.status})`);
     if (!periodsResp.ok) throw new Error(`Failed to load webapp_data/bip110_periods.csv (${periodsResp.status})`);
-    if (!blockPointsResp.ok) throw new Error(`Failed to load webapp_data/bip110_block_points.bin (${blockPointsResp.status})`);
 
     const metadataRoot = await metadataResp.json();
     state.metadata = metadataRoot;
     state.periods = castRows(parseCsv(await periodsResp.text()));
-
-    const datasetMeta = state.metadata?.datasets?.bip110_blocks || {};
-    const startHeight = Number(datasetMeta.start_height || 0);
-    const periodSize = Number(datasetMeta.period_size || state.metadata?.chart?.period_size || 2016);
-    state.bip110Blocks = decodeBlockPoints(await blockPointsResp.arrayBuffer(), startHeight, periodSize, datasetMeta);
   }
 
   async function init() {
