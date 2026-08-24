@@ -4,26 +4,20 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style id="wsb-early-black">html,body{background:#000;color:#f1f5f7;}:root[data-theme="light"],:root[data-theme="light"] body{background:#ffffff;color:#111827;}</style>
-    <title>BIP-110 Signaling Preview</title>
+  <title>BIP-110 Signaling Preview</title>
   <link rel="preload" href="webapp_data/bip110_metadata.json" as="fetch" crossorigin />
   <link rel="preload" href="webapp_data/bip110_periods.csv" as="fetch" crossorigin />
-  <link rel="preload" href="webapp_data/bip110_block_points.bin" as="fetch" crossorigin />
   <style>
     :root {
       --bg: #000;
       --signal: #ff9800;
       --nonsignal: #8b8f93;
-      --future: #171717;
-      --grid-cols: 63;
-      --grid-cell-size: 19px;
-      --grid-gap: 1px;
     }
 
     :root[data-theme="light"] {
       --bg: #ffffff;
       --signal: #ff9800;
       --nonsignal: #c8c8c8;
-      --future: #e8e0d4;
     }
 
     html,
@@ -35,39 +29,31 @@
       background: var(--bg);
     }
 
-    body {
-      display: flex;
-      align-items: center;
-      justify-content: center;
+    .preview-chart {
+      display: block;
+      width: 100%;
+      height: 100%;
     }
 
-    .preview-grid {
-      display: grid;
-      grid-template-columns: repeat(var(--grid-cols), var(--grid-cell-size));
-      gap: var(--grid-gap);
-      width: max-content;
-      height: max-content;
-      margin: auto;
+    .period-nonsignal {
+      fill: var(--nonsignal);
     }
 
-    .preview-cell {
-      width: var(--grid-cell-size);
-      height: var(--grid-cell-size);
-      background: var(--future);
-    }
-
-    .preview-cell.is-signaling {
-      background: var(--signal);
-    }
-
-    .preview-cell.is-nonsignaling {
-      background: var(--nonsignal);
+    .period-signal {
+      fill: var(--signal);
     }
   </style>
 </head>
 <body>
-  <div class="preview-grid" id="previewGrid" aria-label="Current BIP-110 signaling period grid"></div>
+  <svg
+    class="preview-chart"
+    id="previewChart"
+    viewBox="0 0 1280 720"
+    preserveAspectRatio="none"
+    role="img"
+    aria-label="Main-chain BIP-110 signaling periods through the latest lock-in period"
+  ></svg>
   <script src="../shared/preview_shared.js?v=20260612-grid-ready-v2"></script>
-  <script src="preview_app.js?v=20260612-grid-ready-v2"></script>
+  <script src="preview_app.js?v=20260824-period-bars-v1"></script>
 </body>
 </html>
