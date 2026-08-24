@@ -1213,6 +1213,13 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
     border-radius: 10px;
 }
 
+.chart-container:focus .chart-wrapper {
+    border-color: var(--brand);
+    box-shadow:
+        0 0 0 2px var(--brand),
+        0 0 18px rgba(247, 147, 26, 0.72);
+}
+
 .chart-wrapper {
     position: relative;
     width: 100%;

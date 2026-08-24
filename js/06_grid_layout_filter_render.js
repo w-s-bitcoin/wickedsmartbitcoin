@@ -921,6 +921,7 @@ function filterImages(options = {}){
       const card = cardByFilename.get(_cardKey(pendingFilename));
       const target = card?.container?.querySelector?.('.chart-container');
       if (target && typeof target.focus === 'function' && target.offsetParent !== null) {
+        lastOpenedFilename = pendingFilename;
         requestAnimationFrame(() => {
           try { target.focus({ preventScroll: true }); }
           catch (_) { target.focus(); }

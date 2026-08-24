@@ -424,9 +424,9 @@
     updateFavoriteButton();
   }
 
-  function closeModal() {
+  function closeModal(options = {}) {
     if (isDateRangeExportActive()) return;
-    if (isPlaybackActive()) return;
+    if (isPlaybackActive() && options.allowDuringPlayback !== true) return;
     document.body?.classList?.remove("uoa-dashboard-expanded");
     try {
       const filename = String(currentImage?.filename || STANDALONE_FILENAME).trim();

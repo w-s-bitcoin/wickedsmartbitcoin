@@ -367,6 +367,166 @@
     }
   }
 
+  function forwardEmbeddedModalNavigationShortcuts() {
+    try {
+      if (window.self === window.top) return;
+
+      const parentWindow = window.parent;
+      const parentDocument = parentWindow?.document;
+      const modalEmbed = parentDocument?.getElementById('modal-embed');
+      if (!parentDocument || modalEmbed?.contentWindow !== window) return;
+
+      const parentHandlerKey = '__wsbModalNavigationShortcutHandler';
+
+      const shortcutAction = (event) => {
+        if (!event?.shiftKey || event.altKey || event.ctrlKey || event.metaKey || event.isComposing) return null;
+        if (event.code === 'Comma' || event.key === '<') return 'prev';
+        if (event.code === 'Period' || event.key === '>') return 'next';
+        if (event.code === 'Space' || event.key === ' ' || event.key === 'Spacebar') return 'home';
+        const key = String(event.key || '').toLowerCase();
+        if (event.code === 'KeyS' || key === 's') return 'favorite';
+        if (event.code === 'KeyX' || key === 'x') return 'x';
+        if (event.code === 'KeyY' || key === 'y') return 'youtube';
+        return null;
+      };
+
+      const isTextEntryTarget = (target) => {
+        if (!target || typeof target.closest !== 'function') return false;
+        return !!target.closest([
+          'input',
+          'textarea',
+          'select',
+          'option',
+          '[contenteditable="true"]',
+          '[contenteditable=""]',
+          '[contenteditable]',
+          '[role="textbox"]'
+        ].join(', '));
+      };
+
+      const isVisible = (element, ownerWindow) => {
+        if (!(element instanceof ownerWindow.Element) || element.hidden) return false;
+        const style = ownerWindow.getComputedStyle(element);
+        return style.display !== 'none' && style.visibility !== 'hidden';
+      };
+
+      const isActiveModalEmbed = () => {
+        const currentEmbed = parentDocument.getElementById('modal-embed');
+        const modal = parentDocument.getElementById('modal');
+        return currentEmbed?.contentWindow === window && isVisible(modal, parentWindow);
+      };
+
+      const hasBlockingParentOverlay = () => {
+        const youtubeOverlay = parentDocument.getElementById('youtube-overlay');
+        if (youtubeOverlay && !youtubeOverlay.classList.contains('hidden') && isVisible(youtubeOverlay, parentWindow)) {
+          return true;
+        }
+
+        const thanksOverlay = parentDocument.getElementById('thanks-overlay');
+        if (thanksOverlay && isVisible(thanksOverlay, parentWindow)) return true;
+
+        const buyCoffeeOverlay = parentDocument.getElementById('buyCoffeeOverlay');
+        return !!(
+          buyCoffeeOverlay
+          && buyCoffeeOverlay.getAttribute('aria-hidden') === 'false'
+          && isVisible(buyCoffeeOverlay, parentWindow)
+        );
+      };
+
+      const navigationIsLocked = () => !!(
+        window.wsbDashboardExportActive
+        || window.dateRangeExportActive
+        || parentWindow.wsbDashboardExportActive
+        || parentWindow.dateRangeExportActive
+      );
+
+      const availableModalLink = (id, dataAttribute) => {
+        const link = parentDocument.getElementById(id);
+        if (!link || !isVisible(link, parentWindow)) return null;
+        if (link.classList.contains('disabled') || link.getAttribute('aria-disabled') === 'true') return null;
+        const href = String(
+          (dataAttribute ? link.dataset?.[dataAttribute] : '')
+          || link.getAttribute('href')
+          || ''
+        ).trim();
+        if (!href || href === '#') return null;
+        try {
+          const url = new URL(href, parentWindow.location.href);
+          if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+        } catch (_) {
+          return null;
+        }
+        return link;
+      };
+
+      const resolveActionTarget = (action) => {
+        if (action === 'favorite') {
+          return typeof parentWindow.toggleFavoriteFromModal === 'function'
+            ? parentWindow.toggleFavoriteFromModal
+            : null;
+        }
+        if (action === 'x') return availableModalLink('x-link');
+        if (action === 'youtube') return availableModalLink('youtube-link', 'youtube');
+        if (action === 'home') return typeof parentWindow.closeModal === 'function' ? parentWindow.closeModal : null;
+        return action === 'prev' || action === 'next' ? action : null;
+      };
+
+      const handleShortcut = (event) => {
+        const action = shortcutAction(event);
+        if (!action || !isActiveModalEmbed()) return;
+        if (isTextEntryTarget(event.target) || hasBlockingParentOverlay() || navigationIsLocked()) return;
+        const actionTarget = resolveActionTarget(action);
+        if (!actionTarget) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+
+        if (event.repeat && (action === 'favorite' || action === 'x' || action === 'youtube')) return;
+
+        if (action === 'home') {
+          actionTarget({ allowDuringPlayback: true, source: 'keyboard' });
+          return;
+        }
+
+        if (action === 'favorite') {
+          actionTarget();
+          return;
+        }
+
+        if (action === 'x' || action === 'youtube') {
+          actionTarget.click();
+          return;
+        }
+
+        parentWindow.postMessage({
+          type: 'wsb-dashboard-swipe',
+          direction: action,
+          source: 'keyboard',
+        }, window.location.origin);
+      };
+
+      document.addEventListener('keydown', handleShortcut, true);
+
+      const previousParentHandler = parentDocument[parentHandlerKey];
+      if (typeof previousParentHandler === 'function') {
+        parentDocument.removeEventListener('keydown', previousParentHandler, true);
+      }
+      parentDocument[parentHandlerKey] = handleShortcut;
+      parentDocument.addEventListener('keydown', handleShortcut, true);
+
+      const cleanup = () => {
+        document.removeEventListener('keydown', handleShortcut, true);
+        if (parentDocument[parentHandlerKey] === handleShortcut) {
+          parentDocument.removeEventListener('keydown', handleShortcut, true);
+          delete parentDocument[parentHandlerKey];
+        }
+      };
+      window.addEventListener('pagehide', cleanup, { once: true });
+    } catch (_) {
+    }
+  }
+
   function updateInfoPopoverPosition(popover) {
     if (!(popover instanceof Element)) return;
 
@@ -404,6 +564,7 @@
   window.WSBDashboardShared = window.WSBDashboardShared || {};
   window.WSBDashboardShared.applyEmbeddedModalTopClearance = applyEmbeddedModalTopClearance;
   window.WSBDashboardShared.createDashboardControlLock = createDashboardControlLock;
+  window.WSBDashboardShared.forwardEmbeddedModalNavigationShortcuts = forwardEmbeddedModalNavigationShortcuts;
   window.WSBDashboardShared.forwardEmbeddedSwipeGestures = forwardEmbeddedSwipeGestures;
   window.WSBDashboardShared.updateInfoPopoverPosition = updateInfoPopoverPosition;
   window.WSBDashboardShared.setupInfoPopoverPlacement = setupInfoPopoverPlacement;
@@ -414,6 +575,7 @@
   ensureDashboardPresentationModeStyles();
   applyEmbeddedModalTopClearance();
   watchDashboardPresentationModeControls();
+  forwardEmbeddedModalNavigationShortcuts();
   forwardEmbeddedSwipeGestures();
   setupInfoPopoverPlacement();
 }());
