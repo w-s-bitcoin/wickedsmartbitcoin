@@ -1955,6 +1955,30 @@
       return state.controls.showBip110Node ? "bip110" : "legacy";
     }
 
+    function getActiveSignalingPeriodForNodeView(data, nodeView) {
+      const view = normalizeBip110NodeView(nodeView);
+      const rows = getBip110PeriodsForDataNodeView(data, view);
+      if (!rows.length) return null;
+
+      if (view === "legacy") {
+        const currentPeriod = Number(data?.metadata?.state?.current_period_index);
+        if (!Number.isFinite(currentPeriod)) return null;
+        return rows.find((row) => Number(row?.period) === currentPeriod) || null;
+      }
+
+      const selectedHeight = Number(getSelectedMainNodeHeight(data?.metadata, view));
+      const heightRow = Number.isFinite(selectedHeight)
+        ? rows.find((row) => {
+          const start = Number(row?.period_start_height);
+          const end = Number(row?.period_end_height);
+          return Number.isFinite(start) && Number.isFinite(end) && selectedHeight >= start && selectedHeight <= end;
+        })
+        : null;
+      return rows.find((row) => String(row?.status || "").toLowerCase() === "in_progress")
+        || heightRow
+        || null;
+    }
+
     function getBip110PeriodsForDataNodeView(data, nodeView) {
       const view = normalizeBip110NodeView(nodeView);
       if (view === "bip110" && Array.isArray(data?.bip110NodePeriods) && data.bip110NodePeriods.length) {
@@ -2641,16 +2665,9 @@
 
     function setStatus(data) {
       const meta = data.metadata;
-      const s = meta.state;
-      const currentPeriod = Number(s.current_period_index);
       const currentPeriodNodeView = getSelectedMainNodeView();
-      const currentPeriodRows = getBip110PeriodsForDataNodeView(data, currentPeriodNodeView);
-      const currentPeriodRow = currentPeriodRows.find((row) => Number(row.period) === currentPeriod)
-        || currentPeriodRows[currentPeriodRows.length - 1]
-        || null;
-      const currentPeriodLabel = Number.isFinite(Number(currentPeriodRow?.period))
-        ? Number(currentPeriodRow.period)
-        : currentPeriod;
+      const currentPeriodRow = getActiveSignalingPeriodForNodeView(data, currentPeriodNodeView);
+      const currentPeriodLabel = Number(currentPeriodRow?.period);
       const currentSignal = currentPeriodRow ? Number(currentPeriodRow.signal_blocks || 0) : null;
       const currentSignalPct = currentPeriodRow
         ? pctLabel(Number(currentPeriodRow.signal_blocks || 0), Number(meta.chart.period_size))
@@ -2759,14 +2776,18 @@
         includeHeight: Number.isFinite(Number(updatedHeight)) && Number(updatedHeight) > 0,
         height: updatedHeight,
       });
-      const periodSignalValue = currentSignal != null
-        ? `<span class="chip-value-signal">${currentSignal.toLocaleString()}</span> (${currentSignalPct})`
-        : `<span class="chip-value-signal">...</span>`;
-      appendStatusChip(
-        "Period",
-        `${Number.isFinite(currentPeriodLabel) ? currentPeriodLabel : "N/A"} <span class="chip-label">Signaling</span> ${periodSignalValue}`,
-        currentPeriodNodeView === "bip110" ? "Shown for the BIP-110 node view." : "Shown for the main node view."
-      );
+      if (currentPeriodRow) {
+        const periodSignalValue = currentSignal != null
+          ? `<span class="chip-value-signal">${currentSignal.toLocaleString()}</span> (${currentSignalPct})`
+          : `<span class="chip-value-signal">...</span>`;
+        appendStatusChip(
+          "Period",
+          `${Number.isFinite(currentPeriodLabel) ? currentPeriodLabel : "N/A"} <span class="chip-label">Signaling</span> ${periodSignalValue}`,
+          currentPeriodNodeView === "bip110"
+            ? "Shown from the active signaling period reported by the BIP-110 node."
+            : "Shown for the main node while its signaling window is active."
+        );
+      }
       appendMainHashrateChip();
       bindSelectDropdowns();
     }
@@ -6992,13 +7013,8 @@
         const hiddenEndHeight = Number(ellipsisHiddenEnd);
         if (!Number.isFinite(hiddenStartHeight) || !Number.isFinite(hiddenEndHeight) || hiddenEndHeight < hiddenStartHeight) return null;
         const slot = addSlot(key);
-        const previousPosition = positions.slice().reverse().find((position) => position.nodeView === nodeView);
-        const attachedX = previousPosition
-          ? Number(previousPosition.x) + getChainSplitSideDepth(depth) + size
-          : startX + slot * gap;
         const item = {
           slot,
-          attachedX,
           nodeView,
           y,
           hiddenStart: hiddenStartHeight,
@@ -7041,10 +7057,46 @@
         addPosition(height, "legacy", yPositions.legacyY);
       }
 
+      const cubeWidth = getChainSplitSideDepth(depth) + size;
+      const ellipsisSquare = size <= 64
+        ? Math.max(4, Math.round(size * 0.14))
+        : Math.max(6, Math.round(size * 0.12));
+      const ellipsisSquareGap = size <= 64
+        ? Math.max(5, Math.round(ellipsisSquare * 1.25))
+        : Math.max(8, Math.round(ellipsisSquare * 1.35));
+      const ellipsisWidth = ellipsisSquare * 3 + ellipsisSquareGap * 2;
+      const ellipsisSideGap = Math.max(2, gap - cubeWidth);
+
+      ellipsisSlots.forEach((item) => {
+        const previousPosition = positions
+          .filter((position) => position.nodeView === item.nodeView && Number(position.height) < item.hiddenStart)
+          .sort((a, b) => Number(b.height) - Number(a.height))[0];
+        const nextPosition = positions
+          .filter((position) => position.nodeView === item.nodeView && Number(position.height) > item.hiddenEnd)
+          .sort((a, b) => Number(a.height) - Number(b.height))[0];
+        if (!previousPosition || !nextPosition) return;
+        const previousRight = Number(previousPosition.x) + cubeWidth;
+        const firstDotX = previousRight + ellipsisSideGap;
+        const desiredNextX = firstDotX + ellipsisWidth + ellipsisSideGap;
+        const nextX = Number(nextPosition.x);
+        const tailShift = nextX - desiredNextX;
+        positions.forEach((position) => {
+          if (position.nodeView === item.nodeView && Number(position.height) >= Number(nextPosition.height)) {
+            position.x = Number(position.x) - tailShift;
+          }
+        });
+        item.x = firstDotX;
+      });
+
+      const currentTipPosition = positions.find((position) => (
+        position.nodeView === "legacy" && Number(position.height) === legacyHeight
+      ));
       const currentTipSlot = slotMap.get(String(legacyHeight));
-      const currentTipX = startX + (Number.isFinite(currentTipSlot) ? currentTipSlot : Math.max(0, slotHeights.length - 1)) * gap;
+      const currentTipX = Number.isFinite(Number(currentTipPosition?.x))
+        ? Number(currentTipPosition.x)
+        : startX + (Number.isFinite(currentTipSlot) ? currentTipSlot : Math.max(0, slotHeights.length - 1)) * gap;
       const ellipses = ellipsisSlots.map((item) => ({
-        x: Number.isFinite(item.attachedX) ? item.attachedX : startX + item.slot * gap,
+        x: Number.isFinite(item.x) ? item.x : startX + item.slot * gap,
         y: item.y,
         nodeView: item.nodeView,
         hiddenStart: item.hiddenStart,
@@ -7114,7 +7166,7 @@
       const square = Math.max(6, Math.round(size * 0.12));
       const squareGap = Math.max(8, Math.round(square * 1.35));
       const centerY = y + depth + size / 2;
-      const firstX = x + Math.max(3, Math.round(square * 0.5));
+      const firstX = x;
       const yTop = centerY - square / 2;
       return `
         <g class="chain-split-ellipsis" aria-hidden="true">
@@ -7131,7 +7183,7 @@
       const square = Math.max(4, Math.round(size * 0.14));
       const squareGap = Math.max(5, Math.round(square * 1.25));
       const centerY = y + depth + size / 2;
-      const firstX = x + Math.max(2, Math.round(square * 0.5));
+      const firstX = x;
       const yTop = centerY - square / 2;
       return `
         <g class="miner-timeline-chain-split-ellipsis" aria-hidden="true">
