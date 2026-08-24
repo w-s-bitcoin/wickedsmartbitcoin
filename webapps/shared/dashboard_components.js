@@ -1137,7 +1137,10 @@
       if (event.altKey || event.ctrlKey || event.metaKey) return;
       const isSpace = event.key === " " || event.key === "Spacebar" || event.code === "Space";
       const isArrow = event.key === "ArrowLeft" || event.key === "ArrowRight";
-      const isStep = event.key === "," || event.code === "Comma" || event.key === "." || event.code === "Period";
+      // Shift+Comma / Shift+Period are reserved for modal dashboard navigation.
+      const isStep = !event.shiftKey && (
+        event.key === "," || event.code === "Comma" || event.key === "." || event.code === "Period"
+      );
       const isEscape = event.key === "Escape";
       if (!isSpace && !isArrow && !isStep && !isEscape) return;
       if (!isEscape && isTextEntry(event)) return;

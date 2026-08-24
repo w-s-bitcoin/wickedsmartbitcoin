@@ -150,25 +150,20 @@ function setModalLinks({x = '', nostr = '', youtube = ''} = {}) {
     }
     if (youtube) {
         currentYoutubeVideoId = extractYoutubeVideoId(youtube);
+        ytLink.href = youtube;
+        ytLink.dataset.youtube = String(youtube);
         ytLink.classList.remove('disabled');
         ytLink.removeAttribute('aria-disabled');
         ytLink.removeAttribute('tabindex');
     } else {
         currentYoutubeVideoId = '';
+        ytLink.href = '#';
+        ytLink.dataset.youtube = '';
         ytLink.classList.add('disabled');
         ytLink.setAttribute('aria-disabled', 'true');
         ytLink.setAttribute('tabindex', '-1');
     }
 }
-
-// Store the raw youtube URL on the link node so click handlers can use it
-// even if the global `currentYoutubeVideoId` is out of sync for some reason.
-try {
-    if (typeof document !== 'undefined') {
-        const _yt = document.getElementById('youtube-link');
-        if (_yt) _yt.dataset.youtube = (typeof youtube !== 'undefined' && youtube) ? String(youtube) : '';
-    }
-} catch (_) {}
 function openByFilenameAllowingNonFav(filename) {
     let idx = visibleImages.findIndex(img => img.filename === filename);
     if (idx !== -1) {
