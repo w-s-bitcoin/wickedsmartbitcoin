@@ -49,6 +49,7 @@ except ModuleNotFoundError:
 # Configuration
 API_BASE = "https://api.frankfurter.dev/v2"
 START_DATE = "1999-01-01"
+REFRESH_LOOKBACK_DAYS = 35
 EXCLUDED_SOURCE_CURRENCIES = {"CNH", "MRO"}
 CUP_INFORMAL_API_URL = "https://api.cambiocuba.money/api/v1/x-rates-by-date-range"
 CUP_INFORMAL_PERIOD = "2Y"
@@ -718,6 +719,34 @@ def fill_missing_dates(df, start_date, end_date):
     return df_filled
 
 
+def replace_refreshed_rate_windows(df, refresh_map, refresh_window_starts, date_column="date"):
+    """Replace successful source windows before calendar gaps are forward-filled.
+
+    New calendar rows must remain empty until refreshed observations are applied.
+    Otherwise a value carried from the old end of the dataset can survive on a
+    weekend or holiday between newly fetched business-day observations.
+    """
+    if not refresh_map:
+        return df
+
+    out = df.copy()
+    date_iso = pd.to_datetime(out[date_column], errors="coerce").dt.strftime("%Y-%m-%d")
+    refreshed_columns = {}
+    for column_name, rates_by_date in refresh_map.items():
+        if column_name not in out.columns:
+            out[column_name] = pd.NA
+        window_start = refresh_window_starts.get(column_name)
+        if not window_start:
+            window_start = min(rates_by_date, default=None)
+        if window_start:
+            out.loc[date_iso >= window_start, column_name] = pd.NA
+        refreshed_columns[column_name] = date_iso.map(rates_by_date)
+
+    refresh_df = pd.DataFrame(refreshed_columns, index=out.index)
+    out.update(refresh_df)
+    return out
+
+
 def clean_ves_redenomination_lag_points(df, event_dates):
     """Replace obvious stale-scale VES/USD lag points with prior-day values.
 
@@ -1310,17 +1339,28 @@ def main():
     print("Updating FX Rates for Multiple Currency Pairs")
     print("=" * 60)
 
-    # Load existing CSV to get current range and refresh from the latest stored day forward.
+    # Load existing CSV and re-fetch a bounded recent window so source revisions
+    # and terminal weekends/holidays can be rebuilt from authoritative observations.
     print("\nLoading existing FX rates...")
-    existing_df = pd.read_csv(fx_rates_input_file)
+    # Preserve source decimals exactly when an optional feed fails and its
+    # existing values are carried forward; the default parser can shorten long
+    # decimal strings on an otherwise value-identical round trip.
+    existing_df = pd.read_csv(fx_rates_input_file, float_precision="round_trip")
     existing_df['date'] = pd.to_datetime(existing_df['date'])
     min_date = existing_df['date'].min().strftime('%Y-%m-%d')
     max_date = existing_df['date'].max().strftime('%Y-%m-%d')
     print(f"  Current date range: {min_date} to {max_date}")
 
-    fetch_start_date = max_date
+    max_date_dt = datetime.strptime(max_date, "%Y-%m-%d").date()
+    fetch_start_date = max(
+        datetime.strptime(START_DATE, "%Y-%m-%d").date(),
+        max_date_dt - timedelta(days=REFRESH_LOOKBACK_DAYS),
+    ).isoformat()
     fetch_end_date = date.today().isoformat()
-    print(f"  Refresh window: {fetch_start_date} to {fetch_end_date}")
+    print(
+        f"  Refresh window: {fetch_start_date} to {fetch_end_date} "
+        f"({REFRESH_LOOKBACK_DAYS}-day revision lookback)"
+    )
 
     supported_currencies = fetch_supported_currencies()
     target_currencies = sorted(
@@ -1338,12 +1378,14 @@ def main():
     # Fetch rates for new currencies
     print(f"\nFetching {len(target_currencies)} currency pairs from Frankfurter API...")
     all_rates = {}
+    refresh_window_starts = {}
     for currency in target_currencies:
         column_name = f"{currency.lower()}usd"
         start_for_currency = START_DATE if column_name in missing_columns else fetch_start_date
         rates = fetch_pair_rates(currency, "USD", start_date=start_for_currency, end_date=fetch_end_date)
         if rates:
             all_rates[currency] = rates
+            refresh_window_starts[column_name] = start_for_currency
 
     if not all_rates:
         print("ERROR: Failed to fetch any rates!")
@@ -1358,7 +1400,6 @@ def main():
     df_combined = (
         df_combined.set_index(pd.to_datetime(df_combined['date']))
         .reindex(date_range)
-        .ffill()
         .reset_index(drop=True)
     )
     df_combined['date'] = date_range.strftime('%Y-%m-%d')
@@ -1375,11 +1416,11 @@ def main():
         column_name = f"{currency.lower()}usd"
         refresh_map[column_name] = {date_value: rate for date_value, rate in rates}
 
-    if refresh_map:
-        refresh_df = pd.DataFrame(index=df_combined.index)
-        for column_name, rates_dict in refresh_map.items():
-            refresh_df[column_name] = df_combined['date'].map(rates_dict)
-        df_combined.update(refresh_df)
+    df_combined = replace_refreshed_rate_windows(
+        df_combined,
+        refresh_map,
+        refresh_window_starts,
+    )
 
     df_combined, legacy_mro_fills = merge_legacy_mro_history_into_mru(df_combined)
     if legacy_mro_fills:
