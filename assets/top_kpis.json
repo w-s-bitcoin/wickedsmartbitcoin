@@ -1,14 +1,14 @@
 {
-  "block_height": 962450,
-  "block_time_utc": "2026-08-14 15:48:07 UTC",
+  "block_height": 963790,
+  "block_time_utc": "2026-08-24 00:56:47 UTC",
   "epoch": 5,
-  "epoch_complete": 0.583,
+  "epoch_complete": 0.589,
   "subsidy_btc": 3.125,
   "subsidy_sats": 312500000,
-  "supply_btc": 20070117.91655096,
-  "supply_target_complete": 0.9557199018394329,
-  "target_hex": "00000000000000000002353d0000000000000000000000000000000000000000",
-  "target_hashrate_hps": 9.125363518386733e+20,
-  "difficulty": 127479855693691.4,
-  "difficulty_display": "127.48T"
+  "supply_btc": 20074292.91655096,
+  "supply_target_complete": 0.9559187113634611,
+  "target_hex": "000000000000000000023cc10000000040000000000000000000000000000000",
+  "target_hashrate_hps": 9.005621322926364e+20,
+  "difficulty": 125807076547197.5,
+  "difficulty_display": "125.81T"
 }

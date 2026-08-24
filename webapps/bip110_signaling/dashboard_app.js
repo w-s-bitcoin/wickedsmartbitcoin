@@ -6701,6 +6701,7 @@
       const labelOffset = Number(options.labelOffset || 12);
       const cubeSize = Number(options.cubeSize || 0);
       const cubeDepth = Number(options.cubeDepth || 0);
+      const hideLatestLockIn = Boolean(options.hideLatestLockIn);
       if (!Number.isFinite(yTop) || !Number.isFinite(yBottom)) return "";
       return positions
         .slice(1)
@@ -6711,6 +6712,7 @@
           if (!Number.isFinite(previousPeriod) || !Number.isFinite(nextPeriod) || previousPeriod === nextPeriod) {
             return "";
           }
+          if (hideLatestLockIn && nextPeriod === 19) return "";
           const previousX = Number(previous.x);
           const nextX = Number(position.x);
           const emptyGap = Math.max(0, nextX - previousX - getChainSplitSideDepth(cubeDepth) - cubeSize);
@@ -6990,8 +6992,13 @@
         const hiddenEndHeight = Number(ellipsisHiddenEnd);
         if (!Number.isFinite(hiddenStartHeight) || !Number.isFinite(hiddenEndHeight) || hiddenEndHeight < hiddenStartHeight) return null;
         const slot = addSlot(key);
+        const previousPosition = positions.slice().reverse().find((position) => position.nodeView === nodeView);
+        const attachedX = previousPosition
+          ? Number(previousPosition.x) + getChainSplitSideDepth(depth) + size
+          : startX + slot * gap;
         const item = {
           slot,
+          attachedX,
           nodeView,
           y,
           hiddenStart: hiddenStartHeight,
@@ -7037,7 +7044,7 @@
       const currentTipSlot = slotMap.get(String(legacyHeight));
       const currentTipX = startX + (Number.isFinite(currentTipSlot) ? currentTipSlot : Math.max(0, slotHeights.length - 1)) * gap;
       const ellipses = ellipsisSlots.map((item) => ({
-        x: startX + item.slot * gap,
+        x: Number.isFinite(item.attachedX) ? item.attachedX : startX + item.slot * gap,
         y: item.y,
         nodeView: item.nodeView,
         hiddenStart: item.hiddenStart,
@@ -7104,12 +7111,10 @@
     function renderChainSplitEllipsis(x, y, options = {}) {
       const size = Number(options.size || 154);
       const depth = Number(options.depth || 28);
-      const sideDepth = getChainSplitSideDepth(depth);
       const square = Math.max(6, Math.round(size * 0.12));
       const squareGap = Math.max(8, Math.round(square * 1.35));
-      const centerX = x + (sideDepth + size) / 2;
       const centerY = y + depth + size / 2;
-      const firstX = centerX - square * 1.5 - squareGap;
+      const firstX = x + Math.max(3, Math.round(square * 0.5));
       const yTop = centerY - square / 2;
       return `
         <g class="chain-split-ellipsis" aria-hidden="true">
@@ -7123,12 +7128,10 @@
     function renderMinerTimelineMiniChainEllipsis(x, y, options = {}) {
       const size = Number(options.size || 38);
       const depth = Number(options.depth || 7);
-      const sideDepth = getChainSplitSideDepth(depth);
       const square = Math.max(4, Math.round(size * 0.14));
       const squareGap = Math.max(5, Math.round(square * 1.25));
-      const centerX = x + (sideDepth + size) / 2;
       const centerY = y + depth + size / 2;
-      const firstX = centerX - square * 1.5 - squareGap;
+      const firstX = x + Math.max(2, Math.round(square * 0.5));
       const yTop = centerY - square / 2;
       return `
         <g class="miner-timeline-chain-split-ellipsis" aria-hidden="true">
@@ -7240,11 +7243,13 @@
       const depth = Number(options.depth || 9);
       const yTop = Number(options.yTop || 0);
       const yBottom = Number(options.yBottom || 0);
+      const hideLatestLockIn = Boolean(options.hideLatestLockIn);
       return positions.slice(1).map((position, index) => {
         const previous = positions[index];
         const previousPeriod = Number(previous?.block?.period);
         const nextPeriod = Number(position?.block?.period);
         if (!Number.isFinite(previousPeriod) || !Number.isFinite(nextPeriod) || previousPeriod === nextPeriod) return "";
+        if (hideLatestLockIn && nextPeriod === 19) return "";
         const previousX = Number(previous.x);
         const nextX = Number(position.x);
         const emptyGap = Math.max(0, nextX - previousX - getChainSplitSideDepth(depth) - size);
@@ -7594,6 +7599,7 @@
             depth,
             yTop: topY,
             yBottom: height,
+            hideLatestLockIn: true,
           });
           const ellipsis = displayEllipses
             .map((item) => renderMinerTimelineMiniChainEllipsis(item.x, item.y, { size, depth }))
@@ -7971,6 +7977,7 @@
             depth,
             yTop: topY,
             yBottom: height,
+            hideLatestLockIn: true,
           });
           const ellipsis = displayEllipses
             .map((item) => renderMinerTimelineMiniChainEllipsis(item.x, item.y, { size, depth }))
@@ -8392,6 +8399,7 @@
             yTop: -1,
             yBottom: height + 1,
             straightHeight: reservedHeight,
+            hideLatestLockIn: true,
           });
           const ellipsis = displayEllipses
             .map((item) => renderChainSplitEllipsis(item.x, item.y, {
