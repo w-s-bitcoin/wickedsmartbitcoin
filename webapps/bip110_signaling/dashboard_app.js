@@ -1709,6 +1709,15 @@
           };
         }
 
+        if (status === "post_window" || status === "future") {
+          return {
+            ...row,
+            status: counts.elapsed >= periodSize ? "completed" : "in_progress",
+            elapsed_blocks: Math.min(counts.elapsed, periodSize),
+            signal_blocks: counts.signaling,
+          };
+        }
+
         return row;
       });
     }
@@ -7057,46 +7066,10 @@
         addPosition(height, "legacy", yPositions.legacyY);
       }
 
-      const cubeWidth = getChainSplitSideDepth(depth) + size;
-      const ellipsisSquare = size <= 64
-        ? Math.max(4, Math.round(size * 0.14))
-        : Math.max(6, Math.round(size * 0.12));
-      const ellipsisSquareGap = size <= 64
-        ? Math.max(5, Math.round(ellipsisSquare * 1.25))
-        : Math.max(8, Math.round(ellipsisSquare * 1.35));
-      const ellipsisWidth = ellipsisSquare * 3 + ellipsisSquareGap * 2;
-      const ellipsisSideGap = Math.max(2, gap - cubeWidth);
-
-      ellipsisSlots.forEach((item) => {
-        const previousPosition = positions
-          .filter((position) => position.nodeView === item.nodeView && Number(position.height) < item.hiddenStart)
-          .sort((a, b) => Number(b.height) - Number(a.height))[0];
-        const nextPosition = positions
-          .filter((position) => position.nodeView === item.nodeView && Number(position.height) > item.hiddenEnd)
-          .sort((a, b) => Number(a.height) - Number(b.height))[0];
-        if (!previousPosition || !nextPosition) return;
-        const previousRight = Number(previousPosition.x) + cubeWidth;
-        const firstDotX = previousRight + ellipsisSideGap;
-        const desiredNextX = firstDotX + ellipsisWidth + ellipsisSideGap;
-        const nextX = Number(nextPosition.x);
-        const tailShift = nextX - desiredNextX;
-        positions.forEach((position) => {
-          if (position.nodeView === item.nodeView && Number(position.height) >= Number(nextPosition.height)) {
-            position.x = Number(position.x) - tailShift;
-          }
-        });
-        item.x = firstDotX;
-      });
-
-      const currentTipPosition = positions.find((position) => (
-        position.nodeView === "legacy" && Number(position.height) === legacyHeight
-      ));
       const currentTipSlot = slotMap.get(String(legacyHeight));
-      const currentTipX = Number.isFinite(Number(currentTipPosition?.x))
-        ? Number(currentTipPosition.x)
-        : startX + (Number.isFinite(currentTipSlot) ? currentTipSlot : Math.max(0, slotHeights.length - 1)) * gap;
+      const currentTipX = startX + (Number.isFinite(currentTipSlot) ? currentTipSlot : Math.max(0, slotHeights.length - 1)) * gap;
       const ellipses = ellipsisSlots.map((item) => ({
-        x: Number.isFinite(item.x) ? item.x : startX + item.slot * gap,
+        x: startX + item.slot * gap,
         y: item.y,
         nodeView: item.nodeView,
         hiddenStart: item.hiddenStart,
@@ -7163,10 +7136,12 @@
     function renderChainSplitEllipsis(x, y, options = {}) {
       const size = Number(options.size || 154);
       const depth = Number(options.depth || 28);
+      const sideDepth = getChainSplitSideDepth(depth);
       const square = Math.max(6, Math.round(size * 0.12));
       const squareGap = Math.max(8, Math.round(square * 1.35));
+      const ellipsisWidth = square * 3 + squareGap * 2;
       const centerY = y + depth + size / 2;
-      const firstX = x;
+      const firstX = x + (sideDepth + size - ellipsisWidth) / 2;
       const yTop = centerY - square / 2;
       return `
         <g class="chain-split-ellipsis" aria-hidden="true">
@@ -7180,10 +7155,12 @@
     function renderMinerTimelineMiniChainEllipsis(x, y, options = {}) {
       const size = Number(options.size || 38);
       const depth = Number(options.depth || 7);
+      const sideDepth = getChainSplitSideDepth(depth);
       const square = Math.max(4, Math.round(size * 0.14));
       const squareGap = Math.max(5, Math.round(square * 1.25));
+      const ellipsisWidth = square * 3 + squareGap * 2;
       const centerY = y + depth + size / 2;
-      const firstX = x;
+      const firstX = x + (sideDepth + size - ellipsisWidth) / 2;
       const yTop = centerY - square / 2;
       return `
         <g class="miner-timeline-chain-split-ellipsis" aria-hidden="true">
