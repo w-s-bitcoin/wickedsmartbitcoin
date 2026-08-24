@@ -2190,27 +2190,12 @@ def format_bip110_progress(height, signal_counts):
 
     period_rows = []
     for period in range(1, X_MAX + 1):
-        in_signaling_window = period <= bip110_total_periods
-        period_start = BIP110_START + (period - 1) * PERIOD_SIZE if in_signaling_window else ""
-        period_end = period_start + PERIOD_SIZE - 1 if in_signaling_window else ""
-
-        signal = 0
-        elapsed = 0
-        status = "future"
-
-        if in_signaling_window and period <= completed:
-            signal = int(signal_counts[period - 1])
-            elapsed = PERIOD_SIZE
-            status = "completed"
-        elif has_inprogress_period and current_period is not None and period == int(current_period):
-            elapsed = int(blocks_into_current)
-            signal = int(clamp(float(signal_counts[period - 1]), 0.0, float(elapsed)))
-            status = "in_progress"
-        elif in_signaling_window:
-            status = "future"
-
-        if period > bip110_total_periods:
-            status = "post_window"
+        period_start = BIP110_START + (period - 1) * PERIOD_SIZE
+        period_end = period_start + PERIOD_SIZE - 1
+        elapsed = int(clamp(height - period_start + 1, 0, PERIOD_SIZE))
+        raw_signal = signal_counts[period - 1] if period - 1 < len(signal_counts) else 0
+        signal = int(clamp(float(raw_signal), 0.0, float(elapsed)))
+        status = "completed" if elapsed == PERIOD_SIZE else "in_progress" if elapsed > 0 else "future"
 
         period_rows.append({
             "period": period,
@@ -2230,30 +2215,30 @@ def format_bip110_progress(height, signal_counts):
 
 
 def compute_bip110_progress(height, rpc_get=rpc_call):
-    scan_end = min(height + 1, BIP110_SIGNAL_END)
-    signal_counts = [0] * bip110_total_periods
+    scan_end = min(height + 1, BIP110_DASHBOARD_END)
+    signal_counts = [0] * X_MAX
 
     for block_height in range(BIP110_START, scan_end):
         block_hash = rpc_get("getblockhash", block_height)
         version = int(rpc_get("getblockheader", block_hash)["version"])
         if (version & (1 << 4)) != 0:
             idx = (block_height - BIP110_START) // PERIOD_SIZE
-            if 0 <= idx < bip110_total_periods:
+            if 0 <= idx < X_MAX:
                 signal_counts[idx] += 1
 
     return format_bip110_progress(height, signal_counts)
 
 
 def compute_bip110_progress_from_block_rows(height, block_rows):
-    signal_counts = [0] * bip110_total_periods
+    signal_counts = [0] * X_MAX
     for row in block_rows:
         block_height = int(row.get("height", 0))
-        if block_height < BIP110_START or block_height >= BIP110_SIGNAL_END:
+        if block_height < BIP110_START or block_height >= BIP110_DASHBOARD_END:
             continue
         if int(row.get("is_signaling", 0)) != 1:
             continue
         idx = (block_height - BIP110_START) // PERIOD_SIZE
-        if 0 <= idx < bip110_total_periods:
+        if 0 <= idx < X_MAX:
             signal_counts[idx] += 1
     return format_bip110_progress(height, signal_counts)
 
@@ -2270,7 +2255,7 @@ def build_bip110_block_rows(plot_max_height, rpc_get=rpc_call):
     rows = []
     if plot_max_height is None or plot_max_height < BIP110_START:
         return rows
-    for period in range(1, bip110_total_periods + 1):
+    for period in range(1, X_MAX + 1):
         period_start = BIP110_START + (period - 1) * PERIOD_SIZE
         period_end = period_start + PERIOD_SIZE - 1
         if period_start > plot_max_height:
