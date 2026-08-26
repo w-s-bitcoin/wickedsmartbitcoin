@@ -1,11 +1,11 @@
 {
-  "generated_utc": "2026-08-26T20:03:49.458892+00:00",
+  "generated_utc": "2026-08-26T21:03:37.764453+00:00",
   "source": {
     "path": "assets/daily_price.csv",
     "start_date": "2011-06-05",
     "latest_date": "2026-08-26",
-    "latest_timestamp_utc": "2026-08-26T19:00:00+00:00",
-    "latest_block_height": 964181,
+    "latest_timestamp_utc": "2026-08-26T20:00:00+00:00",
+    "latest_block_height": 964189,
     "latest_price": 78460.0,
     "duration_days": 5561
   },
@@ -69,7 +69,7 @@
   "schema_version": 1,
   "artifact": {
     "path": "webapp_data/daily_dca.csv",
-    "sha256": "f6317511015a3ca026e7b6111b5b73391e1074b41959b8c45c22676b15e038c3",
+    "sha256": "6b38959d65c4ff1488328a6fad25b739b7b752cbd870b4190548ea2bb164c237",
     "rows": 5561,
     "first_date": "2011-06-05",
     "latest_date": "2026-08-26"
