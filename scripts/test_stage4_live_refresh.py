@@ -1262,22 +1262,19 @@ def test_days_preview(cdp: CdpSocket, server_port: int):
 
 def assert_homepage_refresh_ownership():
     source = (ROOT / "js/09_bootstrap_fetch_init_global_exports.js").read_text()
-    try:
-        mapping = source.split(
-            "const HOMEPAGE_GRID_CARD_DATA_SOURCES = Object.freeze({", 1
-        )[1].split("});", 1)[0]
-    except IndexError as exc:
-        raise AssertionError("Could not locate homepage grid-card refresh ownership map") from exc
-    duplicate_owners = [
-        filename
-        for filename in ("casascius_explorer.png", "days_since_ath.png")
-        if filename in mapping
-    ]
-    if duplicate_owners:
+    obsolete_parent_refresh_paths = (
+        "HOMEPAGE_GRID_CARD_DATA_SOURCES",
+        "refreshHomepageDashboardPreview",
+        "refreshHomepageGridCards",
+    )
+    remaining = [name for name in obsolete_parent_refresh_paths if name in source]
+    if remaining:
         raise AssertionError(
-            "Homepage still owns iframe reloads for Stage 4 self-refreshing previews: "
-            + ", ".join(duplicate_owners)
+            "Homepage still owns preview refresh/navigation paths: "
+            + ", ".join(remaining)
         )
+    if "refreshHomepageLastUpdatedStamp" not in source:
+        raise AssertionError("Homepage timestamp-only refresh path is missing")
 
 
 def main():

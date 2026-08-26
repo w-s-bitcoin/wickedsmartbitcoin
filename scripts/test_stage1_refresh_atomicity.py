@@ -261,10 +261,10 @@ def test_homepage_modal_is_not_navigated(cdp: CdpSocket, server_port: int):
     )
     wait_for(
         lambda: cdp.evaluate(
-            "typeof refreshHomepageDashboardPreview === 'function' "
+            "typeof refreshHomepageLastUpdatedStamp === 'function' "
             "&& !!document.querySelector('#modal-embed')"
         ),
-        description="homepage refresh helper",
+        description="homepage timestamp refresh helper",
     )
 
     before = cdp.evaluate(
@@ -297,15 +297,19 @@ def test_homepage_modal_is_not_navigated(cdp: CdpSocket, server_port: int):
               });
             });
             observer.observe(frame, { attributes: true, attributeFilter: ["src"] });
-            refreshHomepageDashboardPreview("bip110_signaling.png");
+            await refreshHomepageLastUpdatedStamp();
+            window.dispatchEvent(new Event("focus"));
+            window.dispatchEvent(new Event("online"));
             await new Promise((resolve) => setTimeout(resolve, 350));
             observer.disconnect();
             return {
               src: frame.getAttribute("src"),
               mutations,
-              gridRefreshUsesPreviewOnly:
-                refreshHomepageGridCards.toString().includes("refreshHomepageDashboardPreview")
-                && !refreshHomepageGridCards.toString().includes("modalEmbed"),
+              childOwnsPreviewRefresh:
+                typeof refreshHomepageDashboardPreview === "undefined"
+                && typeof refreshHomepageGridCards === "undefined"
+                && typeof HOMEPAGE_GRID_CARD_DATA_SOURCES === "undefined"
+                && !refreshHomepageLastUpdatedStamp.toString().includes("modalEmbed"),
             };
           })()
         """
@@ -315,8 +319,10 @@ def test_homepage_modal_is_not_navigated(cdp: CdpSocket, server_port: int):
             "Homepage preview refresh navigated the active modal iframe: "
             f"before={before!r}, after={after!r}"
         )
-    if not after["gridRefreshUsesPreviewOnly"]:
-        raise AssertionError("Homepage signature refresh is not wired to the preview-only helper")
+    if not after["childOwnsPreviewRefresh"]:
+        raise AssertionError(
+            "Homepage still exposes a parent-owned preview refresh path"
+        )
 
 
 def test_bip_refresh_is_atomic(cdp: CdpSocket, server_port: int):
