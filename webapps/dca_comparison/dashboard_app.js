@@ -1806,9 +1806,20 @@
       if (Number.isFinite(tlt) && tlt > 0) target.TLT = tlt;
       if (Number.isFinite(mstr) && mstr > 0) target.MSTR = mstr;
     }
-    const candidateRows = [...byDate.values()]
+    const unboundedCandidateRows = [...byDate.values()]
       .filter((r) => Object.keys(ASSETS).some((asset) => Number.isFinite(r[asset]) && r[asset] > 0))
       .sort((a, b) => a.date.localeCompare(b.date));
+    let latestCompleteIso = "";
+    for (let idx = unboundedCandidateRows.length - 1; idx >= 0; idx -= 1) {
+      const row = unboundedCandidateRows[idx];
+      if (Object.keys(ASSETS).every((asset) => Number.isFinite(row[asset]) && row[asset] > 0)) {
+        latestCompleteIso = row.date;
+        break;
+      }
+    }
+    const candidateRows = latestCompleteIso
+      ? unboundedCandidateRows.filter((row) => row.date <= latestCompleteIso)
+      : [];
     const assetBounds = {};
     Object.keys(ASSETS).forEach((asset) => {
       const assetRows = candidateRows.filter((r) => Number.isFinite(r[asset]) && r[asset] > 0);
