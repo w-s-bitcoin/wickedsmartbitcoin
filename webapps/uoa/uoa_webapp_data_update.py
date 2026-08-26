@@ -5,7 +5,7 @@ import argparse
 import csv
 import json
 import os
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import time
 from urllib.parse import urlencode
@@ -1370,7 +1370,7 @@ def main():
         datetime.strptime(START_DATE, "%Y-%m-%d").date(),
         max_date_dt - timedelta(days=REFRESH_LOOKBACK_DAYS),
     ).isoformat()
-    fetch_end_date = date.today().isoformat()
+    fetch_end_date = datetime.now(timezone.utc).date().isoformat()
     print(
         f"  Refresh window: {fetch_start_date} to {fetch_end_date} "
         f"({REFRESH_LOOKBACK_DAYS}-day revision lookback)"
