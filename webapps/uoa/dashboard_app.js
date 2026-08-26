@@ -8295,9 +8295,14 @@
       loadFxRates(fetchOptions),
       loadUoaPairs(fetchOptions),
     ]);
+    const fxDates = Object.keys(loadedFxRates || {}).sort();
+    const latestCompleteFxIso = fxDates[fxDates.length - 1] || "";
+    const completePriceRows = latestCompleteFxIso
+      ? loaded.rows.filter((row) => toIsoDate(row.date) <= latestCompleteFxIso)
+      : loaded.rows;
     const refreshedText = String(context.signature || "").split("\n---WSB-DATA-SIGNATURE-PART---\n")[0].trim();
     return {
-      allRows: mergePriceRowsWithFxDates(loaded.rows, loadedFxRates),
+      allRows: mergePriceRowsWithFxDates(completePriceRows, loadedFxRates),
       fxRatesByDate: loadedFxRates,
       uoaPairs: loadedPairs,
       refreshedAtText: refreshedText,

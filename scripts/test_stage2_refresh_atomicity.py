@@ -234,12 +234,43 @@ FETCH_HARNESS = r"""
       test.errors.push(String(event.reason?.stack || event.reason || 'unhandled rejection'));
     });
 
+    const fetchSource = async (input, init) => {
+      const response = await nativeFetch(input, init);
+      const raw = typeof input === 'string' ? input : input?.url;
+      const url = new URL(raw, window.location.href);
+      const synthesizeUoaTailLag = (
+        window.location.pathname === '/webapps/uoa/dashboard.html'
+        && new URLSearchParams(window.location.search).get('stage2_uoa_btc_tail_lag') === '1'
+        && url.pathname === '/assets/daily_price.csv'
+        && response.ok
+      );
+      if (!synthesizeUoaTailLag) return response;
+
+      const text = await response.clone().text();
+      const lines = text.trimEnd().split(/\r?\n/);
+      const latest = String(lines[lines.length - 1] || '').split(',');
+      const instant = new Date(`${latest[1]?.replace(' ', 'T')}Z`);
+      if (latest.length < 5 || Number.isNaN(instant.getTime())) return response;
+      instant.setUTCDate(instant.getUTCDate() + 1);
+      latest[0] = `${instant.getUTCMonth() + 1}/${instant.getUTCDate()}/${String(instant.getUTCFullYear()).slice(-2)}`;
+      latest[1] = instant.toISOString().slice(0, 19).replace('T', ' ');
+      latest[4] = String(Number(latest[4] || 0) + 1);
+      const headers = new Headers(response.headers);
+      headers.delete('content-length');
+      headers.delete('content-encoding');
+      return new Response(`${lines.join('\n')}\n${latest.join(',')}\n`, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      });
+    };
+
     const signaturePhase = (refreshValue) => {
       const match = String(refreshValue || '').match(/-(probe|pre-commit|pre-update|verify)-/);
       return match ? match[1] : '';
     };
     const freshResponse = async (input, init, generation, phase) => {
-      const response = await nativeFetch(input, init);
+      const response = await fetchSource(input, init);
       if (!response.ok) return response;
       const text = await response.clone().text();
       const headers = new Headers(response.headers);
@@ -300,7 +331,7 @@ FETCH_HARNESS = r"""
         }
         if (test.mode === 'hold-data') {
           return new Promise((resolve, reject) => {
-            test.pending.push(() => nativeFetch(input, init).then(resolve, reject));
+            test.pending.push(() => fetchSource(input, init).then(resolve, reject));
           });
         }
       }
@@ -310,10 +341,10 @@ FETCH_HARNESS = r"""
         && url.pathname.includes(test.normalHoldSubstring)
       ) {
         return new Promise((resolve, reject) => {
-          test.normalPending.push(() => nativeFetch(input, init).then(resolve, reject));
+          test.normalPending.push(() => fetchSource(input, init).then(resolve, reject));
         });
       }
-      return nativeFetch(input, init);
+      return fetchSource(input, init);
     };
 
     function isVisible(element) {
@@ -620,9 +651,10 @@ def test_quantum_archive_retry_and_integrity(cdp: CdpSocket):
 
 
 def test_dashboard(cdp: CdpSocket, server_port: int, slug: str, spec: dict):
+    uoa_tail_lag_query = "&stage2_uoa_btc_tail_lag=1" if slug == "uoa" else ""
     url = (
         f"http://127.0.0.1:{server_port}/{spec['path']}"
-        "?stage2_refresh_test=1&stage2_initial_generation=7"
+        f"?stage2_refresh_test=1&stage2_initial_generation=7{uoa_tail_lag_query}"
     )
     cdp.command("Page.navigate", {"url": url})
 
