@@ -1135,7 +1135,11 @@
     );
     const handler = (event) => {
       if (event.altKey || event.ctrlKey || event.metaKey) return;
-      const isSpace = event.key === " " || event.key === "Spacebar" || event.code === "Space";
+      // Shift+Space is reserved for returning from an embedded modal to the
+      // home grid; only unmodified Space controls dashboard playback.
+      const isSpace = !event.shiftKey && (
+        event.key === " " || event.key === "Spacebar" || event.code === "Space"
+      );
       const isArrow = event.key === "ArrowLeft" || event.key === "ArrowRight";
       // Shift+Comma / Shift+Period are reserved for modal dashboard navigation.
       const isStep = !event.shiftKey && (
@@ -1171,6 +1175,13 @@
       }
     };
     document.addEventListener("keydown", handler, true);
+    if (window.WSBDashboardPendingPlaybackSpace === true) {
+      window.WSBDashboardPendingPlaybackSpace = false;
+      requestAnimationFrame(() => {
+        blurControls();
+        if (typeof config.onSpace === "function") config.onSpace();
+      });
+    }
     return () => document.removeEventListener("keydown", handler, true);
   }
 

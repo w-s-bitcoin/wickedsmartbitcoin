@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from uoa_webapp_data_update import clean_transient_spike_outliers
+from uoa_webapp_data_update import clean_transient_spike_outliers, publish_refresh_marker
 
 
 def parse_args() -> argparse.Namespace:
@@ -71,7 +71,10 @@ def main() -> None:
         print("No transient spike runs detected; no file changes made.")
         return
 
-    cleaned_df.to_csv(csv_path, index=False)
+    tmp_path = csv_path.with_suffix(csv_path.suffix + ".tmp")
+    cleaned_df.to_csv(tmp_path, index=False)
+    tmp_path.replace(csv_path)
+    publish_refresh_marker(webapp_dir)
 
     top_cols = sorted(spike_fixes.items(), key=lambda kv: kv[1], reverse=True)[:12]
     top_text = ", ".join(f"{col}:{count}" for col, count in top_cols)

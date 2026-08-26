@@ -120,6 +120,8 @@ let suppressResetSnapshotClear = false;
 let customTooltipBound = false;
 let customTooltipAnchor = null;
 let chartRangeDragState = null;
+let dcaRefreshPresentationPending = false;
+let dcaInstalledDataSignature = "";
 let chartRangeResizeWheelRemainder = 0;
 let chartRangePanWheelRemainder = 0;
 const downloadEstimateCalibrationCache = new Map();
@@ -688,12 +690,32 @@ function applyControlValuesToUi() {
   syncAllSelectDropdowns();
 }
 
-async function loadData() {
+function parseDcaSeries(text) {
+  return parseCsv(text)
+    .map((row) => ({
+      daysAgo: Number.parseInt(row.days_ago || "0", 10),
+      yearsAgo: toNumber(row.years_ago),
+      dateIso: row.date_iso,
+      timestampUtc: row.timestamp_utc,
+      blockHeight: Number.parseInt(row.block_height || "0", 10),
+      historicalPrice: toNumber(row.historical_price),
+      currentPrice: toNumber(row.current_price),
+      dcaBasis: toNumber(row.dca_basis),
+      investedUsd: toNumber(row.invested_usd),
+      btcAccum: toNumber(row.btc_accum),
+      purchaseCount: Number.parseInt(row.purchase_count || "0", 10),
+      isPriceAbove: toNumber(row.is_price_above),
+      windowEndTimestampUtc: row.window_end_timestamp_utc,
+    }))
+    .filter((row) => Number.isFinite(row.daysAgo) && Number.isFinite(row.historicalPrice));
+}
+
+async function fetchDcaDataSnapshot(fetchResponse = (url) => fetch(url, { cache: "default" })) {
   const [metadataResp, dailyResp, weeklyResp, monthlyResp] = await Promise.all([
-    fetch("webapp_data/dca_cost_basis_metadata.json", { cache: "default" }),
-    fetch("webapp_data/daily_dca.csv", { cache: "default" }),
-    fetch("webapp_data/weekly_dca.csv", { cache: "default" }),
-    fetch("webapp_data/monthly_dca.csv", { cache: "default" }),
+    fetchResponse("webapp_data/dca_cost_basis_metadata.json"),
+    fetchResponse("webapp_data/daily_dca.csv"),
+    fetchResponse("webapp_data/weekly_dca.csv"),
+    fetchResponse("webapp_data/monthly_dca.csv"),
   ]);
 
   if (!metadataResp.ok) throw new Error(`Failed to load metadata (${metadataResp.status}).`);
@@ -701,33 +723,245 @@ async function loadData() {
   if (!weeklyResp.ok) throw new Error(`Failed to load weekly_dca.csv (${weeklyResp.status}).`);
   if (!monthlyResp.ok) throw new Error(`Failed to load monthly_dca.csv (${monthlyResp.status}).`);
 
-  state.metadata = await metadataResp.json();
+  const [metadataText, dailyText, weeklyText, monthlyText] = await Promise.all([
+    metadataResp.text(),
+    dailyResp.text(),
+    weeklyResp.text(),
+    monthlyResp.text(),
+  ]);
 
-  function parseSeries(text) {
-    return parseCsv(text)
-      .map((row) => ({
-        daysAgo: Number.parseInt(row.days_ago || "0", 10),
-        yearsAgo: toNumber(row.years_ago),
-        dateIso: row.date_iso,
-        timestampUtc: row.timestamp_utc,
-        blockHeight: Number.parseInt(row.block_height || "0", 10),
-        historicalPrice: toNumber(row.historical_price),
-        currentPrice: toNumber(row.current_price),
-        dcaBasis: toNumber(row.dca_basis),
-        investedUsd: toNumber(row.invested_usd),
-        btcAccum: toNumber(row.btc_accum),
-        purchaseCount: Number.parseInt(row.purchase_count || "0", 10),
-        isPriceAbove: toNumber(row.is_price_above),
-      }))
-      .filter((row) => Number.isFinite(row.daysAgo) && Number.isFinite(row.historicalPrice));
+  return {
+    metadata: JSON.parse(metadataText),
+    metadataSignature: metadataText.trim(),
+    seriesByCadence: {
+      daily_dca: parseDcaSeries(dailyText),
+      weekly_dca: parseDcaSeries(weeklyText),
+      monthly_dca: parseDcaSeries(monthlyText),
+    },
+  };
+}
+
+async function fetchDcaMetadataSignature() {
+  try {
+    const response = await fetch("webapp_data/dca_cost_basis_metadata.json", { cache: "no-store" });
+    if (!response.ok) return "";
+    return String(await response.text() || "").trim();
+  } catch (_error) {
+    return "";
+  }
+}
+
+function validateDcaDataSnapshot(candidate) {
+  if (!candidate?.metadata || typeof candidate.metadata !== "object") return false;
+  const latestDate = String(candidate.metadata.source?.latest_date || "").trim();
+  const latestTimestampMs = Date.parse(String(candidate.metadata.source?.latest_timestamp_utc || ""));
+  const latestPrice = Number(candidate.metadata.source?.latest_price);
+  const latestBlockHeight = Number(candidate.metadata.source?.latest_block_height);
+  const candidateGeneratedMs = Date.parse(String(candidate.metadata.generated_utc || ""));
+  const sourceStartDate = String(candidate.metadata.source?.start_date || "").trim();
+  const metadataDurationDays = Number(candidate.metadata.source?.duration_days);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(latestDate)
+      || !/^\d{4}-\d{2}-\d{2}$/.test(sourceStartDate)
+      || !Number.isFinite(latestTimestampMs)
+      || !Number.isFinite(latestPrice)
+      || latestPrice <= 0
+      || !Number.isFinite(latestBlockHeight)
+      || latestBlockHeight < 0
+      || !Number.isFinite(candidateGeneratedMs)
+      || !Number.isInteger(metadataDurationDays)
+      || metadataDurationDays < 3650
+      || diffDays(sourceStartDate, latestDate) !== metadataDurationDays) {
+    return false;
   }
 
-  state.seriesByCadence.daily_dca = parseSeries(await dailyResp.text());
-  state.seriesByCadence.weekly_dca = parseSeries(await weeklyResp.text());
-  state.seriesByCadence.monthly_dca = parseSeries(await monthlyResp.text());
+  const cadenceIsConsistent = ["daily_dca", "weekly_dca", "monthly_dca"].every((cadence) => {
+    const rows = candidate.seriesByCadence?.[cadence];
+    if (!Array.isArray(rows) || !rows.length) return false;
+    const installedRows = state.seriesByCadence?.[cadence] || [];
+    const installedMinimumCount = installedRows.length
+      ? Math.max(1, Math.floor(installedRows.length * 0.95))
+      : 0;
+    if (rows.length !== metadataDurationDays
+        || rows.length < installedMinimumCount
+        || (installedRows.length && rows[0]?.dateIso > installedRows[0]?.dateIso)) return false;
+    return rows.every((row, index) => (
+      /^\d{4}-\d{2}-\d{2}$/.test(String(row.dateIso || ""))
+      && (index === 0 || rows[index - 1].dateIso < row.dateIso)
+      && row.daysAgo === metadataDurationDays - index
+      && Number.isFinite(row.daysAgo)
+      && Number.isFinite(row.historicalPrice)
+      && row.historicalPrice > 0
+      && Number.isFinite(row.dcaBasis)
+      && Number.isFinite(row.investedUsd)
+      && Number.isFinite(row.btcAccum)
+      && Number.isFinite(row.purchaseCount)
+      && Number.isFinite(row.isPriceAbove)
+      && (
+        Math.abs(Number(row.currentPrice) - latestPrice) <= Math.max(1e-8, latestPrice * 1e-10)
+        && Date.parse(String(row.windowEndTimestampUtc || "").replace(" ", "T") + "Z") === latestTimestampMs
+      )
+    ));
+  });
+  if (!cadenceIsConsistent) return false;
+
+  const dailyDates = candidate.seriesByCadence.daily_dca.map((row) => row.dateIso);
+  if (dailyDates[0] !== sourceStartDate) return false;
+  if (dailyDates.reduce((latest, dateIso) => dateIso > latest ? dateIso : latest, "") !== latestDate) {
+    return false;
+  }
+
+  const currentLatestBlockHeight = Number(state.metadata?.source?.latest_block_height);
+  const currentGeneratedMs = Date.parse(String(state.metadata?.generated_utc || ""));
+  if (Number.isFinite(currentLatestBlockHeight) && latestBlockHeight < currentLatestBlockHeight) return false;
+  if (Number.isFinite(currentGeneratedMs)
+      && Number.isFinite(candidateGeneratedMs)
+      && candidateGeneratedMs < currentGeneratedMs) return false;
+  return true;
+}
+
+function installDcaDataSnapshot(candidate, { initialize = false, updateUi = true } = {}) {
+  if (!validateDcaDataSnapshot(candidate)) {
+    throw new Error("DCA cost basis refresh produced an incomplete data snapshot.");
+  }
+
+  const previousRange = initialize ? null : {
+    startIso: state.dateRange.startIso,
+    endIso: state.dateRange.endIso,
+    currentEndIso: state.dateRange.currentEndIso,
+    selectedPreset: state.dateRange.selectedPreset,
+    rangeTracksLatestEnd: state.dateRange.rangeTracksLatestEnd,
+    isPlaying: state.dateRange.isPlaying,
+    isPaused: state.dateRange.isPaused,
+  };
+  const previousLatestIso = state.priceRows[state.priceRows.length - 1]?.dateIso || "";
+
+  state.metadata = candidate.metadata;
+  dcaInstalledDataSignature = candidate.metadataSignature || dcaInstalledDataSignature;
+  state.seriesByCadence = candidate.seriesByCadence;
   state.priceRows = buildPriceRowsFromSeries(state.seriesByCadence.daily_dca);
   state.cadenceCaches = buildCadenceCaches(state.priceRows);
-  initializeDateRangeState();
+
+  if (initialize) {
+    initializeDateRangeState();
+    return;
+  }
+
+  const { minIso, maxIso } = getDataBounds();
+  if (!minIso || !maxIso || !previousRange) return;
+
+  state.dateRange.startIso = previousRange.startIso;
+  state.dateRange.endIso = previousRange.endIso;
+  state.dateRange.currentEndIso = previousRange.currentEndIso;
+  state.dateRange.selectedPreset = previousRange.selectedPreset;
+  state.dateRange.rangeTracksLatestEnd = previousRange.rangeTracksLatestEnd;
+
+  if (previousRange.rangeTracksLatestEnd) {
+    state.dateRange.endIso = maxIso;
+    if (previousRange.selectedPreset && previousRange.selectedPreset !== "custom") {
+      state.dateRange.startIso = getPresetStartIso(previousRange.selectedPreset, maxIso);
+    } else {
+      const spanDays = Math.max(0, diffDays(previousRange.startIso, previousRange.endIso));
+      state.dateRange.startIso = addDaysIso(maxIso, -spanDays);
+    }
+    if (!previousRange.isPlaying && !previousRange.isPaused && previousRange.currentEndIso === previousLatestIso) {
+      state.dateRange.currentEndIso = maxIso;
+    }
+  }
+
+  normalizeDateRangeState();
+  syncDateRangeSelectionMetadata(previousRange.selectedPreset || "custom");
+  if (updateUi) {
+    saveDateRangeState();
+    syncDateRangeControls();
+  }
+}
+
+async function loadData() {
+  let lastError = null;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      const candidate = await fetchDcaDataSnapshot(
+        (url) => fetch(url, { cache: "no-store" })
+      );
+      const postflightSignature = await fetchDcaMetadataSignature();
+      if (postflightSignature && postflightSignature !== candidate.metadataSignature) {
+        throw new Error("DCA cost basis data changed during initial loading.");
+      }
+      installDcaDataSnapshot(candidate, { initialize: true });
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt < 3) {
+        await new Promise((resolve) => window.setTimeout(resolve, 150 * (attempt + 1)));
+      }
+    }
+  }
+  throw lastError || new Error("Could not load a complete DCA cost basis generation.");
+}
+
+function registerDcaCostBasisAutoRefresh() {
+  const controller = window.WSBWebappDataAutoRefresh;
+  if (!controller || typeof controller.register !== "function") return;
+
+  controller.register({
+    getInstalledSignature: () => dcaInstalledDataSignature,
+    prepare: (context) => fetchDcaDataSnapshot((url) => context.fetchFresh(url)),
+    validate: (candidate) => validateDcaDataSnapshot(candidate),
+    commit: (candidate) => {
+      const isVisible = document.visibilityState === "visible";
+      if (isDateRangeExporting
+          || chartRangeDragState
+          || dateRangeHandleDrag
+          || dateRangeCurrentMarkerDrag
+          || (isVisible && state.dateRange.isPlaying)) {
+        return false;
+      }
+      installDcaDataSnapshot(candidate, { updateUi: false });
+      dcaRefreshPresentationPending = true;
+      if (document.visibilityState !== "visible") {
+        return true;
+      }
+      presentDcaCostBasisRefresh();
+      return true;
+    },
+    onError: (error) => {
+      console.warn("DCA cost basis background refresh failed; keeping the current data visible.", error);
+    },
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && dcaRefreshPresentationPending) {
+      presentDcaCostBasisRefresh();
+    }
+  });
+  document.addEventListener("focusout", () => {
+    window.setTimeout(presentDcaCostBasisRefresh, 0);
+  });
+}
+
+function presentDcaCostBasisRefresh() {
+  const activeElement = document.activeElement;
+  const activeTag = String(activeElement?.tagName || "").toUpperCase();
+  const activeType = String(activeElement?.type || "").toLowerCase();
+  const isActivelyEditingText = Boolean(
+    activeElement
+    && (
+      (activeTag === "INPUT" && ["text", "search", "email", "password", "url", "tel", "number"].includes(activeType))
+      || activeTag === "TEXTAREA"
+      || activeElement.isContentEditable
+    )
+  );
+  if (
+    !dcaRefreshPresentationPending
+    || document.visibilityState !== "visible"
+    || isActivelyEditingText
+  ) return false;
+  saveDateRangeState();
+  syncDateRangeControls();
+  renderChart();
+  updateResetButtonUi();
+  dcaRefreshPresentationPending = false;
+  return true;
 }
 
 function parseIsoDateMs(iso) {
@@ -4762,6 +4996,7 @@ async function init() {
     renderChart();
     DASHBOARD_COMPONENTS.setChartLoaderVisible?.(chartLoader, false);
     updateResetButtonUi();
+    registerDcaCostBasisAutoRefresh();
     primeKeyboardFocus();
     if (state.dateRange.pendingSpacePlayback) {
       state.dateRange.pendingSpacePlayback = false;

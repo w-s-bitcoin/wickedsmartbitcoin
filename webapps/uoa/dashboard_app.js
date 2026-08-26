@@ -300,6 +300,8 @@
   });
   let globalTimeZoneSyncBound = false;
   let refreshedAtText = "";
+  let uoaInstalledDataSignature = "";
+  let uoaRefreshPresentationPending = false;
   const chartEventMarkersById = {
     usdBtcChart: [],
     btcUsdChart: [],
@@ -3779,7 +3781,14 @@
     });
   }
 
-  async function loadData() {
+  async function fetchDataResource(url, options = {}) {
+    if (typeof options.fetchFresh === "function") {
+      return options.fetchFresh(url, { signal: options.signal });
+    }
+    return fetch(url, { cache: "no-store", signal: options.signal });
+  }
+
+  async function loadData(options = {}) {
     const sourcePaths = [
       "webapp_data/daily_price.csv",
       "../../assets/daily_price.csv",
@@ -3791,7 +3800,7 @@
     ];
     for (const url of candidates) {
       try {
-        const res = await fetch(url, { cache: "no-store" });
+        const res = await fetchDataResource(url, options);
         if (!res.ok) continue;
         const text = await res.text();
         const parsed = parseCsv(text)
@@ -3815,14 +3824,15 @@
           selectedPath = url;
           return { rows: parsed, sourcePath: selectedPath };
         }
-      } catch (_) {
+      } catch (error) {
+        if (options.signal?.aborted) throw error;
         // Try next candidate
       }
     }
     return { rows: [], sourcePath: selectedPath };
   }
 
-  async function loadUoaPairs() {
+  async function loadUoaPairs(options = {}) {
     const paths = [
       "webapp_data/uoa_pairs.json",
       "../../webapps/uoa/webapp_data/uoa_pairs.json",
@@ -3830,18 +3840,19 @@
     ];
     for (const url of paths) {
       try {
-        const res = await fetch(url, { cache: "no-store" });
+        const res = await fetchDataResource(url, options);
         if (!res.ok) continue;
         const data = await res.json();
         return data;
-      } catch (_) {
+      } catch (error) {
+        if (options.signal?.aborted) throw error;
         // Try next candidate
       }
     }
     return null;
   }
 
-  async function loadLastUpdatedText() {
+  async function loadLastUpdatedText(options = {}) {
     const paths = [
       "webapp_data/last_updated.txt",
       "../../webapps/uoa/webapp_data/last_updated.txt",
@@ -3849,18 +3860,19 @@
     ];
     for (const url of paths) {
       try {
-        const res = await fetch(url, { cache: "no-store" });
+        const res = await fetchDataResource(url, options);
         if (!res.ok) continue;
         const text = String(await res.text() || "").trim();
         if (text) return text;
-      } catch (_) {
+      } catch (error) {
+        if (options.signal?.aborted) throw error;
         // Try next candidate
       }
     }
     return "";
   }
 
-  async function loadFxRates() {
+  async function loadFxRates(options = {}) {
     const paths = [
       "webapp_data/daily_fx_rates.csv",
       "../../webapps/uoa/webapp_data/daily_fx_rates.csv",
@@ -3868,7 +3880,7 @@
     ];
     for (const url of paths) {
       try {
-        const res = await fetch(url, { cache: "no-store" });
+        const res = await fetchDataResource(url, options);
         if (!res.ok) continue;
         const text = await res.text();
         const parsed = parseCsv(text);
@@ -3882,7 +3894,7 @@
           Object.keys(row).forEach((key) => {
             if (key === "date") return;
             const value = Number(row[key]);
-            if (Number.isFinite(value)) {
+            if (Number.isFinite(value) && value > 0) {
               // Convert column name (e.g., "eurusd") to pair format (e.g., "EUR/USD")
               const pairCode = key.slice(0, -3).toUpperCase(); // Remove "usd" suffix and uppercase
               const pairKey = `${pairCode}/USD`;
@@ -3891,7 +3903,8 @@
           });
         });
         return byDate;
-      } catch (_) {
+      } catch (error) {
+        if (options.signal?.aborted) throw error;
         // Try next candidate
       }
     }
@@ -8239,12 +8252,270 @@
     );
   }
 
-  async function init() {
-    const uoaPairsPromise = loadUoaPairs();
-    const refreshedAtPromise = loadLastUpdatedText();
+  function getPlaybackDateSnapshot() {
+    if (!dateRangePlaybackState.hasSession || !allRows.length) return null;
+    const maxIndex = allRows.length - 1;
+    const isoAt = (index) => {
+      const safeIndex = Math.max(0, Math.min(maxIndex, Math.round(Number(index) || 0)));
+      return toIsoDate(allRows[safeIndex].date);
+    };
+    return {
+      startIso: isoAt(dateRangePlaybackState.startIndex),
+      targetEndIso: isoAt(dateRangePlaybackState.targetEndIndex),
+      currentEndIso: isoAt(dateRangePlaybackState.currentEndIndex),
+      originalStartIso: isoAt(dateRangePlaybackState.originalStartIndex),
+      originalEndIso: isoAt(dateRangePlaybackState.originalEndIndex),
+    };
+  }
 
-    uoaPairs = await uoaPairsPromise;
-    refreshedAtText = await refreshedAtPromise;
+  function restorePlaybackDateSnapshot(snapshot) {
+    if (!snapshot || !dateRangePlaybackState.hasSession || !allRows.length) return;
+    const onOrAfter = (iso) => Math.max(0, getDateIndexOnOrAfter(iso));
+    const onOrBefore = (iso) => Math.max(0, getDateIndexOnOrBefore(iso));
+    dateRangePlaybackState.startIndex = onOrAfter(snapshot.startIso);
+    dateRangePlaybackState.targetEndIndex = onOrBefore(snapshot.targetEndIso);
+    dateRangePlaybackState.currentEndIndex = Math.max(
+      dateRangePlaybackState.startIndex,
+      Math.min(dateRangePlaybackState.targetEndIndex, onOrBefore(snapshot.currentEndIso))
+    );
+    dateRangePlaybackState.originalStartIndex = onOrAfter(snapshot.originalStartIso);
+    dateRangePlaybackState.originalEndIndex = Math.max(
+      dateRangePlaybackState.originalStartIndex,
+      onOrBefore(snapshot.originalEndIso)
+    );
+  }
+
+  async function prepareUoaRefreshCandidate(context = {}) {
+    const fetchOptions = {
+      signal: context.signal,
+      fetchFresh: context.fetchFresh,
+    };
+    const [loaded, loadedFxRates, loadedPairs] = await Promise.all([
+      loadData(fetchOptions),
+      loadFxRates(fetchOptions),
+      loadUoaPairs(fetchOptions),
+    ]);
+    const refreshedText = String(context.signature || "").split("\n---WSB-DATA-SIGNATURE-PART---\n")[0].trim();
+    return {
+      allRows: mergePriceRowsWithFxDates(loaded.rows, loadedFxRates),
+      fxRatesByDate: loadedFxRates,
+      uoaPairs: loadedPairs,
+      refreshedAtText: refreshedText,
+    };
+  }
+
+  function isCompleteUoaDataCandidate(candidate) {
+    if (!candidate?.uoaPairs?.currencies || !Array.isArray(candidate.allRows)) return false;
+    if (Object.keys(candidate.uoaPairs.currencies).length < 2) return false;
+    if (candidate.allRows.length <= 10) return false;
+    const btcRows = candidate.allRows.filter((row) => Number.isFinite(row?.price) && row.price > 0);
+    if (btcRows.length <= 10) {
+      return false;
+    }
+    const fxDates = Object.keys(candidate.fxRatesByDate || {}).sort();
+    if (fxDates.length <= 10) return false;
+    const btcLatestIso = toIsoDate(btcRows[btcRows.length - 1].date);
+    const sourceStartIso = String(candidate.uoaPairs.source?.start_date || "").trim();
+    const sourceEndIso = String(candidate.uoaPairs.source?.end_date || "").trim();
+    const latestFxValues = Object.values(candidate.fxRatesByDate[fxDates[fxDates.length - 1]] || {});
+    const expectedFxPairCount = Math.max(
+      10,
+      Math.floor((Object.keys(candidate.uoaPairs.currencies).length - 2) * 0.9)
+    );
+    return (
+      latestFxValues.filter((value) => Number.isFinite(value) && value > 0).length >= expectedFxPairCount
+      && (!/^\d{4}-\d{2}-\d{2}$/.test(sourceStartIso) || fxDates[0] <= sourceStartIso)
+      && fxDates[fxDates.length - 1] >= btcLatestIso
+      && (!/^\d{4}-\d{2}-\d{2}$/.test(sourceEndIso)
+        || fxDates[fxDates.length - 1] >= sourceEndIso)
+    );
+  }
+
+  async function loadInitialUoaGeneration() {
+    // The marker is published last. Bracket the detached startup candidate so a
+    // publication crossing initial load cannot make older files look current.
+    // If the marker is unavailable, install the complete candidate but leave its
+    // signature unknown so the shared controller reconciles it immediately.
+    let latestCandidate = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const signatureBefore = await loadLastUpdatedText();
+      const candidate = await prepareUoaRefreshCandidate({ signature: signatureBefore });
+      const signatureAfter = await loadLastUpdatedText();
+      candidate.refreshedAtText = signatureAfter || signatureBefore || candidate.refreshedAtText;
+      latestCandidate = candidate;
+
+      const markerChanged = Boolean(
+        signatureBefore && signatureAfter && signatureBefore !== signatureAfter
+      );
+      if (!markerChanged && isCompleteUoaDataCandidate(candidate)) {
+        uoaInstalledDataSignature = signatureBefore && signatureAfter
+          ? signatureAfter
+          : "";
+        return candidate;
+      }
+      if (attempt < 2) {
+        await new Promise((resolve) => window.setTimeout(resolve, 150 * (attempt + 1)));
+      }
+    }
+
+    uoaInstalledDataSignature = "";
+    throw new Error(
+      latestCandidate
+        ? "Could not load a complete, stable UOA data generation."
+        : "Could not load UOA dashboard data."
+    );
+  }
+
+  function isUoaRefreshTextEntry(active) {
+    const textInputTypes = new Set(["text", "search", "email", "password", "url", "tel", "number"]);
+    return Boolean(
+      active
+      && (
+        (active.tagName === "INPUT" && textInputTypes.has(String(active.type || "").toLowerCase()))
+        || active.tagName === "TEXTAREA"
+        || active.isContentEditable
+      )
+    );
+  }
+
+  function validateUoaRefreshCandidate(candidate) {
+    const isVisible = document.visibilityState === "visible";
+    if (
+      isDateRangeExporting
+      || (isVisible && dateRangePlaybackState.isPlaying)
+      || (isVisible && dateRangeDragState)
+      || (isVisible && chartRangeDragState)
+      || (isVisible && dateRangeEndSliderScrubState.active)
+    ) return false;
+    if (!isCompleteUoaDataCandidate(candidate)) return false;
+    const currentCurrencyCount = Object.keys(uoaPairs?.currencies || {}).length;
+    const candidateCurrencyCount = Object.keys(candidate.uoaPairs.currencies).length;
+    if (candidateCurrencyCount < Math.max(2, Math.floor(currentCurrencyCount * 0.95))) return false;
+    const minimumRowCount = Math.max(10, Math.floor(allRows.length * 0.95));
+    if (candidate.allRows.length < minimumRowCount) return false;
+    const currentBtcRows = allRows.filter((row) => Number.isFinite(row?.price) && row.price > 0);
+    const candidateBtcRows = candidate.allRows.filter((row) => Number.isFinite(row?.price) && row.price > 0);
+    const minimumBtcRowCount = Math.max(10, Math.floor(currentBtcRows.length * 0.95));
+    if (candidateBtcRows.length < minimumBtcRowCount) return false;
+    if (currentBtcRows.length && (
+      candidateBtcRows[0]?.date > currentBtcRows[0]?.date
+      || candidateBtcRows[candidateBtcRows.length - 1]?.date < currentBtcRows[currentBtcRows.length - 1]?.date
+    )) return false;
+    const fxDateCount = Object.keys(candidate.fxRatesByDate || {}).length;
+    const minimumFxDateCount = Math.max(10, Math.floor(Object.keys(fxRatesByDate || {}).length * 0.95));
+    if (fxDateCount < minimumFxDateCount) return false;
+    const currentFxDates = Object.keys(fxRatesByDate || {}).sort();
+    const candidateFxDates = Object.keys(candidate.fxRatesByDate || {}).sort();
+    const candidateBtcLatestIso = candidateBtcRows.length
+      ? toIsoDate(candidateBtcRows[candidateBtcRows.length - 1].date)
+      : "";
+    if (
+      (currentFxDates.length && candidateFxDates[0] > currentFxDates[0])
+      || (currentFxDates.length
+        && candidateFxDates[candidateFxDates.length - 1] < currentFxDates[currentFxDates.length - 1])
+      || candidateFxDates[candidateFxDates.length - 1] < candidateBtcLatestIso
+    ) return false;
+    const selectedCurrencies = [el.primaryUoaSelect?.value, el.secondaryUoaSelect?.value]
+      .filter(Boolean)
+      .filter((code) => code !== "BTC");
+    if (selectedCurrencies.some((code) => !candidate.uoaPairs.currencies[code])) return false;
+    const richestCurrentFxRow = Object.values(fxRatesByDate || {}).reduce(
+      (richest, row) => Object.keys(row || {}).length > Object.keys(richest || {}).length ? row : richest,
+      {}
+    );
+    const richestCandidateFxRow = Object.values(candidate.fxRatesByDate || {}).reduce(
+      (richest, row) => Object.keys(row || {}).length > Object.keys(richest || {}).length ? row : richest,
+      {}
+    );
+    if (Object.keys(richestCurrentFxRow).some((pair) => !Number.isFinite(richestCandidateFxRow[pair]))) return false;
+    const latestCurrent = allRows[allRows.length - 1]?.date?.getTime?.() || 0;
+    const latestCandidate = candidate.allRows[candidate.allRows.length - 1]?.date?.getTime?.() || 0;
+    return latestCandidate >= latestCurrent;
+  }
+
+  function presentPendingUoaRefresh() {
+    if (
+      !uoaRefreshPresentationPending
+      || document.visibilityState !== "visible"
+      || isUoaRefreshTextEntry(document.activeElement)
+    ) return false;
+    const priorPrimary = el.primaryUoaSelect?.value || "BTC";
+    const priorSecondary = el.secondaryUoaSelect?.value || "USD";
+    populateUoaGroupSelect();
+    if (el.primaryUoaSelect) el.primaryUoaSelect.value = priorPrimary;
+    if (el.secondaryUoaSelect) el.secondaryUoaSelect.value = priorSecondary;
+    populateCurrencyDropdowns({ preserveSelection: true });
+
+    if (dateRangePlaybackState.hasSession && allRows.length) {
+      const maxIndex = allRows.length - 1;
+      const startIndex = Math.max(0, Math.min(maxIndex, dateRangePlaybackState.startIndex));
+      const currentEndIndex = Math.max(startIndex, Math.min(maxIndex, dateRangePlaybackState.currentEndIndex));
+      if (el.startDateInput) el.startDateInput.value = toIsoDate(allRows[startIndex].date);
+      if (el.endDateInput) el.endDateInput.value = toIsoDate(allRows[currentEndIndex].date);
+    } else {
+      applyRequestedDateRangeToControls();
+    }
+    applyFilters();
+    uoaRefreshPresentationPending = false;
+    return true;
+  }
+
+  function commitUoaRefreshCandidate(candidate) {
+    const priorPreset = dateRangePlaybackState.hasSession
+      ? ""
+      : getMatchingRangePresetKey(
+          requestedDateRange.startIso || el.startDateInput?.value || "",
+          requestedDateRange.endIso || el.endDateInput?.value || ""
+        );
+    const playbackSnapshot = getPlaybackDateSnapshot();
+
+    uoaPairs = candidate.uoaPairs;
+    fxRatesByDate = candidate.fxRatesByDate;
+    allRows = candidate.allRows;
+    usdParityStartIso = computeUsdParityStartIso();
+    refreshedAtText = candidate.refreshedAtText || refreshedAtText;
+    uoaInstalledDataSignature = candidate.refreshedAtText || "";
+
+    if (priorPreset) {
+      const preset = getPresetDateIndices(priorPreset);
+      if (preset) {
+        const nextStart = toIsoDate(allRows[preset.startIndex].date);
+        const nextEnd = priorPreset === "full"
+          ? toIsoDate(allRows[preset.endIndex].date)
+          : getLocalTodayIso();
+        setRequestedDateRange(nextStart, nextEnd);
+      }
+    }
+
+    restorePlaybackDateSnapshot(playbackSnapshot);
+    uoaRefreshPresentationPending = true;
+    presentPendingUoaRefresh();
+    return true;
+  }
+
+  function registerUoaDataRefreshAdapter() {
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") presentPendingUoaRefresh();
+    });
+    document.addEventListener("focusout", () => {
+      window.setTimeout(presentPendingUoaRefresh, 0);
+    });
+    window.WSBWebappDataAutoRefresh?.register?.({
+      getInstalledSignature: () => uoaInstalledDataSignature,
+      prepare: prepareUoaRefreshCandidate,
+      validate: validateUoaRefreshCandidate,
+      commit: commitUoaRefreshCandidate,
+    });
+  }
+
+  async function init() {
+    const initialCandidate = await loadInitialUoaGeneration();
+    uoaPairs = initialCandidate.uoaPairs;
+    refreshedAtText = initialCandidate.refreshedAtText;
+    fxRatesByDate = initialCandidate.fxRatesByDate;
+    allRows = initialCandidate.allRows;
+    usdParityStartIso = computeUsdParityStartIso();
+    rows = [...allRows];
 
     // Populate the title/filter shell as soon as the small metadata files are ready.
     selectedUoaGroup = getInitialUoaGroupSetting();
@@ -8254,14 +8525,6 @@
     populateCurrencyDropdowns();
     updatedTimeZoneChip?.populate?.();
     hydrateTitleAndFilterShell();
-
-    const fxRatesPromise = loadFxRates();
-    const priceDataPromise = loadData();
-    const [loaded, loadedFxRates] = await Promise.all([priceDataPromise, fxRatesPromise]);
-    fxRatesByDate = loadedFxRates;
-    allRows = mergePriceRowsWithFxDates(loaded.rows, fxRatesByDate);
-    usdParityStartIso = computeUsdParityStartIso();
-    rows = [...allRows];
 
     const saved = initControls();
     bindTimeZonePreferenceSync();
@@ -8275,6 +8538,7 @@
     applyFilters();
     restorePausedPlaybackSession(saved);
     document.body.classList.remove("uoa-loading");
+    registerUoaDataRefreshAdapter();
     window.addEventListener("resize", () => {
       renderAll();
     });

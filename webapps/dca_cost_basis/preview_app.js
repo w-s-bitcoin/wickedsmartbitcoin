@@ -1,7 +1,11 @@
 (function () {
   const AUTO_REFRESH_MS = 60000;
+  const PREVIEW_URL = "webapp_data/daily_dca.csv";
+  const PUBLICATION_URL = "webapp_data/dca_cost_basis_metadata.json";
   let cachedRows = [];
-  let hasLoadedPreviewData = false;
+  let installedPublicationSignature = "";
+  let installedBounds = null;
+  let refresher = null;
 
   function parseCsv(text) {
     const rows = [];
@@ -55,6 +59,80 @@
   function toNumber(value) {
     const normalized = Number.parseFloat(String(value ?? "").replaceAll(",", "").trim());
     return Number.isFinite(normalized) ? normalized : NaN;
+  }
+
+  function isValidIsoDate(value) {
+    const raw = String(value || "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
+    const parsed = new Date(`${raw}T00:00:00Z`);
+    return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === raw;
+  }
+
+  async function sha256Hex(text) {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+
+  function parsePublicationMarker(text) {
+    let marker;
+    try {
+      marker = JSON.parse(text);
+    } catch (error) {
+      throw new Error(`DCA cost basis publication marker is invalid JSON: ${error.message}`);
+    }
+    const artifact = marker?.artifact;
+    if (
+      marker?.schema_version !== 1 ||
+      !artifact || artifact.path !== PREVIEW_URL ||
+      !/^[0-9a-f]{64}$/.test(String(artifact.sha256 || "")) ||
+      !Number.isInteger(artifact.rows) || artifact.rows < 1 ||
+      !isValidIsoDate(artifact.first_date) ||
+      !isValidIsoDate(artifact.latest_date) ||
+      artifact.first_date > artifact.latest_date
+    ) {
+      throw new Error("DCA cost basis publication marker has invalid daily preview metadata.");
+    }
+    return marker;
+  }
+
+  function parsePreviewRows(text) {
+    const rawRows = parseCsv(text);
+    if (!rawRows.length) throw new Error("DCA cost basis daily preview is empty.");
+    const required = [
+      "days_ago", "date_iso", "block_height", "historical_price", "dca_basis", "is_price_above",
+    ];
+    if (required.some((column) => !(column in rawRows[0]))) {
+      throw new Error("DCA cost basis daily preview is missing required columns.");
+    }
+    const rows = rawRows.map((row, index) => {
+      const daysAgo = Number(row.days_ago);
+      const blockHeight = Number(row.block_height);
+      const historicalPrice = toNumber(row.historical_price);
+      const dcaBasis = toNumber(row.dca_basis);
+      const isPriceAbove = Number(row.is_price_above);
+      const date = String(row.date_iso || "").trim();
+      if (
+        !Number.isInteger(daysAgo) || daysAgo < 1 ||
+        !Number.isInteger(blockHeight) || blockHeight < 0 ||
+        !isValidIsoDate(date) ||
+        !(historicalPrice > 0) || !(dcaBasis > 0) ||
+        (isPriceAbove !== 0 && isPriceAbove !== 1)
+      ) {
+        throw new Error(`DCA cost basis daily preview row ${index + 1} is invalid.`);
+      }
+      return { daysAgo, date, blockHeight, historicalPrice, dcaBasis, isPriceAbove };
+    });
+    rows.forEach((row, index) => {
+      if (index === 0) return;
+      const previous = rows[index - 1];
+      if (row.date <= previous.date || row.daysAgo !== previous.daysAgo - 1) {
+        throw new Error(`DCA cost basis daily preview row ${index + 1} is out of order.`);
+      }
+      if (row.blockHeight < previous.blockHeight) {
+        throw new Error(`DCA cost basis daily preview row ${index + 1} has a decreasing height.`);
+      }
+    });
+    return rows;
   }
 
   function getThemeColors() {
@@ -188,51 +266,86 @@
   }
 
   function render() {
-    if (!hasLoadedPreviewData) return;
+    if (!cachedRows.length) return;
     renderCardPreviewFromRows(cachedRows);
   }
 
-  async function load() {
-    const resp = await fetch("webapp_data/daily_dca.csv", { cache: "no-store" });
-    if (!resp.ok) throw new Error(`Failed to load daily_dca.csv (${resp.status}).`);
-
-    cachedRows = parseCsv(await resp.text())
-      .map((row) => ({
-        daysAgo: Number.parseInt(row.days_ago || "0", 10),
-        historicalPrice: toNumber(row.historical_price),
-        dcaBasis: toNumber(row.dca_basis),
-        isPriceAbove: toNumber(row.is_price_above),
-      }))
-      .filter((row) => (
-        Number.isFinite(row.daysAgo) &&
-        Number.isFinite(row.historicalPrice) &&
-        Number.isFinite(row.dcaBasis) &&
-        Number.isFinite(row.isPriceAbove)
-      ))
-      .sort((a, b) => b.daysAgo - a.daysAgo);
-    hasLoadedPreviewData = true;
+  async function prepareCandidate(context) {
+    const marker = parsePublicationMarker(context.signatureParts[0]);
+    const response = await context.fetchFresh(PREVIEW_URL);
+    const csvText = await response.text();
+    return {
+      marker,
+      rows: parsePreviewRows(csvText),
+      sha256: await sha256Hex(csvText),
+    };
   }
 
-  async function init() {
-    window.WSBPreviewShared?.initThemeSync({ onThemeChanged: render });
-    await load();
-    render();
-    window.WSBPreviewShared?.markReady?.({ filename: "dca_cost_basis.png" });
-    window.addEventListener("resize", render);
-    window.WSBPreviewShared
-      ?.createAutoRefresher({
-        intervalMs: AUTO_REFRESH_MS,
-        refresh: async () => {
-          await load();
-          render();
-        },
-      })
-      .start();
+  function validateCandidate(candidate) {
+    const artifact = candidate.marker.artifact;
+    const firstDate = candidate.rows[0]?.date || "";
+    const latestDate = candidate.rows[candidate.rows.length - 1]?.date || "";
+    if (
+      candidate.sha256 !== artifact.sha256 ||
+      candidate.rows.length !== artifact.rows ||
+      firstDate !== artifact.first_date ||
+      latestDate !== artifact.latest_date
+    ) {
+      throw new Error("DCA cost basis daily preview does not match its publication marker.");
+    }
+    const latestHeight = candidate.rows[candidate.rows.length - 1]?.blockHeight ?? -1;
+    if (
+      installedBounds &&
+      (latestDate < installedBounds.latestDate || latestHeight < installedBounds.latestHeight)
+    ) {
+      throw new Error("DCA cost basis preview generation regressed.");
+    }
+    return true;
   }
 
-  init().catch((error) => {
-    console.error(error);
-    renderCardPreviewFromRows([]);
-    window.WSBPreviewShared?.markReady?.({ filename: "dca_cost_basis.png" });
-  });
+  function commitCandidate(candidate, context) {
+    cachedRows = candidate.rows;
+    installedBounds = {
+      firstDate: candidate.rows[0].date,
+      latestDate: candidate.rows[candidate.rows.length - 1].date,
+      latestHeight: candidate.rows[candidate.rows.length - 1].blockHeight,
+    };
+    installedPublicationSignature = context.signature;
+    return { present: true };
+  }
+
+  function requestPresent(reason) {
+    if (refresher) refresher.requestPresent(reason);
+  }
+
+  function init() {
+    const shared = window.WSBPreviewShared;
+    if (!shared?.createDataRefresher) {
+      renderCardPreviewFromRows([]);
+      shared?.markReady?.({ filename: "dca_cost_basis.png" });
+      return;
+    }
+    shared.initThemeSync({ onThemeChanged: () => requestPresent("theme") });
+    window.addEventListener("resize", () => requestPresent("resize"));
+    refresher = shared.createDataRefresher({
+      filename: "dca_cost_basis.png",
+      urls: [PUBLICATION_URL],
+      intervalMs: AUTO_REFRESH_MS,
+      getInstalledSignature: () => installedPublicationSignature,
+      prepare: prepareCandidate,
+      validate: validateCandidate,
+      commit: commitCandidate,
+      present: render,
+      onInitialError(error) {
+        console.error("DCA cost basis preview initial load failed:", error);
+        renderCardPreviewFromRows([]);
+      },
+      onError(error) {
+        console.warn("DCA cost basis preview refresh deferred:", error);
+      },
+    });
+    refresher.start();
+  }
+
+  init();
 }());

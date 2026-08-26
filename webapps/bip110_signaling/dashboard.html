@@ -3340,6 +3340,13 @@
   <div class="tooltip" id="periodGridTooltip"></div>
 
   <script src="../../js/11_dashboard_timezone_preferences.js"></script>
-  <script src="dashboard_app.js?v=20260612-leaderboard-periods"></script>
+  <script>
+    window.WSBWebappDataAutoRefresh = {
+      urls: ["webapp_data/bip110_metadata.json"],
+      intervalMs: 60000,
+    };
+  </script>
+  <script src="../shared/webapp_data_auto_refresh.js?v=20260825-stage3"></script>
+  <script src="dashboard_app.js?v=20260825-shared-refresh"></script>
 </body>
 </html>

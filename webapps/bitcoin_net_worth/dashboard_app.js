@@ -20,7 +20,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 const KRAKEN_URL = "https://api.kraken.com/0/public/Ticker?pair=USDCUSD,XBTUSDC";
-const HIST_PRICE_URL = "https://raw.githubusercontent.com/w-s-bitcoin/wickedsmartbitcoin/main/assets/daily_price.csv";
+const PUBLISHED_DEMO_HISTORY_URL = "webapp_data/demo_history.csv";
+const HIST_PRICE_URL = "../../assets/daily_price.csv";
+const HIST_PRICE_MARKER_URL = "../../assets/last_updated.txt";
+const PUBLISHED_DATA_SIGNATURE_SEPARATOR = "\n---WSB-DATA-SIGNATURE-PART---\n";
+const MIN_PUBLISHED_DEMO_SNAPSHOTS = 12;
+const MIN_PUBLISHED_HISTORICAL_PRICE_ROWS = 3650;
+const LATEST_ALLOWED_PRICE_HISTORY_START_MS = Date.parse("2010-01-01T00:00:00Z");
 const STORE_KEY_DEMO = "bitcoinNetWorthTrackerSnapshotsDemoV1";
 const STORE_KEY_LIVE = "bitcoinNetWorthTrackerSnapshotsLiveV1";
 const FORM_KEY_DEMO = "bitcoinNetWorthTrackerFormDemoV1";
@@ -176,6 +182,14 @@ let liveAccessLocked = false;
 let chartRange = { startDate: null, endDate: null };
 let excludedAssets = new Set();
 let excludedLiabilities = new Set();
+let publishedDemoRefreshRenderPending = false;
+let publishedDemoSnapshotCount = 0;
+let publishedDemoEarliestDateMs = 0;
+let publishedDemoLatestDateMs = 0;
+let publishedHistoricalPriceCount = 0;
+let publishedHistoricalPriceEarliestDateMs = 0;
+let publishedHistoricalPriceLatestDateMs = 0;
+let publishedDemoInstalledSignature = "";
 
 function filterKeyForMode(mode) {
   return mode === "live" ? FILTER_KEY_LIVE : FILTER_KEY_DEMO;
@@ -1618,19 +1632,24 @@ async function bootstrap() {
     startAutoQuoteRefresh();
     requestBackgroundQuoteRefresh();
     updateModeToggleUI();
-    const historicalPricesPromise = fetchHistoricalPrices();
+    const publishedDataPromise = fetchPublishedDemoCandidate((url, init) => fetch(url, init));
 
     if (currentMode === "demo") {
-      const loadedDemo = await loadDemoData();
-      if (!loadedDemo) snapshots = loadSnapshots();
-      await historicalPricesPromise;
-      if (loadedDemo) {
-        await loadDemoData();
-      } else {
+      const loadedDemo = await loadDemoData(publishedDataPromise);
+      if (!loadedDemo) {
+        snapshots = loadSnapshots();
         renderAll();
       }
     } else {
-      await historicalPricesPromise;
+      try {
+        const candidate = await publishedDataPromise;
+        if (!validatePublishedDemoCandidate(candidate)) {
+          throw new Error("Published demo data failed completeness validation.");
+        }
+        installPublishedDemoCandidate(candidate, { startup: true });
+      } catch (error) {
+        console.warn("Could not load published demo data:", error);
+      }
       formState = loadForm();
       if (liveEncryptionEnabled && localStorage.getItem(STORE_KEY_LIVE_ENC)) {
         const pw = await promptForPasswordWithLiveReset({
@@ -1664,6 +1683,7 @@ async function bootstrap() {
     }
 
     renderAll();
+    registerPublishedDemoDataRefresh();
   } finally {
     window.WSBDashboardComponents?.bindChartLoaders?.([el.netChartLoader, el.alChartLoader])?.hide?.();
   }
@@ -5485,43 +5505,60 @@ async function ensureFxRatesLoaded() {
   return fxRatesLoadingPromise;
 }
 
-async function fetchHistoricalPrices() {
-  try {
-    const res = await fetch(HIST_PRICE_URL, { cache: 'no-cache' });
-    if (!res.ok) return;
-    const text = await res.text();
-    // Some rows have the ISO datetime split across two lines; join continuations
-    const rawLines = text.split('\n');
-    const fullLines = [];
-    for (const rawLine of rawLines) {
-      const t = rawLine.trim();
-      if (!t) continue;
-      if (/^\d+\/\d+\/\d+/.test(t)) {
-        fullLines.push(t);
-      } else if (fullLines.length > 0) {
-        fullLines[fullLines.length - 1] += ',' + t;
-      }
+function parseHistoricalPrices(text) {
+  // Some legacy rows have the ISO datetime split across two lines; retain the
+  // existing continuation handling while building a detached candidate map.
+  const rawLines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
+  const fullLines = [];
+  for (const rawLine of rawLines) {
+    const trimmed = rawLine.trim();
+    if (!trimmed) continue;
+    if (/^\d+\/\d+\/\d+/.test(trimmed)) {
+      fullLines.push(trimmed);
+    } else if (fullLines.length > 0) {
+      fullLines[fullLines.length - 1] += `,${trimmed}`;
     }
-    const prices = {};
-    for (const line of fullLines) {
-      const parts = line.split(',');
-      const dateStr = parts[0].trim(); // M/D/YY
-      const slash = dateStr.split('/');
-      if (slash.length !== 3) continue;
-      const [m, d, yy] = slash;
-      const key = m.padStart(2, '0') + d.padStart(2, '0') + yy.padStart(2, '0');
-      // Find first positive numeric field after date and ISO datetime columns
-      let price = 0;
-      for (let i = 2; i < parts.length; i++) {
-        const v = Number(parts[i].trim());
-        if (Number.isFinite(v) && v > 0) { price = v; break; }
-      }
-      if (price > 0) prices[key] = price;
-    }
-    historicalPrices = prices;
-  } catch (e) {
-    console.warn('Could not fetch historical prices:', e);
   }
+
+  const prices = {};
+  let earliestDateMs = Number.POSITIVE_INFINITY;
+  let latestDateMs = 0;
+  for (const line of fullLines) {
+    const parts = line.split(",");
+    const dateParts = String(parts[0] || "").trim().split("/");
+    if (dateParts.length !== 3) continue;
+    const month = Number(dateParts[0]);
+    const day = Number(dateParts[1]);
+    const rawYear = Number(dateParts[2]);
+    const year = rawYear < 100 ? 2000 + rawYear : rawYear;
+    const date = new Date(year, month - 1, day);
+    if (!Number.isInteger(month) || !Number.isInteger(day)
+        || !Number.isInteger(year) || date.getFullYear() !== year
+        || date.getMonth() !== month - 1 || date.getDate() !== day) {
+      continue;
+    }
+
+    let price = 0;
+    for (let index = 2; index < parts.length; index += 1) {
+      const value = Number(parts[index].trim());
+      if (Number.isFinite(value) && value > 0) {
+        price = value;
+        break;
+      }
+    }
+    if (price <= 0) continue;
+
+    const key = `${String(month).padStart(2, "0")}${String(day).padStart(2, "0")}${String(year).slice(-2)}`;
+    prices[key] = price;
+    earliestDateMs = Math.min(earliestDateMs, date.getTime());
+    latestDateMs = Math.max(latestDateMs, date.getTime());
+  }
+
+  const count = Object.keys(prices).length;
+  if (!count || !latestDateMs) {
+    throw new Error("Published BTC price history has no usable rows.");
+  }
+  return { prices, count, earliestDateMs, latestDateMs };
 }
 
 function updateModeToggleUI() {
@@ -5782,69 +5819,268 @@ async function switchMode(newMode) {
   updateModeToggleUI();
 }
 
-async function loadDemoData() {
+function composePublishedDataSignature(historyText, priceMarkerText) {
+  return [historyText, priceMarkerText]
+    .map((text) => String(text || "").trim())
+    .join(PUBLISHED_DATA_SIGNATURE_SEPARATOR);
+}
+
+function parsePublishedDemoHistory(text, priceMap) {
+  const rows = parseCsv(text);
+  if (!rows.length) {
+    throw new Error("Published demo history is empty.");
+  }
+
+  const parsedSnapshots = rows.map((row) => {
+    const yyyymmddDate = String(row.date || "").trim();
+    if (!/^\d{8}$/.test(yyyymmddDate)) {
+      throw new Error(`Published demo history has an invalid date: ${yyyymmddDate || "missing"}.`);
+    }
+    const mmddyyDate = yyyymmddToMMDDYY(yyyymmddDate);
+    const btcusd = Number(priceMap?.[mmddyyDate] || 0);
+    if (!Number.isFinite(btcusd) || btcusd <= 0) {
+      throw new Error(`Published BTC prices do not cover demo snapshot ${yyyymmddDate}.`);
+    }
+    const assetsRaw = row.assets;
+    const liabilitiesRaw = row.liabilities;
+    const assets = typeof assetsRaw === "string" ? JSON.parse(assetsRaw) : (assetsRaw || []);
+    const liabilities = typeof liabilitiesRaw === "string" ? JSON.parse(liabilitiesRaw) : (liabilitiesRaw || []);
+    if (!Array.isArray(assets) || !Array.isArray(liabilities)) {
+      throw new Error(`Published demo history has invalid holdings for ${yyyymmddDate}.`);
+    }
+
+    return {
+      date: mmddyyDate,
+      timestamp: parseMMDDYY(mmddyyDate).toISOString(),
+      btcusd,
+      assets,
+      liabilities,
+      comments: row.comment || row.comments || "",
+      totals: computeTotals(assets, liabilities, btcusd, mmddyyDate)
+    };
+  });
+
+  const dates = new Set(parsedSnapshots.map((snapshot) => snapshot.date));
+  if (dates.size !== parsedSnapshots.length) {
+    throw new Error("Published demo history contains duplicate dates.");
+  }
+  return parsedSnapshots;
+}
+
+async function fetchPublishedDataSignature(fetchResource) {
+  const [historyResponse, priceMarkerResponse] = await Promise.all([
+    fetchResource(PUBLISHED_DEMO_HISTORY_URL, { cache: "no-store" }),
+    fetchResource(HIST_PRICE_MARKER_URL, { cache: "no-store" }),
+  ]);
+  if (!historyResponse?.ok) {
+    throw new Error(`Published demo history failed to load (${historyResponse?.status || "network error"}).`);
+  }
+  if (!priceMarkerResponse?.ok) {
+    throw new Error(`Published BTC price marker failed to load (${priceMarkerResponse?.status || "network error"}).`);
+  }
+
+  const [historyText, priceMarkerText] = await Promise.all([
+    historyResponse.text(),
+    priceMarkerResponse.text(),
+  ]);
+  if (!String(priceMarkerText || "").trim()) {
+    throw new Error("Published BTC price marker is empty.");
+  }
+  return {
+    historyText,
+    priceMarkerText,
+    signature: composePublishedDataSignature(historyText, priceMarkerText),
+  };
+}
+
+async function fetchPublishedDemoCandidate(fetchResource, expectedSignature = "") {
+  let lastError = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const signatureBefore = await fetchPublishedDataSignature(fetchResource);
+      const priceResponse = await fetchResource(HIST_PRICE_URL, { cache: "no-store" });
+      if (!priceResponse?.ok) {
+        throw new Error(`Published BTC price history failed to load (${priceResponse?.status || "network error"}).`);
+      }
+      const priceText = await priceResponse.text();
+      const signatureAfter = await fetchPublishedDataSignature(fetchResource);
+      if (signatureBefore.signature !== signatureAfter.signature) {
+        throw new Error("Published Net Worth generation changed during candidate loading.");
+      }
+
+      const historyText = signatureAfter.historyText;
+      const priceCandidate = parseHistoricalPrices(priceText);
+      const candidateSnapshots = parsePublishedDemoHistory(historyText, priceCandidate.prices);
+      const snapshotTimes = candidateSnapshots.map((snapshot) => parseMMDDYY(snapshot.date).getTime());
+      return {
+        historyText,
+        priceText,
+        prices: priceCandidate.prices,
+        priceCount: priceCandidate.count,
+        earliestPriceDateMs: priceCandidate.earliestDateMs,
+        latestPriceDateMs: priceCandidate.latestDateMs,
+        snapshots: candidateSnapshots,
+        latestSnapshotDateMs: Math.max(...snapshotTimes),
+        earliestSnapshotDateMs: Math.min(...snapshotTimes),
+        signature: signatureAfter.signature,
+        matchesExpectedSignature: !expectedSignature || signatureAfter.signature === expectedSignature,
+      };
+    } catch (error) {
+      lastError = error;
+      if (attempt >= 2) break;
+      await new Promise((resolve) => window.setTimeout(resolve, 100 * (attempt + 1)));
+    }
+  }
+  throw lastError || new Error("Could not load a stable published Net Worth generation.");
+}
+
+function validatePublishedDemoCandidate(candidate) {
+  if (!candidate || !Array.isArray(candidate.snapshots) || candidate.snapshots.length === 0) return false;
+  if (!candidate.prices || typeof candidate.prices !== "object") return false;
+  if (candidate.matchesExpectedSignature === false) return false;
+
+  if (candidate.snapshots.length < Math.max(MIN_PUBLISHED_DEMO_SNAPSHOTS, publishedDemoSnapshotCount)
+      || (publishedDemoEarliestDateMs > 0
+        && candidate.earliestSnapshotDateMs > publishedDemoEarliestDateMs)
+      || candidate.latestSnapshotDateMs < publishedDemoLatestDateMs
+      || candidate.priceCount < Math.max(MIN_PUBLISHED_HISTORICAL_PRICE_ROWS, publishedHistoricalPriceCount)
+      || candidate.earliestPriceDateMs > LATEST_ALLOWED_PRICE_HISTORY_START_MS
+      || (publishedHistoricalPriceEarliestDateMs > 0
+        && candidate.earliestPriceDateMs > publishedHistoricalPriceEarliestDateMs)
+      || candidate.latestPriceDateMs < publishedHistoricalPriceLatestDateMs
+      || candidate.latestPriceDateMs < candidate.latestSnapshotDateMs) {
+    return false;
+  }
+
+  const snapshotsCovered = candidate.snapshots.every((snapshot) => {
+    const candidatePrice = Number(candidate.prices[snapshot.date]);
+    return Number.isFinite(candidatePrice)
+      && candidatePrice > 0
+      && candidatePrice === Number(snapshot.btcusd);
+  });
+  if (!snapshotsCovered) return false;
+
+  // The charts interpolate every calendar day between demo snapshots. Reject
+  // an otherwise plausible file with a missing interior section rather than
+  // silently carrying a stale snapshot price through that gap.
+  const cursor = new Date(candidate.earliestSnapshotDateMs);
+  while (cursor.getTime() <= candidate.latestPriceDateMs) {
+    if (!(Number(candidate.prices[mmddyy(cursor)]) > 0)) return false;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return true;
+}
+
+function applyPublishedSnapshotToFormState(snapshot) {
+  if (!snapshot) return;
+  formState.assets = (snapshot.assets || []).map((asset) => ({
+    name: String(asset.name || ""),
+    amount: parseRowAmount(asset.value),
+    unit: normalizeUnit(asset.unit)
+  }));
+  formState.liabilities = (snapshot.liabilities || []).map((liability) => ({
+    name: String(liability.name || ""),
+    amount: parseRowAmount(liability.value),
+    unit: normalizeUnit(liability.unit)
+  }));
+  formState.comments = snapshot.comments || "";
+}
+
+function flushPublishedDemoRefreshRender() {
+  if (!publishedDemoRefreshRenderPending) return false;
+  if (document.visibilityState === "hidden" || isAssetLiabilityEditorFocused()) return false;
+  renderAll();
+  publishedDemoRefreshRenderPending = false;
+  return true;
+}
+
+function installPublishedDemoCandidate(candidate, { startup = false } = {}) {
+  const sortedPublishedSnapshots = candidate.snapshots.slice().sort(
+    (a, b) => parseMMDDYY(b.date) - parseMMDDYY(a.date)
+  );
+  const serializedPublishedSnapshots = JSON.stringify(sortedPublishedSnapshots);
+
+  // A full localStorage quota must not leave half of a generation installed in
+  // memory or turn an otherwise valid background refresh into a retry loop.
   try {
-    const candidates = [
-      "webapp_data/demo_history.csv",
-      "/webapps/bitcoin_net_worth/webapp_data/demo_history.csv",
-      "history_files/demo_history.csv",
-      "/history_files/demo_history.csv",
-    ];
-    let response = null;
-    for (const url of candidates) {
-      try {
-        const res = await fetch(url, { cache: "no-cache" });
-        if (res.ok) {
-          response = res;
-          break;
+    localStorage.setItem(STORE_KEY_DEMO, serializedPublishedSnapshots);
+  } catch (error) {
+    console.warn("Could not cache refreshed published demo history:", error);
+  }
+
+  historicalPrices = candidate.prices;
+  publishedDemoSnapshotCount = sortedPublishedSnapshots.length;
+  publishedDemoEarliestDateMs = candidate.earliestSnapshotDateMs;
+  publishedDemoLatestDateMs = candidate.latestSnapshotDateMs;
+  publishedHistoricalPriceCount = candidate.priceCount;
+  publishedHistoricalPriceEarliestDateMs = candidate.earliestPriceDateMs;
+  publishedHistoricalPriceLatestDateMs = candidate.latestPriceDateMs;
+  publishedDemoInstalledSignature = candidate.signature;
+
+  if (currentMode === "demo") {
+    if (startup) {
+      snapshots = sortedPublishedSnapshots;
+      editingSnapshotDate = mmddyy(new Date());
+      hasUnsavedAssetLiabilityChanges = false;
+      seedTodayFormStateFromHistory({ save: true });
+      chartRange = { startDate: null, endDate: null };
+    } else {
+      const selectedDate = editingSnapshotDate;
+      const preserveEditorState = hasUnsavedAssetLiabilityChanges || isAssetLiabilityEditorFocused();
+      snapshots = sortedPublishedSnapshots;
+      if (!preserveEditorState) {
+        const selectedSnapshot = snapshots.find((snapshot) => snapshot.date === selectedDate);
+        if (selectedSnapshot) {
+          applyPublishedSnapshotToFormState(selectedSnapshot);
+          saveForm();
+        } else if (selectedDate === mmddyy(new Date())) {
+          seedTodayFormStateFromHistory({ save: true });
         }
-      } catch {
-        // try next candidate path
       }
     }
-    if (!response || !response.ok) return false;
-    const text = await response.text();
-    const rows = parseCsv(text);
-    if (!rows.length) return false;
-    const parsedSnapshots = rows.map((row) => {
-      try {
-        const yyyymmddDate = String(row.date || "").trim();
-        if (!/^\d{8}$/.test(yyyymmddDate)) return null;
-        const mmddyyDate = yyyymmddToMMDDYY(yyyymmddDate);
-        const btcusd = Number(historicalPrices[mmddyyDate] || formState.btcusd || 0);
+  }
 
-        const assetsRaw = row.assets;
-        const liabilitiesRaw = row.liabilities;
-        const assets = typeof assetsRaw === "string" ? JSON.parse(assetsRaw) : (assetsRaw || []);
-        const liabilities = typeof liabilitiesRaw === "string" ? JSON.parse(liabilitiesRaw) : (liabilitiesRaw || []);
-        if (!Array.isArray(assets) || !Array.isArray(liabilities)) return null;
+  if (startup) return true;
+  publishedDemoRefreshRenderPending = true;
+  if (document.visibilityState === "hidden" || isAssetLiabilityEditorFocused()) return true;
+  flushPublishedDemoRefreshRender();
+  return true;
+}
 
-        return {
-          date: mmddyyDate,
-          timestamp: parseMMDDYY(mmddyyDate).toISOString(),
-          btcusd,
-          assets,
-          liabilities,
-          comments: row.comment || row.comments || "",
-          totals: computeTotals(assets, liabilities, btcusd, mmddyyDate)
-        };
-      } catch {
-        return null;
-      }
-    }).filter(Boolean);
+function registerPublishedDemoDataRefresh() {
+  const controller = window.WSBWebappDataAutoRefresh;
+  if (!controller?.register) return;
 
-    if (!parsedSnapshots.length) return false;
-    await migrateCsvToIncludeCommentColumnIfMissing(text, parsedSnapshots, {
+  controller.register({
+    getInstalledSignature: () => publishedDemoInstalledSignature,
+    async prepare(context) {
+      return fetchPublishedDemoCandidate(context.fetchFresh, context.signature);
+    },
+    validate(candidate) {
+      return validatePublishedDemoCandidate(candidate);
+    },
+    commit(candidate) {
+      return installPublishedDemoCandidate(candidate);
+    },
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") flushPublishedDemoRefreshRender();
+  });
+  document.addEventListener("focusout", () => {
+    window.setTimeout(flushPublishedDemoRefreshRender, 0);
+  });
+}
+
+async function loadDemoData(candidatePromise) {
+  try {
+    const candidate = await candidatePromise;
+    if (!validatePublishedDemoCandidate(candidate)) return false;
+    await migrateCsvToIncludeCommentColumnIfMissing(candidate.historyText, candidate.snapshots, {
       encrypted: false,
       filename: "demo_history.csv"
     });
-    snapshots = parsedSnapshots;
-    editingSnapshotDate = mmddyy(new Date());
-    hasUnsavedAssetLiabilityChanges = false;
-    seedTodayFormStateFromHistory({ save: true });
-    saveSnapshots();
-    // Reset chart range so loading fresh demo data always shows the full history span.
-    chartRange = { startDate: null, endDate: null };
+    installPublishedDemoCandidate(candidate, { startup: true });
     renderAll();
     return true;
   } catch (e) {

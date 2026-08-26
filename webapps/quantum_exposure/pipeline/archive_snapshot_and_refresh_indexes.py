@@ -9,6 +9,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+from publish_generation import (
+    PUBLICATION_MARKER_FILENAME,
+    publish_generation_marker,
+    read_latest_snapshot_height,
+    read_published_snapshot_height,
+)
 from run_daily_snapshot_pipeline import sync_to_standalone_repo
 
 PIPELINE_DIR = Path(__file__).resolve().parent
@@ -42,9 +48,27 @@ def run_script(script_name: str, dry_run: bool) -> None:
     subprocess.run(command, cwd=PIPELINE_DIR, check=True)
 
 
+def validate_archive_candidate(height: int, webapp_data_dir: Path = WEBAPP_DATA_DIR) -> None:
+    """Refuse any archive that would invalidate a live publication boundary."""
+    latest_height = read_latest_snapshot_height(webapp_data_dir)
+    if height == latest_height:
+        raise RuntimeError(
+            f"Refusing to archive latest Quantum snapshot {height}; "
+            "latest_snapshot.txt must always resolve to an active generation."
+        )
+    published_height = read_published_snapshot_height(webapp_data_dir)
+    if published_height is not None and height == published_height:
+        raise RuntimeError(
+            f"Refusing to archive published Quantum snapshot {height}; "
+            "browsers still resolve that active snapshot directory."
+        )
+
+
 def main() -> None:
     args = parse_args()
     height_str = str(args.height)
+
+    validate_archive_candidate(args.height)
 
     source_dir = WEBAPP_DATA_DIR / height_str
     archived_target = ARCHIVED_DIR / height_str
@@ -72,6 +96,16 @@ def main() -> None:
     print("\nRefreshing generated files...")
     run_script("update_blockheight_datetime_lookup.py", args.dry_run)
     run_script("regenerate_snapshot_indexes.py", args.dry_run)
+
+    print("\nPublishing refreshed archive generation...")
+    if args.dry_run:
+        print(f"[dry-run] would update {WEBAPP_DATA_DIR / PUBLICATION_MARKER_FILENAME}")
+    else:
+        marker_text = publish_generation_marker(
+            WEBAPP_DATA_DIR,
+            reason="archive_snapshot_and_refresh_indexes",
+        )
+        print(f"Published generation marker: {marker_text.strip()}")
 
     if args.skip_standalone_sync:
         print("Standalone sync skipped by flag.")

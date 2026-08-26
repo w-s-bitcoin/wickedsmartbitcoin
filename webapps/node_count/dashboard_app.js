@@ -34,7 +34,6 @@
     const PANEL_SPLIT_STACK_MAX = 90;
     const PANEL_SPLIT_CENTER = 50;
     const PANEL_SPLIT_SNAP_DISTANCE = 1.2;
-    const AUTO_REFRESH_MS = 60000;
     const FETCH_CACHE_MODE = 'no-store';
     const SOFTWARE_SPLIT_MIN = 32;
     const SOFTWARE_SPLIT_MAX = 78;
@@ -686,10 +685,11 @@
       softwareChartStackPercent: 48,
       softwareContentHeightWide: 0,
       softwareContentHeightStack: 0,
-      autoRefreshTimer: null,
-      refreshInFlight: false,
       lastSuccessfulRefreshAt: 0,
       dataSignature: '',
+      refreshPresentationPending: false,
+      interactiveInitialized: false,
+      autoRefreshRegistered: false,
     };
     const updatedTimeZoneChip = window.WSBDashboardComponents?.createUpdatedTimeZoneChipController?.({
       chip: '#updatedChip',
@@ -704,29 +704,65 @@
       },
     });
 
-    function getDataSignature(historyRows, softwareRows, refreshedAtText, softwareDetailRows = []) {
-      const latestDatetime = historyRows.length
-        ? String(historyRows[historyRows.length - 1].datetime || '').trim()
-        : '';
-      const refreshed = String(refreshedAtText || '').trim();
-      return `${refreshed}|${latestDatetime}|${historyRows.length}|${softwareRows.length}|${softwareDetailRows.length}`;
+    async function fetchNodeCandidateText(path, { fetchResource = null, cacheBust = null } = {}) {
+      if (typeof fetchResource === 'function') {
+        const response = await fetchResource(path);
+        return response.text();
+      }
+      return fetchTextWithFallbackCacheBust(path, null, cacheBust);
     }
 
-    async function loadDashboardData(cacheBust = null) {
-      const [historyCsv, softwareCsv, softwareDetailCsv, refreshedAtRaw] = await Promise.all([
-        fetchTextWithFallbackCacheBust('webapp_data/bitcoin_node_history.csv', null, cacheBust),
-        fetchTextWithFallbackCacheBust('webapp_data/node_software_counts_grouped.csv', null, cacheBust),
-        fetchTextWithFallbackCacheBust('webapp_data/node_software_counts_with_reachability.csv', null, cacheBust).catch(() => ''),
-        fetchTextWithFallbackCacheBust('webapp_data/last_updated.txt', '../../assets/last_updated.txt', cacheBust).catch(() => ''),
+    async function sha256Text(text) {
+      if (!window.crypto?.subtle) throw new Error('SHA-256 verification is unavailable.');
+      const bytes = new TextEncoder().encode(String(text));
+      const digest = await window.crypto.subtle.digest('SHA-256', bytes);
+      return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, '0')).join('');
+    }
+
+    function parseNodePublicationMarker(raw) {
+      const signature = String(raw || '').trim();
+      if (!signature) throw new Error('Node Count publication marker is empty.');
+      const manifest = JSON.parse(signature);
+      if (num(manifest?.schema_version) !== 1
+          || !String(manifest?.generation_id || '').trim()
+          || !String(manifest?.published_at_utc || '').trim()
+          || !manifest?.artifacts) {
+        throw new Error('Node Count publication marker is invalid.');
+      }
+      return { signature, manifest };
+    }
+
+    async function fetchNodePublicationMarker({ fetchResource = null, cacheBust = null } = {}) {
+      const raw = await fetchNodeCandidateText('webapp_data/published_generation.json', {
+        fetchResource,
+        cacheBust,
+      });
+      return parseNodePublicationMarker(raw);
+    }
+
+    async function loadDashboardData({
+      cacheBust = null,
+      fetchResource = null,
+      expectedSignature = '',
+      expectedManifest = null,
+    } = {}) {
+      const [historyCsv, softwareCsv, softwareDetailCsv] = await Promise.all([
+        fetchNodeCandidateText('webapp_data/bitcoin_node_history.csv', { fetchResource, cacheBust }),
+        fetchNodeCandidateText('webapp_data/node_software_counts_grouped.csv', { fetchResource, cacheBust }),
+        fetchNodeCandidateText('webapp_data/node_software_counts_with_reachability.csv', { fetchResource, cacheBust }),
       ]);
 
-      const refreshedAtText = String(refreshedAtRaw || '').trim();
-      const historyRows = sanitizeHistoryRows(
-        parseCsv(historyCsv).map((r) => ({
-          ...r,
-          datetime: r.datetime || (r.timestamp ? new Date(num(r.timestamp) * 1000).toISOString() : ''),
-        })).filter((r) => !!r.datetime)
-      );
+      const artifactHashes = await Promise.all([
+        sha256Text(historyCsv),
+        sha256Text(softwareCsv),
+        sha256Text(softwareDetailCsv),
+      ]);
+      const refreshedAtText = String(expectedManifest?.published_at_utc || '').trim();
+      const rawHistoryRows = parseCsv(historyCsv).map((r) => ({
+        ...r,
+        datetime: r.datetime || (r.timestamp ? new Date(num(r.timestamp) * 1000).toISOString() : ''),
+      })).filter((r) => !!r.datetime);
+      const historyRows = sanitizeHistoryRows(rawHistoryRows);
       const softwareRows = parseCsv(softwareCsv);
       const softwareDetailRows = String(softwareDetailCsv || '').trim()
         ? parseCsv(softwareDetailCsv)
@@ -736,18 +772,84 @@
         historyRows,
         softwareRows,
         softwareDetailRows,
+        rawLatestHistoryTime: latestNodeHistoryTime(rawHistoryRows),
         refreshedAtText,
-        signature: getDataSignature(historyRows, softwareRows, refreshedAtText, softwareDetailRows),
+        signature: String(expectedSignature || '').trim(),
+        manifest: expectedManifest,
+        artifactHashes: {
+          'bitcoin_node_history.csv': artifactHashes[0],
+          'node_software_counts_grouped.csv': artifactHashes[1],
+          'node_software_counts_with_reachability.csv': artifactHashes[2],
+        },
+        artifactRowCounts: {
+          'bitcoin_node_history.csv': rawHistoryRows.length,
+          'node_software_counts_grouped.csv': softwareRows.length,
+          'node_software_counts_with_reachability.csv': softwareDetailRows.length,
+        },
       };
     }
 
-    async function fetchLatestDataSignature() {
-      const refreshedAtRaw = await fetchTextWithFallbackCacheBust(
-        'webapp_data/last_updated.txt',
-        '../../assets/last_updated.txt',
-        Date.now()
-      ).catch(() => '');
-      return String(refreshedAtRaw || '').trim();
+    function latestNodeHistoryTime(rows) {
+      if (!Array.isArray(rows) || !rows.length) return 0;
+      return new Date(rows[rows.length - 1]?.datetime || '').getTime() || 0;
+    }
+
+    function isCompleteNodeCandidate(candidate, expectedSignature = '') {
+      if (!candidate || !Array.isArray(candidate.historyRows)
+          || !Array.isArray(candidate.softwareRows)
+          || !Array.isArray(candidate.softwareDetailRows)) return false;
+      if (candidate.signature !== String(expectedSignature || '').trim()) return false;
+      if (candidate.historyRows.length < 100 || candidate.softwareRows.length < 1
+          || candidate.softwareDetailRows.length < 1) return false;
+
+      for (const [name, rows] of Object.entries(candidate.artifactRowCounts || {})) {
+        const published = candidate.manifest?.artifacts?.[name];
+        if (!published || String(published.sha256 || '').toLowerCase() !== candidate.artifactHashes?.[name]
+            || num(published.rows) !== rows) return false;
+      }
+      if (Object.keys(candidate.artifactRowCounts || {}).length !== 3) return false;
+
+      let priorTime = 0;
+      for (const row of candidate.historyRows) {
+        const time = new Date(row?.datetime || '').getTime();
+        if (!Number.isFinite(time) || time < priorTime || num(row?.total_count) <= 0) return false;
+        priorTime = time;
+      }
+
+      const groupedTotal = candidate.softwareRows.reduce((sum, row) => sum + num(row?.total_count), 0);
+      const detailTotal = candidate.softwareDetailRows.reduce((sum, row) => sum + num(row?.total_count), 0);
+      if (!(groupedTotal > 0) || !(detailTotal > 0) || Math.abs(groupedTotal - detailTotal) > 0.5) return false;
+      const manifestLatest = new Date(candidate.manifest?.latest_history_datetime || '').getTime();
+      if (!Number.isFinite(manifestLatest) || manifestLatest !== candidate.rawLatestHistoryTime) return false;
+
+      if (state.history.length) {
+        const installedLatest = latestNodeHistoryTime(state.history);
+        const candidateLatest = latestNodeHistoryTime(candidate.historyRows);
+        if (candidateLatest < installedLatest) return false;
+        if (candidate.historyRows.length < Math.floor(state.history.length * 0.9)) return false;
+      }
+      return true;
+    }
+
+    async function loadInitialNodeGeneration() {
+      let lastError = null;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          const before = await fetchNodePublicationMarker({ cacheBust: `${Date.now()}-before-${attempt}` });
+          const candidate = await loadDashboardData({
+            cacheBust: `${Date.now()}-data-${attempt}`,
+            expectedSignature: before.signature,
+            expectedManifest: before.manifest,
+          });
+          const after = await fetchNodePublicationMarker({ cacheBust: `${Date.now()}-after-${attempt}` });
+          if (before.signature === after.signature
+              && isCompleteNodeCandidate(candidate, before.signature)) return candidate;
+          lastError = new Error('Node Count publication changed or was incomplete during startup.');
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      throw lastError || new Error('Could not load a complete Node Count generation.');
     }
 
     async function loadGlobalUpdateBlockHeight(cacheBust = null) {
@@ -768,79 +870,129 @@
       }
     }
 
-    async function refreshIfDataChanged() {
-      if (state.refreshInFlight) return;
-      state.refreshInFlight = true;
+    function nodeRefreshInteractionActive() {
+      if (document.body.classList.contains('resizing-panels')
+          || document.body.classList.contains('resizing-panels-y')
+          || document.body.classList.contains('resizing-software')
+          || document.body.classList.contains('resizing-panel')) return true;
+      return Boolean(document.querySelector('#historyChart .hoverlayer .hovertext, #softwareChart .hoverlayer .hovertext'));
+    }
 
+    function presentPendingNodeRefresh() {
+      if (!state.refreshPresentationPending || document.visibilityState !== 'visible'
+          || nodeRefreshInteractionActive()) return false;
       try {
-        const latestStamp = await fetchLatestDataSignature();
-        const currentStamp = String(state.refreshedAtText || '').trim();
-        if (latestStamp && currentStamp && latestStamp === currentStamp) {
-          return;
+        if (!state.interactiveInitialized) {
+          setControlsEnabled(false);
+          setPanelLoaderVisible('history', true);
+          setPanelLoaderVisible('software', true);
+          completeNodeInteractiveInitialization();
+          state.refreshPresentationPending = false;
+          void loadGlobalUpdateBlockHeight(Date.now());
+          return true;
         }
-
-        setPanelLoaderVisible('history', true);
-        setPanelLoaderVisible('software', true);
-
-        const data = await loadDashboardData(Date.now());
-        if (!data.historyRows.length) {
-          throw new Error('No history rows found in node count dataset.');
-        }
-        if (!data.softwareRows.length) {
-          throw new Error('No software rows found in grouped software dataset.');
-        }
-
-        state.history = data.historyRows;
-        state.software = data.softwareRows;
-        state.softwareDetails = data.softwareDetailRows;
-        state.refreshedAtText = data.refreshedAtText;
-        state.dataSignature = data.signature;
-        state.lastSuccessfulRefreshAt = Date.now();
-
-        loadGlobalUpdateBlockHeight(Date.now());
+        const pageScroll = { x: window.scrollX, y: window.scrollY };
         setLastUpdated();
-        renderHistoryChart();
-        renderSoftwarePanel();
-      } catch (err) {
-        console.warn('Auto-refresh check failed:', err);
-      } finally {
-        state.refreshInFlight = false;
+        renderHistoryChart({ preserveViewport: true, preserveScroll: true, showLoader: false });
+        renderSoftwarePanel({ preserveScroll: true, showLoader: false });
+        window.scrollTo(pageScroll.x, pageScroll.y);
+        requestAnimationFrame(() => window.scrollTo(pageScroll.x, pageScroll.y));
+        state.refreshPresentationPending = false;
         setPanelLoaderVisible('history', false);
         setPanelLoaderVisible('software', false);
+        hideError();
+        setControlsEnabled(true);
+        void loadGlobalUpdateBlockHeight(Date.now());
+        return true;
+      } catch (error) {
+        console.warn('Node Count refresh presentation deferred:', error);
+        return false;
       }
     }
 
-    function triggerRefreshSoon(delayMs = 150) {
-      window.setTimeout(() => {
-        refreshIfDataChanged();
-      }, delayMs);
-    }
-
-    function setupRefreshWakeEvents() {
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') {
-          triggerRefreshSoon(0);
-        }
-      });
-
-      window.addEventListener('focus', () => {
-        triggerRefreshSoon(0);
-      });
-
-      window.addEventListener('pageshow', () => {
-        triggerRefreshSoon(0);
-      });
-
-      window.addEventListener('online', () => {
-        triggerRefreshSoon(0);
-      });
-    }
-
-    function startAutoRefresh() {
-      if (state.autoRefreshTimer) {
-        clearInterval(state.autoRefreshTimer);
+    function completeNodeInteractiveInitialization() {
+      if (state.interactiveInitialized) return;
+      bindSelectDropdowns();
+      updatedTimeZoneChip?.populate?.();
+      loadControlsFromStorage();
+      applyDashboardShareStateFromUrl();
+      updatedTimeZoneChip?.populate?.();
+      syncAllSelectDropdowns();
+      applyPanelOrder();
+      applyPanelVisibility();
+      setLastUpdated();
+      bindControls();
+      updateResetButtonUi();
+      state.interactiveInitialized = true;
+      try {
+        renderHistoryChart();
+        renderSoftwarePanel();
+      } catch (error) {
+        state.refreshPresentationPending = true;
+        throw error;
       }
-      state.autoRefreshTimer = setInterval(refreshIfDataChanged, AUTO_REFRESH_MS);
+      if (typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(() => updateResetButtonUi(), { timeout: 500 });
+      } else {
+        window.setTimeout(() => updateResetButtonUi(), 100);
+      }
+      hideError();
+      setControlsEnabled(true);
+    }
+
+    function commitNodeRefresh(candidate) {
+      state.history = candidate.historyRows;
+      state.software = candidate.softwareRows;
+      state.softwareDetails = candidate.softwareDetailRows;
+      state.refreshedAtText = candidate.refreshedAtText;
+      state.dataSignature = candidate.signature;
+      state.lastSuccessfulRefreshAt = Date.now();
+      if (!state.interactiveInitialized) {
+        state.refreshPresentationPending = true;
+        presentPendingNodeRefresh();
+        return true;
+      }
+      state.refreshPresentationPending = true;
+      presentPendingNodeRefresh();
+      return true;
+    }
+
+    function registerNodeAutoRefresh() {
+      const controller = window.WSBWebappDataAutoRefresh;
+      if (!controller?.register || state.autoRefreshRegistered) return;
+      state.autoRefreshRegistered = true;
+      controller.register({
+        getInstalledSignature: () => state.dataSignature,
+        prepare: (context) => {
+          const publication = parseNodePublicationMarker(context.signatureParts?.[0] || context.signature);
+          return loadDashboardData({
+            fetchResource: context.fetchFresh,
+            expectedSignature: context.signature,
+            expectedManifest: publication.manifest,
+          });
+        },
+        validate: (candidate, context) => isCompleteNodeCandidate(candidate, context.signature),
+        commit: commitNodeRefresh,
+        onError: (error) => console.warn('Node Count atomic refresh failed:', error),
+      });
+
+      const flush = () => window.setTimeout(presentPendingNodeRefresh, 0);
+      let pointerFlushFrame = 0;
+      const flushIfPending = () => {
+        if (!state.refreshPresentationPending || pointerFlushFrame) return;
+        pointerFlushFrame = requestAnimationFrame(() => {
+          pointerFlushFrame = 0;
+          presentPendingNodeRefresh();
+        });
+      };
+      document.addEventListener('visibilitychange', flush);
+      document.addEventListener('pointerup', flush);
+      document.addEventListener('pointermove', flushIfPending, { passive: true });
+      ['historyChart', 'softwareChart'].forEach((id) => {
+        const chart = document.getElementById(id);
+        if (chart && typeof chart.on === 'function') chart.on('plotly_unhover', flush);
+      });
+      if (state.refreshPresentationPending) flush();
     }
 
     function isStackedLayout() {
@@ -1927,9 +2079,12 @@
       const _thFg = _thStyle.getPropertyValue('--fg').trim() || '#eef4f6';
       const _thIsLight = document.documentElement.dataset.theme === 'light';
       const _thGrid = _thIsLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)';
-      setPanelLoaderVisible('history', true);
+      const showLoader = options.showLoader !== false;
+      if (showLoader) setPanelLoaderVisible('history', true);
       const preserveViewport = Boolean(options.preserveViewport);
       const fitVisibleAllRange = Boolean(options.fitVisibleAllRange);
+      const historyLegend = document.getElementById('historyLegend');
+      const priorLegendScrollTop = options.preserveScroll ? (historyLegend?.scrollTop || 0) : null;
       const historyChartEl = document.getElementById('historyChart');
       const priorXRange = preserveViewport
         ? historyChartEl?.layout?.xaxis?.range
@@ -2074,6 +2229,10 @@
         { key: 'bip110', label: `BIP-110${smooth > 1 ? ` (${smooth}d avg)` : ''}`, color: HISTORY_COLORS.bip110 },
         { key: 'knots', label: `Knots (Non-BIP-110)${smooth > 1 ? ` (${smooth}d avg)` : ''}`, color: HISTORY_COLORS.knots },
       ]);
+      if (priorLegendScrollTop != null && historyLegend) {
+        historyLegend.scrollTop = priorLegendScrollTop;
+        requestAnimationFrame(() => { historyLegend.scrollTop = priorLegendScrollTop; });
+      }
 
       Plotly.react('historyChart', traces, {
         margin: { l: 64, r: 24, t: 16, b: 25 },
@@ -2121,15 +2280,18 @@
       const first = rows[0] ? new Date(rows[0].datetime).toISOString().slice(0, 10) : '-';
       const last = rows[rows.length - 1] ? new Date(rows[rows.length - 1].datetime).toISOString().slice(0, 10) : '-';
       document.getElementById('rangeSummary').textContent = `${first} to ${last}`;
-      requestAnimationFrame(() => setPanelLoaderVisible('history', false));
+      if (showLoader) requestAnimationFrame(() => setPanelLoaderVisible('history', false));
     }
 
-    function renderSoftwarePanel() {
+    function renderSoftwarePanel(options = {}) {
       const _thStyle = getComputedStyle(document.documentElement);
       const _thFg = _thStyle.getPropertyValue('--fg').trim() || '#eef4f6';
       const _thIsLight = document.documentElement.dataset.theme === 'light';
       const _thGrid = _thIsLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)';
-      setPanelLoaderVisible('software', true);
+      const showLoader = options.showLoader !== false;
+      const listWrap = document.getElementById('versionTableBody')?.closest('.list-wrap');
+      const priorScrollTop = options.preserveScroll ? (listWrap?.scrollTop || 0) : null;
+      if (showLoader) setPanelLoaderVisible('software', true);
       const topN = Number(document.getElementById('topNInput').value);
       document.getElementById('topNLabel').textContent = String(topN);
 
@@ -2342,7 +2504,11 @@
         });
       });
 
-      requestAnimationFrame(() => setPanelLoaderVisible('software', false));
+      if (priorScrollTop != null && listWrap) {
+        listWrap.scrollTop = priorScrollTop;
+        requestAnimationFrame(() => { listWrap.scrollTop = priorScrollTop; });
+      }
+      if (showLoader) requestAnimationFrame(() => setPanelLoaderVisible('software', false));
     }
 
     function setLastUpdated() {
@@ -2737,6 +2903,13 @@
       box.textContent = message;
     }
 
+    function hideError() {
+      const box = document.getElementById('errorBox');
+      if (!box) return;
+      box.style.display = 'none';
+      box.textContent = '';
+    }
+
     function loadScript(src, timeoutMs = 5000) {
       return new Promise((resolve, reject) => {
         const s = document.createElement('script');
@@ -2800,7 +2973,7 @@
       setPanelLoaderVisible('history', true);
       setPanelLoaderVisible('software', true);
       try {
-        const data = await loadDashboardData(null);
+        const data = await loadInitialNodeGeneration();
         state.history = data.historyRows;
         state.software = data.softwareRows;
         state.softwareDetails = data.softwareDetailRows;
@@ -2816,32 +2989,14 @@
           throw new Error('No software rows found in grouped software dataset.');
         }
 
-        bindSelectDropdowns();
-        updatedTimeZoneChip?.populate?.();
-        loadControlsFromStorage();
-        applyDashboardShareStateFromUrl();
-        updatedTimeZoneChip?.populate?.();
-        syncAllSelectDropdowns();
-        applyPanelOrder();
-        applyPanelVisibility();
-        setLastUpdated();
-        bindControls();
-        updateResetButtonUi();
-        renderHistoryChart();
-        renderSoftwarePanel();
-        // Ensure button state is properly set after all rendering completes
-        if (typeof window.requestIdleCallback === 'function') {
-          window.requestIdleCallback(() => updateResetButtonUi(), { timeout: 500 });
-        } else {
-          window.setTimeout(() => updateResetButtonUi(), 100);
-        }
-        setupRefreshWakeEvents();
-        startAutoRefresh();
-        setControlsEnabled(true);
+        completeNodeInteractiveInitialization();
       } catch (err) {
         console.error(err);
+        if (!state.interactiveInitialized) state.dataSignature = '';
         showError(`Dashboard data failed to load: ${err.message || err}`);
         setControlsEnabled(true);
+      } finally {
+        registerNodeAutoRefresh();
       }
     }
 

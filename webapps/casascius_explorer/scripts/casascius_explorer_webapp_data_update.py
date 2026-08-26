@@ -497,9 +497,13 @@ def main():
                 or initial_year_changes
             ):
                 write_state(args.state, new_state)
+            if not args.skip_right_panel:
+                regenerate_right_panel()
             print(f"no new blocks after {from_height}")
             print("affected addresses: 0")
             print(f"changed CSV rows: {len(initial_year_changes)}")
+            if not args.skip_right_panel:
+                print("regenerated assets/right_panel_data.js")
         return
 
     with tempfile.TemporaryDirectory(prefix="casascius_update_") as tmpdir:
@@ -542,7 +546,7 @@ def main():
     if changed or initial_year_changes or year_changes:
         write_csv_rows(args.csv, fieldnames, rows)
     write_state(args.state, new_state)
-    if changed and not args.skip_right_panel:
+    if not args.skip_right_panel:
         regenerate_right_panel()
 
     print(f"checked {from_height + 1}-{to_height}")
@@ -550,7 +554,7 @@ def main():
     print(f"changed CSV rows: {len(changed)}")
     if missing_archives:
         print("missing stxo archive tables: " + ", ".join(missing_archives))
-    if changed and not args.skip_right_panel:
+    if not args.skip_right_panel:
         print("regenerated assets/right_panel_data.js")
 
 

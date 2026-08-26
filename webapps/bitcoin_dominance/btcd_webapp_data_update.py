@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import hashlib
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -438,13 +440,40 @@ def split_timeseries_historical_and_current_day(
     return historical, current_day
 
 
+def atomic_write_text(path: Path, text: str) -> None:
+    """Publish one artifact without exposing a partially-written file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=path.parent,
+    )
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, path)
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def write_csv_if_changed(df: pd.DataFrame, path: Path) -> bool:
     csv_text = df.to_csv(index=False)
     if path.exists():
         existing = path.read_text(encoding="utf-8")
         if existing == csv_text:
             return False
-    path.write_text(csv_text, encoding="utf-8")
+    atomic_write_text(path, csv_text)
     return True
 
 
@@ -647,11 +676,40 @@ def write_webapp_data(source_csv: Path, output_dir: Path) -> None:
         },
     }
 
-    with (output_dir / "chart_static.json").open("w", encoding="utf-8") as f:
-        json.dump(chart_static, f, indent=2)
+    atomic_write_text(output_dir / "chart_static.json", json.dumps(chart_static, indent=2))
 
-    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    (output_dir / "last_updated.txt").write_text(timestamp, encoding="utf-8")
+    # Retain the human-readable timestamp for the dashboard KPI. The hash
+    # manifest below is the actual publication boundary and is written last.
+    timestamp = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    atomic_write_text(output_dir / "last_updated.txt", timestamp)
+
+    artifact_rows = {
+        "btcd_timeseries_historical.csv": int(len(btcd_hist)),
+        "btcd_timeseries_current_day.csv": int(len(btcd_current)),
+        "btcd_timeseries_incl_stables_historical.csv": int(len(btcd_incl_hist)),
+        "btcd_timeseries_incl_stables_current_day.csv": int(len(btcd_incl_current)),
+        "top10_daily_excl_stables.csv": int(len(top10_excl_today)),
+        "top10_daily_incl_stables.csv": int(len(top10_incl_today)),
+    }
+    artifact_names = ["chart_static.json", *artifact_rows]
+    published_generation = {
+        "schema_version": 1,
+        "generation_id": timestamp,
+        "published_at_utc": timestamp,
+        "latest_date": latest_date,
+        "latest_snapshot_date": latest_snapshot_date,
+        "artifacts": {
+            name: {
+                "sha256": sha256_file(output_dir / name),
+                **({"rows": artifact_rows[name]} if name in artifact_rows else {}),
+            }
+            for name in artifact_names
+        },
+    }
+    atomic_write_text(
+        output_dir / "published_generation.json",
+        json.dumps(published_generation, separators=(",", ":"), ensure_ascii=True),
+    )
 
     print(f"Webapp data written to: {output_dir}")
     for p in sorted(output_dir.glob("*")):

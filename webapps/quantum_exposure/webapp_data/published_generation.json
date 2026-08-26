@@ -1,0 +1,1 @@
+{"artifacts":{"historical_eco.csv":{"path":"historical_eco.csv","sha256":"28779fa861c33e4fd1a2a2341598dc3d47342270389f1e117ad9024c71d31542","rows":1956,"first_snapshot":0,"latest_snapshot":961000}},"format":1,"generation_id":"snapshot-961000","published_at_utc":"2026-08-24T13:52:46Z","reason":"existing_published_snapshot","snapshot_blockheight":961000}

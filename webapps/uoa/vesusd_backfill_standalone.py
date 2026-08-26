@@ -20,6 +20,8 @@ import time
 import pandas as pd
 import requests
 
+from uoa_webapp_data_update import publish_refresh_marker
+
 API_BASE = "https://api.frankfurter.dev/v2"
 LEGACY_SCOPE = "all"
 VENEZUELA_REDENOM_FACTOR = 100000.0  # 100000 VEF = 1 VES (2018 redenomination)
@@ -236,7 +238,10 @@ def main() -> None:
 
     out_df = df.copy()
     out_df["date"] = out_df["date"].dt.strftime("%Y-%m-%d")
-    out_df.to_csv(csv_path, index=False)
+    tmp_path = csv_path.with_suffix(csv_path.suffix + ".tmp")
+    out_df.to_csv(tmp_path, index=False)
+    tmp_path.replace(csv_path)
+    publish_refresh_marker(csv_path.parent)
 
     print("\nBackfill complete")
     print(f"  Non-null vesusd before: {before_non_null}")

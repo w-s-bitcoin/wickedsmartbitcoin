@@ -105,6 +105,11 @@ function forwardModalEmbedKeydown(e) {
         const forwarded = new KeyboardEvent('keydown', {
             key: e.key,
             code: e.code,
+            shiftKey: e.shiftKey,
+            altKey: e.altKey,
+            ctrlKey: e.ctrlKey,
+            metaKey: e.metaKey,
+            repeat: e.repeat,
             bubbles: true,
             cancelable: true,
         });
@@ -119,7 +124,35 @@ function forwardModalEmbedKeydown(e) {
 
 document.addEventListener('keydown', e => {
     if (isBuyMeVisible) return;
+    if (!isPlaybackDashboardModalActive()) return;
+    if (!(e.key === ' ' || e.key === 'Spacebar' || e.code === 'Space')) return;
+    // Shift+Space belongs exclusively to the embedded modal navigation layer,
+    // which closes the modal and restores focus to its home-screen card.
+    if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || e.isComposing) return;
+    const active = document.activeElement;
+    if (
+        active &&
+        (active.tagName === 'INPUT' ||
+         active.tagName === 'TEXTAREA' ||
+         active.tagName === 'SELECT' ||
+         active.isContentEditable ||
+         active.closest?.('[contenteditable], [role="textbox"]'))
+    ) {
+        return;
+    }
+    if (!forwardModalEmbedKeydown(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (typeof e.stopImmediatePropagation === 'function') {
+        e.stopImmediatePropagation();
+    }
+}, true);
+
+document.addEventListener('keydown', e => {
+    if (isBuyMeVisible) return;
     if (modal?.style?.display !== 'flex') return;
+    // Do not swallow modal navigation shortcuts such as Shift+Space.
+    if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
     const isBlockedModalControlKey = (
         e.key === 'ArrowLeft' ||
         e.key === 'ArrowRight' ||

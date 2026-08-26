@@ -471,7 +471,64 @@
         return action === 'prev' || action === 'next' ? action : null;
       };
 
+      const isPlainPlaybackSpace = (event) => !!(
+        !event.shiftKey
+        && !event.altKey
+        && !event.ctrlKey
+        && !event.metaKey
+        && !event.isComposing
+        && (event.code === 'Space' || event.key === ' ' || event.key === 'Spacebar')
+      );
+
+      const handlePlaybackSpace = (event) => {
+        const cameFromParent = event.currentTarget === parentDocument;
+        const cameFromDashboard = event.currentTarget === document;
+        if ((!cameFromParent && !cameFromDashboard) || !isPlainPlaybackSpace(event)) return false;
+        if (!isActiveModalEmbed() || isTextEntryTarget(event.target)) return false;
+        if (hasBlockingParentOverlay() || navigationIsLocked()) return false;
+
+        const shortcutIsReady = window.WSBDashboardPlaybackKeyboardShortcutsActive === true;
+        const controlsExist = !!document.querySelector(
+          '.date-range-playback-button-group, .date-range-playback-controls'
+        );
+        if (!shortcutIsReady && !controlsExist) return false;
+
+        // Once the dashboard handler is installed, an event already inside the
+        // iframe should continue to it normally. Parent events need forwarding.
+        if (shortcutIsReady && cameFromDashboard) return false;
+
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+
+        if (shortcutIsReady) {
+          const forwarded = new KeyboardEvent('keydown', {
+            key: event.key,
+            code: event.code,
+            shiftKey: false,
+            altKey: false,
+            ctrlKey: false,
+            metaKey: false,
+            repeat: event.repeat,
+            bubbles: true,
+            cancelable: true,
+          });
+          document.dispatchEvent(forwarded);
+        } else {
+          // Preserve a first Space press made while a dashboard's data and
+          // playback handler are still initializing.
+          window.WSBDashboardPendingPlaybackSpace = true;
+        }
+        try {
+          modalEmbed.focus({ preventScroll: true });
+        } catch (_) {
+          modalEmbed.focus();
+        }
+        return true;
+      };
+
       const handleShortcut = (event) => {
+        if (handlePlaybackSpace(event)) return;
         const action = shortcutAction(event);
         if (!action || !isActiveModalEmbed()) return;
         if (isTextEntryTarget(event.target) || hasBlockingParentOverlay() || navigationIsLocked()) return;

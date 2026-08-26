@@ -2,8 +2,11 @@
   const AUTO_REFRESH_MS = 60000;
 
   const state = {
+    installedSignature: null,
+    marker: null,
     points: [],
   };
+  let dataRefresher = null;
 
   function parseCsv(text) {
     const rows = [];
@@ -40,6 +43,7 @@
       value += ch;
     }
 
+    if (inQuotes) throw new Error('Quantum historical CSV contains an unterminated quoted field.');
     if (value.length || row.length) {
       row.push(value);
       const hasContent = row.some((cell) => String(cell || '').trim() !== '');
@@ -49,6 +53,9 @@
     if (!rows.length) return [];
     const headers = rows[0].map((h) => String(h || '').trim());
     return rows.slice(1).map((r) => {
+      if (r.length !== headers.length) {
+        throw new Error('Quantum historical CSV contains an incomplete row.');
+      }
       const obj = {};
       headers.forEach((h, idx) => {
         obj[h] = r[idx] == null ? '' : String(r[idx]);
@@ -61,6 +68,21 @@
     if (value == null || value === '') return 0;
     const normalized = Number.parseFloat(String(value).replaceAll(',', '').trim());
     return Number.isFinite(normalized) ? Math.round(normalized) : 0;
+  }
+
+  function strictNumber(value) {
+    const raw = String(value ?? '').replaceAll(',', '').trim();
+    if (!raw) return NaN;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : NaN;
+  }
+
+  async function sha256Text(text) {
+    if (!window.crypto?.subtle || typeof TextEncoder !== 'function') {
+      throw new Error('SHA-256 validation is unavailable in this browser.');
+    }
+    const digest = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+    return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, '0')).join('');
   }
 
   function getAggregateFromRows(rows, balanceFilter, scriptType, spendType, fieldName) {
@@ -135,23 +157,14 @@
     return points;
   }
 
-  async function loadData() {
-    const resp = await fetch('webapp_data/historical_eco.csv', { cache: 'no-store' });
-    if (!resp.ok) {
-      throw new Error(`Could not load webapp_data/historical_eco.csv (${resp.status})`);
-    }
-
-    const rows = parseCsv(await resp.text());
-    state.points = buildPointsFromRows(rows);
-  }
-
   function render() {
     const container = document.getElementById('historicalChart');
-    if (!container) return;
+    if (!container) return false;
 
     if (!state.points.length) {
-      container.innerHTML = '';
-      return;
+      container.dataset.previewState = 'fallback';
+      container.innerHTML = '<div class="preview-unavailable" style="display:grid;place-items:center;width:100%;height:100%;color:#95a6ae;font:500 22px IBM Plex Mono,monospace">Preview unavailable</div>';
+      return true;
     }
 
     const points = state.points;
@@ -221,26 +234,141 @@
         <path class="seg-nonexposed" d="${nonExposedPath}"></path>
       </svg>
     `;
+    container.dataset.previewState = 'ready';
+    return true;
   }
 
-  async function init() {
-    window.WSBPreviewShared?.initThemeSync({ onThemeChanged: render });
-    await loadData();
-    render();
-    window.WSBPreviewShared?.markReady?.({ filename: "quantum_exposure.png" });
-    window.addEventListener('resize', render);
-    window.WSBPreviewShared
-      ?.createAutoRefresher({
-        intervalMs: AUTO_REFRESH_MS,
-        refresh: async () => {
-          await loadData();
-          render();
-        },
-      })
-      .start();
+  async function prepareCandidate(context) {
+    const marker = JSON.parse(String(context.signatureParts?.[0] || '').trim());
+    const response = await context.fetchFresh('webapp_data/historical_eco.csv');
+    const csvText = await response.text();
+    const rows = parseCsv(csvText);
+    return {
+      marker,
+      rows,
+      points: buildPointsFromRows(rows),
+      dataHash: await sha256Text(csvText),
+    };
   }
 
-  init().catch((error) => {
+  function validateCandidate(candidate) {
+    const marker = candidate?.marker;
+    const artifact = marker?.artifacts?.['historical_eco.csv'];
+    const rows = candidate?.rows;
+    const expectedHash = String(artifact?.sha256 || '').toLowerCase();
+    const requiredHeaders = [
+      'snapshot',
+      'balance_filter',
+      'script_type_filter',
+      'spend_activity_filter',
+      'pubkey_count',
+      'utxo_count',
+      'supply_sats',
+      'exposed_pubkey_count',
+      'exposed_utxo_count',
+      'exposed_supply_sats',
+      'estimated_migration_blocks',
+    ];
+    if (Number(marker?.format) !== 1 || !String(marker?.generation_id || '').trim()) return false;
+    if (String(artifact?.path || '') !== 'historical_eco.csv') return false;
+    if (!/^[a-f0-9]{64}$/.test(expectedHash) || candidate.dataHash !== expectedHash) return false;
+    if (!Array.isArray(rows) || rows.length !== Number(artifact?.rows) || rows.length < 1) return false;
+    if (Object.keys(rows[0] || {}).join('|') !== requiredHeaders.join('|')) return false;
+
+    const keys = new Set();
+    const snapshotHeights = [];
+    const requiredBySnapshot = new Map();
+    let previousHeight = -1;
+    for (const row of rows) {
+      const snapshot = strictNumber(row.snapshot);
+      if (!Number.isInteger(snapshot) || snapshot < 0 || snapshot < previousHeight) return false;
+      const balance = String(row.balance_filter || '').trim();
+      const scriptType = String(row.script_type_filter || '').trim();
+      const activity = String(row.spend_activity_filter || '').trim();
+      if (!balance || !scriptType || !activity) return false;
+      const key = `${snapshot}|${balance}|${scriptType}|${activity}`;
+      if (keys.has(key)) return false;
+      keys.add(key);
+      for (const field of [
+        'pubkey_count',
+        'utxo_count',
+        'supply_sats',
+        'exposed_pubkey_count',
+        'exposed_utxo_count',
+        'exposed_supply_sats',
+      ]) {
+        const value = strictNumber(row[field]);
+        if (!Number.isInteger(value) || value < 0) return false;
+      }
+      const migrationBlocks = strictNumber(row.estimated_migration_blocks);
+      if (!Number.isFinite(migrationBlocks) || migrationBlocks < 0) return false;
+      if (!requiredBySnapshot.has(snapshot)) requiredBySnapshot.set(snapshot, new Set());
+      if (balance === 'all' && scriptType === 'All') {
+        requiredBySnapshot.get(snapshot).add(activity);
+      }
+      if (!snapshotHeights.length || snapshotHeights[snapshotHeights.length - 1] !== snapshot) {
+        snapshotHeights.push(snapshot);
+      }
+      previousHeight = snapshot;
+    }
+
+    if (snapshotHeights[0] !== Number(artifact.first_snapshot)) return false;
+    if (snapshotHeights[snapshotHeights.length - 1] !== Number(artifact.latest_snapshot)) return false;
+    if (Number(artifact.latest_snapshot) !== Number(marker.snapshot_blockheight)) return false;
+    for (const [snapshot, activities] of requiredBySnapshot.entries()) {
+      // Snapshot zero is the genesis baseline and predates the activity
+      // buckets; later snapshots must carry the complete stacked breakdown.
+      const requiredActivities = snapshot === 0
+        ? ['all', 'never_spent']
+        : ['all', 'never_spent', 'inactive', 'active'];
+      if (!requiredActivities.every((value) => activities.has(value))) {
+        return false;
+      }
+    }
+    if (candidate.points.length !== snapshotHeights.length) return false;
+    const installedHeight = Number(state.marker?.snapshot_blockheight);
+    if (Number.isFinite(installedHeight) && Number(marker.snapshot_blockheight) < installedHeight) return false;
+    return true;
+  }
+
+  function initialize() {
+    window.WSBPreviewShared?.initThemeSync({
+      onThemeChanged: () => dataRefresher?.requestPresent('theme'),
+    });
+    dataRefresher = window.WSBPreviewShared?.createDataRefresher({
+      filename: 'quantum_exposure.png',
+      urls: ['webapp_data/published_generation.json'],
+      intervalMs: AUTO_REFRESH_MS,
+      getInstalledSignature: () => state.installedSignature,
+      prepare: prepareCandidate,
+      validate: (candidate) => {
+        if (!validateCandidate(candidate)) {
+          throw new Error('Quantum preview publication is incomplete or inconsistent.');
+        }
+        return true;
+      },
+      commit: (candidate, context) => {
+        state.marker = candidate.marker;
+        state.points = candidate.points;
+        state.installedSignature = context.signature;
+        return true;
+      },
+      present: render,
+      onInitialError: (error) => {
+        console.error(error);
+        if (document.visibilityState === 'visible') render();
+      },
+      onError: (error) => console.warn('Quantum preview refresh failed:', error),
+    });
+    window.addEventListener('resize', () => dataRefresher?.requestPresent('resize'));
+    dataRefresher?.start();
+  }
+
+  try {
+    initialize();
+  } catch (error) {
     console.error(error);
-  });
+    if (document.visibilityState === 'visible') render();
+    window.WSBPreviewShared?.markReady?.({ filename: 'quantum_exposure.png' });
+  }
 }());

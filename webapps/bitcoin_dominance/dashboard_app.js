@@ -25,8 +25,8 @@
     const DASHBOARD_TIME = window.WSBDashboardTime || null;
     const LAYOUT_STORAGE_KEY = 'bitcoin_dominance_layout_v1';
     const CONTROLS_STORAGE_KEY = 'bitcoin_dominance_controls_v1';
-    const AUTO_REFRESH_MS = 60000;
     const FETCH_CACHE_MODE = 'no-store';
+    const PUBLICATION_SIGNATURE_SEPARATOR = '\n---WSB-DATA-SIGNATURE-PART---\n';
     const MOBILE_STACK_BREAKPOINT = 1100;
     const PANEL_SPLIT_MIN = 34;
     const PANEL_SPLIT_MAX = 72;
@@ -509,10 +509,12 @@
       timeZone: DASHBOARD_TIME?.getPreferredTimeZone?.() || 'UTC',
       preResetStateSnapshot: null,
       suppressResetSnapshotClear: false,
-      autoRefreshTimer: null,
-      refreshInFlight: false,
       lastSuccessfulRefreshAt: 0,
       dataSignature: '',
+      refreshPresentationPending: false,
+      interactiveInitialized: false,
+      autoRefreshRegistered: false,
+      preferencesInitialized: false,
       priceHistory: [],
       datasets: {
         excl: {
@@ -1383,6 +1385,34 @@
       return fetchText(withCacheBust(path, cacheBust));
     }
 
+    async function fetchDominanceCandidateText(path, { fetchResource = null, cacheBust = null } = {}) {
+      if (typeof fetchResource === 'function') {
+        const response = await fetchResource(path);
+        return response.text();
+      }
+      return fetchTextWithCacheBust(path, cacheBust);
+    }
+
+    async function sha256Text(text) {
+      if (!window.crypto?.subtle) throw new Error('SHA-256 verification is unavailable.');
+      const bytes = new TextEncoder().encode(String(text));
+      const digest = await window.crypto.subtle.digest('SHA-256', bytes);
+      return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, '0')).join('');
+    }
+
+    function parseDominancePublicationMarker(raw) {
+      const signaturePart = String(raw || '').trim();
+      if (!signaturePart) throw new Error('Bitcoin Dominance publication marker is empty.');
+      const manifest = JSON.parse(signaturePart);
+      if (num(manifest?.schema_version) !== 1
+          || !String(manifest?.generation_id || '').trim()
+          || !String(manifest?.published_at_utc || '').trim()
+          || !manifest?.artifacts) {
+        throw new Error('Bitcoin Dominance publication marker is invalid.');
+      }
+      return { signaturePart, manifest };
+    }
+
     function mergeTimeseriesRows(...parts) {
       const byDate = new Map();
       parts.forEach((rows) => {
@@ -1395,66 +1425,65 @@
       return Array.from(byDate.values()).sort((a, b) => new Date(`${a.Date}T00:00:00Z`) - new Date(`${b.Date}T00:00:00Z`));
     }
 
-    async function fetchSplitTimeseriesRows({ historicalPath, currentDayPath, legacyPath, cacheBust = null }) {
-      const [historicalText, currentDayText] = await Promise.all([
-        fetchTextWithCacheBust(historicalPath, cacheBust).catch(() => ''),
-        fetchTextWithCacheBust(currentDayPath, cacheBust).catch(() => ''),
+    async function fetchDominancePublicationMarkers({ fetchResource = null, cacheBust = null } = {}) {
+      const [dominanceRaw, priceRaw] = await Promise.all([
+        fetchDominanceCandidateText('webapp_data/published_generation.json', { fetchResource, cacheBust }),
+        fetchDominanceCandidateText('../../assets/last_updated.txt', { fetchResource, cacheBust }),
       ]);
-
-      if (historicalText || currentDayText) {
-        return mergeTimeseriesRows(parseCsv(historicalText), parseCsv(currentDayText));
-      }
-
-      // Backward-compatible fallback for deployments that still publish a combined file.
-      const legacyText = await fetchTextWithCacheBust(legacyPath, cacheBust);
-      return parseCsv(legacyText);
+      const publication = parseDominancePublicationMarker(dominanceRaw);
+      const parts = [publication.signaturePart, String(priceRaw || '').trim()];
+      if (parts.some((part) => !part)) throw new Error('Bitcoin Dominance publication marker is empty.');
+      return {
+        parts,
+        signature: parts.join(PUBLICATION_SIGNATURE_SEPARATOR),
+        manifest: publication.manifest,
+      };
     }
 
-    function getDataSignature(staticMeta, refreshedAtText) {
-      const generatedAt = String(staticMeta?.generated_at_utc || '').trim();
-      const latestSnapshot = String(staticMeta?.latest_snapshot_date || '').trim();
-      const refreshed = String(refreshedAtText || '').trim();
-      return `${generatedAt}|${latestSnapshot}|${refreshed}`;
-    }
-
-    async function loadDashboardData(cacheBust = null) {
+    async function loadDashboardData({
+      cacheBust = null,
+      fetchResource = null,
+      expectedSignature = '',
+      expectedSignatureParts = [],
+      expectedManifest = null,
+    } = {}) {
       const [
         chartStaticText,
-        historyExclRows,
-        historyInclRows,
+        historyExclHistoricalText,
+        historyExclCurrentText,
+        historyInclHistoricalText,
+        historyInclCurrentText,
         snapshotExclText,
         snapshotInclText,
         dailyPriceText,
-        refreshedAtRaw,
       ] = await Promise.all([
-        fetchTextWithCacheBust('webapp_data/chart_static.json', cacheBust),
-        fetchSplitTimeseriesRows({
-          historicalPath: 'webapp_data/btcd_timeseries_historical.csv',
-          currentDayPath: 'webapp_data/btcd_timeseries_current_day.csv',
-          legacyPath: 'webapp_data/btcd_timeseries.csv',
-          cacheBust,
-        }),
-        fetchSplitTimeseriesRows({
-          historicalPath: 'webapp_data/btcd_timeseries_incl_stables_historical.csv',
-          currentDayPath: 'webapp_data/btcd_timeseries_incl_stables_current_day.csv',
-          legacyPath: 'webapp_data/btcd_timeseries_incl_stables.csv',
-          cacheBust,
-        }),
-        fetchTextWithCacheBust('webapp_data/top10_daily_excl_stables.csv', cacheBust),
-        fetchTextWithCacheBust('webapp_data/top10_daily_incl_stables.csv', cacheBust),
-        fetchTextWithCacheBust('../../assets/daily_price.csv', cacheBust),
-        fetchTextWithCacheBust('webapp_data/last_updated.txt', cacheBust).catch(() => ''),
+        fetchDominanceCandidateText('webapp_data/chart_static.json', { fetchResource, cacheBust }),
+        fetchDominanceCandidateText('webapp_data/btcd_timeseries_historical.csv', { fetchResource, cacheBust }),
+        fetchDominanceCandidateText('webapp_data/btcd_timeseries_current_day.csv', { fetchResource, cacheBust }),
+        fetchDominanceCandidateText('webapp_data/btcd_timeseries_incl_stables_historical.csv', { fetchResource, cacheBust }),
+        fetchDominanceCandidateText('webapp_data/btcd_timeseries_incl_stables_current_day.csv', { fetchResource, cacheBust }),
+        fetchDominanceCandidateText('webapp_data/top10_daily_excl_stables.csv', { fetchResource, cacheBust }),
+        fetchDominanceCandidateText('webapp_data/top10_daily_incl_stables.csv', { fetchResource, cacheBust }),
+        fetchDominanceCandidateText('../../assets/daily_price.csv', { fetchResource, cacheBust }),
       ]);
 
+      const historyExclHistoricalRows = parseCsv(historyExclHistoricalText);
+      const historyExclCurrentRows = parseCsv(historyExclCurrentText);
+      const historyInclHistoricalRows = parseCsv(historyInclHistoricalText);
+      const historyInclCurrentRows = parseCsv(historyInclCurrentText);
+      const historyExclRows = mergeTimeseriesRows(historyExclHistoricalRows, historyExclCurrentRows);
+      const historyInclRows = mergeTimeseriesRows(historyInclHistoricalRows, historyInclCurrentRows);
+      const snapshotExclRows = parseCsv(snapshotExclText);
+      const snapshotInclRows = parseCsv(snapshotInclText);
       const staticMeta = JSON.parse(chartStaticText);
       const datasets = {
         excl: {
           history: historyExclRows,
-          snapshot: parseCsv(snapshotExclText),
+          snapshot: snapshotExclRows,
         },
         incl: {
           history: historyInclRows,
-          snapshot: parseCsv(snapshotInclText),
+          snapshot: snapshotInclRows,
         },
       };
       const priceHistory = parseCsv(dailyPriceText)
@@ -1463,25 +1492,37 @@
           price: num(row.price),
         }))
         .filter((row) => row.date && Number.isFinite(row.price));
-      const refreshedAtText = String(refreshedAtRaw || '').trim();
+      const artifactTexts = {
+        'chart_static.json': chartStaticText,
+        'btcd_timeseries_historical.csv': historyExclHistoricalText,
+        'btcd_timeseries_current_day.csv': historyExclCurrentText,
+        'btcd_timeseries_incl_stables_historical.csv': historyInclHistoricalText,
+        'btcd_timeseries_incl_stables_current_day.csv': historyInclCurrentText,
+        'top10_daily_excl_stables.csv': snapshotExclText,
+        'top10_daily_incl_stables.csv': snapshotInclText,
+      };
+      const artifactHashes = Object.fromEntries(await Promise.all(
+        Object.entries(artifactTexts).map(async ([name, text]) => [name, await sha256Text(text)])
+      ));
+      const refreshedAtText = String(expectedManifest?.published_at_utc || '').trim();
 
       return {
         staticMeta,
         datasets,
         priceHistory,
         refreshedAtText,
-        signature: getDataSignature(staticMeta, refreshedAtText),
+        signature: String(expectedSignature || '').trim(),
+        manifest: expectedManifest,
+        artifactHashes,
+        artifactRowCounts: {
+          'btcd_timeseries_historical.csv': historyExclHistoricalRows.length,
+          'btcd_timeseries_current_day.csv': historyExclCurrentRows.length,
+          'btcd_timeseries_incl_stables_historical.csv': historyInclHistoricalRows.length,
+          'btcd_timeseries_incl_stables_current_day.csv': historyInclCurrentRows.length,
+          'top10_daily_excl_stables.csv': snapshotExclRows.length,
+          'top10_daily_incl_stables.csv': snapshotInclRows.length,
+        },
       };
-    }
-
-    async function fetchLatestDataSignature() {
-      const cacheBust = Date.now();
-      const [chartStaticText, refreshedAtRaw] = await Promise.all([
-        fetchTextWithCacheBust('webapp_data/chart_static.json', cacheBust),
-        fetchTextWithCacheBust('webapp_data/last_updated.txt', cacheBust).catch(() => ''),
-      ]);
-      const staticMeta = JSON.parse(chartStaticText);
-      return getDataSignature(staticMeta, String(refreshedAtRaw || '').trim());
     }
 
     async function loadGlobalUpdateBlockHeight(cacheBust = null) {
@@ -1498,79 +1539,263 @@
       }
     }
 
-    async function refreshIfDataChanged() {
-      if (state.refreshInFlight) return;
-      state.refreshInFlight = true;
+    function isChronologicalDominanceHistory(rows, expectedCount, latestDate) {
+      if (!Array.isArray(rows) || rows.length !== expectedCount || rows.length < 3650) return false;
+      let priorDate = '';
+      for (const row of rows) {
+        const date = String(row?.Date || '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date <= priorDate || !(num(row?.btcd_top10) > 0)) return false;
+        priorDate = date;
+      }
+      return priorDate === latestDate;
+    }
 
+    function isCompleteDominanceCandidate(candidate, expectedSignature, expectedParts = []) {
+      if (!candidate || candidate.signature !== String(expectedSignature || '').trim()) return false;
+      let expectedManifest;
       try {
-        if (state.dataSignature) {
-          const latestSignature = await fetchLatestDataSignature();
-          if (latestSignature === state.dataSignature) {
-            return;
-          }
+        expectedManifest = parseDominancePublicationMarker(expectedParts[0]).manifest;
+      } catch (_) {
+        return false;
+      }
+      if (!candidate.manifest
+          || candidate.manifest.generation_id !== expectedManifest.generation_id
+          || candidate.refreshedAtText !== String(expectedManifest.published_at_utc || '').trim()) return false;
+      const meta = candidate.staticMeta;
+      const records = meta?.records;
+      const latestDate = String(meta?.latest_date || '').trim();
+      const snapshotDate = String(meta?.latest_snapshot_date || '').trim();
+      if (!records || !/^\d{4}-\d{2}-\d{2}$/.test(latestDate)
+          || !/^\d{4}-\d{2}-\d{2}$/.test(snapshotDate)
+          || !Number.isFinite(new Date(meta?.generated_at_utc || '').getTime())) return false;
+      if (String(expectedManifest.latest_date || '').trim() !== latestDate
+          || String(expectedManifest.latest_snapshot_date || '').trim() !== snapshotDate) return false;
+
+      const requiredArtifacts = [
+        'chart_static.json',
+        'btcd_timeseries_historical.csv',
+        'btcd_timeseries_current_day.csv',
+        'btcd_timeseries_incl_stables_historical.csv',
+        'btcd_timeseries_incl_stables_current_day.csv',
+        'top10_daily_excl_stables.csv',
+        'top10_daily_incl_stables.csv',
+      ];
+      for (const name of requiredArtifacts) {
+        const published = expectedManifest.artifacts?.[name];
+        if (!published
+            || String(published.sha256 || '').toLowerCase() !== candidate.artifactHashes?.[name]) return false;
+        if (Object.prototype.hasOwnProperty.call(published, 'rows')
+            && num(published.rows) !== candidate.artifactRowCounts?.[name]) return false;
+      }
+
+      const expectedExclHistory = num(records.btcd_timeseries_historical) + num(records.btcd_timeseries_current_day);
+      const expectedInclHistory = num(records.btcd_timeseries_incl_stables_historical)
+        + num(records.btcd_timeseries_incl_stables_current_day);
+      if (!isChronologicalDominanceHistory(candidate.datasets?.excl?.history, expectedExclHistory, latestDate)
+          || !isChronologicalDominanceHistory(candidate.datasets?.incl?.history, expectedInclHistory, latestDate)) return false;
+
+      const validateSnapshot = (rows, expectedCount) => {
+        if (!Array.isArray(rows) || rows.length !== expectedCount || rows.length < 1) return false;
+        const ranks = new Set();
+        let hasBitcoin = false;
+        for (const row of rows) {
+          if (String(row?.Date || '').trim() !== snapshotDate || !(num(row?.['Market Cap']) > 0)) return false;
+          const rank = num(row?.Rank);
+          if (!(rank > 0) || ranks.has(rank)) return false;
+          ranks.add(rank);
+          if (String(row?.Symbol || '').trim().toUpperCase() === 'BTC') hasBitcoin = true;
         }
+        return hasBitcoin;
+      };
+      if (!validateSnapshot(candidate.datasets?.excl?.snapshot, num(records.top10_daily_excl_stables))
+          || !validateSnapshot(candidate.datasets?.incl?.snapshot, num(records.top10_daily_incl_stables))) return false;
 
-        setPanelLoaderVisible('history', true);
-        setPanelLoaderVisible('snapshot', true);
+      const positivePrices = (candidate.priceHistory || []).filter((row) => row.date && row.price > 0);
+      if (positivePrices.length < 3650 || positivePrices[positivePrices.length - 1].date < latestDate) return false;
 
-        const data = await loadDashboardData(Date.now());
-        if (!data.datasets.excl.history.length) {
-          throw new Error('No rows found in btcd_timeseries.csv.');
+      if (state.staticMeta) {
+        const installedLatest = String(state.staticMeta.latest_date || '');
+        const installedSnapshot = String(state.staticMeta.latest_snapshot_date || '');
+        if (latestDate < installedLatest || snapshotDate < installedSnapshot) return false;
+        for (const mode of ['excl', 'incl']) {
+          const installedLength = state.datasets?.[mode]?.history?.length || 0;
+          if (candidate.datasets[mode].history.length < installedLength) return false;
         }
-        if (!data.datasets.excl.snapshot.length) {
-          throw new Error('No rows found in top10_daily_excl_stables.csv.');
+      }
+      return true;
+    }
+
+    async function loadInitialDominanceGeneration() {
+      let lastError = null;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          const before = await fetchDominancePublicationMarkers({ cacheBust: `${Date.now()}-before-${attempt}` });
+          const candidate = await loadDashboardData({
+            cacheBust: `${Date.now()}-data-${attempt}`,
+            expectedSignature: before.signature,
+            expectedSignatureParts: before.parts,
+            expectedManifest: before.manifest,
+          });
+          const after = await fetchDominancePublicationMarkers({ cacheBust: `${Date.now()}-after-${attempt}` });
+          if (before.signature === after.signature
+              && isCompleteDominanceCandidate(candidate, before.signature, before.parts)) return candidate;
+          lastError = new Error('Bitcoin Dominance publication changed or was incomplete during startup.');
+        } catch (error) {
+          lastError = error;
         }
+      }
+      throw lastError || new Error('Could not load a complete Bitcoin Dominance generation.');
+    }
 
-        state.staticMeta = data.staticMeta;
-        state.datasets = data.datasets;
-        state.priceHistory = data.priceHistory;
-        state.refreshedAtText = data.refreshedAtText;
-        state.dataSignature = data.signature;
-        state.lastSuccessfulRefreshAt = Date.now();
+    function dominanceRefreshInteractionActive() {
+      if (document.body.classList.contains('resizing-panels')
+          || document.body.classList.contains('resizing-panel')) return true;
+      return Boolean(document.querySelector('#dominanceChart .hoverlayer .hovertext, #snapshotChart .hoverlayer .hovertext'));
+    }
 
+    function presentPendingDominanceRefresh() {
+      if (!state.refreshPresentationPending || document.visibilityState !== 'visible'
+          || dominanceRefreshInteractionActive()) return false;
+      try {
+        if (!state.interactiveInitialized) {
+          setControlsEnabled(false);
+          setPanelLoaderVisible('history', true);
+          setPanelLoaderVisible('snapshot', true);
+          completeDominanceInteractiveInitialization();
+          state.refreshPresentationPending = false;
+          void loadGlobalUpdateBlockHeight(Date.now());
+          return true;
+        }
+        const pageScroll = { x: window.scrollX, y: window.scrollY };
         hideError();
-        loadGlobalUpdateBlockHeight(Date.now());
         renderAll();
-      } catch (error) {
-        console.warn('Auto-refresh check failed:', error);
-      } finally {
-        state.refreshInFlight = false;
+        window.scrollTo(pageScroll.x, pageScroll.y);
+        requestAnimationFrame(() => window.scrollTo(pageScroll.x, pageScroll.y));
+        state.refreshPresentationPending = false;
         setPanelLoaderVisible('history', false);
         setPanelLoaderVisible('snapshot', false);
+        hideError();
+        setControlsEnabled(true);
+        void loadGlobalUpdateBlockHeight(Date.now());
+        return true;
+      } catch (error) {
+        console.warn('Bitcoin Dominance refresh presentation deferred:', error);
+        return false;
       }
     }
 
-    function triggerRefreshSoon(delayMs = 150) {
-      window.setTimeout(() => {
-        refreshIfDataChanged();
-      }, delayMs);
+    function prepareDominanceInitialLayout() {
+      if (state.preferencesInitialized) return;
+      loadControlsFromStorage();
+      loadLayoutFromStorage();
+      applyDashboardShareStateFromUrl();
+      applyPanelVisibility();
+      syncPanelToggleUi();
+      state.preferencesInitialized = true;
     }
 
-    function setupRefreshWakeEvents() {
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') {
-          triggerRefreshSoon(0);
-        }
-      });
+    function completeDominanceInteractiveInitialization() {
+      if (state.interactiveInitialized) return;
+      prepareDominanceInitialLayout();
+      applyPanelVisibility();
+      syncPanelToggleUi();
 
-      window.addEventListener('focus', () => {
-        triggerRefreshSoon(0);
-      });
-
-      window.addEventListener('pageshow', () => {
-        triggerRefreshSoon(0);
-      });
-
-      window.addEventListener('online', () => {
-        triggerRefreshSoon(0);
-      });
-    }
-
-    function startAutoRefresh() {
-      if (state.autoRefreshTimer) {
-        clearInterval(state.autoRefreshTimer);
+      const includeStablesToggle = document.getElementById('toggleIncludeStables');
+      const stackedDominanceToggle = document.getElementById('toggleStackedDominance');
+      const showPriceToggle = document.getElementById('toggleShowPrice');
+      const rangeSelect = document.getElementById('rangeSelect');
+      const smoothSelect = document.getElementById('smoothSelect');
+      if (includeStablesToggle) includeStablesToggle.checked = state.includeStables;
+      if (stackedDominanceToggle) stackedDominanceToggle.checked = state.stackedDominance;
+      if (showPriceToggle) showPriceToggle.checked = state.showPrice;
+      if (rangeSelect && Array.from(rangeSelect.options).some((opt) => opt.value === state.range)) {
+        rangeSelect.value = state.range;
       }
-      state.autoRefreshTimer = setInterval(refreshIfDataChanged, AUTO_REFRESH_MS);
+      if (smoothSelect && Array.from(smoothSelect.options).some((opt) => opt.value === state.smooth)) {
+        smoothSelect.value = state.smooth;
+      }
+      updatedTimeZoneChip?.populate?.();
+      syncAllSelectDropdowns();
+      bindSelectDropdowns();
+      bindControls();
+      updateResetButtonUi();
+      bindPanelResizeInteractions();
+      installChartResizeObservers();
+      applyPanelOrder();
+      state.interactiveInitialized = true;
+      try {
+        renderAll();
+      } catch (error) {
+        state.refreshPresentationPending = true;
+        throw error;
+      }
+      if (typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(() => updateResetButtonUi(), { timeout: 500 });
+      } else {
+        window.setTimeout(() => updateResetButtonUi(), 100);
+      }
+      hideError();
+      setControlsEnabled(true);
+    }
+
+    function commitDominanceRefresh(candidate) {
+      state.staticMeta = candidate.staticMeta;
+      state.datasets = candidate.datasets;
+      state.priceHistory = candidate.priceHistory;
+      state.refreshedAtText = candidate.refreshedAtText;
+      state.dataSignature = candidate.signature;
+      state.lastSuccessfulRefreshAt = Date.now();
+      if (!state.interactiveInitialized) {
+        state.refreshPresentationPending = true;
+        presentPendingDominanceRefresh();
+        return true;
+      }
+      state.refreshPresentationPending = true;
+      presentPendingDominanceRefresh();
+      return true;
+    }
+
+    function registerDominanceAutoRefresh() {
+      const controller = window.WSBWebappDataAutoRefresh;
+      if (!controller?.register || state.autoRefreshRegistered) return;
+      state.autoRefreshRegistered = true;
+      controller.register({
+        getInstalledSignature: () => state.dataSignature,
+        prepare: (context) => {
+          const publication = parseDominancePublicationMarker(context.signatureParts?.[0]);
+          return loadDashboardData({
+            fetchResource: context.fetchFresh,
+            expectedSignature: context.signature,
+            expectedSignatureParts: context.signatureParts,
+            expectedManifest: publication.manifest,
+          });
+        },
+        validate: (candidate, context) => isCompleteDominanceCandidate(
+          candidate,
+          context.signature,
+          context.signatureParts
+        ),
+        commit: commitDominanceRefresh,
+        onError: (error) => console.warn('Bitcoin Dominance atomic refresh failed:', error),
+      });
+
+      const flush = () => window.setTimeout(presentPendingDominanceRefresh, 0);
+      let pointerFlushFrame = 0;
+      const flushIfPending = () => {
+        if (!state.refreshPresentationPending || pointerFlushFrame) return;
+        pointerFlushFrame = requestAnimationFrame(() => {
+          pointerFlushFrame = 0;
+          presentPendingDominanceRefresh();
+        });
+      };
+      document.addEventListener('visibilitychange', flush);
+      document.addEventListener('pointerup', flush);
+      document.addEventListener('pointermove', flushIfPending, { passive: true });
+      ['dominanceChart', 'snapshotChart'].forEach((id) => {
+        const chart = document.getElementById(id);
+        if (chart && typeof chart.on === 'function') chart.on('plotly_unhover', flush);
+      });
+      if (state.refreshPresentationPending) flush();
     }
 
     function getModeKey() {
@@ -2935,21 +3160,14 @@
       setControlsEnabled(false);
       
       try {
-        // Load stored preferences before showing UI
-        loadControlsFromStorage();
-        loadLayoutFromStorage();
-        applyDashboardShareStateFromUrl();
-        
-        // Apply panel visibility and sizing before showing loaders
-        // This ensures the layout is correct from the start
-        applyPanelVisibility();
-        syncPanelToggleUi();
+        // Apply stored panel layout before showing the initial loaders.
+        prepareDominanceInitialLayout();
         
         // Now show loaders with correct layout already in place
         setPanelLoaderVisible('history', true);
         setPanelLoaderVisible('snapshot', true);
         
-        const data = await loadDashboardData(null);
+        const data = await loadInitialDominanceGeneration();
         state.staticMeta = data.staticMeta;
         state.datasets = data.datasets;
         state.priceHistory = data.priceHistory;
@@ -2965,48 +3183,16 @@
           throw new Error('No rows found in top10_daily_excl_stables.csv.');
         }
 
-        // Re-apply visibility/sizing now that data is loaded.
-        applyPanelVisibility();
-        syncPanelToggleUi();
-
-        const includeStablesToggle = document.getElementById('toggleIncludeStables');
-        const stackedDominanceToggle = document.getElementById('toggleStackedDominance');
-        const showPriceToggle = document.getElementById('toggleShowPrice');
-        const rangeSelect = document.getElementById('rangeSelect');
-        const smoothSelect = document.getElementById('smoothSelect');
-        if (includeStablesToggle) includeStablesToggle.checked = state.includeStables;
-        if (stackedDominanceToggle) stackedDominanceToggle.checked = state.stackedDominance;
-        if (showPriceToggle) showPriceToggle.checked = state.showPrice;
-        if (rangeSelect && Array.from(rangeSelect.options).some((opt) => opt.value === state.range)) {
-          rangeSelect.value = state.range;
-        }
-        if (smoothSelect && Array.from(smoothSelect.options).some((opt) => opt.value === state.smooth)) {
-          smoothSelect.value = state.smooth;
-        }
-        updatedTimeZoneChip?.populate?.();
-        syncAllSelectDropdowns();
-        bindSelectDropdowns();
-        bindControls();
-        updateResetButtonUi();
-        bindPanelResizeInteractions();
-        installChartResizeObservers();
-        applyPanelOrder();
-        renderAll();
-        // Ensure button state is properly set after all rendering completes
-        if (typeof window.requestIdleCallback === 'function') {
-          window.requestIdleCallback(() => updateResetButtonUi(), { timeout: 500 });
-        } else {
-          window.setTimeout(() => updateResetButtonUi(), 100);
-        }
-        setupRefreshWakeEvents();
-        startAutoRefresh();
-        setControlsEnabled(true);
+        completeDominanceInteractiveInitialization();
       } catch (error) {
         console.error(error);
+        if (!state.interactiveInitialized) state.dataSignature = '';
         showError(`Dashboard data failed to load: ${error.message || error}`);
         setPanelLoaderVisible('history', false);
         setPanelLoaderVisible('snapshot', false);
         setControlsEnabled(true);
+      } finally {
+        registerDominanceAutoRefresh();
       }
     }
 

@@ -136,6 +136,9 @@
   const LEGACY_DEFAULT_ACTIVE_SLUG = 'cas_1btc_2011_s1';
   const DEFAULT_ACTIVE_SLUG = 'all:coins-bars';
   const TRACKER_CSV_URL = 'data/casascius_explorer.csv';
+  const RIGHT_PANEL_DATA_URL = 'assets/right_panel_data.js';
+  const DAILY_PRICE_METADATA_URL = '../../assets/daily_price_metadata.json';
+  const DATA_SIGNATURE_SEPARATOR = '\n---WSB-DATA-SIGNATURE-PART---\n';
   const GRADED_CSV_URL = 'data/casascius_graded.csv';
   const SERIES_PRICE_CSV_URL = 'data/casascius_coin_series_dates_prices.csv';
   const NGC_GRADED_MEDIA_DEFAULTS = {
@@ -1727,10 +1730,25 @@
   let trackerIndexPromise = null;
   let unfundedIndexPromise = null;
   let gradedIndexPromise = null;
+  let gradedIndexCache = null;
   let trackerIndexWithGradedPromise = null;
+  let casasciusInstalledRightPanelSignature = '';
+  let casasciusInstalledDailyPriceSignature = '';
+  let casasciusRefreshAdapterRegistered = false;
+  let casasciusRefreshPresentationPending = false;
+  let casasciusRefreshTrackerPresentationPending = false;
+  let casasciusRefreshPricePresentationPending = false;
+  let casasciusRefreshInitialRecoveryPending = false;
+  let casasciusInitialCandidatePromise = null;
+  let casasciusInstalledTrackerData = null;
+  let casasciusInstalledTrackerValidation = null;
+  let casasciusInstalledDailyPriceValidation = null;
   let dataPanelsRefreshQueued = false;
+  let dataPanelsRefreshActive = false;
   let dailyPriceIndexPromise = null;
   let dailyPriceIndexCache = null;
+  let dailyPriceRecoveryTimer = 0;
+  let dailyPriceRecoveryAttempt = 0;
   let seriesPriceIndexPromise = null;
   let seriesPriceIndexCache = null;
   let currentTrackerEntries = [];
@@ -2099,6 +2117,378 @@
     });
   }
 
+  async function fetchCasasciusText(fetchResource, url) {
+    const response = await fetchResource(url, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`Unable to load ${url} (${response.status})`);
+    return response.text();
+  }
+
+  function parseRightPanelDataScript(text) {
+    const prefix = 'window.CASASCIUS_RIGHT_PANEL_DATA = ';
+    const source = String(text || '').trim();
+    if (!source.startsWith(prefix) || !source.endsWith(';')) {
+      throw new Error('Invalid Casascius right-panel publication marker.');
+    }
+    const payload = JSON.parse(source.slice(prefix.length, -1));
+    if (!payload || typeof payload !== 'object' || !payload.items || typeof payload.items !== 'object') {
+      throw new Error('Invalid Casascius right-panel data.');
+    }
+    return payload;
+  }
+
+  async function sha256Text(text) {
+    if (!window.crypto?.subtle || typeof TextEncoder !== 'function') return '';
+    const bytes = new TextEncoder().encode(String(text));
+    const digest = await window.crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, '0')).join('');
+  }
+
+  function trackerStatusCounts(rows) {
+    return rows.reduce((counts, row) => {
+      const status = String(row?.Status || '').trim().toLowerCase();
+      if (status === 'active') counts.active += 1;
+      else if (status === 'redeemed') counts.redeemed += 1;
+      else if (status === 'unfunded' || status === 'unloaded') counts.unfunded += 1;
+      else counts.unknown += 1;
+      return counts;
+    }, { active: 0, redeemed: 0, unfunded: 0, unknown: 0 });
+  }
+
+  function trackerBoundaryRowsValid(rows) {
+    const fields = ['Create Block', 'Create Time', 'Redeem Block', 'Redeem Time'];
+    return rows.every(row => fields.every(field => {
+      const text = String(row?.[field] || '').trim();
+      if (!text) return true;
+      const value = Number(text);
+      return Number.isInteger(value) && value >= 0;
+    }));
+  }
+
+  function latestTrackerInteger(rows, field) {
+    let latest = null;
+    rows.forEach(row => {
+      const value = finiteNumber(row?.[field]);
+      if (Number.isFinite(value) && (latest === null || value > latest)) latest = value;
+    });
+    return latest;
+  }
+
+  function samePublishedInteger(actual, expected) {
+    if (actual === null || actual === undefined) return expected === null || expected === undefined;
+    return Number(actual) === Number(expected);
+  }
+
+  function installedCasasciusPublicationSignature() {
+    if (!casasciusInstalledRightPanelSignature || !casasciusInstalledDailyPriceSignature) return '';
+    return `${casasciusInstalledRightPanelSignature}${DATA_SIGNATURE_SEPARATOR}${casasciusInstalledDailyPriceSignature}`;
+  }
+
+  function parseDailyPriceMetadata(text) {
+    const signature = String(text || '').trim();
+    const payload = JSON.parse(signature);
+    if (!payload || typeof payload !== 'object' || !payload.artifact || typeof payload.artifact !== 'object') {
+      throw new Error('Invalid Casascius daily-price publication marker.');
+    }
+    return payload;
+  }
+
+  function isoDayFromSeconds(seconds) {
+    if (!Number.isFinite(seconds)) return '';
+    return new Date(seconds * 1000).toISOString().slice(0, 10);
+  }
+
+  function dailyPriceMarkerValidation(marker) {
+    const artifact = marker?.artifact;
+    const hash = String(artifact?.sha256 || '').toLowerCase();
+    const rows = Number(artifact?.rows);
+    const firstDate = String(marker?.first_date || '');
+    const latestDate = String(marker?.latest_date || '');
+    const latestTimestamp = String(marker?.latest_timestamp || '');
+    const latestBlockHeight = Number(marker?.latest_block_height);
+    const firstTime = Date.parse(`${firstDate}T00:00:00Z`);
+    const latestTime = Date.parse(`${latestTimestamp.replace(' ', 'T')}Z`);
+    if (Number(marker?.schema_version) !== 1
+        || artifact?.path !== 'assets/daily_price.csv'
+        || !/^[a-f0-9]{64}$/.test(hash)
+        || !Number.isInteger(rows) || rows < 1000
+        || !/^\d{4}-\d{2}-\d{2}$/.test(firstDate)
+        || !/^\d{4}-\d{2}-\d{2}$/.test(latestDate)
+        || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(latestTimestamp)
+        || !Number.isFinite(firstTime) || !Number.isFinite(latestTime) || latestTime < firstTime
+        || latestTimestamp.slice(0, 10) !== latestDate
+        || !Number.isInteger(latestBlockHeight) || latestBlockHeight < 0) {
+      throw new Error('Invalid Casascius daily-price publication metadata.');
+    }
+    return {
+      hash,
+      rows,
+      firstDate,
+      latestDate,
+      latestTimestamp,
+      latestBlockHeight,
+      verified: false
+    };
+  }
+
+  function dailyPriceValidationFromRows(rows, hash) {
+    let previousTimestamp = -Infinity;
+    let previousDay = null;
+    let previousBlockHeight = -Infinity;
+    let firstDate = '';
+    let latestDate = '';
+    let latestTimestamp = '';
+    let latestBlockHeight = null;
+    for (const [index, row] of rows.entries()) {
+      const timestamp = String(row?.timestamp || '').trim();
+      const timestampMs = Date.parse(`${timestamp.replace(' ', 'T')}Z`);
+      const day = dailyPriceRowDay(row);
+      const dateParts = String(row?.date || '').trim().split('/').map(part => Number(part));
+      const rowDate = dateParts.length === 3 && dateParts.every(Number.isInteger)
+        ? `${String(dateParts[2] < 100 ? 2000 + dateParts[2] : dateParts[2]).padStart(4, '0')}-${String(dateParts[0]).padStart(2, '0')}-${String(dateParts[1]).padStart(2, '0')}`
+        : '';
+      const price = finiteNumber(row?.price);
+      const blockHeight = finiteNumber(row?.block_height);
+      if (!timestamp || !Number.isFinite(timestampMs) || timestampMs < previousTimestamp
+          || !Number.isFinite(day) || !Number.isFinite(price) || price < 0
+          || !Number.isInteger(blockHeight) || blockHeight < previousBlockHeight
+          || rowDate !== isoDayFromSeconds(day)
+          || (previousDay !== null && day !== previousDay + 86400)) {
+        throw new Error(`Invalid daily-price row ${index + 1}.`);
+      }
+      previousTimestamp = timestampMs;
+      previousDay = day;
+      previousBlockHeight = blockHeight;
+      if (index === 0) firstDate = isoDayFromSeconds(day);
+      latestDate = isoDayFromSeconds(day);
+      latestTimestamp = timestamp;
+      latestBlockHeight = blockHeight;
+    }
+    return {
+      hash,
+      rows: rows.length,
+      firstDate,
+      latestDate,
+      latestTimestamp,
+      latestBlockHeight,
+      verified: true
+    };
+  }
+
+  function trackerValidationFromRows(rows, hash, trackerData) {
+    const counts = trackerStatusCounts(rows);
+    return {
+      hash,
+      rows: rows.length,
+      counts,
+      boundariesValid: trackerBoundaryRowsValid(rows),
+      entries: trackerData?.entries?.length,
+      unfunded: trackerData?.unfunded?.length,
+      latestCreateBlock: latestTrackerInteger(rows, 'Create Block'),
+      latestCreateTime: latestTrackerInteger(rows, 'Create Time'),
+      latestRedeemBlock: latestTrackerInteger(rows, 'Redeem Block'),
+      latestRedeemTime: latestTrackerInteger(rows, 'Redeem Time')
+    };
+  }
+
+  function dailyPriceContentMatchesMarker(metadata, validation, index) {
+    let markerValidation;
+    try {
+      markerValidation = dailyPriceMarkerValidation(metadata);
+    } catch (_error) {
+      return false;
+    }
+    return Boolean(
+      validation?.verified
+      && validation.hash === markerValidation.hash
+      && validation.rows === markerValidation.rows
+      && validation.firstDate === markerValidation.firstDate
+      && validation.latestDate === markerValidation.latestDate
+      && validation.latestTimestamp === markerValidation.latestTimestamp
+      && validation.latestBlockHeight === markerValidation.latestBlockHeight
+      && Array.isArray(index?.days)
+      && index.pricesByDay instanceof Map
+      && index.days.length === validation.rows
+    );
+  }
+
+  function dailyPriceValidationRegresses(validation) {
+    if (!casasciusInstalledDailyPriceValidation) return false;
+    const installed = casasciusInstalledDailyPriceValidation;
+    const installedTimestamp = Date.parse(`${installed.latestTimestamp.replace(' ', 'T')}Z`);
+    const candidateTimestamp = Date.parse(`${validation.latestTimestamp.replace(' ', 'T')}Z`);
+    return validation.rows < installed.rows
+      || candidateTimestamp < installedTimestamp
+      || validation.latestBlockHeight < installed.latestBlockHeight;
+  }
+
+  async function prepareCasasciusCandidate(fetchResource, rightPanelSignature, dailyPriceSignature) {
+    const rightSignature = String(rightPanelSignature || '').trim();
+    const priceSignature = String(dailyPriceSignature || '').trim();
+    const rightPanelData = parseRightPanelDataScript(rightSignature);
+    const dailyPriceMetadata = parseDailyPriceMetadata(priceSignature);
+    const markerPriceValidation = dailyPriceMarkerValidation(dailyPriceMetadata);
+    const reuseTracker = Boolean(
+      rightSignature === casasciusInstalledRightPanelSignature
+      && casasciusInstalledTrackerData
+      && casasciusInstalledTrackerValidation
+    );
+    const installedPriceHydrated = Boolean(
+      dailyPriceIndexCache
+      && casasciusInstalledDailyPriceValidation?.verified
+    );
+    const reuseDailyPrice = Boolean(
+      installedPriceHydrated
+      && priceSignature === casasciusInstalledDailyPriceSignature
+      && casasciusInstalledDailyPriceValidation
+    );
+    const fetchDailyPrice = installedPriceHydrated && !reuseDailyPrice;
+    const [trackerText, dailyPriceText] = await Promise.all([
+      reuseTracker ? Promise.resolve(null) : fetchCasasciusText(fetchResource, TRACKER_CSV_URL),
+      fetchDailyPrice ? fetchCasasciusText(fetchResource, DAILY_PRICE_CSV_URL) : Promise.resolve(null)
+    ]);
+    const trackerRows = reuseTracker ? null : parseCsv(trackerText);
+    const trackerData = reuseTracker ? casasciusInstalledTrackerData : {
+      entries: buildTrackerIndex(trackerRows),
+      unfunded: trackerRows.map(unfundedEntryFromRow).filter(Boolean)
+    };
+    const trackerHash = reuseTracker ? casasciusInstalledTrackerValidation.hash : await sha256Text(trackerText);
+    const dailyPriceRows = fetchDailyPrice ? parseCsv(dailyPriceText) : null;
+    const dailyPriceHash = reuseDailyPrice
+      ? casasciusInstalledDailyPriceValidation.hash
+      : (fetchDailyPrice ? await sha256Text(dailyPriceText) : markerPriceValidation.hash);
+    const dailyPriceValidation = reuseDailyPrice
+      ? casasciusInstalledDailyPriceValidation
+      : (fetchDailyPrice
+        ? dailyPriceValidationFromRows(dailyPriceRows, dailyPriceHash)
+        : markerPriceValidation);
+    return {
+      signature: `${rightSignature}${DATA_SIGNATURE_SEPARATOR}${priceSignature}`,
+      rightPanelSignature: rightSignature,
+      dailyPriceSignature: priceSignature,
+      rightPanelData,
+      dailyPriceMetadata,
+      trackerReused: reuseTracker,
+      trackerData,
+      trackerValidation: reuseTracker
+        ? casasciusInstalledTrackerValidation
+        : trackerValidationFromRows(trackerRows, trackerHash, trackerData),
+      dailyPriceReused: reuseDailyPrice,
+      dailyPrice: {
+        hydrated: reuseDailyPrice || fetchDailyPrice,
+        index: reuseDailyPrice
+          ? dailyPriceIndexCache
+          : (fetchDailyPrice ? buildDailyPriceIndex(dailyPriceRows) : null),
+        validation: dailyPriceValidation
+      }
+    };
+  }
+
+  function isCompleteCasasciusCandidate(candidate, expectedSignature = '', { allowRegression = false } = {}) {
+    if (!candidate || candidate.signature !== String(expectedSignature || '').trim()) return false;
+    const publication = candidate.rightPanelData?.publication;
+    const tracker = publication?.tracker;
+    if (Number(publication?.schemaVersion) !== 1 || !tracker) return false;
+    const trackerValidation = candidate.trackerValidation;
+    if (tracker.path !== TRACKER_CSV_URL || !/^[a-f0-9]{64}$/i.test(String(tracker.sha256 || ''))) return false;
+    if (!trackerValidation || trackerValidation.hash !== String(tracker.sha256).toLowerCase()) return false;
+    if (trackerValidation.rows !== Number(tracker.rows) || trackerValidation.rows < 1000) return false;
+    if (!Array.isArray(candidate.trackerData?.entries) || !Array.isArray(candidate.trackerData?.unfunded)) return false;
+
+    const counts = trackerValidation.counts || {};
+    const publishedCounts = tracker.statusCounts || {};
+    if (counts.unknown !== 0
+        || !trackerValidation.boundariesValid
+        || counts.active !== Number(publishedCounts.active)
+        || counts.redeemed !== Number(publishedCounts.redeemed)
+        || counts.unfunded !== Number(publishedCounts.unfunded)) return false;
+    if (trackerValidation.entries !== candidate.trackerData.entries.length
+        || trackerValidation.unfunded !== candidate.trackerData.unfunded.length
+        || candidate.trackerData.entries.length < counts.active + counts.redeemed
+        || candidate.trackerData.unfunded.length !== counts.unfunded) return false;
+
+    const latestCreateBlock = trackerValidation.latestCreateBlock;
+    const latestCreateTime = trackerValidation.latestCreateTime;
+    const latestRedeemBlock = trackerValidation.latestRedeemBlock;
+    const latestRedeemTime = trackerValidation.latestRedeemTime;
+    if (!samePublishedInteger(latestCreateBlock, tracker.latestCreateBlock)
+        || !samePublishedInteger(latestCreateTime, tracker.latestCreateTime)
+        || !samePublishedInteger(latestRedeemBlock, tracker.latestRedeemBlock)
+        || !samePublishedInteger(latestRedeemTime, tracker.latestRedeemTime)) return false;
+
+    const items = candidate.rightPanelData.items;
+    if (Object.keys(items).length !== Number(publication.rightPanelItems) || Object.keys(items).length < COINS.length) return false;
+    const allInfo = items[candidate.rightPanelData.allKey || ALL_ITEMS_GROUP_KEY];
+    if (!allInfo || Number(allInfo.active) !== counts.active
+        || Number(allInfo.redeemed) !== counts.redeemed
+        || Number(allInfo.unfunded) !== counts.unfunded
+        || Number(allInfo.minted) !== counts.active + counts.redeemed
+        || !samePublishedInteger(allInfo.lastBlock, latestRedeemBlock)
+        || !samePublishedInteger(allInfo.lastTime, latestRedeemTime)) return false;
+
+    const priceMarker = candidate.dailyPriceMetadata;
+    const priceValidation = candidate.dailyPrice?.validation;
+    let markerValidation;
+    try {
+      markerValidation = dailyPriceMarkerValidation(priceMarker);
+    } catch (_error) {
+      return false;
+    }
+    if (!priceValidation
+        || priceValidation.hash !== markerValidation.hash
+        || priceValidation.rows !== markerValidation.rows
+        || priceValidation.firstDate !== markerValidation.firstDate
+        || priceValidation.latestDate !== markerValidation.latestDate
+        || priceValidation.latestTimestamp !== markerValidation.latestTimestamp
+        || priceValidation.latestBlockHeight !== markerValidation.latestBlockHeight) return false;
+    if (candidate.dailyPrice.hydrated
+        && !dailyPriceContentMatchesMarker(priceMarker, priceValidation, candidate.dailyPrice.index)) return false;
+
+    if (!allowRegression && window.CASASCIUS_RIGHT_PANEL_DATA?.publication?.tracker) {
+      const installed = window.CASASCIUS_RIGHT_PANEL_DATA.publication.tracker;
+      if (Number(tracker.rows) < Number(installed.rows)
+          || Number(tracker.latestCreateBlock || 0) < Number(installed.latestCreateBlock || 0)
+          || Number(tracker.latestRedeemBlock || 0) < Number(installed.latestRedeemBlock || 0)
+          || Number(tracker.latestRedeemTime || 0) < Number(installed.latestRedeemTime || 0)) return false;
+    }
+    if (!allowRegression && dailyPriceValidationRegresses(priceValidation)) return false;
+    return true;
+  }
+
+  async function loadInitialCasasciusCandidate() {
+    let lastError = null;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const bust = `${Date.now()}-${attempt}`;
+      const initialFetch = (url, init = {}) => {
+        const freshUrl = new URL(String(url), document.baseURI);
+        freshUrl.searchParams.set('wsb_initial', bust);
+        return fetch(freshUrl.href, { ...init, cache: 'no-store' });
+      };
+      try {
+        const before = await Promise.all([
+          fetchCasasciusText(initialFetch, RIGHT_PANEL_DATA_URL),
+          fetchCasasciusText(initialFetch, DAILY_PRICE_METADATA_URL)
+        ]).then(parts => parts.map(part => part.trim()));
+        const candidate = await prepareCasasciusCandidate(initialFetch, before[0], before[1]);
+        const after = await Promise.all([
+          fetchCasasciusText(initialFetch, RIGHT_PANEL_DATA_URL),
+          fetchCasasciusText(initialFetch, DAILY_PRICE_METADATA_URL)
+        ]).then(parts => parts.map(part => part.trim()));
+        if (before.some((part, index) => part !== after[index])) {
+          throw new Error('Casascius data changed during initial loading.');
+        }
+        const signature = before.join(DATA_SIGNATURE_SEPARATOR);
+        if (!isCompleteCasasciusCandidate(candidate, signature, { allowRegression: true })) {
+          throw new Error('Casascius publication is incomplete or inconsistent.');
+        }
+        return candidate;
+      } catch (error) {
+        lastError = error;
+        if (attempt < 3) await new Promise(resolve => window.setTimeout(resolve, 150 * (attempt + 1)));
+      }
+    }
+    throw lastError || new Error('Could not load a complete Casascius generation.');
+  }
+
   function trackerSlugForRow(row, s3OneGoldRimMinIndex, s3HalfSeries2MaxIndex) {
     if (row.Type === 'S3-COIN-1-AG') {
       const overrideSlug = S3_ONE_SILVER_VARIANT_SLUGS_BY_ADDRESS[String(row.Address || '').trim()];
@@ -2275,23 +2665,31 @@
   function gradedIndex() {
     if (!gradedIndexPromise) {
       gradedIndexPromise = loadTextFile(GRADED_CSV_URL)
-        .then(text => buildGradedIndex(parseCsv(text)))
-        .catch(() => ({ recordsByAddress: new Map(), latestByAddress: new Map() }));
+        .then(text => {
+          gradedIndexCache = buildGradedIndex(parseCsv(text));
+          return gradedIndexCache;
+        })
+        .catch(() => {
+          gradedIndexCache = { recordsByAddress: new Map(), latestByAddress: new Map() };
+          return gradedIndexCache;
+        });
     }
     return gradedIndexPromise;
   }
 
   function trackerData() {
     if (!trackerDataPromise) {
-      trackerDataPromise = loadTextFile(TRACKER_CSV_URL)
-        .then(text => {
-          const rows = parseCsv(text);
-          return {
-            entries: buildTrackerIndex(rows),
-            unfunded: rows.map(unfundedEntryFromRow).filter(Boolean)
-          };
+      if (!casasciusInitialCandidatePromise) casasciusInitialCandidatePromise = loadInitialCasasciusCandidate();
+      trackerDataPromise = casasciusInitialCandidatePromise
+        .then(candidate => {
+          installCasasciusCandidate(candidate);
+          return candidate.trackerData;
         })
-        .catch(() => ({ entries: [], unfunded: [] }));
+        .catch(error => {
+          console.warn('Casascius initial data load failed; waiting for background recovery.', error);
+          return { entries: [], unfunded: [] };
+        })
+        .finally(registerCasasciusRefreshAdapter);
     }
     return trackerDataPromise;
   }
@@ -2369,18 +2767,85 @@
     return { days, pricesByDay };
   }
 
+  async function loadVerifiedDailyPriceIndex() {
+    let lastError = null;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const bust = `${Date.now()}-${attempt}`;
+      const freshFetch = (url, init = {}) => {
+        const freshUrl = new URL(String(url), document.baseURI);
+        freshUrl.searchParams.set('wsb_price', bust);
+        return fetch(freshUrl.href, { ...init, cache: 'no-store' });
+      };
+      try {
+        const before = (await fetchCasasciusText(freshFetch, DAILY_PRICE_METADATA_URL)).trim();
+        const metadata = parseDailyPriceMetadata(before);
+        const markerValidation = dailyPriceMarkerValidation(metadata);
+        if (dailyPriceValidationRegresses(markerValidation)) {
+          throw new Error('Daily-price publication regressed behind the installed generation.');
+        }
+        const csvText = await fetchCasasciusText(freshFetch, DAILY_PRICE_CSV_URL);
+        const rows = parseCsv(csvText);
+        const validation = dailyPriceValidationFromRows(rows, await sha256Text(csvText));
+        const index = buildDailyPriceIndex(rows);
+        if (!dailyPriceContentMatchesMarker(metadata, validation, index)) {
+          throw new Error('Daily-price publication content does not match its marker.');
+        }
+        const after = (await fetchCasasciusText(freshFetch, DAILY_PRICE_METADATA_URL)).trim();
+        if (after !== before) throw new Error('Daily-price publication changed while loading.');
+        const precommit = (await fetchCasasciusText(freshFetch, DAILY_PRICE_METADATA_URL)).trim();
+        if (precommit !== before) throw new Error('Daily-price publication changed before commit.');
+
+        dailyPriceIndexCache = index;
+        casasciusInstalledDailyPriceSignature = before;
+        casasciusInstalledDailyPriceValidation = validation;
+        dailyPriceRecoveryAttempt = 0;
+        if (dailyPriceRecoveryTimer) window.clearTimeout(dailyPriceRecoveryTimer);
+        dailyPriceRecoveryTimer = 0;
+        window.WSBWebappDataAutoRefresh?.requestCheck?.('casascius-price-hydrated');
+        return index;
+      } catch (error) {
+        lastError = error;
+        if (attempt < 3) await new Promise(resolve => window.setTimeout(resolve, 150 * (attempt + 1)));
+      }
+    }
+    throw lastError || new Error('Could not load a complete daily-price generation.');
+  }
+
+  function dailyPriceSurfaceNeedsData() {
+    return balanceChartUnit === 'usd'
+      || (balanceChartModal?.classList.contains('open') && activeChartModalMode === 'price')
+      || Boolean(coinInfoPanel?.querySelector('.selected-price-chart-canvas'));
+  }
+
+  function scheduleDailyPriceRecovery() {
+    if (dailyPriceRecoveryTimer || dailyPriceIndexCache || !dailyPriceSurfaceNeedsData()) return;
+    const delay = Math.min(60000, 3000 * (2 ** Math.min(dailyPriceRecoveryAttempt, 5)));
+    dailyPriceRecoveryAttempt += 1;
+    dailyPriceRecoveryTimer = window.setTimeout(() => {
+      dailyPriceRecoveryTimer = 0;
+      if (dailyPriceIndexCache || !dailyPriceSurfaceNeedsData()) {
+        dailyPriceRecoveryAttempt = 0;
+        return;
+      }
+      void dailyPriceIndex().then(() => {
+        if (!dailyPriceIndexCache) return;
+        casasciusRefreshPresentationPending = true;
+        casasciusRefreshPricePresentationPending = true;
+        presentPendingCasasciusRefresh();
+      });
+    }, delay);
+  }
+
   function dailyPriceIndex() {
     if (dailyPriceIndexCache) return Promise.resolve(dailyPriceIndexCache);
     if (!dailyPriceIndexPromise) {
-      dailyPriceIndexPromise = loadTextFile(DAILY_PRICE_CSV_URL)
-        .then(text => {
-          dailyPriceIndexCache = buildDailyPriceIndex(parseCsv(text));
-          return dailyPriceIndexCache;
-        })
-        .catch(() => {
-          dailyPriceIndexCache = { days: [], pricesByDay: new Map() };
-          return dailyPriceIndexCache;
-        });
+      const pending = loadVerifiedDailyPriceIndex().catch(error => {
+        console.warn('Casascius daily-price load failed; keeping the current chart state.', error);
+        if (!dailyPriceIndexCache && dailyPriceIndexPromise === pending) dailyPriceIndexPromise = null;
+        scheduleDailyPriceRecovery();
+        return { days: [], pricesByDay: new Map() };
+      });
+      dailyPriceIndexPromise = pending;
     }
     return dailyPriceIndexPromise;
   }
@@ -2864,11 +3329,13 @@
     return true;
   }
 
-  function syncLeftPanelMode() {
+  function syncLeftPanelMode({ preserveInteraction = false } = {}) {
     recentSpendsPanel?.classList.toggle('show-active', leftPanelMode === 'active');
     recentSpendsPanel?.classList.toggle('show-graded', leftPanelMode === 'graded');
     recentSpendsPanel?.classList.remove('returning-recent', 'return-to-recent', 'wrap-graded-recent', 'wrap-to-recent', 'wrap-graded-active', 'wrap-to-active', 'wrap-active-recent', 'no-panel-transition');
-    syncSelectedLeftPanelAddress(leftPanelMode, { forceDefault: !selectedLeftPanelAddressByMode[leftPanelMode] });
+    if (!preserveInteraction) {
+      syncSelectedLeftPanelAddress(leftPanelMode, { forceDefault: !selectedLeftPanelAddressByMode[leftPanelMode] });
+    }
     renderLeftPanelRows(leftPanelMode);
     syncLeftPanelHeader();
     restoreLeftPanelScroll();
@@ -3377,44 +3844,44 @@
     return cached;
   }
 
-  function renderRecentSpends(entries) {
+  function renderRecentSpends(entries, { forceDefault = true, applySelection = true, preserveScroll = false } = {}) {
     leftPanelRowsByMode.recent = cachedLeftPanelRows(entries).recent;
     const pendingApplied = applyPendingSearchSelectionForMode('recent', entries);
     if (pendingApplied) {
       // The searched row should stay selected through async panel refreshes.
     } else if (allItemsMode && !allItemsSelectionRestorePending) {
       applyPendingAllItemsDefaultFocus({ animate: true });
-      syncAllItemsLeftPanelSelectionToCentered({ mode: 'recent', render: false });
+      syncAllItemsLeftPanelSelectionToCentered({ mode: 'recent', render: false, scroll: !preserveScroll });
     } else {
-      syncSelectedLeftPanelAddress('recent', { forceDefault: true, apply: leftPanelMode === 'recent' });
+      syncSelectedLeftPanelAddress('recent', { forceDefault, apply: applySelection && leftPanelMode === 'recent' });
     }
     renderLeftPanelRows('recent');
     if (pendingApplied && leftPanelMode === 'recent') scrollLeftPanelAddressToTop('recent', selectedLeftPanelAddressByMode.recent);
   }
 
-  function renderActiveCoins(entries) {
+  function renderActiveCoins(entries, { forceDefault = true, applySelection = true, preserveScroll = false } = {}) {
     leftPanelRowsByMode.active = cachedLeftPanelRows(entries).active;
     const pendingApplied = applyPendingSearchSelectionForMode('active', entries);
     if (pendingApplied) {
       // The searched row should stay selected through async panel refreshes.
     } else if (allItemsMode && !allItemsSelectionRestorePending) {
-      syncAllItemsLeftPanelSelectionToCentered({ mode: 'active', render: false });
+      syncAllItemsLeftPanelSelectionToCentered({ mode: 'active', render: false, scroll: !preserveScroll });
     } else {
-      syncSelectedLeftPanelAddress('active', { forceDefault: true, apply: leftPanelMode === 'active' });
+      syncSelectedLeftPanelAddress('active', { forceDefault, apply: applySelection && leftPanelMode === 'active' });
     }
     renderLeftPanelRows('active');
     if (pendingApplied && leftPanelMode === 'active') scrollLeftPanelAddressToTop('active', selectedLeftPanelAddressByMode.active);
   }
 
-  function renderGradedCoins(entries) {
+  function renderGradedCoins(entries, { forceDefault = false, applySelection = true, preserveScroll = false } = {}) {
     leftPanelRowsByMode.graded = cachedLeftPanelRows(entries).graded;
     const pendingApplied = applyPendingSearchSelectionForMode('graded', entries);
     if (pendingApplied) {
       // The searched row should stay selected through async panel refreshes.
     } else if (allItemsMode && !allItemsSelectionRestorePending) {
-      syncAllItemsLeftPanelSelectionToCentered({ mode: 'graded', render: false });
+      syncAllItemsLeftPanelSelectionToCentered({ mode: 'graded', render: false, scroll: !preserveScroll });
     } else {
-      syncSelectedLeftPanelAddress('graded', { forceDefault: false, apply: leftPanelMode === 'graded' });
+      syncSelectedLeftPanelAddress('graded', { forceDefault, apply: applySelection && leftPanelMode === 'graded' });
     }
     renderLeftPanelRows('graded');
     if (pendingApplied && leftPanelMode === 'graded') {
@@ -3514,14 +3981,14 @@
     enterAllItemsMode({ align: false });
   }
 
-  function syncAllItemsLeftPanelSelectionToCentered({ mode = leftPanelMode, render = true, save = false, revealModel = true } = {}) {
+  function syncAllItemsLeftPanelSelectionToCentered({ mode = leftPanelMode, render = true, save = false, revealModel = true, scroll = true } = {}) {
     if (!allItemsMode) return;
     const slug = allItemsPackingItem(allItemsFocusedSlug)?.slug || DEFAULT_ALL_ITEMS_FOCUS_SLUG;
     const row = allItemsRowForCenteredSlug(mode, slug);
     const nextAddress = row ? String(row.address || '') : '';
     selectedLeftPanelAddressByMode[mode] = nextAddress;
     selectedLeftPanelRecordIdByMode[mode] = mode === 'graded' ? entryGradedRecordId(row) : '';
-    if (nextAddress) {
+    if (nextAddress && scroll) {
       revealLeftPanelAddress(mode, nextAddress, { gradedRecordId: selectedLeftPanelRecordId(mode), render });
     } else if (render) {
       renderLeftPanelRows(mode);
@@ -4212,7 +4679,11 @@
       seriesPriceIndex().then(() => updateSelectedCoinDetailSection());
       return '';
     }
-    if (!dailyPriceIndexCache) dailyPriceIndex().then(() => renderSelectedPriceChartPreview());
+    if (!dailyPriceIndexCache) {
+      dailyPriceIndex().then(() => {
+        if (dailyPriceIndexCache) renderSelectedPriceChartPreview();
+      });
+    }
     return `
       <button class="selected-price-chart" type="button" data-selected-price-chart-open aria-label="Open price history chart">
         <canvas class="selected-price-chart-canvas" width="320" height="118" aria-label="Price history chart"></canvas>
@@ -4946,6 +5417,8 @@
         needsSeriesPrices ? seriesPriceIndex() : Promise.resolve(seriesPriceIndexCache),
         needsDailyPrices ? dailyPriceIndex() : Promise.resolve(dailyPriceIndexCache)
       ]).then(() => {
+        if ((needsSeriesPrices && !seriesPriceIndexCache)
+            || (needsDailyPrices && !dailyPriceIndexCache)) return;
         renderSelectedPriceChartPreview();
         redrawOpenBalanceChart();
       });
@@ -5417,7 +5890,7 @@
     }
     if (balanceChartUnit === 'usd' && !dailyPriceIndexCache) {
       dailyPriceIndex().then(() => {
-        if (balanceChartUnit === 'usd') redrawBalanceChartThumbnail();
+        if (dailyPriceIndexCache && balanceChartUnit === 'usd') redrawBalanceChartThumbnail();
       });
       return;
     }
@@ -5538,7 +6011,10 @@
     saveBalanceChartUnit(nextUnit);
     syncBalanceChartUnitButtons();
     hideBalanceChartHover();
-    if (nextUnit === 'usd') await dailyPriceIndex();
+    if (nextUnit === 'usd') {
+      await dailyPriceIndex();
+      if (!dailyPriceIndexCache) return;
+    }
     if (balanceChartUnit !== nextUnit) return;
     redrawBalanceChartThumbnail();
     redrawOpenBalanceChart();
@@ -5570,7 +6046,10 @@
     savePriceChartUnit(nextUnit);
     syncBalanceChartUnitButtons();
     hideBalanceChartHover();
-    if (nextUnit === 'usd') await dailyPriceIndex();
+    if (nextUnit === 'usd') {
+      await dailyPriceIndex();
+      if (!dailyPriceIndexCache) return;
+    }
     if (priceChartUnit !== nextUnit) return;
     renderSelectedPriceChartPreview();
     if (activeChartModalMode === 'price' && balanceChartModal?.classList.contains('open')) {
@@ -6710,9 +7189,196 @@
     updateSidePanelLayouts();
   }
 
+  function installCasasciusCandidate(candidate) {
+    const hadInstalledGeneration = Boolean(installedCasasciusPublicationSignature());
+    const trackerChanged = candidate.rightPanelSignature !== casasciusInstalledRightPanelSignature;
+    const priceChanged = candidate.dailyPriceSignature !== casasciusInstalledDailyPriceSignature;
+    const priceWasHydrated = Boolean(dailyPriceIndexCache && casasciusInstalledDailyPriceValidation?.verified);
+    const preserveConcurrentPriceHydration = Boolean(
+      !candidate.dailyPrice.hydrated
+      && candidate.dailyPriceSignature === casasciusInstalledDailyPriceSignature
+      && dailyPriceIndexCache
+      && dailyPriceContentMatchesMarker(
+        candidate.dailyPriceMetadata,
+        casasciusInstalledDailyPriceValidation,
+        dailyPriceIndexCache
+      )
+    );
+    const installedDailyPrice = preserveConcurrentPriceHydration
+      ? {
+        hydrated: true,
+        index: dailyPriceIndexCache,
+        validation: casasciusInstalledDailyPriceValidation
+      }
+      : candidate.dailyPrice;
+    const data = candidate.trackerData;
+    casasciusInstalledTrackerData = data;
+    casasciusInstalledTrackerValidation = candidate.trackerValidation;
+    casasciusInstalledDailyPriceValidation = installedDailyPrice.validation;
+    window.CASASCIUS_RIGHT_PANEL_DATA = candidate.rightPanelData;
+    trackerDataPromise = Promise.resolve(data);
+    trackerIndexPromise = Promise.resolve(data.entries);
+    unfundedIndexPromise = Promise.resolve(data.unfunded);
+    trackerIndexWithGradedPromise = gradedIndexCache
+      ? Promise.resolve(mergeGradedRecords(data.entries, gradedIndexCache))
+      : null;
+    dailyPriceIndexCache = installedDailyPrice.index;
+    dailyPriceIndexPromise = installedDailyPrice.hydrated
+      ? Promise.resolve(dailyPriceIndexCache)
+      : null;
+    if (installedDailyPrice.hydrated) {
+      dailyPriceRecoveryAttempt = 0;
+      if (dailyPriceRecoveryTimer) window.clearTimeout(dailyPriceRecoveryTimer);
+      dailyPriceRecoveryTimer = 0;
+    }
+    casasciusInstalledRightPanelSignature = candidate.rightPanelSignature;
+    casasciusInstalledDailyPriceSignature = candidate.dailyPriceSignature;
+    return {
+      hadInstalledGeneration,
+      trackerChanged,
+      priceChanged,
+      priceNeedsPresentation: priceChanged && (priceWasHydrated || candidate.dailyPrice.hydrated)
+    };
+  }
+
+  function casasciusRefreshInteractionActive() {
+    return document.visibilityState !== 'visible'
+      || dragging
+      || allItemsDragging
+      || allItemsModelDragPending
+      || gradedCasePanning
+      || orbitDragging
+      || tiltDragging
+      || tabDragPointerId !== null
+      || bottomDragPointerId !== null
+      || leftPanelDragPointerId !== null
+      || dataPanelsRefreshQueued
+      || dataPanelsRefreshActive
+      || Boolean(leftPanelMeasureMode)
+      || Boolean(balanceChartDrag)
+      || Boolean(priceChartDrag);
+  }
+
+  function presentPendingCasasciusRefresh() {
+    if (!casasciusRefreshPresentationPending || casasciusRefreshInteractionActive()) return false;
+    const trackerPresentation = casasciusRefreshTrackerPresentationPending;
+    const pricePresentation = casasciusRefreshPricePresentationPending;
+    if (!trackerPresentation && pricePresentation) {
+      renderSelectedPriceChartPreview();
+      if (balanceChartUnit === 'usd') redrawBalanceChartThumbnail();
+      if (balanceChartModal?.classList.contains('open')
+          && (activeChartModalMode === 'price' || balanceChartUnit === 'usd')) {
+        redrawOpenBalanceChart();
+      }
+      casasciusRefreshPresentationPending = false;
+      casasciusRefreshPricePresentationPending = false;
+      return true;
+    }
+    const data = casasciusInstalledTrackerData;
+    if (!data || !Array.isArray(data.entries)) return false;
+    const needsGradedEntries = leftPanelMode === 'graded'
+      || activeChartModalMode === 'price'
+      || Boolean(selectedLeftPanelAddressByMode.graded)
+      || selectedAddressHasGradedMedia(currentTrackerEntries);
+    if (needsGradedEntries && !gradedIndexCache) {
+      void gradedIndex().then(() => window.setTimeout(presentPendingCasasciusRefresh, 0));
+      return false;
+    }
+
+    const token = ++panelRenderToken;
+    const slug = activeSlug;
+    const scrollTop = recentSpendsPanel?.scrollTop || 0;
+    const savedScrollByMode = { ...leftPanelScrollTopByMode };
+    const savedWindowStartByMode = { ...leftPanelWindowStartByMode };
+    const savedVisibleRowsByMode = { ...leftPanelVisibleRowsByMode };
+    const initialRecovery = casasciusRefreshInitialRecoveryPending;
+    const displayEntries = gradedIndexCache
+      ? mergeGradedRecords(data.entries, gradedIndexCache)
+      : data.entries;
+
+    try {
+      leftPanelRowsCache.clear();
+      updateLeftPanelCounts(displayEntries);
+      refreshingLeftPanelData = true;
+      renderRecentSpends(displayEntries, { forceDefault: initialRecovery, applySelection: false, preserveScroll: true });
+      renderActiveCoins(displayEntries, { forceDefault: initialRecovery, applySelection: false, preserveScroll: true });
+      renderGradedCoins(displayEntries, { forceDefault: false, applySelection: false, preserveScroll: true });
+      refreshingLeftPanelData = false;
+      renderCoinInfo(displayEntries);
+      if (!allItemsMode) {
+        const selectedAddress = selectedLeftPanelAddressByMode[leftPanelMode];
+        const selectedRecordId = selectedLeftPanelRecordId(leftPanelMode);
+        const selectedEntry = (leftPanelRowsByMode[leftPanelMode] || [])
+          .find(entry => leftPanelRowMatchesSelection(entry, selectedAddress, selectedRecordId, leftPanelMode));
+        applySelectedAddressToObject(selectedEntry?.address || '', COINS.find(coin => coin.slug === selectedEntry?.slug) || activeCoin());
+      }
+      syncLeftPanelMode({ preserveInteraction: true });
+      syncLeftPanelHeader();
+      redrawOpenBalanceChart();
+      leftDataPanel?.classList.add('data-ready');
+      casasciusRefreshPresentationPending = false;
+      casasciusRefreshTrackerPresentationPending = false;
+      casasciusRefreshPricePresentationPending = false;
+      casasciusRefreshInitialRecoveryPending = false;
+
+      Object.assign(leftPanelScrollTopByMode, savedScrollByMode);
+      Object.assign(leftPanelWindowStartByMode, savedWindowStartByMode);
+      Object.assign(leftPanelVisibleRowsByMode, savedVisibleRowsByMode);
+      const restoreScroll = () => {
+        if (token !== panelRenderToken || slug !== activeSlug || !recentSpendsPanel) return;
+        updateLeftPanelLayout();
+        recentSpendsPanel.scrollTop = scrollTop;
+        leftPanelScrollTopByMode[leftPanelMode] = scrollTop;
+      };
+      restoreScroll();
+      requestAnimationFrame(restoreScroll);
+      return true;
+    } catch (error) {
+      refreshingLeftPanelData = false;
+      console.warn('Casascius refresh presentation deferred:', error);
+      return false;
+    }
+  }
+
+  function registerCasasciusRefreshAdapter() {
+    if (casasciusRefreshAdapterRegistered) return;
+    const controller = window.WSBWebappDataAutoRefresh;
+    if (!controller || typeof controller.register !== 'function') return;
+    casasciusRefreshAdapterRegistered = true;
+    controller.register({
+      getInstalledSignature: installedCasasciusPublicationSignature,
+      prepare: context => prepareCasasciusCandidate(
+        context.fetchFresh,
+        context.signatureParts?.[0] || '',
+        context.signatureParts?.[1] || ''
+      ),
+      validate: (candidate, context) => isCompleteCasasciusCandidate(candidate, context.signature),
+      commit: candidate => {
+        const installed = installCasasciusCandidate(candidate);
+        casasciusRefreshTrackerPresentationPending = installed.trackerChanged || !installed.hadInstalledGeneration;
+        casasciusRefreshPricePresentationPending = installed.priceNeedsPresentation;
+        casasciusRefreshPresentationPending = casasciusRefreshTrackerPresentationPending
+          || casasciusRefreshPricePresentationPending;
+        casasciusRefreshInitialRecoveryPending = !installed.hadInstalledGeneration;
+        presentPendingCasasciusRefresh();
+        return true;
+      },
+      onError: error => {
+        console.warn('Casascius background refresh failed; keeping the current data visible.', error);
+      }
+    });
+
+    const flush = () => window.setTimeout(presentPendingCasasciusRefresh, 0);
+    document.addEventListener('visibilitychange', flush);
+    window.addEventListener('pointerup', flush);
+    window.addEventListener('pointercancel', flush);
+    document.addEventListener('focusout', flush);
+  }
+
   function refreshDataPanels() {
     if (!recentSpendsPanel || !coinInfoPanel) return;
     const token = ++panelRenderToken;
+    dataPanelsRefreshActive = true;
     const slug = activeSlug;
     leftPanelRowsCache.clear();
     leftDataPanel?.classList.remove('data-ready');
@@ -6738,6 +7404,8 @@
       }
       renderCoinInfo(entries);
       syncLeftPanelMode();
+      dataPanelsRefreshActive = false;
+      if (casasciusRefreshPresentationPending) window.setTimeout(presentPendingCasasciusRefresh, 0);
       requestAnimationFrame(() => {
         if (token !== panelRenderToken || slug !== activeSlug) return;
         updateLeftPanelLayout();
@@ -7021,7 +7689,11 @@
         needsSeriesPrices ? seriesPriceIndex() : Promise.resolve(seriesPriceIndexCache),
         needsGradedEntries ? trackerIndexWithGraded() : Promise.resolve(currentGradedTrackerEntries)
       ]).then(([, , gradedEntries]) => {
-        if (Array.isArray(gradedEntries) && gradedEntries.some(entry => entry?.gradedRecord)) {
+        const dependenciesReady = (!needsDailyPrices || Boolean(dailyPriceIndexCache))
+          && (!needsSeriesPrices || Boolean(seriesPriceIndexCache))
+          && (!needsGradedEntries || (Array.isArray(gradedEntries) && gradedEntries.length > 0));
+        if (!dependenciesReady) return;
+        if (needsGradedEntries && Array.isArray(gradedEntries)) {
           currentGradedTrackerEntries = gradedEntries;
         }
         const stillNeedsPriceRedraw = activeChartModalMode === 'price';
@@ -8932,7 +9604,9 @@
       renderAllItems({ wrap: false, syncTarget: false });
       requestAnimationFrame(() => allItemsStage?.classList.remove('grid-locked'));
     } else {
-      setAllItemsFocusSlug(allItemsFocusedSlug, { revealModel: !allItemsDefaultFocusPending });
+      setAllItemsFocusSlug(allItemsFocusedSlug, {
+        revealModel: running || !allItemsDefaultFocusPending
+      });
       if (!allItemsDefaultFocusPending) saveAllItemsWindow();
     }
     rememberAllItemsCenteredWorldPoint();
@@ -8964,9 +9638,13 @@
     allItemsRevealedModelSlug = null;
     allItemsModelRevealToken++;
     clearAllItemsExtraScene();
+    // Deferred All-mode hydration hides these elements inline. Always restore
+    // them before a single-item selection starts loading.
+    model.style.opacity = '';
     scene.style.opacity = '';
     scene.style.visibility = '';
     scene.style.transition = '';
+    scene.style.pointerEvents = '';
     app.classList.remove('all-items-mode', 'all-items-model-pending', 'all-items-model-hidden', 'all-items-model-positioning');
     clearAllItemsQuarterPosition();
     clearViewMode();
@@ -10069,6 +10747,9 @@
     running = !running;
     if (running) {
       clearViewMode();
+      if (allItemsMode && !allItemsFocusedModelRevealed()) {
+        revealFocusedAllItemsModel({ updateOverlay: true });
+      }
     }
     toggle.classList.toggle('is-running', running);
     toggle.setAttribute('aria-label', running ? 'Stop spinning' : 'Spin');

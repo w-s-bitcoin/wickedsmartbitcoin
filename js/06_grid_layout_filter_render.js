@@ -33,7 +33,7 @@ const DASHBOARD_CARD_PREVIEW_SPECS = Object.freeze({
     height: 720,
   },
   'bip110_signaling.png': {
-    url: 'webapps/bip110_signaling/preview.html?v=20260824-period-bars-v1',
+    url: 'webapps/bip110_signaling/preview.html',
     width: 1280,
     height: 720,
   },
@@ -64,7 +64,7 @@ const DASHBOARD_CARD_PREVIEW_SPECS = Object.freeze({
   },
 });
 
-const DASHBOARD_CARD_PREVIEW_CACHE_VERSION = '20260813-home-perf-v1';
+const DASHBOARD_CARD_PREVIEW_CACHE_VERSION = '20260825-stage5-atomic-v1';
 const DASHBOARD_PREVIEW_ROOT_MARGIN = '720px 0px';
 const DASHBOARD_PREVIEW_LOAD_STAGGER_MS = 140;
 let dashboardPreviewResizeObserver = null;

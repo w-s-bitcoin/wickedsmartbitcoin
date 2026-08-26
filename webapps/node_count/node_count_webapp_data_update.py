@@ -1,5 +1,7 @@
 import os
 import json
+import hashlib
+import tempfile
 import requests
 import pandas as pd
 import numpy as np
@@ -12,6 +14,44 @@ webapp_data_dir = Path(os.getenv("NODE_COUNT_WEBAPP_DATA_DIR", str(here / "webap
 webapp_data_dir.mkdir(parents=True, exist_ok=True)
 
 print(f"Webapp data output directory: {webapp_data_dir}")
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    """Publish one artifact without exposing a partially-written file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=path.parent,
+    )
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, path)
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
+def atomic_write_csv(frame: pd.DataFrame, path: Path) -> None:
+    atomic_write_text(path, frame.to_csv(index=False))
+
+
+def atomic_write_json(payload: dict, path: Path) -> None:
+    atomic_write_text(
+        path,
+        json.dumps(payload, separators=(",", ":"), ensure_ascii=True),
+    )
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 # Download and process node count history
 def fetch_node_history():
@@ -60,7 +100,7 @@ def fetch_node_history():
 
 node_history_df = fetch_node_history()
 node_history_csv = webapp_data_dir / "bitcoin_node_history.csv"
-node_history_df.to_csv(node_history_csv, index=False)
+atomic_write_csv(node_history_df, node_history_csv)
 print(f"Wrote: {node_history_csv}")
 
 # Fetch and process node software user agent data
@@ -222,7 +262,7 @@ def fetch_node_software_data():
 
 node_software_df = fetch_node_software_data()
 node_software_csv = webapp_data_dir / "node_software_counts_with_reachability.csv"
-node_software_df.to_csv(node_software_csv, index=False)
+atomic_write_csv(node_software_df, node_software_csv)
 print(f"Wrote: {node_software_csv}")
 
 # Split node count history into weekly periods and export summary and per-block data
@@ -238,12 +278,12 @@ periods.columns = ["year", "week", "start_date", "end_date", "mean_count", "max_
 periods["period"] = range(1, len(periods) + 1)
 
 periods_csv = webapp_data_dir / "node_count_periods.csv"
-periods.to_csv(periods_csv, index=False)
+atomic_write_csv(periods, periods_csv)
 print(f"Wrote: {periods_csv}")
 
 # Export per-block data for frontend (CSV)
 blocks_csv = webapp_data_dir / "node_count_blocks.csv"
-node_history_df.to_csv(blocks_csv, index=False)
+atomic_write_csv(node_history_df, blocks_csv)
 print(f"Wrote: {blocks_csv}")
 
 # Group node software/version data and export for webapp
@@ -269,7 +309,7 @@ software_grouped = (
 )
 software_grouped["percent"] = software_grouped["total_count"] / software_grouped["total_count"].sum() * 100.0
 software_grouped_csv = webapp_data_dir / "node_software_counts_grouped.csv"
-software_grouped.to_csv(software_grouped_csv, index=False)
+atomic_write_csv(software_grouped, software_grouped_csv)
 print(f"Wrote: {software_grouped_csv}")
 
 # Example: Fetch Bitcoin Core releases from GitHub API
@@ -308,7 +348,7 @@ for rel in core_releases:
             "github_url": url
         })
 releases_csv = webapp_data_dir / "node_software_releases.csv"
-pd.DataFrame(release_rows).to_csv(releases_csv, index=False)
+atomic_write_csv(pd.DataFrame(release_rows), releases_csv)
 print(f"Wrote: {releases_csv}")
 
 # Chart/static config for frontend
@@ -340,15 +380,39 @@ chart_static = {
     },
 }
 chart_static_path = webapp_data_dir / "chart_static.json"
-with chart_static_path.open("w", encoding="utf-8") as f:
-    json.dump(chart_static, f, separators=(",", ":"), ensure_ascii=True)
+atomic_write_json(chart_static, chart_static_path)
 print(f"Wrote: {chart_static_path}")
 
-# Write webapp_data refresh timestamp and print summary
+# Retain the human-readable timestamp for the dashboard KPI. The hash manifest
+# below is the actual publication boundary and is always written last.
 last_updated_path = webapp_data_dir / "last_updated.txt"
-updated_text = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-last_updated_path.write_text(updated_text + "\n", encoding="utf-8")
+updated_text = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+atomic_write_text(last_updated_path, updated_text + "\n")
 print(f"Wrote: {last_updated_path}")
+
+published_generation = {
+    "schema_version": 1,
+    "generation_id": updated_text,
+    "published_at_utc": updated_text,
+    "latest_history_datetime": node_history_df["datetime"].iloc[-1].isoformat(),
+    "artifacts": {
+        node_history_csv.name: {
+            "sha256": sha256_file(node_history_csv),
+            "rows": int(len(node_history_df)),
+        },
+        software_grouped_csv.name: {
+            "sha256": sha256_file(software_grouped_csv),
+            "rows": int(len(software_grouped)),
+        },
+        node_software_csv.name: {
+            "sha256": sha256_file(node_software_csv),
+            "rows": int(len(node_software_df)),
+        },
+    },
+}
+published_generation_path = webapp_data_dir / "published_generation.json"
+atomic_write_json(published_generation, published_generation_path)
+print(f"Wrote publication marker: {published_generation_path}")
 
 # Print summary of all files in webapp_data_dir
 print("\nCreated/updated files:")
