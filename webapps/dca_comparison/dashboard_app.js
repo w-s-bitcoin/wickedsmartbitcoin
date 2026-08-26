@@ -186,6 +186,8 @@
   let chartRangeDragState = null;
   let chartRangeResizeWheelRemainder = 0;
   let chartRangePanWheelRemainder = 0;
+  let dcaRefreshPresentationPending = false;
+  let dcaInstalledDataSignature = "";
   const updatedTimeZoneChip = DASHBOARD_COMPONENTS.createUpdatedTimeZoneChipController?.({
     getTimeZone: () => state.timeZone,
     setTimeZone: (value) => {
@@ -1692,11 +1694,56 @@
     } catch {}
   }
 
-  async function loadData() {
+  async function fetchDataResource(url, options = {}) {
+    if (typeof options.fetchFresh === "function") {
+      return options.fetchFresh(url, { signal: options.signal });
+    }
+    const response = await fetch(url, { cache: options.cache || "default", signal: options.signal });
+    if (!response.ok) throw new Error(`Failed to load ${url} (${response.status})`);
+    return response;
+  }
+
+  async function fetchInstalledDataSignature() {
+    try {
+      const response = await fetch("webapp_data/last_updated.txt", { cache: "no-store" });
+      if (!response.ok) return "";
+      return String(await response.text() || "").trim();
+    } catch (_error) {
+      return "";
+    }
+  }
+
+  function commitDataCandidate(candidate) {
+    state.rows = candidate.rows;
+    state.byDate = candidate.byDate;
+    state.minIso = candidate.minIso;
+    state.maxIso = candidate.maxIso;
+    state.assetBounds = candidate.assetBounds;
+  }
+
+  function hasCompleteAssetCoverage(candidate) {
+    if (!candidate?.marketIndicesLoaded || !Array.isArray(candidate.rows) || candidate.rows.length < 10) {
+      return false;
+    }
+    return Object.keys(ASSETS).every((asset) => {
+      const bounds = candidate.assetBounds?.[asset];
+      if (!bounds?.minIso || !bounds?.maxIso || bounds.minIso > bounds.maxIso) return false;
+      const count = candidate.rows.reduce(
+        (total, row) => total + (Number.isFinite(row?.[asset]) && row[asset] > 0 ? 1 : 0),
+        0
+      );
+      return count >= 3650 && bounds.maxIso === candidate.maxIso;
+    });
+  }
+
+  async function prepareDataCandidate(options = {}) {
     const [btcText, fxText, indicesText] = await Promise.all([
-      fetch("../../assets/daily_price.csv", { cache: "default" }).then((r) => r.text()),
-      fetch("../uoa/webapp_data/daily_fx_rates.csv", { cache: "default" }).then((r) => r.text()),
-      fetch("webapp_data/market_indices.csv", { cache: "default" }).then((r) => (r.ok ? r.text() : "")).catch(() => ""),
+      fetchDataResource("../../assets/daily_price.csv", options).then((r) => r.text()),
+      fetchDataResource("../uoa/webapp_data/daily_fx_rates.csv", options).then((r) => r.text()),
+      fetchDataResource("webapp_data/market_indices.csv", options).then((r) => r.text()).catch((error) => {
+        if (options.signal?.aborted) throw error;
+        return "";
+      }),
     ]);
     const btcRows = parseCsv(btcText);
     const btcHeader = btcRows.shift();
@@ -1704,6 +1751,7 @@
     const fxHeader = fxRows.shift();
     const indexRows = indicesText ? parseCsv(indicesText) : [];
     const indexHeader = indexRows.length ? indexRows.shift() : [];
+    const marketIndicesLoaded = indexHeader.length > 0 && indexRows.length > 0;
     const btcDateIdx = btcHeader.indexOf("date");
     const btcPriceIdx = btcHeader.indexOf("price");
     const btcTimestampIdx = btcHeader.indexOf("timestamp");
@@ -1758,22 +1806,66 @@
       if (Number.isFinite(tlt) && tlt > 0) target.TLT = tlt;
       if (Number.isFinite(mstr) && mstr > 0) target.MSTR = mstr;
     }
-    state.rows = [...byDate.values()]
+    const candidateRows = [...byDate.values()]
       .filter((r) => Object.keys(ASSETS).some((asset) => Number.isFinite(r[asset]) && r[asset] > 0))
       .sort((a, b) => a.date.localeCompare(b.date));
-    state.byDate = new Map(state.rows.map((r) => [r.date, r]));
-    state.minIso = state.rows[0]?.date || "";
-    state.maxIso = state.rows[state.rows.length - 1]?.date || "";
-    state.assetBounds = {};
+    const assetBounds = {};
     Object.keys(ASSETS).forEach((asset) => {
-      const assetRows = state.rows.filter((r) => Number.isFinite(r[asset]) && r[asset] > 0);
+      const assetRows = candidateRows.filter((r) => Number.isFinite(r[asset]) && r[asset] > 0);
       if (assetRows.length) {
-        state.assetBounds[asset] = {
+        assetBounds[asset] = {
           minIso: assetRows[0].date,
           maxIso: assetRows[assetRows.length - 1].date,
         };
       }
     });
+    return {
+      rows: candidateRows,
+      byDate: new Map(candidateRows.map((r) => [r.date, r])),
+      minIso: candidateRows[0]?.date || "",
+      maxIso: candidateRows[candidateRows.length - 1]?.date || "",
+      assetBounds,
+      marketIndicesLoaded,
+    };
+  }
+
+  async function loadData(options = {}) {
+    // Read the pointer on both sides of the initial candidate so a publication
+    // overlapping startup cannot label older source files as the new baseline.
+    // A marker change is rare; retry briefly with the now-current generation.
+    let lastError = null;
+    let latestCandidate = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const signatureBefore = await fetchInstalledDataSignature();
+        const candidate = await prepareDataCandidate({ cache: "no-store", ...options });
+        latestCandidate = candidate;
+        const signatureAfter = await fetchInstalledDataSignature();
+        if (signatureBefore && signatureAfter && signatureBefore !== signatureAfter) {
+          throw new Error("DCA comparison data changed during initial loading.");
+        }
+        if (!hasCompleteAssetCoverage(candidate)) {
+          throw new Error("DCA comparison startup data is missing one or more supported assets.");
+        }
+        commitDataCandidate(candidate);
+        dcaInstalledDataSignature = signatureAfter || signatureBefore || "";
+        return candidate;
+      } catch (error) {
+        lastError = error;
+        if (attempt < 2) {
+          await new Promise((resolve) => window.setTimeout(resolve, 150 * (attempt + 1)));
+        }
+      }
+    }
+    // Keep the dashboard usable on a transient optional-source failure, but do
+    // not claim the publication marker. Registration will immediately retry the
+    // complete candidate through the atomic controller.
+    if (latestCandidate?.assetBounds?.BTC && latestCandidate.rows.length >= 10) {
+      commitDataCandidate(latestCandidate);
+      dcaInstalledDataSignature = "";
+      return latestCandidate;
+    }
+    throw lastError || new Error("Could not load a complete DCA comparison generation.");
   }
 
   function normalizeSettings() {
@@ -3598,6 +3690,109 @@
     });
   }
 
+  function validateRefreshCandidate(candidate) {
+    const isVisible = document.visibilityState === "visible";
+    if (
+      state.isExporting
+      || (isVisible && state.isPlaying)
+      || state.drag
+      || chartRangeDragState
+    ) return false;
+    const minimumRowCount = Math.max(10, Math.floor(state.rows.length * 0.95));
+    if (!candidate?.rows?.length
+        || candidate.rows.length < minimumRowCount
+        || !hasCompleteAssetCoverage(candidate)) return false;
+    if (!candidate.assetBounds?.BTC || candidate.maxIso < state.maxIso) return false;
+    return Object.entries(state.assetBounds).every(([asset, currentBounds]) => {
+      const nextBounds = candidate.assetBounds[asset];
+      const currentCount = state.rows.reduce(
+        (count, row) => count + (Number.isFinite(row?.[asset]) && row[asset] > 0 ? 1 : 0),
+        0
+      );
+      const candidateCount = candidate.rows.reduce(
+        (count, row) => count + (Number.isFinite(row?.[asset]) && row[asset] > 0 ? 1 : 0),
+        0
+      );
+      return Boolean(
+        nextBounds
+        && nextBounds.minIso <= currentBounds.minIso
+        && nextBounds.maxIso >= currentBounds.maxIso
+        && candidateCount >= Math.max(1, Math.floor(currentCount * 0.95))
+      );
+    });
+  }
+
+  function presentPendingRefresh() {
+    const active = document.activeElement;
+    const activeType = String(active?.type || "").toLowerCase();
+    const isActivelyEditingText = Boolean(
+      active
+      && (
+        (active.tagName === "INPUT" && ["text", "search", "email", "password", "url", "tel", "number"].includes(activeType))
+        || active.tagName === "TEXTAREA"
+        || active.isContentEditable
+      )
+    );
+    if (
+      !dcaRefreshPresentationPending
+      || document.visibilityState !== "visible"
+      || isActivelyEditingText
+    ) return false;
+    render();
+    dcaRefreshPresentationPending = false;
+    return true;
+  }
+
+  function commitRefreshCandidate(candidate) {
+    const playbackSnapshot = (state.isPlaying || state.paused) ? {
+      rangeStart: state.settings.rangeStart,
+      rangeEnd: state.settings.rangeEnd,
+      dcaStart: state.settings.dcaStart,
+      currentIso: state.currentIso,
+      desiredRangeStart: state.desiredRangeStart,
+      desiredRangeEnd: state.desiredRangeEnd,
+      preset: state.settings.preset,
+      rangeTracksLatestEnd: state.settings.rangeTracksLatestEnd,
+      manualRangeSelection: state.manualRangeSelection,
+    } : null;
+    commitDataCandidate(candidate);
+    normalizeSettings();
+    if (playbackSnapshot) {
+      const available = getActiveAvailableBounds();
+      state.settings.rangeStart = clampIso(playbackSnapshot.rangeStart, available.minIso, available.maxIso);
+      state.settings.rangeEnd = clampIso(playbackSnapshot.rangeEnd, state.settings.rangeStart, available.maxIso);
+      state.settings.dcaStart = clampIso(playbackSnapshot.dcaStart, state.settings.rangeStart, state.settings.rangeEnd);
+      state.currentIso = clampIso(playbackSnapshot.currentIso, state.settings.rangeStart, state.settings.rangeEnd);
+      state.desiredRangeStart = playbackSnapshot.desiredRangeStart;
+      state.desiredRangeEnd = playbackSnapshot.desiredRangeEnd;
+      state.settings.preset = playbackSnapshot.preset;
+      state.settings.rangeTracksLatestEnd = playbackSnapshot.rangeTracksLatestEnd;
+      state.manualRangeSelection = playbackSnapshot.manualRangeSelection;
+    }
+    normalizeExportSettings();
+    dcaRefreshPresentationPending = true;
+    presentPendingRefresh();
+    return true;
+  }
+
+  function registerDataRefreshAdapter() {
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") presentPendingRefresh();
+    });
+    document.addEventListener("focusout", () => {
+      window.setTimeout(presentPendingRefresh, 0);
+    });
+    window.WSBWebappDataAutoRefresh?.register?.({
+      getInstalledSignature: () => dcaInstalledDataSignature,
+      prepare: (context = {}) => prepareDataCandidate({
+        signal: context.signal,
+        fetchFresh: context.fetchFresh,
+      }),
+      validate: validateRefreshCandidate,
+      commit: commitRefreshCandidate,
+    });
+  }
+
   async function init() {
     try {
       primeKeyboardFocus();
@@ -3626,6 +3821,7 @@
       normalizeExportSettings();
       render();
       DASHBOARD_COMPONENTS.setChartLoaderVisible?.(el.chartLoader, false);
+      registerDataRefreshAdapter();
       primeKeyboardFocus();
       if (state.pendingSpacePlayback) {
         state.pendingSpacePlayback = false;

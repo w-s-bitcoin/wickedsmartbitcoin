@@ -188,16 +188,25 @@
       </div>
     </div>
   </main>
-  <script src="../shared/preview_shared.js?v=20260612-grid-ready-v2"></script>
+  <script src="../shared/preview_shared.js?v=20260825-stage5-atomic-v1"></script>
   <script>
     (() => {
-      window.WSBPreviewShared?.initThemeSync?.();
-
       const stage = document.getElementById('stage');
       const model = document.getElementById('model');
       const segmentCount = 160;
       const frontImageSrc = 'preview_assets/coin-1000-gold-2012-front.png';
       const backImageSrc = 'preview_assets/coin-1000-gold-2012-back.png';
+      const params = new URLSearchParams(window.location.search);
+      const requestedTestTimeout = Number(params.get('wsb_preview_asset_timeout_ms'));
+      const assetWaitTimeoutMs = (
+        params.get('stage5_preview_test') === '1'
+        && Number.isFinite(requestedTestTimeout)
+        && requestedTestTimeout > 0
+      )
+        ? Math.max(100, Math.min(15000, requestedTestTimeout))
+        : 12000;
+      let initialWaitSettled = false;
+      let assetRetryInFlight = false;
 
       function buildCoinEdges() {
         model.querySelectorAll('.edge').forEach(edge => edge.remove());
@@ -226,16 +235,23 @@
         return new Promise(resolve => {
           const image = new Image();
           let done = false;
-          const finish = () => {
+          let timer = 0;
+          const finish = loaded => {
             if (done) return;
             done = true;
-            resolve();
+            if (timer) window.clearTimeout(timer);
+            image.onload = null;
+            image.onerror = null;
+            resolve(loaded);
           };
-          image.onload = finish;
-          image.onerror = resolve;
+          image.onload = () => finish(true);
+          image.onerror = () => finish(false);
           image.decoding = 'async';
           image.src = src;
-          if (image.complete) finish();
+          timer = window.setTimeout(() => finish(false), assetWaitTimeoutMs);
+          if (image.complete) {
+            window.queueMicrotask(() => finish(image.naturalWidth > 0));
+          }
         });
       }
 
@@ -245,19 +261,57 @@
         });
       }
 
-      async function startWhenComplete() {
-        await Promise.all([
-          waitForImage(frontImageSrc),
-          waitForImage(backImageSrc)
+      async function startWhenComplete({ refresh = false } = {}) {
+        if (stage?.classList.contains('is-ready')) {
+          stage.dataset.previewState = 'ready';
+          return true;
+        }
+        const token = refresh ? `?wsb_preview_asset_retry=${Date.now()}` : '';
+        const frontUrl = `${frontImageSrc}${token}`;
+        const backUrl = `${backImageSrc}${token}`;
+        const loaded = await Promise.all([
+          waitForImage(frontUrl),
+          waitForImage(backUrl)
         ]);
+        if (!loaded.every(Boolean)) {
+          stage.dataset.previewState = 'fallback';
+          return false;
+        }
+        document.documentElement.style.setProperty('--front-image', `url("${frontUrl}")`);
+        document.documentElement.style.setProperty('--back-image', `url("${backUrl}")`);
         buildCoinEdges();
         await nextPaint();
         stage?.classList.add('is-ready');
-        document.documentElement.dataset.previewReady = '1';
-        window.WSBPreviewShared?.markReady?.({ filename: 'casascius_explorer.png' });
+        stage.dataset.previewState = 'ready';
+        return true;
       }
 
-      startWhenComplete();
+      async function recoverAssets() {
+        if (!initialWaitSettled || assetRetryInFlight || stage?.classList.contains('is-ready')) return;
+        assetRetryInFlight = true;
+        try {
+          await startWhenComplete({ refresh: true });
+        } finally {
+          assetRetryInFlight = false;
+        }
+      }
+
+      window.WSBPreviewShared?.initStaticPreview?.({
+        filename: 'casascius_explorer.png',
+        ready: async () => {
+          try {
+            return await startWhenComplete();
+          } finally {
+            initialWaitSettled = true;
+          }
+        },
+      });
+      window.addEventListener('online', recoverAssets);
+      window.addEventListener('pageshow', recoverAssets);
+      document.addEventListener('resume', recoverAssets);
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') recoverAssets();
+      });
       window.addEventListener('resize', buildCoinEdges);
     })();
   </script>

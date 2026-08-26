@@ -31,7 +31,8 @@
   const EXPORT_START_HOLD_SECONDS = 1;
   const EXPORT_END_HOLD_SECONDS = 3;
   const MS_PER_DAY = 24 * 60 * 60 * 1000;
-  const AUTO_REFRESH_MS = 60000;
+  const DATA_URL = "webapp_data/issuance_rate_data.json";
+  const PUBLICATION_URL = "webapp_data/published_generation.json";
   const DASHBOARD_TIME = window.WSBDashboardTime || null;
   const DASHBOARD_COMPONENTS = window.WSBDashboardComponents || {};
   const ICONS = {
@@ -49,6 +50,7 @@
     currentIndex: 0,
     isPlaying: false,
     isPaused: false,
+    pendingSpacePlayback: false,
     playbackSpeed: 1,
     timerId: null,
     timeZone: DASHBOARD_TIME?.getPreferredTimeZone?.() || "UTC",
@@ -70,8 +72,6 @@
       endFrameHold: true,
     },
     dataSignature: "",
-    autoRefreshTimer: null,
-    refreshInFlight: false,
   };
   const updatedTimeZoneChip = DASHBOARD_COMPONENTS.createUpdatedTimeZoneChipController?.({
     getTimeZone: () => state.timeZone || DASHBOARD_TIME?.getPreferredTimeZone?.() || "UTC",
@@ -105,6 +105,10 @@
   const downloadEstimateCalibrationPending = new Set();
   let downloadEstimateCalibrationRequestId = 0;
   let downloadEstimateCalibrationTimer = null;
+  let issuanceInstalledPublicationSignature = "";
+  let issuanceRefreshPresentationPending = false;
+  let issuanceInitializationComplete = false;
+  let issuanceRefreshAdapterRegistered = false;
   const epochLogMinCache = new Map();
   const epochTargetLogMinCache = new Map();
   const timeZoneAdjustedRowsCache = new Map();
@@ -2129,6 +2133,11 @@
   }
 
   function togglePlayback() {
+    if (!state.rows.length) {
+      state.pendingSpacePlayback = true;
+      return;
+    }
+    state.pendingSpacePlayback = false;
     if (state.isPlaying) pause();
     else play();
   }
@@ -3228,12 +3237,6 @@
     if (state.isPlaying || state.isPaused) stopPlayback(false);
   }
 
-  function withBust(url, cacheBust = null) {
-    if (cacheBust == null) return url;
-    const separator = String(url).includes("?") ? "&" : "?";
-    return `${url}${separator}_=${cacheBust}`;
-  }
-
   function getIssuanceDataSignature(data) {
     const generated = String(data?.generated_utc || "");
     const height = String(data?.source?.latest_block_height ?? "");
@@ -3248,10 +3251,99 @@
     return rows;
   }
 
-  async function loadIssuanceData(cacheBust = null) {
-    const resp = await fetch(withBust("webapp_data/issuance_rate_data.json", cacheBust), { cache: "no-store" });
-    if (!resp.ok) throw new Error(`Failed to load issuance data (${resp.status})`);
-    return resp.json();
+  async function fetchIssuanceText(fetchResource, url) {
+    const response = await fetchResource(url, { cache: "no-store" });
+    if (!response.ok) throw new Error(`Failed to load ${url} (${response.status})`);
+    return response.text();
+  }
+
+  function parseIssuancePublication(rawMarker) {
+    const marker = JSON.parse(String(rawMarker || ""));
+    if (!marker || typeof marker !== "object") throw new Error("Invalid issuance publication marker.");
+    return marker;
+  }
+
+  async function sha256Text(text) {
+    if (!window.crypto?.subtle || typeof TextEncoder !== "function") return "";
+    const bytes = new TextEncoder().encode(text);
+    const digest = await window.crypto.subtle.digest("SHA-256", bytes);
+    return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
+  }
+
+  async function prepareIssuanceCandidate(fetchResource, expectedMarkerSignature = "") {
+    const markerSignature = String(expectedMarkerSignature || "").trim()
+      || (await fetchIssuanceText(fetchResource, PUBLICATION_URL)).trim();
+    const marker = parseIssuancePublication(markerSignature);
+    const dataText = await fetchIssuanceText(fetchResource, DATA_URL);
+    return {
+      marker,
+      markerSignature,
+      data: JSON.parse(dataText),
+      dataHash: await sha256Text(dataText),
+    };
+  }
+
+  function validateIssuanceCandidate(candidate, { allowRegression = false } = {}) {
+    const marker = candidate?.marker;
+    const data = candidate?.data;
+    const nextRows = Array.isArray(data?.rows) ? data.rows : [];
+    if (!marker || !data || nextRows.length < 1000) return false;
+    const expectedHash = String(marker.data_sha256 || "").toLowerCase();
+    if (!/^[a-f0-9]{64}$/.test(expectedHash)) return false;
+    if (candidate.dataHash && candidate.dataHash !== expectedHash) return false;
+    if (String(data.generated_utc || "") !== String(marker.generated_utc || "")) return false;
+    if (Number(data.source?.latest_block_height) !== Number(marker.latest_block_height)) return false;
+    if (nextRows.length !== Number(marker.row_count)) return false;
+    if (nextRows[0]?.date !== marker.first_date || nextRows[nextRows.length - 1]?.date !== marker.latest_date) return false;
+    if (!allowRegression && state.rows.length && nextRows.length < state.rows.length) return false;
+    if (!allowRegression && state.data
+        && Number(data.source?.latest_block_height) < Number(state.data.source?.latest_block_height)) return false;
+
+    let previousDate = "";
+    let previousHeight = -1;
+    for (const row of nextRows) {
+      const rowDate = String(row?.date || "");
+      const rowHeight = Number(row?.height);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(rowDate) || rowDate <= previousDate) return false;
+      if (!Number.isFinite(rowHeight) || rowHeight < previousHeight) return false;
+      if (!["epoch", "subsidy", "supply", "daily_issuance", "issuance_rate", "target_issuance", "target_rate"]
+        .every((key) => Number.isFinite(Number(row?.[key])))) return false;
+      previousDate = rowDate;
+      previousHeight = rowHeight;
+    }
+
+    const timeZoneDaily = data.time_zone_daily;
+    const timeZoneNames = timeZoneDaily && typeof timeZoneDaily === "object" ? Object.keys(timeZoneDaily) : [];
+    if (timeZoneNames.length !== Number(marker.time_zone_count) || !timeZoneNames.length) return false;
+    for (const zoneName of timeZoneNames) {
+      const zoneRows = timeZoneDaily[zoneName];
+      if (!zoneRows || typeof zoneRows !== "object") return false;
+      if (Object.keys(zoneRows).length !== nextRows.length) return false;
+      if (!Array.isArray(zoneRows[marker.first_date]) || zoneRows[marker.first_date].length < 5) return false;
+      if (!Array.isArray(zoneRows[marker.latest_date]) || zoneRows[marker.latest_date].length < 5) return false;
+    }
+    return true;
+  }
+
+  async function loadInitialIssuanceCandidate() {
+    let lastError = null;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      try {
+        const fetchResource = (url, init) => fetch(url, { ...(init || {}), cache: "no-store" });
+        const before = (await fetchIssuanceText(fetchResource, PUBLICATION_URL)).trim();
+        const candidate = await prepareIssuanceCandidate(fetchResource, before);
+        const after = (await fetchIssuanceText(fetchResource, PUBLICATION_URL)).trim();
+        if (before !== after) throw new Error("Issuance data changed during initial loading.");
+        if (!validateIssuanceCandidate(candidate, { allowRegression: true })) {
+          throw new Error("Issuance publication is incomplete or inconsistent.");
+        }
+        return candidate;
+      } catch (error) {
+        lastError = error;
+        if (attempt < 3) await new Promise((resolve) => window.setTimeout(resolve, 150 * (attempt + 1)));
+      }
+    }
+    throw lastError || new Error("Could not load a complete issuance generation.");
   }
 
   function findRowIndexByDate(rows, date, fallback) {
@@ -3291,40 +3383,80 @@
     }
   }
 
-  async function refreshIfDataChanged() {
-    if (!state.data || state.refreshInFlight || isDateRangeExporting) return;
-    state.refreshInFlight = true;
-    try {
-      const latestData = await loadIssuanceData(Date.now());
-      const latestSignature = getIssuanceDataSignature(latestData);
-      if (!latestSignature || latestSignature === state.dataSignature) return;
-      applyIssuanceData(latestData, { preserveSelection: true });
-      applyTopKpiWidthLocks();
-      syncControls();
-      renderChart();
-    } catch (error) {
-      console.warn("Issuance data auto-refresh check failed:", error);
-    } finally {
-      state.refreshInFlight = false;
+  function issuancePresentationBlocked() {
+    return document.visibilityState !== "visible"
+      || isKeyboardShortcutTextEntry(document.activeElement)
+      || !!dateRangeCurrentMarkerDrag
+      || !!dateRangeHandleDrag;
+  }
+
+  function presentPendingIssuanceRefresh() {
+    if (!issuanceRefreshPresentationPending || !issuanceInitializationComplete || issuancePresentationBlocked()) return;
+    issuanceRefreshPresentationPending = false;
+    applyTopKpiWidthLocks();
+    syncControls();
+    renderChart();
+  }
+
+  function finishIssuanceInitialization() {
+    if (issuanceInitializationComplete) {
+      issuanceRefreshPresentationPending = true;
+      presentPendingIssuanceRefresh();
+      return;
+    }
+    applyTopKpiWidthLocks();
+    restoreState();
+    bindDateRangeSessionPersistence();
+    syncDownloadSettingsControls();
+    syncControls();
+    renderChart();
+    issuanceInitializationComplete = true;
+    issuanceRefreshPresentationPending = false;
+    if (state.isPaused) bindDateRangePlaybackOutsidePointerActions();
+    document.body.classList.remove("issuance-loading");
+    if (els.chartLoading) els.chartLoading.hidden = true;
+    if (state.pendingSpacePlayback) {
+      state.pendingSpacePlayback = false;
+      requestAnimationFrame(() => togglePlayback());
     }
   }
 
-  function triggerRefreshSoon(delayMs = 150) {
-    window.setTimeout(refreshIfDataChanged, delayMs);
+  function installIssuanceCandidate(candidate, { preserveSelection = true } = {}) {
+    applyIssuanceData(candidate.data, { preserveSelection });
+    issuanceInstalledPublicationSignature = candidate.markerSignature;
   }
 
-  function setupRefreshWakeEvents() {
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") triggerRefreshSoon(0);
+  function registerIssuanceRefreshAdapter() {
+    if (issuanceRefreshAdapterRegistered) return;
+    const controller = window.WSBWebappDataAutoRefresh;
+    if (!controller || typeof controller.register !== "function") return;
+    issuanceRefreshAdapterRegistered = true;
+    controller.register({
+      getInstalledSignature: () => issuanceInstalledPublicationSignature,
+      prepare: (context) => prepareIssuanceCandidate(context.fetchFresh, context.signature),
+      validate: (candidate) => validateIssuanceCandidate(candidate),
+      commit: (candidate) => {
+        if (isDateRangeExporting || dateRangeCurrentMarkerDrag || dateRangeHandleDrag) return false;
+        const wasInitialized = issuanceInitializationComplete;
+        installIssuanceCandidate(candidate, { preserveSelection: wasInitialized });
+        if (!wasInitialized) {
+          finishIssuanceInitialization();
+          return true;
+        }
+        issuanceRefreshPresentationPending = true;
+        presentPendingIssuanceRefresh();
+        return true;
+      },
+      onError: (error) => {
+        console.warn("Issuance background refresh failed; keeping the current data visible.", error);
+      },
     });
-    window.addEventListener("focus", () => triggerRefreshSoon(0));
-    window.addEventListener("pageshow", () => triggerRefreshSoon(0));
-    window.addEventListener("online", () => triggerRefreshSoon(0));
-  }
-
-  function startAutoRefresh() {
-    if (state.autoRefreshTimer) clearInterval(state.autoRefreshTimer);
-    state.autoRefreshTimer = setInterval(refreshIfDataChanged, AUTO_REFRESH_MS);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") presentPendingIssuanceRefresh();
+    });
+    document.addEventListener("focusout", () => window.setTimeout(presentPendingIssuanceRefresh, 0));
+    window.addEventListener("pointerup", () => window.setTimeout(presentPendingIssuanceRefresh, 0));
+    window.addEventListener("pointercancel", () => window.setTimeout(presentPendingIssuanceRefresh, 0));
   }
 
   function indexForDate(date) {
@@ -3338,18 +3470,15 @@
     bindDateRangeExportUnloadGuard();
     updatedTimeZoneChip?.populate?.();
     bindEvents();
-    applyIssuanceData(await loadIssuanceData());
-    applyTopKpiWidthLocks();
-    restoreState();
-    bindDateRangeSessionPersistence();
-    syncDownloadSettingsControls();
-    syncControls();
-    renderChart();
-    setupRefreshWakeEvents();
-    startAutoRefresh();
-    if (state.isPaused) bindDateRangePlaybackOutsidePointerActions();
-    document.body.classList.remove("issuance-loading");
-    if (els.chartLoading) els.chartLoading.hidden = true;
+    try {
+      const candidate = await loadInitialIssuanceCandidate();
+      installIssuanceCandidate(candidate, { preserveSelection: false });
+      finishIssuanceInitialization();
+    } finally {
+      // Registration in the failure path lets a later complete publication
+      // recover the dashboard without a navigation or full-page reload.
+      registerIssuanceRefreshAdapter();
+    }
   }
 
   init().catch((error) => {

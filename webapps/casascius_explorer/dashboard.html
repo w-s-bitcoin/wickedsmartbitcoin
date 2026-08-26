@@ -139,8 +139,19 @@
   </div>
 
 <script src="assets/casascius_data_manifest.js"></script>
-<script src="assets/right_panel_data.js"></script>
+<script>
+  window.WSBWebappDataAutoRefresh = {
+    urls: [
+      'assets/right_panel_data.js',
+      '../../assets/daily_price_metadata.json'
+    ],
+    intervalMs: 60000,
+    retryBaseMs: 3000,
+    retryMaxMs: 60000
+  };
+</script>
+<script src="../shared/webapp_data_auto_refresh.js?v=20260825-stage4"></script>
 <script src="../shared/dashboard_embed_modal.js"></script>
-<script src="casascius_explorer.js"></script>
+<script src="casascius_explorer.js?v=20260825-live-refresh-v2"></script>
 </body>
 </html>

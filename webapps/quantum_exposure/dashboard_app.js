@@ -53,7 +53,69 @@ const state = {
   ge1FullDataLoadTriggered: false,
   ge1IsUsingEcoSubset: false,
   snapshotReportCache: new Map(),
+  publishedGenerationSignature: "",
+  publishedSnapshotHeight: "",
 };
+let quantumRefreshPresentationPending = null;
+let quantumSnapshotDataLoadSequence = 0;
+let quantumSnapshotDataLoadActive = null;
+let quantumSnapshotDataCommitGeneration = 0;
+let quantumSnapshotReportRequestSequence = 0;
+let quantumSnapshotReportModalSequence = 0;
+let quantumHistoricalSeriesLoadSequence = 0;
+let quantumSnapshotIndexLoadSequence = 0;
+let quantumSnapshotIndexLoadActive = null;
+let quantumSnapshotLookupLoadSequence = 0;
+let quantumSnapshotLookupLoadActive = null;
+let quantumFullDataLoadSequence = 0;
+let quantumFullDataLoadActive = null;
+let quantumTopExposureDelaySequence = 0;
+let quantumLastRefreshDeferredReason = "";
+let quantumLastRefreshValidationReason = "";
+let quantumArchiveVerificationRequired = false;
+const quantumHistoricalRefreshPointsPending = new Map();
+
+const QUANTUM_META_REQUIRED_COLUMNS = [
+  "snapshot_blockheight",
+  "snapshot_time",
+  "one_year_ago_blockheight",
+  "one_year_ago_block_time",
+];
+const QUANTUM_AGGREGATE_REQUIRED_COLUMNS = [
+  "balance_filter",
+  "script_type_filter",
+  "spend_activity_filter",
+  "pubkey_count",
+  "utxo_count",
+  "supply_sats",
+  "exposed_pubkey_count",
+  "exposed_utxo_count",
+  "exposed_supply_sats",
+  "estimated_migration_blocks",
+];
+const QUANTUM_AGGREGATE_NUMERIC_COLUMNS = [
+  "pubkey_count",
+  "utxo_count",
+  "supply_sats",
+  "exposed_pubkey_count",
+  "exposed_utxo_count",
+  "exposed_supply_sats",
+  "estimated_migration_blocks",
+];
+const QUANTUM_EXPOSURE_REQUIRED_COLUMNS = [
+  "display_group_ids",
+  "exposed_supply_sats_by_script_type",
+  "spend_activity",
+  "exposed_utxo_count",
+  "first_exposed_blockheight",
+  "last_spend_blockheight",
+  "details",
+  "identity",
+  "first_exposed_unix_time",
+  "last_spend_unix_time",
+];
+const QUANTUM_INDEX_REQUIRED_COLUMNS = ["snapshot_blockheight", "snapshot_time"];
+const QUANTUM_MIN_AGGREGATE_ROWS = 8;
 
 const TOP_EXPOSURES_PAGE_SIZE = 250;
 const ECO_TOP_EXPOSURES_INITIAL_COUNT = 50;
@@ -186,6 +248,10 @@ function updateRuntimeModeButton() {
 }
 
 function latestSnapshotHeight() {
+  const publishedHeight = String(state.publishedSnapshotHeight || "").trim();
+  if (/^\d+$/.test(publishedHeight)) {
+    return publishedHeight;
+  }
   if (Array.isArray(state.availableSnapshots) && state.availableSnapshots.length) {
     return String(state.availableSnapshots[0] || "").trim();
   }
@@ -464,7 +530,9 @@ function updateArchivedSnapshotsToggleUi() {
 
 function snapshotBasePath(snapshot) {
   const height = String(snapshot || "").trim();
-  return `webapp_data/${height}`;
+  return state.snapshotLocationByHeight[height] === "archived"
+    ? `webapp_data/archived/${height}`
+    : `webapp_data/${height}`;
 }
 
 async function hasArchivedSnapshotDataFolder(archivedValues) {
@@ -921,11 +989,25 @@ function notifyParentSnapshotReportModalState(isOpen) {
   }
 }
 
+function invalidateSnapshotReportRequest() {
+  quantumSnapshotReportRequestSequence += 1;
+}
+
+function isSnapshotReportRequestCurrent(requestId, snapshot) {
+  if (requestId !== quantumSnapshotReportRequestSequence || !isSnapshotReportModalOpen()) {
+    return false;
+  }
+  const snapshotFilter = document.getElementById("snapshotFilter");
+  const currentSnapshot = String(state.snapshotHeight || snapshotFilter?.value || "").trim();
+  return currentSnapshot === String(snapshot || "").trim();
+}
+
 async function loadSnapshotReportIntoModal() {
   const body = document.getElementById("snapshotReportBody");
   const subtitle = document.getElementById("snapshotReportSubtitle");
   if (!body || !subtitle) return;
 
+  const requestId = ++quantumSnapshotReportRequestSequence;
   const snapshotFilter = document.getElementById("snapshotFilter");
   const snapshot = String(state.snapshotHeight || snapshotFilter?.value || "").trim();
   if (!snapshot) {
@@ -946,9 +1028,10 @@ async function loadSnapshotReportIntoModal() {
     if (priorDate === "n/a" || newDate === "n/a") {
       state.snapshotReportCache.delete(snapshot);
     } else {
-    subtitle.innerHTML = renderSnapshotReportSubtitle(cached.summary.priorBlock, cached.summary.newBlock, priorDate, newDate);
-    body.innerHTML = renderSnapshotReportHtml(cached.summary, snapshot, kpiCounts);
-    return;
+      if (!isSnapshotReportRequestCurrent(requestId, snapshot)) return;
+      subtitle.innerHTML = renderSnapshotReportSubtitle(cached.summary.priorBlock, cached.summary.newBlock, priorDate, newDate);
+      body.innerHTML = renderSnapshotReportHtml(cached.summary, snapshot, kpiCounts);
+      return;
     }
   }
 
@@ -960,6 +1043,7 @@ async function loadSnapshotReportIntoModal() {
 
     const text = await resp.text();
     const summary = parseSnapshotDiffSummary(text);
+    if (!isSnapshotReportRequestCurrent(requestId, snapshot)) return;
     state.snapshotReportCache.set(snapshot, { summary });
     const kpiCounts = resolveSnapshotReportKpiCounts(snapshot, summary);
     const priorDateFromState = extractDateFromLabel(state.snapshotLabelDatetimeByHeight[String(summary.priorBlock).replace(/,/g, '')]);
@@ -969,6 +1053,7 @@ async function loadSnapshotReportIntoModal() {
     subtitle.innerHTML = renderSnapshotReportSubtitle(summary.priorBlock, summary.newBlock, priorDate, newDate);
     body.innerHTML = renderSnapshotReportHtml(summary, snapshot, kpiCounts);
   } catch (err) {
+    if (!isSnapshotReportRequestCurrent(requestId, snapshot)) return;
     console.error("Failed to load snapshot report:", err);
     subtitle.textContent = `Snapshot ${snapshotHeightLabel(snapshot) || snapshot}`;
     body.innerHTML = `
@@ -985,6 +1070,7 @@ async function loadSnapshotReportIntoModal() {
 function openSnapshotReportModal() {
   const modal = document.getElementById("snapshotReportModal");
   if (!modal) return;
+  quantumSnapshotReportModalSequence += 1;
   modal.hidden = false;
   modal.setAttribute("aria-hidden", "false");
   document.body.style.overflow = "hidden";
@@ -998,6 +1084,8 @@ function closeSnapshotReportModal() {
   if (!modal) return;
   modal.hidden = true;
   modal.setAttribute("aria-hidden", "true");
+  quantumSnapshotReportModalSequence += 1;
+  invalidateSnapshotReportRequest();
   document.body.style.overflow = "";
   notifyParentSnapshotReportModalState(false);
 }
@@ -3335,6 +3423,8 @@ function areaPath(points, xAt, yLowerAt, yUpperAt) {
 }
 
 function resetHistoricalSeriesState() {
+  quantumHistoricalSeriesLoadSequence += 1;
+  quantumHistoricalRefreshPointsPending.clear();
   state.historicalSeriesGe1AbortController?.abort();
   state.historicalSeries = [];
   state.historicalSeriesLoading = false;
@@ -3349,11 +3439,44 @@ function resetHistoricalSeriesState() {
   state.historicalProgressiveYMaxSats = null;
 }
 
+function quantumHistoricalRefreshPoint(snapshot, aggregatesRows) {
+  return {
+    snapshot: String(snapshot || "").trim(),
+    aggregatesRows,
+    ge1FilteredSumsByKey: {},
+  };
+}
+
+function upsertQuantumHistoricalPoint(series, point) {
+  if (!point?.snapshot || !Array.isArray(series)) return;
+  const existingIndex = series.findIndex(
+    (candidate) => String(candidate.snapshot) === point.snapshot
+  );
+  if (existingIndex >= 0) {
+    series[existingIndex] = point;
+  } else {
+    series.push(point);
+  }
+  series.sort(
+    (left, right) => Number.parseInt(left.snapshot, 10) - Number.parseInt(right.snapshot, 10)
+  );
+}
+
+function installLoadedQuantumHistoricalSeries(series, loadId) {
+  if (loadId !== quantumHistoricalSeriesLoadSequence) return false;
+  quantumHistoricalRefreshPointsPending.forEach((point) => {
+    upsertQuantumHistoricalPoint(series, point);
+  });
+  quantumHistoricalRefreshPointsPending.clear();
+  state.historicalSeries = series;
+  return true;
+}
+
 async function loadHistoricalAggregateCsvRowsBySnapshot({ includeArchived = false } = {}) {
   const groupedBySnapshot = new Map();
 
   const mergeHistoricalCsv = async (path, { skipExistingSnapshots = false } = {}) => {
-    const resp = await fetch(path);
+    const resp = await fetch(path, { cache: "no-store" });
     if (!resp.ok) return;
 
     parseCsv(await resp.text()).forEach((row) => {
@@ -3387,6 +3510,7 @@ async function ensureHistoricalSeriesLoaded() {
     return;
   }
 
+  const loadId = ++quantumHistoricalSeriesLoadSequence;
   state.historicalSeriesLoading = true;
   try {
     if (isLiteMode()) {
@@ -3407,7 +3531,7 @@ async function ensureHistoricalSeriesLoaded() {
             archivedSnapshots.map(async (snapshot) => {
               if (!snapshot || groupedBySnapshot.has(snapshot)) return;
               try {
-                const resp = await fetch(`webapp_data/archived/${snapshot}/dashboard_pubkeys_aggregates.csv`);
+                const resp = await fetch(`webapp_data/archived/${snapshot}/dashboard_pubkeys_aggregates.csv`, { cache: "no-store" });
                 if (!resp.ok) return;
                 groupedBySnapshot.set(snapshot, parseCsv(await resp.text()));
               } catch (_err) {
@@ -3418,13 +3542,14 @@ async function ensureHistoricalSeriesLoaded() {
         }
       }
 
-      state.historicalSeries = Array.from(groupedBySnapshot.entries())
+      const series = Array.from(groupedBySnapshot.entries())
         .sort((left, right) => Number.parseInt(left[0], 10) - Number.parseInt(right[0], 10))
         .map(([snapshot, aggregatesRows]) => ({
           snapshot,
           aggregatesRows,
           ge1FilteredSumsByKey: {},
         }));
+      installLoadedQuantumHistoricalSeries(series, loadId);
       return;
     }
 
@@ -3445,7 +3570,7 @@ async function ensureHistoricalSeriesLoaded() {
     for (const snapshot of snapshotsAsc) {
       let aggregatesRows = null;
       try {
-        const resp = await fetch(`${snapshotBasePath(snapshot)}/dashboard_pubkeys_aggregates.csv`);
+        const resp = await fetch(`${snapshotBasePath(snapshot)}/dashboard_pubkeys_aggregates.csv`, { cache: "no-store" });
         if (resp.ok) {
           aggregatesRows = parseCsv(await resp.text());
         }
@@ -3470,19 +3595,20 @@ async function ensureHistoricalSeriesLoaded() {
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
 
-    state.historicalSeries = series;
-
     // Restore any previously persisted ge1 filter sums so the first
     // filtered render is instant without re-fetching all ge_1btc CSVs.
     const persistedGe1 = loadGe1PersistentCache();
-    for (const point of state.historicalSeries) {
+    for (const point of series) {
       const stored = persistedGe1[point.snapshot];
       if (stored && typeof stored === "object") {
         Object.assign(point.ge1FilteredSumsByKey, stored);
       }
     }
+    installLoadedQuantumHistoricalSeries(series, loadId);
   } finally {
-    state.historicalSeriesLoading = false;
+    if (loadId === quantumHistoricalSeriesLoadSequence) {
+      state.historicalSeriesLoading = false;
+    }
   }
 }
 
@@ -5520,6 +5646,7 @@ function renderTopExposures(rows) {
 }
 
 function resetTopExposurePagination() {
+  quantumTopExposureDelaySequence += 1;
   state.topExposuresVisibleCount = TOP_EXPOSURES_PAGE_SIZE;
   state.topExposuresTotalCount = 0;
   state.topExposuresLoading = false;
@@ -5558,10 +5685,17 @@ function tryLoadMoreTopExposures() {
     if (atBottom) {
       const ecoPrefetchTarget = Math.min(ECO_TOP_EXPOSURES_PREFETCH_COUNT, state.topExposuresTotalCount);
       if (state.topExposuresVisibleCount < ecoPrefetchTarget) {
+        const delayId = ++quantumTopExposureDelaySequence;
+        const snapshotHeight = String(state.snapshotHeight || "").trim();
         state.topExposuresLoading = true;
         update();
 
         window.setTimeout(() => {
+          if (
+            delayId !== quantumTopExposureDelaySequence
+            || String(state.snapshotHeight || "").trim() !== snapshotHeight
+            || !state.ge1IsUsingEcoSubset
+          ) return;
           state.topExposuresVisibleCount = ecoPrefetchTarget;
           state.topExposuresLoading = false;
           state.ge1FullDataLoadTriggered = true;
@@ -5587,7 +5721,13 @@ function tryLoadMoreTopExposures() {
   state.topExposuresLoading = true;
   update();
 
+  const delayId = ++quantumTopExposureDelaySequence;
+  const snapshotHeight = String(state.snapshotHeight || "").trim();
   window.setTimeout(() => {
+    if (
+      delayId !== quantumTopExposureDelaySequence
+      || String(state.snapshotHeight || "").trim() !== snapshotHeight
+    ) return;
     state.topExposuresVisibleCount += TOP_EXPOSURES_PAGE_SIZE;
     state.topExposuresLoading = false;
     update();
@@ -5612,6 +5752,20 @@ function triggerEcoFullDataLoadIfEligible() {
 async function triggerFullDataLoad() {
   const snapshotHeight = String(state.snapshotHeight || "").trim();
   if (!snapshotHeight) return;
+  const minimumFullRowCount = Array.isArray(state.ge1Rows) ? state.ge1Rows.length : 1;
+  const loadToken = {
+    id: ++quantumFullDataLoadSequence,
+    snapshotHeight,
+    commitGeneration: quantumSnapshotDataCommitGeneration,
+  };
+  quantumFullDataLoadActive = loadToken;
+  const isCurrentLoad = () => (
+    quantumFullDataLoadActive === loadToken
+    && loadToken.id === quantumFullDataLoadSequence
+    && loadToken.commitGeneration === quantumSnapshotDataCommitGeneration
+    && String(state.snapshotHeight || "").trim() === snapshotHeight
+  );
+  let installedFullRows = false;
 
   state.topExposuresLoading = true;
   update();
@@ -5620,16 +5774,16 @@ async function triggerFullDataLoad() {
     const basePath = snapshotBasePath(snapshotHeight);
     // Load full ge1 CSV and the large lookup CSV concurrently.
     const [ge1Text, lookupText] = await Promise.all([
-      fetch(`${basePath}/dashboard_pubkeys_ge_1btc.csv`)
+      fetch(`${basePath}/dashboard_pubkeys_ge_1btc.csv`, { cache: "no-store" })
         .then((r) => (r.ok ? r.text() : null))
         .catch(() => null),
-      fetch("webapp_data/blockheight_datetime_lookup.csv")
+      fetch("webapp_data/blockheight_datetime_lookup.csv", { cache: "no-store" })
         .then((r) => (r.ok ? r.text() : null))
         .catch(() => null),
     ]);
 
     // Populate blockDatetimeByHeight from the large lookup CSV.
-    if (lookupText) {
+    if (lookupText && isCurrentLoad()) {
       parseCsv(lookupText).forEach((row) => {
         const height = String(row.blockheight || "").trim();
         const unixTime = toInt(row.unix_time);
@@ -5640,25 +5794,51 @@ async function triggerFullDataLoad() {
     }
 
     // Swap in full ge1 rows only if we're still on the same snapshot.
-    if (ge1Text && state.snapshotHeight === snapshotHeight) {
+    if (
+      ge1Text
+      && isCurrentLoad()
+    ) {
       const ge1RowsFull = parseCsv(ge1Text);
+      const currentCacheEntry = state.snapshotDataCache.get(snapshotHeight);
+      const top100Rows = currentCacheEntry?.top100Rows
+        || (state.ge1IsUsingEcoSubset ? state.ge1Rows : []);
+      if (!quantumExposureRowsAreComplete(ge1RowsFull, state.aggregatesRows, {
+        full: true,
+        top100Rows,
+        installedFullRowCount: hasFullGe1Data() ? minimumFullRowCount : 0,
+      })) {
+        throw new Error(
+          `Full exposure CSV contained ${ge1RowsFull.length} rows but failed completeness checks.`
+        );
+      }
       state.ge1Rows = ge1RowsFull;
       state.ge1IsUsingEcoSubset = false;
       state.topExposuresDataCache.clear();
       state.snapshotDataCache.set(snapshotHeight, {
         snapshotHeight: state.snapshotHeight,
+        metaRows: currentCacheEntry?.metaRows || [],
         aggregatesRows: state.aggregatesRows,
+        top100Rows,
         ge1Rows: ge1RowsFull,
         ge1IsUsingEcoSubset: false,
+        includesFullRows: true,
+        complete: true,
       });
+      installedFullRows = true;
     }
   } catch (err) {
     console.warn(`Full data load failed: ${err.message}`);
+  } finally {
+    if (isCurrentLoad()) {
+      quantumFullDataLoadActive = null;
+      state.topExposuresLoading = false;
+      if (!installedFullRows) {
+        state.ge1FullDataLoadTriggered = false;
+      }
+      state.topExposuresVisibleCount = Math.max(state.topExposuresVisibleCount, ECO_TOP_EXPOSURES_PREFETCH_COUNT);
+      update();
+    }
   }
-
-  state.topExposuresLoading = false;
-  state.topExposuresVisibleCount = Math.max(state.topExposuresVisibleCount, ECO_TOP_EXPOSURES_PREFETCH_COUNT);
-  update();
 }
 
 function setAllScriptChecks(checked) {
@@ -6314,6 +6494,35 @@ async function loadData(preferredSnapshotOverride = "") {
     throw new Error("No snapshots found in webapp_data/");
   }
 
+  const preferredOverride = String(preferredSnapshotOverride || "").trim();
+  if (/^\d+$/.test(preferredOverride)) {
+    const indexLatest = String(state.availableSnapshots[0] || "").trim();
+    const publicationTrailsIndex = /^\d+$/.test(indexLatest)
+      && Number.parseInt(indexLatest, 10) > Number.parseInt(preferredOverride, 10);
+    if (!state.availableSnapshots.includes(preferredOverride)) {
+      // During publication the finalized index may already omit the generation
+      // named by the still-active marker. Keep it selectable until the marker
+      // advances; standalone sync retains that directory through the boundary.
+      state.availableSnapshots.unshift(preferredOverride);
+    }
+    if (!state.snapshotLocationByHeight[preferredOverride]) {
+      state.snapshotLocationByHeight[preferredOverride] = "active";
+    }
+    if (publicationTrailsIndex) {
+      try {
+        const archivedProbe = await fetch(
+          `webapp_data/archived/${preferredOverride}/dashboard_snapshot_meta.csv`,
+          { cache: "no-store" }
+        );
+        if (archivedProbe.ok) {
+          state.snapshotLocationByHeight[preferredOverride] = "archived";
+        }
+      } catch (_error) {
+        // Standalone sync keeps the prior generation in its active directory.
+      }
+    }
+  }
+
   const selectedIdentityGroups = Array.isArray(state.selectedIdentityGroups) ? state.selectedIdentityGroups : ["All"];
   const selectedIdentityTags = Array.isArray(state.selectedIdentityTags) ? state.selectedIdentityTags : ["All"];
   const needsGlobalIdentityUniverseForExclusions = selectedIdentityTags.includes(SHARE_EXCLUDE_TOKEN);
@@ -6333,15 +6542,16 @@ async function loadData(preferredSnapshotOverride = "") {
   populateSnapshotFilter(state.availableSnapshots);
   const preferredMode = state.pendingPersistedSnapshotPreference;
   const preferredSnapshot = state.pendingPersistedSnapshotHeight;
-  const preferredOverride = String(preferredSnapshotOverride || "").trim();
-  const initialSnapshot =
+  const publishedLatestSnapshot =
     preferredOverride && state.availableSnapshots.includes(preferredOverride)
       ? preferredOverride
-      : preferredMode === SNAPSHOT_PREF_LATEST
-      ? state.availableSnapshots[0]
+      : state.availableSnapshots[0];
+  const initialSnapshot =
+    preferredMode === SNAPSHOT_PREF_LATEST
+      ? publishedLatestSnapshot
       : preferredSnapshot && state.availableSnapshots.includes(preferredSnapshot)
       ? preferredSnapshot
-      : state.availableSnapshots[0];
+      : publishedLatestSnapshot;
   await loadSnapshotData(initialSnapshot);
 
   // In FULL mode: load the large blockheight lookup CSV in background so tooltip dates
@@ -6356,39 +6566,1039 @@ async function loadData(preferredSnapshotOverride = "") {
   }
 }
 
-async function refreshSnapshotLookupUi() {
-  await loadSnapshotLabelLookup(state.availableSnapshots);
+function quantumRowsHaveRequiredColumns(rows, requiredColumns) {
+  if (!Array.isArray(rows) || !rows.length) return false;
+  const row = rows[0];
+  return requiredColumns.every((column) => Object.prototype.hasOwnProperty.call(row, column));
+}
 
+function quantumAggregateRowKey(row) {
+  return [row?.balance_filter, row?.script_type_filter, row?.spend_activity_filter]
+    .map((value) => String(value || "").trim())
+    .join("\u0000");
+}
+
+function quantumRowsMeetReferenceCoverage(rows, referenceRows) {
+  if (!Array.isArray(referenceRows) || !referenceRows.length) return true;
+  if (!Array.isArray(rows) || rows.length < Math.ceil(referenceRows.length * 0.95)) return false;
+  const keys = new Set(rows.map(quantumAggregateRowKey));
+  const covered = referenceRows.reduce(
+    (count, row) => count + (keys.has(quantumAggregateRowKey(row)) ? 1 : 0),
+    0
+  );
+  return covered >= Math.ceil(referenceRows.length * 0.95);
+}
+
+function quantumAggregateRowsAreComplete(rows, referenceRows = null) {
+  if (
+    !quantumRowsHaveRequiredColumns(rows, QUANTUM_AGGREGATE_REQUIRED_COLUMNS)
+    || rows.length < QUANTUM_MIN_AGGREGATE_ROWS
+  ) return false;
+
+  const keys = new Set();
+  for (const row of rows) {
+    const balance = String(row.balance_filter || "").trim();
+    const script = String(row.script_type_filter || "").trim();
+    const spend = String(row.spend_activity_filter || "").trim();
+    if (!balance || !script || !spend) return false;
+    const key = quantumAggregateRowKey(row);
+    if (keys.has(key)) return false;
+    keys.add(key);
+    if (QUANTUM_AGGREGATE_NUMERIC_COLUMNS.some((column) => {
+      const raw = String(row[column] ?? "").trim();
+      const value = Number(raw);
+      return !raw || !Number.isFinite(value) || value < 0;
+    })) return false;
+  }
+
+  const requiredKeys = [
+    ["all", "All", "all"],
+    ["all", "All", "never_spent"],
+    ["ge1", "All", "all"],
+  ].map((parts) => parts.join("\u0000"));
+  if (!requiredKeys.every((key) => keys.has(key))) return false;
+  return quantumRowsMeetReferenceCoverage(rows, referenceRows);
+}
+
+function quantumAggregateExposureCount(aggregatesRows) {
+  const ge1All = (aggregatesRows || []).find((row) => (
+    row.balance_filter === "ge1"
+    && row.script_type_filter === "All"
+    && row.spend_activity_filter === "all"
+  ));
+  return Math.max(
+    0,
+    Number.parseInt(ge1All?.exposed_pubkey_count, 10) || 0
+  );
+}
+
+function quantumExposureRowsAreComplete(
+  rows,
+  aggregatesRows,
+  { full = false, top100Rows = null, installedFullRowCount = 0 } = {}
+) {
+  if (!quantumRowsHaveRequiredColumns(rows, QUANTUM_EXPOSURE_REQUIRED_COLUMNS)) return false;
+  const exposureCount = quantumAggregateExposureCount(aggregatesRows);
+  const expectedTopCount = Math.max(1, Math.min(100, exposureCount || 1));
+  if (rows.length < expectedTopCount) return false;
+
+  for (const row of rows) {
+    if (!String(row.display_group_ids || "").trim()) return false;
+    for (const column of [
+      "exposed_utxo_count",
+      "first_exposed_blockheight",
+      "first_exposed_unix_time",
+    ]) {
+      const raw = String(row[column] ?? "").trim();
+      const value = Number(raw);
+      if (!raw || !Number.isFinite(value) || value < 0) return false;
+    }
+    const lastSpendHeight = String(row.last_spend_blockheight ?? "").trim();
+    const lastSpendTime = String(row.last_spend_unix_time ?? "").trim();
+    if (!lastSpendHeight || !lastSpendTime) {
+      if (lastSpendHeight || lastSpendTime || row.spend_activity !== "never_spent") return false;
+    } else if (
+      !Number.isFinite(Number(lastSpendHeight))
+      || Number(lastSpendHeight) < 0
+      || !Number.isFinite(Number(lastSpendTime))
+      || Number(lastSpendTime) < 0
+    ) {
+      return false;
+    }
+  }
+
+  if (!full) return true;
+  const topCount = Array.isArray(top100Rows) ? top100Rows.length : expectedTopCount;
+  if (rows.length < topCount) return false;
+  // Atomic refresh requests full rows only when a complete full export is
+  // already installed, so its prior count is the strongest safe truncation
+  // guard. The explicit first load is validated against top100 without making
+  // assumptions about how aggressively identities may be consolidated.
+  if (installedFullRowCount > 0 && rows.length < Math.floor(installedFullRowCount * 0.95)) return false;
+  return true;
+}
+
+function quantumSnapshotMetaIsComplete(metaRows, expectedSnapshot) {
+  if (!quantumRowsHaveRequiredColumns(metaRows, QUANTUM_META_REQUIRED_COLUMNS)) return false;
+  const row = metaRows[0];
+  return Boolean(
+    String(row.snapshot_blockheight || "").trim() === String(expectedSnapshot || "").trim()
+    && /^\d+$/.test(String(row.snapshot_time || "").trim())
+    && /^\d+$/.test(String(row.one_year_ago_blockheight || "").trim())
+    && /^\d+$/.test(String(row.one_year_ago_block_time || "").trim())
+  );
+}
+
+function quantumSnapshotDatasetIsComplete(
+  dataset,
+  expectedSnapshot,
+  { aggregateReferenceRows = null, installedFullRowCount = 0 } = {}
+) {
+  if (!dataset) return false;
+  if (!quantumSnapshotMetaIsComplete(dataset.metaRows, expectedSnapshot)) return false;
+  if (!quantumAggregateRowsAreComplete(dataset.aggregatesRows, aggregateReferenceRows)) return false;
+  if (!quantumExposureRowsAreComplete(dataset.top100Rows, dataset.aggregatesRows)) return false;
+  if (!Array.isArray(dataset.ge1Rows) || dataset.ge1Rows.length < dataset.top100Rows.length) return false;
+  if (dataset.includesFullRows) {
+    return quantumExposureRowsAreComplete(dataset.ge1Rows, dataset.aggregatesRows, {
+      full: true,
+      top100Rows: dataset.top100Rows,
+      installedFullRowCount,
+    });
+  }
+  return dataset.ge1Rows === dataset.top100Rows
+    || dataset.ge1Rows.length === dataset.top100Rows.length;
+}
+
+function quantumIndexRowsAreComplete(rows, expectedLatest = "", { allowEmpty = false } = {}) {
+  if (!Array.isArray(rows) || (!rows.length && !allowEmpty)) return false;
+  if (!rows.length) return true;
+  if (!quantumRowsHaveRequiredColumns(rows, QUANTUM_INDEX_REQUIRED_COLUMNS)) return false;
+  const seen = new Set();
+  let previousHeight = Number.POSITIVE_INFINITY;
+  for (const row of rows) {
+    const height = String(row.snapshot_blockheight || "").trim();
+    const timestamp = String(row.snapshot_time || "").trim();
+    if (!/^\d+$/.test(height) || !/^\d+$/.test(timestamp) || Number(timestamp) <= 0) return false;
+    if (seen.has(height)) return false;
+    seen.add(height);
+    const numericHeight = Number.parseInt(height, 10);
+    if (numericHeight > previousHeight) return false;
+    previousHeight = numericHeight;
+  }
+  return !expectedLatest || String(rows[0].snapshot_blockheight).trim() === String(expectedLatest).trim();
+}
+
+function quantumHistoricalAggregateReferenceRows(rows) {
+  const balanceFilters = new Set(["all", "ge1", "ge10", "ge100", "ge1000"]);
+  const scriptTypes = new Set(["All", "P2PK", "P2PKH", "P2SH", "P2WPKH", "P2WSH", "P2TR"]);
+  const spendActivities = new Set(["all", "never_spent", "inactive", "active"]);
+  return (Array.isArray(rows) ? rows : []).filter((row) => (
+    balanceFilters.has(String(row.balance_filter || "").trim())
+    && scriptTypes.has(String(row.script_type_filter || "").trim())
+    && spendActivities.has(String(row.spend_activity_filter || "").trim())
+  ));
+}
+
+function quantumHistoricalSeriesIsComplete(series, activeSnapshots, latestSnapshot, latestAggregatesRows) {
+  if (!Array.isArray(series) || !series.length || !Array.isArray(activeSnapshots) || !activeSnapshots.length) {
+    return false;
+  }
+  const pointsBySnapshot = new Map();
+  for (const point of series) {
+    const snapshot = String(point?.snapshot || "").trim();
+    if (!/^\d+$/.test(snapshot) || pointsBySnapshot.has(snapshot)) return false;
+    if (!quantumAggregateRowsAreComplete(point.aggregatesRows)) return false;
+    pointsBySnapshot.set(snapshot, point);
+  }
+  const coveredSnapshots = activeSnapshots.filter((snapshot) => pointsBySnapshot.has(String(snapshot))).length;
+  if (coveredSnapshots < Math.ceil(activeSnapshots.length * 0.95)) return false;
+  const latestPoint = pointsBySnapshot.get(String(latestSnapshot || "").trim());
+  const latestHistoricalReference = quantumHistoricalAggregateReferenceRows(latestAggregatesRows);
+  return Boolean(
+    latestPoint
+    && latestHistoricalReference.length
+    && quantumAggregateRowsAreComplete(latestPoint.aggregatesRows, latestHistoricalReference)
+    && quantumRowsMeetReferenceCoverage(latestHistoricalReference, latestPoint.aggregatesRows)
+  );
+}
+
+function quantumInstalledArchivedSnapshotHeights() {
+  return Object.entries(state.snapshotLocationByHeight || {})
+    .filter(([, location]) => location === "archived")
+    .map(([height]) => String(height).trim())
+    .filter((height) => /^\d+$/.test(height));
+}
+
+function quantumArchiveDataIsExpected() {
+  return Boolean(
+    quantumArchiveVerificationRequired
+    ||
+    state.archivedSnapshotsEnabled
+    || state.archivedSnapshotsAvailable
+    || quantumInstalledArchivedSnapshotHeights().length
+  );
+}
+
+function buildQuantumSnapshotIndexCandidate(activeRows, archivedRows, archivedSnapshotsAvailable) {
+  const activeSnapshots = activeRows
+    .map((row) => String(row.snapshot_blockheight || "").trim())
+    .filter((height) => /^\d+$/.test(height))
+    .sort((left, right) => Number.parseInt(right, 10) - Number.parseInt(left, 10));
+  const snapshotLocationByHeight = {};
+  const snapshotLabelDatetimeByHeight = {};
+  const snapshotUnixTimeByHeight = {};
+  const blockDatetimeByHeight = {};
+
+  activeRows.forEach((row) => {
+    const height = String(row.snapshot_blockheight || "").trim();
+    const unixTime = toInt(row.snapshot_time);
+    if (!/^\d+$/.test(height)) return;
+    snapshotLocationByHeight[height] = "active";
+    if (!unixTime) return;
+    snapshotUnixTimeByHeight[height] = unixTime;
+    snapshotLabelDatetimeByHeight[height] = formatSnapshotSelectDate(unixTime);
+    blockDatetimeByHeight[height] = formatTooltipDate(unixTime);
+  });
+
+  archivedRows.forEach((row) => {
+    const height = String(row.snapshot_blockheight || "").trim();
+    const unixTime = toInt(row.snapshot_time);
+    if (!/^\d+$/.test(height)) return;
+    snapshotLocationByHeight[height] = "archived";
+    if (!archivedSnapshotsAvailable || !unixTime) return;
+    snapshotUnixTimeByHeight[height] = unixTime;
+    snapshotLabelDatetimeByHeight[height] = formatSnapshotSelectDate(unixTime);
+    blockDatetimeByHeight[height] = formatTooltipDate(unixTime);
+  });
+
+  return {
+    activeRows,
+    archivedRows,
+    activeSnapshots,
+    snapshotLocationByHeight,
+    snapshotLabelDatetimeByHeight,
+    snapshotUnixTimeByHeight,
+    blockDatetimeByHeight,
+    archivedSnapshotsAvailable,
+  };
+}
+
+function quantumRefreshNeedsFullRows() {
+  if (!isLatestSnapshotSelected()) return false;
+  return quantumSelectedSnapshotNeedsFullRows(latestSnapshotHeight());
+}
+
+function selectedQuantumSnapshotHeight() {
   const snapshotFilter = document.getElementById("snapshotFilter");
-  if (!snapshotFilter || !state.availableSnapshots.length) return;
+  return String(state.snapshotHeight || snapshotFilter?.value || "").trim();
+}
 
-  const currentValue = String(state.snapshotHeight || snapshotFilter.value || "").trim();
-  populateSnapshotFilter(state.availableSnapshots);
+function quantumSelectedSnapshotNeedsFullRows(snapshot) {
+  if (selectedQuantumSnapshotHeight() !== String(snapshot || "").trim()) return false;
+  return Boolean(
+    String(state.topExposureAddressQuery || "").trim()
+    || state.ge1FullDataLoadTriggered
+    || (state.ge1Rows.length && !state.ge1IsUsingEcoSubset)
+  );
+}
 
-  const nextValue = state.availableSnapshots.includes(currentValue)
-    ? currentValue
-    : state.availableSnapshots[0];
-  snapshotFilter.value = nextValue;
-  syncSnapshotDropdownTrigger();
+async function fetchQuantumRefreshSnapshot(context, snapshot, needsFullRows, basePathOverride = "") {
+  const basePath = basePathOverride || snapshotBasePath(snapshot);
+  const requests = [
+    context.fetchFresh(`${basePath}/dashboard_snapshot_meta.csv`),
+    context.fetchFresh(`${basePath}/dashboard_pubkeys_aggregates.csv`),
+    context.fetchFresh(`${basePath}/dashboard_pubkeys_ge_1btc_top100.csv`),
+  ];
+  if (needsFullRows) {
+    requests.push(context.fetchFresh(`${basePath}/dashboard_pubkeys_ge_1btc.csv`));
+  }
+  const responses = await Promise.all(requests);
+  const texts = await Promise.all(responses.map((response) => response.text()));
+  const metaRows = parseCsv(texts[0]);
+  const aggregatesRows = parseCsv(texts[1]);
+  const top100Rows = parseCsv(texts[2]);
+  return {
+    requestedSnapshot: String(snapshot || "").trim(),
+    resolvedSnapshotHeight: String(metaRows[0]?.snapshot_blockheight || "").trim(),
+    metaRows,
+    aggregatesRows,
+    top100Rows,
+    ge1Rows: needsFullRows ? parseCsv(texts[3]) : top100Rows,
+    ge1IsUsingEcoSubset: !needsFullRows,
+    includesFullRows: needsFullRows,
+  };
+}
 
-  // Refresh top-exposure tooltips now that blockheight -> datetime map is populated.
-  // Force a fresh render by clearing the render-dedup sentinel — the rows object reference
-  // is the same cached instance, so without this the identity check in renderTopExposures
-  // would skip the re-render and leave stale "Unknown" datetime tags.
-  if (Array.isArray(state.ge1Rows) && state.ge1Rows.length) {
-    _lastTopExposuresRows = null;
-    updateTopExposures();
+function parseQuantumHistoricalSeries(ecoText, archivedText = "") {
+  const groupedBySnapshot = new Map();
+  const merge = (text, skipExistingSnapshots) => {
+    parseCsv(text || "").forEach((row) => {
+      const snapshot = String(row.snapshot || "").trim();
+      if (!snapshot || (skipExistingSnapshots && groupedBySnapshot.has(snapshot))) return;
+      const aggregatesRow = { ...row };
+      delete aggregatesRow.snapshot;
+      if (!groupedBySnapshot.has(snapshot)) groupedBySnapshot.set(snapshot, []);
+      groupedBySnapshot.get(snapshot).push(aggregatesRow);
+    });
+  };
+  merge(ecoText, false);
+  merge(archivedText, true);
+  return Array.from(groupedBySnapshot.entries())
+    .sort((left, right) => Number.parseInt(left[0], 10) - Number.parseInt(right[0], 10))
+    .map(([snapshot, aggregatesRows]) => quantumHistoricalRefreshPoint(snapshot, aggregatesRows));
+}
+
+function parseQuantumPublishedGeneration(markerText) {
+  const signature = String(markerText || "").trim();
+  let marker;
+  try {
+    marker = JSON.parse(signature);
+  } catch (_error) {
+    throw new Error("Quantum published_generation.json is not valid JSON.");
+  }
+  const snapshotHeight = String(marker?.snapshot_blockheight ?? "").trim();
+  if (
+    !marker
+    || Number(marker.format) !== 1
+    || !String(marker.generation_id || "").trim()
+    || !/^\d+$/.test(snapshotHeight)
+  ) {
+    throw new Error("Quantum published_generation.json is not a valid publication marker.");
+  }
+  return { signature, snapshotHeight, reason: String(marker.reason || "").trim() };
+}
+
+async function fetchQuantumPublishedGeneration() {
+  const response = await fetch("webapp_data/published_generation.json", { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`Could not load Quantum publication marker (${response.status}).`);
+  }
+  return parseQuantumPublishedGeneration(await response.text());
+}
+
+function isQuantumPublishedGenerationInstalled(publication, evidence = null) {
+  if (!publication) return false;
+  const height = String(publication.snapshotHeight || "").trim();
+  const cacheEntry = state.snapshotDataCache.get(height);
+  return Boolean(
+    height
+    && String(state.snapshotHeight || "").trim() === height
+    && Array.isArray(state.aggregatesRows)
+    && state.aggregatesRows.length
+    && Array.isArray(state.ge1Rows)
+    && state.ge1Rows.length
+    && cacheEntry
+    && cacheEntry.complete === true
+    && quantumSnapshotDatasetIsComplete(cacheEntry, height)
+    && evidence
+    && String(evidence.latestSnapshot || "").trim() === height
+    && quantumIndexRowsAreComplete(evidence.activeRows, height)
+    && quantumHistoricalSeriesIsComplete(
+      evidence.historicalEcoSeries,
+      evidence.activeSnapshots,
+      height,
+      cacheEntry.aggregatesRows
+    )
+    && evidence.archiveVerified === true
+    && (
+      !evidence.archivedSnapshots.length
+      || (
+        state.archivedSnapshotsAvailable
+        && evidence.archivedSnapshots.filter(
+          (snapshot) => state.snapshotLocationByHeight[snapshot] === "archived"
+        ).length >= Math.ceil(evidence.archivedSnapshots.length * 0.95)
+      )
+    )
+  );
+}
+
+async function fetchQuantumInitialGenerationEvidence(publication) {
+  const [latestResp, indexResp, historyResp, archivedIndexResp] = await Promise.all([
+    fetch("webapp_data/latest_snapshot.txt", { cache: "no-store" }),
+    fetch("webapp_data/snapshots_index.csv", { cache: "no-store" }),
+    fetch("webapp_data/historical_eco.csv", { cache: "no-store" }),
+    fetch("webapp_data/archived_index.csv", { cache: "no-store" }),
+  ]);
+  if (!latestResp.ok || !indexResp.ok || !historyResp.ok || !archivedIndexResp.ok) {
+    throw new Error("Could not verify the initial Quantum publication files.");
+  }
+  const [latestSnapshot, indexText, historyText, archivedIndexText] = await Promise.all([
+    latestResp.text().then((value) => value.trim()),
+    indexResp.text(),
+    historyResp.text(),
+    archivedIndexResp.text(),
+  ]);
+  if (latestSnapshot !== String(publication?.snapshotHeight || "").trim()) {
+    throw new Error("Initial Quantum latest snapshot does not match the publication marker.");
+  }
+  const activeRows = parseCsv(indexText);
+  const activeSnapshots = activeRows.map((row) => String(row.snapshot_blockheight || "").trim());
+  const archivedRows = parseCsv(archivedIndexText);
+  if (!quantumIndexRowsAreComplete(archivedRows, "", { allowEmpty: true })) {
+    throw new Error("Initial Quantum archive index is incomplete.");
+  }
+  const archivedSnapshots = archivedRows.map(
+    (row) => String(row.snapshot_blockheight || "").trim()
+  );
+  if (archivedSnapshots.length) {
+    const archivedAggregateResp = await fetch(
+      `webapp_data/archived/${archivedSnapshots[0]}/dashboard_pubkeys_aggregates.csv`,
+      { cache: "no-store" }
+    );
+    if (!archivedAggregateResp.ok) {
+      throw new Error("Could not verify the initial Quantum archive snapshot folder.");
+    }
+    const archivedAggregateRows = parseCsv(await archivedAggregateResp.text());
+    if (!quantumAggregateRowsAreComplete(archivedAggregateRows)) {
+      throw new Error("Initial Quantum archive snapshot aggregates are incomplete.");
+    }
+  }
+  return {
+    latestSnapshot,
+    activeRows,
+    activeSnapshots,
+    historicalEcoSeries: parseQuantumHistoricalSeries(historyText),
+    archivedSnapshots,
+    archiveVerified: true,
+  };
+}
+
+async function prepareQuantumDataRefresh(context) {
+  const publication = parseQuantumPublishedGeneration(context.signature);
+  const [latestResp, indexResp] = await Promise.all([
+    context.fetchFresh("webapp_data/latest_snapshot.txt"),
+    context.fetchFresh("webapp_data/snapshots_index.csv"),
+  ]);
+  const [latestSnapshot, indexText] = await Promise.all([
+    latestResp.text().then((value) => value.trim()),
+    indexResp.text(),
+  ]);
+  if (!/^\d+$/.test(latestSnapshot)) {
+    throw new Error("Quantum latest_snapshot.txt is not a valid block height.");
+  }
+  if (latestSnapshot !== publication.snapshotHeight) {
+    throw new Error(
+      `Quantum publication marker ${publication.snapshotHeight} does not match latest snapshot ${latestSnapshot}.`
+    );
+  }
+
+  const activeRows = parseCsv(indexText);
+  if (!quantumIndexRowsAreComplete(activeRows, latestSnapshot)) {
+    throw new Error("Quantum snapshots_index.csv is incomplete or out of order.");
+  }
+  const activeSnapshots = activeRows
+    .map((row) => String(row.snapshot_blockheight || "").trim())
+    .filter((height) => /^\d+$/.test(height));
+  if (!activeSnapshots.includes(latestSnapshot)) {
+    throw new Error(`Quantum snapshot index does not contain latest snapshot ${latestSnapshot}.`);
+  }
+
+  const installedArchivedHeights = quantumInstalledArchivedSnapshotHeights();
+  const installedArchivesWereExpected = Boolean(
+    state.archivedSnapshotsEnabled
+    || state.archivedSnapshotsAvailable
+    || installedArchivedHeights.length
+  );
+  const archivesWereExpected = installedArchivesWereExpected || quantumArchiveVerificationRequired;
+  let archivedRows = [];
+  try {
+    const archivedResp = await context.fetchFresh("webapp_data/archived_index.csv");
+    archivedRows = parseCsv(await archivedResp.text());
+    if (!quantumIndexRowsAreComplete(archivedRows, "", { allowEmpty: true })) {
+      throw new Error("Quantum archived_index.csv is incomplete.");
+    }
+  } catch (error) {
+    if (archivesWereExpected) {
+      throw new Error(
+        "Quantum archive index could not be verified; retaining the installed archive state and retrying.",
+        { cause: error }
+      );
+    }
+    archivedRows = [];
+  }
+
+  const archivedHeights = archivedRows
+    .map((row) => String(row.snapshot_blockheight || "").trim())
+    .filter((height) => /^\d+$/.test(height));
+  if (
+    installedArchivesWereExpected
+    && (
+      !archivedHeights.length
+      || archivedHeights.length < Math.ceil(installedArchivedHeights.length * 0.95)
+    )
+  ) {
+    throw new Error(
+      "Quantum archive index lost installed snapshot coverage; retaining the installed archive state and retrying."
+    );
+  }
+
+  const archivedProbe = archivedHeights[0];
+  let archivedSnapshotsAvailable = false;
+  if (archivedProbe) {
+    try {
+      const archivedAggregateResp = await context.fetchFresh(
+        `webapp_data/archived/${archivedProbe}/dashboard_pubkeys_aggregates.csv`
+      );
+      const archivedAggregateRows = parseCsv(await archivedAggregateResp.text());
+      if (!quantumAggregateRowsAreComplete(archivedAggregateRows)) {
+        throw new Error(`Quantum archived snapshot ${archivedProbe} aggregates are incomplete.`);
+      }
+      archivedSnapshotsAvailable = true;
+    } catch (error) {
+      throw new Error(
+        `Quantum archive snapshot ${archivedProbe} could not be verified; retaining archive state and retrying.`,
+        { cause: error }
+      );
+    }
+  }
+
+  const preparedRuntimeLiteMode = isLiteMode();
+  const preparedSelectedSnapshot = selectedQuantumSnapshotHeight();
+  const preparedFollowsLatest = Boolean(
+    preparedSelectedSnapshot
+    && preparedSelectedSnapshot === latestSnapshotHeight()
+  );
+  const needsFullRows = preparedFollowsLatest
+    ? quantumSelectedSnapshotNeedsFullRows(preparedSelectedSnapshot)
+    : quantumSelectedSnapshotNeedsFullRows(latestSnapshot);
+  const fixedSnapshotNeedsFullRows = Boolean(
+    preparedSelectedSnapshot
+    && !preparedFollowsLatest
+    && preparedSelectedSnapshot !== latestSnapshot
+    && quantumSelectedSnapshotNeedsFullRows(preparedSelectedSnapshot)
+  );
+  const preparedSelectedSnapshotBasePath = activeSnapshots.includes(preparedSelectedSnapshot)
+    ? `webapp_data/${preparedSelectedSnapshot}`
+    : archivedRows.some(
+        (row) => String(row.snapshot_blockheight || "").trim() === preparedSelectedSnapshot
+      )
+    ? `webapp_data/archived/${preparedSelectedSnapshot}`
+    : snapshotBasePath(preparedSelectedSnapshot);
+  const preparedHistoricalSeriesNeeded = Boolean(
+    state.historicalSeries.length
+    || state.historicalSeriesLoading
+    || state.scriptPanelMode === "historical"
+  );
+  const preparedHistoricalArchived = Boolean(
+    preparedHistoricalSeriesNeeded
+    && state.archivedSnapshotsEnabled
+    && archivedSnapshotsAvailable
+  );
+
+  const latestSnapshotPromise = fetchQuantumRefreshSnapshot(context, latestSnapshot, needsFullRows);
+  const fixedSnapshotPromise = preparedSelectedSnapshot
+    && !preparedFollowsLatest
+    && preparedSelectedSnapshot !== latestSnapshot
+    ? fetchQuantumRefreshSnapshot(
+        context,
+        preparedSelectedSnapshot,
+        fixedSnapshotNeedsFullRows,
+        preparedSelectedSnapshotBasePath
+      )
+    : Promise.resolve(null);
+  // This compact file is also part of the publication contract. Fetch it for
+  // every generation so a clipped history/index cannot claim the marker even
+  // while the bars view is selected. Full exposure rows remain on-demand.
+  const historicalEcoTextPromise = context.fetchFresh("webapp_data/historical_eco.csv")
+    .then((response) => response.text());
+  const historicalSeriesPromise = preparedHistoricalSeriesNeeded
+    ? (async () => {
+        const ecoText = await historicalEcoTextPromise;
+        let archivedText = "";
+        if (preparedHistoricalArchived) {
+          const archivedResp = await context.fetchFresh("webapp_data/historical_archived.csv");
+          archivedText = await archivedResp.text();
+        }
+        return parseQuantumHistoricalSeries(ecoText, archivedText);
+      })()
+    : Promise.resolve(null);
+
+  let reportSummary = null;
+  let reportAttempted = false;
+  let reportModalSequence = 0;
+  const reportSnapshot = preparedFollowsLatest
+    ? latestSnapshot
+    : (preparedSelectedSnapshot || latestSnapshot);
+  const reportPromise = isSnapshotReportModalOpen() && reportSnapshot
+    ? (async () => {
+        reportAttempted = true;
+        reportModalSequence = quantumSnapshotReportModalSequence;
+        try {
+          const reportBasePath = reportSnapshot === latestSnapshot
+            ? `webapp_data/${latestSnapshot}`
+            : preparedSelectedSnapshotBasePath;
+          const reportResp = await context.fetchFresh(`${reportBasePath}/snapshot_diff_summary.txt`);
+          return parseSnapshotDiffSummary(await reportResp.text());
+        } catch (_err) {
+          return null;
+        }
+      })()
+    : Promise.resolve(null);
+
+  const [latestData, fixedSnapshot, historicalSeries, historicalEcoText, preparedReportSummary] = await Promise.all([
+    latestSnapshotPromise,
+    fixedSnapshotPromise,
+    historicalSeriesPromise,
+    historicalEcoTextPromise,
+    reportPromise,
+  ]);
+  if (reportAttempted) {
+    reportSummary = preparedReportSummary;
+  }
+
+  return {
+    publishedGenerationSignature: publication.signature,
+    publishedSnapshotHeight: publication.snapshotHeight,
+    publicationReason: publication.reason,
+    latestSnapshot,
+    resolvedSnapshotHeight: latestData.resolvedSnapshotHeight,
+    metaRows: latestData.metaRows,
+    aggregatesRows: latestData.aggregatesRows,
+    top100Rows: latestData.top100Rows,
+    ge1Rows: latestData.ge1Rows,
+    ge1IsUsingEcoSubset: latestData.ge1IsUsingEcoSubset,
+    includesFullRows: latestData.includesFullRows,
+    fixedSnapshot,
+    historicalSeries,
+    historicalEcoSeries: parseQuantumHistoricalSeries(historicalEcoText),
+    preparedSelectedSnapshot,
+    preparedFollowsLatest,
+    preparedHistoricalSeriesNeeded,
+    preparedHistoricalArchived,
+    preparedRuntimeLiteMode,
+    archiveVerificationComplete: true,
+    index: buildQuantumSnapshotIndexCandidate(activeRows, archivedRows, archivedSnapshotsAvailable),
+    reportSummary,
+    reportAttempted,
+    reportSnapshot,
+    reportModalSequence,
+  };
+}
+
+function validateQuantumDataRefresh(candidate) {
+  const installedAggregateCount = Array.isArray(state.aggregatesRows) ? state.aggregatesRows.length : 0;
+  const installedGe1Count = Array.isArray(state.ge1Rows) ? state.ge1Rows.length : 0;
+  const minimumAggregateCount = Math.max(1, Math.floor(installedAggregateCount * 0.95));
+  const minimumTop100Count = Math.max(1, Math.min(100, installedGe1Count || 100));
+  const installedFullRowCount = state.ge1IsUsingEcoSubset ? 0 : installedGe1Count;
+  const structuralChecks = [
+    ["candidate", Boolean(candidate)],
+    ["publication signature", Boolean(String(candidate?.publishedGenerationSignature || "").trim())],
+    ["publication/latest height", String(candidate?.publishedSnapshotHeight || "") === String(candidate?.latestSnapshot || "")],
+    ["latest height format", /^\d+$/.test(String(candidate?.latestSnapshot || ""))],
+    ["metadata/latest height", String(candidate?.resolvedSnapshotHeight || "") === String(candidate?.latestSnapshot || "")],
+    ["metadata rows", Array.isArray(candidate?.metaRows) && candidate.metaRows.length > 0],
+    ["aggregate baseline", Array.isArray(candidate?.aggregatesRows) && candidate.aggregatesRows.length >= minimumAggregateCount],
+    ["top-100 baseline", Array.isArray(candidate?.top100Rows) && candidate.top100Rows.length >= minimumTop100Count],
+    ["exposure rows", Array.isArray(candidate?.ge1Rows) && candidate.ge1Rows.length >= (candidate?.top100Rows?.length || 0)],
+    ["active snapshot index", Array.isArray(candidate?.index?.activeSnapshots) && candidate.index.activeSnapshots[0] === candidate.latestSnapshot],
+    ["archive verification", candidate?.archiveVerificationComplete === true],
+    ["active index integrity", quantumIndexRowsAreComplete(candidate?.index?.activeRows, candidate?.latestSnapshot)],
+    ["snapshot dataset integrity", quantumSnapshotDatasetIsComplete(candidate, candidate?.latestSnapshot, {
+      installedFullRowCount,
+    })],
+    ["historical/index coverage", quantumHistoricalSeriesIsComplete(
+      candidate?.historicalEcoSeries,
+      candidate?.index?.activeSnapshots,
+      candidate?.latestSnapshot,
+      candidate?.aggregatesRows
+    )],
+  ];
+  const failedStructuralCheck = structuralChecks.find(([, passed]) => !passed);
+  if (failedStructuralCheck) {
+    quantumLastRefreshValidationReason = failedStructuralCheck[0];
+    return false;
+  }
+  const expectsFixedSnapshot = Boolean(
+    candidate.preparedSelectedSnapshot
+    && !candidate.preparedFollowsLatest
+    && candidate.preparedSelectedSnapshot !== candidate.latestSnapshot
+  );
+  if (expectsFixedSnapshot) {
+    const fixed = candidate.fixedSnapshot;
+    if (!(
+      fixed
+      && fixed.requestedSnapshot === candidate.preparedSelectedSnapshot
+      && fixed.resolvedSnapshotHeight === candidate.preparedSelectedSnapshot
+      && Array.isArray(fixed.metaRows)
+      && fixed.metaRows.length
+      && Array.isArray(fixed.aggregatesRows)
+      && fixed.aggregatesRows.length >= minimumAggregateCount
+      && Array.isArray(fixed.top100Rows)
+      && fixed.top100Rows.length >= minimumTop100Count
+      && Array.isArray(fixed.ge1Rows)
+      && fixed.ge1Rows.length >= fixed.top100Rows.length
+      && quantumSnapshotDatasetIsComplete(fixed, candidate.preparedSelectedSnapshot, {
+        installedFullRowCount: fixed.includesFullRows ? installedFullRowCount : 0,
+      })
+    )) {
+      quantumLastRefreshValidationReason = "fixed snapshot integrity";
+      return false;
+    }
+    if (fixed.includesFullRows && !state.ge1IsUsingEcoSubset && installedGe1Count > 0) {
+      if (fixed.ge1Rows.length < Math.floor(installedGe1Count * 0.95)) {
+        quantumLastRefreshValidationReason = "fixed full-row baseline";
+        return false;
+      }
+    }
+  } else if (candidate.fixedSnapshot) {
+    quantumLastRefreshValidationReason = "unexpected fixed snapshot";
+    return false;
+  }
+
+  if (candidate.preparedHistoricalSeriesNeeded) {
+    const minimumHistoricalCount = Math.max(
+      1,
+      Math.floor((state.historicalSeries?.length || 0) * 0.95)
+    );
+    if (!(
+      Array.isArray(candidate.historicalSeries)
+      && candidate.historicalSeries.length >= minimumHistoricalCount
+      && candidate.historicalSeries.some(
+        (point) => String(point.snapshot) === String(candidate.latestSnapshot)
+      )
+    )) {
+      quantumLastRefreshValidationReason = "prepared historical series";
+      return false;
+    }
+  } else if (candidate.historicalSeries !== null) {
+    quantumLastRefreshValidationReason = "unexpected historical series";
+    return false;
+  }
+  if (candidate.includesFullRows && !state.ge1IsUsingEcoSubset && installedGe1Count > 0) {
+    const valid = candidate.ge1Rows.length >= Math.floor(installedGe1Count * 0.95);
+    quantumLastRefreshValidationReason = valid ? "" : "latest full-row baseline";
+    return valid;
+  }
+  quantumLastRefreshValidationReason = "";
+  return true;
+}
+
+function renderPreparedQuantumSnapshotReport(candidate) {
+  if (!candidate.reportAttempted || !isSnapshotReportModalOpen()) return false;
+  if (candidate.reportModalSequence !== quantumSnapshotReportModalSequence) return false;
+  const snapshotFilter = document.getElementById("snapshotFilter");
+  const selectedSnapshot = String(state.snapshotHeight || snapshotFilter?.value || "").trim();
+  const reportSnapshot = String(candidate.reportSnapshot || "").trim();
+  if (selectedSnapshot !== reportSnapshot) return false;
+  const body = document.getElementById("snapshotReportBody");
+  const subtitle = document.getElementById("snapshotReportSubtitle");
+  if (!body || !subtitle) return false;
+
+  const summary = candidate.reportSummary;
+  if (!summary) {
+    subtitle.textContent = `Snapshot ${snapshotHeightLabel(reportSnapshot) || reportSnapshot}`;
+    body.innerHTML = '<p class="snapshot-report-empty">The diff report for the selected snapshot is not available yet.</p>';
+    return true;
+  }
+
+  const kpiCounts = resolveSnapshotReportKpiCounts(reportSnapshot, summary);
+  const priorHeight = String(summary.priorBlock).replace(/,/g, "");
+  const newHeight = String(summary.newBlock).replace(/,/g, "");
+  const priorDateFromState = extractDateFromLabel(state.snapshotLabelDatetimeByHeight[priorHeight]);
+  const newDateFromState = extractDateFromLabel(state.snapshotLabelDatetimeByHeight[newHeight]);
+  const priorDate = priorDateFromState !== "n/a" ? priorDateFromState : (summary.priorDate || "n/a");
+  const newDate = newDateFromState !== "n/a" ? newDateFromState : (summary.newDate || "n/a");
+  subtitle.innerHTML = renderSnapshotReportSubtitle(summary.priorBlock, summary.newBlock, priorDate, newDate);
+  body.innerHTML = renderSnapshotReportHtml(summary, reportSnapshot, kpiCounts);
+  return true;
+}
+
+function deferQuantumDataRefresh(reason) {
+  quantumLastRefreshDeferredReason = String(reason || "state changed during prepare");
+  return false;
+}
+
+function commitQuantumDataRefresh(candidate) {
+  if (!validateQuantumDataRefresh(candidate)) {
+    throw new Error("Quantum refresh produced an incomplete snapshot generation.");
+  }
+  if (
+    quantumSnapshotDataLoadActive
+    || quantumSnapshotIndexLoadActive
+    || quantumSnapshotLookupLoadActive
+    || quantumFullDataLoadActive
+  ) {
+    return deferQuantumDataRefresh("an interactive data load is active");
+  }
+
+  const previousLatest = latestSnapshotHeight();
+  const snapshotFilter = document.getElementById("snapshotFilter");
+  const selectedSnapshot = String(state.snapshotHeight || snapshotFilter?.value || "").trim();
+  const followsLatest = Boolean(previousLatest && selectedSnapshot === previousLatest);
+  if (candidate.preparedRuntimeLiteMode !== isLiteMode()) {
+    return deferQuantumDataRefresh("runtime mode changed during prepare");
+  }
+  if (
+    selectedSnapshot !== candidate.preparedSelectedSnapshot
+    || followsLatest !== candidate.preparedFollowsLatest
+  ) {
+    return deferQuantumDataRefresh("snapshot selection changed during prepare");
+  }
+  const historicalSeriesNeeded = Boolean(
+    state.historicalSeries.length
+    || state.historicalSeriesLoading
+    || state.scriptPanelMode === "historical"
+  );
+  const historicalArchived = Boolean(
+    historicalSeriesNeeded
+    && state.archivedSnapshotsEnabled
+    && candidate.index.archivedSnapshotsAvailable
+  );
+  if (
+    historicalSeriesNeeded !== candidate.preparedHistoricalSeriesNeeded
+    || historicalArchived !== candidate.preparedHistoricalArchived
+  ) {
+    return deferQuantumDataRefresh("historical view state changed during prepare");
+  }
+  const selectedData = followsLatest ? candidate : candidate.fixedSnapshot;
+  if (!selectedData) {
+    return deferQuantumDataRefresh("selected snapshot candidate is unavailable");
+  }
+  const selectedNeedsFullRows = quantumSelectedSnapshotNeedsFullRows(selectedSnapshot);
+  if (selectedNeedsFullRows !== selectedData.includesFullRows) {
+    return deferQuantumDataRefresh("full-data demand changed during prepare");
+  }
+
+  quantumLastRefreshDeferredReason = "";
+  quantumSnapshotDataCommitGeneration += 1;
+  const previousVisibleCount = state.topExposuresVisibleCount;
+  const previousFullLoadTriggered = state.ge1FullDataLoadTriggered;
+  state.snapshotDataCache.clear();
+  state.topExposuresDataCache.clear();
+  state.snapshotReportCache.clear();
+  state.availableSnapshots = candidate.index.activeSnapshots;
+  state.snapshotLocationByHeight = candidate.index.snapshotLocationByHeight;
+  state.snapshotLabelDatetimeByHeight = {
+    ...state.snapshotLabelDatetimeByHeight,
+    ...candidate.index.snapshotLabelDatetimeByHeight,
+  };
+  state.snapshotUnixTimeByHeight = {
+    ...state.snapshotUnixTimeByHeight,
+    ...candidate.index.snapshotUnixTimeByHeight,
+  };
+  state.blockDatetimeByHeight = {
+    ...state.blockDatetimeByHeight,
+    ...candidate.index.blockDatetimeByHeight,
+  };
+  state.archivedSnapshotsAvailable = candidate.index.archivedSnapshotsAvailable;
+  quantumArchiveVerificationRequired = false;
+  if (!state.archivedSnapshotsAvailable) {
+    state.archivedSnapshotsEnabled = false;
+  }
+  state.publishedGenerationSignature = candidate.publishedGenerationSignature;
+  state.publishedSnapshotHeight = candidate.publishedSnapshotHeight;
+
+  const cacheEntry = {
+    snapshotHeight: candidate.resolvedSnapshotHeight,
+    metaRows: candidate.metaRows,
+    aggregatesRows: candidate.aggregatesRows,
+    top100Rows: candidate.top100Rows,
+    ge1Rows: candidate.ge1Rows,
+    ge1IsUsingEcoSubset: candidate.ge1IsUsingEcoSubset,
+    includesFullRows: candidate.includesFullRows,
+    complete: true,
+  };
+  state.snapshotDataCache.set(candidate.latestSnapshot, cacheEntry);
+  if (candidate.resolvedSnapshotHeight !== candidate.latestSnapshot) {
+    state.snapshotDataCache.set(candidate.resolvedSnapshotHeight, cacheEntry);
+  }
+  if (candidate.fixedSnapshot) {
+    const fixedCacheEntry = {
+      snapshotHeight: candidate.fixedSnapshot.resolvedSnapshotHeight,
+      metaRows: candidate.fixedSnapshot.metaRows,
+      aggregatesRows: candidate.fixedSnapshot.aggregatesRows,
+      top100Rows: candidate.fixedSnapshot.top100Rows,
+      ge1Rows: candidate.fixedSnapshot.ge1Rows,
+      ge1IsUsingEcoSubset: candidate.fixedSnapshot.ge1IsUsingEcoSubset,
+      includesFullRows: candidate.fixedSnapshot.includesFullRows,
+      complete: true,
+    };
+    state.snapshotDataCache.set(candidate.fixedSnapshot.requestedSnapshot, fixedCacheEntry);
+  }
+
+  if (candidate.historicalSeries) {
+    resetHistoricalSeriesState();
+    state.historicalSeries = candidate.historicalSeries;
+  } else {
+    quantumHistoricalRefreshPointsPending.set(
+      candidate.latestSnapshot,
+      quantumHistoricalRefreshPoint(candidate.latestSnapshot, candidate.aggregatesRows)
+    );
+  }
+
+  invalidateSnapshotReportRequest();
+  state.aggregatesRows = selectedData.aggregatesRows;
+  state.ge1Rows = selectedData.ge1Rows;
+  state.snapshotHeight = selectedData.resolvedSnapshotHeight;
+  state.ge1IsUsingEcoSubset = selectedData.ge1IsUsingEcoSubset;
+  state.topExposuresLoading = false;
+  state.ge1FullDataLoadTriggered = selectedData.includesFullRows && previousFullLoadTriggered;
+  state.topExposuresVisibleCount = Math.max(
+    ECO_TOP_EXPOSURES_INITIAL_COUNT,
+    Math.min(previousVisibleCount, selectedData.ge1Rows.length)
+  );
+  if (followsLatest) {
+    state.pendingPersistedSnapshotPreference = null;
+    state.pendingPersistedSnapshotHeight = null;
+  }
+  if (candidate.reportSummary && candidate.reportSnapshot) {
+    state.snapshotReportCache.set(candidate.reportSnapshot, { summary: candidate.reportSummary });
+  }
+
+  const presentation = { candidate, selectedSnapshot, followsLatest };
+  quantumRefreshPresentationPending = presentation;
+  if (document.visibilityState !== "visible") {
+    return true;
+  }
+  presentQuantumDataRefresh(presentation);
+  return true;
+}
+
+function presentQuantumDataRefresh(presentation = quantumRefreshPresentationPending) {
+  if (!presentation) return;
+  const { candidate } = presentation;
+  const snapshotFilter = document.getElementById("snapshotFilter");
+  const displaySnapshot = selectedQuantumSnapshotHeight() || candidate.latestSnapshot;
+  const displaySnapshots = state.availableSnapshots.includes(displaySnapshot)
+    ? state.availableSnapshots
+    : [...state.availableSnapshots, displaySnapshot].filter(Boolean);
+  populateSnapshotFilter(displaySnapshots);
+  updateArchivedSnapshotsToggleUi();
+
+  if (snapshotFilter) {
+    snapshotFilter.value = displaySnapshot;
+    syncSnapshotDropdownTrigger();
+  }
+  _lastTopExposuresRows = null;
+  renderTopExposureTagFilters();
+  update();
+  const renderedPreparedReport = candidate.reportAttempted
+    ? renderPreparedQuantumSnapshotReport(candidate)
+    : false;
+  if (!renderedPreparedReport && isSnapshotReportModalOpen()) {
+    setSnapshotReportLoadingState(`Loading summary for ${snapshotHeightLabel(displaySnapshot) || displaySnapshot}...`);
+    void loadSnapshotReportIntoModal();
+  }
+  quantumRefreshPresentationPending = null;
+}
+
+function registerQuantumDataAutoRefresh() {
+  const controller = window.WSBWebappDataAutoRefresh;
+  if (!controller || typeof controller.register !== "function") return;
+  controller.register({
+    getInstalledSignature: () => state.publishedGenerationSignature,
+    prepare: (context) => prepareQuantumDataRefresh(context),
+    validate: (candidate) => validateQuantumDataRefresh(candidate),
+    commit: (candidate) => commitQuantumDataRefresh(candidate),
+    onError: (error) => {
+      console.warn("Quantum background refresh failed; keeping the current snapshot visible.", error);
+    },
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && quantumRefreshPresentationPending) {
+      presentQuantumDataRefresh();
+    }
+  });
+}
+
+async function refreshSnapshotLookupUi() {
+  const loadToken = {
+    id: ++quantumSnapshotLookupLoadSequence,
+    commitGeneration: quantumSnapshotDataCommitGeneration,
+  };
+  quantumSnapshotLookupLoadActive = loadToken;
+  const snapshots = Array.isArray(state.availableSnapshots)
+    ? state.availableSnapshots.slice()
+    : [];
+  const snapshotLocations = { ...state.snapshotLocationByHeight };
+  const isCurrentLoad = () => (
+    quantumSnapshotLookupLoadActive === loadToken
+    && loadToken.id === quantumSnapshotLookupLoadSequence
+    && loadToken.commitGeneration === quantumSnapshotDataCommitGeneration
+  );
+
+  try {
+    const lookup = await loadSnapshotLabelLookup(snapshots, snapshotLocations);
+    if (!isCurrentLoad()) return false;
+    state.blockDatetimeByHeight = lookup.blockDatetimeByHeight;
+    state.snapshotLabelDatetimeByHeight = lookup.snapshotLabelDatetimeByHeight;
+    state.snapshotUnixTimeByHeight = lookup.snapshotUnixTimeByHeight;
+
+    const snapshotFilter = document.getElementById("snapshotFilter");
+    if (!snapshotFilter || !state.availableSnapshots.length) return true;
+
+    const currentValue = String(state.snapshotHeight || snapshotFilter.value || "").trim();
+    populateSnapshotFilter(state.availableSnapshots);
+
+    const nextValue = state.availableSnapshots.includes(currentValue)
+      ? currentValue
+      : state.availableSnapshots[0];
+    snapshotFilter.value = nextValue;
+    syncSnapshotDropdownTrigger();
+
+    // Force a fresh tooltip render now that blockheight -> datetime is populated.
+    if (Array.isArray(state.ge1Rows) && state.ge1Rows.length) {
+      _lastTopExposuresRows = null;
+      updateTopExposures();
+    }
+    return true;
+  } finally {
+    if (quantumSnapshotLookupLoadActive === loadToken) {
+      quantumSnapshotLookupLoadActive = null;
+    }
   }
 }
 
-async function loadSnapshotLabelLookup(snapshots) {
-  state.blockDatetimeByHeight = {};
-  state.snapshotLabelDatetimeByHeight = {};
-  state.snapshotUnixTimeByHeight = {};
+async function loadSnapshotLabelLookup(snapshots, snapshotLocations = {}) {
+  const blockDatetimeByHeight = {};
+  const snapshotLabelDatetimeByHeight = {};
+  const snapshotUnixTimeByHeight = {};
 
   let loadedFromGlobalLookup = false;
   try {
-    const lookupResp = await fetch("webapp_data/blockheight_datetime_lookup.csv");
+    const lookupResp = await fetch("webapp_data/blockheight_datetime_lookup.csv", { cache: "no-store" });
     if (lookupResp.ok) {
       const lookupRows = parseCsv(await lookupResp.text());
       const snapshotSet = new Set((Array.isArray(snapshots) ? snapshots : []).map((value) => String(value).trim()));
@@ -6398,11 +7608,11 @@ async function loadSnapshotLabelLookup(snapshots) {
         if (!height || !unixTime) return;
 
         const tooltipDate = formatTooltipDate(unixTime);
-        state.blockDatetimeByHeight[height] = tooltipDate;
-        state.snapshotUnixTimeByHeight[height] = unixTime;
+        blockDatetimeByHeight[height] = tooltipDate;
+        snapshotUnixTimeByHeight[height] = unixTime;
 
         if (snapshotSet.has(height)) {
-          state.snapshotLabelDatetimeByHeight[height] = formatSnapshotSelectDate(unixTime);
+          snapshotLabelDatetimeByHeight[height] = formatSnapshotSelectDate(unixTime);
         }
       });
       loadedFromGlobalLookup = true;
@@ -6414,16 +7624,19 @@ async function loadSnapshotLabelLookup(snapshots) {
   // Fallback path for snapshot labels if the global lookup is missing/incomplete.
   const missingSnapshotLabels = (Array.isArray(snapshots) ? snapshots : [])
     .map((snapshot) => String(snapshot).trim())
-    .filter((snapshot) => snapshot && !state.snapshotLabelDatetimeByHeight[snapshot]);
+    .filter((snapshot) => snapshot && !snapshotLabelDatetimeByHeight[snapshot]);
 
   if (loadedFromGlobalLookup && missingSnapshotLabels.length === 0) {
-    return;
+    return { blockDatetimeByHeight, snapshotLabelDatetimeByHeight, snapshotUnixTimeByHeight };
   }
 
   await Promise.all(
     missingSnapshotLabels.map(async (snapshot) => {
       try {
-        const resp = await fetch(`${snapshotBasePath(snapshot)}/dashboard_snapshot_meta.csv`);
+        const basePath = snapshotLocations[snapshot] === "archived"
+          ? `webapp_data/archived/${snapshot}`
+          : `webapp_data/${snapshot}`;
+        const resp = await fetch(`${basePath}/dashboard_snapshot_meta.csv`, { cache: "no-store" });
         if (!resp.ok) {
           return;
         }
@@ -6438,94 +7651,182 @@ async function loadSnapshotLabelLookup(snapshots) {
           return;
         }
 
-        state.snapshotUnixTimeByHeight[String(snapshot)] = snapshotTime;
-        state.blockDatetimeByHeight[String(snapshot)] = formatTooltipDate(snapshotTime);
-        state.snapshotLabelDatetimeByHeight[String(snapshot)] = formatSnapshotSelectDate(snapshotTime);
+        snapshotUnixTimeByHeight[String(snapshot)] = snapshotTime;
+        blockDatetimeByHeight[String(snapshot)] = formatTooltipDate(snapshotTime);
+        snapshotLabelDatetimeByHeight[String(snapshot)] = formatSnapshotSelectDate(snapshotTime);
       } catch (_err) {
         // Best effort only; labels fall back to block height when unavailable.
       }
     })
   );
+  return { blockDatetimeByHeight, snapshotLabelDatetimeByHeight, snapshotUnixTimeByHeight };
 }
 
 async function loadAvailableSnapshots() {
-  state.snapshotLocationByHeight = {};
+  quantumSnapshotLookupLoadSequence += 1;
+  quantumSnapshotLookupLoadActive = null;
+  const loadToken = {
+    id: ++quantumSnapshotIndexLoadSequence,
+    commitGeneration: quantumSnapshotDataCommitGeneration,
+  };
+  quantumSnapshotIndexLoadActive = loadToken;
+  const isCurrentLoad = () => (
+    quantumSnapshotIndexLoadActive === loadToken
+    && loadToken.id === quantumSnapshotIndexLoadSequence
+    && loadToken.commitGeneration === quantumSnapshotDataCommitGeneration
+  );
+  const currentSnapshots = () => (
+    Array.isArray(state.availableSnapshots) ? state.availableSnapshots.slice() : []
+  );
+  const archiveExpectedBeforeLoad = quantumArchiveDataIsExpected();
+  const previousArchivedSnapshotsAvailable = state.archivedSnapshotsAvailable;
+  const previousSnapshotLocations = { ...state.snapshotLocationByHeight };
 
-  const indexResp = await fetch("webapp_data/snapshots_index.csv");
-  let activeRows = [];
-  if (indexResp.ok) {
-    activeRows = parseCsv(await indexResp.text());
-    const values = activeRows
-      .map((row) => (row.snapshot_blockheight || "").trim())
-      .filter((value) => /^\d+$/.test(value));
+  try {
+    const indexResp = await fetch("webapp_data/snapshots_index.csv", { cache: "no-store" });
+    if (!isCurrentLoad()) return currentSnapshots();
+    let activeRows = [];
+    if (indexResp.ok) {
+      activeRows = parseCsv(await indexResp.text());
+      if (!isCurrentLoad()) return currentSnapshots();
+      const values = activeRows
+        .map((row) => (row.snapshot_blockheight || "").trim())
+        .filter((value) => /^\d+$/.test(value));
+      const snapshotLocationByHeight = {};
+      values.forEach((height) => {
+        snapshotLocationByHeight[height] = "active";
+      });
 
-    values.forEach((height) => {
-      state.snapshotLocationByHeight[height] = "active";
-    });
-
-    let archivedRows = [];
-    try {
-      const archivedResp = await fetch("webapp_data/archived_index.csv");
-      if (archivedResp.ok) {
-        archivedRows = parseCsv(await archivedResp.text());
+      let archivedRows = [];
+      let archivedIndexVerified = false;
+      try {
+        const archivedResp = await fetch("webapp_data/archived_index.csv", { cache: "no-store" });
+        if (!isCurrentLoad()) return currentSnapshots();
+        if (archivedResp.ok) {
+          archivedRows = parseCsv(await archivedResp.text());
+          archivedIndexVerified = quantumIndexRowsAreComplete(archivedRows, "", { allowEmpty: true });
+        }
+      } catch (_err) {
+        if (!isCurrentLoad()) return currentSnapshots();
+        archivedRows = [];
+        archivedIndexVerified = false;
       }
-    } catch (_err) {
-      archivedRows = [];
-    }
 
-    const archivedValues = archivedRows
-      .map((row) => (row.snapshot_blockheight || "").trim())
-      .filter((value) => /^\d+$/.test(value));
-
-    state.archivedSnapshotsAvailable = await hasArchivedSnapshotDataFolder(archivedValues);
-    if (!state.archivedSnapshotsAvailable) {
-      state.archivedSnapshotsEnabled = false;
-    }
-    updateArchivedSnapshotsToggleUi();
-
-    if (values.length) {
-      values.sort((left, right) => Number.parseInt(right, 10) - Number.parseInt(left, 10));
-      // Pre-populate snapshot label datetimes from the embedded snapshot_time column.
-      // This makes dropdown labels available immediately, with no need to load the large
-      // blockheight_datetime_lookup.csv or individual per-snapshot meta CSVs for this purpose.
-      activeRows.forEach((row) => {
-        const height = (row.snapshot_blockheight || "").trim();
-        const unixTime = toInt(row.snapshot_time);
-        if (height && unixTime) {
-          state.snapshotUnixTimeByHeight[height] = unixTime;
-          state.snapshotLabelDatetimeByHeight[height] = formatSnapshotSelectDate(unixTime);
-          state.blockDatetimeByHeight[height] = formatTooltipDate(unixTime);
+      const archivedValues = archivedRows
+        .map((row) => (row.snapshot_blockheight || "").trim())
+        .filter((value) => /^\d+$/.test(value));
+      archivedValues.forEach((height) => {
+        if (!snapshotLocationByHeight[height]) {
+          snapshotLocationByHeight[height] = "archived";
         }
       });
-      if (state.archivedSnapshotsEnabled) {
-        archivedRows.forEach((row) => {
-          const height = (row.snapshot_blockheight || "").trim();
-          const unixTime = toInt(row.snapshot_time);
-          if (height && unixTime) {
-            state.snapshotUnixTimeByHeight[height] = unixTime;
-            state.snapshotLabelDatetimeByHeight[height] = formatSnapshotSelectDate(unixTime);
-            state.blockDatetimeByHeight[height] = formatTooltipDate(unixTime);
-          }
-        });
+
+      const archivedSnapshotsAvailable = archivedValues.length
+        ? await hasArchivedSnapshotDataFolder(archivedValues)
+        : false;
+      if (!isCurrentLoad()) return currentSnapshots();
+      const archiveStateVerified = Boolean(
+        archivedIndexVerified
+        && (
+          archivedSnapshotsAvailable
+          || (!archivedValues.length && !archiveExpectedBeforeLoad)
+        )
+      );
+      quantumArchiveVerificationRequired = !archiveStateVerified;
+      const retainInstalledArchiveState = !archiveStateVerified && Boolean(
+        archiveExpectedBeforeLoad
+        || archivedValues.length
+      );
+
+      if (values.length) {
+        values.sort((left, right) => Number.parseInt(right, 10) - Number.parseInt(left, 10));
+        const snapshotUnixTimeByHeight = {};
+        const snapshotLabelDatetimeByHeight = {};
+        const blockDatetimeByHeight = {};
+        const collectSnapshotLabels = (rows) => {
+          rows.forEach((row) => {
+            const height = (row.snapshot_blockheight || "").trim();
+            const unixTime = toInt(row.snapshot_time);
+            if (!height || !unixTime) return;
+            snapshotUnixTimeByHeight[height] = unixTime;
+            snapshotLabelDatetimeByHeight[height] = formatSnapshotSelectDate(unixTime);
+            blockDatetimeByHeight[height] = formatTooltipDate(unixTime);
+          });
+        };
+        collectSnapshotLabels(activeRows);
+        if (state.archivedSnapshotsEnabled && archivedRows.length) {
+          collectSnapshotLabels(archivedRows);
+        }
+
+        if (retainInstalledArchiveState) {
+          Object.entries(previousSnapshotLocations).forEach(([height, location]) => {
+            if (location === "archived" && !snapshotLocationByHeight[height]) {
+              snapshotLocationByHeight[height] = "archived";
+            }
+          });
+        }
+        state.snapshotLocationByHeight = snapshotLocationByHeight;
+        state.archivedSnapshotsAvailable = retainInstalledArchiveState
+          ? previousArchivedSnapshotsAvailable
+          : archivedSnapshotsAvailable;
+        if (archiveStateVerified && !archivedSnapshotsAvailable) {
+          state.archivedSnapshotsEnabled = false;
+        }
+        state.snapshotUnixTimeByHeight = {
+          ...state.snapshotUnixTimeByHeight,
+          ...snapshotUnixTimeByHeight,
+        };
+        state.snapshotLabelDatetimeByHeight = {
+          ...state.snapshotLabelDatetimeByHeight,
+          ...snapshotLabelDatetimeByHeight,
+        };
+        state.blockDatetimeByHeight = {
+          ...state.blockDatetimeByHeight,
+          ...blockDatetimeByHeight,
+        };
+        state.availableSnapshots = values;
+        updateArchivedSnapshotsToggleUi();
+        return values.slice();
       }
-      return values;
+    }
+
+    // The fallback can keep the latest snapshot usable, but it cannot prove
+    // whether an archive bundle was omitted or only failed transiently.
+    quantumArchiveVerificationRequired = true;
+    const latestResp = await fetch("webapp_data/latest_snapshot.txt", { cache: "no-store" });
+    if (!isCurrentLoad()) return currentSnapshots();
+    if (!latestResp.ok) {
+      throw new Error("Could not load webapp_data/latest_snapshot.txt");
+    }
+
+    const latest = (await latestResp.text()).trim();
+    if (!isCurrentLoad()) return currentSnapshots();
+    if (!/^\d+$/.test(latest)) {
+      throw new Error("latest_snapshot.txt is not a valid block height");
+    }
+    const fallbackLocations = { [latest]: "active" };
+    if (archiveExpectedBeforeLoad) {
+      Object.entries(previousSnapshotLocations).forEach(([height, location]) => {
+        if (location === "archived" && !fallbackLocations[height]) {
+          fallbackLocations[height] = "archived";
+        }
+      });
+    }
+    state.snapshotLocationByHeight = fallbackLocations;
+    state.archivedSnapshotsAvailable = archiveExpectedBeforeLoad
+      ? previousArchivedSnapshotsAvailable
+      : false;
+    if (!archiveExpectedBeforeLoad) {
+      state.archivedSnapshotsEnabled = false;
+    }
+    state.availableSnapshots = [latest];
+    updateArchivedSnapshotsToggleUi();
+    return [latest];
+  } finally {
+    if (quantumSnapshotIndexLoadActive === loadToken) {
+      quantumSnapshotIndexLoadActive = null;
     }
   }
-
-  state.archivedSnapshotsAvailable = false;
-  state.archivedSnapshotsEnabled = false;
-  updateArchivedSnapshotsToggleUi();
-
-  const latestResp = await fetch("webapp_data/latest_snapshot.txt");
-  if (!latestResp.ok) {
-    throw new Error("Could not load webapp_data/latest_snapshot.txt");
-  }
-
-  const latest = (await latestResp.text()).trim();
-  if (!/^\d+$/.test(latest)) {
-    throw new Error("latest_snapshot.txt is not a valid block height");
-  }
-  return [latest];
 }
 
 function syncSnapshotDropdownTrigger() {
@@ -6604,15 +7905,85 @@ function populateSnapshotFilter(snapshots) {
 
 async function loadSnapshotData(snapshot) {
   const requestedSnapshot = String(snapshot || "").trim();
-  const basePath = snapshotBasePath(requestedSnapshot);
-  const cached = state.snapshotDataCache.get(requestedSnapshot);
-
-  if (cached) {
-    state.aggregatesRows = cached.aggregatesRows;
-    state.ge1Rows = cached.ge1Rows;
-    state.snapshotHeight = cached.snapshotHeight;
-    state.ge1IsUsingEcoSubset = cached.ge1IsUsingEcoSubset === true;
+  const supersededFullDataLoad = Boolean(quantumFullDataLoadActive);
+  quantumFullDataLoadSequence += 1;
+  quantumFullDataLoadActive = null;
+  if (supersededFullDataLoad) {
     state.topExposuresLoading = false;
+    state.ge1FullDataLoadTriggered = false;
+  }
+  const loadToken = {
+    id: ++quantumSnapshotDataLoadSequence,
+    commitGeneration: quantumSnapshotDataCommitGeneration,
+    liteMode: isLiteMode(),
+  };
+  quantumSnapshotDataLoadActive = loadToken;
+  invalidateSnapshotReportRequest();
+
+  const isCurrentLoad = () => (
+    quantumSnapshotDataLoadActive === loadToken
+    && loadToken.commitGeneration === quantumSnapshotDataCommitGeneration
+    && loadToken.liteMode === isLiteMode()
+  );
+
+  try {
+    const basePath = snapshotBasePath(requestedSnapshot);
+    const cached = state.snapshotDataCache.get(requestedSnapshot);
+
+    if (cached && cached.complete !== false) {
+      if (!isCurrentLoad()) return false;
+      state.aggregatesRows = cached.aggregatesRows;
+      state.ge1Rows = cached.ge1Rows;
+      state.snapshotHeight = cached.snapshotHeight;
+      state.ge1IsUsingEcoSubset = cached.ge1IsUsingEcoSubset === true;
+      state.topExposuresLoading = false;
+
+      const snapshotFilter = document.getElementById("snapshotFilter");
+      const loadedSnapshot = String(state.snapshotHeight || requestedSnapshot).trim();
+      if (snapshotFilter) {
+        const hasLoadedOption = Array.from(snapshotFilter.options).some((option) => option.value === loadedSnapshot);
+        snapshotFilter.value = hasLoadedOption ? loadedSnapshot : requestedSnapshot;
+        syncSnapshotDropdownTrigger();
+      }
+
+      state.pendingPersistedSnapshotPreference = null;
+      state.pendingPersistedSnapshotHeight = null;
+      resetTopExposurePagination();
+      renderTopExposureTagFilters();
+      update();
+      return true;
+    }
+    if (cached?.complete === false) {
+      state.snapshotDataCache.delete(requestedSnapshot);
+    }
+
+    const [metaResp, aggregatesResp] = await Promise.all([
+      fetch(`${basePath}/dashboard_snapshot_meta.csv`, { cache: "no-store" }),
+      fetch(`${basePath}/dashboard_pubkeys_aggregates.csv`, { cache: "no-store" }),
+    ]);
+    if (!isCurrentLoad()) return false;
+
+    if (!metaResp.ok || !aggregatesResp.ok) {
+      throw new Error(`Could not load one or more CSV files from ${basePath}/`);
+    }
+
+    const [metaText, aggregatesText] = await Promise.all([
+      metaResp.text(),
+      aggregatesResp.text(),
+    ]);
+    if (!isCurrentLoad()) return false;
+    const metaRows = parseCsv(metaText);
+    const aggregatesRows = parseCsv(aggregatesText);
+    const resolvedSnapshotHeight = String(
+      metaRows.length ? metaRows[0].snapshot_blockheight : requestedSnapshot
+    ).trim();
+
+    // Phase 1: render chart/KPI context as soon as light files are ready.
+    state.aggregatesRows = aggregatesRows;
+    state.snapshotHeight = resolvedSnapshotHeight;
+    state.ge1Rows = [];
+    state.topExposuresLoading = true;
+    state.topExposuresDataCache.clear();
 
     const snapshotFilter = document.getElementById("snapshotFilter");
     const loadedSnapshot = String(state.snapshotHeight || requestedSnapshot).trim();
@@ -6626,84 +7997,68 @@ async function loadSnapshotData(snapshot) {
     state.pendingPersistedSnapshotHeight = null;
     resetTopExposurePagination();
     renderTopExposureTagFilters();
-    update();
-    return;
-  }
+    // Progressive rendering: show KPIs/charts immediately using fast aggregates.
+    updateKpisAndCharts();
+    updateTopExposures();
 
-  const [metaResp, aggregatesResp] = await Promise.all([
-    fetch(`${basePath}/dashboard_snapshot_meta.csv`),
-    fetch(`${basePath}/dashboard_pubkeys_aggregates.csv`),
-  ]);
+    // Phase 2: every runtime mode starts from the lightweight top-100 subset.
+    // The full row file is reserved for explicit search or table expansion.
+    let top100Resp = null;
+    try {
+      top100Resp = await fetch(`${basePath}/dashboard_pubkeys_ge_1btc_top100.csv`, { cache: "no-store" });
+    } catch (err) {
+      if (isCurrentLoad()) {
+        console.warn(`Could not request top-100 CSV from ${basePath}:`, err);
+      }
+    }
+    if (!isCurrentLoad()) return false;
+    if (!top100Resp?.ok) {
+      state.topExposuresLoading = false;
+      state.ge1Rows = [];
+      state.ge1IsUsingEcoSubset = false;
+      console.warn(`Could not load top-100 CSV from ${basePath}/; keeping aggregate dashboard data visible.`);
+      renderTopExposureTagFilters();
+      updateTopExposures();
+      state.snapshotDataCache.set(requestedSnapshot, {
+        snapshotHeight: resolvedSnapshotHeight,
+        metaRows,
+        aggregatesRows,
+        top100Rows: [],
+        ge1Rows: [],
+        ge1IsUsingEcoSubset: false,
+        includesFullRows: false,
+        complete: false,
+      });
+      return false;
+    }
 
-  if (!metaResp.ok || !aggregatesResp.ok) {
-    throw new Error(`Could not load one or more CSV files from ${basePath}/`);
-  }
-
-  const metaRows = parseCsv(await metaResp.text());
-  const aggregatesRows = parseCsv(await aggregatesResp.text());
-  const resolvedSnapshotHeight = metaRows.length ? metaRows[0].snapshot_blockheight : requestedSnapshot;
-
-  // Phase 1: render chart/KPI context as soon as light files are ready.
-  state.aggregatesRows = aggregatesRows;
-  state.snapshotHeight = resolvedSnapshotHeight;
-  state.ge1Rows = [];
-  state.topExposuresLoading = true;
-  state.topExposuresDataCache.clear();
-
-  const snapshotFilter = document.getElementById("snapshotFilter");
-  const loadedSnapshot = String(state.snapshotHeight || requestedSnapshot).trim();
-  if (snapshotFilter) {
-    const hasLoadedOption = Array.from(snapshotFilter.options).some((option) => option.value === loadedSnapshot);
-    snapshotFilter.value = hasLoadedOption ? loadedSnapshot : requestedSnapshot;
-    syncSnapshotDropdownTrigger();
-  }
-
-  state.pendingPersistedSnapshotPreference = null;
-  state.pendingPersistedSnapshotHeight = null;
-  resetTopExposurePagination();
-  renderTopExposureTagFilters();
-  // Progressive rendering: show KPIs/charts immediately using fast aggregates
-  updateKpisAndCharts();
-  updateTopExposures();
-
-  // Phase 2: every runtime mode starts from the lightweight top-100 subset.
-  // The full row file is reserved for explicit search or table expansion.
-  let top100Resp = null;
-  try {
-    top100Resp = await fetch(`${basePath}/dashboard_pubkeys_ge_1btc_top100.csv`);
-  } catch (err) {
-    console.warn(`Could not request top-100 CSV from ${basePath}:`, err);
-  }
-  if (!top100Resp?.ok) {
+    const top100Text = await top100Resp.text();
+    if (!isCurrentLoad()) return false;
+    const top100Rows = parseCsv(top100Text);
+    state.ge1Rows = top100Rows;
+    state.ge1IsUsingEcoSubset = true;
+    state.topExposuresVisibleCount = Math.min(ECO_TOP_EXPOSURES_INITIAL_COUNT, top100Rows.length);
     state.topExposuresLoading = false;
-    state.ge1Rows = [];
-    state.ge1IsUsingEcoSubset = false;
-    console.warn(`Could not load top-100 CSV from ${basePath}/; keeping aggregate dashboard data visible.`);
     renderTopExposureTagFilters();
     updateTopExposures();
-    state.snapshotDataCache.set(requestedSnapshot, {
-      snapshotHeight: state.snapshotHeight,
+
+    const initialDataset = {
+      snapshotHeight: resolvedSnapshotHeight,
+      metaRows,
       aggregatesRows,
-      ge1Rows: [],
-      ge1IsUsingEcoSubset: false,
-    });
-    return;
+      top100Rows,
+      ge1Rows: top100Rows,
+      ge1IsUsingEcoSubset: true,
+      includesFullRows: false,
+    };
+    initialDataset.complete = quantumSnapshotDatasetIsComplete(initialDataset, requestedSnapshot);
+    state.snapshotDataCache.set(requestedSnapshot, initialDataset);
+    return initialDataset.complete;
+  } finally {
+    if (quantumSnapshotDataLoadActive === loadToken) {
+      quantumSnapshotDataLoadActive = null;
+    }
   }
-
-  const top100Rows = parseCsv(await top100Resp.text());
-  state.ge1Rows = top100Rows;
-  state.ge1IsUsingEcoSubset = true;
-  state.topExposuresVisibleCount = Math.min(ECO_TOP_EXPOSURES_INITIAL_COUNT, top100Rows.length);
-  state.topExposuresLoading = false;
-  renderTopExposureTagFilters();
-  updateTopExposures();
-
-  state.snapshotDataCache.set(requestedSnapshot, {
-    snapshotHeight: state.snapshotHeight,
-    aggregatesRows,
-    ge1Rows: top100Rows,
-    ge1IsUsingEcoSubset: true,
-  });
 }
 
 function attachEvents() {
@@ -6826,7 +8181,7 @@ function attachEvents() {
       // lite mode can avoid carrying heavy data structures.
       state.snapshotDataCache.clear();
       state.topExposuresDataCache.clear();
-      state.historicalSeries = [];
+      resetHistoricalSeriesState();
       state.ge1Rows = [];
       state.topExposuresLoading = false;
       resetTopExposurePagination();
@@ -7007,9 +8362,11 @@ function attachEvents() {
   document.getElementById("snapshotFilter").addEventListener("change", async (event) => {
     try {
       clearPreResetSnapshot();
-      await loadSnapshotData(event.target.value);
       if (isSnapshotReportModalOpen()) {
         setSnapshotReportLoadingState(`Loading summary for ${snapshotHeightLabel(event.target.value) || event.target.value}...`);
+      }
+      await loadSnapshotData(event.target.value);
+      if (isSnapshotReportModalOpen()) {
         await loadSnapshotReportIntoModal();
       }
     } catch (err) {
@@ -7264,7 +8621,50 @@ function attachEvents() {
     applyTheme(resolveInitialTheme());
     applyRuntimeModeUi();
     attachEvents();
-    await loadData();
+    let initialPublication = null;
+    try {
+      initialPublication = await fetchQuantumPublishedGeneration();
+      state.publishedSnapshotHeight = initialPublication.snapshotHeight;
+    } catch (error) {
+      console.warn("Could not establish the initial Quantum publication marker; a background reconciliation will retry.", error);
+    }
+
+    await loadData(initialPublication?.snapshotHeight || "");
+
+    // Bracket initial data loading with the marker. If publication advanced (or
+    // the lightweight snapshot/history/index evidence was incomplete) do not claim that generation as
+    // installed: register() will immediately reconcile it through the atomic
+    // prepare/validate/commit path.
+    let initialEvidence = null;
+    if (initialPublication) {
+      try {
+        initialEvidence = await fetchQuantumInitialGenerationEvidence(initialPublication);
+        const installedArchivedCount = initialEvidence.archivedSnapshots.filter(
+          (snapshot) => state.snapshotLocationByHeight[snapshot] === "archived"
+        ).length;
+        quantumArchiveVerificationRequired = Boolean(
+          initialEvidence.archivedSnapshots.length
+          && (
+            !state.archivedSnapshotsAvailable
+            || installedArchivedCount < Math.ceil(initialEvidence.archivedSnapshots.length * 0.95)
+          )
+        );
+      } catch (error) {
+        quantumArchiveVerificationRequired = true;
+        console.warn("Could not verify the initial Quantum generation evidence; background refresh will retry.", error);
+      }
+    }
+    if (initialPublication && isQuantumPublishedGenerationInstalled(initialPublication, initialEvidence)) {
+      try {
+        const confirmedPublication = await fetchQuantumPublishedGeneration();
+        if (confirmedPublication.signature === initialPublication.signature) {
+          state.publishedGenerationSignature = initialPublication.signature;
+        }
+      } catch (_error) {
+        state.publishedGenerationSignature = "";
+      }
+    }
+    registerQuantumDataAutoRefresh();
   } catch (err) {
     renderEmptyKpis();
     console.error(err);

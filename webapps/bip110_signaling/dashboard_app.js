@@ -22,7 +22,6 @@
       if (typeof renderAll === 'function') renderAll();
     });
     /* ────────────────────────────────────────────────────────────────── */
-    const AUTO_REFRESH_MS = 60000;
     const CONTROLS_STORAGE_KEY = "bip110_signaling_controls_v3";
     const BIP110_OVERLAY_SELECTIONS_STORAGE_KEY = "bip110_signaling_overlay_selections_v2";
     const PANEL_RESIZE_MIN_HEIGHT = 220;
@@ -236,9 +235,11 @@
       dataSignature: null,
       preResetStateSnapshot: null,
       suppressResetSnapshotClear: false,
-      autoRefreshTimer: null,
       phasedLoadToken: 0,
-      refreshInFlight: false,
+      interactiveInitialized: false,
+      interactiveHandlersBound: false,
+      refreshAdapterRegistered: false,
+      pendingRefreshRender: null,
       lastSuccessfulRefreshAt: 0,
       minerAttributions: null,
       minerAttributionPromise: null,
@@ -1105,7 +1106,15 @@
 
     function nextPaint() {
       return new Promise((resolve) => {
-        requestAnimationFrame(() => resolve());
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(fallbackTimer);
+          resolve();
+        };
+        const fallbackTimer = window.setTimeout(finish, 100);
+        requestAnimationFrame(finish);
       });
     }
 
@@ -1279,6 +1288,10 @@
       return `${path}${sep}v=${encodeURIComponent(value)}`;
     }
 
+    function getMinerAttributionCacheVersionFromMetadata(metadata) {
+      return String(metadata?.datasets?.miner_attributions?.sha256 || "").trim();
+    }
+
     function getMinerAttributionCacheVersion() {
       const dataset = state.dynamicData?.metadata?.datasets?.miner_attributions
         || state.data?.metadata?.datasets?.miner_attributions
@@ -1414,6 +1427,47 @@
       return loadLegacyMinerAttributionPayload(Date.now());
     }
 
+    async function loadMinerAttributionsForMetadata(metadata, cacheBust = null) {
+      const cacheVersion = getMinerAttributionCacheVersionFromMetadata(metadata);
+      if (!cacheVersion) return null;
+
+      const path = withCacheBust(withCacheVersion(MINER_ATTRIBUTIONS_PATH, cacheVersion), cacheBust);
+      const response = await fetch(path, DYNAMIC_FETCH_OPTIONS);
+      if (!response.ok) {
+        throw new Error(`Failed to load ${MINER_ATTRIBUTIONS_PATH} (${response.status})`);
+      }
+
+      const buffer = await response.arrayBuffer();
+      if (/^[a-f0-9]{64}$/i.test(cacheVersion) && globalThis.crypto?.subtle) {
+        const digest = await globalThis.crypto.subtle.digest("SHA-256", buffer);
+        const actualHash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+        if (actualHash.toLowerCase() !== cacheVersion.toLowerCase()) {
+          throw new Error("Miner attribution data does not match the current BIP-110 metadata generation.");
+        }
+      }
+
+      const payload = JSON.parse(new TextDecoder().decode(buffer));
+      if (!payload || typeof payload !== "object" || !payload.miners) {
+        throw new Error("Miner attribution data is incomplete.");
+      }
+      return payload;
+    }
+
+    function applyMinerAttributionPayloadToDynamicData(dynamicData, payload) {
+      if (!dynamicData || !payload) return dynamicData;
+      const bip110SignalMiners = buildMinerMapFromAttributionPayload(payload, "bip110");
+      const bip110NodeMiners = buildMinerMapFromAttributionPayload(payload, "bip110Node");
+      return {
+        ...dynamicData,
+        bip110SignalMiners,
+        bip110LeaderboardMiners: bip110SignalMiners,
+        bip110NodeMiners,
+        bip110NodeSignalMiners: bip110NodeMiners,
+        bip110Blocks: attachMinerData(dynamicData.bip110Blocks || [], bip110SignalMiners),
+        bip110NodeBlocks: attachMinerData(dynamicData.bip110NodeBlocks || [], bip110NodeMiners),
+      };
+    }
+
     async function ensureMinerAttributionsLoaded({ force = false } = {}) {
       const cacheVersion = getMinerAttributionCacheVersion();
       const signature = `${state.dataSignature || state.dynamicData?.signature || ""}|${cacheVersion}`;
@@ -1426,6 +1480,9 @@
 
       state.minerAttributionPromise = loadMinerAttributions(cacheVersion)
         .then((payload) => {
+          if (cacheVersion !== getMinerAttributionCacheVersion()) {
+            return state.minerAttributions;
+          }
           if (payload) {
             state.minerAttributions = payload;
             state.minerAttributionSignature = signature;
@@ -1495,10 +1552,12 @@
         throw new Error(`Failed to load webapp_data/bip110_metadata.json (${metadataResp.status})`);
       }
 
-      const metadata = await metadataResp.json();
+      const rawMetadata = await metadataResp.text();
+      const metadata = JSON.parse(rawMetadata);
       return {
         metadata,
         signature: buildMetadataSignature(metadata, metadataResp),
+        publishedSignature: rawMetadata.trim(),
       };
     }
 
@@ -1551,26 +1610,28 @@
       };
     }
 
-    async function loadDynamicData(cacheBust = null, dynamicMetadata = null, metadataSignature = null, previousDynamicData = null) {
-      const reuseReleases = Array.isArray(previousDynamicData?.bip110Releases)
+    async function loadDynamicData(cacheBust = null, dynamicMetadata = null, metadataSignature = null, previousDynamicData = null, options = {}) {
+      const requireComplete = options.requireComplete === true;
+      const forceCompanions = options.forceCompanions === true;
+      const reuseReleases = !forceCompanions && Array.isArray(previousDynamicData?.bip110Releases)
         && previousDynamicData.bip110Releases.length > 0;
-      const reuseTicks = Array.isArray(previousDynamicData?.bip110Ticks)
+      const reuseTicks = !forceCompanions && Array.isArray(previousDynamicData?.bip110Ticks)
         && previousDynamicData.bip110Ticks.length > 0;
 
       const files = {
         bip110Periods: withCacheBust("webapp_data/bip110_periods.csv", cacheBust),
       };
       if (!reuseReleases) {
-        files.bip110Releases = "webapp_data/bip110_releases.csv";
+        files.bip110Releases = withCacheBust("webapp_data/bip110_releases.csv", cacheBust);
       }
       if (!reuseTicks) {
-        files.bip110Ticks = "webapp_data/bip110_month_ticks.csv";
+        files.bip110Ticks = withCacheBust("webapp_data/bip110_month_ticks.csv", cacheBust);
       }
 
       const entries = Object.entries(files);
       const responsesList = await Promise.all(entries.map(([key, path]) => fetch(
         path,
-        key === "bip110Periods" ? DYNAMIC_FETCH_OPTIONS : STATIC_FETCH_OPTIONS
+        cacheBust != null ? DYNAMIC_FETCH_OPTIONS : (key === "bip110Periods" ? DYNAMIC_FETCH_OPTIONS : STATIC_FETCH_OPTIONS)
       )));
       const responseMap = Object.fromEntries(entries.map(([key], idx) => [key, responsesList[idx]]));
 
@@ -1600,8 +1661,14 @@
       const hasBip110NodeDataset = Boolean(metadata?.datasets?.bip110_node_blocks);
 
       const bip110NodePeriodsResp = hasBip110NodeDataset
-        ? await fetch(withCacheBust("webapp_data/bip110_node_periods.csv", cacheBust), DYNAMIC_FETCH_OPTIONS).catch(() => null)
+        ? await fetch(withCacheBust("webapp_data/bip110_node_periods.csv", cacheBust), DYNAMIC_FETCH_OPTIONS).catch((error) => {
+            if (requireComplete) throw error;
+            return null;
+          })
         : null;
+      if (requireComplete && hasBip110NodeDataset && !bip110NodePeriodsResp?.ok) {
+        throw new Error(`Failed to load webapp_data/bip110_node_periods.csv (${bip110NodePeriodsResp?.status || "network error"})`);
+      }
       const bip110NodePeriods = bip110NodePeriodsResp?.ok
         ? castRows(parseCsv(await bip110NodePeriodsResp.text()))
         : (hasBip110NodeDataset ? (previousDynamicData?.bip110NodePeriods || []) : []);
@@ -1731,9 +1798,101 @@
       };
     }
 
-    async function loadBlockPointsForDataset(datasetKey, metadata, cacheBust = null) {
+    function validateBlockPointBuffer(buffer, datasetMeta, label) {
+      const rows = Number(datasetMeta?.rows);
+      const recordSize = Number(datasetMeta?.record_size);
+      if (!Number.isInteger(rows) || rows < 0) {
+        throw new Error(`${label} metadata has an invalid row count.`);
+      }
+      if (![5, 9, 13].includes(recordSize)) {
+        throw new Error(`${label} metadata has an unsupported record size.`);
+      }
+      const expectedBytes = rows * recordSize;
+      if (buffer.byteLength !== expectedBytes) {
+        throw new Error(`${label} is incomplete (${buffer.byteLength} bytes; expected ${expectedBytes}).`);
+      }
+    }
+
+    function validateBlockPointRows(blocks, datasetMeta, label) {
+      const expectedRows = Number(datasetMeta?.rows);
+      const expectedStart = Number(datasetMeta?.start_height);
+      const expectedEnd = Number(datasetMeta?.end_height);
+      if (blocks.length !== expectedRows) {
+        throw new Error(`${label} decoded ${blocks.length} rows; expected ${expectedRows}.`);
+      }
+      if (expectedRows === 0) return;
+      if (blocks[0]?.height !== expectedStart || blocks[blocks.length - 1]?.height !== expectedEnd) {
+        throw new Error(`${label} heights do not match its metadata range.`);
+      }
+      for (let index = 1; index < blocks.length; index += 1) {
+        if (blocks[index].height !== blocks[index - 1].height + 1) {
+          throw new Error(`${label} contains a gap or out-of-order block at row ${index + 1}.`);
+        }
+      }
+    }
+
+    function validatePeriodRowsForBlocks(periodRows, blocks, label, metadata = null) {
+      if (!blocks.length) return;
+      if (!Array.isArray(periodRows) || periodRows.length === 0) {
+        throw new Error(`${label} period data is missing.`);
+      }
+      const periodSize = Number(metadata?.chart?.period_size || state.staticData?.metadata?.chart?.period_size || 2016);
+      const expectedPeriodCount = Number(metadata?.chart?.x_max || state.staticData?.metadata?.chart?.x_max || 0);
+      if (Number.isInteger(expectedPeriodCount) && expectedPeriodCount > 0 && periodRows.length !== expectedPeriodCount) {
+        throw new Error(`${label} period data has ${periodRows.length} rows; expected ${expectedPeriodCount}.`);
+      }
+
+      const firstPeriod = Number(periodRows[0]?.period);
+      const firstStart = Number(periodRows[0]?.period_start_height);
+      const countsByPeriod = new Map();
+      blocks.forEach((block) => {
+        const period = Number(block?.period);
+        const counts = countsByPeriod.get(period) || { elapsed: 0, signaling: 0 };
+        counts.elapsed += 1;
+        if (Number(block?.is_signaling) === 1) counts.signaling += 1;
+        countsByPeriod.set(period, counts);
+      });
+
+      periodRows.forEach((row, index) => {
+        const period = Number(row?.period);
+        const start = Number(row?.period_start_height);
+        const end = Number(row?.period_end_height);
+        const expectedPeriod = firstPeriod + index;
+        const expectedStart = firstStart + (index * periodSize);
+        if (period !== expectedPeriod || start !== expectedStart || end !== expectedStart + periodSize - 1) {
+          throw new Error(`${label} period row ${index + 1} has inconsistent bounds.`);
+        }
+        const counts = countsByPeriod.get(period);
+        if (!counts) return;
+        if (Number(row.elapsed_blocks) !== counts.elapsed || Number(row.signal_blocks) !== counts.signaling) {
+          throw new Error(`${label} period ${period} does not match its block data.`);
+        }
+        const expectedStatus = counts.elapsed >= periodSize ? "completed" : "in_progress";
+        if (String(row.status || "") !== expectedStatus) {
+          throw new Error(`${label} period ${period} has status ${row.status}; expected ${expectedStatus}.`);
+        }
+      });
+
+      const latestBlock = blocks[blocks.length - 1];
+      const periodRow = periodRows.find((row) => Number(row?.period) === Number(latestBlock.period));
+      if (!periodRow) {
+        throw new Error(`${label} period data does not cover block ${latestBlock.height}.`);
+      }
+      const periodStart = Number(periodRow.period_start_height);
+      const periodEnd = Number(periodRow.period_end_height);
+      if (latestBlock.height < periodStart || latestBlock.height > periodEnd) {
+        throw new Error(`${label} period bounds do not include block ${latestBlock.height}.`);
+      }
+    }
+
+    async function loadBlockPointsForDataset(datasetKey, metadata, cacheBust = null, options = {}) {
       const isSegwit = datasetKey === "segwit";
       const isBip110Node = datasetKey === "bip110Node";
+      const requireComplete = options.requireComplete === true;
+      const nodeDatasetMeta = metadata?.datasets?.bip110_node_blocks || null;
+      if (isBip110Node && !nodeDatasetMeta) {
+        return [];
+      }
       const file = isSegwit
         ? "webapp_data/segwit_block_points.bin"
         : isBip110Node
@@ -1742,23 +1901,26 @@
 
       const resp = await fetch(file, isSegwit ? STATIC_FETCH_OPTIONS : DYNAMIC_FETCH_OPTIONS);
       if (!resp.ok) {
-        if (isBip110Node && resp.status === 404) return [];
+        if (isBip110Node && resp.status === 404 && !requireComplete) return [];
         throw new Error(`Failed to load ${file} (${resp.status})`);
       }
 
       const periodSize = Number(metadata?.chart?.period_size || 2016);
-      const nodeDatasetMeta = metadata?.datasets?.bip110_node_blocks || null;
-      if (isBip110Node && !nodeDatasetMeta) {
-        return [];
-      }
       const datasetMeta = isSegwit
         ? (metadata?.datasets?.segwit_blocks || {})
         : isBip110Node
           ? nodeDatasetMeta
           : (metadata?.datasets?.bip110_blocks || {});
       const startHeight = Number(datasetMeta?.start_height || 0);
-
-      return decodeBlockPoints(await resp.arrayBuffer(), startHeight, periodSize, datasetMeta);
+      const buffer = await resp.arrayBuffer();
+      if (requireComplete) {
+        validateBlockPointBuffer(buffer, datasetMeta, datasetKey === "bip110Node" ? "BIP-110 node blocks" : "BIP-110 main blocks");
+      }
+      const blocks = decodeBlockPoints(buffer, startHeight, periodSize, datasetMeta);
+      if (requireComplete) {
+        validateBlockPointRows(blocks, datasetMeta, datasetKey === "bip110Node" ? "BIP-110 node blocks" : "BIP-110 main blocks");
+      }
+      return blocks;
     }
 
     function attachMinerData(blocks, minerMap) {
@@ -1799,95 +1961,377 @@
       return `${generated}|${height}`;
     }
 
-    async function fetchLatestBip110MetadataSignature() {
-      const cacheBust = Date.now();
-      const result = await loadDynamicMetadataOnly(cacheBust);
-      return result.signature;
+    function getDynamicGeneration(meta) {
+      const signature = getDataSignature(meta);
+      return signature === "|" ? "" : signature;
     }
 
-    async function refreshIfDataChanged() {
-      if (!state.data) return;
-      if (state.refreshInFlight) return;
+    function shouldIncludeMinerAttributionsInRefresh() {
+      return Boolean(
+        state.minerAttributions
+        || isMainChainPanelVisible()
+        || isMinerTimelineOverlayOpen()
+        || isChainSplitOverlayOpen()
+        || leaderboardOverlay?.classList.contains("show")
+      );
+    }
 
-      state.refreshInFlight = true;
-      let dashboardLoaderShown = false;
-      try {
-        const periodGridWasFollowingDefault = isPeriodGridOverlayOpen()
-          && getSelectedPeriodGridPeriod() === getDefaultPeriodGridPeriod();
-        const chainSplitWasFollowingLatest = isChainSplitOverlayOpen()
-          && (state.chainSplitFollowLatest === true || isChainSplitAtLatest(1));
-        const latestSig = await fetchLatestBip110MetadataSignature();
-        if (!latestSig || latestSig === state.dataSignature) {
-          state.refreshInFlight = false;
+    function hasCompleteStaticDashboardData(staticData) {
+      return Boolean(
+        staticData?.metadata
+        && Array.isArray(staticData.segwitPeriods)
+        && staticData.segwitPeriods.length > 0
+        && Array.isArray(staticData.segwitBlocks)
+        && staticData.segwitBlocks.length > 0
+      );
+    }
+
+    async function prepareStaticDashboardDataForRefresh(cacheBust) {
+      if (hasCompleteStaticDashboardData(state.staticData)) {
+        return { ...state.staticData };
+      }
+
+      const staticMetadata = state.staticData?.metadata || (await loadStaticMetadataOnly()).metadata;
+      const staticData = Array.isArray(state.staticData?.segwitPeriods) && state.staticData.segwitPeriods.length > 0
+        ? { ...state.staticData, metadata: staticMetadata }
+        : await loadStaticData(staticMetadata);
+      if (!Array.isArray(staticData.segwitBlocks) || staticData.segwitBlocks.length === 0) {
+        const segwitBlocks = await loadBlockPointsForDataset(
+          "segwit",
+          staticMetadata,
+          cacheBust,
+          { requireComplete: true }
+        );
+        staticData.segwitBlocks = attachLowActivityBlockData(
+          attachMinerData(segwitBlocks, staticData.segwitMiners),
+          staticData.segwitLowActivityBlocks
+        );
+      }
+      return staticData;
+    }
+
+    async function prepareDynamicRefreshCandidate(
+      metadataResult,
+      cacheBust,
+      includeMinerAttributions,
+      previousDynamicData,
+      staticData,
+      previousData,
+      currentMinerAttributions
+    ) {
+      const metadata = metadataResult.metadata;
+      const hasNodeDataset = Boolean(metadata?.datasets?.bip110_node_blocks);
+      const minerCacheVersion = getMinerAttributionCacheVersionFromMetadata(metadata);
+      const previousMinerCacheVersion = getMinerAttributionCacheVersionFromMetadata(previousDynamicData?.metadata);
+      const needsMinerAttributionFetch = includeMinerAttributions
+        && minerCacheVersion
+        && (!currentMinerAttributions || minerCacheVersion !== previousMinerCacheVersion);
+      const minerPromise = needsMinerAttributionFetch
+        ? loadMinerAttributionsForMetadata(metadata, cacheBust)
+        : Promise.resolve(null);
+      const [baseDynamicData, bip110Blocks, bip110NodeBlocks, fetchedMinerAttributions] = await Promise.all([
+        loadDynamicData(
+          cacheBust,
+          metadata,
+          metadataResult.signature,
+          previousDynamicData,
+          { requireComplete: true, forceCompanions: true }
+        ),
+        loadBlockPointsForDataset("bip110", metadata, cacheBust, { requireComplete: true }),
+        hasNodeDataset
+          ? loadBlockPointsForDataset("bip110Node", metadata, cacheBust, { requireComplete: true })
+          : Promise.resolve([]),
+        minerPromise,
+      ]);
+
+      let dynamicData = {
+        ...baseDynamicData,
+        bip110Blocks: attachMinerData(bip110Blocks, baseDynamicData.bip110SignalMiners),
+        bip110NodeBlocks: attachMinerData(
+          bip110NodeBlocks,
+          baseDynamicData.bip110NodeSignalMiners || baseDynamicData.bip110NodeMiners
+        ),
+      };
+      if (fetchedMinerAttributions) {
+        dynamicData = applyMinerAttributionPayloadToDynamicData(dynamicData, fetchedMinerAttributions);
+      }
+      validatePeriodRowsForBlocks(dynamicData.bip110Periods, dynamicData.bip110Blocks, "BIP-110 main", metadata);
+      if (hasNodeDataset) {
+        validatePeriodRowsForBlocks(dynamicData.bip110NodePeriods, dynamicData.bip110NodeBlocks, "BIP-110 node", metadata);
+      }
+      dynamicData = reconcileBip110PeriodsFromBlocks(dynamicData, metadata);
+
+      const confirmedMetadataResult = await loadDynamicMetadataOnly(Date.now());
+      const candidateGeneration = getDynamicGeneration(metadata);
+      const confirmedGeneration = getDynamicGeneration(confirmedMetadataResult.metadata);
+      if (!candidateGeneration || candidateGeneration !== confirmedGeneration) {
+        const error = new Error("BIP-110 data changed while the refresh snapshot was loading.");
+        error.code = "BIP110_REFRESH_GENERATION_CHANGED";
+        throw error;
+      }
+
+      dynamicData = {
+        ...dynamicData,
+        signature: confirmedMetadataResult.signature || metadataResult.signature,
+        publishedSignature: confirmedMetadataResult.publishedSignature || metadataResult.publishedSignature,
+      };
+      const data = buildCombinedData(staticData, dynamicData, previousData);
+      const minerAttributions = fetchedMinerAttributions
+        || (minerCacheVersion === previousMinerCacheVersion ? currentMinerAttributions : null);
+      return {
+        dynamicData,
+        data,
+        dataSignature: dynamicData.signature || candidateGeneration,
+        publishedSignature: dynamicData.publishedSignature,
+        minerAttributions,
+        minerAttributionSignature: minerAttributions
+          ? `${dynamicData.signature || candidateGeneration}|${minerCacheVersion}`
+          : null,
+      };
+    }
+
+    function captureDynamicRefreshViewState() {
+      return {
+        periodGridWasFollowingDefault: isPeriodGridOverlayOpen()
+          && getSelectedPeriodGridPeriod() === getDefaultPeriodGridPeriod(),
+        mainChainWasFollowingLatest: isMainChainPanelVisible()
+          && (state.mainChainSplitFollowLatest === true || isMainChainSplitAtLatest(1)),
+        chainSplitWasFollowingLatest: isChainSplitOverlayOpen()
+          && (state.chainSplitFollowLatest === true || isChainSplitAtLatest(1)),
+      };
+    }
+
+    function renderCommittedDynamicRefresh(viewState = {}) {
+      if (!state.data) return;
+      setStatus(state.data);
+      syncMainChainPanelVisibility();
+      renderSelectedPanels(BIP110_PANEL_KEYS);
+      refreshOpenOverlays({
+        followDefaultPeriodGrid: !!viewState.periodGridWasFollowingDefault,
+        followLatestMainChainSplit: !!viewState.mainChainWasFollowingLatest,
+        followLatestChainSplit: !!viewState.chainSplitWasFollowingLatest,
+      });
+      if (state.pinnedTooltip) {
+        showTooltip(state.pinnedTooltip.content, state.pinnedTooltip.x, state.pinnedTooltip.y);
+      }
+    }
+
+    function clearInitialLoadErrors() {
+      document.querySelectorAll("main > .error").forEach((error) => error.remove());
+    }
+
+    function bindBip110InteractiveHandlers() {
+      if (state.interactiveHandlersBound) return;
+      state.interactiveHandlersBound = true;
+      setControlHandlers();
+      setupSwapButton();
+      setupPanelFillButtons();
+      setupPanelResizeHandles();
+      attachPointer(segwitCanvas, "segwit");
+      attachPointer(bip110Canvas, "bip110");
+      attachPointer(bip110NodeCanvas, "bip110Node");
+
+      window.addEventListener("resize", () => {
+        syncManualPanelHeightsToViewport();
+        applyDynamicPanelHeights();
+        renderAll();
+        if (state.pinnedTooltip) {
+          showTooltip(state.pinnedTooltip.content, state.pinnedTooltip.x, state.pinnedTooltip.y);
+        }
+      });
+
+      window.addEventListener("keydown", (ev) => {
+        if (ev.key === "Escape") {
+          if (isPeriodGridOverlayOpen()) {
+            closePeriodGridOverlay();
+            return;
+          }
+          state.pinnedTooltip = null;
+          hideTooltip();
+        }
+      });
+
+      window.addEventListener("storage", (ev) => {
+        if (ev.key === BIP110_OVERLAY_SELECTIONS_STORAGE_KEY) {
+          refreshBip110OverlaySelectionsFromStorage();
           return;
         }
+        if (!DASHBOARD_TIME?.STORAGE_KEY || ev.key !== DASHBOARD_TIME.STORAGE_KEY) return;
+        const newTz = DASHBOARD_TIME.getPreferredTimeZone?.() || "UTC";
+        if (newTz !== state.timeZone) {
+          state.timeZone = newTz;
+          if (state.data) setStatus(state.data);
+        }
+      });
+    }
 
-        const loadBuster = Date.now();
-        const loadToken = ++state.phasedLoadToken;
-        state.dynamicData = await loadDynamicData(loadBuster, null, null, state.dynamicData);
-        state.data = buildCombinedData(state.staticData, state.dynamicData, state.data);
-        state.dataSignature = state.dynamicData.signature || getDataSignature(state.dynamicData.metadata);
-        state.lastSuccessfulRefreshAt = Date.now();
-        setStatus(state.data);
-        updatePanelVisibility();
-        state.pinnedTooltip = null;
-        hideTooltip();
-        await nextPaint();
-        if (loadToken !== state.phasedLoadToken) return;
+    async function completeBip110InteractiveInitialization() {
+      if (state.interactiveInitialized) return;
+      if (!state.data) throw new Error("BIP-110 dashboard data is unavailable.");
 
-        await loadAndApplyBlockDataPhased(loadToken, state.data.metadata, ["bip110", "bip110Node"], loadBuster, { renderAfterEach: false });
-        if (loadToken !== state.phasedLoadToken) return;
-        if (state.minerAttributions || isMainChainPanelVisible() || isMinerTimelineOverlayOpen() || isChainSplitOverlayOpen() || leaderboardOverlay?.classList.contains("show")) {
+      bindBip110InteractiveHandlers();
+      setStatus(state.data);
+      applyPanelOrder();
+      updateFillButtonState("segwit");
+      updateFillButtonState("bip110");
+      updateFillButtonState("bip110Node");
+      updatePanelVisibility();
+      updateResetButtonUi();
+      await renderSelectedPanelsWithSharedLoader(PANEL_KEYS, {
+        enhanced: false,
+        scheduleEnhancements: true,
+      });
+      state.interactiveInitialized = true;
+      setControlsEnabled(true);
+      setPanelLoadersVisible(false);
+      clearInitialLoadErrors();
+      updateResetButtonUi();
+      if (typeof window.requestIdleCallback === "function") {
+        window.requestIdleCallback(() => updateResetButtonUi(), { timeout: 500 });
+      } else {
+        window.setTimeout(() => updateResetButtonUi(), 100);
+      }
+    }
+
+    async function flushPendingDynamicRefreshRender() {
+      if (!state.pendingRefreshRender || document.visibilityState === "hidden") return false;
+      const pending = state.pendingRefreshRender;
+      state.pendingRefreshRender = null;
+      if (!state.interactiveInitialized) {
+        try {
+          await completeBip110InteractiveInitialization();
+          if (isMainChainPanelVisible()) {
+            scheduleMinerAttributionRefreshAfterInitialPaint();
+          }
+          return true;
+        } catch (err) {
+          state.pendingRefreshRender = pending;
+          console.warn("BIP-110 deferred startup presentation failed:", err);
+          return false;
+        }
+      }
+      renderCommittedDynamicRefresh(pending.viewState);
+      return true;
+    }
+
+    async function commitDynamicRefreshCandidate(candidate, viewState) {
+      state.staticData = candidate.staticData || state.staticData;
+      state.dynamicData = candidate.dynamicData;
+      state.data = candidate.data;
+      state.dataSignature = candidate.dataSignature;
+      state.lastSuccessfulRefreshAt = Date.now();
+      state.mainChainSplitDataReady = true;
+      if (candidate.minerAttributions) {
+        state.minerAttributions = candidate.minerAttributions;
+        state.minerAttributionSignature = candidate.minerAttributionSignature;
+      }
+      clearInitialLoadErrors();
+
+      if (!state.interactiveInitialized) {
+        if (document.visibilityState === "hidden") {
+          state.pendingRefreshRender = { viewState, initialize: true };
+          return;
+        }
+        await completeBip110InteractiveInitialization();
+        state.pendingRefreshRender = null;
+        if (isMainChainPanelVisible()) {
           scheduleMinerAttributionRefreshAfterInitialPaint();
         }
-        setStatus(state.data);
-        refreshOpenOverlays({
-          followDefaultPeriodGrid: periodGridWasFollowingDefault,
-          followLatestChainSplit: chainSplitWasFollowingLatest,
-        });
-      } catch (err) {
-        console.warn("Auto-refresh check failed:", err);
-      } finally {
-        state.refreshInFlight = false;
-        if (dashboardLoaderShown) {
-          setDashboardLoaderVisible(false);
+        return;
+      }
+
+      if (document.visibilityState === "hidden") {
+        state.pendingRefreshRender = { viewState };
+        return;
+      }
+      state.pendingRefreshRender = null;
+      renderCommittedDynamicRefresh(viewState);
+    }
+
+    function validateDynamicRefreshCandidate(candidate, context = {}) {
+      if (!candidate?.dynamicData || !candidate?.data) return false;
+      if (!hasCompleteStaticDashboardData(candidate.staticData)) return false;
+      if (!candidate.publishedSignature || candidate.publishedSignature !== context.signature) {
+        return false;
+      }
+
+      const candidateGeneration = getDynamicGeneration(candidate.dynamicData.metadata);
+      const combinedGeneration = getDynamicGeneration(candidate.data.metadata);
+      return Boolean(candidateGeneration && candidateGeneration === combinedGeneration);
+    }
+
+    function getInstalledDynamicRefreshSignature() {
+      if (!state.interactiveInitialized || !hasCompleteStaticDashboardData(state.staticData)) return "";
+      const dynamicData = state.dynamicData;
+      const metadata = dynamicData?.metadata;
+      const publishedSignature = String(dynamicData?.publishedSignature || "").trim();
+      if (!metadata || !publishedSignature) return "";
+
+      try {
+        validateBlockPointRows(dynamicData.bip110Blocks || [], metadata.datasets?.bip110_blocks || {}, "BIP-110 main blocks");
+        validatePeriodRowsForBlocks(dynamicData.bip110Periods, dynamicData.bip110Blocks, "BIP-110 main", metadata);
+        if (metadata.datasets?.bip110_node_blocks) {
+          validateBlockPointRows(dynamicData.bip110NodeBlocks || [], metadata.datasets.bip110_node_blocks, "BIP-110 node blocks");
+          validatePeriodRowsForBlocks(dynamicData.bip110NodePeriods, dynamicData.bip110NodeBlocks, "BIP-110 node", metadata);
         }
-        setControlsEnabled(true);
+        return publishedSignature;
+      } catch (err) {
+        console.warn("BIP-110 initial generation is incomplete; scheduling a clean refresh:", err);
+        return "";
       }
     }
 
-    function triggerRefreshSoon(delayMs = 150) {
-      window.setTimeout(() => {
-        refreshIfDataChanged();
-      }, delayMs);
-    }
+    function registerDataRefreshAdapter() {
+      const controller = window.WSBWebappDataAutoRefresh;
+      if (typeof controller?.register !== "function") {
+        console.warn("BIP-110 auto-refresh controller is unavailable.");
+        return;
+      }
+      if (state.refreshAdapterRegistered) return;
+      state.refreshAdapterRegistered = true;
 
-    function setupRefreshWakeEvents() {
+      controller.register({
+        getInstalledSignature: getInstalledDynamicRefreshSignature,
+        prepare: async (context = {}) => {
+          const metadataResult = await loadDynamicMetadataOnly(`${context.requestId || Date.now()}-metadata`);
+          if (!metadataResult.publishedSignature || metadataResult.publishedSignature !== context.signature) {
+            return null;
+          }
+
+          const staticData = await prepareStaticDashboardDataForRefresh(
+            `${context.requestId || Date.now()}-static`
+          );
+          const candidate = await prepareDynamicRefreshCandidate(
+            metadataResult,
+            `${context.requestId || Date.now()}-snapshot`,
+            shouldIncludeMinerAttributionsInRefresh(),
+            { ...state.dynamicData },
+            staticData,
+            state.data,
+            state.minerAttributions
+          );
+          return { ...candidate, staticData };
+        },
+        validate: validateDynamicRefreshCandidate,
+        commit: async (candidate) => {
+          await commitDynamicRefreshCandidate(candidate, captureDynamicRefreshViewState());
+          return true;
+        },
+        onError: (err) => {
+          if (err?.code !== "BIP110_REFRESH_GENERATION_CHANGED") {
+            console.warn("BIP-110 data refresh failed:", err);
+          }
+        },
+      });
+
+      // State can be committed while the document is hidden. Presentation is
+      // deliberately deferred until the first visible frame; refresh probing
+      // and wake coalescing remain owned by the shared controller.
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") {
-          triggerRefreshSoon(0);
+          void flushPendingDynamicRefreshRender();
         }
       });
-
-      window.addEventListener("focus", () => {
-        triggerRefreshSoon(0);
-      });
-
-      window.addEventListener("pageshow", () => {
-        triggerRefreshSoon(0);
-      });
-
-      window.addEventListener("online", () => {
-        triggerRefreshSoon(0);
-      });
-
-    }
-
-    function startAutoRefresh() {
-      if (state.autoRefreshTimer) {
-        clearInterval(state.autoRefreshTimer);
-      }
-      state.autoRefreshTimer = setInterval(refreshIfDataChanged, AUTO_REFRESH_MS);
     }
 
     function persistControls() {
@@ -9332,6 +9776,9 @@
     }
 
     function refreshOpenOverlays(options = {}) {
+      const followLatestMainChainSplit = options.followLatestMainChainSplit != null
+        ? !!options.followLatestMainChainSplit
+        : !!options.followLatestChainSplit;
       if (isPeriodGridOverlayOpen()) {
         hidePeriodGridTooltip();
         if (options.followDefaultPeriodGrid) {
@@ -9347,10 +9794,10 @@
         renderBip110MinerTimelineOverlay();
       }
       if (isMainChainPanelVisible()) {
-        if (options.followLatestChainSplit) {
+        if (followLatestMainChainSplit) {
           state.mainChainSplitFollowLatest = true;
         }
-        renderMainChainSplitPanel({ forceFollowLatest: !!options.followLatestChainSplit });
+        renderMainChainSplitPanel({ forceFollowLatest: followLatestMainChainSplit });
       }
       if (isChainSplitOverlayOpen()) {
         hidePeriodGridTooltip();
@@ -10107,6 +10554,7 @@
         state.dynamicData = {
           metadata: dynamicMetadataResult.metadata,
           signature: dynamicMetadataResult.signature,
+          publishedSignature: dynamicMetadataResult.publishedSignature,
           bip110Periods: [],
           bip110Blocks: [],
           bip110Releases: [],
@@ -10116,34 +10564,19 @@
         state.data = buildCombinedData(state.staticData, state.dynamicData);
         state.dataSignature = dynamicMetadataResult.signature;
         setStatus(state.data);
-        await nextPaint();
+        if (document.visibilityState !== "hidden") {
+          await nextPaint();
+        }
         [state.staticData, state.dynamicData] = await Promise.all([
           loadStaticData(staticMetadataResult.metadata),
           loadDynamicData(null, dynamicMetadataResult.metadata, dynamicMetadataResult.signature),
         ]);
+        state.dynamicData.publishedSignature = dynamicMetadataResult.publishedSignature;
         state.data = buildCombinedData(state.staticData, state.dynamicData);
         state.dataSignature = state.dynamicData.signature || dynamicMetadataResult.signature;
         state.lastSuccessfulRefreshAt = Date.now();
-        setStatus(state.data);
-        setControlHandlers();
-        setupSwapButton();
-        applyPanelOrder();
-        setupPanelFillButtons();
-        updateFillButtonState("segwit");
-        updateFillButtonState("bip110");
-        updateFillButtonState("bip110Node");
-        setupPanelResizeHandles();
-        updatePanelVisibility();
-        attachPointer(segwitCanvas, "segwit");
-        attachPointer(bip110Canvas, "bip110");
-        attachPointer(bip110NodeCanvas, "bip110Node");
-        updateResetButtonUi();
-        setupRefreshWakeEvents();
-        startAutoRefresh();
-        await renderSelectedPanelsWithSharedLoader(PANEL_KEYS, { enhanced: false, scheduleEnhancements: true });
+        await completeBip110InteractiveInitialization();
         // Keep controls responsive while block marker data finishes loading in the background.
-        setControlsEnabled(true);
-        updateResetButtonUi();
         if (loadToken !== state.phasedLoadToken) return;
 
         await loadAndApplyBlockDataPhased(loadToken, state.data.metadata, ["segwit", "bip110", "bip110Node"]);
@@ -10151,50 +10584,16 @@
           scheduleMinerAttributionRefreshAfterInitialPaint();
         }
         updateResetButtonUi();
-        // Ensure button state is properly set after all rendering and loading completes
-        if (typeof window.requestIdleCallback === 'function') {
-          window.requestIdleCallback(() => updateResetButtonUi(), { timeout: 500 });
-        } else {
-          window.setTimeout(() => updateResetButtonUi(), 100);
-        }
-
-        window.addEventListener("resize", () => {
-          syncManualPanelHeightsToViewport();
-          applyDynamicPanelHeights();
-          renderAll();
-          if (state.pinnedTooltip) {
-            showTooltip(state.pinnedTooltip.content, state.pinnedTooltip.x, state.pinnedTooltip.y);
-          }
-        });
-
-        window.addEventListener("keydown", (ev) => {
-          if (ev.key === "Escape") {
-            if (isPeriodGridOverlayOpen()) {
-              closePeriodGridOverlay();
-              return;
-            }
-            state.pinnedTooltip = null;
-            hideTooltip();
-          }
-        });
-
-        window.addEventListener("storage", (ev) => {
-          if (ev.key === BIP110_OVERLAY_SELECTIONS_STORAGE_KEY) {
-            refreshBip110OverlaySelectionsFromStorage();
-            return;
-          }
-          if (!DASHBOARD_TIME?.STORAGE_KEY || ev.key !== DASHBOARD_TIME.STORAGE_KEY) return;
-          const newTz = DASHBOARD_TIME.getPreferredTimeZone?.() || "UTC";
-          if (newTz !== state.timeZone) {
-            state.timeZone = newTz;
-            if (state.data) setStatus(state.data);
-          }
-        });
       } catch (err) {
         console.error(err);
         setPanelLoadersVisible(false);
         showError(String(err.message || err));
         setControlsEnabled(true);
+      } finally {
+        // Even a transient or crossed initial publication must be recoverable
+        // in place. An empty installed signature makes the shared controller
+        // retry the current complete generation without navigating the iframe.
+        registerDataRefreshAdapter();
       }
     }
 

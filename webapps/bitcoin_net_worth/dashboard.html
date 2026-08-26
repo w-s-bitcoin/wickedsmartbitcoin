@@ -279,7 +279,9 @@
     </main>
 
     <script>
-      window.WSBWebappDataAutoRefresh = { urls: ["webapp_data/demo_history.csv"] };
+      window.WSBWebappDataAutoRefresh = {
+        urls: ["webapp_data/demo_history.csv", "../../assets/last_updated.txt"]
+      };
     </script>
     <script src="../shared/webapp_data_auto_refresh.js"></script>
     <script src="dashboard_app.js"></script>

@@ -35,22 +35,91 @@
 </head>
 <body>
   <img id="bitcoinPreviewIcon" src="../../assets/bitcoin-icon.png" alt="Bitcoin" />
-  <script src="../shared/preview_shared.js?v=20260612-grid-ready-v2"></script>
+  <script src="../shared/preview_shared.js?v=20260825-stage5-atomic-v1"></script>
   <script>
-    window.WSBPreviewShared?.initThemeSync?.();
     (() => {
       const image = document.getElementById('bitcoinPreviewIcon');
-      const markReady = () => window.WSBPreviewShared?.markReady?.({ filename: 'bitcoin_net_worth.png' });
-      if (!image) {
-        markReady();
-        return;
+      const baseSrc = '../../assets/bitcoin-icon.png';
+      const params = new URLSearchParams(window.location.search);
+      const requestedTestTimeout = Number(params.get('wsb_preview_asset_timeout_ms'));
+      const assetWaitTimeoutMs = (
+        params.get('stage5_preview_test') === '1'
+        && Number.isFinite(requestedTestTimeout)
+        && requestedTestTimeout > 0
+      )
+        ? Math.max(100, Math.min(15000, requestedTestTimeout))
+        : 12000;
+      let initialWaitSettled = false;
+      let retryInFlight = false;
+
+      function setPreviewState(loaded) {
+        if (!image) return;
+        image.dataset.previewState = loaded ? 'ready' : 'fallback';
       }
-      if (image.complete && image.naturalWidth) {
-        markReady();
-        return;
+
+      function waitForIcon({ refresh = false } = {}) {
+        if (!image) return Promise.resolve(false);
+        if (!refresh && image.complete && image.naturalWidth) {
+          setPreviewState(true);
+          return Promise.resolve(true);
+        }
+        return new Promise(resolve => {
+          let settled = false;
+          let timer = 0;
+          const finish = value => {
+            if (settled) return;
+            settled = true;
+            if (timer) window.clearTimeout(timer);
+            image.removeEventListener('load', loaded);
+            image.removeEventListener('error', failed);
+            const available = value === true && image.naturalWidth > 0;
+            setPreviewState(available);
+            resolve(available);
+          };
+          const loaded = () => finish(image.naturalWidth > 0);
+          const failed = () => finish(false);
+          image.addEventListener('load', loaded, { once: true });
+          image.addEventListener('error', failed, { once: true });
+          timer = window.setTimeout(() => finish(false), assetWaitTimeoutMs);
+          if (refresh) {
+            const retryUrl = new URL(baseSrc, document.baseURI);
+            retryUrl.searchParams.set('wsb_preview_asset_retry', String(Date.now()));
+            image.src = retryUrl.href;
+          }
+          if (image.complete) window.queueMicrotask(loaded);
+        });
       }
-      image.addEventListener('load', markReady, { once: true });
-      image.addEventListener('error', markReady, { once: true });
+
+      async function recoverIcon() {
+        if (!initialWaitSettled || retryInFlight) return;
+        if (image?.naturalWidth) {
+          setPreviewState(true);
+          return;
+        }
+        retryInFlight = true;
+        try {
+          await waitForIcon({ refresh: true });
+        } finally {
+          retryInFlight = false;
+        }
+      }
+
+      window.WSBPreviewShared?.initStaticPreview?.({
+        filename: 'bitcoin_net_worth.png',
+        ready: async () => {
+          try {
+            return await waitForIcon();
+          } finally {
+            initialWaitSettled = true;
+          }
+        },
+      });
+      window.addEventListener('online', recoverIcon);
+      window.addEventListener('pageshow', recoverIcon);
+      document.addEventListener('resume', recoverIcon);
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') recoverIcon();
+      });
     })();
   </script>
 </body>

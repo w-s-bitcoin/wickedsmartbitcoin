@@ -12,9 +12,11 @@
   });
 
   const state = {
+    installedSignature: null,
     metadata: null,
     periods: [],
   };
+  let dataRefresher = null;
 
   function parseCsv(text) {
     const rows = [];
@@ -54,14 +56,18 @@
       value += current;
     }
 
+    if (inQuotes) throw new Error("BIP-110 period CSV contains an unterminated quoted field.");
     if (value.length > 0 || row.length > 0) {
       row.push(value);
       rows.push(row);
     }
 
     if (!rows.length) return [];
-    const headers = rows[0];
+    const headers = rows[0].map((header) => String(header || "").trim());
     return rows.slice(1).map((cells) => {
+      if (cells.length !== headers.length) {
+        throw new Error("BIP-110 period CSV contains an incomplete row.");
+      }
       const parsed = {};
       headers.forEach((header, index) => {
         parsed[header] = (cells[index] ?? "").trim();
@@ -88,6 +94,14 @@
 
   function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
+  }
+
+  async function sha256Text(text) {
+    if (!window.crypto?.subtle || typeof TextEncoder !== "function") {
+      throw new Error("SHA-256 validation is unavailable in this browser.");
+    }
+    const digest = await window.crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+    return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
   }
 
   function getPeriodSize() {
@@ -157,11 +171,24 @@
 
   function render() {
     const chart = document.getElementById("previewChart");
-    if (!chart) return;
+    if (!chart) return false;
     chart.replaceChildren();
 
     const rows = getVisiblePeriods();
-    if (!rows.length) return;
+    if (!rows.length) {
+      chart.dataset.previewState = "fallback";
+      const fallback = createSvgElement("text", {
+        x: CHART.width / 2,
+        y: CHART.height / 2,
+        fill: "var(--nonsignal)",
+        "font-family": "IBM Plex Mono, monospace",
+        "font-size": 26,
+        "text-anchor": "middle",
+      });
+      fallback.textContent = "Preview unavailable";
+      chart.appendChild(fallback);
+      return true;
+    }
 
     const periodSize = getPeriodSize();
     const currentMainPeriod = getMainChainPeriod();
@@ -216,40 +243,109 @@
       "aria-label",
       `Main-chain BIP-110 signaling periods 1 through ${Number(rows[rows.length - 1].period)}`
     );
+    chart.dataset.previewState = "ready";
+    return true;
   }
 
-  async function load() {
-    const [metadataResp, periodsResp] = await Promise.all([
-      fetch("webapp_data/bip110_metadata.json", { cache: "no-store" }),
-      fetch("webapp_data/bip110_periods.csv", { cache: "no-store" }),
-    ]);
-
-    if (!metadataResp.ok) throw new Error(`Failed to load webapp_data/bip110_metadata.json (${metadataResp.status})`);
-    if (!periodsResp.ok) throw new Error(`Failed to load webapp_data/bip110_periods.csv (${periodsResp.status})`);
-
-    const metadataRoot = await metadataResp.json();
-    state.metadata = metadataRoot;
-    state.periods = castRows(parseCsv(await periodsResp.text()));
+  async function prepareCandidate(context) {
+    const markerText = String(context.signatureParts?.[0] || "").trim();
+    const metadata = JSON.parse(markerText);
+    const periodsResponse = await context.fetchFresh("webapp_data/bip110_periods.csv");
+    const periodsText = await periodsResponse.text();
+    return {
+      metadata,
+      periods: castRows(parseCsv(periodsText)),
+      periodsHash: await sha256Text(periodsText),
+    };
   }
 
-  async function init() {
-    window.WSBPreviewShared?.initThemeSync({ onThemeChanged: render });
-    await load();
-    render();
-    window.WSBPreviewShared?.markReady?.({ filename: "bip110_signaling.png" });
-    window.addEventListener("resize", render);
-    window.WSBPreviewShared
-      ?.createAutoRefresher({
-        intervalMs: AUTO_REFRESH_MS,
-        refresh: async () => {
-          await load();
-          render();
-        },
-      })
-      .start();
+  function validateCandidate(candidate) {
+    const metadata = candidate?.metadata;
+    const artifact = metadata?.datasets?.bip110_periods;
+    const rows = candidate?.periods;
+    const expectedHash = String(artifact?.sha256 || "").toLowerCase();
+    const expectedHeaders = [
+      "period",
+      "period_start_height",
+      "period_end_height",
+      "status",
+      "signal_blocks",
+      "elapsed_blocks",
+    ];
+    if (!metadata || !Number.isInteger(Number(metadata.source_block_height))) return false;
+    if (String(artifact?.path || "") !== "bip110_periods.csv") return false;
+    if (!/^[a-f0-9]{64}$/.test(expectedHash) || candidate.periodsHash !== expectedHash) return false;
+    if (!Array.isArray(rows) || rows.length !== Number(artifact.rows) || rows.length < 1) return false;
+    if (Object.keys(rows[0] || {}).join("|") !== expectedHeaders.join("|")) return false;
+    if (Number(rows[0]?.period) !== Number(artifact.first_period)) return false;
+    if (Number(rows[rows.length - 1]?.period) !== Number(artifact.last_period)) return false;
+    if (Number(rows[0]?.period_start_height) !== Number(artifact.start_height)) return false;
+    if (Number(rows[rows.length - 1]?.period_end_height) !== Number(artifact.end_height)) return false;
+
+    let previousEnd = null;
+    for (let index = 0; index < rows.length; index += 1) {
+      const row = rows[index];
+      const period = Number(row.period);
+      const start = Number(row.period_start_height);
+      const end = Number(row.period_end_height);
+      const signal = Number(row.signal_blocks);
+      const elapsed = Number(row.elapsed_blocks);
+      const status = String(row.status || "");
+      const periodSize = end - start + 1;
+      if (![period, start, end, signal, elapsed].every(Number.isInteger)) return false;
+      if (period !== Number(artifact.first_period) + index || periodSize !== 2016) return false;
+      if (previousEnd !== null && start !== previousEnd + 1) return false;
+      if (elapsed < 0 || elapsed > periodSize || signal < 0 || signal > elapsed) return false;
+      if (status !== (elapsed === periodSize ? "completed" : elapsed > 0 ? "in_progress" : "future")) {
+        return false;
+      }
+      previousEnd = end;
+    }
+
+    const installedHeight = Number(state.metadata?.source_block_height);
+    const candidateHeight = Number(metadata.source_block_height);
+    if (Number.isFinite(installedHeight) && candidateHeight < installedHeight) return false;
+    return true;
   }
 
-  init().catch((error) => {
+  function initialize() {
+    window.WSBPreviewShared?.initThemeSync({
+      onThemeChanged: () => dataRefresher?.requestPresent("theme"),
+    });
+    dataRefresher = window.WSBPreviewShared?.createDataRefresher({
+      filename: "bip110_signaling.png",
+      urls: ["webapp_data/bip110_metadata.json"],
+      intervalMs: AUTO_REFRESH_MS,
+      getInstalledSignature: () => state.installedSignature,
+      prepare: prepareCandidate,
+      validate: (candidate) => {
+        if (!validateCandidate(candidate)) {
+          throw new Error("BIP-110 preview publication is incomplete or inconsistent.");
+        }
+        return true;
+      },
+      commit: (candidate, context) => {
+        state.metadata = candidate.metadata;
+        state.periods = candidate.periods;
+        state.installedSignature = context.signature;
+        return true;
+      },
+      present: render,
+      onInitialError: (error) => {
+        console.error(error);
+        if (document.visibilityState === "visible") render();
+      },
+      onError: (error) => console.warn("BIP-110 preview refresh failed:", error),
+    });
+    window.addEventListener("resize", () => dataRefresher?.requestPresent("resize"));
+    dataRefresher?.start();
+  }
+
+  try {
+    initialize();
+  } catch (error) {
     console.error(error);
-  });
+    if (document.visibilityState === "visible") render();
+    window.WSBPreviewShared?.markReady?.({ filename: "bip110_signaling.png" });
+  }
 }());

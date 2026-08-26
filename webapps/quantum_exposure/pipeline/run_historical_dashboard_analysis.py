@@ -24,6 +24,11 @@ from typing import Iterable
 import psycopg2
 from dotenv import load_dotenv
 from pipeline_paths import PIPELINE_DIR, QUANTUM_DIR, resolve_env_file
+from publish_generation import (
+    publish_generation_marker,
+    read_latest_snapshot_height,
+    read_published_snapshot_height,
+)
 
 import run_dashboard_analysis as rda
 
@@ -1707,14 +1712,38 @@ def run_main_pipeline_postprocess(snapshot_heights: list[int], out_dir: Path, en
     print(f"$ ({PIPELINE_DIR}) {' '.join(generate_cmd)}")
     subprocess.run(generate_cmd, cwd=PIPELINE_DIR, env=env, check=True)
 
+    # Historical rebuilds can change top-100 subsets and historical/index data
+    # without changing latest_snapshot.txt. Publish a distinct generation only
+    # after the full default-output postprocess has succeeded. Standalone sync
+    # remains an explicit separate workflow, matching this script's prior
+    # deployment behavior.
+    marker_text = publish_generation_marker(
+        out_dir,
+        reason="historical_dashboard_analysis",
+    )
+    print(f"Published generation marker: {marker_text.strip()}")
+
 
 def archive_non_50k_snapshots(snapshot_heights: list[int], out_dir: Path) -> list[int]:
     archived_heights: list[int] = []
     archived_dir = out_dir / "archived"
     archived_dir.mkdir(parents=True, exist_ok=True)
+    published_height = read_published_snapshot_height(out_dir)
+    latest_pointer = out_dir / "latest_snapshot.txt"
+    latest_height = (
+        read_latest_snapshot_height(out_dir) if latest_pointer.is_file() else None
+    )
 
     for height in sorted(set(snapshot_heights)):
         if height % KEEP_INTERVAL == 0:
+            continue
+        if height == published_height:
+            # Historical rebuilds also keep the browser-visible generation at
+            # its active URL. A later generation can archive it safely.
+            continue
+        if height == latest_height:
+            # A custom rebuild may not have a public marker yet, but the latest
+            # pointer is still an active URL contract used by pipeline tools.
             continue
 
         src = out_dir / str(height)
@@ -1819,17 +1848,11 @@ def main() -> None:
                 conn.commit()
                 built_heights.append(height)
 
-                # Move non-50k snapshots into archived/ immediately after build.
-                if height % KEEP_INTERVAL != 0:
-                    src = out_dir / str(height)
-                    if src.exists() and src.is_dir():
-                        archived_dir = out_dir / "archived"
-                        archived_dir.mkdir(parents=True, exist_ok=True)
-                        dest = archived_dir / str(height)
-                        if dest.exists():
-                            shutil.rmtree(dest)
-                        shutil.move(str(src), str(dest))
-                        print(f"archived                    : {dest}")
+                # Use the same live-generation guard as postprocess archival;
+                # never bypass it after rebuilding a published/latest height.
+                archived_now = archive_non_50k_snapshots([height], out_dir)
+                if archived_now:
+                    print(f"archived                    : {out_dir / 'archived' / str(height)}")
 
                 # Generate ECO files for this snapshot immediately
                 print(f"generating ECO files for snapshot {height}...")

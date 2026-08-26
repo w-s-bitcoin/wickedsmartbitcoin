@@ -19,7 +19,6 @@
   const SPENT_REWARDS_PAGE_SIZE = 100;
   const SPENT_REWARDS_BOTTOM_THRESHOLD_PX = 4;
   const SPENT_REWARDS_LOAD_DELAY_MS = 250;
-  const AUTO_REFRESH_MS = 60000;
   const EXPORT_FPS = 30;
   const EXPORT_START_HOLD_FRAMES = EXPORT_FPS;
   const EXPORT_END_HOLD_FRAMES = EXPORT_FPS * 3;
@@ -96,8 +95,12 @@
   let metadata = null;
   let dataSignature = null;
   let updatedKpiSignature = null;
-  let autoRefreshTimer = 0;
-  let refreshCheckInFlight = false;
+  let patoshiInstalledPublicationSignature = "";
+  let patoshiRefreshPresentationPending = false;
+  let patoshiRefreshRowsChanged = false;
+  let patoshiInitializationComplete = false;
+  let patoshiRefreshAdapterRegistered = false;
+  let initialPatoshiHasSavedState = false;
   let minMs = 0;
   let maxMs = 1;
   let rafId = 0;
@@ -159,6 +162,7 @@
   let patternBlockPickMode = null;
   let preResetStateSnapshot = null;
   let pendingShareState = null;
+  let pendingSpacePlayback = false;
   const downloadEstimateCalibrationCache = new Map();
   const downloadEstimateCalibrationPending = new Set();
 
@@ -2070,21 +2074,115 @@
     ].map((value) => value ?? "").join("|");
   }
 
-  async function fetchLatestMetadata() {
-    const url = `${META_URL}?refresh=${Date.now()}`;
-    const response = await fetch(url, { cache: "no-store" });
-    if (!response.ok) throw new Error(`Failed to load ${META_URL} (${response.status})`);
-    return response.json();
+  async function fetchPatoshiText(fetchResource, url) {
+    const response = await fetchResource(url, { cache: "no-store" });
+    if (!response.ok) throw new Error(`Failed to load ${url} (${response.status})`);
+    return response.text();
   }
 
-  async function fetchLatestRows() {
-    const url = `${DATA_URL}?refresh=${Date.now()}`;
-    const response = await fetch(url, { cache: "no-store" });
-    if (!response.ok) throw new Error(`Failed to load ${DATA_URL} (${response.status})`);
-    return parseCsv(await response.text());
+  async function sha256Text(text) {
+    if (!window.crypto?.subtle || typeof TextEncoder !== "function") return "";
+    const bytes = new TextEncoder().encode(text);
+    const digest = await window.crypto.subtle.digest("SHA-256", bytes);
+    return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
   }
 
-  function applyPatoshiRows(nextRows) {
+  async function preparePatoshiCandidate(fetchResource, expectedMarkerSignature = "", { forceRows = false } = {}) {
+    const markerSignature = String(expectedMarkerSignature || "").trim()
+      || (await fetchPatoshiText(fetchResource, META_URL)).trim();
+    const nextMetadata = JSON.parse(markerSignature);
+    const nextDataSignature = getDataSignature(nextMetadata);
+    const currentDataHash = String(metadata?.data_sha256 || "").toLowerCase();
+    const nextDataHash = String(nextMetadata?.data_sha256 || "").toLowerCase();
+    const dataUnchanged = !forceRows
+      && rows.length
+      && nextDataHash
+      && nextDataHash === currentDataHash
+      && nextDataSignature === dataSignature;
+    if (dataUnchanged) {
+      return { markerSignature, metadata: nextMetadata, rows: null, dataHash: nextDataHash };
+    }
+    const csvText = await fetchPatoshiText(fetchResource, DATA_URL);
+    return {
+      markerSignature,
+      metadata: nextMetadata,
+      rows: parseCsv(csvText),
+      dataHash: await sha256Text(csvText),
+    };
+  }
+
+  function validatePatoshiCandidate(candidate, { allowRegression = false } = {}) {
+    const nextMetadata = candidate?.metadata;
+    const expectedHash = String(nextMetadata?.data_sha256 || "").toLowerCase();
+    const blockCount = Number(nextMetadata?.block_count);
+    const firstHeight = Number(nextMetadata?.first_height);
+    const lastHeight = Number(nextMetadata?.last_height);
+    if (!nextMetadata || !String(nextMetadata.generated_at || "") || !/^[a-f0-9]{64}$/.test(expectedHash)) return false;
+    if (!Number.isInteger(blockCount) || blockCount < 1000 || lastHeight - firstHeight + 1 !== blockCount) return false;
+    if (!allowRegression && metadata) {
+      if (blockCount < Number(metadata.block_count || 0)) return false;
+      if (lastHeight < Number(metadata.last_height || 0)) return false;
+      if (Number(nextMetadata.spending_height_last_queried_height || 0)
+          < Number(metadata.spending_height_last_queried_height || 0)) return false;
+    }
+
+    if (candidate.rows === null) {
+      return !!rows.length && expectedHash === String(metadata?.data_sha256 || "").toLowerCase();
+    }
+    const nextRows = candidate.rows;
+    if (!Array.isArray(nextRows) || nextRows.length !== blockCount) return false;
+    if (candidate.dataHash && candidate.dataHash !== expectedHash) return false;
+    if (nextRows[0]?.height !== firstHeight || nextRows[nextRows.length - 1]?.height !== lastHeight) return false;
+
+    let patoshiCount = 0;
+    let originalCount = 0;
+    let updatedCount = 0;
+    let spentCount = 0;
+    let spendingHeightCount = 0;
+    let spentWithoutSpendingHeightCount = 0;
+    let maxExtraNonce = -Infinity;
+    for (let index = 0; index < nextRows.length; index += 1) {
+      const row = nextRows[index];
+      if (row.height !== firstHeight + index || !Number.isFinite(row.timestamp) || !Number.isFinite(row.extranonce)) return false;
+      if (row.patoshi) patoshiCount += 1;
+      if (row.patoshiOriginal) originalCount += 1;
+      if (row.patoshiUpdated) updatedCount += 1;
+      if (row.isSpent) spentCount += 1;
+      if (Number.isFinite(row.spendingHeight)) spendingHeightCount += 1;
+      if (row.isSpent && !Number.isFinite(row.spendingHeight)) spentWithoutSpendingHeightCount += 1;
+      maxExtraNonce = Math.max(maxExtraNonce, row.extranonce);
+    }
+    return patoshiCount === Number(nextMetadata.patoshi_count)
+      && originalCount === Number(nextMetadata.patoshi_original_count)
+      && updatedCount === Number(nextMetadata.patoshi_updated_count)
+      && spentCount === Number(nextMetadata.spent_count)
+      && spendingHeightCount === Number(nextMetadata.spending_height_count)
+      && spentWithoutSpendingHeightCount === Number(nextMetadata.spent_without_spending_height_count)
+      && maxExtraNonce === Number(nextMetadata.max_extranonce);
+  }
+
+  async function loadInitialPatoshiCandidate() {
+    let lastError = null;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      try {
+        const fetchResource = (url, init) => fetch(url, { ...(init || {}), cache: "no-store" });
+        const before = (await fetchPatoshiText(fetchResource, META_URL)).trim();
+        const candidate = await preparePatoshiCandidate(fetchResource, before, { forceRows: true });
+        const after = (await fetchPatoshiText(fetchResource, META_URL)).trim();
+        if (before !== after) throw new Error("Patoshi data changed during initial loading.");
+        if (!validatePatoshiCandidate(candidate, { allowRegression: true })) {
+          throw new Error("Patoshi publication is incomplete or inconsistent.");
+        }
+        return candidate;
+      } catch (error) {
+        lastError = error;
+        if (attempt < 3) await new Promise((resolve) => window.setTimeout(resolve, 150 * (attempt + 1)));
+      }
+    }
+    throw lastError || new Error("Could not load a complete Patoshi generation.");
+  }
+
+  function installPatoshiRows(nextRows) {
     if (!Array.isArray(nextRows) || !nextRows.length) return false;
     rows = nextRows;
     maxDatasetExtraNonce = getMaxDatasetExtraNonce();
@@ -2122,52 +2220,72 @@
       state.startMs = Math.max(getTimelineMinMs(windowMs), state.endMs - windowMs);
     }
     state.finalEndMs = state.animationEndMs;
-    syncControls();
-    renderSpentRewardsPanel();
-    render();
-    saveState();
     return true;
   }
 
-  async function refreshIfDataChanged() {
-    if (!dataSignature || refreshCheckInFlight) return;
-    refreshCheckInFlight = true;
-    try {
-      const latestMetadata = await fetchLatestMetadata();
-      const latestUpdatedKpiSignature = getUpdatedKpiSignature(latestMetadata);
-      const latestDataSignature = getDataSignature(latestMetadata);
-      if (latestUpdatedKpiSignature && latestUpdatedKpiSignature !== updatedKpiSignature) {
-        metadata = latestMetadata;
-        updatedKpiSignature = latestUpdatedKpiSignature;
-        updateUpdatedKpi();
-      }
-      if (!latestDataSignature || latestDataSignature === dataSignature) return;
-      const latestRows = await fetchLatestRows();
-      metadata = latestMetadata;
-      dataSignature = latestDataSignature;
-      updatedKpiSignature = latestUpdatedKpiSignature;
-      updateUpdatedKpi();
-      applyPatoshiRows(latestRows);
-    } catch (error) {
-      console.warn("Patoshi auto-refresh check failed:", error);
-    } finally {
-      refreshCheckInFlight = false;
+  function patoshiPresentationBlocked() {
+    return document.visibilityState !== "visible"
+      || isTextEntry(document.activeElement)
+      || !!rangeDrag
+      || !!chartDrag
+      || !!patternBlockPickMode;
+  }
+
+  function presentPendingPatoshiRefresh() {
+    if (!patoshiRefreshPresentationPending || !patoshiInitializationComplete || patoshiPresentationBlocked()) return;
+    const rowsChanged = patoshiRefreshRowsChanged;
+    patoshiRefreshPresentationPending = false;
+    patoshiRefreshRowsChanged = false;
+    updateUpdatedKpi();
+    if (rowsChanged) {
+      syncControls();
+      renderSpentRewardsPanel();
+      render();
+      saveState();
     }
   }
 
-  function triggerRefreshCheckSoon(delayMs = 150) {
-    window.setTimeout(refreshIfDataChanged, delayMs);
+  function installPatoshiCandidate(candidate) {
+    const rowsChanged = Array.isArray(candidate.rows);
+    if (rowsChanged && !installPatoshiRows(candidate.rows)) return false;
+    metadata = candidate.metadata;
+    dataSignature = getDataSignature(metadata);
+    updatedKpiSignature = getUpdatedKpiSignature(metadata);
+    patoshiInstalledPublicationSignature = candidate.markerSignature;
+    patoshiRefreshRowsChanged = patoshiRefreshRowsChanged || rowsChanged;
+    return true;
   }
 
-  function setupAutoRefreshChecks() {
-    if (autoRefreshTimer) window.clearInterval(autoRefreshTimer);
-    autoRefreshTimer = window.setInterval(refreshIfDataChanged, AUTO_REFRESH_MS);
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") triggerRefreshCheckSoon(0);
+  function registerPatoshiRefreshAdapter() {
+    if (patoshiRefreshAdapterRegistered) return;
+    const controller = window.WSBWebappDataAutoRefresh;
+    if (!controller || typeof controller.register !== "function") return;
+    patoshiRefreshAdapterRegistered = true;
+    controller.register({
+      getInstalledSignature: () => patoshiInstalledPublicationSignature,
+      prepare: (context) => preparePatoshiCandidate(context.fetchFresh, context.signature),
+      validate: (candidate) => validatePatoshiCandidate(candidate),
+      commit: (candidate) => {
+        if (state.isExporting || rangeDrag || chartDrag || patternBlockPickMode) return false;
+        if (!installPatoshiCandidate(candidate)) return false;
+        if (!patoshiInitializationComplete) {
+          finishPatoshiInitialization(initialPatoshiHasSavedState);
+          return true;
+        }
+        patoshiRefreshPresentationPending = true;
+        presentPendingPatoshiRefresh();
+        return true;
+      },
+      onError: (error) => {
+        console.warn("Patoshi background refresh failed; keeping the current data visible.", error);
+      },
     });
-    window.addEventListener("focus", () => triggerRefreshCheckSoon(0));
-    window.addEventListener("pageshow", () => triggerRefreshCheckSoon(0));
-    window.addEventListener("online", () => triggerRefreshCheckSoon(0));
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") presentPendingPatoshiRefresh();
+    });
+    document.addEventListener("focusout", () => window.setTimeout(presentPendingPatoshiRefresh, 0));
+    window.addEventListener("pointerup", () => window.setTimeout(presentPendingPatoshiRefresh, 0));
+    window.addEventListener("pointercancel", () => window.setTimeout(presentPendingPatoshiRefresh, 0));
   }
 
   function syncUpdatedTimeZoneSelect(value = getPreferredDashboardTimeZone()) {
@@ -2991,6 +3109,11 @@
   }
 
   function togglePlayback() {
+    if (!rows.length) {
+      pendingSpacePlayback = true;
+      return;
+    }
+    pendingSpacePlayback = false;
     state.playing ? pauseAnimation() : playAnimation();
   }
 
@@ -5625,31 +5748,12 @@
     });
   }
 
-  async function init() {
-    const hasSavedState = loadState();
-    installEvents();
-    render();
-    const [csvText, metaText] = await Promise.all([
-      fetch(DATA_URL, { cache: "no-store" }).then((r) => r.text()),
-      fetch(META_URL, { cache: "no-store" }).then((r) => r.json()).catch(() => null),
-    ]);
-    rows = parseCsv(csvText);
-    maxDatasetExtraNonce = getMaxDatasetExtraNonce();
-    state.yMaxCustom = normalizeYMaxCustom(state.yMaxCustom);
-    rowsByHeight = new Map(rows.map((row) => [row.height, row]));
-    if (Number.isFinite(highlightedSpentBlockHeight) && !rowsByHeight.has(highlightedSpentBlockHeight)) {
-      highlightedSpentBlockHeight = null;
-      highlightedSpentBlockSource = null;
-      highlightedSpentBlockCentered = false;
-      highlightedKpiFocusActive = false;
-      saveState();
+  function finishPatoshiInitialization(hasSavedState) {
+    if (patoshiInitializationComplete) {
+      patoshiRefreshPresentationPending = true;
+      presentPendingPatoshiRefresh();
+      return;
     }
-    metadata = metaText;
-    dataSignature = getDataSignature(metadata);
-    updatedKpiSignature = getUpdatedKpiSignature(metadata);
-    updateUpdatedKpi();
-    minMs = rows[0].ms;
-    maxMs = rows[rows.length - 1].ms;
     if (pendingShareState) {
       const shared = pendingShareState;
       applyDefaultState();
@@ -5727,7 +5831,29 @@
     syncControls();
     renderSpentRewardsPanel();
     render();
-    setupAutoRefreshChecks();
+    patoshiInitializationComplete = true;
+    patoshiRefreshPresentationPending = false;
+    patoshiRefreshRowsChanged = false;
+    if (pendingSpacePlayback) {
+      pendingSpacePlayback = false;
+      requestAnimationFrame(() => togglePlayback());
+    }
+  }
+
+  async function init() {
+    initialPatoshiHasSavedState = loadState();
+    installEvents();
+    render();
+    try {
+      const candidate = await loadInitialPatoshiCandidate();
+      if (!installPatoshiCandidate(candidate)) throw new Error("No Patoshi rows found.");
+      finishPatoshiInitialization(initialPatoshiHasSavedState);
+    } finally {
+      // Keep the recovery path alive if startup overlapped a publication or a
+      // transient request failure. A later complete generation installs in
+      // place without navigating the iframe or rebuilding its controls.
+      registerPatoshiRefreshAdapter();
+    }
   }
 
   init().catch((error) => {

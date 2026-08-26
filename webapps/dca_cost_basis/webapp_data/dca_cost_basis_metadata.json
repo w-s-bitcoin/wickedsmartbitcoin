@@ -65,5 +65,13 @@
       "date": "2024-04-20",
       "days_ago": 858
     }
-  ]
+  ],
+  "schema_version": 1,
+  "artifact": {
+    "path": "webapp_data/daily_dca.csv",
+    "sha256": "600ebd8d8625d03451c637e301946b496d7cc7cadd10b3bdb5dc47bcf3c3db2d",
+    "rows": 5560,
+    "first_date": "2011-06-05",
+    "latest_date": "2026-08-25"
+  }
 }

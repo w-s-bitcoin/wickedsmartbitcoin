@@ -3,6 +3,8 @@
 
 import json
 import os
+import hashlib
+import tempfile
 from bisect import bisect_right
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -45,6 +47,29 @@ TIME_ZONE_OPTIONS = [
     "Pacific/Tongatapu",
     "Pacific/Kiritimati",
 ]
+
+
+def atomic_write_bytes(path: Path, payload: bytes) -> None:
+    """Replace *path* only after the complete payload is durable on disk."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary_path = Path(handle.name)
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+        temporary_path = None
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def bitcoin_supply(height: int) -> float:
@@ -245,10 +270,6 @@ def main() -> None:
         "time_zone_daily": time_zone_daily,
     }
 
-    out_path = output_dir / "issuance_rate_data.json"
-    with out_path.open("w", encoding="utf-8") as f:
-        json.dump(payload, f, separators=(",", ":"), ensure_ascii=True)
-
     latest_epoch = int(daily_rows[-1]["epoch"]) if daily_rows else 0
     domain_padding_blocks = int(0.025 * HALVING_INTERVAL)
     epoch_start_height = (latest_epoch - 1) * HALVING_INTERVAL if latest_epoch > 0 else 0
@@ -265,12 +286,42 @@ def main() -> None:
         "chart": payload["chart"],
         "rows": preview_rows,
     }
+    out_path = output_dir / "issuance_rate_data.json"
     preview_out_path = output_dir / "issuance_rate_preview.json"
-    with preview_out_path.open("w", encoding="utf-8") as f:
-        json.dump(preview_payload, f, separators=(",", ":"), ensure_ascii=True)
+    marker_path = output_dir / "published_generation.json"
+    data_bytes = json.dumps(payload, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    preview_bytes = json.dumps(preview_payload, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+
+    # Publish the large files first. The small marker is the sole generation
+    # boundary consumed by the dashboard and must always be replaced last.
+    atomic_write_bytes(out_path, data_bytes)
+    atomic_write_bytes(preview_out_path, preview_bytes)
+    marker = {
+        "schema_version": 1,
+        "generated_utc": payload["generated_utc"],
+        "latest_block_height": int(latest_height),
+        "first_date": daily_rows[0]["date"] if daily_rows else "",
+        "latest_date": daily_rows[-1]["date"] if daily_rows else "",
+        "row_count": len(daily_rows),
+        "time_zone_count": len(time_zone_daily),
+        "data_sha256": hashlib.sha256(data_bytes).hexdigest(),
+        "preview_sha256": hashlib.sha256(preview_bytes).hexdigest(),
+        "preview": {
+            "path": "webapp_data/issuance_rate_preview.json",
+            "sha256": hashlib.sha256(preview_bytes).hexdigest(),
+            "rows": len(preview_rows),
+            "first_date": preview_rows[0]["date"] if preview_rows else "",
+            "latest_date": preview_rows[-1]["date"] if preview_rows else "",
+            "first_height": int(preview_rows[0]["height"]) if preview_rows else 0,
+            "latest_height": int(preview_rows[-1]["height"]) if preview_rows else 0,
+        },
+    }
+    marker_bytes = (json.dumps(marker, separators=(",", ":"), ensure_ascii=True) + "\n").encode("utf-8")
+    atomic_write_bytes(marker_path, marker_bytes)
 
     print(f"Wrote {out_path}")
     print(f"Wrote {preview_out_path}")
+    print(f"Published {marker_path}")
     print(f"Rows: {len(daily_rows):,}")
     print(f"Preview rows: {len(preview_rows):,}")
     print(f"Latest height: {latest_height:,}")

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import csv
+import hashlib
+import io
 import json
 import math
 import re
@@ -55,6 +57,25 @@ def finite_number(value):
     return number if math.isfinite(number) else None
 
 
+def validate_tracker_rows(rows):
+    allowed_statuses = {"active", "redeemed", "unfunded", "unloaded"}
+    boundary_fields = ("Create Block", "Create Time", "Redeem Block", "Redeem Time")
+    for row_number, row in enumerate(rows, start=2):
+        status = str(row.get("Status") or "").strip().lower()
+        if status not in allowed_statuses:
+            raise ValueError(f"Tracker row {row_number} has an unknown or blank Status: {status!r}")
+        for field in boundary_fields:
+            text = str(row.get(field) or "").strip()
+            if not text:
+                continue
+            try:
+                value = int(text)
+            except (TypeError, ValueError) as error:
+                raise ValueError(f"Tracker row {row_number} has an invalid {field}: {text!r}") from error
+            if value < 0:
+                raise ValueError(f"Tracker row {row_number} has a negative {field}: {text!r}")
+
+
 def tracker_slug_for_row(row, s3_one_gold_rim_min_index, s3_half_series2_max_index, type_slugs):
     if row.get("Type") == "S3-COIN-1-AG":
         override_slug = S3_ONE_SILVER_VARIANT_SLUGS_BY_ADDRESS.get(str(row.get("Address") or "").strip())
@@ -69,8 +90,9 @@ def tracker_slug_for_row(row, s3_one_gold_rim_min_index, s3_half_series2_max_ind
 
 
 def read_tracker_entries(type_slugs):
-    with TRACKER_CSV.open(newline="") as csvfile:
-        rows = list(csv.DictReader(csvfile))
+    tracker_bytes = TRACKER_CSV.read_bytes()
+    rows = list(csv.DictReader(io.StringIO(tracker_bytes.decode("utf-8"), newline="")))
+    validate_tracker_rows(rows)
     all_unfunded_count = sum(
         1 for row in rows
         if str(row.get("Status") or "").strip().lower() in ("unfunded", "unloaded")
@@ -92,14 +114,53 @@ def read_tracker_entries(type_slugs):
             continue
         entries.append({
             "slug": slug,
-            "status": str(row.get("Status") or "").lower(),
+            "status": str(row.get("Status") or "").strip().lower(),
             "value": finite_number(row.get("Value")),
             "createBlock": finite_number(row.get("Create Block")),
             "createTime": finite_number(row.get("Create Time")),
             "redeemBlock": finite_number(row.get("Redeem Block")),
             "redeemTime": finite_number(row.get("Redeem Time")),
         })
-    return entries, all_unfunded_count
+    return entries, all_unfunded_count, rows, tracker_bytes
+
+
+def integer_or_none(value):
+    try:
+        text = str(value or "").strip()
+        return int(text) if text else None
+    except (TypeError, ValueError):
+        return None
+
+
+def latest_integer(rows, field):
+    values = (integer_or_none(row.get(field)) for row in rows)
+    return max((value for value in values if value is not None), default=None)
+
+
+def publication_metadata(rows, tracker_bytes, item_count):
+    status_counts = {"active": 0, "redeemed": 0, "unfunded": 0}
+    for row in rows:
+        status = str(row.get("Status") or "").strip().lower()
+        if status == "active":
+            status_counts["active"] += 1
+        elif status == "redeemed":
+            status_counts["redeemed"] += 1
+        elif status in ("unfunded", "unloaded"):
+            status_counts["unfunded"] += 1
+    return {
+        "schemaVersion": 1,
+        "tracker": {
+            "path": "data/casascius_explorer.csv",
+            "sha256": hashlib.sha256(tracker_bytes).hexdigest(),
+            "rows": len(rows),
+            "statusCounts": status_counts,
+            "latestCreateBlock": latest_integer(rows, "Create Block"),
+            "latestCreateTime": latest_integer(rows, "Create Time"),
+            "latestRedeemBlock": latest_integer(rows, "Redeem Block"),
+            "latestRedeemTime": latest_integer(rows, "Redeem Time"),
+        },
+        "rightPanelItems": item_count,
+    }
 
 
 def mm_text(value):
@@ -285,7 +346,7 @@ def clean_numbers(value):
 def main():
     coins = read_coins()
     type_slugs = read_tracker_type_slugs()
-    entries, all_unfunded_count = read_tracker_entries(type_slugs)
+    entries, all_unfunded_count, tracker_rows, tracker_bytes = read_tracker_entries(type_slugs)
     rows_by_slug = {}
     for entry in entries:
         rows_by_slug.setdefault(entry["slug"], []).append(entry)
@@ -298,12 +359,16 @@ def main():
     payload = clean_numbers({
         "allKey": ALL_ITEMS_GROUP_KEY,
         "items": items,
+        "publication": publication_metadata(tracker_rows, tracker_bytes, len(items)),
     })
-    OUT_JS.write_text(
+    output = (
         "window.CASASCIUS_RIGHT_PANEL_DATA = "
         + json.dumps(payload, separators=(",", ":"), sort_keys=True)
         + ";\n"
     )
+    tmp_path = OUT_JS.with_suffix(OUT_JS.suffix + ".tmp")
+    tmp_path.write_text(output)
+    tmp_path.replace(OUT_JS)
     print(f"Wrote {OUT_JS.relative_to(ROOT)} with {len(items)} right-panel records")
 
 

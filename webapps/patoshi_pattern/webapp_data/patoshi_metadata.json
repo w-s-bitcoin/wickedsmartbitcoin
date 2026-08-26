@@ -14,5 +14,6 @@
   "last_height": 99999,
   "first_datetime": "2009-01-03T18:15:05Z",
   "last_datetime": "2010-12-29T11:55:31Z",
-  "max_extranonce": 308519
+  "max_extranonce": 308519,
+  "data_sha256": "6acb61ad53583f91bb3001b877f271419d3d4fba182e164d67e195d8645beeb1"
 }
