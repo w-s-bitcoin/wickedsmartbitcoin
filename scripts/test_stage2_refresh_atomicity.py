@@ -238,13 +238,16 @@ FETCH_HARNESS = r"""
       const response = await nativeFetch(input, init);
       const raw = typeof input === 'string' ? input : input?.url;
       const url = new URL(raw, window.location.href);
-      const synthesizeUoaTailLag = (
-        window.location.pathname === '/webapps/uoa/dashboard.html'
-        && new URLSearchParams(window.location.search).get('stage2_uoa_btc_tail_lag') === '1'
+      const synthesizeBtcTailLag = (
+        [
+          '/webapps/uoa/dashboard.html',
+          '/webapps/dca_comparison/dashboard.html',
+        ].includes(window.location.pathname)
+        && new URLSearchParams(window.location.search).get('stage2_btc_tail_lag') === '1'
         && url.pathname === '/assets/daily_price.csv'
         && response.ok
       );
-      if (!synthesizeUoaTailLag) return response;
+      if (!synthesizeBtcTailLag) return response;
 
       const text = await response.clone().text();
       const lines = text.trimEnd().split(/\r?\n/);
@@ -651,10 +654,10 @@ def test_quantum_archive_retry_and_integrity(cdp: CdpSocket):
 
 
 def test_dashboard(cdp: CdpSocket, server_port: int, slug: str, spec: dict):
-    uoa_tail_lag_query = "&stage2_uoa_btc_tail_lag=1" if slug == "uoa" else ""
+    btc_tail_lag_query = "&stage2_btc_tail_lag=1" if slug in {"uoa", "dca_comparison"} else ""
     url = (
         f"http://127.0.0.1:{server_port}/{spec['path']}"
-        f"?stage2_refresh_test=1&stage2_initial_generation=7{uoa_tail_lag_query}"
+        f"?stage2_refresh_test=1&stage2_initial_generation=7{btc_tail_lag_query}"
     )
     cdp.command("Page.navigate", {"url": url})
 
