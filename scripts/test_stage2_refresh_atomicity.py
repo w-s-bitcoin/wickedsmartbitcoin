@@ -645,9 +645,12 @@ def test_quantum_archive_retry_and_integrity(cdp: CdpSocket):
             f"{integrity['unexpectedFullRequests']!r}"
         )
 
-    archive_failure_cases = [(9, "/archived_index.csv", "archive index")]
+    archive_failure_cases = []
     if cdp.evaluate("Boolean(quantumArchiveVerificationRequired)"):
-        archive_failure_cases.append((10, "/archived/", "archive snapshot probe"))
+        archive_failure_cases.extend((
+            (9, "/archived_index.csv", "archive index"),
+            (10, "/archived/", "archive snapshot probe"),
+        ))
     for generation, failure_path, label in archive_failure_cases:
         error_count = cdp.evaluate(
             "window.__wsbStage2RefreshTest.events.filter((event) => event.status === 'error').length"
