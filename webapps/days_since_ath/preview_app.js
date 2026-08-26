@@ -1,8 +1,12 @@
 (function () {
   const AUTO_REFRESH_MS = 60000;
   const PRICE_FALLBACK = 0.0001;
+  const DATA_URL = "../../assets/daily_price.csv";
+  const PUBLICATION_URL = "../../assets/daily_price_metadata.json";
   let cachedRows = [];
   let hasLoadedPreviewData = false;
+  let installedPublicationSignature = "";
+  let previewRefresher = null;
 
   function getCss(name, fallback) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
@@ -23,7 +27,9 @@
   }
 
   function toNumber(value) {
-    const n = Number(String(value ?? "").replaceAll(",", "").trim());
+    const normalized = String(value ?? "").replaceAll(",", "").trim();
+    if (!normalized) return NaN;
+    const n = Number(normalized);
     return Number.isFinite(n) ? n : NaN;
   }
 
@@ -56,9 +62,13 @@
       .map((row) => {
         const date = String(row.timestamp || "").slice(0, 10);
         const price = toNumber(row.daily_high);
+        const height = toNumber(row.block_height);
         return {
           date,
+          timestamp: String(row.timestamp || ""),
           price: Number.isFinite(price) ? price : 0,
+          sourcePriceValid: Number.isFinite(price),
+          height,
         };
       })
       .filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.date))
@@ -72,6 +82,73 @@
           : 0;
         return { ...row, daysSinceAth };
       });
+  }
+
+  async function sha256Text(text) {
+    if (!window.crypto?.subtle || typeof TextEncoder !== "function") return "";
+    const digest = await window.crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+    return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
+  }
+
+  function validateCandidate(candidate) {
+    const marker = candidate?.marker;
+    const artifact = marker?.artifact;
+    const rows = candidate?.rows;
+    const expectedHash = String(artifact?.sha256 || "").toLowerCase();
+    if (!marker || Number(marker.schema_version) !== 1) return false;
+    if (String(artifact?.path || "") !== "assets/daily_price.csv") return false;
+    if (!/^[a-f0-9]{64}$/.test(expectedHash) || candidate.dataHash !== expectedHash) return false;
+    if (!Array.isArray(rows) || rows.length !== Number(artifact.rows) || rows.length < 6000) return false;
+    if (rows[0]?.date !== String(marker.first_date || "") || rows[0]?.date !== "2009-01-03") return false;
+    const latest = rows[rows.length - 1];
+    if (latest?.date !== String(marker.latest_date || "")) return false;
+    if (latest?.timestamp !== String(marker.latest_timestamp || "")) return false;
+    if (latest?.height !== Number(marker.latest_block_height)) return false;
+    if (cachedRows.length) {
+      const installedLatest = cachedRows[cachedRows.length - 1];
+      if (rows.length < cachedRows.length) return false;
+      if (latest.date < installedLatest.date || latest.height < installedLatest.height) return false;
+    }
+
+    let previousDate = "";
+    let previousHeight = -1;
+    for (const row of rows) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(row.date)) return false;
+      if (!row.sourcePriceValid || !Number.isFinite(row.price) || row.price < 0) return false;
+      if (!Number.isInteger(row.height) || row.height < previousHeight) return false;
+      if (previousDate) {
+        const elapsed = Date.parse(`${row.date}T00:00:00Z`) - Date.parse(`${previousDate}T00:00:00Z`);
+        if (elapsed !== 86400000) return false;
+      }
+      previousDate = row.date;
+      previousHeight = row.height;
+    }
+    return true;
+  }
+
+  async function prepareCandidate(context) {
+    const markerSignature = String(context?.signatureParts?.[0] || context?.signature || "").trim();
+    const marker = JSON.parse(markerSignature);
+    const csvText = await (await context.fetchFresh(DATA_URL)).text();
+    const rows = buildRows(parseCsv(csvText));
+    const candidate = {
+      marker,
+      markerSignature,
+      rows,
+      dataHash: await sha256Text(csvText),
+    };
+    if (!validateCandidate(candidate)) {
+      throw new Error("Days Since ATH preview publication is incomplete or inconsistent.");
+    }
+    return candidate;
+  }
+
+  function installCandidate(candidate) {
+    if (!candidate) return false;
+    cachedRows = candidate.rows;
+    installedPublicationSignature = candidate.markerSignature;
+    hasLoadedPreviewData = true;
+    return true;
   }
 
   function drawPanel(ctx, x, y, width, height, rows, getValue, options = {}) {
@@ -163,37 +240,49 @@
     drawPanel(ctx, rightX, panelY, panelW, panelH, cachedRows, (row) => row.daysSinceAth, { log: false });
   }
 
-  async function load() {
-    const resp = await fetch("../../assets/daily_price.csv", { cache: "no-store" });
-    if (!resp.ok) throw new Error(`Failed to load daily_price.csv (${resp.status}).`);
-    cachedRows = buildRows(parseCsv(await resp.text()));
-    hasLoadedPreviewData = true;
-  }
-
-  async function init() {
-    window.WSBPreviewShared?.initThemeSync({ onThemeChanged: render });
-    await load();
-    render();
-    window.WSBPreviewShared?.markReady?.({ filename: "days_since_ath.png" });
-    window.addEventListener("resize", render);
-    window.WSBPreviewShared
-      ?.createAutoRefresher({
-        intervalMs: AUTO_REFRESH_MS,
-        refresh: async () => {
-          await load();
-          render();
-        },
-      })
-      .start();
-  }
-
-  init().catch((error) => {
-    console.error(error);
+  function renderInitialFallback() {
     const canvas = document.getElementById("daysSinceAthPreview");
     if (canvas) {
       const { ctx, width, height } = setupCanvas(canvas);
       renderFallback(ctx, width, height);
     }
+  }
+
+  function init() {
+    window.WSBPreviewShared?.initThemeSync({
+      onThemeChanged: () => previewRefresher?.requestPresent("theme"),
+    });
+    previewRefresher = window.WSBPreviewShared?.createDataRefresher({
+      filename: "days_since_ath.png",
+      urls: [PUBLICATION_URL],
+      intervalMs: AUTO_REFRESH_MS,
+      getInstalledSignature: () => installedPublicationSignature,
+      prepare: prepareCandidate,
+      validate: validateCandidate,
+      commit: (candidate) => {
+        installCandidate(candidate);
+        return { present: true };
+      },
+      present: render,
+      onInitialError: renderInitialFallback,
+      onError: (error) => {
+        console.warn("Days Since ATH preview refresh failed; keeping the current chart.", error);
+      },
+    });
+    if (!previewRefresher) {
+      renderInitialFallback();
+      window.WSBPreviewShared?.markReady?.({ filename: "days_since_ath.png" });
+      return;
+    }
+    window.addEventListener("resize", () => previewRefresher.requestPresent("resize"));
+    previewRefresher.start();
+  }
+
+  try {
+    init();
+  } catch (error) {
+    console.error(error);
+    renderInitialFallback();
     window.WSBPreviewShared?.markReady?.({ filename: "days_since_ath.png" });
-  });
+  }
 }());

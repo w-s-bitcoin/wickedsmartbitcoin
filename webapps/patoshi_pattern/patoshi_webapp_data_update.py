@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import math
 import os
 import subprocess
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import NamedTuple
@@ -25,6 +27,29 @@ OUTPUT_CSV = OUTPUT_DIR / "patoshi_blocks.csv"
 OUTPUT_META = OUTPUT_DIR / "patoshi_metadata.json"
 ENV_PATH = Path("/Users/wicked/Projects/animations/.env")
 SPENDING_HEIGHT_BATCH_SIZE = 5000
+
+
+def atomic_write_bytes(path: Path, payload: bytes) -> None:
+    """Replace *path* only after the complete payload is durable on disk."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary_path = Path(handle.name)
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+        temporary_path = None
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 class CoinbaseSpendSource(NamedTuple):
@@ -462,10 +487,30 @@ def main() -> None:
         "difficulty",
         "target_hashrate",
     ]
-    with OUTPUT_CSV.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
-        writer.writeheader()
-        writer.writerows(merged)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    csv_temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            newline="",
+            encoding="utf-8",
+            dir=OUTPUT_DIR,
+            prefix=f".{OUTPUT_CSV.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            csv_temporary_path = Path(handle.name)
+            writer = csv.DictWriter(handle, fieldnames=fields)
+            writer.writeheader()
+            writer.writerows(merged)
+            handle.flush()
+            os.fsync(handle.fileno())
+        data_sha256 = hashlib.sha256(csv_temporary_path.read_bytes()).hexdigest()
+        os.replace(csv_temporary_path, OUTPUT_CSV)
+        csv_temporary_path = None
+    finally:
+        if csv_temporary_path is not None:
+            csv_temporary_path.unlink(missing_ok=True)
 
     start = merged[0]
     end = merged[-1]
@@ -486,8 +531,11 @@ def main() -> None:
         "first_datetime": start["datetime"],
         "last_datetime": end["datetime"],
         "max_extranonce": max(int(row["extranonce"]) for row in merged),
+        "data_sha256": data_sha256,
     }
-    OUTPUT_META.write_text(json.dumps(metadata, indent=2) + "\n")
+    # Metadata is the publication marker watched by the dashboard. Replacing it
+    # last makes the already-published CSV the only data generation it names.
+    atomic_write_bytes(OUTPUT_META, (json.dumps(metadata, indent=2) + "\n").encode("utf-8"))
 
 
 if __name__ == "__main__":

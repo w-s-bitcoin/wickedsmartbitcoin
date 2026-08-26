@@ -47,12 +47,19 @@
     });
   }
 
-  function num(value) {
-    const normalized = Number(String(value ?? '').replaceAll(',', '').trim());
-    return Number.isFinite(normalized) ? normalized : 0;
+  function strictNumber(value) {
+    const raw = String(value ?? '').replaceAll(',', '').trim();
+    if (!raw) return NaN;
+    const normalized = Number(raw);
+    return Number.isFinite(normalized) ? normalized : NaN;
   }
 
-  let cachedRows = null;
+  const state = {
+    installedSignature: null,
+    marker: null,
+    rows: [],
+  };
+  let dataRefresher = null;
 
   function iconPathForRow(row) {
     return row['Primary Key']
@@ -60,38 +67,24 @@
       : (row['Symbol'] ? `icons/${encodeURIComponent(row['Symbol'].toUpperCase())}.png` : null);
   }
 
-  function preloadImage(path) {
-    return new Promise(resolve => {
-      if (!path) {
-        resolve();
-        return;
-      }
-      const image = new Image();
-      let done = false;
-      const finish = () => {
-        if (done) return;
-        done = true;
-        resolve();
-      };
-      image.onload = finish;
-      image.onerror = finish;
-      image.decoding = 'async';
-      image.src = path;
-      if (image.complete) finish();
-    });
-  }
-
-  function preloadIconImages(rows) {
-    const paths = [...new Set((rows || []).map(iconPathForRow).filter(Boolean))];
-    return Promise.all(paths.map(preloadImage));
+  async function sha256Text(text) {
+    if (!window.crypto?.subtle || typeof TextEncoder !== 'function') {
+      throw new Error('SHA-256 validation is unavailable in this browser.');
+    }
+    const digest = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+    return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, '0')).join('');
   }
 
   function render() {
     const chartEl = document.getElementById('previewChart');
-    if (!chartEl || !cachedRows) return;
+    if (!chartEl) return false;
 
-    const rows = cachedRows;
-    if (!rows.length) { chartEl.innerHTML = ''; return; }
+    const rows = state.rows;
+    if (!rows.length) {
+      chartEl.dataset.previewState = 'fallback';
+      chartEl.innerHTML = '<div class="preview-unavailable" style="display:grid;place-items:center;width:100%;height:100%;color:#95a6ae;font:500 22px IBM Plex Mono,monospace">Preview unavailable</div>';
+      return true;
+    }
 
     const maxCap = rows[0]['Market Cap'];
     const isLight = document.documentElement.dataset.theme === 'light';
@@ -136,44 +129,101 @@
     }).join('');
 
     chartEl.innerHTML = `<svg viewBox="0 0 ${VW} ${totalH}" width="100%" height="100%" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Top 10 Crypto by Market Cap"><defs></defs>${items}</svg>`;
+    chartEl.dataset.previewState = 'ready';
+    return true;
   }
 
-  async function load() {
-    const resp = await fetch('webapp_data/top10_daily_incl_stables.csv', { cache: 'no-store' });
-    if (!resp.ok) throw new Error(`Failed to load top10_daily_incl_stables.csv (${resp.status}).`);
-
-    cachedRows = parseCsv(await resp.text())
+  async function prepareCandidate(context) {
+    const marker = JSON.parse(String(context.signatureParts?.[0] || '').trim());
+    const response = await context.fetchFresh('webapp_data/top10_daily_incl_stables.csv');
+    const csvText = await response.text();
+    const rawRows = parseCsv(csvText);
+    const rows = rawRows
       .map((r) => ({
-        'Market Cap': num(r['Market Cap']) || 0,
+        Date: String(r.Date || '').trim(),
+        Rank: strictNumber(r.Rank),
+        'Market Cap': strictNumber(r['Market Cap']),
         'Primary Key': String(r['Primary Key'] || '').trim(),
         'Symbol': String(r.Symbol || '').trim(),
         'Is Stable': String(r['Is Stable'] || '').toLowerCase() === 'true',
       }))
-      .filter((r) => r['Market Cap'] > 0)
-      .sort((a, b) => b['Market Cap'] - a['Market Cap'])
-      .slice(0, 10);
+      .sort((a, b) => b['Market Cap'] - a['Market Cap']);
+    return {
+      marker,
+      rawRows,
+      rows,
+      dataHash: await sha256Text(csvText),
+    };
   }
 
-  async function init() {
-    window.WSBPreviewShared?.initThemeSync({ onThemeChanged: render });
-    await load();
-    await preloadIconImages(cachedRows);
-    render();
-    window.WSBPreviewShared?.markReady?.({ filename: "bitcoin_dominance.png" });
-    window.addEventListener('resize', render);
-    window.WSBPreviewShared
-      ?.createAutoRefresher({
-        intervalMs: AUTO_REFRESH_MS,
-        refresh: async () => {
-          await load();
-          await preloadIconImages(cachedRows);
-          render();
-        },
-      })
-      .start();
+  function validateCandidate(candidate) {
+    const marker = candidate?.marker;
+    const artifact = marker?.artifacts?.['top10_daily_incl_stables.csv'];
+    const expectedHash = String(artifact?.sha256 || '').toLowerCase();
+    const rows = candidate?.rows;
+    if (Number(marker?.schema_version) !== 1 || !String(marker?.generation_id || '').trim()) return false;
+    if (!/^[a-f0-9]{64}$/.test(expectedHash) || candidate.dataHash !== expectedHash) return false;
+    if (!Array.isArray(rows) || rows.length !== Number(artifact?.rows) || rows.length !== 10) return false;
+    if (candidate.rawRows.length !== rows.length) return false;
+    const latestDate = String(marker.latest_snapshot_date || marker.latest_date || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(latestDate)) return false;
+    const ranks = new Set();
+    const primaryKeys = new Set();
+    const symbols = new Set();
+    for (let index = 0; index < rows.length; index += 1) {
+      const row = rows[index];
+      if (row.Date !== latestDate || !Number.isInteger(row.Rank) || row.Rank < 1) return false;
+      if (!Number.isFinite(row['Market Cap']) || row['Market Cap'] <= 0) return false;
+      if (!row['Primary Key'] || !row.Symbol) return false;
+      if (index > 0 && rows[index - 1]['Market Cap'] < row['Market Cap']) return false;
+      if (ranks.has(row.Rank) || primaryKeys.has(row['Primary Key']) || symbols.has(row.Symbol)) return false;
+      ranks.add(row.Rank);
+      primaryKeys.add(row['Primary Key']);
+      symbols.add(row.Symbol);
+    }
+    const installedDate = String(state.marker?.latest_snapshot_date || state.marker?.latest_date || '');
+    if (installedDate && latestDate < installedDate) return false;
+    return true;
   }
 
-  init().catch((error) => {
+  function initialize() {
+    window.WSBPreviewShared?.initThemeSync({
+      onThemeChanged: () => dataRefresher?.requestPresent('theme'),
+    });
+    dataRefresher = window.WSBPreviewShared?.createDataRefresher({
+      filename: 'bitcoin_dominance.png',
+      urls: ['webapp_data/published_generation.json'],
+      intervalMs: AUTO_REFRESH_MS,
+      getInstalledSignature: () => state.installedSignature,
+      prepare: prepareCandidate,
+      validate: (candidate) => {
+        if (!validateCandidate(candidate)) {
+          throw new Error('Bitcoin dominance preview publication is incomplete or inconsistent.');
+        }
+        return true;
+      },
+      commit: (candidate, context) => {
+        state.marker = candidate.marker;
+        state.rows = candidate.rows;
+        state.installedSignature = context.signature;
+        return true;
+      },
+      present: render,
+      onInitialError: (error) => {
+        console.error(error);
+        if (document.visibilityState === 'visible') render();
+      },
+      onError: (error) => console.warn('Bitcoin dominance preview refresh failed:', error),
+    });
+    window.addEventListener('resize', () => dataRefresher?.requestPresent('resize'));
+    dataRefresher?.start();
+  }
+
+  try {
+    initialize();
+  } catch (error) {
     console.error(error);
-  });
+    if (document.visibilityState === 'visible') render();
+    window.WSBPreviewShared?.markReady?.({ filename: 'bitcoin_dominance.png' });
+  }
 }());

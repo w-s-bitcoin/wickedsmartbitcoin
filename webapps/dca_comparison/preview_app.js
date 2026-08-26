@@ -1,5 +1,7 @@
 (function () {
   const AUTO_REFRESH_MS = 60000;
+  const PREVIEW_URL = "webapp_data/dca_comparison_preview.csv";
+  const PUBLICATION_URL = "webapp_data/published_generation.json";
   const MS_DAY = 86400000;
   const DEFAULT_AMOUNT = 50;
   const DEFAULT_ASSET_A = "BTC";
@@ -18,6 +20,9 @@
   };
 
   let cachedRows = [];
+  let installedPublicationSignature = "";
+  let installedBounds = null;
+  let refresher = null;
 
   function parseCsv(text) {
     const rows = [];
@@ -79,6 +84,12 @@
     return new Date(Date.UTC(year, month - 1, day));
   }
 
+  function isValidIsoDate(iso) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(iso || ""))) return false;
+    const parsed = dateFromIso(iso);
+    return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === iso;
+  }
+
   function dayDiff(startIso, endIso) {
     return Math.round((dateFromIso(endIso) - dateFromIso(startIso)) / MS_DAY);
   }
@@ -105,22 +116,55 @@
     const dateIdx = header.indexOf("date");
     const btcIdx = header.indexOf("BTC");
     const xauIdx = header.indexOf("XAU");
-    if (dateIdx < 0 || btcIdx < 0 || xauIdx < 0) return [];
-    return rows
-      .map((row) => {
-        const date = isoFromMaybeUsDate(row[dateIdx]);
-        const btc = toNumber(row[btcIdx]);
-        const xau = toNumber(row[xauIdx]);
-        return { date, BTC: btc, XAU: xau };
-      })
-      .filter((row) => row.date && row.BTC > 0 && row.XAU > 0)
-      .sort((a, b) => a.date.localeCompare(b.date));
+    if (dateIdx < 0 || btcIdx < 0 || xauIdx < 0) {
+      throw new Error("DCA comparison preview is missing required columns.");
+    }
+    const parsed = rows.map((row, index) => {
+      const date = isoFromMaybeUsDate(row[dateIdx]);
+      const btc = toNumber(row[btcIdx]);
+      const xau = toNumber(row[xauIdx]);
+      if (!isValidIsoDate(date) || !(btc > 0) || !(xau > 0)) {
+        throw new Error(`DCA comparison preview row ${index + 1} is invalid.`);
+      }
+      return { date, BTC: btc, XAU: xau };
+    });
+    if (!parsed.length) throw new Error("DCA comparison preview is empty.");
+    parsed.forEach((row, index) => {
+      if (index === 0) return;
+      if (dayDiff(parsed[index - 1].date, row.date) !== 1) {
+        throw new Error(`DCA comparison preview row ${index + 1} is not the next UTC day.`);
+      }
+    });
+    return parsed;
   }
 
-  async function loadCompactPreviewRows() {
-    const response = await fetch("webapp_data/dca_comparison_preview.csv", { cache: "default" });
-    if (!response.ok) throw new Error(`DCA preview data request failed (${response.status})`);
-    return parsePreviewRows(await response.text());
+  async function sha256Hex(text) {
+    const bytes = new TextEncoder().encode(text);
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+
+  function parsePublicationMarker(text) {
+    let marker;
+    try {
+      marker = JSON.parse(text);
+    } catch (error) {
+      throw new Error(`DCA comparison publication marker is invalid JSON: ${error.message}`);
+    }
+    const artifact = marker?.artifact;
+    if (
+      marker?.schema_version !== 1 ||
+      !artifact ||
+      artifact.path !== PREVIEW_URL ||
+      !/^[0-9a-f]{64}$/.test(String(artifact.sha256 || "")) ||
+      !Number.isInteger(artifact.rows) || artifact.rows < 1 ||
+      !isValidIsoDate(artifact.first_date) ||
+      !isValidIsoDate(artifact.latest_date) ||
+      artifact.first_date > artifact.latest_date
+    ) {
+      throw new Error("DCA comparison publication marker has invalid preview metadata.");
+    }
+    return marker;
   }
 
   function getThemeColors() {
@@ -240,99 +284,77 @@
     drawLine(ctx, points, "valueB", mapX, mapY, colors.assetB, lineWidth);
   }
 
-  async function loadFullSourceRows() {
-    const [btcText, fxText, indicesText] = await Promise.all([
-      fetch("../../assets/daily_price.csv", { cache: "default" }).then((resp) => resp.text()),
-      fetch("../uoa/webapp_data/daily_fx_rates.csv", { cache: "default" }).then((resp) => resp.text()),
-      fetch("webapp_data/market_indices.csv", { cache: "default" }).then((resp) => (resp.ok ? resp.text() : "")).catch(() => ""),
-    ]);
-
-    const btcRows = parseCsv(btcText);
-    const btcHeader = btcRows.shift() || [];
-    const fxRows = parseCsv(fxText);
-    const fxHeader = fxRows.shift() || [];
-    const indexRows = indicesText ? parseCsv(indicesText) : [];
-    const indexHeader = indexRows.length ? indexRows.shift() || [] : [];
-    const btcDateIdx = btcHeader.indexOf("date");
-    const btcPriceIdx = btcHeader.indexOf("price");
-    const fxDateIdx = fxHeader.indexOf("date");
-    const xauIdx = fxHeader.indexOf("xauusd");
-    const xagIdx = fxHeader.indexOf("xagusd");
-    const indexDateIdx = indexHeader.indexOf("date");
-    const spyIdx = indexHeader.indexOf("spy");
-    const qqqIdx = indexHeader.indexOf("qqq");
-    const tltIdx = indexHeader.indexOf("tlt");
-    const mstrIdx = indexHeader.indexOf("mstr");
-    const byDate = new Map();
-
-    for (const row of btcRows) {
-      const iso = isoFromMaybeUsDate(row[btcDateIdx]);
-      const price = toNumber(row[btcPriceIdx]);
-      if (iso && Number.isFinite(price) && price > 0) byDate.set(iso, { date: iso, BTC: price });
-    }
-
-    for (const row of fxRows) {
-      const iso = isoFromMaybeUsDate(row[fxDateIdx]);
-      const target = byDate.get(iso);
-      if (!target) continue;
-      const xau = toNumber(row[xauIdx]);
-      const xag = toNumber(row[xagIdx]);
-      if (Number.isFinite(xau) && xau > 0) target.XAU = xau;
-      if (Number.isFinite(xag) && xag > 0) target.XAG = xag;
-    }
-
-    for (const row of indexRows) {
-      const iso = isoFromMaybeUsDate(row[indexDateIdx]);
-      const target = byDate.get(iso);
-      if (!target) continue;
-      const spy = toNumber(row[spyIdx]);
-      const qqq = toNumber(row[qqqIdx]);
-      const tlt = toNumber(row[tltIdx]);
-      const mstr = toNumber(row[mstrIdx]);
-      if (Number.isFinite(spy) && spy > 0) target.SPY = spy;
-      if (Number.isFinite(qqq) && qqq > 0) target.QQQ = qqq;
-      if (Number.isFinite(tlt) && tlt > 0) target.TLT = tlt;
-      if (Number.isFinite(mstr) && mstr > 0) target.MSTR = mstr;
-    }
-
-    cachedRows = [...byDate.values()]
-      .filter((row) => Number.isFinite(row.BTC) && Number.isFinite(row.XAU))
-      .sort((a, b) => a.date.localeCompare(b.date));
+  async function prepareCandidate(context) {
+    const marker = parsePublicationMarker(context.signatureParts[0]);
+    const response = await context.fetchFresh(PREVIEW_URL);
+    const csvText = await response.text();
+    return {
+      marker,
+      rows: parsePreviewRows(csvText),
+      sha256: await sha256Hex(csvText),
+    };
   }
 
-  async function load() {
-    try {
-      const rows = await loadCompactPreviewRows();
-      if (rows.length) {
-        cachedRows = rows;
-        return;
-      }
-    } catch (_) {
-      // Older deployments may not have the compact preview file yet.
+  function validateCandidate(candidate) {
+    const artifact = candidate.marker.artifact;
+    const firstDate = candidate.rows[0]?.date || "";
+    const latestDate = candidate.rows[candidate.rows.length - 1]?.date || "";
+    if (
+      candidate.sha256 !== artifact.sha256 ||
+      candidate.rows.length !== artifact.rows ||
+      firstDate !== artifact.first_date ||
+      latestDate !== artifact.latest_date
+    ) {
+      throw new Error("DCA comparison preview does not match its publication marker.");
     }
-    await loadFullSourceRows();
+    if (installedBounds && latestDate < installedBounds.latestDate) {
+      throw new Error("DCA comparison preview generation regressed.");
+    }
+    return true;
   }
 
-  async function init() {
-    window.WSBPreviewShared?.initThemeSync({ onThemeChanged: render });
-    await load();
-    render();
-    window.WSBPreviewShared?.markReady?.({ filename: "dca_comparison.png" });
-    window.addEventListener("resize", render);
-    window.WSBPreviewShared
-      ?.createAutoRefresher({
-        intervalMs: AUTO_REFRESH_MS,
-        refresh: async () => {
-          await load();
-          render();
-        },
-      })
-      .start();
+  function commitCandidate(candidate, context) {
+    cachedRows = candidate.rows;
+    installedBounds = {
+      firstDate: candidate.rows[0].date,
+      latestDate: candidate.rows[candidate.rows.length - 1].date,
+    };
+    installedPublicationSignature = context.signature;
+    return { present: true };
   }
 
-  init().catch((error) => {
-    console.error(error);
-    renderFallback();
-    window.WSBPreviewShared?.markReady?.({ filename: "dca_comparison.png" });
-  });
+  function requestPresent(reason) {
+    if (refresher) refresher.requestPresent(reason);
+  }
+
+  function init() {
+    const shared = window.WSBPreviewShared;
+    if (!shared?.createDataRefresher) {
+      renderFallback();
+      shared?.markReady?.({ filename: "dca_comparison.png" });
+      return;
+    }
+    shared.initThemeSync({ onThemeChanged: () => requestPresent("theme") });
+    window.addEventListener("resize", () => requestPresent("resize"));
+    refresher = shared.createDataRefresher({
+      filename: "dca_comparison.png",
+      urls: [PUBLICATION_URL],
+      intervalMs: AUTO_REFRESH_MS,
+      getInstalledSignature: () => installedPublicationSignature,
+      prepare: prepareCandidate,
+      validate: validateCandidate,
+      commit: commitCandidate,
+      present: render,
+      onInitialError(error) {
+        console.error("DCA comparison preview initial load failed:", error);
+        renderFallback();
+      },
+      onError(error) {
+        console.warn("DCA comparison preview refresh deferred:", error);
+      },
+    });
+    refresher.start();
+  }
+
+  init();
 }());

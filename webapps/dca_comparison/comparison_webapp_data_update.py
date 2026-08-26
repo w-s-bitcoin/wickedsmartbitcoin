@@ -2,8 +2,11 @@
 """Update DCA comparison market-index datasets."""
 
 import csv
+import hashlib
+import io
 import json
 import os
+import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -16,6 +19,7 @@ YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 OUTPUT_COLUMNS = ["date", "spy", "qqq", "tlt", "mstr"]
 DCA_PREVIEW_COLUMNS = ["date", "BTC", "XAU"]
 DCA_PREVIEW_RANGE_YEARS = 4
+DCA_PREVIEW_MARKER = "published_generation.json"
 INDEX_SOURCES = {
     "spy": {"symbol": "SPY", "label": "SPY"},
     "qqq": {"symbol": "QQQ", "label": "QQQ"},
@@ -31,6 +35,29 @@ def repo_root() -> Path:
 def output_dir() -> Path:
     default_dir = Path(__file__).resolve().parent / "webapp_data"
     return Path(os.getenv("DCA_COMPARISON_WEBAPP_DATA_DIR", str(default_dir))).expanduser()
+
+
+def atomic_write_bytes(path: Path, payload: bytes) -> None:
+    """Publish a complete file with a same-directory atomic replace."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary_path = Path(handle.name)
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+        temporary_path = None
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def date_to_epoch(iso: str) -> int:
@@ -138,7 +165,7 @@ def subtract_calendar_years(iso: str, years: int) -> str:
     return start.isoformat()
 
 
-def write_dca_preview_csv(out_dir: Path) -> Path:
+def write_dca_preview_csv(out_dir: Path) -> tuple[Path, list[dict[str, str]], bytes]:
     root = repo_root()
     btc_by_date = read_column_csv(root / "assets" / "daily_price.csv", "date", "price")
     xau_by_date = read_column_csv(root / "webapps" / "uoa" / "webapp_data" / "daily_fx_rates.csv", "date", "xauusd")
@@ -153,12 +180,35 @@ def write_dca_preview_csv(out_dir: Path) -> Path:
         for iso in common_dates
         if iso >= start_iso
     ]
+    buffer = io.StringIO(newline="")
+    writer = csv.DictWriter(buffer, fieldnames=DCA_PREVIEW_COLUMNS, lineterminator="\n")
+    writer.writeheader()
+    writer.writerows(rows)
+    preview_bytes = buffer.getvalue().encode("utf-8")
     preview_path = out_dir / "dca_comparison_preview.csv"
-    with preview_path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=DCA_PREVIEW_COLUMNS, lineterminator="\n")
-        writer.writeheader()
-        writer.writerows(rows)
-    return preview_path
+    atomic_write_bytes(preview_path, preview_bytes)
+    return preview_path, rows, preview_bytes
+
+
+def build_preview_marker(
+    rows: list[dict[str, str]],
+    preview_bytes: bytes,
+    generated_utc: str,
+) -> bytes:
+    if not rows:
+        raise RuntimeError("Cannot publish an empty DCA comparison preview")
+    marker = {
+        "schema_version": 1,
+        "generated_utc": generated_utc,
+        "artifact": {
+            "path": "webapp_data/dca_comparison_preview.csv",
+            "sha256": hashlib.sha256(preview_bytes).hexdigest(),
+            "rows": len(rows),
+            "first_date": rows[0]["date"],
+            "latest_date": rows[-1]["date"],
+        },
+    }
+    return (json.dumps(marker, separators=(",", ":"), ensure_ascii=True) + "\n").encode("utf-8")
 
 
 def fill_daily_calendar(rows_by_date: dict[str, dict[str, str]], columns: list[str]) -> dict[str, dict[str, str]]:
@@ -219,12 +269,22 @@ def main() -> None:
 
     rows_by_date = fill_daily_calendar(rows_by_date, ["spy", "qqq", "tlt", "mstr"])
     write_csv(csv_path, rows_by_date)
-    preview_path = write_dca_preview_csv(out_dir)
-    (out_dir / "last_updated.txt").write_text(
-        datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC") + "\n"
+    generated_utc = datetime.now(timezone.utc).isoformat()
+    preview_path, preview_rows, preview_bytes = write_dca_preview_csv(out_dir)
+    marker_path = out_dir / "last_updated.txt"
+    marker_tmp_path = marker_path.with_suffix(marker_path.suffix + ".tmp")
+    marker_tmp_path.write_text(
+        datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f UTC") + "\n"
+    )
+    marker_tmp_path.replace(marker_path)
+    preview_marker_path = out_dir / DCA_PREVIEW_MARKER
+    atomic_write_bytes(
+        preview_marker_path,
+        build_preview_marker(preview_rows, preview_bytes, generated_utc),
     )
     print(f"Wrote {csv_path}")
     print(f"Wrote {preview_path}")
+    print(f"Published {preview_marker_path}")
 
 
 if __name__ == "__main__":

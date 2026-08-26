@@ -3133,6 +3133,10 @@
   </div>
 
   <script src="../../js/11_dashboard_timezone_preferences.js"></script>
-  <script src="dashboard_app.js"></script>
+  <script>
+    window.WSBWebappDataAutoRefresh = { urls: ["webapp_data/patoshi_metadata.json"] };
+  </script>
+  <script src="../shared/webapp_data_auto_refresh.js?v=20260825-stage3"></script>
+  <script src="dashboard_app.js?v=20260825-stage3"></script>
 </body>
 </html>

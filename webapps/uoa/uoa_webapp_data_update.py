@@ -117,6 +117,17 @@ def input_data_path(output_dir, filename):
     return source_data_dir() / filename
 
 
+def publish_refresh_marker(webapp_data_dir):
+    """Atomically advance the browser-visible generation after all data writes."""
+    marker_file = webapp_data_dir / "last_updated.txt"
+    marker_text = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f UTC")
+    tmp_file = marker_file.with_suffix(marker_file.suffix + ".tmp")
+    tmp_file.write_text(marker_text + "\n", encoding="utf-8")
+    tmp_file.replace(marker_file)
+    print(f"  Wrote: {marker_file.name}")
+    return marker_text
+
+
 NOTABLE_EVENTS = {    "VES": [
         {
             "date": "2013-02-19",
@@ -1309,9 +1320,12 @@ def refresh_cup_only():
         f"CUP/USD is overwritten with {CUP_INFORMAL_SOURCE_LABEL} where available; "
         "weekends and market holidays are forward-filled."
     )
-    with open(uoa_pairs_file, "w") as f:
+    uoa_pairs_tmp_file = uoa_pairs_file.with_suffix(uoa_pairs_file.suffix + ".tmp")
+    with open(uoa_pairs_tmp_file, "w") as f:
         json.dump(uoa_data, f, indent=2)
+    uoa_pairs_tmp_file.replace(uoa_pairs_file)
     print(f"  Updated CUP metadata in {uoa_pairs_file.name}")
+    publish_refresh_marker(webapp_data_dir)
 
 
 def main():
@@ -1473,14 +1487,10 @@ def main():
 
     # Save updated CSV
     print(f"\nSaving updated CSV with {len(df_combined.columns)-1} currency pairs...")
-    df_combined.to_csv(fx_rates_file, index=False)
+    fx_rates_tmp_file = fx_rates_file.with_suffix(fx_rates_file.suffix + ".tmp")
+    df_combined.to_csv(fx_rates_tmp_file, index=False)
+    fx_rates_tmp_file.replace(fx_rates_file)
     print(f"  Saved {len(df_combined)} rows to {fx_rates_file.name}")
-
-    # Write the refresh timestamp used by the dashboard's Updated KPI.
-    last_updated_file = webapp_data_dir / "last_updated.txt"
-    last_updated_text = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    last_updated_file.write_text(last_updated_text + "\n", encoding="utf-8")
-    print(f"  Wrote: {last_updated_file.name}")
 
     # Update uoa_pairs.json
     print("\nUpdating uoa_pairs.json...")
@@ -1571,9 +1581,15 @@ def main():
     uoa_data["redenomination_events"] = REDENOMINATION_EVENTS
     uoa_data["notable_events"] = NOTABLE_EVENTS
 
-    with open(uoa_pairs_file, 'w') as f:
+    uoa_pairs_tmp_file = uoa_pairs_file.with_suffix(uoa_pairs_file.suffix + ".tmp")
+    with open(uoa_pairs_tmp_file, 'w') as f:
         json.dump(uoa_data, f, indent=2)
+    uoa_pairs_tmp_file.replace(uoa_pairs_file)
     print(f"  Added {len(target_currencies)} source currencies to uoa_pairs.json")
+
+    # Publish the refresh marker only after every dashboard data file is complete.
+    # The browser uses this as the generation boundary for atomic in-place refreshes.
+    publish_refresh_marker(webapp_data_dir)
 
     # Summary
     print("\n" + "=" * 60)

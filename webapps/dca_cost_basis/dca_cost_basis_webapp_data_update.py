@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -12,6 +14,29 @@ import pandas as pd
 
 DEFAULT_CONTRIBUTION_USD = 1.0
 DEFAULT_START_DATE = "2011-06-05"
+
+
+def atomic_write_bytes(path: Path, payload: bytes) -> None:
+    """Replace *path* only after the complete payload is durable on disk."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary_path = Path(handle.name)
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+        temporary_path = None
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def parse_bool(value: object) -> bool:
@@ -281,11 +306,17 @@ def build_metadata(
     }
 
 
-def write_csv(df: pd.DataFrame, output_path: Path) -> None:
+def csv_bytes(df: pd.DataFrame) -> bytes:
     save_df = df.copy()
     save_df["timestamp_utc"] = save_df["timestamp_utc"].dt.strftime("%Y-%m-%d %H:%M:%S")
     save_df["window_end_timestamp_utc"] = save_df["window_end_timestamp_utc"].dt.strftime("%Y-%m-%d %H:%M:%S")
-    save_df.to_csv(output_path, index=False, float_format="%.10f")
+    return save_df.to_csv(index=False, float_format="%.10f").encode("utf-8")
+
+
+def write_csv(df: pd.DataFrame, output_path: Path) -> bytes:
+    payload = csv_bytes(df)
+    atomic_write_bytes(output_path, payload)
+    return payload
 
 
 def main() -> None:
@@ -344,10 +375,11 @@ def main() -> None:
     combined["weekly_dca_basis"] = weekly_dca["dca_basis"].values
     combined["monthly_dca_basis"] = monthly_dca["dca_basis"].values
 
-    write_csv(daily_dca, output_dir / "daily_dca.csv")
+    daily_bytes = write_csv(daily_dca, output_dir / "daily_dca.csv")
     write_csv(weekly_dca, output_dir / "weekly_dca.csv")
     write_csv(monthly_dca, output_dir / "monthly_dca.csv")
-    combined.to_csv(output_dir / "dca_series_combined.csv", index=False, float_format="%.10f")
+    combined_bytes = combined.to_csv(index=False, float_format="%.10f").encode("utf-8")
+    atomic_write_bytes(output_dir / "dca_series_combined.csv", combined_bytes)
 
     metadata = build_metadata(
       source_df,
@@ -358,7 +390,17 @@ def main() -> None:
       args.start_date,
             latest_snapshot=latest_snapshot,
     )
-    (output_dir / "dca_cost_basis_metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    metadata["schema_version"] = 1
+    metadata["artifact"] = {
+        "path": "webapp_data/daily_dca.csv",
+        "sha256": hashlib.sha256(daily_bytes).hexdigest(),
+        "rows": int(len(daily_dca)),
+        "first_date": str(daily_dca.iloc[0]["date_iso"]),
+        "latest_date": str(daily_dca.iloc[-1]["date_iso"]),
+    }
+    metadata_bytes = (json.dumps(metadata, indent=2, ensure_ascii=True) + "\n").encode("utf-8")
+    # This marker is the publication boundary and must always be replaced last.
+    atomic_write_bytes(output_dir / "dca_cost_basis_metadata.json", metadata_bytes)
 
     print(f"Wrote: {output_dir / 'daily_dca.csv'}")
     print(f"Wrote: {output_dir / 'weekly_dca.csv'}")

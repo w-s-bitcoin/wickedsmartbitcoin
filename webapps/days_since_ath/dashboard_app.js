@@ -4,6 +4,8 @@
   const STORAGE_KEY = "days_since_ath_dashboard_state_v1";
   const DOWNLOAD_SETTINGS_KEY = "days_since_ath_download_settings_v1";
   const THEME_KEY = "quantum-research-dashboard-theme";
+  const DATA_URL = "../../assets/daily_price.csv";
+  const PUBLICATION_URL = "../../assets/daily_price_metadata.json";
   const PRICE_FALLBACK = 0.0001;
   const SPEEDS = [0.5, 1, 2, 4];
   const DATE_RANGE_EXPORT_VIDEO_FPS = 30;
@@ -203,6 +205,18 @@
     lastTimestampMs: 0,
     accumulatedMs: 0,
   };
+  let pendingSpacePlayback = false;
+  let daysInstalledPublicationSignature = "";
+  let daysInstalledDataSignature = "";
+  let daysRefreshPresentationPending = false;
+  let daysRefreshAdapterRegistered = false;
+  let daysInitializationComplete = false;
+  let daysRefreshPresentationRetryTimer = 0;
+  let daysRefreshPresentationRetryAttempts = 0;
+  const chartLoaders = DASHBOARD_COMPONENTS.bindChartLoaders?.([
+    el.priceChartLoader,
+    el.daysChartLoader,
+  ]);
 
   function applyTheme(theme) {
     document.documentElement.dataset.theme = theme === "light" ? "light" : "dark";
@@ -1954,6 +1968,11 @@
   }
 
   function handleDateRangeSpaceShortcut() {
+    if (!state.rows.length) {
+      pendingSpacePlayback = true;
+      return;
+    }
+    pendingSpacePlayback = false;
     if (state.playing) pause();
     else play();
   }
@@ -2327,18 +2346,33 @@
     window.addEventListener("resize", constrainDownloadSettingsMenuToViewport);
   }
 
-  async function loadData() {
-    const resp = await fetch("../../assets/daily_price.csv", { cache: "default" });
-    if (!resp.ok) throw new Error(`Failed to load daily_price.csv (${resp.status})`);
-    const rows = parseCsv(await resp.text())
-      .map((row) => ({
-        date: isoFromRow(row),
+  async function fetchDaysText(fetchResource, url) {
+    const response = await fetchResource(url, { cache: "no-store" });
+    if (!response.ok) throw new Error(`Failed to load ${url} (${response.status})`);
+    return response.text();
+  }
+
+  async function sha256Text(text) {
+    if (!window.crypto?.subtle || typeof TextEncoder !== "function") return "";
+    const bytes = new TextEncoder().encode(text);
+    const digest = await window.crypto.subtle.digest("SHA-256", bytes);
+    return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
+  }
+
+  function buildDaysRows(csvText) {
+    const rawRows = parseCsv(csvText);
+    const rows = rawRows.map((row) => {
+      const date = isoFromRow(row);
+      const rawPrice = Number(row.daily_high || row.price);
+      const rawHeight = Number(row.block_height);
+      return {
+        date,
         timestamp: row.timestamp || row.date || "",
-        price: Math.max(Number(row.daily_high || row.price) || 0, PRICE_FALLBACK),
-        height: Number(row.block_height) || 0,
-      }))
-      .filter((row) => row.date)
-      .sort((a, b) => a.date.localeCompare(b.date));
+        price: Math.max(Number.isFinite(rawPrice) ? rawPrice : 0, PRICE_FALLBACK),
+        height: Number.isFinite(rawHeight) ? rawHeight : NaN,
+        sourcePrice: rawPrice,
+      };
+    });
     let athPrice = PRICE_FALLBACK;
     let athDate = rows[0]?.date || "";
     rows.forEach((row) => {
@@ -2351,24 +2385,274 @@
       row.athDate = athDate;
       row.daysSinceAth = dayDiff(athDate, row.date);
     });
-    state.rows = rows;
-    state.startIso = rows[0]?.date || "";
-    state.endIso = rows[rows.length - 1]?.date || "";
-    state.currentIso = state.endIso;
+    return rows;
+  }
+
+  async function prepareDaysCandidate(fetchResource, expectedMarkerSignature = "") {
+    const markerSignature = String(expectedMarkerSignature || "").trim()
+      || (await fetchDaysText(fetchResource, PUBLICATION_URL)).trim();
+    const marker = JSON.parse(markerSignature);
+    const csvText = await fetchDaysText(fetchResource, DATA_URL);
+    const dataHash = await sha256Text(csvText);
+    return {
+      marker,
+      markerSignature,
+      rows: buildDaysRows(csvText),
+      dataHash,
+      dataSignature: dataHash,
+    };
+  }
+
+  function validateDaysCandidate(candidate, { allowRegression = false } = {}) {
+    const marker = candidate?.marker;
+    const nextRows = candidate?.rows;
+    const artifact = marker?.artifact;
+    const expectedHash = String(artifact?.sha256 || "").toLowerCase();
+    if (!marker || Number(marker.schema_version) !== 1) return false;
+    if (String(artifact?.path || "") !== "assets/daily_price.csv") return false;
+    if (!/^[a-f0-9]{64}$/.test(expectedHash) || candidate?.dataHash !== expectedHash) return false;
+    if (!Array.isArray(nextRows) || nextRows.length < 6000) return false;
+    if (nextRows.length !== Number(artifact.rows)) return false;
+    if (nextRows[0]?.date !== String(marker.first_date || "")) return false;
+    if (nextRows[nextRows.length - 1]?.date !== String(marker.latest_date || "")) return false;
+    if (String(nextRows[nextRows.length - 1]?.timestamp || "") !== String(marker.latest_timestamp || "")) return false;
+    if (Number(nextRows[nextRows.length - 1]?.height) !== Number(marker.latest_block_height)) return false;
+    if (nextRows[0]?.date !== "2009-01-03") return false;
+
+    let previousDate = "";
+    let previousHeight = -1;
+    for (const row of nextRows) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(row?.date || ""))) return false;
+      if (!String(row.timestamp || "").startsWith(row.date)) return false;
+      if (!Number.isFinite(row.sourcePrice) || row.sourcePrice < 0) return false;
+      if (!Number.isInteger(row.height) || row.height < previousHeight) return false;
+      if (previousDate && dayDiff(previousDate, row.date) !== 1) return false;
+      if (!Number.isFinite(row.athPrice) || !Number.isInteger(row.daysSinceAth) || row.daysSinceAth < 0) return false;
+      previousDate = row.date;
+      previousHeight = row.height;
+    }
+
+    if (!allowRegression && state.rows.length) {
+      const currentLatest = state.rows[state.rows.length - 1];
+      const nextLatest = nextRows[nextRows.length - 1];
+      if (nextRows.length < state.rows.length) return false;
+      if (nextLatest.date < currentLatest.date) return false;
+      if (nextLatest.height < currentLatest.height) return false;
+    }
+    return true;
+  }
+
+  async function loadInitialDaysCandidate() {
+    let lastError = null;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      try {
+        const fetchResource = (url, init) => fetch(url, { ...(init || {}), cache: "no-store" });
+        const before = (await fetchDaysText(fetchResource, PUBLICATION_URL)).trim();
+        const candidate = await prepareDaysCandidate(fetchResource, before);
+        const after = (await fetchDaysText(fetchResource, PUBLICATION_URL)).trim();
+        if (before !== after) throw new Error("Days Since ATH data changed during initial loading.");
+        if (!validateDaysCandidate(candidate, { allowRegression: true })) {
+          throw new Error("Days Since ATH publication is incomplete or inconsistent.");
+        }
+        return candidate;
+      } catch (error) {
+        lastError = error;
+        if (attempt < 3) await new Promise((resolve) => window.setTimeout(resolve, 150 * (attempt + 1)));
+      }
+    }
+    throw lastError || new Error("Could not load a complete Days Since ATH generation.");
+  }
+
+  function rowDateAt(rows, index, fallback = "") {
+    return rows[Math.max(0, Math.min(rows.length - 1, Number(index) || 0))]?.date || fallback;
+  }
+
+  function restorePlaybackIndices(oldRows, oldMax) {
+    if (!dateRangePlaybackState.hasSession || !oldRows.length) return;
+    const newMax = maxRangeIndex();
+    const startDate = rowDateAt(oldRows, dateRangePlaybackState.startIndex, state.startIso);
+    const targetDate = rowDateAt(oldRows, dateRangePlaybackState.targetEndIndex, state.endIso);
+    const currentDate = rowDateAt(oldRows, dateRangePlaybackState.currentEndIndex, state.endIso);
+    const originalStartDate = rowDateAt(oldRows, dateRangePlaybackState.originalStartIndex, state.startIso);
+    const originalEndDate = rowDateAt(oldRows, dateRangePlaybackState.originalEndIndex, state.endIso);
+    const targetTrackedLatest = dateRangePlaybackState.targetEndIndex >= oldMax;
+    const originalEndTrackedLatest = dateRangePlaybackState.originalEndIndex >= oldMax;
+    dateRangePlaybackState.startIndex = Math.max(0, findIndex(startDate, "nearest"));
+    dateRangePlaybackState.targetEndIndex = targetTrackedLatest
+      ? newMax
+      : Math.max(dateRangePlaybackState.startIndex, findIndex(targetDate, "nearest"));
+    dateRangePlaybackState.currentEndIndex = Math.max(
+      dateRangePlaybackState.startIndex,
+      Math.min(dateRangePlaybackState.targetEndIndex, findIndex(currentDate, "nearest")),
+    );
+    dateRangePlaybackState.originalStartIndex = Math.max(0, findIndex(originalStartDate, "nearest"));
+    dateRangePlaybackState.originalEndIndex = originalEndTrackedLatest
+      ? newMax
+      : Math.max(dateRangePlaybackState.originalStartIndex, findIndex(originalEndDate, "nearest"));
+  }
+
+  function installDaysCandidate(candidate, { preserveSelection = true } = {}) {
+    const rowsChanged = !daysInitializationComplete || candidate.dataSignature !== daysInstalledDataSignature;
+    daysInstalledPublicationSignature = candidate.markerSignature;
+    if (!rowsChanged) return false;
+
+    const oldRows = state.rows;
+    const oldMax = Math.max(0, oldRows.length - 1);
+    const oldLatestDate = oldRows[oldMax]?.date || "";
+    const oldStartIso = state.startIso;
+    const oldEndIso = state.endIso;
+    const oldCurrentIso = state.currentIso;
+    const endTrackedLatest = !!oldLatestDate && oldEndIso === oldLatestDate;
+    const currentTrackedEnd = oldCurrentIso === oldEndIso;
+
+    state.rows = candidate.rows;
+    daysInstalledDataSignature = candidate.dataSignature;
+    if (!preserveSelection || !oldRows.length) {
+      state.startIso = state.rows[0]?.date || "";
+      state.endIso = state.rows[state.rows.length - 1]?.date || "";
+      state.currentIso = state.endIso;
+      return true;
+    }
+
+    state.startIso = clampIso(oldStartIso);
+    state.endIso = endTrackedLatest ? state.rows[state.rows.length - 1].date : clampIso(oldEndIso);
+    if (state.preset && state.preset !== "custom" && endTrackedLatest) {
+      state.startIso = getPresetStart(state.preset, state.endIso);
+    }
+    state.currentIso = currentTrackedEnd ? state.endIso : clampIso(oldCurrentIso);
+    normalizeState();
+    restorePlaybackIndices(oldRows, oldMax);
+    return true;
+  }
+
+  function isDaysRefreshEditActive() {
+    const active = document.activeElement;
+    if (!active) return false;
+    if (active.isContentEditable) return true;
+    const tag = String(active.tagName || "").toUpperCase();
+    if (tag === "TEXTAREA") return true;
+    if (tag !== "INPUT") return false;
+    return [
+      "date",
+      "datetime-local",
+      "email",
+      "month",
+      "number",
+      "password",
+      "search",
+      "tel",
+      "text",
+      "time",
+      "url",
+      "week",
+    ].includes(String(active.type || "text").toLowerCase());
+  }
+
+  function daysPresentationBlocked() {
+    return document.visibilityState !== "visible"
+      || isDaysRefreshEditActive()
+      || !!dateRangeDragState
+      || !!dateRangeEndSliderScrubState.active;
+  }
+
+  function presentPendingDaysRefresh() {
+    if (!daysRefreshPresentationPending || !daysInitializationComplete || daysPresentationBlocked()) return;
+    daysRefreshPresentationPending = false;
+    render();
+  }
+
+  function scheduleDaysRefreshPresentationRetry() {
+    if (!daysRefreshPresentationPending
+        || document.visibilityState !== "visible"
+        || daysRefreshPresentationRetryTimer
+        || daysRefreshPresentationRetryAttempts >= 20) return;
+    daysRefreshPresentationRetryAttempts += 1;
+    daysRefreshPresentationRetryTimer = window.setTimeout(() => {
+      daysRefreshPresentationRetryTimer = 0;
+      presentPendingDaysRefresh();
+      scheduleDaysRefreshPresentationRetry();
+    }, 150);
+  }
+
+  function queueDaysRefreshPresentation() {
+    daysRefreshPresentationPending = true;
+    daysRefreshPresentationRetryAttempts = 0;
+    presentPendingDaysRefresh();
+    // Embedded modal focus can occasionally return to <body> without a
+    // focusout event. A short, bounded fallback prevents that transition from
+    // stranding a ready presentation; normal focusout remains the fast path.
+    scheduleDaysRefreshPresentationRetry();
+  }
+
+  function finishDaysInitialization() {
+    if (daysInitializationComplete) {
+      queueDaysRefreshPresentation();
+      return;
+    }
     readState();
     loadDownloadSettings();
     if (state.preset && state.preset !== "custom") {
-      state.endIso = rows[rows.length - 1].date;
+      state.endIso = state.rows[state.rows.length - 1].date;
       state.startIso = getPresetStart(state.preset, state.endIso);
       state.currentIso = state.endIso;
     }
     render();
-    DASHBOARD_COMPONENTS.bindChartLoaders?.([el.priceChartLoader, el.daysChartLoader])?.hide?.();
+    daysInitializationComplete = true;
+    daysRefreshPresentationPending = false;
+    chartLoaders?.hide?.();
+    if (pendingSpacePlayback) {
+      pendingSpacePlayback = false;
+      requestAnimationFrame(() => handleDateRangeSpaceShortcut());
+    }
   }
 
-  bindEvents();
-  loadData().catch((error) => {
-    DASHBOARD_COMPONENTS.bindChartLoaders?.([el.priceChartLoader, el.daysChartLoader])?.hide?.();
+  function registerDaysRefreshAdapter() {
+    if (daysRefreshAdapterRegistered) return;
+    const controller = window.WSBWebappDataAutoRefresh;
+    if (!controller || typeof controller.register !== "function") return;
+    daysRefreshAdapterRegistered = true;
+    controller.register({
+      getInstalledSignature: () => daysInstalledPublicationSignature,
+      prepare: (context) => prepareDaysCandidate(context.fetchFresh, context.signature),
+      validate: (candidate) => validateDaysCandidate(candidate),
+      commit: (candidate) => {
+        if (isDateRangeExporting || state.playing || dateRangeDragState || dateRangeEndSliderScrubState.active) return false;
+        const wasInitialized = daysInitializationComplete;
+        const rowsChanged = installDaysCandidate(candidate, { preserveSelection: wasInitialized });
+        if (!wasInitialized) {
+          finishDaysInitialization();
+          return true;
+        }
+        if (rowsChanged) {
+          queueDaysRefreshPresentation();
+        }
+        return true;
+      },
+      onError: (error) => {
+        console.warn("Days Since ATH background refresh failed; keeping the current data visible.", error);
+      },
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") presentPendingDaysRefresh();
+    });
+    document.addEventListener("focusout", () => window.setTimeout(presentPendingDaysRefresh, 0));
+    window.addEventListener("pointerup", () => window.setTimeout(presentPendingDaysRefresh, 0));
+    window.addEventListener("pointercancel", () => window.setTimeout(presentPendingDaysRefresh, 0));
+  }
+
+  async function init() {
+    bindEvents();
+    try {
+      const candidate = await loadInitialDaysCandidate();
+      installDaysCandidate(candidate, { preserveSelection: false });
+      finishDaysInitialization();
+    } finally {
+      registerDaysRefreshAdapter();
+    }
+  }
+
+  init().catch((error) => {
+    chartLoaders?.hide?.();
     console.error("Unable to load Days Since ATH dashboard.", error);
     if (updatedTimeZoneChip) updatedTimeZoneChip.setText("Load failed");
     else el.updatedKpi.textContent = "Load failed";

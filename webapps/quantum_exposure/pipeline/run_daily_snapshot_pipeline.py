@@ -6,9 +6,9 @@ Workflow:
 2. Compare against the next 1000-block target after the latest local snapshot.
 3. If due, run the full pipeline pinned to that freeze height.
 4. Clean and fill identity/details for the new snapshot.
-5. Archive prior non-50k snapshots (keep only 50k intervals + latest 1000 snapshot).
+5. Archive eligible prior non-50k snapshots, deferring the browser-published one.
 6. Refresh blockheight lookup and regenerate ECO/index outputs.
-7. Sync updated dashboard files to standalone webapps-quantum-exposure repo.
+7. Publish the finalized marker and sync runtime/data/marker to the standalone repo.
 
 Run in terminal with:
 source /Users/wicked/Projects/repos/animations-dev/.venv/bin/activate
@@ -34,6 +34,13 @@ from pipeline_paths import (
     REPO_ROOT,
     resolve_env_file,
     resolve_standalone_repo_dir,
+)
+from publish_generation import (
+    PUBLICATION_MARKER_FILENAME,
+    copy_generation_marker,
+    publish_generation_marker,
+    read_published_snapshot_height,
+    write_empty_archive_catalogs,
 )
 
 WEBAPP_DATA_DIR = QUANTUM_DIR / "webapp_data"
@@ -188,6 +195,7 @@ def run_command(command: list[str], cwd: Path, env: dict[str, str], dry_run: boo
 
 def archive_prior_non_50k_snapshots(target_height: int, dry_run: bool) -> list[int]:
     archived: list[int] = []
+    published_height = read_published_snapshot_height(WEBAPP_DATA_DIR)
     if not dry_run:
         ARCHIVED_SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -201,6 +209,12 @@ def archive_prior_non_50k_snapshots(target_height: int, dry_run: bool) -> list[i
             continue
 
         if height == target_height:
+            continue
+        # Keep the generation browsers are still reading in its active URL.
+        # It becomes eligible on the following run, after a newer marker has
+        # already been installed. This deliberately defers archive by one
+        # generation instead of creating a marker-to-missing-directory window.
+        if height == published_height:
             continue
         if height % KEEP_INTERVAL == 0:
             continue
@@ -221,6 +235,7 @@ def archive_prior_non_50k_snapshots(target_height: int, dry_run: bool) -> list[i
 def sync_to_standalone_repo(dry_run: bool) -> None:
     standalone_repo_dir = resolve_standalone_repo_dir()
     standalone_quantum_dir = standalone_repo_dir / "webapps" / "quantum_exposure"
+    standalone_shared_dir = standalone_repo_dir / "webapps" / "shared"
     standalone_data_dir = standalone_quantum_dir / "webapp_data"
 
     if not standalone_quantum_dir.exists():
@@ -229,14 +244,30 @@ def sync_to_standalone_repo(dry_run: bool) -> None:
 
     print(f"Syncing active files to standalone repo: {standalone_quantum_dir}")
 
+    required_runtime_sources = [
+        QUANTUM_DIR / "dashboard.html",
+        QUANTUM_DIR / "dashboard_app.js",
+        QUANTUM_DIR.parent / "shared" / "webapp_data_auto_refresh.js",
+    ]
+    missing_runtime_sources = [
+        str(path) for path in required_runtime_sources if not path.is_file()
+    ]
+    if missing_runtime_sources:
+        raise RuntimeError(
+            "Standalone Quantum sync is missing required runtime files: "
+            + ", ".join(missing_runtime_sources)
+        )
+
     files_to_copy = [
         (QUANTUM_DIR / "dashboard.html", standalone_quantum_dir / "dashboard.html"),
         (QUANTUM_DIR / "dashboard_app.js", standalone_quantum_dir / "dashboard_app.js"),
+        (
+            QUANTUM_DIR.parent / "shared" / "webapp_data_auto_refresh.js",
+            standalone_shared_dir / "webapp_data_auto_refresh.js",
+        ),
         (WEBAPP_DATA_DIR / "latest_snapshot.txt", standalone_data_dir / "latest_snapshot.txt"),
         (WEBAPP_DATA_DIR / "snapshots_index.csv", standalone_data_dir / "snapshots_index.csv"),
-        (WEBAPP_DATA_DIR / "archived_index.csv", standalone_data_dir / "archived_index.csv"),
         (WEBAPP_DATA_DIR / "historical_eco.csv", standalone_data_dir / "historical_eco.csv"),
-        (WEBAPP_DATA_DIR / "historical_archived.csv", standalone_data_dir / "historical_archived.csv"),
         (WEBAPP_DATA_DIR / "blockheight_datetime_lookup.csv", standalone_data_dir / "blockheight_datetime_lookup.csv"),
     ]
 
@@ -258,18 +289,6 @@ def sync_to_standalone_repo(dry_run: bool) -> None:
             continue
         active_snapshot_dirs.append(entry.name)
 
-    deleted_count = 0
-    if standalone_data_dir.exists():
-        for entry in standalone_data_dir.iterdir():
-            if not entry.is_dir() or not entry.name.isdigit():
-                continue
-            if entry.name in active_snapshot_dirs:
-                continue
-            deleted_count += 1
-            if dry_run:
-                continue
-            shutil.rmtree(entry)
-
     for snapshot_name in active_snapshot_dirs:
         source_snapshot_dir = WEBAPP_DATA_DIR / snapshot_name
         target_snapshot_dir = standalone_data_dir / snapshot_name
@@ -284,6 +303,44 @@ def sync_to_standalone_repo(dry_run: bool) -> None:
             if dry_run:
                 continue
             shutil.copy2(source_file, target_file)
+
+    # The standalone bundle intentionally omits the large archived snapshot
+    # payloads. Install an explicit empty catalog pair instead of copying
+    # source catalogs whose rows would point at absent directories. This runs
+    # after regular copies and immediately before the marker boundary.
+    standalone_archived_dir = standalone_data_dir / "archived"
+    if not dry_run:
+        write_empty_archive_catalogs(standalone_data_dir)
+        if standalone_archived_dir.exists():
+            shutil.rmtree(standalone_archived_dir)
+
+    # This is the standalone publication boundary. Copy it only after every
+    # referenced data file and snapshot directory has finished syncing, and use
+    # an atomic replacement so readers see either the old or new generation.
+    marker_source = WEBAPP_DATA_DIR / PUBLICATION_MARKER_FILENAME
+    if marker_source.exists():
+        copied_count += 1
+        if not dry_run:
+            copy_generation_marker(WEBAPP_DATA_DIR, standalone_data_dir)
+    else:
+        print(f"Standalone publication marker missing: {marker_source}")
+        if not dry_run:
+            raise RuntimeError("Refusing to finalize standalone sync without a publication marker.")
+
+    # Keep the generation referenced by the old marker available throughout
+    # the sync. Stale active directories are safe to remove only after the new
+    # marker has been installed (or at the corresponding point in a dry run).
+    deleted_count = 0
+    if standalone_data_dir.exists():
+        for entry in standalone_data_dir.iterdir():
+            if not entry.is_dir() or not entry.name.isdigit():
+                continue
+            if entry.name in active_snapshot_dirs:
+                continue
+            deleted_count += 1
+            if dry_run:
+                continue
+            shutil.rmtree(entry)
 
     print(f"Standalone sync copied files : {copied_count}")
     print(f"Standalone sync active snaps : {len(active_snapshot_dirs)}")
@@ -398,8 +455,22 @@ def main() -> None:
         dry_run=args.dry_run,
     )
 
-    # Keep this as the final mutating pipeline step. The standalone repo should
-    # only receive fully cleaned, labeled, archived, and re-indexed data.
+    # Only this orchestrator publishes a browser-visible generation. The
+    # analysis step updates latest_snapshot.txt earlier because downstream
+    # corrections need it, but that internal pointer is not a publication
+    # signal. Any failure above leaves the old published marker untouched.
+    print("\n=== Publishing finalized dashboard generation ===")
+    if args.dry_run:
+        print(f"[dry-run] would update {WEBAPP_DATA_DIR / PUBLICATION_MARKER_FILENAME}")
+    else:
+        marker_text = publish_generation_marker(
+            WEBAPP_DATA_DIR,
+            reason="daily_snapshot_pipeline",
+        )
+        print(f"Published generation marker: {marker_text.strip()}")
+
+    # The standalone repo receives all generation files first and the marker
+    # last, preventing a deployed reader from observing a partial sync.
     print("\n=== Final standalone repo sync ===")
     sync_to_standalone_repo(dry_run=args.dry_run)
 

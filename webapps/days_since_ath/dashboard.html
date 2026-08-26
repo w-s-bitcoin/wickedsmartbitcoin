@@ -232,6 +232,10 @@
     </main>
   </div>
   <script src="../../js/11_dashboard_timezone_preferences.js"></script>
-  <script src="dashboard_app.js"></script>
+  <script>
+    window.WSBWebappDataAutoRefresh = { urls: ["../../assets/daily_price_metadata.json"] };
+  </script>
+  <script src="../shared/webapp_data_auto_refresh.js?v=20260825-stage4"></script>
+  <script src="dashboard_app.js?v=20260825-stage4"></script>
 </body>
 </html>

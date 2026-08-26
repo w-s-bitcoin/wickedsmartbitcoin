@@ -60,10 +60,36 @@ def height_to_period(height: int, start_height: int, period_size: int) -> int:
 
 def export_csv(path: Path, rows, fieldnames):
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames, lineterminator="\n")
-        writer.writeheader()
-        writer.writerows(rows)
+    tmp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        with tmp_path.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames, lineterminator="\n")
+            writer.writeheader()
+            writer.writerows(rows)
+            f.flush()
+            os.fsync(f.fileno())
+        tmp_path.replace(path)
+    finally:
+        try:
+            tmp_path.unlink()
+        except FileNotFoundError:
+            pass
+
+def atomic_write_json(path: Path, payload):
+    """Replace a JSON publication boundary without exposing a partial file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        with tmp_path.open("w", encoding="utf-8") as f:
+            json.dump(payload, f, separators=(",", ":"), ensure_ascii=True)
+            f.flush()
+            os.fsync(f.fileno())
+        tmp_path.replace(path)
+    finally:
+        try:
+            tmp_path.unlink()
+        except FileNotFoundError:
+            pass
 
 def export_block_points_bin(path: Path, rows, *, period_size: int):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -2344,11 +2370,21 @@ current_period_index = bip110_progress["current_period_index"]
 blocks_into_current_period = bip110_progress["blocks_into_current_period"]
 bip110_period_rows = bip110_progress["period_rows"]
 
+bip110_periods_path = webapp_dir / "bip110_periods.csv"
 export_csv(
-    webapp_dir / "bip110_periods.csv",
+    bip110_periods_path,
     bip110_period_rows,
     ["period", "period_start_height", "period_end_height", "status", "signal_blocks", "elapsed_blocks"],
 )
+bip110_periods_meta = {
+    "path": bip110_periods_path.name,
+    "sha256": hashlib.sha256(bip110_periods_path.read_bytes()).hexdigest(),
+    "rows": len(bip110_period_rows),
+    "first_period": min(int(row["period"]) for row in bip110_period_rows),
+    "last_period": max(int(row["period"]) for row in bip110_period_rows),
+    "start_height": min(int(row["period_start_height"]) for row in bip110_period_rows),
+    "end_height": max(int(row["period_end_height"]) for row in bip110_period_rows),
+}
 
 bip110_block_rows = candidate_bip110_block_rows
 bip110_miner_heights = [row["height"] for row in bip110_block_rows]
@@ -2801,6 +2837,7 @@ bip110_metadata = {
     "node_sync": node_sync,
     "datasets": {
         "bip110_blocks": bip110_blocks_meta,
+        "bip110_periods": bip110_periods_meta,
         "bip110_miners": bip110_miners_meta,
         "bip110_signal_miners": bip110_signal_miners_meta,
         "miner_attributions": miner_attributions_meta,
@@ -2818,9 +2855,6 @@ if node_sync.get("status") == "rpc_unavailable":
     for key, value in previous_node_datasets.items():
         bip110_metadata["datasets"].setdefault(key, value)
 
-with (webapp_dir / "bip110_metadata.json").open("w", encoding="utf-8") as f:
-    json.dump(bip110_metadata, f, separators=(",", ":"), ensure_ascii=True)
-
 legacy_chart_metadata = {
     **chart_static,
     **bip110_metadata,
@@ -2830,8 +2864,11 @@ legacy_chart_metadata = {
     },
 }
 
-with (webapp_dir / "chart_metadata.json").open("w", encoding="utf-8") as f:
-    json.dump(legacy_chart_metadata, f, separators=(",", ":"), ensure_ascii=True)
+# Keep the compatibility bundle coherent too, then publish the watched dynamic
+# metadata last. Clients therefore cannot observe the new generation marker
+# until all companion files (including the legacy metadata view) are complete.
+atomic_write_json(webapp_dir / "chart_metadata.json", legacy_chart_metadata)
+atomic_write_json(webapp_dir / "bip110_metadata.json", bip110_metadata)
 
 print("Updated dynamic BIP-110 metadata.")
 print("Refreshed legacy combined chart_metadata.json for compatibility.")

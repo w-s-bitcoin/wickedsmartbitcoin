@@ -365,7 +365,6 @@ function closeModal() {
     flushCasasciusEmbedViewState();
     if (modalEmbed) modalEmbed.src = 'about:blank';
     resumeDeferredGridLoadingIfNeeded();
-    if (modalDlBtn) modalDlBtn.style.display = '';
     document.body.classList.remove('modal-open');
     // restart lazy loading so thumbnails continue to fetch when user returns
     try { initLazyImages(); } catch (_) {}
