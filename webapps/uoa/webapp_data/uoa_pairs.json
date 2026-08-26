@@ -1,12 +1,12 @@
 {
-  "generated_at_utc": "2026-08-26T02:06:58.607163Z",
+  "generated_at_utc": "2026-09-07T03:06:33.342747Z",
   "source": {
     "name": "Frankfurter",
     "url": "https://api.frankfurter.app",
     "upstream": "European Central Bank (ECB) reference rates",
     "pair_endpoint": "https://api.frankfurter.app/1999-01-01..2999-12-31?from=EUR&to=USD",
     "start_date": "1999-01-04",
-    "end_date": "2026-08-25",
+    "end_date": "2026-09-07",
     "notes": "Rates are business-day reference rates for 162 Frankfurter-supported currency pairs vs USD; CUP/USD is overwritten with elTOQUE TRMI via CUP=X where available; weekends and market holidays are forward-filled.",
     "dataset_notes": "CSV schema simplified to date, eurusd where eurusd is the EUR/USD rate value. Source attribution is stored in this metadata file.",
     "cupusd_source": "elTOQUE TRMI via CUP=X"
@@ -235,7 +235,7 @@
       ]
     },
     "ANG": {
-      "name": "Netherlands Antillean Gulden",
+      "name": "Netherlands Antillean Guilder",
       "code": "ANG",
       "symbol": "\u0192",
       "symbol_position": "left",
@@ -1988,7 +1988,7 @@
       "id": "ANG/USD",
       "base": "ANG",
       "quote": "USD",
-      "display_name": "Netherlands Antillean Gulden / US Dollar",
+      "display_name": "Netherlands Antillean Guilder / US Dollar",
       "dataset": "daily_fx_rates.csv",
       "dataset_columns": [
         "date",

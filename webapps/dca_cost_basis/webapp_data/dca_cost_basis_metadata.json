@@ -1,1 +1,77 @@
-{"generated_utc":"2026-08-26T02:03:42.718345+00:00","source":{"path":"assets/daily_price.csv","start_date":"2011-06-05","latest_date":"2026-08-26","latest_timestamp_utc":"2026-08-26T00:00:00+00:00","latest_block_height":964066,"latest_price":78523.2,"duration_days":5561},"settings":{"contribution_usd":1.0,"weekly_rule":"end_of_day_friday","monthly_rule":"end_of_day_day_1","daily_rule":"end_of_day_every_day"},"kpis":{"daily_dca":{"name":"daily_dca","current_basis":78523.2,"current_return_pct":0.0,"invested_usd":1.0,"btc_accum":1.2735089756912607e-05,"purchase_count":1,"days_ago":1},"weekly_dca":{"name":"weekly_dca","current_basis":78264.8,"current_return_pct":0.33016119634879815,"invested_usd":1.0,"btc_accum":1.2777136081610124e-05,"purchase_count":1,"days_ago":1},"monthly_dca":{"name":"monthly_dca","current_basis":62771.30000000001,"current_return_pct":25.094111480883758,"invested_usd":1.0,"btc_accum":1.5930847377702866e-05,"purchase_count":1,"days_ago":1}},"halvings":[{"label":"1st Halving","date":"2012-11-28","days_ago":5020},{"label":"2nd Halving","date":"2016-07-09","days_ago":3701},{"label":"3rd Halving","date":"2020-05-11","days_ago":2299},{"label":"4th Halving","date":"2024-04-20","days_ago":859}],"schema_version":1,"artifact":{"path":"webapp_data/daily_dca.csv","sha256":"cdc7cf1f21287c475eb0e5e37724e7960dab75a9cc227773e37d146129b83acd","rows":5561,"first_date":"2011-06-05","latest_date":"2026-08-26"}}
+{
+  "generated_utc": "2026-09-07T03:03:39.109001+00:00",
+  "source": {
+    "path": "assets/daily_price.csv",
+    "start_date": "2011-06-05",
+    "latest_date": "2026-09-07",
+    "latest_timestamp_utc": "2026-09-07T02:00:01+00:00",
+    "latest_block_height": 965867,
+    "latest_price": 79923.4,
+    "duration_days": 5573
+  },
+  "settings": {
+    "contribution_usd": 1.0,
+    "weekly_rule": "end_of_day_friday",
+    "monthly_rule": "end_of_day_day_1",
+    "daily_rule": "end_of_day_every_day"
+  },
+  "kpis": {
+    "daily_dca": {
+      "name": "daily_dca",
+      "current_basis": 79923.4,
+      "current_return_pct": 0.0,
+      "invested_usd": 1.0,
+      "btc_accum": 1.2511980221061667e-05,
+      "purchase_count": 1,
+      "days_ago": 1
+    },
+    "weekly_dca": {
+      "name": "weekly_dca",
+      "current_basis": 79668.7,
+      "current_return_pct": 0.3196989532903099,
+      "invested_usd": 1.0,
+      "btc_accum": 1.2551980890864291e-05,
+      "purchase_count": 1,
+      "days_ago": 1
+    },
+    "monthly_dca": {
+      "name": "monthly_dca",
+      "current_basis": 77515.8,
+      "current_return_pct": 3.105947432652428,
+      "invested_usd": 1.0,
+      "btc_accum": 1.2900595749511712e-05,
+      "purchase_count": 1,
+      "days_ago": 1
+    }
+  },
+  "halvings": [
+    {
+      "label": "1st Halving",
+      "date": "2012-11-28",
+      "days_ago": 5032
+    },
+    {
+      "label": "2nd Halving",
+      "date": "2016-07-09",
+      "days_ago": 3713
+    },
+    {
+      "label": "3rd Halving",
+      "date": "2020-05-11",
+      "days_ago": 2311
+    },
+    {
+      "label": "4th Halving",
+      "date": "2024-04-20",
+      "days_ago": 871
+    }
+  ],
+  "schema_version": 1,
+  "artifact": {
+    "path": "webapp_data/daily_dca.csv",
+    "sha256": "c9dd979a5837f42af7073f235eccce5c3340fc6e932368b8e04c636e21154187",
+    "rows": 5573,
+    "first_date": "2011-06-05",
+    "latest_date": "2026-09-07"
+  }
+}
