@@ -238,6 +238,27 @@ FETCH_HARNESS = r"""
       const response = await nativeFetch(input, init);
       const raw = typeof input === 'string' ? input : input?.url;
       const url = new URL(raw, window.location.href);
+      const simulatePrunedQuantumArchives = (
+        window.location.pathname === '/webapps/quantum_exposure/dashboard.html'
+        && new URLSearchParams(window.location.search).get('stage2_no_archives') === '1'
+        && [
+          '/webapps/quantum_exposure/webapp_data/archived_index.csv',
+          '/webapps/quantum_exposure/webapp_data/historical_archived.csv',
+        ].includes(url.pathname)
+        && response.ok
+      );
+      if (simulatePrunedQuantumArchives) {
+        const text = await response.clone().text();
+        const header = text.split(/\r?\n/, 1)[0] || '';
+        const headers = new Headers(response.headers);
+        headers.delete('content-length');
+        headers.delete('content-encoding');
+        return new Response(`${header}\n`, {
+          status: response.status,
+          statusText: response.statusText,
+          headers,
+        });
+      }
       const synthesizeBtcTailLag = (
         [
           '/webapps/uoa/dashboard.html',
@@ -624,10 +645,10 @@ def test_quantum_archive_retry_and_integrity(cdp: CdpSocket):
             f"{integrity['unexpectedFullRequests']!r}"
         )
 
-    for generation, failure_path, label in (
-        (9, "/archived_index.csv", "archive index"),
-        (10, "/archived/", "archive snapshot probe"),
-    ):
+    archive_failure_cases = [(9, "/archived_index.csv", "archive index")]
+    if cdp.evaluate("Boolean(quantumArchiveVerificationRequired)"):
+        archive_failure_cases.append((10, "/archived/", "archive snapshot probe"))
+    for generation, failure_path, label in archive_failure_cases:
         error_count = cdp.evaluate(
             "window.__wsbStage2RefreshTest.events.filter((event) => event.status === 'error').length"
         )
@@ -655,9 +676,16 @@ def test_quantum_archive_retry_and_integrity(cdp: CdpSocket):
 
 def test_dashboard(cdp: CdpSocket, server_port: int, slug: str, spec: dict):
     btc_tail_lag_query = "&stage2_btc_tail_lag=1" if slug in {"uoa", "dca_comparison"} else ""
+    quantum_archive_dir = ROOT / "webapps/quantum_exposure/webapp_data/archived"
+    no_archives_query = (
+        "&stage2_no_archives=1"
+        if slug == "quantum_exposure" and not quantum_archive_dir.is_dir()
+        else ""
+    )
     url = (
         f"http://127.0.0.1:{server_port}/{spec['path']}"
-        f"?stage2_refresh_test=1&stage2_initial_generation=7{btc_tail_lag_query}"
+        f"?stage2_refresh_test=1&stage2_initial_generation=7"
+        f"{btc_tail_lag_query}{no_archives_query}"
     )
     cdp.command("Page.navigate", {"url": url})
 

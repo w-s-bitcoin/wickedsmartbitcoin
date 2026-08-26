@@ -69,13 +69,28 @@ rm -rf "$DIST"/webapps/*/scripts
 rm -rf "$DIST"/webapps/*/gradings
 # Casascius item scripts are legacy base64 copies of manifest-referenced images.
 rm -rf "$DIST"/webapps/casascius_explorer/assets/items
-rm -rf "$DIST"/webapps/quantum_exposure/webapp_data/archived
+QUANTUM_DATA="$DIST/webapps/quantum_exposure/webapp_data"
+rm -rf "$QUANTUM_DATA/archived"
 rm -rf "$DIST"/webapps/quantum_exposure/webapp_data/arkham
+
+# Pages intentionally omits the large Quantum archive payloads. Do not leave
+# catalogs in the deployed bundle that advertise directories which were just
+# pruned; the dashboard treats these two header-only files as a coherent bundle
+# with archived browsing disabled while retaining all active snapshot data.
+if [[ -d "$QUANTUM_DATA" ]]; then
+  printf '%s\n' 'snapshot_blockheight,snapshot_time' > "$QUANTUM_DATA/archived_index.csv"
+  printf '%s\n' 'snapshot,balance_filter,script_type_filter,spend_activity_filter,pubkey_count,utxo_count,supply_sats,exposed_pubkey_count,exposed_utxo_count,exposed_supply_sats,estimated_migration_blocks' > "$QUANTUM_DATA/historical_archived.csv"
+  if [[ -d "$QUANTUM_DATA/archived" \
+      || "$(wc -l < "$QUANTUM_DATA/archived_index.csv")" -ne 1 \
+      || "$(wc -l < "$QUANTUM_DATA/historical_archived.csv")" -ne 1 ]]; then
+    echo "Quantum Pages archive pruning produced an incoherent bundle" >&2
+    exit 1
+  fi
+fi
 
 # Quantum Pages ships compact aggregates/top-100 rows for historical snapshots.
 # Keep the full >=1 BTC table only for the current snapshot, where explicit
 # address search or table expansion can request it on demand.
-QUANTUM_DATA="$DIST/webapps/quantum_exposure/webapp_data"
 QUANTUM_INDEX="$QUANTUM_DATA/snapshots_index.csv"
 if [[ -f "$QUANTUM_INDEX" ]]; then
   QUANTUM_CURRENT_SNAPSHOT="$(awk -F, 'NR == 2 { gsub(/\r/, "", $1); print $1; exit }' "$QUANTUM_INDEX")"
