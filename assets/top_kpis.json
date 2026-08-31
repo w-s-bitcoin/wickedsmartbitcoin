@@ -1,8 +1,8 @@
 {
-  "block_height": 964949,
-  "block_time_utc": "2026-08-31 22:41:45 UTC",
+  "block_height": 964950,
+  "block_time_utc": "2026-08-31 22:51:04 UTC",
   "epoch": 5,
-  "epoch_complete": 0.594,
+  "epoch_complete": 0.595,
   "subsidy_btc": 3.125,
   "subsidy_sats": 312500000,
   "supply_btc": 20077924.16655096,
