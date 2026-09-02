@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-09-02T09:06:38.231566Z",
+  "generated_at_utc": "2026-09-02T11:06:46.266465Z",
   "source": {
     "name": "Frankfurter",
     "url": "https://api.frankfurter.app",
@@ -235,7 +235,7 @@
       ]
     },
     "ANG": {
-      "name": "Netherlands Antillean Gulden",
+      "name": "Netherlands Antillean Guilder",
       "code": "ANG",
       "symbol": "\u0192",
       "symbol_position": "left",
@@ -1988,7 +1988,7 @@
       "id": "ANG/USD",
       "base": "ANG",
       "quote": "USD",
-      "display_name": "Netherlands Antillean Gulden / US Dollar",
+      "display_name": "Netherlands Antillean Guilder / US Dollar",
       "dataset": "daily_fx_rates.csv",
       "dataset_columns": [
         "date",
