@@ -1,13 +1,13 @@
 {
-  "generated_utc": "2026-09-03T00:04:08.540151+00:00",
+  "generated_utc": "2026-09-03T01:03:47.741148+00:00",
   "source": {
     "path": "assets/daily_price.csv",
     "start_date": "2011-06-05",
-    "latest_date": "2026-09-02",
-    "latest_timestamp_utc": "2026-09-02T23:00:00+00:00",
-    "latest_block_height": 965232,
-    "latest_price": 77005.0,
-    "duration_days": 5568
+    "latest_date": "2026-09-03",
+    "latest_timestamp_utc": "2026-09-03T00:02:28+00:00",
+    "latest_block_height": 965236,
+    "latest_price": 77310.0,
+    "duration_days": 5569
   },
   "settings": {
     "contribution_usd": 1.0,
@@ -18,17 +18,17 @@
   "kpis": {
     "daily_dca": {
       "name": "daily_dca",
-      "current_basis": 77005.0,
+      "current_basis": 77310.0,
       "current_return_pct": 0.0,
       "invested_usd": 1.0,
-      "btc_accum": 1.2986169729238362e-05,
+      "btc_accum": 1.2934937265554262e-05,
       "purchase_count": 1,
       "days_ago": 1
     },
     "weekly_dca": {
       "name": "weekly_dca",
       "current_basis": 77640.8,
-      "current_return_pct": -0.818899341583295,
+      "current_return_pct": -0.42606464642301844,
       "invested_usd": 1.0,
       "btc_accum": 1.2879826070828739e-05,
       "purchase_count": 1,
@@ -37,7 +37,7 @@
     "monthly_dca": {
       "name": "monthly_dca",
       "current_basis": 77515.8,
-      "current_return_pct": -0.658962430885062,
+      "current_return_pct": -0.2654942605249548,
       "invested_usd": 1.0,
       "btc_accum": 1.2900595749511712e-05,
       "purchase_count": 1,
@@ -48,30 +48,30 @@
     {
       "label": "1st Halving",
       "date": "2012-11-28",
-      "days_ago": 5027
+      "days_ago": 5028
     },
     {
       "label": "2nd Halving",
       "date": "2016-07-09",
-      "days_ago": 3708
+      "days_ago": 3709
     },
     {
       "label": "3rd Halving",
       "date": "2020-05-11",
-      "days_ago": 2306
+      "days_ago": 2307
     },
     {
       "label": "4th Halving",
       "date": "2024-04-20",
-      "days_ago": 866
+      "days_ago": 867
     }
   ],
   "schema_version": 1,
   "artifact": {
     "path": "webapp_data/daily_dca.csv",
-    "sha256": "4ab8334e29babcf6b7094ee4185268ef34e1552797b8dcedfa497ec893ce464f",
-    "rows": 5568,
+    "sha256": "eb71a6f628c234f6fc4ed9a99737699038a8639c17dd8df294c444ea92ede2c9",
+    "rows": 5569,
     "first_date": "2011-06-05",
-    "latest_date": "2026-09-02"
+    "latest_date": "2026-09-03"
   }
 }
