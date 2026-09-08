@@ -7204,6 +7204,7 @@
       const cubeSize = Number(options.cubeSize || 0);
       const cubeDepth = Number(options.cubeDepth || 0);
       const hideLatestLockIn = Boolean(options.hideLatestLockIn);
+      const hideLatestActivation = Boolean(options.hideLatestActivation);
       if (!Number.isFinite(yTop) || !Number.isFinite(yBottom)) return "";
       return positions
         .slice(1)
@@ -7215,6 +7216,7 @@
             return "";
           }
           if (hideLatestLockIn && nextPeriod === 19) return "";
+          if (hideLatestActivation && nextPeriod === 20) return "";
           const previousX = Number(previous.x);
           const nextX = Number(position.x);
           const emptyGap = Math.max(0, nextX - previousX - getChainSplitSideDepth(cubeDepth) - cubeSize);
@@ -7807,12 +7809,14 @@
       const yTop = Number(options.yTop || 0);
       const yBottom = Number(options.yBottom || 0);
       const hideLatestLockIn = Boolean(options.hideLatestLockIn);
+      const hideLatestActivation = Boolean(options.hideLatestActivation);
       return positions.slice(1).map((position, index) => {
         const previous = positions[index];
         const previousPeriod = Number(previous?.block?.period);
         const nextPeriod = Number(position?.block?.period);
         if (!Number.isFinite(previousPeriod) || !Number.isFinite(nextPeriod) || previousPeriod === nextPeriod) return "";
         if (hideLatestLockIn && nextPeriod === 19) return "";
+        if (hideLatestActivation && nextPeriod === 20) return "";
         const previousX = Number(previous.x);
         const nextX = Number(position.x);
         const emptyGap = Math.max(0, nextX - previousX - getChainSplitSideDepth(depth) - size);
@@ -8169,6 +8173,7 @@
             yTop: topY,
             yBottom: height,
             hideLatestLockIn: true,
+            hideLatestActivation: true,
           });
           const ellipsis = displayEllipses
             .map((item) => renderMinerTimelineMiniChainEllipsis(item.x, item.y, { size, depth }))
@@ -8553,6 +8558,7 @@
             yTop: topY,
             yBottom: height,
             hideLatestLockIn: true,
+            hideLatestActivation: true,
           });
           const ellipsis = displayEllipses
             .map((item) => renderMinerTimelineMiniChainEllipsis(item.x, item.y, { size, depth }))
@@ -8977,6 +8983,7 @@
             yBottom: height + 1,
             straightHeight: reservedHeight,
             hideLatestLockIn: true,
+            hideLatestActivation: true,
           });
           const ellipsis = displayEllipses
             .map((item) => renderChainSplitEllipsis(item.x, item.y, {
