@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-09T10:06:53.989993Z",
+  "generated_at": "2026-09-09T11:06:54.282150Z",
   "source": "Patoshi Pattern notebook CSVs plus assets/block_data_0_99999.csv",
   "block_count": 100000,
   "patoshi_count": 22491,
@@ -8,7 +8,7 @@
   "spent_count": 67072,
   "spending_height_count": 67072,
   "spent_without_spending_height_count": 0,
-  "spending_height_last_queried_height": 966188,
+  "spending_height_last_queried_height": 966191,
   "spending_height_query_status": "queried: coinbases.isspent/spendingblock",
   "first_height": 0,
   "last_height": 99999,
