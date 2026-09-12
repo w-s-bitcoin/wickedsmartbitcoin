@@ -1,12 +1,12 @@
 {
-  "generated_at_utc": "2026-09-12T00:03:28.932226+00:00",
+  "generated_at_utc": "2026-09-12T02:03:30.401954+00:00",
   "source_csv": "/Users/wicked/Projects/animations/Bitcoin Dominance/coinmarketcap_historical_data.csv",
   "latest_date": "2026-09-12",
   "latest_snapshot_date": "2026-09-12",
   "stable_count": 14,
   "default_top_n": 10,
   "records": {
-    "df_all_clean": 102474,
+    "df_all_clean": 102475,
     "btcd_timeseries_historical": 4862,
     "btcd_timeseries_current_day": 1,
     "btcd_timeseries_incl_stables_historical": 4862,
