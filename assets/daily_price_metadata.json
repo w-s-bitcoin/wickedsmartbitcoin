@@ -1,1 +1,1 @@
-{"schema_version":1,"artifact":{"path":"assets/daily_price.csv","sha256":"12b0a99313858373907eff00a6a4cd4b70ad3e44461dbe68a21d12ccf8dd6755","rows":6465},"first_date":"2009-01-03","latest_date":"2026-09-15","latest_timestamp":"2026-09-15 14:00:01","latest_block_height":967130}
+{"schema_version":1,"artifact":{"path":"assets/daily_price.csv","sha256":"0362517fe1ae5a9e01bc8363f72a0f20066525028f3d9424ac088bd9204d69f5","rows":6465},"first_date":"2009-01-03","latest_date":"2026-09-15","latest_timestamp":"2026-09-15 15:00:00","latest_block_height":967137}
