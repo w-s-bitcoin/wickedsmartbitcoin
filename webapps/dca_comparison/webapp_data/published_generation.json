@@ -1,1 +1,1 @@
-{"schema_version":1,"generated_utc":"2026-09-17T04:03:51.864892+00:00","artifact":{"path":"webapp_data/dca_comparison_preview.csv","sha256":"3716fd310532552c3d64eb736cd22a1bdecaba4746a57ec376b70f4163fc6965","rows":1462,"first_date":"2022-09-17","latest_date":"2026-09-17"}}
+{"schema_version":1,"generated_utc":"2026-09-17T05:03:50.583096+00:00","artifact":{"path":"webapp_data/dca_comparison_preview.csv","sha256":"923be8c6f347b48bae63760429fc5ce20af3f95b9e222a68e4335847a98e2fe9","rows":1462,"first_date":"2022-09-17","latest_date":"2026-09-17"}}
