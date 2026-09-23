@@ -1,12 +1,12 @@
 {
-  "generated_utc": "2026-09-23T02:03:49.957164+00:00",
+  "generated_utc": "2026-09-23T03:04:17.469280+00:00",
   "source": {
     "path": "assets/daily_price.csv",
     "start_date": "2011-06-05",
     "latest_date": "2026-09-23",
-    "latest_timestamp_utc": "2026-09-23T01:00:00+00:00",
-    "latest_block_height": 968203,
-    "latest_price": 86453.6,
+    "latest_timestamp_utc": "2026-09-23T02:00:01+00:00",
+    "latest_block_height": 968212,
+    "latest_price": 86318.0,
     "duration_days": 5589
   },
   "settings": {
@@ -18,17 +18,17 @@
   "kpis": {
     "daily_dca": {
       "name": "daily_dca",
-      "current_basis": 86453.6,
+      "current_basis": 86318.0,
       "current_return_pct": 0.0,
       "invested_usd": 1.0,
-      "btc_accum": 1.1566898313083549e-05,
+      "btc_accum": 1.1585069162862903e-05,
       "purchase_count": 1,
       "days_ago": 1
     },
     "weekly_dca": {
       "name": "weekly_dca",
       "current_basis": 80888.6,
-      "current_return_pct": 6.879832263137203,
+      "current_return_pct": 6.712194301792829,
       "invested_usd": 1.0,
       "btc_accum": 1.2362681515071344e-05,
       "purchase_count": 1,
@@ -37,7 +37,7 @@
     "monthly_dca": {
       "name": "monthly_dca",
       "current_basis": 77515.8,
-      "current_return_pct": 11.530294468998582,
+      "current_return_pct": 11.355362390635197,
       "invested_usd": 1.0,
       "btc_accum": 1.2900595749511712e-05,
       "purchase_count": 1,
@@ -69,7 +69,7 @@
   "schema_version": 1,
   "artifact": {
     "path": "webapp_data/daily_dca.csv",
-    "sha256": "5834a83b29e09dfbb0a1cce334690ecf5381ace607f1e472545547abfedd8008",
+    "sha256": "6dd170d62635d218066610d4021d5bcfc7655d9200114a06193f457f62769b49",
     "rows": 5589,
     "first_date": "2011-06-05",
     "latest_date": "2026-09-23"
