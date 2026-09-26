@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression coverage for the external Stage 4 hourly publication handoff."""
+"""Regression coverage for the Stage 4 hourly publication handoff."""
 
 from __future__ import annotations
 
@@ -17,9 +17,7 @@ sys.path.insert(0, str(ROOT))
 from scripts import sync_main_data_to_dev as syncer
 
 
-RUN_ALL_DIR = Path(
-    os.getenv("ANIMATIONS_RUN_ALL_DIR", "/Users/wicked/Projects/animations/_Run_All")
-).expanduser()
+AUTOMATION_DIR = Path(os.getenv("ANIMATIONS_AUTOMATION_DIR", str(ROOT / "scripts" / "automation"))).expanduser()
 
 
 def load_module(name: str, path: Path):
@@ -31,17 +29,22 @@ def load_module(name: str, path: Path):
     return module
 
 
-@unittest.skipUnless(RUN_ALL_DIR.is_dir(), "external animation pipeline is unavailable")
+@unittest.skipUnless(AUTOMATION_DIR.is_dir(), "automation scripts are unavailable")
 class HourlyPublicationPipelineTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.hourly = load_module("wsb_test_run_1h", RUN_ALL_DIR / "_run_1h.py")
-        cls.deploy = load_module("wsb_test_git_deploy", RUN_ALL_DIR / "_git_deploy.py")
+        cls.hourly = load_module("wsb_test_run_1h", AUTOMATION_DIR / "_run_1h.py")
+        cls.deploy = load_module("wsb_test_git_deploy", AUTOMATION_DIR / "_git_deploy.py")
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="wsb-hourly-stage-test-")
         self.staging_root = Path(self.temporary.name)
         self.deploy.STAGING_ROOT = self.staging_root
+
+    def test_automation_resolves_its_sibling_deployer_and_checkout(self):
+        self.assertEqual(self.hourly.GIT_DEPLOY_SCRIPT, AUTOMATION_DIR / "_git_deploy.py")
+        self.assertEqual(self.hourly.REPO_DIR, ROOT)
+        self.assertEqual(self.deploy.REPO, ROOT)
 
     def tearDown(self):
         self.temporary.cleanup()
