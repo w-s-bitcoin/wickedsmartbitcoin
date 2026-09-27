@@ -4,8 +4,8 @@ import os
 import subprocess
 import sys
 import time
-import csv
 import json
+import math
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -251,124 +251,6 @@ def calc_subsidy_sats(height: int) -> int:
     return 5_000_000_000 >> halvings
 
 
-def load_difficulty_for_height(height: int) -> float | None:
-    start = (height // 100000) * 100000
-    end = start + 99999
-    csv_path = ASSETS_DIR / f"block_data_{start}_{end}.csv"
-    if not csv_path.exists():
-        print(f"[Onchain] Missing block data CSV: {csv_path}")
-        return None
-
-    target = str(height)
-    fallback = None
-    with csv_path.open(newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            row_height = (row.get("block_height") or "").strip()
-            raw_diff = (row.get("difficulty") or "").strip()
-            if not row_height or not raw_diff:
-                continue
-            try:
-                row_height_int = int(row_height)
-                diff = float(raw_diff)
-            except ValueError:
-                continue
-
-            if row_height == target:
-                return diff
-
-            if row_height_int <= height:
-                fallback = diff
-
-    return fallback
-
-
-def load_target_hex_for_height(height: int) -> str | None:
-    start = (height // 100000) * 100000
-    end = start + 99999
-    csv_path = ASSETS_DIR / f"block_data_{start}_{end}.csv"
-    if not csv_path.exists():
-        print(f"[Onchain] Missing block data CSV: {csv_path}")
-        return None
-
-    target = str(height)
-    fallback = None
-    with csv_path.open(newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            row_height = (row.get("block_height") or "").strip()
-            raw_target = (row.get("target") or "").strip()
-            if not row_height or not raw_target:
-                continue
-
-            cleaned_target = raw_target.lower().removeprefix("0x")
-            try:
-                row_height_int = int(row_height)
-                int(cleaned_target, 16)
-            except ValueError:
-                continue
-
-            if row_height == target:
-                return cleaned_target.zfill(64)
-
-            if row_height_int <= height:
-                fallback = cleaned_target.zfill(64)
-
-    return fallback
-
-
-def load_block_timestamp_for_height(height: int) -> int | None:
-    start = (height // 100000) * 100000
-    end = start + 99999
-    csv_path = ASSETS_DIR / f"block_data_{start}_{end}.csv"
-    if not csv_path.exists():
-        print(f"[Onchain] Missing block data CSV: {csv_path}")
-        return None
-
-    target = str(height)
-    fallback = None
-    with csv_path.open(newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            row_height = (row.get("block_height") or "").strip()
-            raw_timestamp = (row.get("timestamp") or "").strip()
-            if not row_height or not raw_timestamp:
-                continue
-            try:
-                row_height_int = int(row_height)
-                timestamp = int(raw_timestamp)
-            except ValueError:
-                continue
-
-            if row_height == target:
-                return timestamp
-
-            if row_height_int <= height:
-                fallback = timestamp
-
-    return fallback
-
-
-def format_block_time_utc_with_seconds(block_height: int, raw_value) -> str | None:
-    text = str(raw_value or "").strip()
-    if text:
-        normalized = text.replace(" UTC", "+00:00")
-        try:
-            parsed = datetime.fromisoformat(normalized)
-            if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=timezone.utc)
-            return parsed.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-        except Exception:
-            pass
-
-    # Fall back to block CSV when metadata time is missing/unparseable.
-    block_timestamp = load_block_timestamp_for_height(block_height)
-    if isinstance(block_timestamp, int) and block_timestamp > 0:
-        return datetime.fromtimestamp(block_timestamp, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-
-    return text or None
-
-
 def calc_target_hashrate_hps(target_hex: str | None) -> float | None:
     cleaned_target = str(target_hex or "").strip().lower().removeprefix("0x")
     if not cleaned_target:
@@ -384,151 +266,6 @@ def calc_target_hashrate_hps(target_hex: str | None) -> float | None:
 
     difficulty_from_target = MAX_TARGET_INT / target_int
     return difficulty_from_target * (2 ** 32) / TARGET_BLOCK_INTERVAL_SECONDS
-
-
-def parse_sats(value) -> int | None:
-    if value is None:
-        return None
-    text = str(value).strip().replace(",", "")
-    if not text:
-        return None
-    try:
-        if "." in text:
-            return int(float(text))
-        return int(text)
-    except ValueError:
-        return None
-
-
-def load_supply_sats_for_height(height: int) -> int | None:
-    if height < 0:
-        return None
-
-    block_files: list[tuple[int, int, Path]] = []
-    for csv_path in ASSETS_DIR.glob("block_data_*_*.csv"):
-        stem = csv_path.stem
-        parts = stem.split("_")
-        if len(parts) < 4:
-            continue
-        try:
-            start = int(parts[-2])
-            end = int(parts[-1])
-        except ValueError:
-            continue
-        block_files.append((start, end, csv_path))
-
-    if not block_files:
-        print("[Onchain] No block data CSV files found for supply calculation")
-        return None
-
-    block_files.sort(key=lambda item: item[0])
-
-    cumulative_supply_sats = 0
-    saw_height = False
-
-    for start, end, csv_path in block_files:
-        if start > height:
-            break
-
-        with csv_path.open(newline="", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                try:
-                    row_height = int((row.get("block_height") or "").strip())
-                except ValueError:
-                    continue
-
-                if row_height > height:
-                    break
-
-                saw_height = True
-
-                aggregated_reward = parse_sats(row.get("aggregated_reward"))
-                aggregated_fees = parse_sats(row.get("aggregated_fees"))
-                if aggregated_reward is not None and aggregated_fees is not None:
-                    cumulative_supply_sats = max(0, aggregated_reward - aggregated_fees)
-                    continue
-
-                reward = parse_sats(row.get("reward"))
-                fees = parse_sats(row.get("fees"))
-                if reward is not None and fees is not None:
-                    cumulative_supply_sats += max(0, reward - fees)
-                    continue
-
-                subsidy = parse_sats(row.get("subsidy"))
-                if subsidy is not None:
-                    cumulative_supply_sats += max(0, subsidy)
-
-        if height <= end:
-            break
-
-    if not saw_height:
-        print(f"[Onchain] Could not resolve supply for height {height}")
-        return None
-
-    return cumulative_supply_sats
-
-
-def load_issued_subsidy_sats_for_height(height: int) -> int | None:
-    if height < 0:
-        return None
-
-    block_files: list[tuple[int, int, Path]] = []
-    for csv_path in ASSETS_DIR.glob("block_data_*_*.csv"):
-        stem = csv_path.stem
-        parts = stem.split("_")
-        if len(parts) < 4:
-            continue
-        try:
-            start = int(parts[-2])
-            end = int(parts[-1])
-        except ValueError:
-            continue
-        block_files.append((start, end, csv_path))
-
-    if not block_files:
-        print("[Onchain] No block data CSV files found for subsidy target calculation")
-        return None
-
-    block_files.sort(key=lambda item: item[0])
-
-    cumulative_subsidy_sats = 0
-    saw_height = False
-
-    for start, end, csv_path in block_files:
-        if start > height:
-            break
-
-        with csv_path.open(newline="", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                try:
-                    row_height = int((row.get("block_height") or "").strip())
-                except ValueError:
-                    continue
-
-                if row_height > height:
-                    break
-
-                saw_height = True
-
-                aggregated_subsidy = parse_sats(row.get("aggregated_subsidy"))
-                if aggregated_subsidy is not None:
-                    cumulative_subsidy_sats = max(0, aggregated_subsidy)
-                    continue
-
-                subsidy = parse_sats(row.get("subsidy"))
-                if subsidy is not None:
-                    cumulative_subsidy_sats += max(0, subsidy)
-
-        if height <= end:
-            break
-
-    if not saw_height:
-        print(f"[Onchain] Could not resolve issued subsidy for height {height}")
-        return None
-
-    return cumulative_subsidy_sats
 
 
 def format_difficulty_display(difficulty: float | None) -> str:
@@ -548,30 +285,97 @@ def format_difficulty_display(difficulty: float | None) -> str:
     return f"{difficulty:.2f}"
 
 
-def build_top_kpis_payload(metadata_path: Path) -> dict | None:
-    if not metadata_path.exists():
-        print(f"[Onchain] Missing metadata JSON: {metadata_path}")
-        return None
-
+def load_current_kpi_block() -> tuple[int, int, str, float, int] | None:
+    """Read one consistent snapshot of the latest fully ingested chain."""
     try:
-        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    except Exception as e:
-        print(f"[Onchain] Failed reading metadata JSON: {e}")
+        import psycopg2
+
+        connection = psycopg2.connect(
+            host=os.getenv("POSTGRES_HOST"),
+            database=os.getenv("POSTGRES_DB", "bitcoin_data"),
+            user=os.getenv("POSTGRES_USER"),
+            password=os.getenv("POSTGRES_PASSWORD"),
+            connect_timeout=10,
+            options="-c default_transaction_read_only=on",
+        )
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    WITH totals AS (
+                        SELECT MAX(blockheight) AS height,
+                               COUNT(*) AS blocks,
+                               COUNT(blocksubsidy) AS supply_rows,
+                               SUM(blocksubsidy) AS issued_sats
+                        FROM blockheader
+                    )
+                    SELECT tip.blockheight, tip.time, tip.bits, tip.difficulty,
+                           totals.blocks, totals.supply_rows, totals.issued_sats
+                    FROM totals
+                    JOIN blockheader AS tip ON tip.blockheight = totals.height
+                """)
+                row = cursor.fetchone()
+        finally:
+            connection.close()
+    except Exception as exc:
+        print(f"[Onchain] Could not read current KPI block: {exc}")
         return None
 
+    if not row:
+        print("[Onchain] No ingested block available for top KPIs")
+        return None
     try:
-        block_height = int(metadata.get("source_block_height"))
-    except Exception:
-        print("[Onchain] Metadata missing numeric source_block_height")
+        height, block_time, bits, difficulty, block_count, supply_rows, issued_sats = row
+        height = int(height)
+        block_time = int(block_time)
+        difficulty = float(difficulty)
+        issued_sats = int(issued_sats)
+        if (height < 0 or block_time <= 0 or int(block_count) != height + 1
+                or int(supply_rows) != int(block_count)
+                or not math.isfinite(difficulty) or difficulty <= 0
+                or issued_sats < 0):
+            raise ValueError("incomplete or invalid ingested chain")
+        bits = str(bits).strip().lower().removeprefix("0x")
+        if len(bits) != 8:
+            raise ValueError("invalid compact target")
+        int(bits, 16)
+        return height, block_time, bits, difficulty, issued_sats
+    except (TypeError, ValueError) as exc:
+        print(f"[Onchain] Skipping invalid KPI block: {exc}")
         return None
 
-    difficulty = load_difficulty_for_height(block_height)
-    target_hex = load_target_hex_for_height(block_height)
+
+def target_hex_from_bits(bits: str) -> str:
+    compact = int(bits, 16)
+    exponent = compact >> 24
+    mantissa = compact & 0x007fffff
+    if compact & 0x00800000 or mantissa == 0:
+        raise ValueError("invalid compact target")
+    target = (mantissa >> (8 * (3 - exponent))) if exponent <= 3 else (mantissa << (8 * (exponent - 3)))
+    if target <= 0 or target > MAX_TARGET_INT:
+        raise ValueError("compact target outside Bitcoin proof-of-work range")
+    return f"{target:064x}"
+
+
+def issued_subsidy_sats_through(height: int) -> int:
+    completed_epochs, blocks_in_epoch = divmod(height + 1, 210_000)
+    full = sum(210_000 * calc_subsidy_sats(epoch * 210_000) for epoch in range(completed_epochs))
+    return full + blocks_in_epoch * calc_subsidy_sats(completed_epochs * 210_000)
+
+
+def build_top_kpis_payload() -> dict | None:
+    snapshot = load_current_kpi_block()
+    if snapshot is None:
+        return None
+    block_height, block_timestamp, bits, difficulty, supply_sats = snapshot
+    try:
+        target_hex = target_hex_from_bits(bits)
+    except ValueError as exc:
+        print(f"[Onchain] Skipping invalid KPI target: {exc}")
+        return None
     target_hashrate_hps = calc_target_hashrate_hps(target_hex)
-    block_time_utc = format_block_time_utc_with_seconds(block_height, metadata.get("source_block_time_utc"))
+    block_time_utc = datetime.fromtimestamp(block_timestamp, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     subsidy_sats = calc_subsidy_sats(block_height)
-    supply_sats = load_supply_sats_for_height(block_height)
-    issued_subsidy_sats = load_issued_subsidy_sats_for_height(block_height)
+    issued_subsidy_sats = issued_subsidy_sats_through(block_height)
     return {
         "block_height": block_height,
         "block_time_utc": block_time_utc,
@@ -579,16 +383,8 @@ def build_top_kpis_payload(metadata_path: Path) -> dict | None:
         "epoch_complete": calc_epoch_complete(block_height),
         "subsidy_btc": calc_subsidy_btc(block_height),
         "subsidy_sats": subsidy_sats,
-        "supply_btc": (
-            round(supply_sats / 100_000_000, 8)
-            if isinstance(supply_sats, int)
-            else None
-        ),
-        "supply_target_complete": (
-            issued_subsidy_sats / TARGET_SUPPLY_CAP_SATS
-            if isinstance(issued_subsidy_sats, int)
-            else None
-        ),
+        "supply_btc": round(supply_sats / 100_000_000, 8),
+        "supply_target_complete": issued_subsidy_sats / TARGET_SUPPLY_CAP_SATS,
         "target_hex": target_hex,
         "target_hashrate_hps": target_hashrate_hps,
         "difficulty": difficulty,
@@ -669,7 +465,8 @@ def main() -> int:
             staged_count += stage_tree(run_dir, staged_bip110_data_dir, BIP110_WEBAPP_DATA_DIR)
             print(f"[Onchain] Staged BIP110 data files: {staged_count}")
 
-        payload = build_top_kpis_payload(staged_bip110_data_dir / "bip110_metadata.json") if ran else None
+        # Top KPIs follow the ingested chain even after BIP-110 analysis ends.
+        payload = build_top_kpis_payload()
         kpis_ok = bool(payload) and stage_top_kpis_json(run_dir, payload)
         print(f"[Onchain] Top KPIs {'staged' if kpis_ok else 'skipped'}")
 
