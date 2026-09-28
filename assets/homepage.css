@@ -79,8 +79,8 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
 .snapshot-card-heading h3 { margin: 0; font-size: 12px; font-weight: 500; color: var(--home-muted); }
 .snapshot-card-heading svg { width: 20px; height: 20px; color: var(--home-muted); }
 .snapshot-card-symbol { color: var(--home-muted); font-size: 19px; line-height: 20px; }
-.snapshot-value { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; font-size: clamp(24px, 2.3vw, 33px); font-weight: 500; line-height: 1.15; font-variant-numeric: tabular-nums; }
-.snapshot-value-supply { min-height: 38px; }
+.snapshot-value { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; font-size: clamp(18px, 1.725vw, 24.75px); font-weight: 500; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.snapshot-value-supply { min-height: 28.5px; }
 .snapshot-unit { font-size: 11px; font-weight: 400; letter-spacing: 0; color: var(--home-muted); }
 .snapshot-card progress { display: block; width: 100%; height: 4px; appearance: none; border: 0; border-radius: 10px; overflow: hidden; background: var(--home-line); color: var(--home-progress); accent-color: var(--home-progress); margin-top: auto; }
 .snapshot-card progress::-webkit-progress-bar { background: var(--home-line); border-radius: 10px; }
@@ -148,7 +148,7 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
 @media (max-width: 1150px) {
     .home-nav-link { margin-right: 5px; }
     .snapshot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .snapshot-value, .snapshot-value-supply { font-size: 30px; min-height: 35px; }
+    .snapshot-value, .snapshot-value-supply { font-size: 22.5px; min-height: 26.25px; }
     .snapshot-card-heading { margin-bottom: 12px; }
 }
 @media (max-width: 1350px) and (min-width: 1151px) {
@@ -164,7 +164,7 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
     .homepage .buy-coffee-btn { padding-inline: 8px; }
     .snapshot-grid { gap: 8px; }
     .snapshot-card { padding: 14px; }
-    .snapshot-value, .snapshot-value-supply { font-size: 24px; min-height: 29px; }
+    .snapshot-value, .snapshot-value-supply { font-size: 18px; min-height: 21.75px; }
     .snapshot-card-heading { margin-bottom: 12px; }
     .snapshot-card-heading h3 { font-size: 11px; }
     .snapshot-card-heading svg { width: 17px; height: 17px; }
@@ -185,7 +185,7 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
     .snapshot-card { padding: 12px; }
     .snapshot-card-heading h3 { max-width: 110px; line-height: 1.5; }
     .snapshot-card-heading svg, .snapshot-card-symbol { display: none; }
-    .snapshot-value { font-size: 22px; }
+    .snapshot-value { font-size: 16.5px; }
     .snapshot-unit { font-size: 9px; }
     .snapshot-glossary dl { grid-template-columns: 1fr; gap: 18px; }
 }
