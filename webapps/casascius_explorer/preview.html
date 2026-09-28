@@ -83,12 +83,16 @@
       opacity: 0;
       transform-style: preserve-3d;
       transform: rotateX(var(--tilt)) rotateY(var(--spin));
+      animation: none;
       will-change: transform;
     }
 
     .stage.is-ready .model {
       --tilt: var(--spin-tilt);
       opacity: 1;
+    }
+
+    .stage.is-ready.is-hovering .model {
       animation: casascius-spin 6s linear infinite;
     }
 
@@ -172,14 +176,14 @@
     }
 
     @media (prefers-reduced-motion: reduce) {
-      .model {
+      .stage.is-ready.is-hovering .model {
         animation-duration: 18s;
       }
     }
   </style>
 </head>
 <body>
-  <main class="stage" id="stage" aria-label="Spinning Casascius 1,000 BTC gold coin preview">
+  <main class="stage" id="stage" aria-label="Casascius 1,000 BTC gold coin preview">
     <div class="scene" aria-hidden="true">
       <div class="model" id="model">
         <div class="face front"></div>
@@ -207,6 +211,39 @@
         : 12000;
       let initialWaitSettled = false;
       let assetRetryInFlight = false;
+      let settleFrame = 0;
+
+      function setCardHover(active) {
+        if (active) {
+          if (settleFrame) cancelAnimationFrame(settleFrame);
+          settleFrame = 0;
+          model.style.transition = 'none';
+          model.style.transform = '';
+          stage.classList.add('is-hovering');
+          return;
+        }
+        if (!stage.classList.contains('is-hovering')) return;
+        if (settleFrame) cancelAnimationFrame(settleFrame);
+        const spin = model.getAnimations().find(animation => animation.animationName === 'casascius-spin');
+        const duration = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 18000 : 6000;
+        const elapsed = Number(spin?.currentTime) || 0;
+        const angle = ((elapsed % duration) + duration) % duration / duration * 360;
+        const target = angle <= 180 ? 0 : 360;
+        model.style.transition = 'none';
+        model.style.transform = `rotateX(var(--spin-tilt)) rotateY(${angle}deg)`;
+        stage.classList.remove('is-hovering');
+        settleFrame = requestAnimationFrame(() => {
+          model.style.transition = 'transform 450ms ease-out';
+          model.style.transform = `rotateX(var(--spin-tilt)) rotateY(${target}deg)`;
+          settleFrame = 0;
+        });
+      }
+
+      window.addEventListener('message', event => {
+        if (event.source !== window.parent || event.origin !== window.location.origin) return;
+        if (event.data?.type !== 'casascius-preview-hover') return;
+        setCardHover(event.data.active === true);
+      });
 
       function buildCoinEdges() {
         model.querySelectorAll('.edge').forEach(edge => edge.remove());
@@ -311,6 +348,7 @@
       document.addEventListener('resume', recoverAssets);
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') recoverAssets();
+        else setCardHover(false);
       });
       window.addEventListener('resize', buildCoinEdges);
     })();
