@@ -57,6 +57,8 @@ Most visualization-family swaps follow this flow:
 - `currentIndex`: active modal index within `visibleImages`
 - `cardByFilename`: DOM map for card updates/rekey operations
 
+`assets/image_list.json` is the discovery manifest. Set `"archived": true` on an entry to show the archive badge on its card.
+
 ## File Responsibilities
 
 ### Platform/core
@@ -76,7 +78,9 @@ Most visualization-family swaps follow this flow:
 - `09_bootstrap_fetch_init_global_exports.js`: image manifest fetch, representative card rewrites, deep-link resolution, init sequence
 - `10_event_bindings_global_modal_menu.js`: event wiring for keyboard/mouse/touch/menu/controls
 - `11_dashboard_timezone_preferences.js`: shared dashboard timezone preference handling
-- `12_homepage_kpis.js`: homepage KPI hydration and refresh behavior
+- `12_homepage_kpis.js`: published network snapshot, supply/halving/difficulty progress, separate local clock, and refresh behavior. Failed or invalid fetches retain the last complete snapshot and its actual block timestamp.
+
+The landing page uses `assets/homepage.css`, scoped to `.homepage`, after the shared `assets/styles.css`. Its compact network snapshot shows the latest published block, issued supply, blocks until the next halving, and blocks until the next difficulty adjustment. The block timestamp and progress percentages sit directly beneath the divider and bars; detailed metrics have been removed from the cards. The block timestamp comes from `assets/top_kpis.json`, while the footer clock uses the browser's selected time zone. Dashboards have separate publication schedules.
 
 ### Dashboard-local standalone controllers
 
