@@ -1,75 +1,49 @@
 /* ===========================
- * HOMEPAGE: BIP-110 KPI CHIPS
+ * HOMEPAGE: PUBLISHED NETWORK SNAPSHOT
  * =========================== */
-(function initHomepageBip110Kpis() {
+(function initHomepageNetworkSnapshot() {
   const TOP_KPIS_URL = "assets/top_kpis.json";
   const AUTO_REFRESH_MS = 60000;
-  const TARGET_SUPPLY_BTC = 20999999.9769;
+  const TARGET_SUPPLY_BTC = 21000000;
+  const HALVING_INTERVAL = 210000;
+  const DIFFICULTY_INTERVAL = 2016;
   const FALLBACK_TIME_ZONE = "UTC";
   const TZ_STORAGE_KEY = "wicked_dashboard_timezone_v1";
   const TZ_CHANGE_EVENT = "wsb:timezonechange";
 
-  const updatedEl = document.getElementById("homeBip110UpdatedKpi");
-  const kpisContainerEl = document.getElementById("homeBip110Kpis");
-  const heightEl = document.getElementById("homeBip110HeightKpi");
-  const epochEl = document.getElementById("homeBip110EpochKpi");
-  const subsidyEl = document.getElementById("homeBip110SubsidyKpi");
-  const supplyEl = document.getElementById("homeBip110SupplyKpi");
-  const targetHashrateEl = document.getElementById("homeBip110TargetHashrateKpi");
-  const difficultyEpochEl = document.getElementById("homeBip110DifficultyEpochKpi");
-  const difficultyEl = document.getElementById("homeBip110DifficultyKpi");
-  const timeZoneSelect = document.getElementById("homeKpiTimeZoneSelect");
-  if (!updatedEl || !kpisContainerEl || !heightEl || !epochEl || !subsidyEl || !supplyEl || !targetHashrateEl || !difficultyEpochEl || !difficultyEl || !timeZoneSelect) return;
+  const byId = (id) => document.getElementById(id);
+  const container = byId("homeBip110Kpis");
+  const timeZoneSelect = byId("homeKpiTimeZoneSelect");
+  const chips = {
+    clock: byId("homeBip110UpdatedKpi"),
+    height: byId("homeBip110HeightKpi"),
+    supply: byId("homeBip110SupplyKpi"),
+  };
+  if (!container || !timeZoneSelect || Object.values(chips).some((element) => !element)) return;
 
-  const updatedValueEl = updatedEl.querySelector(".chip-value") || updatedEl;
-  const heightValueEl = heightEl.querySelector(".chip-value") || heightEl;
-  const epochValueEl = epochEl.querySelector(".chip-value") || epochEl;
-  const subsidyValueEl = subsidyEl.querySelector(".chip-value") || subsidyEl;
-  const supplyValueEl = supplyEl.querySelector(".chip-value") || supplyEl;
-  const targetHashrateValueEl = targetHashrateEl.querySelector(".chip-value") || targetHashrateEl;
-  const difficultyEpochValueEl = difficultyEpochEl.querySelector(".chip-value") || difficultyEpochEl;
-  const difficultyValueEl = difficultyEl.querySelector(".chip-value") || difficultyEl;
+  const values = Object.fromEntries(Object.entries(chips).map(([key, element]) => [
+    key, element.querySelector(".chip-value") || element,
+  ]));
+  const snapshotStatus = byId("homeKpiSnapshotStatus");
+  const blockTime = byId("homeKpiBlockTime");
+  const supplyProgress = byId("homeKpiSupplyProgress");
+  const supplyCaption = byId("homeKpiSupplyCaption");
+  const halvingRemaining = byId("homeKpiHalvingRemaining");
+  const halvingProgress = byId("homeKpiHalvingProgress");
+  const halvingCaption = byId("homeKpiHalvingCaption");
+  const difficultyRemainingValue = byId("homeKpiDifficultyRemaining");
+  const difficultyProgress = byId("homeKpiDifficultyProgress");
+  const difficultyCaption = byId("homeKpiDifficultyCaption");
+  const compactSupply = window.matchMedia("(max-width: 480px)");
 
-  let lastBlockHeight = NaN;
-  let metadataSignature = "";
-  let autoRefreshTimer = null;
+  let lastSnapshot = null;
+  let lastSignature = "";
   let refreshInFlight = false;
-  let lastEpoch = NaN;
-  let lastEpochComplete = NaN;
-  let lastBlockMinedAtMs = NaN;
-  let lastSubsidyDisplay = "n/a";
-  let lastSubsidySatsDisplay = "n/a";
-  let lastSupplyDisplay = "n/a";
-  let lastSupplyBtcRaw = "n/a";
-  let lastSupplyTargetComplete = NaN;
-  let lastTargetHashrateDisplay = "n/a";
-  let lastTargetHexDisplay = "";
+  let refreshFailed = false;
+  let wakeTimer = null;
 
   function isDashboardExportActive() {
     return !!(window.wsbDashboardExportActive || window.dateRangeExportActive);
-  }
-  let lastDifficultyDisplay = "n/a";
-  let lastDifficultyPreciseDisplay = "n/a";
-  let balanceRowsScheduled = false;
-
-  function clearKpiRowBreaks() {
-    kpisContainerEl.querySelectorAll(".kpi-row-break").forEach((node) => node.remove());
-  }
-
-  function balanceKpiRowsNow() {
-    // Only clear any previously-inserted breaks; let flexbox wrap naturally.
-    // Inserting zero-height break spans creates doubled row-gaps (gap above + gap below
-    // the 0-height row), making spacing appear uneven. Pure flex-wrap + gap:8px is uniform.
-    clearKpiRowBreaks();
-  }
-
-  function scheduleBalanceKpiRows() {
-    if (balanceRowsScheduled) return;
-    balanceRowsScheduled = true;
-    window.requestAnimationFrame(() => {
-      balanceRowsScheduled = false;
-      balanceKpiRowsNow();
-    });
   }
 
   function getPreferredTimeZone() {
@@ -77,10 +51,9 @@
       return window.WSBDashboardTime.getPreferredTimeZone();
     }
     try {
-      const raw = String(localStorage.getItem(TZ_STORAGE_KEY) || "").trim();
-      if (!raw) return FALLBACK_TIME_ZONE;
-      Intl.DateTimeFormat("en-US", { timeZone: raw }).format(new Date());
-      return raw;
+      const value = localStorage.getItem(TZ_STORAGE_KEY) || FALLBACK_TIME_ZONE;
+      Intl.DateTimeFormat("en-US", { timeZone: value }).format();
+      return value;
     } catch (_) {
       return FALLBACK_TIME_ZONE;
     }
@@ -90,26 +63,23 @@
     if (window.WSBDashboardTime?.setPreferredTimeZone) {
       return window.WSBDashboardTime.setPreferredTimeZone(value);
     }
-    const normalized = String(value || "").trim() || FALLBACK_TIME_ZONE;
+    let normalized = String(value || "").trim() || FALLBACK_TIME_ZONE;
+    try {
+      Intl.DateTimeFormat("en-US", { timeZone: normalized }).format();
+    } catch (_) {
+      normalized = FALLBACK_TIME_ZONE;
+    }
     try {
       localStorage.setItem(TZ_STORAGE_KEY, normalized);
-    } catch (_) {
-      // Ignore storage failures.
-    }
+    } catch (_) {}
     return normalized;
-  }
-
-  function getDashboardTimeZoneOptions() {
-    if (window.WSBDashboardTime?.getTimeZoneOptions) {
-      return window.WSBDashboardTime.getTimeZoneOptions();
-    }
-    return [{ value: FALLBACK_TIME_ZONE, label: FALLBACK_TIME_ZONE }];
   }
 
   function renderTimeZoneOptions() {
     const current = getPreferredTimeZone();
-    const options = getDashboardTimeZoneOptions();
-    timeZoneSelect.innerHTML = "";
+    const options = window.WSBDashboardTime?.getTimeZoneOptions?.()
+      || [{ value: FALLBACK_TIME_ZONE, label: FALLBACK_TIME_ZONE }];
+    timeZoneSelect.replaceChildren();
     options.forEach(({ value, label }) => {
       const option = document.createElement("option");
       option.value = value;
@@ -119,630 +89,245 @@
     });
   }
 
-  function formatNowForSelectedTimeZone(now = new Date()) {
-    const parsed = now instanceof Date ? now : new Date(now);
-    if (Number.isNaN(parsed.getTime())) return "n/a";
-
-    const timeZone = getPreferredTimeZone();
-    try {
-      const formatter = new Intl.DateTimeFormat("en-CA", {
-        timeZone,
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-        timeZoneName: "short",
-      });
-      const parts = formatter.formatToParts(parsed);
-      const values = Object.create(null);
-      parts.forEach((part) => {
-        values[part.type] = part.value;
-      });
-      const shortName = String(values.timeZoneName || timeZone || FALLBACK_TIME_ZONE).trim();
-      return `${values.year}-${values.month}-${values.day} ${values.hour}:${values.minute} (${shortName})`;
-    } catch (_) {
-      return "n/a";
-    }
+  function formatTime(timestampMs, { seconds = false } = {}) {
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone: getPreferredTimeZone(),
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      ...(seconds ? { second: "2-digit" } : {}),
+      hourCycle: "h23",
+      timeZoneName: "short",
+    }).format(new Date(timestampMs));
   }
 
-  function parseBlockTimeToMs(value) {
-    if (value == null) return NaN;
-    if (value instanceof Date) return value.getTime();
-
-    if (typeof value === "number") {
-      if (!Number.isFinite(value) || value <= 0) return NaN;
-      return value >= 1e12 ? value : value * 1000;
-    }
-
-    const text = String(value).trim();
-    if (!text) return NaN;
-
-    // Accept explicit UTC strings like "YYYY-MM-DD HH:MM UTC" or
-    // "YYYY-MM-DD HH:MM:SS UTC" across browsers.
-    const utcMatch = text.match(
-      /^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?\s+UTC$/i
-    );
-    if (utcMatch) {
-      const [, year, month, day, hour, minute, second = "00"] = utcMatch;
-      const parsedUtcMs = Date.UTC(
-        Number(year),
-        Number(month) - 1,
-        Number(day),
-        Number(hour),
-        Number(minute),
-        Number(second)
-      );
-      return Number.isFinite(parsedUtcMs) ? parsedUtcMs : NaN;
-    }
-
-    if (/^\d+(\.\d+)?$/.test(text)) {
-      const parsed = Number(text);
-      if (!Number.isFinite(parsed) || parsed <= 0) return NaN;
-      return parsed >= 1e12 ? parsed : parsed * 1000;
-    }
-
-    const parsedDate = new Date(text);
-    return Number.isNaN(parsedDate.getTime()) ? NaN : parsedDate.getTime();
-  }
-
-  function formatTimestampForSelectedTimeZone(timestampMs) {
-    const parsed = new Date(Number(timestampMs));
-    if (Number.isNaN(parsed.getTime())) return "n/a";
-
-    const timeZone = getPreferredTimeZone();
-    try {
-      const formatter = new Intl.DateTimeFormat("en-CA", {
-        timeZone,
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: false,
-        timeZoneName: "short",
-      });
-      const parts = formatter.formatToParts(parsed);
-      const values = Object.create(null);
-      parts.forEach((part) => {
-        values[part.type] = part.value;
-      });
-      const shortName = String(values.timeZoneName || timeZone || FALLBACK_TIME_ZONE).trim();
-      return `${values.year}-${values.month}-${values.day} ${values.hour}:${values.minute}:${values.second} (${shortName})`;
-    } catch (_) {
-      return "n/a";
-    }
-  }
-
-  function getHalvingEpoch(height) {
-    const numericHeight = Number(height);
-    if (!Number.isFinite(numericHeight) || numericHeight < 0) return NaN;
-    return Math.floor(numericHeight / 210000) + 1;
-  }
-
-  function getEpochComplete(height) {
-    const blocksMined = getEpochBlocksMinedInCurrentEpoch(height);
-    if (!Number.isFinite(blocksMined)) return NaN;
-    return blocksMined / 210000;
-  }
-
-  function getEpochBlocksMinedInCurrentEpoch(height) {
-    const numericHeight = Number(height);
-    if (!Number.isFinite(numericHeight) || numericHeight < 0) return NaN;
-    return (numericHeight % 210000) + 1;
-  }
-
-  function getDifficultyEpoch(height) {
-    const numericHeight = Number(height);
-    if (!Number.isFinite(numericHeight) || numericHeight < 0) return NaN;
-    return Math.floor(numericHeight / 2016) + 1;
-  }
-
-  function getDifficultyEpochBlocksMined(height) {
-    const numericHeight = Number(height);
-    if (!Number.isFinite(numericHeight) || numericHeight < 0) return NaN;
-    return (numericHeight % 2016) + 1;
-  }
-
-  function getDifficultyEpochComplete(height) {
-    const blocksMined = getDifficultyEpochBlocksMined(height);
-    if (!Number.isFinite(blocksMined)) return NaN;
-    return blocksMined / 2016;
-  }
-
-  function formatEpochCompletePercent(completeRatio) {
-    const numeric = Number(completeRatio);
-    if (!Number.isFinite(numeric) || numeric < 0) return "n/a";
-    const flooredOneDecimal = Math.floor(numeric * 1000) / 10;
-    return `${flooredOneDecimal.toFixed(1)}%`;
-  }
-
-  function formatEpochCompleteBlocks(completeRatio) {
-    const numeric = Number(completeRatio);
-    if (!Number.isFinite(numeric) || numeric < 0) return null;
-    const clamped = Math.max(0, Math.min(1, numeric));
-    return Math.floor(clamped * 210000);
-  }
-
-  function updateChipProgressRing(chipEl, completeRatio) {
-    if (!chipEl) return;
-    const progressSvgEl = chipEl.querySelector(".epoch-progress-ring");
-    const progressMeterEl = chipEl.querySelector(".epoch-progress-meter");
-    if (!progressSvgEl || !progressMeterEl) return;
-
-    const width = Math.max(1, chipEl.clientWidth || chipEl.getBoundingClientRect().width || 0);
-    const height = Math.max(1, chipEl.clientHeight || chipEl.getBoundingClientRect().height || 0);
-    const strokeWidth = 1.8;
-    const chipStyles = window.getComputedStyle(chipEl);
-    const chipBorderWidth = Number.parseFloat(chipStyles.borderTopWidth || "1") || 1;
-    const centerlineNudgePx = -1;
-    const inset = (chipBorderWidth / 2) + centerlineNudgePx;
-
-    const left = inset;
-    const top = inset;
-    const innerWidth = Math.max(1, width - inset * 2);
-    const innerHeight = Math.max(1, height - inset * 2);
-    const right = left + innerWidth;
-    const bottom = top + innerHeight;
-    const radius = Math.max(0, Math.min(innerHeight / 2, innerWidth / 2));
-    const centerX = left + (innerWidth / 2);
-
-    const d = [
-      `M ${centerX} ${top}`,
-      `H ${right - radius}`,
-      `A ${radius} ${radius} 0 0 1 ${right} ${top + radius}`,
-      `V ${bottom - radius}`,
-      `A ${radius} ${radius} 0 0 1 ${right - radius} ${bottom}`,
-      `H ${left + radius}`,
-      `A ${radius} ${radius} 0 0 1 ${left} ${bottom - radius}`,
-      `V ${top + radius}`,
-      `A ${radius} ${radius} 0 0 1 ${left + radius} ${top}`,
-      `H ${centerX}`,
-    ].join(" ");
-
-    const progressRatio = Number.isFinite(Number(completeRatio))
-      ? Math.max(0, Math.min(1, Number(completeRatio)))
-      : 0;
-
-    progressSvgEl.setAttribute("viewBox", `0 0 ${width} ${height}`);
-    progressMeterEl.setAttribute("d", d);
-    progressMeterEl.setAttribute("stroke-width", String(strokeWidth));
-    progressMeterEl.style.strokeDasharray = `${(progressRatio * 100).toFixed(3)} 100`;
-  }
-
-  function getBlockSubsidySats(height) {
-    const numericHeight = Number(height);
-    if (!Number.isFinite(numericHeight) || numericHeight < 0) return null;
-
-    const halvings = Math.floor(numericHeight / 210000);
-    const initialSubsidySats = 5_000_000_000n; // 50 BTC
-    if (halvings >= 64) return 0n;
-    return initialSubsidySats >> BigInt(halvings);
-  }
-
-  function formatSubsidyBtc(height) {
-    const subsidySats = getBlockSubsidySats(height);
-    if (subsidySats === null) return "n/a";
-
-    const satsPerBtc = 100_000_000n;
-    const whole = subsidySats / satsPerBtc;
-    const fractional = subsidySats % satsPerBtc;
-    if (fractional === 0n) return `${whole.toString()}`;
-
-    const fractionText = fractional.toString().padStart(8, "0").replace(/0+$/, "");
-    return `${whole.toString()}.${fractionText}`;
-  }
-
-  function formatDifficultyTrillions(value) {
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric) || numeric <= 0) return "n/a";
-    return `${(numeric / 1e12).toFixed(2)}T`;
-  }
-
-  function formatDifficultyPrecise(value) {
-    const normalizedRaw = String(value ?? "").trim();
-    if (!normalizedRaw) return "n/a";
-
-    const normalizedNumeric = Number.parseFloat(normalizedRaw.replaceAll(",", ""));
-    if (!Number.isFinite(normalizedNumeric) || normalizedNumeric <= 0) {
-      return normalizedRaw;
-    }
-
-    const hasDecimals = !Number.isInteger(normalizedNumeric);
-    return normalizedNumeric.toLocaleString("en-US", {
-      maximumFractionDigits: hasDecimals ? 8 : 0,
-    });
-  }
-
-  function formatSupplyBtc(value) {
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric) || numeric < 0) return "n/a";
-
-    return numeric.toLocaleString("en-US", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-  }
-
-  function formatSupplyBtcPrecise(value) {
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric) || numeric < 0) return "n/a";
-
-    return numeric.toLocaleString("en-US", {
-      minimumFractionDigits: 8,
-      maximumFractionDigits: 8,
-    });
-  }
-
-  function formatSupplyTargetTooltip(supplyBtcValue, completeRatio) {
-    const precise = formatSupplyBtcPrecise(supplyBtcValue);
-    const numeric = Number(completeRatio);
-    if (!Number.isFinite(numeric) || numeric < 0) return precise !== "n/a" ? `${precise} BTC` : "n/a";
-    const clamped = Math.max(0, Math.min(1, numeric));
-    const flooredTwoDecimals = Math.floor(clamped * 10000) / 100;
-    const pct = `(${flooredTwoDecimals.toFixed(2)}% of 21M BTC)`;
-    return precise !== "n/a" ? `${precise} BTC\n${pct}` : pct;
-  }
-
-  function formatTargetHashrate(value) {
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric) || numeric <= 0) return "n/a";
-
-    const units = ["H/s", "kH/s", "MH/s", "GH/s", "TH/s", "PH/s", "EH/s", "ZH/s", "YH/s"];
-    let scaled = numeric;
-    let unitIndex = 0;
-    while (scaled >= 1000 && unitIndex < units.length - 1) {
-      scaled /= 1000;
-      unitIndex += 1;
-    }
-    return `${scaled.toFixed(2)} ${units[unitIndex]}`;
-  }
-
-  function formatTargetHashrateTooltip(targetHex) {
-    const cleaned = String(targetHex || "").trim();
-    if (!cleaned) return "n/a";
-    const hex = cleaned.toLowerCase().replace(/^0x/, "");
-    if (!hex || !/^[0-9a-f]+$/.test(hex)) return "n/a";
-
-    const normalized = hex.padStart(64, "0");
-    const leadingZerosMatch = normalized.match(/^0+/);
-    const leadingZeros = leadingZerosMatch ? leadingZerosMatch[0].length : 0;
-    const compressedRaw = normalized.slice(leadingZeros) || "0";
-
-    return `0x${compressedRaw}\n(${leadingZeros} leading zeros)`;
-  }
-
-  function setKpis({
-    height,
-    blockMinedAt,
-    epoch,
-    epochComplete,
-    subsidyBtc,
-    subsidySats,
-    supplyBtc,
-    supplyTargetComplete,
-    targetHashrate,
-    targetHex,
-    difficultyDisplay,
-    difficultyPreciseDisplay,
-  }) {
-    if (typeof height !== "undefined") {
-      const numericHeight = Number(height);
-      lastBlockHeight = Number.isFinite(numericHeight) ? numericHeight : NaN;
-    }
-    const displayTime = formatNowForSelectedTimeZone(new Date());
-
-    updatedValueEl.textContent = displayTime;
-    heightValueEl.textContent = Number.isFinite(lastBlockHeight)
-      ? `${lastBlockHeight.toLocaleString()}`
-      : "n/a";
-
-    if (typeof blockMinedAt !== "undefined") {
-      const parsedBlockMinedAt = parseBlockTimeToMs(blockMinedAt);
-      lastBlockMinedAtMs = Number.isFinite(parsedBlockMinedAt) ? parsedBlockMinedAt : NaN;
-    }
-
-    if (heightEl) {
-      heightEl.setAttribute(
-        "data-kpi-tooltip",
-        Number.isFinite(lastBlockMinedAtMs)
-          ? formatTimestampForSelectedTimeZone(lastBlockMinedAtMs)
-          : "n/a"
-      );
-    }
-
-    if (typeof epoch !== "undefined") {
-      const parsedEpoch = Number(epoch);
-      lastEpoch = Number.isFinite(parsedEpoch) ? parsedEpoch : NaN;
-    } else if (Number.isFinite(lastBlockHeight)) {
-      lastEpoch = getHalvingEpoch(lastBlockHeight);
-    }
-
-    if (Number.isFinite(lastBlockHeight)) {
-      lastEpochComplete = getEpochComplete(lastBlockHeight);
-    } else if (typeof epochComplete !== "undefined") {
-      const parsedEpochComplete = Number(epochComplete);
-      lastEpochComplete = Number.isFinite(parsedEpochComplete) ? parsedEpochComplete : NaN;
-    }
-
-    const epochPct = formatEpochCompletePercent(lastEpochComplete);
-    const epochBlocksComplete = Number.isFinite(lastBlockHeight)
-      ? getEpochBlocksMinedInCurrentEpoch(lastBlockHeight)
-      : formatEpochCompleteBlocks(lastEpochComplete);
-    epochValueEl.textContent = Number.isFinite(lastEpoch)
-      ? `${lastEpoch.toLocaleString()}`
-      : "n/a";
-
-    if (epochEl) {
-      updateChipProgressRing(epochEl, lastEpochComplete);
-      epochEl.setAttribute(
-        "data-epoch-tooltip",
-        Number.isFinite(epochBlocksComplete)
-          ? `${epochBlocksComplete.toLocaleString()} / 210,000 (${epochPct})`
-          : "n/a"
-      );
-    }
-
-    const difficultyEpoch = Number.isFinite(lastBlockHeight)
-      ? getDifficultyEpoch(lastBlockHeight)
-      : NaN;
-    const difficultyEpochComplete = Number.isFinite(lastBlockHeight)
-      ? getDifficultyEpochComplete(lastBlockHeight)
-      : NaN;
-    const difficultyEpochBlocksMined = Number.isFinite(lastBlockHeight)
-      ? getDifficultyEpochBlocksMined(lastBlockHeight)
-      : NaN;
-    const difficultyEpochPct = formatEpochCompletePercent(difficultyEpochComplete);
-
-    difficultyEpochValueEl.textContent = Number.isFinite(difficultyEpoch)
-      ? `${difficultyEpoch.toLocaleString()}`
-      : "n/a";
-
-    if (difficultyEpochEl) {
-      updateChipProgressRing(difficultyEpochEl, difficultyEpochComplete);
-      difficultyEpochEl.setAttribute(
-        "data-epoch-tooltip",
-        Number.isFinite(difficultyEpochBlocksMined)
-          ? `${difficultyEpochBlocksMined.toLocaleString()} / 2,016 (${difficultyEpochPct})`
-          : "n/a"
-      );
-    }
-
-    if (typeof subsidyBtc !== "undefined") {
-      const cleaned = String(subsidyBtc || "").trim();
-      lastSubsidyDisplay = cleaned || "n/a";
-    } else if (Number.isFinite(lastBlockHeight)) {
-      lastSubsidyDisplay = formatSubsidyBtc(lastBlockHeight);
-    }
-
-    subsidyValueEl.textContent = lastSubsidyDisplay === "n/a"
-      ? "n/a"
-      : `${lastSubsidyDisplay} BTC`;
-
-    if (typeof subsidySats !== "undefined") {
-      const rawText = String(subsidySats || "").trim();
-      if (rawText) {
-        if (/^\d+$/.test(rawText)) {
-          lastSubsidySatsDisplay = Number(rawText).toLocaleString();
-        } else {
-          lastSubsidySatsDisplay = rawText;
-        }
-      } else {
-        lastSubsidySatsDisplay = "n/a";
-      }
-    } else if (Number.isFinite(lastBlockHeight)) {
-      const subsidySatsComputed = getBlockSubsidySats(lastBlockHeight);
-      lastSubsidySatsDisplay = subsidySatsComputed === null
-        ? "n/a"
-        : subsidySatsComputed.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-    }
-
-    if (subsidyEl) {
-      subsidyEl.setAttribute(
-        "data-kpi-tooltip",
-        lastSubsidySatsDisplay === "n/a"
-          ? "n/a"
-          : `${lastSubsidySatsDisplay} sats`
-      );
-    }
-
-    if (typeof supplyBtc !== "undefined") {
-      lastSupplyDisplay = formatSupplyBtc(supplyBtc);
-      lastSupplyBtcRaw = supplyBtc;
-    }
-
-    if (typeof supplyTargetComplete !== "undefined") {
-      const parsedSupplyTargetComplete = Number(supplyTargetComplete);
-      lastSupplyTargetComplete = Number.isFinite(parsedSupplyTargetComplete)
-        ? parsedSupplyTargetComplete
-        : NaN;
-    } else if (typeof supplyBtc !== "undefined") {
-      const parsedSupplyBtc = Number(supplyBtc);
-      lastSupplyTargetComplete = Number.isFinite(parsedSupplyBtc)
-        ? (parsedSupplyBtc / TARGET_SUPPLY_BTC)
+  function parseBlockTime(value) {
+    if (typeof value === "number" || (typeof value === "string" && /^\d+(\.\d+)?$/.test(value.trim()))) {
+      const numeric = Number(value);
+      return numeric > 0 && Number.isFinite(numeric)
+        ? new Date(numeric >= 1e12 ? numeric : numeric * 1000).getTime()
         : NaN;
     }
-
-    supplyValueEl.textContent = lastSupplyDisplay === "n/a"
-      ? "n/a"
-      : `${lastSupplyDisplay} BTC`;
-
-    if (supplyEl) {
-      updateChipProgressRing(supplyEl, lastSupplyTargetComplete);
-      supplyEl.setAttribute("data-epoch-tooltip", formatSupplyTargetTooltip(lastSupplyBtcRaw, lastSupplyTargetComplete));
-    }
-
-    if (typeof targetHashrate !== "undefined") {
-      lastTargetHashrateDisplay = formatTargetHashrate(targetHashrate);
-    }
-
-    if (typeof targetHex !== "undefined") {
-      lastTargetHexDisplay = String(targetHex || "").trim();
-    }
-
-    targetHashrateValueEl.textContent = lastTargetHashrateDisplay;
-    if (targetHashrateEl) {
-      targetHashrateEl.setAttribute("data-kpi-tooltip", formatTargetHashrateTooltip(lastTargetHexDisplay));
-    }
-
-    if (typeof difficultyDisplay !== "undefined") {
-      const cleaned = String(difficultyDisplay || "").trim();
-      lastDifficultyDisplay = cleaned || "n/a";
-    }
-
-    if (typeof difficultyPreciseDisplay !== "undefined") {
-      const cleaned = String(difficultyPreciseDisplay || "").trim();
-      lastDifficultyPreciseDisplay = cleaned || "n/a";
-    }
-
-    difficultyValueEl.textContent = lastDifficultyDisplay === "n/a"
-      ? "n/a"
-      : `${lastDifficultyDisplay}`;
-
-    if (difficultyEl) {
-      difficultyEl.setAttribute("data-kpi-tooltip", lastDifficultyPreciseDisplay);
-    }
-
-    scheduleBalanceKpiRows();
+    if (typeof value !== "string") return NaN;
+    const text = value.trim();
+    const utc = text.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})(?::(\d{2}))?\s+UTC$/i);
+    const normalized = utc ? `${utc[1]}T${utc[2]}:${utc[3] || "00"}Z` : text;
+    // Require an explicit time zone; an operator's browser must not reinterpret
+    // the publication's block timestamp as their own local time.
+    if (!/(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized)) return NaN;
+    const timestamp = Date.parse(normalized);
+    if (utc && Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 19) !== normalized.slice(0, 19)) return NaN;
+    return timestamp;
   }
 
-  function getTopKpisSignature(topKpis) {
-    if (!topKpis || typeof topKpis !== "object") return "";
-    return [
-      topKpis.block_height,
-      topKpis.block_timestamp,
-      topKpis.block_time,
-      topKpis.block_time_utc,
-      topKpis.latest_block_time,
-      topKpis.latest_block_timestamp,
-      topKpis.epoch,
-      topKpis.epoch_complete,
-      topKpis.subsidy_btc,
-      topKpis.subsidy_sats,
-      topKpis.supply_btc,
-      topKpis.supply_target_complete,
-      topKpis.target_hashrate_hps,
-      topKpis.target_hex,
-      topKpis.difficulty,
-      topKpis.difficulty_trillions,
-      topKpis.difficulty_display,
-      topKpis.difficulty_precise,
-    ].map((value) => String(value ?? "").trim()).join("|");
+  function requiredNumber(value, field, { minimum = 0, maximum = Infinity, integer = false } = {}) {
+    if ((typeof value !== "number" && typeof value !== "string") || String(value).trim() === "") {
+      throw new Error(`Missing ${field}`);
+    }
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric < minimum || numeric > maximum || (integer && !Number.isSafeInteger(numeric))) {
+      throw new Error(`Invalid ${field}`);
+    }
+    return numeric;
   }
 
-  async function refreshFromTopKpis() {
-    if (isDashboardExportActive()) return;
-    if (refreshInFlight) return;
+  function prepareSnapshot(payload) {
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("Invalid network snapshot");
+    const height = requiredNumber(payload.block_height, "block height", { integer: true });
+    const minedAt = parseBlockTime(payload.block_timestamp ?? payload.block_time ?? payload.block_time_utc
+      ?? payload.latest_block_time ?? payload.latest_block_timestamp);
+    if (!Number.isFinite(minedAt) || minedAt <= 0) throw new Error("Invalid block timestamp");
+    const supply = requiredNumber(payload.supply_btc, "supply", { maximum: TARGET_SUPPLY_BTC });
+    const subsidy = requiredNumber(payload.subsidy_btc, "subsidy", { maximum: 50 });
+    const difficulty = requiredNumber(payload.difficulty, "difficulty", { minimum: Number.MIN_VALUE });
+    const rawProjection = payload.projected_difficulty_adjustment_percent;
+    const projection = rawProjection == null ? null : requiredNumber(rawProjection, "projected difficulty adjustment", {
+      minimum: -75, maximum: 300,
+    });
+    return { height, minedAt, supply, subsidy, difficulty, projection };
+  }
+
+  function setText(element, text) {
+    if (element) element.textContent = text;
+  }
+
+  function setProgress(element, percent, text) {
+    if (!element) return;
+    element.max = 100;
+    element.value = Math.max(0, Math.min(100, percent));
+    element.setAttribute("aria-valuetext", text);
+  }
+
+  function formatProgressPercent(percent, decimalPlaces) {
+    // A rounded 100% would claim completion before the final block is mined.
+    const factor = 10 ** decimalPlaces;
+    return (Math.floor(Math.max(0, Math.min(100, percent)) * factor) / factor).toFixed(decimalPlaces);
+  }
+
+  function formatOrdinal(number) {
+    const lastTwo = number % 100;
+    const suffix = lastTwo >= 11 && lastTwo <= 13
+      ? "th"
+      : { 1: "st", 2: "nd", 3: "rd" }[number % 10] || "th";
+    return `${number}${suffix}`;
+  }
+
+  function renderClock() {
+    values.clock.textContent = formatTime(Date.now());
+  }
+
+  function renderStatus() {
+    let text;
+    if (lastSnapshot) {
+      text = refreshFailed ? "Refresh unavailable · showing last published block." : "";
+      container.dataset.snapshotState = refreshFailed ? "cached" : "ready";
+    } else {
+      text = refreshFailed ? "Published snapshot unavailable. Retrying automatically." : "Loading published snapshot…";
+      container.dataset.snapshotState = refreshFailed ? "error" : "loading";
+    }
+    setText(snapshotStatus, text);
+  }
+
+  function renderSnapshot() {
+    if (!lastSnapshot) return;
+    const { height, minedAt, supply } = lastSnapshot;
+    const epoch = Math.floor(height / HALVING_INTERVAL) + 1;
+    const nextHalving = epoch * HALVING_INTERVAL;
+    const epochMined = (height % HALVING_INTERVAL) + 1;
+    const halvingPercent = epochMined / HALVING_INTERVAL * 100;
+    const difficultyEpoch = Math.floor(height / DIFFICULTY_INTERVAL) + 1;
+    const difficultyMined = (height % DIFFICULTY_INTERVAL) + 1;
+    const difficultyRemaining = difficultyEpoch * DIFFICULTY_INTERVAL - height;
+    const difficultyPercent = difficultyMined / DIFFICULTY_INTERVAL * 100;
+    const supplyPercent = supply / TARGET_SUPPLY_BTC * 100;
+    const supplyText = `${formatProgressPercent(supplyPercent, 2)}% of 21 million BTC`;
+    const halvingText = `${formatProgressPercent(halvingPercent, 1)}% through the ${formatOrdinal(epoch)} epoch`;
+    const difficultyText = `${difficultyRemaining.toLocaleString("en-US")} ${difficultyRemaining === 1 ? "block" : "blocks"} until adjustment`;
+    const difficultyEpochText = `${formatProgressPercent(difficultyPercent, 1)}% through the ${formatOrdinal(difficultyEpoch)} difficulty epoch`;
+
+    values.height.textContent = height.toLocaleString("en-US");
+    values.supply.textContent = compactSupply.matches
+      ? `${(supply / 1000000).toFixed(3)}M`
+      : supply.toLocaleString("en-US", { maximumFractionDigits: 0 });
+    chips.height.title = `Block timestamp: ${formatTime(minedAt, { seconds: true })}`;
+    chips.supply.title = `${supply.toLocaleString("en-US", { minimumFractionDigits: 8, maximumFractionDigits: 8 })} BTC`;
+    chips.supply.setAttribute("aria-label", `${chips.supply.title} issued`);
+    setText(blockTime, formatTime(minedAt));
+    if (blockTime) blockTime.dateTime = new Date(minedAt).toISOString();
+    setText(supplyCaption, supplyText);
+    setText(halvingRemaining, (nextHalving - height).toLocaleString("en-US"));
+    setText(halvingCaption, halvingText);
+    setText(difficultyRemainingValue, difficultyRemaining.toLocaleString("en-US"));
+    if (difficultyRemainingValue) difficultyRemainingValue.title = `Next adjustment at block ${(difficultyEpoch * DIFFICULTY_INTERVAL).toLocaleString("en-US")}`;
+    setText(difficultyCaption, difficultyEpochText);
+    setProgress(supplyProgress, supplyPercent, supplyText);
+    setProgress(halvingProgress, halvingPercent, halvingText);
+    setProgress(difficultyProgress, difficultyPercent, `${difficultyEpochText}; ${difficultyText}`);
+  }
+
+  async function refreshSnapshot() {
+    if (isDashboardExportActive() || refreshInFlight) return;
     refreshInFlight = true;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15000);
     try {
-      const response = await fetch(`${TOP_KPIS_URL}?_=${Date.now()}`, { cache: "no-store" });
-      if (!response.ok) throw new Error(`Top KPI request failed: ${response.status}`);
-      const topKpis = await response.json();
-      const nextSignature = getTopKpisSignature(topKpis);
-      if (metadataSignature && nextSignature && nextSignature === metadataSignature) {
+      const response = await fetch(`${TOP_KPIS_URL}?_=${Date.now()}`, { cache: "no-store", signal: controller.signal });
+      if (!response.ok) throw new Error(`Network snapshot request failed: ${response.status}`);
+      const candidate = prepareSnapshot(await response.json());
+      const signature = JSON.stringify(candidate);
+      if (signature !== lastSignature) {
+        lastSnapshot = candidate;
+        lastSignature = signature;
+        renderSnapshot();
+      }
+      refreshFailed = false;
+    } catch (_) {
+      // Preserve the complete prior snapshot, including its published block time.
+      refreshFailed = true;
+    } finally {
+      window.clearTimeout(timeout);
+      refreshInFlight = false;
+      renderStatus();
+    }
+  }
+
+  function refreshForTimeZone() {
+    renderTimeZoneOptions();
+    renderClock();
+    renderSnapshot();
+    renderStatus();
+  }
+
+  function queueRefresh() {
+    if (wakeTimer !== null) return;
+    wakeTimer = window.setTimeout(() => {
+      wakeTimer = null;
+      void refreshSnapshot();
+    }, 0);
+  }
+
+  const glossary = container.querySelector(".snapshot-glossary");
+  const glossarySummary = glossary?.querySelector("summary");
+  const glossaryPanel = glossary?.querySelector(".snapshot-glossary-panel");
+  if (glossarySummary && glossaryPanel) {
+    let expanded = glossary.open;
+    let panelAnimation = null;
+    glossarySummary.addEventListener("click", (event) => {
+      event.preventDefault();
+      expanded = !expanded;
+      const startHeight = glossary.open ? glossaryPanel.getBoundingClientRect().height : 0;
+      const startOpacity = glossary.open ? Number(getComputedStyle(glossaryPanel).opacity) : 0;
+      panelAnimation?.cancel();
+      panelAnimation = null;
+      glossaryPanel.style.height = "";
+      glossaryPanel.style.opacity = "";
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || !glossaryPanel.animate) {
+        glossary.open = expanded;
         return;
       }
-      metadataSignature = nextSignature;
 
-      const difficultyDisplay = String(topKpis?.difficulty_display || "").trim() || (
-        Number.isFinite(Number(topKpis?.difficulty_trillions))
-          ? `${Number(topKpis.difficulty_trillions).toFixed(2)}T`
-          : formatDifficultyTrillions(topKpis?.difficulty)
-      );
-      const difficultyPreciseDisplay = String(topKpis?.difficulty_precise || "").trim() || (
-        formatDifficultyPrecise(topKpis?.difficulty)
-      );
-
-      setKpis({
-        height: topKpis?.block_height,
-        blockMinedAt: topKpis?.block_timestamp
-          ?? topKpis?.block_time
-          ?? topKpis?.block_time_utc
-          ?? topKpis?.latest_block_time
-          ?? topKpis?.latest_block_timestamp,
-        epoch: topKpis?.epoch,
-        epochComplete: topKpis?.epoch_complete,
-        subsidyBtc: topKpis?.subsidy_btc,
-        subsidySats: topKpis?.subsidy_sats,
-        supplyBtc: topKpis?.supply_btc,
-        supplyTargetComplete: topKpis?.supply_target_complete,
-        targetHashrate: topKpis?.target_hashrate_hps,
-        targetHex: topKpis?.target_hex,
-        difficultyDisplay,
-        difficultyPreciseDisplay,
-      });
-    } catch (_) {
-      setKpis({});
-    } finally {
-      refreshInFlight = false;
-    }
-  }
-
-  function triggerRefreshSoon(delayMs = 150) {
-    window.setTimeout(() => {
-      if (isDashboardExportActive()) return;
-      refreshFromTopKpis();
-    }, delayMs);
-  }
-
-  function setupRefreshWakeEvents() {
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") {
-        triggerRefreshSoon(0);
-      }
+      glossary.open = true;
+      const endHeight = expanded ? glossaryPanel.scrollHeight : 0;
+      panelAnimation = glossaryPanel.animate([
+        { height: `${startHeight}px`, opacity: startOpacity },
+        { height: `${endHeight}px`, opacity: expanded ? 1 : 0 },
+      ], { duration: 280, easing: "cubic-bezier(.22, 1, .36, 1)", fill: "forwards" });
+      const animation = panelAnimation;
+      animation.onfinish = () => {
+        if (panelAnimation !== animation) return;
+        glossary.open = expanded;
+        glossaryPanel.style.height = `${endHeight}px`;
+        glossaryPanel.style.opacity = expanded ? "1" : "0";
+        animation.cancel();
+        glossaryPanel.style.height = "";
+        glossaryPanel.style.opacity = "";
+        panelAnimation = null;
+      };
     });
-
-    window.addEventListener("focus", () => {
-      triggerRefreshSoon(0);
-    });
-
-    window.addEventListener("pageshow", () => {
-      triggerRefreshSoon(0);
-    });
-
-    window.addEventListener("online", () => {
-      triggerRefreshSoon(0);
-    });
-  }
-
-  function startAutoRefresh() {
-    if (autoRefreshTimer) {
-      window.clearInterval(autoRefreshTimer);
-    }
-    autoRefreshTimer = window.setInterval(() => {
-      refreshFromTopKpis();
-    }, AUTO_REFRESH_MS);
-  }
-
-  function refreshForTimezoneOnly() {
-    renderTimeZoneOptions();
-    setKpis({});
   }
 
   timeZoneSelect.addEventListener("change", () => {
     setPreferredTimeZone(timeZoneSelect.value);
-    refreshForTimezoneOnly();
+    refreshForTimeZone();
   });
-
-  renderTimeZoneOptions();
-  refreshFromTopKpis();
-  setKpis({});
-  window.setInterval(() => {
-    if (isDashboardExportActive()) return;
-    setKpis({});
-  }, 30000);
-  setupRefreshWakeEvents();
-  startAutoRefresh();
-
-  window.addEventListener(TZ_CHANGE_EVENT, refreshForTimezoneOnly);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      renderClock();
+      queueRefresh();
+    }
+  });
+  ["focus", "pageshow", "online"].forEach((event) => window.addEventListener(event, queueRefresh));
+  window.addEventListener(TZ_CHANGE_EVENT, refreshForTimeZone);
+  compactSupply.addEventListener("change", renderSnapshot);
   window.addEventListener("storage", (event) => {
-    if (event.key !== TZ_STORAGE_KEY) return;
-    refreshForTimezoneOnly();
+    if (event.key === TZ_STORAGE_KEY) refreshForTimeZone();
   });
-  window.addEventListener("resize", () => {
-    setKpis({});
-    scheduleBalanceKpiRows();
-  });
+  refreshForTimeZone();
+  void refreshSnapshot();
+  window.setInterval(() => {
+    if (!isDashboardExportActive()) renderClock();
+  }, 30000);
+  window.setInterval(() => { void refreshSnapshot(); }, AUTO_REFRESH_MS);
 })();

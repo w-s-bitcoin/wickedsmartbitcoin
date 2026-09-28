@@ -76,17 +76,18 @@
     "latest_youtube": "https://youtu.be/GbEJ0neZkxQ"
   },
   {
-    "filename": "bip110_signaling.png",
-    "title": "BIP-110 Signaling",
-    "description": "This dashboard focuses on miner signaling across each 2,016-block period for BIP-110, with SegWit signaling periods included for historical comparison",
-    "latest_x": "https://x.com/w_s_bitcoin/status/2033595927416406407",
-    "latest_youtube": "https://youtu.be/dy3vzz9pa3g"
-  },
-  {
     "filename": "node_count.png",
     "title": "Node Count",
     "description": "This dashboard tracks Bitcoin node count over time and the software versions nodes are running",
     "latest_x": "https://x.com/w_s_bitcoin/status/2034754967697776927",
     "latest_youtube": "https://youtu.be/-oujfwYj-zc"
+  },
+  {
+    "filename": "bip110_signaling.png",
+    "title": "BIP-110 Signaling",
+    "archived": true,
+    "description": "This dashboard focuses on miner signaling across each 2,016-block period for BIP-110, with SegWit signaling periods included for historical comparison",
+    "latest_x": "https://x.com/w_s_bitcoin/status/2033595927416406407",
+    "latest_youtube": "https://youtu.be/dy3vzz9pa3g"
   }
 ]

@@ -1117,6 +1117,13 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
     align-items: center;
 }
 
+.dashboard-card-surface {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    min-width: 0;
+}
+
 .image-grid.is-reordering {
     user-select: none;
     -webkit-user-select: none;
@@ -1139,16 +1146,16 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
     opacity: 1;
 }
 
-.grid-card-jiggle .chart-container {
+.grid-card-jiggle > .dashboard-card-surface {
     animation: grid-card-jiggle 180ms ease-in-out infinite alternate;
     transform-origin: 50% 92%;
 }
 
-.grid-card-jiggle:nth-child(2n) .chart-container {
+.grid-card-jiggle:nth-child(2n) > .dashboard-card-surface {
     animation-delay: -80ms;
 }
 
-.grid-card-jiggle:nth-child(3n) .chart-container {
+.grid-card-jiggle:nth-child(3n) > .dashboard-card-surface {
     animation-duration: 210ms;
 }
 
@@ -1160,8 +1167,11 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
     filter: drop-shadow(0 14px 24px rgba(0, 0, 0, 0.42));
 }
 
-.grid-card-dragging .chart-container {
+.grid-card-dragging > .dashboard-card-surface {
     animation: none !important;
+}
+
+.grid-card-dragging .chart-container {
     cursor: grabbing;
 }
 
@@ -1175,7 +1185,7 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .grid-card-jiggle .chart-container {
+    .grid-card-jiggle > .dashboard-card-surface {
         animation: none;
     }
 }
@@ -1347,8 +1357,27 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
 .favorite-star.filled {
     color: var(--brand);
 }
+.archive-badge {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    color: var(--card-star-fg);
+    background-color: var(--card-star-bg);
+    z-index: 2;
+}
+.archive-badge svg {
+    width: 17px;
+    height: 17px;
+}
 .image-grid img,
 .favorite-star,
+.archive-badge,
 #favoritesToggle {
     user-select: none;
     -webkit-user-select: none;

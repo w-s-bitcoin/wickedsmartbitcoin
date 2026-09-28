@@ -21,6 +21,7 @@
         <link rel="icon" type="image/png" href="assets/favicon.png" />
         <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
         <link rel="stylesheet" href="assets/styles.css" />
+        <link rel="stylesheet" href="assets/homepage.css" />
         <link rel="manifest" href="manifest.json" />
         <link rel="preload" href="assets/image_list.json" as="fetch" crossorigin />
         <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -108,13 +109,8 @@
             }
         </style>
     </head>
-    <body>
-        <div class="buy-coffee">
-            <button class="buy-coffee-btn" id="buyCoffeeBtn" type="button">
-                <span id="buyCoffeeIcon">☕</span>
-                <span id="buyCoffeeText">· Buy me a coffee</span>
-            </button>
-        </div>
+    <body class="homepage">
+        <a class="skip-link" href="#dashboards">Skip to dashboards</a>
         <div class="buy-coffee-overlay" id="buyCoffeeOverlay" aria-hidden="true" role="dialog" aria-modal="true">
             <div class="buy-coffee-modal">
             <button
@@ -151,121 +147,158 @@
             </div>
             </div>
         </div>
-        <div class="site-kebab">
-            <button id="kebabBtn" class="kebab-btn" aria-haspopup="menu" aria-expanded="false" aria-label="More options">⋯</button>
-            <div id="kebabMenu" class="kebab-menu hidden" role="menu" aria-labelledby="kebabBtn">
-                <div class="menu-section" role="group" aria-labelledby="menu-header-favorites">
-                    <div class="menu-header" id="menu-header-favorites">Favorites</div>
-                    <button class="menu-item" data-action="star-all" role="menuitem">
-                        <span class="menu-star" aria-hidden="true">★</span>
-                        Star All
-                    </button>
-                    <button class="menu-item" data-action="unstar-all" role="menuitem">
-                        <span class="menu-star" aria-hidden="true">☆</span>
-                        Unstar All
-                    </button>
-                </div>
-                <div class="menu-divider" role="separator" aria-hidden="true"></div>
-                <div class="menu-section" role="group" aria-labelledby="menu-header-search">
-                    <div class="menu-header" id="menu-header-search">Search</div>
-                    <button class="menu-item menu-check checked" id="chkSearchTitles" role="menuitemcheckbox" aria-checked="true" data-pref="searchTitles">
-                        <span class="menu-checkmark" aria-hidden="true"></span>
-                        Title
-                    </button>
-                    <button class="menu-item menu-check checked" id="chkSearchDescriptions" role="menuitemcheckbox" aria-checked="true" data-pref="searchDescriptions">
-                        <span class="menu-checkmark" aria-hidden="true"></span>
-                        Description
+        <header class="home-header">
+            <a class="home-brand" href="./" aria-label="Wicked Smart Bitcoin home">
+                <img class="home-brand-mark" src="assets/bitcoin-icon.png" width="28" height="28" alt="" aria-hidden="true" />
+                <span>Wicked Smart Bitcoin</span>
+            </a>
+            <div class="home-header-actions">
+                <a class="home-nav-link" href="#dashboards">Dashboards <span aria-hidden="true">↗</span></a>
+                <div class="buy-coffee">
+                    <button class="buy-coffee-btn" id="buyCoffeeBtn" type="button">
+                        <span id="buyCoffeeIcon">☕</span>
+                        <span id="buyCoffeeText">· Buy me a coffee</span>
                     </button>
                 </div>
-                <div class="menu-divider" role="separator" aria-hidden="true"></div>
-                <div class="menu-section" role="group" aria-labelledby="menu-header-timezone">
-                    <div class="menu-header" id="menu-header-timezone">Time Zone</div>
-                    <div class="menu-item timezone-row" role="group" aria-label="Time zone preference">
-                        <select id="menuTimeZoneSelect" class="menu-timezone-select" aria-label="Dashboard time zone"></select>
+                <div class="site-kebab">
+                    <button id="kebabBtn" class="kebab-btn" aria-haspopup="menu" aria-expanded="false" aria-label="More options"><svg aria-hidden="true" width="18" height="6" viewBox="0 0 18 6" fill="currentColor"><circle cx="2" cy="3" r="1.5"/><circle cx="9" cy="3" r="1.5"/><circle cx="16" cy="3" r="1.5"/></svg></button>
+                    <div id="kebabMenu" class="kebab-menu hidden" role="menu" aria-labelledby="kebabBtn">
+                        <div class="menu-section" role="group" aria-labelledby="menu-header-favorites">
+                            <div class="menu-header" id="menu-header-favorites">Favorites</div>
+                            <button class="menu-item" data-action="star-all" role="menuitem">
+                                <span class="menu-star" aria-hidden="true">★</span>
+                                Star All
+                            </button>
+                            <button class="menu-item" data-action="unstar-all" role="menuitem">
+                                <span class="menu-star" aria-hidden="true">☆</span>
+                                Unstar All
+                            </button>
+                        </div>
+                        <div class="menu-divider" role="separator" aria-hidden="true"></div>
+                        <div class="menu-section" role="group" aria-labelledby="menu-header-search">
+                            <div class="menu-header" id="menu-header-search">Search</div>
+                            <button class="menu-item menu-check checked" id="chkSearchTitles" role="menuitemcheckbox" aria-checked="true" data-pref="searchTitles">
+                                <span class="menu-checkmark" aria-hidden="true"></span>
+                                Title
+                            </button>
+                            <button class="menu-item menu-check checked" id="chkSearchDescriptions" role="menuitemcheckbox" aria-checked="true" data-pref="searchDescriptions">
+                                <span class="menu-checkmark" aria-hidden="true"></span>
+                                Description
+                            </button>
+                        </div>
+                        <div class="menu-divider" role="separator" aria-hidden="true"></div>
+                        <div class="menu-section" role="group" aria-labelledby="menu-header-timezone">
+                            <div class="menu-header" id="menu-header-timezone">Time Zone</div>
+                            <div class="menu-item timezone-row" role="group" aria-label="Time zone preference">
+                                <select id="menuTimeZoneSelect" class="menu-timezone-select" aria-label="Dashboard time zone"></select>
+                            </div>
+                        </div>
+                        <div class="menu-divider" role="separator" aria-hidden="true"></div>
+                        <div class="menu-section" role="group" aria-labelledby="menu-header-dashboards">
+                            <div class="menu-header" id="menu-header-dashboards">Dashboards</div>
+                            <button class="menu-item" data-action="reset-dashboards" role="menuitem">
+                                Restore Defaults
+                            </button>
+                            <button class="menu-item hidden" id="pullLatestDataBtn" data-action="pull-latest-data" role="menuitem">
+                                Pull Latest Data
+                            </button>
+                        </div>
                     </div>
                 </div>
-                <div class="menu-divider" role="separator" aria-hidden="true"></div>
-                <div class="menu-section" role="group" aria-labelledby="menu-header-dashboards">
-                    <div class="menu-header" id="menu-header-dashboards">Dashboards</div>
-                    <button class="menu-item" data-action="reset-dashboards" role="menuitem">
-                        Restore Defaults
-                    </button>
-                    <button class="menu-item hidden" id="pullLatestDataBtn" data-action="pull-latest-data" role="menuitem">
-                        Pull Latest Data
-                    </button>
-                </div>
-            </div>
-        </div>
 
-        <h1>Wicked Smart Bitcoin</h1>
-        <p>Wicked's Collection of Bitcoin Dashboards</p>
+            </div>
+        </header>
+        <main class="home-main">
+            <h1 class="visually-hidden">Wicked Smart Bitcoin dashboards</h1>
+            <section class="network-snapshot" id="homeBip110Kpis" aria-labelledby="snapshot-heading" data-snapshot-state="loading">
+                <h2 id="snapshot-heading" class="visually-hidden">Network snapshot</h2>
+                <div class="snapshot-grid">
+                    <article class="snapshot-card" aria-labelledby="block-heading">
+                        <div class="snapshot-card-heading"><h3 id="block-heading">Block Height</h3><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M12 2 21 7v10l-9 5-9-5V7l9-5Z M3 7l9 5 9-5 M12 12v10"/></svg></div>
+                        <div class="snapshot-value" id="homeBip110HeightKpi"><span class="chip-value">—</span></div>
+                        <div class="snapshot-block-divider" aria-hidden="true"></div>
+                        <time class="snapshot-caption" id="homeKpiBlockTime">Waiting for data</time>
+                    </article>
+                    <article class="snapshot-card" aria-labelledby="supply-heading">
+                        <div class="snapshot-card-heading"><h3 id="supply-heading">Bitcoin issued</h3><span class="snapshot-card-symbol" aria-hidden="true">₿</span></div>
+                        <div class="snapshot-value snapshot-value-supply" id="homeBip110SupplyKpi"><span class="chip-value">—</span><span class="snapshot-unit">BTC</span></div>
+                        <progress id="homeKpiSupplyProgress" max="100" value="0" aria-label="Bitcoin supply issued"></progress>
+                        <div class="snapshot-caption" id="homeKpiSupplyCaption">Of the 21 million BTC limit</div>
+                    </article>
+                    <article class="snapshot-card" aria-labelledby="halving-heading">
+                        <div class="snapshot-card-heading"><h3 id="halving-heading">Next halving</h3><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16Z" fill="currentColor" stroke="none"/><path d="M12 4v16"/></svg></div>
+                        <div class="snapshot-value"><span id="homeKpiHalvingRemaining">—</span><span class="snapshot-unit">blocks away</span></div>
+                        <progress id="homeKpiHalvingProgress" max="100" value="0" aria-label="Current halving epoch completed"></progress>
+                        <div class="snapshot-caption" id="homeKpiHalvingCaption">Waiting for data</div>
+                    </article>
+                    <article class="snapshot-card" aria-labelledby="mining-heading">
+                        <div class="snapshot-card-heading"><h3 id="mining-heading">Next difficulty adjustment</h3><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 9 5v10l-9 5-9-5V7Z"/><path d="m10.5 8-1 8m5-8-1 8M8 10.5h8m-8 3h8"/></svg></div>
+                        <div class="snapshot-value"><span id="homeKpiDifficultyRemaining">—</span><span class="snapshot-unit">blocks away</span></div>
+                        <progress id="homeKpiDifficultyProgress" max="100" value="0" aria-label="Current difficulty epoch completed"></progress>
+                        <div class="snapshot-caption" id="homeKpiDifficultyCaption">Waiting for data</div>
+                    </article>
+                </div>
+                <div class="snapshot-footnote">
+                    <span id="homeKpiSnapshotStatus" class="snapshot-status" role="status">Loading published snapshot…</span>
+                    <details class="snapshot-glossary">
+                        <summary>What do these numbers mean? <span aria-hidden="true">+</span></summary>
+                        <div class="snapshot-glossary-panel">
+                            <dl>
+                                <div><dt>Block height</dt><dd>A block's position in Bitcoin's chain, starting at zero. The timestamp is recorded by its miner.</dd></div>
+                                <div><dt>Bitcoin issued</dt><dd>BTC issued so far, approaching a limit of 21 million. The bar shows the share already issued.</dd></div>
+                                <div><dt>Halving epoch</dt><dd>Every 210,000 blocks, the block subsidy is cut in half. The large number counts blocks until the next halving, and the bar shows progress through the current epoch.</dd></div>
+                                <div><dt>Difficulty adjustment</dt><dd>Difficulty adjusts every 2,016 blocks. The large number counts blocks until the next adjustment, and the bar shows progress through this epoch.</dd></div>
+                            </dl>
+                        </div>
+                    </details>
+                </div>
+            </section>
 
-        <div class="controls-row">
-            <div class="toggle-icons" id="toggleIcons">
-                <div class="toggle-icon active" id="gridView" onclick="setLayout('grid')">
-                    <div class="icon-grid">
-                        <div></div>
-                        <div></div>
-                        <div></div>
-                        <div></div>
-                        <div></div>
-                        <div></div>
-                        <div></div>
-                        <div></div>
-                        <div></div>
+            <section class="dashboard-library" id="dashboards" aria-labelledby="homeDashboardCount">
+                <div class="library-toolbar">
+                    <div class="library-heading"><h2 id="homeDashboardCount" aria-live="polite">Loading Dashboards…</h2></div>
+                    <div class="controls-row">
+                        <div class="toggle-icons" id="toggleIcons">
+                            <button type="button" class="toggle-icon active" id="gridView" onclick="setLayout('grid')" aria-label="Grid view" aria-pressed="true" title="Grid view">
+                                <div class="icon-grid">
+                                    <div></div>
+                                    <div></div>
+                                    <div></div>
+                                    <div></div>
+                                    <div></div>
+                                    <div></div>
+                                    <div></div>
+                                    <div></div>
+                                    <div></div>
+                                </div>
+                            </button>
+                            <button type="button" class="toggle-icon" id="listView" onclick="setLayout('list')" aria-label="List view" aria-pressed="false" title="List view">
+                                <div class="icon-list">
+                                    <div></div>
+                                    <div></div>
+                                    <div></div>
+                                    <div></div>
+                                </div>
+                            </button>
+                        </div>
+                        <button type="button" class="toggle-icon" id="favoritesToggle" onclick="toggleFavoritesView()" aria-label="Show starred dashboards" aria-pressed="false" title="Show starred dashboards">
+                            <span class="favorites-toggle-star" aria-hidden="true">★</span>
+                        </button>
+                        <div class="search-container">
+                            <button id="search-btn" class="search-btn" type="button" aria-label="Search" tabindex="-1">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M10.5 3a7.5 7.5 0 1 1 0 15a7.5 7.5 0 0 1 0-15zm0 2a5.5 5.5 0 1 0 0 11a5.5 5.5 0 0 0 0-11zm8.03 12.47l3.25 3.25a1 1 0 1 1-1.41 1.41l-3.25-3.25a1 1 0 0 1 1.41-1.41z" fill="currentColor" />
+                                </svg>
+                            </button>
+                            <input id="search-input" class="search-input" type="search" aria-label="Search dashboards" placeholder="Find a dashboard…" oninput="filterImages()" />
+                        </div>
                     </div>
                 </div>
-                <div class="toggle-icon" id="listView" onclick="setLayout('list')">
-                    <div class="icon-list">
-                        <div></div>
-                        <div></div>
-                        <div></div>
-                        <div></div>
-                    </div>
-                </div>
-            </div>
-            <div class="toggle-icon" id="favoritesToggle" onclick="toggleFavoritesView()" aria-label="Favorites">
-                <span class="favorites-toggle-star">★</span>
-            </div>
-            <div class="search-container">
-                <button id="search-btn" class="search-btn" type="button" aria-label="Search" tabindex="-1">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M10.5 3a7.5 7.5 0 1 1 0 15a7.5 7.5 0 0 1 0-15zm0 2a5.5 5.5 0 1 0 0 11a5.5 5.5 0 0 0 0-11zm8.03 12.47l3.25 3.25a1 1 0 1 1-1.41 1.41l-3.25-3.25a1 1 0 0 1 1.41-1.41z" fill="currentColor" />
-                    </svg>
-                </button>
-                <input id="search-input" class="search-input" type="text" placeholder="Search..." oninput="filterImages()" />
-            </div>
-        </div>
-        <div class="home-bip110-kpis" id="homeBip110Kpis" aria-live="polite">
-            <div class="chip-menu-wrap single-select">
-                <div class="chip chip-kpi-display" id="homeBip110UpdatedKpi"><span class="chip-value">n/a</span></div>
-                <select class="chip-menu-select chip-kpi-select-overlay" id="homeKpiTimeZoneSelect" aria-label="Homepage date and time time zone"></select>
-            </div>
-            <div class="chip chip-kpi-tooltip" id="homeBip110HeightKpi" data-kpi-tooltip="n/a"><span class="chip-label">Block Height</span> <span class="chip-value">n/a</span></div>
-            <div class="chip chip-epoch-progress" id="homeBip110EpochKpi" data-epoch-tooltip="n/a">
-                <span class="chip-label">Epoch</span> <span class="chip-value">n/a</span>
-                <svg class="epoch-progress-ring" aria-hidden="true" focusable="false">
-                    <path class="epoch-progress-meter" pathLength="100"></path>
-                </svg>
-            </div>
-            <div class="chip chip-kpi-tooltip" id="homeBip110SubsidyKpi" data-kpi-tooltip="n/a"><span class="chip-label">Subsidy</span> <span class="chip-value">n/a</span></div>
-            <div class="chip chip-epoch-progress" id="homeBip110SupplyKpi" data-epoch-tooltip="n/a">
-                <span class="chip-label">Supply</span> <span class="chip-value">n/a</span>
-                <svg class="epoch-progress-ring" aria-hidden="true" focusable="false">
-                    <path class="epoch-progress-meter" pathLength="100"></path>
-                </svg>
-            </div>
-            <div class="chip chip-kpi-tooltip" id="homeBip110TargetHashrateKpi" data-kpi-tooltip="n/a"><span class="chip-label">Target Hashrate</span> <span class="chip-value">n/a</span></div>
-            <div class="chip chip-epoch-progress" id="homeBip110DifficultyEpochKpi" data-epoch-tooltip="n/a">
-                <span class="chip-label">Diff. Epoch</span> <span class="chip-value">n/a</span>
-                <svg class="epoch-progress-ring" aria-hidden="true" focusable="false">
-                    <path class="epoch-progress-meter" pathLength="100"></path>
-                </svg>
-            </div>
-            <div class="chip chip-kpi-tooltip" id="homeBip110DifficultyKpi" data-kpi-tooltip="n/a"><span class="chip-label">Difficulty</span> <span class="chip-value">n/a</span></div>
-        </div>
-        <div class="image-grid grid" id="image-grid"></div>
-        <div id="no-favorites-message" style="display: none; color: #ccc; font-size: 1.2rem; margin-top: 2rem">No starred dashboards</div>
+                <div class="image-grid grid" id="image-grid"></div>
+                <p id="no-favorites-message" class="home-empty-state" style="display: none">No starred dashboards yet. Use the star on a card to save it here.</p>
+                <p id="homeSearchEmpty" class="home-empty-state" hidden>No dashboards match your search. Try a different keyword or turn off the starred filter.</p>
+            </section>
+        </main>
         <div class="modal" id="modal">
             <div class="modal-controls">
                 <button class="close-btn modal-home-btn" onclick="closeModal()" aria-label="Home"></button>
@@ -298,7 +331,9 @@
                 </div>
             </div>
         </div>
-        <footer>
+        <footer class="home-footer">
+            <div class="home-footer-intro"><strong>Wicked Smart Bitcoin</strong><span>Independent Bitcoin dashboards.</span></div>
+            <div class="home-clock"><div id="homeBip110UpdatedKpi"><span>Local clock</span> <span class="chip-value">—</span></div><select id="homeKpiTimeZoneSelect" aria-label="Display time zone"></select></div>
             <div class="social-icons" style="margin: 1rem 0; display: flex; justify-content: center; gap: 1.5rem; font-size: 1.5rem">
                 <a href="https://x.com/w_s_bitcoin" target="_blank" rel="noopener noreferrer" aria-label="X/Twitter" style="color: #444">
                     <svg width="20" height="20" fill="currentColor" class="bi bi-twitter-x" viewBox="0 0 16 16">
@@ -335,7 +370,7 @@
         <script src="js/03_lazy_image_loading.js" defer></script>
         <script src="js/04_persistence_cookies_localstorage.js" defer></script>
         <script src="js/05_core_helpers_url_image_src_geometry.js" defer></script>
-        <script src="js/06_grid_layout_filter_render.js" defer></script>
+        <script src="js/06_grid_layout_filter_render.js?v=20260927-coin-hover-v2" defer></script>
         <script src="js/07_modal_open_close_swipes.js" defer></script>
         <script src="js/08_buy_me_button_thanks_overlay.js" defer></script>
         <script src="js/09_bootstrap_fetch_init_global_exports.js" defer></script>

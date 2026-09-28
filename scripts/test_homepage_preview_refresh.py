@@ -1073,13 +1073,32 @@ def test_static_image_preview(
         raise AssertionError(f"{slug} repeated wake reset its visual state: {final!r}")
 
     if slug == "casascius_explorer":
-        animation = cdp.evaluate(
+        idle = cdp.evaluate(
             "(() => { const model = document.querySelector('#model'); "
             "const style = getComputedStyle(model); return { edges: model.querySelectorAll('.edge').length, "
-            "name: style.animationName, playState: style.animationPlayState }; })()"
+            "name: style.animationName, frontFacing: new DOMMatrix(style.transform).m11 > 0.99 }; })()"
         )
-        if animation["edges"] < 100 or animation["name"] == "none" or animation["playState"] != "running":
-            raise AssertionError(f"Casascius animation did not survive recovery: {animation!r}")
+        if idle["edges"] < 100 or idle["name"] != "none" or not idle["frontFacing"]:
+            raise AssertionError(f"Casascius preview did not rest on heads after recovery: {idle!r}")
+        cdp.evaluate(
+            "window.postMessage({ type: 'casascius-preview-hover', active: true }, location.origin); true"
+        )
+        wait_for(
+            lambda: cdp.evaluate("getComputedStyle(document.querySelector('#model')).animationName === 'casascius-spin'"),
+            description="Casascius hover spin",
+        )
+        time.sleep(1.2)
+        cdp.evaluate(
+            "window.postMessage({ type: 'casascius-preview-hover', active: false }, location.origin); true"
+        )
+        wait_for(
+            lambda: cdp.evaluate(
+                "(() => { const style = getComputedStyle(document.querySelector('#model')); "
+                "return style.animationName === 'none' && new DOMMatrix(style.transform).m11 > 0.99; })()"
+            ),
+            timeout=3,
+            description="Casascius return to heads",
+        )
 
 
 def test_static_image_slow_recovery(
@@ -1202,6 +1221,41 @@ def homepage_state(cdp: CdpSocket) -> dict:
     )
 
 
+def test_casascius_card_hover(cdp: CdpSocket):
+    def state():
+        return cdp.evaluate(
+            """(() => {
+              const frame = document.querySelector('.dashboard-preview-frame[data-filename="casascius_explorer.png"]');
+              const model = frame.contentDocument.querySelector('#model');
+              const style = frame.contentWindow.getComputedStyle(model);
+              return { animation: style.animationName, frontFacing: new DOMMatrix(style.transform).m11 > 0.99 };
+            })()"""
+        )
+
+    cdp.command("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": 0, "y": 0})
+    position = cdp.evaluate(
+        """(() => {
+          const surface = document.querySelector('.dashboard-preview-frame[data-filename="casascius_explorer.png"]')
+            .closest('.dashboard-card-surface');
+          surface.scrollIntoView({ block: 'center', behavior: 'instant' });
+          const title = surface.querySelector('.chart-title').getBoundingClientRect();
+          return { x: title.left + title.width / 2, y: title.top + title.height / 2 };
+        })()"""
+    )
+    wait_for(lambda: state() == {"animation": "none", "frontFacing": True}, description="unhovered Casascius card")
+    cdp.command("Input.dispatchMouseEvent", {"type": "mouseMoved", **position})
+    wait_for(lambda: state()["animation"] == "casascius-spin", description="Casascius card pointer hover")
+    time.sleep(0.4)
+    if state()["frontFacing"]:
+        raise AssertionError("Casascius card did not rotate while hovered")
+    cdp.command("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": 0, "y": 0})
+    wait_for(lambda: state() == {"animation": "none", "frontFacing": True}, timeout=3, description="Casascius card pointer exit")
+    cdp.command("Input.dispatchMouseEvent", {"type": "mouseMoved", **position})
+    wait_for(lambda: state()["animation"] == "casascius-spin", description="Casascius card second hover")
+    cdp.evaluate("window.scrollTo({ top: scrollY > innerHeight ? 0 : document.documentElement.scrollHeight, behavior: 'instant' }); true")
+    wait_for(lambda: state() == {"animation": "none", "frontFacing": True}, timeout=3, description="Casascius card scroll exit")
+
+
 def test_homepage_integration(cdp: CdpSocket, server_port: int):
     assert_parent_refresh_ownership_removed()
     url = f"http://127.0.0.1:{server_port}/index.html?stage5_home=1"
@@ -1238,6 +1292,7 @@ def test_homepage_integration(cdp: CdpSocket, server_port: int):
         timeout=90,
         description="all homepage previews ready",
     )
+    test_casascius_card_hover(cdp)
 
     setup = cdp.evaluate(
         r"""

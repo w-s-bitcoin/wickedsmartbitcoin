@@ -58,7 +58,7 @@ const DASHBOARD_CARD_PREVIEW_SPECS = Object.freeze({
     height: 720,
   },
   'casascius_explorer.png': {
-    url: 'webapps/casascius_explorer/preview.html',
+    url: 'webapps/casascius_explorer/preview.html?coin_hover=20260927-v2',
     width: 1280,
     height: 720,
   },
@@ -693,9 +693,13 @@ function buildGridOnce(){
   const grid = document.getElementById('image-grid');
   grid.innerHTML = '';
   cardByFilename.clear();
-  for(const {filename, title, description} of imageList){
+  for(const {filename, title, description, archived} of imageList){
     const previewSpec = getDashboardCardPreviewSpec(filename);
     const container = document.createElement('div');
+    // The outer item owns drag/FLIP transforms; this surface moves all visible
+    // card content together without competing with those layout transforms.
+    const surface = document.createElement('div');
+    surface.className = 'dashboard-card-surface';
     const titleElem = document.createElement('div');
     titleElem.className = 'chart-title';
     titleElem.textContent = title;
@@ -739,8 +743,11 @@ function buildGridOnce(){
 
     chartContainer.dataset.filename = filename;
     chartContainer.tabIndex = 0;
+    chartContainer.setAttribute('role', 'link');
+    chartContainer.setAttribute('aria-label', `Open ${title || 'dashboard'}${archived === true ? ' (archived)' : ''}`);
     bindGridReorderInteractions(chartContainer);
     chartContainer.addEventListener('click', onOpen);
+    titleElem.addEventListener('click', onOpen);
     chartContainer.addEventListener('keydown', (e) => {
       const isActivate = (
         e.key === 'Enter'
@@ -777,6 +784,16 @@ function buildGridOnce(){
 
     chartContainer.appendChild(star);
 
+    if (archived === true) {
+      const archiveBadge = document.createElement('span');
+      archiveBadge.className = 'archive-badge';
+      archiveBadge.setAttribute('role', 'img');
+      archiveBadge.setAttribute('aria-label', 'Archived dashboard');
+      archiveBadge.title = 'Archived dashboard';
+      archiveBadge.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/></svg>';
+      chartContainer.appendChild(archiveBadge);
+    }
+
     if (previewSpec) {
       chartWrapper.classList.add('dashboard-preview-wrapper');
       const viewport = document.createElement('div');
@@ -794,6 +811,7 @@ function buildGridOnce(){
       iframe.title = `${title || filename} preview`;
       iframe.setAttribute('aria-hidden', 'true');
       iframe.tabIndex = -1;
+      let casasciusHovered = false;
       iframe.addEventListener('load', () => {
         const card = cardByFilename.get(_cardKey(filename));
         startDashboardPreviewReadyPolling(card);
@@ -802,7 +820,45 @@ function buildGridOnce(){
             typeof getStoredDashboardTheme === 'function' ? getStoredDashboardTheme() : 'dark'
           );
         }
+        if (filename === 'casascius_explorer.png') {
+          iframe.contentWindow?.postMessage({ type: 'casascius-preview-hover', active: casasciusHovered }, window.location.origin);
+        }
       });
+
+      if (filename === 'casascius_explorer.png') {
+        let pointerPosition = null;
+        const sendHover = active => {
+          active = Boolean(active) && document.visibilityState !== 'hidden';
+          if (casasciusHovered === active) return;
+          casasciusHovered = active;
+          iframe.contentWindow?.postMessage({ type: 'casascius-preview-hover', active }, window.location.origin);
+        };
+        const updateHover = () => sendHover(pointerPosition && surface.contains(
+          document.elementFromPoint(pointerPosition.x, pointerPosition.y)
+        ));
+        const trackPointer = event => {
+          if (event.pointerType !== 'mouse' && event.pointerType !== 'pen') return;
+          pointerPosition = { x: event.clientX, y: event.clientY };
+          updateHover();
+        };
+        const clearHover = () => {
+          pointerPosition = null;
+          sendHover(false);
+        };
+        surface.addEventListener('pointerenter', event => {
+          trackPointer(event);
+        });
+        surface.addEventListener('pointerleave', clearHover);
+        surface.addEventListener('pointercancel', clearHover);
+        document.addEventListener('pointermove', trackPointer, { passive: true });
+        document.addEventListener('pointerleave', clearHover);
+        window.addEventListener('blur', clearHover);
+        window.addEventListener('scroll', updateHover, { passive: true });
+        window.addEventListener('resize', updateHover, { passive: true });
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'hidden') clearHover();
+        });
+      }
 
       scene.appendChild(iframe);
       viewport.appendChild(scene);
@@ -842,8 +898,9 @@ function buildGridOnce(){
     desc.className = 'chart-description';
     desc.textContent = description;
     chartContainer.appendChild(desc);
-    container.appendChild(titleElem);
-    container.appendChild(chartContainer);
+    surface.appendChild(titleElem);
+    surface.appendChild(chartContainer);
+    container.appendChild(surface);
     grid.appendChild(container);
     const card = cardByFilename.get(_cardKey(filename));
     if (card) card.desc = desc;
@@ -875,8 +932,24 @@ function filterImages(options = {}){
     }
     return matchesSearch && (!showFavoritesOnly || isFavorite(filename));
   });
+  const favoritesButton = document.getElementById('favoritesToggle');
+  if (favoritesButton) {
+    favoritesButton.classList.toggle('active', showFavoritesOnly);
+    favoritesButton.setAttribute('aria-pressed', String(showFavoritesOnly));
+  }
+  const count = document.getElementById('homeDashboardCount');
+  if (count) {
+    const total = imageList.length;
+    const noun = total === 1 ? 'Dashboard' : 'Dashboards';
+    count.textContent = visibleImages.length === total
+      ? `${total} ${noun}`
+      : `${visibleImages.length} of ${total} ${noun}`;
+  }
+  const noFavorites = showFavoritesOnly && !imageList.some(({filename}) => isFavorite(filename));
   const message = document.getElementById('no-favorites-message');
-  if(message) message.style.display = (showFavoritesOnly && visibleImages.length === 0) ? 'block' : 'none';
+  if(message) message.style.display = noFavorites ? 'block' : 'none';
+  const searchEmpty = document.getElementById('homeSearchEmpty');
+  if (searchEmpty) searchEmpty.hidden = !query || visibleImages.length > 0 || noFavorites;
   applyGridDomOrder();
   const visibleKeys = new Set();
   visibleImages.forEach((item, index) => {
@@ -943,6 +1016,8 @@ function setLayout(type, manual = true) {
         listIcon.classList.add('active');
         gridIcon.classList.remove('active');
     }
+    gridIcon.setAttribute('aria-pressed', String(type === 'grid'));
+    listIcon.setAttribute('aria-pressed', String(type === 'list'));
     if (manual) {
       layoutForcedByNarrowWidth = false;
       layoutBeforeNarrowForce = null;
@@ -959,8 +1034,8 @@ function updateLayoutBasedOnWidth() {
   searchContainer.classList.add('active');
   setSearchInputFocusability(true);
   const containerWidth = imageGrid.offsetWidth;
-  const columnWidth = 280 + 32;
-  const columns = Math.floor(containerWidth / columnWidth);
+  const columnGap = parseFloat(getComputedStyle(imageGrid).columnGap) || 0;
+  const columns = Math.floor((containerWidth + columnGap) / (280 + columnGap));
   const storedLayout = localStorage.getItem('preferredLayout');
   const storedPreferred = storedLayout === 'grid' || storedLayout === 'list' ? storedLayout : null;
 

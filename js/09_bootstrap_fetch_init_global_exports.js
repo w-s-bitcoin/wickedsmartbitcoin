@@ -224,6 +224,8 @@ function getImageNameFromPath() {
             h = h.slice(0, hashQueryIndex);
         }
     if (h.toLowerCase() === DONATE_ROUTE) return null;
+    // The landing page's section anchor is not a legacy visualization route.
+    if (h === 'dashboards' && document.body.classList.contains('homepage')) return null;
     return h + ".png";
   }
   const base = getPageBasePath();
