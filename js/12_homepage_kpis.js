@@ -205,7 +205,7 @@
     const supplyText = `${formatProgressPercent(supplyPercent, 2)}% of 21 million BTC`;
     const halvingText = `${formatProgressPercent(halvingPercent, 1)}% through the ${formatOrdinal(epoch)} epoch`;
     const difficultyText = `${difficultyRemaining.toLocaleString("en-US")} ${difficultyRemaining === 1 ? "block" : "blocks"} until adjustment`;
-    const difficultyEpochText = `${formatProgressPercent(difficultyPercent, 1)}% through the ${formatOrdinal(difficultyEpoch)} difficulty epoch`;
+    const difficultyEpochText = `${formatProgressPercent(difficultyPercent, 1)}% through the ${formatOrdinal(difficultyEpoch)} diff. epoch`;
 
     values.height.textContent = height.toLocaleString("en-US");
     values.supply.textContent = compactSupply.matches
