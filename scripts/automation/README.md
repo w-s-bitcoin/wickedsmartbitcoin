@@ -15,3 +15,13 @@ script always operates on the checkout containing `_git_deploy.py`.
 The historical daily cleanup notebook and its disabled cron entry remain
 outside this pipeline. Do not add runtime logs, notebooks with saved outputs,
 generated images, or the animation `.env` to this directory.
+
+## Unattended Git access
+
+Onchain, hourly, and deploy runner Git commands use HTTPS through the GitHub CLI
+credential helper and disable commit signing only for generated data commits.
+Manual Git keeps the maintainer's YubiKey SSH authentication and signing.
+
+The production account must stay logged in to `gh` with repository write access
+in the scheduled user's keychain. Check `gh auth status` when publication fails.
+Never store a token in this repository, script arguments, or logs.

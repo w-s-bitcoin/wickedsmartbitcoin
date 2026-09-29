@@ -94,6 +94,20 @@ def release_lock(path: Path) -> None:
     path.unlink(missing_ok=True)
 
 
+# These overrides apply only to Git commands launched by production automation.
+# Manual Git keeps the maintainer's YubiKey SSH authentication and signing.
+AUTOMATION_GIT_CONFIG = (
+    "-c", "url.https://github.com/.insteadOf=git@github.com:",
+    "-c", "credential.helper=",
+    "-c", "credential.helper=!/opt/homebrew/bin/gh auth git-credential",
+    "-c", "commit.gpgsign=false",
+)
+
+
+def automation_git_command(cmd):
+    return ["git", *AUTOMATION_GIT_CONFIG, *cmd[1:]] if cmd and cmd[0] == "git" else cmd
+
+
 def run(cmd: list[str], cwd: Path | None = None, timeout: int | None = None) -> tuple[int, str, str]:
     env = os.environ.copy()
     env.setdefault("GIT_TERMINAL_PROMPT", "0")
@@ -109,7 +123,7 @@ def run(cmd: list[str], cwd: Path | None = None, timeout: int | None = None) -> 
     )
     try:
         p = subprocess.run(
-            cmd,
+            automation_git_command(cmd),
             cwd=str(cwd) if cwd else None,
             capture_output=True,
             text=True,

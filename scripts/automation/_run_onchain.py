@@ -57,6 +57,20 @@ def fmt_duration(seconds: float) -> str:
     return f"{s}s"
 
 
+# These overrides apply only to Git commands launched by production automation.
+# Manual Git keeps the maintainer's YubiKey SSH authentication and signing.
+AUTOMATION_GIT_CONFIG = (
+    "-c", "url.https://github.com/.insteadOf=git@github.com:",
+    "-c", "credential.helper=",
+    "-c", "credential.helper=!/opt/homebrew/bin/gh auth git-credential",
+    "-c", "commit.gpgsign=false",
+)
+
+
+def automation_git_command(cmd):
+    return ["git", *AUTOMATION_GIT_CONFIG, *cmd[1:]] if cmd and cmd[0] == "git" else cmd
+
+
 def run(cmd, cwd=None, timeout=None):
     env = os.environ.copy()
     env.setdefault("GIT_TERMINAL_PROMPT", "0")
@@ -65,7 +79,7 @@ def run(cmd, cwd=None, timeout=None):
         f"ssh -o BatchMode=yes -o ConnectTimeout={GIT_SSH_CONNECT_TIMEOUT_SECONDS}",
     )
     return subprocess.run(
-        cmd,
+        automation_git_command(cmd),
         cwd=cwd,
         check=True,
         text=True,
@@ -76,7 +90,7 @@ def run(cmd, cwd=None, timeout=None):
 
 
 def run_soft(cmd, cwd=None):
-    return subprocess.run(cmd, cwd=cwd, check=False, text=True, capture_output=True)
+    return subprocess.run(automation_git_command(cmd), cwd=cwd, check=False, text=True, capture_output=True, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
 
 
 def create_stage_run_dir() -> Path:
