@@ -43,6 +43,7 @@ for app_dir in "$ROOT"/webapps/*; do
   [[ "$app_name" == "shared" ]] && continue
 
   copy_path "webapps/$app_name/dashboard.html"
+  copy_path "webapps/$app_name/dashboard_manifest.js"
   copy_path "webapps/$app_name/dashboard_app.js"
   copy_path "webapps/$app_name/dashboard.css"
   copy_path "webapps/$app_name/preview.html"

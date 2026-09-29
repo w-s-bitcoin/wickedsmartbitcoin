@@ -411,9 +411,110 @@ def _is_bip110_webapp_data_path(rel: Path) -> bool:
     return rel == BIP110_WEBAPP_DATA_REL or BIP110_WEBAPP_DATA_REL in rel.parents
 
 
-def _apply_staged_outputs(source: str | None = None) -> int:
+def _staged_output_paths(run_dirs: list[Path]) -> set[str]:
+    return {
+        src.relative_to(run_dir / "files").as_posix()
+        for run_dir in run_dirs
+        for src in (run_dir / "files").rglob("*")
+        if src.is_file()
+    }
+
+
+def _git_file_state(path: str, *, index: bool) -> tuple[str, str] | None:
+    args = ["ls-files", "--stage", "-z", "--", path] if index else ["ls-tree", "-z", "HEAD", "--", path]
+    rc, out, err = run(["git", *args], cwd=REPO, timeout=30)
+    if rc != 0:
+        raise RuntimeError(err or out or f"Cannot inspect {path}")
+    entries = [entry for entry in out.split("\0") if entry]
+    if not entries:
+        return None
+    fields = entries[0].split("\t", 1)[0].split()
+    if len(entries) != 1 or len(fields) != 3 or (index and fields[2] != "0"):
+        raise RuntimeError(f"Cannot recover conflicted path: {path}")
+    return fields[0], fields[1] if index else fields[2]
+
+
+def _disk_file_state(path: Path) -> tuple[str, str] | None:
+    if path.is_symlink():
+        raise RuntimeError(f"Cannot recover a symlink: {path}")
+    if not path.exists():
+        return None
+    if not path.is_file():
+        raise RuntimeError(f"Cannot recover a non-file path: {path}")
+    rc, object_id, err = run(["git", "hash-object", "--no-filters", "--", str(path)], cwd=REPO, timeout=30)
+    if rc != 0:
+        raise RuntimeError(err or object_id or f"Cannot hash {path}")
+    mode = "100755" if path.stat().st_mode & 0o111 else "100644"
+    return mode, object_id
+
+
+def _recover_retained_outputs(paths: list[str], retained_runs: list[Path]) -> bool:
+    """Return another source's verified leftovers to HEAD without consuming its stage."""
+    recoverable: list[tuple[str, tuple[str, str] | None, tuple[str, str] | None]] = []
+    try:
+        for path in paths:
+            candidates = [run_dir / "files" / path for run_dir in retained_runs]
+            states = {_disk_file_state(candidate) for candidate in candidates if candidate.exists()}
+            states.discard(None)
+            if not states:
+                return False
+            head_state = _git_file_state(path, index=False)
+            index_state = _git_file_state(path, index=True)
+            disk_state = _disk_file_state(REPO / path)
+            # Both the working file and index must be either the untouched HEAD
+            # version or an exact retained artifact, including executable mode.
+            allowed = states | {head_state}
+            if index_state not in allowed or disk_state not in allowed:
+                return False
+            recoverable.append((path, head_state, index_state))
+    except RuntimeError as exc:
+        print(f"⛔ Could not verify retained deployment outputs: {exc}")
+        return False
+
+    for path, head_state, index_state in recoverable:
+        if head_state is not None or index_state is not None:
+            rc, out, err = run(
+                ["git", "restore", "--source=HEAD", "--staged", "--worktree", "--", path],
+                cwd=REPO,
+                timeout=30,
+            )
+            if rc != 0:
+                print(f"⛔ Could not restore retained deployment output {path}: {err or out}")
+                return False
+        else:
+            (REPO / path).unlink(missing_ok=True)
+        print(f"ℹ️ Restored {path} to HEAD; its generated output remains staged for a later retry.")
+    return True
+
+
+def _ensure_only_deploy_changes(deploy_paths: set[str], *, retained_runs: list[Path] | None = None) -> bool:
+    """Refuse to stash, reset, or publish unrelated production work."""
+    changed_paths: set[str] = set()
+    for args in (
+        ["diff", "--name-only", "--no-renames", "-z"],
+        ["diff", "--cached", "--name-only", "--no-renames", "-z"],
+        ["ls-files", "--others", "--exclude-standard", "-z"],
+    ):
+        rc, out, err = run(["git", *args], cwd=REPO, timeout=30)
+        if rc != 0:
+            print(f"⛔ Could not inspect production worktree changes: {err or out}")
+            return False
+        changed_paths.update(path for path in out.split("\0") if path)
+    unrelated = sorted(changed_paths - deploy_paths)
+    if unrelated:
+        if retained_runs and _recover_retained_outputs(unrelated, retained_runs):
+            return True
+        print("⛔ Unrelated production worktree changes found; leaving them untouched:")
+        for path in unrelated:
+            print(f"   {path}")
+        return False
+    return True
+
+
+def _apply_staged_outputs(source: str | None = None, *, run_dirs: list[Path] | None = None) -> int:
     applied_files = 0
-    run_dirs = _list_stage_run_dirs_for_source(source)
+    if run_dirs is None:
+        run_dirs = _list_stage_run_dirs_for_source(source)
     if not run_dirs:
         return applied_files
 
@@ -437,7 +538,6 @@ def _apply_staged_outputs(source: str | None = None) -> int:
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dest)
             applied_files += 1
-        shutil.rmtree(run_dir, ignore_errors=True)
 
     print(f"ℹ️ Applied staged output files: {applied_files}")
     if skipped_bip110_files:
@@ -445,8 +545,34 @@ def _apply_staged_outputs(source: str | None = None) -> int:
     return applied_files
 
 
+def _discard_published_staging(run_dirs: list[Path]) -> None:
+    for run_dir in run_dirs:
+        shutil.rmtree(run_dir, ignore_errors=True)
+
+
 def can_deploy() -> bool:
     return _sync_with_origin()
+
+
+def _reconciled_origin_main() -> str | None:
+    """Capture an explicit push lease whose remote history is in local HEAD."""
+    rc, expected, err = run(
+        ["git", "rev-parse", "--verify", "refs/remotes/origin/main^{commit}"],
+        cwd=REPO,
+        timeout=30,
+    )
+    if rc != 0:
+        print(f"⛔ Could not capture the reconciled origin/main commit: {err or expected}")
+        return None
+    rc, out, err = run(
+        ["git", "merge-base", "--is-ancestor", expected, "HEAD"], cwd=REPO, timeout=30
+    )
+    if rc != 0:
+        print("⛔ origin/main changed before its push lease was captured; staging retained for the next deploy.")
+        if err or out:
+            print(err or out)
+        return None
+    return expected
 
 
 def sync_published_data_to_dev(source_ref: str) -> None:
@@ -519,81 +645,91 @@ def main() -> int:
         if not REPO.exists():
             print(f"❌ Repo directory missing: {REPO}")
             return 1
-
-        if not can_deploy():
+        if get_current_branch() != "main":
+            print("⛔ Deploy automation only runs from main.")
             return 1
 
-        applied_files = _apply_staged_outputs(deploy_source)
-        if deploy_source == "onchain" and applied_files == 0:
-            _clear_onchain_pending()
-
-        assets = REPO / "assets"
-        assets.mkdir(parents=True, exist_ok=True)
-        ts = datetime.now(timezone.utc).strftime("Last updated on %B %d, %Y at %H:%M UTC")
-        (assets / "last_updated.txt").write_text(ts)
-        print(f"✅ Wrote timestamp to: {assets / 'last_updated.txt'}  ({ts})")
-
+        # Keep the selected generations available until GitHub accepts them.
+        # A concurrent origin update can require resetting an automation commit
+        # and reapplying these exact outputs before retrying the push.
+        run_dirs = _list_stage_run_dirs_for_source(deploy_source)
+        deploy_paths = _staged_output_paths(run_dirs) | {"assets/last_updated.txt"}
+        retained_runs = [path for path in _list_stage_run_dirs() if path not in run_dirs]
+        if not _ensure_only_deploy_changes(deploy_paths, retained_runs=retained_runs):
+            return 1
         if not _sync_with_origin_preserving_worktree():
             return 1
 
-        run(["git", "add", "-A"], cwd=REPO, timeout=90)
-        rc, out, err = run(["git", "diff", "--cached", "--quiet"], cwd=REPO, timeout=30)
-        if rc == 0:
-            print("✅ No deploy changes to commit.")
-            sync_published_data_to_dev("origin/main")
-            if deploy_source == "onchain":
-                _clear_onchain_pending()
-            return 0
-
-        rc, last_msg, err = run(["git", "log", "-1", "--pretty=%s"], cwd=REPO, timeout=30)
-        amend_last = (rc == 0 and last_msg.strip() in AUTO_DEPLOY_SUBJECTS)
-
-        if amend_last:
-            rc, out, err = run(["git", "commit", "--amend", "--no-edit"], cwd=REPO, timeout=90)
-            if rc != 0:
-                print("❌ git commit --amend failed")
-                if out:
-                    print(out)
-                if err:
-                    print(err)
+        for attempt in range(2):
+            expected_main = _reconciled_origin_main()
+            if expected_main is None:
                 return 1
-            push_cmd = ["git", "push", "--force-with-lease", "origin", "main"]
-        else:
-            rc, out, err = run(["git", "commit", "-m", AUTO_DEPLOY_COMMIT_MESSAGE], cwd=REPO, timeout=90)
-            if rc != 0:
-                print("❌ git commit failed")
-                if out:
-                    print(out)
-                if err:
-                    print(err)
+            _apply_staged_outputs(run_dirs=run_dirs)
+            assets = REPO / "assets"
+            assets.mkdir(parents=True, exist_ok=True)
+            ts = datetime.now(timezone.utc).strftime("Last updated on %B %d, %Y at %H:%M UTC")
+            (assets / "last_updated.txt").write_text(ts)
+            print(f"✅ Wrote timestamp to: {assets / 'last_updated.txt'}  ({ts})")
+
+            if not _ensure_only_deploy_changes(deploy_paths):
                 return 1
-            push_cmd = ["git", "push", "origin", "main"]
+            # Some selected paths may be skipped because BIP-110 is finalized.
+            # Only copied/existing outputs need to be added to the index.
+            add_paths = sorted(path for path in deploy_paths if (REPO / path).is_file())
+            rc, out, err = run(["git", "add", "--", *add_paths], cwd=REPO, timeout=90)
+            if rc != 0:
+                print(f"❌ git add failed: {err or out}")
+                return 1
+            rc, out, err = run(["git", "diff", "--cached", "--quiet"], cwd=REPO, timeout=30)
+            if rc not in {0, 1}:
+                print(f"❌ git diff --cached failed: {err or out}")
+                return 1
+            has_changes = rc == 1
+            rc, last_msg, err = run(["git", "log", "-1", "--pretty=%s"], cwd=REPO, timeout=30)
+            if rc != 0:
+                print(f"❌ git log failed: {err or last_msg}")
+                return 1
+            amend_last = last_msg.strip() in AUTO_DEPLOY_SUBJECTS
+            if has_changes:
+                commit_args = ["--amend", "--no-edit"] if amend_last else ["-m", AUTO_DEPLOY_COMMIT_MESSAGE]
+                rc, out, err = run(["git", "commit", *commit_args], cwd=REPO, timeout=90)
+                if rc != 0:
+                    print(f"❌ git commit failed: {err or out}")
+                    return 1
+            else:
+                counts = get_ahead_behind("main")
+                if counts is None:
+                    return 1
+                if counts == (0, 0):
+                    print("✅ No unpublished deploy changes.")
+                    break
+                # The previous push may have failed after committing. Even if
+                # this retry has identical files, its commit still needs a push.
 
-        rc, out, err = run(push_cmd, cwd=REPO, timeout=PUSH_TIMEOUT_SECONDS)
-
-        if rc != 0:
-            print("⚠️ Initial git push failed; attempting one fetch/reconcile/retry.")
+            push_cmd = ["git", "push"]
+            if amend_last:
+                # Background fetches in another worktree can advance origin/main
+                # after reconciliation. Bind the lease to this accepted commit.
+                push_cmd.append(f"--force-with-lease=refs/heads/main:{expected_main}")
+            push_cmd.extend(["origin", "main"])
+            rc, out, err = run(push_cmd, cwd=REPO, timeout=PUSH_TIMEOUT_SECONDS)
+            if rc == 0:
+                print("✅ Snapshot committed and pushed to origin/main")
+                break
             if out:
                 print(out)
             if err:
                 print(err)
-
+            if attempt:
+                print("❌ git push failed after retry; staged outputs retained for the next deploy.")
+                return 1
+            print("⚠️ Initial git push failed; reconciling origin and reapplying staged outputs for one retry.")
+            if not _ensure_only_deploy_changes(deploy_paths):
+                return 1
             if not _sync_with_origin_preserving_worktree():
                 return 1
 
-            rc, out, err = run(push_cmd, cwd=REPO, timeout=PUSH_TIMEOUT_SECONDS)
-            if rc != 0:
-                print("❌ git push failed after retry")
-                if out:
-                    print(out)
-                if err:
-                    print(err)
-                return 1
-
-        if amend_last:
-            print("✅ Snapshot amended into latest automation commit and force-pushed to origin/main")
-        else:
-            print("✅ Snapshot committed and pushed to origin/main")
+        _discard_published_staging(run_dirs)
         sync_published_data_to_dev("HEAD")
         if deploy_source == "onchain":
             _clear_onchain_pending()

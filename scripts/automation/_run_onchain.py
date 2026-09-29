@@ -39,6 +39,7 @@ TARGET_SUPPLY_CAP_SATS = 2_099_999_997_690_000
 MAX_TARGET_HEX = "00000000FFFF0000000000000000000000000000000000000000000000000000"
 MAX_TARGET_INT = int(MAX_TARGET_HEX, 16)
 TARGET_BLOCK_INTERVAL_SECONDS = 600
+DIFFICULTY_INTERVAL = 2016
 BIP110_FINAL_UPDATE_HEIGHT = 967_679
 
 
@@ -299,7 +300,7 @@ def format_difficulty_display(difficulty: float | None) -> str:
     return f"{difficulty:.2f}"
 
 
-def load_current_kpi_block() -> tuple[int, int, str, float, int] | None:
+def load_current_kpi_block() -> tuple[int, int, str, float, int, int] | None:
     """Read one consistent snapshot of the latest fully ingested chain."""
     try:
         import psycopg2
@@ -323,10 +324,13 @@ def load_current_kpi_block() -> tuple[int, int, str, float, int] | None:
                         FROM blockheader
                     )
                     SELECT tip.blockheight, tip.time, tip.bits, tip.difficulty,
-                           totals.blocks, totals.supply_rows, totals.issued_sats
+                           totals.blocks, totals.supply_rows, totals.issued_sats,
+                           epoch_start.time
                     FROM totals
                     JOIN blockheader AS tip ON tip.blockheight = totals.height
-                """)
+                    JOIN blockheader AS epoch_start
+                      ON epoch_start.blockheight = totals.height - MOD(totals.height, %s)
+                """, (DIFFICULTY_INTERVAL,))
                 row = cursor.fetchone()
         finally:
             connection.close()
@@ -338,21 +342,22 @@ def load_current_kpi_block() -> tuple[int, int, str, float, int] | None:
         print("[Onchain] No ingested block available for top KPIs")
         return None
     try:
-        height, block_time, bits, difficulty, block_count, supply_rows, issued_sats = row
+        height, block_time, bits, difficulty, block_count, supply_rows, issued_sats, epoch_start_time = row
         height = int(height)
         block_time = int(block_time)
         difficulty = float(difficulty)
         issued_sats = int(issued_sats)
+        epoch_start_time = int(epoch_start_time)
         if (height < 0 or block_time <= 0 or int(block_count) != height + 1
                 or int(supply_rows) != int(block_count)
                 or not math.isfinite(difficulty) or difficulty <= 0
-                or issued_sats < 0):
+                or issued_sats < 0 or epoch_start_time <= 0):
             raise ValueError("incomplete or invalid ingested chain")
         bits = str(bits).strip().lower().removeprefix("0x")
         if len(bits) != 8:
             raise ValueError("invalid compact target")
         int(bits, 16)
-        return height, block_time, bits, difficulty, issued_sats
+        return height, block_time, bits, difficulty, issued_sats, epoch_start_time
     except (TypeError, ValueError) as exc:
         print(f"[Onchain] Skipping invalid KPI block: {exc}")
         return None
@@ -376,11 +381,24 @@ def issued_subsidy_sats_through(height: int) -> int:
     return full + blocks_in_epoch * calc_subsidy_sats(completed_epochs * 210_000)
 
 
+def projected_difficulty_adjustment_percent(height: int, block_time: int, epoch_start_time: int) -> float | None:
+    intervals_mined = height % DIFFICULTY_INTERVAL
+    elapsed_seconds = block_time - epoch_start_time
+    if intervals_mined == 0 or elapsed_seconds <= 0:
+        return None
+    target_timespan = DIFFICULTY_INTERVAL * TARGET_BLOCK_INTERVAL_SECONDS
+    # The retarget compares the first and last timestamps in a 2,016-block
+    # period, so the observed pace spans 2,015 intervals when it is complete.
+    projected_timespan = elapsed_seconds * (DIFFICULTY_INTERVAL - 1) / intervals_mined
+    bounded_timespan = min(max(projected_timespan, target_timespan / 4), target_timespan * 4)
+    return round((target_timespan / bounded_timespan - 1) * 100, 2)
+
+
 def build_top_kpis_payload() -> dict | None:
     snapshot = load_current_kpi_block()
     if snapshot is None:
         return None
-    block_height, block_timestamp, bits, difficulty, supply_sats = snapshot
+    block_height, block_timestamp, bits, difficulty, supply_sats, epoch_start_timestamp = snapshot
     try:
         target_hex = target_hex_from_bits(bits)
     except ValueError as exc:
@@ -403,6 +421,9 @@ def build_top_kpis_payload() -> dict | None:
         "target_hashrate_hps": target_hashrate_hps,
         "difficulty": difficulty,
         "difficulty_display": format_difficulty_display(difficulty),
+        "projected_difficulty_adjustment_percent": projected_difficulty_adjustment_percent(
+            block_height, block_timestamp, epoch_start_timestamp
+        ),
     }
 
 
