@@ -26,9 +26,9 @@ FEED_SHIM = r"""
     }
     send(payload) { this.subscription = JSON.parse(payload); }
     close() { this.closed = true; }
-    emit(price, product = 'BTC-USD') {
+    emit(price, product = 'BTC-USD', time = new Date().toISOString()) {
       this.onmessage?.({ data: JSON.stringify({
-        type: 'ticker', product_id: product, price: String(price), time: new Date().toISOString(),
+        type: 'ticker', product_id: product, price: String(price), time,
       }) });
     }
   }
@@ -105,11 +105,12 @@ def main():
             result = cdp.evaluate("""
               (() => {
                 const snapshot = state.metadata.source;
-                const snapshotText = updatedTimeZoneChip.formatUpdated(snapshot.latest_timestamp_utc, {
-                  includeHeight: true, height: snapshot.latest_block_height,
-                });
+                const snapshotText = updatedTimeZoneChip.formatUpdated(snapshot.latest_timestamp_utc);
                 if (document.querySelector('#chipUpdated .chip-value')?.textContent !== snapshotText)
-                  return 'updated time and height do not match the price snapshot';
+                  return 'updated time does not match the price snapshot';
+                if (document.querySelector('#chipSnapshotBlock .chip-value')?.textContent
+                    !== Number(snapshot.latest_block_height).toLocaleString('en-US'))
+                  return 'snapshot block height is missing';
                 if (state.seriesByCadence.daily_dca.at(-1).blockHeight !== snapshot.latest_block_height)
                   return 'published daily row height does not match the snapshot';
                 const published = Number(state.metadata.source.latest_price);
@@ -118,9 +119,32 @@ def main():
                 if (document.querySelector('#chipSpotPrice')?.dataset.live === 'true') return 'wrong product accepted';
                 window.__dcaTestSocket.emit(quoted);
                 if (document.querySelector('#chipSpotPrice')?.dataset.live !== 'true') return 'live badge missing';
-                if (document.querySelector('#chipUpdated .chip-value')?.textContent !== snapshotText)
-                  return 'live price changed the published snapshot time or height';
+                const quote = dcaSpotFeed.current();
+                const quoteText = document.querySelector('#chipUpdated .chip-value')?.textContent;
+                if (quoteText === snapshotText || !/[0-9]{2}:[0-9]{2}:[0-9]{2}/.test(quoteText))
+                  return 'Updated did not advance to the live quote time';
+                if (document.querySelector('#chipSnapshotBlock .chip-value')?.textContent
+                    !== Number(snapshot.latest_block_height).toLocaleString('en-US'))
+                  return 'live quote changed the published snapshot height';
                 if (getFilteredRows()[0].currentPrice !== quoted) return 'live valuation missing';
+                const basisBefore = getFilteredRows().at(-1).dcaBasis;
+                const basisPath = () => [...document.querySelectorAll('#costBasisChart svg path')]
+                  .find(path => path.getAttribute('stroke') === getThemeColors().basis
+                    && Number(path.getAttribute('stroke-width')) >= 3)?.getAttribute('d');
+                const pathBefore = basisPath();
+                window.__dcaTestSocket.emit(quoted * 1.2, 'BTC-USD',
+                  new Date(Date.now() + 2000).toISOString());
+                if (getFilteredRows().at(-1).dcaBasis === basisBefore)
+                  return 'rolling cost basis did not recalculate on the next quote';
+                if (!pathBefore || basisPath() === pathBefore)
+                  return 'orange cost basis path did not redraw on the next quote';
+                if (document.querySelector('#chipUpdated .chip-value')?.textContent === quoteText)
+                  return 'Updated did not follow the second quote';
+                const secondUpdated = document.querySelector('#chipUpdated .chip-value')?.textContent;
+                window.__dcaTestSocket.emit(quoted * 1.2, 'BTC-USD',
+                  new Date(Date.now() + 4000).toISOString());
+                if (document.querySelector('#chipUpdated .chip-value')?.textContent === secondUpdated)
+                  return 'same-price fresh quote did not advance Updated';
                 if (Number(state.metadata.source.latest_price) !== published) return 'published data mutated';
                 state.dateRange.rangeTracksLatestEnd = false;
                 if (getFilteredRows()[0].currentPrice !== state.priceRows.at(-1).price) return 'historical view changed';
@@ -141,12 +165,20 @@ def main():
                 const chart = document.querySelector('#costBasisChart');
                 const publishedLine = chart.querySelector('svg line').getAttribute('y1');
                 const publishedPath = chart.querySelector('svg').innerHTML;
+                const basisPath = () => [...chart.querySelectorAll('svg path')]
+                  .find(path => path.getAttribute('stroke')
+                    === getComputedStyle(document.documentElement).getPropertyValue('--accent').trim())
+                  ?.getAttribute('d');
                 window.__dcaTestSocket.emit(40000);
                 if (chart.dataset.priceSource !== 'live') return 'home card stayed published';
                 if (chart.querySelector('svg line').getAttribute('y1') === publishedLine)
                   return 'home card current price line did not move';
                 if (chart.querySelector('svg').innerHTML === publishedPath)
                   return 'home card chart did not update';
+                const firstLiveBasis = basisPath();
+                window.__dcaTestSocket.emit(80000);
+                if (!firstLiveBasis || basisPath() === firstLiveBasis)
+                  return 'home card orange cost basis path did not update with the next quote';
                 const now = Date.now;
                 Date.now = () => now() + 90002;
                 window.dispatchEvent(new Event('resize'));
