@@ -73,8 +73,8 @@ Common dashboard shell/layout rules are centralized in `webapps/shared/` and sho
   - Fetches and validates a candidate, rechecks the markers immediately before commit, retries failures, and coalesces wake events without reloading the iframe
 - `shared/bitcoin_spot_price.js`
   - Supplies a current BTC/USD quote to the DCA Cost Basis dashboard and home page card from Coinbase's public price socket, with public REST fallbacks. It pauses hidden tabs, rejects stale quotes, and leaves the published hourly price available when all feeds fail.
-  - The quote is a display and current-valuation input. Historical DCA rows, publication markers, past playback frames, and exported animations remain based on the published price files.
-  - DCA's Updated timestamp and block height identify the published price snapshot. The hourly producer reads the staged price file from its own run before those values are published.
+  - Each accepted quote updates the current valuation and today's modeled purchase, which recalculates rolling cost basis across the chart and home card. Earlier purchase prices, publication markers, and past playback frames remain based on the published price files. An animation ending at the latest published date captures one available live quote when its final motion frame begins and holds that same chart through the ending pause; earlier frames remain published. If no fresh quote is available, its final frame uses the published snapshot.
+  - DCA's Updated timestamp follows the latest accepted quote, falling back to the published snapshot time when the quote expires. Snapshot block always identifies the published generation. The hourly producer reads the staged price file from its own run before those values are published.
 
 ### Required `<head>` includes for new dashboards
 

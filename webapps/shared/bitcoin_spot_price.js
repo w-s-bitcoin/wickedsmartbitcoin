@@ -61,7 +61,7 @@
 
     function publish(price, source, at = Date.now()) {
       if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(at)) return false;
-      const changed = !quote || quote.price !== price || quote.source !== source;
+      const changed = !quote || quote.price !== price || quote.source !== source || quote.at !== at;
       quote = { price, source, at };
       scheduleStale();
       if (changed) onQuote?.(quote);
