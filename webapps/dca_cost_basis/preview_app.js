@@ -101,6 +101,7 @@
     if (!rawRows.length) throw new Error("DCA cost basis daily preview is empty.");
     const required = [
       "days_ago", "date_iso", "block_height", "historical_price", "dca_basis", "is_price_above",
+      "invested_usd", "btc_accum", "purchase_count",
     ];
     if (required.some((column) => !(column in rawRows[0]))) {
       throw new Error("DCA cost basis daily preview is missing required columns.");
@@ -111,17 +112,23 @@
       const historicalPrice = toNumber(row.historical_price);
       const dcaBasis = toNumber(row.dca_basis);
       const isPriceAbove = Number(row.is_price_above);
+      const investedUsd = toNumber(row.invested_usd);
+      const btcAccum = toNumber(row.btc_accum);
+      const purchaseCount = Number(row.purchase_count);
       const date = String(row.date_iso || "").trim();
       if (
         !Number.isInteger(daysAgo) || daysAgo < 1 ||
         !Number.isInteger(blockHeight) || blockHeight < 0 ||
         !isValidIsoDate(date) ||
         !(historicalPrice > 0) || !(dcaBasis > 0) ||
-        (isPriceAbove !== 0 && isPriceAbove !== 1)
+        (isPriceAbove !== 0 && isPriceAbove !== 1) ||
+        !(investedUsd > 0) || !(btcAccum > 0) ||
+        !Number.isInteger(purchaseCount) || purchaseCount < 1
       ) {
         throw new Error(`DCA cost basis daily preview row ${index + 1} is invalid.`);
       }
-      return { daysAgo, date, blockHeight, historicalPrice, dcaBasis, isPriceAbove };
+      return { daysAgo, date, blockHeight, historicalPrice, dcaBasis, isPriceAbove,
+        investedUsd, btcAccum, purchaseCount };
     });
     rows.forEach((row, index) => {
       if (index === 0) return;
@@ -270,10 +277,23 @@
     if (!rows.length || !(quote?.price > 0)) return rows;
     const latest = rows[rows.length - 1];
     const today = new Date().toISOString().slice(0, 10);
-    const liveToday = latest.date === today;
+    const quoteIsToday = new Date(quote.at).toISOString().slice(0, 10) === today;
+    const liveToday = quoteIsToday && latest.date === today;
+    const appendToday = quoteIsToday
+      && Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${latest.date}T00:00:00Z`)) / 86400000) === 1;
+    const previous = rows.at(-2);
+    const legacyGap = liveToday && previous
+      && Math.round((Date.parse(`${latest.date}T00:00:00Z`) - Date.parse(`${previous.date}T00:00:00Z`)) / 86400000) === 2;
+    const contribution = latest.investedUsd / latest.purchaseCount;
     const displayRows = rows.map((row, index) => {
       const latestToday = liveToday && index === rows.length - 1;
-      const dcaBasis = latestToday ? quote.price : row.dcaBasis;
+      const addBuy = appendToday || (legacyGap && !latestToday);
+      const replaceBuy = liveToday && !addBuy;
+      const investedUsd = row.investedUsd + (addBuy ? contribution : 0);
+      const btcAccum = row.investedUsd / row.dcaBasis
+        + (addBuy ? contribution / quote.price : 0)
+        + (replaceBuy ? contribution / quote.price - contribution / latest.historicalPrice : 0);
+      const dcaBasis = latestToday ? quote.price : investedUsd / btcAccum;
       return {
         ...row,
         dcaBasis,
@@ -281,9 +301,9 @@
         isPriceAbove: quote.price >= dcaBasis ? 1 : 0,
       };
     });
-    if (!liveToday) {
+    if (appendToday) {
       displayRows.push({ ...latest, date: today, daysAgo: 0,
-        historicalPrice: quote.price, isPriceAbove: quote.price >= latest.dcaBasis ? 1 : 0 });
+        historicalPrice: quote.price, dcaBasis: quote.price, isPriceAbove: 1 });
     }
     return displayRows;
   }

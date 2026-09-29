@@ -92,6 +92,21 @@ def load_price_history(csv_path: Path, start_date: str) -> tuple[pd.DataFrame, d
     if eod.empty:
         raise ValueError(f"No rows on/after start date {start_date}")
 
+    # Keep the last completed day when the newest price is from a new UTC day.
+    # The latest snapshot is today's modeled purchase, not a replacement for
+    # yesterday's EOD purchase.
+    last_eod_date = str(eod.iloc[-1]["date_iso"])
+    snapshot_date = latest_snapshot["date_iso"]
+    gap_days = (pd.Timestamp(snapshot_date) - pd.Timestamp(last_eod_date)).days
+    if gap_days > 1:
+        raise ValueError("Price history is missing completed UTC days before the latest snapshot")
+    if gap_days < 0:
+        raise ValueError("Latest price snapshot predates the last EOD row")
+    snapshot_row = df.iloc[[-1]].copy()
+    if gap_days == 0:
+        eod = eod.iloc[:-1].copy()
+    eod = pd.concat([eod, snapshot_row], ignore_index=True)
+
     eod["weekday"] = eod["timestamp_utc"].dt.weekday
     eod["day"] = eod["timestamp_utc"].dt.day
     eod["block_height"] = eod["block_height"].ffill().fillna(0).astype(int)

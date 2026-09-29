@@ -34,10 +34,13 @@ needed for the portable checks below; browser regressions also need Chrome or
 Chromium. Some pages load fonts or chart libraries from external services.
 Bitcoin Net Worth can request live quotes from Kraken. DCA Cost Basis uses a
 public Coinbase BTC/USD price socket with REST fallbacks for its current valuation
-on the dashboard and home page card. Published hourly price data is the fallback;
-historical DCA purchases still come from published price files.
-The DCA "Updated" time and block height refer to that published price
-snapshot; receiving a live quote does not advance them.
+on the dashboard and home page card. Each accepted quote recalculates the current
+UTC day's modeled purchase and the rolling cost basis; earlier purchase prices
+remain fixed. Published hourly price data is the fallback and supplies historical
+playback and animation frames; an export ending at the latest published date
+captures the newest available quote for its final frame and hold. The DCA
+"Updated" time follows the accepted quote, while "Snapshot block" identifies
+the published price data generation.
 
 ## Architecture
 

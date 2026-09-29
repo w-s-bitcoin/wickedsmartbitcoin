@@ -7,7 +7,7 @@ const root = new URL('../', import.meta.url);
 const app = readFileSync(new URL('webapps/dca_cost_basis/dashboard_app.js', root), 'utf8');
 const spot = readFileSync(new URL('webapps/shared/bitcoin_spot_price.js', root), 'utf8');
 
-function testDcaValuation() {
+async function testDcaValuation() {
   const today = new Date().toISOString().slice(0, 10);
   const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
   const twoDaysAgo = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
@@ -30,10 +30,24 @@ function testDcaValuation() {
   vm.createContext(sandbox);
   vm.runInContext(app.replace(/\binit\(\);\s*$/, `
     globalThis.testDca = {
-      state, buildCadenceCaches, getFrameRows,
+      state, buildCadenceCaches, buildPriceRowsFromSeries, getFrameRows,
+      getDateRangeFinalFrameStartIndex,
+      encodeDateRangeAnimationWebM,
+      setDrawExportFrame(fn) { drawExportFrame = fn; },
       setQuote(quote) { dcaSpotFeed = { current: () => quote }; },
     };`), sandbox);
-  const { state, buildCadenceCaches, getFrameRows, setQuote } = sandbox.testDca;
+  const { state, buildCadenceCaches, buildPriceRowsFromSeries, getFrameRows,
+    getDateRangeFinalFrameStartIndex,
+    encodeDateRangeAnimationWebM, setDrawExportFrame, setQuote } = sandbox.testDca;
+  const recovered = buildPriceRowsFromSeries([
+    { dateIso: twoDaysAgo, timestampUtc: '', blockHeight: 1, historicalPrice: 100,
+      daysAgo: 2, purchaseCount: 2, dcaBasis: 2 / (1 / 100 + 1 / 200) },
+    { dateIso: today, timestampUtc: '', blockHeight: 2, historicalPrice: 400,
+      daysAgo: 1, purchaseCount: 1, dcaBasis: 400 },
+  ]);
+  assert.equal(recovered[1].dateIso, yesterday);
+  assert.ok(Math.abs(recovered[1].price - 200) < 1e-8,
+    'legacy hourly files recover the hidden prior-day purchase price');
   state.priceRows = [
     { dateIso: yesterday, timestampUtc: '', blockHeight: 1, price: 100, utcDay: new Date(`${yesterday}T00:00:00Z`).getUTCDay(), monthDay: Number(yesterday.slice(8)) },
     { dateIso: today, timestampUtc: '', blockHeight: 2, price: 200, utcDay: new Date(`${today}T00:00:00Z`).getUTCDay(), monthDay: Number(today.slice(8)) },
@@ -58,9 +72,63 @@ function testDcaValuation() {
   state.priceRows[1].dateIso = yesterday;
   state.cadenceCaches = buildCadenceCaches(state.priceRows);
   rows = getFrameRows(twoDaysAgo, yesterday, true);
-  assert.equal(rows[0].dcaBasis, 200, 'yesterday’s purchase keeps its published price');
-  assert.equal(rows[0].historicalPrice, 200);
+  assert.equal(rows[0].dateIso, today, 'a live current-day purchase gets its own row');
+  assert.equal(rows[0].dcaBasis, 400);
+  assert.ok(Math.abs(rows[1].dcaBasis - 2 / (1 / 200 + 1 / 400)) < 1e-8,
+    'yesterday’s fixed purchase and today’s live purchase set the rolling basis');
+  assert.equal(rows[1].historicalPrice, 200);
   assert.equal(rows[0].currentPrice, 400, 'the current valuation still uses live spot');
+  setQuote({ price: 800, source: 'Coinbase live', at: Date.now() });
+  rows = getFrameRows(twoDaysAgo, yesterday, true);
+  assert.equal(rows[0].dcaBasis, 800, 'every accepted quote recalculates today’s basis');
+  assert.ok(Math.abs(rows[1].dcaBasis - 2 / (1 / 200 + 1 / 800)) < 1e-8);
+  rows = getFrameRows(twoDaysAgo, yesterday);
+  assert.equal(rows[0].dateIso, yesterday, 'export frames retain the published end date');
+  assert.equal(rows[0].dcaBasis, 200);
+
+  state.cadence = 'weekly_dca';
+  if (new Date(`${today}T00:00:00Z`).getUTCDay() !== 5) {
+    rows = getFrameRows(twoDaysAgo, yesterday, true);
+    assert.equal(rows[0].dateIso, today);
+    assert.equal(rows[0].purchaseCount, rows[1].purchaseCount,
+      'a day without a weekly purchase does not invent a buy');
+  }
+
+  state.cadence = 'daily_dca';
+  state.dateRange.rangeTracksLatestEnd = false;
+  const frozenQuote = { price: 800, source: 'Coinbase live', at: Date.now() };
+  setQuote({ price: 1200, source: 'Coinbase live', at: Date.now() });
+  rows = getFrameRows(twoDaysAgo, yesterday, true, frozenQuote);
+  assert.equal(rows[0].dcaBasis, 800, 'the export can freeze the final live quote');
+  assert.equal(getFrameRows(twoDaysAgo, yesterday, true)[0].dcaBasis, 200,
+    'a fixed on-screen historical range remains published');
+  assert.equal(getDateRangeFinalFrameStartIndex([yesterday, twoDaysAgo, yesterday, yesterday]), 2,
+    'the initial hold remains historical and the final motion frame begins the live hold');
+  assert.equal(getDateRangeFinalFrameStartIndex([yesterday]), 0);
+
+  const captured = [];
+  setDrawExportFrame(async (_ctx, _canvas, _date, _settings, _palette, exportRows) => {
+    captured.push(exportRows);
+  });
+  sandbox.window.WSBDashboardExport = {
+    async encodeWebM({ frames, renderFrame }) {
+      for (let index = 0; index < frames.length; index += 1) {
+        await renderFrame(frames[index], {}, index);
+        if (index === 2) setQuote({ price: 1600, source: 'Coinbase live', at: Date.now() });
+      }
+      return null;
+    },
+  };
+  state.dateRange.startIso = twoDaysAgo;
+  await encodeDateRangeAnimationWebM({
+    canvas: { width: 100, height: 100 }, ctx: {}, settings: { quality: 720 },
+    theme: 'dark', palette: {},
+    frameDates: [yesterday, twoDaysAgo, yesterday, yesterday],
+  });
+  assert.equal(captured[0][0].dcaBasis, 200, 'the opening hold stays on published data');
+  assert.equal(captured[1][0].dateIso, twoDaysAgo, 'historical motion frames stay published');
+  assert.equal(captured[2][0].dcaBasis, 1200, 'the final motion frame uses the latest accepted quote');
+  assert.equal(captured[3][0].dcaBasis, 1200, 'the final hold freezes that live generation');
 }
 
 async function testSpotFeed() {
@@ -107,6 +175,13 @@ async function testSpotFeed() {
   }) });
   assert.equal(feed.current().price, 400);
   assert.equal(quotes.at(-1).source, 'Coinbase live');
+  const firstQuoteAt = quotes.at(-1).at;
+  now += 1000;
+  socket.onmessage({ data: JSON.stringify({
+    type: 'ticker', product_id: 'BTC-USD', price: '400', time: new Date(now).toISOString(),
+  }) });
+  assert.ok(quotes.at(-1).at > firstQuoteAt,
+    'a fresh accepted quote updates the timestamp even when its price is unchanged');
 
   // A REST response already in flight must not overwrite a newer socket tick.
   restPrice = 300;
@@ -129,6 +204,6 @@ async function testSpotFeed() {
   feed.stop();
 }
 
-testDcaValuation();
+await testDcaValuation();
 await testSpotFeed();
 console.log('DCA live price regressions passed.');

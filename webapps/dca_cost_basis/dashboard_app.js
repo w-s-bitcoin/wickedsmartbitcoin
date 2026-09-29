@@ -124,6 +124,8 @@ let dcaRefreshPresentationPending = false;
 let dcaInstalledDataSignature = "";
 let dcaSpotFeed = null;
 let dcaLivePresentationPending = false;
+let dcaLastLivePrice = null;
+let dcaLastLiveDay = "";
 let chartRangeResizeWheelRemainder = 0;
 let chartRangePanWheelRemainder = 0;
 const downloadEstimateCalibrationCache = new Map();
@@ -773,7 +775,9 @@ function validateDcaDataSnapshot(candidate) {
       || !Number.isFinite(candidateGeneratedMs)
       || !Number.isInteger(metadataDurationDays)
       || metadataDurationDays < 3650
-      || diffDays(sourceStartDate, latestDate) !== metadataDurationDays) {
+      // Older publications replaced yesterday's row with today's snapshot.
+      // New publications retain both days; accept both during the transition.
+      || ![metadataDurationDays - 1, metadataDurationDays].includes(diffDays(sourceStartDate, latestDate))) {
     return false;
   }
 
@@ -809,6 +813,12 @@ function validateDcaDataSnapshot(candidate) {
 
   const dailyDates = candidate.seriesByCadence.daily_dca.map((row) => row.dateIso);
   if (dailyDates[0] !== sourceStartDate) return false;
+  const isLegacyLastDayGap = diffDays(sourceStartDate, latestDate) === metadataDurationDays;
+  if (!dailyDates.every((dateIso, index) => index === 0
+      || diffDays(dailyDates[index - 1], dateIso)
+        === (isLegacyLastDayGap && index === dailyDates.length - 1 ? 2 : 1))) {
+    return false;
+  }
   if (dailyDates.reduce((latest, dateIso) => dateIso > latest ? dateIso : latest, "") !== latestDate) {
     return false;
   }
@@ -1028,6 +1038,24 @@ function buildPriceRowsFromSeries(rows) {
       monthDay: Number(row.dateIso.slice(8, 10)),
     });
   });
+  // Legacy hourly files replaced yesterday's final row with today's snapshot.
+  // Recover that one purchase from the published two-day accumulation until a
+  // complete hourly generation replaces the file.
+  const latest = rows.at(-1);
+  const previous = rows.at(-2);
+  if (latest && previous && diffDays(previous.dateIso, latest.dateIso) === 2
+      && previous.daysAgo === 2 && previous.purchaseCount === 2) {
+    const inversePrice = previous.purchaseCount / previous.dcaBasis - 1 / previous.historicalPrice;
+    const price = 1 / inversePrice;
+    const dateIso = addDaysIso(previous.dateIso, 1);
+    if (Number.isFinite(price) && price > 0 && !seen.has(dateIso)) {
+      seen.set(dateIso, {
+        dateIso, timestampUtc: "", blockHeight: 0, price,
+        utcDay: new Date(`${dateIso}T00:00:00Z`).getUTCDay(),
+        monthDay: Number(dateIso.slice(8, 10)),
+      });
+    }
+  }
   return Array.from(seen.values()).sort((a, b) => a.dateIso.localeCompare(b.dateIso));
 }
 
@@ -1423,7 +1451,8 @@ function initializeDateRangeState() {
   }
 }
 
-function getFrameRows(startIso = state.dateRange.startIso, endIso = state.dateRange.currentEndIso, useLiveSpot = false) {
+function getFrameRows(startIso = state.dateRange.startIso, endIso = state.dateRange.currentEndIso,
+    useLiveSpot = false, liveQuoteOverride = undefined) {
   const priceRows = state.priceRows || [];
   if (!priceRows.length) return [];
   const startIdx = findDateIndex(startIso, "ceil");
@@ -1433,16 +1462,21 @@ function getFrameRows(startIso = state.dateRange.startIso, endIso = state.dateRa
   const cache = state.cadenceCaches[state.cadence] || state.cadenceCaches.daily_dca;
   const endRow = priceRows[endIdx];
   const latestPublishedIndex = priceRows.length - 1;
-  const liveQuote = useLiveSpot && state.dateRange.rangeTracksLatestEnd
+  const liveQuote = useLiveSpot && (state.dateRange.rangeTracksLatestEnd || liveQuoteOverride !== undefined)
     && !state.dateRange.isPlaying && !state.dateRange.isPaused && endIdx === latestPublishedIndex
-    ? dcaSpotFeed?.current() : null;
+    ? (liveQuoteOverride !== undefined ? liveQuoteOverride : dcaSpotFeed?.current()) : null;
   const currentPrice = liveQuote?.price || endRow.price;
-  // The current UTC day's last published buy can be valued at the live price.
-  // If the historical file ends yesterday, keep that buy at its published price.
-  const liveToday = Boolean(liveQuote && endRow.dateIso === new Date().toISOString().slice(0, 10));
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const quoteIsToday = Boolean(liveQuote && new Date(liveQuote.at).toISOString().slice(0, 10) === todayIso);
+  const liveToday = quoteIsToday && endRow.dateIso === todayIso;
+  const appendToday = quoteIsToday && diffDays(endRow.dateIso, todayIso) === 1;
+  const buysToday = state.cadence === "daily_dca"
+    || (state.cadence === "weekly_dca" && new Date(`${todayIso}T00:00:00Z`).getUTCDay() === 5)
+    || (state.cadence === "monthly_dca" && Number(todayIso.slice(8, 10)) === 1);
   const liveLatestBuy = liveToday && cache.mask[endIdx];
   const latestBuyPrice = liveLatestBuy ? currentPrice : endRow.price;
-  const latestBuyAdjustment = liveLatestBuy ? (1 / currentPrice) - (1 / endRow.price) : 0;
+  const latestBuyAdjustment = liveLatestBuy ? (1 / currentPrice) - (1 / endRow.price)
+    : appendToday && buysToday ? 1 / currentPrice : 0;
   const output = [];
 
   for (let index = startIdx; index <= endIdx; index += 1) {
@@ -1451,13 +1485,14 @@ function getFrameRows(startIso = state.dateRange.startIso, endIso = state.dateRa
       ? index
       : Math.max(0, cache.prevBuyIndex[index]);
     const prefixStart = Math.max(0, effectiveStart);
-    const purchaseCount = cache.prefixCount[endIdx + 1] - cache.prefixCount[prefixStart];
+    const purchaseCount = cache.prefixCount[endIdx + 1] - cache.prefixCount[prefixStart]
+      + (appendToday && buysToday ? 1 : 0);
     const invPrice = cache.prefixInvPrice[endIdx + 1] - cache.prefixInvPrice[prefixStart]
       + latestBuyAdjustment;
     const investedUsd = purchaseCount;
     const btcAccum = invPrice;
     const dcaBasis = purchaseCount > 0 && btcAccum > 0 ? investedUsd / btcAccum : NaN;
-    const daysAgo = endIdx - index + 1;
+    const daysAgo = endIdx - index + 1 + (appendToday ? 1 : 0);
     const oneDayDaily = state.cadence === "daily_dca" && daysAgo === 1;
 
     output.push({
@@ -1473,6 +1508,26 @@ function getFrameRows(startIso = state.dateRange.startIso, endIso = state.dateRa
       btcAccum: oneDayDaily ? 1 / latestBuyPrice : btcAccum,
       purchaseCount: oneDayDaily ? 1 : purchaseCount,
       isPriceAbove: Number.isFinite(dcaBasis) && currentPrice >= dcaBasis ? 1 : 0,
+    });
+  }
+
+  if (appendToday) {
+    const latest = output[output.length - 1];
+    const dcaBasis = buysToday ? currentPrice : latest.dcaBasis;
+    output.push({
+      ...latest,
+      daysAgo: 1,
+      yearsAgo: 1 / 365.25,
+      dateIso: todayIso,
+      timestampUtc: new Date(liveQuote.at).toISOString(),
+      blockHeight: null,
+      historicalPrice: currentPrice,
+      currentPrice,
+      dcaBasis,
+      investedUsd: buysToday ? 1 : latest.investedUsd,
+      btcAccum: buysToday ? 1 / currentPrice : latest.btcAccum,
+      purchaseCount: buysToday ? 1 : latest.purchaseCount,
+      isPriceAbove: currentPrice >= dcaBasis ? 1 : 0,
     });
   }
 
@@ -1513,6 +1568,16 @@ function getDateRangeExportFrameDates(startIso = state.dateRange.startIso, endIs
   });
   frames.push(...Array.from({ length: endHoldFrames }, () => finalDate));
   return frames;
+}
+
+function getDateRangeFinalFrameStartIndex(frameDates) {
+  if (!frameDates.length) return -1;
+  const finalDate = frameDates[frameDates.length - 1];
+  let lastEarlierFrame = -1;
+  frameDates.forEach((dateIso, index) => {
+    if (dateIso !== finalDate) lastEarlierFrame = index;
+  });
+  return lastEarlierFrame + 1;
 }
 
 function syncDateRangeControls() {
@@ -3019,6 +3084,10 @@ function getDateRangeExportBitrate(settings) {
 }
 
 async function encodeDateRangeAnimationWebM({ canvas, ctx, settings, theme, palette, frameDates }) {
+  const finalDate = frameDates[frameDates.length - 1];
+  const liveFinalFrameStart = finalDate === state.priceRows.at(-1)?.dateIso
+    ? getDateRangeFinalFrameStartIndex(frameDates) : -1;
+  let finalFrameRows = null;
   return window.WSBDashboardExport.encodeWebM({
     canvas,
     width: canvas.width,
@@ -3030,8 +3099,15 @@ async function encodeDateRangeAnimationWebM({ canvas, ctx, settings, theme, pale
     bitrate: getDateRangeExportBitrate(settings),
     isCanceled: () => dateRangeExportCancelRequested,
     onProgress: renderDateRangeDownloadButtonProgress,
-    renderFrame: async (dateIso) => {
-      const rows = getFrameRows(state.dateRange.startIso, dateIso);
+    renderFrame: async (dateIso, _canvas, frameIndex) => {
+      const useLiveFinalFrame = liveFinalFrameStart >= 0 && frameIndex >= liveFinalFrameStart;
+      if (useLiveFinalFrame && !finalFrameRows) {
+        // Capture the newest accepted quote when the final motion frame begins.
+        // Reuse it through the final hold so its chart and labels stay consistent.
+        finalFrameRows = getFrameRows(state.dateRange.startIso, finalDate, true,
+          dcaSpotFeed?.current() || null);
+      }
+      const rows = useLiveFinalFrame ? finalFrameRows : getFrameRows(state.dateRange.startIso, dateIso);
       await drawExportFrame(ctx, canvas, dateIso, { ...settings, theme }, palette, rows);
     },
   });
@@ -3375,6 +3451,36 @@ function updateSpotPriceChip() {
     : `BTC/USD price from the published DCA snapshot through ${historyThrough}; live market data is unavailable.`;
 }
 
+function updatePriceTimestampChips() {
+  const quote = dcaSpotFeed?.current();
+  const snapshot = state.metadata?.source;
+  const updatedRaw = quote ? new Date(quote.at).toISOString() : String(snapshot?.latest_timestamp_utc || "").trim();
+  if (quote && updatedTimeZoneChip) {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: state.timeZone || "UTC", year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+      timeZoneName: "short",
+    }).formatToParts(new Date(quote.at));
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    updatedTimeZoneChip.setText(`${values.year}-${values.month}-${values.day} `
+      + `${values.hour}:${values.minute}:${values.second} (${values.timeZoneName || state.timeZone || "UTC"})`);
+  } else {
+    updatedTimeZoneChip?.setUpdated(updatedRaw);
+  }
+  const updated = document.getElementById("chipUpdated");
+  if (updated) updated.title = quote
+    ? `Live BTC/USD quote received at ${new Date(quote.at).toISOString()}`
+    : "Published price snapshot time";
+  const block = document.querySelector("#chipSnapshotBlock .chip-value");
+  const height = Number(snapshot?.latest_block_height);
+  if (block) block.textContent = Number.isFinite(height) && height > 0
+    ? height.toLocaleString("en-US") : "-";
+  const blockChip = document.getElementById("chipSnapshotBlock");
+  if (blockChip) blockChip.title = snapshot?.latest_timestamp_utc
+    ? `Published price snapshot: ${snapshot.latest_timestamp_utc}`
+    : "Block height of the published price snapshot";
+}
+
 function presentDcaLivePrice() {
   if (!dcaLivePresentationPending || document.visibilityState !== "visible"
       || isDateRangeExporting || state.dateRange.isPlaying || state.dateRange.isPaused
@@ -3389,10 +3495,17 @@ function registerDcaLivePrice() {
   const spot = window.WSBBitcoinSpotPrice;
   if (!spot?.create) return;
   dcaSpotFeed = spot.create({
-    onQuote: () => {
+    onQuote: (quote) => {
       updateSpotPriceChip();
-      dcaLivePresentationPending = true;
-      presentDcaLivePrice();
+      updatePriceTimestampChips();
+      const nextPrice = quote?.price || null;
+      const nextDay = quote ? new Date(quote.at).toISOString().slice(0, 10) : "";
+      if (nextPrice !== dcaLastLivePrice || nextDay !== dcaLastLiveDay) {
+        dcaLastLivePrice = nextPrice;
+        dcaLastLiveDay = nextDay;
+        dcaLivePresentationPending = true;
+        presentDcaLivePrice();
+      }
     },
   });
   dcaSpotFeed.start();
@@ -3405,21 +3518,7 @@ function updateKpis(rows) {
   if (!rows.length) return;
 
   updateSpotPriceChip();
-
-  const latest = rows.find((row) => row.daysAgo === 1) || rows[rows.length - 1];
-
-  const updatedRaw = String(state.metadata?.source?.latest_timestamp_utc || "").trim();
-  const updatedHeight = Number(state.metadata?.source?.latest_block_height ?? latest.blockHeight);
-
-  const chipUpdatedValue = document.querySelector("#chipUpdated .chip-value");
-  if (updatedTimeZoneChip) {
-    updatedTimeZoneChip.setUpdated(updatedRaw, {
-      includeHeight: Number.isFinite(updatedHeight) && updatedHeight > 0,
-      height: updatedHeight,
-    });
-  } else if (chipUpdatedValue) {
-    chipUpdatedValue.textContent = "-";
-  }
+  updatePriceTimestampChips();
 
   const total = rows.length;
   const profitCount = rows.filter((r) => r.isPriceAbove > 0.5).length;
