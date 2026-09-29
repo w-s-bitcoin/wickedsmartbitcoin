@@ -1495,6 +1495,10 @@
     .chip-pct-profit { color: var(--price-up); }
     .chip-pct-loss   { color: var(--price-down); }
 
+    #chipSpotPrice .chip-value { color: var(--fg); }
+    #chipSpotPrice .chip-spot-status { color: var(--muted); }
+    #chipSpotPrice[data-live="true"] .chip-spot-status { color: var(--price-up); }
+
     .chip-menu-wrap.single-select {
       position: relative;
       display: inline-block;
@@ -1996,6 +2000,7 @@
         </button>
       </div>
       <div class="chips" id="statusChips">
+        <div class="chip" id="chipSpotPrice"><span class="chip-label">BTC Spot</span> <span class="chip-value">-</span> <span class="chip-spot-status">Published</span></div>
         <div class="chip-menu-wrap single-select" id="updatedChipWrap">
           <div class="chip chip-kpi-display" id="chipUpdated"><span class="chip-label">Updated</span> <span class="chip-value">-</span></div>
           <div id="updatedTimeZoneDropdown" class="dca-dropdown dca-dropdown-overlay">
@@ -2168,6 +2173,7 @@
     window.WSBWebappDataAutoRefresh = { urls: ["webapp_data/dca_cost_basis_metadata.json"] };
   </script>
   <script src="../shared/webapp_data_auto_refresh.js"></script>
-  <script src="dashboard_app.js?v=20260505b"></script>
+  <script src="../shared/bitcoin_spot_price.js"></script>
+  <script src="dashboard_app.js?v=20260929a"></script>
 </body>
 </html>

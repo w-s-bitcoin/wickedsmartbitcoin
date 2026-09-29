@@ -73,6 +73,7 @@ WEBAPP_SCRIPT_JOBS = [
     {
         "script": REPO_DIR / "webapps" / "dca_cost_basis" / "dca_cost_basis_webapp_data_update.py",
         "env_var": "DCA_COST_BASIS_WEBAPP_DATA_DIR",
+        "source_csv_env_var": "DCA_COST_BASIS_PRICE_CSV",
         "repo_dest_dir": REPO_DIR / "webapps" / "dca_cost_basis" / "webapp_data",
     },
     {
@@ -580,6 +581,8 @@ def phase_webapp_data(run_dir: Path) -> None:
     print("\n=== Phase 2: Webapp Data ===")
     ran_count = 0
     staged_files = 0
+    staged_daily_price = run_dir / "files" / "assets" / "daily_price.csv"
+    daily_price_source = staged_daily_price if staged_daily_price.is_file() else ASSETS_DIR / "daily_price.csv"
     for job in WEBAPP_SCRIPT_JOBS:
         script = job["script"]
         env_var = job["env_var"]
@@ -587,6 +590,8 @@ def phase_webapp_data(run_dir: Path) -> None:
         staged_output_dir = run_dir / "tmp_webapps" / script.stem
         script_env = os.environ.copy()
         script_env[env_var] = str(staged_output_dir)
+        if job.get("source_csv_env_var"):
+            script_env[job["source_csv_env_var"]] = str(daily_price_source)
         ran = run_script(script, env=script_env)
         ran_count += int(ran)
         if ran:

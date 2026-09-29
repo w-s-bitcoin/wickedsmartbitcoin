@@ -71,6 +71,10 @@ Common dashboard shell/layout rules are centralized in `webapps/shared/` and sho
 - `shared/webapp_data_auto_refresh.js`
   - Polls configured publication markers and calls dashboard adapters registered through `window.WSBWebappDataAutoRefresh.register()`
   - Fetches and validates a candidate, rechecks the markers immediately before commit, retries failures, and coalesces wake events without reloading the iframe
+- `shared/bitcoin_spot_price.js`
+  - Supplies a current BTC/USD quote to the DCA Cost Basis dashboard and home page card from Coinbase's public price socket, with public REST fallbacks. It pauses hidden tabs, rejects stale quotes, and leaves the published hourly price available when all feeds fail.
+  - The quote is a display and current-valuation input. Historical DCA rows, publication markers, past playback frames, and exported animations remain based on the published price files.
+  - DCA's Updated timestamp and block height identify the published price snapshot. The hourly producer reads the staged price file from its own run before those values are published.
 
 ### Required `<head>` includes for new dashboards
 

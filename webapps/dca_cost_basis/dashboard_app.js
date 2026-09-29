@@ -122,6 +122,8 @@ let customTooltipAnchor = null;
 let chartRangeDragState = null;
 let dcaRefreshPresentationPending = false;
 let dcaInstalledDataSignature = "";
+let dcaSpotFeed = null;
+let dcaLivePresentationPending = false;
 let chartRangeResizeWheelRemainder = 0;
 let chartRangePanWheelRemainder = 0;
 const downloadEstimateCalibrationCache = new Map();
@@ -763,6 +765,7 @@ function validateDcaDataSnapshot(candidate) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(latestDate)
       || !/^\d{4}-\d{2}-\d{2}$/.test(sourceStartDate)
       || !Number.isFinite(latestTimestampMs)
+      || new Date(latestTimestampMs).toISOString().slice(0, 10) !== latestDate
       || !Number.isFinite(latestPrice)
       || latestPrice <= 0
       || !Number.isFinite(latestBlockHeight)
@@ -807,6 +810,11 @@ function validateDcaDataSnapshot(candidate) {
   const dailyDates = candidate.seriesByCadence.daily_dca.map((row) => row.dateIso);
   if (dailyDates[0] !== sourceStartDate) return false;
   if (dailyDates.reduce((latest, dateIso) => dateIso > latest ? dateIso : latest, "") !== latestDate) {
+    return false;
+  }
+  const latestDailyRow = candidate.seriesByCadence.daily_dca.at(-1);
+  if (latestDailyRow?.blockHeight !== latestBlockHeight
+      || Date.parse(String(latestDailyRow.timestampUtc || "").replace(" ", "T") + "Z") !== latestTimestampMs) {
     return false;
   }
 
@@ -1415,7 +1423,7 @@ function initializeDateRangeState() {
   }
 }
 
-function getFrameRows(startIso = state.dateRange.startIso, endIso = state.dateRange.currentEndIso) {
+function getFrameRows(startIso = state.dateRange.startIso, endIso = state.dateRange.currentEndIso, useLiveSpot = false) {
   const priceRows = state.priceRows || [];
   if (!priceRows.length) return [];
   const startIdx = findDateIndex(startIso, "ceil");
@@ -1424,7 +1432,17 @@ function getFrameRows(startIso = state.dateRange.startIso, endIso = state.dateRa
 
   const cache = state.cadenceCaches[state.cadence] || state.cadenceCaches.daily_dca;
   const endRow = priceRows[endIdx];
-  const currentPrice = endRow.price;
+  const latestPublishedIndex = priceRows.length - 1;
+  const liveQuote = useLiveSpot && state.dateRange.rangeTracksLatestEnd
+    && !state.dateRange.isPlaying && !state.dateRange.isPaused && endIdx === latestPublishedIndex
+    ? dcaSpotFeed?.current() : null;
+  const currentPrice = liveQuote?.price || endRow.price;
+  // The current UTC day's last published buy can be valued at the live price.
+  // If the historical file ends yesterday, keep that buy at its published price.
+  const liveToday = Boolean(liveQuote && endRow.dateIso === new Date().toISOString().slice(0, 10));
+  const liveLatestBuy = liveToday && cache.mask[endIdx];
+  const latestBuyPrice = liveLatestBuy ? currentPrice : endRow.price;
+  const latestBuyAdjustment = liveLatestBuy ? (1 / currentPrice) - (1 / endRow.price) : 0;
   const output = [];
 
   for (let index = startIdx; index <= endIdx; index += 1) {
@@ -1434,7 +1452,8 @@ function getFrameRows(startIso = state.dateRange.startIso, endIso = state.dateRa
       : Math.max(0, cache.prevBuyIndex[index]);
     const prefixStart = Math.max(0, effectiveStart);
     const purchaseCount = cache.prefixCount[endIdx + 1] - cache.prefixCount[prefixStart];
-    const invPrice = cache.prefixInvPrice[endIdx + 1] - cache.prefixInvPrice[prefixStart];
+    const invPrice = cache.prefixInvPrice[endIdx + 1] - cache.prefixInvPrice[prefixStart]
+      + latestBuyAdjustment;
     const investedUsd = purchaseCount;
     const btcAccum = invPrice;
     const dcaBasis = purchaseCount > 0 && btcAccum > 0 ? investedUsd / btcAccum : NaN;
@@ -1447,11 +1466,11 @@ function getFrameRows(startIso = state.dateRange.startIso, endIso = state.dateRa
       dateIso: oneDayDaily ? endRow.dateIso : row.dateIso,
       timestampUtc: oneDayDaily ? endRow.timestampUtc : row.timestampUtc,
       blockHeight: oneDayDaily ? endRow.blockHeight : row.blockHeight,
-      historicalPrice: oneDayDaily ? currentPrice : row.price,
+      historicalPrice: index === endIdx && liveToday ? currentPrice : row.price,
       currentPrice,
-      dcaBasis: oneDayDaily ? currentPrice : dcaBasis,
+      dcaBasis: oneDayDaily ? latestBuyPrice : dcaBasis,
       investedUsd: oneDayDaily ? 1 : investedUsd,
-      btcAccum: oneDayDaily ? 1 / currentPrice : btcAccum,
+      btcAccum: oneDayDaily ? 1 / latestBuyPrice : btcAccum,
       purchaseCount: oneDayDaily ? 1 : purchaseCount,
       isPriceAbove: Number.isFinite(dcaBasis) && currentPrice >= dcaBasis ? 1 : 0,
     });
@@ -3151,7 +3170,7 @@ function getThemeColors() {
 }
 
 function getFilteredRows() {
-  return getFrameRows();
+  return getFrameRows(state.dateRange.startIso, state.dateRange.currentEndIso, true);
 }
 
 function buildDurationTickConfig(maxDays) {
@@ -3340,12 +3359,56 @@ function getVisibleHalvings(rows, maxDays) {
     .filter((h) => Number.isFinite(h.daysAgo) && h.daysAgo >= 1 && h.daysAgo <= maxDays);
 }
 
+function updateSpotPriceChip() {
+  const chip = document.getElementById("chipSpotPrice");
+  if (!chip) return;
+  const quote = dcaSpotFeed?.current();
+  const publishedPrice = Number(state.metadata?.source?.latest_price);
+  const historyThrough = String(state.metadata?.source?.latest_date || "the latest published date");
+  const price = quote?.price || publishedPrice;
+  chip.querySelector(".chip-value").textContent = Number.isFinite(price) && price > 0
+    ? fmtUsd(price, 0) : "-";
+  chip.querySelector(".chip-spot-status").textContent = quote ? "Live" : "Published";
+  chip.dataset.live = quote ? "true" : "false";
+  chip.title = quote
+    ? `${quote.source} BTC/USD spot, received ${new Date(quote.at).toLocaleString()}. Historical DCA purchase dates run through ${historyThrough}.`
+    : `BTC/USD price from the published DCA snapshot through ${historyThrough}; live market data is unavailable.`;
+}
+
+function presentDcaLivePrice() {
+  if (!dcaLivePresentationPending || document.visibilityState !== "visible"
+      || isDateRangeExporting || state.dateRange.isPlaying || state.dateRange.isPaused
+      || chartRangeDragState || dateRangeHandleDrag || dateRangeCurrentMarkerDrag
+      || ensureChartTooltip()?.classList.contains("show")) return false;
+  dcaLivePresentationPending = false;
+  renderChart();
+  return true;
+}
+
+function registerDcaLivePrice() {
+  const spot = window.WSBBitcoinSpotPrice;
+  if (!spot?.create) return;
+  dcaSpotFeed = spot.create({
+    onQuote: () => {
+      updateSpotPriceChip();
+      dcaLivePresentationPending = true;
+      presentDcaLivePrice();
+    },
+  });
+  dcaSpotFeed.start();
+  document.addEventListener("visibilitychange", presentDcaLivePrice);
+  window.addEventListener("pagehide", () => dcaSpotFeed.stop());
+  window.addEventListener("pageshow", () => dcaSpotFeed.start());
+}
+
 function updateKpis(rows) {
   if (!rows.length) return;
 
+  updateSpotPriceChip();
+
   const latest = rows.find((row) => row.daysAgo === 1) || rows[rows.length - 1];
 
-  const updatedRaw = String(state.metadata?.generated_utc || "").trim();
+  const updatedRaw = String(state.metadata?.source?.latest_timestamp_utc || "").trim();
   const updatedHeight = Number(state.metadata?.source?.latest_block_height ?? latest.blockHeight);
 
   const chipUpdatedValue = document.querySelector("#chipUpdated .chip-value");
@@ -4421,6 +4484,7 @@ function bindChartTooltip(chart) {
     const hoverLine = chart.querySelector(".dca-hover-line");
     if (hoverLine) hoverLine.setAttribute("visibility", "hidden");
     hideChartTooltip();
+    presentDcaLivePrice();
   });
 }
 
@@ -4997,6 +5061,7 @@ async function init() {
     DASHBOARD_COMPONENTS.setChartLoaderVisible?.(chartLoader, false);
     updateResetButtonUi();
     registerDcaCostBasisAutoRefresh();
+    registerDcaLivePrice();
     primeKeyboardFocus();
     if (state.dateRange.pendingSpacePlayback) {
       state.dateRange.pendingSpacePlayback = false;
