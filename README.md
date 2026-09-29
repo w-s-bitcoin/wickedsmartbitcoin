@@ -32,7 +32,12 @@ fallback; use `.html` URLs locally.
 There is no npm install or JavaScript bundling step. Python 3.10+ and Git are
 needed for the portable checks below; browser regressions also need Chrome or
 Chromium. Some pages load fonts or chart libraries from external services.
-Bitcoin Net Worth can also request live quotes from Kraken.
+Bitcoin Net Worth can request live quotes from Kraken. DCA Cost Basis uses a
+public Coinbase BTC/USD price socket with REST fallbacks for its current valuation
+on the dashboard and home page card. Published hourly price data is the fallback;
+historical DCA purchases still come from published price files.
+The DCA "Updated" time and block height refer to that published price
+snapshot; receiving a live quote does not advance them.
 
 ## Architecture
 
@@ -172,6 +177,8 @@ CHROME_BIN=/path/to/chromium python3 scripts/test_stage1_refresh_atomicity.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_stage2_refresh_atomicity.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_stage3_incremental_refresh.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_stage4_live_refresh.py
+node scripts/test_dca_live_price.mjs
+CHROME_BIN=/path/to/chromium python3 scripts/test_dca_live_price_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_homepage_preview_refresh.py
 ```
 

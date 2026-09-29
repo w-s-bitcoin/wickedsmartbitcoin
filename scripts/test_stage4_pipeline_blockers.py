@@ -126,6 +126,30 @@ class HourlyPublicationPipelineTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     self.hourly.build_daily_price_metadata(document)
 
+    def test_dca_hourly_job_reads_new_staged_price_snapshot(self):
+        run_dir = self.make_run("1h-dca-source")
+        staged_price = run_dir / "files" / "assets" / "daily_price.csv"
+        staged_price.parent.mkdir(parents=True, exist_ok=True)
+        staged_price.write_text("new price snapshot\n", encoding="utf-8")
+        dca_job = next(job for job in self.hourly.WEBAPP_SCRIPT_JOBS
+                       if job["script"].name == "dca_cost_basis_webapp_data_update.py")
+        observed = []
+
+        def capture_run(_script, env):
+            observed.append(env["DCA_COST_BASIS_PRICE_CSV"])
+            return False
+
+        with patch.object(self.hourly, "WEBAPP_SCRIPT_JOBS", [dca_job]), \
+             patch.object(self.hourly, "run_script", side_effect=capture_run):
+            self.hourly.phase_webapp_data(run_dir)
+            staged_price.unlink()
+            self.hourly.phase_webapp_data(run_dir)
+
+        self.assertEqual(observed, [
+            str(staged_price),
+            str(ROOT / "assets" / "daily_price.csv"),
+        ])
+
     def test_all_preview_publication_markers_apply_after_their_payloads(self):
         expected = {
             Path("assets/daily_price_metadata.json"),
