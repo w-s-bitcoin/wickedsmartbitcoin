@@ -10,7 +10,9 @@ if [[ "${1:-}" == "--smoke" ]]; then
 fi
 
 echo "Checking dashboard scripts..."
-bash -n scripts/create_dashboard.sh scripts/check_dashboard_contract.sh scripts/smoke_dashboards.sh scripts/check_all_dashboards.sh
+for script in scripts/*.sh; do
+  bash -n "$script"
+done
 
 echo "Checking dashboard contracts..."
 while IFS= read -r dashboard; do

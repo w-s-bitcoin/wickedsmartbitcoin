@@ -20,6 +20,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check source, publication contracts, and packaging
+        run: bash scripts/check_project.sh
+
       - name: Build static Pages artifact
         run: bash scripts/build_pages_dist.sh
 

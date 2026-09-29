@@ -93,6 +93,17 @@ WEBAPP_SCRIPT_JOBS = [
 ]
 
 CASASCIUS_WEBAPP_DIR = REPO_DIR / "webapps" / "casascius_explorer"
+CASASCIUS_WORKSPACE_REQUIRED_FILES = (
+    "scripts/casascius_explorer_webapp_data_update.py",
+    "scripts/generate_right_panel_data.py",
+    "casascius_explorer.js",
+    "assets/casascius_data_manifest.js",
+    "data/casascius_explorer.csv",
+)
+CASASCIUS_WORKSPACE_OPTIONAL_FILES = (
+    "data/casascius_graded.csv",
+    "data/casascius_explorer_update_state.json",
+)
 CASASCIUS_DEPLOY_FILES = [
     CASASCIUS_WEBAPP_DIR / "data" / "casascius_explorer.csv",
     CASASCIUS_WEBAPP_DIR / "data" / "casascius_explorer_update_state.json",
@@ -461,6 +472,19 @@ def sync_dir_changed(source_dir: Path, dest_dir: Path, run_dir: Path) -> int:
     return changed
 
 
+def prepare_casascius_workspace(source_dir: Path, workspace_dir: Path) -> None:
+    """Copy the updater's inputs without the app's large static image library."""
+    if workspace_dir.exists():
+        shutil.rmtree(workspace_dir)
+    for relative_path in CASASCIUS_WORKSPACE_REQUIRED_FILES + CASASCIUS_WORKSPACE_OPTIONAL_FILES:
+        source = source_dir / relative_path
+        if relative_path in CASASCIUS_WORKSPACE_OPTIONAL_FILES and not source.exists():
+            continue
+        destination = workspace_dir / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+
+
 def phase_casascius_data(run_dir: Path) -> None:
     print("\n=== Phase 3: Casascius Explorer Data ===")
     if not CASASCIUS_WEBAPP_DIR.exists():
@@ -468,9 +492,7 @@ def phase_casascius_data(run_dir: Path) -> None:
         return
 
     workspace_dir = run_dir / "tmp_webapps" / "casascius_explorer_workspace"
-    if workspace_dir.exists():
-        shutil.rmtree(workspace_dir)
-    shutil.copytree(CASASCIUS_WEBAPP_DIR, workspace_dir)
+    prepare_casascius_workspace(CASASCIUS_WEBAPP_DIR, workspace_dir)
 
     script = workspace_dir / "scripts" / "casascius_explorer_webapp_data_update.py"
     script_env = os.environ.copy()

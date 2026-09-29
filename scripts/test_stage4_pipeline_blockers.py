@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -33,8 +34,15 @@ def load_module(name: str, path: Path):
 class HourlyPublicationPipelineTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.hourly = load_module("wsb_test_run_1h", AUTOMATION_DIR / "_run_1h.py")
-        cls.deploy = load_module("wsb_test_git_deploy", AUTOMATION_DIR / "_git_deploy.py")
+        # Import helpers without reading the operator's .env or inheriting a
+        # production checkout override. Neither runner entry point is invoked.
+        with tempfile.TemporaryDirectory(prefix="wsb-stage4-import-") as temporary:
+            with patch.dict(os.environ, {
+                "ANIMATIONS_ENV_FILE": str(Path(temporary) / ".env"),
+                "ANIMATIONS_REPO_DIR": str(ROOT),
+            }):
+                cls.hourly = load_module("wsb_test_run_1h", AUTOMATION_DIR / "_run_1h.py")
+                cls.deploy = load_module("wsb_test_git_deploy", AUTOMATION_DIR / "_git_deploy.py")
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="wsb-hourly-stage-test-")
