@@ -337,7 +337,7 @@ def main() -> None:
 
     here = Path(__file__).resolve().parent
     repo_root = here.parent.parent
-    source_csv = repo_root / "assets" / "daily_price.csv"
+    source_csv = Path(os.getenv("DCA_COST_BASIS_PRICE_CSV", str(repo_root / "assets" / "daily_price.csv"))).expanduser()
     output_dir = Path(os.getenv("DCA_COST_BASIS_WEBAPP_DATA_DIR", str(here / "webapp_data"))).expanduser()
     output_dir.mkdir(parents=True, exist_ok=True)
 

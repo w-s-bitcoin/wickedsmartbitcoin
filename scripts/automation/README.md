@@ -42,6 +42,10 @@ The hourly runner stages outputs and exposes a `.complete` marker after its
 phases finish. The deployer ignores incomplete hourly stages. Casascius gets a
 temporary workspace containing its updater, generator, and required data/code
 inputs; its static image library is not copied.
+The DCA Cost Basis producer reads the newly staged `daily_price.csv` when the
+hourly run has one, so its price, snapshot timestamp, and block height describe
+the same generation. It reads the published checkout file when the source has
+not changed.
 
 Onchain work has priority. Current-chain top KPIs are built from the complete
 ingested `blockheader` snapshot and can publish before slower issuance work.

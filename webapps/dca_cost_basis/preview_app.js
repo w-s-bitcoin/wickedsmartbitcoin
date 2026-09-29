@@ -6,6 +6,7 @@
   let installedPublicationSignature = "";
   let installedBounds = null;
   let refresher = null;
+  let spotFeed = null;
 
   function parseCsv(text) {
     const rows = [];
@@ -265,9 +266,33 @@
 </svg>`;
   }
 
+  function rowsWithSpotPrice(rows, quote) {
+    if (!rows.length || !(quote?.price > 0)) return rows;
+    const latest = rows[rows.length - 1];
+    const today = new Date().toISOString().slice(0, 10);
+    const liveToday = latest.date === today;
+    const displayRows = rows.map((row, index) => {
+      const latestToday = liveToday && index === rows.length - 1;
+      const dcaBasis = latestToday ? quote.price : row.dcaBasis;
+      return {
+        ...row,
+        dcaBasis,
+        historicalPrice: latestToday ? quote.price : row.historicalPrice,
+        isPriceAbove: quote.price >= dcaBasis ? 1 : 0,
+      };
+    });
+    if (!liveToday) {
+      displayRows.push({ ...latest, date: today, daysAgo: 0,
+        historicalPrice: quote.price, isPriceAbove: quote.price >= latest.dcaBasis ? 1 : 0 });
+    }
+    return displayRows;
+  }
+
   function render() {
     if (!cachedRows.length) return;
-    renderCardPreviewFromRows(cachedRows);
+    const quote = spotFeed?.current();
+    renderCardPreviewFromRows(rowsWithSpotPrice(cachedRows, quote));
+    document.getElementById("costBasisChart")?.setAttribute("data-price-source", quote ? "live" : "published");
   }
 
   async function prepareCandidate(context) {
@@ -345,6 +370,12 @@
       },
     });
     refresher.start();
+    spotFeed = window.WSBBitcoinSpotPrice?.create({
+      onQuote: () => requestPresent("spot-price"),
+    }) || null;
+    spotFeed?.start();
+    window.addEventListener("pagehide", () => spotFeed?.stop());
+    window.addEventListener("pageshow", () => spotFeed?.start());
   }
 
   init();
