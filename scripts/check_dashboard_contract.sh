@@ -148,14 +148,14 @@ if grep -Fq "copyDashboardLink" "$html"; then
     echo "Contract failure in $app: copy link buttons must use WSBDashboardComponents.copyDashboardLink()" >&2
     exit 1
   fi
-  if ! grep -Eq "WSBDashboardComponents\\.(copyDashboardLink|bindDashboardActions)" "$app"; then
-    echo "Contract failure in $app: copy link buttons must use WSBDashboardComponents.copyDashboardLink() or bindDashboardActions()" >&2
+  if ! grep -Eq 'WSBDashboardComponents(\?\.|\.)(copyDashboardLink|bindDashboardActions|initDashboardRuntime)(\?\.)?[[:space:]]*\(' "$app"; then
+    echo "Contract failure in $app: copy link buttons must use WSBDashboardComponents.copyDashboardLink(), bindDashboardActions(), or initDashboardRuntime()" >&2
     exit 1
   fi
 fi
 
 if grep -Fq "resetDashboard" "$html"; then
-  if grep -Fq "reset-dashboard-btn--undo" "$app" && ! grep -Eq "WSBDashboardComponents\\.(setResetButtonState|bindDashboardActions)" "$app"; then
+  if grep -Fq "reset-dashboard-btn--undo" "$app" && ! grep -Eq 'WSBDashboardComponents(\?\.|\.)(setResetButtonState|bindDashboardActions|initDashboardRuntime)(\?\.)?[[:space:]]*\(' "$app"; then
     echo "Contract failure in $app: reset button UI must use WSBDashboardComponents.setResetButtonState() or bindDashboardActions()" >&2
     exit 1
   fi

@@ -35,7 +35,7 @@ class OnchainKpiTests(unittest.TestCase):
 
     def test_current_tip_payload_does_not_use_archived_metadata(self):
         runner = self.runner
-        snapshot = (968853, 1790522376, "17021ec5", 132757073449487.5, 2009013979155096)
+        snapshot = (968853, 1790522376, "17021ec5", 132757073449487.5, 2009013979155096, 1789801745)
         with patch.object(runner, "load_current_kpi_block", return_value=snapshot):
             payload = runner.build_top_kpis_payload()
         self.assertEqual(payload["block_height"], 968853)
@@ -45,6 +45,16 @@ class OnchainKpiTests(unittest.TestCase):
         self.assertEqual(payload["target_hex"], runner.target_hex_from_bits("17021ec5"))
         self.assertGreater(payload["target_hashrate_hps"], 0)
         self.assertEqual(payload["difficulty_display"], "132.76T")
+        self.assertEqual(payload["projected_difficulty_adjustment_percent"], -2.29)
+
+    def test_difficulty_projection_follows_period_block_pace(self):
+        project = self.runner.projected_difficulty_adjustment_percent
+        start = 1_000_000_000
+        self.assertIsNone(project(967680, start, start))
+        self.assertIsNone(project(967681, start - 1, start))
+        self.assertAlmostEqual(project(967680 + 1008, start + 1008 * 600, start), 0.05, places=2)
+        self.assertGreater(project(967680 + 1008, start + 1008 * 580, start), 0)
+        self.assertLess(project(967680 + 1008, start + 1008 * 620, start), 0)
 
     def test_archived_bip110_still_stages_kpis_and_runs_issuance(self):
         runner = self.runner
