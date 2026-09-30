@@ -35,21 +35,43 @@
     return day;
   }
 
-  function withQuotes(rows, quotes, now = Date.now()) {
-    if (!Array.isArray(rows) || !rows.length || !quotes) return rows;
+  function publishedInstant(value) {
+    if (Number.isFinite(value)) return Number(value);
+    const raw = String(value || "").trim();
+    const normalized = raw.replace(" ", "T").replace(/\.(\d{3})\d+/, ".$1").replace(/ UTC$/, "Z");
+    const instant = Date.parse(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(normalized)
+      && !/(Z|[+-]\d{2}:?\d{2})$/.test(normalized) ? `${normalized}Z` : normalized);
+    return Number.isFinite(instant) ? instant : 0;
+  }
+
+  function project(rows, quotes, now = Date.now(), publishedAt = 0) {
+    if (!Array.isArray(rows) || !rows.length || !quotes) return { rows, appliedQuotes: {} };
     const today = utcDay(now);
     const latest = rows[rows.length - 1];
-    const gap = Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${latest.date}T00:00:00Z`)) / DAY_MS);
-    if (gap !== 0 && gap !== 1) return rows;
-    const accepted = ALL_ASSETS.filter((asset) => {
+    const cutoff = Math.max(publishedInstant(publishedAt), publishedInstant(latest.timestamp));
+    const accepted = Object.fromEntries(ALL_ASSETS.flatMap((asset) => {
       const quote = quotes[asset];
-      return quote?.price > 0 && quote.day === today && Number.isFinite(quote.checkedAt)
-        && now >= quote.checkedAt && now - quote.checkedAt < QUOTE_STALE_MS;
-    });
-    if (!accepted.length) return rows;
-    const live = { ...latest, date: today, provisional: gap === 1 };
-    for (const asset of accepted) live[asset] = quotes[asset].price;
-    return gap === 0 ? [...rows.slice(0, -1), live] : [...rows, live];
+      if (!(quote?.price > 0) || !Number.isFinite(quote.checkedAt)
+          || quote.checkedAt <= cutoff || quote.checkedAt > now
+          || quote.day < latest.date || quote.day > today) return [];
+      return [[asset, quote]];
+    }));
+    const quoteDays = Object.values(accepted).map((quote) => quote.day);
+    if (!quoteDays.length) return { rows, appliedQuotes: {} };
+    const targetDay = quoteDays.sort().at(-1);
+    const gap = Math.round((Date.parse(`${targetDay}T00:00:00Z`)
+      - Date.parse(`${latest.date}T00:00:00Z`)) / DAY_MS);
+    if (gap !== 0 && gap !== 1) return { rows, appliedQuotes: {} };
+    const live = { ...latest, date: targetDay, provisional: gap === 1 };
+    for (const [asset, quote] of Object.entries(accepted)) live[asset] = quote.price;
+    return {
+      rows: gap === 0 ? [...rows.slice(0, -1), live] : [...rows, live],
+      appliedQuotes: accepted,
+    };
+  }
+
+  function withQuotes(rows, quotes, now = Date.now(), publishedAt = 0) {
+    return project(rows, quotes, now, publishedAt).rows;
   }
 
   function create({ assets = ALL_ASSETS, onQuote } = {}) {
@@ -62,14 +84,23 @@
 
     function current() {
       const now = Date.now();
-      return Object.fromEntries(Object.entries(quotes).filter(([, quote]) =>
-        now >= quote.checkedAt && now - quote.checkedAt < QUOTE_STALE_MS));
+      return Object.fromEntries(Object.entries(quotes).map(([asset, quote]) => [asset, {
+        ...quote,
+        live: quote.connected && now >= quote.checkedAt && now - quote.checkedAt < QUOTE_STALE_MS,
+      }]));
+    }
+
+    function markUnavailable(asset, notify = true) {
+      if (quotes[asset]) quotes[asset].connected = false;
+      if (notify) onQuote?.(current());
     }
 
     function publish(asset, price, { day, checkedAt, source, delayLabel = "Live", notify = true }) {
-      if (!selected.has(asset) || !(Number(price) > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return;
-      quotes[asset] = { price: Number(price), day, checkedAt, source, delayLabel };
+      if (!selected.has(asset) || !(Number(price) > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(day)
+          || !Number.isFinite(checkedAt) || checkedAt < (quotes[asset]?.checkedAt || 0)) return false;
+      quotes[asset] = { price: Number(price), day, checkedAt, source, delayLabel, connected: true };
       if (notify) onQuote?.(current());
+      return true;
     }
 
     const btcFeed = selected.has("BTC") ? window.WSBBitcoinSpotPrice?.create({
@@ -77,10 +108,7 @@
         if (quote) publish("BTC", quote.price, {
           day: utcDay(quote.at), checkedAt: quote.at, source: quote.source,
         });
-        else {
-          delete quotes.BTC;
-          onQuote?.(current());
-        }
+        else markUnavailable("BTC");
       },
     }) : null;
 
@@ -102,11 +130,17 @@
       try {
         const data = await fetchJson(`https://api.gold-api.com/price/${METALS[asset]}`);
         const at = Date.parse(data?.updatedAt);
-        if (data?.symbol !== asset || data.currency !== "USD" || !Number.isFinite(at)
-            || Math.abs(Date.now() - at) >= QUOTE_STALE_MS) return;
-        publish(asset, data.price, { day: utcDay(at), checkedAt: at, source: "Gold API", notify: false });
+        if (data?.symbol !== asset || data.currency !== "USD" || !(Number(data.price) > 0)
+            || !Number.isFinite(at)
+            || Math.abs(Date.now() - at) >= QUOTE_STALE_MS) {
+          markUnavailable(asset, false);
+          return;
+        }
+        if (!publish(asset, data.price, { day: utcDay(at), checkedAt: at, source: "Gold API", notify: false })) {
+          markUnavailable(asset, false);
+        }
       } catch (_) {
-        // Keep the latest complete published generation when a provider fails.
+        markUnavailable(asset, false);
       }
     }
 
@@ -129,12 +163,13 @@
           const item = data?.data?.find((entry) => entry.s === ticker);
           const delaySeconds = Number(String(item?.d?.[1] || "").match(/delayed_streaming_(\d+)/)?.[1]);
           const delayLabel = delaySeconds > 0 ? `${Math.round(delaySeconds / 60)}m delayed` : "Indicative";
-          if (item) publish(asset, item.d?.[0], {
+          if (item?.d?.[0] > 0) publish(asset, item.d[0], {
             day, checkedAt: receivedAt, source: "TradingView", delayLabel, notify: false,
           });
+          else markUnavailable(asset, false);
         }
       } catch (_) {
-        // The published daily price is the fallback for unavailable equities.
+        for (const [asset] of wanted) markUnavailable(asset, false);
       }
     }
 
@@ -172,18 +207,23 @@
       clearTimeout(pollTimer);
       for (const request of requests) request.abort();
       btcFeed?.stop();
+      for (const asset of selected) markUnavailable(asset, false);
+      onQuote?.(current());
     }
 
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "hidden") {
         clearTimeout(pollTimer);
         for (const request of requests) request.abort();
-      } else if (started) schedulePoll(0);
+      } else if (started) {
+        onQuote?.(current());
+        schedulePoll(0);
+      }
     });
     window.addEventListener("pagehide", stop);
     window.addEventListener("pageshow", start);
     return { start, stop, current };
   }
 
-  window.WSBComparisonLivePrice = Object.freeze({ withQuotes, create, lastEquitySessionDay });
+  window.WSBComparisonLivePrice = Object.freeze({ project, withQuotes, create, lastEquitySessionDay, publishedInstant });
 }());

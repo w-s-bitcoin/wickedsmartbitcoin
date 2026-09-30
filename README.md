@@ -45,7 +45,9 @@ DCA Comparison uses current BTC/USD and gold/silver quotes plus delayed public
 quotes for SPY, QQQ, TLT, and MSTR. The selected assets' latest prices,
 valuations, and chart update in an open tab; the home card updates its default
 BTC/gold comparison. Equities are labeled with their feed delay (typically 15
-minutes). Published daily prices remain the fallback and historical source.
+minutes). If a feed drops, the tab retains its last quote with a gray status
+dot until a newer published generation replaces it. Published daily prices
+remain the historical source and the fallback on a fresh visit.
 
 ## Architecture
 

@@ -77,7 +77,7 @@ Common dashboard shell/layout rules are centralized in `webapps/shared/` and sho
   - DCA's Updated timestamp follows the latest accepted quote, falling back to the published snapshot time when the quote expires. Snapshot block always identifies the published generation. The hourly producer reads the staged price file from its own run before those values are published.
 - `shared/comparison_live_price.js`
   - Supplies current-day quotes to DCA Comparison: BTC from the shared spot feed, XAU/XAG from Gold API, and SPY/QQQ/TLT/MSTR from TradingView's delayed scanner. The dashboard labels each selected price with its source delay; its Updated chip follows the most recently checked selected quote while showing the published block height. The home card uses current BTC/gold quotes.
-  - A complete published price row remains the fallback. Fresh quotes overlay only today's row, or append one provisional day when publication is one day behind. The chart recomputes modeled purchases and valuations from that row; historical ranges, earlier export frames, and publication markers stay published. A latest-day export freezes available quotes for its final frame and hold.
+  - A complete published price row remains the cold-start fallback. The tab retains its last quote through a feed outage, marks that price with a gray dot, and uses a newer accepted publication in preference to an older quote. Quotes overlay the latest row or append one provisional day when publication is one day behind. The chart recomputes modeled purchases and valuations from that row; historical ranges, earlier export frames, and publication markers stay published. A latest-day export freezes available quotes for its final frame and hold.
 
 ### Required `<head>` includes for new dashboards
 
