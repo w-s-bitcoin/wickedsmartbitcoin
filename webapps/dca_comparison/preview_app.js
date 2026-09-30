@@ -21,6 +21,7 @@
 
   let cachedRows = [];
   let installedPublicationSignature = "";
+  let installedPublicationAt = 0;
   let installedBounds = null;
   let refresher = null;
   let priceFeed = null;
@@ -247,9 +248,13 @@
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const liveRows = window.WSBComparisonLivePrice?.withQuotes(cachedRows, priceFeed?.current()) || cachedRows;
-    canvas.dataset.priceSource = liveRows === cachedRows ? "published" : "live";
-    const points = buildDefaultSeries(liveRows);
+    const { rows, appliedQuotes } = window.WSBComparisonLivePrice?.project(
+      cachedRows, priceFeed?.current(), Date.now(), installedPublicationAt)
+      || { rows: cachedRows, appliedQuotes: {} };
+    const applied = Object.values(appliedQuotes);
+    canvas.dataset.priceSource = applied.length
+      ? applied.some((quote) => !quote.live) ? "retained" : "live" : "published";
+    const points = buildDefaultSeries(rows);
     if (points.length < 2) {
       renderFallback();
       return;
@@ -319,6 +324,7 @@
 
   function commitCandidate(candidate, context) {
     cachedRows = candidate.rows;
+    installedPublicationAt = window.WSBComparisonLivePrice?.publishedInstant(candidate.marker.generated_utc) || 0;
     installedBounds = {
       firstDate: candidate.rows[0].date,
       latestDate: candidate.rows[candidate.rows.length - 1].date,
@@ -363,7 +369,7 @@
       onQuote: (quotes) => {
         const key = ["BTC", "XAU"].map((asset) => {
           const quote = quotes[asset];
-          return quote ? `${asset}:${quote.day}:${quote.price}` : `${asset}:published`;
+          return quote ? `${asset}:${quote.day}:${quote.price}:${quote.live}` : `${asset}:published`;
         }).join("|");
         if (key !== lastLivePriceKey) {
           lastLivePriceKey = key;

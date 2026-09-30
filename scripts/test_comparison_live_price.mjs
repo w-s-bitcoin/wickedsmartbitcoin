@@ -7,7 +7,7 @@ const source = readFileSync(new URL('../webapps/shared/comparison_live_price.js'
 const sandbox = { window: {}, Date, Intl };
 vm.createContext(sandbox);
 vm.runInContext(source, sandbox);
-const { withQuotes, lastEquitySessionDay } = sandbox.window.WSBComparisonLivePrice;
+const { project, withQuotes, lastEquitySessionDay, publishedInstant } = sandbox.window.WSBComparisonLivePrice;
 
 const now = Date.parse('2026-09-30T15:00:00Z');
 const rows = [{ date: '2026-09-29', BTC: 80000, XAU: 4100, XAG: 49,
@@ -24,7 +24,7 @@ assert.equal(result.at(-1).date, '2026-09-30');
 assert.equal(result.at(-1).BTC, 81000);
 assert.equal(result.at(-1).XAU, 4200);
 assert.equal(result.at(-1).SPY, 765);
-assert.equal(result.at(-1).QQQ, 730, 'a previous-day quote must not become today’s price');
+assert.equal(result.at(-1).QQQ, 999, 'the last quote remains until a newer publication');
 assert.equal(result.at(-1).XAG, 49, 'missing quotes use the published fallback');
 assert.equal(result.at(-1).height, 969209, 'the supply cap retains the published block height');
 assert.equal(rows[0].BTC, 80000, 'published history must not be mutated');
@@ -33,7 +33,17 @@ result = withQuotes([{ ...rows[0], date: '2026-09-30' }], quotes, now);
 assert.equal(result.length, 1);
 assert.equal(result[0].BTC, 81000);
 assert.equal(result[0].XAU, 4200);
-assert.equal(withQuotes(rows, { BTC: { ...quotes.BTC, checkedAt: now - 180001 } }, now), rows);
+assert.equal(withQuotes(rows, { BTC: { ...quotes.BTC, checkedAt: now - 180001 } }, now).at(-1).BTC,
+  81000, 'a disconnected quote remains in this tab');
+assert.equal(project(rows, quotes, now, now - 1500).rows.at(-1).XAU, 4100,
+  'a newer published generation replaces the older gold quote');
+assert.equal(project(rows, quotes, now, now - 500).rows, rows,
+  'publication newer than every quote wins');
+assert.equal(withQuotes(rows, { BTC: quotes.BTC }, Date.parse('2026-10-01T01:00:00Z')).at(-1).date,
+  '2026-09-30', 'a retained quote must not invent an October 1 purchase');
+assert.equal(publishedInstant('2026-09-29 23:11:13.991202 UTC'),
+  Date.parse('2026-09-29T23:11:13.991Z'));
+assert.equal(publishedInstant('2026-09-29 22:00:00'), Date.parse('2026-09-29T22:00:00Z'));
 assert.equal(withQuotes([{ ...rows[0], date: '2026-09-27' }], quotes, now).length, 1,
   'a multi-day gap must not fabricate omitted purchases');
 

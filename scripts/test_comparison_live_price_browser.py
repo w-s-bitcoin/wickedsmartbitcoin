@@ -96,6 +96,19 @@ def main():
     last_market_day = FrozenHandler.snapshot[
         "/webapps/dca_comparison/webapp_data/market_indices.csv"
     ].decode().strip().splitlines()[-1].split(",", 1)[0]
+    btc_path = "/assets/daily_price.csv"
+    btc_lines = FrozenHandler.snapshot[btc_path].decode().strip().splitlines()
+    btc_tail = btc_lines[-1].split(",")
+    btc_tail[1] = f"{last_market_day} 13:00:00"
+    btc_lines[-1] = ",".join(btc_tail)
+    FrozenHandler.snapshot[btc_path] = ("\n".join(btc_lines) + "\n").encode()
+    FrozenHandler.snapshot["/webapps/dca_comparison/webapp_data/last_updated.txt"] = (
+        f"{last_market_day} 14:00:00.000000 UTC\n".encode()
+    )
+    marker_path = "/webapps/dca_comparison/webapp_data/published_generation.json"
+    marker = json.loads(FrozenHandler.snapshot[marker_path])
+    marker["generated_utc"] = f"{last_market_day}T14:00:00Z"
+    FrozenHandler.snapshot[marker_path] = json.dumps(marker).encode()
     fake_now_ms = int(datetime.fromisoformat(last_market_day).replace(
         hour=15, tzinfo=timezone.utc).timestamp() * 1000)
     server_port, debug_port = free_port(), free_port()
@@ -179,13 +192,62 @@ def main():
                     return `${asset} source delay is not identified`;
                   }
                 }
+                const finalChart = document.querySelector('#chartCanvas').toDataURL();
+                window.__comparisonRealNow = Date.now;
+                Date.now = () => window.__comparisonRealNow() + 182000;
+                window.dispatchEvent(new Event('resize'));
+                if (btcStatus.dataset.kind !== 'stale'
+                    || !btcStatus.closest('.kpi-card').title.includes('Gray dot:')
+                    || document.querySelector('#assetAPrice').textContent !== '$90,000')
+                  return 'disconnected BTC price was not retained with a gray dot';
+                if (document.querySelector('#assetBPriceStatus').dataset.kind !== 'stale'
+                    || document.querySelector('#assetBPrice').textContent !== '$5,000')
+                  return 'disconnected gold price was not retained with a gray dot';
+                if (document.querySelector('#chartCanvas').toDataURL() !== finalChart)
+                  return 'disconnect changed the chart despite retaining prices';
+                return '';
+              })()
+            """)
+            btc_tail[1] = f"{last_market_day} 15:01:00"
+            btc_tail[2] = "88000"
+            btc_tail[4] = str(int(btc_tail[4]) + 1)
+            btc_lines[-1] = ",".join(btc_tail)
+            FrozenHandler.snapshot[btc_path] = ("\n".join(btc_lines) + "\n").encode()
+            FrozenHandler.snapshot["/webapps/dca_comparison/webapp_data/last_updated.txt"] = (
+                f"{last_market_day} 15:01:30.000000 UTC\n".encode()
+            )
+            cdp.evaluate("Date.now = window.__comparisonRealNow; window.WSBWebappDataAutoRefresh.requestCheck('newer-published-price')")
+            try:
+                wait_for(lambda: cdp.evaluate("""
+                  document.querySelector('#assetAPrice')?.textContent === '$88,000'
+                  && document.querySelector('#assetAPriceStatus')?.dataset.kind === 'stale'
+                  && document.querySelector('#assetAPriceStatus')?.closest('.kpi-card')?.title
+                    .includes('published snapshot is newer')
+                """), timeout=12, description="newer published price replaces retained quote")
+            except TimeoutError:
+                diagnostic = cdp.evaluate("""({
+                  price: document.querySelector('#assetAPrice')?.textContent,
+                  gold: document.querySelector('#assetBPrice')?.textContent,
+                  status: document.querySelector('#assetAPriceStatus')?.dataset.kind,
+                  tooltip: document.querySelector('#assetAPriceStatus')?.closest('.kpi-card')?.title,
+                  updated: document.querySelector('#updatedKpi')?.textContent,
+                  refresh: window.WSBWebappDataAutoRefresh?.getStatus(),
+                  error: document.querySelector('#errorBox')?.textContent,
+                })""")
+                raise AssertionError(f"Newer publication did not replace quote: {diagnostic}") from None
+            assert_browser(cdp, """
+              (() => {
+                if (document.querySelector('#assetBPrice').textContent === '$5,000')
+                  return 'newer published snapshot did not replace the retained gold quote';
+                if (!document.querySelector('#updatedKpi').textContent.includes('15:01'))
+                  return 'Updated did not follow the newer published snapshot';
                 const historicalEnd = new Date(Date.parse(`${document.querySelector('#dateRangeEndInput').value}T00:00:00Z`)
                   - 86400000).toISOString().slice(0, 10);
                 const endInput = document.querySelector('#dateRangeEndInput');
                 endInput.value = historicalEnd;
                 endInput.dispatchEvent(new Event('change', { bubbles: true }));
-                if (document.querySelector('#assetAPriceStatus').textContent
-                    || document.querySelector('#assetBPriceStatus').textContent)
+                if (document.querySelector('#assetAPriceStatus').dataset.kind !== 'published'
+                    || document.querySelector('#assetBPriceStatus').dataset.kind !== 'published')
                   return 'historical range kept current quote badges';
                 return '';
               })()
@@ -202,7 +264,7 @@ def main():
                 window.__dcaTestSocket.emit(90000, 'BTC-USD', new Date(Date.now()).toISOString());
                 const first = canvas.toDataURL();
                 if (first === metalImage) return 'home card ignored BTC quote';
-                window.__dcaTestSocket.emit(100000, 'BTC-USD', new Date(Date.now() + 1000).toISOString());
+                window.__dcaTestSocket.emit(100000, 'BTC-USD', new Date(Date.now()).toISOString());
                 const second = canvas.toDataURL();
                 if (second === first) return 'home card ignored the next BTC quote';
                 window.__comparisonCardBeforeStale = second;
@@ -213,14 +275,14 @@ def main():
               })()
             """)
             wait_for(lambda: cdp.evaluate("""
-              document.querySelector('#comparisonPreview')?.dataset.priceSource === 'published'
-            """), timeout=8, description="stale comparison preview fallback")
+              document.querySelector('#comparisonPreview')?.dataset.priceSource === 'retained'
+            """), timeout=8, description="retained comparison preview quote")
             assert_browser(cdp, """
               (() => {
                 const canvas = document.querySelector('#comparisonPreview');
                 Date.now = window.__comparisonRealNow;
-                return canvas.toDataURL() === window.__comparisonCardBeforeStale
-                  ? 'fallback did not redraw the home card' : '';
+                return canvas.toDataURL() !== window.__comparisonCardBeforeStale
+                  ? 'retained quote changed the home card values' : '';
               })()
             """)
             print("DCA Comparison dashboard and home card live quote regression passed.")
