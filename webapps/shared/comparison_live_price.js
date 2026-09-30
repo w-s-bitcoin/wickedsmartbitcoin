@@ -4,7 +4,8 @@
 
   const DAY_MS = 86400000;
   const POLL_MS = 60000;
-  const QUOTE_STALE_MS = 180000;
+  const QUOTE_LIVE_MS = 60000;
+  const SOURCE_STALE_MS = 180000;
   const REQUEST_TIMEOUT_MS = 12000;
   const METALS = { XAU: "XAU", XAG: "XAG" };
   const STOCKS = {
@@ -44,6 +45,11 @@
     return Number.isFinite(instant) ? instant : 0;
   }
 
+  function quoteIsLive(quote, now = Date.now()) {
+    return Number.isFinite(quote?.checkedAt)
+      && now >= quote.checkedAt && now - quote.checkedAt < QUOTE_LIVE_MS;
+  }
+
   function project(rows, quotes, now = Date.now(), publishedAt = 0) {
     if (!Array.isArray(rows) || !rows.length || !quotes) return { rows, appliedQuotes: {} };
     const today = utcDay(now);
@@ -79,6 +85,7 @@
     const quotes = {};
     let started = false;
     let pollTimer = 0;
+    let statusTimer = 0;
     let polling = false;
     const requests = new Set();
 
@@ -86,8 +93,23 @@
       const now = Date.now();
       return Object.fromEntries(Object.entries(quotes).map(([asset, quote]) => [asset, {
         ...quote,
-        live: quote.connected && now >= quote.checkedAt && now - quote.checkedAt < QUOTE_STALE_MS,
+        live: quoteIsLive(quote, now),
       }]));
+    }
+
+    function scheduleStatus() {
+      clearTimeout(statusTimer);
+      if (!started || document.visibilityState === "hidden") return;
+      const now = Date.now();
+      const expiries = Object.values(quotes)
+        .map((quote) => quote.checkedAt + QUOTE_LIVE_MS)
+        .filter((expiry) => expiry > now);
+      if (!expiries.length) return;
+      statusTimer = window.setTimeout(() => {
+        statusTimer = 0;
+        onQuote?.(current());
+        scheduleStatus();
+      }, Math.max(1, Math.min(...expiries) - now));
     }
 
     function markUnavailable(asset, notify = true) {
@@ -99,6 +121,7 @@
       if (!selected.has(asset) || !(Number(price) > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(day)
           || !Number.isFinite(checkedAt) || checkedAt < (quotes[asset]?.checkedAt || 0)) return false;
       quotes[asset] = { price: Number(price), day, checkedAt, source, delayLabel, connected: true };
+      scheduleStatus();
       if (notify) onQuote?.(current());
       return true;
     }
@@ -132,7 +155,7 @@
         const at = Date.parse(data?.updatedAt);
         if (data?.symbol !== asset || data.currency !== "USD" || !(Number(data.price) > 0)
             || !Number.isFinite(at)
-            || Math.abs(Date.now() - at) >= QUOTE_STALE_MS) {
+            || Math.abs(Date.now() - at) >= SOURCE_STALE_MS) {
           markUnavailable(asset, false);
           return;
         }
@@ -199,12 +222,14 @@
       if (started) return;
       started = true;
       btcFeed?.start();
+      scheduleStatus();
       schedulePoll(0);
     }
 
     function stop() {
       started = false;
       clearTimeout(pollTimer);
+      clearTimeout(statusTimer);
       for (const request of requests) request.abort();
       btcFeed?.stop();
       for (const asset of selected) markUnavailable(asset, false);
@@ -214,9 +239,11 @@
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "hidden") {
         clearTimeout(pollTimer);
+        clearTimeout(statusTimer);
         for (const request of requests) request.abort();
       } else if (started) {
         onQuote?.(current());
+        scheduleStatus();
         schedulePoll(0);
       }
     });
@@ -225,5 +252,5 @@
     return { start, stop, current };
   }
 
-  window.WSBComparisonLivePrice = Object.freeze({ project, withQuotes, create, lastEquitySessionDay, publishedInstant });
+  window.WSBComparisonLivePrice = Object.freeze({ project, withQuotes, create, lastEquitySessionDay, publishedInstant, quoteIsLive });
 }());
