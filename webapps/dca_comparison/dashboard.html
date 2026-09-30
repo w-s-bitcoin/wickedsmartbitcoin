@@ -372,7 +372,16 @@
 
     .comparison-price-status[data-kind="delayed"] { color: var(--muted); }
 
-    .comparison-price-status:empty { display: none; }
+    .comparison-price-status[data-kind="live"] {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--price-up);
+      vertical-align: 2px;
+    }
+
+    .comparison-price-status:empty:not([data-kind="live"]) { display: none; }
 
     .kpi-value {
       color: var(--fg);

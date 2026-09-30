@@ -2520,11 +2520,17 @@
       [hasB ? s.assetB : "", document.getElementById("assetBPriceStatus")]]) {
       if (!statusEl) continue;
       const quote = liveQuotes?.[asset];
-      statusEl.textContent = quote ? quote.delayLabel : "";
-      statusEl.dataset.kind = quote?.delayLabel === "Live" ? "live" : "delayed";
-      statusEl.closest(".kpi-card").title = quote
-        ? `${quote.source} price; ${quote.delayLabel.toLowerCase()}. Published daily history is the fallback.`
-        : "Price from the published daily snapshot.";
+      const isLive = quote?.delayLabel === "Live";
+      statusEl.textContent = quote && !isLive ? quote.delayLabel : "";
+      statusEl.dataset.kind = isLive ? "live" : quote ? "delayed" : "published";
+      const tooltip = isLive
+        ? `Green dot: this price is live from ${quote.source}, last updated ${new Date(quote.checkedAt).toLocaleString()}. Published daily prices are the fallback and historical source.`
+        : quote
+          ? `${quote.source} price; ${quote.delayLabel.toLowerCase()}. Published daily history is the fallback.`
+          : "Price from the published daily snapshot.";
+      statusEl.title = tooltip;
+      statusEl.setAttribute("aria-label", isLive ? "Live price" : quote?.delayLabel || "Published price");
+      statusEl.closest(".kpi-card").title = tooltip;
     }
     if (!latest) {
       el.assetAPrice.textContent = "";
