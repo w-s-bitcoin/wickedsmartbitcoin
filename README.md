@@ -41,6 +41,11 @@ playback and animation frames; an export ending at the latest published date
 captures the newest available quote for its final frame and hold. The DCA
 "Updated" time follows the accepted quote, while "Snapshot block" identifies
 the published price data generation.
+DCA Comparison uses current BTC/USD and gold/silver quotes plus delayed public
+quotes for SPY, QQQ, TLT, and MSTR. The selected assets' latest prices,
+valuations, and chart update in an open tab; the home card updates its default
+BTC/gold comparison. Equities are labeled with their feed delay (typically 15
+minutes). Published daily prices remain the fallback and historical source.
 
 ## Architecture
 
@@ -182,6 +187,8 @@ CHROME_BIN=/path/to/chromium python3 scripts/test_stage3_incremental_refresh.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_stage4_live_refresh.py
 node scripts/test_dca_live_price.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_dca_live_price_browser.py
+node scripts/test_comparison_live_price.mjs
+CHROME_BIN=/path/to/chromium python3 scripts/test_comparison_live_price_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_homepage_preview_refresh.py
 ```
 

@@ -184,6 +184,9 @@
     timeZone: DASHBOARD_TIME?.getPreferredTimeZone?.() || "UTC",
   };
   let chartRangeDragState = null;
+  let comparisonPriceFeed = null;
+  let livePricePresentationPending = false;
+  let lastLivePriceKey = "";
   let chartRangeResizeWheelRemainder = 0;
   let chartRangePanWheelRemainder = 0;
   let dcaRefreshPresentationPending = false;
@@ -1180,7 +1183,7 @@
     return { height: rows * cardH + (rows - 1) * gap };
   }
 
-  function drawExportFrame(canvas, iso, settings, outputDimensions = getExportDimensions(settings)) {
+  function drawExportFrame(canvas, iso, settings, outputDimensions = getExportDimensions(settings), liveRows = null) {
     const ctx = canvas.getContext("2d");
     const { width, height } = getExportBaseDimensions(settings);
     const outputWidth = Math.round(outputDimensions.width || width);
@@ -1212,7 +1215,7 @@
     }
     drawCenteredSegments(ctx, titleSegments, width / 2, titleY, `700 ${width < 900 ? 20 : 26}px ${getComputedStyle(document.body).fontFamily}`, "middle", width - 96);
 
-    const latest = buildSeries(iso, settings).at(-1);
+    const latest = buildSeries(liveRows?.at(-1)?.date || iso, settings, liveRows || state.rows).at(-1);
     const kpiY = 48;
     const kpiMetrics = drawExportKpiCards(ctx, buildExportKpis(latest, settings), {
       x: margin,
@@ -1235,6 +1238,7 @@
       scale: settings.scale,
       theme,
       settings,
+      liveRows,
       chartArea,
       skipBackground: true,
       skipExportFooter: true,
@@ -1966,7 +1970,31 @@
     markerEl.classList.add("active");
   }
 
-  function syncUpdatedKpi() {
+  function liveViewAllowed() {
+    const latestAvailable = getActiveAvailableBounds().maxIso;
+    return state.rows.length > 0 && !state.isPlaying && !state.paused && !state.isExporting
+      && state.settings.rangeEnd === latestAvailable && state.currentIso === latestAvailable;
+  }
+
+  function currentLiveRows(quotes = currentSelectedQuotes()) {
+    return liveViewAllowed()
+      ? window.WSBComparisonLivePrice?.withQuotes(state.rows, quotes) || state.rows
+      : state.rows;
+  }
+
+  function selectedLatestQuotes(quotes = comparisonPriceFeed?.current()) {
+    if (!quotes) return {};
+    const today = new Date().toISOString().slice(0, 10);
+    return Object.fromEntries([state.settings.assetA, state.settings.assetB]
+      .filter((asset) => quotes[asset]?.day === today)
+      .map((asset) => [asset, quotes[asset]]));
+  }
+
+  function currentSelectedQuotes(quotes = comparisonPriceFeed?.current()) {
+    return liveViewAllowed() ? selectedLatestQuotes(quotes) : {};
+  }
+
+  function syncUpdatedKpi(liveQuotes = currentSelectedQuotes()) {
     const row = state.rows[findDateIndexByMode(state.currentIso || state.settings.rangeEnd, "floor")]
       || state.rows[state.rows.length - 1];
     if (!row) {
@@ -1980,19 +2008,37 @@
       includeHeight: true,
       height: row.height,
     };
-    if (updatedTimeZoneChip) updatedTimeZoneChip.setUpdated(timestamp, options);
+    const quote = Object.values(liveQuotes).sort((a, b) => b.checkedAt - a.checkedAt)[0];
+    if (quote && updatedTimeZoneChip) {
+      const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: state.timeZone || "UTC", year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+        timeZoneName: "short",
+      }).formatToParts(new Date(quote.checkedAt));
+      const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+      const height = Number(state.rows[state.rows.length - 1]?.height);
+      const heightText = Number.isFinite(height) ? height.toLocaleString("en-US") : "-";
+      updatedTimeZoneChip.setText(`${values.year}-${values.month}-${values.day} `
+        + `${values.hour}:${values.minute}:${values.second} (${values.timeZoneName || state.timeZone || "UTC"})`
+        + ` | ${heightText}`);
+    } else if (updatedTimeZoneChip) updatedTimeZoneChip.setUpdated(timestamp, options);
     else if (el.updatedKpi) {
       const height = Number(row.height);
       const heightText = Number.isFinite(height) ? height.toLocaleString("en-US") : "-";
       el.updatedKpi.textContent = `${row.date} | ${heightText}`;
     }
+    const updatedChip = document.getElementById("chipUpdated");
+    if (updatedChip) updatedChip.title = quote
+      ? `${quote.source} price checked ${new Date(quote.checkedAt).toLocaleString()}`
+        + `${quote.delayLabel === "Live" ? "" : ` (${quote.delayLabel})`}. Block height is from the published snapshot.`
+      : `Published price snapshot at ${timestamp}; block height belongs to that snapshot.`;
   }
 
-  function syncControls() {
+  function syncControls(liveQuotes = currentSelectedQuotes()) {
     const s = state.settings;
     const available = getActiveAvailableBounds();
     const visual = getVisualBounds();
-    syncUpdatedKpi();
+    syncUpdatedKpi(liveQuotes);
     el.rangeStartInput.min = available.minIso; el.rangeStartInput.max = s.rangeEnd; el.rangeStartInput.value = s.rangeStart;
     el.rangeEndInput.min = s.rangeStart; el.rangeEndInput.max = available.maxIso; el.rangeEndInput.value = s.rangeEnd;
     if (el.rangeStartBtn) el.rangeStartBtn.innerHTML = datePickerButtonHtml(s.rangeStart);
@@ -2108,7 +2154,7 @@
     return iso.slice(8, 10) === "01";
   }
 
-  function buildSeries(endIso, settings = state.settings) {
+  function buildSeries(endIso, settings = state.settings, rows = state.rows) {
     const s = settings;
     const hasB = hasSecondaryAsset(s);
     let unitsA = 0;
@@ -2117,7 +2163,7 @@
     let count = 0;
     let capHitCount = 0;
     const points = [];
-    for (const r of state.rows) {
+    for (const r of rows) {
       if (r.date < s.rangeStart || r.date > endIso) continue;
       const priceA = r[s.assetA];
       const priceB = hasB ? r[s.assetB] : NaN;
@@ -2300,7 +2346,7 @@
     const assetA = ASSETS[chartSettings.assetA];
     const hasB = hasSecondaryAsset(chartSettings);
     const assetB = hasB ? ASSETS[chartSettings.assetB] : null;
-    const points = buildSeries(endIso, chartSettings);
+    const points = buildSeries(opts.liveRows?.at(-1)?.date || endIso, chartSettings, opts.liveRows || state.rows);
     const legendItems = [
       { label: "Amount Invested", color: green, textColor: muted },
       { label: `${assetA.label} DCA Value`, color: assetA.color, textColor: muted },
@@ -2455,12 +2501,12 @@
       ctx.font = `26px ${getComputedStyle(document.body).fontFamily}`;
       if (!opts.skipExportFooter) ctx.fillText("https://wickedsmartbitcoin.com/dca_comparison", localW / 2, localH - 28);
     }
-    if (!opts.export) updateKpis(latest);
+    if (!opts.export) updateKpis(latest, opts.liveRows ? opts.liveQuotes : null);
     if (chartArea) ctx.restore();
     return { points, latest };
   }
 
-  function updateKpis(latest) {
+  function updateKpis(latest, liveQuotes = null) {
     const s = state.settings;
     const a = ASSETS[s.assetA];
     const hasB = hasSecondaryAsset(s);
@@ -2470,6 +2516,16 @@
     el.assetBPriceTitle.closest(".kpi-card")?.toggleAttribute("hidden", !hasB);
     el.assetBDcaTitle.closest(".kpi-card")?.toggleAttribute("hidden", !hasB);
     el.assetBPriceTitle.textContent = hasB ? `1 ${assetUnitPhrase(s.assetB)}` : "";
+    for (const [asset, statusEl] of [[s.assetA, document.getElementById("assetAPriceStatus")],
+      [hasB ? s.assetB : "", document.getElementById("assetBPriceStatus")]]) {
+      if (!statusEl) continue;
+      const quote = liveQuotes?.[asset];
+      statusEl.textContent = quote ? quote.delayLabel : "";
+      statusEl.dataset.kind = quote?.delayLabel === "Live" ? "live" : "delayed";
+      statusEl.closest(".kpi-card").title = quote
+        ? `${quote.source} price; ${quote.delayLabel.toLowerCase()}. Published daily history is the fallback.`
+        : "Price from the published daily snapshot.";
+    }
     if (!latest) {
       el.assetAPrice.textContent = "";
       el.assetBPrice.textContent = "";
@@ -2537,8 +2593,13 @@
     if (!state.rows.length) return;
     normalizeSettings();
     normalizeExportSettings();
-    syncControls();
-    drawChart(el.canvas, state.currentIso || state.settings.rangeEnd);
+    const quotes = currentSelectedQuotes();
+    const liveRows = currentLiveRows(quotes);
+    const appliedQuotes = liveRows === state.rows ? {} : quotes;
+    syncControls(appliedQuotes);
+    drawChart(el.canvas, state.currentIso || state.settings.rangeEnd,
+      liveRows === state.rows ? {} : { liveRows, liveQuotes: appliedQuotes });
+    livePricePresentationPending = false;
     saveSettings();
     updateResetButtonUi();
   }
@@ -3212,6 +3273,10 @@
   }
 
   async function encodeExportWebM({ canvas, settings, frameDates }) {
+    const finalDate = frameDates[frameDates.length - 1];
+    const finalFrameStart = finalDate === state.maxIso
+      ? frameDates.findLastIndex((date) => date !== finalDate) + 1 : -1;
+    let finalLiveRows = null;
     return window.WSBDashboardExport.encodeWebM({
       canvas,
       width: canvas.width,
@@ -3223,7 +3288,14 @@
       bitrate: getExportBitrate(settings),
       isCanceled: () => state.exportCancelRequested,
       onProgress: renderExportProgress,
-      renderFrame: (iso) => drawExportFrame(canvas, iso, settings, { width: canvas.width, height: canvas.height }),
+      renderFrame: (iso, _canvas, frame) => {
+        if (finalFrameStart >= 0 && frame >= finalFrameStart && !finalLiveRows) {
+          finalLiveRows = window.WSBComparisonLivePrice?.withQuotes(
+            state.rows, selectedLatestQuotes(), Date.now()) || state.rows;
+        }
+        drawExportFrame(canvas, iso, settings, { width: canvas.width, height: canvas.height },
+          finalFrameStart >= 0 && frame >= finalFrameStart ? finalLiveRows : null);
+      },
     });
   }
 
@@ -3751,6 +3823,7 @@
     ) return false;
     render();
     dcaRefreshPresentationPending = false;
+    livePricePresentationPending = false;
     return true;
   }
 
@@ -3804,6 +3877,39 @@
     });
   }
 
+  function presentPendingLivePrice() {
+    if (!livePricePresentationPending || !state.rows.length || dcaRefreshPresentationPending
+        || document.visibilityState !== "visible" || state.isPlaying || state.paused
+        || state.isExporting || state.drag || chartRangeDragState) return;
+    const active = document.activeElement;
+    if (active?.isContentEditable || active?.tagName === "TEXTAREA"
+        || (active?.tagName === "INPUT" && ["text", "search", "number", "date"].includes(active.type))) return;
+    render();
+  }
+
+  function registerComparisonPriceFeed() {
+    comparisonPriceFeed = window.WSBComparisonLivePrice?.create({
+      onQuote: (quotes) => {
+        if (!state.rows.length) return;
+        const selected = currentSelectedQuotes(quotes);
+        syncUpdatedKpi(selected);
+        const key = [state.settings.assetA, state.settings.assetB].map((asset) => {
+          const quote = selected[asset];
+          return quote ? `${asset}:${quote.day}:${quote.price}:${quote.delayLabel}` : `${asset}:published`;
+        }).join("|");
+        if (key !== lastLivePriceKey) {
+          lastLivePriceKey = key;
+          livePricePresentationPending = true;
+          presentPendingLivePrice();
+        }
+      },
+    });
+    comparisonPriceFeed?.start();
+    document.addEventListener("visibilitychange", presentPendingLivePrice);
+    document.addEventListener("focusout", () => window.setTimeout(presentPendingLivePrice, 0));
+    window.addEventListener("pointerup", () => window.setTimeout(presentPendingLivePrice, 0));
+  }
+
   async function init() {
     try {
       primeKeyboardFocus();
@@ -3833,6 +3939,7 @@
       render();
       DASHBOARD_COMPONENTS.setChartLoaderVisible?.(el.chartLoader, false);
       registerDataRefreshAdapter();
+      registerComparisonPriceFeed();
       primeKeyboardFocus();
       if (state.pendingSpacePlayback) {
         state.pendingSpacePlayback = false;
