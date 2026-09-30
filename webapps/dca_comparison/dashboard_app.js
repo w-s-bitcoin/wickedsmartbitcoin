@@ -1976,17 +1976,17 @@
       && state.settings.rangeEnd === latestAvailable && state.currentIso === latestAvailable;
   }
 
-  function currentLiveRows(quotes = currentSelectedQuotes()) {
+  function currentPriceProjection(quotes = currentSelectedQuotes()) {
     return liveViewAllowed()
-      ? window.WSBComparisonLivePrice?.withQuotes(state.rows, quotes) || state.rows
-      : state.rows;
+      ? window.WSBComparisonLivePrice?.project(state.rows, quotes, Date.now(), dcaInstalledDataSignature)
+        || { rows: state.rows, appliedQuotes: {} }
+      : { rows: state.rows, appliedQuotes: {} };
   }
 
   function selectedLatestQuotes(quotes = comparisonPriceFeed?.current()) {
     if (!quotes) return {};
-    const today = new Date().toISOString().slice(0, 10);
     return Object.fromEntries([state.settings.assetA, state.settings.assetB]
-      .filter((asset) => quotes[asset]?.day === today)
+      .filter((asset) => quotes[asset])
       .map((asset) => [asset, quotes[asset]]));
   }
 
@@ -2002,9 +2002,12 @@
       else if (el.updatedKpi) el.updatedKpi.textContent = "-";
       return;
     }
-    const timestamp = row.timestamp || row.date;
+    const publicationAt = liveViewAllowed()
+      ? window.WSBComparisonLivePrice?.publishedInstant(dcaInstalledDataSignature) : 0;
+    const timestamp = publicationAt
+      ? new Date(publicationAt).toISOString() : row.timestamp || row.date;
     const options = {
-      mode: row.timestamp ? "timestamp" : "date",
+      mode: publicationAt || row.timestamp ? "timestamp" : "date",
       includeHeight: true,
       height: row.height,
     };
@@ -2029,7 +2032,7 @@
     }
     const updatedChip = document.getElementById("chipUpdated");
     if (updatedChip) updatedChip.title = quote
-      ? `${quote.source} price checked ${new Date(quote.checkedAt).toLocaleString()}`
+      ? `${quote.live ? "Current" : "Last retained"} ${quote.source} price from ${new Date(quote.checkedAt).toLocaleString()}`
         + `${quote.delayLabel === "Live" ? "" : ` (${quote.delayLabel})`}. Block height is from the published snapshot.`
       : `Published price snapshot at ${timestamp}; block height belongs to that snapshot.`;
   }
@@ -2501,12 +2504,12 @@
       ctx.font = `26px ${getComputedStyle(document.body).fontFamily}`;
       if (!opts.skipExportFooter) ctx.fillText("https://wickedsmartbitcoin.com/dca_comparison", localW / 2, localH - 28);
     }
-    if (!opts.export) updateKpis(latest, opts.liveRows ? opts.liveQuotes : null);
+    if (!opts.export) updateKpis(latest, opts.statusQuotes, opts.appliedQuotes);
     if (chartArea) ctx.restore();
     return { points, latest };
   }
 
-  function updateKpis(latest, liveQuotes = null) {
+  function updateKpis(latest, statusQuotes = null, appliedQuotes = null) {
     const s = state.settings;
     const a = ASSETS[s.assetA];
     const hasB = hasSecondaryAsset(s);
@@ -2519,17 +2522,24 @@
     for (const [asset, statusEl] of [[s.assetA, document.getElementById("assetAPriceStatus")],
       [hasB ? s.assetB : "", document.getElementById("assetBPriceStatus")]]) {
       if (!statusEl) continue;
-      const quote = liveQuotes?.[asset];
-      const isLive = quote?.delayLabel === "Live";
-      statusEl.textContent = quote && !isLive ? quote.delayLabel : "";
-      statusEl.dataset.kind = isLive ? "live" : quote ? "delayed" : "published";
+      const quote = statusQuotes?.[asset];
+      const applied = Boolean(appliedQuotes?.[asset]);
+      const isLive = applied && quote?.live && quote.delayLabel === "Live";
+      const isDelayed = applied && quote?.live && !isLive;
+      statusEl.textContent = isDelayed ? quote.delayLabel : "";
+      statusEl.dataset.kind = isLive ? "live" : isDelayed ? "delayed" : quote ? "stale" : "published";
       const tooltip = isLive
         ? `Green dot: this price is live from ${quote.source}, last updated ${new Date(quote.checkedAt).toLocaleString()}. Published daily prices are the fallback and historical source.`
-        : quote
+        : isDelayed
           ? `${quote.source} price; ${quote.delayLabel.toLowerCase()}. Published daily history is the fallback.`
+          : quote && applied
+            ? `Gray dot: showing the last ${quote.source} price from ${new Date(quote.checkedAt).toLocaleString()}; the feed is no longer current. A newer published snapshot will replace it.`
+            : quote
+              ? `Gray dot: the published snapshot is newer than the last ${quote.source} quote. The price shown comes from the published snapshot.`
           : "Price from the published daily snapshot.";
       statusEl.title = tooltip;
-      statusEl.setAttribute("aria-label", isLive ? "Live price" : quote?.delayLabel || "Published price");
+      statusEl.setAttribute("aria-label", isLive ? "Live price" : isDelayed ? quote.delayLabel
+        : quote ? "Price no longer live" : "Published price");
       statusEl.closest(".kpi-card").title = tooltip;
     }
     if (!latest) {
@@ -2599,12 +2609,11 @@
     if (!state.rows.length) return;
     normalizeSettings();
     normalizeExportSettings();
-    const quotes = currentSelectedQuotes();
-    const liveRows = currentLiveRows(quotes);
-    const appliedQuotes = liveRows === state.rows ? {} : quotes;
+    const statusQuotes = currentSelectedQuotes();
+    const { rows: projectedRows, appliedQuotes } = currentPriceProjection(statusQuotes);
     syncControls(appliedQuotes);
     drawChart(el.canvas, state.currentIso || state.settings.rangeEnd,
-      liveRows === state.rows ? {} : { liveRows, liveQuotes: appliedQuotes });
+      { liveRows: projectedRows === state.rows ? null : projectedRows, statusQuotes, appliedQuotes });
     livePricePresentationPending = false;
     saveSettings();
     updateResetButtonUi();
@@ -3297,7 +3306,7 @@
       renderFrame: (iso, _canvas, frame) => {
         if (finalFrameStart >= 0 && frame >= finalFrameStart && !finalLiveRows) {
           finalLiveRows = window.WSBComparisonLivePrice?.withQuotes(
-            state.rows, selectedLatestQuotes(), Date.now()) || state.rows;
+            state.rows, selectedLatestQuotes(), Date.now(), dcaInstalledDataSignature) || state.rows;
         }
         drawExportFrame(canvas, iso, settings, { width: canvas.width, height: canvas.height },
           finalFrameStart >= 0 && frame >= finalFrameStart ? finalLiveRows : null);
@@ -3833,7 +3842,7 @@
     return true;
   }
 
-  function commitRefreshCandidate(candidate) {
+  function commitRefreshCandidate(candidate, context = {}) {
     const playbackSnapshot = (state.isPlaying || state.paused) ? {
       rangeStart: state.settings.rangeStart,
       rangeEnd: state.settings.rangeEnd,
@@ -3846,6 +3855,7 @@
       manualRangeSelection: state.manualRangeSelection,
     } : null;
     commitDataCandidate(candidate);
+    if (context.signatureParts?.[0]) dcaInstalledDataSignature = context.signatureParts[0];
     normalizeSettings();
     if (playbackSnapshot) {
       const available = getActiveAvailableBounds();
@@ -3898,10 +3908,11 @@
       onQuote: (quotes) => {
         if (!state.rows.length) return;
         const selected = currentSelectedQuotes(quotes);
-        syncUpdatedKpi(selected);
+        const applied = currentPriceProjection(selected).appliedQuotes;
+        syncUpdatedKpi(applied);
         const key = [state.settings.assetA, state.settings.assetB].map((asset) => {
           const quote = selected[asset];
-          return quote ? `${asset}:${quote.day}:${quote.price}:${quote.delayLabel}` : `${asset}:published`;
+          return quote ? `${asset}:${quote.day}:${quote.price}:${quote.delayLabel}:${quote.live}:${Boolean(applied[asset])}` : `${asset}:published`;
         }).join("|");
         if (key !== lastLivePriceKey) {
           lastLivePriceKey = key;
