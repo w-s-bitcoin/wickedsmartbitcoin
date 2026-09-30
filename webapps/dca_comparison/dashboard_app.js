@@ -2529,11 +2529,11 @@
       statusEl.textContent = isDelayed ? quote.delayLabel : "";
       statusEl.dataset.kind = isLive ? "live" : isDelayed ? "delayed" : quote ? "stale" : "published";
       const tooltip = isLive
-        ? `Green dot: this price is live from ${quote.source}, last updated ${new Date(quote.checkedAt).toLocaleString()}. Published daily prices are the fallback and historical source.`
+        ? `Green dot: ${quote.source} supplied this price within the last 60 seconds, at ${new Date(quote.checkedAt).toLocaleString()}. Published daily prices are the fallback and historical source.`
         : isDelayed
           ? `${quote.source} price; ${quote.delayLabel.toLowerCase()}. Published daily history is the fallback.`
           : quote && applied
-            ? `Gray dot: showing the last ${quote.source} price from ${new Date(quote.checkedAt).toLocaleString()}; the feed is no longer current. A newer published snapshot will replace it.`
+            ? `Gray dot: showing the last ${quote.source} price from ${new Date(quote.checkedAt).toLocaleString()}; no live update arrived in the last 60 seconds. A newer published snapshot will replace it.`
             : quote
               ? `Gray dot: the published snapshot is newer than the last ${quote.source} quote. The price shown comes from the published snapshot.`
           : "Price from the published daily snapshot.";
