@@ -123,7 +123,7 @@ def main():
             try:
                 wait_for(lambda: cdp.evaluate("""
                   document.querySelector('#chartCanvas')?.width > 0
-                  && document.querySelector('#assetBPriceStatus')?.textContent === 'Live'
+                  && document.querySelector('#assetBPriceStatus')?.dataset.kind === 'live'
                   && window.__dcaTestSocket?.subscription?.channels?.[0] === 'ticker_batch'
                   && document.querySelector('#errorBox')?.hidden
                 """), timeout=25, description="DCA Comparison data, metal quote and BTC socket")
@@ -148,8 +148,10 @@ def main():
                 const firstImage = document.querySelector('#chartCanvas').toDataURL();
                 const firstValue = document.querySelector('#assetADcaValue').textContent;
                 window.__dcaTestSocket.emit(90000, 'BTC-USD', new Date(Date.now()).toISOString());
-                if (document.querySelector('#assetAPriceStatus').textContent !== 'Live')
-                  return 'BTC live status missing';
+                const btcStatus = document.querySelector('#assetAPriceStatus');
+                if (btcStatus.dataset.kind !== 'live' || btcStatus.textContent
+                    || !btcStatus.closest('.kpi-card').title.includes('Green dot:'))
+                  return 'BTC live dot or tooltip missing';
                 if (document.querySelector('#assetAPrice').textContent !== '$90,000')
                   return 'BTC live price missing';
                 if (document.querySelector('#assetADcaValue').textContent === firstValue)
@@ -168,8 +170,14 @@ def main():
                   if (document.querySelector('#assetBPrice').textContent !== expected)
                     return `${asset} current price did not reach its KPI`;
                   const status = document.querySelector('#assetBPriceStatus').textContent;
-                  if (status !== (['XAG', 'XAU'].includes(asset) ? 'Live' : '15m delayed'))
+                  const indicator = document.querySelector('#assetBPriceStatus');
+                  if (['XAG', 'XAU'].includes(asset)) {
+                    if (status || indicator.dataset.kind !== 'live'
+                        || !indicator.closest('.kpi-card').title.includes('Green dot:'))
+                      return `${asset} live dot or tooltip missing`;
+                  } else if (status !== '15m delayed' || indicator.dataset.kind !== 'delayed') {
                     return `${asset} source delay is not identified`;
+                  }
                 }
                 const historicalEnd = new Date(Date.parse(`${document.querySelector('#dateRangeEndInput').value}T00:00:00Z`)
                   - 86400000).toISOString().slice(0, 10);
