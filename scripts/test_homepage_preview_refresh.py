@@ -276,7 +276,9 @@ FETCH_HARNESS_TEMPLATE = r"""
   if (!spec) return;
   // Publication-refresh fixtures are deterministic; live spot behavior has a
   // separate browser regression and must not repaint during marker assertions.
-  if (pathname === '/webapps/dca_cost_basis/preview.html') window.WebSocket = undefined;
+  const hasLiveSpot = ['/webapps/dca_comparison/preview.html',
+    '/webapps/dca_cost_basis/preview.html'].includes(pathname);
+  if (hasLiveSpot) window.WebSocket = undefined;
   const nativeFetch = window.fetch.bind(window);
   const loadKey = `wsb-stage5-load-count:${pathname}`;
   const loadCount = Number(sessionStorage.getItem(loadKey) || '0') + 1;
@@ -378,8 +380,8 @@ FETCH_HARNESS_TEMPLATE = r"""
   window.fetch = async (input, init) => {
     const raw = typeof input === 'string' ? input : input?.url;
     const url = new URL(raw, document.baseURI);
-    if (pathname === '/webapps/dca_cost_basis/preview.html' &&
-        /^(api\.exchange\.coinbase\.com|api\.coinbase\.com|api\.kraken\.com|mempool\.space)$/.test(url.hostname)) {
+    if (hasLiveSpot &&
+        /^(api\.exchange\.coinbase\.com|api\.coinbase\.com|api\.kraken\.com|mempool\.space|api\.gold-api\.com|scanner\.tradingview\.com)$/.test(url.hostname)) {
       throw new TypeError('Live price provider intentionally offline in publication fixture');
     }
     const target = url.pathname;

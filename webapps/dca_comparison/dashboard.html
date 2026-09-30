@@ -8,6 +8,8 @@
   <script src="../shared/dashboard_embed_modal.js"></script>
   <script src="../shared/dashboard_components.js"></script>
   <script src="../shared/dashboard_export.js"></script>
+  <script src="../shared/bitcoin_spot_price.js"></script>
+  <script src="../shared/comparison_live_price.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -361,6 +363,16 @@
       white-space: nowrap;
       align-self: end;
     }
+
+    .comparison-price-status {
+      color: var(--price-up);
+      font-size: 0.78em;
+      margin-left: 0.45em;
+    }
+
+    .comparison-price-status[data-kind="delayed"] { color: var(--muted); }
+
+    .comparison-price-status:empty { display: none; }
 
     .kpi-value {
       color: var(--fg);
@@ -2490,12 +2502,12 @@
       </div>
       <div class="chips kpi-cards" id="statusChips">
         <article class="kpi-card">
-          <div class="kpi-title" id="assetAPriceTitle">1 bitcoin</div>
+          <div class="kpi-title"><span id="assetAPriceTitle">1 bitcoin</span><span id="assetAPriceStatus" class="comparison-price-status"></span></div>
           <div class="kpi-value" id="assetAPrice"></div>
           <div class="kpi-foot" id="assetAPriceLabel"></div>
         </article>
         <article class="kpi-card">
-          <div class="kpi-title" id="assetBPriceTitle">1 oz gold</div>
+          <div class="kpi-title"><span id="assetBPriceTitle">1 oz gold</span><span id="assetBPriceStatus" class="comparison-price-status"></span></div>
           <div class="kpi-value" id="assetBPrice"></div>
           <div class="kpi-foot" id="assetBPriceLabel"></div>
         </article>

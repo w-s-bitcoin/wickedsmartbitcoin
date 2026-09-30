@@ -23,6 +23,8 @@
   let installedPublicationSignature = "";
   let installedBounds = null;
   let refresher = null;
+  let priceFeed = null;
+  let lastLivePriceKey = "";
 
   function parseCsv(text) {
     const rows = [];
@@ -177,9 +179,9 @@
     };
   }
 
-  function buildDefaultSeries() {
-    if (!cachedRows.length) return [];
-    const endIso = cachedRows[cachedRows.length - 1].date;
+  function buildDefaultSeries(rows = cachedRows) {
+    if (!rows.length) return [];
+    const endIso = rows[rows.length - 1].date;
     const rawStartIso = subtractCalendarYears(endIso, DEFAULT_RANGE_YEARS);
     const startIso = getNextFridayIso(rawStartIso);
     let unitsA = 0;
@@ -187,7 +189,7 @@
     let invested = 0;
     const points = [];
 
-    for (const row of cachedRows) {
+    for (const row of rows) {
       if (row.date < startIso || row.date > endIso) continue;
       if (dayDiff(startIso, row.date) % 7 === 0) {
         invested += DEFAULT_AMOUNT;
@@ -245,7 +247,9 @@
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const points = buildDefaultSeries();
+    const liveRows = window.WSBComparisonLivePrice?.withQuotes(cachedRows, priceFeed?.current()) || cachedRows;
+    canvas.dataset.priceSource = liveRows === cachedRows ? "published" : "live";
+    const points = buildDefaultSeries(liveRows);
     if (points.length < 2) {
       renderFallback();
       return;
@@ -354,6 +358,20 @@
       },
     });
     refresher.start();
+    priceFeed = window.WSBComparisonLivePrice?.create({
+      assets: ["BTC", "XAU"],
+      onQuote: (quotes) => {
+        const key = ["BTC", "XAU"].map((asset) => {
+          const quote = quotes[asset];
+          return quote ? `${asset}:${quote.day}:${quote.price}` : `${asset}:published`;
+        }).join("|");
+        if (key !== lastLivePriceKey) {
+          lastLivePriceKey = key;
+          requestPresent("spot");
+        }
+      },
+    });
+    priceFeed?.start();
   }
 
   init();
