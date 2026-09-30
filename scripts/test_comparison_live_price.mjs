@@ -7,7 +7,7 @@ const source = readFileSync(new URL('../webapps/shared/comparison_live_price.js'
 const sandbox = { window: {}, Date, Intl };
 vm.createContext(sandbox);
 vm.runInContext(source, sandbox);
-const { project, withQuotes, lastEquitySessionDay, publishedInstant } = sandbox.window.WSBComparisonLivePrice;
+const { project, withQuotes, lastEquitySessionDay, publishedInstant, quoteIsLive } = sandbox.window.WSBComparisonLivePrice;
 
 const now = Date.parse('2026-09-30T15:00:00Z');
 const rows = [{ date: '2026-09-29', BTC: 80000, XAU: 4100, XAG: 49,
@@ -18,6 +18,11 @@ const quotes = {
   SPY: { price: 765, day: '2026-09-30', checkedAt: now - 3000 },
   QQQ: { price: 999, day: '2026-09-29', checkedAt: now - 3000 },
 };
+const disconnected = { checkedAt: now, connected: false };
+assert.equal(quoteIsLive(disconnected, now + 59999), true,
+  'a brief feed outage keeps the status green');
+assert.equal(quoteIsLive(disconnected, now + 60000), false,
+  'the status turns gray after 60 seconds without a new quote');
 let result = withQuotes(rows, quotes, now);
 assert.equal(result.length, 2);
 assert.equal(result.at(-1).date, '2026-09-30');
@@ -50,4 +55,45 @@ assert.equal(withQuotes([{ ...rows[0], date: '2026-09-27' }], quotes, now).lengt
 assert.equal(lastEquitySessionDay(Date.parse('2026-09-29T15:00:00Z')), '2026-09-29');
 assert.equal(lastEquitySessionDay(Date.parse('2026-09-30T05:00:00Z')), '2026-09-29');
 assert.equal(lastEquitySessionDay(Date.parse('2026-09-27T15:00:00Z')), '2026-09-25');
+
+let clock = now;
+let feedQuote;
+let nextTimer = 0;
+const timers = new Map();
+const statusChanges = [];
+const timerWindow = {
+  addEventListener() {},
+  setTimeout(callback, delay) {
+    const id = ++nextTimer;
+    timers.set(id, { callback, delay });
+    return id;
+  },
+  WSBBitcoinSpotPrice: {
+    create({ onQuote }) {
+      feedQuote = onQuote;
+      return { start() {}, stop() {} };
+    },
+  },
+};
+const timerSandbox = {
+  window: timerWindow,
+  document: { visibilityState: 'visible', addEventListener() {} },
+  Date: class extends Date { static now() { return clock; } },
+  Intl,
+  clearTimeout(id) { timers.delete(id); },
+};
+vm.createContext(timerSandbox);
+vm.runInContext(source, timerSandbox);
+const feed = timerWindow.WSBComparisonLivePrice.create({
+  assets: ['BTC'], onQuote: (current) => statusChanges.push(current.BTC?.live),
+});
+feed.start();
+feedQuote({ price: 81000, at: now, source: 'fixture' });
+feedQuote(null);
+assert.equal(statusChanges.at(-1), true, 'feed failure must keep the dot green during the grace period');
+const expiry = [...timers.values()].find((timer) => timer.delay === 60000);
+assert.ok(expiry, 'a status update is scheduled for the 60-second boundary');
+clock += 60000;
+expiry.callback();
+assert.equal(statusChanges.at(-1), false, 'the timer must turn the dot gray without a user action');
 console.log('DCA Comparison current-day price calculations passed.');

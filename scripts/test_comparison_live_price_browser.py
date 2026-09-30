@@ -165,6 +165,13 @@ def main():
                 if (btcStatus.dataset.kind !== 'live' || btcStatus.textContent
                     || !btcStatus.closest('.kpi-card').title.includes('Green dot:'))
                   return 'BTC live dot or tooltip missing';
+                for (const indicator of [btcStatus, document.querySelector('#assetBPriceStatus')]) {
+                  const card = indicator.closest('.kpi-card').getBoundingClientRect();
+                  const dot = indicator.getBoundingClientRect();
+                  if (Math.abs(dot.left - card.left - 11) > 2
+                      || Math.abs(dot.top - card.top - 11) > 2)
+                    return 'live dot is not in the card top-left corner';
+                }
                 if (document.querySelector('#assetAPrice').textContent !== '$90,000')
                   return 'BTC live price missing';
                 if (document.querySelector('#assetADcaValue').textContent === firstValue)
@@ -194,7 +201,12 @@ def main():
                 }
                 const finalChart = document.querySelector('#chartCanvas').toDataURL();
                 window.__comparisonRealNow = Date.now;
-                Date.now = () => window.__comparisonRealNow() + 182000;
+                Date.now = () => window.__comparisonRealNow() + 59999;
+                window.dispatchEvent(new Event('resize'));
+                if (btcStatus.dataset.kind !== 'live'
+                    || document.querySelector('#assetBPriceStatus').dataset.kind !== 'live')
+                  return 'a price dot turned gray before 60 seconds without an update';
+                Date.now = () => window.__comparisonRealNow() + 60000;
                 window.dispatchEvent(new Event('resize'));
                 if (btcStatus.dataset.kind !== 'stale'
                     || !btcStatus.closest('.kpi-card').title.includes('Gray dot:')
@@ -269,7 +281,7 @@ def main():
                 if (second === first) return 'home card ignored the next BTC quote';
                 window.__comparisonCardBeforeStale = second;
                 window.__comparisonRealNow = Date.now;
-                Date.now = () => window.__comparisonRealNow() + 182000;
+                Date.now = () => window.__comparisonRealNow() + 60000;
                 window.dispatchEvent(new Event('resize'));
                 return '';
               })()
