@@ -379,11 +379,6 @@
       right: auto;
     }
     .issuance-settings-panel {
-      position: absolute;
-      top: calc(100% + 8px);
-      left: var(--issuance-settings-panel-left, 0px);
-      width: min(440px, calc(100vw - 32px));
-      max-height: var(--issuance-settings-panel-max-height, min(72vh, 560px));
       overflow-x: hidden;
       overflow-y: auto;
       padding: 12px;
@@ -391,7 +386,6 @@
       border-radius: 12px;
       background: var(--card-bg);
       box-shadow: 0 12px 34px rgba(0, 0, 0, 0.32);
-      z-index: 1200;
       display: none;
     }
     .issuance-settings-panel.open {
@@ -1373,7 +1367,7 @@
           </div>
           <div class="filters-menu-wrap issuance-settings-menu-wrap">
             <button class="info-btn filters-btn issuance-settings-btn" type="button" id="issuanceSettingsBtn" aria-label="Show dashboard settings" aria-haspopup="dialog" aria-expanded="false" aria-controls="issuanceSettingsPanel" data-title-settings-button></button>
-            <div class="issuance-settings-panel" id="issuanceSettingsPanel" role="dialog" aria-label="Dashboard settings">
+            <dialog class="issuance-settings-panel title-settings-dialog" id="issuanceSettingsPanel" aria-label="Dashboard settings">
               <div class="issuance-settings-panel-header">
                 <h2 class="issuance-settings-panel-title">Dashboard Settings</h2>
                 <button id="issuanceSettingsClose" type="button" class="issuance-settings-panel-close" aria-label="Close settings">×</button>
@@ -1396,7 +1390,7 @@
                   Daily Calculations Use Selected Time Zone
                 </label>
               </div>
-            </div>
+            </dialog>
           </div>
         </div>
       </div>

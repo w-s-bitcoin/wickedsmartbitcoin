@@ -622,11 +622,6 @@
       color: var(--muted);
     }
     .filters-panel {
-      position: absolute;
-      top: calc(100% + 8px);
-      left: var(--filters-panel-left, 0px);
-      width: min(440px, calc(100vw - 32px));
-      max-height: var(--filters-panel-max-height, min(72vh, 560px));
       overflow-x: hidden;
       overflow-y: auto;
       padding: 12px;
@@ -634,7 +629,6 @@
       border-radius: 12px;
       background: var(--card-bg);
       box-shadow: 0 12px 34px rgba(0, 0, 0, 0.32);
-      z-index: 1200;
       display: none;
     }
     .filters-panel.open {
@@ -898,12 +892,6 @@
       color: #0066ff;
     }
     @media (max-width: 700px) {
-      .filters-panel {
-        width: min(360px, calc(100vw - 28px));
-        max-height: var(--filters-panel-max-height, min(70vh, 560px));
-        overflow-x: hidden;
-        overflow-y: auto;
-      }
     }
     .side-panel-btn svg {
       width: 14px;
@@ -2882,7 +2870,7 @@
             <button class="info-btn filters-btn" type="button" id="filtersBtn" aria-label="Show Patoshi filters" aria-haspopup="dialog" aria-expanded="false" aria-controls="filtersPanel">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5.5h8.3M16.7 5.5H21M3 12h4.3M12.7 12H21M3 18.5h10.3M18.7 18.5H21"></path><circle cx="14" cy="5.5" r="2.65"></circle><circle cx="10" cy="12" r="2.65"></circle><circle cx="16" cy="18.5" r="2.65"></circle></svg>
             </button>
-            <div class="filters-panel" id="filtersPanel" role="dialog" aria-label="Patoshi settings">
+            <dialog class="filters-panel title-settings-dialog" id="filtersPanel" aria-label="Patoshi settings">
               <div class="filters-panel-header">
                 <h2 class="filters-panel-title">Dashboard Settings</h2>
                 <button id="filtersClose" type="button" class="spent-rewards-panel-close filters-panel-close" aria-label="Close settings">×</button>
@@ -2963,7 +2951,7 @@
                 <div class="filter-control-row filter-setting-row"><label class="filter-setting-label" for="countMetric">Block Count Sub-metric</label><span class="pill"><div id="countMetricDropdown" class="dca-dropdown"><span id="countMetricDropdownValue" class="dca-dropdown-value">Time Since Last</span><button id="countMetricDropdownTrigger" type="button" class="dca-dropdown-trigger" aria-label="Block count sub-metric"></button><div id="countMetricDropdownMenu" class="dca-dropdown-menu" aria-label="Block count sub-metric options"></div></div><select id="countMetric" class="patoshi-native-select"><option value="spent">Spent</option><option value="time">Time Since Last</option></select></span></div>
                 <div class="filter-control-row filter-setting-row"><label class="filter-setting-label" for="yMaxInput">Y Max</label><span class="pill y-max-pill"><input id="yMaxInput" class="y-max-input" type="text" inputmode="numeric" aria-label="Y maximum value" /><div id="yModeDropdown" class="dca-dropdown y-max-dropdown"><span id="yModeDropdownValue" class="dca-dropdown-value">Rolling Patoshi</span><button id="yModeDropdownTrigger" type="button" class="dca-dropdown-trigger" aria-label="Y maximum mode"></button><div id="yModeDropdownMenu" class="dca-dropdown-menu" aria-label="Y maximum options"></div></div><select id="yMode" class="patoshi-native-select"><option value="rolling_patoshi">Rolling Patoshi</option><option value="window_patoshi">Window Patoshi</option><option value="window_all">Window All</option><option value="custom">Custom Fixed</option></select></span></div>
               </div>
-            </div>
+            </dialog>
           </div>
           <button class="info-btn side-panel-btn" type="button" id="spentRewardsPanelBtn" aria-label="Show spent pre-100,000 coinbase rewards" aria-expanded="false">
             <svg class="side-panel-icon-closed" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M15 4v16"></path></svg>
