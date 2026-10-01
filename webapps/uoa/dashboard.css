@@ -523,6 +523,34 @@ body.uoa-dashboard-expanded .topbar {
   min-width: 7ch;
 }
 
+#pairKpiValue .pair-leg {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#pairKpiValue .pair-status {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: #888f99;
+}
+
+#pairKpiValue .pair-status[data-kind="live"] {
+  background: #28d17c;
+}
+
+#pairKpiValue .pair-status[data-kind="delayed"] {
+  background: #e5ad4b;
+}
+
+#pairKpiValue .pair-status[data-kind="reference"] {
+  background: transparent;
+  border: 1px solid var(--muted);
+}
+
 #primaryRankKpiValue,
 #secondaryRankKpiValue {
   min-width: 7ch;

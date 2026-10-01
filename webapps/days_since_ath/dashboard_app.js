@@ -680,8 +680,13 @@
     return { ctx, width, height };
   }
 
+  function selectedDaysSpotQuote() {
+    const publishedAt = state.rows[state.rows.length - 1]?.timestamp;
+    return spotFeed?.newerThan ? spotFeed.newerThan(publishedAt) : spotFeed?.current();
+  }
+
   function currentLiveRows() {
-    const quote = spotFeed?.current();
+    const quote = selectedDaysSpotQuote();
     const today = new Date().toISOString().slice(0, 10);
     if (cachedLiveRows && cachedLiveSource === state.rows && cachedLiveAt === (quote?.at ?? null)
         && cachedLivePrice === (quote?.price ?? null) && cachedLiveDay === today) {
@@ -1482,18 +1487,19 @@
 
   function updateLivePriceChips() {
     const published = state.rows[state.rows.length - 1];
-    const quote = spotFeed?.current();
+    const quote = selectedDaysSpotQuote();
     const height = Number(published?.height);
     const hasHeight = Number.isFinite(height) && height > 0;
     const heightText = hasHeight ? height.toLocaleString("en-US") : "-";
     const spotPrice = quote?.price || published?.snapshotPrice || published?.price;
     if (el.spotChip) {
       el.spotChip.querySelector(".chip-value").textContent = fmtUsd(spotPrice);
-      el.spotChip.querySelector(".chip-spot-status").textContent = quote ? "Live" : "Published";
-      el.spotChip.dataset.live = quote ? "true" : "false";
+      const live = Boolean(quote && spotFeed?.isLive?.(quote));
+      el.spotChip.querySelector(".chip-spot-status").dataset.kind = live ? "live" : "stale";
+      el.spotChip.dataset.live = live ? "true" : "false";
       el.spotChip.title = quote
-        ? `${quote.source} BTC/USD spot received ${new Date(quote.at).toLocaleString()}. Published history runs through ${published?.date || "an unknown date"}.`
-        : `BTC/USD from the published snapshot at ${published?.timestamp || "an unknown time"}.`;
+        ? `${live ? "Green" : "Gray"} dot: ${quote.source} BTC/USD spot last received ${new Date(quote.at).toLocaleString()}${live ? "" : "; no quote arrived in the last 60 seconds"}. Published history runs through ${published?.date || "an unknown date"}.`
+        : `Gray dot: BTC/USD from the published snapshot at ${published?.timestamp || "an unknown time"}.`;
     }
     if (quote && updatedTimeZoneChip) {
       const parts = new Intl.DateTimeFormat("en-CA", {
@@ -1514,7 +1520,7 @@
     }
     const updated = document.getElementById("chipUpdated");
     if (updated) updated.title = quote
-      ? `Live BTC/USD quote received at ${new Date(quote.at).toISOString()}. Block ${heightText} is from the published snapshot at ${published?.timestamp || "an unknown time"}.`
+      ? `BTC/USD quote received at ${new Date(quote.at).toISOString()}. Block ${heightText} is from the published snapshot at ${published?.timestamp || "an unknown time"}.`
       : `Published price snapshot at ${published?.timestamp || "an unknown time"}, block ${heightText}.`;
   }
 
@@ -1849,7 +1855,7 @@
         if (liveFinalStart >= 0 && frame >= liveFinalStart) {
           if (!finalLiveRows) {
             // Hold one quote generation through the final motion frame and pause.
-            finalLiveRows = ATH_LIVE?.withQuote(state.rows, spotFeed?.current(), Date.now(), observedSpotHigh) || state.rows;
+            finalLiveRows = ATH_LIVE?.withQuote(state.rows, selectedDaysSpotQuote(), Date.now(), observedSpotHigh) || state.rows;
           }
           drawExportFrame(index, settings, exportCanvas, { liveRows: finalLiveRows });
         } else {
@@ -2680,6 +2686,7 @@
       onQuote: (quote) => {
         observedSpotHigh = ATH_LIVE?.observeHigh(observedSpotHigh, quote) || observedSpotHigh;
         updateLivePriceChips();
+        quote = selectedDaysSpotQuote();
         const nextPrice = quote?.price || null;
         const nextDay = quote ? new Date(quote.at).toISOString().slice(0, 10) : "";
         if (nextPrice !== lastSpotPrice || nextDay !== lastSpotDay) {

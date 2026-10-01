@@ -36,7 +36,9 @@ Bitcoin Net Worth can request live quotes from Kraken. DCA Cost Basis uses a
 public Coinbase BTC/USD price socket with REST fallbacks for its current valuation
 on the dashboard and home page card. Each accepted quote recalculates the current
 UTC day's modeled purchase and the rolling cost basis; earlier purchase prices
-remain fixed. Published hourly price data is the fallback and supplies historical
+remain fixed. The last accepted quote stays visible through feed outages until a
+newer hourly publication replaces it. A green dot means a quote arrived within
+60 seconds; a gray dot marks a retained or published price. Published hourly data supplies historical
 playback and animation frames; an export ending at the latest published date
 captures the newest available quote for its final frame and hold. The DCA
 "Updated" follows the accepted quote and displays the published snapshot's
@@ -47,6 +49,9 @@ can raise today's provisional high or set a new ATH, while the latest spot price
 drives the current drawdown and chart guide.
 Historical playback remains published, and an export ending at the latest day
 captures one quote for its final frame and hold.
+Bitcoin Net Worth also retains its last Kraken price through an outage and
+shows the latest published price when that snapshot is newer. Its quote status
+turns gray after 60 seconds without an update.
 DCA Comparison uses current BTC/USD and gold/silver quotes plus delayed public
 quotes for SPY, QQQ, TLT, and MSTR. The selected assets' latest prices,
 valuations, and chart update in an open tab; the home card updates its default
@@ -54,6 +59,14 @@ BTC/gold comparison. Equities are labeled with their feed delay (typically 15
 minutes). If a feed drops, the tab retains its last quote with a gray status
 dot until a newer published generation replaces it. Published daily prices
 remain the historical source and the fallback on a fresh visit.
+Unit of Account fetches USD quotes only for its selected pair. BTC uses the
+shared spot feed, monetary metals use Gold API, and available fiat pairs use
+indicative TradingView FX quotes. It calculates cross rates through USD and
+updates the latest point in the open dashboard. Selected legs keep their
+published value until a usable quote arrives; unsupported symbols stay on the
+published snapshot. The Pair KPI shows each leg's quote status with a colored
+dot; a dropped feed retains its last price until a newer publication wins.
+Historical playback and exports use published data.
 
 ## Architecture
 
@@ -199,6 +212,9 @@ node scripts/test_days_live_price.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_days_live_price_browser.py
 node scripts/test_comparison_live_price.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_comparison_live_price_browser.py
+CHROME_BIN=/path/to/chromium python3 scripts/test_networth_live_quote_browser.py
+node scripts/test_uoa_live_quotes.mjs
+CHROME_BIN=/path/to/chromium python3 scripts/test_uoa_live_quotes_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_homepage_preview_refresh.py
 ```
 

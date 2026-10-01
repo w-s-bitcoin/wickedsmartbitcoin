@@ -512,6 +512,7 @@
       lastSuccessfulRefreshAt: 0,
       dataSignature: '',
       refreshPresentationPending: false,
+      liveHoverPresentationPending: false,
       interactiveInitialized: false,
       autoRefreshRegistered: false,
       preferencesInitialized: false,
@@ -528,6 +529,46 @@
       },
     };
     let liveMarketFeed = null;
+    const activeChartHovers = new Map();
+    function bindLiveChartHover(chartId) {
+      const chart = document.getElementById(chartId);
+      if (!chart?.on || chart.__wsbLiveHoverBound) return;
+      chart.__wsbLiveHoverBound = true;
+      chart.__wsbHoverLeaveToken = 0;
+      chart.addEventListener('pointerleave', () => {
+        chart.__wsbHoverLeaveToken += 1;
+        activeChartHovers.delete(chartId);
+      });
+      chart.on('plotly_hover', (event) => {
+        const point = event?.points?.find((item) => chartId === 'snapshotChart'
+          ? typeof item?.y === 'string' : item?.x != null);
+        if (!point) return;
+        const value = chartId === 'snapshotChart' ? String(point.y)
+          : point.x instanceof Date ? point.x.toISOString().slice(0, 10) : String(point.x).slice(0, 10);
+        activeChartHovers.set(chartId, value);
+      });
+      chart.on('plotly_unhover', () => activeChartHovers.delete(chartId));
+    }
+    function captureLiveChartHovers() {
+      return [...activeChartHovers].map(([id, value]) => ({
+        id, value, leaveToken: document.getElementById(id)?.__wsbHoverLeaveToken,
+      }));
+    }
+    function restoreLiveChartHovers(targets) {
+      if (!window.Plotly?.Fx?.hover || document.visibilityState !== 'visible') return;
+      for (const { id, value, leaveToken } of targets) {
+        const chart = document.getElementById(id);
+        if (!chart?.isConnected || chart.__wsbHoverLeaveToken !== leaveToken) continue;
+        const curveNumber = id === 'snapshotChart' ? 0
+          : chart.data?.findIndex((trace) => trace.name === 'BTC Dominance');
+        const trace = chart.data?.[curveNumber];
+        const pointNumber = id === 'snapshotChart'
+          ? trace?.y?.indexOf(value) : trace?.x?.indexOf(value);
+        if (!Number.isInteger(curveNumber) || curveNumber < 0
+            || !Number.isInteger(pointNumber) || pointNumber < 0) continue;
+        window.Plotly.Fx.hover(chart, [{ curveNumber, pointNumber }], ['xy']);
+      }
+    }
     function updateLiveMarketStatus() {
       const dot = document.getElementById('marketLiveDot');
       if (!dot) return;
@@ -554,6 +595,7 @@
           updateLiveMarketStatus();
           if (statusOnly || !state.interactiveInitialized) return;
           state.refreshPresentationPending = true;
+          state.liveHoverPresentationPending = true;
           presentPendingDominanceRefresh();
         },
       });
@@ -1683,7 +1725,9 @@
     function dominanceRefreshInteractionActive() {
       if (document.body.classList.contains('resizing-panels')
           || document.body.classList.contains('resizing-panel')) return true;
-      return Boolean(document.querySelector('#dominanceChart .hoverlayer .hovertext, #snapshotChart .hoverlayer .hovertext'));
+      return !state.liveHoverPresentationPending && Boolean(document.querySelector(
+        '#dominanceChart .hoverlayer .hovertext, #snapshotChart .hoverlayer .hovertext'
+      ));
     }
 
     function presentPendingDominanceRefresh() {
@@ -1700,11 +1744,18 @@
           return true;
         }
         const pageScroll = { x: window.scrollX, y: window.scrollY };
+        const hoverTargets = state.liveHoverPresentationPending ? captureLiveChartHovers() : [];
         hideError();
-        renderAll();
+        const renderPromise = renderAll();
         window.scrollTo(pageScroll.x, pageScroll.y);
         requestAnimationFrame(() => window.scrollTo(pageScroll.x, pageScroll.y));
         state.refreshPresentationPending = false;
+        state.liveHoverPresentationPending = false;
+        if (hoverTargets.length) {
+          Promise.resolve(renderPromise).then(() => requestAnimationFrame(() => {
+            restoreLiveChartHovers(hoverTargets);
+          })).catch((error) => console.warn('Bitcoin Dominance hover restore failed:', error));
+        }
         setPanelLoaderVisible('history', false);
         setPanelLoaderVisible('snapshot', false);
         hideError();
@@ -2356,7 +2407,7 @@
 
       const dominanceXAxisBottomMargin = isStackedLayout() ? 56 : 35;
 
-      Plotly.react('dominanceChart', traces, {
+      return Plotly.react('dominanceChart', traces, {
         paper_bgcolor: PLOTLY_LIVE_BG,
         plot_bgcolor: PLOTLY_LIVE_BG,
         hoverlabel: getPlotlyHoverlabel(),
@@ -2432,6 +2483,7 @@
         displaylogo: false,
         modeBarButtonsToRemove: ['select2d', 'lasso2d', 'autoScale2d', 'toggleSpikelines'],
       }).then(() => {
+        bindLiveChartHover('dominanceChart');
         bindHistoryChartViewportPersistence(allRows[0]?.Date || '', allRows[allRows.length - 1]?.Date || '');
       });
     }
@@ -2600,7 +2652,7 @@
         cliponaxis: false,
       }];
 
-      Plotly.react('snapshotChart', tracesList, {
+      return Plotly.react('snapshotChart', tracesList, {
         paper_bgcolor: PLOTLY_LIVE_BG,
         plot_bgcolor: PLOTLY_LIVE_BG,
         hoverlabel: getPlotlyHoverlabel(),
@@ -2638,6 +2690,7 @@
         scrollZoom: false,
         modeBarButtonsToRemove: ['zoom2d', 'pan2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d', 'resetScale2d', 'select2d', 'lasso2d', 'toggleSpikelines'],
       }).then(() => {
+        bindLiveChartHover('snapshotChart');
         requestAnimationFrame(() => bindSnapshotYAxisHover(yLabels));
       });
     }
@@ -2741,20 +2794,22 @@
     }
 
     function renderAll() {
+      const chartRenders = [];
       updateModeLabels();
       updateHistoryInputs();
       updateSnapshotMeta();
       renderStatusChips();
       setLastUpdated();
       if (state.showHistoryPanel) {
-        renderHistoryChart();
+        chartRenders.push(renderHistoryChart());
       }
       if (state.showSnapshotPanel) {
-        renderSnapshotChart();
+        chartRenders.push(renderSnapshotChart());
       }
       setPanelLoaderVisible('history', false);
       setPanelLoaderVisible('snapshot', false);
       resizeVisibleCharts();
+      return Promise.all(chartRenders);
     }
 
     function scheduleSnapshotChartRender(force = false) {

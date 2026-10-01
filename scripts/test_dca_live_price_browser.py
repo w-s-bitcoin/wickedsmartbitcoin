@@ -144,6 +144,15 @@ def main():
                 if (document.querySelector('#chipUpdated .chip-value')?.textContent === secondUpdated)
                   return 'same-price fresh quote did not advance Updated';
                 if (Number(state.metadata.source.latest_price) !== published) return 'published data mutated';
+                const realNow = Date.now;
+                Date.now = () => realNow() + 61000;
+                updateSpotPriceChip();
+                if (document.querySelector('#chipSpotPrice').dataset.live !== 'false'
+                    || document.querySelector('#chipSpotPrice .chip-spot-status').dataset.kind !== 'stale'
+                    || getFilteredRows()[0].currentPrice !== quoted * 1.2)
+                  return '60-second status changed or discarded the retained quote';
+                Date.now = realNow;
+                updateSpotPriceChip();
                 state.dateRange.rangeTracksLatestEnd = false;
                 if (getFilteredRows()[0].currentPrice !== state.priceRows.at(-1).price) return 'historical view changed';
                 state.dateRange.rangeTracksLatestEnd = true;
@@ -181,9 +190,9 @@ def main():
                 Date.now = () => now() + 90002;
                 window.dispatchEvent(new Event('resize'));
                 Date.now = now;
-                if (chart.dataset.priceSource !== 'published') return 'stale quote did not fall back';
-                if (chart.querySelector('svg').innerHTML !== publishedPath)
-                  return 'home card published history changed after fallback';
+                if (chart.dataset.priceSource !== 'retained') return 'stale quote was not retained';
+                if (chart.querySelector('svg').innerHTML === publishedPath)
+                  return 'home card reverted to the published price after feed loss';
                 return '';
               })()
             """)

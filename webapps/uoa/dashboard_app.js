@@ -300,6 +300,7 @@
   });
   let globalTimeZoneSyncBound = false;
   let refreshedAtText = "";
+  let liveQuotes = null;
   let uoaInstalledDataSignature = "";
   let uoaRefreshPresentationPending = false;
   const chartEventMarkersById = {
@@ -2370,6 +2371,7 @@
       dateRangeExportCancelRequested = false;
       broadcastDateRangeExportActive(false);
       resetDateRangeDownloadButton();
+      renderAll();
     }
   }
 
@@ -4749,10 +4751,42 @@
   }
 
   function getCurrencyValueInUsd(currencyCode, row, isoDate) {
+    const liveValue = Number(row.liveUsdValues?.[currencyCode]);
+    if (Number.isFinite(liveValue) && liveValue > 0) return liveValue;
     if (currencyCode === "USD") return 1;
     if (currencyCode === "BTC") return row.price;
     // For all other currencies, fetch the FX rate
     return getFxRate(isoDate, `${currencyCode}/USD`);
+  }
+
+  function syncLiveQuoteSelection() {
+    liveQuotes?.setSelection?.([
+      el.primaryUoaSelect?.value || "BTC",
+      el.secondaryUoaSelect?.value || "USD",
+    ]);
+  }
+
+  function getLivePairProjection(primaryCurrency, secondaryCurrency) {
+    const unchanged = { rows, allRows, used: {}, provisional: false };
+    if (!liveQuotes || isDateRangeExporting || isRenderingDateRangeExportFrame
+        || dateRangePlaybackState.isPlaying || !rows.length || !allRows.length
+        || rows[rows.length - 1] !== allRows[allRows.length - 1]) return unchanged;
+    const last = allRows[allRows.length - 1];
+    const isoDate = toIsoDate(last.date);
+    const selected = [primaryCurrency, secondaryCurrency];
+    const snapshotUsd = Object.fromEntries(selected.map((code) => [code,
+      code === "BTC"
+        ? getBtcRowOnOrBeforeIso(isoDate)?.price
+        : getCurrencyValueInUsd(code, last, isoDate),
+    ]));
+    const projected = window.WSBUoaLiveQuotes.project(
+      rows, selected, liveQuotes.current(), snapshotUsd, refreshedAtText
+    );
+    if (!Object.keys(projected.used).length) return unchanged;
+    const projectedAll = window.WSBUoaLiveQuotes.project(
+      allRows, selected, liveQuotes.current(), snapshotUsd, refreshedAtText
+    );
+    return { ...projected, allRows: projectedAll.rows };
   }
 
   function transformRowsForCurrencyPair(rowsArray, primaryCurrency, secondaryCurrency) {
@@ -6646,14 +6680,36 @@
 
   function renderPairKpiValue(primary, secondary) {
     if (!el.pairKpiValue) return;
-    el.pairKpiValue.innerHTML = `<span class="pair-primary">${primary}</span><span class="pair-separator"> </span><span class="pair-secondary">${secondary}</span>`;
+    el.pairKpiValue.innerHTML = `<span class="pair-primary pair-leg"><span class="pair-status" role="img"></span><span class="pair-code">${primary}</span></span><span class="pair-separator"> </span><span class="pair-secondary pair-leg"><span class="pair-status" role="img"></span><span class="pair-code">${secondary}</span></span>`;
     const primaryEl = el.pairKpiValue.querySelector(".pair-primary");
     const secondaryEl = el.pairKpiValue.querySelector(".pair-secondary");
     const chartColors = getChartAccentColors(primary, secondary);
     if (primaryEl) primaryEl.style.color = chartColors.left;
     if (secondaryEl) secondaryEl.style.color = chartColors.right;
+    renderPairQuoteStatuses(primary, secondary, {});
     if (el.primaryRankKpiLabel) el.primaryRankKpiLabel.textContent = `${primary} Rank`;
     if (el.secondaryRankKpiLabel) el.secondaryRankKpiLabel.textContent = `${secondary} Rank`;
+  }
+
+  function renderPairQuoteStatuses(primary, secondary, usedQuotes) {
+    if (!el.pairKpiValue) return;
+    for (const [code, selector] of [[primary, ".pair-primary .pair-status"],
+      [secondary, ".pair-secondary .pair-status"]]) {
+      const dot = el.pairKpiValue.querySelector(selector);
+      if (!dot) continue;
+      const quote = usedQuotes?.[code];
+      const delayed = quote?.live && /delayed/i.test(quote.delay || "");
+      const kind = code === "USD" ? "reference" : !quote ? "published"
+        : !quote.live ? "stale" : delayed ? "delayed" : "live";
+      const label = kind === "reference" ? `${code}: fixed USD reference; no live quote needed`
+        : kind === "published" ? `${code}: published snapshot; live quote pending or unavailable`
+        : kind === "stale" ? `${code}: last ${quote.source} quote retained; no fresh update in 60 seconds`
+        : kind === "delayed" ? `${code}: ${quote.delay} quote from ${quote.source}`
+        : `${code}: fresh quote from ${quote.source}`;
+      dot.dataset.kind = kind;
+      dot.title = label;
+      dot.setAttribute("aria-label", label);
+    }
   }
 
   function syncPairControls(changedControlId) {
@@ -6687,6 +6743,7 @@
 
     lastPrimaryUoa = primary;
     lastSecondaryUoa = secondary;
+    syncLiveQuoteSelection();
 
     renderPairKpiValue(primary, secondary);
     syncDateRangeChartToggleLabels();
@@ -7451,6 +7508,10 @@
     const rightScaleMode = normalizeScaleMode(activeDateRangeExportScaleModes?.right, dashboardScaleModes.right);
     const primaryCurrency = el.primaryUoaSelect?.value || "BTC";
     const secondaryCurrency = el.secondaryUoaSelect?.value || "USD";
+    const pairChip = document.getElementById("pairKpiChip");
+    const updatedChip = document.getElementById("updatedKpiChip");
+    if (pairChip) pairChip.title = "";
+    if (updatedChip) updatedChip.title = "";
     
     if (el.usdBtcScaleLabel) el.usdBtcScaleLabel.textContent = leftScaleMode.toUpperCase();
     if (el.btcUsdScaleLabel) el.btcUsdScaleLabel.textContent = rightScaleMode.toUpperCase();
@@ -7461,6 +7522,11 @@
     syncDashboardScaleControls();
     const fallbackEndRow = rows[rows.length - 1] || allRows[allRows.length - 1] || null;
     const selectedEndIso = el.endDateInput?.value || requestedDateRange.endIso || (fallbackEndRow ? toIsoDate(fallbackEndRow.date) : "");
+    if (selectedEndIso) {
+      const endText = formatDateEdgeText(selectedEndIso);
+      if (el.usdBtcEndDateEdge) el.usdBtcEndDateEdge.textContent = endText;
+      if (el.btcUsdEndDateEdge) el.btcUsdEndDateEdge.textContent = endText;
+    }
     const selectedEndBtcRow = getBtcRowOnOrBeforeIso(selectedEndIso);
     const selectedBlockHeight = selectedEndBtcRow?.blockHeight;
     const selectedBlockHeightText = Number.isFinite(selectedBlockHeight) ? selectedBlockHeight.toLocaleString("en-US") : "";
@@ -7500,7 +7566,10 @@
       return;
     }
 
-    const transformedRows = transformRowsForCurrencyPair(rows, primaryCurrency, secondaryCurrency);
+    const liveProjection = getLivePairProjection(primaryCurrency, secondaryCurrency);
+    renderPairQuoteStatuses(primaryCurrency, secondaryCurrency, liveProjection.used);
+    const displayRows = liveProjection.rows;
+    const transformedRows = transformRowsForCurrencyPair(displayRows, primaryCurrency, secondaryCurrency);
     if (!transformedRows.length) {
       el.usdBtcBig.textContent = "-- units";
       el.btcUsdBig.textContent = "-- units";
@@ -7545,7 +7614,7 @@
         })
       : transformedRows;
 
-    const transformedAllRows = transformRowsForCurrencyPair(allRows, primaryCurrency, secondaryCurrency);
+    const transformedAllRows = transformRowsForCurrencyPair(liveProjection.allRows, primaryCurrency, secondaryCurrency);
     const adjustedAllRows = applyRedenomAdjustment
       ? transformedAllRows.map((row) => {
           const adjustedDirect = getRedenomAdjustedChartValue(
@@ -7575,7 +7644,7 @@
       : transformedAllRows;
 
     const latest = adjustedRows[adjustedRows.length - 1] || adjustedAllRows[adjustedAllRows.length - 1];
-    const latestOriginal = rows[rows.length - 1] || allRows[allRows.length - 1];
+    const latestOriginal = displayRows[displayRows.length - 1] || allRows[allRows.length - 1];
     if (!latest || !latestOriginal) return;
     const hasBtcInPair = primaryCurrency === "BTC" || secondaryCurrency === "BTC";
     const satsTicks = [
@@ -7667,7 +7736,25 @@
     }
 
     if (el.rightAsOf) el.rightAsOf.textContent = fmtDate(latestOriginal.date);
-    setUpdatedKpiValue(refreshedAtText, latestOriginal.date);
+    const liveTimes = Object.values(liveProjection.used).map((quote) => quote.at);
+    const latestLiveAt = liveTimes.length ? Math.max(...liveTimes) : 0;
+    setUpdatedKpiValue(latestLiveAt ? new Date(latestLiveAt).toISOString() : refreshedAtText, latestOriginal.date);
+    if (pairChip || updatedChip) {
+      const liveLegs = Object.entries(liveProjection.used).map(([code, quote]) =>
+        `${code}: ${quote.source} (${quote.delay || "indicative"}${quote.live ? "" : ", connection stale"})`);
+      const snapshotLegs = [primaryCurrency, secondaryCurrency]
+        .filter((code) => code !== "USD" && !liveProjection.used[code]);
+      const sourceText = liveLegs.length
+        ? `Latest point: ${liveLegs.join("; ")}${snapshotLegs.length ? `; published snapshot: ${snapshotLegs.join(", ")}` : ""}. Block height is from the published snapshot.`
+        : "Latest point and block height are from the published snapshot.";
+      if (pairChip) pairChip.title = sourceText;
+      if (updatedChip) updatedChip.title = sourceText;
+    }
+    if (liveProjection.provisional) {
+      const endText = formatDateEdgeText(toIsoDate(latestOriginal.date));
+      if (el.usdBtcEndDateEdge) el.usdBtcEndDateEdge.textContent = endText;
+      if (el.btcUsdEndDateEdge) el.btcUsdEndDateEdge.textContent = endText;
+    }
 
     // Determine colors and labels based on pair
     const chartColors = getChartAccentColors(primaryCurrency, secondaryCurrency);
@@ -8543,6 +8630,12 @@
     applyFilters();
     restorePausedPlaybackSession(saved);
     document.body.classList.remove("uoa-loading");
+    liveQuotes = window.WSBUoaLiveQuotes?.create({ onQuote: () => {
+      if (document.visibilityState !== "hidden" && !isDateRangeExporting
+          && !dateRangePlaybackState.isPlaying) renderAll();
+    } });
+    syncLiveQuoteSelection();
+    liveQuotes?.start();
     registerUoaDataRefreshAdapter();
     window.addEventListener("resize", () => {
       renderAll();

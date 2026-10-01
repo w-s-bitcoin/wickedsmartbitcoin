@@ -38,6 +38,7 @@ const LIVE_HISTORY_FILE_KEY = "bitcoinNetWorthTrackerLiveFileV1";
 const LIVE_LAST_VIEWED_FILE_KEY = "bitcoinNetWorthTrackerLastViewedLiveFileV1";
 const MODE_KEY = "bitcoinNetWorthTrackerModeV1";
 const BTCUSD_CACHE_KEY = "bitcoinNetWorthTrackerBtcusdCacheV1";
+const BTCUSD_CACHE_TIME_KEY = "bitcoinNetWorthTrackerBtcusdCacheTimeV1";
 const FILTER_KEY_DEMO = "bitcoinNetWorthTrackerFiltersDemoV1";
 const FILTER_KEY_LIVE = "bitcoinNetWorthTrackerFiltersLiveV1";
 const AL_CHART_MODE_KEY = "bitcoinNetWorthTrackerAlChartModeV1";
@@ -190,6 +191,8 @@ let publishedHistoricalPriceCount = 0;
 let publishedHistoricalPriceEarliestDateMs = 0;
 let publishedHistoricalPriceLatestDateMs = 0;
 let publishedDemoInstalledSignature = "";
+let publishedBtcPriceAt = 0;
+let publishedBtcPrice = 0;
 
 function filterKeyForMode(mode) {
   return mode === "live" ? FILTER_KEY_LIVE : FILTER_KEY_DEMO;
@@ -307,7 +310,11 @@ let quoteRefreshAbortController = null;
 let pendingQuoteUiUpdate = false;
 let pendingBackgroundQuoteRefresh = false;
 let editorRowsFocused = false;
-let lastQuoteRefreshAt = null;
+let lastQuoteRefreshAt = (() => {
+  const at = Number(localStorage.getItem(BTCUSD_CACHE_TIME_KEY));
+  return Number.isFinite(at) && at > 0 && at <= Date.now() ? new Date(at) : null;
+})();
+let quoteStatusTimer = null;
 let suppressNextEditorFocusRestore = false;
 let alChartMode = localStorage.getItem(AL_CHART_MODE_KEY) === "ratio" ? "ratio" : "value";
 let alChartSeparateAxes = localStorage.getItem(AL_CHART_AXES_MODE_KEY) === "separate";
@@ -339,6 +346,7 @@ loadFilters(currentMode);
 const el = {
   realPriceCard: document.getElementById("realPriceCard"),
   quoteTime: document.getElementById("quoteTime"),
+  quoteStatusDot: document.getElementById("quoteStatusDot"),
   manualBtcusd: document.getElementById("manualBtcusd"),
   assetsPanelTitle: document.getElementById("assetsPanelTitle"),
   assetsCount: document.getElementById("assetsCount"),
@@ -1629,6 +1637,7 @@ async function bootstrap() {
     editingSnapshotDate = mmddyy(new Date());
 
     renderAll();
+    scheduleQuoteStatus();
     startAutoQuoteRefresh();
     requestBackgroundQuoteRefresh();
     updateModeToggleUI();
@@ -1682,6 +1691,12 @@ async function bootstrap() {
       seedTodayFormStateFromHistory({ save: true });
     }
 
+    const cachedBtcPrice = Number(localStorage.getItem(BTCUSD_CACHE_KEY));
+    if (publishedBtcPriceAt > (lastQuoteRefreshAt?.getTime() || 0)) {
+      formState.btcusd = publishedBtcPrice;
+    } else if (lastQuoteRefreshAt && cachedBtcPrice > 0) {
+      formState.btcusd = cachedBtcPrice;
+    }
     renderAll();
     registerPublishedDemoDataRefresh();
   } finally {
@@ -2711,10 +2726,13 @@ async function refreshQuote({ background = false } = {}) {
     const usdcusd = Number(payload.result.USDCUSD.a[0]);
     const btcusdc = Number(payload.result.XBTUSDC.a[0]);
     const price = btcusdc / usdcusd;
-    formState.btcusd = price;
+    if (!Number.isFinite(price) || price <= 0) throw new Error("Invalid Kraken BTC/USD quote");
     lastQuoteRefreshAt = new Date();
+    formState.btcusd = lastQuoteRefreshAt.getTime() > publishedBtcPriceAt ? price : publishedBtcPrice;
     // Persist price globally so it survives mode/file switches.
     localStorage.setItem(BTCUSD_CACHE_KEY, String(price));
+    localStorage.setItem(BTCUSD_CACHE_TIME_KEY, String(lastQuoteRefreshAt.getTime()));
+    scheduleQuoteStatus();
     // Refresh always returns the UI to live exchange rate mode.
     formState.useManualBtcusd = false;
     formState.manualBtcusd = null;
@@ -2726,9 +2744,9 @@ async function refreshQuote({ background = false } = {}) {
     try {
       const otherRaw = localStorage.getItem(otherKey);
       const otherForm = otherRaw ? JSON.parse(otherRaw) : {};
-      otherForm.btcusd = price;
+      otherForm.btcusd = formState.btcusd;
       if (!otherForm.useManualBtcusd) {
-        otherForm.manualBtcusd = price;
+        otherForm.manualBtcusd = formState.btcusd;
       }
       localStorage.setItem(otherKey, JSON.stringify(otherForm));
     } catch { /* ignore */ }
@@ -2746,7 +2764,7 @@ async function refreshQuote({ background = false } = {}) {
     if (err && err.name === "AbortError") {
       // Expected when editor focus starts during an in-flight background refresh.
     } else {
-      el.quoteTime.textContent = `Quote refresh failed: ${String(err)}`;
+      updateQuoteStatus();
     }
   } finally {
     quoteRefreshAbortController = null;
@@ -2760,6 +2778,36 @@ function isAssetLiabilityEditorFocused() {
   return editorRowsFocused;
 }
 
+function scheduleQuoteStatus() {
+  clearTimeout(quoteStatusTimer);
+  if (!lastQuoteRefreshAt) return;
+  const remaining = lastQuoteRefreshAt.getTime() + 60_000 - Date.now();
+  if (remaining > 0) quoteStatusTimer = setTimeout(updateQuoteStatus, remaining + 1);
+}
+
+function updateQuoteStatus() {
+  const manualActive = isManualOverrideActive();
+  const publishedSelected = !manualActive && publishedBtcPriceAt > (lastQuoteRefreshAt?.getTime() || 0)
+    && Number(formState.btcusd) === publishedBtcPrice;
+  const live = !manualActive && !publishedSelected && Number(formState.btcusd) > 0 && lastQuoteRefreshAt
+    && Date.now() - lastQuoteRefreshAt.getTime() < 60_000;
+  const dot = el.quoteStatusDot;
+  if (dot) {
+    dot.dataset.kind = live ? "live" : "stale";
+    dot.setAttribute("aria-label", live ? "Live price" : "Price is not live");
+    dot.title = manualActive ? "Gray dot: manual BTC/USD override."
+      : live ? `Green dot: Kraken BTC/USD quote received ${formatQuoteTimestamp(lastQuoteRefreshAt)}.`
+        : publishedSelected ? `Gray dot: the published BTC/USD snapshot from ${formatQuoteTimestamp(new Date(publishedBtcPriceAt))} is newer than the last Kraken quote.`
+        : lastQuoteRefreshAt ? `Gray dot: retaining the last Kraken quote from ${formatQuoteTimestamp(lastQuoteRefreshAt)}; no update arrived in the last 60 seconds.`
+          : "Gray dot: saved BTC/USD price; no recent quote is available.";
+  }
+  el.quoteTime.textContent = manualActive ? "Manual price override"
+    : publishedSelected ? `Published · ${formatQuoteTimestamp(new Date(publishedBtcPriceAt))}`
+      : formState.btcusd ? (lastQuoteRefreshAt
+      ? `Updated · ${formatQuoteTimestamp(lastQuoteRefreshAt)}` : "Saved price · update time unknown")
+      : "No quote loaded";
+}
+
 function applyBackgroundQuoteUiRefresh() {
   const manualActive = isManualOverrideActive();
   const manualDisplayValue = manualActive
@@ -2768,9 +2816,7 @@ function applyBackgroundQuoteUiRefresh() {
   if (document.activeElement !== el.manualBtcusd) {
     el.manualBtcusd.value = manualDisplayValue > 0 ? formatUsd(manualDisplayValue) : "";
   }
-  el.quoteTime.textContent = manualActive
-    ? "Manual price override"
-    : (formState.btcusd ? `Updated · ${formatQuoteTimestamp(lastQuoteRefreshAt || new Date())}` : "No quote loaded");
+  updateQuoteStatus();
   updateKPIs();
   renderHistoryTable();
   renderChartsOnly();
@@ -4291,9 +4337,7 @@ function renderAll() {
   if (document.activeElement !== el.manualBtcusd) {
     el.manualBtcusd.value = manualDisplayValue > 0 ? formatUsd(manualDisplayValue) : "";
   }
-  el.quoteTime.textContent = manualActive
-    ? "Manual price override"
-    : (formState.btcusd ? `Updated · ${formatQuoteTimestamp(lastQuoteRefreshAt || new Date())}` : "No quote loaded");
+  updateQuoteStatus();
 
   renderMetricValues(snap, displayPrice, editingSnapshotDate || today);
 
@@ -6009,6 +6053,17 @@ function installPublishedDemoCandidate(candidate, { startup = false } = {}) {
   }
 
   historicalPrices = candidate.prices;
+  const latestPriceLine = String(candidate.priceText || "").trim().split(/\r?\n/).at(-1) || "";
+  const latestPriceTimestamp = String(latestPriceLine.split(",")[1] || "").trim();
+  const normalizedPriceTimestamp = latestPriceTimestamp.replace(" ", "T");
+  const priceAt = Date.parse(/(?:Z|[+-]\d{2}:\d{2})$/.test(normalizedPriceTimestamp)
+    ? normalizedPriceTimestamp : `${normalizedPriceTimestamp}Z`);
+  const latestPublishedPrice = Number(candidate.prices[mmddyy(new Date(candidate.latestPriceDateMs))]);
+  if (Number.isFinite(priceAt) && Number.isFinite(latestPublishedPrice) && latestPublishedPrice > 0) {
+    publishedBtcPriceAt = priceAt;
+    publishedBtcPrice = latestPublishedPrice;
+    if (priceAt > (lastQuoteRefreshAt?.getTime() || 0)) formState.btcusd = latestPublishedPrice;
+  }
   publishedDemoSnapshotCount = sortedPublishedSnapshots.length;
   publishedDemoEarliestDateMs = candidate.earliestSnapshotDateMs;
   publishedDemoLatestDateMs = candidate.latestSnapshotDateMs;

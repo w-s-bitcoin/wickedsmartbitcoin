@@ -130,8 +130,8 @@ def main():
                 Date.now = () => realNow() + 90002;
                 window.dispatchEvent(new Event('resize'));
                 Date.now = realNow;
-                if (canvas.dataset.priceSource !== 'published') return 'stale quote did not fall back';
-                if (canvas.toDataURL() !== published) return 'published card changed after fallback';
+                if (canvas.dataset.priceSource !== 'retained') return 'stale quote was not retained';
+                if (canvas.toDataURL() === published) return 'card reverted to published price after feed loss';
                 return '';
               })()
             """)

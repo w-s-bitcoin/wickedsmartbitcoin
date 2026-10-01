@@ -3,6 +3,7 @@
   const PREVIEW_URL = "webapp_data/daily_dca.csv";
   const PUBLICATION_URL = "webapp_data/dca_cost_basis_metadata.json";
   let cachedRows = [];
+  let publishedAt = "";
   let installedPublicationSignature = "";
   let installedBounds = null;
   let refresher = null;
@@ -276,11 +277,9 @@
   function rowsWithSpotPrice(rows, quote) {
     if (!rows.length || !(quote?.price > 0)) return rows;
     const latest = rows[rows.length - 1];
-    const today = new Date().toISOString().slice(0, 10);
-    const quoteIsToday = new Date(quote.at).toISOString().slice(0, 10) === today;
-    const liveToday = quoteIsToday && latest.date === today;
-    const appendToday = quoteIsToday
-      && Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${latest.date}T00:00:00Z`)) / 86400000) === 1;
+    const quoteDay = new Date(quote.at).toISOString().slice(0, 10);
+    const liveToday = latest.date === quoteDay;
+    const appendToday = Math.round((Date.parse(`${quoteDay}T00:00:00Z`) - Date.parse(`${latest.date}T00:00:00Z`)) / 86400000) === 1;
     const previous = rows.at(-2);
     const legacyGap = liveToday && previous
       && Math.round((Date.parse(`${latest.date}T00:00:00Z`) - Date.parse(`${previous.date}T00:00:00Z`)) / 86400000) === 2;
@@ -302,7 +301,7 @@
       };
     });
     if (appendToday) {
-      displayRows.push({ ...latest, date: today, daysAgo: 0,
+      displayRows.push({ ...latest, date: quoteDay, daysAgo: 0,
         historicalPrice: quote.price, dcaBasis: quote.price, isPriceAbove: 1 });
     }
     return displayRows;
@@ -310,9 +309,10 @@
 
   function render() {
     if (!cachedRows.length) return;
-    const quote = spotFeed?.current();
+    const quote = spotFeed?.newerThan ? spotFeed.newerThan(publishedAt) : spotFeed?.current();
     renderCardPreviewFromRows(rowsWithSpotPrice(cachedRows, quote));
-    document.getElementById("costBasisChart")?.setAttribute("data-price-source", quote ? "live" : "published");
+    document.getElementById("costBasisChart")?.setAttribute("data-price-source",
+      quote ? (spotFeed?.isLive?.(quote) ? "live" : "retained") : "published");
   }
 
   async function prepareCandidate(context) {
@@ -350,6 +350,7 @@
 
   function commitCandidate(candidate, context) {
     cachedRows = candidate.rows;
+    publishedAt = candidate.marker.source?.latest_timestamp_utc || candidate.marker.generated_utc || "";
     installedBounds = {
       firstDate: candidate.rows[0].date,
       latestDate: candidate.rows[candidate.rows.length - 1].date,

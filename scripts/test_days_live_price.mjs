@@ -46,7 +46,11 @@ assert.equal(displayed.at(-1).athPrice, 120);
 assert.equal(displayed.at(-1).daysSinceAth, 2);
 
 assert.equal(withQuote(rows, { price: 130, at: now - 86400000 }, now), rows,
-  'a previous-day quote does not rewrite the current day');
-assert.equal(withQuote([rows[0]], { price: 130, at: now }, now).length, 1,
-  'a multi-day data gap does not fabricate missing highs');
+  'a previous-day quote does not rewrite a newer published day');
+displayed = withQuote(priorDayRows, { price: 130, at: now - 86400000 }, now);
+assert.equal(displayed.at(-1).spotPrice, 130,
+  'a retained previous-day quote stays on its day after midnight');
+displayed = withQuote([rows[0]], { price: 130, at: now }, now);
+assert.equal(displayed.length, 2,
+  'a multi-day publication gap adds one provisional quote day without inventing intermediate highs');
 console.log('Days Since ATH live price calculations passed.');

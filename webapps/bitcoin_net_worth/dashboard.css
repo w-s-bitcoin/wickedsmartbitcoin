@@ -919,6 +919,18 @@ html.embedded-in-modal body .app-shell {
   overflow: hidden;
 }
 
+.quote-status-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 5px;
+  border-radius: 50%;
+  background: #8b8b8b;
+  vertical-align: middle;
+}
+
+.quote-status-dot[data-kind="live"] { background: #39d7a4; }
+
 #realPriceCard .stamp {
   min-height: 1.1em;
   font-size: 0.82rem;

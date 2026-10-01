@@ -366,15 +366,6 @@
     }
 
     .comparison-price-status {
-      color: var(--price-up);
-      font-size: 0.78em;
-      margin-left: 0.45em;
-    }
-
-    .comparison-price-status[data-kind="delayed"] { color: var(--muted); }
-
-    .comparison-price-status[data-kind="live"],
-    .comparison-price-status[data-kind="stale"] {
       position: absolute;
       top: 10px;
       left: 10px;
@@ -383,13 +374,11 @@
       height: 6px;
       border-radius: 50%;
       margin-left: 0;
+      background: #8b8b8b;
     }
 
     .comparison-price-status[data-kind="live"] { background: var(--price-up); }
-
-    .comparison-price-status[data-kind="stale"] { background: #8b8b8b; }
-
-    .comparison-price-status:empty:not([data-kind="live"]):not([data-kind="stale"]) { display: none; }
+    .comparison-price-status[data-kind="delayed"] { background: #c48a2c; }
 
     .kpi-value {
       color: var(--fg);

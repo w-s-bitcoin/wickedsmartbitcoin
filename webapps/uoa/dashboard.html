@@ -91,7 +91,7 @@
             </div>
             <select id="updatedTimeZoneSelect" class="chip-menu-select chip-kpi-select-overlay dca-native-select" aria-label="Updated timestamp time zone"></select>
           </div>
-          <span id="pairKpiChip" class="chip"><span class="chip-label">Pair</span> <span id="pairKpiValue" class="chip-value"><span class="pair-primary">BTC</span><span class="pair-separator"> </span><span class="pair-secondary">USD</span></span></span>
+          <span id="pairKpiChip" class="chip"><span class="chip-label">Pair</span> <span id="pairKpiValue" class="chip-value"><span class="pair-primary pair-leg"><span class="pair-status" data-kind="published" role="img" aria-label="BTC: published snapshot"></span><span class="pair-code">BTC</span></span><span class="pair-separator"> </span><span class="pair-secondary pair-leg"><span class="pair-status" data-kind="reference" role="img" aria-label="USD: fixed reference"></span><span class="pair-code">USD</span></span></span></span>
           <span id="primaryRankKpiChip" class="chip"><span id="primaryRankKpiLabel" class="chip-label">BTC Rank</span> <span id="primaryRankKpiValue" class="chip-value" data-loading-placeholder="000"></span></span>
           <span id="secondaryRankKpiChip" class="chip"><span id="secondaryRankKpiLabel" class="chip-label">USD Rank</span> <span id="secondaryRankKpiValue" class="chip-value" data-loading-placeholder="000"></span></span>
         </div>
@@ -404,6 +404,8 @@
       window.WSBWebappDataAutoRefresh = { urls: ["webapp_data/last_updated.txt"] };
     </script>
     <script src="../shared/webapp_data_auto_refresh.js"></script>
+    <script src="../shared/bitcoin_spot_price.js"></script>
+    <script src="../shared/uoa_live_quotes.js"></script>
     <script src="dashboard_app.js"></script>
   </body>
 </html>

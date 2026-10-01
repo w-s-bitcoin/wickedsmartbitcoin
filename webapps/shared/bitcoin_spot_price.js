@@ -4,6 +4,7 @@
 
   const SOCKET_URL = "wss://ws-feed.exchange.coinbase.com";
   const SOCKET_STALL_MS = 65000;
+  const QUOTE_LIVE_MS = 60000;
   const QUOTE_STALE_MS = 90000;
   const POLL_MS = 60000;
   const REQUEST_TIMEOUT_MS = 12000;
@@ -39,12 +40,35 @@
     let retryTimer = 0;
     let watchTimer = 0;
     let pollTimer = 0;
+    let liveTimer = 0;
     let staleTimer = 0;
     let request = null;
     let quote = null;
+    let lastQuote = null;
 
     const isVisible = () => document.visibilityState !== "hidden";
     const current = () => quote && Date.now() - quote.at < QUOTE_STALE_MS ? quote : null;
+    const last = () => lastQuote;
+    const isLive = (value = lastQuote) => Boolean(value
+      && Date.now() - (value.receivedAt ?? value.at) < QUOTE_LIVE_MS);
+    const newerThan = (publishedAt) => {
+      const raw = String(publishedAt || "").trim().replace(" UTC", "Z").replace(" ", "T");
+      const utc = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(raw)
+        ? `${raw}Z` : raw;
+      const parsed = Number.isFinite(publishedAt) ? Number(publishedAt) : Date.parse(utc);
+      return lastQuote && lastQuote.at > (Number.isFinite(parsed) ? parsed : 0) ? lastQuote : null;
+    };
+
+    function scheduleLiveStatus() {
+      clearTimeout(liveTimer);
+      if (!lastQuote) return;
+      const remaining = (lastQuote.receivedAt ?? lastQuote.at) + QUOTE_LIVE_MS - Date.now();
+      if (remaining <= 0) return;
+      liveTimer = window.setTimeout(() => {
+        liveTimer = 0;
+        onQuote?.(current());
+      }, remaining);
+    }
 
     function scheduleStale() {
       clearTimeout(staleTimer);
@@ -61,10 +85,12 @@
 
     function publish(price, source, at = Date.now()) {
       if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(at)) return false;
-      const changed = !quote || quote.price !== price || quote.source !== source || quote.at !== at;
-      quote = { price, source, at };
+      if (lastQuote && at < lastQuote.at) return false;
+      quote = { price, source, at, receivedAt: Date.now() };
+      lastQuote = quote;
+      scheduleLiveStatus();
       scheduleStale();
-      if (changed) onQuote?.(quote);
+      onQuote?.(quote);
       return true;
     }
 
@@ -216,13 +242,14 @@
       clearTimeout(retryTimer);
       clearTimeout(watchTimer);
       clearTimeout(pollTimer);
+      clearTimeout(liveTimer);
       clearTimeout(staleTimer);
-      retryTimer = watchTimer = pollTimer = staleTimer = 0;
+      retryTimer = watchTimer = pollTimer = liveTimer = staleTimer = 0;
       request?.abort();
       closeSocket();
     }
 
-    return { start, stop, current };
+    return { start, stop, current, last, isLive, newerThan };
   }
 
   window.WSBBitcoinSpotPrice = { create };
