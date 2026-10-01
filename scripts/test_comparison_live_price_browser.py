@@ -195,8 +195,9 @@ def main():
                     if (status || indicator.dataset.kind !== 'live'
                         || !indicator.closest('.kpi-card').title.includes('Green dot:'))
                       return `${asset} live dot or tooltip missing`;
-                  } else if (status !== '15m delayed' || indicator.dataset.kind !== 'delayed') {
-                    return `${asset} source delay is not identified`;
+                  } else if (status || indicator.dataset.kind !== 'delayed'
+                      || !indicator.title.includes('15m delayed')) {
+                    return `${asset} amber delay dot or tooltip is missing`;
                   }
                 }
                 const finalChart = document.querySelector('#chartCanvas').toDataURL();

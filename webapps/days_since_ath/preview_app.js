@@ -256,9 +256,11 @@
     const leftX = outerPad;
     const rightX = outerPad + panelW + gap;
 
-    const quote = spotFeed?.current();
+    const quote = spotFeed?.newerThan
+      ? spotFeed.newerThan(cachedRows[cachedRows.length - 1]?.timestamp) : spotFeed?.current();
     const rows = window.WSBAthLivePrice?.withQuote(cachedRows, quote, Date.now(), observedSpotHigh) || cachedRows;
-    canvas.dataset.priceSource = rows !== cachedRows ? "live" : "published";
+    canvas.dataset.priceSource = rows !== cachedRows
+      ? (spotFeed?.isLive?.(quote) ? "live" : "retained") : "published";
     drawPanel(ctx, leftX, panelY, panelW, panelH, rows, (row) => row.price,
       { log: true, skipZero: true, spotPrice: rows[rows.length - 1]?.spotPrice });
     drawPanel(ctx, rightX, panelY, panelW, panelH, rows, (row) => row.daysSinceAth, { log: false });
@@ -303,8 +305,10 @@
     spotFeed = window.WSBBitcoinSpotPrice?.create({
       onQuote: (quote) => {
         observedSpotHigh = window.WSBAthLivePrice?.observeHigh(observedSpotHigh, quote) || observedSpotHigh;
-        const nextPrice = quote?.price || null;
-        const nextDay = quote ? new Date(quote.at).toISOString().slice(0, 10) : "";
+        const selected = spotFeed?.newerThan
+          ? spotFeed.newerThan(cachedRows[cachedRows.length - 1]?.timestamp) : quote;
+        const nextPrice = selected?.price || null;
+        const nextDay = selected ? new Date(selected.at).toISOString().slice(0, 10) : "";
         if (nextPrice !== lastSpotPrice || nextDay !== lastSpotDay) {
           lastSpotPrice = nextPrice;
           lastSpotDay = nextDay;

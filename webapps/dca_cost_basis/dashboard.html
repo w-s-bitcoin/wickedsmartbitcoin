@@ -1496,8 +1496,16 @@
     .chip-pct-loss   { color: var(--price-down); }
 
     #chipSpotPrice .chip-value { color: var(--fg); }
-    #chipSpotPrice .chip-spot-status { color: var(--muted); }
-    #chipSpotPrice[data-live="true"] .chip-spot-status { color: var(--price-up); }
+    #chipSpotPrice .chip-spot-status {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      margin-left: 5px;
+      border-radius: 50%;
+      background: #8b8b8b;
+      vertical-align: middle;
+    }
+    #chipSpotPrice .chip-spot-status[data-kind="live"] { background: var(--price-up); }
 
     .chip-menu-wrap.single-select {
       position: relative;
@@ -2008,7 +2016,7 @@
           </div>
           <select id="updatedTimeZoneSelect" class="chip-menu-select chip-kpi-select-overlay dca-native-select" aria-label="Updated timestamp time zone"></select>
         </div>
-        <div class="chip" id="chipSpotPrice"><span class="chip-label">BTCUSD</span> <span class="chip-value">-</span> <span class="chip-spot-status">Published</span></div>
+        <div class="chip" id="chipSpotPrice"><span class="chip-label">BTCUSD</span> <span class="chip-value">-</span> <span class="chip-spot-status" data-kind="stale" aria-hidden="true"></span></div>
         <div class="chip" id="chipProfitPct"><span class="chip-label">In Profit</span> <span class="chip-pct chip-pct-profit">-%</span></div>
         <div class="chip" id="chipLossPct"><span class="chip-label">At a Loss</span> <span class="chip-pct chip-pct-loss">-%</span></div>
       </div>

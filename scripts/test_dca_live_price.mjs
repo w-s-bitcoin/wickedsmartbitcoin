@@ -182,6 +182,14 @@ async function testSpotFeed() {
   }) });
   assert.ok(quotes.at(-1).at > firstQuoteAt,
     'a fresh accepted quote updates the timestamp even when its price is unchanged');
+  const repeatedAt = quotes.at(-1).at;
+  const notices = quotes.length;
+  now += 1000;
+  socket.onmessage({ data: JSON.stringify({
+    type: 'ticker', product_id: 'BTC-USD', price: '400', time: new Date(repeatedAt).toISOString(),
+  }) });
+  assert.equal(quotes.length, notices + 1, 'a repeated exchange tick refreshes the live-status clock');
+  assert.equal(quotes.at(-1).receivedAt, now);
 
   // A REST response already in flight must not overwrite a newer socket tick.
   restPrice = 300;
@@ -200,6 +208,15 @@ async function testSpotFeed() {
     if (timer.at <= now) { timers.delete(id); timer.fn(); }
   }
   assert.equal(feed.current(), null, 'stale quotes fall back to the published snapshot');
+  assert.equal(feed.last().price, 400, 'the accepted quote remains available after the feed stalls');
+  assert.equal(feed.isLive(), false, 'the retained quote is not labelled live');
+  assert.equal(feed.newerThan(new Date(firstQuoteAt - 1000).toISOString())?.price, 400,
+    'the retained quote wins over an older publication');
+  assert.equal(feed.newerThan(new Date(repeatedAt - 3600000).toISOString()
+    .slice(0, 19).replace('T', ' '))?.price, 400,
+  'a zone-free published CSV timestamp is interpreted as UTC');
+  assert.equal(feed.newerThan(new Date(now + 1000).toISOString()), null,
+    'a newer publication wins over the retained quote');
   assert.equal(quotes.at(-1), null);
   feed.stop();
 }

@@ -1,4 +1,4 @@
-/* Apply a fresh BTC/USD quote to the current UTC day without changing published history. */
+/* Apply the newest accepted BTC/USD quote without changing published history. */
 (function () {
   "use strict";
 
@@ -14,15 +14,14 @@
   function withQuote(rows, quote, now = Date.now(), observedHigh = null) {
     if (!Array.isArray(rows) || !rows.length || !(quote?.price > 0)) return rows;
     const quoteAt = Number(quote.at);
-    if (!Number.isFinite(quoteAt)) return rows;
-    const today = new Date(now).toISOString().slice(0, 10);
-    if (new Date(quoteAt).toISOString().slice(0, 10) !== today) return rows;
+    if (!Number.isFinite(quoteAt) || quoteAt > now + 90000) return rows;
+    const today = new Date(quoteAt).toISOString().slice(0, 10);
 
     const latest = rows[rows.length - 1];
     const latestMs = Date.parse(`${latest.date}T00:00:00Z`);
     const todayMs = Date.parse(`${today}T00:00:00Z`);
     const gapDays = Math.round((todayMs - latestMs) / DAY_MS);
-    if (gapDays !== 0 && gapDays !== 1) return rows;
+    if (gapDays < 0) return rows;
 
     const previousAth = gapDays === 0 ? rows[rows.length - 2]?.athPrice : latest.athPrice;
     const previousHigh = Number.isFinite(previousAth) ? previousAth : 0;

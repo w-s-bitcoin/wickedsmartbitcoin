@@ -336,8 +336,16 @@ body {
 }
 
 #chipSpotPrice { width: 29ch; }
-#chipSpotPrice .chip-spot-status { color: var(--muted); }
-#chipSpotPrice[data-live="true"] .chip-spot-status { color: var(--green); }
+#chipSpotPrice .chip-spot-status {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 5px;
+  border-radius: 50%;
+  background: #8b8b8b;
+  vertical-align: middle;
+}
+#chipSpotPrice .chip-spot-status[data-kind="live"] { background: var(--green); }
 #chipDailyHigh { width: 25ch; }
 #chipAth { width: 48ch; }
 #chipDrawdown { width: 19ch; }

@@ -1464,15 +1464,14 @@ function getFrameRows(startIso = state.dateRange.startIso, endIso = state.dateRa
   const latestPublishedIndex = priceRows.length - 1;
   const liveQuote = useLiveSpot && (state.dateRange.rangeTracksLatestEnd || liveQuoteOverride !== undefined)
     && !state.dateRange.isPlaying && !state.dateRange.isPaused && endIdx === latestPublishedIndex
-    ? (liveQuoteOverride !== undefined ? liveQuoteOverride : dcaSpotFeed?.current()) : null;
+    ? (liveQuoteOverride !== undefined ? liveQuoteOverride : selectedDcaSpotQuote()) : null;
   const currentPrice = liveQuote?.price || endRow.price;
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const quoteIsToday = Boolean(liveQuote && new Date(liveQuote.at).toISOString().slice(0, 10) === todayIso);
-  const liveToday = quoteIsToday && endRow.dateIso === todayIso;
-  const appendToday = quoteIsToday && diffDays(endRow.dateIso, todayIso) === 1;
+  const quoteDay = liveQuote ? new Date(liveQuote.at).toISOString().slice(0, 10) : "";
+  const liveToday = Boolean(quoteDay && endRow.dateIso === quoteDay);
+  const appendToday = Boolean(quoteDay && diffDays(endRow.dateIso, quoteDay) === 1);
   const buysToday = state.cadence === "daily_dca"
-    || (state.cadence === "weekly_dca" && new Date(`${todayIso}T00:00:00Z`).getUTCDay() === 5)
-    || (state.cadence === "monthly_dca" && Number(todayIso.slice(8, 10)) === 1);
+    || (state.cadence === "weekly_dca" && new Date(`${quoteDay}T00:00:00Z`).getUTCDay() === 5)
+    || (state.cadence === "monthly_dca" && Number(quoteDay.slice(8, 10)) === 1);
   const liveLatestBuy = liveToday && cache.mask[endIdx];
   const latestBuyPrice = liveLatestBuy ? currentPrice : endRow.price;
   const latestBuyAdjustment = liveLatestBuy ? (1 / currentPrice) - (1 / endRow.price)
@@ -1518,7 +1517,7 @@ function getFrameRows(startIso = state.dateRange.startIso, endIso = state.dateRa
       ...latest,
       daysAgo: 1,
       yearsAgo: 1 / 365.25,
-      dateIso: todayIso,
+      dateIso: quoteDay,
       timestampUtc: new Date(liveQuote.at).toISOString(),
       blockHeight: null,
       historicalPrice: currentPrice,
@@ -3105,7 +3104,7 @@ async function encodeDateRangeAnimationWebM({ canvas, ctx, settings, theme, pale
         // Capture the newest accepted quote when the final motion frame begins.
         // Reuse it through the final hold so its chart and labels stay consistent.
         finalFrameRows = getFrameRows(state.dateRange.startIso, finalDate, true,
-          dcaSpotFeed?.current() || null);
+          selectedDcaSpotQuote() || null);
       }
       const rows = useLiveFinalFrame ? finalFrameRows : getFrameRows(state.dateRange.startIso, dateIso);
       await drawExportFrame(ctx, canvas, dateIso, { ...settings, theme }, palette, rows);
@@ -3435,24 +3434,31 @@ function getVisibleHalvings(rows, maxDays) {
     .filter((h) => Number.isFinite(h.daysAgo) && h.daysAgo >= 1 && h.daysAgo <= maxDays);
 }
 
+function selectedDcaSpotQuote() {
+  return dcaSpotFeed?.newerThan
+    ? dcaSpotFeed.newerThan(state.metadata?.source?.latest_timestamp_utc)
+    : dcaSpotFeed?.current();
+}
+
 function updateSpotPriceChip() {
   const chip = document.getElementById("chipSpotPrice");
   if (!chip) return;
-  const quote = dcaSpotFeed?.current();
+  const quote = selectedDcaSpotQuote();
   const publishedPrice = Number(state.metadata?.source?.latest_price);
   const historyThrough = String(state.metadata?.source?.latest_date || "the latest published date");
   const price = quote?.price || publishedPrice;
   chip.querySelector(".chip-value").textContent = Number.isFinite(price) && price > 0
     ? fmtUsd(price, 0) : "-";
-  chip.querySelector(".chip-spot-status").textContent = quote ? "Live" : "Published";
-  chip.dataset.live = quote ? "true" : "false";
+  const live = Boolean(quote && dcaSpotFeed?.isLive?.(quote));
+  chip.querySelector(".chip-spot-status").dataset.kind = live ? "live" : "stale";
+  chip.dataset.live = live ? "true" : "false";
   chip.title = quote
-    ? `${quote.source} BTC/USD spot, received ${new Date(quote.at).toLocaleString()}. Historical DCA purchase dates run through ${historyThrough}.`
-    : `BTC/USD price from the published DCA snapshot through ${historyThrough}; live market data is unavailable.`;
+    ? `${live ? "Green" : "Gray"} dot: ${quote.source} BTC/USD spot last received ${new Date(quote.at).toLocaleString()}${live ? "" : "; no quote arrived in the last 60 seconds"}. Historical DCA purchase dates run through ${historyThrough}.`
+    : `Gray dot: BTC/USD price from the published DCA snapshot through ${historyThrough}; no newer market quote is available.`;
 }
 
 function updatePriceTimestampChips() {
-  const quote = dcaSpotFeed?.current();
+  const quote = selectedDcaSpotQuote();
   const snapshot = state.metadata?.source;
   const updatedRaw = quote ? new Date(quote.at).toISOString() : String(snapshot?.latest_timestamp_utc || "").trim();
   const height = Number(snapshot?.latest_block_height);
@@ -3473,7 +3479,7 @@ function updatePriceTimestampChips() {
   }
   const updated = document.getElementById("chipUpdated");
   if (updated) updated.title = quote
-    ? `Live BTC/USD quote received at ${new Date(quote.at).toISOString()}. Block ${heightText} is from the published snapshot at ${snapshot?.latest_timestamp_utc || "an unknown time"}.`
+    ? `BTC/USD quote received at ${new Date(quote.at).toISOString()}. Block ${heightText} is from the published snapshot at ${snapshot?.latest_timestamp_utc || "an unknown time"}.`
     : `Published price snapshot at ${snapshot?.latest_timestamp_utc || "an unknown time"}, block ${heightText}.`;
 }
 
@@ -3491,9 +3497,10 @@ function registerDcaLivePrice() {
   const spot = window.WSBBitcoinSpotPrice;
   if (!spot?.create) return;
   dcaSpotFeed = spot.create({
-    onQuote: (quote) => {
+    onQuote: () => {
       updateSpotPriceChip();
       updatePriceTimestampChips();
+      const quote = selectedDcaSpotQuote();
       const nextPrice = quote?.price || null;
       const nextDay = quote ? new Date(quote.at).toISOString().slice(0, 10) : "";
       if (nextPrice !== dcaLastLivePrice || nextDay !== dcaLastLiveDay) {

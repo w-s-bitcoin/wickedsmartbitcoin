@@ -2526,12 +2526,12 @@
       const applied = Boolean(appliedQuotes?.[asset]);
       const isLive = applied && quote?.live && quote.delayLabel === "Live";
       const isDelayed = applied && quote?.live && !isLive;
-      statusEl.textContent = isDelayed ? quote.delayLabel : "";
+      statusEl.textContent = "";
       statusEl.dataset.kind = isLive ? "live" : isDelayed ? "delayed" : quote ? "stale" : "published";
       const tooltip = isLive
         ? `Green dot: ${quote.source} supplied this price within the last 60 seconds, at ${new Date(quote.checkedAt).toLocaleString()}. Published daily prices are the fallback and historical source.`
         : isDelayed
-          ? `${quote.source} price; ${quote.delayLabel.toLowerCase()}. Published daily history is the fallback.`
+          ? `Amber dot: ${quote.source} price was checked within the last 60 seconds; ${quote.delayLabel.toLowerCase()}. Published daily history is the fallback.`
           : quote && applied
             ? `Gray dot: showing the last ${quote.source} price from ${new Date(quote.checkedAt).toLocaleString()}; no live update arrived in the last 60 seconds. A newer published snapshot will replace it.`
             : quote
