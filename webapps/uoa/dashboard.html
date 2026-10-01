@@ -33,7 +33,7 @@
             <button class="info-btn filters-btn uoa-settings-btn" type="button" id="uoaSettingsBtn" aria-label="Show dashboard settings" aria-haspopup="dialog" aria-expanded="false" aria-controls="uoaSettingsPanel">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5.5h8.3M16.7 5.5H21M3 12h4.3M12.7 12H21M3 18.5h10.3M18.7 18.5H21"></path><circle cx="14" cy="5.5" r="2.65"></circle><circle cx="10" cy="12" r="2.65"></circle><circle cx="16" cy="18.5" r="2.65"></circle></svg>
             </button>
-            <div class="filters-panel uoa-settings-panel" id="uoaSettingsPanel" role="dialog" aria-label="Dashboard settings">
+            <dialog class="filters-panel uoa-settings-panel title-settings-dialog" id="uoaSettingsPanel" aria-label="Dashboard settings">
               <div class="filters-panel-header uoa-settings-panel-header">
                 <h2 class="filters-panel-title uoa-settings-panel-title">Dashboard Settings</h2>
                 <button id="uoaSettingsClose" type="button" class="uoa-settings-panel-close filters-panel-close" aria-label="Close settings">×</button>
@@ -65,7 +65,7 @@
                   <button type="button" class="uoa-setting-option" data-metal-denomination="kilogram">kilogram</button>
                 </div>
               </div>
-            </div>
+            </dialog>
           </div>
         </div>
         <div class="title-actions">

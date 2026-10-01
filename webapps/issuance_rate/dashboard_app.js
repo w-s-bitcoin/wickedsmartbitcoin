@@ -1723,29 +1723,11 @@
     persistState();
   }
 
-  function positionIssuanceSettingsPanel() {
-    if (!els.issuanceSettingsBtn || !els.issuanceSettingsPanel) return;
-    const topbar = els.issuanceSettingsBtn.closest(".topbar");
-    if (!topbar) return;
-    const topbarRect = topbar.getBoundingClientRect();
-    const buttonRect = els.issuanceSettingsBtn.getBoundingClientRect();
-    const topbarStyle = window.getComputedStyle(topbar);
-    const contentLeft = topbarRect.left + (parseFloat(topbarStyle.paddingLeft) || 0);
-    els.issuanceSettingsPanel.style.setProperty("--issuance-settings-panel-left", `${Math.round(contentLeft - buttonRect.left)}px`);
-    const panelTop = buttonRect.bottom + 8;
-    const playbackPanel = document.querySelector(".date-range-panel");
-    const playbackBottom = playbackPanel?.getBoundingClientRect().bottom || (window.innerHeight - 12);
-    const viewportBottom = window.innerHeight - 12;
-    const availableHeight = Math.min(playbackBottom, viewportBottom) - panelTop;
-    els.issuanceSettingsPanel.style.setProperty("--issuance-settings-panel-max-height", `${Math.max(1, Math.floor(availableHeight))}px`);
-  }
+  let issuanceSettingsDialog;
 
   function setIssuanceSettingsPanelOpen(open) {
-    if (!els.issuanceSettingsBtn || !els.issuanceSettingsPanel) return;
-    if (open) positionIssuanceSettingsPanel();
-    els.issuanceSettingsPanel.classList.toggle("open", !!open);
-    els.issuanceSettingsBtn.classList.toggle("is-open", !!open);
-    els.issuanceSettingsBtn.setAttribute("aria-expanded", String(!!open));
+    if (open) issuanceSettingsDialog?.open();
+    else issuanceSettingsDialog?.close();
   }
 
   function isDefaultState() {
@@ -3021,6 +3003,10 @@
       saveDownloadSettings();
       syncDownloadSettingsControls();
     });
+    issuanceSettingsDialog = window.WSBDashboardComponents?.createTitleSettingsDialog({
+      button: els.issuanceSettingsBtn,
+      dialog: els.issuanceSettingsPanel,
+    });
     els.issuanceSettingsBtn?.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -3221,11 +3207,7 @@
     primeKeyboardFocus();
     window.addEventListener("resize", () => {
       scheduleLayoutSync();
-      if (els.issuanceSettingsPanel?.classList.contains("open")) positionIssuanceSettingsPanel();
     });
-    window.addEventListener("scroll", () => {
-      if (els.issuanceSettingsPanel?.classList.contains("open")) positionIssuanceSettingsPanel();
-    }, true);
     if ("ResizeObserver" in window && els.dateRangeSliderWrap) {
       const sliderResizeObserver = new ResizeObserver(scheduleLayoutSync);
       sliderResizeObserver.observe(els.dateRangeSliderWrap);

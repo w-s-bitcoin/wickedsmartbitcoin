@@ -3619,32 +3619,18 @@
     if (options.updateReset !== false) updateResetButtonUi();
   }
 
-  function positionUoaSettingsPanel() {
-    if (!el.uoaSettingsBtn || !el.uoaSettingsPanel) return;
-    const topbar = el.uoaSettingsBtn.closest(".topbar");
-    if (!topbar) return;
-    const topbarRect = topbar.getBoundingClientRect();
-    const buttonRect = el.uoaSettingsBtn.getBoundingClientRect();
-    const topbarStyle = window.getComputedStyle(topbar);
-    const contentLeft = topbarRect.left + (parseFloat(topbarStyle.paddingLeft) || 0);
-    el.uoaSettingsPanel.style.setProperty("--filters-panel-left", `${Math.round(contentLeft - buttonRect.left)}px`);
-    const panelTop = buttonRect.bottom + 8;
-    const playbackPanel = document.querySelector(".date-range-panel");
-    const playbackBottom = playbackPanel?.getBoundingClientRect().bottom || (window.innerHeight - 12);
-    const viewportBottom = window.innerHeight - 12;
-    const availableHeight = Math.min(playbackBottom, viewportBottom) - panelTop;
-    el.uoaSettingsPanel.style.setProperty("--filters-panel-max-height", `${Math.max(1, Math.floor(availableHeight))}px`);
-  }
+  let uoaSettingsDialog;
 
   function setUoaSettingsPanelOpen(open) {
-    if (!el.uoaSettingsBtn || !el.uoaSettingsPanel) return;
-    if (open) positionUoaSettingsPanel();
-    el.uoaSettingsPanel.classList.toggle("open", open);
-    el.uoaSettingsBtn.classList.toggle("is-open", open);
-    el.uoaSettingsBtn.setAttribute("aria-expanded", String(open));
+    if (open) uoaSettingsDialog?.open();
+    else uoaSettingsDialog?.close();
   }
 
   function bindUoaSettingsPanel() {
+    uoaSettingsDialog ||= window.WSBDashboardComponents?.createTitleSettingsDialog({
+      button: el.uoaSettingsBtn,
+      dialog: el.uoaSettingsPanel,
+    });
     if (el.uoaSettingsBtn && el.uoaSettingsBtn.dataset.bound !== "1") {
       el.uoaSettingsBtn.dataset.bound = "1";
       el.uoaSettingsBtn.addEventListener("click", (event) => {
@@ -3684,12 +3670,6 @@
       el.showMonetaryMetalsToggle.dataset.bound = "1";
       el.showMonetaryMetalsToggle.addEventListener("change", () => {
         setShowMonetaryMetals(el.showMonetaryMetalsToggle.checked);
-      });
-    }
-    if (bindUoaSettingsPanel.bound !== true) {
-      bindUoaSettingsPanel.bound = true;
-      window.addEventListener("resize", () => {
-        if (el.uoaSettingsPanel?.classList.contains("open")) positionUoaSettingsPanel();
       });
     }
     syncMetalDenominationButtons();

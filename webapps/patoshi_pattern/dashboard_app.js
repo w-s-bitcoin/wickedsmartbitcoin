@@ -1909,7 +1909,6 @@
     if (layoutSyncRaf) return;
     layoutSyncRaf = requestAnimationFrame(() => {
       layoutSyncRaf = 0;
-      if (els.filtersPanel?.classList.contains("open")) positionFiltersPanel();
       updateRangeFill();
       render();
     });
@@ -2352,29 +2351,11 @@
     });
   }
 
-  function setFiltersPanelOpen(open) {
-    if (!els.filtersBtn || !els.filtersPanel) return;
-    if (open) positionFiltersPanel();
-    if (!open) clearPatternBlockPickMode();
-    els.filtersPanel.classList.toggle("open", open);
-    els.filtersBtn.classList.toggle("is-open", open);
-    els.filtersBtn.setAttribute("aria-expanded", String(open));
-  }
+  let filtersDialog;
 
-  function positionFiltersPanel() {
-    const topbar = els.filtersBtn?.closest(".topbar");
-    if (!topbar || !els.filtersBtn || !els.filtersPanel) return;
-    const topbarRect = topbar.getBoundingClientRect();
-    const buttonRect = els.filtersBtn.getBoundingClientRect();
-    const topbarStyle = window.getComputedStyle(topbar);
-    const contentLeft = topbarRect.left + (parseFloat(topbarStyle.paddingLeft) || 0);
-    els.filtersPanel.style.setProperty("--filters-panel-left", `${Math.round(contentLeft - buttonRect.left)}px`);
-    const panelTop = buttonRect.bottom + 8;
-    const playbackPanel = document.querySelector(".date-range-panel");
-    const playbackBottom = playbackPanel?.getBoundingClientRect().bottom || (window.innerHeight - 12);
-    const viewportBottom = window.innerHeight - 12;
-    const availableHeight = Math.min(playbackBottom, viewportBottom) - panelTop;
-    els.filtersPanel.style.setProperty("--filters-panel-max-height", `${Math.max(1, Math.floor(availableHeight))}px`);
+  function setFiltersPanelOpen(open) {
+    if (open) filtersDialog?.open();
+    else filtersDialog?.close();
   }
 
   function toggleFiltersPanel(event) {
@@ -5442,6 +5423,14 @@
     els.chartPanModeBtn?.addEventListener("click", () => setChartInteractionMode("pan"));
     els.chartMeasureModeBtn?.addEventListener("click", () => setChartInteractionMode("measure"));
     els.chartSlopeModeBtn?.addEventListener("click", () => setChartInteractionMode("slope"));
+    filtersDialog = window.WSBDashboardComponents?.createTitleSettingsDialog({
+      button: els.filtersBtn,
+      dialog: els.filtersPanel,
+      onClose: () => {
+        clearPatternBlockPickMode();
+        closeDropdowns();
+      },
+    });
     els.filtersBtn?.addEventListener("click", toggleFiltersPanel);
     els.filtersClose?.addEventListener("click", (event) => {
       event.stopPropagation();

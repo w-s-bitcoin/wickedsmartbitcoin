@@ -3370,30 +3370,13 @@
       el.settingsPanel?.classList.remove("open");
       el.settingsBtn?.classList.remove("is-open");
     };
-    const positionDashboardSettingsPanel = () => {
-      const panel = el.dashboardSettingsPanel;
-      const button = el.dashboardSettingsBtn;
-      if (!panel || !button) return;
-      const topbar = button.closest(".topbar");
-      if (!topbar) return;
-      const topbarRect = topbar.getBoundingClientRect();
-      const buttonRect = button.getBoundingClientRect();
-      const topbarStyle = window.getComputedStyle(topbar);
-      const contentLeft = topbarRect.left + (parseFloat(topbarStyle.paddingLeft) || 0);
-      panel.style.setProperty("--dca-comparison-settings-panel-left", `${Math.round(contentLeft - buttonRect.left)}px`);
-      const panelTop = buttonRect.bottom + 8;
-      const playbackPanel = document.querySelector(".date-range-panel");
-      const playbackBottom = playbackPanel?.getBoundingClientRect().bottom || (window.innerHeight - 12);
-      const viewportBottom = window.innerHeight - 12;
-      const availableHeight = Math.min(playbackBottom, viewportBottom) - panelTop;
-      panel.style.setProperty("--dca-comparison-settings-panel-max-height", `${Math.max(1, Math.floor(availableHeight))}px`);
-    };
+    const dashboardSettingsDialog = DASHBOARD_COMPONENTS.createTitleSettingsDialog({
+      button: el.dashboardSettingsBtn,
+      dialog: el.dashboardSettingsPanel,
+    });
     const setDashboardSettingsPanelOpen = (open) => {
-      const isOpen = !!open;
-      if (isOpen) positionDashboardSettingsPanel();
-      el.dashboardSettingsPanel?.classList.toggle("open", isOpen);
-      el.dashboardSettingsBtn?.classList.toggle("is-open", isOpen);
-      el.dashboardSettingsBtn?.setAttribute("aria-expanded", isOpen ? "true" : "false");
+      if (open) dashboardSettingsDialog?.open();
+      else dashboardSettingsDialog?.close();
     };
     const closeDashboardSettingsPanel = () => setDashboardSettingsPanelOpen(false);
     bindSelectDropdowns();
@@ -3756,7 +3739,6 @@
     window.addEventListener("pagehide", saveSettings);
     window.addEventListener("beforeunload", saveSettings);
     window.addEventListener("resize", () => {
-      if (el.dashboardSettingsPanel?.classList.contains("open")) positionDashboardSettingsPanel();
       render();
     });
     DASHBOARD_COMPONENTS.bindPlaybackKeyboardShortcuts?.({

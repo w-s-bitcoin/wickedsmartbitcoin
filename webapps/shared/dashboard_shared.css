@@ -444,6 +444,24 @@ h1 {
   z-index: 30020 !important;
 }
 
+dialog.title-settings-dialog {
+  position: fixed;
+  inset: 0;
+  box-sizing: border-box;
+  width: min(440px, calc(100vw - 32px));
+  max-height: min(80dvh, 640px);
+  height: fit-content;
+  margin: auto;
+}
+
+dialog.title-settings-dialog[open] {
+  display: block;
+}
+
+dialog.title-settings-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.64);
+}
+
 .topbar.ui-locked .toggle,
 .topbar.ui-locked label.chip,
 .topbar.ui-locked .chip-menu-wrap,
