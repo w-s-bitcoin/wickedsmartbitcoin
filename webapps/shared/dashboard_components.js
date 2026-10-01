@@ -1291,6 +1291,42 @@
     return api;
   }
 
+  function createTitleSettingsDialog({ button, dialog, onClose } = {}) {
+    if (!button || !dialog || typeof dialog.showModal !== "function") return null;
+    let wasOpen = dialog.open;
+    const sync = () => {
+      const isOpen = dialog.open;
+      dialog.classList.toggle("open", isOpen);
+      button.classList.toggle("is-open", isOpen);
+      button.setAttribute("aria-expanded", String(isOpen));
+      if (wasOpen && !isOpen) onClose?.();
+      wasOpen = isOpen;
+    };
+    const close = () => {
+      if (dialog.open) dialog.close();
+      sync();
+    };
+    const open = () => {
+      if (dialog.open) return;
+      dialog.classList.add("open");
+      dialog.showModal();
+      sync();
+    };
+    dialog.addEventListener("close", sync);
+    dialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      close();
+    });
+    dialog.addEventListener("click", (event) => {
+      if (event.target !== dialog) return;
+      const bounds = dialog.getBoundingClientRect();
+      if (event.clientX < bounds.left || event.clientX > bounds.right ||
+          event.clientY < bounds.top || event.clientY > bounds.bottom) close();
+    });
+    sync();
+    return { open, close, toggle: () => dialog.open ? close() : open(), isOpen: () => dialog.open };
+  }
+
   function createTitleSettingsButton(config = {}) {
     const button = document.createElement("button");
     button.type = "button";
@@ -1373,6 +1409,7 @@
   ns.bindPlaybackKeyboardShortcuts = bindPlaybackKeyboardShortcuts;
   ns.getDashboardManifest = getDashboardManifest;
   ns.initDashboardRuntime = initDashboardRuntime;
+  ns.createTitleSettingsDialog = createTitleSettingsDialog;
   ns.createTitleSettingsButton = createTitleSettingsButton;
   ns.renderTitleSettingsButtonIcon = renderTitleSettingsButtonIcon;
   ns.hydrateTitleSettingsButtons = hydrateTitleSettingsButtons;
