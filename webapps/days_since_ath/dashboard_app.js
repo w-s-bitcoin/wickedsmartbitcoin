@@ -6,6 +6,7 @@
   const THEME_KEY = "quantum-research-dashboard-theme";
   const DATA_URL = "../../assets/daily_price.csv";
   const PUBLICATION_URL = "../../assets/daily_price_metadata.json";
+  const ATH_LIVE = window.WSBAthLivePrice;
   const PRICE_FALLBACK = 0.0001;
   const SPEEDS = [0.5, 1, 2, 4];
   const DATE_RANGE_EXPORT_VIDEO_FPS = 30;
@@ -95,7 +96,7 @@
 
   const el = {
     updatedKpi: document.getElementById("updatedKpi"),
-    heightKpi: document.getElementById("heightKpi"),
+    spotChip: document.getElementById("chipSpotPrice"),
     dailyHighKpi: document.getElementById("dailyHighKpi"),
     athKpi: document.getElementById("athKpi"),
     drawdownKpi: document.getElementById("drawdownKpi"),
@@ -186,6 +187,17 @@
   let dateRangeExportCancelRequested = false;
   let activeExportTheme = "";
   let activeExportFrameIso = "";
+  let activeExportLiveRows = null;
+  let spotFeed = null;
+  let observedSpotHigh = null;
+  let daysSpotPresentationPending = false;
+  let lastSpotPrice = null;
+  let lastSpotDay = "";
+  let cachedLiveRows = null;
+  let cachedLiveSource = null;
+  let cachedLiveAt = null;
+  let cachedLivePrice = null;
+  let cachedLiveDay = "";
   let activeExportPriceScaleMode = "";
   let activeExportDaysScaleMode = "";
   let dateRangeDragState = null;
@@ -668,10 +680,36 @@
     return { ctx, width, height };
   }
 
+  function currentLiveRows() {
+    const quote = spotFeed?.current();
+    const today = new Date().toISOString().slice(0, 10);
+    if (cachedLiveRows && cachedLiveSource === state.rows && cachedLiveAt === (quote?.at ?? null)
+        && cachedLivePrice === (quote?.price ?? null) && cachedLiveDay === today) {
+      return cachedLiveRows;
+    }
+    cachedLiveSource = state.rows;
+    cachedLiveAt = quote?.at ?? null;
+    cachedLivePrice = quote?.price ?? null;
+    cachedLiveDay = today;
+    cachedLiveRows = ATH_LIVE?.withQuote(state.rows, quote, Date.now(), observedSpotHigh) || state.rows;
+    return cachedLiveRows;
+  }
+
+  function liveViewAllowed() {
+    const latestDate = state.rows[state.rows.length - 1]?.date;
+    return !!latestDate && !isDateRangeExporting && !state.playing
+      && !dateRangePlaybackState.hasSession && state.endIso === latestDate
+      && state.currentIso === state.endIso;
+  }
+
   function visibleRows() {
     const start = findIndex(state.startIso, "ceil");
     const end = findIndex(activeExportFrameIso || state.currentIso, "floor");
-    return state.rows.slice(Math.max(0, start), Math.max(start, end) + 1);
+    const source = activeExportFrameIso ? (activeExportLiveRows || state.rows)
+      : liveViewAllowed() ? currentLiveRows() : state.rows;
+    const rows = source.slice(Math.max(0, start), Math.max(start, end) + 1);
+    if (source.length > state.rows.length && end === state.rows.length - 1) rows.push(source[source.length - 1]);
+    return rows;
   }
 
   function drawHalvings(ctx, rows, xFor, top, bottom, mode) {
@@ -1227,7 +1265,9 @@
 
     const latest = rows[rows.length - 1];
     const yPriceValue = (value) => isNotValued(value) ? yPriceScale(PRICE_FALLBACK) : yPriceScale(value);
-    const currentPriceY = yPriceValue(latest.price);
+    const liveSpotPrice = Number(latest.spotPrice);
+    const hasLiveSpot = Number.isFinite(liveSpotPrice) && liveSpotPrice > 0;
+    const currentPriceY = yPriceValue(hasLiveSpot ? liveSpotPrice : latest.price);
     const yPriceTick = (value) => isNotValued(value) ? yPriceScale(PRICE_FALLBACK) : yPriceScale(value);
     const priceTickValues = usePriceLog
       ? priceTicks(minPrice, maxPrice, hasNotValuedRows)
@@ -1237,6 +1277,17 @@
     drawXAxisTicks(ctx, buildTimeTicks(rows, plotW), xForIso, pad, plotW, plotH, 18);
     if (state.showHalvings) drawHalvings(ctx, rows, xFor, pad.top, pad.top + plotH, "date");
     drawPriceLine(ctx, rows, xFor, yPriceValue, accent, 2.2);
+    if (hasLiveSpot && liveSpotPrice < latest.price) {
+      ctx.save();
+      ctx.strokeStyle = chartColors().muted;
+      ctx.lineWidth = 1.2;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      ctx.moveTo(pad.left, currentPriceY);
+      ctx.lineTo(pad.left + plotW, currentPriceY);
+      ctx.stroke();
+      ctx.restore();
+    }
     if (state.showAthMarkers) drawAthMarkers(ctx, rows, xFor, yPriceValue, pad, plotW, plotH, green);
     if (state.showAthMarkers) {
       drawLeftEdgeAthMarker(ctx, offscreenLeftAth(rows), pad.top - 10, pad, plotW, bg, green);
@@ -1308,7 +1359,7 @@
         });
       });
     }
-    drawCurrentValueLabel(ctx, fmtCurrentPrice(latest.price), currentPriceY, width, pad);
+    drawCurrentValueLabel(ctx, fmtCurrentPrice(hasLiveSpot ? liveSpotPrice : latest.price), currentPriceY, width, pad);
   }
 
   function drawDaysChart(canvas = el.daysCanvas) {
@@ -1429,22 +1480,61 @@
     drawCurrentValueLabel(ctx, latest.daysSinceAth.toLocaleString("en-US"), currentDaysY, width, pad);
   }
 
-  function syncControls() {
-    const latest = state.rows[findIndex(state.currentIso, "floor")] || state.rows[state.rows.length - 1];
-    if (!latest) return;
-    if (updatedTimeZoneChip) {
-      updatedTimeZoneChip.setUpdated(latest.timestamp || latest.date, { mode: latest.timestamp ? "timestamp" : "date" });
-    } else {
-      el.updatedKpi.textContent = fmtDate(latest.date);
+  function updateLivePriceChips() {
+    const published = state.rows[state.rows.length - 1];
+    const quote = spotFeed?.current();
+    const height = Number(published?.height);
+    const hasHeight = Number.isFinite(height) && height > 0;
+    const heightText = hasHeight ? height.toLocaleString("en-US") : "-";
+    const spotPrice = quote?.price || published?.snapshotPrice || published?.price;
+    if (el.spotChip) {
+      el.spotChip.querySelector(".chip-value").textContent = fmtUsd(spotPrice);
+      el.spotChip.querySelector(".chip-spot-status").textContent = quote ? "Live" : "Published";
+      el.spotChip.dataset.live = quote ? "true" : "false";
+      el.spotChip.title = quote
+        ? `${quote.source} BTC/USD spot received ${new Date(quote.at).toLocaleString()}. Published history runs through ${published?.date || "an unknown date"}.`
+        : `BTC/USD from the published snapshot at ${published?.timestamp || "an unknown time"}.`;
     }
-    el.heightKpi.textContent = latest.height.toLocaleString("en-US");
+    if (quote && updatedTimeZoneChip) {
+      const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: state.timeZone || "UTC", year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+        timeZoneName: "short",
+      }).formatToParts(new Date(quote.at));
+      const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+      updatedTimeZoneChip.setText(`${values.year}-${values.month}-${values.day} `
+        + `${values.hour}:${values.minute}:${values.second} (${values.timeZoneName || state.timeZone || "UTC"})`
+        + ` | ${heightText}`);
+    } else if (updatedTimeZoneChip) {
+      updatedTimeZoneChip.setUpdated(published?.timestamp || published?.date || "", {
+        includeHeight: hasHeight, height,
+      });
+    } else if (el.updatedKpi) {
+      el.updatedKpi.textContent = published?.timestamp || "-";
+    }
+    const updated = document.getElementById("chipUpdated");
+    if (updated) updated.title = quote
+      ? `Live BTC/USD quote received at ${new Date(quote.at).toISOString()}. Block ${heightText} is from the published snapshot at ${published?.timestamp || "an unknown time"}.`
+      : `Published price snapshot at ${published?.timestamp || "an unknown time"}, block ${heightText}.`;
+  }
+
+  function syncControls() {
+    const selected = state.rows[findIndex(state.currentIso, "floor")] || state.rows[state.rows.length - 1];
+    const latest = liveViewAllowed() ? currentLiveRows().at(-1) : selected;
+    if (!latest) return;
+    updateLivePriceChips();
     el.dailyHighKpi.textContent = fmtUsd(latest.price);
+    const dailyHighChip = document.getElementById("chipDailyHigh");
+    if (dailyHighChip) dailyHighChip.title = latest.spotPrice
+      ? "Published daily high plus the highest BTC/USD quote observed in this tab today. Earlier intraday highs may appear in the next published snapshot."
+      : "Daily high from the published price snapshot.";
     if (isNotValued(latest.price)) {
       el.athKpi.textContent = "None";
       el.drawdownKpi.textContent = "None";
     } else {
       el.athKpi.textContent = `${fmtUsd(latest.athPrice)} on ${fmtDate(latest.athDate)}`;
-      const dd = latest.athPrice > PRICE_FALLBACK ? ((latest.price - latest.athPrice) / latest.athPrice) * 100 : NaN;
+      const valuePrice = latest.spotPrice || latest.snapshotPrice || latest.price;
+      const dd = latest.athPrice > PRICE_FALLBACK ? ((valuePrice - latest.athPrice) / latest.athPrice) * 100 : NaN;
       el.drawdownKpi.textContent = fmtPct(dd);
     }
     el.daysKpi.textContent = latest.daysSinceAth.toLocaleString("en-US");
@@ -1680,10 +1770,12 @@
     daysCanvas.__exportPixelScale = pixelScale;
 
     const prevFrameIso = activeExportFrameIso;
+    const prevLiveRows = activeExportLiveRows;
     const prevPriceScale = activeExportPriceScaleMode;
     const prevDaysScale = activeExportDaysScaleMode;
     const prevTheme = activeExportTheme;
     activeExportFrameIso = state.rows[index]?.date || state.endIso;
+    activeExportLiveRows = options.liveRows || null;
     activeExportPriceScaleMode = settings.leftScale;
     activeExportDaysScaleMode = settings.rightScale;
     activeExportTheme = settings.theme;
@@ -1692,6 +1784,7 @@
       if (mode !== "left") drawDaysChart(daysCanvas);
     } finally {
       activeExportFrameIso = prevFrameIso;
+      activeExportLiveRows = prevLiveRows;
       activeExportPriceScaleMode = prevPriceScale;
       activeExportDaysScaleMode = prevDaysScale;
       activeExportTheme = prevTheme;
@@ -1722,7 +1815,7 @@
     ctx.restore();
   }
 
-  function drawExportFrame(index, settings, exportCanvas) {
+  function drawExportFrame(index, settings, exportCanvas, options = {}) {
     const referenceSettings = getExportReferenceLayoutSettings(settings);
     const referenceDimensions = getDownloadDimensions(referenceSettings);
     const outputDimensions = getDownloadDimensions(settings);
@@ -1733,12 +1826,17 @@
     drawExportLayoutFrame(index, referenceSettings, exportCanvas, {
       outputSettings: settings,
       pixelScale,
+      liveRows: options.liveRows,
     });
   }
 
   async function encodeAnimationWebM(settings, frameIndices) {
     const { width, height } = getDownloadDimensions(settings);
     const exportCanvas = document.createElement("canvas");
+    const finalIndex = frameIndices[frameIndices.length - 1];
+    const lastHistoricalFrame = frameIndices.reduce((last, index, frame) => index !== finalIndex ? frame : last, -1);
+    const liveFinalStart = finalIndex === state.rows.length - 1 ? lastHistoricalFrame + 1 : -1;
+    let finalLiveRows = null;
     const blob = await window.WSBDashboardExport.encodeWebM({
       canvas: exportCanvas,
       width,
@@ -1747,7 +1845,17 @@
       settings,
       frames: frameIndices,
       title: "Days Since ATH",
-      renderFrame: (index) => drawExportFrame(index, settings, exportCanvas),
+      renderFrame: (index, _canvas, frame) => {
+        if (liveFinalStart >= 0 && frame >= liveFinalStart) {
+          if (!finalLiveRows) {
+            // Hold one quote generation through the final motion frame and pause.
+            finalLiveRows = ATH_LIVE?.withQuote(state.rows, spotFeed?.current(), Date.now(), observedSpotHigh) || state.rows;
+          }
+          drawExportFrame(index, settings, exportCanvas, { liveRows: finalLiveRows });
+        } else {
+          drawExportFrame(index, settings, exportCanvas);
+        }
+      },
       isCanceled: () => dateRangeExportCancelRequested,
       onProgress: renderDateRangeDownloadButtonProgress,
     });
@@ -2364,11 +2472,13 @@
     const rows = rawRows.map((row) => {
       const date = isoFromRow(row);
       const rawPrice = Number(row.daily_high || row.price);
+      const snapshotPrice = Number(row.price);
       const rawHeight = Number(row.block_height);
       return {
         date,
         timestamp: row.timestamp || row.date || "",
         price: Math.max(Number.isFinite(rawPrice) ? rawPrice : 0, PRICE_FALLBACK),
+        snapshotPrice: Number.isFinite(snapshotPrice) ? snapshotPrice : rawPrice,
         height: Number.isFinite(rawHeight) ? rawHeight : NaN,
         sourcePrice: rawPrice,
       };
@@ -2555,9 +2665,43 @@
       || !!dateRangeEndSliderScrubState.active;
   }
 
+  function presentPendingDaysSpot() {
+    if (!daysSpotPresentationPending || !daysInitializationComplete || daysPresentationBlocked()
+        || daysRefreshPresentationPending || isDateRangeExporting || state.playing
+        || dateRangePlaybackState.hasSession) return;
+    daysSpotPresentationPending = false;
+    render();
+  }
+
+  function registerDaysSpotFeed() {
+    const spot = window.WSBBitcoinSpotPrice;
+    if (!spot?.create) return;
+    spotFeed = spot.create({
+      onQuote: (quote) => {
+        observedSpotHigh = ATH_LIVE?.observeHigh(observedSpotHigh, quote) || observedSpotHigh;
+        updateLivePriceChips();
+        const nextPrice = quote?.price || null;
+        const nextDay = quote ? new Date(quote.at).toISOString().slice(0, 10) : "";
+        if (nextPrice !== lastSpotPrice || nextDay !== lastSpotDay) {
+          lastSpotPrice = nextPrice;
+          lastSpotDay = nextDay;
+          daysSpotPresentationPending = true;
+          presentPendingDaysSpot();
+        }
+      },
+    });
+    spotFeed.start();
+    document.addEventListener("visibilitychange", presentPendingDaysSpot);
+    document.addEventListener("focusout", () => window.setTimeout(presentPendingDaysSpot, 0));
+    window.addEventListener("pointerup", () => window.setTimeout(presentPendingDaysSpot, 0));
+    window.addEventListener("pagehide", () => spotFeed.stop());
+    window.addEventListener("pageshow", () => spotFeed.start());
+  }
+
   function presentPendingDaysRefresh() {
     if (!daysRefreshPresentationPending || !daysInitializationComplete || daysPresentationBlocked()) return;
     daysRefreshPresentationPending = false;
+    daysSpotPresentationPending = false;
     render();
   }
 
@@ -2599,6 +2743,7 @@
     render();
     daysInitializationComplete = true;
     daysRefreshPresentationPending = false;
+    daysSpotPresentationPending = false;
     chartLoaders?.hide?.();
     if (pendingSpacePlayback) {
       pendingSpacePlayback = false;
@@ -2642,6 +2787,7 @@
 
   async function init() {
     bindEvents();
+    registerDaysSpotFeed();
     try {
       const candidate = await loadInitialDaysCandidate();
       installDaysCandidate(candidate, { preserveSelection: false });

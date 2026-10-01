@@ -58,8 +58,39 @@
     installedSignature: null,
     marker: null,
     rows: [],
+    excludedRows: [],
   };
   let dataRefresher = null;
+  let liveMarketFeed = null;
+
+  function updateLiveStatus() {
+    const dot = document.getElementById('marketLiveDot');
+    if (!dot) return;
+    const current = liveMarketFeed?.current();
+    const isLive = liveMarketFeed?.isLive() || false;
+    dot.classList.toggle('is-live', isLive);
+    const status = isLive
+      ? 'Live CoinGecko market caps, refreshed about every 60 seconds'
+      : current
+        ? 'Live connection delayed; showing the last complete market snapshot'
+        : 'Showing the published market snapshot';
+    dot.title = status;
+    dot.setAttribute('aria-label', status);
+  }
+
+  function startLiveMarketFeed() {
+    if (liveMarketFeed || !window.WSBDominanceLiveMarket) return;
+    liveMarketFeed = window.WSBDominanceLiveMarket.createFeed({
+      getPublished: () => ({ incl: state.rows, excl: state.excludedRows }),
+      getPublishedAt: () => state.marker?.published_at_utc,
+      onChange: (statusOnly) => {
+        updateLiveStatus();
+        if (!statusOnly) dataRefresher?.requestPresent('live-market');
+      },
+    });
+    liveMarketFeed.start();
+    updateLiveStatus();
+  }
 
   function iconPathForRow(row) {
     return row['Primary Key']
@@ -79,7 +110,7 @@
     const chartEl = document.getElementById('previewChart');
     if (!chartEl) return false;
 
-    const rows = state.rows;
+    const rows = liveMarketFeed?.current()?.snapshots.incl || state.rows;
     if (!rows.length) {
       chartEl.dataset.previewState = 'fallback';
       chartEl.innerHTML = '<div class="preview-unavailable" style="display:grid;place-items:center;width:100%;height:100%;color:#95a6ae;font:500 22px IBM Plex Mono,monospace">Preview unavailable</div>';
@@ -135,9 +166,13 @@
 
   async function prepareCandidate(context) {
     const marker = JSON.parse(String(context.signatureParts?.[0] || '').trim());
-    const response = await context.fetchFresh('webapp_data/top10_daily_incl_stables.csv');
-    const csvText = await response.text();
+    const [response, excludedResponse] = await Promise.all([
+      context.fetchFresh('webapp_data/top10_daily_incl_stables.csv'),
+      context.fetchFresh('webapp_data/top10_daily_excl_stables.csv'),
+    ]);
+    const [csvText, excludedCsvText] = await Promise.all([response.text(), excludedResponse.text()]);
     const rawRows = parseCsv(csvText);
+    const excludedRawRows = parseCsv(excludedCsvText);
     const rows = rawRows
       .map((r) => ({
         Date: String(r.Date || '').trim(),
@@ -148,23 +183,41 @@
         'Is Stable': String(r['Is Stable'] || '').toLowerCase() === 'true',
       }))
       .sort((a, b) => b['Market Cap'] - a['Market Cap']);
+    const excludedRows = excludedRawRows
+      .map((r) => ({
+        Date: String(r.Date || '').trim(),
+        Rank: strictNumber(r.Rank),
+        'Market Cap': strictNumber(r['Market Cap']),
+        'Primary Key': String(r['Primary Key'] || '').trim(),
+        'Symbol': String(r.Symbol || '').trim(),
+        'Is Stable': false,
+      }))
+      .sort((a, b) => b['Market Cap'] - a['Market Cap']);
     return {
       marker,
       rawRows,
       rows,
+      excludedRawRows,
+      excludedRows,
       dataHash: await sha256Text(csvText),
+      excludedDataHash: await sha256Text(excludedCsvText),
     };
   }
 
   function validateCandidate(candidate) {
     const marker = candidate?.marker;
     const artifact = marker?.artifacts?.['top10_daily_incl_stables.csv'];
+    const excludedArtifact = marker?.artifacts?.['top10_daily_excl_stables.csv'];
     const expectedHash = String(artifact?.sha256 || '').toLowerCase();
+    const expectedExcludedHash = String(excludedArtifact?.sha256 || '').toLowerCase();
     const rows = candidate?.rows;
     if (Number(marker?.schema_version) !== 1 || !String(marker?.generation_id || '').trim()) return false;
     if (!/^[a-f0-9]{64}$/.test(expectedHash) || candidate.dataHash !== expectedHash) return false;
+    if (!/^[a-f0-9]{64}$/.test(expectedExcludedHash) || candidate.excludedDataHash !== expectedExcludedHash) return false;
     if (!Array.isArray(rows) || rows.length !== Number(artifact?.rows) || rows.length !== 10) return false;
     if (candidate.rawRows.length !== rows.length) return false;
+    if (candidate.excludedRows.length !== Number(excludedArtifact?.rows) || candidate.excludedRows.length !== 10) return false;
+    if (candidate.excludedRawRows.length !== candidate.excludedRows.length) return false;
     const latestDate = String(marker.latest_snapshot_date || marker.latest_date || '');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(latestDate)) return false;
     const ranks = new Set();
@@ -181,6 +234,9 @@
       primaryKeys.add(row['Primary Key']);
       symbols.add(row.Symbol);
     }
+    if (candidate.excludedRows.some((row) => row.Date !== latestDate
+        || !Number.isFinite(row['Market Cap']) || row['Market Cap'] <= 0
+        || !row['Primary Key'] || !row.Symbol)) return false;
     const installedDate = String(state.marker?.latest_snapshot_date || state.marker?.latest_date || '');
     if (installedDate && latestDate < installedDate) return false;
     return true;
@@ -205,7 +261,11 @@
       commit: (candidate, context) => {
         state.marker = candidate.marker;
         state.rows = candidate.rows;
+        state.excludedRows = candidate.excludedRows;
         state.installedSignature = context.signature;
+        startLiveMarketFeed();
+        liveMarketFeed?.publishedChanged();
+        void liveMarketFeed?.poll();
         return true;
       },
       present: render,
