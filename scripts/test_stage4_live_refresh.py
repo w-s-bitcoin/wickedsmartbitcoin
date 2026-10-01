@@ -120,6 +120,11 @@ FETCH_HARNESS = r"""
     const isDaysDashboard = pathname === '/webapps/days_since_ath/dashboard.html';
     const isDaysPreview = pathname === '/webapps/days_since_ath/preview.html';
     const isDays = isDaysDashboard || isDaysPreview;
+    if (isDays) {
+      window.WebSocket = class OfflinePriceSocket {
+        close() {}
+      };
+    }
     const casasciusMarkerPath = '/webapps/casascius_explorer/assets/right_panel_data.js';
     const casasciusTrackerPath = '/webapps/casascius_explorer/data/casascius_explorer.csv';
     const daysMarkerPath = '/assets/daily_price_metadata.json';
@@ -355,6 +360,9 @@ FETCH_HARNESS = r"""
     window.fetch = async (input, init) => {
       const raw = typeof input === 'string' ? input : input?.url;
       const url = new URL(raw, location.href);
+      if (isDays && /^(api\.exchange\.coinbase\.com|api\.coinbase\.com|api\.kraken\.com|mempool\.space)$/.test(url.hostname)) {
+        throw new TypeError('Spot provider intentionally offline in publication fixture');
+      }
       const refreshValue = url.searchParams.get('wsb_refresh') || '';
       const previewRefreshValue = url.searchParams.get('wsb_preview_refresh') || '';
       const priceHydrationValue = url.searchParams.get('wsb_price') || '';

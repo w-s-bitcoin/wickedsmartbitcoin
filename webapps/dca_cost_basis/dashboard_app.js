@@ -3455,6 +3455,9 @@ function updatePriceTimestampChips() {
   const quote = dcaSpotFeed?.current();
   const snapshot = state.metadata?.source;
   const updatedRaw = quote ? new Date(quote.at).toISOString() : String(snapshot?.latest_timestamp_utc || "").trim();
+  const height = Number(snapshot?.latest_block_height);
+  const hasHeight = Number.isFinite(height) && height > 0;
+  const heightText = hasHeight ? height.toLocaleString("en-US") : "-";
   if (quote && updatedTimeZoneChip) {
     const parts = new Intl.DateTimeFormat("en-CA", {
       timeZone: state.timeZone || "UTC", year: "numeric", month: "2-digit", day: "2-digit",
@@ -3463,22 +3466,15 @@ function updatePriceTimestampChips() {
     }).formatToParts(new Date(quote.at));
     const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
     updatedTimeZoneChip.setText(`${values.year}-${values.month}-${values.day} `
-      + `${values.hour}:${values.minute}:${values.second} (${values.timeZoneName || state.timeZone || "UTC"})`);
+      + `${values.hour}:${values.minute}:${values.second} (${values.timeZoneName || state.timeZone || "UTC"})`
+      + ` | ${heightText}`);
   } else {
-    updatedTimeZoneChip?.setUpdated(updatedRaw);
+    updatedTimeZoneChip?.setUpdated(updatedRaw, { includeHeight: hasHeight, height });
   }
   const updated = document.getElementById("chipUpdated");
   if (updated) updated.title = quote
-    ? `Live BTC/USD quote received at ${new Date(quote.at).toISOString()}`
-    : "Published price snapshot time";
-  const block = document.querySelector("#chipSnapshotBlock .chip-value");
-  const height = Number(snapshot?.latest_block_height);
-  if (block) block.textContent = Number.isFinite(height) && height > 0
-    ? height.toLocaleString("en-US") : "-";
-  const blockChip = document.getElementById("chipSnapshotBlock");
-  if (blockChip) blockChip.title = snapshot?.latest_timestamp_utc
-    ? `Published price snapshot: ${snapshot.latest_timestamp_utc}`
-    : "Block height of the published price snapshot";
+    ? `Live BTC/USD quote received at ${new Date(quote.at).toISOString()}. Block ${heightText} is from the published snapshot at ${snapshot?.latest_timestamp_utc || "an unknown time"}.`
+    : `Published price snapshot at ${snapshot?.latest_timestamp_utc || "an unknown time"}, block ${heightText}.`;
 }
 
 function presentDcaLivePrice() {

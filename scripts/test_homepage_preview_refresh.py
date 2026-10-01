@@ -65,7 +65,10 @@ PERIODIC_PREVIEWS = {
         "path": "webapps/bitcoin_dominance/preview.html",
         "roots": ["#previewChart"],
         "markers": ["/webapps/bitcoin_dominance/webapp_data/published_generation.json"],
-        "data": ["/webapps/bitcoin_dominance/webapp_data/top10_daily_incl_stables.csv"],
+        "data": [
+            "/webapps/bitcoin_dominance/webapp_data/top10_daily_incl_stables.csv",
+            "/webapps/bitcoin_dominance/webapp_data/top10_daily_excl_stables.csv",
+        ],
     },
     "dca_comparison": {
         "filename": "dca_comparison.png",
@@ -277,7 +280,9 @@ FETCH_HARNESS_TEMPLATE = r"""
   // Publication-refresh fixtures are deterministic; live spot behavior has a
   // separate browser regression and must not repaint during marker assertions.
   const hasLiveSpot = ['/webapps/dca_comparison/preview.html',
-    '/webapps/dca_cost_basis/preview.html'].includes(pathname);
+    '/webapps/dca_cost_basis/preview.html',
+    '/webapps/days_since_ath/preview.html',
+    '/webapps/bitcoin_dominance/preview.html'].includes(pathname);
   if (hasLiveSpot) window.WebSocket = undefined;
   const nativeFetch = window.fetch.bind(window);
   const loadKey = `wsb-stage5-load-count:${pathname}`;
@@ -381,7 +386,7 @@ FETCH_HARNESS_TEMPLATE = r"""
     const raw = typeof input === 'string' ? input : input?.url;
     const url = new URL(raw, document.baseURI);
     if (hasLiveSpot &&
-        /^(api\.exchange\.coinbase\.com|api\.coinbase\.com|api\.kraken\.com|mempool\.space|api\.gold-api\.com|scanner\.tradingview\.com)$/.test(url.hostname)) {
+        /^(api\.exchange\.coinbase\.com|api\.coinbase\.com|api\.kraken\.com|mempool\.space|api\.gold-api\.com|scanner\.tradingview\.com|api\.coingecko\.com)$/.test(url.hostname)) {
       throw new TypeError('Live price provider intentionally offline in publication fixture');
     }
     const target = url.pathname;

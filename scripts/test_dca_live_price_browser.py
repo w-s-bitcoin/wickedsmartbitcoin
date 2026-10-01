@@ -105,12 +105,11 @@ def main():
             result = cdp.evaluate("""
               (() => {
                 const snapshot = state.metadata.source;
-                const snapshotText = updatedTimeZoneChip.formatUpdated(snapshot.latest_timestamp_utc);
+                const snapshotText = updatedTimeZoneChip.formatUpdated(snapshot.latest_timestamp_utc, {
+                  includeHeight: true, height: snapshot.latest_block_height,
+                });
                 if (document.querySelector('#chipUpdated .chip-value')?.textContent !== snapshotText)
-                  return 'updated time does not match the price snapshot';
-                if (document.querySelector('#chipSnapshotBlock .chip-value')?.textContent
-                    !== Number(snapshot.latest_block_height).toLocaleString('en-US'))
-                  return 'snapshot block height is missing';
+                  return 'updated time and height do not match the price snapshot';
                 if (state.seriesByCadence.daily_dca.at(-1).blockHeight !== snapshot.latest_block_height)
                   return 'published daily row height does not match the snapshot';
                 const published = Number(state.metadata.source.latest_price);
@@ -123,8 +122,7 @@ def main():
                 const quoteText = document.querySelector('#chipUpdated .chip-value')?.textContent;
                 if (quoteText === snapshotText || !/[0-9]{2}:[0-9]{2}:[0-9]{2}/.test(quoteText))
                   return 'Updated did not advance to the live quote time';
-                if (document.querySelector('#chipSnapshotBlock .chip-value')?.textContent
-                    !== Number(snapshot.latest_block_height).toLocaleString('en-US'))
+                if (!quoteText.endsWith(` | ${Number(snapshot.latest_block_height).toLocaleString('en-US')}`))
                   return 'live quote changed the published snapshot height';
                 if (getFilteredRows()[0].currentPrice !== quoted) return 'live valuation missing';
                 const basisBefore = getFilteredRows().at(-1).dcaBasis;

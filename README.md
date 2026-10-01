@@ -39,8 +39,14 @@ UTC day's modeled purchase and the rolling cost basis; earlier purchase prices
 remain fixed. Published hourly price data is the fallback and supplies historical
 playback and animation frames; an export ending at the latest published date
 captures the newest available quote for its final frame and hold. The DCA
-"Updated" time follows the accepted quote, while "Snapshot block" identifies
-the published price data generation.
+"Updated" follows the accepted quote and displays the published snapshot's
+block height alongside it.
+Days Since ATH uses the same BTC/USD feed on its dashboard and home card. Its
+daily-high history stays published; the highest quote observed in the open tab
+can raise today's provisional high or set a new ATH, while the latest spot price
+drives the current drawdown and chart guide.
+Historical playback remains published, and an export ending at the latest day
+captures one quote for its final frame and hold.
 DCA Comparison uses current BTC/USD and gold/silver quotes plus delayed public
 quotes for SPY, QQQ, TLT, and MSTR. The selected assets' latest prices,
 valuations, and chart update in an open tab; the home card updates its default
@@ -189,6 +195,8 @@ CHROME_BIN=/path/to/chromium python3 scripts/test_stage3_incremental_refresh.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_stage4_live_refresh.py
 node scripts/test_dca_live_price.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_dca_live_price_browser.py
+node scripts/test_days_live_price.mjs
+CHROME_BIN=/path/to/chromium python3 scripts/test_days_live_price_browser.py
 node scripts/test_comparison_live_price.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_comparison_live_price_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_homepage_preview_refresh.py
