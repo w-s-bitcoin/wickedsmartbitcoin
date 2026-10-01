@@ -185,6 +185,18 @@
       color: var(--fg);
     }
 
+    .market-live-dot {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      margin-right: 6px;
+      border-radius: 50%;
+      background: #787d80;
+      vertical-align: 1px;
+    }
+
+    .market-live-dot.is-live { background: #35b56a; }
+
     #kpiBitcoinMarketCap .chip-value {
       color: var(--accent);
     }
@@ -1028,7 +1040,7 @@
       <div class="error" id="errorBox"></div>
       <div class="chips" id="statusChips">
         <span class="chip-menu-wrap single-select" id="updatedChipWrap">
-          <span class="chip-kpi-display" id="updatedTimeZoneDisplay"><span class="chip-label">Updated</span> <span class="chip-value">...</span></span>
+          <span class="chip-kpi-display" id="updatedTimeZoneDisplay"><span class="market-live-dot" id="marketLiveDot" title="Published market snapshot; live feed connecting" aria-label="Published market snapshot"></span><span class="chip-label">Updated</span> <span class="chip-value">...</span></span>
           <div id="updatedTimeZoneDropdown" class="dca-dropdown dca-dropdown-overlay">
             <button id="updatedTimeZoneDropdownTrigger" type="button" class="dca-dropdown-trigger" aria-label="Updated timestamp time zone"></button>
             <div id="updatedTimeZoneDropdownMenu" class="dca-dropdown-menu" aria-label="Updated timestamp time zone options"></div>
@@ -1144,6 +1156,7 @@
     };
   </script>
   <script src="../shared/webapp_data_auto_refresh.js?v=20260825a"></script>
-  <script src="dashboard_app.js?v=20260825a"></script>
+  <script src="../shared/dominance_live_market.js?v=20260930a"></script>
+  <script src="dashboard_app.js?v=20260930a"></script>
 </body>
 </html>

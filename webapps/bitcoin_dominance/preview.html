@@ -33,11 +33,26 @@
       min-width: 0;
       min-height: 0;
     }
+
+    #marketLiveDot {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #787d80;
+      z-index: 1;
+    }
+
+    #marketLiveDot.is-live { background: #35b56a; }
   </style>
 </head>
 <body>
   <div id="previewChart" role="img" aria-label="Top 10 Crypto by Market Cap"></div>
+  <span id="marketLiveDot" title="Published market snapshot; live feed connecting" aria-label="Published market snapshot"></span>
   <script src="../shared/preview_shared.js?v=20260825-stage5-atomic-v1"></script>
-  <script src="preview_app.js?v=20260825-stage5-atomic-v1"></script>
+  <script src="../shared/dominance_live_market.js?v=20260930a"></script>
+  <script src="preview_app.js?v=20260930a"></script>
 </body>
 </html>

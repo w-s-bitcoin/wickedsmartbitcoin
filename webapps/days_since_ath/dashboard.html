@@ -8,6 +8,8 @@
   <script src="../shared/dashboard_embed_modal.js"></script>
   <script src="../shared/dashboard_components.js"></script>
   <script src="../shared/dashboard_export.js"></script>
+  <script src="../shared/bitcoin_spot_price.js"></script>
+  <script src="../shared/ath_live_price.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -46,7 +48,7 @@
           </div>
           <select id="updatedTimeZoneSelect" class="chip-menu-select chip-kpi-select-overlay dca-native-select" aria-label="Updated timestamp time zone"></select>
         </div>
-        <span class="chip" id="chipHeight"><span class="chip-label">Height</span> <span id="heightKpi" class="chip-value">-</span></span>
+        <span class="chip" id="chipSpotPrice"><span class="chip-label">BTCUSD</span> <span class="chip-value">-</span> <span class="chip-spot-status">Published</span></span>
         <span class="chip" id="chipDailyHigh"><span class="chip-label">Daily High</span> <span id="dailyHighKpi" class="chip-value">-</span></span>
         <span class="chip" id="chipAth"><span class="chip-label">All Time High</span> <span id="athKpi" class="chip-value">-</span></span>
         <span class="chip" id="chipDrawdown"><span class="chip-label">Drawdown</span> <span id="drawdownKpi" class="chip-value">-</span></span>

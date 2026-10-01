@@ -7,6 +7,10 @@
   let hasLoadedPreviewData = false;
   let installedPublicationSignature = "";
   let previewRefresher = null;
+  let spotFeed = null;
+  let observedSpotHigh = null;
+  let lastSpotPrice = null;
+  let lastSpotDay = "";
 
   function getCss(name, fallback) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
@@ -62,17 +66,20 @@
       .map((row) => {
         const date = String(row.timestamp || "").slice(0, 10);
         const price = toNumber(row.daily_high);
+        const snapshotPrice = toNumber(row.price);
         const height = toNumber(row.block_height);
         return {
           date,
           timestamp: String(row.timestamp || ""),
           price: Number.isFinite(price) ? price : 0,
+          snapshotPrice: Number.isFinite(snapshotPrice) ? snapshotPrice : price,
           sourcePriceValid: Number.isFinite(price),
           height,
         };
       })
       .filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.date))
       .map((row) => {
+        const isAth = row.price > PRICE_FALLBACK && row.price > athPrice;
         if (row.price > PRICE_FALLBACK && row.price >= athPrice) {
           athPrice = row.price;
           athDate = row.date;
@@ -80,7 +87,7 @@
         const daysSinceAth = athDate
           ? Math.max(0, Math.round((Date.parse(`${row.date}T00:00:00Z`) - Date.parse(`${athDate}T00:00:00Z`)) / 86400000))
           : 0;
-        return { ...row, daysSinceAth };
+        return { ...row, athPrice, athDate, isAth, daysSinceAth };
       });
   }
 
@@ -212,6 +219,19 @@
       }
     });
     if (started) ctx.stroke();
+    if (Number.isFinite(options.spotPrice) && options.spotPrice > 0
+        && options.spotPrice < rows[rows.length - 1]?.price) {
+      ctx.save();
+      ctx.strokeStyle = getCss("--muted", "#95a6ae");
+      ctx.lineWidth = 1.1;
+      ctx.setLineDash([5, 4]);
+      const spotY = yFor(options.spotPrice);
+      ctx.beginPath();
+      ctx.moveTo(plotX, spotY);
+      ctx.lineTo(plotX + plotW, spotY);
+      ctx.stroke();
+      ctx.restore();
+    }
     ctx.restore();
   }
 
@@ -236,8 +256,12 @@
     const leftX = outerPad;
     const rightX = outerPad + panelW + gap;
 
-    drawPanel(ctx, leftX, panelY, panelW, panelH, cachedRows, (row) => row.price, { log: true, skipZero: true });
-    drawPanel(ctx, rightX, panelY, panelW, panelH, cachedRows, (row) => row.daysSinceAth, { log: false });
+    const quote = spotFeed?.current();
+    const rows = window.WSBAthLivePrice?.withQuote(cachedRows, quote, Date.now(), observedSpotHigh) || cachedRows;
+    canvas.dataset.priceSource = rows !== cachedRows ? "live" : "published";
+    drawPanel(ctx, leftX, panelY, panelW, panelH, rows, (row) => row.price,
+      { log: true, skipZero: true, spotPrice: rows[rows.length - 1]?.spotPrice });
+    drawPanel(ctx, rightX, panelY, panelW, panelH, rows, (row) => row.daysSinceAth, { log: false });
   }
 
   function renderInitialFallback() {
@@ -276,6 +300,21 @@
     }
     window.addEventListener("resize", () => previewRefresher.requestPresent("resize"));
     previewRefresher.start();
+    spotFeed = window.WSBBitcoinSpotPrice?.create({
+      onQuote: (quote) => {
+        observedSpotHigh = window.WSBAthLivePrice?.observeHigh(observedSpotHigh, quote) || observedSpotHigh;
+        const nextPrice = quote?.price || null;
+        const nextDay = quote ? new Date(quote.at).toISOString().slice(0, 10) : "";
+        if (nextPrice !== lastSpotPrice || nextDay !== lastSpotDay) {
+          lastSpotPrice = nextPrice;
+          lastSpotDay = nextDay;
+          previewRefresher.requestPresent("spot");
+        }
+      },
+    });
+    spotFeed?.start();
+    window.addEventListener("pagehide", () => spotFeed?.stop());
+    window.addEventListener("pageshow", () => spotFeed?.start());
   }
 
   try {

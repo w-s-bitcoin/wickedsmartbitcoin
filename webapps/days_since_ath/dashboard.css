@@ -329,19 +329,21 @@ body {
 }
 
 #chipUpdated {
-  width: var(--kpi-width-updated, 22ch);
-  min-width: var(--kpi-width-updated, 22ch);
+  width: var(--kpi-width-updated, 46ch);
+  min-width: var(--kpi-width-updated, 46ch);
+  max-width: 100%;
   padding-right: 24px;
 }
 
-#chipHeight { width: 17ch; }
+#chipSpotPrice { width: 29ch; }
+#chipSpotPrice .chip-spot-status { color: var(--muted); }
+#chipSpotPrice[data-live="true"] .chip-spot-status { color: var(--green); }
 #chipDailyHigh { width: 25ch; }
 #chipAth { width: 48ch; }
 #chipDrawdown { width: 19ch; }
 #chipDays { width: 27ch; }
 
 #updatedKpi { min-width: 12ch; }
-#heightKpi { min-width: 7ch; }
 #dailyHighKpi { min-width: 12ch; }
 #athKpi { min-width: 32ch; }
 #drawdownKpi { min-width: 8ch; }
@@ -1349,6 +1351,13 @@ body.days-since-ath-dashboard-expanded .chart-panel {
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  #chipUpdated,
+  #updatedKpi {
+    width: auto;
+    min-width: 0;
+    max-width: 100%;
   }
 
   #kpiRow > *,

@@ -527,6 +527,39 @@
         },
       },
     };
+    let liveMarketFeed = null;
+    function updateLiveMarketStatus() {
+      const dot = document.getElementById('marketLiveDot');
+      if (!dot) return;
+      const current = liveMarketFeed?.current();
+      const isLive = liveMarketFeed?.isLive() || false;
+      dot.classList.toggle('is-live', isLive);
+      const status = isLive
+        ? 'Live CoinGecko market caps, refreshed about every 60 seconds'
+        : current
+          ? 'Live connection delayed; showing the last complete market snapshot'
+          : 'Showing the published market snapshot';
+      dot.title = status;
+      dot.setAttribute('aria-label', status);
+    }
+    function startLiveMarketFeed() {
+      if (liveMarketFeed || !window.WSBDominanceLiveMarket) return;
+      liveMarketFeed = window.WSBDominanceLiveMarket.createFeed({
+        getPublished: () => ({
+          incl: state.datasets.incl.snapshot,
+          excl: state.datasets.excl.snapshot,
+        }),
+        getPublishedAt: () => state.refreshedAtText,
+        onChange: (statusOnly) => {
+          updateLiveMarketStatus();
+          if (statusOnly || !state.interactiveInitialized) return;
+          state.refreshPresentationPending = true;
+          presentPendingDominanceRefresh();
+        },
+      });
+      liveMarketFeed.start();
+      updateLiveMarketStatus();
+    }
     const updatedTimeZoneChip = window.WSBDashboardComponents?.createUpdatedTimeZoneChipController?.({
       chip: '#updatedTimeZoneDisplay',
       getTimeZone: () => state.timeZone || DASHBOARD_TIME?.getPreferredTimeZone?.() || 'UTC',
@@ -1745,6 +1778,8 @@
       state.refreshedAtText = candidate.refreshedAtText;
       state.dataSignature = candidate.signature;
       state.lastSuccessfulRefreshAt = Date.now();
+      liveMarketFeed?.publishedChanged();
+      void liveMarketFeed?.poll();
       if (!state.interactiveInitialized) {
         state.refreshPresentationPending = true;
         presentPendingDominanceRefresh();
@@ -1803,11 +1838,15 @@
     }
 
     function getCurrentHistory() {
-      return state.datasets[getModeKey()].history;
+      const published = state.datasets[getModeKey()].history;
+      const live = liveMarketFeed?.current();
+      return live
+        ? window.WSBDominanceLiveMarket.overlayHistory(published, live.history[getModeKey()])
+        : published;
     }
 
     function getCurrentSnapshot() {
-      return state.datasets[getModeKey()].snapshot;
+      return liveMarketFeed?.current()?.snapshots[getModeKey()] || state.datasets[getModeKey()].snapshot;
     }
 
     function getCurrentColumn() {
@@ -1931,7 +1970,10 @@
       if (!display) return;
       const valueEl = display.querySelector('.chip-value');
       if (!valueEl) return;
-      const source = String(state.refreshedAtText || state.staticMeta?.generated_at_utc || '').trim();
+      const live = liveMarketFeed?.current();
+      const source = live
+        ? new Date(live.fetchedAt).toISOString()
+        : String(state.refreshedAtText || state.staticMeta?.generated_at_utc || '').trim();
       const withParenthesizedZone = (text) => {
         const normalized = String(text || '').trim();
         if (!normalized) return normalized;
@@ -2031,6 +2073,8 @@
       const y = smooth > 1 ? rollingAverage(yRaw, smooth) : yRaw;
       const yFill = y.map((v) => (Number.isFinite(v) ? Math.max(0, v) : null));
       const priceByDate = new Map((state.priceHistory || []).map((row) => [row.date, row.price]));
+      const liveBtc = liveMarketFeed?.current()?.snapshots.incl.find((row) => row['Primary Key'] === 'BTCBitcoin');
+      if (liveBtc && Number(liveBtc.Price) > 0) priceByDate.set(liveBtc.Date, Number(liveBtc.Price));
       const priceYRaw = x.map((date) => {
         const price = priceByDate.get(date);
         return Number.isFinite(price) ? price : null;
@@ -3184,6 +3228,7 @@
         }
 
         completeDominanceInteractiveInitialization();
+        startLiveMarketFeed();
       } catch (error) {
         console.error(error);
         if (!state.interactiveInitialized) state.dataSignature = '';
