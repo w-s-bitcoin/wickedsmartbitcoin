@@ -125,18 +125,21 @@ body {
   margin-right: 0;
 }
 
-.days-scale-btn.is-active {
-  color: #000000;
-  border: 1px solid var(--panel-border-opaque) !important;
-  background: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--panel-border-opaque);
-  text-shadow: none;
-}
-
 .days-scale-btn:focus,
 .days-scale-btn:focus-visible {
   outline: none !important;
   box-shadow: none !important;
+}
+
+.days-scale-btn.is-active {
+  --selected-accent: var(--accent);
+  --selected-ink: var(--selected-accent);
+  color: var(--selected-ink);
+  border: 1px solid var(--selected-ink) !important;
+  background: transparent;
+  box-shadow: none !important;
+  text-shadow: none;
+  z-index: 4;
 }
 
 .title-row {
@@ -340,7 +343,7 @@ body {
   display: inline-block;
   width: 7px;
   height: 7px;
-  margin-left: 5px;
+  margin-right: 6px;
   border-radius: 50%;
   background: #8b8b8b;
   vertical-align: middle;
@@ -513,11 +516,14 @@ body {
 }
 
 .date-range-preset-btn.is-active {
-  color: #000000;
-  border: 1px solid var(--panel-border-opaque) !important;
-  background: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--panel-border-opaque);
+  --selected-accent: var(--accent);
+  --selected-ink: var(--selected-accent);
+  color: var(--selected-ink);
+  border: 1px solid var(--selected-ink) !important;
+  background: transparent;
+  box-shadow: none !important;
   text-shadow: none;
+  z-index: 4;
 }
 
 .date-range-button-row,
@@ -628,10 +634,12 @@ body {
 .date-range-pause-btn.is-paused,
 .date-range-stop-btn.is-active,
 .date-range-download-settings .date-range-settings-btn.is-open {
-  color: #000000;
-  border: 1px solid var(--panel-border-opaque) !important;
-  background: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--panel-border-opaque);
+  --selected-accent: var(--accent);
+  --selected-ink: var(--selected-accent);
+  color: var(--selected-ink);
+  border: 1px solid var(--selected-ink) !important;
+  background: transparent;
+  box-shadow: none !important;
   text-shadow: none;
   z-index: 4;
 }
@@ -643,10 +651,10 @@ body {
 .date-range-pause-btn.is-paused:disabled:hover,
 .date-range-pause-btn.is-paused:disabled:focus-visible {
   opacity: 1;
-  color: #000000;
-  background: var(--accent);
-  border-color: var(--panel-border-opaque) !important;
-  box-shadow: inset 0 0 0 1px var(--panel-border-opaque);
+  color: var(--selected-ink);
+  background: transparent;
+  border-color: var(--selected-ink) !important;
+  box-shadow: none !important;
 }
 
 .date-range-playback-btn:disabled {
@@ -853,11 +861,15 @@ body {
 }
 
 .date-range-button-row .date-range-btn.is-active,
-.date-range-chart-buttons .date-range-btn.is-selected {
-  color: #000000;
-  border: 1px solid var(--panel-border-opaque) !important;
-  background: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--panel-border-opaque);
+.date-range-chart-buttons .date-range-btn.is-selected,
+.date-picker-day.dp-selected,
+.dp-month-cell.dp-month-current {
+  --selected-accent: var(--accent);
+  --selected-ink: var(--selected-accent);
+  color: var(--selected-ink);
+  border: 1px solid var(--selected-ink) !important;
+  background: transparent;
+  box-shadow: none !important;
   text-shadow: none;
   z-index: 4;
 }
@@ -964,25 +976,22 @@ body {
 }
 
 .download-setting-option.is-selected {
-  color: #000000;
-  border: 1px solid var(--panel-border-opaque) !important;
-  background: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--panel-border-opaque);
+  --selected-accent: var(--accent);
+  --selected-ink: var(--selected-accent);
+  color: var(--selected-ink);
+  border: 1px solid var(--selected-ink) !important;
+  background: transparent;
+  box-shadow: none !important;
   text-shadow: none;
   z-index: 4;
 }
 
-.download-chart-mode-row .download-setting-option[data-value="left"].is-selected,
-.download-scale-row[data-side="left"] .download-setting-option.is-selected {
-  background: var(--accent);
-}
-
 .download-scale-row.is-disabled .download-setting-option,
 .download-scale-row.is-disabled .download-setting-option.is-selected {
-  background: #000000;
+  background: transparent;
   color: rgba(255, 255, 255, 0.24);
   border-color: rgba(255, 255, 255, 0.08) !important;
-  box-shadow: none;
+  box-shadow: none !important;
   cursor: not-allowed;
   pointer-events: none;
   text-shadow: none;
@@ -990,11 +999,27 @@ body {
 
 .download-setting-option.is-selected:hover,
 .download-setting-option.is-selected:focus-visible {
-  border-color: var(--panel-border-opaque) !important;
+  border-color: var(--selected-ink) !important;
 }
 
 .download-setting-option.is-selected + .download-setting-option {
   border-left-color: var(--panel-border);
+}
+
+:root[data-theme="light"] .days-scale-btn.is-active,
+:root[data-theme="light"] .date-range-preset-btn.is-active,
+:root[data-theme="light"] .date-range-play-btn.is-playing,
+:root[data-theme="light"] .date-range-pause-btn.is-paused,
+:root[data-theme="light"] .date-range-stop-btn.is-active,
+:root[data-theme="light"] .date-range-download-settings .date-range-settings-btn.is-open,
+:root[data-theme="light"] .date-range-button-row .date-range-btn.is-active,
+:root[data-theme="light"] .date-range-chart-buttons .date-range-btn.is-selected,
+:root[data-theme="light"] .date-picker-day.dp-selected,
+:root[data-theme="light"] .dp-month-cell.dp-month-current,
+:root[data-theme="light"] .download-setting-option.is-selected {
+  --selected-ink: color-mix(in srgb, var(--selected-accent) 55%, #000);
+  color: var(--selected-ink);
+  background: transparent;
 }
 
 .download-setting-checkbox {

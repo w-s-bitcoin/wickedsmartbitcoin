@@ -360,7 +360,7 @@
   }
 
   function getDashboardUrl() {
-    return IS_LOCAL_HOST ? `${DASHBOARD_URL}?_=${Date.now()}` : DASHBOARD_URL;
+    return `${DASHBOARD_URL}?_=${Date.now()}`;
   }
 
   function navigateToImage(filename) {

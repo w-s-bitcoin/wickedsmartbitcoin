@@ -407,8 +407,9 @@ body.uoa-dashboard-expanded .topbar {
   --selected-ink: var(--accent);
   background: transparent;
   color: var(--selected-ink);
+  border-width: 1px;
   border-color: var(--selected-ink);
-  box-shadow: inset 0 0 0 1px var(--selected-ink);
+  box-shadow: none !important;
   z-index: 2;
 }
 
@@ -416,6 +417,7 @@ body.uoa-dashboard-expanded .topbar {
 :root[data-theme="light"] .uoa-setting-option.is-selected:hover,
 :root[data-theme="light"] .uoa-setting-option.is-selected:focus-visible {
   --selected-ink: color-mix(in srgb, var(--accent) 55%, #000);
+  background: transparent;
 }
 
 .chips {
@@ -1140,7 +1142,7 @@ body.uoa-dashboard-expanded .topbar {
   color: var(--selected-ink, var(--accent));
   border: 1px solid var(--selected-ink, var(--accent)) !important;
   background: transparent;
-  box-shadow: inset 0 0 0 1px var(--selected-ink, var(--accent));
+  box-shadow: none !important;
   text-shadow: none;
 }
 
@@ -1415,7 +1417,7 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
   color: var(--selected-ink);
   border: 1px solid var(--selected-ink) !important;
   background: transparent;
-  box-shadow: inset 0 0 0 1px var(--selected-ink);
+  box-shadow: none !important;
   text-shadow: none;
   z-index: 4;
 }
@@ -1438,10 +1440,10 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 
 .download-scale-row.is-disabled .download-setting-option,
 .download-scale-row.is-disabled .download-setting-option.is-selected {
-  background: #000000;
+  background: transparent;
   color: rgba(255, 255, 255, 0.24);
   border-color: rgba(255, 255, 255, 0.08) !important;
-  box-shadow: none;
+  box-shadow: none !important;
   cursor: not-allowed;
   pointer-events: none;
   text-shadow: none;
@@ -1584,8 +1586,9 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
   --selected-ink: var(--accent);
   color: var(--selected-ink);
   background: transparent;
+  border-width: 1px;
   border-color: var(--selected-ink) !important;
-  box-shadow: inset 0 0 0 1px var(--selected-ink);
+  box-shadow: none !important;
   z-index: 4;
 }
 
@@ -1599,7 +1602,7 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
   color: var(--selected-ink);
   background: transparent;
   border-color: var(--selected-ink) !important;
-  box-shadow: inset 0 0 0 1px var(--selected-ink);
+  box-shadow: none !important;
 }
 
 :root[data-theme="light"] .date-range-play-btn.is-playing,
@@ -1632,10 +1635,10 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 
 :root[data-theme="light"] .download-scale-row.is-disabled .download-setting-option,
 :root[data-theme="light"] .download-scale-row.is-disabled .download-setting-option.is-selected {
-  background: #000000;
-  color: rgba(255, 255, 255, 0.24);
-  border-color: rgba(0, 0, 0, 0.78) !important;
-  box-shadow: none;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.3);
+  border-color: rgba(0, 0, 0, 0.14) !important;
+  box-shadow: none !important;
 }
 
 :root[data-theme="light"] .download-setting-option.is-selected:hover,
@@ -1700,13 +1703,15 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 
 .date-range-preset-btn.is-active,
 .date-range-chart-toggle-btn.is-active,
-.uoa-scale-toggle-btn.is-active {
+.uoa-scale-toggle-btn.is-active,
+.date-picker-day.dp-selected,
+.dp-month-cell.dp-month-current {
   --selected-accent: var(--accent);
   --selected-ink: var(--selected-accent);
   color: var(--selected-ink);
   border: 1px solid var(--selected-ink) !important;
   background: transparent;
-  box-shadow: inset 0 0 0 1px var(--selected-ink);
+  box-shadow: none !important;
   text-shadow: none;
   z-index: 4;
 }
@@ -1753,7 +1758,9 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 
 :root[data-theme="light"] .date-range-preset-btn.is-active,
 :root[data-theme="light"] .date-range-chart-toggle-btn.is-active,
-:root[data-theme="light"] .uoa-scale-toggle-btn.is-active {
+:root[data-theme="light"] .uoa-scale-toggle-btn.is-active,
+:root[data-theme="light"] .date-picker-day.dp-selected,
+:root[data-theme="light"] .dp-month-cell.dp-month-current {
   --selected-ink: color-mix(in srgb, var(--selected-accent) 55%, #000);
 }
 

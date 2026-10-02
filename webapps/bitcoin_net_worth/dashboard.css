@@ -923,7 +923,7 @@ html.embedded-in-modal body .app-shell {
   display: inline-block;
   width: 7px;
   height: 7px;
-  margin-left: 5px;
+  margin-right: 6px;
   border-radius: 50%;
   background: #8b8b8b;
   vertical-align: middle;

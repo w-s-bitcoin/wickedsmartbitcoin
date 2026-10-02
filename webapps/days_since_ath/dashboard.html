@@ -15,7 +15,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="../shared/dashboard_shared.css" />
     <link rel="stylesheet" href="../shared/dashboard_controls.css" />
-  <link rel="stylesheet" href="dashboard.css" />
+  <link rel="stylesheet" href="dashboard.css?v=20261002-outline" />
 </head>
 <body>
   <div class="wrap days-wrap">
@@ -48,7 +48,7 @@
           </div>
           <select id="updatedTimeZoneSelect" class="chip-menu-select chip-kpi-select-overlay dca-native-select" aria-label="Updated timestamp time zone"></select>
         </div>
-        <span class="chip" id="chipSpotPrice"><span class="chip-label">BTCUSD</span> <span class="chip-value">-</span> <span class="chip-spot-status" data-kind="stale" aria-hidden="true"></span></span>
+        <span class="chip" id="chipSpotPrice"><span class="chip-spot-status" data-kind="stale" aria-hidden="true"></span><span class="chip-label">BTCUSD</span> <span class="chip-value">-</span></span>
         <span class="chip" id="chipDailyHigh"><span class="chip-label">Daily High</span> <span id="dailyHighKpi" class="chip-value">-</span></span>
         <span class="chip" id="chipAth"><span class="chip-label">All Time High</span> <span id="athKpi" class="chip-value">-</span></span>
         <span class="chip" id="chipDrawdown"><span class="chip-label">Drawdown</span> <span id="drawdownKpi" class="chip-value">-</span></span>
@@ -238,6 +238,6 @@
     window.WSBWebappDataAutoRefresh = { urls: ["../../assets/daily_price_metadata.json"] };
   </script>
   <script src="../shared/webapp_data_auto_refresh.js?v=20260825-stage4"></script>
-  <script src="dashboard_app.js?v=20260825-stage4"></script>
+  <script src="dashboard_app.js?v=20261002-outline"></script>
 </body>
 </html>

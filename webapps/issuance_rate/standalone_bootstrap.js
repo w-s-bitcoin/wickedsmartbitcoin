@@ -270,7 +270,11 @@
     document.body.style.overflow = "hidden";
     if (modalEmbedWrap) modalEmbedWrap.hidden = false;
     if (modalEmbed && !modalEmbed.getAttribute("src")) {
-      modalEmbed.setAttribute("src", DASHBOARD_URL);
+      const dashboardUrl = new URL(DASHBOARD_URL, window.location.href);
+      dashboardUrl.searchParams.set("_", String(Date.now()));
+      const preview = new URLSearchParams(window.location.search || "").get("preview");
+      if (preview) dashboardUrl.searchParams.set("preview", preview);
+      modalEmbed.setAttribute("src", `${dashboardUrl.pathname}${dashboardUrl.search}${dashboardUrl.hash}`);
     }
     if (modalImg) {
       modalImg.style.opacity = "0";

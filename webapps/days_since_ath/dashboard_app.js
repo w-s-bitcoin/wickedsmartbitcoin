@@ -1282,17 +1282,6 @@
     drawXAxisTicks(ctx, buildTimeTicks(rows, plotW), xForIso, pad, plotW, plotH, 18);
     if (state.showHalvings) drawHalvings(ctx, rows, xFor, pad.top, pad.top + plotH, "date");
     drawPriceLine(ctx, rows, xFor, yPriceValue, accent, 2.2);
-    if (hasLiveSpot && liveSpotPrice < latest.price) {
-      ctx.save();
-      ctx.strokeStyle = chartColors().muted;
-      ctx.lineWidth = 1.2;
-      ctx.setLineDash([5, 4]);
-      ctx.beginPath();
-      ctx.moveTo(pad.left, currentPriceY);
-      ctx.lineTo(pad.left + plotW, currentPriceY);
-      ctx.stroke();
-      ctx.restore();
-    }
     if (state.showAthMarkers) drawAthMarkers(ctx, rows, xFor, yPriceValue, pad, plotW, plotH, green);
     if (state.showAthMarkers) {
       drawLeftEdgeAthMarker(ctx, offscreenLeftAth(rows), pad.top - 10, pad, plotW, bg, green);

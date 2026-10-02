@@ -10,7 +10,6 @@
     <link rel="stylesheet" href="assets/styles.css" />
     <link rel="manifest" href="manifest.json" />
     <link rel="preload" href="assets/image_list.json" as="fetch" crossorigin />
-    <link rel="prefetch" href="webapps/bip110_signaling/dashboard.html" />
     <style>
       body[data-standalone-modal-shell="1"] {
         margin: 0;
@@ -135,7 +134,7 @@
         var iframe = document.getElementById('modal-embed');
         if (!iframe) return;
         if (!iframe.getAttribute('src')) {
-          iframe.setAttribute('src', 'webapps/bip110_signaling/dashboard.html');
+          iframe.setAttribute('src', 'webapps/bip110_signaling/dashboard.html?_=' + Date.now());
         }
       })();
 

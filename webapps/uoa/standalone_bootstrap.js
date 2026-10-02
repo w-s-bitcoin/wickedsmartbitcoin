@@ -110,12 +110,15 @@
   function getDashboardUrl() {
     try {
       const url = new URL(DASHBOARD_URL, window.location.href);
+      url.searchParams.set("_", String(Date.now()));
       const state = new URLSearchParams(window.location.search || "").get("state");
       if (state) url.searchParams.set("state", state);
       return `${url.pathname}${url.search}${url.hash}`;
     } catch (_) {
       const state = new URLSearchParams(window.location.search || "").get("state");
-      return state ? `${DASHBOARD_URL}?state=${encodeURIComponent(state)}` : DASHBOARD_URL;
+      const query = new URLSearchParams({ _: String(Date.now()) });
+      if (state) query.set("state", state);
+      return `${DASHBOARD_URL}?${query}`;
     }
   }
 

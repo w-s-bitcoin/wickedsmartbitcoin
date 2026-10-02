@@ -393,10 +393,8 @@
     .seg { display: inline-flex; align-items: stretch; border: 1px solid var(--panel-border); border-radius: 12px; overflow: hidden; }
     .seg button { border: 0; border-right: 1px solid var(--panel-border); border-radius: 0; min-width: 44px; padding-inline: 12px; }
     .seg button:last-child { border-right: 0; }
-    .seg button.active { background: var(--accent); color: #000; }
     .seg button:disabled { color: var(--control-disabled); cursor: not-allowed; }
     .icon-btn { width: 36px; min-width: 36px; padding: 0; border-radius: 8px; cursor: pointer; }
-    .icon-btn.active { background: var(--accent); color: #000; }
     .icon-btn:disabled { color: var(--control-disabled); cursor: not-allowed; }
 
     .kpi-grid {
@@ -807,10 +805,6 @@
     .pattern-mode-button:last-child {
       border-right: 0;
     }
-    .pattern-mode-button.is-active {
-      background: var(--accent);
-      color: #000;
-    }
     .pattern-mode-button:focus,
     .pattern-mode-button:focus-visible {
       outline: none;
@@ -1050,8 +1044,7 @@
       font: 0.75rem/1.25 "IBM Plex Mono", monospace;
       cursor: pointer;
     }
-    .spent-reward-item:hover,
-    .spent-reward-item.is-active {
+    .spent-reward-item:hover {
       border-color: var(--accent);
       background: color-mix(in srgb, var(--accent) 12%, transparent);
     }
@@ -1563,11 +1556,6 @@
     .date-picker-day:hover:not(.dp-disabled):not(.dp-empty) {
       background: rgba(59, 130, 246, 0.22);
     }
-    .date-picker-day.dp-selected {
-      background: var(--accent);
-      color: #000;
-      font-weight: 700;
-    }
     .date-picker-day.dp-disabled {
       color: var(--muted);
       cursor: not-allowed;
@@ -1680,11 +1668,6 @@
     }
     .dp-month-cell:hover:not(.dp-disabled) {
       background: rgba(59, 130, 246, 0.22);
-    }
-    .dp-month-cell.dp-month-current {
-      background: var(--accent);
-      color: #000;
-      font-weight: 700;
     }
     .dp-month-cell.dp-disabled {
       color: var(--muted);
@@ -1961,15 +1944,6 @@
       border-color: rgba(0, 0, 0, 0.35);
       background: transparent;
     }
-    .date-range-button-row .date-range-btn.active,
-    .date-range-button-row .date-range-btn.is-active {
-      color: #000000;
-      border: 1px solid var(--panel-border-opaque) !important;
-      background: var(--accent);
-      box-shadow: inset 0 0 0 1px var(--panel-border-opaque);
-      text-shadow: none;
-      z-index: 4;
-    }
     .date-range-playback-btn {
       min-width: 30px;
       height: 28px;
@@ -2018,18 +1992,6 @@
       border-color: var(--card-border);
       background: transparent;
       z-index: 1;
-    }
-    .date-range-play-btn.active,
-    .date-range-pause-btn.active,
-    .date-range-settings-btn.active,
-    .date-range-play-btn.is-playing,
-    .date-range-pause-btn.is-paused,
-    .date-range-settings-btn.is-open {
-      background: var(--accent);
-      color: #000;
-      border-color: var(--panel-border-opaque) !important;
-      box-shadow: inset 0 0 0 1px var(--panel-border-opaque);
-      z-index: 4;
     }
     .date-range-playback-btn:disabled {
       opacity: 0.5;
@@ -2127,13 +2089,6 @@
     :root[data-theme="light"] .chart-tool-btn:focus-visible {
       border-color: rgba(0, 0, 0, 0.35);
       background: rgba(0, 0, 0, 0.06);
-    }
-    .chart-tool-btn.is-active {
-      background: var(--accent);
-      color: #000;
-      border-color: var(--panel-border-opaque) !important;
-      box-shadow: inset 0 0 0 1px var(--panel-border-opaque);
-      z-index: 4;
     }
     .date-range-speed-btn {
       width: 48px;
@@ -2353,16 +2308,6 @@
     }
     :root[data-theme="light"] .download-setting-option:hover {
       background: rgba(0, 0, 0, 0.06);
-    }
-    .download-setting-option.is-selected,
-    .download-setting-option.is-selected:hover,
-    .download-setting-option.is-selected:focus-visible,
-    :root[data-theme="light"] .download-setting-option.is-selected:hover,
-    :root[data-theme="light"] .download-setting-option.is-selected:focus-visible {
-      background: var(--accent);
-      color: #000;
-      box-shadow: inset 0 0 0 1px var(--card-border);
-      z-index: 2;
     }
     .download-setting-checkbox {
       display: flex;
@@ -2709,14 +2654,10 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
-    .dca-option-btn:hover,
-    .dca-option-btn.is-selected,
-    .dca-option-btn--selected {
+    .dca-option-btn:hover {
       background: rgba(255, 255, 255, 0.12);
     }
-    :root[data-theme="light"] .dca-option-btn:hover,
-    :root[data-theme="light"] .dca-option-btn.is-selected,
-    :root[data-theme="light"] .dca-option-btn--selected {
+    :root[data-theme="light"] .dca-option-btn:hover {
       background: rgba(0, 0, 0, 0.08);
     }
     .patoshi-native-select {
@@ -2853,6 +2794,66 @@
         width: 123.08%;
         margin-right: -23.08%;
       }
+    }
+    .seg button.active,
+    .icon-btn.active,
+    .pattern-mode-button.is-active,
+    .date-range-button-row .date-range-btn.active,
+    .date-range-button-row .date-range-btn.is-active,
+    .date-range-play-btn.active,
+    .date-range-pause-btn.active,
+    .date-range-settings-btn.active,
+    .date-range-play-btn.is-playing,
+    .date-range-pause-btn.is-paused,
+    .date-range-settings-btn.is-open,
+    .chart-tool-btn.is-active,
+    .download-setting-option.is-selected,
+    .dca-option-btn.is-selected,
+    .dca-option-btn--selected,
+    .date-picker-day.dp-selected,
+    .dp-month-cell.dp-month-current,
+    .pattern-block-pick-btn.is-active,
+    .spent-reward-item.is-active {
+      --selected-accent: var(--accent);
+      --selected-ink: var(--selected-accent);
+      color: var(--selected-ink) !important;
+      border: 1px solid var(--selected-ink) !important;
+      background: transparent !important;
+      box-shadow: none !important;
+      text-shadow: none;
+      z-index: 4;
+    }
+
+    #patoshiIncludePickBtn.is-active {
+      --selected-accent: var(--patoshi);
+    }
+
+    #patoshiExcludePickBtn.is-active {
+      --selected-accent: var(--other);
+    }
+
+    :root[data-theme="light"] :is(
+      .seg button.active,
+      .icon-btn.active,
+      .pattern-mode-button.is-active,
+      .date-range-button-row .date-range-btn.active,
+      .date-range-button-row .date-range-btn.is-active,
+      .date-range-play-btn.active,
+      .date-range-pause-btn.active,
+      .date-range-settings-btn.active,
+      .date-range-play-btn.is-playing,
+      .date-range-pause-btn.is-paused,
+      .date-range-settings-btn.is-open,
+      .chart-tool-btn.is-active,
+      .download-setting-option.is-selected,
+      .dca-option-btn.is-selected,
+      .dca-option-btn--selected,
+      .date-picker-day.dp-selected,
+      .dp-month-cell.dp-month-current,
+      .pattern-block-pick-btn.is-active,
+      .spent-reward-item.is-active
+    ) {
+      --selected-ink: color-mix(in srgb, var(--selected-accent) 55%, #000);
     }
   </style>
 </head>

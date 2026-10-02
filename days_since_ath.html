@@ -10,7 +10,6 @@
     <link rel="stylesheet" href="assets/styles.css" />
     <link rel="manifest" href="manifest.json" />
     <link rel="preload" href="assets/image_list.json" as="fetch" crossorigin />
-    <link rel="prefetch" href="webapps/days_since_ath/dashboard.html" />
     <style>
       body[data-standalone-modal-shell="1"] {
         margin: 0;
@@ -106,6 +105,7 @@
         if (!iframe) return;
         if (!iframe.getAttribute('src')) {
           var dashboardUrl = new URL('webapps/days_since_ath/dashboard.html', window.location.href);
+          dashboardUrl.searchParams.set('_', String(Date.now()));
           var state = new URLSearchParams(window.location.search || '').get('state');
           if (state) dashboardUrl.searchParams.set('state', state);
           iframe.setAttribute('src', dashboardUrl.pathname + dashboardUrl.search + dashboardUrl.hash);

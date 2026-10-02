@@ -10,7 +10,6 @@
     <link rel="stylesheet" href="assets/styles.css" />
     <link rel="manifest" href="manifest.json" />
     <link rel="preload" href="assets/image_list.json" as="fetch" crossorigin />
-    <link rel="prefetch" href="webapps/issuance_rate/dashboard.html" />
     <style>
       body[data-standalone-modal-shell="1"] {
         margin: 0;
@@ -142,11 +141,12 @@
         if (!iframe.getAttribute('src')) {
           // Preserve query parameters when loading dashboard in iframe
           var params = new URLSearchParams(window.location.search);
-          var dashboardUrl = 'webapps/issuance_rate/dashboard.html';
+          var dashboardUrl = new URL('webapps/issuance_rate/dashboard.html', window.location.href);
+          dashboardUrl.searchParams.set('_', String(Date.now()));
           if (params.has('preview')) {
-            dashboardUrl += '?preview=' + encodeURIComponent(params.get('preview'));
+            dashboardUrl.searchParams.set('preview', params.get('preview'));
           }
-          iframe.setAttribute('src', dashboardUrl);
+          iframe.setAttribute('src', dashboardUrl.pathname + dashboardUrl.search + dashboardUrl.hash);
         }
       })();
 

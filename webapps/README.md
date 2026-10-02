@@ -627,6 +627,7 @@ Before calling a new dashboard finished, check all of the following:
 - `standalone_bootstrap.js` has the correct `STANDALONE_FILENAME` and `DASHBOARD_URL` constants and updated `getStandalonePath()` / `getMainRouteUrl()` logic.
 - Date controls use `WSBDashboardComponents.createDatePicker()` or `bindDateRangePickers()`.
 - Updated timestamp KPIs use `WSBDashboardComponents.createUpdatedTimeZoneChipController()` with the standard `#updatedChipWrap`, `#chipUpdated`, `#updatedKpi`, `#updatedTimeZoneDropdown`, `#updatedTimeZoneDropdownTrigger`, `#updatedTimeZoneDropdownMenu`, and `#updatedTimeZoneSelect` markup. Dashboards that include the block height should call `setUpdated(value, { includeHeight: true, height })`.
+- Place a live-status dot before the KPI label or value it describes. For a card-level status, place the dot in the card's upper-left corner.
 - Playback keyboard controls use `WSBDashboardComponents.bindPlaybackKeyboardShortcuts()`.
 - Copy-link and reset button state use `WSBDashboardComponents.copyDashboardLink()`, `setResetButtonState()`, or `bindDashboardActions()`.
 - Animation exports use `WSBDashboardExport.encodeWebM()`, `estimateDownload()`, and `drawFooterUrl()`. MP4 export paths are retired.

@@ -219,19 +219,6 @@
       }
     });
     if (started) ctx.stroke();
-    if (Number.isFinite(options.spotPrice) && options.spotPrice > 0
-        && options.spotPrice < rows[rows.length - 1]?.price) {
-      ctx.save();
-      ctx.strokeStyle = getCss("--muted", "#95a6ae");
-      ctx.lineWidth = 1.1;
-      ctx.setLineDash([5, 4]);
-      const spotY = yFor(options.spotPrice);
-      ctx.beginPath();
-      ctx.moveTo(plotX, spotY);
-      ctx.lineTo(plotX + plotW, spotY);
-      ctx.stroke();
-      ctx.restore();
-    }
     ctx.restore();
   }
 
@@ -262,7 +249,7 @@
     canvas.dataset.priceSource = rows !== cachedRows
       ? (spotFeed?.isLive?.(quote) ? "live" : "retained") : "published";
     drawPanel(ctx, leftX, panelY, panelW, panelH, rows, (row) => row.price,
-      { log: true, skipZero: true, spotPrice: rows[rows.length - 1]?.spotPrice });
+      { log: true, skipZero: true });
     drawPanel(ctx, rightX, panelY, panelW, panelH, rows, (row) => row.daysSinceAth, { log: false });
   }
 
