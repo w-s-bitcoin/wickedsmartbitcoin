@@ -37,6 +37,8 @@
     const CHAIN_SPLIT_COLLAPSE_COMPACT_BLOCKS = 3;
     const CHAIN_SPLIT_COLLAPSE_FULL_BLOCKS = 2;
     const CHAIN_SPLIT_COLLAPSE_FULL_HEAD_BLOCKS = 3;
+    const DEFAULT_COLLAPSE_SPLIT_LEGACY = true;
+    const COLLAPSE_SPLIT_DEFAULT_VERSION = 1;
     const DASHBOARD_TIME = window.WSBDashboardTime || null;
     const SHARE_STATE_PARAM = "bip110_state";
     const LOCAL_RUNTIME_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
@@ -294,7 +296,7 @@
         showBip110Node: false,
         panelsSwapped: false,
         showMainChainView: true,
-        collapseSplitLegacy: false,
+        collapseSplitLegacy: DEFAULT_COLLAPSE_SPLIT_LEGACY,
       },
       manualPanelHeights: {
         segwit: null,
@@ -2364,6 +2366,7 @@
           panelsSwapped: Boolean(state.controls.panelsSwapped),
           showMainChainView: Boolean(state.controls.showMainChainView),
           collapseSplitLegacy: Boolean(state.controls.collapseSplitLegacy),
+          collapseSplitLegacyDefaultVersion: COLLAPSE_SPLIT_DEFAULT_VERSION,
           manualPanelHeights: {
             segwit: Number.isFinite(segwitRatio)
               ? parseFloat(segwitRatio.toFixed(4))
@@ -2522,6 +2525,7 @@
         if (!parsed || typeof parsed !== "object") return false;
 
         const hasExplicitStripePreference = typeof parsed.stripesExplicit === "boolean";
+        const hasCurrentCollapseDefault = parsed.collapseSplitLegacyDefaultVersion === COLLAPSE_SPLIT_DEFAULT_VERSION;
         state.controls.stripesExplicit = hasExplicitStripePreference ? parsed.stripesExplicit : false;
         state.controls.stripes = state.controls.stripesExplicit
           ? Boolean(parsed.stripes)
@@ -2536,7 +2540,9 @@
         ensureAtLeastOnePanelVisible("bip110");
         state.controls.panelsSwapped = typeof parsed.panelsSwapped === "boolean" ? parsed.panelsSwapped : false;
         state.controls.showMainChainView = typeof parsed.showMainChainView === "boolean" ? parsed.showMainChainView : true;
-        state.controls.collapseSplitLegacy = typeof parsed.collapseSplitLegacy === "boolean" ? parsed.collapseSplitLegacy : false;
+        state.controls.collapseSplitLegacy = hasCurrentCollapseDefault && typeof parsed.collapseSplitLegacy === "boolean"
+          ? parsed.collapseSplitLegacy
+          : DEFAULT_COLLAPSE_SPLIT_LEGACY;
 
         const parseStoredHeight = (value) => {
           if (value == null || value === "") return null;
@@ -2585,7 +2591,7 @@
         if (labels) labels.checked = state.controls.labels;
         syncPanelCheckboxes();
 
-        if (!hasExplicitStripePreference) {
+        if (!hasExplicitStripePreference || !hasCurrentCollapseDefault) {
           persistControls();
         }
 
@@ -2675,7 +2681,7 @@
           showBip110Node: false,
           panelsSwapped: false,
           showMainChainView: true,
-          collapseSplitLegacy: false,
+          collapseSplitLegacy: DEFAULT_COLLAPSE_SPLIT_LEGACY,
         },
         manualPanelHeights: {
           segwit: null,
@@ -2901,7 +2907,9 @@
         state.controls.showMainChainView = typeof checkboxState.toggleMainChainView === "boolean"
           ? checkboxState.toggleMainChainView
           : Boolean(controls.showMainChainView);
-        state.controls.collapseSplitLegacy = typeof controls.collapseSplitLegacy === "boolean" ? controls.collapseSplitLegacy : false;
+        state.controls.collapseSplitLegacy = typeof controls.collapseSplitLegacy === "boolean"
+          ? controls.collapseSplitLegacy
+          : DEFAULT_COLLAPSE_SPLIT_LEGACY;
 
         const filledPanels = snapshot.filledPanels || {};
         state.filledPanels.segwit = Boolean(filledPanels.segwit);
@@ -2990,7 +2998,7 @@
         state.controls.showBip110Node = false;
         state.controls.panelsSwapped = false;
         state.controls.showMainChainView = true;
-        state.controls.collapseSplitLegacy = false;
+        state.controls.collapseSplitLegacy = DEFAULT_COLLAPSE_SPLIT_LEGACY;
         state.periodGridNodeView = "legacy";
         state.leaderboardWindow = "all";
         state.minerTimelineWindow = "past14d";
