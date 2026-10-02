@@ -80,7 +80,7 @@
   const DEFAULT_RANGE_PLAYBACK_FPS = 60;
   const DEFAULT_UOA_GROUP = "all";
   const MONETARY_METALS_GROUP = "monetary_metals";
-  const DEFAULT_SHOW_PEGGED_CURRENCIES = true;
+  const DEFAULT_SHOW_PEGGED_CURRENCIES = false;
   const DEFAULT_SHOW_MONETARY_METALS = true;
   const DATE_RANGE_PLAYBACK_FPS_OPTIONS = [30, 60, 120, 240];
   const DATE_RANGE_THUMB_WIDTH_PX = 12;
@@ -3040,7 +3040,7 @@
   function getInitialShowPeggedCurrenciesSetting() {
     const shareState = getDashboardShareStateFromUrl();
     const stored = shareState || safeReadJson(UOA_FILTERS_KEY) || {};
-    return stored.showPeggedCurrencies === false ? false : DEFAULT_SHOW_PEGGED_CURRENCIES;
+    return stored.showPeggedCurrencies === true;
   }
 
   function getInitialShowMonetaryMetalsSetting() {
@@ -3116,7 +3116,7 @@
     const orderMode = ORDER_MODES.includes(stored.orderMode) ? stored.orderMode : "alpha-asc";
     const smoothVesRedenom = stored.smoothVesRedenom === false ? false : true;
     const metalDenomination = normalizeMetalDenomination(stored.metalDenomination);
-    const storedShowPeggedCurrencies = stored.showPeggedCurrencies === false ? false : DEFAULT_SHOW_PEGGED_CURRENCIES;
+    const storedShowPeggedCurrencies = stored.showPeggedCurrencies === true;
     const storedShowMonetaryMetals = stored.showMonetaryMetals === false ? false : DEFAULT_SHOW_MONETARY_METALS;
     const storedPlaybackFps = Number(stored.playbackFps);
     const playbackFps = Number.isFinite(storedPlaybackFps) && storedPlaybackFps > 0
@@ -3179,7 +3179,7 @@
     const orderMode = ORDER_MODES.includes(stored.orderMode) ? stored.orderMode : "alpha-asc";
     const smoothVesRedenom = stored.smoothVesRedenom === false ? false : true;
     const metalDenomination = normalizeMetalDenomination(stored.metalDenomination);
-    const storedShowPeggedCurrencies = stored.showPeggedCurrencies === false ? false : DEFAULT_SHOW_PEGGED_CURRENCIES;
+    const storedShowPeggedCurrencies = stored.showPeggedCurrencies === true;
     const storedShowMonetaryMetals = stored.showMonetaryMetals === false ? false : DEFAULT_SHOW_MONETARY_METALS;
     const storedPlaybackFps = Number(stored.playbackFps);
     const playbackFps = Number.isFinite(storedPlaybackFps) && storedPlaybackFps > 0
@@ -3220,7 +3220,7 @@
     setScaleToggleValue(el.secondaryScaleToggles, shellState.secondaryScaleMode || shellState.scaleMode);
     if (el.orderBySelect) el.orderBySelect.value = shellState.orderMode;
     if (el.vesRedenomAdjustToggle) el.vesRedenomAdjustToggle.checked = shellState.smoothVesRedenom;
-    showPeggedCurrencies = shellState.showPeggedCurrencies !== false;
+    showPeggedCurrencies = shellState.showPeggedCurrencies === true;
     showMonetaryMetals = shellState.showMonetaryMetals !== false;
     if (el.showPeggedCurrenciesToggle) el.showPeggedCurrenciesToggle.checked = showPeggedCurrencies;
     if (el.showMonetaryMetalsToggle) el.showMonetaryMetalsToggle.checked = showMonetaryMetals;
@@ -3353,7 +3353,7 @@
 
     suppressResetSnapshotClear = true;
     try {
-      showPeggedCurrencies = snapshot.showPeggedCurrencies !== false;
+      showPeggedCurrencies = snapshot.showPeggedCurrencies === true;
       showMonetaryMetals = snapshot.showMonetaryMetals !== false;
       selectedUoaGroup = normalizeUoaGroup(snapshot.uoaGroup);
       syncUoaGroupSelect();
@@ -3572,7 +3572,7 @@
   }
 
   function getShowPeggedCurrenciesSetting() {
-    return showPeggedCurrencies !== false;
+    return showPeggedCurrencies === true;
   }
 
   function getShowMonetaryMetalsSetting() {
@@ -3592,7 +3592,7 @@
   }
 
   function setShowPeggedCurrencies(value, options = {}) {
-    const next = value !== false;
+    const next = value === true;
     const changed = next !== showPeggedCurrencies;
     showPeggedCurrencies = next;
     syncShowPeggedCurrenciesToggle();
@@ -6988,7 +6988,7 @@
         renderAll();
       });
     }
-    showPeggedCurrencies = saved.showPeggedCurrencies !== false;
+    showPeggedCurrencies = saved.showPeggedCurrencies === true;
     showMonetaryMetals = saved.showMonetaryMetals !== false;
     syncShowPeggedCurrenciesToggle();
     syncShowMonetaryMetalsToggle();

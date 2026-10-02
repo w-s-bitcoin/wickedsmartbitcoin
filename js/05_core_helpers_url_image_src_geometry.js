@@ -531,12 +531,17 @@ function modalEmbedSrc(pathOrUrl){
             });
         }
         shellParams.delete('state');
-        if (!shellParams.toString()) return resolved;
 
         try {
                 const url = new URL(resolved, window.location.origin);
                 const isDashboardPath = /\/webapps\/[^/]+\/dashboard\.html$/i.test(url.pathname);
                 if (!isDashboardPath) return resolved;
+
+                // A dashboard is an iframe document; its parent may be fresh while
+                // the browser still considers an older dashboard.html cache entry fresh.
+                // Keep one URL per page load so reopening a modal preserves its frame.
+                window.__wsbDashboardHtmlNonce ||= String(Date.now());
+                url.searchParams.set('_', window.__wsbDashboardHtmlNonce);
 
                 shellParams.forEach((value, key) => {
                     if (!shouldForwardShellParam(key)) return;
