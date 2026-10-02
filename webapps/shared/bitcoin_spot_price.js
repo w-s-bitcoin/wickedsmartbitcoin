@@ -11,23 +11,23 @@
   const SOURCES = [
     {
       name: "Coinbase",
-      url: "https://api.exchange.coinbase.com/products/BTC-USD/stats",
-      read: (data) => Number(data?.last),
+      url: "https://api.exchange.coinbase.com/products/BTC-USD/ticker",
+      read: (data) => ({ price: Number(data?.price), at: Date.parse(data?.time) }),
     },
     {
       name: "Kraken",
       url: "https://api.kraken.com/0/public/Ticker?pair=XBTUSD",
-      read: (data) => Number(data?.result?.XXBTZUSD?.c?.[0]),
+      read: (data) => ({ price: Number(data?.result?.XXBTZUSD?.c?.[0]) }),
     },
     {
       name: "Coinbase spot",
       url: "https://api.coinbase.com/v2/prices/BTC-USD/spot",
-      read: (data) => Number(data?.data?.amount),
+      read: (data) => ({ price: Number(data?.data?.amount) }),
     },
     {
       name: "mempool.space",
       url: "https://mempool.space/api/v1/prices",
-      read: (data) => Number(data?.USD),
+      read: (data) => ({ price: Number(data?.USD) }),
     },
   ];
 
@@ -196,9 +196,15 @@
         try {
           const response = await fetch(source.url, { signal: controller.signal, cache: "no-store" });
           if (!response.ok) continue;
-          const price = source.read(await response.json());
+          const { price, at } = source.read(await response.json());
           if (socketPriceAt >= pollStartedAt) break;
-          if (publish(price, source.name)) break;
+          if (Number.isFinite(at)) {
+            if (Math.abs(Date.now() - at) > QUOTE_STALE_MS || at <= (lastQuote?.at || 0)) continue;
+            if (publish(price, source.name, at)) break;
+          } else if (!lastQuote && publish(price, source.name)) {
+            // Untimed sources can fill a cold start, but cannot displace a timed quote.
+            break;
+          }
         } catch (_) {
           // Try the next public source; the published snapshot remains available.
         } finally {
