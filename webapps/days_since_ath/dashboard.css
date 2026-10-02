@@ -1006,22 +1006,6 @@ body {
   border-left-color: var(--panel-border);
 }
 
-:root[data-theme="light"] .days-scale-btn.is-active,
-:root[data-theme="light"] .date-range-preset-btn.is-active,
-:root[data-theme="light"] .date-range-play-btn.is-playing,
-:root[data-theme="light"] .date-range-pause-btn.is-paused,
-:root[data-theme="light"] .date-range-stop-btn.is-active,
-:root[data-theme="light"] .date-range-download-settings .date-range-settings-btn.is-open,
-:root[data-theme="light"] .date-range-button-row .date-range-btn.is-active,
-:root[data-theme="light"] .date-range-chart-buttons .date-range-btn.is-selected,
-:root[data-theme="light"] .date-picker-day.dp-selected,
-:root[data-theme="light"] .dp-month-cell.dp-month-current,
-:root[data-theme="light"] .download-setting-option.is-selected {
-  --selected-ink: color-mix(in srgb, var(--selected-accent) 55%, #000);
-  color: var(--selected-ink);
-  background: transparent;
-}
-
 .download-setting-checkbox {
   display: flex;
   align-items: center;
