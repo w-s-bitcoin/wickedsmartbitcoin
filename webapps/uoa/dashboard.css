@@ -403,13 +403,19 @@ body.uoa-dashboard-expanded .topbar {
 
 .uoa-setting-option.is-selected,
 .uoa-setting-option.is-selected:hover,
-.uoa-setting-option.is-selected:focus-visible,
+.uoa-setting-option.is-selected:focus-visible {
+  --selected-ink: var(--accent);
+  background: transparent;
+  color: var(--selected-ink);
+  border-color: var(--selected-ink);
+  box-shadow: inset 0 0 0 1px var(--selected-ink);
+  z-index: 2;
+}
+
+:root[data-theme="light"] .uoa-setting-option.is-selected,
 :root[data-theme="light"] .uoa-setting-option.is-selected:hover,
 :root[data-theme="light"] .uoa-setting-option.is-selected:focus-visible {
-  background: var(--accent);
-  color: #000;
-  box-shadow: inset 0 0 0 1px var(--panel-border);
-  z-index: 2;
+  --selected-ink: color-mix(in srgb, var(--accent) 55%, #000);
 }
 
 .chips {
@@ -1131,16 +1137,16 @@ body.uoa-dashboard-expanded .topbar {
 }
 
 .date-range-pause-btn.is-paused {
-  color: #000000;
-  border: 1px solid var(--panel-border-opaque) !important;
-  background: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--panel-border-opaque);
+  color: var(--selected-ink, var(--accent));
+  border: 1px solid var(--selected-ink, var(--accent)) !important;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--selected-ink, var(--accent));
   text-shadow: none;
 }
 
 .date-range-pause-btn.is-paused:hover,
 .date-range-pause-btn.is-paused:focus-visible {
-  border-color: var(--panel-border-opaque) !important;
+  border-color: var(--selected-ink, var(--accent)) !important;
 }
 
 .date-range-pause-btn:disabled {
@@ -1404,31 +1410,30 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 }
 
 .download-setting-option.is-selected {
-  color: #000000;
-  border: 1px solid var(--panel-border-opaque) !important;
-  background: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--panel-border-opaque);
+  --selected-accent: var(--accent);
+  --selected-ink: var(--selected-accent);
+  color: var(--selected-ink);
+  border: 1px solid var(--selected-ink) !important;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--selected-ink);
   text-shadow: none;
   z-index: 4;
 }
 
 .download-chart-mode-row .download-setting-option[data-value="left"].is-selected {
-  background: var(--download-chart-left, var(--accent));
+  --selected-accent: var(--download-chart-left, var(--accent));
 }
 
 .download-chart-mode-row .download-setting-option[data-value="right"].is-selected {
-  color: #000000;
-  background: var(--download-chart-right, var(--right));
+  --selected-accent: var(--download-chart-right, var(--right));
 }
 
 .download-scale-row[data-side="left"] .download-setting-option.is-selected {
-  color: #000000;
-  background: var(--download-chart-left, var(--accent));
+  --selected-accent: var(--download-chart-left, var(--accent));
 }
 
 .download-scale-row[data-side="right"] .download-setting-option.is-selected {
-  color: #000000;
-  background: var(--download-chart-right, var(--right));
+  --selected-accent: var(--download-chart-right, var(--right));
 }
 
 .download-scale-row.is-disabled .download-setting-option,
@@ -1444,7 +1449,7 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 
 .download-setting-option.is-selected:hover,
 .download-setting-option.is-selected:focus-visible {
-  border-color: var(--panel-border-opaque) !important;
+  border-color: var(--selected-ink) !important;
 }
 
 .download-setting-option.is-selected + .download-setting-option {
@@ -1576,10 +1581,11 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 .date-range-pause-btn.is-paused,
 .date-range-stop-btn.is-active,
 .date-range-download-settings .date-range-settings-btn.is-open {
-  color: #000000;
-  background: var(--accent);
-  border-color: var(--panel-border-opaque) !important;
-  box-shadow: inset 0 0 0 1px var(--panel-border-opaque);
+  --selected-ink: var(--accent);
+  color: var(--selected-ink);
+  background: transparent;
+  border-color: var(--selected-ink) !important;
+  box-shadow: inset 0 0 0 1px var(--selected-ink);
   z-index: 4;
 }
 
@@ -1590,10 +1596,17 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 .date-range-pause-btn.is-paused:disabled:hover,
 .date-range-pause-btn.is-paused:disabled:focus-visible {
   opacity: 1;
-  color: #000000;
-  background: var(--accent);
-  border-color: var(--panel-border-opaque) !important;
-  box-shadow: inset 0 0 0 1px var(--panel-border-opaque);
+  color: var(--selected-ink);
+  background: transparent;
+  border-color: var(--selected-ink) !important;
+  box-shadow: inset 0 0 0 1px var(--selected-ink);
+}
+
+:root[data-theme="light"] .date-range-play-btn.is-playing,
+:root[data-theme="light"] .date-range-pause-btn.is-paused,
+:root[data-theme="light"] .date-range-stop-btn.is-active,
+:root[data-theme="light"] .date-range-download-settings .date-range-settings-btn.is-open {
+  --selected-ink: color-mix(in srgb, var(--accent) 55%, #000);
 }
 
 .date-range-play-btn.is-playing + .date-range-playback-btn,
@@ -1614,24 +1627,7 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 }
 
 :root[data-theme="light"] .download-setting-option.is-selected {
-  color: #000000;
-  border-color: var(--panel-border-opaque) !important;
-  background: var(--accent);
-}
-
-:root[data-theme="light"] .download-chart-mode-row .download-setting-option[data-value="right"].is-selected {
-  color: #000000;
-  background: var(--download-chart-right, var(--right));
-}
-
-:root[data-theme="light"] .download-scale-row[data-side="left"] .download-setting-option.is-selected {
-  color: #000000;
-  background: var(--download-chart-left, var(--accent));
-}
-
-:root[data-theme="light"] .download-scale-row[data-side="right"] .download-setting-option.is-selected {
-  color: #000000;
-  background: var(--download-chart-right, var(--right));
+  --selected-ink: color-mix(in srgb, var(--selected-accent) 55%, #000);
 }
 
 :root[data-theme="light"] .download-scale-row.is-disabled .download-setting-option,
@@ -1644,7 +1640,7 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 
 :root[data-theme="light"] .download-setting-option.is-selected:hover,
 :root[data-theme="light"] .download-setting-option.is-selected:focus-visible {
-  border-color: var(--panel-border-opaque) !important;
+  border-color: var(--selected-ink) !important;
 }
 
 .date-range-preset-btn,
@@ -1705,28 +1701,30 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 .date-range-preset-btn.is-active,
 .date-range-chart-toggle-btn.is-active,
 .uoa-scale-toggle-btn.is-active {
-  color: #000000;
-  border: 1px solid var(--panel-border-opaque) !important;
-  background: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--panel-border-opaque);
+  --selected-accent: var(--accent);
+  --selected-ink: var(--selected-accent);
+  color: var(--selected-ink);
+  border: 1px solid var(--selected-ink) !important;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--selected-ink);
   text-shadow: none;
   z-index: 4;
 }
 
 .date-range-chart-toggle-btn[data-value="left"].is-active {
-  background: var(--date-range-chart-left, var(--accent));
+  --selected-accent: var(--date-range-chart-left, var(--accent));
 }
 
 .date-range-chart-toggle-btn[data-value="right"].is-active {
-  background: var(--date-range-chart-right, var(--right));
+  --selected-accent: var(--date-range-chart-right, var(--right));
 }
 
 .uoa-scale-toggles[data-side="primary"] .uoa-scale-toggle-btn.is-active {
-  background: var(--uoa-scale-primary, var(--accent));
+  --selected-accent: var(--uoa-scale-primary, var(--accent));
 }
 
 .uoa-scale-toggles[data-side="secondary"] .uoa-scale-toggle-btn.is-active {
-  background: var(--uoa-scale-secondary, var(--right));
+  --selected-accent: var(--uoa-scale-secondary, var(--right));
 }
 
 .date-range-preset-btn.is-active:hover,
@@ -1735,7 +1733,7 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 .date-range-chart-toggle-btn.is-active:focus-visible,
 .uoa-scale-toggle-btn.is-active:hover,
 .uoa-scale-toggle-btn.is-active:focus-visible {
-  border-color: var(--panel-border-opaque) !important;
+  border-color: var(--selected-ink) !important;
 }
 
 .date-range-preset-btn.is-active + .date-range-preset-btn,
@@ -1756,24 +1754,7 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 :root[data-theme="light"] .date-range-preset-btn.is-active,
 :root[data-theme="light"] .date-range-chart-toggle-btn.is-active,
 :root[data-theme="light"] .uoa-scale-toggle-btn.is-active {
-  border-color: var(--panel-border-opaque) !important;
-  background: var(--accent);
-}
-
-:root[data-theme="light"] .date-range-chart-toggle-btn[data-value="left"].is-active {
-  background: var(--date-range-chart-left, var(--accent));
-}
-
-:root[data-theme="light"] .date-range-chart-toggle-btn[data-value="right"].is-active {
-  background: var(--date-range-chart-right, var(--right));
-}
-
-:root[data-theme="light"] .uoa-scale-toggles[data-side="primary"] .uoa-scale-toggle-btn.is-active {
-  background: var(--uoa-scale-primary, var(--accent));
-}
-
-:root[data-theme="light"] .uoa-scale-toggles[data-side="secondary"] .uoa-scale-toggle-btn.is-active {
-  background: var(--uoa-scale-secondary, var(--right));
+  --selected-ink: color-mix(in srgb, var(--selected-accent) 55%, #000);
 }
 
 :root[data-theme="light"] .date-range-preset-btn.is-active:hover,
@@ -1782,7 +1763,7 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 :root[data-theme="light"] .date-range-chart-toggle-btn.is-active:focus-visible,
 :root[data-theme="light"] .uoa-scale-toggle-btn.is-active:hover,
 :root[data-theme="light"] .uoa-scale-toggle-btn.is-active:focus-visible {
-  border-color: var(--panel-border-opaque) !important;
+  border-color: var(--selected-ink) !important;
 }
 
 .date-range-slider-wrap {

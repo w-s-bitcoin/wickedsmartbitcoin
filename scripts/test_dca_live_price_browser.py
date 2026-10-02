@@ -33,9 +33,22 @@ FEED_SHIM = r"""
     }
   }
   window.WebSocket = PriceSocket;
+  window.__dcaTestRest = { ticker: null };
   const nativeFetch = window.fetch.bind(window);
   window.fetch = (input, options) => {
     const url = String(typeof input === 'string' ? input : input?.url || '');
+    if (url === 'https://api.exchange.coinbase.com/products/BTC-USD/ticker'
+        && window.__dcaTestRest.ticker) {
+      return Promise.resolve(new Response(JSON.stringify(window.__dcaTestRest.ticker), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      }));
+    }
+    if (url === 'https://api.exchange.coinbase.com/products/BTC-USD/stats'
+        && window.__dcaTestRest.ticker) {
+      return Promise.resolve(new Response(JSON.stringify({ last: window.__dcaTestRest.ticker.price }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      }));
+    }
     if (/^https:\/\/(api\.exchange\.coinbase\.com|api\.coinbase\.com|api\.kraken\.com|mempool\.space)\//.test(url)) {
       return Promise.reject(new TypeError('Price provider intentionally offline in this fixture'));
     }
@@ -157,6 +170,33 @@ def main():
                 if (getFilteredRows()[0].currentPrice !== state.priceRows.at(-1).price) return 'historical view changed';
                 state.dateRange.rangeTracksLatestEnd = true;
                 if (getFrameRows()[0].currentPrice !== state.priceRows.at(-1).price) return 'export frame changed';
+                return '';
+              })()
+            """)
+            if result:
+                raise AssertionError(result)
+            result = cdp.evaluate("""
+              (async () => {
+                const retained = dcaSpotFeed.last();
+                const currentPrice = getFilteredRows()[0].currentPrice;
+                const chipText = document.querySelector('#chipSpotPrice .chip-value').textContent;
+                const publishedPrice = Number(state.metadata.source.latest_price);
+                window.__dcaTestRest.ticker = {
+                  price: String(publishedPrice), time: new Date(retained.at - 1000).toISOString(),
+                };
+                const realNow = Date.now;
+                Date.now = () => realNow() + 10000;
+                try {
+                  window.__dcaTestSocket.onclose();
+                  await new Promise((resolve) => setTimeout(resolve, 80));
+                } finally {
+                  Date.now = realNow;
+                }
+                if (dcaSpotFeed.last()?.price !== retained.price
+                    || getFilteredRows()[0].currentPrice !== currentPrice
+                    || document.querySelector('#chipSpotPrice .chip-value').textContent
+                      !== chipText)
+                  return 'older REST fallback replaced the retained live price during socket outage';
                 return '';
               })()
             """)

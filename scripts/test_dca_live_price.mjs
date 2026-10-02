@@ -139,6 +139,7 @@ async function testSpotFeed() {
   const quotes = [];
   const sockets = [];
   let restPrice = 300;
+  let restAt = 0;
   const FakeDate = class extends Date { static now() { return now; } };
   class FakeSocket {
     constructor(url) { this.url = url; sockets.push(this); }
@@ -149,7 +150,9 @@ async function testSpotFeed() {
     Date: FakeDate,
     WebSocket: FakeSocket,
     AbortController,
-    fetch: async () => ({ ok: true, json: async () => ({ last: String(restPrice) }) }),
+    fetch: async (url) => ({ ok: true, json: async () => url.endsWith('/ticker')
+      ? { price: String(restPrice), time: new Date(restAt || now).toISOString() }
+      : { last: String(restPrice) } }),
     window: {
       setTimeout(fn, delay) { const id = nextId++; timers.set(id, { at: now + delay, fn }); return id; },
     },
@@ -218,6 +221,34 @@ async function testSpotFeed() {
   assert.equal(feed.newerThan(new Date(now + 1000).toISOString()), null,
     'a newer publication wins over the retained quote');
   assert.equal(quotes.at(-1), null);
+
+  sandbox.document.visibilityState = 'visible';
+  events.get('visibilitychange')();
+  const resumedSocket = sockets.at(-1);
+  resumedSocket.onopen();
+  resumedSocket.onmessage({ data: JSON.stringify({
+    type: 'ticker', product_id: 'BTC-USD', price: '400', time: new Date(now).toISOString(),
+  }) });
+  // A brief socket outage must not let an older REST trade replace the last tick.
+  restAt = now - 1000;
+  resumedSocket.onclose();
+  for (const [id, timer] of [...timers]) {
+    if (timer.at === now) { timers.delete(id); timer.fn(); }
+  }
+  await new Promise(setImmediate);
+  assert.equal(feed.last().price, 400, 'older REST data replaced a newer socket quote');
+
+  // A genuinely newer timed REST trade can resume prices after the socket stalls.
+  now += 1000;
+  restAt = now;
+  restPrice = 500;
+  sandbox.document.visibilityState = 'visible';
+  events.get('visibilitychange')();
+  for (const [id, timer] of [...timers]) {
+    if (timer.at === now) { timers.delete(id); timer.fn(); }
+  }
+  await new Promise(setImmediate);
+  assert.equal(feed.last().price, 500, 'newer timed REST quote did not resume the price');
   feed.stop();
 }
 
