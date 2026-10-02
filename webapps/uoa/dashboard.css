@@ -413,13 +413,6 @@ body.uoa-dashboard-expanded .topbar {
   z-index: 2;
 }
 
-:root[data-theme="light"] .uoa-setting-option.is-selected,
-:root[data-theme="light"] .uoa-setting-option.is-selected:hover,
-:root[data-theme="light"] .uoa-setting-option.is-selected:focus-visible {
-  --selected-ink: color-mix(in srgb, var(--accent) 55%, #000);
-  background: transparent;
-}
-
 .chips {
   display: flex;
   flex-wrap: wrap;
@@ -1605,13 +1598,6 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
   box-shadow: none !important;
 }
 
-:root[data-theme="light"] .date-range-play-btn.is-playing,
-:root[data-theme="light"] .date-range-pause-btn.is-paused,
-:root[data-theme="light"] .date-range-stop-btn.is-active,
-:root[data-theme="light"] .date-range-download-settings .date-range-settings-btn.is-open {
-  --selected-ink: color-mix(in srgb, var(--accent) 55%, #000);
-}
-
 .date-range-play-btn.is-playing + .date-range-playback-btn,
 .date-range-stop-btn.is-active + .date-range-playback-btn {
   border-left-color: var(--panel-border);
@@ -1627,10 +1613,6 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 :root[data-theme="light"] .download-setting-actions button:hover,
 :root[data-theme="light"] .download-setting-actions button:focus-visible {
   border-color: rgba(0, 0, 0, 0.35);
-}
-
-:root[data-theme="light"] .download-setting-option.is-selected {
-  --selected-ink: color-mix(in srgb, var(--selected-accent) 55%, #000);
 }
 
 :root[data-theme="light"] .download-scale-row.is-disabled .download-setting-option,
@@ -1754,14 +1736,6 @@ body.uoa-dashboard-expanded .dashboard-expand-icon-shrink {
 :root[data-theme="light"] .uoa-scale-toggle-btn:hover,
 :root[data-theme="light"] .uoa-scale-toggle-btn:focus-visible {
   border-color: rgba(0, 0, 0, 0.35);
-}
-
-:root[data-theme="light"] .date-range-preset-btn.is-active,
-:root[data-theme="light"] .date-range-chart-toggle-btn.is-active,
-:root[data-theme="light"] .uoa-scale-toggle-btn.is-active,
-:root[data-theme="light"] .date-picker-day.dp-selected,
-:root[data-theme="light"] .dp-month-cell.dp-month-current {
-  --selected-ink: color-mix(in srgb, var(--selected-accent) 55%, #000);
 }
 
 :root[data-theme="light"] .date-range-preset-btn.is-active:hover,
