@@ -126,6 +126,7 @@ let dcaSpotFeed = null;
 let dcaLivePresentationPending = false;
 let dcaLastLivePrice = null;
 let dcaLastLiveDay = "";
+let chartHoverPointer = null;
 let chartRangeResizeWheelRemainder = 0;
 let chartRangePanWheelRemainder = 0;
 const downloadEstimateCalibrationCache = new Map();
@@ -3486,8 +3487,7 @@ function updatePriceTimestampChips() {
 function presentDcaLivePrice() {
   if (!dcaLivePresentationPending || document.visibilityState !== "visible"
       || isDateRangeExporting || state.dateRange.isPlaying || state.dateRange.isPaused
-      || chartRangeDragState || dateRangeHandleDrag || dateRangeCurrentMarkerDrag
-      || ensureChartTooltip()?.classList.contains("show")) return false;
+      || chartRangeDragState || dateRangeHandleDrag || dateRangeCurrentMarkerDrag) return false;
   dcaLivePresentationPending = false;
   renderChart();
   return true;
@@ -4528,61 +4528,67 @@ function showChartTooltip(chart, hoverRow, hoverEvent) {
   placeChartTooltip(tooltip, panelRect.left + (panelRect.width / 2), panelRect.top + 28, panelRect);
 }
 
+function updateChartTooltipAtPointer(chart, event) {
+  if (chartRangeDragState) {
+    hideCostBasisHoverLine(chart);
+    return;
+  }
+  const rows = chart.__dcaTooltipRows || [];
+  const geometry = chart.__dcaChartGeometry;
+  const hoverLine = chart.querySelector(".dca-hover-line");
+  if (state.dateRange.isPlaying) {
+    if (hoverLine) hoverLine.setAttribute("visibility", "hidden");
+    hideChartTooltip();
+    return;
+  }
+  if (!rows.length || !geometry || !hoverLine) {
+    hideChartTooltip();
+    return;
+  }
+
+  const rect = chart.getBoundingClientRect();
+  const localX = event.clientX - rect.left;
+  const localY = event.clientY - rect.top;
+  if (
+    localX < geometry.plotLeft ||
+    localX > geometry.plotRight ||
+    localY < geometry.plotTop ||
+    localY > geometry.plotBottom
+  ) {
+    hoverLine.setAttribute("visibility", "hidden");
+    hideChartTooltip();
+    return;
+  }
+
+  const ratio = (localX - geometry.plotLeft) / Math.max(1, geometry.plotRight - geometry.plotLeft);
+  const estimatedDaysAgo = geometry.maxDays - (ratio * (geometry.maxDays - 1));
+  const hoverRow = rows.find((row) => row.daysAgo === Math.round(estimatedDaysAgo)) || findNearestRowByDays(rows, estimatedDaysAgo);
+  if (!hoverRow) {
+    hoverLine.setAttribute("visibility", "hidden");
+    hideChartTooltip();
+    return;
+  }
+
+  const hoverX = geometry.xForDay(hoverRow.daysAgo);
+  hoverLine.setAttribute("x1", hoverX.toFixed(2));
+  hoverLine.setAttribute("x2", hoverX.toFixed(2));
+  hoverLine.setAttribute("y1", geometry.plotTop.toFixed(2));
+  hoverLine.setAttribute("y2", geometry.plotBottom.toFixed(2));
+  hoverLine.setAttribute("visibility", "visible");
+  showChartTooltip(chart, hoverRow, event);
+}
+
 function bindChartTooltip(chart) {
   if (!chart || chart.dataset.customTooltipBound === "1") return;
   chart.dataset.customTooltipBound = "1";
 
   chart.addEventListener("mousemove", (event) => {
-    if (chartRangeDragState) {
-      hideCostBasisHoverLine(chart);
-      return;
-    }
-    const rows = chart.__dcaTooltipRows || [];
-    const geometry = chart.__dcaChartGeometry;
-    const hoverLine = chart.querySelector(".dca-hover-line");
-    if (state.dateRange.isPlaying) {
-      if (hoverLine) hoverLine.setAttribute("visibility", "hidden");
-      hideChartTooltip();
-      return;
-    }
-    if (!rows.length || !geometry || !hoverLine) {
-      hideChartTooltip();
-      return;
-    }
-
-    const rect = chart.getBoundingClientRect();
-    const localX = event.clientX - rect.left;
-    const localY = event.clientY - rect.top;
-    if (
-      localX < geometry.plotLeft ||
-      localX > geometry.plotRight ||
-      localY < geometry.plotTop ||
-      localY > geometry.plotBottom
-    ) {
-      hoverLine.setAttribute("visibility", "hidden");
-      hideChartTooltip();
-      return;
-    }
-
-    const ratio = (localX - geometry.plotLeft) / Math.max(1, geometry.plotRight - geometry.plotLeft);
-    const estimatedDaysAgo = geometry.maxDays - (ratio * (geometry.maxDays - 1));
-    const hoverRow = rows.find((row) => row.daysAgo === Math.round(estimatedDaysAgo)) || findNearestRowByDays(rows, estimatedDaysAgo);
-    if (!hoverRow) {
-      hoverLine.setAttribute("visibility", "hidden");
-      hideChartTooltip();
-      return;
-    }
-
-    const hoverX = geometry.xForDay(hoverRow.daysAgo);
-    hoverLine.setAttribute("x1", hoverX.toFixed(2));
-    hoverLine.setAttribute("x2", hoverX.toFixed(2));
-    hoverLine.setAttribute("y1", geometry.plotTop.toFixed(2));
-    hoverLine.setAttribute("y2", geometry.plotBottom.toFixed(2));
-    hoverLine.setAttribute("visibility", "visible");
-    showChartTooltip(chart, hoverRow, event);
+    chartHoverPointer = { clientX: event.clientX, clientY: event.clientY };
+    updateChartTooltipAtPointer(chart, event);
   });
 
   chart.addEventListener("mouseleave", () => {
+    chartHoverPointer = null;
     const hoverLine = chart.querySelector(".dca-hover-line");
     if (hoverLine) hoverLine.setAttribute("visibility", "hidden");
     hideChartTooltip();
@@ -4818,6 +4824,9 @@ function renderChart() {
     yForValue,
   };
   bindChartTooltip(chart);
+  if (chartHoverPointer && chart.matches(":hover") && !state.dateRange.isPlaying && !isDateRangeExporting) {
+    updateChartTooltipAtPointer(chart, chartHoverPointer);
+  }
   window.requestAnimationFrame(() => {
     syncCurrentPriceOverlay(chart, currentPrice, colors);
   });

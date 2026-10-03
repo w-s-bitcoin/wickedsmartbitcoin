@@ -150,6 +150,11 @@ contracts preserve chart state and avoid reloads or flashing during updates.
 Net Worth's personal records stay in browser storage or user exports. Do not
 commit personal records or export files as dashboard fixtures.
 
+UoA pair links accept `?pair=BTCEUR` on `/uoa` (or `/uoa.html` locally).
+The first three letters select the primary account and the last three select
+the secondary account. Both codes must be supported and distinct; the link
+opens that pair even when a different pair was saved in the browser.
+
 ## Production data jobs
 
 Production orchestration is documented in

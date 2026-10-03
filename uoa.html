@@ -142,8 +142,11 @@
         if (!iframe.getAttribute('src')) {
           var dashboardUrl = new URL('webapps/uoa/dashboard.html', window.location.href);
           dashboardUrl.searchParams.set('_', String(Date.now()));
-          var state = new URLSearchParams(window.location.search || '').get('state');
-          if (state) dashboardUrl.searchParams.set('state', state);
+          var params = new URLSearchParams(window.location.search || '');
+          ['state', 'pair', 'primary', 'secondary'].forEach(function (key) {
+            var value = params.get(key);
+            if (value) dashboardUrl.searchParams.set(key, value);
+          });
           iframe.setAttribute('src', dashboardUrl.pathname + dashboardUrl.search + dashboardUrl.hash);
         }
       })();
