@@ -11,7 +11,7 @@ const { project } = window.WSBUoaLiveQuotes;
 const at = Date.parse('2026-10-01T12:00:00Z');
 const publishedAt = '2026-09-30 17:06:42.153039 UTC';
 const rows = [{ date: new Date('2026-09-30T00:00:00Z'), price: 84000, blockHeight: 969322 }];
-const snapshot = { BTC: 84000, USD: 1, EUR: 1.12, JPY: 0.0064 };
+const snapshot = { BTC: 84000, USD: 1, EUR: 1.12, JPY: 0.0064, CUP: 1 / 770 };
 const quotes = {
   BTC: { usd: 85000, at: at - 1000, source: 'Coinbase live' },
   EUR: { usd: 1.13, at: at - 2000, source: 'TradingView FX' },
@@ -34,6 +34,16 @@ assert.equal(eurJpy.rows.at(-1).liveUsdValues.EUR / eurJpy.rows.at(-1).liveUsdVa
 const pending = project(rows, ['BTC', 'EUR'], { BTC: quotes.BTC }, snapshot, publishedAt, at);
 assert.equal(pending.rows.at(-1).liveUsdValues.EUR, 1.12,
   'selected currency keeps its snapshot while its live quote is pending');
+
+const btcCup = project(rows, ['BTC', 'CUP'], {
+  BTC: quotes.BTC,
+  CUP: { usd: 1 / 25, at: at - 1000, source: 'TradingView FX' },
+}, snapshot, publishedAt, at);
+assert.equal(btcCup.rows.at(-1).liveUsdValues.BTC, 85000,
+  'BTC remains live for the CUP pair');
+assert.equal(btcCup.rows.at(-1).liveUsdValues.CUP, 1 / 770,
+  'CUP keeps the published informal-market rate despite an indicative quote');
+assert.equal(btcCup.used.CUP, undefined, 'the indicative CUP quote is not shown as live');
 
 const old = project(rows, ['BTC', 'EUR'], {
   BTC: { ...quotes.BTC, at: Date.parse('2026-09-30T16:00:00Z') },
