@@ -111,13 +111,19 @@
     try {
       const url = new URL(DASHBOARD_URL, window.location.href);
       url.searchParams.set("_", String(Date.now()));
-      const state = new URLSearchParams(window.location.search || "").get("state");
-      if (state) url.searchParams.set("state", state);
+      const params = new URLSearchParams(window.location.search || "");
+      for (const key of ["state", "pair", "primary", "secondary"]) {
+        const value = params.get(key);
+        if (value) url.searchParams.set(key, value);
+      }
       return `${url.pathname}${url.search}${url.hash}`;
     } catch (_) {
-      const state = new URLSearchParams(window.location.search || "").get("state");
+      const params = new URLSearchParams(window.location.search || "");
       const query = new URLSearchParams({ _: String(Date.now()) });
-      if (state) query.set("state", state);
+      for (const key of ["state", "pair", "primary", "secondary"]) {
+        const value = params.get(key);
+        if (value) query.set(key, value);
+      }
       return `${DASHBOARD_URL}?${query}`;
     }
   }

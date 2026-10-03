@@ -315,6 +315,7 @@
     usdBtcChart: null,
     btcUsdChart: null,
   };
+  let chartHoverPointer = null;
   const chartHoverFlipBoundaryById = {
     usdBtcChart: null,
     btcUsdChart: null,
@@ -3016,6 +3017,41 @@
     return decodeShareState(params.get(SHARE_STATE_PARAM) || "");
   }
 
+  function getRequestedPairFromUrl() {
+    const params = new URLSearchParams(window.location.search || "");
+    const rawPair = params.get("pair");
+    const pair = String(rawPair || "").trim().toUpperCase();
+    if (rawPair !== null && !/^[A-Z]{6}$/.test(pair)) return null;
+    const primary = rawPair === null
+      ? String(params.get("primary") || "").trim().toUpperCase() : pair.slice(0, 3);
+    const secondary = rawPair === null
+      ? String(params.get("secondary") || "").trim().toUpperCase() : pair.slice(3);
+    const isSupported = (code) => code === "BTC" || Object.hasOwn(uoaPairs?.currencies || {}, code);
+    if (!/^[A-Z]{3}$/.test(primary) || !/^[A-Z]{3}$/.test(secondary)
+        || primary === secondary || !isSupported(primary) || !isSupported(secondary)) return null;
+    return { primary, secondary };
+  }
+
+  function getInitialFilterState() {
+    const shareState = getDashboardShareStateFromUrl();
+    const pair = getRequestedPairFromUrl();
+    if (!pair) return shareState || safeReadJson(UOA_FILTERS_KEY) || {};
+    const requestedGroup = normalizeUoaGroup(shareState?.uoaGroup);
+    const belongsToGroup = (code) => code === "BTC" || requestedGroup === DEFAULT_UOA_GROUP
+      || getCurrencyGroupIds(code).includes(requestedGroup);
+    return {
+      ...(shareState || {}),
+      uoaGroup: belongsToGroup(pair.primary) && belongsToGroup(pair.secondary)
+        ? requestedGroup : DEFAULT_UOA_GROUP,
+      primaryUoa: pair.primary,
+      secondaryUoa: pair.secondary,
+      showPeggedCurrencies: !!(shareState?.showPeggedCurrencies
+        || isCurrencyPegged(pair.primary) || isCurrencyPegged(pair.secondary)),
+      showMonetaryMetals: !!(shareState?.showMonetaryMetals !== false
+        || isMonetaryMetalCurrency(pair.primary) || isMonetaryMetalCurrency(pair.secondary)),
+    };
+  }
+
   function normalizeUoaGroup(value) {
     const id = String(value || DEFAULT_UOA_GROUP).trim().toLowerCase();
     const options = getUoaGroupOptions();
@@ -3032,20 +3068,17 @@
   }
 
   function getInitialUoaGroupSetting() {
-    const shareState = getDashboardShareStateFromUrl();
-    const stored = shareState || safeReadJson(UOA_FILTERS_KEY) || {};
+    const stored = getInitialFilterState();
     return normalizeUoaGroup(stored.uoaGroup);
   }
 
   function getInitialShowPeggedCurrenciesSetting() {
-    const shareState = getDashboardShareStateFromUrl();
-    const stored = shareState || safeReadJson(UOA_FILTERS_KEY) || {};
+    const stored = getInitialFilterState();
     return stored.showPeggedCurrencies === true;
   }
 
   function getInitialShowMonetaryMetalsSetting() {
-    const shareState = getDashboardShareStateFromUrl();
-    const stored = shareState || safeReadJson(UOA_FILTERS_KEY) || {};
+    const stored = getInitialFilterState();
     return stored.showMonetaryMetals === false ? false : DEFAULT_SHOW_MONETARY_METALS;
   }
 
@@ -3079,7 +3112,7 @@
 
   function loadStoredFilters(bounds) {
     const shareState = getDashboardShareStateFromUrl();
-    const stored = shareState || safeReadJson(UOA_FILTERS_KEY) || {};
+    const stored = getInitialFilterState();
 
     const uoaGroup = normalizeUoaGroup(stored.uoaGroup);
     selectedUoaGroup = uoaGroup;
@@ -3168,7 +3201,7 @@
 
   function loadStoredFilterShellState() {
     const shareState = getDashboardShareStateFromUrl();
-    const stored = shareState || safeReadJson(UOA_FILTERS_KEY) || {};
+    const stored = getInitialFilterState();
 
     const uoaGroup = normalizeUoaGroup(stored.uoaGroup);
     selectedUoaGroup = uoaGroup;
@@ -3486,6 +3519,9 @@
     });
 
     const shareUrl = new URL(getShareRouteBaseUrl());
+    shareUrl.searchParams.set("pair", `${payload.primaryUoa}${payload.secondaryUoa}`);
+    delete compactPayload.primaryUoa;
+    delete compactPayload.secondaryUoa;
     if (!Object.keys(compactPayload).length) return shareUrl.toString();
     const encoded = encodeShareState(compactPayload);
     if (encoded) shareUrl.searchParams.set(SHARE_STATE_PARAM, encoded);
@@ -5094,41 +5130,47 @@
     );
   }
 
+  function updateChartHoverAtPointer(canvas, event) {
+    if (chartRangeDragState) {
+      hideChartEventTooltip();
+      hideChartHoverOverlays();
+      return;
+    }
+    const markers = chartEventMarkersById[canvas.id] || [];
+    if (!markers.length) {
+      showSharedChartHoverTooltip(canvas, event);
+      return;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    const hit = markers.find((marker) => {
+      const dx = x - marker.x;
+      const dy = y - marker.y;
+      return (dx * dx) + (dy * dy) <= (marker.radius * marker.radius);
+    });
+
+    if (!hit) {
+      showSharedChartHoverTooltip(canvas, event);
+      return;
+    }
+
+    hideChartHoverOverlays();
+    showChartEventTooltip(hit.tooltip, event.clientX, event.clientY, rect);
+  }
+
   function bindChartEventHover(canvas) {
     if (!canvas || canvas.dataset.eventHoverBound === "1") return;
     canvas.dataset.eventHoverBound = "1";
 
     canvas.addEventListener("mousemove", (event) => {
-      if (chartRangeDragState) {
-        hideChartEventTooltip();
-        hideChartHoverOverlays();
-        return;
-      }
-      const markers = chartEventMarkersById[canvas.id] || [];
-      if (!markers.length) {
-        showSharedChartHoverTooltip(canvas, event);
-        return;
-      }
-
-      const rect = canvas.getBoundingClientRect();
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
-      const hit = markers.find((marker) => {
-        const dx = x - marker.x;
-        const dy = y - marker.y;
-        return (dx * dx) + (dy * dy) <= (marker.radius * marker.radius);
-      });
-
-      if (!hit) {
-        showSharedChartHoverTooltip(canvas, event);
-        return;
-      }
-
-      hideChartHoverOverlays();
-      showChartEventTooltip(hit.tooltip, event.clientX, event.clientY, rect);
+      chartHoverPointer = { canvasId: canvas.id, clientX: event.clientX, clientY: event.clientY };
+      updateChartHoverAtPointer(canvas, event);
     });
 
     canvas.addEventListener("mouseleave", () => {
+      if (chartHoverPointer?.canvasId === canvas.id) chartHoverPointer = null;
       hideChartEventTooltip();
       hideChartHoverOverlays();
     });
@@ -7494,6 +7536,7 @@
   }
 
   function renderAll() {
+    hideChartEventTooltip();
     hideChartHoverOverlays();
     applyCurrencyOrdering();
 
@@ -8337,6 +8380,10 @@
         ] : [],
       }
     );
+    if (chartHoverPointer && !isDateRangeExporting && !isRenderingDateRangeExportFrame) {
+      const hoverCanvas = document.getElementById(chartHoverPointer.canvasId);
+      if (hoverCanvas?.matches(":hover")) updateChartHoverAtPointer(hoverCanvas, chartHoverPointer);
+    }
   }
 
   function getPlaybackDateSnapshot() {
