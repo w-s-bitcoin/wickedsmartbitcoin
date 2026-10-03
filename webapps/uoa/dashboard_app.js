@@ -6681,7 +6681,9 @@
       const delayed = quote?.live && /delayed/i.test(quote.delay || "");
       const kind = code === "USD" ? "reference" : !quote ? "published"
         : !quote.live ? "stale" : delayed ? "delayed" : "live";
-      const label = kind === "reference" ? `${code}: fixed USD reference; no live quote needed`
+      const label = code === "CUP" && kind === "published"
+        ? "CUP: published informal-market rate; indicative FX quotes use a different market"
+        : kind === "reference" ? `${code}: fixed USD reference; no live quote needed`
         : kind === "published" ? `${code}: published snapshot; live quote pending or unavailable`
         : kind === "stale" ? `${code}: last ${quote.source} quote retained; no fresh update in 60 seconds`
         : kind === "delayed" ? `${code}: ${quote.delay} quote from ${quote.source}`
@@ -8011,6 +8013,9 @@
           };
 
           const leftAdjustedDomain = computePaddedLogDomain(leftSeries);
+          const rightAdjustedMax = rightSeries.reduce((max, point) => (
+            Number.isFinite(point?.value) && point.value > max ? point.value : max
+          ), 0);
 
           redenomEvents.forEach((event, eventIndex) => {
             const eventDate = parseIsoDateUtc(event.date);
@@ -8178,6 +8183,9 @@
           if (rightOverlapRanges.length) {
             const totalRedenomFactor = getTotalRedenomFactor();
             rightOverlapLabelFn = (tickValue, baseLabel) => {
+              // A padded top tick above the visible series has no historical raw value.
+              if (rightAdjustedMax > 0 && tickValue > rightAdjustedMax) return baseLabel;
+
               for (const range of rightOverlapRanges) {
                 const preVisibleInWindow = !!range.preVisibleInWindow;
                 const postVisibleInWindow = !!range.postVisibleInWindow;

@@ -6,6 +6,8 @@
   const FRESH_MS = 60000;
   const TIMEOUT_MS = 12000;
   const METALS = new Set(["XAU", "XAG", "XPT", "XPD"]);
+  // CUP history uses the informal-market rate; indicative FX quotes use a different market.
+  const SNAPSHOT_ONLY = new Set(["CUP"]);
   const dayOf = (instant) => new Date(instant).toISOString().slice(0, 10);
 
   function publishedInstant(value) {
@@ -26,7 +28,7 @@
     for (const code of new Set(selected)) {
       const snapshot = code === "USD" ? 1 : Number(snapshotUsd?.[code]);
       const quote = quotes?.[code];
-      const accepted = quote && Number(quote.usd) > 0 && Number.isFinite(quote.at)
+      const accepted = !SNAPSHOT_ONLY.has(code) && quote && Number(quote.usd) > 0 && Number.isFinite(quote.at)
         && quote.at > cutoff && quote.at <= now && dayOf(quote.at) >= latestDay;
       const usd = accepted ? Number(quote.usd) : snapshot;
       if (Number.isFinite(usd) && usd > 0) values[code] = usd;
@@ -179,7 +181,7 @@
     }
 
     function setSelection(codes) {
-      const next = [...new Set(codes.filter((code) => code && code !== "USD"))];
+      const next = [...new Set(codes.filter((code) => code && code !== "USD" && !SNAPSHOT_ONLY.has(code)))];
       if (next.join("|") === selected.join("|")) return;
       selected = next;
       pollVersion += 1;

@@ -210,16 +210,19 @@ def main():
               secondary.dispatchEvent(new Event('change', { bubbles: true }));
               return '';
             })()""")
-            wait_for(lambda: cdp.evaluate("window.__uoaQuoteFixture.calls.flat().some((ticker) => ticker === 'FX_IDC:CUPUSD')"),
-                     description="unavailable selected currency request")
             assert_browser(cdp, """(() => {
               const title = document.querySelector('#pairKpiChip').title;
               if (!title.includes('published snapshot: CUP'))
-                return 'unavailable currency lost its published fallback';
+                return 'CUP lost its published informal-market rate';
               if (!document.querySelector('#btcUsdBig').textContent.trim())
-                return 'unavailable live quote blanked the comparison';
+                return 'published CUP rate blanked the comparison';
               if (document.querySelector('.pair-secondary .pair-status')?.dataset.kind !== 'published')
-                return 'unavailable CUP quote should keep a gray snapshot dot';
+                return 'CUP should keep a gray snapshot dot';
+              if (!document.querySelector('.pair-secondary .pair-status')?.title.includes('informal-market'))
+                return 'CUP status did not explain its source';
+              if (window.__uoaQuoteFixture.calls.flat().some((ticker) => ticker === 'FX_IDC:CUPUSD'
+                  || ticker === 'FX_IDC:USDCUP'))
+                return 'the incompatible indicative CUP quote was requested';
               window.__uoaQuoteFixture.hold = true;
               const secondary = document.querySelector('#secondaryUoaSelect');
               secondary.value = 'EUR';
