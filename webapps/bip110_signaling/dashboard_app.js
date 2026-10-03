@@ -40,7 +40,8 @@
     const DEFAULT_COLLAPSE_SPLIT_LEGACY = true;
     const COLLAPSE_SPLIT_DEFAULT_VERSION = 1;
     const DASHBOARD_TIME = window.WSBDashboardTime || null;
-    const SHARE_STATE_PARAM = "bip110_state";
+    const SHARE_STATE_PARAM = "state";
+    const LEGACY_SHARE_STATE_PARAM = "bip110_state";
     const LOCAL_RUNTIME_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
     const IS_LOCAL_RUNTIME = LOCAL_RUNTIME_HOSTS.has(window.location.hostname);
     const STATIC_FETCH_OPTIONS = { cache: "force-cache" };
@@ -239,6 +240,7 @@
       suppressResetSnapshotClear: false,
       phasedLoadToken: 0,
       interactiveInitialized: false,
+      pendingShareOverlay: null,
       interactiveHandlersBound: false,
       refreshAdapterRegistered: false,
       pendingRefreshRender: null,
@@ -2470,6 +2472,7 @@
     }
 
     function restoreBip110OverlaySelections() {
+      if (getDashboardShareStateFromUrl()) return false;
       try {
         const raw = localStorage.getItem(BIP110_OVERLAY_SELECTIONS_STORAGE_KEY);
         if (!raw) return false;
@@ -2517,6 +2520,7 @@
     }
 
     function restorePersistedControls() {
+      if (getDashboardShareStateFromUrl()) return false;
       try {
         const raw = localStorage.getItem(CONTROLS_STORAGE_KEY);
         if (!raw) return false;
@@ -2601,38 +2605,9 @@
       }
     }
 
-    function encodeShareState(payload) {
-      try {
-        const json = JSON.stringify(payload);
-        const bytes = new TextEncoder().encode(json);
-        let binary = "";
-        bytes.forEach((byte) => {
-          binary += String.fromCharCode(byte);
-        });
-        return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-      } catch (_) {
-        return "";
-      }
-    }
-
-    function decodeShareState(rawValue) {
-      if (!rawValue) return null;
-      try {
-        const normalized = rawValue.replace(/-/g, "+").replace(/_/g, "/");
-        const paddingLength = (4 - (normalized.length % 4)) % 4;
-        const padded = normalized + "=".repeat(paddingLength);
-        const binary = atob(padded);
-        const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-        const json = new TextDecoder().decode(bytes);
-        const parsed = JSON.parse(json);
-        return parsed && typeof parsed === "object" ? parsed : null;
-      } catch (_) {
-        return null;
-      }
-    }
-
     function isBip110SharePayload(decoded) {
       if (!decoded || typeof decoded !== "object") return false;
+      if (!Object.keys(decoded).length) return true;
       const controls = decoded.controls;
       if (controls && typeof controls === "object") {
         const controlKeys = ["stripes", "stripesExplicit", "blockSymbol", "markers", "labels", "showSegwit", "showBip110", "showLegacyNode", "showBip110Node", "panelsSwapped", "showMainChainView", "collapseSplitLegacy"];
@@ -2657,45 +2632,7 @@
       return typeof decoded.timeZone === "string";
     }
 
-    function getShareRouteBaseUrl() {
-      const path = String(window.location.pathname || "");
-      const dashboardMatch = path.match(/^(.*)\/webapps\/bip110_signaling\/dashboard\.html$/i);
-      const basePath = dashboardMatch ? (dashboardMatch[1] || "") : path.replace(/\/[^/]*$/, "");
-      if (IS_LOCAL_RUNTIME) {
-        return `${window.location.origin}${basePath}/bip110_signaling.html`;
-      }
-      return `${window.location.origin}${basePath}/bip110_signaling`;
-    }
-
     function buildShareableDashboardUrl() {
-      const defaults = {
-        controls: {
-          stripes: window.innerWidth >= 760,
-          stripesExplicit: false,
-          blockSymbol: "square",
-          markers: true,
-          labels: true,
-          showSegwit: false,
-          showBip110: true,
-          showLegacyNode: true,
-          showBip110Node: false,
-          panelsSwapped: false,
-          showMainChainView: true,
-          collapseSplitLegacy: DEFAULT_COLLAPSE_SPLIT_LEGACY,
-        },
-        manualPanelHeights: {
-          segwit: null,
-          bip110: null,
-          bip110Node: null,
-        },
-        filledPanels: {
-          segwit: true,
-          bip110: true,
-          bip110Node: true,
-        },
-        timeZone: "UTC",
-      };
-
       const payload = {
         controls: {
           stripes: Boolean(state.controls.stripes),
@@ -2724,46 +2661,57 @@
         timeZone: String(state.timeZone || "UTC"),
       };
 
-      const shareUrl = new URL(getShareRouteBaseUrl());
-      const compactPayload = {
-        controls: {},
-        manualPanelHeights: {},
-        filledPanels: {},
+      payload.overlaySelections = {
+        periodGridDataset: getPeriodGridDataset(),
+        periodGridSelectedPeriod: state.periodGridSelectedPeriod,
+        periodGridNodeView: normalizeBip110NodeView(state.periodGridNodeView),
+        leaderboardWindow: normalizeBip110OverlayWindow(state.leaderboardWindow),
+        minerTimelineWindow: normalizeBip110OverlayWindow(state.minerTimelineWindow),
+        minerTimelineNodeView: normalizeBip110NodeView(state.minerTimelineNodeView),
+        minerTimelineMiners: normalizeBip110TimelineMinerFilter(state.minerTimelineMiners),
+        minerTimelineOrder: normalizeMinerTimelineOrder(state.minerTimelineOrder),
+        minerTimelineSignalersFirst: state.minerTimelineSignalersFirst !== false,
+        minerTimelineShowChainView: state.minerTimelineShowChainView !== false,
+        chainSplitHashrateAverageDays: normalizeHashrateAverageDays(state.chainSplitHashrateAverageDays),
+        mainHashrateAverageDays: normalizeHashrateAverageDays(state.mainHashrateAverageDays),
       };
-
-      Object.entries(payload.controls).forEach(([key, value]) => {
-        if (value !== defaults.controls[key]) compactPayload.controls[key] = value;
+      payload.openOverlay = isPeriodGridOverlayOpen() ? "periodGrid"
+        : isMinerTimelineOverlayOpen() ? "minerTimeline"
+          : isChainSplitOverlayOpen() ? "chainSplit"
+            : leaderboardOverlay?.classList.contains("show") ? "leaderboard" : null;
+      const params = new URLSearchParams(window.location.search || "");
+      return window.WSBDashboardComponents.buildShareUrl({
+        slug: "bip110_signaling",
+        state: payload,
+        params: params.has("chainSplitDemo") ? { chainSplitDemo: params.get("chainSplitDemo") } : {},
       });
-      Object.entries(payload.manualPanelHeights).forEach(([key, value]) => {
-        if (value !== defaults.manualPanelHeights[key]) compactPayload.manualPanelHeights[key] = value;
-      });
-      Object.entries(payload.filledPanels).forEach(([key, value]) => {
-        if (value !== defaults.filledPanels[key]) compactPayload.filledPanels[key] = value;
-      });
-      if (payload.timeZone !== defaults.timeZone) {
-        compactPayload.timeZone = payload.timeZone;
-      }
+    }
 
-      if (!Object.keys(compactPayload.controls).length) delete compactPayload.controls;
-      if (!Object.keys(compactPayload.manualPanelHeights).length) delete compactPayload.manualPanelHeights;
-      if (!Object.keys(compactPayload.filledPanels).length) delete compactPayload.filledPanels;
-
-      if (!Object.keys(compactPayload).length) {
-        return shareUrl.toString();
-      }
-
-      const encoded = encodeShareState(compactPayload);
-      if (encoded) {
-        shareUrl.searchParams.set(SHARE_STATE_PARAM, encoded);
-      }
-      return shareUrl.toString();
+    function getDashboardShareStateFromUrl() {
+      const decoded = window.WSBDashboardComponents.readShareState({ aliases: [LEGACY_SHARE_STATE_PARAM] });
+      return isBip110SharePayload(decoded) ? decoded : null;
     }
 
     function applyDashboardShareStateFromUrl() {
-      const params = new URLSearchParams(window.location.search || "");
-      const decodedPrimary = decodeShareState(params.get(SHARE_STATE_PARAM) || "");
-      const decoded = isBip110SharePayload(decodedPrimary) ? decodedPrimary : null;
+      const decoded = getDashboardShareStateFromUrl();
       if (!decoded) return;
+      const selections = decoded.overlaySelections || {};
+      state.periodGridDataset = selections.periodGridDataset === "segwit" ? "segwit" : "bip110";
+      state.periodGridSelectedPeriod = Number.isInteger(selections.periodGridSelectedPeriod) && selections.periodGridSelectedPeriod > 0
+        ? selections.periodGridSelectedPeriod : null;
+      state.periodGridNodeView = normalizeBip110NodeView(selections.periodGridNodeView);
+      state.leaderboardWindow = normalizeBip110OverlayWindow(selections.leaderboardWindow);
+      state.minerTimelineWindow = normalizeBip110OverlayWindow(selections.minerTimelineWindow ?? "past14d");
+      state.minerTimelineNodeView = normalizeBip110NodeView(selections.minerTimelineNodeView);
+      state.minerTimelineMiners = normalizeBip110TimelineMinerFilter(selections.minerTimelineMiners);
+      state.minerTimelineOrder = normalizeMinerTimelineOrder(selections.minerTimelineOrder ?? "recent");
+      state.minerTimelineSignalersFirst = selections.minerTimelineSignalersFirst !== false;
+      state.minerTimelineShowChainView = selections.minerTimelineShowChainView !== false;
+      state.chainSplitHashrateAverageDays = normalizeHashrateAverageDays(selections.chainSplitHashrateAverageDays);
+      state.mainHashrateAverageDays = normalizeHashrateAverageDays(selections.mainHashrateAverageDays);
+      state.pendingShareOverlay = ["periodGrid", "minerTimeline", "chainSplit", "leaderboard"].includes(decoded.openOverlay)
+        ? decoded.openOverlay : null;
+      syncBip110OverlaySelectionControls();
 
       const controls = decoded.controls && typeof decoded.controls === "object" ? decoded.controls : null;
       if (controls) {
@@ -2978,8 +2926,9 @@
         }
         try {
           const params = new URLSearchParams(window.location.search || "");
-          if (params.has(SHARE_STATE_PARAM)) {
+          if (params.has(SHARE_STATE_PARAM) || params.has(LEGACY_SHARE_STATE_PARAM)) {
             params.delete(SHARE_STATE_PARAM);
+            params.delete(LEGACY_SHARE_STATE_PARAM);
             const nextQuery = params.toString();
             const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}${window.location.hash || ""}`;
             window.history.replaceState(null, "", nextUrl);
@@ -10595,6 +10544,12 @@
         if (loadToken !== state.phasedLoadToken) return;
 
         await loadAndApplyBlockDataPhased(loadToken, state.data.metadata, ["segwit", "bip110", "bip110Node"]);
+        const sharedOverlay = state.pendingShareOverlay;
+        state.pendingShareOverlay = null;
+        if (sharedOverlay === "periodGrid") openPeriodGridOverlay(state.periodGridSelectedPeriod, state.periodGridDataset, state.periodGridNodeView);
+        else if (sharedOverlay === "minerTimeline") await openMinerTimelineOverlay();
+        else if (sharedOverlay === "chainSplit") await openChainSplitOverlay();
+        else if (sharedOverlay === "leaderboard") await openLeaderboardOverlay();
         if (isMainChainPanelVisible()) {
           scheduleMinerAttributionRefreshAfterInitialPaint();
         }

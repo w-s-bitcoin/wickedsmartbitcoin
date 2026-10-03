@@ -350,7 +350,7 @@
     document.body.style.overflow = "hidden";
     if (modalEmbedWrap) modalEmbedWrap.hidden = false;
     if (modalEmbed && !modalEmbed.getAttribute("src")) {
-      modalEmbed.setAttribute("src", `${DASHBOARD_URL}?_=${Date.now()}`);
+      modalEmbed.setAttribute("src", window.WSBDashboardShare.buildDashboardSrc(DASHBOARD_URL));
     }
     if (modalImg) {
       modalImg.style.opacity = "0";

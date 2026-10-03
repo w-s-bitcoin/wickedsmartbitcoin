@@ -7,6 +7,7 @@ Use this contract for every new chart dashboard under `webapps/<slug>/`.
 Every standard dashboard page must load these shared files before the dashboard app script:
 
 - `../shared/dashboard_embed_modal.js`
+- `../shared/dashboard_share.js`
 - `dashboard_manifest.js`
 - `../shared/dashboard_components.js`
 - `../shared/dashboard_charting.js`
@@ -54,6 +55,8 @@ Use `window.WSBDashboardComponents.createDatePicker()` or `bindDateRangePickers(
 
 Copy/reset controls should use:
 
+- `window.WSBDashboardComponents.buildShareUrl({ slug, state })`
+- `window.WSBDashboardComponents.readShareState()`
 - `window.WSBDashboardComponents.copyDashboardLink()`
 - `window.WSBDashboardComponents.setResetButtonState()`
 - `window.WSBDashboardComponents.bindDashboardActions()`
@@ -108,6 +111,9 @@ New dashboards should match existing UOA/DCA behavior:
 - footer URL drawing through `window.WSBDashboardExport.drawFooterUrl()`
 - no MP4 export paths; deterministic WebM is the standard video export
 - copy/restore controls use shared visual classes and state classes
+- copy links include every data/view control, including defaults, explicit dates,
+  and the current playback frame; URL state overrides recipient storage
+- standalone shells forward state through `WSBDashboardShare.buildDashboardSrc()`
 
 ## Validation
 

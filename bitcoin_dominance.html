@@ -43,6 +43,7 @@
         display: none;
       }
     </style>
+    <script src="webapps/shared/dashboard_share.js"></script>
   </head>
   <body data-standalone-modal-shell="1">
     <div class="buy-coffee">
@@ -133,15 +134,8 @@
     <script>
       (function primeStandaloneDashboard() {
         var iframe = document.getElementById('modal-embed');
-        if (!iframe) return;
-        if (!iframe.getAttribute('src')) {
-          // Preserve query parameters when loading dashboard in iframe
-          var params = new URLSearchParams(window.location.search);
-          var dashboardUrl = 'webapps/bitcoin_dominance/dashboard.html';
-          if (params.has('preview')) {
-            dashboardUrl += '?preview=' + encodeURIComponent(params.get('preview'));
-          }
-          iframe.setAttribute('src', dashboardUrl);
+        if (iframe && !iframe.getAttribute('src')) {
+          iframe.setAttribute('src', window.WSBDashboardShare.buildDashboardSrc('webapps/bitcoin_dominance/dashboard.html'));
         }
       })();
 

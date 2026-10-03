@@ -439,6 +439,10 @@
     stroke-linecap: round;
     stroke-linejoin: round;
   }
+  #copyDashboardLink.copy-link-btn--copied {
+    color: var(--active-orange);
+    background: rgba(255,153,0,.12);
+  }
   .panel-toggle-btn .panel-icon-fill {
     fill: currentColor;
     stroke: none;

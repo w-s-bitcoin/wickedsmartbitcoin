@@ -377,10 +377,7 @@ function getPageBasePath(){
 }
 
 function isStandaloneModalShell() {
-    const markedStandalone = document.body?.dataset?.standaloneModalShell === '1';
-    if (!markedStandalone) return false;
-    const path = String(window.location.pathname || '').toLowerCase();
-    return /(?:^|\/)view\.html$/.test(path);
+    return document.body?.dataset?.standaloneModalShell === '1';
 }
 
 function getVisualizationSlug(filename) {
@@ -448,7 +445,9 @@ function redirectStandaloneHashToLocalPageIfNeeded() {
     if (!localStandalone) return false;
 
     const base = getPageBasePath();
-    const nextUrl = `${base}/${localStandalone}${window.location.search || ''}`.replace(/\/{2,}/g, '/');
+    const params = window.WSBDashboardShare.getShellParams();
+    const search = params.toString();
+    const nextUrl = `${base}/${localStandalone}${search ? `?${search}` : ''}`.replace(/\/{2,}/g, '/');
     window.location.replace(nextUrl);
     return true;
 }
@@ -507,49 +506,21 @@ function imgSrc(filename){
     return `${base}/assets/${filename}`;
 }
 
-function modalEmbedSrc(pathOrUrl){
+function modalEmbedSrc(pathOrUrl, params = window.WSBDashboardShare.getShellParams()){
     const raw = String(pathOrUrl || '').trim();
     if (!raw) return '';
     if (/^https?:\/\//i.test(raw)) return raw;
     const base = getPageBasePath();
         const resolved = raw.startsWith('/') ? `${base}${raw}` : `${base}/${raw.replace(/^\/+/, '')}`;
 
-        // Preserve shell query params when embedding dashboard routes from shell URLs.
-        // Supports both `?state=...#slug` and `#slug?state=...` forms.
-        const shellParams = new URLSearchParams(window.location.search || '');
-        const shouldForwardShellParam = (key) => String(key || '').trim() !== 'state';
-        const hash = String(window.location.hash || '').replace(/^#/, '');
-        const hashQueryIndex = hash.indexOf('?');
-        if (hashQueryIndex >= 0) {
-            const hashSearch = hash.slice(hashQueryIndex + 1);
-            const hashParams = new URLSearchParams(hashSearch);
-            hashParams.forEach((value, key) => {
-                if (!shouldForwardShellParam(key)) return;
-                if (!shellParams.has(key)) {
-                    shellParams.set(key, value);
-                }
-            });
-        }
-        shellParams.delete('state');
-
         try {
                 const url = new URL(resolved, window.location.origin);
-                const isDashboardPath = /\/webapps\/[^/]+\/dashboard\.html$/i.test(url.pathname);
-                if (!isDashboardPath) return resolved;
-
-                // A dashboard is an iframe document; its parent may be fresh while
-                // the browser still considers an older dashboard.html cache entry fresh.
-                // Keep one URL per page load so reopening a modal preserves its frame.
+                if (!/\/webapps\/[^/]+\/dashboard\.html$/i.test(url.pathname)) return resolved;
                 window.__wsbDashboardHtmlNonce ||= String(Date.now());
-                url.searchParams.set('_', window.__wsbDashboardHtmlNonce);
-
-                shellParams.forEach((value, key) => {
-                    if (!shouldForwardShellParam(key)) return;
-                        if (!url.searchParams.has(key)) {
-                                url.searchParams.set(key, value);
-                        }
+                return window.WSBDashboardShare.buildDashboardSrc(url.toString(), {
+                    params,
+                    nonce: window.__wsbDashboardHtmlNonce,
                 });
-                return `${url.pathname}${url.search}${url.hash}`;
         } catch (_error) {
                 return resolved;
         }

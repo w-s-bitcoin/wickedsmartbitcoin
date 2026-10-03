@@ -1803,27 +1803,31 @@
     setCustomTooltip(btn, preResetStateSnapshot ? "Undo the last restore defaults action" : "Reset dashboard to defaults");
   }
 
+  function captureShareState() {
+    const latestDate = state.rows[state.rows.length - 1]?.date || "";
+    const endTracksLatest = isLatestRowIndex(state.endIndex);
+    return {
+      start: state.rows[state.startIndex]?.date,
+      end: state.rows[state.endIndex]?.date,
+      current: state.rows[state.currentIndex]?.date,
+      latestDate,
+      endTracksLatest,
+      currentTracksLatest: state.currentIndex === state.endIndex && endTracksLatest,
+      speed: state.playbackSpeed,
+      playbackState: state.isPlaying || state.isPaused ? "paused" : "stopped",
+      preset: state.selectedPreset,
+      viewMode: state.viewMode,
+      scaleMode: state.scaleMode,
+      showPerfectIssuanceMarkers: state.showPerfectIssuanceMarkers,
+      showTargetIssuanceRate: state.showTargetIssuanceRate,
+      dailyCalculationsUseSelectedTimeZone: state.dailyCalculationsUseSelectedTimeZone,
+      timeZone: state.timeZone || "UTC",
+    };
+  }
+
   function persistState() {
     try {
-      const latestDate = state.rows[state.rows.length - 1]?.date || "";
-      const endTracksLatest = isLatestRowIndex(state.endIndex);
-      const currentTracksLatest = state.currentIndex === state.endIndex && endTracksLatest;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        start: state.rows[state.startIndex]?.date,
-        end: state.rows[state.endIndex]?.date,
-        current: state.rows[state.currentIndex]?.date,
-        latestDate,
-        endTracksLatest,
-        currentTracksLatest,
-        speed: state.playbackSpeed,
-        playbackState: state.isPlaying ? "playing" : (state.isPaused ? "paused" : "stopped"),
-        preset: state.selectedPreset,
-        viewMode: state.viewMode,
-        scaleMode: state.scaleMode,
-        showPerfectIssuanceMarkers: state.showPerfectIssuanceMarkers,
-        showTargetIssuanceRate: state.showTargetIssuanceRate,
-        dailyCalculationsUseSelectedTimeZone: state.dailyCalculationsUseSelectedTimeZone,
-      }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(captureShareState()));
     } catch (_) {
       // Ignore storage failures.
     }
@@ -1831,7 +1835,11 @@
 
   function restoreState() {
     try {
-      const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+      const shareState = DASHBOARD_COMPONENTS.readShareState();
+      const parsed = shareState || JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+      if (shareState && typeof parsed.timeZone === "string") {
+        state.timeZone = DASHBOARD_TIME?.setPreferredTimeZone?.(parsed.timeZone) || parsed.timeZone;
+      }
       const indexForDate = (date, fallback) => {
         const idx = state.rows.findIndex((row) => row.date === date);
         return idx >= 0 ? idx : fallback;
@@ -1853,8 +1861,8 @@
         && Number.isFinite(latestDateNum)
         && latestDateNum >= parsedEndDateNum
         && latestDateNum - parsedEndDateNum <= 7 * MS_PER_DAY;
-      const endTracksLatest = parsed.endTracksLatest === true || storedPresetTracksLatest || legacyRecentEndTracksLatest;
-      const currentTracksLatest = parsed.currentTracksLatest === true || (endTracksLatest && parsed.current === parsed.end);
+      const endTracksLatest = !shareState && (parsed.endTracksLatest === true || storedPresetTracksLatest || legacyRecentEndTracksLatest);
+      const currentTracksLatest = !shareState && (parsed.currentTracksLatest === true || (endTracksLatest && parsed.current === parsed.end));
       const normalized = normalizeRangeIndices(
         hasStoredRange ? indexForDate(parsed.start, defaultStart) : defaultStart,
         endTracksLatest ? defaultEnd : indexForDate(parsed.end, defaultEnd),
@@ -3170,7 +3178,7 @@
       try {
         await window.WSBDashboardComponents.copyDashboardLink({
           button: els.copyDashboardLink,
-          url: window.location.href,
+          getUrl: () => DASHBOARD_COMPONENTS.buildShareUrl({ slug: "issuance_rate", state: captureShareState() }),
           copiedIcon: ICONS.copyCopied,
           defaultIcon: ICONS.copyLink,
           setIcon: (icon) => setButtonIcon("copyDashboardIcon", icon),

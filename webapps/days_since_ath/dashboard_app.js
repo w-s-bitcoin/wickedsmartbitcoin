@@ -437,7 +437,8 @@
 
   function readState() {
     try {
-      const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+      const shareState = DASHBOARD_COMPONENTS.readShareState();
+      const parsed = shareState || JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
       Object.assign(state, {
         startIso: typeof parsed.startIso === "string" ? parsed.startIso : state.startIso,
         endIso: typeof parsed.endIso === "string" ? parsed.endIso : state.endIso,
@@ -451,24 +452,66 @@
         showAthMarkers: typeof parsed.showAthMarkers === "boolean" ? parsed.showAthMarkers : state.showAthMarkers,
         showHalvings: typeof parsed.showHalvings === "boolean" ? parsed.showHalvings : state.showHalvings,
       });
-    } catch (_) {}
+      if (shareState && typeof parsed.timeZone === "string") {
+        state.timeZone = DASHBOARD_TIME?.setPreferredTimeZone?.(parsed.timeZone) || parsed.timeZone;
+      }
+      return parsed;
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function captureShareState() {
+    const session = dateRangePlaybackState;
+    return {
+      startIso: state.startIso,
+      endIso: state.endIso,
+      currentIso: state.currentIso,
+      preset: state.preset,
+      speed: state.speed,
+      chartMode: state.chartMode,
+      priceScaleMode: state.priceScaleMode,
+      daysScaleMode: state.daysScaleMode,
+      showAthLabels: state.showAthLabels,
+      showAthMarkers: state.showAthMarkers,
+      showHalvings: state.showHalvings,
+      timeZone: state.timeZone || "UTC",
+      pausedPlaybackSession: session.hasSession ? {
+        startIso: state.rows[session.startIndex]?.date,
+        targetEndIso: state.rows[session.targetEndIndex]?.date,
+        currentEndIso: state.endIso,
+      } : null,
+    };
+  }
+
+  function restorePausedPlaybackSession(saved) {
+    const session = saved?.pausedPlaybackSession;
+    if (!session || typeof session.startIso !== "string"
+      || typeof session.targetEndIso !== "string" || typeof session.currentEndIso !== "string") return false;
+    const startIndex = findIndex(clampIso(session.startIso), "ceil");
+    const targetEndIndex = Math.max(startIndex, findIndex(clampIso(session.targetEndIso), "floor"));
+    const currentEndIndex = Math.max(startIndex, Math.min(targetEndIndex, findIndex(clampIso(session.currentEndIso), "floor")));
+    dateRangePlaybackState = {
+      hasSession: true,
+      startIndex,
+      targetEndIndex,
+      currentEndIndex,
+      originalStartIndex: startIndex,
+      originalEndIndex: targetEndIndex,
+      lastTimestampMs: 0,
+      accumulatedMs: 0,
+    };
+    state.startIso = state.rows[startIndex].date;
+    state.endIso = state.rows[currentEndIndex].date;
+    state.currentIso = state.endIso;
+    state.playing = false;
+    updatePlaybackActiveFlag();
+    return true;
   }
 
   function saveState() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        startIso: state.startIso,
-        endIso: state.endIso,
-        currentIso: state.currentIso,
-        preset: state.preset,
-        speed: state.speed,
-        chartMode: state.chartMode,
-        priceScaleMode: state.priceScaleMode,
-        daysScaleMode: state.daysScaleMode,
-        showAthLabels: state.showAthLabels,
-        showAthMarkers: state.showAthMarkers,
-        showHalvings: state.showHalvings,
-      }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(captureShareState()));
     } catch (_) {}
   }
 
@@ -2428,7 +2471,7 @@
     window.WSBDashboardComponents.bindDashboardActions({
       copyButton: el.copyLink,
       resetButton: el.reset,
-      getShareUrl: () => window.location.href,
+      getShareUrl: () => DASHBOARD_COMPONENTS.buildShareUrl({ slug: "days_since_ath", state: captureShareState() }),
       copyDefaultIcon: ICONS.copyLink,
       copyCopiedIcon: ICONS.copyCopied,
       setCopyIcon: (icon) => setButtonIcon("copyDashboardIcon", icon),
@@ -2729,9 +2772,11 @@
       queueDaysRefreshPresentation();
       return;
     }
-    readState();
+    const saved = readState();
     loadDownloadSettings();
-    if (state.preset && state.preset !== "custom") {
+    const restoredPlayback = restorePausedPlaybackSession(saved);
+    const hasSharedRange = DASHBOARD_COMPONENTS.readShareState() && saved.startIso && saved.endIso;
+    if (!restoredPlayback && !hasSharedRange && state.preset && state.preset !== "custom") {
       state.endIso = state.rows[state.rows.length - 1].date;
       state.startIso = getPresetStart(state.preset, state.endIso);
       state.currentIso = state.endIso;

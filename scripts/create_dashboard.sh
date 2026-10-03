@@ -41,6 +41,7 @@ cat > "$dashboard_dir/dashboard.html" <<HTML
   <title>$title</title>
   <script src="../shared/dashboard_embed_modal.js"></script>
   <script src="dashboard_manifest.js"></script>
+  <script src="../shared/dashboard_share.js"></script>
   <script src="../shared/dashboard_components.js"></script>
   <script src="../shared/dashboard_charting.js"></script>
   <script src="../shared/dashboard_export.js"></script>
@@ -203,7 +204,8 @@ cat > "$dashboard_dir/dashboard_app.js" <<JS
     manifest,
     copyButton,
     resetButton,
-    getShareUrl: () => manifest.url || window.location.href,
+    // Replace the empty state with all controls that affect the presented data.
+    getShareUrl: () => window.WSBDashboardComponents.buildShareUrl({ slug: "$slug", state: {} }),
     copyDefaultIcon: ICONS.copyLink,
     copyCopiedIcon: ICONS.copyCopied,
     resetDefaultIcon: ICONS.resetDefaults,

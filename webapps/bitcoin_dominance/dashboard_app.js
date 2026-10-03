@@ -37,9 +37,6 @@
     const STACKED_HISTORY_DEFAULT_RATIO = 0.56;
     const PLOTLY_LIVE_BG = 'rgba(0,0,0,0)';
     const STABLE_USD_GREEN = '#35b56a';
-    const SHARE_STATE_PARAM = 'state';
-    const LOCAL_RUNTIME_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
-    const IS_LOCAL_RUNTIME = LOCAL_RUNTIME_HOSTS.has(window.location.hostname);
     const ICONS = {
       copyLink: '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>',
       copyCopied: '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>',
@@ -504,6 +501,7 @@
       historyPanelManualHeight: 0,
       snapshotPanelManualHeight: 0,
       historyUserXAxisRange: null,
+      sharedHistoryViewport: null,
       refreshedAtText: '',
       updateBlockHeightText: '',
       timeZone: DASHBOARD_TIME?.getPreferredTimeZone?.() || 'UTC',
@@ -685,6 +683,7 @@
     }
 
     function loadLayoutFromStorage() {
+      if (window.WSBDashboardComponents.readShareState()) return;
       try {
         const raw = localStorage.getItem(LAYOUT_STORAGE_KEY);
         if (!raw) return;
@@ -722,6 +721,7 @@
     }
 
     function loadControlsFromStorage() {
+      if (window.WSBDashboardComponents.readShareState()) return;
       try {
         const raw = localStorage.getItem(CONTROLS_STORAGE_KEY);
         if (!raw) return;
@@ -800,64 +800,7 @@
       }
     }
 
-    function encodeShareState(payload) {
-      try {
-        const json = JSON.stringify(payload);
-        const bytes = new TextEncoder().encode(json);
-        let binary = '';
-        bytes.forEach((byte) => {
-          binary += String.fromCharCode(byte);
-        });
-        return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-      } catch (_) {
-        return '';
-      }
-    }
-
-    function decodeShareState(rawValue) {
-      if (!rawValue) return null;
-      try {
-        const normalized = rawValue.replace(/-/g, '+').replace(/_/g, '/');
-        const paddingLength = (4 - (normalized.length % 4)) % 4;
-        const padded = normalized + '='.repeat(paddingLength);
-        const binary = atob(padded);
-        const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-        const json = new TextDecoder().decode(bytes);
-        const parsed = JSON.parse(json);
-        return parsed && typeof parsed === 'object' ? parsed : null;
-      } catch (_) {
-        return null;
-      }
-    }
-
-    function getShareRouteBaseUrl() {
-      const path = String(window.location.pathname || '');
-      const dashboardMatch = path.match(/^(.*)\/webapps\/bitcoin_dominance\/dashboard\.html$/i);
-      const basePath = dashboardMatch ? (dashboardMatch[1] || '') : path.replace(/\/[^/]*$/, '');
-      if (IS_LOCAL_RUNTIME) {
-        return `${window.location.origin}${basePath}/bitcoin_dominance.html`;
-      }
-      return `${window.location.origin}${basePath}/bitcoin_dominance`;
-    }
-
     function buildShareableDashboardUrl() {
-      const defaults = {
-        includeStables: true,
-        stackedDominance: true,
-        showPrice: false,
-        stackedDominanceTouched: false,
-        range: '0',
-        smooth: '1',
-        panelsSwapped: false,
-        showHistoryPanel: true,
-        showSnapshotPanel: true,
-        historyPanelPercent: 61.54,
-        historyPanelManualHeight: 0,
-        snapshotPanelManualHeight: 0,
-        historyUserXAxisRange: null,
-        timeZone: 'UTC',
-      };
-
       const payload = {
         includeStables: Boolean(state.includeStables),
         stackedDominance: Boolean(state.stackedDominance),
@@ -875,34 +818,23 @@
           ? state.historyUserXAxisRange.slice()
           : null,
         timeZone: String(state.timeZone || 'UTC'),
+        historyViewport: {
+          y: document.getElementById('dominanceChart')?.layout?.yaxis?.range?.slice() || null,
+          priceY: document.getElementById('dominanceChart')?.layout?.yaxis2?.range?.slice() || null,
+        },
       };
 
-      const compactPayload = {};
-      Object.entries(payload).forEach(([key, value]) => {
-        const def = defaults[key];
-        const sameArray = Array.isArray(def)
-          ? Array.isArray(value) && def.length === value.length && def.every((entry, idx) => entry === value[idx])
-          : false;
-        if (sameArray || value === def) return;
-        compactPayload[key] = value;
-      });
-
-      const shareUrl = new URL(getShareRouteBaseUrl());
-      if (!Object.keys(compactPayload).length) {
-        return shareUrl.toString();
-      }
-
-      const encoded = encodeShareState(compactPayload);
-      if (encoded) {
-        shareUrl.searchParams.set(SHARE_STATE_PARAM, encoded);
-      }
-      return shareUrl.toString();
+      return window.WSBDashboardComponents.buildShareUrl({ slug: 'bitcoin_dominance', state: payload });
     }
 
     function applyDashboardShareStateFromUrl() {
-      const params = new URLSearchParams(window.location.search || '');
-      const decoded = decodeShareState(params.get(SHARE_STATE_PARAM) || '');
+      const decoded = window.WSBDashboardComponents.readShareState();
       if (!decoded) return;
+      const viewport = decoded.historyViewport;
+      state.sharedHistoryViewport = viewport && typeof viewport === 'object' ? {
+        y: Array.isArray(viewport.y) && viewport.y.length === 2 && viewport.y.every(Number.isFinite) ? viewport.y.slice() : null,
+        priceY: Array.isArray(viewport.priceY) && viewport.priceY.length === 2 && viewport.priceY.every(Number.isFinite) ? viewport.priceY.slice() : null,
+      } : null;
 
       if (typeof decoded.includeStables === 'boolean') state.includeStables = decoded.includeStables;
       if (typeof decoded.stackedDominance === 'boolean') state.stackedDominance = decoded.stackedDominance;
@@ -930,9 +862,8 @@
         state.snapshotPanelManualHeight = snapshotPanelManualHeight;
       }
 
-      if (Array.isArray(decoded.historyUserXAxisRange) && decoded.historyUserXAxisRange.length === 2) {
-        state.historyUserXAxisRange = decoded.historyUserXAxisRange.slice();
-      }
+      state.historyUserXAxisRange = Array.isArray(decoded.historyUserXAxisRange) && decoded.historyUserXAxisRange.length === 2
+        ? decoded.historyUserXAxisRange.slice() : null;
 
       const timeZone = String(decoded.timeZone || '').trim();
       if (timeZone) {
@@ -2077,6 +2008,7 @@
     }
 
     function renderHistoryChart() {
+      const sharedViewport = state.sharedHistoryViewport;
       const _thStyle = getComputedStyle(document.documentElement);
       const _thFg = _thStyle.getPropertyValue('--fg').trim() || '#f1f5f7';
       const _thFgDim = _thStyle.getPropertyValue('--fg-dim').trim() || '#d6e1e6';
@@ -2459,7 +2391,7 @@
           tickfont: { family: 'IBM Plex Mono, monospace', size: 11 },
           zeroline: false,
           showspikes: false,
-          range: [dominanceAxisMin, dominanceAxisMax],
+          range: sharedViewport?.y || [dominanceAxisMin, dominanceAxisMax],
         },
         yaxis2: {
           title: { text: 'BTC price', font: { family: 'IBM Plex Mono, monospace', size: 12 } },
@@ -2471,7 +2403,7 @@
           tickfont: { family: 'IBM Plex Mono, monospace', size: 11 },
           tickprefix: '$',
           tickformat: '~s',
-          range: [priceAxisMin, priceAxisMax],
+          range: sharedViewport?.priceY || [priceAxisMin, priceAxisMax],
           showticklabels: hasPriceTrace,
           showline: hasPriceTrace,
           visible: hasPriceTrace,
@@ -2483,6 +2415,7 @@
         displaylogo: false,
         modeBarButtonsToRemove: ['select2d', 'lasso2d', 'autoScale2d', 'toggleSpikelines'],
       }).then(() => {
+        state.sharedHistoryViewport = null;
         bindLiveChartHover('dominanceChart');
         bindHistoryChartViewportPersistence(allRows[0]?.Date || '', allRows[allRows.length - 1]?.Date || '');
       });

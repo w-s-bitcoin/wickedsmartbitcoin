@@ -47,6 +47,7 @@
         display: none !important;
       }
     </style>
+    <script src="webapps/shared/dashboard_share.js"></script>
   </head>
   <body data-standalone-modal-shell="1">
     <div class="buy-coffee">
@@ -137,16 +138,8 @@
     <script>
       (function primeStandaloneDashboard() {
         var iframe = document.getElementById('modal-embed');
-        if (!iframe) return;
-        if (!iframe.getAttribute('src')) {
-          // Preserve query parameters when loading dashboard in iframe
-          var params = new URLSearchParams(window.location.search);
-          var dashboardUrl = new URL('webapps/issuance_rate/dashboard.html', window.location.href);
-          dashboardUrl.searchParams.set('_', String(Date.now()));
-          if (params.has('preview')) {
-            dashboardUrl.searchParams.set('preview', params.get('preview'));
-          }
-          iframe.setAttribute('src', dashboardUrl.pathname + dashboardUrl.search + dashboardUrl.hash);
+        if (iframe && !iframe.getAttribute('src')) {
+          iframe.setAttribute('src', window.WSBDashboardShare.buildDashboardSrc('webapps/issuance_rate/dashboard.html'));
         }
       })();
 

@@ -996,8 +996,12 @@
 
   async function copyTextToClipboard(text) {
     if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return;
+      try {
+        await navigator.clipboard.writeText(text);
+        return;
+      } catch (_) {
+        // Some embedded browsers deny Clipboard API access but allow copy.
+      }
     }
     const textArea = document.createElement("textarea");
     textArea.value = text;
@@ -1006,25 +1010,31 @@
     textArea.style.left = "-9999px";
     document.body.appendChild(textArea);
     textArea.select();
-    document.execCommand("copy");
-    document.body.removeChild(textArea);
+    try {
+      if (!document.execCommand("copy")) throw new Error("Clipboard copy failed");
+    } finally {
+      document.body.removeChild(textArea);
+    }
   }
 
   function showCopyButtonFeedback(button, options = {}) {
     if (!button) return;
     const labelEl = button.querySelector(options.labelSelector || ".btn-label");
-    const original = labelEl ? labelEl.textContent : button.textContent;
+    const iconOnly = !labelEl && !!button.querySelector("svg");
+    const original = button.__copyOriginalLabel ?? (labelEl ? labelEl.textContent : button.textContent);
+    button.__copyOriginalLabel = original;
     if (button.__copyFeedbackTimer) window.clearTimeout(button.__copyFeedbackTimer);
     button.classList.add(options.copiedClass || "copy-link-btn--copied");
     if (typeof options.setIcon === "function") options.setIcon(options.copiedIcon);
     if (labelEl) labelEl.textContent = options.copiedText || "Copied!";
-    else button.textContent = options.copiedText || "Copied!";
+    else if (!iconOnly) button.textContent = options.copiedText || "Copied!";
     button.__copyFeedbackTimer = window.setTimeout(() => {
       if (typeof options.setIcon === "function") options.setIcon(options.defaultIcon);
       if (labelEl) labelEl.textContent = original || options.defaultText || "Copy Link";
-      else button.textContent = original || options.defaultText || "Copy Link";
+      else if (!iconOnly) button.textContent = original || options.defaultText || "Copy Link";
       button.classList.remove(options.copiedClass || "copy-link-btn--copied");
       button.__copyFeedbackTimer = null;
+      delete button.__copyOriginalLabel;
     }, options.durationMs || 1400);
   }
 
@@ -1400,6 +1410,10 @@
   ns.constrainFloatingMenuToViewport = constrainFloatingMenuToViewport;
   ns.createUpdatedTimeZoneChipController = createUpdatedTimeZoneChipController;
   ns.copyTextToClipboard = copyTextToClipboard;
+  ns.encodeShareState = (...args) => window.WSBDashboardShare.encodeShareState(...args);
+  ns.decodeShareState = (...args) => window.WSBDashboardShare.decodeShareState(...args);
+  ns.readShareState = (...args) => window.WSBDashboardShare.readShareState(...args);
+  ns.buildShareUrl = (...args) => window.WSBDashboardShare.buildShareUrl(...args);
   ns.showCopyButtonFeedback = showCopyButtonFeedback;
   ns.copyDashboardLink = copyDashboardLink;
   ns.setResetButtonState = setResetButtonState;

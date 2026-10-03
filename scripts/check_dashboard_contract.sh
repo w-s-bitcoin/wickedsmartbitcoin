@@ -46,6 +46,13 @@ for pattern in "${required_html_patterns[@]}"; do
   fi
 done
 
+if grep -Eq 'copy-link-btn|copyDashboardLink|copyLinkBtn' "$html"; then
+  if ! grep -Fq '../shared/dashboard_share.js' "$html"; then
+    echo "Contract failure in $html: copy links must load dashboard_share.js" >&2
+    exit 1
+  fi
+fi
+
 manifest="$dashboard_dir/dashboard_manifest.js"
 if [[ -f "$manifest" ]]; then
   if ! grep -Fq "dashboard_manifest.js" "$html"; then

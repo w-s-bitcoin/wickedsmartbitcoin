@@ -107,27 +107,6 @@
     return normalizeJoinedPath(`${getPageBasePath() || ""}/`);
   }
 
-  function getDashboardUrl() {
-    try {
-      const url = new URL(DASHBOARD_URL, window.location.href);
-      url.searchParams.set("_", String(Date.now()));
-      const params = new URLSearchParams(window.location.search || "");
-      for (const key of ["state", "pair", "primary", "secondary"]) {
-        const value = params.get(key);
-        if (value) url.searchParams.set(key, value);
-      }
-      return `${url.pathname}${url.search}${url.hash}`;
-    } catch (_) {
-      const params = new URLSearchParams(window.location.search || "");
-      const query = new URLSearchParams({ _: String(Date.now()) });
-      for (const key of ["state", "pair", "primary", "secondary"]) {
-        const value = params.get(key);
-        if (value) query.set(key, value);
-      }
-      return `${DASHBOARD_URL}?${query}`;
-    }
-  }
-
   function slugFromFilename(filename) {
     return String(filename || "").replace(/\.png$/i, "");
   }
@@ -315,7 +294,7 @@
     document.body.style.overflow = "hidden";
     if (modalEmbedWrap) modalEmbedWrap.hidden = false;
     if (modalEmbed && !modalEmbed.getAttribute("src")) {
-      modalEmbed.setAttribute("src", getDashboardUrl());
+      modalEmbed.setAttribute("src", window.WSBDashboardShare.buildDashboardSrc(DASHBOARD_URL));
     }
     if (modalImg) {
       modalImg.style.opacity = "0";

@@ -15,11 +15,13 @@
   } catch (_) {}
 </script>
 <link rel="stylesheet" href="casascius_explorer.css" />
+<script src="../shared/dashboard_share.js"></script>
 </head>
 <body>
   <header class="topbar">
     <div class="title-row">
       <h1>Casascius Explorer</h1>
+
       <div class="address-search" id="addressSearchControl">
         <span class="search-icon" aria-hidden="true"></span>
         <input id="addressSearch" type="search" placeholder="Search address" autocomplete="off" spellcheck="false" aria-label="Search address" />
@@ -32,6 +34,9 @@
         </svg>
       </button>
       <div class="panel-toggle-actions" aria-label="Panel controls">
+      <button id="copyDashboardLink" class="panel-toggle-btn copy-link-btn" type="button" title="Copy link to this view" aria-label="Copy link to this view">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+      </button>
         <button class="panel-toggle-btn is-open" id="leftPanelBtn" type="button" aria-label="Hide recent spends panel" aria-expanded="true">
           <svg class="panel-icon-closed" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16"></rect><path d="M9 4v16"></path></svg>
           <svg class="panel-icon-open" viewBox="0 0 24 24" aria-hidden="true"><rect class="panel-icon-fill" x="3" y="4" width="6" height="16"></rect><rect x="3" y="4" width="18" height="16"></rect><path d="M9 4v16"></path></svg>
@@ -152,6 +157,7 @@
 </script>
 <script src="../shared/webapp_data_auto_refresh.js?v=20260825-stage4"></script>
 <script src="../shared/dashboard_embed_modal.js"></script>
+<script src="../shared/dashboard_components.js"></script>
 <script src="casascius_explorer.js?v=20260825-live-refresh-v2"></script>
 </body>
 </html>

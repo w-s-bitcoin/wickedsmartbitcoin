@@ -155,6 +155,13 @@ The first three letters select the primary account and the last three select
 the secondary account. Both codes must be supported and distinct; the link
 opens that pair even when a different pair was saved in the browser.
 
+Copy Link on the analytics dashboards captures the complete view, including
+default values, filters, selected series, units, scales, date/snapshot selection,
+and paused playback position where supported. Opening a copied link takes
+precedence over the recipient's saved dashboard settings. Links recreate the
+view using the available published/live data; they do not freeze market quotes.
+Bitcoin Net Worth retains its existing sharing and personal-data behavior.
+
 ## Production data jobs
 
 Production orchestration is documented in
@@ -224,6 +231,11 @@ CHROME_BIN=/path/to/chromium python3 scripts/test_networth_live_quote_browser.py
 node scripts/test_uoa_live_quotes.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_uoa_live_quotes_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_homepage_preview_refresh.py
+node scripts/test_dashboard_share.mjs
+CHROME_BIN=/path/to/chromium python3 scripts/test_dashboard_share_routes.py
+CHROME_BIN=/path/to/chromium python3 scripts/test_time_series_share_browser.py
+CHROME_BIN=/path/to/chromium python3 scripts/test_analytics_share_browser.py
+CHROME_BIN=/path/to/chromium python3 scripts/test_specialized_share_browser.py
 ```
 
 Read each script's docstring for targets and optional arguments. Run the suites
