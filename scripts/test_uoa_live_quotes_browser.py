@@ -105,14 +105,14 @@ def main():
                   document.querySelector('#usdBtcChart')?.width > 0
                   && document.querySelector('#primaryUoaSelect')?.options.length > 100
                   && document.querySelector('#btcUsdEndDateEdge')?.textContent?.trim()
-                  && window.__dcaTestSocket?.subscription?.channels?.[0] === 'ticker_batch'
+                  && window.__dcaTestSocket?.url === 'wss://2140data.io/'
                 """), timeout=35, description="Unit of Account dashboard load")
             except TimeoutError:
                 diagnostic = cdp.evaluate("""({
                   canvas: document.querySelector('#usdBtcChart')?.width,
                   options: document.querySelector('#primaryUoaSelect')?.options.length,
                   end: document.querySelector('#btcUsdEndDateEdge')?.textContent,
-                  socket: window.__dcaTestSocket?.subscription,
+                  socket: window.__dcaTestSocket?.url,
                   updated: document.querySelector('#updatedKpiValue')?.textContent,
                   title: document.querySelector('#pairKpiChip')?.title,
                   body: document.body?.className,
@@ -135,7 +135,7 @@ def main():
               return '';
             })()""")
             cdp.evaluate("window.__dcaTestSocket.emit(90000, 'BTC-USD', new Date().toISOString())")
-            wait_for(lambda: cdp.evaluate("document.querySelector('#pairKpiChip')?.title.includes('BTC: Coinbase live')"),
+            wait_for(lambda: cdp.evaluate("document.querySelector('#pairKpiChip')?.title.includes('BTC: 2140data.io live')"),
                      description="live BTC quote")
             assert_browser(cdp, """(() => {
               if (document.querySelector('.pair-primary .pair-status')?.dataset.kind !== 'live')

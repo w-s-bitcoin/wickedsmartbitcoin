@@ -21,14 +21,15 @@ FEED_SHIM = r"""
   class PriceSocket {
     constructor(url) {
       this.url = url;
-      window.__dcaTestSocket = this;
+      if (url === 'wss://2140data.io/') window.__dcaTestSocket = this;
       setTimeout(() => this.onopen?.(), 0);
     }
     send(payload) { this.subscription = JSON.parse(payload); }
     close() { this.closed = true; }
     emit(price, product = 'BTC-USD', time = new Date().toISOString()) {
       this.onmessage?.({ data: JSON.stringify({
-        type: 'ticker', product_id: product, price: String(price), time,
+        ...(product === 'BTC-USD' ? { weightedPrice: String(price) } : { price: String(price) }),
+        time,
       }) });
     }
   }
@@ -37,6 +38,9 @@ FEED_SHIM = r"""
   const nativeFetch = window.fetch.bind(window);
   window.fetch = (input, options) => {
     const url = String(typeof input === 'string' ? input : input?.url || '');
+    if (url === 'https://2140data.io/price') {
+      return Promise.reject(new TypeError('2140data REST intentionally offline in this fixture'));
+    }
     if (url === 'https://api.exchange.coinbase.com/products/BTC-USD/ticker'
         && window.__dcaTestRest.ticker) {
       return Promise.resolve(new Response(JSON.stringify(window.__dcaTestRest.ticker), {
@@ -90,7 +94,7 @@ def main():
               && document.querySelector('#costBasisChart')?.childElementCount > 0
             """
             if not live_probe:
-                ready += "&& window.__dcaTestSocket?.subscription?.channels?.[0] === 'ticker_batch'"
+                ready += "&& window.__dcaTestSocket?.url === 'wss://2140data.io/'"
             wait_for(lambda: cdp.evaluate(ready), timeout=60,
                      description="DCA chart and live price subscription")
             if live_probe:
@@ -205,7 +209,7 @@ def main():
             cdp.command("Page.navigate", {"url": f"http://127.0.0.1:{server_port}/webapps/dca_cost_basis/preview.html"})
             wait_for(lambda: cdp.evaluate("""
               document.querySelector('#costBasisChart[data-price-source="published"] svg line')
-              && window.__dcaTestSocket?.subscription?.channels?.[0] === 'ticker_batch'
+              && window.__dcaTestSocket?.url === 'wss://2140data.io/'
             """), timeout=60, description="DCA home card and live price subscription")
             result = cdp.evaluate("""
               (() => {

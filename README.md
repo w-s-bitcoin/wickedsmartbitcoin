@@ -32,9 +32,12 @@ fallback; use `.html` URLs locally.
 There is no npm install or JavaScript bundling step. Python 3.10+ and Git are
 needed for the portable checks below; browser regressions also need Chrome or
 Chromium. Some pages load fonts or chart libraries from external services.
-Bitcoin Net Worth can request live quotes from Kraken. DCA Cost Basis uses a
-public Coinbase BTC/USD price socket with REST fallbacks for its current valuation
-on the dashboard and home page card. Each accepted quote recalculates the current
+BTC/USD prices in DCA Cost Basis, Days Since ATH, DCA Comparison, Unit of Account,
+and Bitcoin Net Worth use the public 2140data.io WebSocket. The 2140data.io
+`/price` endpoint is the first REST fallback. DCA, Days, Comparison, and Unit of
+Account retain their previous Coinbase socket and public REST sources as the
+last fallback; Net Worth retains its previous Kraken calculation. Each accepted
+quote recalculates the current
 UTC day's modeled purchase and the rolling cost basis; earlier purchase prices
 remain fixed. The last accepted quote stays visible through feed outages until a
 newer hourly publication replaces it. A green dot means a quote arrived within
@@ -49,7 +52,7 @@ can raise today's provisional high or set a new ATH, while the latest spot price
 drives the current drawdown and chart guide.
 Historical playback remains published, and an export ending at the latest day
 captures one quote for its final frame and hold.
-Bitcoin Net Worth also retains its last Kraken price through an outage and
+Bitcoin Net Worth also retains its last accepted price through an outage and
 shows the latest published price when that snapshot is newer. Its quote status
 turns gray after 60 seconds without an update.
 DCA Comparison uses current BTC/USD and gold/silver quotes plus delayed public

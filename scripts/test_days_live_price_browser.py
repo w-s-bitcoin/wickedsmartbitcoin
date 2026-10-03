@@ -54,7 +54,7 @@ def main():
               document.querySelector('#priceChartLoader')?.classList.contains('hidden')
               && document.querySelector('#daysChartLoader')?.classList.contains('hidden')
               && document.querySelector('#priceCanvas')?.width > 0
-              && window.__dcaTestSocket?.subscription?.channels?.[0] === 'ticker_batch'
+              && window.__dcaTestSocket?.url === 'wss://2140data.io/'
             """), timeout=65, description="Days Since ATH dashboard and spot subscription")
             check(cdp, """
               (() => {
@@ -114,7 +114,7 @@ def main():
             cdp.command("Page.navigate", {"url": f"http://127.0.0.1:{server_port}/webapps/days_since_ath/preview.html"})
             wait_for(lambda: cdp.evaluate("""
               document.querySelector('#daysSinceAthPreview')?.dataset.priceSource === 'published'
-              && window.__dcaTestSocket?.subscription?.channels?.[0] === 'ticker_batch'
+              && window.__dcaTestSocket?.url === 'wss://2140data.io/'
             """), timeout=65, description="Days Since ATH homepage card and spot subscription")
             check(cdp, """
               (() => {

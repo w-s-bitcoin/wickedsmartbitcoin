@@ -137,14 +137,14 @@ def main():
                 wait_for(lambda: cdp.evaluate("""
                   document.querySelector('#chartCanvas')?.width > 0
                   && document.querySelector('#assetBPriceStatus')?.dataset.kind === 'live'
-                  && window.__dcaTestSocket?.subscription?.channels?.[0] === 'ticker_batch'
+                  && window.__dcaTestSocket?.url === 'wss://2140data.io/'
                   && document.querySelector('#errorBox')?.hidden
                 """), timeout=25, description="DCA Comparison data, metal quote and BTC socket")
             except TimeoutError:
                 diagnostic = cdp.evaluate("""({
                   canvas: document.querySelector('#chartCanvas')?.width,
                   status: document.querySelector('#assetBPriceStatus')?.textContent,
-                  socket: window.__dcaTestSocket?.subscription,
+                  socket: window.__dcaTestSocket?.url,
                   error: document.querySelector('#errorBox')?.textContent,
                   errorHidden: document.querySelector('#errorBox')?.hidden,
                   calls: window.__comparisonPriceFixture?.calls,
@@ -268,7 +268,7 @@ def main():
             cdp.command("Page.navigate", {"url": f"http://127.0.0.1:{server_port}/webapps/dca_comparison/preview.html"})
             wait_for(lambda: cdp.evaluate("""
               document.querySelector('#comparisonPreview')?.dataset.priceSource === 'live'
-              && window.__dcaTestSocket?.subscription?.channels?.[0] === 'ticker_batch'
+              && window.__dcaTestSocket?.url === 'wss://2140data.io/'
             """), timeout=65, description="DCA Comparison live home card")
             assert_browser(cdp, """
               (() => {

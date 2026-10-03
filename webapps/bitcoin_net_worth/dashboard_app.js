@@ -306,7 +306,8 @@ let isTrackingAction = false;
 let quoteRefreshTimer = null;
 let quoteRefreshAlignTimer = null;
 let quoteRefreshInFlight = false;
-let quoteRefreshAbortController = null;
+let networthSpotFeed = null;
+let lastQuoteSource = "saved";
 let pendingQuoteUiUpdate = false;
 let pendingBackgroundQuoteRefresh = false;
 let editorRowsFocused = false;
@@ -444,9 +445,6 @@ function initEditorFocusTracking() {
   const focusIn = () => {
     editorRowsFocused = true;
     pauseAutoQuoteRefresh();
-    if (quoteRefreshAbortController) {
-      quoteRefreshAbortController.abort();
-    }
   };
   const focusOut = () => {
     // Let the next activeElement settle (e.g., tabbing to another row field)
@@ -1638,6 +1636,23 @@ async function bootstrap() {
 
     renderAll();
     scheduleQuoteStatus();
+    networthSpotFeed = window.WSBBitcoinSpotPrice?.create({
+      legacySocket: false,
+      legacySources: [{
+        name: "Kraken",
+        url: KRAKEN_URL,
+        read: (payload) => ({
+          price: Number(payload?.result?.XBTUSDC?.a?.[0])
+            / Number(payload?.result?.USDCUSD?.a?.[0]),
+        }),
+      }],
+      onQuote: (quote) => {
+        if (isManualOverrideActive()) return;
+        if (quote) void refreshQuote({ background: true, quote });
+        else updateQuoteStatus();
+      },
+    });
+    networthSpotFeed?.start();
     startAutoQuoteRefresh();
     requestBackgroundQuoteRefresh();
     updateModeToggleUI();
@@ -2715,19 +2730,26 @@ function saveSnapshots() {
   localStorage.setItem(STORE_KEY_DEMO, JSON.stringify(sorted));
 }
 
-async function refreshQuote({ background = false } = {}) {
+async function refreshQuote({ background = false, quote } = {}) {
   if (quoteRefreshInFlight) return;
   quoteRefreshInFlight = true;
-  quoteRefreshAbortController = new AbortController();
   try {
-    const response = await fetch(KRAKEN_URL, { cache: "no-cache", signal: quoteRefreshAbortController.signal });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const payload = await response.json();
-    const usdcusd = Number(payload.result.USDCUSD.a[0]);
-    const btcusdc = Number(payload.result.XBTUSDC.a[0]);
-    const price = btcusdc / usdcusd;
-    if (!Number.isFinite(price) || price <= 0) throw new Error("Invalid Kraken BTC/USD quote");
-    lastQuoteRefreshAt = new Date();
+    const latest = quote === undefined ? await networthSpotFeed?.refresh() : quote;
+    if (!latest) { updateQuoteStatus(); return; }
+    if (background && isManualOverrideActive()) return;
+    if (background && isAssetLiabilityEditorFocused()) {
+      pendingBackgroundQuoteRefresh = true;
+      return;
+    }
+    const price = Number(latest.price);
+    const receivedAt = Number(latest.receivedAt ?? latest.at);
+    if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(receivedAt)) return;
+    if (background && receivedAt <= (lastQuoteRefreshAt?.getTime() || 0)) {
+      updateQuoteStatus();
+      return;
+    }
+    lastQuoteRefreshAt = new Date(receivedAt);
+    lastQuoteSource = latest.source || "saved";
     formState.btcusd = lastQuoteRefreshAt.getTime() > publishedBtcPriceAt ? price : publishedBtcPrice;
     // Persist price globally so it survives mode/file switches.
     localStorage.setItem(BTCUSD_CACHE_KEY, String(price));
@@ -2760,14 +2782,9 @@ async function refreshQuote({ background = false } = {}) {
     } else {
       renderAll();
     }
-  } catch (err) {
-    if (err && err.name === "AbortError") {
-      // Expected when editor focus starts during an in-flight background refresh.
-    } else {
-      updateQuoteStatus();
-    }
+  } catch (_) {
+    updateQuoteStatus();
   } finally {
-    quoteRefreshAbortController = null;
     quoteRefreshInFlight = false;
   }
 }
@@ -2796,9 +2813,9 @@ function updateQuoteStatus() {
     dot.dataset.kind = live ? "live" : "stale";
     dot.setAttribute("aria-label", live ? "Live price" : "Price is not live");
     dot.title = manualActive ? "Gray dot: manual BTC/USD override."
-      : live ? `Green dot: Kraken BTC/USD quote received ${formatQuoteTimestamp(lastQuoteRefreshAt)}.`
-        : publishedSelected ? `Gray dot: the published BTC/USD snapshot from ${formatQuoteTimestamp(new Date(publishedBtcPriceAt))} is newer than the last Kraken quote.`
-        : lastQuoteRefreshAt ? `Gray dot: retaining the last Kraken quote from ${formatQuoteTimestamp(lastQuoteRefreshAt)}; no update arrived in the last 60 seconds.`
+      : live ? `Green dot: ${lastQuoteSource} BTC/USD quote received ${formatQuoteTimestamp(lastQuoteRefreshAt)}.`
+        : publishedSelected ? `Gray dot: the published BTC/USD snapshot from ${formatQuoteTimestamp(new Date(publishedBtcPriceAt))} is newer than the last ${lastQuoteSource} quote.`
+        : lastQuoteRefreshAt ? `Gray dot: retaining the last ${lastQuoteSource} quote from ${formatQuoteTimestamp(lastQuoteRefreshAt)}; no update arrived in the last 60 seconds.`
           : "Gray dot: saved BTC/USD price; no recent quote is available.";
   }
   el.quoteTime.textContent = manualActive ? "Manual price override"
@@ -3455,7 +3472,6 @@ function renderEditor(container, key) {
     name.addEventListener("focusin", () => {
       editorRowsFocused = true;
       pauseAutoQuoteRefresh();
-      if (quoteRefreshAbortController) quoteRefreshAbortController.abort();
     });
     name.addEventListener("focusout", () => {
       setTimeout(() => {
@@ -3525,7 +3541,6 @@ function renderEditor(container, key) {
     amount.addEventListener("focusin", () => {
       editorRowsFocused = true;
       pauseAutoQuoteRefresh();
-      if (quoteRefreshAbortController) quoteRefreshAbortController.abort();
     });
     amount.addEventListener("focusout", () => {
       setTimeout(() => {
@@ -3621,7 +3636,6 @@ function renderEditor(container, key) {
       unit.addEventListener("focusin", () => {
         editorRowsFocused = true;
         pauseAutoQuoteRefresh();
-        if (quoteRefreshAbortController) quoteRefreshAbortController.abort();
       });
       unit.addEventListener("focusout", () => {
         setTimeout(() => {
@@ -3846,7 +3860,6 @@ function renderHistoryTable() {
       commentField.addEventListener("focusin", () => {
         editorRowsFocused = true;
         pauseAutoQuoteRefresh();
-        if (quoteRefreshAbortController) quoteRefreshAbortController.abort();
       });
       commentField.addEventListener("focusout", () => {
         setTimeout(() => {
