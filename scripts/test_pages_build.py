@@ -41,6 +41,7 @@ class PagesBuildTest(unittest.TestCase):
             fixtures = {
                 "index.html": "<!doctype html><title>Fixture</title>",
                 "assets/top_kpis.json": "{}",
+                "webapps/shared/dashboard_share.js": "window.WSBDashboardShare = {};",
                 "assets/block_data_0_99999.csv": "raw input",
                 "assets/btcusd_10m_prices.csv": "raw input",
                 "webapps/example/dashboard.html": (
@@ -93,6 +94,7 @@ class PagesBuildTest(unittest.TestCase):
             kept = (
                 "index.html",
                 "assets/top_kpis.json",
+                "webapps/shared/dashboard_share.js",
                 "webapps/example/dashboard.html",
                 "webapps/example/dashboard_manifest.js",
                 "webapps/example/dashboard_app.js",

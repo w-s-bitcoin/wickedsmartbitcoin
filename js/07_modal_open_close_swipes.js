@@ -152,7 +152,11 @@ function openModalByIndex(index) {
             getModalNavigationImages().map((img) => img?.filename),
             image.filename
         );
-        window.location.href = getVisualizationUrl(image.filename);
+        const destination = new URL(getVisualizationUrl(image.filename), window.location.href);
+        if (getImageNameFromPath() === image.filename) {
+            window.WSBDashboardShare.getShellParams().forEach((value, key) => destination.searchParams.append(key, value));
+        }
+        window.location.href = destination.toString();
         return;
     }
     // temporarily suspend the thumbnail observer so it doesn't fire off a
@@ -195,30 +199,16 @@ function openModalByIndex(index) {
     modal.classList.remove('zoomed');
     modalImg.dataset.filename = fname;
     modalImg.alt = image.title || '';
+    const dashboardParams = window.WSBDashboardShare.getShellParams();
     replaceUrlForFilename(fname);
     const modalType = String(image.modal_type || '').trim().toLowerCase();
-    const fallbackEmbedPath = fname === 'quantum_exposure.png'
-        ? '/webapps/quantum_exposure/dashboard.html'
-        : (fname === 'bitcoin_net_worth.png'
-        ? '/webapps/bitcoin_net_worth/dashboard.html'
-        : (fname === 'casascius_explorer.png'
-        ? '/webapps/casascius_explorer/dashboard.html'
-        : (fname === 'dca_cost_basis.png'
-        ? '/webapps/dca_cost_basis/dashboard.html'
-        : (fname === 'days_since_ath.png'
-        ? '/webapps/days_since_ath/dashboard.html'
-        : (fname === 'issuance_rate.png'
-        ? '/webapps/issuance_rate/dashboard.html'
-        : (fname === 'dca_comparison.png'
-        ? '/webapps/dca_comparison/dashboard.html'
-        : (fname === 'bip110_signaling.png'
-        ? '/webapps/bip110_signaling/dashboard.html'
-        : (fname === 'node_count.png'
-            ? '/webapps/node_count/dashboard.html'
-            : (fname === `${DOM_BASE}.png` ? '/webapps/bitcoin_dominance/dashboard.html' : '')))))))));
+    const dashboardSlug = getVisualizationSlug(fname);
+    const fallbackEmbedPath = getLocalStandaloneUrlForSlug(dashboardSlug)
+        ? `/webapps/${dashboardSlug}/dashboard.html`
+        : '';
     const embedPath = String(image.embed_url || '').trim() || fallbackEmbedPath;
     const shouldEmbed = modalType === 'embed' || !!embedPath;
-    const embedUrl = shouldEmbed ? modalEmbedSrc(embedPath) : '';
+    const embedUrl = shouldEmbed ? modalEmbedSrc(embedPath, dashboardParams) : '';
     const isEmbed = !!embedUrl;
     if (isEmbed) {
         modalContentMode = 'embed';

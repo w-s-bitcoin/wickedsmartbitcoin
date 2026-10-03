@@ -2,9 +2,6 @@
   const DATA_URL = "webapp_data/patoshi_blocks.csv";
   const META_URL = "webapp_data/patoshi_metadata.json";
   const STORAGE_KEY = "wsb_patoshi_pattern_state_v6";
-  const SHARE_STATE_PARAM = "state";
-  const LOCAL_RUNTIME_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
-  const IS_LOCAL_RUNTIME = LOCAL_RUNTIME_HOSTS.has(window.location.hostname);
   const ICONS = {
     copyLink: '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>',
     copyCopied: '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>',
@@ -303,39 +300,8 @@
     } catch (_) {}
   }
 
-  function encodeShareState(payload) {
-    try {
-      const json = JSON.stringify(payload);
-      const bytes = new TextEncoder().encode(json);
-      let binary = "";
-      bytes.forEach((byte) => {
-        binary += String.fromCharCode(byte);
-      });
-      return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-    } catch (_) {
-      return "";
-    }
-  }
-
-  function decodeShareState(rawValue) {
-    if (!rawValue) return null;
-    try {
-      const normalized = rawValue.replace(/-/g, "+").replace(/_/g, "/");
-      const paddingLength = (4 - (normalized.length % 4)) % 4;
-      const padded = normalized + "=".repeat(paddingLength);
-      const binary = atob(padded);
-      const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-      const json = new TextDecoder().decode(bytes);
-      const parsed = JSON.parse(json);
-      return parsed && typeof parsed === "object" ? parsed : null;
-    } catch (_) {
-      return null;
-    }
-  }
-
   function getDashboardShareStateFromUrl() {
-    const params = new URLSearchParams(window.location.search || "");
-    return decodeShareState(params.get(SHARE_STATE_PARAM) || "");
+    return window.WSBDashboardComponents.readShareState();
   }
 
   function loadState() {
@@ -1204,10 +1170,11 @@
       showPatoshiLine: !!state.showPatoshiLine,
       showOrder: !!state.showOrder,
       colorByConfidence: !!state.colorByConfidence,
-      speedIndex: clamp(Math.round(Number(state.speedIndex) || 1), 0, speeds.length - 1),
+      speedIndex: clamp(Math.round(Number.isFinite(Number(state.speedIndex)) ? Number(state.speedIndex) : 1), 0, speeds.length - 1),
       exportSettings: { ...DEFAULT_EXPORT_SETTINGS, ...(state.exportSettings || {}) },
       updatedKpiTimeZone: updatedKpiTimeZone || getPreferredDashboardTimeZone(),
       sidePanelOpen: !!spentRewardsPanelOpen,
+      spentRewardsVisibleCount,
       highlightedSpentBlockHeight: Number.isFinite(highlightedSpentBlockHeight) ? highlightedSpentBlockHeight : null,
       highlightedSpentBlockSource,
       highlightedSpentBlockCentered,
@@ -1250,6 +1217,7 @@
       exportSettings: { ...DEFAULT_EXPORT_SETTINGS },
       updatedKpiTimeZone: getPreferredDashboardTimeZone(),
       sidePanelOpen: false,
+      spentRewardsVisibleCount: SPENT_REWARDS_PAGE_SIZE,
       highlightedSpentBlockHeight: null,
       highlightedSpentBlockSource: null,
       highlightedSpentBlockCentered: false,
@@ -1335,6 +1303,7 @@
       syncUpdatedTimeZoneSelect(snapshot.updatedKpiTimeZone);
     }
     spentRewardsPanelOpen = !!snapshot.sidePanelOpen;
+    spentRewardsVisibleCount = Math.max(SPENT_REWARDS_PAGE_SIZE, Math.min(rows.length, Number(snapshot.spentRewardsVisibleCount) || SPENT_REWARDS_PAGE_SIZE));
     highlightedSpentBlockHeight = normalizeHighlightedBlockHeight(snapshot.highlightedSpentBlockHeight);
     highlightedSpentBlockSource = Number.isFinite(highlightedSpentBlockHeight)
       ? (snapshot.highlightedSpentBlockSource === "search" ? "search" : "panel")
@@ -1347,7 +1316,7 @@
     state.yMaxCustom = normalizeYMaxCustom(state.yMaxCustom);
     state.hashrateWindowDays = normalizeHashrateWindowDays(state.hashrateWindowDays);
     state.markerScale = normalizeMarkerScale(state.markerScale);
-    state.speedIndex = clamp(Math.round(Number(state.speedIndex) || 1), 0, speeds.length - 1);
+    state.speedIndex = clamp(Math.round(Number.isFinite(Number(state.speedIndex)) ? Number(state.speedIndex) : 1), 0, speeds.length - 1);
     if (!["rolling_patoshi", "window_patoshi", "window_all", "custom"].includes(state.yMode)) state.yMode = "rolling_patoshi";
     if (!["spent", "time"].includes(state.countMetric)) state.countMetric = "spent";
     if (!["updated", "original", "none"].includes(state.patoshiPattern)) state.patoshiPattern = "updated";
@@ -1377,27 +1346,8 @@
     updateResetButtonUi();
   }
 
-  function getShareRouteBaseUrl() {
-    const path = String(window.location.pathname || "");
-    const dashboardMatch = path.match(/^(.*)\/webapps\/patoshi_pattern\/dashboard\.html$/i);
-    const basePath = dashboardMatch ? (dashboardMatch[1] || "") : path.replace(/\/[^/]*$/, "");
-    if (IS_LOCAL_RUNTIME) return `${window.location.origin}${basePath}/patoshi_pattern.html`;
-    return `${window.location.origin}${basePath}/patoshi_pattern`;
-  }
-
   function buildShareableDashboardUrl() {
-    const defaults = getDefaultDashboardState();
-    const payload = captureDashboardState();
-    const compactPayload = {};
-    Object.entries(payload).forEach(([key, value]) => {
-      if (valuesMatch({ value }, { value: defaults[key] })) return;
-      if (value === "" || value === null || value === undefined) return;
-      compactPayload[key] = value;
-    });
-    const shareUrl = new URL(getShareRouteBaseUrl());
-    const encoded = encodeShareState(compactPayload);
-    if (encoded) shareUrl.searchParams.set(SHARE_STATE_PARAM, encoded);
-    return shareUrl.toString();
+    return window.WSBDashboardComponents.buildShareUrl({ slug: "patoshi_pattern", state: captureDashboardState() });
   }
 
   async function copyDashboardLinkToClipboard(buttonEl) {
@@ -5752,6 +5702,7 @@
       delete state.slopeMeasurement;
       applyChartInteractionSnapshot(shared);
       spentRewardsPanelOpen = !!shared.sidePanelOpen;
+      spentRewardsVisibleCount = Math.max(SPENT_REWARDS_PAGE_SIZE, Math.min(rows.length, Number(shared.spentRewardsVisibleCount) || SPENT_REWARDS_PAGE_SIZE));
       highlightedSpentBlockHeight = normalizeHighlightedBlockHeight(shared.highlightedSpentBlockHeight);
       highlightedSpentBlockSource = Number.isFinite(highlightedSpentBlockHeight)
         ? (shared.highlightedSpentBlockSource === "search" ? "search" : "panel")
@@ -5760,6 +5711,12 @@
       highlightedKpiFocusActive = Number.isFinite(highlightedSpentBlockHeight) && !!shared.highlightedKpiFocusActive;
       state.playing = false;
       state.paused = false;
+      state.isExporting = false;
+      state.exportCancelRequested = false;
+      state.speedIndex = clamp(Math.round(Number.isFinite(Number(state.speedIndex)) ? Number(state.speedIndex) : 1), 0, speeds.length - 1);
+      state.markerScale = normalizeMarkerScale(state.markerScale);
+      if (!["spent", "time"].includes(state.countMetric)) state.countMetric = "spent";
+      normalizeExportSettings();
       if (state.yMode === "fixed_2650") state.yMode = "custom";
       if (!["rolling_patoshi", "window_patoshi", "window_all", "custom"].includes(state.yMode)) state.yMode = "rolling_patoshi";
       state.yMaxCustom = normalizeYMaxCustom(state.yMaxCustom);

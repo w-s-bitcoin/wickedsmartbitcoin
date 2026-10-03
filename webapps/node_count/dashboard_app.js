@@ -37,9 +37,6 @@
     const FETCH_CACHE_MODE = 'no-store';
     const SOFTWARE_SPLIT_MIN = 32;
     const SOFTWARE_SPLIT_MAX = 78;
-    const SHARE_STATE_PARAM = 'state';
-    const LOCAL_RUNTIME_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
-    const IS_LOCAL_RUNTIME = LOCAL_RUNTIME_HOSTS.has(window.location.hostname);
     const ICONS = {
       copyLink: '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>',
       copyCopied: '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>',
@@ -670,6 +667,7 @@
       softwareDetails: [],
       softwareExpandedKeys: new Set(),
       hiddenHistorySeries: new Set(),
+      sharedHistoryViewport: null,
       preResetStateSnapshot: null,
       suppressResetSnapshotClear: false,
       refreshedAtText: '',
@@ -1050,6 +1048,7 @@
     }
 
     function loadControlsFromStorage() {
+      if (window.WSBDashboardComponents.readShareState()) return;
       try {
         const raw = localStorage.getItem(CONTROLS_STORAGE_KEY);
         if (!raw) return;
@@ -1169,71 +1168,12 @@
       }
     }
 
-    function encodeShareState(payload) {
-      try {
-        const json = JSON.stringify(payload);
-        const bytes = new TextEncoder().encode(json);
-        let binary = '';
-        bytes.forEach((byte) => {
-          binary += String.fromCharCode(byte);
-        });
-        return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-      } catch (_) {
-        return '';
-      }
-    }
-
-    function decodeShareState(rawValue) {
-      if (!rawValue) return null;
-      try {
-        const normalized = rawValue.replace(/-/g, '+').replace(/_/g, '/');
-        const paddingLength = (4 - (normalized.length % 4)) % 4;
-        const padded = normalized + '='.repeat(paddingLength);
-        const binary = atob(padded);
-        const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-        const json = new TextDecoder().decode(bytes);
-        const parsed = JSON.parse(json);
-        return parsed && typeof parsed === 'object' ? parsed : null;
-      } catch (_) {
-        return null;
-      }
-    }
-
-    function getShareRouteBaseUrl() {
-      const path = String(window.location.pathname || '');
-      const dashboardMatch = path.match(/^(.*)\/webapps\/node_count\/dashboard\.html$/i);
-      const basePath = dashboardMatch ? (dashboardMatch[1] || '') : path.replace(/\/[^/]*$/, '');
-      if (IS_LOCAL_RUNTIME) {
-        return `${window.location.origin}${basePath}/node_count.html`;
-      }
-      return `${window.location.origin}${basePath}/node_count`;
-    }
-
     function buildShareableDashboardUrl() {
       const range = String(document.getElementById('rangeSelect')?.value || '0');
       const smooth = String(document.getElementById('smoothSelect')?.value || '1');
       const topN = Number(document.getElementById('topNInput')?.value || 12);
       const showHistory = Boolean(document.getElementById('toggleHistoryPanel')?.checked ?? true);
       const showSoftware = Boolean(document.getElementById('toggleSoftwarePanel')?.checked ?? true);
-
-      const defaults = {
-        range: '0',
-        smooth: '1',
-        topN: 12,
-        showHistory: true,
-        showSoftware: true,
-        panelsSwapped: false,
-        historyPanelPercent: 61.54,
-        historyPanelStackPercent: 52,
-        softwareChartPercent: 52,
-        softwareChartStackPercent: 48,
-        stackedTopPanelHeightRatio: 0,
-        historyPanelManualHeightRatio: 0,
-        softwarePanelManualHeightRatio: 0,
-        hiddenHistorySeries: [],
-        softwareExpandedKeys: [],
-        timeZone: 'UTC',
-      };
 
       const payload = {
         range,
@@ -1242,10 +1182,10 @@
         showHistory,
         showSoftware,
         panelsSwapped: Boolean(state.panelsSwapped),
-        historyPanelPercent: Number(state.historyPanelPercent || defaults.historyPanelPercent),
-        historyPanelStackPercent: Number(state.historyPanelStackPercent || defaults.historyPanelStackPercent),
-        softwareChartPercent: Number(state.softwareChartPercent || defaults.softwareChartPercent),
-        softwareChartStackPercent: Number(state.softwareChartStackPercent || defaults.softwareChartStackPercent),
+        historyPanelPercent: Number(state.historyPanelPercent || 61.54),
+        historyPanelStackPercent: Number(state.historyPanelStackPercent || 52),
+        softwareChartPercent: Number(state.softwareChartPercent || 52),
+        softwareChartStackPercent: Number(state.softwareChartStackPercent || 48),
         stackedTopPanelHeightRatio: Number(state.stackedTopPanelHeight) > 0
           ? parseFloat((Number(state.stackedTopPanelHeight) / (window.innerHeight || 1)).toFixed(4))
           : 0,
@@ -1258,34 +1198,23 @@
         hiddenHistorySeries: Array.from(state.hiddenHistorySeries || []),
         softwareExpandedKeys: Array.from(state.softwareExpandedKeys || []),
         timeZone: String(state.timeZone || 'UTC'),
+        historyViewport: {
+          x: document.getElementById('historyChart')?.layout?.xaxis?.range?.slice() || null,
+          y: document.getElementById('historyChart')?.layout?.yaxis?.range?.slice() || null,
+        },
       };
 
-      const compactPayload = {};
-      Object.entries(payload).forEach(([key, value]) => {
-        const def = defaults[key];
-        const sameArray = Array.isArray(def)
-          ? Array.isArray(value) && def.length === value.length && def.every((entry, idx) => entry === value[idx])
-          : false;
-        if (sameArray || value === def) return;
-        compactPayload[key] = value;
-      });
-
-      const shareUrl = new URL(getShareRouteBaseUrl());
-      if (!Object.keys(compactPayload).length) {
-        return shareUrl.toString();
-      }
-
-      const encoded = encodeShareState(compactPayload);
-      if (encoded) {
-        shareUrl.searchParams.set(SHARE_STATE_PARAM, encoded);
-      }
-      return shareUrl.toString();
+      return window.WSBDashboardComponents.buildShareUrl({ slug: 'node_count', state: payload });
     }
 
     function applyDashboardShareStateFromUrl() {
-      const params = new URLSearchParams(window.location.search || '');
-      const decoded = decodeShareState(params.get(SHARE_STATE_PARAM) || '');
+      const decoded = window.WSBDashboardComponents.readShareState();
       if (!decoded) return;
+      const viewport = decoded.historyViewport;
+      state.sharedHistoryViewport = viewport && typeof viewport === 'object' ? {
+        x: Array.isArray(viewport.x) && viewport.x.length === 2 && viewport.x.every((v) => Number.isFinite(new Date(v).getTime())) ? viewport.x.slice() : null,
+        y: Array.isArray(viewport.y) && viewport.y.length === 2 && viewport.y.every(Number.isFinite) ? viewport.y.slice() : null,
+      } : null;
 
       const rangeSelect = document.getElementById('rangeSelect');
       const smoothSelect = document.getElementById('smoothSelect');
@@ -1354,15 +1283,15 @@
 
       const vh = window.innerHeight || 1;
       const stackedTopPanelHeightRatio = Number(decoded.stackedTopPanelHeightRatio);
-      if (Number.isFinite(stackedTopPanelHeightRatio) && stackedTopPanelHeightRatio > 0) {
+      if (Number.isFinite(stackedTopPanelHeightRatio) && stackedTopPanelHeightRatio >= 0) {
         state.stackedTopPanelHeight = stackedTopPanelHeightRatio * vh;
       }
       const historyPanelManualHeightRatio = Number(decoded.historyPanelManualHeightRatio);
-      if (Number.isFinite(historyPanelManualHeightRatio) && historyPanelManualHeightRatio > 0) {
+      if (Number.isFinite(historyPanelManualHeightRatio) && historyPanelManualHeightRatio >= 0) {
         state.historyPanelManualHeight = historyPanelManualHeightRatio * vh;
       }
       const softwarePanelManualHeightRatio = Number(decoded.softwarePanelManualHeightRatio);
-      if (Number.isFinite(softwarePanelManualHeightRatio) && softwarePanelManualHeightRatio > 0) {
+      if (Number.isFinite(softwarePanelManualHeightRatio) && softwarePanelManualHeightRatio >= 0) {
         state.softwarePanelManualHeight = softwarePanelManualHeightRatio * vh;
       }
 
@@ -2086,9 +2015,10 @@
       const historyLegend = document.getElementById('historyLegend');
       const priorLegendScrollTop = options.preserveScroll ? (historyLegend?.scrollTop || 0) : null;
       const historyChartEl = document.getElementById('historyChart');
-      const priorXRange = preserveViewport
+      const sharedViewport = state.sharedHistoryViewport;
+      const priorXRange = sharedViewport?.x || (preserveViewport
         ? historyChartEl?.layout?.xaxis?.range
-        : null;
+        : null);
       const hasPriorXRange = Array.isArray(priorXRange) && priorXRange.length === 2;
 
       const rangeDays = Number(document.getElementById('rangeSelect').value);
@@ -2261,6 +2191,7 @@
         yaxis: {
           title: 'Node count',
           rangemode: 'tozero',
+          ...(sharedViewport?.y ? { autorange: false, range: sharedViewport.y } : {}),
           gridcolor: _thGrid,
           zeroline: false,
           showspikes: false,
@@ -2274,6 +2205,7 @@
         },
         hovermode: 'x unified',
       }, getPlotlyConfig('historyChart', 'bitcoin-node-count-over-time'));
+      state.sharedHistoryViewport = null;
 
       updateKpis(rows);
       updateHistoryLegendSizing();

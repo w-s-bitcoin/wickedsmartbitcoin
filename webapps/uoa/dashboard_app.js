@@ -2982,39 +2982,8 @@
     return availableCurrencies.find((code) => code !== primary) || "USD";
   }
 
-  function encodeShareState(payload) {
-    try {
-      const json = JSON.stringify(payload);
-      const bytes = new TextEncoder().encode(json);
-      let binary = "";
-      bytes.forEach((byte) => {
-        binary += String.fromCharCode(byte);
-      });
-      return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-    } catch (_) {
-      return "";
-    }
-  }
-
-  function decodeShareState(rawValue) {
-    if (!rawValue) return null;
-    try {
-      const normalized = rawValue.replace(/-/g, "+").replace(/_/g, "/");
-      const paddingLength = (4 - (normalized.length % 4)) % 4;
-      const padded = normalized + "=".repeat(paddingLength);
-      const binary = atob(padded);
-      const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-      const json = new TextDecoder().decode(bytes);
-      const parsed = JSON.parse(json);
-      return parsed && typeof parsed === "object" ? parsed : null;
-    } catch (_) {
-      return null;
-    }
-  }
-
   function getDashboardShareStateFromUrl() {
-    const params = new URLSearchParams(window.location.search || "");
-    return decodeShareState(params.get(SHARE_STATE_PARAM) || "");
+    return window.WSBDashboardComponents.readShareState({ param: SHARE_STATE_PARAM });
   }
 
   function getRequestedPairFromUrl() {
@@ -3279,25 +3248,24 @@
     return shellState;
   }
 
+  function capturePausedPlaybackSession() {
+    if (!dateRangePlaybackState.hasSession || !allRows.length) return null;
+    const maxIndex = allRows.length - 1;
+    const safeIndex = (value, fallback) => Number.isFinite(Number(value))
+      ? Math.max(0, Math.min(maxIndex, Number(value))) : fallback;
+    const start = safeIndex(dateRangePlaybackState.startIndex, 0);
+    const target = safeIndex(dateRangePlaybackState.targetEndIndex, maxIndex);
+    const current = safeIndex(el.dateRangeEndSlider?.value ?? dateRangePlaybackState.currentEndIndex, start);
+    return {
+      startDate: toIsoDate(allRows[start].date),
+      targetEndDate: toIsoDate(allRows[target].date),
+      currentEndDate: toIsoDate(allRows[current].date),
+    };
+  }
+
   function persistFilters() {
     try {
-      let pausedPlaybackSession = null;
-      if (dateRangePlaybackState.hasSession && allRows.length) {
-        const maxIndex = Math.max(0, allRows.length - 1);
-        const currentEndFromSlider = Number(el.dateRangeEndSlider?.value);
-        if (Number.isFinite(currentEndFromSlider)) {
-          dateRangePlaybackState.currentEndIndex = currentEndFromSlider;
-        }
-        const safeStart = Math.max(0, Math.min(maxIndex, Number(dateRangePlaybackState.startIndex) || 0));
-        const safeTargetEnd = Math.max(0, Math.min(maxIndex, Number(dateRangePlaybackState.targetEndIndex) || maxIndex));
-        const safeCurrentEnd = Math.max(0, Math.min(maxIndex, Number(dateRangePlaybackState.currentEndIndex) || safeStart));
-        pausedPlaybackSession = {
-          startDate: toIsoDate(allRows[safeStart].date),
-          targetEndDate: toIsoDate(allRows[safeTargetEnd].date),
-          currentEndDate: toIsoDate(allRows[safeCurrentEnd].date),
-        };
-      }
-
+      const pausedPlaybackSession = capturePausedPlaybackSession();
       const startDateValue = requestedDateRange.startIso || el.startDateInput?.value || "";
       const endDateValue = requestedDateRange.endIso || el.endDateInput?.value || "";
       const rangePreset = getMatchingRangePresetKey(startDateValue, endDateValue);
@@ -3499,33 +3467,14 @@
     setCustomTooltip(btn, preResetStateSnapshot ? "Undo the last restore defaults action" : "Reset dashboard to defaults");
   }
 
-  function getShareRouteBaseUrl() {
-    const path = String(window.location.pathname || "");
-    const dashboardMatch = path.match(/^(.*)\/webapps\/uoa\/dashboard\.html$/i);
-    const basePath = dashboardMatch ? (dashboardMatch[1] || "") : path.replace(/\/[^/]*$/, "");
-    if (IS_LOCAL_RUNTIME) {
-      return `${window.location.origin}${basePath}/uoa.html`;
-    }
-    return `${window.location.origin}${basePath}/uoa`;
-  }
-
   function buildShareableDashboardUrl() {
-    const defaults = getDefaultDashboardState();
     const payload = captureResetSnapshot();
-    const compactPayload = {};
-    Object.entries(payload).forEach(([key, value]) => {
-      if (value === defaults[key]) return;
-      compactPayload[key] = value;
+    payload.pausedPlaybackSession = capturePausedPlaybackSession();
+    return window.WSBDashboardComponents.buildShareUrl({
+      slug: "uoa",
+      state: payload,
+      params: { pair: `${payload.primaryUoa}${payload.secondaryUoa}` },
     });
-
-    const shareUrl = new URL(getShareRouteBaseUrl());
-    shareUrl.searchParams.set("pair", `${payload.primaryUoa}${payload.secondaryUoa}`);
-    delete compactPayload.primaryUoa;
-    delete compactPayload.secondaryUoa;
-    if (!Object.keys(compactPayload).length) return shareUrl.toString();
-    const encoded = encodeShareState(compactPayload);
-    if (encoded) shareUrl.searchParams.set(SHARE_STATE_PARAM, encoded);
-    return shareUrl.toString();
   }
 
   async function copyDashboardLinkToClipboard(buttonEl) {

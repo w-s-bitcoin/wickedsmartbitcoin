@@ -320,7 +320,6 @@ function applyRuntimeModeUi() {
   document.documentElement.classList.toggle("full-mode", !lite);
   updateBalanceFilterUi();
   updateInactiveThresholdUi();
-  loadArchivedSnapshotsEnabled();
   updateRuntimeModeButton();
   updateArchivedSnapshotsToggleUi();
   updateTopExposureFilterControlAvailability();
@@ -1376,37 +1375,8 @@ function normalizeSelectionForShare(values, allValue) {
   return values;
 }
 
-function encodeShareState(payload) {
-  try {
-    const json = JSON.stringify(payload);
-    const bytes = new TextEncoder().encode(json);
-    let binary = "";
-    bytes.forEach((byte) => {
-      binary += String.fromCharCode(byte);
-    });
-    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-  } catch (err) {
-    console.warn("Could not encode share state", err);
-    return "";
-  }
-}
-
 function decodeShareState(rawValue) {
-  if (!rawValue) return null;
-
-  try {
-    const normalized = rawValue.replace(/-/g, "+").replace(/_/g, "/");
-    const paddingLength = (4 - (normalized.length % 4)) % 4;
-    const padded = normalized + "=".repeat(paddingLength);
-    const binary = atob(padded);
-    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-    const json = new TextDecoder().decode(bytes);
-    const parsed = JSON.parse(json);
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch (err) {
-    console.warn("Could not decode share state", err);
-    return null;
-  }
+  return window.WSBDashboardComponents.decodeShareState(rawValue);
 }
 
 function normalizeTagSelectionForShare(values, allOptions) {
@@ -1483,19 +1453,6 @@ function parseArrayParam(params, key, allowedSet = null, allValue = null, noneTo
   return Array.from(new Set(values));
 }
 
-function getShareRouteBaseUrl() {
-  const path = String(window.location.pathname || "");
-  const dashboardMatch = path.match(/^(.*)\/webapps\/quantum_exposure\/dashboard\.html$/i);
-  const basePath = dashboardMatch
-    ? (dashboardMatch[1] || "")
-    : path.replace(/\/[^/]*$/, "");
-
-  if (IS_LOCAL_RUNTIME) {
-    return `${window.location.origin}${basePath}/quantum_exposure.html`;
-  }
-  return `${window.location.origin}${basePath}/quantum_exposure`;
-}
-
 function buildShareableDashboardUrl() {
   const filters = readFilters();
   const allTagOptions = buildTagOptionsFromGe1Rows(["All"]);
@@ -1512,30 +1469,7 @@ function buildShareableDashboardUrl() {
   const panelMode = state.scriptPanelMode === "historical" ? "historical" : "bars";
   const snapshotFilter = document.getElementById("snapshotFilter");
   const snapshotHeight = String(state.snapshotHeight || snapshotFilter?.value || "").trim();
-  const latestSnapshot = state.availableSnapshots.length
-    ? String(state.availableSnapshots[0])
-    : String(snapshotFilter?.options?.[0]?.value || "").trim();
-  const snapshotPreference =
-    snapshotHeight && latestSnapshot && snapshotHeight === latestSnapshot
-      ? SNAPSHOT_PREF_LATEST
-      : SNAPSHOT_PREF_SPECIFIC;
-  const defaults = {
-    b: "all",
-    bb: 0,
-    iy: 1,
-    s: ["All"],
-    p: ["all"],
-    d: ["All"],
-    g: ["All"],
-    i: ["All"],
-    v: "bars",
-    m: "total",
-    c: 0,
-    e: 0,
-    t: "l",
-  };
-
-  const normalized = {
+  const payload = {
     b: filters.balance,
     bb: !isLiteMode() ? Math.max(0, Number(filters.balanceThresholdBtc) || 0) : 0,
     iy: !isLiteMode()
@@ -1550,67 +1484,16 @@ function buildShareableDashboardUrl() {
     m: normalizeSupplyDisplayMode(state.supplyDisplayMode),
     c: state.topExposuresFiltersCollapsed ? 1 : 0,
     e: state.scriptPanelDetailsCollapsed ? 1 : 0,
-    t: snapshotPreference === SNAPSHOT_PREF_LATEST ? "l" : "s",
+    t: snapshotHeight ? "s" : "l",
   };
 
-  const payload = {};
-  const addIfDifferent = (key, value, defaultValue) => {
-    const sameValue = Array.isArray(defaultValue)
-      ? Array.isArray(value) && value.length === defaultValue.length && value.every((entry, idx) => entry === defaultValue[idx])
-      : value === defaultValue;
-    if (!sameValue) {
-      payload[key] = value;
-    }
-  };
-
-  addIfDifferent("b", normalized.b, defaults.b);
-  addIfDifferent("bb", normalized.bb, defaults.bb);
-  addIfDifferent("iy", normalized.iy, defaults.iy);
-  addIfDifferent("s", normalized.s, defaults.s);
-  addIfDifferent("p", normalized.p, defaults.p);
-  addIfDifferent("d", normalized.d, defaults.d);
-  addIfDifferent("g", normalized.g, defaults.g);
-  addIfDifferent("i", normalized.i, defaults.i);
-  addIfDifferent("v", normalized.v, defaults.v);
-  addIfDifferent("m", normalized.m, defaults.m);
-  addIfDifferent("c", normalized.c, defaults.c);
-  addIfDifferent("e", normalized.e, defaults.e);
-  addIfDifferent("t", normalized.t, defaults.t);
-
-  if (filters.topExposureAddressQuery) {
-    payload.q = filters.topExposureAddressQuery;
-  }
-  if (snapshotPreference === SNAPSHOT_PREF_SPECIFIC && snapshotHeight) {
-    payload.h = snapshotHeight;
-  }
-
-  const shareUrl = new URL(getShareRouteBaseUrl());
-  const shareParams = new URLSearchParams();
-
-  const finalizeShareUrl = () => {
-    shareParams.forEach((value, key) => {
-      shareUrl.searchParams.set(key, value);
-    });
-    return shareUrl.toString();
-  };
-
-  if (Object.keys(payload).length === 0) {
-    return finalizeShareUrl();
-  }
-
-  const payloadKeys = Object.keys(payload);
-  if (payloadKeys.length === 1 && payload.v === "historical") {
-    shareParams.set("view", "historical");
-    return finalizeShareUrl();
-  }
-
-  const encodedState = encodeShareState(payload);
-  if (encodedState) {
-    shareParams.set("state", encodedState);
-  } else {
-    shareParams.set("view", panelMode);
-  }
-  return finalizeShareUrl();
+  payload.q = filters.topExposureAddressQuery || "";
+  payload.h = snapshotHeight;
+  // A copied view pins the displayed snapshot, including when it is currently latest.
+  payload.r = isLiteMode() ? "lite" : "full";
+  payload.a = state.archivedSnapshotsEnabled ? 1 : 0;
+  payload.n = state.topExposuresVisibleCount;
+  return window.WSBDashboardComponents.buildShareUrl({ slug: "quantum_exposure", state: payload });
 }
 
 function readFiltersFromUrl() {
@@ -1621,7 +1504,16 @@ function readFiltersFromUrl() {
     const decoded = decodeShareState(params.get("state"));
     if (!decoded) return null;
 
-    const prefs = {};
+    const prefs = {
+      balance: "all", balanceBtc: 0, inactiveThresholdYears: 1,
+      scriptTypes: ["All"], spendActivities: ["all"], detailTags: ["All"],
+      identityGroups: ["All"], identityTags: ["All"], topExposureAddressQuery: "",
+      scriptPanelMode: "bars", supplyDisplayMode: "total",
+      topExposuresFiltersCollapsed: false, scriptPanelDetailsCollapsed: false,
+      snapshotPreference: SNAPSHOT_PREF_LATEST, runtimeMode: decoded.r === "full" ? "full" : "lite",
+      archivedSnapshotsEnabled: decoded.a === 1,
+      topExposuresVisibleCount: Number.isFinite(decoded.n) ? Math.max(1, Math.min(100000, Math.round(decoded.n))) : null,
+    };
 
     if (ALLOWED_BALANCE_FILTERS.has(decoded.b)) {
       prefs.balance = decoded.b;
@@ -8613,10 +8505,13 @@ function attachEvents() {
   try {
     runtimeLiteMode = resolveInitialRuntimeLiteMode();
     loadArchivedSnapshotsEnabled();
-    applyPersistedFilterState(readPersistedFilters());
     const urlPrefs = readFiltersFromUrl();
     if (urlPrefs) {
+      runtimeLiteMode = urlPrefs.runtimeMode !== "full";
+      state.archivedSnapshotsEnabled = IS_LOCAL_RUNTIME && urlPrefs.archivedSnapshotsEnabled === true;
       applyPersistedFilterState(urlPrefs);
+    } else {
+      applyPersistedFilterState(readPersistedFilters());
     }
     applyTheme(resolveInitialTheme());
     applyRuntimeModeUi();
@@ -8630,6 +8525,13 @@ function attachEvents() {
     }
 
     await loadData(initialPublication?.snapshotHeight || "");
+    if (urlPrefs?.topExposuresVisibleCount) {
+      if (urlPrefs.topExposuresVisibleCount > state.ge1Rows.length && state.ge1IsUsingEcoSubset) {
+        await triggerFullDataLoad();
+      }
+      state.topExposuresVisibleCount = urlPrefs.topExposuresVisibleCount;
+      updateTopExposures();
+    }
 
     // Bracket initial data loading with the marker. If publication advanced (or
     // the lightweight snapshot/history/index evidence was incomplete) do not claim that generation as

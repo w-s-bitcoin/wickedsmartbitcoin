@@ -44,6 +44,9 @@ The corresponding root-level files are:
 
 Common dashboard shell/layout rules are centralized in `webapps/shared/` and should be referenced by every dashboard.
 
+- `shared/dashboard_share.js`
+  - Shared UTF-8/base64url state codec, canonical standalone links, and shell query forwarding
+  - Load before `dashboard_components.js`; its codec and link helpers are also available on `WSBDashboardComponents`
 - `shared/dashboard_components.js`
   - Shared date picker, date range, button group, two-panel mode, scale button, floating settings menu, copy/reset, manifest runtime, and playback keyboard helpers
 - `shared/dashboard_charting.js`
@@ -95,6 +98,7 @@ Add these references in every `dashboard.html` file (path is relative to each da
 ```html
 <script src="../shared/dashboard_embed_modal.js"></script>
 <script src="dashboard_manifest.js"></script>
+<script src="../shared/dashboard_share.js"></script>
 <script src="../shared/dashboard_components.js"></script>
 <script src="../shared/dashboard_charting.js"></script>
 <script src="../shared/dashboard_export.js"></script>
@@ -128,6 +132,28 @@ For dashboards that use `--signal` as the accent token:
 ```
 
 Load `preview_app.js` at the end of `<body>` after `preview_shared.js`.
+
+## Copy Link state
+
+Build links with `WSBDashboardComponents.buildShareUrl({ slug, state, params })`
+and read them with `readShareState()`. The shared helper always writes a `state`
+object, even for defaults, and chooses `.html` routes locally and clean routes
+in production. Optional `params` preserves readable shortcuts such as UoA's
+`pair=BTCUSD`; legacy parameters remain accepted by the owning dashboard.
+
+Capture all fields that affect the presented data or view: filters, metrics,
+selected/hidden series, units, scales, dates, snapshots, chart viewport, table
+state, and playback frame. Include explicit default values. A valid URL snapshot
+must override localStorage; omitted fields in legacy links use dashboard defaults.
+Open a copied animation on its captured frame, paused. Dashboard code validates
+and clamps its own fields against available data. Export-only settings need not
+be in a view link. Live data may continue updating after the link opens.
+
+Root pages and their standalone controllers use
+`WSBDashboardShare.buildDashboardSrc()` to carry state into the iframe. The
+homepage/generic shells use the same helper, including legacy hash query links.
+Bitcoin Net Worth is excluded from this sharing contract; its existing personal
+record storage and export behavior remains separate.
 
 ## Theme system
 

@@ -207,11 +207,6 @@
     return normalizeJoinedPath(`${getPageBasePath()}/assets/${filename}`);
   }
 
-  function getDashboardSrc() {
-    const search = String(window.location.search || "");
-    return search ? `${DASHBOARD_URL}${search}` : DASHBOARD_URL;
-  }
-
   function readFavorites() {
     try {
       const raw = localStorage.getItem(FAVORITES_STORAGE_KEY);
@@ -361,7 +356,7 @@
     document.body.style.overflow = "hidden";
     if (modalEmbedWrap) modalEmbedWrap.hidden = false;
     if (modalEmbed && !modalEmbed.getAttribute("src")) {
-      modalEmbed.setAttribute("src", getDashboardSrc());
+      modalEmbed.setAttribute("src", window.WSBDashboardShare.buildDashboardSrc(DASHBOARD_URL));
     }
     if (modalImg) {
       modalImg.style.opacity = "0";

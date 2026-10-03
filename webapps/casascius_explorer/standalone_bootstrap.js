@@ -270,11 +270,7 @@
     document.body.style.overflow = "hidden";
     if (modalEmbedWrap) modalEmbedWrap.hidden = false;
     if (modalEmbed && !modalEmbed.getAttribute("src")) {
-      modalEmbed.addEventListener("load", () => {
-        try { modalEmbed.focus({ preventScroll: true }); }
-        catch (_) { modalEmbed.focus(); }
-      }, { once: true });
-      modalEmbed.setAttribute("src", DASHBOARD_URL);
+      modalEmbed.setAttribute("src", window.WSBDashboardShare.buildDashboardSrc(DASHBOARD_URL));
     } else if (modalEmbed) {
       try { modalEmbed.focus({ preventScroll: true }); }
       catch (_) { modalEmbed.focus(); }

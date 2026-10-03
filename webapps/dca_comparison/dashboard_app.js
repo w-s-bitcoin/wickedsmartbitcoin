@@ -1251,47 +1251,8 @@
     );
   }
 
-  function encodeShareState(payload) {
-    try {
-      const json = JSON.stringify(payload);
-      const bytes = new TextEncoder().encode(json);
-      let binary = "";
-      bytes.forEach((byte) => {
-        binary += String.fromCharCode(byte);
-      });
-      return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-    } catch (_) {
-      return "";
-    }
-  }
-
-  function decodeShareState(rawValue) {
-    if (!rawValue) return null;
-    try {
-      const normalized = rawValue.replace(/-/g, "+").replace(/_/g, "/");
-      const paddingLength = (4 - (normalized.length % 4)) % 4;
-      const padded = normalized + "=".repeat(paddingLength);
-      const binary = atob(padded);
-      const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-      const json = new TextDecoder().decode(bytes);
-      const parsed = JSON.parse(json);
-      return parsed && typeof parsed === "object" ? parsed : null;
-    } catch (_) {
-      return null;
-    }
-  }
-
   function getDashboardShareStateFromUrl() {
-    const params = new URLSearchParams(window.location.search || "");
-    return decodeShareState(params.get(SHARE_STATE_PARAM) || "");
-  }
-
-  function getShareRouteBaseUrl() {
-    const path = String(window.location.pathname || "");
-    const dashboardMatch = path.match(/^(.*)\/webapps\/dca_comparison\/dashboard\.html$/i);
-    const basePath = dashboardMatch ? (dashboardMatch[1] || "") : path.replace(/\/[^/]*$/, "");
-    if (IS_LOCAL_RUNTIME) return `${window.location.origin}${basePath}/dca_comparison.html`;
-    return `${window.location.origin}${basePath}/dca_comparison`;
+    return window.WSBDashboardComponents.readShareState({ param: SHARE_STATE_PARAM });
   }
 
   function setButtonIcon(iconId, svgMarkup) {
@@ -1316,6 +1277,12 @@
       speed: state.settings.speed,
       scale: state.settings.scale,
       currentIso: state.currentIso,
+      timeZone: state.timeZone || "UTC",
+      pausedPlaybackSession: (state.isPlaying || state.paused) ? {
+        startIso: state.settings.rangeStart,
+        targetEndIso: state.settings.rangeEnd,
+        currentIso: state.currentIso,
+      } : null,
     };
   }
 
@@ -1331,6 +1298,8 @@
       rangeEnd: endIso,
       rangeTracksLatestEnd: true,
       currentIso: endIso,
+      timeZone: "UTC",
+      pausedPlaybackSession: null,
     };
   }
 
@@ -1352,7 +1321,8 @@
       && !!current.rangeTracksLatestEnd === !!defaults.rangeTracksLatestEnd
       && Number(current.speed) === Number(defaults.speed)
       && current.scale === defaults.scale
-      && current.currentIso === defaults.currentIso;
+      && current.currentIso === defaults.currentIso
+      && current.timeZone === defaults.timeZone;
   }
 
   function isDefaultState() {
@@ -1380,6 +1350,7 @@
     if (!snapshot || typeof snapshot !== "object") return;
     stopAnimation(false);
     state.settings = { ...DEFAULTS, ...snapshot };
+    state.timeZone = DASHBOARD_TIME?.setPreferredTimeZone?.(snapshot.timeZone || "UTC") || snapshot.timeZone || "UTC";
     state.manualRangeSelection = !state.settings.preset && !!(state.settings.rangeStart || state.settings.rangeEnd);
     state.currentIso = typeof snapshot.currentIso === "string" ? snapshot.currentIso : state.settings.rangeEnd;
     normalizeSettings();
@@ -1406,18 +1377,7 @@
   }
 
   function buildShareableDashboardUrl() {
-    const defaults = getDefaultDashboardState();
-    const payload = captureShareState();
-    const compactPayload = {};
-    Object.entries(payload).forEach(([key, value]) => {
-      if (value === defaults[key]) return;
-      if (value === "" || value === null || value === undefined) return;
-      compactPayload[key] = value;
-    });
-    const shareUrl = new URL(getShareRouteBaseUrl());
-    const encoded = encodeShareState(compactPayload);
-    if (encoded) shareUrl.searchParams.set(SHARE_STATE_PARAM, encoded);
-    return shareUrl.toString();
+    return DASHBOARD_COMPONENTS.buildShareUrl({ slug: "dca_comparison", state: captureShareState() });
   }
 
   async function copyDashboardLinkToClipboard(buttonEl) {
@@ -1637,7 +1597,15 @@
   function readStoredSettings() {
     try {
       const shareState = getDashboardShareStateFromUrl();
-      if (shareState) return { ...DEFAULTS, ...shareState };
+      if (shareState) {
+        const settings = { ...DEFAULTS, ...shareState };
+        if (shareState.rangeStart && shareState.rangeEnd) {
+          // Restore the copied dates before inferring whether they still match a live preset.
+          settings.preset = "";
+          settings.rangeTracksLatestEnd = false;
+        }
+        return settings;
+      }
       const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
       return { ...DEFAULTS, ...(parsed.settings || parsed) };
     } catch {
@@ -1661,9 +1629,15 @@
 
   function readStoredPlaybackSession() {
     try {
-      if (getDashboardShareStateFromUrl()) return null;
-      const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
-      const session = parsed.pausedPlaybackSession;
+      const shareState = getDashboardShareStateFromUrl();
+      const parsed = shareState || JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+      // Older links carried the current frame directly without a session object.
+      const session = parsed.pausedPlaybackSession || (shareState && parsed.currentIso
+        && parsed.currentIso !== parsed.rangeEnd ? {
+          startIso: parsed.rangeStart,
+          targetEndIso: parsed.rangeEnd,
+          currentIso: parsed.currentIso,
+        } : null);
       if (
         session
         && typeof session === "object"
@@ -1902,14 +1876,16 @@
     s.capBtcTotalToSupply = s.capBtcTotalToSupply !== false;
     s.preset = ["", "ytd", "1y", "2y", "4y", "8y", "full"].includes(s.preset) ? s.preset : "";
     s.rangeTracksLatestEnd = s.rangeTracksLatestEnd === true;
-    if (s.preset) {
+    // Playback owns its frame and target range until the session ends.
+    const hasPlaybackSession = state.isPlaying || state.paused;
+    if (!hasPlaybackSession && s.preset) {
       state.manualRangeSelection = false;
       s.rangeEnd = getLatestPresetEndIso(s);
       s.rangeStart = getPresetStartIso(s.preset, s.rangeEnd);
       state.desiredRangeStart = s.rangeStart;
       state.desiredRangeEnd = s.rangeEnd;
       s.rangeTracksLatestEnd = true;
-    } else if (s.rangeTracksLatestEnd && s.rangeStart && s.rangeEnd) {
+    } else if (!hasPlaybackSession && s.rangeTracksLatestEnd && s.rangeStart && s.rangeEnd) {
       const latestEnd = getLatestPresetEndIso(s);
       const spanDays = Math.max(0, dayDiff(s.rangeStart, s.rangeEnd));
       s.rangeEnd = latestEnd;
@@ -3913,6 +3889,9 @@
     try {
       primeKeyboardFocus();
       state.settings = readStoredSettings();
+      if (getDashboardShareStateFromUrl() && typeof state.settings.timeZone === "string") {
+        state.timeZone = DASHBOARD_TIME?.setPreferredTimeZone?.(state.settings.timeZone) || state.settings.timeZone;
+      }
       state.manualRangeSelection = !state.settings.preset && !!(state.settings.rangeStart || state.settings.rangeEnd);
       if (typeof state.settings.currentIso === "string") state.currentIso = state.settings.currentIso;
       state.exportSettings = readStoredExportSettings();
@@ -3933,7 +3912,7 @@
         state.settings.rangeTracksLatestEnd = false;
       }
       normalizeSettings();
-      if (state.settings.preset) state.currentIso = state.settings.rangeEnd;
+      if (state.settings.preset && !pausedPlaybackSession) state.currentIso = state.settings.rangeEnd;
       normalizeExportSettings();
       render();
       DASHBOARD_COMPONENTS.setChartLoaderVisible?.(el.chartLoader, false);

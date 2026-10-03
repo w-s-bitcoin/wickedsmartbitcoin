@@ -43,6 +43,7 @@
         display: none;
       }
     </style>
+    <script src="webapps/shared/dashboard_share.js"></script>
   </head>
   <body data-standalone-modal-shell="1">
     <div class="buy-coffee">
@@ -133,10 +134,8 @@
     <script>
       (function primeStandaloneDashboard() {
         var iframe = document.getElementById('modal-embed');
-        if (!iframe) return;
-        if (!iframe.getAttribute('src')) {
-          var search = String(window.location.search || '');
-          iframe.setAttribute('src', `webapps/quantum_exposure/dashboard.html${search}`);
+        if (iframe && !iframe.getAttribute('src')) {
+          iframe.setAttribute('src', window.WSBDashboardShare.buildDashboardSrc('webapps/quantum_exposure/dashboard.html'));
         }
       })();
     </script>

@@ -132,6 +132,27 @@
   const STORAGE_ALL_ITEMS_SELECTION = 'casasciusSpinnerAllItemsSelection';
   const STORAGE_GRADED_MEDIA_MODE = 'casasciusSpinnerGradedMediaMode';
   const STORAGE_GRADED_MEDIA_SELECTION = 'casasciusSpinnerGradedMediaSelection';
+  const casasciusShareState = window.WSBDashboardComponents.readShareState();
+  const sharePreferenceKeys = new Map([
+    [STORAGE_ACTIVE_SLUG, 'coin'], [STORAGE_VIEW_STATE, 'view'],
+    [STORAGE_GROUP_SELECTIONS, 'groups'], [STORAGE_VERSIONS_COLLAPSED, 'versionsCollapsed'],
+    [STORAGE_QUARTER_COMPARISON, 'quarter'], [STORAGE_PANEL_STATE, 'panels'],
+    [STORAGE_BALANCE_CHART_OPEN, 'chartOpen'], [STORAGE_CHART_MODAL_MODE, 'chartMode'],
+    [STORAGE_BALANCE_CHART_UNIT, 'balanceUnit'], [STORAGE_PRICE_CHART_UNIT, 'priceUnit'],
+    [STORAGE_PRICE_CHART_SCALE, 'priceScale'], [STORAGE_PRICE_CHART_VISIBLE_GROUPS, 'priceGroups'],
+    [STORAGE_BALANCE_CHART_BACKGROUND_HIDDEN, 'chartBackgroundHidden'],
+    [STORAGE_BALANCE_CHART_VISIBLE_SERIES, 'balanceSeries'],
+    [STORAGE_ALL_ITEMS_CROSSHAIR, 'crosshair'], [STORAGE_ALL_ITEMS_WINDOW, 'window'],
+    [STORAGE_ALL_ITEMS_VIEW_MODE, 'allItemsView'], [STORAGE_ALL_ITEMS_SELECTION, 'selection'],
+    [STORAGE_GRADED_MEDIA_MODE, 'gradedView'], [STORAGE_GRADED_MEDIA_SELECTION, 'gradedSelection'],
+  ]);
+
+  function readViewPreference(key) {
+    if (!casasciusShareState) return localStorage.getItem(key);
+    const value = casasciusShareState[sharePreferenceKeys.get(key)];
+    return value == null ? null : (typeof value === 'string' ? value : JSON.stringify(value));
+  }
+
   const MOBILE_PANEL_QUERY = '(max-width: 680px)';
   const LEGACY_DEFAULT_ACTIVE_SLUG = 'cas_1btc_2011_s1';
   const DEFAULT_ACTIVE_SLUG = 'all:coins-bars';
@@ -411,7 +432,7 @@
 
   function readVersionsCollapsed() {
     try {
-      const saved = localStorage.getItem(STORAGE_VERSIONS_COLLAPSED);
+      const saved = readViewPreference(STORAGE_VERSIONS_COLLAPSED);
       if (saved !== null) return saved === 'true';
       return window.matchMedia?.(MOBILE_PANEL_QUERY)?.matches || false;
     } catch (_) {
@@ -427,7 +448,7 @@
 
   function readQuarterComparison() {
     try {
-      return localStorage.getItem(STORAGE_QUARTER_COMPARISON) === 'true';
+      return readViewPreference(STORAGE_QUARTER_COMPARISON) === 'true';
     } catch (_) {
       return false;
     }
@@ -454,7 +475,7 @@
 
   function readPanelState() {
     try {
-      const raw = localStorage.getItem(STORAGE_PANEL_STATE);
+      const raw = readViewPreference(STORAGE_PANEL_STATE);
       if (!raw) {
         const mobile = window.matchMedia?.(MOBILE_PANEL_QUERY)?.matches || false;
         return { left: !mobile, bottom: true, right: !mobile, leftMode: 'recent' };
@@ -499,7 +520,7 @@
 
   function readBalanceChartOpen() {
     try {
-      return localStorage.getItem(STORAGE_BALANCE_CHART_OPEN) === 'true';
+      return readViewPreference(STORAGE_BALANCE_CHART_OPEN) === 'true';
     } catch (_) {
       return false;
     }
@@ -513,7 +534,7 @@
 
   function readChartModalMode() {
     try {
-      return localStorage.getItem(STORAGE_CHART_MODAL_MODE) === 'price' ? 'price' : 'balance';
+      return readViewPreference(STORAGE_CHART_MODAL_MODE) === 'price' ? 'price' : 'balance';
     } catch (_) {
       return 'balance';
     }
@@ -527,7 +548,7 @@
 
   function readBalanceChartUnit() {
     try {
-      return localStorage.getItem(STORAGE_BALANCE_CHART_UNIT) === 'usd' ? 'usd' : 'btc';
+      return readViewPreference(STORAGE_BALANCE_CHART_UNIT) === 'usd' ? 'usd' : 'btc';
     } catch (_) {
       return 'btc';
     }
@@ -541,7 +562,7 @@
 
   function readPriceChartUnit() {
     try {
-      return localStorage.getItem(STORAGE_PRICE_CHART_UNIT) === 'usd' ? 'usd' : 'btc';
+      return readViewPreference(STORAGE_PRICE_CHART_UNIT) === 'usd' ? 'usd' : 'btc';
     } catch (_) {
       return 'btc';
     }
@@ -555,7 +576,7 @@
 
   function readPriceChartScale() {
     try {
-      return localStorage.getItem(STORAGE_PRICE_CHART_SCALE) === 'log' ? 'log' : 'linear';
+      return readViewPreference(STORAGE_PRICE_CHART_SCALE) === 'log' ? 'log' : 'linear';
     } catch (_) {
       return 'linear';
     }
@@ -579,7 +600,7 @@
   function readPriceChartVisibleGroups() {
     const defaults = defaultPriceChartVisibleGroups();
     try {
-      const saved = JSON.parse(localStorage.getItem(STORAGE_PRICE_CHART_VISIBLE_GROUPS) || 'null');
+      const saved = JSON.parse(readViewPreference(STORAGE_PRICE_CHART_VISIBLE_GROUPS) || 'null');
       if (!saved || typeof saved !== 'object') return defaults;
       const legacyFunded = typeof saved.funded === 'boolean' ? saved.funded : defaults.originalFunded;
       const legacyPremium = typeof saved.premium === 'boolean' ? saved.premium : defaults.originalPremium;
@@ -690,7 +711,7 @@
   function readBalanceChartVisibleSeries() {
     const defaults = defaultBalanceChartVisibleSeries();
     try {
-      const saved = JSON.parse(localStorage.getItem(STORAGE_BALANCE_CHART_VISIBLE_SERIES) || 'null');
+      const saved = JSON.parse(readViewPreference(STORAGE_BALANCE_CHART_VISIBLE_SERIES) || 'null');
       if (!saved || typeof saved !== 'object') return defaults;
       return Object.fromEntries(BALANCE_CHART_SERIES.map(series => [
         series.key,
@@ -709,7 +730,7 @@
 
   function readBalanceChartBackgroundHidden() {
     try {
-      return localStorage.getItem(STORAGE_BALANCE_CHART_BACKGROUND_HIDDEN) === 'true';
+      return readViewPreference(STORAGE_BALANCE_CHART_BACKGROUND_HIDDEN) === 'true';
     } catch (_) {
       return false;
     }
@@ -733,7 +754,7 @@
 
   function readSavedViewState() {
     try {
-      const saved = JSON.parse(localStorage.getItem(STORAGE_VIEW_STATE) || 'null');
+      const saved = JSON.parse(readViewPreference(STORAGE_VIEW_STATE) || 'null');
       if (!saved || typeof saved !== 'object') return null;
       return {
         angle: normalizeAngle(saved.angle),
@@ -750,7 +771,7 @@
 
   function readSavedAllItemsViewMode() {
     try {
-      return normalizeViewMode(localStorage.getItem(STORAGE_ALL_ITEMS_VIEW_MODE)) || 'front';
+      return normalizeViewMode(readViewPreference(STORAGE_ALL_ITEMS_VIEW_MODE)) || 'front';
     } catch (_) {
       return 'front';
     }
@@ -768,7 +789,7 @@
 
   function readSavedGradedMediaMode() {
     try {
-      return normalizeGradedMediaMode(localStorage.getItem(STORAGE_GRADED_MEDIA_MODE)) || 'model';
+      return normalizeGradedMediaMode(readViewPreference(STORAGE_GRADED_MEDIA_MODE)) || 'model';
     } catch (_) {
       return 'model';
     }
@@ -776,7 +797,7 @@
 
   function readSavedGradedMediaSelection() {
     try {
-      const saved = JSON.parse(localStorage.getItem(STORAGE_GRADED_MEDIA_SELECTION) || 'null');
+      const saved = JSON.parse(readViewPreference(STORAGE_GRADED_MEDIA_SELECTION) || 'null');
       if (!saved || typeof saved !== 'object') return null;
       const address = String(saved.address || '').trim();
       const gradedRecordId = String(saved.gradedRecordId || '').trim();
@@ -910,7 +931,7 @@
 
   function readSavedAllItemsCrosshair() {
     try {
-      const saved = JSON.parse(localStorage.getItem(STORAGE_ALL_ITEMS_CROSSHAIR) || 'null');
+      const saved = JSON.parse(readViewPreference(STORAGE_ALL_ITEMS_CROSSHAIR) || 'null');
       const x = Number(saved?.x);
       const y = Number(saved?.y);
       return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
@@ -931,7 +952,7 @@
 
   function readSavedAllItemsWindow() {
     try {
-      const saved = JSON.parse(localStorage.getItem(STORAGE_ALL_ITEMS_WINDOW) || 'null');
+      const saved = JSON.parse(readViewPreference(STORAGE_ALL_ITEMS_WINDOW) || 'null');
       const x = Number(saved?.x);
       const y = Number(saved?.y);
       const slug = typeof saved?.slug === 'string' && allItemsPackingItem(saved.slug) ? saved.slug : DEFAULT_ALL_ITEMS_FOCUS_SLUG;
@@ -959,7 +980,7 @@
 
   function readSavedAllItemsSelection() {
     try {
-      const saved = JSON.parse(localStorage.getItem(STORAGE_ALL_ITEMS_SELECTION) || 'null');
+      const saved = JSON.parse(readViewPreference(STORAGE_ALL_ITEMS_SELECTION) || 'null');
       if (!saved || typeof saved !== 'object') return null;
       const mode = validLeftPanelMode(saved?.mode);
       const address = String(saved?.address || '').trim();
@@ -1423,9 +1444,9 @@
 
   function readSavedSlug() {
     try {
-      const saved = localStorage.getItem(STORAGE_ACTIVE_SLUG);
+      const saved = readViewPreference(STORAGE_ACTIVE_SLUG);
       if (saved === ALL_ITEMS_GROUP_KEY) return saved;
-      if (saved === LEGACY_DEFAULT_ACTIVE_SLUG) return ALL_ITEMS_GROUP_KEY;
+      if (!casasciusShareState && saved === LEGACY_DEFAULT_ACTIVE_SLUG) return ALL_ITEMS_GROUP_KEY;
       const coin = COINS.find(c => c.slug === saved);
       return coin ? saved : null;
     } catch (_) {
@@ -1524,7 +1545,7 @@
   function readSavedGroupSelections() {
     const selections = new Map();
     try {
-      const saved = JSON.parse(localStorage.getItem(STORAGE_GROUP_SELECTIONS) || '{}');
+      const saved = JSON.parse(readViewPreference(STORAGE_GROUP_SELECTIONS) || '{}');
       if (!saved || typeof saved !== 'object') return selections;
       Object.entries(saved).forEach(([key, slug]) => {
         const group = COIN_GROUPS.find(g => g.key === key);
@@ -1589,7 +1610,7 @@
   const GROUP_REPEATS = 3;
   const groupSelections = readSavedGroupSelections();
   const savedAllItemsWindow = readSavedAllItemsWindow();
-  const savedAllItemsLegacyDefault = savedAllItemsWindow?.slug === DEFAULT_ALL_ITEMS_FOCUS_SLUG;
+  const savedAllItemsLegacyDefault = !casasciusShareState && savedAllItemsWindow?.slug === DEFAULT_ALL_ITEMS_FOCUS_SLUG;
   const savedAllItemsAutoLatest = savedAllItemsWindow?.autoLatest === true;
   const savedGradedMediaMode = readSavedGradedMediaMode();
   const savedGradedMediaSelection = readSavedGradedMediaSelection();
@@ -10468,6 +10489,7 @@
     pendingSearchSelection = preservedSelection?.address
       ? {
           address: String(preservedSelection.address || ''),
+          gradedRecordId: String(preservedSelection.gradedRecordId || ''),
           mode: validLeftPanelMode(preservedSelection.mode)
         }
       : null;
@@ -11881,6 +11903,59 @@
     });
   });
 
+  function buildCasasciusShareUrl() {
+    const selected = selectedTrackerEntry(currentBalanceChartRows, leftPanelMode);
+    const selection = {
+      mode: leftPanelMode,
+      address: String(selected?.address || selectedLeftPanelAddressByMode[leftPanelMode] || ''),
+      gradedRecordId: selectedLeftPanelRecordIdByMode[leftPanelMode] || '',
+      slug: allItemsMode ? allItemsFocusedSlug : activeSlug,
+    };
+    return window.WSBDashboardComponents.buildShareUrl({ slug: 'casascius_explorer', state: {
+      coin: allItemsMode ? ALL_ITEMS_GROUP_KEY : activeSlug,
+      groups: Object.fromEntries(groupSelections),
+      view: { angle: normalizeAngle(angle), tilt, speedValue: Number(speedInput.value), zoomValue: Number(zoomInput.value), running, viewMode: activeViewMode },
+      versionsCollapsed, quarter: quarterComparisonInput.checked,
+      panels: { left: leftPanelOpen, bottom: bottomPanelOpen, right: rightPanelOpen, leftMode: leftPanelMode },
+      chartOpen: Boolean(balanceChartModal?.classList.contains('open')), chartMode: activeChartModalMode,
+      balanceUnit: balanceChartUnit, priceUnit: priceChartUnit, priceScale: priceChartScale,
+      balanceSeries: balanceChartVisibleSeries, priceGroups: priceChartVisibleGroups,
+      chartBackgroundHidden: balanceChartBackgroundHidden,
+      balanceZoom: balanceChartZoom, priceZoom: priceChartZoom,
+      crosshair: allItemsCrosshairTarget,
+      window: { x: allItemsOffsetX, y: allItemsOffsetY, slug: allItemsFocusedSlug, autoLatest: false },
+      allItemsView: allItemsViewMode, selection,
+      gradedView: gradedMediaMode, gradedSelection: { ...selection, allItems: allItemsMode },
+      query: addressSearchInput.value,
+    } });
+  }
+
+  function restoreSharedChartZoom(value) {
+    if (!value || !['minTime', 'maxTime'].every((key) => Number.isFinite(value[key]))) return null;
+    if (value.minTime >= value.maxTime) return null;
+    if (value.yMin != null || value.yMax != null) {
+      if (!Number.isFinite(value.yMin) || !Number.isFinite(value.yMax) || value.yMin >= value.yMax) return null;
+    }
+    return value;
+  }
+
+  document.getElementById('copyDashboardLink')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    let feedback = 'Link copied';
+    try {
+      await window.WSBDashboardComponents.copyDashboardLink({ button, getUrl: buildCasasciusShareUrl });
+    } catch (_) {
+      feedback = 'Unable to copy link';
+    }
+    window.clearTimeout(button.__casCopyFeedbackTimer);
+    button.title = feedback;
+    button.setAttribute('aria-label', feedback);
+    button.__casCopyFeedbackTimer = window.setTimeout(() => {
+      button.title = 'Copy link to this view';
+      button.setAttribute('aria-label', 'Copy link to this view');
+    }, 1400);
+  });
+
   if (quarterComparisonInput.checked) {
     app.classList.add('quarter-booting');
     quarterScene.style.transition = 'none';
@@ -11901,8 +11976,21 @@
   renderBarAddress();
   const initialSelection = activeSlug === ALL_ITEMS_GROUP_KEY
     ? enterAllItemsMode({ align: false })
-    : selectCoin(activeSlug, { alignGroup: false });
-  Promise.resolve(initialSelection).finally(() => {
+    : selectCoin(activeSlug, { alignGroup: false, preservedSelection: casasciusShareState?.selection });
+  Promise.resolve(initialSelection).finally(async () => {
+    if (casasciusShareState) {
+      addressSearchInput.value = sanitizeSearchAddress(String(casasciusShareState.query || ''));
+      if (addressSearchInput.value) await runAddressSearch();
+      if (savedViewState) {
+        angle = savedViewState.angle;
+        tilt = savedViewState.tilt;
+        activeViewMode = savedViewState.viewMode;
+        setTransform({ save: false });
+        syncViewButtons();
+      }
+      balanceChartZoom = restoreSharedChartZoom(casasciusShareState.balanceZoom);
+      priceChartZoom = restoreSharedChartZoom(casasciusShareState.priceZoom);
+    }
     settleInitialPanelLayout(() => {
       updateDockedPanelLayout();
       updateSidePanelLayouts();

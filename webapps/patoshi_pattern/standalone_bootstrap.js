@@ -350,17 +350,13 @@
     document.body.style.overflow = "hidden";
     if (modalEmbedWrap) modalEmbedWrap.hidden = false;
     if (modalEmbed && !modalEmbed.getAttribute("src")) {
-      modalEmbed.setAttribute("src", getDashboardUrl());
+      modalEmbed.setAttribute("src", window.WSBDashboardShare.buildDashboardSrc(DASHBOARD_URL));
     }
     if (modalImg) {
       modalImg.style.opacity = "0";
       modalImg.style.visibility = "hidden";
       modalImg.style.transform = "translate3d(-9999px,-9999px,0) scale(1)";
     }
-  }
-
-  function getDashboardUrl() {
-    return `${DASHBOARD_URL}?_=${Date.now()}`;
   }
 
   function navigateToImage(filename) {

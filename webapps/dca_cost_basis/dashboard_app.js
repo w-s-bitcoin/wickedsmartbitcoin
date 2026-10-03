@@ -606,47 +606,14 @@ function fmtUsd(value, decimals = 0) {
   });
 }
 
-function encodeShareState(payload) {
-  try {
-    const json = JSON.stringify(payload);
-    const bytes = new TextEncoder().encode(json);
-    let binary = "";
-    bytes.forEach((byte) => {
-      binary += String.fromCharCode(byte);
-    });
-    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-  } catch (_) {
-    return "";
-  }
-}
-
-function decodeShareState(rawValue) {
-  if (!rawValue) return null;
-  try {
-    const normalized = rawValue.replace(/-/g, "+").replace(/_/g, "/");
-    const paddingLength = (4 - (normalized.length % 4)) % 4;
-    const padded = normalized + "=".repeat(paddingLength);
-    const binary = atob(padded);
-    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-    const json = new TextDecoder().decode(bytes);
-    const parsed = JSON.parse(json);
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch (_) {
-    return null;
-  }
-}
-
 function getDashboardShareStateFromUrl() {
-  const params = new URLSearchParams(window.location.search || "");
-  return decodeShareState(params.get(SHARE_STATE_PARAM) || "");
+  return window.WSBDashboardComponents.readShareState({ param: SHARE_STATE_PARAM });
 }
 
 function loadControls() {
   try {
     const shareState = getDashboardShareStateFromUrl();
-    const raw = localStorage.getItem(CONTROLS_STORAGE_KEY);
-    if (!raw && !shareState) return;
-    const parsed = shareState || JSON.parse(raw);
+    const parsed = shareState || JSON.parse(localStorage.getItem(CONTROLS_STORAGE_KEY) || "{}");
 
     if (["daily_dca", "weekly_dca", "monthly_dca"].includes(parsed.cadence)) {
       state.cadence = parsed.cadence;
@@ -1177,24 +1144,28 @@ function syncDateRangeSelectionMetadata(preferredPreset = "custom") {
 
 function loadDateRangeState() {
   try {
-    const parsed = getDashboardShareStateFromUrl() || JSON.parse(localStorage.getItem(DATE_RANGE_STORAGE_KEY) || "{}");
+    const shareState = getDashboardShareStateFromUrl();
+    const parsed = shareState || JSON.parse(localStorage.getItem(DATE_RANGE_STORAGE_KEY) || "{}");
     if (typeof parsed.startIso === "string") state.dateRange.startIso = parsed.startIso;
     if (typeof parsed.endIso === "string") state.dateRange.endIso = parsed.endIso;
     if (typeof parsed.selectedPreset === "string") state.dateRange.selectedPreset = parsed.selectedPreset;
     state.dateRange.rangeTracksLatestEnd = parsed.rangeTracksLatestEnd === true;
     const speed = Number(parsed.playbackSpeed);
     if (PLAYBACK_SPEEDS.includes(speed)) state.dateRange.playbackSpeed = speed;
-    if (
-      parsed.pausedPlaybackSession
-      && typeof parsed.pausedPlaybackSession === "object"
-      && typeof parsed.pausedPlaybackSession.startIso === "string"
-      && typeof parsed.pausedPlaybackSession.targetEndIso === "string"
-      && typeof parsed.pausedPlaybackSession.currentEndIso === "string"
-    ) {
+    const session = parsed.pausedPlaybackSession || (shareState && parsed.currentEndIso
+      && parsed.currentEndIso !== parsed.endIso ? {
+        startIso: parsed.startIso,
+        targetEndIso: parsed.endIso,
+        currentEndIso: parsed.currentEndIso,
+      } : null);
+    if (session && typeof session === "object"
+      && typeof session.startIso === "string"
+      && typeof session.targetEndIso === "string"
+      && typeof session.currentEndIso === "string") {
       return {
-        startIso: clampIsoToData(parsed.pausedPlaybackSession.startIso),
-        targetEndIso: clampIsoToData(parsed.pausedPlaybackSession.targetEndIso),
-        currentEndIso: clampIsoToData(parsed.pausedPlaybackSession.currentEndIso),
+        startIso: clampIsoToData(session.startIso),
+        targetEndIso: clampIsoToData(session.targetEndIso),
+        currentEndIso: clampIsoToData(session.currentEndIso),
       };
     }
   } catch (_) {
@@ -1346,30 +1317,14 @@ function updateResetButtonUi() {
   setCustomTooltip(btn, preResetStateSnapshot ? "Undo the last restore defaults action" : "Reset dashboard to defaults");
 }
 
-function getShareRouteBaseUrl() {
-  const path = String(window.location.pathname || "");
-  const dashboardMatch = path.match(/^(.*)\/webapps\/dca_cost_basis\/dashboard\.html$/i);
-  const basePath = dashboardMatch ? (dashboardMatch[1] || "") : path.replace(/\/[^/]*$/, "");
-  if (IS_LOCAL_RUNTIME) {
-    return `${window.location.origin}${basePath}/dca_cost_basis.html`;
-  }
-  return `${window.location.origin}${basePath}/dca_cost_basis`;
-}
-
 function buildShareableDashboardUrl() {
-  const defaults = getDefaultDashboardState();
   const payload = captureResetSnapshot();
-  const compactPayload = {};
-  Object.entries(payload).forEach(([key, value]) => {
-    if (value === defaults[key]) return;
-    compactPayload[key] = value;
-  });
-
-  const shareUrl = new URL(getShareRouteBaseUrl());
-  if (!Object.keys(compactPayload).length) return shareUrl.toString();
-  const encoded = encodeShareState(compactPayload);
-  if (encoded) shareUrl.searchParams.set(SHARE_STATE_PARAM, encoded);
-  return shareUrl.toString();
+  payload.pausedPlaybackSession = (state.dateRange.isPlaying || state.dateRange.isPaused) ? {
+    startIso: state.dateRange.startIso,
+    targetEndIso: state.dateRange.endIso,
+    currentEndIso: state.dateRange.currentEndIso,
+  } : null;
+  return DASHBOARD_COMPONENTS.buildShareUrl({ slug: "dca_cost_basis", state: payload });
 }
 
 async function copyDashboardLinkToClipboard(buttonEl) {
@@ -1415,6 +1370,7 @@ function initializeDateRangeState() {
   state.dateRange.startIso = minIso;
   state.dateRange.endIso = maxIso;
   state.dateRange.currentEndIso = maxIso;
+  const shareState = getDashboardShareStateFromUrl();
   const pausedPlaybackSession = loadDateRangeState();
   if (pausedPlaybackSession) {
     state.dateRange.startIso = pausedPlaybackSession.startIso;
@@ -1422,8 +1378,12 @@ function initializeDateRangeState() {
     state.dateRange.currentEndIso = pausedPlaybackSession.currentEndIso;
     state.dateRange.isPlaying = false;
     state.dateRange.isPaused = true;
-    state.dateRange.selectedPreset = "custom";
-    state.dateRange.rangeTracksLatestEnd = false;
+    if (!shareState) {
+      state.dateRange.selectedPreset = "custom";
+      state.dateRange.rangeTracksLatestEnd = false;
+    }
+  } else if (shareState && shareState.startIso && shareState.endIso) {
+    state.dateRange.currentEndIso = state.dateRange.endIso;
   } else if (state.dateRange.selectedPreset && state.dateRange.selectedPreset !== "custom") {
     state.dateRange.endIso = maxIso;
     state.dateRange.startIso = getPresetStartIso(state.dateRange.selectedPreset, maxIso);
