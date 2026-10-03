@@ -1,14 +1,16 @@
-/* Public BTC/USD spot feed. Socket prices are preferred; REST covers startup and outages. */
+/* Public BTC/USD spot feed: 2140data socket, 2140data REST, then legacy sources. */
 (function () {
   "use strict";
 
-  const SOCKET_URL = "wss://ws-feed.exchange.coinbase.com";
+  const SOCKET_URL = "wss://2140data.io/";
+  const REST_URL = "https://2140data.io/price";
+  const LEGACY_SOCKET_URL = "wss://ws-feed.exchange.coinbase.com";
   const SOCKET_STALL_MS = 65000;
   const QUOTE_LIVE_MS = 60000;
   const QUOTE_STALE_MS = 90000;
   const POLL_MS = 60000;
   const REQUEST_TIMEOUT_MS = 12000;
-  const SOURCES = [
+  const LEGACY_SOURCES = [
     {
       name: "Coinbase",
       url: "https://api.exchange.coinbase.com/products/BTC-USD/ticker",
@@ -31,11 +33,14 @@
     },
   ];
 
-  function create({ onQuote } = {}) {
+  function create({ onQuote, legacySources = LEGACY_SOURCES, legacySocket = true } = {}) {
     let started = false;
     let socket = null;
     let socketPriceAt = 0;
     let socketHeardAt = 0;
+    let oldSocket = null;
+    let oldSocketPriceAt = 0;
+    let restPriceAt = 0;
     let retryDelay = 2000;
     let retryTimer = 0;
     let watchTimer = 0;
@@ -105,6 +110,15 @@
       old.close();
     }
 
+    function closeOldSocket() {
+      oldSocketPriceAt = 0;
+      if (!oldSocket) return;
+      const old = oldSocket;
+      oldSocket = null;
+      old.onopen = old.onmessage = old.onclose = old.onerror = null;
+      old.close();
+    }
+
     function retrySocket() {
       if (!started || !isVisible() || retryTimer) return;
       retryTimer = window.setTimeout(() => {
@@ -137,27 +151,19 @@
       const opened = socket;
       opened.onopen = () => {
         socketHeardAt = Date.now();
-        opened.send(JSON.stringify({
-          type: "subscribe", product_ids: ["BTC-USD"], channels: ["ticker_batch"],
-        }));
         watchTimer = window.setTimeout(watchSocket, SOCKET_STALL_MS / 2);
       };
       opened.onmessage = (event) => {
-        socketHeardAt = Date.now();
         let data;
         try { data = JSON.parse(event.data); } catch (_) { return; }
-        if (data?.type === "error" || (data?.type === "subscriptions" && !data.channels?.length)) {
-          closeSocket();
-          retrySocket();
-          schedulePoll(0);
-          return;
-        }
-        if (data?.type !== "ticker" || data.product_id !== "BTC-USD") return;
-        const eventAt = data.time ? Date.parse(data.time) : Date.now();
+        const eventAt = data?.time ? Date.parse(data.time) : Date.now();
         if (!Number.isFinite(eventAt) || Math.abs(Date.now() - eventAt) > QUOTE_STALE_MS) return;
-        if (publish(Number(data.price), "Coinbase live", eventAt)) {
+        if (publish(Number(data?.weightedPrice), "2140data.io live", eventAt)) {
+          socketHeardAt = Date.now();
           socketPriceAt = Date.now();
           retryDelay = 2000;
+          request?.abort();
+          closeOldSocket();
         }
       };
       opened.onclose = () => {
@@ -172,6 +178,35 @@
       opened.onerror = () => opened.close();
     }
 
+    function connectOldSocket() {
+      if (!legacySocket || !started || !isVisible() || oldSocket
+          || typeof WebSocket === "undefined") return;
+      try { oldSocket = new WebSocket(LEGACY_SOCKET_URL); }
+      catch (_) { return; }
+      const opened = oldSocket;
+      opened.onopen = () => opened.send(JSON.stringify({
+        type: "subscribe", product_ids: ["BTC-USD"], channels: ["ticker_batch"],
+      }));
+      opened.onmessage = (event) => {
+        if (socketPriceAt && Date.now() - socketPriceAt < SOCKET_STALL_MS) return;
+        if (restPriceAt && Date.now() - restPriceAt < POLL_MS + 5000) return;
+        let data;
+        try { data = JSON.parse(event.data); } catch (_) { return; }
+        if (data?.type === "error" || (data?.type === "subscriptions" && !data.channels?.length)) {
+          closeOldSocket();
+          return;
+        }
+        if (data?.type !== "ticker" || data.product_id !== "BTC-USD") return;
+        const eventAt = data.time ? Date.parse(data.time) : Date.now();
+        if (!Number.isFinite(eventAt) || Math.abs(Date.now() - eventAt) > QUOTE_STALE_MS) return;
+        if (publish(Number(data.price), "Coinbase live", eventAt)) oldSocketPriceAt = Date.now();
+      };
+      opened.onclose = () => {
+        if (oldSocket === opened) oldSocket = null;
+      };
+      opened.onerror = () => opened.close();
+    }
+
     function schedulePoll(delay = POLL_MS) {
       if (!started || !isVisible()) return;
       clearTimeout(pollTimer);
@@ -182,14 +217,22 @@
     }
 
     async function poll() {
-      if (!started || !isVisible() || request) return;
+      if (!started || !isVisible() || request) return current();
       if (socketPriceAt && Date.now() - socketPriceAt < SOCKET_STALL_MS) {
         schedulePoll();
-        return;
+        return current();
       }
       const pollStartedAt = Date.now();
-      for (const source of SOURCES) {
+      const sources = [
+        { name: "2140data.io REST", url: REST_URL,
+          read: (data) => ({ price: Number(data?.price) }) },
+        ...legacySources,
+      ];
+      let restSucceeded = false;
+      for (const [index, source] of sources.entries()) {
         if (!started || !isVisible()) break;
+        if (socketPriceAt && Date.now() - socketPriceAt < SOCKET_STALL_MS) break;
+        if (index === 1) connectOldSocket();
         const controller = new AbortController();
         request = controller;
         const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -197,12 +240,20 @@
           const response = await fetch(source.url, { signal: controller.signal, cache: "no-store" });
           if (!response.ok) continue;
           const { price, at } = source.read(await response.json());
+          if (!started || !isVisible()) break;
           if (socketPriceAt >= pollStartedAt) break;
-          if (Number.isFinite(at)) {
-            if (Math.abs(Date.now() - at) > QUOTE_STALE_MS || at <= (lastQuote?.at || 0)) continue;
+          if (index > 0 && oldSocketPriceAt >= pollStartedAt) break;
+          if (index === 0) {
+            if (publish(price, source.name)) {
+              restPriceAt = Date.now();
+              restSucceeded = true;
+              closeOldSocket();
+              break;
+            }
+          } else if (Number.isFinite(at)) {
+            if (Math.abs(Date.now() - at) > QUOTE_STALE_MS || at < (lastQuote?.at || 0)) continue;
             if (publish(price, source.name, at)) break;
-          } else if (!lastQuote && publish(price, source.name)) {
-            // Untimed sources can fill a cold start, but cannot displace a timed quote.
+          } else if (publish(price, source.name)) {
             break;
           }
         } catch (_) {
@@ -212,7 +263,11 @@
           if (request === controller) request = null;
         }
       }
+      if (!restSucceeded && (!socketPriceAt || Date.now() - socketPriceAt >= SOCKET_STALL_MS)) {
+        connectOldSocket();
+      }
       schedulePoll();
+      return current();
     }
 
     function onVisibilityChange() {
@@ -223,6 +278,7 @@
         retryTimer = pollTimer = 0;
         request?.abort();
         closeSocket();
+        closeOldSocket();
       } else {
         if (!current() && quote) {
           quote = null;
@@ -253,9 +309,10 @@
       retryTimer = watchTimer = pollTimer = liveTimer = staleTimer = 0;
       request?.abort();
       closeSocket();
+      closeOldSocket();
     }
 
-    return { start, stop, current, last, isLive, newerThan };
+    return { start, stop, current, last, isLive, newerThan, refresh: poll };
   }
 
   window.WSBBitcoinSpotPrice = { create };

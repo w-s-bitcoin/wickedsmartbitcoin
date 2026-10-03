@@ -19,9 +19,27 @@ CHROME = os.environ.get("CHROME_BIN", "/Applications/Google Chrome.app/Contents/
 SHIM = r"""
 (() => {
   const nativeFetch = window.fetch.bind(window);
-  window.__netQuote = { offline: localStorage.getItem('netQuoteFixtureOffline') === '1', price: 123456 };
+  window.__netQuote = { offline: localStorage.getItem('netQuoteFixtureOffline') === '1',
+    primaryOffline: false, price: 123456 };
+  class PriceSocket {
+    constructor(url) {
+      this.url = url;
+      window.__netSocket = this;
+      setTimeout(() => {
+        this.onopen?.();
+        if (!window.__netQuote.offline && !window.__netQuote.primaryOffline) this.onmessage?.({ data: JSON.stringify({
+          weightedPrice: String(window.__netQuote.price),
+        }) });
+      }, 0);
+    }
+    close() { this.closed = true; }
+  }
+  window.WebSocket = PriceSocket;
   window.fetch = (input, options) => {
     const url = String(typeof input === 'string' ? input : input?.url || '');
+    if (url === 'https://2140data.io/price') {
+      return Promise.reject(new TypeError('fixture REST offline'));
+    }
     if (url.includes('/0/public/Ticker?pair=USDCUSD,XBTUSDC')) {
       if (window.__netQuote.offline) return Promise.reject(new TypeError('fixture offline'));
       return Promise.resolve(new Response(JSON.stringify({ result: {
@@ -63,6 +81,19 @@ def main():
               && Number(formState.btcusd) === 123456
               && publishedBtcPriceAt > 0
             """), timeout=65, description="Net Worth live quote and published snapshot")
+            fallback = cdp.evaluate("""
+              (async () => {
+                window.__netQuote.primaryOffline = true;
+                window.__netQuote.price = 123457;
+                window.__netSocket.onclose();
+                await networthSpotFeed.refresh();
+                return Number(formState.btcusd) === 123457
+                  && networthSpotFeed.last()?.source === 'Kraken' ? ''
+                  : 'Net Worth did not use its Kraken last fallback';
+              })()
+            """)
+            if fallback:
+                raise AssertionError(fallback)
             result = cdp.evaluate("""
               (async () => {
                 const price = Number(formState.btcusd);
@@ -102,8 +133,8 @@ def main():
                 f"http://127.0.0.1:{server_port}/webapps/bitcoin_net_worth/dashboard.html"})
             wait_for(lambda: cdp.evaluate("""
               document.querySelector('#quoteStatusDot')?.dataset.kind === 'stale'
-              && Number(formState.btcusd) === 123456
-              && document.querySelector('#quoteStatusDot')?.title.includes('last Kraken quote')
+              && Number(formState.btcusd) === 123457
+              && document.querySelector('#quoteStatusDot')?.title.includes('last saved quote')
             """), timeout=65, description="retained Net Worth quote after reload while offline")
             print("Net Worth quote retention and status browser regression passed.")
         finally:

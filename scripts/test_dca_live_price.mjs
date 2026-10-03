@@ -139,7 +139,8 @@ async function testSpotFeed() {
   const quotes = [];
   const sockets = [];
   let restPrice = 300;
-  let restAt = 0;
+  let restFails = false;
+  const requests = [];
   const FakeDate = class extends Date { static now() { return now; } };
   class FakeSocket {
     constructor(url) { this.url = url; sockets.push(this); }
@@ -150,9 +151,16 @@ async function testSpotFeed() {
     Date: FakeDate,
     WebSocket: FakeSocket,
     AbortController,
-    fetch: async (url) => ({ ok: true, json: async () => url.endsWith('/ticker')
-      ? { price: String(restPrice), time: new Date(restAt || now).toISOString() }
-      : { last: String(restPrice) } }),
+    fetch: async (url) => {
+      requests.push(url);
+      if (url === 'https://2140data.io/price') {
+        if (restFails) throw new TypeError('REST unavailable');
+        return { ok: true, json: async () => ({ price: String(restPrice) }) };
+      }
+      return { ok: true, json: async () => ({
+        price: '350', time: new Date(now).toISOString(),
+      }) };
+    },
     window: {
       setTimeout(fn, delay) { const id = nextId++; timers.set(id, { at: now + delay, fn }); return id; },
     },
@@ -169,86 +177,70 @@ async function testSpotFeed() {
   const feed = sandbox.window.WSBBitcoinSpotPrice.create({ onQuote: (quote) => quotes.push(quote) });
   feed.start();
   const socket = sockets[0];
+  assert.equal(socket.url, 'wss://2140data.io/');
   socket.onopen();
-  assert.equal(socket.subscription.channels[0], 'ticker_batch');
-  socket.onmessage({ data: JSON.stringify({ type: 'ticker', product_id: 'ETH-USD', price: '1000' }) });
-  assert.equal(quotes.length, 0, 'other products do not affect BTC');
-  socket.onmessage({ data: JSON.stringify({
-    type: 'ticker', product_id: 'BTC-USD', price: '400', time: new Date(now).toISOString(),
-  }) });
+  assert.equal(socket.subscription, undefined, '2140data sends prices without a subscription');
+  socket.onmessage({ data: JSON.stringify({ price: '1000' }) });
+  socket.onmessage({ data: JSON.stringify({ weightedPrice: '-1' }) });
+  assert.equal(quotes.length, 0, 'invalid or unrelated messages do not affect BTC');
+  socket.onmessage({ data: JSON.stringify({ weightedPrice: '400' }) });
   assert.equal(feed.current().price, 400);
-  assert.equal(quotes.at(-1).source, 'Coinbase live');
+  assert.equal(quotes.at(-1).source, '2140data.io live');
   const firstQuoteAt = quotes.at(-1).at;
   now += 1000;
-  socket.onmessage({ data: JSON.stringify({
-    type: 'ticker', product_id: 'BTC-USD', price: '400', time: new Date(now).toISOString(),
-  }) });
+  socket.onmessage({ data: JSON.stringify({ weightedPrice: '400' }) });
   assert.ok(quotes.at(-1).at > firstQuoteAt,
     'a fresh accepted quote updates the timestamp even when its price is unchanged');
   const repeatedAt = quotes.at(-1).at;
-  const notices = quotes.length;
-  now += 1000;
-  socket.onmessage({ data: JSON.stringify({
-    type: 'ticker', product_id: 'BTC-USD', price: '400', time: new Date(repeatedAt).toISOString(),
-  }) });
-  assert.equal(quotes.length, notices + 1, 'a repeated exchange tick refreshes the live-status clock');
-  assert.equal(quotes.at(-1).receivedAt, now);
+  await feed.refresh();
+  assert.equal(requests.length, 0, 'a fresh socket quote does not start REST polling');
 
-  // A REST response already in flight must not overwrite a newer socket tick.
-  restPrice = 300;
+  socket.onclose();
+  now += 1000;
+  await feed.refresh();
+  assert.equal(requests[0], 'https://2140data.io/price');
+  assert.equal(feed.current().price, 300);
+  assert.equal(feed.current().source, '2140data.io REST');
+  assert.equal(sockets.length, 1, 'working 2140data REST does not start the legacy socket');
+
+  restFails = true;
+  now += 66000;
+  await feed.refresh();
+  assert.equal(feed.current().price, 350);
+  assert.equal(feed.current().source, 'Coinbase');
+  const oldSocket = sockets.at(-1);
+  assert.equal(oldSocket.url, 'wss://ws-feed.exchange.coinbase.com');
+  oldSocket.onopen();
+  assert.equal(oldSocket.subscription.channels[0], 'ticker_batch');
+
+  now += 1000;
   for (const [id, timer] of [...timers]) {
-    if (timer.at === now) { timers.delete(id); timer.fn(); }
+    if (timer.at <= now && timer.fn) { timers.delete(id); timer.fn(); }
   }
-  await Promise.resolve();
-  await Promise.resolve();
-  assert.equal(feed.current().price, 400);
+  const resumedSocket = sockets.findLast((entry) => entry.url === 'wss://2140data.io/');
+  resumedSocket.onopen();
+  resumedSocket.onmessage({ data: JSON.stringify({ weightedPrice: '500' }) });
+  assert.equal(feed.current().price, 500);
+  assert.equal(oldSocket.closed, true, 'primary recovery closes the legacy socket');
 
   sandbox.document.visibilityState = 'hidden';
   events.get('visibilitychange')();
-  assert.equal(socket.closed, true, 'hidden documents release the socket');
+  assert.equal(resumedSocket.closed, true, 'hidden documents release the socket');
   now += 90002;
   for (const [id, timer] of [...timers]) {
     if (timer.at <= now) { timers.delete(id); timer.fn(); }
   }
   assert.equal(feed.current(), null, 'stale quotes fall back to the published snapshot');
-  assert.equal(feed.last().price, 400, 'the accepted quote remains available after the feed stalls');
+  assert.equal(feed.last().price, 500, 'the accepted quote remains available after the feed stalls');
   assert.equal(feed.isLive(), false, 'the retained quote is not labelled live');
-  assert.equal(feed.newerThan(new Date(firstQuoteAt - 1000).toISOString())?.price, 400,
+  assert.equal(feed.newerThan(new Date(firstQuoteAt - 1000).toISOString())?.price, 500,
     'the retained quote wins over an older publication');
   assert.equal(feed.newerThan(new Date(repeatedAt - 3600000).toISOString()
-    .slice(0, 19).replace('T', ' '))?.price, 400,
+    .slice(0, 19).replace('T', ' '))?.price, 500,
   'a zone-free published CSV timestamp is interpreted as UTC');
   assert.equal(feed.newerThan(new Date(now + 1000).toISOString()), null,
     'a newer publication wins over the retained quote');
   assert.equal(quotes.at(-1), null);
-
-  sandbox.document.visibilityState = 'visible';
-  events.get('visibilitychange')();
-  const resumedSocket = sockets.at(-1);
-  resumedSocket.onopen();
-  resumedSocket.onmessage({ data: JSON.stringify({
-    type: 'ticker', product_id: 'BTC-USD', price: '400', time: new Date(now).toISOString(),
-  }) });
-  // A brief socket outage must not let an older REST trade replace the last tick.
-  restAt = now - 1000;
-  resumedSocket.onclose();
-  for (const [id, timer] of [...timers]) {
-    if (timer.at === now) { timers.delete(id); timer.fn(); }
-  }
-  await new Promise(setImmediate);
-  assert.equal(feed.last().price, 400, 'older REST data replaced a newer socket quote');
-
-  // A genuinely newer timed REST trade can resume prices after the socket stalls.
-  now += 1000;
-  restAt = now;
-  restPrice = 500;
-  sandbox.document.visibilityState = 'visible';
-  events.get('visibilitychange')();
-  for (const [id, timer] of [...timers]) {
-    if (timer.at === now) { timers.delete(id); timer.fn(); }
-  }
-  await new Promise(setImmediate);
-  assert.equal(feed.last().price, 500, 'newer timed REST quote did not resume the price');
   feed.stop();
 }
 
