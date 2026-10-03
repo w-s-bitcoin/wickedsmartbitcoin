@@ -3884,6 +3884,18 @@
             }
           });
         });
+        // A newly appended day can still contain Frankfurter's official CUP
+        // rate before the informal-market source reports its next median.
+        // Guard only the recent tail so an existing mismatched publication
+        // cannot create an endpoint spike while the producer catches up.
+        const fxDates = Object.keys(byDate).sort();
+        for (let i = Math.max(1, fxDates.length - 14); i < fxDates.length; i += 1) {
+          const previousRate = byDate[fxDates[i - 1]]?.["CUP/USD"];
+          const rate = byDate[fxDates[i]]?.["CUP/USD"];
+          if (previousRate > 0 && rate > previousRate * 8) {
+            byDate[fxDates[i]]["CUP/USD"] = previousRate;
+          }
+        }
         return byDate;
       } catch (error) {
         if (options.signal?.aborted) throw error;

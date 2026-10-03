@@ -75,7 +75,14 @@ def main():
     if not Path(CHROME).is_file():
         raise SystemExit(f"Chrome not found at {CHROME}; set CHROME_BIN")
     FrozenHandler.snapshot = {"/" + name: (ROOT / name).read_bytes() for name in DATA}
-    fx_last = FrozenHandler.snapshot["/webapps/uoa/webapp_data/daily_fx_rates.csv"].decode().strip().splitlines()[-1].split(",", 1)[0]
+    fx_key = "/webapps/uoa/webapp_data/daily_fx_rates.csv"
+    fx_lines = FrozenHandler.snapshot[fx_key].decode().splitlines()
+    cup_index = fx_lines[0].split(",").index("cupusd")
+    last_fx_row = fx_lines[-1].split(",")
+    last_fx_row[cup_index] = "0.04167"  # Simulate a newly appended official-rate endpoint.
+    fx_lines[-1] = ",".join(last_fx_row)
+    FrozenHandler.snapshot[fx_key] = ("\n".join(fx_lines) + "\n").encode()
+    fx_last = last_fx_row[0]
     next_day = date.fromisoformat(fx_last) + timedelta(days=1)
     fake_now = int(datetime.combine(next_day, time(12), timezone.utc).timestamp() * 1000)
     server_port, debug_port = free_port(), free_port()
@@ -210,12 +217,18 @@ def main():
               secondary.dispatchEvent(new Event('change', { bubbles: true }));
               return '';
             })()""")
-            assert_browser(cdp, """(() => {
+            assert_browser(cdp, r"""(() => {
               const title = document.querySelector('#pairKpiChip').title;
               if (!title.includes('published snapshot: CUP'))
                 return 'CUP lost its published informal-market rate';
               if (!document.querySelector('#btcUsdBig').textContent.trim())
                 return 'published CUP rate blanked the comparison';
+              const cupValue = document.querySelector('#btcUsdBig').textContent.trim();
+              const match = cupValue.match(/([\d,.]+)\s*([kMBT]?)\s*CUP/);
+              const magnitude = match ? Number(match[1].replace(/,/g, ''))
+                * ({ k: 1e3, M: 1e6, B: 1e9, T: 1e12 }[match[2]] || 1) : 0;
+              if (magnitude < 1)
+                return `official CUP endpoint leaked into the chart: ${cupValue}`;
               if (document.querySelector('.pair-secondary .pair-status')?.dataset.kind !== 'published')
                 return 'CUP should keep a gray snapshot dot';
               if (!document.querySelector('.pair-secondary .pair-status')?.title.includes('informal-market'))
