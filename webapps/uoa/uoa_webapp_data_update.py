@@ -4,6 +4,7 @@
 import argparse
 import csv
 import json
+import math
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -663,9 +664,29 @@ def apply_cup_informal_rates(df, period=CUP_INFORMAL_PERIOD):
     mapped = date_iso.map(rate_map)
     mask = mapped.notna()
     if mask.any():
-        out.loc[mask, "cupusd"] = mapped[mask].astype(float)
-        out["cupusd"] = pd.to_numeric(out["cupusd"], errors="coerce").ffill()
+        # Once informal coverage begins, carry its last median through dates
+        # not yet reported by the source. Never expose Frankfurter's official
+        # CUP rate at the end of an otherwise informal-market series.
+        informal = mapped.astype(float).ffill()
+        current = pd.to_numeric(out["cupusd"], errors="coerce")
+        out["cupusd"] = informal.combine_first(current)
     return out, len(rates), rates[0][0], rates[-1][0]
+
+
+def carry_recent_cup_source_jump(values, recent_rows=30):
+    """Carry the last informal CUP rate over a recent official-rate fallback."""
+    corrected = list(values)
+    fixed = 0
+    for index in range(max(1, len(corrected) - recent_rows), len(corrected)):
+        try:
+            previous = float(corrected[index - 1])
+            current = float(corrected[index])
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(previous) and previous > 0 and math.isfinite(current) and current > previous * 8:
+            corrected[index] = previous
+            fixed += 1
+    return corrected, fixed
 
 
 def restore_existing_cup_rates(df, existing_df):
@@ -686,6 +707,10 @@ def restore_existing_cup_rates(df, existing_df):
     carried = date_iso.map(rate_map).ffill()
     current = pd.to_numeric(out["cupusd"], errors="coerce")
     out["cupusd"] = carried.combine_first(current)
+    corrected, fixed = carry_recent_cup_source_jump(out["cupusd"].tolist())
+    if fixed:
+        out["cupusd"] = corrected
+        print(f"  Carried informal CUP rate across {fixed} recent official-rate fallback rows")
     return out
 
 
@@ -1280,34 +1305,58 @@ def refresh_cup_only():
     print("Updating CUP/USD informal-market rates only")
     print("=" * 60)
 
-    rates = fetch_cup_informal_usd_rates()
+    try:
+        rates = fetch_cup_informal_usd_rates()
+    except Exception as exc:
+        rates = []
+        print(f"  WARNING: CUP source unavailable ({type(exc).__name__}: {exc})")
     rate_map = {date_value: rate for date_value, rate in rates}
     tmp_file = fx_rates_file.with_suffix(fx_rates_file.suffix + ".tmp")
-    with open(fx_rates_input_file, newline="", encoding="utf-8") as src, open(tmp_file, "w", newline="", encoding="utf-8") as dst:
+    with open(fx_rates_input_file, newline="", encoding="utf-8") as src:
         reader = csv.DictReader(src)
         fieldnames = list(reader.fieldnames or [])
         if "date" not in fieldnames:
             raise ValueError("daily_fx_rates.csv is missing date column")
         if "cupusd" not in fieldnames:
             fieldnames.append("cupusd")
+        rows = list(reader)
 
-        writer = csv.DictWriter(dst, fieldnames=fieldnames)
-        writer.writeheader()
-        applied_count = 0
-        for row in reader:
+    applied_count = 0
+    carried_count = 0
+    if rates:
+        latest_informal_rate = None
+        for row in rows:
             date_value = str(row.get("date") or "")[:10]
             if date_value in rate_map:
-                row["cupusd"] = f"{rate_map[date_value]:.12g}"
+                latest_informal_rate = rate_map[date_value]
+                row["cupusd"] = f"{latest_informal_rate:.12g}"
                 applied_count += 1
+            elif latest_informal_rate is not None:
+                row["cupusd"] = f"{latest_informal_rate:.12g}"
+                carried_count += 1
+    else:
+        corrected, carried_count = carry_recent_cup_source_jump(
+            [row.get("cupusd") for row in rows]
+        )
+        if not carried_count:
+            print("  No CUP payload change; keeping the current publication marker")
+            return
+        for row, rate in zip(rows, corrected):
+            row["cupusd"] = rate
+
+    with open(tmp_file, "w", newline="", encoding="utf-8") as dst:
+        writer = csv.DictWriter(dst, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
             writer.writerow({field: row.get(field, "") for field in fieldnames})
     tmp_file.replace(fx_rates_file)
-    count = len(rates)
-    first_date = rates[0][0]
-    last_date = rates[-1][0]
-    print(
-        f"  Updated cupusd with {applied_count} of {count} informal daily medians "
-        f"({first_date}..{last_date})"
-    )
+    if rates:
+        print(
+            f"  Updated cupusd with {applied_count} of {len(rates)} informal daily medians "
+            f"({rates[0][0]}..{rates[-1][0]}); carried {carried_count} unreported rows"
+        )
+    else:
+        print(f"  Repaired {carried_count} recent CUP source-mismatch rows")
 
     with open(uoa_pairs_input_file, "r") as f:
         uoa_data = json.load(f)
