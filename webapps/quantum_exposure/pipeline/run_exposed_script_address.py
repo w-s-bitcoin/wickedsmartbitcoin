@@ -144,6 +144,9 @@ def list_stxo_partitions(cur) -> List[StxoPartition]:
 
 
 def insert_from_partition(cur, table_name: str, scripttype: str, part: StxoPartition, previous_freeze: int, freeze_height: int) -> int:
+    # Every row was spent inside this archive range.
+    if part.hi <= previous_freeze:
+        return 0
     cur.execute(
         f"""
         INSERT INTO {qualify(SCHEMA, table_name)} (address, exposed_height)

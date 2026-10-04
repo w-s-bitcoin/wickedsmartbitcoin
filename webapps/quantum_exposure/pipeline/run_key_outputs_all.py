@@ -210,7 +210,6 @@ def ensure_table_exists(cur):
             amount         bigint  NOT NULL,
             isspent        boolean NOT NULL,
             spendingblock  bigint,
-            source_table   text    NOT NULL,
             PRIMARY KEY (blockheight, transactionid, vout)
         );
         """
@@ -286,7 +285,7 @@ def insert_new_outputs_from_outputs(cur, prev_freeze: int, new_freeze: int) -> i
     sql = f"""
     INSERT INTO {qualify(SCHEMA, TABLE_NAME)}
         (keyhash20, script_type, address, blockheight, transactionid, vout, amount,
-         isspent, spendingblock, source_table)
+         isspent, spendingblock)
     SELECT
         z.keyhash20,
         z.script_type,
@@ -296,8 +295,7 @@ def insert_new_outputs_from_outputs(cur, prev_freeze: int, new_freeze: int) -> i
         z.vout,
         z.amount,
         false AS isspent,
-        NULL::bigint AS spendingblock,
-        'outputs'::text AS source_table
+        NULL::bigint AS spendingblock
     FROM (
         {P2PK_OUTPUTS_SELECT.format(source=qualify(SCHEMA, 'outputs'))}
         UNION ALL
@@ -318,7 +316,7 @@ def insert_new_outputs_from_latest_stxo_unspent_asof_freeze(cur, latest_part: St
     sql = f"""
     INSERT INTO {qualify(SCHEMA, TABLE_NAME)}
         (keyhash20, script_type, address, blockheight, transactionid, vout, amount,
-         isspent, spendingblock, source_table)
+         isspent, spendingblock)
     SELECT
         z.keyhash20,
         z.script_type,
@@ -328,8 +326,7 @@ def insert_new_outputs_from_latest_stxo_unspent_asof_freeze(cur, latest_part: St
         z.vout,
         z.amount,
         false AS isspent,
-        NULL::bigint AS spendingblock,
-        %s AS source_table
+        NULL::bigint AS spendingblock
     FROM (
         {P2PK_OUTPUTS_SELECT.format(source=qualify(SCHEMA, latest_part.name))}
         UNION ALL
@@ -343,15 +340,18 @@ def insert_new_outputs_from_latest_stxo_unspent_asof_freeze(cur, latest_part: St
       AND z.spendingblock > %s
     ON CONFLICT DO NOTHING;
     """
-    cur.execute(sql, (latest_part.name, prev_freeze, new_freeze, new_freeze))
+    cur.execute(sql, (prev_freeze, new_freeze, new_freeze))
     return cur.rowcount
 
 
 def insert_new_outputs_from_stxo_spent_asof_freeze(cur, part: StxoPartition, prev_freeze: int, new_freeze: int) -> int:
+    # Every row was spent inside this archive range.
+    if part.hi <= prev_freeze:
+        return 0
     sql = f"""
     INSERT INTO {qualify(SCHEMA, TABLE_NAME)}
         (keyhash20, script_type, address, blockheight, transactionid, vout, amount,
-         isspent, spendingblock, source_table)
+         isspent, spendingblock)
     SELECT
         z.keyhash20,
         z.script_type,
@@ -361,8 +361,7 @@ def insert_new_outputs_from_stxo_spent_asof_freeze(cur, part: StxoPartition, pre
         z.vout,
         z.amount,
         true AS isspent,
-        z.spendingblock,
-        %s AS source_table
+        z.spendingblock
     FROM (
         {P2PK_OUTPUTS_SELECT.format(source=qualify(SCHEMA, part.name))}
         UNION ALL
@@ -376,19 +375,21 @@ def insert_new_outputs_from_stxo_spent_asof_freeze(cur, part: StxoPartition, pre
       AND z.spendingblock <= %s
     ON CONFLICT DO NOTHING;
     """
-    cur.execute(sql, (part.name, prev_freeze, new_freeze, new_freeze))
+    cur.execute(sql, (prev_freeze, new_freeze, new_freeze))
     return cur.rowcount
 
 
 def update_existing_rows_that_became_spent(cur, part: StxoPartition, prev_freeze: int, new_freeze: int) -> int:
+    # Every row was spent inside this archive range.
+    if part.hi <= prev_freeze:
+        return 0
     sql = f"""
     WITH src AS (
         SELECT
             z.blockheight,
             z.transactionid,
             z.vout,
-            z.spendingblock,
-            %s::text AS source_table
+            z.spendingblock
         FROM (
             {P2PK_OUTPUTS_SELECT.format(source=qualify(SCHEMA, part.name))}
             UNION ALL
@@ -405,8 +406,7 @@ def update_existing_rows_that_became_spent(cur, part: StxoPartition, prev_freeze
         UPDATE {qualify(SCHEMA, TABLE_NAME)} t
         SET
             isspent = true,
-            spendingblock = s.spendingblock,
-            source_table = s.source_table
+            spendingblock = s.spendingblock
         FROM src s
         WHERE t.blockheight = s.blockheight
           AND t.transactionid = s.transactionid
@@ -416,7 +416,7 @@ def update_existing_rows_that_became_spent(cur, part: StxoPartition, prev_freeze
     )
     SELECT COUNT(*) FROM upd;
     """
-    cur.execute(sql, (part.name, new_freeze, prev_freeze, new_freeze))
+    cur.execute(sql, (new_freeze, prev_freeze, new_freeze))
     return int(cur.fetchone()[0])
 
 

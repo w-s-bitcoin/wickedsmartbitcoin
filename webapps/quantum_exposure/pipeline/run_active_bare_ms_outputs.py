@@ -190,6 +190,9 @@ def seed_changed_addresses_from_latest_stxo_new_unspent(cur, latest_part: StxoPa
 
 
 def seed_changed_addresses_from_spends(cur, part: StxoPartition, previous_freeze: int, freeze_height: int):
+    # Every row was spent inside this archive range.
+    if part.hi <= previous_freeze:
+        return 0
     cur.execute(
         f"""
         INSERT INTO tmp_changed_addresses (address)
