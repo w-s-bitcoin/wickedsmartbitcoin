@@ -11,7 +11,7 @@ The 2026-10-04 storage migration keeps the analytical output lifecycle and scrip
 - Generic archive key-type/script-hash indexes use key columns and predicates without including large script payloads. Dedicated P2PK covering indexes remain. New archives use an explicit index policy instead of copying every live-output index.
 - The address/blockheight indexes cover address-only lookups on active P2SH/P2WSH tables; do not recreate redundant address-only indexes. The canonical active-key index name is `active_key_outputs_keyhash20_idx`.
 
-On the production host, `/Users/wicked/Projects/onchain/.storage-maintenance` gates blocknotify ingestion and the hourly cron. Core continues collecting blocks. Removing the marker allows catch-up from the database checkpoint. Do not run production publishing entry points as tests.
+On the production host, `/Users/wicked/Projects/onchain/.storage-maintenance` gates blocknotify ingestion and the hourly user LaunchAgent. Core continues collecting blocks. Removing the marker allows catch-up from the database checkpoint. Do not run production publishing entry points as tests.
 
 The external wrapper preserves coinbase mirror refresh and OP_RETURN archiving every six-block bucket. Legacy UTXO/coinbase research CSV generation is now opt-in using `ONCHAIN_RESEARCH_STATS=1`; published website producers do not require those CSV updates. The optional UTXO calculation uses session-local scratch tables.
 
