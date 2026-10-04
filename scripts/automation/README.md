@@ -4,12 +4,13 @@ These entry points run from the production `main` checkout:
 
 | File | Trigger | Work |
 | --- | --- | --- |
-| `_run_1h.py` | Hourly cron, at :02 in the maintainer's local schedule | Bitcoin metrics notebook; Node Count, Dominance, DCA Cost Basis, DCA Comparison, UoA, Patoshi, and Casascius updates |
+| `_run_1h.py` | User LaunchAgent, at :02 in the maintainer's local schedule | Bitcoin metrics notebook; Node Count, Dominance, DCA Cost Basis, DCA Comparison, UoA, Patoshi, and Casascius updates |
 | `_run_onchain.py` | External `01 - CoreToPSQL.py` after new block ingestion | Current-chain top KPIs and issuance data; BIP-110 analysis only until its finalization height |
 | `_git_deploy.py` | Called by either runner | Publish staged data on main, then mirror published data into dev |
 
-The configured hourly cron checks PostgreSQL readiness, uses a nonblocking
-`flock`, and has a 55-minute timeout. Bitcoin's `blocknotify` invokes the
+The configured hourly user LaunchAgent checks PostgreSQL readiness and the
+external `.storage-maintenance` gate, uses a nonblocking `flock`, and has a
+55-minute timeout. Bitcoin's `blocknotify` invokes the
 external ingestion wrapper; the onchain runner is not a cron entry. These
 scheduler/caller settings live on the production host, outside this repository.
 
@@ -83,7 +84,12 @@ credential helper and disable commit signing only for generated data commits.
 Manual Git keeps the maintainer's YubiKey SSH authentication and signing.
 
 The production account must stay logged in to `gh` with repository write access
-in the scheduled user's keychain. Check `gh auth status` when publication fails.
+in the scheduled user's keychain. The host runs the hourly job using
+`~/Library/LaunchAgents/com.wickedsmartbitcoin.hourly.plist` in the logged-in
+GUI user session. A same-UID credential probe on 2026-10-04 succeeded there
+and failed under cron; the old hourly cron entry was removed. The ten-minute
+price logger remains in cron. Do not enable both hourly schedules. Check
+`gh auth status` when publication fails.
 Never store a token in this repository, script arguments, or logs.
 
 ## Development and checks
