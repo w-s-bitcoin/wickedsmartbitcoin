@@ -140,7 +140,6 @@ def ensure_final_table(cur, table_name: str):
     cur.execute(f"ALTER TABLE {table_qname} ADD COLUMN IF NOT EXISTS is_exposed boolean;")
     cur.execute(f"UPDATE {table_qname} SET is_exposed = FALSE WHERE is_exposed IS NULL;")
     cur.execute(f"ALTER TABLE {table_qname} ALTER COLUMN is_exposed SET DEFAULT false;")
-    cur.execute(f"CREATE INDEX IF NOT EXISTS {quote_ident(table_name + '_address_idx')} ON {table_qname} (address);")
     cur.execute(f"CREATE INDEX IF NOT EXISTS {quote_ident(table_name + '_address_block_idx')} ON {table_qname} (address, blockheight);")
     cur.execute(f"CREATE INDEX IF NOT EXISTS {quote_ident(table_name + '_address_spendingblock_idx')} ON {table_qname} (address, spendingblock) WHERE spendingblock IS NOT NULL;")
     cur.execute(f"CREATE INDEX IF NOT EXISTS {quote_ident(table_name + '_unspent_address_idx')} ON {table_qname} (address) INCLUDE (amount, blockheight, transactionid, vout) WHERE isspent = false;")
@@ -188,6 +187,9 @@ def seed_changed_addresses_from_latest_stxo_new_unspent(cur, latest_part: StxoPa
 
 
 def seed_changed_addresses_from_spends(cur, part: StxoPartition, scripttype: str, previous_freeze: int, freeze_height: int):
+    # Every row was spent inside this archive range.
+    if part.hi <= previous_freeze:
+        return 0
     cur.execute(
         f"""
         INSERT INTO tmp_changed_addresses (address)

@@ -185,7 +185,7 @@ def main():
             print(f"rows inserted: {rows:,}")
 
             print("\nCreating indexes...")
-            cur.execute("CREATE INDEX active_key_outputs_key_idx ON active_key_outputs(keyhash20);")
+            cur.execute("CREATE INDEX active_key_outputs_keyhash20_idx ON active_key_outputs(keyhash20);")
             cur.execute("CREATE INDEX active_key_outputs_block_idx ON active_key_outputs(blockheight);")
             cur.execute("CREATE INDEX active_key_outputs_spend_idx ON active_key_outputs(spendingblock);")
             cur.execute("CREATE INDEX active_key_outputs_exposed_idx ON active_key_outputs(is_exposed);")
