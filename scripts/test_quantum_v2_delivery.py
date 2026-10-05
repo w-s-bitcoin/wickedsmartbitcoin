@@ -2,6 +2,7 @@
 """Delivery tests use disposable local Git remotes and fixture-only exporters."""
 import json
 import csv
+import io
 from pathlib import Path
 import shutil
 import subprocess
@@ -385,6 +386,166 @@ class DeliveryTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     delivery.prepare_output(legacy, target, 2000)
                 self.assertFalse((target / 'published_generation.json').exists())
+
+
+class GuardedOutputTests(unittest.TestCase):
+    """Exercise real staging loops without Git, PostgreSQL, or live producers."""
+    class Stopped(RuntimeError):
+        pass
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='quantum-guarded-stage-')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.previous = self.root / 'previous'
+        self.previous.mkdir()
+        self.output = self.root / 'output'
+
+    def test_prepare_interrupted_inside_copy_keeps_source_and_removes_partial_file(self):
+        (self.previous / 'snapshots_index.csv').write_text('snapshot_blockheight,snapshot_time\n500,1700000000\n')
+        snapshot = self.previous / '500'
+        snapshot.mkdir()
+        payload = b'fixture compact data\n' * 160000
+        source = snapshot / 'dashboard_pubkeys_aggregates.csv'
+        source.write_bytes(payload)
+        original = delivery._copy_prepared_file
+        copy_checks = 0
+        error = self.Stopped('pause during compact copy')
+        def copy_with_guard(source, target, *, guard=None):
+            def copying():
+                nonlocal copy_checks
+                copy_checks += 1
+                if copy_checks == 3:
+                    raise error  # First MiB has been written only to a temp file.
+            return original(source, target, guard=copying)
+        with patch.object(delivery, '_copy_prepared_file', side_effect=copy_with_guard):
+            with self.assertRaises(self.Stopped) as stopped:
+                delivery.prepare_output(self.previous, self.output, 1000, guard=lambda: None)
+        self.assertIs(stopped.exception, error)
+        self.assertEqual(copy_checks, 3)
+        self.assertEqual(source.read_bytes(), payload)
+        self.assertEqual(list((self.output / '500').iterdir()), [])
+        self.assertFalse((self.output / 'published_generation.json').exists())
+
+    def test_prepare_checks_guard_during_large_index_before_copying(self):
+        (self.previous / 'snapshots_index.csv').write_text(
+            'snapshot_blockheight,snapshot_time\n' + ''.join(f'{height},1700000000\n' for height in range(1, 600)))
+        calls = 0
+        def stop():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise self.Stopped('deadline while reading index')
+        with patch.object(delivery, '_copy_prepared_file') as copy:
+            with self.assertRaisesRegex(self.Stopped, 'reading index'):
+                delivery.prepare_output(self.previous, self.output, 1000, guard=stop)
+            copy.assert_not_called()
+
+    def test_finish_propagates_guard_from_aggregate_rows_without_publishing(self):
+        metadata = seed(self.previous)
+        metadata['snapshot_blockheight'] = 1000
+        aggregate = self.previous / '1000/dashboard_pubkeys_aggregates.csv'
+        with aggregate.open(newline='') as handle:
+            reader = csv.DictReader(handle)
+            fields, rows = reader.fieldnames, list(reader)
+        with aggregate.open('w', newline='') as handle:
+            writer = csv.DictWriter(handle, fieldnames=fields)
+            writer.writeheader(); writer.writerows(rows * 4)
+        pointer = self.previous / 'published_generation.json'
+        pointer.write_text('retained marker\n')
+        original = delivery.indexes.load_aggregates_for_snapshot
+        checks = 0
+        error = self.Stopped('memory limit during aggregate iteration')
+        def load(snapshot, *, guard=None):
+            def stop():
+                nonlocal checks
+                checks += 1
+                if checks == 3:
+                    raise error
+            return original(snapshot, guard=stop)
+        with patch.object(delivery.indexes, 'load_aggregates_for_snapshot', side_effect=load):
+            with self.assertRaises(self.Stopped) as stopped:
+                delivery.finish_output(self.previous, metadata, 'interrupted', guard=lambda: None)
+        self.assertIs(stopped.exception, error)
+        self.assertEqual(pointer.read_text(), 'retained marker\n')
+        self.assertFalse((self.previous / 'generations/interrupted').exists())
+
+    def test_guarded_prepare_finish_matches_uninterrupted_artifacts_and_summary_evidence(self):
+        metadata = seed(self.previous)
+        seed_archive_summaries(self.previous)
+        publication.publish_immutable_generation(self.previous, reason='fixture', metadata=metadata,
+                                                 generation_id='guard-source', include_archives=True)
+        checks = 0
+        def guard():
+            nonlocal checks
+            checks += 1
+        delivery.prepare_output(self.previous, self.output, 2000, guard=guard)
+        metadata = seed(self.output, 2000)
+        metadata['snapshot_blockheight'] = 2000
+        unguarded = self.root / 'unguarded'
+        shutil.copytree(self.output, unguarded)
+        actual = delivery.finish_output(self.output, metadata, 'guarded', guard=guard)
+        expected = delivery.finish_output(unguarded, metadata, 'guarded')
+        self.assertGreater(checks, 100)
+        self.assertEqual(actual['artifacts'], expected['artifacts'])
+        self.assertEqual(actual['metadata']['archive_summaries'], expected['metadata']['archive_summaries'])
+        publication.validate_immutable_generation(self.output, actual, guard=guard)
+
+    def test_archive_read_and_hash_have_mib_cancellation_boundaries(self):
+        payload = b'x' * (3 * 1024 * 1024)
+        source = self.previous / 'bounded'
+        source.write_bytes(payload)
+        for action in (lambda guard: archive_summaries._read(source, guard=guard),
+                       lambda guard: archive_summaries._hash(payload, guard=guard)):
+            checks = 0
+            def stop():
+                nonlocal checks
+                checks += 1
+                if checks == 2:
+                    raise self.Stopped('bounded archive operation')
+            with self.assertRaises(self.Stopped):
+                action(stop)
+            self.assertEqual(checks, 2)
+        self.assertEqual(source.read_bytes(), payload)
+
+    def test_archive_and_catalog_csv_serialization_check_each_256_rows(self):
+        for serialize in (
+            lambda rows, guard: archive_summaries._serialize(rows, guard=guard),
+            lambda rows, guard: delivery.indexes.serialize_csv_rows(publication.HISTORICAL_ECO_HEADERS, rows, guard=guard),
+            lambda rows, guard: delivery.indexes.generate_historical_eco_rows(1000, rows, guard=guard),
+        ):
+            consumed = 0
+            def rows():
+                nonlocal consumed
+                for height in range(600):
+                    consumed += 1
+                    yield dict(snapshot=str(height), balance_filter='all', script_type_filter='All',
+                               spend_activity_filter='all')
+            def stop():
+                if consumed >= 256:
+                    raise self.Stopped('pause inside rows')
+            with self.assertRaises(self.Stopped):
+                serialize(rows(), stop)
+            self.assertLessEqual(consumed, 257)
+
+    def test_archive_validation_checks_rows_before_consuming_all_csv(self):
+        stream = io.StringIO(newline='')
+        writer = csv.DictWriter(stream, fieldnames=publication.HISTORICAL_ECO_HEADERS)
+        writer.writeheader()
+        for height in range(600):
+            writer.writerow(dict(snapshot=height, balance_filter='all', script_type_filter='All',
+                spend_activity_filter='all', pubkey_count=1, utxo_count=1, supply_sats=1,
+                exposed_pubkey_count=1, exposed_utxo_count=1, exposed_supply_sats=1,
+                estimated_migration_blocks='0'))
+        checks = 0
+        def stop():
+            nonlocal checks
+            checks += 1
+            if checks == 3:
+                raise self.Stopped('pause while parsing retained history')
+        with self.assertRaisesRegex(self.Stopped, 'retained history'):
+            archive_summaries.history(stream.getvalue().encode(), guard=stop)
+        self.assertEqual(checks, 3)
 
 
 if __name__ == "__main__":

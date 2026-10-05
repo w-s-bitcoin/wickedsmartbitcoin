@@ -452,6 +452,117 @@ class WorkerFixture(unittest.TestCase):
         with self.conn,self.conn.cursor() as cur:cur.execute('SELECT pg_sleep(.25)')
         self.assertEqual(self.query('SELECT 1'),[(1,)])
 
+    def _interrupt_export_file_loop(self, fault, monitor, guard):
+        self.assertIsInstance(guard, worker._ExportGuard)
+        if fault == 'pause':
+            pause = Path(self.config['state_dir'])/'PAUSED'
+            pause.parent.mkdir(parents=True, exist_ok=True)
+            pause.write_text('fixture pause inside file loop\n')
+        elif fault == 'deadline':
+            guard.deadline = time.monotonic()-1
+        else:
+            monitor.exceeded = True
+
+    def test_sealing_file_loop_observes_pause_deadline_and_resource_limits(self):
+        import publish_generation as publication
+        scan = publication._scan_full_exposure_identifiers
+        for fault in ('pause', 'deadline', 'resource'):
+            monitor = FixtureMonitor()
+            checks = []
+            def interrupting_scan(path, *, guard=None, **kwargs):
+                def checked():
+                    checks.append(1)
+                    if len(checks) == 2:
+                        self._interrupt_export_file_loop(fault, monitor, guard)
+                    guard()
+                return scan(path, guard=checked, **kwargs)
+            with self.subTest(fault=fault), \
+                 mock.patch.object(worker, 'ResourceMonitor', return_value=monitor), \
+                 mock.patch.object(publication, '_scan_full_exposure_identifiers', side_effect=interrupting_scan), \
+                 mock.patch.object(delivery, 'deliver_website') as website, \
+                 mock.patch.object(delivery, 'deliver_standalone') as standalone:
+                self.assertEqual(worker.run_once(self.conn, self.config), 0 if fault=='pause' else 1)
+                self.assertEqual(len(checks), 2)
+                website.assert_not_called();standalone.assert_not_called()
+                self.assertEqual(self.query('SELECT height FROM quantum_v2.projection'), [(1000,)])
+                self.assertEqual(self.query('SELECT count(*) FROM quantum_v2.delivery'), [(0,)])
+                self.assertFalse(list(Path(self.config['state_dir']).rglob('published_generation.json')))
+                self.assertFalse(list(Path(self.config['state_dir']).rglob('.quantum-identifiers-*')))
+            (Path(self.config['state_dir'])/'PAUSED').unlink(missing_ok=True)
+        with mock.patch.object(store, 'apply_range', side_effect=AssertionError('Replayed committed projection')), \
+             mock.patch.object(delivery, 'deliver_website', return_value={'commit':'website-accepted'}), \
+             mock.patch.object(delivery, 'deliver_standalone', return_value={'commit':'standalone-accepted'}):
+            self.assertEqual(worker.run_once(self.conn, self.config), 0)
+        self.assertEqual(self.query('SELECT status FROM quantum_v2.request'), [('complete',)])
+
+    def test_sealed_receipt_hash_loop_observes_pause_deadline_and_resource_limits(self):
+        import immutable_generation as publication
+        with mock.patch.object(control, 'analyzed', side_effect=RuntimeError('fixture acknowledgement crash')):
+            self.assertEqual(worker.run_once(self.conn, self.config), 1)
+        marker = next(Path(self.config['state_dir']).rglob('published_generation.json'))
+        sealed = marker.read_bytes()
+        hash_file = publication.file_sha256
+        for fault in ('pause', 'deadline', 'resource'):
+            monitor = FixtureMonitor()
+            checks = []
+            def interrupting_hash(path, *, guard=None):
+                def checked():
+                    checks.append(1)
+                    if len(checks) == 2:
+                        self._interrupt_export_file_loop(fault, monitor, guard)
+                    guard()
+                return hash_file(path, guard=checked)
+            with self.subTest(fault=fault), \
+                 mock.patch.object(worker, 'ResourceMonitor', return_value=monitor), \
+                 mock.patch.object(publication, 'file_sha256', side_effect=interrupting_hash), \
+                 mock.patch.object(worker.analysis, 'export_preaggregated_snapshot') as export, \
+                 mock.patch.object(delivery, 'deliver_website') as website, \
+                 mock.patch.object(delivery, 'deliver_standalone') as standalone:
+                self.assertEqual(worker.run_once(self.conn, self.config), 0 if fault=='pause' else 1)
+                self.assertEqual(len(checks), 2)
+                export.assert_not_called();website.assert_not_called();standalone.assert_not_called()
+                self.assertEqual(marker.read_bytes(), sealed)
+                self.assertEqual(self.query('SELECT count(*) FROM quantum_v2.delivery'), [(0,)])
+            (Path(self.config['state_dir'])/'PAUSED').unlink(missing_ok=True)
+        with mock.patch.object(worker.analysis, 'export_preaggregated_snapshot') as export, \
+             mock.patch.object(delivery, 'deliver_website', return_value={'commit':'website-accepted'}), \
+             mock.patch.object(delivery, 'deliver_standalone', return_value={'commit':'standalone-accepted'}):
+            self.assertEqual(worker.run_once(self.conn, self.config), 0)
+            export.assert_not_called()
+        self.assertEqual(marker.read_bytes(), sealed)
+        self.assertEqual(self.query('SELECT status FROM quantum_v2.request'), [('complete',)])
+
+    def test_previous_generation_validation_uses_the_export_deadline(self):
+        import immutable_generation as publication
+        from test_quantum_immutable_generation import seed
+        previous = Path(self.config['production_repo'])/delivery.DATA_REL
+        previous.mkdir(parents=True)
+        metadata = seed(previous, height=500)
+        publication.publish_immutable_generation(previous, metadata=metadata,
+                                                 reason='fixture', generation_id='previous-500')
+        previous_marker = (previous/'published_generation.json').read_bytes()
+        hash_file = publication.file_sha256
+        checks = []
+        def interrupting_hash(path, *, guard=None):
+            def checked():
+                checks.append(guard)
+                if len(checks) == 2:
+                    guard.deadline = time.monotonic()-1
+                guard()
+            return hash_file(path, guard=checked)
+        with mock.patch.object(publication, 'file_sha256', side_effect=interrupting_hash), \
+             mock.patch.object(worker.analysis, 'export_preaggregated_snapshot') as export, \
+             mock.patch.object(delivery, 'deliver_website') as website, \
+             mock.patch.object(delivery, 'deliver_standalone') as standalone:
+            self.assertEqual(worker.run_once(self.conn, self.config), 1)
+            self.assertEqual(len(checks), 2)
+            self.assertIsInstance(checks[0], worker._ExportGuard)
+            self.assertIs(checks[0], checks[1])
+            export.assert_not_called();website.assert_not_called();standalone.assert_not_called()
+        self.assertEqual((previous/'published_generation.json').read_bytes(), previous_marker)
+        self.assertFalse(list(Path(self.config['state_dir']).rglob('published_generation.json')))
+        self.assertIn('time budget', self.query('SELECT error FROM quantum_v2.run')[0][0])
+
     def test_ingestion_yield_records_committed_progress_then_resumes_without_replay(self):
         # First complete the seed/proof without adding administrative runs to
         # the real boundary request's measurement history.

@@ -43,6 +43,8 @@ from publish_generation import (  # noqa: E402
     HISTORICAL_SPEND_ACTIVITIES,
     PUBLICATION_MARKER_FILENAME,
     REQUIRED_SNAPSHOT_FILES,
+    _atomic_write_text,
+    _scan_full_exposure_identifiers,
     copy_generation_marker,
     publish_generation_marker,
     write_empty_archive_catalogs,
@@ -274,7 +276,62 @@ def assert_publication_rejected_without_marker_change(
         raise AssertionError(f"Failed publication changed the prior marker: {reason}")
 
 
+def check_bounded_detail_validation() -> None:
+    with tempfile.TemporaryDirectory(prefix='quantum-identifiers-fixture-') as temporary:
+        root = Path(temporary)
+        path = root/'details.csv'
+        fields, make_row = CSV_FIXTURES['dashboard_pubkeys_ge_1btc.csv']
+        with path.open('w', newline='') as handle:
+            writer = csv.writer(handle)
+            writer.writerow(fields)
+            for number in reversed(range(1025)):
+                row = make_row(1000)
+                row[0] = f'group-{number:04}'
+                writer.writerow(row)
+        count, matched = _scan_full_exposure_identifiers(
+            path, required_identifiers={'group-0000', 'group-1000', 'missing'})
+        assert count == 1025 and matched == {'group-0000', 'group-1000'}
+        assert not list(root.glob('.quantum-identifiers-*'))
+        # A distant duplicate in arbitrary legacy ordering must still fail.
+        with path.open('a', newline='') as handle:
+            row = make_row(1000);row[0] = 'group-1000'
+            csv.writer(handle).writerow(row)
+        try:
+            _scan_full_exposure_identifiers(path)
+        except RuntimeError as error:
+            assert 'duplicate display group' in str(error)
+        else:
+            raise AssertionError('Nonadjacent duplicate escaped disk-backed validation')
+        assert not list(root.glob('.quantum-identifiers-*'))
+
+        class Interrupted(RuntimeError):
+            pass
+        checks = []
+        def guard():
+            checks.append(1)
+            if len(checks) == 3:
+                raise Interrupted('bounded file loop interrupted')
+        try:
+            _scan_full_exposure_identifiers(path, guard=guard)
+        except Interrupted:
+            pass
+        else:
+            raise AssertionError('Detail scanner did not propagate the guard')
+        assert len(checks) == 3 and not list(root.glob('.quantum-identifiers-*'))
+        marker = root/'marker.json';marker.write_text('last validated marker')
+        checks.clear()
+        try:
+            _atomic_write_text(marker, 'x'*(3*1024*1024), guard=guard)
+        except Interrupted:
+            pass
+        else:
+            raise AssertionError('Atomic writer ignored its guard')
+        assert marker.read_text() == 'last validated marker'
+        assert not list(root.glob('.marker.json.*'))
+
+
 def main() -> None:
+    check_bounded_detail_validation()
     with tempfile.TemporaryDirectory(prefix="wsb-quantum-publish-") as temp_name:
         root = Path(temp_name)
         source = root / "source"

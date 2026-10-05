@@ -13,6 +13,7 @@ import re
 import resource
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 from datetime import datetime, timezone
@@ -84,8 +85,52 @@ class DeliveryAttempt:
         return self.record
 
 
-def _marker(data_dir: Path) -> dict:
-    return json.loads((data_dir / PUBLICATION_MARKER_FILENAME).read_text(encoding="utf-8"))
+def _check(guard):
+    if guard is not None:
+        guard()
+
+
+def _guarded_rows(rows, guard):
+    for number, row in enumerate(rows):
+        if number % 256 == 0:
+            _check(guard)
+        yield row
+    _check(guard)
+
+
+def _marker(data_dir: Path, *, guard=None) -> dict:
+    chunks = []
+    _check(guard)
+    with (data_dir / PUBLICATION_MARKER_FILENAME).open('rb') as handle:
+        while chunk := handle.read(1024 * 1024):
+            _check(guard)
+            chunks.append(chunk)
+    _check(guard)
+    result = json.loads(b''.join(chunks))
+    _check(guard)
+    return result
+
+
+def _copy_prepared_file(source: Path, target: Path, *, guard=None) -> None:
+    """Copy a staged dependency atomically, checking cancellation per MiB."""
+    _check(guard)
+    if (target.is_file() and source.stat().st_size == target.stat().st_size
+            and file_sha256(source, guard=guard) == file_sha256(target, guard=guard)):
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as handle:
+        temporary = Path(handle.name)
+    try:
+        with source.open('rb') as origin, temporary.open('wb') as destination:
+            while chunk := origin.read(1024 * 1024):
+                _check(guard)
+                destination.write(chunk)
+                _check(guard)
+        os.chmod(temporary, 0o644)
+        _check(guard)
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _source_path(data_dir: Path, logical: str, marker: dict) -> Path:
@@ -97,20 +142,21 @@ def _source_path(data_dir: Path, logical: str, marker: dict) -> Path:
     return data_dir / _safe_relative(logical)
 
 
-def prepare_output(previous_data_dir: Path, new_output_dir: Path, target_height: int) -> None:
+def prepare_output(previous_data_dir: Path, new_output_dir: Path, target_height: int, *, guard=None) -> None:
     """Copy compact published history only, preserving its intentional gaps."""
+    _check(guard)
     previous, output = Path(previous_data_dir).resolve(), Path(new_output_dir).resolve()
     if previous == output or previous in output.parents or output in previous.parents:
         raise RuntimeError("A new generation must use a separate staging directory")
     output.mkdir(parents=True, exist_ok=True)
-    marker = _marker(previous) if (previous / PUBLICATION_MARKER_FILENAME).is_file() else {}
+    marker = _marker(previous, guard=guard) if (previous / PUBLICATION_MARKER_FILENAME).is_file() else {}
     if marker.get("format") == 2:
-        validate_immutable_generation(previous, marker)
+        validate_immutable_generation(previous, marker, guard=guard)
     active_index = _source_path(previous, "snapshots_index.csv", marker)
     active_heights = []
     if active_index.is_file():
         with active_index.open(newline="") as handle:
-            active_heights = sorted({int(row["snapshot_blockheight"]) for row in csv.DictReader(handle)
+            active_heights = sorted({int(row["snapshot_blockheight"]) for row in _guarded_rows(csv.DictReader(handle), guard)
                                      if int(row["snapshot_blockheight"]) < target_height})
     # The new target occupies one recent slot. Keep the existing long-range
     # chart anchors, and move older intervening compact snapshots to archives.
@@ -118,86 +164,94 @@ def prepare_output(previous_data_dir: Path, new_output_dir: Path, target_height:
     retained.update(height for height in active_heights if height % HISTORICAL_ANCHOR_INTERVAL == 0)
     for height in active_heights:
         for filename in COMPACT_FILES:
+            _check(guard)
             logical = f"{height}/{filename}"
             source = _source_path(previous, logical, marker)
             if source.is_file():
                 destination = output / logical if height in retained else output / "archived" / logical
-                copy_file_if_changed(source, destination)
+                _copy_prepared_file(source, destination, guard=guard)
     for filename in ("identity_groups.json",):
+        _check(guard)
         source = _source_path(previous, filename, marker)
         if source.is_file():
-            copy_file_if_changed(source, output / filename)
+            _copy_prepared_file(source, output / filename, guard=guard)
 
     # Keep local compact archive evidence where published, never copy raw/full
     # archive exports. Public bundles separately prune these capabilities.
     archived_index = _source_path(previous, "archived_index.csv", marker)
     if archived_index.is_file():
         with archived_index.open(newline="") as handle:
-            archived = {int(row["snapshot_blockheight"]) for row in csv.DictReader(handle)}
+            archived = {int(row["snapshot_blockheight"]) for row in _guarded_rows(csv.DictReader(handle), guard)}
     else:
         archived = set()
     # Legacy local checkouts deliberately advertise empty public archive
     # catalogs while retaining ignored folders. Import only compact files from
     # those established archive directories during the first v2 transition.
     if marker.get("format") != 2 and (previous / "archived").is_dir():
-        archived.update(int(path.name) for path in (previous / "archived").iterdir()
+        archived.update(int(path.name) for path in _guarded_rows((previous / "archived").iterdir(), guard)
                         if path.is_dir() and path.name.isdigit())
     for height in sorted(archived):
         if height >= target_height or height in retained:
             continue
         for filename in COMPACT_FILES:
+            _check(guard)
             logical = f"archived/{height}/{filename}"
             source = _source_path(previous, logical, marker)
             if source.is_file():
-                copy_file_if_changed(source, output / logical)
+                _copy_prepared_file(source, output / logical, guard=guard)
     # A legacy distribution may retain historical chart rows after its detailed
     # archive folders were removed. Preserve their original evidence separately;
     # never advertise a fabricated archived snapshot in archived_index.csv.
     complete_heights = {int(path.name) for root in (output, output/'archived')
-                        if root.is_dir() for path in root.iterdir()
+                        if root.is_dir() for path in _guarded_rows(root.iterdir(), guard)
                         if path.is_dir() and path.name.isdigit()
                         and (path/'dashboard_snapshot_meta.csv').is_file()
                         and (path/'dashboard_pubkeys_aggregates.csv').is_file()}
     archive_summaries.stage(previous,output,marker,lambda logical:_source_path(previous,logical,marker),
-                            target_height=target_height,complete_heights=complete_heights)
+                            target_height=target_height,complete_heights=complete_heights,guard=guard)
+    _check(guard)
 
 
-def finish_output(new_output_dir: Path, metadata: dict, generation: str) -> dict:
+def finish_output(new_output_dir: Path, metadata: dict, generation: str, *, guard=None) -> dict:
     """Create coherent catalogs from the actual staged aggregate files and seal."""
+    _check(guard)
     output = Path(new_output_dir).resolve()
     height = int(metadata["snapshot_blockheight"])
     if not (output / str(height) / "dashboard_pubkeys_ge_1btc.csv").is_file():
         raise RuntimeError("The new target has no finalized full detail export")
-    _atomic_write_text(output / "latest_snapshot.txt", str(height) + "\n")
+    _atomic_write_text(output / "latest_snapshot.txt", str(height) + "\n", guard=guard)
     active_rows, historical_rows, archive_rows, archive_history = [], [], [], []
     for root, index_rows, history in ((output, active_rows, historical_rows), (output / "archived", archive_rows, archive_history)):
         if not root.is_dir():
             continue
-        for snapshot in sorted((path for path in root.iterdir() if path.is_dir() and path.name.isdigit()),
+        for snapshot in sorted((path for path in _guarded_rows(root.iterdir(), guard) if path.is_dir() and path.name.isdigit()),
                                key=lambda path: int(path.name), reverse=True):
+            _check(guard)
             snapshot_height = int(snapshot.name)
             if snapshot_height > height:
                 raise RuntimeError("Staging includes a snapshot later than this target")
-            stamp = indexes.get_snapshot_time_from_meta(snapshot)
+            stamp = indexes.get_snapshot_time_from_meta(snapshot, guard=guard)
             if not stamp:
                 raise RuntimeError(f"Snapshot {snapshot_height} has no timestamp")
-            aggregate = indexes.load_aggregates_for_snapshot(snapshot)
+            aggregate = indexes.load_aggregates_for_snapshot(snapshot, guard=guard)
             if not aggregate:
                 raise RuntimeError(f"Snapshot {snapshot_height} has no aggregate export")
             index_rows.append({"snapshot_blockheight": str(snapshot_height), "snapshot_time": stamp})
             history.extend(indexes.generate_historical_eco_rows(snapshot_height, aggregate,
-                            include_other=indexes.snapshot_has_exact_export(snapshot)))
+                            include_other=indexes.snapshot_has_exact_export(snapshot, guard=guard), guard=guard))
+    _check(guard)
     for name, fields, rows in (
         ("snapshots_index.csv", ARCHIVED_INDEX_HEADERS, active_rows),
         ("archived_index.csv", ARCHIVED_INDEX_HEADERS, archive_rows),
         ("historical_eco.csv", HISTORICAL_ECO_HEADERS, sorted(historical_rows, key=lambda row: (int(row["snapshot"]), row["balance_filter"]))),
         ("historical_archived.csv", HISTORICAL_ECO_HEADERS, sorted(archive_history, key=lambda row: (int(row["snapshot"]), row["balance_filter"]))),
     ):
-        _atomic_write_text(output / name, indexes.serialize_csv_rows(fields, rows))
+        _check(guard)
+        _atomic_write_text(output / name, indexes.serialize_csv_rows(fields, rows, guard=guard), guard=guard)
     provenance = dict(metadata)
     provenance.setdefault("block_hash", provenance.get("snapshot_block_hash", ""))
     text = publish_immutable_generation(output, reason="quantum_v2_worker", metadata=provenance,
-                                        generation_id=generation, include_archives=True)
+                                        generation_id=generation, include_archives=True, guard=guard)
     return json.loads(text)
 
 

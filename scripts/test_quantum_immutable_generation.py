@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 PIPELINE = ROOT / "webapps/quantum_exposure/pipeline"
@@ -260,6 +261,137 @@ class ImmutablePublicationTests(unittest.TestCase):
         self.assertEqual(obj.stat().st_mtime_ns, before)
         self.assertEqual((target / "published_generation.json").read_text(), text)
 
+    def test_hash_and_artifact_copy_stop_between_megabyte_chunks(self):
+        path = self.data / 'large.bin'
+        path.write_bytes(b'x' * (3 * 1024 * 1024))
+        class BudgetExpired(Exception):
+            pass
+        for action in (lambda guard: publication.file_sha256(path, guard=guard),
+                       lambda guard: publication._store_artifact(self.data, path.name, guard=guard)):
+            calls = []
+            def guard():
+                calls.append(None)
+                if len(calls) == 2:
+                    raise BudgetExpired('same caller deadline')
+            with self.assertRaisesRegex(BudgetExpired, 'same caller deadline'):
+                action(guard)
+            self.assertEqual(len(calls), 2)
+        objects = self.data / 'generations/objects'
+        self.assertEqual(list(objects.iterdir()), [])
+        self.assertFalse((self.data / 'published_generation.json').exists())
+
+    def test_interrupted_atomic_copy_preserves_destination_and_removes_temporary(self):
+        source = self.data / 'large.bin'
+        source.write_bytes(b'x' * (3 * 1024 * 1024))
+        target = Path(self.temp.name) / 'isolated' / 'target.bin'
+        target.parent.mkdir()
+        target.write_bytes(b'previous complete bytes')
+        calls = []
+        def guard():
+            calls.append(None)
+            if len(calls) == 3:
+                raise TimeoutError('copy deadline')
+        with self.assertRaisesRegex(TimeoutError, 'copy deadline'):
+            publication._copy_file(source, target, guard=guard)
+        self.assertEqual(target.read_bytes(), b'previous complete bytes')
+        self.assertEqual(list(target.parent.iterdir()), [target])
+
+    def test_exact_detail_validation_checks_guard_every_256_rows(self):
+        detail = self.data / '1000/dashboard_pubkeys_ge_1btc.csv'
+        with detail.open(newline='') as handle:
+            reader = csv.DictReader(handle)
+            fields, row = reader.fieldnames, next(reader)
+        with detail.open('w', newline='') as handle:
+            writer = csv.DictWriter(handle, fieldnames=fields)
+            writer.writeheader()
+            writer.writerows(dict(row) for _ in range(600))
+        # Only a bounded prefix may be examined before the guard's exception;
+        # reaching final conservation would instead report the repeated totals.
+        processed = []
+        original = publication._supply
+        def supply(row):
+            processed.append(None)
+            return original(row)
+        def guard():
+            if len(processed) >= 257:  # one top row, then 256 detail rows
+                raise TimeoutError('detail deadline')
+        with mock.patch.object(publication, '_supply', side_effect=supply):
+            with self.assertRaisesRegex(TimeoutError, 'detail deadline'):
+                publication.validate_exact_snapshot(self.data, 1000, guard=guard)
+        self.assertEqual(len(processed), 257)
+
+    def test_artifact_row_count_is_guarded_after_copy(self):
+        path = self.data / 'many.csv'
+        path.write_text('value\n' + '1\n' * 600)
+        consumed = []
+        original = csv.reader
+        def reader(*args, **kwargs):
+            for row in original(*args, **kwargs):
+                consumed.append(None)
+                yield row
+        def guard():
+            if len(consumed) >= 257:  # header plus the first 256 data rows
+                raise TimeoutError('row-count deadline')
+        with mock.patch.object(publication.csv, 'reader', side_effect=reader):
+            with self.assertRaisesRegex(TimeoutError, 'row-count deadline'):
+                publication._store_artifact(self.data, path.name, guard=guard)
+        # The shared guarded iterator fetches one lookahead row before checking
+        # the next 256-row block; that row is never counted or processed.
+        self.assertEqual(len(consumed), 258)
+        # A complete unreferenced object is safe to reuse; no partial object or
+        # falsely advertised marker may be left by the interrupted count.
+        objects = [path for path in (self.data / 'generations/objects').rglob('*') if path.is_file()]
+        self.assertEqual(len(objects), 1)
+        self.assertEqual(objects[0].read_bytes(), path.read_bytes())
+        self.assertFalse((self.data / 'published_generation.json').exists())
+
+    def test_marker_last_guard_preserves_previous_publication_and_retry(self):
+        previous = self.publish()
+        marker = self.data / 'published_generation.json'
+        immutable = self.data / 'generations/next-run/manifest.json'
+        def guard():
+            # Fail at the final pre-replace check, after complete bytes have
+            # actually been flushed. The private manifest may safely remain.
+            if immutable.exists() and any(path.stat().st_size > 0 for path in
+                    self.data.glob('.published_generation.json.*.tmp')):
+                raise TimeoutError('publication deadline')
+        for _ in range(2):  # new seal and the idempotent retry path
+            with self.assertRaisesRegex(TimeoutError, 'publication deadline'):
+                publication.publish_immutable_generation(self.data, metadata=self.metadata,
+                    reason='guarded fixture', generation_id='next-run', guard=guard)
+            self.assertTrue(immutable.is_file())
+            self.assertEqual(marker.read_text(), previous)
+            self.assertEqual(list(self.data.glob('.published_generation.json.*.tmp')), [])
+        resumed = publication.publish_immutable_generation(self.data, metadata=self.metadata,
+            reason='guarded fixture', generation_id='next-run', guard=lambda: None)
+        self.assertEqual(marker.read_text(), resumed)
+        self.assertEqual(immutable.read_text(), resumed)
+
+    def test_guarded_sealing_and_copy_preserve_exact_artifact_bytes(self):
+        # Seal equivalent pristine roots at one time, then compare every file.
+        other = Path(self.temp.name) / 'guarded'
+        shutil.copytree(self.data, other)
+        now = publication.datetime.now(publication.timezone.utc)
+        calls = []
+        def guard():
+            calls.append(None)
+        with mock.patch.object(publication, 'datetime') as clock:
+            clock.now.return_value = now
+            original = self.publish()
+            guarded = publication.publish_immutable_generation(other, metadata=self.metadata,
+                reason='fixture', generation_id='fixture-run', guard=guard)
+        self.assertEqual(guarded, original)
+        self.assertGreater(len(calls), 20)
+        def files(root):
+            return {path.relative_to(root): path.read_bytes() for path in root.rglob('*') if path.is_file()}
+        self.assertEqual(files(other), files(self.data))
+        target = Path(self.temp.name) / 'guarded-copy'
+        self.assertEqual(publication.copy_immutable_generation(other, target, guard=guard), original)
+        manifest = json.loads(original)
+        for logical, artifact in manifest['artifacts'].items():
+            self.assertEqual((target / logical).read_bytes(), (other / artifact['path']).read_bytes())
+        publication.validate_immutable_generation(target, manifest, guard=guard)
+
     def test_normalizer_preserves_exact_v2_fields(self):
         row = {"current_supply_sats": "120000000", "group_id": "group-a",
                "exposed_utxo_count_by_script_type": '{"P2PK":2,"P2PKH":3}'}
@@ -311,6 +443,23 @@ class ArchiveSummaryTests(unittest.TestCase):
             self.assertEqual((self.data / marker['artifacts'][logical]['path']).read_bytes(), self.original[filename])
         publication.validate_immutable_generation(self.data, marker)
         self.assertEqual(self.publish(), (self.data / 'published_generation.json').read_text())
+
+    def test_archive_summary_validation_uses_the_same_caller_guard(self):
+        marker = json.loads(self.publish())
+        phase = []
+        original = archive_summaries.validate
+        def guarded_validation(*args, **kwargs):
+            self.assertIs(kwargs.get('guard'), guard)
+            phase.append('archive validation')
+            return original(*args, **kwargs)
+        def guard():
+            if phase:
+                raise TimeoutError('archive validation deadline')
+        with mock.patch.object(archive_summaries, 'validate', side_effect=guarded_validation):
+            with self.assertRaisesRegex(TimeoutError, 'archive validation deadline'):
+                publication.validate_immutable_generation(self.data, marker, guard=guard)
+        self.assertEqual(phase, ['archive validation'])
+        self.assertEqual(json.loads((self.data / 'published_generation.json').read_text()), marker)
 
     def test_forged_rehashed_rows_cannot_override_preserved_source_evidence(self):
         marker = json.loads(self.publish())
