@@ -11,6 +11,7 @@ from typing import List
 import psycopg2
 from dotenv import load_dotenv
 from pipeline_paths import resolve_env_file
+from quantum_legacy_guard import guard_legacy_mutation
 
 env_path = resolve_env_file()
 load_dotenv(dotenv_path=env_path)
@@ -381,6 +382,7 @@ def main():
     conn.autocommit = False
 
     try:
+        guard_legacy_mutation(conn)
         with conn.cursor() as cur:
             ensure_analysis_freeze(cur)
 
