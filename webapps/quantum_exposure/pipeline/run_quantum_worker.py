@@ -8,7 +8,9 @@ to the existing environment file, never copied secret values. Status is default.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -24,6 +26,7 @@ from dotenv import load_dotenv
 import quantum_v2_analysis as analysis
 import quantum_v2_control as control
 import quantum_v2_store as store
+import quantum_v2_sql_export as sql_export
 import quantum_v2_validation as validation
 from quantum_resources import ResourceMonitor, database_usage, lower_priority
 from quantum_worker_config import bootstrap_row_limits, undo_retention_blocks, config_fingerprint, control_settings, DEFAULT_DISK_RESERVE_BYTES
@@ -340,7 +343,7 @@ def _previous_output(conn,config,target):
     return Path(config['production_repo'])/'webapps/quantum_exposure/webapp_data'
 
 
-def export_request(conn,config,request,*,stop_requested=None):
+def export_request(conn,config,request,*,stop_requested=None,monitor=None):
     import quantum_v2_delivery as delivery
     import quantum_v2_enrichment as enrichment
     from immutable_generation import validate_immutable_generation
@@ -348,6 +351,7 @@ def export_request(conn,config,request,*,stop_requested=None):
     stop_requested=stop_requested or PauseGate(conn,config)
     if stop_requested():
         raise PauseRequested('Publication paused before export')
+    _check_resources(monitor)
     height=request['target_height']
     projection=_projection(conn)
     if not projection or projection['seed_mode']!='canonical':
@@ -383,6 +387,7 @@ def export_request(conn,config,request,*,stop_requested=None):
             raise RuntimeError('Sealed generation identity or versions differ from the retry request: '+','.join(mismatches))
         if not control.canonical_ready(conn,height,request['target_hash']):
             raise store.SourceNotReady('Source changed while validating the sealed export receipt')
+        _check_resources(monitor)
         control.step(conn,request['id'],'export','complete',{'generation_id':generation,'reused_sealed_generation':True})
         control.analyzed(conn,request['id'],generation,output)
         log('analyzed',height=height,generation_id=generation,output_dir=output,reused_sealed_generation=True)
@@ -405,15 +410,18 @@ def export_request(conn,config,request,*,stop_requested=None):
                 source=cur.fetchone()
                 if not source:
                     raise store.SourceNotReady('Ingestion started before export')
-            rows=store.iter_group_rows(conn)
-            revision=config.get('label_version','unattributed-v2')
-            group_enricher=None
-            if config.get('label_version'):
-                group_enricher=lambda groups: enrichment.iter_enriched_rows(conn,groups,revision=revision,
-                    predicate=lambda group: group['current_supply_sats']>=100_000_000 and group['exposed_utxo_count']>0)
-            metadata=analysis.export_snapshot(_guard_export(rows,config),snapshot_height=height,snapshot_time=snapshot_time,
-                output_dir=output,block_hash=request['target_hash'],source_generation=str(source[0]),label_version=revision,
-                group_enricher=group_enricher)
+            guard=_ExportGuard(config,monitor=monitor)
+            with _export_deadline(conn,guard):
+                pages=sql_export.iter_export_pages(conn,snapshot_time=snapshot_time,guard=guard)
+                revision=config.get('label_version','unattributed-v2')
+                group_enricher=None
+                if config.get('label_version'):
+                    group_enricher=lambda groups: enrichment.iter_enriched_rows(conn,groups,revision=revision,
+                        predicate=lambda group: group['current_supply_sats']>=100_000_000 and group['exposed_utxo_count']>0)
+                metadata=analysis.export_preaggregated_snapshot(pages,snapshot_height=height,snapshot_time=snapshot_time,
+                    output_dir=output,block_hash=request['target_hash'],source_generation=str(source[0]),label_version=revision,
+                    group_enricher=group_enricher,guard=guard)
+                guard()
     finally:
         conn.set_session(isolation_level='READ COMMITTED',readonly=False)
     if not control.canonical_ready(conn,height,request['target_hash']):
@@ -422,24 +430,53 @@ def export_request(conn,config,request,*,stop_requested=None):
         raise PauseRequested('Publication paused before sealing export')
     if implementation_fingerprint(REPO)!=implementation_sha256:
         raise RuntimeError('Quantum implementation changed during export; generation not sealed')
+    guard()
     metadata.update(block_hash=request['target_hash'],code_revision=code_revision,request_id=request['id'],
                     implementation_sha256=implementation_sha256)
     delivery.finish_output(output,metadata,generation)
+    _check_resources(monitor)
     control.step(conn,request['id'],'export','complete',{'generation_id':generation})
     control.analyzed(conn,request['id'],generation,output)
     log('analyzed',height=height,generation_id=generation,output_dir=output)
 
 
-def _guard_export(rows,config):
-    deadline=time.monotonic()+float(config.get('export_seconds',900))
-    pause_file=Path(config['state_dir'])/'PAUSED'
-    for index,row in enumerate(rows):
-        if index%1000==0:
-            if pause_file.exists():
-                raise PauseRequested('Export paused; isolated partial output remains retryable')
-            if time.monotonic()>deadline:
-                raise RuntimeError('Export exceeded its explicit time budget; generation not published')
-        yield row
+class _ExportGuard:
+    """Check every export page/chunk without committing its read transaction.
+
+    PauseGate queries control in its own transaction and is deliberately used
+    only outside the export snapshot. The file carries an operator pause here,
+    including pages with aggregate rows but no eligible detail records.
+    """
+    def __init__(self,config,*,monitor=None):
+        seconds=float(config.get('export_seconds',900))
+        if not math.isfinite(seconds) or seconds<=0:
+            raise ValueError('Export time budget must be finite and positive')
+        self.deadline=time.monotonic()+seconds
+        self.pause_file=Path(config['state_dir'])/'PAUSED'
+        self.monitor=monitor
+
+    def __call__(self):
+        _check_resources(self.monitor)
+        if self.pause_file.exists():
+            raise PauseRequested('Export paused; isolated partial output remains retryable')
+        if time.monotonic()>=self.deadline:
+            raise RuntimeError('Export exceeded its explicit time budget; generation not published')
+
+
+@contextmanager
+def _export_deadline(conn,guard):
+    """Cancel only this export's active query; retire the timer before reuse."""
+    guard()
+    timer=threading.Timer(max(0,guard.deadline-time.monotonic()),conn.cancel)
+    timer.daemon=True;timer.start()
+    try:
+        yield
+    except psycopg2.errors.QueryCanceled as error:
+        if time.monotonic()>=guard.deadline:
+            raise RuntimeError('Export exceeded its explicit time budget; generation not published') from error
+        raise
+    finally:
+        timer.cancel();timer.join()
 
 
 def deliver_pending(conn,config,*,stop_requested=None):
@@ -614,7 +651,7 @@ def run_once(conn,config,*,bootstrap_only=False,validation_only=False,recompare=
                     time.sleep(float(config.get('batch_pause_seconds',0.25)))
                 if projection['height']==target:
                     control.step(conn,request['id'],'projection','complete',{'height':target})
-                    export_request(conn,config,request,stop_requested=stop_requested)
+                    export_request(conn,config,request,stop_requested=stop_requested,monitor=monitor)
         _check_resources(monitor)
         metrics=monitor.metrics()
         metrics.update(provenance, database_before=before,database_after=database_usage(conn),recovery=recovery_metrics,undo=undo_metrics,

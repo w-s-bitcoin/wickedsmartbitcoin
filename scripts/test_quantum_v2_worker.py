@@ -51,13 +51,34 @@ class FixtureMonitor:
         return {"fixture": True}
 
 
+@unittest.skipUnless(psycopg2, "Worker import requires psycopg2")
+class ExportGuardTests(unittest.TestCase):
+    def test_export_guard_uses_one_budget_and_observes_file_pause(self):
+        with tempfile.TemporaryDirectory(prefix='quantum-export-guard-') as directory:
+            config={'state_dir':directory,'export_seconds':1}
+            with mock.patch.object(worker.time,'monotonic',return_value=100):
+                guard=worker._ExportGuard(config)
+            with mock.patch.object(worker.time,'monotonic',return_value=100.5):
+                guard()
+                pause=Path(directory)/'PAUSED';pause.write_text('fixture pause\n')
+                with self.assertRaises(worker.PauseRequested):guard()
+                pause.unlink();guard()
+            with mock.patch.object(worker.time,'monotonic',return_value=101.01):
+                with self.assertRaisesRegex(RuntimeError,'time budget'):guard()
+
+    def test_export_guard_rejects_unbounded_or_nonpositive_budget(self):
+        for value in (0,-1,float('nan'),float('inf')):
+            with self.subTest(value=value),self.assertRaisesRegex(ValueError,'finite and positive'):
+                worker._ExportGuard({'state_dir':'/private/tmp','export_seconds':value})
+
+
 @unittest.skipUnless(DSN and psycopg2, "Set QUANTUM_WORKER_TEST_DSN for a disposable PostgreSQL fixture")
 class WorkerFixture(unittest.TestCase):
     def setUp(self):
         config = psycopg2.extensions.parse_dsn(DSN)
         if not config.get("dbname", "").endswith("_fixture") or not config.get("host", "").startswith(("/tmp/", "/private/tmp/")):
             raise RuntimeError("Refusing setup outside explicit /tmp socket + *_fixture database")
-        self.conn = psycopg2.connect(DSN)
+        self.conn = psycopg2.connect(DSN,options='-c work_mem=32MB -c max_parallel_workers_per_gather=0')
         self.addCleanup(self.conn.close)
         self.temp = tempfile.TemporaryDirectory(prefix="quantum-worker-fixture-")
         self.addCleanup(self.temp.cleanup)
@@ -196,13 +217,87 @@ class WorkerFixture(unittest.TestCase):
                 control.configure(self.conn,paused=True)
             return result
         with mock.patch.object(store,'apply_range',side_effect=apply_then_pause), \
-             mock.patch.object(worker.analysis,'export_snapshot') as export, \
+             mock.patch.object(worker.analysis,'export_preaggregated_snapshot') as export, \
              mock.patch.object(delivery,'deliver_website') as website, \
              mock.patch.object(delivery,'deliver_standalone') as standalone:
             self.assertEqual(worker.run_once(self.conn,self.config),0)
             export.assert_not_called(); website.assert_not_called(); standalone.assert_not_called()
         self.assertEqual(self.query('SELECT height FROM quantum_v2.projection'),[(1000,)])
         self.assertEqual(self.query("SELECT metrics->>'deferred' FROM quantum_v2.run"),[('paused',)])
+
+    def test_pause_on_sql_export_page_without_details_preserves_checkpoint_and_retries(self):
+        with self.conn,self.conn.cursor() as cur:
+            cur.execute('UPDATE public.outputs SET amount=1')
+            # The first bounded page has no qualifying detail, while a later
+            # group gives the complete generation its normal detail coverage.
+            cur.execute('INSERT INTO public.outputs VALUES(%s,%s,0,%s,%s,%s,%s,NULL)',
+                        (1,'c'*64,200_000_000,'zz-late-detail','witness_v1_taproot','5120'+G[2:]))
+        pages=worker.sql_export.iter_export_pages
+        pause=Path(self.config['state_dir'])/'PAUSED'
+        observed=[]
+        def paused_page(*args,**kwargs):
+            kwargs['fetch_groups']=1
+            for page in pages(*args,**kwargs):
+                self.assertFalse(page['detail_rows'])
+                observed.append(page['group_count'])
+                pause.parent.mkdir(parents=True,exist_ok=True)
+                pause.write_text('pause after bounded SQL page\n')
+                yield page
+        with mock.patch.object(worker.sql_export,'iter_export_pages',side_effect=paused_page), \
+             mock.patch.object(delivery,'deliver_website') as website, \
+             mock.patch.object(delivery,'deliver_standalone') as standalone:
+            self.assertEqual(worker.run_once(self.conn,self.config),0)
+            website.assert_not_called();standalone.assert_not_called()
+        self.assertTrue(observed and sum(observed)>0)
+        self.assertEqual(self.query('SELECT height FROM quantum_v2.projection'),[(1000,)])
+        self.assertEqual(self.query('SELECT count(*) FROM quantum_v2.delivery'),[(0,)])
+        self.assertFalse(list(Path(self.config['state_dir']).rglob('published_generation.json')))
+        pause.unlink()
+        with mock.patch.object(store,'apply_range',wraps=store.apply_range) as advance, \
+             mock.patch.object(delivery,'deliver_website',return_value={'commit':'website-accepted'}), \
+             mock.patch.object(delivery,'deliver_standalone',return_value={'commit':'standalone-accepted'}):
+            self.assertEqual(worker.run_once(self.conn,self.config),0,self.query('SELECT error FROM quantum_v2.run ORDER BY started_at'))
+            advance.assert_not_called()
+        self.assertEqual(self.query('SELECT status FROM quantum_v2.request'),[('complete',)])
+
+    def test_resource_breach_during_python_export_blocks_sealing_and_delivery(self):
+        monitor=FixtureMonitor()
+        pages=worker.sql_export.iter_export_pages
+        def breached_page(*args,**kwargs):
+            for page in pages(*args,**kwargs):
+                monitor.exceeded=True  # Backend is idle after this bounded read.
+                yield page
+        with mock.patch.object(worker,'ResourceMonitor',return_value=monitor), \
+             mock.patch.object(worker.sql_export,'iter_export_pages',side_effect=breached_page), \
+             mock.patch.object(delivery,'finish_output') as seal, \
+             mock.patch.object(delivery,'deliver_website') as website, \
+             mock.patch.object(delivery,'deliver_standalone') as standalone:
+            self.assertEqual(worker.run_once(self.conn,self.config),1)
+            seal.assert_not_called();website.assert_not_called();standalone.assert_not_called()
+        self.assertEqual(self.query('SELECT height FROM quantum_v2.projection'),[(1000,)])
+        self.assertEqual(self.query('SELECT count(*) FROM quantum_v2.delivery'),[(0,)])
+        self.assertFalse(list(Path(self.config['state_dir']).rglob('published_generation.json')))
+        self.assertIn('Resource guard exceeded',self.query('SELECT error FROM quantum_v2.run')[0][0])
+
+    def test_export_deadline_cancels_only_inflight_query_and_connection_recovers(self):
+        config={**self.config,'export_seconds':.15}
+        started=time.monotonic()
+        self.conn.set_session(isolation_level='REPEATABLE READ',readonly=True)
+        try:
+            with self.assertRaisesRegex(RuntimeError,'Export exceeded its explicit time budget'):
+                with self.conn,worker._export_deadline(self.conn,worker._ExportGuard(config)):
+                    with self.conn.cursor() as cur:cur.execute('SELECT pg_sleep(10)')
+            self.assertLess(time.monotonic()-started,5)
+        finally:
+            self.conn.rollback()
+            self.conn.set_session(isolation_level='READ COMMITTED',readonly=False)
+        self.assertEqual(self.query('SELECT 1'),[(1,)])
+        # A completed export scope must retire its timer before the same
+        # connection is reused, even if the next query outlives that deadline.
+        with self.conn,worker._export_deadline(self.conn,worker._ExportGuard(config)):
+            with self.conn.cursor() as cur:cur.execute('SELECT 1')
+        with self.conn,self.conn.cursor() as cur:cur.execute('SELECT pg_sleep(.25)')
+        self.assertEqual(self.query('SELECT 1'),[(1,)])
 
     def test_ingestion_yield_records_committed_progress_then_resumes_without_replay(self):
         # First complete the seed/proof without adding administrative runs to
@@ -675,7 +770,7 @@ class WorkerFixture(unittest.TestCase):
             self.assertEqual(self.query('SELECT count(*) FROM quantum_v2.delivery'),[(0,)])
             with self.conn,self.conn.cursor() as cur:
                 cur.execute('UPDATE quantum_v2.source_state SET epoch=epoch+1')
-            with mock.patch.object(worker.analysis,'export_snapshot',side_effect=AssertionError('Sealed export was regenerated')), \
+            with mock.patch.object(worker.analysis,'export_preaggregated_snapshot',side_effect=AssertionError('Sealed export was regenerated')), \
                  mock.patch.object(worker.subprocess,'check_output',return_value='f'*40+'\n'):
                 self.assertEqual(worker.run_once(self.conn,self.config),0,self.query('SELECT error FROM quantum_v2.run ORDER BY started_at'))
             self.assertEqual(marker,(output/'published_generation.json').read_bytes())
@@ -686,7 +781,7 @@ class WorkerFixture(unittest.TestCase):
         with mock.patch.object(control,'analyzed',side_effect=RuntimeError('fixture acknowledgement crash')):
             self.assertEqual(worker.run_once(self.conn,self.config),1)
         with mock.patch.object(quantum_runtime,'implementation_fingerprint',return_value='f'*64), \
-             mock.patch.object(worker.analysis,'export_snapshot') as export, \
+             mock.patch.object(worker.analysis,'export_preaggregated_snapshot') as export, \
              mock.patch.object(delivery,'deliver_website') as website:
             self.assertEqual(worker.run_once(self.conn,self.config),1)
             export.assert_not_called(); website.assert_not_called()

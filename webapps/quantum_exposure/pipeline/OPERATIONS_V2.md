@@ -107,8 +107,32 @@ last-spend history; only wholly retired groups are skipped. Zero-satoshi groups
 with positive UTXO counts remain included. All pages share one caller-owned
 repeatable-read snapshot and never split a group across SQL pages.
 
+The worker reduces each bounded live-group page into additive aggregate rows
+and a histogram of exact exposed-input counts. Python applies the existing
+migration scenario and script-subset corrections once per distinct signature,
+using a cache capped at 8,192 signatures. Only qualifying detail groups cross
+as complete family rows for the canonical detail reducer and attribution.
+Both export paths share detail/top-100 and final CSV/metadata serialization;
+the original family-row exporter remains the equivalence oracle and replay API.
+This reduces repeated Python work and transferred rows without creating new
+persistent tables. It still reads every live group and must pass the actual
+900-second export and complete-boundary resource checks.
+
+Each SQL page validates accounting and every referenced spend timestamp,
+including retired families whose spend height is below the group's latest.
+Whole-group balance tiers and the timestamp at the maximum spend height govern
+all family selections. Pages bind the calculation versions and snapshot time;
+Python verifies histogram, aggregate and detail coverage before accepting them.
+Pause/deadline checks run for every page and processing chunk even when no group
+qualifies for detail output. A scoped timer also cancels the owned export query
+at the export deadline and is joined before the connection can be reused.
+The count-only histogram is explicitly restricted
+to the current named migration scenario; a future policy-sensitive scenario
+must update that contract rather than silently reuse it.
+
 Pause sets both database control and a `PAUSED` file. A running invocation yields
-at a checked batch boundary; export checks the file every 1,000 streamed groups.
+at a checked batch boundary; export checks the file at each page and bounded
+processing chunk, together with the worker/backend resource monitor.
 It does not forcibly terminate an in-flight SQL statement. Resume clears the
 pause state; it does not install or load a scheduler. `bootstrap` deliberately
 allows an explicitly requested bootstrap while normal scheduled work is paused.
@@ -987,6 +1011,10 @@ script matching when a hash prefilter admits an unrelated candidate.
 passes balance validation, verifies publication rejection, and checks the atomic
 transition and corrected canonical dates. Its database fixtures use
 `QUANTUM_CANONICAL_SEED_TEST_DSN`.
+`test_quantum_sql_export.py` compares all six export files and all 127 script
+selections against the family-row exporter, including group-wide tiers, retired
+family activity, zero-value outputs and corrupt source state. Its PostgreSQL
+tests require `QUANTUM_SQL_EXPORT_TEST_DSN` on an isolated temporary fixture.
 PostgreSQL suites require their explicit
 temporary-socket, `*_fixture` database DSNs; never point them at production.
 The addressless-policy suite uses `QUANTUM_NULL_SCRIPT_TEST_DSN`.
