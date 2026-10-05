@@ -19,7 +19,7 @@ from quantum_v2_analysis import GROUPING_VERSION, PARSER_VERSION, parse_multisig
 from quantum_v2_store import SourceNotReady, _live_export_index_ready, _live_accounting_constraints_ready
 
 MIGRATION = Path(__file__).with_name('migrations') / '004_validation.sql'
-VERSION = 'raw-source-utxo-accounting-v1'
+VERSION = 'raw-source-utxo-accounting-v2'
 ARCHIVE = re.compile(r'^stxos_(\d+)_(\d+)_archive$')
 FAMILIES = {'pubkey': 'P2PK', 'pubkeyhash': 'P2PKH', 'witness_v0_keyhash': 'P2WPKH',
             'scripthash': 'P2SH', 'witness_v0_scripthash': 'P2WSH', 'witness_v1_taproot': 'P2TR'}
@@ -184,14 +184,19 @@ def _page(cur, checkpoint, limit, window_blocks):
     # early live-output page can rescan most of a later spent archive.
     window_end = min(height, max(0, cursor[0]) + window_blocks - 1)
     pieces, params = [], []
+    columns = sql.SQL('blockheight,transactionid,vout,amount,address,scripttype,scripthex,spendingblock')
     for name in names:
-        pieces.append(sql.SQL('''(SELECT blockheight,transactionid,vout,amount,address,scripttype,scripthex,spendingblock
+        pieces.append(sql.SQL('''(SELECT {}
             FROM {} WHERE (blockheight,transactionid,vout)>(%s,%s,%s) AND blockheight<=%s
             AND (spendingblock IS NULL OR spendingblock>%s)
-            ORDER BY blockheight,transactionid,vout LIMIT %s)''').format(sql.Identifier('public', name)))
-        params.extend((*cursor, window_end, height, limit + 1))
-    cur.execute(sql.SQL('SELECT * FROM (') + sql.SQL(' UNION ').join(pieces)
-                + sql.SQL(') source ORDER BY blockheight,transactionid,vout LIMIT %s'), (*params, limit + 1))
+            ORDER BY {})''').format(columns, sql.Identifier('public', name), columns))
+        params.extend((*cursor, window_end, height))
+    # Deduplicate before the only row limit. A raw branch limit can be exhausted
+    # by exact copies, hiding later live outputs or conflicting copies. Ordered
+    # Unique/MergeAppend preserves demand-driven reads and conflict adjacency.
+    cur.execute(sql.SQL('SELECT DISTINCT ON ({}) {} FROM (').format(columns, columns)
+                + sql.SQL(' UNION ALL ').join(pieces)
+                + sql.SQL(') source ORDER BY {} LIMIT %s').format(columns), (*params, limit + 1))
     rows = cur.fetchall()
     keys = [(row['blockheight'], row['transactionid'], row['vout']) for row in rows]
     if len(set(keys)) != len(keys):
