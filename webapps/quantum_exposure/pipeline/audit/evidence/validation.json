@@ -1,0 +1,39 @@
+{
+  "date": "2026-10-05",
+  "source_revision": "39f288a9af85d3ffa3bda77fc35a06dd1ac46246",
+  "schema_validation": {
+    "postgres_version": "14.15 (Homebrew)",
+    "disposable_instance": true,
+    "dedicated_socket": true,
+    "production_database_used": false,
+    "ddl_accepted": true,
+    "rollback_verified": true,
+    "instance_stopped": true,
+    "checks": [
+      "duplicate complete run-input identity rejected",
+      "same policy script accepted under two parser versions",
+      "partially NULL multisig threshold rejected",
+      "duplicate policy/parser version rejected",
+      "two running attempts for one run step rejected",
+      "terminal step requires cleared lease and completion timestamp",
+      "delivery acceptance requires exact expected manifest hash"
+    ]
+  },
+  "existing_regression": {
+    "command": "python3 scripts/test_quantum_publication_marker.py",
+    "result": "passed",
+    "fixtures_only": true
+  },
+  "audit_reproductions": {
+    "snapshot_and_parser": "completed; known discrepancies reproduced",
+    "archive_merge": "completed; archived row loss reproduced",
+    "identity_input_enumeration": "completed; duplicate archive inputs reproduced"
+  },
+  "not_performed": [
+    "production producer execution or data regeneration",
+    "live production DDL or configuration changes",
+    "end-to-end performance benchmark",
+    "browser responsiveness benchmark",
+    "implementation or scheduling of the proposed worker"
+  ]
+}

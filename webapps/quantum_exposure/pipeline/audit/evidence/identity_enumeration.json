@@ -1,0 +1,10 @@
+{
+  "data_directory": "/Users/wicked/Projects/repos/wickedsmartbitcoin-dev/webapps/quantum_exposure/webapp_data",
+  "listed_files": 121,
+  "unique_files": 71,
+  "duplicated_files": 50,
+  "listed_bytes": 2392340483,
+  "unique_bytes": 1378251282,
+  "duplicate_archive_inputs_reproduced": true,
+  "note": "Replicates the directory walk at sync_identity_consensus_from_snapshots.py:158; reads file metadata only."
+}
