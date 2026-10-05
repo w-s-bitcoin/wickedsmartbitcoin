@@ -443,7 +443,10 @@ def _guard_export(rows,config):
 
 def deliver_pending(conn,config,*,stop_requested=None):
     import quantum_v2_delivery as delivery
+    from quantum_subprocess import SupervisorStillRunning, cancellation_signals
     stop_requested=stop_requested or PauseGate(conn,config)
+    # A retry-only tick reaches this path before the measured SQL work section.
+    lower_priority(conn.get_backend_pid())
     for item in control.pending_deliveries(conn):
         if stop_requested():
             log('delivery_paused')
@@ -452,20 +455,33 @@ def deliver_pending(conn,config,*,stop_requested=None):
             continue
         if not control.delivery_started(conn,item['id'],item['destination']):
             continue
+        attempt=delivery.DeliveryAttempt(Path(config['state_dir']),item['id'],item['destination'],
+            provenance={'generation_id':item['generation_id'],
+                        'implementation_sha256':implementation_fingerprint(REPO),
+                        'config_sha256':config_fingerprint(config)})
         try:
-            if item['destination']=='website':
-                receipt=delivery.deliver_website(Path(item['output_dir']),Path(config['production_repo']),item['id'])
-            else:
-                receipt=delivery.deliver_standalone(Path(item['output_dir']),Path(config['standalone_repo']))
+            with cancellation_signals():
+                if item['destination']=='website':
+                    receipt=delivery.deliver_website(Path(item['output_dir']),Path(config['production_repo']),item['id'])
+                else:
+                    receipt=delivery.deliver_standalone(Path(item['output_dir']),Path(config['standalone_repo']))
+            metrics=attempt.finish(receipt=receipt)
             control.delivery_finished(conn,item['id'],item['destination'],commit=receipt['commit'],
                                       superseded=receipt.get('status')=='superseded')
-            log('delivery_complete',request_id=item['id'],destination=item['destination'],receipt=receipt)
-        except Exception as exc:
+            log('delivery_complete',request_id=item['id'],destination=item['destination'],receipt=receipt,
+                metrics=metrics,attempt_record=attempt.path)
+        except BaseException as exc:
             # The destination remains retryable. A website failure must not
             # prevent independent standalone delivery or repeat projection work.
             message=f'{type(exc).__name__}: {exc}'
+            metrics=attempt.finish(error=message[:2000],supervisor_pid=getattr(exc,'pid',None))
             control.delivery_finished(conn,item['id'],item['destination'],error=message[:2000])
-            log('delivery_deferred',request_id=item['id'],destination=item['destination'],error=message[:2000])
+            log('delivery_deferred',request_id=item['id'],destination=item['destination'],error=message[:2000],
+                metrics=metrics,attempt_record=attempt.path)
+            if not isinstance(exc,Exception):
+                raise
+            if isinstance(exc,SupervisorStillRunning):
+                return
 
 
 def run_once(conn,config,*,bootstrap_only=False,validation_only=False,recompare=False):

@@ -479,6 +479,35 @@ def _load_canonical_seed_page(cur,key,anchor,limit):
     return count,exhausted and window_end==anchor,next_key
 
 
+def _cached_bare_policies(cur,rows):
+    """Batch content-addressed parses; cache provenance never establishes dates.
+
+    Store-only installations may omit enrichment migration003. Once that
+    migration is recorded, a missing cache relation is corruption and fails
+    closed rather than silently bypassing durable parsing in production.
+    """
+    candidates={}
+    for row in rows:
+        if not str(row.get('scripttype','')).startswith('Multisig '):continue
+        raw=(row.get('scripthex') or '').lower()
+        occurrence=(row['blockheight'],row['transactionid'],row['vout'])
+        if raw not in candidates or occurrence<candidates[raw]:candidates[raw]=occurrence
+    if not candidates:return {}
+    cur.execute("SELECT to_regclass('quantum_v2.policy_parse_cache') AS relation")
+    if cur.fetchone()['relation'] is None:
+        cur.execute('SELECT 1 FROM quantum_v2.schema_migration WHERE version=3')
+        if cur.fetchone():raise StoreError('Applied enrichment migration003 is missing its policy parse cache')
+        return {}
+    from quantum_v2_enrichment import cache_policy_batch,POLICY_CACHE_BATCH_SIZE
+    scripts=list(candidates);results={}
+    for offset in range(0,len(scripts),POLICY_CACHE_BATCH_SIZE):
+        batch=scripts[offset:offset+POLICY_CACHE_BATCH_SIZE]
+        requests=[dict(policy_kind='bare',locking_script=raw,source_height=candidates[raw][0],
+                       source_reference='canonical-output:'+':'.join(map(str,candidates[raw]))) for raw in batch]
+        results.update(zip(batch,cache_policy_batch(cur,requests)))
+    return results
+
+
 def _classify_canonical_seed_page(cur):
     """SQL handles exact ordinary shapes; only key/policy exceptions cross Python.
 
@@ -515,9 +544,10 @@ def _classify_canonical_seed_page(cur):
     cur.execute('''SELECT blockheight,transactionid,vout,amount,address,scripttype,scripthex,spendingblock
                    FROM pg_temp.quantum_canonical_page WHERE group_id IS NULL
                    ORDER BY blockheight,transactionid,vout''')
+    rows=cur.fetchall();policies=_cached_bare_policies(cur,rows)
     exceptional=[]
-    for row in cur.fetchall():
-        group,family,display,eligible=identify(row,require_raw_script=True)
+    for row in rows:
+        group,family,display,eligible=identify(row,require_raw_script=True,bare_policy=policies.get((row.get('scripthex') or '').lower()))
         removed=_removal_height(cur,row)
         exceptional.append((row['blockheight'],row['transactionid'],row['vout'],group,family,display,
                             eligible,removed,_effective_spend(row,removed)))
@@ -671,7 +701,7 @@ def _taproot_program(address):
     return bytes(result)
 
 
-def identify(row, *, require_raw_script=False):
+def identify(row, *, require_raw_script=False, bare_policy=None):
     """Return group, family, display, eligible. No private keys or ownership inference."""
     kind = row.get('scripttype', row.get('script_type', '')) or ''
     family = FAMILIES.get(kind, 'Other')
@@ -712,8 +742,13 @@ def identify(row, *, require_raw_script=False):
         program=(bytes.fromhex(raw[4:]) if re.fullmatch(r'5120[0-9a-f]{64}',raw) else None) if raw else _taproot_program(address)
         eligible=program is not None and _valid_key('02'+program.hex())
     elif kind.startswith('Multisig '):
-        from quantum_v2_analysis import parse_multisig
-        eligible=parse_multisig(raw) is not None
+        if bare_policy is not None:
+            from quantum_v2_enrichment import PolicyParse
+            if not isinstance(bare_policy,PolicyParse):raise StoreError('A bare policy override must be a bound parser-cache record')
+            eligible=bare_policy.bare_eligible(raw)
+        else:
+            from quantum_v2_analysis import parse_multisig
+            eligible=parse_multisig(raw) is not None
     return address, family, address, eligible
 
 
@@ -1447,7 +1482,9 @@ def apply_range(conn, to_height, max_rows=250000):
         if to_height<lo:
             raise StoreError('Use rollback_to for backward movement')
         rows=list(_source_delta(cur,lo,to_height,max_rows))
-        identities=[identify(r,require_raw_script=True) for r in rows]; groups=sorted({x[0] for x in identities})
+        policies=_cached_bare_policies(cur,rows)
+        identities=[identify(r,require_raw_script=True,bare_policy=policies.get((r.get('scripthex') or '').lower())) for r in rows]
+        groups=sorted({x[0] for x in identities})
         cur.execute('SELECT * FROM quantum_v2.group_state WHERE group_id=ANY(%s)',(groups,))
         before={(r['group_id'],r['script_type']):dict(r) for r in cur.fetchall()}
         states={k:dict(v) for k,v in before.items()}

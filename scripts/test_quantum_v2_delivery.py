@@ -67,6 +67,25 @@ class DeliveryTests(unittest.TestCase):
         self.assertTrue((self.repo / "webapps/shared/dashboard_shared.css").is_file())
         self.assertEqual((self.repo / delivery.DATA_REL / "latest_snapshot.txt").read_text().strip(), "1000")
 
+    def test_destination_attempt_records_all_retries_and_child_cpu_separately(self):
+        state = self.root / 'private-state'
+        first = delivery.DeliveryAttempt(state, 7, 'website', provenance={'implementation_sha256': 'fixture'})
+        self.assertEqual(json.loads(first.path.read_text())['status'], 'running')
+        subprocess.run([sys.executable, '-c', 'sum(i*i for i in range(1000000))'], check=True)
+        failed = first.finish(error='fixture transport unavailable', supervisor_pid=12345)
+        second = delivery.DeliveryAttempt(state, 7, 'website', provenance={'implementation_sha256': 'fixture'})
+        complete = second.finish(receipt={'commit': 'accepted', 'generation_id': 'request-7'})
+        self.assertNotEqual(first.path, second.path)
+        self.assertEqual(len(list((state/'delivery-attempts').glob('*.json'))), 2)
+        self.assertEqual(json.loads(first.path.read_text()), failed)
+        self.assertEqual(json.loads(second.path.read_text()), complete)
+        self.assertGreater(failed['wall_seconds'], 0)
+        self.assertGreater(failed['child_user_seconds']+failed['child_system_seconds'], 0)
+        self.assertTrue(failed['child_cpu_incomplete'])
+        self.assertEqual(complete['receipt']['commit'], 'accepted')
+        self.assertIn('excludes analysis/export', complete['scope'])
+        self.assertNotIn('peak_private_memory_bytes', complete)
+
     def test_ordinary_rollback_restores_coherent_data_and_runtime_without_rewriting_history(self):
         previous_commit=self.deliver()['commit']
         previous_runtime={target.relative_to(self.repo).as_posix():publication.file_sha256(source)

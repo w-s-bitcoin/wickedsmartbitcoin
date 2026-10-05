@@ -10,8 +10,12 @@ import json
 import os
 from pathlib import Path
 import re
+import resource
 import subprocess
 import sys
+import time
+import uuid
+from datetime import datetime, timezone
 
 from immutable_generation import (
     _safe_relative, copy_immutable_generation, file_sha256, publish_immutable_generation,
@@ -23,6 +27,7 @@ from publish_generation import (
     PUBLICATION_MARKER_FILENAME, write_empty_archive_catalogs,
 )
 from quantum_runtime import copy_file_if_changed, runtime_dependency_copies, sync_generation_to_standalone
+from quantum_subprocess import GIT_RESOURCE_CONFIG, run_group, run_supervisor
 import regenerate_snapshot_indexes as indexes
 
 DATA_REL = Path("webapps/quantum_exposure/webapp_data")
@@ -37,6 +42,45 @@ COMPACT_FILES = ("dashboard_snapshot_meta.csv", "dashboard_pubkeys_aggregates.cs
                  "dashboard_pubkeys_ge_1btc_top100.csv", "snapshot_diff_summary.txt", "analysis_versions.json")
 RECENT_SNAPSHOT_COUNT = 21
 HISTORICAL_ANCHOR_INTERVAL = 50_000
+
+
+class DeliveryAttempt:
+    """Private, durable timing records, separate from projection/export budgets."""
+    def __init__(self, state_dir: Path, request_id: int, destination: str, *, provenance: dict):
+        if destination not in ('website', 'standalone'):
+            raise ValueError('Unknown delivery destination')
+        self.started = time.monotonic()
+        self.children = resource.getrusage(resource.RUSAGE_CHILDREN)
+        self.worker = resource.getrusage(resource.RUSAGE_SELF)
+        identifier = uuid.uuid4().hex
+        self.path = Path(state_dir) / 'delivery-attempts' / f'{int(request_id)}-{destination}-{identifier}.json'
+        self.record = {'version': 'quantum-delivery-attempt-v1', 'attempt_id': identifier,
+                       'request_id': int(request_id), 'destination': destination, 'status': 'running',
+                       'started_at': datetime.now(timezone.utc).isoformat(), **provenance,
+                       'scope': 'destination validation, copy, Git and remote receipt; excludes analysis/export',
+                       'child_cpu_scope': 'waited child processes and their waited descendants only',
+                       'git_resource_settings': list(GIT_RESOURCE_CONFIG)}
+        self._write()
+
+    def _write(self):
+        _atomic_write_text(self.path, json.dumps(self.record, sort_keys=True) + '\n')
+
+    def finish(self, *, receipt=None, error=None, supervisor_pid=None):
+        children, worker = (resource.getrusage(kind) for kind in (resource.RUSAGE_CHILDREN, resource.RUSAGE_SELF))
+        self.record.update(status='failed' if error else 'complete',
+            finished_at=datetime.now(timezone.utc).isoformat(), wall_seconds=time.monotonic()-self.started,
+            child_user_seconds=max(0., children.ru_utime-self.children.ru_utime),
+            child_system_seconds=max(0., children.ru_stime-self.children.ru_stime),
+            worker_cpu_seconds=max(0., worker.ru_utime+worker.ru_stime-self.worker.ru_utime-self.worker.ru_stime))
+        if receipt is not None:
+            self.record['receipt'] = receipt
+        if error is not None:
+            self.record['error'] = error
+        if supervisor_pid is not None:
+            self.record.update(supervisor_still_running_pid=supervisor_pid,
+                               child_cpu_incomplete=True)
+        self._write()
+        return self.record
 
 
 def _marker(data_dir: Path) -> dict:
@@ -149,7 +193,7 @@ def finish_output(new_output_dir: Path, metadata: dict, generation: str) -> dict
 def _git(repo: Path, *args: str, check=True) -> subprocess.CompletedProcess:
     env = os.environ.copy()
     env["GIT_TERMINAL_PROMPT"] = "0"
-    result = subprocess.run(["git", *AUTOMATION_GIT_CONFIG, *args], cwd=repo, env=env,
+    result = run_group(["git", *AUTOMATION_GIT_CONFIG, *GIT_RESOURCE_CONFIG, *args], cwd=repo, env=env,
                             capture_output=True, text=True, timeout=300)
     if check and result.returncode:
         raise RuntimeError(f"Git {args[0]} failed: {result.stderr.strip()}")
@@ -187,7 +231,7 @@ def _invoke_deployer(production_repo: Path) -> None:
         raise RuntimeError("Production deployer does not have Quantum source support")
     env = os.environ.copy()
     env["ANIMATIONS_DEPLOY_SOURCE"] = "quantum"
-    subprocess.run([sys.executable, str(script)], cwd=production_repo, env=env, check=True, timeout=900)
+    run_supervisor([sys.executable, str(script)], cwd=production_repo, env=env, check=True, timeout=900)
 
 
 def deliver_website(data_dir: Path, production_repo: Path, request_id: int) -> dict:
