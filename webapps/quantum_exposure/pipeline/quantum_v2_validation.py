@@ -182,15 +182,19 @@ def _page(cur, checkpoint, limit, window_blocks):
     # A spent archive can contain very few outputs surviving at the target.
     # Bound creation-height reads as well as returned rows; otherwise each
     # early live-output page can rescan most of a later spent archive.
-    window_end = min(height, max(0, cursor[0]) + window_blocks - 1)
+    window_start = max(0, cursor[0])
+    window_end = min(height, window_start + window_blocks - 1)
     pieces, params = [], []
     columns = sql.SQL('blockheight,transactionid,vout,amount,address,scripttype,scripthex,spendingblock')
     for name in names:
         pieces.append(sql.SQL('''(SELECT {}
-            FROM {} WHERE (blockheight,transactionid,vout)>(%s,%s,%s) AND blockheight<=%s
+            FROM {} WHERE (blockheight,transactionid,vout)>(%s,%s,%s)
+            AND blockheight>=%s AND blockheight<=%s
             AND (spendingblock IS NULL OR spendingblock>%s)
             ORDER BY {})''').format(columns, sql.Identifier('public', name), columns))
-        params.extend((*cursor, window_end, height))
+        # Keep the inclusive height bound explicit for height-only indexes and
+        # planner estimates; the tuple predicate still owns same-height paging.
+        params.extend((*cursor, window_start, window_end, height))
     # Deduplicate before the only row limit. A raw branch limit can be exhausted
     # by exact copies, hiding later live outputs or conflicting copies. Ordered
     # Unique/MergeAppend preserves demand-driven reads and conflict adjacency.
