@@ -307,6 +307,53 @@ class ValidationFixture(unittest.TestCase):
             validation.step(self.conn, limit=1)
         self.assertEqual(self.query('SELECT source_rows,last_height FROM quantum_v2.validation_checkpoint'), [(0, -1)])
 
+    def test_repeated_source_prefix_does_not_hide_later_live_occurrences(self):
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute('ALTER TABLE outputs DROP CONSTRAINT outputs_pkey')
+            cur.execute("INSERT INTO outputs SELECT o.* FROM outputs o CROSS JOIN generate_series(1,50) n WHERE transactionid='a'")
+        report = self.complete(limit=2)
+        self.assertTrue(report['passed'], report)
+        self.assertEqual(report['accounted_utxos'], 9)
+
+    def test_repeated_source_prefix_cannot_certify_a_missing_later_group(self):
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute('TRUNCATE stxos_0_20_archive')
+            cur.execute("DELETE FROM outputs WHERE transactionid NOT IN ('a','b')")
+            cur.execute('ALTER TABLE outputs DROP CONSTRAINT outputs_pkey')
+            cur.execute("INSERT INTO outputs SELECT o.* FROM outputs o CROSS JOIN generate_series(1,50) n WHERE transactionid='a'")
+            # The former raw branch cap returned only exact copies of a,
+            # then falsely certified this incomplete projection.
+            cur.execute("DELETE FROM quantum_v2.group_state WHERE script_type<>'P2PK'")
+        report = self.complete(limit=2)
+        self.assertFalse(report['passed'])
+        self.assertEqual(report['accounted_utxos'], 2)
+        self.assertEqual(report['mismatched_group_families'], 1)
+        self.assertEqual(report['examples'][0]['script_type'], 'P2PKH')
+
+    def test_repeated_source_prefix_cannot_hide_a_conflicting_lookahead(self):
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute('TRUNCATE stxos_0_20_archive')
+            cur.execute("DELETE FROM outputs WHERE transactionid NOT IN ('a','b')")
+            cur.execute('ALTER TABLE outputs DROP CONSTRAINT outputs_pkey')
+            cur.execute("INSERT INTO outputs SELECT o.* FROM outputs o CROSS JOIN generate_series(1,50) n WHERE transactionid='a'")
+            cur.execute("INSERT INTO stxos_0_20_archive SELECT blockheight,transactionid,vout,amount+1,address,scripttype,scripthex,spendingblock FROM outputs WHERE transactionid='b'")
+        validation.initialize(self.conn, 10, f'{10:064x}')
+        with self.assertRaisesRegex(ValueError, 'Conflicting'):
+            validation.step(self.conn, limit=2)
+        self.assertEqual(self.query('SELECT source_rows,last_height FROM quantum_v2.validation_checkpoint'), [(0, -1)])
+        self.assertEqual(self.query('SELECT count(*) FROM quantum_v2.validation_group'), [(0,)])
+
+    def test_previous_pager_version_requires_fresh_source_validation(self):
+        validation.initialize(self.conn, 10, f'{10:064x}')
+        validation.step(self.conn, limit=1)
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute("UPDATE quantum_v2.validation_checkpoint SET validation_version='raw-source-utxo-accounting-v1'")
+        with self.assertRaisesRegex(ValueError, 'versions changed'):
+            validation.step(self.conn, limit=1)
+        checkpoint = validation.initialize(self.conn, 10, f'{10:064x}')
+        self.assertEqual(checkpoint['source_rows'], 0)
+        self.assertEqual(checkpoint['validation_version'], 'raw-source-utxo-accounting-v2')
+
     def test_archive_movement_between_pages_preserves_target_membership(self):
         validation.initialize(self.conn, 10, f'{10:064x}')
         validation.step(self.conn, limit=1)

@@ -268,6 +268,10 @@ Replace the capitalized arguments with verified values; these are placeholders.
 Initialization leaves scheduling paused. The default seed reconstructs the full
 history from canonical raw source in bounded pages, accumulating compact funding,
 disclosure and last-spend metadata without copying the occurrence ledger.
+Each source query covers at most 1,000 creation heights and returns one global
+page plus a lookahead row. Ordered source streams collapse exact duplicate rows
+before that global limit; raw branches have no separate row cap. Conflicting
+copies of an occurrence stop the page before its state or cursor can commit.
 `--canonical` remains a compatibility alias for this default. The explicit
 `--legacy-unverified` option imports legacy tables for diagnostics only; that
 projection cannot be exported or accepted for scheduling. Matching freeze heights
@@ -275,6 +279,67 @@ and balances cannot authenticate imported historical dates or disclosures.
 Repeat bounded `bootstrap` invocations until
 the projection reports ready, recording time, row counts, memory, and resumability.
 Do not interpret a completed first page as a completed bootstrap.
+
+For sustained initialization, explicitly launch the finite administrative
+supervisor from the configured production checkout after reviewing its source
+and resource settings:
+
+```sh
+"$Q_PYTHON" scripts/run_quantum_bootstrap.py --config "$Q_CONFIG" \
+  --max-active-seconds 86400 --max-elapsed-seconds 172800 --rest-seconds 15
+```
+
+Both budgets are required for a new session: at most 24 hours of child work and
+48 hours of elapsed time, including rests and source-readiness waits. Each child
+uses the worker's configured `work_seconds`, page caps, memory and free-space
+guards. The supervisor stops at its finite budget or a ready projection; it does
+not validate, export, deliver, enable a scheduler, or advance beyond the original
+anchor. Completion of this command alone does not satisfy rollout acceptance.
+The normal control row must remain paused throughout. An explicit new session
+can work past that initial scheduling pause, without deleting the `PAUSED` file.
+
+The first output line names a private `bootstrap_sessions/SESSION/session.json`
+under `state_dir`. Resume that exact journal to retain its original deadline,
+charged active time, anchor and pause token:
+
+```sh
+"$Q_PYTHON" scripts/run_quantum_bootstrap.py --config "$Q_CONFIG" \
+  --resume "/absolute/private/quantum-state/bootstrap_sessions/SESSION/session.json"
+```
+
+A subsequent operator pause stops the session, including while its child is
+working. Plain resume preserves that pause. After review, adding
+`--acknowledge-pause` explicitly authorizes continuing the same finite session;
+it still leaves normal scheduling paused. A changed implementation, driver,
+configuration file, environment file, effective configuration, database endpoint
+or initialization anchor stops continuation.
+Review such changes before starting a new finite session. Source ingestion can
+temporarily defer work; those waits consume elapsed time, and committed cursors
+remain authoritative. Optional `--estimated-source-rows N` adds clearly labeled
+catalog-based extrapolations to progress events; changing workload or group
+reuse can make those estimates inaccurate.
+
+A private administrative lock covers work and rest periods, while the worker's
+database writer lock excludes other projection writers. Every child owns a
+process group and identifies its PostgreSQL backend by database, start time and
+a random handoff nonce. The child inherits the administrative lock before its
+first database connection, closing the supervisor-crash gap before handoff. Its
+absolute deadline also bounds connection startup and cleanup. Cancellation targets only that verified statement and
+owned process group, never terminates a PostgreSQL backend, and allows a short
+cleanup reserve before the overall budget. Each successful page commits its
+state and cursor atomically. After a killed supervisor, resume conservatively
+charges the entire unfinished slice reservation plus its two-second cleanup
+allowance once and refuses to overlap a still-live child. Recovered active time
+is conservative reservation accounting, rather than exact observed wall time.
+Interrupted or failed attempts remain evidence requiring
+review; an incomplete child result is never converted into successful run
+accounting. The driver writes mode-0600 progress journals and child logs, without
+duplicating the worker's database run records or printing credential values.
+
+Portable driver checks run with `python3 scripts/test_quantum_bootstrap_driver.py`.
+Setting `QUANTUM_BOOTSTRAP_TEST_DSN` to an explicit temporary-socket
+`*_fixture` database additionally exercises real child completion, supervisor
+kill/resume, pause acknowledgement and transactional deadline cancellation.
 
 Stop any already running legacy Quantum builders before initialization. The seven
 legacy table-builder entry points now call `guard_legacy_mutation` before DDL or
@@ -727,10 +792,17 @@ new full raw-source validation requirement.
 
 Every persisted attempt for the chosen boundary must be listed, completed, and
 carry matching code/config/control provenance plus contiguous ready start/end
-checkpoints covering all 1,000 blocks. Bootstrap, validation-only, deferred,
-failed or unmeasured attempts cannot qualify: measure a fresh complete boundary
-rather than omit them. The gate derives active seconds by summing all those run
-wall times (including export) and private memory by taking their maximum. Both
+checkpoints covering all 1,000 blocks. Every endpoint must still be canonical.
+A measured `source_not_ready` ingestion yield may qualify: after rollback, the
+worker records its actual durable endpoint and checks that its implementation
+has not changed. This includes no-progress yields at an unchanged checkpoint
+and yields after committed pages or an aborted export. Every such attempt's
+time and memory still count. Bootstrap, validation-only, paused, unknown-deferral,
+failed, incomplete-recovery or unmeasured attempts cannot qualify: measure a
+fresh complete boundary rather than omit them. Older attempts missing their
+durable endpoint are not inferred from a later run. The gate derives active
+seconds by summing all those run wall times (including export) and private memory
+by taking their maximum. Both
 measurements must be positive, with valid worker/backend private-memory samples,
 no measurement failures, and no resource breach. They must exactly match the
 record and remain at most 1,800 seconds and 4 GiB. Delivery receipts are checked

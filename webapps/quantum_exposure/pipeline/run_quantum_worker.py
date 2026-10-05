@@ -37,7 +37,7 @@ def log(event,**fields):
     print(json.dumps({'at':datetime.now(timezone.utc).isoformat(),'event':event,**fields},default=str),flush=True)
 
 
-def connect(config):
+def connect(config,*,connect_timeout=None):
     if config.get('env_file'):
         load_dotenv(config['env_file'],override=False)
     options={key:value for key,value in {
@@ -46,7 +46,8 @@ def connect(config):
         'application_name':'quantum-v2-worker',
         'options':'-c work_mem=32MB -c max_parallel_workers_per_gather=0 -c temp_file_limit=2GB -c lock_timeout=2s -c statement_timeout=300000',
     }.items() if value is not None}
-    conn=psycopg2.connect(config.get('dsn',''),**options) if not config.get('dsn') else psycopg2.connect(config['dsn'],application_name='quantum-v2-worker',options=options['options'])
+    timeout={} if connect_timeout is None else {'connect_timeout':connect_timeout}
+    conn=psycopg2.connect(config.get('dsn',''),**options,**timeout) if not config.get('dsn') else psycopg2.connect(config['dsn'],application_name='quantum-v2-worker',options=options['options'],**timeout)
     conn.set_session(isolation_level='READ COMMITTED',autocommit=False)
     return conn
 
@@ -484,7 +485,8 @@ def deliver_pending(conn,config,*,stop_requested=None):
                 return
 
 
-def run_once(conn,config,*,bootstrap_only=False,validation_only=False,recompare=False):
+def run_once(conn,config,*,bootstrap_only=False,validation_only=False,recompare=False,
+             admin_stop_requested=None,admin_deadline=None):
     bootstrap_rows, bootstrap_by_source = bootstrap_row_limits(config, legacy_sources=store.LEGACY)
     undo_blocks=undo_retention_blocks(config)
     if not control.take_writer_lock(conn):
@@ -499,6 +501,10 @@ def run_once(conn,config,*,bootstrap_only=False,validation_only=False,recompare=
     try:
         state=control.status(conn)
         stop_requested=PauseGate(conn,config,bypass_existing=bootstrap_only or validation_only)
+        if admin_stop_requested is not None:
+            if not bootstrap_only:raise ValueError('Administrative supervision applies only to bootstrap')
+            own_pause=stop_requested
+            stop_requested=lambda:admin_stop_requested() or own_pause()
         if stop_requested():
             log('paused')
             return 0
@@ -537,15 +543,26 @@ def run_once(conn,config,*,bootstrap_only=False,validation_only=False,recompare=
         before=database_usage(conn)
         started=time.monotonic()
         deadline=started+float(config.get('work_seconds',45))
+        if admin_deadline is not None:
+            if not bootstrap_only:raise ValueError('Administrative deadline applies only to bootstrap')
+            deadline=min(deadline,admin_deadline)
         with ResourceMonitor(conn,limit_bytes=int(config.get('memory_limit_bytes',4*1024**3)),
                 disk_paths=_resource_disk_paths(conn,config),
                 minimum_free_bytes=config.get('disk_reserve_bytes',DEFAULT_DISK_RESERVE_BYTES)) as monitor:
-            projection=recover_reorg(conn,config,deadline=deadline,monitor=monitor,metrics=recovery_metrics,
-                                     stop_requested=stop_requested)
+            # A manually supervised initialization pins its original anchor.
+            # Source drift stops that session; normal worker recovery is unchanged.
+            if admin_stop_requested is None:
+                projection=recover_reorg(conn,config,deadline=deadline,monitor=monitor,metrics=recovery_metrics,
+                                         stop_requested=stop_requested)
             while projection['status']=='seeding' and time.monotonic()<deadline:
                 if stop_requested():
                     break
-                done=store.bootstrap_step(conn,limit=_bootstrap_page_limit(conn,bootstrap_rows,bootstrap_by_source))
+                if admin_deadline is None:
+                    done=store.bootstrap_step(conn,limit=_bootstrap_page_limit(conn,bootstrap_rows,bootstrap_by_source))
+                else:
+                    done=_maintenance_action(conn,lambda:store.bootstrap_step(conn,limit=_bootstrap_page_limit(conn,bootstrap_rows,bootstrap_by_source)),
+                        deadline=deadline,monitor=monitor,metrics=recovery_metrics,stop_requested=stop_requested)
+                    if done is None:break
                 _check_resources(monitor)
                 if done:
                     break
@@ -620,7 +637,19 @@ def run_once(conn,config,*,bootstrap_only=False,validation_only=False,recompare=
         conn.rollback()
         metrics=monitor.metrics() if monitor else {}
         metrics.update(provenance,database_before=before,recovery=recovery_metrics,undo=undo_metrics,deferred='source_not_ready')
-        if run_id: control.finish_run(conn,run_id,metrics=metrics)
+        if run_id:
+            # An ingestion yield can follow committed projection pages or an
+            # aborted export. Preserve its actual durable endpoint and all
+            # measured work, so acceptance cannot omit the retry's cost.
+            projection=_projection(conn)
+            metrics.update(database_after=database_usage(conn),
+                           projection_after={key:projection[key] for key in ('height','block_hash','status')})
+            if implementation_fingerprint(REPO)!=provenance['implementation_sha256']:
+                message='Quantum implementation changed during measured source deferral'
+                control.finish_run(conn,run_id,error=message,metrics=metrics)
+                log('run_failed',run_id=run_id,error=message)
+                return 1
+            control.finish_run(conn,run_id,metrics=metrics)
         log('source_not_ready',run_id=run_id,reason=str(exc))
         return 0
     except Exception as exc:

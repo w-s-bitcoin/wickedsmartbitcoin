@@ -97,6 +97,11 @@ def read_snapshot(conn, record):
                                  (projection.get('anchor_height',record['checkpoint_height']),record['checkpoint_height']))
         heights={record['checkpoint_height'],projection.get('anchor_height',-1),
                  (snapshot['source'] or {}).get('committed_height',-1),record['checkpoint_height']-1000}
+        for run in snapshot['runs']:
+            for endpoint in ('projection_before','projection_after'):
+                value=run['metrics'].get(endpoint,{})
+                if type(value.get('height')) is int:
+                    heights.add(value['height'])
         for batch in snapshot['batches']:
             heights.update((batch['from_height'],batch['to_height']))
         snapshot['canonical']=dict((row['blockheight'],row['blockhash']) for row in
@@ -170,14 +175,19 @@ def check_snapshot(record, snapshot, config, implementation, *, validation_versi
     for row in runs:
         metric=row['metrics']
         require(row['status']=='succeeded' and row.get('finished_at') and not row.get('error') and
-                metric.get('mode')=='boundary' and not metric.get('deferred'),
-                'boundary includes unfinished, failed, bootstrap or deferred attempts; measure a fresh complete boundary')
+                metric.get('mode')=='boundary' and metric.get('deferred') in (None,'source_not_ready'),
+                'boundary includes unfinished, failed, bootstrap, paused or unsupported deferred attempts; measure a fresh complete boundary')
+        require(not metric.get('recovery',{}).get('rollback_pending'),
+                'boundary includes incomplete reorg recovery')
         require(metric.get('implementation_sha256')==implementation and metric.get('config_sha256')==record['config_sha256'],
                 'run source/config provenance differs or is absent')
         require(metric.get('scheduler_control')==control_settings(cfg),'run scheduler settings differ')
         before,after=metric.get('projection_before',{}),metric.get('projection_after',{})
         require(before.get('status')==after.get('status')=='ready' and before.get('height')==cursor and
                 type(after.get('height')) is int and cursor<=after['height']<=height,'measured runs do not cover one contiguous complete 1,000-block boundary')
+        require(all(bool(endpoint.get('block_hash')) and endpoint['block_hash']==snapshot['canonical'].get(endpoint['height'])
+                    for endpoint in (before,after)),
+                'measured run checkpoint is no longer canonical')
         if cursor==height-1000:
             require(before.get('block_hash')==snapshot['canonical'].get(cursor) and bool(before.get('block_hash')),
                     'measured starting checkpoint is not canonical')

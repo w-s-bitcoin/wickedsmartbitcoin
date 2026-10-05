@@ -1055,12 +1055,20 @@ def _prepare_legacy_scripts(cur,rows,anchor):
 
 
 def _source_occurrence_query(cur,key,anchor,limit,*,other_only=False):
-    """Compose the shared bounded, archive-coherent source occurrence query."""
+    """Compose a demand-driven ordered union with exact-row deduplication.
+
+    DISTINCT ON all selected fields forces streaming Unique rather than a global
+    hash aggregate. Identically ordered branches permit MergeAppend to stop at
+    the page's global lookahead. Do not limit raw branches: repeated identical
+    rows can otherwise exhaust that prefix before later distinct occurrences,
+    falsely marking the creation window complete and skipping those occurrences.
+    """
     # Bound sparse predicates by creation height as well as result cardinality.
     # Empty windows advance durably instead of rescanning the entire archive.
     window_end=min(anchor,max(0,key[0])+999)
     sources=['outputs']+[n for a,b,n in _archives(cur) if (b>anchor if other_only else b>=key[0])]
     pieces=[]; params=[]
+    columns=sql.SQL('blockheight,transactionid,vout,amount,address,scripttype,scripthex,spendingblock')
     for name in sources:
         predicate=' AND '+NOT_PROVABLE_BURN
         branch_params=[*key,window_end]
@@ -1069,11 +1077,12 @@ def _source_occurrence_query(cur,key,anchor,limit,*,other_only=False):
                 AND (scripttype NOT IN ('pubkey','pubkeyhash','witness_v0_keyhash','scripthash','witness_v0_scripthash','witness_v1_taproot') OR scripttype IS NULL)
                 AND (scripttype NOT LIKE 'Multisig %%' OR address IS NULL OR scripttype IS NULL)"""
             branch_params.append(anchor)
-        pieces.append(sql.SQL("""(SELECT blockheight,transactionid,vout,amount,address,scripttype,scripthex,spendingblock
-            FROM {} WHERE (blockheight,transactionid,vout)>(%s,%s,%s) AND blockheight<=%s"""+predicate+
-            ' ORDER BY blockheight,transactionid,vout LIMIT %s)').format(_q(name)))
-        params.extend((*branch_params,limit+1))
-    query=sql.SQL('SELECT * FROM (')+sql.SQL(' UNION ').join(pieces)+sql.SQL(') source ORDER BY blockheight,transactionid,vout LIMIT %s')
+        pieces.append(sql.SQL("""(SELECT {} FROM {} WHERE
+            (blockheight,transactionid,vout)>(%s,%s,%s) AND blockheight<=%s"""+predicate+
+            ' ORDER BY {})').format(columns,_q(name),columns))
+        params.extend(branch_params)
+    query=(sql.SQL('SELECT DISTINCT ON ({}) {} FROM (').format(columns,columns)+
+           sql.SQL(' UNION ALL ').join(pieces)+sql.SQL(') source ORDER BY {} LIMIT %s').format(columns))
     return query,(*params,limit+1),window_end
 
 

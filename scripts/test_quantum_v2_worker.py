@@ -204,6 +204,46 @@ class WorkerFixture(unittest.TestCase):
         self.assertEqual(self.query('SELECT height FROM quantum_v2.projection'),[(1000,)])
         self.assertEqual(self.query("SELECT metrics->>'deferred' FROM quantum_v2.run"),[('paused',)])
 
+    def test_ingestion_yield_records_committed_progress_then_resumes_without_replay(self):
+        # First complete the seed/proof without adding administrative runs to
+        # the real boundary request's measurement history.
+        while not store.bootstrap_step(self.conn,limit=100): pass
+        self.assertTrue(worker.validate_projection(self.conn,self.config,deadline=time.monotonic()+60,ignore_pause=True))
+        apply=store.apply_range
+        def ingest_after_page(*args,**kwargs):
+            result=apply(*args,**kwargs)
+            with self.conn,self.conn.cursor() as cur:
+                cur.execute('UPDATE quantum_v2.source_state SET ready=false')
+            return result
+        with mock.patch.object(store,'apply_range',side_effect=ingest_after_page), \
+             mock.patch.object(worker,'export_request') as export:
+            self.assertEqual(worker.run_once(self.conn,self.config),0)
+            export.assert_not_called()
+        status,error,metric=self.query('SELECT status,error,metrics FROM quantum_v2.run')[0]
+        self.assertEqual((status,error,metric['deferred']),('succeeded',None,'source_not_ready'))
+        self.assertEqual(metric['projection_before']['height'],500)
+        self.assertEqual(metric['projection_after'],{'height':600,'block_hash':f'{600:064x}','status':'ready'})
+        self.assertIn('database_after',metric)
+        with self.conn,self.conn.cursor() as cur:
+            cur.execute('UPDATE quantum_v2.source_state SET ready=true')
+        with mock.patch.object(store,'apply_range',wraps=apply) as resumed, \
+             mock.patch.object(delivery,'deliver_website',return_value={'commit':'2'*40}), \
+             mock.patch.object(delivery,'deliver_standalone',return_value={'commit':'3'*40}):
+            self.assertEqual(worker.run_once(self.conn,self.config),0)
+        self.assertEqual(resumed.call_args_list[0].args[1],700)
+        self.assertEqual(self.query('SELECT status FROM quantum_v2.request'),[('complete',)])
+
+    def test_changed_implementation_during_source_yield_is_failed_evidence(self):
+        def unavailable(*args,**kwargs):
+            raise store.SourceNotReady('fixture ingestion started')
+        with mock.patch.object(store,'bootstrap_step',side_effect=unavailable), \
+             mock.patch.object(worker,'implementation_fingerprint',side_effect=['1'*64,'2'*64]):
+            self.assertEqual(worker.run_once(self.conn,self.config,bootstrap_only=True),1)
+        status,error,metric=self.query('SELECT status,error,metrics FROM quantum_v2.run')[0]
+        self.assertEqual(status,'failed')
+        self.assertIn('implementation changed',error)
+        self.assertEqual(metric['projection_after']['status'],'seeding')
+
     def test_pause_between_destinations_keeps_remaining_delivery_retryable(self):
         def standalone_then_pause(*args,**kwargs):
             control.configure(self.conn,paused=True)

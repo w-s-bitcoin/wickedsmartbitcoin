@@ -108,6 +108,48 @@ class AcceptanceTests(unittest.TestCase):
         self.snapshot['runs'][0]['metrics']['projection_before']['height']=962500
         with self.assertRaisesRegex(ValueError,'1,000'): self.verify()
 
+    def test_measured_ingestion_yields_count_every_attempt_and_cost(self):
+        self.snapshot['runs'][0]['metrics']['deferred']='source_not_ready'
+        self.assertEqual(self.verify()['active_seconds_per_boundary'],100)
+        # A no-progress ingestion yield is valid only at the same canonical
+        # checkpoint; its full time and private peak still count.
+        waiting=copy.deepcopy(self.snapshot['runs'][0])
+        waiting['id']='run-wait'
+        metric=waiting['metrics']
+        metric['projection_after']=copy.deepcopy(metric['projection_before'])
+        metric['wall_seconds']=7.0
+        metric['peak_combined_private_memory_bytes']=1500000
+        self.snapshot['runs'].insert(0,waiting)
+        self.record['run_ids'].insert(0,'run-wait')
+        self.record['active_seconds_per_boundary']=107.0
+        self.record['peak_private_memory_bytes']=1500000
+        self.assertEqual(self.verify()['active_seconds_per_boundary'],107)
+        self.record['active_seconds_per_boundary']=100.0
+        with self.assertRaisesRegex(ValueError,'declared metrics differ'): self.verify()
+
+    def test_ingestion_yield_cannot_hide_missing_or_orphaned_checkpoint(self):
+        metric=self.snapshot['runs'][0]['metrics']
+        metric['deferred']='source_not_ready'
+        after=metric.pop('projection_after')
+        with self.assertRaisesRegex(ValueError,'contiguous'): self.verify()
+        metric['projection_after']=after
+        after['block_hash']='f'*64
+        self.snapshot['runs'][1]['metrics']['projection_before']['block_hash']='f'*64
+        with self.assertRaisesRegex(ValueError,'no longer canonical'): self.verify()
+        after['block_hash']='c'*64
+        self.snapshot['runs'][1]['metrics']['projection_before']['block_hash']='c'*64
+        metric['recovery']={'rollback_pending':True}
+        with self.assertRaisesRegex(ValueError,'incomplete reorg'): self.verify()
+
+    def test_ingestion_yield_with_missing_measurement_or_unknown_reason_rejected(self):
+        metric=self.snapshot['runs'][0]['metrics']
+        metric['deferred']='source_not_ready'
+        metric['wall_seconds']=0
+        with self.assertRaisesRegex(ValueError,'measurement'): self.verify()
+        metric['wall_seconds']=50.0
+        metric['deferred']='unknown'
+        with self.assertRaisesRegex(ValueError,'unsupported deferred'): self.verify()
+
     def test_unmeasured_failed_or_different_config_attempt_rejected(self):
         changes=(('wall_seconds',0),('peak_combined_private_memory_bytes',0),('memory_measurement_error','denied'),
                  ('memory_limit_exceeded',True),('processes',{}),('config_sha256','wrong'),

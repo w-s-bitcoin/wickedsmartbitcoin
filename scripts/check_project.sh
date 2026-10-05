@@ -30,6 +30,7 @@ bash scripts/check_all_dashboards.sh
 "$PYTHON_BIN" scripts/test_quantum_subprocess.py
 "$PYTHON_BIN" scripts/test_quantum_v2_control.py
 "$PYTHON_BIN" scripts/test_quantum_v2_worker.py
+"$PYTHON_BIN" scripts/test_quantum_bootstrap_driver.py
 "$PYTHON_BIN" scripts/test_quantum_resources.py
 "$PYTHON_BIN" scripts/test_quantum_scheduler.py
 "$PYTHON_BIN" scripts/test_quantum_acceptance.py
@@ -37,6 +38,7 @@ bash scripts/check_all_dashboards.sh
 "$PYTHON_BIN" scripts/test_quantum_script_hydration.py
 "$PYTHON_BIN" scripts/test_quantum_canonical_seed.py
 "$PYTHON_BIN" scripts/test_quantum_canonical_reducer.py
+"$PYTHON_BIN" scripts/test_quantum_source_streaming.py
 "$PYTHON_BIN" scripts/test_quantum_policy_cache.py
 "$PYTHON_BIN" scripts/test_quantum_v2_validation.py
 "$PYTHON_BIN" scripts/test_quantum_null_script_indexes.py
