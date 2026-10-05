@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -63,7 +64,8 @@ class WorkerFixture(unittest.TestCase):
         root = Path(self.temp.name)
         self.config = {"state_dir": str(root / "state"), "production_repo": str(root / "website"),
                        "standalone_repo": str(root / "standalone"), "work_seconds": 60,
-                       "bootstrap_rows": 100, "batch_blocks": 100, "batch_pause_seconds": 0}
+                       "bootstrap_rows": 100, "batch_blocks": 100, "batch_pause_seconds": 0,
+                       "disk_reserve_bytes": 0}
         with self.conn, self.conn.cursor() as cur:
             cur.execute("DROP SCHEMA IF EXISTS quantum_v2 CASCADE")
             cur.execute("DROP SCHEMA public CASCADE")
@@ -80,6 +82,7 @@ class WorkerFixture(unittest.TestCase):
                 (750, "b" * 64, 0, 100_000_000, "key-hash", "pubkeyhash", "76a914" + KEY + "88ac", None),
             ])
         store.migrate(self.conn)
+        store.migrate_live_export(self.conn)
         control.migrate(self.conn)
         enrichment.migrate(self.conn)
         worker.validation.migrate(self.conn)
@@ -111,6 +114,79 @@ class WorkerFixture(unittest.TestCase):
             self.assertEqual(worker.run_once(self.conn,self.config),0)
             bootstrap.assert_not_called()
             deliver.assert_not_called()
+
+    def test_completed_run_persists_source_config_mode_and_checkpoint_provenance(self):
+        from quantum_worker_config import config_fingerprint, PROJECTION_ACCOUNTING_VERSION
+        import quantum_acceptance
+        self.assertEqual(worker.run_once(self.conn,self.config,bootstrap_only=True),0)
+        metrics=self.query('SELECT metrics FROM quantum_v2.run')[0][0]
+        self.assertEqual(metrics['mode'],'bootstrap')
+        self.assertEqual(metrics['config_sha256'],config_fingerprint(self.config))
+        self.assertEqual(metrics['implementation_sha256'],worker.implementation_fingerprint(worker.REPO))
+        self.assertEqual(metrics['scheduler_control'],{'start_height':0,'confirmations':6,'boundary_size':1000})
+        self.assertEqual(metrics['projection_before'],{'height':500,'block_hash':f'{500:064x}','status':'seeding'})
+        self.assertEqual(metrics['projection_after'],{'height':500,'block_hash':f'{500:064x}','status':'ready'})
+        request_id=self.query('SELECT id FROM quantum_v2.request WHERE target_height=1000')[0][0]
+        snapshot=quantum_acceptance.read_snapshot(self.conn,{'request_id':request_id,'checkpoint_height':1000})
+        self.conn.rollback()
+        self.assertEqual(snapshot['projection']['height'],500)
+        self.assertEqual(snapshot['projection']['methodology_version'],PROJECTION_ACCOUNTING_VERSION)
+        self.assertEqual(snapshot['incomplete_bootstrap'],0)
+        self.assertEqual(snapshot['runs'][0]['metrics'],metrics)
+        self.assertEqual(snapshot['canonical'][1006],f'{1006:064x}')
+
+    def test_implementation_change_during_run_cannot_be_successful_acceptance_evidence(self):
+        with mock.patch.object(worker,'implementation_fingerprint',side_effect=['1'*64,'2'*64]):
+            self.assertEqual(worker.run_once(self.conn,self.config,bootstrap_only=True),1)
+        status,error,metrics=self.query('SELECT status,error,metrics FROM quantum_v2.run')[0]
+        self.assertEqual(status,'failed')
+        self.assertIn('implementation changed',error)
+        self.assertEqual(metrics['implementation_sha256'],'1'*64)
+
+    def test_acceptance_reconciles_actual_initializer_validator_and_completed_boundary_records(self):
+        import quantum_acceptance as acceptance
+        from quantum_worker_config import config_fingerprint, control_settings
+        self.config['disk_reserve_bytes']=512*1024**3
+        # This fixture begins with an untouched seed; initialize genesis so the
+        # measured ordinary request covers an entire 1,000-block interval.
+        with self.conn,self.conn.cursor() as cur:
+            cur.execute('DELETE FROM quantum_v2.projection')
+            cur.execute('DELETE FROM quantum_v2.bootstrap_cursor')
+        store.initialize_source_seed(self.conn,0,f'{0:064x}')
+        while not store.bootstrap_step(self.conn,limit=100): pass
+        self.assertTrue(worker.validate_projection(self.conn,self.config,deadline=time.monotonic()+60,ignore_pause=True))
+        measured={'wall_seconds':5.0,'peak_combined_private_memory_bytes':1000000,
+                  'memory_limit_exceeded':False,'memory_measurement_error':None,
+                  'minimum_free_disk_bytes':512*1024**3,
+                  'observed_minimum_free_disk_bytes':{'/fixture/data':1024*1024**3},
+                  'disk_reserve_exceeded':False,'disk_measurement_error':None,
+                  'processes':{'1':{'private_memory_bytes':400000},'2':{'private_memory_bytes':600000}}}
+        with mock.patch.object(FixtureMonitor,'metrics',return_value=measured), \
+             mock.patch.object(delivery,'deliver_website',return_value={'commit':'2'*40}), \
+             mock.patch.object(delivery,'deliver_standalone',return_value={'commit':'3'*40}):
+            self.assertEqual(worker.run_once(self.conn,self.config),0)
+        self.assertTrue(worker.validate_projection(self.conn,self.config,deadline=time.monotonic()+60,ignore_pause=True))
+        request_id,generation=self.query('SELECT id,generation_id FROM quantum_v2.request')[0]
+        snapshot=acceptance.read_snapshot(self.conn,{'request_id':request_id,'checkpoint_height':1000})
+        self.conn.rollback()
+        proof=next(row['report'] for row in snapshot['validations'] if row['target_height']==1000)
+        record={'version':acceptance.VERSION,'code_revision':'1'*40,'checkpoint_height':1000,
+                'checkpoint_hash':f'{1000:064x}','generation_id':generation,'request_id':request_id,
+                'database':snapshot['database'],'website_commit':'2'*40,'standalone_commit':'3'*40,
+                'implementation_sha256':worker.implementation_fingerprint(worker.REPO),
+                'config_sha256':config_fingerprint(self.config),
+                'control_sha256':acceptance.digest(control_settings(snapshot['control'])),
+                'validation_report_sha256':acceptance.digest(proof),
+                'run_ids':[str(row['id']) for row in snapshot['runs']],
+                'active_seconds_per_boundary':5.0,'peak_private_memory_bytes':1000000,
+                'reviews':{kind:{} for kind in ('browser','recovery','rollback')}}
+        result=acceptance.check_snapshot(record,snapshot,self.config,record['implementation_sha256'],
+                                         validation_version=worker.validation.VERSION)
+        self.assertEqual(result['request_id'],request_id)
+        snapshot['projection']['status']='seeding'
+        with self.assertRaisesRegex(ValueError,'bootstrap is not complete'):
+            acceptance.check_snapshot(record,snapshot,self.config,record['implementation_sha256'],
+                                      validation_version=worker.validation.VERSION)
 
     def test_pause_after_last_projection_batch_blocks_export_and_destinations(self):
         apply=store.apply_range
@@ -324,6 +400,122 @@ class WorkerFixture(unittest.TestCase):
         with self.conn, self.conn.cursor() as cur:
             cur.execute("UPDATE blockheader SET blockhash='replacement-anchor' WHERE blockheight=500")
         control.configure(self.conn,paused=True)
+
+    def ready_undo_chain(self, *, maintenance=False):
+        while not store.bootstrap_step(self.conn,limit=100): pass
+        self.assertTrue(worker.validate_projection(self.conn,self.config,deadline=time.monotonic()+60))
+        if maintenance:
+            with self.conn,self.conn.cursor() as cur:
+                cur.execute("INSERT INTO blockheader SELECT n,lpad(to_hex(n),64,'0'),1231006505+n*600 FROM generate_series(1007,3010) n")
+                cur.execute('UPDATE quantum_v2.source_state SET committed_height=3010,committed_hash=%s',(f'{3010:064x}',))
+            control.configure(self.conn,start_height=5000)
+        for height in ((1000,1500,3000) if maintenance else (700,800,1000)):
+            store.apply_range(self.conn,height)
+
+    def orphan_undo_suffix(self):
+        self.ready_undo_chain()
+        with self.conn,self.conn.cursor() as cur:
+            cur.execute("UPDATE blockheader SET blockhash=lpad(to_hex(blockheight+10000),64,'0') WHERE blockheight>700")
+            cur.execute('UPDATE quantum_v2.source_state SET committed_hash=%s',(f'{11006:064x}',))
+            cur.execute('UPDATE outputs SET amount=150000000 WHERE blockheight=750')
+
+    def test_interrupted_rollback_resumes_before_delta_export_or_delivery(self):
+        self.orphan_undo_suffix()
+        undo=store.rollback_step
+        def pause_after_step(*args,**kwargs):
+            result=undo(*args,**kwargs)
+            control.configure(self.conn,paused=True)
+            return result
+        with mock.patch.object(store,'rollback_step',side_effect=pause_after_step), \
+             mock.patch.object(store,'apply_range') as apply, \
+             mock.patch.object(worker,'export_request') as export, \
+             mock.patch.object(worker,'deliver_pending') as deliver:
+            self.assertEqual(worker.run_once(self.conn,self.config),0)
+        apply.assert_not_called(); export.assert_not_called(); deliver.assert_not_called()
+        self.assertEqual(self.query('SELECT height,block_hash,status FROM quantum_v2.projection'),[(800,f'{800:064x}','ready')])
+        metrics=self.query('SELECT metrics FROM quantum_v2.run')[0][0]
+        self.assertTrue(metrics['recovery']['rollback_pending'])
+        self.assertEqual(metrics['recovery']['rollback_batches'],1)
+        control.configure(self.conn,paused=False)
+        with mock.patch.object(delivery,'deliver_website',return_value={'commit':'website-reorg'}), \
+             mock.patch.object(delivery,'deliver_standalone',return_value={'commit':'standalone-reorg'}):
+            self.assertEqual(worker.run_once(self.conn,self.config),0)
+        self.assertEqual(self.query('SELECT height,block_hash FROM quantum_v2.projection'),[(1000,f'{11000:064x}')])
+        self.assertEqual(self.query('SELECT sum(balance_sats) FROM quantum_v2.group_state'),[(350000000,)])
+        self.assertEqual(self.query('SELECT status FROM quantum_v2.request'),[('complete',)])
+        self.assertGreater(self.query('SELECT count(*) FROM quantum_v2.orphan_disclosure')[0][0],0)
+
+    def test_rollback_deadline_cancels_one_atomic_batch(self):
+        self.orphan_undo_suffix()
+        before=self.query('SELECT group_id,script_type,balance_sats FROM quantum_v2.group_state ORDER BY 1,2')
+        def slow_undo(conn,height):
+            with store.transaction(conn) as cur:
+                cur.execute('UPDATE quantum_v2.group_state SET balance_sats=balance_sats+1')
+                cur.execute('SELECT pg_sleep(5)')
+            self.fail('Rollback query was not cancelled at the deadline')
+        with mock.patch.object(store,'rollback_step',side_effect=slow_undo), \
+             mock.patch.object(worker,'export_request') as export, \
+             mock.patch.object(store,'apply_range') as apply:
+            self.assertEqual(worker.run_once(self.conn,dict(self.config,work_seconds=0.1)),0)
+        export.assert_not_called(); apply.assert_not_called()
+        self.assertEqual(self.query('SELECT group_id,script_type,balance_sats FROM quantum_v2.group_state ORDER BY 1,2'),before)
+        self.assertEqual(self.query('SELECT height FROM quantum_v2.projection'),[(1000,)])
+        metrics=self.query('SELECT metrics FROM quantum_v2.run')[0][0]
+        self.assertTrue(metrics['recovery']['deadline_reached'])
+        self.assertTrue(metrics['recovery']['rollback_pending'])
+        self.assertEqual(metrics['recovery']['rollback_batches'],0)
+
+    def test_caught_up_ticks_prune_one_complete_batch_then_become_cheap(self):
+        self.ready_undo_chain(maintenance=True)
+        config=dict(self.config,undo_blocks=1000)
+        with mock.patch.object(worker,'export_request') as export, \
+             mock.patch.object(store,'apply_range') as apply, \
+             mock.patch.object(worker,'deliver_pending'):
+            self.assertEqual(worker.run_once(self.conn,config),0)
+            self.assertEqual(self.query('SELECT count(*) FROM quantum_v2.projection_batch'),[(2,)])
+            self.assertEqual(worker.run_once(self.conn,config),0)
+            self.assertEqual(self.query('SELECT from_height,to_height FROM quantum_v2.projection_batch'),[(1500,3000)])
+            with mock.patch.object(worker,'ResourceMonitor') as monitor:
+                self.assertEqual(worker.run_once(self.conn,config),0)
+                monitor.assert_not_called()
+        export.assert_not_called(); apply.assert_not_called()
+        self.assertEqual(self.query('SELECT count(*) FROM quantum_v2.run'),[(2,)])
+        self.assertEqual(self.query("SELECT metrics->'undo'->>'batches_pruned' FROM quantum_v2.run"),[('1',),('1',)])
+        self.assertEqual(self.query('SELECT anchor_height,height FROM quantum_v2.projection'),[(500,3000)])
+
+    def test_prune_deadline_restores_complete_batch_and_pause_skips_it(self):
+        self.ready_undo_chain(maintenance=True)
+        config=dict(self.config,undo_blocks=1000,work_seconds=0.1)
+        before=self.query('SELECT batch_id,group_id,script_type,before_row FROM quantum_v2.batch_undo ORDER BY 1,2,3')
+        def slow_prune(conn,**kwargs):
+            with store.transaction(conn) as cur:
+                cur.execute('DELETE FROM quantum_v2.projection_batch WHERE to_height=1000')
+                cur.execute('SELECT pg_sleep(5)')
+            self.fail('Pruning query was not cancelled at the deadline')
+        with mock.patch.object(store,'prune_undo_step',side_effect=slow_prune):
+            self.assertEqual(worker.run_once(self.conn,config),0)
+        self.assertEqual(self.query('SELECT count(*) FROM quantum_v2.projection_batch'),[(3,)])
+        self.assertEqual(self.query('SELECT batch_id,group_id,script_type,before_row FROM quantum_v2.batch_undo ORDER BY 1,2,3'),before)
+        self.assertTrue(self.query('SELECT metrics FROM quantum_v2.run')[0][0]['undo']['deadline_reached'])
+        control.configure(self.conn,paused=True)
+        with mock.patch.object(store,'prune_undo_step') as prune:
+            self.assertEqual(worker.run_once(self.conn,config),0)
+            prune.assert_not_called()
+
+    def test_deep_fork_across_pruned_boundary_reseeds_and_preserves_evidence(self):
+        self.ready_undo_chain(maintenance=True)
+        store.prune_undo_step(self.conn,keep_blocks=1000)
+        store.prune_undo_step(self.conn,keep_blocks=1000)
+        with self.conn,self.conn.cursor() as cur:
+            cur.execute("UPDATE blockheader SET blockhash=lpad(to_hex(blockheight+20000),64,'0') WHERE blockheight>500")
+            cur.execute('UPDATE quantum_v2.source_state SET committed_hash=%s',(f'{23010:064x}',))
+        with mock.patch.object(worker,'export_request') as export, \
+             mock.patch.object(store,'rollback_step') as undo:
+            self.assertEqual(worker.run_once(self.conn,self.config,bootstrap_only=True),0)
+        export.assert_not_called(); undo.assert_not_called()
+        self.assertEqual(self.query('SELECT height,status,seed_mode FROM quantum_v2.projection'),[(500,'ready','canonical')])
+        self.assertEqual(self.query('SELECT sum(balance_sats),sum(utxo_count) FROM quantum_v2.group_state'),[(200000000,1)])
+        self.assertGreater(self.query('SELECT count(*) FROM quantum_v2.orphan_disclosure')[0][0],0)
 
     def test_paused_partial_seed_reorg_recovers_old_confirmed_anchor(self):
         self.orphan_partial_seed()

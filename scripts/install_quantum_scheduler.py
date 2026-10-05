@@ -13,12 +13,12 @@ import math
 import os
 from pathlib import Path
 import plistlib
-import re
 import subprocess
 import sys
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'webapps/quantum_exposure/pipeline'))
-from quantum_worker_config import bootstrap_row_limits
+from quantum_worker_config import bootstrap_row_limits, undo_retention_blocks, DEFAULT_DISK_RESERVE_BYTES
+from quantum_acceptance import check_record, config_fingerprint
 
 LABEL='com.wickedsmartbitcoin.quantum'
 ACCEPTANCE_RUNTIME_PATHS=(
@@ -41,40 +41,13 @@ def launch_agent(config_path,python,production_repo,logs):
 
 
 def check_acceptance(path):
-    record=json.loads(path.read_text())
-    if not isinstance(record,dict):
-        raise ValueError('Acceptance evidence must be an object')
-    required=('code_revision','checkpoint_height','checkpoint_hash','generation_id','website_commit',
-              'standalone_commit','active_seconds_per_boundary','peak_private_memory_bytes',
-              'accounting_passed','recovery_passed','rollback_passed','browser_passed')
-    for key in required:
-        if key not in record or record[key] is None:
-            raise ValueError(f'Acceptance evidence missing {key}')
-    for key in ('accounting_passed','recovery_passed','rollback_passed','browser_passed'):
-        if record[key] is not True:
-            raise ValueError(f'Acceptance gate failed: {key}')
-    for key in ('code_revision','website_commit','standalone_commit'):
-        if not isinstance(record[key],str) or not re.fullmatch(r'[a-f0-9]{40}|[a-f0-9]{64}',record[key]):
-            raise ValueError(f'Acceptance evidence has an invalid commit: {key}')
-    if not isinstance(record['checkpoint_hash'],str) or not re.fullmatch(r'[a-f0-9]{64}',record['checkpoint_hash']):
-        raise ValueError('Acceptance checkpoint hash is invalid')
-    if type(record['checkpoint_height']) is not int or record['checkpoint_height']<0:
-        raise ValueError('Acceptance checkpoint height is invalid')
-    if not isinstance(record['generation_id'],str) or not re.fullmatch(r'[A-Za-z0-9_-]+',record['generation_id']):
-        raise ValueError('Acceptance generation identity is invalid')
-    for key in ('active_seconds_per_boundary','peak_private_memory_bytes'):
-        if type(record[key]) not in (int,float) or not math.isfinite(record[key]) or record[key]<0:
-            raise ValueError(f'Acceptance measurement is invalid: {key}')
-    if record['active_seconds_per_boundary']>1800:
-        raise ValueError('Measured boundary exceeds proposed 30-minute acceptance target')
-    if record['peak_private_memory_bytes']>4*1024**3:
-        raise ValueError('Measured private memory exceeds proposed 4 GiB acceptance target')
-    return record
+    return check_record(json.loads(path.read_text()))
 
 
 def check_scheduler_limits(config):
     try:
         bootstrap_row_limits(config)
+        undo_retention_blocks(config)
     except ValueError as exc:
         raise ValueError(f'Scheduler {exc}') from exc
     for key,ceiling in (('work_seconds',45),('export_seconds',1800),('memory_limit_bytes',4*1024**3)):
@@ -89,6 +62,9 @@ def check_scheduler_limits(config):
     pause=config['batch_pause_seconds']
     if type(pause) not in (int,float) or not math.isfinite(pause) or not 0<=pause<=45:
         raise ValueError('Scheduler batch_pause_seconds must be between zero and 45')
+    reserve=config['disk_reserve_bytes']
+    if type(reserve) is not int or reserve<0:
+        raise ValueError('Scheduler disk_reserve_bytes must be a nonnegative integer')
 
 
 def main():
@@ -111,7 +87,7 @@ def main():
     config={'production_repo':str(args.production_repo.resolve()),'standalone_repo':str(args.standalone_repo.resolve()),
             'env_file':str(args.env_file.resolve()),'state_dir':str(state),'work_seconds':45,'export_seconds':900,
             'batch_blocks':10,'bootstrap_rows':10000,'max_batch_rows':250000,'batch_pause_seconds':0.25,
-            'memory_limit_bytes':4*1024**3}
+            'memory_limit_bytes':4*1024**3,'undo_blocks':2016,'disk_reserve_bytes':DEFAULT_DISK_RESERVE_BYTES}
     if args.label_version:
         config['label_version']=args.label_version
     if args.install or args.enable:
@@ -148,12 +124,24 @@ def main():
             # Keep measured settings and enrichment revision from initialization.
             for key in ('work_seconds','export_seconds','batch_blocks','bootstrap_rows','bootstrap_rows_by_source','max_batch_rows',
                         'batch_pause_seconds','memory_limit_bytes','label_version',
-                        'validation_rows','validation_blocks','reset_rows'):
+                        'validation_rows','validation_blocks','reset_rows','undo_blocks','disk_reserve_bytes'):
                 if key in existing:
                     config[key]=existing[key]
         if args.label_version:
             config['label_version']=args.label_version
         check_scheduler_limits(config)
+        if args.enable:
+            if config['disk_reserve_bytes']<=0:
+                raise SystemExit('Enabled scheduling requires a positive disk reserve')
+            if acceptance['config_sha256']!=config_fingerprint(config):
+                raise SystemExit('Acceptance does not cover the proposed effective configuration')
+            verifier=args.production_repo/'webapps/quantum_exposure/pipeline/quantum_acceptance.py'
+            # Use the same interpreter, environment and production source as the
+            # worker. The verifier is read-only; no files are installed first.
+            result=subprocess.run([str(args.python),str(verifier),'--record',str(state/'acceptance.json')],
+                                  input=json.dumps(config),text=True,capture_output=True)
+            if result.returncode:
+                raise SystemExit('Persisted production acceptance verification failed: '+result.stderr.strip())
         state.mkdir(parents=True,exist_ok=True,mode=0o700)
         logs.mkdir(parents=True,exist_ok=True)
         plist_path.parent.mkdir(parents=True,exist_ok=True)

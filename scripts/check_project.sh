@@ -31,7 +31,13 @@ bash scripts/check_all_dashboards.sh
 "$PYTHON_BIN" scripts/test_quantum_v2_worker.py
 "$PYTHON_BIN" scripts/test_quantum_resources.py
 "$PYTHON_BIN" scripts/test_quantum_scheduler.py
+"$PYTHON_BIN" scripts/test_quantum_acceptance.py
+"$PYTHON_BIN" scripts/test_quantum_live_export.py
+"$PYTHON_BIN" scripts/test_quantum_script_hydration.py
+"$PYTHON_BIN" scripts/test_quantum_canonical_seed.py
+"$PYTHON_BIN" scripts/test_quantum_canonical_reducer.py
 "$PYTHON_BIN" scripts/test_quantum_v2_validation.py
+"$PYTHON_BIN" scripts/test_quantum_null_script_indexes.py
 "$PYTHON_BIN" scripts/test_measure_quantum_seed.py
 node scripts/test_quantum_browser_contract.mjs
 

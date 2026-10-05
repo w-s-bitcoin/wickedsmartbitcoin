@@ -26,7 +26,8 @@ import quantum_v2_control as control
 import quantum_v2_store as store
 import quantum_v2_validation as validation
 from quantum_resources import ResourceMonitor, database_usage, lower_priority
-from quantum_worker_config import bootstrap_row_limits
+from quantum_worker_config import bootstrap_row_limits, undo_retention_blocks, config_fingerprint, control_settings, DEFAULT_DISK_RESERVE_BYTES
+from quantum_runtime import implementation_fingerprint
 
 PIPELINE=Path(__file__).resolve().parent
 REPO=PIPELINE.parents[2]
@@ -151,6 +152,32 @@ def _check_resources(monitor):
         raise RuntimeError('Resource guard exceeded; batch checkpoint retained')
     if monitor is not None and getattr(monitor,'measurement_error',None):
         raise RuntimeError('Resource measurement failed; checkpoint retained')
+    if monitor is not None and getattr(monitor,'disk_exceeded',False):
+        raise RuntimeError('Quantum disk reserve reached; checkpoint retained')
+    if monitor is not None and getattr(monitor,'disk_measurement_error',None):
+        raise RuntimeError('Disk measurement failed; checkpoint retained')
+
+
+def _resource_disk_paths(conn,config):
+    """Inspect the actual local PG data/WAL/tablespace and output filesystems."""
+    with conn,conn.cursor() as cur:
+        cur.execute('SHOW data_directory')
+        data=Path(cur.fetchone()[0])
+        cur.execute('''SELECT DISTINCT pg_tablespace_location(s.oid)
+            FROM pg_tablespace s WHERE s.oid IN (
+                SELECT dattablespace FROM pg_database WHERE datname=current_database()
+                UNION SELECT c.reltablespace FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+                      WHERE n.nspname='quantum_v2' AND c.reltablespace<>0)''')
+        paths=[data,data/'pg_wal',Path(config['state_dir'])]
+        paths.extend(Path(row[0]) for row in cur.fetchall() if row[0])
+    volumes={}
+    for path in paths:
+        path=path.resolve()
+        # Staging may not exist yet; its existing parent is on the same volume.
+        while not path.exists() and path!=path.parent:
+            path=path.parent
+        volumes.setdefault(path.stat().st_dev,str(path))
+    return tuple(volumes.values())
 
 
 def _recovery_source(conn):
@@ -166,11 +193,38 @@ def _recovery_source(conn):
     return source
 
 
+def _maintenance_action(conn,action,*,deadline,monitor,metrics,stop_requested=None):
+    """Run one atomic undo action, cancelling an in-flight query at the deadline."""
+    if stop_requested is not None and stop_requested():
+        metrics['paused']=True
+        return None
+    remaining=deadline-time.monotonic()
+    if remaining<=0:
+        metrics['deadline_reached']=True
+        return None
+    _check_resources(monitor)
+    timer=threading.Timer(remaining,conn.cancel)
+    timer.daemon=True; timer.start()
+    try:
+        result=action()
+    except psycopg2.errors.QueryCanceled:
+        conn.rollback()
+        _check_resources(monitor)
+        if time.monotonic()<deadline: raise
+        metrics['deadline_reached']=True
+        return None
+    finally:
+        timer.cancel(); timer.join()
+    _check_resources(monitor)
+    return result
+
+
 def recover_reorg(conn,config,*,deadline=None,monitor=None,metrics=None,stop_requested=None):
     """Recover within the caller's resource/run budget, including interrupted seeds."""
     if deadline is None: deadline=time.monotonic()+float(config.get('work_seconds',45))
     metrics=metrics if metrics is not None else {}
     metrics.setdefault('reset_pages',0)
+    metrics.setdefault('rollback_batches',0)
     projection=_projection(conn)
     if not projection: return None
     if stop_requested is not None and stop_requested():
@@ -189,10 +243,28 @@ def recover_reorg(conn,config,*,deadline=None,monitor=None,metrics=None,stop_req
             ORDER BY p.from_height DESC LIMIT 1''')
         ancestor=cur.fetchone()
     _recovery_source(conn)
-    if projection['status']=='ready' and ancestor and store.rollback_to(conn,ancestor[0]):
-        log('reorg_rolled_back',height=ancestor[0])
-        metrics['rolled_back_to']=ancestor[0]
-        return _projection(conn)
+    if projection['status']=='ready' and ancestor:
+        metrics['rollback_pending']=True
+        while True:
+            def undo_one():
+                _recovery_source(conn)
+                return store.rollback_step(conn,ancestor[0])
+            result=_maintenance_action(conn,undo_one,deadline=deadline,monitor=monitor,
+                                       metrics=metrics,stop_requested=stop_requested)
+            if result is None:
+                return _projection(conn)
+            if result['needs_reseed']:
+                metrics['rollback_pending']=False
+                projection=_projection(conn)
+                break
+            if result.get('batch_id') is not None:
+                metrics['rollback_batches']+=1
+            if result['done']:
+                metrics['rollback_pending']=False
+                metrics['rolled_back_to']=ancestor[0]
+                log('reorg_rolled_back',height=ancestor[0])
+                return _projection(conn)
+            time.sleep(min(float(config.get('batch_pause_seconds',0.25)),max(0,deadline-time.monotonic())))
     if projection['status']!='needs_reseed':
         # No retained boundary repairs the seed. This includes an interrupted
         # seed whose anchor was orphaned before bootstrap finished.
@@ -277,6 +349,10 @@ def export_request(conn,config,request,*,stop_requested=None):
         raise PauseRequested('Publication paused before export')
     height=request['target_height']
     projection=_projection(conn)
+    if not projection or projection['seed_mode']!='canonical':
+        raise RuntimeError('Publication requires canonical-source initialization; legacy seed metadata is unverified')
+    if request.get('methodology_version')!=analysis.METHODOLOGY_VERSION:
+        raise RuntimeError('Request methodology differs from the canonical exporter; reconcile the pending request first')
     if not projection or not _baseline_verified(conn,projection):
         raise RuntimeError('Independent baseline reconciliation is required before publication')
     generation=f'quantum-{height}-{request["target_hash"][:12]}-r{request["id"]}'
@@ -394,13 +470,16 @@ def deliver_pending(conn,config,*,stop_requested=None):
 
 def run_once(conn,config,*,bootstrap_only=False,validation_only=False,recompare=False):
     bootstrap_rows, bootstrap_by_source = bootstrap_row_limits(config, legacy_sources=store.LEGACY)
+    undo_blocks=undo_retention_blocks(config)
     if not control.take_writer_lock(conn):
         log('already_running')
         return 0
     run_id=None
     monitor=None
     recovery_metrics={}
+    undo_metrics={'batches_pruned':0}
     before=None
+    provenance={}
     try:
         state=control.status(conn)
         stop_requested=PauseGate(conn,config,bypass_existing=bootstrap_only or validation_only)
@@ -425,16 +504,26 @@ def run_once(conn,config,*,bootstrap_only=False,validation_only=False,recompare=
                 cur.execute('SELECT blockheight,blockhash FROM public.blockheader WHERE blockheight=ANY(%s)',
                     ([projection['height'],projection['anchor_height']],))
                 hashes=dict(cur.fetchall())
-            if hashes.get(projection['height'])==projection['block_hash'] and hashes.get(projection['anchor_height'])==projection['anchor_hash']:
+            if (hashes.get(projection['height'])==projection['block_hash']
+                    and hashes.get(projection['anchor_height'])==projection['anchor_hash']
+                    and not store.undo_prune_pending(conn,keep_blocks=undo_blocks)):
                 deliver_pending(conn,config,stop_requested=stop_requested)
                 log('no_work',height=projection['height'])
                 return 0
+        provenance={'implementation_sha256':implementation_fingerprint(REPO),
+                    'config_sha256':config_fingerprint(config),
+                    'scheduler_control':control_settings(state['control']),
+                    'mode':'bootstrap' if bootstrap_only else 'validation' if validation_only else 'boundary',
+                    'projection_before':{'height':projection['height'],'block_hash':projection['block_hash'],
+                                         'status':projection['status']}}
         run_id=control.begin_run(conn,request['id'] if request else None)
         lower_priority(conn.get_backend_pid())
         before=database_usage(conn)
         started=time.monotonic()
         deadline=started+float(config.get('work_seconds',45))
-        with ResourceMonitor(conn,limit_bytes=int(config.get('memory_limit_bytes',4*1024**3))) as monitor:
+        with ResourceMonitor(conn,limit_bytes=int(config.get('memory_limit_bytes',4*1024**3)),
+                disk_paths=_resource_disk_paths(conn,config),
+                minimum_free_bytes=config.get('disk_reserve_bytes',DEFAULT_DISK_RESERVE_BYTES)) as monitor:
             projection=recover_reorg(conn,config,deadline=deadline,monitor=monitor,metrics=recovery_metrics,
                                      stop_requested=stop_requested)
             while projection['status']=='seeding' and time.monotonic()<deadline:
@@ -449,7 +538,14 @@ def run_once(conn,config,*,bootstrap_only=False,validation_only=False,recompare=
                 time.sleep(float(config.get('batch_pause_seconds',0.25)))
             projection=_projection(conn)
             baseline_ok=False
-            if projection['status']=='ready' and not bootstrap_only:
+            recovery_complete=not recovery_metrics.get('rollback_pending',False)
+            if projection['status']=='ready' and recovery_complete and not (bootstrap_only or validation_only):
+                result=_maintenance_action(conn,lambda:store.prune_undo_step(conn,keep_blocks=undo_blocks),
+                    deadline=deadline,monitor=monitor,metrics=undo_metrics,stop_requested=stop_requested)
+                if result is not None:
+                    undo_metrics.update(result)
+                    undo_metrics['batches_pruned']+=int(result['deleted_batch'] is not None)
+            if projection['status']=='ready' and recovery_complete and not bootstrap_only and (request or validation_only):
                 baseline_ok=_baseline_verified(conn,projection)
                 if validation_only or not baseline_ok:
                     if not validation_only and projection['height']!=projection['anchor_height']:
@@ -477,29 +573,37 @@ def run_once(conn,config,*,bootstrap_only=False,validation_only=False,recompare=
                     projection=_projection(conn)
                     control.step(conn,request['id'],'projection','running',{'height':projection['height'],'accounting':accounting})
                     _check_resources(monitor)
+                    result=_maintenance_action(conn,lambda:store.prune_undo_step(conn,keep_blocks=undo_blocks),
+                        deadline=deadline,monitor=monitor,metrics=undo_metrics,stop_requested=stop_requested)
+                    if result is not None:
+                        undo_metrics.update(result)
+                        undo_metrics['batches_pruned']+=int(result['deleted_batch'] is not None)
                     time.sleep(float(config.get('batch_pause_seconds',0.25)))
                 if projection['height']==target:
                     control.step(conn,request['id'],'projection','complete',{'height':target})
                     export_request(conn,config,request,stop_requested=stop_requested)
         _check_resources(monitor)
         metrics=monitor.metrics()
-        metrics.update(database_before=before,database_after=database_usage(conn),recovery=recovery_metrics)
+        metrics.update(provenance, database_before=before,database_after=database_usage(conn),recovery=recovery_metrics,undo=undo_metrics,
+                       projection_after={key:projection[key] for key in ('height','block_hash','status')})
+        if implementation_fingerprint(REPO)!=provenance['implementation_sha256']:
+            raise RuntimeError('Quantum implementation changed during measured run')
         control.finish_run(conn,run_id,metrics=metrics)
         log('run_complete',run_id=run_id,projection=_projection(conn),metrics=metrics)
-        if not (bootstrap_only or validation_only) and projection['status']=='ready':
+        if not (bootstrap_only or validation_only) and projection['status']=='ready' and not recovery_metrics.get('rollback_pending'):
             deliver_pending(conn,config,stop_requested=stop_requested)
         return 0
     except PauseRequested as exc:
         conn.rollback()
         metrics=monitor.metrics() if monitor else {}
-        metrics.update(database_before=before,recovery=recovery_metrics,deferred='paused')
+        metrics.update(provenance,database_before=before,recovery=recovery_metrics,undo=undo_metrics,deferred='paused')
         if run_id: control.finish_run(conn,run_id,metrics=metrics)
         log('paused',run_id=run_id,reason=str(exc))
         return 0
     except store.SourceNotReady as exc:
         conn.rollback()
         metrics=monitor.metrics() if monitor else {}
-        metrics.update(database_before=before,recovery=recovery_metrics,deferred='source_not_ready')
+        metrics.update(provenance,database_before=before,recovery=recovery_metrics,undo=undo_metrics,deferred='source_not_ready')
         if run_id: control.finish_run(conn,run_id,metrics=metrics)
         log('source_not_ready',run_id=run_id,reason=str(exc))
         return 0
@@ -508,7 +612,7 @@ def run_once(conn,config,*,bootstrap_only=False,validation_only=False,recompare=
         message=f'{type(exc).__name__}: {exc}'
         if run_id:
             metrics=monitor.metrics() if monitor else {}
-            metrics.update(database_before=before,recovery=recovery_metrics)
+            metrics.update(provenance,database_before=before,recovery=recovery_metrics,undo=undo_metrics)
             control.finish_run(conn,run_id,error=message[:2000],metrics=metrics)
         log('run_failed',run_id=run_id,error=message[:2000])
         return 1
@@ -531,7 +635,9 @@ def main():
     initialize.add_argument('--height',type=int,required=True)
     initialize.add_argument('--hash',required=True)
     initialize.add_argument('--start-after',type=int,required=True)
-    initialize.add_argument('--canonical',action='store_true')
+    seed_mode=initialize.add_mutually_exclusive_group()
+    seed_mode.add_argument('--canonical',action='store_true',help='Compatibility alias: canonical source is the default')
+    seed_mode.add_argument('--legacy-unverified',action='store_true',help='Diagnostic legacy import; cannot be exported or accepted')
     args=parser.parse_args()
     config=json.loads(args.config.read_text())
     conn=connect(config)
@@ -545,6 +651,7 @@ def main():
             enrichment.migrate(conn)
             validation.migrate(conn)
             store.migrate_physical(conn)
+            store.migrate_live_export(conn)
             log('migrated')
         elif args.command=='bootstrap-physical':
             if not control.take_writer_lock(conn):
@@ -554,10 +661,10 @@ def main():
         elif args.command=='initialize':
             if not control.take_writer_lock(conn):
                 raise RuntimeError('Worker is active')
-            initialize_fn=store.initialize_source_seed if args.canonical else store.initialize_seed
+            initialize_fn=store.initialize_seed if args.legacy_unverified else store.initialize_source_seed
             initialize_fn(conn,args.height,args.hash)
             control.configure(conn,start_height=args.start_after,paused=True)
-            log('initialized',height=args.height,mode='canonical' if args.canonical else 'legacy',paused=True)
+            log('initialized',height=args.height,mode='legacy-unverified' if args.legacy_unverified else 'canonical',paused=True)
         elif args.command in ('pause','resume'):
             control.configure(conn,paused=args.command=='pause')
             pause_file=Path(config['state_dir'])/'PAUSED'

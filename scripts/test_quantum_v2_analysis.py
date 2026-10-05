@@ -440,6 +440,18 @@ class CanonicalAnalysisTests(unittest.TestCase):
     def test_original_export_fields_remain_byte_identical(self):
         # Captured before optimizing migration weights; covers absent families,
         # zero exposure, mixed witness inputs and CompactSize/bulk packing.
+        # Normalize the explicitly changed provenance only. Keep the original
+        # accounting-byte oracle rather than regenerating it from this code.
+        def original_provenance(metadata):
+            self.assertEqual(metadata['methodology_version'], 'canonical-disclosure-group-consistent-v2')
+            self.assertEqual(metadata['history_evidence'],
+                             'funding, disclosure and activity reconstructed from canonical source occurrences; height-only legacy registries are not proof')
+            self.assertEqual(metadata['exposure_coverage'],
+                             'curve-validated P2PK/Taproot output keys and canonical bare multisig; P2PKH/P2WPKH canonical key-script creation/spend disclosures; P2SH/P2WSH canonical prior-spend heuristic; other policies unresolved')
+            metadata['methodology_version'] = 'legacy-disclosure-group-consistent-v2'
+            metadata['exposure_coverage'] = 'curve-validated P2PK/Taproot output keys and canonical bare multisig; P2PKH/P2WPKH legacy key-disclosure registry; P2SH/P2WSH prior-spend heuristic; other policies unresolved'
+            metadata.pop('history_evidence')
+            return metadata
         expected = {
             'analysis_versions.json': '5f60e081ab9e1a5ef3871c78a99f0e05a5575bdaa193a8ff28787a89ace49aca',
             'dashboard_pubkeys_aggregates.csv': '97f989d92441a18ee1570b71a37230224d2ddad62e4d4f6215e31708e2bd22e4',
@@ -467,7 +479,7 @@ class CanonicalAnalysisTests(unittest.TestCase):
             for name in expected:
                 path = Path(tmp) / '1000' / name
                 if name == 'analysis_versions.json':
-                    metadata = json.loads(path.read_text())
+                    metadata = original_provenance(json.loads(path.read_text()))
                     metadata.pop('subset_correction_version')
                     metadata.pop('detail_coverage')
                     payload = (json.dumps(metadata, indent=2, sort_keys=True) + '\n').encode()
@@ -475,14 +487,16 @@ class CanonicalAnalysisTests(unittest.TestCase):
                     with path.open(newline='') as stream:
                         reader = csv.DictReader(stream)
                         fields = [field for field in reader.fieldnames if field not in
-                                  ('migration_weight_wu', 'subset_correction_version', 'detail_coverage')]
+                                  ('migration_weight_wu', 'subset_correction_version', 'detail_coverage', 'history_evidence')]
                         output = io.StringIO(newline='')
                         writer = csv.DictWriter(output, fieldnames=fields, extrasaction='ignore')
                         writer.writeheader()
-                        writer.writerows(reader)
+                        writer.writerows(original_provenance(row) if name == 'dashboard_snapshot_meta.csv' else row
+                                         for row in reader)
                     payload = output.getvalue().encode()
                 else:
-                    payload = path.read_bytes()
+                    payload = path.read_bytes().replace(b'canonical-key-script-disclosure',
+                                                        b'legacy-key-disclosure-registry')
                 actual[name] = hashlib.sha256(payload).hexdigest()
         self.assertEqual(expected, actual)
 
