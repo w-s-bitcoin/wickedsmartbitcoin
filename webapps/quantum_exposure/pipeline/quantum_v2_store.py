@@ -612,6 +612,10 @@ def _reduce_canonical_seed_page(cur,anchor):
             exposed_hash=CASE WHEN EXCLUDED.exposed_height<quantum_v2.disclosure.exposed_height
                          THEN EXCLUDED.exposed_hash ELSE quantum_v2.disclosure.exposed_hash END
         WHERE EXCLUDED.exposed_height<quantum_v2.disclosure.exposed_height''')
+    # Fully spent historical pages can leave an existing family unchanged.
+    # Compare the complete computed update with NULL-safe row equality to avoid
+    # replacement tuples and their update WAL. Conflict locking can still emit
+    # WAL; zero-value UTXO additions still require an accounting update.
     cur.execute('''INSERT INTO quantum_v2.group_state
         (group_id,script_type,balance_sats,utxo_count,eligible_sats,eligible_utxos,
          first_received_height,first_disclosure_height,first_disclosure_hash,last_spend_height,display_group_id)
@@ -632,7 +636,25 @@ def _reduce_canonical_seed_page(cur,anchor):
                 THEN EXCLUDED.first_disclosure_hash ELSE quantum_v2.group_state.first_disclosure_hash END,
             last_spend_height=GREATEST(quantum_v2.group_state.last_spend_height,EXCLUDED.last_spend_height),
             display_group_id=CASE WHEN quantum_v2.group_state.display_group_id=''
-                THEN EXCLUDED.display_group_id ELSE quantum_v2.group_state.display_group_id END''')
+                THEN EXCLUDED.display_group_id ELSE quantum_v2.group_state.display_group_id END
+        WHERE (quantum_v2.group_state.balance_sats+EXCLUDED.balance_sats,
+               quantum_v2.group_state.utxo_count+EXCLUDED.utxo_count,
+               quantum_v2.group_state.eligible_sats+EXCLUDED.eligible_sats,
+               quantum_v2.group_state.eligible_utxos+EXCLUDED.eligible_utxos,
+               LEAST(quantum_v2.group_state.first_received_height,EXCLUDED.first_received_height),
+               LEAST(quantum_v2.group_state.first_disclosure_height,EXCLUDED.first_disclosure_height),
+               CASE WHEN quantum_v2.group_state.first_disclosure_height IS NULL
+                   OR EXCLUDED.first_disclosure_height<quantum_v2.group_state.first_disclosure_height
+                   THEN EXCLUDED.first_disclosure_hash ELSE quantum_v2.group_state.first_disclosure_hash END,
+               GREATEST(quantum_v2.group_state.last_spend_height,EXCLUDED.last_spend_height),
+               CASE WHEN quantum_v2.group_state.display_group_id=''
+                   THEN EXCLUDED.display_group_id ELSE quantum_v2.group_state.display_group_id END)
+              IS DISTINCT FROM
+              (quantum_v2.group_state.balance_sats,quantum_v2.group_state.utxo_count,
+               quantum_v2.group_state.eligible_sats,quantum_v2.group_state.eligible_utxos,
+               quantum_v2.group_state.first_received_height,quantum_v2.group_state.first_disclosure_height,
+               quantum_v2.group_state.first_disclosure_hash,quantum_v2.group_state.last_spend_height,
+               quantum_v2.group_state.display_group_id)''')
     # A later page may discover an earlier spend for a previously saved family.
     # Bound the lookup to page groups and their seven possible family PKs; never
     # hash/scan the full growing projection to propagate one page's evidence.
