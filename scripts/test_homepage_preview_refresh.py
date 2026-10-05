@@ -208,7 +208,25 @@ def build_data_snapshot() -> dict[str, bytes]:
         disk_path = ROOT / pathname.lstrip("/")
         if disk_path.is_file():
             snapshot[pathname] = disk_path.read_bytes()
+    for pathname in quantum_immutable_preview_paths(snapshot):
+        disk_path = ROOT / pathname.lstrip("/")
+        if disk_path.is_file():
+            snapshot[pathname] = disk_path.read_bytes()
     return snapshot
+
+
+def quantum_immutable_preview_paths(snapshot: dict[str, bytes]) -> set[str]:
+    """Freeze the exact format-2 preview object, as well as legacy aliases."""
+    marker_path = PERIODIC_PREVIEWS["quantum_exposure"]["markers"][0]
+    if marker_path not in snapshot:
+        return set()
+    marker = json.loads(snapshot[marker_path])
+    if marker.get("format") != 2:
+        return set()
+    path = marker["artifacts"]["historical_eco.csv"]["path"]
+    if not isinstance(path, str) or not path.startswith("generations/") or ".." in path.split("/"):
+        raise AssertionError("Invalid Quantum immutable preview fixture path")
+    return {marker_path.rsplit("/", 1)[0] + "/" + path}
 
 
 class SnapshotHandler(QuietHandler):
@@ -285,6 +303,7 @@ FETCH_HARNESS_TEMPLATE = r"""
     '/webapps/bitcoin_dominance/preview.html'].includes(pathname);
   if (hasLiveSpot) window.WebSocket = undefined;
   const nativeFetch = window.fetch.bind(window);
+  const immutableDataPaths = new Set();
   const loadKey = `wsb-stage5-load-count:${pathname}`;
   const loadCount = Number(sessionStorage.getItem(loadKey) || '0') + 1;
   sessionStorage.setItem(loadKey, String(loadCount));
@@ -367,6 +386,12 @@ FETCH_HARNESS_TEMPLATE = r"""
     try {
       const parsed = JSON.parse(String(text || ''));
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        if (pathname === '/webapps/quantum_exposure/preview.html' && Number(parsed.format) === 2) {
+          const artifactPath = parsed.artifacts?.['historical_eco.csv']?.path;
+          if (typeof artifactPath !== 'string' || !artifactPath.startsWith('generations/') ||
+              artifactPath.split('/').includes('..')) throw new Error('Invalid immutable fixture path');
+          immutableDataPaths.add(new URL(artifactPath, new URL(spec.markers[0], location.origin)).pathname);
+        }
         parsed.stage5_generation = Number(generation);
         return JSON.stringify(parsed);
       }
@@ -391,7 +416,7 @@ FETCH_HARNESS_TEMPLATE = r"""
     }
     const target = url.pathname;
     const isMarker = spec.markers.includes(target);
-    const isData = spec.data.includes(target);
+    const isData = spec.data.includes(target) || immutableDataPaths.has(target);
     if (!isMarker && !isData) return nativeFetch(input, init);
 
     const generation = test.generation;
@@ -422,6 +447,11 @@ FETCH_HARNESS_TEMPLATE = r"""
     }
     if (isData && test.mode === 'truncate') {
       text = truncatePayload(text);
+    }
+    if (isData && test.mode === 'corrupt') {
+      // Change one ASCII digit without changing the byte length or CSV shape.
+      // Quantum must reject this through its hash, not only structural checks.
+      text = text.replace(/,([0-9])/, (_, digit) => `,${(Number(digit) + 1) % 10}`);
     }
     return rebuiltResponse(response, text, response.headers.get('content-type') || 'text/plain');
   };
@@ -1440,6 +1470,8 @@ def validate_snapshot(snapshot: dict[str, bytes], targets: set[str]):
             required.update(spec["data"])
     if "patoshi_pattern" in targets or "homepage" in targets:
         required.update(PATOSHI["data"])
+    if "quantum_exposure" in targets or "homepage" in targets:
+        required.update(quantum_immutable_preview_paths(snapshot))
     missing = sorted(path for path in required if path not in snapshot)
     if missing:
         raise AssertionError(

@@ -233,6 +233,8 @@ CHROME_BIN=/path/to/chromium python3 scripts/test_networth_live_quote_browser.py
 node scripts/test_uoa_live_quotes.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_uoa_live_quotes_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_homepage_preview_refresh.py
+CHROME_BIN=/path/to/chromium python3 scripts/test_quantum_v2_browser.py
+CHROME_BIN=/path/to/chromium python3 scripts/test_quantum_v2_preview_browser.py
 node scripts/test_dashboard_share.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_dashboard_share_routes.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_time_series_share_browser.py

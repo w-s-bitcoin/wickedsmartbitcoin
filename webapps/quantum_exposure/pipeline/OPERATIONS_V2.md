@@ -272,6 +272,11 @@ Each source query covers at most 1,000 creation heights and returns one global
 page plus a lookahead row. Ordered source streams collapse exact duplicate rows
 before that global limit; raw branches have no separate row cap. Conflicting
 copies of an occurrence stop the page before its state or cursor can commit.
+When a historical page cannot change a saved family's balances, counts, dates,
+disclosure hash or display value, its conflict update keeps the existing tuple.
+The page cursor still commits normally. Zero-value UTXO additions and improved
+metadata still update state; conflict locking can still generate WAL. This
+avoids redundant replacement tuples without discarding historical evidence.
 `--canonical` remains a compatibility alias for this default. The explicit
 `--legacy-unverified` option imports legacy tables for diagnostics only; that
 projection cannot be exported or accepted for scheduling. Matching freeze heights
@@ -895,7 +900,7 @@ fixture; it does not claim that a production rollback has been performed.
 - [x] Install and verify the source hook; the installed external writer SHA-256 is `645e5d2a7f60eb183dc49076f9a8b26cd49f57362034dc008557315c5075e7fd` (2026-10-05). Real ingestion certified height 970,041, hash `00000000000000000001e1452ec8e3d10a961115d48a15aa0547f897174ad216`. Recheck live readiness before work.
 - [x] Build the two missing indexes on `stxos_900000_999999_archive` concurrently and verify validity. The creation-height index is 3,564,666,880 bytes; the non-key address lookup index is 16,346,177,536 bytes. Neither replaces or drops a valid existing index.
 - [ ] Finish bounded bootstrap at an exact canonical checkpoint and demonstrate restart.
-- [x] Apply checked migrations 001–005 (2026-10-05); this alone is not rollout acceptance.
+- [x] Apply checked migrations 001–006 (2026-10-05); this alone is not rollout acceptance.
 - [ ] Finish the full independent raw-source accounting proof and record the exact report.
 - [ ] Validate historical date/disclosure limitations and chosen enrichment revision.
 - [ ] Measure a complete representative 1,000-block boundary under the private-memory gate.
@@ -985,6 +990,11 @@ transition and corrected canonical dates. Its database fixtures use
 PostgreSQL suites require their explicit
 temporary-socket, `*_fixture` database DSNs; never point them at production.
 The addressless-policy suite uses `QUANTUM_NULL_SCRIPT_TEST_DSN`.
-For UI changes run `test_quantum_v2_browser.py` and the Quantum target of
-`test_stage2_refresh_atomicity.py`. Packaging requires `test_pages_build.py` and
+For UI changes run `test_quantum_v2_browser.py`,
+`test_quantum_v2_preview_browser.py`, and the Quantum target of
+`test_stage2_refresh_atomicity.py`. The preview fixture uses temporary immutable
+publications to check corrupt/stale response rejection, hidden data installation,
+visible rendering, and unchanged iframe and homepage state. The existing
+`test_homepage_preview_refresh.py quantum_exposure` command also checks the
+currently published data format. Packaging requires `test_pages_build.py` and
 `build_pages_dist.sh`; inspect the copied artifact after runtime dependency changes.
