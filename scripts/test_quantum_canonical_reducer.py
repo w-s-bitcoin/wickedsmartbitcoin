@@ -88,6 +88,10 @@ class CanonicalReducer(unittest.TestCase):
             q.execute('SELECT * FROM quantum_v2.disclosure ORDER BY group_id')
             exposures={r['group_id']:(r['exposed_height'],r['exposed_hash']) for r in q.fetchall()}
         return states,exposures
+    def tuple_identity(self,group=A,family='P2PKH'):
+        with self.conn,self.conn.cursor() as q:
+            q.execute('SELECT ctid::text,xmin::text FROM quantum_v2.group_state WHERE group_id=%s AND script_type=%s',(group,family))
+            return q.fetchone()
     def seed(self,anchor=20,limit=4):
         store.initialize_source_seed(self.conn,anchor,self.hashes[anchor])
         for _ in range(300):
@@ -141,6 +145,64 @@ class CanonicalReducer(unittest.TestCase):
         with self.conn,self.conn.cursor() as q:
             q.execute('SELECT xmin::text,exposed_height FROM quantum_v2.disclosure WHERE group_id=%s',(A,));after=q.fetchone()
         self.assertEqual(before,after);self.assertEqual(after[1],4)
+    def test_unchanged_historical_family_does_not_rewrite_tuple_but_advances_cursor(self):
+        rows=[row(1,'a',10,'pubkeyhash','first',pkh(A),5),
+              row(1,'b',20,'pubkeyhash','second',pkh(A),15),
+              row(2,'c',30,'pubkeyhash','later',pkh(A),10)]
+        self.insert(rows);store.initialize_source_seed(self.conn,20,self.hashes[20])
+        self.assertFalse(store.bootstrap_step(self.conn,limit=2))
+        before=self.capture();tuple_before=self.tuple_identity()
+        self.assertTrue(store.bootstrap_step(self.conn,limit=2))
+        self.assertEqual(self.tuple_identity(),tuple_before)
+        self.assertEqual(self.capture(),before)
+        self.assertEqual(self.capture(),python_oracle(rows,20,self.hashes))
+        self.assertEqual(store.projection_status(self.conn)['cursors'][0]['rows_processed'],3)
+    def test_guard_retains_null_metadata_earlier_hash_latest_spend_and_zero_value_adds(self):
+        rows=[row(1,'a',50,'pubkeyhash','first',pkh(A)),
+              row(2,'b',40,'pubkeyhash','later',pkh(A),10),
+              row(3,'c',0,'pubkeyhash','later',pkh(A)),
+              row(4,'d',7,'pubkeyhash','later',pkh(A),8),
+              row(5,'e',9,'pubkeyhash','later',pkh(A),12),
+              row(6,'f',3,'pubkeyhash','later',pkh(A)),
+              row(7,'g',2,'pubkeyhash','later',pkh(A),9)]
+        self.insert(rows);store.initialize_source_seed(self.conn,20,self.hashes[20]);previous=None
+        for index in range(len(rows)):
+            store.bootstrap_step(self.conn,limit=1)
+            current=self.tuple_identity()
+            self.assertEqual(self.capture(),python_oracle(rows[:index+1],20,self.hashes))
+            if index==len(rows)-1:self.assertEqual(current,previous)
+            elif previous is not None:self.assertNotEqual(current,previous)
+            previous=current
+        value=self.capture()[0][(A,'P2PKH')]
+        self.assertEqual((value['balance_sats'],value['utxo_count'],value['eligible_sats'],value['eligible_utxos']),(53,3,53,3))
+        self.assertEqual((value['first_received_height'],value['first_disclosure_height'],value['first_disclosure_hash'],value['last_spend_height'],value['display_group_id']),
+                         (1,8,self.hashes[8],12,'first'))
+    def test_metadata_only_null_funding_and_empty_display_are_filled(self):
+        rows=[row(1,'a',1,'pubkeyhash','first',pkh(A),5),row(2,'b',2,'pubkeyhash','replacement',pkh(A),5)]
+        self.insert(rows);store.initialize_source_seed(self.conn,20,self.hashes[20]);store.bootstrap_step(self.conn,limit=1)
+        # Explicitly exercise NULL-aware MIN and fallback display branches with
+        # a zero-accounting page; these cannot be reduced to nonzero additions.
+        with self.conn,self.conn.cursor() as q:
+            q.execute("UPDATE quantum_v2.group_state SET first_received_height=NULL,display_group_id='' WHERE group_id=%s",(A,))
+        before=self.tuple_identity();store.bootstrap_step(self.conn,limit=1)
+        self.assertNotEqual(self.tuple_identity(),before)
+        value=self.capture()[0][(A,'P2PKH')]
+        self.assertEqual((value['balance_sats'],value['utxo_count'],value['first_received_height'],value['display_group_id']),(0,0,2,'replacement'))
+    def test_post_reduction_failure_rolls_back_state_disclosure_and_cursor(self):
+        rows=[row(1,'a',10,'pubkeyhash','first',pkh(A),12),
+              row(2,'b',20,'pubkeyhash','later',pkh(A),8),row(3,'c',7,'pubkeyhash','later',pkh(A))]
+        self.insert(rows);store.initialize_source_seed(self.conn,20,self.hashes[20]);store.bootstrap_step(self.conn,limit=1)
+        before=self.capture();cursor_before=store.projection_status(self.conn)['cursors'];tuple_before=self.tuple_identity()
+        reduce=store._reduce_canonical_seed_page
+        def fail_after_write(*args):
+            reduce(*args)
+            raise store.StoreError('Fixture interruption after state reduction')
+        with mock.patch.object(store,'_reduce_canonical_seed_page',side_effect=fail_after_write):
+            with self.assertRaisesRegex(store.StoreError,'Fixture interruption'):store.bootstrap_step(self.conn,limit=1)
+        self.assertEqual(self.capture(),before);self.assertEqual(self.tuple_identity(),tuple_before)
+        self.assertEqual(store.projection_status(self.conn)['cursors'],cursor_before)
+        while not store.bootstrap_step(self.conn,limit=1):pass
+        self.assertEqual(self.capture(),python_oracle(rows,20,self.hashes))
     def test_exact_archive_copy_and_movement_between_pages(self):
         rows=[row(1,'a',1,'pubkeyhash','a',pkh(A)),row(2,'b',2,'pubkeyhash','b',pkh(A))]
         self.insert(rows);self.insert(rows,'stxos_0_9_archive')
