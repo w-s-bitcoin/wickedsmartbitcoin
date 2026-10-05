@@ -1363,35 +1363,50 @@ def _bootstrap_step(conn, limit=10000, *, source_table=None):
 
 def _source_delta(cur, lo, hi, max_rows, include_spends=True):
     sources = ['outputs']+[name for a,b,name in _archives(cur) if b>lo]
+    columns=sql.SQL('blockheight,transactionid,vout,amount,address,scripttype,scripthex,spendingblock')
     seen = {}
+
+    def retain(row):
+        key=(row['blockheight'],row['transactionid'],row['vout'])
+        if key in seen and dict(seen[key])!=dict(row):
+            raise StoreError('Conflicting source locations for one output occurrence')
+        seen[key]=row
+        if len(seen)>max_rows:
+            raise BatchTooLarge('Source range exceeds bounded row budget; split it')
+
     for name in sources:
-        # Two indexed predicates avoid an OR forcing a whole-table scan.
-        predicates=[('blockheight>%s AND blockheight<=%s',(lo,hi))]
+        # Keep separate indexed creation/spend predicates. Deduplicate full
+        # payloads before the only row limit, as in _source_occurrence_query:
+        # raw duplicate copies must not hide a later occurrence or conflict.
+        # Sort spend pages by their indexed height first; no cursor depends on
+        # row ordering here. A capped branch either fits completely or supplies
+        # enough distinct payloads to reject its range before any state changes.
+        predicates=[('blockheight>%s AND blockheight<=%s',(lo,hi),columns)]
         if include_spends:
-            predicates.append(('spendingblock>%s AND spendingblock<=%s AND blockheight<=%s',(lo,hi,lo)))
-        for predicate,params in predicates:
+            predicates.append(('spendingblock>%s AND spendingblock<=%s AND blockheight<=%s',(lo,hi,lo),
+                sql.SQL('spendingblock,blockheight,transactionid,vout,amount,address,scripttype,scripthex')))
+        for predicate,params,ordering in predicates:
             m = ARCHIVE_RE.fullmatch(name)
             if predicate.startswith('spending') and m and int(m[1]) > hi:
                 continue
-            cur.execute(sql.SQL('''SELECT blockheight,transactionid,vout,amount,address,scripttype,scripthex,spendingblock
-                FROM {} WHERE '''+predicate+' AND '+NOT_PROVABLE_BURN+' LIMIT %s').format(_q(name)), (*params,max_rows+1))
-            for r in cur.fetchall():
-                key = (r['blockheight'],r['transactionid'],r['vout'])
-                if key in seen and dict(seen[key]) != dict(r):
-                    raise StoreError('Conflicting source locations for one output occurrence')
-                seen[key] = r
-                if len(seen)>max_rows:
-                    raise BatchTooLarge('Source range exceeds bounded row budget; split it')
+            cur.execute(sql.SQL('SELECT DISTINCT ON ({}) {} FROM {} WHERE '+predicate+
+                ' AND '+NOT_PROVABLE_BURN+' ORDER BY {} LIMIT %s').format(columns,columns,_q(name),ordering),
+                (*params,max_rows+1))
+            for row in cur.fetchall():
+                retain(row)
     if include_spends:
         for key,spec in BIP30_REMOVALS.items():
             if not lo<spec[0]<=hi: continue
             for name in ['outputs']+[n for a,b,n in _archives(cur)]:
-                cur.execute(sql.SQL('''SELECT blockheight,transactionid,vout,amount,address,scripttype,scripthex,spendingblock
-                    FROM {} WHERE blockheight=%s AND transactionid=%s AND vout=%s''').format(_q(name)),key)
-                found=cur.fetchone()
-                if found and _removal_height(cur,found) is not None:
-                    seen[key]=found
-                    break
+                # There should be one exact payload per known removed output.
+                # Two distinct payloads prove a conflict; check archive/live
+                # copies too rather than accepting the first physical row.
+                cur.execute(sql.SQL('SELECT DISTINCT ON ({}) {} FROM {} WHERE '
+                    'blockheight=%s AND transactionid=%s AND vout=%s ORDER BY {} LIMIT 2').format(
+                        columns,columns,_q(name),columns),key)
+                for row in cur.fetchall():
+                    if _removal_height(cur,row) is not None:
+                        retain(row)
     return seen.values()
 
 
