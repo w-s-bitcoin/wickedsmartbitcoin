@@ -386,37 +386,121 @@ def script_subset_corrections(slices: Mapping, *, singleton_weights: Mapping,
     return corrections
 
 
+def _empty_cubes():
+    return {(tier, family, activity): [0] * 7 for tier, _ in TIERS
+            for family in ("All",) + SCRIPT_TYPES for activity in ("all",) + ACTIVITIES}
+
+
+def _detail_eligible(group):
+    return group["current_supply_sats"] >= 100_000_000 and group["exposed_utxo_count"] > 0
+
+
+class _SnapshotWriter:
+    """One serialization path for the full oracle and bounded SQL aggregates."""
+    def __init__(self, output_dir, snapshot_height):
+        self.directory = Path(output_dir) / str(snapshot_height)
+        self.directory.mkdir(parents=True, exist_ok=True)
+        self.snapshot_height = snapshot_height
+        self.detail_count = 0
+        self.detail_exposed_count = 0
+        self.detail_exposed_sats = 0
+        self.top = []
+        self.last_detail_group = None
+
+    def __enter__(self):
+        self.stream = (self.directory / "dashboard_pubkeys_ge_1btc.csv").open("w", newline="", encoding="utf-8")
+        self.writer = csv.DictWriter(self.stream, fieldnames=DETAIL_FIELDS)
+        self.writer.writeheader()
+        return self
+
+    def __exit__(self, *args):
+        self.stream.close()
+
+    def add_detail(self, group):
+        group_id = group["group_id"]
+        if not _detail_eligible(group):
+            raise ValueError("Detail group does not meet whole-group balance/exposure coverage")
+        if self.last_detail_group is not None and group_id <= self.last_detail_group:
+            raise ValueError("Detail groups must be strictly ordered without duplicates")
+        self.last_detail_group = group_id
+        record = detail_record(group)
+        self.writer.writerow(record)
+        self.detail_count += 1
+        self.detail_exposed_count += group["exposed_utxo_count"]
+        self.detail_exposed_sats += group["exposed_supply_sats"]
+        key = (group["exposed_supply_sats"], tuple(-ord(char) for char in group_id) + (0,))
+        item = (key, record)
+        if len(self.top) < 100:
+            heapq.heappush(self.top, item)
+        elif key > self.top[0][0]:
+            heapq.heapreplace(self.top, item)
+
+    def finish(self, cubes, correction_cubes, *, snapshot_time, block_hash,
+               source_generation, label_version, group_count):
+        self.stream.close()
+        with (self.directory / "dashboard_pubkeys_ge_1btc_top100.csv").open("w", newline="", encoding="utf-8") as stream:
+            writer = csv.DictWriter(stream, fieldnames=DETAIL_FIELDS)
+            writer.writeheader()
+            writer.writerows(item[1] for item in sorted(self.top, key=lambda item: (-item[0][0], item[1]["group_id"])))
+        with (self.directory / "dashboard_pubkeys_aggregates.csv").open("w", newline="", encoding="utf-8") as stream:
+            writer = csv.writer(stream)
+            writer.writerow(AGGREGATE_FIELDS)
+            for key, values in sorted(cubes.items()):
+                writer.writerow((*key, *values[:6], f"{values[6] / 4_000_000:.2f}", values[6]))
+        with (self.directory / SUBSET_CORRECTION_FILE).open("w", newline="", encoding="utf-8") as stream:
+            writer = csv.writer(stream)
+            writer.writerow(SUBSET_CORRECTION_FIELDS)
+            for key, values in sorted(correction_cubes.items()):
+                if any(values):
+                    writer.writerow((*key, *values))
+        return _write_snapshot_metadata(self.directory, snapshot_height=self.snapshot_height,
+            snapshot_time=snapshot_time, block_hash=block_hash, source_generation=source_generation,
+            label_version=label_version, group_count=group_count, detail_count=self.detail_count)
+
+
+def _write_snapshot_metadata(directory, *, snapshot_height, snapshot_time, block_hash,
+                             source_generation, label_version, group_count, detail_count):
+    metadata = {
+        "snapshot_blockheight": snapshot_height, "snapshot_time": snapshot_time,
+        "snapshot_block_hash": block_hash, "block_hash": block_hash, "source_generation": source_generation,
+        "one_year_ago_blockheight": "", "one_year_ago_block_time": calendar_cutoff(snapshot_time),
+        "methodology_version": METHODOLOGY_VERSION, "parser_version": PARSER_VERSION,
+        "grouping_version": GROUPING_VERSION, "scenario_version": SCENARIO_VERSION,
+        "export_version": EXPORT_VERSION, "subset_correction_version": SUBSET_CORRECTION_VERSION,
+        "label_version": label_version,
+        "pubkey_count_semantics": "distinct-reporting-groups; not unique curve points",
+        "migration_semantics": "capacity-equivalent block weight; unknown-policy defaults; not lower bound",
+        "date_semantics": "first_exposed compatibility alias means first disclosure; first exposed balance unavailable unless tracked",
+        "exposure_coverage": "curve-validated P2PK/Taproot output keys and canonical bare multisig; P2PKH/P2WPKH canonical key-script creation/spend disclosures; P2SH/P2WSH canonical prior-spend heuristic; other policies unresolved",
+        "history_evidence": "funding, disclosure and activity reconstructed from canonical source occurrences; height-only legacy registries are not proof",
+        "exposure_limitations": "no complete cross-context public-key extraction/deduplication or script satisfiability proof; imported details are annotations",
+        "supply_semantics": "source output accounting excluding genesis and BIP30 overwrites; unrecognized burns not globally proven",
+        "detail_coverage": "current group balance >=1 BTC and exposed UTXO count >0; includes zero-value exposed outputs",
+        "detail_rows": detail_count, "reporting_groups": group_count,
+    }
+    with (directory / "dashboard_snapshot_meta.csv").open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.DictWriter(stream, fieldnames=list(metadata))
+        writer.writeheader()
+        writer.writerow(metadata)
+    (directory / "analysis_versions.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return metadata
+
+
 def export_snapshot(rows: Iterable[Mapping], *, snapshot_height: int, snapshot_time: int, output_dir: Path,
                     block_hash: str = "", source_generation: str = "", label_version: str = "legacy-import-v1",
                     group_enricher=None) -> dict:
-    """Write one staging snapshot, without changing catalog/pointers or publication.
-
-    Caller owns a stable read transaction and requires the final output directory
-    to be isolated. The returned metadata is used by the publication/controller.
-    """
-    directory = Path(output_dir) / str(snapshot_height)
-    directory.mkdir(parents=True, exist_ok=True)
-    cubes = {(tier, family, activity): [0] * 7 for tier, _ in TIERS for family in ("All",) + SCRIPT_TYPES for activity in ("all",) + ACTIVITIES}
+    """Full per-group oracle/replay exporter; caller owns its stable snapshot."""
+    cubes = _empty_cubes()
     correction_cubes = {}
-    top, detail_count, group_count = [], 0, 0
+    group_count = 0
     groups = canonical_groups(rows, snapshot_time)
     if group_enricher is not None:
         groups = group_enricher(groups)
-    with (directory / "dashboard_pubkeys_ge_1btc.csv").open("w", newline="", encoding="utf-8") as stream:
-        writer = csv.DictWriter(stream, fieldnames=DETAIL_FIELDS)
-        writer.writeheader()
+    with _SnapshotWriter(output_dir, snapshot_height) as writer:
         for group in groups:
             group_count += 1
-            if group["current_supply_sats"] >= 100_000_000 and group["exposed_utxo_count"] > 0:
-                record = detail_record(group)
-                writer.writerow(record)
-                detail_count += 1
-                key = (group["exposed_supply_sats"], tuple(-ord(char) for char in group["group_id"]) + (0,))
-                item = (key, record)
-                if len(top) < 100:
-                    heapq.heappush(top, item)
-                elif key > top[0][0]:
-                    heapq.heapreplace(top, item)
+            if _detail_eligible(group):
+                writer.add_detail(group)
             tiers = tuple(tier for tier, minimum in TIERS if group["current_supply_sats"] >= minimum)
             activities = ("all", group["spend_activity"])
             singleton_weights = {family: migration_weight({family: values}, group["details"])
@@ -445,42 +529,220 @@ def export_snapshot(rows: Iterable[Mapping], *, snapshot_height: int, snapshot_t
                             bucket = correction_cubes.setdefault((tier, mask, activity), [0, 0, 0])
                             for index, value in enumerate(values):
                                 bucket[index] += value
-    with (directory / "dashboard_pubkeys_ge_1btc_top100.csv").open("w", newline="", encoding="utf-8") as stream:
-        writer = csv.DictWriter(stream, fieldnames=DETAIL_FIELDS)
-        writer.writeheader()
-        writer.writerows(item[1] for item in sorted(top, key=lambda item: (-item[0][0], item[1]["group_id"])))
-    with (directory / "dashboard_pubkeys_aggregates.csv").open("w", newline="", encoding="utf-8") as stream:
-        writer = csv.writer(stream)
-        writer.writerow(AGGREGATE_FIELDS)
-        for key, values in sorted(cubes.items()):
-            writer.writerow((*key, *values[:6], f"{values[6] / 4_000_000:.2f}", values[6]))
-    with (directory / SUBSET_CORRECTION_FILE).open("w", newline="", encoding="utf-8") as stream:
-        writer = csv.writer(stream)
-        writer.writerow(SUBSET_CORRECTION_FIELDS)
-        for key, values in sorted(correction_cubes.items()):
-            if any(values):
-                writer.writerow((*key, *values))
-    metadata = {
-        "snapshot_blockheight": snapshot_height, "snapshot_time": snapshot_time,
-        "snapshot_block_hash": block_hash, "block_hash": block_hash, "source_generation": source_generation,
-        "one_year_ago_blockheight": "", "one_year_ago_block_time": calendar_cutoff(snapshot_time),
-        "methodology_version": METHODOLOGY_VERSION, "parser_version": PARSER_VERSION,
-        "grouping_version": GROUPING_VERSION, "scenario_version": SCENARIO_VERSION,
-        "export_version": EXPORT_VERSION, "subset_correction_version": SUBSET_CORRECTION_VERSION,
-        "label_version": label_version,
-        "pubkey_count_semantics": "distinct-reporting-groups; not unique curve points",
-        "migration_semantics": "capacity-equivalent block weight; unknown-policy defaults; not lower bound",
-        "date_semantics": "first_exposed compatibility alias means first disclosure; first exposed balance unavailable unless tracked",
-        "exposure_coverage": "curve-validated P2PK/Taproot output keys and canonical bare multisig; P2PKH/P2WPKH canonical key-script creation/spend disclosures; P2SH/P2WSH canonical prior-spend heuristic; other policies unresolved",
-        "history_evidence": "funding, disclosure and activity reconstructed from canonical source occurrences; height-only legacy registries are not proof",
-        "exposure_limitations": "no complete cross-context public-key extraction/deduplication or script satisfiability proof; imported details are annotations",
-        "supply_semantics": "source output accounting excluding genesis and BIP30 overwrites; unrecognized burns not globally proven",
-        "detail_coverage": "current group balance >=1 BTC and exposed UTXO count >0; includes zero-value exposed outputs",
-        "detail_rows": detail_count, "reporting_groups": group_count,
-    }
-    with (directory / "dashboard_snapshot_meta.csv").open("w", newline="", encoding="utf-8") as stream:
-        writer = csv.DictWriter(stream, fieldnames=list(metadata))
-        writer.writeheader()
-        writer.writerow(metadata)
-    (directory / "analysis_versions.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return metadata
+        return writer.finish(cubes, correction_cubes, snapshot_time=snapshot_time, block_hash=block_hash,
+            source_generation=source_generation, label_version=label_version, group_count=group_count)
+
+
+def _exact_nonnegative_integer(value, name):
+    if type(value) is not int or value < 0:
+        raise ValueError(f"{name} must be an exact nonnegative integer")
+    return value
+
+
+def _preaggregated_context(snapshot_time):
+    # Histogram weights cannot support a future policy/details-dependent model
+    # merely because both provider and exporter imported its new version name.
+    if (SCENARIO_VERSION != "current-signature-compressed-keys-34byte-destination-v2"
+            or SCRIPT_TYPES != ("P2PK", "P2PKH", "P2SH", "P2WPKH", "P2WSH", "P2TR", "Other")
+            or SCRIPT_MASKS != {family: 1 << index for index, family in enumerate(SCRIPT_TYPES)}):
+        raise ValueError("Preaggregated export requires the supported count-only migration scenario")
+    _exact_nonnegative_integer(snapshot_time, "snapshot_time")
+    calendar_cutoff(snapshot_time)
+    return dict(snapshot_time=snapshot_time, methodology_version=METHODOLOGY_VERSION,
+                parser_version=PARSER_VERSION, grouping_version=GROUPING_VERSION,
+                scenario_version=SCENARIO_VERSION, subset_correction_version=SUBSET_CORRECTION_VERSION)
+
+
+def _read_base_cubes(records, group_count):
+    if not isinstance(records, list) or len(records) > len(TIERS) * 8 * 4:
+        raise ValueError("Invalid bounded base cube rows")
+    cubes = _empty_cubes()
+    seen = set()
+    for row in records:
+        if not isinstance(row, Mapping):
+            raise ValueError("Invalid base cube row")
+        key = (row.get("tier"), row.get("family"), row.get("activity"))
+        if any(not isinstance(value, str) for value in key) or key not in cubes or key in seen:
+            raise ValueError("Unknown or duplicate base cube key")
+        seen.add(key)
+        values = row.get("metrics")
+        if not isinstance(values, list) or len(values) != 6:
+            raise ValueError("Base cube requires six integer metrics")
+        for value in values:
+            _exact_nonnegative_integer(value, "base cube metric")
+        groups, count, amount, exposed_groups, exposed_count, exposed_amount = values
+        if (groups > group_count or count < groups or exposed_groups > groups
+                or exposed_count < exposed_groups or exposed_count > count or exposed_amount > amount
+                or (groups == 0 and any(values)) or (exposed_count == 0 and exposed_amount != 0)
+                or (exposed_groups == 0) != (exposed_count == 0)):
+            raise ValueError("Invalid base cube accounting")
+        cubes[key][:6] = values
+    if cubes[("all", "All", "all")][0] != group_count:
+        raise ValueError("Base cube group total differs from page frontier")
+    for tier_index, (tier, minimum) in enumerate(TIERS):
+        for family in ("All",) + SCRIPT_TYPES:
+            whole = cubes[(tier, family, "all")]
+            if any(whole[i] != sum(cubes[(tier, family, activity)][i] for activity in ACTIVITIES)
+                   for i in range(6)):
+                raise ValueError("Base cube activity partitions do not reconcile")
+        for activity in ("all",) + ACTIVITIES:
+            whole = cubes[(tier, "All", activity)]
+            if whole[2] < whole[0] * minimum:
+                raise ValueError("Base cube group balances are below their tier")
+            if any(whole[i] != sum(cubes[(tier, family, activity)][i] for family in SCRIPT_TYPES)
+                   for i in (1, 2, 4, 5)):
+                raise ValueError("Base cube family amounts/counts do not reconcile")
+            if tier_index:
+                for family in ("All",) + SCRIPT_TYPES:
+                    lower = cubes[(TIERS[tier_index - 1][0], family, activity)]
+                    if any(value > lower[i] for i, value in enumerate(cubes[(tier, family, activity)][:6])):
+                        raise ValueError("Base cube balance tiers are not nested")
+    return cubes
+
+
+def export_preaggregated_snapshot(pages: Iterable[Mapping], *, snapshot_height: int, snapshot_time: int,
+                                  output_dir: Path, block_hash: str = "", source_generation: str = "",
+                                  label_version: str = "legacy-import-v1", group_enricher=None, guard=None) -> dict:
+    """Export bounded SQL cubes and count signatures through the ordinary writer.
+
+    Each page contains context versions/time, a monotone live-group frontier,
+    additive base cubes, packing histograms, and complete family rows only for
+    detail-eligible groups. The provider owns SQL/source validation and a stable
+    snapshot. This consumer independently reconciles integer counts, coverage,
+    page order and versions before producing a complete isolated snapshot.
+    """
+    context = _preaggregated_context(snapshot_time)
+    check = guard if guard is not None else lambda: None
+    cubes, correction_cubes = _empty_cubes(), {}
+    previous, finished, group_count = None, False, 0
+
+    @lru_cache(maxsize=8192)
+    def packing_weights(present_mask, exposed_counts):
+        slices = {family: {"current_utxo_count": 1, "exposed_utxo_count": exposed_counts[index]}
+                  for index, family in enumerate(SCRIPT_TYPES) if present_mask & SCRIPT_MASKS[family]}
+        singleton = {family: migration_weight({family: values}) for family, values in slices.items()}
+        all_weight = next(iter(singleton.values())) if len(singleton) == 1 else migration_weight(slices)
+        corrections = script_subset_corrections(slices, singleton_weights=singleton, all_weight=all_weight)
+        return singleton, all_weight, corrections
+
+    with _SnapshotWriter(output_dir, snapshot_height) as writer:
+        iterator = iter(pages)
+        while True:
+            check()  # Includes pages with no details and the next bounded SQL fetch.
+            try:
+                page = next(iterator)
+            except StopIteration:
+                break
+            if finished or not isinstance(page, Mapping):
+                raise ValueError("Invalid page after terminal frontier")
+            _exact_nonnegative_integer(page.get("snapshot_time"), "page snapshot_time")
+            if any(page.get(key) != value for key, value in context.items()):
+                raise ValueError("Preaggregated page context/version differs from requested snapshot")
+            count = _exact_nonnegative_integer(page.get("group_count"), "page group count")
+            last, done = page.get("last_group_id"), page.get("done")
+            if (count > 100000 or type(done) is not bool
+                    or (count == 0 and (last is not None or not done))
+                    or (count > 0 and (not isinstance(last, str) or not last or (previous is not None and last <= previous)))):
+                raise ValueError("Invalid or nonmonotone preaggregated page frontier")
+            base = _read_base_cubes(page.get("base_cubes"), count)
+            signatures = page.get("packing")
+            if not isinstance(signatures, list) or len(signatures) > count:
+                raise ValueError("Invalid bounded packing histogram")
+            expected = {key: [0, 0, 0] for key in cubes}
+            seen, frequency = set(), 0
+            for index, signature in enumerate(signatures):
+                if index % 256 == 0:
+                    check()
+                if not isinstance(signature, Mapping):
+                    raise ValueError("Invalid packing signature")
+                mask, counts = signature.get("present_mask"), signature.get("exposed_counts")
+                level, activity = signature.get("tier_level"), signature.get("activity")
+                n = _exact_nonnegative_integer(signature.get("groups"), "signature group frequency")
+                if (type(mask) is not int or not 1 <= mask < 128 or type(level) is not int
+                        or not 0 <= level < len(TIERS) or activity not in ACTIVITIES or not 1 <= n <= count
+                        or not isinstance(counts, list) or len(counts) != len(SCRIPT_TYPES)):
+                    raise ValueError("Invalid packing signature bounds")
+                for bit, value in enumerate(counts):
+                    _exact_nonnegative_integer(value, "exposed input count")
+                    if value and not mask & (1 << bit):
+                        raise ValueError("Absent script family has exposed inputs")
+                key = (mask, tuple(counts), level, activity)
+                if key in seen:
+                    raise ValueError("Duplicate packing signature")
+                seen.add(key)
+                frequency += n
+                singleton, weight, corrections = packing_weights(mask, tuple(counts))
+                selected = [("All", weight, sum(counts))] + [
+                    (family, singleton[family], counts[bit]) for bit, family in enumerate(SCRIPT_TYPES)
+                    if family in singleton]
+                for tier, _ in TIERS[:level + 1]:
+                    for act in ("all", activity):
+                        for family, family_weight, exposed_count in selected:
+                            cube_key = (tier, family, act)
+                            base[cube_key][6] += n * family_weight
+                            target = expected[cube_key]
+                            target[0] += n
+                            target[1] += n * int(exposed_count > 0)
+                            target[2] += n * exposed_count
+                        for correction_mask, values in corrections.items():
+                            target = correction_cubes.setdefault((tier, correction_mask, act), [0, 0, 0])
+                            for offset, value in enumerate(values):
+                                target[offset] += n * value
+            if frequency != count:
+                raise ValueError("Packing histogram frequency differs from page frontier")
+            for key, values in base.items():
+                if [values[0], values[3], values[4]] != expected[key]:
+                    raise ValueError("Packing histogram and base cube membership/counts differ")
+                for index, value in enumerate(values):
+                    cubes[key][index] += value
+            detail_rows = page.get("detail_rows")
+            if not isinstance(detail_rows, list) or len(detail_rows) > count * len(SCRIPT_TYPES):
+                raise ValueError("Invalid bounded detail rows")
+            prior_row = None
+            for index, row in enumerate(detail_rows):
+                if index % 256 == 0:
+                    check()
+                if not isinstance(row, Mapping):
+                    raise ValueError("Invalid detail family row")
+                group_id, family = row.get("group_id"), row.get("script_type")
+                if (not isinstance(group_id, str) or not group_id or family not in SCRIPT_TYPES
+                        or last is None or group_id > last or (previous is not None and group_id <= previous)):
+                    raise ValueError("Detail family lies outside its page frontier")
+                order = (group_id, family)
+                if prior_row is not None and order <= prior_row:
+                    raise ValueError("Detail families must be strictly ordered without duplicates")
+                prior_row = order
+                for field in ("current_supply_sats", "current_utxo_count", "exposed_supply_sats", "exposed_utxo_count"):
+                    _exact_nonnegative_integer(row.get(field), field)
+                for field in ("first_received_blockheight", "first_exposed_blockheight", "first_exposed_time",
+                              "last_spend_blockheight", "last_spend_time"):
+                    if row.get(field) is not None:
+                        _exact_nonnegative_integer(row[field], field)
+            groups = canonical_groups(detail_rows, snapshot_time)
+            if group_enricher is not None:
+                groups = group_enricher(groups)
+            detail_exposure = {(family, activity): [0, 0, 0] for family in ("All",) + SCRIPT_TYPES
+                               for activity in ("all",) + ACTIVITIES}
+            for index, group in enumerate(groups):
+                if index % 256 == 0:
+                    check()
+                writer.add_detail(group)
+                for family, values in [("All", group), *group["slices"].items()]:
+                    exposure = [int(values["exposed_utxo_count"] > 0), values["exposed_utxo_count"],
+                                values["exposed_supply_sats"]]
+                    for activity in ("all", group["spend_activity"]):
+                        target = detail_exposure[(family, activity)]
+                        for offset, value in enumerate(exposure):
+                            target[offset] += value
+            if any(coverage != base[("ge1", family, activity)][3:6]
+                   for (family, activity), coverage in detail_exposure.items()):
+                raise ValueError("Detail coverage differs from preaggregated GE1 family/activity exposure totals")
+            group_count += count
+            if count:
+                previous = last
+            finished = done
+        if not finished:
+            raise ValueError("Preaggregated pages ended without a terminal frontier")
+        check()
+        return writer.finish(cubes, correction_cubes, snapshot_time=snapshot_time, block_hash=block_hash,
+            source_generation=source_generation, label_version=label_version, group_count=group_count)

@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import ast
+from collections import Counter, defaultdict
+import copy
 import csv
 import hashlib
 import io
+import itertools
 import json
 import os
 from pathlib import Path
@@ -499,6 +502,270 @@ class CanonicalAnalysisTests(unittest.TestCase):
                                                         b'legacy-key-disclosure-registry')
                 actual[name] = hashlib.sha256(payload).hexdigest()
         self.assertEqual(expected, actual)
+
+
+def fixture_export_page(rows, *, done=True, snapshot_time=SNAPSHOT_TIME):
+    """Independent small provider: no production grouping or packing helper.
+
+    The SQL provider has its own PostgreSQL parity tests. These pure fixtures
+    exercise the consumer contract even when no PostgreSQL driver is installed.
+    """
+    base, signatures, details = defaultdict(lambda: [0] * 6), Counter(), []
+    last, group_count = None, 0
+    cutoff = q.calendar_cutoff(snapshot_time)
+    for group_id, members in itertools.groupby(rows, key=lambda row: row['group_id']):
+        members = sorted(members, key=lambda row: row['script_type'])
+        live = [row for row in members if row['current_utxo_count'] > 0]
+        if not live:
+            continue
+        group_count += 1
+        last = group_id
+        total = {field: sum(row[field] for row in members) for field in
+                 ('current_supply_sats', 'current_utxo_count', 'exposed_supply_sats', 'exposed_utxo_count')}
+        spends = [(row['last_spend_blockheight'], row.get('last_spend_time')) for row in members
+                  if row.get('last_spend_blockheight') is not None]
+        activity = 'never_spent' if not spends else 'inactive' if max(spends)[1] <= cutoff else 'active'
+        level = max(index for index, (_, minimum) in enumerate(q.TIERS)
+                    if total['current_supply_sats'] >= minimum)
+        mask = sum(q.SCRIPT_MASKS[row['script_type']] for row in live)
+        vector = tuple(sum(row['exposed_utxo_count'] for row in live if row['script_type'] == family)
+                       for family in q.SCRIPT_TYPES)
+        signatures[(mask, vector, level, activity)] += 1
+        for family, values in [('All', total), *((row['script_type'], row) for row in live)]:
+            metrics = [1, values['current_utxo_count'], values['current_supply_sats'],
+                       int(values['exposed_utxo_count'] > 0), values['exposed_utxo_count'],
+                       values['exposed_supply_sats']]
+            for tier, _ in q.TIERS[:level + 1]:
+                for act in ('all', activity):
+                    target = base[(tier, family, act)]
+                    for index, value in enumerate(metrics):
+                        target[index] += value
+        if total['current_supply_sats'] >= 100_000_000 and total['exposed_utxo_count'] > 0:
+            details.extend(members)
+    return dict(snapshot_time=snapshot_time, methodology_version=q.METHODOLOGY_VERSION,
+                parser_version=q.PARSER_VERSION, grouping_version=q.GROUPING_VERSION,
+                scenario_version=q.SCENARIO_VERSION, subset_correction_version=q.SUBSET_CORRECTION_VERSION,
+                group_count=group_count, last_group_id=last, done=done,
+                base_cubes=[dict(tier=tier, family=family, activity=activity, metrics=metrics)
+                            for (tier, family, activity), metrics in sorted(base.items())],
+                packing=[dict(present_mask=mask, exposed_counts=list(vector), tier_level=level,
+                              activity=activity, groups=count)
+                         for (mask, vector, level, activity), count in sorted(signatures.items())],
+                detail_rows=details)
+
+
+class PreaggregatedExportTests(unittest.TestCase):
+    def export(self, pages, output, **kwargs):
+        return q.export_preaggregated_snapshot(pages, snapshot_height=1000, snapshot_time=SNAPSHOT_TIME,
+            output_dir=Path(output), block_hash='ab' * 32, source_generation='fixture-source',
+            label_version='fixture-label', **kwargs)
+
+    def assert_parity(self, rows, pages, group_enricher=None):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            expected = q.export_snapshot(iter(rows), snapshot_height=1000, snapshot_time=SNAPSHOT_TIME,
+                output_dir=root / 'oracle', block_hash='ab' * 32, source_generation='fixture-source',
+                label_version='fixture-label', group_enricher=group_enricher)
+            actual = self.export(iter(pages), root / 'bounded', group_enricher=group_enricher)
+            self.assertEqual(actual, expected)
+            expected_files = {path.name: path.read_bytes() for path in (root / 'oracle' / '1000').iterdir()}
+            actual_files = {path.name: path.read_bytes() for path in (root / 'bounded' / '1000').iterdir()}
+            self.assertEqual(len(expected_files), 6)
+            self.assertEqual(actual_files, expected_files)
+            self.assertFalse((root / 'bounded' / 'latest_snapshot.txt').exists())
+
+    def test_full_six_file_parity_all_masks_tiers_activity_and_retired_history(self):
+        rows = []
+        for mask in range(1, 128):
+            families = [family for family in q.SCRIPT_TYPES if mask & q.SCRIPT_MASKS[family]]
+            for index, family in enumerate(families):
+                count = (1, 252, 253, 868, 10000)[(mask + index) % 5]
+                amount = (0, 99_999_999, 100_000_000, 1_000_000_000, 10_000_000_000,
+                          100_000_000_000)[mask % 6]
+                row = state(group=f'm{mask:03}', family=family, amount=amount, count=count,
+                    last_spend_blockheight=800 + index if mask % 3 else None,
+                    last_spend_time=SNAPSHOT_TIME - (400 if mask % 3 == 1 else 10) * 86400
+                        - index * 100 if mask % 3 else None)
+                if (mask + index) % 4 == 0:
+                    row.update(exposed_supply_sats=0, exposed_utxo_count=0)
+                rows.append(row)
+        # Whole-group eligibility, zero-value exposure, and a retired sibling
+        # carrying the latest height with an older, nonmonotone timestamp.
+        rows.extend([state(group='retired', family='P2PKH', amount=60_000_000, exposed=0),
+                     state(group='retired', family='P2WPKH', amount=60_000_000, exposed=0),
+                     state(group='retired', family='P2PK', amount=0, count=2),
+                     state(group='retired', family='Other', amount=0, count=0,
+                           last_spend_blockheight=950, last_spend_time=q.calendar_cutoff(SNAPSHOT_TIME))])
+        rows.extend(state(group=f'top-{index:03}', amount=100_000_000 + index % 3) for index in range(129))
+        grouped = [list(members) for _, members in itertools.groupby(rows, key=lambda row: row['group_id'])]
+        pages = [fixture_export_page(list(itertools.chain.from_iterable(grouped[start:start + 19])),
+                                     done=False) for start in range(0, len(grouped), 19)]
+        pages[-1]['done'] = True
+        for page in pages:
+            page['packing'].reverse()  # Serialization cannot depend on SQL aggregate output order.
+            page['base_cubes'].reverse()
+        self.assert_parity(rows, pages)
+
+    def test_empty_and_no_detail_pages_and_exact_boundary_terminal_page(self):
+        self.assert_parity([], [fixture_export_page([])])
+        rows = [state(group='a', amount=0), state(group='b', amount=12, exposed=0)]
+        pages = [fixture_export_page([rows[0]], done=False), fixture_export_page([rows[1]], done=False),
+                 fixture_export_page([])]
+        self.assert_parity(rows, pages)
+
+    def test_same_annotation_enrichment_and_output_isolation(self):
+        rows = [state(group='a'), state(group='b', amount=12)]
+        def enrich(groups):
+            for group in groups:
+                yield dict(group, details='1-of-1 annotation', details_quality='verified-fixture',
+                           identity='fixture identity')
+        self.assert_parity(rows, [fixture_export_page(rows)], enrich)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sentinel = root / 'published' / 'latest_snapshot.txt'
+            sentinel.parent.mkdir()
+            sentinel.write_text('previous-complete-generation\n')
+            self.export([fixture_export_page(rows)], root / 'isolated')
+            self.assertEqual(sentinel.read_text(), 'previous-complete-generation\n')
+
+    def test_versions_are_explicit_and_count_only_scenario_is_pinned(self):
+        page = fixture_export_page([state()])
+        for field in ('snapshot_time', 'methodology_version', 'parser_version', 'grouping_version',
+                      'scenario_version', 'subset_correction_version'):
+            changed = copy.deepcopy(page)
+            changed[field] = SNAPSHOT_TIME + 1 if field == 'snapshot_time' else 'different-version'
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
+                with self.assertRaisesRegex(ValueError, 'context/version'):
+                    self.export([changed], tmp)
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(q, 'SCENARIO_VERSION', 'future-policy-model'):
+            with self.assertRaisesRegex(ValueError, 'count-only'):
+                self.export([page], tmp)
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(q.SCRIPT_MASKS, P2PK=2):
+            with self.assertRaisesRegex(ValueError, 'count-only'):
+                self.export([page], tmp)
+
+    def test_malformed_pages_fail_before_complete_metadata(self):
+        page = fixture_export_page([state()])
+        def bad_cube(p):
+            p['base_cubes'][0]['metrics'][2] += 1
+        changes = {
+            'frontier-bool': lambda p: p.update(group_count=True),
+            'frontier-negative': lambda p: p.update(group_count=-1),
+            'frontier-too-large': lambda p: p.update(group_count=100001),
+            'frontier-empty-id': lambda p: p.update(last_group_id=''),
+            'frontier-done-int': lambda p: p.update(done=1),
+            'time-float': lambda p: p.update(snapshot_time=float(SNAPSHOT_TIME)),
+            'cube-bool': lambda p: p['base_cubes'][0]['metrics'].__setitem__(0, True),
+            'cube-key': lambda p: p['base_cubes'][0].update(family=[]),
+            'cube-duplicate': lambda p: p['base_cubes'].append(copy.deepcopy(p['base_cubes'][0])),
+            'cube-partition': bad_cube,
+            'signature-missing': lambda p: p.update(packing=[]),
+            'signature-duplicate': lambda p: p['packing'].append(copy.deepcopy(p['packing'][0])),
+            'signature-mask': lambda p: p['packing'][0].update(present_mask=128),
+            'signature-absent-count': lambda p: p['packing'][0]['exposed_counts'].__setitem__(0, 1),
+            'signature-negative-count': lambda p: p['packing'][0]['exposed_counts'].__setitem__(1, -1),
+            'signature-activity': lambda p: p['packing'][0].update(activity='unknown'),
+            'signature-frequency': lambda p: p['packing'][0].update(groups=0),
+            'signature-tier': lambda p: p['packing'][0].update(tier_level=0),
+            'detail-missing': lambda p: p.update(detail_rows=[]),
+            'detail-duplicate': lambda p: p['detail_rows'].append(copy.deepcopy(p['detail_rows'][0])),
+            'detail-frontier': lambda p: p['detail_rows'][0].update(group_id='zz-outside'),
+            'detail-float': lambda p: p['detail_rows'][0].update(current_supply_sats=100_000_000.0),
+            'detail-known-spend-no-time': lambda p: p['detail_rows'][0].update(last_spend_blockheight=100),
+        }
+        for label, change in changes.items():
+            changed = copy.deepcopy(page)
+            change(changed)
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as tmp:
+                with self.assertRaises(ValueError):
+                    self.export([changed], tmp)
+                self.assertFalse((Path(tmp) / '1000' / 'analysis_versions.json').exists())
+                self.assertFalse((Path(tmp) / '1000' / 'dashboard_snapshot_meta.csv').exists())
+
+    def test_frontier_order_and_terminal_contract(self):
+        a, b = fixture_export_page([state(group='a')], done=False), fixture_export_page([state(group='b')])
+        invalid = ([a], [a, a], [b, a], [b, fixture_export_page([])], [],
+                   [fixture_export_page([], done=False)])
+        for pages in invalid:
+            with self.subTest(pages=pages), tempfile.TemporaryDirectory() as tmp:
+                with self.assertRaises(ValueError):
+                    self.export(copy.deepcopy(pages), tmp)
+
+    def test_detail_family_and_activity_corruption_cannot_hide_in_total(self):
+        rows = [state(group='a', family='P2PKH', amount=100_000_000),
+                state(group='b', family='P2WPKH', amount=200_000_000,
+                      last_spend_blockheight=900, last_spend_time=SNAPSHOT_TIME - 10)]
+        for kind in ('family', 'activity'):
+            page = fixture_export_page(rows)
+            if kind == 'family':
+                page['detail_rows'][0]['script_type'] = 'P2WPKH'
+                page['detail_rows'][1]['script_type'] = 'P2PKH'
+            else:
+                page['detail_rows'][0].update(last_spend_blockheight=900, last_spend_time=SNAPSHOT_TIME - 10)
+                page['detail_rows'][1].update(last_spend_blockheight=None, last_spend_time=None)
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:
+                with self.assertRaisesRegex(ValueError, 'family/activity exposure'):
+                    self.export([page], tmp)
+
+    def test_guard_runs_before_fetch_and_during_no_detail_histogram(self):
+        calls, fetched = [], []
+        def never_fetch():
+            fetched.append(True)
+            yield fixture_export_page([])
+        def stopped():
+            raise RuntimeError('fixture stop')
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(RuntimeError, 'fixture stop'):
+                self.export(never_fetch(), tmp, guard=stopped)
+        self.assertEqual(fetched, [])
+        rows = [state(group=f'g{index:04}', amount=1, count=index + 1) for index in range(300)]
+        page = fixture_export_page(rows)
+        self.assertEqual(page['detail_rows'], [])
+        def guard():
+            calls.append(True)
+            if len(calls) == 3:
+                raise RuntimeError('histogram stop')
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(q, 'migration_weight', wraps=q.migration_weight) as weight:
+            with self.assertRaisesRegex(RuntimeError, 'histogram stop'):
+                self.export([page], tmp, guard=guard)
+            self.assertEqual(weight.call_count, 256)
+
+    def test_guard_runs_during_detail_validation_before_grouping(self):
+        rows = [state(group=f'g{index:04}') for index in range(300)]
+        page = fixture_export_page(rows)
+        calls = []
+        def guard():
+            calls.append(True)
+            if len(calls) == 4:
+                raise RuntimeError('detail validation stop')
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(q, 'canonical_groups', wraps=q.canonical_groups) as group:
+            with self.assertRaisesRegex(RuntimeError, 'detail validation stop'):
+                self.export([page], tmp, guard=guard)
+            group.assert_not_called()
+
+    def test_signature_cache_reuses_across_pages_and_has_strict_bound(self):
+        rows = [state(group=f'g{index:04}', amount=1, count=3) for index in range(20)]
+        pages = [fixture_export_page([row], done=index == 19) for index, row in enumerate(rows)]
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(q, 'migration_weight', wraps=q.migration_weight) as weight:
+            self.export(pages, tmp)
+            self.assertEqual(weight.call_count, 1)
+        captured = []
+        original_cache = q.lru_cache
+        def record_cache(*args, **kwargs):
+            decorate = original_cache(*args, **kwargs)
+            def record(function):
+                wrapped = decorate(function)
+                captured.append(wrapped)
+                return wrapped
+            return record
+        rows = [state(group=f'g{index:05}', amount=1, count=index + 1) for index in range(8193)]
+        pages = [fixture_export_page(rows[start:start + 500], done=start + 500 >= len(rows))
+                 for start in range(0, len(rows), 500)]
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(q, 'lru_cache', side_effect=record_cache):
+            self.export(pages, tmp)
+        self.assertEqual(len(captured), 1)
+        info = captured[0].cache_info()
+        self.assertEqual((info.maxsize, info.currsize, info.misses), (8192, 8192, 8193))
 
 
 if __name__ == "__main__":

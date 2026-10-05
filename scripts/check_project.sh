@@ -35,6 +35,7 @@ bash scripts/check_all_dashboards.sh
 "$PYTHON_BIN" scripts/test_quantum_scheduler.py
 "$PYTHON_BIN" scripts/test_quantum_acceptance.py
 "$PYTHON_BIN" scripts/test_quantum_live_export.py
+"$PYTHON_BIN" scripts/test_quantum_sql_export.py
 "$PYTHON_BIN" scripts/test_quantum_script_hydration.py
 "$PYTHON_BIN" scripts/test_quantum_canonical_seed.py
 "$PYTHON_BIN" scripts/test_quantum_canonical_reducer.py
