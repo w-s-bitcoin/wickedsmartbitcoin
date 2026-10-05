@@ -26,6 +26,7 @@ MAX_ACTIVE_SECONDS=24*60*60
 MAX_ELAPSED_SECONDS=48*60*60
 CLEANUP_RESERVE_SECONDS=5
 CHILD_CLEANUP_SECONDS=2
+MIN_USABLE_SLICE_SECONDS=5
 VERSION='quantum-bootstrap-session-v1'
 
 
@@ -150,6 +151,14 @@ def remaining(session,now=None):
         raise RuntimeError('Wall clock moved backwards; session deadline cannot be trusted')
     session['last_wall_unix']=max(now,session.get('last_wall_unix',now))
     return min(session['max_active_seconds']-session['active_seconds'],session['deadline_unix']-now)
+
+
+def next_slice_seconds(work_seconds,available_seconds):
+    """Leave a short tail unused instead of starting a child it cannot support."""
+    configured=float(work_seconds)
+    if not math.isfinite(configured) or configured<=0:raise ValueError('Invalid worker slice budget')
+    seconds=min(configured,available_seconds-CLEANUP_RESERVE_SECONDS)
+    return seconds if seconds>=min(configured,MIN_USABLE_SLICE_SECONDS) else None
 
 
 def new_session(config_path,config,worker,fingerprint,conn,active,elapsed):
@@ -401,8 +410,9 @@ def main(argv=None):
                 if status=='source_not_ready':
                     append_event(path.parent/'events.jsonl',{'at':utc(),'event':'source_not_ready'})
                 else:
-                    seconds=min(float(config.get('work_seconds',45)),remaining(session)-CLEANUP_RESERVE_SECONDS)
-                    if not math.isfinite(seconds) or seconds<=0:raise ValueError('Invalid worker slice budget')
+                    seconds=next_slice_seconds(config.get('work_seconds',45),remaining(session))
+                    if seconds is None:
+                        session['status']='budget_exhausted';break
                     result=supervise_slice(conn,config,path,session,worker,fingerprint,seconds,lease_fd)
                     session['last_checkpoint']=snapshot(conn);check_snapshot(session['last_checkpoint'],session['expected_anchor'])
                     session['completed_slices']+=1
