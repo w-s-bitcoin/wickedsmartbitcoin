@@ -29,6 +29,7 @@ for (const name of ['parseCsvLine', 'parseCsv', 'quantumHistoricalRefreshPoint',
   'getRowBalanceSats', 'getRowSelectedUtxoCount', 'rowPassesBalanceFilter', 'estimateCanonicalMigrationWeight',
   'getRowSpendActivityForFilters', 'classifySpendActivity', 'retainedQuantumSnapshotData', 'fetchQuantumRefreshSnapshot',
   'quantumScriptCorrectionVersion', 'quantumScriptCorrectionsAreComplete', 'fetchQuantumScriptCorrections',
+  'quantumArchiveSummaryCoverage', 'fetchQuantumArchiveSummaryText', 'buildQuantumSnapshotIndexCandidate',
   'aggregateAllKpis', 'getAggregate', 'getAggregateFloat',
   'aggregateKpisFromGe1', 'rowPassesTopExposureFilters', 'getRowScriptTypes', 'getFilteredExposedSupplySatsForRow',
   'estimateMigrationBlocksFromRow',
@@ -41,6 +42,45 @@ const archived = header + '949000,all,All,all,50\n949000,all,All,active,10\n9500
 const merged = context.parseQuantumHistoricalSeries(active, archived);
 assert.deepEqual(Array.from(merged, point => [point.snapshot, point.aggregatesRows.length]), [['949000', 2], ['950000', 2]]);
 assert.equal(merged[1].aggregatesRows[0].exposed_supply_sats, '60');
+const summaryText = header + '948000,all,All,all,40\n948000,all,All,active,5\n';
+const summaryManifest = { format: 2, snapshot_blockheight: 950000,
+  capabilities: { archive_summaries: true }, artifacts: { 'historical_archive_summaries.csv': {} },
+  metadata: { archive_summaries: { version: 'legacy-summary-only-v1',
+    methodology_version: 'legacy-v1-unreconciled', artifact_coverage: 'historical-summary-only',
+    snapshot_heights: [948000], snapshot_times: { '948000': '1700000000' }, rows: 2 } } };
+const summaries = context.quantumArchiveSummaryCoverage(summaryManifest);
+assert.deepEqual(Array.from(summaries.heights), ['948000']);
+assert.deepEqual(Array.from(context.parseQuantumHistoricalSeries(active, archived, summaryText),
+  point => [point.snapshot, point.aggregatesRows.length]), [['948000', 2], ['949000', 2], ['950000', 2]]);
+const overlappingSummary = summaryText + header.split('\n')[0] + '\n';
+await assert.rejects(context.fetchQuantumArchiveSummaryText({ publicationManifest: summaryManifest,
+  fetchFresh: async () => new Response(overlappingSummary) }), /declared coverage/);
+assert.equal(await context.fetchQuantumArchiveSummaryText({ publicationManifest: summaryManifest,
+  fetchFresh: async () => new Response(summaryText) }), summaryText);
+await assert.rejects(context.fetchQuantumArchiveSummaryText({ publicationManifest: summaryManifest,
+  fetchFresh: async () => new Response(summaryText.replaceAll('948000', '947000')) }), /declared coverage/);
+assert.equal(await context.fetchQuantumArchiveSummaryText({ publicationManifest: { format: 2 },
+  fetchFresh: () => { throw Error('A public/older bundle must not request summary history'); } }), '');
+const duplicateSummary = structuredClone(summaryManifest);
+duplicateSummary.metadata.archive_summaries.snapshot_heights.push(948000);
+assert.throws(() => context.quantumArchiveSummaryCoverage(duplicateSummary), /heights or dates/);
+context.formatSnapshotSelectDate = value => String(value);
+context.formatTooltipDate = value => String(value);
+const summaryIndex = context.buildQuantumSnapshotIndexCandidate(
+  [{ snapshot_blockheight: '950000', snapshot_time: '1800000000' }], [], false, summaries);
+assert.equal(summaryIndex.archivedSnapshotsAvailable, true, 'Summary-only bundles offer archived history');
+assert.equal(summaryIndex.snapshotLocationByHeight['948000'], undefined, 'Summary points must not become selectable snapshots');
+assert.equal(summaryIndex.snapshotUnixTimeByHeight['948000'], 1700000000, 'Retain recorded dates without reading missing detail');
+assert.deepEqual(Array.from(summaryIndex.activeSnapshots), ['950000']);
+const unknownDateSummary = structuredClone(summaryManifest);
+unknownDateSummary.metadata.archive_summaries.snapshot_times['948000'] = '';
+const unknownDateIndex = context.buildQuantumSnapshotIndexCandidate([], [], false,
+  context.quantumArchiveSummaryCoverage(unknownDateSummary));
+assert.equal({ '948000': 1700000000, ...unknownDateIndex.snapshotUnixTimeByHeight }['948000'], 0,
+  'An explicit unknown date must clear a previously cached timestamp');
+unknownDateSummary.metadata.archive_summaries.snapshot_heights = [950000];
+unknownDateSummary.metadata.archive_summaries.snapshot_times = { '950000': '1700000000' };
+assert.throws(() => context.quantumArchiveSummaryCoverage(unknownDateSummary), /heights or dates/);
 
 const bytes = new TextEncoder().encode('value\n123\n');
 const hash = createHash('sha256').update(bytes).digest('hex');

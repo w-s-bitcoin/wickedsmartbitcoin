@@ -29,6 +29,7 @@ from publish_generation import (
 from quantum_runtime import copy_file_if_changed, runtime_dependency_copies, sync_generation_to_standalone
 from quantum_subprocess import GIT_RESOURCE_CONFIG, run_group, run_supervisor
 import regenerate_snapshot_indexes as indexes
+import quantum_archive_summaries as archive_summaries
 
 DATA_REL = Path("webapps/quantum_exposure/webapp_data")
 STAGING_ROOT = Path("/tmp/animations_deploy_staging")
@@ -149,6 +150,16 @@ def prepare_output(previous_data_dir: Path, new_output_dir: Path, target_height:
             source = _source_path(previous, logical, marker)
             if source.is_file():
                 copy_file_if_changed(source, output / logical)
+    # A legacy distribution may retain historical chart rows after its detailed
+    # archive folders were removed. Preserve their original evidence separately;
+    # never advertise a fabricated archived snapshot in archived_index.csv.
+    complete_heights = {int(path.name) for root in (output, output/'archived')
+                        if root.is_dir() for path in root.iterdir()
+                        if path.is_dir() and path.name.isdigit()
+                        and (path/'dashboard_snapshot_meta.csv').is_file()
+                        and (path/'dashboard_pubkeys_aggregates.csv').is_file()}
+    archive_summaries.stage(previous,output,marker,lambda logical:_source_path(previous,logical,marker),
+                            target_height=target_height,complete_heights=complete_heights)
 
 
 def finish_output(new_output_dir: Path, metadata: dict, generation: str) -> dict:

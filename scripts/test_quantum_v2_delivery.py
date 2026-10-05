@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Delivery tests use disposable local Git remotes and fixture-only exporters."""
 import json
+import csv
 from pathlib import Path
 import shutil
 import subprocess
@@ -15,7 +16,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import quantum_v2_delivery as delivery
 import immutable_generation as publication
 from quantum_runtime import runtime_dependency_copies
-from test_quantum_immutable_generation import seed
+from test_quantum_immutable_generation import seed, seed_archive_summaries
+import quantum_archive_summaries as archive_summaries
 
 
 def git(repo, *args):
@@ -311,6 +313,78 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(receipt["status"], "delivered")
         self.assertFalse((self.repo / delivery.DATA_REL / "archived").exists())
         publication.validate_immutable_generation(self.repo / delivery.DATA_REL, marker)
+
+
+    def test_legacy_summary_only_archives_survive_delivery_and_sequential_generations(self):
+        legacy = self.root / 'legacy-summary-only'
+        legacy.mkdir()
+        seed(legacy)
+        original = seed_archive_summaries(legacy, heights=(100, 200))
+        # Model the actual legacy distribution: catalogs exist, no detail
+        # archive folders, no v2 provenance or summary artifact yet.
+        for name, payload in original.items():
+            (legacy / name).write_bytes(payload)
+        (legacy / archive_summaries.FILE).unlink()
+        (legacy / archive_summaries.STAGED_METADATA).unlink()
+        shutil.rmtree(legacy / archive_summaries.SOURCE_PREFIX)
+        original_files = {path.relative_to(legacy).as_posix(): path.read_bytes()
+                          for path in legacy.rglob('*') if path.is_file()}
+        previous = legacy
+        first_summary = first_sources = None
+        for height in (2000, 3000):
+            current = self.root / f'summary-{height}'
+            delivery.prepare_output(previous, current, height)
+            metadata = seed(current, height)
+            metadata['snapshot_blockheight'] = height
+            marker = delivery.finish_output(current, metadata, f'summary-{height}')
+            summary = marker['metadata']['archive_summaries']
+            self.assertEqual(summary['snapshot_heights'], [100, 200])
+            self.assertEqual(summary['rows'], 4)
+            with (current / 'archived_index.csv').open(newline='') as handle:
+                self.assertEqual(list(csv.DictReader(handle)), [])
+            with (current / 'historical_archived.csv').open(newline='') as handle:
+                self.assertEqual(list(csv.DictReader(handle)), [])
+            self.assertFalse((current / 'archived/100').exists())
+            content = (current / archive_summaries.FILE).read_bytes()
+            if first_summary is None:
+                first_summary, first_sources = content, summary['sources']
+            else:
+                self.assertEqual(content, first_summary)
+                self.assertEqual(summary['sources'], first_sources)
+            publication.validate_immutable_generation(current, marker)
+            previous = current
+        self.assertEqual({path.relative_to(legacy).as_posix(): path.read_bytes()
+                          for path in legacy.rglob('*') if path.is_file()}, original_files)
+        receipt = delivery.deliver_standalone(previous, self.repo, runtime_dir=self.runtime)
+        self.assertEqual(receipt['status'], 'delivered')
+        delivered = self.repo / delivery.DATA_REL
+        publication.validate_immutable_generation(delivered, marker)
+        self.assertEqual((delivered / archive_summaries.FILE).read_bytes(), first_summary)
+        self.assertFalse((delivered / 'archived/100').exists())
+        self.assertEqual(delivery.deliver_standalone(previous, self.repo, runtime_dir=self.runtime)['commit'], receipt['commit'])
+
+    def test_legacy_archive_source_mismatch_fails_before_publication(self):
+        legacy = self.root / 'legacy-invalid-summary'
+        legacy.mkdir()
+        seed(legacy)
+        original = seed_archive_summaries(legacy, heights=(100, 200))
+        cases = {
+            'missing catalog': None,
+            'missing entry': b'snapshot_blockheight,snapshot_time\n100,1300000100\n',
+            'duplicate entry': b'snapshot_blockheight,snapshot_time\n100,1300000100\n100,1300000100\n200,1300000200\n',
+        }
+        for name, index in cases.items():
+            with self.subTest(name=name):
+                (legacy / 'historical_archived.csv').write_bytes(original['historical_archived.csv'])
+                index_path = legacy / 'archived_index.csv'
+                if index is None:
+                    index_path.unlink(missing_ok=True)
+                else:
+                    index_path.write_bytes(index)
+                target = self.root / ('invalid-' + name.replace(' ', '-'))
+                with self.assertRaises(RuntimeError):
+                    delivery.prepare_output(legacy, target, 2000)
+                self.assertFalse((target / 'published_generation.json').exists())
 
 
 if __name__ == "__main__":

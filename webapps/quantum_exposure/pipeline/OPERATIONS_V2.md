@@ -330,6 +330,17 @@ anchor. Completion of this command alone does not satisfy rollout acceptance.
 The normal control row must remain paused throughout. An explicit new session
 can work past that initial scheduling pause, without deleting the `PAUSED` file.
 
+If its hard slice deadline interrupts the worker, the failed run and all measured
+costs remain recorded. The supervisor may continue only after verifying its own
+nonce-bound deadline signal, the exact finished failed run, complete resource
+measurements without a breach, child/process-group cleanup, disappearance of
+the identified backend, and the unchanged checkpoint, configuration and pause
+state. Its journal records `verified_controlled_deadline` alongside the original
+failure. This does not relabel a failed attempt as successful or permit it in
+steady-boundary acceptance. External signals, unknown failures, missing evidence
+and resource violations stop initialization for review. Old unclassified failures
+cannot acquire this proof retroactively.
+
 The first output line names a private `bootstrap_sessions/SESSION/session.json`
 under `state_dir`. Resume that exact journal to retain its original deadline,
 charged active time, anchor and pause token:
@@ -603,7 +614,67 @@ SQL reducer separately: this sampler transfers bounded history rows to Python,
 and its timings omit raw script hydration, cryptographic eligibility checks, and
 persistent projection writes.
 
+### Sustained canonical initialization observations
+
+The closed 2026-10-05 session `33554131d3234e0bb632dd5a5ccfcb3d`
+advanced from 56,892,306 to 149,692,306 source occurrences in 152 bounded
+invocations. Supervised child time was 5,897.43 seconds over 8,165.91 elapsed
+seconds. The source advanced from 970,063 to 970,080; 15 invocations yielded to
+ingestion. The operator reported that the computer remained responsive.
+Normal scheduling stayed paused, with one worker/backend, 100,000-row source
+pages, 45-second slices and 15-second rests between slices.
+
+Sampled peak combined worker/backend private memory was 223.94 MB. Their
+measured CPU totals were 792.32 and 3,274.74 seconds, respectively. Backend
+process counters recorded 165.47 GB read and 251.12 GB written. Shared cluster
+WAL increased by 317.85 GB across the available measured intervals; database
+temporary-file counters increased by 435.22 MB. These shared counters include
+other database activity and do not establish exclusive Quantum attribution or
+retained disk growth. Minimum observed free space was 2.713 TB. No resource
+measurement error or configured resource breach was recorded.
+
+The deployment pause interrupted the final invocation after one committed page;
+its durable run correctly remains failed (`SliceInterrupted`), with its resource
+measurements retained. The other 151 runs succeeded. The interrupted invocation
+has no end-of-run database counter sample, so the shared counter totals cover
+151 intervals, not all 152. The resumable checkpoint is preserved; this session
+is initialization evidence, not successful full-boundary acceptance.
+
+The exact private evidence manifest is
+`evidence/supervised-initialization-33554131d3234e0bb632dd5a5ccfcb3d/manifest.json`
+under `state_dir`, SHA-256
+`80c7c9bf3c49c12c9707ced0d4f42db98ab1ea4d08b039a4ab4a7e465fc989e5`.
+It includes all persisted runs and the original session artifacts. A subsequent
+read-only catalog observation measured 18.85 GB for group state and its indexes,
+and 13.41 GB for disclosures and their indexes. These are incomplete-prefix
+sizes, not final cardinality or total migration-storage estimates. Recent
+throughput implies several more days of initialization; later script mix and
+index growth can change that estimate substantially. Keep the disk reserve and
+responsiveness gates in force.
+
 ## Export, publication and destination APIs
+
+Local/archive-capable generations preserve legacy chart rows whose snapshot
+folders are absent in `historical_archive_summaries.csv`. The manifest labels
+them `legacy-v1-unreconciled` and `historical-summary-only`, declares their exact
+heights, row count and retained catalog timestamps, and binds each row to the
+original `historical_archived.csv` and `archived_index.csv` bytes saved under
+`archive_summary_sources/`. This preserves evidence without certifying its
+accounting or inventing missing detailed snapshots. A validated real snapshot
+at the same height supersedes its summary. The conventional archive index still
+advertises only actual retained snapshot folders.
+
+The 2026-10-05 pre-rollout inventory found 4,274 such rows at 50 heights from
+10,000 through 960,000 in both distributions. An isolated two-generation replay
+preserved those rows and source bytes exactly. The private evidence manifest is
+`evidence/archive-summary-preservation-20261005-final/manifest.json`, SHA-256
+`e18b947a07b837255bda35a9b762a5d8296a617650e774c1cb9d7d923f8d3a59`.
+This is retention evidence, not historical reconciliation or production
+publication. Browser archive history validates the summary artifact lazily;
+summary points cannot be selected as detailed snapshots. Failed requests retain
+the installed generation and require an explicit retry instead of an immediate
+fetch loop. Public Pages removes summary artifacts, source evidence, metadata
+and capabilities along with its other intentional archive omissions.
 
 The canonical exporter emits aggregate cubes and detail from the same grouped
 facts, including exact per-script exposed counts and amounts. Group balance
@@ -870,6 +941,24 @@ state and confirming acceptance still covers the runtime. Never remove active
 locks or staged output merely to force the next run.
 
 ## Recovery and rollback
+
+For controlled catch-up or acceptance, limit analysis to an explicit target:
+
+```sh
+"$Q_PYTHON" "$Q_WORKER" --config "$Q_CONFIG" once --through 963000
+"$Q_PYTHON" "$Q_WORKER" --config "$Q_CONFIG" deliver
+```
+
+Replace the example height with the reviewed target. The ceiling is checked
+after request discovery under the writer lock. A future request is deferred
+without creating an analysis attempt; an unfinished request at the ceiling
+still resumes normally. `deliver` retries the durable website and standalone
+destinations without discovery, initialization, validation, projection changes,
+or export. It uses the same writer lock, pause state, canonical checks and
+deployment guards. Delivery failure remains retryable independently for each
+destination. Inspect receipts rather than interpreting a successful invocation
+as proof that every destination accepted the generation. Scheduled `once`
+invocations have no ceiling unless explicitly configured by a caller.
 
 Ordinary retry resumes committed cursors and retries retained destination output.
 A source reorg invalidates readiness/requests; the projection uses retained batch

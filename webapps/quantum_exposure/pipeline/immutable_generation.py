@@ -17,6 +17,7 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path, PurePosixPath
+import quantum_archive_summaries as archive_summaries
 
 from publish_generation import (
     ARCHIVED_INDEX_HEADERS, HISTORICAL_ECO_HEADERS, PUBLICATION_MARKER_FILENAME,
@@ -288,6 +289,17 @@ def publish_immutable_generation(
     _validate_final_generation(data_dir, height, historical_script_types=HISTORICAL_SCRIPT_TYPES | {"Other"})
     validate_exact_snapshot(data_dir, height)
     metadata['methodology_by_snapshot'] = snapshot_methodologies(data_dir, include_archives=include_archives)
+    summary = archive_summaries.staged_metadata(data_dir,include_archives=include_archives,
+        complete_heights=metadata['methodology_by_snapshot'],target_height=height)
+    metadata.pop('archive_summaries',None)
+    if summary:
+        metadata['archive_summaries']=summary
+        for selected in summary['snapshot_heights']:
+            metadata['methodology_by_snapshot'][str(selected)]={
+                'methodology_version':archive_summaries.METHOD,'export_version':'legacy-historical-summary-v1',
+                'artifact_coverage':'historical-summary-only',
+                'provenance_status':summary['provenance_status'],
+                'activity_semantics':'retained legacy activity labels; no detailed spend dates available'}
     generation_id = generation_id or uuid.uuid4().hex
     if not re.fullmatch(r"[A-Za-z0-9_-]+", generation_id):
         raise RuntimeError("Invalid immutable generation identifier")
@@ -307,6 +319,10 @@ def publish_immutable_generation(
     for optional in ("identity_groups.json",):
         if (data_dir / optional).is_file():
             logical_paths.add(optional)
+    if summary:
+        logical_paths.add(archive_summaries.FILE)
+        for source in summary['sources']:
+            logical_paths.update(source[kind+'_artifact'] for kind in ('history','index'))
     indexes = [(data_dir / "snapshots_index.csv", "")]
     if include_archives and (data_dir / "archived_index.csv").is_file():
         indexes.append((data_dir / "archived_index.csv", "archived/"))
@@ -336,7 +352,8 @@ def publish_immutable_generation(
         "format": 2, "generation_id": generation_id, "snapshot_blockheight": height,
         "published_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "reason": reason, "metadata": metadata, "artifacts": artifacts,
-        "capabilities": {"archives": include_archives, "historical_full": include_historical_full, "current_full": True},
+        "capabilities": {"archives": include_archives, "archive_summaries":bool(summary),
+                         "historical_full": include_historical_full, "current_full": True},
     }
     text = json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n"
     validate_immutable_generation(data_dir, manifest)
@@ -391,6 +408,26 @@ def validate_immutable_generation(data_dir: Path, manifest: dict) -> None:
             raise RuntimeError(f"Immutable artifact failed verification: {logical}")
     if (root / artifacts["latest_snapshot.txt"]["path"]).read_text().strip() != str(height):
         raise RuntimeError("Immutable latest pointer does not match manifest")
+    summary=metadata.get('archive_summaries')
+    summary_artifacts={name for name in artifacts if name==archive_summaries.FILE or name.startswith(archive_summaries.SOURCE_PREFIX)}
+    if summary is not None:
+        if manifest.get('capabilities',{}).get('archive_summaries') is not True or not manifest.get('capabilities',{}).get('archives'):
+            raise RuntimeError('Archive summary capability is not declared')
+        expected={archive_summaries.FILE}|archive_summaries.source_artifacts(summary)
+        if expected!=summary_artifacts:
+            raise RuntimeError('Archive summary source artifacts are incomplete or unexpected')
+        if artifacts[archive_summaries.FILE]['rows']!=summary.get('rows'):
+            raise RuntimeError('Archive summary artifact rows differ from declared coverage')
+        complete={int(match[1]) for logical in artifacts
+                  if (match:=re.fullmatch(r'(?:archived/)?([0-9]+)/dashboard_snapshot_meta\.csv',logical))}
+        archive_summaries.validate(lambda logical:root/artifacts[logical]['path'],summary,
+                                   complete_heights=complete,target_height=height)
+        for selected in summary['snapshot_heights']:
+            provenance=metadata.get('methodology_by_snapshot',{}).get(str(selected),{})
+            if provenance.get('methodology_version')!=archive_summaries.METHOD or provenance.get('artifact_coverage')!='historical-summary-only':
+                raise RuntimeError('Archive summary methodology is missing or relabelled')
+    elif summary_artifacts or manifest.get('capabilities',{}).get('archive_summaries'):
+        raise RuntimeError('Archive summary artifacts lack explicit provenance')
 
 
 def copy_immutable_generation(source_dir: Path, target_dir: Path, *, materialize_aliases: bool = True) -> str:
@@ -441,33 +478,43 @@ def prepare_public_bundle(data_dir: Path) -> None:
     generation manifests remain resolvable; no source datasets are modified.
     """
     data_dir = Path(data_dir).resolve()
+    # An ordinary rollback can restore a legacy pointer (or its absence) while
+    # retaining newer immutable objects for existing readers. Archive evidence
+    # is still private to archive-capable distributions in that state.
+    (data_dir/archive_summaries.FILE).unlink(missing_ok=True)
+    (data_dir/archive_summaries.STAGED_METADATA).unlink(missing_ok=True)
+    sources=data_dir/archive_summaries.SOURCE_PREFIX
+    if sources.is_dir():shutil.rmtree(sources)
     pointer = data_dir / PUBLICATION_MARKER_FILENAME
-    if not pointer.is_file():
-        return
-    current = json.loads(pointer.read_text(encoding="utf-8"))
-    if current.get("format") != 2:
-        return
-    latest_height = str(current["snapshot_blockheight"])
+    current = json.loads(pointer.read_text(encoding="utf-8")) if pointer.is_file() else None
+    latest_height = str(current['snapshot_blockheight']) if current else (
+        str(read_latest_snapshot_height(data_dir)) if (data_dir/'latest_snapshot.txt').is_file() else None)
     allowed_objects = set()
-    manifests = sorted((data_dir / "generations").glob("*/manifest.json")) + [pointer]
+    manifests = sorted((data_dir / "generations").glob("*/manifest.json"))
+    # Preserve a restored legacy marker byte-for-byte, including its identity
+    # and historical artifact hash. Never synthesize a missing marker.
+    if current and current.get('format') == 2:
+        manifests.append(pointer)
     for path in manifests:
         manifest = json.loads(path.read_text(encoding="utf-8"))
         if manifest.get("format") != 2:
             continue
         artifacts = {
             logical: artifact for logical, artifact in manifest["artifacts"].items()
-            if not logical.startswith("archived/") and not (
+            if not logical.startswith(("archived/",archive_summaries.SOURCE_PREFIX))
+            and logical!=archive_summaries.FILE and not (
                 logical.endswith("/dashboard_pubkeys_ge_1btc.csv")
-                and not logical.startswith(latest_height + "/")
+                and (latest_height is None or not logical.startswith(latest_height + "/"))
             )
         }
         for filename, headers in (("archived_index.csv", ARCHIVED_INDEX_HEADERS), ("historical_archived.csv", HISTORICAL_ECO_HEADERS)):
             artifacts[filename] = _store_artifact(data_dir, filename, content=(",".join(headers) + "\n").encode())
         manifest["artifacts"] = artifacts
+        manifest.get('metadata',{}).pop('archive_summaries',None)
         provenance = manifest.get('metadata', {}).get('methodology_by_snapshot', {})
         manifest['metadata']['methodology_by_snapshot'] = {height: value for height, value in provenance.items()
             if f'{height}/dashboard_snapshot_meta.csv' in artifacts}
-        manifest["capabilities"] = {"archives": False, "historical_full": False,
+        manifest["capabilities"] = {"archives": False, "archive_summaries":False,"historical_full": False,
                                     "current_full": str(manifest["snapshot_blockheight"]) == latest_height}
         validate_immutable_generation(data_dir, manifest)
         _atomic_write_text(path, json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n")
