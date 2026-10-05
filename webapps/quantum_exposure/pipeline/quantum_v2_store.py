@@ -1215,10 +1215,10 @@ def _bootstrap_standard_page(cur,table,key,anchor,limit,physical=False):
     return [{k:v for k,v in r.items() if k!='missing_hashes'} for r in result if r['blockheight'] is not None]
 
 
-def bootstrap_step(conn, limit=10000, *, source_table=None):
+def bootstrap_step(conn, limit=10000, *, source_table=None, work_mem_mb=None):
     """Commit one bounded seed page, preserving optional physical progress."""
     try:
-        return _bootstrap_step(conn,limit,source_table=source_table)
+        return _bootstrap_step(conn,limit,source_table=source_table,work_mem_mb=work_mem_mb)
     except PhysicalSeedChanged as error:
         # The failed page rolled back. Durably stop this same physical generation
         # before reporting the error, so later workers enter bounded reseeding.
@@ -1234,19 +1234,26 @@ def bootstrap_step(conn, limit=10000, *, source_table=None):
         raise
 
 
-def _bootstrap_step(conn, limit=10000, *, source_table=None):
+def _bootstrap_step(conn, limit=10000, *, source_table=None, work_mem_mb=None):
     """Process one durable page; True means every seed source is complete.
 
     ``source_table`` is an administrative legacy-family pilot selector. Normal
     scheduling leaves it unset. Other-source seeding remains last because it
     builds on the legacy group histories, and cannot be selected explicitly.
     """
-    if not 1 <= limit <= 100000:
-        raise ValueError('Seed page size must be 1..100000')
+    if type(limit) is not int or not 1 <= limit <= 1000000:
+        raise ValueError('Seed page size must be an integer from 1 to 1000000')
+    if work_mem_mb is not None:
+        from quantum_worker_config import bootstrap_resource_limits
+        work_mem_mb=bootstrap_resource_limits({'bootstrap_work_mem_mb':work_mem_mb})['work_mem_mb']
     if source_table is not None and source_table not in LEGACY:
         raise ValueError('Pilot source must be one of the legacy active families')
     with transaction(conn) as cur:
         p = _projection(cur)
+        if limit > 100000 and p['seed_mode'] != 'canonical':
+            raise ValueError('Legacy seed page size must be 1..100000')
+        if work_mem_mb is not None and p['seed_mode'] != 'canonical':
+            raise ValueError('Bootstrap work_mem override applies only to canonical seeds')
         if p['status'] == 'ready':
             return True
         if p['status'] != 'seeding':
@@ -1254,6 +1261,8 @@ def _bootstrap_step(conn, limit=10000, *, source_table=None):
         h = p['anchor_height']; _certify(cur,h,p['anchor_hash'])
         if p['seed_mode'] == 'canonical':
             if source_table is not None: raise ValueError('Family pilot selection is only available for legacy seeds')
+            if work_mem_mb is not None:
+                cur.execute('SET LOCAL work_mem=%s',(f'{work_mem_mb}MB',))
             return _canonical_seed_step(cur,p,max_rows=limit)
         try:
             _verify_legacy(cur,h)

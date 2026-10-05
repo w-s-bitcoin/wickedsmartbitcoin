@@ -17,7 +17,7 @@ import subprocess
 import sys
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'webapps/quantum_exposure/pipeline'))
-from quantum_worker_config import bootstrap_row_limits, undo_retention_blocks, DEFAULT_DISK_RESERVE_BYTES
+from quantum_worker_config import bootstrap_row_limits, bootstrap_resource_limits, undo_retention_blocks, DEFAULT_DISK_RESERVE_BYTES
 from quantum_acceptance import check_record, config_fingerprint
 
 LABEL='com.wickedsmartbitcoin.quantum'
@@ -47,6 +47,7 @@ def check_acceptance(path):
 def check_scheduler_limits(config):
     try:
         bootstrap_row_limits(config)
+        bootstrap_resource_limits(config)
         undo_retention_blocks(config)
     except ValueError as exc:
         raise ValueError(f'Scheduler {exc}') from exc
@@ -122,7 +123,9 @@ def main():
         if config_path.exists():
             existing=json.loads(config_path.read_text())
             # Keep measured settings and enrichment revision from initialization.
-            for key in ('work_seconds','export_seconds','batch_blocks','bootstrap_rows','bootstrap_rows_by_source','max_batch_rows',
+            for key in ('work_seconds','bootstrap_work_seconds','bootstrap_temp_buffers_mb',
+                        'bootstrap_work_mem_mb','bootstrap_memory_limit_bytes',
+                        'export_seconds','batch_blocks','bootstrap_rows','bootstrap_rows_by_source','max_batch_rows',
                         'batch_pause_seconds','memory_limit_bytes','label_version',
                         'validation_rows','validation_blocks','reset_rows','undo_blocks','disk_reserve_bytes'):
                 if key in existing:
