@@ -1,0 +1,584 @@
+{
+    "freeze": [
+        {
+            "name": "active_bare_ms_outputs",
+            "freeze_blockheight": 962000
+        },
+        {
+            "name": "active_key_outputs",
+            "freeze_blockheight": 962000
+        },
+        {
+            "name": "active_p2sh_outputs",
+            "freeze_blockheight": 962000
+        },
+        {
+            "name": "active_p2tr_outputs",
+            "freeze_blockheight": 962000
+        },
+        {
+            "name": "active_p2wsh_outputs",
+            "freeze_blockheight": 962000
+        },
+        {
+            "name": "exposed_keyhash20",
+            "freeze_blockheight": 962000
+        },
+        {
+            "name": "exposed_p2sh_address",
+            "freeze_blockheight": 962000
+        },
+        {
+            "name": "exposed_p2wsh_address",
+            "freeze_blockheight": 962000
+        },
+        {
+            "name": "exposure_analysis",
+            "freeze_blockheight": 962000
+        },
+        {
+            "name": "key_outputs_all",
+            "freeze_blockheight": 962000
+        }
+    ],
+    "indexes": [
+        {
+            "indexdef": "CREATE INDEX active_bare_ms_outputs_address_block_idx ON public.active_bare_ms_outputs USING btree (address, blockheight)",
+            "indexname": "active_bare_ms_outputs_address_block_idx",
+            "tablename": "active_bare_ms_outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX active_bare_ms_outputs_address_idx ON public.active_bare_ms_outputs USING btree (address)",
+            "indexname": "active_bare_ms_outputs_address_idx",
+            "tablename": "active_bare_ms_outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX active_bare_ms_outputs_address_spendingblock_idx ON public.active_bare_ms_outputs USING btree (address, spendingblock) WHERE (spendingblock IS NOT NULL)",
+            "indexname": "active_bare_ms_outputs_address_spendingblock_idx",
+            "tablename": "active_bare_ms_outputs"
+        },
+        {
+            "indexdef": "CREATE UNIQUE INDEX active_bare_ms_outputs_pkey ON public.active_bare_ms_outputs USING btree (blockheight, transactionid, vout)",
+            "indexname": "active_bare_ms_outputs_pkey",
+            "tablename": "active_bare_ms_outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX active_bare_ms_outputs_unspent_address_idx ON public.active_bare_ms_outputs USING btree (address) INCLUDE (amount, blockheight, transactionid, vout) WHERE (isspent = false)",
+            "indexname": "active_bare_ms_outputs_unspent_address_idx",
+            "tablename": "active_bare_ms_outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX active_key_outputs_block_idx ON public.active_key_outputs USING btree (blockheight)",
+            "indexname": "active_key_outputs_block_idx",
+            "tablename": "active_key_outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX active_key_outputs_exposed_idx ON public.active_key_outputs USING btree (is_exposed)",
+            "indexname": "active_key_outputs_exposed_idx",
+            "tablename": "active_key_outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX active_key_outputs_keyhash20_idx ON public.active_key_outputs USING btree (keyhash20)",
+            "indexname": "active_key_outputs_keyhash20_idx",
+            "tablename": "active_key_outputs"
+        },
+        {
+            "indexdef": "CREATE UNIQUE INDEX active_key_outputs_pkey ON public.active_key_outputs USING btree (blockheight, transactionid, vout)",
+            "indexname": "active_key_outputs_pkey",
+            "tablename": "active_key_outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX active_key_outputs_spend_idx ON public.active_key_outputs USING btree (spendingblock)",
+            "indexname": "active_key_outputs_spend_idx",
+            "tablename": "active_key_outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX active_p2sh_outputs_address_block_idx ON public.active_p2sh_outputs USING btree (address, blockheight)",
+            "indexname": "active_p2sh_outputs_address_block_idx",
+            "tablename": "active_p2sh_outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX active_p2sh_outputs_address_spendingblock_idx ON public.active_p2sh_outputs USING btree (address, spendingblock) WHERE (spendingblock IS NOT NULL)",
+            "indexname": "active_p2sh_outputs_address_spendingblock_idx",
+            "tablename": "active_p2sh_outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX active_p2sh_outputs_is_exposed_idx ON public.active_p2sh_outputs USING btree (is_exposed)",
+            "indexname": "active_p2sh_outputs_is_exposed_idx",
+            "tablename": "active_p2sh_outputs"
+        },
+        {
+            "indexdef": "CREATE UNIQUE INDEX active_p2sh_outputs_pkey ON public.active_p2sh_outputs USING btree (blockheight, transactionid, vout)",
+            "indexname": "active_p2sh_outputs_pkey",
+            "tablename": "active_p2sh_outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX active_p2sh_outputs_unspent_address_idx ON public.active_p2sh_outputs USING btree (address) INCLUDE (amount, blockheight, transactionid, vout) WHERE (isspent = false)",
+            "indexname": "active_p2sh_outputs_unspent_address_idx",
+            "tablename": "active_p2sh_outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX active_p2tr_outputs_address_block_idx ON public.active_p2tr_outputs USING btree (address, blockheight)",
+            "indexname": "active_p2tr_outputs_address_block_idx",
+            "tablename": "active_p2tr_outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX active_p2tr_outputs_address_idx ON public.active_p2tr_outputs USING btree (address)",
+            "indexname": "active_p2tr_outputs_address_idx",
+            "tablename": "active_p2tr_outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX active_p2tr_outputs_address_spendingblock_idx ON public.active_p2tr_outputs USING btree (address, spendingblock) WHERE (spendingblock IS NOT NULL)",
+            "indexname": "active_p2tr_outputs_address_spendingblock_idx",
+            "tablename": "active_p2tr_outputs"
+        },
+        {
+            "indexdef": "CREATE UNIQUE INDEX active_p2tr_outputs_pkey ON public.active_p2tr_outputs USING btree (blockheight, transactionid, vout)",
+            "indexname": "active_p2tr_outputs_pkey",
+            "tablename": "active_p2tr_outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX active_p2tr_outputs_unspent_address_idx ON public.active_p2tr_outputs USING btree (address) INCLUDE (amount, blockheight, transactionid, vout) WHERE (isspent = false)",
+            "indexname": "active_p2tr_outputs_unspent_address_idx",
+            "tablename": "active_p2tr_outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX active_p2wsh_outputs_address_block_idx ON public.active_p2wsh_outputs USING btree (address, blockheight)",
+            "indexname": "active_p2wsh_outputs_address_block_idx",
+            "tablename": "active_p2wsh_outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX active_p2wsh_outputs_address_spendingblock_idx ON public.active_p2wsh_outputs USING btree (address, spendingblock) WHERE (spendingblock IS NOT NULL)",
+            "indexname": "active_p2wsh_outputs_address_spendingblock_idx",
+            "tablename": "active_p2wsh_outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX active_p2wsh_outputs_is_exposed_idx ON public.active_p2wsh_outputs USING btree (is_exposed)",
+            "indexname": "active_p2wsh_outputs_is_exposed_idx",
+            "tablename": "active_p2wsh_outputs"
+        },
+        {
+            "indexdef": "CREATE UNIQUE INDEX active_p2wsh_outputs_pkey ON public.active_p2wsh_outputs USING btree (blockheight, transactionid, vout)",
+            "indexname": "active_p2wsh_outputs_pkey",
+            "tablename": "active_p2wsh_outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX active_p2wsh_outputs_unspent_address_idx ON public.active_p2wsh_outputs USING btree (address) INCLUDE (amount, blockheight, transactionid, vout) WHERE (isspent = false)",
+            "indexname": "active_p2wsh_outputs_unspent_address_idx",
+            "tablename": "active_p2wsh_outputs"
+        },
+        {
+            "indexdef": "CREATE UNIQUE INDEX analysis_freeze_pkey ON public.analysis_freeze USING btree (name)",
+            "indexname": "analysis_freeze_pkey",
+            "tablename": "analysis_freeze"
+        },
+        {
+            "indexdef": "CREATE UNIQUE INDEX dashboard_p2pk_pubkey_cache_pkey ON public.dashboard_p2pk_pubkey_cache USING btree (keyhash20)",
+            "indexname": "dashboard_p2pk_pubkey_cache_pkey",
+            "tablename": "dashboard_p2pk_pubkey_cache"
+        },
+        {
+            "indexdef": "CREATE INDEX exposed_keyhash20_height_idx ON public.exposed_keyhash20 USING btree (exposed_height)",
+            "indexname": "exposed_keyhash20_height_idx",
+            "tablename": "exposed_keyhash20"
+        },
+        {
+            "indexdef": "CREATE UNIQUE INDEX exposed_keyhash20_pkey ON public.exposed_keyhash20 USING btree (keyhash20)",
+            "indexname": "exposed_keyhash20_pkey",
+            "tablename": "exposed_keyhash20"
+        },
+        {
+            "indexdef": "CREATE INDEX exposed_p2sh_address_height_idx ON public.exposed_p2sh_address USING btree (exposed_height)",
+            "indexname": "exposed_p2sh_address_height_idx",
+            "tablename": "exposed_p2sh_address"
+        },
+        {
+            "indexdef": "CREATE UNIQUE INDEX exposed_p2sh_address_pkey ON public.exposed_p2sh_address USING btree (address)",
+            "indexname": "exposed_p2sh_address_pkey",
+            "tablename": "exposed_p2sh_address"
+        },
+        {
+            "indexdef": "CREATE INDEX exposed_p2wsh_address_height_idx ON public.exposed_p2wsh_address USING btree (exposed_height)",
+            "indexname": "exposed_p2wsh_address_height_idx",
+            "tablename": "exposed_p2wsh_address"
+        },
+        {
+            "indexdef": "CREATE UNIQUE INDEX exposed_p2wsh_address_pkey ON public.exposed_p2wsh_address USING btree (address)",
+            "indexname": "exposed_p2wsh_address_pkey",
+            "tablename": "exposed_p2wsh_address"
+        },
+        {
+            "indexdef": "CREATE INDEX key_outputs_all_address_idx ON public.key_outputs_all USING btree (address) WHERE (address IS NOT NULL)",
+            "indexname": "key_outputs_all_address_idx",
+            "tablename": "key_outputs_all"
+        },
+        {
+            "indexdef": "CREATE INDEX key_outputs_all_keyhash_block_idx ON public.key_outputs_all USING btree (keyhash20, blockheight)",
+            "indexname": "key_outputs_all_keyhash_block_idx",
+            "tablename": "key_outputs_all"
+        },
+        {
+            "indexdef": "CREATE INDEX key_outputs_all_keyhash_spendingblock_idx ON public.key_outputs_all USING btree (keyhash20, spendingblock) WHERE (spendingblock IS NOT NULL)",
+            "indexname": "key_outputs_all_keyhash_spendingblock_idx",
+            "tablename": "key_outputs_all"
+        },
+        {
+            "indexdef": "CREATE UNIQUE INDEX key_outputs_all_pkey ON public.key_outputs_all USING btree (blockheight, transactionid, vout)",
+            "indexname": "key_outputs_all_pkey",
+            "tablename": "key_outputs_all"
+        },
+        {
+            "indexdef": "CREATE INDEX key_outputs_all_script_type_idx ON public.key_outputs_all USING btree (script_type)",
+            "indexname": "key_outputs_all_script_type_idx",
+            "tablename": "key_outputs_all"
+        },
+        {
+            "indexdef": "CREATE INDEX key_outputs_all_unspent_keyhash_idx ON public.key_outputs_all USING btree (keyhash20) INCLUDE (amount, script_type, address, blockheight, transactionid, vout) WHERE (isspent = false)",
+            "indexname": "key_outputs_all_unspent_keyhash_idx",
+            "tablename": "key_outputs_all"
+        },
+        {
+            "indexdef": "CREATE INDEX idx_outputs_amount ON public.outputs USING btree (amount)",
+            "indexname": "idx_outputs_amount",
+            "tablename": "outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX idx_outputs_spendingblock ON public.outputs USING btree (spendingblock)",
+            "indexname": "idx_outputs_spendingblock",
+            "tablename": "outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX idx_outputs_tx_vout ON public.outputs USING btree (transactionid, vout)",
+            "indexname": "idx_outputs_tx_vout",
+            "tablename": "outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX idx_outputs_tx_vout_unspent ON public.outputs USING btree (transactionid, vout) WHERE (isspent = false)",
+            "indexname": "idx_outputs_tx_vout_unspent",
+            "tablename": "outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX outputs_address_cov_idx ON public.outputs USING btree (address) INCLUDE (amount, blockheight, transactionid, scripttype) WHERE (address IS NOT NULL)",
+            "indexname": "outputs_address_cov_idx",
+            "tablename": "outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX outputs_blockheight_idx ON public.outputs USING btree (blockheight)",
+            "indexname": "outputs_blockheight_idx",
+            "tablename": "outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX outputs_keytypes_idx ON public.outputs USING btree (scripttype, blockheight) WHERE (scripttype = ANY (ARRAY['pubkey'::text, 'pubkeyhash'::text, 'witness_v0_keyhash'::text]))",
+            "indexname": "outputs_keytypes_idx",
+            "tablename": "outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX outputs_p2pk_fast_idx ON public.outputs USING btree (transactionid, vout) WHERE (scripttype = 'pubkey'::text)",
+            "indexname": "outputs_p2pk_fast_idx",
+            "tablename": "outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX outputs_p2pk_subset_idx ON public.outputs USING btree (blockheight, transactionnum, vout) WHERE (scripttype = 'pubkey'::text)",
+            "indexname": "outputs_p2pk_subset_idx",
+            "tablename": "outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX outputs_p2sh_wsh_idx ON public.outputs USING btree (scripttype, blockheight) WHERE (scripttype = ANY (ARRAY['scripthash'::text, 'witness_v0_scripthash'::text]))",
+            "indexname": "outputs_p2sh_wsh_idx",
+            "tablename": "outputs"
+        },
+        {
+            "indexdef": "CREATE INDEX outputs_taproot_height_tx_vout_idx ON public.outputs USING btree (blockheight, transactionnum, vout) WHERE (scripttype = 'witness_v1_taproot'::text)",
+            "indexname": "outputs_taproot_height_tx_vout_idx",
+            "tablename": "outputs"
+        }
+    ],
+    "settings": [
+        {
+            "name": "effective_cache_size",
+            "unit": "8kB",
+            "setting": "12582912"
+        },
+        {
+            "name": "hash_mem_multiplier",
+            "unit": null,
+            "setting": "1"
+        },
+        {
+            "name": "maintenance_work_mem",
+            "unit": "kB",
+            "setting": "2097152"
+        },
+        {
+            "name": "max_connections",
+            "unit": null,
+            "setting": "200"
+        },
+        {
+            "name": "max_parallel_workers",
+            "unit": null,
+            "setting": "16"
+        },
+        {
+            "name": "max_parallel_workers_per_gather",
+            "unit": null,
+            "setting": "8"
+        },
+        {
+            "name": "shared_buffers",
+            "unit": "8kB",
+            "setting": "4194304"
+        },
+        {
+            "name": "shared_preload_libraries",
+            "unit": null,
+            "setting": ""
+        },
+        {
+            "name": "track_io_timing",
+            "unit": null,
+            "setting": "off"
+        },
+        {
+            "name": "work_mem",
+            "unit": "kB",
+            "setting": "524288"
+        }
+    ],
+    "relations": [
+        {
+            "relname": "key_outputs_all",
+            "index_bytes": 555119140864,
+            "table_bytes": 536014061568,
+            "last_analyze": "2026-10-04T16:04:47.59467-04:00",
+            "estimated_rows": 2408078592,
+            "last_autoanalyze": null,
+            "estimated_dead_rows": 0
+        },
+        {
+            "relname": "active_key_outputs",
+            "index_bytes": 154810155008,
+            "table_bytes": 213299617792,
+            "last_analyze": "2026-08-14T17:56:51.478424-04:00",
+            "estimated_rows": 470830944,
+            "last_autoanalyze": "2026-08-14T19:26:17.12372-04:00",
+            "estimated_dead_rows": 95445
+        },
+        {
+            "relname": "stxos_800000_899999_archive",
+            "index_bytes": 39489298432,
+            "table_bytes": 290903195648,
+            "last_analyze": "2026-10-04T09:46:42.363293-04:00",
+            "estimated_rows": 733664320,
+            "last_autoanalyze": null,
+            "estimated_dead_rows": 0
+        },
+        {
+            "relname": "stxos_600000_699999_archive",
+            "index_bytes": 36480425984,
+            "table_bytes": 264148533248,
+            "last_analyze": "2026-10-04T06:26:11.451302-04:00",
+            "estimated_rows": 552195968,
+            "last_autoanalyze": null,
+            "estimated_dead_rows": 0
+        },
+        {
+            "relname": "stxos_700000_799999_archive",
+            "index_bytes": 37042257920,
+            "table_bytes": 263098032128,
+            "last_analyze": "2026-10-04T07:59:41.606111-04:00",
+            "estimated_rows": 577083584,
+            "last_autoanalyze": null,
+            "estimated_dead_rows": 0
+        },
+        {
+            "relname": "stxos_500000_599999_archive",
+            "index_bytes": 28466724864,
+            "table_bytes": 205350813696,
+            "last_analyze": "2026-10-04T04:54:39.360051-04:00",
+            "estimated_rows": 441198784,
+            "last_autoanalyze": null,
+            "estimated_dead_rows": 0
+        },
+        {
+            "relname": "stxos_900000_999999_archive",
+            "index_bytes": 9673236480,
+            "table_bytes": 189076766720,
+            "last_analyze": "2026-10-04T10:43:25.218703-04:00",
+            "estimated_rows": 505896064,
+            "last_autoanalyze": "2026-09-19T22:35:28.855941-04:00",
+            "estimated_dead_rows": 0
+        },
+        {
+            "relname": "stxos_400000_499999_archive",
+            "index_bytes": 25452814336,
+            "table_bytes": 169598599168,
+            "last_analyze": "2026-10-04T03:43:03.542971-04:00",
+            "estimated_rows": 408864384,
+            "last_autoanalyze": null,
+            "estimated_dead_rows": 0
+        },
+        {
+            "relname": "exposed_keyhash20",
+            "index_bytes": 61125419008,
+            "table_bytes": 59969511424,
+            "last_analyze": "2026-08-14T15:31:22.317256-04:00",
+            "estimated_rows": 990734720,
+            "last_autoanalyze": null,
+            "estimated_dead_rows": 4799196
+        },
+        {
+            "relname": "outputs",
+            "index_bytes": 69987500032,
+            "table_bytes": 44405587968,
+            "last_analyze": "2026-10-04T11:32:24.548068-04:00",
+            "estimated_rows": 164996976,
+            "last_autoanalyze": "2026-10-03T04:31:53.753862-04:00",
+            "estimated_dead_rows": 4226400
+        },
+        {
+            "relname": "active_p2tr_outputs",
+            "index_bytes": 64162160640,
+            "table_bytes": 43890958336,
+            "last_analyze": "2026-08-14T15:48:17.605022-04:00",
+            "estimated_rows": 177014784,
+            "last_autoanalyze": "2026-08-14T15:51:15.143589-04:00",
+            "estimated_dead_rows": 11812960
+        },
+        {
+            "relname": "stxos_300000_399999_archive",
+            "index_bytes": 12266700800,
+            "table_bytes": 71917535232,
+            "last_analyze": "2026-10-04T02:42:42.65765-04:00",
+            "estimated_rows": 208334928,
+            "last_autoanalyze": null,
+            "estimated_dead_rows": 0
+        },
+        {
+            "relname": "active_p2sh_outputs",
+            "index_bytes": 31179612160,
+            "table_bytes": 35592593408,
+            "last_analyze": "2026-08-14T17:31:02.225915-04:00",
+            "estimated_rows": 68933576,
+            "last_autoanalyze": "2026-08-14T17:49:13.286489-04:00",
+            "estimated_dead_rows": 8884480
+        },
+        {
+            "relname": "exposed_p2sh_address",
+            "index_bytes": 33305395200,
+            "table_bytes": 29667139584,
+            "last_analyze": "2026-08-14T15:12:14.536963-04:00",
+            "estimated_rows": 383055456,
+            "last_autoanalyze": null,
+            "estimated_dead_rows": 734381
+        },
+        {
+            "relname": "stxos_200000_299999_archive",
+            "index_bytes": 4349599744,
+            "table_bytes": 24288493568,
+            "last_analyze": "2026-10-04T02:22:13.347109-04:00",
+            "estimated_rows": 74082176,
+            "last_autoanalyze": null,
+            "estimated_dead_rows": 0
+        },
+        {
+            "relname": "active_p2wsh_outputs",
+            "index_bytes": 5665554432,
+            "table_bytes": 5292687360,
+            "last_analyze": "2026-08-14T17:21:52.544111-04:00",
+            "estimated_rows": 14849721,
+            "last_autoanalyze": "2026-08-14T17:24:21.506096-04:00",
+            "estimated_dead_rows": 0
+        },
+        {
+            "relname": "exposed_p2wsh_address",
+            "index_bytes": 4625080320,
+            "table_bytes": 3846840320,
+            "last_analyze": "2026-08-14T15:11:19.299333-04:00",
+            "estimated_rows": 37901992,
+            "last_autoanalyze": null,
+            "estimated_dead_rows": 123480
+        },
+        {
+            "relname": "stxos_100000_199999_archive",
+            "index_bytes": 1085702144,
+            "table_bytes": 4640284672,
+            "last_analyze": "2026-10-04T02:12:42.011153-04:00",
+            "estimated_rows": 14118807,
+            "last_autoanalyze": null,
+            "estimated_dead_rows": 0
+        },
+        {
+            "relname": "active_bare_ms_outputs",
+            "index_bytes": 1448009728,
+            "table_bytes": 444112896,
+            "last_analyze": "2026-08-14T15:24:33.2788-04:00",
+            "estimated_rows": 2520456,
+            "last_autoanalyze": null,
+            "estimated_dead_rows": 24160
+        },
+        {
+            "relname": "coinbases",
+            "index_bytes": 275660800,
+            "table_bytes": 930504704,
+            "last_analyze": "2026-10-04T10:43:42.446923-04:00",
+            "estimated_rows": 2754603,
+            "last_autoanalyze": null,
+            "estimated_dead_rows": 449
+        },
+        {
+            "relname": "blockheader",
+            "index_bytes": 194568192,
+            "table_bytes": 708984832,
+            "last_analyze": null,
+            "estimated_rows": 880634,
+            "last_autoanalyze": null,
+            "estimated_dead_rows": 587
+        },
+        {
+            "relname": "stxos_0_99999_archive",
+            "index_bytes": 44056576,
+            "table_bytes": 66740224,
+            "last_analyze": "2026-10-04T02:11:31.199577-04:00",
+            "estimated_rows": 192360,
+            "last_autoanalyze": null,
+            "estimated_dead_rows": 0
+        },
+        {
+            "relname": "dashboard_p2pk_pubkey_cache",
+            "index_bytes": 12435456,
+            "table_bytes": 48873472,
+            "last_analyze": null,
+            "estimated_rows": 217080,
+            "last_autoanalyze": null,
+            "estimated_dead_rows": 13
+        },
+        {
+            "relname": "analysis_freeze",
+            "index_bytes": 16384,
+            "table_bytes": 49152,
+            "last_analyze": null,
+            "estimated_rows": 10,
+            "last_autoanalyze": null,
+            "estimated_dead_rows": 20
+        }
+    ],
+    "extensions": [
+        {
+            "name": "pgcrypto",
+            "version": "1.3"
+        },
+        {
+            "name": "plpgsql",
+            "version": "1.0"
+        }
+    ],
+    "source_tip": {
+        "hash": "000000000000000000020407deba4f569627228fe8a6c69dbe4771b71812330a",
+        "height": 970022
+    },
+    "observed_at": "2026-10-05T08:51:59.654219-04:00",
+    "database_bytes": 3708092818211,
+    "row_count_note": "pg_class estimates, not COUNT(*); statistics can be stale",
+    "server_version": "14.15 (Homebrew)"
+}

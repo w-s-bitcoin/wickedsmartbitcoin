@@ -1,0 +1,14 @@
+{
+  "app": "/Users/wicked/Projects/repos/wickedsmartbitcoin-dev/webapps/quantum_exposure/dashboard_app.js",
+  "fixture": {
+    "active_rows": 2,
+    "archive_rows": 2
+  },
+  "actual": {
+    "active_rows_retained": 2,
+    "archive_rows_retained": 1
+  },
+  "archive_row_loss_reproduced": true,
+  "correct_behavior_observed": false,
+  "note": "An exit code of zero means the read-only reproduction executed; inspect counts for correctness."
+}

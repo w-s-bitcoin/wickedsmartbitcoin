@@ -1,0 +1,177 @@
+{
+  "data_dir": "/Users/wicked/Projects/repos/wickedsmartbitcoin-dev/webapps/quantum_exposure/webapp_data",
+  "parser_probe": {
+    "invalid_vectors": [
+      {
+        "actual": [
+          1,
+          1
+        ],
+        "expected": null,
+        "name": "missing_pubkey",
+        "script_hex": "5151ae"
+      },
+      {
+        "actual": [
+          1,
+          1
+        ],
+        "expected": null,
+        "name": "one_byte_pubkey",
+        "script_hex": "51010151ae"
+      },
+      {
+        "actual": [
+          1,
+          1
+        ],
+        "expected": null,
+        "name": "invalid_33_byte_pubkey",
+        "script_hex": "512100000000000000000000000000000000000000000000000000000000000000000051ae"
+      }
+    ],
+    "method": "AST extraction of two pure functions; no producer imports or database access",
+    "source": "/Users/wicked/Projects/repos/wickedsmartbitcoin-dev/webapps/quantum_exposure/pipeline/run_dashboard_analysis.py"
+  },
+  "read_only": true,
+  "snapshots": [
+    {
+      "aggregate": {
+        "exposed_pubkey_count": 161584,
+        "exposed_supply_sats": 690303223537713,
+        "exposed_utxo_count": 7562231
+      },
+      "aggregate_path": "/Users/wicked/Projects/repos/wickedsmartbitcoin-dev/webapps/quantum_exposure/webapp_data/961000/dashboard_pubkeys_aggregates.csv",
+      "aggregate_slice": {
+        "balance_filter": "ge1",
+        "script_type_filter": "All",
+        "spend_activity_filter": "all"
+      },
+      "detail": {
+        "exposed_supply_sats": 690310766949019,
+        "exposed_utxo_count": 7691828,
+        "mixed_script_rows": 34563,
+        "rows": 152461,
+        "sentinel_exposed_supply_sats": 0,
+        "sentinel_exposed_utxo_count": 0,
+        "sentinel_last_spend_rows": 0
+      },
+      "detail_by_activity": {
+        "active": {
+          "exposed_supply_sats": 327256937621595,
+          "exposed_utxo_count": 4948895,
+          "rows": 38949
+        },
+        "inactive": {
+          "exposed_supply_sats": 179072569419022,
+          "exposed_utxo_count": 2253580,
+          "rows": 67437
+        },
+        "never_spent": {
+          "exposed_supply_sats": 183981259908402,
+          "exposed_utxo_count": 489353,
+          "rows": 46075
+        }
+      },
+      "detail_csv_bytes": 24112120,
+      "detail_minus_aggregate": {
+        "exposed_supply_sats": 7543411306,
+        "exposed_utxo_count": 129597
+      },
+      "detail_path": "/Users/wicked/Projects/repos/wickedsmartbitcoin-dev/webapps/quantum_exposure/webapp_data/961000/dashboard_pubkeys_ge_1btc.csv",
+      "snapshot": 961000
+    },
+    {
+      "aggregate": {
+        "exposed_pubkey_count": 150526,
+        "exposed_supply_sats": 599076332176973,
+        "exposed_utxo_count": 16360623
+      },
+      "aggregate_path": "/Users/wicked/Projects/repos/wickedsmartbitcoin-dev/webapps/quantum_exposure/webapp_data/850000/dashboard_pubkeys_aggregates.csv",
+      "aggregate_slice": {
+        "balance_filter": "ge1",
+        "script_type_filter": "All",
+        "spend_activity_filter": "all"
+      },
+      "detail": {
+        "exposed_supply_sats": 599084125796002,
+        "exposed_utxo_count": 16422077,
+        "mixed_script_rows": 29639,
+        "rows": 147280,
+        "sentinel_exposed_supply_sats": 4319690884687,
+        "sentinel_exposed_utxo_count": 45996,
+        "sentinel_last_spend_rows": 3354
+      },
+      "detail_by_activity": {
+        "active": {
+          "exposed_supply_sats": 263063393650327,
+          "exposed_utxo_count": 13619597,
+          "rows": 45133
+        },
+        "inactive": {
+          "exposed_supply_sats": 158875254811797,
+          "exposed_utxo_count": 2440455,
+          "rows": 61796
+        },
+        "never_spent": {
+          "exposed_supply_sats": 177145477333878,
+          "exposed_utxo_count": 362025,
+          "rows": 40351
+        }
+      },
+      "detail_csv_bytes": 23006037,
+      "detail_minus_aggregate": {
+        "exposed_supply_sats": 7793619029,
+        "exposed_utxo_count": 61454
+      },
+      "detail_path": "/Users/wicked/Projects/repos/wickedsmartbitcoin-dev/webapps/quantum_exposure/webapp_data/850000/dashboard_pubkeys_ge_1btc.csv",
+      "snapshot": 850000
+    },
+    {
+      "aggregate": {
+        "exposed_pubkey_count": 141380,
+        "exposed_supply_sats": 526717100630797,
+        "exposed_utxo_count": 3335116
+      },
+      "aggregate_path": "/Users/wicked/Projects/repos/wickedsmartbitcoin-dev/webapps/quantum_exposure/webapp_data/500000/dashboard_pubkeys_aggregates.csv",
+      "aggregate_slice": {
+        "balance_filter": "ge1",
+        "script_type_filter": "All",
+        "spend_activity_filter": "all"
+      },
+      "detail": {
+        "exposed_supply_sats": 526717760650858,
+        "exposed_utxo_count": 3337201,
+        "mixed_script_rows": 1821,
+        "rows": 140788,
+        "sentinel_exposed_supply_sats": 1570822053099,
+        "sentinel_exposed_utxo_count": 1918,
+        "sentinel_last_spend_rows": 387
+      },
+      "detail_by_activity": {
+        "active": {
+          "exposed_supply_sats": 283052129322716,
+          "exposed_utxo_count": 2579413,
+          "rows": 78703
+        },
+        "inactive": {
+          "exposed_supply_sats": 66865895177443,
+          "exposed_utxo_count": 719096,
+          "rows": 26639
+        },
+        "never_spent": {
+          "exposed_supply_sats": 176799736150699,
+          "exposed_utxo_count": 38692,
+          "rows": 35446
+        }
+      },
+      "detail_csv_bytes": 20065628,
+      "detail_minus_aggregate": {
+        "exposed_supply_sats": 660020061,
+        "exposed_utxo_count": 2085
+      },
+      "detail_path": "/Users/wicked/Projects/repos/wickedsmartbitcoin-dev/webapps/quantum_exposure/webapp_data/500000/dashboard_pubkeys_ge_1btc.csv",
+      "snapshot": 500000
+    }
+  ]
+}

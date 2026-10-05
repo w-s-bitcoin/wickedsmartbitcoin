@@ -1,0 +1,23 @@
+{
+  "kind": "summary_of_observed_explain_without_analyze",
+  "observed_date": "2026-10-05",
+  "server_version": "14.15 (Homebrew)",
+  "query": "SELECT keyhash20 FROM public.key_outputs_all WHERE spendingblock > 961000 AND spendingblock <= 962000",
+  "query_executed": false,
+  "plan": {
+    "Node Type": "Gather",
+    "Startup Cost": 1000.0,
+    "Total Cost": 70008476.36,
+    "Plan Rows": 6092600,
+    "Plan Width": 21,
+    "Workers Planned": 8,
+    "child": {
+      "Node Type": "Seq Scan",
+      "Parallel Aware": true,
+      "Relation Name": "key_outputs_all",
+      "Plan Rows": 761575,
+      "Filter": "((spendingblock > 961000) AND (spendingblock <= 962000))"
+    }
+  },
+  "note": "Planner costs are relative estimates, not time measurements. No ANALYZE was used."
+}
