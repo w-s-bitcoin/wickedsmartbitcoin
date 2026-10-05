@@ -319,6 +319,146 @@ class StoreFixture(unittest.TestCase):
         self.assertEqual(before,self.states())
         self.assertEqual(store.projection_status(self.conn)['projection']['height'],5)
 
+    def test_delta_creation_duplicates_do_not_hide_later_distinct_output(self):
+        self.seed(); before=self.states()
+        with self.conn,self.conn.cursor() as cur:
+            cur.execute('ALTER TABLE outputs DROP CONSTRAINT outputs_pkey')
+        first=row(7,'duplicate',11,'pubkeyhash','a',pkh(A))
+        self.add_source([first]*5+[row(7,'later',12,'pubkeyhash','a',pkh(A))])
+        result=store.apply_range(self.conn,8,max_rows=3)
+        # The existing 500-sat output spends at height 6; both new outputs remain.
+        self.assertEqual(result['rows'],3)
+        self.assertEqual(self.states()[(A,'P2PKH')]['balance_sats'],23)
+        self.assertEqual(self.states()[(A,'P2PKH')]['utxo_count'],2)
+        self.assertTrue(store.rollback_to(self.conn,5))
+        self.assertEqual(self.states(),before)
+
+    def test_delta_duplicate_prefix_cannot_hide_row_budget_overflow(self):
+        self.seed();store.apply_range(self.conn,6);before=self.states()
+        with self.conn,self.conn.cursor() as cur:
+            cur.execute('ALTER TABLE outputs DROP CONSTRAINT outputs_pkey')
+        first=row(7,'duplicate',11,'pubkeyhash','a',pkh(A))
+        self.add_source([first]*3+[row(7,'later',12,'pubkeyhash','a',pkh(A))])
+        with self.assertRaises(store.BatchTooLarge):store.apply_range(self.conn,8,max_rows=1)
+        self.assertEqual(self.states(),before)
+        self.assertEqual(store.projection_status(self.conn)['projection']['height'],6)
+
+    def test_delta_duplicate_prefix_cannot_hide_conflicting_creation_payload(self):
+        self.seed();store.apply_range(self.conn,6);before=self.states()
+        with self.conn,self.conn.cursor() as cur:
+            cur.execute('ALTER TABLE outputs DROP CONSTRAINT outputs_pkey')
+        first=row(7,'duplicate',11,'pubkeyhash','a',pkh(A))
+        self.add_source([first]*3+[row(7,'duplicate',12,'pubkeyhash','a',pkh(A))])
+        with self.assertRaisesRegex(store.StoreError,'Conflicting source'):
+            store.apply_range(self.conn,8,max_rows=1)
+        self.assertEqual(self.states(),before)
+        self.assertEqual(store.projection_status(self.conn)['projection']['height'],6)
+
+    def test_delta_spend_duplicates_do_not_hide_later_distinct_spend(self):
+        with self.conn,self.conn.cursor() as cur:
+            cur.execute('ALTER TABLE stxos_0_9_archive DROP CONSTRAINT stxos_0_9_archive_pkey')
+        self.add_source([self.source_rows[0]]*4+[row(2,'later-spend',15,'pubkeyhash','a',pkh(A),7)])
+        store.initialize_source_seed(self.conn,5,f'{5:064x}')
+        for _ in range(20):
+            if store.bootstrap_step(self.conn,limit=100):break
+        else:self.fail('Canonical duplicate fixture did not finish')
+        before=self.states()
+        self.assertEqual(before[(A,'P2PKH')]['balance_sats'],515)
+        self.assertEqual(store.apply_range(self.conn,8,max_rows=2)['rows'],2)
+        self.assertEqual(self.states()[(A,'P2PKH')]['balance_sats'],0)
+        self.assertEqual(self.states()[(A,'P2PKH')]['utxo_count'],0)
+        self.assertTrue(store.rollback_to(self.conn,5))
+        self.assertEqual(self.states(),before)
+
+    def test_delta_duplicate_prefix_cannot_hide_conflicting_spend_payload(self):
+        self.seed();before=self.states()
+        with self.conn,self.conn.cursor() as cur:
+            cur.execute('ALTER TABLE stxos_0_9_archive DROP CONSTRAINT stxos_0_9_archive_pkey')
+        self.add_source([self.source_rows[0]]*3+[row(1,'a',501,'pubkeyhash','a',pkh(A),6)])
+        with self.assertRaisesRegex(store.StoreError,'Conflicting source'):
+            store.apply_range(self.conn,8,max_rows=1)
+        self.assertEqual(self.states(),before)
+        self.assertEqual(store.projection_status(self.conn)['projection']['height'],5)
+
+    def test_delta_archive_rollover_copies_are_counted_once(self):
+        self.seed()
+        with self.conn,self.conn.cursor() as cur:
+            # A committed spend may temporarily appear in both live and archive.
+            cur.execute('INSERT INTO outputs VALUES(%s,%s,%s,%s,%s,%s,%s,%s)',self.source_rows[0])
+        result=store.apply_range(self.conn,8,max_rows=1)
+        self.assertEqual(result['rows'],1)
+        self.assertEqual(self.states()[(A,'P2PKH')]['utxo_count'],0)
+
+    def test_delta_bip30_point_probe_rejects_hidden_duplicate_conflict(self):
+        self.seed();before=self.states()
+        with self.conn,self.conn.cursor() as cur:
+            cur.execute('ALTER TABLE outputs DROP CONSTRAINT outputs_pkey')
+        self.add_source([self.source_rows[1]]*3+[row(2,'aw',401,'witness_v0_keyhash','aw','0014'+A)])
+        with mock.patch.object(store,'BIP30_REMOVALS',{(2,'aw',0):(7,f'{2:064x}',f'{7:064x}')}):
+            with self.assertRaisesRegex(store.StoreError,'Conflicting source'):
+                store.apply_range(self.conn,8,max_rows=3)
+        self.assertEqual(self.states(),before)
+        self.assertEqual(store.projection_status(self.conn)['projection']['height'],5)
+
+    def test_delta_bip30_point_probe_checks_later_source_copies(self):
+        self.seed();before=self.states()
+        with self.conn,self.conn.cursor() as cur:
+            cur.execute('INSERT INTO stxos_10_99_archive VALUES(%s,%s,%s,%s,%s,%s,%s,%s)',
+                row(2,'aw',401,'witness_v0_keyhash','aw','0014'+A))
+        with mock.patch.object(store,'BIP30_REMOVALS',{(2,'aw',0):(7,f'{2:064x}',f'{7:064x}')}):
+            with self.assertRaisesRegex(store.StoreError,'Conflicting source'):
+                store.apply_range(self.conn,8,max_rows=3)
+        self.assertEqual(self.states(),before)
+
+    def test_delta_bip30_removal_obeys_total_budget_and_exact_copy_deduplication(self):
+        self.seed();before=self.states()
+        with self.conn,self.conn.cursor() as cur:
+            cur.execute('INSERT INTO stxos_10_99_archive VALUES(%s,%s,%s,%s,%s,%s,%s,%s)',self.source_rows[1])
+        with mock.patch.object(store,'BIP30_REMOVALS',{(2,'aw',0):(7,f'{2:064x}',f'{7:064x}')}):
+            with self.assertRaises(store.BatchTooLarge):store.apply_range(self.conn,8,max_rows=1)
+            self.assertEqual(self.states(),before)
+            self.assertEqual(store.projection_status(self.conn)['projection']['height'],5)
+            self.assertEqual(store.apply_range(self.conn,8,max_rows=2)['rows'],2)
+            self.assertEqual(self.states()[(A,'P2WPKH')]['utxo_count'],0)
+
+    def test_delta_creation_and_spend_predicates_keep_indexed_bounded_plans(self):
+        with self.conn,self.conn.cursor() as cur:
+            # Production source tables have nonunique single-height indexes;
+            # do not rely on this fixture's stronger occurrence primary key.
+            cur.execute('ALTER TABLE outputs DROP CONSTRAINT outputs_pkey')
+            cur.execute('CREATE INDEX delta_creation_height ON outputs(blockheight)')
+            cur.execute('CREATE INDEX delta_spending_height ON outputs(spendingblock)')
+            cur.execute('''INSERT INTO outputs SELECT n,'plan-'||n,0,1,'plan','pubkeyhash',%s,n+10000
+                FROM generate_series(1,20000) n''',(pkh(A),))
+            cur.execute('ANALYZE outputs')
+        statements=[]
+        class RecordingCursor(RealDictCursor):
+            def execute(inner,query,params=None):
+                rendered=query.as_string(self.conn) if hasattr(query,'as_string') else query
+                if rendered.startswith('SELECT DISTINCT ON') and '"public"."outputs"' in rendered:
+                    statements.append((rendered,params))
+                return super().execute(query,params)
+        with self.conn,self.conn.cursor(cursor_factory=RecordingCursor) as cur:
+            rows=list(store._source_delta(cur,10000,10002,8))
+        self.assertEqual(len(rows),4)
+        self.assertEqual(len(statements),2)
+        self.delta_plans=[]
+        def nodes(plan):
+            yield plan
+            for child in plan.get('Plans',[]):yield from nodes(child)
+        with self.conn,self.conn.cursor() as cur:
+            for query,params in statements:
+                cur.execute('EXPLAIN(FORMAT JSON) '+query,params)
+                plan=cur.fetchone()[0][0]['Plan'];self.delta_plans.append(plan)
+                scans=[node for node in nodes(plan) if node.get('Relation Name')=='outputs']
+                self.assertTrue(scans)
+                self.assertFalse(any(node['Node Type']=='Seq Scan' for node in scans))
+                self.assertEqual(plan['Node Type'],'Limit')
+                self.assertEqual(plan['Plans'][0]['Node Type'],'Unique')
+                index_nodes=[node for node in nodes(plan) if 'Index Name' in node]
+                expected='delta_spending_height' if 'WHERE spendingblock>' in query else 'delta_creation_height'
+                self.assertIn(expected,{node['Index Name'] for node in index_nodes})
+
     def test_same_height_reorg_fails_and_deep_reseed_uses_source(self):
         store.initialize_source_seed(self.conn,5,f'{5:064x}')
         for _ in range(20):
