@@ -292,7 +292,10 @@ and resource settings:
 Both budgets are required for a new session: at most 24 hours of child work and
 48 hours of elapsed time, including rests and source-readiness waits. Each child
 uses the worker's configured `work_seconds`, page caps, memory and free-space
-guards. The supervisor stops at its finite budget or a ready projection; it does
+guards. After reserving cleanup time, a remaining slice shorter than five seconds
+(or the explicitly configured slice, if shorter) ends the session as
+`budget_exhausted` without starting another child.
+The supervisor stops at its finite budget or a ready projection; it does
 not validate, export, deliver, enable a scheduler, or advance beyond the original
 anchor. Completion of this command alone does not satisfy rollout acceptance.
 The normal control row must remain paused throughout. An explicit new session

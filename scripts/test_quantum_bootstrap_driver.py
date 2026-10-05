@@ -45,6 +45,43 @@ class DriverPureTests(unittest.TestCase):
         self.assertEqual(driver.remaining(session,195),5)
         self.assertLess(driver.remaining(session,201),0)
         with self.assertRaisesRegex(RuntimeError,'clock'):driver.remaining(session,100)
+    def test_unusable_tail_stops_before_starting_a_child(self):
+        self.assertIsNone(driver.next_slice_seconds(45,120-114.47195))
+        self.assertIsNone(driver.next_slice_seconds(45,9.999))
+        self.assertEqual(driver.next_slice_seconds(45,10),5)
+        self.assertEqual(driver.next_slice_seconds(45,50),45)
+        self.assertEqual(driver.next_slice_seconds(3,8),3)
+        self.assertIsNone(driver.next_slice_seconds(3,7.999))
+        for invalid in (0,-1,float('inf'),float('nan')):
+            with self.assertRaises(ValueError):driver.next_slice_seconds(invalid,120)
+    def test_120_second_production_schedule_never_launches_fraction_second_tail(self):
+        import io
+        config_path=self.root/'config.json';path=self.root/'session.json'
+        config={'state_dir':str(self.root),'production_repo':str(ROOT),'work_seconds':45}
+        driver.atomic_json(config_path,config)
+        session={'id':'pilot','config_path':str(config_path),'max_active_seconds':120,'active_seconds':0,
+            'deadline_unix':1240,'created_unix':1000,'last_wall_unix':1000,'pause_baseline':BASE,
+            'expected_anchor':['fixture',5,'a'],'initial_rows':0,'completed_slices':0,'code':'same'}
+        checkpoint=state();charges=iter((40.1,40.1,29.2,5.07195));launched=[];worker=mock.MagicMock()
+        def slice_work(conn,config,path,session,worker,fingerprint,seconds,lease_fd):
+            launched.append(seconds);session['active_seconds']+=next(charges)
+            checkpoint['cursor']['rows_processed']+=100
+            return {'event':'run_complete','exit_code':0,'run_id':str(len(launched))}
+        with mock.patch.object(driver,'runtime',return_value=(worker,None)),\
+             mock.patch.object(driver,'new_session',return_value=(path,session)),\
+             mock.patch.object(driver,'pause_state',return_value=BASE),\
+             mock.patch.object(driver,'identities',return_value={'code':'same'}),\
+             mock.patch.object(driver,'snapshot',return_value=checkpoint),\
+             mock.patch.object(driver,'supervise_slice',side_effect=slice_work),\
+             mock.patch.object(driver.time,'time',return_value=1000),\
+             mock.patch.object(driver.sys,'stdout',io.StringIO()):
+            code=driver.main(['--config',str(config_path),'--max-active-seconds','120',
+                              '--max-elapsed-seconds','240','--rest-seconds','0'])
+        self.assertEqual(code,0);self.assertEqual(session['status'],'budget_exhausted')
+        self.assertEqual(len(launched),4);self.assertTrue(all(seconds>=5 for seconds in launched))
+        for actual,expected in zip(launched,(45,45,34.8,5.6)):self.assertAlmostEqual(actual,expected)
+        self.assertAlmostEqual(session['active_seconds'],114.47195)
+        self.assertEqual(driver.read_json(path)['status'],'budget_exhausted')
     def test_original_pause_can_be_bypassed_but_new_pause_or_resume_stops(self):
         self.assertFalse(driver.pause_changed(BASE,BASE))
         for current in ({'file':[9],'control':BASE['control']},{'file':BASE['file'],'control':[True,'new']},
