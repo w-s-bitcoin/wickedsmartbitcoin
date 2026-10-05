@@ -81,11 +81,15 @@ class DriverPureTests(unittest.TestCase):
             with mock.patch.object(driver,'pause_state',return_value=patches.get('pause',BASE)),\
                  mock.patch.object(driver,'identities',return_value=patches.get('identities',{'implementation_sha256':'i','config_sha256':'c'})),\
                  mock.patch.object(driver,'snapshot',return_value=patches.get('snapshot',state())):
-                return driver.verify_deadline_checkpoint(conn,{},session,None,None,result,pending,handoff,123)
+                return driver.verify_deadline_checkpoint(conn,patches.get('config',{}),session,None,None,result,pending,handoff,123)
         before=copy.deepcopy(row);proof=verify(row)
         self.assertEqual(proof['classification'],'verified_controlled_deadline')
         self.assertEqual(proof['retained_run_status'],'failed');self.assertEqual(proof['measured_wall_seconds'],45.1)
         self.assertEqual(row,before)
+        tuned=copy.deepcopy(row);tuned['metrics']['memory_limit_bytes']=8*1024**3
+        self.assertIsNone(verify(tuned))
+        self.assertIsNone(verify(row,config={'bootstrap_memory_limit_bytes':8*1024**3}))
+        self.assertEqual(verify(tuned,config={'bootstrap_memory_limit_bytes':8*1024**3})['retained_run_status'],'failed')
         for call in cur.execute.call_args_list:
             self.assertTrue(call.args[0].lstrip().startswith('SELECT'))
         for key,value in [('mode','boundary'),('implementation_sha256','other'),('config_sha256','other'),
@@ -146,6 +150,54 @@ class DriverPureTests(unittest.TestCase):
         for actual,expected in zip(launched,(45,45,34.8,5.6)):self.assertAlmostEqual(actual,expected)
         self.assertAlmostEqual(session['active_seconds'],114.47195)
         self.assertEqual(driver.read_json(path)['status'],'budget_exhausted')
+    def test_explicit_bootstrap_duration_controls_driver_without_changing_routine_budget(self):
+        import io
+        config_path=self.root/'config.json';path=self.root/'session.json'
+        config={'state_dir':str(self.root),'production_repo':str(ROOT),'work_seconds':45,'bootstrap_work_seconds':180}
+        driver.atomic_json(config_path,config)
+        session={'id':'pilot','config_path':str(config_path),'max_active_seconds':500,'active_seconds':0,
+            'deadline_unix':1600,'created_unix':1000,'last_wall_unix':1000,'pause_baseline':BASE,
+            'expected_anchor':['fixture',5,'a'],'initial_rows':0,'completed_slices':0,'code':'same'}
+        checkpoint=state();worker=mock.MagicMock();launched=[]
+        def slice_work(conn,config,path,session,worker,fingerprint,seconds,lease_fd):
+            launched.append(seconds);session['active_seconds']+=175
+            checkpoint['projection']['status']='ready';checkpoint['cursor']['complete']=True
+            return {'event':'run_complete','exit_code':0,'run_id':'one'}
+        with mock.patch.object(driver,'runtime',return_value=(worker,None)), \
+             mock.patch.object(driver,'new_session',return_value=(path,session)), \
+             mock.patch.object(driver,'pause_state',return_value=BASE), \
+             mock.patch.object(driver,'identities',return_value={'code':'same'}), \
+             mock.patch.object(driver,'snapshot',return_value=checkpoint), \
+             mock.patch.object(driver,'supervise_slice',side_effect=slice_work), \
+             mock.patch.object(driver.time,'time',return_value=1000), \
+             mock.patch.object(driver.sys,'stdout',io.StringIO()):
+            self.assertEqual(driver.main(['--config',str(config_path),'--max-active-seconds','500',
+                '--max-elapsed-seconds','600','--rest-seconds','0']),0)
+        self.assertEqual(launched,[180]);self.assertEqual(session['active_seconds'],175)
+        self.assertEqual(session['status'],'bootstrap_complete');self.assertEqual(config['work_seconds'],45)
+
+    def test_invalid_explicit_duration_fails_before_connection(self):
+        config=self.root/'config.json';driver.atomic_json(config,{'bootstrap_work_seconds':301})
+        worker=mock.Mock()
+        with mock.patch.object(driver,'runtime',return_value=(worker,None)),self.assertRaises(ValueError):
+            driver.main(['--config',str(config),'--max-active-seconds','120','--max-elapsed-seconds','240'])
+        worker.connect.assert_not_called()
+
+    def test_tuned_supervisor_rejects_legacy_before_session_or_child_creation(self):
+        config=self.root/'config.json'
+        driver.atomic_json(config,{'state_dir':str(self.root),'production_repo':str(ROOT),
+            'work_seconds':45,'bootstrap_work_seconds':180,'bootstrap_temp_buffers_mb':512,
+            'bootstrap_work_mem_mb':128,'bootstrap_memory_limit_bytes':8*1024**3})
+        checkpoint=state();checkpoint['projection']['seed_mode']='legacy'
+        worker=mock.MagicMock()
+        with mock.patch.object(driver,'runtime',return_value=(worker,None)), \
+             mock.patch.object(driver,'snapshot',return_value=checkpoint), \
+             mock.patch.object(driver,'supervise_slice') as launch, \
+             self.assertRaisesRegex(RuntimeError,'canonical seeding/ready'):
+            driver.main(['--config',str(config),'--max-active-seconds','500','--max-elapsed-seconds','600'])
+        launch.assert_not_called();worker.run_once.assert_not_called()
+        self.assertFalse((self.root/'bootstrap_sessions').exists())
+        worker.connect.return_value.close.assert_called_once()
     def test_original_pause_can_be_bypassed_but_new_pause_or_resume_stops(self):
         self.assertFalse(driver.pause_changed(BASE,BASE))
         for current in ({'file':[9],'control':BASE['control']},{'file':BASE['file'],'control':[True,'new']},
@@ -205,6 +257,22 @@ class DriverPureTests(unittest.TestCase):
             driver.child_slice(SimpleNamespace(config=config,slice=path,nonce='fixture',slice_seconds=10))
         self.assertEqual(worker.run_once.call_args.kwargs['admin_deadline'],deadline-10/3)
         self.assertEqual(worker.connect.call_args.kwargs['connect_timeout'],5)
+    def test_long_child_uses_same_bootstrap_duration_and_absolute_cleanup_reserve(self):
+        config=self.root/'config.json';driver.atomic_json(config,{'work_seconds':45,'bootstrap_work_seconds':180})
+        path=self.root/'session.json';deadline=time.monotonic()+180
+        session={'in_flight':{'nonce':'fixture','reserved_seconds':180,'deadline_monotonic':deadline},
+                 'expected_anchor':['fixture',5,'a'],'pause_baseline':BASE,'code':'same'}
+        driver.atomic_json(path,session);worker=mock.MagicMock()
+        worker.connect.return_value.cursor.return_value.__enter__.return_value.fetchone.return_value=(42,'start','fixture')
+        worker.run_once.return_value=0
+        with mock.patch.object(driver,'runtime',return_value=(worker,None)), \
+             mock.patch.object(driver,'identities',return_value={'code':'same'}), \
+             mock.patch.object(driver,'snapshot',return_value=state()), \
+             mock.patch.object(driver.threading,'Timer'),mock.patch.object(driver.signal,'signal'):
+            driver.child_slice(SimpleNamespace(config=config,slice=path,nonce='fixture',slice_seconds=180))
+        self.assertEqual(worker.run_once.call_args.kwargs['admin_deadline'],deadline-5)
+        self.assertTrue(worker.run_once.call_args.kwargs['bootstrap_only'])
+        self.assertEqual(worker.run_once.call_args.args[1]['bootstrap_work_seconds'],180)
     def test_connection_failures_do_not_print_dsn_values(self):
         import io
         error=ValueError('invalid DSN password=secret-fixture-token')

@@ -179,13 +179,57 @@ initialization separately for each source. For example:
 ```
 
 These are row caps, including for `canonical_blocks`. Only the seven source names
-above are accepted; every cap must be an integer from 1 through 100,000. Omitted
+above are accepted. Legacy sources and the fallback accept integers from 1 through
+100,000. The explicit `canonical_blocks` override accepts up to 1,000,000 for the
+administrative `bootstrap` command; ordinary `once` processing, including reorg
+re-seeding, resolves that override to at most 100,000. Omitted
 sources use `bootstrap_rows`. Before each page, the worker selects the next
 incomplete cursor in source-name order while holding the global writer lock.
 The installer preserves and validates these overrides. They affect initialization
 only; incremental and validation batch settings remain separate. Select values using
 bounded source-specific measurements; this example does not enable a scheduler
 or establish full-run performance acceptance.
+
+One-time canonical rebuilds can use separate, measured resource settings:
+
+```json
+{
+  "bootstrap_work_seconds": 180,
+  "bootstrap_temp_buffers_mb": 128,
+  "bootstrap_work_mem_mb": 32,
+  "bootstrap_memory_limit_bytes": 8589934592,
+  "bootstrap_rows_by_source": {"canonical_blocks": 500000}
+}
+```
+
+This is a candidate configuration to measure, not an established throughput or
+memory guarantee. `bootstrap_work_seconds` accepts whole seconds from 5 through
+300; omission inherits `work_seconds` (45 by default). `bootstrap_temp_buffers_mb`
+accepts integers from 8 through 1,024 MiB, defaulting to the measured 8 MiB session
+setting. `bootstrap_work_mem_mb` accepts 32 through 256 MiB, default 32.
+`bootstrap_memory_limit_bytes` accepts 1 through 16 GiB, defaulting to the normal
+memory guard (4 GiB). All four settings apply only to explicitly requested
+canonical bootstrap work. Routine snapshots, validation, legacy bootstrap and
+normal reorg recovery retain their existing resource settings. Parallel SQL
+workers remain disabled; one coordinator still owns all heavy work.
+
+The resource monitor starts before setting session `temp_buffers` or touching
+temporary tables. Each canonical seed transaction overrides its own `work_mem`
+after installing the normal transaction defaults; commit/rollback restores the
+normal setting. Use a fresh worker connection for an administrative bootstrap:
+PostgreSQL cannot change `temp_buffers` after that session first uses temporary
+tables. Do not reuse that connection for ordinary processing. The command-line
+worker and supervised children already open separate connections. Larger local
+buffers and sort/hash budgets can multiply within a page; the private-memory and
+free-disk guards remain active throughout. Record backend/worker CPU, private
+memory, local-buffer and temporary I/O, WAL and desktop responsiveness before
+increasing any value further.
+
+The installer preserves and validates these knobs. Their resolved values and
+canonical page caps are included in configuration fingerprints and bootstrap run
+metrics. Changing them requires a reviewed new finite session; an existing
+journal cannot silently inherit a new budget or resource policy. Retain its
+already charged time and original absolute deadline during any reviewed transfer.
 
 ## Source readiness hook
 
@@ -330,7 +374,8 @@ and resource settings:
 
 Both budgets are required for a new session: at most 24 hours of child work and
 48 hours of elapsed time, including rests and source-readiness waits. Each child
-uses the worker's configured `work_seconds`, page caps, memory and free-space
+uses the same resolved `bootstrap_work_seconds` as the worker, together with its
+canonical page caps, bootstrap memory and free-space
 guards. After reserving cleanup time, a remaining slice shorter than five seconds
 (or the explicitly configured slice, if shorter) ends the session as
 `budget_exhausted` without starting another child.

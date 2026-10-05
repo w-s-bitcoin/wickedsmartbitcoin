@@ -29,7 +29,7 @@ import quantum_v2_store as store
 import quantum_v2_sql_export as sql_export
 import quantum_v2_validation as validation
 from quantum_resources import ResourceMonitor, database_usage, lower_priority
-from quantum_worker_config import bootstrap_row_limits, undo_retention_blocks, config_fingerprint, control_settings, DEFAULT_DISK_RESERVE_BYTES
+from quantum_worker_config import bootstrap_row_limits, bootstrap_resource_limits, undo_retention_blocks, config_fingerprint, control_settings, DEFAULT_DISK_RESERVE_BYTES
 from quantum_runtime import implementation_fingerprint
 
 PIPELINE=Path(__file__).resolve().parent
@@ -71,6 +71,21 @@ def _bootstrap_page_limit(conn, fallback, by_source):
                        WHERE NOT complete ORDER BY source_table LIMIT 1''')
         row = cur.fetchone()
     return by_source.get(row[0], fallback) if row else fallback
+
+
+def _configure_bootstrap_buffers(conn, megabytes):
+    """Set local-table cache before recovery or seeding can touch a temp table.
+
+    Explicit bootstrap commands own a fresh connection. PostgreSQL refuses a
+    different value after that session has accessed temporary tables; fail
+    closed instead of silently running with an unmeasured setting.
+    """
+    checked = bootstrap_resource_limits({'bootstrap_temp_buffers_mb':megabytes})['temp_buffers_mb']
+    with conn, conn.cursor() as cur:
+        cur.execute('SET temp_buffers=%s', (f'{checked}MB',))
+        cur.execute("SELECT pg_size_bytes(current_setting('temp_buffers'))")
+        if cur.fetchone()[0] != checked * 1024**2:
+            raise RuntimeError('Administrative temp_buffers setting was not applied')
 
 
 def _baseline_verified(conn,projection):
@@ -560,7 +575,9 @@ def run_once(conn,config,*,bootstrap_only=False,validation_only=False,recompare=
             raise ValueError('Maximum target height must be a nonnegative integer')
         if bootstrap_only or validation_only:
             raise ValueError('Maximum target height applies only to boundary processing')
-    bootstrap_rows, bootstrap_by_source = bootstrap_row_limits(config, legacy_sources=store.LEGACY)
+    bootstrap_rows, bootstrap_by_source = bootstrap_row_limits(config, legacy_sources=store.LEGACY,
+                                                               bootstrap_only=bootstrap_only)
+    bootstrap_limits = bootstrap_resource_limits(config)
     undo_blocks=undo_retention_blocks(config)
     if not control.take_writer_lock(conn):
         log('already_running')
@@ -591,6 +608,7 @@ def run_once(conn,config,*,bootstrap_only=False,validation_only=False,recompare=
             return 1
         if validation_only and projection['status']!='ready':
             raise RuntimeError('Finish initialization before running the validation command')
+        canonical_bootstrap=bootstrap_only and projection['seed_mode']=='canonical'
         request=control.next_request(conn)
         # Check the request selected AFTER discovery/reorg invalidation while
         # holding the writer lock. An external pre-check alone cannot enforce
@@ -629,13 +647,19 @@ def run_once(conn,config,*,bootstrap_only=False,validation_only=False,recompare=
         lower_priority(conn.get_backend_pid())
         before=database_usage(conn)
         started=time.monotonic()
-        deadline=started+float(config.get('work_seconds',45))
+        deadline=started+float(bootstrap_limits['work_seconds'] if canonical_bootstrap else config.get('work_seconds',45))
         if admin_deadline is not None:
             if not bootstrap_only:raise ValueError('Administrative deadline applies only to bootstrap')
             deadline=min(deadline,admin_deadline)
-        with ResourceMonitor(conn,limit_bytes=int(config.get('memory_limit_bytes',4*1024**3)),
+        memory_limit=bootstrap_limits['memory_limit_bytes'] if canonical_bootstrap else int(config.get('memory_limit_bytes',4*1024**3))
+        with ResourceMonitor(conn,limit_bytes=memory_limit,
                 disk_paths=_resource_disk_paths(conn,config),
                 minimum_free_bytes=config.get('disk_reserve_bytes',DEFAULT_DISK_RESERVE_BYTES)) as monitor:
+            seed_options={}
+            if canonical_bootstrap:
+                _configure_bootstrap_buffers(conn,bootstrap_limits['temp_buffers_mb'])
+                seed_options['work_mem_mb']=bootstrap_limits['work_mem_mb']
+                provenance['bootstrap_settings']=dict(bootstrap_limits,rows=bootstrap_rows,rows_by_source=bootstrap_by_source)
             # A manually supervised initialization pins its original anchor.
             # Source drift stops that session; normal worker recovery is unchanged.
             if admin_stop_requested is None:
@@ -645,9 +669,9 @@ def run_once(conn,config,*,bootstrap_only=False,validation_only=False,recompare=
                 if stop_requested():
                     break
                 if admin_deadline is None:
-                    done=store.bootstrap_step(conn,limit=_bootstrap_page_limit(conn,bootstrap_rows,bootstrap_by_source))
+                    done=store.bootstrap_step(conn,limit=_bootstrap_page_limit(conn,bootstrap_rows,bootstrap_by_source),**seed_options)
                 else:
-                    done=_maintenance_action(conn,lambda:store.bootstrap_step(conn,limit=_bootstrap_page_limit(conn,bootstrap_rows,bootstrap_by_source)),
+                    done=_maintenance_action(conn,lambda:store.bootstrap_step(conn,limit=_bootstrap_page_limit(conn,bootstrap_rows,bootstrap_by_source),**seed_options),
                         deadline=deadline,monitor=monitor,metrics=recovery_metrics,stop_requested=stop_requested)
                     if done is None:break
                 _check_resources(monitor)

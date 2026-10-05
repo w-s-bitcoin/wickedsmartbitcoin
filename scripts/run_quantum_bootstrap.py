@@ -22,6 +22,8 @@ import time
 import uuid
 
 ROOT=Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(ROOT/'webapps/quantum_exposure/pipeline'))
+from quantum_worker_config import bootstrap_resource_limits
 MAX_ACTIVE_SECONDS=24*60*60
 MAX_ELAPSED_SECONDS=48*60*60
 CLEANUP_RESERVE_SECONDS=5
@@ -300,7 +302,7 @@ def verify_deadline_checkpoint(conn,config,session,worker,fingerprint,result,pen
     for name in ('wall_seconds','peak_combined_private_memory_bytes'):
         value=metrics.get(name)
         if type(value) not in (int,float) or not math.isfinite(value) or value<=0:return None
-    if metrics.get('memory_limit_bytes')!=int(config.get('memory_limit_bytes',4*1024**3)):return None
+    if metrics.get('memory_limit_bytes')!=bootstrap_resource_limits(config)['memory_limit_bytes']:return None
     if metrics['peak_combined_private_memory_bytes']>metrics['memory_limit_bytes']:return None
     processes=metrics.get('processes') or {}
     if set(processes)!={str(child_pid),str(handoff['backend_pid'])}:return None
@@ -438,6 +440,8 @@ def child_slice(args):
     try:
         timer.start()
         worker,fingerprint=runtime();config=read_json(args.config)
+        configured_seconds=bootstrap_resource_limits(config)['work_seconds']
+        if args.slice_seconds>configured_seconds:raise ValueError('Child reservation exceeds configured bootstrap duration')
         if any(session.get(k)!=v for k,v in identities(config,worker,fingerprint,args.config).items()):raise RuntimeError('Child source/configuration drifted')
         conn=worker.connect(config,connect_timeout=max(2,min(5,math.ceil(hard_deadline-time.monotonic()))))
         with conn,conn.cursor() as cur:
@@ -487,6 +491,7 @@ def main(argv=None):
     if args.estimated_source_rows is not None and args.estimated_source_rows<=0:parser.error('estimated-source-rows must be positive')
     if args.acknowledge_pause and not args.resume:parser.error('Pause acknowledgement applies only to an existing session')
     worker,fingerprint=runtime();config_path=args.config.absolute();config=read_json(config_path)
+    bootstrap_seconds=bootstrap_resource_limits(config)['work_seconds']
     if Path(config['production_repo']).resolve()!=ROOT:raise RuntimeError('Run the administrative driver from its configured production checkout')
     with session_lock(config['state_dir']) as lease_fd:
         conn=worker.connect(config,connect_timeout=5)
@@ -514,7 +519,7 @@ def main(argv=None):
                 if status=='source_not_ready':
                     append_event(path.parent/'events.jsonl',{'at':utc(),'event':'source_not_ready'})
                 else:
-                    seconds=next_slice_seconds(config.get('work_seconds',45),remaining(session))
+                    seconds=next_slice_seconds(bootstrap_seconds,remaining(session))
                     if seconds is None:
                         session['status']='budget_exhausted';break
                     result=supervise_slice(conn,config,path,session,worker,fingerprint,seconds,lease_fd)

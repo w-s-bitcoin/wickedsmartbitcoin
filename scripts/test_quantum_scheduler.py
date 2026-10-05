@@ -12,6 +12,7 @@ import unittest
 from unittest.mock import patch
 
 import install_quantum_scheduler as scheduler
+from quantum_worker_config import bootstrap_resource_limits, bootstrap_row_limits, effective_config, LEGACY_BOOTSTRAP_SOURCES
 
 
 def acceptance():
@@ -118,8 +119,10 @@ class SchedulerTests(unittest.TestCase):
 
     def test_install_preserves_settings_and_literal_spaced_paths(self):
         source_rows={'active_key_outputs':100000,'active_p2tr_outputs':25000,
-                     'active_bare_ms_outputs':5000,'other:source':5000,'canonical_blocks':5000}
+                     'active_bare_ms_outputs':5000,'other:source':5000,'canonical_blocks':1000000}
         (self.state/'config.json').write_text(json.dumps({'work_seconds':12,'label_version':'reviewed-fixture',
+                                                        'bootstrap_work_seconds':180,'bootstrap_temp_buffers_mb':512,
+                                                        'bootstrap_work_mem_mb':128,'bootstrap_memory_limit_bytes':8*1024**3,
                                                         'bootstrap_rows_by_source':source_rows,
                                                         'validation_rows':500,'validation_blocks':20,'reset_rows':400,
                                                         'undo_blocks':10000}))
@@ -130,6 +133,8 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(config['work_seconds'],12)
         self.assertEqual(config['label_version'],'reviewed-fixture')
         self.assertEqual(config['bootstrap_rows_by_source'],source_rows)
+        self.assertEqual(bootstrap_resource_limits(config),{'work_seconds':180,'temp_buffers_mb':512,
+                         'work_mem_mb':128,'memory_limit_bytes':8*1024**3})
         self.assertEqual(config['undo_blocks'],10000)
         self.assertEqual((config['validation_rows'],config['validation_blocks'],config['reset_rows']),(500,20,400))
         self.assertEqual(config['env_file'],str(self.env))
@@ -159,6 +164,9 @@ class SchedulerTests(unittest.TestCase):
         for key,value in (('memory_limit_bytes',4*1024**3+1),('work_seconds',46),
                           ('export_seconds',1801),('batch_blocks',0),('bootstrap_rows',True),
                           ('bootstrap_rows',100001),
+                          ('bootstrap_work_seconds',True),('bootstrap_work_seconds',4),('bootstrap_work_seconds',301),
+                          ('bootstrap_temp_buffers_mb',1025),('bootstrap_work_mem_mb',257),
+                          ('bootstrap_memory_limit_bytes',16*1024**3+1),
                           ('undo_blocks',True),('undo_blocks',999),('undo_blocks',10001),('undo_blocks',2016.0),
                           ('max_batch_rows',-1),('batch_pause_seconds',float('nan'))):
             with self.subTest(key=key):
@@ -177,7 +185,7 @@ class SchedulerTests(unittest.TestCase):
         config=self.state/'config.json'
         for overrides in (None,[],{'outputs':5000},{'reset:group_state':5000},
                           {'active_key_outputs':True},{'active_p2tr_outputs':0},
-                          {'other:source':100001},{'canonical_blocks':1.5}):
+                          {'other:source':100001},{'canonical_blocks':1.5},{'canonical_blocks':1000001}):
             with self.subTest(overrides=overrides):
                 original=json.dumps({'bootstrap_rows_by_source':overrides})
                 config.write_text(original)
@@ -250,6 +258,52 @@ class SchedulerTests(unittest.TestCase):
         self.assertFalse((self.state/'config.json').exists())
         self.assertFalse((self.home/'Library').exists())
         self.assertFalse(any(call[:2]==['launchctl','enable'] for call in calls))
+
+
+class BootstrapConfigurationTests(unittest.TestCase):
+    def test_resource_defaults_and_short_inherited_budgets(self):
+        defaults={'work_seconds':45,'temp_buffers_mb':8,'work_mem_mb':32,'memory_limit_bytes':4*1024**3}
+        self.assertEqual(bootstrap_resource_limits({}),defaults)
+        for seconds in (0,0.2,0.5,3,45,3600,3600.5):
+            self.assertEqual(bootstrap_resource_limits({'work_seconds':seconds})['work_seconds'],seconds)
+            self.assertEqual(effective_config({'work_seconds':seconds})['work_seconds'],seconds)
+        self.assertEqual(bootstrap_resource_limits({'memory_limit_bytes':2*1024**3})['memory_limit_bytes'],2*1024**3)
+
+    def test_explicit_resource_bounds_reject_types_and_nonfinite_values(self):
+        bounds={'bootstrap_work_seconds':(5,300), 'bootstrap_temp_buffers_mb':(8,1024),
+                'bootstrap_work_mem_mb':(32,256), 'bootstrap_memory_limit_bytes':(1024**3,16*1024**3)}
+        for key,(low,high) in bounds.items():
+            for value in (low,high):
+                self.assertEqual(bootstrap_resource_limits({key:value})[key.removeprefix('bootstrap_')],value)
+            for value in (False,True,None,str(low),float(low),low-1,high+1,float('nan'),float('inf')):
+                with self.subTest(key=key,value=value),self.assertRaisesRegex(ValueError,key):
+                    bootstrap_resource_limits({key:value})
+
+    def test_only_canonical_administration_accepts_larger_pages(self):
+        config={'bootstrap_rows':50000,'bootstrap_rows_by_source':{'canonical_blocks':1000000,'active_key_outputs':100000}}
+        self.assertEqual(bootstrap_row_limits(config),(50000,{'canonical_blocks':1000000,'active_key_outputs':100000}))
+        self.assertEqual(bootstrap_row_limits(config,bootstrap_only=False),
+                         (50000,{'canonical_blocks':100000,'active_key_outputs':100000}))
+        self.assertEqual(config['bootstrap_rows_by_source']['canonical_blocks'],1000000)
+        for source in LEGACY_BOOTSTRAP_SOURCES+('other:source',):
+            with self.subTest(source=source),self.assertRaises(ValueError):
+                bootstrap_row_limits({'bootstrap_rows_by_source':{source:100001}})
+        for value in (True,0,1.0,'500000',1000001):
+            with self.subTest(value=value),self.assertRaises(ValueError):
+                bootstrap_row_limits({'bootstrap_rows_by_source':{'canonical_blocks':value}})
+
+    def test_fingerprint_covers_tuning_without_changing_routine_defaults(self):
+        baseline=scheduler.config_fingerprint({})
+        defaults=effective_config({})
+        for key,value in (('bootstrap_work_seconds',180),('bootstrap_temp_buffers_mb',512),
+                          ('bootstrap_work_mem_mb',128),('bootstrap_memory_limit_bytes',8*1024**3),
+                          ('bootstrap_rows_by_source',{'canonical_blocks':500000})):
+            config={key:value}
+            self.assertNotEqual(baseline,scheduler.config_fingerprint(config))
+            for normal in ('work_seconds','memory_limit_bytes','batch_blocks','max_batch_rows','validation_rows'):
+                self.assertEqual(effective_config(config)[normal],defaults[normal])
+        explicit={key:defaults[key] for key in defaults if key.startswith('bootstrap_')}
+        self.assertEqual(baseline,scheduler.config_fingerprint(explicit))
 
 
 if __name__=='__main__':
