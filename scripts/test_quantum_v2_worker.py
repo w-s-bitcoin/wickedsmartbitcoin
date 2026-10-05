@@ -53,6 +53,33 @@ class FixtureMonitor:
 
 @unittest.skipUnless(psycopg2, "Worker import requires psycopg2")
 class ExportGuardTests(unittest.TestCase):
+    def test_target_ceiling_is_typed_and_only_applies_to_boundary_commands(self):
+        for value in (-1,True,1.0,'1000'):
+            with self.subTest(value=value),self.assertRaisesRegex(ValueError,'nonnegative integer'):
+                worker.run_once(None,{},maximum_target_height=value)
+        for option in ('bootstrap_only','validation_only'):
+            with self.subTest(option=option),self.assertRaisesRegex(ValueError,'only to boundary'):
+                worker.run_once(None,{},maximum_target_height=1000,**{option:True})
+
+    def test_cli_through_and_delivery_route_to_explicit_worker_apis(self):
+        with tempfile.TemporaryDirectory(prefix='quantum-worker-cli-') as temporary:
+            config=Path(temporary)/'config.json';config.write_text('{}')
+            for arguments,expected in ((['once','--through','963000'],'once'),(['deliver'],'deliver')):
+                connection=mock.Mock()
+                with self.subTest(command=arguments),mock.patch.object(sys,'argv',
+                        ['run_quantum_worker.py','--config',str(config),*arguments]), \
+                     mock.patch.object(worker,'connect',return_value=connection), \
+                     mock.patch.object(worker,'run_once',return_value=0) as run, \
+                     mock.patch.object(worker,'run_delivery_only',return_value=0) as retry:
+                    self.assertEqual(worker.main(),0)
+                    if expected=='once':
+                        self.assertEqual(run.call_args.kwargs['maximum_target_height'],963000)
+                        retry.assert_not_called()
+                    else:
+                        retry.assert_called_once_with(connection,{})
+                        run.assert_not_called()
+                    connection.close.assert_called_once()
+
     def test_export_guard_uses_one_budget_and_observes_file_pause(self):
         with tempfile.TemporaryDirectory(prefix='quantum-export-guard-') as directory:
             config={'state_dir':directory,'export_seconds':1}
@@ -135,6 +162,132 @@ class WorkerFixture(unittest.TestCase):
             self.assertEqual(worker.run_once(self.conn,self.config),0)
             bootstrap.assert_not_called()
             deliver.assert_not_called()
+
+    def extend_source(self,height):
+        with self.conn,self.conn.cursor() as cur:
+            cur.execute("INSERT INTO blockheader SELECT n,lpad(to_hex(n),64,'0'),1231006505+n*600 FROM generate_series(1007,%s) n",(height,))
+            cur.execute('UPDATE quantum_v2.source_state SET committed_height=%s,committed_hash=%s',(height,f'{height:064x}'))
+
+    def test_target_ceiling_checks_newly_discovered_request_before_any_run(self):
+        with mock.patch.object(control,'begin_run') as begin, \
+             mock.patch.object(worker,'ResourceMonitor') as monitor, \
+             mock.patch.object(worker,'recover_reorg') as recover, \
+             mock.patch.object(worker,'deliver_pending') as deliver:
+            self.assertEqual(worker.run_once(self.conn,self.config,maximum_target_height=999),0)
+            begin.assert_not_called();monitor.assert_not_called();recover.assert_not_called();deliver.assert_not_called()
+        self.assertEqual(self.query('SELECT target_height,status FROM quantum_v2.request'),[(1000,'pending')])
+        self.assertEqual(self.query('SELECT height,status FROM quantum_v2.projection'),[(500,'seeding')])
+        worker.log.assert_any_call('target_ceiling_deferred',height=500,next_target=1000,maximum_target_height=999)
+        self.assertFalse(any(call.args[0]=='no_work' for call in worker.log.call_args_list))
+
+    def test_target_ceiling_uses_replacement_request_after_discovery_invalidates_fork(self):
+        control.discover(self.conn,worker.analysis.METHODOLOGY_VERSION)
+        with self.conn,self.conn.cursor() as cur:
+            cur.execute("UPDATE public.blockheader SET blockhash=%s WHERE blockheight=1000",('f'*64,))
+        with mock.patch.object(delivery,'deliver_website',return_value={'commit':'website-reorg'}), \
+             mock.patch.object(delivery,'deliver_standalone',return_value={'commit':'standalone-reorg'}):
+            self.assertEqual(worker.run_once(self.conn,self.config,maximum_target_height=1000),0)
+        self.assertEqual(self.query('SELECT target_hash,status FROM quantum_v2.request ORDER BY id'),
+                         [(f'{1000:064x}','orphaned'),('f'*64,'complete')])
+        self.assertEqual(self.query('SELECT height,block_hash FROM quantum_v2.projection'),[(1000,'f'*64)])
+        self.assertEqual(self.query("SELECT r.target_hash,x.metrics->>'maximum_target_height' FROM quantum_v2.run x JOIN quantum_v2.request r ON r.id=x.request_id"),
+                         [('f'*64,'1000')])
+
+    def test_delivery_retry_after_ceiling_never_advances_next_boundary(self):
+        self.extend_source(2006)
+        with mock.patch.object(delivery,'deliver_website',side_effect=RuntimeError('fixture website unavailable')), \
+             mock.patch.object(delivery,'deliver_standalone',return_value={'commit':'standalone-accepted'}):
+            self.assertEqual(worker.run_once(self.conn,self.config,maximum_target_height=1000),0)
+        self.assertEqual(self.query('SELECT target_height,status FROM quantum_v2.request ORDER BY target_height'),
+                         [(1000,'analyzed'),(2000,'pending')])
+        original_runs=self.query('SELECT id,status,metrics FROM quantum_v2.run ORDER BY started_at')
+        with mock.patch.object(control,'begin_run') as begin, \
+             mock.patch.object(store,'apply_range') as advance, \
+             mock.patch.object(worker,'export_request') as export, \
+             mock.patch.object(worker,'ResourceMonitor') as monitor, \
+             mock.patch.object(delivery,'deliver_website',return_value={'commit':'website-retried'}) as website, \
+             mock.patch.object(delivery,'deliver_standalone') as standalone:
+            self.assertEqual(worker.run_once(self.conn,self.config,maximum_target_height=1000),0)
+            website.assert_not_called()  # Explicit retry command owns this action.
+            self.assertEqual(worker.run_delivery_only(self.conn,self.config),0)
+            website.assert_called_once();standalone.assert_not_called()
+            begin.assert_not_called();advance.assert_not_called();export.assert_not_called();monitor.assert_not_called()
+        self.assertEqual(self.query('SELECT height FROM quantum_v2.projection'),[(1000,)])
+        self.assertEqual(self.query('SELECT target_height,status FROM quantum_v2.request ORDER BY target_height'),
+                         [(1000,'complete'),(2000,'pending')])
+        self.assertEqual(self.query('SELECT id,status,metrics FROM quantum_v2.run ORDER BY started_at'),original_runs)
+        self.assertEqual(self.query("SELECT destination,attempts FROM quantum_v2.delivery ORDER BY destination"),
+                         [('standalone',1),('website',2)])
+
+    def test_unfinished_request_at_ceiling_retries_export_instead_of_being_skipped(self):
+        with mock.patch.object(delivery,'finish_output',side_effect=RuntimeError('fixture interrupted seal')):
+            self.assertEqual(worker.run_once(self.conn,self.config,maximum_target_height=1000),1)
+        self.extend_source(2006)
+        with mock.patch.object(store,'apply_range') as advance, \
+             mock.patch.object(worker,'export_request',wraps=worker.export_request) as export, \
+             mock.patch.object(delivery,'deliver_website',return_value={'commit':'website-accepted'}), \
+             mock.patch.object(delivery,'deliver_standalone',return_value={'commit':'standalone-accepted'}):
+            self.assertEqual(worker.run_once(self.conn,self.config,maximum_target_height=1000),0)
+            advance.assert_not_called();export.assert_called_once()
+        self.assertEqual(self.query('SELECT target_height,status,attempt FROM quantum_v2.request ORDER BY target_height'),
+                         [(1000,'complete',2),(2000,'pending',0)])
+
+    def test_delivery_only_obeys_pause_and_never_discovers_or_starts_analysis(self):
+        pause=Path(self.config['state_dir'])/'PAUSED';pause.parent.mkdir(parents=True);pause.write_text('fixture pause')
+        with mock.patch.object(control,'discover') as discover,mock.patch.object(control,'begin_run') as begin, \
+             mock.patch.object(worker,'recover_reorg') as recover,mock.patch.object(worker,'deliver_pending') as deliver:
+            self.assertEqual(worker.run_delivery_only(self.conn,self.config),0)
+            deliver.assert_not_called()
+            pause.unlink()
+            self.assertEqual(worker.run_delivery_only(self.conn,self.config),0)
+            deliver.assert_called_once()
+            discover.assert_not_called();begin.assert_not_called();recover.assert_not_called()
+        self.assertEqual(self.query('SELECT count(*) FROM quantum_v2.request'),[(0,)])
+        self.assertEqual(self.query('SELECT count(*) FROM quantum_v2.run'),[(0,)])
+        self.assertEqual(self.query('SELECT height,status FROM quantum_v2.projection'),[(500,'seeding')])
+
+    def test_delivery_only_preserves_source_and_hash_readiness_checks(self):
+        with mock.patch.object(delivery,'deliver_website',side_effect=RuntimeError('fixture defer')), \
+             mock.patch.object(delivery,'deliver_standalone',side_effect=RuntimeError('fixture defer')):
+            self.assertEqual(worker.run_once(self.conn,self.config,maximum_target_height=1000),0)
+        for drift in ('ingestion','target_hash'):
+            with self.conn,self.conn.cursor() as cur:
+                if drift=='ingestion':cur.execute('UPDATE quantum_v2.source_state SET ready=false')
+                else:
+                    cur.execute('UPDATE quantum_v2.source_state SET ready=true')
+                    cur.execute("UPDATE blockheader SET blockhash=%s WHERE blockheight=1000",('f'*64,))
+            before=self.query('SELECT destination,status,attempts FROM quantum_v2.delivery ORDER BY destination')
+            with self.subTest(drift=drift),mock.patch.object(delivery,'deliver_website') as website, \
+                 mock.patch.object(delivery,'deliver_standalone') as standalone:
+                self.assertEqual(worker.run_delivery_only(self.conn,self.config),0)
+                website.assert_not_called();standalone.assert_not_called()
+            self.assertEqual(self.query('SELECT destination,status,attempts FROM quantum_v2.delivery ORDER BY destination'),before)
+
+    def test_delivery_only_requires_writer_lock_and_releases_only_its_own_depth(self):
+        other=psycopg2.connect(DSN)
+        try:
+            self.assertTrue(control.take_writer_lock(other))
+            with mock.patch.object(worker,'deliver_pending') as deliver:
+                self.assertEqual(worker.run_delivery_only(self.conn,self.config),0)
+                deliver.assert_not_called()
+            control.release_writer_lock(other)
+            self.assertTrue(control.take_writer_lock(self.conn))
+            with mock.patch.object(worker,'deliver_pending'):
+                self.assertEqual(worker.run_delivery_only(self.conn,self.config),0)
+            self.assertFalse(control.take_writer_lock(other))
+            control.release_writer_lock(self.conn)
+            self.assertTrue(control.take_writer_lock(other))
+            control.release_writer_lock(other)
+        finally:
+            other.close()
+
+    def test_ceiling_rejects_already_advanced_projection_without_creating_run(self):
+        with self.conn,self.conn.cursor() as cur:
+            cur.execute('UPDATE quantum_v2.projection SET height=1000')
+        with mock.patch.object(control,'begin_run') as begin:
+            self.assertEqual(worker.run_once(self.conn,self.config,maximum_target_height=999),1)
+            begin.assert_not_called()
+        worker.log.assert_any_call('target_ceiling_exceeded',height=1000,maximum_target_height=999)
 
     def test_completed_run_persists_source_config_mode_and_checkpoint_provenance(self):
         from quantum_worker_config import config_fingerprint, PROJECTION_ACCOUNTING_VERSION
