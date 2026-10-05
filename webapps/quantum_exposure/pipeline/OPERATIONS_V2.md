@@ -126,6 +126,16 @@ Python verifies histogram, aggregate and detail coverage before accepting them.
 Pause/deadline checks run for every page and processing chunk even when no group
 qualifies for detail output. A scoped timer also cancels the owned export query
 at the export deadline and is joined before the connection can be reused.
+The same deadline starts before previous-generation preparation and validation;
+it also covers sealed-receipt reuse, CSV generation, and sealing. Hashing,
+copying, and writing check the same pause/resource/deadline guard in MiB chunks,
+and CSV validation checks every 256 rows. Exact duplicate display identifiers
+use a disposable SQLite UNIQUE index beside the staged detail CSV, with a 2 MiB
+cache and memory mapping disabled. The index is removed on success or
+interruption; only up to 100 requested membership matches remain in Python.
+Marker writes check the guard after flushing and immediately before atomic
+replacement. A sealed receipt remains reusable after a database acknowledgement
+failure. Guard timings never enter artifact bytes or generation identities.
 The count-only histogram is explicitly restricted
 to the current named migration scenario; a future policy-sensitive scenario
 must update that contract rather than silently reuse it.

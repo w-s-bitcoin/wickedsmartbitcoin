@@ -53,12 +53,25 @@ def get_exposed_supply(row):
         return 0
 
 
-def serialize_csv_rows(fieldnames, rows):
+def _check(guard):
+    if guard is not None:
+        guard()
+
+
+def _guarded_rows(rows, guard):
+    for number, row in enumerate(rows):
+        if number % 256 == 0:
+            _check(guard)
+        yield row
+    _check(guard)
+
+
+def serialize_csv_rows(fieldnames, rows, *, guard=None):
     """Serialize CSV rows to a string for stable write-if-changed comparisons."""
     buffer = io.StringIO(newline="")
     writer = csv.DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore")
     writer.writeheader()
-    writer.writerows(rows)
+    writer.writerows(_guarded_rows(rows, guard))
     return buffer.getvalue()
 
 
@@ -202,19 +215,21 @@ def generate_eco_subset_for_snapshot(snapshot_dir, lookup_by_height=None):
         raise RuntimeError(f"Error generating subset for {snapshot_dir}") from e
 
 
-def get_snapshot_time_from_meta(snapshot_dir):
+def get_snapshot_time_from_meta(snapshot_dir, *, guard=None):
     """Read snapshot_time from dashboard_snapshot_meta.csv, or '' if not available."""
+    _check(guard)
     meta_path = snapshot_dir / "dashboard_snapshot_meta.csv"
     if not meta_path.exists():
         return ""
     try:
         with open(meta_path, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
-            for row in reader:
-                return str(row.get("snapshot_time", "")).strip()
-    except Exception:
-        pass
-    return ""
+            row = next(reader, {})
+            stamp = str(row.get("snapshot_time", "")).strip()
+    except (OSError, csv.Error, UnicodeError):
+        stamp = ""
+    _check(guard)
+    return stamp
 
 
 def write_snapshots_index(snapshot_dirs, lookup_by_height=None):
@@ -317,8 +332,9 @@ def get_snapshot_height(snapshot_dir):
     return None
 
 
-def load_aggregates_for_snapshot(snapshot_dir):
+def load_aggregates_for_snapshot(snapshot_dir, *, guard=None):
     """Load aggregates CSV and return as dict of rows."""
+    _check(guard)
     aggregates_path = snapshot_dir / "dashboard_pubkeys_aggregates.csv"
     if not aggregates_path.exists():
         return None
@@ -327,20 +343,21 @@ def load_aggregates_for_snapshot(snapshot_dir):
         rows = []
         with open(aggregates_path, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
-            for row in reader:
+            for row in _guarded_rows(reader, guard):
                 rows.append(row)
         return rows
-    except Exception as e:
+    except (OSError, csv.Error, UnicodeError) as e:
         raise RuntimeError(f"Error reading aggregates from {snapshot_dir}") from e
 
 
-def generate_historical_eco_rows(snapshot_height, aggregates_rows, *, include_other=False):
+def generate_historical_eco_rows(snapshot_height, aggregates_rows, *, include_other=False, guard=None):
     """Generate historical_eco.csv rows for a snapshot."""
+    _check(guard)
     if not aggregates_rows:
         return []
 
     output_rows = []
-    for agg_row in aggregates_rows:
+    for agg_row in _guarded_rows(aggregates_rows, guard):
         balance_filter = agg_row.get("balance_filter", "").strip()
         script_type_filter = agg_row.get("script_type_filter", "").strip()
         spend_activity_filter = agg_row.get("spend_activity_filter", "").strip()
@@ -372,12 +389,14 @@ def generate_historical_eco_rows(snapshot_height, aggregates_rows, *, include_ot
     return output_rows
 
 
-def snapshot_has_exact_export(snapshot_dir):
+def snapshot_has_exact_export(snapshot_dir, *, guard=None):
+    _check(guard)
     path = snapshot_dir / "dashboard_snapshot_meta.csv"
     if not path.is_file():
         return False
     with path.open(newline="", encoding="utf-8") as handle:
         row = next(csv.DictReader(handle), {})
+    _check(guard)
     return row.get("export_version") == "quantum-csv-v2"
 
 

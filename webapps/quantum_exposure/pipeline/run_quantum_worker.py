@@ -351,7 +351,11 @@ def export_request(conn,config,request,*,stop_requested=None,monitor=None):
     stop_requested=stop_requested or PauseGate(conn,config)
     if stop_requested():
         raise PauseRequested('Publication paused before export')
-    _check_resources(monitor)
+    # One budget covers previous-generation validation, SQL/Python export,
+    # sealing, and receipt reuse. File loops call this same guard even while
+    # PostgreSQL is idle; cancelling its backend alone cannot stop those loops.
+    guard=_ExportGuard(config,monitor=monitor)
+    guard()
     height=request['target_height']
     projection=_projection(conn)
     if not projection or projection['seed_mode']!='canonical':
@@ -371,8 +375,8 @@ def export_request(conn,config,request,*,stop_requested=None,monitor=None):
         # Sealing and the database acknowledgement cannot share a transaction.
         # A verified sealed generation is the durable export receipt after a
         # crash in that gap. Reuse its original source epoch and bytes.
-        manifest=json.loads(marker.read_text(encoding='utf-8'))
-        validate_immutable_generation(output,manifest)
+        manifest=delivery._marker(output,guard=guard)
+        validate_immutable_generation(output,manifest,guard=guard)
         metadata=manifest['metadata']
         expected={'request_id':request['id'],'snapshot_blockheight':height,
                   'block_hash':request['target_hash'],'implementation_sha256':implementation_sha256,
@@ -387,13 +391,14 @@ def export_request(conn,config,request,*,stop_requested=None,monitor=None):
             raise RuntimeError('Sealed generation identity or versions differ from the retry request: '+','.join(mismatches))
         if not control.canonical_ready(conn,height,request['target_hash']):
             raise store.SourceNotReady('Source changed while validating the sealed export receipt')
-        _check_resources(monitor)
+        guard()
         control.step(conn,request['id'],'export','complete',{'generation_id':generation,'reused_sealed_generation':True})
+        guard()
         control.analyzed(conn,request['id'],generation,output)
         log('analyzed',height=height,generation_id=generation,output_dir=output,reused_sealed_generation=True)
         return
     control.step(conn,request['id'],'export','running',{'output_dir':str(output)})
-    delivery.prepare_output(_previous_output(conn,config,height),output,height)
+    delivery.prepare_output(_previous_output(conn,config,height),output,height,guard=guard)
     conn.set_session(isolation_level='REPEATABLE READ',readonly=True)
     try:
         with conn:
@@ -410,7 +415,6 @@ def export_request(conn,config,request,*,stop_requested=None,monitor=None):
                 source=cur.fetchone()
                 if not source:
                     raise store.SourceNotReady('Ingestion started before export')
-            guard=_ExportGuard(config,monitor=monitor)
             with _export_deadline(conn,guard):
                 pages=sql_export.iter_export_pages(conn,snapshot_time=snapshot_time,guard=guard)
                 revision=config.get('label_version','unattributed-v2')
@@ -433,9 +437,10 @@ def export_request(conn,config,request,*,stop_requested=None,monitor=None):
     guard()
     metadata.update(block_hash=request['target_hash'],code_revision=code_revision,request_id=request['id'],
                     implementation_sha256=implementation_sha256)
-    delivery.finish_output(output,metadata,generation)
-    _check_resources(monitor)
+    delivery.finish_output(output,metadata,generation,guard=guard)
+    guard()
     control.step(conn,request['id'],'export','complete',{'generation_id':generation})
+    guard()
     control.analyzed(conn,request['id'],generation,output)
     log('analyzed',height=height,generation_id=generation,output_dir=output)
 

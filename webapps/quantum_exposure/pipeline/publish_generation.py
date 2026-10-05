@@ -14,8 +14,10 @@ import csv
 import hashlib
 import json
 import os
+import sqlite3
 import tempfile
 import uuid
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -99,13 +101,13 @@ HISTORICAL_SCRIPT_TYPES = {"All", "P2PK", "P2PKH", "P2SH", "P2WPKH", "P2WSH", "P
 HISTORICAL_SPEND_ACTIVITIES = {"all", "never_spent", "inactive", "active"}
 
 
-def _historical_preview_artifact(webapp_data_dir: Path) -> dict[str, int | str]:
+def _historical_preview_artifact(webapp_data_dir: Path, *, guard=None) -> dict[str, int | str]:
     """Describe the exact historical CSV consumed by the homepage preview."""
 
     path = Path(webapp_data_dir) / "historical_eco.csv"
-    rows = _read_complete_csv_rows(path, HISTORICAL_ECO_REQUIRED_HEADERS)
+    rows = _read_complete_csv_rows(path, HISTORICAL_ECO_REQUIRED_HEADERS, guard=guard)
     heights: list[int] = []
-    for row in rows:
+    for row in _guarded_rows(rows, guard):
         raw_height = str(row.get("snapshot") or "").strip()
         if not raw_height.isdigit():
             raise RuntimeError(
@@ -113,14 +115,33 @@ def _historical_preview_artifact(webapp_data_dir: Path) -> dict[str, int | str]:
                 f"{raw_height!r}."
             )
         heights.append(int(raw_height))
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    digest = hashlib.sha256()
+    with path.open('rb') as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b''):
+            if guard is not None:
+                guard()
+            digest.update(chunk)
+    if guard is not None:
+        guard()
     return {
         "path": path.name,
-        "sha256": digest,
+        "sha256": digest.hexdigest(),
         "rows": len(rows),
         "first_snapshot": min(heights),
         "latest_snapshot": max(heights),
     }
+
+
+def _guarded_rows(rows, guard=None):
+    """Keep cooperative checks bounded even when a CSV has no matching rows."""
+    if guard is not None:
+        guard()
+    for number, row in enumerate(rows):
+        if guard is not None and number % 256 == 0:
+            guard()
+        yield row
+    if guard is not None:
+        guard()
 
 
 def _read_complete_csv_rows(
@@ -128,6 +149,7 @@ def _read_complete_csv_rows(
     required_headers: set[str],
     *,
     allow_empty: bool = False,
+    guard=None,
 ) -> list[dict[str, str | None]]:
     """Read a modest CSV while rejecting malformed rows anywhere in the file."""
     try:
@@ -148,7 +170,7 @@ def _read_complete_csv_rows(
                 )
 
             rows: list[dict[str, str | None]] = []
-            for row in reader:
+            for row in _guarded_rows(reader, guard):
                 if (
                     None in row
                     or any(value is None for value in row.values())
@@ -164,14 +186,14 @@ def _read_complete_csv_rows(
     return rows
 
 
-def _validate_archive_bundle(webapp_data_dir: Path) -> None:
+def _validate_archive_bundle(webapp_data_dir: Path, *, guard=None) -> None:
     """Require archive catalogs and payload directories to describe one reality."""
     archived_index_path = webapp_data_dir / "archived_index.csv"
     historical_archived_path = webapp_data_dir / "historical_archived.csv"
     archived_dir = webapp_data_dir / "archived"
     archived_dir_heights = {
         int(entry.name)
-        for entry in archived_dir.iterdir()
+        for entry in _guarded_rows(archived_dir.iterdir(), guard)
         if entry.is_dir() and entry.name.isdigit()
     } if archived_dir.is_dir() else set()
 
@@ -194,9 +216,10 @@ def _validate_archive_bundle(webapp_data_dir: Path) -> None:
         archived_index_path,
         set(ARCHIVED_INDEX_HEADERS),
         allow_empty=True,
+        guard=guard,
     )
     archived_heights: list[int] = []
-    for row in archived_index_rows:
+    for row in _guarded_rows(archived_index_rows, guard):
         raw_height = str(row.get("snapshot_blockheight") or "").strip()
         raw_time = str(row.get("snapshot_time") or "").strip()
         if not raw_height.isdigit() or not raw_time:
@@ -227,10 +250,11 @@ def _validate_archive_bundle(webapp_data_dir: Path) -> None:
         historical_archived_path,
         HISTORICAL_ECO_REQUIRED_HEADERS,
         allow_empty=True,
+        guard=guard,
     )
     archived_history_heights: set[int] = set()
     archived_history_keys: set[tuple[str, str, str, str]] = set()
-    for row in historical_archived_rows:
+    for row in _guarded_rows(historical_archived_rows, guard):
         raw_height = str(row.get("snapshot") or "").strip()
         if not raw_height.isdigit():
             raise RuntimeError(
@@ -257,7 +281,7 @@ def _validate_archive_bundle(webapp_data_dir: Path) -> None:
         )
     missing_toplines = [
         height
-        for height in archived_heights
+        for height in _guarded_rows(archived_heights, guard)
         if (str(height), "all", "All", "all") not in archived_history_keys
     ]
     if missing_toplines:
@@ -268,13 +292,32 @@ def _validate_archive_bundle(webapp_data_dir: Path) -> None:
         )
 
 
-def _scan_full_exposure_identifiers(path: Path) -> tuple[int, set[str]]:
-    """Validate the full export while retaining only its stable row identifiers."""
+def _scan_full_exposure_identifiers(path: Path, *, required_identifiers=(), guard=None) -> tuple[int, set[str]]:
+    """Check every identifier exactly using a bounded, disposable disk index.
+
+    Canonical group order does not imply unique display labels, and legacy
+    exports may have arbitrary order. A SQLite UNIQUE index preserves both
+    contracts without retaining millions of Python strings. Only requested
+    top-100 identifiers are returned; the temporary index is never published.
+    """
     required_headers = REQUIRED_SNAPSHOT_CSV_HEADERS["dashboard_pubkeys_ge_1btc.csv"]
+    required = set(required_identifiers)
+    if len(required) > 100:
+        raise ValueError('Full exposure validation accepts at most 100 requested identifiers')
     identifiers: set[str] = set()
     row_count = 0
     try:
-        with path.open("r", encoding="utf-8", newline="") as handle:
+        with tempfile.TemporaryDirectory(prefix='.quantum-identifiers-', dir=path.parent) as directory, \
+                closing(sqlite3.connect(str(Path(directory)/'identifiers.sqlite'))) as index, \
+                path.open("r", encoding="utf-8", newline="") as handle:
+            # This index is disposable validation scratch, never recovery data.
+            # Keep SQLite's cache bounded and disable memory mapping and journals.
+            index.execute('PRAGMA cache_size=-2048')
+            index.execute('PRAGMA mmap_size=0')
+            index.execute('PRAGMA temp_store=FILE')
+            index.execute('PRAGMA journal_mode=OFF')
+            index.execute('PRAGMA synchronous=OFF')
+            index.execute('CREATE TABLE identifiers(value TEXT PRIMARY KEY) WITHOUT ROWID')
             reader = csv.DictReader(handle)
             headers = [str(value or "") for value in (reader.fieldnames or [])]
             if (
@@ -290,7 +333,7 @@ def _scan_full_exposure_identifiers(path: Path) -> tuple[int, set[str]]:
                     + ", ".join(missing_headers)
                 )
 
-            for row in reader:
+            for row in _guarded_rows(reader, guard):
                 if None in row or any(value is None for value in row.values()):
                     raise RuntimeError(f"Quantum generation CSV has an incomplete row: {path}")
                 identifier = str(row.get("display_group_ids") or "").strip()
@@ -298,11 +341,14 @@ def _scan_full_exposure_identifiers(path: Path) -> tuple[int, set[str]]:
                     raise RuntimeError(
                         f"Quantum full exposure CSV has a blank display_group_ids value: {path}"
                     )
-                if identifier in identifiers:
+                try:
+                    index.execute('INSERT INTO identifiers VALUES(?)', (identifier,))
+                except sqlite3.IntegrityError as exc:
                     raise RuntimeError(
                         f"Quantum full exposure CSV has a duplicate display group {identifier!r}: {path}"
-                    )
-                identifiers.add(identifier)
+                    ) from exc
+                if identifier in required:
+                    identifiers.add(identifier)
                 row_count += 1
     except (OSError, UnicodeError, csv.Error) as exc:
         raise RuntimeError(f"Could not read finalized Quantum CSV: {path}") from exc
@@ -336,7 +382,9 @@ def read_published_snapshot_height(webapp_data_dir: Path) -> int | None:
     return int(marker["snapshot_blockheight"])
 
 
-def _validate_final_generation(webapp_data_dir: Path, snapshot_height: int, *, historical_script_types: set[str] | None = None) -> None:
+def _validate_final_generation(webapp_data_dir: Path, snapshot_height: int, *, historical_script_types: set[str] | None = None, guard=None) -> None:
+    if guard is not None:
+        guard()
     historical_script_types = historical_script_types or HISTORICAL_SCRIPT_TYPES
     latest_pointer_height = read_latest_snapshot_height(webapp_data_dir)
     if latest_pointer_height != snapshot_height:
@@ -360,6 +408,7 @@ def _validate_final_generation(webapp_data_dir: Path, snapshot_height: int, *, h
     metadata_rows = _read_complete_csv_rows(
         snapshot_dir / "dashboard_snapshot_meta.csv",
         REQUIRED_SNAPSHOT_CSV_HEADERS["dashboard_snapshot_meta.csv"],
+        guard=guard,
     )
     if len(metadata_rows) != 1:
         raise RuntimeError(
@@ -378,6 +427,7 @@ def _validate_final_generation(webapp_data_dir: Path, snapshot_height: int, *, h
     aggregate_rows = _read_complete_csv_rows(
         snapshot_dir / "dashboard_pubkeys_aggregates.csv",
         REQUIRED_SNAPSHOT_CSV_HEADERS["dashboard_pubkeys_aggregates.csv"],
+        guard=guard,
     )
     aggregate_keys = [
         (
@@ -385,7 +435,7 @@ def _validate_final_generation(webapp_data_dir: Path, snapshot_height: int, *, h
             str(row.get("script_type_filter") or "").strip(),
             str(row.get("spend_activity_filter") or "").strip(),
         )
-        for row in aggregate_rows
+        for row in _guarded_rows(aggregate_rows, guard)
     ]
     if len(aggregate_keys) != len(set(aggregate_keys)):
         raise RuntimeError(
@@ -412,7 +462,7 @@ def _validate_final_generation(webapp_data_dir: Path, snapshot_height: int, *, h
         )
     historical_aggregate_keys = {
         key
-        for key in aggregate_key_set
+        for key in _guarded_rows(aggregate_key_set, guard)
         if key[0] in HISTORICAL_BALANCE_FILTERS
         and key[1] in historical_script_types
         and key[2] in HISTORICAL_SPEND_ACTIVITIES
@@ -423,16 +473,18 @@ def _validate_final_generation(webapp_data_dir: Path, snapshot_height: int, *, h
     top100_rows = _read_complete_csv_rows(
         top100_path,
         REQUIRED_SNAPSHOT_CSV_HEADERS["dashboard_pubkeys_ge_1btc_top100.csv"],
+        guard=guard,
     )
     top100_identifiers = [
-        str(row.get("display_group_ids") or "").strip() for row in top100_rows
+        str(row.get("display_group_ids") or "").strip() for row in _guarded_rows(top100_rows, guard)
     ]
     if any(not identifier for identifier in top100_identifiers):
         raise RuntimeError("Refusing to publish a Quantum top-100 CSV with a blank display group.")
     if len(top100_identifiers) != len(set(top100_identifiers)):
         raise RuntimeError("Refusing to publish a Quantum top-100 CSV with duplicate display groups.")
 
-    full_count, full_identifiers = _scan_full_exposure_identifiers(full_path)
+    full_count, full_identifiers = _scan_full_exposure_identifiers(
+        full_path, required_identifiers=top100_identifiers, guard=guard)
     expected_top100_count = min(100, full_count)
     if len(top100_rows) != expected_top100_count:
         raise RuntimeError(
@@ -452,10 +504,11 @@ def _validate_final_generation(webapp_data_dir: Path, snapshot_height: int, *, h
     historical_rows = _read_complete_csv_rows(
         historical_path,
         HISTORICAL_ECO_REQUIRED_HEADERS,
+        guard=guard,
     )
     history_keys: set[tuple[str, str, str, str]] = set()
     historical_heights: set[int] = set()
-    for row in historical_rows:
+    for row in _guarded_rows(historical_rows, guard):
         raw_height = str(row.get("snapshot") or "").strip()
         if not raw_height.isdigit():
             raise RuntimeError(
@@ -478,7 +531,7 @@ def _validate_final_generation(webapp_data_dir: Path, snapshot_height: int, *, h
 
     latest_history_filter_keys = {
         (balance_filter, script_type, spend_activity)
-        for height, balance_filter, script_type, spend_activity in history_keys
+        for height, balance_filter, script_type, spend_activity in _guarded_rows(history_keys, guard)
         if height == str(snapshot_height)
     }
     if latest_history_filter_keys != historical_aggregate_keys:
@@ -514,9 +567,10 @@ def _validate_final_generation(webapp_data_dir: Path, snapshot_height: int, *, h
     index_rows = _read_complete_csv_rows(
         index_path,
         {"snapshot_blockheight", "snapshot_time"},
+        guard=guard,
     )
     indexed_heights: list[int] = []
-    for row in index_rows:
+    for row in _guarded_rows(index_rows, guard):
         raw_height = str(row.get("snapshot_blockheight") or "").strip()
         raw_time = str(row.get("snapshot_time") or "").strip()
         if not raw_height.isdigit() or not raw_time:
@@ -541,7 +595,7 @@ def _validate_final_generation(webapp_data_dir: Path, snapshot_height: int, *, h
             f"does not lead with latest snapshot {snapshot_height}."
         )
     missing_active_dirs = [
-        height for height in indexed_heights if not (webapp_data_dir / str(height)).is_dir()
+        height for height in _guarded_rows(indexed_heights, guard) if not (webapp_data_dir / str(height)).is_dir()
     ]
     if missing_active_dirs:
         raise RuntimeError(
@@ -558,7 +612,7 @@ def _validate_final_generation(webapp_data_dir: Path, snapshot_height: int, *, h
         )
     missing_topline_history = [
         height
-        for height in indexed_heights
+        for height in _guarded_rows(indexed_heights, guard)
         if (str(height), "all", "All", "all") not in history_keys
     ]
     if missing_topline_history:
@@ -568,10 +622,14 @@ def _validate_final_generation(webapp_data_dir: Path, snapshot_height: int, *, h
             + ", ".join(str(height) for height in missing_topline_history)
         )
 
-    _validate_archive_bundle(webapp_data_dir)
+    _validate_archive_bundle(webapp_data_dir, guard=guard)
+    if guard is not None:
+        guard()
 
 
-def _atomic_write_text(path: Path, content: str) -> None:
+def _atomic_write_text(path: Path, content: str, *, guard=None) -> None:
+    if guard is not None:
+        guard()
     path.parent.mkdir(parents=True, exist_ok=True)
     temp_path: Path | None = None
     try:
@@ -585,10 +643,15 @@ def _atomic_write_text(path: Path, content: str) -> None:
             delete=False,
         ) as handle:
             temp_path = Path(handle.name)
-            handle.write(content)
+            for offset in range(0, len(content), 1024 * 1024):
+                if guard is not None:
+                    guard()
+                handle.write(content[offset:offset + 1024 * 1024])
             handle.flush()
             os.fsync(handle.fileno())
         os.chmod(temp_path, 0o644)
+        if guard is not None:
+            guard()
         os.replace(temp_path, path)
         temp_path = None
     finally:
