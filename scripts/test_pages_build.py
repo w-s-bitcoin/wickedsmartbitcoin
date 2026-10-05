@@ -13,12 +13,72 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PagesBuildTest(unittest.TestCase):
+    def test_quantum_legacy_rollback_prunes_retained_v2_archives_without_changing_marker(self):
+        if __package__:
+            from .test_quantum_immutable_generation import publication, seed, seed_archive_summaries, publish_legacy_fixture
+        else:
+            from test_quantum_immutable_generation import publication, seed, seed_archive_summaries, publish_legacy_fixture
+        with tempfile.TemporaryDirectory(prefix='wsb-pages-quantum-rollback-') as temporary:
+            root = Path(temporary)
+            (root / 'scripts').mkdir()
+            shutil.copy2(ROOT / 'scripts/build_pages_dist.sh', root / 'scripts')
+            pipeline = root / 'webapps/quantum_exposure/pipeline'
+            pipeline.mkdir(parents=True)
+            for filename in ('immutable_generation.py', 'publish_generation.py', 'quantum_archive_summaries.py'):
+                shutil.copy2(ROOT / 'webapps/quantum_exposure/pipeline' / filename, pipeline / filename)
+            data = pipeline.parent / 'webapp_data'
+            data.mkdir()
+            seed(data, 1000)
+            seed_archive_summaries(data)
+            legacy_marker = publish_legacy_fixture(data).encode()
+            legacy_files = {name: (data / name).read_bytes() for name in
+                            ('latest_snapshot.txt', 'snapshots_index.csv', 'historical_eco.csv',
+                             '1000/dashboard_pubkeys_ge_1btc.csv')}
+            metadata = seed(data, 2000)
+            future = json.loads(publication.publish_immutable_generation(data, metadata=metadata,
+                reason='later fixture', generation_id='later-run', include_archives=True))
+            for name, payload in legacy_files.items():
+                (data / name).write_bytes(payload)
+            for marker_present in (True, False):
+                with self.subTest(marker_present=marker_present):
+                    pointer = data / 'published_generation.json'
+                    if marker_present:
+                        pointer.write_bytes(legacy_marker)
+                    else:
+                        pointer.unlink()
+                    original = {path.relative_to(data): publication.file_sha256(path)
+                                for path in data.rglob('*') if path.is_file()}
+                    result = subprocess.run(['bash', str(root / 'scripts/build_pages_dist.sh')], cwd=root,
+                                            capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    output = root / 'dist/webapps/quantum_exposure/webapp_data'
+                    if marker_present:
+                        self.assertEqual((output / 'published_generation.json').read_bytes(), legacy_marker)
+                    else:
+                        self.assertFalse((output / 'published_generation.json').exists())
+                    self.assertEqual((output / '1000/dashboard_pubkeys_ge_1btc.csv').read_bytes(),
+                                     legacy_files['1000/dashboard_pubkeys_ge_1btc.csv'])
+                    self.assertFalse((output / '2000/dashboard_pubkeys_ge_1btc.csv').exists())
+                    self.assertFalse((output / 'historical_archive_summaries.csv').exists())
+                    self.assertFalse((output / 'archive_summary_sources').exists())
+                    self.assertFalse((output / '.archive_summary_provenance.json').exists())
+                    retained = json.loads((output / 'generations/later-run/manifest.json').read_text())
+                    publication.validate_immutable_generation(output, retained)
+                    self.assertFalse(retained['capabilities']['archive_summaries'])
+                    self.assertFalse(retained['capabilities']['current_full'])
+                    for logical, artifact in future['artifacts'].items():
+                        if 'archive_summar' in logical:
+                            self.assertNotIn(logical, retained['artifacts'])
+                            self.assertFalse((output / artifact['path']).exists())
+                    self.assertEqual(original, {path.relative_to(data): publication.file_sha256(path)
+                                                for path in data.rglob('*') if path.is_file()})
+
     def test_quantum_v2_build_keeps_verified_runtime_and_prunes_manifest_capabilities(self):
         # Exercise the actual shell build as well as the pure pruning helper.
         if __package__:
-            from .test_quantum_immutable_generation import publication, seed
+            from .test_quantum_immutable_generation import publication, seed, seed_archive_summaries
         else:
-            from test_quantum_immutable_generation import publication, seed
+            from test_quantum_immutable_generation import publication, seed, seed_archive_summaries
         from quantum_runtime import runtime_dependency_copies
         with tempfile.TemporaryDirectory(prefix="wsb-pages-quantum-v2-") as temporary:
             root = Path(temporary)
@@ -26,7 +86,7 @@ class PagesBuildTest(unittest.TestCase):
             shutil.copy2(ROOT / "scripts/build_pages_dist.sh", root / "scripts")
             pipeline = root / "webapps/quantum_exposure/pipeline"
             pipeline.mkdir(parents=True)
-            for filename in ("immutable_generation.py", "publish_generation.py"):
+            for filename in ("immutable_generation.py", "publish_generation.py", "quantum_archive_summaries.py"):
                 shutil.copy2(ROOT / "webapps/quantum_exposure/pipeline" / filename, pipeline / filename)
             for source, target in runtime_dependency_copies(ROOT / "webapps/quantum_exposure", root):
                 target.parent.mkdir(parents=True, exist_ok=True)
@@ -40,6 +100,7 @@ class PagesBuildTest(unittest.TestCase):
             (data / "archived").mkdir()
             (data / "500").rename(data / "archived/500")
             metadata = seed(data, 1000)
+            seed_archive_summaries(data, heights=(100, 200))
             publication.publish_immutable_generation(data, metadata=metadata, reason="fixture",
                                                        generation_id="first", include_archives=True)
             metadata = seed(data, 2000)
@@ -55,6 +116,10 @@ class PagesBuildTest(unittest.TestCase):
             marker = json.loads((output / "published_generation.json").read_text())
             publication.validate_immutable_generation(output, marker)
             self.assertFalse(marker["capabilities"]["archives"])
+            self.assertFalse(marker["capabilities"]["archive_summaries"])
+            self.assertNotIn('archive_summaries', marker['metadata'])
+            self.assertFalse((output / 'historical_archive_summaries.csv').exists())
+            self.assertFalse((output / 'archive_summary_sources').exists())
             self.assertTrue(marker["capabilities"]["current_full"])
             for height in ('1000','2000'):
                 self.assertIn(f'{height}/dashboard_script_corrections.csv',marker['artifacts'])
@@ -66,6 +131,7 @@ class PagesBuildTest(unittest.TestCase):
                 previous = json.loads(manifest.read_text())
                 publication.validate_immutable_generation(output, previous)
                 self.assertFalse(any(name.startswith("archived/") for name in previous["artifacts"]))
+                self.assertFalse(any('archive_summar' in name for name in previous['artifacts']))
             for source, target in runtime_dependency_copies(ROOT / "webapps/quantum_exposure", dist):
                 self.assertEqual(publication.file_sha256(source), publication.file_sha256(target))
             for filename in ("preview.html", "preview_app.js", "standalone_app.js"):
@@ -132,6 +198,9 @@ class PagesBuildTest(unittest.TestCase):
                 "webapps/quantum_exposure/webapp_data/archived_index.csv": (
                     "snapshot_blockheight,snapshot_time\n50,0\n"
                 ),
+                "webapps/quantum_exposure/webapp_data/historical_archive_summaries.csv": "unsealed archive summary",
+                "webapps/quantum_exposure/webapp_data/.archive_summary_provenance.json": "unsealed provenance",
+                "webapps/quantum_exposure/webapp_data/archive_summary_sources/original.csv": "unsealed evidence",
                 "webapps/quantum_exposure/webapp_data/historical_archived.csv": (
                     "snapshot,balance_filter\n50,all\n"
                 ),
@@ -182,6 +251,9 @@ class PagesBuildTest(unittest.TestCase):
                 "webapps/bip110_signaling/webapp_data/segwit_miners.json",
                 "webapps/casascius_explorer/assets/items",
                 "webapps/quantum_exposure/webapp_data/archived",
+                "webapps/quantum_exposure/webapp_data/archive_summary_sources",
+                "webapps/quantum_exposure/webapp_data/historical_archive_summaries.csv",
+                "webapps/quantum_exposure/webapp_data/.archive_summary_provenance.json",
                 "webapps/quantum_exposure/webapp_data/arkham",
                 "webapps/quantum_exposure/webapp_data/100/dashboard_pubkeys_ge_1btc.csv",
             )

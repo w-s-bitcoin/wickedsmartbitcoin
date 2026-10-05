@@ -11,6 +11,7 @@ const state = {
   supplyDisplayMode: "total",
   historicalSeries: [],
   historicalSeriesLoading: false,
+  historicalSeriesError: "",
   historicalSeriesGe1Loading: false,
   historicalSeriesGe1AbortController: null,
   historicalSeriesGe1ActiveFilterKey: null,
@@ -75,6 +76,7 @@ let quantumTopExposureDelaySequence = 0;
 let quantumLastRefreshDeferredReason = "";
 let quantumLastRefreshValidationReason = "";
 let quantumArchiveVerificationRequired = false;
+let quantumArchiveTogglePending = false;
 const quantumHistoricalRefreshPointsPending = new Map();
 
 const QUANTUM_META_REQUIRED_COLUMNS = [
@@ -524,7 +526,9 @@ function updateArchivedSnapshotsToggleUi() {
   setCustomTooltip(
     archivedToggleButton,
     shouldShow
-      ? "Include archived snapshot heights in historical charts"
+      ? (quantumArchiveSummaryCoverage().heights.length
+        ? "Include archived history. Some legacy points retain summaries only; their detailed snapshots are unavailable and their accounting is unreconciled."
+        : "Include archived snapshot heights in historical charts")
       : "Archived historical snapshots are not available in this data bundle"
   );
 }
@@ -3370,6 +3374,7 @@ function resetHistoricalSeriesState() {
   state.historicalSeriesGe1AbortController?.abort();
   state.historicalSeries = [];
   state.historicalSeriesLoading = false;
+  state.historicalSeriesError = "";
   state.historicalSeriesGe1Loading = false;
   state.historicalSeriesGe1AbortController = null;
   state.historicalSeriesGe1ActiveFilterKey = null;
@@ -3443,6 +3448,26 @@ async function loadHistoricalAggregateCsvRowsBySnapshot({ includeArchived = fals
     } catch (_err) {
       // Best effort only; callers can still use active snapshot aggregates.
     }
+    const summaries = await fetchQuantumArchiveSummaryText({
+      publicationManifest: state.publicationManifest,
+      fetchFresh: (path) => quantumFetch(path, { cache: "no-store" }),
+    });
+    const merged = parseQuantumHistoricalSeries("", summaries);
+    merged.forEach((point) => {
+      if (!groupedBySnapshot.has(point.snapshot)) groupedBySnapshot.set(point.snapshot, point.aggregatesRows);
+    });
+    // Legacy bundles can retain complete folders without a compact archive
+    // file. Only genuine indexed snapshots are eligible for this fallback.
+    const missing = Object.entries(state.snapshotLocationByHeight || {})
+      .filter(([height, location]) => location === "archived" && !groupedBySnapshot.has(height));
+    for (const [height] of missing) {
+      try {
+        const response = await quantumFetch(`webapp_data/archived/${height}/dashboard_pubkeys_aggregates.csv`, { cache: "no-store" });
+        if (response.ok) groupedBySnapshot.set(height, parseCsv(await response.text()));
+      } catch (_error) {
+        // Preserve the existing legacy fallback's best-effort behavior.
+      }
+    }
   }
 
   return groupedBySnapshot;
@@ -3454,6 +3479,7 @@ async function ensureHistoricalSeriesLoaded() {
   }
 
   const loadId = ++quantumHistoricalSeriesLoadSequence;
+  state.historicalSeriesError = "";
   state.historicalSeriesLoading = true;
   try {
     if (isLiteMode()) {
@@ -3510,12 +3536,13 @@ async function ensureHistoricalSeriesLoaded() {
     );
 
     const series = [];
+    const summaryHeights = new Set(quantumArchiveSummaryCoverage().heights);
     for (const snapshot of snapshotsAsc) {
-      let aggregatesRows = null;
+      let aggregatesRows = summaryHeights.has(snapshot) ? aggregateRowsBySnapshot.get(snapshot) : null;
       try {
-        const resp = await quantumFetch(`${snapshotBasePath(snapshot)}/dashboard_pubkeys_aggregates.csv`, { cache: "no-store" });
-        if (resp.ok) {
-          aggregatesRows = parseCsv(await resp.text());
+        if (!aggregatesRows) {
+          const resp = await quantumFetch(`${snapshotBasePath(snapshot)}/dashboard_pubkeys_aggregates.csv`, { cache: "no-store" });
+          if (resp.ok) aggregatesRows = parseCsv(await resp.text());
         }
       } catch (_err) {
         // Fall back to compact historical CSV aggregates below.
@@ -3548,6 +3575,11 @@ async function ensureHistoricalSeriesLoaded() {
       }
     }
     installLoadedQuantumHistoricalSeries(series, loadId);
+  } catch (error) {
+    if (loadId === quantumHistoricalSeriesLoadSequence) {
+      state.historicalSeriesError = "Historical data could not be verified. Retry to load this view.";
+    }
+    throw error;
   } finally {
     if (loadId === quantumHistoricalSeriesLoadSequence) {
       state.historicalSeriesLoading = false;
@@ -3962,6 +3994,23 @@ function renderHistoricalStackedChart(filters) {
     !!container && container.classList.contains("historical-chart") && !!container.querySelector(".historical-svg");
 
   if (!state.historicalSeries.length) {
+    if (state.historicalSeriesError) {
+      clearHistoricalLoadingOverlay(container);
+      container.className = "bar-empty";
+      container.replaceChildren();
+      const message = document.createElement("span");
+      message.textContent = state.historicalSeriesError;
+      const retry = document.createElement("button");
+      retry.type = "button";
+      retry.textContent = "Retry";
+      retry.className = "historical-retry";
+      retry.addEventListener("click", () => {
+        state.historicalSeriesError = "";
+        update();
+      });
+      container.append(message, document.createTextNode(" "), retry);
+      return;
+    }
     if (!state.historicalSeriesLoading) {
       ensureHistoricalSeriesLoaded()
         .then(() => update())
@@ -4451,6 +4500,8 @@ function renderHistoricalStackedChart(filters) {
     tooltip.innerHTML = `
       <div><strong>Block Height: ${formatInt(nearest.snapshotHeight)}</strong></div>
       <div>${escapeHtml(quantumMethodologyLabel(nearest.snapshotHeight))}</div>
+      ${quantumArchiveSummaryCoverage().heights.includes(String(nearest.snapshotHeight))
+        ? "<div>Historical summary only; snapshot details unavailable.</div>" : ""}
       <div class="historical-tooltip-row historical-tooltip-total">Total Supply: ${formatInt(totalSupplyBtc)} BTC</div>
       ${nonExposedRow}${activeRow}${inactiveRow}${neverRow}
     `;
@@ -4470,7 +4521,8 @@ function renderHistoricalStackedChart(filters) {
   const selectSnapshotFromPoint = async (nearest) => {
     const nextSnapshot = String(nearest?.snapshotHeight || "").trim();
     const currentSnapshot = String(state.snapshotHeight || "").trim();
-    if (!nextSnapshot || nextSnapshot === currentSnapshot || selectingSnapshotFromChart) {
+    if (!nextSnapshot || !state.snapshotLocationByHeight[nextSnapshot]
+        || nextSnapshot === currentSnapshot || selectingSnapshotFromChart) {
       return;
     }
 
@@ -6847,7 +6899,7 @@ function quantumArchiveDataIsExpected() {
   );
 }
 
-function buildQuantumSnapshotIndexCandidate(activeRows, archivedRows, archivedSnapshotsAvailable) {
+function buildQuantumSnapshotIndexCandidate(activeRows, archivedRows, archivedSnapshotsAvailable, summaries = { heights: [], times: {} }) {
   const activeSnapshots = activeRows
     .map((row) => String(row.snapshot_blockheight || "").trim())
     .filter((height) => /^\d+$/.test(height))
@@ -6879,6 +6931,21 @@ function buildQuantumSnapshotIndexCandidate(activeRows, archivedRows, archivedSn
     blockDatetimeByHeight[height] = formatTooltipDate(unixTime);
   });
 
+  // Summary-only history supplies chart labels, never selectable snapshots or
+  // a path to nonexistent aggregate/detail directories.
+  summaries.heights.forEach((height) => {
+    const unixTime = toInt(summaries.times[height]);
+    if (!unixTime) {
+      snapshotUnixTimeByHeight[height] = 0;
+      snapshotLabelDatetimeByHeight[height] = "";
+      blockDatetimeByHeight[height] = "";
+      return;
+    }
+    snapshotUnixTimeByHeight[height] = unixTime;
+    snapshotLabelDatetimeByHeight[height] = formatSnapshotSelectDate(unixTime);
+    blockDatetimeByHeight[height] = formatTooltipDate(unixTime);
+  });
+
   return {
     activeRows,
     archivedRows,
@@ -6887,7 +6954,8 @@ function buildQuantumSnapshotIndexCandidate(activeRows, archivedRows, archivedSn
     snapshotLabelDatetimeByHeight,
     snapshotUnixTimeByHeight,
     blockDatetimeByHeight,
-    archivedSnapshotsAvailable,
+    archivedSnapshotsAvailable: archivedSnapshotsAvailable || summaries.heights.length > 0,
+    archiveSummaryHeights: summaries.heights,
   };
 }
 
@@ -6981,7 +7049,7 @@ async function fetchQuantumRefreshSnapshot(context, snapshot, needsFullRows, bas
   };
 }
 
-function parseQuantumHistoricalSeries(ecoText, archivedText = "") {
+function parseQuantumHistoricalSeries(ecoText, archivedText = "", summaryText = "") {
   const groupedBySnapshot = new Map();
   const merge = (text, skipExistingSnapshots) => {
     const existingSnapshots = new Set(groupedBySnapshot.keys());
@@ -6996,9 +7064,54 @@ function parseQuantumHistoricalSeries(ecoText, archivedText = "") {
   };
   merge(ecoText, false);
   merge(archivedText, true);
+  merge(summaryText, true);
   return Array.from(groupedBySnapshot.entries())
     .sort((left, right) => Number.parseInt(left[0], 10) - Number.parseInt(right[0], 10))
     .map(([snapshot, aggregatesRows]) => quantumHistoricalRefreshPoint(snapshot, aggregatesRows));
+}
+
+function quantumArchiveSummaryCoverage(manifest = state.publicationManifest) {
+  const empty = { heights: [], times: {}, rows: 0 };
+  if (Number(manifest?.format) !== 2) return empty;
+  const metadata = manifest.metadata?.archive_summaries;
+  const artifact = manifest.artifacts?.["historical_archive_summaries.csv"];
+  if (!metadata && !artifact && !manifest.capabilities?.archive_summaries) return empty;
+  if (!metadata || !artifact || manifest.capabilities?.archive_summaries !== true
+      || metadata.version !== "legacy-summary-only-v1"
+      || metadata.methodology_version !== "legacy-v1-unreconciled"
+      || metadata.artifact_coverage !== "historical-summary-only"
+      || !Number.isSafeInteger(metadata.rows) || metadata.rows <= 0
+      || !Array.isArray(metadata.snapshot_heights) || !metadata.snapshot_heights.length
+      || !metadata.snapshot_times || typeof metadata.snapshot_times !== "object") {
+    throw new Error("Quantum archive summary coverage is incomplete.");
+  }
+  let previous = -1;
+  for (const height of metadata.snapshot_heights) {
+    const time = metadata.snapshot_times[String(height)];
+    if (!Number.isSafeInteger(height) || height <= previous
+        || height >= Number(manifest.snapshot_blockheight)
+        || (time !== "" && (typeof time !== "string" || !/^\d+$/.test(time)
+          || !Number.isSafeInteger(Number(time)) || Number(time) <= 0))) {
+      throw new Error("Quantum archive summary heights or dates are invalid.");
+    }
+    previous = height;
+  }
+  return { heights: metadata.snapshot_heights.map(String), times: metadata.snapshot_times, rows: metadata.rows };
+}
+
+async function fetchQuantumArchiveSummaryText(context) {
+  const coverage = quantumArchiveSummaryCoverage(context.publicationManifest);
+  if (!coverage.heights.length) return "";
+  const response = await context.fetchFresh("webapp_data/historical_archive_summaries.csv");
+  if (!response.ok) throw new Error("Quantum historical archive summaries are unavailable.");
+  const text = await response.text();
+  const rows = parseCsv(text);
+  const actual = new Set(rows.map(row => String(row.snapshot || "").trim()));
+  if (rows.length !== coverage.rows || actual.size !== coverage.heights.length
+      || coverage.heights.some(height => !actual.has(height))) {
+    throw new Error("Quantum historical archive summaries do not match their declared coverage.");
+  }
+  return text;
 }
 
 function parseQuantumPublishedGeneration(markerText) {
@@ -7021,6 +7134,7 @@ function parseQuantumPublishedGeneration(markerText) {
   if (Number(marker.format) === 2 && (!marker.artifacts || !marker.metadata || !/^[a-f0-9]{64}$/.test(marker.metadata.block_hash || ""))) {
     throw new Error("Quantum immutable generation is missing provenance or artifacts.");
   }
+  quantumArchiveSummaryCoverage(marker);
   return { signature, snapshotHeight, reason: String(marker.reason || "").trim(), marker };
 }
 
@@ -7147,6 +7261,7 @@ async function fetchQuantumInitialGenerationEvidence(publication) {
 
 async function prepareQuantumDataRefresh(context) {
   const publication = parseQuantumPublishedGeneration(context.signature);
+  const summaries = quantumArchiveSummaryCoverage(publication.marker);
   const originalFetchFresh = context.fetchFresh;
   context = { ...context, publicationManifest: publication.marker,
     fetchFresh: (url) => fetchQuantumVerified(url, originalFetchFresh, publication.marker) };
@@ -7205,11 +7320,15 @@ async function prepareQuantumDataRefresh(context) {
   const archivedHeights = archivedRows
     .map((row) => String(row.snapshot_blockheight || "").trim())
     .filter((height) => /^\d+$/.test(height));
+  const coveredHistoryHeights = new Set([...activeSnapshots, ...archivedHeights, ...summaries.heights]);
+  const installedSummaryHeights = quantumArchiveSummaryCoverage().heights;
   if (
     installedArchivesWereExpected
     && (
-      !archivedHeights.length
-      || archivedHeights.length < Math.ceil(installedArchivedHeights.length * 0.95)
+      (!archivedHeights.length && !summaries.heights.length)
+      || installedArchivedHeights.filter(height => coveredHistoryHeights.has(height)).length
+        < Math.ceil(installedArchivedHeights.length * 0.95)
+      || installedSummaryHeights.some(height => !coveredHistoryHeights.has(height))
     )
   ) {
     throw new Error(
@@ -7267,7 +7386,7 @@ async function prepareQuantumDataRefresh(context) {
   const preparedHistoricalArchived = Boolean(
     preparedHistoricalSeriesNeeded
     && state.archivedSnapshotsEnabled
-    && archivedSnapshotsAvailable
+    && (archivedSnapshotsAvailable || summaries.heights.length)
   );
 
   const latestSnapshotPromise = fetchQuantumRefreshSnapshot(context, latestSnapshot, needsFullRows);
@@ -7290,11 +7409,13 @@ async function prepareQuantumDataRefresh(context) {
     ? (async () => {
         const ecoText = await historicalEcoTextPromise;
         let archivedText = "";
+        let summaryText = "";
         if (preparedHistoricalArchived) {
           const archivedResp = await context.fetchFresh("webapp_data/historical_archived.csv");
           archivedText = await archivedResp.text();
+          summaryText = await fetchQuantumArchiveSummaryText(context);
         }
-        return parseQuantumHistoricalSeries(ecoText, archivedText);
+        return parseQuantumHistoricalSeries(ecoText, archivedText, summaryText);
       })()
     : Promise.resolve(null);
 
@@ -7354,7 +7475,7 @@ async function prepareQuantumDataRefresh(context) {
     preparedHistoricalArchived,
     preparedRuntimeLiteMode,
     archiveVerificationComplete: true,
-    index: buildQuantumSnapshotIndexCandidate(activeRows, archivedRows, archivedSnapshotsAvailable),
+    index: buildQuantumSnapshotIndexCandidate(activeRows, archivedRows, archivedSnapshotsAvailable, summaries),
     reportSummary,
     reportAttempted,
     reportSnapshot,
@@ -7747,6 +7868,19 @@ async function loadSnapshotLabelLookup(snapshots, snapshotLocations = {}) {
   const blockDatetimeByHeight = {};
   const snapshotLabelDatetimeByHeight = {};
   const snapshotUnixTimeByHeight = {};
+  const summaries = quantumArchiveSummaryCoverage();
+  summaries.heights.forEach((height) => {
+    const unixTime = toInt(summaries.times[height]);
+    if (!unixTime) {
+      snapshotUnixTimeByHeight[height] = 0;
+      snapshotLabelDatetimeByHeight[height] = "";
+      blockDatetimeByHeight[height] = "";
+      return;
+    }
+    blockDatetimeByHeight[height] = formatTooltipDate(unixTime);
+    snapshotLabelDatetimeByHeight[height] = formatSnapshotSelectDate(unixTime);
+    snapshotUnixTimeByHeight[height] = unixTime;
+  });
 
   let loadedFromGlobalLookup = false;
   try {
@@ -7833,6 +7967,7 @@ async function loadAvailableSnapshots() {
   const archiveExpectedBeforeLoad = quantumArchiveDataIsExpected();
   const previousArchivedSnapshotsAvailable = state.archivedSnapshotsAvailable;
   const previousSnapshotLocations = { ...state.snapshotLocationByHeight };
+  const summaries = quantumArchiveSummaryCoverage();
 
   try {
     const indexResp = await quantumFetch("webapp_data/snapshots_index.csv", { cache: "no-store" });
@@ -7873,15 +8008,16 @@ async function loadAvailableSnapshots() {
         }
       });
 
-      const archivedSnapshotsAvailable = archivedValues.length
+      const archiveFoldersAvailable = archivedValues.length
         ? await hasArchivedSnapshotDataFolder(archivedValues)
         : false;
+      const archivedSnapshotsAvailable = archiveFoldersAvailable || summaries.heights.length > 0;
       if (!isCurrentLoad()) return currentSnapshots();
       const archiveStateVerified = Boolean(
         archivedIndexVerified
         && (
-          archivedSnapshotsAvailable
-          || (!archivedValues.length && !archiveExpectedBeforeLoad)
+          archiveFoldersAvailable
+          || (!archivedValues.length && (!archiveExpectedBeforeLoad || summaries.heights.length > 0))
         )
       );
       quantumArchiveVerificationRequired = !archiveStateVerified;
@@ -7909,6 +8045,14 @@ async function loadAvailableSnapshots() {
         if (state.archivedSnapshotsEnabled && archivedRows.length) {
           collectSnapshotLabels(archivedRows);
         }
+        collectSnapshotLabels(summaries.heights.map(height => ({
+          snapshot_blockheight: height, snapshot_time: summaries.times[height],
+        })));
+        summaries.heights.filter(height => !toInt(summaries.times[height])).forEach(height => {
+          snapshotUnixTimeByHeight[height] = 0;
+          snapshotLabelDatetimeByHeight[height] = "";
+          blockDatetimeByHeight[height] = "";
+        });
 
         if (retainInstalledArchiveState) {
           Object.entries(previousSnapshotLocations).forEach(([height, location]) => {
@@ -8373,19 +8517,33 @@ function attachEvents() {
 
   if (archivedSnapshotsToggleButton) {
     archivedSnapshotsToggleButton.addEventListener("click", async () => {
-      if (!state.archivedSnapshotsAvailable) return;
+      if (!state.archivedSnapshotsAvailable || state.historicalSeriesLoading || quantumArchiveTogglePending) return;
+      quantumArchiveTogglePending = true;
 
       const snapshotFilter = document.getElementById("snapshotFilter");
       const previousSnapshot = String(state.snapshotHeight || snapshotFilter?.value || "").trim();
       const previousSnapshotWasArchived = state.snapshotLocationByHeight[previousSnapshot] === "archived";
-
-      state.archivedSnapshotsEnabled = !state.archivedSnapshotsEnabled;
-      updateArchivedSnapshotsToggleUi();
-      persistArchivedSnapshotsEnabled();
-
-      resetHistoricalSeriesState();
+      const previousEnabled = state.archivedSnapshotsEnabled;
+      const previousSeries = state.historicalSeries;
+      const generation = quantumSnapshotDataCommitGeneration;
 
       try {
+        // Prepare the requested chart before discarding the complete visible
+        // series. A corrupt/missing archive must not erase it or spin retries.
+        const historyNeeded = previousSeries.length || state.scriptPanelMode === "historical";
+        const preparedRows = historyNeeded
+          ? await loadHistoricalAggregateCsvRowsBySnapshot({ includeArchived: !previousEnabled })
+          : null;
+        if (generation !== quantumSnapshotDataCommitGeneration) return;
+        state.archivedSnapshotsEnabled = !previousEnabled;
+        resetHistoricalSeriesState();
+        if (preparedRows) {
+          state.historicalSeries = Array.from(preparedRows.entries())
+            .sort((left, right) => Number(left[0]) - Number(right[0]))
+            .map(([snapshot, rows]) => quantumHistoricalRefreshPoint(snapshot, rows));
+        }
+        updateArchivedSnapshotsToggleUi();
+        persistArchivedSnapshotsEnabled();
         state.availableSnapshots = await loadAvailableSnapshots();
         if (!state.availableSnapshots.length) {
           throw new Error("No snapshots found in webapp_data/");
@@ -8401,11 +8559,6 @@ function attachEvents() {
         }
 
         if (previousSnapshotWasArchived || targetSnapshot !== String(state.snapshotHeight || "").trim()) {
-          state.snapshotDataCache.clear();
-          state.topExposuresDataCache.clear();
-          state.ge1Rows = [];
-          state.topExposuresLoading = false;
-          resetTopExposurePagination();
           await loadSnapshotData(targetSnapshot);
           if (!isLiteMode()) {
             await refreshSnapshotLookupUi();
@@ -8419,7 +8572,15 @@ function attachEvents() {
         }
       } catch (err) {
         console.error(err);
-        renderEmptyKpis();
+        if (generation === quantumSnapshotDataCommitGeneration) {
+          state.archivedSnapshotsEnabled = previousEnabled;
+          state.historicalSeries = previousSeries;
+          updateArchivedSnapshotsToggleUi();
+          persistArchivedSnapshotsEnabled();
+          setCustomTooltip(archivedSnapshotsToggleButton, "Archived history could not be verified. Select again to retry.");
+        }
+      } finally {
+        quantumArchiveTogglePending = false;
       }
     });
   }

@@ -72,6 +72,8 @@ rm -rf "$DIST"/webapps/*/gradings
 rm -rf "$DIST"/webapps/casascius_explorer/assets/items
 QUANTUM_DATA="$DIST/webapps/quantum_exposure/webapp_data"
 rm -rf "$QUANTUM_DATA/archived"
+rm -rf "$QUANTUM_DATA/archive_summary_sources"
+rm -f "$QUANTUM_DATA/historical_archive_summaries.csv" "$QUANTUM_DATA/.archive_summary_provenance.json"
 rm -rf "$DIST"/webapps/quantum_exposure/webapp_data/arkham
 
 # Pages intentionally omits the large Quantum archive payloads. Do not leave
@@ -109,7 +111,7 @@ fi
 
 # Immutable Quantum manifests describe their actual destination capabilities.
 # Prune copied objects as well as legacy root paths; never mutate source data.
-if [[ -f "$QUANTUM_DATA/published_generation.json" ]]; then
+if [[ -f "$QUANTUM_DATA/published_generation.json" || -d "$QUANTUM_DATA/generations" ]]; then
   PYTHONPATH="$ROOT/webapps/quantum_exposure/pipeline" python3 -c \
     'import sys; from pathlib import Path; from immutable_generation import prepare_public_bundle; prepare_public_bundle(Path(sys.argv[1]))' \
     "$QUANTUM_DATA"

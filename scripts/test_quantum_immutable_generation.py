@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Fixture-only immutable publication, exact values, isolation and retry tests."""
 import csv
+import copy
+import io
 import json
 import shutil
 from pathlib import Path
@@ -17,6 +19,8 @@ import quantum_v2_analysis as analysis
 import normalize_snapshot_csvs as normalizer
 import sync_identity_consensus_from_snapshots as identities
 import quantum_runtime as runtime
+import quantum_archive_summaries as archive_summaries
+from publish_generation import publish_generation_marker
 
 
 def seed(directory: Path, height=1000):
@@ -32,6 +36,50 @@ def seed(directory: Path, height=1000):
     subprocess.run([sys.executable, str(PIPELINE / "regenerate_snapshot_indexes.py"), "--data-dir", str(directory)],
                    check=True, capture_output=True, text=True)
     return dict(block_hash="a" * 64, **{key: "fixture-v1" for key in publication.VERSION_KEYS})
+
+
+def seed_archive_summaries(directory: Path, heights=(100, 200), target_height=1000):
+    """Retained legacy rows deliberately include unreconciled exposure totals."""
+    previous_catalogs = {name: (directory / name).read_bytes() if (directory / name).is_file() else None
+                        for name in ('historical_archived.csv', 'archived_index.csv')}
+    history = io.StringIO(newline='')
+    writer = csv.DictWriter(history, fieldnames=publication.HISTORICAL_ECO_HEADERS)
+    writer.writeheader()
+    for height in heights:
+        for script in ('All', 'P2PK'):
+            writer.writerow(dict(snapshot=height, balance_filter='all', script_type_filter=script,
+                spend_activity_filter='all', pubkey_count='2', utxo_count='3', supply_sats='100',
+                exposed_pubkey_count='4', exposed_utxo_count='5', exposed_supply_sats='200',
+                estimated_migration_blocks='0.000000000001'))
+    index = io.StringIO(newline='')
+    writer = csv.writer(index)
+    writer.writerow(publication.ARCHIVED_INDEX_HEADERS)
+    for height in reversed(heights):
+        writer.writerow((height, 1_300_000_000 + height))
+    original = {'historical_archived.csv': history.getvalue().encode(), 'archived_index.csv': index.getvalue().encode()}
+    for name, payload in original.items():
+        (directory / name).write_bytes(payload)
+    archive_summaries.stage(directory, directory, {}, lambda logical: directory / logical,
+                            target_height=target_height, complete_heights=[])
+    # Conventional catalogs continue to describe actual snapshot folders only.
+    for name, fields in (('historical_archived.csv', publication.HISTORICAL_ECO_HEADERS),
+                         ('archived_index.csv', publication.ARCHIVED_INDEX_HEADERS)):
+        (directory / name).write_bytes(previous_catalogs[name] or (','.join(fields) + '\n').encode())
+    return original
+
+
+def publish_legacy_fixture(directory: Path):
+    """Use the actual legacy marker writer with its historical family coverage."""
+    path = directory / 'historical_eco.csv'
+    with path.open(newline='') as handle:
+        reader = csv.DictReader(handle)
+        fields = reader.fieldnames
+        rows = [row for row in reader if row['script_type_filter'] != 'Other']
+    with path.open('w', newline='') as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(rows)
+    return publish_generation_marker(directory, reason='legacy rollback fixture', generation_id='legacy-fixture')
 
 
 class ImmutablePublicationTests(unittest.TestCase):
@@ -233,6 +281,145 @@ class ImmutablePublicationTests(unittest.TestCase):
             identities.WEBAPP_DATA_DIR, identities.ARCHIVED_DATA_DIR = old
         self.assertEqual(len(paths), 2)
         self.assertEqual(len(set(paths)), 2)
+
+
+class ArchiveSummaryTests(unittest.TestCase):
+    def setUp(self):
+        ImmutablePublicationTests.setUp(self)
+        self.original = seed_archive_summaries(self.data)
+
+    def publish(self):
+        return publication.publish_immutable_generation(self.data, metadata=self.metadata,
+            reason='summary fixture', generation_id='summary-run', include_archives=True)
+
+    def test_summary_provenance_preserves_exact_bytes_without_fabricating_snapshots(self):
+        marker = json.loads(self.publish())
+        metadata = marker['metadata']['archive_summaries']
+        self.assertEqual(metadata['snapshot_heights'], [100, 200])
+        self.assertEqual(metadata['rows'], 4)
+        self.assertEqual(metadata['snapshot_times'], {'100': '1300000100', '200': '1300000200'})
+        self.assertTrue(marker['capabilities']['archive_summaries'])
+        for height in ('100', '200'):
+            provenance = marker['metadata']['methodology_by_snapshot'][height]
+            self.assertEqual(provenance['methodology_version'], 'legacy-v1-unreconciled')
+            self.assertEqual(provenance['artifact_coverage'], 'historical-summary-only')
+            self.assertNotIn('block_hash', provenance)
+            self.assertFalse((self.data / height).exists())
+            self.assertFalse((self.data / 'archived' / height).exists())
+        for kind, filename in (('history', 'historical_archived.csv'), ('index', 'archived_index.csv')):
+            logical = metadata['sources'][0][kind + '_artifact']
+            self.assertEqual((self.data / marker['artifacts'][logical]['path']).read_bytes(), self.original[filename])
+        publication.validate_immutable_generation(self.data, marker)
+        self.assertEqual(self.publish(), (self.data / 'published_generation.json').read_text())
+
+    def test_forged_rehashed_rows_cannot_override_preserved_source_evidence(self):
+        marker = json.loads(self.publish())
+        path = self.data / archive_summaries.FILE
+        path.write_bytes(path.read_bytes().replace(b',200,0.000000000001', b',201,0.000000000001', 1))
+        forged = copy.deepcopy(marker)
+        forged['artifacts'][archive_summaries.FILE] = publication._store_artifact(self.data, archive_summaries.FILE)
+        with self.assertRaisesRegex(RuntimeError, 'retained original evidence'):
+            publication.validate_immutable_generation(self.data, forged)
+
+    def test_summary_source_corruption_and_invalid_coverage_rejected(self):
+        marker = json.loads(self.publish())
+        source = marker['metadata']['archive_summaries']['sources'][0]['history_artifact']
+        path = self.data / marker['artifacts'][source]['path']
+        original = path.read_bytes()
+        path.write_bytes(original.replace(b',200,', b',201,', 1))
+        with self.assertRaisesRegex(RuntimeError, 'verification'):
+            publication.validate_immutable_generation(self.data, marker)
+        path.write_bytes(original)
+        changes = (
+            lambda m: m['metadata']['archive_summaries'].update(snapshot_heights=[200, 100]),
+            lambda m: m['metadata']['archive_summaries'].update(snapshot_heights=[100, 1000]),
+            lambda m: m['metadata']['archive_summaries'].update(snapshot_times={'100': '1', '200': '2'}),
+            lambda m: m['metadata']['archive_summaries'].update(sources=[None]),
+            lambda m: m['metadata']['archive_summaries']['sources'][0].update(history_artifact=[]),
+            lambda m: m['artifacts'][archive_summaries.FILE].update(rows=5),
+            lambda m: m['capabilities'].update(archive_summaries=False),
+            lambda m: m['metadata']['methodology_by_snapshot']['100'].update(methodology_version='quantum-v2'),
+            lambda m: m['metadata'].pop('archive_summaries'),
+        )
+        for change in changes:
+            malformed = copy.deepcopy(marker)
+            change(malformed)
+            with self.assertRaises(RuntimeError):
+                publication.validate_immutable_generation(self.data, malformed)
+
+    def test_full_replacement_has_priority_and_public_bundle_omits_summary_evidence(self):
+        # Restoring a real snapshot after preparing the legacy history removes
+        # only that height from the summary-only chart, without changing rows.
+        seed(self.data, 100)
+        self.metadata = seed(self.data, 1000)
+        marker = json.loads(self.publish())
+        self.assertEqual(marker['metadata']['archive_summaries']['snapshot_heights'], [200])
+        self.assertEqual(marker['metadata']['methodology_by_snapshot']['100']['export_version'], 'quantum-csv-v2')
+        publication.validate_immutable_generation(self.data, marker)
+        bundle = Path(self.temp.name) / 'public'
+        shutil.copytree(self.data, bundle)
+        publication.prepare_public_bundle(bundle)
+        public = json.loads((bundle / 'published_generation.json').read_text())
+        self.assertFalse(public['capabilities']['archive_summaries'])
+        self.assertNotIn('archive_summaries', public['metadata'])
+        self.assertNotIn('200', public['metadata']['methodology_by_snapshot'])
+        self.assertIn('100', public['metadata']['methodology_by_snapshot'])
+        self.assertFalse((bundle / archive_summaries.FILE).exists())
+        self.assertFalse((bundle / archive_summaries.STAGED_METADATA).exists())
+        self.assertFalse((bundle / archive_summaries.SOURCE_PREFIX).exists())
+        for logical, artifact in marker['artifacts'].items():
+            if logical == archive_summaries.FILE or logical.startswith(archive_summaries.SOURCE_PREFIX):
+                self.assertNotIn(logical, public['artifacts'])
+                self.assertFalse((bundle / artifact['path']).exists())
+        publication.validate_immutable_generation(bundle, public)
+        self.assertEqual(json.loads((self.data / 'published_generation.json').read_text()), marker)
+        publication.validate_immutable_generation(self.data, marker)
+
+
+    def test_public_pruning_survives_legacy_or_absent_marker_rollback(self):
+        legacy_marker = publish_legacy_fixture(self.data).encode()
+        restored_aliases = {name: (self.data / name).read_bytes() for name in
+                           ('latest_snapshot.txt', 'snapshots_index.csv', 'historical_eco.csv')}
+        full_current = (self.data / '1000/dashboard_pubkeys_ge_1btc.csv').read_bytes()
+        metadata = seed(self.data, 2000)
+        future = json.loads(publication.publish_immutable_generation(self.data, metadata=metadata,
+            reason='later fixture', generation_id='later-run', include_archives=True))
+        source_hashes = {path.relative_to(self.data): publication.file_sha256(path)
+                         for path in self.data.rglob('*') if path.is_file()}
+        for marker_present in (True, False):
+            with self.subTest(marker_present=marker_present):
+                bundle = Path(self.temp.name) / ('legacy-public' if marker_present else 'markerless-public')
+                shutil.copytree(self.data, bundle)
+                for name, payload in restored_aliases.items():
+                    (bundle / name).write_bytes(payload)
+                pointer = bundle / 'published_generation.json'
+                if marker_present:
+                    pointer.write_bytes(legacy_marker)
+                else:
+                    pointer.unlink()
+                publication.prepare_public_bundle(bundle)
+                if marker_present:
+                    self.assertEqual(pointer.read_bytes(), legacy_marker)
+                else:
+                    self.assertFalse(pointer.exists())
+                self.assertEqual((bundle / '1000/dashboard_pubkeys_ge_1btc.csv').read_bytes(), full_current)
+                for name, payload in restored_aliases.items():
+                    self.assertEqual((bundle / name).read_bytes(), payload)
+                self.assertFalse((bundle / archive_summaries.FILE).exists())
+                self.assertFalse((bundle / archive_summaries.STAGED_METADATA).exists())
+                self.assertFalse((bundle / archive_summaries.SOURCE_PREFIX).exists())
+                retained = json.loads((bundle / 'generations/later-run/manifest.json').read_text())
+                self.assertFalse(retained['capabilities']['current_full'])
+                self.assertFalse(retained['capabilities']['archive_summaries'])
+                self.assertNotIn('archive_summaries', retained['metadata'])
+                self.assertNotIn('2000/dashboard_pubkeys_ge_1btc.csv', retained['artifacts'])
+                for logical, artifact in future['artifacts'].items():
+                    if logical == archive_summaries.FILE or logical.startswith(archive_summaries.SOURCE_PREFIX):
+                        self.assertNotIn(logical, retained['artifacts'])
+                        self.assertFalse((bundle / artifact['path']).exists())
+                publication.validate_immutable_generation(bundle, retained)
+        self.assertEqual(source_hashes, {path.relative_to(self.data): publication.file_sha256(path)
+                                        for path in self.data.rglob('*') if path.is_file()})
 
 
 if __name__ == "__main__":
