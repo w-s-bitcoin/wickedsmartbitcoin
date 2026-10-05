@@ -39,6 +39,70 @@ class DriverPureTests(unittest.TestCase):
         for active,elapsed in [(0,10),(-1,10),(True,10),(86401,172800),(10,172801),(float('nan'),10),(10,float('inf')),(20,10)]:
             with self.subTest(active=active,elapsed=elapsed):
                 with self.assertRaises(ValueError):driver.validate_budgets(active,elapsed)
+    def deadline_result(self):
+        pending={'nonce':'owned','deadline_monotonic':100.0}
+        handoff={'nonce':'owned','child_pid':123,'backend_pid':456,'backend_start':'stamp','database':'fixture'}
+        result={'nonce':'owned','event':'run_failed','exit_code':1,'run_id':'run',
+            'worker_error':driver.deadline_error('owned'),'checkpoint':state(),
+            'interruption':{'origin':'child_deadline_timer','nonce':'owned','child_pid':123,
+                'signal':signal.SIGTERM,'deadline_monotonic':100.0,'observed_monotonic':100.01}}
+        return result,pending,handoff
+    def test_deadline_candidate_requires_owned_expired_signal_and_exact_failed_event(self):
+        import copy
+        result,pending,handoff=self.deadline_result()
+        self.assertTrue(driver.deadline_candidate(result,pending,handoff,123))
+        for key,value in [('origin','external_signal'),('nonce','different'),('child_pid',999),
+                          ('signal',signal.SIGINT),('deadline_monotonic',99),('observed_monotonic',99.9),
+                          ('observed_monotonic',float('nan'))]:
+            changed=copy.deepcopy(result);changed['interruption'][key]=value
+            with self.subTest(key=key,value=value):self.assertFalse(driver.deadline_candidate(changed,pending,handoff,123))
+        for key,value in [('event','run_complete'),('exit_code',0),('run_id',None),
+                          ('worker_error','SliceInterrupted: '),('worker_error','RuntimeError: resource limit')]:
+            changed=copy.deepcopy(result);changed[key]=value
+            with self.subTest(key=key):self.assertFalse(driver.deadline_candidate(changed,pending,handoff,123))
+        self.assertFalse(driver.deadline_candidate(result,pending,dict(handoff,backend_pid=999,nonce='other'),123))
+    @unittest.skipUnless(psycopg2,'Durable failure verifier imports psycopg2 cursor type')
+    def test_verified_deadline_never_rewrites_failure_and_rejects_missing_or_breached_evidence(self):
+        import copy
+        result,pending,handoff=self.deadline_result()
+        config_path=self.root/'config.json';driver.atomic_json(config_path,{})
+        session={'implementation_sha256':'i','config_sha256':'c','config_path':str(config_path),
+                 'pause_baseline':BASE,'expected_anchor':['fixture',5,'a']}
+        metrics={'mode':'bootstrap','implementation_sha256':'i','config_sha256':'c','wall_seconds':45.1,
+                 'memory_limit_bytes':4*1024**3,'peak_combined_private_memory_bytes':2000,
+                 'memory_limit_exceeded':False,'disk_reserve_exceeded':False,
+                 'memory_measurement_error':None,'disk_measurement_error':None,
+                 'processes':{'123':{'private_memory_bytes':1000},'456':{'private_memory_bytes':1000}}}
+        row={'id':'run','pid':123,'status':'failed','error':driver.deadline_error('owned'),
+             'finished_at':'finished','metrics':metrics}
+        conn=mock.MagicMock();cur=conn.cursor.return_value.__enter__.return_value
+        def verify(record,**patches):
+            cur.fetchone.side_effect=[(False,),record]
+            with mock.patch.object(driver,'pause_state',return_value=patches.get('pause',BASE)),\
+                 mock.patch.object(driver,'identities',return_value=patches.get('identities',{'implementation_sha256':'i','config_sha256':'c'})),\
+                 mock.patch.object(driver,'snapshot',return_value=patches.get('snapshot',state())):
+                return driver.verify_deadline_checkpoint(conn,{},session,None,None,result,pending,handoff,123)
+        before=copy.deepcopy(row);proof=verify(row)
+        self.assertEqual(proof['classification'],'verified_controlled_deadline')
+        self.assertEqual(proof['retained_run_status'],'failed');self.assertEqual(proof['measured_wall_seconds'],45.1)
+        self.assertEqual(row,before)
+        for call in cur.execute.call_args_list:
+            self.assertTrue(call.args[0].lstrip().startswith('SELECT'))
+        for key,value in [('mode','boundary'),('implementation_sha256','other'),('config_sha256','other'),
+                          ('memory_limit_exceeded',True),('disk_reserve_exceeded',True),
+                          ('memory_measurement_error','unknown'),('disk_measurement_error','unknown'),
+                          ('wall_seconds',0),('peak_combined_private_memory_bytes',5*1024**3),('processes',{})]:
+            changed=copy.deepcopy(row);changed['metrics'][key]=value
+            with self.subTest(metric=key):self.assertIsNone(verify(changed))
+        for key,value in [('pid',999),('status','succeeded'),('error','RuntimeError: source changed'),('finished_at',None)]:
+            changed=copy.deepcopy(row);changed[key]=value
+            with self.subTest(field=key):self.assertIsNone(verify(changed))
+        self.assertIsNone(verify(row,pause={'file':[99],'control':BASE['control']}))
+        self.assertIsNone(verify(row,identities={'implementation_sha256':'changed'}))
+        changed=state();changed['canonical_anchor']='fork'
+        with self.assertRaisesRegex(RuntimeError,'anchor changed'):verify(row,snapshot=changed)
+        unready=state();unready['source']['ready']=False
+        self.assertEqual(verify(row,snapshot=unready)['source_status'],'source_not_ready')
     def test_resume_budget_does_not_restart_clock_or_active_time(self):
         session={'max_active_seconds':100,'active_seconds':80,'deadline_unix':200,'last_wall_unix':150}
         self.assertEqual(driver.remaining(session,160),20)
@@ -331,6 +395,77 @@ class DriverDatabaseTests(unittest.TestCase):
             cur.execute('SELECT count(*) FROM quantum_v2.request WHERE generation_id IS NOT NULL');self.assertEqual(cur.fetchone()[0],0)
             cur.execute('SELECT paused FROM quantum_v2.control');self.assertTrue(cur.fetchone()[0])
         self.assertTrue((Path(self.config['state_dir'])/'PAUSED').exists())
+    def test_owned_hard_deadline_keeps_failed_run_and_resumes_committed_checkpoint(self):
+        # The first real child commits one source page, then stalls in Python
+        # inside its next page. The normal soft SQL cancel cannot end that
+        # sleep; the existing hard child deadline must unwind the real worker.
+        # Only the fixture's first child is stalled. The next child must resume
+        # without deleting its failed predecessor or charging away its cost.
+        with self.conn,self.conn.cursor() as cur:
+            cur.execute("INSERT INTO outputs SELECT 2,lpad(to_hex(n),64,'0'),0,100,'fixture','pubkey',%s,NULL FROM generate_series(10,20) n",('21'+fixtures.G+'ac',))
+        self.config['bootstrap_rows']=1
+        config=self.driver_config(work_seconds=3)
+        child_source='''import os,sys,time
+from pathlib import Path
+sys.path.insert(0,str(Path(sys.argv[1]).parent))
+import run_quantum_bootstrap as d
+w,f=d.runtime()
+args=sys.argv[2:]
+session=Path(args[args.index('--slice')+1])
+marker=session.parent/'fixture-first-child-stall'
+try:fd=os.open(marker,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
+except FileExistsError:fd=None
+if fd is not None:
+    os.close(fd);original=w.store.bootstrap_step;calls=0
+    def stalled(*a,**kw):
+        global calls
+        calls+=1
+        if calls==2:time.sleep(30)
+        return original(*a,**kw)
+    w.store.bootstrap_step=stalled
+raise SystemExit(d.cli(args))
+'''
+        supervisor_source='''import subprocess,sys
+from pathlib import Path
+sys.path.insert(0,str(Path(sys.argv[1])/'scripts'))
+import run_quantum_bootstrap as d
+original=subprocess.Popen
+def launch(args,**kwargs):
+    if len(args)>1 and str(args[1]).endswith('/run_quantum_bootstrap.py'):
+        args=[sys.executable,'-c',sys.argv[3],*args[1:]]
+    return original(args,**kwargs)
+d.subprocess.Popen=launch
+raise SystemExit(d.cli(['--config',sys.argv[2],'--max-active-seconds','15','--max-elapsed-seconds','30','--rest-seconds','0']))
+'''
+        output=Path(self.temp.name)/'controlled-deadline.log'
+        with output.open('w') as stream:
+            process=subprocess.Popen([sys.executable,'-c',supervisor_source,str(ROOT),str(config),child_source],
+                stdout=stream,stderr=subprocess.STDOUT,start_new_session=True)
+        try:self.assertEqual(process.wait(timeout=20),0,output.read_text())
+        finally:
+            if process.poll() is None:process.kill();process.wait()
+        journal=driver.read_json(self.journal())
+        self.assertEqual(journal['status'],'bootstrap_complete')
+        self.assertGreaterEqual(journal['completed_slices'],2)
+        events=[json.loads(line) for line in (self.journal().parent/'events.jsonl').read_text().splitlines()]
+        first=next(row for row in events if row['event']=='slice_finished')
+        result=first['result']
+        self.assertEqual((result['event'],result['exit_code']),('run_failed',1))
+        self.assertEqual(result['continuation']['classification'],'verified_controlled_deadline')
+        self.assertEqual(result['continuation']['retained_run_status'],'failed')
+        self.assertEqual(first['rows_processed'],1)
+        self.assertGreaterEqual(first['active_seconds'],3)
+        self.assertGreater(journal['active_seconds'],first['active_seconds'])
+        with self.conn,self.conn.cursor() as cur:
+            cur.execute('SELECT status,error,metrics FROM quantum_v2.run WHERE id=%s',(result['run_id'],))
+            status,error,metrics=cur.fetchone()
+            self.assertEqual(status,'failed');self.assertEqual(error,driver.deadline_error(result['nonce']))
+            self.assertGreater(metrics['wall_seconds'],0);self.assertEqual(metrics['mode'],'bootstrap')
+            cur.execute("SELECT count(*) FROM quantum_v2.run WHERE status='running'");self.assertEqual(cur.fetchone()[0],0)
+            cur.execute("SELECT rows_processed,complete FROM quantum_v2.bootstrap_cursor WHERE source_table='canonical_blocks'")
+            self.assertEqual(cur.fetchone(),(12,True))
+            cur.execute("SELECT count(*) FROM pg_stat_activity WHERE application_name=%s",('quantum-v2-bootstrap:'+result['nonce'],))
+            self.assertEqual(cur.fetchone()[0],0)
     def test_killed_supervisor_resume_charges_reservation_and_keeps_committed_cursor(self):
         self.slow_group_insert();config=self.driver_config(work_seconds=3)
         process,output=self.launch(config,'--max-active-seconds','20','--max-elapsed-seconds','45')

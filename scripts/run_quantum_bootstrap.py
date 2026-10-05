@@ -245,6 +245,80 @@ def stop_child(process,conn,handoff,nonce):
         cancel_owned_backend(conn,handoff,nonce,process.pid)
 
 
+def deadline_error(nonce):
+    return 'SliceInterrupted: owned bootstrap deadline '+nonce
+
+
+def deadline_candidate(result,pending,handoff,child_pid):
+    """A failed worker result is not itself evidence of a controlled deadline."""
+    interruption=result.get('interruption') or {}
+    at=interruption.get('observed_monotonic')
+    return bool(result.get('event')=='run_failed' and result.get('exit_code')==1 and result.get('run_id')
+        and result.get('worker_error')==deadline_error(pending['nonce'])
+        and result.get('nonce')==pending['nonce'] and handoff
+        and handoff.get('nonce')==pending['nonce'] and handoff.get('child_pid')==child_pid
+        and interruption.get('origin') in ('child_deadline_timer','supervisor_deadline')
+        and interruption.get('nonce')==pending['nonce'] and interruption.get('child_pid')==child_pid
+        and interruption.get('deadline_monotonic')==pending['deadline_monotonic']
+        and interruption.get('signal')==signal.SIGTERM
+        and type(at) in (int,float) and math.isfinite(at) and at>=pending['deadline_monotonic'])
+
+
+def verify_deadline_checkpoint(conn,config,session,worker,fingerprint,result,pending,handoff,child_pid):
+    """Read-only proof for resuming after a recorded FAILED bootstrap attempt.
+
+    This never changes a run's status/error/metrics. It is valid only after the
+    owned child/group has been reaped and its exact backend has disconnected.
+    """
+    from psycopg2.extras import RealDictCursor
+    if not deadline_candidate(result,pending,handoff,child_pid):return None
+    until=time.monotonic()+CHILD_CLEANUP_SECONDS
+    while True:
+        with conn,conn.cursor() as cur:
+            cur.execute('''SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=%s
+                AND backend_start=%s::timestamptz AND datname=%s AND application_name=%s
+                AND datname=current_database())''',
+                (handoff['backend_pid'],handoff['backend_start'],handoff['database'],
+                 'quantum-v2-bootstrap:'+pending['nonce']))
+            alive=cur.fetchone()[0]
+        if not alive:break
+        if time.monotonic()>=until:return None
+        time.sleep(.05)
+    with conn,conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute('SELECT id,pid,status,error,finished_at,metrics FROM quantum_v2.run WHERE id=%s',
+                    (result['run_id'],));run=cur.fetchone()
+    if (not run or run['pid']!=child_pid or run['status']!='failed' or not run['finished_at']
+            or run['error']!=deadline_error(pending['nonce'])):return None
+    metrics=run['metrics'] or {}
+    if (metrics.get('mode')!='bootstrap' or metrics.get('implementation_sha256')!=session['implementation_sha256']
+            or metrics.get('config_sha256')!=session['config_sha256']):return None
+    # An interrupt must not hide a resource breach or missing measurements.
+    for name in ('memory_limit_exceeded','disk_reserve_exceeded'):
+        if metrics.get(name) is not False:return None
+    for name in ('memory_measurement_error','disk_measurement_error'):
+        if name not in metrics or metrics[name] is not None:return None
+    for name in ('wall_seconds','peak_combined_private_memory_bytes'):
+        value=metrics.get(name)
+        if type(value) not in (int,float) or not math.isfinite(value) or value<=0:return None
+    if metrics.get('memory_limit_bytes')!=int(config.get('memory_limit_bytes',4*1024**3)):return None
+    if metrics['peak_combined_private_memory_bytes']>metrics['memory_limit_bytes']:return None
+    processes=metrics.get('processes') or {}
+    if set(processes)!={str(child_pid),str(handoff['backend_pid'])}:return None
+    if any(type(row.get('private_memory_bytes')) is not int or row['private_memory_bytes']<=0
+           for row in processes.values()):return None
+    if pause_changed(pause_state(conn,config),session['pause_baseline']):return None
+    if any(session.get(k)!=v for k,v in identities(read_json(session['config_path']),worker,fingerprint,session['config_path']).items()):return None
+    checkpoint=result.get('checkpoint')
+    if not checkpoint:return None
+    check_snapshot(checkpoint,session['expected_anchor'])
+    fresh=snapshot(conn);source_status=check_snapshot(fresh,session['expected_anchor'])
+    if fresh['projection']!=checkpoint['projection'] or fresh['cursor']!=checkpoint['cursor']:return None
+    return dict(classification='verified_controlled_deadline',run_id=str(run['id']),
+        nonce=pending['nonce'],child_pid=child_pid,owned_child_reaped=True,
+        retained_run_status=run['status'],retained_error=run['error'],measured_wall_seconds=metrics['wall_seconds'],
+        owned_backend_gone=True,source_status=source_status,checkpoint_verified=True)
+
+
 def supervise_slice(conn,config,path,session,worker,fingerprint,seconds,lease_fd=None):
     from quantum_subprocess import _finish_launch_before_cancelling,cancellation_signals
     nonce=uuid.uuid4().hex;prefix=path.parent/nonce
@@ -270,8 +344,29 @@ def supervise_slice(conn,config,path,session,worker,fingerprint,seconds,lease_fd
                     next_drift_check=time.monotonic()+1
                     if any(session.get(k)!=v for k,v in identities(read_json(session['config_path']),worker,fingerprint,session['config_path']).items()):reason='source_or_config_changed'
                 if reason:
+                    if reason=='slice_deadline':
+                        atomic_json(prefix.with_suffix('.stop.json'),dict(nonce=nonce,child_pid=process.pid,
+                            reason=reason,deadline_monotonic=pending['deadline_monotonic'],observed_monotonic=time.monotonic()))
                     stop_child(process,conn,handoff,nonce);break
                 time.sleep(min(0.25,max(0,seconds-(time.monotonic()-start))))
+        if not result_path.exists():
+            if reason:
+                return {'event':'child_interrupted_without_result','exit_code':process.returncode,'run_id':None,
+                        'supervisor_stop':reason,'incomplete_run_accounting':True}
+            raise RuntimeError('Bootstrap child left no completed result; inspect its private log')
+        result=read_json(result_path)
+        if result.get('nonce')!=nonce:raise RuntimeError('Bootstrap child result identity differs')
+        result.pop('continuation',None)  # Only this supervisor may add verified continuation evidence.
+        if reason:result['supervisor_stop']=reason
+        if handoff is None and handoff_path.exists():handoff=read_json(handoff_path)
+        if deadline_candidate(result,pending,handoff,process.pid) and reason in (None,'slice_deadline'):
+            # Clear the complete owned process group even if the child's own
+            # deadline fired and it exited before the parent's next poll.
+            stop_child(process,conn,handoff,nonce)
+            if process.returncode==1:
+                proof=verify_deadline_checkpoint(conn,config,session,worker,fingerprint,result,pending,handoff,process.pid)
+                if proof:result['continuation']=proof
+        return result
     except BaseException:
         if process is not None:
             if handoff is None and handoff_path.exists():handoff=read_json(handoff_path)
@@ -282,15 +377,6 @@ def supervise_slice(conn,config,path,session,worker,fingerprint,seconds,lease_fd
         # the full reservation above. Time budgets are never silently reset.
         session['active_seconds']+=time.monotonic()-start
         session['in_flight']=None;atomic_json(path,session)
-    if not result_path.exists():
-        if reason:
-            return {'event':'child_interrupted_without_result','exit_code':process.returncode,'run_id':None,
-                    'supervisor_stop':reason,'incomplete_run_accounting':True}
-        raise RuntimeError('Bootstrap child left no completed result; inspect its private log')
-    result=read_json(result_path)
-    if result.get('nonce')!=nonce:raise RuntimeError('Bootstrap child result identity differs')
-    if reason:result['supervisor_stop']=reason
-    return result
 
 
 class SliceInterrupted(Exception):
@@ -322,10 +408,26 @@ def child_slice(args):
     if not math.isfinite(hard_deadline):raise ValueError('Invalid absolute child deadline')
     conn=None;nonce=args.nonce;prefix=args.slice.parent/nonce
     result={'nonce':nonce,'event':'child_failed','exit_code':1,'run_id':None}
-    finished=threading.Event()
-    def interrupt(signum,frame):raise SliceInterrupted()
+    finished=threading.Event();deadline_fired=threading.Event();interruption={}
+    def interrupt(signum,frame):
+        if interruption:return  # Allow one cooperative unwind, not repeated signals during its accounting.
+        observed=time.monotonic();origin='external_signal'
+        if signum==signal.SIGTERM and observed>=hard_deadline:
+            if deadline_fired.is_set():origin='child_deadline_timer'
+            else:
+                stop_path=prefix.with_suffix('.stop.json')
+                if stop_path.exists():
+                    stop=read_json(stop_path)
+                    if (stop.get('nonce')==nonce and stop.get('child_pid')==os.getpid()
+                            and stop.get('reason')=='slice_deadline' and stop.get('deadline_monotonic')==hard_deadline
+                            and type(stop.get('observed_monotonic')) in (int,float)
+                            and hard_deadline<=stop['observed_monotonic']<=observed):origin='supervisor_deadline'
+        interruption.update(origin=origin,nonce=nonce,child_pid=os.getpid(),signal=signum,
+                            deadline_monotonic=hard_deadline,observed_monotonic=observed)
+        raise SliceInterrupted('owned bootstrap deadline '+nonce if origin!='external_signal' else 'external signal')
     signal.signal(signal.SIGTERM,interrupt);signal.signal(signal.SIGINT,interrupt)
     def deadline():
+        deadline_fired.set()
         if conn is not None:
             threading.Thread(target=conn.cancel,daemon=True).start()
         os.kill(os.getpid(),signal.SIGTERM)
@@ -350,14 +452,16 @@ def child_slice(args):
             code=worker.run_once(conn,config,bootstrap_only=True,admin_stop_requested=stopped,
                                  admin_deadline=hard_deadline-min(5,args.slice_seconds/3))
         event=log.last or {};result.update(event=event.get('event','no_run_event'),exit_code=code,run_id=event.get('run_id'))
+        if event.get('error')==deadline_error(nonce):result['worker_error']=event['error']
         result['checkpoint']=snapshot(conn)
     except SliceInterrupted:
         if conn is not None:conn.rollback()
-        result.update(event='slice_interrupted',exit_code=0)
+        result.update(event='slice_interrupted',exit_code=1)
     except Exception as exc:
         result['error_type']=type(exc).__name__
     finally:
         if conn is not None:conn.close()
+        if interruption:result['interruption']=interruption
         atomic_json(prefix.with_suffix('.result.json'),result)
         finished.set();timer.cancel();timer.join()
     return result['exit_code']
@@ -428,7 +532,8 @@ def main(argv=None):
                     append_event(path.parent/'events.jsonl',event);print(json.dumps(event,default=str),flush=True)
                     if result.get('supervisor_stop') in ('paused','source_or_config_changed'):
                         session['status']=result['supervisor_stop'];break
-                    if result['exit_code'] or result['event'] not in ('run_complete','source_not_ready','paused','slice_interrupted','slice_deadline'):
+                    controlled_deadline=result.get('continuation',{}).get('classification')=='verified_controlled_deadline'
+                    if (not controlled_deadline and (result['exit_code'] or result['event'] not in ('run_complete','source_not_ready','paused'))):
                         session['status']='failed';break
                     if result['event']=='paused':session['status']='paused';break
                 atomic_json(path,session)
