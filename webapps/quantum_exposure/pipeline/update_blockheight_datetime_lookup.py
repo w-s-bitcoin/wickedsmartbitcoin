@@ -26,6 +26,7 @@ def parse_args() -> argparse.Namespace:
         default=str(resolve_env_file()),
         help="Path to .env file with PostgreSQL credentials",
     )
+    parser.add_argument("--data-dir", type=Path, default=WEBAPP_DATA_DIR)
     return parser.parse_args()
 
 
@@ -73,7 +74,10 @@ def write_lookup(rows_by_height: dict[int, int]) -> None:
 
 
 def main() -> None:
+    global WEBAPP_DATA_DIR, LOOKUP_PATH
     args = parse_args()
+    WEBAPP_DATA_DIR = args.data_dir.resolve()
+    LOOKUP_PATH = WEBAPP_DATA_DIR / "blockheight_datetime_lookup.csv"
     load_dotenv(dotenv_path=Path(args.env_file))
 
     existing_rows, max_existing_height = load_existing_lookup()

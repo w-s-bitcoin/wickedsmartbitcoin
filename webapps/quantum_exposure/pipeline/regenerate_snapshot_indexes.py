@@ -6,10 +6,13 @@ Generate ECO mode optimized files for Quantum Exposure dashboard:
 """
 
 import json
+import argparse
 import csv
+import heapq
 import io
 from pathlib import Path
 from pipeline_paths import QUANTUM_DIR
+from publish_generation import _atomic_write_text
 
 QUANTUM_EXPOSURE_DIR = QUANTUM_DIR
 WEBAPP_DATA_DIR = QUANTUM_EXPOSURE_DIR / "webapp_data"
@@ -70,8 +73,7 @@ def write_text_if_changed(path, content):
         except Exception:
             pass
 
-    with open(path, "w", encoding="utf-8", newline="") as f:
-        f.write(content)
+    _atomic_write_text(path, content)
     return True
 
 
@@ -109,6 +111,8 @@ def enhance_ge1_csv_with_unix_times(ge1_csv_path, lookup_by_height=None):
         with open(ge1_csv_path, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             fieldnames = list(reader.fieldnames or [])
+            if all(column in fieldnames for column in ECO_EXTRA_COLUMNS):
+                return False
             rows = list(reader)
 
         if not rows:
@@ -136,8 +140,7 @@ def enhance_ge1_csv_with_unix_times(ge1_csv_path, lookup_by_height=None):
             return True
         return False
     except Exception as e:
-        print(f"    ✗ Error enhancing {ge1_csv_path.name}: {e}")
-        return None
+        raise RuntimeError(f"Error enhancing {ge1_csv_path}") from e
 
 
 def generate_eco_subset_for_snapshot(snapshot_dir, lookup_by_height=None):
@@ -162,14 +165,18 @@ def generate_eco_subset_for_snapshot(snapshot_dir, lookup_by_height=None):
     try:
         with open(ge1_csv_path, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
-            rows = list(reader)
+            total_rows = 0
+            def counted_rows():
+                nonlocal total_rows
+                for row in reader:
+                    total_rows += 1
+                    yield row
+            eco_rows = heapq.nlargest(ECO_TOP_N, counted_rows(), key=get_exposed_supply)
 
-        if not rows:
+        if not eco_rows:
             return None
 
         # Sort by exposed supply descending
-        rows_sorted = sorted(rows, key=lambda r: get_exposed_supply(r), reverse=True)
-        eco_rows = rows_sorted[:ECO_TOP_N]
 
         if eco_rows:
             # Embed unix times for fast tooltip rendering in ECO mode.
@@ -187,13 +194,12 @@ def generate_eco_subset_for_snapshot(snapshot_dir, lookup_by_height=None):
             eco_content = serialize_csv_rows(eco_fieldnames, eco_rows)
 
             if not write_text_if_changed(eco_subset_csv_path, eco_content):
-                return {"status": "unchanged", "count": len(eco_rows), "total": len(rows)}
+                return {"status": "unchanged", "count": len(eco_rows), "total": total_rows}
 
-            total_rows = len(rows)
             return {"status": "generated", "count": len(eco_rows), "total": total_rows}
         return None
     except Exception as e:
-        return {"status": "error", "error": str(e)}
+        raise RuntimeError(f"Error generating subset for {snapshot_dir}") from e
 
 
 def get_snapshot_time_from_meta(snapshot_dir):
@@ -244,7 +250,7 @@ def write_snapshots_index(snapshot_dirs, lookup_by_height=None):
         else:
             print(f"  ⊘ snapshots_index.csv unchanged ({len(rows)} snapshots)")
     except Exception as e:
-        print(f"  ✗ Error writing snapshots_index.csv: {e}")
+        raise RuntimeError("Error writing snapshots_index.csv") from e
 
 
 def write_archived_index(lookup_by_height=None):
@@ -289,7 +295,7 @@ def write_archived_index(lookup_by_height=None):
         else:
             print(f"  ⊘ archived_index.csv unchanged ({len(rows)} snapshots)")
     except Exception as e:
-        print(f"  ✗ Error writing archived_index.csv: {e}")
+        raise RuntimeError("Error writing archived_index.csv") from e
 
 
 def get_snapshot_height(snapshot_dir):
@@ -325,11 +331,10 @@ def load_aggregates_for_snapshot(snapshot_dir):
                 rows.append(row)
         return rows
     except Exception as e:
-        print(f"  ✗ Error reading aggregates from {snapshot_dir.name}: {e}")
-        return None
+        raise RuntimeError(f"Error reading aggregates from {snapshot_dir}") from e
 
 
-def generate_historical_eco_rows(snapshot_height, aggregates_rows):
+def generate_historical_eco_rows(snapshot_height, aggregates_rows, *, include_other=False):
     """Generate historical_eco.csv rows for a snapshot."""
     if not aggregates_rows:
         return []
@@ -343,7 +348,7 @@ def generate_historical_eco_rows(snapshot_height, aggregates_rows):
         # Only include valid filter combinations
         if (
             balance_filter in BALANCE_FILTERS
-            and script_type_filter in SCRIPT_TYPES
+            and script_type_filter in (SCRIPT_TYPES + (["Other"] if include_other else []))
             and spend_activity_filter in SPEND_ACTIVITIES
         ):
             output_rows.append(
@@ -367,6 +372,15 @@ def generate_historical_eco_rows(snapshot_height, aggregates_rows):
     return output_rows
 
 
+def snapshot_has_exact_export(snapshot_dir):
+    path = snapshot_dir / "dashboard_snapshot_meta.csv"
+    if not path.is_file():
+        return False
+    with path.open(newline="", encoding="utf-8") as handle:
+        row = next(csv.DictReader(handle), {})
+    return row.get("export_version") == "quantum-csv-v2"
+
+
 def rebuild_historical_eco(all_rows, output_path=None):
     """Fully rebuild historical_eco.csv (or a given path) from provided rows."""
     if output_path is None:
@@ -383,12 +397,16 @@ def rebuild_historical_eco(all_rows, output_path=None):
             return {"status": "written", "rows": len(rows_sorted)}
         return {"status": "unchanged", "rows": len(rows_sorted)}
     except Exception as e:
-        print(f"  ✗ Error writing to {output_path.name}: {e}")
-        return {"status": "error", "rows": 0}
+        raise RuntimeError(f"Error writing {output_path}") from e
 
 
 def main():
     """Main execution."""
+    global WEBAPP_DATA_DIR
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--data-dir", type=Path, default=WEBAPP_DATA_DIR)
+    args = parser.parse_args()
+    WEBAPP_DATA_DIR = args.data_dir.resolve()
     if not WEBAPP_DATA_DIR.exists():
         print(f"Error: {WEBAPP_DATA_DIR} not found")
         return
@@ -513,7 +531,7 @@ def main():
 
         aggregates = load_aggregates_for_snapshot(snapshot_dir)
         if aggregates:
-            rows = generate_historical_eco_rows(snapshot_height, aggregates)
+            rows = generate_historical_eco_rows(snapshot_height, aggregates, include_other=snapshot_has_exact_export(snapshot_dir))
             if rows:
                 included_snapshots.append(snapshot_height)
                 historical_rows_all.extend(rows)
@@ -548,7 +566,7 @@ def main():
             continue
         aggregates = load_aggregates_for_snapshot(snapshot_dir)
         if aggregates:
-            rows = generate_historical_eco_rows(snapshot_height, aggregates)
+            rows = generate_historical_eco_rows(snapshot_height, aggregates, include_other=snapshot_has_exact_export(snapshot_dir))
             if rows:
                 included_archived_snapshots.append(snapshot_height)
                 historical_archived_rows.extend(rows)

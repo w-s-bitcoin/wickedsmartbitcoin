@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 
 import os
+import fcntl
 import json
 import shutil
 import subprocess
 import sys
 import time
+import tempfile
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -58,40 +60,135 @@ DEV_DATA_SYNC_ENABLED = os.getenv("ANIMATIONS_SYNC_DEV_DATA", "1").strip().lower
 }
 
 
-def acquire_lock(path: Path, stale_seconds: int = 6 * 3600, wait_seconds: int = 0) -> bool:
-    deadline = datetime.now(timezone.utc).timestamp() + wait_seconds
-    if path.exists():
-        while path.exists():
-            try:
-                pid = int(path.read_text().strip())
-                os.kill(pid, 0)
-                age = datetime.now(timezone.utc).timestamp() - path.stat().st_mtime
-                if age > stale_seconds:
-                    path.unlink(missing_ok=True)
-                    print(f"ℹ️ Removed stale lock (age): {path}")
-                    break
-                if datetime.now(timezone.utc).timestamp() >= deadline:
-                    print(f"⛔ Deploy already running (pid {pid}): {path}")
-                    return False
-                print(f"⏳ Waiting for active deploy to finish (pid {pid}).")
-                time.sleep(5)
-            except (ValueError, ProcessLookupError):
-                path.unlink(missing_ok=True)
-                print(f"ℹ️ Removed stale lock (dead process): {path}")
-                break
-            except PermissionError:
-                if datetime.now(timezone.utc).timestamp() >= deadline:
-                    print(f"⛔ Deploy lock exists and is owned by another user: {path}")
-                    return False
-                print(f"⏳ Waiting for deploy lock owned by another user: {path}")
-                time.sleep(5)
+_HELD_DEPLOY_LOCKS: dict[Path, tuple[int, int]] = {}
 
-    path.write_text(str(os.getpid()))
-    return True
+
+def _lock_path(path: Path) -> Path:
+    # Normalize spelling without following a replaceable final symlink.
+    return Path(os.path.abspath(path))
+
+
+def _lock_inode_matches(path: Path, descriptor: int) -> bool:
+    try:
+        named, held = path.lstat(), os.fstat(descriptor)
+        return (named.st_dev, named.st_ino) == (held.st_dev, held.st_ino)
+    except FileNotFoundError:
+        return False
+
+
+def _lock_pid(descriptor: int) -> int | None:
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    value = os.read(descriptor, 128).decode('ascii', errors='replace').strip()
+    return int(value) if value.isdecimal() and 0 < int(value) < 2**31 else None
+
+
+def _lock_owner_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def _claim_new_lock(path: Path) -> int | None:
+    # Publish a fully written, already flocked inode with an exclusive hardlink.
+    # Creating the final file before flock/PID initialization leaves a race in
+    # which another contender can mistake the empty file for an abandoned lock.
+    descriptor, temporary = tempfile.mkstemp(prefix=f'.{path.name}.', dir=path.parent)
+    retained = False
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        os.write(descriptor, str(os.getpid()).encode('ascii'))
+        os.fsync(descriptor)
+        try:
+            os.link(temporary, path)
+        except FileExistsError:
+            return None
+        if not _lock_inode_matches(path, descriptor):
+            return None
+        retained = True
+        return descriptor
+    finally:
+        os.unlink(temporary)
+        if not retained:
+            os.close(descriptor)
+
+
+def acquire_lock(path: Path, stale_seconds: int = 6 * 3600, wait_seconds: int = 0) -> bool:
+    """Own both the PID pathname and its flock until release.
+
+    stale_seconds remains accepted for caller compatibility, but age never
+    overrides a live owner. Existing legacy PID locks are respected even when
+    their process does not hold flock. Malformed locks require inspection.
+    """
+    path = _lock_path(path)
+    owned = _HELD_DEPLOY_LOCKS.get(path)
+    if owned:
+        if owned[1] == os.getpid():
+            return False
+        # After fork, close only this child's inherited descriptor. Explicitly
+        # unlocking it would also release the parent's open-file-description lock.
+        os.close(owned[0])
+        del _HELD_DEPLOY_LOCKS[path]
+    deadline = time.monotonic() + max(0, wait_seconds)
+    while True:
+        descriptor = _claim_new_lock(path)
+        if descriptor is not None:
+            _HELD_DEPLOY_LOCKS[path] = (descriptor, os.getpid())
+            return True
+        existing = None
+        removed = False
+        try:
+            existing = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+            try:
+                fcntl.flock(existing, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                pass
+            else:
+                if not _lock_inode_matches(path, existing):
+                    continue
+                pid = _lock_pid(existing)
+                if pid is not None and not _lock_owner_alive(pid):
+                    # Recheck the PID for old deployments that do not use flock,
+                    # and the inode for contenders that opened before replacement.
+                    if _lock_pid(existing) == pid and _lock_inode_matches(path, existing):
+                        path.unlink()
+                        removed = True
+                        print(f"ℹ️ Removed deploy lock owned by dead process {pid}: {path}")
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            print(f"⛔ Cannot safely inspect deploy lock: {path} ({exc.__class__.__name__})")
+            return False
+        finally:
+            if existing is not None:
+                os.close(existing)
+        if removed:
+            continue
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            print(f"⛔ Deploy lock is active or requires inspection: {path}")
+            return False
+        print(f"⏳ Waiting for deploy lock: {path}")
+        time.sleep(min(5, remaining))
 
 
 def release_lock(path: Path) -> None:
-    path.unlink(missing_ok=True)
+    path = _lock_path(path)
+    owned = _HELD_DEPLOY_LOCKS.pop(path, None)
+    if owned is None:
+        return
+    descriptor, owner = owned
+    try:
+        if owner == os.getpid() and _lock_inode_matches(path, descriptor) and _lock_pid(descriptor) == owner:
+            path.unlink()
+    finally:
+        # A forked child must not unlock its parent's inherited descriptor.
+        if owner == os.getpid():
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
 
 
 # These overrides apply only to Git commands launched by production automation.
@@ -208,6 +305,8 @@ def _preview_subjects(subjects: list[str]) -> str:
 def _is_allowed_local_subject(subject: str, branch: str) -> bool:
     if subject in AUTO_DEPLOY_SUBJECTS:
         return True
+    if subject.startswith("Publish Quantum generation "):
+        return True
     # Allow sync merge commits created by deploy reconciliation.
     if subject.startswith(f"Merge remote-tracking branch 'origin/{branch}'"):
         return True
@@ -241,6 +340,17 @@ def _reconcile_with_origin(branch: str, ahead: int, behind: int) -> bool:
         )
         print(f"ℹ️ Local-only commits: {_preview_subjects(non_auto_subjects)}")
         return False
+
+    # Quantum publications are ordinary commits. Keep both histories when a
+    # concurrent producer advances main; never amend or reset a Quantum retry.
+    if os.getenv("ANIMATIONS_DEPLOY_SOURCE") == "quantum" or any(subject.startswith("Publish Quantum generation ") for subject in local_subjects):
+        rc, out, err = run(["git", "merge", "--no-edit", f"origin/{branch}"], cwd=REPO, timeout=60)
+        if rc:
+            # A merge may conflict with another data generation. Retain its
+            # staging, restore the pre-merge state, and defer for inspection.
+            run(["git", "merge", "--abort"], cwd=REPO, timeout=60)
+            print(f"⛔ Quantum publication merge deferred: {err or out}")
+        return rc == 0
 
     print(
         f"ℹ️ Local branch diverged from origin/{branch} ({ahead} ahead, {behind} behind) with automation-only commits; "
@@ -348,7 +458,7 @@ def _list_stage_run_dirs() -> list[Path]:
         if p.is_dir()
         and (p / "files").exists()
         and (
-            not p.name.startswith("1h-")
+            not p.name.startswith(("1h-", "quantum-"))
             or (p / HOURLY_STAGE_COMPLETE_SENTINEL).is_file()
         )
     ]
@@ -357,13 +467,43 @@ def _list_stage_run_dirs() -> list[Path]:
 
 def _list_stage_run_dirs_for_source(source: str | None = None) -> list[Path]:
     run_dirs = _list_stage_run_dirs()
-    if source in {"onchain", "1h"}:
+    if source in {"onchain", "1h", "quantum"}:
         return [p for p in run_dirs if p.name.startswith(f"{source}-")]
-    return run_dirs
+    # Quantum delivery is requested explicitly by its durable coordinator.
+    return [p for p in run_dirs if not p.name.startswith("quantum-")]
 
 
 def _has_onchain_stage() -> bool:
     return bool(_list_stage_run_dirs_for_source("onchain"))
+
+
+QUANTUM_MARKER = Path("webapps/quantum_exposure/webapp_data/published_generation.json")
+
+
+def _quantum_marker(root: Path) -> dict:
+    marker = json.loads((root / QUANTUM_MARKER).read_text(encoding="utf-8"))
+    if not isinstance(marker.get("generation_id"), str) or not isinstance(marker.get("snapshot_blockheight"), int):
+        raise ValueError("Quantum marker lacks a generation identity or integer height")
+    return marker
+
+
+def _current_quantum_stages(run_dirs: list[Path]) -> list[Path]:
+    """Never replace a newer accepted height with an old delivery retry."""
+    current = _quantum_marker(REPO) if (REPO / QUANTUM_MARKER).exists() else {"snapshot_blockheight": -1}
+    accepted_height = current["snapshot_blockheight"]
+    selected = []
+    for run_dir in run_dirs:
+        candidate = _quantum_marker(run_dir / "files")
+        if candidate["snapshot_blockheight"] < accepted_height:
+            print(f"ℹ️ Retaining superseded Quantum stage for coordinator acknowledgement: {run_dir.name}")
+            continue
+        if candidate["snapshot_blockheight"] == accepted_height:
+            candidate_order = int(candidate.get("metadata", {}).get("request_id", 0))
+            accepted_order = int(current.get("metadata", {}).get("request_id", 0))
+            if candidate_order and accepted_order > candidate_order:
+                continue
+        selected.append((candidate["snapshot_blockheight"], int(candidate.get("metadata", {}).get("request_id", 0)), run_dir))
+    return [run_dir for _, _, run_dir in sorted(selected)]
 
 
 def _onchain_pending_is_current() -> bool:
@@ -511,6 +651,36 @@ def _ensure_only_deploy_changes(deploy_paths: set[str], *, retained_runs: list[P
     return True
 
 
+def _ensure_quantum_owned_changes(run_dirs: list[Path]) -> bool:
+    """An output pathname alone does not prove ownership of an existing edit."""
+    prefix = QUANTUM_MARKER.parent.as_posix() + "/"
+    if any(not path.startswith(prefix) for path in _staged_output_paths(run_dirs)):
+        print("⛔ Quantum staging contains a file outside its dashboard data directory.")
+        return False
+    rc, output, err = run(["git", "status", "--porcelain=v1", "-z", "--untracked-files=all", "--",
+                           QUANTUM_MARKER.parent.as_posix()], cwd=REPO, timeout=30)
+    if rc:
+        print(f"⛔ Cannot inspect Quantum output ownership: {err or output}")
+        return False
+    try:
+        for entry in filter(None, output.split("\0")):
+            if len(entry) < 4 or entry[2] != " " or "R" in entry[:2] or "C" in entry[:2]:
+                raise RuntimeError("Quantum output has an unsupported rename or conflict")
+            path = entry[3:]
+            candidates = [directory / "files" / path for directory in run_dirs]
+            allowed = {_disk_file_state(candidate) for candidate in candidates if candidate.exists()}
+            allowed.discard(None)
+            if not allowed:
+                raise RuntimeError(f"Quantum output edit has no retained generation: {path}")
+            allowed.add(_git_file_state(path, index=False))
+            if _git_file_state(path, index=True) not in allowed or _disk_file_state(REPO / path) not in allowed:
+                raise RuntimeError(f"Quantum output edit differs from HEAD and retained generations: {path}")
+    except RuntimeError as exc:
+        print(f"⛔ {exc}")
+        return False
+    return True
+
+
 def _apply_staged_outputs(source: str | None = None, *, run_dirs: list[Path] | None = None) -> int:
     applied_files = 0
     if run_dirs is None:
@@ -619,7 +789,7 @@ def sync_published_data_to_dev(source_ref: str) -> None:
 
 def main() -> int:
     deploy_source = os.getenv("ANIMATIONS_DEPLOY_SOURCE", "").strip().lower()
-    if deploy_source not in {"onchain", "1h"}:
+    if deploy_source not in {"onchain", "1h", "quantum"}:
         deploy_source = None
 
     print("=" * 60)
@@ -653,17 +823,33 @@ def main() -> int:
         # A concurrent origin update can require resetting an automation commit
         # and reapplying these exact outputs before retrying the push.
         run_dirs = _list_stage_run_dirs_for_source(deploy_source)
+        if deploy_source == "quantum" and not run_dirs:
+            print("✅ No complete Quantum publication is staged.")
+            return 0
         deploy_paths = _staged_output_paths(run_dirs) | {"assets/last_updated.txt"}
         retained_runs = [path for path in _list_stage_run_dirs() if path not in run_dirs]
         if not _ensure_only_deploy_changes(deploy_paths, retained_runs=retained_runs):
             return 1
+        if deploy_source == "quantum" and not _ensure_quantum_owned_changes(run_dirs):
+            return 1
         if not _sync_with_origin_preserving_worktree():
+            return 1
+        if deploy_source == "quantum" and not _ensure_quantum_owned_changes(run_dirs):
             return 1
 
         for attempt in range(2):
             expected_main = _reconciled_origin_main()
             if expected_main is None:
                 return 1
+            if deploy_source == "quantum":
+                try:
+                    run_dirs = _current_quantum_stages(run_dirs)
+                except (ValueError, OSError) as exc:
+                    print(f"⛔ Invalid Quantum staging: {exc}")
+                    return 1
+                if not run_dirs:
+                    print("✅ Quantum staging has already been superseded.")
+                    return 0
             _apply_staged_outputs(run_dirs=run_dirs)
             assets = REPO / "assets"
             assets.mkdir(parents=True, exist_ok=True)
@@ -689,9 +875,11 @@ def main() -> int:
             if rc != 0:
                 print(f"❌ git log failed: {err or last_msg}")
                 return 1
-            amend_last = last_msg.strip() in AUTO_DEPLOY_SUBJECTS
+            amend_last = deploy_source != "quantum" and last_msg.strip() in AUTO_DEPLOY_SUBJECTS
             if has_changes:
-                commit_args = ["--amend", "--no-edit"] if amend_last else ["-m", AUTO_DEPLOY_COMMIT_MESSAGE]
+                message = (f"Publish Quantum generation {_quantum_marker(run_dirs[-1] / 'files')['generation_id']}"
+                           if deploy_source == "quantum" else AUTO_DEPLOY_COMMIT_MESSAGE)
+                commit_args = ["--amend", "--no-edit"] if amend_last else ["-m", message]
                 rc, out, err = run(["git", "commit", *commit_args], cwd=REPO, timeout=90)
                 if rc != 0:
                     print(f"❌ git commit failed: {err or out}")

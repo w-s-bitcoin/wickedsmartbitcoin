@@ -5,6 +5,7 @@ const SPEND_TYPES_ORDER = ["never_spent", "inactive", "active"];
 
 const state = {
   aggregatesRows: [],
+  scriptCorrectionsRows: [],
   ge1Rows: [],
   scriptPanelMode: "bars",
   supplyDisplayMode: "total",
@@ -55,6 +56,7 @@ const state = {
   snapshotReportCache: new Map(),
   publishedGenerationSignature: "",
   publishedSnapshotHeight: "",
+  publicationManifest: null,
 };
 let quantumRefreshPresentationPending = null;
 let quantumSnapshotDataLoadSequence = 0;
@@ -541,7 +543,7 @@ async function hasArchivedSnapshotDataFolder(archivedValues) {
   if (!probeHeight) return false;
 
   try {
-    const resp = await fetch(`webapp_data/archived/${probeHeight}/dashboard_pubkeys_aggregates.csv`, {
+    const resp = await quantumFetch(`webapp_data/archived/${probeHeight}/dashboard_pubkeys_aggregates.csv`, {
       cache: "no-store",
     });
     return resp.ok;
@@ -866,7 +868,7 @@ function renderSnapshotReportHtml(summary, snapshot, kpiCounts) {
         <div class="snapshot-report-delta ${totalDeltaClass}">${escapeHtml(formatCeilBtcDeltaFromDisplay(summary.total.change))}</div>
       </article>
       <article class="snapshot-report-card">
-        <h4>Exposed Pubkeys</h4>
+        <h4 data-tooltip="${escapeHtml(quantumExposureCountPresentation(snapshot).tooltip)}">${escapeHtml(quantumExposureCountPresentation(snapshot).label)}</h4>
         <div class="snapshot-report-value">${escapeHtml(kpiCounts.exposedPubkeys)}</div>
         <div class="snapshot-report-delta ${deltaClass(summary.pubkeys.change)}">${escapeHtml(stripDecimals(summary.pubkeys.change))}</div>
       </article>
@@ -1035,7 +1037,7 @@ async function loadSnapshotReportIntoModal() {
   }
 
   try {
-    const resp = await fetch(`${snapshotBasePath(snapshot)}/snapshot_diff_summary.txt`, { cache: "no-store" });
+    const resp = await quantumFetch(`${snapshotBasePath(snapshot)}/snapshot_diff_summary.txt`, { cache: "no-store" });
     if (!resp.ok) {
       throw new Error(`Report unavailable for snapshot ${snapshot}: HTTP ${resp.status}`);
     }
@@ -1814,6 +1816,16 @@ function getRowExposedSupplySats(row) {
   return toInt(row.exposed_supply_sats);
 }
 
+function getRowBalanceSats(row) {
+  return row.current_supply_sats !== undefined ? toInt(row.current_supply_sats) : getRowExposedSupplySats(row);
+}
+
+function getRowSelectedUtxoCount(row, scriptTypes) {
+  if (row.exposed_utxo_count_by_script_type === undefined || scriptTypes.includes("All")) return toInt(row.exposed_utxo_count);
+  const counts = parseScriptSupplyMap(row.exposed_utxo_count_by_script_type);
+  return scriptTypes.reduce((sum, family) => sum + toInt(counts[family] || 0), 0);
+}
+
 function formatInt(value) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
 }
@@ -2193,11 +2205,49 @@ function classifySpendActivity(rawSpendActivity, lastSpendUnixTime, snapshotUnix
   return lastSpend <= inactiveCutoffUnix ? "inactive" : "active";
 }
 
+function quantumSnapshotProvenance(snapshot = state.snapshotHeight) {
+  const height = String(snapshot || "");
+  const cached = state.snapshotDataCache.get(height);
+  return state.publicationManifest?.metadata?.methodology_by_snapshot?.[height]
+    || cached?.publicationManifest?.metadata?.methodology_by_snapshot?.[height]
+    || cached?.metaRows?.[0]
+    || { methodology_version: "legacy-v1-unreconciled" };
+}
+
+function quantumMethodologyLabel(snapshot = state.snapshotHeight) {
+  const provenance = quantumSnapshotProvenance(snapshot);
+  return provenance.export_version === "quantum-csv-v2"
+    ? `Methodology: ${provenance.methodology_version || "Versioned group accounting"}`
+    : "Legacy snapshot: Values and activity labels are unreconciled with the current methodology.";
+}
+
+function quantumExposureCountPresentation(snapshot = state.snapshotHeight) {
+  return quantumSnapshotProvenance(snapshot).export_version === "quantum-csv-v2"
+    ? { label: "Exposed Groups", noun: "reporting groups",
+      tooltip: "Each keyhash/address reporting group with exposed UTXOs is counted once across selected script families. A group can contain multiple public keys; public keys are not deduplicated across groups." }
+    : { label: "Exposed Pubkeys", noun: "pubkeys", tooltip: "" };
+}
+
+function quantumSpendDateIsUnknown(row) {
+  const height = row?.last_spend_blockheight ?? row?.lastSpendBlockheight;
+  return Number(height) === 1
+    && !(row?.current_supply_sats !== undefined
+      && quantumSnapshotProvenance().export_version === "quantum-csv-v2");
+}
+
 function getRowSpendActivityForFilters(row, filters) {
   const rowLastSpend = row?.last_spend_unix_time ?? row?.lastSpendUnixTime;
   const rowRawSpend = row?.spend_activity ?? row?.spendActivity;
+  if (quantumSpendDateIsUnknown(row)) return String(rowRawSpend || "unknown");
   const snapshotUnix = Number(filters?.snapshotUnixTime) || getCurrentSnapshotUnixTime();
   const thresholdYears = Number(filters?.inactiveThresholdYears) || state.inactiveThresholdYears;
+  if (row?.current_supply_sats !== undefined && snapshotUnix > 0 && Number(rowLastSpend) > 0) {
+    const cutoff = new Date(snapshotUnix * 1000);
+    const month = cutoff.getUTCMonth();
+    cutoff.setUTCFullYear(cutoff.getUTCFullYear() - Math.round(thresholdYears));
+    if (cutoff.getUTCMonth() !== month) cutoff.setUTCDate(0); // February 29 -> 28.
+    return Number(rowLastSpend) <= cutoff.getTime() / 1000 ? "inactive" : "active";
+  }
   return classifySpendActivity(rowRawSpend, rowLastSpend, snapshotUnix, thresholdYears);
 }
 
@@ -3368,12 +3418,13 @@ async function loadHistoricalAggregateCsvRowsBySnapshot({ includeArchived = fals
   const groupedBySnapshot = new Map();
 
   const mergeHistoricalCsv = async (path, { skipExistingSnapshots = false } = {}) => {
-    const resp = await fetch(path, { cache: "no-store" });
+    const resp = await quantumFetch(path, { cache: "no-store" });
     if (!resp.ok) return;
 
+    const existingSnapshots = new Set(groupedBySnapshot.keys());
     parseCsv(await resp.text()).forEach((row) => {
       const snapshot = String(row.snapshot || "").trim();
-      if (!snapshot || (skipExistingSnapshots && groupedBySnapshot.has(snapshot))) return;
+      if (!snapshot || (skipExistingSnapshots && existingSnapshots.has(snapshot))) return;
 
       const aggregatesRow = { ...row };
       delete aggregatesRow.snapshot;
@@ -3423,7 +3474,7 @@ async function ensureHistoricalSeriesLoaded() {
             archivedSnapshots.map(async (snapshot) => {
               if (!snapshot || groupedBySnapshot.has(snapshot)) return;
               try {
-                const resp = await fetch(`webapp_data/archived/${snapshot}/dashboard_pubkeys_aggregates.csv`, { cache: "no-store" });
+                const resp = await quantumFetch(`webapp_data/archived/${snapshot}/dashboard_pubkeys_aggregates.csv`, { cache: "no-store" });
                 if (!resp.ok) return;
                 groupedBySnapshot.set(snapshot, parseCsv(await resp.text()));
               } catch (_err) {
@@ -3462,7 +3513,7 @@ async function ensureHistoricalSeriesLoaded() {
     for (const snapshot of snapshotsAsc) {
       let aggregatesRows = null;
       try {
-        const resp = await fetch(`${snapshotBasePath(snapshot)}/dashboard_pubkeys_aggregates.csv`, { cache: "no-store" });
+        const resp = await quantumFetch(`${snapshotBasePath(snapshot)}/dashboard_pubkeys_aggregates.csv`, { cache: "no-store" });
         if (resp.ok) {
           aggregatesRows = parseCsv(await resp.text());
         }
@@ -3647,6 +3698,8 @@ function buildFilteredExposedFromGe1Csv(csvText, filters, snapshotUnixTimeOverri
   const idxIdentity = indexByName.get("identity");
   const idxSpend = indexByName.get("spend_activity");
   const idxLastSpendUnix = indexByName.get("last_spend_unix_time");
+  const idxLastSpendHeight = indexByName.get("last_spend_blockheight");
+  const idxCurrentBalance = indexByName.get("current_supply_sats");
   const idxSupplyByScript = indexByName.get("exposed_supply_sats_by_script_type");
   const effectiveSnapshotUnixTime = snapshotUnixTimeOverride > 0
     ? snapshotUnixTimeOverride
@@ -3669,17 +3722,16 @@ function buildFilteredExposedFromGe1Csv(csvText, filters, snapshotUnixTimeOverri
     const scriptTypes = SCRIPT_TYPES_ORDER.filter((type) => toInt(supplyByScriptType[type]) > 0);
     const targets = scriptTypes.length ? scriptTypes : ["Other"];
     const exposedSupply = targets.reduce((sum, scriptType) => sum + toInt(supplyByScriptType[scriptType]), 0);
-    if (exposedSupply < minSats) continue;
+    const currentBalance = idxCurrentBalance === undefined ? exposedSupply : toInt(values[idxCurrentBalance]);
+    if (currentBalance < minSats) continue;
     if (!exposedSupply) continue;
 
     const rawSpend = idxSpend === undefined ? "" : (values[idxSpend] || "");
     const lastSpendUnix = idxLastSpendUnix === undefined ? 0 : toInt(values[idxLastSpendUnix]);
-    const spend = classifySpendActivity(
-      rawSpend,
-      lastSpendUnix,
-      effectiveSnapshotUnixTime,
-      filters.inactiveThresholdYears
-    );
+    const activityRow = { spend_activity: rawSpend, last_spend_unix_time: lastSpendUnix,
+      last_spend_blockheight: idxLastSpendHeight === undefined ? "" : values[idxLastSpendHeight] };
+    if (idxCurrentBalance !== undefined) activityRow.current_supply_sats = values[idxCurrentBalance];
+    const spend = getRowSpendActivityForFilters(activityRow, { ...filters, snapshotUnixTime: effectiveSnapshotUnixTime });
     if (!SPEND_TYPES_ORDER.includes(spend)) continue;
 
     targets.forEach((scriptType) => {
@@ -4398,6 +4450,7 @@ function renderHistoricalStackedChart(filters) {
     tooltip.style.display = "block";
     tooltip.innerHTML = `
       <div><strong>Block Height: ${formatInt(nearest.snapshotHeight)}</strong></div>
+      <div>${escapeHtml(quantumMethodologyLabel(nearest.snapshotHeight))}</div>
       <div class="historical-tooltip-row historical-tooltip-total">Total Supply: ${formatInt(totalSupplyBtc)} BTC</div>
       ${nonExposedRow}${activeRow}${inactiveRow}${neverRow}
     `;
@@ -4825,7 +4878,7 @@ function buildTopExposuresData(filters) {
   const addressQuery = String(filters.topExposureAddressQuery || "").trim().toLowerCase();
 
   const rows = state.ge1Rows
-    .filter((row) => getRowExposedSupplySats(row) >= minSats)
+    .filter((row) => getRowBalanceSats(row) >= minSats)
     .filter((row) => {
       if (scriptPassAll) return true;
       const types = getRowScriptTypes(row);
@@ -4865,11 +4918,14 @@ function buildTopExposuresData(filters) {
         displayGroupIds,
         exposedSupplySats: getRowExposedSupplySats(row),
         filteredExposedSupplySats,
-        exposedUtxoCount: toInt(row.exposed_utxo_count),
-        firstExposedBlockheight: toInt(row.first_exposed_blockheight),
-        lastSpendBlockheight: toInt(row.last_spend_blockheight),
+        exposedUtxoCount: getRowSelectedUtxoCount(row, filters.scriptTypes),
+        firstExposedBlockheight: String(row.first_exposed_blockheight ?? "").trim() ? toInt(row.first_exposed_blockheight) : -1,
+        lastSpendBlockheight: quantumSpendDateIsUnknown(row) ? 0 : toInt(row.last_spend_blockheight),
+        lastSpendDateUnknown: quantumSpendDateIsUnknown(row),
+        versionedDates: row.current_supply_sats !== undefined
+          && quantumSnapshotProvenance().export_version === "quantum-csv-v2",
         firstExposedUnixTime: toInt(row.first_exposed_unix_time) || 0,
-        lastSpendUnixTime: toInt(row.last_spend_unix_time) || 0,
+        lastSpendUnixTime: quantumSpendDateIsUnknown(row) ? 0 : (toInt(row.last_spend_unix_time) || 0),
         scriptTypes,
         spendActivity: getRowSpendActivityForFilters(row, filters),
         detail: row.details || "",
@@ -4926,7 +4982,7 @@ function rowPassesTopExposureFilters(row, filters, includeTagFilters = true) {
   const minSats = Number.isFinite(filters.balanceThresholdSats)
     ? filters.balanceThresholdSats
     : balanceMinSats(filters.balance);
-  if (getRowExposedSupplySats(row) < minSats) return false;
+  if (getRowBalanceSats(row) < minSats) return false;
 
   if (!filters.scriptTypes.includes("All")) {
     const types = getRowScriptTypes(row);
@@ -4959,7 +5015,7 @@ function rowPassesBalanceFilter(row, balanceKey) {
   const minSats = Number.isFinite(balanceKey)
     ? Math.max(0, balanceKey)
     : balanceMinSats(balanceKey);
-  return getRowExposedSupplySats(row) >= minSats;
+  return getRowBalanceSats(row) >= minSats;
 }
 
 function getFilteredExposedSupplySatsForRow(row, selectedScriptTypes) {
@@ -5146,7 +5202,48 @@ function estimateRowInputVBytesFromScriptMix(row, utxoCount) {
   );
 }
 
-function estimateMigrationBlocksFromRow(row) {
+function estimateCanonicalMigrationWeight(row, selectedScriptTypes = ["All"]) {
+  const counts = parseScriptSupplyMap(row.exposed_utxo_count_by_script_type);
+  const weights = { P2PK: 460, P2PKH: 596, P2SH: 1680, P2WPKH: 273, P2WSH: 920, P2TR: 231, Other: 1532 };
+  const compactLength = value => value < 253 ? 1 : value <= 65535 ? 3 : 5;
+  let total = 0, filled = 0, witness = false, inputs = 0, legacyInputs = 0;
+  for (const family of SCRIPT_TYPES_ORDER) {
+    if (!selectedScriptTypes.includes("All") && !selectedScriptTypes.includes(family)) continue;
+    let count = toInt(counts[family] || 0);
+    const weight = weights[family];
+    const familyWitness = ["P2WPKH", "P2WSH", "P2TR"].includes(family);
+    while (count > 0) {
+      const overhead = 184 + (witness || familyWitness ? 2 : 0);
+      const witnessTransition = familyWitness && !witness ? legacyInputs : 0;
+      const inputWeight = weight + (witness && !familyWitness ? 1 : 0);
+      const fit = Math.floor((400000 - overhead - filled - witnessTransition) / inputWeight);
+      if (fit <= 0) {
+        total += filled + 176 + 4 * (compactLength(inputs) - 1) + (witness ? 2 : 0);
+        filled = 0; witness = false; inputs = 0; legacyInputs = 0;
+        continue;
+      }
+      if (!inputs && count >= fit) {
+        const batches = Math.floor(count / fit);
+        total += batches * (fit * weight + 176 + 4 * (compactLength(fit) - 1) + (familyWitness ? 2 : 0));
+        count %= fit;
+        continue;
+      }
+      const take = Math.min(count, fit);
+      filled += take * inputWeight + witnessTransition;
+      inputs += take;
+      if (!familyWitness) legacyInputs += take;
+      witness ||= familyWitness;
+      count -= take;
+    }
+  }
+  if (inputs) total += filled + 176 + 4 * (compactLength(inputs) - 1) + (witness ? 2 : 0);
+  return total;
+}
+
+function estimateMigrationBlocksFromRow(row, selectedScriptTypes = ["All"]) {
+  if (row.exposed_utxo_count_by_script_type !== undefined) {
+    return estimateCanonicalMigrationWeight(row, selectedScriptTypes) / 4000000;
+  }
   const utxoCount = toInt(row.exposed_utxo_count);
   if (!utxoCount) return 0;
 
@@ -5179,14 +5276,14 @@ function aggregateKpisFromGe1(filters, includeTagFilters) {
   const exposedPubkeyGroupIds = new Set();
   const detailFilterActive =
     Array.isArray(filters.detailTags) && filters.detailTags.length > 0 && !filters.detailTags.includes("All");
-  const useThresholdPubkeyCounting = !isLiteMode() && includeTagFilters && detailFilterActive;
+  const useThresholdPubkeyCounting = state.ge1Rows[0]?.current_supply_sats === undefined && !isLiteMode() && includeTagFilters && detailFilterActive;
 
   state.ge1Rows.forEach((row) => {
     if (!rowPassesTopExposureFilters(row, filters, includeTagFilters)) return;
 
     const exposedSupply = getFilteredExposedSupplySatsForRow(row, filters.scriptTypes);
-    if (!exposedSupply) return;
-    const totalExposedUtxos = toInt(row.exposed_utxo_count);
+    const totalExposedUtxos = getRowSelectedUtxoCount(row, filters.scriptTypes);
+    if (row.exposed_utxo_count_by_script_type !== undefined ? totalExposedUtxos <= 0 : !exposedSupply) return;
     acc.supply_sats += exposedSupply;
     acc.exposed_supply_sats += exposedSupply;
     acc.exposed_utxo_count += totalExposedUtxos;
@@ -5194,12 +5291,13 @@ function aggregateKpisFromGe1(filters, includeTagFilters) {
       // For exposure-pattern filtering, approximate exposed pubkeys by threshold size per row.
       acc.exposed_pubkey_count += getDetailTagThresholdPubkeyCount(row.details);
     } else {
-      const rowPrimaryId = getRowPrimaryGroupId(row);
+      const rowPrimaryId = row.current_supply_sats !== undefined && row.group_id
+        ? row.group_id : getRowPrimaryGroupId(row);
       if (rowPrimaryId) {
         exposedPubkeyGroupIds.add(rowPrimaryId);
       }
     }
-    acc.estimated_migration_blocks += estimateMigrationBlocksFromRow(row);
+    acc.estimated_migration_blocks += estimateMigrationBlocksFromRow(row, filters.scriptTypes);
   });
 
   if (!useThresholdPubkeyCounting) {
@@ -5480,7 +5578,7 @@ function renderTopExposures(rows) {
         : formatTooltipDateFromHeight(row.firstExposedBlockheight);
       const firstExposedAge = formatRelativeAge(row.firstExposedUnixTime);
       tooltipLines.push(
-        `First exposure:${firstExposedAge ? ` ${firstExposedAge}` : ""}\n${formatInt(row.firstExposedBlockheight)} · ${firstExposedDate}`
+        `${row.versionedDates ? "First disclosure" : "First exposure (legacy)"}:${firstExposedAge ? ` ${firstExposedAge}` : ""}\n${formatInt(row.firstExposedBlockheight)} · ${firstExposedDate}`
       );
     }
     if (row.lastSpendBlockheight > 0) {
@@ -5492,6 +5590,8 @@ function renderTopExposures(rows) {
         `Last spend:${lastSpendAge ? ` ${lastSpendAge}` : ""}\n${formatInt(row.lastSpendBlockheight)} · ${lastSpendDate}`
       );
     }
+    if (row.lastSpendDateUnknown) tooltipLines.push("Last spend: Unknown (legacy placeholder)");
+    tooltipLines.push(quantumMethodologyLabel());
     const spendTooltip = tooltipLines.join("\n");
     const spendTooltipAttr = spendTooltip ? ` data-tooltip="${escapeHtmlAttr(spendTooltip)}"` : "";
 
@@ -5664,26 +5764,11 @@ async function triggerFullDataLoad() {
 
   try {
     const basePath = snapshotBasePath(snapshotHeight);
-    // Load full ge1 CSV and the large lookup CSV concurrently.
-    const [ge1Text, lookupText] = await Promise.all([
-      fetch(`${basePath}/dashboard_pubkeys_ge_1btc.csv`, { cache: "no-store" })
-        .then((r) => (r.ok ? r.text() : null))
-        .catch(() => null),
-      fetch("webapp_data/blockheight_datetime_lookup.csv", { cache: "no-store" })
-        .then((r) => (r.ok ? r.text() : null))
-        .catch(() => null),
-    ]);
-
-    // Populate blockDatetimeByHeight from the large lookup CSV.
-    if (lookupText && isCurrentLoad()) {
-      parseCsv(lookupText).forEach((row) => {
-        const height = String(row.blockheight || "").trim();
-        const unixTime = toInt(row.unix_time);
-        if (height && unixTime) {
-          state.blockDatetimeByHeight[height] = formatTooltipDate(unixTime);
-        }
-      });
-    }
+    // Finalized exports contain the timestamps needed by their tooltips. Keep
+    // explicit expansion proportional to this snapshot, not the entire chain.
+    const fullResponse = await quantumFetch(`${basePath}/dashboard_pubkeys_ge_1btc.csv`, { cache: "no-store" });
+    if (!fullResponse.ok) throw new Error("Full exposure export is unavailable.");
+    const ge1Text = await fullResponse.text();
 
     // Swap in full ge1 rows only if we're still on the same snapshot.
     if (
@@ -5710,10 +5795,12 @@ async function triggerFullDataLoad() {
         snapshotHeight: state.snapshotHeight,
         metaRows: currentCacheEntry?.metaRows || [],
         aggregatesRows: state.aggregatesRows,
+        scriptCorrectionsRows: state.scriptCorrectionsRows,
         top100Rows,
         ge1Rows: ge1RowsFull,
         ge1IsUsingEcoSubset: false,
         includesFullRows: true,
+        publicationManifest: currentCacheEntry?.publicationManifest || state.publicationManifest,
         complete: true,
       });
       installedFullRows = true;
@@ -5793,6 +5880,66 @@ function handleSpendCheckboxChange(changedEl) {
   update();
 }
 
+function quantumScriptCorrectionVersion(metaRows, manifest, snapshot) {
+  const version = String(metaRows?.[0]?.subset_correction_version
+    || manifest?.metadata?.methodology_by_snapshot?.[String(snapshot)]?.subset_correction_version || "");
+  if (version && version !== "script-mask-mobius-wu-v1") {
+    throw new Error("Unsupported Quantum script subset correction version.");
+  }
+  return version;
+}
+
+function quantumScriptCorrectionsAreComplete(rows, aggregatesRows) {
+  if (!Array.isArray(rows) || !Array.isArray(aggregatesRows)) return false;
+  const buckets = new Map();
+  for (const row of aggregatesRows) {
+    if (!["all", "ge1", "ge10", "ge100", "ge1000"].includes(row.balance_filter)
+        || !["all", ...SPEND_TYPES_ORDER].includes(row.spend_activity_filter)) return false;
+    const key = `${row.balance_filter}|${row.spend_activity_filter}`;
+    const values = [row.pubkey_count, row.exposed_pubkey_count, row.migration_weight_wu];
+    if (values.some(value => !/^\d+$/.test(String(value)) || !Number.isSafeInteger(Number(value)))) return false;
+    if (!buckets.has(key)) buckets.set(key, { sum: [0, 0, 0], all: null, families: new Set() });
+    const bucket = buckets.get(key);
+    if (row.script_type_filter === "All") {
+      if (bucket.all) return false;
+      bucket.all = values.map(Number);
+    } else {
+      if (!SCRIPT_TYPES_ORDER.includes(row.script_type_filter) || bucket.families.has(row.script_type_filter)) return false;
+      bucket.families.add(row.script_type_filter);
+      values.forEach((value, index) => { bucket.sum[index] += Number(value); });
+    }
+  }
+  const seen = new Set();
+  for (const row of rows) {
+    const mask = Number(row.script_mask);
+    const key = `${row.balance_filter}|${row.spend_activity_filter}`;
+    const unique = `${key}|${mask}`;
+    const bucket = buckets.get(key);
+    if (!bucket || !/^\d+$/.test(String(row.script_mask)) || mask > 127 || mask < 1
+        || (mask & (mask - 1)) === 0 || seen.has(unique)) return false;
+    seen.add(unique);
+    const values = [row.pubkey_count_correction, row.exposed_pubkey_count_correction, row.migration_weight_wu_correction];
+    if (values.some(value => !/^-?\d+$/.test(String(value)) || !Number.isSafeInteger(Number(value)))) return false;
+    values.forEach((value, index) => { bucket.sum[index] += Number(value); });
+  }
+  return buckets.size === 20 && [...buckets.values()].every(bucket => bucket.all
+    && bucket.families.size === SCRIPT_TYPES_ORDER.length
+    && bucket.all.every((value, index) => value === bucket.sum[index]));
+}
+
+async function fetchQuantumScriptCorrections(fetcher, basePath, manifest, metaRows, snapshot) {
+  if (!quantumScriptCorrectionVersion(metaRows, manifest, snapshot)) return [];
+  const response = await fetcher(`${basePath}/dashboard_script_corrections.csv`);
+  if (!response.ok) throw new Error("Quantum script subset corrections are unavailable.");
+  const text = await response.text();
+  const expected = ["balance_filter", "script_mask", "spend_activity_filter", "pubkey_count_correction",
+    "exposed_pubkey_count_correction", "migration_weight_wu_correction"];
+  if (JSON.stringify(parseCsvLine(text.split(/\r?\n/, 1)[0])) !== JSON.stringify(expected)) {
+    throw new Error("Quantum script subset correction columns are invalid.");
+  }
+  return parseCsv(text);
+}
+
 function aggregateAllKpis(filters) {
   const balanceKey = filters.balance;
   const scriptKeys = filters.scriptTypes.includes("All") ? ["All"] : filters.scriptTypes;
@@ -5806,6 +5953,7 @@ function aggregateAllKpis(filters) {
     estimated_migration_blocks: 0,
   };
 
+  const exactWeights = state.aggregatesRows?.[0]?.migration_weight_wu !== undefined;
   scriptKeys.forEach((script) => {
     // Supply uses the spend='all' rollup (value is independent of spend activity).
     acc.supply_sats += getAggregate(balanceKey, script, "all", "supply_sats");
@@ -5816,7 +5964,7 @@ function aggregateAllKpis(filters) {
         balanceKey,
         script,
         spend,
-        "estimated_migration_blocks"
+        exactWeights ? "migration_weight_wu" : "estimated_migration_blocks"
       );
     });
 
@@ -5827,6 +5975,20 @@ function aggregateAllKpis(filters) {
       acc.exposed_supply_sats += getAggregate(balanceKey, script, spend, "exposed_supply_sats");
     });
   });
+
+  // Family balances/UTXOs add directly. Reporting groups and transaction packing
+  // need inclusion-exclusion when one canonical group spans selected families.
+  if (!scriptKeys.includes("All") && scriptKeys.length > 1) {
+    const selectedMask = scriptKeys.reduce((mask, family) => mask | (1 << SCRIPT_TYPES_ORDER.indexOf(family)), 0);
+    for (const row of state.scriptCorrectionsRows || []) {
+      const mask = Number(row.script_mask);
+      if (row.balance_filter !== balanceKey || !spendKeys.includes(row.spend_activity_filter)
+          || (mask & selectedMask) !== mask) continue;
+      acc.exposed_pubkey_count += Number(row.exposed_pubkey_count_correction);
+      acc.estimated_migration_blocks += Number(row.migration_weight_wu_correction) / (exactWeights ? 1 : 4_000_000);
+    }
+  }
+  if (exactWeights) acc.estimated_migration_blocks /= 4_000_000;
 
   return acc;
 }
@@ -5891,6 +6053,12 @@ function aggregateFilteredExposedSupplyBySpend(filters) {
 }
 
 function renderKpis(kpi, total, filters) {
+  const countPresentation = quantumExposureCountPresentation();
+  const countTitle = document.getElementById("kpiExposedPubkeys")?.closest(".kpi")?.querySelector(".kpi-title");
+  if (countTitle) {
+    countTitle.textContent = countPresentation.label;
+    setCustomTooltip(countTitle, countPresentation.tooltip);
+  }
   const hasExposedPubkeys = kpi.exposed_pubkey_count > 0;
   const roundedMigrationBlocks = hasExposedPubkeys
     ? Math.max(1, Math.ceil(kpi.estimated_migration_blocks))
@@ -5909,7 +6077,7 @@ function renderKpis(kpi, total, filters) {
   document.getElementById("kpiExposedPubkeys").textContent =
     `${formatInt(kpi.exposed_pubkey_count)}`;
   document.getElementById("kpiExposedPubkeysShare").textContent =
-    `${formatPercent(kpi.exposed_pubkey_count, total.exposed_pubkey_count)} of all exposed pubkeys`;
+    `${formatPercent(kpi.exposed_pubkey_count, total.exposed_pubkey_count)} of all exposed ${countPresentation.noun}`;
 
   document.getElementById("kpiExposedUtxos").textContent =
     `${formatInt(kpi.exposed_utxo_count)}`;
@@ -6326,7 +6494,7 @@ async function loadIdentityGroups() {
   state.identityToGroupNames = {};
 
   try {
-    const resp = await fetch("webapp_data/identity_groups.json");
+    const resp = await quantumFetch("webapp_data/identity_groups.json");
     if (!resp.ok) return false;
 
     const payload = await resp.json();
@@ -6402,7 +6570,7 @@ async function loadData(preferredSnapshotOverride = "") {
     }
     if (publicationTrailsIndex) {
       try {
-        const archivedProbe = await fetch(
+        const archivedProbe = await quantumFetch(
           `webapp_data/archived/${preferredOverride}/dashboard_snapshot_meta.csv`,
           { cache: "no-store" }
         );
@@ -6542,6 +6710,9 @@ function quantumExposureRowsAreComplete(
       "first_exposed_unix_time",
     ]) {
       const raw = String(row[column] ?? "").trim();
+      if (column !== "exposed_utxo_count" && row.current_supply_sats !== undefined
+          && !String(row.first_exposed_blockheight ?? "").trim()
+          && !String(row.first_exposed_unix_time ?? "").trim()) continue;
       const value = Number(raw);
       if (!raw || !Number.isFinite(value) || value < 0) return false;
     }
@@ -6576,7 +6747,7 @@ function quantumSnapshotMetaIsComplete(metaRows, expectedSnapshot) {
   return Boolean(
     String(row.snapshot_blockheight || "").trim() === String(expectedSnapshot || "").trim()
     && /^\d+$/.test(String(row.snapshot_time || "").trim())
-    && /^\d+$/.test(String(row.one_year_ago_blockheight || "").trim())
+    && (/^\d+$/.test(String(row.one_year_ago_blockheight || "").trim()) || (row.export_version === "quantum-csv-v2" && row.one_year_ago_blockheight === ""))
     && /^\d+$/.test(String(row.one_year_ago_block_time || "").trim())
   );
 }
@@ -6589,6 +6760,8 @@ function quantumSnapshotDatasetIsComplete(
   if (!dataset) return false;
   if (!quantumSnapshotMetaIsComplete(dataset.metaRows, expectedSnapshot)) return false;
   if (!quantumAggregateRowsAreComplete(dataset.aggregatesRows, aggregateReferenceRows)) return false;
+  if (quantumScriptCorrectionVersion(dataset.metaRows, dataset.publicationManifest, expectedSnapshot)
+      && !quantumScriptCorrectionsAreComplete(dataset.scriptCorrectionsRows, dataset.aggregatesRows)) return false;
   if (!quantumExposureRowsAreComplete(dataset.top100Rows, dataset.aggregatesRows)) return false;
   if (!Array.isArray(dataset.ge1Rows) || dataset.ge1Rows.length < dataset.top100Rows.length) return false;
   if (dataset.includesFullRows) {
@@ -6621,9 +6794,10 @@ function quantumIndexRowsAreComplete(rows, expectedLatest = "", { allowEmpty = f
   return !expectedLatest || String(rows[0].snapshot_blockheight).trim() === String(expectedLatest).trim();
 }
 
-function quantumHistoricalAggregateReferenceRows(rows) {
+function quantumHistoricalAggregateReferenceRows(rows, includeOther = false) {
   const balanceFilters = new Set(["all", "ge1", "ge10", "ge100", "ge1000"]);
   const scriptTypes = new Set(["All", "P2PK", "P2PKH", "P2SH", "P2WPKH", "P2WSH", "P2TR"]);
+  if (includeOther) scriptTypes.add("Other");
   const spendActivities = new Set(["all", "never_spent", "inactive", "active"]);
   return (Array.isArray(rows) ? rows : []).filter((row) => (
     balanceFilters.has(String(row.balance_filter || "").trim())
@@ -6646,7 +6820,8 @@ function quantumHistoricalSeriesIsComplete(series, activeSnapshots, latestSnapsh
   const coveredSnapshots = activeSnapshots.filter((snapshot) => pointsBySnapshot.has(String(snapshot))).length;
   if (coveredSnapshots < Math.ceil(activeSnapshots.length * 0.95)) return false;
   const latestPoint = pointsBySnapshot.get(String(latestSnapshot || "").trim());
-  const latestHistoricalReference = quantumHistoricalAggregateReferenceRows(latestAggregatesRows);
+  const latestHistoricalReference = quantumHistoricalAggregateReferenceRows(latestAggregatesRows,
+    latestPoint?.aggregatesRows?.some(row => row.script_type_filter === "Other"));
   return Boolean(
     latestPoint
     && latestHistoricalReference.length
@@ -6735,8 +6910,45 @@ function quantumSelectedSnapshotNeedsFullRows(snapshot) {
   );
 }
 
+function retainedQuantumSnapshotData(snapshot, manifest, basePath, needsFullRows) {
+  if (Number(manifest?.format) !== 2) return null;
+  const cached = state.snapshotDataCache.get(String(snapshot));
+  const installed = cached?.publicationManifest || state.publicationManifest;
+  if (!cached?.complete || Number(installed?.format) !== 2
+      || (needsFullRows && cached.ge1IsUsingEcoSubset)) return null;
+  const prefix = basePath.replace(/^webapp_data\//, "");
+  const names = ["dashboard_snapshot_meta.csv", "dashboard_pubkeys_aggregates.csv", "dashboard_pubkeys_ge_1btc_top100.csv"];
+  const previousPrefix = installed.artifacts?.[`${snapshot}/${names[0]}`] ? String(snapshot) : `archived/${snapshot}`;
+  if (installed.artifacts?.[`${previousPrefix}/dashboard_script_corrections.csv`]
+      || manifest.artifacts?.[`${prefix}/dashboard_script_corrections.csv`]) names.push("dashboard_script_corrections.csv");
+  const advertisedCount = names.filter(name => manifest.artifacts?.[`${prefix}/${name}`]).length;
+  if (advertisedCount !== 0 && advertisedCount !== names.length) return null;
+  // A selected snapshot can age out of retention. Keep its already verified
+  // in-memory view for this session. If still advertised, all compact inputs
+  // must match before an older verified full table can be reused.
+  for (const name of names) {
+    const previous = installed.artifacts?.[`${previousPrefix}/${name}`];
+    const next = manifest.artifacts?.[`${prefix}/${name}`];
+    if (!previous || (next && next.sha256 !== previous.sha256)) return null;
+  }
+  if (needsFullRows && !installed.artifacts?.[`${previousPrefix}/dashboard_pubkeys_ge_1btc.csv`]) return null;
+  return { ...cached, requestedSnapshot: String(snapshot), resolvedSnapshotHeight: String(snapshot),
+    includesFullRows: needsFullRows, ge1Rows: needsFullRows ? cached.ge1Rows : cached.top100Rows,
+    ge1IsUsingEcoSubset: !needsFullRows, publicationManifest: installed };
+}
+
 async function fetchQuantumRefreshSnapshot(context, snapshot, needsFullRows, basePathOverride = "") {
   const basePath = basePathOverride || snapshotBasePath(snapshot);
+  const manifest = context.publicationManifest;
+  const prefix = basePath.replace(/^webapp_data\//, "");
+  const unavailable = Number(manifest?.format) === 2 && (
+    !manifest.artifacts?.[`${prefix}/dashboard_snapshot_meta.csv`]
+    || (needsFullRows && !manifest.artifacts?.[`${prefix}/dashboard_pubkeys_ge_1btc.csv`])
+  );
+  if (unavailable) {
+    const retained = retainedQuantumSnapshotData(snapshot, manifest, basePath, needsFullRows);
+    if (retained) return retained;
+  }
   const requests = [
     context.fetchFresh(`${basePath}/dashboard_snapshot_meta.csv`),
     context.fetchFresh(`${basePath}/dashboard_pubkeys_aggregates.csv`),
@@ -6750,24 +6962,32 @@ async function fetchQuantumRefreshSnapshot(context, snapshot, needsFullRows, bas
   const metaRows = parseCsv(texts[0]);
   const aggregatesRows = parseCsv(texts[1]);
   const top100Rows = parseCsv(texts[2]);
+  const scriptCorrectionsRows = await fetchQuantumScriptCorrections(context.fetchFresh, basePath, manifest, metaRows, snapshot);
+  if (quantumScriptCorrectionVersion(metaRows, manifest, snapshot)
+      && !quantumScriptCorrectionsAreComplete(scriptCorrectionsRows, aggregatesRows)) {
+    throw new Error("Quantum script subset corrections do not reconcile with the aggregate.");
+  }
   return {
     requestedSnapshot: String(snapshot || "").trim(),
     resolvedSnapshotHeight: String(metaRows[0]?.snapshot_blockheight || "").trim(),
     metaRows,
     aggregatesRows,
+    scriptCorrectionsRows,
     top100Rows,
     ge1Rows: needsFullRows ? parseCsv(texts[3]) : top100Rows,
     ge1IsUsingEcoSubset: !needsFullRows,
     includesFullRows: needsFullRows,
+    publicationManifest: manifest,
   };
 }
 
 function parseQuantumHistoricalSeries(ecoText, archivedText = "") {
   const groupedBySnapshot = new Map();
   const merge = (text, skipExistingSnapshots) => {
+    const existingSnapshots = new Set(groupedBySnapshot.keys());
     parseCsv(text || "").forEach((row) => {
       const snapshot = String(row.snapshot || "").trim();
-      if (!snapshot || (skipExistingSnapshots && groupedBySnapshot.has(snapshot))) return;
+      if (!snapshot || (skipExistingSnapshots && existingSnapshots.has(snapshot))) return;
       const aggregatesRow = { ...row };
       delete aggregatesRow.snapshot;
       if (!groupedBySnapshot.has(snapshot)) groupedBySnapshot.set(snapshot, []);
@@ -6792,17 +7012,46 @@ function parseQuantumPublishedGeneration(markerText) {
   const snapshotHeight = String(marker?.snapshot_blockheight ?? "").trim();
   if (
     !marker
-    || Number(marker.format) !== 1
+    || ![1, 2].includes(Number(marker.format))
     || !String(marker.generation_id || "").trim()
     || !/^\d+$/.test(snapshotHeight)
   ) {
     throw new Error("Quantum published_generation.json is not a valid publication marker.");
   }
-  return { signature, snapshotHeight, reason: String(marker.reason || "").trim() };
+  if (Number(marker.format) === 2 && (!marker.artifacts || !marker.metadata || !/^[a-f0-9]{64}$/.test(marker.metadata.block_hash || ""))) {
+    throw new Error("Quantum immutable generation is missing provenance or artifacts.");
+  }
+  return { signature, snapshotHeight, reason: String(marker.reason || "").trim(), marker };
+}
+
+async function fetchQuantumVerified(url, fetcher, manifest = state.publicationManifest) {
+  const logicalPath = String(url).replace(/^webapp_data\//, "");
+  if (Number(manifest?.format) !== 2 || logicalPath === "published_generation.json") {
+    return fetcher(url);
+  }
+  const artifact = manifest.artifacts?.[logicalPath];
+  if (!artifact || !/^generations\/[a-zA-Z0-9_./-]+$/.test(artifact.path || "")
+      || String(artifact.path).split("/").includes("..")
+      || !/^[a-f0-9]{64}$/.test(artifact.sha256 || "")
+      || !Number.isSafeInteger(artifact.bytes) || artifact.bytes < 0) {
+    throw new Error(`Quantum generation has no valid artifact for ${logicalPath}.`);
+  }
+  const response = await fetcher(`webapp_data/${artifact.path}`);
+  if (!response.ok) throw new Error(`Quantum artifact request failed: ${logicalPath}.`);
+  const bytes = await response.clone().arrayBuffer();
+  if (bytes.byteLength !== artifact.bytes) throw new Error(`Quantum artifact length mismatch: ${logicalPath}.`);
+  const digest = await window.crypto.subtle.digest("SHA-256", bytes);
+  const hash = Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, "0")).join("");
+  if (hash !== artifact.sha256) throw new Error(`Quantum artifact hash mismatch: ${logicalPath}.`);
+  return response;
+}
+
+function quantumFetch(url, options) {
+  return fetchQuantumVerified(url, resolved => fetch(resolved, options));
 }
 
 async function fetchQuantumPublishedGeneration() {
-  const response = await fetch("webapp_data/published_generation.json", { cache: "no-store" });
+  const response = await quantumFetch("webapp_data/published_generation.json", { cache: "no-store" });
   if (!response.ok) {
     throw new Error(`Could not load Quantum publication marker (${response.status}).`);
   }
@@ -6847,10 +7096,10 @@ function isQuantumPublishedGenerationInstalled(publication, evidence = null) {
 
 async function fetchQuantumInitialGenerationEvidence(publication) {
   const [latestResp, indexResp, historyResp, archivedIndexResp] = await Promise.all([
-    fetch("webapp_data/latest_snapshot.txt", { cache: "no-store" }),
-    fetch("webapp_data/snapshots_index.csv", { cache: "no-store" }),
-    fetch("webapp_data/historical_eco.csv", { cache: "no-store" }),
-    fetch("webapp_data/archived_index.csv", { cache: "no-store" }),
+    quantumFetch("webapp_data/latest_snapshot.txt", { cache: "no-store" }),
+    quantumFetch("webapp_data/snapshots_index.csv", { cache: "no-store" }),
+    quantumFetch("webapp_data/historical_eco.csv", { cache: "no-store" }),
+    quantumFetch("webapp_data/archived_index.csv", { cache: "no-store" }),
   ]);
   if (!latestResp.ok || !indexResp.ok || !historyResp.ok || !archivedIndexResp.ok) {
     throw new Error("Could not verify the initial Quantum publication files.");
@@ -6874,7 +7123,7 @@ async function fetchQuantumInitialGenerationEvidence(publication) {
     (row) => String(row.snapshot_blockheight || "").trim()
   );
   if (archivedSnapshots.length) {
-    const archivedAggregateResp = await fetch(
+    const archivedAggregateResp = await quantumFetch(
       `webapp_data/archived/${archivedSnapshots[0]}/dashboard_pubkeys_aggregates.csv`,
       { cache: "no-store" }
     );
@@ -6898,6 +7147,9 @@ async function fetchQuantumInitialGenerationEvidence(publication) {
 
 async function prepareQuantumDataRefresh(context) {
   const publication = parseQuantumPublishedGeneration(context.signature);
+  const originalFetchFresh = context.fetchFresh;
+  context = { ...context, publicationManifest: publication.marker,
+    fetchFresh: (url) => fetchQuantumVerified(url, originalFetchFresh, publication.marker) };
   const [latestResp, indexResp] = await Promise.all([
     context.fetchFresh("webapp_data/latest_snapshot.txt"),
     context.fetchFresh("webapp_data/snapshots_index.csv"),
@@ -7082,11 +7334,13 @@ async function prepareQuantumDataRefresh(context) {
   return {
     publishedGenerationSignature: publication.signature,
     publishedSnapshotHeight: publication.snapshotHeight,
+    publicationManifest: publication.marker,
     publicationReason: publication.reason,
     latestSnapshot,
     resolvedSnapshotHeight: latestData.resolvedSnapshotHeight,
     metaRows: latestData.metaRows,
     aggregatesRows: latestData.aggregatesRows,
+    scriptCorrectionsRows: latestData.scriptCorrectionsRows,
     top100Rows: latestData.top100Rows,
     ge1Rows: latestData.ge1Rows,
     ge1IsUsingEcoSubset: latestData.ge1IsUsingEcoSubset,
@@ -7321,15 +7575,18 @@ function commitQuantumDataRefresh(candidate) {
   }
   state.publishedGenerationSignature = candidate.publishedGenerationSignature;
   state.publishedSnapshotHeight = candidate.publishedSnapshotHeight;
+  state.publicationManifest = candidate.publicationManifest;
 
   const cacheEntry = {
     snapshotHeight: candidate.resolvedSnapshotHeight,
     metaRows: candidate.metaRows,
     aggregatesRows: candidate.aggregatesRows,
+    scriptCorrectionsRows: candidate.scriptCorrectionsRows,
     top100Rows: candidate.top100Rows,
     ge1Rows: candidate.ge1Rows,
     ge1IsUsingEcoSubset: candidate.ge1IsUsingEcoSubset,
     includesFullRows: candidate.includesFullRows,
+    publicationManifest: candidate.publicationManifest,
     complete: true,
   };
   state.snapshotDataCache.set(candidate.latestSnapshot, cacheEntry);
@@ -7341,10 +7598,12 @@ function commitQuantumDataRefresh(candidate) {
       snapshotHeight: candidate.fixedSnapshot.resolvedSnapshotHeight,
       metaRows: candidate.fixedSnapshot.metaRows,
       aggregatesRows: candidate.fixedSnapshot.aggregatesRows,
+      scriptCorrectionsRows: candidate.fixedSnapshot.scriptCorrectionsRows,
       top100Rows: candidate.fixedSnapshot.top100Rows,
       ge1Rows: candidate.fixedSnapshot.ge1Rows,
       ge1IsUsingEcoSubset: candidate.fixedSnapshot.ge1IsUsingEcoSubset,
       includesFullRows: candidate.fixedSnapshot.includesFullRows,
+      publicationManifest: candidate.fixedSnapshot.publicationManifest || candidate.publicationManifest,
       complete: true,
     };
     state.snapshotDataCache.set(candidate.fixedSnapshot.requestedSnapshot, fixedCacheEntry);
@@ -7362,6 +7621,7 @@ function commitQuantumDataRefresh(candidate) {
 
   invalidateSnapshotReportRequest();
   state.aggregatesRows = selectedData.aggregatesRows;
+  state.scriptCorrectionsRows = selectedData.scriptCorrectionsRows || [];
   state.ge1Rows = selectedData.ge1Rows;
   state.snapshotHeight = selectedData.resolvedSnapshotHeight;
   state.ge1IsUsingEcoSubset = selectedData.ge1IsUsingEcoSubset;
@@ -7490,7 +7750,7 @@ async function loadSnapshotLabelLookup(snapshots, snapshotLocations = {}) {
 
   let loadedFromGlobalLookup = false;
   try {
-    const lookupResp = await fetch("webapp_data/blockheight_datetime_lookup.csv", { cache: "no-store" });
+    const lookupResp = await quantumFetch("webapp_data/blockheight_datetime_lookup.csv", { cache: "no-store" });
     if (lookupResp.ok) {
       const lookupRows = parseCsv(await lookupResp.text());
       const snapshotSet = new Set((Array.isArray(snapshots) ? snapshots : []).map((value) => String(value).trim()));
@@ -7528,7 +7788,7 @@ async function loadSnapshotLabelLookup(snapshots, snapshotLocations = {}) {
         const basePath = snapshotLocations[snapshot] === "archived"
           ? `webapp_data/archived/${snapshot}`
           : `webapp_data/${snapshot}`;
-        const resp = await fetch(`${basePath}/dashboard_snapshot_meta.csv`, { cache: "no-store" });
+        const resp = await quantumFetch(`${basePath}/dashboard_snapshot_meta.csv`, { cache: "no-store" });
         if (!resp.ok) {
           return;
         }
@@ -7575,7 +7835,7 @@ async function loadAvailableSnapshots() {
   const previousSnapshotLocations = { ...state.snapshotLocationByHeight };
 
   try {
-    const indexResp = await fetch("webapp_data/snapshots_index.csv", { cache: "no-store" });
+    const indexResp = await quantumFetch("webapp_data/snapshots_index.csv", { cache: "no-store" });
     if (!isCurrentLoad()) return currentSnapshots();
     let activeRows = [];
     if (indexResp.ok) {
@@ -7592,7 +7852,7 @@ async function loadAvailableSnapshots() {
       let archivedRows = [];
       let archivedIndexVerified = false;
       try {
-        const archivedResp = await fetch("webapp_data/archived_index.csv", { cache: "no-store" });
+        const archivedResp = await quantumFetch("webapp_data/archived_index.csv", { cache: "no-store" });
         if (!isCurrentLoad()) return currentSnapshots();
         if (archivedResp.ok) {
           archivedRows = parseCsv(await archivedResp.text());
@@ -7685,7 +7945,7 @@ async function loadAvailableSnapshots() {
     // The fallback can keep the latest snapshot usable, but it cannot prove
     // whether an archive bundle was omitted or only failed transiently.
     quantumArchiveVerificationRequired = true;
-    const latestResp = await fetch("webapp_data/latest_snapshot.txt", { cache: "no-store" });
+    const latestResp = await quantumFetch("webapp_data/latest_snapshot.txt", { cache: "no-store" });
     if (!isCurrentLoad()) return currentSnapshots();
     if (!latestResp.ok) {
       throw new Error("Could not load webapp_data/latest_snapshot.txt");
@@ -7728,6 +7988,7 @@ function syncSnapshotDropdownTrigger() {
   if (!select || !trigger) return;
   const selectedOption = select.options[select.selectedIndex];
   trigger.textContent = selectedOption ? selectedOption.textContent : "";
+  setCustomTooltip(trigger, quantumMethodologyLabel(select.value));
   if (menu) {
     menu.querySelectorAll(".script-option-btn").forEach((btn) => {
       btn.classList.toggle("script-option-btn--selected", btn.dataset.value === select.value);
@@ -7825,6 +8086,7 @@ async function loadSnapshotData(snapshot) {
     if (cached && cached.complete !== false) {
       if (!isCurrentLoad()) return false;
       state.aggregatesRows = cached.aggregatesRows;
+      state.scriptCorrectionsRows = cached.scriptCorrectionsRows || [];
       state.ge1Rows = cached.ge1Rows;
       state.snapshotHeight = cached.snapshotHeight;
       state.ge1IsUsingEcoSubset = cached.ge1IsUsingEcoSubset === true;
@@ -7850,8 +8112,8 @@ async function loadSnapshotData(snapshot) {
     }
 
     const [metaResp, aggregatesResp] = await Promise.all([
-      fetch(`${basePath}/dashboard_snapshot_meta.csv`, { cache: "no-store" }),
-      fetch(`${basePath}/dashboard_pubkeys_aggregates.csv`, { cache: "no-store" }),
+      quantumFetch(`${basePath}/dashboard_snapshot_meta.csv`, { cache: "no-store" }),
+      quantumFetch(`${basePath}/dashboard_pubkeys_aggregates.csv`, { cache: "no-store" }),
     ]);
     if (!isCurrentLoad()) return false;
 
@@ -7866,12 +8128,21 @@ async function loadSnapshotData(snapshot) {
     if (!isCurrentLoad()) return false;
     const metaRows = parseCsv(metaText);
     const aggregatesRows = parseCsv(aggregatesText);
+    const scriptCorrectionsRows = await fetchQuantumScriptCorrections(
+      path => quantumFetch(path, { cache: "no-store" }), basePath, state.publicationManifest, metaRows, requestedSnapshot
+    );
+    if (!isCurrentLoad()) return false;
+    if (quantumScriptCorrectionVersion(metaRows, state.publicationManifest, requestedSnapshot)
+        && !quantumScriptCorrectionsAreComplete(scriptCorrectionsRows, aggregatesRows)) {
+      throw new Error("Quantum script subset corrections do not reconcile with the aggregate.");
+    }
     const resolvedSnapshotHeight = String(
       metaRows.length ? metaRows[0].snapshot_blockheight : requestedSnapshot
     ).trim();
 
     // Phase 1: render chart/KPI context as soon as light files are ready.
     state.aggregatesRows = aggregatesRows;
+    state.scriptCorrectionsRows = scriptCorrectionsRows;
     state.snapshotHeight = resolvedSnapshotHeight;
     state.ge1Rows = [];
     state.topExposuresLoading = true;
@@ -7897,7 +8168,7 @@ async function loadSnapshotData(snapshot) {
     // The full row file is reserved for explicit search or table expansion.
     let top100Resp = null;
     try {
-      top100Resp = await fetch(`${basePath}/dashboard_pubkeys_ge_1btc_top100.csv`, { cache: "no-store" });
+      top100Resp = await quantumFetch(`${basePath}/dashboard_pubkeys_ge_1btc_top100.csv`, { cache: "no-store" });
     } catch (err) {
       if (isCurrentLoad()) {
         console.warn(`Could not request top-100 CSV from ${basePath}:`, err);
@@ -7915,6 +8186,7 @@ async function loadSnapshotData(snapshot) {
         snapshotHeight: resolvedSnapshotHeight,
         metaRows,
         aggregatesRows,
+        scriptCorrectionsRows,
         top100Rows: [],
         ge1Rows: [],
         ge1IsUsingEcoSubset: false,
@@ -7938,10 +8210,12 @@ async function loadSnapshotData(snapshot) {
       snapshotHeight: resolvedSnapshotHeight,
       metaRows,
       aggregatesRows,
+      scriptCorrectionsRows,
       top100Rows,
       ge1Rows: top100Rows,
       ge1IsUsingEcoSubset: true,
       includesFullRows: false,
+      publicationManifest: state.publicationManifest,
     };
     initialDataset.complete = quantumSnapshotDatasetIsComplete(initialDataset, requestedSnapshot);
     state.snapshotDataCache.set(requestedSnapshot, initialDataset);
@@ -8520,6 +8794,7 @@ function attachEvents() {
     try {
       initialPublication = await fetchQuantumPublishedGeneration();
       state.publishedSnapshotHeight = initialPublication.snapshotHeight;
+      state.publicationManifest = initialPublication.marker;
     } catch (error) {
       console.warn("Could not establish the initial Quantum publication marker; a background reconciliation will retry.", error);
     }

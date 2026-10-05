@@ -336,7 +336,8 @@ def read_published_snapshot_height(webapp_data_dir: Path) -> int | None:
     return int(marker["snapshot_blockheight"])
 
 
-def _validate_final_generation(webapp_data_dir: Path, snapshot_height: int) -> None:
+def _validate_final_generation(webapp_data_dir: Path, snapshot_height: int, *, historical_script_types: set[str] | None = None) -> None:
+    historical_script_types = historical_script_types or HISTORICAL_SCRIPT_TYPES
     latest_pointer_height = read_latest_snapshot_height(webapp_data_dir)
     if latest_pointer_height != snapshot_height:
         raise RuntimeError(
@@ -399,7 +400,7 @@ def _validate_final_generation(webapp_data_dir: Path, snapshot_height: int) -> N
     aggregate_key_set = set(aggregate_keys)
     required_topline_keys = (
         {(balance, "All", "all") for balance in HISTORICAL_BALANCE_FILTERS}
-        | {("all", script_type, "all") for script_type in HISTORICAL_SCRIPT_TYPES}
+        | {("all", script_type, "all") for script_type in historical_script_types}
         | {("all", "All", activity) for activity in HISTORICAL_SPEND_ACTIVITIES}
     )
     missing_topline_keys = sorted(required_topline_keys.difference(aggregate_key_set))
@@ -413,7 +414,7 @@ def _validate_final_generation(webapp_data_dir: Path, snapshot_height: int) -> N
         key
         for key in aggregate_key_set
         if key[0] in HISTORICAL_BALANCE_FILTERS
-        and key[1] in HISTORICAL_SCRIPT_TYPES
+        and key[1] in historical_script_types
         and key[2] in HISTORICAL_SPEND_ACTIVITIES
     }
 
@@ -613,7 +614,7 @@ def _validate_marker_text(marker_text: str) -> dict:
         marker = json.loads(marker_text)
     except json.JSONDecodeError as exc:
         raise RuntimeError("Quantum publication marker is not valid JSON.") from exc
-    if not isinstance(marker, dict) or marker.get("format") != PUBLICATION_MARKER_FORMAT:
+    if not isinstance(marker, dict) or marker.get("format") not in (PUBLICATION_MARKER_FORMAT, 2):
         raise RuntimeError("Quantum publication marker has an unsupported format.")
     height = marker.get("snapshot_blockheight")
     if isinstance(height, bool) or not isinstance(height, int) or height < 0:
@@ -630,7 +631,7 @@ def _validate_marker_text(marker_text: str) -> dict:
         first_snapshot = historical_artifact.get("first_snapshot")
         latest_snapshot = historical_artifact.get("latest_snapshot")
         if (
-            expected_path != "historical_eco.csv"
+            (expected_path != "historical_eco.csv" and marker.get("format") != 2)
             or len(expected_hash) != 64
             or any(character not in "0123456789abcdef" for character in expected_hash)
             or isinstance(rows, bool)
@@ -657,6 +658,9 @@ def copy_generation_marker(source_data_dir: Path, target_data_dir: Path) -> str:
     except OSError as exc:
         raise RuntimeError(f"Could not read publication marker: {source_path}") from exc
     marker = _validate_marker_text(marker_text)
+    if marker.get("format") == 2:
+        from immutable_generation import copy_immutable_generation
+        return copy_immutable_generation(source_data_dir, target_data_dir)
     target_dir = Path(target_data_dir)
     # A schema-valid marker is not sufficient: do not advance the standalone
     # publication boundary until its latest pointer, index, and required
@@ -670,6 +674,12 @@ def copy_generation_marker(source_data_dir: Path, target_data_dir: Path) -> str:
         )
     _atomic_write_text(target_dir / PUBLICATION_MARKER_FILENAME, marker_text)
     return marker_text
+
+
+def publish_immutable_generation(data_dir: Path, **kwargs) -> str:
+    """Publish format 2 through the explicit-root immutable exporter."""
+    from immutable_generation import publish_immutable_generation as publish
+    return publish(data_dir, **kwargs)
 
 
 def publish_generation_marker(

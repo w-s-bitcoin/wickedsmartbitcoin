@@ -175,7 +175,9 @@ not required to serve or test the frontend.
   `CoreToPSQL` pipeline. It handles signaling/top-KPI publication when
   applicable and issuance data. It takes priority over hourly deployment.
 - Quantum has its own producer pipeline in this repository and is not part of
-  the hourly runner.
+  the hourly runner. Its [v2 worker and operating guide](webapps/quantum_exposure/pipeline/OPERATIONS_V2.md)
+  cover confirmed 1,000-block requests, bounded PostgreSQL work, independent
+  delivery retries, and the acceptance gates for a separate scheduler.
 - Historical animation cleanup and its disabled daily job remain external.
 
 The production checkout normally uses `main`; the separate development

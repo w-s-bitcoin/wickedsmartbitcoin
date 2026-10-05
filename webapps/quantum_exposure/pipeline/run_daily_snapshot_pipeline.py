@@ -35,6 +35,7 @@ from pipeline_paths import (
     resolve_env_file,
     resolve_standalone_repo_dir,
 )
+from quantum_runtime import copy_file_if_changed, runtime_dependency_copies, sync_generation_to_standalone
 from publish_generation import (
     PUBLICATION_MARKER_FILENAME,
     copy_generation_marker,
@@ -270,6 +271,10 @@ def sync_to_standalone_repo(dry_run: bool) -> None:
         (WEBAPP_DATA_DIR / "historical_eco.csv", standalone_data_dir / "historical_eco.csv"),
         (WEBAPP_DATA_DIR / "blockheight_datetime_lookup.csv", standalone_data_dir / "blockheight_datetime_lookup.csv"),
     ]
+    files_to_copy.extend(runtime_dependency_copies(QUANTUM_DIR, standalone_repo_dir))
+    identity_source = WEBAPP_DATA_DIR / "identity_groups.json"
+    if identity_source.is_file():
+        files_to_copy.append((identity_source, standalone_data_dir / identity_source.name))
 
     copied_count = 0
     for source, target in files_to_copy:
@@ -279,7 +284,7 @@ def sync_to_standalone_repo(dry_run: bool) -> None:
         if dry_run:
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, target)
+        copy_file_if_changed(source, target)
 
     active_snapshot_dirs: list[str] = []
     for entry in WEBAPP_DATA_DIR.iterdir():
@@ -302,7 +307,7 @@ def sync_to_standalone_repo(dry_run: bool) -> None:
             target_file = target_snapshot_dir / source_file.name
             if dry_run:
                 continue
-            shutil.copy2(source_file, target_file)
+            copy_file_if_changed(source_file, target_file)
 
     # The standalone bundle intentionally omits the large archived snapshot
     # payloads. Install an explicit empty catalog pair instead of copying
