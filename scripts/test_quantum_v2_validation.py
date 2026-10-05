@@ -381,6 +381,84 @@ class ValidationFixture(unittest.TestCase):
         self.assertTrue(report['passed'], report)
         self.assertEqual(report['accounted_utxos'], 9)
 
+    def test_creation_window_preserves_same_height_transaction_and_vout_frontier(self):
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute('TRUNCATE outputs,stxos_0_20_archive')
+            for table in ('outputs', 'stxos_0_20_archive'):
+                cur.executemany(f'INSERT INTO {table} VALUES(%s,%s,%s,%s,%s,%s,%s,%s)', [
+                    (2, 'same', 0, 1, 'a', 'nonstandard', '51', None),
+                    (2, 'same', 1, 2, 'b', 'nonstandard', '51', None),
+                    (2, 'same', 2, 3, 'c', 'nonstandard', '51', None),
+                    (2, 'z', 0, 4, 'd', 'nonstandard', '51', 20),
+                    (4, '', 0, 5, 'e', 'nonstandard', '51', None),
+                ])
+        checkpoint = dict(target_height=10, last_height=2, last_txid='same', last_vout=0)
+        with self.conn, self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            first, done, frontier = validation._page(cur, checkpoint, 2, 1)
+            self.assertEqual([(row['transactionid'], row['vout']) for row in first], [('same', 1), ('same', 2)])
+            self.assertFalse(done)
+            self.assertEqual(frontier, (2, 'same', 2))
+            checkpoint.update(zip(('last_height', 'last_txid', 'last_vout'), frontier))
+            second, done, frontier = validation._page(cur, checkpoint, 2, 1)
+            self.assertEqual([(row['transactionid'], row['vout']) for row in second], [('z', 0)])
+            self.assertFalse(done)
+            self.assertEqual(frontier, (3, '', -1))
+            checkpoint.update(zip(('last_height', 'last_txid', 'last_vout'), frontier))
+            empty, done, frontier = validation._page(cur, checkpoint, 2, 1)
+            self.assertEqual(empty, [])
+            self.assertFalse(done)
+            self.assertEqual(frontier, (4, '', -1))
+            checkpoint.update(zip(('last_height', 'last_txid', 'last_vout'), frontier))
+            final, _, _ = validation._page(cur, checkpoint, 2, 1)
+            self.assertEqual([(row['blockheight'], row['transactionid'], row['vout']) for row in final], [(4, '', 0)])
+
+    def test_source_page_plan_bounds_height_only_indexes_without_scanning_old_prefix(self):
+        # Match the raw source's single-column creation indexes rather than
+        # the convenient composite primary keys used by small correctness tests.
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute('TRUNCATE outputs,stxos_0_20_archive')
+            for table in ('outputs', 'stxos_0_20_archive'):
+                cur.execute(f'ALTER TABLE {table} DROP CONSTRAINT {table}_pkey')
+                cur.execute(f'CREATE INDEX {table}_validation_creation ON {table}(blockheight)')
+                cur.execute(f'''INSERT INTO {table}
+                    SELECT 1,'old-'||lpad(n::text,8,'0'),0,1,'old','nonstandard','51',NULL
+                    FROM generate_series(1,25000) n''')
+                cur.execute(f'''INSERT INTO {table}
+                    SELECT 10,'same',n,1,'current','nonstandard','51',NULL
+                    FROM generate_series(0,4) n''')
+                cur.execute(f'ANALYZE {table}')
+        captured = []
+        with self.conn, self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            class CaptureCursor:
+                def execute(self, query, params=None):
+                    if isinstance(query, psycopg2.sql.Composed):
+                        captured.append((query, params))
+                    cur.execute(query, params)
+                def fetchall(self):
+                    return cur.fetchall()
+            rows, done, frontier = validation._page(CaptureCursor(),
+                dict(target_height=10, last_height=10, last_txid='same', last_vout=0), 2, 1000)
+            self.assertEqual([row['vout'] for row in rows], [1, 2])
+            self.assertFalse(done)
+            self.assertEqual(frontier, (10, 'same', 2))
+            self.assertEqual(len(captured), 1)
+            query, params = captured[0]
+            cur.execute(psycopg2.sql.SQL('EXPLAIN(ANALYZE,BUFFERS,FORMAT JSON) ') + query, params)
+            plan = cur.fetchone()['QUERY PLAN'][0]['Plan']
+        def nodes(node):
+            yield node
+            for child in node.get('Plans', []):
+                yield from nodes(child)
+        branches = [node for node in nodes(plan) if node.get('Relation Name') in ('outputs', 'stxos_0_20_archive')]
+        self.assertEqual({node['Relation Name'] for node in branches}, {'outputs', 'stxos_0_20_archive'})
+        self.assertTrue(all(node['Node Type'] in ('Index Scan', 'Index Only Scan') for node in branches), plan)
+        self.assertTrue(all('blockheight >= 10' in node.get('Index Cond', '') and
+                            'blockheight <= 10' in node.get('Index Cond', '') for node in branches), plan)
+        self.assertLessEqual(plan['Actual Rows'], 3)
+        self.assertLess(plan['Shared Hit Blocks'] + plan['Shared Read Blocks'], 100)
+        self.assertLess(sum(node.get('Rows Removed by Filter', 0) * node.get('Actual Loops', 1)
+                            for node in branches), 20)
+
     def test_reorg_or_checkpoint_change_cannot_certify_old_comparison(self):
         validation.initialize(self.conn, 10, f'{10:064x}')
         validation.step(self.conn, limit=1)
