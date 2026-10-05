@@ -12,13 +12,16 @@ from contextlib import contextmanager
 from functools import lru_cache
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 from typing import Iterator
+import uuid
 
 import psycopg2
 from psycopg2 import sql
 from psycopg2.extras import RealDictCursor, execute_values, Json
+from quantum_worker_config import undo_retention_blocks
 
 SCHEMA = 'quantum_v2'
 MIGRATIONS = Path(__file__).with_name('migrations')
@@ -125,6 +128,57 @@ def migrate_physical(conn):
             return
         cur.execute(body)
         cur.execute('INSERT INTO quantum_v2.schema_migration(version,sha256) VALUES(5,%s)',(digest,))
+
+
+def migrate_live_export(conn, *, allow_populated=False):
+    """Install the additive live-group index; populated builds require opt-in.
+
+    Normal rollout creates it on the empty canonical projection before seeding.
+    An explicitly measured populated build remains subject to local memory,
+    temporary-file and transaction time limits, never server-wide changes.
+    """
+    path=MIGRATIONS/'006_live_export.sql'
+    body=path.read_text();digest=hashlib.sha256(body.encode()).hexdigest()
+    with transaction(conn) as cur:
+        cur.execute('SELECT sha256 FROM quantum_v2.schema_migration WHERE version=6')
+        previous=cur.fetchone()
+        if previous:
+            if previous['sha256']!=digest: raise StoreError('Applied migration 6 has changed')
+        else:
+            cur.execute('SELECT EXISTS(SELECT 1 FROM quantum_v2.group_state LIMIT 1) AS populated')
+            if cur.fetchone()['populated'] and not allow_populated:
+                raise StoreError('Migration 6 requires an empty projection; a populated index build needs explicit measured opt-in')
+            cur.execute('SET LOCAL max_parallel_maintenance_workers=0')
+            cur.execute("SET LOCAL maintenance_work_mem='64MB'")
+            cur.execute("SET LOCAL temp_file_limit='2GB'")
+            cur.execute(body)
+            cur.execute('INSERT INTO quantum_v2.schema_migration(version,sha256) VALUES(6,%s)',(digest,))
+        if not _live_export_index_ready(cur) or not _live_accounting_constraints_ready(cur):
+            raise StoreError('Migration 6 live-group export index or accounting constraints are missing or invalid')
+
+
+def _live_export_index_ready(cur):
+    cur.execute('''SELECT EXISTS(SELECT 1 FROM pg_index i
+        JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+        JOIN pg_am am ON am.oid=c.relam
+        WHERE n.nspname='quantum_v2' AND c.relname='group_state_live_group_id'
+          AND i.indrelid='quantum_v2.group_state'::regclass AND i.indisvalid AND i.indisready
+          AND am.amname='btree' AND i.indnkeyatts=1
+          AND pg_get_indexdef(i.indexrelid,1,true)='group_id'
+          AND pg_get_expr(i.indpred,i.indrelid)='(utxo_count > 0)') AS ready''')
+    row=cur.fetchone()
+    return row['ready'] if isinstance(row,dict) else row[0]
+
+
+def _live_accounting_constraints_ready(cur):
+    cur.execute('''SELECT conname,convalidated,pg_get_expr(conbin,conrelid) AS expression
+        FROM pg_constraint WHERE conrelid='quantum_v2.group_state'::regclass AND contype='c'
+        AND conname=ANY(%s)''',(['group_state_zero_utxo_balance','group_state_zero_eligible_balance'],))
+    expected={'group_state_zero_utxo_balance':'((utxo_count > 0) OR (balance_sats = 0))',
+              'group_state_zero_eligible_balance':'((eligible_utxos > 0) OR (eligible_sats = 0))'}
+    rows=cur.fetchall()
+    return len(rows)==2 and all((row['convalidated'] and row['expression']==expected[row['conname']])
+        if isinstance(row,dict) else (row[1] and row[2]==expected[row[0]]) for row in rows)
 
 
 def _physical_available(cur):
@@ -280,7 +334,7 @@ def projection_status(conn):
 
 
 def initialize_seed(conn, height: int, expected_hash: str):
-    """Start/resume seed of unchanged legacy active tables at their common freeze."""
+    """Diagnostic import only: legacy freeze heights do not certify historical evidence."""
     with transaction(conn) as cur:
         _certify(cur, height, expected_hash)
         cur.execute('SELECT * FROM quantum_v2.projection WHERE singleton')
@@ -297,7 +351,7 @@ def initialize_seed(conn, height: int, expected_hash: str):
 
 
 def initialize_source_seed(conn, height: int, expected_hash: str):
-    """Explicit, expensive canonical rebuild after a deep reorg; bounded and resumable.
+    """Initialize the canonical baseline, or rebuild after a deep reorg.
 
     Replays creation occurrences once and reconstructs disclosure/activity directly
     from canonical source data, never trusting an orphaned legacy freeze. The
@@ -316,47 +370,257 @@ def initialize_source_seed(conn, height: int, expected_hash: str):
         cur.execute("INSERT INTO quantum_v2.bootstrap_cursor(source_table) VALUES('canonical_blocks')")
 
 
+def transition_legacy_seed(conn, *, expected_height, expected_hash):
+    """Replace only an unpublished, unfinished legacy import with canonical work.
+
+    Imported height-only claims have no authenticated historical block hash.
+    Preserve their original legacy tables, never relabel copied current-header
+    hashes as orphan evidence. The audit and replacement cursor commit together.
+    Published or incrementally advanced projections require a separate recovery
+    procedure; this narrowly scoped transition refuses to touch them.
+    """
+    with transaction(conn) as cur:
+        p=_projection(cur)
+        if (p['seed_mode']!='legacy' or p['status']!='seeding' or
+                (p['anchor_height'],p['height'])!=(expected_height,expected_height) or
+                (p['anchor_hash'],p['block_hash'])!=(expected_hash,expected_hash)):
+            raise StoreError('Transition requires an unfinished legacy seed at the exact expected anchor and frontier')
+        _certify(cur,expected_height,expected_hash)
+        # Require installed orchestration tables, rather than treating absent
+        # publication metadata as evidence that nothing was published.
+        cur.execute('''SELECT
+            EXISTS(SELECT 1 FROM quantum_v2.accepted_generation) AS accepted,
+            EXISTS(SELECT 1 FROM quantum_v2.request WHERE status IN ('analyzed','complete')
+                OR generation_id IS NOT NULL OR output_dir IS NOT NULL) AS generated,
+            EXISTS(SELECT 1 FROM quantum_v2.delivery) AS delivered,
+            EXISTS(SELECT 1 FROM quantum_v2.projection_batch) AS advanced''')
+        if any(cur.fetchone().values()):
+            raise StoreError('Transition refuses accepted/generated/delivered or incrementally advanced projections')
+        cur.execute('SELECT * FROM quantum_v2.bootstrap_cursor ORDER BY source_table')
+        cursors=[dict(row) for row in cur.fetchall()]
+        cur.execute('SELECT committed_height,committed_hash,epoch FROM quantum_v2.source_state WHERE singleton')
+        source=cur.fetchone()
+        if not source:
+            raise SourceNotReady('Transition requires certified source readiness')
+        audit={'mode':'legacy-to-canonical-transition','anchor_height':expected_height,'anchor_hash':expected_hash,
+               'previous_seed_mode':'legacy','new_seed_mode':'canonical','previous_bootstrap_cursors':cursors,
+               'source_checkpoint':dict(source),'legacy_evidence':'Original legacy tables retained; historical claims unverified',
+               'orphan_evidence':'Existing observations preserved; no legacy current-header hashes imported'}
+        cur.execute('''TRUNCATE quantum_v2.batch_undo,quantum_v2.disclosure_undo,
+            quantum_v2.projection_batch,quantum_v2.group_state,quantum_v2.disclosure,
+            quantum_v2.bootstrap_cursor,quantum_v2.projection''')
+        if _physical_available(cur):
+            cur.execute('TRUNCATE quantum_v2.bootstrap_heap_cursor,quantum_v2.bootstrap_display_origin')
+        # A balance proof for this import cannot certify the rebuilt projection.
+        # Retain the exact discarded report in the atomic transition audit;
+        # unrelated historical reports remain in their original audit table.
+        audit['discarded_anchor_validation_reports']=[]
+        cur.execute("SELECT to_regclass('quantum_v2.validation_result') AS relation")
+        if cur.fetchone()['relation']:
+            cur.execute('''DELETE FROM quantum_v2.validation_result WHERE target_height=%s AND target_hash=%s
+                RETURNING target_height,target_hash,verified_at::text AS verified_at,passed,report''',
+                (expected_height,expected_hash))
+            audit['discarded_anchor_validation_reports']=[dict(row) for row in cur.fetchall()]
+        for name in ('validation_checkpoint','validation_group'):
+            cur.execute('SELECT to_regclass(%s) AS relation',('quantum_v2.'+name,))
+            if cur.fetchone()['relation']:
+                cur.execute(sql.SQL('TRUNCATE {}').format(sql.Identifier('quantum_v2',name)))
+        cur.execute("""INSERT INTO quantum_v2.projection(status,seed_mode,anchor_height,anchor_hash,height,block_hash)
+            VALUES('seeding','canonical',%s,%s,%s,%s)""",(expected_height,expected_hash,expected_height,expected_hash))
+        cur.execute("INSERT INTO quantum_v2.bootstrap_cursor(source_table) VALUES('canonical_blocks')")
+        run_id=str(uuid.uuid4())
+        cur.execute("""INSERT INTO quantum_v2.run(id,pid,status,finished_at,metrics)
+            VALUES(%s,%s,'succeeded',clock_timestamp(),%s)""",(run_id,os.getpid(),Json(audit)))
+        return dict(audit,run_id=run_id)
+
+
 def _canonical_seed_step(cur,p,max_rows):
     cur.execute("SELECT * FROM quantum_v2.bootstrap_cursor WHERE source_table='canonical_blocks' FOR UPDATE")
     cursor=cur.fetchone(); anchor=p['anchor_height']
     if cursor['complete']:
         cur.execute("UPDATE quantum_v2.projection SET status='ready',updated_at=now() WHERE singleton")
         return True
-    # Occurrence keysets can resume inside one exceptionally dense block; a fixed
-    # block range could never progress when one block exceeds the row budget.
     key=(cursor['last_height'],cursor['last_txid'],cursor['last_vout'])
-    rows,complete,next_key=_source_occurrence_page(cur,key,anchor,max_rows)
-    states={}; exposures={}
-    for r in rows:
-        g,f,d,eligible=identify(r); s=states.setdefault((g,f),_empty(g,f,d))
-        created=r['blockheight']; removed=_removal_height(cur,r); spent=_effective_spend(r,removed)
-        if not _unspendable(r):
-            s['first_received_height']=_min(s['first_received_height'],created)
-        if spent is not None and spent<=anchor:
-            s['last_spend_height']=_max(s['last_spend_height'],spent)
-            if eligible: exposures[g]=_min(exposures.get(g),spent)
-        elif not _unspendable(r) and (removed is None or removed>anchor):
-            s['balance_sats']+=r['amount']; s['utxo_count']+=1
-            if eligible: s['eligible_sats']+=r['amount']; s['eligible_utxos']+=1
-        if eligible and (f in ('P2PK','P2TR') or str(r.get('scripttype','')).startswith('Multisig ')):
-            exposures[g]=_min(exposures.get(g),created)
-    if exposures:
-        _save_disclosures(cur,exposures)
-    if states:
-        cur.execute('SELECT group_id,exposed_height FROM quantum_v2.disclosure WHERE group_id=ANY(%s)',(list({g for g,f in states}),))
-        known={r['group_id']:r['exposed_height'] for r in cur.fetchall()}
-        for (g,f),s in states.items(): s['first_disclosure_height']=known.get(g)
-        _save_states(cur,states,additive=True)
-    if exposures:
-        cur.execute("""UPDATE quantum_v2.group_state s SET first_disclosure_height=d.exposed_height,
-                       first_disclosure_hash=d.exposed_hash FROM quantum_v2.disclosure d
-                       WHERE s.group_id=d.group_id AND d.group_id=ANY(%s)
-                       AND (s.first_disclosure_height IS NULL OR d.exposed_height<s.first_disclosure_height)""",(list(exposures),))
+    count,complete,next_key=_load_canonical_seed_page(cur,key,anchor,max_rows)
+    if count:
+        _classify_canonical_seed_page(cur)
+        _reduce_canonical_seed_page(cur,anchor)
     cur.execute("""UPDATE quantum_v2.bootstrap_cursor SET last_height=%s,last_txid=%s,last_vout=%s,
                    rows_processed=rows_processed+%s,complete=%s WHERE source_table='canonical_blocks'""",
-                (*next_key,len(rows),complete))
+                (*next_key,count,complete))
     if complete: cur.execute("UPDATE quantum_v2.projection SET status='ready',updated_at=now() WHERE singleton")
     return complete
+
+
+def _load_canonical_seed_page(cur,key,anchor,limit):
+    """Keep bounded source rows inside PostgreSQL, with the same MVCC/lookahead contract.
+
+    The transaction-local table is one page, never a persistent source copy.
+    Exact archive/live duplicates collapse in the source UNION; conflicting
+    occurrences, including across the page boundary, abort before cursor advance.
+    """
+    query,params,window_end=_source_occurrence_query(cur,key,anchor,limit)
+    cur.execute(sql.SQL('CREATE TEMP TABLE quantum_canonical_page ON COMMIT DROP AS ')+query,params)
+    cur.execute('''SELECT count(*) AS count,count(DISTINCT (blockheight,transactionid,vout)) AS occurrences
+                   FROM pg_temp.quantum_canonical_page''')
+    counts=cur.fetchone();count=counts['count']
+    if count!=counts['occurrences']:
+        raise StoreError('Conflicting source locations for one seed output occurrence')
+    exhausted=count<=limit
+    if exhausted:
+        next_key=(window_end+1,'',-1)
+    else:
+        cur.execute('''DELETE FROM pg_temp.quantum_canonical_page WHERE (blockheight,transactionid,vout)=
+            (SELECT blockheight,transactionid,vout FROM pg_temp.quantum_canonical_page
+             ORDER BY blockheight DESC,transactionid DESC,vout DESC LIMIT 1)''')
+        cur.execute('''SELECT blockheight,transactionid,vout FROM pg_temp.quantum_canonical_page
+                       ORDER BY blockheight DESC,transactionid DESC,vout DESC LIMIT 1''')
+        last=cur.fetchone(); next_key=(last['blockheight'],last['transactionid'],last['vout']);count=limit
+    return count,exhausted and window_end==anchor,next_key
+
+
+def _classify_canonical_seed_page(cur):
+    """SQL handles exact ordinary shapes; only key/policy exceptions cross Python.
+
+    Declared script types are not themselves proofs of locking-script shape.
+    Lowercase normalization matches identify(), and absent/malformed standard
+    scripts fail closed. Unsupported Other outputs retain their existing identity
+    and ineligible accounting, including zero-value outputs.
+    """
+    cur.execute("SELECT 1 FROM pg_temp.quantum_canonical_page WHERE COALESCE(lower(scripthex),'') !~ '^[0-9a-f]*$' OR length(COALESCE(scripthex,''))%2<>0 LIMIT 1")
+    if cur.fetchone(): raise StoreError('Source contains malformed locking-script hex')
+    cur.execute('SELECT 1 FROM pg_temp.quantum_canonical_page WHERE amount IS NULL OR amount<0 LIMIT 1')
+    if cur.fetchone(): raise StoreError('Source output amount must be a nonnegative integer')
+    cur.execute("""SELECT 1 FROM pg_temp.quantum_canonical_page WHERE
+        (scripttype='pubkeyhash' AND NOT COALESCE(lower(scripthex) ~ '^76a914[0-9a-f]{40}88ac$',false)) OR
+        (scripttype='witness_v0_keyhash' AND NOT COALESCE(lower(scripthex) ~ '^0014[0-9a-f]{40}$',false)) OR
+        (scripttype='scripthash' AND NOT COALESCE(lower(scripthex) ~ '^a914[0-9a-f]{40}87$',false)) OR
+        (scripttype='witness_v0_scripthash' AND NOT COALESCE(lower(scripthex) ~ '^0020[0-9a-f]{64}$',false)) LIMIT 1""")
+    if cur.fetchone(): raise StoreError('Source standard script does not match its declared type')
+    cur.execute('''ALTER TABLE pg_temp.quantum_canonical_page
+        ADD COLUMN group_id text COLLATE "C",ADD COLUMN script_type text COLLATE "C",
+        ADD COLUMN display_group_id text,ADD COLUMN eligible boolean NOT NULL DEFAULT false,
+        ADD COLUMN removal_height bigint,ADD COLUMN effective_spend bigint''')
+    cur.execute("""UPDATE pg_temp.quantum_canonical_page SET
+        group_id=CASE scripttype WHEN 'pubkeyhash' THEN substring(lower(scripthex),7,40)
+                   WHEN 'witness_v0_keyhash' THEN substring(lower(scripthex),5,40)
+                   ELSE COALESCE(NULLIF(address,''),'out:'||blockheight||':'||transactionid||':'||vout) END,
+        script_type=CASE scripttype WHEN 'pubkeyhash' THEN 'P2PKH' WHEN 'witness_v0_keyhash' THEN 'P2WPKH'
+                   WHEN 'scripthash' THEN 'P2SH' WHEN 'witness_v0_scripthash' THEN 'P2WSH' ELSE 'Other' END,
+        eligible=COALESCE(scripttype IN ('pubkeyhash','witness_v0_keyhash','scripthash','witness_v0_scripthash'),false),
+        effective_spend=spendingblock
+        WHERE COALESCE(scripttype NOT IN ('pubkey','witness_v1_taproot') AND scripttype NOT LIKE 'Multisig %%',true)""")
+    cur.execute("""UPDATE pg_temp.quantum_canonical_page SET display_group_id=COALESCE(NULLIF(address,''),group_id)
+                   WHERE group_id IS NOT NULL""")
+    cur.execute('''SELECT blockheight,transactionid,vout,amount,address,scripttype,scripthex,spendingblock
+                   FROM pg_temp.quantum_canonical_page WHERE group_id IS NULL
+                   ORDER BY blockheight,transactionid,vout''')
+    exceptional=[]
+    for row in cur.fetchall():
+        group,family,display,eligible=identify(row,require_raw_script=True)
+        removed=_removal_height(cur,row)
+        exceptional.append((row['blockheight'],row['transactionid'],row['vout'],group,family,display,
+                            eligible,removed,_effective_spend(row,removed)))
+    if exceptional:
+        # One typed exception page and one hash join avoid rescanning the entire
+        # raw page for every execute_values chunk on Taproot/P2PK-heavy blocks.
+        cur.execute('''CREATE TEMP TABLE quantum_canonical_exceptions
+            (height bigint,txid text,vout integer,group_id text,family text,display text,
+             eligible boolean,removed bigint,spent bigint) ON COMMIT DROP''')
+        execute_values(cur,'INSERT INTO pg_temp.quantum_canonical_exceptions VALUES %s',exceptional,page_size=1000)
+        cur.execute('''UPDATE pg_temp.quantum_canonical_page p SET
+            group_id=v.group_id,script_type=v.family,display_group_id=v.display,
+            eligible=v.eligible,removal_height=v.removed,effective_spend=v.spent
+            FROM pg_temp.quantum_canonical_exceptions v
+            WHERE p.blockheight=v.height AND p.transactionid=v.txid AND p.vout=v.vout''')
+    # The known overwritten coinbases are P2PK today, but preserve the removal
+    # exception independently of a source type declaration.
+    cur.execute('''SELECT blockheight,transactionid,vout,spendingblock FROM pg_temp.quantum_canonical_page
+                   WHERE blockheight IN (91722,91812) AND script_type<>'P2PK' ''')
+    for row in cur.fetchall():
+        removed=_removal_height(cur,row)
+        if removed is not None:
+            cur.execute('''UPDATE pg_temp.quantum_canonical_page SET removal_height=%s,effective_spend=%s
+                WHERE blockheight=%s AND transactionid=%s AND vout=%s''',
+                (removed,_effective_spend(row,removed),row['blockheight'],row['transactionid'],row['vout']))
+
+
+def _reduce_canonical_seed_page(cur,anchor):
+    """Reduce exact integers and canonical evidence, without per-output transfers."""
+    cur.execute("""CREATE TEMP TABLE quantum_canonical_groups ON COMMIT DROP AS
+        WITH grouped AS MATERIALIZED (
+            SELECT group_id,script_type,
+                COALESCE(SUM(amount) FILTER(WHERE blockheight>0 AND (effective_spend IS NULL OR effective_spend>%s)
+                    AND (removal_height IS NULL OR removal_height>%s)),0)::bigint AS balance_sats,
+                COUNT(*) FILTER(WHERE blockheight>0 AND (effective_spend IS NULL OR effective_spend>%s)
+                    AND (removal_height IS NULL OR removal_height>%s)) AS utxo_count,
+                COALESCE(SUM(amount) FILTER(WHERE eligible AND blockheight>0 AND (effective_spend IS NULL OR effective_spend>%s)
+                    AND (removal_height IS NULL OR removal_height>%s)),0)::bigint AS eligible_sats,
+                COUNT(*) FILTER(WHERE eligible AND blockheight>0 AND (effective_spend IS NULL OR effective_spend>%s)
+                    AND (removal_height IS NULL OR removal_height>%s)) AS eligible_utxos,
+                MIN(blockheight) FILTER(WHERE blockheight>0) AS first_received_height,
+                MAX(effective_spend) FILTER(WHERE effective_spend<=%s) AS last_spend_height,
+                MIN(LEAST(CASE WHEN eligible AND effective_spend<=%s THEN effective_spend END,
+                    CASE WHEN eligible AND (script_type IN ('P2PK','P2TR') OR scripttype LIKE 'Multisig %%')
+                         THEN blockheight END)) AS exposed_height
+            FROM pg_temp.quantum_canonical_page GROUP BY group_id,script_type
+        ), first_display AS (
+            SELECT DISTINCT ON(group_id,script_type) group_id,script_type,display_group_id
+            FROM pg_temp.quantum_canonical_page ORDER BY group_id,script_type,blockheight,transactionid,vout
+        ) SELECT g.*,d.display_group_id FROM grouped g JOIN first_display d USING(group_id,script_type)""",(anchor,)*10)
+    cur.execute('''CREATE TEMP TABLE quantum_canonical_disclosures ON COMMIT DROP AS
+        SELECT d.group_id,d.exposed_height,b.blockhash AS exposed_hash FROM
+          (SELECT group_id,MIN(exposed_height) AS exposed_height FROM pg_temp.quantum_canonical_groups
+           WHERE exposed_height IS NOT NULL GROUP BY group_id) d
+        LEFT JOIN LATERAL (SELECT blockhash FROM public.blockheader WHERE blockheight=d.exposed_height LIMIT 1) b ON true''')
+    cur.execute('SELECT 1 FROM pg_temp.quantum_canonical_disclosures WHERE exposed_hash IS NULL LIMIT 1')
+    if cur.fetchone(): raise SourceNotReady('Missing disclosure block provenance')
+    cur.execute('''INSERT INTO quantum_v2.disclosure(group_id,exposed_height,exposed_hash)
+        SELECT group_id,exposed_height,exposed_hash FROM pg_temp.quantum_canonical_disclosures
+        ON CONFLICT(group_id) DO UPDATE SET
+            exposed_height=LEAST(quantum_v2.disclosure.exposed_height,EXCLUDED.exposed_height),
+            exposed_hash=CASE WHEN EXCLUDED.exposed_height<quantum_v2.disclosure.exposed_height
+                         THEN EXCLUDED.exposed_hash ELSE quantum_v2.disclosure.exposed_hash END
+        WHERE EXCLUDED.exposed_height<quantum_v2.disclosure.exposed_height''')
+    cur.execute('''INSERT INTO quantum_v2.group_state
+        (group_id,script_type,balance_sats,utxo_count,eligible_sats,eligible_utxos,
+         first_received_height,first_disclosure_height,first_disclosure_hash,last_spend_height,display_group_id)
+        SELECT g.group_id,g.script_type,g.balance_sats,g.utxo_count,g.eligible_sats,g.eligible_utxos,
+               g.first_received_height,d.exposed_height,d.exposed_hash,g.last_spend_height,g.display_group_id
+        FROM pg_temp.quantum_canonical_groups g
+        LEFT JOIN LATERAL (SELECT exposed_height,exposed_hash FROM quantum_v2.disclosure
+                          WHERE group_id=g.group_id LIMIT 1) d ON true
+        ON CONFLICT(group_id,script_type) DO UPDATE SET
+            balance_sats=quantum_v2.group_state.balance_sats+EXCLUDED.balance_sats,
+            utxo_count=quantum_v2.group_state.utxo_count+EXCLUDED.utxo_count,
+            eligible_sats=quantum_v2.group_state.eligible_sats+EXCLUDED.eligible_sats,
+            eligible_utxos=quantum_v2.group_state.eligible_utxos+EXCLUDED.eligible_utxos,
+            first_received_height=LEAST(quantum_v2.group_state.first_received_height,EXCLUDED.first_received_height),
+            first_disclosure_height=LEAST(quantum_v2.group_state.first_disclosure_height,EXCLUDED.first_disclosure_height),
+            first_disclosure_hash=CASE WHEN quantum_v2.group_state.first_disclosure_height IS NULL
+                OR EXCLUDED.first_disclosure_height<quantum_v2.group_state.first_disclosure_height
+                THEN EXCLUDED.first_disclosure_hash ELSE quantum_v2.group_state.first_disclosure_hash END,
+            last_spend_height=GREATEST(quantum_v2.group_state.last_spend_height,EXCLUDED.last_spend_height),
+            display_group_id=CASE WHEN quantum_v2.group_state.display_group_id=''
+                THEN EXCLUDED.display_group_id ELSE quantum_v2.group_state.display_group_id END''')
+    # A later page may discover an earlier spend for a previously saved family.
+    # Bound the lookup to page groups and their seven possible family PKs; never
+    # hash/scan the full growing projection to propagate one page's evidence.
+    cur.execute('''INSERT INTO quantum_v2.group_state
+        (group_id,script_type,balance_sats,utxo_count,eligible_sats,eligible_utxos,
+         first_received_height,first_disclosure_height,first_disclosure_hash,last_spend_height,
+         display_group_id,details,identity)
+        SELECT s.group_id,s.script_type,s.balance_sats,s.utxo_count,s.eligible_sats,s.eligible_utxos,
+               s.first_received_height,d.exposed_height,d.exposed_hash,s.last_spend_height,
+               s.display_group_id,s.details,s.identity
+        FROM pg_temp.quantum_canonical_disclosures p
+        CROSS JOIN LATERAL (SELECT exposed_height,exposed_hash FROM quantum_v2.disclosure
+                            WHERE group_id=p.group_id LIMIT 1) d
+        CROSS JOIN LATERAL (SELECT * FROM quantum_v2.group_state WHERE group_id=p.group_id LIMIT 7) s
+        WHERE s.first_disclosure_height IS NULL OR d.exposed_height<s.first_disclosure_height
+        ON CONFLICT(group_id,script_type) DO UPDATE SET
+            first_disclosure_height=EXCLUDED.first_disclosure_height,
+            first_disclosure_hash=EXCLUDED.first_disclosure_hash''')
 
 
 def _verify_legacy(cur, height):
@@ -407,12 +671,14 @@ def _taproot_program(address):
     return bytes(result)
 
 
-def identify(row):
+def identify(row, *, require_raw_script=False):
     """Return group, family, display, eligible. No private keys or ownership inference."""
     kind = row.get('scripttype', row.get('script_type', '')) or ''
     family = FAMILIES.get(kind, 'Other')
     address = row.get('address') or ''
     raw = (row.get('scripthex') or '').lower()
+    if require_raw_script and (len(raw)%2 or re.fullmatch(r'[0-9a-f]*',raw) is None):
+        raise StoreError('Source contains malformed locking-script hex')
     key = row.get('keyhash20')
     if key is not None:
         group = bytes(key).hex()
@@ -436,8 +702,13 @@ def identify(row):
             address = 'script:'+hashlib.sha256(bytes.fromhex(raw)).hexdigest()
         else:
             address = f"out:{row['blockheight']}:{row['transactionid']}:{row['vout']}"
+    if (raw or require_raw_script) and ((family=='P2SH' and not re.fullmatch(r'a914[0-9a-f]{40}87',raw)) or
+                (family=='P2WSH' and not re.fullmatch(r'0020[0-9a-f]{64}',raw))):
+        raise StoreError('Source standard script does not match its declared type')
     eligible=family in ('P2SH','P2WSH')
     if family=='P2TR':
+        if require_raw_script and not re.fullmatch(r'5120[0-9a-f]{64}',raw):
+            raise StoreError('Source standard script does not match its declared type')
         program=(bytes.fromhex(raw[4:]) if re.fullmatch(r'5120[0-9a-f]{64}',raw) else None) if raw else _taproot_program(address)
         eligible=program is not None and _valid_key('02'+program.hex())
     elif kind.startswith('Multisig '):
@@ -512,11 +783,12 @@ def _preserve_orphan_disclosures(cur,p,batch_id=None):
     condition='' if batch_id is None else ' AND group_id IN (SELECT group_id FROM quantum_v2.batch_undo WHERE batch_id=%s)'
     params=(p['height'],p['block_hash'],batch_id)
     if batch_id is not None: params+= (batch_id,)
-    cur.execute("""INSERT INTO quantum_v2.orphan_disclosure
-        (group_id,exposed_height,exposed_hash,projection_height,projection_hash,batch_id,source)
-        SELECT group_id,first_disclosure_height,first_disclosure_hash,%s,%s,%s,'projection-observation'
-        FROM quantum_v2.group_state WHERE first_disclosure_height IS NOT NULL
-        AND first_disclosure_hash IS NOT NULL"""+condition+" ON CONFLICT DO NOTHING",params)
+    if p['seed_mode']=='canonical':
+        cur.execute("""INSERT INTO quantum_v2.orphan_disclosure
+            (group_id,exposed_height,exposed_hash,projection_height,projection_hash,batch_id,source)
+            SELECT group_id,first_disclosure_height,first_disclosure_hash,%s,%s,%s,'projection-observation'
+            FROM quantum_v2.group_state WHERE first_disclosure_height IS NOT NULL
+            AND first_disclosure_hash IS NOT NULL"""+condition+" ON CONFLICT DO NOTHING",params)
     condition='' if batch_id is None else ' WHERE group_id IN (SELECT group_id FROM quantum_v2.disclosure_undo WHERE batch_id=%s)'
     cur.execute("""INSERT INTO quantum_v2.orphan_disclosure
         (group_id,exposed_height,exposed_hash,projection_height,projection_hash,batch_id,source)
@@ -619,12 +891,75 @@ def _point_lookup_sources(cur,tables):
     return {row['tablename'] for row in cur.fetchall()}
 
 
+def _legacy_address_lookup_sources(cur,tables):
+    """Find usable existing address prefixes, including the nonkey partial index.
+
+    Unknown partial predicates are not assumed to cover a requested occurrence.
+    This deliberately recognizes only predicates used by the source producer
+    and the reviewed Quantum nonkey-address index helper.
+    """
+    cur.execute('''SELECT c.relname AS tablename,pg_get_expr(i.indpred,i.indrelid) AS predicate
+        FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+        JOIN pg_index i ON i.indrelid=c.oid JOIN pg_class idx ON idx.oid=i.indexrelid
+        JOIN pg_am am ON am.oid=idx.relam
+        JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum=i.indkey[0]
+        WHERE n.nspname='public' AND c.relname=ANY(%s) AND i.indisvalid AND i.indisready
+          AND am.amname='btree' AND a.attname='address' ''',(tables,))
+    known="((address IS NOT NULL) AND ((scripttype <> ALL (ARRAY['pubkey'::text, 'pubkeyhash'::text, 'witness_v0_keyhash'::text])) OR (scripttype IS NULL)))"
+    accepted={None,'(addressISNOTNULL)',re.sub(r'\s+','',known)}
+    return {r['tablename'] for r in cur.fetchall()
+            if (re.sub(r'\s+','',r['predicate']) if r['predicate'] is not None else None) in accepted}
+
+
+def _legacy_script_lookup(cur,table,candidates,*,mode):
+    """Hydrate exact occurrences using the narrowest existing verified route."""
+    if not candidates: return []
+    if mode=='point':
+        query=sql.SQL('''WITH wanted(ordinal,height,txid,vout) AS MATERIALIZED (VALUES %s)
+            SELECT k.ordinal,s.scripthex,s.scripttype FROM wanted k
+            CROSS JOIN LATERAL (SELECT scripthex,scripttype FROM {}
+                WHERE transactionid=k.txid AND vout=k.vout AND blockheight=k.height OFFSET 0) s''').format(_q(table))
+    elif mode=='address':
+        # Keep address only as an extra restriction on the full occurrence.
+        # Group shared address/block probes so repeated scripts do not rescan
+        # the same address history for every output in the bounded input page.
+        query=sql.SQL('''WITH wanted(ordinal,height,txid,vout,address) AS MATERIALIZED (VALUES %s),
+            subjects AS (SELECT height,address,array_agg(DISTINCT txid) AS txids,
+                         array_agg(DISTINCT vout) AS vouts FROM wanted GROUP BY height,address),
+            found AS MATERIALIZED (
+                SELECT b.height,b.address,s.transactionid,s.vout,s.scripthex,s.scripttype FROM subjects b
+                CROSS JOIN LATERAL (SELECT transactionid,vout,scripthex,scripttype FROM {}
+                    WHERE address=b.address AND address IS NOT NULL AND blockheight=b.height
+                    AND (scripttype NOT IN ('pubkey','pubkeyhash','witness_v0_keyhash') OR scripttype IS NULL)
+                    AND transactionid=ANY(b.txids) AND vout=ANY(b.vouts) OFFSET 0) s)
+            SELECT k.ordinal,s.scripthex,s.scripttype FROM found s JOIN wanted k
+                ON k.height=s.height AND k.address=s.address AND k.txid=s.transactionid AND k.vout=s.vout''').format(_q(table))
+    elif mode in ('block','pubkey'):
+        # The literal known family enables existing covering P2PK partial
+        # indexes; a generic block probe otherwise fetches unrelated families.
+        predicate=" AND scripttype='pubkey'" if mode=='pubkey' else ''
+        query=sql.SQL('''WITH wanted(ordinal,height,txid,vout) AS MATERIALIZED (VALUES %s),
+            blocks AS (SELECT height,array_agg(DISTINCT txid) AS txids,
+                       array_agg(DISTINCT vout) AS vouts FROM wanted GROUP BY height),
+            found AS MATERIALIZED (
+                SELECT b.height,s.transactionid,s.vout,s.scripthex,s.scripttype FROM blocks b
+                CROSS JOIN LATERAL (SELECT transactionid,vout,scripthex,scripttype FROM {}
+                    WHERE blockheight=b.height AND transactionid=ANY(b.txids)
+                    AND vout=ANY(b.vouts)'''+predicate+''' OFFSET 0) s)
+            SELECT k.ordinal,s.scripthex,s.scripttype FROM found s JOIN wanted k
+                ON k.height=s.height AND k.txid=s.transactionid AND k.vout=s.vout''').format(_q(table))
+    else:
+        raise ValueError('Unknown legacy script lookup route')
+    return execute_values(cur,query,candidates,page_size=1000,fetch=True)
+
+
 def _prepare_legacy_scripts(cur,rows,anchor):
     """Restore omitted key/policy facts using bounded cache/occurrence lookups.
 
     Cached P2PK keys must reproduce keyhash20. Taproot addresses carry the full
     output key. Other missing facts use exact composite-index probes where
-    available, otherwise indexed creation-block scans joined to occurrences.
+    available, otherwise an existing address prefix plus the exact occurrence,
+    a P2PK partial creation index, or bounded creation-block probes as fallback.
     """
     missing={i:r for i,r in enumerate(rows) if not r.get('scripthex') and
              (r.get('scripttype',r.get('script_type','')) in ('pubkey','witness_v1_taproot') or
@@ -659,32 +994,19 @@ def _prepare_legacy_scripts(cur,rows,anchor):
     routes.append(('outputs',lambda r:True))
     routes.extend((n,lambda r:r['spendingblock'] is None) for a,b,n in archives if b>anchor)
     point_sources=_point_lookup_sources(cur,list({table for table,_ in routes}))
+    address_sources=_legacy_address_lookup_sources(cur,list({table for table,_ in routes}))
     for table,accept in routes:
-        candidates=[(i,r['blockheight'],r['transactionid'],r['vout']) for i,r in missing.items() if accept(r)]
-        if not candidates: continue
-        if table in point_sources:
-            # Equalities on both outpoint columns allow the live composite index
-            # to locate one tuple directly. The creation-height filter preserves
-            # BIP30 occurrence identity. Do not LIMIT: conflicting copies fail.
-            query=sql.SQL('''WITH wanted(ordinal,height,txid,vout) AS MATERIALIZED (VALUES %s)
-                SELECT k.ordinal,s.scripthex,s.scripttype FROM wanted k
-                CROSS JOIN LATERAL (SELECT scripthex,scripttype FROM {}
-                    WHERE transactionid=k.txid AND vout=k.vout AND blockheight=k.height OFFSET 0) s''').format(_q(table))
-        else:
-            # Without a composite prefix, group requested occurrences by block
-            # so its unrelated outputs are read at most once per bounded chunk.
-            # OFFSET 0 and MATERIALIZED retain this per-block scan boundary.
-            query=sql.SQL('''WITH wanted(ordinal,height,txid,vout) AS MATERIALIZED (VALUES %s),
-            blocks AS (SELECT height,array_agg(DISTINCT txid) AS txids,
-                       array_agg(DISTINCT vout) AS vouts FROM wanted GROUP BY height),
-            found AS MATERIALIZED (
-                SELECT b.height,s.transactionid,s.vout,s.scripthex,s.scripttype FROM blocks b
-                CROSS JOIN LATERAL (SELECT transactionid,vout,scripthex,scripttype FROM {}
-                    WHERE blockheight=b.height AND transactionid=ANY(b.txids)
-                    AND vout=ANY(b.vouts) OFFSET 0) s)
-            SELECT k.ordinal,s.scripthex,s.scripttype FROM found s JOIN wanted k
-                ON k.height=s.height AND k.txid=s.transactionid AND k.vout=s.vout''').format(_q(table))
-        found=execute_values(cur,query,candidates,page_size=1000,fetch=True)
+        buckets=defaultdict(list)
+        for i,r in missing.items():
+            if not accept(r): continue
+            kind=r.get('scripttype',r.get('script_type',''))
+            mode=('point' if table in point_sources else 'pubkey' if kind=='pubkey' else
+                  'address' if table in address_sources and r.get('address') and kind.startswith('Multisig ') else 'block')
+            candidate=(i,r['blockheight'],r['transactionid'],r['vout'])
+            buckets[mode].append((*candidate,r['address']) if mode=='address' else candidate)
+        found=[]
+        for mode,candidates in buckets.items():
+            found.extend(_legacy_script_lookup(cur,table,candidates,mode=mode))
         if len({item['ordinal'] for item in found})!=len(found):
             raise StoreError('Conflicting duplicate source occurrence in legacy script lookup')
         for item in found:
@@ -697,14 +1019,8 @@ def _prepare_legacy_scripts(cur,rows,anchor):
         raise StoreError('Missing canonical source key/policy facts for legacy seed occurrences')
 
 
-def _source_occurrence_page(cur,key,anchor,limit,*,other_only=False):
-    """One globally ordered source page, stable across archive movement.
-
-    Branch and merge lookahead include the row after the page boundary. This
-    rejects conflicting copies of an occurrence even when the conflict would
-    otherwise straddle a cursor advance. Exact duplicate copies collapse.
-    Returns rows, final completion, and the next durable occurrence cursor.
-    """
+def _source_occurrence_query(cur,key,anchor,limit,*,other_only=False):
+    """Compose the shared bounded, archive-coherent source occurrence query."""
     # Bound sparse predicates by creation height as well as result cardinality.
     # Empty windows advance durably instead of rescanning the entire archive.
     window_end=min(anchor,max(0,key[0])+999)
@@ -723,7 +1039,19 @@ def _source_occurrence_page(cur,key,anchor,limit,*,other_only=False):
             ' ORDER BY blockheight,transactionid,vout LIMIT %s)').format(_q(name)))
         params.extend((*branch_params,limit+1))
     query=sql.SQL('SELECT * FROM (')+sql.SQL(' UNION ').join(pieces)+sql.SQL(') source ORDER BY blockheight,transactionid,vout LIMIT %s')
-    cur.execute(query,(*params,limit+1))
+    return query,(*params,limit+1),window_end
+
+
+def _source_occurrence_page(cur,key,anchor,limit,*,other_only=False):
+    """One globally ordered source page, stable across archive movement.
+
+    Branch and merge lookahead include the row after the page boundary. This
+    rejects conflicting copies of an occurrence even when the conflict would
+    otherwise straddle a cursor advance. Exact duplicate copies collapse.
+    Returns rows, final completion, and the next durable occurrence cursor.
+    """
+    query,params,window_end=_source_occurrence_query(cur,key,anchor,limit,other_only=other_only)
+    cur.execute(query,params)
     rows=cur.fetchall()
     if len({(r['blockheight'],r['transactionid'],r['vout']) for r in rows})!=len(rows):
         raise StoreError('Conflicting source locations for one seed output occurrence')
@@ -1001,6 +1329,53 @@ def _source_delta(cur, lo, hi, max_rows, include_spends=True):
     return seen.values()
 
 
+NULL_SCRIPT_INDEX_DEFINITION = "(md5(lower(scripthex)),blockheight) INCLUDE(spendingblock,scripttype) WHERE (address IS NULL OR address='') AND scripttype LIKE 'Multisig %'"
+
+
+def _normalized_predicate(value):
+    # Preserve quoted literal contents: 'Multisig  %' is a narrower predicate
+    # than 'Multisig %' and must not be accepted by whitespace normalization.
+    parts=re.split(r"('(?:[^']|'')*')",value)
+    return ''.join(part if index%2 else re.sub(r'\s+|[()]|::text','',part)
+                   for index,part in enumerate(parts))
+
+
+def _null_script_lookup_indexes(cur,tables):
+    """Recognize valid exact-hash lookup paths; conservative partial predicates.
+
+    A full hash index or either broader supported predicate also covers every
+    addressless bare policy (both NULL and empty address map to script identity).
+    Unknown narrower predicates fail the preflight.
+    """
+    cur.execute('''SELECT t.relname AS source_table,c.relname AS index_name,
+        pg_get_indexdef(i.indexrelid,1,true) AS first_key,
+        pg_get_expr(i.indpred,i.indrelid) AS predicate
+        FROM pg_catalog.pg_index i JOIN pg_catalog.pg_class t ON t.oid=i.indrelid
+        JOIN pg_catalog.pg_namespace n ON n.oid=t.relnamespace
+        JOIN pg_catalog.pg_class c ON c.oid=i.indexrelid
+        JOIN pg_catalog.pg_am am ON am.oid=c.relam
+        WHERE n.nspname='public' AND t.relname=ANY(%s) AND am.amname='btree'
+          AND i.indisvalid AND i.indisready AND i.indnkeyatts>=1''',(tables,))
+    kind="scripttype ~~ 'Multisig %'::text"
+    missing=("address IS NULL OR address=''::text", "address=''::text OR address IS NULL")
+    allowed={_normalized_predicate(value) for value in
+             [kind,*missing,*[f'({part}) AND {kind}' for part in missing],
+              *[f'{kind} AND ({part})' for part in missing]]}
+    found={}
+    for row in cur.fetchall():
+        expression=re.sub(r'\s+','',row['first_key']).replace('::text','')
+        if expression!='md5(lower(scripthex))':continue
+        if row['predicate'] is not None and _normalized_predicate(row['predicate']) not in allowed:continue
+        found.setdefault(row['source_table'],[]).append(row['index_name'])
+    return found
+
+
+def _null_script_hashes(scripts):
+    # This is an access-path hash, not evidence identity. Exact script equality
+    # is always required as well, so a collision cannot merge policy histories.
+    return [hashlib.md5(script.encode('utf-8'),usedforsecurity=False).hexdigest() for script in scripts]
+
+
 def _hydrate_metadata_batch(cur, examples, anchor):
     """One grouped indexed lookup per source, never one query per new address.
 
@@ -1009,6 +1384,18 @@ def _hydrate_metadata_batch(cur, examples, anchor):
     without substituting dates or advancing the projection frontier.
     """
     states={}
+    scripts={row['scripthex'].lower():g for g,(f,row) in examples.items() if g.startswith('script:')}
+    sources=['outputs']+[name for a,b,name in _archives(cur)] if scripts else None
+    if scripts:
+        available=_null_script_lookup_indexes(cur,sources)
+        missing=[name for name in sources if name not in available]
+        if missing:
+            raise StoreError('Exact history for addressless bare multisig requires valid md5(lower(scripthex)) '
+                'indexes covering NULL/empty-address Multisig rows on: '+', '.join(missing)+'. '
+                'Dry-run scripts/ensure_quantum_source_indexes.py --kind null_bare_script '
+                '--table <one table> --output <private plan file>; '
+                'review and provision each missing source, including future archives. '
+                'No source history query was executed; the projection checkpoint is unchanged.')
     keys={g:row for g,(family,row) in examples.items() if family in ('P2PK','P2PKH','P2WPKH')}
     if keys:
         cur.execute("""SELECT encode(keyhash20,'hex') AS group_id,script_type,
@@ -1022,18 +1409,22 @@ def _hydrate_metadata_batch(cur, examples, anchor):
             s['first_received_height']=row['first']; s['last_spend_height']=row['last']; states[(g,f)]=s
     addresses={row.get('address'):g for g,(f,row) in examples.items()
                if f not in ('P2PK','P2PKH','P2WPKH') and row.get('address')}
-    scripts={row['scripthex']:g for g,(f,row) in examples.items() if g.startswith('script:')}
     for column,subjects in [('address',addresses),('scripthex',scripts)]:
         if not subjects: continue
-        for table in ['outputs']+[name for a,b,name in _archives(cur)]:
+        for table in sources or ['outputs']+[name for a,b,name in _archives(cur)]:
             condition="(scripttype NOT IN ('pubkey','pubkeyhash','witness_v0_keyhash') OR scripttype IS NULL)"
-            if column=='scripthex': condition="scripttype LIKE 'Multisig %%' AND address IS NULL"
+            subject=sql.Identifier(column)
+            hashes=()
+            if column=='scripthex':
+                condition="scripttype LIKE 'Multisig %%' AND (address IS NULL OR address='') AND md5(lower(scripthex))=ANY(%s)"
+                subject=sql.SQL('lower(scripthex)')
+                hashes=(_null_script_hashes(subjects),)
             cur.execute(sql.SQL("""SELECT {} AS subject,scripttype,
                        MIN(blockheight) FILTER(WHERE blockheight>0) AS first,
                        MAX(spendingblock) FILTER(WHERE spendingblock<=%s) AS last
                        FROM {} WHERE {}=ANY(%s) AND blockheight<=%s AND """+condition+" GROUP BY {},scripttype").format(
-                           sql.Identifier(column),_q(table),sql.Identifier(column),sql.Identifier(column)),
-                        (anchor,list(subjects),anchor))
+                           subject,_q(table),subject,subject),
+                        (anchor,list(subjects),anchor,*hashes))
             for row in cur.fetchall():
                 g=subjects[row['subject']]; f=FAMILIES.get(row['scripttype'],'Other')
                 state=states.setdefault((g,f),_empty(g,f,g))
@@ -1056,7 +1447,7 @@ def apply_range(conn, to_height, max_rows=250000):
         if to_height<lo:
             raise StoreError('Use rollback_to for backward movement')
         rows=list(_source_delta(cur,lo,to_height,max_rows))
-        identities=[identify(r) for r in rows]; groups=sorted({x[0] for x in identities})
+        identities=[identify(r,require_raw_script=True) for r in rows]; groups=sorted({x[0] for x in identities})
         cur.execute('SELECT * FROM quantum_v2.group_state WHERE group_id=ANY(%s)',(groups,))
         before={(r['group_id'],r['script_type']):dict(r) for r in cur.fetchall()}
         states={k:dict(v) for k,v in before.items()}
@@ -1109,31 +1500,94 @@ def apply_range(conn, to_height, max_rows=250000):
         return {'height':to_height,'rows':len(rows),'groups':len(groups),'batch_id':batch}
 
 
-def rollback_to(conn,height):
-    """Undo complete batches down to a retained checkpoint; deeper rollback is explicit."""
+def undo_prune_pending(conn, *, keep_blocks=2016):
+    """Cheap indexed predicate for caught-up workers; does not mutate state."""
+    keep_blocks=undo_retention_blocks({'undo_blocks':keep_blocks})
+    if conn.get_transaction_status()!=psycopg2.extensions.TRANSACTION_STATUS_IDLE:
+        raise StoreError('Undo maintenance requires an idle connection')
+    with conn,conn.cursor() as cur:
+        cur.execute('''SELECT b.to_height<=p.height-%s FROM quantum_v2.projection p
+            CROSS JOIN LATERAL (SELECT to_height FROM quantum_v2.projection_batch
+                                ORDER BY to_height LIMIT 1) b
+            WHERE p.singleton AND p.status='ready' ''',(keep_blocks,))
+        row=cur.fetchone()
+        return bool(row and row[0])
+
+
+def prune_undo_step(conn, *, keep_blocks=2016):
+    """Atomically remove one oldest complete batch outside the block window.
+
+    Its foreign-key cascades remove both undo tables in the same transaction.
+    Never prune child rows in independently committed pages: a retained parent
+    must always represent a complete reversible batch. The original seed anchor,
+    canonical state/disclosure and retained orphan evidence are not changed.
+    """
+    keep_blocks=undo_retention_blocks({'undo_blocks':keep_blocks})
+    with transaction(conn) as cur:
+        p=_projection(cur)
+        if p['status']!='ready': raise SourceNotReady('Undo pruning requires a ready projection')
+        _certify(cur,p['height'],p['block_hash'])
+        cur.execute('SELECT * FROM quantum_v2.projection_batch ORDER BY to_height LIMIT 1 FOR UPDATE')
+        oldest=cur.fetchone()
+        deleted=None
+        if oldest and oldest['to_height']<=p['height']-keep_blocks:
+            cur.execute('DELETE FROM quantum_v2.projection_batch WHERE batch_id=%s',(oldest['batch_id'],))
+            deleted={key:oldest[key] for key in ('batch_id','from_height','from_hash','to_height','to_hash')}
+        cur.execute('SELECT from_height,from_hash,to_height FROM quantum_v2.projection_batch ORDER BY to_height LIMIT 1')
+        first=cur.fetchone()
+        return {'deleted_batch':deleted,'retained_floor_height':first['from_height'] if first else p['height'],
+                'retained_floor_hash':first['from_hash'] if first else p['block_hash'],
+                'pending':bool(first and first['to_height']<=p['height']-keep_blocks)}
+
+
+def rollback_step(conn,height):
+    """Verify the entire retained suffix, then undo only its newest batch.
+
+    Missing boundaries or height/hash gaps require canonical reseeding before
+    any before-image is used. A committed intermediate frontier can be orphaned;
+    callers must continue recovery before applying deltas or exporting it.
+    """
     with transaction(conn) as cur:
         p=_projection(cur)
         cur.execute('SELECT * FROM quantum_v2.projection_batch WHERE to_height>%s ORDER BY to_height DESC',(height,))
         batches=cur.fetchall()
-        if height<p['anchor_height'] or (height!=p['height'] and (not batches or batches[-1]['from_height']!=height)):
-            cur.execute("UPDATE quantum_v2.projection SET status='needs_reseed' WHERE singleton")
-            return False
+        expected=(p['height'],p['block_hash'])
+        valid=p['status']=='ready' and p['anchor_height']<=height<=p['height']
         for batch in batches:
-            _preserve_orphan_disclosures(cur,p,batch['batch_id'])
-            cur.execute('SELECT * FROM quantum_v2.batch_undo WHERE batch_id=%s',(batch['batch_id'],))
-            old=cur.fetchall()
-            for r in old:
-                cur.execute('DELETE FROM quantum_v2.group_state WHERE group_id=%s AND script_type=%s',(r['group_id'],r['script_type']))
-            _save_states(cur,{(r['group_id'],r['script_type']):r['before_row'] for r in old if r['before_row'] is not None},preserve_hash=True)
-            cur.execute('SELECT * FROM quantum_v2.disclosure_undo WHERE batch_id=%s',(batch['batch_id'],))
-            for r in cur.fetchall():
-                if r['before_height'] is None:
-                    cur.execute('DELETE FROM quantum_v2.disclosure WHERE group_id=%s',(r['group_id'],))
-                else:
-                    cur.execute('UPDATE quantum_v2.disclosure SET exposed_height=%s,exposed_hash=%s WHERE group_id=%s',(r['before_height'],r['before_hash'],r['group_id']))
-            cur.execute('DELETE FROM quantum_v2.projection_batch WHERE batch_id=%s',(batch['batch_id'],))
-            cur.execute('UPDATE quantum_v2.projection SET height=%s,block_hash=%s,status=\'ready\',updated_at=now() WHERE singleton',(batch['from_height'],batch['from_hash']))
-        return True
+            if (batch['to_height'],batch['to_hash'])!=expected:
+                valid=False
+                break
+            expected=(batch['from_height'],batch['from_hash'])
+        if not valid or expected[0]!=height:
+            cur.execute("UPDATE quantum_v2.projection SET status='needs_reseed',updated_at=now() WHERE singleton")
+            return {'done':False,'needs_reseed':True,'height':p['height']}
+        _certify(cur,height,expected[1])
+        if not batches: return {'done':True,'needs_reseed':False,'height':height}
+        batch=batches[0]
+        _preserve_orphan_disclosures(cur,p,batch['batch_id'])
+        cur.execute('SELECT * FROM quantum_v2.batch_undo WHERE batch_id=%s',(batch['batch_id'],))
+        old=cur.fetchall()
+        for r in old:
+            cur.execute('DELETE FROM quantum_v2.group_state WHERE group_id=%s AND script_type=%s',(r['group_id'],r['script_type']))
+        _save_states(cur,{(r['group_id'],r['script_type']):r['before_row'] for r in old if r['before_row'] is not None},preserve_hash=True)
+        cur.execute('SELECT * FROM quantum_v2.disclosure_undo WHERE batch_id=%s',(batch['batch_id'],))
+        for r in cur.fetchall():
+            if r['before_height'] is None:
+                cur.execute('DELETE FROM quantum_v2.disclosure WHERE group_id=%s',(r['group_id'],))
+            else:
+                cur.execute('UPDATE quantum_v2.disclosure SET exposed_height=%s,exposed_hash=%s WHERE group_id=%s',(r['before_height'],r['before_hash'],r['group_id']))
+        cur.execute('DELETE FROM quantum_v2.projection_batch WHERE batch_id=%s',(batch['batch_id'],))
+        cur.execute('UPDATE quantum_v2.projection SET height=%s,block_hash=%s,status=\'ready\',updated_at=now() WHERE singleton',(batch['from_height'],batch['from_hash']))
+        return {'done':batch['from_height']==height,'needs_reseed':False,
+                'height':batch['from_height'],'batch_id':batch['batch_id']}
+
+
+def rollback_to(conn,height):
+    """Compatibility helper; scheduled callers must budget rollback_step instead."""
+    while True:
+        result=rollback_step(conn,height)
+        if result['needs_reseed']: return False
+        if result['done']: return True
 
 
 def reset_projection_step(conn, *, confirm_anchor_hash, limit=10000,
@@ -1162,6 +1616,13 @@ def reset_projection_step(conn, *, confirm_anchor_hash, limit=10000,
         if reseed_height is not None: _certify(cur,reseed_height,reseed_hash)
         cur.execute("""INSERT INTO quantum_v2.bootstrap_cursor(source_table)
                        VALUES('reset:group_state'),('reset:disclosure') ON CONFLICT DO NOTHING""")
+        if p['seed_mode']=='legacy':
+            # Original legacy registries remain available separately. Their
+            # imported dates/current-header hashes cannot authenticate orphan
+            # observations. The disclosure table contains source-derived delta
+            # events and is still preserved through its ordinary bounded cursor.
+            cur.execute("""UPDATE quantum_v2.bootstrap_cursor SET complete=true
+                WHERE source_table='reset:group_state'""")
         cur.execute("""SELECT * FROM quantum_v2.bootstrap_cursor WHERE source_table LIKE 'reset:%%'
                        AND NOT complete ORDER BY source_table LIMIT 1 FOR UPDATE""")
         cursor=cur.fetchone()
@@ -1208,46 +1669,75 @@ def reset_projection(conn, *, confirm_anchor_hash):
         pass
 
 
-def iter_group_rows(conn, fetch_size=10000) -> Iterator[dict]:
-    """Bounded keyset exporter input in the caller's stable transaction.
+def _live_group_page_query(position, fetch_size):
+    predicate='' if position is None else 'AND group_id>%s'
+    params=(fetch_size,) if position is None else (position,fetch_size)
+    query='''WITH active_groups AS MATERIALIZED (
+        SELECT DISTINCT group_id FROM quantum_v2.group_state
+        WHERE utxo_count>0 '''+predicate+'''
+        ORDER BY group_id LIMIT %s
+    ), page AS MATERIALIZED (
+        SELECT s.* FROM active_groups a
+        CROSS JOIN LATERAL (
+            SELECT * FROM quantum_v2.group_state WHERE group_id=a.group_id
+            ORDER BY script_type COLLATE "C" LIMIT 8
+        ) s
+    ) SELECT s.group_id,s.script_type,s.balance_sats AS current_supply_sats,
+        s.utxo_count AS current_utxo_count,
+        CASE WHEN s.first_disclosure_height IS NOT NULL THEN s.eligible_sats ELSE 0 END AS exposed_supply_sats,
+        CASE WHEN s.first_disclosure_height IS NOT NULL THEN s.eligible_utxos ELSE 0 END AS exposed_utxo_count,
+        s.first_received_height AS first_received_blockheight,
+        s.first_disclosure_height AS first_exposed_blockheight,be.time AS first_exposed_time,
+        s.last_spend_height AS last_spend_blockheight,bs.time AS last_spend_time,
+        s.display_group_id,s.details,s.identity
+        FROM page s
+        LEFT JOIN LATERAL (SELECT time FROM public.blockheader
+            WHERE blockheight=s.first_disclosure_height LIMIT 1) be ON true
+        LEFT JOIN LATERAL (SELECT time FROM public.blockheader
+            WHERE blockheight=s.last_spend_height LIMIT 1) bs ON true
+        ORDER BY s.group_id COLLATE "C",s.script_type COLLATE "C"'''
+    return query,params
 
-    Each state page is selected by its C-collated PK before bounded timestamp
-    lookups and sorting. A named cursor alone would not prevent a planner from
-    sorting/hash-joining the entire projection before returning its first row.
-    Pages concatenate continuously, including when one group spans pages.
+
+def iter_group_rows(conn, fetch_size=10000) -> Iterator[dict]:
+    """Export live groups and every historical family in one stable snapshot.
+
+    fetch_size bounds distinct live groups, selected through migration 006's
+    partial index. Each group has at most seven supported families; its PK
+    lookup retains retired siblings before the bounded timestamp lookups.
+    An eighth row is only a corruption sentinel and causes failure. Fully
+    retired groups are not streamed. Zero-value positive-UTXO groups remain.
+    Pages never split a group and concatenate in strict C-collated key order.
     """
-    if not 1<=fetch_size<=100000: raise ValueError('Export page size must be 1..100000')
+    if type(fetch_size) is not int or not 1<=fetch_size<=100000:
+        raise ValueError('Export group page size must be 1..100000')
     if conn.autocommit: raise StoreError('Export requires a caller-owned stable transaction')
     with conn.cursor() as cur:
         cur.execute('SHOW transaction_isolation')
         if cur.fetchone()[0] not in ('repeatable read','serializable'):
             raise StoreError('Export requires REPEATABLE READ or SERIALIZABLE isolation')
+        if not _live_export_index_ready(cur):
+            raise StoreError('Apply migration 006 live-group export index before exporting')
     position=None
+    families=set(FAMILIES.values())|{'Other'}
     while True:
         if conn.get_transaction_status()!=psycopg2.extensions.TRANSACTION_STATUS_INTRANS:
             raise StoreError('Caller ended the export snapshot between pages')
-        predicate='' if position is None else 'WHERE (group_id,script_type)>(%s,%s)'
-        params=(fetch_size,) if position is None else (*position,fetch_size)
+        query,params=_live_group_page_query(position,fetch_size)
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute('''WITH page AS MATERIALIZED (
-                SELECT * FROM quantum_v2.group_state '''+predicate+'''
-                ORDER BY group_id COLLATE "C",script_type COLLATE "C" LIMIT %s
-            ) SELECT s.group_id,s.script_type,s.balance_sats AS current_supply_sats,
-                s.utxo_count AS current_utxo_count,
-                CASE WHEN s.first_disclosure_height IS NOT NULL THEN s.eligible_sats ELSE 0 END AS exposed_supply_sats,
-                CASE WHEN s.first_disclosure_height IS NOT NULL THEN s.eligible_utxos ELSE 0 END AS exposed_utxo_count,
-                s.first_received_height AS first_received_blockheight,
-                s.first_disclosure_height AS first_exposed_blockheight,be.time AS first_exposed_time,
-                s.last_spend_height AS last_spend_blockheight,bs.time AS last_spend_time,
-                s.display_group_id,s.details,s.identity
-                FROM page s
-                LEFT JOIN LATERAL (SELECT time FROM public.blockheader
-                    WHERE blockheight=s.first_disclosure_height LIMIT 1) be ON true
-                LEFT JOIN LATERAL (SELECT time FROM public.blockheader
-                    WHERE blockheight=s.last_spend_height LIMIT 1) bs ON true
-                ORDER BY s.group_id COLLATE "C",s.script_type COLLATE "C"''',params)
+            cur.execute(query,params)
             rows=cur.fetchall()
         if not rows: return
-        yield from (dict(row) for row in rows)
-        if len(rows)<fetch_size: return
-        position=(rows[-1]['group_id'],rows[-1]['script_type'])
+        groups=set()
+        for row in rows:
+            if row['script_type'] not in families:
+                raise StoreError('Unsupported script family in live export: '+row['script_type'])
+            groups.add(row['group_id'])
+        if len(rows)>7*len(groups):
+            raise StoreError('More than seven script families in a live group')
+        for row in rows:
+            if conn.get_transaction_status()!=psycopg2.extensions.TRANSACTION_STATUS_INTRANS:
+                raise StoreError('Caller ended the export snapshot while yielding a group')
+            yield dict(row)
+        if len(groups)<fetch_size: return
+        position=rows[-1]['group_id']

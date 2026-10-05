@@ -80,9 +80,32 @@ Q_CONFIG="/absolute/private/quantum-state/config.json"
 ```
 
 `status` is also the default subcommand. `migrate` applies checked, additive
-migrations 001–005, covering the projection, coordinator, enrichment,
-independent validation state, and optional physical bootstrap cursors. Never edit an already applied migration to bypass
+migrations 001–006, covering the projection, coordinator, enrichment,
+independent validation state, optional physical bootstrap cursors, and the
+live-group export index. Never edit an already applied migration to bypass
 its recorded checksum.
+
+Migration 006 creates `group_state_live_group_id` on `group_id` where
+`utxo_count > 0`, together with validated checks requiring zero balance when
+the corresponding total or eligible UTXO count is zero. Positive UTXO counts
+may still have zero satoshis. Apply it to the empty canonical projection before seeding. The
+normal migration refuses a populated projection; a separately reviewed,
+measured build can explicitly call `store.migrate_live_export` with
+`allow_populated=True`. That transaction sets maintenance memory to 64 MiB,
+disables parallel maintenance workers, and caps temporary files at 2 GiB while
+retaining the shared writer lock and five-minute statement timeout. These are
+local settings. A failed or absent index blocks export.
+
+Canonical state retains fully retired groups for historical provenance. Routine
+export pages enumerate distinct live group IDs through the partial index, then
+use the existing primary key to fetch all families of those groups before
+timestamp lookups. Each valid group has at most seven supported families;
+`fetch_size` bounds groups, so a page contains at most seven times that many
+rows. An eighth family is checked only as a corruption sentinel and fails the
+export. Retired siblings still supply first-disclosure, first-funding and
+last-spend history; only wholly retired groups are skipped. Zero-satoshi groups
+with positive UTXO counts remain included. All pages share one caller-owned
+repeatable-read snapshot and never split a group across SQL pages.
 
 Pause sets both database control and a `PAUSED` file. A running invocation yields
 at a checked batch boundary; export checks the file every 1,000 streamed groups.
@@ -94,7 +117,10 @@ validation observes pause requests between its committed pages.
 
 Defaults are a 45-second processing slice checked between batches, ten blocks per
 incremental batch, 10,000 bootstrap rows, a 250,000-row batch ceiling, and a
-0.25-second inter-batch pause. These are not a hard 45-second process deadline:
+0.25-second inter-batch pause. Undo retains at least 2,016 blocks, rounded out to
+complete batches. The optional `undo_blocks` setting accepts integers from 1,000
+through 10,000; it uses processed block height, not wall-clock age. These are not
+a hard 45-second process deadline:
 an in-flight statement can run to its separate timeout, export has its own
 900-second budget, and Git delivery has separate timeouts. Sessions use 32 MiB
 `work_mem`, no parallel query workers, a 2 GiB temporary-file limit, and short
@@ -191,6 +217,43 @@ when it is invalid; it never drops a valid existing index. Existing valid indexe
 are retained and their definitions recorded for review. A failed build is not
 evidence that the required access path is available.
 
+### Addressless bare-multisig history
+
+In an unverified legacy diagnostic import, an unseen `script:<sha256>` group requires exact funding and spend history from
+every source partition, including both NULL and empty addresses. Before querying
+that history, the worker checks for a valid hash lookup index on `outputs` and
+every spend archive. Missing coverage
+stops the batch without advancing its checkpoint or substituting dates. A generic
+address index or a P2PK-only script index does not satisfy this prerequisite.
+
+Inspect one explicit source with the optional dry run:
+
+```sh
+"$Q_PYTHON" scripts/ensure_quantum_source_indexes.py \
+  --table outputs --kind null_bare_script \
+  --output "/absolute/private/quantum-state/null-bare-script-plan.json"
+```
+
+The proposed index is `(md5(lower(scripthex)),blockheight)` with included spend
+height and script type, restricted to `(address IS NULL OR address='') AND
+scripttype LIKE 'Multisig %'`. The fixed-size hash is only an access path: every
+lookup also requires exact normalized script equality, including when hashes collide.
+`--apply` builds only the named source after review; it does not build indexes
+across all archives. Even an empty partial index requires reading its source
+heap during construction. Measure incidence, build cost, free space and desktop
+impact before scheduling that maintenance. No absence of addressless policies
+has been proved by the current ingester's usual DSMS address fallback.
+
+Future-archive policy is explicit: provision the same partial hash index on a
+new archive while it is empty, or use this helper for that one archive before
+null-script hydration resumes. The current source hook does not silently add
+this index to existing archives. Until every relevant source has coverage, the
+worker continues to reject this history lookup; it never falls back to a full
+source scan. Ordinary source ingestion can continue independently.
+Canonical-source initialization and its incremental successor do not use this
+legacy-history hydration path; these optional indexes are not a prerequisite
+for the canonical baseline.
+
 ## Bootstrap and independent validation
 
 Initialize using an exact canonical height/hash and explicit starting boundary:
@@ -202,9 +265,14 @@ Initialize using an exact canonical height/hash and explicit starting boundary:
 ```
 
 Replace the capitalized arguments with verified values; these are placeholders.
-Initialization leaves scheduling paused. The default seed uses the compatible
-legacy freeze with canonical source checks. `--canonical` selects the more
-expensive raw-source reconstruction. Repeat bounded `bootstrap` invocations until
+Initialization leaves scheduling paused. The default seed reconstructs the full
+history from canonical raw source in bounded pages, accumulating compact funding,
+disclosure and last-spend metadata without copying the occurrence ledger.
+`--canonical` remains a compatibility alias for this default. The explicit
+`--legacy-unverified` option imports legacy tables for diagnostics only; that
+projection cannot be exported or accepted for scheduling. Matching freeze heights
+and balances cannot authenticate imported historical dates or disclosures.
+Repeat bounded `bootstrap` invocations until
 the projection reports ready, recording time, row counts, memory, and resumability.
 Do not interpret a completed first page as a completed bootstrap.
 
@@ -213,13 +281,29 @@ legacy table-builder entry points now call `guard_legacy_mutation` before DDL or
 writes. Session advisory locks `(811947, 2)` then `(811947, 1)` span their batch
 commits and exclude racing v2 migration/initialization. Once a projection row exists, every legacy
 builder refuses to mutate the imported seed tables, including while v2 is paused
-or seeding. There is no bypass flag. Common legacy freeze heights contain no block
-hash, so the seed's canonical identity still requires independent validation.
+or seeding. There is no bypass flag. Original legacy tables remain available as
+unverified historical evidence; no current header hash retroactively certifies
+their height-only claims.
 The current and historical legacy analyzers separately hold session lock
 `(811947, 2)` from their first query until connection close. Explicit isolated
 legacy analyses remain available after initialization, but cannot overlap a v2
 worker or another legacy analyzer. The source readiness hook does not acquire
 either Quantum lock.
+
+For an already running, unpublished legacy diagnostic import, the explicit
+`quantum_v2_store.transition_legacy_seed(conn, expected_height=H,
+expected_hash=HASH)` API replaces only its compact seed/progress under both
+writer locks. It requires `status=seeding`, the exact anchor and frontier, a
+certified source, no accepted/generated/delivered requests and no incremental
+batches. It preserves original legacy tables and existing orphan evidence,
+discards derived seed/validation scratch, creates the canonical cursor, and
+records the previous cursors and source checkpoint in a durable run audit within
+the same transaction. Only the discarded anchor's exact height/hash validation
+report is invalidated, and its complete original record is preserved in that
+audit; unrelated historical reports remain untouched. Diagnostic legacy resets
+and rollbacks retain source-derived disclosure events but do not relabel imported
+group-state claims as orphan observations.
+The API refuses completed imports; it is not a general published-state reset.
 
 After bootstrap, complete both bounded validation phases while paused:
 
@@ -232,6 +316,13 @@ Repeat `validate` until the persisted report passes; a successful process exit c
 mean only that its bounded processing slice completed. The first phase reduces
 raw source occurrences into separate compact validation groups. The second
 compares every source/projection group and family through indexed keyset pages.
+With migration 006's validated constraints and live index, projection keys come
+only from live groups; retired rows are guaranteed to have zero accounting
+values. Independent source keys are always included, so missing projection
+groups and zero-value UTXOs still fail or reconcile correctly. Older sidecars
+without 006 retain the full-history comparison. If 006 is recorded but its
+index or validated constraints are missing or altered, comparison and final
+verification fail closed. Reports identify which comparison scope was used.
 Phases, cursors, cumulative totals, and mismatch examples survive interruption.
 No unbounded final join is required to seal the report. The projection must stay
 at the exact target height/hash during comparison. Each page certifies source
@@ -240,7 +331,8 @@ to the checkpoint; a changed version requires a fresh source pass.
 
 Normal `once` invocations automatically complete a missing anchor proof before
 advancing the projection or exporting. `export_request` independently requires a
-passing anchor result with matching validation/parser/grouping versions. This is
+canonical-source initialization and a passing anchor result with matching
+validation/parser/grouping versions. This is
 a full per-group baseline proof, not a sample or a fresh full-chain scan at every
 later boundary. Periodic explicit `validate` runs can check the current checkpoint.
 `validation_result` retains reports keyed by exact target height/hash. Validation
@@ -289,7 +381,7 @@ balance is not inferred from either date and remains unavailable unless tracked.
 
 ### Bootstrap capacity planning
 
-Frozen legacy tables can use an optional physical scan after deploying all legacy
+For diagnostic imports only, frozen legacy tables can use an optional physical scan after deploying all legacy
 mutation guards. Enable each selected family explicitly while the worker is paused:
 
 ```sh
@@ -318,7 +410,7 @@ through relation metadata; the deployed mutation guards and immutable-source
 operating contract are required. Never fall back to a logical cursor after
 physical contributions have begun.
 
-Read-only catalog estimates observed on 2026-10-05 put the five legacy seed tables
+Read-only catalog estimates observed on 2026-10-05 put the five legacy diagnostic seed tables
 at roughly 734 million rows: 471 million key-history rows, 69 million P2SH,
 177 million P2TR, 15 million P2WSH, and 2.5 million bare-multisig rows. Their last
 recorded statistics were from August 14, so these are planning estimates, not
@@ -508,20 +600,138 @@ database/cluster measurements, not exclusively Quantum I/O. Record complete
 boundary active time, CPU, private memory, temporary I/O, index size, and exported
 bytes; a small source probe or one bootstrap page is not a full-boundary benchmark.
 
-`--enable` additionally requires `state_dir/acceptance.json`. It must record actual
-`code_revision`, checkpoint height/hash, generation ID, both accepted destination
-commits, `active_seconds_per_boundary`, `peak_private_memory_bytes`, and true
-`accounting_passed`, `recovery_passed`, `rollback_passed`, and `browser_passed`
-results. Measurements must be finite/nonnegative, at most 1,800 active seconds per
-boundary and 4 GiB private memory. Commit/hash identities must be valid. These are
-rollout gates, not performance promises.
+The worker also reserves 512 GiB of free disk by default (`disk_reserve_bytes`).
+It checks the actual local PostgreSQL data, WAL and Quantum tablespace volumes,
+plus the output-state volume, before processing and during resource sampling.
+Crossing the reserve cancels the owned backend; loss of disk measurement also
+stops work. Previously committed pages remain resumable. Do not delete source
+or legacy evidence to bypass this guard. The reserve is configurable and bound
+to acceptance evidence; disabling it is not accepted for scheduled operation.
 
-Enablement also requires clean relevant production runtime files and a tested
-code revision that remains an ancestor with no relevant source changes. The
-installer then loads `com.wickedsmartbitcoin.quantum` for the current GUI user.
-Its LaunchAgent invokes `once` every 60 seconds, at background priority; it does
-not run Quantum inside the ingestion callback or hourly producer. Logs live under
-`~/Library/Logs/WickedSmartBitcoin/quantum/`.
+Canonical initialization has a different capacity bound from the legacy seed.
+Catalog estimates on 2026-10-05 put live outputs plus ten archives at 3.682 billion
+occurrences, with 1.527 TB heap and 284.46 GB indexes. Those estimates include
+post-anchor data and possible archive-movement overlap. Approximately 2.766 TB
+was free. Canonical reconstruction retains compact facts for spent groups as well
+as funded groups; the older 734-million-row legacy sizing exercise does not bound
+this work. It does not create a second raw source copy.
+
+A rollback-only source benchmark sampled three bounded creation windows with
+26,583 distinct selected occurrences (69,749 selected rows across repeated
+comparison passes). It used 32 MB work memory, no parallel query workers, a
+512 MB private-memory guard, 30-second statement and 90-second overall deadlines,
+and the global Quantum writer lock while the worker was paused. All source and
+projection access was read-only except transaction-local temporary tables. The
+old Python reducer and SQL reducer produced identical group state, disclosures,
+and durable cursor coordinates in every comparison.
+
+| Creation-window start | Outputs selected | Group/family rows | Live families at anchor 962000 | Temporary state heap+indexes | Temporary disclosure heap+indexes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 100000 | 6,583 | 4,626 | 278 | 1.597 MB | 1.073 MB |
+| 900000 | 10,000 | 6,243 | 576 | 2.204 MB | 1.507 MB |
+
+The combined measured state/disclosure allocation was about 577–594 bytes per
+local group/family. As an intentionally pessimistic all-unique scenario,
+3.682 billion occurrences at 600 bytes would use about 2.21 TB before validation,
+undo, additional WAL, future ingestion, and mature table/index bloat. The free
+space observed above would leave only about 557 GB in that scenario, close to
+the default 512 GiB reserve. Neither these small nonrandom windows nor their
+within-window reuse ratios establish global distinct cardinality. Re-estimate
+from sustained committed initialization pages and stop at the reserve; do not
+lower the reserve based on this sample.
+
+Warm comparisons were SQL 0.119s versus Python 0.172s in the early window and
+SQL 0.173s versus Python 0.184s in the latest window. The early window contained
+1,002 P2PK rows; the latest contained 1,966 Taproot rows and 102 Other rows. Early
+main-thread Python CPU fell from 0.0613s to 0.0082s; this excludes the resource
+monitor's sampling thread. Source I/O and cold curve caches inflated first-pass
+comparisons substantially, so the much larger cold-versus-warm ratios are not
+speedup estimates. Peak combined private memory stayed below 121 MB in these
+samples. The latest SQL stages took 0.056s to load the bounded page, 0.068s to
+classify, and 0.049s to reduce it. Ordinary script rows stayed in PostgreSQL;
+P2PK, Taproot and bare-policy curve/policy checks remained in Python. Exceptional
+rows use one temporary staging join rather than repeated page scans per insert
+chunk. Repeated equal/later disclosures do not rewrite existing evidence.
+
+These timings use initially empty temporary destination tables and warmed reads,
+not the production projection's growing indexes, persistent WAL cost, or a full
+1,000-block export. They do not certify the 30-minute boundary target, justify a
+100,000-row production batch, or justify rewriting Python in another language.
+Start canonical production work with the bounded 5,000-row budget, then measure
+actual committed pages and adjust only within the resource gates.
+
+
+`--enable` requires a `quantum-acceptance-v2` record in
+`state_dir/acceptance.json`. A JSON declaration alone cannot enable scheduling.
+Before writing the config or plist, the installer uses the configured production
+Python to run `quantum_acceptance.py` against a read-only, repeatable-read database
+snapshot while holding the shared Quantum writer lock. It requires a ready,
+fully initialized canonical-source-seeded projection at the named 1,000-block
+checkpoint, a completed request, completed projection/export steps, and exact completed delivery
+and accepted-generation receipts for both destinations. The retained immutable
+output and the accepted Git markers must match; both repositories must be on
+`main`, and the standalone runtime must match the tested source.
+
+The record includes `code_revision`, `implementation_sha256`, `config_sha256`,
+`control_sha256`, `database`, `request_id`, `checkpoint_height`, `checkpoint_hash`,
+`generation_id`, `website_commit`, `standalone_commit`,
+`validation_report_sha256`, ordered `run_ids`, `active_seconds_per_boundary`,
+`peak_private_memory_bytes`, and `reviews`. Source, effective nonsecret worker
+settings, persisted boundary/confirmation settings, and both checkpoint hashes
+are checked against actual evidence. The reviewed acceptance code revision must remain an ancestor of the clean
+production runtime with no relevant source differences. The sealed generation
+retains its original actual Git revision as provenance; it may differ after an
+automation data amendment. Its implementation digest must match the tested
+source. Data-only Git advances are allowed.
+Environment contents and database credentials are never copied into run metrics.
+
+Legacy freeze heights and matching balances do not prove canonical disclosure
+or activity dates. Enablement requires `projection.seed_mode=canonical`; a legacy
+seed cannot qualify through balance reconciliation alone. There is currently no
+alternative full historical-provenance certificate.
+
+The full accounting proof must pass the current parser/grouping/validation
+versions and have positive source, UTXO and compared-group counts. A proof at the
+candidate checkpoint is accepted directly. A proof at the unchanged canonical
+anchor can instead cover the immediately following measured 1,000-block interval
+when its retained batch journal is contiguous and canonical. An older anchor or
+pruned journal requires explicit reconciliation at the candidate checkpoint for
+this one-time acceptance gate; routine boundary processing does not acquire a
+new full raw-source validation requirement.
+
+Every persisted attempt for the chosen boundary must be listed, completed, and
+carry matching code/config/control provenance plus contiguous ready start/end
+checkpoints covering all 1,000 blocks. Bootstrap, validation-only, deferred,
+failed or unmeasured attempts cannot qualify: measure a fresh complete boundary
+rather than omit them. The gate derives active seconds by summing all those run
+wall times (including export) and private memory by taking their maximum. Both
+measurements must be positive, with valid worker/backend private-memory samples,
+no measurement failures, and no resource breach. They must exactly match the
+record and remain at most 1,800 seconds and 4 GiB. Delivery receipts are checked
+separately; delivery time is outside the worker's measured analysis interval.
+These gates are evidence checks, not performance promises.
+
+Every measured run must also record the configured positive disk reserve and a
+nonempty map of observed minimum free bytes on the production data, WAL,
+tablespace and state volumes. All recorded minima must meet the reserve, with
+no disk measurement failure or reserve breach. The installer preserves
+`disk_reserve_bytes` (default 512 GiB) and refuses enablement with a zero reserve;
+zero remains available only for explicit diagnostic/fixture configuration.
+
+`reviews` maps each of `browser`, `recovery`, and `rollback` to a local report
+`path` relative to state_dir and its exact `sha256`. Each JSON report must state
+its `kind`, `passed: true`, a nonempty reviewed `summary`, and the accepted
+`implementation_sha256`, `config_sha256`, `request_id`, `generation_id`,
+`checkpoint_height`, and `checkpoint_hash`. These are explicit operator reviews
+of retained test/results evidence; hashing binds the reviewed report to this
+rollout and does not automate or replace the review. No acceptance record or
+review report is synthesized by the installer.
+
+Only after these checks does the installer load
+`com.wickedsmartbitcoin.quantum` for the current GUI user. Its LaunchAgent invokes
+`once` every 60 seconds at background priority. It does not run Quantum inside
+the ingestion callback or hourly producer, and enabling does not clear an
+existing pause. Logs live under `~/Library/Logs/WickedSmartBitcoin/quantum/`.
 
 To stop automatic invocations, first pause the worker, then unload its plist with
 `launchctl bootout` for the owning user. Loading/unloading launchd and changing
@@ -533,11 +743,34 @@ locks or staged output merely to force the next run.
 
 Ordinary retry resumes committed cursors and retries retained destination output.
 A source reorg invalidates readiness/requests; the projection uses retained batch
-before-images to roll back to a canonical boundary. If the required history
-predates the retained anchor, it enters reseed recovery and needs bounded canonical
-reconstruction. Preserve orphan evidence and prior immutable publications during
-that recovery. Exercise both shallow and deep paths in a disposable database before
-claiming production rollback acceptance.
+before-images to roll back to a canonical boundary. Recovery verifies the entire
+required batch suffix against the current projection's height and hash before
+restoring any row, then restores one complete newest batch per transaction. Pause,
+resource limits and the worker deadline apply between batches; the deadline also
+cancels an in-flight undo query. An interrupted rollback may retain an orphaned
+intermediate frontier. The next invocation resumes recovery before permitting
+deltas, exports or delivery from that frontier.
+
+Undo maintenance deletes one oldest complete batch per action, only when its end
+height is at least `undo_blocks` behind the processed frontier. The parent row and
+both undo tables disappear through atomic foreign-key cascades; child rows are
+never pruned independently. A batch crossing the retention cutoff remains intact.
+Caught-up ticks perform this bounded housekeeping when needed and return to cheap
+indexed checks once no expired batch remains. Metrics record deleted batch ranges,
+the retained rollback floor and whether more cleanup is pending. The seed anchor,
+current state/disclosure, orphan evidence and source data remain unchanged.
+
+If the required history predates the retained rollback floor, or a missing batch
+or hash gap breaks the suffix, recovery marks the projection for reseeding before
+applying any before-image. This floor can be newer than the original verified seed
+anchor. Bounded canonical reconstruction preserves observed disclosure evidence
+and prior immutable publications. Increasing `undo_blocks` later cannot restore
+already pruned history. Cancellation or failure during one prune/undo transaction
+retains its complete prior checkpoint; repeatedly oversized batches need diagnosis,
+not independently committed partial undo deletion. Measure undo/index bytes and WAL
+across real incremental boundaries before claiming a production storage bound.
+Exercise shallow, interrupted and beyond-window recovery in a disposable database
+before claiming production rollback acceptance.
 
 Operational rollback starts by pausing/unloading the new worker. Keep legacy
 tables, source data, prior accepted artifacts, and schema migration records.
@@ -612,8 +845,16 @@ samples; `test_quantum_v2_analysis.py` covers script commitments, curve validity
 calendar activity, group membership, and migration serialization weights.
 `test_measure_quantum_seed.py` checks bounded sampling, cursor continuation,
 read-only operation, and cleanup of its optional temporary sizing model.
+`test_quantum_null_script_indexes.py` checks narrowly scoped index planning,
+missing-index guards before source reads, NULL/empty policy history, and exact
+script matching when a hash prefilter admits an unrelated candidate.
+`test_quantum_canonical_seed.py` reproduces a stale orphan-only disclosure that
+passes balance validation, verifies publication rejection, and checks the atomic
+transition and corrected canonical dates. Its database fixtures use
+`QUANTUM_CANONICAL_SEED_TEST_DSN`.
 PostgreSQL suites require their explicit
 temporary-socket, `*_fixture` database DSNs; never point them at production.
+The addressless-policy suite uses `QUANTUM_NULL_SCRIPT_TEST_DSN`.
 For UI changes run `test_quantum_v2_browser.py` and the Quantum target of
 `test_stage2_refresh_atomicity.py`. Packaging requires `test_pages_build.py` and
 `build_pages_dist.sh`; inspect the copied artifact after runtime dependency changes.

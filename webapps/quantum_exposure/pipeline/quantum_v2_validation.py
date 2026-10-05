@@ -16,7 +16,7 @@ from psycopg2 import sql
 from psycopg2.extras import Json, RealDictCursor, execute_values
 
 from quantum_v2_analysis import GROUPING_VERSION, PARSER_VERSION, parse_multisig, valid_pubkey
-from quantum_v2_store import SourceNotReady
+from quantum_v2_store import SourceNotReady, _live_export_index_ready, _live_accounting_constraints_ready
 
 MIGRATION = Path(__file__).with_name('migrations') / '004_validation.sql'
 VERSION = 'raw-source-utxo-accounting-v1'
@@ -282,12 +282,48 @@ _COMPARISON_PAGE_SQL = '''WITH keys AS MATERIALIZED (
     ORDER BY p.group_id,p.script_type'''
 
 
+_LIVE_COMPARISON_PAGE_SQL = '''WITH active_groups AS MATERIALIZED (
+        SELECT DISTINCT group_id FROM quantum_v2.group_state
+        WHERE utxo_count>0 AND group_id>=%s ORDER BY group_id LIMIT %s
+    ), live_keys AS MATERIALIZED (
+        SELECT s.group_id,s.script_type FROM active_groups a
+        CROSS JOIN LATERAL (SELECT group_id,script_type FROM quantum_v2.group_state
+            WHERE group_id=a.group_id AND utxo_count>0 AND (group_id,script_type)>(%s,%s)
+            ORDER BY script_type LIMIT 8) s
+        ORDER BY s.group_id,s.script_type LIMIT %s
+    ), keys AS MATERIALIZED (
+        (SELECT group_id,script_type FROM quantum_v2.validation_group
+         WHERE (group_id,script_type)>(%s,%s) ORDER BY group_id,script_type LIMIT %s)
+        UNION SELECT group_id,script_type FROM live_keys
+    ), page AS MATERIALIZED (SELECT * FROM keys ORDER BY group_id,script_type LIMIT %s)
+    SELECT p.group_id,p.script_type,''' + _COMPARISON_PAGE_SQL.split('    SELECT p.group_id,p.script_type,',1)[1]
+
+
+def _live_comparison_ready(cur):
+    cur.execute('SELECT 1 FROM quantum_v2.schema_migration WHERE version=6')
+    if not cur.fetchone():
+        return False  # Older sidecars retain the full independent comparison.
+    if not _live_export_index_ready(cur) or not _live_accounting_constraints_ready(cur):
+        raise ValueError('Migration 006 live accounting index/validated constraints are missing or invalid')
+    return True
+
+
+def _comparison_page_query(cur, position, limit):
+    count=limit+1
+    if _live_comparison_ready(cur):
+        # Include the cursor's group, whose earlier families may be exhausted,
+        # plus one extra group so that the result always preserves lookahead.
+        return _LIVE_COMPARISON_PAGE_SQL,(position[0],count+1,*position,count,*position,count,count)
+    return _COMPARISON_PAGE_SQL,(*position,count,*position,count,count)
+
+
 def _compare_step(cur, checkpoint, limit):
     _projection_matches(cur, checkpoint['target_height'], checkpoint['target_hash'])
     position = (checkpoint['compare_group_id'], checkpoint['compare_script_type'])
     # Materialize only the union's bounded key page before per-key lookups.
     # An ordinary join can hash every projected group for each comparison page.
-    cur.execute(_COMPARISON_PAGE_SQL, (*position, limit + 1, *position, limit + 1, limit + 1))
+    query,params=_comparison_page_query(cur,position,limit)
+    cur.execute(query,params)
     result = cur.fetchall()
     done, rows = len(result) <= limit, result[:limit]
     examples = list(checkpoint['mismatch_examples'])
@@ -324,6 +360,7 @@ def verify(conn):
         height, target_hash = checkpoint['target_height'], checkpoint['target_hash']
         _certify(cur, height, target_hash)
         _projection_matches(cur, height, target_hash)
+        live_comparison=_live_comparison_ready(cur)
         mismatches = checkpoint['mismatches']
         examples = checkpoint['mismatch_examples']
         totals = {'validation_group': checkpoint['source_totals'], 'group_state': checkpoint['projection_totals']}
@@ -332,7 +369,8 @@ def verify(conn):
                   'mismatched_group_families': mismatches, 'examples': examples, 'totals': totals,
                   'source_rows': checkpoint['source_rows'], 'accounted_utxos': checkpoint['accounted_utxos'],
                   'compared_group_families': checkpoint['compared_rows'],
-                  'scope': 'All current group/family balances, counts and script eligibility; historical dates/disclosure not certified'}
+                  'scope': 'All current group/family balances, counts and script eligibility; historical dates/disclosure not certified',
+                  'comparison_scope': 'live groups with validated zero-count constraints' if live_comparison else 'all group history'}
         cur.execute('''INSERT INTO quantum_v2.validation_result(target_height,target_hash,passed,report)
             VALUES(%s,%s,%s,%s) ON CONFLICT(target_height,target_hash) DO UPDATE
             SET verified_at=clock_timestamp(),passed=excluded.passed,report=excluded.report''',

@@ -108,6 +108,7 @@ class StoreFixture(unittest.TestCase):
                         table='active_p2sh_outputs' if kind=='scripthash' else 'active_p2tr_outputs'
                         c.execute(f'INSERT INTO {table} VALUES(%s,%s,%s,%s,%s,%s)',(h,tx,v,value,spend,address))
         store.migrate(self.conn)
+        store.migrate_live_export(self.conn)
 
     def add_source(self,rows):
         with self.conn:
@@ -127,6 +128,138 @@ class StoreFixture(unittest.TestCase):
             with self.conn.cursor(cursor_factory=RealDictCursor) as c:
                 c.execute('SELECT * FROM quantum_v2.group_state ORDER BY group_id,script_type')
                 return {(r['group_id'],r['script_type']):dict(r) for r in c.fetchall()}
+
+    def undo_history(self):
+        """Three differently sized batches; cutoff falls inside the newest."""
+        self.seed()
+        with self.conn,self.conn.cursor() as c:
+            c.execute("INSERT INTO blockheader SELECT n,lpad(to_hex(n),64,'0'),1231006505+n*600 FROM generate_series(31,2020) n")
+        self.add_source([row(8,'undo-first',10,'scripthash','undo-sh','a914'+'66'*20+'87',9),
+                         row(1000,'undo-second',20,'scripthash','undo-sh','a914'+'66'*20+'87'),
+                         row(1500,'undo-third',30,'scripthash','undo-sh','a914'+'66'*20+'87')])
+        checkpoints={}
+        for height in (8,1011,2018):
+            store.apply_range(self.conn,height)
+            checkpoints[height]=self.states()
+        return checkpoints
+
+    def undo_counts(self):
+        with self.conn,self.conn.cursor() as c:
+            return tuple((c.execute('SELECT count(*) FROM quantum_v2.'+table),c.fetchone()[0])[1]
+                         for table in ('projection_batch','batch_undo','disclosure_undo'))
+
+    def test_undo_pruning_retains_whole_crossing_batch_and_exact_floor(self):
+        checkpoints=self.undo_history()
+        with self.conn,self.conn.cursor() as c:
+            c.execute('SELECT * FROM quantum_v2.disclosure ORDER BY group_id'); disclosure=c.fetchall()
+        self.assertTrue(store.undo_prune_pending(self.conn,keep_blocks=1000))
+        one=store.prune_undo_step(self.conn,keep_blocks=1000)
+        self.assertEqual(one['deleted_batch']['to_height'],8)
+        self.assertTrue(one['pending'])
+        two=store.prune_undo_step(self.conn,keep_blocks=1000)
+        self.assertEqual(two['deleted_batch']['to_height'],1011)
+        self.assertEqual(two['retained_floor_height'],1011)
+        self.assertFalse(two['pending'])
+        self.assertFalse(store.undo_prune_pending(self.conn,keep_blocks=1000))
+        self.assertIsNone(store.prune_undo_step(self.conn,keep_blocks=1000)['deleted_batch'])
+        self.assertEqual(checkpoints[2018],self.states())
+        with self.conn,self.conn.cursor() as c:
+            c.execute('SELECT anchor_height,anchor_hash FROM quantum_v2.projection')
+            self.assertEqual(c.fetchone(),(5,f'{5:064x}'))
+            c.execute('SELECT * FROM quantum_v2.disclosure ORDER BY group_id'); self.assertEqual(c.fetchall(),disclosure)
+        result=store.rollback_step(self.conn,1011)
+        self.assertTrue(result['done'])
+        self.assertEqual(checkpoints[1011],self.states())
+
+    def test_deep_rollback_below_pruned_floor_changes_no_state(self):
+        self.undo_history()
+        store.prune_undo_step(self.conn,keep_blocks=1000)
+        before=self.states(); counts=self.undo_counts()
+        result=store.rollback_step(self.conn,5)
+        self.assertTrue(result['needs_reseed'])
+        self.assertEqual(result['height'],2018)
+        self.assertEqual(self.states(),before)
+        self.assertEqual(self.undo_counts(),counts)
+        with self.conn,self.conn.cursor() as c:
+            c.execute('SELECT status FROM quantum_v2.projection')
+            self.assertEqual(c.fetchone()[0],'needs_reseed')
+
+    def test_prune_cascade_failure_rolls_back_parent_and_both_undo_tables(self):
+        self.undo_history(); before=self.undo_counts()
+        with self.conn,self.conn.cursor() as c:
+            c.execute("""CREATE FUNCTION block_undo_delete() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN RAISE EXCEPTION 'fixture cascading deletion failed'; END $$""")
+            c.execute('CREATE TRIGGER block_delete BEFORE DELETE ON quantum_v2.batch_undo FOR EACH ROW EXECUTE FUNCTION block_undo_delete()')
+        with self.assertRaisesRegex(psycopg2.Error,'fixture cascading deletion failed'):
+            store.prune_undo_step(self.conn,keep_blocks=1000)
+        self.assertEqual(self.undo_counts(),before)
+        with self.conn,self.conn.cursor() as c:
+            c.execute('DROP TRIGGER block_delete ON quantum_v2.batch_undo')
+        self.assertIsNotNone(store.prune_undo_step(self.conn,keep_blocks=1000)['deleted_batch'])
+        self.assertEqual(self.undo_counts()[0],before[0]-1)
+
+    def test_rollback_checks_entire_suffix_before_changing_state(self):
+        for defect in ('missing-top','missing-middle','hash-gap'):
+            with self.subTest(defect=defect):
+                self.setUp(); self.undo_history()
+                before=self.states()
+                with self.conn,self.conn.cursor() as c:
+                    if defect=='hash-gap':
+                        c.execute("UPDATE quantum_v2.projection_batch SET from_hash='wrong' WHERE to_height=2018")
+                    else:
+                        c.execute('DELETE FROM quantum_v2.projection_batch WHERE to_height=%s',
+                                  (2018 if defect=='missing-top' else 1011,))
+                counts=self.undo_counts()
+                result=store.rollback_step(self.conn,5)
+                self.assertTrue(result['needs_reseed'])
+                self.assertEqual(self.states(),before)
+                self.assertEqual(self.undo_counts(),counts)
+
+    def test_rollback_one_batch_at_a_time_matches_full_checkpoint(self):
+        self.seed(); before=self.states()
+        self.add_source([row(7,'undo-7',7,'pubkeyhash','a',pkh(A)),
+                         row(9,'undo-9',9,'pubkeyhash','a',pkh(A))])
+        store.apply_range(self.conn,8); at8=self.states()
+        store.apply_range(self.conn,10)
+        first=store.rollback_step(self.conn,5)
+        self.assertEqual((first['done'],first['height']),(False,8))
+        self.assertEqual(self.states(),at8)
+        second=store.rollback_step(self.conn,5)
+        self.assertEqual((second['done'],second['height']),(True,5))
+        self.assertEqual(self.states(),before)
+        self.assertTrue(store.rollback_step(self.conn,5)['done'])
+
+    def test_interrupted_single_undo_preserves_checkpoint_and_evidence(self):
+        self.seed(); store.apply_range(self.conn,8)
+        before=self.states(); counts=self.undo_counts()
+        with self.conn,self.conn.cursor() as c:
+            c.execute('SELECT * FROM quantum_v2.orphan_disclosure'); evidence=c.fetchall()
+        with mock.patch.object(store,'_save_states',side_effect=RuntimeError('fixture restore failed')):
+            with self.assertRaisesRegex(RuntimeError,'fixture restore failed'):
+                store.rollback_step(self.conn,5)
+        self.assertEqual(self.states(),before)
+        self.assertEqual(self.undo_counts(),counts)
+        with self.conn,self.conn.cursor() as c:
+            c.execute('SELECT height FROM quantum_v2.projection'); self.assertEqual(c.fetchone()[0],8)
+            c.execute('SELECT * FROM quantum_v2.orphan_disclosure'); self.assertEqual(c.fetchall(),evidence)
+        self.assertTrue(store.rollback_step(self.conn,5)['done'])
+
+    def test_pruning_rejects_unready_or_orphan_projection_and_global_writer(self):
+        self.undo_history(); counts=self.undo_counts()
+        other=psycopg2.connect(DSN)
+        try:
+            with other,other.cursor() as c: c.execute('SELECT pg_advisory_lock(811947,2)')
+            with self.assertRaisesRegex(store.StoreError,'global writer'):
+                store.prune_undo_step(self.conn,keep_blocks=1000)
+        finally:
+            other.close()
+        with self.conn,self.conn.cursor() as c:
+            c.execute("UPDATE blockheader SET blockhash='orphaned' WHERE blockheight=2018")
+        with self.assertRaises(store.ReseedRequired): store.prune_undo_step(self.conn,keep_blocks=1000)
+        with self.conn,self.conn.cursor() as c:
+            c.execute("UPDATE quantum_v2.projection SET status='needs_reseed'")
+        with self.assertRaises(store.SourceNotReady): store.prune_undo_step(self.conn,keep_blocks=1000)
+        self.assertEqual(self.undo_counts(),counts)
 
     def test_bootstrap_resume_migration_and_same_height_idempotence(self):
         self.seed(); before=self.states()
@@ -187,7 +320,10 @@ class StoreFixture(unittest.TestCase):
         self.assertEqual(store.projection_status(self.conn)['projection']['height'],5)
 
     def test_same_height_reorg_fails_and_deep_reseed_uses_source(self):
-        self.seed()
+        store.initialize_source_seed(self.conn,5,f'{5:064x}')
+        for _ in range(20):
+            if store.bootstrap_step(self.conn,limit=20):break
+        else:self.fail('Canonical fixture seed did not finish')
         with self.conn:
             with self.conn.cursor() as c: c.execute("UPDATE blockheader SET blockhash='new-chain' WHERE blockheight=5")
         with self.assertRaises(store.ReseedRequired): store.apply_range(self.conn,5)
@@ -345,7 +481,11 @@ class StoreFixture(unittest.TestCase):
             self.assertEqual(store._point_lookup_sources(cur,names),set(names))
 
     def test_reset_preserves_evidence_in_resumable_pages(self):
-        self.seed(); store.apply_range(self.conn,8)
+        store.initialize_source_seed(self.conn,5,f'{5:064x}')
+        for _ in range(20):
+            if store.bootstrap_step(self.conn,limit=20):break
+        else:self.fail('Canonical fixture seed did not finish')
+        store.apply_range(self.conn,8)
         with self.conn:
             with self.conn.cursor() as c:
                 c.execute('SELECT DISTINCT group_id,first_disclosure_height,first_disclosure_hash FROM quantum_v2.group_state WHERE first_disclosure_height IS NOT NULL')
@@ -393,7 +533,11 @@ class StoreFixture(unittest.TestCase):
         self.assertEqual(cursor['last_height'],-1)
 
     def test_final_reset_and_replacement_seed_are_one_certified_transaction(self):
-        self.seed(); self.assertFalse(store.rollback_to(self.conn,4))
+        store.initialize_source_seed(self.conn,5,f'{5:064x}')
+        for _ in range(20):
+            if store.bootstrap_step(self.conn,limit=20):break
+        else:self.fail('Canonical fixture seed did not finish')
+        self.assertFalse(store.rollback_to(self.conn,4))
         with self.conn,self.conn.cursor() as c:
             c.execute("UPDATE blockheader SET blockhash='replacement' WHERE blockheight=5")
         options=dict(confirm_anchor_hash=f'{5:064x}',limit=100,reseed_height=5,reseed_hash='replacement')

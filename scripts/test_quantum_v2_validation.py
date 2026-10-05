@@ -206,6 +206,76 @@ class ValidationFixture(unittest.TestCase):
         self.assertEqual(report['mismatched_group_families'],2)
         self.assertEqual({row['group_id'] for row in report['examples']},{'missing-source','missing-state'})
 
+    def test_live_constraints_reject_positive_balances_without_corresponding_utxos(self):
+        store.migrate_live_export(self.conn,allow_populated=True)
+        for balances in ((1,0,0,0),(1,1,1,0)):
+            with self.subTest(balances=balances),self.assertRaises(psycopg2.errors.CheckViolation):
+                with self.conn,self.conn.cursor() as cur:
+                    cur.execute('''INSERT INTO quantum_v2.group_state
+                        (group_id,script_type,balance_sats,utxo_count,eligible_sats,eligible_utxos)
+                        VALUES('impossible','Other',%s,%s,%s,%s)''',balances)
+        with self.conn,self.conn.cursor() as cur:
+            cur.execute("INSERT INTO quantum_v2.group_state(group_id,script_type,utxo_count) VALUES('zero-value','Other',1)")
+        self.assertEqual(self.query("SELECT balance_sats,utxo_count FROM quantum_v2.group_state WHERE group_id='zero-value'"),[(0,1)])
+
+    def test_live_comparison_skips_retired_history_and_finds_both_missing_zero_value_sides(self):
+        baseline=self.complete(limit=1)
+        store.migrate_live_export(self.conn,allow_populated=True)
+        with self.conn,self.conn.cursor() as cur:
+            cur.execute("INSERT INTO quantum_v2.group_state(group_id,script_type) SELECT 'retired-'||n,'Other' FROM generate_series(1,1000) n")
+        validation.initialize(self.conn,10,f'{10:064x}',recompare=True)
+        live=self.complete(limit=1)
+        self.assertTrue(live['passed'])
+        self.assertEqual(live['totals'],baseline['totals'])
+        self.assertLessEqual(live['compared_group_families'],baseline['compared_group_families'])
+        self.assertEqual(live['comparison_scope'],'live groups with validated zero-count constraints')
+        with self.conn,self.conn.cursor() as cur:
+            cur.execute("INSERT INTO quantum_v2.group_state(group_id,script_type,utxo_count) VALUES('missing-source','Other',1)")
+            cur.execute('''INSERT INTO quantum_v2.validation_group
+                (group_id,script_type,balance_sats,utxo_count,eligible_sats,eligible_utxos)
+                VALUES('missing-state','P2SH',0,1,0,0)''')
+        validation.initialize(self.conn,10,f'{10:064x}',recompare=True)
+        report=self.complete(limit=1)
+        self.assertFalse(report['passed'])
+        self.assertEqual(report['compared_group_families'],live['compared_group_families']+2)
+        self.assertEqual(report['mismatched_group_families'],2)
+        self.assertEqual({row['group_id'] for row in report['examples']},{'missing-source','missing-state'})
+        self.assertEqual(report['totals']['validation_group']['P2WPKH']['utxo_count'],1)
+
+    def test_recorded_live_migration_with_missing_or_unvalidated_constraint_fails_closed(self):
+        store.migrate_live_export(self.conn,allow_populated=True)
+        self.complete()
+        with self.conn,self.conn.cursor() as cur:
+            cur.execute('ALTER TABLE quantum_v2.group_state DROP CONSTRAINT group_state_zero_utxo_balance')
+        with self.assertRaisesRegex(ValueError,'validated constraints'):validation.verify(self.conn)
+        with self.conn,self.conn.cursor() as cur:
+            cur.execute('ALTER TABLE quantum_v2.group_state ADD CONSTRAINT group_state_zero_utxo_balance CHECK(utxo_count>0 OR balance_sats=0) NOT VALID')
+        with self.assertRaisesRegex(ValueError,'validated constraints'):validation.verify(self.conn)
+        with self.conn,self.conn.cursor() as cur:
+            cur.execute('ALTER TABLE quantum_v2.group_state VALIDATE CONSTRAINT group_state_zero_utxo_balance')
+        self.assertTrue(validation.verify(self.conn)['passed'])
+
+    def test_live_comparison_plan_does_not_visit_large_retired_population(self):
+        self.complete()
+        store.migrate_live_export(self.conn,allow_populated=True)
+        with self.conn,self.conn.cursor() as cur:
+            cur.execute("INSERT INTO quantum_v2.group_state(group_id,script_type) SELECT '0-retired-'||lpad(n::text,8,'0'),'Other' FROM generate_series(1,200000) n")
+            cur.execute("INSERT INTO quantum_v2.group_state(group_id,script_type,utxo_count) SELECT 'live-'||lpad(n::text,8,'0'),'Other',1 FROM generate_series(1,200) n")
+            cur.execute('ANALYZE quantum_v2.group_state')
+            cur.execute('ANALYZE quantum_v2.validation_group')
+            for position in (('',''),(KEY,'P2PK'),('live-00000100','Other')):
+                query,params=validation._comparison_page_query(cur,position,10)
+                cur.execute('EXPLAIN(ANALYZE,BUFFERS,FORMAT JSON) '+query,params)
+                plan=cur.fetchone()[0][0]['Plan']
+                def nodes(node):
+                    yield node
+                    for child in node.get('Plans',[]):yield from nodes(child)
+                state_nodes=[node for node in nodes(plan) if node.get('Relation Name')=='group_state']
+                self.assertTrue(any(node.get('Index Name')=='group_state_live_group_id' for node in state_nodes),plan)
+                self.assertTrue(all(node['Node Type'] in ('Index Scan','Index Only Scan') for node in state_nodes),plan)
+                self.assertLessEqual(plan['Actual Rows'],11)
+                self.assertLess(plan['Shared Hit Blocks']+plan['Shared Read Blocks'],2000)
+
     def test_comparison_plan_looks_up_bounded_keys_without_whole_state_hashes(self):
         # A realistic fixture cardinality lets PostgreSQL choose its real plan;
         # no enable_seqscan override forces the expected access path.

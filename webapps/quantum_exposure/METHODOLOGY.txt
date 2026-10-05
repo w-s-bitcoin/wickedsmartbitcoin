@@ -23,7 +23,7 @@ cost must not be read as v2 guarantees.
 
 | Dimension | Identifier |
 |---|---|
-| Methodology | `legacy-disclosure-group-consistent-v2` |
+| Methodology | `canonical-disclosure-group-consistent-v2` |
 | Parser | `committed-canonical-multisig-v2` |
 | Grouping | `legacy-keyhash-address-group-v2` |
 | Migration scenario | `current-signature-compressed-keys-34byte-destination-v2` |
@@ -39,6 +39,14 @@ A v2 snapshot is anchored to both canonical block height and block hash. Current
 balances and UTXO counts use output creation and actual spending heights as of
 that anchor, regardless of whether a source row is still in the live outputs
 table or has moved to a spent-output archive. Amounts are integer satoshis.
+
+The initial v2 projection reconstructs canonical output history, including
+funding, supported disclosure and actual spending events. Height-only legacy
+freezes and exposure registries cannot certify those events: a stale spent
+occurrence can contribute no current balance while still inventing an exposure
+or activity date. They remain unverified historical evidence and are not used
+to authenticate the canonical seed. A separate raw-source accounting pass
+checks the resulting current balances, counts and eligibility before publication.
 
 Genesis coinbase contributes no UTXO, balance or funding date. Its public-key
 appearance remains disclosure at height zero, which can matter for later coins
@@ -102,12 +110,12 @@ snapshots and their provenance, without filling intentional gaps.
 | P2PK | Canonical raw public-key output with a valid SEC-encoded secp256k1 point; disclosure begins at creation. |
 | P2TR | A valid secp256k1 x-only output key; disclosure begins at creation. Invalid curve points are not exposed. No internal-key or script-path reconstruction is claimed. |
 | Bare multisig, reported under Other | Recognized complete canonical threshold/key script with valid SEC keys. Exposure begins at creation. |
-| P2PKH / P2WPKH | The retained legacy key-disclosure registry plus subsequent canonical group disclosure observations. Historical registry entries are not a newly verified complete witness/public-key reconstruction. |
+| P2PKH / P2WPKH | Canonical creation of a valid P2PK output in the same key-hash group, or a canonical spend of a supported key output in that group. Spending a P2PKH/P2WPKH commitment reveals its matching public key. This does not reconstruct keys from every possible script context. |
 | P2SH / P2WSH | A prior-spend address heuristic. Revealing a script does not prove that it contains a usable exposed key or a satisfiable key-spending path. |
 | Other unsupported policies | No supported exposure evidence is assigned. This means unresolved coverage, not a proof of quantum safety. |
 
 Detail rows include `exposure_evidence_by_script_type` so validated output-key
-coverage can be distinguished from a legacy registry and script-address
+coverage can be distinguished from canonical key-script disclosure and script-address
 heuristics. Invalid directly embedded curve points retain their source-accounted
 amounts/counts but are excluded from exposed amounts/counts.
 
@@ -126,9 +134,9 @@ nor a proven lower bound on quantum-vulnerable coins.
 
 ### Dates, activity and reorganizations
 
-`first_received_blockheight` is the earliest actual fundable receipt known for
-the reporting group. `first_disclosure_blockheight` is its first recorded
-on-chain disclosure under the evidence rules above. The old `first_exposed_*`
+`first_received_blockheight` is the earliest canonical fundable receipt for
+the reporting group. `first_disclosure_blockheight` is its earliest canonical
+disclosure under the evidence rules above. The old `first_exposed_*`
 CSV names remain compatibility aliases for disclosure, and the v2 browser calls
 this date First disclosure. It is not the first funding date.
 
@@ -160,11 +168,14 @@ m-of-n. They are not converted into verified policy evidence by being imported.
 The proof-bearing policy cache separately records parser version and evidence
 hash; its existence does not mean every historical script has been verified.
 
-Before a seed can be published, the worker requires independent raw-source
+Before a seed can be published, the worker requires canonical history
+reconstruction and independent raw-source
 reconciliation of all current group/family balances, UTXO counts and eligible
 balances/counts at the exact anchor. That accounting proof does not certify
 historical disclosure/activity dates, registry completeness or external identity
-labels. Bounded metadata checks report their selected groups, limits and
+labels by itself; the dates and supported disclosures come from the separate
+canonical reconstruction, never from a height-only legacy import.
+Bounded metadata checks report their selected groups, limits and
 unresolved cases; a passing sample does not certify the entire historical ledger.
 
 ### Named migration-weight scenario

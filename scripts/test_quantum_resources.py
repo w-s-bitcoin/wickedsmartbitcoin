@@ -7,6 +7,7 @@ import platform
 import sys
 import unittest
 from unittest.mock import Mock, patch
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "webapps/quantum_exposure/pipeline"))
 import quantum_resources as resources
@@ -57,6 +58,40 @@ class ResourceTests(unittest.TestCase):
             monitor._sample()
         conn.cancel.assert_called_once()
         self.assertEqual(monitor.measurement_error, 'fixture denied')
+
+    def test_disk_reserve_refuses_before_work_and_validates_configuration(self):
+        conn=Mock(); conn.get_backend_pid.return_value=12345
+        with patch.object(resources,'process_usage',return_value={'private_memory_bytes':1}), \
+             patch.object(resources.shutil,'disk_usage',return_value=SimpleNamespace(free=99)):
+            with self.assertRaisesRegex(RuntimeError,'no processing started'):
+                resources.ResourceMonitor(conn,disk_paths=['/private/tmp'],minimum_free_bytes=100)
+            with self.assertRaises(ValueError):
+                resources.ResourceMonitor(conn,minimum_free_bytes=100)
+            with self.assertRaises(ValueError):
+                resources.ResourceMonitor(conn,disk_paths=['/private/tmp'],minimum_free_bytes=True)
+        conn.cancel.assert_not_called()
+
+    def test_disk_reserve_cancels_mid_query_and_records_minimum(self):
+        conn=Mock(); conn.get_backend_pid.return_value=12345
+        with patch.object(resources,'process_usage',return_value={'private_memory_bytes':1}), \
+             patch.object(resources.shutil,'disk_usage',side_effect=[SimpleNamespace(free=200),SimpleNamespace(free=99),SimpleNamespace(free=90)]):
+            monitor=resources.ResourceMonitor(conn,disk_paths=['/private/tmp'],minimum_free_bytes=100)
+            monitor._sample_disk(); monitor._sample_disk()
+        self.assertTrue(monitor.disk_exceeded)
+        self.assertEqual(list(monitor.disk_minimum_free.values()),[90])
+        conn.cancel.assert_called_once()
+
+    def test_lost_disk_measurement_cancels_and_final_metrics_preserve_failure(self):
+        conn=Mock(); conn.get_backend_pid.return_value=12345
+        with patch.object(resources,'process_usage',return_value={'private_memory_bytes':1}), \
+             patch.object(resources.shutil,'disk_usage',return_value=SimpleNamespace(free=200)):
+            monitor=resources.ResourceMonitor(conn,disk_paths=['/private/tmp'],minimum_free_bytes=100)
+        with patch.object(resources.shutil,'disk_usage',side_effect=OSError('fixture volume disappeared')):
+            monitor._sample_disk()
+            monitor._sample_disk(cancel=False)
+        self.assertEqual(monitor.disk_measurement_error,'fixture volume disappeared')
+        self.assertTrue(monitor.stop_event.is_set())
+        conn.cancel.assert_called_once()
 
     @unittest.skipUnless(platform.system() == 'Darwin', 'Darwin proc region integration')
     def test_touched_200_mib_private_allocation_is_measured(self):

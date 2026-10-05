@@ -15,10 +15,13 @@ import install_quantum_scheduler as scheduler
 
 
 def acceptance():
-    return {'code_revision':'a'*40,'checkpoint_height':963000,'checkpoint_hash':'b'*64,
+    return {'version':'quantum-acceptance-v2','code_revision':'a'*40,'checkpoint_height':963000,'checkpoint_hash':'b'*64,
             'generation_id':'quantum-fixture-r1','website_commit':'c'*40,'standalone_commit':'d'*40,
             'active_seconds_per_boundary':1800,'peak_private_memory_bytes':4*1024**3,
-            'accounting_passed':True,'recovery_passed':True,'rollback_passed':True,'browser_passed':True}
+            'implementation_sha256':'e'*64,'config_sha256':'f'*64,'validation_report_sha256':'1'*64,
+            'control_sha256':'3'*64,
+            'request_id':1,'database':'production-fixture','run_ids':['fixture-run'],
+            'reviews':{kind:{'path':kind+'.json','sha256':'2'*64} for kind in ('browser','recovery','rollback')}}
 
 
 class SchedulerTests(unittest.TestCase):
@@ -45,7 +48,11 @@ class SchedulerTests(unittest.TestCase):
                    '--standalone-repo',str(self.standalone),'--python',str(self.python),
                    '--env-file',str(self.env),'--state-dir',str(self.state)]
         self.record=self.state/'acceptance.json'
-        self.record.write_text(json.dumps(acceptance()))
+        record=acceptance()
+        self.config={'production_repo':str(self.production),'standalone_repo':str(self.standalone),
+                     'env_file':str(self.env),'state_dir':str(self.state)}
+        record['config_sha256']=scheduler.config_fingerprint(self.config)
+        self.record.write_text(json.dumps(record))
 
     def invoke(self,*flags,loaded=False):
         calls=[]
@@ -72,14 +79,15 @@ class SchedulerTests(unittest.TestCase):
                 record=acceptance()
                 record[key]=value
                 self.record.write_text(json.dumps(record))
-                with self.assertRaisesRegex(ValueError,'exceeds'):
+                with self.assertRaisesRegex(ValueError,'over-budget'):
                     scheduler.check_acceptance(self.record)
 
     def test_missing_false_and_invalid_evidence_rejected(self):
-        for key,value in (('accounting_passed',False),('browser_passed',1),('code_revision',''),
+        for key,value in (('version','old'),('reviews',{}),('code_revision',''),
                           ('checkpoint_hash','bad'),('generation_id','../outside'),
                           ('active_seconds_per_boundary',-1),('active_seconds_per_boundary',float('nan')),
-                          ('peak_private_memory_bytes',True),('checkpoint_height',-1)):
+                          ('peak_private_memory_bytes',True),('checkpoint_height',-1),
+                          ('active_seconds_per_boundary',0),('peak_private_memory_bytes',0)):
             with self.subTest(key=key,value=value):
                 record=acceptance()
                 record[key]=value
@@ -89,7 +97,7 @@ class SchedulerTests(unittest.TestCase):
         record=acceptance()
         del record['standalone_commit']
         self.record.write_text(json.dumps(record))
-        with self.assertRaisesRegex(ValueError,'missing standalone_commit'):
+        with self.assertRaisesRegex(ValueError,'standalone_commit'):
             scheduler.check_acceptance(self.record)
 
     def test_dry_run_does_not_write_or_call_launchctl(self):
@@ -113,7 +121,8 @@ class SchedulerTests(unittest.TestCase):
                      'active_bare_ms_outputs':5000,'other:source':5000,'canonical_blocks':5000}
         (self.state/'config.json').write_text(json.dumps({'work_seconds':12,'label_version':'reviewed-fixture',
                                                         'bootstrap_rows_by_source':source_rows,
-                                                        'validation_rows':500,'validation_blocks':20,'reset_rows':400}))
+                                                        'validation_rows':500,'validation_blocks':20,'reset_rows':400,
+                                                        'undo_blocks':10000}))
         calls,output=self.invoke('--install')
         self.assertEqual([call[1] for call in calls],['print'])
         result=json.loads(output)
@@ -121,6 +130,7 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(config['work_seconds'],12)
         self.assertEqual(config['label_version'],'reviewed-fixture')
         self.assertEqual(config['bootstrap_rows_by_source'],source_rows)
+        self.assertEqual(config['undo_blocks'],10000)
         self.assertEqual((config['validation_rows'],config['validation_blocks'],config['reset_rows']),(500,20,400))
         self.assertEqual(config['env_file'],str(self.env))
         self.assertNotIn('never-copy-this-value',Path(result['config']).read_text())
@@ -149,6 +159,7 @@ class SchedulerTests(unittest.TestCase):
         for key,value in (('memory_limit_bytes',4*1024**3+1),('work_seconds',46),
                           ('export_seconds',1801),('batch_blocks',0),('bootstrap_rows',True),
                           ('bootstrap_rows',100001),
+                          ('undo_blocks',True),('undo_blocks',999),('undo_blocks',10001),('undo_blocks',2016.0),
                           ('max_batch_rows',-1),('batch_pause_seconds',float('nan'))):
             with self.subTest(key=key):
                 original=json.dumps({key:value})
@@ -157,6 +168,10 @@ class SchedulerTests(unittest.TestCase):
                     self.invoke('--install')
                 self.assertEqual(config.read_text(),original)
                 self.assertFalse((self.home/'Library').exists())
+
+    def test_default_undo_retention_is_2016_blocks(self):
+        self.invoke('--install')
+        self.assertEqual(json.loads((self.state/'config.json').read_text())['undo_blocks'],2016)
 
     def test_invalid_source_row_overrides_are_rejected_before_writes(self):
         config=self.state/'config.json'
@@ -193,6 +208,48 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(bootstrap[-1],str(self.home/'Library/LaunchAgents'/f'{scheduler.LABEL}.plist'))
         enable=next(call for call in calls if call[:2]==['launchctl','enable'])
         self.assertLess(calls.index(enable),calls.index(bootstrap))
+        verify=next(call for call in calls if call[0]==str(self.python))
+        self.assertIn('quantum_acceptance.py',verify[1])
+        self.assertLess(calls.index(verify),calls.index(enable))
+
+    def test_changed_preserved_config_refuses_enable_before_writes(self):
+        config=self.state/'config.json'
+        config.write_text(json.dumps({'batch_blocks':11}))
+        with self.assertRaisesRegex(SystemExit,'effective configuration'):
+            self.invoke('--enable')
+        self.assertEqual(json.loads(config.read_text()),{'batch_blocks':11})
+        self.assertFalse((self.home/'Library').exists())
+
+    def test_disk_reserve_is_preserved_and_cannot_be_disabled_for_enablement(self):
+        self.invoke('--install')
+        config=self.state/'config.json'
+        self.assertEqual(json.loads(config.read_text())['disk_reserve_bytes'],512*1024**3)
+        config.write_text(json.dumps({'disk_reserve_bytes':700*1024**3}))
+        self.invoke('--install')
+        self.assertEqual(json.loads(config.read_text())['disk_reserve_bytes'],700*1024**3)
+        for value in (-1,True,1.5):
+            config.write_text(json.dumps({'disk_reserve_bytes':value}))
+            with self.assertRaisesRegex(ValueError,'disk_reserve_bytes'):
+                self.invoke('--install')
+        config.write_text(json.dumps({'disk_reserve_bytes':0}))
+        with self.assertRaisesRegex(SystemExit,'positive disk reserve'):
+            self.invoke('--enable')
+        self.assertEqual(json.loads(config.read_text())['disk_reserve_bytes'],0)
+
+    def test_failed_database_evidence_verification_never_installs(self):
+        calls=[]
+        def run(args,**kwargs):
+            calls.append(args)
+            code=1 if args[:2]==['launchctl','print'] or args[0]==str(self.python) else 0
+            return subprocess.CompletedProcess(args,code,stdout='',stderr='bootstrap incomplete')
+        with patch.object(sys,'argv',self.args+['--enable']), patch.object(Path,'home',return_value=self.home), \
+                patch.object(scheduler.subprocess,'run',side_effect=run), \
+                patch.object(scheduler.subprocess,'check_output',side_effect=lambda args,**kw: '' if args[1]=='status' else 'a'*40), \
+                self.assertRaisesRegex(SystemExit,'bootstrap incomplete'):
+            scheduler.main()
+        self.assertFalse((self.state/'config.json').exists())
+        self.assertFalse((self.home/'Library').exists())
+        self.assertFalse(any(call[:2]==['launchctl','enable'] for call in calls))
 
 
 if __name__=='__main__':

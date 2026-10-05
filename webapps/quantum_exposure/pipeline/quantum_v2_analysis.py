@@ -18,7 +18,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Iterable, Mapping
 
-METHODOLOGY_VERSION = "legacy-disclosure-group-consistent-v2"
+METHODOLOGY_VERSION = "canonical-disclosure-group-consistent-v2"
 PARSER_VERSION = "committed-canonical-multisig-v2"
 GROUPING_VERSION = "legacy-keyhash-address-group-v2"
 SCENARIO_VERSION = "current-signature-compressed-keys-34byte-destination-v2"
@@ -324,8 +324,8 @@ def detail_record(group: Mapping) -> dict:
     row = {key: group.get(key, "") for key in DETAIL_FIELDS}
     for metric in ("current_supply_sats", "current_utxo_count", "exposed_supply_sats", "exposed_utxo_count"):
         row[metric + "_by_script_type"] = json.dumps({family: values[metric] for family, values in group["slices"].items()}, sort_keys=True, separators=(",", ":"))
-    evidence = {"P2PK": "curve-validated-p2pk-output", "P2PKH": "legacy-key-disclosure-registry",
-                "P2WPKH": "legacy-key-disclosure-registry", "P2TR": "curve-validated-taproot-output-key",
+    evidence = {"P2PK": "curve-validated-p2pk-output", "P2PKH": "canonical-key-script-disclosure",
+                "P2WPKH": "canonical-key-script-disclosure", "P2TR": "curve-validated-taproot-output-key",
                 "P2SH": "spent-script-address-heuristic", "P2WSH": "spent-script-address-heuristic",
                 "Other": "validated-canonical-bare-multisig"}
     row["exposure_evidence_by_script_type"] = json.dumps({
@@ -471,7 +471,8 @@ def export_snapshot(rows: Iterable[Mapping], *, snapshot_height: int, snapshot_t
         "pubkey_count_semantics": "distinct-reporting-groups; not unique curve points",
         "migration_semantics": "capacity-equivalent block weight; unknown-policy defaults; not lower bound",
         "date_semantics": "first_exposed compatibility alias means first disclosure; first exposed balance unavailable unless tracked",
-        "exposure_coverage": "curve-validated P2PK/Taproot output keys and canonical bare multisig; P2PKH/P2WPKH legacy key-disclosure registry; P2SH/P2WSH prior-spend heuristic; other policies unresolved",
+        "exposure_coverage": "curve-validated P2PK/Taproot output keys and canonical bare multisig; P2PKH/P2WPKH canonical key-script creation/spend disclosures; P2SH/P2WSH canonical prior-spend heuristic; other policies unresolved",
+        "history_evidence": "funding, disclosure and activity reconstructed from canonical source occurrences; height-only legacy registries are not proof",
         "exposure_limitations": "no complete cross-context public-key extraction/deduplication or script satisfiability proof; imported details are annotations",
         "supply_semantics": "source output accounting excluding genesis and BIP30 overwrites; unrecognized burns not globally proven",
         "detail_coverage": "current group balance >=1 BTC and exposed UTXO count >0; includes zero-value exposed outputs",

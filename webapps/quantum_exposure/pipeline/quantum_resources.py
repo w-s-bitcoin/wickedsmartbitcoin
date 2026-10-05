@@ -12,6 +12,8 @@ import ctypes
 import errno
 import os
 import platform
+from pathlib import Path
+import shutil
 import subprocess
 import threading
 import time
@@ -130,7 +132,8 @@ def lower_priority(backend_pid: int):
 
 
 class ResourceMonitor:
-    def __init__(self, conn, *, limit_bytes: int = 4*1024**3, sample_interval: float = 2.0):
+    def __init__(self, conn, *, limit_bytes: int = 4*1024**3, sample_interval: float = 2.0,
+                 disk_paths=(), minimum_free_bytes: int = 0):
         self.conn, self.limit_bytes = conn, limit_bytes
         if sample_interval <= 0:
             raise ValueError('Resource sample interval must be positive')
@@ -145,6 +148,20 @@ class ResourceMonitor:
         self.exceeded_sample = None
         self.memory_map_summary = None
         self.measurement_error = None
+        if type(minimum_free_bytes) is not int or minimum_free_bytes < 0:
+            raise ValueError('Disk reserve must be a nonnegative integer')
+        self.minimum_free_bytes = minimum_free_bytes
+        self.disk_paths = tuple(sorted({str(Path(path).resolve()) for path in disk_paths}))
+        if minimum_free_bytes and not self.disk_paths:
+            raise ValueError('Disk reserve requires explicit storage paths')
+        self.disk_minimum_free = {}
+        self.disk_exceeded = False
+        self.disk_measurement_error = None
+        self._sample_disk(cancel=False)
+        if self.disk_measurement_error:
+            raise RuntimeError('Quantum disk reserve could not be measured; no processing started')
+        if self.disk_exceeded:
+            raise RuntimeError('Quantum disk reserve is unavailable; no processing started')
         self.started = time.monotonic()
         self.thread = threading.Thread(target=self._sample, name='quantum-resource-guard', daemon=True)
 
@@ -161,12 +178,30 @@ class ResourceMonitor:
                     self.exceeded = True
                     self.exceeded_sample = sample
                     self.conn.cancel()
+                self._sample_disk()
             except OSError as exc:
                 # Do not let a long-running query continue with a blind guard.
                 self.measurement_error = str(exc)
                 self.conn.cancel()
                 self.stop_event.set()
             self.stop_event.wait(self.sample_interval)
+
+    def _sample_disk(self, *, cancel=True):
+        if not self.minimum_free_bytes:
+            return
+        try:
+            for path in self.disk_paths:
+                free = shutil.disk_usage(path).free
+                self.disk_minimum_free[path] = min(free, self.disk_minimum_free.get(path, free))
+                if free < self.minimum_free_bytes and not self.disk_exceeded:
+                    self.disk_exceeded = True
+                    if cancel:
+                        self.conn.cancel()
+        except OSError as error:
+            self.disk_measurement_error = str(error)
+            if cancel:
+                self.conn.cancel()
+                self.stop_event.set()
 
     def __enter__(self):
         self.thread.start()
@@ -184,6 +219,7 @@ class ResourceMonitor:
                 pass
 
     def _final_sample(self):
+        self._sample_disk(cancel=False)
         try:
             self.latest = {str(pid):process_usage(pid) for pid in self.pids}
             current = sum(row.get('physical_footprint_bytes',0) for row in self.latest.values())
@@ -209,5 +245,8 @@ class ResourceMonitor:
                 'peak_combined_private_memory_bytes':self.peak_combined_private,
                 'memory_limit_bytes':self.limit_bytes,'memory_limit_exceeded':self.exceeded,
                 'memory_sample_interval_seconds':self.sample_interval,'memory_measurement_error':self.measurement_error,
+                'minimum_free_disk_bytes':self.minimum_free_bytes,
+                'observed_minimum_free_disk_bytes':self.disk_minimum_free,
+                'disk_reserve_exceeded':self.disk_exceeded,'disk_measurement_error':self.disk_measurement_error,
                 'exceeded_sample':self.exceeded_sample,'memory_map_summary':self.memory_map_summary,
                 'memory_measure':'Darwin region private resident + non-shared swapped pages; shared mappings excluded; kernel page tables not included'}

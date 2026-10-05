@@ -9,6 +9,11 @@ immutable generations. See the operating guide for migration, acceptance gates,
 pause/resume, scheduler installation, and recovery. These commands access
 production PostgreSQL and generated data; they are not development smoke tests.
 
+Production initialization reconstructs canonical source history. Legacy freezes
+record heights without the original chain identity; even matching current
+balances cannot certify their disclosure or activity dates. Legacy import is
+available only for explicit diagnostics and cannot authorize v2 publication.
+
 - [Implemented v2 operating contract and rollout evidence](OPERATIONS_V2.md)
 
 - [Pipeline audit and measured findings, 2026-10-05](audit/README.md)
