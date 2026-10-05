@@ -538,6 +538,32 @@ resume only when their recorded owned paths still match expected bytes. Git
 conflicts and unrelated changes require inspection; delivery never force-pushes,
 resets, or sweeps unrelated edits into its commit.
 
+Quantum Git commands use one pack thread, compression level 1, 64 MiB pack-window
+and delta-cache budgets, and disable opportunistic auto-GC/maintenance for that
+invocation. These are scoped command settings, not repository/global changes or
+a total process-memory guarantee. Git transfers new reachable objects rather
+than retransmitting every retained archive. Immutable validation still reads the
+retained manifest payloads, so destination I/O must be measured separately.
+
+Each Git command owns a process group. Timeout or cancellation terminates that
+group before its supervisor releases the deploy lock. The outer 900-second
+website timeout requests cooperative deployer cleanup; if the supervisor does
+not acknowledge cancellation within 10 seconds, its live PID, lock, and staged
+output remain intact and remaining destinations are deferred. Inspect that PID
+and its children before recovery; do not remove its lock to force a retry.
+SIGKILL or machine failure cannot run cooperative cleanup and requires the same
+owner/process inspection.
+
+The worker writes every destination attempt to private
+`state_dir/delivery-attempts/<request>-<destination>-<id>.json`, initially as
+running, then complete/failed with the accepted receipt or error, wall time,
+worker CPU, and waited-child CPU deltas. Source/config fingerprints identify the
+attempt. An unresponsive supervisor is recorded with its PID and explicitly
+incomplete child CPU measurements. These records do not assert delivery peak
+private memory or include delivery time in the analysis/export acceptance
+budget. Interrupted running records and failed attempts remain evidence for
+operator review; they are not discarded when a later attempt succeeds.
+
 The shared Git deploy lock publishes a fully written PID inode atomically and
 holds its exclusive `flock` descriptor through the deployment. Lock age never
 overrides a live PID, including older deployments that do not use `flock`.
@@ -826,6 +852,34 @@ repeated policies, 1.435 to 0.162 seconds for a mixed-policy fixture, and about
 8.1 MB in that isolated profile. Actual source-key reuse must be measured before
 claiming that speedup for production initialization or boundary processing.
 
+Canonical creation pages and source delta batches also use the durable
+`policy_parse_cache` from migration 003 for bare multisig policies. Requests are
+deduplicated by exact locking-script bytes and looked up/inserted in batches of
+at most 1,024 unique scripts. Records are immutable and keyed by locking-script
+SHA-256, parser version, and evidence SHA-256. Bare policies use a separate
+evidence domain from committed redeem/witness-script parsing. Recognized and
+unresolved results survive worker restarts; a new parser version or different
+spending evidence gets a new key. Cache provenance records where parsing was
+first observed and never supplies a funding or disclosure date. Those dates
+still come from actual canonical output/spend rows. P2SH/P2WSH coverage remains
+the documented script-address heuristic; this cache does not expand it.
+
+Store-only fixtures without migration 003 retain the pure parser path. If that
+migration is recorded but its cache table is missing, processing fails before
+advancing the checkpoint. Cache writes, projection changes and cursor advances
+share the same transaction; failures roll all three back. Cache hits verify the
+exact bare-policy serialization and parser/evidence binding before use.
+
+A disposable fixture profile used four SQL statements cold and three warm for
+5,000 outputs sharing two scripts (including relation and writer-lock checks).
+With 2,050 unique unresolved scripts, three batches used ten statements cold
+and seven warm, taking about 35 ms and 19 ms respectively; the table and index
+occupied 1.155 MB in that small fixture. This measures bounded cache overhead,
+not production reuse, long-run storage or a full-boundary speedup. Run
+`QUANTUM_ANALYSIS_TEST_DSN=... python scripts/test_quantum_policy_cache.py` against
+an explicit temporary `*_fixture` database for cold/warm state parity,
+version/evidence invalidation, transaction rollback and date-provenance tests.
+
 The installed ingestion writer commits headers, all output insert pages, spend
 updates, and pending-input deletion together. A crash before that commit rolls
 back the entire batch. Each archival range inserts and deletes rows in one
@@ -838,6 +892,7 @@ required before certification and Quantum reconstruction can proceed.
 
 Portable fixtures: `bash scripts/check_project.sh`. Focused tests include
 `test_quantum_immutable_generation.py`, `test_quantum_v2_delivery.py`,
+`test_quantum_subprocess.py`,
 `test_quantum_resources.py`, `test_quantum_scheduler.py`, and
 `test_quantum_browser_contract.mjs`. `test_quantum_v2_validation.py` covers bounded
 accounting, source movement, version changes, legacy write guards, and metadata

@@ -322,6 +322,30 @@ class WorkerFixture(unittest.TestCase):
             self.assertEqual(export.call_count, 1)
             self.assertEqual(website.call_count, 2)
             self.assertEqual(standalone.call_count, 1)
+            attempts=[json.loads(path.read_text()) for path in
+                      (Path(self.config['state_dir'])/'delivery-attempts').glob('*.json')]
+            self.assertEqual(len(attempts),3)
+            self.assertEqual(sorted((row['destination'],row['status']) for row in attempts),
+                             [('standalone','complete'),('website','complete'),('website','failed')])
+            for row in attempts:
+                self.assertEqual(row['generation_id'],marker['generation_id'])
+                self.assertEqual(row['config_sha256'],worker.config_fingerprint(self.config))
+                self.assertGreater(row['wall_seconds'],0)
+                self.assertIn('child_user_seconds',row)
+
+    def test_live_supervisor_defers_remaining_destinations_and_records_incomplete_cpu(self):
+        from quantum_subprocess import SupervisorStillRunning
+        with mock.patch.object(delivery,'deliver_standalone',side_effect=SupervisorStillRunning(12345)), \
+             mock.patch.object(delivery,'deliver_website') as website:
+            self.assertEqual(worker.run_once(self.conn,self.config),0)
+            website.assert_not_called()
+        self.assertEqual(self.query('SELECT destination,status FROM quantum_v2.delivery ORDER BY destination'),
+                         [('standalone','failed'),('website','pending')])
+        records=list((Path(self.config['state_dir'])/'delivery-attempts').glob('*.json'))
+        self.assertEqual(len(records),1)
+        record=json.loads(records[0].read_text())
+        self.assertEqual(record['supervisor_still_running_pid'],12345)
+        self.assertTrue(record['child_cpu_incomplete'])
 
     def test_worker_enriches_canonical_groups_after_family_reduction(self):
         labels=Path(self.temp.name)/'labels.csv'

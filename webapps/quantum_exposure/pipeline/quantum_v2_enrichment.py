@@ -3,12 +3,14 @@
 
 No source/database work occurs on import. Importing a published snapshot is a
 one-time operator action, never a per-snapshot historical vote. Existing detail
-labels remain qualified legacy annotations; only commitment-validated policies
-enter the verified parse cache.
+labels remain qualified legacy annotations. Bare locking policies and validated
+redeem/witness commitments use separate evidence keys; unresolved parses are
+persisted without promoting them to verified policies.
 """
 from __future__ import annotations
 
 import csv
+from dataclasses import dataclass
 import hashlib
 import io
 import itertools
@@ -16,7 +18,7 @@ import json
 from pathlib import Path
 from typing import Iterable, Mapping
 
-from quantum_v2_analysis import PARSER_VERSION, committed_multisig, hash160, valid_pubkey
+from quantum_v2_analysis import PARSER_VERSION, committed_multisig, hash160, parse_multisig, valid_pubkey
 
 MIGRATION = Path(__file__).with_name('migrations') / '003_enrichment.sql'
 BASE58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
@@ -29,8 +31,9 @@ def _require_idle(conn):
 
 
 def _require_writer(cur):
-    cur.execute('SELECT pg_try_advisory_xact_lock(811947,2)')
-    if not cur.fetchone()[0]:
+    cur.execute('SELECT pg_try_advisory_xact_lock(811947,2) AS owned')
+    value=cur.fetchone()
+    if not (value['owned'] if isinstance(value,Mapping) else value[0]):
         raise RuntimeError('Another Quantum worker or maintenance session is running')
 
 
@@ -246,27 +249,137 @@ def iter_enriched_rows(conn, rows: Iterable[Mapping], *, revision: str, fetch_si
                 yield row
 
 
+# Bare policies are self-contained locking-script evidence. This domain is
+# intentionally distinct from the original [scriptSig,witness] commitment cache
+# key; old unresolved P2SH-style attempts on a bare script cannot poison it.
+BARE_EVIDENCE_SHA256 = hashlib.sha256(b'quantum-policy-cache:bare-locking-script:v1').hexdigest()
+POLICY_CACHE_BATCH_SIZE = 1024
+
+
+@dataclass(frozen=True)
+class PolicyParse:
+    locking_script_sha256: str
+    parser_version: str
+    evidence_sha256: str
+    policy_kind: str
+    status: str
+    m: int | None
+    n: int | None
+    public_keys: tuple[bytes, ...]
+
+    def result(self):
+        return dict(status=self.status,m=self.m,n=self.n,public_keys=[key.hex() for key in self.public_keys])
+
+    def bare_eligible(self, locking_script: str) -> bool:
+        """Require the cache result to bind the exact caller's bytes and parser.
+
+        Curve validity was established by this parser version on the cache miss.
+        A hit checks the full policy serialization rather than treating an
+        unrelated status/threshold dictionary as proof for the current output.
+        Cache source height/reference are deliberately absent from this object.
+        """
+        raw=bytes.fromhex(locking_script)
+        if (self.policy_kind!='bare' or self.parser_version!=PARSER_VERSION or
+                self.evidence_sha256!=BARE_EVIDENCE_SHA256 or
+                self.locking_script_sha256!=hashlib.sha256(raw).hexdigest()):
+            raise ValueError('Cached bare policy does not bind the exact locking script and parser version')
+        if self.status=='unresolved':
+            if self.m is not None or self.n is not None or self.public_keys:
+                raise ValueError('Malformed unresolved policy-cache record')
+            return False
+        if (self.status!='recognized' or self.m is None or self.n is None or
+                not 1<=self.m<=self.n<=16 or len(self.public_keys)!=self.n or
+                any(len(key) not in (33,65) for key in self.public_keys) or
+                not raw or raw[-1] not in (0xae,0xaf)):
+            raise ValueError('Malformed recognized policy-cache record')
+        reconstructed=bytes([0x50+self.m])+b''.join(bytes([len(key)])+key for key in self.public_keys)+bytes([0x50+self.n,raw[-1]])
+        if reconstructed!=raw:
+            raise ValueError('Cached policy threshold/keys do not match the exact locking script')
+        return True
+
+
+def _policy_request(request: Mapping):
+    kind=request.get('policy_kind','committed')
+    if kind not in ('bare','committed'):raise ValueError('Unknown policy evidence kind')
+    locking=request['locking_script']
+    raw=bytes.fromhex(locking)
+    sig=request.get('spending_script','') or ''
+    witness=request.get('spending_witness','') or ''
+    if not isinstance(sig,str) or not isinstance(witness,str):raise TypeError('Policy evidence must use source text encoding')
+    if kind=='bare' and (sig or witness):raise ValueError('Bare policy evidence is the locking script alone')
+    digest=BARE_EVIDENCE_SHA256 if kind=='bare' else hashlib.sha256(json.dumps([sig,witness],separators=(',',':')).encode()).hexdigest()
+    key=(hashlib.sha256(raw).hexdigest(),PARSER_VERSION,digest)
+    return key,dict(request,policy_kind=kind,locking_script=raw.hex(),spending_script=sig,spending_witness=witness)
+
+
+def _parse_record(key,kind,record):
+    status,m,n,public_keys=record
+    if status not in ('recognized','unresolved') or not isinstance(public_keys,list):
+        raise ValueError('Malformed policy-cache record')
+    try:keys=tuple(bytes.fromhex(value) for value in public_keys)
+    except (ValueError,TypeError) as exc:raise ValueError('Malformed policy-cache public keys') from exc
+    result=PolicyParse(*key,kind,status,m,n,keys)
+    if status=='unresolved' and (m is not None or n is not None or keys):
+        raise ValueError('Malformed unresolved policy-cache record')
+    if status=='recognized' and (m is None or n is None or not 1<=m<=n<=16 or len(keys)!=n):
+        raise ValueError('Malformed recognized policy-cache record')
+    return result
+
+
+def cache_policy_batch(cur, requests: Iterable[Mapping]) -> list[PolicyParse]:
+    """One bounded, transaction-owned lookup/insert batch of immutable parses.
+
+    At most 1024 requests enter this API; duplicates are parsed/written once.
+    Results retain request order. Both positive and negative entries include the
+    parser version and complete evidence key, so new witness evidence or parser
+    versions cannot reuse an obsolete unresolved result. Source provenance is
+    informational and is never returned as a disclosure/funding fact.
+    """
+    from psycopg2.extras import execute_values
+    if cur.connection.autocommit:raise ValueError('Policy cache writes require an explicit transaction')
+    requests=list(itertools.islice(iter(requests),POLICY_CACHE_BATCH_SIZE+1))
+    if len(requests)>POLICY_CACHE_BATCH_SIZE:raise ValueError('Policy cache batch exceeds 1024 requests')
+    if not requests:return []
+    _require_writer(cur)
+    ordered=[];unique={}
+    for request in requests:
+        key,normalized=_policy_request(request);ordered.append(key);unique.setdefault(key,normalized)
+    records=execute_values(cur,'''SELECT wanted.locking_script_sha256,wanted.parser_version,wanted.evidence_sha256,
+        cached.parse_status,cached.threshold_m,cached.key_count_n,cached.public_keys
+        FROM (VALUES %s) wanted(locking_script_sha256,parser_version,evidence_sha256)
+        LEFT JOIN LATERAL (SELECT parse_status,threshold_m,key_count_n,public_keys
+            FROM quantum_v2.policy_parse_cache c
+            WHERE c.locking_script_sha256=wanted.locking_script_sha256
+              AND c.parser_version=wanted.parser_version AND c.evidence_sha256=wanted.evidence_sha256 LIMIT 1) cached ON true''',
+        list(unique),page_size=POLICY_CACHE_BATCH_SIZE,fetch=True)
+    found={};pending=[]
+    for record in records:
+        if isinstance(record,Mapping):
+            key=tuple(record[name] for name in ('locking_script_sha256','parser_version','evidence_sha256'))
+            values=tuple(record[name] for name in ('parse_status','threshold_m','key_count_n','public_keys'))
+        else:key=tuple(record[:3]);values=record[3:]
+        request=unique[key];kind=request['policy_kind']
+        if values[0] is not None:
+            result=_parse_record(key,kind,values)
+        else:
+            parsed=(parse_multisig(request['locking_script']) if kind=='bare' else
+                    committed_multisig(request['spending_script'],request['spending_witness'],request['locking_script']))
+            result=PolicyParse(*key,kind,'recognized' if parsed else 'unresolved',parsed[0] if parsed else None,
+                               len(parsed[1]) if parsed else None,tuple(parsed[1]) if parsed else ())
+            pending.append((*key,result.status,result.m,result.n,json.dumps([key.hex() for key in result.public_keys]),
+                            request.get('source_height'),request.get('source_reference','')))
+        if kind=='bare':result.bare_eligible(request['locking_script'])
+        found[key]=result
+    if pending:
+        execute_values(cur,'''INSERT INTO quantum_v2.policy_parse_cache
+            (locking_script_sha256,parser_version,evidence_sha256,parse_status,threshold_m,key_count_n,public_keys,source_height,source_reference)
+            VALUES %s ON CONFLICT DO NOTHING''',pending,
+            template='(%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s)',page_size=POLICY_CACHE_BATCH_SIZE)
+    return [found[key] for key in ordered]
+
+
 def cache_committed_policy(cur, *, locking_script: str, spending_script: str = '', spending_witness: str = '',
                            source_height: int | None = None, source_reference: str = '') -> dict:
-    """Cache one proof-bearing parse; new witness evidence invalidates a negative hit."""
-    if cur.connection.autocommit:
-        raise ValueError('Policy cache writes require an explicit transaction')
-    _require_writer(cur)
-    raw = bytes.fromhex(locking_script)
-    script_hash = hashlib.sha256(raw).hexdigest()
-    evidence_hash = hashlib.sha256(json.dumps([spending_script, spending_witness], separators=(',', ':')).encode()).hexdigest()
-    cur.execute('''SELECT parse_status,threshold_m,key_count_n,public_keys FROM quantum_v2.policy_parse_cache
-                   WHERE locking_script_sha256=%s AND parser_version=%s AND evidence_sha256=%s''',
-                (script_hash, PARSER_VERSION, evidence_hash))
-    cached = cur.fetchone()
-    if cached:
-        return dict(status=cached[0], m=cached[1], n=cached[2], public_keys=cached[3])
-    parsed = committed_multisig(spending_script, spending_witness, locking_script)
-    result = dict(status='recognized' if parsed else 'unresolved', m=parsed[0] if parsed else None,
-                  n=len(parsed[1]) if parsed else None, public_keys=[key.hex() for key in parsed[1]] if parsed else [])
-    cur.execute('''INSERT INTO quantum_v2.policy_parse_cache
-        (locking_script_sha256,parser_version,evidence_sha256,parse_status,threshold_m,key_count_n,public_keys,source_height,source_reference)
-        VALUES(%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s) ON CONFLICT DO NOTHING''',
-        (script_hash, PARSER_VERSION, evidence_hash, result['status'], result['m'], result['n'],
-         json.dumps(result['public_keys']), source_height, source_reference))
-    return result
+    """Compatibility API; witness changes have distinct positive/negative keys."""
+    return cache_policy_batch(cur,[dict(locking_script=locking_script,spending_script=spending_script,
+        spending_witness=spending_witness,source_height=source_height,source_reference=source_reference)])[0].result()

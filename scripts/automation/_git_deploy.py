@@ -8,6 +8,7 @@ import subprocess
 import sys
 import time
 import tempfile
+from contextlib import nullcontext
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -201,8 +202,18 @@ AUTOMATION_GIT_CONFIG = (
 )
 
 
+def _quantum_processes():
+    # Other production sources keep their established command implementation.
+    pipeline = str(Path(__file__).resolve().parents[2] / 'webapps/quantum_exposure/pipeline')
+    if pipeline not in sys.path:
+        sys.path.insert(0, pipeline)
+    import quantum_subprocess
+    return quantum_subprocess
+
+
 def automation_git_command(cmd):
-    return ["git", *AUTOMATION_GIT_CONFIG, *cmd[1:]] if cmd and cmd[0] == "git" else cmd
+    scoped = _quantum_processes().GIT_RESOURCE_CONFIG if os.getenv('ANIMATIONS_DEPLOY_SOURCE', '').strip().lower() == 'quantum' else ()
+    return ["git", *AUTOMATION_GIT_CONFIG, *scoped, *cmd[1:]] if cmd and cmd[0] == "git" else cmd
 
 
 def run(cmd: list[str], cwd: Path | None = None, timeout: int | None = None) -> tuple[int, str, str]:
@@ -219,7 +230,8 @@ def run(cmd: list[str], cwd: Path | None = None, timeout: int | None = None) -> 
         ),
     )
     try:
-        p = subprocess.run(
+        runner = _quantum_processes().run_group if os.getenv('ANIMATIONS_DEPLOY_SOURCE', '').strip().lower() == 'quantum' else subprocess.run
+        p = runner(
             automation_git_command(cmd),
             cwd=str(cwd) if cwd else None,
             capture_output=True,
@@ -229,8 +241,9 @@ def run(cmd: list[str], cwd: Path | None = None, timeout: int | None = None) -> 
         )
         return p.returncode, p.stdout.strip(), p.stderr.strip()
     except subprocess.TimeoutExpired as e:
-        stdout = (e.stdout or "").strip()
-        stderr = (e.stderr or "").strip()
+        stdout = e.stdout.decode(errors='replace') if isinstance(e.stdout, bytes) else (e.stdout or '')
+        stderr = e.stderr.decode(errors='replace') if isinstance(e.stderr, bytes) else (e.stderr or '')
+        stdout, stderr = stdout.strip(), stderr.strip()
         message = f"Command timed out after {timeout}s"
         if stderr:
             message = f"{message}\n{stderr}"
@@ -788,6 +801,12 @@ def sync_published_data_to_dev(source_ref: str) -> None:
 
 
 def main() -> int:
+    quantum = os.getenv('ANIMATIONS_DEPLOY_SOURCE', '').strip().lower() == 'quantum'
+    with _quantum_processes().cancellation_signals() if quantum else nullcontext():
+        return _main()
+
+
+def _main() -> int:
     deploy_source = os.getenv("ANIMATIONS_DEPLOY_SOURCE", "").strip().lower()
     if deploy_source not in {"onchain", "1h", "quantum"}:
         deploy_source = None
