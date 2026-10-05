@@ -522,8 +522,39 @@ def deliver_pending(conn,config,*,stop_requested=None):
                 return
 
 
+def run_delivery_only(conn,config):
+    """Retry durable destinations without discovering or advancing analysis.
+
+    The ordinary writer lock prevents a projection/export worker from racing
+    this retry. Each destination retains its existing canonical-source and
+    accepted-generation checks, independent retry state and deployment guards.
+    """
+    if not control.take_writer_lock(conn):
+        log('already_running')
+        return 0
+    try:
+        stop_requested=PauseGate(conn,config)
+        if stop_requested():
+            log('paused')
+            return 0
+        deliver_pending(conn,config,stop_requested=stop_requested)
+        log('delivery_retry_finished')
+        return 0
+    except Exception as exc:
+        conn.rollback()
+        log('delivery_retry_failed',error=f'{type(exc).__name__}: {exc}'[:2000])
+        return 1
+    finally:
+        control.release_writer_lock(conn)
+
+
 def run_once(conn,config,*,bootstrap_only=False,validation_only=False,recompare=False,
-             admin_stop_requested=None,admin_deadline=None):
+             admin_stop_requested=None,admin_deadline=None,maximum_target_height=None):
+    if maximum_target_height is not None:
+        if type(maximum_target_height) is not int or maximum_target_height < 0:
+            raise ValueError('Maximum target height must be a nonnegative integer')
+        if bootstrap_only or validation_only:
+            raise ValueError('Maximum target height applies only to boundary processing')
     bootstrap_rows, bootstrap_by_source = bootstrap_row_limits(config, legacy_sources=store.LEGACY)
     undo_blocks=undo_retention_blocks(config)
     if not control.take_writer_lock(conn):
@@ -556,6 +587,18 @@ def run_once(conn,config,*,bootstrap_only=False,validation_only=False,recompare=
         if validation_only and projection['status']!='ready':
             raise RuntimeError('Finish initialization before running the validation command')
         request=control.next_request(conn)
+        # Check the request selected AFTER discovery/reorg invalidation while
+        # holding the writer lock. An external pre-check alone cannot enforce
+        # this ceiling. Do not create a failed/no-progress run for future work,
+        # and do not mistake a pending current request for completed analysis.
+        if maximum_target_height is not None:
+            if projection['height']>maximum_target_height:
+                log('target_ceiling_exceeded',height=projection['height'],maximum_target_height=maximum_target_height)
+                return 1
+            if request and request['target_height']>maximum_target_height:
+                log('target_ceiling_deferred',height=projection['height'],
+                    next_target=request['target_height'],maximum_target_height=maximum_target_height)
+                return 0
         # A caught-up tick performs only a few indexed readiness/checkpoint reads.
         # Publication retries retain their own durable destination state.
         if projection['status']=='ready' and request is None and not (bootstrap_only or validation_only):
@@ -575,6 +618,8 @@ def run_once(conn,config,*,bootstrap_only=False,validation_only=False,recompare=
                     'mode':'bootstrap' if bootstrap_only else 'validation' if validation_only else 'boundary',
                     'projection_before':{'height':projection['height'],'block_hash':projection['block_hash'],
                                          'status':projection['status']}}
+        if maximum_target_height is not None:
+            provenance['maximum_target_height']=maximum_target_height
         run_id=control.begin_run(conn,request['id'] if request else None)
         lower_priority(conn.get_backend_pid())
         before=database_usage(conn)
@@ -706,8 +751,11 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config',type=Path,required=True)
     sub=parser.add_subparsers(dest='command')
-    for name in ('status','migrate','pause','resume','once','bootstrap'):
+    for name in ('status','migrate','pause','resume','bootstrap','deliver'):
         sub.add_parser(name)
+    once=sub.add_parser('once')
+    once.add_argument('--through',type=int,dest='maximum_target_height',
+                      help='Process no request above this height; delivery retries remain available through deliver')
     physical=sub.add_parser('bootstrap-physical',help='Enable bounded physical scanning for one frozen legacy source')
     physical.add_argument('--source',choices=store.LEGACY,required=True)
     physical.add_argument('--blocks',type=int,default=1024)
@@ -758,7 +806,10 @@ def main():
             log(args.command)
         elif args.command in ('once','bootstrap','validate'):
             return run_once(conn,config,bootstrap_only=args.command=='bootstrap',
-                            validation_only=args.command=='validate',recompare=getattr(args,'recompare',False))
+                            validation_only=args.command=='validate',recompare=getattr(args,'recompare',False),
+                            maximum_target_height=getattr(args,'maximum_target_height',None))
+        elif args.command=='deliver':
+            return run_delivery_only(conn,config)
         else:
             print(json.dumps(control.status(conn),indent=2,default=str))
         return 0
