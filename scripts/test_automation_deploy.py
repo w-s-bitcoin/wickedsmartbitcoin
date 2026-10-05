@@ -6,9 +6,12 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
+import json
 import os
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -21,6 +24,140 @@ SPEC = importlib.util.spec_from_file_location(
 assert SPEC is not None and SPEC.loader is not None
 deploy = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(deploy)
+
+
+def lock_contender(path):
+    """Child process used only with this suite's disposable lock directory."""
+    path = Path(path).resolve()
+    if not path.parent.name.startswith('wsb-deploy-lock-test-'):
+        raise RuntimeError('Lock contender requires its fixture directory')
+    print('READY', flush=True)
+    if sys.stdin.readline().strip() != 'start':
+        return
+    acquired = deploy.acquire_lock(path)
+    print('RESULT ' + json.dumps(acquired), flush=True)
+    sys.stdin.readline()
+    if acquired:
+        deploy.release_lock(path)
+
+
+class DeployLockTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix='wsb-deploy-lock-test-')
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name).resolve()
+        self.path = self.root / 'deploy.lock'
+        self.addCleanup(deploy.release_lock, self.path)
+
+    @staticmethod
+    def dead_pid():
+        child = subprocess.Popen([sys.executable, '-c', 'pass'])
+        child.wait(timeout=10)
+        return child.pid
+
+    def test_simultaneous_contenders_have_one_winner(self):
+        for abandoned in (False, True):
+            with self.subTest(abandoned=abandoned):
+                if abandoned:
+                    self.path.write_text(str(self.dead_pid()))
+                children = []
+                try:
+                    for _ in range(8):
+                        child = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), '--lock-contender', str(self.path)],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                        children.append(child)
+                    for child in children:
+                        self.assertEqual(child.stdout.readline().strip(), 'READY')
+                    for child in children:
+                        child.stdin.write('start\n')
+                        child.stdin.flush()
+                    results = []
+                    for child in children:
+                        while True:
+                            line = child.stdout.readline()
+                            if not line:
+                                self.fail(child.stderr.read())
+                            if line.startswith('RESULT '):
+                                results.append(json.loads(line[7:]))
+                                break
+                    self.assertEqual(sum(results), 1, results)
+                    self.assertEqual(int(self.path.read_text()), children[results.index(True)].pid)
+                finally:
+                    for child in children:
+                        if child.poll() is None:
+                            child.stdin.write('release\n')
+                            child.stdin.flush()
+                    for child in children:
+                        try:
+                            child.wait(timeout=10)
+                        except subprocess.TimeoutExpired:
+                            child.kill()
+                            child.wait(timeout=5)
+                        for pipe in (child.stdin, child.stdout, child.stderr):
+                            pipe.close()
+                self.assertFalse(self.path.exists())
+
+    def test_very_old_live_legacy_owner_is_preserved(self):
+        self.path.write_text(str(os.getpid()))
+        original = self.path.stat()
+        old = time.time() - 30 * 24 * 3600
+        os.utime(self.path, (old, old))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertFalse(deploy.acquire_lock(self.path, stale_seconds=1))
+        self.assertEqual(self.path.read_text(), str(os.getpid()))
+        self.assertEqual(self.path.stat().st_ino, original.st_ino)
+
+    def test_dead_legacy_owner_is_recovered(self):
+        self.path.write_text(str(self.dead_pid()))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(deploy.acquire_lock(self.path))
+        self.assertEqual(int(self.path.read_text()), os.getpid())
+        deploy.release_lock(self.path)
+        self.assertFalse(self.path.exists())
+
+    def test_crashed_flock_owner_is_recovered(self):
+        child = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), '--lock-contender', str(self.path)],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            self.assertEqual(child.stdout.readline().strip(), 'READY')
+            child.stdin.write('start\n')
+            child.stdin.flush()
+            self.assertEqual(child.stdout.readline().strip(), 'RESULT true')
+            child.kill()
+            child.wait(timeout=10)
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertTrue(deploy.acquire_lock(self.path))
+            self.assertEqual(int(self.path.read_text()), os.getpid())
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=5)
+            for pipe in (child.stdin, child.stdout, child.stderr):
+                pipe.close()
+
+    def test_release_does_not_delete_replacement_inode(self):
+        self.assertTrue(deploy.acquire_lock(self.path))
+        replacement = self.root / 'replacement'
+        replacement.write_text(str(os.getpid()))
+        replacement.replace(self.path)
+        inode = self.path.stat().st_ino
+        deploy.release_lock(self.path)
+        self.assertEqual(self.path.stat().st_ino, inode)
+        self.assertEqual(self.path.read_text(), str(os.getpid()))
+
+    def test_release_does_not_delete_changed_owner_on_same_inode(self):
+        self.assertTrue(deploy.acquire_lock(self.path))
+        self.path.write_text(str(os.getpid() + 100000))
+        deploy.release_lock(self.path)
+        self.assertEqual(self.path.read_text(), str(os.getpid() + 100000))
+
+    def test_malformed_lock_is_not_silently_removed(self):
+        self.path.write_text('incomplete operator-owned evidence\n')
+        old = time.time() - 30 * 24 * 3600
+        os.utime(self.path, (old, old))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertFalse(deploy.acquire_lock(self.path, stale_seconds=1))
+        self.assertEqual(self.path.read_text(), 'incomplete operator-owned evidence\n')
 
 
 class AutomationDeployTests(unittest.TestCase):
@@ -65,7 +202,7 @@ class AutomationDeployTests(unittest.TestCase):
 
     def git(self, *args: str, cwd: Path | None = None) -> str:
         result = subprocess.run(
-            ["git", *args], cwd=cwd or self.repo, capture_output=True, text=True,
+            ["git", "-c", "commit.gpgsign=false", *args], cwd=cwd or self.repo, capture_output=True, text=True,
             check=True, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
         )
         return result.stdout.strip()
@@ -94,6 +231,85 @@ class AutomationDeployTests(unittest.TestCase):
 
     def test_rejected_push_reapplies_generation_after_concurrent_code_update(self):
         self.assert_concurrent_push_recovery()
+
+    def quantum_stage(self, height=2000, request_id=2):
+        self.run_dir = self.staging / f"quantum-{request_id}"
+        self.write(self.run_dir / 'files' / deploy.QUANTUM_MARKER, json.dumps({
+            'format':2,'generation_id':f'quantum-{height}-{request_id}',
+            'snapshot_blockheight':height,'metadata':{'request_id':request_id}}))
+        self.write(self.run_dir / '.complete', 'complete\n')
+        os.environ['ANIMATIONS_DEPLOY_SOURCE'] = 'quantum'
+
+    def test_quantum_ignores_incomplete_stages_and_unrelated_sources(self):
+        self.quantum_stage()
+        (self.run_dir / '.complete').unlink()
+        self.assertEqual(self.run_deploy(),0)
+        self.assertEqual(self.remote_file('assets/daily_price.csv'),'old generation')
+        self.assertTrue(self.run_dir.exists())
+
+    def test_quantum_refuses_staged_paths_outside_its_data_scope(self):
+        self.quantum_stage()
+        self.write(self.run_dir/'files/app.js','unexpected generated source\n')
+        self.assertEqual(self.run_deploy(),1)
+        self.assertEqual((self.repo/'app.js').read_text(),'original application\n')
+        self.assertTrue(self.run_dir.exists())
+
+    def test_quantum_preserves_manual_worktree_edit_on_owned_output(self):
+        self.quantum_stage()
+        target=self.repo/deploy.QUANTUM_MARKER
+        self.write(target,'manual output edit\n')
+        self.assertEqual(self.run_deploy(),1)
+        self.assertEqual(target.read_text(),'manual output edit\n')
+        self.assertTrue(self.run_dir.exists())
+
+    def test_quantum_preserves_manual_index_edit_under_retained_worktree_bytes(self):
+        self.quantum_stage()
+        target=self.repo/deploy.QUANTUM_MARKER
+        self.write(target,'manual staged edit\n')
+        self.git('add','--',str(deploy.QUANTUM_MARKER))
+        self.write(target,(self.run_dir/'files'/deploy.QUANTUM_MARKER).read_text())
+        self.assertEqual(self.run_deploy(),1)
+        self.assertEqual(self.git('show',f':{deploy.QUANTUM_MARKER}'),'manual staged edit')
+        self.assertTrue(self.run_dir.exists())
+
+    def test_quantum_resumes_exact_retained_worktree_and_index(self):
+        self.quantum_stage()
+        target=self.repo/deploy.QUANTUM_MARKER
+        self.write(target,(self.run_dir/'files'/deploy.QUANTUM_MARKER).read_text())
+        self.git('add','--',str(deploy.QUANTUM_MARKER))
+        self.assertEqual(self.run_deploy(),0)
+        self.assertEqual(json.loads(self.remote_file(str(deploy.QUANTUM_MARKER)))['snapshot_blockheight'],2000)
+        self.assertFalse(self.run_dir.exists())
+
+    def test_quantum_uses_ordinary_commit_push_and_preserves_existing_history(self):
+        self.publish_previous_automation_generation()
+        previous = self.git('rev-parse','HEAD')
+        self.quantum_stage()
+        original_run, commands = deploy.run, []
+        def recording_run(cmd,**kwargs):
+            commands.append(cmd)
+            return original_run(cmd,**kwargs)
+        with mock.patch.object(deploy,'run',side_effect=recording_run):
+            self.assertEqual(self.run_deploy(),0)
+        self.git('merge-base','--is-ancestor',previous,'HEAD')
+        self.assertFalse(any('--amend' in c or 'reset' in c or any(a.startswith('--force') for a in c) for c in commands))
+        self.assertTrue(self.git('log','-1','--format=%s').startswith('Publish Quantum generation '))
+        self.assertEqual(json.loads(self.remote_file(str(deploy.QUANTUM_MARKER)))['snapshot_blockheight'],2000)
+
+    def test_quantum_stale_retry_cannot_replace_newer_marker(self):
+        self.quantum_stage(height=3000,request_id=3)
+        self.assertEqual(self.run_deploy(),0)
+        self.quantum_stage(height=2000,request_id=2)
+        self.assertEqual(self.run_deploy(),0)
+        self.assertEqual(json.loads(self.remote_file(str(deploy.QUANTUM_MARKER)))['snapshot_blockheight'],3000)
+        self.assertTrue(self.run_dir.exists(),'coordinator must acknowledge superseded delivery')
+
+    def test_quantum_same_height_stale_retry_cannot_replace_correction(self):
+        self.quantum_stage(height=3000,request_id=4)
+        self.assertEqual(self.run_deploy(),0)
+        self.quantum_stage(height=3000,request_id=3)
+        self.assertEqual(self.run_deploy(),0)
+        self.assertEqual(json.loads(self.remote_file(str(deploy.QUANTUM_MARKER)))['metadata']['request_id'],4)
 
     def test_rejected_amended_push_reapplies_generation_after_concurrent_code_update(self):
         self.publish_previous_automation_generation()
@@ -292,4 +508,7 @@ class AutomationDeployTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    if len(sys.argv) == 3 and sys.argv[1] == '--lock-contender':
+        lock_contender(sys.argv[2])
+    else:
+        unittest.main()

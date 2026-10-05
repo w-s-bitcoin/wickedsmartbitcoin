@@ -12,6 +12,7 @@ the same identity and details values. This script:
 """
 
 import sys
+import argparse
 import csv
 from pathlib import Path
 from collections import defaultdict
@@ -200,12 +201,19 @@ def update_snapshot_with_master_map(snapshot_dir, snapshot_label, master_map):
 
 def main():
     """Main execution."""
+    global WEBAPP_DATA_DIR, ARCHIVED_DATA_DIR
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--data-dir", type=Path, default=WEBAPP_DATA_DIR)
+    parser.add_argument("heights", nargs="*")
+    args = parser.parse_args()
+    WEBAPP_DATA_DIR = args.data_dir.resolve()
+    ARCHIVED_DATA_DIR = WEBAPP_DATA_DIR / "archived"
     # Parse block heights from arguments, or use all (active + archived) if none provided
-    if len(sys.argv) == 1:
+    if not args.heights:
         targets = list_snapshot_targets(include_archived=True)
     else:
         snapshot_heights = []
-        for arg in sys.argv[1:]:
+        for arg in args.heights:
             if ":" in arg:
                 # Range format: start:end
                 try:

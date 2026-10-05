@@ -4,6 +4,8 @@
 import argparse
 import csv
 import hashlib
+import io
+import json
 import os
 import re
 from pathlib import Path
@@ -12,6 +14,9 @@ from typing import Callable, Sequence
 import psycopg2
 from dotenv import load_dotenv
 from pipeline_paths import QUANTUM_DIR, resolve_env_file
+from quantum_v2_analysis import parse_multisig, committed_multisig, calendar_cutoff, PARSER_VERSION
+from quantum_v2_enrichment import subject_aliases
+from quantum_legacy_guard import guard_quantum_analysis
 
 SCHEMA = "public"
 FREEZE_NAME = "exposure_analysis"
@@ -207,6 +212,12 @@ def ensure_dashboard_tables(cur):
             display_group_ids                 TEXT    NOT NULL,
             script_types                      TEXT    NOT NULL,
             exposed_supply_sats_by_script_type TEXT,
+            exposed_utxo_count_by_script_type TEXT,
+            current_supply_sats BIGINT,
+            current_utxo_count BIGINT,
+            current_supply_sats_by_script_type TEXT,
+            current_utxo_count_by_script_type TEXT,
+            first_received_blockheight BIGINT,
             spend_activity                    TEXT    NOT NULL,
             exposed_utxo_count                BIGINT  NOT NULL,
             exposed_supply_sats               BIGINT  NOT NULL,
@@ -255,83 +266,55 @@ def ensure_dashboard_tables(cur):
 
 
 def load_ge1_csv_into_temp_table(cur, csv_path: Path):
-    """Load an existing dashboard_pubkeys_ge_1btc.csv into the temp table, handling old CSV format."""
-    if not csv_path.exists():
+    """Stream old/new detail CSVs without losing normalized rows lacking group_id."""
+    if not csv_path.is_file():
         raise FileNotFoundError(f"CSV file not found: {csv_path}")
+    columns = ["group_id", "display_group_ids", "script_types", "exposed_supply_sats_by_script_type",
+               "spend_activity", "exposed_utxo_count", "exposed_supply_sats", "first_exposed_blockheight",
+               "first_exposed_time", "last_spend_blockheight", "last_spend_time", "details", "identity",
+               "current_supply_sats", "current_utxo_count", "first_received_blockheight",
+               "exposed_utxo_count_by_script_type", "current_supply_sats_by_script_type",
+               "current_utxo_count_by_script_type"]
+    cur.execute(f"TRUNCATE TABLE {TMP_DASHBOARD_GE1_TABLE};")
+    count, pending = 0, []
 
-    with csv_path.open("r", encoding="utf-8", newline="") as f:
-        reader = csv.DictReader(f)
+    def flush():
+        buffer = io.StringIO()
+        csv.writer(buffer).writerows(pending)
+        buffer.seek(0)
+        cur.copy_expert(f"COPY {TMP_DASHBOARD_GE1_TABLE} ({','.join(columns)}) FROM STDIN WITH (FORMAT CSV)", buffer)
+        pending.clear()
+
+    with csv_path.open("r", encoding="utf-8", newline="") as stream:
+        reader = csv.DictReader(stream)
         if not reader.fieldnames:
             raise ValueError(f"CSV has no headers: {csv_path}")
-
-        rows = list(reader)
-
-    # Normalize rows to new format, handling both old and new CSV structures
-    normalized_rows = []
-    seen_group_ids = set()
-    
-    for row in rows:
-        group_id = row.get("group_id", "")
-        
-        # Skip duplicates (keep only first occurrence)
-        if group_id in seen_group_ids:
-            continue
-        seen_group_ids.add(group_id)
-        
-        normalized = {}
-        
-        # Map required columns (with fallbacks for old format)
-        normalized["group_id"] = group_id
-        normalized["display_group_ids"] = row.get("display_group_ids") or row.get("display_group_id", "")
-        normalized["script_types"] = row.get("script_types") or row.get("script_type", "")
-        normalized["exposed_supply_sats_by_script_type"] = row.get("exposed_supply_sats_by_script_type") or ""
-        normalized["spend_activity"] = row.get("spend_activity", "")
-        normalized["exposed_utxo_count"] = row.get("exposed_utxo_count", 0)
-        normalized["exposed_supply_sats"] = row.get("exposed_supply_sats", 0)
-        normalized["first_exposed_blockheight"] = row.get("first_exposed_blockheight") or None
-        normalized["first_exposed_time"] = row.get("first_exposed_time") or None
-        normalized["last_spend_blockheight"] = row.get("last_spend_blockheight") or None
-        normalized["last_spend_time"] = row.get("last_spend_time") or None
-        
-        # Map old "comments" to new "details", or use empty string if neither exists
-        if "details" in row:
-            normalized["details"] = row["details"] or ""
-        elif "comments" in row:
-            normalized["details"] = row["comments"] or ""
-        else:
-            normalized["details"] = ""
-        
-        # Add identity column (new, always empty initially)
-        normalized["identity"] = row.get("identity", "")
-        
-        normalized_rows.append(normalized)
-
-    # Insert into temp table
-    cur.execute(f"TRUNCATE TABLE {TMP_DASHBOARD_GE1_TABLE};")
-
-    if not normalized_rows:
-        return 0
-
-    # Build insert statement with all columns in the correct order
-    columns = ["group_id", "display_group_ids", "script_types", "exposed_supply_sats_by_script_type", "spend_activity", 
-               "exposed_utxo_count", "exposed_supply_sats", "first_exposed_blockheight",
-               "first_exposed_time", "last_spend_blockheight", "last_spend_time",
-               "details", "identity"]
-    
-    placeholders = ", ".join(["%s"] * len(columns))
-    column_names = ", ".join(columns)
-
-    insert_sql = f"""
-        INSERT INTO {TMP_DASHBOARD_GE1_TABLE} ({column_names})
-        VALUES ({placeholders})
-    """
-
-    data = []
-    for row in normalized_rows:
-        data.append(tuple(row.get(col) for col in columns))
-
-    cur.executemany(insert_sql, data)
-    return len(normalized_rows)
+        for source in reader:
+            row = dict(source)
+            mapping = json.loads(row.get("exposed_supply_sats_by_script_type") or "{}")
+            row["display_group_ids"] = row.get("display_group_ids") or row.get("display_group_id") or row.get("group_id") or ""
+            row["script_types"] = row.get("script_types") or row.get("script_type") or "|".join(sorted(mapping))
+            row["exposed_supply_sats"] = row.get("exposed_supply_sats") or sum(int(value) for value in mapping.values())
+            row["first_exposed_time"] = row.get("first_exposed_time") or row.get("first_exposed_unix_time")
+            row["last_spend_time"] = row.get("last_spend_time") or row.get("last_spend_unix_time")
+            row["details"] = row.get("details") or row.get("comments") or ""
+            row["identity"] = row.get("identity") or ""
+            if not row.get("group_id"):
+                aliases = subject_aliases(row)
+                keyhashes = {value.lower() for value in aliases if KEYHASH20_HEX_RE.fullmatch(value)}
+                if set(row["script_types"].split("|")) <= {"P2PK", "P2PKH", "P2WPKH"} and len(keyhashes) == 1:
+                    row["group_id"] = next(iter(keyhashes))
+                elif row["display_group_ids"] and "|" not in row["display_group_ids"]:
+                    row["group_id"] = row["display_group_ids"]
+                else:
+                    raise ValueError("Cannot recover a unique reporting group from the legacy detail row")
+            pending.append([row.get(column) if row.get(column) != "" else None for column in columns])
+            count += 1
+            if len(pending) >= 2048:
+                flush()
+        if pending:
+            flush()
+    return count
 
 
 def get_freeze_height_and_time(cur):
@@ -611,8 +594,30 @@ def populate_p2pk_pubkey_cache_for_active(
     return inserted_from_outputs, inserted_from_stxos, total_cached, unresolved
 
 
+def bip30_overwritten_expr(alias: str, height: int) -> str:
+    """Mainnet duplicate-coinbase removal: accounting removal is not a spend.
+
+    The original output occurrence ceases to exist at the replacement height;
+    its disclosed key and funding history remain known. Never give it a synthetic
+    spending transaction/date. Identity includes creation height, txid and vout.
+    """
+    return f"""({alias}.vout = 0 AND (
+        ({alias}.blockheight = 91722 AND {alias}.transactionid = 'e3bf3d07d4b0375638d5f1db5255fe07ba2c4cb067cd81b84ee974b6585fb468' AND {int(height)} >= 91880)
+        OR ({alias}.blockheight = 91812 AND {alias}.transactionid = 'd5d27987d2a3dfc724e359870c6644b40e497bdc0589a033220fe15429d88599' AND {int(height)} >= 91842)
+    ))"""
+
+
 def build_dashboard_base(cur, analysis_height: int, cutoff_height: int, latest_stxo_archive_table: str):
-    latest_stxo_qname = qualify(SCHEMA, latest_stxo_archive_table)
+    # A lagged freeze may precede several spending archives, not only the latest.
+    eligible_archives = [name for name in get_stxo_archive_tables(cur)
+                         if int(re.fullmatch(r"stxos_(\d+)_(\d+)_archive", name).group(2)) > analysis_height]
+    if not eligible_archives:
+        eligible_archives = [latest_stxo_archive_table]
+    overwritten_key = bip30_overwritten_expr("k", analysis_height)
+    source_columns = "transactionid,vout,address,amount,blockheight,spendingblock,scripttype"
+    latest_stxo_qname = "(" + " UNION ALL ".join(
+        f"SELECT {source_columns} FROM {qualify(SCHEMA, name)}" for name in eligible_archives
+    ) + ")"
     cur.execute("DROP TABLE IF EXISTS tmp_dashboard_pubkey_base;")
     cur.execute(
         f"""
@@ -646,7 +651,8 @@ def build_dashboard_base(cur, analysis_height: int, cutoff_height: int, latest_s
                 END AS script_type,
                 k.amount::bigint AS amount,
                 k.blockheight,
-                (k.spendingblock IS NOT NULL AND k.spendingblock <= %s) AS isspent,
+                e.exposed_height AS first_disclosure_height,
+                ((k.spendingblock IS NOT NULL AND k.spendingblock <= %s) OR {overwritten_key}) AS isspent,
                 k.spendingblock,
                 CASE
                     WHEN k.blockheight = 0
@@ -657,6 +663,7 @@ def build_dashboard_base(cur, analysis_height: int, cutoff_height: int, latest_s
                     ELSE false
                 END AS is_exposed
             FROM {qualify(SCHEMA, 'active_key_outputs')} k
+            LEFT JOIN {qualify(SCHEMA, 'exposed_keyhash20')} e ON e.keyhash20 = k.keyhash20
                         LEFT JOIN {qualify(SCHEMA, P2PK_PUBKEY_CACHE_TABLE)} p2pk
                             ON p2pk.keyhash20 = k.keyhash20
                          AND k.script_type = 'pubkey'
@@ -665,6 +672,7 @@ def build_dashboard_base(cur, analysis_height: int, cutoff_height: int, latest_s
              AND src.transactionid = k.transactionid
              AND src.vout = k.vout
                          AND k.script_type = 'pubkey'
+            WHERE NOT (k.blockheight = 0 AND k.script_type = 'pubkey' AND encode(k.keyhash20, 'hex') = '{GENESIS_PUBKEY_KEYHASH20_HEX}')
 
             UNION ALL
 
@@ -674,10 +682,12 @@ def build_dashboard_base(cur, analysis_height: int, cutoff_height: int, latest_s
                 'P2SH'::text AS script_type,
                 p.amount::bigint AS amount,
                 p.blockheight,
+                e.exposed_height AS first_disclosure_height,
                 (p.spendingblock IS NOT NULL AND p.spendingblock <= %s) AS isspent,
                 p.spendingblock,
                 COALESCE(p.is_exposed, false) AS is_exposed
             FROM {qualify(SCHEMA, 'active_p2sh_outputs')} p
+            LEFT JOIN {qualify(SCHEMA, 'exposed_p2sh_address')} e ON e.address = p.address
 
             UNION ALL
 
@@ -687,10 +697,12 @@ def build_dashboard_base(cur, analysis_height: int, cutoff_height: int, latest_s
                 'P2WSH'::text AS script_type,
                 w.amount::bigint AS amount,
                 w.blockheight,
+                e.exposed_height AS first_disclosure_height,
                 (w.spendingblock IS NOT NULL AND w.spendingblock <= %s) AS isspent,
                 w.spendingblock,
                 COALESCE(w.is_exposed, false) AS is_exposed
             FROM {qualify(SCHEMA, 'active_p2wsh_outputs')} w
+            LEFT JOIN {qualify(SCHEMA, 'exposed_p2wsh_address')} e ON e.address = w.address
 
             UNION ALL
 
@@ -700,6 +712,7 @@ def build_dashboard_base(cur, analysis_height: int, cutoff_height: int, latest_s
                 'P2TR'::text AS script_type,
                 t.amount::bigint AS amount,
                 t.blockheight,
+                t.blockheight AS first_disclosure_height,
                 (t.spendingblock IS NOT NULL AND t.spendingblock <= %s) AS isspent,
                 t.spendingblock,
                 true AS is_exposed
@@ -713,6 +726,7 @@ def build_dashboard_base(cur, analysis_height: int, cutoff_height: int, latest_s
                 'Other'::text AS script_type,
                 b.amount::bigint AS amount,
                 b.blockheight,
+                b.blockheight AS first_disclosure_height,
                 (b.spendingblock IS NOT NULL AND b.spendingblock <= %s) AS isspent,
                 b.spendingblock,
                 true AS is_exposed
@@ -726,12 +740,13 @@ def build_dashboard_base(cur, analysis_height: int, cutoff_height: int, latest_s
                                 'Other'::text AS script_type,
                                 o.amount::bigint AS amount,
                                 o.blockheight,
+                                NULL::bigint AS first_disclosure_height,
                                 false AS isspent,
                                 NULL::bigint AS spendingblock,
                                 false AS is_exposed
                         FROM {qualify(SCHEMA, 'outputs')} o
                         WHERE o.blockheight <= %s
-                            AND o.isspent = false
+                            AND (o.spendingblock IS NULL OR o.spendingblock > {int(analysis_height)})
                             AND o.scripttype IS NOT NULL
                             AND o.scripttype NOT IN (
                                         'pubkey',
@@ -751,6 +766,7 @@ def build_dashboard_base(cur, analysis_height: int, cutoff_height: int, latest_s
                                 'Other'::text AS script_type,
                                 s.amount::bigint AS amount,
                                 s.blockheight,
+                                NULL::bigint AS first_disclosure_height,
                                 false AS isspent,
                                 NULL::bigint AS spendingblock,
                                 false AS is_exposed
@@ -777,8 +793,9 @@ def build_dashboard_base(cur, analysis_height: int, cutoff_height: int, latest_s
                 COALESCE(SUM(r.amount) FILTER (WHERE r.isspent = false), 0)::bigint AS current_supply_sats,
                 COUNT(*) FILTER (WHERE r.isspent = false AND r.is_exposed)::bigint AS exposed_utxo_count,
                 COALESCE(SUM(r.amount) FILTER (WHERE r.isspent = false AND r.is_exposed), 0)::bigint AS exposed_supply_sats,
-                MIN(r.blockheight) FILTER (WHERE r.is_exposed)::bigint AS first_exposed_blockheight,
-                MAX(r.spendingblock) FILTER (WHERE r.spendingblock IS NOT NULL)::bigint AS last_spend_blockheight
+                MIN(r.blockheight)::bigint AS first_received_blockheight,
+                MIN(r.first_disclosure_height) FILTER (WHERE r.is_exposed)::bigint AS first_exposed_blockheight,
+                MAX(r.spendingblock) FILTER (WHERE r.spendingblock IS NOT NULL AND r.spendingblock <= {int(analysis_height)})::bigint AS last_spend_blockheight
             FROM all_rows r
             WHERE r.group_id IS NOT NULL
             GROUP BY r.group_id, r.script_type
@@ -791,6 +808,7 @@ def build_dashboard_base(cur, analysis_height: int, cutoff_height: int, latest_s
             g.current_supply_sats,
             g.exposed_utxo_count,
             g.exposed_supply_sats,
+            g.first_received_blockheight,
             g.first_exposed_blockheight,
             CASE
                 WHEN g.exposed_supply_sats > 0 OR g.exposed_utxo_count > 0 THEN 1::bigint
@@ -803,7 +821,7 @@ def build_dashboard_base(cur, analysis_height: int, cutoff_height: int, latest_s
                 ELSE 'active'
             END AS spend_activity
         FROM grouped g
-        WHERE g.current_supply_sats > 0;
+        ;
         """,
         (
             analysis_height,
@@ -821,6 +839,41 @@ def build_dashboard_base(cur, analysis_height: int, cutoff_height: int, latest_s
     cur.execute("ANALYZE tmp_dashboard_pubkey_base;")
 
 
+
+def canonicalize_dashboard_base(cur, analysis_time: int) -> None:
+    """One group eligibility/activity rule, including history-only family slices."""
+    cur.execute("DROP TABLE IF EXISTS tmp_dashboard_group_context;")
+    cur.execute("""
+        CREATE TEMP TABLE tmp_dashboard_group_context ON COMMIT DROP AS
+        SELECT group_id, SUM(current_supply_sats)::bigint AS group_current_supply_sats,
+               MAX(last_spend_blockheight) AS last_spend_blockheight
+        FROM tmp_dashboard_pubkey_base GROUP BY group_id;
+    """)
+    cur.execute("ALTER TABLE tmp_dashboard_group_context ADD PRIMARY KEY (group_id);")
+    cur.execute(f"""
+        SELECT COUNT(*) FROM tmp_dashboard_group_context g
+        LEFT JOIN {qualify(SCHEMA, 'blockheader')} bh ON bh.blockheight = g.last_spend_blockheight
+        WHERE g.last_spend_blockheight IS NOT NULL AND bh.time IS NULL;
+    """)
+    if cur.fetchone()[0]:
+        raise RuntimeError("Exact last-spend timestamps are missing from blockheader")
+    cur.execute("ALTER TABLE tmp_dashboard_pubkey_base ADD COLUMN group_current_supply_sats bigint;")
+    cur.execute(f"""
+        UPDATE tmp_dashboard_pubkey_base b
+        SET group_current_supply_sats = g.group_current_supply_sats,
+            last_spend_blockheight = g.last_spend_blockheight,
+            spend_activity = CASE WHEN g.last_spend_blockheight IS NULL THEN 'never_spent'
+                                  WHEN bh.time <= %s THEN 'inactive' ELSE 'active' END
+        FROM tmp_dashboard_group_context g
+        LEFT JOIN {qualify(SCHEMA, 'blockheader')} bh ON bh.blockheight = g.last_spend_blockheight
+        WHERE b.group_id = g.group_id;
+    """, (calendar_cutoff(analysis_time),))
+    cur.execute("""
+        DELETE FROM tmp_dashboard_pubkey_base
+        WHERE current_utxo_count <= 0;
+    """)
+
+
 def refresh_ge1_dashboard_table(cur, analysis_height: int, analysis_time: int, cutoff_height: int, cutoff_time: int):
     cur.execute(f"TRUNCATE TABLE {TMP_DASHBOARD_GE1_TABLE};")
     cur.execute(
@@ -830,6 +883,10 @@ def refresh_ge1_dashboard_table(cur, analysis_height: int, analysis_time: int, c
             display_group_ids,
             script_types,
             exposed_supply_sats_by_script_type,
+            exposed_utxo_count_by_script_type,
+            current_supply_sats, current_utxo_count,
+            current_supply_sats_by_script_type, current_utxo_count_by_script_type,
+            first_received_blockheight,
             spend_activity,
             exposed_utxo_count,
             exposed_supply_sats,
@@ -852,7 +909,13 @@ def refresh_ge1_dashboard_table(cur, analysis_height: int, analysis_time: int, c
                 SUM(b.exposed_supply_sats)::bigint AS exposed_supply_sats,
                 MIN(b.first_exposed_blockheight)::bigint AS first_exposed_blockheight,
                 MAX(b.last_spend_blockheight)::bigint    AS last_spend_blockheight,
-                json_object_agg(b.script_type, b.exposed_supply_sats)::text AS exposed_supply_sats_by_script_type
+                json_object_agg(b.script_type, b.exposed_supply_sats)::text AS exposed_supply_sats_by_script_type,
+                json_object_agg(b.script_type, b.exposed_utxo_count)::text AS exposed_utxo_count_by_script_type,
+                SUM(b.current_supply_sats)::bigint AS current_supply_sats,
+                SUM(b.current_utxo_count)::bigint AS current_utxo_count,
+                json_object_agg(b.script_type, b.current_supply_sats)::text AS current_supply_sats_by_script_type,
+                json_object_agg(b.script_type, b.current_utxo_count)::text AS current_utxo_count_by_script_type,
+                MIN(b.first_received_blockheight)::bigint AS first_received_blockheight
             FROM tmp_dashboard_pubkey_base b
             GROUP BY b.group_id
             HAVING SUM(b.current_supply_sats) >= 100000000
@@ -863,6 +926,10 @@ def refresh_ge1_dashboard_table(cur, analysis_height: int, analysis_time: int, c
             g.display_group_ids,
             g.script_types,
             g.exposed_supply_sats_by_script_type,
+            g.exposed_utxo_count_by_script_type,
+            g.current_supply_sats, g.current_utxo_count,
+            g.current_supply_sats_by_script_type, g.current_utxo_count_by_script_type,
+            g.first_received_blockheight,
             g.spend_activity,
             g.exposed_utxo_count,
             g.exposed_supply_sats,
@@ -914,14 +981,10 @@ def enforce_genesis_ge1_row(cur) -> int:
         f"""
         UPDATE {TMP_DASHBOARD_GE1_TABLE}
         SET
-            first_exposed_blockheight = %s,
-            first_exposed_time = %s,
             identity = %s
         WHERE group_id = %s
         """,
         (
-            GENESIS_FIRST_EXPOSED_BLOCKHEIGHT,
-            GENESIS_FIRST_EXPOSED_TIME,
             GENESIS_IDENTITY,
             GENESIS_PUBKEY_KEYHASH20_HEX,
         ),
@@ -1449,60 +1512,8 @@ def _decode_small_int_opcode(op: int):
 
 
 def _parse_multisig_threshold(script_hex: str):
-    if not script_hex or not re.fullmatch(r"[0-9a-fA-F]+", script_hex):
-        return None
-    if len(script_hex) % 2 != 0:
-        return None
-
-    try:
-        b = bytes.fromhex(script_hex)
-    except ValueError:
-        return None
-
-    if len(b) < 3:
-        return None
-
-    # canonical form: OP_m <pubkeys...> OP_n OP_CHECKMULTISIG(VERIFY)
-    op_m = _decode_small_int_opcode(b[0])
-    op_n = _decode_small_int_opcode(b[-2])
-    op_chk = b[-1]
-    if op_m is None or op_n is None or op_chk not in (0xAE, 0xAF):
-        return None
-
-    pubkey_pushes = 0
-    i = 1
-    while i < len(b) - 2:
-        op = b[i]
-        i += 1
-
-        if op <= 75:
-            data_len = op
-        elif op == 76:
-            if i >= len(b) - 2:
-                return None
-            data_len = b[i]
-            i += 1
-        elif op == 77:
-            if i + 1 >= len(b) - 2:
-                return None
-            data_len = b[i] | (b[i + 1] << 8)
-            i += 2
-        else:
-            return None
-
-        if i + data_len > len(b) - 2:
-            return None
-        data = b[i : i + data_len]
-        i += data_len
-        if len(data) in (33, 65):
-            pubkey_pushes += 1
-
-    if not (0 <= op_m <= op_n):
-        return None
-    if pubkey_pushes and pubkey_pushes != op_n:
-        return None
-
-    return op_m, op_n
+    parsed = parse_multisig(script_hex)
+    return (parsed[0], len(parsed[1])) if parsed is not None else None
 
 
 def _parse_multisig_from_type(scripttype: str):
@@ -1597,7 +1608,7 @@ def detect_multisig_comment_via_stxo(cur, stxo_tables: list[str], address: str) 
         cur.execute(
             f"""
             SELECT spendingscript, spendingwitness, scripthex
-            FROM public.{table}
+            FROM {qualify(SCHEMA, table)}
             WHERE address = %s
               AND (
                     spendingscript IS NOT NULL
@@ -1614,48 +1625,16 @@ def detect_multisig_comment_via_stxo(cur, stxo_tables: list[str], address: str) 
         if not result:
             continue
             
-        spendingscript, spendingwitness, scripthex = result
-        candidates = []
-        candidates.extend(_witness_candidates(spendingwitness or ""))
-        candidates.extend(_scriptsig_candidates(spendingscript or ""))
-        if scripthex:
-            candidates.append(scripthex)
-
-        for script in candidates:
-            threshold = _parse_multisig_threshold(script)
-            if threshold is not None:
-                m, n = threshold
-                return f"{m}-of-{n} multisig"
-        
-        # First row did not parse as m-of-n; don't continue to other tables
-        return ""
+        detected = _detect_wrapped_multisig_from_row(*result)
+        if detected:
+            return detected
 
     return ""
 
 
 def _detect_wrapped_multisig_from_row(spendingscript: str, spendingwitness: str, scripthex: str) -> str:
-    candidates = []
-    candidates.extend(_witness_candidates(spendingwitness or ""))
-    candidates.extend(_scriptsig_candidates(spendingscript or ""))
-    if scripthex:
-        candidates.append(scripthex)
-
-    seen = set()
-    for script in candidates:
-        if script in seen:
-            continue
-        seen.add(script)
-
-        if _looks_like_canonical_multisig_threshold(script):
-            threshold = _parse_multisig_threshold(script)
-            if threshold is not None:
-                m, n = threshold
-                return f"{m}-of-{n} multisig"
-
-        if _might_contain_multisig_opcode(script) and _script_hex_is_multisig(script):
-            return ""
-
-    return ""
+    parsed = committed_multisig(spendingscript, spendingwitness, scripthex)
+    return f"{parsed[0]}-of-{len(parsed[1])} multisig" if parsed is not None else ""
 
 
 def prefetch_wrapped_multisig_comments(
@@ -1685,7 +1664,7 @@ def prefetch_wrapped_multisig_comments(
                         PARTITION BY address
                         ORDER BY spendingblock DESC NULLS LAST, blockheight DESC
                     ) AS rn
-                FROM public.{table}
+                FROM {qualify(SCHEMA, table)}
                 WHERE address = ANY(%s)
                   AND (
                         spendingscript IS NOT NULL
@@ -1723,9 +1702,9 @@ def detect_bare_ms_comment(cur, stxo_tables: list[str], address: str) -> str:
     """Check first row from outputs, then first row from first STXO table; only return if it parses as m-of-n."""
     # Try outputs first
     cur.execute(
-        """
+        f"""
         SELECT scripttype, scripthex
-        FROM public.outputs
+        FROM {qualify(SCHEMA, 'outputs')}
         WHERE address = %s
           AND scripttype LIKE 'Multisig %%'
         ORDER BY blockheight DESC
@@ -1736,9 +1715,6 @@ def detect_bare_ms_comment(cur, stxo_tables: list[str], address: str) -> str:
     result = cur.fetchone()
     if result:
         scripttype, scripthex = result
-        mn = _parse_multisig_from_type(scripttype or "")
-        if mn is not None:
-            return f"{mn[0]}-of-{mn[1]} multisig"
         mn = _parse_multisig_threshold(scripthex or "")
         if mn is not None:
             return f"{mn[0]}-of-{mn[1]} multisig"
@@ -1750,7 +1726,7 @@ def detect_bare_ms_comment(cur, stxo_tables: list[str], address: str) -> str:
         cur.execute(
             f"""
             SELECT scripttype, scripthex
-            FROM public.{table}
+            FROM {qualify(SCHEMA, table)}
             WHERE address = %s
               AND scripttype LIKE 'Multisig %%'
             ORDER BY spendingblock DESC NULLS LAST, blockheight DESC
@@ -1761,9 +1737,6 @@ def detect_bare_ms_comment(cur, stxo_tables: list[str], address: str) -> str:
         result = cur.fetchone()
         if result:
             scripttype, scripthex = result
-            mn = _parse_multisig_from_type(scripttype or "")
-            if mn is not None:
-                return f"{mn[0]}-of-{mn[1]} multisig"
             mn = _parse_multisig_threshold(scripthex or "")
             if mn is not None:
                 return f"{mn[0]}-of-{mn[1]} multisig"
@@ -1774,17 +1747,8 @@ def detect_bare_ms_comment(cur, stxo_tables: list[str], address: str) -> str:
 
 
 def _detect_bare_multisig_from_row(scripttype: str, scripthex: str) -> str:
-    mn = _parse_multisig_from_type(scripttype or "")
-    if mn is not None:
-        return f"{mn[0]}-of-{mn[1]} multisig"
-
-    script = scripthex or ""
-    if _looks_like_canonical_multisig_threshold(script):
-        mn = _parse_multisig_threshold(script)
-        if mn is not None:
-            return f"{mn[0]}-of-{mn[1]} multisig"
-
-    return ""
+    parsed = parse_multisig(scripthex or "")
+    return f"{parsed[0]}-of-{len(parsed[1])} multisig" if parsed is not None else ""
 
 
 def prefetch_bare_ms_comments(
@@ -1799,7 +1763,7 @@ def prefetch_bare_ms_comments(
 
     pending = list(addresses)
     cur.execute(
-        """
+        f"""
         WITH ranked AS (
             SELECT
                 address,
@@ -1809,7 +1773,7 @@ def prefetch_bare_ms_comments(
                     PARTITION BY address
                     ORDER BY blockheight DESC
                 ) AS rn
-            FROM public.outputs
+            FROM {qualify(SCHEMA, 'outputs')}
             WHERE address = ANY(%s)
               AND scripttype LIKE 'Multisig %%'
         )
@@ -1851,7 +1815,7 @@ def prefetch_bare_ms_comments(
                         PARTITION BY address
                         ORDER BY spendingblock DESC NULLS LAST, blockheight DESC
                     ) AS rn
-                FROM public.{table}
+                FROM {qualify(SCHEMA, table)}
                 WHERE address = ANY(%s)
                   AND scripttype LIKE 'Multisig %%'
             )
@@ -1952,7 +1916,7 @@ def populate_ge1_comments(
         f"""
         SELECT group_id, display_group_ids, script_types
         FROM {TMP_DASHBOARD_GE1_TABLE}
-        WHERE details IS NULL OR details = ''
+        WHERE details IS NULL OR details = '' OR details = 'None'
         """
     )
 
@@ -1975,7 +1939,7 @@ def populate_ge1_comments(
         comment = ""
         for addr in addresses:
             cached_comment = address_comment_cache.get(addr, "")
-            if cached_comment:
+            if cached_comment and cached_comment != "None":
                 comment = cached_comment
                 historical_hits += 1
                 break
@@ -2104,17 +2068,10 @@ def refresh_aggregates(cur, analysis_height: int, analysis_time: int, cutoff_hei
                 WHEN GROUPING(enriched.spend_activity) = 1 THEN 'all'
                 ELSE enriched.spend_activity
             END AS spend_activity_filter,
-            COUNT(*)::bigint AS pubkey_count,
+            COUNT(DISTINCT enriched.group_id)::bigint AS pubkey_count,
             COALESCE(SUM(enriched.current_utxo_count), 0)::bigint AS utxo_count,
-            COALESCE(SUM(
-                CASE
-                    WHEN enriched.script_type = 'P2PK'
-                     AND enriched.group_id = %s
-                    THEN GREATEST(enriched.current_supply_sats - %s, 0)
-                    ELSE enriched.current_supply_sats
-                END
-            ), 0)::bigint AS supply_sats,
-            COALESCE(SUM(enriched.exposed_pubkey_count), 0)::bigint AS exposed_pubkey_count,
+            COALESCE(SUM(enriched.current_supply_sats), 0)::bigint AS supply_sats,
+            COUNT(DISTINCT enriched.group_id) FILTER (WHERE enriched.exposed_utxo_count > 0)::bigint AS exposed_pubkey_count,
             COALESCE(SUM(enriched.exposed_utxo_count), 0)::bigint AS exposed_utxo_count,
             COALESCE(SUM(enriched.exposed_supply_sats), 0)::bigint AS exposed_supply_sats,
             ROUND(
@@ -2136,6 +2093,7 @@ def refresh_aggregates(cur, analysis_height: int, analysis_time: int, cutoff_hei
                 s.spend_activity,
                 s.current_utxo_count,
                 s.current_supply_sats,
+                s.group_current_supply_sats,
                 s.exposed_pubkey_count,
                 s.exposed_utxo_count,
                 s.exposed_supply_sats,
@@ -2182,7 +2140,7 @@ def refresh_aggregates(cur, analysis_height: int, analysis_time: int, cutoff_hei
                 WHERE rm IS NOT NULL
             ) AS ms ON true
         ) AS enriched
-        JOIN tiers t ON enriched.current_supply_sats >= t.min_sats
+        JOIN tiers t ON enriched.group_current_supply_sats >= t.min_sats
         GROUP BY t.balance_filter, GROUPING SETS (
             (enriched.script_type, enriched.spend_activity),
             (enriched.script_type),
@@ -2191,8 +2149,6 @@ def refresh_aggregates(cur, analysis_height: int, analysis_time: int, cutoff_hei
         );
         """,
         (
-            GENESIS_PUBKEY_KEYHASH20_HEX,
-            GENESIS_BLOCK_REWARD_SATS,
             PQ_MAX_INPUTS_PER_TX,
             PQ_INPUT_VBYTES_BY_SCRIPT_TYPE["P2PK"],
             PQ_INPUT_VBYTES_BY_SCRIPT_TYPE["P2PKH"],
@@ -2265,19 +2221,20 @@ def print_dashboard_summary(cur, analysis_height: int):
 
 def copy_query_to_csv(cur, sql: str, params: Sequence, out_path: Path, row_transform=None) -> int:
     cur.execute(sql, params)
-    rows = cur.fetchall()
     headers = [desc[0] for desc in cur.description]
-
-    if row_transform is not None:
-        rows = [row_transform(headers, row) for row in rows]
-
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with out_path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
+    count = 0
+    with out_path.open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.writer(stream)
         writer.writerow(headers)
-        writer.writerows(rows)
-
-    return len(rows)
+        while True:
+            rows = cur.fetchmany(2048)
+            if not rows:
+                break
+            for row in rows:
+                writer.writerow(row_transform(headers, row) if row_transform else row)
+                count += 1
+    return count
 
 
 def upgrade_generic_multisig_details(
@@ -2373,7 +2330,7 @@ def upgrade_generic_multisig_details(
                         PARTITION BY address
                         ORDER BY spendingblock DESC NULLS LAST, blockheight DESC
                     ) AS rn
-                FROM public.{table}
+                FROM {qualify(SCHEMA, table)}
                 WHERE address = ANY(%s)
                   AND (
                         spendingscript IS NOT NULL
@@ -2398,24 +2355,10 @@ def upgrade_generic_multisig_details(
         for address, spendingscript, spendingwitness, scripthex in rows:
             if address in threshold_results:
                 continue
-            candidates = []
-            candidates.extend(_witness_candidates(spendingwitness or ""))
-            candidates.extend(_scriptsig_candidates(spendingscript or ""))
-            if scripthex:
-                candidates.append(scripthex)
-            seen: set[str] = set()
-            for c in candidates:
-                if c in seen:
-                    continue
-                seen.add(c)
-                if _looks_like_canonical_multisig_threshold(c):
-                    th = _parse_multisig_threshold(c)
-                    if th is not None:
-                        m, n = th
-                        comment = f"{m}-of-{n} multisig"
-                        threshold_results[address] = comment
-                        table_upgrades[address] = comment
-                        break
+            comment = _detect_wrapped_multisig_from_row(spendingscript, spendingwitness, scripthex)
+            if comment:
+                threshold_results[address] = comment
+                table_upgrades[address] = comment
 
         if not table_upgrades:
             continue
@@ -2491,6 +2434,10 @@ def export_ge1_csv(cur, snapshot: int, out_dir: Path) -> tuple[int, Path]:
             display_group_ids,
             script_types,
             COALESCE(exposed_supply_sats_by_script_type, '{{}}') AS exposed_supply_sats_by_script_type,
+            exposed_utxo_count_by_script_type,
+            current_supply_sats, current_utxo_count,
+            current_supply_sats_by_script_type, current_utxo_count_by_script_type,
+            first_received_blockheight,
             spend_activity,
             exposed_utxo_count,
             exposed_supply_sats,
@@ -2528,6 +2475,10 @@ def export_dashboard_csvs(
             display_group_ids,
             script_types,
             COALESCE(exposed_supply_sats_by_script_type, '{{}}') AS exposed_supply_sats_by_script_type,
+            exposed_utxo_count_by_script_type,
+            current_supply_sats, current_utxo_count,
+            current_supply_sats_by_script_type, current_utxo_count_by_script_type,
+            first_received_blockheight,
             spend_activity,
             exposed_utxo_count,
             exposed_supply_sats,
@@ -2575,8 +2526,14 @@ def export_dashboard_csvs(
             "snapshot_time",
             "one_year_ago_blockheight",
             "one_year_ago_block_time",
+            "methodology_version", "parser_version", "grouping_version", "scenario_version",
+            "pubkey_count_semantics", "date_semantics",
         ])
-        writer.writerow([snapshot, analysis_time, cutoff_height, cutoff_time])
+        writer.writerow([snapshot, analysis_time, cutoff_height, cutoff_time,
+                         "legacy-disclosure-group-consistent-v2", PARSER_VERSION,
+                         "legacy-keyhash-address-group-v2", "legacy-vbytes-v1",
+                         "distinct-reporting-groups; not unique curve points",
+                         "first_exposed means first actual disclosure; first_received is funding"])
     meta_rows = 1
 
     snapshot_dirs = [p.name for p in out_dir.iterdir() if p.is_dir() and p.name.isdigit()]
@@ -2624,6 +2581,7 @@ def main() -> None:
 
     conn = connect()
     try:
+        guard_quantum_analysis(conn)
         with conn.cursor() as cur:
             ensure_dashboard_tables(cur)
 
@@ -2711,6 +2669,12 @@ def main() -> None:
                 p2pk_cache_total,
                 p2pk_unresolved_active,
             ) = populate_p2pk_pubkey_cache_for_active(cur, analysis_height, stxo_archive_tables)
+            conn.commit()
+            # Begin a fresh coherent read after durable cache discovery.
+            fresh_height, fresh_time = get_freeze_height_and_time(cur)
+            if (fresh_height, fresh_time) != (analysis_height, analysis_time):
+                raise RuntimeError("Source freeze changed during cache discovery; retry analysis")
+            validate_active_tables_at_same_height(cur, analysis_height)
 
             print(f"analysis height            : {analysis_height:,}")
             print(f"analysis time              : {analysis_time}")
@@ -2726,6 +2690,7 @@ def main() -> None:
 
             print("Building unified dashboard base...")
             build_dashboard_base(cur, analysis_height, cutoff_height, latest_stxo_archive_table)
+            canonicalize_dashboard_base(cur, analysis_time)
 
             print("Refreshing >= 1 BTC detail table...")
             ge1_rows = refresh_ge1_dashboard_table(

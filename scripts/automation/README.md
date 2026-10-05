@@ -7,12 +7,22 @@ These entry points run from the production `main` checkout:
 | `_run_1h.py` | User LaunchAgent, at :02 in the maintainer's local schedule | Bitcoin metrics notebook; Node Count, Dominance, DCA Cost Basis, DCA Comparison, UoA, Patoshi, and Casascius updates |
 | `_run_onchain.py` | External `01 - CoreToPSQL.py` after new block ingestion | Current-chain top KPIs and issuance data; BIP-110 analysis only until its finalization height |
 | `_git_deploy.py` | Called by either runner | Publish staged data on main, then mirror published data into dev |
+| `webapps/quantum_exposure/pipeline/run_quantum_worker.py` | Separate Quantum LaunchAgent after acceptance | Discover confirmed 1,000-block boundaries, maintain the projection, and retry website/standalone delivery independently |
 
 The configured hourly user LaunchAgent checks PostgreSQL readiness and the
 external `.storage-maintenance` gate, uses a nonblocking `flock`, and has a
 55-minute timeout. Bitcoin's `blocknotify` invokes the
 external ingestion wrapper; the onchain runner is not a cron entry. These
 scheduler/caller settings live on the production host, outside this repository.
+
+Quantum is not invoked by either producer runner. Its lightweight source hook
+records completed ingestion; the separate worker performs the expensive work.
+Website delivery uses this same deployer's lock, staging, onchain priority, and
+dirty-worktree guards. Quantum generations use ordinary commits and pushes;
+they are not amended into another source's `Update data` commit. See the
+[Quantum operating guide](../../webapps/quantum_exposure/pipeline/OPERATIONS_V2.md)
+for installation, measured enablement gates, status, and recovery. A source checkout
+containing the worker is not evidence that its scheduler is enabled.
 
 ## Local paths and configuration
 

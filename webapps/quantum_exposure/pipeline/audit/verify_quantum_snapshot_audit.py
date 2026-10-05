@@ -5,8 +5,9 @@ The detail table contains only exposed groups meeting the producer's >=1 BTC
 eligibility rule. The matching aggregate slice should cover those groups under
 the same rule. Differences establish an inconsistency, not its cause.
 
-Only selected snapshot CSVs are scanned. AST probes execute two allow-listed
-pure functions from the parser source, not module initialization or main().
+Only selected snapshot CSVs are scanned. AST probes execute allow-listed pure
+parser helpers, not module initialization or main(). Checked-in evidence records
+the pre-fix baseline; a new run reports the current parser implementation.
 """
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ import csv
 import json
 import re
 from collections import Counter
+from functools import lru_cache
 from pathlib import Path
 
 
@@ -108,6 +110,31 @@ def probe_multisig_parser(pipeline_dir: Path) -> dict:
     if {node.name for node in selected} != function_names:
         raise ValueError("Expected pure parser helpers are missing")
     namespace = {"re": re}
+    source_files = [str(source_path)]
+    implementation = "legacy-inline"
+    calls_canonical = any(isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                          and node.func.id == "parse_multisig"
+                          for function in selected for node in ast.walk(function))
+    if calls_canonical:
+        canonical_path = pipeline_dir / "quantum_v2_analysis.py"
+        canonical = ast.parse(canonical_path.read_text(encoding="utf-8"), filename=str(canonical_path))
+        helper_names = {"valid_pubkey", "parse_multisig"}
+        if any(isinstance(node, ast.FunctionDef) and node.name == "_valid_multisig_pubkey"
+               for node in canonical.body):
+            helper_names.add("_valid_multisig_pubkey")
+        helpers = [node for node in canonical.body if isinstance(node, ast.FunctionDef)
+                   and node.name in helper_names]
+        if {node.name for node in helpers} != helper_names:
+            raise ValueError("Expected canonical pure parser helpers are missing")
+        constants = [node for node in canonical.body if isinstance(node, ast.Assign)
+                     and any(isinstance(target, ast.Name) and target.id == "SECP256K1_P" for target in node.targets)]
+        if len(constants) != 1:
+            raise ValueError("Expected secp256k1 field constant is missing")
+        namespace["SECP256K1_P"] = ast.literal_eval(constants[0].value)
+        namespace["lru_cache"] = lru_cache
+        exec(compile(ast.Module(body=helpers, type_ignores=[]), str(canonical_path), "exec"), namespace)
+        source_files.append(str(canonical_path))
+        implementation = "canonical-v2"
     exec(compile(ast.Module(body=selected, type_ignores=[]), str(source_path), "exec"), namespace)
     parser = namespace["_parse_multisig_threshold"]
     invalid_vectors = [
@@ -117,7 +144,9 @@ def probe_multisig_parser(pipeline_dir: Path) -> dict:
     ]
     return {
         "source": str(source_path),
-        "method": "AST extraction of two pure functions; no producer imports or database access",
+        "source_files": source_files,
+        "implementation": implementation,
+        "method": "AST extraction of allow-listed pure helpers; no producer imports or database access",
         "invalid_vectors": [
             {"name": name, "script_hex": script, "expected": None, "actual": parser(script)}
             for name, script in invalid_vectors

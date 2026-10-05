@@ -8,6 +8,7 @@ Clean newly added webapp_data ge1_btc CSVs:
 """
 
 import sys
+import argparse
 import csv
 import json
 import re
@@ -119,9 +120,13 @@ def normalize_column_names(row, source_columns):
     - Removes unwanted columns
     """
     normalized = {}
+    if "current_supply_sats" in source_columns:
+        # Canonical v2 exports carry exact current balances/counts and provenance.
+        # Preserve these fields instead of reducing them to the legacy schema.
+        return {**{column: "" for column in CANONICAL_COLUMNS}, **row}
 
     for col in source_columns:
-        if col in COLUMNS_TO_REMOVE:
+        if col in COLUMNS_TO_REMOVE and col not in {"group_id", "display_group_id"}:
             # Skip unwanted columns
             continue
         elif col == "group_id" or col == "display_group_id":
@@ -204,8 +209,9 @@ def clean_csv_file(snapshot_height):
             cleaned_rows.append(cleaned_row)
 
         # Write back to CSV
+        fields = list(cleaned_rows[0]) if "current_supply_sats" in source_columns else CANONICAL_COLUMNS
         with open(ge1_csv, "w", encoding="utf-8", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=CANONICAL_COLUMNS)
+            writer = csv.DictWriter(f, fieldnames=fields)
             writer.writeheader()
             writer.writerows(cleaned_rows)
 
@@ -244,7 +250,7 @@ def validate_consistency(snapshot_heights, reference_identities):
                 reader = csv.DictReader(f)
 
                 # Check header
-                if reader.fieldnames != CANONICAL_COLUMNS:
+                if reader.fieldnames != CANONICAL_COLUMNS and "current_supply_sats" not in (reader.fieldnames or []):
                     missing = set(CANONICAL_COLUMNS) - set(reader.fieldnames or [])
                     extra = set(reader.fieldnames or []) - set(CANONICAL_COLUMNS)
                     if missing:
@@ -253,7 +259,7 @@ def validate_consistency(snapshot_heights, reference_identities):
                         issues[str(height)].append(f"Extra columns: {extra}")
 
                 # Check for unwanted columns
-                if any(col in (reader.fieldnames or []) for col in COLUMNS_TO_REMOVE):
+                if "current_supply_sats" not in (reader.fieldnames or []) and any(col in (reader.fieldnames or []) for col in COLUMNS_TO_REMOVE):
                     unwanted = [
                         col for col in COLUMNS_TO_REMOVE
                         if col in (reader.fieldnames or [])
@@ -275,7 +281,13 @@ def validate_consistency(snapshot_heights, reference_identities):
 
 def main():
     """Main execution."""
-    if len(sys.argv) < 2:
+    global WEBAPP_DATA_DIR
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--data-dir", type=Path, default=WEBAPP_DATA_DIR)
+    parser.add_argument("heights", nargs="*")
+    args = parser.parse_args()
+    WEBAPP_DATA_DIR = args.data_dir.resolve()
+    if not args.heights:
         print("Usage: python3 normalize_snapshot_csvs.py <blockheight> [blockheight2] [blockheight_start:blockheight_end]")
         print("\nExamples:")
         print("  python3 normalize_snapshot_csvs.py 943974")
@@ -285,7 +297,7 @@ def main():
 
     # Parse block heights from arguments
     snapshot_heights = []
-    for arg in sys.argv[1:]:
+    for arg in args.heights:
         if ":" in arg:
             # Range format: start:end
             try:
@@ -307,9 +319,9 @@ def main():
     print(f"=== Cleaning {len(snapshot_heights)} Snapshots ===\n")
 
     # Load reference identities from existing CSVs
-    print("Loading reference identities from existing CSVs...")
-    reference_identities = load_reference_identities()
-    print(f"  Found {len(reference_identities)} unique identities\n")
+    # Identity vocabulary is not a schema constraint. Previously a scan of every
+    # old full CSV built a set that validation never used to reject anything.
+    reference_identities = set()
 
     # Clean each snapshot
     print("=== Processing Snapshots ===")

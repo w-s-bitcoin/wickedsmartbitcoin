@@ -27,6 +27,7 @@ def parse_args() -> argparse.Namespace:
         description="Move one snapshot height into archived and refresh derived files"
     )
     parser.add_argument("height", type=int, help="Snapshot height to archive")
+    parser.add_argument("--data-dir", type=Path, default=WEBAPP_DATA_DIR)
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -41,7 +42,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def run_script(script_name: str, dry_run: bool) -> None:
-    command = [sys.executable, str(PIPELINE_DIR / script_name)]
+    command = [sys.executable, str(PIPELINE_DIR / script_name), "--data-dir", str(WEBAPP_DATA_DIR)]
     print("$", " ".join(command))
     if dry_run:
         return
@@ -65,10 +66,16 @@ def validate_archive_candidate(height: int, webapp_data_dir: Path = WEBAPP_DATA_
 
 
 def main() -> None:
+    global WEBAPP_DATA_DIR, ARCHIVED_DIR
     args = parse_args()
+    original_data_dir = WEBAPP_DATA_DIR.resolve()
+    WEBAPP_DATA_DIR = args.data_dir.resolve()
+    ARCHIVED_DIR = WEBAPP_DATA_DIR / "archived"
+    if WEBAPP_DATA_DIR != original_data_dir and not args.skip_standalone_sync:
+        raise RuntimeError("A custom archive output root requires --skip-standalone-sync; use an explicit delivery separately.")
     height_str = str(args.height)
 
-    validate_archive_candidate(args.height)
+    validate_archive_candidate(args.height, WEBAPP_DATA_DIR)
 
     source_dir = WEBAPP_DATA_DIR / height_str
     archived_target = ARCHIVED_DIR / height_str

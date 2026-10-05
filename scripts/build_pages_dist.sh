@@ -107,6 +107,14 @@ if [[ -f "$QUANTUM_INDEX" ]]; then
   fi
 fi
 
+# Immutable Quantum manifests describe their actual destination capabilities.
+# Prune copied objects as well as legacy root paths; never mutate source data.
+if [[ -f "$QUANTUM_DATA/published_generation.json" ]]; then
+  PYTHONPATH="$ROOT/webapps/quantum_exposure/pipeline" python3 -c \
+    'import sys; from pathlib import Path; from immutable_generation import prepare_public_bundle; prepare_public_bundle(Path(sys.argv[1]))' \
+    "$QUANTUM_DATA"
+fi
+
 rm -f "$DIST"/webapps/bip110_signaling/webapp_data/bip110_miners.json
 rm -f "$DIST"/webapps/bip110_signaling/webapp_data/bip110_signal_miners.json
 rm -f "$DIST"/webapps/bip110_signaling/webapp_data/bip110_node_miners.json

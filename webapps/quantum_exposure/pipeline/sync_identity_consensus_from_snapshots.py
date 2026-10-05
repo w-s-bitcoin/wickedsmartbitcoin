@@ -160,7 +160,7 @@ def list_snapshot_csvs(file_name: str = GE1_CSV_NAME) -> list[Path]:
     for root in (WEBAPP_DATA_DIR, ARCHIVED_DATA_DIR):
         if not root.exists():
             continue
-        for csv_path in root.rglob(file_name):
+        for csv_path in root.glob(f"[0-9]*/{file_name}"):
             if csv_path.parent.name.isdigit():
                 csvs.append(csv_path)
     csvs.sort(
@@ -284,11 +284,16 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("heights", type=int, nargs="+", help="Snapshot height(s) to update")
     parser.add_argument("--dry-run", action="store_true", help="Preview changes without writing files")
+    parser.add_argument("--data-dir", type=Path, default=WEBAPP_DATA_DIR)
     return parser.parse_args()
 
 
 def main() -> int:
+    global WEBAPP_DATA_DIR, ARCHIVED_DATA_DIR, ARKHAM_LOOKUP_PATH
     args = parse_args()
+    WEBAPP_DATA_DIR = args.data_dir.resolve()
+    ARCHIVED_DATA_DIR = WEBAPP_DATA_DIR / "archived"
+    ARKHAM_LOOKUP_PATH = WEBAPP_DATA_DIR / "arkham" / "arkham_btc_identity_lookup.json"
     lookup = load_existing_lookup(ARKHAM_LOOKUP_PATH)
     all_ge1_csvs = list_snapshot_csvs(GE1_CSV_NAME)
     target_csvs = list_target_csvs(args.heights)

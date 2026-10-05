@@ -24,6 +24,7 @@ from typing import Iterable
 import psycopg2
 from dotenv import load_dotenv
 from pipeline_paths import PIPELINE_DIR, QUANTUM_DIR, resolve_env_file
+from quantum_legacy_guard import guard_quantum_analysis
 from publish_generation import (
     publish_generation_marker,
     read_latest_snapshot_height,
@@ -334,8 +335,10 @@ def insert_keyhash_rows(cur, height: int) -> int:
           ON e.keyhash20 = k.keyhash20
          AND e.exposed_height <= %s
         WHERE k.script_type IN ('pubkey', 'pubkeyhash', 'witness_v0_keyhash')
+          AND NOT (k.blockheight = 0 AND k.script_type = 'pubkey' AND encode(k.keyhash20, 'hex') = '{GENESIS_PUBKEY_KEYHASH20_HEX}')
           AND k.blockheight <= %s
-          AND (k.spendingblock IS NULL OR k.spendingblock > %s);
+          AND (k.spendingblock IS NULL OR k.spendingblock > %s)
+          AND NOT {rda.bip30_overwritten_expr("k", height)};
         """,
                 (GENESIS_PUBKEY_KEYHASH20_HEX, height, height, height),
     )
@@ -412,7 +415,7 @@ def insert_outputs_rows(cur, height: int) -> int:
             {script_type_sql} AS script_type,
             o.amount::bigint,
             o.blockheight,
-            NULL::bigint AS spendingblock,
+            o.spendingblock::bigint AS spendingblock,
             {is_exposed_sql} AS is_exposed
         FROM {qualify(SCHEMA, 'outputs')} o
         LEFT JOIN {qualify(SCHEMA, 'exposed_p2sh_address')} ep2sh
@@ -424,6 +427,7 @@ def insert_outputs_rows(cur, height: int) -> int:
          AND ep2wsh.address = o.address
          AND ep2wsh.exposed_height <= %s
         WHERE o.blockheight <= %s
+          AND (o.spendingblock IS NULL OR o.spendingblock > %s)
           AND (
                 o.scripttype IN ('scripthash', 'witness_v0_scripthash', 'witness_v1_taproot')
                 OR (
@@ -441,7 +445,7 @@ def insert_outputs_rows(cur, height: int) -> int:
                 OR (o.scripttype LIKE 'Multisig %%')
           );
         """,
-        (height, height, height),
+        (height, height, height, height),
     )
     return cur.rowcount
 
@@ -500,19 +504,11 @@ def insert_stxo_rows_bulk(cur, partitions: list[tuple[str, int, int]], height: i
 
 
 def build_last_spend_history(cur, height: int, cutoff_height: int, partitions: list[tuple[str, int, int]]) -> int:
-    """Populate tmp_hist_last_spend with MAX(spendingblock) <= height per (group_id, script_type).
+    """Find exact canonical MAX(spendingblock) <= H for each group/family.
 
-    Two-pass strategy:
-    1. Fast pass — query active_*_outputs tables. These contain the complete per-address output
-       history for every address that still has UTXOs at the freeze height. A resolved group_id
-       is recorded in tmp_hist_active_found so it is skipped in the archive pass.
-    2. Archive pass (for group_ids NOT in active tables):
-       - Key types (P2PK/P2PKH/P2WPKH) + P2TR + Other: scan all stxo archive partitions with
-         lo <= height. Full history is required to correctly distinguish 'never_spent' from
-         'inactive' (a P2PK output that never spent must not be mis-classified as inactive).
-       - P2SH + P2WSH: scan only partitions where hi > cutoff_height, filtering spendingblock to
-         the active period (cutoff_height < spend <= height). If no active-period spend is found
-         and the group is exposed, it must have last spent before the cutoff → assume 'inactive'.
+    Complete active-family histories accelerate groups present at the current
+    freeze. All other groups query complete applicable archives, including P2SH
+    and P2WSH. Every returned height is a real observed spending event.
     """
     cur.execute("DROP TABLE IF EXISTS tmp_hist_last_spend;")
     cur.execute(
@@ -545,8 +541,12 @@ def build_last_spend_history(cur, height: int, cutoff_height: int, partitions: l
         CREATE TEMP TABLE tmp_hist_groups ON COMMIT DROP AS
         SELECT DISTINCT group_id, script_type
         FROM tmp_hist_all_rows
-        WHERE group_id IS NOT NULL
-          AND group_id <> '';
+        WHERE group_id IS NOT NULL AND group_id <> ''
+        UNION
+        SELECT DISTINCT r.group_id, family.script_type
+        FROM tmp_hist_all_rows r
+        CROSS JOIN (VALUES ('P2PK'), ('P2PKH'), ('P2WPKH')) AS family(script_type)
+        WHERE r.script_type IN ('P2PK', 'P2PKH', 'P2WPKH');
         """
     )
     cur.execute(
@@ -672,7 +672,6 @@ def build_last_spend_history(cur, height: int, cutoff_height: int, partitions: l
     # history_all    — partitions where lo <= height (could contain any spend up to height)
     # history_active — subset of above where hi > cutoff_height (could contain active-period spends)
     history_all = [(name, lo, hi) for name, lo, hi in partitions if lo <= height]
-    history_active = [(name, lo, hi) for name, lo, hi in partitions if lo <= height and hi > cutoff_height]
 
     key_type_case_k = """CASE k.script_type
             WHEN 'pubkey'             THEN 'P2PK'
@@ -741,8 +740,7 @@ def build_last_spend_history(cur, height: int, cutoff_height: int, partitions: l
               AND s.spendingblock IS NOT NULL
               AND s.spendingblock <= %s
               AND s.scripttype NOT IN (
-                    'pubkey', 'pubkeyhash', 'witness_v0_keyhash',
-                    'scripthash', 'witness_v0_scripthash'
+                    'pubkey', 'pubkeyhash', 'witness_v0_keyhash'
               )
             GROUP BY 1, 2
             ON CONFLICT (group_id, script_type) DO UPDATE
@@ -754,69 +752,9 @@ def build_last_spend_history(cur, height: int, cutoff_height: int, partitions: l
             (height,),
         )
 
-    # P2SH + P2WSH: only check partitions that may contain active-period spends.
-    # Skipping old archives is safe because if no active-period spend is found and the group
-    # is exposed, the last spend must have been before the cutoff → handled as 'inactive' below.
-    history_active_union_sql = build_stxo_union_for_history(history_active, height)
-    if history_active_union_sql:
-        group_id_sql = nonkey_group_id_expr("s")
-        script_type_sql = nonkey_script_type_expr("s")
-        cur.execute(
-            f"""
-            INSERT INTO tmp_hist_last_spend (group_id, script_type, last_spend_blockheight)
-            SELECT
-                {group_id_sql} AS group_id,
-                {script_type_sql} AS script_type,
-                MAX(s.spendingblock)::bigint AS last_spend_blockheight
-            FROM (
-                {history_active_union_sql}
-            ) s
-            JOIN tmp_hist_groups g
-              ON g.group_id = {group_id_sql}
-             AND g.script_type = {script_type_sql}
-            LEFT JOIN tmp_hist_active_found fa
-              ON fa.group_id = {group_id_sql}
-             AND fa.script_type = {script_type_sql}
-            WHERE fa.group_id IS NULL
-              AND s.spendingblock IS NOT NULL
-              AND s.spendingblock > %s
-              AND s.spendingblock <= %s
-              AND s.scripttype IN ('scripthash', 'witness_v0_scripthash')
-            GROUP BY 1, 2
-            ON CONFLICT (group_id, script_type) DO UPDATE
-            SET last_spend_blockheight = GREATEST(
-                tmp_hist_last_spend.last_spend_blockheight,
-                EXCLUDED.last_spend_blockheight
-            );
-            """,
-            (cutoff_height, height),
-        )
-
-    # ── Assume inactive for exposed P2SH/P2WSH with no spend found ──────────────────
-    # An exposed P2SH/P2WSH must have spent at least once (spending reveals the redeemScript).
-    # If no spend was found in the active tables or in the active-period archives, the last spend
-    # preceded the cutoff — classify as 'inactive' by inserting a sentinel of blockheight 1.
-    cur.execute(
-        """
-        INSERT INTO tmp_hist_last_spend (group_id, script_type, last_spend_blockheight)
-        SELECT DISTINCT g.group_id, g.script_type, 1::bigint
-        FROM tmp_hist_groups g
-        LEFT JOIN tmp_hist_active_found fa
-          ON fa.group_id = g.group_id AND fa.script_type = g.script_type
-        LEFT JOIN tmp_hist_last_spend ls
-          ON ls.group_id = g.group_id AND ls.script_type = g.script_type
-        WHERE g.script_type IN ('P2SH', 'P2WSH')
-          AND fa.group_id IS NULL
-          AND ls.group_id IS NULL
-          AND EXISTS (
-              SELECT 1 FROM tmp_hist_all_rows r
-              WHERE r.group_id = g.group_id
-                AND r.script_type = g.script_type
-                AND r.is_exposed = true
-          )
-        ON CONFLICT (group_id, script_type) DO NOTHING;
-        """
-    )
+    # Script-hash groups are included in the complete archive pass above.
+    # Their exact predecessor spend supports every inactivity threshold; never
+    # substitute a fictional blockheight for unresolved evidence.
 
     cur.execute("SELECT COUNT(*) FROM tmp_hist_last_spend;")
     row = cur.fetchone()
@@ -824,12 +762,7 @@ def build_last_spend_history(cur, height: int, cutoff_height: int, partitions: l
 
 
 def build_first_exposure_history(cur, height: int, partitions: list[tuple[str, int, int]]) -> int:
-        """Populate tmp_hist_first_exposed with MIN(exposed output blockheight) <= height.
-
-        Unlike tmp_hist_all_rows (which is intentionally unspent-at-H only), this computes
-        first exposure from full output history so first_exposed_blockheight remains
-        consistent with last_spend_blockheight.
-        """
+        """Resolve actual first disclosure and first funding independently."""
         cur.execute("DROP TABLE IF EXISTS tmp_hist_first_exposed;")
         cur.execute(
                 """
@@ -837,6 +770,7 @@ def build_first_exposure_history(cur, height: int, partitions: list[tuple[str, i
                         group_id TEXT NOT NULL,
                         script_type TEXT NOT NULL,
                         first_exposed_blockheight BIGINT NOT NULL,
+                        first_received_blockheight BIGINT NOT NULL,
                         PRIMARY KEY (group_id, script_type)
                 ) ON COMMIT DROP;
                 """
@@ -869,11 +803,12 @@ def build_first_exposure_history(cur, height: int, partitions: list[tuple[str, i
         # Key-type groups: exposure from exposed_keyhash20, history from key_outputs_all.
         cur.execute(
                 f"""
-                INSERT INTO tmp_hist_first_exposed (group_id, script_type, first_exposed_blockheight)
+                INSERT INTO tmp_hist_first_exposed (group_id, script_type, first_exposed_blockheight, first_received_blockheight)
                 SELECT
                         encode(k.keyhash20, 'hex') AS group_id,
                         {key_type_case} AS script_type,
-                        MIN(k.blockheight)::bigint AS first_exposed_blockheight
+                        MIN(e.exposed_height)::bigint AS first_exposed_blockheight,
+                        MIN(k.blockheight)::bigint AS first_received_blockheight
                 FROM {qualify(SCHEMA, 'key_outputs_all')} k
                 JOIN {qualify(SCHEMA, 'exposed_keyhash20')} e
                     ON e.keyhash20 = k.keyhash20
@@ -888,7 +823,7 @@ def build_first_exposure_history(cur, height: int, partitions: list[tuple[str, i
                 SET first_exposed_blockheight = LEAST(
                         tmp_hist_first_exposed.first_exposed_blockheight,
                         EXCLUDED.first_exposed_blockheight
-                );
+                ), first_received_blockheight = LEAST(tmp_hist_first_exposed.first_received_blockheight, EXCLUDED.first_received_blockheight);
                 """,
                 (height, height),
         )
@@ -902,11 +837,15 @@ def build_first_exposure_history(cur, height: int, partitions: list[tuple[str, i
         # - Other only for canonical multisig rows
         cur.execute(
                 f"""
-                INSERT INTO tmp_hist_first_exposed (group_id, script_type, first_exposed_blockheight)
+                INSERT INTO tmp_hist_first_exposed (group_id, script_type, first_exposed_blockheight, first_received_blockheight)
                 SELECT
                         {group_id_sql} AS group_id,
                         {script_type_sql} AS script_type,
-                        MIN(o.blockheight)::bigint AS first_exposed_blockheight
+                        MIN(CASE o.scripttype
+                            WHEN 'scripthash' THEN ep2sh.exposed_height
+                            WHEN 'witness_v0_scripthash' THEN ep2wsh.exposed_height
+                            ELSE o.blockheight END)::bigint AS first_exposed_blockheight,
+                        MIN(o.blockheight)::bigint AS first_received_blockheight
                 FROM {qualify(SCHEMA, 'outputs')} o
                 JOIN tmp_hist_groups_for_exposure g
                     ON g.group_id = {group_id_sql}
@@ -935,7 +874,7 @@ def build_first_exposure_history(cur, height: int, partitions: list[tuple[str, i
                 SET first_exposed_blockheight = LEAST(
                         tmp_hist_first_exposed.first_exposed_blockheight,
                         EXCLUDED.first_exposed_blockheight
-                );
+                ), first_received_blockheight = LEAST(tmp_hist_first_exposed.first_received_blockheight, EXCLUDED.first_received_blockheight);
                 """,
                 (height, height, height),
         )
@@ -949,11 +888,15 @@ def build_first_exposure_history(cur, height: int, partitions: list[tuple[str, i
             script_type_sql = nonkey_script_type_expr("s")
             cur.execute(
                 f"""
-                INSERT INTO tmp_hist_first_exposed (group_id, script_type, first_exposed_blockheight)
+                INSERT INTO tmp_hist_first_exposed (group_id, script_type, first_exposed_blockheight, first_received_blockheight)
                 SELECT
                     {group_id_sql} AS group_id,
                     {script_type_sql} AS script_type,
-                    MIN(s.blockheight)::bigint AS first_exposed_blockheight
+                    MIN(CASE s.scripttype
+                        WHEN 'scripthash' THEN ep2sh.exposed_height
+                        WHEN 'witness_v0_scripthash' THEN ep2wsh.exposed_height
+                        ELSE s.blockheight END)::bigint AS first_exposed_blockheight,
+                    MIN(s.blockheight)::bigint AS first_received_blockheight
                 FROM (
                     {history_stxo_union_sql}
                 ) s
@@ -983,7 +926,7 @@ def build_first_exposure_history(cur, height: int, partitions: list[tuple[str, i
                 SET first_exposed_blockheight = LEAST(
                     tmp_hist_first_exposed.first_exposed_blockheight,
                     EXCLUDED.first_exposed_blockheight
-                );
+                ), first_received_blockheight = LEAST(tmp_hist_first_exposed.first_received_blockheight, EXCLUDED.first_received_blockheight);
                 """,
                 (height, height),
             )
@@ -1079,6 +1022,7 @@ def build_dashboard_base_historical(cur, height: int, cutoff_height: int, partit
             g.current_supply_sats,
             g.exposed_utxo_count,
             g.exposed_supply_sats,
+            fe.first_received_blockheight,
             fe.first_exposed_blockheight,
             CASE
                 WHEN g.exposed_supply_sats > 0 OR g.exposed_utxo_count > 0 THEN 1::bigint
@@ -1091,9 +1035,10 @@ def build_dashboard_base_historical(cur, height: int, cutoff_height: int, partit
                 ELSE 'active'
             END AS spend_activity
         FROM grouped g
-        LEFT JOIN tmp_hist_last_spend ls
-          ON ls.group_id = g.group_id
-         AND ls.script_type = g.script_type
+        LEFT JOIN (
+            SELECT group_id, MAX(last_spend_blockheight) AS last_spend_blockheight
+            FROM tmp_hist_last_spend GROUP BY group_id
+        ) ls ON ls.group_id = g.group_id
                 LEFT JOIN tmp_hist_first_exposed fe
                     ON fe.group_id = g.group_id
                  AND fe.script_type = g.script_type
@@ -1604,6 +1549,7 @@ def run_one_snapshot(
     # partitions for unspent-at-height row reconstruction.
     t_base_start = time.perf_counter()
     build_dashboard_base_historical(cur, snapshot_height, cutoff_height, partitions)
+    rda.canonicalize_dashboard_base(cur, analysis_time)
     print(f"base build time (s)         : {time.perf_counter() - t_base_start:.2f}")
 
     t_ge1_start = time.perf_counter()
@@ -1633,6 +1579,13 @@ def run_one_snapshot(
     miner_labeled = rda.label_miner_identity(cur)
     print(f"miner identity rows labeled  : {miner_labeled:,}")
 
+    if annotate_details:
+        details_rows, cache_hits, stxo_lookups = rda.populate_ge1_comments(cur, out_dir)
+        print(f"details applied             : {details_rows:,}")
+        print(f"history cache hits          : {cache_hits:,}")
+        print(f"new STXO lookups            : {stxo_lookups:,}")
+
+
     t_agg_start = time.perf_counter()
     agg_rows = rda.refresh_aggregates(
         cur=cur,
@@ -1642,12 +1595,6 @@ def run_one_snapshot(
         cutoff_time=cutoff_time,
     )
     print(f"aggregate refresh time (s)  : {time.perf_counter() - t_agg_start:.2f}")
-
-    if annotate_details:
-        details_rows, cache_hits, stxo_lookups = rda.populate_ge1_comments(cur, out_dir)
-        print(f"details applied             : {details_rows:,}")
-        print(f"history cache hits          : {cache_hits:,}")
-        print(f"new STXO lookups            : {stxo_lookups:,}")
 
     rda.enforce_genesis_ge1_row(cur)
     t_export_start = time.perf_counter()
@@ -1672,31 +1619,19 @@ def run_main_pipeline_postprocess(snapshot_heights: list[int], out_dir: Path, en
     if not snapshot_heights:
         return
 
+    # Child helpers run from PIPELINE_DIR; freeze caller-relative paths before
+    # changing cwd so every producer and helper addresses the same generation.
+    out_dir = Path(out_dir).expanduser().resolve()
+    env_file = Path(env_file).expanduser().resolve()
     unique_heights = sorted(set(snapshot_heights))
-
-    out_dir_resolved = out_dir.resolve()
-    default_out_dir_resolved = DEFAULT_OUT_DIR.resolve()
-    if out_dir_resolved != default_out_dir_resolved:
-        print(
-            "Skipping main-pipeline postprocess because --out-dir is non-default: "
-            f"{out_dir_resolved} (expected {default_out_dir_resolved})"
-        )
-        print(
-            "Run normalize_snapshot_csvs.py, sync_display_group_identity_details.py, and regenerate_snapshot_indexes.py "
-            "manually against your custom output directory if needed."
-        )
-        archived = archive_non_50k_snapshots(unique_heights, out_dir)
-        if archived:
-            print(f"Archived non-50k snapshots: {archived}")
-        return
 
     env = os.environ.copy()
     env["QUANTUM_PIPELINE_ENV_FILE"] = str(env_file)
     height_args = [str(height) for height in unique_heights]
 
     steps = [
-        [sys.executable, str(PIPELINE_DIR / "normalize_snapshot_csvs.py"), *height_args],
-        [sys.executable, str(PIPELINE_DIR / "sync_display_group_identity_details.py"), *height_args],
+        [sys.executable, str(PIPELINE_DIR / "normalize_snapshot_csvs.py"), "--data-dir", str(out_dir), *height_args],
+        [sys.executable, str(PIPELINE_DIR / "sync_display_group_identity_details.py"), "--data-dir", str(out_dir), *height_args],
     ]
 
     print("\nRunning main-pipeline postprocess steps for historical snapshots...")
@@ -1708,7 +1643,7 @@ def run_main_pipeline_postprocess(snapshot_heights: list[int], out_dir: Path, en
     if archived:
         print(f"Archived non-50k snapshots: {archived}")
 
-    generate_cmd = [sys.executable, str(PIPELINE_DIR / "regenerate_snapshot_indexes.py")]
+    generate_cmd = [sys.executable, str(PIPELINE_DIR / "regenerate_snapshot_indexes.py"), "--data-dir", str(out_dir)]
     print(f"$ ({PIPELINE_DIR}) {' '.join(generate_cmd)}")
     subprocess.run(generate_cmd, cwd=PIPELINE_DIR, env=env, check=True)
 
@@ -1769,12 +1704,14 @@ def main() -> None:
     # Ensure imported helper module targets the same schema.
     rda.SCHEMA = SCHEMA
 
-    load_dotenv(dotenv_path=Path(parsed.env_file))
-    out_dir = Path(parsed.out_dir)
+    env_file = Path(parsed.env_file).expanduser().resolve()
+    load_dotenv(dotenv_path=env_file)
+    out_dir = Path(parsed.out_dir).expanduser().resolve()
     built_heights: list[int] = []
 
     conn = connect()
     try:
+        guard_quantum_analysis(conn)
         with conn.cursor() as cur:
             rda.ensure_dashboard_tables(cur)
             all_partitions = get_stxo_partitions(cur)
@@ -1854,16 +1791,6 @@ def main() -> None:
                 if archived_now:
                     print(f"archived                    : {out_dir / 'archived' / str(height)}")
 
-                # Generate ECO files for this snapshot immediately
-                print(f"generating ECO files for snapshot {height}...")
-                eco_cmd = [sys.executable, str(PIPELINE_DIR / "regenerate_snapshot_indexes.py")]
-                try:
-                    subprocess.run(eco_cmd, cwd=PIPELINE_DIR, check=True, capture_output=True)
-                    print(f"ECO files generated for snapshot {height}")
-                except subprocess.CalledProcessError as e:
-                    print(f"warning: ECO generation had non-zero exit: {e}")
-                    print(f"stdout: {e.stdout.decode() if e.stdout else ''}")
-                    print(f"stderr: {e.stderr.decode() if e.stderr else ''}")
 
     except Exception:
         conn.rollback()
@@ -1880,7 +1807,7 @@ def main() -> None:
         run_main_pipeline_postprocess(
             snapshot_heights=built_heights,
             out_dir=out_dir,
-            env_file=Path(parsed.env_file),
+            env_file=env_file,
         )
 
 

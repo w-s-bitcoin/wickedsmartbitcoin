@@ -2,6 +2,7 @@
 """Check dashboard scaffolding and Pages packaging without production data."""
 
 from pathlib import Path
+import json
 import shutil
 import subprocess
 import tempfile
@@ -12,6 +13,69 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PagesBuildTest(unittest.TestCase):
+    def test_quantum_v2_build_keeps_verified_runtime_and_prunes_manifest_capabilities(self):
+        # Exercise the actual shell build as well as the pure pruning helper.
+        if __package__:
+            from .test_quantum_immutable_generation import publication, seed
+        else:
+            from test_quantum_immutable_generation import publication, seed
+        from quantum_runtime import runtime_dependency_copies
+        with tempfile.TemporaryDirectory(prefix="wsb-pages-quantum-v2-") as temporary:
+            root = Path(temporary)
+            (root / "scripts").mkdir()
+            shutil.copy2(ROOT / "scripts/build_pages_dist.sh", root / "scripts")
+            pipeline = root / "webapps/quantum_exposure/pipeline"
+            pipeline.mkdir(parents=True)
+            for filename in ("immutable_generation.py", "publish_generation.py"):
+                shutil.copy2(ROOT / "webapps/quantum_exposure/pipeline" / filename, pipeline / filename)
+            for source, target in runtime_dependency_copies(ROOT / "webapps/quantum_exposure", root):
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+            for filename in ("preview.html", "preview_app.js", "standalone_app.js"):
+                shutil.copy2(ROOT / "webapps/quantum_exposure" / filename, pipeline.parent / filename)
+            shutil.copy2(ROOT / "webapps/shared/preview_shared.js", root / "webapps/shared/preview_shared.js")
+            data = pipeline.parent / "webapp_data"
+            data.mkdir()
+            seed(data, 500)
+            (data / "archived").mkdir()
+            (data / "500").rename(data / "archived/500")
+            metadata = seed(data, 1000)
+            publication.publish_immutable_generation(data, metadata=metadata, reason="fixture",
+                                                       generation_id="first", include_archives=True)
+            metadata = seed(data, 2000)
+            publication.publish_immutable_generation(data, metadata=metadata, reason="fixture",
+                                                       generation_id="second", include_archives=True)
+            original = {path.relative_to(data): publication.file_sha256(path)
+                        for path in data.rglob("*") if path.is_file()}
+            result = subprocess.run(["bash", str(root / "scripts/build_pages_dist.sh")], cwd=root,
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            dist = root / "dist"
+            output = dist / "webapps/quantum_exposure/webapp_data"
+            marker = json.loads((output / "published_generation.json").read_text())
+            publication.validate_immutable_generation(output, marker)
+            self.assertFalse(marker["capabilities"]["archives"])
+            self.assertTrue(marker["capabilities"]["current_full"])
+            for height in ('1000','2000'):
+                self.assertIn(f'{height}/dashboard_script_corrections.csv',marker['artifacts'])
+                self.assertTrue((output/height/'dashboard_script_corrections.csv').is_file())
+            self.assertNotIn("500", marker["metadata"]["methodology_by_snapshot"])
+            self.assertEqual([path.parent.name for path in output.glob("*/dashboard_pubkeys_ge_1btc.csv")], ["2000"])
+            self.assertFalse((output / "archived").exists())
+            for manifest in output.glob("generations/*/manifest.json"):
+                previous = json.loads(manifest.read_text())
+                publication.validate_immutable_generation(output, previous)
+                self.assertFalse(any(name.startswith("archived/") for name in previous["artifacts"]))
+            for source, target in runtime_dependency_copies(ROOT / "webapps/quantum_exposure", dist):
+                self.assertEqual(publication.file_sha256(source), publication.file_sha256(target))
+            for filename in ("preview.html", "preview_app.js", "standalone_app.js"):
+                self.assertEqual((dist / "webapps/quantum_exposure" / filename).read_bytes(),
+                                 (ROOT / "webapps/quantum_exposure" / filename).read_bytes())
+            self.assertTrue((dist / "webapps/shared/preview_shared.js").is_file())
+            self.assertFalse((dist / "webapps/quantum_exposure/pipeline").exists())
+            self.assertEqual(original, {path.relative_to(data): publication.file_sha256(path)
+                                       for path in data.rglob("*") if path.is_file()})
+
     def test_generated_dashboard_passes_contract_and_requires_action_wiring(self):
         with tempfile.TemporaryDirectory(prefix="wsb-dashboard-scaffold-") as temporary:
             root = Path(temporary)

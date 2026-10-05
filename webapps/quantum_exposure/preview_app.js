@@ -240,7 +240,12 @@
 
   async function prepareCandidate(context) {
     const marker = JSON.parse(String(context.signatureParts?.[0] || '').trim());
-    const response = await context.fetchFresh('webapp_data/historical_eco.csv');
+    const artifact = marker?.artifacts?.['historical_eco.csv'];
+    const path = Number(marker.format) === 2 ? String(artifact?.path || '') : 'historical_eco.csv';
+    if (Number(marker.format) === 2 && (!/^generations\/[a-zA-Z0-9_./-]+$/.test(path) || path.split('/').includes('..'))) {
+      throw new Error('Quantum preview has an invalid immutable artifact path.');
+    }
+    const response = await context.fetchFresh(`webapp_data/${path}`);
     const csvText = await response.text();
     const rows = parseCsv(csvText);
     return {
@@ -248,6 +253,7 @@
       rows,
       points: buildPointsFromRows(rows),
       dataHash: await sha256Text(csvText),
+      dataBytes: new TextEncoder().encode(csvText).byteLength,
     };
   }
 
@@ -269,8 +275,9 @@
       'exposed_supply_sats',
       'estimated_migration_blocks',
     ];
-    if (Number(marker?.format) !== 1 || !String(marker?.generation_id || '').trim()) return false;
-    if (String(artifact?.path || '') !== 'historical_eco.csv') return false;
+    if (![1, 2].includes(Number(marker?.format)) || !String(marker?.generation_id || '').trim()) return false;
+    if (Number(marker.format) === 1 && String(artifact?.path || '') !== 'historical_eco.csv') return false;
+    if (Number(marker.format) === 2 && candidate.dataBytes !== artifact.bytes) return false;
     if (!/^[a-f0-9]{64}$/.test(expectedHash) || candidate.dataHash !== expectedHash) return false;
     if (!Array.isArray(rows) || rows.length !== Number(artifact?.rows) || rows.length < 1) return false;
     if (Object.keys(rows[0] || {}).join('|') !== requiredHeaders.join('|')) return false;
