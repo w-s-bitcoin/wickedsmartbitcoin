@@ -197,6 +197,7 @@ One-time canonical rebuilds can use separate, measured resource settings:
   "bootstrap_work_seconds": 180,
   "bootstrap_temp_buffers_mb": 128,
   "bootstrap_work_mem_mb": 32,
+  "bootstrap_wal_compression": false,
   "bootstrap_memory_limit_bytes": 8589934592,
   "bootstrap_rows_by_source": {"canonical_blocks": 500000}
 }
@@ -208,7 +209,13 @@ memory guarantee. `bootstrap_work_seconds` accepts whole seconds from 5 through
 accepts integers from 8 through 1,024 MiB, defaulting to the measured 8 MiB session
 setting. `bootstrap_work_mem_mb` accepts 32 through 256 MiB, default 32.
 `bootstrap_memory_limit_bytes` accepts 1 through 16 GiB, defaulting to the normal
-memory guard (4 GiB). All four settings apply only to explicitly requested
+memory guard (4 GiB). `bootstrap_wal_compression` accepts a boolean, default
+`false`. `true` enables WAL full-page-image compression within each canonical
+seed transaction; `false` leaves the server/session setting unchanged. This can
+reduce WAL writes at a CPU cost and needs a measured trial. PostgreSQL 14 requires
+superuser permission to change this setting; explicit enablement fails the page
+if the connection lacks permission. Commit or rollback restores the previous
+setting. These settings apply only to explicitly requested
 canonical bootstrap work. Routine snapshots, validation, legacy bootstrap and
 normal reorg recovery retain their existing resource settings. Parallel SQL
 workers remain disabled; one coordinator still owns all heavy work.

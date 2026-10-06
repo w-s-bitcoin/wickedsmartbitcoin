@@ -124,7 +124,7 @@ def main():
             existing=json.loads(config_path.read_text())
             # Keep measured settings and enrichment revision from initialization.
             for key in ('work_seconds','bootstrap_work_seconds','bootstrap_temp_buffers_mb',
-                        'bootstrap_work_mem_mb','bootstrap_memory_limit_bytes',
+                        'bootstrap_work_mem_mb','bootstrap_memory_limit_bytes','bootstrap_wal_compression',
                         'export_seconds','batch_blocks','bootstrap_rows','bootstrap_rows_by_source','max_batch_rows',
                         'batch_pause_seconds','memory_limit_bytes','label_version',
                         'validation_rows','validation_blocks','reset_rows','undo_blocks','disk_reserve_bytes'):

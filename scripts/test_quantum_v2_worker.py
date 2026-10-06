@@ -56,7 +56,8 @@ class FixtureMonitor:
 class ExportGuardTests(unittest.TestCase):
     def test_invalid_bootstrap_settings_fail_before_writer_or_database_work(self):
         for key,value in (('bootstrap_work_seconds',True),('bootstrap_temp_buffers_mb',1025),
-                          ('bootstrap_work_mem_mb',31),('bootstrap_memory_limit_bytes',16*1024**3+1)):
+                          ('bootstrap_work_mem_mb',31),('bootstrap_memory_limit_bytes',16*1024**3+1),
+                          ('bootstrap_wal_compression',1)):
             with self.subTest(key=key),mock.patch.object(control,'take_writer_lock') as lock, \
                  self.assertRaises(ValueError):
                 worker.run_once(None,{key:value},bootstrap_only=True)
@@ -92,16 +93,44 @@ class ExportGuardTests(unittest.TestCase):
             self.assertTrue(store.bootstrap_step(conn,limit=100000))
             cur.execute.assert_not_called()
             seed['seed_mode']='legacy'
-            for kwargs in ({'limit':100001},{'work_mem_mb':128}):
+            for kwargs in ({'limit':100001},{'work_mem_mb':128},{'wal_compression':True}):
                 with self.assertRaises(ValueError):store.bootstrap_step(conn,**kwargs)
-        for kwargs in ({'limit':True},{'limit':1.0},{'limit':1000001},{'work_mem_mb':257},{'work_mem_mb':True}):
+        for kwargs in ({'limit':True},{'limit':1.0},{'limit':1000001},{'work_mem_mb':257},{'work_mem_mb':True},
+                       *({'wal_compression':value} for value in (0,1,None,'on'))):
             with mock.patch.object(store,'transaction') as transaction,self.assertRaises(ValueError):
                 store.bootstrap_step(conn,**kwargs)
             transaction.assert_not_called()
 
+    def test_wal_compression_is_opt_in_and_permission_errors_stop_before_seed_work(self):
+        conn=mock.MagicMock();cur=mock.MagicMock()
+        seed={'seed_mode':'canonical','status':'seeding','anchor_height':5,'anchor_hash':'a'}
+        with mock.patch.object(store,'transaction') as transaction, \
+             mock.patch.object(store,'_projection',return_value=seed), \
+             mock.patch.object(store,'_certify') as certify, \
+             mock.patch.object(store,'_canonical_seed_step',return_value=True) as step:
+            transaction.return_value.__enter__.return_value=cur
+            def check_local(*args,**kwargs):
+                certify.assert_called_once_with(cur,5,'a')
+                self.assertEqual(cur.execute.call_args_list,[mock.call('SET LOCAL work_mem=%s',('128MB',)),
+                                                            mock.call('SET LOCAL wal_compression=%s',('on',))])
+                return True
+            step.side_effect=check_local
+            self.assertTrue(store.bootstrap_step(conn,work_mem_mb=128,wal_compression=True))
+            step.reset_mock();step.side_effect=None;cur.execute.reset_mock()
+            self.assertTrue(store.bootstrap_step(conn,wal_compression=False))
+            cur.execute.assert_not_called()
+            step.reset_mock()
+            denied=psycopg2.errors.InsufficientPrivilege('fixture permission denied')
+            cur.execute.side_effect=denied
+            with self.assertRaises(psycopg2.errors.InsufficientPrivilege) as caught:
+                store.bootstrap_step(conn,wal_compression=True)
+            self.assertIs(caught.exception,denied)
+            step.assert_not_called()
+
     def test_tuning_is_scoped_to_canonical_bootstrap_and_monitor_precedes_temp_use(self):
         config={'state_dir':'/private/tmp','work_seconds':45,'bootstrap_work_seconds':180,
                 'bootstrap_temp_buffers_mb':512,'bootstrap_work_mem_mb':128,
+                'bootstrap_wal_compression':True,
                 'bootstrap_memory_limit_bytes':8*1024**3,'batch_pause_seconds':0,
                 'bootstrap_rows_by_source':{'canonical_blocks':1000000}}
         for administrative,seed_mode,admin_deadline in ((True,'canonical',None),(True,'canonical',1115),
@@ -143,6 +172,7 @@ class ExportGuardTests(unittest.TestCase):
                 self.assertEqual(monitor.call_args.kwargs['limit_bytes'],(8 if tuned else 4)*1024**3)
                 self.assertEqual(stepped.call_args.kwargs['limit'],1000000 if tuned else 100000 if seed_mode=='canonical' else 10000)
                 self.assertEqual(stepped.call_args.kwargs.get('work_mem_mb'),128 if tuned else None)
+                self.assertEqual(stepped.call_args.kwargs.get('wal_compression'),True if tuned else None)
                 if tuned:
                     buffers.assert_called_once_with(conn,512)
                     self.assertLess(events.index('buffers'),events.index('recovery'))
@@ -252,25 +282,57 @@ class WorkerFixture(unittest.TestCase):
     def test_real_canonical_bootstrap_tuning_precedes_temp_use_and_work_mem_is_local(self):
         self.config.update(bootstrap_work_seconds=180,bootstrap_temp_buffers_mb=128,
                            bootstrap_work_mem_mb=64,bootstrap_memory_limit_bytes=8*1024**3,
+                           bootstrap_wal_compression=True,
                            bootstrap_rows_by_source={'canonical_blocks':500000})
         with self.conn,self.conn.cursor() as cur:
             cur.execute("SET work_mem='32MB'")
+            cur.execute("SET wal_compression='off'")
         load=store._load_canonical_seed_page;observed=[]
         def checked_load(cur,key,anchor,limit):
-            cur.execute("SELECT current_setting('temp_buffers') AS buffers,current_setting('work_mem') AS work,current_setting('max_parallel_workers_per_gather') AS parallel")
+            cur.execute("SELECT current_setting('temp_buffers') AS buffers,current_setting('work_mem') AS work,current_setting('max_parallel_workers_per_gather') AS parallel,current_setting('wal_compression') AS compression")
             observed.append(dict(cur.fetchone()))
             self.assertEqual(limit,500000)
             return load(cur,key,anchor,limit)
         with mock.patch.object(store,'_load_canonical_seed_page',side_effect=checked_load), \
              mock.patch.object(worker,'ResourceMonitor',side_effect=FixtureMonitor) as monitor:
             self.assertEqual(worker.run_once(self.conn,self.config,bootstrap_only=True),0)
-        self.assertEqual(observed,[{'buffers':'128MB','work':'64MB','parallel':'0'}])
+        self.assertEqual(observed,[{'buffers':'128MB','work':'64MB','parallel':'0','compression':'on'}])
         self.assertEqual(monitor.call_args.kwargs['limit_bytes'],8*1024**3)
         self.assertEqual(self.query('SHOW work_mem'),[('32MB',)])
+        self.assertEqual(self.query('SHOW wal_compression'),[('off',)])
         self.assertEqual(self.query('SELECT balance_sats,utxo_count FROM quantum_v2.group_state'),[(200000000,1)])
         metrics=self.query('SELECT metrics FROM quantum_v2.run')[0][0]
         self.assertEqual(metrics['bootstrap_settings']['work_mem_mb'],64)
+        self.assertIs(metrics['bootstrap_settings']['wal_compression'],True)
         self.assertEqual(metrics['bootstrap_settings']['rows_by_source']['canonical_blocks'],500000)
+
+    def test_real_wal_compression_rolls_back_with_page_and_false_preserves_session_default(self):
+        with self.conn,self.conn.cursor() as cur:
+            cur.execute("SET wal_compression='off'")
+        original=store._canonical_seed_step
+        def failed(cur,*args,**kwargs):
+            cur.execute("SHOW wal_compression")
+            self.assertEqual(cur.fetchone()['wal_compression'],'on')
+            original(cur,*args,**kwargs)
+            raise RuntimeError('fixture failure after compressed seed page')
+        with mock.patch.object(store,'_canonical_seed_step',side_effect=failed), \
+             self.assertRaisesRegex(RuntimeError,'fixture failure'):
+            store.bootstrap_step(self.conn,wal_compression=True)
+        self.assertEqual(self.query('SHOW wal_compression'),[('off',)])
+        self.assertEqual(self.query('SELECT count(*) FROM quantum_v2.group_state'),[(0,)])
+        self.assertEqual(self.query('SELECT count(*) FROM quantum_v2.disclosure'),[(0,)])
+        self.assertEqual(self.query('SELECT rows_processed,complete FROM quantum_v2.bootstrap_cursor'),[(0,False)])
+        self.assertEqual(self.query('SELECT status FROM quantum_v2.projection'),[('seeding',)])
+        with self.conn,self.conn.cursor() as cur:
+            cur.execute("SET wal_compression='on'")
+        def inherited(cur,*args,**kwargs):
+            cur.execute("SHOW wal_compression")
+            self.assertEqual(cur.fetchone()['wal_compression'],'on')
+            return original(cur,*args,**kwargs)
+        with mock.patch.object(store,'_canonical_seed_step',side_effect=inherited):
+            self.assertTrue(store.bootstrap_step(self.conn,wal_compression=False))
+        self.assertEqual(self.query('SHOW wal_compression'),[('on',)])
+        self.assertEqual(self.query('SELECT balance_sats,utxo_count FROM quantum_v2.group_state'),[(200000000,1)])
 
     def test_pause_file_alone_blocks_automatic_tick(self):
         pause=Path(self.config['state_dir'])/'PAUSED'
@@ -778,7 +840,8 @@ class WorkerFixture(unittest.TestCase):
         other=psycopg2.connect(DSN)
         self.addCleanup(other.close)
         calls=[]
-        def commit_page(conn,*,limit,work_mem_mb=None):
+        def commit_page(conn,*,limit,work_mem_mb=None,wal_compression=False):
+            self.assertIs(wal_compression,False)
             with other,other.cursor() as cur:
                 cur.execute('SELECT pg_try_advisory_lock(811947,2)')
                 self.assertFalse(cur.fetchone()[0],'Source choice must remain protected by the worker lock')

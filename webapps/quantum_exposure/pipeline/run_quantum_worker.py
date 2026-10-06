@@ -659,6 +659,7 @@ def run_once(conn,config,*,bootstrap_only=False,validation_only=False,recompare=
             if canonical_bootstrap:
                 _configure_bootstrap_buffers(conn,bootstrap_limits['temp_buffers_mb'])
                 seed_options['work_mem_mb']=bootstrap_limits['work_mem_mb']
+                seed_options['wal_compression']=bootstrap_limits['wal_compression']
                 provenance['bootstrap_settings']=dict(bootstrap_limits,rows=bootstrap_rows,rows_by_source=bootstrap_by_source)
             # A manually supervised initialization pins its original anchor.
             # Source drift stops that session; normal worker recovery is unchanged.

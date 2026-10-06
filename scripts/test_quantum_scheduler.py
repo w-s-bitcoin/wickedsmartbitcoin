@@ -123,6 +123,7 @@ class SchedulerTests(unittest.TestCase):
         (self.state/'config.json').write_text(json.dumps({'work_seconds':12,'label_version':'reviewed-fixture',
                                                         'bootstrap_work_seconds':180,'bootstrap_temp_buffers_mb':512,
                                                         'bootstrap_work_mem_mb':128,'bootstrap_memory_limit_bytes':8*1024**3,
+                                                        'bootstrap_wal_compression':True,
                                                         'bootstrap_rows_by_source':source_rows,
                                                         'validation_rows':500,'validation_blocks':20,'reset_rows':400,
                                                         'undo_blocks':10000}))
@@ -134,7 +135,7 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(config['label_version'],'reviewed-fixture')
         self.assertEqual(config['bootstrap_rows_by_source'],source_rows)
         self.assertEqual(bootstrap_resource_limits(config),{'work_seconds':180,'temp_buffers_mb':512,
-                         'work_mem_mb':128,'memory_limit_bytes':8*1024**3})
+                         'work_mem_mb':128,'memory_limit_bytes':8*1024**3,'wal_compression':True})
         self.assertEqual(config['undo_blocks'],10000)
         self.assertEqual((config['validation_rows'],config['validation_blocks'],config['reset_rows']),(500,20,400))
         self.assertEqual(config['env_file'],str(self.env))
@@ -167,6 +168,7 @@ class SchedulerTests(unittest.TestCase):
                           ('bootstrap_work_seconds',True),('bootstrap_work_seconds',4),('bootstrap_work_seconds',301),
                           ('bootstrap_temp_buffers_mb',1025),('bootstrap_work_mem_mb',257),
                           ('bootstrap_memory_limit_bytes',16*1024**3+1),
+                          ('bootstrap_wal_compression',1),('bootstrap_wal_compression','on'),
                           ('undo_blocks',True),('undo_blocks',999),('undo_blocks',10001),('undo_blocks',2016.0),
                           ('max_batch_rows',-1),('batch_pause_seconds',float('nan'))):
             with self.subTest(key=key):
@@ -262,7 +264,8 @@ class SchedulerTests(unittest.TestCase):
 
 class BootstrapConfigurationTests(unittest.TestCase):
     def test_resource_defaults_and_short_inherited_budgets(self):
-        defaults={'work_seconds':45,'temp_buffers_mb':8,'work_mem_mb':32,'memory_limit_bytes':4*1024**3}
+        defaults={'work_seconds':45,'temp_buffers_mb':8,'work_mem_mb':32,'memory_limit_bytes':4*1024**3,
+                  'wal_compression':False}
         self.assertEqual(bootstrap_resource_limits({}),defaults)
         for seconds in (0,0.2,0.5,3,45,3600,3600.5):
             self.assertEqual(bootstrap_resource_limits({'work_seconds':seconds})['work_seconds'],seconds)
@@ -278,6 +281,13 @@ class BootstrapConfigurationTests(unittest.TestCase):
             for value in (False,True,None,str(low),float(low),low-1,high+1,float('nan'),float('inf')):
                 with self.subTest(key=key,value=value),self.assertRaisesRegex(ValueError,key):
                     bootstrap_resource_limits({key:value})
+
+    def test_wal_compression_requires_an_explicit_boolean(self):
+        for value in (False,True):
+            self.assertIs(bootstrap_resource_limits({'bootstrap_wal_compression':value})['wal_compression'],value)
+        for value in (0,1,None,'on','off','true',1.0):
+            with self.subTest(value=value),self.assertRaisesRegex(ValueError,'bootstrap_wal_compression'):
+                bootstrap_resource_limits({'bootstrap_wal_compression':value})
 
     def test_only_canonical_administration_accepts_larger_pages(self):
         config={'bootstrap_rows':50000,'bootstrap_rows_by_source':{'canonical_blocks':1000000,'active_key_outputs':100000}}
@@ -297,6 +307,7 @@ class BootstrapConfigurationTests(unittest.TestCase):
         defaults=effective_config({})
         for key,value in (('bootstrap_work_seconds',180),('bootstrap_temp_buffers_mb',512),
                           ('bootstrap_work_mem_mb',128),('bootstrap_memory_limit_bytes',8*1024**3),
+                          ('bootstrap_wal_compression',True),
                           ('bootstrap_rows_by_source',{'canonical_blocks':500000})):
             config={key:value}
             self.assertNotEqual(baseline,scheduler.config_fingerprint(config))
