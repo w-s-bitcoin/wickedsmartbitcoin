@@ -401,6 +401,29 @@ anchor. Completion of this command alone does not satisfy rollout acceptance.
 The normal control row must remain paused throughout. An explicit new session
 can work past that initial scheduling pause, without deleting the `PAUSED` file.
 
+Three consecutive successful or verified controlled-deadline slices that start
+and end with a certified ready source but make no durable cursor progress stop
+the supervisor with status `no_progress`, an explicit `stop_reason`, and a nonzero
+exit. Advancing the occurrence key, processed-row count, or completion flag is
+progress; an empty creation window that advances height therefore counts.
+Observed source-unready waits/yields preserve the count without increasing it and
+are recorded separately, including a yield whose endpoints are ready by the time
+they are checked. Only durable cursor progress resets the count, so ingestion
+cannot continually renew the allowance for a page that never commits.
+Committed progress before a failure or pause also resets the count, while the
+original failure/pause status remains unchanged. The private journal's
+`progress_guard` retains the streak and latest observation across resumes;
+resuming a journal already at three does not launch another child unless a fresh
+verified snapshot demonstrates durable progress since its saved checkpoint.
+That reconciliation records the advance without inferring success for an
+interrupted attempt or removing its charged time. Old journals
+without these observations receive an explicit `legacy_journal` baseline of zero,
+without inferring prior progress. Existing source/driver identity checks still apply.
+A newly and explicitly budgeted session records a `new_session` baseline of zero
+and preserves previous journals. Review and resolve a prior `no_progress` stop
+(for example, an oversized page repeatedly rolled back at its deadline) before
+starting another window; the supervisor does not change page sizes automatically.
+
 If its hard slice deadline interrupts the worker, the failed run and all measured
 costs remain recorded. The supervisor may continue only after verifying its own
 nonce-bound deadline signal, the exact finished failed run, complete resource
