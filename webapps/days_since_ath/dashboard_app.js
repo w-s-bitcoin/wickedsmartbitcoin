@@ -1849,7 +1849,7 @@
       ctx,
       "https://wickedsmartbitcoin.com/days_since_ath",
       { width, height, footerHeight },
-      { ...outputSettings, theme: settings.theme, pixelScale, referenceQuality: 1440 },
+      { ...settings, referenceQuality: 1440 },
     );
     ctx.restore();
   }
