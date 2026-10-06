@@ -146,7 +146,7 @@
         </table>
       </div>
       <p>The proposed unattended targets—30 minutes of active processing per boundary and 4 GiB of private memory—were <strong>not established</strong>. Faster seeding did not demonstrate that a complete interval, export, validation, and publication would meet those targets.</p>
-      <p>Selected real-source replay fixtures covered 6,232 output lifetimes from three windows, with 42 sampled-state comparisons and six endpoint artifacts. They were bounded samples, not complete historical intervals, and contained no multifamily groups. They do not establish full high-churn, disclosure-fanout, or archive-rollover coverage.</p>
+      <p>Selected real-source replay fixtures covered 6,232 output lifetimes from three windows, with 42 sampled-state comparisons and six endpoint artifacts per window. They were bounded samples, not complete historical intervals, and contained no multifamily groups. They do not establish full high-churn, disclosure-fanout, or archive-rollover coverage.</p>
       <p>A final synthetic multi-snapshot test was unfinished: its independent oracle passed, but its first real-PostgreSQL snapshot assertion failed because the request remained <code>analyzed</code> rather than <code>complete</code>. It did not prove three-generation replay. The source is retained and clearly labeled unfinished.</p>
     </section>
 
