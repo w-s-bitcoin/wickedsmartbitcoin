@@ -63,33 +63,16 @@
   let dataRefresher = null;
   let liveMarketFeed = null;
 
-  function updateLiveStatus() {
-    const dot = document.getElementById('marketLiveDot');
-    if (!dot) return;
-    const current = liveMarketFeed?.current();
-    const isLive = liveMarketFeed?.isLive() || false;
-    dot.classList.toggle('is-live', isLive);
-    const status = isLive
-      ? 'Live CoinGecko market caps, refreshed about every 60 seconds'
-      : current
-        ? 'Live connection delayed; showing the last complete market snapshot'
-        : 'Showing the published market snapshot';
-    dot.title = status;
-    dot.setAttribute('aria-label', status);
-  }
-
   function startLiveMarketFeed() {
     if (liveMarketFeed || !window.WSBDominanceLiveMarket) return;
     liveMarketFeed = window.WSBDominanceLiveMarket.createFeed({
       getPublished: () => ({ incl: state.rows, excl: state.excludedRows }),
       getPublishedAt: () => state.marker?.published_at_utc,
       onChange: (statusOnly) => {
-        updateLiveStatus();
         if (!statusOnly) dataRefresher?.requestPresent('live-market');
       },
     });
     liveMarketFeed.start();
-    updateLiveStatus();
   }
 
   function iconPathForRow(row) {
