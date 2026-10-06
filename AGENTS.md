@@ -64,9 +64,10 @@ defaults; do not ask again for work the user has already authorized.
 - Use isolated fixtures or the existing browser fetch shims for race/failure
   tests. Do not rewrite live datasets under a running server to simulate an
   update.
-- Preserve finalized BIP-110 data and Quantum snapshot/archive publication
-  contracts. GitHub Pages omits some raw/archive data by design; do not restore
-  those files merely because a source checkout contains them.
+- Preserve finalized BIP-110 data and the frozen Quantum archive URL and
+  snapshot. Quantum analysis and per-block hooks are deprecated; do not restart
+  them as part of routine work. GitHub Pages omits some raw/archive data by
+  design; do not restore those files merely because a source checkout contains them.
 - Keep personal Net Worth exports, credentials, `.env` files, logs, cache
   folders, and generated notebook outputs out of commits. Do not print secret
   configuration values while debugging.

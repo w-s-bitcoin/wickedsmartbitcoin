@@ -11,14 +11,15 @@ For AI-assisted contributions, start with [AGENTS.md](AGENTS.md).
 The detailed frontend guides are [js/js_README.md](js/js_README.md) and
 [webapps/README.md](webapps/README.md).
 
-**Quantum Exposure archival status — 2026-10-05:** Work is paused at the owner's
-request; the Quantum scheduler is not installed. The dashboard retains the frozen
-legacy snapshot at block **961000**. The incomplete v2 projection is still seeding
-its **962000** anchor, with **262,192,306** occurrences processed and creation
-cursor height **378478**. No v2 production snapshot has been published, and
-unattended acceptance and end-to-end rollout have not been demonstrated. See the
-[archived findings](quantum_exposure_findings.html). The implementation and
-runbook are retained for reference; do not resume work without a renewed request.
+**Quantum Exposure is deprecated and archived — 2026-10-06.** The dashboard
+remains in the homepage grid with an Archived badge and at its direct URL,
+with the frozen legacy snapshot at block **961000** and the
+[archived findings](quantum_exposure_findings.html). It is no longer updated by
+block ingestion. The Quantum scheduler is not installed. The incomplete v2
+projection stopped at anchor **962000** with
+**262,192,306** processed occurrences and creation cursor height **378478**; no
+validated v2 snapshot was published. Its implementation, tests, and runbook are
+retained for historical reference only.
 
 ## Run locally
 
@@ -152,7 +153,7 @@ contracts preserve chart state and avoid reloads or flashing during updates.
 | `/uoa` | Historical currency-pair comparisons in both directions |
 | `/bip110_signaling` | BIP-110 and historical SegWit signaling |
 | `/patoshi_pattern` | Early-block ExtraNonce patterns and Patoshi classifications |
-| `/quantum_exposure` | Public-key exposure, supply breakdowns, and historical snapshots |
+| `/quantum_exposure` | Archived Quantum research dashboard, frozen at block 961000 |
 | `/casascius_explorer` | Physical coins/bars, mintage, redemption, and spend activity |
 | `/bitcoin_net_worth` | Personal asset/liability tracking with local persistence and optional encryption |
 
@@ -183,10 +184,10 @@ not required to serve or test the frontend.
 - The onchain runner is called after block ingestion by the external
   `CoreToPSQL` pipeline. It handles signaling/top-KPI publication when
   applicable and issuance data. It takes priority over hourly deployment.
-- Quantum has its own producer pipeline in this repository and is not part of
-  the hourly runner. Its [v2 worker and operating guide](webapps/quantum_exposure/pipeline/OPERATIONS_V2.md)
-  cover confirmed 1,000-block requests, bounded PostgreSQL work, independent
-  delivery retries, and the acceptance gates for a separate scheduler.
+- The retired Quantum producer and its
+  [operating guide](webapps/quantum_exposure/pipeline/OPERATIONS_V2.md) remain
+  in the repository for historical reference. They are not part of the hourly
+  runner or block ingestion.
 - Historical animation cleanup and its disabled daily job remain external.
 
 The production checkout normally uses `main`; the separate development
@@ -242,8 +243,6 @@ CHROME_BIN=/path/to/chromium python3 scripts/test_networth_live_quote_browser.py
 node scripts/test_uoa_live_quotes.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_uoa_live_quotes_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_homepage_preview_refresh.py
-CHROME_BIN=/path/to/chromium python3 scripts/test_quantum_v2_browser.py
-CHROME_BIN=/path/to/chromium python3 scripts/test_quantum_v2_preview_browser.py
 node scripts/test_dashboard_share.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_dashboard_share_routes.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_time_series_share_browser.py
@@ -253,6 +252,7 @@ CHROME_BIN=/path/to/chromium python3 scripts/test_specialized_share_browser.py
 
 Read each script's docstring for targets and optional arguments. Run the suites
 relevant to the change; a documentation edit does not need every browser test.
+The archived Quantum browser tests remain available for explicit historical checks.
 UoA producer-window tests additionally need pandas:
 `python3 -m unittest scripts.test_uoa_refresh_windows` (skipped if pandas is unavailable).
 

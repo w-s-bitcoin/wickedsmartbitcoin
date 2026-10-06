@@ -17,7 +17,7 @@ Current dashboards:
 - `casascius_explorer/`: physical Bitcoin collectibles, balances, and redemption activity
 - `bitcoin_net_worth/`: interactive net worth tracker with demo/live modes, snapshot history, and optional encryption
 - `uoa/`: unit-of-account dashboard showing Bitcoin and fiat currency conversions
-- `quantum_exposure/`: quantum exposure research dashboard with its own app entrypoint and standalone bootstrap
+- `quantum_exposure/`: archived research dashboard retained at its direct URL and in the homepage grid; analysis and publication are retired
 
 Each dashboard folder may contain both:
 

@@ -1,8 +1,9 @@
 # Quantum v2 operations
 
-**Archived runbook — 2026-10-05.** Work is paused at the owner's request; the
-Quantum scheduler is not installed. The dashboard retains the frozen legacy
-**961000** snapshot. The canonical v2 projection is still seeding anchor
+**Deprecated archive — 2026-10-06.** Quantum analysis and publication are
+retired. The ingestion hook has been removed, and the scheduler is not installed.
+The dashboard retains the frozen legacy **961000** snapshot. The canonical v2
+projection stopped while seeding anchor
 **962000**, with **262,192,306** occurrences processed and creation cursor height
 **378478**; this is a partial cursor, not a verified completed snapshot. No v2
 production snapshot has been published, and unattended acceptance and end-to-end

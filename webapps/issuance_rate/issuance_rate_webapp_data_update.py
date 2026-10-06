@@ -8,8 +8,9 @@ import tempfile
 from bisect import bisect_right
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
+import numpy as np
+import pandas as pd
 import psycopg2
 from dotenv import load_dotenv
 
@@ -98,24 +99,41 @@ def build_time_zone_daily_rows(heights: list[int], timestamps: list[int], end_da
     start_day = GENESIS_DATE.date()
     end_day = end_date.date()
     result: dict[str, dict[str, list[float]]] = {}
+    # Converting each timestamp in Python for every zone costs roughly 27 million
+    # datetime objects at the current chain height. Pandas converts the whole
+    # column using its timezone tables, while NumPy keeps the per-day counts and
+    # final block index in the original height order.
+    row_count = min(len(heights), len(timestamps))
+    utc_blocks = pd.to_datetime(np.asarray(timestamps[:row_count], dtype=np.int64), unit="s", utc=True)
+    start_day_number = int(np.datetime64(start_day, "D").astype(np.int64))
 
     for zone_name in TIME_ZONE_OPTIONS:
-        zone = ZoneInfo(zone_name)
-        block_counts: dict[str, int] = {}
-        end_heights: dict[str, int] = {}
-
-        for height, timestamp in zip(heights, timestamps):
-            local_day = datetime.fromtimestamp(timestamp, tz=timezone.utc).astimezone(zone).date()
-            key = local_day.isoformat()
-            block_counts[key] = block_counts.get(key, 0) + 1
-            end_heights[key] = int(height)
+        if row_count:
+            local_days = utc_blocks.tz_convert(zone_name).tz_localize(None).to_numpy(dtype="datetime64[D]").astype(np.int64)
+            first_day_number = int(local_days.min())
+            day_offsets = (local_days - first_day_number).astype(np.intp)
+            block_counts = np.bincount(day_offsets)
+            last_indexes = np.full(len(block_counts), -1, dtype=np.int64)
+            np.maximum.at(last_indexes, day_offsets, np.arange(row_count, dtype=np.int64))
+        else:
+            first_day_number = start_day_number
+            block_counts = np.empty(0, dtype=np.int64)
+            last_indexes = np.empty(0, dtype=np.int64)
 
         zone_rows: dict[str, list[float]] = {}
         previous_height = 0
         current_day = start_day
+        day_number = start_day_number
         while current_day <= end_day:
             key = current_day.isoformat()
-            height = int(end_heights.get(key, previous_height))
+            day_offset = day_number - first_day_number
+            if 0 <= day_offset < len(block_counts):
+                block_count = int(block_counts[day_offset])
+                last_index = last_indexes[day_offset]
+                height = int(heights[last_index]) if last_index >= 0 else previous_height
+            else:
+                block_count = 0
+                height = previous_height
             supply = bitcoin_supply(height)
             daily_issuance = 0.0 if height <= previous_height else bitcoin_supply(height) - bitcoin_supply(previous_height)
             subsidy = subsidy_for_epoch(int(height // HALVING_INTERVAL) + 1)
@@ -123,7 +141,7 @@ def build_time_zone_daily_rows(heights: list[int], timestamps: list[int], end_da
             issuance_rate = 0.0 if supply <= 0 else daily_issuance * 365 / supply
             target_rate = 0.0 if supply <= 0 else target_issuance * 365 / supply
             zone_rows[key] = [
-                int(block_counts.get(key, 0)),
+                block_count,
                 round(daily_issuance, 8),
                 round(target_issuance, 8),
                 round(issuance_rate, 10),
@@ -131,6 +149,7 @@ def build_time_zone_daily_rows(heights: list[int], timestamps: list[int], end_da
             ]
             previous_height = height
             current_day += timedelta(days=1)
+            day_number += 1
 
         result[zone_name] = zone_rows
 

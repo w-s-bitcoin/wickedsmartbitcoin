@@ -510,9 +510,8 @@ def main() -> int:
             trigger_git_deploy_if_safe(allow_active_onchain_lock=True)
 
         staged_issuance_rate_data_dir = run_dir / "tmp_issuance_rate_webapp_data"
-        if ISSUANCE_RATE_WEBAPP_DATA_DIR.exists():
-            shutil.copytree(ISSUANCE_RATE_WEBAPP_DATA_DIR, staged_issuance_rate_data_dir, dirs_exist_ok=True)
-            print(f"[Onchain] Seeded issuance rate staged data from existing cache: {ISSUANCE_RATE_WEBAPP_DATA_DIR}")
+        # The producer writes all three issuance artifacts from the database.
+        # Copying the previous 11 MB payload here only adds disk work per block.
         issuance_env = os.environ.copy()
         issuance_env["ISSUANCE_RATE_WEBAPP_DATA_DIR"] = str(staged_issuance_rate_data_dir)
         issuance_ran = run_script(ISSUANCE_RATE_SCRIPT, env=issuance_env)
