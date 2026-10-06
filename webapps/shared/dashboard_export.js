@@ -399,9 +399,9 @@
     const referenceDimensions = getDimensions({ ...settings, quality: referenceQuality });
     const referenceFooterHeight = Math.max(34, Math.round(Math.min(referenceDimensions.width, referenceDimensions.height) * 0.052));
     const referenceFontSize = Math.max(30, Math.round(referenceFooterHeight * 0.6));
+    // Metrics use the drawing coordinates; any final frame scaling applies to this text too.
     const outputScale = height / Math.max(1, referenceDimensions.height);
-    const pixelScale = Math.max(1, Number(settings.pixelScale) || 1);
-    const footerFontSize = Math.max(12, referenceFontSize * outputScale / pixelScale);
+    const footerFontSize = Math.max(12, referenceFontSize * outputScale);
     ctx.font = `500 ${footerFontSize}px IBM Plex Mono, monospace`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
