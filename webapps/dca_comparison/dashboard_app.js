@@ -1188,7 +1188,7 @@
     const { width, height } = getExportBaseDimensions(settings);
     const outputWidth = Math.round(outputDimensions.width || width);
     const outputHeight = Math.round(outputDimensions.height || height);
-    const dpr = Math.max(1, outputWidth / width, outputHeight / height);
+    const dpr = Math.max(outputWidth / width, outputHeight / height);
     if (canvas.width !== outputWidth) canvas.width = outputWidth;
     if (canvas.height !== outputHeight) canvas.height = outputHeight;
     const theme = settings.theme || getTheme();

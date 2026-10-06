@@ -1727,7 +1727,6 @@
     const outputWidth = Math.round(dimensions.width || baseDimensions.width);
     const outputHeight = Math.round(dimensions.height || baseDimensions.height);
     const dpr = Math.max(
-      1,
       outputWidth / Math.max(1, baseDimensions.width),
       outputHeight / Math.max(1, baseDimensions.height),
     );
