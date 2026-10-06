@@ -605,8 +605,24 @@ def _reduce_canonical_seed_page(cur,anchor):
         LEFT JOIN LATERAL (SELECT blockhash FROM public.blockheader WHERE blockheight=d.exposed_height LIMIT 1) b ON true''')
     cur.execute('SELECT 1 FROM pg_temp.quantum_canonical_disclosures WHERE exposed_hash IS NULL LIMIT 1')
     if cur.fetchone(): raise SourceNotReady('Missing disclosure block provenance')
+    # Read registry evidence once per page group, including groups with no new
+    # disclosure. The writer lock and page transaction keep this effective view
+    # valid through both family writes. Equal-height evidence retains its saved
+    # hash; every incoming candidate still passed the provenance check above.
+    cur.execute('''CREATE TEMP TABLE quantum_canonical_effective_disclosures ON COMMIT DROP AS
+        SELECT g.group_id,LEAST(d.exposed_height,old.exposed_height) AS exposed_height,
+            CASE WHEN d.exposed_height IS NOT NULL AND
+                      (old.exposed_height IS NULL OR d.exposed_height<old.exposed_height)
+                 THEN d.exposed_hash ELSE old.exposed_hash END AS exposed_hash,
+            d.exposed_height IS NOT NULL AND
+                (old.exposed_height IS NULL OR d.exposed_height<old.exposed_height) AS changed
+        FROM (SELECT DISTINCT group_id FROM pg_temp.quantum_canonical_groups) g
+        LEFT JOIN pg_temp.quantum_canonical_disclosures d USING(group_id)
+        LEFT JOIN LATERAL (SELECT exposed_height,exposed_hash FROM quantum_v2.disclosure
+                          WHERE group_id=g.group_id LIMIT 1) old ON true''')
     cur.execute('''INSERT INTO quantum_v2.disclosure(group_id,exposed_height,exposed_hash)
-        SELECT group_id,exposed_height,exposed_hash FROM pg_temp.quantum_canonical_disclosures
+        SELECT group_id,exposed_height,exposed_hash FROM pg_temp.quantum_canonical_effective_disclosures
+        WHERE changed
         ORDER BY group_id
         ON CONFLICT(group_id) DO UPDATE SET
             exposed_height=LEAST(quantum_v2.disclosure.exposed_height,EXCLUDED.exposed_height),
@@ -623,8 +639,7 @@ def _reduce_canonical_seed_page(cur,anchor):
         SELECT g.group_id,g.script_type,g.balance_sats,g.utxo_count,g.eligible_sats,g.eligible_utxos,
                g.first_received_height,d.exposed_height,d.exposed_hash,g.last_spend_height,g.display_group_id
         FROM pg_temp.quantum_canonical_groups g
-        LEFT JOIN LATERAL (SELECT exposed_height,exposed_hash FROM quantum_v2.disclosure
-                          WHERE group_id=g.group_id LIMIT 1) d ON true
+        JOIN pg_temp.quantum_canonical_effective_disclosures d USING(group_id)
         ORDER BY g.group_id,g.script_type
         ON CONFLICT(group_id,script_type) DO UPDATE SET
             balance_sats=quantum_v2.group_state.balance_sats+EXCLUDED.balance_sats,
@@ -658,8 +673,10 @@ def _reduce_canonical_seed_page(cur,anchor):
                quantum_v2.group_state.first_disclosure_hash,quantum_v2.group_state.last_spend_height,
                quantum_v2.group_state.display_group_id)''')
     # A later page may discover an earlier spend for a previously saved family.
-    # Bound the lookup to page groups and their seven possible family PKs; never
-    # hash/scan the full growing projection to propagate one page's evidence.
+    # Only changed evidence needs propagation: prior pages already synchronized
+    # their families, and new families received the effective evidence above.
+    # Bound the lookup to changed groups and their seven possible family PKs;
+    # never hash/scan the full growing projection to propagate one page's evidence.
     cur.execute('''INSERT INTO quantum_v2.group_state
         (group_id,script_type,balance_sats,utxo_count,eligible_sats,eligible_utxos,
          first_received_height,first_disclosure_height,first_disclosure_hash,last_spend_height,
@@ -667,11 +684,9 @@ def _reduce_canonical_seed_page(cur,anchor):
         SELECT s.group_id,s.script_type,s.balance_sats,s.utxo_count,s.eligible_sats,s.eligible_utxos,
                s.first_received_height,d.exposed_height,d.exposed_hash,s.last_spend_height,
                s.display_group_id,s.details,s.identity
-        FROM pg_temp.quantum_canonical_disclosures p
-        CROSS JOIN LATERAL (SELECT exposed_height,exposed_hash FROM quantum_v2.disclosure
-                            WHERE group_id=p.group_id LIMIT 1) d
-        CROSS JOIN LATERAL (SELECT * FROM quantum_v2.group_state WHERE group_id=p.group_id LIMIT 7) s
-        WHERE s.first_disclosure_height IS NULL OR d.exposed_height<s.first_disclosure_height
+        FROM pg_temp.quantum_canonical_effective_disclosures d
+        CROSS JOIN LATERAL (SELECT * FROM quantum_v2.group_state WHERE group_id=d.group_id LIMIT 7) s
+        WHERE d.changed AND (s.first_disclosure_height IS NULL OR d.exposed_height<s.first_disclosure_height)
         ORDER BY s.group_id,s.script_type
         ON CONFLICT(group_id,script_type) DO UPDATE SET
             first_disclosure_height=EXCLUDED.first_disclosure_height,
