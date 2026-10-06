@@ -173,8 +173,8 @@ def main():
             """), timeout=10, description="dominance tooltip repaint while hovered")
             cdp.command("Page.navigate", {"url": f"http://127.0.0.1:{port}/webapps/bitcoin_dominance/preview.html"})
             wait_for(lambda: cdp.evaluate("""
-              document.querySelector('#marketLiveDot')?.classList.contains('is-live')
-              && document.querySelector('#previewChart')?.dataset.previewState === 'ready'
+              document.querySelector('#previewChart')?.dataset.previewState === 'ready'
+              && !document.querySelector('#marketLiveDot')
             """), timeout=20, description="live Bitcoin Dominance home card")
             assert cdp.evaluate("window.__marketCalls >= 1")
             print("Bitcoin Dominance dashboard and home card live market checks passed")
