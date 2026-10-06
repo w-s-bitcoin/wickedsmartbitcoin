@@ -16,14 +16,6 @@
     "latest_youtube": "https://youtu.be/_7E72agk2zQ"
   },
   {
-    "filename": "quantum_exposure.png",
-    "title": "Bitcoin Quantum Exposure",
-    "archived": true,
-    "description": "Archived research dashboard through block 961,000. Explore legacy quantum-exposure snapshots and audit findings on accounting and methodology limitations; the replacement rebuild was stopped before validation and publication.",
-    "latest_x": "https://x.com/w_s_bitcoin/status/2041958658112622600",
-    "latest_youtube": "https://youtu.be/_Qxm70pFM4E"
-  },
-  {
     "filename": "patoshi_pattern.png",
     "title": "Patoshi Pattern",
     "description": "Explore early Bitcoin ExtraNonce patterns, Patoshi-classified blocks, spent block rewards, and difficulty markers across custom block-time ranges",
@@ -90,5 +82,13 @@
     "description": "This dashboard focuses on miner signaling across each 2,016-block period for BIP-110, with SegWit signaling periods included for historical comparison",
     "latest_x": "https://x.com/w_s_bitcoin/status/2033595927416406407",
     "latest_youtube": "https://youtu.be/dy3vzz9pa3g"
+  },
+  {
+    "filename": "quantum_exposure.png",
+    "title": "Bitcoin Quantum Exposure",
+    "archived": true,
+    "description": "Archived research dashboard through block 961,000. Explore legacy quantum-exposure snapshots and audit findings on accounting and methodology limitations; the replacement rebuild was stopped before validation and publication.",
+    "latest_x": "https://x.com/w_s_bitcoin/status/2041958658112622600",
+    "latest_youtube": "https://youtu.be/_Qxm70pFM4E"
   }
 ]
