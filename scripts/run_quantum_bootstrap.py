@@ -29,6 +29,7 @@ MAX_ELAPSED_SECONDS=48*60*60
 CLEANUP_RESERVE_SECONDS=5
 CHILD_CLEANUP_SECONDS=2
 MIN_USABLE_SLICE_SECONDS=5
+NO_PROGRESS_SLICE_LIMIT=3
 VERSION='quantum-bootstrap-session-v1'
 
 
@@ -163,6 +164,68 @@ def next_slice_seconds(work_seconds,available_seconds):
     return seconds if seconds>=min(configured,MIN_USABLE_SLICE_SECONDS) else None
 
 
+def progress_accounting(session,baseline='legacy_journal'):
+    """Old journals have no observations to infer; recorded counters survive resume."""
+    if 'progress_guard' not in session:
+        session['progress_guard']={'baseline':baseline,'threshold':NO_PROGRESS_SLICE_LIMIT,
+                                  'consecutive_no_progress':0,'last_observation':None}
+    guard=session['progress_guard']
+    if (not isinstance(guard,dict) or guard.get('threshold')!=NO_PROGRESS_SLICE_LIMIT
+            or type(guard.get('consecutive_no_progress')) is not int
+            or not 0<=guard['consecutive_no_progress']<=NO_PROGRESS_SLICE_LIMIT
+            or guard.get('baseline') not in ('new_session','legacy_journal')):
+        raise ValueError('Invalid bootstrap progress accounting')
+    return guard
+
+
+def observe_progress(session,before,after,result):
+    """Count only proven source-ready, accepted slices with no durable advance."""
+    controlled=result.get('continuation',{}).get('classification')=='verified_controlled_deadline'
+    successful=result.get('exit_code')==0 and result.get('event')=='run_complete'
+    yielded=result.get('exit_code')==0 and result.get('event')=='source_not_ready'
+    stopped=result.get('supervisor_stop') in ('paused','source_or_config_changed')
+    guard=progress_accounting(session)
+    previous=guard['consecutive_no_progress']
+    keys=('last_height','last_txid','last_vout','rows_processed','complete')
+    left={key:before['cursor'][key] for key in keys}
+    right={key:after['cursor'][key] for key in keys}
+    left_key=tuple(left[key] for key in keys[:3]);right_key=tuple(right[key] for key in keys[:3])
+    if (right_key<left_key or right['rows_processed']<left['rows_processed']
+            or left['complete'] and not right['complete']):
+        raise RuntimeError('Durable bootstrap cursor regressed during a supervised slice')
+    advanced=(right_key>left_key or right['rows_processed']>left['rows_processed']
+              or right['complete'] and not left['complete'])
+    if advanced:
+        classification='cursor_advanced';count=0
+    else:
+        if stopped or not (controlled or successful or yielded):return None
+        source_ready=(check_snapshot(before,session['expected_anchor'])!='source_not_ready'
+                      and check_snapshot(after,session['expected_anchor'])!='source_not_ready'
+                      and result.get('continuation',{}).get('source_status')!='source_not_ready')
+        if yielded or not source_ready:
+            classification='source_not_ready';count=previous
+        else:
+            classification='no_durable_progress';count=previous+1
+    observation={'classification':classification,'previous_no_progress':previous,
+                 'consecutive_no_progress':count,'before_cursor':left,'after_cursor':right,
+                 'run_id':result.get('run_id'),'slice':session['completed_slices']}
+    guard.update(consecutive_no_progress=count,last_observation=observation)
+    return observation
+
+
+def reconcile_progress(conn,session,path):
+    """A drained interrupted child may have committed after the saved observation."""
+    before=session.get('last_checkpoint')
+    if before is None:return  # A legacy journal without a baseline cannot prove advancement.
+    current=snapshot(conn);check_snapshot(current,session['expected_anchor'])
+    observation=observe_progress(session,before,current,{'event':'resume_checkpoint','exit_code':None})
+    if observation is not None:
+        session['last_checkpoint']=current
+        atomic_json(path,session)
+        append_event(path.parent/'events.jsonl',{'at':utc(),'event':'resume_cursor_advanced',
+                     'session_id':session['id'],'progress':observation})
+
+
 def new_session(config_path,config,worker,fingerprint,conn,active,elapsed):
     validate_budgets(active,elapsed)
     before=snapshot(conn);check_snapshot(before)
@@ -178,6 +241,7 @@ def new_session(config_path,config,worker,fingerprint,conn,active,elapsed):
         status='running',created_unix=now,last_wall_unix=now,initial_rows=before['cursor']['rows_processed'],pause_baseline=pause,
         expected_anchor=[before['database'],p['anchor_height'],p['anchor_hash'],before['database_connection_sha256']],
         last_checkpoint=before,completed_slices=0,in_flight=None,**identities(config,worker,fingerprint,config_path))
+    progress_accounting(session,'new_session')
     path=directory/'session.json';atomic_json(path,session);return path,session
 
 
@@ -190,6 +254,7 @@ def checked_session(path,config_path,config,worker,fingerprint,conn,acknowledge_
         raise ValueError('Session budget journal is inconsistent')
     if any(session.get(key)!=value for key,value in identities(config,worker,fingerprint,config_path).items()):
         raise RuntimeError('Source, driver or effective configuration changed; start a reviewed new session')
+    progress_accounting(session)
     check_snapshot(snapshot(conn),session['expected_anchor'])
     current=pause_state(conn,config)
     if pause_changed(current,session['pause_baseline']):
@@ -504,30 +569,49 @@ def main(argv=None):
                 if expected not in path.resolve().parents:raise ValueError('Resume journal must belong to this private state directory')
                 session=checked_session(path,config_path,config,worker,fingerprint,conn,args.acknowledge_pause)
                 reconcile_interrupted(session,path)
+                reconcile_progress(conn,session,path)
             else:
                 path,session=new_session(config_path,config,worker,fingerprint,conn,args.max_active_seconds,args.max_elapsed_seconds)
                 session['estimated_source_rows']=args.estimated_source_rows;atomic_json(path,session)
             if args.resume and args.estimated_source_rows is not None and args.estimated_source_rows!=session.get('estimated_source_rows'):
                 raise ValueError('Resume retains the original optional source estimate')
+            progress_accounting(session)
+            session.pop('stop_reason',None)
             session['status']='running';atomic_json(path,session)
             print(json.dumps({'event':'bootstrap_session','session':str(path),'deadline_unix':session['deadline_unix']}),flush=True)
-            while remaining(session)>CLEANUP_RESERVE_SECONDS:
+            while True:
+                if session['progress_guard']['consecutive_no_progress']>=NO_PROGRESS_SLICE_LIMIT:
+                    session['status']='no_progress'
+                    session['stop_reason']='three_source_ready_slices_without_durable_cursor_progress'
+                    break
+                if remaining(session)<=CLEANUP_RESERVE_SECONDS:
+                    session['status']='budget_exhausted';break
                 if pause_changed(pause_state(conn,config),session['pause_baseline']):session['status']='paused';break
                 if any(session.get(k)!=v for k,v in identities(read_json(config_path),worker,fingerprint,config_path).items()):session['status']='source_or_config_changed';break
                 state=snapshot(conn);status=check_snapshot(state,session['expected_anchor'])
                 if status=='ready':session['status']='bootstrap_complete';session['last_checkpoint']=state;break
                 if status=='source_not_ready':
-                    append_event(path.parent/'events.jsonl',{'at':utc(),'event':'source_not_ready'})
+                    guard=session['progress_guard'];previous=guard['consecutive_no_progress']
+                    guard.update(last_observation={
+                        'classification':'source_not_ready_between_slices','previous_no_progress':previous,
+                        'consecutive_no_progress':previous})
+                    append_event(path.parent/'events.jsonl',{'at':utc(),'event':'source_not_ready',
+                                 'progress':guard['last_observation']})
                 else:
                     seconds=next_slice_seconds(bootstrap_seconds,remaining(session))
                     if seconds is None:
                         session['status']='budget_exhausted';break
+                    before=normalize(state)
                     result=supervise_slice(conn,config,path,session,worker,fingerprint,seconds,lease_fd)
                     session['last_checkpoint']=snapshot(conn);check_snapshot(session['last_checkpoint'],session['expected_anchor'])
                     session['completed_slices']+=1
                     event={'at':utc(),'event':'slice_finished','session_id':session['id'],'slice':session['completed_slices'],
                            'active_seconds':session['active_seconds'],'result':result,
                            'rows_processed':session['last_checkpoint']['cursor']['rows_processed']}
+                    event['progress']=observe_progress(session,before,session['last_checkpoint'],result)
+                    # Persist the observation before logging/resting or another
+                    # child. A resume must not erase two already observed stalls.
+                    atomic_json(path,session)
                     processed=event['rows_processed']-session['initial_rows']
                     if processed>0 and session['active_seconds']>0:
                         event['observed_rows_per_active_second']=processed/session['active_seconds']
@@ -541,16 +625,19 @@ def main(argv=None):
                     if (not controlled_deadline and (result['exit_code'] or result['event'] not in ('run_complete','source_not_ready','paused'))):
                         session['status']='failed';break
                     if result['event']=='paused':session['status']='paused';break
+                    if session['progress_guard']['consecutive_no_progress']>=NO_PROGRESS_SLICE_LIMIT:
+                        continue  # Stop before another rest or child; retain the third observation.
                 atomic_json(path,session)
                 rest_until=time.monotonic()+min(args.rest_seconds,max(0,remaining(session)-CLEANUP_RESERVE_SECONDS))
                 while time.monotonic()<rest_until:
                     if pause_changed(pause_state(conn,config),session['pause_baseline']):break
                     time.sleep(min(1,max(0,rest_until-time.monotonic())))
-            else:session['status']='budget_exhausted'
             atomic_json(path,session)
             print(json.dumps({'event':'bootstrap_session_stopped','status':session['status'],'session':str(path),
-                              'active_seconds':session['active_seconds']}),flush=True)
-            return 1 if session['status']=='failed' else 0
+                              'active_seconds':session['active_seconds'],
+                              'progress_guard':session['progress_guard'],
+                              'stop_reason':session.get('stop_reason')}),flush=True)
+            return 1 if session['status'] in ('failed','no_progress') else 0
         except BaseException as exc:
             if session is not None and path is not None:
                 session['status']='interrupted' if not isinstance(exc,Exception) else 'failed'

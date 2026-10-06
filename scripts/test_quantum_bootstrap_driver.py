@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Finite administrative bootstrap supervision; no implicit database access."""
 import importlib.util
+import copy
 import json
 import os
 from pathlib import Path
@@ -27,7 +28,9 @@ BASE={'file':[1,2,3,4,5],'control':[True,'old']}
 
 def state():
     return {'database':'fixture','projection':{'seed_mode':'canonical','status':'seeding','height':5,
-       'anchor_height':5,'block_hash':'a','anchor_hash':'a'},'cursor':{'complete':False,'rows_processed':0},
+       'anchor_height':5,'block_hash':'a','anchor_hash':'a'},
+       'cursor':{'last_height':-1,'last_txid':'','last_vout':-1,'complete':False,'rows_processed':0},
+       'database_connection_sha256':'fixture-endpoint',
        'source':{'ready':True,'committed_hash':'b','tip_hash':'b','committed_height':8},'canonical_anchor':'a'}
 
 
@@ -113,6 +116,221 @@ class DriverPureTests(unittest.TestCase):
         self.assertEqual(driver.remaining(session,195),5)
         self.assertLess(driver.remaining(session,201),0)
         with self.assertRaisesRegex(RuntimeError,'clock'):driver.remaining(session,100)
+
+    def progress_session(self,count=0):
+        session={'expected_anchor':['fixture',5,'a'],'completed_slices':1}
+        driver.progress_accounting(session,'new_session')['consecutive_no_progress']=count
+        return session
+
+    def test_success_and_verified_failed_deadline_share_no_progress_streak(self):
+        session=self.progress_session()
+        complete={'event':'run_complete','exit_code':0,'run_id':'success'}
+        controlled={'event':'run_failed','exit_code':1,'run_id':'failed',
+                    'continuation':{'classification':'verified_controlled_deadline','source_status':'seeding'}}
+        original=copy.deepcopy(controlled)
+        for number,result in enumerate((complete,complete,controlled),1):
+            observation=driver.observe_progress(session,state(),state(),result)
+            self.assertEqual(observation['classification'],'no_durable_progress')
+            self.assertEqual(observation['consecutive_no_progress'],number)
+        self.assertEqual(controlled,original)
+        self.assertEqual(session['progress_guard']['last_observation']['run_id'],'failed')
+
+    def test_empty_window_key_rows_and_completion_each_count_as_progress(self):
+        for change in ({'last_height':0},{'last_txid':'a'},{'last_vout':0},
+                       {'rows_processed':1},{'complete':True}):
+            with self.subTest(change=change):
+                session=self.progress_session(2);after=state();after['cursor'].update(change)
+                observation=driver.observe_progress(session,state(),after,{'event':'run_complete','exit_code':0})
+                self.assertEqual(observation['classification'],'cursor_advanced')
+                self.assertEqual(observation['previous_no_progress'],2)
+                self.assertEqual(session['progress_guard']['consecutive_no_progress'],0)
+
+    def test_source_yields_preserve_streak_even_if_endpoints_later_look_ready(self):
+        for location in ('before','after','event','controlled_proof'):
+            with self.subTest(location=location):
+                session=self.progress_session(2);before=state();after=state()
+                result={'event':'run_complete','exit_code':0}
+                if location=='before':before['source']['ready']=False
+                elif location=='after':after['source']['ready']=False
+                elif location=='event':result['event']='source_not_ready'
+                else:result={'event':'run_failed','exit_code':1,'continuation':{
+                    'classification':'verified_controlled_deadline','source_status':'source_not_ready'}}
+                observation=driver.observe_progress(session,before,after,result)
+                self.assertEqual(observation['classification'],'source_not_ready')
+                self.assertEqual(observation['previous_no_progress'],2)
+                self.assertEqual(session['progress_guard']['consecutive_no_progress'],2)
+
+    def test_unknown_failed_or_paused_work_is_not_reclassified_as_stall(self):
+        for event,code in (('run_failed',1),('slice_interrupted',1),('paused',0),('already_running',0)):
+            with self.subTest(event=event):
+                session=self.progress_session(2);original=copy.deepcopy(session)
+                self.assertIsNone(driver.observe_progress(session,state(),state(),{'event':event,'exit_code':code}))
+                self.assertEqual(session,original)
+
+    def test_committed_progress_resets_streak_without_reclassifying_failure_or_pause(self):
+        for result in ({'event':'run_failed','exit_code':1},
+                       {'event':'paused','exit_code':0},
+                       {'event':'run_complete','exit_code':0,'supervisor_stop':'paused'},
+                       {'event':'run_complete','exit_code':0,'supervisor_stop':'source_or_config_changed'}):
+            with self.subTest(result=result):
+                session=self.progress_session(2);after=state();after['cursor']['last_height']=0
+                original=copy.deepcopy(result)
+                observation=driver.observe_progress(session,state(),after,result)
+                self.assertEqual(observation['classification'],'cursor_advanced')
+                self.assertEqual(session['progress_guard']['consecutive_no_progress'],0)
+                self.assertEqual(result,original)
+                session=self.progress_session(2)
+                self.assertIsNone(driver.observe_progress(session,state(),state(),result))
+                self.assertEqual(session['progress_guard']['consecutive_no_progress'],2)
+
+    def test_cursor_regression_is_an_error_even_if_another_field_advances(self):
+        before=state();before['cursor'].update(last_height=2,last_txid='b',last_vout=1,rows_processed=100)
+        for change in ({'last_height':1,'rows_processed':101},{'last_txid':'a'},
+                       {'last_vout':0},{'rows_processed':99}):
+            with self.subTest(change=change):
+                after=copy.deepcopy(before);after['cursor'].update(change)
+                with self.assertRaisesRegex(RuntimeError,'cursor regressed'):
+                    driver.observe_progress(self.progress_session(),before,after,{'event':'run_complete','exit_code':0})
+
+    def test_new_session_has_explicit_empty_baseline_and_does_not_reinitialize(self):
+        config={'state_dir':str(self.root)};worker=mock.Mock()
+        with mock.patch.object(driver,'snapshot',return_value=state()), \
+             mock.patch.object(driver,'pause_state',return_value=BASE), \
+             mock.patch.object(driver,'identities',return_value={'code':'unchanged'}):
+            path,session=driver.new_session(self.root/'config.json',config,worker,None,None,86400,172800)
+        self.assertEqual(session['progress_guard'],{'baseline':'new_session','threshold':3,
+            'consecutive_no_progress':0,'last_observation':None})
+        self.assertEqual(driver.read_json(path)['last_checkpoint']['cursor'],state()['cursor'])
+        worker.assert_not_called()
+
+    def test_resume_preserves_streak_and_old_journal_baseline_is_explicit(self):
+        path=self.root/'session.json';config_path=self.root/'config.json'
+        original={'version':driver.VERSION,'config_path':str(config_path),'max_active_seconds':100,'max_elapsed_seconds':200,
+          'created_unix':1000,'deadline_unix':1200,'active_seconds':20,'expected_anchor':['fixture',5,'a'],
+          'pause_baseline':BASE,'id':'fixture','code':'unchanged'}
+        with mock.patch.object(driver,'identities',return_value={'code':'unchanged'}), \
+             mock.patch.object(driver,'snapshot',return_value=state()), \
+             mock.patch.object(driver,'pause_state',return_value=BASE):
+            driver.atomic_json(path,original)
+            legacy=driver.checked_session(path,config_path,{},None,None,None)
+            self.assertEqual(legacy['progress_guard']['baseline'],'legacy_journal')
+            self.assertEqual(legacy['progress_guard']['consecutive_no_progress'],0)
+            legacy['progress_guard']['consecutive_no_progress']=2
+            driver.atomic_json(path,legacy)
+            self.assertEqual(driver.checked_session(path,config_path,{},None,None,None),legacy)
+            legacy['progress_guard']['consecutive_no_progress']=True
+            driver.atomic_json(path,legacy)
+            with self.assertRaisesRegex(ValueError,'progress accounting'):
+                driver.checked_session(path,config_path,{},None,None,None)
+
+    def test_interrupted_resume_resets_only_demonstrated_commits_and_retains_charge(self):
+        for advanced in (False,True):
+            with self.subTest(advanced=advanced):
+                session=self.progress_session(2)
+                session.update(id='interrupted',status='interrupted',active_seconds=5,
+                    last_checkpoint=state(),in_flight={'pid':42,'nonce':'n','reserved_seconds':10})
+                path=self.root/'session.json';current=state()
+                if advanced:current['cursor']['last_height']=0
+                with mock.patch.object(driver,'_alive',return_value=False):
+                    driver.reconcile_interrupted(session,path)
+                with mock.patch.object(driver,'snapshot',return_value=current):
+                    driver.reconcile_progress(None,session,path)
+                saved=driver.read_json(path)
+                self.assertEqual(saved['active_seconds'],17)
+                self.assertEqual(saved['status'],'interrupted')
+                self.assertIsNone(saved['in_flight'])
+                self.assertEqual(saved['progress_guard']['consecutive_no_progress'],0 if advanced else 2)
+                if advanced:
+                    self.assertEqual(saved['progress_guard']['last_observation']['previous_no_progress'],2)
+                    self.assertEqual(saved['last_checkpoint']['cursor'],current['cursor'])
+
+    def run_stalled_supervisor(self,*,resume_count=None,result=None,results=None,snapshots=None):
+        import io
+        config_path=self.root/'config.json'
+        config={'state_dir':str(self.root),'production_repo':str(ROOT),'work_seconds':45}
+        driver.atomic_json(config_path,config)
+        session={'version':driver.VERSION,'id':'pilot','config_path':str(config_path),
+            'max_active_seconds':500,'max_elapsed_seconds':600,'active_seconds':0,
+            'deadline_unix':1600,'created_unix':1000,'last_wall_unix':1000,'pause_baseline':BASE,
+            'expected_anchor':['fixture',5,'a'],'initial_rows':0,'completed_slices':0,
+            'last_checkpoint':state(),'in_flight':None,'code':'same',
+            'stop_reason':'three_source_ready_slices_without_durable_cursor_progress'}
+        progress=driver.progress_accounting(session,'new_session')
+        progress['consecutive_no_progress']=resume_count or 0
+        path=self.root/'bootstrap_sessions/pilot/session.json';path.parent.mkdir(parents=True)
+        driver.atomic_json(path,session)
+        worker=mock.MagicMock();launched=[]
+        result_iter=iter(results) if results is not None else None
+        def slice_work(conn,config,path,session,worker,fingerprint,seconds,lease_fd):
+            launched.append(seconds);session['active_seconds']+=10
+            return copy.deepcopy(next(result_iter) if result_iter is not None else
+                                 result or {'event':'run_complete','exit_code':0,'run_id':str(len(launched))})
+        with mock.patch.object(driver,'runtime',return_value=(worker,None)), \
+             mock.patch.object(driver,'new_session',return_value=(path,session)), \
+             mock.patch.object(driver,'pause_state',return_value=BASE), \
+             mock.patch.object(driver,'identities',return_value={'code':'same'}), \
+             mock.patch.object(driver,'snapshot',side_effect=snapshots if snapshots is not None else lambda _conn:state()), \
+             mock.patch.object(driver,'supervise_slice',side_effect=slice_work), \
+             mock.patch.object(driver.time,'time',return_value=1000), \
+             mock.patch.object(driver.sys,'stdout',io.StringIO()):
+            arguments=['--config',str(config_path),'--rest-seconds','0']
+            arguments+=(['--resume',str(path)] if resume_count is not None else
+                        ['--max-active-seconds','500','--max-elapsed-seconds','600'])
+            code=driver.main(arguments)
+        return code,launched,driver.read_json(path),path
+
+    def test_supervisor_stops_after_three_committed_no_progress_observations(self):
+        code,launched,journal,path=self.run_stalled_supervisor()
+        self.assertEqual(code,1);self.assertEqual(len(launched),3)
+        self.assertEqual(journal['status'],'no_progress')
+        self.assertEqual(journal['stop_reason'],'three_source_ready_slices_without_durable_cursor_progress')
+        self.assertEqual(journal['active_seconds'],30);self.assertEqual(journal['deadline_unix'],1600)
+        self.assertEqual(journal['progress_guard']['consecutive_no_progress'],3)
+        events=[json.loads(line) for line in (path.parent/'events.jsonl').read_text().splitlines()]
+        self.assertEqual([e['progress']['consecutive_no_progress'] for e in events],[1,2,3])
+
+    def test_resume_reaches_threshold_without_reset_and_terminal_resume_launches_nothing(self):
+        for initial,wanted in ((2,1),(3,0)):
+            with self.subTest(initial=initial),tempfile.TemporaryDirectory() as temp:
+                self.root=Path(temp)
+                code,launched,journal,_path=self.run_stalled_supervisor(resume_count=initial)
+                self.assertEqual(code,1);self.assertEqual(len(launched),wanted)
+                self.assertEqual(journal['progress_guard']['consecutive_no_progress'],3)
+                self.assertEqual(journal['status'],'no_progress')
+
+    def test_resume_observes_delayed_completion_and_clears_current_stall_reason(self):
+        complete=state();complete['cursor']['complete']=True;complete['projection']['status']='ready'
+        code,launched,journal,path=self.run_stalled_supervisor(
+            resume_count=3,snapshots=[complete,complete,complete])
+        self.assertEqual(code,0);self.assertEqual(launched,[])
+        self.assertEqual(journal['status'],'bootstrap_complete')
+        self.assertNotIn('stop_reason',journal)
+        self.assertEqual(journal['progress_guard']['consecutive_no_progress'],0)
+        self.assertEqual(journal['progress_guard']['last_observation']['previous_no_progress'],3)
+        events=[json.loads(line) for line in (path.parent/'events.jsonl').read_text().splitlines()]
+        self.assertEqual(events[0]['event'],'resume_cursor_advanced')
+
+    def test_readiness_wait_and_yield_between_stalls_cannot_restart_the_allowance(self):
+        complete={'event':'run_complete','exit_code':0}
+        yielded={'event':'source_not_ready','exit_code':0}
+        snapshots=[state() for _ in range(9)]
+        snapshots[2]['source']['ready']=False
+        code,launched,journal,path=self.run_stalled_supervisor(
+            results=[complete,yielded,complete,complete],snapshots=snapshots)
+        self.assertEqual(code,1);self.assertEqual(len(launched),4)
+        self.assertEqual(journal['status'],'no_progress')
+        self.assertEqual(journal['active_seconds'],40)
+        events=[json.loads(line) for line in (path.parent/'events.jsonl').read_text().splitlines()]
+        self.assertEqual([e['progress']['consecutive_no_progress'] for e in events],[1,1,1,2,3])
+        self.assertEqual([e['progress']['classification'] for e in events],
+                         ['no_durable_progress','source_not_ready_between_slices','source_not_ready',
+                          'no_durable_progress','no_durable_progress'])
+
+    def test_supervisor_preserves_genuine_failure_instead_of_counting_a_stall(self):
+        code,launched,journal,_path=self.run_stalled_supervisor(result={'event':'run_failed','exit_code':1,'run_id':'failed'})
+        self.assertEqual(code,1);self.assertEqual(len(launched),1)
+        self.assertEqual(journal['status'],'failed')
+        self.assertEqual(journal['progress_guard']['consecutive_no_progress'],0)
     def test_unusable_tail_stops_before_starting_a_child(self):
         self.assertIsNone(driver.next_slice_seconds(45,120-114.47195))
         self.assertIsNone(driver.next_slice_seconds(45,9.999))
