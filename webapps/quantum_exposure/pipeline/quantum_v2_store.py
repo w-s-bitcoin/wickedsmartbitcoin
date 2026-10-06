@@ -607,6 +607,7 @@ def _reduce_canonical_seed_page(cur,anchor):
     if cur.fetchone(): raise SourceNotReady('Missing disclosure block provenance')
     cur.execute('''INSERT INTO quantum_v2.disclosure(group_id,exposed_height,exposed_hash)
         SELECT group_id,exposed_height,exposed_hash FROM pg_temp.quantum_canonical_disclosures
+        ORDER BY group_id
         ON CONFLICT(group_id) DO UPDATE SET
             exposed_height=LEAST(quantum_v2.disclosure.exposed_height,EXCLUDED.exposed_height),
             exposed_hash=CASE WHEN EXCLUDED.exposed_height<quantum_v2.disclosure.exposed_height
@@ -624,6 +625,7 @@ def _reduce_canonical_seed_page(cur,anchor):
         FROM pg_temp.quantum_canonical_groups g
         LEFT JOIN LATERAL (SELECT exposed_height,exposed_hash FROM quantum_v2.disclosure
                           WHERE group_id=g.group_id LIMIT 1) d ON true
+        ORDER BY g.group_id,g.script_type
         ON CONFLICT(group_id,script_type) DO UPDATE SET
             balance_sats=quantum_v2.group_state.balance_sats+EXCLUDED.balance_sats,
             utxo_count=quantum_v2.group_state.utxo_count+EXCLUDED.utxo_count,
@@ -670,6 +672,7 @@ def _reduce_canonical_seed_page(cur,anchor):
                             WHERE group_id=p.group_id LIMIT 1) d
         CROSS JOIN LATERAL (SELECT * FROM quantum_v2.group_state WHERE group_id=p.group_id LIMIT 7) s
         WHERE s.first_disclosure_height IS NULL OR d.exposed_height<s.first_disclosure_height
+        ORDER BY s.group_id,s.script_type
         ON CONFLICT(group_id,script_type) DO UPDATE SET
             first_disclosure_height=EXCLUDED.first_disclosure_height,
             first_disclosure_hash=EXCLUDED.first_disclosure_hash''')
@@ -1215,10 +1218,11 @@ def _bootstrap_standard_page(cur,table,key,anchor,limit,physical=False):
     return [{k:v for k,v in r.items() if k!='missing_hashes'} for r in result if r['blockheight'] is not None]
 
 
-def bootstrap_step(conn, limit=10000, *, source_table=None, work_mem_mb=None):
+def bootstrap_step(conn, limit=10000, *, source_table=None, work_mem_mb=None, wal_compression=False):
     """Commit one bounded seed page, preserving optional physical progress."""
     try:
-        return _bootstrap_step(conn,limit,source_table=source_table,work_mem_mb=work_mem_mb)
+        return _bootstrap_step(conn,limit,source_table=source_table,work_mem_mb=work_mem_mb,
+                               wal_compression=wal_compression)
     except PhysicalSeedChanged as error:
         # The failed page rolled back. Durably stop this same physical generation
         # before reporting the error, so later workers enter bounded reseeding.
@@ -1234,7 +1238,7 @@ def bootstrap_step(conn, limit=10000, *, source_table=None, work_mem_mb=None):
         raise
 
 
-def _bootstrap_step(conn, limit=10000, *, source_table=None, work_mem_mb=None):
+def _bootstrap_step(conn, limit=10000, *, source_table=None, work_mem_mb=None, wal_compression=False):
     """Process one durable page; True means every seed source is complete.
 
     ``source_table`` is an administrative legacy-family pilot selector. Normal
@@ -1243,6 +1247,8 @@ def _bootstrap_step(conn, limit=10000, *, source_table=None, work_mem_mb=None):
     """
     if type(limit) is not int or not 1 <= limit <= 1000000:
         raise ValueError('Seed page size must be an integer from 1 to 1000000')
+    if type(wal_compression) is not bool:
+        raise ValueError('Bootstrap wal_compression must be a boolean')
     if work_mem_mb is not None:
         from quantum_worker_config import bootstrap_resource_limits
         work_mem_mb=bootstrap_resource_limits({'bootstrap_work_mem_mb':work_mem_mb})['work_mem_mb']
@@ -1254,6 +1260,8 @@ def _bootstrap_step(conn, limit=10000, *, source_table=None, work_mem_mb=None):
             raise ValueError('Legacy seed page size must be 1..100000')
         if work_mem_mb is not None and p['seed_mode'] != 'canonical':
             raise ValueError('Bootstrap work_mem override applies only to canonical seeds')
+        if wal_compression and p['seed_mode'] != 'canonical':
+            raise ValueError('Bootstrap WAL compression override applies only to canonical seeds')
         if p['status'] == 'ready':
             return True
         if p['status'] != 'seeding':
@@ -1263,6 +1271,10 @@ def _bootstrap_step(conn, limit=10000, *, source_table=None, work_mem_mb=None):
             if source_table is not None: raise ValueError('Family pilot selection is only available for legacy seeds')
             if work_mem_mb is not None:
                 cur.execute('SET LOCAL work_mem=%s',(f'{work_mem_mb}MB',))
+            if wal_compression:
+                # Opt-in only: False preserves the server/session setting. A
+                # missing SET privilege fails this whole page before seed work.
+                cur.execute('SET LOCAL wal_compression=%s',('on',))
             return _canonical_seed_step(cur,p,max_rows=limit)
         try:
             _verify_legacy(cur,h)

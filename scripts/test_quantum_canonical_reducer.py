@@ -130,6 +130,29 @@ class CanonicalReducer(unittest.TestCase):
         states,exposures=self.capture();self.assertEqual((states,exposures),python_oracle(rows,20,self.hashes))
         self.assertEqual(states[(A,'P2PKH')]['first_disclosure_height'],4)
         self.assertEqual(states[(A,'P2PKH')]['utxo_count'],249)
+    def test_many_conflict_keys_preserve_chronological_display_and_cross_family_disclosure(self):
+        # Primary-key order is deliberately unrelated to chronological source
+        # order. Reordering reduced writes must not choose a different display,
+        # lose a zero-valued UTXO, or miss an earlier disclosure on a later page.
+        keys=[hashlib.sha256(str(i).encode()).hexdigest()[:40] for i in range(64)]
+        rows=[]
+        for i,key in enumerate(keys):
+            rows.extend([row(1,f'first-{i:03}',100,'pubkeyhash',f'first-{i}',pkh(key),18),
+                         row(1,f'first-{i:03}',1,'pubkeyhash','wrong-vout-display',pkh(key),vout=1),
+                         row(2,f'witness-{i:03}',0,'witness_v0_keyhash',f'witness-{i}','0014'+key),
+                         row(3,f'later-{i:03}',2,'pubkeyhash','wrong-later-display',pkh(key),20),
+                         row(4,f'disclose-{i:03}',3,'witness_v0_keyhash','wrong-witness-display','0014'+key,6)])
+        expected=python_oracle(rows,20,self.hashes)
+        for limit in (17,1000):
+            with self.subTest(page_rows=limit):
+                self.setUp();self.insert(list(reversed(rows)));self.seed(limit=limit)
+                states,exposures=self.capture()
+                self.assertEqual((states,exposures),expected)
+                for i,key in enumerate(keys):
+                    self.assertEqual(states[(key,'P2PKH')]['display_group_id'],f'first-{i}')
+                    self.assertEqual(states[(key,'P2WPKH')]['display_group_id'],f'witness-{i}')
+                    self.assertEqual(states[(key,'P2PKH')]['first_disclosure_height'],6)
+                    self.assertEqual((states[(key,'P2WPKH')]['balance_sats'],states[(key,'P2WPKH')]['utxo_count']),(0,1))
     def test_conflicting_copy_at_lookahead_rolls_back(self):
         rows=[row(1,'a',1,'pubkeyhash','a',pkh(A)),row(1,'b',2,'pubkeyhash','a',pkh(A))]
         self.insert(rows);self.insert([dict(rows[1],amount=3)],'stxos_0_9_archive')

@@ -31,6 +31,9 @@ def bootstrap_resource_limits(config):
     work_mem = config.get('bootstrap_work_mem_mb', 32)
     if type(work_mem) is not int or not 32 <= work_mem <= 256:
         raise ValueError('bootstrap_work_mem_mb must be an integer from 32 to 256')
+    wal_compression = config.get('bootstrap_wal_compression', False)
+    if type(wal_compression) is not bool:
+        raise ValueError('bootstrap_wal_compression must be a boolean')
     memory = config.get('bootstrap_memory_limit_bytes', config.get('memory_limit_bytes', 4 * 1024**3))
     if 'bootstrap_memory_limit_bytes' in config:
         if type(memory) is not int or not 1024**3 <= memory <= 16 * 1024**3:
@@ -38,7 +41,8 @@ def bootstrap_resource_limits(config):
     elif type(memory) is not int or memory <= 0:
         raise ValueError('Inherited bootstrap memory_limit_bytes must be a positive integer')
     return {'work_seconds':seconds, 'temp_buffers_mb':buffers,
-            'work_mem_mb':work_mem, 'memory_limit_bytes':memory}
+            'work_mem_mb':work_mem, 'memory_limit_bytes':memory,
+            'wal_compression':wal_compression}
 
 
 def effective_config(config):
