@@ -541,8 +541,11 @@ against the retained, canonical raw-source reduction:
 
 `quantum_v2_metadata_validation.sample_metadata(conn, group_ids,
 max_occurrences=5000, seconds=30)` supplies a separate bounded metadata report for
-explicit, repeatable group selections. It checks group-wide earliest funding,
-earliest disclosure, and latest actual spend. Key-group occurrence enumeration
+explicit, repeatable group selections. It checks each script family's earliest
+funding, latest actual spend and chronological display identity, plus the group's
+earliest disclosure, every family's disclosure height/hash and the disclosure
+registry. Referenced canonical headers and exact timestamps must be available;
+activity uses the timestamp at the latest actual spend height. Key-group occurrence enumeration
 uses `key_outputs_all`, then re-reads each occurrence from raw outputs/archives;
 it cannot prove that this historical ledger omitted no occurrence. Non-key address
 histories use raw source address indexes. Missing raw history, missing enumeration
@@ -1010,7 +1013,7 @@ no disk measurement failure or reserve breach. The installer preserves
 `disk_reserve_bytes` (default 512 GiB) and refuses enablement with a zero reserve;
 zero remains available only for explicit diagnostic/fixture configuration.
 
-`reviews` maps each of `browser`, `recovery`, and `rollback` to a local report
+`reviews` maps each of `browser`, `metadata`, `recovery`, and `rollback` to a local report
 `path` relative to state_dir and its exact `sha256`. Each JSON report must state
 its `kind`, `passed: true`, a nonempty reviewed `summary`, and the accepted
 `implementation_sha256`, `config_sha256`, `request_id`, `generation_id`,
@@ -1018,6 +1021,20 @@ its `kind`, `passed: true`, a nonempty reviewed `summary`, and the accepted
 of retained test/results evidence; hashing binds the reviewed report to this
 rollout and does not automate or replace the review. No acceptance record or
 review report is synthesized by the installer.
+
+The `metadata` review must explain the selected historical sample, its row/time
+bounds, the retained sample report, and the family/registry/header consistency
+results. Record the parser, grouping and methodology versions and the chosen
+enrichment revision with its source provenance. Review retained identity labels
+and policy annotations as versioned annotations; they are not verified key
+disclosures. Explicitly acknowledge unavailable dates, unsupported lookups,
+key-ledger enumeration limits and any other unknowns. A passing bounded sample
+does not establish every group's historical dates or the completeness of the
+historical ledger, and the accounting proof does not establish those claims
+either. The review's `passed` field records acceptance of the stated evidence
+and limitations, not a claim of a global historical metadata proof. An unresolved
+sample must remain unresolved in the retained evidence. The report uses the
+same hash and rollout identity requirements as the other three reviews.
 
 Only after these checks does the installer load
 `com.wickedsmartbitcoin.quantum` for the current GUI user. Its LaunchAgent invokes
@@ -1110,7 +1127,7 @@ fixture; it does not claim that a production rollback has been performed.
 - [ ] Measure a complete representative 1,000-block boundary under the private-memory gate.
 - [ ] Verify both destination commits and the Pages/standalone runtime dependency closure.
 - [ ] Demonstrate interrupted export, retry, reorg recovery and operational rollback.
-- [ ] Record browser acceptance and acceptance.json from that evidence, then enable scheduling.
+- [ ] Record browser, metadata, recovery and rollback reviews and acceptance.json from that evidence, then enable scheduling.
 
 The completed index builds took 343.07 and 482.19 seconds, with sampled combined
 private memory of 241.6 and 283.1 MB respectively. Backend CPU was 271.77 and

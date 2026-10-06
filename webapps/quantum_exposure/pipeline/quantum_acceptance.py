@@ -1,7 +1,8 @@
 """Read-only scheduler acceptance against durable production evidence.
 
-The operator still reviews recovery, rollback and browser reports. This gate
-checks their recorded identity and hash; it does not claim to automate review.
+The operator still reviews browser, metadata, recovery and rollback reports.
+This gate checks their recorded identity and hash; it does not automate review
+or turn bounded metadata samples into a complete historical proof.
 No producer, migration, delivery, or scheduler is invoked here.
 """
 from __future__ import annotations
@@ -47,8 +48,8 @@ def check_record(record):
             len(set(record['run_ids']))==len(record['run_ids']),'measured run IDs are required')
     for key,limit in (('active_seconds_per_boundary',1800),('peak_private_memory_bytes',4*1024**3)):
         require(positive(record.get(key)) and record[key]<=limit,'invalid or over-budget '+key)
-    require(isinstance(record.get('reviews'),dict) and set(record['reviews'])=={'browser','recovery','rollback'},
-            'reviewed browser, recovery and rollback evidence is required')
+    require(isinstance(record.get('reviews'),dict) and set(record['reviews'])=={'browser','metadata','recovery','rollback'},
+            'reviewed browser, metadata, recovery and rollback evidence is required')
     return record
 
 
