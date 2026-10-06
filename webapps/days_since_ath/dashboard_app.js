@@ -1419,9 +1419,10 @@
     const maxDays = Math.max(6, maxVisibleDays);
     const useDaysLog = (activeExportDaysScaleMode || state.daysScaleMode) === "log";
     const daysLogMin = 0.1;
+    // Keep all-zero opening frames on the baseline in either scale.
     const daysDomain = paddedTransformedDomain(
       Math.max(0, minVisibleDays),
-      Math.max(0, maxVisibleDays),
+      maxVisibleDays === 0 ? 1 : Math.max(0, maxVisibleDays),
       (value) => {
         if (!useDaysLog) return Math.max(0, Number(value) || 0);
         const safeValue = Math.max(0, Number(value) || 0);
