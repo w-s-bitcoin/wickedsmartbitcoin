@@ -31,7 +31,7 @@ class AcceptanceTests(unittest.TestCase):
                      'config_sha256':config_fingerprint(self.config),'control_sha256':acceptance.digest(control_settings(controls)),
                      'validation_report_sha256':acceptance.digest(self.report),'run_ids':['run-1','run-2'],
                      'active_seconds_per_boundary':100.0,'peak_private_memory_bytes':1000000,
-                     'reviews':{kind:{'path':kind+'.json','sha256':'4'*64} for kind in ('browser','recovery','rollback')}}
+                     'reviews':{kind:{'path':kind+'.json','sha256':'4'*64} for kind in ('browser','metadata','recovery','rollback')}}
         self.snapshot={'database':'measured-production','incomplete_bootstrap':0,
                        'projection':{'status':'ready','seed_mode':'canonical','height':963000,'block_hash':'b'*64,'anchor_height':962000,
                                      'anchor_hash':'a'*64,'methodology_version':PROJECTION_ACCOUNTING_VERSION},
@@ -179,21 +179,62 @@ class AcceptanceTests(unittest.TestCase):
         self.config['undo_blocks']=1000
         with self.assertRaisesRegex(ValueError,'configuration differs'): self.verify()
 
+    def test_old_three_reviews_cannot_enable_without_metadata_review(self):
+        del self.record['reviews']['metadata']
+        with self.assertRaisesRegex(ValueError,'metadata'):
+            acceptance.check_record(self.record)
+        with self.assertRaisesRegex(ValueError,'metadata'):
+            self.verify()
+
+    def write_reviews(self, directory):
+        for kind,item in self.record['reviews'].items():
+            report={key:self.record[key] for key in ('implementation_sha256','config_sha256','request_id','generation_id','checkpoint_height','checkpoint_hash')}
+            summary=('Reviewed bounded selected-group history, family/registry/header consistency and retained label provenance; '
+                     'unsampled dates and key-ledger completeness remain unproved.' if kind=='metadata' else
+                     'Reviewed isolated failure and recovery evidence.')
+            report.update(kind=kind,passed=True,summary=summary)
+            payload=json.dumps(report).encode()
+            (Path(directory)/item['path']).write_bytes(payload)
+            item['sha256']=hashlib.sha256(payload).hexdigest()
+
     def test_review_artifacts_must_match_bytes_and_generation(self):
         with tempfile.TemporaryDirectory() as temp:
-            for kind,item in self.record['reviews'].items():
-                report={key:self.record[key] for key in ('implementation_sha256','config_sha256','request_id','generation_id','checkpoint_height','checkpoint_hash')}
-                report.update(kind=kind,passed=True,summary='Reviewed isolated failure and recovery evidence.')
-                payload=json.dumps(report).encode()
-                (Path(temp)/item['path']).write_bytes(payload)
-                item['sha256']=hashlib.sha256(payload).hexdigest()
+            self.write_reviews(temp)
             acceptance.check_evidence(self.record,temp)
-            path=Path(temp)/'browser.json'
-            path.write_text(path.read_text()+' ')
-            with self.assertRaisesRegex(ValueError,'hash differs'): acceptance.check_evidence(self.record,temp)
-            self.record['reviews']['browser']['sha256']=hashlib.sha256(path.read_bytes()).hexdigest()
-            self.record['generation_id']='a-different-generation'
-            with self.assertRaisesRegex(ValueError,'another generation'): acceptance.check_evidence(self.record,temp)
+            for kind,item in self.record['reviews'].items():
+                with self.subTest(kind=kind):
+                    path=Path(temp)/item['path']
+                    original=path.read_bytes()
+                    path.write_bytes(original+b' ')
+                    with self.assertRaisesRegex(ValueError,kind+' report hash differs'):
+                        acceptance.check_evidence(self.record,temp)
+                    report=json.loads(original)
+                    report['generation_id']='a-different-generation'
+                    payload=json.dumps(report).encode()
+                    path.write_bytes(payload)
+                    item['sha256']=hashlib.sha256(payload).hexdigest()
+                    with self.assertRaisesRegex(ValueError,kind+' review covers another generation'):
+                        acceptance.check_evidence(self.record,temp)
+                    path.write_bytes(original)
+                    item['sha256']=hashlib.sha256(original).hexdigest()
+
+    def test_metadata_review_requires_explicit_result_summary_and_exact_rollout(self):
+        with tempfile.TemporaryDirectory() as temp:
+            self.write_reviews(temp)
+            path=Path(temp)/'metadata.json'
+            original=json.loads(path.read_bytes())
+            # A qualified sample review is valid without claiming global proof.
+            acceptance.check_evidence(self.record,temp)
+            changes=(('passed',False),('summary','  '),('kind','browser'),
+                     ('implementation_sha256','0'*64),('config_sha256','0'*64),
+                     ('request_id',8),('checkpoint_height',964000),('checkpoint_hash','0'*64))
+            for key,value in changes:
+                with self.subTest(field=key):
+                    payload=json.dumps({**original,key:value}).encode()
+                    path.write_bytes(payload)
+                    self.record['reviews']['metadata']['sha256']=hashlib.sha256(payload).hexdigest()
+                    with self.assertRaisesRegex(ValueError,'metadata review'):
+                        acceptance.check_evidence(self.record,temp)
 
     def test_real_git_receipts_and_runtime_are_checked_without_publishing(self):
         from test_quantum_immutable_generation import seed

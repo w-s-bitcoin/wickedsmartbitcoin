@@ -22,7 +22,7 @@ def acceptance():
             'implementation_sha256':'e'*64,'config_sha256':'f'*64,'validation_report_sha256':'1'*64,
             'control_sha256':'3'*64,
             'request_id':1,'database':'production-fixture','run_ids':['fixture-run'],
-            'reviews':{kind:{'path':kind+'.json','sha256':'2'*64} for kind in ('browser','recovery','rollback')}}
+            'reviews':{kind:{'path':kind+'.json','sha256':'2'*64} for kind in ('browser','metadata','recovery','rollback')}}
 
 
 class SchedulerTests(unittest.TestCase):
@@ -100,6 +100,24 @@ class SchedulerTests(unittest.TestCase):
         self.record.write_text(json.dumps(record))
         with self.assertRaisesRegex(ValueError,'standalone_commit'):
             scheduler.check_acceptance(self.record)
+
+    def test_enable_rejects_missing_metadata_review_before_writes_or_loading(self):
+        record=json.loads(self.record.read_text())
+        del record['reviews']['metadata']
+        self.record.write_text(json.dumps(record))
+        with self.assertRaisesRegex(ValueError,'metadata'):
+            scheduler.check_acceptance(self.record)
+        with patch.object(sys,'argv',self.args+['--enable']), \
+                patch.object(Path,'home',return_value=self.home), \
+                patch.object(scheduler.subprocess,'run',return_value=subprocess.CompletedProcess([],1)) as run, \
+                patch.object(scheduler.subprocess,'check_output') as output:
+            with self.assertRaisesRegex(ValueError,'metadata'):
+                scheduler.main()
+        self.assertEqual(run.call_count,1)
+        self.assertEqual(run.call_args.args[0][:2],['launchctl','print'])
+        output.assert_not_called()
+        self.assertFalse((self.state/'config.json').exists())
+        self.assertFalse((self.home/'Library').exists())
 
     def test_dry_run_does_not_write_or_call_launchctl(self):
         calls,output=self.invoke()

@@ -17,6 +17,7 @@ try:
     import quantum_v2_store as store
     import quantum_v2_control as control
     import quantum_v2_validation as validation
+    import quantum_v2_metadata_validation as metadata
     from quantum_v2_metadata_validation import sample_metadata
     from quantum_legacy_guard import guard_legacy_mutation
 except ImportError:
@@ -41,6 +42,47 @@ class LegacyEntryGuardTests(unittest.TestCase):
                 self.assertIsInstance(first, ast.Expr)
                 self.assertIsInstance(first.value, ast.Call)
                 self.assertEqual(first.value.func.id, 'guard_legacy_mutation')
+
+
+@unittest.skipUnless(psycopg2, 'PostgreSQL Python dependency unavailable')
+class MetadataReductionTests(unittest.TestCase):
+    def raw(self, height, txid, *, kind='pubkeyhash', address='first', script=None, spent=None):
+        return dict(blockheight=height, transactionid=txid, vout=0, amount=0,
+                    address=address, scripttype=kind,
+                    scripthex=script if script is not None else '76a914' + KEY + '88ac', spendingblock=spent)
+
+    def history(self, rows, removals=None, guard=lambda: None):
+        raw = {(r['blockheight'], r['transactionid'], r['vout']): r for r in rows}
+        return metadata._history(raw, KEY, 10, removals or {}, guard)
+
+    def test_genesis_has_disclosure_and_literal_pubkey_display_but_no_funding(self):
+        genesis = self.raw(0, 'genesis', kind='pubkey', address='untrusted-alias', script='21' + G + 'ac')
+        families, disclosed = self.history([genesis])
+        self.assertEqual(disclosed, 0)
+        self.assertEqual(families['P2PK'], dict(first_received_height=None, last_spend_height=None, display_group_id=G))
+        later = self.raw(2, 'funding', kind='pubkey', script='21' + G + 'ac')
+        self.assertEqual(self.history([later, genesis])[0]['P2PK']['first_received_height'], 2)
+
+    def test_burns_and_oversized_scripts_do_not_create_metadata(self):
+        rows = [self.raw(0, 'burn', kind='nonstandard', script='6a', spent=1),
+                self.raw(1, 'oversized', kind='nonstandard', script='51' * 10001, spent=2),
+                self.raw(3, 'kept')]
+        families, disclosed = self.history(rows)
+        self.assertEqual(families, {'P2PKH': dict(first_received_height=3, last_spend_height=None, display_group_id='first')})
+        self.assertIsNone(disclosed)
+
+    def test_chronological_display_and_bip30_removal_are_independent_of_input_order(self):
+        old = self.raw(1, 'a', address='earliest', spent=5)
+        later = self.raw(1, 'b', address='later', spent=8)
+        families, disclosed = self.history([later, old], {(1, 'a', 0): 5})
+        self.assertEqual(families['P2PKH']['display_group_id'], 'earliest')
+        self.assertEqual(families['P2PKH']['first_received_height'], 1)
+        self.assertEqual(families['P2PKH']['last_spend_height'], 8)
+        self.assertEqual(disclosed, 8)
+
+    def test_python_reduction_obeys_the_budget(self):
+        with self.assertRaisesRegex(TimeoutError, 'fixture deadline'):
+            self.history([self.raw(1, 'a')], guard=mock.Mock(side_effect=TimeoutError('fixture deadline')))
 
 
 @unittest.skipUnless(DSN and psycopg2, 'Set QUANTUM_VALIDATION_TEST_DSN for a disposable fixture')
@@ -511,10 +553,129 @@ class ValidationFixture(unittest.TestCase):
             cur.execute("INSERT INTO outputs VALUES(0,'genesis',0,5000000000,'pk','pubkey',%s,NULL)", ('21' + G + 'ac',))
             cur.execute("INSERT INTO key_outputs_all SELECT %s,blockheight,transactionid,vout FROM outputs WHERE transactionid IN ('genesis','a','b','c')", (bytes.fromhex(KEY),))
             cur.execute('UPDATE quantum_v2.group_state SET first_disclosure_height=0,first_disclosure_hash=%s WHERE group_id=%s', (f'{0:064x}', KEY))
+            cur.execute('UPDATE quantum_v2.disclosure SET exposed_height=0,exposed_hash=%s WHERE group_id=%s', (f'{0:064x}', KEY))
         report = sample_metadata(self.conn, [KEY])
         self.assertTrue(report['passed'], report)
         self.assertEqual(report['samples'][0]['expected']['first_received_height'], 1)
         self.assertEqual(report['samples'][0]['expected']['first_disclosure_height'], 0)
+
+    def metadata_key_ledger(self):
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute('CREATE TABLE key_outputs_all(keyhash20 bytea,blockheight bigint,transactionid text,vout integer)')
+            cur.execute("INSERT INTO key_outputs_all SELECT %s,blockheight,transactionid,vout FROM outputs WHERE transactionid IN ('a','b','c')", (bytes.fromhex(KEY),))
+
+    def test_metadata_corrupt_sibling_funding_cannot_hide_behind_group_minimum(self):
+        self.metadata_key_ledger()
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute("UPDATE quantum_v2.group_state SET first_received_height=3 WHERE group_id=%s AND script_type='P2WPKH'", (KEY,))
+        sample = sample_metadata(self.conn, [KEY])['samples'][0]
+        self.assertEqual(sample['expected'], sample['actual'])
+        self.assertFalse(sample['passed'])
+        failed = [f['script_type'] for f in sample['families'] if not f['passed']]
+        self.assertEqual(failed, ['P2WPKH'])
+
+    def test_metadata_nonmaximum_sibling_spend_and_activity_are_checked(self):
+        self.metadata_key_ledger()
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute("UPDATE outputs SET spendingblock=CASE transactionid WHEN 'a' THEN 8 ELSE 7 END WHERE transactionid IN ('a','c')")
+            cur.execute("UPDATE quantum_v2.group_state SET last_spend_height=CASE script_type WHEN 'P2PK' THEN 8 ELSE 7 END WHERE group_id=%s AND script_type IN ('P2PK','P2WPKH')", (KEY,))
+            # Block timestamps need not be monotonic: classify using height8's
+            # exact time, not the larger timestamp at height7.
+            cur.execute('UPDATE blockheader SET time=0 WHERE blockheight=8')
+        sample = sample_metadata(self.conn, [KEY])['samples'][0]
+        self.assertTrue(sample['passed'], sample)
+        self.assertEqual(sample['activity'], {'expected': 'inactive', 'actual': 'inactive'})
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute("UPDATE quantum_v2.group_state SET last_spend_height=6 WHERE group_id=%s AND script_type='P2WPKH'", (KEY,))
+        sample = sample_metadata(self.conn, [KEY])['samples'][0]
+        self.assertEqual(sample['expected'], sample['actual'])
+        self.assertFalse(sample['passed'])
+
+    def test_metadata_registry_and_each_family_require_exact_disclosure_hash(self):
+        self.metadata_key_ledger()
+        for relation, field, where in (
+                ('group_state', 'first_disclosure_hash', " AND script_type='P2WPKH'"),
+                ('disclosure', 'exposed_hash', '')):
+            with self.subTest(relation=relation):
+                with self.conn, self.conn.cursor() as cur:
+                    cur.execute('UPDATE quantum_v2.' + relation + ' SET ' + field + '=%s WHERE group_id=%s' + where, ('f' * 64, KEY))
+                sample = sample_metadata(self.conn, [KEY])['samples'][0]
+                self.assertEqual(sample['expected'], sample['actual'])
+                self.assertFalse(sample['passed'])
+                with self.conn, self.conn.cursor() as cur:
+                    cur.execute('UPDATE quantum_v2.' + relation + ' SET ' + field + '=%s WHERE group_id=%s' + where, (f'{1:064x}', KEY))
+        self.assertTrue(sample_metadata(self.conn, [KEY])['passed'])
+
+    def test_metadata_chronological_display_and_missing_family_are_checked(self):
+        self.metadata_key_ledger()
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute("INSERT INTO outputs SELECT blockheight,'aa',vout,0,'earliest-alias',scripttype,scripthex,NULL FROM outputs WHERE transactionid='b'")
+            cur.execute("INSERT INTO key_outputs_all SELECT %s,blockheight,transactionid,vout FROM outputs WHERE transactionid='aa'", (bytes.fromhex(KEY),))
+            cur.execute("UPDATE quantum_v2.group_state SET display_group_id='earliest-alias' WHERE group_id=%s AND script_type='P2PKH'", (KEY,))
+        self.assertTrue(sample_metadata(self.conn, [KEY])['passed'])
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute("UPDATE quantum_v2.group_state SET display_group_id='later-alias' WHERE group_id=%s AND script_type='P2PKH'", (KEY,))
+        self.assertFalse(sample_metadata(self.conn, [KEY])['passed'])
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute("UPDATE quantum_v2.group_state SET display_group_id='earliest-alias' WHERE group_id=%s AND script_type='P2PKH'", (KEY,))
+            cur.execute("DELETE FROM quantum_v2.group_state WHERE group_id=%s AND script_type='P2WPKH'", (KEY,))
+        sample = sample_metadata(self.conn, [KEY])['samples'][0]
+        self.assertFalse(sample['passed'])
+        self.assertIsNone(next(f for f in sample['families'] if f['script_type'] == 'P2WPKH')['actual'])
+
+    def test_metadata_missing_headers_and_unknown_dates_do_not_pass(self):
+        self.metadata_key_ledger()
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute('DELETE FROM blockheader WHERE blockheight=1')
+            cur.execute('UPDATE blockheader SET time=NULL WHERE blockheight=2')
+        sample = sample_metadata(self.conn, [KEY])['samples'][0]
+        self.assertFalse(sample['passed'])
+        self.assertEqual(sample['missing_header_heights'], [1])
+        self.assertEqual(sample['unknown_time_heights'], [2])
+        self.assertEqual(sample['activity'], {'expected': None, 'actual': None})
+
+    def test_metadata_unknown_history_remains_null_and_read_errors_leave_no_changes(self):
+        sample = sample_metadata(self.conn, ['sh'])['samples'][0]
+        self.assertTrue(sample['passed'], sample)
+        self.assertEqual(sample['disclosure']['expected'], {'exposed_height': None, 'exposed_hash': None})
+        self.assertEqual(sample['activity'], {'expected': 'never_spent', 'actual': 'never_spent'})
+        before = self.query('SELECT * FROM quantum_v2.group_state ORDER BY group_id,script_type')
+        before_registry = self.query('SELECT * FROM quantum_v2.disclosure ORDER BY group_id')
+        with mock.patch.object(metadata, '_compare_metadata', side_effect=RuntimeError('fixture read interrupted')):
+            with self.assertRaisesRegex(RuntimeError, 'fixture read interrupted'):
+                sample_metadata(self.conn, ['sh'])
+        self.assertEqual(self.conn.get_transaction_status(), 0)
+        self.assertEqual(self.query('SELECT * FROM quantum_v2.group_state ORDER BY group_id,script_type'), before)
+        self.assertEqual(self.query('SELECT * FROM quantum_v2.disclosure ORDER BY group_id'), before_registry)
+        self.assertTrue(sample_metadata(self.conn, ['sh'])['passed'])
+
+    def test_metadata_duplicate_ledger_and_archive_copies_do_not_hide_conflicts(self):
+        self.metadata_key_ledger()
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute('INSERT INTO key_outputs_all SELECT * FROM key_outputs_all')
+            cur.execute('CREATE TABLE stxos_21_30_archive (LIKE outputs)')
+            cur.execute('CREATE INDEX metadata_occurrence_probe ON stxos_21_30_archive(blockheight,transactionid,vout)')
+            cur.execute("INSERT INTO stxos_21_30_archive SELECT * FROM outputs WHERE transactionid='a'")
+            cur.execute('INSERT INTO stxos_21_30_archive SELECT * FROM stxos_21_30_archive')
+        report = sample_metadata(self.conn, [KEY], max_occurrences=3)
+        self.assertTrue(report['passed'], report)
+        self.assertEqual(report['raw_occurrences'], 3)
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute("INSERT INTO stxos_21_30_archive SELECT blockheight,transactionid,vout,amount+1,address,scripttype,scripthex,spendingblock FROM outputs WHERE transactionid='a'")
+        with self.assertRaisesRegex(ValueError, 'locations disagree'):
+            sample_metadata(self.conn, [KEY], max_occurrences=3)
+        self.assertEqual(self.conn.get_transaction_status(), 0)
+
+    def test_metadata_address_limit_deduplicates_before_occurrence_budget(self):
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute('CREATE TABLE stxos_21_30_archive (LIKE outputs)')
+            cur.execute('CREATE INDEX metadata_address_probe ON stxos_21_30_archive(address)')
+            cur.execute("INSERT INTO stxos_21_30_archive SELECT * FROM outputs WHERE transactionid='d'")
+            cur.execute('INSERT INTO stxos_21_30_archive SELECT * FROM stxos_21_30_archive')
+            cur.execute("INSERT INTO stxos_21_30_archive SELECT blockheight,'d2',vout,amount,address,scripttype,scripthex,spendingblock FROM outputs WHERE transactionid='d'")
+        sample = sample_metadata(self.conn, ['sh'], max_occurrences=1)['samples'][0]
+        self.assertFalse(sample['passed'])
+        self.assertIn('budget', sample['unresolved'])
 
     def test_bip30_original_excluded_and_repeat_occurrence_retained(self):
         original, txid, vout, repeat, first_hash, repeat_hash = validation.BIP30[0]

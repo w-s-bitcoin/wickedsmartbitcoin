@@ -533,7 +533,7 @@ class WorkerFixture(unittest.TestCase):
                 'validation_report_sha256':acceptance.digest(proof),
                 'run_ids':[str(row['id']) for row in snapshot['runs']],
                 'active_seconds_per_boundary':5.0,'peak_private_memory_bytes':1000000,
-                'reviews':{kind:{} for kind in ('browser','recovery','rollback')}}
+                'reviews':{kind:{} for kind in ('browser','metadata','recovery','rollback')}}
         result=acceptance.check_snapshot(record,snapshot,self.config,record['implementation_sha256'],
                                          validation_version=worker.validation.VERSION)
         self.assertEqual(result['request_id'],request_id)
