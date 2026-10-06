@@ -1,0 +1,450 @@
+#!/usr/bin/env python3
+"""Complete tiny-world replay through three real, sealed boundary snapshots.
+
+Set QUANTUM_MULTI_SNAPSHOT_TEST_DSN to an explicitly disposable *_fixture
+database on the local fixture server (temporary socket, port 55439). This test
+replaces its public and quantum_v2 schemas. No production connection, network,
+Git publication, or production entrypoint is used. Destination transports and
+resource sampling alone are fixture stubs; initialization, independent source
+validation, chronological delta reduction, SQL export, history retention, and
+immutable sealing all execute their maintained implementations.
+
+All authored occurrences, including retired outputs, enter the independent
+oracle. Three complete intervals (1000->2000->3000->4000) share ONE seed. This
+is a correctness proof for the complete synthetic world, not a sampled claim
+about Bitcoin archive history, resource acceptance, or live publication.
+"""
+from __future__ import annotations
+
+from contextlib import ExitStack
+import csv
+from dataclasses import dataclass
+from datetime import datetime, timezone
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "webapps/quantum_exposure/pipeline"))
+try:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    import immutable_generation
+    import quantum_v2_control as control
+    import quantum_v2_delivery as delivery
+    import quantum_v2_enrichment as enrichment
+    import quantum_v2_store as store
+    import run_quantum_worker as worker
+except ImportError:
+    psycopg2 = None
+
+DSN = os.environ.get("QUANTUM_MULTI_SNAPSHOT_TEST_DSN", "")
+G = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+A = "751e76e8199196d454941c45d1b3a323f1433bd6"  # Authored HASH160(G).
+B, C, D, E = (digit * 40 for digit in "2345")
+FAMILIES = ("P2PK", "P2PKH", "P2SH", "P2WPKH", "P2WSH", "P2TR", "Other")
+TIERS = {"all": 0, "ge1": 100_000_000, "ge10": 1_000_000_000,
+         "ge100": 10_000_000_000, "ge1000": 100_000_000_000}
+METRICS = ("pubkey_count", "utxo_count", "supply_sats", "exposed_pubkey_count",
+           "exposed_utxo_count", "exposed_supply_sats")
+BASE_TIME = int(datetime(2023, 1, 1, tzinfo=timezone.utc).timestamp())
+METHOD = "canonical-disclosure-group-consistent-v2"
+
+
+def shifted(height):
+    return None if height is None else height if height < 500 else height + 1000
+
+
+def block_time(height):
+    # Intentionally nonmonotonic: activity must follow the maximum spend HEIGHT,
+    # not the largest timestamp from any sibling. Snapshot aging needs no spend.
+    special = {1600: 190, 1700: 7, 2000: 200, 2200: 300, 3000: 400,
+               3500: 750, 4000: 800}
+    if height in special:
+        return BASE_TIME + special[height] * 86400
+    if 2150 <= height <= 2161:
+        return BASE_TIME + 300 * 86400 + height
+    if 3150 <= height <= 3161:
+        return BASE_TIME + 750 * 86400 + height
+    return BASE_TIME + height * 600
+
+
+@dataclass(frozen=True)
+class Occurrence:
+    created: int
+    txid: str
+    amount: int
+    address: str
+    kind: str
+    script: str
+    spent: int | None
+    group: str
+    family: str
+    eligible: bool
+    disclosure: int | None
+    display: str
+
+    def source(self):
+        return (self.created, self.txid, 0, self.amount, self.address,
+                self.kind, self.script, self.spent)
+
+
+def fixture_world():
+    """Authored identity/evidence expectations, independent of runtime parsers."""
+    result = []
+
+    def key(group, family, height, amount, spent=None, *, name=""):
+        kind, script = {
+            "P2PK": ("pubkey", "21" + G + "ac"),
+            "P2PKH": ("pubkeyhash", "76a914" + group + "88ac"),
+            "P2WPKH": ("witness_v0_keyhash", "0014" + group),
+        }[family]
+        address = name or f"{group[:4]}-{family}-{height}"
+        add(group, family, height, amount, address, kind, script, spent,
+            height if family == "P2PK" else spent, G if family == "P2PK" else address)
+
+    def add(group, family, height, amount, address, kind, script, spent, disclosed,
+            display=None, eligible=True):
+        result.append(Occurrence(shifted(height), f"{len(result) + 1:064x}", amount,
+            address, kind, script, shifted(spent), group, family, eligible,
+            shifted(disclosed), display or address))
+
+    # A whole group clears 1 BTC although neither nonzero family does; zero
+    # satoshis still count as a live exposed UTXO.
+    key(A, "P2PK", 1, 50_000_000)
+    key(A, "P2PKH", 2, 60_000_000)
+    key(A, "P2WPKH", 3, 0)
+    # Disclosure survives a completely empty boundary, then a new family revives.
+    key(B, "P2PKH", 10, 200_000_000, 750)
+    key(B, "P2WPKH", 1500, 300_000_000)
+    # Spending one output exposes older live balances in BOTH script families.
+    key(C, "P2PKH", 30, 90_000_000, 2500)
+    key(C, "P2WPKH", 31, 20_000_000)
+    key(C, "P2PKH", 900, 11_000_000, 1200)
+    # The retired sibling determines activity; funding cannot reset it. The
+    # earlier spend has a LATER timestamp, detecting an incorrect timestamp max.
+    key(D, "P2PKH", 40, 200_000_000)
+    key(D, "P2WPKH", 41, 7_000_000, 700)
+    key(D, "P2PKH", 42, 2_000_000, 600)
+    # High churn in this complete tiny world: every churn output is created and
+    # spent inside one interval; only the later revival contributes to balance.
+    for offset in range(12):
+        key(E, "P2PKH", 1100 + offset, 1_000_000 + offset, 1150 + offset)
+        key(E, "P2WPKH", 2100 + offset, 2_000_000 + offset, 2150 + offset)
+    key(E, "P2PKH", 1800, 150_000_000)
+    key(E, "P2WPKH", 2800, 70_000_000)
+    # Separate heuristic/address families and an unsupported policy remain
+    # distinguishable from the verified key-script groups.
+    for family, kind, script, group in (
+        ("P2SH", "scripthash", "a914" + "66" * 20 + "87", "fixture-p2sh"),
+        ("P2WSH", "witness_v0_scripthash", "0020" + "77" * 32, "fixture-p2wsh"),
+    ):
+        add(group, family, 50, 190_000_000, group, kind, script, None, None)
+        add(group, family, 600, 10_000_000, group, kind, script, 800, 800)
+    add("fixture-taproot", "P2TR", 550, 150_000_000, "fixture-taproot",
+        "witness_v1_taproot", "5120" + G[2:], None, 550)
+    add("fixture-unknown", "Other", 60, 300_000_000, "fixture-unknown",
+        "nonstandard", "51", None, None, eligible=False)
+    return tuple(result)
+
+
+def oracle(world, height):
+    """Recompute the WHOLE fixture from raw lifetimes, not projected state."""
+    seen = [row for row in world if row.created <= height]
+    disclosures = {}
+    for row in seen:
+        if row.disclosure is not None and row.disclosure <= height:
+            disclosures[row.group] = min(disclosures.get(row.group, row.disclosure), row.disclosure)
+    families = {}
+    for row in sorted(seen, key=lambda row: (row.created, row.txid)):
+        key = row.group, row.family
+        state = families.setdefault(key, dict(group_id=row.group, script_type=row.family,
+            balance_sats=0, utxo_count=0, eligible_sats=0, eligible_utxos=0,
+            first_received_height=row.created, first_disclosure_height=disclosures.get(row.group),
+            first_disclosure_hash=(f"{disclosures[row.group]:064x}" if row.group in disclosures else None),
+            last_spend_height=None, display_group_id=row.display))
+        if row.spent is None or row.spent > height:
+            state["balance_sats"] += row.amount
+            state["utxo_count"] += 1
+            if row.eligible:
+                state["eligible_sats"] += row.amount
+                state["eligible_utxos"] += 1
+        elif state["last_spend_height"] is None or state["last_spend_height"] < row.spent:
+            state["last_spend_height"] = row.spent
+    groups = {}
+    for (group, family), state in families.items():
+        summary = groups.setdefault(group, {"families": {}, "history": []})
+        summary["history"].append(state)
+        if state["utxo_count"]:
+            exposed = group in disclosures
+            summary["families"][family] = dict(current_supply_sats=state["balance_sats"],
+                current_utxo_count=state["utxo_count"],
+                exposed_supply_sats=state["eligible_sats"] if exposed else 0,
+                exposed_utxo_count=state["eligible_utxos"] if exposed else 0)
+    stamp = datetime.fromtimestamp(block_time(height), timezone.utc)
+    cutoff = int(stamp.replace(year=stamp.year - 1).timestamp())
+    for group, value in list(groups.items()):
+        if not value["families"]:
+            del groups[group]
+            continue
+        for field in ("current_supply_sats", "current_utxo_count", "exposed_supply_sats", "exposed_utxo_count"):
+            value[field] = sum(row[field] for row in value["families"].values())
+        value["first_received_blockheight"] = min(row["first_received_height"] for row in value["history"])
+        value["first_disclosure_blockheight"] = disclosures.get(group)
+        value["first_disclosure_time"] = block_time(disclosures[group]) if group in disclosures else None
+        value["last_spend_blockheight"] = max((row["last_spend_height"] for row in value["history"]
+                                                if row["last_spend_height"] is not None), default=None)
+        last = value["last_spend_blockheight"]
+        value["last_spend_time"] = block_time(last) if last is not None else None
+        value["spend_activity"] = ("never_spent" if last is None else
+                                   "inactive" if block_time(last) <= cutoff else "active")
+        value["display_group_ids"] = "|".join(sorted({row["display_group_id"] for row in value["history"]}))
+    return families, disclosures, groups
+
+
+def aggregate_oracle(groups):
+    result = {}
+    for tier, minimum in TIERS.items():
+        for family in ("All",) + FAMILIES:
+            for activity in ("all", "never_spent", "inactive", "active"):
+                metrics = [0] * 6
+                for group in groups.values():
+                    if group["current_supply_sats"] < minimum or (activity != "all" and group["spend_activity"] != activity):
+                        continue
+                    selected = list(group["families"].values()) if family == "All" else [group["families"][family]] if family in group["families"] else []
+                    if not selected:
+                        continue
+                    count = sum(row["current_utxo_count"] for row in selected)
+                    sats = sum(row["current_supply_sats"] for row in selected)
+                    exposed_count = sum(row["exposed_utxo_count"] for row in selected)
+                    exposed_sats = sum(row["exposed_supply_sats"] for row in selected)
+                    for index, amount in enumerate((1, count, sats, int(exposed_count > 0), exposed_count, exposed_sats)):
+                        metrics[index] += amount
+                result[(tier, family, activity)] = metrics
+    return result
+
+
+def read_csv(path):
+    with path.open(newline="", encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
+
+
+class FixtureMonitor:
+    """Explicitly excluded from this correctness test's evidence scope."""
+    exceeded = False
+    def __init__(self, *args, **kwargs): pass
+    def __enter__(self): return self
+    def __exit__(self, *args): return False
+    def metrics(self): return {"fixture_only_not_resource_acceptance": True}
+
+
+class OracleContractTests(unittest.TestCase):
+    def test_authored_world_has_cross_boundary_cases_and_no_sample_omissions(self):
+        world = fixture_world()
+        self.assertEqual(len(world), len({(row.created, row.txid) for row in world}))
+        self.assertEqual({row.family for row in world}, set(FAMILIES))
+        first, disclosure, groups = oracle(world, 2000)
+        self.assertNotIn(B, groups)
+        self.assertEqual(disclosure[B], 1750)
+        self.assertEqual(first[(B, "P2PKH")]["utxo_count"], 0)
+        self.assertEqual(groups[C]["exposed_utxo_count"], 0)
+        self.assertEqual(groups[D]["spend_activity"], "active")
+        middle = oracle(world, 3000)[2]
+        self.assertEqual(middle[B]["first_disclosure_blockheight"], 1750)
+        self.assertEqual(middle[C]["exposed_utxo_count"], 2)
+        self.assertEqual(middle[D]["spend_activity"], "inactive")
+        self.assertEqual(middle[D]["last_spend_blockheight"], 1700)
+        self.assertGreater(block_time(1600), block_time(1700))
+        for lo, hi in ((2000, 3000), (3000, 4000)):
+            self.assertEqual(sum(lo < row.created < row.spent <= hi for row in world if row.spent is not None), 12)
+
+
+@unittest.skipUnless(DSN and psycopg2, "Set QUANTUM_MULTI_SNAPSHOT_TEST_DSN for the disposable PostgreSQL fixture")
+class MultiSnapshotReplayFixture(unittest.TestCase):
+    def setUp(self):
+        parameters = psycopg2.extensions.parse_dsn(DSN)
+        if (not parameters.get("dbname", "").endswith("_fixture")
+                or parameters.get("host") != "/private/tmp/quantum-v2-fixture-socket"
+                or parameters.get("port") != "55439"):
+            raise RuntimeError("Require explicit disposable *_fixture DB on the port55439 fixture socket")
+        self.conn = psycopg2.connect(DSN, options="-c work_mem=32MB -c max_parallel_workers_per_gather=0 -c statement_timeout=20s -c lock_timeout=2s")
+        self.addCleanup(self.conn.close)
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute("SELECT current_setting('data_directory'),current_user,pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database()")
+            data, current, owner = cur.fetchone()
+            if Path(data).resolve() != Path("/private/tmp/quantum-v2-fixture-pg") or current != owner:
+                raise RuntimeError("Fixture server identity or database ownership differs")
+        self.temp = tempfile.TemporaryDirectory(prefix="quantum-multi-snapshot-")
+        self.addCleanup(self.temp.cleanup)
+        directory = Path(self.temp.name)
+        self.config = dict(state_dir=str(directory / "state"), production_repo=str(directory / "website"),
+            standalone_repo=str(directory / "standalone"), work_seconds=45, bootstrap_rows=2,
+            validation_rows=3, validation_blocks=250, batch_blocks=250, max_batch_rows=6,
+            batch_pause_seconds=0, disk_reserve_bytes=0, undo_blocks=5000)
+        self.world = fixture_world()
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute("DROP SCHEMA IF EXISTS quantum_v2 CASCADE")
+            cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
+            cur.execute("CREATE TABLE blockheader(blockheight bigint PRIMARY KEY,blockhash text,time bigint)")
+            cur.executemany("INSERT INTO blockheader VALUES(%s,%s,%s)",
+                            [(h, f"{h:064x}", block_time(h)) for h in range(4007)])
+            cur.execute("CREATE TABLE inputs(id bigint)")
+            cur.execute("""CREATE TABLE outputs(blockheight bigint,transactionid text,vout integer,
+                amount bigint,address text,scripttype text,scripthex text,spendingblock bigint,
+                PRIMARY KEY(blockheight,transactionid,vout))""")
+            cur.execute("CREATE INDEX outputs_spent ON outputs(spendingblock)")
+            cur.executemany("INSERT INTO outputs VALUES(%s,%s,%s,%s,%s,%s,%s,%s)", [row.source() for row in self.world])
+            # Spent rows still live in outputs while an earlier archive also
+            # holds exact copies. Duplicate prefixes must not consume page caps.
+            self._archive(cur, 0, 1999, copies=4, remove_live=False)
+        store.migrate(self.conn)
+        store.migrate_live_export(self.conn)
+        control.migrate(self.conn)
+        enrichment.migrate(self.conn)
+        worker.validation.migrate(self.conn)
+        control.configure(self.conn, paused=False, start_height=1000)
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute("UPDATE quantum_v2.source_state SET ready=true,committed_height=4006,committed_hash=%s", (f"{4006:064x}",))
+        self.patches = ExitStack()
+        self.addCleanup(self.patches.close)
+        for name, value in (("ResourceMonitor", FixtureMonitor), ("lower_priority", mock.Mock()), ("log", mock.Mock())):
+            self.patches.enter_context(mock.patch.object(worker, name, value))
+        self.deliveries = {}
+        for destination in ("website", "standalone"):
+            self.deliveries[destination] = self.patches.enter_context(mock.patch.object(
+                delivery, "deliver_" + destination, return_value={"fixture_transport_only": True}))
+
+    def _archive(self, cur, lower, upper, *, copies, remove_live):
+        # Names/ranges are authored fixture constants, never DSN/user input.
+        name = f"stxos_{lower}_{upper}_archive"
+        cur.execute(f"CREATE TABLE {name} (LIKE outputs)")
+        cur.execute(f"CREATE INDEX ON {name}(blockheight)")
+        cur.execute(f"CREATE INDEX ON {name}(spendingblock)")
+        for _ in range(copies):
+            cur.execute(f"INSERT INTO {name} SELECT * FROM outputs WHERE spendingblock BETWEEN %s AND %s", (lower, upper))
+        if remove_live:
+            # Retain one exact live/archive overlap through the NEXT apply_range.
+            keep = next(row.txid for row in self.world if row.spent == shifted(1200))
+            cur.execute("DELETE FROM outputs WHERE spendingblock BETWEEN %s AND %s AND transactionid<>%s", (lower, upper, keep))
+
+    def query(self, statement, parameters=()):
+        with self.conn, self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(statement, parameters)
+            return [dict(row) for row in cur.fetchall()]
+
+    def assert_state(self, height):
+        expected, disclosures, groups = oracle(self.world, height)
+        fields = ("group_id", "script_type", "balance_sats", "utxo_count", "eligible_sats", "eligible_utxos",
+                  "first_received_height", "first_disclosure_height", "first_disclosure_hash", "last_spend_height", "display_group_id")
+        actual = self.query("SELECT " + ",".join(fields) + " FROM quantum_v2.group_state")
+        self.assertEqual({(row["group_id"], row["script_type"]): row for row in actual}, expected)
+        self.assertEqual(self.query("SELECT group_id,exposed_height,exposed_hash FROM quantum_v2.disclosure ORDER BY group_id"),
+            [dict(group_id=group, exposed_height=found, exposed_hash=f"{found:064x}") for group, found in sorted(disclosures.items())])
+        self.assertEqual(self.query("SELECT height,block_hash,anchor_height,anchor_hash,status,seed_mode FROM quantum_v2.projection"),
+            [dict(height=height, block_hash=f"{height:064x}", anchor_height=1000,
+                  anchor_hash=f"{1000:064x}", status="ready", seed_mode="canonical")])
+        return groups
+
+    def assert_export(self, output, height, groups, retained):
+        marker = json.loads((output / "published_generation.json").read_text())
+        immutable_generation.validate_immutable_generation(output, marker)
+        self.assertEqual(marker["format"], 2)
+        self.assertEqual(marker["metadata"]["block_hash"], f"{height:064x}")
+        methods = marker["metadata"]["methodology_by_snapshot"]
+        self.assertEqual({int(value) for value in methods}, set(retained) | {height})
+        self.assertTrue(all(value["methodology_version"] == METHOD for value in methods.values()))
+        directory = output / str(height)
+        rows = read_csv(directory / "dashboard_pubkeys_aggregates.csv")
+        actual = {(row["balance_filter"], row["script_type_filter"], row["spend_activity_filter"]):
+                  [int(row[field]) for field in METRICS] for row in rows}
+        self.assertEqual(len(rows), len(actual))
+        self.assertEqual(actual, aggregate_oracle(groups))
+        expected = {group: value for group, value in groups.items()
+                    if value["current_supply_sats"] >= 100_000_000 and value["exposed_utxo_count"] > 0}
+        detail = read_csv(directory / "dashboard_pubkeys_ge_1btc.csv")
+        self.assertEqual([row["group_id"] for row in detail], sorted(expected))
+        for row in detail:
+            value = expected[row["group_id"]]
+            for field in ("current_supply_sats", "current_utxo_count", "exposed_supply_sats", "exposed_utxo_count"):
+                self.assertEqual(int(row[field]), value[field])
+                self.assertEqual(json.loads(row[field + "_by_script_type"]),
+                                 {family: values[field] for family, values in value["families"].items()})
+            for field in ("first_received_blockheight", "first_disclosure_blockheight", "first_disclosure_time",
+                          "last_spend_blockheight", "last_spend_time"):
+                self.assertEqual(int(row[field]) if row[field] else None, value[field])
+            self.assertEqual(row["first_exposed_blockheight"], row["first_disclosure_blockheight"])
+            self.assertEqual(row["first_exposed_time"], row["first_disclosure_time"])
+            self.assertEqual(row["first_exposed_balance_blockheight"], "")  # Unknown, never a fabricated date.
+            self.assertEqual(row["spend_activity"], value["spend_activity"])
+            self.assertEqual(row["display_group_ids"], value["display_group_ids"])
+            self.assertEqual(row["script_types"], "|".join(sorted(value["families"])))
+        top = read_csv(directory / "dashboard_pubkeys_ge_1btc_top100.csv")
+        self.assertEqual(top, sorted(detail, key=lambda row: (-int(row["exposed_supply_sats"]), row["group_id"])))
+        metadata = read_csv(directory / "dashboard_snapshot_meta.csv")[0]
+        self.assertEqual(int(metadata["snapshot_blockheight"]), height)
+        self.assertEqual(int(metadata["snapshot_time"]), block_time(height))
+        self.assertEqual(int(metadata["reporting_groups"]), len(groups))
+        self.assertEqual(int(metadata["detail_rows"]), len(detail))
+        self.assertEqual(metadata["methodology_version"], METHOD)
+        self.assertEqual(json.loads((directory / "analysis_versions.json").read_text())["methodology_version"], METHOD)
+        self.assertEqual({int(row["snapshot_blockheight"]) for row in read_csv(output / "snapshots_index.csv")}, set(retained) | {height})
+        for previous, files in retained.items():
+            for name, data in files.items():
+                self.assertEqual((output / str(previous) / name).read_bytes(), data,
+                                 f"Historical compact artifact changed: {previous}/{name}")
+        return {name: (directory / name).read_bytes() for name in delivery.COMPACT_FILES}
+
+    def test_one_initialization_three_full_intervals_and_real_sealed_generations(self):
+        with mock.patch.object(store, "initialize_source_seed", wraps=store.initialize_source_seed) as initialize, \
+             mock.patch.object(store, "bootstrap_step", wraps=store.bootstrap_step) as bootstrap, \
+             mock.patch.object(store, "apply_range", wraps=store.apply_range) as apply, \
+             mock.patch.object(worker, "export_request", wraps=worker.export_request) as export:
+            initialize(self.conn, 1000, f"{1000:064x}")
+            retained, immutable_files = {}, {}
+            for height in (2000, 3000, 4000):
+                if height > 2000:
+                    with self.conn, self.conn.cursor() as cur:
+                        self._archive(cur, height - 1000, height - 1, copies=3, remove_live=True)
+                        # Complete the old partition's archive movement only
+                        # after the first snapshot already reconciled its copies.
+                        cur.execute("DELETE FROM outputs WHERE spendingblock<2000")
+                before_apply = apply.call_count
+                self.assertEqual(worker.run_once(self.conn, self.config, maximum_target_height=height), 0)
+                self.assertGreater(apply.call_count, before_apply)
+                request = self.query("SELECT target_height,status,attempt,output_dir FROM quantum_v2.request WHERE target_height=%s", (height,))[0]
+                self.assertEqual((request["status"], request["attempt"]), ("complete", 1))
+                output = Path(request["output_dir"])
+                retained[height] = self.assert_export(output, height, self.assert_state(height), retained)
+                immutable_files[output] = {path.relative_to(output): hashlib.sha256(path.read_bytes()).hexdigest()
+                                           for path in output.rglob("*") if path.is_file()}
+                for old, hashes in immutable_files.items():
+                    self.assertEqual({path.relative_to(old): hashlib.sha256(path.read_bytes()).hexdigest()
+                                      for path in old.rglob("*") if path.is_file()}, hashes)
+                # A controlled repeat at the same ceiling cannot replay or
+                # regenerate a finished boundary even though later work exists.
+                before = (apply.call_count, export.call_count, bootstrap.call_count)
+                self.assertEqual(worker.run_once(self.conn, self.config, maximum_target_height=height), 0)
+                self.assertEqual((apply.call_count, export.call_count, bootstrap.call_count), before)
+            self.assertEqual(initialize.call_count, 1)
+            self.assertGreater(bootstrap.call_count, 3)
+            self.assertEqual(export.call_count, 3)
+            self.assertEqual(self.query("SELECT target_height,status,attempt FROM quantum_v2.request ORDER BY target_height"),
+                [dict(target_height=height, status="complete", attempt=1) for height in (2000, 3000, 4000)])
+            self.assertEqual(self.query("SELECT target_height,passed FROM quantum_v2.validation_result"),
+                             [dict(target_height=1000, passed=True)])
+            for transport in self.deliveries.values():
+                self.assertEqual(transport.call_count, 3)
+            # Every source occurrence is represented once logically, despite
+            # physical duplicates and archive-table creation between intervals.
+            expected_seed = sum(row.created <= 1000 for row in self.world)
+            cursor = self.query("SELECT rows_processed,complete FROM quantum_v2.bootstrap_cursor")
+            self.assertEqual(cursor, [dict(rows_processed=expected_seed, complete=True)])
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

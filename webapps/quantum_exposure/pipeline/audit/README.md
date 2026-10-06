@@ -1,7 +1,18 @@
 # Quantum Exposure: pipeline audit and redesign
 
+**Archival status — 2026-10-05:** Work is paused at the owner's request; the
+Quantum scheduler is not installed. The dashboard retains the frozen legacy
+**961000** snapshot. The incomplete v2 projection is seeding anchor **962000**,
+with **262,192,306** occurrences processed and creation cursor height **378478**.
+No v2 production snapshot or unattended acceptance/end-to-end rollout proof
+exists. See the [archived findings](../../../../quantum_exposure_findings.html).
+Do not resume without a renewed request. The original audit below is retained
+as a dated **preimplementation** record, not a description of the later source
+or partial migration. Its proposed warehouse SQL remains design material, not
+an applied migration; the later operating guide is retained reference only.
+
 **Audit date:** 2026-10-05. **Source revision:** `39f288a9af85d3ffa3bda77fc35a06dd1ac46246`.
-**Status:** audit and proposed architecture; production implementation and scheduling are not installed.
+**Status at that audit revision:** audit and proposed architecture; production implementation and scheduling are not installed.
 
 The goal is balanced correctness, speed, and maintainability, with automatic
 snapshots at every 1,000-block boundary without monopolizing the desktop.

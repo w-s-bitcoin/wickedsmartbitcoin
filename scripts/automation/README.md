@@ -1,13 +1,22 @@
 # Production data automation
 
-These entry points run from the production `main` checkout:
+**Quantum archival status — 2026-10-05:** Quantum work is paused at the owner's
+request, and its scheduler is not installed. The published legacy snapshot is
+frozen at **961000**. The v2 projection remains incomplete: anchor **962000**,
+**262,192,306** processed occurrences, creation cursor height **378478**. No v2
+production snapshot or unattended acceptance/end-to-end rollout proof exists.
+See the [archived findings](../../quantum_exposure_findings.html). Quantum commands
+and installation instructions below are retained reference only; do not resume
+without a renewed request. Other production automation remains separate.
+
+Production entry points and the retained Quantum worker use the production `main` checkout:
 
 | File | Trigger | Work |
 | --- | --- | --- |
 | `_run_1h.py` | User LaunchAgent, at :02 in the maintainer's local schedule | Bitcoin metrics notebook; Node Count, Dominance, DCA Cost Basis, DCA Comparison, UoA, Patoshi, and Casascius updates |
 | `_run_onchain.py` | External `01 - CoreToPSQL.py` after new block ingestion | Current-chain top KPIs and issuance data; BIP-110 analysis only until its finalization height |
 | `_git_deploy.py` | Called by either runner | Publish staged data on main, then mirror published data into dev |
-| `webapps/quantum_exposure/pipeline/run_quantum_worker.py` | Separate Quantum LaunchAgent after acceptance | Discover confirmed 1,000-block boundaries, maintain the projection, and retry website/standalone delivery independently |
+| `webapps/quantum_exposure/pipeline/run_quantum_worker.py` | Not installed; retained design uses a separate LaunchAgent after acceptance | Discover confirmed 1,000-block boundaries, maintain the projection, and retry website/standalone delivery independently |
 
 The configured hourly user LaunchAgent checks PostgreSQL readiness and the
 external `.storage-maintenance` gate, uses a nonblocking `flock`, and has a

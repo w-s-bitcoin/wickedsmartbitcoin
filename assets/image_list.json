@@ -18,7 +18,8 @@
   {
     "filename": "quantum_exposure.png",
     "title": "Bitcoin Quantum Exposure",
-    "description": "This dashboard tracks exposed Bitcoin supply, pubkeys, and UTXOs by script type and spend activity, with historical views and top exposure filters",
+    "archived": true,
+    "description": "Archived research dashboard through block 961,000. Explore legacy quantum-exposure snapshots and audit findings on accounting and methodology limitations; the replacement rebuild was stopped before validation and publication.",
     "latest_x": "https://x.com/w_s_bitcoin/status/2041958658112622600",
     "latest_youtube": "https://youtu.be/_Qxm70pFM4E"
   },
