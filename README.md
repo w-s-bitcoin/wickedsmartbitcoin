@@ -11,6 +11,15 @@ For AI-assisted contributions, start with [AGENTS.md](AGENTS.md).
 The detailed frontend guides are [js/js_README.md](js/js_README.md) and
 [webapps/README.md](webapps/README.md).
 
+**Quantum Exposure archival status — 2026-10-05:** Work is paused at the owner's
+request; the Quantum scheduler is not installed. The dashboard retains the frozen
+legacy snapshot at block **961000**. The incomplete v2 projection is still seeding
+its **962000** anchor, with **262,192,306** occurrences processed and creation
+cursor height **378478**. No v2 production snapshot has been published, and
+unattended acceptance and end-to-end rollout have not been demonstrated. See the
+[archived findings](quantum_exposure_findings.html). The implementation and
+runbook are retained for reference; do not resume work without a renewed request.
+
 ## Run locally
 
 From the repository root:

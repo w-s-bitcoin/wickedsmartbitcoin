@@ -282,6 +282,35 @@
       margin: 0;
     }
 
+    .archive-notice {
+      margin: 8px 0 0;
+      padding: 8px 10px;
+      border-left: 3px solid var(--line);
+      border-radius: 4px;
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .archive-notice strong {
+      color: var(--ink);
+    }
+
+    .archive-notice a {
+      color: var(--link);
+      text-underline-offset: 2px;
+    }
+
+    .archive-notice a:hover {
+      color: var(--link-hover);
+    }
+
+    .archive-notice a:focus-visible {
+      outline: 2px solid var(--link);
+      outline-offset: 3px;
+    }
+
     .title-header-actions {
       display: inline-flex;
       align-items: center;
@@ -3135,6 +3164,11 @@
             </button>
           </div>
         </div>
+        <p class="archive-notice">
+          <strong>Archived</strong> &middot; Last published legacy snapshot: block 961,000.
+          An audit found accounting and methodology limitations. The rebuild stopped before replacement validation or publication.
+          <a href="https://wickedsmartbitcoin.com/quantum_exposure_findings.html" target="_blank" rel="noopener" aria-label="Read the findings (opens in a new tab)">Read the findings</a>.
+        </p>
       </div>
       <div class="title-actions">
         <button

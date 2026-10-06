@@ -1,11 +1,23 @@
 # Quantum v2 operations
 
-This is the operating contract for the implemented v2 pipeline. It is **not a
+**Archived runbook — 2026-10-05.** Work is paused at the owner's request; the
+Quantum scheduler is not installed. The dashboard retains the frozen legacy
+**961000** snapshot. The canonical v2 projection is still seeding anchor
+**962000**, with **262,192,306** occurrences processed and creation cursor height
+**378478**; this is a partial cursor, not a verified completed snapshot. No v2
+production snapshot has been published, and unattended acceptance and end-to-end
+production rollout have not been demonstrated. See the
+[archived findings](../../../quantum_exposure_findings.html). All commands,
+checklists, and recovery procedures below are retained reference material.
+**Do not resume initialization, enable scheduling, or publish v2 data without a
+renewed request.**
+
+This retains the operating contract for the implemented v2 pipeline. It is **not a
 record that production rollout or automatic scheduling has passed acceptance**.
 Full bootstrap, independent accounting validation, representative boundary
 performance, destination publication, and rollback evidence must be recorded
-before enabling the LaunchAgent. Update the rollout checklist below with actual
-results; a passing fixture suite does not supply production evidence.
+before any future LaunchAgent enablement. The rollout checklist below describes
+the required evidence; a passing fixture suite does not supply production evidence.
 
 Read the [audit](audit/README.md), [redesign](audit/REDESIGN.md),
 [retention contract](RETENTION.md), and
