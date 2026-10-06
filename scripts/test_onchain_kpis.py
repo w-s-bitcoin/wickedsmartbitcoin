@@ -61,6 +61,9 @@ class OnchainKpiTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="wsb-onchain-stage-") as temporary:
             run_dir = Path(temporary) / "onchain-test"
             (run_dir / "files").mkdir(parents=True)
+            cache_dir = Path(temporary) / "existing-issuance-cache"
+            cache_dir.mkdir()
+            (cache_dir / "issuance_rate_data.json").write_text("old payload")
             with (
                 patch.object(runner, "mark_onchain_pending"),
                 patch.object(runner, "acquire_lock"),
@@ -70,7 +73,7 @@ class OnchainKpiTests(unittest.TestCase):
                 patch.object(runner, "bip110_dashboard_finalized", return_value=True),
                 patch.object(runner, "build_top_kpis_payload", return_value={"block_height": 968853}) as build,
                 patch.object(runner, "run_script", return_value=True) as run_script,
-                patch.object(runner, "ISSUANCE_RATE_WEBAPP_DATA_DIR", Path(temporary) / "no-cache"),
+                patch.object(runner, "ISSUANCE_RATE_WEBAPP_DATA_DIR", cache_dir),
                 patch.object(runner, "stage_tree", return_value=1),
                 patch.object(runner, "trigger_git_deploy_if_safe") as deploy,
             ):
@@ -83,6 +86,7 @@ class OnchainKpiTests(unittest.TestCase):
             staged = run_dir / "files" / "assets" / "top_kpis.json"
             self.assertEqual(json.loads(staged.read_text()), {"block_height": 968853})
             self.assertFalse((run_dir / "files" / "webapps" / "bip110_signaling").exists())
+            self.assertFalse((run_dir / "tmp_issuance_rate_webapp_data").exists())
 
 
 if __name__ == "__main__":
