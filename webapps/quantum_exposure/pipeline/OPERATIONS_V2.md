@@ -362,6 +362,15 @@ disclosure hash or display value, its conflict update keeps the existing tuple.
 The page cursor still commits normally. Zero-value UTXO additions and improved
 metadata still update state; conflict locking can still generate WAL. This
 avoids redundant replacement tuples without discarding historical evidence.
+Canonical pages read prior disclosure evidence once per distinct group into a
+bounded temporary result. New families inherit that result even when the page
+contains no disclosure candidate. Only new or earlier evidence writes the
+registry and propagates to retained sibling families. Incoming evidence still
+requires a canonical header, and equal-height ties retain the saved hash.
+Registry, family state and cursor commit together. This relies on the canonical
+seed's existing family/registry invariant; it is not a repair of arbitrary
+pre-existing metadata corruption. The independent UTXO accounting proof does
+not certify historical disclosure dates, which require separate reconciliation.
 `--canonical` remains a compatibility alias for this default. The explicit
 `--legacy-unverified` option imports legacy tables for diagnostics only; that
 projection cannot be exported or accepted for scheduling. Matching freeze heights
@@ -713,6 +722,26 @@ sizes, not final cardinality or total migration-storage estimates. Recent
 throughput implies several more days of initialization; later script mix and
 index growth can change that estimate substantially. Keep the disk reserve and
 responsiveness gates in force.
+
+The subsequent one-time profile used 500,000-row pages, 300-second slices,
+512 MiB temporary buffers, 128 MiB work memory and an 8 GiB private-memory
+guard. A PostgreSQL 14 WAL-compression trial processed 8.5 million occurrences
+in 790.64 active seconds, peaking at 1.03 GiB combined private memory. Its two
+completed slices achieved about 10,149 and 11,829 occurrences/second, versus
+about 13,500 in the preceding uncompressed completed slice. These were different
+historical ranges, not a controlled comparison. Compression was disabled after
+this trial; normal scheduled limits remain unchanged.
+
+A separate bounded, four-arm fixture compared the effective-disclosure cache
+with source revision `7974f4a869726230af3bc27b89ea37cbf0f60fee` using one million
+existing registry groups and a 100,000-occurrence page. All complete state and
+checkpoint streams matched, including rollback cases. Counting the additional
+temporary materialization, reducer shared reads fell from 520,370 to 220,019
+blocks and backend CPU from 2.856 to 2.518 seconds. Warm page timings improved
+by 7.5–29.4%; cache order and checkpoint timing prevent a production speedup
+claim. Peak combined private memory was 267 MiB. The complete report SHA-256 is
+`b65d59482b64d05150266f2b65f774a6a256c85bdc946e5cb28879c6a7a41748`;
+this fixture does not establish full-bootstrap or unattended-operation acceptance.
 
 ## Export, publication and destination APIs
 

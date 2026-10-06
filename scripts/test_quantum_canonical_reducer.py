@@ -5,6 +5,7 @@ Optional QUANTUM_CANONICAL_REDUCER_TEST_DSN must identify a *_fixture database o
 an explicit /tmp socket. No default database or producer is used.
 """
 import hashlib
+from contextlib import contextmanager
 import os
 from pathlib import Path
 import sys
@@ -92,6 +93,10 @@ class CanonicalReducer(unittest.TestCase):
         with self.conn,self.conn.cursor() as q:
             q.execute('SELECT ctid::text,xmin::text FROM quantum_v2.group_state WHERE group_id=%s AND script_type=%s',(group,family))
             return q.fetchone()
+    def disclosure_identity(self,group=A):
+        with self.conn,self.conn.cursor() as q:
+            q.execute('SELECT ctid::text,xmin::text,exposed_height,exposed_hash FROM quantum_v2.disclosure WHERE group_id=%s',(group,))
+            return q.fetchone()
     def seed(self,anchor=20,limit=4):
         store.initialize_source_seed(self.conn,anchor,self.hashes[anchor])
         for _ in range(300):
@@ -168,6 +173,108 @@ class CanonicalReducer(unittest.TestCase):
         with self.conn,self.conn.cursor() as q:
             q.execute('SELECT xmin::text,exposed_height FROM quantum_v2.disclosure WHERE group_id=%s',(A,));after=q.fetchone()
         self.assertEqual(before,after);self.assertEqual(after[1],4)
+    def test_unchanged_registry_is_inherited_by_new_family_with_later_candidate(self):
+        rows=[row(1,'old',10,'pubkeyhash','first-key',pkh(A),4),
+              row(2,'new-family',20,'witness_v0_keyhash','first-witness','0014'+A,8)]
+        self.insert(rows);store.initialize_source_seed(self.conn,20,self.hashes[20])
+        self.assertFalse(store.bootstrap_step(self.conn,limit=1))
+        registry_before=self.disclosure_identity();retired_before=self.tuple_identity()
+        self.assertTrue(store.bootstrap_step(self.conn,limit=1))
+        self.assertEqual(self.disclosure_identity(),registry_before)
+        self.assertEqual(self.tuple_identity(),retired_before)
+        self.assertEqual(self.capture(),python_oracle(rows,20,self.hashes))
+        witness=self.capture()[0][(A,'P2WPKH')]
+        self.assertEqual((witness['utxo_count'],witness['first_disclosure_height'],witness['last_spend_height']),
+                         (0,4,8))
+    def test_page_without_candidate_inherits_registry_for_zero_value_new_family(self):
+        rows=[row(1,'old',10,'pubkeyhash','first-key',pkh(A),6),
+              row(2,'new-zero',0,'witness_v0_keyhash','first-witness','0014'+A)]
+        self.insert(rows);store.initialize_source_seed(self.conn,20,self.hashes[20])
+        self.assertFalse(store.bootstrap_step(self.conn,limit=1));registry_before=self.disclosure_identity()
+        self.assertTrue(store.bootstrap_step(self.conn,limit=1))
+        self.assertEqual(self.disclosure_identity(),registry_before)
+        self.assertEqual(self.capture(),python_oracle(rows,20,self.hashes))
+        witness=self.capture()[0][(A,'P2WPKH')]
+        self.assertEqual((witness['balance_sats'],witness['utxo_count'],witness['eligible_utxos'],
+                          witness['first_received_height'],witness['first_disclosure_height'],witness['display_group_id']),
+                         (0,1,1,2,6,'first-witness'))
+    def test_earlier_disclosure_updates_dead_sibling_before_group_is_revived(self):
+        rows=[row(1,'old',10,'pubkeyhash','first-key',pkh(A),18),
+              row(2,'earlier',20,'witness_v0_keyhash','first-witness','0014'+A,6),
+              row(3,'revived',0,'witness_v0_keyhash','later-witness','0014'+A)]
+        self.insert(rows);store.initialize_source_seed(self.conn,20,self.hashes[20])
+        self.assertFalse(store.bootstrap_step(self.conn,limit=1));retired_before=self.tuple_identity()
+        self.assertFalse(store.bootstrap_step(self.conn,limit=1))
+        self.assertNotEqual(self.tuple_identity(),retired_before)
+        self.assertEqual(self.capture(),python_oracle(rows[:2],20,self.hashes))
+        for state in self.capture()[0].values():
+            self.assertEqual((state['balance_sats'],state['utxo_count'],state['first_disclosure_height']), (0,0,6))
+        self.assertTrue(store.bootstrap_step(self.conn,limit=1))
+        self.assertEqual(self.capture(),python_oracle(rows,20,self.hashes))
+        witness=self.capture()[0][(A,'P2WPKH')]
+        self.assertEqual((witness['utxo_count'],witness['display_group_id']),(1,'first-witness'))
+    def test_equal_height_candidate_retains_existing_hash_for_new_family(self):
+        rows=[row(1,'old',10,'pubkeyhash','first-key',pkh(A),8),
+              row(2,'same-height',20,'witness_v0_keyhash','first-witness','0014'+A,8)]
+        self.insert(rows);store.initialize_source_seed(self.conn,20,self.hashes[20])
+        self.assertFalse(store.bootstrap_step(self.conn,limit=1))
+        # Deliberately distinguish the stored and candidate hashes to exercise
+        # the existing equal-height tie rule. This is not a reorg fixture.
+        retained_hash='e'*64
+        with self.conn,self.conn.cursor() as q:
+            q.execute('UPDATE quantum_v2.disclosure SET exposed_hash=%s WHERE group_id=%s',(retained_hash,A))
+            q.execute('UPDATE quantum_v2.group_state SET first_disclosure_hash=%s WHERE group_id=%s',(retained_hash,A))
+        registry_before=self.disclosure_identity();retired_before=self.tuple_identity()
+        self.assertTrue(store.bootstrap_step(self.conn,limit=1))
+        self.assertEqual(self.disclosure_identity(),registry_before)
+        self.assertEqual(self.tuple_identity(),retired_before)
+        states,disclosures=python_oracle(rows,20,self.hashes)
+        for state in states.values():state['first_disclosure_hash']=retained_hash
+        disclosures[A]=(8,retained_hash)
+        self.assertEqual(self.capture(),(states,disclosures))
+    def test_missing_later_candidate_hash_is_not_hidden_by_earlier_registry(self):
+        rows=[row(1,'old',10,'pubkeyhash','first-key',pkh(A),4),
+              row(2,'later',20,'witness_v0_keyhash','first-witness','0014'+A,8)]
+        self.insert(rows);store.initialize_source_seed(self.conn,20,self.hashes[20])
+        self.assertFalse(store.bootstrap_step(self.conn,limit=1))
+        before=self.capture();cursor_before=store.projection_status(self.conn)['cursors']
+        with self.conn,self.conn.cursor() as q:q.execute('DELETE FROM blockheader WHERE blockheight=8')
+        with self.assertRaisesRegex(store.SourceNotReady,'Missing disclosure block provenance'):
+            store.bootstrap_step(self.conn,limit=1)
+        self.assertEqual(self.capture(),before)
+        self.assertEqual(store.projection_status(self.conn)['cursors'],cursor_before)
+    def test_failure_between_registry_and_family_writes_rolls_back_and_retries(self):
+        rows=[row(1,'old',10,'pubkeyhash','first-key',pkh(A),18),
+              row(2,'earlier',20,'witness_v0_keyhash','first-witness','0014'+A,6)]
+        self.insert(rows);store.initialize_source_seed(self.conn,20,self.hashes[20])
+        self.assertFalse(store.bootstrap_step(self.conn,limit=1))
+        before=self.capture();cursor_before=store.projection_status(self.conn)['cursors']
+        registry_before=self.disclosure_identity();retired_before=self.tuple_identity();observed=[]
+        transaction=store.transaction
+        class InterruptedCursor:
+            def __init__(wrapped,cur):wrapped.cur=cur
+            def __getattr__(wrapped,name):return getattr(wrapped.cur,name)
+            def execute(wrapped,query,params=None):
+                if isinstance(query,str) and query.lstrip().startswith('INSERT INTO quantum_v2.group_state'):
+                    wrapped.cur.execute('SELECT exposed_height,exposed_hash FROM quantum_v2.disclosure WHERE group_id=%s',(A,))
+                    observed.append(dict(wrapped.cur.fetchone()))
+                    self.assertEqual(observed,[{'exposed_height':6,'exposed_hash':self.hashes[6]}])
+                    wrapped.cur.execute('SELECT first_disclosure_height FROM quantum_v2.group_state WHERE group_id=%s',(A,))
+                    self.assertEqual(wrapped.cur.fetchone()['first_disclosure_height'],18)
+                    raise store.StoreError('Fixture interruption between registry and family writes')
+                return wrapped.cur.execute(query,params)
+        @contextmanager
+        def interrupted_transaction(*args,**kwargs):
+            with transaction(*args,**kwargs) as cur:yield InterruptedCursor(cur)
+        with mock.patch.object(store,'transaction',interrupted_transaction), \
+             self.assertRaisesRegex(store.StoreError,'Fixture interruption between'):
+            store.bootstrap_step(self.conn,limit=1)
+        self.assertEqual(len(observed),1)
+        self.assertEqual(self.capture(),before);self.assertEqual(self.disclosure_identity(),registry_before)
+        self.assertEqual(self.tuple_identity(),retired_before)
+        self.assertEqual(store.projection_status(self.conn)['cursors'],cursor_before)
+        self.assertTrue(store.bootstrap_step(self.conn,limit=1))
+        self.assertEqual(self.capture(),python_oracle(rows,20,self.hashes))
     def test_unchanged_historical_family_does_not_rewrite_tuple_but_advances_cursor(self):
         rows=[row(1,'a',10,'pubkeyhash','first',pkh(A),5),
               row(1,'b',20,'pubkeyhash','second',pkh(A),15),
