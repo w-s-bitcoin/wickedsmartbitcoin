@@ -94,11 +94,14 @@
         if (!initialWaitSettled || retryInFlight) return;
         if (image?.naturalWidth) {
           setPreviewState(true);
+          window.WSBPreviewShared?.markReady?.({ filename: 'bitcoin_net_worth.png', available: true });
           return;
         }
         retryInFlight = true;
         try {
-          await waitForIcon({ refresh: true });
+          if (await waitForIcon({ refresh: true })) {
+            window.WSBPreviewShared?.markReady?.({ filename: 'bitcoin_net_worth.png', available: true });
+          }
         } finally {
           retryInFlight = false;
         }

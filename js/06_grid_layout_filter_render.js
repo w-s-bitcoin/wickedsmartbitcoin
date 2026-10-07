@@ -64,7 +64,7 @@ const DASHBOARD_CARD_PREVIEW_SPECS = Object.freeze({
   },
 });
 
-const DASHBOARD_CARD_PREVIEW_CACHE_VERSION = '20260825-stage5-atomic-v1';
+const DASHBOARD_CARD_PREVIEW_CACHE_VERSION = '20261007-card-fallback-v1';
 const DASHBOARD_PREVIEW_ROOT_MARGIN = '720px 0px';
 const DASHBOARD_PREVIEW_LOAD_STAGGER_MS = 140;
 let dashboardPreviewResizeObserver = null;
@@ -651,7 +651,7 @@ function startDashboardPreviewReadyPolling(card) {
     try {
       const doc = iframe.contentDocument;
       if (doc?.documentElement?.dataset?.previewReady === '1') {
-        markGridCardReady(card);
+        setDashboardPreviewAvailability(card, doc.documentElement.dataset.previewAvailable === '1');
         return;
       }
     } catch (_) {
@@ -662,6 +662,13 @@ function startDashboardPreviewReadyPolling(card) {
     }
   };
   window.setTimeout(poll, 0);
+}
+
+function setDashboardPreviewAvailability(card, available) {
+  if (!card?.preview || !card.wrapper) return;
+  card.preview.available = available === true;
+  card.wrapper.classList.toggle('preview-live', card.preview.available);
+  if (card.preview.available) markGridCardReady(card);
 }
 
 function setupDashboardPreviewReadyListener() {
@@ -675,7 +682,7 @@ function setupDashboardPreviewReadyListener() {
       const preview = card?.preview;
       if (!preview?.iframe || preview.iframe.contentWindow !== event.source) continue;
       if (filename && String(preview.filename || '').trim().toLowerCase() !== filename) continue;
-      markGridCardReady(card);
+      setDashboardPreviewAvailability(card, event.data.available === true);
       return;
     }
   });
@@ -796,6 +803,9 @@ function buildGridOnce(){
 
     if (previewSpec) {
       chartWrapper.classList.add('dashboard-preview-wrapper');
+      img.classList.add('dashboard-preview-poster');
+      img.dataset.src = `${getPageBasePath()}/assets/card_fallbacks/${filename}`;
+      img.alt = `Saved preview of ${title || filename}`;
       const viewport = document.createElement('div');
       viewport.className = 'dashboard-preview-viewport';
       const scene = document.createElement('div');
@@ -863,7 +873,12 @@ function buildGridOnce(){
       scene.appendChild(iframe);
       viewport.appendChild(scene);
       chartWrapper.appendChild(spinner);
+      chartWrapper.appendChild(img);
       chartWrapper.appendChild(viewport);
+      const savedBadge = document.createElement('span');
+      savedBadge.className = 'dashboard-preview-saved-badge';
+      savedBadge.textContent = 'Saved preview';
+      chartWrapper.appendChild(savedBadge);
 
       container.dataset.dashboardPreview = '1';
       cardByFilename.set(_cardKey(filename), {

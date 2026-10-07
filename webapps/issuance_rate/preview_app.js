@@ -259,7 +259,7 @@
     const shared = window.WSBPreviewShared;
     if (!shared?.createDataRefresher) {
       renderInitialFallback();
-      shared?.markReady?.({ filename: "issuance_rate.png" });
+      shared?.markReady?.({ filename: "issuance_rate.png", available: false });
       return;
     }
     shared.initThemeSync({ onThemeChanged: () => requestPresent("theme") });

@@ -376,6 +376,6 @@
   } catch (error) {
     console.error(error);
     if (document.visibilityState === 'visible') render();
-    window.WSBPreviewShared?.markReady?.({ filename: 'quantum_exposure.png' });
+    window.WSBPreviewShared?.markReady?.({ filename: 'quantum_exposure.png', available: false });
   }
 }());

@@ -341,7 +341,7 @@
     const shared = window.WSBPreviewShared;
     if (!shared?.createDataRefresher) {
       renderFallback();
-      shared?.markReady?.({ filename: "dca_comparison.png" });
+      shared?.markReady?.({ filename: "dca_comparison.png", available: false });
       return;
     }
     shared.initThemeSync({ onThemeChanged: () => requestPresent("theme") });

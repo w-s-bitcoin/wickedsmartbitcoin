@@ -267,6 +267,6 @@
   } catch (error) {
     console.error(error);
     if (document.visibilityState === 'visible') render();
-    window.WSBPreviewShared?.markReady?.({ filename: 'bitcoin_dominance.png' });
+    window.WSBPreviewShared?.markReady?.({ filename: 'bitcoin_dominance.png', available: false });
   }
 }());

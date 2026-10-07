@@ -104,6 +104,12 @@ rg -n 'localStandaloneBySlug|DASHBOARD_CARD_PREVIEW_SPECS' js webapps --glob '*.
 
 The homepage, preview frames, and modal dashboards have separate lifecycles. `06_grid_layout_filter_render.js` manages preview iframe creation, visibility, and sizing. `09_bootstrap_fetch_init_global_exports.js` coordinates bootstrap and wake behavior. A normal data refresh must not reload a preview frame or navigate an open modal.
 
+Each homepage card has a saved image in `assets/card_fallbacks/`. The card shows
+that image until its preview iframe paints a validated generation, and keeps it
+visible through a failed cold start. The iframe can replace it after an in-place
+recovery. Update the saved image when changing a preview's visual design; it is
+an illustrative fallback, not a current data publication.
+
 Dashboard refresh uses `webapps/shared/webapp_data_auto_refresh.js`. Adapters prepare and validate a detached generation, the controller rechecks publication markers, and only then does the adapter install it. Existing data and user controls stay intact if fetching or validation fails. Hidden dashboards can install complete data and defer presentation until visible.
 
 Live previews use `webapps/shared/preview_shared.js` and its `createDataRefresher()` adapter (`prepare`, `commit`, `present`). Static previews use `initStaticPreview()`. Resize and theme events render cached data; they do not initiate payload fetches. Marker/payload semantics are documented in the webapps guide and tested by the publication and browser regression scripts under `scripts/`.

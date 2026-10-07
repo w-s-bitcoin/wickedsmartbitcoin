@@ -327,7 +327,9 @@
         if (!initialWaitSettled || assetRetryInFlight || stage?.classList.contains('is-ready')) return;
         assetRetryInFlight = true;
         try {
-          await startWhenComplete({ refresh: true });
+          if (await startWhenComplete({ refresh: true })) {
+            window.WSBPreviewShared?.markReady?.({ filename: 'casascius_explorer.png', available: true });
+          }
         } finally {
           assetRetryInFlight = false;
         }

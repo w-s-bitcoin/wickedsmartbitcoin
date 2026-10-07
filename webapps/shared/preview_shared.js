@@ -108,6 +108,7 @@
     let destroyed = false;
     let forceApplyCurrentGeneration = false;
     let initialSettled = false;
+    let hasPresented = false;
     let pausedForPageHide = false;
     let presentationPending = false;
     let retryAttempt = 0;
@@ -141,7 +142,7 @@
           onInitialError(error);
         } catch (_handlerError) {}
       }
-      markReady({ filename });
+      markReady({ filename, available: hasPresented });
     }
 
     function clearScheduledCheck() {
@@ -230,6 +231,10 @@
       }
       if (result === false) return false;
       presentationPending = false;
+      if (!hasPresented && acceptedSignature !== null) {
+        hasPresented = true;
+        markReady({ filename, available: true });
+      }
       dispatchStatus("presented", { reason });
       return true;
     }
@@ -488,17 +493,22 @@
       themeKey: options.themeKey,
       onThemeChanged: options.onThemeChanged,
     });
+    let available = true;
     return Promise.resolve()
       .then(ready)
+      .then((result) => { available = result !== false; })
       .catch((error) => {
+        available = false;
         if (typeof options.onError === "function") options.onError(error);
         else console.error(error);
       })
-      .finally(() => markReady({ filename }));
+      .finally(() => markReady({ filename, available }));
   }
 
   function markReady(options = {}) {
     const filename = String(options.filename || "").trim();
+    const available = options.available !== false;
+    document.documentElement.dataset.previewAvailable = available ? "1" : "0";
     const delayFrames = Math.max(1, Number(options.frames) || 2);
     const repeatCount = Math.max(1, Number(options.repeatCount) || 5);
     const repeatMs = Math.max(100, Number(options.repeatMs) || 500);
@@ -516,6 +526,7 @@
           {
             type: "wsb-preview-ready",
             filename,
+            available: document.documentElement.dataset.previewAvailable === "1",
           },
           targetOrigin
         );
