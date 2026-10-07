@@ -89,6 +89,13 @@ A rejected push
 causes one reconciliation and retry using the retained outputs. Changes in this
 area must preserve both concurrent source-code updates and generated data.
 
+If a prior data commit was amended upstream while production has a newer local
+data commit, either producer may merge those sibling commits before staging.
+This recovery is limited to clean `main` tips with identical changed data paths
+and a later local publication timestamp. The merge keeps the newer complete
+local generation and records upstream ancestry; any other divergence still
+blocks the run for inspection.
+
 After success, `scripts/sync_main_data_to_dev.py` creates a data snapshot commit
 on `dev/work`. It preserves unrelated development edits and defers overlapping
 data edits. It does not merge source-code changes from main.

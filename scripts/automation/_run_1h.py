@@ -40,6 +40,10 @@ except ImportError:
     pm = None
 
 AUTOMATION_DIR = Path(__file__).resolve().parent
+if str(AUTOMATION_DIR) not in sys.path:
+    sys.path.insert(0, str(AUTOMATION_DIR))
+from _git_sync_guard import can_stage_across_rewritten_data_tip, merge_rewritten_data_tip
+
 DEFAULT_MAIN_DIR = Path("/Users/wicked/Projects/animations")
 DEFAULT_ENV_PATH = DEFAULT_MAIN_DIR / ".env"
 ENV_PATH = Path(os.getenv("ANIMATIONS_ENV_FILE", str(DEFAULT_ENV_PATH))).expanduser()
@@ -283,6 +287,13 @@ def git_pull_rebase(repo_dir: Path) -> bool:
             run(["git", "merge", "--ff-only", f"origin/{branch}"], cwd=str(repo_dir))
             print(f"✅ Fast-forwarded to origin/{branch}")
             return True
+
+        if can_stage_across_rewritten_data_tip(repo_dir, branch, ahead, behind):
+            if merge_rewritten_data_tip(repo_dir):
+                print("ℹ️ Merged rewritten automation tip; retained the newer local data generation.")
+                return True
+            print("⛔ Could not merge rewritten automation tip; skipping data update.")
+            return False
 
         local_only = run(
             ["git", "log", "--format=%s", f"origin/{branch}..HEAD"],
