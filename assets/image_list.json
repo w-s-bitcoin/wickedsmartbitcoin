@@ -87,7 +87,7 @@
     "filename": "quantum_exposure.png",
     "title": "Bitcoin Quantum Exposure",
     "archived": true,
-    "description": "Archived research dashboard through block 961,000. Explore legacy quantum-exposure snapshots and audit findings on accounting and methodology limitations; the replacement rebuild was stopped before validation and publication.",
+    "description": "Discontinued research dashboard. The last published legacy snapshot is block 961,000; no new Quantum snapshots are scheduled. An audit found accounting and methodology limitations, and no validated replacement was published. Historical views remain available with those limitations.",
     "latest_x": "https://x.com/w_s_bitcoin/status/2041958658112622600",
     "latest_youtube": "https://youtu.be/_Qxm70pFM4E"
   }

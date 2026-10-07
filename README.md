@@ -14,12 +14,8 @@ The detailed frontend guides are [js/js_README.md](js/js_README.md) and
 **Quantum Exposure is deprecated and archived — 2026-10-06.** The dashboard
 remains in the homepage grid with an Archived badge and at its direct URL,
 with the frozen legacy snapshot at block **961000** and the
-[archived findings](quantum_exposure_findings.html). It is no longer updated by
-block ingestion. The Quantum scheduler is not installed. The incomplete v2
-projection stopped at anchor **962000** with
-**262,192,306** processed occurrences and creation cursor height **378478**; no
-validated v2 snapshot was published. Its implementation, tests, and runbook are
-retained for historical reference only.
+[archived findings](quantum_exposure_findings.html). No new Quantum snapshots
+are scheduled, and the Quantum scheduler is not installed.
 
 ## Run locally
 
