@@ -291,6 +291,6 @@
   } catch (error) {
     console.error(error);
     if (document.visibilityState === 'visible') render();
-    window.WSBPreviewShared?.markReady?.({ filename: 'node_count.png' });
+    window.WSBPreviewShared?.markReady?.({ filename: 'node_count.png', available: false });
   }
 }());

@@ -346,6 +346,6 @@
   } catch (error) {
     console.error(error);
     if (document.visibilityState === "visible") render();
-    window.WSBPreviewShared?.markReady?.({ filename: "bip110_signaling.png" });
+    window.WSBPreviewShared?.markReady?.({ filename: "bip110_signaling.png", available: false });
   }
 }());

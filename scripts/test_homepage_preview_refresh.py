@@ -1336,6 +1336,11 @@ def test_homepage_integration(cdp: CdpSocket, server_port: int):
         timeout=90,
         description="all homepage previews ready",
     )
+    if not cdp.evaluate(
+        "Array.from(document.querySelectorAll('.dashboard-preview-poster')).length === 12 "
+        "&& Array.from(document.querySelectorAll('.dashboard-preview-poster')).every((poster) => poster.naturalWidth > 0)"
+    ):
+        raise AssertionError("A homepage card is missing its saved visual fallback")
     test_casascius_card_hover(cdp)
 
     setup = cdp.evaluate(
@@ -1462,6 +1467,65 @@ def test_homepage_integration(cdp: CdpSocket, server_port: int):
         raise AssertionError(f"Homepage preview frames were not stable: {bad_frames!r}")
 
 
+def test_homepage_saved_fallback(cdp: CdpSocket, server_port: int):
+    """A cold data mismatch shows a saved chart until the iframe recovers."""
+    cdp.command("Network.setBlockedURLs", {
+        "urls": ["*issuance_rate/webapp_data/published_generation.json*"],
+    })
+    cdp.command("Page.navigate", {
+        "url": f"http://127.0.0.1:{server_port}/index.html?stage5_saved_fallback=1",
+    })
+    wait_for(
+        lambda: cdp.evaluate(
+            "typeof loadDashboardPreviewFrame === 'function' "
+            "&& !!document.querySelector('.dashboard-preview-frame[data-filename=\"issuance_rate.png\"]')"
+        ), description="homepage saved fallback card",
+    )
+    cdp.evaluate("""(() => {
+      const card = cardByFilename.get('issuance_rate.png');
+      card.container.scrollIntoView({ block: 'center' });
+      initLazyImages();
+      loadDashboardPreviewFrame(card);
+      return true;
+    })()""")
+
+    state = """(() => {
+      const frame = document.querySelector('.dashboard-preview-frame[data-filename="issuance_rate.png"]');
+      const wrapper = frame.closest('.chart-wrapper');
+      const poster = wrapper.querySelector('.dashboard-preview-poster');
+      return {
+        available: frame.contentDocument?.documentElement?.dataset.previewAvailable || '',
+        fetchError: frame.contentWindow?.__wsbStage5PreviewTest?.events?.some((event) => event.status === 'error') || false,
+        ready: wrapper.classList.contains('card-ready'),
+        live: wrapper.classList.contains('preview-live'),
+        posterWidth: poster.naturalWidth,
+        posterOpacity: getComputedStyle(poster).opacity,
+        frameOpacity: getComputedStyle(wrapper.querySelector('.dashboard-preview-viewport')).opacity,
+      };
+    })()"""
+    try:
+        failed = wait_for(
+            lambda: (value if (value := cdp.evaluate(state))["available"] == "0" and value["ready"] and value["fetchError"] else None),
+            description="saved chart after cold publication failure",
+        )
+    except TimeoutError as error:
+        raise AssertionError(f"No saved fallback appeared: {cdp.evaluate(state)!r}") from error
+    if failed["live"] or failed["posterWidth"] == 0 or failed["posterOpacity"] != "1" or failed["frameOpacity"] != "0":
+        raise AssertionError(f"The failed preview did not leave a visible saved chart: {failed!r}")
+    cdp.command("Network.setBlockedURLs", {"urls": []})
+    cdp.evaluate("""(() => {
+      const child = document.querySelector('.dashboard-preview-frame[data-filename="issuance_rate.png"]').contentWindow;
+      child.dispatchEvent(new Event('online'));
+      return true;
+    })()""")
+    recovered = wait_for(
+        lambda: (value if (value := cdp.evaluate(state))["available"] == "1" and value["live"] else None),
+        description="live chart restored after publication recovery",
+    )
+    if recovered["frameOpacity"] != "1":
+        raise AssertionError(f"The recovered live preview is not visible: {recovered!r}")
+
+
 def validate_snapshot(snapshot: dict[str, bytes], targets: set[str]):
     required = set()
     for slug, spec in PERIODIC_PREVIEWS.items():
@@ -1562,6 +1626,9 @@ def main():
                 print("Testing homepage preview lifecycle integration...", flush=True)
                 test_homepage_integration(cdp, server_port)
                 print("Passed: homepage integration", flush=True)
+                print("Testing homepage saved chart fallback...", flush=True)
+                test_homepage_saved_fallback(cdp, server_port)
+                print("Passed: homepage saved chart fallback", flush=True)
         finally:
             chrome.terminate()
             try:

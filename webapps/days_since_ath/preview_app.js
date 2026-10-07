@@ -284,7 +284,7 @@
     });
     if (!previewRefresher) {
       renderInitialFallback();
-      window.WSBPreviewShared?.markReady?.({ filename: "days_since_ath.png" });
+      window.WSBPreviewShared?.markReady?.({ filename: "days_since_ath.png", available: false });
       return;
     }
     window.addEventListener("resize", () => previewRefresher.requestPresent("resize"));
@@ -313,6 +313,6 @@
   } catch (error) {
     console.error(error);
     renderInitialFallback();
-    window.WSBPreviewShared?.markReady?.({ filename: "days_since_ath.png" });
+    window.WSBPreviewShared?.markReady?.({ filename: "days_since_ath.png", available: false });
   }
 }());

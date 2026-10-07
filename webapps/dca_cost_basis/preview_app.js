@@ -368,7 +368,7 @@
     const shared = window.WSBPreviewShared;
     if (!shared?.createDataRefresher) {
       renderCardPreviewFromRows([]);
-      shared?.markReady?.({ filename: "dca_cost_basis.png" });
+      shared?.markReady?.({ filename: "dca_cost_basis.png", available: false });
       return;
     }
     shared.initThemeSync({ onThemeChanged: () => requestPresent("theme") });

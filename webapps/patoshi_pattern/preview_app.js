@@ -149,6 +149,7 @@
         delete canvas.dataset.previewError;
         canvas.dataset.previewState = "installed";
         requestPresentation();
+        if (refresh) window.WSBPreviewShared?.markReady?.({ filename: "patoshi_pattern.png", available: true });
         return true;
       } finally {
         window.clearTimeout(timer);

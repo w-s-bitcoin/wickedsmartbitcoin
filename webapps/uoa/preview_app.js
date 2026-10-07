@@ -293,7 +293,7 @@
     const shared = window.WSBPreviewShared;
     if (!shared?.createDataRefresher) {
       renderInitialFallback();
-      shared?.markReady?.({ filename: "uoa.png" });
+      shared?.markReady?.({ filename: "uoa.png", available: false });
       return;
     }
     shared.initThemeSync({ onThemeChanged: () => requestPresent("theme") });
