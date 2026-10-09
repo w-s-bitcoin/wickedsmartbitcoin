@@ -351,6 +351,125 @@ def check_dated_crypto_prices(browser):
     """)
 
 
+def check_historical_chart_manual_override(browser):
+    browser.check("historical market filters and manual quote preserve today's chart date", r"""
+      const prior = { form: formState, snapshots, date: editingSnapshotDate, prices: historicalPrices };
+      networthMarketFeed.stop();
+      try {
+        const today = mmddyy(new Date());
+        const past = new Date();
+        past.setDate(past.getDate() - 1);
+        const yesterday = mmddyy(past);
+        const holding = (value) => ({ name: 'History shares fixture', value, unit: 'MSTR' });
+        snapshots = [
+          { date: yesterday, btcusd: 100000, assets: [holding(10)], liabilities: [], unit_prices: { MSTR: 100 } },
+          { date: today, btcusd: 100000, assets: [holding(20)], liabilities: [], unit_prices: { MSTR: 320 } },
+        ];
+        editingSnapshotDate = yesterday;
+        formState = { ...freshFormState('live'), btcusd: 100000, manualBtcusd: 200000, useManualBtcusd: true,
+          assets: [{ name: 'History shares fixture', amount: 10, unit: 'MSTR' },
+            { name: 'Cash fixture', amount: 50, unit: 'USD' }], liabilities: [] };
+        networthMarketFeed.setActiveCodes(['MSTR']);
+        await networthMarketFeed.refresh();
+        const selected = normalizedSnapshot(100000);
+        const filtered = applyExclusionFilters(selected, new Set(['Cash fixture']), new Set());
+        if (selected.date !== yesterday || filtered.totals.assets_usd !== 1000)
+          return `historical filter changed the valuation date: ${JSON.stringify(filtered)}`;
+        for (const prices of [{}, { [yesterday]: 100000, [today]: 100000 }]) {
+          historicalPrices = prices;
+          const rows = snapshotsForCharts(200000);
+          const current = rows.filter(row => row.date === today);
+          if (current.length !== 1 || current[0].totals.assets_usd !== 6400 ||
+              new Set(rows.map(row => row.date)).size !== rows.length)
+            return `historical editor replaced today's chart: ${JSON.stringify(rows)}`;
+          editingSnapshotDate = today;
+          formState.assets = [{ name: 'Today shares fixture', amount: 30, unit: 'MSTR' }];
+          const live = snapshotsForCharts(200000).find(row => row.date === today);
+          if (live?.totals.assets_usd !== 9600)
+            return `today's manual-quote chart stopped using the editor: ${JSON.stringify(live)}`;
+          editingSnapshotDate = yesterday;
+          formState.assets = [{ name: 'History shares fixture', amount: 10, unit: 'MSTR' }];
+        }
+      } finally {
+        formState = prior.form;
+        snapshots = prior.snapshots;
+        editingSnapshotDate = prior.date;
+        historicalPrices = prior.prices;
+        networthMarketFeed.start();
+        renderAll();
+      }
+    """)
+
+
+def check_encrypted_cache_order(browser):
+    browser.check("encrypted quote saves cannot overwrite a newer save or another session", r"""
+      const prior = { form: formState, snapshots, mode: currentMode, file: liveHistoryFile,
+        password: liveEncryptionPassword, enabled: liveEncryptionEnabled, locked: liveAccessLocked,
+        date: editingSnapshotDate, storage: { ...localStorage }, encrypt: encryptText };
+      const pending = [];
+      const flush = async () => { await Promise.resolve(); await Promise.resolve(); };
+      networthMarketFeed.stop();
+      encryptText = (plain) => new Promise(resolve => pending.push(() => resolve(`sealed:${plain}`)));
+      try {
+        currentMode = 'live';
+        liveHistoryFile = 'fixture.enc';
+        liveEncryptionEnabled = true;
+        liveEncryptionPassword = 'fixture-password';
+        liveAccessLocked = false;
+        for (const key of [STORE_KEY_LIVE_ENC, FORM_KEY_LIVE_ENC]) {
+          cacheEncryptedLiveValue(key, { version: 1 });
+          const first = pending.shift();
+          cacheEncryptedLiveValue(key, { version: 2 });
+          const second = pending.shift();
+          second(); await flush(); first(); await flush();
+          if (localStorage.getItem(key) !== 'sealed:{"version":2}')
+            return `older encryption replaced newer ${key}`;
+        }
+        cacheEncryptedLiveValue(STORE_KEY_LIVE_ENC, { stale: 'locked' });
+        const locked = pending.shift();
+        setLiveAccessLocked();
+        localStorage.removeItem(STORE_KEY_LIVE_ENC);
+        locked(); await flush();
+        if (localStorage.getItem(STORE_KEY_LIVE_ENC) !== null) return 'pending save returned after lock';
+        liveAccessLocked = false;
+        liveHistoryFile = 'fixture.enc';
+        liveEncryptionPassword = 'fixture-password';
+        cacheEncryptedLiveValue(STORE_KEY_LIVE_ENC, { stale: 'reset' });
+        const reset = pending.shift();
+        resetLiveDataToEmpty();
+        reset(); await flush();
+        if (localStorage.getItem(STORE_KEY_LIVE_ENC) !== null) return 'pending save returned after clear';
+        liveHistoryFile = 'fixture.enc';
+        liveEncryptionEnabled = true;
+        liveEncryptionPassword = 'fixture-password';
+        cacheEncryptedLiveValue(STORE_KEY_LIVE_ENC, { stale: 'password' });
+        const password = pending.shift();
+        liveEncryptionPassword = 'new-fixture-password';
+        password(); await flush();
+        if (localStorage.getItem(STORE_KEY_LIVE_ENC) !== null) return 'old password cache returned';
+        cacheEncryptedLiveValue(STORE_KEY_LIVE_ENC, { stale: 'import' });
+        const imported = pending.shift();
+        const csv = snapshotsToCsv([{ date: mmddyy(new Date()), btcusd: 100000,
+          assets: [{ name: 'Imported cash fixture', value: 42, unit: 'USD' }], liabilities: [] }]);
+        await importLiveFileFromLocal(new File([csv], 'replacement.csv', { type: 'text/csv' }));
+        imported(); await flush();
+        if (localStorage.getItem(STORE_KEY_LIVE_ENC) !== null || snapshots[0]?.assets[0]?.value !== 42)
+          return 'pending encrypted save overwrote an imported file';
+      } finally {
+        encryptText = prior.encrypt;
+        liveCacheSession++;
+        formState = prior.form; snapshots = prior.snapshots; currentMode = prior.mode;
+        liveHistoryFile = prior.file; liveEncryptionPassword = prior.password;
+        liveEncryptionEnabled = prior.enabled; liveAccessLocked = prior.locked;
+        editingSnapshotDate = prior.date;
+        localStorage.clear();
+        for (const [key, value] of Object.entries(prior.storage)) localStorage.setItem(key, value);
+        networthMarketFeed.start();
+        renderAll();
+      }
+    """)
+
+
 def check_mobile(browser):
     browser.cdp.command("Emulation.setDeviceMetricsOverride", {
         "width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": True,
@@ -479,6 +598,8 @@ def main():
             check_etfs(browser)
             check_existing_conversions(browser)
             check_dated_crypto_prices(browser)
+            check_historical_chart_manual_override(browser)
+            check_encrypted_cache_order(browser)
             cdp.command("Page.navigate", {"url": dashboard_url})
             wait_for(lambda: browser.evaluate("""
               document.querySelector('#assetsRows select')?.value === 'MSTR'

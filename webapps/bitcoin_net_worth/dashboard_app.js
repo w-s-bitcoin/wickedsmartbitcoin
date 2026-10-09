@@ -163,6 +163,8 @@ let liveHistoryFile = localStorage.getItem(LIVE_HISTORY_FILE_KEY)
   || localStorage.getItem(LIVE_LAST_VIEWED_FILE_KEY)
   || "my_history.csv";
 let liveAccessLocked = false;
+let liveCacheSession = 0;
+const encryptedCacheRevisions = new Map();
 let chartRange = { startDate: null, endDate: null };
 let excludedAssets = new Set();
 let excludedLiabilities = new Set();
@@ -2602,6 +2604,7 @@ async function parseHistoryCsvWithLegacyPrompt(rawCsv, filename, { encrypted = f
 }
 
 function resetLiveDataToEmpty() {
+  liveCacheSession++;
   const prevBtcusd = formState.btcusd;
   const prevManualBtcusd = formState.manualBtcusd;
   const prevUseManual = formState.useManualBtcusd;
@@ -2638,6 +2641,7 @@ function resetLiveDataToEmpty() {
 }
 
 function forceDashboardToDemoMode() {
+  liveCacheSession++;
   currentMode = "demo";
   localStorage.setItem(MODE_KEY, currentMode);
   liveAccessLocked = false;
@@ -2855,6 +2859,7 @@ async function importLiveFileFromLocal(file) {
       parsedSnapshots = result.parsed;
     }
 
+    liveCacheSession++;
     snapshots = Array.isArray(parsedSnapshots)
       ? parsedSnapshots.slice().sort((a, b) => parseMMDDYY(b.date) - parseMMDDYY(a.date))
       : [];
@@ -2901,6 +2906,7 @@ async function importLiveFileFromLocal(file) {
 }
 
 function setLiveAccessLocked() {
+  liveCacheSession++;
   const prevBtcusd = formState.btcusd;
   const prevManualBtcusd = formState.manualBtcusd;
   const prevUseManual = formState.useManualBtcusd;
@@ -2942,12 +2948,24 @@ function loadForm() {
   }
 }
 
+function cacheEncryptedLiveValue(key, value) {
+  const revision = (encryptedCacheRevisions.get(key) || 0) + 1;
+  encryptedCacheRevisions.set(key, revision);
+  const session = liveCacheSession;
+  const password = liveEncryptionPassword;
+  const filename = liveHistoryFile;
+  encryptText(JSON.stringify(value), password).then((enc) => {
+    if (encryptedCacheRevisions.get(key) !== revision || liveCacheSession !== session
+        || currentMode !== "live" || liveAccessLocked || !liveEncryptionEnabled
+        || liveEncryptionPassword !== password || liveHistoryFile !== filename) return;
+    localStorage.setItem(key, enc);
+  }).catch(() => {});
+}
+
 function saveForm() {
   if (currentMode === "live" && liveEncryptionEnabled && liveEncryptionPassword) {
     // Fire-and-forget async encrypt save
-    encryptText(JSON.stringify(formState), liveEncryptionPassword)
-      .then((enc) => localStorage.setItem(FORM_KEY_LIVE_ENC, enc))
-      .catch(() => {});
+    cacheEncryptedLiveValue(FORM_KEY_LIVE_ENC, formState);
     return;
   }
   const key = currentMode === "demo" ? FORM_KEY_DEMO : FORM_KEY_LIVE;
@@ -2972,9 +2990,7 @@ function saveSnapshots() {
     if (liveAccessLocked) return;
     // Web version: always save to localStorage (no local server available)
     if (liveEncryptionEnabled && liveEncryptionPassword) {
-      encryptText(JSON.stringify(snapshots), liveEncryptionPassword)
-        .then((enc) => localStorage.setItem(STORE_KEY_LIVE_ENC, enc))
-        .catch(() => {});
+      cacheEncryptedLiveValue(STORE_KEY_LIVE_ENC, snapshots);
     } else {
       const sorted = snapshots.slice().sort((a, b) => parseMMDDYY(b.date) - parseMMDDYY(a.date));
       localStorage.setItem(STORE_KEY_LIVE, JSON.stringify(sorted));
@@ -4711,7 +4727,7 @@ function snapshotsForCharts(displayPrice, exclAssets, exclLiabs) {
         ? [...sorted, syntheticToday].sort((a, b) => parseMMDDYY(a.date) - parseMMDDYY(b.date))
         : sorted;
     const list = baseList.map((s) => applyExclusionFilters({ ...s, totals: computeTotals(s.assets, s.liabilities, s.btcusd, s.date) }, exclAssets, exclLiabs));
-    if (Number.isFinite(displayPrice) && displayPrice > 0 && isManualOverrideActive()) {
+    if (editingSnapshotDate === today && Number.isFinite(displayPrice) && displayPrice > 0 && isManualOverrideActive()) {
       const live = applyExclusionFilters(normalizedSnapshot(displayPrice), exclAssets, exclLiabs, displayPrice);
       const idx = list.findIndex((s) => s.date === today);
       if (idx >= 0) list[idx] = live;
@@ -4759,7 +4775,7 @@ function snapshotsForCharts(displayPrice, exclAssets, exclLiabs) {
     if (price <= 0) { cur.setDate(cur.getDate() + 1); continue; }
 
     let totals;
-    if (dateKey === today && isManualOverrideActive()) {
+    if (dateKey === today && editingSnapshotDate === today && isManualOverrideActive()) {
       const live = applyExclusionFilters(normalizedSnapshot(price), exclAssets, exclLiabs, price);
       totals = live.totals;
     } else {
@@ -6023,6 +6039,7 @@ async function enableLiveEncryption() {
   const pw = await promptForPassword({ confirm: true, message: "Set an encryption password for live data." });
   if (!pw) { el.liveEncryptionEnabled.checked = false; return; }
 
+  liveCacheSession++;
   try {
     const sorted = snapshots.slice().sort((a, b) => parseMMDDYY(b.date) - parseMMDDYY(a.date));
     const encSnapshots = await encryptText(JSON.stringify(sorted), pw);
@@ -6048,6 +6065,7 @@ async function enableLiveEncryption() {
 async function disableLiveEncryption() {
   const hasLocalEnc = Boolean(localStorage.getItem(STORE_KEY_LIVE_ENC));
   if (!hasLocalEnc) {
+    liveCacheSession++;
     el.liveEncryptionEnabled.checked = false;
     liveEncryptionEnabled = false;
     liveEncryptionPassword = null;
@@ -6092,6 +6110,7 @@ async function disableLiveEncryption() {
     return;
   }
 
+  liveCacheSession++;
   snapshots = decryptedSnapshots;
   if (decryptedFormState) formState = decryptedFormState;
   liveEncryptionPassword = pw;
@@ -6108,6 +6127,7 @@ async function disableLiveEncryption() {
 async function switchMode(newMode) {
   if (newMode === currentMode) return;
 
+  liveCacheSession++;
   currentMode = newMode;
   localStorage.setItem(MODE_KEY, currentMode);
   hoveredSnapshotDate = null;
