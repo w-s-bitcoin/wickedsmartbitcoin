@@ -153,6 +153,7 @@ const collapsedUnitCategories = new Set();
 const collapsedUnitSearchCategories = new Set();
 let networthMarketFeed = null;
 let marketRequestKey = "";
+let marketQuoteStatusDismissed = false;
 let editingSnapshotDate = mmddyy(new Date());
 let hasUnsavedAssetLiabilityChanges = false;
 let hoveredSnapshotDate = null;
@@ -1289,7 +1290,7 @@ function renderMarketQuoteStatus(snap, dateKey) {
       .filter((row) => Number(row.value ?? row.amount) !== 0).map((row) => normalizeUnit(row.unit))]);
   const missing = [...codes].filter((code) => usdPerUnit(code, snap.btcusd, dateKey) === null);
   const marketCodes = [...codes].filter(unitNeedsMarket);
-  status.hidden = !missing.length && !marketCodes.length;
+  status.hidden = marketQuoteStatusDismissed || (!missing.length && !marketCodes.length);
   status.replaceChildren();
   if (status.hidden) return;
   const description = document.createElement("span");
@@ -1335,6 +1336,17 @@ function renderMarketQuoteStatus(snap, dateKey) {
     });
     status.append(enter);
   }
+  const dismiss = document.createElement("button");
+  dismiss.type = "button";
+  dismiss.className = "market-quote-dismiss";
+  dismiss.setAttribute("aria-label", "Dismiss price status");
+  dismiss.title = "Dismiss price status";
+  dismiss.textContent = "×";
+  dismiss.addEventListener("click", () => {
+    marketQuoteStatusDismissed = true;
+    status.hidden = true;
+  });
+  status.append(dismiss);
 }
 
 function trackedStateSnapshot() {
