@@ -921,9 +921,14 @@ function configureUoaDropdown(kind) {
   let highlightedIndex = -1;
   const availableOptions = () => availableUoaUnits().filter((unit) => !isPrimary ? unit.code !== uoaSelections.primary : true);
   const selectedCode = () => isPrimary ? uoaSelections.primary : uoaSelections.secondary;
+  const positionMenu = () => {
+    window.WSBDashboardComponents.constrainFloatingMenuToViewport(menu, "--networth-menu-shift-x");
+  };
 
   const close = () => {
     dropdown.classList.remove("open");
+    menu.classList.remove("open");
+    menu.style.removeProperty("--networth-menu-shift-x");
     dropdown.setAttribute("aria-expanded", "false");
     menu.innerHTML = "";
     highlightedIndex = -1;
@@ -933,6 +938,7 @@ function configureUoaDropdown(kind) {
 
   const open = (query = "") => {
     dropdown.classList.add("open");
+    menu.classList.add("open");
     dropdown.setAttribute("aria-expanded", "true");
     renderOptions(query);
   };
@@ -982,6 +988,7 @@ function configureUoaDropdown(kind) {
       });
       menu.appendChild(button);
     });
+    positionMenu();
   };
 
   const moveHighlight = (delta) => {
@@ -1051,6 +1058,8 @@ function configureUoaDropdown(kind) {
   });
 
   select.addEventListener("change", () => selectCode(select.value));
+  window.addEventListener("resize", positionMenu);
+  new ResizeObserver(positionMenu).observe(dropdown);
 }
 
 function initUoaControls() {

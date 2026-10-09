@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Fixture-driven Net Worth unit settings, share quantities, and valuation checks.
+"""Fixture-driven Net Worth settings, responsive layout, and valuation checks.
 
 Uses an isolated Chrome profile and public-feed fetch shims. No personal files,
 production producers, or checked-in datasets are changed. Set CHROME_BIN when
 Chrome is not installed at its default macOS path. Set NETWORTH_SCREENSHOT_DIR
-for optional desktop/mobile screenshots of the settings panel.
+for optional desktop/mobile screenshots of settings and the responsive top panel.
 """
 
 import base64
@@ -22,6 +22,7 @@ from test_stage1_refresh_atomicity import CdpSocket, QuietHandler, free_port, wa
 
 ROOT = Path(__file__).resolve().parents[1]
 CHROME = os.environ.get("CHROME_BIN", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+RESPONSIVE_WIDTHS = (320, 390, 533, 768, 980, 981, 1024, 1280, 1920)
 SHIM = r"""
 (() => {
   const nativeFetch = window.fetch.bind(window);
@@ -124,6 +125,111 @@ class BrowserChecks:
             folder.mkdir(parents=True, exist_ok=True)
             data = self.cdp.command("Page.captureScreenshot", {"format": "png"})["data"]
             (folder / filename).write_bytes(base64.b64decode(data))
+
+
+def check_top_panel(browser, entrypoint):
+    # Exercise mode-dependent controls without loading/saving another set of holdings.
+    prior = browser.evaluate("({ mode: currentMode, locked: liveAccessLocked })")
+    browser.evaluate("document.fonts.ready")
+    try:
+        for mode in ("demo", "live"):
+            browser.evaluate(f"""
+              currentMode = {json.dumps(mode)};
+              liveAccessLocked = false;
+              updateModeToggleUI();
+            """)
+            for width in RESPONSIVE_WIDTHS:
+                browser.cdp.command("Emulation.setDeviceMetricsOverride", {
+                    "width": width, "height": 1000, "deviceScaleFactor": 1, "mobile": width < 768,
+                })
+                browser.evaluate("""new Promise(resolve => requestAnimationFrame(() => {
+                  window.scrollTo(0, 0);
+                  requestAnimationFrame(resolve);
+                }))""")
+                label = f"{entrypoint} {mode} top panel at {width}px"
+                browser.check(label, r"""
+                  const panel = document.querySelector('.title-panel').getBoundingClientRect();
+                  const viewportWidth = document.documentElement.clientWidth;
+                  const selectors = ['.title-row h1', '.title-row .info-wrap', '.filters-menu-wrap',
+                    '.mode-toggle', '.history-action-buttons', '#clearDataBtn',
+                    '#encryptionToggleWrap', '.uoa-filter-chip'];
+                  const controls = selectors.flatMap(selector => [...document.querySelectorAll(selector)])
+                    .map(node => ({ name: node.id || node.className || node.tagName,
+                      box: node.getBoundingClientRect() }));
+                  const overlaps = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 &&
+                    Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;
+                  const adjacent = [...document.querySelectorAll('.quote-cards, .summary-row')]
+                    .map(node => node.getBoundingClientRect());
+                  for (let index = 0; index < controls.length; index++) {
+                    const { name, box } = controls[index];
+                    if (box.width <= 0 || box.height <= 0) return `${name} is hidden`;
+                    if (box.left < panel.left - 1 || box.right > panel.right + 1 ||
+                        box.top < panel.top - 1 || box.bottom > panel.bottom + 1)
+                      return `${name} outside panel: ${JSON.stringify(box.toJSON())}, panel=${JSON.stringify(panel.toJSON())}`;
+                    if (box.left < -1 || box.right > viewportWidth + 1 || box.top < -1 || box.bottom > innerHeight + 1)
+                      return `${name} outside viewport ${viewportWidth}x${innerHeight}`;
+                    if (adjacent.some(other => overlaps(box, other))) return `${name} overlaps the quote or summary panel`;
+                    for (const other of controls.slice(index + 1)) {
+                      if (overlaps(box, other.box)) return `${name} overlaps ${other.name}`;
+                    }
+                  }
+                  for (const selector of ['#netWorthSettingsBtn', '#primaryUoaDropdownTrigger', '#secondaryUoaDropdownTrigger']) {
+                    const button = document.querySelector(selector);
+                    const box = button.getBoundingClientRect();
+                    if (!button.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)))
+                      return `${selector} cannot receive a pointer click`;
+                  }
+                """)
+                if width in (390, 533, 1024, 1920):
+                    browser.screenshot(f"networth-top-panel-{entrypoint}-{mode}-{width}.png")
+                browser.open_settings()
+                browser.check(f"{label} settings", """
+                  const box = document.querySelector('#netWorthSettingsPanel').getBoundingClientRect();
+                  if (box.left < -1 || box.right > document.documentElement.clientWidth + 1 || box.top < -1 || box.bottom > innerHeight + 1)
+                    return 'settings dialog escaped the viewport';
+                  document.querySelector('#netWorthSettingsClose').click();
+                  if (document.querySelector('#netWorthSettingsPanel').open) return 'settings did not close';
+                """)
+                browser.check(f"{label} UoA dropdowns", """
+                  for (const prefix of ['primary', 'secondary']) {
+                    const dropdown = document.querySelector(`#${prefix}UoaDropdown`);
+                    document.querySelector(`#${prefix}UoaDropdownTrigger`).click();
+                    const menu = document.querySelector(`#${prefix}UoaDropdownMenu`);
+                    const box = menu.getBoundingClientRect();
+                    if (!dropdown.classList.contains('open') || box.width <= 0 || box.height <= 0)
+                      return `${prefix} dropdown did not open`;
+                    if (!menu.querySelector('[data-value]')) return `${prefix} dropdown has no options`;
+                    if (box.left < -1 || box.right > document.documentElement.clientWidth + 1)
+                      return `${prefix} dropdown escaped the viewport horizontally`;
+                    document.querySelector(`#${prefix}UoaValue`).dispatchEvent(new KeyboardEvent('keydown', {
+                      key: 'Escape', bubbles: true
+                    }));
+                    if (dropdown.classList.contains('open')) return `${prefix} dropdown did not close`;
+                  }
+                """)
+            browser.evaluate("document.querySelector('#secondaryUoaDropdownTrigger').click()")
+            browser.cdp.command("Emulation.setDeviceMetricsOverride", {
+                "width": 320, "height": 1000, "deviceScaleFactor": 1, "mobile": True,
+            })
+            browser.check(f"{entrypoint} {mode} open UoA menu after resize", """
+              await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+              const menu = document.querySelector('#secondaryUoaDropdownMenu');
+              const box = menu.getBoundingClientRect();
+              if (box.width <= 0 || box.left < -1 || box.right > document.documentElement.clientWidth + 1)
+                return 'open dropdown escaped the viewport after resizing';
+              document.querySelector('#secondaryUoaValue').dispatchEvent(new KeyboardEvent('keydown', {
+                key: 'Escape', bubbles: true
+              }));
+            """)
+    finally:
+        browser.evaluate(f"""
+          currentMode = {json.dumps(prior['mode'])};
+          liveAccessLocked = {json.dumps(prior['locked'])};
+          updateModeToggleUI();
+        """)
+        browser.cdp.command("Emulation.setDeviceMetricsOverride", {
+            "width": 1280, "height": 1000, "deviceScaleFactor": 1, "mobile": False,
+        })
 
 
 def check_settings(browser):
@@ -564,6 +670,7 @@ def check_standalone(browser, url):
           document.querySelector('#netWorthSettingsBtn').getAttribute('aria-expanded') !== 'false')
         return 'standalone settings did not close cleanly';
     """)
+    check_top_panel(browser, "standalone")
 
 
 def main():
@@ -593,6 +700,7 @@ def main():
             cdp.command("Page.navigate", {"url": dashboard_url})
             browser = BrowserChecks(cdp)
             browser.ready()
+            check_top_panel(browser, "direct")
             check_settings(browser)
             check_holdings(browser)
             check_etfs(browser)
@@ -617,7 +725,7 @@ def main():
             check_mobile(browser)
             check_missing_prices(browser)
             check_standalone(browser, f"http://127.0.0.1:{server_port}/bitcoin_net_worth.html")
-            print("Net Worth unit settings, share quantities, CSV, persistence, and mobile browser regression passed.")
+            print("Net Worth unit settings, share quantities, CSV, persistence, and responsive browser regression passed.")
         finally:
             chrome.terminate()
             try:

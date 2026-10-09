@@ -155,7 +155,8 @@ html.embedded-in-modal body .app-shell {
   overflow: visible;
   min-width: 0;
   min-height: var(--top-kpi-panel-height);
-  height: var(--top-kpi-panel-height);
+  /* Wrapped controls must contribute to the panel's height at every width. */
+  height: auto;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -818,7 +819,7 @@ dialog.networth-settings-panel[open] {
   z-index: 3000;
   top: calc(100% + 4px);
   left: 0;
-  min-width: 260px;
+  min-width: min(260px, calc(100vw - 28px));
   max-width: min(460px, calc(100vw - 28px));
   max-height: 300px;
   overflow: auto;
@@ -828,6 +829,7 @@ dialog.networth-settings-panel[open] {
   background: #000000;
   box-shadow: 0 16px 32px rgba(0, 0, 0, 0.36);
   display: none;
+  transform: translateX(var(--networth-menu-shift-x, 0px));
 }
 
 [data-theme="light"] .dca-dropdown-menu {
@@ -2148,10 +2150,6 @@ td.history-actions-cell {
 @media (max-width: 980px) {
   .hero {
     grid-template-columns: 1fr;
-  }
-
-  .title-panel {
-    height: auto;
   }
 
   .chart-card-header {
