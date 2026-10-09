@@ -156,6 +156,23 @@ contracts preserve chart state and avoid reloads or flashing during updates.
 Net Worth's personal records stay in browser storage or user exports. Do not
 commit personal records or export files as dashboard fixtures.
 
+Net Worth's title settings button controls the units offered in both valuation
+and asset/liability dropdowns. Fresh preferences include USD, BTC, and sats;
+additional currencies, cryptocurrencies, Bitcoin-related stocks, major ETFs, and metals
+can be enabled individually. Stock and ETF amounts are share counts (including
+fractional shares). Hiding a unit leaves existing holdings unchanged. These
+controls also appear in the standalone `/bitcoin_net_worth` app. ETF choices cover
+broad US/international equities, bonds, precious metals, and Bitcoin funds.
+
+Crypto spot quotes use Coinbase and stock quotes use TradingView's public
+scanner, with delays and retained prices labeled beside the dashboard. Only
+units used by the view or holdings are requested. Historical stock valuations
+use dated saved prices, carried forward until another saved price is available;
+they do not use split-adjusted comparison data. Enter a price for the selected
+date with **Set a price** when needed. Unavailable prices show a dash in affected
+totals and omit unpriced dates from charts. CSV and encrypted exports preserve
+quantities, units, BTC/USD, and saved per-unit USD prices; older files still load.
+
 UoA pair links accept `?pair=BTCEUR` on `/uoa` (or `/uoa.html` locally).
 The first three letters select the primary account and the last three select
 the secondary account. Both codes must be supported and distinct; the link
@@ -236,6 +253,8 @@ CHROME_BIN=/path/to/chromium python3 scripts/test_days_live_price_browser.py
 node scripts/test_comparison_live_price.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_comparison_live_price_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_networth_live_quote_browser.py
+node scripts/test_networth_market_units.mjs
+CHROME_BIN=/path/to/chromium python3 scripts/test_networth_units_browser.py
 node scripts/test_uoa_live_quotes.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_uoa_live_quotes_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_homepage_preview_refresh.py
