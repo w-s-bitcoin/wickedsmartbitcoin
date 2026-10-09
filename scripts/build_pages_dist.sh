@@ -45,6 +45,7 @@ for app_dir in "$ROOT"/webapps/*; do
   copy_path "webapps/$app_name/dashboard.html"
   copy_path "webapps/$app_name/dashboard_manifest.js"
   copy_path "webapps/$app_name/dashboard_app.js"
+  copy_path "webapps/$app_name/market_units.js"
   copy_path "webapps/$app_name/dashboard.css"
   copy_path "webapps/$app_name/preview.html"
   copy_path "webapps/$app_name/preview_app.js"
