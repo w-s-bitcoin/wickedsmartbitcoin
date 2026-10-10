@@ -175,6 +175,12 @@ date with **Set a price** when needed. Unavailable prices show a dash in affecte
 totals and omit unpriced dates from charts. CSV and encrypted exports preserve
 quantities, units, BTC/USD, and saved per-unit USD prices; older files still load.
 
+For today's holdings, a manual Bitcoin price applies the same percentage change
+to estimated MSTR and Bitcoin fund prices, including BTCFX and Bitcoin ETFs.
+Other stocks and funds keep their own prices. Automatic or manually set share
+prices serve as the base; saved quotes and history retain their original prices.
+Totals, charts, filters, and share units of account use the estimates together.
+
 UoA pair links accept `?pair=BTCEUR` on `/uoa` (or `/uoa.html` locally).
 The first three letters select the primary account and the last three select
 the secondary account. Both codes must be supported and distinct; the link
