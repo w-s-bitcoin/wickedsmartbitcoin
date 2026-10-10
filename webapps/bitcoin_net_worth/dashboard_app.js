@@ -1231,6 +1231,22 @@ function marketUsdPrice(code, iso) {
   return exact?.price ?? networthMarketFeed?.getUsdPrice(code, iso) ?? savedUnitPrice(code, iso)?.price ?? null;
 }
 
+// Scenario prices are display-only: always derive them from unadjusted quotes,
+// never compound an estimate or write one back to saved snapshot prices.
+function bitcoinScenarioUnitPrices(dateKey, btcusd) {
+  const today = mmddyy(new Date());
+  if (!isManualOverrideActive() || editingSnapshotDate !== today || dateKey !== today) return null;
+  const baseline = Number(formState.btcusd);
+  const factor = Number(btcusd) / baseline;
+  if (!(baseline > 0) || !Number.isFinite(baseline) || !(factor > 0) || !Number.isFinite(factor)) return null;
+  const iso = mmddyyToIsoOrToday(dateKey);
+  return Object.fromEntries(window.WSBNetWorthMarketUnits.units.filter((unit) => unit.bitcoinLinked).flatMap(({ code }) => {
+    const rawPrice = marketUsdPrice(code, iso);
+    const price = rawPrice * factor;
+    return price > 0 && Number.isFinite(price) ? [[code, price]] : [];
+  }));
+}
+
 function captureUnitPrices(dateKey) {
   const iso = mmddyyToIsoOrToday(dateKey);
   const codes = new Set([uoaSelections.primary, uoaSelections.secondary,
@@ -1295,7 +1311,8 @@ function renderMarketQuoteStatus(snap, dateKey) {
   if (status.hidden) return;
   const description = document.createElement("span");
   const summaries = marketCodes.map((code) => {
-    const price = marketUsdPrice(code, iso);
+    const estimatedPrice = snap.valuation_prices?.[code];
+    const price = estimatedPrice ?? marketUsdPrice(code, iso);
     if (price === null) return `${code}: price unavailable`;
     const manual = Number(formState.unit_prices?.[iso]?.[code]) > 0;
     const saved = savedUnitPrice(code, iso, { exact: iso !== mmddyyToIsoOrToday(mmddyy(new Date())) });
@@ -1303,7 +1320,10 @@ function renderMarketQuoteStatus(snap, dateKey) {
     const source = manual ? "Manual price" : saved && iso !== mmddyyToIsoOrToday(mmddyy(new Date()))
       ? `Saved ${saved.day}` : quote ? `${quote.delayLabel || quote.source}${quote.live ? "" : " · retained"}`
       : saved ? `Saved ${saved.day}` : "Published";
-    return `${code}: ${formatUsd(price)}${uoaUnitMeta(code).kind === "stock" ? "/share" : ""} (${source})`;
+    const adjustment = (Number(snap.btcusd) / Number(formState.btcusd) - 1) * 100;
+    const estimate = estimatedPrice !== undefined
+      ? `Estimated · BTC ${adjustment >= 0 ? "+" : ""}${Number(adjustment.toFixed(2))}% · ` : "";
+    return `${code}: ${formatUsd(price)}${uoaUnitMeta(code).kind === "stock" ? "/share" : ""} (${estimate}${source})`;
   });
   description.textContent = [missing.length ? `Missing prices: ${missing.join(", ")}. Affected totals show —.` : "",
     ...summaries, marketCodes.length ? "History uses dated or last saved prices; dates without a price are omitted from charts." : ""].filter(Boolean).join(" ");
@@ -1316,7 +1336,7 @@ function renderMarketQuoteStatus(snap, dateKey) {
     enter.addEventListener("click", () => {
       const code = marketCodes.length === 1 ? marketCodes[0] : normalizeUoaCode(window.prompt(`Which unit? ${marketCodes.join(", ")}`, marketCodes[0]), "");
       if (!marketCodes.includes(code)) return;
-      const raw = window.prompt(`USD price for one ${code}${uoaUnitMeta(code).kind === "stock" ? " share" : ""} on ${iso}. Leave blank to use automatic pricing.`, String(marketUsdPrice(code, iso) ?? ""));
+      const raw = window.prompt(`${snap.valuation_prices?.[code] !== undefined ? "Base USD price before the Bitcoin estimate" : "USD price"} for one ${code}${uoaUnitMeta(code).kind === "stock" ? " share" : ""} on ${iso}. Leave blank to use automatic pricing.`, String(marketUsdPrice(code, iso) ?? ""));
       if (raw === null) return;
       const value = Number(raw.replace(/[$,]/g, ""));
       if (raw.trim() && (!(value > 0) || !Number.isFinite(value))) { alert("Enter a positive USD price."); return; }
@@ -3292,14 +3312,17 @@ function fxDateOnOrBefore(isoDate) {
   return best;
 }
 
-function usdPerUnit(unitRaw, btcusdRaw, dateKey) {
+function usdPerUnit(unitRaw, btcusdRaw, dateKey, unitPrices = null) {
   const unit = normalizeUnit(unitRaw);
   const btcusd = Math.max(Number(btcusdRaw || 0), 1e-12);
   if (unit === "BTC") return btcusd;
   if (unit === "sats") return btcusd / 1e8;
   if (unit === "USD") return 1;
   const iso = mmddyyToIsoOrToday(dateKey);
-  if (unitNeedsMarket(unit)) return marketUsdPrice(unit, iso);
+  if (unitNeedsMarket(unit)) {
+    const rate = Number(unitPrices?.[unit]);
+    return rate > 0 && Number.isFinite(rate) ? rate : marketUsdPrice(unit, iso);
+  }
   const row = fxRatesByDate.get(iso) || fxRatesByDate.get(fxDateOnOrBefore(iso));
   const value = Number(row?.[unit]);
   return Number.isFinite(value) && value > 0 ? value : null;
@@ -3315,10 +3338,10 @@ function rowValueInUsd(row, btcusdRaw, dateKey, unitPrices = null) {
   return amount * rate;
 }
 
-function usdToUnitValue(usdValue, unitRaw, btcusdRaw, dateKey) {
+function usdToUnitValue(usdValue, unitRaw, btcusdRaw, dateKey, unitPrices = null) {
   if (usdValue === null || !Number.isFinite(Number(usdValue))) return null;
   const parsedUsd = Number(usdValue);
-  const rate = usdPerUnit(unitRaw, btcusdRaw, dateKey);
+  const rate = usdPerUnit(unitRaw, btcusdRaw, dateKey, unitPrices);
   if (rate === null || rate <= 0) return null;
   return parsedUsd / rate;
 }
@@ -3353,14 +3376,15 @@ function splitLiabilityRows(rows, btcusdOverride = null, dateKeyOverride = null,
   return { liabilitiesBtc, liabilitiesUsd };
 }
 
-function normalizedSnapshot(btcusdOverride = null) {
+function normalizedSnapshot(btcusdOverride = null, { estimateBitcoin = false } = {}) {
   const sourcePrice = btcusdOverride === null ? Number(formState.btcusd || 0) : Number(btcusdOverride || 0);
   const btcusd = Math.max(sourcePrice, 1e-12);
   const uniqueAssets = uniqueValidRows(formState.assets || []);
   const uniqueLiabilities = uniqueValidRows(formState.liabilities || []);
   const dateKey = editingSnapshotDate || mmddyy(new Date());
-  const splitAssets = splitAssetRows(formState.assets || [], btcusd, dateKey);
-  const splitLiabilities = splitLiabilityRows(formState.liabilities || [], btcusd, dateKey);
+  const valuationPrices = estimateBitcoin ? bitcoinScenarioUnitPrices(dateKey, btcusd) : null;
+  const splitAssets = splitAssetRows(formState.assets || [], btcusd, dateKey, valuationPrices);
+  const splitLiabilities = splitLiabilityRows(formState.liabilities || [], btcusd, dateKey, valuationPrices);
   const assetsBtc = splitAssets.assetsBtc;
   const assetsUsd = splitAssets.assetsUsd;
   const liabilitiesBtc = splitLiabilities.liabilitiesBtc;
@@ -3393,6 +3417,7 @@ function normalizedSnapshot(btcusdOverride = null) {
     liabilities: uniqueLiabilities.map((r) => ({ name: r.name, value: r.amount, unit: r.unit })),
     comments: formState.comments || "",
     unit_prices: captureUnitPrices(dateKey),
+    ...(valuationPrices ? { valuation_prices: valuationPrices } : {}),
     totals: {
       complete: Number.isFinite(totalAssetsUsd) && Number.isFinite(totalLiabilitiesUsd),
       assets_btc: totalAssetsBtc,
@@ -3729,18 +3754,18 @@ function formatUoaAmount(value, unitRaw, { minimumFractionDigits = null } = {}) 
   return `${formatted} ${unit}`;
 }
 
-function formatUsdAsUnit(usdValue, unitRaw, btcusdRaw, dateKey) {
-  const converted = usdToUnitValue(usdValue, unitRaw, btcusdRaw, dateKey);
+function formatUsdAsUnit(usdValue, unitRaw, btcusdRaw, dateKey, unitPrices = null) {
+  const converted = usdToUnitValue(usdValue, unitRaw, btcusdRaw, dateKey, unitPrices);
   if (converted === null) return "—";
   return formatUoaAmount(converted, unitRaw);
 }
 
-function formatPrimaryValue(usdValue, btcusdRaw, dateKey) {
-  return formatUsdAsUnit(usdValue, uoaSelections.primary, btcusdRaw, dateKey);
+function formatPrimaryValue(usdValue, btcusdRaw, dateKey, unitPrices = null) {
+  return formatUsdAsUnit(usdValue, uoaSelections.primary, btcusdRaw, dateKey, unitPrices);
 }
 
-function formatSecondaryValue(usdValue, btcusdRaw, dateKey) {
-  return formatUsdAsUnit(usdValue, uoaSelections.secondary, btcusdRaw, dateKey);
+function formatSecondaryValue(usdValue, btcusdRaw, dateKey, unitPrices = null) {
+  return formatUsdAsUnit(usdValue, uoaSelections.secondary, btcusdRaw, dateKey, unitPrices);
 }
 
 function convertAmountBetweenUnits(amount, fromUnitRaw, toUnitRaw, btcusdRaw, dateKey = editingSnapshotDate) {
@@ -4270,7 +4295,7 @@ function updateKPIs() {
         ? Number(historicalPrices[editingSnapshotDate])
         : null);
   const displayPrice = historicalPrice !== null ? historicalPrice : activeBtcusd();
-  const snap = applyExclusionFilters(normalizedSnapshot(displayPrice), excludedAssets, excludedLiabilities, displayPrice);
+  const snap = applyExclusionFilters(normalizedSnapshot(displayPrice, { estimateBitcoin: true }), excludedAssets, excludedLiabilities, displayPrice);
   renderMetricValues(snap, displayPrice, editingSnapshotDate || today);
   
   // Update pie charts
@@ -4281,12 +4306,12 @@ function updateKPIs() {
 
 function renderMetricValues(snap, btcusd, dateKey) {
   renderMarketQuoteStatus(snap, dateKey);
-  el.assetsMetric.textContent = formatPrimaryValue(snap.totals.assets_usd, btcusd, dateKey);
-  el.assetsMetricUsd.textContent = formatSecondaryValue(snap.totals.assets_usd, btcusd, dateKey);
-  el.liabilitiesMetric.textContent = formatPrimaryValue(snap.totals.liabilities_usd, btcusd, dateKey);
-  el.liabilitiesMetricUsd.textContent = formatSecondaryValue(snap.totals.liabilities_usd, btcusd, dateKey);
-  el.netMetric.textContent = formatPrimaryValue(snap.totals.net_usd, btcusd, dateKey);
-  el.netMetricUsd.textContent = formatSecondaryValue(snap.totals.net_usd, btcusd, dateKey);
+  el.assetsMetric.textContent = formatPrimaryValue(snap.totals.assets_usd, btcusd, dateKey, snap.valuation_prices);
+  el.assetsMetricUsd.textContent = formatSecondaryValue(snap.totals.assets_usd, btcusd, dateKey, snap.valuation_prices);
+  el.liabilitiesMetric.textContent = formatPrimaryValue(snap.totals.liabilities_usd, btcusd, dateKey, snap.valuation_prices);
+  el.liabilitiesMetricUsd.textContent = formatSecondaryValue(snap.totals.liabilities_usd, btcusd, dateKey, snap.valuation_prices);
+  el.netMetric.textContent = formatPrimaryValue(snap.totals.net_usd, btcusd, dateKey, snap.valuation_prices);
+  el.netMetricUsd.textContent = formatSecondaryValue(snap.totals.net_usd, btcusd, dateKey, snap.valuation_prices);
 }
 
 function renderNetWorthPieChart(snap) {
@@ -4345,7 +4370,7 @@ function renderAssetsPieChart(snap) {
   
   const slices = assets
     .map((a) => {
-      const usdValue = rowValueInUsd(a, btcusd, dateKey);
+      const usdValue = rowValueInUsd(a, btcusd, dateKey, snap.valuation_prices);
       const btcValue = usdValue / Math.max(Number(btcusd || 0), 1e-12);
       return { name: a.name, value: btcValue };
     })
@@ -4380,7 +4405,7 @@ function renderLiabilitiesPieChart(snap) {
   
   const slices = liabilities
     .map((l) => {
-      const usdValue = rowValueInUsd(l, btcusd, dateKey);
+      const usdValue = rowValueInUsd(l, btcusd, dateKey, snap.valuation_prices);
       const btcValue = usdValue / Math.max(Number(btcusd || 0), 1e-12);
       return { name: l.name, value: btcValue };
     })
@@ -4644,7 +4669,7 @@ function getDisplaySnapshot() {
         ? Number(historicalPrices[editingSnapshotDate])
         : null);
   const displayPrice = historicalPrice !== null ? historicalPrice : activeBtcusd();
-  return applyExclusionFilters(normalizedSnapshot(displayPrice), excludedAssets, excludedLiabilities, displayPrice);
+  return applyExclusionFilters(normalizedSnapshot(displayPrice, { estimateBitcoin: true }), excludedAssets, excludedLiabilities, displayPrice);
 }
 
 function renderAll() {
@@ -4679,7 +4704,7 @@ function renderAll() {
         ? Number(historicalPrices[editingSnapshotDate])
         : null);
   const displayPrice = historicalPrice !== null ? historicalPrice : activeBtcusd();
-  const snap = applyExclusionFilters(normalizedSnapshot(displayPrice), excludedAssets, excludedLiabilities, displayPrice);
+  const snap = applyExclusionFilters(normalizedSnapshot(displayPrice, { estimateBitcoin: true }), excludedAssets, excludedLiabilities, displayPrice);
   const chartSnapshots = snapshotsForCharts(displayPrice);
 
   const manualActive = isManualOverrideActive();
@@ -4729,7 +4754,7 @@ function applyExclusionFilters(snap, exclAssets, exclLiabs, priceOverride) {
   const filteredA = exclAssets?.size ? (snap.assets || []).filter(a => !exclAssets.has(a.name)) : (snap.assets || []);
   const filteredL = exclLiabs?.size ? (snap.liabilities || []).filter(l => !exclLiabs.has(l.name)) : (snap.liabilities || []);
   const price = priceOverride !== undefined ? priceOverride : Number(snap.btcusd || 0);
-  return { ...snap, assets: filteredA, liabilities: filteredL, totals: computeTotals(filteredA, filteredL, price, snap.date) };
+  return { ...snap, assets: filteredA, liabilities: filteredL, totals: computeTotals(filteredA, filteredL, price, snap.date, snap.valuation_prices) };
 }
 
 function snapshotsForCharts(displayPrice, exclAssets, exclLiabs) {
@@ -4749,7 +4774,7 @@ function snapshotsForCharts(displayPrice, exclAssets, exclLiabs) {
         : sorted;
     const list = baseList.map((s) => applyExclusionFilters({ ...s, totals: computeTotals(s.assets, s.liabilities, s.btcusd, s.date) }, exclAssets, exclLiabs));
     if (editingSnapshotDate === today && Number.isFinite(displayPrice) && displayPrice > 0 && isManualOverrideActive()) {
-      const live = applyExclusionFilters(normalizedSnapshot(displayPrice), exclAssets, exclLiabs, displayPrice);
+      const live = applyExclusionFilters(normalizedSnapshot(displayPrice, { estimateBitcoin: true }), exclAssets, exclLiabs, displayPrice);
       const idx = list.findIndex((s) => s.date === today);
       if (idx >= 0) list[idx] = live;
       else { list.push(live); list.sort((a, b) => parseMMDDYY(a.date) - parseMMDDYY(b.date)); }
@@ -4760,7 +4785,8 @@ function snapshotsForCharts(displayPrice, exclAssets, exclLiabs) {
   // If no saved snapshots, use the synthetic today row (current formState) so charts draw immediately
   if (!sorted.length) {
     if (!hasEnteredFormRows) return [];
-    const syntheticToday = todayHistoryRowSnapshot();
+    const syntheticToday = editingSnapshotDate === today
+      ? normalizedSnapshot(displayPrice, { estimateBitcoin: true }) : todayHistoryRowSnapshot();
     return syntheticToday ? [applyExclusionFilters(syntheticToday, exclAssets, exclLiabs)] : [];
   }
 
@@ -4796,16 +4822,18 @@ function snapshotsForCharts(displayPrice, exclAssets, exclLiabs) {
     if (price <= 0) { cur.setDate(cur.getDate() + 1); continue; }
 
     let totals;
+    let valuationPrices = null;
     if (dateKey === today && editingSnapshotDate === today && isManualOverrideActive()) {
-      const live = applyExclusionFilters(normalizedSnapshot(price), exclAssets, exclLiabs, price);
+      const live = applyExclusionFilters(normalizedSnapshot(price, { estimateBitcoin: true }), exclAssets, exclLiabs, price);
       totals = live.totals;
+      valuationPrices = live.valuation_prices;
     } else {
       const filteredA = exclAssets?.size ? (snap.assets || []).filter(a => !exclAssets.has(a.name)) : (snap.assets || []);
       const filteredL = exclLiabs?.size ? (snap.liabilities || []).filter(l => !exclLiabs.has(l.name)) : (snap.liabilities || []);
       totals = computeTotals(filteredA, filteredL, price, dateKey);
     }
 
-    result.push({ date: dateKey, btcusd: price, totals });
+    result.push({ date: dateKey, btcusd: price, totals, ...(valuationPrices ? { valuation_prices: valuationPrices } : {}) });
     cur.setDate(cur.getDate() + 1);
   }
 
@@ -5597,7 +5625,7 @@ function renderChartLegendRow(container, datasets = []) {
 
 function renderAssetLiabilityChart(chartSnapshots = snapshots) {
   chartSnapshots = chartSnapshots.filter((s) => s.totals?.complete !== false
-    && usdToUnitValue(s.totals?.assets_usd, uoaSelections.primary, s.btcusd, s.date) !== null);
+    && usdToUnitValue(s.totals?.assets_usd, uoaSelections.primary, s.btcusd, s.date, s.valuation_prices) !== null);
   if (el.alChartTitle) {
     el.alChartTitle.textContent = alChartMode === "ratio"
       ? "Liabilities-to-Assets Ratio"
@@ -5684,13 +5712,13 @@ function renderAssetLiabilityChart(chartSnapshots = snapshots) {
     {
       label: "Assets",
       color: "#39d7a4",
-      values: plottedSnapshots.map((s) => usdToUnitValue(s.totals?.assets_usd || 0, unit, s.btcusd, s.date) || 0),
+      values: plottedSnapshots.map((s) => usdToUnitValue(s.totals?.assets_usd || 0, unit, s.btcusd, s.date, s.valuation_prices) || 0),
       valueFormatter: (v) => formatUoaAmount(v, unit)
     },
     {
       label: "Liabilities",
       color: "#ff6f86",
-      values: plottedSnapshots.map((s) => usdToUnitValue(s.totals?.liabilities_usd || 0, unit, s.btcusd, s.date) || 0),
+      values: plottedSnapshots.map((s) => usdToUnitValue(s.totals?.liabilities_usd || 0, unit, s.btcusd, s.date, s.valuation_prices) || 0),
       valueFormatter: (v) => formatUoaAmount(v, unit)
     }
   ];
@@ -5723,8 +5751,8 @@ function renderAssetLiabilityChart(chartSnapshots = snapshots) {
 
 function renderNetChangeChart(chartSnapshots = snapshots) {
   chartSnapshots = chartSnapshots.filter((s) => s.totals?.complete !== false
-    && usdToUnitValue(s.totals?.net_usd, uoaSelections.primary, s.btcusd, s.date) !== null
-    && usdToUnitValue(s.totals?.net_usd, uoaSelections.secondary, s.btcusd, s.date) !== null);
+    && usdToUnitValue(s.totals?.net_usd, uoaSelections.primary, s.btcusd, s.date, s.valuation_prices) !== null
+    && usdToUnitValue(s.totals?.net_usd, uoaSelections.secondary, s.btcusd, s.date, s.valuation_prices) !== null);
   const plottedSnapshots = chartSnapshots.filter((s) => {
     const assetsBtc = Number(s.totals?.assets_btc || 0);
     const liabilitiesBtc = Number(s.totals?.liabilities_btc || 0);
@@ -5743,8 +5771,8 @@ function renderNetChangeChart(chartSnapshots = snapshots) {
   chartInteractionState.netChart = { labels, markerDates };
   const primaryUnit = uoaSelections.primary;
   const secondaryUnit = uoaSelections.secondary;
-  const primaryRaw = plottedSnapshots.map((s) => usdToUnitValue(s.totals.net_usd, primaryUnit, s.btcusd, s.date) || 0);
-  const secondaryRaw = plottedSnapshots.map((s) => usdToUnitValue(s.totals.net_usd, secondaryUnit, s.btcusd, s.date) || 0);
+  const primaryRaw = plottedSnapshots.map((s) => usdToUnitValue(s.totals.net_usd, primaryUnit, s.btcusd, s.date, s.valuation_prices) || 0);
+  const secondaryRaw = plottedSnapshots.map((s) => usdToUnitValue(s.totals.net_usd, secondaryUnit, s.btcusd, s.date, s.valuation_prices) || 0);
   const basePrimary = Number(primaryRaw[0]) || 1e-12;
   const baseSecondary = Number(secondaryRaw[0]) || 1e-12;
 
