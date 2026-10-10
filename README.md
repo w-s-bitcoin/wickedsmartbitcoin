@@ -166,7 +166,9 @@ broad US/international equities, bonds, precious metals, and Bitcoin funds.
 
 Crypto spot quotes use Coinbase and stock quotes use TradingView's public
 scanner, with delays and retained prices labeled beside the dashboard. Only
-units used by the view or holdings are requested. Historical stock valuations
+units used by the view or holdings are requested. BTCFX uses CNBC's latest
+daily NAV, labeled with its actual pricing date, and retains that price through
+feed outages. Historical stock valuations
 use dated saved prices, carried forward until another saved price is available;
 they do not use split-adjusted comparison data. Enter a price for the selected
 date with **Set a price** when needed. Unavailable prices show a dash in affected
