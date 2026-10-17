@@ -11,6 +11,7 @@ MODULES = (
     "scripts.test_sync_main_data_to_dev",
     "scripts.test_stage4_pipeline_blockers",
     "scripts.test_automation_deploy",
+    "scripts.test_automation_git_sync_guard",
     "scripts.test_hourly_casascius_workspace",
     "scripts.test_pages_build",
     "scripts.test_onchain_kpis",

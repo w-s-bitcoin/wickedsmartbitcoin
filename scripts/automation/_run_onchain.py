@@ -485,12 +485,12 @@ def main() -> int:
 
     acquire_lock()
     try:
-        run_dir = create_stage_run_dir()
-        print(f"[Onchain] Staging run dir: {run_dir}")
         print(f"[Onchain] Start {now_str()}")
         if not git_pull_rebase(REPO_DIR):
             print("[Onchain] Skipping data update: repo could not be synced cleanly from origin.")
             return 1
+        run_dir = create_stage_run_dir()
+        print(f"[Onchain] Staging run dir: {run_dir}")
 
         staged_bip110_data_dir = run_dir / "tmp_bip110_webapp_data"
         if bip110_dashboard_finalized():

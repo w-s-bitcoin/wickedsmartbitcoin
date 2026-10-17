@@ -98,6 +98,40 @@ class AutomationGitSyncGuardTests(unittest.TestCase):
         git(self.local, "-c", "commit.gpgsign=false", "commit", "--amend", "--no-edit")
         self.assertFalse(can_stage_across_rewritten_data_tip(self.local, "main", 1, 1))
 
+    def test_both_producers_recover_hourly_amend_containing_remote_onchain_data(self):
+        (self.local / "assets" / "daily_price.csv").write_text("remote publication\n")
+        (self.local / "assets" / "top_kpis.json").write_text('{"height":123}\n')
+        git(self.local, "add", "assets")
+        git(self.local, "-c", "commit.gpgsign=false", "commit", "--amend", "--no-edit")
+        local_before = git(self.local, "rev-parse", "HEAD")
+        tree_before = git(self.local, "rev-parse", "HEAD^{tree}")
+        remote_before = git(self.local, "rev-parse", "origin/main")
+        for name in ("_run_onchain.py", "_run_1h.py"):
+            with self.subTest(runner=name):
+                git(self.local, "reset", "--hard", local_before)
+                runner = load_runner(name, AUTOMATION_DIR / name, self.local / "missing.env")
+                self.assertTrue(runner.git_pull_rebase(self.local))
+                self.assertEqual(git(self.local, "rev-parse", "HEAD^{tree}"), tree_before)
+                self.assertEqual(git(self.local, "rev-list", "--parents", "-n", "1", "HEAD").split()[1:],
+                                 [local_before, remote_before])
+
+    def test_remote_only_data_paths_are_rejected(self):
+        (self.peer / "assets" / "top_kpis.json").write_text('{}\n')
+        git(self.peer, "add", "assets/top_kpis.json")
+        git(self.peer, "-c", "commit.gpgsign=false", "commit", "--amend", "--no-edit")
+        git(self.peer, "push", "--force", "origin", "main")
+        git(self.local, "fetch", "origin")
+        self.assertFalse(can_stage_across_rewritten_data_tip(self.local, "main", 1, 1))
+
+    def test_subset_with_different_payload_mode_is_rejected(self):
+        data = self.local / "assets" / "daily_price.csv"
+        data.write_text("remote publication\n")
+        data.chmod(0o755)
+        (self.local / "assets" / "top_kpis.json").write_text('{}\n')
+        git(self.local, "add", "assets")
+        git(self.local, "-c", "commit.gpgsign=false", "commit", "--amend", "--no-edit")
+        self.assertFalse(can_stage_across_rewritten_data_tip(self.local, "main", 1, 1))
+
     def test_different_data_path_sets_are_rejected(self):
         extra = self.local / "assets" / "top_kpis.json"
         extra.write_text("{}\n")

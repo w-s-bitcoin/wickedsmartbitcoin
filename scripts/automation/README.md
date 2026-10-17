@@ -91,10 +91,15 @@ area must preserve both concurrent source-code updates and generated data.
 
 If a prior data commit was amended upstream while production has a newer local
 data commit, either producer may merge those sibling commits before staging.
-This recovery is limited to clean `main` tips with identical changed data paths
-and a later local publication timestamp. The merge keeps the newer complete
-local generation and records upstream ancestry; any other divergence still
-blocks the run for inspection.
+This recovery is limited to clean `main` tips with a later local publication
+timestamp. Changed data paths must either match exactly, or the remote paths
+must be a subset whose payloads and modes already match the local tree. This
+also covers an hourly amend that includes an earlier onchain publication.
+The merge keeps the newer complete local generation and records upstream
+ancestry; any other divergence still blocks the run for inspection.
+Failed Git preflight does not create an onchain staging directory. Empty staging
+directories from older failed runs do not hold priority over hourly work; active
+onchain locks and nonempty unpublished outputs still do.
 
 After success, `scripts/sync_main_data_to_dev.py` creates a data snapshot commit
 on `dev/work`. It preserves unrelated development edits and defers overlapping
