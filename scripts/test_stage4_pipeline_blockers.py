@@ -190,6 +190,49 @@ class HourlyPublicationPipelineTests(unittest.TestCase):
             expected.difference(self.deploy.STAGED_PUBLICATION_MARKERS),
         )
 
+    def test_comparison_preview_uses_same_run_price_and_fx_inputs(self):
+        jobs = self.hourly.WEBAPP_SCRIPT_JOBS
+        uoa_job = next(job for job in jobs if job["script"].name == "uoa_webapp_data_update.py")
+        comparison_job = next(job for job in jobs if job["script"].name == "comparison_webapp_data_update.py")
+        self.assertLess(jobs.index(uoa_job), jobs.index(comparison_job))
+        producer = load_module("wsb_comparison_producer", comparison_job["script"])
+        run_dir = self.make_run("1h-comparison-inputs")
+        price = run_dir / "files/assets/daily_price.csv"
+        price.parent.mkdir(parents=True)
+        price.write_text("date,price\n10/17/26,100000\n")
+        observed = []
+
+        def generate(script, env):
+            if script == uoa_job["script"]:
+                output = Path(env["UOA_WEBAPP_DATA_DIR"])
+                output.mkdir(parents=True)
+                (output / "daily_fx_rates.csv").write_text("date,xauusd\n2026-10-17,4000\n")
+            else:
+                observed.append((env["DCA_COMPARISON_PRICE_CSV"], env["DCA_COMPARISON_FX_CSV"]))
+                with patch.dict(os.environ, env):
+                    _, rows, _ = producer.write_dca_preview_csv(Path(env["DCA_COMPARISON_WEBAPP_DATA_DIR"]))
+                self.assertEqual(rows, [{"date": "2026-10-17", "BTC": "100000", "XAU": "4000"}])
+            return True
+
+        with patch.object(self.hourly, "WEBAPP_SCRIPT_JOBS", [uoa_job, comparison_job]), \
+             patch.object(self.hourly, "run_script", side_effect=generate):
+            self.hourly.phase_webapp_data(run_dir)
+        self.assertEqual(observed, [(str(price), str(run_dir / "files/webapps/uoa/webapp_data/daily_fx_rates.csv"))])
+
+    def test_comparison_falls_back_per_input_when_no_replacement_is_staged(self):
+        job = next(job for job in self.hourly.WEBAPP_SCRIPT_JOBS
+                   if job["script"].name == "comparison_webapp_data_update.py")
+        run_dir = self.make_run("1h-comparison-fallback")
+        fx = run_dir / "files/webapps/uoa/webapp_data/daily_fx_rates.csv"
+        fx.parent.mkdir(parents=True)
+        fx.write_text("date,xauusd\n2026-10-17,4000\n")
+        with patch.object(self.hourly, "WEBAPP_SCRIPT_JOBS", [job]), \
+             patch.object(self.hourly, "run_script", return_value=False) as generate:
+            self.hourly.phase_webapp_data(run_dir)
+        env = generate.call_args.kwargs["env"]
+        self.assertEqual(env["DCA_COMPARISON_PRICE_CSV"], str(ROOT / "assets/daily_price.csv"))
+        self.assertEqual(env["DCA_COMPARISON_FX_CSV"], str(fx))
+
 
 if __name__ == "__main__":
     unittest.main()
