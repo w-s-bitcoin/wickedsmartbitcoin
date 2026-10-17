@@ -47,8 +47,9 @@ def can_stage_across_rewritten_data_tip(
     """Allow preserving a newer local generation when origin rewrote its tip.
 
     This covers only two clean, sibling ``Update data`` commits. Both commits
-    must touch the same published paths and the local publication timestamp must
-    be later. Source code and all other Git histories are excluded.
+    must touch the same published paths, or the remote paths must be a subset
+    whose payloads are already identical locally. The local publication timestamp
+    must be later. Source code and all other Git histories are excluded.
     """
     if branch != "main" or (ahead, behind) != (1, 1):
         return False
@@ -70,8 +71,20 @@ def can_stage_across_rewritten_data_tip(
         if not all(_is_published_data_path(path) for path in paths):
             return False
         changed_sets.append(set(paths))
-    if changed_sets[0] != changed_sets[1] or "assets/last_updated.txt" not in changed_sets[0]:
+    local_paths, remote_paths = changed_sets
+    timestamp_path = "assets/last_updated.txt"
+    if timestamp_path not in remote_paths or not remote_paths.issubset(local_paths):
         return False
+    if local_paths != remote_paths:
+        # An hourly amend can include an earlier onchain publication plus new
+        # hourly outputs. Only keep that larger tree if it already contains
+        # every remote payload, including its publication markers and modes.
+        shared = sorted(remote_paths - {timestamp_path})
+        difference = (_git_output(repo_dir, "diff", "--no-ext-diff", "--no-renames",
+                                  "--raw", "HEAD", "origin/main", "--", *shared)
+                      if shared else b"")
+        if difference is None or difference:
+            return False
     timestamps = []
     for tip in ("HEAD", "origin/main"):
         raw = _git_output(repo_dir, "show", f"{tip}:assets/last_updated.txt")

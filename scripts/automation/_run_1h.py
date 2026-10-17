@@ -246,7 +246,8 @@ def has_onchain_priority_work() -> bool:
         return True
     if STAGING_ROOT.exists():
         for run_dir in STAGING_ROOT.iterdir():
-            if run_dir.is_dir() and run_dir.name.startswith("onchain-") and (run_dir / "files").exists():
+            if (run_dir.is_dir() and run_dir.name.startswith("onchain-")
+                    and any(path.is_file() for path in (run_dir / "files").rglob("*"))):
                 return True
     if ONCHAIN_PENDING.exists():
         try:

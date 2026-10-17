@@ -487,7 +487,11 @@ def _list_stage_run_dirs_for_source(source: str | None = None) -> list[Path]:
 
 
 def _has_onchain_stage() -> bool:
-    return bool(_list_stage_run_dirs_for_source("onchain"))
+    return any(
+        path.is_file()
+        for run_dir in _list_stage_run_dirs_for_source("onchain")
+        for path in (run_dir / "files").rglob("*")
+    )
 
 
 QUANTUM_MARKER = Path("webapps/quantum_exposure/webapp_data/published_generation.json")

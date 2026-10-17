@@ -47,6 +47,19 @@ class OnchainKpiTests(unittest.TestCase):
         self.assertEqual(payload["difficulty_display"], "132.76T")
         self.assertEqual(payload["projected_difficulty_adjustment_percent"], -2.29)
 
+    def test_failed_git_preflight_leaves_no_empty_priority_stage(self):
+        runner = self.runner
+        with patch.object(runner, "mark_onchain_pending"), \
+             patch.object(runner, "acquire_lock"), \
+             patch.object(runner, "release_lock") as release, \
+             patch.object(runner, "git_pull_rebase", return_value=False), \
+             patch.object(runner, "create_stage_run_dir") as stage, \
+             patch.object(runner, "trigger_git_deploy_if_safe") as deploy:
+            self.assertEqual(runner.main(), 1)
+        stage.assert_not_called()
+        deploy.assert_not_called()
+        release.assert_called_once()
+
     def test_difficulty_projection_follows_period_block_pace(self):
         project = self.runner.projected_difficulty_adjustment_percent
         start = 1_000_000_000

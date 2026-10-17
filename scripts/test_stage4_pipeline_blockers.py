@@ -94,6 +94,29 @@ class HourlyPublicationPipelineTests(unittest.TestCase):
         self.assertEqual((run_dir / ".complete").read_text(encoding="utf-8"), "complete\n")
         self.assertEqual(list(run_dir.glob(".complete.tmp-*")), [])
 
+    def test_empty_onchain_stages_do_not_block_hourly_work(self):
+        run_dir = self.staging_root / "onchain-failed-preflight"
+        (run_dir / "files" / "assets").mkdir(parents=True)
+        for module in (self.hourly, self.deploy):
+            with self.subTest(module=module.__name__), \
+                 patch.object(module, "STAGING_ROOT", self.staging_root), \
+                 patch.object(module, "ONCHAIN_PENDING", self.staging_root / "pending"), \
+                 patch.object(module, "LOCK_ONCHAIN", self.staging_root / "onchain.lock"):
+                check = (module.has_onchain_priority_work if module is self.hourly
+                         else module._has_onchain_stage)
+                self.assertFalse(check())
+                payload = run_dir / "files" / "assets" / "top_kpis.json"
+                payload.write_text('{"height":123}\n')
+                self.assertTrue(check())
+                payload.unlink()
+
+    def test_live_onchain_lock_still_blocks_hourly_without_staged_payloads(self):
+        lock = self.staging_root / "onchain.lock"
+        lock.write_text(str(os.getpid()))
+        with patch.object(self.hourly, "STAGING_ROOT", self.staging_root), \
+             patch.object(self.hourly, "LOCK_ONCHAIN", lock):
+            self.assertTrue(self.hourly.has_onchain_priority_work())
+
     def test_hourly_marker_builder_matches_transition_builder_exactly(self):
         data = (ROOT / syncer.DAILY_PRICE_PATH).read_bytes()
         hourly_marker = self.hourly.build_daily_price_metadata(data)
