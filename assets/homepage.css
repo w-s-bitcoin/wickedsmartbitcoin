@@ -124,13 +124,18 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
 .homepage .image-grid.grid > div { width: auto; }
 .homepage .dashboard-card-surface { border: 1px solid var(--home-line); border-radius: 8px; background: var(--home-surface); transition: border-color .18s ease, box-shadow .18s ease; }
 .homepage .dashboard-card-surface:hover, .homepage .dashboard-card-surface:focus-within { border-color: var(--home-accent); box-shadow: 0 0 16px rgba(247, 147, 26, .22); }
-.homepage .image-grid .chart-title { order: 1; width: 100%; min-height: 58px; margin: 0; padding: 15px 18px; justify-content: space-between; align-items: center; text-align: left; font-size: 15px; font-weight: 400; gap: 12px; }
-.homepage .chart-title::after { content: "↗"; color: var(--home-muted); font-family: system-ui, sans-serif; font-size: 18px; font-weight: 400; line-height: 1; }
+.homepage .image-grid .chart-title { order: 1; width: 100%; min-height: 58px; margin: 0; padding: 15px 18px; justify-content: flex-start; align-items: center; text-align: left; font-size: 15px; font-weight: 400; gap: 8px; }
+.homepage .chart-title::after { content: "↗"; margin-left: auto; color: var(--home-muted); font-family: system-ui, sans-serif; font-size: 18px; font-weight: 400; line-height: 1; }
 .homepage .chart-title { cursor: pointer; }
+.homepage .chart-title-text { min-width: 0; overflow-wrap: anywhere; }
+/* Match the title .info-btn in shared/dashboard_shared.css. */
+.homepage .chart-info-button { position: relative; flex: 0 0 18px; width: 18px; height: 18px; padding: 0; border: 1px solid rgba(255, 255, 255, .14); border-radius: 999px; background: transparent; color: #d6e1e6; font-family: "IBM Plex Mono", monospace; font-size: .66rem; font-weight: 600; line-height: 1; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; touch-action: manipulation; }
+:root[data-theme="light"] .homepage .chart-info-button { border-color: rgba(0, 0, 0, .11); color: #6f685f; }
+.homepage .chart-info-button:hover, .homepage .chart-info-button:focus-visible, .homepage .chart-info-button[aria-expanded="true"] { border-color: #ff9900; color: #ff9900; outline: none !important; }
 .homepage .chart-wrapper { border: 0; border-radius: 9px 9px 0 0; }
 .homepage .chart-container:focus .chart-wrapper { box-shadow: none; }
 .homepage .chart-container:focus-visible { outline: 2px solid var(--home-accent); outline-offset: 3px; }
-.homepage .chart-description { font-size: 12px; line-height: 1.7; border-radius: 9px 9px 0 0; }
+.homepage .image-grid .chart-description { padding: 14px 16px; font-size: 12px; line-height: 1.7; text-align: left; border-radius: 8px 8px 0 0; border-top: 1px solid var(--home-line); background: color-mix(in srgb, var(--home-surface) 94%, transparent); color: var(--home-text); backdrop-filter: blur(4px); cursor: text; }
 .homepage .image-grid.list { gap: 22px; }
 /* Leave room for the sticky bars, card title, and a small gap below each card. */
 .homepage .image-grid.list > div { width: min(100%, max(280px, calc((100svh - var(--home-header-height) - var(--home-toolbar-height) - 80px) * 16 / 9))); max-width: none; }
@@ -188,5 +193,8 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
 }
 @media (max-width: 350px) {
     .snapshot-caption { min-height: 48px; }
+}
+@media (pointer: coarse) {
+    .homepage .chart-info-button::before { content: ""; position: absolute; inset: -7px; }
 }
 @media (prefers-reduced-motion: reduce) { .homepage *, .homepage *::after { scroll-behavior: auto; transition: none !important; } }

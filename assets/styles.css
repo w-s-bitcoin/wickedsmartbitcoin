@@ -1138,8 +1138,10 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
     touch-action: none;
 }
 
-.image-grid.is-reordering .chart-container:hover .chart-description {
+.image-grid.is-reordering .chart-description {
     opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
 }
 
 .image-grid.is-reordering .favorite-star {
@@ -1345,14 +1347,22 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
     width: 100%;
     padding: 0.5rem;
     opacity: 0;
-    transition: opacity 0.3s ease;
+    visibility: hidden;
+    pointer-events: none;
+    z-index: 3;
+    max-height: 100%;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    transition: opacity 0.18s ease, visibility 0.18s ease;
     overflow-wrap: break-word;
     word-break: break-word;
     text-align: center;
     box-sizing: border-box;
 }
-.chart-container:hover .chart-description {
+.dashboard-card-surface.description-open .chart-description {
     opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
 }
 .image-grid.grid .chart-description {
     font-size: 0.9rem;
@@ -1423,9 +1433,6 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
 @media (max-width: 640px) {
     .favorite-star {
         opacity: 1 !important;
-    }
-    .chart-description {
-        display: none !important;
     }
     .image-grid.grid {
         display: flex;

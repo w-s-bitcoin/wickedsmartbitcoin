@@ -53,8 +53,11 @@ function updateGridCardAtCurrent({ oldFilename, newFilename, title, description 
   if(!card) return;
 
   // Update visible UI text
-  if (title !== undefined) card.titleElem.textContent = title || "";
-  if (description !== undefined) card.desc.textContent = description || "";
+  if (title !== undefined) {
+    (card.titleText || card.titleElem).textContent = title || "";
+    card.infoButton?.setAttribute('aria-label', `About ${title || 'this dashboard'}`);
+  }
+  if (description !== undefined && card.desc) card.desc.textContent = description || "";
 
   // Update thumb datasets
   const nextSrc = imgSrc(newFilename);

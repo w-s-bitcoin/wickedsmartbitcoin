@@ -85,6 +85,104 @@ let gridReorderLongPressTimer = null;
 let gridReorderPressState = null;
 let gridReorderDragState = null;
 let gridReorderSuppressClickUntil = 0;
+let activeGridCardDescription = null;
+
+function closeGridCardDescription() {
+  activeGridCardDescription?.closeDescription();
+}
+
+function bindGridCardDescription(card) {
+  const { infoButton, desc, titleElem } = card;
+  const surface = titleElem.parentElement;
+  let pointerWithin = false, keyboardFocus = false, pinned = false, closeTimer = null;
+  let pressingDescription = false;
+  const cancelClose = () => {
+    window.clearTimeout(closeTimer);
+    closeTimer = null;
+  };
+  card.closeDescription = () => {
+    cancelClose();
+    pointerWithin = keyboardFocus = pinned = pressingDescription = false;
+    surface.classList.remove('description-open');
+    infoButton.setAttribute('aria-expanded', 'false');
+    desc.setAttribute('aria-hidden', 'true');
+    if (activeGridCardDescription === card) activeGridCardDescription = null;
+  };
+  const show = () => {
+    cancelClose();
+    if (gridReorderMode) return;
+    if (activeGridCardDescription !== card) closeGridCardDescription();
+    activeGridCardDescription = card;
+    surface.classList.add('description-open');
+    infoButton.setAttribute('aria-expanded', 'true');
+    desc.setAttribute('aria-hidden', 'false');
+  };
+  const leave = () => {
+    cancelClose();
+    // Allow the pointer to cross the small gap from the title to the overlay.
+    closeTimer = window.setTimeout(() => {
+      if (!pointerWithin && !keyboardFocus && !pinned) card.closeDescription();
+    }, 140);
+  };
+  [infoButton, desc].forEach((element) => {
+    element.addEventListener('pointerenter', (event) => {
+      if (event.pointerType === 'touch') return;
+      pointerWithin = true;
+      show();
+    });
+    element.addEventListener('pointerleave', (event) => {
+      if (event.pointerType === 'touch') return;
+      pointerWithin = false;
+      leave();
+    });
+  });
+  infoButton.addEventListener('focus', () => {
+    if (!infoButton.matches(':focus-visible')) return;
+    keyboardFocus = true;
+    show();
+  });
+  infoButton.addEventListener('blur', () => {
+    keyboardFocus = false;
+    if (!pressingDescription) pinned = false;
+    if (!pointerWithin && !pinned) card.closeDescription();
+  });
+  infoButton.addEventListener('keydown', (event) => {
+    // Keep native button activation from reaching the homepage Space shortcut.
+    if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') event.stopPropagation();
+  });
+  infoButton.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (gridReorderMode) return;
+    if (pinned) card.closeDescription();
+    else { pinned = true; show(); }
+  });
+  // Reading/selecting the overlay must not open the chart or begin a drag.
+  desc.addEventListener('pointerdown', (event) => {
+    pressingDescription = true;
+    event.stopPropagation();
+  });
+  desc.addEventListener('pointercancel', () => { pressingDescription = false; });
+  desc.addEventListener('click', (event) => {
+    // Touch can move focus after pointerup, just before its compatibility click.
+    pressingDescription = false;
+    event.stopPropagation();
+  });
+}
+
+document.addEventListener('pointerdown', (event) => {
+  const card = activeGridCardDescription;
+  if (card && !card.infoButton.contains(event.target) && !card.desc.contains(event.target)) {
+    closeGridCardDescription();
+  }
+}, true);
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape' || !activeGridCardDescription) return;
+  closeGridCardDescription();
+  event.preventDefault();
+  event.stopImmediatePropagation();
+}, true);
+window.addEventListener('blur', closeGridCardDescription);
 
 function normalizeDashboardGridOrder(order) {
   if (!Array.isArray(order)) return [];
@@ -229,6 +327,7 @@ function setGridReorderMode(active) {
   const isActive = !!active;
   if (gridReorderMode === isActive) return;
   gridReorderMode = isActive;
+  if (isActive) closeGridCardDescription();
   document.body.classList.toggle('grid-reorder-mode', isActive);
   imageGrid?.classList?.toggle('is-reordering', isActive);
   getVisibleGridCardEntries().forEach((card) => {
@@ -714,7 +813,16 @@ function buildGridOnce(){
     surface.className = 'dashboard-card-surface';
     const titleElem = document.createElement('div');
     titleElem.className = 'chart-title';
-    titleElem.textContent = title;
+    const titleText = document.createElement('span');
+    titleText.className = 'chart-title-text';
+    titleText.textContent = title;
+    const infoButton = document.createElement('button');
+    infoButton.type = 'button';
+    infoButton.className = 'chart-info-button';
+    infoButton.textContent = '?';
+    infoButton.setAttribute('aria-label', `About ${title || 'this dashboard'}`);
+    infoButton.setAttribute('aria-expanded', 'false');
+    titleElem.append(titleText, infoButton);
     const chartContainer = document.createElement('div');
     chartContainer.className = 'chart-container';
     const chartWrapper = document.createElement('div');
@@ -917,13 +1025,21 @@ function buildGridOnce(){
     const desc = document.createElement('div');
     desc.className = 'chart-description';
     desc.textContent = description;
+    desc.id = `grid-card-description-${cardByFilename.size}`;
+    desc.setAttribute('role', 'tooltip');
+    desc.setAttribute('aria-hidden', 'true');
+    infoButton.setAttribute('aria-describedby', desc.id);
+    infoButton.setAttribute('aria-controls', desc.id);
     chartContainer.appendChild(desc);
     surface.appendChild(titleElem);
     surface.appendChild(chartContainer);
     container.appendChild(surface);
     grid.appendChild(container);
     const card = cardByFilename.get(_cardKey(filename));
-    if (card) card.desc = desc;
+    if (card) {
+      Object.assign(card, { desc, titleText, infoButton });
+      bindGridCardDescription(card);
+    }
   }
 
   ensureDashboardPreviewObservers();
@@ -990,6 +1106,7 @@ function filterImages(options = {}){
   });
   for (const [key, card] of cardByFilename.entries()) {
     if (visibleKeys.has(key)) continue;
+    card.closeDescription?.();
     card.container.style.display = 'none';
     card.container.classList.remove('grid-card-jiggle', 'grid-card-dragging');
     card.container.style.transform = '';

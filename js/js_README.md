@@ -110,6 +110,12 @@ visible through a failed cold start. The iframe can replace it after an in-place
 recovery. Update the saved image when changing a preview's visual design; it is
 an illustrative fallback, not a current data publication.
 
+Each card title includes a question-mark button that reveals its catalog
+description over the chart on hover or keyboard focus. Clicking/tapping pins or
+dismisses it; Escape, focus leaving the button, and outside taps dismiss it too.
+The overlay stays inside its chart and supports scrolling for longer text.
+Title updates must preserve the button by updating `card.titleText`.
+
 Dashboard refresh uses `webapps/shared/webapp_data_auto_refresh.js`. Adapters prepare and validate a detached generation, the controller rechecks publication markers, and only then does the adapter install it. Existing data and user controls stay intact if fetching or validation fails. Hidden dashboards can install complete data and defer presentation until visible.
 
 Live previews use `webapps/shared/preview_shared.js` and its `createDataRefresher()` adapter (`prepare`, `commit`, `present`). Static previews use `initStaticPreview()`. Resize and theme events render cached data; they do not initiate payload fetches. Marker/payload semantics are documented in the webapps guide and tested by the publication and browser regression scripts under `scripts/`.

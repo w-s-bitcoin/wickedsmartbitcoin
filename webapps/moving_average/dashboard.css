@@ -108,6 +108,15 @@ button { cursor: pointer; }
   --dca-dropdown-arrow-gap: 18px;
   cursor: pointer;
 }
+.ma-controls .ma-type-chip .dca-dropdown { --dca-dropdown-content-pad: 19px; }
+.ma-type-chip .dca-dropdown > .legend-dot {
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.ma-type-chip .dca-dropdown-menu { --dca-dropdown-content-pad: 4px; }
 .ma-controls .dca-dropdown-value {
   display: block;
   width: 100%;
