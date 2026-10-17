@@ -99,6 +99,10 @@ Updated timestamp KPIs should use the standard shared controller:
 
 ## Behavior Expectations
 
+Homepage grid previews show chart series without grid lines, labels, ticks, or
+panel titles. Remove the margins reserved for those decorations while keeping
+the full dashboard and exports unchanged.
+
 New dashboards should match existing UOA/DCA behavior:
 
 - custom calendar with year and month selection

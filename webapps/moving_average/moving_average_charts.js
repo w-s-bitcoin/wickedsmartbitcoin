@@ -176,7 +176,7 @@
     return [];
   }
   function panel(ctx, rect, options) {
-    const { model, series, lines, endIndex, startTime, scale = "linear", theme = "dark", title = "", hoverIndex = -1 } = options;
+    const { model, series, lines, endIndex, startTime, scale = "linear", theme = "dark", title = "", hoverIndex = -1, compact = false } = options;
     const rows = model.rows, colors = palette(theme);
     const activeIndices = lines.flatMap((line, index) => line.type === "none" ? [] : [index]);
     const endTime = rows[endIndex].time, minTime = Math.min(startTime, endTime - DAY);
@@ -184,7 +184,9 @@
     ctx.save(); ctx.translate(rect.x || 0, rect.y || 0);
     ctx.fillStyle = colors.bg; ctx.fillRect(0, 0, rect.width, rect.height);
     const fontSize = Math.max(10, Math.min(13, rect.width / 40));
-    const plot = C.getPlotRect(rect.width, rect.height, { left: 12, right: rect.width < 370 ? 65 : 84, top: title ? 35 : 16, bottom: 32 });
+    const plot = C.getPlotRect(rect.width, rect.height, compact
+      ? { left: 8, right: 8, top: 0, bottom: 0 }
+      : { left: 12, right: rect.width < 370 ? 65 : 84, top: title ? 35 : 16, bottom: 32 });
     let min = Infinity, max = -Infinity;
     function include(v) { if (Number.isFinite(v) && v > 0) { min = Math.min(min, v); max = Math.max(max, v); } }
     for (let i = startIndex; i <= endIndex; i++) {
@@ -214,22 +216,24 @@
       }
       return 10 ** ((low + high) / 2);
     }
-    const tickCount = Math.max(3, Math.min(6, Math.floor(plot.height / 55)));
-    if (mix === 0 || mix === 1) {
-      const logarithmic = mix === 1, axis = logarithmic ? logAxis : linearAxis;
-      const ticks = scaleTicks(axis, logarithmic, tickCount);
-      const axisTicks = logarithmic ? ticks.map(Math.log10) : ticks;
-      C.drawGridLines(ctx, axisTicks, axis.min, axis.max, plot, { color: colors.grid });
-      C.drawRightAxisLabels(ctx, axisTicks, axis.min, axis.max, plot, (v) => axisMoney(logarithmic ? 10 ** v : v), { color: colors.muted, font: `${fontSize}px IBM Plex Mono, monospace` });
-    } else {
-      drawMorphAxis(ctx, morphTicks(scaleTicks(linearAxis, false, tickCount), scaleTicks(logAxis, true, tickCount), mix, y), plot, colors, fontSize);
-    }
-    ctx.font = `${fontSize}px IBM Plex Mono, monospace`; ctx.fillStyle = colors.muted;
-    const dateTicks = dateAxisTicks(minTime, endTime, plot, ctx);
-    ctx.textAlign = "center";
-    for (const tick of dateTicks) {
-      ctx.strokeStyle = colors.grid; ctx.beginPath(); ctx.moveTo(tick.x, plot.top); ctx.lineTo(tick.x, plot.bottom); ctx.stroke();
-      ctx.fillText(tick.label, tick.labelX, plot.bottom + 22);
+    if (!compact) {
+      const tickCount = Math.max(3, Math.min(6, Math.floor(plot.height / 55)));
+      if (mix === 0 || mix === 1) {
+        const logarithmic = mix === 1, axis = logarithmic ? logAxis : linearAxis;
+        const ticks = scaleTicks(axis, logarithmic, tickCount);
+        const axisTicks = logarithmic ? ticks.map(Math.log10) : ticks;
+        C.drawGridLines(ctx, axisTicks, axis.min, axis.max, plot, { color: colors.grid });
+        C.drawRightAxisLabels(ctx, axisTicks, axis.min, axis.max, plot, (v) => axisMoney(logarithmic ? 10 ** v : v), { color: colors.muted, font: `${fontSize}px IBM Plex Mono, monospace` });
+      } else {
+        drawMorphAxis(ctx, morphTicks(scaleTicks(linearAxis, false, tickCount), scaleTicks(logAxis, true, tickCount), mix, y), plot, colors, fontSize);
+      }
+      ctx.font = `${fontSize}px IBM Plex Mono, monospace`; ctx.fillStyle = colors.muted;
+      const dateTicks = dateAxisTicks(minTime, endTime, plot, ctx);
+      ctx.textAlign = "center";
+      for (const tick of dateTicks) {
+        ctx.strokeStyle = colors.grid; ctx.beginPath(); ctx.moveTo(tick.x, plot.top); ctx.lineTo(tick.x, plot.bottom); ctx.stroke();
+        ctx.fillText(tick.label, tick.labelX, plot.bottom + 22);
+      }
     }
     ctx.save(); ctx.beginPath(); ctx.rect(plot.left, plot.top, plot.width, plot.height); ctx.clip();
     function draw(getValue, color, unit, width) {
@@ -251,11 +255,11 @@
     }
     draw((i) => rows[i].price, colors.fg, null, 1.3);
     activeIndices.forEach((i) => draw((j) => series[i]?.[j], colors.lines[i], lines[i].unit, 2.2));
-    if (hoverIndex >= 0 && hoverIndex <= endIndex && rows[hoverIndex].time >= minTime) {
+    if (!compact && hoverIndex >= 0 && hoverIndex <= endIndex && rows[hoverIndex].time >= minTime) {
       ctx.strokeStyle = colors.hover; ctx.lineWidth = 1; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(x(rows[hoverIndex].time), plot.top); ctx.lineTo(x(rows[hoverIndex].time), plot.bottom); ctx.stroke();
     }
     ctx.restore();
-    if (title) { ctx.fillStyle = colors.fg; ctx.font = "600 14px Space Grotesk, sans-serif"; ctx.textAlign = "left"; ctx.fillText(title, 12, 20, rect.width - 24); }
+    if (!compact && title) { ctx.fillStyle = colors.fg; ctx.font = "600 14px Space Grotesk, sans-serif"; ctx.textAlign = "left"; ctx.fillText(title, 12, 20, rect.width - 24); }
     ctx.restore();
     return { plot, startTime: minTime, endTime, endIndex, scaleMix: mix, valueToY: y, yToValue,
       yPadding: { top: y(dataMax) - plot.top, bottom: plot.bottom - y(dataMin) } };
@@ -318,7 +322,7 @@
     }
     layouts.forEach((rect, position) => {
       const lineIndex = activeIndices[position - 1], line = lines[lineIndex];
-      panel(ctx, rect, { model, lines, series, endIndex, theme, scale: scales[position ? lineIndex + 1 : 0],
+      panel(ctx, rect, { model, lines, series, endIndex, theme, compact, scale: scales[position ? lineIndex + 1 : 0],
         startTime: position ? M.windowStart(end.time, line.period, line.unit) : model.rows[startIndex].time,
         title: position ? windowTitle(line) : `Price & moving average${activeIndices.length === 1 ? "" : "s"}` });
     });

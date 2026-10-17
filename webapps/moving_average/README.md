@@ -4,6 +4,9 @@ This dashboard uses the existing published `assets/daily_price.csv` and
 `assets/daily_price_metadata.json`, plus the shared browser-side Bitcoin spot
 feed. It does not introduce a producer, copied dataset, or scheduler. The same
 calculation and data validation module serves the dashboard and homepage preview.
+The homepage grid preview shows only the chart series, without grid lines,
+labels, ticks, or panel titles, and does not reserve space for those decorations.
+The full dashboard and exports retain their axes and labels.
 
 ## Calculation semantics
 
