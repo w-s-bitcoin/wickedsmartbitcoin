@@ -167,8 +167,10 @@ def subtract_calendar_years(iso: str, years: int) -> str:
 
 def write_dca_preview_csv(out_dir: Path) -> tuple[Path, list[dict[str, str]], bytes]:
     root = repo_root()
-    btc_by_date = read_column_csv(root / "assets" / "daily_price.csv", "date", "price")
-    xau_by_date = read_column_csv(root / "webapps" / "uoa" / "webapp_data" / "daily_fx_rates.csv", "date", "xauusd")
+    price_csv = Path(os.getenv("DCA_COMPARISON_PRICE_CSV", str(root / "assets" / "daily_price.csv"))).expanduser()
+    fx_csv = Path(os.getenv("DCA_COMPARISON_FX_CSV", str(root / "webapps" / "uoa" / "webapp_data" / "daily_fx_rates.csv"))).expanduser()
+    btc_by_date = read_column_csv(price_csv, "date", "price")
+    xau_by_date = read_column_csv(fx_csv, "date", "xauusd")
     common_dates = sorted(set(btc_by_date) & set(xau_by_date))
     if not common_dates:
         raise RuntimeError("No overlapping BTC/XAU rows were available for DCA comparison preview")

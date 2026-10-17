@@ -63,6 +63,9 @@ The DCA Cost Basis producer reads the newly staged `daily_price.csv` when the
 hourly run has one, so its price, snapshot timestamp, and block height describe
 the same generation. It reads the published checkout file when the source has
 not changed.
+UoA runs before DCA Comparison, whose home-card preview reads the run's staged
+Bitcoin and FX CSVs. If either producer has no staged replacement, Comparison
+uses that input's last published file instead.
 
 Onchain work has priority. Current-chain top KPIs are built from the complete
 ingested `blockheader` snapshot and can publish before slower issuance work.

@@ -81,14 +81,18 @@ WEBAPP_SCRIPT_JOBS = [
         "repo_dest_dir": REPO_DIR / "webapps" / "dca_cost_basis" / "webapp_data",
     },
     {
-        "script": REPO_DIR / "webapps" / "dca_comparison" / "comparison_webapp_data_update.py",
-        "env_var": "DCA_COMPARISON_WEBAPP_DATA_DIR",
-        "repo_dest_dir": REPO_DIR / "webapps" / "dca_comparison" / "webapp_data",
-    },
-    {
         "script": REPO_DIR / "webapps" / "uoa" / "uoa_webapp_data_update.py",
         "env_var": "UOA_WEBAPP_DATA_DIR",
         "repo_dest_dir": REPO_DIR / "webapps" / "uoa" / "webapp_data",
+    },
+    {
+        "script": REPO_DIR / "webapps" / "dca_comparison" / "comparison_webapp_data_update.py",
+        "env_var": "DCA_COMPARISON_WEBAPP_DATA_DIR",
+        "repo_dest_dir": REPO_DIR / "webapps" / "dca_comparison" / "webapp_data",
+        "input_csv_env_vars": {
+            "DCA_COMPARISON_PRICE_CSV": Path("assets/daily_price.csv"),
+            "DCA_COMPARISON_FX_CSV": Path("webapps/uoa/webapp_data/daily_fx_rates.csv"),
+        },
     },
     {
         "script": REPO_DIR / "webapps" / "patoshi_pattern" / "patoshi_webapp_data_update.py",
@@ -604,6 +608,9 @@ def phase_webapp_data(run_dir: Path) -> None:
         script_env[env_var] = str(staged_output_dir)
         if job.get("source_csv_env_var"):
             script_env[job["source_csv_env_var"]] = str(daily_price_source)
+        for env_var, relative_path in job.get("input_csv_env_vars", {}).items():
+            staged_input = run_dir / "files" / relative_path
+            script_env[env_var] = str(staged_input if staged_input.is_file() else REPO_DIR / relative_path)
         ran = run_script(script, env=script_env)
         ran_count += int(ran)
         if ran:
