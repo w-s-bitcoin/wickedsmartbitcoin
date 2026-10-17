@@ -16,7 +16,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="../shared/dashboard_shared.css" />
   <link rel="stylesheet" href="../shared/dashboard_controls.css" />
-  <link rel="stylesheet" href="dashboard.css?v=20261017-type-dots" />
+  <link rel="stylesheet" href="dashboard.css?v=20261017-series-colors" />
 </head>
 <body>
   <main class="wrap moving-average-wrap">
@@ -45,7 +45,6 @@
           </div>
           <select id="updatedTimeZoneSelect" class="chip-menu-select chip-kpi-select-overlay dca-native-select" aria-label="Updated timestamp time zone"></select>
         </div>
-        <div class="chip"><span class="chip-label">Date</span> <span class="chip-value" id="dateKpi">—</span></div>
         <div class="chip" id="priceChip"><span id="priceLiveStatus" class="chip-spot-status" data-kind="stale" aria-hidden="true"></span><span class="chip-label">BTCUSD</span> <span class="chip-value" id="priceKpi">—</span></div>
         <div class="chip" id="ma1KpiChip"><span class="legend-dot ma1-dot" aria-hidden="true"></span><span class="chip-label" id="ma1KpiLabel">200D SMA</span> <span class="chip-value" id="ma1Kpi">—</span></div>
         <div class="chip" id="ma2KpiChip"><span class="legend-dot ma2-dot" aria-hidden="true"></span><span class="chip-label" id="ma2KpiLabel">200W SMA</span> <span class="chip-value" id="ma2Kpi">—</span></div>
@@ -257,7 +256,7 @@
   <script src="../shared/webapp_data_auto_refresh.js"></script>
   <script src="../shared/bitcoin_spot_price.js"></script>
   <script src="moving_average_model.js"></script>
-  <script src="moving_average_charts.js"></script>
-  <script src="dashboard_app.js"></script>
+  <script src="moving_average_charts.js?v=20261017-panel-weight"></script>
+  <script src="dashboard_app.js?v=20261017-kpi-row"></script>
 </body>
 </html>

@@ -13,7 +13,7 @@ const DASHBOARD_CARD_PREVIEW_SPECS = Object.freeze({
     height: 720,
   },
   'moving_average.png': {
-    url: 'webapps/moving_average/preview.html',
+    url: 'webapps/moving_average/preview.html?v=20261017-series-colors',
     width: 1280,
     height: 720,
   },

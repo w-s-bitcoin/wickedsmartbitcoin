@@ -21,6 +21,9 @@
     canvas.dataset.priceSource = displayModel.liveQuote ? (spotFeed?.isLive?.(displayModel.liveQuote) ? "live" : "retained") : "published";
     canvas.dataset.endDate = displayModel.rows.at(-1).date;
     G.composite(ctx, width, height, { model: displayModel, series, lines, endIndex: displayModel.rows.length - 1,
+      // The sparse 200-day trace needs more stroke weight to visually match the
+      // overlapping daily segments in the full-history and 200-week thumbnails.
+      priceLineWidths: [1.3, 2.2, 1.3],
       scales: ["log", "linear", "linear"], theme: document.documentElement.dataset.theme, compact: true });
   }
   window.WSBPreviewShared?.initThemeSync({ onThemeChanged: () => refresher?.requestPresent("theme") });

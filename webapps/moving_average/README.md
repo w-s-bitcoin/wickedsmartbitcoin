@@ -4,6 +4,13 @@ This dashboard uses the existing published `assets/daily_price.csv` and
 `assets/daily_price_metadata.json`, plus the shared browser-side Bitcoin spot
 feed. It does not introduce a producer, copied dataset, or scheduler. The same
 calculation and data validation module serves the dashboard and homepage preview.
+The homepage grid preview balances the white price lines' apparent thickness
+with a heavier stroke in its sparse 200-day panel. The dashboard and exports
+apply the same visual balancing to custom windows: the price stroke blends
+from 1.3 to 2.2 pixels as daily point spacing increases from one to two pixels.
+This follows the visible time span and panel width, stays constant during
+LOG/LIN transitions, and preserves every price sample. Moving-average strokes
+stay at 2.2 pixels; their cyan and orange colors remain the same in both themes.
 The homepage grid preview shows only the chart series, without grid lines,
 labels, ticks, or panel titles, and does not reserve space for those decorations.
 The full dashboard and exports retain their axes and labels.

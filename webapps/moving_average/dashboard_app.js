@@ -285,7 +285,7 @@
     $("historyTitle").textContent = state.startIso === b.first ? "Full History" : "Selected History";
     $("playBtn").setAttribute("aria-label", session ? "Resume playback" : "Play date range");
     document.querySelectorAll("#rangeButtons button").forEach((button) => { button.classList.remove("active"); button.classList.toggle("is-active", !session && button.dataset.rangePreset === state.preset); });
-    const row = view.model.rows[view.endIndex]; $("dateKpi").textContent = row.date; $("priceKpi").textContent = G.kpiMoney(row.price);
+    const row = view.model.rows[view.endIndex]; $("priceKpi").textContent = G.kpiMoney(row.price);
     syncPriceSource(view);
     state.lines.forEach((line, i) => {
       const n = i + 1, value = view.series[i][view.endIndex], disabled = line.type === "none";

@@ -10,8 +10,8 @@
   --muted: #95a6ae;
   --accent: #ff9900;
   --dashboard-accent: var(--accent);
-  --ma1: #00dddd;
-  --ma2: #ffad00;
+  --ma1: #00e4e8;
+  --ma2: #ff9900;
   --price: #f1f5f7;
   --panel-border: rgba(255, 255, 255, .14);
   --card-border: var(--panel-border);
@@ -33,8 +33,6 @@
   --panel-border: rgba(0, 0, 0, .11);
   --line: #d8d0c3;
   --link: #1f4f78;
-  --ma1: #008e9b;
-  --ma2: #c27d00;
   --price: #252525;
 }
 body { font-family: "Space Grotesk", "Helvetica Neue", sans-serif; }

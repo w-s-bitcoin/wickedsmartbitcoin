@@ -11,7 +11,7 @@
     return { bg: light ? "#ffffff" : "#000000", fg: light ? "#202a30" : "#f1f5f7",
       muted: light ? "#6f685f" : "#95a6ae", grid: light ? "#e2ded7" : "#242d32",
       hover: light ? "rgba(75, 85, 99, 0.55)" : "rgba(120, 120, 120, 0.7)",
-      lines: [light ? "#008b99" : "#00e4e8", light ? "#b96900" : "#ff9900"] };
+      lines: ["#00e4e8", "#ff9900"] };
   }
   function setup(canvas) {
     const rect = canvas.getBoundingClientRect();
@@ -187,6 +187,11 @@
     const plot = C.getPlotRect(rect.width, rect.height, compact
       ? { left: 8, right: 8, top: 0, bottom: 0 }
       : { left: 12, right: rect.width < 370 ? 65 : 84, top: title ? 35 : 16, bottom: 32 });
+    // Sparse daily traces need more weight to match overlapping dense history.
+    // Blend smoothly as the window or panel width changes; LOG/LIN keeps it fixed.
+    const dailySpacing = plot.width / Math.max(1, (endTime - minTime) / DAY);
+    const weightMix = Math.max(0, Math.min(1, dailySpacing - 1));
+    const priceLineWidth = options.priceLineWidth ?? (1.3 + 0.9 * weightMix * weightMix * (3 - 2 * weightMix));
     let min = Infinity, max = -Infinity;
     function include(v) { if (Number.isFinite(v) && v > 0) { min = Math.min(min, v); max = Math.max(max, v); } }
     for (let i = startIndex; i <= endIndex; i++) {
@@ -253,7 +258,7 @@
       ctx.stroke();
       if (points === 1 && last) { ctx.fillStyle = color; ctx.beginPath(); ctx.arc(last.x, last.y, 3, 0, Math.PI * 2); ctx.fill(); }
     }
-    draw((i) => rows[i].price, colors.fg, null, 1.3);
+    draw((i) => rows[i].price, colors.fg, null, priceLineWidth);
     activeIndices.forEach((i) => draw((j) => series[i]?.[j], colors.lines[i], lines[i].unit, 2.2));
     if (!compact && hoverIndex >= 0 && hoverIndex <= endIndex && rows[hoverIndex].time >= minTime) {
       ctx.strokeStyle = colors.hover; ctx.lineWidth = 1; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(x(rows[hoverIndex].time), plot.top); ctx.lineTo(x(rows[hoverIndex].time), plot.bottom); ctx.stroke();
@@ -323,6 +328,7 @@
     layouts.forEach((rect, position) => {
       const lineIndex = activeIndices[position - 1], line = lines[lineIndex];
       panel(ctx, rect, { model, lines, series, endIndex, theme, compact, scale: scales[position ? lineIndex + 1 : 0],
+        priceLineWidth: compact ? options.priceLineWidths?.[position] : undefined,
         startTime: position ? M.windowStart(end.time, line.period, line.unit) : model.rows[startIndex].time,
         title: position ? windowTitle(line) : `Price & moving average${activeIndices.length === 1 ? "" : "s"}` });
     });
