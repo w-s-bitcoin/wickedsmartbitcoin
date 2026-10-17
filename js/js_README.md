@@ -12,7 +12,7 @@ Read [`../AGENTS.md`](../AGENTS.md) for contributor safeguards and [`../README.m
 - `404.html`: production standalone shell (GitHub Pages fallback for clean routes)
 - Root `/<slug>.html` files: dedicated standalone modal shells that load a dashboard iframe through its local controller
 
-Current dashboard slugs: `bip110_signaling`, `bitcoin_dominance`, `bitcoin_net_worth`, `casascius_explorer`, `days_since_ath`, `dca_comparison`, `dca_cost_basis`, `issuance_rate`, `node_count`, `patoshi_pattern`, `quantum_exposure`, and `uoa`.
+Current dashboard slugs: `bip110_signaling`, `bitcoin_dominance`, `bitcoin_net_worth`, `casascius_explorer`, `days_since_ath`, `dca_comparison`, `dca_cost_basis`, `issuance_rate`, `moving_average`, `node_count`, `patoshi_pattern`, `quantum_exposure`, and `uoa`.
 
 ### URL behavior
 

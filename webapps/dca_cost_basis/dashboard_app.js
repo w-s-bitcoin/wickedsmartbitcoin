@@ -36,6 +36,7 @@ const DATE_RANGE_STORAGE_KEY = "dca_cost_basis_date_range_v1";
 const DOWNLOAD_SETTINGS_KEY = "dca_cost_basis_download_settings_v1";
 const DASHBOARD_TIME = window.WSBDashboardTime || null;
 const DASHBOARD_COMPONENTS = window.WSBDashboardComponents || {};
+const DASHBOARD_CHARTING = window.WSBDashboardCharting;
 const SHARE_STATE_PARAM = "state";
 const LOCAL_RUNTIME_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 const IS_LOCAL_RUNTIME = LOCAL_RUNTIME_HOSTS.has(window.location.hostname);
@@ -146,6 +147,7 @@ const updatedTimeZoneChip = DASHBOARD_COMPONENTS.createUpdatedTimeZoneChipContro
   },
 });
 const chartLoader = document.getElementById("chartLoader");
+const scaleTransition = DASHBOARD_CHARTING.createScaleTransitionController({ render: renderChart });
 
 function setDropdownOpen(dropdownEl, menuEl, isOpen) {
   if (!menuEl) return;
@@ -658,6 +660,8 @@ function applyControlValuesToUi() {
   if (toggleHalvings) toggleHalvings.checked = state.showHalvings;
   document.querySelectorAll("[data-scale-mode]").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.scaleMode === state.yScale);
+    button.setAttribute("aria-pressed", String(button.dataset.scaleMode === state.yScale));
+    button.title = `Switch to ${state.yScale === "log" ? "linear" : "logarithmic"} scale`;
   });
   syncAllSelectDropdowns();
 }
@@ -1623,6 +1627,8 @@ function syncDateRangeControls() {
   });
   document.querySelectorAll("[data-scale-mode]").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.scaleMode === state.yScale);
+    button.setAttribute("aria-pressed", String(button.dataset.scaleMode === state.yScale));
+    button.title = `Switch to ${state.yScale === "log" ? "linear" : "logarithmic"} scale`;
   });
   updateDownloadEstimates();
 }
@@ -2498,7 +2504,8 @@ function bindDateRangeKeyboardShortcuts() {
 
   DASHBOARD_COMPONENTS.bindPlaybackKeyboardShortcuts?.({
     blurControls: blurDateRangeSliderIfFocused,
-    isTextEntry: (active) => isKeyboardShortcutTextEntry(active),
+    isTextEntry: (active, event) => isKeyboardShortcutTextEntry(active)
+      || (active?.matches?.("[data-scale-mode]") && (event.code === "Space" || event.key === " ")),
     isPlaybackActive: () => state.dateRange.isPlaying || state.dateRange.isPaused,
     isEscapeActive: () => state.dateRange.isPlaying || state.dateRange.isPaused,
     isInactiveArrowActive: () => dateRangeLastAdjustedHandle === "start" || dateRangeLastAdjustedHandle === "end",
@@ -3140,6 +3147,8 @@ async function downloadDateRangeAnimation() {
     return;
   }
 
+  scaleTransition.finish();
+  renderChart();
   stopDateRangePlayback(false);
   const { width, height } = getDownloadDimensions(settings);
   const canvas = document.createElement("canvas");
@@ -4255,9 +4264,10 @@ function buildChartSvgMarkup(options) {
     return `<line class="chart-grid-line" x1="${x.toFixed(2)}" y1="${plotTop}" x2="${x.toFixed(2)}" y2="${plotBottom}" stroke="${colors.grid}" stroke-width="${gridStrokeWidth}" shape-rendering="crispEdges" />`;
   }).join("");
 
-  const horizontalGrid = rightTicks.tickvals.map((value) => {
+  const horizontalGrid = rightTicks.tickvals.map((value, index) => {
     const y = snapSvgLineCoord(yForValue(value), gridStrokeWidth);
-    return `<line class="chart-grid-line" x1="${plotLeft}" y1="${y.toFixed(2)}" x2="${plotRight}" y2="${y.toFixed(2)}" stroke="${colors.grid}" stroke-width="${gridStrokeWidth}" shape-rendering="crispEdges" />`;
+    const opacity = rightTicks.tickalpha?.[index] ?? 1;
+    return `<line opacity="${opacity}" class="chart-grid-line" x1="${plotLeft}" y1="${y.toFixed(2)}" x2="${plotRight}" y2="${y.toFixed(2)}" stroke="${colors.grid}" stroke-width="${gridStrokeWidth}" shape-rendering="crispEdges" />`;
   }).join("");
 
   const bottomTickLabels = bottomTicks.tickvals.map((day, index) => {
@@ -4280,7 +4290,7 @@ function buildChartSvgMarkup(options) {
     const overlapsCurrentPrice = Number.isFinite(currentY)
       && Math.abs(y - currentY) < currentPriceOverlapRadius;
     const fill = overlapsCurrentPrice ? (colors.overlappedTick || colors.muted || colors.fg) : colors.muted;
-    return `<text x="${plotRight + 8}" y="${(y + (labelSizes.yTick * 0.36)).toFixed(2)}" text-anchor="start" fill="${fill}" font-family="${CHART_MONO_FONT_ATTR}" font-size="${labelSizes.yTick}">${escapeHtml(rightTicks.ticktext[index] || "")}</text>`;
+    return `<text opacity="${rightTicks.tickalpha?.[index] ?? 1}" x="${plotRight + 8}" y="${(y + (labelSizes.yTick * 0.36)).toFixed(2)}" text-anchor="start" fill="${fill}" font-family="${CHART_MONO_FONT_ATTR}" font-size="${labelSizes.yTick}">${escapeHtml(rightTicks.ticktext[index] || "")}</text>`;
   }).join("");
 
   const halvingLines = buildHalvingShapes(maxDays, colors, rows).map((shape) => {
@@ -4719,14 +4729,21 @@ function renderChart() {
   const plotRight = width - margins.right;
   const plotTop = margins.top + 30;
   const plotBottom = height - margins.bottom - 8;
-  const yAxis = buildYScaleConfig(allYValues, state.yScale);
+  const scaleMix = scaleTransition.getMix("price", state.yScale);
+  const linearAxis = buildYScaleConfig(allYValues, "linear");
+  const logAxis = buildYScaleConfig(allYValues, "log");
   const ticks = buildDurationTickConfig(maxDays);
   const dateTicks = buildDateTickConfig(rows, width);
   const xForDay = (day) => {
     const ratio = (maxDays - day) / Math.max(1, maxDays - 1);
     return plotLeft + (ratio * Math.max(1, plotRight - plotLeft));
   };
-  const yForValue = (value) => yAxis.map(value, plotTop, Math.max(1, plotBottom - plotTop));
+  const plotHeight = Math.max(1, plotBottom - plotTop);
+  const linearY = (value) => linearAxis.map(value, plotTop, plotHeight);
+  const logY = (value) => value > 0 ? logAxis.map(value, plotTop, plotHeight) : plotBottom;
+  const yForValue = (value) => scaleMix === 0 ? linearY(value) : scaleMix === 1
+    ? logAxis.map(value, plotTop, plotHeight)
+    : linearY(value) * (1 - scaleMix) + logY(value) * scaleMix;
   const rawBottomTicks = maxDays >= 365 && maxDays <= 365 * 4
     ? ticks
     : filterTicksByPixelSpacing(
@@ -4742,13 +4759,26 @@ function renderChart() {
     width < 520 ? 86 : width < 860 ? 68 : 54,
   );
   const { bottomTicks, topTicks: balancedTopTicks } = balanceXAxisTickCounts(rawBottomTicks, topTicks);
-  const rightTicks = filterTicksByPixelSpacing(
-    yAxis.tickvals,
-    yAxis.ticktext,
-    (value) => yForValue(value),
-    labelSizes.yTick * 1.45,
+  const ticksForAxis = (axis, map) => filterTicksByPixelSpacing(
+    axis.tickvals, axis.ticktext, map, labelSizes.yTick * 1.45,
     { preserveFirst: true, preserveLast: true },
   );
+  const linearTicks = ticksForAxis(linearAxis, linearY);
+  const logTicks = ticksForAxis(logAxis, logY);
+  let rightTicks = scaleMix === 0 ? linearTicks : logTicks;
+  if (scaleMix > 0 && scaleMix < 1) {
+    const morphed = DASHBOARD_CHARTING.morphScaleTicks(
+      linearTicks.tickvals, logTicks.tickvals, scaleMix, yForValue,
+      { spacing: labelSizes.yTick * 1.45 },
+    );
+    const labels = new Map([...logTicks.tickvals.map((value, index) => [value, logTicks.ticktext[index]]),
+      ...linearTicks.tickvals.map((value, index) => [value, linearTicks.ticktext[index]])]);
+    rightTicks = {
+      tickvals: morphed.map((tick) => tick.value),
+      ticktext: morphed.map((tick) => labels.get(tick.value) || formatUsdAxisTickLabels([tick.value])[0]),
+      tickalpha: morphed.map((tick) => tick.alpha),
+    };
+  }
   chart.innerHTML = buildChartSvgMarkup({
     width,
     height,
@@ -4782,6 +4812,7 @@ function renderChart() {
     maxDays,
     xForDay,
     yForValue,
+    scaleMix,
   };
   bindChartTooltip(chart);
   if (chartHoverPointer && chart.matches(":hover") && !state.dateRange.isPlaying && !isDateRangeExporting) {
@@ -4830,13 +4861,15 @@ function bindControls() {
 
   document.querySelector(".date-range-scale-buttons")?.addEventListener("click", (event) => {
     const button = event.target instanceof Element ? event.target.closest("[data-scale-mode]") : null;
-    if (!button) return;
-    const scaleMode = button.getAttribute("data-scale-mode");
-    if (!["linear", "log"].includes(scaleMode) || state.yScale === scaleMode) return;
+    if (!button || button.disabled || isDateRangeExporting) return;
+    const scaleMode = state.yScale === "log" ? "linear" : "log";
+    scaleTransition.start("price", state.yScale, scaleMode);
     state.yScale = scaleMode;
     if (scaleSelect) scaleSelect.value = scaleMode;
     document.querySelectorAll("[data-scale-mode]").forEach((scaleButton) => {
       scaleButton.classList.toggle("is-active", scaleButton.dataset.scaleMode === state.yScale);
+      scaleButton.setAttribute("aria-pressed", String(scaleButton.dataset.scaleMode === state.yScale));
+      scaleButton.title = `Switch to ${state.yScale === "log" ? "linear" : "logarithmic"} scale`;
     });
     saveControls();
     renderChart();

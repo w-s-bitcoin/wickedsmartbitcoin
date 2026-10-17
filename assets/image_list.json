@@ -37,6 +37,15 @@
     "latest_youtube": ""
   },
   {
+    "filename": "moving_average.png",
+    "title": "Moving Average",
+    "description": "Compare two configurable Bitcoin moving averages across days, weeks, or calendar months, with trailing-window charts and historical playback",
+    "modal_type": "embed",
+    "embed_url": "/webapps/moving_average/dashboard.html",
+    "latest_x": "",
+    "latest_youtube": ""
+  },
+  {
     "filename": "days_since_ath.png",
     "title": "Days Since ATH",
     "description": "Tracks Bitcoin all-time-high price, daily high, drawdown, and days since the most recent ATH with notebook-inspired two-panel charts",

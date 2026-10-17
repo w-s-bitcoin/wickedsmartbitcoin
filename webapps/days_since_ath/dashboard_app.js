@@ -1,6 +1,7 @@
 (function () {
   const DASHBOARD_COMPONENTS = window.WSBDashboardComponents || {};
   const DASHBOARD_TIME = window.WSBDashboardTime || null;
+  const CHARTING = window.WSBDashboardCharting;
   const STORAGE_KEY = "days_since_ath_dashboard_state_v1";
   const DOWNLOAD_SETTINGS_KEY = "days_since_ath_download_settings_v1";
   const THEME_KEY = "quantum-research-dashboard-theme";
@@ -200,6 +201,13 @@
   let cachedLiveDay = "";
   let activeExportPriceScaleMode = "";
   let activeExportDaysScaleMode = "";
+  const scaleTransitions = CHARTING.createScaleTransitionController({
+    render: () => {
+      if (!state.rows.length || isDateRangeExporting) return;
+      if (state.chartMode !== "days") drawPriceChart();
+      if (state.chartMode !== "price") drawDaysChart();
+    },
+  });
   let dateRangeDragState = null;
   let dateRangeEndSliderScrubState = {
     active: false,
@@ -930,9 +938,12 @@
     ctx.font = `500 ${tickFontSize}px IBM Plex Mono, monospace`;
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    ticks.forEach((tick) => {
-      const y = yFor(tick);
-      if (!Number.isFinite(y) || y < pad.top - 1 || y > pad.top + plotH + 1) return;
+    ticks.forEach((entry) => {
+      const tick = typeof entry === "number" ? entry : entry.value;
+      const y = typeof entry === "number" ? yFor(tick) : entry.y;
+      const tickAlpha = typeof entry === "number" ? 1 : entry.alpha;
+      ctx.globalAlpha = tickAlpha;
+      if (!Number.isFinite(y) || y < pad.top - 1 || y > pad.top + plotH + 1 || ctx.globalAlpha <= 0) return;
       ctx.strokeStyle = colors.grid;
       ctx.lineWidth = 1;
       ctx.setLineDash([]);
@@ -942,20 +953,26 @@
       ctx.stroke();
 
       const overlapsCurrent = Number.isFinite(currentY) && Math.abs(y - currentY) < overlapRadius;
-      const label = formatter(tick);
-      let labelFontSize = tickFontSize;
-      ctx.font = `500 ${labelFontSize}px IBM Plex Mono, monospace`;
-      if (label === "Not Valued") {
-        labelFontSize = Math.min(labelFontSize * 0.78, 12);
+      // A shared tick can keep one gridline while its scale-specific text
+      // crossfades at the same moving position.
+      const labels = options.labelLayers?.(tick) || [{ text: formatter(tick), alpha: 1 }];
+      labels.forEach(({ text: label, alpha }) => {
+        if (alpha <= 0) return;
+        ctx.globalAlpha = tickAlpha * alpha;
+        let labelFontSize = tickFontSize;
         ctx.font = `500 ${labelFontSize}px IBM Plex Mono, monospace`;
-        const availableWidth = Math.max(24, (ctx.canvas.width / Math.max(1, window.devicePixelRatio || 1)) - plotRight - 12);
-        while (ctx.measureText(label).width > availableWidth && labelFontSize > 8) {
-          labelFontSize -= 1;
+        if (label === "Not Valued") {
+          labelFontSize = Math.min(labelFontSize * 0.78, 12);
           ctx.font = `500 ${labelFontSize}px IBM Plex Mono, monospace`;
+          const availableWidth = Math.max(24, (ctx.canvas.width / Math.max(1, window.devicePixelRatio || 1)) - plotRight - 12);
+          while (ctx.measureText(label).width > availableWidth && labelFontSize > 8) {
+            labelFontSize -= 1;
+            ctx.font = `500 ${labelFontSize}px IBM Plex Mono, monospace`;
+          }
         }
-      }
-      ctx.fillStyle = overlapsCurrent ? colors.overlappedTick : colors.muted;
-      ctx.fillText(label, plotRight + 8, y + (options.centerLabels ? 0 : labelFontSize * 0.36));
+        ctx.fillStyle = overlapsCurrent ? colors.overlappedTick : colors.muted;
+        ctx.fillText(label, plotRight + 8, y + (options.centerLabels ? 0 : labelFontSize * 0.36));
+      });
     });
     ctx.restore();
   }
@@ -1292,22 +1309,21 @@
       ? PRICE_FALLBACK
       : (values.length ? Math.min(...values) : Math.max(PRICE_FALLBACK, fallbackMaxPrice / 10));
     const rawMaxPrice = values.length ? Math.max(...values) : fallbackMaxPrice;
-    const usePriceLog = (activeExportPriceScaleMode || state.priceScaleMode) === "log";
-    const priceDomain = paddedTransformedDomain(
-      Math.max(PRICE_FALLBACK, rawMinPrice),
-      Math.max(PRICE_FALLBACK, rawMaxPrice),
-      (value) => usePriceLog ? Math.log10(Math.max(value, PRICE_FALLBACK)) : Math.max(value, PRICE_FALLBACK),
-    );
-    const minLog = priceDomain.min;
-    const maxLog = priceDomain.max;
-    const minPrice = usePriceLog ? (10 ** minLog) : Math.max(PRICE_FALLBACK, priceDomain.min);
-    const maxPrice = usePriceLog ? (10 ** maxLog) : Math.max(minPrice + 1e-9, priceDomain.max);
+    const priceScaleMode = activeExportPriceScaleMode || state.priceScaleMode;
+    const priceMix = activeExportPriceScaleMode ? Number(priceScaleMode === "log")
+      : scaleTransitions.getMix("price", priceScaleMode);
+    const usePriceLog = priceMix === 1;
+    const linearDomain = paddedTransformedDomain(rawMinPrice, rawMaxPrice, (value) => Math.max(value, PRICE_FALLBACK));
+    const logDomain = paddedTransformedDomain(rawMinPrice, rawMaxPrice, (value) => Math.log10(Math.max(value, PRICE_FALLBACK)));
+    const minPrice = Math.max(PRICE_FALLBACK, linearDomain.min);
+    const maxPrice = Math.max(minPrice + 1e-9, linearDomain.max);
     const priceRange = Math.max(1e-12, maxPrice - minPrice);
     const xFor = (row) => pad.left + ((Date.parse(`${row.date}T00:00:00Z`) - startMs) / (endMs - startMs)) * plotW;
     const yPriceScale = (value) => {
       const safeValue = Math.max(value, PRICE_FALLBACK);
-      if (usePriceLog) return pad.top + (1 - ((Math.log10(safeValue) - minLog) / (maxLog - minLog))) * plotH;
-      return pad.top + (1 - ((safeValue - minPrice) / priceRange)) * plotH;
+      const linearY = pad.top + (1 - ((safeValue - minPrice) / priceRange)) * plotH;
+      const logY = pad.top + (1 - ((Math.log10(safeValue) - logDomain.min) / (logDomain.max - logDomain.min))) * plotH;
+      return linearY * (1 - priceMix) + logY * priceMix;
     };
     const xForIso = (iso) => xFor({ date: iso });
 
@@ -1317,11 +1333,18 @@
     const hasLiveSpot = Number.isFinite(liveSpotPrice) && liveSpotPrice > 0;
     const currentPriceY = yPriceValue(hasLiveSpot ? liveSpotPrice : latest.price);
     const yPriceTick = (value) => isNotValued(value) ? yPriceScale(PRICE_FALLBACK) : yPriceScale(value);
-    const priceTickValues = usePriceLog
-      ? priceTicks(minPrice, maxPrice, hasNotValuedRows)
-      : priceLinearTicks(minPrice, maxPrice, hasNotValuedRows);
+    const linearPriceTicks = priceLinearTicks(minPrice, maxPrice, hasNotValuedRows);
+    const logPriceTicks = priceTicks(10 ** logDomain.min, 10 ** logDomain.max, hasNotValuedRows);
+    const priceTickValues = priceMix === 0 ? linearPriceTicks : priceMix === 1 ? logPriceTicks
+      : CHARTING.morphScaleTicks(linearPriceTicks, logPriceTicks, priceMix, yPriceTick);
     drawChartTitle(ctx, "Daily High Price", width, pad);
-    drawYGrid(ctx, priceTickValues, yPriceTick, pad, plotW, plotH, (value) => fmtUsd(value), currentPriceY, { centerLabels: true });
+    drawYGrid(ctx, priceTickValues, yPriceTick, pad, plotW, plotH, fmtUsd, currentPriceY, {
+      centerLabels: true,
+      labelLayers: (value) => isNotValued(value) ? [
+        { text: "$0", alpha: 1 - priceMix },
+        { text: "Not Valued", alpha: priceMix },
+      ] : null,
+    });
     drawXAxisTicks(ctx, buildTimeTicks(rows, plotW), xForIso, pad, plotW, plotH, 18);
     if (state.showHalvings) drawHalvings(ctx, rows, xFor, pad.top, pad.top + plotH, "date");
     drawPriceLine(ctx, rows, xFor, yPriceValue, accent, 2.2);
@@ -1417,37 +1440,32 @@
     const minVisibleDays = Math.min(...rows.map((r) => r.daysSinceAth));
     const maxVisibleDays = Math.max(...rows.map((r) => r.daysSinceAth));
     const maxDays = Math.max(6, maxVisibleDays);
-    const useDaysLog = (activeExportDaysScaleMode || state.daysScaleMode) === "log";
+    const daysScaleMode = activeExportDaysScaleMode || state.daysScaleMode;
+    const daysMix = activeExportDaysScaleMode ? Number(daysScaleMode === "log")
+      : scaleTransitions.getMix("days", daysScaleMode);
     const daysLogMin = 0.1;
-    // Keep all-zero opening frames on the baseline in either scale.
-    const daysDomain = paddedTransformedDomain(
-      Math.max(0, minVisibleDays),
-      maxVisibleDays === 0 ? 1 : Math.max(0, maxVisibleDays),
-      (value) => {
-        if (!useDaysLog) return Math.max(0, Number(value) || 0);
-        const safeValue = Math.max(0, Number(value) || 0);
-        return Math.log10(safeValue <= 0 ? daysLogMin : Math.max(daysLogMin, safeValue));
-      },
-    );
-    const daysLogMinPow = daysDomain.min;
-    const daysLogMaxPow = daysDomain.max;
-    const minDays = useDaysLog ? (10 ** daysLogMinPow) : daysDomain.min;
-    const maxDaysDomain = useDaysLog ? (10 ** daysLogMaxPow) : Math.max(minDays + 1e-9, daysDomain.max);
-    const daysRange = Math.max(1e-9, maxDaysDomain - minDays);
+    const logTransform = (value) => Math.log10(Math.max(daysLogMin, Number(value) || 0));
+    // Both endpoint domains retain the existing baseline for all-zero opening frames.
+    const domainMax = maxVisibleDays === 0 ? 1 : Math.max(0, maxVisibleDays);
+    const linearDomain = paddedTransformedDomain(Math.max(0, minVisibleDays), domainMax, (value) => Math.max(0, Number(value) || 0));
+    const logDomain = paddedTransformedDomain(Math.max(0, minVisibleDays), domainMax, logTransform);
+    const daysRange = Math.max(1e-9, linearDomain.max - linearDomain.min);
     const xFor = (row) => pad.left + ((Date.parse(`${row.date}T00:00:00Z`) - startMs) / (endMs - startMs)) * plotW;
     const yFor = (value) => {
       const safeValue = Math.max(0, Number(value) || 0);
-      if (useDaysLog) {
-        const logValue = Math.log10(safeValue <= 0 ? daysLogMin : Math.max(daysLogMin, safeValue));
-        return pad.top + (1 - ((logValue - daysLogMinPow) / (daysLogMaxPow - daysLogMinPow))) * plotH;
-      }
-      return pad.top + (1 - ((safeValue - minDays) / daysRange)) * plotH;
+      const linearY = pad.top + (1 - ((safeValue - linearDomain.min) / daysRange)) * plotH;
+      const logY = pad.top + (1 - ((logTransform(safeValue) - logDomain.min) / (logDomain.max - logDomain.min))) * plotH;
+      return linearY * (1 - daysMix) + logY * daysMix;
     };
     const xForIso = (iso) => xFor({ date: iso });
 
     const latest = rows[rows.length - 1];
     const currentDaysY = yFor(latest.daysSinceAth);
-    const daysTickValues = useDaysLog ? daysLogTicks(maxDays) : integerTicks(maxDays, 5);
+    const linearDaysTicks = integerTicks(maxDays, 5);
+    // The logarithmic 0.1 baseline represents zero days; share its label with LIN zero.
+    const logDaysTicks = daysLogTicks(maxDays).map((value) => value === daysLogMin ? 0 : value);
+    const daysTickValues = daysMix === 0 ? linearDaysTicks : daysMix === 1 ? logDaysTicks
+      : CHARTING.morphScaleTicks(linearDaysTicks, logDaysTicks, daysMix, yFor);
     drawChartTitle(ctx, "Days Since ATH", width, pad);
     drawYGrid(
       ctx,
@@ -1599,6 +1617,11 @@
     syncChartModeControls();
     window.WSBDashboardComponents.syncScaleButtonGroup(el.priceScaleButtons, state.priceScaleMode, { buttonSelector: "[data-price-scale]" });
     window.WSBDashboardComponents.syncScaleButtonGroup(el.daysScaleButtons, state.daysScaleMode, { buttonSelector: "[data-days-scale]" });
+    [[el.priceScaleButtons, state.priceScaleMode], [el.daysScaleButtons, state.daysScaleMode]].forEach(([group, mode]) => {
+      group?.querySelectorAll("button").forEach((button) => {
+        button.title = `Switch to ${mode === "log" ? "linear" : "logarithmic"} scale`;
+      });
+    });
     if (el.athLabelsToggle) el.athLabelsToggle.checked = state.showAthLabels;
     if (el.athMarkersToggle) el.athMarkersToggle.checked = state.showAthMarkers;
     if (el.halvingsToggle) el.halvingsToggle.checked = state.showHalvings;
@@ -1931,6 +1954,8 @@
     const startIndex = Math.max(0, findIndex(state.startIso, "ceil"));
     const endIndex = Math.max(startIndex, findIndex(state.endIso, "floor"));
     const frameIndices = buildExportFrameIndices(startIndex, endIndex, Number(settings.fps), settings.endFrameHold);
+    scaleTransitions.finish();
+    render();
     isDateRangeExporting = true;
     dateRangeExportCancelRequested = false;
     broadcastExportActive(true);
@@ -2383,7 +2408,8 @@
     el.sliderWrap?.addEventListener("pointercancel", endDateRangeSegmentDrag);
     window.WSBDashboardComponents.bindPlaybackKeyboardShortcuts({
       blurControls: blurDateRangeKeyboardControlIfFocused,
-      isTextEntry: () => isKeyboardTextEntryActive(),
+      isTextEntry: (active, event) => isKeyboardTextEntryActive()
+        || ((event?.code === "Space" || event?.key === " " || event?.key === "Spacebar") && active?.matches?.("[data-price-scale], [data-days-scale]")),
       onSpace: handleDateRangeSpaceShortcut,
       isPlaybackActive: () => dateRangePlaybackState.hasSession,
       onArrow: (direction, _event, detail) => handleDateRangeArrowScrubbing(direction, detail),
@@ -2414,15 +2440,17 @@
     });
     el.priceScaleButtons?.addEventListener("click", (event) => {
       const button = event.target instanceof Element ? event.target.closest("[data-price-scale]") : null;
-      const scaleMode = window.WSBDashboardComponents.getScaleButtonValue(button);
-      if (!isScaleMode(scaleMode) || state.priceScaleMode === scaleMode) return;
+      if (!button || button.disabled || isDateRangeExporting) return;
+      const scaleMode = state.priceScaleMode === "log" ? "linear" : "log";
+      scaleTransitions.start("price", state.priceScaleMode, scaleMode);
       state.priceScaleMode = scaleMode;
       render();
     });
     el.daysScaleButtons?.addEventListener("click", (event) => {
       const button = event.target instanceof Element ? event.target.closest("[data-days-scale]") : null;
-      const scaleMode = window.WSBDashboardComponents.getScaleButtonValue(button);
-      if (!isScaleMode(scaleMode) || state.daysScaleMode === scaleMode) return;
+      if (!button || button.disabled || isDateRangeExporting) return;
+      const scaleMode = state.daysScaleMode === "log" ? "linear" : "log";
+      scaleTransitions.start("days", state.daysScaleMode, scaleMode);
       state.daysScaleMode = scaleMode;
       render();
     });
@@ -2477,6 +2505,7 @@
       copyCopiedIcon: ICONS.copyCopied,
       setCopyIcon: (icon) => setButtonIcon("copyDashboardIcon", icon),
       onReset: () => {
+        scaleTransitions.finish();
         localStorage.removeItem(STORAGE_KEY);
         state.preset = "full";
         state.speed = 1;

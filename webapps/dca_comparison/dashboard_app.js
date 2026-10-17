@@ -2,6 +2,7 @@
   "use strict";
 
   const DASHBOARD_COMPONENTS = window.WSBDashboardComponents || {};
+  const DASHBOARD_CHARTING = window.WSBDashboardCharting;
   const DASHBOARD_TIME = window.WSBDashboardTime || null;
   const THEME_KEY = "quantum-research-dashboard-theme";
   const STORAGE_KEY = "dca_comparison_settings_v1";
@@ -183,6 +184,14 @@
     exportCancelRequested: false,
     timeZone: DASHBOARD_TIME?.getPreferredTimeZone?.() || "UTC",
   };
+  let currentChartOptions = {};
+  const scaleTransition = DASHBOARD_CHARTING.createScaleTransitionController({
+    render: () => {
+      if (state.rows.length && !state.isExporting) {
+        drawChart(el.canvas, state.currentIso || state.settings.rangeEnd, currentChartOptions);
+      }
+    },
+  });
   let chartRangeDragState = null;
   let comparisonPriceFeed = null;
   let livePricePresentationPending = false;
@@ -2035,7 +2044,11 @@
     syncAllSelectDropdowns();
     el.speedBtn.textContent = `${s.speed}x`;
     document.querySelectorAll("[data-range-preset]").forEach((b) => b.classList.toggle("is-active", b.dataset.rangePreset === s.preset));
-    document.querySelectorAll("[data-scale-mode]").forEach((b) => b.classList.toggle("is-active", b.dataset.scaleMode === s.scale));
+    document.querySelectorAll("[data-scale-mode]").forEach((button) => {
+      button.classList.toggle("is-active", button.dataset.scaleMode === s.scale);
+      button.setAttribute("aria-pressed", String(button.dataset.scaleMode === s.scale));
+      button.title = `Switch to ${s.scale === "log" ? "linear" : "logarithmic"} scale`;
+    });
     const exportSettings = state.exportSettings;
     const settingsGroups = {
       downloadScaleSelect: exportSettings.scale,
@@ -2356,7 +2369,10 @@
     const latest = points[points.length - 1];
     const values = points.flatMap((p) => hasB ? [p.valueA, p.valueB, p.invested] : [p.valueA, p.invested]).filter((v) => Number.isFinite(v));
     const scale = opts.export ? (opts.scale || chartSettings.scale) : chartSettings.scale;
-    const yAxis = buildYScaleConfig(values, scale, { minMaxValue: chartSettings.amount * 2 });
+    const scaleMix = opts.export ? (scale === "log" ? 1 : 0) : scaleTransition.getMix("value", scale);
+    const axisOptions = { minMaxValue: chartSettings.amount * 2 };
+    const linearAxis = buildYScaleConfig(values, "linear", axisOptions);
+    const logAxis = buildYScaleConfig(values, "log", axisOptions);
     const labelSizes = getResponsiveChartLabelSizes(localW);
     const tickLabelFontSize = opts.export
       ? Number((labelSizes.tick * 0.9).toFixed(2))
@@ -2380,9 +2396,12 @@
     const bottomMargin = opts.export ? 4 : 12;
     const rightYearOverhang = Math.abs(fontHeight * Math.sin(rotationAngle));
     ctx.font = `400 ${yTickLabelFontSize}px ${CHART_MONO_FONT}`;
-    const yLabelWidth = yAxis.ticktext.reduce((max, label) => Math.max(max, ctx.measureText(String(label || "")).width), 0);
+    const axisRightMargin = (axis) => {
+      const labelWidth = axis.ticktext.reduce((max, label) => Math.max(max, ctx.measureText(String(label || "")).width), 0);
+      return Math.max(opts.export ? 54 : 72, labelWidth + (opts.export ? 10 : 22), rightYearOverhang + (opts.export ? 6 : 4));
+    };
     const left = opts.export ? 8 : 24;
-    const right = Math.max(opts.export ? 54 : 72, yLabelWidth + (opts.export ? 10 : 22), rightYearOverhang + (opts.export ? 6 : 4));
+    const right = axisRightMargin(linearAxis) * (1 - scaleMix) + axisRightMargin(logAxis) * scaleMix;
     const topTitleY = opts.export ? 24 : 24;
     const top = opts.export ? 48 : 58;
     const bottom = opts.export
@@ -2391,19 +2410,37 @@
     const plotW = Math.max(1, localW - left - right);
     const plotH = Math.max(1, localH - top - bottom);
     if (!opts.export && !opts.chartArea) {
-      canvas.__dcaChartGeometry = { left, top, plotW, plotH };
+      canvas.__dcaChartGeometry = { left, top, plotW, plotH, scaleMix };
     }
     const startT = dateFromIso(points[0].date).getTime();
     const endT = dateFromIso(points[points.length - 1].date).getTime();
     const x = (iso) => left + ((dateFromIso(iso).getTime() - startT) / Math.max(1, endT - startT)) * plotW;
-    const y = (v) => yAxis.map(v, top, plotH);
-    const rightTicks = filterTicksByPixelSpacing(
-      yAxis.tickvals,
-      yAxis.ticktext,
-      (value) => y(value),
-      yTickLabelFontSize * 1.45,
+    const linearY = (value) => linearAxis.map(value, top, plotH);
+    const logY = (value) => value > 0 ? logAxis.map(value, top, plotH) : top + plotH;
+    const y = (value) => scaleMix === 0 ? linearY(value) : scaleMix === 1
+      ? logAxis.map(value, top, plotH)
+      : linearY(value) * (1 - scaleMix) + logY(value) * scaleMix;
+    const ticksForAxis = (axis, map) => filterTicksByPixelSpacing(
+      axis.tickvals, axis.ticktext, map, yTickLabelFontSize * 1.45,
       { preserveFirst: true, preserveLast: true },
     );
+    const linearTicks = ticksForAxis(linearAxis, linearY);
+    const logTicks = ticksForAxis(logAxis, logY);
+    let rightTicks = scaleMix === 0 ? linearTicks : logTicks;
+    if (scaleMix > 0 && scaleMix < 1) {
+      const morphed = DASHBOARD_CHARTING.morphScaleTicks(
+        linearTicks.tickvals, logTicks.tickvals, scaleMix, y,
+        { spacing: yTickLabelFontSize * 1.45 },
+      );
+      const labels = new Map([...logTicks.tickvals.map((value, index) => [value, logTicks.ticktext[index]]),
+        ...linearTicks.tickvals.map((value, index) => [value, linearTicks.ticktext[index]])]);
+      rightTicks = {
+        tickvals: morphed.map((tick) => tick.value),
+        ticktext: morphed.map((tick) => labels.get(tick.value) || fmtAxisUsd(tick.value)),
+        tickalpha: morphed.map((tick) => tick.alpha),
+      };
+    }
+    if (!opts.export && !opts.chartArea) canvas.__dcaChartGeometry.yForValue = y;
 
     const gridLineWidth = opts.export ? EXPORT_GRID_LINE_WIDTH : DASHBOARD_GRID_LINE_WIDTH;
     const chartLineWidth = opts.export ? getExportChartLineWidth(chartSettings) : DASHBOARD_CHART_LINE_WIDTH;
@@ -2413,6 +2450,7 @@
     ctx.font = `400 ${yTickLabelFontSize}px ${CHART_MONO_FONT}`;
     ctx.textBaseline = "middle";
     rightTicks.tickvals.forEach((t, index) => {
+      ctx.globalAlpha = rightTicks.tickalpha?.[index] ?? 1;
       const yy = y(t);
       const gridY = snapCanvasLineCoord(yy, ctx.lineWidth, dpr);
       ctx.beginPath(); ctx.moveTo(left, gridY); ctx.lineTo(left + plotW, gridY); ctx.stroke();
@@ -2420,6 +2458,7 @@
       ctx.textAlign = "left";
       ctx.fillText(rightTicks.ticktext[index] || fmtAxisUsd(t), left + plotW + 8, yy);
     });
+    ctx.globalAlpha = 1;
 
     const xTicks = buildAdaptiveTimeTicks(xAxisDates, plotW, !!opts.export);
     xTicks.forEach((tick) => {
@@ -2588,8 +2627,8 @@
     const statusQuotes = currentSelectedQuotes();
     const { rows: projectedRows, appliedQuotes } = currentPriceProjection(statusQuotes);
     syncControls(appliedQuotes);
-    drawChart(el.canvas, state.currentIso || state.settings.rangeEnd,
-      { liveRows: projectedRows === state.rows ? null : projectedRows, statusQuotes, appliedQuotes });
+    currentChartOptions = { liveRows: projectedRows === state.rows ? null : projectedRows, statusQuotes, appliedQuotes };
+    drawChart(el.canvas, state.currentIso || state.settings.rangeEnd, currentChartOptions);
     livePricePresentationPending = false;
     saveSettings();
     updateResetButtonUi();
@@ -3307,6 +3346,8 @@
       updateDownloadEstimates();
       return;
     }
+    scaleTransition.finish();
+    render();
     state.isExporting = true;
     state.exportCancelRequested = false;
     try {
@@ -3635,13 +3676,12 @@
     }
     document.querySelector(".date-range-scale-buttons")?.addEventListener("click", (event) => {
       const button = event.target instanceof Element ? event.target.closest("[data-scale-mode]") : null;
-      if (!button) return;
-      const scaleMode = button.getAttribute("data-scale-mode");
-      if (!["linear", "log"].includes(scaleMode) || state.settings.scale === scaleMode) return;
+      if (!button || button.disabled || state.isExporting) return;
+      const scaleMode = state.settings.scale === "log" ? "linear" : "log";
       clearPreResetSnapshot();
+      scaleTransition.start("value", state.settings.scale, scaleMode);
       state.settings.scale = scaleMode;
       if (el.scaleSelect) el.scaleSelect.value = scaleMode;
-      stopAnimation(false);
       render();
     });
     el.startSlider?.addEventListener("input", () => {
@@ -3719,7 +3759,8 @@
     });
     DASHBOARD_COMPONENTS.bindPlaybackKeyboardShortcuts?.({
       blurControls: blurControlIfFocused,
-      isTextEntry: (active) => isTextEntry(active),
+      isTextEntry: (active, event) => isTextEntry(active)
+        || (active?.matches?.("[data-scale-mode]") && (event.code === "Space" || event.key === " ")),
       isPlaybackActive: () => state.isPlaying || state.paused,
       isEscapeActive: () => el.settingsPanel?.classList.contains("open") || el.dashboardSettingsPanel?.classList.contains("open") || state.isPlaying || state.paused,
       isInactiveArrowActive: () => state.lastAdjustedHandle === "start" || state.lastAdjustedHandle === "end",

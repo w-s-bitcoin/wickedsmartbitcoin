@@ -6,7 +6,7 @@ installs a fetch shim before preview code runs.  The shim changes publication
 signatures, delays responses, and injects failures entirely in browser memory;
 production data files are never rewritten.
 
-The nine periodically refreshed previews share one bounded lifecycle:
+The periodically refreshed previews share one bounded lifecycle:
 
 * initial render and unchanged-marker probe (with no payload fetch);
 * hidden generation install and exactly one visible presentation;
@@ -84,6 +84,13 @@ PERIODIC_PREVIEWS = {
         "markers": ["/webapps/dca_cost_basis/webapp_data/dca_cost_basis_metadata.json"],
         "data": ["/webapps/dca_cost_basis/webapp_data/daily_dca.csv"],
     },
+    "moving_average": {
+        "filename": "moving_average.png",
+        "path": "webapps/moving_average/preview.html",
+        "roots": ["#movingAveragePreview"],
+        "markers": ["/assets/daily_price_metadata.json"],
+        "data": ["/assets/daily_price.csv"],
+    },
     "days_since_ath": {
         "filename": "days_since_ath.png",
         "path": "webapps/days_since_ath/preview.html",
@@ -156,6 +163,7 @@ ALL_FILENAMES = [
     "quantum_exposure.png",
     "dca_cost_basis.png",
     "days_since_ath.png",
+    "moving_average.png",
     "issuance_rate.png",
     "dca_comparison.png",
     "patoshi_pattern.png",
@@ -299,6 +307,7 @@ FETCH_HARNESS_TEMPLATE = r"""
   // separate browser regression and must not repaint during marker assertions.
   const hasLiveSpot = ['/webapps/dca_comparison/preview.html',
     '/webapps/dca_cost_basis/preview.html',
+    '/webapps/moving_average/preview.html',
     '/webapps/days_since_ath/preview.html',
     '/webapps/bitcoin_dominance/preview.html'].includes(pathname);
   if (hasLiveSpot) window.WebSocket = undefined;
@@ -1307,7 +1316,7 @@ def test_homepage_integration(cdp: CdpSocket, server_port: int):
     wait_for(
         lambda: cdp.evaluate(
             "typeof loadDashboardPreviewFrame === 'function' "
-            "&& document.querySelectorAll('.dashboard-preview-frame').length === 12"
+            f"&& document.querySelectorAll('.dashboard-preview-frame').length === {len(ALL_FILENAMES)}"
         ),
         timeout=30,
         description="homepage preview grid",
@@ -1337,7 +1346,7 @@ def test_homepage_integration(cdp: CdpSocket, server_port: int):
         description="all homepage previews ready",
     )
     if not cdp.evaluate(
-        "Array.from(document.querySelectorAll('.dashboard-preview-poster')).length === 12 "
+        f"Array.from(document.querySelectorAll('.dashboard-preview-poster')).length === {len(ALL_FILENAMES)} "
         "&& Array.from(document.querySelectorAll('.dashboard-preview-poster')).every((poster) => poster.naturalWidth > 0)"
     ):
         raise AssertionError("A homepage card is missing its saved visual fallback")
@@ -1380,13 +1389,13 @@ def test_homepage_integration(cdp: CdpSocket, server_port: int):
           window.scrollTo(0, Math.min(240, Math.max(0, document.documentElement.scrollHeight - innerHeight)));
           return {
             frameCount: frames.length,
-            allFavorites: document.querySelectorAll('.favorite-star.filled').length >= 12,
+            allFavorites: document.querySelectorAll('.favorite-star.filled').length >= frames.length,
             favoritesOnly: Boolean(showFavoritesOnly),
           };
         })()
         """
     )
-    if setup != {"frameCount": 12, "allFavorites": True, "favoritesOnly": True}:
+    if setup != {"frameCount": len(ALL_FILENAMES), "allFavorites": True, "favoritesOnly": True}:
         raise AssertionError(f"Could not establish homepage representative state: {setup!r}")
     time.sleep(0.2)
     baseline = homepage_state(cdp)

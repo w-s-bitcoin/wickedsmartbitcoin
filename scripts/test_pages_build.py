@@ -171,6 +171,10 @@ class PagesBuildTest(unittest.TestCase):
             fixtures = {
                 "index.html": "<!doctype html><title>Fixture</title>",
                 "assets/top_kpis.json": "{}",
+                "moving_average.html": '<script src="webapps/moving_average/standalone_bootstrap.js"></script>',
+                "webapps/moving_average/moving_average_model.js": "window.WSBMovingAverageModel = {};",
+                "webapps/moving_average/moving_average_charts.js": "window.WSBMovingAverageCharts = {};",
+                "webapps/moving_average/standalone_bootstrap.js": "window.movingAverageShell = true;",
                 "webapps/shared/dashboard_share.js": "window.WSBDashboardShare = {};",
                 "assets/block_data_0_99999.csv": "raw input",
                 "assets/btcusd_10m_prices.csv": "raw input",
@@ -226,6 +230,10 @@ class PagesBuildTest(unittest.TestCase):
 
             kept = (
                 "index.html",
+                "moving_average.html",
+                "webapps/moving_average/moving_average_model.js",
+                "webapps/moving_average/moving_average_charts.js",
+                "webapps/moving_average/standalone_bootstrap.js",
                 "assets/top_kpis.json",
                 "webapps/shared/dashboard_share.js",
                 "webapps/example/dashboard.html",

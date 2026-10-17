@@ -247,6 +247,7 @@ fetch(IMAGE_LIST_URL)
             'quantum_exposure.png',
             'dca_cost_basis.png',
             'days_since_ath.png',
+            'moving_average.png',
             'issuance_rate.png',
             'dca_comparison.png',
             'patoshi_pattern.png',

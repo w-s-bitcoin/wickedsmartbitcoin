@@ -341,6 +341,19 @@
   let activeDateRangeExportTheme = null;
   let activeDateRangeExportAxisRows = null;
   let activeDateRangeExportScaleModes = null;
+  // Repaint the current chart snapshots during a scale morph without rerunning
+  // currency conversion, live quote selection, or playback controls each frame.
+  const scaleChartFrames = new Map();
+  const scaleTransitions = window.WSBDashboardCharting.createScaleTransitionController({
+    render: () => {
+      if (isDateRangeExporting || isRenderingDateRangeExportFrame) return;
+      scaleChartFrames.forEach(({ canvas, series, opts }) => drawChart(canvas, series, opts));
+      if (chartHoverPointer) {
+        const canvas = document.getElementById(chartHoverPointer.canvasId);
+        if (canvas?.matches(":hover")) updateChartHoverAtPointer(canvas, chartHoverPointer);
+      }
+    },
+  });
   let downloadSettings = { ...DEFAULT_DOWNLOAD_SETTINGS };
   let downloadSettingsHasStoredValue = false;
   const downloadEstimateCalibrationCache = new Map();
@@ -1285,6 +1298,7 @@
       const isActive = button.dataset.value === normalized;
       button.classList.toggle("is-active", isActive);
       button.setAttribute("aria-pressed", isActive ? "true" : "false");
+      button.title = `Switch to ${normalized === "log" ? "linear" : "logarithmic"} scale`;
     });
   }
 
@@ -1480,7 +1494,12 @@
       const buttons = Array.from(group.querySelectorAll(".uoa-scale-toggle-btn[data-value]"));
       buttons.forEach((button) => {
         button.addEventListener("click", () => {
-          setScaleToggleValue(group, button.dataset.value);
+          if (button.disabled || isDateRangeExporting) return;
+          const previous = getScaleToggleValue(group);
+          const next = previous === "log" ? "linear" : "log";
+          const key = group === el.primaryScaleToggles ? "usdBtcChart" : "btcUsdChart";
+          scaleTransitions.start(key, previous, next);
+          setScaleToggleValue(group, next);
           persistFilters();
           renderAll();
         });
@@ -2814,7 +2833,7 @@
 
     window.WSBDashboardComponents?.bindPlaybackKeyboardShortcuts?.({
       blurControls: blurDateRangeControlIfFocused,
-      isTextEntry: (active) => isDateRangeShortcutTextEntry(active),
+      isTextEntry: (active) => !!active?.closest?.(".uoa-scale-toggle-btn") || isDateRangeShortcutTextEntry(active),
       isPlaybackActive: () => dateRangePlaybackState.hasSession,
       isEscapeActive: () => dateRangePlaybackState.hasSession,
       onSpace: toggleDateRangePlayback,
@@ -7167,7 +7186,10 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
 
-    const isLinear = opts.scaleMode === "linear";
+    const scaleMix = isRenderingDateRangeExportFrame
+      ? (opts.scaleMode === "log" ? 1 : 0)
+      : scaleTransitions.getMix(canvas.id, opts.scaleMode);
+    if (!isRenderingDateRangeExportFrame) scaleChartFrames.set(canvas.id, { canvas, series, opts });
     const axisSourceSeries = (series.length === 1 && Array.isArray(opts.axisReferenceSeries) && opts.axisReferenceSeries.length >= 2)
       ? opts.axisReferenceSeries
       : series;
@@ -7175,90 +7197,100 @@
       ? opts.yAxisReferenceSeries
       : axisSourceSeries;
 
-    const vals = yAxisSourceSeries
-      .map((s) => s.value)
-      .filter((v) => Number.isFinite(v) && (isLinear || v > 0));
-    if (!vals.length) {
+    const buildAxis = (isLinear) => {
+      const axisHints = opts.scaleAxisHints?.[isLinear ? "linear" : "log"] || opts;
+      const vals = yAxisSourceSeries
+        .map((s) => s.value)
+        .filter((v) => Number.isFinite(v) && (isLinear || v > 0));
+      if (!vals.length) {
+        return null;
+      }
+
+      let min = Math.min(...vals);
+      let max = Math.max(...vals);
+      if (Number.isFinite(Number(axisHints?.minYFloor))) {
+        min = Math.min(min, Number(axisHints.minYFloor));
+      }
+      if (Number.isFinite(Number(axisHints?.maxYFloor))) {
+        max = Math.max(max, Number(axisHints.maxYFloor));
+      }
+      const dataMin = min;
+      const dataMax = max;
+      const dataRange = dataMax - dataMin;
+      let tickValues = [];
+
+      if (isLinear) {
+        // For very low-variance positive series (e.g., pegged FX), center the axis at midpoint ±1%.
+        const midpoint = (dataMin + dataMax) / 2;
+        const hasPositiveMidpoint = Number.isFinite(midpoint) && midpoint > 0;
+        const relativeSpread = hasPositiveMidpoint ? (dataRange / midpoint) : Infinity;
+        const valueScale = Math.max(Math.abs(dataMin), Math.abs(dataMax), LOG_MIN_POSITIVE);
+        const nearConstantByScale = Math.abs(dataRange) <= Math.max(
+          valueScale * 1e-12,
+          Number.EPSILON * valueScale * 64
+        );
+
+        if (hasPositiveMidpoint && relativeSpread < 0.01) {
+          const padAmount = midpoint * 0.01;
+          min = midpoint - padAmount;
+          max = midpoint + padAmount;
+        } else if (nearConstantByScale) {
+          const padAmount = Math.max(valueScale * 0.01, Number.EPSILON * valueScale * 64);
+          min = dataMin - padAmount;
+          max = dataMax + padAmount;
+        } else {
+          const padAmount = dataRange * 0.01;
+          min = dataMin - padAmount;
+          max = dataMax + padAmount;
+        }
+        if (dataMin >= 0) min = Math.max(0, min);
+        tickValues = isPreciousMetalCurrency(opts.yAxisCurrency)
+          ? buildMetalYAxisTicks(min, max, true, 8)
+          : buildLinearTicks(min, max, 8);
+      } else {
+        // Apply an equivalent 1% pad in log space to keep margins proportional.
+        const safeMin = Math.max(dataMin, LOG_MIN_POSITIVE);
+        const safeMax = Math.max(dataMax, safeMin * (1 + 1e-15));
+        const logSpan = Math.log(safeMax / safeMin);
+        if (logSpan < 1e-6) {
+          const center = Math.max(safeMin, LOG_MIN_POSITIVE);
+          const factor = 1.01;
+          min = center / factor;
+          max = center * factor;
+        } else {
+          // Keep 1% padding in log space so behavior matches the requested baseline.
+          const logPad = Math.max(logSpan * 0.01, 1e-6);
+          const factor = Math.exp(logPad);
+          min = safeMin / factor;
+          max = safeMax * factor;
+        }
+        tickValues = isPreciousMetalCurrency(opts.yAxisCurrency)
+          ? buildMetalYAxisTicks(min, max, false, 8)
+          : buildLogTicks(min, max);
+      }
+
+      return { min, max, tickValues };
+    };
+    const linearAxis = buildAxis(true);
+    const logAxis = buildAxis(false);
+    if (!linearAxis || !logAxis) {
       if (canvas.id) chartEventMarkersById[canvas.id] = [];
       if (canvas.id) chartHoverMetaById[canvas.id] = null;
       return;
     }
-
-    let min = Math.min(...vals);
-    let max = Math.max(...vals);
-    if (Number.isFinite(Number(opts?.minYFloor))) {
-      min = Math.min(min, Number(opts.minYFloor));
-    }
-    if (Number.isFinite(Number(opts?.maxYFloor))) {
-      max = Math.max(max, Number(opts.maxYFloor));
-    }
-    const dataMin = min;
-    const dataMax = max;
-    const dataRange = dataMax - dataMin;
-    let tickValues = [];
-
-    if (isLinear) {
-      // For very low-variance positive series (e.g., pegged FX), center the axis at midpoint ±1%.
-      const midpoint = (dataMin + dataMax) / 2;
-      const hasPositiveMidpoint = Number.isFinite(midpoint) && midpoint > 0;
-      const relativeSpread = hasPositiveMidpoint ? (dataRange / midpoint) : Infinity;
-      const valueScale = Math.max(Math.abs(dataMin), Math.abs(dataMax), LOG_MIN_POSITIVE);
-      const nearConstantByScale = Math.abs(dataRange) <= Math.max(
-        valueScale * 1e-12,
-        Number.EPSILON * valueScale * 64
-      );
-
-      if (hasPositiveMidpoint && relativeSpread < 0.01) {
-        const padAmount = midpoint * 0.01;
-        min = midpoint - padAmount;
-        max = midpoint + padAmount;
-      } else if (nearConstantByScale) {
-        const padAmount = Math.max(valueScale * 0.01, Number.EPSILON * valueScale * 64);
-        min = dataMin - padAmount;
-        max = dataMax + padAmount;
-      } else {
-        const padAmount = dataRange * 0.01;
-        min = dataMin - padAmount;
-        max = dataMax + padAmount;
-      }
-      if (dataMin >= 0) min = Math.max(0, min);
-      tickValues = isPreciousMetalCurrency(opts.yAxisCurrency)
-        ? buildMetalYAxisTicks(min, max, true, 8)
-        : buildLinearTicks(min, max, 8);
-    } else {
-      // Apply an equivalent 1% pad in log space to keep margins proportional.
-      const safeMin = Math.max(dataMin, LOG_MIN_POSITIVE);
-      const safeMax = Math.max(dataMax, safeMin * (1 + 1e-15));
-      const logSpan = Math.log(safeMax / safeMin);
-      if (logSpan < 1e-6) {
-        const center = Math.max(safeMin, LOG_MIN_POSITIVE);
-        const factor = 1.01;
-        min = center / factor;
-        max = center * factor;
-      } else {
-        // Keep 1% padding in log space so behavior matches the requested baseline.
-        const logPad = Math.max(logSpan * 0.01, 1e-6);
-        const factor = Math.exp(logPad);
-        min = safeMin / factor;
-        max = safeMax * factor;
-      }
-      tickValues = isPreciousMetalCurrency(opts.yAxisCurrency)
-        ? buildMetalYAxisTicks(min, max, false, 8)
-        : buildLogTicks(min, max);
-    }
-
+    const min = scaleMix === 0 ? linearAxis.min : scaleMix === 1 ? logAxis.min : Math.min(linearAxis.min, logAxis.min);
+    const max = scaleMix === 0 ? linearAxis.max : scaleMix === 1 ? logAxis.max : Math.max(linearAxis.max, logAxis.max);
     // Measure tick labels to determine required left padding.
     const tickLabelFontSize = getResponsiveTickLabelFontSize();
     ctx.font = `500 ${tickLabelFontSize}px Space Grotesk`;
-    let maxYLabelWidth = 40;
-    tickValues.forEach((value) => {
+    const labelWidth = (ticks) => Math.max(40, ...ticks.map((value) => {
       const baseLabel = opts.linearFormatter ? opts.linearFormatter(value) : String(value);
       const label = typeof opts.overlapLabelFn === "function"
-        ? (opts.overlapLabelFn(value, baseLabel) || baseLabel)
-        : baseLabel;
-      const metrics = ctx.measureText(label);
-      maxYLabelWidth = Math.max(maxYLabelWidth, metrics.width);
-    });
+        ? (opts.overlapLabelFn(value, baseLabel) || baseLabel) : baseLabel;
+      return ctx.measureText(label).width;
+    }));
+    const maxYLabelWidth = labelWidth(linearAxis.tickValues) * (1 - scaleMix)
+      + labelWidth(logAxis.tickValues) * scaleMix;
     const yLabelSpacing = 12; // space between y-label and chart
     const sidePadSize = maxYLabelWidth + yLabelSpacing;
     const sideMargin = 6; // margin to edge
@@ -7298,41 +7330,31 @@
       opts.edgeTrackEl.style.setProperty("--chart-end-x-pct", `${plotEndPct}%`);
     }
 
-    let yFor = null;
-    let ticksToDraw = [];
-
-    if (isLinear) {
-      yFor = (v) => pad.top + ((max - v) / Math.max(1e-9, max - min)) * chartH;
-      ticksToDraw = tickValues.map((value) => ({
-        value,
-        label: opts.linearFormatter ? opts.linearFormatter(value) : String(Math.round(value)),
-      }));
-    } else {
-      const minLog = Math.log10(min);
-      const maxLog = Math.log10(max);
-      yFor = (v) => pad.top + ((maxLog - Math.log10(v)) / Math.max(1e-9, (maxLog - minLog))) * chartH;
-      ticksToDraw = tickValues.map((value) => ({
-        value,
-        label: opts.linearFormatter ? opts.linearFormatter(value) : String(value),
-      }));
-    }
-
-    if (typeof opts.overlapLabelFn === "function") {
-      ticksToDraw = ticksToDraw.map((tick) => {
-        const nextLabel = opts.overlapLabelFn(tick.value, tick.label);
-        return nextLabel ? { ...tick, label: nextLabel } : tick;
-      });
-    }
-
-    if (isPreciousMetalCurrency(opts.yAxisCurrency)) {
-      ticksToDraw = clampYAxisTicksBySpacing(
-        ticksToDraw,
-        yFor,
-        min,
-        max,
-        tickLabelFontSize * 1.6
-      );
-    }
+    const linearY = (value) => pad.top + ((linearAxis.max - value) / Math.max(1e-9, linearAxis.max - linearAxis.min)) * chartH;
+    const minLog = Math.log10(logAxis.min);
+    const maxLog = Math.log10(logAxis.max);
+    const logY = (value) => value > 0
+      ? pad.top + ((maxLog - Math.log10(value)) / Math.max(1e-9, maxLog - minLog)) * chartH
+      : pad.top + chartH;
+    const yFor = (value) => (1 - scaleMix) * linearY(value) + scaleMix * logY(value);
+    const endpointTicks = (axis, y) => {
+      let ticks = axis.tickValues.filter((value) => value >= axis.min && value <= axis.max).map((value) => ({ value }));
+      if (isPreciousMetalCurrency(opts.yAxisCurrency)) {
+        ticks = clampYAxisTicksBySpacing(ticks, y, axis.min, axis.max, tickLabelFontSize * 1.6);
+      }
+      return ticks.map((tick) => tick.value);
+    };
+    const linearTicks = endpointTicks(linearAxis, linearY);
+    const logTicks = endpointTicks(logAxis, logY);
+    const tickStates = scaleMix > 0 && scaleMix < 1
+      ? window.WSBDashboardCharting.morphScaleTicks(linearTicks, logTicks, scaleMix, yFor, { spacing: tickLabelFontSize * 1.6 })
+      : (scaleMix === 1 ? logTicks : linearTicks).map((value) => ({ value, alpha: 1 }));
+    const ticksToDraw = tickStates.map((tick) => {
+      const baseLabel = opts.linearFormatter ? opts.linearFormatter(tick.value) : String(tick.value);
+      const label = typeof opts.overlapLabelFn === "function"
+        ? (opts.overlapLabelFn(tick.value, baseLabel) || baseLabel) : baseLabel;
+      return { ...tick, label };
+    });
 
     const isSinglePointSeries = series.length === 1;
     const xFor = (i) => {
@@ -7344,7 +7366,8 @@
     ctx.lineWidth = 1;
 
     ticksToDraw.forEach((tick) => {
-      if (tick.value < min || tick.value > max) return;
+      if (tick.value < min || tick.value > max || tick.alpha <= 0) return;
+      ctx.globalAlpha = tick.alpha;
       const y = yFor(tick.value);
       const gridY = snapCanvasLineCoord(y, ctx.lineWidth, dpr);
       ctx.beginPath();
@@ -7360,6 +7383,7 @@
       ctx.fillText(tick.label, tx, y);
     });
 
+    ctx.globalAlpha = 1;
     const xTicks = buildAdaptiveTimeTicks(xAxisSeries, chartW);
 
     xTicks.forEach((tick) => {
@@ -7477,6 +7501,7 @@
         pad,
         chartW,
         chartH,
+        scaleMix,
         color: opts.color,
         tooltipLabel: opts.tooltipLabel || "",
         tooltipFormatter: opts.tooltipFormatter || opts.linearFormatter || null,
@@ -8262,6 +8287,10 @@
       leftSeries,
       {
         scaleMode: leftScaleMode,
+        scaleAxisHints: {
+          linear: getRangeAxisHints(leftSeries, leftSeriesAllForAxis, "linear"),
+          log: getRangeAxisHints(leftSeries, leftSeriesAllForAxis, "log"),
+        },
         color: leftColor,
         tickSide: "left",
         yAxisCurrency: primaryCurrency,
@@ -8295,6 +8324,10 @@
       rightSeries,
       {
         scaleMode: rightScaleMode,
+        scaleAxisHints: {
+          linear: getRangeAxisHints(rightSeries, rightSeriesAllForAxis, "linear"),
+          log: getRangeAxisHints(rightSeries, rightSeriesAllForAxis, "log"),
+        },
         color: rightColor,
         tickSide: "left",
         yAxisCurrency: secondaryCurrency,

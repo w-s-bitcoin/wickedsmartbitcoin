@@ -12,6 +12,11 @@ const DASHBOARD_CARD_PREVIEW_SPECS = Object.freeze({
     width: 1280,
     height: 720,
   },
+  'moving_average.png': {
+    url: 'webapps/moving_average/preview.html',
+    width: 1280,
+    height: 720,
+  },
   'days_since_ath.png': {
     url: 'webapps/days_since_ath/preview.html',
     width: 1280,

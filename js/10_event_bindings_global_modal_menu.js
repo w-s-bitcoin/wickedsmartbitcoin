@@ -84,6 +84,7 @@ favoritesToggleBtn?.addEventListener('keydown', onToolbarButtonKeydown);
 const PLAYBACK_DASHBOARD_MODAL_MATCHES = [
     { filename: 'uoa.png', path: '/webapps/uoa/dashboard.html' },
     { filename: 'days_since_ath.png', path: '/webapps/days_since_ath/dashboard.html' },
+    { filename: 'moving_average.png', path: '/webapps/moving_average/dashboard.html' },
     { filename: 'dca_comparison.png', path: '/webapps/dca_comparison/dashboard.html' },
     { filename: 'dca_cost_basis.png', path: '/webapps/dca_cost_basis/dashboard.html' },
     { filename: 'issuance_rate.png', path: '/webapps/issuance_rate/dashboard.html' },
@@ -192,6 +193,15 @@ window.addEventListener('message', e => {
     if (data.type === 'wsb-days-since-ath-date-range-export-active') {
         window.wsbDashboardExportActive = !!data.active;
         window.dateRangeExportActive = !!data.active;
+        return;
+    }
+    if (data.type === 'wsb-moving-average-date-range-export-active') {
+        window.wsbDashboardExportActive = !!data.active;
+        window.dateRangeExportActive = !!data.active;
+        return;
+    }
+    if (data.type === 'wsb-moving-average-dashboard-expanded') {
+        document.body?.classList?.toggle('moving-average-dashboard-expanded', !!data.expanded);
         return;
     }
     if (data.type === 'wsb-uoa-dashboard-expanded') {
@@ -376,6 +386,7 @@ function resetDashboardsToDefaults() {
         'bitcoin_dominance_',
         'dca_comparison_',
         'dca_cost_basis_',
+        'moving_average_',
         'node_count_'
     ];
 

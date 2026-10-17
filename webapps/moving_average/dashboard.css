@@ -1,0 +1,1103 @@
+:root {
+  color-scheme: dark;
+  --bg: var(--dashboard-page-bg, #000);
+  --panel: var(--dashboard-panel-bg, #000);
+  --surface: #000;
+  --surface-soft: #121212;
+  --fg: #f1f5f7;
+  --ink: #f1f5f7;
+  --fg-dim: #d6e1e6;
+  --muted: #95a6ae;
+  --accent: #ff9900;
+  --dashboard-accent: var(--accent);
+  --ma1: #00dddd;
+  --ma2: #ffad00;
+  --price: #f1f5f7;
+  --panel-border: rgba(255, 255, 255, .14);
+  --card-border: var(--panel-border);
+  --line: #2b2b2b;
+  --link: #8ecaff;
+  --wrap-pad: clamp(8px, 1.4vw, 12px);
+  --wrap-grid-template-rows: auto auto minmax(460px, 1fr);
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f4f5f7;
+  --panel: #fff;
+  --surface: #fff;
+  --surface-soft: #faf6ef;
+  --fg: #171717;
+  --ink: #171717;
+  --fg-dim: #514d47;
+  --muted: #6f685f;
+  --panel-border: rgba(0, 0, 0, .11);
+  --line: #d8d0c3;
+  --link: #1f4f78;
+  --ma1: #008e9b;
+  --ma2: #c27d00;
+  --price: #252525;
+}
+body { font-family: "Space Grotesk", "Helvetica Neue", sans-serif; }
+button, input, select { font: inherit; }
+button { cursor: pointer; }
+.chart-scale-btn:disabled, #chartsResizeHandle:disabled { cursor: default; opacity: .45; }
+.ma-controls input:focus-visible, .ma-controls select:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+[hidden] { display: none !important; }
+.moving-average-wrap { min-height: 100vh; }
+.topbar, .date-range-panel, .chart-panel { border: 1px solid var(--panel-border); border-radius: 14px; background: var(--panel); }
+.topbar { display: grid; gap: 10px; padding: 10px 12px; z-index: 10; }
+.title-row { min-height: 30px; padding-right: 240px; }
+.title-actions { position: absolute; right: 12px; top: 10px; margin-left: auto; }
+.mono, .chip, .ma-controls, .date-range-panel, .chart-scale-btn, .load-status { font-family: "IBM Plex Mono", monospace; }
+.kpi-row { gap: 7px; }
+.kpi-row .chip { display: inline-flex; align-items: center; gap: 5px; font-variant-numeric: tabular-nums; }
+.chip-value { white-space: nowrap; }
+#priceChip .chip-spot-status {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #8b8b8b;
+  vertical-align: middle;
+  flex: 0 0 7px;
+}
+#priceChip .chip-spot-status[data-kind="live"] { background: #41b36b; }
+.legend-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; }
+.price-dot { background: var(--price); }
+.ma1-dot { background: var(--ma1); }
+.ma2-dot { background: var(--ma2); }
+.ma-controls { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px 24px; }
+.ma-control-group { display: grid; grid-template-columns: auto auto; gap: 4px 9px; align-items: center; }
+.ma-type-control { display: flex; gap: 7px; align-items: center; }
+/* Match DCA Comparison's amount/cadence chip, using the shared dropdown styles. */
+.ma-controls .ma-input-group {
+  --fg: #f1f5f7;
+  --accent: #ff9f1c;
+  --dashboard-accent: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  position: relative;
+  min-width: 0;
+  width: auto;
+  gap: 2px;
+  padding-right: 8px;
+  overflow: visible;
+}
+:root[data-theme="light"] .ma-controls .ma-input-group { --fg: #1c1b19; }
+.ma-controls .ma-period-input {
+  width: 3ch;
+  min-width: 1ch;
+  max-width: 10ch;
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--fg);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: .8rem;
+  line-height: 1;
+  padding: 0;
+  text-align: right;
+}
+.ma-controls .ma-period-input:focus,
+.ma-controls .ma-period-input:focus-visible { outline: none; box-shadow: none; }
+.ma-controls .ma-period-input[aria-invalid="true"] { color: #e26060; }
+.ma-controls .dca-dropdown {
+  --dca-dropdown-content-pad: 4px;
+  --dca-dropdown-arrow-gap: 18px;
+  cursor: pointer;
+}
+.ma-controls .dca-dropdown-value {
+  display: block;
+  width: 100%;
+  color: var(--fg);
+  font: inherit;
+  line-height: inherit;
+  text-align: left;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  max-width: 100%;
+  padding: 0 var(--dca-dropdown-arrow-gap) 0 var(--dca-dropdown-content-pad);
+  pointer-events: none;
+}
+.ma-controls .dca-dropdown-trigger { z-index: 3; }
+.ma-controls .dca-option-btn--selected:hover,
+.ma-controls .dca-option-btn--selected:focus-visible { color: var(--accent); }
+.input-feedback { grid-column: 1 / -1; font-size: .68rem; line-height: 1.4; color: var(--muted); max-width: 42ch; }
+.input-feedback:empty { display: none; }
+.input-feedback.error, .ma-control-group:has(input[aria-invalid="true"]) .input-feedback { color: #e26060; }
+.load-status { margin: 0; color: var(--muted); font-size: .7rem; line-height: 1.45; }
+.load-status:empty { display: none; }
+.load-status.error { color: #e26060; }
+/* Playback and range controls mirror Days Since ATH. Keep their geometry and states aligned. */
+.date-range-panel {
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  background: var(--panel);
+  padding: 10px 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.date-range-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.date-range-range-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.date-range-range-label {
+  display: inline-block;
+}
+
+.date-range-header label.chip:has(.date-range-btn) {
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+}
+
+.date-range-presets {
+  display: inline-flex;
+  gap: 0;
+  flex-wrap: nowrap;
+}
+
+.date-range-range-buttons {
+  align-items: stretch;
+}
+
+.date-range-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 4px 10px;
+  width: 106px;
+  min-width: 106px;
+  min-height: 30px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  background: transparent;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  color: var(--fg);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.date-range-btn-placeholder {
+  visibility: hidden;
+}
+
+.date-range-btn:hover {
+  background: rgba(255, 152, 0, 0.14);
+  border-color: rgba(255, 152, 0, 0.45);
+}
+
+.date-range-btn:focus,
+.date-range-btn:focus-visible,
+.date-range-header label.chip:has(.date-range-btn):focus-within {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.date-range-days-segment {
+  border: 1px solid var(--panel-border);
+  border-radius: 8px 0 0 8px;
+  margin-right: -1px;
+  background: transparent;
+  color: var(--fg);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 10.5ch;
+  padding: 5px 9px;
+  position: relative;
+  z-index: 1;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.75rem;
+  line-height: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.date-range-days-segment:focus-within {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.date-range-days-input {
+  appearance: textfield;
+  -moz-appearance: textfield;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--fg);
+  width: 6.5ch;
+  min-width: 6.5ch;
+  padding: 0;
+  margin: 0;
+  text-align: right;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.date-range-days-input::-webkit-outer-spin-button,
+.date-range-days-input::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+.date-range-days-suffix {
+  color: var(--fg);
+}
+
+.date-range-preset-btn {
+  border: 1px solid var(--panel-border);
+  border-radius: 0;
+  margin-right: -1px;
+  background: transparent;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.75rem;
+  line-height: 1;
+  height: 28px;
+  padding: 0 9px;
+  cursor: pointer;
+  position: relative;
+  z-index: 1;
+  transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+}
+
+.date-range-preset-btn:last-child {
+  border-top-right-radius: 8px;
+  border-bottom-right-radius: 8px;
+  margin-right: 0;
+}
+
+.date-range-preset-btn.is-active {
+  --selected-accent: var(--accent);
+  --selected-ink: var(--selected-accent);
+  color: var(--selected-ink);
+  border: 1px solid var(--selected-ink) !important;
+  background: transparent;
+  box-shadow: none !important;
+  text-shadow: none;
+  z-index: 4;
+}
+
+.date-range-button-row,
+.date-range-play-row {
+  display: inline-flex;
+  align-items: stretch;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+  min-height: 28px;
+  gap: 0;
+}
+
+.date-range-play-row {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+.date-range-play-row .date-range-scale-control {
+  margin-right: 8px;
+}
+
+.date-range-chart-buttons .date-range-chart-btn {
+  min-width: 74px;
+  padding: 0 12px;
+}
+
+.date-range-chart-buttons .date-range-chart-btn[data-chart-mode="days"] {
+  min-width: 124px;
+}
+
+.date-range-playback-btn {
+  border: 1px solid var(--panel-border);
+  border-radius: 0;
+  margin-right: -1px;
+  background: transparent;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.75rem;
+  line-height: 1;
+  min-width: 30px;
+  height: 28px;
+  padding: 0 9px;
+  cursor: pointer;
+  position: relative;
+  z-index: 1;
+  transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.date-range-playback-btn:first-child {
+  border-top-left-radius: 8px;
+  border-bottom-left-radius: 8px;
+}
+
+.date-range-playback-btn:last-child {
+  border-top-right-radius: 8px;
+  border-bottom-right-radius: 8px;
+  margin-right: 0;
+}
+
+.date-range-playback-btn:hover,
+.date-range-playback-btn:focus-visible {
+  color: var(--fg);
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.08);
+  z-index: 3;
+}
+
+.date-range-playback-btn:focus,
+.date-range-playback-btn:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  border-color: var(--panel-border);
+  background: transparent;
+  z-index: 1;
+}
+
+:root[data-theme="light"] .date-range-playback-btn:hover,
+:root[data-theme="light"] .date-range-playback-btn:focus-visible {
+  border-color: rgba(0, 0, 0, 0.35);
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.date-range-play-btn,
+.date-range-pause-btn,
+.date-range-stop-btn,
+.date-range-download-btn,
+.date-range-settings-btn,
+.dashboard-expand-btn {
+  width: 30px;
+  min-width: 30px;
+  padding: 0;
+}
+
+.date-range-play-btn {
+  font-size: 0.78rem;
+}
+
+.date-range-pause-btn,
+.date-range-stop-btn {
+  font-size: 0.72rem;
+}
+
+.date-range-play-btn.is-playing,
+.date-range-pause-btn.is-paused,
+.date-range-stop-btn.is-active,
+.date-range-download-settings .date-range-settings-btn.is-open {
+  --selected-accent: var(--accent);
+  --selected-ink: var(--selected-accent);
+  color: var(--selected-ink);
+  border: 1px solid var(--selected-ink) !important;
+  background: transparent;
+  box-shadow: none !important;
+  text-shadow: none;
+  z-index: 4;
+}
+
+.date-range-play-btn.is-playing:disabled,
+.date-range-play-btn.is-playing:disabled:hover,
+.date-range-play-btn.is-playing:disabled:focus-visible,
+.date-range-pause-btn.is-paused:disabled,
+.date-range-pause-btn.is-paused:disabled:hover,
+.date-range-pause-btn.is-paused:disabled:focus-visible {
+  opacity: 1;
+  color: var(--selected-ink);
+  background: transparent;
+  border-color: var(--selected-ink) !important;
+  box-shadow: none !important;
+}
+
+.date-range-playback-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  color: var(--muted);
+}
+
+.date-range-playback-btn:disabled:hover,
+.date-range-playback-btn:disabled:focus-visible {
+  color: var(--muted);
+  background: transparent;
+  border-color: var(--panel-border);
+  z-index: 1;
+}
+
+.date-range-pause-btn:disabled,
+.date-range-stop-btn:disabled {
+  opacity: 1;
+  color: color-mix(in srgb, var(--muted) 62%, transparent);
+}
+
+.date-range-speed-btn {
+  width: 48px;
+  min-width: 48px;
+  padding: 0;
+  border-radius: 0 !important;
+}
+
+.date-range-download-btn {
+  font-size: 0.95rem;
+}
+
+.date-range-download-btn.is-exporting {
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 1;
+}
+
+.date-range-download-btn.is-exporting:hover,
+.date-range-download-btn.is-exporting:focus-visible {
+  color: var(--muted);
+}
+
+@property --date-range-export-progress {
+  syntax: "<percentage>";
+  inherits: true;
+  initial-value: 0%;
+}
+
+.date-range-export-progress {
+  --date-range-export-progress: 0%;
+  position: relative;
+  display: block;
+  width: 22px;
+  height: 22px;
+}
+
+.date-range-export-progress::before {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: 50%;
+  background: conic-gradient(#ff9f1c 0% var(--date-range-export-progress), #5f5f5f var(--date-range-export-progress) 100%);
+  box-shadow: 0 0 5px color-mix(in srgb, #ff9f1c 22%, transparent);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+  transition: --date-range-export-progress 140ms linear;
+}
+
+:root[data-theme="light"] .date-range-export-progress::before {
+  background: conic-gradient(#ff9f1c 0% var(--date-range-export-progress), #bdbdbd var(--date-range-export-progress) 100%);
+}
+
+.date-range-export-stop-square {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--muted) 80%, transparent);
+  transform: translate(-50%, -50%);
+  transition: background 120ms ease, box-shadow 120ms ease;
+  z-index: 1;
+}
+
+.date-range-download-btn.is-exporting:hover .date-range-export-stop-square,
+.date-range-download-btn.is-exporting:focus-visible .date-range-export-stop-square,
+.date-range-download-btn.is-exporting.is-canceling .date-range-export-stop-square {
+  background: #ff9f1c;
+  box-shadow: 0 0 7px color-mix(in srgb, #ff9f1c 58%, transparent);
+}
+
+.date-range-download-settings .date-range-settings-btn {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-top-right-radius: 8px;
+  border-bottom-right-radius: 8px;
+  margin-right: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  font-size: 0;
+  line-height: 1;
+  text-align: center;
+  text-indent: 0;
+}
+
+.date-range-download-settings .date-range-settings-btn::before {
+  content: "⚙";
+  display: block;
+  color: currentColor;
+  font-size: 1.15rem;
+  line-height: 1;
+  transform: translateY(1px);
+}
+
+.dashboard-expand-btn {
+  margin-right: -1px;
+}
+
+.dashboard-expand-icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.dashboard-expand-icon-shrink {
+  display: none;
+}
+
+.dashboard-expand-btn.is-expanded .dashboard-expand-icon-expand {
+  display: none;
+}
+
+.dashboard-expand-btn.is-expanded .dashboard-expand-icon-shrink {
+  display: block;
+}
+
+.date-range-download-settings {
+  position: relative;
+  display: inline-flex;
+}
+
+.date-range-play-row > .date-range-download-settings .date-range-playback-btn {
+  border-radius: 0 8px 8px 0;
+  margin-right: 0;
+}
+
+.date-range-button-row .date-range-btn {
+  min-width: 0;
+  width: auto;
+  height: auto;
+  min-height: 0;
+  padding: 5px 9px;
+  line-height: normal;
+  display: inline-block;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.75rem;
+  border-radius: 0;
+  margin-right: -1px;
+  transition: border-color 120ms ease, color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+
+.date-range-button-row .date-range-btn:first-child {
+  border-top-left-radius: 8px;
+  border-bottom-left-radius: 8px;
+}
+
+.date-range-button-row .date-range-btn:last-child {
+  margin-right: 0;
+  border-top-right-radius: 8px;
+  border-bottom-right-radius: 8px;
+}
+
+.date-range-button-row .date-range-btn:hover,
+.date-range-button-row .date-range-btn:focus-visible {
+  color: var(--fg);
+  border-color: rgba(255, 255, 255, 0.35);
+  background: transparent;
+  z-index: 3;
+}
+
+.date-range-button-row .date-range-btn:focus,
+.date-range-button-row .date-range-btn:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  border-color: var(--panel-border);
+  background: transparent;
+  z-index: 1;
+}
+
+:root[data-theme="light"] .date-range-button-row .date-range-btn:hover,
+:root[data-theme="light"] .date-range-button-row .date-range-btn:focus-visible {
+  border-color: rgba(0, 0, 0, 0.35);
+  background: transparent;
+}
+
+.date-range-button-row .date-range-btn.is-active,
+.date-range-chart-buttons .date-range-btn.is-selected,
+.date-picker-day.dp-selected,
+.dp-month-cell.dp-month-current {
+  --selected-accent: var(--accent);
+  --selected-ink: var(--selected-accent);
+  color: var(--selected-ink);
+  border: 1px solid var(--selected-ink) !important;
+  background: transparent;
+  box-shadow: none !important;
+  text-shadow: none;
+  z-index: 4;
+}
+
+.date-range-download-settings-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  width: min(280px, calc(100vw - 16px));
+  min-width: 0;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+  z-index: 180;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  transform: translateX(var(--download-settings-menu-shift-x, 0px));
+  padding: 10px;
+  display: none;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.date-range-download-settings-menu.open {
+  display: flex;
+}
+
+.download-setting-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.7rem;
+}
+
+.download-setting-button-row {
+  display: flex;
+  width: 100%;
+  gap: 0;
+}
+
+.download-scale-field {
+  gap: 6px;
+}
+
+.download-scale-grid {
+  display: flex;
+  width: 100%;
+  gap: 0;
+}
+
+.download-scale-row {
+  min-width: 0;
+}
+
+.download-scale-row:first-child .download-setting-option:last-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  margin-right: -1px;
+}
+
+.download-scale-row:last-child .download-setting-option:first-child {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.download-setting-option {
+  flex: 1 1 0;
+  border: 1px solid var(--panel-border);
+  border-radius: 0;
+  margin-right: -1px;
+  background: var(--panel);
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.74rem;
+  text-align: center;
+  padding: 6px 8px;
+  cursor: pointer;
+  position: relative;
+  z-index: 1;
+  transition: border-color 120ms ease, color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+
+.download-setting-option:first-child {
+  border-top-left-radius: 8px;
+  border-bottom-left-radius: 8px;
+}
+
+.download-setting-option:last-child {
+  margin-right: 0;
+  border-top-right-radius: 8px;
+  border-bottom-right-radius: 8px;
+}
+
+.download-setting-option:hover,
+.download-setting-option:focus-visible {
+  color: var(--fg);
+  border-color: rgba(255, 255, 255, 0.35);
+  outline: none;
+  z-index: 3;
+}
+
+.download-setting-option.is-selected {
+  --selected-accent: var(--accent);
+  --selected-ink: var(--selected-accent);
+  color: var(--selected-ink);
+  border: 1px solid var(--selected-ink) !important;
+  background: transparent;
+  box-shadow: none !important;
+  text-shadow: none;
+  z-index: 4;
+}
+
+.download-scale-row.is-disabled .download-setting-option,
+.download-scale-row.is-disabled .download-setting-option.is-selected {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.24);
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  box-shadow: none !important;
+  cursor: not-allowed;
+  pointer-events: none;
+  text-shadow: none;
+}
+
+.download-setting-option.is-selected:hover,
+.download-setting-option.is-selected:focus-visible {
+  border-color: var(--selected-ink) !important;
+}
+
+.download-setting-option.is-selected + .download-setting-option {
+  border-left-color: var(--panel-border);
+}
+
+.download-setting-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.7rem;
+  line-height: 1.2;
+  cursor: pointer;
+  user-select: none;
+}
+
+.download-setting-checkbox input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.download-setting-checkbox:hover {
+  color: var(--fg);
+}
+
+.download-estimate-panel {
+  display: grid;
+  gap: 4px;
+  border-top: 1px solid var(--panel-border);
+  border-bottom: 1px solid var(--panel-border);
+  padding: 8px 0;
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.download-estimate-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.2;
+}
+
+.download-estimate-row strong {
+  color: var(--fg);
+  font-size: 0.72rem;
+  font-weight: 500;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+.download-setting-actions {
+  display: flex;
+  width: 100%;
+  padding-top: 3px;
+}
+
+.download-setting-actions button {
+  width: 100%;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--fg);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.74rem;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.download-setting-actions button:hover,
+.download-setting-actions button:focus-visible {
+  border-color: rgba(255, 255, 255, 0.35);
+  outline: none;
+}
+
+.download-setting-actions button.is-stop-download {
+  border-color: transparent;
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.download-setting-actions button.is-stop-download:hover,
+.download-setting-actions button.is-stop-download:focus-visible {
+  border-color: transparent;
+  background: rgba(239, 68, 68, 0.25);
+  color: #dc2626;
+}
+
+.date-range-slider-wrap {
+  --slider-start: 0%;
+  --slider-end: 100%;
+  --available-start: 0%;
+  --available-end: 100%;
+  position: relative;
+  height: 30px;
+  cursor: default;
+  touch-action: none;
+  user-select: none;
+}
+
+.date-range-slider-wrap::before,
+.date-range-slider-wrap::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 6px;
+  border-radius: 999px;
+  transform: translateY(-50%);
+}
+
+.date-range-slider-wrap::before {
+  background: rgba(128, 128, 128, 0.24);
+  cursor: default;
+}
+
+.date-range-slider-wrap::after {
+  left: var(--slider-start);
+  right: calc(100% - var(--slider-end));
+  background: #5f5f5f;
+  cursor: ew-resize;
+  z-index: 1;
+}
+
+.date-range-available-track {
+  position: absolute;
+  left: var(--available-start);
+  right: calc(100% - var(--available-end));
+  top: 50%;
+  height: 6px;
+  border-radius: 999px;
+  transform: translateY(-50%);
+  background: rgba(128, 128, 128, 0.24);
+  pointer-events: none;
+}
+
+:root[data-theme="light"] .date-range-slider-wrap::before,
+:root[data-theme="light"] .date-range-available-track {
+  background: #e6e6e6;
+}
+
+:root[data-theme="light"] .date-range-slider-wrap::after {
+  background: #bdbdbd;
+}
+
+.date-range-remaining {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 6px;
+  border-radius: 999px;
+  transform: translateY(-50%);
+  background: transparent;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.date-range-remaining.active {
+  background: #ff9f1c;
+}
+
+.date-range-slider {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 100%;
+  height: 50px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  pointer-events: none;
+  z-index: 4;
+  cursor: default;
+  touch-action: none;
+}
+
+.date-range-slider:focus,
+.date-range-slider:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.date-range-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  background: transparent;
+}
+
+.date-range-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 26px;
+  border-radius: 3px;
+  border: none;
+  background: #e6e6e6;
+  margin-top: -10px;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+:root[data-theme="light"] .date-range-slider::-webkit-slider-thumb {
+  background: #bdbdbd;
+}
+
+.date-range-slider::-moz-range-track {
+  height: 6px;
+  background: transparent;
+}
+
+.date-range-slider::-moz-range-thumb {
+  width: 12px;
+  height: 26px;
+  border-radius: 3px;
+  border: none;
+  background: #e6e6e6;
+  margin-top: -10px;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+:root[data-theme="light"] .date-range-slider::-moz-range-thumb {
+  background: #bdbdbd;
+}
+
+/* Moving Average adds one image action to the shared playback layout. */
+.date-range-image-btn {
+  width: 30px;
+  min-width: 30px;
+  padding: 0;
+}
+.date-range-image-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.download-hint {
+  margin: 0;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.7rem;
+  line-height: 1.45;
+  white-space: normal;
+}
+/* Playback uses the moving end thumb, matching Days Since ATH. */
+#dateRangeCurrentMarker { display: none; }
+
+.chart-grid { position: relative; height: var(--chart-grid-height, 100%); min-height: 460px; display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr); grid-template-rows: minmax(220px, 1fr) minmax(220px, 1fr); gap: 10px; }
+.chart-panel { position: relative; display: flex; flex-direction: column; overflow: hidden; min-width: 0; min-height: 0; }
+.history-panel { grid-row: 1 / 3; }
+.chart-grid.single-average .window1-panel { grid-column: 2; grid-row: 1 / 3; }
+.chart-grid.single-average .window2-panel { display: none; }
+.chart-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px 2px; min-height: 36px; flex: 0 0 auto; }
+.chart-header h2 { margin: 0; font-size: clamp(.78rem, 1.1vw, .95rem); font-weight: 600; color: var(--fg-dim); }
+.chart-scale-toggle { display: inline-flex; flex: 0 0 auto; margin-left: auto; }
+.chart-scale-btn { position: relative; border: 1px solid var(--panel-border); border-radius: 0; color: var(--muted); background: transparent; padding: 4px 8px; min-width: 38px; min-height: 28px; font-size: .65rem; line-height: 1; }
+.chart-scale-btn:first-child { border-radius: 8px 0 0 8px; }
+.chart-scale-btn:last-child { border-radius: 0 8px 8px 0; margin-left: -1px; }
+.chart-scale-btn.is-active { color: var(--accent); border-color: var(--accent); z-index: 2; }
+.chart-scale-btn:focus-visible { z-index: 3; }
+.chart-canvas-wrap { position: relative; flex: 1 1 auto; min-height: 0; }
+.chart-canvas-wrap canvas { display: block; width: 100%; height: 100%; touch-action: pan-y; }
+.chart-tooltip { white-space: nowrap; position: fixed; z-index: 190; pointer-events: none; box-sizing: border-box; overflow: hidden; padding: 6px 8px; border: 1px solid var(--panel-border); border-radius: 8px; background: rgba(0, 0, 0, .92); color: #e5e7eb; font-family: "Space Grotesk", sans-serif; font-size: .75rem; line-height: 1.25; max-width: calc(100vw - 24px); box-shadow: 0 8px 24px rgba(0, 0, 0, .35); }
+.chart-hover-tooltip-date { margin-bottom: 3px; color: inherit; font-weight: 700; }
+.chart-hover-tooltip-value { font-weight: 700; font-variant-numeric: tabular-nums; }
+:root[data-theme="light"] .chart-tooltip { background: rgba(255, 255, 255, .95); color: #111827; }
+#chartsResizeHandle { position: absolute; right: 2px; bottom: 2px; z-index: 3; }
+body.moving-average-dashboard-expanded .topbar { display: none; }
+body.moving-average-dashboard-expanded .wrap { grid-template-rows: auto minmax(460px, 1fr); padding-top: var(--wrap-pad); }
+@media (max-width: 1100px) {
+  .moving-average-wrap { height: auto; min-height: 100vh; grid-template-rows: auto auto auto; }
+  .chart-grid { height: var(--chart-grid-height, 620px); }
+}
+@media (max-width: 700px) {
+  .topbar { padding: 10px; }
+  .title { font-size: 1.05rem; }
+  .title-row { gap: 6px; flex-wrap: nowrap; }
+  .title-actions { gap: 4px; }
+  .kpi-row .chip { padding: 4px 7px; font-size: .67rem; }
+  .ma-controls { column-gap: 12px; row-gap: 9px; }
+  .ma-control-group { grid-template-columns: 1fr; gap: 5px; flex: 1 1 130px; }
+  .chart-grid { display: flex; flex-direction: column; height: auto !important; min-height: 0; }
+  .chart-panel { min-height: 265px; height: 265px; flex: 0 0 auto; }
+  .history-panel { min-height: 360px; height: 360px; }
+  .chart-header h2 { font-size: .85rem; }
+  #chartsResizeHandle { display: none; }
+  body.moving-average-dashboard-expanded .wrap { grid-template-rows: auto auto; height: auto; }
+}
+/* Keep the standard-size presets reachable on very narrow screens. */
+@media (max-width: 360px) {
+  .date-range-range-control {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  #rangeButtons {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--muted) transparent;
+  }
+
+  #rangeButtons > * {
+    flex: 0 0 auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0s !important; }
+}

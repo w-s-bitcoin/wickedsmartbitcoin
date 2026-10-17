@@ -134,6 +134,119 @@
     });
   }
 
+  // The selected mode belongs to dashboard state. This controller owns only
+  // transient screen geometry, so shared links and exports never save a blend.
+  function createScaleTransitionController({ render, duration = 700 } = {}) {
+    const transitions = new Map();
+    const motion = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    let frame = 0, paintCycle = 0, disposed = false;
+    const endpoint = (mode) => mode === "log" ? 1 : 0;
+    const now = () => window.performance.now();
+    function finish(key) {
+      if (key === undefined) transitions.clear(); else transitions.delete(key);
+      if (!transitions.size && frame) { window.cancelAnimationFrame(frame); frame = 0; }
+    }
+    function paint() {
+      frame = 0;
+      if (disposed) return;
+      if (document.hidden) { finish(); return; }
+      paintCycle++;
+      for (const entry of transitions.values()) entry.ready = true;
+      render?.();
+      // A panel may have been hidden or removed while it was transitioning.
+      const time = now();
+      for (const [key, entry] of transitions) {
+        if (entry.cycle !== paintCycle && time >= entry.started + entry.duration) transitions.delete(key);
+      }
+      schedule();
+    }
+    function schedule() {
+      if (!disposed && transitions.size && !frame) frame = window.requestAnimationFrame(paint);
+    }
+    function getMix(key, targetMode) {
+      const target = endpoint(targetMode), entry = transitions.get(key);
+      if (!entry) return target;
+      if (entry.to !== target || motion?.matches || document.hidden) { finish(key); return target; }
+      // The click's synchronous render shows exactly the previous shape. Start
+      // advancing on RAF, after any control/layout work in the event handler.
+      const progress = entry.ready ? clamp((now() - entry.started) / entry.duration, 0, 1) : 0;
+      const mix = entry.from + (entry.to - entry.from) * (1 - Math.cos(Math.PI * progress)) / 2;
+      entry.lastMix = mix;
+      entry.cycle = paintCycle;
+      if (progress === 1) finish(key);
+      return mix;
+    }
+    function start(key, fromMode, toMode) {
+      if (disposed) return;
+      const target = endpoint(toMode);
+      // Reversals begin at the last painted shape, including a click between
+      // animation frames. They must not jump ahead to an unpainted position.
+      const from = transitions.get(key)?.lastMix ?? endpoint(fromMode);
+      finish(key);
+      if (motion?.matches || document.hidden || from === target) return;
+      transitions.set(key, { from, to: target, lastMix: from, cycle: -1, ready: false, started: now(),
+        duration: Math.max(120, Math.max(1, duration) * Math.abs(target - from)) });
+      schedule();
+    }
+    function settle() { finish(); if (!disposed && !document.hidden) render?.(); }
+    function visibilityChanged() { if (document.hidden) finish(); else if (!disposed) render?.(); }
+    motion?.addEventListener?.("change", settle);
+    document.addEventListener("visibilitychange", visibilityChanged);
+    window.addEventListener("pagehide", finishAll);
+    window.addEventListener("pageshow", settle);
+    function finishAll() { finish(); }
+    return { start, getMix, finish,
+      isAnimating: (key) => key === undefined ? transitions.size > 0 : transitions.has(key),
+      destroy() {
+        disposed = true; finish();
+        motion?.removeEventListener?.("change", settle);
+        document.removeEventListener("visibilitychange", visibilityChanged);
+        window.removeEventListener("pagehide", finishAll);
+        window.removeEventListener("pageshow", settle);
+      },
+    };
+  }
+
+  // Move the original tick values with the blended chart coordinates. Keep
+  // common ticks visible, and crossfade distinct sets before labels collide.
+  function morphScaleTicks(linearTicks, logTicks, mix, valueToY, { spacing = 22 } = {}) {
+    mix = clamp(mix, 0, 1);
+    const byValue = new Map();
+    function add(value, source) {
+      if (!Number.isFinite(value)) return;
+      const key = Number(value.toPrecision(12));
+      if (!byValue.has(key)) byValue.set(key, { value: key, linear: false, log: false });
+      byValue.get(key)[source] = true;
+    }
+    linearTicks.forEach((value) => add(value, "linear"));
+    logTicks.forEach((value) => add(value, "log"));
+    const ticks = Array.from(byValue.values()).sort((a, b) => a.value - b.value).map((tick) => ({
+      ...tick, y: valueToY(tick.value), shared: tick.linear && tick.log,
+      alpha: (tick.linear ? 1 - mix : 0) + (tick.log ? mix : 0), visibility: 1,
+    })).filter((tick) => Number.isFinite(tick.y));
+    const gap = Math.max(1, spacing), clearStart = gap * 16 / 22;
+    for (let i = 0; i < ticks.length; i++) {
+      for (let j = i + 1; j < ticks.length; j++) {
+        const a = ticks[i], b = ticks[j], distance = Math.abs(a.y - b.y);
+        if (distance >= gap) continue;
+        const t = clamp((distance - clearStart) / (gap - clearStart), 0, 1);
+        const clearance = t * t * (3 - 2 * t);
+        if (a.shared || b.shared) {
+          const unique = a.shared ? b : a;
+          if (!unique.shared) unique.visibility = Math.min(unique.visibility, clearance);
+        } else if (a.linear !== b.linear) {
+          for (const tick of [a, b]) {
+            const phase = tick.linear ? Math.max(0, 1 - 2 * mix) : Math.max(0, 2 * mix - 1);
+            tick.visibility = Math.min(tick.visibility, clearance + (1 - clearance) * phase);
+          }
+        } else a.visibility = Math.min(a.visibility, clearance);
+      }
+    }
+    return ticks.map((tick) => ({ ...tick, alpha: tick.value === 0 && !tick.shared
+      ? (tick.linear ? (1 - mix) * Math.max(0, 1 - 2 * mix) : mix * Math.max(0, 2 * mix - 1))
+      : tick.alpha * tick.visibility })).filter((tick) => tick.alpha > 0);
+  }
+
   ns.clamp = clamp;
   ns.getPlotRect = getPlotRect;
   ns.valueToX = valueToX;
@@ -145,4 +258,6 @@
   ns.formatCompactNumber = formatCompactNumber;
   ns.formatCurrency = formatCurrency;
   ns.formatDateTick = formatDateTick;
+  ns.createScaleTransitionController = createScaleTransitionController;
+  ns.morphScaleTicks = morphScaleTicks;
 }());

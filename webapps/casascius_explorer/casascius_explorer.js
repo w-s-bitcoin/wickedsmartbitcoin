@@ -648,6 +648,16 @@
   function priceChartValueAtCanvasY(meta, y) {
     if (!meta) return null;
     const ratio = 1 - ((y - meta.pad.top) / Math.max(1, meta.plotH));
+    if (meta.scaleMix > 0 && meta.scaleMix < 1 && typeof meta.valueToY === 'function') {
+      let low = Math.min(0, meta.yMin), high = Math.max(meta.yMax, 1);
+      while (meta.valueToY(high) > y && Number.isFinite(high * 2)) high *= 2;
+      for (let index = 0; index < 64; index += 1) {
+        const value = (low + high) / 2;
+        if (meta.valueToY(value) > y) low = value;
+        else high = value;
+      }
+      return (low + high) / 2;
+    }
     if (meta.scale === 'log') {
       const logMin = Math.log10(Math.max(Number.MIN_VALUE, meta.yMin));
       const logMax = Math.log10(Math.max(Number.MIN_VALUE, meta.yMax));
@@ -1734,6 +1744,13 @@
   let balanceChartUnit = readBalanceChartUnit();
   let priceChartUnit = readPriceChartUnit();
   let priceChartScale = readPriceChartScale();
+  const priceScaleTransition = window.WSBDashboardCharting.createScaleTransitionController({
+    render: () => {
+      if (activeChartModalMode !== 'price' || !balanceChartModal?.classList.contains('open')) return;
+      redrawCurrentPriceChartCanvas();
+      refreshBalanceChartHover();
+    }
+  });
   let balanceChartBackgroundHidden = readBalanceChartBackgroundHidden();
   let balanceChartBackgroundHideDeferred = false;
   let balanceChartHoverPoint = null;
@@ -5541,34 +5558,38 @@
     const minValue = axisValues.length ? Math.min(...axisValues) : 0;
     const positiveAxisValues = axisValues.filter(value => value > 0);
     const useLogScale = !compact && scale === 'log' && positiveAxisValues.length > 0;
+    const scaleMix = compact || !positiveAxisValues.length ? 0 : priceScaleTransition.getMix('price', scale);
     const yPaddingRatio = 0.08;
     const valueRangeForDomain = Math.max(0, maxValue - minValue);
     const linearYPad = valueRangeForDomain > 0
       ? valueRangeForDomain * yPaddingRatio
       : Math.max(Math.abs(maxValue) * yPaddingRatio, unit === 'usd' ? 1 : 0.00000001);
     const zoomHasY = Number.isFinite(activeZoom?.yMin) && Number.isFinite(activeZoom?.yMax) && activeZoom.yMax > activeZoom.yMin;
-    let linearAxisMin = zoomHasY && !useLogScale ? activeZoom.yMin : minValue - linearYPad;
-    let linearAxisMax = zoomHasY && !useLogScale ? activeZoom.yMax : maxValue + linearYPad;
+    let linearAxisMin = zoomHasY ? activeZoom.yMin : minValue - linearYPad;
+    let linearAxisMax = zoomHasY ? activeZoom.yMax : maxValue + linearYPad;
     if (linearAxisMax <= linearAxisMin) linearAxisMax = linearAxisMin + Math.max(Math.abs(linearAxisMin) * yPaddingRatio, unit === 'usd' ? 1 : 0.00000001);
-    const minPositiveForDomain = useLogScale ? Math.min(...positiveAxisValues) : 1;
-    const maxPositiveForDomain = useLogScale ? Math.max(...positiveAxisValues) : 10;
+    const minPositiveForDomain = positiveAxisValues.length ? Math.min(...positiveAxisValues) : 1;
+    const maxPositiveForDomain = positiveAxisValues.length ? Math.max(...positiveAxisValues) : 10;
     const logMinValue = Math.log10(minPositiveForDomain);
     const logMaxValue = Math.log10(maxPositiveForDomain);
     const logYPad = logMaxValue > logMinValue ? (logMaxValue - logMinValue) * yPaddingRatio : yPaddingRatio;
-    const paddedLogAxisMin = zoomHasY && useLogScale && activeZoom.yMin > 0 ? activeZoom.yMin : 10 ** (logMinValue - logYPad);
-    const paddedLogAxisMax = zoomHasY && useLogScale && activeZoom.yMax > paddedLogAxisMin ? activeZoom.yMax : 10 ** (logMaxValue + logYPad);
-    const axisMinForLabels = useLogScale ? paddedLogAxisMin : linearAxisMin;
-    const axisMaxForLabels = useLogScale ? paddedLogAxisMax : linearAxisMax;
+    const paddedLogAxisMin = zoomHasY && activeZoom.yMin > 0 ? activeZoom.yMin : 10 ** (logMinValue - logYPad);
+    const paddedLogAxisMax = zoomHasY && activeZoom.yMax > paddedLogAxisMin ? activeZoom.yMax : 10 ** (logMaxValue + logYPad);
     const axisTickFontSize = compact ? 0 : (cssWidth < 700 ? 14 : 15);
     let axisLabelWidth = 0;
     let measuredRightPad = cssWidth < 700 ? 82 : 112;
     if (!compact) {
       ctx.save();
       ctx.font = `${axisTickFontSize}px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-      axisLabelWidth = Math.max(
-        ctx.measureText(formatBalanceTickValue(axisMaxForLabels, unit)).width,
-        ctx.measureText(formatBalanceTickValue(axisMinForLabels, unit)).width
+      const linearLabelWidth = Math.max(
+        ctx.measureText(formatBalanceTickValue(linearAxisMax, unit)).width,
+        ctx.measureText(formatBalanceTickValue(linearAxisMin, unit)).width
       );
+      const logLabelWidth = Math.max(
+        ctx.measureText(formatBalanceTickValue(paddedLogAxisMax, unit)).width,
+        ctx.measureText(formatBalanceTickValue(paddedLogAxisMin, unit)).width
+      );
+      axisLabelWidth = linearLabelWidth * (1 - scaleMix) + logLabelWidth * scaleMix;
       ctx.restore();
       measuredRightPad = Math.max(
         measuredRightPad,
@@ -5591,42 +5612,33 @@
       ? Math.max(10, Math.floor(axisTickFontSize * (availableRightLabelWidth / axisLabelWidth)))
       : axisTickFontSize;
     const span = Math.max(1, maxTime - minTime);
-    let yTicks = [];
-    let yAxisMin = 0;
-    let yAxisMax = 1;
-    let yAxisSpan = 1;
-    let logAxisMin = 1;
-    let logAxisMax = 10;
-    let logAxisSpan = 1;
-    if (useLogScale) {
-      logAxisMin = paddedLogAxisMin;
-      logAxisMax = paddedLogAxisMax;
-      if (logAxisMax <= logAxisMin) logAxisMax = logAxisMin * 10;
-      yTicks = buildLogTicks(logAxisMin, logAxisMax, Math.max(4, Math.min(8, Math.floor(plotH / 84))));
-      yAxisMin = logAxisMin;
-      yAxisMax = logAxisMax;
-      logAxisSpan = Math.max(1e-12, Math.log10(logAxisMax) - Math.log10(logAxisMin));
-    } else {
-      yTicks = compact ? [] : buildLinearTicks(linearAxisMin, linearAxisMax, Math.max(4, Math.min(8, Math.floor(plotH / 84))));
-      yAxisMin = Math.min(linearAxisMin, ...yTicks);
-      yAxisMax = Math.max(linearAxisMax, ...yTicks);
-      yAxisSpan = Math.max(1e-12, yAxisMax - yAxisMin);
-    }
+    const tickCount = Math.max(4, Math.min(8, Math.floor(plotH / 84)));
+    const linearTicks = compact ? [] : buildLinearTicks(linearAxisMin, linearAxisMax, tickCount);
+    const linearMin = Math.min(linearAxisMin, ...linearTicks);
+    const linearMax = Math.max(linearAxisMax, ...linearTicks);
+    const linearSpan = Math.max(1e-12, linearMax - linearMin);
+    const logAxisMin = paddedLogAxisMin;
+    const logAxisMax = paddedLogAxisMax > logAxisMin ? paddedLogAxisMax : logAxisMin * 10;
+    const logAxisSpan = Math.max(1e-12, Math.log10(logAxisMax) - Math.log10(logAxisMin));
+    const logTicks = compact ? [] : buildLogTicks(logAxisMin, logAxisMax, tickCount);
+    const yAxisMin = useLogScale ? logAxisMin : linearMin;
+    const yAxisMax = useLogScale ? logAxisMax : linearMax;
     const xTicks = compact ? [] : buildBalanceTimeTicks(minTime, maxTime, plotW);
     const xFor = time => pad.left + ((time - minTime) / span) * plotW;
-    const yFor = value => {
-      if (useLogScale) {
-        if (!Number.isFinite(value) || value <= 0) return pad.top + plotH;
-        return pad.top + plotH - ((Math.log10(value) - Math.log10(logAxisMin)) / logAxisSpan) * plotH;
-      }
-      return pad.top + plotH - ((value - yAxisMin) / yAxisSpan) * plotH;
-    };
+    const linearY = value => pad.top + plotH - ((value - linearMin) / linearSpan) * plotH;
+    const logY = value => !Number.isFinite(value) || value <= 0 ? pad.top + plotH
+      : pad.top + plotH - ((Math.log10(value) - Math.log10(logAxisMin)) / logAxisSpan) * plotH;
+    const yFor = value => linearY(value) * (1 - scaleMix) + logY(value) * scaleMix;
+    const yTicks = scaleMix > 0 && scaleMix < 1
+      ? window.WSBDashboardCharting.morphScaleTicks(linearTicks, logTicks, scaleMix, yFor)
+      : (scaleMix === 1 ? logTicks : linearTicks).map(value => ({ value, alpha: 1 }));
 
     if (!compact) {
       ctx.save();
       ctx.strokeStyle = palette.grid;
       ctx.lineWidth = 1;
-      yTicks.forEach(value => {
+      yTicks.forEach(({ value, alpha }) => {
+        ctx.globalAlpha = alpha;
         const y = yFor(value);
         ctx.beginPath();
         ctx.moveTo(pad.left, y);
@@ -5638,10 +5650,12 @@
       ctx.textAlign = 'left';
       ctx.font = `${fittedAxisTickFontSize}px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
       ctx.fillStyle = palette.tick;
-      yTicks.forEach(value => {
+      yTicks.forEach(({ value, alpha }) => {
+        ctx.globalAlpha = alpha;
         const y = yFor(value);
         ctx.fillText(formatBalanceTickValue(value, unit), pad.left + plotW + 10, y);
       });
+      ctx.globalAlpha = 1;
       ctx.textBaseline = 'top';
       ctx.textAlign = 'center';
       xTicks.forEach(tick => {
@@ -5882,7 +5896,7 @@
     }
     if (compact) canvas._priceChartLegendHitBoxes = [];
     canvas._priceChartPointHitBoxes = compact ? [] : pointHitBoxes;
-    const meta = { entry, points: chartPoints, allPoints: points, funded, premium, minTime, maxTime, fullMinTime, fullMaxTime, yMin: yAxisMin, yMax: yAxisMax, pad, plotW, plotH, cssWidth, cssHeight, unit, scale: useLogScale ? 'log' : 'linear' };
+    const meta = { entry, points: chartPoints, allPoints: points, funded, premium, minTime, maxTime, fullMinTime, fullMaxTime, yMin: yAxisMin, yMax: yAxisMax, pad, plotW, plotH, cssWidth, cssHeight, unit, scale: useLogScale ? 'log' : 'linear', scaleMix, valueToY: yFor };
     canvas._priceChartMeta = meta;
     canvas._balanceChartMeta = meta;
     canvas._balanceChartLegendHitBoxes = [];
@@ -5966,6 +5980,7 @@
       const active = button.dataset.priceChartScale === priceChartScale;
       button.classList.toggle('active', active);
       button.setAttribute('aria-pressed', active ? 'true' : 'false');
+      button.title = `Switch to ${priceChartScale === 'log' ? 'linear' : 'logarithmic'} scale`;
     });
   }
 
@@ -6046,6 +6061,7 @@
   }
 
   async function setPriceChartUnit(unit) {
+    priceScaleTransition.finish();
     const nextUnit = unit === 'usd' ? 'usd' : 'btc';
     if (nextUnit === priceChartUnit) return;
     const canvas = balanceChartModal?.querySelector('.balance-chart-full-canvas');
@@ -6088,8 +6104,9 @@
   function setPriceChartScale(scale) {
     const nextScale = scale === 'log' ? 'log' : 'linear';
     if (nextScale === priceChartScale) return;
+    priceScaleTransition.start('price', priceChartScale, nextScale);
     priceChartScale = nextScale;
-    priceChartZoom = null;
+    if (priceChartZoom) priceChartZoom = { ...priceChartZoom, scale: nextScale };
     priceChartDrag = null;
     savePriceChartScale(nextScale);
     syncBalanceChartUnitButtons();
@@ -6416,6 +6433,7 @@
   }
 
   function closeBalanceChartModal() {
+    priceScaleTransition.finish();
     balanceChartModal?.classList.remove('open');
     root.classList.remove('balance-chart-background-hidden');
     syncBalanceChartBackgroundLayers();
@@ -6813,6 +6831,10 @@
 
   function handlePriceChartPointerDown(event) {
     if (activeChartModalMode !== 'price' || event.button !== 0) return;
+    if (priceScaleTransition.isAnimating()) {
+      priceScaleTransition.finish();
+      redrawCurrentPriceChartCanvas();
+    }
     const canvas = balanceChartModal?.querySelector('.balance-chart-full-canvas');
     const meta = canvas?._priceChartMeta;
     const point = balanceChartCanvasPoint(canvas, event);
@@ -11807,6 +11829,7 @@
     const targetTag = e.target?.tagName;
     const isRangeInput = targetTag === 'INPUT' && e.target.type === 'range';
     if (targetTag && ['INPUT', 'TEXTAREA', 'SELECT'].includes(targetTag) && !isRangeInput) return;
+    if (e.target?.closest?.('[data-price-chart-scale]') && (e.key === ' ' || e.code === 'Space')) return;
     const key = e.key.toLowerCase();
     if (e.key === 'ArrowRight') {
       e.preventDefault();

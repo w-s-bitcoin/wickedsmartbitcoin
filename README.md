@@ -38,11 +38,12 @@ fallback; use `.html` URLs locally.
 There is no npm install or JavaScript bundling step. Python 3.10+ and Git are
 needed for the portable checks below; browser regressions also need Chrome or
 Chromium. Some pages load fonts or chart libraries from external services.
-BTC/USD prices in DCA Cost Basis, Days Since ATH, DCA Comparison, Unit of Account,
-and Bitcoin Net Worth use the public 2140data.io WebSocket. The 2140data.io
-`/price` endpoint is the first REST fallback. DCA, Days, Comparison, and Unit of
-Account retain their previous Coinbase socket and public REST sources as the
-last fallback; Net Worth retains its previous Kraken calculation. Each accepted
+BTC/USD prices in DCA Cost Basis, Days Since ATH, DCA Comparison, Moving Average,
+Unit of Account, and Bitcoin Net Worth use the public `wss://2140data.io/`
+WebSocket. The 2140data.io `/price` endpoint is the first REST fallback. DCA,
+Days, Comparison, Moving Average, and Unit of Account use the shared Coinbase
+socket and public REST sources as the last fallback; Net Worth retains its
+previous Kraken calculation. In DCA Cost Basis, each accepted
 quote recalculates the current
 UTC day's modeled purchase and the rolling cost basis; earlier purchase prices
 remain fixed. The last accepted quote stays visible through feed outages until a
@@ -58,6 +59,20 @@ can raise today's provisional high or set a new ATH, while the latest spot price
 drives the current drawdown and chart guide.
 Historical playback remains published, and an export ending at the latest day
 captures one quote for its final frame and hold.
+Moving Average uses the same feed on its dashboard and home card to update the
+current Bitcoin price and the selected moving average endpoints. Each line can
+use a simple (SMA) or exponential (EMA) average of daily, Sunday, or calendar
+month-end closes. Current SMA uses the current price and N−1 prior closes;
+current EMA applies the current price once to the prior completed-period EMA
+with weight `2 / (N + 1)`. The price represents the unfinished period, including
+when the latest published price is the fallback.
+When publication is one day behind, one provisional current-day row uses the
+available published closes. Historical points and playback use completed closes;
+SMA retains the reference average of N prior closes, while EMA weights recent
+closes more heavily. Complete-window requirements and selectable period maximums
+remain tied to the published history. Choosing None for the second line hides
+its period/unit controls, KPI, and chart, expanding the first window. Price KPIs
+show two decimal places.
 Bitcoin Net Worth also retains its last accepted price through an outage and
 shows the latest published price when that snapshot is newer. Its quote status
 turns gray after 60 seconds without an update.
@@ -143,6 +158,7 @@ contracts preserve chart state and avoid reloads or flashing during updates.
 | `/node_count` | Node history and software/version distribution |
 | `/bitcoin_dominance` | Bitcoin dominance and cryptocurrency market-cap comparisons |
 | `/dca_cost_basis` | Bitcoin price and dollar-cost-average cost basis |
+| `/moving_average` | Two configurable moving averages and trailing price windows |
 | `/dca_comparison` | Equal-budget DCA comparisons between assets |
 | `/days_since_ath` | All-time highs, drawdown, and time since the last high |
 | `/issuance_rate` | Bitcoin issuance and halving history |
@@ -152,6 +168,14 @@ contracts preserve chart state and avoid reloads or flashing during updates.
 | `/quantum_exposure` | Archived Quantum research dashboard, frozen at block 961000 |
 | `/casascius_explorer` | Physical coins/bars, mintage, redemption, and spend activity |
 | `/bitcoin_net_worth` | Personal asset/liability tracking with local persistence and optional encryption |
+
+Moving Average offers SMA and EMA with independently chosen periods and units.
+Historical SMA points follow the reference notebook's N prior closes; EMA seeds
+from the first N closes and updates recursively. Current endpoints include the
+current price, so both methods update with every accepted quote. Window charts
+show price and the enabled averages over their selected trailing windows;
+disabling the second line expands the first window. See
+[its calculation and refresh notes](webapps/moving_average/README.md).
 
 Net Worth's personal records stay in browser storage or user exports. Do not
 commit personal records or export files as dashboard fixtures.
@@ -256,6 +280,12 @@ CHROME_BIN=/path/to/chromium python3 scripts/test_stage3_incremental_refresh.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_stage4_live_refresh.py
 node scripts/test_dca_live_price.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_dca_live_price_browser.py
+node --test scripts/test_moving_average_model.mjs
+node --test scripts/test_scale_transitions.mjs
+CHROME_BIN=/path/to/chromium python3 scripts/test_dca_scale_browser.py
+CHROME_BIN=/path/to/chromium python3 scripts/test_days_issuance_scale_browser.py
+CHROME_BIN=/path/to/chromium python3 scripts/test_uoa_casascius_scale_browser.py
+CHROME_BIN=/path/to/chromium python3 scripts/test_moving_average_browser.py
 node scripts/test_days_live_price.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_days_live_price_browser.py
 node scripts/test_comparison_live_price.mjs

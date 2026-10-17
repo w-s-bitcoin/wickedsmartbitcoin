@@ -10,6 +10,7 @@ Current dashboards:
 - `node_count/`: Plotly-based history chart plus software-version panel
 - `bitcoin_dominance/`: Plotly-based BTC dominance history plus top-10 market-cap snapshot panel
 - `dca_cost_basis/`: DCA cost basis chart with cadence/range/scale controls
+- `moving_average/`: configurable day/week/calendar-month SMA or EMA lines with live Bitcoin price, trailing windows, playback, and an optional second average
 - `dca_comparison/`: compares recurring purchases across Bitcoin and other assets
 - `days_since_ath/`: Bitcoin price and elapsed time since all-time highs
 - `issuance_rate/`: Bitcoin supply and issuance history
@@ -51,6 +52,7 @@ Common dashboard shell/layout rules are centralized in `webapps/shared/` and sho
   - Shared date picker, date range, button group, two-panel mode, scale button, floating settings menu, copy/reset, manifest runtime, and playback keyboard helpers
 - `shared/dashboard_charting.js`
   - Shared canvas chart helpers for plot rectangles, linear/log ticks, grid lines, right-side y-axis labels, and standard number/date/currency formatting
+  - `createScaleTransitionController()` provides the 700 ms half-cosine LOG/LIN transition, continuous reversals, independent panels, and reduced-motion/page lifecycle handling. Dashboards retain their own endpoint ranges and interpolate their screen coordinates. `morphScaleTicks()` moves the existing tick values, crossfades distinct tick sets, preserves shared labels, and prevents a linear-only zero tick from reappearing during its fade.
 - `shared/dashboard_export.js`
   - Shared deterministic WebM export, output dimensions, bitrate, footer URL, and download estimate utilities
 - `shared/dashboard_shared.css`
@@ -75,10 +77,11 @@ Common dashboard shell/layout rules are centralized in `webapps/shared/` and sho
   - Polls configured publication markers and calls dashboard adapters registered through `window.WSBWebappDataAutoRefresh.register()`
   - Fetches and validates a candidate, rechecks the markers immediately before commit, retries failures, and coalesces wake events without reloading the iframe
 - `shared/bitcoin_spot_price.js`
-  - Supplies BTC/USD to DCA Cost Basis, Days Since ATH, DCA Comparison, Unit of Account, and Bitcoin Net Worth, including the relevant home page cards. The 2140data.io WebSocket is primary, its `/price` REST endpoint is first fallback, and each dashboard's previous sources are last fallback: Coinbase socket and public REST sources for the first four, Kraken for Net Worth. It pauses hidden tabs, rejects invalid or stale timed quotes, and retains the last accepted quote through an outage. A newer published price snapshot supersedes a retained quote.
+  - Supplies BTC/USD to DCA Cost Basis, Days Since ATH, DCA Comparison, Moving Average, Unit of Account, and Bitcoin Net Worth, including the relevant home page cards. The `wss://2140data.io/` WebSocket is primary, its `/price` REST endpoint is first fallback, and shared legacy sources are last fallback: Coinbase socket and public REST sources for the first five, Kraken for Net Worth. It pauses hidden tabs, rejects invalid or stale timed quotes, and retains the last accepted quote through an outage. A newer published price snapshot supersedes a retained quote.
   - The `/price` response must allow cross-origin reads from the site with `Access-Control-Allow-Origin`; otherwise browsers skip to the existing sources when the socket is unavailable.
-  - Each accepted quote updates the current valuation and its date's modeled purchase, which recalculates rolling cost basis across the chart and home card. Earlier purchase prices, publication markers, and past playback frames remain based on the published price files. An animation ending at the latest published date captures one available quote when its final motion frame begins and holds that same chart through the ending pause; earlier frames remain published. If no quote has been accepted, its final frame uses the published snapshot.
+  - In DCA Cost Basis, each accepted quote updates the current valuation and its date's modeled purchase, which recalculates rolling cost basis across the chart and home card. Earlier purchase prices, publication markers, and past playback frames remain based on the published price files. An animation ending at the latest published date captures one available quote when its final motion frame begins and holds that same chart through the ending pause; earlier frames remain published. If no quote has been accepted, its final frame uses the published snapshot.
   - DCA's Updated timestamp follows the displayed quote, or the published snapshot when that is newer. The block height beside it always identifies the published generation; the tooltip identifies the two sources. The BTCUSD dot is green for a quote received within 60 seconds and gray for a retained or published price. The hourly producer reads the staged price file from its own run before those values are published.
+  - Moving Average and its home card update the current Bitcoin price and enabled SMA/EMA endpoints. Current SMA averages the price with N−1 prior daily/Sunday/calendar month-end closes; current EMA applies that price once to the prior completed-period EMA with weight `2 / (N + 1)`. Both treat the price as the unfinished period and use the same method with the published-price fallback. Historical SMA retains the reference average of N prior closes; historical EMA seeds with the first N closes and updates recursively using completed closes. Complete-window requirements and selectable maximums remain based on published history. When publication is one day behind, one provisional current-day row uses the completed published closes; no missing intervening days are invented. Choosing None for the second line hides its period/unit controls, KPI, and chart while retaining its settings and expanding the first window. Current PNG exports and the final frame/hold of a current WebM use the same live endpoint calculation and enabled charts. Price KPIs show two decimals. The BTCUSD dot uses the same green/gray freshness state, and a newer publication supersedes an older retained quote.
 - `shared/ath_live_price.js`
   - Derives a quote day's provisional daily high, ATH, and days since ATH from the highest quote observed in the tab without mutating published rows. The Days Since ATH dashboard and preview share this calculation. Its BTCUSD, drawdown, and Updated chips follow the latest accepted quote unless a newer publication wins, while the block height remains the published snapshot's height. Earlier intraday highs missed before the tab opened arrive with the next published snapshot. Historical playback and earlier animation frames stay published; a latest-day export freezes the observed high and latest quote for its final frame and hold.
 - `shared/comparison_live_price.js`
@@ -90,6 +93,22 @@ Common dashboard shell/layout rules are centralized in `webapps/shared/` and sho
   - A quote updates only the latest chart point, or adds a provisional current-day point when the complete published FX row is older. It does not invent rows for dates between that publication and today. The Updated time follows the latest used quote while its block height stays with the published snapshot; hover text on Pair and Updated identifies the mixed sources. The Pair KPI has a dot beside each currency: green for a fresh quote, amber for a fresh delayed quote, gray for a published or retained value, and a hollow dot for USD as the fixed reference. A dropped feed retains its last accepted price until a newer publication replaces it; the dot turns gray after 60 seconds without a quote. Historical dates, playback, exports, publication markers, and unselected currencies remain based on published data. FX scanner availability and delay vary by currency; an unsupported or non-streaming symbol stays on the published snapshot.
 
 Bitcoin Net Worth uses the shared spot feed with Kraken as its final fallback. Its BTCUSD dot follows the same 60-second green/gray rule, and its quote cache includes the receipt time so a reload does not claim an old value is live. The latest published BTC price replaces an older quote when the complete demo generation is installed. Manual price overrides remain gray.
+
+### Scale transitions
+
+Clicking either side of a chart's LOG/LIN control switches that chart to the
+other scale. DCA Cost Basis, DCA Comparison, Days Since ATH, Issuance Rate,
+Unit of Account, and the Casascius price chart use the same animated transition
+as Moving Average. Labels keep their original values while moving with the
+chart; they fade between the two tick sets without flashing the zero label.
+Independent chart scales remain independent. Native Enter/Space activation
+works on focused scale buttons, and reduced-motion preferences switch immediately.
+
+Selected modes are saved immediately; temporary animation positions are never
+stored in URLs/preferences or used in exports. Export settings retain explicit
+scale selection. Stop transient scale animations before capture or render export
+canvases directly in the selected endpoint mode. Keep each dashboard's existing
+linear/log range, nonpositive-value handling, formatting, and chart padding.
 
 ### Required `<head>` includes for new dashboards
 

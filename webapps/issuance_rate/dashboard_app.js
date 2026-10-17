@@ -35,6 +35,7 @@
   const PUBLICATION_URL = "webapp_data/published_generation.json";
   const DASHBOARD_TIME = window.WSBDashboardTime || null;
   const DASHBOARD_COMPONENTS = window.WSBDashboardComponents || {};
+  const CHARTING = window.WSBDashboardCharting;
   const ICONS = {
     copyLink: '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>',
     copyCopied: '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>',
@@ -99,6 +100,7 @@
   let dateRangePlaybackOutsidePointerTouchState = null;
   let isDateRangeExporting = false;
   let dateRangeExportCancelRequested = false;
+  const scaleTransitions = CHARTING.createScaleTransitionController({ render: renderChart });
   let renderedRangePresetKey = "";
   let layoutSyncFrameId = null;
   const downloadEstimateCalibrationCache = new Map();
@@ -558,7 +560,7 @@
     const logMax = Math.max(0.01, Math.min(maxCeiling, Number(viewport.yMax) || maxCeiling));
     const blend = getLogScaleEpochBlend(frame, viewport.epoch);
     const epochLogMin = (epoch) => {
-      if (state.viewMode === "all" && state.scaleMode === "log") return getEpochTargetLogMin(epoch);
+      if (state.viewMode === "all") return getEpochTargetLogMin(epoch);
       return getEpochLogMin(epoch);
     };
     const fromMin = epochLogMin(blend.from);
@@ -1177,7 +1179,7 @@
 
     const rows = getFrameRows();
     const viewport = getFrameViewport(state.currentIndex + 1);
-    let yWidth = viewport.yMax - viewport.yMin;
+    const yWidth = viewport.yMax - viewport.yMin;
     const xWidth = viewport.xWidth;
     const plot = {
       left: Math.max(70, width * 0.055),
@@ -1190,50 +1192,51 @@
     const y0 = plot.top;
     const y1 = height - plot.bottom;
     const xFor = (num) => x0 + ((num - viewport.xMin) / Math.max(1, viewport.xMax - viewport.xMin)) * (x1 - x0);
-    const useLogScale = state.scaleMode === "log";
+    // Export canvases always use their requested endpoint, never an in-flight UI mix.
+    const scaleMix = canvas.__exportCssWidth ? Number(state.scaleMode === "log")
+      : scaleTransitions.getMix("issuance", state.scaleMode);
     const logDomain = getLogScaleDomain(state.currentIndex + 1, viewport);
     const logMin = logDomain.min;
     const logMax = logDomain.max;
     const logMinValue = Math.log10(logMin);
     const logMaxValue = Math.log10(logMax);
-    yWidth = useLogScale ? logMaxValue - logMinValue : yWidth;
     const yFor = (pct) => {
-      if (useLogScale) {
-        if (!Number.isFinite(pct) || pct <= 0) return y1;
-        const clampedPct = Math.max(logMin, pct);
-        return y1 - ((Math.log10(clampedPct) - logMinValue) / Math.max(0.0001, logMaxValue - logMinValue)) * (y1 - y0);
-      }
-      return y1 - ((pct - viewport.yMin) / Math.max(1, yWidth)) * (y1 - y0);
+      const linearY = y1 - ((pct - viewport.yMin) / Math.max(1, yWidth)) * (y1 - y0);
+      const logY = !Number.isFinite(pct) || pct <= 0 ? y1
+        : y1 - ((Math.log10(Math.max(logMin, pct)) - logMinValue) / Math.max(0.0001, logMaxValue - logMinValue)) * (y1 - y0);
+      return linearY * (1 - scaleMix) + logY * scaleMix;
     };
 
     ctx.save();
     ctx.lineWidth = 0.5;
     ctx.strokeStyle = colors.grid;
     ctx.fillStyle = colors.fg;
-    const yTicks = [];
-    if (useLogScale) {
-      const minExp = Math.floor(Math.log10(logMin));
-      const maxExp = Math.ceil(Math.log10(logMax));
-      const lowerBound = logMin * (1 - 1e-9);
-      const upperBound = logMax * (1 + 1e-9);
-      for (let exp = minExp; exp <= maxExp; exp += 1) {
-        [1, 2, 5].forEach((multiplier) => {
-          const tick = multiplier * (10 ** exp);
-          if (tick >= lowerBound && tick <= upperBound) yTicks.push(tick);
-        });
-      }
-    } else {
-      const yStep = getYStep(viewport.yMax);
-      for (let y = 0; y <= viewport.yMax + 0.1 * yWidth; y += yStep) yTicks.push(y);
+    const logTicks = [];
+    const minExp = Math.floor(Math.log10(logMin));
+    const maxExp = Math.ceil(Math.log10(logMax));
+    const lowerBound = logMin * (1 - 1e-9);
+    const upperBound = logMax * (1 + 1e-9);
+    for (let exp = minExp; exp <= maxExp; exp += 1) {
+      [1, 2, 5].forEach((multiplier) => {
+        const tick = multiplier * (10 ** exp);
+        if (tick >= lowerBound && tick <= upperBound) logTicks.push(tick);
+      });
     }
-    yTicks.forEach((y) => {
-      const py = yFor(y);
-      if (!Number.isFinite(py) || py < y0) return;
+    const linearTicks = [];
+    const yStep = getYStep(viewport.yMax);
+    for (let y = 0; y <= viewport.yMax + 0.1 * yWidth; y += yStep) linearTicks.push(y);
+    const yTicks = scaleMix === 0 ? linearTicks : scaleMix === 1 ? logTicks
+      : CHARTING.morphScaleTicks(linearTicks, logTicks, scaleMix, yFor);
+    yTicks.forEach((entry) => {
+      const y = typeof entry === "number" ? entry : entry.value;
+      const py = typeof entry === "number" ? yFor(y) : entry.y;
+      ctx.globalAlpha = typeof entry === "number" ? 1 : entry.alpha;
+      if (!Number.isFinite(py) || py < y0 || ctx.globalAlpha <= 0) return;
       ctx.beginPath();
       ctx.moveTo(x0, py);
       ctx.lineTo(x1, py);
       ctx.stroke();
-      const decimals = useLogScale && y < 10 ? (y < 1 ? 2 : 1) : 0;
+      const decimals = scaleMix > 0 && y > 0 && y < 10 ? (y < 1 ? 2 : 1) : 0;
       drawText(ctx, fmtAxisPercent(y, decimals), x0 - 10, py, { size: 13, align: "right", baseline: "middle", color: colors.fg, strokeWidth: 4 });
     });
     ctx.restore();
@@ -1271,15 +1274,36 @@
     });
 
     const clip = { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
-    const plottedRows = useLogScale ? rows.filter((row) => Number(row.issuance_rate) > 0) : rows;
-    if (!useLogScale) drawLine(ctx, rows.filter((row) => row.issuance_rate === 0), xFor, yFor, "issuance_rate", colors.actual, 1.5, clip);
-    drawLine(ctx, plottedRows.filter((row) => Number(row.issuance_rate) !== 0), xFor, yFor, "issuance_rate", colors.actual, 1.5, clip);
+    const positiveRows = rows.filter((row) => Number(row.issuance_rate) > 0);
+    // Zero issuance has no logarithmic counterpart, so fade those portions once.
+    if (scaleMix < 1) {
+      ctx.save();
+      ctx.globalAlpha = 1 - scaleMix;
+      drawLine(ctx, rows.filter((row) => row.issuance_rate === 0), xFor, yFor, "issuance_rate", colors.actual, 1.5, clip);
+      ctx.restore();
+    }
+    drawLine(ctx, positiveRows, xFor, yFor, "issuance_rate", colors.actual, 1.5, clip);
     if (state.showTargetIssuanceRate) {
-      drawLine(ctx, plottedRows, xFor, yFor, "target_rate", colors.bg, 6, clip);
-      drawLine(ctx, plottedRows, xFor, yFor, "target_rate", colors.target, 4, clip);
+      if (scaleMix < 1) {
+        ctx.save();
+        ctx.globalAlpha = 1 - scaleMix;
+        drawLine(ctx, rows, xFor, yFor, "target_rate", colors.bg, 6, clip);
+        drawLine(ctx, rows, xFor, yFor, "target_rate", colors.target, 4, clip);
+        ctx.restore();
+      }
+      if (scaleMix > 0) {
+        drawLine(ctx, positiveRows, xFor, yFor, "target_rate", colors.bg, 6, clip);
+        drawLine(ctx, positiveRows, xFor, yFor, "target_rate", colors.target, 4, clip);
+      }
     }
     if (state.showPerfectIssuanceMarkers) {
-      drawPerfectIssuanceMarkers(ctx, plottedRows, xFor, yFor, colors, clip);
+      if (scaleMix < 1) {
+        ctx.save();
+        ctx.globalAlpha = 1 - scaleMix;
+        drawPerfectIssuanceMarkers(ctx, rows.filter((row) => Number(row.issuance_rate) <= 0), xFor, yFor, colors, clip);
+        ctx.restore();
+      }
+      drawPerfectIssuanceMarkers(ctx, positiveRows, xFor, yFor, colors, clip);
     }
     drawMonthDateTicks(ctx, rows, viewport, colors, xFor, x0, x1, y0);
     drawBlockHeightTicks(ctx, rows, viewport, colors, xFor, x0, x1, y1);
@@ -1714,6 +1738,8 @@
     });
     document.querySelectorAll("[data-scale-mode]").forEach((button) => {
       button.classList.toggle("is-active", button.dataset.scaleMode === state.scaleMode);
+      button.setAttribute("aria-pressed", String(button.dataset.scaleMode === state.scaleMode));
+      button.title = `Switch to ${state.scaleMode === "log" ? "linear" : "logarithmic"} scale`;
     });
     if (els.showPerfectIssuanceToggle) els.showPerfectIssuanceToggle.checked = !!state.showPerfectIssuanceMarkers;
     if (els.showTargetIssuanceRateToggle) els.showTargetIssuanceRateToggle.checked = !!state.showTargetIssuanceRate;
@@ -1772,6 +1798,7 @@
     state.playbackSpeed = PLAYBACK_SPEEDS.includes(Number(snapshot.playbackSpeed)) ? Number(snapshot.playbackSpeed) : 1;
     state.selectedPreset = typeof snapshot.selectedPreset === "string" ? snapshot.selectedPreset : "custom";
     state.viewMode = isValidViewMode(snapshot.viewMode) ? snapshot.viewMode : "single";
+    scaleTransitions.finish();
     state.scaleMode = isValidScaleMode(snapshot.scaleMode) ? snapshot.scaleMode : "linear";
     state.showPerfectIssuanceMarkers = snapshot.showPerfectIssuanceMarkers !== false;
     state.showTargetIssuanceRate = snapshot.showTargetIssuanceRate !== false;
@@ -2138,7 +2165,8 @@
 
     DASHBOARD_COMPONENTS.bindPlaybackKeyboardShortcuts?.({
       blurControls: blurDateRangeSliderIfFocused,
-      isTextEntry: (active) => isKeyboardShortcutTextEntry(active),
+      isTextEntry: (active, event) => isKeyboardShortcutTextEntry(active)
+        || ((event?.code === "Space" || event?.key === " " || event?.key === "Spacebar") && active?.matches?.("[data-scale-mode]")),
       isPlaybackActive: isDateRangePlaybackActive,
       isEscapeActive: isDateRangePlaybackActive,
       isInactiveArrowActive: () => dateRangeLastAdjustedHandle === "start" || dateRangeLastAdjustedHandle === "end",
@@ -2658,6 +2686,8 @@
     canvas.height = height;
     if (!canvas.getContext("2d")) return;
 
+    scaleTransitions.finish();
+    renderChart();
     isDateRangeExporting = true;
     dateRangeExportCancelRequested = false;
     broadcastDateRangeExportActive(true);
@@ -3166,9 +3196,9 @@
     });
     document.querySelector(".date-range-scale-buttons")?.addEventListener("click", (event) => {
       const button = event.target instanceof Element ? event.target.closest("[data-scale-mode]") : null;
-      if (!button) return;
-      const scaleMode = button.getAttribute("data-scale-mode");
-      if (!isValidScaleMode(scaleMode) || state.scaleMode === scaleMode) return;
+      if (!button || button.disabled || isDateRangeExporting) return;
+      const scaleMode = state.scaleMode === "log" ? "linear" : "log";
+      scaleTransitions.start("issuance", state.scaleMode, scaleMode);
       state.scaleMode = scaleMode;
       if (preResetStateSnapshot) preResetStateSnapshot = null;
       syncControls();
