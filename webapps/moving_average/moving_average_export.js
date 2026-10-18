@@ -48,8 +48,8 @@
     // Calendar-aligned locators, independent of the changing label widths. Never
     // clamp the first/last label: that made labels stick then jump at the edges.
     const intervals = [["month", 1], ["month", 2], ["month", 3], ["month", 6],
-      ...[1, 2, 5, 10, 20, 50, 100].map((n) => ["year", n])];
-    const [unit, step] = intervals.find(([unit, n]) => span / (n * (unit === "year" ? 365.25 : 30.44)) <= capacity) || ["year", 100];
+      ...[1, 2, 4, 8, 16, 32, 64, 128].map((n) => ["year", n])];
+    const [unit, step] = intervals.find(([unit, n]) => span / (n * (unit === "year" ? 365.25 : 30.44)) <= capacity) || ["year", 128];
     const date = new Date(start), ticks = [];
     let cursor = unit === "year" ? Date.UTC(Math.ceil(date.getUTCFullYear() / step) * step, 0, 1)
       : Date.UTC(date.getUTCFullYear(), Math.floor(date.getUTCMonth() / step) * step, 1);

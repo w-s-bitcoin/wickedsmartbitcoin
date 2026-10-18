@@ -14,6 +14,9 @@ stay at 2.2 pixels; their cyan and orange colors remain the same in both themes.
 The homepage grid preview shows only the chart series, without grid lines,
 labels, ticks, or panel titles, and does not reserve space for those decorations.
 The full dashboard and exports retain their axes and labels.
+Long history ranges use calendar-aligned year ticks spaced by powers of two
+(2, 4, 8 years, and so on), adapting to the available width in both the dashboard
+and downloads. Shorter ranges retain annual, monthly, weekly, or daily ticks.
 
 ## Calculation semantics
 

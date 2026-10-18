@@ -158,7 +158,8 @@
     const intervals = [
       ["day", 1], ["day", 2], ["week", 1], ["week", 2],
       ["month", 1], ["month", 2], ["month", 3], ["month", 6],
-      ...[1, 2, 5, 10, 20, 50, 100].map((step) => ["year", step]),
+      // Coarser history ticks stay on even years as the visible span grows.
+      ...[1, 2, 4, 8, 16, 32, 64, 128].map((step) => ["year", step]),
     ];
     const limit = Math.max(2, Math.floor(plot.width / 65) + 1);
     for (const [unit, step] of intervals) {

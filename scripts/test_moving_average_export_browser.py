@@ -201,6 +201,16 @@ def check_reference_dates(record):
     assert '01-2022' in week_dates and '07-2022' in week_dates,week_dates
 
 
+def check_multiyear_history_ticks(record, expected_step):
+    labels=[tick['text'] for tick in record['axes'][0]['x']]
+    assert len(labels)>=2 and all(re.fullmatch(r'\d{4}',label) for label in labels),labels
+    years=list(map(int,labels))
+    gaps=[later-earlier for earlier,later in zip(years,years[1:])]
+    assert all(gap>=2 and gap & (gap-1) == 0 for gap in gaps),('Non-doubling year interval',years)
+    assert all(gap == expected_step for gap in gaps),('Wrong year interval',expected_step,years)
+    assert all(year % expected_step == 0 for year in years),('Unaligned year ticks',expected_step,years)
+
+
 def fixed_headings(record):
     items=record["text"]
     return [("Date:" if item["text"].startswith("Date:") else "Price:" if item["text"].startswith("Price:") else "Average value" if index and items[index-1]["text"].endswith("MA:") else item["text"], item["position"], item["font"])
@@ -244,6 +254,7 @@ def run_checks(cdp, direct, output):
     assert (reference["width"], reference["height"]) == (3840,2160), reference
     check_geometry(reference["record"])
     check_reference_dates(reference['record'])
+    check_multiyear_history_ticks(reference['record'],2)
     # Wide changes in date and value length must never resize or move panels,
     # headings, or the logo. Compare drawing calls, not just DOM positions.
     for date in ("2010-01-01", "2010-06-01", "2011-09-16", "2017-09-16", "2024-09-16"):
@@ -262,10 +273,14 @@ def run_checks(cdp, direct, output):
     check_cents_statistics(results['2010-06-01'])
     check_price_endpoint(results['2011-09-16'],2,'2009-10-06','2013-08-06')
     for orientation,theme,expected in (("landscape","light",(3840,2160)),("square","dark",(2160,2160)),("portrait","dark",(2160,3840))):
+        # At this longer span, landscape needs four-year ticks; its previous
+        # five-year interval produced odd-year labels. Wider plots still fit two.
+        set_input(cdp,'#endDateInput','2026-09-16','change')
         choose(cdp,"downloadOrientationSelect",orientation);choose(cdp,"downloadThemeSelect",theme)
         result = results[f"{orientation}-{theme}"] = export_blob(cdp,"png",output/f"{orientation}-{theme}-4k.png")
         assert (result["width"],result["height"]) == expected,result
         check_geometry(result["record"])
+        check_multiyear_history_ticks(result['record'],4 if orientation == 'landscape' else 2)
         # Six-digit linear ticks must fit the same fixed right gutters in every
         # orientation, without shifting a panel when scale or data changes.
         set_input(cdp,'#endDateInput',dashboard(cdp,'return w.WSBMovingAverageDashboard.getModel().rows.at(-1).date;'),'change')
@@ -327,6 +342,7 @@ def run_checks(cdp, direct, output):
     assert sample["record"]["date"] == "2024-09-16" and sample["decodedTime"] >= 1.5,sample
     check_geometry(sample["record"])
     check_reference_dates(sample['record'])
+    check_multiyear_history_ticks(sample['record'],2)
     set_input(cdp,'#startDateInput',dashboard(cdp,'return w.WSBMovingAverageDashboard.getModel().rows[0].date;'),'change')
     for period,unit,date,axis_end in [(200,'day','2010-01-01','2010-04-24'),
         (200,'day','2010-04-24','2010-04-24'),(600,'day','2010-01-01','2011-05-29'),
@@ -340,7 +356,7 @@ def run_checks(cdp, direct, output):
         if date == '2010-01-01':check_cents_statistics(result['record'])
     assert_clean(cdp)
     (output/"render-observations.json").write_text(json.dumps(results,indent=2)+"\n")
-    print("PASS export: true 4K PNG, decoded WebM, right-side y labels, consistent per-axis year/month formatting, no clipped/overlapping labels, stable historical geometry, light/square/portrait and EMA/None",flush=True)
+    print("PASS export: true 4K PNG, decoded WebM, right-side y labels, consistent per-axis year/month formatting, powers-of-two long-history year ticks, no clipped/overlapping labels, stable historical geometry, light/square/portrait and EMA/None",flush=True)
     print(f"Review images, video, and geometry: {output}",flush=True)
 
 

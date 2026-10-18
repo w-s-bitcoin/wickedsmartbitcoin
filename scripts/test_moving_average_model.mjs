@@ -793,6 +793,14 @@ test("date axes use UTC calendar boundaries and readable month/year context", as
   const history = render("2009-10-06", "2026-10-17");
   assert.deepEqual(history.dates, ["2010-01-01", "2012-01-01", "2014-01-01", "2016-01-01", "2018-01-01", "2020-01-01", "2022-01-01", "2024-01-01", "2026-01-01"]);
   assert.deepEqual(history.labels, history.dates.map((date) => date.slice(0,4)));
+  for (const width of [260, 320, 400, 560, 800]) {
+    const ticks = render("2009-10-06", "2026-10-17", width);
+    const years = ticks.labels.map(Number), step = years[1] - years[0];
+    assert.ok(years.length >= 2 && Number.isInteger(Math.log2(step)) && step >= 2,
+      `Long history uses power-of-two year spacing at ${width}px: ${years}`);
+    assert.ok(ticks.dates.every((date, index) => date === `${years[index]}-01-01` && years[index] % step === 0));
+    assert.ok(years.slice(1).every((year, index) => year - years[index] === step));
+  }
   const months = render("2026-03-31", "2026-10-17");
   assert.ok(months.dates.every((date) => date.endsWith("-01")));
   assert.equal(months.labels[0], "Apr 2026");
