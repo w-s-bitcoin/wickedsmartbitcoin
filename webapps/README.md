@@ -1,8 +1,8 @@
 # Webapps Dashboard Conventions
 
-This folder contains standalone dashboard-style webapps that are intended to feel like part of the same product family. Use this file as the baseline when adding a new dashboard so layout, spacing, typography, controls, and resizing behavior stay consistent.
+This folder contains standalone dashboard-style webapps that are intended to feel like part of the same product family. Use this file for integration, shared APIs, and styling details. [DASHBOARD_STANDARDS.md](DASHBOARD_STANDARDS.md) is the behavior and acceptance reference for new dashboards and affected features in older ones.
 
-Read the root [`AGENTS.md`](../AGENTS.md) before changing code. This guide describes dashboard integration and UI conventions; [`../README.md`](../README.md) covers setup, architecture, automation, and checks. `DASHBOARD_QUICK_TIPS.md` is an older visual checklist; use this guide and current source for integration details.
+Read the root [`AGENTS.md`](../AGENTS.md) before changing code. This guide describes dashboard integration and UI conventions; [`../README.md`](../README.md) covers setup, architecture, automation, and checks. [DASHBOARD_QUICK_TIPS.md](DASHBOARD_QUICK_TIPS.md) is a short reading and delivery checklist linking these references.
 
 Current dashboards:
 
@@ -52,9 +52,11 @@ Common dashboard shell/layout rules are centralized in `webapps/shared/` and sho
   - Shared date picker, date range, button group, two-panel mode, scale button, floating settings menu, copy/reset, manifest runtime, and playback keyboard helpers
 - `shared/dashboard_charting.js`
   - Shared canvas chart helpers for plot rectangles, linear/log ticks, grid lines, right-side y-axis labels, and standard number/date/currency formatting
+  - Calendar date-tick selection is currently local to Moving Average's chart/export renderers. Follow the shared standards when reusing or extracting it; date formatting alone does not choose tick intervals.
   - `createScaleTransitionController()` provides the 700 ms half-cosine LOG/LIN transition, continuous reversals, independent panels, and reduced-motion/page lifecycle handling. Dashboards retain their own endpoint ranges and interpolate their screen coordinates. `morphScaleTicks()` moves the existing tick values, crossfades distinct tick sets, preserves shared labels, and prevents a linear-only zero tick from reappearing during its fade.
 - `shared/dashboard_export.js`
   - Shared deterministic WebM export, output dimensions, bitrate, footer URL, and download estimate utilities
+  - New or updated export features follow the [PNG resolution, typography, and branding standard](DASHBOARD_STANDARDS.md#png-and-webm-exports) while retaining their dashboard's layout. PNG requests use explicit 2160 quality; the utility's default/video quality does not enforce the PNG policy.
 - `shared/dashboard_shared.css`
   - Shared topbar/title/info-popover/chip/control/toggle shell rules
   - Shared compact action controls (swap button + resize-handle baseline)
@@ -552,6 +554,10 @@ Important BIP110 sizing values:
 
 ## Chart spacing guidance
 
+Apply the [axis and formatting standards](DASHBOARD_STANDARDS.md#chart-axes-and-number-formatting)
+to the feature being changed. The examples below are dashboard-specific starting
+points, not fixed margins for every renderer.
+
 Chart margins should be treated as intentional. Extra empty space at the top or bottom is usually a regression, not a neutral change.
 
 ### Plotly defaults from Node Count
@@ -614,7 +620,7 @@ Current mobile adjustments are intentionally modest. Prefer preserving the deskt
 
 ## Data and loading patterns
 
-Processed data files go in `webapps/<dashboard>/webapp_data/`. The `dashboard_app.js` fetches from relative `webapp_data/` paths. Use `FETCH_CACHE_MODE = 'no-store'` for refresh requests. Use `IS_LOCAL_RUNTIME` to conditionally switch data URLs between local dev and production if needed:
+Dashboard-specific processed data usually lives in `webapps/<dashboard>/webapp_data/`; reuse existing shared assets when they already supply the required data. Identify the producer before changing generated files. The dashboard fetches from the appropriate relative paths. Shared refresh adapters should use `context.fetchFresh`; for other refresh requests use `FETCH_CACHE_MODE = 'no-store'`. Use `IS_LOCAL_RUNTIME` to conditionally switch data URLs between local dev and production if needed:
 
 ```javascript
 const LOCAL_RUNTIME_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
@@ -701,6 +707,12 @@ Before calling a new dashboard finished, check all of the following:
 ## Practical recommendation
 
 Always start with the shared foundation files in `webapps/shared/`, then layer dashboard-specific rules only where needed.
+
+For date-based analytics with playback and exports, use Moving Average as a
+behavior reference alongside the [standards](DASHBOARD_STANDARDS.md), especially
+its axes, bounded hover, and export geometry. Keep its calculation semantics and
+reference-specific visual constants local. Record remaining adoption gaps when
+an older dashboard is updated within a narrower scope.
 
 If a new dashboard is closer to a chart + controls + panel workflow, start by copying the shell and spacing patterns from `node_count/dashboard.html`.
 

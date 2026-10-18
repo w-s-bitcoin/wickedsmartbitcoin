@@ -1,6 +1,11 @@
 # Dashboard Template Contract
 
 Use this contract for every new chart dashboard under `webapps/<slug>/`.
+Read [Shared dashboard standards](webapps/DASHBOARD_STANDARDS.md) for behavior
+and acceptance evidence, then [webapps/README.md](webapps/README.md) for integration
+details. This file specifies shell wiring; the generator and wiring check do not
+establish that charts render correctly. Existing dashboards adopt standards in
+the affected feature and record remaining gaps in their own README.
 
 ## Required Shared Files
 
@@ -99,6 +104,12 @@ Updated timestamp KPIs should use the standard shared controller:
 
 ## Behavior Expectations
 
+Follow the [chart, interaction, state, and export standards](webapps/DASHBOARD_STANDARDS.md).
+In particular, long history date axes use 2/4/8… year intervals as needed for the
+plot width, and dashboard/export values follow the same calculation contract.
+Document metric-specific choices instead of inheriting another dashboard's
+formulas, layout, or exact visual constants accidentally.
+
 Homepage grid previews show chart series without grid lines, labels, ticks, or
 panel titles. Remove the margins reserved for those decorations while keeping
 the full dashboard and exports unchanged.
@@ -111,6 +122,7 @@ New dashboards should match existing UOA/DCA behavior:
 - keyboard playback overrides for Space, Left, and Right
 - fullscreen hides title/modal controls but keeps playback visible when applicable
 - deterministic export frame building when a dashboard supports video download
+- PNG exports use the [2160-quality dimensions, typography, and branding standard](webapps/DASHBOARD_STANDARDS.md#png-and-webm-exports), independent of video quality; each dashboard keeps its own composition
 - shared download estimates through `window.WSBDashboardExport.estimateDownload()`
 - footer URL drawing through `window.WSBDashboardExport.drawFooterUrl()`
 - no MP4 export paths; deterministic WebM is the standard video export

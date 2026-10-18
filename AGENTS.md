@@ -35,8 +35,12 @@ defaults; do not ask again for work the user has already authorized.
   bootstrap/helpers, and dashboard standalone scripts. Check the affected
   entry points together. Local HTTP servers need `.html` URLs.
 - Read [js/js_README.md](js/js_README.md) for homepage work.
-  Read [webapps/README.md](webapps/README.md) and
+  Read [webapps/DASHBOARD_STANDARDS.md](webapps/DASHBOARD_STANDARDS.md),
+  [webapps/README.md](webapps/README.md), and
   [DASHBOARD_TEMPLATE.md](DASHBOARD_TEMPLATE.md) for dashboard work.
+- Apply shared dashboard standards to new dashboards and the affected feature
+  when updating an older one. Track remaining gaps in that dashboard's README;
+  do not expand a narrow task into an unrelated whole-dashboard migration.
 - Reuse `webapps/shared/` controls, chart helpers, embedding, and
   deterministic WebM export; timezone preferences live in
   `js/11_dashboard_timezone_preferences.js`. Preserve theme, URL state,

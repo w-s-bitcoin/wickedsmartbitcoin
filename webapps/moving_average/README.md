@@ -155,6 +155,13 @@ installed Arial Black when available, with bundled DejaVu Sans Bold as its
 fallback; the selected face is resolved before capture begins. The wordmark
 already includes its original lettering.
 
+The [shared export standard](../DASHBOARD_STANDARDS.md#png-and-webm-exports)
+now adopts these PNG dimensions and branding while requiring bundled DejaVu Sans
+Bold for headlines across machines. The current optional Arial Black headline
+is a remaining adoption gap: when this export feature is next updated, use the
+bundled headline and verify both fonts/branding and decoded output. Keep this
+dashboard's own composition and calculation semantics.
+
 The export renderer uses fixed panel rectangles, fixed title/KPI anchors, and
 tabular digits, so changing prices, dates, or tick widths cannot move the
 surrounding layout. It retains the notebook's 1% left time margin and 2% value

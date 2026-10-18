@@ -10,6 +10,9 @@ data already in a checkout, without a database or the production jobs.
 For AI-assisted contributions, start with [AGENTS.md](AGENTS.md).
 The detailed frontend guides are [js/js_README.md](js/js_README.md) and
 [webapps/README.md](webapps/README.md).
+The [shared dashboard standards](webapps/DASHBOARD_STANDARDS.md) define chart,
+interaction, data, export, and review expectations for new work and incremental
+updates to older dashboards.
 
 **Quantum Exposure is deprecated and archived — 2026-10-06.** The dashboard
 remains in the homepage grid with an Archived badge and at its direct URL,
