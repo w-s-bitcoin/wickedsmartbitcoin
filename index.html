@@ -287,6 +287,9 @@
                         <button type="button" class="toggle-icon" id="favoritesToggle" onclick="toggleFavoritesView()" aria-label="Show starred dashboards" aria-pressed="false" title="Show starred dashboards">
                             <span class="favorites-toggle-star" aria-hidden="true">★</span>
                         </button>
+                        <button type="button" class="toggle-icon active" id="archiveToggle" onclick="toggleArchivedView()" aria-label="Show archived dashboards" aria-pressed="true" title="Hide archived dashboards">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/></svg>
+                        </button>
                         <div class="search-container">
                             <button id="search-btn" class="search-btn" type="button" aria-label="Search" tabindex="-1">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -299,7 +302,7 @@
                 </div>
                 <div class="image-grid grid" id="image-grid"></div>
                 <p id="no-favorites-message" class="home-empty-state" style="display: none">No starred dashboards yet. Use the star on a card to save it here.</p>
-                <p id="homeSearchEmpty" class="home-empty-state" hidden>No dashboards match your search. Try a different keyword or turn off the starred filter.</p>
+                <p id="homeSearchEmpty" class="home-empty-state" hidden>No dashboards match your filters. Try a different keyword, show archived dashboards, or turn off the starred filter.</p>
             </section>
         </main>
         <div class="modal" id="modal">

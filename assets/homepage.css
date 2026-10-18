@@ -108,11 +108,12 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
 .homepage .controls-row { margin: 0; gap: 8px; flex-wrap: nowrap; }
 .homepage .toggle-icons { gap: 4px; padding-right: 8px; border-right: 1px solid var(--home-line); }
 .homepage .controls-row .toggle-icon, .homepage .controls-row #favoritesToggle, .homepage .controls-row .search-btn { border-radius: 999px; width: 36px; height: 36px; border: 1px solid var(--home-line); color: var(--home-muted); background: transparent; }
+.homepage .controls-row .toggle-icon { flex-shrink: 0; }
 .homepage .controls-row .toggle-icon.active { color: var(--home-accent); border-color: color-mix(in srgb, var(--home-accent) 40%, transparent); background: var(--home-accent-bg); }
 .homepage .controls-row .icon-grid div, .homepage .controls-row .icon-list div { background-color: currentColor; }
 .homepage .controls-row #favoritesToggle { font-size: 1.5rem; }
 .homepage .controls-row #favoritesToggle.active .favorites-toggle-star { color: var(--brand); }
-.homepage .search-container { margin-left: 5px; }
+.homepage .search-container { margin-left: 5px; min-width: 0; }
 .homepage .controls-row .search-btn { border-radius: 999px 0 0 999px; border-right: 0; }
 .homepage .search-input { border-color: var(--home-line); color: var(--home-text); background: transparent; height: 36px; width: 180px; border-radius: 0 999px 999px 0; font-size: 12px; padding: 0 10px 0 1px; }
 .homepage .search-input::placeholder { color: var(--home-muted); }

@@ -317,11 +317,13 @@
   }
 
   function getFilteredNavigationList(list) {
+    const showArchivedDashboards = localStorage.getItem("showArchivedDashboards") !== "false";
     const showFavoritesOnly = parseStoredBoolean(localStorage.getItem("showFavoritesOnly"));
     const favorites = new Set(readFavorites());
     const filtered = list.filter((item) => {
       const filename = String(item?.filename || "").trim();
       if (!filename) return false;
+      if (!showArchivedDashboards && item.archived === true) return false;
       if (showFavoritesOnly && !favorites.has(filename)) return false;
       return true;
     });

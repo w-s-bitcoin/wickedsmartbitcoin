@@ -107,11 +107,13 @@ function getStandaloneFilteredNavigationImages() {
     if (!baseList.length) return [];
 
     const showFavoritesOnly = parseStoredBooleanForModalNav(localStorage.getItem('showFavoritesOnly'));
+    const showArchivedDashboards = localStorage.getItem('showArchivedDashboards') !== 'false';
     const favorites = new Set(typeof getFavorites === 'function' ? getFavorites() : []);
 
     const filtered = baseList.filter((item) => {
         const filename = String(item?.filename || '').trim();
         if (!filename) return false;
+        if (!showArchivedDashboards && item.archived === true) return false;
         if (showFavoritesOnly && !favorites.has(filename)) return false;
         return true;
     });

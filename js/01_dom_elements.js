@@ -16,5 +16,6 @@ const chkSearchTitles = document.getElementById('chkSearchTitles');
 const chkSearchDescriptions = document.getElementById('chkSearchDescriptions');
 const buyMeBtn = document.getElementById('buyCoffeeBtn');
 const favoritesToggleBtn = document.getElementById('favoritesToggle');
+const archiveToggleBtn = document.getElementById('archiveToggle');
 const buyCoffeeMethodBtns = Array.from(document.querySelectorAll('.buy-coffee-method-btn'));
 const DONATE_ROUTE = 'donate';

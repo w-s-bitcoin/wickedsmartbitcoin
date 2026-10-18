@@ -1059,7 +1059,8 @@ function filterImages(options = {}){
   buildGridOnce();
   const query = (document.getElementById('search-input')?.value || '').toLowerCase();
   const {inTitle, inDesc} = readSearchPrefs();
-  visibleImages = imageList.filter(({title, description, filename}) => {
+  visibleImages = imageList.filter(({title, description, filename, archived}) => {
+    if (!showArchivedDashboards && archived === true) return false;
     let matchesSearch = true;
     if(query){
       const hayTitle = inTitle ? (title || '').toLowerCase() : '';
@@ -1073,6 +1074,11 @@ function filterImages(options = {}){
     favoritesButton.classList.toggle('active', showFavoritesOnly);
     favoritesButton.setAttribute('aria-pressed', String(showFavoritesOnly));
   }
+  if (archiveToggleBtn) {
+    archiveToggleBtn.classList.toggle('active', showArchivedDashboards);
+    archiveToggleBtn.setAttribute('aria-pressed', String(showArchivedDashboards));
+    archiveToggleBtn.title = showArchivedDashboards ? 'Hide archived dashboards' : 'Show archived dashboards';
+  }
   const count = document.getElementById('homeDashboardCount');
   if (count) {
     const total = imageList.length;
@@ -1085,7 +1091,7 @@ function filterImages(options = {}){
   const message = document.getElementById('no-favorites-message');
   if(message) message.style.display = noFavorites ? 'block' : 'none';
   const searchEmpty = document.getElementById('homeSearchEmpty');
-  if (searchEmpty) searchEmpty.hidden = !query || visibleImages.length > 0 || noFavorites;
+  if (searchEmpty) searchEmpty.hidden = visibleImages.length > 0 || noFavorites;
   applyGridDomOrder();
   const visibleKeys = new Set();
   visibleImages.forEach((item, index) => {

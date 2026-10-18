@@ -60,11 +60,17 @@ Most visualization-family swaps follow this flow:
 ## Core State Contracts
 
 - `imageList`: normalized display cards after bootstrap rewrites
-- `visibleImages`: filtered subset (search/favorites)
+- `visibleImages`: filtered subset (search/favorites/archive visibility)
 - `currentIndex`: active modal index within `visibleImages`
 - `cardByFilename`: DOM map for card updates/rekey operations
 
 `assets/image_list.json` is the discovery manifest. Set `"archived": true` on an entry to show the archive badge on its card. Runtime bootstrap normalizes its entries; `DASHBOARD_CARD_PREVIEW_SPECS` in `06_grid_layout_filter_render.js` maps dashboard filenames to preview iframe URLs. Route maps also exist in `05_core_helpers_url_image_src_geometry.js` and the standalone controllers. A new dashboard needs all three integrations plus its root shell.
+
+The circular archive button beside the starred filter includes or hides archived
+dashboards, alongside the search and favorites filters. Archives are shown by
+default; `showArchivedDashboards` in localStorage remembers the choice. Hidden
+archives are excluded from homepage and standalone previous/next navigation,
+including saved navigation snapshots. Their direct URLs remain available.
 
 ## File Responsibilities
 

@@ -8,6 +8,7 @@ let lastOpenedFilename = null;
 let justUnstarredInModal = false;
 let userSelectedLayout = null;
 let showFavoritesOnly = localStorage.getItem('showFavoritesOnly') === 'true';
+let showArchivedDashboards = localStorage.getItem('showArchivedDashboards') !== 'false';
 let searchWasInitiallyClosed = true;
 let touchStartX = 0, touchEndX = 0;
 let touchStartY = 0, touchEndY = 0;

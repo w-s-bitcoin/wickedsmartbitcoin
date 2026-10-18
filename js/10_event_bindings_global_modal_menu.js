@@ -80,6 +80,7 @@ function onToolbarButtonKeydown(e) {
 gridIcon?.addEventListener('keydown', onToolbarButtonKeydown);
 listIcon?.addEventListener('keydown', onToolbarButtonKeydown);
 favoritesToggleBtn?.addEventListener('keydown', onToolbarButtonKeydown);
+archiveToggleBtn?.addEventListener('keydown', onToolbarButtonKeydown);
 
 const PLAYBACK_DASHBOARD_MODAL_MATCHES = [
     { filename: 'uoa.png', path: '/webapps/uoa/dashboard.html' },
@@ -376,6 +377,7 @@ function resetDashboardsToDefaults() {
         'preferredLayout',
         'wsb_dashboard_grid_order_v1',
         'showFavoritesOnly',
+        'showArchivedDashboards',
         'wicked_dashboard_timezone_v1',
         'quantum-research-dashboard-theme',
         'quantum-research-dashboard-filters-v1',
@@ -530,6 +532,11 @@ function toggleFavoritesView() {
     showFavoritesOnly = !showFavoritesOnly;
     localStorage.setItem('showFavoritesOnly', showFavoritesOnly);
     document.getElementById('favoritesToggle').classList.toggle('active', showFavoritesOnly);
+    filterImages();
+}
+function toggleArchivedView() {
+    showArchivedDashboards = !showArchivedDashboards;
+    localStorage.setItem('showArchivedDashboards', String(showArchivedDashboards));
     filterImages();
 }
 document.addEventListener('keydown', (e) => {
