@@ -15,6 +15,7 @@ import subprocess
 import tempfile
 import threading
 import urllib.request
+from datetime import date as calendar_date, timedelta
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
@@ -146,8 +147,9 @@ def assert_spans(cdp):
       const time=Date.parse(s.currentIso+'T00:00:00Z');
       return s.lines.map((line,i) => {
         const canvas=d.querySelector('#window'+(i+1)+'Chart');
+        const bounds=M.windowBounds(time,line.period,line.unit);
         return {actual:[canvas.dataset.startDate,canvas.dataset.endDate],
-          expected:[new Date(M.windowStart(time,line.period,line.unit)).toISOString().slice(0,10),s.currentIso]};
+          expected:[new Date(bounds.startTime).toISOString().slice(0,10),new Date(bounds.endTime).toISOString().slice(0,10)]};
       });
     """)
     assert all(pair["actual"] == pair["expected"] for pair in result), result
@@ -666,6 +668,126 @@ def check_playback(cdp):
     print("PASS playback: early insufficient history, preserved periods/limits, keyboard, dates, leap-month spans", flush=True)
 
 
+def check_initial_windows(cdp, direct):
+    navigate(cdp,direct+'?fixture_reset=1')
+    dashboard(cdp,"""
+      const fixture=w.__maFixture,G=w.WSBMovingAverageCharts,panel=G.panel;
+      fixture.initialPanels={};fixture.initialFrames=[];
+      G.panel=(ctx,rect,options)=>{
+        const native={beginPath:ctx.beginPath,moveTo:ctx.moveTo,lineTo:ctx.lineTo,stroke:ctx.stroke};
+        let path=[],price=[];
+        ctx.beginPath=function(...args){path=[];return native.beginPath.apply(this,args);};
+        for(const name of ['moveTo','lineTo'])ctx[name]=function(x,y){path.push([x,y]);return native[name].call(this,x,y);};
+        ctx.stroke=function(...args){if(this.strokeStyle===G.palette(options.theme).fg)price=path.slice();return native.stroke.apply(this,args);};
+        let geometry;
+        try{geometry=panel(ctx,rect,options);}finally{Object.assign(ctx,native);}
+        fixture.initialPanels[ctx.canvas.id]={startTime:geometry.startTime,endTime:geometry.endTime,
+          plot:geometry.plot,minX:Math.min(...price.map(p=>p[0])),maxX:Math.max(...price.map(p=>p[0])),points:price.length,
+          activeTime:options.model.rows[options.endIndex].time,endIndex:options.endIndex};
+        if(ctx.canvas.id==='window1Chart')fixture.initialFrames.push({...fixture.initialPanels[ctx.canvas.id],
+          date:options.model.rows[options.endIndex].date,playing:w.WSBMovingAverageDashboard.isPlaying(),
+          rangeEnd:w.WSBMovingAverageDashboard.getState().endIso});
+        return geometry;
+      };
+    """)
+    cases=[(200,'day','2010-01-01','2010-04-24'),(200,'day','2010-04-23','2010-04-24'),
+           (200,'day','2010-04-24','2010-04-24'),(200,'day','2010-04-25','2010-04-25'),
+           (600,'day','2010-01-01','2011-05-29'),(600,'day','2011-05-28','2011-05-29'),
+           (600,'day','2011-05-29','2011-05-29'),(600,'day','2011-05-30','2011-05-30'),
+           (200,'week','2010-01-01','2013-08-06'),(200,'week','2013-08-05','2013-08-06'),
+           (200,'week','2013-08-06','2013-08-06'),(200,'week','2013-08-07','2013-08-07'),
+           (12,'month','2010-01-01','2010-10-06'),(12,'month','2010-10-05','2010-10-06'),
+           (12,'month','2010-10-06','2010-10-06'),(12,'month','2010-10-07','2010-10-07')]
+    for period,unit,date,axis_end in cases:
+        select_line(cdp,1,period,unit)
+        set_input(cdp,'#endDateInput',date,'change')
+        assert_spans(cdp)
+        record=dashboard(cdp,"return w.__maFixture.initialPanels.window1Chart;")
+        assert dashboard(cdp,"return d.querySelector('#window1Chart').dataset.endDate;") == axis_end
+        fraction=(record['activeTime']-record['startTime'])/(record['endTime']-record['startTime'])
+        expected=record['plot']['left']+record['plot']['width']*fraction
+        assert abs(record['maxX']-expected)<1e-6,(period,unit,date,record,expected)
+        assert record['points']<=record['endIndex']+1,record
+        if date<axis_end:
+            assert dashboard(cdp,"return d.querySelector('#window1Chart').dataset.startDate;") == '2009-10-06'
+            assert abs(record['minX']-record['plot']['left'])<1e-6,record
+            result=dashboard(cdp,"""
+              const g=w.__maFixture.initialPanels.window1Chart,canvas=d.querySelector('#window1Chart'),r=canvas.getBoundingClientRect();
+              const first=w.WSBMovingAverageDashboard.getModel().rows[0].time;
+              const pointer=time=>canvas.dispatchEvent(new w.PointerEvent('pointermove',{bubbles:true,
+                clientX:r.left+g.plot.left+(time-g.startTime)/(g.endTime-g.startTime)*g.plot.width,
+                clientY:r.top+g.plot.top+g.plot.height/2}));
+              pointer((first+g.activeTime)/2);const pastVisible=!d.querySelector('#chartTooltip').hidden;
+              pointer((g.activeTime+g.endTime)/2);return {pastVisible,futureHidden:d.querySelector('#chartTooltip').hidden};
+            """)
+            assert result['pastVisible'] and result['futureHidden'],(period,unit,date,result)
+    # Run the real RAF playback path across each threshold. The range's target
+    # deliberately remains much later than the active frame throughout.
+    history_start=dashboard(cdp,"return Date.parse('2009-10-06T00:00:00Z');")
+    for period,unit,threshold in [(200,'day','2010-04-24'),(600,'day','2011-05-29'),(200,'week','2013-08-06'),(12,'month','2010-10-06')]:
+        start=(calendar_date.fromisoformat(threshold)-timedelta(days=30)).isoformat()
+        target=(calendar_date.fromisoformat(threshold)+timedelta(days=180)).isoformat()
+        click(cdp,'#rangeButtons button[data-range-preset="full"], #rangeButtons button[data-range="full"]')
+        select_line(cdp,1,period,unit)
+        set_input(cdp,'#endDateInput',target,'change');set_input(cdp,'#startDateInput',start,'change')
+        dashboard(cdp,'w.__maFixture.initialFrames=[];')
+        click(cdp,'#playBtn')
+        wait_for(lambda:state(cdp)['currentIso']>start,description=f'{period}{unit} running early playback')
+        click(cdp,'#pauseBtn');paused=state(cdp)['currentIso']
+        assert paused<threshold and state(cdp)['endIso']==target,(paused,threshold,state(cdp))
+        dashboard(cdp,'return new Promise(resolve=>w.requestAnimationFrame(()=>w.requestAnimationFrame(()=>w.requestAnimationFrame(resolve))));')
+        assert state(cdp)['currentIso']==paused and not dashboard(cdp,'return w.WSBMovingAverageDashboard.isPlaying();')
+        click(cdp,'#playBtn')
+        wait_for(lambda:state(cdp)['currentIso']>threshold,description=f'{period}{unit} resumed playback crosses threshold')
+        click(cdp,'#pauseBtn')
+        frames=dashboard(cdp,'return w.__maFixture.initialFrames.filter(frame=>frame.playing);')
+        early=[frame for frame in frames if frame['date']<threshold]
+        later=[frame for frame in frames if frame['date']>threshold]
+        assert len(early)>1 and later,(period,unit,frames)
+        assert early[-1]['maxX']>early[0]['maxX'],(period,unit,early)
+        for frame in frames:
+            assert frame['rangeEnd']==target,(period,unit,frame)
+            if frame['date']<=threshold:
+                assert frame['startTime']==history_start and frame['endTime']>=frame['activeTime'],frame
+                assert abs(frame['minX']-frame['plot']['left'])<1e-6,frame
+            else:
+                assert frame['startTime']>history_start and frame['endTime']==frame['activeTime'],frame
+            expected=frame['plot']['left']+frame['plot']['width']*(frame['activeTime']-frame['startTime'])/(frame['endTime']-frame['startTime'])
+            assert abs(frame['maxX']-expected)<1e-6,(period,unit,frame,expected)
+    # Capture the actual paused dashboard, including cents KPIs and the early
+    # 200-week axis, after running and then seeking within the playback session.
+    click(cdp,'#rangeButtons button[data-range-preset="full"], #rangeButtons button[data-range="full"]')
+    select_line(cdp,1,200,'day');select_line(cdp,2,200,'week')
+    set_input(cdp,'#endDateInput','2013-01-01','change');set_input(cdp,'#startDateInput','2010-05-29','change')
+    click(cdp,'#playBtn')
+    wait_for(lambda:state(cdp)['currentIso']>'2010-05-29',description='early cents playback advances')
+    click(cdp,'#pauseBtn')
+    set_input(cdp,'#dateRangeEndSlider',dashboard(cdp,"return w.WSBMovingAverageDashboard.getModel().rows.findIndex(row=>row.date==='2010-06-01');"))
+    assert state(cdp)['currentIso']=='2010-06-01' and state(cdp)['endIso']=='2013-01-01',state(cdp)
+    kpis=dashboard(cdp,"return ['priceKpi','ma1Kpi','ma2Kpi'].map(id=>d.getElementById(id).textContent);")
+    assert kpis==['0.45¢','0.33¢','Insufficient history'],kpis
+    assert dashboard(cdp,"return d.querySelector('#window2Chart').dataset.startDate==='2009-10-06'&&d.querySelector('#window2Chart').dataset.endDate==='2013-08-06';")
+    screenshot=Path(tempfile.mkdtemp(prefix='wsb-moving-average-playback-'))/'cents-initial-window-paused.png'
+    page_size=cdp.command('Page.getLayoutMetrics')['cssContentSize']
+    capture=cdp.command('Page.captureScreenshot',{'format':'png','captureBeyondViewport':True,'clip':{**page_size,'scale':1}})
+    screenshot.write_bytes(base64.b64decode(capture['data']))
+    click(cdp,'#rangeButtons button[data-range-preset="full"], #rangeButtons button[data-range="full"]')
+    set_input(cdp,'#endDateInput','2013-01-01','change');set_input(cdp,'#startDateInput','2009-12-29','change')
+    click(cdp,'#playBtn')
+    wait_for(lambda:state(cdp)['currentIso']>'2009-12-29',description='both initial windows advance')
+    click(cdp,'#pauseBtn')
+    set_input(cdp,'#dateRangeEndSlider',dashboard(cdp,"return w.WSBMovingAverageDashboard.getModel().rows.findIndex(row=>row.date==='2010-01-01');"))
+    assert dashboard(cdp,"return d.querySelector('#window1Chart').dataset.endDate==='2010-04-24'&&d.querySelector('#window2Chart').dataset.endDate==='2013-08-06';")
+    assert dashboard(cdp,"return d.querySelector('#priceKpi').textContent;")=='0.07¢'
+    first_window_screenshot=screenshot.with_name('both-initial-windows-paused.png')
+    capture=cdp.command('Page.captureScreenshot',{'format':'png','captureBeyondViewport':True,'clip':{**page_size,'scale':1}})
+    first_window_screenshot.write_bytes(base64.b64decode(capture['data']))
+    assert_clean(cdp)
+    print('PASS initial windows: running/paused/resumed day/week/month playback, moving early endpoints, threshold transition, empty future hover, cents KPIs',flush=True)
+    print(f'Paused in-app playback review: {screenshot}',flush=True)
+    print(f'Both initial windows review: {first_window_screenshot}',flush=True)
+
+
 def check_synchronized_hover(cdp):
     # Observe actual dashed canvas strokes, rather than merely checking the
     # hover index passed into the renderer. The normal renderer still runs.
@@ -917,7 +1039,7 @@ def check_layout_and_export(cdp):
     click(cdp, "#downloadImageBtn")
     wait_for(lambda: dashboard(cdp, "return w.__maFixture.downloads.some(item=>item.name.endsWith('.png'));"), description="PNG export")
     result = dashboard(cdp, "return (async()=>{const item=w.__maFixture.downloads.find(item=>item.name.endsWith('.png'));const bitmap=await createImageBitmap(item.blob);return {size:item.blob.size,width:bitmap.width,height:bitmap.height,signature:Array.from(new Uint8Array(await item.blob.slice(0,8).arrayBuffer()))};})();")
-    assert result["size"] > 1000 and result["width"] == 1280 and result["height"] == 720, result
+    assert result["size"] > 1000 and result["width"] == 3840 and result["height"] == 2160, result
     assert result["signature"] == [137,80,78,71,13,10,26,10], result
     assert dashboard(cdp, "return w.__maFixture.lastExport.lines;") == state(cdp)["lines"]
     assert dashboard(cdp, "return w.WSBDashboardExport.hasWebCodecsExportSupport();"), "Chrome lacks required WebCodecs export support"
@@ -1275,6 +1397,7 @@ def main():
             check_layout_and_export(cdp)
             check_export_refresh(cdp)
             check_average_types(cdp,direct)
+            check_initial_windows(cdp,direct)
             check_live_price(cdp,direct)
         finally:
             chrome.terminate()

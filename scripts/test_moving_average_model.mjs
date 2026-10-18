@@ -95,6 +95,23 @@ test("limits use the first positive price and latest date, with complete trailin
   assert.equal(M.label({ period: 3, unit: "month" }), "3-month simple moving average");
 });
 
+test("display windows stay anchored at the price-history start until their full day/week/month span has elapsed", () => {
+  const historyStart = utc("2009-10-06");
+  for (const [period, unit, threshold] of [[200, "day", "2010-04-24"], [600, "day", "2011-05-29"],
+    [200, "week", "2013-08-06"], [12, "month", "2010-10-06"]]) {
+    const end = utc(threshold);
+    for (const time of [historyStart, historyStart + M.DAY_MS, end - M.DAY_MS, end]) {
+      assert.deepEqual(M.windowBounds(time, period, unit), { startTime: historyStart, endTime: end });
+    }
+    const next = end + M.DAY_MS;
+    assert.deepEqual(M.windowBounds(next, period, unit), { startTime: historyStart + M.DAY_MS, endTime: next });
+    const later = utc("2024-05-31");
+    assert.deepEqual(M.windowBounds(later, period, unit), { startTime: M.windowStart(later, period, unit), endTime: later });
+  }
+  assert.deepEqual(M.windowBounds(utc("2024-05-31"), 3, "month"), { startTime: utc("2024-02-29"), endTime: utc("2024-05-31") });
+  assert.equal(M.windowStart(utc("2009-01-04"), 200, "day"), utc("2008-06-18"), "display anchoring never changes historical lookback calculations");
+});
+
 test("EMA seeds from the first N completed closes and recurs without using the active close", () => {
   const prices = [10, 20, 30, 40, 100, 20, 80];
   const model = M.buildModel(rowsFrom("2024-01-01", prices.length, (index) => prices[index]));
@@ -479,7 +496,12 @@ test("chart axes render round, distinct currency ticks at current and early pric
   assert.deepEqual(labels(0.001, 100000, "log", 620), ["0.1¢", "1¢", "10¢", "$1", "$10", "$100", "$1k", "$10k", "$100k"]);
   assert.deepEqual(labels(0.01, 1, "linear"), ["$0", "50¢", "$1"]);
   assert.equal(chartWindow.WSBMovingAverageCharts.money(0.1), "$0.1", "hover formatting stays in dollars");
-  assert.equal(chartWindow.WSBMovingAverageCharts.kpiMoney(0.1), "$0.10", "KPI prices keep two decimal places");
+  for (const [value, expected] of [[0,"0.00¢"],[0.0000562,"0.0056¢"],[0.0007,"0.07¢"],
+    [0.0045,"0.45¢"],[0.1,"10.00¢"],[0.99,"99.00¢"],[1,"$1.00"],[1234.5,"$1,234.50"],
+    [NaN,"N/A"],[Infinity,"N/A"]]) {
+    assert.equal(chartWindow.WSBMovingAverageCharts.kpiMoney(value), expected,
+      "sub-dollar KPIs use cents with adaptive precision; dollars keep two decimals");
+  }
 });
 
 async function loadChartGeometry() {
@@ -524,6 +546,36 @@ function measuredChartMargins(recording, colors) {
     return { plot, top: Math.min(...ys) - plot.top, bottom: plot.bottom - Math.max(...ys) };
   });
 }
+
+test("early chart and compact-preview windows leave future axis space empty while price advances from the price-history start", async () => {
+  const G = await loadChartGeometry();
+  const model = M.buildModel(rowsFrom("2009-10-06", 1600, (index) => index + 1));
+  for (const [period, unit, endIndex] of [[200, "day", 99], [200, "day", 200], [200, "day", 201],
+    [200, "week", 100], [12, "month", 100]]) {
+    const recording = recordChartStrokes(), activeTime = model.rows[endIndex].time;
+    const bounds = M.windowBounds(activeTime, period, unit);
+    const geometry = G.panel(recording.ctx, { width: 640, height: 300 }, {
+      model, lines: [], series: [], endIndex, ...bounds, scale: "linear",
+    });
+    const stroke = recording.strokes.find((item) => item.clip && item.color === G.palette("dark").fg);
+    const maxX = Math.max(...stroke.points.map(([x]) => x));
+    const fraction = (activeTime - bounds.startTime) / (bounds.endTime - bounds.startTime);
+    approximate(maxX, geometry.plot.left + geometry.plot.width * fraction);
+    assert.equal(geometry.endTime, bounds.endTime);
+    assert.ok(stroke.points.length <= endIndex + 1, "the chart never draws future rows");
+    if (bounds.endTime > activeTime) assert.ok(maxX < geometry.plot.right);
+    else approximate(maxX, geometry.plot.right);
+  }
+  const recording = recordChartStrokes(), lines = [{ period: 200, unit: "day", type: "sma" }, { period: 200, unit: "week", type: "sma" }];
+  G.composite(recording.ctx, 1280, 720, { model, lines, series: [[], []], endIndex: 100, compact: true });
+  const strokes = recording.strokes.filter((item) => item.clip && item.color === G.palette("dark").fg);
+  assert.equal(strokes.length, 3);
+  for (const [index, stroke] of strokes.slice(1).entries()) {
+    const bounds = M.windowBounds(model.rows[100].time, lines[index].period, lines[index].unit);
+    const fraction = (model.rows[100].time - bounds.startTime) / (bounds.endTime - bounds.startTime);
+    approximate(Math.max(...stroke.points.map(([x]) => x)), stroke.clip.left + (stroke.clip.right - stroke.clip.left) * fraction);
+  }
+});
 
 test("chart data has the same pixel margins in LIN and LOG at different panel heights and price ranges", async () => {
   const G = await loadChartGeometry();
@@ -667,7 +719,7 @@ test("hover interpolation follows the line's blended pixel position throughout a
   }
 });
 
-test("composite exports keep equal data margins for mixed scales, both orientations, and one or two averages", async () => {
+test("compact composites keep equal data margins for mixed scales, both orientations, and one or two averages", async () => {
   const G = await loadChartGeometry();
   const model = M.buildModel(rowsFrom("2024-01-01", 100, (i) => 0.00001 * 1.18 ** i));
   const selections = [{ period: 15, unit: "day", type: "sma" }, { period: 60, unit: "day", type: "ema" }];
@@ -678,7 +730,9 @@ test("composite exports keep equal data margins for mixed scales, both orientati
       for (const single of [false, true]) {
         const recording = recordChartStrokes();
         const lines = selections.map((line, i) => single && i === 1 ? { ...line, type: "none" } : line);
-        G.composite(recording.ctx, width, height, { model, lines, series, endIndex: 99, scales });
+        // Full exports have their own notebook-style renderer and browser
+        // regression; the compact homepage composition retains pixel margins.
+        G.composite(recording.ctx, width, height, { model, lines, series, endIndex: 99, scales, compact: true });
         const margins = measuredChartMargins(recording, [colors.fg, ...colors.lines]);
         assert.equal(margins.length, single ? 2 : 3);
         for (const margin of margins) {

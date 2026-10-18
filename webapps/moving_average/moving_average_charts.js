@@ -5,7 +5,16 @@
   const DAY = 86400000;
   const money = (value) => C.formatCurrency(value);
   const kpiFormatter = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const kpiMoney = (value) => kpiFormatter.format(value);
+  function kpiMoney(value) {
+    if (!Number.isFinite(value)) return "N/A";
+    if (Math.abs(value) >= 1) return kpiFormatter.format(value);
+    const cents = value * 100;
+    // Keep ordinary cent values steady at two decimals, preserving tiny early
+    // prices with two significant digits rather than rounding them to zero.
+    const digits = cents !== 0 && Math.abs(cents) < 0.01
+      ? Math.min(8, 1 - Math.floor(Math.log10(Math.abs(cents)))) : 2;
+    return cents.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits }) + "¢";
+  }
   function palette(theme) {
     const light = theme === "light";
     return { bg: light ? "#ffffff" : "#000000", fg: light ? "#202a30" : "#f1f5f7",
@@ -179,7 +188,7 @@
     const { model, series, lines, endIndex, startTime, scale = "linear", theme = "dark", title = "", hoverIndex = -1, compact = false } = options;
     const rows = model.rows, colors = palette(theme);
     const activeIndices = lines.flatMap((line, index) => line.type === "none" ? [] : [index]);
-    const endTime = rows[endIndex].time, minTime = Math.min(startTime, endTime - DAY);
+    const endTime = options.endTime ?? rows[endIndex].time, minTime = Math.min(startTime, endTime - DAY);
     const startIndex = Math.max(0, indexAt(rows, minTime) - 1);
     ctx.save(); ctx.translate(rect.x || 0, rect.y || 0);
     ctx.fillStyle = colors.bg; ctx.fillRect(0, 0, rect.width, rect.height);
@@ -302,17 +311,12 @@
     return { value, interpolated: true };
   }
   function composite(ctx, width, height, options) {
+    if (!options.compact) return window.WSBMovingAverageExport.render(ctx, width, height, options);
     const { model, lines, series, endIndex, startIndex = 0, scales = ["log", "linear", "linear"], theme = "dark", compact = false } = options;
     const colors = palette(theme), end = model.rows[endIndex], gap = 14;
     const activeIndices = lines.flatMap((line, index) => line.type === "none" ? [] : [index]);
     ctx.fillStyle = colors.bg; ctx.fillRect(0, 0, width, height);
-    const header = compact ? 8 : 84, footer = compact ? 8 : 36;
-    if (!compact) {
-      ctx.fillStyle = colors.fg; ctx.textAlign = "left"; ctx.font = "700 23px Space Grotesk, sans-serif";
-      ctx.fillText("Moving Average", 16, 28);
-      ctx.font = "13px IBM Plex Mono, monospace"; ctx.fillText(`${end.date}  ·  BTC ${kpiMoney(end.price)}`, 16, 52);
-      activeIndices.forEach((i, position) => { ctx.fillStyle = colors.lines[i]; ctx.fillText(`${M.label(lines[i], true)}  ${Number.isFinite(series[i]?.[endIndex]) ? kpiMoney(series[i][endIndex]) : "Insufficient history"}`, 16 + position * Math.max(230, width / 2), 73); });
-    }
+    const header = 8, footer = 8;
     const area = height - header - footer;
     const portrait = width < height;
     let layouts = portrait
@@ -327,13 +331,11 @@
     }
     layouts.forEach((rect, position) => {
       const lineIndex = activeIndices[position - 1], line = lines[lineIndex];
+      const bounds = position ? M.windowBounds(end.time, line.period, line.unit) : { startTime: model.rows[startIndex].time, endTime: end.time };
       panel(ctx, rect, { model, lines, series, endIndex, theme, compact, scale: scales[position ? lineIndex + 1 : 0],
-        priceLineWidth: compact ? options.priceLineWidths?.[position] : undefined,
-        startTime: position ? M.windowStart(end.time, line.period, line.unit) : model.rows[startIndex].time,
+        priceLineWidth: options.priceLineWidths?.[position],
+        ...bounds,
         title: position ? windowTitle(line) : `Price & moving average${activeIndices.length === 1 ? "" : "s"}` });
-    });
-    if (!compact) window.WSBDashboardExport.drawFooterUrl(ctx, "wickedsmartbitcoin.com/moving_average", { width, height, footerHeight: footer, outerMargin: 12 }, {
-      theme, orientation: portrait ? "portrait" : width === height ? "square" : "landscape",
     });
   }
   window.WSBMovingAverageCharts = { palette, setup, panel, composite, money, kpiMoney, indexAt, windowTitle, hoverValue };

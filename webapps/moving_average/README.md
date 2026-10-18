@@ -5,8 +5,8 @@ This dashboard uses the existing published `assets/daily_price.csv` and
 feed. It does not introduce a producer, copied dataset, or scheduler. The same
 calculation and data validation module serves the dashboard and homepage preview.
 The homepage grid preview balances the white price lines' apparent thickness
-with a heavier stroke in its sparse 200-day panel. The dashboard and exports
-apply the same visual balancing to custom windows: the price stroke blends
+with a heavier stroke in its sparse 200-day panel. The interactive dashboard
+applies the same visual balancing to custom windows: the price stroke blends
 from 1.3 to 2.2 pixels as daily point spacing increases from one to two pixels.
 This follows the visible time span and panel width, stays constant during
 LOG/LIN transitions, and preserves every price sample. Moving-average strokes
@@ -58,12 +58,19 @@ first nonzero price. Earlier dates return `null`, allowing price and the other
 average to continue displaying independently.
 
 Each right-hand chart contains price and the enabled moving averages, as in the
-reference. Its horizontal span runs from the active date minus its corresponding
-selected period through the active date. Subtracting calendar months clamps the
-day to the last day of the destination month: May 31 minus three months is
-February 28, or February 29 in a leap year. During early playback, empty space
-before the first price represents unavailable history; the requested span stays
-fixed.
+reference. Until the price history covers the selected period, its horizontal
+axis stays fixed from **October 6, 2009** through that date plus the period.
+Price grows from left to right as playback advances, leaving future dates empty.
+For example, the early 200-day window spans October 6, 2009–April 24, 2010,
+and the 200-week window spans October 6, 2009–August 6, 2013.
+Future axis space has no hover tooltip.
+
+Once the active date reaches the end of that initial window, the chart follows
+the ordinary trailing span from active date minus the period through active
+date. Subtracting calendar months clamps the day to the destination month's
+last day: May 31 minus three months is February 28, or February 29 in a leap
+year. Dashboard, homepage preview, PNG, and WebM share these display bounds.
+The SMA/EMA calculations and their complete-history gates remain unchanged.
 
 The minimum period is 3. Limits are calculated from the complete latest
 publication and remain fixed during playback. The daily limit is the number of
@@ -112,8 +119,11 @@ calculation method. When publication is one day behind, the live view can append
 one provisional current UTC-day row. It never fills gaps in older data or
 persists provisional prices into the dataset. Complete-window requirements still
 apply, and selectable maximum periods remain calculated from the published
-history while quotes arrive. The BTCUSD and both moving average KPIs always
-display two decimal places.
+history while quotes arrive. The BTCUSD and both moving average KPIs display
+cents below $1 (for example, $0.0007 becomes `0.07¢`) and dollars at $1 or above.
+Both use two decimal places, with extra precision for values below `0.01¢` so
+tiny early prices do not round to zero. Dashboard playback, PNG, and WebM use
+the same KPI formatter.
 
 The homepage preview uses the same current endpoint calculation. PNG exports
 capture the displayed price and averages when export starts. A WebM ending at
@@ -122,6 +132,37 @@ for its opening hold and historical motion, then captures the newest quote once
 at the start of its final motion frame. That quote and its calculated current
 average endpoints stay fixed through the final hold. Historical and paused
 selections continue to use published prices and historical calculations.
+
+## Image and video exports
+
+Downloads use a dedicated canvas composition modeled on the original notebook
+animation: black background in dark mode, a tall logarithmic history panel,
+two linear trailing windows, cyan/orange title underlines, the Bitcoin wordmark
+in the upper right, and the dashboard URL in the footer. Selected averages,
+scales, date range, theme, and orientation remain effective. EMA labels identify
+the exponential calculation; choosing None removes the second line and expands
+the remaining trailing window. Portrait and square exports adapt the same
+composition to their available space.
+
+PNG downloads always use 2160-pixel quality: **3840 × 2160** landscape,
+**2160 × 3840** portrait, or **2160 × 2160** square. The quality selector controls
+WebM resolution. Both formats wait for bundled DejaVu Sans regular/bold fonts
+and the Bitcoin wordmark to load before drawing. The headline uses locally
+installed Arial Black when available, with bundled DejaVu Sans Bold as its
+fallback; the selected face is resolved before capture begins. The wordmark
+already includes its original lettering.
+
+The export renderer uses fixed panel rectangles, fixed title/KPI anchors, and
+tabular digits, so changing prices, dates, or tick widths cannot move the
+surrounding layout. It retains the notebook's 1% left time margin and 2% value
+padding in the selected scale's transformed space. All three plots reserve a
+fixed gutter on the right for their y-axis labels. Each chart uses `YYYY` when
+all its date ticks mark the start of a year; otherwise every tick uses
+`MM-YYYY`, including January. Labels angle 30 degrees down to the right.
+Calendar-aligned ticks move with their
+dates without clamping labels to chart edges; a range within one month gets a
+single date label. WebM continues to use
+the shared deterministic encoder and the frozen final-price behavior above.
 
 ## Publication and failure behavior
 
@@ -157,8 +198,8 @@ Lines connect those sample points as in the reference. Hover values between
 weekly/monthly points follow that visible interpolation without a prefix;
 the active endpoint and KPI use the historical calculation during playback and
 the current endpoint calculation in the latest view.
-All panels leave 16 pixels above and below the visible data range on both LIN
-and LOG scales, including previews and exports. Tiny plots cap that inset at a
+Interactive and preview panels leave 16 pixels above and below the visible data
+range on both LIN and LOG scales. Tiny plots cap that inset at a
 quarter of their height; flat data stays centered in a nonzero axis range.
 Clicking either half of a LOG/LIN control switches that panel to the other scale.
 Each toggle animates that panel natively over 700 ms using the half-cosine
@@ -190,9 +231,17 @@ Run the focused calculation and publication checks from the repository root:
 ```bash
 node --test scripts/test_moving_average_model.mjs
 python3 scripts/test_moving_average_browser.py
+python3 scripts/test_moving_average_export_browser.py
 ```
 
 These cover SMA reference parity, EMA seeds and recurrence, exclusion of the
 active observation, current endpoint updates for all units, None, calendar month
 ends and leap years, no lookahead, complete-window limits, invalid/missing data,
 payload mismatch, generation races, and stale publications.
+The export regression decodes real PNG/WebM downloads, checks 4K image and
+selected video dimensions, verifies stable header/plot geometry across widely
+different historical values, and covers light mode, square/portrait layouts,
+and EMA/None. It writes review images, short videos, and recorded geometry to a
+temporary directory; use `--output-dir /tmp/moving-average-review` to choose it.
+The full-history sample holds each of four September 2024 dates for 15 frames
+and saves its decoded final frame for comparison with the reference image.

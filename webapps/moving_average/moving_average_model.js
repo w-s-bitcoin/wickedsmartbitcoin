@@ -2,6 +2,7 @@
   "use strict";
 
   const DAY_MS = 86400000;
+  const PRICE_HISTORY_START_TIME = Date.UTC(2009, 9, 6);
   const DATA_URL = "../../assets/daily_price.csv";
   const MARKER_URL = "../../assets/daily_price_metadata.json";
   const UNITS = ["day", "week", "month"];
@@ -99,6 +100,15 @@
     const target = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth() - period, 1));
     const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
     return Date.UTC(target.getUTCFullYear(), target.getUTCMonth(), Math.min(end.getUTCDate(), lastDay));
+  }
+
+  function windowBounds(time, period, unit) {
+    const startTime = windowStart(time, period, unit);
+    // Anchor early windows at the beginning of price history. Only the plotted
+    // data ends at the active date until the complete window has elapsed.
+    const firstEnd = unit === "month" ? Date.UTC(2009, 9 + period, 6)
+      : PRICE_HISTORY_START_TIME + period * DAY_MS * (unit === "week" ? 7 : 1);
+    return time < firstEnd ? { startTime: PRICE_HISTORY_START_TIME, endTime: firstEnd } : { startTime, endTime: time };
   }
 
   function isSampleDate(time, unit) {
@@ -315,7 +325,7 @@
   }
 
   root.WSBMovingAverageModel = Object.freeze({
-    DAY_MS, DATA_URL, MARKER_URL, parseCSV, buildModel, calculate, calculateCurrent, withLiveQuote,
-    windowStart, isSampleDate, label, prepareCandidate, validateCandidate,
+    DAY_MS, PRICE_HISTORY_START_TIME, DATA_URL, MARKER_URL, parseCSV, buildModel, calculate, calculateCurrent, withLiveQuote,
+    windowStart, windowBounds, isSampleDate, label, prepareCandidate, validateCandidate,
   });
 }(typeof window === "undefined" ? globalThis : window));

@@ -48,6 +48,7 @@ for app_dir in "$ROOT"/webapps/*; do
   copy_path "webapps/$app_name/market_units.js"
   copy_path "webapps/$app_name/moving_average_model.js"
   copy_path "webapps/$app_name/moving_average_charts.js"
+  copy_path "webapps/$app_name/moving_average_export.js"
   copy_path "webapps/$app_name/dashboard.css"
   copy_path "webapps/$app_name/preview.html"
   copy_path "webapps/$app_name/preview_app.js"

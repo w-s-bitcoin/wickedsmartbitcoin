@@ -363,10 +363,13 @@
       if (i && state.lines[i - 1].type === "none") { chartGeometry.delete(id); scaleTransitions.delete(i); return; }
       if (animatedOnly && !scaleTransitions.has(i)) return;
       const canvas = $(id), { ctx, width, height } = G.setup(canvas);
-      const startTime = i ? M.windowStart(viewModel.rows[endIndex].time, state.lines[i - 1].period, state.lines[i - 1].unit) : model.rows[idx(state.startIso)].time;
-      const geometry = G.panel(ctx, { width, height }, { model: viewModel, series: viewSeries, lines: state.lines, endIndex, startTime,
+      const activeTime = viewModel.rows[endIndex].time;
+      const bounds = i ? M.windowBounds(activeTime, state.lines[i - 1].period, state.lines[i - 1].unit)
+        : { startTime: model.rows[idx(state.startIso)].time, endTime: activeTime };
+      const geometry = G.panel(ctx, { width, height }, { model: viewModel, series: viewSeries, lines: state.lines, endIndex, ...bounds,
         scale: state.scales[i], scaleMix: scaleMixAt(i, time), theme, hoverIndex: hover?.index ?? -1 });
-      chartGeometry.set(id, geometry); canvas.dataset.startDate = new Date(startTime).toISOString().slice(0, 10); canvas.dataset.endDate = viewModel.rows[endIndex].date;
+      chartGeometry.set(id, geometry); canvas.dataset.startDate = new Date(bounds.startTime).toISOString().slice(0, 10);
+      canvas.dataset.endDate = new Date(bounds.endTime).toISOString().slice(0, 10);
       canvas.dataset.priceSource = $("priceChip").dataset.priceSource;
     });
     if (hover) {
@@ -593,9 +596,12 @@
   async function imageExport() {
     if (!model || exporting) return;
     finishScaleTransitions(); render();
-    const snapshot = liveExportSnapshot(exportSnapshot()), settings = normalizeDownload(downloads.readControls()), canvas = document.createElement("canvas");
-    await document.fonts.ready; drawOutput(canvas, snapshot, settings, snapshot.currentIndex);
-    canvas.toBlob((blob) => { if (blob) download(blob, "png", snapshot); }, "image/png");
+    const snapshot = liveExportSnapshot(exportSnapshot()), settings = { ...normalizeDownload(downloads.readControls()), quality: "2160" }, canvas = document.createElement("canvas");
+    try {
+      await window.WSBMovingAverageExport.ready(); await document.fonts.ready;
+      drawOutput(canvas, snapshot, settings, snapshot.currentIndex);
+      canvas.toBlob((blob) => { if (blob) download(blob, "png", snapshot); }, "image/png");
+    } catch (error) { status(`Export failed: ${error.message}`, true); }
   }
   async function videoExport() {
     if (exporting) { cancelExport = true; $("dateRangeDownloadBtn").classList.add("is-canceling"); return; }
@@ -622,6 +628,7 @@
     }
     progress(0);
     try {
+      await window.WSBMovingAverageExport.ready();
       await document.fonts.ready;
       const { width, height } = E.getDimensions(settings);
       const blob = await window.WSBDashboardExport.encodeWebM({ canvas, width, height, settings, fps: 30, frames: list, title: "Moving Average",
@@ -808,7 +815,7 @@
       }
       const ratio = Math.max(0, Math.min(1, (x - geometry.plot.left) / geometry.plot.width));
       const time = geometry.startTime + ratio * (geometry.endTime - geometry.startTime);
-      if (time < display.model.rows[0].time) { if (hover) { clearHover(); render(); } return; }
+      if (time < display.model.rows[0].time || time > display.model.rows[geometry.endIndex].time) { if (hover) { clearHover(); render(); } return; }
       const index = Math.min(geometry.endIndex, G.indexAt(display.model.rows, time));
       hover = { id, index, clientX: event.clientX, clientY: event.clientY, flipBoundary: hover?.id === id ? hover.flipBoundary : null };
       render();

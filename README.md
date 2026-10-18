@@ -72,7 +72,7 @@ SMA retains the reference average of N prior closes, while EMA weights recent
 closes more heavily. Complete-window requirements and selectable period maximums
 remain tied to the published history. Choosing None for the second line hides
 its period/unit controls, KPI, and chart, expanding the first window. Price KPIs
-show two decimal places.
+show cents below $1 and dollars with two decimal places at $1 or above.
 Bitcoin Net Worth also retains its last accepted price through an outage and
 shows the latest published price when that snapshot is newer. Its quote status
 turns gray after 60 seconds without an update.
@@ -286,6 +286,7 @@ CHROME_BIN=/path/to/chromium python3 scripts/test_dca_scale_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_days_issuance_scale_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_uoa_casascius_scale_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_moving_average_browser.py
+CHROME_BIN=/path/to/chromium python3 scripts/test_moving_average_export_browser.py
 node scripts/test_days_live_price.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_days_live_price_browser.py
 node scripts/test_comparison_live_price.mjs
