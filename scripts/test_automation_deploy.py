@@ -201,9 +201,14 @@ class AutomationDeployTests(unittest.TestCase):
         self.addCleanup(mock.patch.stopall)
 
     def git(self, *args: str, cwd: Path | None = None) -> str:
+        # Fixture manual commits use each disposable repo's identity; the
+        # deploy subprocess still receives inherited identity in override tests.
+        env = {key: value for key, value in os.environ.items() if key not in {
+            "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL",
+        }}
         result = subprocess.run(
             ["git", "-c", "commit.gpgsign=false", *args], cwd=cwd or self.repo, capture_output=True, text=True,
-            check=True, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+            check=True, env={**env, "GIT_TERMINAL_PROMPT": "0"},
         )
         return result.stdout.strip()
 
@@ -218,6 +223,52 @@ class AutomationDeployTests(unittest.TestCase):
 
     def remote_file(self, path: str) -> str:
         return self.git("show", f"main:{path}", cwd=self.remote)
+
+    def assert_automation_identity(self, ref: str = "HEAD", *, cwd: Path | None = None) -> None:
+        self.assertEqual(
+            self.git("show", "-s", "--format=%an%n%ae%n%cn%n%ce", ref, cwd=cwd),
+            "WSB Data Sync\nautomation@wickedsmartbitcoin.local\n"
+            "WSB Data Sync\nautomation@wickedsmartbitcoin.local",
+        )
+
+    def test_new_publication_uses_automation_identity_without_changing_manual_git(self):
+        source_commit = self.git("rev-parse", "HEAD")
+        source_identity = self.git("show", "-s", "--format=%an%n%ae%n%cn%n%ce", source_commit)
+        config_before = (self.repo / ".git" / "config").read_bytes()
+
+        self.assertEqual(self.run_deploy(), 0)
+        self.assert_automation_identity()
+        self.assert_automation_identity("main", cwd=self.remote)
+        self.assertEqual(self.git("rev-parse", "HEAD^"), source_commit)
+        self.assertEqual(self.git("show", "-s", "--format=%an%n%ae%n%cn%n%ce", source_commit), source_identity)
+        self.assertEqual((self.repo / ".git" / "config").read_bytes(), config_before)
+
+        self.write(self.repo / "app.js", "ordinary manual source update\n")
+        self.git("add", "app.js")
+        self.git("commit", "-m", "Manual source update")
+        self.assertEqual(self.git("show", "-s", "--format=%an%n%ae%n%cn%n%ce"), source_identity)
+
+    def test_amended_legacy_publication_replaces_author_and_inherited_identity(self):
+        self.publish_previous_automation_generation()
+        previous = self.git("rev-parse", "HEAD")
+        parent = self.git("rev-parse", "HEAD^")
+        self.assertEqual(self.git("show", "-s", "--format=%an%n%cn"), "Test User\nTest User")
+        inherited_identity = {
+            "GIT_AUTHOR_NAME": "Inherited Author",
+            "GIT_AUTHOR_EMAIL": "author@example.test",
+            "GIT_COMMITTER_NAME": "Inherited Committer",
+            "GIT_COMMITTER_EMAIL": "committer@example.test",
+        }
+        with mock.patch.dict(os.environ, inherited_identity):
+            self.assertEqual(self.run_deploy(), 0)
+            self.assertEqual({key: os.environ[key] for key in inherited_identity}, inherited_identity)
+
+        self.assertNotEqual(self.git("rev-parse", "HEAD"), previous)
+        self.assertEqual(self.git("rev-parse", "HEAD^"), parent)
+        self.assertEqual(self.git("log", "-1", "--format=%s"), "Update data")
+        self.assert_automation_identity()
+        self.assert_automation_identity("main", cwd=self.remote)
+        self.assertEqual(self.remote_file("assets/daily_price.csv"), "new generation")
 
     def push_concurrent_code(self) -> None:
         contributor = self.root / "contributor"
@@ -294,6 +345,7 @@ class AutomationDeployTests(unittest.TestCase):
         self.git('merge-base','--is-ancestor',previous,'HEAD')
         self.assertFalse(any('--amend' in c or 'reset' in c or any(a.startswith('--force') for a in c) for c in commands))
         self.assertTrue(self.git('log','-1','--format=%s').startswith('Publish Quantum generation '))
+        self.assert_automation_identity()
         self.assertEqual(json.loads(self.remote_file(str(deploy.QUANTUM_MARKER)))['snapshot_blockheight'],2000)
 
     def test_quantum_stale_retry_cannot_replace_newer_marker(self):
@@ -460,6 +512,7 @@ class AutomationDeployTests(unittest.TestCase):
             self.assertEqual(self.run_deploy(), 0)
         self.assertEqual(self.remote_file("assets/daily_price.csv"), "old generation")
         self.assertEqual(self.remote_file("assets/top_kpis.json"), '{"height":123}')
+        self.assert_automation_identity()
         self.assertTrue(self.run_dir.is_dir())
         self.assertFalse(onchain_run.exists())
         self.assertFalse((self.repo / binary_path).exists())

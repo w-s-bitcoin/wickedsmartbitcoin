@@ -1,6 +1,7 @@
 """Conservative recovery for two sibling automation data publications."""
 
 from datetime import datetime, timezone
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -19,6 +20,17 @@ CASASCIUS_DATA_PATHS = {
     "webapps/casascius_explorer/data/casascius_explorer_update_state.json",
 }
 BLOCK_DATA_RE = re.compile(r"^assets/block_data_\d+_\d+\.csv$")
+
+
+def automation_commit_env() -> dict[str, str]:
+    """Attribute generated commits without changing the operator's Git config."""
+    return {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "WSB Data Sync",
+        "GIT_AUTHOR_EMAIL": "automation@wickedsmartbitcoin.local",
+        "GIT_COMMITTER_NAME": "WSB Data Sync",
+        "GIT_COMMITTER_EMAIL": "automation@wickedsmartbitcoin.local",
+    }
 
 
 def _is_published_data_path(path: str) -> bool:
@@ -111,6 +123,7 @@ def merge_rewritten_data_tip(repo_dir: Path) -> bool:
         result = subprocess.run(
             ["git", "-c", "commit.gpgsign=false", "merge", "--no-edit", "-s", "ours", "-m", "Merge remote-tracking branch 'origin/main'", remote.decode("ascii").strip()],
             cwd=repo_dir, capture_output=True, check=False, timeout=60,
+            env=automation_commit_env(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return False

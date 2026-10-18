@@ -14,7 +14,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 AUTOMATION_DIR = ROOT / "scripts" / "automation"
 sys.path.insert(0, str(AUTOMATION_DIR))
-from _git_sync_guard import can_stage_across_rewritten_data_tip
+from _git_sync_guard import can_stage_across_rewritten_data_tip, merge_rewritten_data_tip
 
 
 def git(repo: Path, *args: str) -> str:
@@ -89,8 +89,35 @@ class AutomationGitSyncGuardTests(unittest.TestCase):
                 self.assertEqual((self.local / "assets" / "last_updated.txt").read_text(), "Last updated on October 07, 2026 at 15:12 UTC\n")
                 self.assertEqual(git(self.local, "rev-list", "--parents", "-n", "1", "HEAD").split()[1:], [local_before, remote_before])
                 self.assertEqual(git(self.local, "log", "-1", "--format=%s"), "Merge remote-tracking branch 'origin/main'")
+                self.assertEqual(
+                    git(self.local, "show", "-s", "--format=%an%n%ae%n%cn%n%ce"),
+                    "WSB Data Sync\nautomation@wickedsmartbitcoin.local\n"
+                    "WSB Data Sync\nautomation@wickedsmartbitcoin.local",
+                )
                 git(self.local, "merge-base", "--is-ancestor", "origin/main", "HEAD")
         self.assertEqual(git(self.local, "rev-parse", "origin/main"), remote_before)
+
+    def test_recovery_merge_overrides_inherited_identity_without_changing_parents(self):
+        parents = [git(self.local, "rev-parse", ref) for ref in ("HEAD", "origin/main")]
+        parent_identities = git(self.local, "show", "-s", "--format=%an%n%ae%n%cn%n%ce", *parents)
+        config_before = (self.local / ".git" / "config").read_bytes()
+        inherited_identity = {
+            "GIT_AUTHOR_NAME": "Inherited Author",
+            "GIT_AUTHOR_EMAIL": "author@example.test",
+            "GIT_COMMITTER_NAME": "Inherited Committer",
+            "GIT_COMMITTER_EMAIL": "committer@example.test",
+        }
+        with patch.dict(os.environ, inherited_identity):
+            self.assertTrue(merge_rewritten_data_tip(self.local))
+            self.assertEqual({key: os.environ[key] for key in inherited_identity}, inherited_identity)
+        self.assertEqual(
+            git(self.local, "show", "-s", "--format=%an%n%ae%n%cn%n%ce"),
+            "WSB Data Sync\nautomation@wickedsmartbitcoin.local\n"
+            "WSB Data Sync\nautomation@wickedsmartbitcoin.local",
+        )
+        self.assertEqual(git(self.local, "rev-list", "--parents", "-n", "1", "HEAD").split()[1:], parents)
+        self.assertEqual(git(self.local, "show", "-s", "--format=%an%n%ae%n%cn%n%ce", *parents), parent_identities)
+        self.assertEqual((self.local / ".git" / "config").read_bytes(), config_before)
 
     def test_older_local_generation_is_rejected(self):
         (self.local / "assets" / "last_updated.txt").write_text("Last updated on October 07, 2026 at 14:59 UTC\n")

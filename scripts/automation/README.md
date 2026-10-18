@@ -88,6 +88,12 @@ different manual edit blocks recovery.
 A data publication creates an `Update data` commit or amends the latest
 automation commit. Amended history is pushed with a lease bound to the origin
 commit accepted during reconciliation, so a background fetch cannot weaken it.
+A new or amended data commit uses
+`WSB Data Sync <automation@wickedsmartbitcoin.local>` as both author and committer. Amendments
+replace any previous personal author; automated recovery merges use the same
+identity. These overrides apply only to automation subprocesses and leave manual
+Git configuration and existing source commits unchanged. Consecutive data pushes
+retain one data commit until a source change starts a new publication sequence.
 A rejected push
 causes one reconciliation and retry using the retained outputs. Changes in this
 area must preserve both concurrent source-code updates and generated data.
@@ -104,9 +110,21 @@ Failed Git preflight does not create an onchain staging directory. Empty staging
 directories from older failed runs do not hold priority over hourly work; active
 onchain locks and nonempty unpublished outputs still do.
 
-After success, `scripts/sync_main_data_to_dev.py` creates a data snapshot commit
-on `dev/work`. It preserves unrelated development edits and defers overlapping
-data edits. It does not merge source-code changes from main.
+After success, `scripts/sync_main_data_to_dev.py` prepares and validates a
+data-only snapshot, then installs it through a fast-forward on `dev/work`.
+When the resulting checkout is clean and its complete tree matches the pinned
+published main commit, the helper reuses that commit instead of retaining a
+separate development snapshot. It also collapses an existing identical, clean
+snapshot when no new data needs copying. The final branch update checks the
+expected old commit and never writes the index or working files.
+
+Staged, unstaged, or untracked development work keeps its snapshot history and
+is preserved in place. Overlapping data edits defer the sync. Committed source
+differences or locally completed publication markers also keep a separate
+snapshot; the helper does not import source-code changes from main or discard
+development changes to force the trees to match. Active merges, rebases, and
+other Git operations defer syncing. Dirty work is rechecked after installation
+so edits made during sync also prevent history cleanup.
 
 ## Unattended Git access
 

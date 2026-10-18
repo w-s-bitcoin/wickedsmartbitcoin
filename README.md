@@ -104,7 +104,7 @@ flowchart LR
     Stage --> Git["Production main on GitHub"]
     Git --> Build["Pages build: dist/"]
     Build --> Browser["Homepage, standalone shells, dashboards"]
-    Git --> Dev["Data snapshot sync into dev/work"]
+    Git --> Dev["Published data sync into dev/work"]
 ```
 
 The frontend uses ordinary HTML, CSS, and JavaScript. The homepage loads the
@@ -240,10 +240,14 @@ not required to serve or test the frontend.
 
 The production checkout normally uses `main`; the separate development
 worktree uses `dev/work`. Production automation may amend its latest
-`Update data` commit and push with a lease. The dev sync helper therefore
-creates data snapshot commits instead of replaying that rewritten history.
-It preserves unrelated development edits and defers updates that overlap dirty
-data paths. This sync does **not** merge source-code changes from main.
+`Update data` commit and push with a lease. Generated publications use the
+`WSB Data Sync` author and committer identity. The dev sync helper prepares a
+data-only snapshot rather than replaying rewritten history. A clean checkout
+whose full tree matches the published main commit reuses that commit, avoiding
+an accumulating chain of redundant development snapshots. Otherwise it keeps
+the snapshot, preserves staged and unstaged development edits and untracked
+files, and defers updates that overlap dirty data paths. This sync does **not**
+merge source-code changes from main.
 Always inspect the current branch and worktree before Git operations.
 
 ## Validation

@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from scripts import sync_main_data_to_dev as syncer
 
@@ -537,6 +538,251 @@ class DevDataSyncTests(unittest.TestCase):
             syncer.DEFAULT_DEV_BRANCH,
         )
 
+    def install_legacy_snapshot(self):
+        """Reproduce a pre-promotion sync tip in this disposable worktree."""
+        self.commit_main_update(2)
+        source = self.git("rev-parse", "HEAD", cwd=self.main_repo)
+        dev_head = self.git("rev-parse", "HEAD", cwd=self.dev_repo)
+        tree = self.git("rev-parse", f"{source}^{{tree}}", cwd=self.dev_repo)
+        snapshot = self.git(
+            "commit-tree", tree, "-p", dev_head, "-m", "Sync production data fixture",
+            cwd=self.dev_repo,
+        )
+        self.git("merge", "--ff-only", snapshot, cwd=self.dev_repo)
+        syncer.update_sync_ref(self.dev_repo, source)
+        return source, snapshot
+
+    def test_clean_sync_reuses_published_commit(self):
+        self.commit_main_update(2)
+
+        outcome = self.synchronize()
+
+        self.assertEqual(outcome.status, "synced")
+        self.assertEqual(outcome.dev_commit, outcome.source_commit)
+        self.assertEqual(self.git("rev-parse", "HEAD", cwd=self.dev_repo), outcome.source_commit)
+        self.assertEqual(self.git("rev-list", "--count", "HEAD", cwd=self.dev_repo), "2")
+        self.assertEqual(self.git("status", "--porcelain", cwd=self.dev_repo), "")
+
+    def test_same_tree_history_is_reused_without_new_data(self):
+        source, snapshot = self.install_legacy_snapshot()
+
+        outcome = self.synchronize()
+
+        self.assertEqual(outcome.status, "synced")
+        self.assertEqual(outcome.paths, ())
+        self.assertEqual(self.git("rev-parse", "HEAD", cwd=self.dev_repo), source)
+        self.assertIn(snapshot, self.git("reflog", "show", "--format=%H", "dev/work", cwd=self.dev_repo))
+
+    def test_same_tree_history_dry_run_does_not_move_refs(self):
+        source, snapshot = self.install_legacy_snapshot()
+
+        outcome = syncer.synchronize(
+            self.main_repo, "HEAD", self.dev_repo, "dev/work", dry_run=True,
+        )
+
+        self.assertEqual(outcome.status, "would-reuse-published")
+        self.assertEqual(self.git("rev-parse", "HEAD", cwd=self.dev_repo), snapshot)
+        self.assertEqual(syncer.optional_ref(self.dev_repo, syncer.SYNC_SOURCE_REF), source)
+
+    def test_staged_unstaged_and_untracked_work_retains_snapshot(self):
+        self.commit_main_update(2)
+        original_head = self.git("rev-parse", "HEAD", cwd=self.dev_repo)
+        self.write(self.dev_repo / "app.js", "const staged = 2;\n")
+        self.git("add", "app.js", cwd=self.dev_repo)
+        self.write(self.dev_repo / "app.js", "const unstaged = 3;\n")
+        self.write(self.dev_repo / "draft.txt", "untracked work\n")
+
+        outcome = self.synchronize()
+
+        self.assertEqual(outcome.status, "synced")
+        self.assertNotEqual(outcome.dev_commit, outcome.source_commit)
+        self.assertEqual(self.git("rev-parse", "HEAD^", cwd=self.dev_repo), original_head)
+        self.assertEqual(self.git("show", ":app.js", cwd=self.dev_repo), "const staged = 2;")
+        self.assertEqual((self.dev_repo / "app.js").read_text(), "const unstaged = 3;\n")
+        self.assertEqual((self.dev_repo / "draft.txt").read_text(), "untracked work\n")
+        self.assertEqual((self.dev_repo / "assets/daily_price.csv").read_text(), "date,price\n2026-01-01,2\n")
+        retained_head = outcome.dev_commit
+        self.assertEqual(self.synchronize().dev_commit, retained_head)
+
+    def test_dirty_same_tree_history_is_not_rewritten(self):
+        source, snapshot = self.install_legacy_snapshot()
+        self.write(self.dev_repo / "app.js", "const staged = 2;\n")
+        self.git("add", "app.js", cwd=self.dev_repo)
+        self.write(self.dev_repo / "app.js", "const unstaged = 3;\n")
+
+        outcome = self.synchronize()
+
+        self.assertEqual(outcome.status, "up-to-date")
+        self.assertEqual(outcome.dev_commit, snapshot)
+        self.assertEqual(self.git("show", ":app.js", cwd=self.dev_repo), "const staged = 2;")
+        self.assertEqual((self.dev_repo / "app.js").read_text(), "const unstaged = 3;\n")
+        self.assertEqual(syncer.optional_ref(self.dev_repo, syncer.SYNC_SOURCE_REF), source)
+
+    def test_staged_data_overlap_preserves_index_and_worktree(self):
+        self.commit_main_update(2)
+        path = self.dev_repo / "assets/daily_price.csv"
+        original_head = self.git("rev-parse", "HEAD", cwd=self.dev_repo)
+        self.write(path, "staged local data\n")
+        self.git("add", "assets/daily_price.csv", cwd=self.dev_repo)
+        self.write(path, "unstaged local data\n")
+
+        outcome = self.synchronize()
+
+        self.assertEqual(outcome.status, "deferred-overlap")
+        self.assertEqual(self.git("rev-parse", "HEAD", cwd=self.dev_repo), original_head)
+        self.assertEqual(self.git("show", ":assets/daily_price.csv", cwd=self.dev_repo), "staged local data")
+        self.assertEqual(path.read_text(), "unstaged local data\n")
+
+    def test_untracked_data_overlap_is_preserved(self):
+        relative = "webapps/example/webapp_data/new.csv"
+        self.write(self.main_repo / relative, "published data\n")
+        self.git("add", relative, cwd=self.main_repo)
+        self.git("commit", "-m", "Update data", cwd=self.main_repo)
+        self.write(self.dev_repo / relative, "untracked local data\n")
+        original_head = self.git("rev-parse", "HEAD", cwd=self.dev_repo)
+
+        outcome = self.synchronize()
+
+        self.assertEqual(outcome.status, "deferred-overlap")
+        self.assertEqual(self.git("rev-parse", "HEAD", cwd=self.dev_repo), original_head)
+        self.assertEqual((self.dev_repo / relative).read_text(), "untracked local data\n")
+
+    def test_committed_development_source_is_preserved(self):
+        self.write(self.dev_repo / "app.js", "const development = 2;\n")
+        self.git("add", "app.js", cwd=self.dev_repo)
+        self.git("commit", "-m", "Unpublished source change", cwd=self.dev_repo)
+        original_head = self.git("rev-parse", "HEAD", cwd=self.dev_repo)
+        self.commit_main_update(2)
+
+        outcome = self.synchronize()
+
+        self.assertNotEqual(outcome.dev_commit, outcome.source_commit)
+        self.assertEqual(self.git("rev-parse", "HEAD^", cwd=self.dev_repo), original_head)
+        self.assertEqual((self.dev_repo / "app.js").read_text(), "const development = 2;\n")
+
+    def test_production_source_changes_are_not_installed_by_data_sync(self):
+        original_head = self.git("rev-parse", "HEAD", cwd=self.dev_repo)
+        self.write(self.main_repo / "app.js", "const production = 2;\n")
+        self.git("add", "app.js", cwd=self.main_repo)
+        self.git("commit", "-m", "Published source change", cwd=self.main_repo)
+
+        outcome = self.synchronize()
+
+        self.assertEqual(outcome.dev_commit, original_head)
+        self.assertEqual((self.dev_repo / "app.js").read_text(), "const version = 1;\n")
+
+    def test_work_created_after_merge_prevents_history_reuse(self):
+        self.commit_main_update(2)
+        original_run = syncer.run_git
+
+        def edit_after_merge(repo, args, **kwargs):
+            result = original_run(repo, args, **kwargs)
+            if args[:2] == ["merge", "--ff-only"]:
+                self.write(self.dev_repo / "app.js", "const staged = 2;\n")
+                self.git("add", "app.js", cwd=self.dev_repo)
+                self.write(self.dev_repo / "app.js", "const unstaged = 3;\n")
+            return result
+
+        with mock.patch.object(syncer, "run_git", side_effect=edit_after_merge):
+            outcome = self.synchronize()
+
+        self.assertNotEqual(outcome.dev_commit, outcome.source_commit)
+        self.assertEqual(self.git("show", ":app.js", cwd=self.dev_repo), "const staged = 2;")
+        self.assertEqual((self.dev_repo / "app.js").read_text(), "const unstaged = 3;\n")
+
+    def test_edit_racing_same_tree_ref_update_survives(self):
+        source, _ = self.install_legacy_snapshot()
+        original_run = syncer.run_git
+
+        def edit_before_ref_update(repo, args, **kwargs):
+            if args[0] == "update-ref" and "refs/heads/dev/work" in args:
+                self.write(self.dev_repo / "app.js", "const staged = 2;\n")
+                self.git("add", "app.js", cwd=self.dev_repo)
+                self.write(self.dev_repo / "app.js", "const unstaged = 3;\n")
+                self.write(self.dev_repo / "draft.txt", "untracked work\n")
+            return original_run(repo, args, **kwargs)
+
+        with mock.patch.object(syncer, "run_git", side_effect=edit_before_ref_update):
+            outcome = self.synchronize()
+
+        self.assertEqual(outcome.dev_commit, source)
+        self.assertEqual(self.git("show", ":app.js", cwd=self.dev_repo), "const staged = 2;")
+        self.assertEqual((self.dev_repo / "app.js").read_text(), "const unstaged = 3;\n")
+        self.assertEqual((self.dev_repo / "draft.txt").read_text(), "untracked work\n")
+
+    def test_concurrent_commit_is_not_overwritten_by_history_reuse(self):
+        self.install_legacy_snapshot()
+        original_run = syncer.run_git
+        concurrent = []
+
+        def commit_before_ref_update(repo, args, **kwargs):
+            if args[0] == "update-ref" and "refs/heads/dev/work" in args:
+                self.write(self.dev_repo / "app.js", "const concurrent = 2;\n")
+                self.git("add", "app.js", cwd=self.dev_repo)
+                self.git("commit", "-m", "Concurrent development", cwd=self.dev_repo)
+                concurrent.append(self.git("rev-parse", "HEAD", cwd=self.dev_repo))
+            return original_run(repo, args, **kwargs)
+
+        with mock.patch.object(syncer, "run_git", side_effect=commit_before_ref_update):
+            with self.assertRaisesRegex(syncer.SyncError, "update-ref.*failed"):
+                self.synchronize()
+
+        self.assertEqual(self.git("rev-parse", "HEAD", cwd=self.dev_repo), concurrent[0])
+        self.assertEqual((self.dev_repo / "app.js").read_text(), "const concurrent = 2;\n")
+
+    def test_branch_switch_after_merge_does_not_move_other_branch(self):
+        self.commit_main_update(2)
+        original_run = syncer.run_git
+        switched = []
+
+        def switch_after_merge(repo, args, **kwargs):
+            result = original_run(repo, args, **kwargs)
+            if args[:2] == ["merge", "--ff-only"]:
+                self.git("switch", "-c", "other-work", cwd=self.dev_repo)
+                switched.append(self.git("rev-parse", "HEAD", cwd=self.dev_repo))
+            return result
+
+        with mock.patch.object(syncer, "run_git", side_effect=switch_after_merge):
+            with self.assertRaisesRegex(syncer.SyncError, "branch changed"):
+                self.synchronize()
+
+        self.assertEqual(self.git("rev-parse", "other-work", cwd=self.dev_repo), switched[0])
+        self.assertEqual(self.git("rev-parse", "dev/work", cwd=self.dev_repo), switched[0])
+
+    def test_source_amended_during_preparation_stays_pinned(self):
+        self.commit_main_update(2)
+        source = self.git("rev-parse", "HEAD", cwd=self.main_repo)
+        original_create = syncer.create_data_snapshot_commit
+
+        def amend_source(*args, **kwargs):
+            snapshot = original_create(*args, **kwargs)
+            self.commit_main_update(3, amend=True)
+            return snapshot
+
+        with mock.patch.object(syncer, "create_data_snapshot_commit", side_effect=amend_source):
+            first = self.synchronize()
+
+        self.assertEqual(first.dev_commit, source)
+        self.assertEqual((self.dev_repo / "assets/daily_price.csv").read_text(), "date,price\n2026-01-01,2\n")
+        second = self.synchronize()
+        self.assertEqual(second.dev_commit, self.git("rev-parse", "HEAD", cwd=self.main_repo))
+        self.assertEqual((self.dev_repo / "assets/daily_price.csv").read_text(), "date,price\n2026-01-01,3\n")
+
+    def test_active_operation_directories_defer_history_reuse(self):
+        _, snapshot = self.install_legacy_snapshot()
+        for marker in ("rebase-merge", "rebase-apply", "sequencer"):
+            with self.subTest(marker=marker):
+                directory = Path(self.git("rev-parse", "--git-path", marker, cwd=self.dev_repo))
+                if not directory.is_absolute():
+                    directory = self.dev_repo / directory
+                directory.mkdir()
+                try:
+                    with self.assertRaisesRegex(syncer.SyncError, "active Git operation"):
+                        self.synchronize()
+                    self.assertEqual(self.git("rev-parse", "HEAD", cwd=self.dev_repo), snapshot)
+                finally:
+                    directory.rmdir()
+
     def test_dirty_non_data_work_is_preserved(self):
         self.commit_main_update(2)
         self.write(self.main_repo / "app.js", "const version = 2;\n")
@@ -578,11 +824,14 @@ class DevDataSyncTests(unittest.TestCase):
         self.commit_main_update(2)
         first = self.synchronize()
         self.assertEqual(first.status, "synced")
+        self.assertEqual(first.dev_commit, first.source_commit)
 
         self.commit_main_update(3, amend=True)
         second = self.synchronize()
 
         self.assertEqual(second.status, "synced")
+        self.assertEqual(second.dev_commit, second.source_commit)
+        self.assertEqual(self.git("rev-list", "--count", "HEAD", cwd=self.dev_repo), "2")
         self.assertEqual(
             (self.dev_repo / "webapps" / "example" / "webapp_data" / "values.csv").read_text(),
             "date,value\n2026-01-01,3\n",
@@ -596,6 +845,7 @@ class DevDataSyncTests(unittest.TestCase):
         outcome = self.synchronize()
 
         self.assertEqual(outcome.status, "synced")
+        self.assertNotEqual(outcome.dev_commit, outcome.source_commit)
         self.assertIn(syncer.DAILY_PRICE_MARKER_PATH, outcome.paths)
         self.assertEqual((self.dev_repo / syncer.DAILY_PRICE_PATH).read_bytes(), next_data)
         self.assertEqual(

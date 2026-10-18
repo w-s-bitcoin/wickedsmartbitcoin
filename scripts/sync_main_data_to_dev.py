@@ -2,9 +2,10 @@
 """Mirror production data into a local dev worktree without disturbing dirty code.
 
 The production deploy branch deliberately rewrites its latest automation commit,
-so replaying those commits directly is not idempotent. This tool instead builds a
-data-only snapshot commit on top of the current dev HEAD with Git plumbing, then
-fast-forwards the dev branch when its dirty paths do not overlap the snapshot.
+so replaying those commits directly is not idempotent. This tool instead prepares
+a data-only snapshot and fast-forwards dev when dirty paths do not overlap it.
+A clean checkout whose complete resulting tree matches the published source then
+reuses that source commit. Active development retains its own snapshot history.
 """
 
 from __future__ import annotations
@@ -289,7 +290,10 @@ def overlapping_paths(dirty: set[str], updates: set[str]) -> list[str]:
 
 
 def ensure_no_git_operation(repo: Path) -> None:
-    for marker in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD"):
+    for marker in (
+        "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD",
+        "rebase-merge", "rebase-apply", "sequencer",
+    ):
         marker_path = Path(git_text(repo, ["rev-parse", "--git-path", marker]))
         if not marker_path.is_absolute():
             marker_path = repo / marker_path
@@ -1639,6 +1643,50 @@ def update_sync_ref(repo: Path, source_commit: str) -> None:
     run_git(repo, ["update-ref", SYNC_SOURCE_REF, source_commit])
 
 
+def ensure_dev_head(repo: Path, branch: str, expected_head: str) -> None:
+    ensure_no_git_operation(repo)
+    if resolve_commit(repo, "HEAD") != expected_head:
+        raise SyncError("dev HEAD changed during data sync; deferring until the next deploy")
+    if git_text(repo, ["symbolic-ref", "--quiet", "--short", "HEAD"]) != branch:
+        raise SyncError("dev branch changed during data sync; deferring until the next deploy")
+
+
+def complete_data_sync(
+    repo: Path,
+    branch: str,
+    dev_head: str,
+    source_commit: str,
+    *,
+    status: str = "up-to-date",
+    paths: tuple[str, ...] = (),
+    dry_run: bool = False,
+) -> SyncOutcome:
+    """Reuse published history only after a clean, identical tree is installed.
+
+    Moving this named ref never writes the index or worktree. Even an edit made
+    after the clean check survives because both commits have the same tree;
+    the expected old SHA protects a development commit made concurrently.
+    """
+    ensure_dev_head(repo, branch, dev_head)
+    same_tree = git_text(repo, ["rev-parse", f"{dev_head}^{{tree}}"]) == git_text(
+        repo, ["rev-parse", f"{source_commit}^{{tree}}"]
+    )
+    if dev_head != source_commit and same_tree and not dirty_paths(repo):
+        if dry_run:
+            return SyncOutcome("would-reuse-published", source_commit, dev_head, paths)
+        ensure_dev_head(repo, branch, dev_head)
+        run_git(
+            repo,
+            ["update-ref", "-m", "Reuse published main commit for clean dev data sync",
+             f"refs/heads/{branch}", source_commit, dev_head],
+        )
+        dev_head = source_commit
+        status = "synced"
+    if not dry_run:
+        update_sync_ref(repo, source_commit)
+    return SyncOutcome(status, source_commit, dev_head, paths)
+
+
 def synchronize(
     source_repo: Path,
     source_ref: str,
@@ -1664,15 +1712,15 @@ def synchronize(
     baseline = last_source or git_text(dev_repo, ["merge-base", dev_head, source_commit])
     candidates = changed_data_paths(dev_repo, baseline, source_commit)
     if not candidates:
-        if not dry_run:
-            update_sync_ref(dev_repo, source_commit)
-        return SyncOutcome("up-to-date", source_commit, dev_head)
+        return complete_data_sync(
+            dev_repo, dev_branch, dev_head, source_commit, dry_run=dry_run,
+        )
 
     snapshot_commit = create_data_snapshot_commit(dev_repo, dev_head, source_commit, candidates)
     if snapshot_commit is None:
-        if not dry_run:
-            update_sync_ref(dev_repo, source_commit)
-        return SyncOutcome("up-to-date", source_commit, dev_head)
+        return complete_data_sync(
+            dev_repo, dev_branch, dev_head, source_commit, dry_run=dry_run,
+        )
 
     update_paths = snapshot_commit_paths(dev_repo, dev_head, snapshot_commit)
     overlap = overlapping_paths(dirty_paths(dev_repo), update_paths)
@@ -1685,11 +1733,7 @@ def synchronize(
     if dry_run:
         return SyncOutcome("would-sync", source_commit, dev_head, tuple(sorted(update_paths)))
 
-    ensure_no_git_operation(dev_repo)
-    if resolve_commit(dev_repo, "HEAD") != dev_head:
-        raise SyncError("dev HEAD changed during data sync; deferring until the next deploy")
-    if git_text(dev_repo, ["symbolic-ref", "--quiet", "--short", "HEAD"]) != dev_branch:
-        raise SyncError("dev branch changed during data sync; deferring until the next deploy")
+    ensure_dev_head(dev_repo, dev_branch, dev_head)
 
     merge = run_git(dev_repo, ["merge", "--ff-only", snapshot_commit], check=False)
     if merge.returncode != 0:
@@ -1699,8 +1743,10 @@ def synchronize(
     merged_head = resolve_commit(dev_repo, "HEAD")
     if merged_head != snapshot_commit:
         raise SyncError("dev data sync did not land at the expected snapshot commit")
-    update_sync_ref(dev_repo, source_commit)
-    return SyncOutcome("synced", source_commit, merged_head, tuple(sorted(update_paths)))
+    return complete_data_sync(
+        dev_repo, dev_branch, merged_head, source_commit,
+        status="synced", paths=tuple(sorted(update_paths)),
+    )
 
 
 def acquire_lock(path: Path) -> bool:
@@ -1750,12 +1796,23 @@ def main() -> int:
             dry_run=args.dry_run,
         )
         if outcome.status == "synced":
-            print(
-                f"✅ Synced {len(outcome.paths)} production data file(s) into {args.dev_branch} "
-                f"at {outcome.dev_commit[:12]}; uncommitted non-data work was preserved in place."
-            )
+            if outcome.dev_commit == outcome.source_commit:
+                print(
+                    f"✅ {args.dev_branch} reuses published main commit {outcome.dev_commit[:12]}; "
+                    "its complete committed tree matches production."
+                )
+            else:
+                print(
+                    f"✅ Synced {len(outcome.paths)} production data file(s) into {args.dev_branch} "
+                    f"at {outcome.dev_commit[:12]}; uncommitted non-data work was preserved in place."
+                )
         elif outcome.status == "would-sync":
             print(f"ℹ️ Dry run: would sync {len(outcome.paths)} data file(s) into {args.dev_branch}.")
+        elif outcome.status == "would-reuse-published":
+            print(
+                f"ℹ️ Dry run: {args.dev_branch} would reuse published main commit "
+                f"{outcome.source_commit[:12]} without changing files."
+            )
         elif outcome.status == "up-to-date":
             print(f"✅ {args.dev_branch} production data is already current.")
         return 0

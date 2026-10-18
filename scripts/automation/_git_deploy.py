@@ -12,6 +12,11 @@ from contextlib import nullcontext
 from pathlib import Path
 from datetime import datetime, timezone
 
+AUTOMATION_DIR = Path(__file__).resolve().parent
+if str(AUTOMATION_DIR) not in sys.path:
+    sys.path.insert(0, str(AUTOMATION_DIR))
+from _git_sync_guard import automation_commit_env
+
 REPO = Path(__file__).resolve().parents[2]
 STAGING_ROOT = Path("/tmp/animations_deploy_staging")
 HOURLY_STAGE_COMPLETE_SENTINEL = ".complete"
@@ -217,7 +222,8 @@ def automation_git_command(cmd):
 
 
 def run(cmd: list[str], cwd: Path | None = None, timeout: int | None = None) -> tuple[int, str, str]:
-    env = os.environ.copy()
+    creates_commit = cmd[:2] in (["git", "commit"], ["git", "merge"])
+    env = automation_commit_env() if creates_commit else os.environ.copy()
     env.setdefault("GIT_TERMINAL_PROMPT", "0")
     env.setdefault(
         "GIT_SSH_COMMAND",
@@ -902,7 +908,9 @@ def _main() -> int:
             if has_changes:
                 message = (f"Publish Quantum generation {_quantum_marker(run_dirs[-1] / 'files')['generation_id']}"
                            if deploy_source == "quantum" else AUTO_DEPLOY_COMMIT_MESSAGE)
-                commit_args = ["--amend", "--no-edit"] if amend_last else ["-m", message]
+                # --amend otherwise keeps the previous author, including data
+                # commits originally published under the maintainer's identity.
+                commit_args = ["--amend", "--no-edit", "--reset-author"] if amend_last else ["-m", message]
                 rc, out, err = run(["git", "commit", *commit_args], cwd=REPO, timeout=90)
                 if rc != 0:
                     print(f"❌ git commit failed: {err or out}")
