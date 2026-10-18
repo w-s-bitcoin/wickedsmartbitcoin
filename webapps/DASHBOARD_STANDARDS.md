@@ -153,17 +153,18 @@ Read the target dashboard's own notes for its calculation and data contracts.
 
   Render charts and text at the target resolution; do not upscale a screenshot.
   A video quality selection must never silently reduce PNG resolution.
-- **Use one export typography treatment**, based on Moving Average's bundled
-  fonts: DejaVu Sans Bold for the headline and panel headings, and regular
+- **Use one export typography treatment**, supplied by
+  `WSBDashboardExportBranding`: DejaVu Sans Bold for the headline and panel headings, and regular
   DejaVu Sans for labels, dates, and KPIs. Preserve tabular digits and a consistent
-  title → panel heading → data label hierarchy. The shared URL footer uses IBM Plex
-  Mono. Resolve the chosen fonts and weights before measuring or rendering;
+  title → panel heading → data label hierarchy. The shared URL footer uses bundled
+  IBM Plex Mono Medium (500). Await `ready()` before measuring or rendering;
   use the bundled headline face rather than a locally installed font so output
   stays consistent across machines. Keep the interactive shell's existing
   Space Grotesk/IBM Plex Mono styling.
 - **Use consistent branding:** reuse the existing Bitcoin wordmark with its
   original lettering and aspect ratio, plus the dashboard's canonical
-  `https://wickedsmartbitcoin.com/<slug>` footer through `drawFooterUrl()`.
+  `https://wickedsmartbitcoin.com/<slug>` footer through the branding helper's
+  `drawWordmark()` and `drawFooter()` methods.
   Match the reference's dark/light treatment and keep both mark and footer
   readable, clear of chart content, and inside the output. Use the same
   typography and branding for a dashboard's PNG and WebM exports.
@@ -206,23 +207,20 @@ Read the target dashboard's own notes for its calculation and data contracts.
 | Share encoding and shell forwarding | [dashboard_share.js](shared/dashboard_share.js) |
 | Publication refresh and previews | [webapp_data_auto_refresh.js](shared/webapp_data_auto_refresh.js), [preview_shared.js](shared/preview_shared.js) |
 | Video encoding, dimensions, estimates, footer | [dashboard_export.js](shared/dashboard_export.js) |
-| Export typography and branding assets | [DejaVu Sans](moving_average/assets/DejaVuSans.ttf), [DejaVu Sans Bold](moving_average/assets/DejaVuSans-Bold.ttf), [font license](moving_average/assets/LICENSE_DEJAVU), [Bitcoin wordmark](moving_average/assets/bitcoin-wordmark.jpg) — currently housed with Moving Average |
+| Export typography and branding | [dashboard_export_branding.js](shared/dashboard_export_branding.js) — bundled DejaVu Sans regular/bold, IBM Plex Mono Medium footer, and Bitcoin wordmark; [assets, licenses, and provenance](shared/export_assets/README.md) |
 | Calendar label layout, bounded hover, stable export composition | [Moving Average charts](moving_average/moving_average_charts.js), [export renderer](moving_average/moving_average_export.js), [behavior notes](moving_average/README.md) — dashboard-specific presentation using shared calendar ticks |
 
 Use the shared charting module's `createCalendarTicks()` for UTC date axes;
 its [API guide](README.md#calendar-tick-selection) explains count-based selection
 with measured label checks and span-based selection for stable export intervals.
 Keep label text, rotation, and positioning with each renderer.
-The export module encodes video and supplies
-utilities; it does not provide a universal dashboard composition or automatically
-apply the PNG/font/branding policy. Reuse the existing export assets rather than
-creating dashboard-specific copies; a future shared asset loader must preserve
-their license and Pages packaging. Check the actual APIs before using a reference
-as a dependency.
-
-Moving Average currently prefers a locally installed Arial Black headline.
-That existing font variation is an adoption gap: when updating its export
-typography, use the bundled bold headline specified above.
+The export module encodes video and supplies dimensions and estimates; PNG
+callers still request 2160 quality explicitly. Use the
+[shared branding API](README.md#export-typography-and-branding) for font loading,
+font roles, the wordmark, and canonical footer. Its assets and licenses live in
+`shared/export_assets/` and are included by the Pages build. Moving Average uses
+these helpers for both formats, including its bundled bold headline. Dashboard
+renderers retain their composition, sizes, positions, and label policies.
 
 ## Acceptance evidence
 
@@ -261,10 +259,10 @@ requirement to implement all of them during unrelated work.
 3. **Accessible data and methodology:** decide which charts need a selectable
    data table or CSV download, and standardize a concise source/formula/freshness
    explanation in the existing info popover.
-4. **Shared export presentation helpers:** implement the adopted PNG resolution,
-   typography, and branding policy with reusable asset-loading and drawing
-   helpers. Preserve dashboard-owned composition and keep the encoder separate;
-   the policy is decided, while shared enforcement remains implementation work.
+4. **Export branding adoption:** use `WSBDashboardExportBranding` when updating
+   older exporters, preserving dashboard-owned composition and keeping the
+   encoder separate. Moving Average already uses the shared fonts and branding;
+   record remaining adoption gaps in each affected dashboard's README.
 5. **Reusable review fixtures and scaffold:** create a small shared dataset and
    browser harness covering tiny/large values, flat/empty history, long spans,
    stale feeds, and viewport changes. Improve the generator's incomplete theme,

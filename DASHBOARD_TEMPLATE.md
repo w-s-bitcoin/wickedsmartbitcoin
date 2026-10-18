@@ -22,6 +22,10 @@ Every standard dashboard page must load these shared files before the dashboard 
 
 Dashboard-specific CSS may come after the shared CSS. Dashboard-specific JS should come after the shared JS.
 
+For PNG or WebM exports, also load `../shared/dashboard_export_branding.js`
+after `dashboard_export.js` and before the dashboard's export renderer. See the
+[shared export branding API](webapps/README.md#export-typography-and-branding).
+
 ## Required Dashboard Files
 
 Each dashboard should include:
@@ -125,7 +129,7 @@ New dashboards should match existing UOA/DCA behavior:
 - deterministic export frame building when a dashboard supports video download
 - PNG exports use the [2160-quality dimensions, typography, and branding standard](webapps/DASHBOARD_STANDARDS.md#png-and-webm-exports), independent of video quality; each dashboard keeps its own composition
 - shared download estimates through `window.WSBDashboardExport.estimateDownload()`
-- footer URL drawing through `window.WSBDashboardExport.drawFooterUrl()`
+- bundled export fonts, Bitcoin wordmark, and canonical URL footer through `window.WSBDashboardExportBranding`; await `ready()` before measuring or drawing, and retain dashboard-owned sizes and positions
 - no MP4 export paths; deterministic WebM is the standard video export
 - copy/restore controls use shared visual classes and state classes
 - copy links include every data/view control, including defaults, explicit dates,

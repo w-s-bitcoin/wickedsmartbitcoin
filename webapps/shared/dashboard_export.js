@@ -402,7 +402,7 @@
     // Metrics use the drawing coordinates; any final frame scaling applies to this text too.
     const outputScale = height / Math.max(1, referenceDimensions.height);
     const footerFontSize = Math.max(12, referenceFontSize * outputScale);
-    ctx.font = `500 ${footerFontSize}px IBM Plex Mono, monospace`;
+    ctx.font = `500 ${footerFontSize}px ${settings.fontFamily || "IBM Plex Mono, monospace"}`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(url, width / 2, height - footerHeight * 0.68);

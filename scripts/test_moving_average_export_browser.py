@@ -27,13 +27,16 @@ from test_moving_average_browser import (
 from test_stage1_refresh_atomicity import CdpSocket, free_port, wait_for
 
 
+BLOCKED_EXTERNAL_FONTS = ["*fonts.googleapis.com*", "*fonts.gstatic.com*"]
+
+
 RECORD_EXPORTS = r"""
 const fixture=w.__maFixture, G=w.WSBMovingAverageCharts;
 fixture.renders=[];
 const composite=G.composite;
 G.composite=(ctx,width,height,options)=>{
   const record={width,height,canvasWidth:ctx.canvas.width,canvasHeight:ctx.canvas.height,
-    date:options.model.rows[options.endIndex].date,text:[],plots:[],axes:[],images:[],priceStrokes:[]};
+    date:options.model.rows[options.endIndex].date,theme:options.theme||'dark',text:[],plots:[],axes:[],images:[],priceStrokes:[]};
   const native={fillText:ctx.fillText,rect:ctx.rect,clip:ctx.clip,drawImage:ctx.drawImage,
     beginPath:ctx.beginPath,moveTo:ctx.moveTo,lineTo:ctx.lineTo,stroke:ctx.stroke};
   let lastRect=null,path=[],axisStart=0;
@@ -74,6 +77,7 @@ G.composite=(ctx,width,height,options)=>{
   ctx.drawImage=function(image,...args){
     const dest=args.length===8?args.slice(4):args;
     record.images.push({source:image.currentSrc||image.src||'',origin:point(dest[0],dest[1]),
+      naturalWidth:image.naturalWidth,naturalHeight:image.naturalHeight,filter:ctx.filter,
       end:point(dest[0]+(dest[2]||image.width),dest[1]+(dest[3]||image.height))});
     return native.drawImage.call(ctx,image,...args);
   };
@@ -146,7 +150,63 @@ def overlaps(first, second):
     return first[0] < second[2] and first[2] > second[0] and first[1] < second[3] and first[3] > second[1]
 
 
+def check_loaded_fonts(cdp):
+    # FontFaceSet.check alone can pass by falling back; inspect the actual
+    # bundled faces after ready() has resolved, with Google Fonts blocked.
+    faces = dashboard(cdp, """
+      return [...d.fonts].filter(face=>face.family.includes('WSB Export')).map(face=>({
+        family:face.family.replaceAll('"',''),weight:face.weight,status:face.status}));
+    """)
+    expected = {("WSB Export DejaVu", "400"), ("WSB Export DejaVu", "700"), ("WSB Export IBM Plex Mono", "500")}
+    assert {(face["family"], face["weight"]) for face in faces} == expected, faces
+    assert all(face["status"] == "loaded" for face in faces), faces
+
+
+def check_branding(record):
+    for item in record["text"]:
+        font, text = item["font"], item["text"]
+        if text == "https://wickedsmartbitcoin.com/moving_average":
+            assert '"WSB Export IBM Plex Mono"' in font and font.startswith("500 "), item
+        else:
+            assert '"WSB Export DejaVu"' in font, item
+            heading = "Moving Average" in text or "History (" in text or "Window (" in text or text == " & "
+            if heading:
+                assert re.match(r"^(?:700|bold)\s", font), item
+            else:
+                assert not re.match(r"^(?:[5-9]00|bold|bolder)\s", font), item
+        assert "Arial" not in font and "Moving Average Heading" not in font, item
+    assert len(record["images"]) == 1, record["images"]
+    logo = record["images"][0]
+    assert logo["source"].endswith("/webapps/shared/export_assets/bitcoin-wordmark.jpg"), logo
+    assert logo["naturalWidth"] > 0 and logo["naturalHeight"] > 0, logo
+    ratio = (logo["end"][0] - logo["origin"][0]) / (logo["end"][1] - logo["origin"][1])
+    assert abs(ratio - logo["naturalWidth"] / logo["naturalHeight"]) < 1e-9, logo
+    assert logo["filter"] == ("invert(1) hue-rotate(180deg)" if record["theme"] == "light" else "none"), logo
+
+
+def check_asset_failure_retry(cdp, direct, asset):
+    cdp.command("Network.setBlockedURLs", {"urls": BLOCKED_EXTERNAL_FONTS + [f"*/webapps/shared/export_assets/{asset}"]})
+    navigate(cdp, direct + "?fixture_reset=1")
+    click(cdp, "#downloadImageBtn")
+    failure = wait_for(lambda: dashboard(cdp, """
+      const status=d.querySelector('#loadStatus');
+      return !status.hidden&&status.classList.contains('error')&&status.textContent.startsWith('Export failed:') ? status.textContent : false;
+    """), description=f"visible export failure for {asset}")
+    assert dashboard(cdp, "return w.__maFixture.downloads.length;") == 0, failure
+    assert dashboard(cdp, "return !d.querySelector('#downloadImageBtn').disabled;"), failure
+    assert_clean(cdp)
+    # A retry on the same page must load the recovered asset rather than reuse
+    # a rejected promise or silently draw with fallback fonts/missing branding.
+    cdp.command("Network.setBlockedURLs", {"urls": BLOCKED_EXTERNAL_FONTS})
+    click(cdp, "#downloadImageBtn")
+    wait_for(lambda: dashboard(cdp, "return w.__maFixture.downloads.length===1;"), timeout=60,
+             description=f"successful export retry for {asset}")
+    check_loaded_fonts(cdp)
+    assert_clean(cdp)
+
+
 def check_geometry(record, count=3):
+    check_branding(record)
     assert len(record["plots"]) == count, record["plots"]
     for rect in record["plots"]:
         x, y = rect["origin"]
@@ -241,8 +301,11 @@ def check_cents_statistics(record):
 
 
 def run_checks(cdp, direct, output):
+    for asset in ("DejaVuSans-Bold.ttf", "bitcoin-wordmark.jpg"):
+        check_asset_failure_retry(cdp, direct, asset)
     navigate(cdp, direct + "?fixture_reset=1")
     dashboard(cdp, "return w.WSBMovingAverageExport.ready();")
+    check_loaded_fonts(cdp)
     dashboard(cdp, RECORD_EXPORTS)
     set_input(cdp, "#endDateInput", "2024-09-16", "change")
     click(cdp, "#dateRangeSettingsBtn")
@@ -356,7 +419,7 @@ def run_checks(cdp, direct, output):
         if date == '2010-01-01':check_cents_statistics(result['record'])
     assert_clean(cdp)
     (output/"render-observations.json").write_text(json.dumps(results,indent=2)+"\n")
-    print("PASS export: true 4K PNG, decoded WebM, right-side y labels, consistent per-axis year/month formatting, powers-of-two long-history year ticks, no clipped/overlapping labels, stable historical geometry, light/square/portrait and EMA/None",flush=True)
+    print("PASS export: bundled shared typography and branding without Google Fonts, visible asset failure and retry, true 4K PNG, decoded WebM, right-side y labels, consistent per-axis year/month formatting, powers-of-two long-history year ticks, no clipped/overlapping labels, stable historical geometry, light/square/portrait and EMA/None",flush=True)
     print(f"Review images, video, and geometry: {output}",flush=True)
 
 
@@ -379,7 +442,8 @@ def main():
             target=json.load(urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{debug_port}/json/new?about:blank",method="PUT")))
             cdp=CdpSocket(target["webSocketDebuggerUrl"])
             cdp.command("Page.enable");cdp.command("Runtime.enable");cdp.command("Network.enable")
-            cdp.command("Network.setBlockedURLs",{"urls":["*fonts.googleapis.com*","*fonts.gstatic.com*"]})
+            cdp.command("Network.setCacheDisabled",{"cacheDisabled":True})
+            cdp.command("Network.setBlockedURLs",{"urls":BLOCKED_EXTERNAL_FONTS})
             cdp.command("Emulation.setDeviceMetricsOverride",{"width":1280,"height":900,"deviceScaleFactor":1,"mobile":False})
             cdp.command("Page.addScriptToEvaluateOnNewDocument",{"source":FIXTURE})
             run_checks(cdp,f"http://127.0.0.1:{server_port}/webapps/moving_average/dashboard.html",output)

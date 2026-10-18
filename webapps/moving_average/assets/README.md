@@ -1,28 +1,20 @@
-# Moving Average export assets
+# Moving Average export reference
 
-These local assets reproduce the appearance of the original Moving Average
-notebook without depending on a third-party font or image server during export.
-
-- `bitcoin-wordmark.jpg`: the 1873 × 394 original Bitcoin wordmark from the
-  maintainer’s existing animation assets,
-  `Projects/animations/Wicked Smart Bitcoin/sponsor-icons/bitcoin-logo-orig.jpg`.
-  The reference notebook uses its 200 × 43 derivative (`bitcoin-logo-sm.jpg`) at
-  position (1670, 32) in a 1920 × 1080 frame. The original preserves the exact
-  lettering and orange Bitcoin symbol with enough resolution for a 4K export.
-- `DejaVuSans.ttf` and `DejaVuSans-Bold.ttf`: unmodified DejaVu Sans fonts
-  distributed with Matplotlib. They match the notebook’s default chart and
-  statistics typography. Copyright and redistribution terms are preserved in
-  `LICENSE_DEJAVU`; these fonts are governed by that license rather than the
-  repository’s MIT license.
+Export fonts and the Bitcoin wordmark now live in
+[`shared/export_assets/`](../../shared/export_assets/README.md), with their
+provenance and licenses. Moving Average uses the
+[shared branding helper](../../README.md#export-typography-and-branding) for
+PNG and WebM output; keep shared assets out of this dashboard-local directory.
 
 The notebook is
 `Projects/animations/200 DMA & 200 WMA/200_dma_200_wma.ipynb`. It uses Matplotlib
 at 96 DPI: 16-point ticks/statistics correspond to 21⅓ output pixels and
 18-point bold chart titles correspond to 24 output pixels at 1080p. Its large
 heading is a separate pre-rendered `misc/title.png` rather than notebook text.
-The browser uses the installed Arial Black face for that heading when available,
-with bundled DejaVu Sans Bold as its offline fallback. No proprietary font file
-is redistributed.
+The browser uses bundled DejaVu Sans Bold for its headline under the shared
+export standard. It retains the notebook-inspired layout and uses the original
+1873 × 394 Bitcoin wordmark. The notebook used a 200 × 43 derivative
+(`bitcoin-logo-sm.jpg`) at position (1670, 32) in a 1920 × 1080 frame.
 
 To prevent layout movement between frames, the notebook reserves margins with
 invisible text before `tight_layout()` and pastes fixed-size chart images at

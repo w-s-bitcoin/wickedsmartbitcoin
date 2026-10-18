@@ -57,6 +57,8 @@ Common dashboard shell/layout rules are centralized in `webapps/shared/` and sho
 - `shared/dashboard_export.js`
   - Shared deterministic WebM export, output dimensions, bitrate, footer URL, and download estimate utilities
   - New or updated export features follow the [PNG resolution, typography, and branding standard](DASHBOARD_STANDARDS.md#png-and-webm-exports) while retaining their dashboard's layout. PNG requests use explicit 2160 quality; the utility's default/video quality does not enforce the PNG policy.
+- `shared/dashboard_export_branding.js`
+  - Lazy preparation of bundled export fonts and the Bitcoin wordmark, body/heading font roles, theme-aware wordmark drawing, and canonical URL footers. Load after `dashboard_export.js`; see [Export typography and branding](#export-typography-and-branding).
 - `shared/dashboard_shared.css`
   - Shared topbar/title/info-popover/chip/control/toggle shell rules
   - Shared compact action controls (swap button + resize-handle baseline)
@@ -123,6 +125,8 @@ Add these references in every `dashboard.html` file (path is relative to each da
 <script src="../shared/dashboard_components.js"></script>
 <script src="../shared/dashboard_charting.js"></script>
 <script src="../shared/dashboard_export.js"></script>
+<!-- For dashboards offering PNG or WebM exports: -->
+<script src="../shared/dashboard_export_branding.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -208,6 +212,57 @@ Use the [chart](moving_average/moving_average_charts.js) and
 [export](moving_average/moving_average_export.js) renderers as integration
 references. Run `node --test scripts/test_calendar_ticks.mjs` for the shared
 contract, plus the affected dashboard's rendering regressions.
+
+## Export typography and branding
+
+Load `shared/dashboard_export_branding.js` after `dashboard_export.js` and before
+the dashboard's export renderer. Its `window.WSBDashboardExportBranding` API
+shares presentation assets while leaving each dashboard's composition and
+coordinates with that renderer:
+
+- `await ready()` loads DejaVu Sans regular (400) and bold (700), IBM Plex Mono
+  Medium (500), and the decoded Bitcoin wordmark from `shared/export_assets/`.
+  Preparation is lazy and shared across calls. It must finish before text is
+  measured or output is drawn. Failure rejects the promise; report it through
+  the export UI and allow a later retry.
+- `setFont(ctx, size, role = "body")` selects bundled DejaVu Sans regular for
+  `"body"` or bold for `"heading"`. Sizes are canvas drawing units, so callers
+  retain their existing scaling and title/data hierarchy. The helper uses
+  private font family aliases that do not change the interactive shell.
+- `drawWordmark(ctx, { x, y, width }, { theme = "dark" } = {})` preserves the
+  original image's aspect ratio. It applies the existing light-theme treatment
+  and restores the context afterward. Callers reserve the destination space.
+- `drawFooter(ctx, slug, metrics, settings = {})` draws the canonical
+  `https://wickedsmartbitcoin.com/<slug>` URL in bundled IBM Plex Mono Medium.
+  Supply a canonical dashboard slug, not a URL. `metrics` contains drawing
+  `width`, `height`, and `footerHeight`; `settings` accepts the existing
+  `drawFooterUrl()` theme, orientation, and reference-quality options. Geometry
+  and sizing continue to use that shared footer implementation. Existing direct
+  `drawFooterUrl()` callers keep their default font behavior.
+
+```js
+const branding = window.WSBDashboardExportBranding;
+await branding.ready();
+branding.setFont(ctx, headlineSize, "heading");
+ctx.fillText(title, titleX, titleY);
+branding.setFont(ctx, labelSize);
+branding.drawWordmark(ctx, wordmarkRect, { theme });
+branding.drawFooter(ctx, manifest.slug, footerMetrics, { theme, orientation });
+```
+
+Await readiness once before PNG capture or WebM frame rendering, and keep the
+data/settings snapshot fixed for that export. PNG callers still request
+`getDimensions({ quality: "2160", orientation })` explicitly; branding does not
+choose output size or arrange panels. Moving Average's
+[export renderer](moving_average/moving_average_export.js) uses the shared helper
+for both formats while keeping its own layout.
+
+Do not copy these assets into individual dashboards. Preserve their
+[provenance and font licenses](shared/export_assets/README.md) in the Pages
+artifact. Run `node --test scripts/test_export_branding.mjs`, packaging checks,
+and the affected dashboard's decoded-output regressions after changing this
+helper or its assets. Adopt it within the affected export feature of an older
+dashboard and record remaining gaps in that dashboard's README.
 
 ## Copy Link state
 
@@ -738,7 +793,7 @@ Before calling a new dashboard finished, check all of the following:
 - Place a live-status dot before the KPI label or value it describes. For a card-level status, place the dot in the card's upper-left corner.
 - Playback keyboard controls use `WSBDashboardComponents.bindPlaybackKeyboardShortcuts()`.
 - Copy-link and reset button state use `WSBDashboardComponents.copyDashboardLink()`, `setResetButtonState()`, or `bindDashboardActions()`.
-- Animation exports use `WSBDashboardExport.encodeWebM()`, `estimateDownload()`, and `drawFooterUrl()`. MP4 export paths are retired.
+- Animation exports use `WSBDashboardExport.encodeWebM()` and `estimateDownload()`. PNG and WebM exporters use `WSBDashboardExportBranding` for bundled fonts, the Bitcoin wordmark, and canonical URL footers, awaiting `ready()` before drawing. MP4 export paths are retired.
 - Canvas dashboards should use `WSBDashboardCharting` for repeated y-axis ticks, right-side labels, current-value labels, date ticks, and linear/log scale math before adding dashboard-local chart helpers.
 - Run `scripts/check_dashboard_contract.sh webapps/<dashboard>` before handoff; run `scripts/check_all_dashboards.sh --smoke` for shared shell changes. The default checks exclude Casascius because it uses a different application structure; its focused live-refresh suite covers its data lifecycle.
 - Browser smoke verifies that Chrome returns a document body; it does not prove that charts rendered or that there were no JavaScript errors. Run the relevant behavior suite and inspect changed UI in both standalone and embedded modes.

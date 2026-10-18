@@ -153,18 +153,18 @@ composition to their available space.
 
 PNG downloads always use 2160-pixel quality: **3840 × 2160** landscape,
 **2160 × 3840** portrait, or **2160 × 2160** square. The quality selector controls
-WebM resolution. Both formats wait for bundled DejaVu Sans regular/bold fonts
-and the Bitcoin wordmark to load before drawing. The headline uses locally
-installed Arial Black when available, with bundled DejaVu Sans Bold as its
-fallback; the selected face is resolved before capture begins. The wordmark
-already includes its original lettering.
+WebM resolution. Both formats use
+[`WSBDashboardExportBranding`](../README.md#export-typography-and-branding) and
+wait for the bundled fonts and Bitcoin wordmark before measuring or drawing.
+Headlines and panel headings use DejaVu Sans Bold; labels, dates, and KPIs use
+regular DejaVu Sans. The canonical URL footer uses bundled IBM Plex Mono Medium
+(500). Export-only font aliases keep these assets separate from the interactive
+shell's typography. The wordmark retains its original lettering and aspect ratio.
 
-The [shared export standard](../DASHBOARD_STANDARDS.md#png-and-webm-exports)
-now adopts these PNG dimensions and branding while requiring bundled DejaVu Sans
-Bold for headlines across machines. The current optional Arial Black headline
-is a remaining adoption gap: when this export feature is next updated, use the
-bundled headline and verify both fonts/branding and decoded output. Keep this
-dashboard's own composition and calculation semantics.
+This implements the [shared export standard](../DASHBOARD_STANDARDS.md#png-and-webm-exports)
+while preserving Moving Average's own composition, sizes, positions, and
+calculation semantics. Assets, licenses, and provenance are in
+[`shared/export_assets/`](../shared/export_assets/README.md).
 
 The export renderer uses fixed panel rectangles, fixed title/KPI anchors, and
 tabular digits, so changing prices, dates, or tick widths cannot move the
@@ -245,6 +245,7 @@ Run the focused calculation and publication checks from the repository root:
 ```bash
 node --test scripts/test_moving_average_model.mjs
 node --test scripts/test_calendar_ticks.mjs
+node --test scripts/test_export_branding.mjs
 python3 scripts/test_moving_average_browser.py
 python3 scripts/test_moving_average_export_browser.py
 ```
@@ -254,7 +255,8 @@ active observation, current endpoint updates for all units, None, calendar month
 ends and leap years, no lookahead, complete-window limits, invalid/missing data,
 payload mismatch, generation races, and stale publications.
 The export regression decodes real PNG/WebM downloads, checks 4K image and
-selected video dimensions, verifies stable header/plot geometry across widely
+selected video dimensions, verifies bundled font roles and the canonical footer,
+and checks stable header/plot geometry across widely
 different historical values, and covers light mode, square/portrait layouts,
 and EMA/None. It writes review images, short videos, and recorded geometry to a
 temporary directory; use `--output-dir /tmp/moving-average-review` to choose it.

@@ -1,29 +1,10 @@
 (function () {
   "use strict";
   const M = window.WSBMovingAverageModel, C = window.WSBDashboardCharting;
-  const DAY = 86400000, FONT = '"Moving Average DejaVu"';
-  const base = new URL("assets/", document.currentScript.src);
+  const B = window.WSBDashboardExportBranding, DAY = 86400000;
   const units = { day: "Day", week: "Week", month: "Month" };
   const dateFormat = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
-  let assets;
-
-  function ready() {
-    if (!assets) assets = (async () => {
-      const faces = [new FontFace("Moving Average DejaVu", `url(${new URL("DejaVuSans.ttf", base)})`),
-        new FontFace("Moving Average DejaVu", `url(${new URL("DejaVuSans-Bold.ttf", base)})`, { weight: "700" })];
-      // The notebook's raster heading uses Arial Black. Use the installed face
-      // where available; the bundled bold face is the offline fallback.
-      const heading = new FontFace("Moving Average Heading", 'local("Arial Black")', { weight: "900" });
-      const logo = new Image(); logo.src = new URL("bitcoin-wordmark.jpg", base).href;
-      await Promise.all([...faces.map(async (face) => { await face.load(); document.fonts.add(face); }), logo.decode(),
-        heading.load().then((face) => document.fonts.add(face)).catch(() => {})]);
-      return { logo };
-    })().catch((error) => { assets = null; throw error; });
-    return assets;
-  }
-  let logo;
-  async function prepare() { ({ logo } = await ready()); }
-  function font(ctx, size, bold = false) { ctx.font = `${bold ? "700" : "400"} ${size}px ${FONT}, sans-serif`; }
+  function font(ctx, size, bold = false) { B.setFont(ctx, size, bold ? "heading" : "body"); }
   function fullLabel(line) { return `${line.period} ${units[line.unit]} ${line.type === "ema" ? "Exponential " : ""}Moving Average`; }
   function shortLabel(line) {
     return line.type === "ema" ? `${line.period}${line.unit[0].toUpperCase()} EMA:` : `${line.period} ${line.unit[0].toUpperCase()}MA:`;
@@ -152,7 +133,7 @@
     ctx.save(); ctx.scale(width / l.width, height / l.height); ctx.fillStyle = colors.bg; ctx.fillRect(0, 0, l.width, l.height);
     ctx.fillStyle = colors.fg; ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
     const labels = active.map((i) => fullLabel(lines[i])), join = " & ";
-    const headingFont = (size) => { ctx.font = `900 ${size}px "Moving Average Heading", ${FONT}, sans-serif`; };
+    const headingFont = (size) => B.setFont(ctx, size, "heading");
     headingFont(42);
     const title = labels.join(join) || "Bitcoin Price", titleSize = Math.min(42, 42 * l.title.width / ctx.measureText(title).width);
     headingFont(titleSize);
@@ -175,17 +156,14 @@
       const valueX = l.kpi.x + ctx.measureText(label + " ").width;
       ctx.fillStyle = colors.fg; ctx.fillText(statistic(series[i]?.[endIndex]), valueX, y);
     });
-    if (logo) {
-      ctx.save(); if (light) ctx.filter = "invert(1) hue-rotate(180deg)";
-      ctx.drawImage(logo, l.logo.x, l.logo.y, l.logo.width, l.logo.width * logo.height / logo.width); ctx.restore();
-    }
+    B.drawWordmark(ctx, l.logo, { theme });
     // Fixed right-hand gutters fit the axis text without shifting plots as
     // prices change or the selected scale switches between linear and log.
     l.plots.slice(0, 1 + active.length).forEach((rect, i) => plot(ctx, rect, options, i, active, colors));
-    window.WSBDashboardExport.drawFooterUrl(ctx, "https://wickedsmartbitcoin.com/moving_average", { width: l.width, height: l.height, footerHeight: l.width > l.height ? 100 : 70 }, {
+    B.drawFooter(ctx, "moving_average", { width: l.width, height: l.height, footerHeight: l.width > l.height ? 100 : 70 }, {
       theme, orientation: l.width > l.height ? "landscape" : l.width === l.height ? "square" : "portrait",
     });
     ctx.restore();
   }
-  window.WSBMovingAverageExport = { ready: prepare, render };
+  window.WSBMovingAverageExport = { ready: B.ready, render };
 }());
