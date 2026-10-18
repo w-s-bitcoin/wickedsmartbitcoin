@@ -129,44 +129,10 @@
     }
     ctx.restore();
   }
-  function calendarTicks(start, end, unit, step, limit) {
-    const ticks = [], date = new Date(start);
-    let cursor;
-    if (unit === "month") {
-      const month = Math.floor((date.getUTCFullYear() * 12 + date.getUTCMonth()) / step) * step;
-      cursor = Date.UTC(Math.floor(month / 12), month % 12, 1);
-    } else if (unit === "year") {
-      cursor = Date.UTC(Math.floor(date.getUTCFullYear() / step) * step, 0, 1);
-    } else {
-      const anchor = unit === "week" ? Date.UTC(1970, 0, 4) : 0;
-      const interval = step * DAY * (unit === "week" ? 7 : 1);
-      cursor = anchor + Math.ceil((start - anchor) / interval) * interval;
-    }
-    while (cursor <= end) {
-      if (cursor >= start) {
-        ticks.push(cursor);
-        if (ticks.length > limit) break;
-      }
-      const at = new Date(cursor);
-      cursor = unit === "month" ? Date.UTC(at.getUTCFullYear(), at.getUTCMonth() + step, 1)
-        : unit === "year" ? Date.UTC(at.getUTCFullYear() + step, 0, 1)
-          : cursor + step * DAY * (unit === "week" ? 7 : 1);
-    }
-    return ticks;
-  }
   function dateAxisTicks(start, end, plot, ctx) {
-    const intervals = [
-      ["day", 1], ["day", 2], ["week", 1], ["week", 2],
-      ["month", 1], ["month", 2], ["month", 3], ["month", 6],
-      // Coarser history ticks stay on even years as the visible span grows.
-      ...[1, 2, 4, 8, 16, 32, 64, 128].map((step) => ["year", step]),
-    ];
-    const limit = Math.max(2, Math.floor(plot.width / 65) + 1);
-    for (const [unit, step] of intervals) {
-      const times = calendarTicks(start, end, unit, step, limit);
-      if (!times.length || times.length > limit) continue;
+    function layout({ times, unit }) {
       let previousYear, previousRight = -Infinity;
-      const ticks = times.map((time) => {
+      return times.map((time) => {
         const date = new Date(time), year = date.getUTCFullYear();
         const yearLabel = unit === "year" || (unit === "month" && date.getUTCMonth() === 0);
         const label = yearLabel ? String(year) : C.formatDateTick(time, {
@@ -181,9 +147,11 @@
         previousRight = labelX + half;
         return { time, label, x, labelX, fits };
       });
-      if (ticks.every((tick) => tick.fits)) return ticks;
     }
-    return [];
+    return layout(C.createCalendarTicks(start, end, {
+      maxTicks: Math.max(2, Math.floor(plot.width / 65) + 1),
+      accept: (candidate) => layout(candidate).every((tick) => tick.fits),
+    }));
   }
   function panel(ctx, rect, options) {
     const { model, series, lines, endIndex, startTime, scale = "linear", theme = "dark", title = "", hoverIndex = -1, compact = false } = options;

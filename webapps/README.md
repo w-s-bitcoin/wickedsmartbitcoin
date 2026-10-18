@@ -52,7 +52,7 @@ Common dashboard shell/layout rules are centralized in `webapps/shared/` and sho
   - Shared date picker, date range, button group, two-panel mode, scale button, floating settings menu, copy/reset, manifest runtime, and playback keyboard helpers
 - `shared/dashboard_charting.js`
   - Shared canvas chart helpers for plot rectangles, linear/log ticks, grid lines, right-side y-axis labels, and standard number/date/currency formatting
-  - Calendar date-tick selection is currently local to Moving Average's chart/export renderers. Follow the shared standards when reusing or extracting it; date formatting alone does not choose tick intervals.
+  - `createCalendarTicks()` selects UTC day/week/month/year boundaries with doubling multi-year intervals. Moving Average's dashboard and exports share it; callers retain their own label formatting and layout. See [Calendar tick selection](#calendar-tick-selection).
   - `createScaleTransitionController()` provides the 700 ms half-cosine LOG/LIN transition, continuous reversals, independent panels, and reduced-motion/page lifecycle handling. Dashboards retain their own endpoint ranges and interpolate their screen coordinates. `morphScaleTicks()` moves the existing tick values, crossfades distinct tick sets, preserves shared labels, and prevents a linear-only zero tick from reappearing during its fade.
 - `shared/dashboard_export.js`
   - Shared deterministic WebM export, output dimensions, bitrate, footer URL, and download estimate utilities
@@ -153,6 +153,61 @@ For dashboards that use `--signal` as the accent token:
 ```
 
 Load `preview_app.js` at the end of `<body>` after `preview_shared.js`.
+
+## Calendar tick selection
+
+Use `WSBDashboardCharting.createCalendarTicks(startMs, endMs, options)` for UTC
+calendar axes. It returns `{ times, unit, step }`: inclusive timestamps in
+ascending order and the selected interval. Defaults are `maxTicks: 8`,
+`minUnit: "day"`, `density: "count"`, and `fallback: false`.
+
+Candidates are 1/2 days, 1/2 weeks, 1/2/3/6 months, then
+1/2/4/8/16/32/64/128 years. Days align to the Unix epoch, weeks to Sunday
+(fortnights anchored on 1970-01-04), months to their first day, and years to
+January 1 in years divisible by the step. Positions use UTC calendar arithmetic;
+the displayed timezone does not move historical observations.
+
+- `maxTicks` is a positive finite capacity, rounded down to an integer.
+  `density: "count"` chooses the finest nonempty candidate whose actual count
+  fits. It rejects overflow rather than returning a truncated axis.
+- `accept({ times, unit, step })` may reject a candidate after measuring its
+  labels. The selector then tries a coarser interval. Label strings, spacing,
+  rotation, clamping, and gridline positioning remain renderer responsibilities.
+- `minUnit` accepts `"day"`, `"week"`, `"month"`, or `"year"` and excludes finer
+  candidates. Moving Average exports start at months to avoid repeated month
+  labels in short windows.
+- `density: "span"` chooses by visible span divided by nominal interval length
+  (1/7/30.44/365.25 days). This keeps the interval stable when boundaries enter
+  or leave an animated range; inclusive endpoints can exceed the capacity.
+  The coarsest candidate is used if even it exceeds the nominal capacity.
+- `fallback: true` supplies one in-range timestamp when a selected interval has
+  no boundary: the next UTC midnight, capped at the end. It is not a synthetic
+  calendar boundary; format it from its actual date.
+
+Invalid/reversed timestamp ranges or invalid selection options return
+`{ times: [], unit: null, step: 0 }`. A valid single-point range can produce a
+boundary or an opted-in fallback. With no acceptable candidate, the result is
+also empty.
+
+```js
+// Interactive axis: retain local font measurements and edge placement.
+const ticks = WSBDashboardCharting.createCalendarTicks(start, end, {
+  maxTicks: Math.max(2, Math.floor(plot.width / 65) + 1),
+  accept: candidate => layoutLabels(candidate).every(tick => tick.fits),
+});
+
+// Stable export axis: month labels on short windows, year labels on long ones.
+const exportTicks = WSBDashboardCharting.createCalendarTicks(start, end, {
+  maxTicks: Math.max(2, Math.floor(plot.width / 90)),
+  minUnit: "month", density: "span", fallback: true,
+});
+```
+
+These width budgets are Moving Average examples, not mandatory layout values.
+Use the [chart](moving_average/moving_average_charts.js) and
+[export](moving_average/moving_average_export.js) renderers as integration
+references. Run `node --test scripts/test_calendar_ticks.mjs` for the shared
+contract, plus the affected dashboard's rendering regressions.
 
 ## Copy Link state
 

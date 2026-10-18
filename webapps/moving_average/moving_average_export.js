@@ -44,24 +44,11 @@
     return C.createLinearTicks(first * step, last * step, Math.max(1, last - first + 1));
   }
   function dateTicks(start, end, width) {
-    const span = (end - start) / DAY, capacity = Math.max(2, Math.floor(width / 90));
     // Calendar-aligned locators, independent of the changing label widths. Never
     // clamp the first/last label: that made labels stick then jump at the edges.
-    const intervals = [["month", 1], ["month", 2], ["month", 3], ["month", 6],
-      ...[1, 2, 4, 8, 16, 32, 64, 128].map((n) => ["year", n])];
-    const [unit, step] = intervals.find(([unit, n]) => span / (n * (unit === "year" ? 365.25 : 30.44)) <= capacity) || ["year", 128];
-    const date = new Date(start), ticks = [];
-    let cursor = unit === "year" ? Date.UTC(Math.ceil(date.getUTCFullYear() / step) * step, 0, 1)
-      : Date.UTC(date.getUTCFullYear(), Math.floor(date.getUTCMonth() / step) * step, 1);
-    while (cursor <= end) {
-      const at = new Date(cursor);
-      if (cursor >= start) ticks.push(cursor);
-      cursor = unit === "year" ? Date.UTC(at.getUTCFullYear() + step, 0, 1)
-        : Date.UTC(at.getUTCFullYear(), at.getUTCMonth() + step, 1);
-    }
-    // A range wholly within one month needs one label, not repeated copies of
-    // the same MM-YYYY text on daily ticks.
-    if (!ticks.length) ticks.push(Math.min(end, Math.ceil(start / DAY) * DAY));
+    const { times: ticks } = C.createCalendarTicks(start, end, {
+      maxTicks: Math.max(2, Math.floor(width / 90)), minUnit: "month", density: "span", fallback: true,
+    });
     const yearsOnly = ticks.every((time) => { const at = new Date(time); return at.getUTCMonth() === 0 && at.getUTCDate() === 1; });
     return ticks.map((time) => {
       const at = new Date(time), year = String(at.getUTCFullYear());

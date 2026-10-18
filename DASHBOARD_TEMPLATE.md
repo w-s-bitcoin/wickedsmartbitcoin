@@ -86,6 +86,7 @@ Repeated canvas chart math should use `window.WSBDashboardCharting` before addin
 
 - plot rectangles and value-to-pixel mapping
 - linear/log y-axis ticks
+- UTC calendar x-axis ticks with `createCalendarTicks()`; keep label layout local
 - grid lines and right-side tick labels
 - standard number, currency, and date tick formatting
 

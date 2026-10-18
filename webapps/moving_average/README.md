@@ -17,6 +17,10 @@ The full dashboard and exports retain their axes and labels.
 Long history ranges use calendar-aligned year ticks spaced by powers of two
 (2, 4, 8 years, and so on), adapting to the available width in both the dashboard
 and downloads. Shorter ranges retain annual, monthly, weekly, or daily ticks.
+Both renderers use shared
+[`createCalendarTicks()`](../README.md#calendar-tick-selection): the dashboard
+selects by actual count and measured label fit; exports select by span for
+stable intervals. Label text, placement, and export rotation remain local.
 
 ## Calculation semantics
 
@@ -240,6 +244,7 @@ Run the focused calculation and publication checks from the repository root:
 
 ```bash
 node --test scripts/test_moving_average_model.mjs
+node --test scripts/test_calendar_ticks.mjs
 python3 scripts/test_moving_average_browser.py
 python3 scripts/test_moving_average_export_browser.py
 ```

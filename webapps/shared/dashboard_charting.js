@@ -134,6 +134,78 @@
     });
   }
 
+  const CALENDAR_DAY = 86400000;
+  const CALENDAR_UNITS = ["day", "week", "month", "year"];
+  const CALENDAR_INTERVALS = [
+    ["day", 1], ["day", 2], ["week", 1], ["week", 2],
+    ["month", 1], ["month", 2], ["month", 3], ["month", 6],
+    ...[1, 2, 4, 8, 16, 32, 64, 128].map((step) => ["year", step]),
+  ];
+  const CALENDAR_SPAN_DAYS = { day: 1, week: 7, month: 30.44, year: 365.25 };
+
+  function calendarMonthStart(year, month = 0) {
+    const date = new Date(0);
+    // Unlike Date.UTC(), this preserves years 0–99 instead of adding 1900.
+    date.setUTCFullYear(year, month, 1);
+    return date.getTime();
+  }
+
+  function calendarTimes(start, end, unit, step, limit) {
+    const times = [], date = new Date(start);
+    let cursor;
+    if (unit === "month") {
+      const month = Math.floor((date.getUTCFullYear() * 12 + date.getUTCMonth()) / step) * step;
+      const year = Math.floor(month / 12);
+      cursor = calendarMonthStart(year, month - year * 12);
+    } else if (unit === "year") {
+      cursor = calendarMonthStart(Math.floor(date.getUTCFullYear() / step) * step);
+    } else {
+      const anchor = unit === "week" ? Date.UTC(1970, 0, 4) : 0;
+      const interval = step * CALENDAR_DAY * (unit === "week" ? 7 : 1);
+      cursor = anchor + Math.ceil((start - anchor) / interval) * interval;
+    }
+    while (cursor <= end) {
+      if (cursor >= start) {
+        times.push(cursor);
+        // Keep an overflow sentinel so a dense candidate cannot look like a fit.
+        if (times.length > limit) break;
+      }
+      const at = new Date(cursor);
+      cursor = unit === "month" ? calendarMonthStart(at.getUTCFullYear(), at.getUTCMonth() + step)
+        : unit === "year" ? calendarMonthStart(at.getUTCFullYear() + step)
+          : cursor + step * CALENDAR_DAY * (unit === "week" ? 7 : 1);
+    }
+    return times;
+  }
+
+  // UTC positions only: callers own labels, measured collision checks, and layout.
+  // Count density fits interactive axes; span density keeps export intervals
+  // stable as calendar boundaries enter/leave the visible range during playback.
+  function createCalendarTicks(start, end, {
+    maxTicks = 8, minUnit = "day", density = "count", accept, fallback = false,
+  } = {}) {
+    const empty = { times: [], unit: null, step: 0 };
+    const limit = Math.floor(maxTicks), firstUnit = CALENDAR_UNITS.indexOf(minUnit);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start > end
+      || !Number.isFinite(new Date(start).getTime()) || !Number.isFinite(new Date(end).getTime())
+      || !Number.isFinite(maxTicks) || limit < 1 || firstUnit < 0
+      || !["count", "span"].includes(density) || (accept !== undefined && typeof accept !== "function")) return empty;
+    const intervals = CALENDAR_INTERVALS.filter(([unit]) => CALENDAR_UNITS.indexOf(unit) >= firstUnit);
+    const spanDays = (end - start) / CALENDAR_DAY;
+    for (let i = 0; i < intervals.length; i++) {
+      const [unit, step] = intervals[i];
+      if (density === "span" && spanDays / (step * CALENDAR_SPAN_DAYS[unit]) > limit && i < intervals.length - 1) continue;
+      const times = calendarTimes(start, end, unit, step, density === "count" ? limit : Infinity);
+      if (density === "count" && times.length > limit) continue;
+      // Export ranges wholly within a month still need one in-range date label.
+      if (!times.length && fallback) times.push(Math.min(end, Math.ceil(start / CALENDAR_DAY) * CALENDAR_DAY));
+      if (!times.length) continue;
+      const candidate = { times, unit, step };
+      if (!accept || accept(candidate)) return candidate;
+    }
+    return empty;
+  }
+
   // The selected mode belongs to dashboard state. This controller owns only
   // transient screen geometry, so shared links and exports never save a blend.
   function createScaleTransitionController({ render, duration = 700 } = {}) {
@@ -258,6 +330,7 @@
   ns.formatCompactNumber = formatCompactNumber;
   ns.formatCurrency = formatCurrency;
   ns.formatDateTick = formatDateTick;
+  ns.createCalendarTicks = createCalendarTicks;
   ns.createScaleTransitionController = createScaleTransitionController;
   ns.morphScaleTicks = morphScaleTicks;
 }());

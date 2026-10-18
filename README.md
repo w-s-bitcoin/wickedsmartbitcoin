@@ -284,6 +284,7 @@ CHROME_BIN=/path/to/chromium python3 scripts/test_stage4_live_refresh.py
 node scripts/test_dca_live_price.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_dca_live_price_browser.py
 node --test scripts/test_moving_average_model.mjs
+node --test scripts/test_calendar_ticks.mjs
 node --test scripts/test_scale_transitions.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_dca_scale_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_days_issuance_scale_browser.py

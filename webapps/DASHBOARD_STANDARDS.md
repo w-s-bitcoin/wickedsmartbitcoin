@@ -202,15 +202,18 @@ Read the target dashboard's own notes for its calculation and data contracts.
 | --- | --- |
 | Shell, theme, controls | [dashboard_shared.css](shared/dashboard_shared.css), [dashboard_controls.css](shared/dashboard_controls.css), [dashboard_embed_modal.js](shared/dashboard_embed_modal.js) |
 | Dates, menus, playback keys, reset, timezone, loaders | [dashboard_components.js](shared/dashboard_components.js), [timezone preferences](../js/11_dashboard_timezone_preferences.js) |
-| Plot geometry, value ticks/formatting, scale transitions | [dashboard_charting.js](shared/dashboard_charting.js) |
+| Plot geometry, calendar/value ticks, formatting, scale transitions | [dashboard_charting.js](shared/dashboard_charting.js) — `createCalendarTicks()` supplies shared UTC calendar selection |
 | Share encoding and shell forwarding | [dashboard_share.js](shared/dashboard_share.js) |
 | Publication refresh and previews | [webapp_data_auto_refresh.js](shared/webapp_data_auto_refresh.js), [preview_shared.js](shared/preview_shared.js) |
 | Video encoding, dimensions, estimates, footer | [dashboard_export.js](shared/dashboard_export.js) |
 | Export typography and branding assets | [DejaVu Sans](moving_average/assets/DejaVuSans.ttf), [DejaVu Sans Bold](moving_average/assets/DejaVuSans-Bold.ttf), [font license](moving_average/assets/LICENSE_DEJAVU), [Bitcoin wordmark](moving_average/assets/bitcoin-wordmark.jpg) — currently housed with Moving Average |
-| Calendar tick selection, bounded hover, stable export composition | [Moving Average charts](moving_average/moving_average_charts.js), [export renderer](moving_average/moving_average_export.js), [behavior notes](moving_average/README.md) — currently local implementations |
+| Calendar label layout, bounded hover, stable export composition | [Moving Average charts](moving_average/moving_average_charts.js), [export renderer](moving_average/moving_average_export.js), [behavior notes](moving_average/README.md) — dashboard-specific presentation using shared calendar ticks |
 
-The shared charting module formats dates but does not yet provide Moving
-Average's calendar tick selection. The export module encodes video and supplies
+Use the shared charting module's `createCalendarTicks()` for UTC date axes;
+its [API guide](README.md#calendar-tick-selection) explains count-based selection
+with measured label checks and span-based selection for stable export intervals.
+Keep label text, rotation, and positioning with each renderer.
+The export module encodes video and supplies
 utilities; it does not provide a universal dashboard composition or automatically
 apply the PNG/font/branding policy. Reuse the existing export assets rather than
 creating dashboard-specific copies; a future shared asset loader must preserve
@@ -248,9 +251,10 @@ physical touch device was tested. Screenshots should show the changed result.
 These are follow-up candidates, not claims of existing shared support or a
 requirement to implement all of them during unrelated work.
 
-1. **Shared calendar ticks and formatting:** extract the duplicated selectors
-   into charting, with configurable label policies and collision tests. This
-   would make doubling intervals reusable without copying Moving Average.
+1. **Calendar axis adoption:** use `createCalendarTicks()` when updating older
+   UTC date axes, with local label policies and collision checks. Moving Average
+   already uses it for its dashboard and exports; track other adoption gaps in
+   the affected dashboard's README.
 2. **Keyboard and touch access:** improve the shared date picker's focus and
    keyboard navigation, add larger invisible touch targets where compact controls
    need them, and choose a consistent tap/keyboard chart inspection interaction.
