@@ -146,8 +146,9 @@ def wait_for_preview(cdp, url, timeout):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
-            state = cdp.evaluate("({url: location.href, ready: document.documentElement.dataset.previewReady, "
-                                 "available: document.documentElement.dataset.previewAvailable})")
+            # Navigation can expose a context before its document root exists.
+            state = cdp.evaluate("({url: location.href, ready: document.documentElement?.dataset.previewReady, "
+                                 "available: document.documentElement?.dataset.previewAvailable})")
         except RuntimeError as error:
             if not any(message in str(error) for message in ("context was destroyed", "Cannot find context")):
                 raise

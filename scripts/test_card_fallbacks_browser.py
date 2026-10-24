@@ -19,7 +19,13 @@ import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import unittest
+from unittest.mock import patch
 import zlib
+
+if __package__:
+    from . import capture_card_fallbacks as capture_module
+else:
+    import capture_card_fallbacks as capture_module
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -154,6 +160,34 @@ class CardFallbackCaptureTest(unittest.TestCase):
              "--timeout", str(timeout), "--chrome", CHROME],
             cwd=ROOT, capture_output=True, text=True, timeout=90,
         )
+
+    def test_missing_document_root_waits_for_a_painted_preview(self):
+        evaluate = capture_module.CdpSocket.evaluate
+        pending_states = []
+
+        def evaluate_without_root(cdp, expression):
+            if "previewReady" in expression and not pending_states:
+                if evaluate(cdp, "location.pathname.includes('/webapps/') && !!document.documentElement"):
+                    # Evaluate the actual readiness expression with a null root,
+                    # reproducing the navigation race deterministically in Chrome.
+                    state = evaluate(cdp, "(() => { const root = document.documentElement; root.remove(); "
+                                     "try { return (" + expression + "); } "
+                                     "finally { document.appendChild(root); } })()")
+                    pending_states.append(state)
+                    return state
+            return evaluate(cdp, expression)
+
+        with tempfile.TemporaryDirectory(prefix="wsb-fallback-no-root-") as temporary:
+            root = Path(temporary)
+            fixture_dist(root, {"navigation": ("ready", 640, 360)})
+            with patch.object(capture_module.CdpSocket, "evaluate", evaluate_without_root):
+                capture_module.capture(root, CHROME, 10)
+            self.assertEqual(len(pending_states), 1)
+            self.assertIsNone(pending_states[0].get("ready"))
+            images = list((root / "assets/card_fallbacks").glob("navigation*.png"))
+            self.assertEqual(len(images), 2)
+            self.assertEqual({png_info(image.read_bytes()) for image in images},
+                             {(640, 360, COLORS[theme]) for theme in COLORS})
 
     def test_capture_uses_painted_theme_pixels_and_content_hashes(self):
         with tempfile.TemporaryDirectory(prefix="wsb-fallback-capture-") as temporary:
