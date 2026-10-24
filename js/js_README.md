@@ -91,9 +91,19 @@ including saved navigation snapshots. Their direct URLs remain available.
 - `09_bootstrap_fetch_init_global_exports.js`: image manifest fetch, representative card rewrites, deep-link resolution, init sequence
 - `10_event_bindings_global_modal_menu.js`: event wiring for keyboard/mouse/touch/menu/controls
 - `11_dashboard_timezone_preferences.js`: shared dashboard timezone preference handling
-- `12_homepage_kpis.js`: published network snapshot, supply/halving/difficulty progress, separate local clock, and refresh behavior. Failed or invalid fetches retain the last complete snapshot and its actual block timestamp.
+- `12_homepage_kpis.js`: published network snapshot, elapsed block timer, supply/halving/difficulty progress, separate local clock, and refresh behavior. Failed or invalid fetches retain the last complete snapshot and its actual block timestamp.
 
-The landing page uses `assets/homepage.css`, scoped to `.homepage`, after the shared `assets/styles.css`. Its compact network snapshot shows the latest published block, issued supply, blocks until the next halving, and blocks until the next difficulty adjustment. The block timestamp and progress percentages sit directly beneath the divider and bars; detailed metrics have been removed from the cards. The block timestamp comes from `assets/top_kpis.json`, while the footer clock uses the browser's selected time zone. Dashboards have separate publication schedules.
+The landing page uses `assets/homepage.css`, scoped to `.homepage`, after the shared `assets/styles.css`. Its compact network snapshot shows the latest published block, issued supply, blocks until the next halving, and blocks until the next difficulty adjustment. The block timestamp and progress percentages sit directly beneath the bars. The block timestamp comes from `assets/top_kpis.json`, while timestamps and the separate footer clock follow the selected time zone. Dashboards have separate publication schedules.
+
+The block card's elapsed counter updates every second while visible, using the
+displayed block's miner timestamp rather than fetch or page-load time. Its bar
+fills at 10 minutes and stays full afterward: green below 10 minutes, orange
+from 10 to 40, and red at 40 minutes or more. The red threshold follows
+[Timechain Calendar](https://timechaincalendar.com/); the earlier bands are
+simplified. This measures elapsed time, not an estimate of the next block.
+Future timestamps clamp to zero. A new published block resets the counter;
+failed refreshes preserve the prior timestamp and let its counter continue.
+Waking the page catches up immediately without adding per-second data fetches.
 
 ### Dashboard-local standalone controllers
 

@@ -7,6 +7,8 @@
   const TARGET_SUPPLY_BTC = 21000000;
   const HALVING_INTERVAL = 210000;
   const DIFFICULTY_INTERVAL = 2016;
+  const TARGET_BLOCK_SECONDS = 600;
+  const LATE_BLOCK_SECONDS = 2400;
   const FALLBACK_TIME_ZONE = "UTC";
   const TZ_STORAGE_KEY = "wicked_dashboard_timezone_v1";
   const TZ_CHANGE_EVENT = "wsb:timezonechange";
@@ -26,6 +28,8 @@
   ]));
   const snapshotStatus = byId("homeKpiSnapshotStatus");
   const blockTime = byId("homeKpiBlockTime");
+  const blockElapsed = byId("homeKpiBlockElapsed");
+  const blockProgress = byId("homeKpiBlockProgress");
   const supplyProgress = byId("homeKpiSupplyProgress");
   const supplyCaption = byId("homeKpiSupplyCaption");
   const halvingRemaining = byId("homeKpiHalvingRemaining");
@@ -178,6 +182,30 @@
     values.clock.textContent = formatTime(Date.now());
   }
 
+  function renderBlockElapsed() {
+    if (!lastSnapshot) return;
+    // Measure from the displayed block's miner timestamp, not page load or the
+    // most recent fetch. Future miner timestamps must never produce negatives.
+    const seconds = Math.max(0, Math.floor((Date.now() - lastSnapshot.minedAt) / 1000));
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor(seconds / 60) % 60;
+    const remainder = String(seconds % 60).padStart(2, "0");
+    const duration = hours
+      ? `${hours}h ${String(minutes).padStart(2, "0")}m ${remainder}s`
+      : `${minutes}m ${remainder}s`;
+    const state = seconds >= LATE_BLOCK_SECONDS ? "late" : seconds >= TARGET_BLOCK_SECONDS ? "slow" : "normal";
+    setText(blockElapsed, `${duration} ago`);
+    if (blockElapsed) {
+      blockElapsed.dataset.elapsedState = state;
+      blockElapsed.hidden = false;
+    }
+    if (blockProgress) {
+      blockProgress.dataset.elapsedState = state;
+      setProgress(blockProgress, seconds / TARGET_BLOCK_SECONDS * 100,
+        `${duration} since the displayed block; full bar represents 10 minutes, not a countdown`);
+    }
+  }
+
   function renderStatus() {
     let text;
     if (lastSnapshot) {
@@ -216,6 +244,7 @@
     chips.supply.setAttribute("aria-label", `${chips.supply.title} issued`);
     setText(blockTime, formatTime(minedAt));
     if (blockTime) blockTime.dateTime = new Date(minedAt).toISOString();
+    renderBlockElapsed();
     setText(supplyCaption, supplyText);
     setText(halvingRemaining, (nextHalving - height).toLocaleString("en-US"));
     setText(halvingCaption, halvingText);
@@ -261,6 +290,7 @@
   }
 
   function queueRefresh() {
+    renderBlockElapsed();
     if (wakeTimer !== null) return;
     wakeTimer = window.setTimeout(() => {
       wakeTimer = null;
@@ -329,5 +359,8 @@
   window.setInterval(() => {
     if (!isDashboardExportActive()) renderClock();
   }, 30000);
+  window.setInterval(() => {
+    if (document.visibilityState === "visible" && !isDashboardExportActive()) renderBlockElapsed();
+  }, 1000);
   window.setInterval(() => { void refreshSnapshot(); }, AUTO_REFRESH_MS);
 })();

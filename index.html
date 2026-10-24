@@ -24,7 +24,7 @@
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@600&display=swap&text=%3F" rel="stylesheet" />
         <link rel="stylesheet" href="assets/styles.css?v=20261024-card-crossfade" />
-        <link rel="stylesheet" href="assets/homepage.css?v=20261017-card-help" />
+        <link rel="stylesheet" href="assets/homepage.css?v=20261024-block-timer" />
         <link rel="manifest" href="manifest.json" />
         <link rel="preload" href="assets/image_list.json" as="fetch" crossorigin />
         <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -219,8 +219,11 @@
                     <article class="snapshot-card" aria-labelledby="block-heading">
                         <div class="snapshot-card-heading"><h3 id="block-heading">Block Height</h3><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M12 2 21 7v10l-9 5-9-5V7l9-5Z M3 7l9 5 9-5 M12 12v10"/></svg></div>
                         <div class="snapshot-value" id="homeBip110HeightKpi"><span class="chip-value">—</span></div>
-                        <div class="snapshot-block-divider" aria-hidden="true"></div>
-                        <time class="snapshot-caption" id="homeKpiBlockTime">Waiting for data</time>
+                        <progress id="homeKpiBlockProgress" max="100" value="0" aria-label="Time since the displayed block" aria-valuetext="Waiting for data" title="Full bar = 10 minutes. Green: under 10 minutes; orange: 10–40 minutes; red: 40 minutes or more."></progress>
+                        <div class="snapshot-caption snapshot-block-caption">
+                            <time id="homeKpiBlockTime">Waiting for data</time>
+                            <span class="snapshot-block-elapsed" id="homeKpiBlockElapsed" title="Time elapsed since the displayed block's timestamp" hidden></span>
+                        </div>
                     </article>
                     <article class="snapshot-card" aria-labelledby="supply-heading">
                         <div class="snapshot-card-heading"><h3 id="supply-heading">Bitcoin issued</h3><span class="snapshot-card-symbol" aria-hidden="true">₿</span></div>
@@ -247,7 +250,7 @@
                         <summary>What do these numbers mean? <span aria-hidden="true">+</span></summary>
                         <div class="snapshot-glossary-panel">
                             <dl>
-                                <div><dt>Block height</dt><dd>A block's position in Bitcoin's chain, starting at zero. The timestamp is recorded by its miner.</dd></div>
+                                <div><dt>Block height</dt><dd>A block's position in Bitcoin's chain, starting at zero. The counter measures time since the displayed block's miner timestamp. The bar fills in 10 minutes: green below 10, orange from 10–40, red at 40 or more. It shows elapsed time, not a countdown to the next block.</dd></div>
                                 <div><dt>Bitcoin issued</dt><dd>BTC issued so far, approaching a limit of 21 million. The bar shows the share already issued.</dd></div>
                                 <div><dt>Halving epoch</dt><dd>Every 210,000 blocks, the block subsidy is cut in half. The large number counts blocks until the next halving, and the bar shows progress through the current epoch.</dd></div>
                                 <div><dt>Difficulty adjustment</dt><dd>Difficulty adjusts every 2,016 blocks. The large number counts blocks until the next adjustment, and the bar shows progress through this epoch.</dd></div>
@@ -382,6 +385,6 @@
         <script src="js/09_bootstrap_fetch_init_global_exports.js" defer></script>
         <script src="js/10_event_bindings_global_modal_menu.js" defer></script>
         <script src="js/11_dashboard_timezone_preferences.js" defer></script>
-        <script src="js/12_homepage_kpis.js" defer></script>
+        <script src="js/12_homepage_kpis.js?v=20261024-block-timer" defer></script>
     </body>
 </html>
