@@ -242,11 +242,11 @@ def test_orange_theme_matching(cdp):
     print("Passed: orange counter and all four bars match in dark and light themes", flush=True)
 
 
-def test_mobile_alignment(cdp):
+def test_scale_layout(cdp):
     publish(cdp, 3600)
     cdp.evaluate("window.WSBDashboardTime.setPreferredTimeZone('Asia/Kathmandu')")
     layouts = []
-    for width in (375, 320):
+    for width in (1440, 375, 320):
         cdp.command("Emulation.setDeviceMetricsOverride", {
             "width": width, "height": 900, "deviceScaleFactor": 1, "mobile": False,
         })
@@ -254,22 +254,30 @@ def test_mobile_alignment(cdp):
         layouts.append(cdp.evaluate("""(() => {
           const block = document.getElementById('homeKpiBlockProgress');
           const supply = document.getElementById('homeKpiSupplyProgress');
-          const meter = document.getElementById('homeKpiBlockMeter').getBoundingClientRect();
+          const meterElement = document.getElementById('homeKpiBlockMeter');
+          const meter = meterElement.getBoundingClientRect();
+          const height = document.querySelector('#homeBip110HeightKpi .chip-value').getBoundingClientRect();
+          const heightRow = document.getElementById('homeBip110HeightKpi').getBoundingClientRect();
+          const tickStyle = getComputedStyle(meterElement, '::before');
           const labels = Array.from(document.querySelectorAll('#homeKpiBlockTicks [data-minutes]'), label => {
             const box = label.getBoundingClientRect();
-            return {text: label.textContent, left: box.left, right: box.right, width: box.width};
-          }).filter(label => label.width > 0);
+            return {text: label.textContent, left: box.left, right: box.right, width: box.width,
+              hidden: label.hidden};
+          });
           return {
             width: innerWidth, clientWidth: document.documentElement.clientWidth,
             scrollWidth: document.documentElement.scrollWidth,
             blockBarTop: block.getBoundingClientRect().top,
             supplyBarTop: supply.getBoundingClientRect().top,
+            valueBarGap: block.getBoundingClientRect().top - heightRow.bottom,
+            heightRight: height.right,
             blockCaptionHeight: document.querySelector('.snapshot-block-caption').getBoundingClientRect().height,
             supplyCaptionHeight: document.getElementById('homeKpiSupplyCaption').getBoundingClientRect().height,
             timestamp: document.getElementById('homeKpiBlockTime').textContent,
             elapsed: document.getElementById('homeKpiBlockElapsed').textContent,
-            tickSpacing: parseFloat(getComputedStyle(document.getElementById('homeKpiBlockMeter'))
-              .getPropertyValue('--block-tick-spacing')),
+            tickSpacing: parseFloat(getComputedStyle(meterElement).getPropertyValue('--block-tick-spacing')),
+            tickBackgroundSpacing: parseFloat(tickStyle.backgroundSize),
+            tickBackgroundImage: tickStyle.backgroundImage,
             meterLeft: meter.left, meterRight: meter.right, labels,
           };
         })()"""))
@@ -277,18 +285,29 @@ def test_mobile_alignment(cdp):
         require(layout["elapsed"] == "1h 00m 00s ago" and "GMT+5:45" in layout["timestamp"],
                 "Responsive fixture did not exercise a long elapsed counter and timezone", layout)
         require(abs(layout["blockBarTop"] - layout["supplyBarTop"]) < 1,
-                "First-row progress bars do not align at narrow widths", layouts)
+                "First-row progress bars do not align", layouts)
+        if layout["width"] == 1440:
+            require(0 <= layout["valueBarGap"] <= 9,
+                    "Desktop value-to-bar gap is no longer compact", layout)
         require(layout["scrollWidth"] <= layout["clientWidth"],
                 "Long timezone or elapsed counter creates horizontal overflow", layouts)
         require(abs(layout["tickSpacing"] - 100 / 6) < 0.001,
-                "Mobile elapsed scale lost its ten-minute tick spacing", layout)
-        labels = sorted(layout["labels"], key=lambda label: label["left"])
-        require(bool(labels), "Mobile elapsed scale has no readable labels", layout)
+                "Elapsed scale lost its ten-minute tick spacing", layout)
+        require(layout["tickBackgroundImage"] != "none"
+                and abs(layout["tickBackgroundSpacing"] - 100 / 6) < 0.001,
+                "Hiding labels removed or changed the ten-minute tick lines", layout)
+        require(any(label["hidden"] for label in layout["labels"]),
+                "One-hour scale did not hide labels beneath the block height", layout)
+        labels = sorted((label for label in layout["labels"] if not label["hidden"]),
+                        key=lambda label: label["left"])
+        require(bool(labels), "Elapsed scale has no readable labels", layout)
+        require(all(label["width"] > 0 and label["left"] >= layout["heightRight"] + 5
+                    for label in labels), "Elapsed labels crowd the block height", layout)
         require(all(label["left"] >= layout["meterLeft"] - 1 and label["right"] <= layout["meterRight"] + 1
-                    for label in labels), "Mobile elapsed labels overflow their bar", layout)
+                    for label in labels), "Elapsed labels overflow their bar", layout)
         require(all(left["right"] <= right["left"] for left, right in zip(labels, labels[1:])),
-                "Mobile elapsed labels overlap", layout)
-    print("Passed: 375px and 320px progress alignment without overflow for Kathmandu and a one-hour counter", flush=True)
+                "Elapsed labels overlap", layout)
+    print("Passed: compact scale, height clearance, and aligned bars at 1440px, 375px, and 320px", flush=True)
 
 
 def main():
@@ -346,7 +365,7 @@ def main():
                     cdp.command("Page.navigate", {"url": f"http://127.0.0.1:{server.server_port}/kpi-fixture.html"})
                     test_elapsed_timer(cdp)
                     test_orange_theme_matching(cdp)
-                    test_mobile_alignment(cdp)
+                    test_scale_layout(cdp)
                 finally:
                     close_browser(chrome, cdp)
     finally:

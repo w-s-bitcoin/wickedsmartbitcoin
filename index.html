@@ -24,7 +24,7 @@
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@600&display=swap&text=%3F" rel="stylesheet" />
         <link rel="stylesheet" href="assets/styles.css?v=20261024-card-crossfade" />
-        <link rel="stylesheet" href="assets/homepage.css?v=20261024-block-scale" />
+        <link rel="stylesheet" href="assets/homepage.css?v=20261024-compact-ticks" />
         <link rel="manifest" href="manifest.json" />
         <link rel="preload" href="assets/image_list.json" as="fetch" crossorigin />
         <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -241,7 +241,7 @@
                         <div class="snapshot-caption" id="homeKpiHalvingCaption">Waiting for data</div>
                     </article>
                     <article class="snapshot-card" aria-labelledby="mining-heading">
-                        <div class="snapshot-card-heading"><h3 id="mining-heading">Next difficulty adjustment</h3><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 9 5v10l-9 5-9-5V7Z"/><path d="m10.5 8-1 8m5-8-1 8M8 10.5h8m-8 3h8"/></svg></div>
+                        <div class="snapshot-card-heading"><h3 id="mining-heading" aria-label="Next difficulty adjustment"><span class="snapshot-heading-full" aria-hidden="true">Next difficulty adjustment</span><span class="snapshot-heading-short" aria-hidden="true">Next diff. adj.</span></h3><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 9 5v10l-9 5-9-5V7Z"/><path d="m10.5 8-1 8m5-8-1 8M8 10.5h8m-8 3h8"/></svg></div>
                         <div class="snapshot-value"><span id="homeKpiDifficultyRemaining">—</span><span class="snapshot-unit">blocks away</span></div>
                         <progress id="homeKpiDifficultyProgress" max="100" value="0" aria-label="Current difficulty epoch completed"></progress>
                         <div class="snapshot-caption" id="homeKpiDifficultyCaption">Waiting for data</div>
@@ -388,6 +388,6 @@
         <script src="js/09_bootstrap_fetch_init_global_exports.js" defer></script>
         <script src="js/10_event_bindings_global_modal_menu.js" defer></script>
         <script src="js/11_dashboard_timezone_preferences.js" defer></script>
-        <script src="js/12_homepage_kpis.js?v=20261024-block-scale" defer></script>
+        <script src="js/12_homepage_kpis.js?v=20261024-compact-ticks" defer></script>
     </body>
 </html>

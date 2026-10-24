@@ -98,8 +98,9 @@ The landing page uses `assets/homepage.css`, scoped to `.homepage`, after the sh
 The block card's elapsed counter updates every second while visible, using the
 displayed block's miner timestamp rather than fetch or page-load time. Its bar
 fills at 10 minutes, then expands its scale with the elapsed time. Tick marks
-remain at every 10-minute interval; labels thin out on narrow cards to avoid
-overlap. The bar is green below 10 minutes, orange from 10 to 40, and red at
+remain at every 10-minute interval; compact labels stay to the right of the
+block height and thin out on narrow cards to avoid overlap. The bar is green
+below 10 minutes, orange from 10 to 40, and red at
 40 minutes or more. Its orange uses the same `--brand` color as the other bars
 in both themes. The red threshold follows
 [Timechain Calendar](https://timechaincalendar.com/); the earlier bands are

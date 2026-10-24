@@ -220,7 +220,9 @@
       }
       blockScaleLabels.forEach((entry) => { entry.width = entry.label.getBoundingClientRect().width; });
     }
-    let previousRight = -Infinity;
+    // The compact scale shares the value's bottom edge. Keep tick labels out
+    // from under the height itself while retaining every tick mark on the bar.
+    let previousRight = values.height.getBoundingClientRect().right - blockMeter.getBoundingClientRect().left;
     blockScaleLabels.forEach(({ label, interval, width: labelWidth }) => {
       const position = interval * TARGET_BLOCK_SECONDS / scaleSeconds * width;
       const left = Math.max(0, Math.min(width - labelWidth, position - labelWidth / 2));
