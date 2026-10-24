@@ -170,6 +170,15 @@ the saved image in 200 ms (immediate with reduced motion). Capture failures
 stop deployment, preserving the previous published site. Source fallback PNGs
 and data producers are unchanged.
 
+Pages builds run independently so a delayed older run cannot hold up a newer
+publication. Each run builds its triggering commit, checks that it is still the
+current `main` before checkout and artifact upload, and checks again after
+waiting for deployment. Only Pages deployment is serialized; obsolete artifacts
+are skipped and an active deployment is allowed to finish. All existing source,
+publication, packaging, and daily-image checks remain in that path. GitHub runner
+or Pages service delays can still occur, and a push during an active deployment
+is picked up by the next eligible deployment.
+
 ### Repository map
 
 | Path | Responsibility |

@@ -126,6 +126,43 @@ development changes to force the trees to match. Active merges, rebases, and
 other Git operations defer syncing. Dirty work is rechecked after installation
 so edits made during sync also prevent history cleanup.
 
+## Pages build and deployment queue
+
+`.github/workflows/deploy-pages.yml` runs on each push to `main`. Builds are
+independent, with no workflow-wide lock or build cancellation. A delayed older
+run cannot hold up or cancel a newer build. Before checkout and again before
+artifact upload, each run reads the current `refs/heads/main` from GitHub and
+compares the complete SHA with its triggering commit. Superseded runs skip the
+remaining work. Checkout stays pinned to the triggering commit, so the artifact
+and its deployment identity describe the same generation.
+
+Only the `deploy` job uses concurrency group `pages`, preserving compatibility
+with an earlier workflow still using that group. It does not cancel an active
+deployment. `queue: max` keeps multiple pending jobs: GitHub orders jobs by when
+they enter the queue, so the default single pending slot could let a delayed old
+build displace the newest artifact. Once a deploy job obtains the slot, it reads
+`main` again immediately before `deploy-pages`; outdated artifacts skip without
+publishing, while API failures fail closed. Exact SHA equality also handles the
+automation's amended commits; ancestry, timestamps, and commit subjects are not
+freshness checks.
+
+All source/publication checks, Pages packaging validation, and the daily image
+cache/capture behavior still run for eligible builds. Build jobs have a
+15-minute timeout. Deploy jobs have a five-minute limit, with four minutes for
+the Pages action to complete or cancel its own deployment. GitHub scheduling
+and service delays remain external; the guard is not an atomic compare-and-publish,
+so a push after the final check can briefly leave an active deployment behind.
+The next eligible serialized deployment then catches up.
+
+The onchain runner still publishes top KPIs before slower issuance work and
+publishes the completed secondary output afterward. Those pushes retain their
+existing publication order; the workflow discards superseded artifacts.
+The isolated workflow regressions are included in `scripts/check_project.sh`
+and can be run directly with `python3 -m unittest scripts.test_pages_workflow`.
+
+See [GitHub's concurrency behavior](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)
+for queue limits and ordering.
+
 ## Unattended Git access
 
 Onchain, hourly, and deploy runner Git commands use HTTPS through the GitHub CLI

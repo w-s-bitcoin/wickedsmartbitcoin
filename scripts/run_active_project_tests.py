@@ -14,6 +14,7 @@ MODULES = (
     "scripts.test_automation_git_sync_guard",
     "scripts.test_hourly_casascius_workspace",
     "scripts.test_pages_build",
+    "scripts.test_pages_workflow",
     "scripts.test_eoe_live_reference",
     "scripts.test_onchain_kpis",
     "scripts.test_node_history_archive",

@@ -6,28 +6,47 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: false
+  pages: read
 
 jobs:
+  # Builds are independent: a stalled older run must not block fresh data.
+  # Do not cancel builds by arrival order; a delayed old run could cancel a new one.
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      publishable: ${{ steps.upload-check.outputs.current }}
     env:
       CHROME_BIN: /usr/bin/google-chrome
       WSB_CARD_FALLBACK_CACHE_DIR: .cache/card-fallbacks
     steps:
+      - name: Skip superseded build before checkout
+        id: preflight
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          latest_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          if [[ ! "$latest_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Could not determine the current main commit"
+            exit 1
+          fi
+          current=false
+          if [[ "$latest_sha" == "$GITHUB_SHA" ]]; then current=true; fi
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "Run commit: $GITHUB_SHA; current main: $latest_sha; publishable: $current"
+
       - name: Checkout
+        if: steps.preflight.outputs.current == 'true'
         uses: actions/checkout@v4
 
       - name: Select UTC day for homepage images
+        if: steps.preflight.outputs.current == 'true'
         id: card-fallback-day
         run: echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
 
       - name: Restore today's homepage images
+        if: steps.preflight.outputs.current == 'true'
         id: card-fallback-cache
         uses: actions/cache@v4
         with:
@@ -35,37 +54,89 @@ jobs:
           key: card-fallbacks-v1-${{ steps.card-fallback-day.outputs.day }}
 
       - name: Check source, publication contracts, and packaging
+        if: steps.preflight.outputs.current == 'true'
         run: bash scripts/check_project.sh
 
       - name: Check runner Chrome for homepage image capture
-        if: steps.card-fallback-cache.outputs.cache-hit != 'true'
+        if: steps.preflight.outputs.current == 'true' && steps.card-fallback-cache.outputs.cache-hit != 'true'
         run: '"$CHROME_BIN" --version'
 
       - name: Check homepage capture and failure handling
-        if: steps.card-fallback-cache.outputs.cache-hit != 'true'
+        if: steps.preflight.outputs.current == 'true' && steps.card-fallback-cache.outputs.cache-hit != 'true'
         run: python3 scripts/test_card_fallbacks_browser.py
 
       - name: Build static Pages artifact
+        if: steps.preflight.outputs.current == 'true'
         env:
           WSB_CARD_FALLBACK_UTC_DATE: ${{ steps.card-fallback-day.outputs.day }}
         run: bash scripts/build_pages_dist.sh
 
       - name: Configure Pages
+        if: steps.preflight.outputs.current == 'true'
         uses: actions/configure-pages@v5
 
+      - name: Skip superseded artifact before upload
+        if: steps.preflight.outputs.current == 'true'
+        id: upload-check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          latest_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          if [[ ! "$latest_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Could not determine the current main commit"
+            exit 1
+          fi
+          current=false
+          if [[ "$latest_sha" == "$GITHUB_SHA" ]]; then current=true; fi
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "Run commit: $GITHUB_SHA; current main: $latest_sha; publishable: $current"
+
       - name: Upload Pages artifact
+        if: steps.upload-check.outputs.current == 'true'
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
   deploy:
     needs: build
+    if: needs.build.outputs.publishable == 'true'
+    # Keep the existing group during migration from workflow-wide concurrency.
+    # Preserve active deploys. Multiple pending slots prevent a late old build
+    # from replacing the newest pending artifact; stale jobs skip below.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+      queue: max
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    timeout-minutes: 5
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
+      - name: Skip superseded artifact after deployment wait
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          latest_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          if [[ ! "$latest_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Could not determine the current main commit"
+            exit 1
+          fi
+          current=false
+          if [[ "$latest_sha" == "$GITHUB_SHA" ]]; then current=true; fi
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "Run commit: $GITHUB_SHA; current main: $latest_sha; publishable: $current"
 
       - name: Deploy Pages
+        if: steps.current.outputs.current == 'true'
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          timeout: 240000
