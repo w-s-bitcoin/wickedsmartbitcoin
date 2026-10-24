@@ -7,9 +7,9 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
     --home-text: #f4f4f4;
     --home-muted: #999;
     --home-accent: #f7931a;
-    --home-progress: #f7931a;
+    --home-progress: var(--brand);
     --home-block-normal: #68c686;
-    --home-block-slow: #f4a340;
+    --home-block-slow: var(--brand);
     --home-block-late: #f27474;
     --home-accent-bg: #000;
     --home-control-space: 12px;
@@ -30,7 +30,6 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
     --home-accent: #a7550a;
     --home-accent-bg: #faf0e1;
     --home-block-normal: #237b40;
-    --home-block-slow: #a7550a;
     --home-block-late: #bb3030;
 }
 :root[data-theme] body.homepage { background: var(--home-bg); color: var(--home-text); }
@@ -92,6 +91,13 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
 .snapshot-card progress::-webkit-progress-bar { background: var(--home-line); border-radius: 10px; }
 .snapshot-card progress::-webkit-progress-value { background: var(--home-progress); border-radius: 10px; }
 .snapshot-card progress::-moz-progress-bar { background: var(--home-progress); border-radius: 10px; }
+.snapshot-block-meter { position: relative; margin-top: auto; padding-top: 16px; }
+.snapshot-block-meter progress { margin-top: 0; }
+.snapshot-block-meter::before, .snapshot-block-meter::after { content: ""; position: absolute; bottom: -3px; height: 10px; pointer-events: none; opacity: .7; }
+.snapshot-block-meter::before { left: 0; right: 0; background-image: linear-gradient(to right, var(--home-muted) 1px, transparent 1px); background-size: var(--block-tick-spacing, 100%) 100%; background-repeat: repeat-x; }
+.snapshot-block-meter[data-end-tick="1"]::after { right: 0; width: 1px; background: var(--home-muted); }
+.snapshot-block-ticks { position: absolute; inset: 0 0 auto; height: 12px; color: var(--home-muted); font-size: 8px; line-height: 10px; font-variant-numeric: tabular-nums; }
+.snapshot-block-ticks span { position: absolute; white-space: nowrap; }
 .snapshot-caption { display: block; min-height: 16px; margin-top: 8px; color: var(--home-muted); font-size: 10px; line-height: 1.6; }
 .snapshot-block-caption { display: flex; align-content: flex-start; align-items: baseline; flex-wrap: wrap; gap: 0 10px; }
 .snapshot-block-elapsed { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--home-progress); }

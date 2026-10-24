@@ -30,6 +30,8 @@
   const blockTime = byId("homeKpiBlockTime");
   const blockElapsed = byId("homeKpiBlockElapsed");
   const blockProgress = byId("homeKpiBlockProgress");
+  const blockMeter = byId("homeKpiBlockMeter");
+  const blockTicks = byId("homeKpiBlockTicks");
   const supplyProgress = byId("homeKpiSupplyProgress");
   const supplyCaption = byId("homeKpiSupplyCaption");
   const halvingRemaining = byId("homeKpiHalvingRemaining");
@@ -45,6 +47,8 @@
   let refreshInFlight = false;
   let refreshFailed = false;
   let wakeTimer = null;
+  let blockScaleLabelKey = "";
+  let blockScaleLabels = [];
 
   function isDashboardExportActive() {
     return !!(window.wsbDashboardExportActive || window.dateRangeExportActive);
@@ -182,17 +186,59 @@
     values.clock.textContent = formatTime(Date.now());
   }
 
+  function formatBlockDuration(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor(seconds / 60) % 60;
+    const remainder = String(seconds % 60).padStart(2, "0");
+    return hours
+      ? `${hours}h ${String(minutes).padStart(2, "0")}m ${remainder}s`
+      : `${minutes}m ${remainder}s`;
+  }
+
+  function renderBlockScale(scaleSeconds) {
+    if (!blockMeter || !blockTicks) return;
+    const spacing = TARGET_BLOCK_SECONDS / scaleSeconds * 100;
+    blockMeter.style.setProperty("--block-tick-spacing", `${spacing}%`);
+    blockMeter.dataset.scaleSeconds = String(scaleSeconds);
+    blockMeter.dataset.endTick = scaleSeconds % TARGET_BLOCK_SECONDS === 0 ? "1" : "0";
+    const width = blockMeter.clientWidth;
+    const intervals = Math.floor(scaleSeconds / TARGET_BLOCK_SECONDS);
+    // CSS draws every ten-minute tick. Bound label count by available space so
+    // even an old retained snapshot cannot create thousands of DOM elements.
+    const stride = Math.max(1, Math.ceil(intervals / Math.max(1, Math.floor(width / 32))));
+    const key = `${intervals}:${stride}:${width}`;
+    if (key !== blockScaleLabelKey) {
+      blockScaleLabelKey = key;
+      blockTicks.replaceChildren();
+      blockScaleLabels = [];
+      for (let interval = 1; interval <= intervals; interval += stride) {
+        const label = document.createElement("span");
+        label.dataset.minutes = String(interval * 10);
+        label.textContent = `${interval * 10}m`;
+        blockTicks.appendChild(label);
+        blockScaleLabels.push({ label, interval });
+      }
+      blockScaleLabels.forEach((entry) => { entry.width = entry.label.getBoundingClientRect().width; });
+    }
+    let previousRight = -Infinity;
+    blockScaleLabels.forEach(({ label, interval, width: labelWidth }) => {
+      const position = interval * TARGET_BLOCK_SECONDS / scaleSeconds * width;
+      const left = Math.max(0, Math.min(width - labelWidth, position - labelWidth / 2));
+      label.hidden = left < previousRight + 6;
+      if (label.hidden) return;
+      label.style.left = `${left}px`;
+      previousRight = left + labelWidth;
+    });
+  }
+
   function renderBlockElapsed() {
     if (!lastSnapshot) return;
     // Measure from the displayed block's miner timestamp, not page load or the
     // most recent fetch. Future miner timestamps must never produce negatives.
     const seconds = Math.max(0, Math.floor((Date.now() - lastSnapshot.minedAt) / 1000));
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor(seconds / 60) % 60;
-    const remainder = String(seconds % 60).padStart(2, "0");
-    const duration = hours
-      ? `${hours}h ${String(minutes).padStart(2, "0")}m ${remainder}s`
-      : `${minutes}m ${remainder}s`;
+    const duration = formatBlockDuration(seconds);
+    const scaleSeconds = Math.max(TARGET_BLOCK_SECONDS, seconds);
+    renderBlockScale(scaleSeconds);
     const state = seconds >= LATE_BLOCK_SECONDS ? "late" : seconds >= TARGET_BLOCK_SECONDS ? "slow" : "normal";
     setText(blockElapsed, `${duration} ago`);
     if (blockElapsed) {
@@ -201,8 +247,8 @@
     }
     if (blockProgress) {
       blockProgress.dataset.elapsedState = state;
-      setProgress(blockProgress, seconds / TARGET_BLOCK_SECONDS * 100,
-        `${duration} since the displayed block; full bar represents 10 minutes, not a countdown`);
+      setProgress(blockProgress, seconds / scaleSeconds * 100,
+        `${duration} since the displayed block; ticks every 10 minutes; full scale ${formatBlockDuration(scaleSeconds)}, not a countdown`);
     }
   }
 
@@ -351,6 +397,7 @@
   ["focus", "pageshow", "online"].forEach((event) => window.addEventListener(event, queueRefresh));
   window.addEventListener(TZ_CHANGE_EVENT, refreshForTimeZone);
   compactSupply.addEventListener("change", renderSnapshot);
+  window.addEventListener("resize", renderBlockElapsed);
   window.addEventListener("storage", (event) => {
     if (event.key === TZ_STORAGE_KEY) refreshForTimeZone();
   });

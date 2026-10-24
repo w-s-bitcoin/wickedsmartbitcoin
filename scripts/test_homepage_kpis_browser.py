@@ -97,11 +97,16 @@ STATE = """(() => {
   const progress = document.getElementById('homeKpiBlockProgress');
   const elapsed = document.getElementById('homeKpiBlockElapsed');
   const time = document.getElementById('homeKpiBlockTime');
+  const meter = document.getElementById('homeKpiBlockMeter');
   return {
     value: progress?.value, max: progress?.max, tag: progress?.tagName,
     state: progress?.dataset.elapsedState, elapsedState: elapsed?.dataset.elapsedState,
     elapsed: elapsed?.textContent.trim(), color: elapsed ? getComputedStyle(elapsed).color : '',
     barColor: progress ? getComputedStyle(progress).accentColor : '',
+    scaleSeconds: meter ? Number(meter.dataset.scaleSeconds) : null,
+    tickSpacing: meter ? parseFloat(getComputedStyle(meter).getPropertyValue('--block-tick-spacing')) : null,
+    tickLabels: Array.from(document.querySelectorAll('#homeKpiBlockTicks [data-minutes]'),
+      label => ({minutes: Number(label.dataset.minutes), text: label.textContent.trim()})),
     timestamp: time?.dateTime, displayedTime: time?.textContent,
     height: document.querySelector('#homeBip110HeightKpi .chip-value')?.textContent,
     snapshot: document.getElementById('homeBip110Kpis')?.dataset.snapshotState,
@@ -142,6 +147,12 @@ def check_elapsed(state, text, progress, status):
     require(state.get("barColor") == state.get("color"), "Counter and bar colors disagree", state)
 
 
+def check_scale(state, seconds, spacing):
+    require(state.get("scaleSeconds") == seconds, "Elapsed scale did not follow its displayed age", state)
+    require(abs((state.get("tickSpacing") or 0) - spacing) < 0.001,
+            "Tick lines are not spaced every ten minutes on the elapsed scale", state)
+
+
 def test_elapsed_timer(cdp):
     cold = wait_for(lambda: (state if (state := snapshot(cdp))["snapshot"] == "error" else None),
                     description="cold snapshot failure")
@@ -153,6 +164,7 @@ def test_elapsed_timer(cdp):
 
     five_minutes = publish(cdp, 300)
     check_elapsed(five_minutes, "5m 00s ago", 50, "normal")
+    check_scale(five_minutes, 600, 100)
     requests = five_minutes["requests"]
     almost_ten = advance(cdp, 299)
     check_elapsed(almost_ten, "9m 59s ago", 599 / 600 * 100, "normal")
@@ -161,7 +173,17 @@ def test_elapsed_timer(cdp):
     require(ten_minutes["requests"] == requests, "Elapsed clock tick fetched network data", ten_minutes)
     require(ten_minutes["color"] != five_minutes["color"], "Ten-minute boundary did not change color", ten_minutes)
 
-    before_late = advance(cdp, LATE_SECONDS - 601)
+    twenty_minutes = advance(cdp, 600)
+    check_elapsed(twenty_minutes, "20m 00s ago", 100, "slow")
+    check_scale(twenty_minutes, 1200, 50)
+    labels = {label["minutes"]: label["text"] for label in twenty_minutes["tickLabels"]}
+    require(labels.get(10) == "10m" and labels.get(20) == "20m",
+            "Desktop elapsed scale lacks its ten- and twenty-minute labels", twenty_minutes)
+    thirty_minutes = advance(cdp, 600)
+    check_elapsed(thirty_minutes, "30m 00s ago", 100, "slow")
+    check_scale(thirty_minutes, 1800, 100 / 3)
+
+    before_late = advance(cdp, LATE_SECONDS - 1801)
     require(before_late["state"] == "slow", "Red warning started before its threshold", before_late)
     late = advance(cdp, 1)
     check_elapsed(late, "40m 00s ago", 100, "late")
@@ -183,6 +205,7 @@ def test_elapsed_timer(cdp):
 
     reset = publish(cdp, 0)
     check_elapsed(reset, "0m 00s ago", 0, "normal")
+    check_scale(reset, 600, 100)
     future = publish(cdp, -60)
     check_elapsed(future, "0m 00s ago", 0, "normal")
     future_tick = advance(cdp, 30)
@@ -200,6 +223,25 @@ def test_elapsed_timer(cdp):
     print("Passed: elapsed progress/color boundaries, local ticking, timezone, new blocks, future times, and failure retention", flush=True)
 
 
+def test_orange_theme_matching(cdp):
+    publish(cdp, 1200)
+    for theme in ("dark", "light"):
+        colors = cdp.evaluate("""(() => {
+          document.documentElement.dataset.theme = THEME;
+          return {
+            bars: Array.from(document.querySelectorAll('.snapshot-card progress'),
+              progress => ({id: progress.id, color: getComputedStyle(progress).accentColor})),
+            counter: getComputedStyle(document.getElementById('homeKpiBlockElapsed')).color,
+          };
+        })()""".replace("THEME", json.dumps(theme)))
+        require(len(colors["bars"]) == 4 and all(bar["color"] == "rgb(247, 147, 26)" for bar in colors["bars"]),
+                f"Orange elapsed bar differs from the other bars in {theme} theme", colors)
+        require(colors["counter"] == "rgb(247, 147, 26)",
+                f"Orange counter differs from its bar in {theme} theme", colors)
+    cdp.evaluate("document.documentElement.dataset.theme = 'dark'")
+    print("Passed: orange counter and all four bars match in dark and light themes", flush=True)
+
+
 def test_mobile_alignment(cdp):
     publish(cdp, 3600)
     cdp.evaluate("window.WSBDashboardTime.setPreferredTimeZone('Asia/Kathmandu')")
@@ -212,6 +254,11 @@ def test_mobile_alignment(cdp):
         layouts.append(cdp.evaluate("""(() => {
           const block = document.getElementById('homeKpiBlockProgress');
           const supply = document.getElementById('homeKpiSupplyProgress');
+          const meter = document.getElementById('homeKpiBlockMeter').getBoundingClientRect();
+          const labels = Array.from(document.querySelectorAll('#homeKpiBlockTicks [data-minutes]'), label => {
+            const box = label.getBoundingClientRect();
+            return {text: label.textContent, left: box.left, right: box.right, width: box.width};
+          }).filter(label => label.width > 0);
           return {
             width: innerWidth, clientWidth: document.documentElement.clientWidth,
             scrollWidth: document.documentElement.scrollWidth,
@@ -221,6 +268,9 @@ def test_mobile_alignment(cdp):
             supplyCaptionHeight: document.getElementById('homeKpiSupplyCaption').getBoundingClientRect().height,
             timestamp: document.getElementById('homeKpiBlockTime').textContent,
             elapsed: document.getElementById('homeKpiBlockElapsed').textContent,
+            tickSpacing: parseFloat(getComputedStyle(document.getElementById('homeKpiBlockMeter'))
+              .getPropertyValue('--block-tick-spacing')),
+            meterLeft: meter.left, meterRight: meter.right, labels,
           };
         })()"""))
     for layout in layouts:
@@ -230,6 +280,14 @@ def test_mobile_alignment(cdp):
                 "First-row progress bars do not align at narrow widths", layouts)
         require(layout["scrollWidth"] <= layout["clientWidth"],
                 "Long timezone or elapsed counter creates horizontal overflow", layouts)
+        require(abs(layout["tickSpacing"] - 100 / 6) < 0.001,
+                "Mobile elapsed scale lost its ten-minute tick spacing", layout)
+        labels = sorted(layout["labels"], key=lambda label: label["left"])
+        require(bool(labels), "Mobile elapsed scale has no readable labels", layout)
+        require(all(label["left"] >= layout["meterLeft"] - 1 and label["right"] <= layout["meterRight"] + 1
+                    for label in labels), "Mobile elapsed labels overflow their bar", layout)
+        require(all(left["right"] <= right["left"] for left, right in zip(labels, labels[1:])),
+                "Mobile elapsed labels overlap", layout)
     print("Passed: 375px and 320px progress alignment without overflow for Kathmandu and a one-hour counter", flush=True)
 
 
@@ -281,9 +339,13 @@ def main():
                     cdp = CdpSocket(target["webSocketDebuggerUrl"])
                     cdp.command("Page.enable")
                     cdp.command("Runtime.enable")
+                    cdp.command("Emulation.setDeviceMetricsOverride", {
+                        "width": 1440, "height": 1000, "deviceScaleFactor": 1, "mobile": False,
+                    })
                     cdp.command("Page.addScriptToEvaluateOnNewDocument", {"source": harness_source()})
                     cdp.command("Page.navigate", {"url": f"http://127.0.0.1:{server.server_port}/kpi-fixture.html"})
                     test_elapsed_timer(cdp)
+                    test_orange_theme_matching(cdp)
                     test_mobile_alignment(cdp)
                 finally:
                     close_browser(chrome, cdp)
