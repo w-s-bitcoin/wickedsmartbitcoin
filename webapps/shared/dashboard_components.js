@@ -1386,10 +1386,130 @@
     scope.querySelectorAll("[data-title-settings-button]").forEach(renderTitleSettingsButtonIcon);
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", () => hydrateTitleSettingsButtons(), { once: true });
-  } else {
+  function escapeTooltipText(value) {
+    return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    })[char]);
+  }
+
+  // Inputs are text, not HTML. Colors identify series; value tones are reserved
+  // for signed changes, never used as a substitute for a series label.
+  function renderTooltip({ title, rows = [], note } = {}) {
+    const colorPattern = /^(#[\da-f]{3,8}|(?:rgb|hsl)a?\([\d\s.,%+-]+\)|var\(--[a-z\d-]+\))$/i;
+    const heading = title == null || title === "" ? "" : `<div class="wsb-tooltip-title">${escapeTooltipText(title)}</div>`;
+    const body = rows.map(({ label, value, color, tone } = {}) => {
+      const swatch = color && colorPattern.test(color) ? `<span class="wsb-tooltip-swatch" style="background:${escapeTooltipText(color)}" aria-hidden="true"></span>` : "";
+      const toneClass = tone === "positive" || tone === "negative" ? ` wsb-tooltip-value--${tone}` : "";
+      return `<div class="wsb-tooltip-row"><span class="wsb-tooltip-label">${swatch}${escapeTooltipText(label)}</span><span class="wsb-tooltip-value${toneClass}">${escapeTooltipText(value ?? "—")}</span></div>`;
+    }).join("");
+    const footer = note == null || note === "" ? "" : `<div class="wsb-tooltip-note">${escapeTooltipText(note)}</div>`;
+    return heading + body + footer;
+  }
+
+  function getTooltipTheme() {
+    const style = getComputedStyle(document.documentElement);
+    const light = document.documentElement.dataset.theme === "light";
+    const token = (name, fallback) => style.getPropertyValue(`--wsb-tooltip-${name}`).trim() || fallback;
+    return {
+      background: token("bg", light ? "#ffffff" : "#0b0b0b"),
+      color: token("fg", light ? "#1c1b19" : "#e9f1f5"),
+      border: token("border", light ? "#c4c7cb" : "#3d4247"),
+      muted: token("muted", light ? "#60666b" : "#a8b3ba"),
+      positive: token("positive", light ? "#167347" : "#57cc99"),
+      negative: token("negative", light ? "#bf2638" : "#ff7b86"),
+      shadow: token("shadow", "0 8px 24px rgba(0, 0, 0, 0.3)"),
+      fontFamily: '"IBM Plex Mono", monospace',
+      fontSize: 12, paddingX: 10, paddingY: 8, radius: 8, lineHeight: 18,
+    };
+  }
+
+  function getPlotlyHoverlabel() {
+    const theme = getTooltipTheme();
+    return { bgcolor: theme.background, bordercolor: theme.border,
+      font: { family: theme.fontFamily, size: theme.fontSize, color: theme.color }, align: "left" };
+  }
+
+  function bindNativeTitleTooltips() {
+    let owner = null;
+    let originalTitle = null;
+    let originalDescription = null;
+    let tooltip = null;
+    const hide = () => {
+      if (owner) {
+        if (originalTitle !== null && !owner.hasAttribute("title")) owner.setAttribute("title", originalTitle);
+        if (originalDescription === null) owner.removeAttribute("aria-describedby");
+        else owner.setAttribute("aria-describedby", originalDescription);
+      }
+      owner = null;
+      if (tooltip) tooltip.hidden = true;
+    };
+    const show = (event) => {
+      if (!(event.target instanceof Element)) return;
+      // A richer nested control owns its own help, even when an ancestor's
+      // native-title tooltip is already visible.
+      const customAnchor = event.target.closest("[data-cap-tooltip], .info-wrap")
+        || (document.documentElement.hasAttribute("data-custom-tooltip-binder")
+          ? event.target.closest("[data-tooltip]") : null);
+      if (customAnchor) {
+        hide();
+        return;
+      }
+      const target = event.target.closest("[title], [data-tooltip]");
+      // The current owner's title is temporarily removed. Keep its help while
+      // moving among plain children, but allow a nested titled control to take
+      // over (for example a snapshot row's Delete button).
+      if (owner && owner.contains(event.target)
+        && (!target || target === owner || !owner.contains(target))) return;
+      if (!(target instanceof HTMLElement)) return;
+      const title = (target.getAttribute("data-tooltip") || target.getAttribute("title"))?.trim();
+      if (!title) return;
+      hide();
+      if (!tooltip) {
+        tooltip = document.createElement("div");
+        tooltip.id = "wsb-native-title-tooltip";
+        tooltip.className = "wsb-tooltip wsb-tooltip--help wsb-native-tooltip";
+        tooltip.setAttribute("role", "tooltip");
+      }
+      // Native dialogs occupy the top layer. Their help must live there too.
+      (target.closest("dialog[open]") || document.body).appendChild(tooltip);
+      owner = target;
+      originalTitle = target.getAttribute("title");
+      originalDescription = target.getAttribute("aria-describedby");
+      target.removeAttribute("title");
+      target.setAttribute("aria-describedby", [originalDescription, tooltip.id].filter(Boolean).join(" "));
+      tooltip.textContent = title;
+      tooltip.hidden = false;
+      const anchor = target.getBoundingClientRect();
+      const bounds = tooltip.getBoundingClientRect();
+      const width = document.documentElement.clientWidth;
+      const height = document.documentElement.clientHeight;
+      tooltip.style.left = `${Math.max(12, Math.min(anchor.left, width - bounds.width - 12))}px`;
+      const below = anchor.bottom + 8;
+      tooltip.style.top = `${Math.max(12, Math.min(below + bounds.height <= height - 12 ? below : anchor.top - bounds.height - 8, height - bounds.height - 12))}px`;
+    };
+    document.addEventListener("pointerover", show);
+    document.addEventListener("focusin", show);
+    document.addEventListener("pointerout", (event) => {
+      if (owner?.contains(event.target) && !owner.contains(event.relatedTarget)) hide();
+    });
+    document.addEventListener("focusout", (event) => {
+      if (owner?.contains(event.target) && !owner.contains(event.relatedTarget)) hide();
+    });
+    document.addEventListener("pointerdown", hide, true);
+    document.addEventListener("keydown", (event) => { if (event.key === "Escape") hide(); });
+    document.addEventListener("scroll", hide, true);
+    window.addEventListener("resize", hide);
+    return { hide };
+  }
+
+  function hydrateSharedComponents() {
     hydrateTitleSettingsButtons();
+    bindNativeTitleTooltips();
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", hydrateSharedComponents, { once: true });
+  } else {
+    hydrateSharedComponents();
   }
 
   ns.createDatePicker = createDatePicker;
@@ -1430,4 +1550,7 @@
   ns.createChartLoader = createChartLoader;
   ns.setChartLoaderVisible = setChartLoaderVisible;
   ns.bindChartLoaders = bindChartLoaders;
+  ns.renderTooltip = renderTooltip;
+  ns.getTooltipTheme = getTooltipTheme;
+  ns.getPlotlyHoverlabel = getPlotlyHoverlabel;
 }());

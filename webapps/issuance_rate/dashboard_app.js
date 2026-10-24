@@ -145,7 +145,7 @@
     if (!tooltip) {
       tooltip = document.createElement("div");
       tooltip.id = "dashboardInlineTooltip";
-      tooltip.className = "dashboard-inline-tooltip";
+      tooltip.className = "dashboard-inline-tooltip wsb-tooltip wsb-tooltip--help";
       document.body.appendChild(tooltip);
     }
     return tooltip;
@@ -184,6 +184,7 @@
   }
 
   function bindCustomTooltips() {
+    document.documentElement.setAttribute("data-custom-tooltip-binder", "");
     if (customTooltipBound) return;
     customTooltipBound = true;
     let mobileTooltipHideTimerId = null;

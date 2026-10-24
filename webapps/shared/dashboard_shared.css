@@ -1,3 +1,5 @@
+@import url("./dashboard_tooltips.css");
+
 :root {
   --modal-controls-clearance: 30px;
   --wrap-pad: clamp(8px, 1.4vw, 12px);
@@ -378,18 +380,6 @@ h1 {
   right: auto;
   z-index: 1000;
   width: clamp(280px, 34vw, 420px);
-  max-width: calc(100vw - 24px);
-  border: 1px solid var(--panel-border);
-  border-radius: 10px;
-  background: #000;
-  color: #d9e5ea;
-  padding: 10px 12px;
-  font-size: 0.82rem;
-  line-height: 1.45;
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
-  font-family: "IBM Plex Mono", monospace;
-  white-space: normal;
-  overflow-wrap: break-word;
   word-break: normal;
   text-wrap: pretty;
   opacity: 0;
@@ -1030,29 +1020,11 @@ dialog.title-settings-dialog::backdrop {
   position: fixed;
   z-index: 70;
   width: fit-content;
-  max-width: min(420px, calc(100vw - 24px));
-  border: 1px solid var(--panel-border);
-  border-radius: 10px;
-  background: #ffffff;
-  color: #1c1b19;
-  padding: 10px 12px;
-  font-size: 0.82rem;
-  line-height: 1.45;
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.1);
-  font-family: "IBM Plex Mono", monospace;
-  white-space: pre-line;
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
   transform: translateY(-2px);
   transition: opacity 120ms ease, transform 120ms ease, visibility 0ms linear 120ms;
-}
-
-:root[data-theme="dark"] .dashboard-inline-tooltip {
-  border-color: var(--panel-border);
-  background: #000;
-  color: #d9e5ea;
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
 }
 
 .dashboard-inline-tooltip.is-visible {
@@ -1063,11 +1035,11 @@ dialog.title-settings-dialog::backdrop {
 }
 
 .dashboard-inline-tooltip .tooltip-label {
-  color: rgba(255, 255, 255, 0.68);
+  color: var(--wsb-tooltip-muted);
 }
 
 :root[data-theme="light"] .dashboard-inline-tooltip .tooltip-label {
-  color: rgba(0, 0, 0, 0.58);
+  color: var(--wsb-tooltip-muted);
 }
 
 /* Keep dashboard controls from showing a persistent heavy ring after click. */
@@ -1242,13 +1214,6 @@ dialog.title-settings-dialog::backdrop {
 :root[data-theme="light"] .info-btn {
   border-color: var(--panel-border);
   color: var(--muted, #6f685f);
-}
-
-:root[data-theme="light"] .info-popover {
-  background: var(--panel, #ffffff);
-  border-color: var(--panel-border);
-  color: var(--fg, #1c1b19);
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.1);
 }
 
 :root[data-theme="light"] .source-row {

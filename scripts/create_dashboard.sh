@@ -48,6 +48,7 @@ cat > "$dashboard_dir/dashboard.html" <<HTML
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <!-- Shared CSS imports dashboard_tooltips.css for data, record, and help tips. -->
   <link rel="stylesheet" href="../shared/dashboard_shared.css" />
   <link rel="stylesheet" href="../shared/dashboard_controls.css" />
   <link rel="stylesheet" href="dashboard.css" />
@@ -148,6 +149,12 @@ cat > "$dashboard_dir/dashboard_app.js" <<JS
     description: "Dashboard description.",
     url: "https://wickedsmartbitcoin.com/$slug",
   }) || {};
+  // For chart/record tips, use wsb-tooltip + wsb-tooltip--data/--record and
+  // WSBDashboardComponents.renderTooltip({ title, rows, note }). Keep values
+  // neutral and identify series with row.color swatches. Help: wsb-tooltip--help.
+  // Apply the same contract inside every secondary panel; keep placement local.
+  // Plotly uses getPlotlyHoverlabel(); canvas uses getTooltipTheme() in CSS px.
+  // See webapps/DASHBOARD_STANDARDS.md for tooltip screenshot acceptance.
   const canvas = document.getElementById("dashboardCanvas");
   const ctx = canvas?.getContext?.("2d");
   const chartLoader = document.getElementById("chartLoader");

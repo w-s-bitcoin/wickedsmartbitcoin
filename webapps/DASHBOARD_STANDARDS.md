@@ -66,8 +66,9 @@ Read the target dashboard's own notes for its calculation and data contracts.
   that preserves the metric's important features; stroke styling must not alter
   the calculation.
 - Related time-series panels share a hover date where their visible ranges
-  overlap. Show one tooltip in the active panel, keep it inside the plot and
-  clear of labels, and clear guides on leave, drag, or playback. Tooltip values
+  overlap. Choose readouts according to the linked-hover rules below, keep them
+  inside their plots and clear of labels, and clear guides on leave, drag, or
+  playback. Tooltip values
   must agree with the visible interpolation and scale; never imply an unobserved
   value is an actual recorded sample. Empty future space has no sample tooltip.
 - For two-state LOG/LIN controls, either half toggles the panel exactly once.
@@ -81,6 +82,73 @@ Read the target dashboard's own notes for its calculation and data contracts.
 - Homepage chart previews show series without titles, axes, gridlines, or
   reserved label gutters. Reuse the dashboard's model and selections appropriate
   to the preview; keep iframe nodes mounted through filtering and sorting.
+
+## Hover tooltips
+
+Apply this contract to the complete dashboard: main charts, alternate tabs,
+expanded views, drilldowns, record details, nested dialogs, and control help.
+Use the same three variants throughout:
+
+| Variant | Contents | Type |
+| --- | --- | --- |
+| Data (`wsb-tooltip--data`) | Date/title followed by aligned label/value rows; small series swatches | 12px IBM Plex Mono |
+| Record (`wsb-tooltip--record`) | The same row layout, with wrapping identifiers, metadata, or a note | 12px IBM Plex Mono |
+| Help (`wsb-tooltip--help`) | Short explanatory prose, including title info and control hints | 13px IBM Plex Mono |
+
+- Use the shared opaque surface: `#0b0b0b` in dark mode and `#ffffff` in light,
+  8px corners, 8px vertical/10px horizontal padding, a 1px theme border, shared
+  shadow, 1.45 line height, and a maximum width of
+  `min(420px, calc(100vw - 24px))`. Foreground, muted text, border, and semantic
+  colors come from `--wsb-tooltip-*` tokens in `shared/dashboard_tooltips.css`.
+  Keep positioning and show/hide rules local; avoid local surface overrides.
+- Keep labels and ordinary values neutral. Identify a series with its name and
+  an 8px swatch using the exact chart-series color. Only explicitly signed
+  positive/negative outcomes, such as `+25%` ROI or a negative change, use the
+  shared contrast-adjusted gain/loss text colors. Do not color a value merely
+  because it belongs to an orange, cyan, or green series. BIP protocol-nibble
+  highlighting may retain its semantic decoding colors; that is not series
+  styling.
+- HTML tooltips use `WSBDashboardComponents.renderTooltip()` for the title,
+  aligned rows, and optional note. It escapes text; pass plain values and no
+  markup. Long record metadata wraps within the same layout. Reuse the help
+  styling for native-title hints, title info, and existing custom control tips.
+- Plotly retains its native pointer, square outline, and swatches. Apply
+  `getPlotlyHoverlabel()` for its shared font, foreground, fill, and border.
+  Canvas implementations use `getTooltipTheme()` and keep font sizes, padding,
+  swatches, and measurement in CSS pixels across device-pixel ratios; scale the
+  drawing context once. Preserve native chart inspection and positioning.
+- Link hover only when panels share a meaningful observation/time basis.
+  Moving Average repeats the same series in different windows: show one readout
+  in the active chart and synchronized date guides wherever ranges overlap.
+  UoA presents complementary reciprocal views: hovering either chart shows both
+  paired readouts at the same instant, each in its own units with its own
+  reciprocal calculation and inverse vertical placement. Preserve those paired
+  tips. Net Worth links related quantities from the same saved snapshot: snap
+  both readouts to that real record date without inventing intermediate records.
+  Future dashboards should choose the appropriate pattern for their data.
+  Do not synchronize unrelated metrics, populations, or time bases merely
+  because their panels are adjacent. Outside a panel's valid range, clear its
+  guide/readout; never retain a stale tip or infer a future observation.
+- Keep ordinary help/record tips and single-readout charts to one active tip;
+  intentional paired readouts follow the rule above. Keep data tips within the
+  relevant plot/panel, clear of labels and controls; keep help and record tips
+  within the viewport and visible above their parent dialog. Reposition near
+  edges and after resize. Clear stale chart tips on leave, drag, playback, or
+  closing the containing panel. Do not leave a native browser hint visible
+  behind a custom hint.
+- Preserve values, units, date selection, interpolation, touch/keyboard
+  behavior, and refresh semantics. This styling contract does not add chart
+  hover to dashboards that do not offer it.
+
+For tooltip changes, capture examples of every affected variant in dark and
+light themes at desktop and mobile widths. Include a main chart and each
+secondary panel that contains a tooltip, plus a long record/help example and
+an edge-positioned tip. Check swatches against their chart lines, signed-value
+contrast, wrapping without clipping, the appropriate single or paired readouts,
+reciprocal values and inverse placement in UoA, cleanup after panel close,
+and stable sizing at device-pixel ratios 1 and 2 for canvas. Record exact UI
+steps/selectors for conditional tips so screenshots can be reproduced. See the
+[implementation API](README.md#shared-hover-tooltips).
 
 ## Controls, mobile, and state
 
@@ -201,6 +269,7 @@ Read the target dashboard's own notes for its calculation and data contracts.
 
 | Concern | Shared implementation or reference |
 | --- | --- |
+| Tooltip variants, content, native help, and renderer tokens | [dashboard_tooltips.css](shared/dashboard_tooltips.css), [dashboard_components.js](shared/dashboard_components.js), [API and examples](README.md#shared-hover-tooltips) |
 | Shell, theme, controls | [dashboard_shared.css](shared/dashboard_shared.css), [dashboard_controls.css](shared/dashboard_controls.css), [dashboard_embed_modal.js](shared/dashboard_embed_modal.js) |
 | Dates, menus, playback keys, reset, timezone, loaders | [dashboard_components.js](shared/dashboard_components.js), [timezone preferences](../js/11_dashboard_timezone_preferences.js) |
 | Plot geometry, calendar/value ticks, formatting, scale transitions | [dashboard_charting.js](shared/dashboard_charting.js) — `createCalendarTicks()` supplies shared UTC calendar selection |
@@ -232,6 +301,7 @@ document loading. Neither proves visual or behavioral compliance.
 | Change | Evidence to collect |
 | --- | --- |
 | Axes, layout, controls | Actual rendered chart at 1440/1024px desktop and 390/320px mobile widths; dark/light; standalone and embedded; smallest/largest values and shortest/longest ranges; no clipped/overlapping labels or unreachable controls |
+| Tooltips | Dark/light and desktop/mobile examples of all affected variants, including secondary panels; edge bounds, long text, neutral rows/accurate swatches, signed outcome colors, appropriate single/paired readouts, reciprocal math and inverse placement where applicable, leave/close cleanup; canvas sizing at DPR 1 and 2 |
 | Multi-year date ticks | Uniform 2/4/8… year gaps, calendar alignment, and correct spacing as plot width changes; check gridline positions as well as labels |
 | Interaction or state | Keyboard/focus and pointer/touch behavior; reload persistence; shared link over conflicting stored preferences; reset/undo; reduced motion when animated |
 | Playback or calculations | Early/insufficient history, calendar boundaries, pause/seek/resume/stop, no lookahead, and agreement between chart, KPIs, hover, and exports |

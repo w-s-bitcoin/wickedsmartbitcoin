@@ -1955,7 +1955,7 @@ function ensureCustomTooltipElement() {
   if (!tooltip) {
     tooltip = document.createElement("div");
     tooltip.id = "quantumInlineTooltip";
-    tooltip.className = "quantum-inline-tooltip";
+    tooltip.className = "quantum-inline-tooltip wsb-tooltip wsb-tooltip--help";
     document.body.appendChild(tooltip);
   }
   return tooltip;
@@ -2026,43 +2026,34 @@ function showCustomTooltip(anchor, x, y) {
   const bounds = resolveTooltipBounds(anchor);
   const boundsConstrainedMaxWidth = Math.max(180, Math.floor(bounds.width - 16));
   tooltip.style.maxWidth = `${Math.min(420, boundsConstrainedMaxWidth)}px`;
-  let activeValueClass = "";
-  tooltip.innerHTML = text
-    .split("\n")
-    .map((line) => {
-      const match = line.match(/^([^:]+):\s*(.*)$/);
-      if (!match) {
-        activeValueClass = "";
-        return `<div class="tooltip-row"><span>${escapeHtml(line)}</span></div>`;
-      }
-
-      const labelText = String(match[1] || "").trim();
-      const isStructuredLabel = /^[A-Za-z][A-Za-z0-9_()\/ +\-]{0,48}$/.test(labelText);
-      if (!isStructuredLabel) {
-        activeValueClass = "";
-        return `<div class="tooltip-row"><span>${escapeHtml(line)}</span></div>`;
-      }
-
-      const rawLabel = labelText.toLowerCase();
-      if (rawLabel === "never spent") {
-        activeValueClass = "tooltip-value-never";
-      } else if (rawLabel === "inactive") {
-        activeValueClass = "tooltip-value-inactive";
-      } else if (rawLabel === "active") {
-        activeValueClass = "tooltip-value-active";
-      } else if (rawLabel !== "filtered") {
-        activeValueClass = "";
-      }
-
-      const valueClassAttr = activeValueClass ? ` class="${activeValueClass}"` : "";
-      return `<div class="tooltip-row"><span class="tooltip-label">${escapeHtml(`${labelText}:`)}</span><span${valueClassAttr}>${escapeHtml(match[2])}</span></div>`;
-    })
-    .join("");
+  const colors = getComputedStyle(document.documentElement);
+  let activeColor = '';
+  const rows = [];
+  const notes = [];
+  text.split("\n").forEach((line) => {
+    const match = line.match(/^([^:]+):\s*(.*)$/);
+    const label = String(match?.[1] || '').trim();
+    if (!match || !/^[A-Za-z][A-Za-z0-9_()\/ +\-]{0,48}$/.test(label)) {
+      activeColor = '';
+      notes.push(line);
+      return;
+    }
+    const key = label.toLowerCase();
+    const colorToken = { 'never spent': '--seg-never', inactive: '--seg-inactive', active: '--seg-active' }[key];
+    if (colorToken) activeColor = colors.getPropertyValue(colorToken).trim();
+    else if (key !== 'filtered') activeColor = '';
+    rows.push({ label, value: match[2], color: activeColor });
+  });
+  tooltip.classList.toggle('wsb-tooltip--help', rows.length === 0);
+  tooltip.classList.toggle('wsb-tooltip--data', rows.length > 0);
+  if (rows.length) tooltip.innerHTML = window.WSBDashboardComponents.renderTooltip({ rows, note: notes.join('\n') });
+  else tooltip.textContent = text;
   tooltip.classList.add("is-visible");
   placeCustomTooltip(tooltip, x, y, anchor);
 }
 
 function bindCustomTooltips() {
+  document.documentElement.setAttribute("data-custom-tooltip-binder", "");
   if (customTooltipBound) return;
   customTooltipBound = true;
   let mobileTooltipHideTimerId = null;
@@ -4411,7 +4402,7 @@ function renderHistoricalStackedChart(filters) {
 
       ${xTickLabels}
     </svg>
-    <div id="historicalHoverTooltip" class="historical-hover-tooltip" style="display:none;"></div>
+    <div id="historicalHoverTooltip" class="historical-hover-tooltip wsb-tooltip wsb-tooltip--data" style="display:none;"></div>
   `);
   if (isRenderingProgressively && state.historicalSeriesGe1Loading) {
     showHistoricalLoadingOverlay(container, loadingOverlayMessage);
@@ -4483,28 +4474,28 @@ function renderHistoricalStackedChart(filters) {
     const inactivePct = formatPercent(nearest.filteredInactive, nearest.totalSupplySats);
     const activePct = formatPercent(nearest.filteredActive, nearest.totalSupplySats);
 
-    const nonExposedRow = showNonExposed && nonExposedBtc > 0
-      ? `<div class="historical-tooltip-row historical-tooltip-nonexposed"><span class="historical-tooltip-label">Non-exposed:</span> <span class="historical-tooltip-value historical-tooltip-value-nonexposed">${formatInt(nonExposedBtc)} BTC</span></div>`
-      : "";
-    const activeRow = activeBtc > 0
-      ? `<div class="historical-tooltip-row historical-tooltip-active"><span class="historical-tooltip-label">Active:</span> <span class="historical-tooltip-value historical-tooltip-value-active">${formatInt(activeBtc)} BTC &middot; ${activePct}</span></div>`
-      : "";
-    const inactiveRow = inactiveBtc > 0
-      ? `<div class="historical-tooltip-row historical-tooltip-inactive"><span class="historical-tooltip-label">Inactive:</span> <span class="historical-tooltip-value historical-tooltip-value-inactive">${formatInt(inactiveBtc)} BTC &middot; ${inactivePct}</span></div>`
-      : "";
-    const neverRow = neverBtc > 0
-      ? `<div class="historical-tooltip-row historical-tooltip-never"><span class="historical-tooltip-label">Never Spent:</span> <span class="historical-tooltip-value historical-tooltip-value-never">${formatInt(neverBtc)} BTC &middot; ${neverPct}</span></div>`
-      : "";
-
+    const theme = getComputedStyle(document.documentElement);
+    const tooltipRows = [{ label: 'Total Supply', value: `${formatInt(totalSupplyBtc)} BTC` }];
+    if (showNonExposed && nonExposedBtc > 0) tooltipRows.push({
+      label: 'Non-exposed', value: `${formatInt(nonExposedBtc)} BTC`, color: theme.getPropertyValue('--non-exposed-label').trim()
+    });
+    [
+      ['Active', activeBtc, activePct, '--seg-active'],
+      ['Inactive', inactiveBtc, inactivePct, '--seg-inactive'],
+      ['Never Spent', neverBtc, neverPct, '--seg-never']
+    ].forEach(([label, value, percent, color]) => {
+      if (value > 0) tooltipRows.push({ label, value: `${formatInt(value)} BTC · ${percent}`, color: theme.getPropertyValue(color).trim() });
+    });
+    const tooltipNotes = [quantumMethodologyLabel(nearest.snapshotHeight)];
+    if (quantumArchiveSummaryCoverage().heights.includes(String(nearest.snapshotHeight))) {
+      tooltipNotes.push('Historical summary only; snapshot details unavailable.');
+    }
     tooltip.style.display = "block";
-    tooltip.innerHTML = `
-      <div><strong>Block Height: ${formatInt(nearest.snapshotHeight)}</strong></div>
-      <div>${escapeHtml(quantumMethodologyLabel(nearest.snapshotHeight))}</div>
-      ${quantumArchiveSummaryCoverage().heights.includes(String(nearest.snapshotHeight))
-        ? "<div>Historical summary only; snapshot details unavailable.</div>" : ""}
-      <div class="historical-tooltip-row historical-tooltip-total">Total Supply: ${formatInt(totalSupplyBtc)} BTC</div>
-      ${nonExposedRow}${activeRow}${inactiveRow}${neverRow}
-    `;
+    tooltip.innerHTML = window.WSBDashboardComponents.renderTooltip({
+      title: `Block Height: ${formatInt(nearest.snapshotHeight)}`,
+      rows: tooltipRows,
+      note: tooltipNotes.join('\n')
+    });
 
     const containerRect = container.getBoundingClientRect();
     let left = event.clientX - containerRect.left + 12;

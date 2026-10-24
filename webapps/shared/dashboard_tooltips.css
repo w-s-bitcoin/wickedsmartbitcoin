@@ -1,0 +1,102 @@
+/* Shared tooltip contract: chart data, detailed records, and explanatory help.
+   Kept separate so custom dashboard shells can adopt it without layout styles. */
+:root {
+  --wsb-tooltip-bg: #0b0b0b;
+  --wsb-tooltip-fg: #e9f1f5;
+  --wsb-tooltip-muted: #a8b3ba;
+  --wsb-tooltip-border: #3d4247;
+  --wsb-tooltip-positive: #57cc99;
+  --wsb-tooltip-negative: #ff7b86;
+  --wsb-tooltip-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+:root[data-theme="light"] {
+  --wsb-tooltip-bg: #ffffff;
+  --wsb-tooltip-fg: #1c1b19;
+  --wsb-tooltip-muted: #60666b;
+  --wsb-tooltip-border: #c4c7cb;
+  --wsb-tooltip-positive: #167347;
+  --wsb-tooltip-negative: #bf2638;
+  --wsb-tooltip-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+}
+
+:is(.wsb-tooltip, .dashboard-inline-tooltip, .info-popover) {
+  box-sizing: border-box;
+  max-width: min(420px, calc(100vw - 24px));
+  padding: 8px 10px;
+  border: 1px solid var(--wsb-tooltip-border);
+  border-radius: 8px;
+  background: var(--wsb-tooltip-bg);
+  color: var(--wsb-tooltip-fg);
+  box-shadow: var(--wsb-tooltip-shadow);
+  font: 400 12px/1.45 "IBM Plex Mono", monospace;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
+:is(.wsb-tooltip--help, .dashboard-inline-tooltip, .info-popover) {
+  font-size: 13px;
+  white-space: pre-line;
+}
+
+/* About popovers contain formatted HTML; source indentation is not content. */
+.info-popover { white-space: normal; }
+
+.wsb-tooltip-title {
+  margin: 0 0 6px;
+  color: var(--wsb-tooltip-fg);
+  font-weight: 600;
+}
+
+.wsb-tooltip-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: 16px;
+  margin: 2px 0;
+}
+
+.wsb-tooltip-label {
+  min-width: 0;
+  color: var(--wsb-tooltip-muted);
+  font-weight: 400;
+}
+
+.wsb-tooltip-value {
+  min-width: 0;
+  max-width: 280px;
+  color: var(--wsb-tooltip-fg);
+  font-weight: 500;
+  text-align: right;
+}
+
+.wsb-tooltip-swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 2px;
+  vertical-align: 1px;
+  box-shadow: 0 0 0 1px rgba(128, 128, 128, 0.2);
+}
+
+.wsb-tooltip-value--positive { color: var(--wsb-tooltip-positive); }
+.wsb-tooltip-value--negative { color: var(--wsb-tooltip-negative); }
+
+.wsb-tooltip-note {
+  white-space: pre-line;
+  margin-top: 6px;
+  color: var(--wsb-tooltip-muted);
+  font-weight: 400;
+}
+
+.wsb-native-tooltip {
+  position: fixed;
+  z-index: 100000;
+  width: max-content;
+}
+
+.wsb-native-tooltip[hidden] { display: none; }

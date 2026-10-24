@@ -21,6 +21,9 @@ Every standard dashboard page must load these shared files before the dashboard 
 - `../shared/dashboard_controls.css`
 
 Dashboard-specific CSS may come after the shared CSS. Dashboard-specific JS should come after the shared JS.
+`dashboard_shared.css` imports `dashboard_tooltips.css`; custom shells that do
+not use the shared layout load the tooltip stylesheet directly with
+`dashboard_components.js`.
 
 For PNG or WebM exports, also load `../shared/dashboard_export_branding.js`
 after `dashboard_export.js` and before the dashboard's export renderer. See the
@@ -83,6 +86,30 @@ Settings button groups and two-chart export controls should use:
 - `window.WSBDashboardComponents.syncDependentButtonGroupAvailability()`
 - `window.WSBDashboardComponents.setFloatingMenuOpen()`
 - `window.WSBDashboardComponents.constrainFloatingMenuToViewport()`
+
+Hover tooltip wiring applies to every main chart, alternate tab, drilldown,
+record dialog, and settings/download panel:
+
+- HTML: `wsb-tooltip` plus `wsb-tooltip--data`, `--record`, or `--help`.
+- Content: `window.WSBDashboardComponents.renderTooltip({ title, rows, note })`;
+  each plain-text row has `label`, `value`, optional series-swatch `color`, and
+  optional `tone` for explicitly signed positive/negative outcomes.
+- Plotly: `getPlotlyHoverlabel()`; retain native pointer/outline/swatches.
+- Canvas: `getTooltipTheme()`; measure and draw in CSS pixels with one DPR scale.
+- Title info and custom inline help share the same surface; native `title` and
+  unbound `data-tooltip` help are handled by the shared runtime.
+
+Use neutral labels/values, small series swatches, and wrapping record metadata
+in the shared row layout. Keep placement/show-hide behavior local and avoid
+appearance overrides. The [tooltip API](webapps/README.md#shared-hover-tooltips)
+and [acceptance contract](webapps/DASHBOARD_STANDARDS.md#hover-tooltips) define
+sizes, theme tokens, cleanup, and screenshots. Repeated-series panels such as
+Moving Average use one active readout and shared guides in overlapping ranges;
+complementary reciprocal panels such as UoA retain paired readouts with each
+panel's units, reciprocal values, and inverse vertical placement. Do not link
+independent metrics/populations/time bases or show stale/future values outside
+valid ranges. Existing dashboards without chart hover need no new chart-hover
+feature for this adoption.
 
 Playback keyboard overrides should use `window.WSBDashboardComponents.bindPlaybackKeyboardShortcuts()` and keep dashboard-specific play/pause/range state local.
 
@@ -150,4 +177,10 @@ Run:
 ./scripts/check_dashboard_contract.sh webapps/<slug>
 ```
 
-The checker should pass before committing a new dashboard.
+The checker should pass before committing a new dashboard. For tooltip work,
+also capture each affected variant in dark/light at desktop/mobile widths,
+including secondary dialogs, long content, and edges. Check the appropriate
+single/paired readouts, reciprocal math and inverse placement where applicable,
+leave/close cleanup, and CSS-pixel canvas sizing at DPR 1 and 2. Record the UI
+steps/selectors needed to reopen conditional tips; a wiring check is not visual
+verification.

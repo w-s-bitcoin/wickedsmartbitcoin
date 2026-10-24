@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Exercise UoA/Casascius native scale morphs with an isolated Chrome profile."""
+"""Exercise UoA paired hover and UoA/Casascius scales in isolated Chrome."""
 import base64
 import json
 import os
+import re
 import subprocess
 import tempfile
 import threading
@@ -97,7 +98,7 @@ def main():
                 if other_key:
                     assert cdp.evaluate(f"window.__scaleFrames.filter(f => f.key === {json.dumps(other_key)}).every(f => f.mix === 0 || f.mix === 1)"), 'other panel animated'
 
-            load('uoa', {'primaryCurrency':'BTC','secondaryCurrency':'USD'},
+            load('uoa', {'primaryUoa':'BTC','secondaryUoa':'USD'},
                  "document.querySelector('#primaryUoaSelect')?.options.length > 100 && document.querySelector('#btcUsdEndDateEdge')?.textContent && window.__scaleFrames.length > 1")
             left = "document.querySelector('#primaryScaleToggles .is-active').dataset.value"
             right = "document.querySelector('#secondaryScaleToggles .is-active').dataset.value"
@@ -117,6 +118,68 @@ def main():
                 settle()
             assert not cdp.evaluate('window.__scaleErrors'), cdp.evaluate('window.__scaleErrors')
             print('UoA independent panels, both toggle halves, native keyboard and finite intermediate canvas frames passed.', flush=True)
+
+            # Two reciprocal panels intentionally show linked tooltips. Check
+            # actual rendered values and guide/tooltip geometry in both directions;
+            # a shared surface must not discard the inverted y-position contract.
+            def paired_hover(source_id, y_ratio):
+                return cdp.evaluate(f"""(() => {{
+                  const source=document.getElementById({json.dumps(source_id)});
+                  const panel=source.closest('.chart-panel'), rect=source.getBoundingClientRect();
+                  source.dispatchEvent(new MouseEvent('mousemove',{{bubbles:true,clientX:rect.left+rect.width*.62,clientY:rect.top+rect.height*.5}}));
+                  const firstGuide=panel.querySelector('.chart-hover-line')?.getBoundingClientRect();
+                  if(!firstGuide) return {{error:'Source hover guide missing'}};
+                  source.dispatchEvent(new MouseEvent('mousemove',{{bubbles:true,clientX:firstGuide.left,clientY:firstGuide.top+firstGuide.height*{y_ratio}}}));
+                  return ['usdBtcChart','btcUsdChart'].map(id=>{{
+                    const canvas=document.getElementById(id),owner=canvas.closest('.chart-panel');
+                    const tip=owner.querySelector('.chart-hover-value-tooltip'),guide=owner.querySelector('.chart-hover-line');
+                    if(!tip||!guide) return {{id,error:'Linked tooltip missing'}};
+                    const value=tip.querySelector('.wsb-tooltip-value'),label=tip.querySelector('.wsb-tooltip-label'),swatch=tip.querySelector('.wsb-tooltip-swatch');
+                    const box=tip.getBoundingClientRect(),line=guide.getBoundingClientRect();
+                    return {{id,date:tip.querySelector('.wsb-tooltip-title')?.textContent,
+                      value:value?.textContent,label:label?.textContent,swatch:!!swatch,
+                      visible:getComputedStyle(tip).display!=='none'&&getComputedStyle(guide).display!=='none',
+                      neutral:!!value&&getComputedStyle(value).color===getComputedStyle(tip).color,
+                      ratio:(box.top+box.height/2-line.top)/line.height, box:{{top:box.top,height:box.height}}, line:{{top:line.top,height:line.height}}, input:{{top:firstGuide.top,height:firstGuide.height,canvasTop:rect.top}}}};
+                  }});
+                }})()""")
+
+            def numeric_rate(text):
+                match = re.search(r'([0-9][0-9,]*(?:\.[0-9]+)?)\s*([kMBT]?)(?:\s|$)', text)
+                assert match, ('Unrecognized displayed exchange rate', text)
+                value = float(match.group(1).replace(',', '')) * {'':1,'k':1e3,'M':1e6,'B':1e9,'T':1e12}[match.group(2)]
+                if 'msats' in text: value /= 1000
+                if 'μsats' in text: value /= 1000000
+                return value
+
+            for primary, secondary, product in [('BTC','USD',1e8),('USD','EUR',1)]:
+                load('uoa', {'primaryUoa':primary,'secondaryUoa':secondary,'startDate':'2020-01-01','endDate':'2024-01-01'},
+                     "document.querySelector('#primaryUoaSelect')?.options.length > 100 && document.querySelector('#btcUsdEndDateEdge')?.textContent && window.__scaleFrames.length > 1")
+                assert cdp.evaluate("[document.querySelector('#primaryUoaSelect').value,document.querySelector('#secondaryUoaSelect').value]") == [primary,secondary], 'Requested reciprocal pair did not load'
+                for width in (1440,390):
+                    cdp.command('Emulation.setDeviceMetricsOverride', {'width':width,'height':1000,'deviceScaleFactor':1,'mobile':False})
+                    for theme in ('dark','light'):
+                        cdp.evaluate(f"document.documentElement.dataset.theme={json.dumps(theme)};document.dispatchEvent(new CustomEvent('dashboard-theme-change'));window.dispatchEvent(new Event('resize'));")
+                        cdp.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+                        for source_id in ('usdBtcChart','btcUsdChart'):
+                            observed = []
+                            for ratio in (.3,.7):
+                                result = paired_hover(source_id, ratio)
+                                assert isinstance(result,list) and len(result)==2, result
+                                assert all(row.get('visible') and row.get('swatch') and row.get('neutral') for row in result), result
+                                assert result[0]['date'] and result[0]['date']==result[1]['date'], result
+                                for row in result:
+                                    expected = ratio if row['id']==source_id else 1-ratio
+                                    assert abs(row['ratio']-expected)<.015, ('Linked hover lost y inversion',width,theme,source_id,result)
+                                actual_product = numeric_rate(result[0]['value'])*numeric_rate(result[1]['value'])
+                                assert abs(actual_product/product-1)<.002, ('Tooltip rates are not reciprocal',primary,secondary,result,actual_product)
+                                observed.append([(row['date'],row['value']) for row in result])
+                            assert observed[0]==observed[1], ('Pointer y changed tooltip rates',observed)
+                        cdp.evaluate("document.querySelector('#btcUsdChart').dispatchEvent(new MouseEvent('mouseleave',{bubbles:true}));")
+                        assert cdp.evaluate("[...document.querySelectorAll('.chart-hover-value-tooltip,.chart-hover-line')].every(el=>getComputedStyle(el).display==='none')"), 'Leaving chart retained paired hover'
+                assert not cdp.evaluate('window.__scaleErrors'), cdp.evaluate('window.__scaleErrors')
+            cdp.command('Emulation.setDeviceMetricsOverride', {'width':1440,'height':1000,'deviceScaleFactor':1,'mobile':False})
+            print('UoA paired tooltip reciprocal rates, linked dates, inverted y-position, neutral values/swatches and leave cleanup passed in both themes and desktop/mobile.', flush=True)
 
             state = {'coin':'cas_1btc_2011_s1','chartOpen':True,'chartMode':'price','priceUnit':'usd','priceScale':'linear',
                      'view':{'running':False},'panels':{'left':True,'bottom':True,'right':True,'leftMode':'active'}}

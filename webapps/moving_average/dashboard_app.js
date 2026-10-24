@@ -767,19 +767,17 @@
   function clearHover() { hover = null; tooltip.hidden = true; }
   function writeChartTooltip(index, geometry, chartId) {
     const row = display.model.rows[index], colors = G.palette(document.documentElement.dataset.theme);
-    function entry(text, className, color) {
-      const node = document.createElement("div"); node.className = className; node.textContent = text;
-      if (color) node.style.color = color;
-      return node;
-    }
-    const entries = [entry(row.date, "chart-hover-tooltip-date"), entry(`Bitcoin  ${G.money(row.price)}`, "chart-hover-tooltip-value", colors.fg)];
+    const rows = [{ label: "Bitcoin", value: G.money(row.price), color: colors.fg }];
     state.lines.forEach((line, i) => {
       if (line.type === "none") return;
       const value = G.hoverValue(display.model, display.series[i], line, index, geometry.endIndex, state.scales[charts.indexOf(chartId)], geometry);
-      const label = Number.isFinite(value.value) ? G.money(value.value) : "Insufficient history";
-      entries.push(entry(`${M.label(line, true)}  ${label}`, "chart-hover-tooltip-value", colors.lines[i]));
+      rows.push({
+        label: M.label(line, true),
+        value: Number.isFinite(value.value) ? G.money(value.value) : "Insufficient history",
+        color: colors.lines[i],
+      });
     });
-    tooltip.replaceChildren(...entries.flatMap((node, i) => i ? ["\n", node] : [node]));
+    tooltip.innerHTML = window.WSBDashboardComponents.renderTooltip({ title: row.date, rows });
   }
   function placeChartTooltip(event, rect, geometry) {
     // Match UoA: sit beside the date guide, centered vertically on the cursor,
@@ -789,7 +787,7 @@
     const left = Math.max(pad, rect.left + geometry.plot.left + pad);
     const right = Math.min(innerWidth - pad, rect.left + geometry.plot.right - pad);
     const top = Math.max(pad, rect.top + geometry.plot.top), bottom = Math.min(innerHeight - pad, rect.top + geometry.plot.bottom);
-    tooltip.style.maxWidth = `${Math.max(1, right - left)}px`;
+    tooltip.style.maxWidth = `${Math.max(1, Math.min(420, window.innerWidth - 24, right - left))}px`;
     tooltip.style.maxHeight = `${Math.max(1, bottom - top)}px`;
     tooltip.style.left = `${left}px`; tooltip.style.top = `${top}px`;
     tooltip.hidden = false;

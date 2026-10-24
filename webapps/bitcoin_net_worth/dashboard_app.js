@@ -4615,9 +4615,7 @@ function showMetricPieChartTooltip(canvas, x, y, chartType) {
   if (sliceIndex >= 0) {
     const slices = state.slices;
     const slice = slices[sliceIndex];
-    const tooltipText = `${slice.name}: ${Number(slice.value).toFixed(8)} BTC`;
-    
-    showMetricPieTooltip(canvas, x, y, tooltipText);
+    showMetricPieTooltip(canvas, x, y, slice);
   } else {
     hideMetricPieTooltip();
   }
@@ -4625,14 +4623,16 @@ function showMetricPieChartTooltip(canvas, x, y, chartType) {
 
 let metricPieTooltipEl = null;
 
-function showMetricPieTooltip(canvas, mouseX, mouseY, text) {
+function showMetricPieTooltip(canvas, mouseX, mouseY, slice) {
   if (!metricPieTooltipEl) {
     metricPieTooltipEl = document.createElement("div");
-    metricPieTooltipEl.className = "metric-pie-tooltip";
+    metricPieTooltipEl.className = "metric-pie-tooltip wsb-tooltip wsb-tooltip--data";
     document.body.appendChild(metricPieTooltipEl);
   }
   
-  metricPieTooltipEl.textContent = text;
+  metricPieTooltipEl.innerHTML = window.WSBDashboardComponents.renderTooltip({
+    rows: [{ label: slice.name, value: `${Number(slice.value).toFixed(8)} BTC`, color: slice.color }]
+  });
   metricPieTooltipEl.style.display = "block";
   
   // Position tooltip with offset from cursor
@@ -5017,6 +5017,140 @@ function buildAxisScale(values, {
   };
 }
 
+// The charts use backing-buffer coordinates. Draw only the hover overlay in
+// CSS pixels so typography, padding, and corners stay constant across DPRs.
+function drawHistoryTooltip(canvas, datasets, index, opts, plot) {
+  const ctx = canvas.getContext("2d");
+  const theme = window.WSBDashboardComponents.getTooltipTheme();
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = rect.width > 0 ? canvas.width / rect.width : (window.devicePixelRatio || 1);
+  const scaleY = rect.height > 0 ? canvas.height / rect.height : scaleX;
+  const left = plot.left / scaleX;
+  const top = plot.top / scaleY;
+  const plotWidth = plot.width / scaleX;
+  const plotHeight = plot.height / scaleY;
+  const x = plot.x / scaleX;
+  const cursorY = opts.hoverY != null ? opts.hoverY / scaleY : top + plotHeight / 2;
+  const title = formatDisplayDate(opts.hoveredHistoryDate);
+  const rows = datasets.map((series) => {
+    const value = Number(series.values[index] || 0);
+    const change = Boolean(series.rawValues && series.rawFormatter);
+    const parts = change
+      ? [{ text: `${series.rawFormatter(series.rawValues[index])} `, color: theme.color },
+        { text: formatChartTooltipValue(value, true), color: value >= 0 ? theme.positive : theme.negative }]
+      : [{ text: series.valueFormatter ? series.valueFormatter(value) : formatChartTooltipValue(value, Boolean(opts.percent)), color: theme.color }];
+    return { label: String(series.label || ''), color: series.color, parts };
+  });
+
+  ctx.save();
+  ctx.scale(scaleX, scaleY);
+  ctx.font = `400 ${theme.fontSize}px ${theme.fontFamily}`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  const partsWidth = (parts) => parts.reduce((width, part) => width + ctx.measureText(part.text).width, 0);
+  const naturalWidth = Math.max(ctx.measureText(title).width, ...rows.map((row) =>
+    ctx.measureText(row.label).width + (row.color ? 14 : 0) + 16 + partsWidth(row.parts)));
+  const boxWidth = Math.min(420, Math.max(1, plotWidth - 8), naturalWidth + theme.paddingX * 2);
+  const contentWidth = Math.max(1, boxWidth - theme.paddingX * 2);
+  const wrapText = (text, width) => {
+    const lines = [];
+    let line = '';
+    for (const char of String(text)) {
+      if (line && ctx.measureText(line + char).width > width) {
+        lines.push(line);
+        line = '';
+      }
+      line += char;
+    }
+    if (line) lines.push(line);
+    return lines.length ? lines : [''];
+  };
+  const layout = rows.map((row) => {
+    const swatchWidth = row.color ? 14 : 0;
+    const inline = ctx.measureText(row.label).width + swatchWidth + 16 + partsWidth(row.parts) <= contentWidth;
+    if (inline) return { ...row, inline, lines: 1 };
+    const labels = wrapText(row.label, Math.max(1, contentWidth - swatchWidth));
+    const values = [];
+    let line = [];
+    row.parts.forEach((part) => {
+      wrapText(part.text, contentWidth).forEach((text) => {
+        const next = { ...part, text };
+        if (line.length && partsWidth([...line, next]) > contentWidth) {
+          values.push(line);
+          line = [];
+        }
+        line.push(next);
+      });
+    });
+    if (line.length) values.push(line);
+    return { ...row, inline, labels, values, lines: labels.length + values.length };
+  });
+  const boxHeight = theme.paddingY * 2 + theme.lineHeight + 6
+    + layout.reduce((height, row) => height + row.lines * theme.lineHeight + 4, 0);
+  let boxX = x + 12;
+  if (boxX + boxWidth > left + plotWidth) boxX = x - boxWidth - 12;
+  boxX = Math.max(left, Math.min(boxX, left + plotWidth - boxWidth));
+  const boxY = Math.max(top, Math.min(cursorY - boxHeight - 12, top + plotHeight - boxHeight));
+  const radius = Math.min(theme.radius, boxWidth / 2, boxHeight / 2);
+  ctx.beginPath();
+  ctx.moveTo(boxX + radius, boxY);
+  ctx.arcTo(boxX + boxWidth, boxY, boxX + boxWidth, boxY + boxHeight, radius);
+  ctx.arcTo(boxX + boxWidth, boxY + boxHeight, boxX, boxY + boxHeight, radius);
+  ctx.arcTo(boxX, boxY + boxHeight, boxX, boxY, radius);
+  ctx.arcTo(boxX, boxY, boxX + boxWidth, boxY, radius);
+  ctx.closePath();
+  ctx.fillStyle = theme.background;
+  ctx.strokeStyle = theme.border;
+  ctx.lineWidth = 1;
+  ctx.shadowColor = theme.shadow.match(/rgba?\([^)]+\)|#[\da-f]+/i)?.[0] || "transparent";
+  ctx.shadowOffsetY = 8 * scaleY;
+  ctx.shadowBlur = 24 * scaleX;
+  ctx.fill();
+  ctx.shadowColor = "transparent";
+  ctx.stroke();
+  const textX = boxX + theme.paddingX;
+  let y = boxY + theme.paddingY + theme.lineHeight / 2;
+  ctx.font = `600 ${theme.fontSize}px ${theme.fontFamily}`;
+  ctx.fillStyle = theme.color;
+  ctx.fillText(title, textX, y);
+  y += theme.lineHeight + 6;
+  const drawParts = (parts, rowY) => {
+    ctx.font = `500 ${theme.fontSize}px ${theme.fontFamily}`;
+    let partX = boxX + boxWidth - theme.paddingX - partsWidth(parts);
+    parts.forEach((part) => {
+      ctx.fillStyle = part.color;
+      ctx.fillText(part.text, partX, rowY);
+      partX += ctx.measureText(part.text).width;
+    });
+  };
+  layout.forEach((row) => {
+    y += 2;
+    if (row.color) {
+      ctx.fillStyle = row.color;
+      ctx.fillRect(textX, y - 4, 8, 8);
+    }
+    ctx.font = `400 ${theme.fontSize}px ${theme.fontFamily}`;
+    ctx.fillStyle = theme.muted;
+    const labelX = textX + (row.color ? 14 : 0);
+    if (row.inline) {
+      ctx.fillText(row.label, labelX, y);
+      drawParts(row.parts, y);
+      y += theme.lineHeight;
+    } else {
+      row.labels.forEach((label) => {
+        ctx.fillText(label, labelX, y);
+        y += theme.lineHeight;
+      });
+      row.values.forEach((parts) => {
+        drawParts(parts, y);
+        y += theme.lineHeight;
+      });
+    }
+    y += 2;
+  });
+  ctx.restore();
+}
+
 function drawLineChart(canvas, datasets, labels, opts = {}) {
   const ctx = canvas.getContext("2d");
   const width = canvas.width;
@@ -5036,9 +5170,7 @@ function drawLineChart(canvas, datasets, labels, opts = {}) {
   const chartGrid = themeValue("--chart-grid") || "rgba(255,255,255,0.14)";
   const chartAxis = themeValue("--chart-axis") || "rgba(255,255,255,0.28)";
   const chartMarker = themeValue("--chart-marker") || "#f5f5f5";
-  const tooltipBg = themeValue("--chart-tooltip-bg") || "rgba(10,10,10,0.78)";
   const tooltipBorder = themeValue("--chart-tooltip-border") || "rgba(255,255,255,0.18)";
-  const tooltipTitle = themeValue("--chart-tooltip-title") || "#f3f3f3";
   const tooltipText = themeValue("--chart-tooltip-text") || "#d0d0d0";
   const snapshotHighlightDot = themeValue("--snapshot-highlight-dot") || "#66b2ff";
   const snapshotHighlightRing = themeValue("--snapshot-highlight-ring") || "rgba(102,178,255,0.22)";
@@ -5202,55 +5334,7 @@ function drawLineChart(canvas, datasets, labels, opts = {}) {
     const i = labelToIndex.get(opts.hoveredHistoryDate);
     const x = chartXAtIndex(i, labels.length, x0, chartW);
 
-    // lines: array of segment arrays [{text, color}]
-    const lines = [[{ text: formatDisplayDate(opts.hoveredHistoryDate), color: tooltipTitle }]];
-    datasets.forEach((ds) => {
-      const val = Number(ds.values[i] || 0);
-      const dsColor = ds.color || tooltipText;
-      if (ds.rawValues && ds.rawFormatter) {
-        const rawStr = ds.rawFormatter(ds.rawValues[i]);
-        const pctStr = formatChartTooltipValue(val, true);
-        const pctColor = val >= 0 ? "#39d7a4" : "#ff5555";
-        lines.push([
-          { text: `${rawStr} `, color: dsColor },
-          { text: pctStr, color: pctColor }
-        ]);
-      } else {
-        const pctStr = formatChartTooltipValue(val, Boolean(opts.percent));
-        const pctColor = val >= 0 ? "#39d7a4" : "#ff5555";
-        const valColor = opts.percent
-          ? (opts.percentValueColor || pctColor)
-          : dsColor;
-        const valStr = ds.valueFormatter ? ds.valueFormatter(val) : pctStr;
-        lines.push([{ text: valStr, color: valColor }]);
-      }
-    });
-
-    ctx.font = `${fs(26)}px IBM Plex Mono`;
-    const textW = Math.max(...lines.map((segs) => segs.reduce((w, s) => w + ctx.measureText(s.text).width, 0)));
-    const boxW = textW + 16;
-    const boxH = lines.length * 28 + 14;
-    let boxX = x + 10;
-    if (boxX + boxW > x0 + chartW) boxX = x - boxW - 10;
-    const cursorY = (opts.hoverY != null) ? opts.hoverY : (pad.t + chartH / 2);
-    const boxY = Math.max(pad.t, cursorY - boxH - 14);
-
-    ctx.fillStyle = tooltipBg;
-    ctx.strokeStyle = tooltipBorder;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.rect(boxX, boxY, boxW, boxH);
-    ctx.fill();
-    ctx.stroke();
-
-    lines.forEach((segs, li) => {
-      let xOff = boxX + 8;
-      segs.forEach((seg) => {
-        ctx.fillStyle = seg.color;
-        ctx.fillText(seg.text, xOff, boxY + 26 + li * 28);
-        xOff += ctx.measureText(seg.text).width;
-      });
-    });
+    drawHistoryTooltip(canvas, datasets, i, opts, { x, left: x0, top: pad.t, width: chartW, height: chartH });
   }
 
   let xTicks = buildDateLabelTicks(labels, 8);
@@ -5290,9 +5374,7 @@ function drawLineChartDualYAxis(canvas, datasets, labels, opts = {}) {
   const chartGrid = themeValue("--chart-grid") || "rgba(255,255,255,0.14)";
   const chartAxis = themeValue("--chart-axis") || "rgba(255,255,255,0.28)";
   const chartMarker = themeValue("--chart-marker") || "#f5f5f5";
-  const tooltipBg = themeValue("--chart-tooltip-bg") || "rgba(10,10,10,0.78)";
   const tooltipBorder = themeValue("--chart-tooltip-border") || "rgba(255,255,255,0.18)";
-  const tooltipTitle = themeValue("--chart-tooltip-title") || "#f3f3f3";
   const tooltipText = themeValue("--chart-tooltip-text") || "#d0d0d0";
   const snapshotHighlightDot = themeValue("--snapshot-highlight-dot") || "#66b2ff";
   const snapshotHighlightRing = themeValue("--snapshot-highlight-ring") || "rgba(102,178,255,0.22)";
@@ -5532,54 +5614,7 @@ function drawLineChartDualYAxis(canvas, datasets, labels, opts = {}) {
   if (opts.hoveredHistoryDate && labelToIndex.has(opts.hoveredHistoryDate)) {
     const i = labelToIndex.get(opts.hoveredHistoryDate);
     const x = chartXAtIndex(i, labels.length, x0, chartW);
-    const lines = [[{ text: formatDisplayDate(opts.hoveredHistoryDate), color: tooltipTitle }]];
-    datasets.forEach((ds) => {
-      const val = Number(ds.values[i] || 0);
-      const dsColor = ds.color || tooltipText;
-      if (ds.rawValues && ds.rawFormatter) {
-        const rawStr = ds.rawFormatter(ds.rawValues[i]);
-        const pctStr = formatChartTooltipValue(val, true);
-        const pctColor = val >= 0 ? "#39d7a4" : "#ff5555";
-        lines.push([
-          { text: `${rawStr} `, color: dsColor },
-          { text: pctStr, color: pctColor }
-        ]);
-      } else {
-        const pctStr = formatChartTooltipValue(val, Boolean(opts.percent));
-        const pctColor = val >= 0 ? "#39d7a4" : "#ff5555";
-        const valColor = opts.percent
-          ? (opts.percentValueColor || pctColor)
-          : dsColor;
-        const valStr = ds.valueFormatter ? ds.valueFormatter(val) : pctStr;
-        lines.push([{ text: valStr, color: valColor }]);
-      }
-    });
-
-    ctx.font = `${fs(26)}px IBM Plex Mono`;
-    const textW = Math.max(...lines.map((segs) => segs.reduce((w, s) => w + ctx.measureText(s.text).width, 0)));
-    const boxW = textW + 16;
-    const boxH = lines.length * 28 + 14;
-    let boxX = x + 10;
-    if (boxX + boxW > x0 + chartW) boxX = x - boxW - 10;
-    const cursorY = (opts.hoverY != null) ? opts.hoverY : (pad.t + chartH / 2);
-    const boxY = Math.max(pad.t, cursorY - boxH - 14);
-
-    ctx.fillStyle = tooltipBg;
-    ctx.strokeStyle = tooltipBorder;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.rect(boxX, boxY, boxW, boxH);
-    ctx.fill();
-    ctx.stroke();
-
-    lines.forEach((segs, li) => {
-      let xOff = boxX + 8;
-      segs.forEach((seg) => {
-        ctx.fillStyle = seg.color;
-        ctx.fillText(seg.text, xOff, boxY + 26 + li * 28);
-        xOff += ctx.measureText(seg.text).width;
-      });
-    });
+    drawHistoryTooltip(canvas, datasets, i, opts, { x, left: x0, top: pad.t, width: chartW, height: chartH });
   }
 
   let xTicks = buildDateLabelTicks(labels, 8);

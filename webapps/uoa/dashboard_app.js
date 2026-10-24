@@ -426,7 +426,7 @@
     if (!tooltip) {
       tooltip = document.createElement("div");
       tooltip.id = "dashboardInlineTooltip";
-      tooltip.className = "dashboard-inline-tooltip";
+      tooltip.className = "dashboard-inline-tooltip wsb-tooltip wsb-tooltip--help";
       document.body.appendChild(tooltip);
     }
     return tooltip;
@@ -465,6 +465,7 @@
   }
 
   function bindCustomTooltips() {
+    document.documentElement.setAttribute("data-custom-tooltip-binder", "");
     if (customTooltipBound) return;
     customTooltipBound = true;
     let mobileTooltipHideTimerId = null;
@@ -4892,7 +4893,8 @@
   function createChartEventTooltip() {
     if (chartEventTooltipEl) return chartEventTooltipEl;
     const node = document.createElement("div");
-    node.className = "chart-event-tooltip";
+    node.className = "chart-event-tooltip wsb-tooltip wsb-tooltip--record";
+    node.setAttribute("role", "tooltip");
     node.style.display = "none";
     document.body.appendChild(node);
     chartEventTooltipEl = node;
@@ -4915,18 +4917,10 @@
     });
   }
 
-  function escapeHtml(value) {
-    return String(value ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;");
-  }
-
   function showChartEventTooltip(text, clientX, clientY, boundsRect = null) {
     const tip = createChartEventTooltip();
-    tip.textContent = text;
+    const [title, ...details] = String(text).split("\n");
+    tip.innerHTML = window.WSBDashboardComponents.renderTooltip({ title, note: details.join("\n") });
     tip.style.display = "block";
     placeChartTooltip(tip, clientX, clientY, boundsRect);
   }
@@ -5003,7 +4997,8 @@
     line.className = "chart-hover-line";
     line.style.display = "none";
     const tooltip = document.createElement("div");
-    tooltip.className = "chart-hover-value-tooltip";
+    tooltip.className = "chart-hover-value-tooltip wsb-tooltip wsb-tooltip--data";
+    tooltip.setAttribute("role", "tooltip");
     tooltip.style.display = "none";
     panel.append(line, tooltip);
     chartHoverOverlayById[canvas.id] = { line, tooltip };
@@ -5038,10 +5033,15 @@
     overlay.line.style.top = `${top}px`;
     overlay.line.style.height = `${height}px`;
 
-    overlay.tooltip.innerHTML = [
-      `<div class="chart-hover-tooltip-date">${escapeHtml(fmtDate(date))}</div>`,
-      `<div class="chart-hover-tooltip-value" style="color:${escapeHtml(meta.color || "currentColor")}">${escapeHtml(value)}</div>`,
-    ].join("");
+    overlay.tooltip.innerHTML = window.WSBDashboardComponents.renderTooltip({
+      title: fmtDate(date),
+      rows: [{ label: meta.tooltipLabel || "Value", value, color: meta.color }],
+    });
+    // Keep wrapping independent of the previous left position. Otherwise an
+    // absolute auto-width tooltip can change height after placement, shifting
+    // the paired panels away from their mirrored cursor positions.
+    overlay.tooltip.style.width = "max-content";
+    overlay.tooltip.style.maxWidth = `${Math.max(1, Math.min(420, window.innerWidth - 24, panelRect.width - 16))}px`;
     overlay.tooltip.style.display = "block";
     const tooltipWidth = overlay.tooltip.offsetWidth || 120;
     const tooltipHeight = overlay.tooltip.offsetHeight || 42;

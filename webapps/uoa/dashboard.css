@@ -2018,26 +2018,6 @@ body.uoa-loading .date-range-slider-wrap > * {
   z-index: 250;
   pointer-events: none;
   transform: none;
-  padding: 6px 8px;
-  border: 1px solid var(--panel-border);
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.92);
-  color: var(--fg);
-  font-size: 0.75rem;
-  line-height: 1.25;
-  white-space: pre-line;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-}
-
-.chart-hover-tooltip-date {
-  margin-bottom: 3px;
-  color: var(--fg);
-  font-weight: 700;
-}
-
-.chart-hover-tooltip-value {
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
 }
 
 .chart-hover-line {
@@ -2052,27 +2032,10 @@ body.uoa-loading .date-range-slider-wrap > * {
   position: absolute;
   z-index: 6;
   pointer-events: none;
-  padding: 6px 8px;
-  border: 1px solid var(--panel-border);
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.92);
-  color: var(--fg);
-  font-size: 0.75rem;
-  line-height: 1.25;
-  white-space: nowrap;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 
 :root[data-theme="light"] .chart-hover-line {
   border-left-color: rgba(75, 85, 99, 0.55);
-}
-
-:root[data-theme="light"] .chart-event-tooltip {
-  background: rgba(255, 255, 255, 0.95);
-}
-
-:root[data-theme="light"] .chart-hover-value-tooltip {
-  background: rgba(255, 255, 255, 0.95);
 }
 
 .grid {

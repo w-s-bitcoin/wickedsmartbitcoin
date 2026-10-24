@@ -135,6 +135,7 @@
     }
 
     function bindCustomTooltips() {
+      document.documentElement.setAttribute("data-custom-tooltip-binder", "");
       if (customTooltipBound) return;
       customTooltipBound = true;
       let mobileTooltipHideTimerId = null;
@@ -149,7 +150,7 @@
       const shouldSuppressTooltipForAnchor = (anchor) => {
         if (isPeriodGridOverlayOpen() || isMinerTimelineOverlayOpen()) return true;
         if (!anchor) return true;
-        if (anchor instanceof Element && anchor.closest(".miner-timeline-chain-split-cube")) {
+        if (anchor instanceof Element && anchor.closest(".miner-timeline-chain-split-cube, .chain-split-cube")) {
           return true;
         }
         if (!isMobileUiViewport()) return false;
@@ -5204,27 +5205,11 @@
         ].join("");
       };
 
-      const renderSignalingValue = (value) => {
-        const raw = String(value || "").trim();
-        const match = raw.match(/^([0-9][0-9,]*)(\s*\([^)]*\))?$/);
-        if (!match) {
-          return escapeHtml(raw);
-        }
-        const count = Number(match[1].replace(/,/g, ""));
-        if (!Number.isFinite(count) || count <= 0) {
-          return escapeHtml(raw);
-        }
-        return [
-          `<span class="chip-value-signal">${escapeHtml(match[1])}</span>`,
-          escapeHtml(match[2] || ""),
-        ].join("");
-      };
-
       return lines
         .map((line) => {
           const match = line.match(/^([^:]+:)(\s*)(.*)$/);
           if (!match) {
-            return `<div class="tooltip-line"><span class="tooltip-value">${escapeHtml(line)}</span></div>`;
+            return `<div class="tooltip-line wsb-tooltip-note">${escapeHtml(line)}</div>`;
           }
           const label = match[1].toLowerCase();
           if (label === "minerslug:" || label === "minerpool:" || label === "minersub:") {
@@ -5234,12 +5219,15 @@
             ? renderVersionValue(match[3])
             : label === "miner:"
               ? renderMinerValue(match[3])
-              : label === "signaling:"
-                ? renderSignalingValue(match[3])
-                : escapeHtml(match[3]);
+              : escapeHtml(match[3]);
           const lineClass = label === "miner:" ? " tooltip-line-miner" : "";
           const valueClass = label === "miner:" ? " tooltip-value-miner" : "";
-          return `<div class="tooltip-line${lineClass}"><span class="tooltip-label">${escapeHtml(match[1])}</span><span class="tooltip-value${valueClass}">${valueHtml}</span></div>`;
+          const seriesColor = label === "signaling:" ? "var(--signal)"
+            : label === "non-signaling:" ? "var(--nonsignal)" : "";
+          const swatch = seriesColor
+            ? `<span class="wsb-tooltip-swatch" style="background:${seriesColor}" aria-hidden="true"></span>`
+            : "";
+          return `<div class="tooltip-line wsb-tooltip-row${lineClass}"><span class="tooltip-label wsb-tooltip-label">${swatch}${escapeHtml(match[1].replace(/:$/, ""))}</span><span class="tooltip-value wsb-tooltip-value${valueClass}">${valueHtml}</span></div>`;
         })
         .join("");
     }
@@ -5277,6 +5265,8 @@
         activePeriodGridTooltipContent = normalizedContent;
       }
       periodGridTooltip.classList.toggle("is-compact", !!options.compact);
+      periodGridTooltip.classList.toggle("wsb-tooltip--help", !!options.compact);
+      periodGridTooltip.classList.toggle("wsb-tooltip--record", !options.compact);
       const activeContent = isChainSplitOverlayOpen()
         ? chainSplitContent
         : isMinerTimelineOverlayOpen()
@@ -7253,8 +7243,9 @@
       const front = `${frontX},${frontY} ${frontX + size},${frontY} ${frontX + size},${frontY + size} ${frontX},${frontY + size}`;
       const top = `${x},${y} ${x + size},${y} ${frontX + size},${frontY} ${frontX},${frontY}`;
       const side = `${x},${y} ${frontX},${frontY} ${frontX},${frontY + size} ${x},${y + size}`;
+      const tooltip = formatChainSplitTooltip(block, nodeView);
       return `
-        <g class="${classes}" tabindex="0" role="button" aria-label="Open block ${Number.isFinite(height) ? height.toLocaleString("en-US") : ""}" data-height="${Number.isFinite(height) ? height : ""}" data-node-view="${nodeView}" data-miner-slug="${escapeHtml(miner.slug)}">
+        <g class="${classes}" tabindex="0" role="button" aria-label="Open block ${Number.isFinite(height) ? height.toLocaleString("en-US") : ""}" data-height="${Number.isFinite(height) ? height : ""}" data-node-view="${nodeView}" data-miner-slug="${escapeHtml(miner.slug)}" data-tooltip="${escapeHtml(tooltip)}">
           <text class="chain-split-height-label" x="${labelX}" y="${labelY}" style="font-size:${heightFontSize}px">${Number.isFinite(height) ? height.toLocaleString("en-US") : ""}</text>
           <polygon class="chain-split-cube-face chain-split-cube-top" points="${top}"></polygon>
           <polygon class="chain-split-cube-face chain-split-cube-side" points="${side}"></polygon>

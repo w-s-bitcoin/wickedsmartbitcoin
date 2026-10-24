@@ -51,9 +51,6 @@
       --dropdown-border: var(--panel-border);
       --dropdown-select-bg: rgba(0, 0, 0, 0.4);
       --dropdown-select-border: var(--panel-border);
-      --tooltip-bg: #000000;
-      --tooltip-border: rgba(255, 255, 255, 0.22);
-      --tooltip-fg: #e9f1f5;
       --fill-btn-border: var(--panel-border);
       --fill-btn-bg: rgba(0, 0, 0, 0.72);
       --scrollbar-track: #171717;
@@ -86,9 +83,6 @@
       --dropdown-border: var(--panel-border);
       --dropdown-select-bg: rgba(248, 245, 240, 0.95);
       --dropdown-select-border: var(--panel-border);
-      --tooltip-bg: #ffffff;
-      --tooltip-border: rgba(0, 0, 0, 0.22);
-      --tooltip-fg: #1c1b19;
       --fill-btn-border: var(--panel-border);
       --fill-btn-bg: rgba(248, 245, 240, 0.9);
       --fill-btn-disabled-color: rgba(0, 0, 0, 0.28);
@@ -719,35 +713,9 @@
       z-index: 20;
       pointer-events: none;
       width: max-content;
-      max-width: calc(100vw - 24px);
-      background: var(--tooltip-bg);
-      border: 1px solid var(--tooltip-border);
-      color: var(--tooltip-fg);
-      border-radius: 10px;
-      padding: 8px 10px;
-      font-size: clamp(0.72rem, 0.64rem + 0.30vw, 0.9rem);
-      line-height: clamp(1.35, 1.28 + 0.15vw, 1.5);
-      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
-      white-space: pre-line;
       transform: translate(-50%, calc(-100% - 14px));
       opacity: 0;
       transition: opacity 130ms ease;
-      font-family: "IBM Plex Mono", monospace;
-    }
-
-    .tooltip-line {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-    }
-
-    .tooltip-label {
-      color: rgba(255, 255, 255, 0.68);
-      font-weight: 600;
-    }
-
-    .tooltip-value {
-      color: var(--tooltip-fg);
     }
 
     .tooltip-line-miner {
@@ -765,7 +733,6 @@
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      color: var(--tooltip-fg);
       line-height: inherit;
       white-space: nowrap;
     }
@@ -805,10 +772,6 @@
 
     :root[data-theme="light"] .tooltip-miner-unavailable {
       color: rgba(0, 0, 0, 0.42);
-    }
-
-    :root[data-theme="light"] .tooltip-label {
-      color: rgba(0, 0, 0, 0.58);
     }
 
     .tooltip.show { opacity: 1; }
@@ -3135,7 +3098,7 @@
 
   </main>
 
-  <div class="tooltip" id="tooltip"></div>
+  <div class="tooltip wsb-tooltip wsb-tooltip--record" id="tooltip"></div>
   <div class="period-grid-overlay" id="periodGridOverlay" aria-hidden="true">
     <div class="period-grid-dialog" id="periodGridDialog" role="dialog" aria-modal="true" aria-label="Current BIP-110 period block grid" tabindex="-1">
       <div class="period-grid-header" id="periodGridHeader">
@@ -3328,7 +3291,7 @@
       </div>
     </div>
   </div>
-  <div class="tooltip" id="periodGridTooltip"></div>
+  <div class="tooltip wsb-tooltip wsb-tooltip--record" id="periodGridTooltip"></div>
 
   <script src="../../js/11_dashboard_timezone_preferences.js"></script>
   <script>

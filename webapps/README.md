@@ -50,6 +50,7 @@ Common dashboard shell/layout rules are centralized in `webapps/shared/` and sho
   - Load before `dashboard_components.js`; its codec and link helpers are also available on `WSBDashboardComponents`
 - `shared/dashboard_components.js`
   - Shared date picker, date range, button group, two-panel mode, scale button, floating settings menu, copy/reset, manifest runtime, and playback keyboard helpers
+  - Escaped tooltip content through `renderTooltip()`, Plotly styles through `getPlotlyHoverlabel()`, canvas tokens through `getTooltipTheme()`, and delegated help for native titles/unbound `data-tooltip` controls; see [Shared hover tooltips](#shared-hover-tooltips).
 - `shared/dashboard_charting.js`
   - Shared canvas chart helpers for plot rectangles, linear/log ticks, grid lines, right-side y-axis labels, and standard number/date/currency formatting
   - `createCalendarTicks()` selects UTC day/week/month/year boundaries with doubling multi-year intervals. Moving Average's dashboard and exports share it; callers retain their own label formatting and layout. See [Calendar tick selection](#calendar-tick-selection).
@@ -65,6 +66,9 @@ Common dashboard shell/layout rules are centralized in `webapps/shared/` and sho
   - Shared loader styling and animation
   - Shared embedded-modal wrap padding behavior
   - Full light-mode overrides activated by `html[data-theme="light"]`
+- `shared/dashboard_tooltips.css`
+  - Shared data, record, and help surfaces with theme tokens and aligned content rows
+  - Imported by `dashboard_shared.css`; custom shells load it directly with `dashboard_components.js`
 - `shared/dashboard_controls.css`
   - Shared date pickers, playback/export settings, dropdowns, and updated-time controls
 - `shared/dashboard_embed_modal.js`
@@ -482,7 +486,7 @@ Shared baseline tokens used by both dashboards:
 - Muted text: `#95a6ae`
 - Panel border: `rgba(255, 255, 255, 0.14)`
 - Secondary border usage: `rgba(255, 255, 255, 0.06)` to `rgba(255, 255, 255, 0.18)`
-- Radius: `14px` for top-level surfaces, `10px` for popovers, `6px` for compact controls
+- Radius: `14px` for top-level surfaces, `10px` for menus/popovers, `8px` for hover tooltips, `6px` for compact controls
 
 Accent color is dashboard-specific, but it should be a single clear accent that drives hover, focus, and active states.
 
@@ -491,6 +495,90 @@ Accent color is dashboard-specific, but it should be a single clear accent that 
 - `bitcoin_dominance`: orange accent (`--accent`)
 - `dca_cost_basis`: orange accent (`--accent`)
 - `quantum_exposure`: teal accent (`--accent`, `#0c6f5f`)
+
+### Shared hover tooltips
+
+Use the [tooltip contract](DASHBOARD_STANDARDS.md#hover-tooltips) in every main
+and secondary panel. `dashboard_shared.css` imports `dashboard_tooltips.css`.
+Custom shells such as Casascius can load the tooltip stylesheet directly,
+alongside `dashboard_components.js`, without adopting the rest of the shell.
+
+Apply `wsb-tooltip` and one variant class to each HTML tooltip. Data tips use
+`wsb-tooltip--data`; dense records use `wsb-tooltip--record` with the same rows
+and wrapping metadata; prose help uses `wsb-tooltip--help`. Data/record type is
+12px IBM Plex Mono and help is 13px. The shared surface supplies an opaque
+dark/light background, 8px corners, 8px/10px padding, a theme border and shadow,
+and a maximum width of 420px or the viewport minus 24px. Dashboard CSS retains
+only placement, visibility, and any stricter plot bounds.
+
+| Shared token | Dark | Light |
+| --- | --- | --- |
+| Background | `#0b0b0b` | `#ffffff` |
+| Foreground | `#e9f1f5` | `#1c1b19` |
+| Border | `#3d4247` | `#c4c7cb` |
+| Signed gain / loss | `#57cc99` / `#ff7b86` | `#167347` / `#bf2638` |
+
+Use the `--wsb-tooltip-*` variables, including the shared muted text and shadow,
+so every variant updates together when the theme changes.
+
+```html
+<div id="chartTooltip" class="wsb-tooltip wsb-tooltip--data" role="tooltip" hidden></div>
+```
+
+```js
+const components = window.WSBDashboardComponents;
+tooltip.innerHTML = components.renderTooltip({
+  title: row.date,
+  rows: [
+    { label: "Bitcoin", value: formatPrice(row.price), color: seriesColor },
+    { label: "ROI", value: "+25.0%", tone: "positive" },
+  ],
+  note: "Published daily observation",
+});
+```
+
+`renderTooltip({ title, rows, note })` returns escaped HTML. Every row accepts
+plain-text `label` and `value`, optional `color` for a small series swatch, and
+optional `tone: "positive" | "negative"` for an explicitly signed outcome.
+Use the chart's series color for the swatch; ordinary label/value text stays
+neutral. Do not pass HTML in any content field or substitute series colors for
+value text. The output classes are `wsb-tooltip-title`, `wsb-tooltip-row`,
+`wsb-tooltip-label`, `wsb-tooltip-value`, `wsb-tooltip-swatch`, and
+`wsb-tooltip-note`; do not invent a second dense-record layout.
+
+For Plotly, set `layout.hoverlabel = components.getPlotlyHoverlabel()` and
+refresh it on theme changes. Keep its native pointer, outline shape, and series
+swatches. Canvas renderers call `components.getTooltipTheme()` for background,
+foreground, border, muted/positive/negative colors, shadow, font family/size,
+padding, radius, and line height. Measure and draw in CSS pixels with the canvas
+context scaled once for DPR; doubling DPR must not double the apparent tip size.
+
+The shared component runtime automatically presents native HTML `title` hints
+and unbound `data-tooltip` help in the shared surface, including controls inside
+secondary dialogs. Existing custom tooltip binders mark the document root with
+`data-custom-tooltip-binder` and retain their own lifecycle;
+they must not also create a native hint. Shared `.info-popover` and
+`.dashboard-inline-tooltip` receive the same help surface. Do not add chart
+hover solely to adopt this styling when a dashboard has no chart inspection.
+
+Choose linked hover from the relationship between panels. Moving Average repeats
+the same series across windows: it shows one tooltip in the active chart and
+shared date guides in overlapping ranges. UoA's reciprocal panels show paired
+readouts when either is hovered, using the same instant, each panel's units and
+reciprocal value, and inverse vertical placement. Preserve that behavior and use
+it for future complementary panels when appropriate. Net Worth links related
+quantities from the same saved snapshot, snapping to real record dates without
+interpolation. Do not link unrelated metrics, populations, or time bases. Clear any panel whose valid range does not
+include the instant; never show stale or future values.
+
+Ordinary help/record tips and single-readout charts show one active tip; paired
+readouts are intentional. Preserve value formatting, sampling/interpolation in
+the current scale, selected dates, and touch/keyboard behavior. Clamp/reposition
+within the relevant plot or viewport; clear on leave, drag, playback, and closing
+a secondary panel. Review dark/light screenshots at desktop/mobile widths, long
+wrapped text, plot edges, secondary panels, and canvas DPR 1/2. Verify paired
+reciprocal values and inverse placement where applicable, and include the UI
+steps that expose conditional or nested tips.
 
 ### Page padding and spacing
 
@@ -801,6 +889,7 @@ Before calling a new dashboard finished, check all of the following:
 **Visuals and behavior**
 - Shared shell rules are reused; duplicated copies of shared rules were not pasted into the dashboard file.
 - Fonts match the established `Space Grotesk` and `IBM Plex Mono` split.
+- Tooltips in every main/secondary panel use the [three shared variants](#shared-hover-tooltips); screenshot each affected variant in dark/light at desktop/mobile widths, including long text and edge bounds. Plotly keeps its native geometry; canvas tips retain CSS-pixel sizing across DPR changes.
 - Outer padding uses the existing `clamp(8px, 1.4vw, 12px)` pattern.
 - Topbar is compact and bordered, not oversized.
 - Panels use black backgrounds, subtle borders, and `14px` radius.

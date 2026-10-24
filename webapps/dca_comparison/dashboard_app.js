@@ -2615,6 +2615,13 @@
       el.dcaCapWarning.textContent = visible
         ? `Bitcoin purchase limit reached ${capHitCount.toLocaleString("en-US")} ${capHitCount === 1 ? "time" : "times"}`
         : "";
+      if (visible) {
+        const help = document.createElement("span");
+        help.className = "dca-cap-tooltip wsb-tooltip wsb-tooltip--help";
+        help.setAttribute("aria-hidden", "true");
+        help.textContent = tooltipText;
+        el.dcaCapWarning.appendChild(help);
+      }
     }
     el.assetADcaValue.style.color = a.color;
     if (hasB) el.assetBDcaValue.style.color = b.color;

@@ -26,6 +26,13 @@ if grep -R "navigator.clipboard.writeText" webapps --include='dashboard_app.js' 
   exit 1
 fi
 
+if command -v node >/dev/null 2>&1; then
+  echo "Checking shared tooltip contracts..."
+  node scripts/test_dashboard_tooltips.js
+else
+  echo "Skipping shared tooltip contracts: Node.js is not installed." >&2
+fi
+
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo "Checking whitespace..."
   git diff --check

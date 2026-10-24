@@ -2005,85 +2005,15 @@
     .historical-hover-tooltip {
       position: absolute;
       z-index: 5;
-      min-width: 180px;
-      max-width: 260px;
-      background: color-mix(in srgb, var(--surface) 92%, black 8%);
-      border: 1px solid var(--panel-border);
-      border-radius: 8px;
-      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
-      padding: 8px 10px;
-      font-size: 12px;
-      color: var(--ink);
-      pointer-events: none;
-      white-space: nowrap;
-    }
-
-    .historical-tooltip-row {
-      font-weight: 600;
-      color: var(--ink);
-    }
-
-    .historical-tooltip-total {
-      color: var(--ink);
-      margin: 2px 0 4px;
-    }
-
-    .historical-tooltip-label {
-      font-weight: 700;
-      color: rgba(255, 255, 255, 0.68);
-    }
-
-    .historical-tooltip-value {
-      font-weight: 600;
-    }
-
-    .historical-tooltip-value-never {
-      color: var(--seg-never);
-    }
-
-    .historical-tooltip-value-inactive {
-      color: var(--seg-inactive);
-    }
-
-    .historical-tooltip-value-active {
-      color: var(--seg-active);
-    }
-
-    .historical-tooltip-value-nonexposed {
-      color: var(--non-exposed-label);
-    }
-
-    :root[data-theme="light"] .historical-tooltip-label {
-      color: rgba(0, 0, 0, 0.58);
     }
 
     .quantum-inline-tooltip {
       position: fixed;
       z-index: 140;
-      width: fit-content;
-      max-width: min(420px, calc(100vw - 24px));
-      border: 1px solid var(--panel-border);
-      border-radius: 10px;
-      background: #ffffff;
-      color: #1c1b19;
-      padding: 10px 12px;
-      font-size: 0.82rem;
-      line-height: 1.45;
-      box-shadow: 0 12px 24px rgba(0, 0, 0, 0.1);
-      font-family: "IBM Plex Mono", monospace;
-      white-space: pre-line;
       opacity: 0;
       visibility: hidden;
-      pointer-events: none;
       transform: translateY(-2px);
       transition: opacity 120ms ease, transform 120ms ease, visibility 0ms linear 120ms;
-    }
-
-    :root[data-theme="dark"] .quantum-inline-tooltip {
-      border-color: var(--panel-border);
-      background: #000;
-      color: #d9e5ea;
-      box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
     }
 
     .quantum-inline-tooltip.is-visible {
@@ -2091,36 +2021,6 @@
       visibility: visible;
       transform: translateY(0);
       transition: opacity 120ms ease, transform 120ms ease;
-    }
-
-    .quantum-inline-tooltip .tooltip-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-    }
-
-    .quantum-inline-tooltip .tooltip-label {
-      color: rgba(255, 255, 255, 0.68);
-    }
-
-    .quantum-inline-tooltip .tooltip-value-never {
-      color: var(--seg-never);
-    }
-
-    .quantum-inline-tooltip .tooltip-value-inactive {
-      color: var(--seg-inactive);
-    }
-
-    .quantum-inline-tooltip .tooltip-value-active {
-      color: var(--seg-active);
-    }
-
-    :root[data-theme="light"] .quantum-inline-tooltip .tooltip-label {
-      color: rgba(0, 0, 0, 0.58);
-    }
-
-    :root[data-theme="light"] .quantum-inline-tooltip .tooltip-value-inactive {
-      color: var(--seg-inactive);
     }
 
     .top-list {

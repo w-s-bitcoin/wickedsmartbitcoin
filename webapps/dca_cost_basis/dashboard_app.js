@@ -195,7 +195,7 @@ function ensureCustomTooltipElement() {
   if (!tooltip) {
     tooltip = document.createElement("div");
     tooltip.id = "dashboardInlineTooltip";
-    tooltip.className = "dashboard-inline-tooltip";
+    tooltip.className = "dashboard-inline-tooltip wsb-tooltip wsb-tooltip--help";
     document.body.appendChild(tooltip);
   }
   return tooltip;
@@ -234,6 +234,7 @@ function showCustomTooltip(anchor, x, y) {
 }
 
 function bindCustomTooltips() {
+  document.documentElement.setAttribute("data-custom-tooltip-binder", "");
   if (customTooltipBound) return;
   customTooltipBound = true;
   let mobileTooltipHideTimerId = null;
@@ -4473,17 +4474,19 @@ function showChartTooltip(chart, hoverRow, hoverEvent) {
   const roi = Number.isFinite(basis) && basis > 0 && Number.isFinite(currentPrice)
     ? ((currentPrice - basis) / basis) * 100
     : NaN;
-  const roiClass = Number.isFinite(roi) && roi >= 0 ? "tooltip-value-profit" : "tooltip-value-loss";
   const roiText = Number.isFinite(roi) ? `${roi >= 0 ? "+" : ""}${roi.toFixed(1)}%` : "-";
+  const colors = getThemeColors();
 
-  tooltip.innerHTML = [
-    `<div class="tooltip-row"><span class="tooltip-label">&nbsp;Starting Date:</span><span>${escapeHtml(startDate)}</span></div>`,
-    `<div class="tooltip-row"><span class="tooltip-label">&nbsp;&nbsp;DCA Duration:</span><span>${escapeHtml(getCadenceDurationText(hoverRow.purchaseCount))}</span></div>`,
-    `<div class="tooltip-row"><span class="tooltip-label">Starting Price:</span><span>${escapeHtml(fmtUsd(startPrice, 2))}</span></div>`,
-    `<div class="tooltip-row"><span class="tooltip-label">&nbsp;Current Price:</span><span>${escapeHtml(fmtUsd(currentPrice, 2))}</span></div>`,
-    `<div class="tooltip-row"><span class="tooltip-label">DCA Cost Basis:</span><span class="tooltip-value-accent">${escapeHtml(fmtUsd(basis, 2))}</span></div>`,
-    `<div class="tooltip-row"><span class="tooltip-label">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ROI:</span><span class="${roiClass}">${escapeHtml(roiText)}</span></div>`,
-  ].join("");
+  tooltip.innerHTML = window.WSBDashboardComponents.renderTooltip({
+    title: `DCA since ${startDate}`,
+    rows: [
+      { label: "DCA Duration", value: getCadenceDurationText(hoverRow.purchaseCount) },
+      { label: "Starting Price", value: fmtUsd(startPrice, 2), color: startRow?.isPriceAbove === 1 ? colors.up : startRow?.isPriceAbove === 0 ? colors.down : undefined },
+      { label: "Current Price", value: fmtUsd(currentPrice, 2), color: colors.currentLine },
+      { label: "DCA Cost Basis", value: fmtUsd(basis, 2), color: colors.basis },
+      { label: "ROI", value: roiText, tone: Number.isFinite(roi) ? (roi >= 0 ? "positive" : "negative") : undefined },
+    ],
+  });
 
   tooltip.classList.add("show");
 

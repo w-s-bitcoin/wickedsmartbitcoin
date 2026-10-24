@@ -6358,7 +6358,7 @@
       </button>
       <canvas class="balance-chart-full-canvas" aria-label="Balance chart"></canvas>
       <div class="balance-chart-hover-line" aria-hidden="true"></div>
-      <div class="balance-chart-tooltip" role="status"></div>
+      <div class="balance-chart-tooltip wsb-tooltip wsb-tooltip--data" role="status"></div>
     `;
     document.body.appendChild(balanceChartModal);
     balanceChartModal.querySelector('.balance-chart-background-toggle')?.addEventListener('click', toggleBalanceChartBackground);
@@ -6520,18 +6520,6 @@
     return `${baseLabel} ${priceTooltipHasRange(group.points, unit) ? 'Sales' : 'Sale'}`;
   }
 
-  function priceTooltipRowsForPoints(points, unit) {
-    const groups = new Map();
-    points.forEach(point => {
-      const label = point.tooltipLabel || (point.seriesKey === 'funded' ? 'Funded' : 'Premium');
-      const key = `${point.seriesKey || 'premium'}|${label}`;
-      if (!groups.has(key)) groups.set(key, { label, seriesKey: point.seriesKey || 'premium', points: [] });
-      groups.get(key).points.push(point);
-    });
-    return Array.from(groups.values()).map(group => (
-      `<div><span class="balance-chart-tooltip-swatch balance-chart-tooltip-swatch-price-${group.seriesKey}"></span>${escapeHtml(priceTooltipDisplayLabel(group, unit))} ${escapeHtml(formatPriceTooltipRange(group.points, unit))}</div>`
-    )).join('');
-  }
 
   function gradeSortValue(grade) {
     const text = String(grade || '').toUpperCase();
@@ -6602,15 +6590,12 @@
       }
       groupedRows.push({ key, ...row, count: 1 });
     });
-    const rows = groupedRows.map(row => {
-      const countSuffix = row.count > 1 ? ` x ${row.count}` : '';
-      return `
-        <span class="balance-chart-tooltip-sale-label"><span class="${row.markerClass} balance-chart-tooltip-swatch-price-${row.seriesKey}"></span>${escapeHtml(row.label)}</span>
-        <span class="balance-chart-tooltip-sale-value">${escapeHtml(row.value)}</span>
-        <span class="balance-chart-tooltip-sale-count">${escapeHtml(countSuffix)}</span>
-      `;
-    }).join('');
-    return `<div class="balance-chart-tooltip-sales">${rows}</div>`;
+    return groupedRows.map(row => ({
+      label: row.label,
+      value: `${row.value}${row.count > 1 ? ` × ${row.count}` : ''}`,
+      color: row.seriesKey === 'funded' ? '#ff9900' : '#8f98a3',
+      original: row.markerClass === 'balance-chart-tooltip-star'
+    }));
   }
 
   function balanceChartLegendHit(canvas, event) {
@@ -7015,10 +7000,13 @@
     line.style.height = `${cssPlotHeight}px`;
 
     const rows = priceTooltipMarkerRows(datePoints, meta.unit);
-    tooltip.innerHTML = `
-      <div class="balance-chart-tooltip-date">${escapeHtml(formatBalanceTickDate(new Date(nearestTime * 1000)))}</div>
-      ${rows}
-    `;
+    tooltip.innerHTML = window.WSBDashboardComponents.renderTooltip({
+      title: formatBalanceTickDate(new Date(nearestTime * 1000)),
+      rows
+    });
+    tooltip.querySelectorAll('.wsb-tooltip-row').forEach((row, index) => {
+      row.classList.toggle('balance-chart-original-price', Boolean(rows[index]?.original));
+    });
     tooltip.classList.add('visible');
 
     const tooltipWidth = tooltip.offsetWidth || 190;
@@ -7092,14 +7080,16 @@
     line.style.height = `${cssPlotHeight}px`;
     const tooltipRows = BALANCE_CHART_SERIES
       .filter(series => balanceChartVisibleSeries[series.key])
-      .map(series => (
-        `<div><span class="balance-chart-tooltip-swatch balance-chart-tooltip-swatch-${series.key}"></span>${escapeHtml(series.label)} ${escapeHtml(formatBalanceTooltipValue(values[series.key], meta.unit))}</div>`
-      ))
-      .join('');
-    tooltip.innerHTML = `
-      <div class="balance-chart-tooltip-date">${escapeHtml(formatBalanceTickDate(new Date(time * 1000)))}</div>
-      ${tooltipRows || '<div>No visible lines</div>'}
-    `;
+      .map(series => ({
+        label: series.label,
+        value: formatBalanceTooltipValue(values[series.key], meta.unit),
+        color: series.color
+      }));
+    tooltip.innerHTML = window.WSBDashboardComponents.renderTooltip({
+      title: formatBalanceTickDate(new Date(time * 1000)),
+      rows: tooltipRows,
+      note: tooltipRows.length ? '' : 'No visible lines'
+    });
     tooltip.classList.add('visible');
     const tooltipWidth = tooltip.offsetWidth || 180;
     const tooltipHeight = tooltip.offsetHeight || 74;

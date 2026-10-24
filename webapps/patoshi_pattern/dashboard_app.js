@@ -4189,32 +4189,39 @@
 
   function showDiffTooltip(event, marker) {
     if (!els.chartTooltip) return;
-    const adjustmentColor = marker.adjustment > 0 ? COLORS.green : marker.adjustment < 0 ? COLORS.red : getThemeColors().muted;
-    els.chartTooltip.innerHTML =
-      `<strong>Diff epoch</strong> ${fmtInt(marker.epoch)}<br>` +
-      `<strong>Difficulty</strong> ${fmtDifficulty(marker.difficulty)}<br>` +
-      `<strong>Adjustment</strong> <span style="color:${adjustmentColor}">${fmtAdjustment(marker.adjustment)}</span>`;
+    els.chartTooltip.innerHTML = window.WSBDashboardComponents.renderTooltip({
+      title: `Diff epoch ${fmtInt(marker.epoch)}`,
+      rows: [
+        { label: "Difficulty", value: fmtDifficulty(marker.difficulty) },
+        {
+          label: "Adjustment",
+          value: fmtAdjustment(marker.adjustment),
+          tone: marker.adjustment > 0 ? "positive" : marker.adjustment < 0 ? "negative" : undefined,
+        },
+      ],
+    });
     positionChartTooltip(event);
   }
 
   function showBlockTooltip(event, marker) {
     if (!els.chartTooltip) return;
     const row = marker.row;
-    const ownerColor = getBlockPointColor(row);
-    const confidenceScore = getConfidenceScore(row);
-    const confidenceLine = state.colorByConfidence
-      ? `<br><strong>Confidence</strong> ${fmtConfidenceScore(confidenceScore)}`
-      : "";
     const statusText = row.isSpent
       ? `Spent${Number.isFinite(row.spendingHeight) ? ` ${fmtInt(row.spendingHeight)}` : ""}`
       : "Unspent";
-    els.chartTooltip.innerHTML =
-      `<strong>Block</strong> ${fmtInt(row.height)}<br>` +
-      `<strong>Date</strong> ${fmtDateTime(row.ms)}<br>` +
-      `<strong>ExtraNonce</strong> ${fmtInt(row.extranonce)}<br>` +
-      `<strong>Miner</strong> <span style="color:${ownerColor}">${isPatoshiRow(row) ? "Satoshi" : "Other"}</span><br>` +
-      `<strong>Status</strong> ${statusText}` +
-      confidenceLine;
+    const rows = [
+      { label: "Date", value: fmtDateTime(row.ms) },
+      { label: "ExtraNonce", value: fmtInt(row.extranonce) },
+      { label: "Miner", value: isPatoshiRow(row) ? "Satoshi" : "Other", color: getBlockPointColor(row) },
+      { label: "Status", value: statusText },
+    ];
+    if (state.colorByConfidence) {
+      rows.push({ label: "Confidence", value: fmtConfidenceScore(getConfidenceScore(row)) });
+    }
+    els.chartTooltip.innerHTML = window.WSBDashboardComponents.renderTooltip({
+      title: `Block ${fmtInt(row.height)}`,
+      rows,
+    });
     positionChartTooltip(event);
   }
 

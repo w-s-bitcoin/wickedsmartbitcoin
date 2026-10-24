@@ -22,10 +22,10 @@
   --chart-axis: rgba(255, 255, 255, 0.28);
   --chart-tick: #a2a2a2;
   --chart-marker: #f5f5f5;
-  --chart-tooltip-bg: rgba(10, 10, 10, 0.94);
-  --chart-tooltip-border: rgba(255, 255, 255, 0.18);
-  --chart-tooltip-title: #f3f3f3;
-  --chart-tooltip-text: #d0d0d0;
+  --chart-tooltip-bg: var(--wsb-tooltip-bg, #0b0b0b);
+  --chart-tooltip-border: var(--wsb-tooltip-border, #3d4247);
+  --chart-tooltip-title: var(--wsb-tooltip-fg, #e9f1f5);
+  --chart-tooltip-text: var(--wsb-tooltip-fg, #e9f1f5);
   --pie-slice-divider: #000000;
   --snapshot-highlight-bg: rgba(76, 163, 255, 0.2);
   --snapshot-highlight-border: rgba(76, 163, 255, 0.55);
@@ -62,10 +62,10 @@
   --chart-axis: rgba(0, 0, 0, 0.28);
   --chart-tick: #666666;
   --chart-marker: #888888;
-  --chart-tooltip-bg: rgba(255, 255, 255, 0.96);
-  --chart-tooltip-border: rgba(0, 0, 0, 0.12);
-  --chart-tooltip-title: #111111;
-  --chart-tooltip-text: #404040;
+  --chart-tooltip-bg: var(--wsb-tooltip-bg, #ffffff);
+  --chart-tooltip-border: var(--wsb-tooltip-border, #c4c7cb);
+  --chart-tooltip-title: var(--wsb-tooltip-fg, #1c1b19);
+  --chart-tooltip-text: var(--wsb-tooltip-fg, #1c1b19);
   --pie-slice-divider: #ffffff;
   --snapshot-highlight-bg: rgba(44, 127, 255, 0.18);
   --snapshot-highlight-border: rgba(44, 127, 255, 0.42);
@@ -525,21 +525,10 @@ dialog.networth-settings-panel[open] {
   z-index: 1000;
   width: clamp(280px, 34vw, 420px);
   max-width: calc(100vw - 24px);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: #000000;
-  color: #d9e5ea;
-  padding: 10px 12px;
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 0.82rem;
-  line-height: 1.45;
-  white-space: normal;
-  overflow-wrap: break-word;
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
   transform: translate(var(--info-popover-shift-x, 0px), -2px);
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
   transition: opacity 120ms ease, transform 120ms ease, visibility 0ms linear 120ms;
 }
 
@@ -551,11 +540,6 @@ dialog.networth-settings-panel[open] {
   transition: opacity 120ms ease, transform 120ms ease;
 }
 
-[data-theme="light"] .info-popover {
-  background: var(--panel);
-  color: var(--text);
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.1);
-}
 
 .mode-row {
   display: flex;
@@ -1421,16 +1405,6 @@ dialog.networth-settings-panel[open] {
   position: fixed;
   z-index: 10000;
   display: none;
-  background: var(--chart-tooltip-bg);
-  border: 1px solid var(--chart-tooltip-border);
-  color: var(--chart-tooltip-text);
-  padding: 8px 12px;
-  border-radius: 8px;
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 0.85rem;
-  white-space: nowrap;
-  pointer-events: none;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
 .metric-card .sub {

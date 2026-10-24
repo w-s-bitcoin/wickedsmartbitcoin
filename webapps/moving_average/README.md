@@ -234,8 +234,12 @@ muted dashed style. The tooltip sits 10px beside the date guide, centered on the
 pointer vertically, and flips left near the right edge without width-change
 jitter. The tooltip stays inside the plot, leaving the y-axis labels clear. Guides clear when the
 pointer leaves the plot, during dragging, and when playback resumes.
-Tooltip typography, padding, date spacing, borders, and theme backgrounds match
-UoA; each value row uses its corresponding chart line's color.
+Tooltip typography, padding, borders, and theme backgrounds use the shared
+`wsb-tooltip` surface and `renderTooltip()` layout, matching UoA and the other
+dashboards. Labels and values remain neutral; small swatches preserve the chart
+series colors. This also applies to chart hover in the expanded layout and to
+shared help tips in download/settings panels. Hover values and placement are
+unchanged.
 Calculation results are cached per model for up to 16 combinations of type,
 period, unit, and historical/current calculation. Historical and current arrays
 are separate; live projections do not mutate the published rows, sums, or cache.

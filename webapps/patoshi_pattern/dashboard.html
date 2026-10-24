@@ -54,8 +54,6 @@
       --control-hover: rgba(255, 255, 255, 0.08);
       --control-disabled: #888;
       --grid: #242424;
-      --tooltip-bg: #000;
-      --tooltip-border: rgba(255, 255, 255, 0.22);
       --card-bg: #000;
       --card-border: var(--panel-border);
       --caret-chevron: #d6e1e6;
@@ -76,8 +74,6 @@
       --control-bg: #fff;
       --control-hover: rgba(0, 0, 0, 0.04);
       --grid: #e0e0e0;
-      --tooltip-bg: #fff;
-      --tooltip-border: rgba(0, 0, 0, 0.2);
       --card-bg: #fff;
       --card-border: var(--panel-border);
       --caret-chevron: #7a756e;
@@ -577,20 +573,6 @@
       z-index: 300;
       display: none;
       pointer-events: none;
-      max-width: min(260px, calc(100vw - 24px));
-      padding: 8px 10px;
-      border: 1px solid var(--tooltip-border);
-      border-radius: 8px;
-      background: var(--tooltip-bg);
-      color: var(--fg);
-      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
-      font: 0.78rem/1.35 "IBM Plex Mono", monospace;
-      text-align: left;
-      white-space: nowrap;
-    }
-    .chart-tooltip strong {
-      color: var(--muted);
-      font-weight: 500;
     }
     @media (min-width: 1100px) {
       body.patoshi-side-panel-open .wrap {
@@ -3081,7 +3063,7 @@
       <div class="dashboard-ring-loader" id="loadingRing" role="status" aria-live="polite" aria-label="Loading Patoshi chart">
         <span class="chart-loader-ring" aria-hidden="true"></span>
       </div>
-      <div class="chart-tooltip" id="chartTooltip" role="tooltip"></div>
+      <div class="chart-tooltip wsb-tooltip wsb-tooltip--record" id="chartTooltip" role="tooltip"></div>
     </main>
 
     <aside class="spent-rewards-panel" id="spentRewardsPanel" aria-label="Spent pre-100,000 coinbase rewards">

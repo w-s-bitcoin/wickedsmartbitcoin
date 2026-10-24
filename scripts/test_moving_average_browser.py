@@ -809,13 +809,13 @@ def check_synchronized_hover(cdp):
         finally {for(const method of Object.keys(native)) ctx[method]=native[method];}
         fixture.hoverPanels[ctx.canvas.id]={geometry,guides}; return geometry;
       };
-      const reference=d.createElement('iframe'); reference.id='uoaTooltipReference';
+      const reference=d.createElement('iframe'); reference.id='sharedTooltipReference';
       reference.style.cssText='position:fixed;left:-20000px;top:0;width:600px;height:400px;border:0';
-      reference.srcdoc='<!doctype html><html><head><link rel="stylesheet" href="../shared/dashboard_shared.css"><link rel="stylesheet" href="../shared/dashboard_controls.css"><link rel="stylesheet" href="../uoa/dashboard.css"></head><body><div class="chart-hover-value-tooltip"><div class="chart-hover-tooltip-date">Date</div><div class="chart-hover-tooltip-value">Value</div></div></body></html>';
+      reference.srcdoc='<!doctype html><html><head><link rel="stylesheet" href="../shared/dashboard_shared.css"></head><body><div class="wsb-tooltip wsb-tooltip--data"><div class="wsb-tooltip-title">Date</div><div class="wsb-tooltip-row"><span class="wsb-tooltip-label"><span class="wsb-tooltip-swatch"></span>Series</span><span class="wsb-tooltip-value">Value</span></div></div></body></html>';
       d.body.append(reference);
       w.dispatchEvent(new w.Event('resize'));
     """)
-    wait_for(lambda: dashboard(cdp, "const reference=d.querySelector('#uoaTooltipReference').contentDocument;return reference?.styleSheets.length===3 && reference.querySelector('.chart-hover-tooltip-date') && reference.defaultView.getComputedStyle(reference.querySelector('.chart-hover-tooltip-date')).marginBottom==='3px';"), description="UoA tooltip style reference")
+    wait_for(lambda: dashboard(cdp, "const reference=d.querySelector('#sharedTooltipReference').contentDocument;return reference?.styleSheets.length===1 && reference.querySelector('.wsb-tooltip-title') && reference.defaultView.getComputedStyle(reference.querySelector('.wsb-tooltip')).borderRadius==='8px';"), description="Shared tooltip style reference")
 
     def move(chart_id, date=None, corner=None):
         dashboard(cdp, f"d.getElementById({json.dumps(chart_id)}).scrollIntoView({{block:'center'}});return new Promise(resolve=>w.requestAnimationFrame(()=>w.requestAnimationFrame(resolve)));")
@@ -833,12 +833,12 @@ def check_synchronized_hover(cdp):
 
     def assert_guides(source, count=None):
         result = dashboard(cdp, rf"""
-          const fixture=w.__maFixture, tip=d.querySelector('#chartTooltip'), date=tip.textContent.split('\n')[0];
+          const fixture=w.__maFixture, tip=d.querySelector('#chartTooltip'), date=tip.querySelector('.wsb-tooltip-title')?.textContent;
           const time=Date.parse(date), box=tip.getBoundingClientRect(), source=d.getElementById({json.dumps(source)}).getBoundingClientRect();
           const sourceGeometry=fixture.hoverPanels[{json.dumps(source)}].geometry;
           const colorContext=d.createElement('canvas').getContext('2d');
           colorContext.strokeStyle=d.documentElement.dataset.theme==='light'?'rgba(75,85,99,.55)':'rgba(120,120,120,.7)';
-          const reference=d.querySelector('#uoaTooltipReference').contentDocument;
+          const reference=d.querySelector('#sharedTooltipReference').contentDocument;
           reference.documentElement.dataset.theme=d.documentElement.dataset.theme;
           const styleDiff=[], compareStyle=(actual,expected,properties)=>{{
             if(!actual) {{styleDiff.push({{missing:expected.className}});return;}}
@@ -846,14 +846,24 @@ def check_synchronized_hover(cdp):
             for(const property of properties) if(a.getPropertyValue(property)!==b.getPropertyValue(property))
               styleDiff.push({{element:actual.className,property,actual:a.getPropertyValue(property),expected:b.getPropertyValue(property)}});
           }};
-          compareStyle(tip,reference.querySelector('.chart-hover-value-tooltip'),['font-family','font-size','line-height','padding','border-top-color','border-top-width','border-radius','background-color','color','box-shadow']);
-          compareStyle(tip.firstElementChild,reference.querySelector('.chart-hover-tooltip-date'),['font-family','font-size','line-height','font-weight','margin-bottom','color']);
+          compareStyle(tip,reference.querySelector('.wsb-tooltip'),['font-family','font-size','line-height','padding','border-top-color','border-top-width','border-radius','background-color','color','box-shadow']);
+          compareStyle(tip.querySelector('.wsb-tooltip-title'),reference.querySelector('.wsb-tooltip-title'),['font-family','font-size','line-height','font-weight','margin-bottom','color']);
           const palette=w.WSBMovingAverageCharts.palette(d.documentElement.dataset.theme),colors=[palette.fg,...palette.lines];
-          const valueRows=[...tip.children].slice(1),referenceValue=reference.querySelector('.chart-hover-tooltip-value');
+          const valueRows=[...tip.querySelectorAll('.wsb-tooltip-row')],referenceRow=reference.querySelector('.wsb-tooltip-row');
+          const referenceLabel=reference.querySelector('.wsb-tooltip-label'),referenceValue=reference.querySelector('.wsb-tooltip-value');
+          const referenceSwatch=reference.querySelector('.wsb-tooltip-swatch');
+          const labels=['Bitcoin',...w.WSBMovingAverageDashboard.getState().lines.map(line=>w.WSBMovingAverageModel.label(line,true))];
           if(valueRows.length!==3) styleDiff.push({{valueRows:valueRows.length,expected:3}});
           valueRows.forEach((row,i)=>{{
-            referenceValue.style.color=colors[i];
-            compareStyle(row,referenceValue,['font-family','font-size','line-height','font-weight','font-variant-numeric','color']);
+            const label=row.querySelector('.wsb-tooltip-label'),value=row.querySelector('.wsb-tooltip-value'),swatch=row.querySelector('.wsb-tooltip-swatch');
+            compareStyle(row,referenceRow,['display','column-gap','align-items']);
+            compareStyle(label,referenceLabel,['font-family','font-size','line-height','font-weight','color']);
+            compareStyle(value,referenceValue,['font-family','font-size','line-height','font-weight','font-variant-numeric','color','text-align']);
+            referenceSwatch.style.background=colors[i];
+            compareStyle(swatch,referenceSwatch,['width','height','border-radius','background-color']);
+            if(label?.textContent!==labels[i]) styleDiff.push({{label:label?.textContent,expected:labels[i]}});
+            if(!value?.textContent || value.style.color || value.classList.contains('wsb-tooltip-value--positive') || value.classList.contains('wsb-tooltip-value--negative'))
+              styleDiff.push({{value:value?.outerHTML,expected:'Nonempty neutral series value'}});
           }});
           return {{hidden:tip.hidden,date,time,visibleTooltips:d.querySelectorAll('.chart-tooltip:not([hidden])').length,
             styleDiff,
@@ -868,6 +878,7 @@ def check_synchronized_hover(cdp):
                 fullHeight:Math.abs(path[0].y-g.plot.top)<.01 && Math.abs(path[1].y-g.plot.bottom)<.01}}))}}))}};
         """)
         assert not result["hidden"] and result["visibleTooltips"] == 1, result
+        assert result["date"] and result["time"] is not None, (source, "Missing or invalid tooltip date", result)
         assert not result["styleDiff"], (source, result["styleDiff"])
         assert result["contained"], (source, result)
         box, bounds = result["box"], result["bounds"]
@@ -942,9 +953,9 @@ def check_synchronized_hover(cdp):
     set_input(cdp, "#dateRangeEndSlider", 3)
     move("window2Chart", corner="top-left"); assert_clear()
     click(cdp, "#stopBtn")
-    dashboard(cdp, "w.WSBMovingAverageCharts.panel=w.__maFixture.originalPanel; d.querySelector('#uoaTooltipReference').remove(); d.documentElement.scrollTop=0; w.dispatchEvent(new w.Event('resize'));")
+    dashboard(cdp, "w.WSBMovingAverageCharts.panel=w.__maFixture.originalPanel; d.querySelector('#sharedTooltipReference').remove(); d.documentElement.scrollTop=0; w.dispatchEvent(new w.Event('resize'));")
     assert_clean(cdp)
-    print("PASS hover: UoA guide/tooltip style parity, synchronized dates, centered placement outside axis gutters, light/dark desktop/mobile edges, leave/drag/playback cleanup", flush=True)
+    print("PASS hover: shared tooltip surface/title/rows, neutral values with series swatches, synchronized dates, centered placement outside axis gutters, light/dark desktop/mobile edges, leave/drag/playback cleanup", flush=True)
 
 
 def check_sharing(cdp, direct):

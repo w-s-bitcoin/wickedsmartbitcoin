@@ -377,6 +377,7 @@
     }
 
     function bindCustomTooltips() {
+      document.documentElement.setAttribute("data-custom-tooltip-binder", "");
       if (customTooltipBound) return;
       customTooltipBound = true;
       let mobileTooltipHideTimerId = null;
@@ -1715,18 +1716,7 @@
     }
 
     function getPlotlyHoverlabel() {
-      const style = getComputedStyle(document.documentElement);
-      const isLight = document.documentElement.dataset.theme === 'light';
-      return {
-        bgcolor: style.getPropertyValue('--panel').trim() || (isLight ? '#ffffff' : '#000000'),
-        bordercolor: isLight ? 'rgba(0, 0, 0, 0.12)' : '#223038',
-        font: {
-          family: '"IBM Plex Mono", monospace',
-          color: style.getPropertyValue('--fg').trim() || (isLight ? '#1c1b19' : '#e9f1f5'),
-          size: 12,
-        },
-        align: 'left',
-      };
+      return window.WSBDashboardComponents.getPlotlyHoverlabel();
     }
 
     const PLOTLY_LIVE_BG = 'rgba(0,0,0,0)';
