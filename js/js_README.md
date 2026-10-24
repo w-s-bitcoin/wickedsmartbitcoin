@@ -102,7 +102,10 @@ update all four cards together without waiting for Pages deployment. Heartbeats
 check the connection independently of block arrival, so a long block interval
 does not falsely mark the feed stale. Reconnects use bounded backoff, and the
 public blocks REST endpoint provides a fallback when the socket is unavailable.
-Hidden/offline pages pause live work and catch up when resumed.
+Hidden/offline pages pause live work and catch up when resumed. Normal tab
+resumption keeps the complete snapshot visible without an outage warning while
+the socket reconnects. An actual socket failure, connection timeout, or browser
+offline event shows the retained-data warning until the feed confirms recovery.
 
 `assets/top_kpis.json` still refreshes every minute as the fallback and actual
 issuance anchor. A delayed publication cannot rewind a newer live tip. Supply

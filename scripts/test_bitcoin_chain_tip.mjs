@@ -315,6 +315,7 @@ test('hidden, offline and pagehide suspend all work; wake and stop preserve life
   assert.equal(h.sockets.length, 2);
   h.navigator.onLine = false;
   h.window.dispatch('offline');
+  assert.equal(h.statuses.at(-1), 'offline');
   assert.equal(h.requests[1].signal.aborted, true);
   await h.resolve(1, [block(99)]);
   assert.equal(h.feed.last().height, 100);
@@ -340,5 +341,57 @@ test('hidden, offline and pagehide suspend all work; wake and stop preserve life
   h.feed.start();
   assert.equal(h.sockets.length, 5);
   assert.equal(h.feed.last().height, 100);
+  h.feed.stop();
+});
+
+test('intentional resume stays connecting until confirmation, but a resume timeout is a real outage', async () => {
+  const h = harness();
+  h.feed.start();
+  h.sockets[0].open();
+  h.sockets[0].message({ blocks: [block(100)] });
+  const retained = h.feed.last();
+  const statusStart = h.statuses.length;
+  h.document.visibilityState = 'hidden';
+  h.document.dispatch('visibilitychange');
+  h.document.visibilityState = 'visible';
+  h.document.dispatch('visibilitychange');
+  assert.deepEqual(h.statuses.slice(statusStart), ['paused', 'connecting']);
+  assert.equal(h.feed.last(), retained);
+  assert.equal(h.feed.isLive(), false, 'a quiet resume is not falsely marked live');
+  await h.tick(11999);
+  assert.equal(h.statuses.at(-1), 'connecting');
+  await h.tick(1);
+  assert.equal(h.statuses.at(-1), 'offline', 'a timed-out resume must be distinguishable from suspension');
+  assert.equal(h.sockets[1].closed, true);
+  assert.equal(h.feed.last(), retained);
+  await h.tick(2000);
+  assert.equal(h.statuses.at(-1), 'connecting');
+  h.sockets[2].open();
+  assert.equal(h.statuses.at(-1), 'connecting');
+  h.sockets[2].message({ pong: true });
+  assert.equal(h.statuses.at(-1), 'live');
+  assert.equal(h.feed.last(), retained);
+  h.feed.stop();
+});
+
+test('browser offline reports failure even when hidden; online resume waits for confirmation', () => {
+  const h = harness({ offline: true });
+  h.feed.start();
+  assert.equal(h.statuses.at(-1), 'offline');
+  assert.equal(h.sockets.length, 0);
+  assert.equal(h.requests.length, 0);
+  h.document.visibilityState = 'hidden';
+  h.document.dispatch('visibilitychange');
+  assert.equal(h.statuses.at(-1), 'offline', 'hiding an offline page must not turn failure into an ordinary pause');
+  h.document.visibilityState = 'visible';
+  h.document.dispatch('visibilitychange');
+  assert.equal(h.statuses.at(-1), 'offline');
+  h.navigator.onLine = true;
+  h.window.dispatch('online');
+  assert.equal(h.statuses.at(-1), 'connecting');
+  h.sockets[0].open();
+  assert.equal(h.statuses.at(-1), 'connecting');
+  h.sockets[0].message({ pong: true });
+  assert.equal(h.statuses.at(-1), 'live');
   h.feed.stop();
 });

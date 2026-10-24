@@ -224,7 +224,8 @@
       retryTimer = pollTimer = 0;
       cancelRequest();
       closeSocket();
-      setStatus("paused");
+      // Losing network access is a failure; hiding the page is an intentional pause.
+      setStatus(typeof navigator !== "undefined" && navigator.onLine === false ? "offline" : "paused");
     }
 
     function refresh() {
