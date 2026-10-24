@@ -125,6 +125,7 @@ test('rejects malformed fields and partial block lists without changing the comp
     { ...block(101), height: 101.5 }, { ...block(101), timestamp: null },
     { ...block(101), timestamp: '1792842600' }, { ...block(101), timestamp: 0 },
     { ...block(101), timestamp: 0x100000000 }, { ...block(101), id: 'bad' },
+    { ...block(101), previousblockhash: 'bad' }, { ...block(101), previousblockhash: 100 },
   ];
   for (const invalid of bad) {
     socket.message({ block: invalid });
@@ -393,5 +394,17 @@ test('browser offline reports failure even when hidden; online resume waits for 
   assert.equal(h.statuses.at(-1), 'connecting');
   h.sockets[0].message({ pong: true });
   assert.equal(h.statuses.at(-1), 'live');
+  h.feed.stop();
+});
+
+test('carries a validated parent hash for incremental dashboard windows', () => {
+  const h = harness();
+  h.feed.start();
+  const socket = h.sockets[0];
+  socket.open();
+  socket.message({ block: { ...block(101), previousblockhash: block(100, 'AB').id } });
+  assert.equal(h.feed.last().previousblockhash, block(100, 'ab').id);
+  socket.message({ block: block(102) });
+  assert.equal(h.feed.last().previousblockhash, undefined, 'basic legacy payloads remain supported');
   h.feed.stop();
 });

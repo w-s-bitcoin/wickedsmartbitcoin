@@ -104,7 +104,9 @@ Historical playback and exports use published data.
 
 EOE Growth uses the shared live BTC/USD feed for its current view. It compares
 the price with the historical sample nearest the timestamp of the block exactly
-210,000 heights before the latest published chain height. Its lookup chunks are
+210,000 heights before the live mempool.space chain height. The published
+chain snapshot remains the initial fallback; new blocks use the already
+published historical lookup without waiting for a Pages deployment. Its lookup chunks are
 generated from the existing block and ten-minute price CSVs during every Pages
 build; the browser requests only the required 64 KiB chunk. Daily history loads
 independently, and historical playback and earlier video frames remain daily.
@@ -112,6 +114,15 @@ Latest-date PNGs and final video frames refresh and freeze the current compariso
 the ending hold reuses that frame. Historical End dates stay historical.
 For local EOE live references, run
 `python3 scripts/build_eoe_live_reference.py` after updating the raw CSV inputs.
+
+Issuance Rate uses the same public mempool block feed for its current dashboard
+and home-card values. A complete, hash-linked recent block window supplies the
+rolling 24-hour issuance calculation; after that initial catch-up, ordinary
+blocks update directly from the WebSocket. Missed blocks and reorganizations
+trigger a validated catch-up, with the last complete view retained on failure.
+Historical rows, timezone histories, and custom datasets remain on the existing
+node pipeline. See [Issuance's calculation and refresh notes](webapps/issuance_rate/README.md).
+Price feeds continue using 2140data's WebSocket as their primary source.
 
 Animation downloads use H.264 MP4 when the browser supports encoding at the
 selected dimensions, with genuine WebM as the capability fallback. Both use
@@ -334,6 +345,8 @@ CHROME_BIN=/path/to/chromium python3 scripts/test_dca_live_price_browser.py
 node --test scripts/test_moving_average_model.mjs
 node --test scripts/test_eoe_growth_model.mjs
 node --test scripts/test_eoe_growth_live.mjs
+node --test scripts/test_issuance_live.mjs
+CHROME_BIN=/path/to/chromium python3 scripts/test_dashboard_chain_live_browser.py
 node --test scripts/test_calendar_ticks.mjs
 node --test scripts/test_export_branding.mjs
 node --test scripts/test_export_footer_integration.mjs

@@ -3,7 +3,7 @@
   const M = window.WSBEOEGrowthModel, G = window.WSBEOEGrowthCharts;
   let installed = null, frame = null, refresher = null;
   let liveTimer = 0;
-  const liveFeed = window.WSBEOEGrowthLive.create({ onChange: () => {
+  const liveFeed = window.WSBEOEGrowthLive.create({ getPublishedAt: () => installed, onChange: () => {
     if (!liveTimer) liveTimer = setTimeout(() => { liveTimer = 0; refresher?.requestPresent("live-price"); }, 1000);
   } });
 
@@ -17,6 +17,10 @@
       frame: view, theme: document.documentElement.dataset.theme, compact: true,
     });
     canvas.dataset.endDate = view.row.date;
+    canvas.dataset.blockHeight = String(view.row.height);
+    canvas.dataset.referenceHeight = view.current ? String(view.current.reference.height) : "";
+    canvas.dataset.chainSource = view.current?.tip.source === "mempool"
+      ? (view.current.chainLive ? "live" : "retained") : "published";
     canvas.dataset.priceSource = view.current ? (view.current.live ? "live" : "retained") : "published";
     return true;
   }

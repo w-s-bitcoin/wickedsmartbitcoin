@@ -183,15 +183,20 @@
     const publishedTime = timestampTime(latest.timestamp);
     if (!quote || !tip || !reference || !Number.isFinite(quote.price) || quote.price <= 0
         || !Number.isFinite(reference.price) || reference.price <= 0
-        || !Number.isSafeInteger(tip.height) || tip.height < EPOCH_BLOCKS || tip.height < latest.height
+        || !Number.isSafeInteger(tip.height) || tip.height < EPOCH_BLOCKS
+        || (tip.height < latest.height && !(tip.reorg === true && latest.height <= tip.reorgFrom))
         || !Number.isSafeInteger(reference.height) || reference.height !== tip.height - EPOCH_BLOCKS
         || !validTime(quote.at) || !validTime(tip.blockTime) || !validTime(reference.blockTime) || !validTime(reference.priceTime)
         || quote.at <= (Number.isFinite(publishedTime) ? publishedTime : latest.time)) return null;
 
-    const snapshot = { quote: { ...quote }, tip: { ...tip }, reference: { ...reference }, live: current.live === true };
+    const snapshot = { quote: { ...quote }, tip: { ...tip }, reference: { ...reference }, live: current.live === true,
+      ...(typeof current.chainLive === "boolean" ? { chainLive: current.chainLive } : {}) };
     const index = model.rows.length - 1, epoch = Math.floor(tip.height / EPOCH_BLOCKS) + 1;
     const epochBlockCount = tip.height % EPOCH_BLOCKS + 1;
-    const epochs = model.epochs.map((group) => ({ epoch: group.epoch, rows: group.rows.slice() }));
+    // A replacement chain may be shorter than the last daily publication.
+    // Omit orphaned future heights only from this projection; history is intact.
+    const epochs = model.epochs.map((group) => ({ epoch: group.epoch,
+      rows: group.rows.filter((row) => row.height <= tip.height) })).filter((group) => group.rows.length);
     const byEpoch = new Map(epochs.map((group) => [group.epoch, group]));
     const makePoint = (height, price, at, pointIndex, previous) => {
       const time = Math.floor(at / DAY_MS) * DAY_MS;

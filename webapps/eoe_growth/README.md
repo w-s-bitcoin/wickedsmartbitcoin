@@ -44,9 +44,13 @@ Hidden previews install complete data and defer painting until visible.
 
 ### Current comparison and lookup generation
 
-`eoe_growth_live.js` uses the shared `bitcoin_spot_price.js` feed and the latest
-published, fully ingested block height/time from `assets/top_kpis.json`. The
-height is a published chain snapshot, not a separate network-tip socket.
+`eoe_growth_live.js` keeps the shared `bitcoin_spot_price.js` feed (2140data.io
+WebSocket primary) and subscribes to `bitcoin_chain_tip.js` for mempool.space's
+public block WebSocket, with that helper's REST fallback. Each accepted block
+immediately requests its exact historical reference; it does not wait for a
+Pages deployment or another price tick. `assets/top_kpis.json` supplies the
+published block fallback until a usable network tip arrives. No new server,
+producer, or historical price source is introduced.
 For height H it reads the exact H−210,000 block's timestamp and the nearest
 timestamped price from the existing `assets/btcusd_10m_prices.csv`; an earlier
 sample wins a tie. It never joins on that CSV's `price_height`. Early history
@@ -75,21 +79,28 @@ local checkout or after updating raw CSVs, generate the preview files with:
 python3 scripts/build_eoe_live_reference.py
 ```
 
-Daily history loads independently. The live adapter checks the small tip and
-manifest every visible minute, loads only the required chunk, verifies its hash,
-then rechecks tip and manifest before installing a complete pair. It caches up
-to three chunks. New quote ticks reuse that pair; canvas repaints are limited to
+Daily history loads independently. A network block triggers a lookup immediately;
+the adapter also checks the reference manifest every visible minute. It loads
+only the required chunk, verifies its hash, then rechecks the current tip and
+manifest before installing a complete pair. Network-tip refreshes do not fetch
+or wait on `top_kpis.json`. It caches up to three chunks. New quote ticks reuse that pair; canvas repaints are limited to
 once per second. Failed or superseded requests retain the last complete pair;
 missing initial references leave the published daily view usable. A newer daily
-publication supersedes an older quote or older tip. Hidden views defer painting.
+publication supersedes an older quote or older tip. A validated same-height block
+replacement or shorter authoritative chain can update the current pair; an
+initial lagging network tip cannot displace a newer publication. During a shorter
+reorg, the current projection omits published heights beyond the replacement tip
+without changing the historical model. Hidden/offline views pause lookup work;
+visibility, focus, or reconnection resumes it. Hidden views defer painting.
 Playback, paused playback, and earlier ranges do not use the live projection.
 The homepage preview follows the same current comparison.
 
 Current and previous-epoch markers match the KPI prices at the exact aligned
 block count. The green price dot means a quote arrived within 60 seconds; gray
 means retained or published. Updated follows the accepted quote and displays
-its paired published block height; tooltips identify both timestamps. The End
-date control still identifies the daily playback boundary.
+its paired block height; the Updated tooltip identifies live network, retained
+network, or published block provenance separately from quote freshness and shows
+the block timestamp. The End date control still identifies the daily playback boundary.
 
 The reference notebook is `Projects/animations/EOE Growth/eoe_growth.ipynb`.
 Its nearest-epoch calculation is retained. Its zero-based chart offset and
@@ -177,6 +188,7 @@ From the repository root:
 ```bash
 node --test scripts/test_eoe_growth_model.mjs
 node --test scripts/test_eoe_growth_live.mjs
+python3 scripts/test_dashboard_chain_live_browser.py
 python3 scripts/test_eoe_live_reference.py
 python3 scripts/test_eoe_growth_live_browser.py
 python3 scripts/test_eoe_growth_browser.py
@@ -190,6 +202,11 @@ bash scripts/build_pages_dist.sh
 The model suite checks halving boundaries, exact ties, missing/unvalued and
 negative/zero growth, historical no-lookahead, generation validation, and an
 independent notebook-style calculation over the full published dataset.
+The live adapter suite also checks immediate block-driven references while Pages
+is unavailable, same-height replacements and shorter reorgs, malformed blocks,
+manifest/chunk races, retention, and hidden/resume behavior. The shared-chain
+browser regression drives the actual socket helper in the dashboard and preview.
+The existing live-export browser suite isolates the published-chain fallback.
 The isolated browser suite freezes publication bytes and injects fetch failures
 and races without changing live data. It exercises playback, shared state over
 conflicting storage, reset/undo, responsive light/dark layouts at 1440/1024/390/320,

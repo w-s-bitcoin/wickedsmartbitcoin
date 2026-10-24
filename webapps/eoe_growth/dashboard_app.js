@@ -146,8 +146,10 @@
       : "Previous epoch’s nearest published daily block count.";
     updated.setUpdated(currentValue ? new Date(currentValue.quote.at).toISOString() : installed.publishedAt,
       { includeHeight: true, height: currentValue ? row.height : installed.latestHeight });
+    $("chipUpdated").dataset.chainSource = currentValue?.tip.source === "mempool"
+      ? (currentValue.chainLive ? "live" : "retained") : "published";
     $("chipUpdated").title = currentValue
-      ? `Quote time: ${new Date(currentValue.quote.at).toISOString()}. Latest published block: ${row.height.toLocaleString("en-US")}, mined ${new Date(currentValue.tip.blockTime).toISOString()}.`
+      ? `Quote time: ${new Date(currentValue.quote.at).toISOString()}. ${currentValue.tip.source === "mempool" ? (currentValue.chainLive ? "Live network block" : "Retained network block") : "Published block"}: ${row.height.toLocaleString("en-US")}, mined ${new Date(currentValue.tip.blockTime).toISOString()}.`
       : `Published snapshot: ${installed.publishedAt}. Selected observation: ${row.date}, block ${row.height.toLocaleString("en-US")}.`;
     $("epochChart").setAttribute("aria-label", `Bitcoin prices through ${row.date}, epoch ${row.epoch}, block count ${row.epochBlockCount.toLocaleString("en-US")}. Current price ${$("priceKpi").textContent}; epoch-over-epoch growth ${G.growthLabel(row.growth)}. Logarithmic USD axis.`);
     if (state.autoHeight) $("epochPanel").style.removeProperty("--epoch-chart-height");
@@ -506,7 +508,7 @@
     window.addEventListener("beforeunload", (event) => { save(); if (exporting) { event.preventDefault(); event.returnValue = ""; } });
   }
   downloads.load(); bind();
-  liveFeed = window.WSBEOEGrowthLive.create({ onChange: presentLivePrice });
+  liveFeed = window.WSBEOEGrowthLive.create({ onChange: presentLivePrice, getPublishedAt: () => installed });
   liveFeed.start();
   window.addEventListener("pagehide", () => { liveFeed.stop(); clearTimeout(livePaintTimer); livePaintTimer = 0; });
   window.addEventListener("pageshow", () => { liveFeed.start(); presentLivePrice(); });

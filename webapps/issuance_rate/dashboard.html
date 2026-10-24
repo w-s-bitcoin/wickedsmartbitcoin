@@ -1324,6 +1324,8 @@
       z-index: 4;
     }
 
+    #issuanceLiveStatus { display: inline-block; flex: 0 0 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+    #issuanceLiveStatus[data-source="live"] { background: #2ecc71; }
   </style>
 </head>
 <body class="issuance-loading">
@@ -1335,7 +1337,7 @@
           <div class="info-wrap">
             <button type="button" class="info-btn" aria-label="About this dashboard" aria-describedby="issuanceInfoPopover">?</button>
             <div class="info-popover" id="issuanceInfoPopover" role="tooltip">
-              Bitcoin's issuance rate is the annualized pace at which new BTC enters circulation through block subsidies. Roughly every 210,000 blocks, a halving cuts that subsidy in half, lowering the target issuance rate for the next epoch.
+              Bitcoin's issuance rate annualizes scheduled block subsidies, including genesis. The current view uses live mempool.space blocks and a rolling height window ending at the latest block: its boundary is the nearest ancestor whose miner timestamp is at least 24 hours earlier. Miner timestamps can go backwards. Published node data supplies historical days and timezone calculations. Roughly every 210,000 blocks, a halving cuts the subsidy in half.
             </div>
           </div>
           <div class="filters-menu-wrap issuance-settings-menu-wrap">
@@ -1379,7 +1381,7 @@
       </div>
       <div class="chips" id="statusChips">
         <div class="chip-menu-wrap single-select" id="updatedChipWrap">
-          <div class="chip chip-kpi-display" id="chipUpdated"><span class="chip-label">Updated</span> <span class="chip-value">-</span></div>
+          <div class="chip chip-kpi-display" id="chipUpdated"><span class="chip-label">Updated</span> <span class="chip-value">-</span><span id="issuanceLiveStatus" data-source="published" role="img" aria-label="Published node data"></span></div>
           <div id="updatedTimeZoneDropdown" class="dca-dropdown dca-dropdown-overlay">
             <button id="updatedTimeZoneDropdownTrigger" type="button" class="dca-dropdown-trigger" aria-label="Updated timestamp time zone"></button>
             <div id="updatedTimeZoneDropdownMenu" class="dca-dropdown-menu" aria-label="Updated timestamp time zone options"></div>
@@ -1523,6 +1525,8 @@
     window.WSBWebappDataAutoRefresh = { urls: ["webapp_data/published_generation.json"] };
   </script>
   <script src="../shared/webapp_data_auto_refresh.js?v=20260825-stage3"></script>
-  <script src="dashboard_app.js?v=20261024-mp4"></script>
+  <script src="../shared/bitcoin_chain_tip.js?v=20261024-public-chain"></script>
+  <script src="issuance_live.js?v=20261024-public-chain"></script>
+  <script src="dashboard_app.js?v=20261024-public-chain"></script>
 </body>
 </html>

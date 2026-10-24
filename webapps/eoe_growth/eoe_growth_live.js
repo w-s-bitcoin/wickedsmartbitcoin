@@ -85,15 +85,37 @@
     return Object.freeze(rows);
   }
 
-  const sameTip = (a, b) => a?.height === b?.height && a?.blockTime === b?.blockTime;
+  const sameTip = (a, b) => a?.height === b?.height && a?.blockTime === b?.blockTime
+    && a?.id === b?.id;
+
+  function parseNetworkTip(value) {
+    if (!Number.isSafeInteger(value?.height) || value.height < 0
+        || !Number.isSafeInteger(value.minedAt) || value.minedAt <= 0
+        || !Number.isFinite(new Date(value.minedAt).getTime())
+        || !/^[a-f0-9]{64}$/i.test(value.id || "")) throw new Error("Invalid network block.");
+    return { height: value.height, blockTime: value.minedAt, id: value.id.toLowerCase(), source: "mempool" };
+  }
 
   function create({ onChange, getPublishedAt } = {}) {
     const doc = root.document;
     let started = false, serial = 0, controller = null, timer = 0, timeoutTimer = 0, pair = null;
+    let networkTip = null, publishedTip = null, reorgFrom = -1;
     const cache = new Map();
-    const visible = () => doc?.visibilityState !== "hidden";
+    const visible = () => doc?.visibilityState !== "hidden" && root.navigator?.onLine !== false;
     const notify = () => { if (started) onChange?.(); };
     const spot = root.WSBBitcoinSpotPrice?.create({ onQuote: notify });
+    const chain = root.WSBBitcoinChainTip?.create({ onTip: (value) => {
+      let candidate;
+      try { candidate = parseNetworkTip(value); } catch (_) { return; }
+      if (value.reorg === true) reorgFrom = Math.max(reorgFrom, networkTip?.height ?? -1,
+        pair?.tip.height ?? -1, publishedTip?.height ?? -1);
+      if (candidate.height > reorgFrom) reorgFrom = -1;
+      networkTip = Object.freeze({ ...candidate, reorg: reorgFrom >= 0, reorgFrom });
+      notify(); // The retained pair's block status can change while its replacement loads.
+      // A block notification replaces an in-flight lookup. Serial validation
+      // prevents its older response from combining a new height with old data.
+      if (started && visible()) void refreshPair();
+    }, onStatus: notify });
     const validRun = (id) => started && visible() && id === serial && !controller?.signal.aborted;
 
     function current(context) {
@@ -101,12 +123,14 @@
       const options = typeof supplied === "object" ? supplied : { publishedAt: supplied };
       const publishedAt = utcTime(options.publishedAt);
       if (!pair || !Number.isFinite(publishedAt)
-          || (Number.isFinite(options.latestHeight) && pair.tip.height < options.latestHeight)) return null;
+          || (Number.isFinite(options.latestHeight) && pair.tip.height < options.latestHeight
+            && !(pair.tip.reorg && options.latestHeight <= pair.tip.reorgFrom))) return null;
       const quote = spot?.newerThan(publishedAt);
       if (!quote || !Number.isFinite(quote.price) || quote.price <= 0
           || !Number.isFinite(quote.at) || quote.at <= publishedAt) return null;
       return Object.freeze({ quote: Object.freeze({ ...quote }), tip: pair.tip, reference: pair.reference,
-        live: !!spot.isLive(quote) });
+        live: !!spot.isLive(quote),
+        chainLive: pair.tip.source === "mempool" && !!chain?.isLive() && sameTip(pair.tip, networkTip) });
     }
 
     async function json(url, signal) {
@@ -122,20 +146,34 @@
 
     async function refresh() {
       if (!started || !visible()) return false;
+      // Explicit refreshes (including exports/resume) ask the shared transport
+      // to catch up. Socket notifications call refreshPair directly.
+      await chain?.refresh();
+      return refreshPair();
+    }
+
+    async function refreshPair() {
+      if (!started || !visible()) return false;
       root.clearTimeout(timer); timer = 0;
       controller?.abort();
       root.clearTimeout(timeoutTimer);
       const request = controller = new AbortController(), id = ++serial;
       const timeout = timeoutTimer = root.setTimeout(() => request.abort(), TIMEOUT_MS);
       try {
+        const supplied = getPublishedAt?.();
+        const floor = Math.max(pair?.tip.height ?? -1, publishedTip?.height ?? -1,
+          Number.isSafeInteger(supplied?.latestHeight) ? supplied.latestHeight : -1);
+        const liveTip = networkTip && (networkTip.height >= floor
+          || (networkTip.reorg && floor <= networkTip.reorgFrom)) ? networkTip : null;
+        // A usable network tip is independent of Pages: a slow or failed
+        // top_kpis publication must not delay the live block/reference pair.
         const [tipPayload, manifestPayload] = await Promise.all([
-          json(TIP_URL, request.signal), json(MANIFEST_URL, request.signal),
+          liveTip ? null : json(TIP_URL, request.signal), json(MANIFEST_URL, request.signal),
         ]);
         if (!validRun(id)) return false;
-        const tip = parseTip(tipPayload), manifest = validateManifest(manifestPayload);
-        // A lagging CDN or a shorter replacement chain must not regress the
-        // visible comparison. A later complete publication can advance it.
-        if (pair && tip.height < pair.tip.height) return false;
+        const tip = liveTip || Object.freeze({ ...parseTip(tipPayload), source: "published" });
+        const manifest = validateManifest(manifestPayload);
+        if (!liveTip && pair && tip.height < pair.tip.height) return false;
         const height = tip.height - EPOCH_BLOCKS, chunk = chunkForHeight(manifest, height);
         if (!chunk) return false;
         const cacheKey = JSON.stringify(chunk);
@@ -154,11 +192,13 @@
         const reference = rows[height - chunk.start];
         if (!reference) return false;
         const [finalTip, finalManifest] = await Promise.all([
-          json(TIP_URL, request.signal), json(MANIFEST_URL, request.signal),
+          liveTip ? null : json(TIP_URL, request.signal), json(MANIFEST_URL, request.signal),
         ]);
-        if (!validRun(id) || !sameTip(tip, parseTip(finalTip))
+        if (!validRun(id) || (liveTip ? !sameTip(tip, networkTip) : !sameTip(tip, parseTip(finalTip)))
             || JSON.stringify(manifest) !== JSON.stringify(validateManifest(finalManifest))) return false;
-        const changed = !sameTip(pair?.tip, tip) || JSON.stringify(pair?.reference) !== JSON.stringify(reference);
+        const changed = !sameTip(pair?.tip, tip) || pair?.tip.source !== tip.source
+          || JSON.stringify(pair?.reference) !== JSON.stringify(reference);
+        if (!liveTip) publishedTip = tip;
         pair = Object.freeze({ tip, reference });
         if (changed) notify();
         return true;
@@ -182,7 +222,11 @@
       if (started) return;
       started = true;
       doc?.addEventListener("visibilitychange", onVisibility);
+      root.addEventListener?.("online", onVisibility);
+      root.addEventListener?.("offline", onVisibility);
+      root.addEventListener?.("focus", onVisibility);
       spot?.start();
+      chain?.start();
       void refresh();
     }
     function stop() {
@@ -192,6 +236,10 @@
       root.clearTimeout(timeoutTimer); timeoutTimer = 0;
       root.clearTimeout(timer); timer = 0;
       doc?.removeEventListener("visibilitychange", onVisibility);
+      root.removeEventListener?.("online", onVisibility);
+      root.removeEventListener?.("offline", onVisibility);
+      root.removeEventListener?.("focus", onVisibility);
+      chain?.stop();
       spot?.stop();
     }
     return { start, stop, refresh, current };
