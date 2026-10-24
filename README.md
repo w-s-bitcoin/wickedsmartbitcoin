@@ -152,6 +152,13 @@ adapters use `preview_shared.js`. Hidden previews can install data but defer
 painting until visible. Theme and resize events render cached data. These
 contracts preserve chart state and avoid reloads or flashing during updates.
 
+Every Pages build also captures fresh homepage fallback images from those
+preview renderers and the packaged data, in both themes. External live feeds
+are blocked during capture. Content-hashed filenames keep browser caches fresh;
+the live preview fades over its matching saved image in 200 ms (immediate with
+reduced motion). Capture failures stop deployment, preserving the previous
+published site. Source fallback PNGs and data producers are unchanged.
+
 ### Repository map
 
 | Path | Responsibility |
@@ -166,6 +173,7 @@ contracts preserve chart state and avoid reloads or flashing during updates.
 | `scripts/sync_main_data_to_dev.py` | Copies published data into the development worktree |
 | `scripts/test_*.py` | Publication, Git synchronization, packaging, and browser regressions |
 | `scripts/build_pages_dist.sh` | Creates the pruned static Pages artifact |
+| `scripts/capture_card_fallbacks.py` | Captures validated dark/light homepage posters into the built artifact |
 | `.github/workflows/` | Contributor checks and production Pages deployment |
 | `dist/` | Generated Pages output; ignored by Git |
 
@@ -333,6 +341,7 @@ CHROME_BIN=/path/to/chromium python3 scripts/test_networth_units_browser.py
 node scripts/test_uoa_live_quotes.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_uoa_live_quotes_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_homepage_preview_refresh.py
+CHROME_BIN=/path/to/chromium python3 scripts/test_card_fallbacks_browser.py
 node scripts/test_dashboard_share.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_dashboard_share_routes.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_time_series_share_browser.py
@@ -358,6 +367,15 @@ and selected raw inputs, and removes large Quantum archive payloads while
 keeping coherent empty archive catalogs. Compact historical snapshots remain;
 the current snapshot retains its full address table. The source tree and the
 Pages artifact intentionally contain different datasets.
+
+Building now requires Chrome/Chromium for the final homepage image capture;
+set `CHROME_BIN` if it is not discoverable on PATH or at the usual macOS path.
+Pages CI uses the Chrome installation provided by its Ubuntu runner. Capture renders all 14 preview pages at
+1280×720 in both themes using only packaged files, then installs hashed poster
+URLs and versions the homepage script containing that map. Any unavailable or
+timed-out preview fails the build before the artifact is uploaded. The explicit
+`--skip-card-fallbacks` option is for browser-free packaging fixtures only and
+is never used by the deployment workflow.
 
 ## Adding a dashboard
 

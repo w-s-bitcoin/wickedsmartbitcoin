@@ -110,11 +110,19 @@ rg -n 'localStandaloneBySlug|DASHBOARD_CARD_PREVIEW_SPECS' js webapps --glob '*.
 
 The homepage, preview frames, and modal dashboards have separate lifecycles. `06_grid_layout_filter_render.js` manages preview iframe creation, visibility, and sizing. `09_bootstrap_fetch_init_global_exports.js` coordinates bootstrap and wake behavior. A normal data refresh must not reload a preview frame or navigate an open modal.
 
-Each homepage card has a saved image in `assets/card_fallbacks/`. The card shows
-that image until its preview iframe paints a validated generation, and keeps it
-visible through a failed cold start. The iframe can replace it after an in-place
-recovery. Update the saved image when changing a preview's visual design; it is
-an illustrative fallback, not a current data publication.
+Each Pages build captures fresh dark/light card images from the actual preview
+pages and published data in the completed `dist/` artifact. The capture script
+reads `DASHBOARD_CARD_PREVIEW_SPECS`, waits for a validated, painted preview, and
+blocks external market feeds. Content-hashed image URLs are installed into the
+artifact's `DASHBOARD_CARD_FALLBACKS` map, so new images bypass older cached
+posters. Theme changes select the corresponding image without reloading frames.
+The committed `assets/card_fallbacks/` images remain emergency/source-checkout
+fallbacks; builds never rewrite those source files.
+
+The card keeps its saved image underneath the preview until the live chart is
+available, then fades the opaque preview in over 200 ms. Reduced motion makes
+the switch immediate. Failed cold starts retain the saved image and can recover
+in place. A published image can still differ slightly from a later live quote.
 
 Each card title includes a question-mark button that reveals its catalog
 description over the chart on hover or keyboard focus. Clicking/tapping pins or

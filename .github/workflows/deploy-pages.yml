@@ -16,12 +16,20 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      CHROME_BIN: /usr/bin/google-chrome
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Check source, publication contracts, and packaging
         run: bash scripts/check_project.sh
+
+      - name: Check runner Chrome for homepage image capture
+        run: '"$CHROME_BIN" --version'
+
+      - name: Check homepage capture and failure handling
+        run: python3 scripts/test_card_fallbacks_browser.py
 
       - name: Build static Pages artifact
         run: bash scripts/build_pages_dist.sh

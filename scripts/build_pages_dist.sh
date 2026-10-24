@@ -4,6 +4,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST="$ROOT/dist"
 
+# Portable packaging fixtures deliberately omit a browser and complete previews.
+# Real builds (including Pages CI) always capture fresh images by default.
+CAPTURE_CARD_FALLBACKS=1
+if [[ "${1:-}" == "--skip-card-fallbacks" && "$#" == 1 ]]; then
+  CAPTURE_CARD_FALLBACKS=0
+elif [[ "$#" != 0 ]]; then
+  echo "Usage: $0 [--skip-card-fallbacks]" >&2
+  exit 2
+fi
+
 copy_path() {
   local rel_path="$1"
   local src="$ROOT/$rel_path"
@@ -149,6 +159,10 @@ find "$DIST" -name "__pycache__" -type d -prune -exec rm -rf {} +
 find "$DIST" -name "*.py" -type f -delete
 find "$DIST" -name "*.pyc" -type f -delete
 find "$DIST" -name ".DS_Store" -type f -delete
+
+if [[ "$CAPTURE_CARD_FALLBACKS" == 1 ]]; then
+  python3 "$ROOT/scripts/capture_card_fallbacks.py" --dist "$DIST"
+fi
 
 echo "Built $DIST"
 du -sh "$DIST"

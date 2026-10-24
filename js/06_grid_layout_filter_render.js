@@ -75,6 +75,9 @@ const DASHBOARD_CARD_PREVIEW_SPECS = Object.freeze({
 });
 
 const DASHBOARD_CARD_PREVIEW_CACHE_VERSION = '20261007-card-fallback-v1';
+// Pages builds replace this map with content-addressed captures for both themes.
+// A source checkout keeps using the committed fallback images.
+const DASHBOARD_CARD_FALLBACKS = Object.freeze({});
 const DASHBOARD_PREVIEW_ROOT_MARGIN = '720px 0px';
 const DASHBOARD_PREVIEW_LOAD_STAGGER_MS = 140;
 let dashboardPreviewResizeObserver = null;
@@ -542,6 +545,46 @@ function getDashboardCardPreviewSpec(filename) {
   return DASHBOARD_CARD_PREVIEW_SPECS[String(filename || '').trim().toLowerCase()] || null;
 }
 
+function getDashboardCardFallbackUrl(filename, themeRaw) {
+  const theme = themeRaw || (typeof getStoredDashboardTheme === 'function' ? getStoredDashboardTheme() : 'dark');
+  const key = String(filename || '').trim().toLowerCase();
+  const path = DASHBOARD_CARD_FALLBACKS[key]?.[theme === 'light' ? 'light' : 'dark']
+    || `assets/card_fallbacks/${filename}`;
+  return `${getPageBasePath()}/${path}`;
+}
+
+function updateDashboardPreviewPosters(theme) {
+  for (const card of cardByFilename.values()) {
+    const { img, preview } = card || {};
+    if (!img || !preview) continue;
+    const url = getDashboardCardFallbackUrl(preview.filename, theme);
+    const current = img.getAttribute('src');
+    if (!current) {
+      // Preserve lazy loading for filtered or deferred cards.
+      img.dataset.src = url;
+      preview.posterRequest = null;
+      continue;
+    }
+    if (current === url) {
+      preview.posterRequest = null;
+      continue;
+    }
+    if (preview.posterRequest?.url === url) continue;
+    const replacement = new Image();
+    const request = preview.posterRequest = { url, replacement };
+    replacement.onload = () => {
+      if (preview.posterRequest !== request || !img.isConnected) return;
+      preview.posterRequest = null;
+      img.src = url;
+    };
+    replacement.onerror = () => {
+      if (preview.posterRequest === request) preview.posterRequest = null;
+    };
+    // Keep the previous complete poster visible until its replacement loads.
+    replacement.src = url;
+  }
+}
+
 function getDashboardPreviewUrl(url, paramName = 'preview') {
   const raw = String(url || '').trim();
   if (!raw) return '';
@@ -922,7 +965,7 @@ function buildGridOnce(){
     if (previewSpec) {
       chartWrapper.classList.add('dashboard-preview-wrapper');
       img.classList.add('dashboard-preview-poster');
-      img.dataset.src = `${getPageBasePath()}/assets/card_fallbacks/${filename}`;
+      img.dataset.src = getDashboardCardFallbackUrl(filename);
       img.alt = `Saved preview of ${title || filename}`;
       const viewport = document.createElement('div');
       viewport.className = 'dashboard-preview-viewport';

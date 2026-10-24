@@ -15,6 +15,33 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PagesBuildTest(unittest.TestCase):
+    def test_default_build_captures_posters_and_propagates_capture_failure(self):
+        with tempfile.TemporaryDirectory(prefix="wsb-pages-capture-") as temporary:
+            root = Path(temporary)
+            (root / "scripts").mkdir()
+            (root / "assets/card_fallbacks").mkdir(parents=True)
+            source_poster = root / "assets/card_fallbacks/example.png"
+            source_poster.write_text("old source image")
+            shutil.copy2(ROOT / "scripts/build_pages_dist.sh", root / "scripts")
+            capture = root / "scripts/capture_card_fallbacks.py"
+            capture.write_text(
+                "import pathlib, sys\n"
+                "assert sys.argv[1] == '--dist'\n"
+                "dist = pathlib.Path(sys.argv[2])\n"
+                "assert (dist / 'assets/card_fallbacks/example.png').read_text() == 'old source image'\n"
+                "(dist / 'assets/card_fallbacks/example.png').write_text('fresh capture')\n"
+            )
+            command = ["bash", str(root / "scripts/build_pages_dist.sh")]
+            result = subprocess.run(command, cwd=root, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual((root / "dist/assets/card_fallbacks/example.png").read_text(), "fresh capture")
+            self.assertEqual(source_poster.read_text(), "old source image")
+            capture.write_text("raise SystemExit('Preview reported unavailable')\n")
+            result = subprocess.run(command, cwd=root, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Preview reported unavailable", result.stderr)
+            self.assertNotIn("Built ", result.stdout)
+
     def test_quantum_legacy_rollback_prunes_retained_v2_archives_without_changing_marker(self):
         if __package__:
             from .test_quantum_immutable_generation import publication, seed, seed_archive_summaries, publish_legacy_fixture
@@ -50,7 +77,7 @@ class PagesBuildTest(unittest.TestCase):
                         pointer.unlink()
                     original = {path.relative_to(data): publication.file_sha256(path)
                                 for path in data.rglob('*') if path.is_file()}
-                    result = subprocess.run(['bash', str(root / 'scripts/build_pages_dist.sh')], cwd=root,
+                    result = subprocess.run(['bash', str(root / 'scripts/build_pages_dist.sh'), '--skip-card-fallbacks'], cwd=root,
                                             capture_output=True, text=True)
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                     output = root / 'dist/webapps/quantum_exposure/webapp_data'
@@ -110,7 +137,7 @@ class PagesBuildTest(unittest.TestCase):
                                                        generation_id="second", include_archives=True)
             original = {path.relative_to(data): publication.file_sha256(path)
                         for path in data.rglob("*") if path.is_file()}
-            result = subprocess.run(["bash", str(root / "scripts/build_pages_dist.sh")], cwd=root,
+            result = subprocess.run(["bash", str(root / "scripts/build_pages_dist.sh"), "--skip-card-fallbacks"], cwd=root,
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             dist = root / "dist"
@@ -242,7 +269,7 @@ class PagesBuildTest(unittest.TestCase):
                 path.write_text(content)
 
             result = subprocess.run(
-                ["bash", str(root / "scripts/build_pages_dist.sh")],
+                ["bash", str(root / "scripts/build_pages_dist.sh"), "--skip-card-fallbacks"],
                 cwd=root,
                 capture_output=True,
                 text=True,
