@@ -356,13 +356,14 @@ def signed_bar_geometry(cdp, theme, future):
         scrollWidth: document.documentElement.scrollWidth,
       };
     })()""")
-    zero = geometry["meterLeft"] + geometry["meterWidth"] * 0.2
-    require(geometry["meterLeft"] < geometry["zeroLeft"] < geometry["meterRight"]
+    reserved_fraction = 0.2 * geometry["value"] / 100 if future else 0
+    zero = geometry["meterLeft"] + geometry["meterWidth"] * reserved_fraction
+    require(geometry["meterLeft"] <= geometry["zeroLeft"] < geometry["meterRight"]
             and geometry["zeroWidth"] > 0 and abs(geometry["zeroLeft"] - zero) < 1,
-            "Zero marker is not fixed at twenty percent inside the bar", geometry)
+            "Zero marker does not follow the remaining countdown space", geometry)
     require(abs(geometry["axisLeft"] - zero) < 1
             and abs(geometry["axisRight"] - geometry["meterRight"]) < 1
-            and abs(geometry["axisWidth"] - geometry["meterWidth"] * 0.8) < 1,
+            and abs(geometry["axisWidth"] - geometry["meterWidth"] * (1 - reserved_fraction)) < 1,
             "Ten-minute labels are not confined to the positive side of zero", geometry)
     require(abs(geometry["barTop"] - geometry["supplyTop"]) < 1,
             "Signed block bar no longer aligns with the supply bar", geometry)
@@ -372,22 +373,23 @@ def signed_bar_geometry(cdp, theme, future):
             "Signed bar and counter colors differ", geometry)
     if future:
         check_gray(geometry, theme)
-        require(geometry["state"] == "future" and geometry["direction"] == "rtl"
+        require(geometry["state"] == "future" and geometry["direction"] == "ltr"
                 and abs(geometry["barLeft"] - geometry["meterLeft"]) < 1
                 and abs(geometry["barWidth"] - geometry["meterWidth"] * 0.2) < 1
+                and abs(geometry["fillLeft"] - geometry["meterLeft"]) < 1
                 and abs(geometry["fillRight"] - zero) < 1
                 and geometry["fillLeft"] < zero,
-                "Gray countdown does not extend left from the fixed zero", geometry)
+                "Gray countdown does not fill the shrinking space left of zero", geometry)
     else:
         green = re.fullmatch(r"rgb\((\d+), (\d+), (\d+)\)", geometry["color"])
         require(green is not None and int(green.group(2)) > max(int(green.group(1)), int(green.group(3))),
                 f"Nonnegative timer is not green in {theme} theme", geometry)
         require(geometry["state"] == "normal" and geometry["direction"] == "ltr"
                 and abs(geometry["barLeft"] - zero) < 1
-                and abs(geometry["barWidth"] - geometry["meterWidth"] * 0.8) < 1
+                and abs(geometry["barWidth"] - geometry["meterWidth"]) < 1
                 and abs(geometry["fillLeft"] - zero) < 1
                 and geometry["fillRight"] <= geometry["meterRight"] + 1,
-                "Elapsed green bar does not extend right from the fixed zero", geometry)
+                "Elapsed green bar does not use the full meter from the left edge", geometry)
     return geometry
 
 
@@ -399,18 +401,32 @@ def test_signed_bar_geometry(cdp):
         cdp.evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))")
         for theme in ("dark", "light"):
             cdp.evaluate(f"document.documentElement.dataset.theme = {json.dumps(theme)}")
+            publish(cdp, -60)
+            short = signed_bar_geometry(cdp, theme, future=True)
+            advance(cdp, 30)
+            short_half = signed_bar_geometry(cdp, theme, future=True)
+            require(short_half["zeroLeft"] < short["zeroLeft"]
+                    and abs(short_half["fillWidth"] / short["fillWidth"] - 0.5) < 0.001,
+                    "A short countdown kept unused space before zero", short_half)
+            publish(cdp, 30)
+            signed_bar_geometry(cdp, theme, future=False)
             start = publish(cdp, -1200)
             full = signed_bar_geometry(cdp, theme, future=True)
             advance(cdp, 60)
             shrinking = signed_bar_geometry(cdp, theme, future=True)
-            require(shrinking["fillLeft"] > full["fillLeft"]
+            require(abs(shrinking["fillLeft"] - full["fillLeft"]) < 0.1
                     and abs(shrinking["fillWidth"] / full["fillWidth"] - 0.95) < 0.001
-                    and abs(shrinking["zeroLeft"] - full["zeroLeft"]) < 0.1,
-                    "Gray countdown did not shrink toward a stationary zero", shrinking)
-            advance(cdp, 1140)
+                    and shrinking["zeroLeft"] < full["zeroLeft"]
+                    and shrinking["axisWidth"] > full["axisWidth"],
+                    "Countdown space did not shrink and expand the positive axis", shrinking)
+            advance(cdp, 1139)
+            last_second = signed_bar_geometry(cdp, theme, future=True)
+            require(0 < last_second["zeroLeft"] - last_second["meterLeft"] < 0.1,
+                    "The last countdown second left a visible reserved gap", last_second)
+            advance(cdp, 1)
             empty = signed_bar_geometry(cdp, theme, future=False)
-            require(empty["fillWidth"] == 0 and abs(empty["zeroLeft"] - full["zeroLeft"]) < 0.1,
-                    "Crossing zero moved the marker or left a filled bar", empty)
+            require(empty["fillWidth"] == 0 and empty["zeroLeft"] == empty["meterLeft"],
+                    "Crossing zero retained negative space or a filled bar", empty)
             advance(cdp, 1)
             one_second = signed_bar_geometry(cdp, theme, future=False)
             require(one_second["fillWidth"] > 0 and one_second["fillRight"] > one_second["fillLeft"],
@@ -419,15 +435,15 @@ def test_signed_bar_geometry(cdp):
             thirty_seconds = signed_bar_geometry(cdp, theme, future=False)
             require(thirty_seconds["fillWidth"] > one_second["fillWidth"]
                     and abs(thirty_seconds["value"] - 5) < 0.001
-                    and abs(thirty_seconds["zeroLeft"] - full["zeroLeft"]) < 0.1,
-                    "Elapsed green fill did not grow right from the stationary zero", thirty_seconds)
+                    and thirty_seconds["zeroLeft"] == thirty_seconds["meterLeft"],
+                    "Elapsed green fill did not grow right from the left edge", thirty_seconds)
             require(snapshot(cdp)["requests"] == start["requests"],
                     "Signed bar animation fetched new snapshot data", thirty_seconds)
     cdp.evaluate("document.documentElement.dataset.theme = 'dark'")
     cdp.command("Emulation.setDeviceMetricsOverride", {
         "width": 1440, "height": 1000, "deviceScaleFactor": 1, "mobile": False,
     })
-    print("Passed: gray fills left of fixed zero and green grows right in both themes at 375px and 320px", flush=True)
+    print("Passed: negative space shrinks to zero, then green uses the full width in both themes at 375px and 320px", flush=True)
 
 
 def test_scale_layout(cdp):

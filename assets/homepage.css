@@ -94,10 +94,10 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
 .snapshot-card progress::-webkit-progress-bar { background: var(--home-line); border-radius: 10px; }
 .snapshot-card progress::-webkit-progress-value { background: var(--home-progress); border-radius: 10px; }
 .snapshot-card progress::-moz-progress-bar { background: var(--home-progress); border-radius: 10px; }
-.snapshot-block-meter { --block-zero: 20%; position: relative; height: 4px; margin-top: auto; border-radius: 10px; background: var(--home-line); }
+.snapshot-block-meter { --block-countdown-width: 20%; --block-zero: calc(var(--block-countdown-width) * var(--block-future-fraction, 0)); position: relative; height: 4px; margin-top: auto; border-radius: 10px; background: var(--home-line); }
 .snapshot-block-meter progress { position: absolute; left: var(--block-zero); width: calc(100% - var(--block-zero)); margin-top: 0; background: transparent; }
 .snapshot-block-meter progress::-webkit-progress-bar { background: transparent; }
-.snapshot-block-meter progress[data-elapsed-state="future"] { left: 0; width: var(--block-zero); direction: rtl; }
+.snapshot-block-meter progress[data-elapsed-state="future"] { left: 0; width: var(--block-countdown-width); direction: ltr; }
 .snapshot-block-zero { position: absolute; left: var(--block-zero); bottom: -3px; width: 1px; height: 10px; background: var(--home-muted); pointer-events: none; z-index: 1; }
 .snapshot-block-meter::before, .snapshot-block-meter::after { content: ""; position: absolute; bottom: -3px; height: 10px; pointer-events: none; opacity: .7; }
 .snapshot-block-meter::before { left: var(--block-zero); right: 0; background-image: linear-gradient(to right, var(--home-muted) 1px, transparent 1px); background-size: var(--block-tick-spacing, 100%) 100%; background-repeat: repeat-x; }

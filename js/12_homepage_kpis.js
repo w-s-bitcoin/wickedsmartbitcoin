@@ -251,13 +251,16 @@
     // a shrinking bar. Only expand it if the local clock moves farther back.
     if (future) blockFutureScaleSeconds = Math.max(blockFutureScaleSeconds, magnitude);
     const scaleSeconds = future ? blockFutureScaleSeconds : Math.max(TARGET_BLOCK_SECONDS, seconds);
-    // Tick labels belong to the positive elapsed axis, right of the fixed zero.
-    // The separate left-hand countdown keeps its held scale until zero.
-    renderBlockScale(Math.max(TARGET_BLOCK_SECONDS, seconds));
+    const progressFraction = magnitude / scaleSeconds;
     if (blockMeter) {
+      // Reclaim the negative side as the countdown shrinks. The zero tick meets
+      // the gray fill's right edge, then stays at the left edge for elapsed time.
+      blockMeter.style.setProperty("--block-future-fraction", String(future ? progressFraction : 0));
       if (future) blockMeter.dataset.countdownScaleSeconds = String(blockFutureScaleSeconds);
       else delete blockMeter.dataset.countdownScaleSeconds;
     }
+    // Measure tick labels after moving zero so they use the expanded positive axis.
+    renderBlockScale(Math.max(TARGET_BLOCK_SECONDS, seconds));
     const state = future ? "future" : seconds >= LATE_BLOCK_SECONDS ? "late" : seconds >= TARGET_BLOCK_SECONDS ? "slow" : "normal";
     setText(blockElapsed, future ? `−${duration}` : `${duration} ago`);
     if (blockElapsed) {
@@ -270,8 +273,8 @@
     if (blockProgress) {
       blockProgress.dataset.elapsedState = state;
       blockProgress.setAttribute("aria-label", future ? "Time until the displayed block timestamp" : "Time since the displayed block");
-      setProgress(blockProgress, magnitude / scaleSeconds * 100, future
-        ? `${duration} until the displayed block timestamp; it is ahead of this clock. Gray extends left of zero and shrinks toward it; left-side full scale ${formatBlockDuration(scaleSeconds)}. Ticks to the right mark 10-minute elapsed intervals`
+      setProgress(blockProgress, progressFraction * 100, future
+        ? `${duration} until the displayed block timestamp; it is ahead of this clock. Gray extends left of zero; the bar and its space shrink as zero moves to the left edge; left-side full scale ${formatBlockDuration(scaleSeconds)}. Ticks to the right mark 10-minute elapsed intervals`
         : `${duration} since the displayed block; the bar grows right from zero; ticks every 10 minutes; full scale ${formatBlockDuration(scaleSeconds)}, not a countdown`);
     }
   }
