@@ -3,7 +3,12 @@
   const M = window.WSBEOEGrowthModel, G = window.WSBEOEGrowthCharts;
   let installed = null, frame = null, refresher = null;
   let liveTimer = 0;
-  const liveFeed = window.WSBEOEGrowthLive.create({ getPublishedAt: () => installed, onChange: () => {
+  const liveFeed = window.WSBEOEGrowthLive.create({ getPublishedAt: () => installed, onChange: (reason) => {
+    if (reason === "reference") {
+      clearTimeout(liveTimer); liveTimer = 0;
+      refresher?.requestPresent("live-block");
+      return;
+    }
     if (!liveTimer) liveTimer = setTimeout(() => { liveTimer = 0; refresher?.requestPresent("live-price"); }, 1000);
   } });
 

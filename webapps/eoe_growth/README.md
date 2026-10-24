@@ -83,8 +83,11 @@ Daily history loads independently. A network block triggers a lookup immediately
 the adapter also checks the reference manifest every visible minute. It loads
 only the required chunk, verifies its hash, then rechecks the current tip and
 manifest before installing a complete pair. Network-tip refreshes do not fetch
-or wait on `top_kpis.json`. It caches up to three chunks. New quote ticks reuse that pair; canvas repaints are limited to
-once per second. Failed or superseded requests retain the last complete pair;
+or wait on `top_kpis.json`. It caches up to three chunks. Validated block/reference
+changes repaint immediately in the dashboard and homepage preview, cancelling
+any pending price repaint. New quote ticks reuse that pair; price-only canvas
+repaints remain limited to once per second. Failed or superseded requests retain
+the last complete pair;
 missing initial references leave the published daily view usable. A newer daily
 publication supersedes an older quote or older tip. A validated same-height block
 replacement or shorter authoritative chain can update the current pair; an

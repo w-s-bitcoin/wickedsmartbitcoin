@@ -57,7 +57,7 @@ SHIM = r"""
   const source=__SOURCE__, NativeDate=Date;
   const f=window.__chainFixture={source,sockets:[],feeds:[],controllers:{},requests:[],errors:[],
     now:Date.parse(source.at)+120000,height:source.height+2,version:0,apiFail:false,socketFail:false,
-    changes:0,panels:[],publicationReads:0,exportFrames:[],exports:0,releaseExport:null};
+    changes:0,panels:[],paints:[],publicationReads:0,exportFrames:[],exports:0,releaseExport:null};
   localStorage.clear();
   window.Date=class extends NativeDate {constructor(...args){super(...(args.length?args:[f.now]));}static now(){return f.now;}};
   const hash=(height)=>BigInt(height+f.version*10000000).toString(16).padStart(64,'0');
@@ -139,7 +139,9 @@ SHIM = r"""
   }});}
   intercept('WSBBitcoinChainTip',api=>({...api,create(options){const feed=api.create(options);f.feeds.push(feed);return feed;}}));
   intercept('WSBBitcoinSpotPrice',api=>({...api,create({onQuote}){
-    const quote=()=>({price:100000,at:f.now,receivedAt:f.now,source:'Isolated quote'});
+    let price=100000;
+    const quote=()=>({price,at:f.now,receivedAt:f.now,source:'Isolated quote'});
+    f.deliverQuote=value=>{price=value;f.now++;onQuote?.(quote());};
     return {start(){onQuote?.(quote());},stop(){},newerThan(at){return f.now>(typeof at==='number'?at:Date.parse(at))?quote():null;},
       isLive(){return true;},current:quote,last:quote};
   }}));
@@ -150,9 +152,11 @@ SHIM = r"""
     f.controllers[key]=adapter;return adapter;
   }}));
   intercept('WSBEOEGrowthCharts',api=>{const panel=api.panel;api.panel=(ctx,rect,options)=>{
+    const result=panel(ctx,rect,options);
+    f.paints.push({at:performance.now(),height:options.frame?.row?.height,price:options.frame?.row?.price});
     f.panels.push({height:options.frame?.row?.height,current:!!options.frame?.current,
       referenceHeight:options.frame?.row?.referenceHeight,previousPrice:options.frame?.row?.previousPrice,blockTime:options.frame?.row?.blockTime});
-    return panel(ctx,rect,options);};return api;});
+    return result;};return api;});
   const anchorClick=HTMLAnchorElement.prototype.click;
   HTMLAnchorElement.prototype.click=function(){if(this.download){f.exports++;return;}return anchorClick.call(this);};
   window.addEventListener('error',event=>f.errors.push(event.message));
@@ -184,7 +188,7 @@ def check_eoe(cdp, preview):
     wait_expr(cdp, f"return f.panels.at(-1)?.height==={height};", "EOE initial mempool height")
     before = evaluate(cdp, "return JSON.stringify(window.WSBEOEGrowthDashboard?.getModel().rows||null);")
     anchor_reads = evaluate(cdp, "return f.requests.filter(url=>new URL(url).pathname==='/assets/top_kpis.json').length;")
-    pushed(cdp, height + 1)
+    check_eoe_paint_latency(cdp, height + 1, preview)
     wait_expr(cdp, f"return f.panels.at(-1)?.height==={height+1};", "EOE pushed block without publication")
     shown = evaluate(cdp, "return f.panels.at(-1);")
     assert evaluate(cdp, "return f.requests.filter(url=>new URL(url).pathname==='/assets/top_kpis.json').length;") == anchor_reads
@@ -194,6 +198,8 @@ def check_eoe(cdp, preview):
     assert shown["previousPrice"] == 17000 + (height + 1 - evaluate(cdp, "return f.source.height;") + 8) * 25
     assert evaluate(cdp, "return JSON.stringify(window.WSBEOEGrowthDashboard?.getModel().rows||null);") == before
     if not preview:
+        check_eoe_resize_release(cdp, height + 2)
+        height += 1
         last = evaluate(cdp, "return window.WSBEOEGrowthDashboard.getModel().rows.length-1;")
         evaluate(cdp, "document.querySelector('#playBtn').click();document.querySelector('#pauseBtn').click();")
         set_value(cdp, "#dateRangeEndSlider", last - 5)
@@ -218,6 +224,46 @@ def check_eoe(cdp, preview):
     evaluate(cdp, "return f.controllers.eoe.refresh();")
     assert evaluate(cdp, "return f.panels.at(-1).height;") == current_height - 1, "stale published anchor rewound the live pair"
     check_lifecycle(cdp, "eoe", "return f.panels.at(-1)?.height;", current_height - 1)
+
+
+
+def check_eoe_paint_latency(cdp, next_height, preview):
+    # Prime a real quote-driven paint, then prove a quote burst stays batched.
+    evaluate(cdp, "f.deliverQuote(100001);")
+    wait_expr(cdp, "return f.paints.at(-1)?.price===100001;", "EOE priming quote paint")
+    evaluate(cdp, "f.burstStart=f.paints.length;f.burstAt=performance.now();[100002,100003,100004].forEach(f.deliverQuote);")
+    time.sleep(.2)
+    assert evaluate(cdp, "return f.paints.length===f.burstStart;"), "price-only ticks bypassed the repaint batch"
+    wait_expr(cdp, "return f.paints.at(-1)?.price===100004;", "EOE batched latest quote")
+    assert evaluate(cdp, "return f.paints.length-f.burstStart;") == 1, "price burst caused multiple paints"
+    # Queue another quote inside the new throttle window, then deliver one block.
+    # There is no later quote to wake the chart: the validated pair must do it.
+    evaluate(cdp, "f.beforeBlockPaints=f.paints.length;f.deliverQuote(100005);f.blockAt=performance.now();f.push(" + str(next_height) + ");")
+    wait_expr(cdp, f"return f.paints.at(-1)?.height==={next_height};", "EOE block bypasses pending quote repaint")
+    measurement = evaluate(cdp, "const paint=f.paints.slice(f.beforeBlockPaints).find(p=>p.height===" + str(next_height) + ");return {block_ms:paint.at-f.blockAt,quote_batch_ms:f.paints[f.burstStart].at-f.burstAt,price:paint.price};")
+    print(f"EOE {'preview' if preview else 'dashboard'} paint timing: {json.dumps(measurement)}", flush=True)
+    assert measurement["block_ms"] < 400, f"block waited behind quote repaint: {measurement}"
+    assert measurement["price"] == 100005, "block paint did not include the pending newest quote"
+    time.sleep(1.15)
+    assert evaluate(cdp, "return f.paints.length-f.beforeBlockPaints;") == 1, "canceled quote timer repainted after the block"
+
+
+def check_eoe_resize_release(cdp, next_height):
+    evaluate(cdp, "document.querySelector('#chartsResizeHandle').scrollIntoView({block:'center'});")
+    point = evaluate(cdp, "const r=document.querySelector('#chartsResizeHandle').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};")
+    cdp.command("Input.dispatchMouseEvent", {"type":"mousePressed",**point,"button":"left","buttons":1,"clickCount":1})
+    point["y"] += 20
+    cdp.command("Input.dispatchMouseEvent", {"type":"mouseMoved",**point,"button":"left","buttons":1})
+    evaluate(cdp, "f.resizeHeldFrame=JSON.stringify(window.WSBEOEGrowthDashboard.getFrame());f.resizeHeldPaints=f.paints.length;")
+    pushed(cdp, next_height)
+    wait_expr(cdp, f"return f.controllers.eoe.current()?.tip.height==={next_height};", "EOE complete block while resize is held")
+    assert evaluate(cdp, "return JSON.stringify(window.WSBEOEGrowthDashboard.getFrame())===f.resizeHeldFrame&&f.paints.length===f.resizeHeldPaints;"), "block painted during resize"
+    evaluate(cdp, "f.resizeReleaseAt=performance.now();")
+    cdp.command("Input.dispatchMouseEvent", {"type":"mouseReleased",**point,"button":"left","buttons":0,"clickCount":1})
+    wait_expr(cdp, f"return f.paints.at(-1)?.height==={next_height};", "EOE resize release paints retained block")
+    lag = evaluate(cdp, "return f.paints.find((p,i)=>i>=f.resizeHeldPaints&&p.height===" + str(next_height) + ").at-f.resizeReleaseAt;")
+    assert lag < 400, f"resize release did not immediately flush the block: {lag} ms"
+    print(f"EOE resize release paint: {lag:.1f} ms", flush=True)
 
 
 def check_eoe_export(cdp, next_height):

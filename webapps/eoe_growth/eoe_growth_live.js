@@ -102,8 +102,8 @@
     let networkTip = null, publishedTip = null, reorgFrom = -1;
     const cache = new Map();
     const visible = () => doc?.visibilityState !== "hidden" && root.navigator?.onLine !== false;
-    const notify = () => { if (started) onChange?.(); };
-    const spot = root.WSBBitcoinSpotPrice?.create({ onQuote: notify });
+    const notify = (reason) => { if (started) onChange?.(reason); };
+    const spot = root.WSBBitcoinSpotPrice?.create({ onQuote: () => notify("quote") });
     const chain = root.WSBBitcoinChainTip?.create({ onTip: (value) => {
       let candidate;
       try { candidate = parseNetworkTip(value); } catch (_) { return; }
@@ -111,11 +111,11 @@
         pair?.tip.height ?? -1, publishedTip?.height ?? -1);
       if (candidate.height > reorgFrom) reorgFrom = -1;
       networkTip = Object.freeze({ ...candidate, reorg: reorgFrom >= 0, reorgFrom });
-      notify(); // The retained pair's block status can change while its replacement loads.
+      notify("status"); // The retained pair's block status can change while its replacement loads.
       // A block notification replaces an in-flight lookup. Serial validation
       // prevents its older response from combining a new height with old data.
       if (started && visible()) void refreshPair();
-    }, onStatus: notify });
+    }, onStatus: () => notify("status") });
     const validRun = (id) => started && visible() && id === serial && !controller?.signal.aborted;
 
     function current(context) {
@@ -200,7 +200,8 @@
           || JSON.stringify(pair?.reference) !== JSON.stringify(reference);
         if (!liveTip) publishedTip = tip;
         pair = Object.freeze({ tip, reference });
-        if (changed) notify();
+        // Only a complete, validated pair can bypass price repaint batching.
+        if (changed) notify("reference");
         return true;
       } catch (_) {
         // Keep the last complete comparison. The daily dashboard never waits

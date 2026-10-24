@@ -55,11 +55,17 @@
     const current = usesLivePrice() ? liveFeed?.current(installed) : null;
     return (current && M.liveFrame(model, current)) || M.frame(model, index(state.currentIso));
   }
-  function presentLivePrice() {
+  function presentLivePrice(reason) {
     if (!model || !usesLivePrice()) return;
     if (document.hidden || exporting || drag || resize) { dirty = true; return; }
-    // The detailed canvas needs at most one repaint per second, regardless of
-    // socket tick frequency. The feed retains the newest quote in between.
+    // New block/reference pairs are infrequent and should paint as soon as
+    // validation finishes, even when a price repaint is already pending.
+    if (reason === "reference") {
+      clearTimeout(livePaintTimer); livePaintTimer = 0;
+      lastLivePaint = performance.now(); render();
+      return;
+    }
+    // Batch frequent price ticks; the feed retains the newest quote in between.
     if (!livePaintTimer) livePaintTimer = setTimeout(() => {
       livePaintTimer = 0;
       if (document.hidden || exporting || drag || resize) { dirty = true; return; }
@@ -485,7 +491,7 @@
     const handle = $("chartsResizeHandle");
     handle.addEventListener("pointerdown", (event) => { if (!model || exporting) return; resize = { y: event.clientY, height: $("epochPanel").getBoundingClientRect().height }; handle.setPointerCapture(event.pointerId); event.preventDefault(); });
     handle.addEventListener("pointermove", (event) => { if (resize) { state.autoHeight = false; state.height = Math.max(400, Math.min(4000, resize.height + event.clientY - resize.y)); render(); } });
-    for (const name of ["pointerup", "pointercancel"]) handle.addEventListener(name, () => { resize = null; save(); refresh.requestCheck("resize-finished"); });
+    for (const name of ["pointerup", "pointercancel"]) handle.addEventListener(name, () => { resize = null; if (dirty) render(); save(); refresh.requestCheck("resize-finished"); });
     handle.addEventListener("keydown", (event) => { if (!model || exporting || !["ArrowUp", "ArrowDown"].includes(event.key)) return; event.preventDefault(); state.autoHeight = false; state.height = Math.max(400, Math.min(4000, $("epochPanel").getBoundingClientRect().height + (event.key === "ArrowUp" ? -20 : 20))); render(); save(); });
     $("epochChart").addEventListener("pointermove", (event) => {
       if (!frame || playing || exporting || !geometry) return;
