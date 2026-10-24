@@ -19,7 +19,7 @@
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const defaults = () => ({ lines: [{ period: 200, unit: "day", type: "sma" }, { period: 200, unit: "week", type: "sma" }],
     scales: ["log", "linear", "linear"], startIso: "", endIso: "", currentIso: "", tracksLatest: true,
-    speed: 1, preset: "full", height: 620, timeZone: window.WSBDashboardTime?.getPreferredTimeZone?.() || "UTC" });
+    speed: 1, preset: "full", height: 620, autoHeight: true, timeZone: window.WSBDashboardTime?.getPreferredTimeZone?.() || "UTC" });
   let state = defaults(), model = null, series = [], installed = null;
   let playing = false, session = false, announcedSession = null, raf = 0, lastFrame = 0, elapsed = 0, lastSaved = 0;
   let exporting = false, cancelExport = false, needsPaint = false, undo = null, undoTimer = 0;
@@ -63,7 +63,9 @@
     next.currentIso = next.currentIso < next.startIso ? next.startIso : next.currentIso > next.endIso ? next.endIso : next.currentIso;
     next.speed = SPEEDS.includes(Number(source.speed)) ? Number(source.speed) : 1;
     next.preset = ["full", "ytd", "1y", "2y", "4y", "8y", "custom"].includes(source.preset) ? source.preset : "full";
-    next.height = Math.max(400, Math.min(1200, Number(source.height) || 620));
+    next.height = Math.max(400, Math.min(4000, Number(source.height) || 620));
+    // Migrate the former fixed default; retain explicitly resized layouts.
+    next.autoHeight = typeof source.autoHeight === "boolean" ? source.autoHeight : next.height === 620;
     try { new Intl.DateTimeFormat("en", { timeZone: source.timeZone }); if (source.timeZone) next.timeZone = source.timeZone; } catch (_) {}
     return next;
   }
@@ -316,7 +318,8 @@
         button.title = `Switch to ${state.scales[i] === "log" ? "linear" : "logarithmic"} scale`;
       });
     });
-    $("chartGrid").style.setProperty("--chart-grid-height", `${state.height}px`);
+    if (state.autoHeight) $("chartGrid").style.removeProperty("--chart-grid-height");
+    else $("chartGrid").style.setProperty("--chart-grid-height", `${state.height}px`);
     window.WSBDashboardPlaybackActive = session; window.dateRangePlaybackActive = session;
     if (announcedSession !== session) {
       announcedSession = session;
@@ -742,8 +745,8 @@
     charts.forEach((id) => bindChart(id));
     if ($("chartsResizeHandle")) {
       let resize = null;
-      $("chartsResizeHandle").addEventListener("pointerdown", (e) => { if (exporting) return; resize = { y: e.clientY, height: state.height }; e.currentTarget.setPointerCapture(e.pointerId); e.preventDefault(); });
-      $("chartsResizeHandle").addEventListener("pointermove", (e) => { if (resize) { state.height = Math.max(400, Math.min(1200, resize.height + e.clientY - resize.y)); render(); } });
+      $("chartsResizeHandle").addEventListener("pointerdown", (e) => { if (exporting) return; resize = { y: e.clientY, height: $("chartGrid").getBoundingClientRect().height }; e.currentTarget.setPointerCapture(e.pointerId); e.preventDefault(); });
+      $("chartsResizeHandle").addEventListener("pointermove", (e) => { if (resize) { state.autoHeight = false; state.height = Math.max(400, Math.min(4000, resize.height + e.clientY - resize.y)); render(); } });
       $("chartsResizeHandle").addEventListener("pointerup", () => { resize = null; save(); });
       $("chartsResizeHandle").addEventListener("pointercancel", () => { resize = null; });
     }

@@ -354,6 +354,7 @@ function closeModal() {
     document.body?.classList?.remove('patoshi-pattern-dashboard-expanded');
     document.body?.classList?.remove('days-since-ath-dashboard-expanded');
     document.body?.classList?.remove('moving-average-dashboard-expanded');
+    document.body?.classList?.remove('eoe-growth-dashboard-expanded');
     if (modalEmbedWrap) modalEmbedWrap.hidden = true;
     flushCasasciusEmbedViewState();
     if (modalEmbed) modalEmbed.src = 'about:blank';

@@ -1798,6 +1798,7 @@
   }
 
   async function waitForExportFonts() {
+    await window.WSBDashboardExportBranding.ready();
     try {
       await document.fonts?.ready;
     } catch (_) {}

@@ -14,6 +14,11 @@ stay at 2.2 pixels; their cyan and orange colors remain the same in both themes.
 The homepage grid preview shows only the chart series, without grid lines,
 labels, ticks, or panel titles, and does not reserve space for those decorations.
 The full dashboard and exports retain their axes and labels.
+Above 1100px wide, the dashboard charts automatically fill the remaining viewport
+height, leaving the shared outer padding below them. Dragging the resize handle
+switches to a saved manual height; Restore Defaults returns to automatic sizing.
+Older saved defaults migrate to automatic sizing while custom heights remain
+manual. Narrow layouts keep their existing chart heights.
 Long history ranges use calendar-aligned year ticks spaced by powers of two
 (2, 4, 8 years, and so on), adapting to the available width in both the dashboard
 and downloads. Shorter ranges retain annual, monthly, weekly, or daily ticks.
@@ -180,7 +185,10 @@ the shared deterministic encoder and the frozen final-price behavior above.
 
 ## Publication and failure behavior
 
-Playback controls and range sliders follow Days Since ATH. During playback the
+Playback controls and range sliders follow Days Since ATH. Their styles now live
+in `shared/dashboard_playback.css`, also used by EOE, so the shared controls have
+identical dimensions, typography, borders, themes, and interaction states.
+During playback the
 end date, range length, and end handle advance together; the orange track shows
 the remaining interval. Dragging the end handle pauses and resumes playback,
 while dragging the start handle edits the visible range. Stop restores the

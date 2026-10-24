@@ -11,6 +11,7 @@ Current dashboards:
 - `bitcoin_dominance/`: Plotly-based BTC dominance history plus top-10 market-cap snapshot panel
 - `dca_cost_basis/`: DCA cost basis chart with cadence/range/scale controls
 - `moving_average/`: configurable day/week/calendar-month SMA or EMA lines with live Bitcoin price, trailing windows, playback, and an optional second average
+- `eoe_growth/`: price paths aligned by halving-epoch block count, growth comparisons, historical playback, and reference-style exports
 - `dca_comparison/`: compares recurring purchases across Bitcoin and other assets
 - `days_since_ath/`: Bitcoin price and elapsed time since all-time highs
 - `issuance_rate/`: Bitcoin supply and issuance history
@@ -58,7 +59,7 @@ Common dashboard shell/layout rules are centralized in `webapps/shared/` and sho
   - Shared deterministic WebM export, output dimensions, bitrate, footer URL, and download estimate utilities
   - New or updated export features follow the [PNG resolution, typography, and branding standard](DASHBOARD_STANDARDS.md#png-and-webm-exports) while retaining their dashboard's layout. PNG requests use explicit 2160 quality; the utility's default/video quality does not enforce the PNG policy.
 - `shared/dashboard_export_branding.js`
-  - Lazy preparation of bundled export fonts and the Bitcoin wordmark, body/heading font roles, theme-aware wordmark drawing, and canonical URL footers. Load after `dashboard_export.js`; see [Export typography and branding](#export-typography-and-branding).
+  - Lazy preparation of bundled export fonts, the Bitcoin wordmark, creator apple, and current Lightning donation QR; body/heading font roles and the shared creator/donation/URL footer. Load after `dashboard_export.js`; see [Export typography and branding](#export-typography-and-branding).
 - `shared/dashboard_shared.css`
   - Shared topbar/title/info-popover/chip/control/toggle shell rules
   - Shared compact action controls (swap button + resize-handle baseline)
@@ -67,6 +68,8 @@ Common dashboard shell/layout rules are centralized in `webapps/shared/` and sho
   - Full light-mode overrides activated by `html[data-theme="light"]`
 - `shared/dashboard_controls.css`
   - Shared date pickers, playback/export settings, dropdowns, and updated-time controls
+- `shared/dashboard_playback.css`
+  - Canonical date/range, playback, selected-calendar, and export-settings styles shared by Moving Average and EOE, including hover, disabled, export-progress, light-theme, and narrow-screen states. Load after `dashboard_controls.css` and before dashboard-local CSS; keep these controls out of local overrides.
 - `shared/dashboard_embed_modal.js`
   - Shared embedded-in-modal detection and `--modal-controls-clearance` updates
   - Auto-applies on load and listens for window + parent resize events
@@ -81,7 +84,8 @@ Common dashboard shell/layout rules are centralized in `webapps/shared/` and sho
   - Polls configured publication markers and calls dashboard adapters registered through `window.WSBWebappDataAutoRefresh.register()`
   - Fetches and validates a candidate, rechecks the markers immediately before commit, retries failures, and coalesces wake events without reloading the iframe
 - `shared/bitcoin_spot_price.js`
-  - Supplies BTC/USD to DCA Cost Basis, Days Since ATH, DCA Comparison, Moving Average, Unit of Account, and Bitcoin Net Worth, including the relevant home page cards. The `wss://2140data.io/` WebSocket is primary, its `/price` REST endpoint is first fallback, and shared legacy sources are last fallback: Coinbase socket and public REST sources for the first five, Kraken for Net Worth. It pauses hidden tabs, rejects invalid or stale timed quotes, and retains the last accepted quote through an outage. A newer published price snapshot supersedes a retained quote.
+  - Supplies BTC/USD to DCA Cost Basis, Days Since ATH, DCA Comparison, Moving Average, EOE Growth, Unit of Account, and Bitcoin Net Worth, including the relevant home page cards. The `wss://2140data.io/` WebSocket is primary, its `/price` REST endpoint is first fallback, and shared legacy sources are last fallback: Coinbase socket and public REST sources, or Kraken for Net Worth. It pauses hidden tabs, rejects invalid or stale timed quotes, and retains the last accepted quote through an outage. A newer published price snapshot supersedes a retained quote.
+  - EOE Growth adds a current comparison using the exact previous-epoch block timestamp and its nearest historical price. Its small hashed lookup chunks are built from existing raw CSVs during Pages packaging; see [EOE lookup generation](eoe_growth/README.md#current-comparison-and-lookup-generation). Live quotes reuse the cached reference. Latest-date PNGs refresh and capture the current comparison after assets are ready. Latest-date WebM exports refresh and freeze the comparison at the final motion frame, keeping it through the ending hold; the opening hold has its own snapshot. Historical playback, earlier motion frames, and exports ending at an earlier selected or paused date remain daily.
   - The `/price` response must allow cross-origin reads from the site with `Access-Control-Allow-Origin`; otherwise browsers skip to the existing sources when the socket is unavailable.
   - In DCA Cost Basis, each accepted quote updates the current valuation and its date's modeled purchase, which recalculates rolling cost basis across the chart and home card. Earlier purchase prices, publication markers, and past playback frames remain based on the published price files. An animation ending at the latest published date captures one available quote when its final motion frame begins and holds that same chart through the ending pause; earlier frames remain published. If no quote has been accepted, its final frame uses the published snapshot.
   - DCA's Updated timestamp follows the displayed quote, or the published snapshot when that is newer. The block height beside it always identifies the published generation; the tooltip identifies the two sources. The BTCUSD dot is green for a quote received within 60 seconds and gray for a retained or published price. The hourly producer reads the staged price file from its own run before those values are published.
@@ -221,7 +225,8 @@ shares presentation assets while leaving each dashboard's composition and
 coordinates with that renderer:
 
 - `await ready()` loads DejaVu Sans regular (400) and bold (700), IBM Plex Mono
-  Medium (500), and the decoded Bitcoin wordmark from `shared/export_assets/`.
+  Medium (500), the decoded Bitcoin wordmark and creator apple from
+  `shared/export_assets/`, and the site's current `assets/qr_lightning.png`.
   Preparation is lazy and shared across calls. It must finish before text is
   measured or output is drawn. Failure rejects the promise; report it through
   the export UI and allow a later retry.
@@ -233,12 +238,20 @@ coordinates with that renderer:
   original image's aspect ratio. It applies the existing light-theme treatment
   and restores the context afterward. Callers reserve the destination space.
 - `drawFooter(ctx, slug, metrics, settings = {})` draws the canonical
-  `https://wickedsmartbitcoin.com/<slug>` URL in bundled IBM Plex Mono Medium.
+  `https://wickedsmartbitcoin.com/<slug>` URL in bundled IBM Plex Mono Medium,
+  with the Wicked creator apple/handle and current Lightning donation QR/address.
   Supply a canonical dashboard slug, not a URL. `metrics` contains drawing
-  `width`, `height`, and `footerHeight`; `settings` accepts the existing
-  `drawFooterUrl()` theme, orientation, and reference-quality options. Geometry
-  and sizing continue to use that shared footer implementation. Existing direct
-  `drawFooterUrl()` callers keep their default font behavior.
+  `width`, `height`, and `footerHeight`; `settings.theme` controls the palette.
+  Reserve the entire footer area below the chart. The shared layout helper
+  reserves 122/1080 of the shorter output dimension in landscape and 150/1080
+  in portrait/square so the QR remains readable; reference-specific layouts
+  may supply their own height. The URL shrinks to fit the measured center gap
+  in landscape and occupies a separate upper row in portrait/square.
+- `drawFooterStrip(ctx, url, metrics, settings = {})` accepts an already resolved
+  canonical URL. Existing `WSBDashboardExport.drawFooterUrl()` callers delegate
+  to this strip when branding is loaded, and `encodeWebM()` awaits branding
+  before encoding. Calibration renders and direct PNG callers must await
+  `ready()` themselves; a failed asset must never produce an incomplete footer.
 
 ```js
 const branding = window.WSBDashboardExportBranding;

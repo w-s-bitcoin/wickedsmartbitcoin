@@ -3,7 +3,9 @@
 
 from pathlib import Path
 import json
+import hashlib
 import shutil
+import struct
 import subprocess
 import tempfile
 import unittest
@@ -167,16 +169,26 @@ class PagesBuildTest(unittest.TestCase):
             root = Path(temporary)
             (root / "scripts").mkdir()
             shutil.copy2(ROOT / "scripts/build_pages_dist.sh", root / "scripts")
+            shutil.copy2(ROOT / "scripts/build_eoe_live_reference.py", root / "scripts")
 
             fixtures = {
                 "index.html": "<!doctype html><title>Fixture</title>",
                 "assets/top_kpis.json": "{}",
+                "assets/card_fallbacks/eoe_growth.png": "EOE preview fixture",
+                "assets/qr_lightning.png": "current Lightning QR fixture",
+                "eoe_growth.html": '<script src="webapps/eoe_growth/standalone_bootstrap.js"></script>',
+                "webapps/eoe_growth/eoe_growth_model.js": "window.WSBEOEGrowthModel = {};",
+                "webapps/eoe_growth/eoe_growth_live.js": "window.WSBEOEGrowthLive = {};",
+                "webapps/eoe_growth/eoe_growth_charts.js": "window.WSBEOEGrowthCharts = {};",
+                "webapps/eoe_growth/eoe_growth_export.js": "window.WSBEOEGrowthExport = {};",
+                "webapps/eoe_growth/standalone_bootstrap.js": "window.eoeGrowthShell = true;",
                 "moving_average.html": '<script src="webapps/moving_average/standalone_bootstrap.js"></script>',
                 "webapps/moving_average/moving_average_model.js": "window.WSBMovingAverageModel = {};",
                 "webapps/moving_average/moving_average_charts.js": "window.WSBMovingAverageCharts = {};",
                 "webapps/moving_average/moving_average_export.js": "window.WSBMovingAverageExport = {};",
                 "webapps/shared/dashboard_export_branding.js": "window.WSBDashboardExportBranding = {};",
                 "webapps/shared/export_assets/bitcoin-wordmark.jpg": "logo fixture",
+                "webapps/shared/export_assets/wicked-apple.png": "creator fixture",
                 "webapps/shared/export_assets/DejaVuSans.ttf": "font fixture",
                 "webapps/shared/export_assets/DejaVuSans-Bold.ttf": "bold font fixture",
                 "webapps/shared/export_assets/IBMPlexMono-Medium.ttf": "footer font fixture",
@@ -185,8 +197,8 @@ class PagesBuildTest(unittest.TestCase):
                 "webapps/shared/export_assets/README.md": "export asset provenance fixture",
                 "webapps/moving_average/standalone_bootstrap.js": "window.movingAverageShell = true;",
                 "webapps/shared/dashboard_share.js": "window.WSBDashboardShare = {};",
-                "assets/block_data_0_99999.csv": "raw input",
-                "assets/btcusd_10m_prices.csv": "raw input",
+                "assets/block_data_0_99999.csv": "block_height,timestamp\n0,1231027200\n1,1231027500\n",
+                "assets/btcusd_10m_prices.csv": "timestamp,price,price_height\n1231027200,1.5,0\n1231027800,2.5,1\n",
                 "webapps/example/dashboard.html": (
                     '<script src="dashboard_manifest.js"></script>'
                     '<script src="dashboard_app.js"></script>'
@@ -239,12 +251,19 @@ class PagesBuildTest(unittest.TestCase):
 
             kept = (
                 "index.html",
+                "eoe_growth.html",
+                "webapps/eoe_growth/eoe_growth_model.js",
+                "webapps/eoe_growth/eoe_growth_live.js",
+                "webapps/eoe_growth/eoe_growth_charts.js",
+                "webapps/eoe_growth/eoe_growth_export.js",
+                "webapps/eoe_growth/standalone_bootstrap.js",
                 "moving_average.html",
                 "webapps/moving_average/moving_average_model.js",
                 "webapps/moving_average/moving_average_charts.js",
                 "webapps/moving_average/moving_average_export.js",
                 "webapps/shared/dashboard_export_branding.js",
                 "webapps/shared/export_assets/bitcoin-wordmark.jpg",
+                "webapps/shared/export_assets/wicked-apple.png",
                 "webapps/shared/export_assets/DejaVuSans.ttf",
                 "webapps/shared/export_assets/DejaVuSans-Bold.ttf",
                 "webapps/shared/export_assets/IBMPlexMono-Medium.ttf",
@@ -253,6 +272,8 @@ class PagesBuildTest(unittest.TestCase):
                 "webapps/shared/export_assets/README.md",
                 "webapps/moving_average/standalone_bootstrap.js",
                 "assets/top_kpis.json",
+                "assets/card_fallbacks/eoe_growth.png",
+                "assets/qr_lightning.png",
                 "webapps/shared/dashboard_share.js",
                 "webapps/example/dashboard.html",
                 "webapps/example/dashboard_manifest.js",
@@ -267,6 +288,14 @@ class PagesBuildTest(unittest.TestCase):
                 with self.subTest(kept=name):
                     self.assertTrue((dist / name).is_file(), name)
                     self.assertEqual((dist / name).read_text(), fixtures[name])
+
+            reference = dist / "webapps/eoe_growth/webapp_data/reference"
+            catalog = json.loads((reference / "manifest.json").read_text())
+            self.assertEqual((catalog["first_height"], catalog["last_height"]), (0, 1))
+            chunk = catalog["chunks"][0]
+            payload = (reference / chunk["path"]).read_bytes()
+            self.assertEqual(hashlib.sha256(payload).hexdigest(), chunk["sha256"])
+            self.assertEqual(struct.unpack_from("<IId", payload, 16), (1231027500, 1231027200, 1.5))
 
             pruned = (
                 "assets/block_data_0_99999.csv",

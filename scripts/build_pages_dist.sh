@@ -49,6 +49,10 @@ for app_dir in "$ROOT"/webapps/*; do
   copy_path "webapps/$app_name/moving_average_model.js"
   copy_path "webapps/$app_name/moving_average_charts.js"
   copy_path "webapps/$app_name/moving_average_export.js"
+  copy_path "webapps/$app_name/eoe_growth_model.js"
+  copy_path "webapps/$app_name/eoe_growth_live.js"
+  copy_path "webapps/$app_name/eoe_growth_charts.js"
+  copy_path "webapps/$app_name/eoe_growth_export.js"
   copy_path "webapps/$app_name/dashboard.css"
   copy_path "webapps/$app_name/preview.html"
   copy_path "webapps/$app_name/preview_app.js"
@@ -64,6 +68,14 @@ for app_dir in "$ROOT"/webapps/*; do
   copy_path "webapps/$app_name/preview_assets"
   copy_path "webapps/$app_name/webapp_data"
 done
+
+# Build compact, exact-height EOE references before omitting the raw histories.
+# This reads local files only and never invokes the production data producers.
+if [[ -f "$ROOT/webapps/eoe_growth/eoe_growth_live.js" ]]; then
+  rm -rf "$DIST/webapps/eoe_growth/webapp_data/reference"
+  python3 "$ROOT/scripts/build_eoe_live_reference.py" --source-root "$ROOT" \
+    --output-dir "$DIST/webapps/eoe_growth/webapp_data/reference"
+fi
 
 # First-pass deploy pruning: remove files that are either pipeline-only or raw
 # inputs that should not be served by the browser.

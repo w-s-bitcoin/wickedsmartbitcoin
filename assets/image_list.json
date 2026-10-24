@@ -46,6 +46,15 @@
     "latest_youtube": ""
   },
   {
+    "filename": "eoe_growth.png",
+    "title": "Epoch-Over-Epoch Growth",
+    "description": "Align Bitcoin halving epochs by block count to compare their price paths and price growth relative to the preceding epoch, with historical playback",
+    "modal_type": "embed",
+    "embed_url": "/webapps/eoe_growth/dashboard.html",
+    "latest_x": "",
+    "latest_youtube": ""
+  },
+  {
     "filename": "days_since_ath.png",
     "title": "Days Since ATH",
     "description": "Tracks Bitcoin all-time-high price, daily high, drawdown, and days since the most recent ATH with notebook-inspired two-panel charts",

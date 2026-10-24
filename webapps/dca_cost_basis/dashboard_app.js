@@ -3081,6 +3081,7 @@ async function encodeDateRangeAnimationWebM({ canvas, ctx, settings, theme, pale
 }
 
 async function waitForDateRangeExportFonts() {
+  await window.WSBDashboardExportBranding.ready();
   if (!document.fonts?.ready) return;
   try {
     await document.fonts.ready;
@@ -3094,7 +3095,7 @@ async function drawExportFrame(ctx, canvas, frameEndIso, settings, palette, prec
   const { width: referenceWidth, height: referenceHeight } = getDownloadDimensions(referenceSettings);
   const referenceMinDimension = Math.min(referenceWidth, referenceHeight);
   const referencePanelPad = Math.max(8, Math.round(referenceMinDimension * 0.012));
-  const referenceFooterHeight = Math.max(34, Math.round(referenceMinDimension * 0.052));
+  const referenceFooterHeight = Math.max(54, Math.round(referenceMinDimension * ((referenceWidth <= referenceHeight ? 150 : 122) / 1080)));
   const referenceChartWidth = referenceWidth - referencePanelPad * 2;
   const referenceChartHeight = referenceHeight - referencePanelPad * 2 - referenceFooterHeight;
   const scale = canvas.height / Math.max(1, referenceHeight);

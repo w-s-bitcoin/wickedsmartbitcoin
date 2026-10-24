@@ -1549,7 +1549,9 @@ body.patoshi-pattern-dashboard-expanded .buy-coffee,
 body.days-since-ath-dashboard-expanded .modal-controls,
 body.days-since-ath-dashboard-expanded .buy-coffee,
 body.moving-average-dashboard-expanded .modal-controls,
-body.moving-average-dashboard-expanded .buy-coffee {
+body.moving-average-dashboard-expanded .buy-coffee,
+body.eoe-growth-dashboard-expanded .modal-controls,
+body.eoe-growth-dashboard-expanded .buy-coffee {
     opacity: 0;
     pointer-events: none;
 }

@@ -2290,6 +2290,7 @@
   }
 
   async function waitForDateRangeExportFonts() {
+    await window.WSBDashboardExportBranding.ready();
     if (!document.fonts?.ready) return;
     try {
       await document.fonts.ready;

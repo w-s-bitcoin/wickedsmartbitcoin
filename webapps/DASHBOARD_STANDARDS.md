@@ -167,7 +167,10 @@ Read the target dashboard's own notes for its calculation and data contracts.
   `drawWordmark()` and `drawFooter()` methods.
   Match the reference's dark/light treatment and keep both mark and footer
   readable, clear of chart content, and inside the output. Use the same
-  typography and branding for a dashboard's PNG and WebM exports.
+  typography and branding for a dashboard's PNG and WebM exports. The footer
+  includes the shared Wicked creator apple/handle and the site's current
+  Lightning donation QR/address. Reserve space for the whole strip, reduce the
+  URL font to fit, and use its separate URL row in portrait/square layouts.
 - **Keep each dashboard's own composition.** Panel count, arrangement, chart
   types, legend placement, and meaningful metric colors stay dashboard-specific.
   Place the shared headline, wordmark, and footer around that composition;
@@ -202,6 +205,7 @@ Read the target dashboard's own notes for its calculation and data contracts.
 | Concern | Shared implementation or reference |
 | --- | --- |
 | Shell, theme, controls | [dashboard_shared.css](shared/dashboard_shared.css), [dashboard_controls.css](shared/dashboard_controls.css), [dashboard_embed_modal.js](shared/dashboard_embed_modal.js) |
+| Date-range, playback, and download control styling | [dashboard_playback.css](shared/dashboard_playback.css) — shared by Moving Average and EOE, including sizing, interaction states, and responsive rules |
 | Dates, menus, playback keys, reset, timezone, loaders | [dashboard_components.js](shared/dashboard_components.js), [timezone preferences](../js/11_dashboard_timezone_preferences.js) |
 | Plot geometry, calendar/value ticks, formatting, scale transitions | [dashboard_charting.js](shared/dashboard_charting.js) — `createCalendarTicks()` supplies shared UTC calendar selection |
 | Share encoding and shell forwarding | [dashboard_share.js](shared/dashboard_share.js) |

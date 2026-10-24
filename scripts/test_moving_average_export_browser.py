@@ -169,23 +169,42 @@ def check_branding(record):
             assert '"WSB Export IBM Plex Mono"' in font and font.startswith("500 "), item
         else:
             assert '"WSB Export DejaVu"' in font, item
-            heading = "Moving Average" in text or "History (" in text or "Window (" in text or text == " & "
+            heading = "Moving Average" in text or "History (" in text or "Window (" in text or text in (" & ", "Wicked")
             if heading:
                 assert re.match(r"^(?:700|bold)\s", font), item
             else:
                 assert not re.match(r"^(?:[5-9]00|bold|bolder)\s", font), item
         assert "Arial" not in font and "Moving Average Heading" not in font, item
-    assert len(record["images"]) == 1, record["images"]
+    assert len(record["images"]) == 3, record["images"]
     logo = record["images"][0]
     assert logo["source"].endswith("/webapps/shared/export_assets/bitcoin-wordmark.jpg"), logo
     assert logo["naturalWidth"] > 0 and logo["naturalHeight"] > 0, logo
     ratio = (logo["end"][0] - logo["origin"][0]) / (logo["end"][1] - logo["origin"][1])
     assert abs(ratio - logo["naturalWidth"] / logo["naturalHeight"]) < 1e-9, logo
     assert logo["filter"] == ("invert(1) hue-rotate(180deg)" if record["theme"] == "light" else "none"), logo
+    creator, lightning = record["images"][1:]
+    assert creator["source"].endswith("/webapps/shared/export_assets/wicked-apple.png"), creator
+    assert lightning["source"].endswith("/assets/qr_lightning.png"), lightning
+    for image in (creator, lightning):
+        assert image["naturalWidth"] > 0 and image["naturalHeight"] > 0, image
+        assert image["filter"] == "none", image
+        assert image["origin"][1] > record["canvasHeight"] * .85, image
+        assert image["origin"][0] >= 0 and image["end"][0] <= record["canvasWidth"], image
+        assert image["end"][1] <= record["canvasHeight"], image
+    footer_text = [item for item in record["text"] if item["text"] in
+                   ("Wicked", "@w_s_bitcoin", "wicked", "@primal.net", "CREATOR", "LIGHTNING", "DONATIONS",
+                    "https://wickedsmartbitcoin.com/moving_average")]
+    assert len(footer_text) == 8, footer_text
+    for i, item in enumerate(footer_text):
+        for other in footer_text[i + 1:]:
+            assert not overlaps(item["bounds"], other["bounds"]), ("Overlapping footer labels", item, other)
+        for image in (creator, lightning):
+            assert not overlaps(item["bounds"], [*image["origin"], *image["end"]]), ("Footer label overlaps branding image", item, image)
 
 
 def check_asset_failure_retry(cdp, direct, asset):
-    cdp.command("Network.setBlockedURLs", {"urls": BLOCKED_EXTERNAL_FONTS + [f"*/webapps/shared/export_assets/{asset}"]})
+    blocked_asset = f"*{asset}" if asset.startswith("/") else f"*/webapps/shared/export_assets/{asset}"
+    cdp.command("Network.setBlockedURLs", {"urls": BLOCKED_EXTERNAL_FONTS + [blocked_asset]})
     navigate(cdp, direct + "?fixture_reset=1")
     click(cdp, "#downloadImageBtn")
     failure = wait_for(lambda: dashboard(cdp, """
@@ -214,7 +233,7 @@ def check_geometry(record, count=3):
         assert 0 <= x < right <= record["canvasWidth"] and 0 <= y < bottom <= record["canvasHeight"], rect
     footer = [item for item in record["text"] if "wickedsmartbitcoin.com/moving_average" in item["text"]]
     assert len(footer) == 1, footer
-    assert footer[0]["position"][1] > record["canvasHeight"] * .9, footer
+    assert footer[0]["position"][1] > record["canvasHeight"] * .85, footer
     assert len(record['axes']) == count, record['axes']
     titles=[item for item in record['text'] if 'History (' in item['text'] or 'Window (' in item['text']]
     for index,(plot,axes) in enumerate(zip(record['plots'],record['axes'])):
@@ -240,7 +259,7 @@ def check_geometry(record, count=3):
     for index,tick in enumerate(all_ticks):
         for other in all_ticks[index+1:]:
             assert not overlaps(tick['bounds'],other['bounds']), ('Ticks overlap',tick,other)
-    assert len(record["images"]) == 1, record["images"]
+    assert len(record["images"]) == 3, record["images"]
     logo = record["images"][0]
     assert logo["origin"][0] > record["canvasWidth"] * .65 and logo["origin"][1] < record["canvasHeight"] * .12, logo
     assert logo["end"][0] <= record["canvasWidth"] and logo["end"][1] < record["canvasHeight"] * .2, logo
@@ -301,7 +320,7 @@ def check_cents_statistics(record):
 
 
 def run_checks(cdp, direct, output):
-    for asset in ("DejaVuSans-Bold.ttf", "bitcoin-wordmark.jpg"):
+    for asset in ("DejaVuSans-Bold.ttf", "bitcoin-wordmark.jpg", "wicked-apple.png", "/assets/qr_lightning.png"):
         check_asset_failure_retry(cdp, direct, asset)
     navigate(cdp, direct + "?fixture_reset=1")
     dashboard(cdp, "return w.WSBMovingAverageExport.ready();")

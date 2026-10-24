@@ -96,6 +96,7 @@
       dca_cost_basis: 'dca_cost_basis.html',
       days_since_ath: 'days_since_ath.html',
       moving_average: 'moving_average.html',
+      eoe_growth: 'eoe_growth.html',
       dca_comparison: 'dca_comparison.html',
       patoshi_pattern: 'patoshi_pattern.html',
       bitcoin_dominance: 'bitcoin_dominance.html',

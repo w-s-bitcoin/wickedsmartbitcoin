@@ -24,7 +24,7 @@
     const { width, height } = getDimensions(settings);
     const panelGap = Math.max(8, Math.round(Math.min(width, height) * 0.012));
     const outerMargin = panelGap;
-    const footerHeight = Math.max(34, Math.round(Math.min(width, height) * 0.052));
+    const footerHeight = Math.max(54, Math.round(Math.min(width, height) * ((width <= height ? 150 : 122) / 1080)));
     return { width, height, outerMargin, panelGap, footerHeight };
   }
 
@@ -246,7 +246,8 @@
     ]));
     const info = ebmlElement(0x1549a966, concatUint8Arrays([
       ebmlElement(0x2ad7b1, ebmlUint(1000000)),
-      ebmlElement(0x4489, ebmlFloat64(durationSeconds)),
+      // Duration uses TimecodeScale ticks (one millisecond), not seconds.
+      ebmlElement(0x4489, ebmlFloat64(durationSeconds * 1000)),
       ebmlElement(0x4d80, ebmlAscii("wickedsmartbitcoin")),
       ebmlElement(0x5741, ebmlAscii("wickedsmartbitcoin")),
     ]));
@@ -343,6 +344,9 @@
       getBitrate: bitrate ? () => bitrate : undefined,
     });
     if (!encoderConfig) return null;
+    // Every encoded frame uses the same decoded creator/Lightning assets.
+    // Asset failures propagate to the dashboard's normal export recovery path.
+    await window.WSBDashboardExportBranding?.ready();
     const encodedFrames = [];
     const frameDurationUs = Math.round(1000000 / frameRate);
     let frameIndex = 0;
@@ -391,6 +395,10 @@
 
   function drawFooterUrl(ctx, url, metrics, settings = {}) {
     if (!ctx || !url || !metrics) return;
+    if (settings.brandingStrip !== false && window.WSBDashboardExportBranding?.drawFooterStrip) {
+      window.WSBDashboardExportBranding.drawFooterStrip(ctx, url, metrics, settings);
+      return;
+    }
     const { width, height, footerHeight } = metrics;
     const theme = settings.theme === "light" ? "light" : "dark";
     ctx.save();

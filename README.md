@@ -41,7 +41,7 @@ fallback; use `.html` URLs locally.
 There is no npm install or JavaScript bundling step. Python 3.10+ and Git are
 needed for the portable checks below; browser regressions also need Chrome or
 Chromium. Some pages load fonts or chart libraries from external services.
-BTC/USD prices in DCA Cost Basis, Days Since ATH, DCA Comparison, Moving Average,
+BTC/USD prices in DCA Cost Basis, Days Since ATH, DCA Comparison, Moving Average, EOE Growth,
 Unit of Account, and Bitcoin Net Worth use the public `wss://2140data.io/`
 WebSocket. The 2140data.io `/price` endpoint is the first REST fallback. DCA,
 Days, Comparison, Moving Average, and Unit of Account use the shared Coinbase
@@ -94,6 +94,17 @@ published value until a usable quote arrives; unsupported symbols stay on the
 published snapshot. The Pair KPI shows each leg's quote status with a colored
 dot; a dropped feed retains its last price until a newer publication wins.
 Historical playback and exports use published data.
+
+EOE Growth uses the shared live BTC/USD feed for its current view. It compares
+the price with the historical sample nearest the timestamp of the block exactly
+210,000 heights before the latest published chain height. Its lookup chunks are
+generated from the existing block and ten-minute price CSVs during every Pages
+build; the browser requests only the required 64 KiB chunk. Daily history loads
+independently, and historical playback and earlier video frames remain daily.
+Latest-date PNGs and final video frames refresh and freeze the current comparison;
+the ending hold reuses that frame. Historical End dates stay historical.
+For local EOE live references, run
+`python3 scripts/build_eoe_live_reference.py` after updating the raw CSV inputs.
 
 ## Architecture
 
@@ -162,6 +173,7 @@ contracts preserve chart state and avoid reloads or flashing during updates.
 | `/bitcoin_dominance` | Bitcoin dominance and cryptocurrency market-cap comparisons |
 | `/dca_cost_basis` | Bitcoin price and dollar-cost-average cost basis |
 | `/moving_average` | Two configurable moving averages and trailing price windows |
+| `/eoe_growth` | Bitcoin price paths aligned by halving-epoch block count and epoch-over-epoch growth |
 | `/dca_comparison` | Equal-budget DCA comparisons between assets |
 | `/days_since_ath` | All-time highs, drawdown, and time since the last high |
 | `/issuance_rate` | Bitcoin issuance and halving history |
@@ -288,14 +300,21 @@ CHROME_BIN=/path/to/chromium python3 scripts/test_stage4_live_refresh.py
 node scripts/test_dca_live_price.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_dca_live_price_browser.py
 node --test scripts/test_moving_average_model.mjs
+node --test scripts/test_eoe_growth_model.mjs
+node --test scripts/test_eoe_growth_live.mjs
 node --test scripts/test_calendar_ticks.mjs
 node --test scripts/test_export_branding.mjs
+node --test scripts/test_export_footer_integration.mjs
+CHROME_BIN=/path/to/chromium python3 scripts/test_export_footer_browser.py
 node --test scripts/test_scale_transitions.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_dca_scale_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_days_issuance_scale_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_uoa_casascius_scale_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_moving_average_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_moving_average_export_browser.py
+CHROME_BIN=/path/to/chromium python3 scripts/test_eoe_growth_browser.py
+CHROME_BIN=/path/to/chromium python3 scripts/test_eoe_growth_live_browser.py
+CHROME_BIN=/path/to/chromium python3 scripts/test_dashboard_control_parity.py
 node scripts/test_days_live_price.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_days_live_price_browser.py
 node scripts/test_comparison_live_price.mjs
@@ -352,7 +371,7 @@ new runtime filenames or data dependencies are introduced.
 
 Lightning address: `wicked@primal.net`
 
-![Lightning Donation QR](assets/lightning_donation_qr.png)
+![Lightning Donation QR](assets/qr_lightning.png)
 
 ## License
 

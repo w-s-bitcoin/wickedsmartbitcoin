@@ -91,6 +91,13 @@ PERIODIC_PREVIEWS = {
         "markers": ["/assets/daily_price_metadata.json"],
         "data": ["/assets/daily_price.csv"],
     },
+    "eoe_growth": {
+        "filename": "eoe_growth.png",
+        "path": "webapps/eoe_growth/preview.html",
+        "roots": ["#eoeGrowthPreview"],
+        "markers": ["/assets/daily_price_metadata.json"],
+        "data": ["/assets/daily_price.csv"],
+    },
     "days_since_ath": {
         "filename": "days_since_ath.png",
         "path": "webapps/days_since_ath/preview.html",
@@ -164,6 +171,7 @@ ALL_FILENAMES = [
     "dca_cost_basis.png",
     "days_since_ath.png",
     "moving_average.png",
+    "eoe_growth.png",
     "issuance_rate.png",
     "dca_comparison.png",
     "patoshi_pattern.png",
@@ -308,6 +316,7 @@ FETCH_HARNESS_TEMPLATE = r"""
   const hasLiveSpot = ['/webapps/dca_comparison/preview.html',
     '/webapps/dca_cost_basis/preview.html',
     '/webapps/moving_average/preview.html',
+    '/webapps/eoe_growth/preview.html',
     '/webapps/days_since_ath/preview.html',
     '/webapps/bitcoin_dominance/preview.html'].includes(pathname);
   if (hasLiveSpot) window.WebSocket = undefined;
@@ -420,7 +429,7 @@ FETCH_HARNESS_TEMPLATE = r"""
     const raw = typeof input === 'string' ? input : input?.url;
     const url = new URL(raw, document.baseURI);
     if (hasLiveSpot &&
-        /^(api\.exchange\.coinbase\.com|api\.coinbase\.com|api\.kraken\.com|mempool\.space|api\.gold-api\.com|scanner\.tradingview\.com|api\.coingecko\.com)$/.test(url.hostname)) {
+        /^(2140data\.io|api\.exchange\.coinbase\.com|api\.coinbase\.com|api\.kraken\.com|mempool\.space|api\.gold-api\.com|scanner\.tradingview\.com|api\.coingecko\.com)$/.test(url.hostname)) {
       throw new TypeError('Live price provider intentionally offline in publication fixture');
     }
     const target = url.pathname;

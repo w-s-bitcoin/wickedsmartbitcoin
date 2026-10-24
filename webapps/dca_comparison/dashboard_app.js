@@ -1231,7 +1231,7 @@
       y: kpiY,
       width: width - margin * 2,
     }, palette);
-    const footerH = Math.max(34, Math.round(Math.min(width, height) * 0.052));
+    const footerH = Math.max(54, Math.round(Math.min(width, height) * ((width <= height ? 150 : 122) / 1080)));
     const chartTop = kpiY + kpiMetrics.height;
     const chartArea = {
       x: margin,
@@ -1538,6 +1538,7 @@
     }
 
     try {
+      await window.WSBDashboardExportBranding.ready();
       await document.fonts?.ready;
       if (requestId !== downloadEstimateCalibrationRequestId) return;
       const dimensions = getExportDimensions(settings);
@@ -3378,7 +3379,7 @@
       state.isExporting = false;
       state.exportCancelRequested = false;
       resetExportProgress();
-      updateSettingsOptions();
+      syncControls();
     }
   }
 

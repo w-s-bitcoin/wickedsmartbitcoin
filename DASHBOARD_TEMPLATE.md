@@ -22,6 +22,11 @@ Every standard dashboard page must load these shared files before the dashboard 
 
 Dashboard-specific CSS may come after the shared CSS. Dashboard-specific JS should come after the shared JS.
 
+For date-range playback and download controls, load
+`../shared/dashboard_playback.css` after `dashboard_controls.css` and before
+dashboard-specific CSS. Moving Average and EOE use this canonical stylesheet;
+reuse it instead of recreating control dimensions, colors, or state styles.
+
 For PNG or WebM exports, also load `../shared/dashboard_export_branding.js`
 after `dashboard_export.js` and before the dashboard's export renderer. See the
 [shared export branding API](webapps/README.md#export-typography-and-branding).
