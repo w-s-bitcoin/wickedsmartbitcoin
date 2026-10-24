@@ -105,8 +105,10 @@ The price axis is fixed logarithmic USD, from the Not Valued baseline through
 $10M. A fixed scale preserves epoch comparisons and playback geometry; this
 metric does not offer a LIN toggle. The plotting-only unvalued sentinel never
 enters calculations. All samples are retained. Hover identifies the actual
-sample date and count for each available epoch, and never describes future
+sample date, price, and growth for each available epoch, and never describes future
 space as an observation. Current values also appear in accessible KPI text.
+Tooltip growth percentages follow the growth palette with contrast adjustments
+for small text in each theme; unavailable growth stays neutral.
 
 Bands use the supplied image's logarithmic color scale from at most 10% to at
 least 100,000,000%. Zero and negative growth clamp to the lower color endpoint

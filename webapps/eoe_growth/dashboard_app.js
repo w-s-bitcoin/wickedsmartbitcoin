@@ -66,12 +66,32 @@
       if (usesLivePrice()) { lastLivePaint = performance.now(); render(); }
     }, Math.max(0, 1000 - (performance.now() - lastLivePaint)));
   }
-  function hoverText(rows) {
-    return rows.map((row) => {
+  function tooltipGrowthColor(value, theme) {
+    if (!Number.isFinite(value)) return "var(--muted)";
+    const color = G.growthTextColor(value, theme);
+    const rgb = color.startsWith("#") ? color.slice(1).match(/../g).map((part) => parseInt(part, 16)) : color.match(/\d+/g).map(Number);
+    const dark = theme !== "light", target = dark ? 255 : 0;
+    // The chart palette has nearly black and pale endpoints. Preserve its hue
+    // while keeping small tooltip text at least 4.5:1 against the panel.
+    for (let step = 0; step <= 20; step++) {
+      const mixed = rgb.map((channel) => Math.round(channel + (target - channel) * step / 20));
+      const linear = mixed.map((channel) => { const v = channel / 255; return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; });
+      const luminance = linear[0] * .2126 + linear[1] * .7152 + linear[2] * .0722;
+      if ((dark ? (luminance + .05) / .05 : 1.05 / (luminance + .05)) >= 4.5) return `rgb(${mixed.join(",")})`;
+    }
+  }
+  function renderTooltip(rows) {
+    const content = document.createDocumentFragment(), theme = document.documentElement.dataset.theme;
+    rows.forEach((row, i) => {
       const source = row.source === "block-reference" ? `Historical price ${new Date(row.priceTime).toISOString()}\nBlock ${row.height.toLocaleString()} · ${new Date(row.blockTime).toISOString()}`
         : row.source === "live" || row.source === "retained" ? `${row.source === "live" ? "Live" : "Retained"} quote ${new Date(row.quoteAt).toISOString()}` : row.date;
-      return `E${row.epoch} · ${source}\nBlock count ${row.epochBlockCount.toLocaleString()} · ${row.price === 0 ? "Not Valued" : G.kpiMoney(row.price)} · EOE ${G.growthLabel(row.growth)}`;
-    }).join("\n");
+      if (i) content.append("\n");
+      content.append(`E${row.epoch} · ${source}\n${row.price === 0 ? "Not Valued" : G.kpiMoney(row.price)} · EOE `);
+      const growth = document.createElement("span");
+      growth.className = "tooltip-growth"; growth.textContent = G.growthLabel(row.growth);
+      growth.style.color = tooltipGrowthColor(row.growth, theme); content.append(growth);
+    });
+    $("chartTooltip").replaceChildren(content);
   }
   const updated = C.createUpdatedTimeZoneChipController({ getTimeZone: () => state.timeZone,
     setTimeZone: (zone) => { state.timeZone = window.WSBDashboardTime?.setPreferredTimeZone?.(zone) || zone; save(); return state.timeZone; },
@@ -148,7 +168,7 @@
     geometry = G.panel(ctx, { x: 0, y: 0, width, height }, { frame, theme: document.documentElement.dataset.theme, hoverBlockCount: hover?.count ?? null });
     canvas.dataset.endDate = frame.row.date;
     canvas.dataset.priceSource = $("priceChip").dataset.priceSource;
-    if (hover && !$("chartTooltip").hidden) $("chartTooltip").textContent = hoverText(G.inspect(frame, hover.count));
+    if (hover && !$("chartTooltip").hidden) renderTooltip(G.inspect(frame, hover.count));
   }
   function setRange(start, end, preset = "custom") {
     if (!model || exporting) return;
@@ -472,7 +492,7 @@
       const count = Math.round(geometry.blockAtX(x));
       if (!G.inspect(frame, count).length) { clearHover(); render(); return; }
       hover = { count }; render();
-      const tooltip = $("chartTooltip"); tooltip.textContent = hoverText(G.inspect(frame, count));
+      const tooltip = $("chartTooltip"); renderTooltip(G.inspect(frame, count));
       tooltip.hidden = false; tooltip.style.maxWidth = `${Math.max(100, p.width - 16)}px`;
       const box = tooltip.getBoundingClientRect(); tooltip.style.left = `${Math.max(rect.left + p.left + 4, Math.min(rect.left + p.right - box.width - 4, event.clientX + 12))}px`;
       tooltip.style.top = `${Math.max(rect.top + p.top + 4, Math.min(innerHeight - box.height - 8, rect.top + p.bottom - box.height - 4, event.clientY - box.height / 2))}px`;
