@@ -255,7 +255,7 @@
                         <div class="snapshot-glossary-panel">
                             <dl>
                                 <div><dt>Block height</dt><dd>A block's position in Bitcoin's chain, starting at zero. The counter measures time since the displayed block's miner timestamp. Elapsed time grows right of the zero mark on a 10-minute scale, expanding with longer waits; ticks mark every 10 minutes. Green below 10, orange from 10–40, red at 40 or more. If the timestamp is ahead of your clock, a negative counter and gray bar shrink until that time arrives. The space left of zero shrinks with the bar, moving zero to the left edge and leaving the full width for elapsed time. This is not a countdown to the next block.</dd></div>
-                                <div><dt>Bitcoin issued</dt><dd>BTC issued so far, approaching a limit of 21 million. The bar shows the share already issued.</dd></div>
+                                <div><dt>Bitcoin issued</dt><dd>BTC issued so far, approaching a limit of 21 million. The bar shows the share already issued. Between published updates, supply is estimated from the latest published total plus each new block's scheduled subsidy.</dd></div>
                                 <div><dt>Halving epoch</dt><dd>Every 210,000 blocks, the block subsidy is cut in half. The large number counts blocks until the next halving, and the bar shows progress through the current epoch.</dd></div>
                                 <div><dt>Difficulty adjustment</dt><dd>Difficulty adjusts every 2,016 blocks. The large number counts blocks until the next adjustment, and the bar shows progress through this epoch.</dd></div>
                             </dl>
@@ -389,6 +389,7 @@
         <script src="js/09_bootstrap_fetch_init_global_exports.js" defer></script>
         <script src="js/10_event_bindings_global_modal_menu.js" defer></script>
         <script src="js/11_dashboard_timezone_preferences.js" defer></script>
-        <script src="js/12_homepage_kpis.js?v=20261024-shrinking-block-space" defer></script>
+        <script src="webapps/shared/bitcoin_chain_tip.js?v=20261024-live-blocks" defer></script>
+        <script src="js/12_homepage_kpis.js?v=20261024-live-blocks" defer></script>
     </body>
 </html>

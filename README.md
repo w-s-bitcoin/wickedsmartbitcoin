@@ -41,6 +41,13 @@ fallback; use `.html` URLs locally.
 There is no npm install or JavaScript bundling step. Python 3.10+ and Git are
 needed for the portable checks below; browser regressions also need Chrome or
 Chromium. Some pages load fonts or chart libraries from external services.
+The homepage network KPIs use mempool.space's public block WebSocket to update
+block height, the elapsed timer, and halving/difficulty countdowns on arrival.
+The feed reconnects automatically and falls back to the public blocks REST API.
+Published `assets/top_kpis.json` remains the fallback and actual supply anchor.
+Between publications, issued supply adds the scheduled subsidies for intervening
+blocks and is labeled estimated; a matching publication reconciles it. Failed
+updates retain the last block and show the connection status.
 BTC/USD prices in DCA Cost Basis, Days Since ATH, DCA Comparison, Moving Average, EOE Growth,
 Unit of Account, and Bitcoin Net Worth use the public `wss://2140data.io/`
 WebSocket. The 2140data.io `/price` endpoint is the first REST fallback. DCA,
@@ -346,6 +353,7 @@ node scripts/test_uoa_live_quotes.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_uoa_live_quotes_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_homepage_preview_refresh.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_homepage_kpis_browser.py
+node --test scripts/test_bitcoin_chain_tip.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_card_fallbacks_browser.py
 node scripts/test_dashboard_share.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_dashboard_share_routes.py

@@ -225,6 +225,7 @@ class PagesBuildTest(unittest.TestCase):
                 "webapps/shared/export_assets/README.md": "export asset provenance fixture",
                 "webapps/moving_average/standalone_bootstrap.js": "window.movingAverageShell = true;",
                 "webapps/shared/dashboard_share.js": "window.WSBDashboardShare = {};",
+                "webapps/shared/bitcoin_chain_tip.js": "window.WSBBitcoinChainTip = {};",
                 "assets/block_data_0_99999.csv": "block_height,timestamp\n0,1231027200\n1,1231027500\n",
                 "assets/btcusd_10m_prices.csv": "timestamp,price,price_height\n1231027200,1.5,0\n1231027800,2.5,1\n",
                 "webapps/example/dashboard.html": (
@@ -304,6 +305,7 @@ class PagesBuildTest(unittest.TestCase):
                 "assets/card_fallbacks/eoe_growth.png",
                 "assets/qr_lightning.png",
                 "webapps/shared/dashboard_share.js",
+                "webapps/shared/bitcoin_chain_tip.js",
                 "webapps/example/dashboard.html",
                 "webapps/example/dashboard_manifest.js",
                 "webapps/example/dashboard_app.js",

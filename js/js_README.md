@@ -40,7 +40,8 @@ The homepage loads the following deferred classic scripts in this order:
 10. `09_bootstrap_fetch_init_global_exports.js`
 11. `10_event_bindings_global_modal_menu.js`
 12. `11_dashboard_timezone_preferences.js`
-13. `12_homepage_kpis.js`
+13. `../webapps/shared/bitcoin_chain_tip.js`
+14. `12_homepage_kpis.js`
 
 `view.html` and `404.html` load `00` through `10`; timezone preferences and homepage KPIs are not part of those documents' script lists. Dashboard iframe documents load their own shared helpers and app code. Browser globals are per document, so an iframe must load any shared helper it uses.
 
@@ -91,9 +92,30 @@ including saved navigation snapshots. Their direct URLs remain available.
 - `09_bootstrap_fetch_init_global_exports.js`: image manifest fetch, representative card rewrites, deep-link resolution, init sequence
 - `10_event_bindings_global_modal_menu.js`: event wiring for keyboard/mouse/touch/menu/controls
 - `11_dashboard_timezone_preferences.js`: shared dashboard timezone preference handling
-- `12_homepage_kpis.js`: published network snapshot, elapsed block timer, supply/halving/difficulty progress, separate local clock, and refresh behavior. Failed or invalid fetches retain the last complete snapshot and its actual block timestamp.
+- `12_homepage_kpis.js`: live network snapshot with published fallback, elapsed block timer, supply/halving/difficulty progress, and separate local clock. Failed or invalid updates retain the last complete snapshot and its actual block timestamp.
 
-The landing page uses `assets/homepage.css`, scoped to `.homepage`, after the shared `assets/styles.css`. Its compact network snapshot shows the latest published block, issued supply, blocks until the next halving, and blocks until the next difficulty adjustment. The block timestamp and progress percentages sit directly beneath the bars. The block timestamp comes from `assets/top_kpis.json`, while timestamps and the separate footer clock follow the selected time zone. Dashboards have separate publication schedules.
+The landing page uses `assets/homepage.css`, scoped to `.homepage`, after the shared `assets/styles.css`. Its compact network snapshot shows the latest received block, issued supply, blocks until the next halving, and blocks until the next difficulty adjustment. The block timestamp and progress percentages sit directly beneath the bars. Timestamps and the separate footer clock follow the selected time zone. Dashboards have separate publication schedules.
+
+`webapps/shared/bitcoin_chain_tip.js` subscribes to the public mempool.space
+block WebSocket. Its initial block list catches up on arrival; new block events
+update all four cards together without waiting for Pages deployment. Heartbeats
+check the connection independently of block arrival, so a long block interval
+does not falsely mark the feed stale. Reconnects use bounded backoff, and the
+public blocks REST endpoint provides a fallback when the socket is unavailable.
+Hidden/offline pages pause live work and catch up when resumed.
+
+`assets/top_kpis.json` still refreshes every minute as the fallback and actual
+issuance anchor. A delayed publication cannot rewind a newer live tip. Supply
+adds the scheduled subsidy difference in integer satoshis, across any halving
+boundaries, to the published actual total. The caption and tooltip label this
+estimate until a publication matches the live height and timestamp. This is an
+estimate because miners can claim less than the scheduled subsidy; a reorg
+through the anchor also requires a matching publication to reconcile actual
+issuance. With only a live block available, block/countdown cards work while
+supply waits for its published anchor. Disconnects retain the last received
+block and show that the live connection is unavailable. A validated replacement
+block can change the timestamp at the same height or move the tip backward;
+in-flight REST responses cannot overwrite a newer socket event.
 
 The block card's elapsed counter updates every second while visible, using the
 displayed block's miner timestamp rather than fetch or page-load time. Its bar
@@ -113,7 +135,7 @@ the left edge with the full meter width available. The right-hand tick marks and
 always describe elapsed time. The separate left-hand countdown scale is held
 at the larger of ten minutes or the initial lead so the gray bar keeps shrinking
 even for longer offsets. Moving the local clock farther back expands that
-countdown scale. A new timestamp resets it. A new published block resets the counter;
+countdown scale. A new timestamp resets it. A new received block resets the counter;
 failed refreshes preserve the prior timestamp and let its counter continue.
 Waking the page catches up immediately without adding per-second data fetches.
 

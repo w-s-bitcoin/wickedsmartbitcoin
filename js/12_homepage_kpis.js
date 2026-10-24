@@ -1,5 +1,5 @@
 /* ===========================
- * HOMEPAGE: PUBLISHED NETWORK SNAPSHOT
+ * HOMEPAGE: LIVE NETWORK SNAPSHOT WITH PUBLISHED FALLBACK
  * =========================== */
 (function initHomepageNetworkSnapshot() {
   const TOP_KPIS_URL = "assets/top_kpis.json";
@@ -43,6 +43,10 @@
   const compactSupply = window.matchMedia("(max-width: 480px)");
 
   let lastSnapshot = null;
+  let publishedSnapshot = null;
+  let liveTip = null;
+  let liveStatus = "connecting";
+  let reorgCeiling = -1;
   let lastSignature = "";
   let refreshInFlight = false;
   let refreshFailed = false;
@@ -159,8 +163,66 @@
     return { height, minedAt, supply, subsidy, difficulty, projection };
   }
 
+  function scheduledSupplySats(height) {
+    // Integer satoshis, including genesis; stop when the subsidy reaches zero.
+    // Taking a difference preserves the publication's actual issuance baseline.
+    let remaining = height + 1;
+    let total = 0;
+    for (let epoch = 0; remaining > 0 && epoch < 33; epoch += 1) {
+      const blocks = Math.min(remaining, HALVING_INTERVAL);
+      total += blocks * Math.floor(5000000000 / (2 ** epoch));
+      remaining -= blocks;
+    }
+    return total;
+  }
+
+  function installCurrentSnapshot() {
+    if (isDashboardExportActive()) return;
+    // A delayed publication must not rewind a live tip, including a confirmed
+    // reorg below the previous tip. A publication beyond both can catch up an
+    // unavailable feed. At equal heights keep the feed's actual block time.
+    const useLive = liveTip && (!publishedSnapshot || (liveStatus === "live" && lastSnapshot?.source === "live")
+      || liveTip.height >= publishedSnapshot.height || publishedSnapshot.height <= reorgCeiling);
+    let candidate = publishedSnapshot && { ...publishedSnapshot, source: "published", supplyEstimated: false };
+    if (useLive) {
+      const supplyEstimated = !!publishedSnapshot && (liveTip.height !== publishedSnapshot.height
+        || liveTip.minedAt !== publishedSnapshot.minedAt);
+      const supplySats = publishedSnapshot ? Math.round(publishedSnapshot.supply * 100000000)
+        + scheduledSupplySats(liveTip.height) - scheduledSupplySats(publishedSnapshot.height) : null;
+      candidate = {
+        height: liveTip.height, minedAt: liveTip.minedAt, id: liveTip.id,
+        supply: supplySats === null ? null : Math.max(0, Math.min(TARGET_SUPPLY_BTC, supplySats / 100000000)),
+        source: "live", supplyEstimated,
+      };
+    }
+    if (!candidate) return;
+    const signature = JSON.stringify(candidate);
+    if (signature !== lastSignature) {
+      lastSnapshot = candidate;
+      lastSignature = signature;
+      renderSnapshot();
+    }
+    renderStatus();
+  }
+
+  const chainFeed = window.WSBBitcoinChainTip?.create({
+    onTip(tip) {
+      if (publishedSnapshot && tip.height < publishedSnapshot.height && !tip.reorg && reorgCeiling < 0
+          && lastSnapshot?.source !== "live") return;
+      if (tip.reorg) reorgCeiling = Math.max(reorgCeiling, liveTip?.height ?? -1, publishedSnapshot?.height ?? -1);
+      else if (tip.height >= reorgCeiling) reorgCeiling = -1;
+      liveTip = tip;
+      installCurrentSnapshot();
+    },
+    onStatus(status) {
+      liveStatus = status;
+      installCurrentSnapshot();
+      renderStatus();
+    },
+  });
+
   function setText(element, text) {
-    if (element) element.textContent = text;
+    if (element && element.textContent !== text) element.textContent = text;
   }
 
   function setProgress(element, percent, text) {
@@ -280,10 +342,17 @@
   }
 
   function renderStatus() {
+    if (isDashboardExportActive()) return;
     let text;
     if (lastSnapshot) {
-      text = refreshFailed ? "Refresh unavailable · showing last published block." : "";
-      container.dataset.snapshotState = refreshFailed ? "cached" : "ready";
+      const live = lastSnapshot.source === "live";
+      const available = live ? liveStatus === "live" : !refreshFailed;
+      text = live ? (available ? "Live blocks · mempool.space"
+        : liveStatus === "paused" ? "Live updates paused · showing last received block."
+          : "Live connection unavailable · showing last received block.")
+        : refreshFailed ? "Refresh unavailable · showing last published block." : "";
+      container.dataset.snapshotState = available ? "ready" : "cached";
+      container.dataset.snapshotSource = lastSnapshot.source;
     } else {
       text = refreshFailed ? "Published snapshot unavailable. Retrying automatically." : "Loading published snapshot…";
       container.dataset.snapshotState = refreshFailed ? "error" : "loading";
@@ -293,7 +362,7 @@
 
   function renderSnapshot() {
     if (!lastSnapshot) return;
-    const { height, minedAt, supply } = lastSnapshot;
+    const { height, minedAt, supply, supplyEstimated } = lastSnapshot;
     const epoch = Math.floor(height / HALVING_INTERVAL) + 1;
     const nextHalving = epoch * HALVING_INTERVAL;
     const epochMined = (height % HALVING_INTERVAL) + 1;
@@ -302,19 +371,21 @@
     const difficultyMined = (height % DIFFICULTY_INTERVAL) + 1;
     const difficultyRemaining = difficultyEpoch * DIFFICULTY_INTERVAL - height;
     const difficultyPercent = difficultyMined / DIFFICULTY_INTERVAL * 100;
-    const supplyPercent = supply / TARGET_SUPPLY_BTC * 100;
-    const supplyText = `${formatProgressPercent(supplyPercent, 2)}% of 21 million BTC`;
+    const supplyPercent = supply === null ? 0 : supply / TARGET_SUPPLY_BTC * 100;
+    const supplyText = supply === null ? "Waiting for published supply"
+      : `${formatProgressPercent(supplyPercent, 2)}% of 21 million BTC${supplyEstimated ? " · estimated" : ""}`;
     const halvingText = `${formatProgressPercent(halvingPercent, 1)}% through the ${formatOrdinal(epoch)} epoch`;
     const difficultyText = `${difficultyRemaining.toLocaleString("en-US")} ${difficultyRemaining === 1 ? "block" : "blocks"} until adjustment`;
     const difficultyEpochText = `${formatProgressPercent(difficultyPercent, 1)}% through the ${formatOrdinal(difficultyEpoch)} diff. epoch`;
 
     values.height.textContent = height.toLocaleString("en-US");
-    values.supply.textContent = compactSupply.matches
+    values.supply.textContent = supply === null ? "—" : compactSupply.matches
       ? `${(supply / 1000000).toFixed(3)}M`
       : supply.toLocaleString("en-US", { maximumFractionDigits: 0 });
     chips.height.title = `Block timestamp: ${formatTime(minedAt, { seconds: true })}`;
-    chips.supply.title = `${supply.toLocaleString("en-US", { minimumFractionDigits: 8, maximumFractionDigits: 8 })} BTC`;
-    chips.supply.setAttribute("aria-label", `${chips.supply.title} issued`);
+    chips.supply.title = supply === null ? supplyText
+      : `${supply.toLocaleString("en-US", { minimumFractionDigits: 8, maximumFractionDigits: 8 })} BTC${supplyEstimated ? " (estimated from block subsidies)" : ""}`;
+    chips.supply.setAttribute("aria-label", supply === null ? supplyText : `${chips.supply.title} issued`);
     setText(blockTime, formatTime(minedAt));
     if (blockTime) blockTime.dateTime = new Date(minedAt).toISOString();
     renderBlockElapsed();
@@ -338,13 +409,12 @@
       const response = await fetch(`${TOP_KPIS_URL}?_=${Date.now()}`, { cache: "no-store", signal: controller.signal });
       if (!response.ok) throw new Error(`Network snapshot request failed: ${response.status}`);
       const candidate = prepareSnapshot(await response.json());
-      const signature = JSON.stringify(candidate);
-      if (signature !== lastSignature) {
-        lastSnapshot = candidate;
-        lastSignature = signature;
-        renderSnapshot();
-      }
+      // Keep the latest complete published anchor; cached responses can trail
+      // both a previous publication and the live connection.
+      const matchesLive = liveTip && candidate.height === liveTip.height && candidate.minedAt === liveTip.minedAt;
+      if (!publishedSnapshot || candidate.height >= publishedSnapshot.height || matchesLive) publishedSnapshot = candidate;
       refreshFailed = false;
+      installCurrentSnapshot();
     } catch (_) {
       // Preserve the complete prior snapshot, including its published block time.
       refreshFailed = true;
@@ -430,11 +500,15 @@
   });
   refreshForTimeZone();
   void refreshSnapshot();
+  chainFeed?.start();
   window.setInterval(() => {
     if (!isDashboardExportActive()) renderClock();
   }, 30000);
   window.setInterval(() => {
-    if (document.visibilityState === "visible" && !isDashboardExportActive()) renderBlockElapsed();
+    if (document.visibilityState === "visible" && !isDashboardExportActive()) {
+      installCurrentSnapshot();
+      renderBlockElapsed();
+    }
   }, 1000);
   window.setInterval(() => { void refreshSnapshot(); }, AUTO_REFRESH_MS);
 })();
