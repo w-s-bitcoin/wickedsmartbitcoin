@@ -11,11 +11,14 @@ from __future__ import annotations
 
 import argparse
 import base64
+from contextlib import contextmanager
+import errno
 import hashlib
 import json
 import os
 import re
 import shutil
+import signal
 import struct
 import subprocess
 import tempfile
@@ -35,6 +38,60 @@ else:
 REGISTRY_PATH = Path("js/06_grid_layout_filter_render.js")
 FALLBACK_PLACEHOLDER = "const DASHBOARD_CARD_FALLBACKS = Object.freeze({});"
 THEME_KEY = "quantum-research-dashboard-theme"
+
+
+@contextmanager
+def capture_workspace():
+    path = Path(tempfile.mkdtemp(prefix="wsb-card-capture-"))
+    try:
+        yield path
+    finally:
+        # Chromium helpers can briefly finish profile writes after the browser
+        # process exits. Retry only transient directory races in our own temp dir.
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                shutil.rmtree(path)
+                break
+            except FileNotFoundError:
+                break
+            except OSError as error:
+                if error.errno not in (errno.ENOTEMPTY, errno.EBUSY) or time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.1)
+
+
+def close_browser(process, cdp):
+    if cdp:
+        try:
+            cdp.sock.settimeout(3)
+            cdp.command("Browser.close")
+        except (EOFError, OSError, RuntimeError):
+            pass  # A graceful browser close can close the socket before replying.
+        finally:
+            cdp.sock.close()
+
+    def stop(sig):
+        try:
+            if os.name == "posix":
+                os.killpg(process.pid, sig)
+            else:
+                process.send_signal(sig)
+        except ProcessLookupError:
+            pass
+
+    try:
+        process.wait(timeout=5 if cdp else 0)
+    except subprocess.TimeoutExpired:
+        stop(signal.SIGTERM)
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            stop(signal.SIGKILL)
+            process.wait(timeout=5)
+    if os.name == "posix":
+        # This group belongs solely to our temporary browser, never a user tab.
+        stop(signal.SIGKILL)
 
 
 class CaptureHandler(QuietHandler):
@@ -166,8 +223,7 @@ def capture(dist, chrome, timeout):
     threading.Thread(target=server.serve_forever, daemon=True).start()
     origin = f"http://127.0.0.1:{server.server_port}"
     try:
-        with tempfile.TemporaryDirectory(prefix="wsb-card-capture-") as temporary:
-            workspace = Path(temporary)
+        with capture_workspace() as workspace:
             output = workspace / "images"
             output.mkdir()
             port = free_port()
@@ -177,7 +233,7 @@ def capture(dist, chrome, timeout):
                     "--no-first-run", "--no-default-browser-check", "--disable-background-networking",
                     "--disable-component-update", "--remote-allow-origins=*",
                     f"--remote-debugging-port={port}", f"--user-data-dir={workspace / 'profile'}", "about:blank",
-                ], stdout=log, stderr=log)
+                ], stdout=log, stderr=log, start_new_session=True)
                 cdp = None
                 try:
                     def chrome_ready():
@@ -201,14 +257,7 @@ def capture(dist, chrome, timeout):
                     validate_specs(specs, dist)
                     images = capture_images(cdp, specs, origin, output, timeout)
                 finally:
-                    if cdp:
-                        cdp.sock.close()
-                    process.terminate()
-                    try:
-                        process.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                        process.wait(timeout=5)
+                    close_browser(process, cdp)
             # No poster or runtime change is installed until every preview has
             # succeeded. The Pages workflow must not upload a failed build.
             destination = dist / "assets/card_fallbacks"
