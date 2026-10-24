@@ -1,15 +1,15 @@
 {
-  "block_height": 972976,
-  "block_time_utc": "2026-10-24 21:08:08 UTC",
+  "block_height": 972977,
+  "block_time_utc": "2026-10-24 21:28:12 UTC",
   "epoch": 5,
   "epoch_complete": 0.633,
   "subsidy_btc": 3.125,
   "subsidy_sats": 312500000,
-  "supply_btc": 20103024.16655096,
-  "supply_target_complete": 0.9572882451006361,
+  "supply_btc": 20103027.29155096,
+  "supply_target_complete": 0.9572883939101601,
   "target_hex": "0000000000000000000200930000000000000000000000000000000000000000",
   "target_hashrate_hps": 1.0062942306175772e+21,
   "difficulty": 140577680051919.6,
   "difficulty_display": "140.58T",
-  "projected_difficulty_adjustment_percent": 5.12
+  "projected_difficulty_adjustment_percent": 5.03
 }
