@@ -160,7 +160,8 @@ def test_elapsed_timer(cdp):
             "Block elapsed bar is not a native 100-percent progress element", cold)
     require(cold.get("value") == 0, "Missing data should leave an empty elapsed bar", cold)
     require("ago" not in (cold.get("elapsed") or ""), "Missing data invented an elapsed time", cold)
-    require(cold.get("state") not in ("normal", "slow", "late"), "Missing data has an active elapsed color", cold)
+    require(cold.get("state") not in ("future", "normal", "slow", "late"),
+            "Missing data has an active elapsed color", cold)
 
     five_minutes = publish(cdp, 300)
     check_elapsed(five_minutes, "5m 00s ago", 50, "normal")
@@ -206,11 +207,6 @@ def test_elapsed_timer(cdp):
     reset = publish(cdp, 0)
     check_elapsed(reset, "0m 00s ago", 0, "normal")
     check_scale(reset, 600, 100)
-    future = publish(cdp, -60)
-    check_elapsed(future, "0m 00s ago", 0, "normal")
-    future_tick = advance(cdp, 30)
-    check_elapsed(future_tick, "0m 00s ago", 0, "normal")
-
     retained = publish(cdp, 30)
     cdp.evaluate("window.__kpiTest.mode = 'fail'; window.dispatchEvent(new Event('online'))")
     failed = wait_for(lambda: (state if (state := snapshot(cdp))["snapshot"] == "cached" else None),
@@ -220,7 +216,86 @@ def test_elapsed_timer(cdp):
     require(still_ticking["timestamp"] == retained["timestamp"] and still_ticking["height"] == retained["height"],
             "Refresh failure replaced the last complete block", still_ticking)
     require(still_ticking["requests"] == failed["requests"], "Retained clock tick fetched data", still_ticking)
-    print("Passed: elapsed progress/color boundaries, local ticking, timezone, new blocks, future times, and failure retention", flush=True)
+    print("Passed: elapsed progress/color boundaries, local ticking, timezone, new blocks, and failure retention", flush=True)
+
+
+def test_future_timestamp(cdp):
+    normal = publish(cdp, 0)
+    future = publish(cdp, -60)
+    check_elapsed(future, "−1m 00s", 10, "future")
+    check_scale(future, 600, 100)
+    requests = future["requests"]
+
+    halfway = advance(cdp, 30)
+    check_elapsed(halfway, "−0m 30s", 5, "future")
+    check_scale(halfway, 600, 100)
+    cdp.evaluate("window.WSBDashboardTime.setPreferredTimeZone('Asia/Kathmandu')")
+    zoned = snapshot(cdp)
+    check_elapsed(zoned, halfway["elapsed"], halfway["value"], "future")
+    require(zoned["displayedTime"] != halfway["displayedTime"]
+            and zoned["timestamp"] == halfway["timestamp"],
+            "Timezone changed the future timestamp or its remaining time", zoned)
+
+    for theme in ("dark", "light"):
+        cdp.evaluate(f"document.documentElement.dataset.theme = {json.dumps(theme)}")
+        themed = snapshot(cdp)
+        check_elapsed(themed, "−0m 30s", 5, "future")
+        gray = re.fullmatch(r"rgb\((\d+), (\d+), (\d+)\)", themed["color"])
+        require(gray is not None and len(set(gray.groups())) == 1
+                and 0 < int(gray.group(1)) < 255,
+                f"Future timer is not neutral gray in {theme} theme", themed)
+    cdp.evaluate("document.documentElement.dataset.theme = 'dark'")
+
+    # Floor signed elapsed seconds: the last millisecond remains −1s, not −0s.
+    last_millisecond = advance(cdp, 29.999)
+    check_elapsed(last_millisecond, "−0m 01s", 1 / 6, "future")
+    zero = advance(cdp, 0.001)
+    check_elapsed(zero, "0m 00s ago", 0, "normal")
+    check_scale(zero, 600, 100)
+    require(zero["color"] == normal["color"] and zero["color"] != future["color"],
+            "Future timer did not return to green at zero", zero)
+    positive = advance(cdp, 1)
+    check_elapsed(positive, "0m 01s ago", 1 / 6, "normal")
+    require(positive["requests"] == requests,
+            "Future countdown, timezone, theme, or zero crossing fetched network data", positive)
+
+    long_future = publish(cdp, -1200)
+    check_elapsed(long_future, "−20m 00s", 100, "future")
+    check_scale(long_future, 1200, 50)
+    shrinking = advance(cdp, 60)
+    check_elapsed(shrinking, "−19m 00s", 95, "future")
+    check_scale(shrinking, 1200, 50)
+    cdp.evaluate("window.WSBDashboardTime.setPreferredTimeZone('UTC')")
+    zoned_long = snapshot(cdp)
+    check_elapsed(zoned_long, shrinking["elapsed"], shrinking["value"], "future")
+    check_scale(zoned_long, 1200, 50)
+    require(zoned_long["requests"] == long_future["requests"],
+            "Long future countdown or timezone change fetched network data", zoned_long)
+
+    cdp.evaluate("window.__kpiTest.mode = 'fail'; window.dispatchEvent(new Event('online'))")
+    failed = wait_for(lambda: (state if (state := snapshot(cdp))["snapshot"] == "cached" else None),
+                      description="failed refresh retains future block timestamp")
+    retained = advance(cdp, 60)
+    check_elapsed(retained, "−18m 00s", 90, "future")
+    check_scale(retained, 1200, 50)
+    require(retained["timestamp"] == long_future["timestamp"]
+            and retained["height"] == long_future["height"],
+            "Failed refresh replaced the future block timestamp", retained)
+    require(retained["requests"] == failed["requests"],
+            "Retained future countdown fetched network data", retained)
+
+    replacement = publish(cdp, -120)
+    check_elapsed(replacement, "−2m 00s", 20, "future")
+    check_scale(replacement, 600, 100)
+    long_again = publish(cdp, -1200)
+    check_elapsed(long_again, "−20m 00s", 100, "future")
+    check_scale(long_again, 1200, 50)
+    long_zero = advance(cdp, 1200)
+    check_elapsed(long_zero, "0m 00s ago", 0, "normal")
+    check_scale(long_zero, 600, 100)
+    require(long_zero["requests"] == long_again["requests"],
+            "Long future countdown crossing zero fetched network data", long_zero)
+    print("Passed: signed gray future countdown, held scale, zero crossing, timezone, replacement, and failure retention", flush=True)
 
 
 def test_orange_theme_matching(cdp):
@@ -364,6 +439,7 @@ def main():
                     cdp.command("Page.addScriptToEvaluateOnNewDocument", {"source": harness_source()})
                     cdp.command("Page.navigate", {"url": f"http://127.0.0.1:{server.server_port}/kpi-fixture.html"})
                     test_elapsed_timer(cdp)
+                    test_future_timestamp(cdp)
                     test_orange_theme_matching(cdp)
                     test_scale_layout(cdp)
                 finally:

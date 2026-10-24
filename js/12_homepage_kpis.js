@@ -49,6 +49,8 @@
   let wakeTimer = null;
   let blockScaleLabelKey = "";
   let blockScaleLabels = [];
+  let blockFutureTimestamp = null;
+  let blockFutureScaleSeconds = TARGET_BLOCK_SECONDS;
 
   function isDashboardExportActive() {
     return !!(window.wsbDashboardExportActive || window.dateRangeExportActive);
@@ -235,22 +237,36 @@
 
   function renderBlockElapsed() {
     if (!lastSnapshot) return;
-    // Measure from the displayed block's miner timestamp, not page load or the
-    // most recent fetch. Future miner timestamps must never produce negatives.
-    const seconds = Math.max(0, Math.floor((Date.now() - lastSnapshot.minedAt) / 1000));
-    const duration = formatBlockDuration(seconds);
-    const scaleSeconds = Math.max(TARGET_BLOCK_SECONDS, seconds);
+    // Miner timestamps can be ahead of this clock. Keep the sign until the
+    // clock reaches that timestamp, then resume the normal elapsed scale.
+    const seconds = Math.floor((Date.now() - lastSnapshot.minedAt) / 1000);
+    const future = seconds < 0;
+    const magnitude = Math.abs(seconds);
+    const duration = formatBlockDuration(magnitude);
+    if (!future || blockFutureTimestamp !== lastSnapshot.minedAt) {
+      blockFutureTimestamp = future ? lastSnapshot.minedAt : null;
+      blockFutureScaleSeconds = TARGET_BLOCK_SECONDS;
+    }
+    // Hold the negative scale so even a timestamp over ten minutes ahead has
+    // a shrinking bar. Only expand it if the local clock moves farther back.
+    if (future) blockFutureScaleSeconds = Math.max(blockFutureScaleSeconds, magnitude);
+    const scaleSeconds = future ? blockFutureScaleSeconds : Math.max(TARGET_BLOCK_SECONDS, seconds);
     renderBlockScale(scaleSeconds);
-    const state = seconds >= LATE_BLOCK_SECONDS ? "late" : seconds >= TARGET_BLOCK_SECONDS ? "slow" : "normal";
-    setText(blockElapsed, `${duration} ago`);
+    const state = future ? "future" : seconds >= LATE_BLOCK_SECONDS ? "late" : seconds >= TARGET_BLOCK_SECONDS ? "slow" : "normal";
+    setText(blockElapsed, future ? `−${duration}` : `${duration} ago`);
     if (blockElapsed) {
       blockElapsed.dataset.elapsedState = state;
+      blockElapsed.title = future
+        ? `${duration} until the displayed block timestamp; it is ahead of this clock`
+        : "Time elapsed since the displayed block's timestamp";
       blockElapsed.hidden = false;
     }
     if (blockProgress) {
       blockProgress.dataset.elapsedState = state;
-      setProgress(blockProgress, seconds / scaleSeconds * 100,
-        `${duration} since the displayed block; ticks every 10 minutes; full scale ${formatBlockDuration(scaleSeconds)}, not a countdown`);
+      blockProgress.setAttribute("aria-label", future ? "Time until the displayed block timestamp" : "Time since the displayed block");
+      setProgress(blockProgress, magnitude / scaleSeconds * 100, future
+        ? `${duration} until the displayed block timestamp; it is ahead of this clock. Gray shrinks to the start mark; ticks mark 10 minutes remaining; full scale ${formatBlockDuration(scaleSeconds)}`
+        : `${duration} since the displayed block; ticks every 10 minutes; full scale ${formatBlockDuration(scaleSeconds)}, not a countdown`);
     }
   }
 

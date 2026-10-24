@@ -9,6 +9,7 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
     --home-accent: #f7931a;
     --home-progress: var(--brand);
     --home-block-normal: #68c686;
+    --home-block-future: #999;
     --home-block-slow: var(--brand);
     --home-block-late: #f27474;
     --home-accent-bg: #000;
@@ -30,6 +31,7 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
     --home-accent: #a7550a;
     --home-accent-bg: #faf0e1;
     --home-block-normal: #237b40;
+    --home-block-future: #6b6b6b;
     --home-block-late: #bb3030;
 }
 :root[data-theme] body.homepage { background: var(--home-bg); color: var(--home-text); }
@@ -103,6 +105,7 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
 .snapshot-block-caption { display: flex; align-content: flex-start; align-items: baseline; flex-wrap: wrap; gap: 0 10px; }
 .snapshot-block-elapsed { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--home-progress); }
 [data-elapsed-state="normal"] { --home-progress: var(--home-block-normal); }
+[data-elapsed-state="future"] { --home-progress: var(--home-block-future); }
 [data-elapsed-state="slow"] { --home-progress: var(--home-block-slow); }
 [data-elapsed-state="late"] { --home-progress: var(--home-block-late); }
 .snapshot-footnote { margin-top: 10px; position: relative; }
