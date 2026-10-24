@@ -110,19 +110,28 @@ rg -n 'localStandaloneBySlug|DASHBOARD_CARD_PREVIEW_SPECS' js webapps --glob '*.
 
 The homepage, preview frames, and modal dashboards have separate lifecycles. `06_grid_layout_filter_render.js` manages preview iframe creation, visibility, and sizing. `09_bootstrap_fetch_init_global_exports.js` coordinates bootstrap and wake behavior. A normal data refresh must not reload a preview frame or navigate an open modal.
 
-Each Pages build captures fresh dark/light card images from the actual preview
-pages and published data in the completed `dist/` artifact. The capture script
-reads `DASHBOARD_CARD_PREVIEW_SPECS`, waits for a validated, painted preview, and
-blocks external market feeds. Content-hashed image URLs are installed into the
-artifact's `DASHBOARD_CARD_FALLBACKS` map, so new images bypass older cached
-posters. Theme changes select the corresponding image without reloading frames.
-The committed `assets/card_fallbacks/` images remain emergency/source-checkout
-fallbacks; builds never rewrite those source files.
+The first Pages deployment after midnight UTC refreshes dark/light card images
+from the actual preview pages and published data in its completed `dist/`
+artifact. Later deployments reuse that UTC day's images from
+`.cache/card-fallbacks`; the workflow's cache key and the generator's manifest
+date both prevent reuse from an earlier day. Local builds use the same daily
+cache, configurable with `WSB_CARD_FALLBACK_CACHE_DIR`.
+Data and source changes keep that day's captured images; newly added cards use
+their committed fallback until the next UTC day's capture.
+
+On a fresh capture, the script reads `DASHBOARD_CARD_PREVIEW_SPECS`, waits for a
+validated, painted preview, and blocks external market feeds. Every build
+installs the day's content-hashed image URLs into `DASHBOARD_CARD_FALLBACKS` and
+versions the homepage script containing that map. Theme changes select the
+corresponding image without reloading frames. The committed
+`assets/card_fallbacks/` images remain emergency/source-checkout fallbacks;
+builds never rewrite those source files.
 
 The card keeps its saved image underneath the preview until the live chart is
 available, then fades the opaque preview in over 200 ms. Reduced motion makes
 the switch immediate. Failed cold starts retain the saved image and can recover
-in place. A published image can still differ slightly from a later live quote.
+in place. Saved images can lag subsequent publications and live quotes during
+the day; the live preview's existing data refresh and quote feeds stay current.
 
 Each card title includes a question-mark button that reveals its catalog
 description over the chart on hover or keyboard focus. Clicking/tapping pins or

@@ -152,12 +152,16 @@ adapters use `preview_shared.js`. Hidden previews can install data but defer
 painting until visible. Theme and resize events render cached data. These
 contracts preserve chart state and avoid reloads or flashing during updates.
 
-Every Pages build also captures fresh homepage fallback images from those
-preview renderers and the packaged data, in both themes. External live feeds
-are blocked during capture. Content-hashed filenames keep browser caches fresh;
-the live preview fades over its matching saved image in 200 ms (immediate with
-reduced motion). Capture failures stop deployment, preserving the previous
-published site. Source fallback PNGs and data producers are unchanged.
+Homepage fallback images refresh once per UTC day, on the first Pages
+deployment after midnight UTC. That build captures both themes from the preview
+renderers and packaged data; later builds reuse the day's saved images.
+External live feeds are blocked during capture. The image can therefore lag
+the current data by the rest of the day, while live previews still load the
+latest published data and supported live quotes. Content-hashed filenames keep
+browser caches current with each daily capture. The live preview fades over
+the saved image in 200 ms (immediate with reduced motion). Capture failures
+stop deployment, preserving the previous published site. Source fallback PNGs
+and data producers are unchanged.
 
 ### Repository map
 
@@ -368,14 +372,23 @@ keeping coherent empty archive catalogs. Compact historical snapshots remain;
 the current snapshot retains its full address table. The source tree and the
 Pages artifact intentionally contain different datasets.
 
-Building now requires Chrome/Chromium for the final homepage image capture;
-set `CHROME_BIN` if it is not discoverable on PATH or at the usual macOS path.
-Pages CI uses the Chrome installation provided by its Ubuntu runner. Capture renders all 14 preview pages at
-1280×720 in both themes using only packaged files, then installs hashed poster
-URLs and versions the homepage script containing that map. Any unavailable or
-timed-out preview fails the build before the artifact is uploaded. The explicit
-`--skip-card-fallbacks` option is for browser-free packaging fixtures only and
-is never used by the deployment workflow.
+The first build each UTC day requires Chrome/Chromium to capture homepage
+images; set `CHROME_BIN` if it is not discoverable on PATH or at the usual macOS
+path. Pages CI uses its Ubuntu runner's Chrome and caches the images in
+`.cache/card-fallbacks` under an exact UTC-date key, with no prior-day restore.
+Local builds use the same cache directory by default; set
+`WSB_CARD_FALLBACK_CACHE_DIR` to choose another location. The generator also
+checks the cache manifest's UTC date before reuse.
+
+A fresh capture renders all 14 preview pages at 1280×720 in both themes using
+only packaged files. Every build installs the day's hashed poster URLs and
+versions the homepage script containing that map. Later deployments that day
+reuse the images and skip the capture-specific browser check, reducing build
+time while still publishing current data. Cards added later that day use their
+committed fallback until the next day's capture. An unavailable or timed-out preview
+during a fresh capture fails the build before the artifact is uploaded. The
+explicit `--skip-card-fallbacks` option is for browser-free packaging fixtures
+only and is never used by the deployment workflow.
 
 ## Adding a dashboard
 

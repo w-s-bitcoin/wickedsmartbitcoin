@@ -154,12 +154,109 @@ class CardFallbackCaptureTest(unittest.TestCase):
         if not CAPTURE.is_file():
             raise RuntimeError(f"Capture script missing: {CAPTURE}")
 
-    def capture(self, root: Path, timeout=10):
+    def capture(self, root: Path, timeout=10, *, cache_dir=None, utc_date=None, chrome=CHROME):
+        command = [sys.executable, str(CAPTURE), "--dist", str(root),
+                   "--timeout", str(timeout), "--chrome", str(chrome)]
+        if cache_dir is not None:
+            command.extend(["--cache-dir", str(cache_dir)])
+        if utc_date is not None:
+            command.extend(["--utc-date", utc_date])
         return subprocess.run(
-            [sys.executable, str(CAPTURE), "--dist", str(root),
-             "--timeout", str(timeout), "--chrome", CHROME],
+            command,
             cwd=ROOT, capture_output=True, text=True, timeout=90,
         )
+
+    def installed_images(self, root: Path):
+        runtime = (root / RUNTIME).read_text()
+        match = re.search(r"const DASHBOARD_CARD_FALLBACKS = Object\.freeze\((.*?)\);", runtime, re.S)
+        self.assertIsNotNone(match, runtime)
+        mapping = json.loads(match.group(1))
+        payloads = {relative: (root / relative).read_bytes()
+                    for variants in mapping.values() for relative in variants.values()}
+        return mapping, payloads
+
+    def test_daily_cache_reuses_same_day_without_chrome_and_refreshes_next_utc_day(self):
+        with tempfile.TemporaryDirectory(prefix="wsb-fallback-daily-") as temporary:
+            workspace = Path(temporary)
+            cache = workspace / "daily-cache"
+            first = workspace / "first-build"
+            fixture_dist(first, {"alpha": ("ready", 320, 180)})
+            result = self.capture(first, cache_dir=cache, utc_date="2026-10-24")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            original_map, original_payloads = self.installed_images(first)
+            self.assertTrue(cache.is_dir(), "Successful captures did not create the reusable daily cache")
+
+            changed_colors = {"dark": (33, 66, 99), "light": (222, 188, 144)}
+
+            def later_build(name, cards):
+                root = workspace / name
+                fixture_dist(root, cards)
+                for slug in cards:
+                    (root / "webapps" / slug / "data.json").write_text(json.dumps(changed_colors))
+                return root
+
+            # A clean artifact with newer data must reuse today's pixels, even
+            # when Chrome is unavailable. No generated JS/map carries over.
+            same_day = later_build("same-day-build", {"alpha": ("ready", 320, 180)})
+            result = self.capture(same_day, cache_dir=cache, utc_date="2026-10-24",
+                                  chrome=workspace / "missing-chrome")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertNotIn("Captured ", result.stdout)
+            self.assertEqual(self.installed_images(same_day), (original_map, original_payloads))
+            self.assertEqual((same_day / "index.html").read_text(), (first / "index.html").read_text())
+            for theme, relative in original_map["alpha.png"].items():
+                self.assertEqual(png_info(original_payloads[relative]), (320, 180, COLORS[theme]))
+
+            # Adding a card later that day must not trigger a second capture.
+            # Its committed fallback remains available until tomorrow's capture.
+            cards = {"alpha": ("ready", 320, 180), "beta": ("ready", 320, 180)}
+            extra_card = later_build("added-card-build", cards)
+            source_fallback = extra_card / "assets/card_fallbacks/beta.png"
+            source_fallback.write_bytes(original_payloads[original_map["alpha.png"]["dark"]])
+            result = self.capture(extra_card, cache_dir=cache, utc_date="2026-10-24",
+                                  chrome=workspace / "missing-chrome")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(self.installed_images(extra_card), (original_map, original_payloads))
+            self.assertTrue(source_fallback.is_file())
+
+            next_day = later_build("next-day-build", cards)
+            result = self.capture(next_day, cache_dir=cache, utc_date="2026-10-25")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            new_map, new_payloads = self.installed_images(next_day)
+            self.assertEqual(set(new_map), {"alpha.png", "beta.png"})
+            self.assertNotEqual(new_map["alpha.png"], original_map["alpha.png"])
+            for variants in new_map.values():
+                for theme, relative in variants.items():
+                    self.assertEqual(png_info(new_payloads[relative]), (320, 180, changed_colors[theme]))
+
+    def test_daily_cache_rejects_missing_or_corrupted_images(self):
+        for damage in ("missing", "corrupted"):
+            with self.subTest(damage=damage), tempfile.TemporaryDirectory(prefix="wsb-fallback-cache-invalid-") as temporary:
+                workspace = Path(temporary)
+                cache = workspace / "daily-cache"
+                first = workspace / "first-build"
+                fixture_dist(first, {"alpha": ("ready", 320, 180)})
+                result = self.capture(first, cache_dir=cache, utc_date="2026-10-24")
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                mapping, _ = self.installed_images(first)
+                candidates = list(cache.rglob(Path(mapping["alpha.png"]["dark"]).name))
+                self.assertEqual(len(candidates), 1)
+                cached_image = candidates[0]
+                if damage == "missing":
+                    cached_image.unlink()
+                else:
+                    payload = bytearray(cached_image.read_bytes())
+                    payload[-1] ^= 1
+                    cached_image.write_bytes(payload)
+
+                second = workspace / "second-build"
+                fixture_dist(second, {"alpha": ("ready", 320, 180)})
+                before = tree_bytes(second)
+                result = self.capture(second, cache_dir=cache, utc_date="2026-10-24",
+                                      chrome=workspace / "missing-chrome")
+                self.assertNotEqual(result.returncode, 0, "An incomplete daily cache was reused")
+                self.assertIn("Chrome", result.stderr)
+                self.assertEqual(tree_bytes(second), before, "Invalid cache partially changed the new build")
 
     def test_missing_document_root_waits_for_a_painted_preview(self):
         evaluate = capture_module.CdpSocket.evaluate

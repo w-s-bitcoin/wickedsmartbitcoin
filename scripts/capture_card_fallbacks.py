@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import base64
 from contextlib import contextmanager
+from datetime import date, datetime, timezone
 import errno
 import hashlib
 import json
@@ -214,11 +215,87 @@ def capture_images(cdp, specs, origin, output, timeout):
     return images
 
 
-def capture(dist, chrome, timeout):
+def read_daily_cache(cache_dir, utc_date):
+    if cache_dir is None:
+        return None
+    try:
+        manifest = json.loads((cache_dir / "manifest.json").read_text())
+        if (not isinstance(manifest, dict) or manifest.get("version") != 1
+                or manifest.get("utc_date") != utc_date):
+            return None
+        images = manifest.get("images")
+        if not isinstance(images, dict) or not images:
+            return None
+        for filename, variants in images.items():
+            if (not re.fullmatch(r"[a-z0-9_]+\.png", filename)
+                    or not isinstance(variants, dict) or set(variants) != {"dark", "light"}):
+                return None
+            for theme, relative in variants.items():
+                if not isinstance(relative, str):
+                    return None
+                name = Path(relative).name
+                payload = (cache_dir / name).read_bytes()
+                if payload[:8] != b"\x89PNG\r\n\x1a\n" or len(payload) < 33:
+                    return None
+                if any(not 1 <= value <= 4096 for value in struct.unpack(">II", payload[16:24])):
+                    return None
+                digest = hashlib.sha256(payload).hexdigest()[:16]
+                stem = Path(filename).stem + (".light" if theme == "light" else "")
+                if relative != f"assets/card_fallbacks/{stem}.{digest}.png":
+                    return None
+        return images
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def save_daily_cache(cache_dir, utc_date, images, output):
+    if cache_dir is None:
+        return
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    names = {Path(relative).name for variants in images.values() for relative in variants.values()}
+    for name in names:
+        shutil.copy2(output / name, cache_dir / name)
+    # Publish the manifest last, only after every named image is complete.
+    manifest = cache_dir / "manifest.json"
+    temporary = cache_dir / "manifest.json.tmp"
+    temporary.write_text(json.dumps({"version": 1, "utc_date": utc_date, "images": images}, sort_keys=True))
+    temporary.replace(manifest)
+    for image in cache_dir.glob("*.png"):
+        if image.name not in names:
+            image.unlink()
+
+
+def install_images(dist, source, images, output):
+    destination = dist / "assets/card_fallbacks"
+    destination.mkdir(parents=True, exist_ok=True)
+    for variants in images.values():
+        for relative in variants.values():
+            name = Path(relative).name
+            shutil.copy2(output / name, destination / name)
+    replacement = "const DASHBOARD_CARD_FALLBACKS = Object.freeze(" + json.dumps(images, sort_keys=True) + ");"
+    runtime = source.replace(FALLBACK_PLACEHOLDER, replacement)
+    (dist / REGISTRY_PATH).write_text(runtime)
+    version_runtime_references(dist, runtime)
+
+
+def capture(dist, chrome, timeout, cache_dir=None, utc_date=None):
     dist = dist.resolve()
+    utc_date = utc_date or datetime.now(timezone.utc).date().isoformat()
+    if cache_dir is not None:
+        cache_dir = cache_dir.resolve()
+        if cache_dir.is_relative_to(dist):
+            raise ValueError("The daily image cache must be outside the Pages artifact")
     registry = dist / REGISTRY_PATH
     source = registry.read_text()
     expression = preview_registry_expression(source)
+    images = read_daily_cache(cache_dir, utc_date)
+    if images is not None:
+        # Intentionally ignore same-day data/source changes. New cards use their
+        # committed fallback until the next UTC day's capture includes them.
+        install_images(dist, source, images, cache_dir)
+        print(f"Reused {len(images) * 2} homepage card images captured for {utc_date} UTC", flush=True)
+        return
+    chrome = find_chrome(chrome)
     handler = lambda *args, **kwargs: CaptureHandler(*args, directory=str(dist), **kwargs)
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -261,15 +338,9 @@ def capture(dist, chrome, timeout):
                     close_browser(process, cdp)
             # No poster or runtime change is installed until every preview has
             # succeeded. The Pages workflow must not upload a failed build.
-            destination = dist / "assets/card_fallbacks"
-            destination.mkdir(parents=True, exist_ok=True)
-            for image in output.iterdir():
-                shutil.copy2(image, destination / image.name)
-            replacement = "const DASHBOARD_CARD_FALLBACKS = Object.freeze(" + json.dumps(images, sort_keys=True) + ");"
-            runtime = source.replace(FALLBACK_PLACEHOLDER, replacement)
-            registry.write_text(runtime)
-            version_runtime_references(dist, runtime)
-            print(f"Installed {len(images) * 2} fresh homepage card images in {destination}", flush=True)
+            install_images(dist, source, images, output)
+            save_daily_cache(cache_dir, utc_date, images, output)
+            print(f"Installed {len(images) * 2} fresh homepage card images for {utc_date} UTC", flush=True)
     finally:
         server.shutdown()
         server.server_close()
@@ -280,10 +351,18 @@ def main():
     parser.add_argument("--dist", type=Path, required=True)
     parser.add_argument("--chrome", help="Chrome/Chromium executable (or set CHROME_BIN)")
     parser.add_argument("--timeout", type=float, default=30, help="Maximum seconds per preview")
+    parser.add_argument("--cache-dir", type=Path, help="Reuse a complete image set for the same UTC date")
+    parser.add_argument("--utc-date", help="Build's UTC date (YYYY-MM-DD); defaults to today's UTC date")
     args = parser.parse_args()
     if args.timeout <= 0:
         parser.error("--timeout must be positive")
-    capture(args.dist, find_chrome(args.chrome), args.timeout)
+    if args.utc_date:
+        try:
+            if date.fromisoformat(args.utc_date).isoformat() != args.utc_date:
+                raise ValueError()
+        except ValueError:
+            parser.error("--utc-date must be YYYY-MM-DD")
+    capture(args.dist, args.chrome, args.timeout, args.cache_dir, args.utc_date)
 
 
 if __name__ == "__main__":

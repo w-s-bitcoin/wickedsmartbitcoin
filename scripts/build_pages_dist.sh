@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST="$ROOT/dist"
 
 # Portable packaging fixtures deliberately omit a browser and complete previews.
-# Real builds (including Pages CI) always capture fresh images by default.
+# Real builds (including Pages CI) capture once per UTC day and reuse that set.
 CAPTURE_CARD_FALLBACKS=1
 if [[ "${1:-}" == "--skip-card-fallbacks" && "$#" == 1 ]]; then
   CAPTURE_CARD_FALLBACKS=0
@@ -161,7 +161,11 @@ find "$DIST" -name "*.pyc" -type f -delete
 find "$DIST" -name ".DS_Store" -type f -delete
 
 if [[ "$CAPTURE_CARD_FALLBACKS" == 1 ]]; then
-  python3 "$ROOT/scripts/capture_card_fallbacks.py" --dist "$DIST"
+  CARD_CAPTURE_ARGS=(--dist "$DIST" --cache-dir "${WSB_CARD_FALLBACK_CACHE_DIR:-$ROOT/.cache/card-fallbacks}")
+  if [[ -n "${WSB_CARD_FALLBACK_UTC_DATE:-}" ]]; then
+    CARD_CAPTURE_ARGS+=(--utc-date "$WSB_CARD_FALLBACK_UTC_DATE")
+  fi
+  python3 "$ROOT/scripts/capture_card_fallbacks.py" "${CARD_CAPTURE_ARGS[@]}"
 fi
 
 echo "Built $DIST"
