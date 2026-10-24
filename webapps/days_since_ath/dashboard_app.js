@@ -1798,6 +1798,7 @@
   }
 
   async function waitForExportFonts() {
+    await window.WSBDashboardExportBranding.ready();
     try {
       await document.fonts?.ready;
     } catch (_) {}
@@ -1892,14 +1893,14 @@
     });
   }
 
-  async function encodeAnimationWebM(settings, frameIndices) {
+  async function encodeAnimationVideo(settings, frameIndices) {
     const { width, height } = getDownloadDimensions(settings);
     const exportCanvas = document.createElement("canvas");
     const finalIndex = frameIndices[frameIndices.length - 1];
     const lastHistoricalFrame = frameIndices.reduce((last, index, frame) => index !== finalIndex ? frame : last, -1);
     const liveFinalStart = finalIndex === state.rows.length - 1 ? lastHistoricalFrame + 1 : -1;
     let finalLiveRows = null;
-    const blob = await window.WSBDashboardExport.encodeWebM({
+    const blob = await window.WSBDashboardExport.encodeVideo({
       canvas: exportCanvas,
       width,
       height,
@@ -1921,7 +1922,7 @@
       isCanceled: () => dateRangeExportCancelRequested,
       onProgress: renderDateRangeDownloadButtonProgress,
     });
-    if (!blob) throw new Error("Deterministic WebCodecs WebM export is unavailable in this browser.");
+    if (!blob && !dateRangeExportCancelRequested) throw new Error("Video encoding is unavailable for the selected settings in this browser.");
     return blob;
   }
 
@@ -1929,7 +1930,7 @@
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     const charts = settings.chartMode === "both" ? "both" : settings.chartMode === "left" ? "price" : "days";
-    link.download = `days-since-ath-${charts}-${state.startIso}-${state.endIso}.webm`;
+    link.download = `days-since-ath-${charts}-${state.startIso}-${state.endIso}.${window.WSBDashboardExport.videoExtension(blob)}`;
     link.href = url;
     document.body.appendChild(link);
     link.click();
@@ -1962,7 +1963,7 @@
     renderDateRangeDownloadButtonProgress(0);
     try {
       await waitForExportFonts();
-      const blob = await encodeAnimationWebM(settings, frameIndices);
+      const blob = await encodeAnimationVideo(settings, frameIndices);
       if (blob && !dateRangeExportCancelRequested) {
         renderDateRangeDownloadButtonProgress(1);
         downloadBlob(blob, settings);

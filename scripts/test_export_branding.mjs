@@ -58,6 +58,10 @@ function context() {
     save() { stack.push({ font: this.font, filter: this.filter }); this.calls.push(["save"]); },
     restore() { Object.assign(this, stack.pop()); this.calls.push(["restore"]); },
     drawImage(...args) { this.calls.push(["drawImage", ...args, this.filter]); },
+    fillRect(...args) { this.calls.push(["fillRect", ...args]); },
+    fillText(...args) { this.calls.push(["fillText", ...args, this.font, this.textAlign]); },
+    measureText(value) { return { width: value.length * Number(this.font.match(/([\d.]+)px/)?.[1] || 12) * 0.61 }; },
+    translate() {}, rotate() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {},
   };
 }
 
@@ -75,12 +79,15 @@ test("branding is lazy and rejects rendering until every required asset is ready
   assert.strictEqual(f.B.ready(), pending, "concurrent callers share the same preparation");
   await settle();
   assert.equal(f.faces.length, 3);
-  assert.equal(f.images.length, 1);
+  assert.equal(f.images.length, 3);
   f.faces.forEach((face) => face.pending.resolve());
   await settle();
   assert.equal(f.registered.length, 0, "do not install a partial presentation before the image decodes");
   draws().forEach((draw) => assert.throws(draw));
   f.images[0].pending.resolve();
+  await settle();
+  assert.equal(f.registered.length, 0, "the creator icon and Lightning QR are required too");
+  f.images.slice(1).forEach((image) => image.pending.resolve());
   await pending;
   assert.equal(f.registered.length, 3);
   assert.equal(new Set(f.registered).size, 3);
@@ -99,6 +106,8 @@ test("the shared script resolves local font and logo URLs with explicit required
     assert.ok(!f.faces[index].source.includes("local("), "export faces must not vary with installed fonts");
   }
   assert.equal(f.images[0].src, "https://example.test/project/webapps/shared/export_assets/bitcoin-wordmark.jpg");
+  assert.equal(f.images[1].src, "https://example.test/project/webapps/shared/export_assets/wicked-apple.png");
+  assert.equal(f.images[2].src, "https://example.test/project/assets/qr_lightning.png");
 });
 
 for (const failedAsset of ["font", "image"]) {
@@ -117,8 +126,8 @@ for (const failedAsset of ["font", "image"]) {
     assert.notStrictEqual(retry, pending);
     await settle();
     assert.equal(f.faces.length, 6);
-    assert.equal(f.images.length, 2);
-    resolveAll(f, 3, 1);
+    assert.equal(f.images.length, 6);
+    resolveAll(f, 3, 3);
     await retry;
     assert.deepEqual(f.registered, f.faces.slice(3));
     assert.doesNotThrow(() => f.B.setFont(context(), 20));
@@ -153,23 +162,36 @@ test("wordmark drawing preserves aspect, caller coordinates, and canvas state in
   }
 });
 
-test("footer drawing shares canonical dashboard branding without taking over layout", async () => {
-  const f = fixture(), ctx = context();
+test("creator and current Lightning QR fit the reserved strip with a measured canonical URL", async () => {
+  const f = fixture();
   await prepare(f);
-  const metrics = { width: 1080, height: 1920, footerHeight: 70 };
-  const settings = { theme: "light", orientation: "portrait", referenceQuality: 1080 };
-  for (const slug of ["moving_average", "days_since_ath"]) {
-    f.B.drawFooter(ctx, slug, metrics, settings);
-    const [actualCtx, url, actualMetrics, actualSettings] = f.footers.at(-1);
-    assert.strictEqual(actualCtx, ctx);
-    assert.equal(url, `https://wickedsmartbitcoin.com/${slug}`);
-    assert.strictEqual(actualMetrics, metrics);
-    assert.equal(actualSettings.theme, settings.theme);
-    assert.equal(actualSettings.orientation, settings.orientation);
-    assert.equal(actualSettings.referenceQuality, settings.referenceQuality);
-    assert.equal(actualSettings.fontFamily, '"WSB Export IBM Plex Mono", monospace');
+  for (const [width, height, footerHeight] of [[1920, 1080, 122], [1080, 1920, 150], [1080, 1080, 150], [720, 1280, 100], [720, 720, 100], [3840, 2160, 244]]) {
+    for (const theme of ["dark", "light"]) {
+      const ctx = context(), metrics = { width, height, footerHeight }, settings = { theme };
+      const slug = "a_very_long_dashboard_route_for_testing_measured_footer_fit";
+      const result = f.B.drawFooter(ctx, slug, metrics, settings);
+      const images = ctx.calls.filter((call) => call[0] === "drawImage");
+      assert.equal(images.length, 2);
+      assert.strictEqual(images[0][1], f.images[1]); assert.strictEqual(images[1][1], f.images[2]);
+      if (width === 720) assert.ok(result.lightning.size >= 70, "720-quality stacked exports keep a readable QR footprint");
+      for (const [, , x, y, imageWidth, imageHeight] of images) {
+        assert.ok(x >= 0 && x + imageWidth <= width);
+        assert.ok(y >= height - footerHeight && y + imageHeight <= height);
+      }
+      const text = ctx.calls.filter((call) => call[0] === "fillText");
+      assert.ok(text.some((call) => call[1] === "@w_s_bitcoin"));
+      assert.ok(text.some((call) => call[1] === "@primal.net"));
+      const url = text.at(-1);
+      assert.equal(url[1], `https://wickedsmartbitcoin.com/${slug}`);
+      assert.match(url[4], /"WSB Export IBM Plex Mono"/);
+      const measured = url[1].length * result.url.fontSize * 0.61;
+      assert.ok(url[2] - measured / 2 >= result.url.left - 1e-7);
+      assert.ok(url[2] + measured / 2 <= result.url.right + 1e-7);
+      assert.deepEqual(settings, { theme });
+      assert.equal(ctx.font, "initial font"); assert.equal(ctx.filter, "initial filter");
+    }
   }
-  assert.deepEqual(settings, { theme: "light", orientation: "portrait", referenceQuality: 1080 });
+  assert.equal(f.footers.length, 0, "the shared strip must not recurse through the generic footer hook");
 });
 
 test("footer requires a dashboard slug rather than a missing value or arbitrary URL", async () => {

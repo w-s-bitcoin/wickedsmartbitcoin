@@ -7,7 +7,11 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
     --home-text: #f4f4f4;
     --home-muted: #999;
     --home-accent: #f7931a;
-    --home-progress: #f7931a;
+    --home-progress: var(--brand);
+    --home-block-normal: #68c686;
+    --home-block-future: #999;
+    --home-block-slow: var(--brand);
+    --home-block-late: #f27474;
     --home-accent-bg: #000;
     --home-control-space: 12px;
     --home-header-height: 61px;
@@ -26,6 +30,9 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
     --home-muted: #766d62;
     --home-accent: #a7550a;
     --home-accent-bg: #faf0e1;
+    --home-block-normal: #237b40;
+    --home-block-future: #6b6b6b;
+    --home-block-late: #bb3030;
 }
 :root[data-theme] body.homepage { background: var(--home-bg); color: var(--home-text); }
 .homepage :is(button, input, select) { font: inherit; }
@@ -77,18 +84,33 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
 .snapshot-card { padding: 14px 16px 12px; background: var(--home-surface); border: 1px solid var(--home-line); border-radius: 10px; min-width: 0; display: flex; flex-direction: column; }
 .snapshot-card-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 8px; }
 .snapshot-card-heading h3 { margin: 0; font-size: 12px; font-weight: 500; color: var(--home-muted); }
+.snapshot-heading-short { display: none; }
 .snapshot-card-heading svg { width: 20px; height: 20px; color: var(--home-muted); }
 .snapshot-card-symbol { color: var(--home-muted); font-size: 19px; line-height: 20px; }
-.snapshot-value { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; font-size: clamp(18px, 1.725vw, 24.75px); font-weight: 500; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.snapshot-value { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; font-size: clamp(18px, 1.725vw, 24.75px); font-weight: 500; line-height: 1.15; font-variant-numeric: tabular-nums; }
 .snapshot-value-supply { min-height: 28.5px; }
 .snapshot-unit { font-size: 11px; font-weight: 400; letter-spacing: 0; color: var(--home-muted); }
 .snapshot-card progress { display: block; width: 100%; height: 4px; appearance: none; border: 0; border-radius: 10px; overflow: hidden; background: var(--home-line); color: var(--home-progress); accent-color: var(--home-progress); margin-top: auto; }
 .snapshot-card progress::-webkit-progress-bar { background: var(--home-line); border-radius: 10px; }
 .snapshot-card progress::-webkit-progress-value { background: var(--home-progress); border-radius: 10px; }
 .snapshot-card progress::-moz-progress-bar { background: var(--home-progress); border-radius: 10px; }
-.snapshot-block-divider { display: flex; align-items: center; height: 4px; flex: none; margin-top: auto; }
-.snapshot-block-divider::before { content: ""; width: 100%; height: 1px; background: var(--home-line); }
+.snapshot-block-meter { --block-countdown-width: 20%; --block-zero: calc(var(--block-countdown-width) * var(--block-future-fraction, 0)); position: relative; height: 4px; margin-top: auto; border-radius: 10px; background: var(--home-line); }
+.snapshot-block-meter progress { position: absolute; left: var(--block-zero); width: calc(100% - var(--block-zero)); margin-top: 0; background: transparent; }
+.snapshot-block-meter progress::-webkit-progress-bar { background: transparent; }
+.snapshot-block-meter progress[data-elapsed-state="future"] { left: 0; width: var(--block-countdown-width); direction: ltr; }
+.snapshot-block-zero { position: absolute; left: var(--block-zero); bottom: -3px; width: 1px; height: 10px; background: var(--home-muted); pointer-events: none; z-index: 1; }
+.snapshot-block-meter::before, .snapshot-block-meter::after { content: ""; position: absolute; bottom: -3px; height: 10px; pointer-events: none; opacity: .7; }
+.snapshot-block-meter::before { left: var(--block-zero); right: 0; background-image: linear-gradient(to right, var(--home-muted) 1px, transparent 1px); background-size: var(--block-tick-spacing, 100%) 100%; background-repeat: repeat-x; }
+.snapshot-block-meter[data-end-tick="1"]::after { right: 0; width: 1px; background: var(--home-muted); }
+.snapshot-block-ticks { position: absolute; inset: -14px 0 auto var(--block-zero); height: 12px; color: var(--home-muted); font-size: 8px; line-height: 10px; font-variant-numeric: tabular-nums; }
+.snapshot-block-ticks span { position: absolute; white-space: nowrap; }
 .snapshot-caption { display: block; min-height: 16px; margin-top: 8px; color: var(--home-muted); font-size: 10px; line-height: 1.6; }
+.snapshot-block-caption { display: flex; align-content: flex-start; align-items: baseline; flex-wrap: wrap; gap: 0 10px; }
+.snapshot-block-elapsed { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--home-progress); }
+[data-elapsed-state="normal"] { --home-progress: var(--home-block-normal); }
+[data-elapsed-state="future"] { --home-progress: var(--home-block-future); }
+[data-elapsed-state="slow"] { --home-progress: var(--home-block-slow); }
+[data-elapsed-state="late"] { --home-progress: var(--home-block-late); }
 .snapshot-footnote { margin-top: 10px; position: relative; }
 .snapshot-footnote > .snapshot-status { position: absolute; top: 2px; left: 0; max-width: calc(100% - 230px); }
 .snapshot-glossary { width: 100%; color: var(--home-muted); font-size: 11px; }
@@ -171,6 +193,8 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
     .snapshot-value, .snapshot-value-supply { font-size: 18px; min-height: 21.75px; }
     .snapshot-card-heading { margin-bottom: 12px; }
     .snapshot-card-heading h3 { font-size: 11px; }
+    .snapshot-heading-full { display: none; }
+    .snapshot-heading-short { display: inline; }
     .snapshot-card-heading svg { width: 17px; height: 17px; }
     .snapshot-caption { min-height: 32px; }
     .snapshot-footnote > .snapshot-status { position: static; max-width: none; margin-bottom: 6px; }
@@ -190,10 +214,8 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
     .snapshot-card-heading svg, .snapshot-card-symbol { display: none; }
     .snapshot-value { font-size: 16.5px; }
     .snapshot-unit { font-size: 9px; }
-    .snapshot-glossary dl { grid-template-columns: 1fr; gap: 18px; }
-}
-@media (max-width: 350px) {
     .snapshot-caption { min-height: 48px; }
+    .snapshot-glossary dl { grid-template-columns: 1fr; gap: 18px; }
 }
 @media (pointer: coarse) {
     .homepage .chart-info-button::before { content: ""; position: absolute; inset: -7px; }

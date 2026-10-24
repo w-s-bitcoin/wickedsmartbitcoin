@@ -248,6 +248,7 @@ fetch(IMAGE_LIST_URL)
             'dca_cost_basis.png',
             'days_since_ath.png',
             'moving_average.png',
+            'eoe_growth.png',
             'issuance_rate.png',
             'dca_comparison.png',
             'patoshi_pattern.png',

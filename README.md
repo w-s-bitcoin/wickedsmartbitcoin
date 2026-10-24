@@ -41,7 +41,14 @@ fallback; use `.html` URLs locally.
 There is no npm install or JavaScript bundling step. Python 3.10+ and Git are
 needed for the portable checks below; browser regressions also need Chrome or
 Chromium. Some pages load fonts or chart libraries from external services.
-BTC/USD prices in DCA Cost Basis, Days Since ATH, DCA Comparison, Moving Average,
+The homepage network KPIs use mempool.space's public block WebSocket to update
+block height, the elapsed timer, and halving/difficulty countdowns on arrival.
+The feed reconnects automatically and falls back to the public blocks REST API.
+Published `assets/top_kpis.json` remains the fallback and actual supply anchor.
+Between publications, issued supply adds the scheduled subsidies for intervening
+blocks and is labeled estimated; a matching publication reconciles it. Failed
+updates retain the last block and show the connection status.
+BTC/USD prices in DCA Cost Basis, Days Since ATH, DCA Comparison, Moving Average, EOE Growth,
 Unit of Account, and Bitcoin Net Worth use the public `wss://2140data.io/`
 WebSocket. The 2140data.io `/price` endpoint is the first REST fallback. DCA,
 Days, Comparison, Moving Average, and Unit of Account use the shared Coinbase
@@ -95,6 +102,21 @@ published snapshot. The Pair KPI shows each leg's quote status with a colored
 dot; a dropped feed retains its last price until a newer publication wins.
 Historical playback and exports use published data.
 
+EOE Growth uses the shared live BTC/USD feed for its current view. It compares
+the price with the historical sample nearest the timestamp of the block exactly
+210,000 heights before the latest published chain height. Its lookup chunks are
+generated from the existing block and ten-minute price CSVs during every Pages
+build; the browser requests only the required 64 KiB chunk. Daily history loads
+independently, and historical playback and earlier video frames remain daily.
+Latest-date PNGs and final video frames refresh and freeze the current comparison;
+the ending hold reuses that frame. Historical End dates stay historical.
+For local EOE live references, run
+`python3 scripts/build_eoe_live_reference.py` after updating the raw CSV inputs.
+
+Animation downloads use H.264 MP4 when the browser supports encoding at the
+selected dimensions, with genuine WebM as the capability fallback. Both use
+the shared deterministic frame sequence, export layout, and live-frame policy.
+
 ## Architecture
 
 ```mermaid
@@ -137,6 +159,26 @@ adapters use `preview_shared.js`. Hidden previews can install data but defer
 painting until visible. Theme and resize events render cached data. These
 contracts preserve chart state and avoid reloads or flashing during updates.
 
+Homepage fallback images refresh once per UTC day, on the first Pages
+deployment after midnight UTC. That build captures both themes from the preview
+renderers and packaged data; later builds reuse the day's saved images.
+External live feeds are blocked during capture. The image can therefore lag
+the current data by the rest of the day, while live previews still load the
+latest published data and supported live quotes. Content-hashed filenames keep
+browser caches current with each daily capture. The live preview fades over
+the saved image in 200 ms (immediate with reduced motion). Capture failures
+stop deployment, preserving the previous published site. Source fallback PNGs
+and data producers are unchanged.
+
+Pages builds run independently so a delayed older run cannot hold up a newer
+publication. Each run builds its triggering commit, checks that it is still the
+current `main` before checkout and artifact upload, and checks again after
+waiting for deployment. Only Pages deployment is serialized; obsolete artifacts
+are skipped and an active deployment is allowed to finish. All existing source,
+publication, packaging, and daily-image checks remain in that path. GitHub runner
+or Pages service delays can still occur, and a push during an active deployment
+is picked up by the next eligible deployment.
+
 ### Repository map
 
 | Path | Responsibility |
@@ -151,6 +193,7 @@ contracts preserve chart state and avoid reloads or flashing during updates.
 | `scripts/sync_main_data_to_dev.py` | Copies published data into the development worktree |
 | `scripts/test_*.py` | Publication, Git synchronization, packaging, and browser regressions |
 | `scripts/build_pages_dist.sh` | Creates the pruned static Pages artifact |
+| `scripts/capture_card_fallbacks.py` | Captures validated dark/light homepage posters into the built artifact |
 | `.github/workflows/` | Contributor checks and production Pages deployment |
 | `dist/` | Generated Pages output; ignored by Git |
 
@@ -162,6 +205,7 @@ contracts preserve chart state and avoid reloads or flashing during updates.
 | `/bitcoin_dominance` | Bitcoin dominance and cryptocurrency market-cap comparisons |
 | `/dca_cost_basis` | Bitcoin price and dollar-cost-average cost basis |
 | `/moving_average` | Two configurable moving averages and trailing price windows |
+| `/eoe_growth` | Bitcoin price paths aligned by halving-epoch block count and epoch-over-epoch growth |
 | `/dca_comparison` | Equal-budget DCA comparisons between assets |
 | `/days_since_ath` | All-time highs, drawdown, and time since the last high |
 | `/issuance_rate` | Bitcoin issuance and halving history |
@@ -288,14 +332,25 @@ CHROME_BIN=/path/to/chromium python3 scripts/test_stage4_live_refresh.py
 node scripts/test_dca_live_price.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_dca_live_price_browser.py
 node --test scripts/test_moving_average_model.mjs
+node --test scripts/test_eoe_growth_model.mjs
+node --test scripts/test_eoe_growth_live.mjs
 node --test scripts/test_calendar_ticks.mjs
 node --test scripts/test_export_branding.mjs
+node --test scripts/test_export_footer_integration.mjs
+node --test scripts/test_mp4_muxer.mjs scripts/test_video_encoder.mjs
+CHROME_BIN=/path/to/chromium python3 scripts/test_video_export_browser.py
+# Optional full Patoshi benchmark: 10m34s, 19,021 frames per codec (requires FFmpeg).
+CHROME_BIN=/path/to/chromium python3 scripts/test_video_export_browser.py --long --output-dir /tmp/wsb-video-long-review
+CHROME_BIN=/path/to/chromium python3 scripts/test_export_footer_browser.py
 node --test scripts/test_scale_transitions.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_dca_scale_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_days_issuance_scale_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_uoa_casascius_scale_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_moving_average_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_moving_average_export_browser.py
+CHROME_BIN=/path/to/chromium python3 scripts/test_eoe_growth_browser.py
+CHROME_BIN=/path/to/chromium python3 scripts/test_eoe_growth_live_browser.py
+CHROME_BIN=/path/to/chromium python3 scripts/test_dashboard_control_parity.py
 node scripts/test_days_live_price.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_days_live_price_browser.py
 node scripts/test_comparison_live_price.mjs
@@ -306,6 +361,9 @@ CHROME_BIN=/path/to/chromium python3 scripts/test_networth_units_browser.py
 node scripts/test_uoa_live_quotes.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_uoa_live_quotes_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_homepage_preview_refresh.py
+CHROME_BIN=/path/to/chromium python3 scripts/test_homepage_kpis_browser.py
+node --test scripts/test_bitcoin_chain_tip.mjs
+CHROME_BIN=/path/to/chromium python3 scripts/test_card_fallbacks_browser.py
 node scripts/test_dashboard_share.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_dashboard_share_routes.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_time_series_share_browser.py
@@ -332,6 +390,24 @@ keeping coherent empty archive catalogs. Compact historical snapshots remain;
 the current snapshot retains its full address table. The source tree and the
 Pages artifact intentionally contain different datasets.
 
+The first build each UTC day requires Chrome/Chromium to capture homepage
+images; set `CHROME_BIN` if it is not discoverable on PATH or at the usual macOS
+path. Pages CI uses its Ubuntu runner's Chrome and caches the images in
+`.cache/card-fallbacks` under an exact UTC-date key, with no prior-day restore.
+Local builds use the same cache directory by default; set
+`WSB_CARD_FALLBACK_CACHE_DIR` to choose another location. The generator also
+checks the cache manifest's UTC date before reuse.
+
+A fresh capture renders all 14 preview pages at 1280×720 in both themes using
+only packaged files. Every build installs the day's hashed poster URLs and
+versions the homepage script containing that map. Later deployments that day
+reuse the images and skip the capture-specific browser check, reducing build
+time while still publishing current data. Cards added later that day use their
+committed fallback until the next day's capture. An unavailable or timed-out preview
+during a fresh capture fails the build before the artifact is uploaded. The
+explicit `--skip-card-fallbacks` option is for browser-free packaging fixtures
+only and is never used by the deployment workflow.
+
 ## Adding a dashboard
 
 Start with [DASHBOARD_TEMPLATE.md](DASHBOARD_TEMPLATE.md) and
@@ -352,7 +428,7 @@ new runtime filenames or data dependencies are introduced.
 
 Lightning address: `wicked@primal.net`
 
-![Lightning Donation QR](assets/lightning_donation_qr.png)
+![Lightning Donation QR](assets/qr_lightning.png)
 
 ## License
 

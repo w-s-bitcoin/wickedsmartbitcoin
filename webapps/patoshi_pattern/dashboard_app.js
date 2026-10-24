@@ -1481,6 +1481,7 @@
     const requestId = ++downloadEstimateCalibrationRequestId;
     let calibrated = false;
     try {
+      await window.WSBDashboardExportBranding.ready();
       await document.fonts?.ready;
       if (requestId !== downloadEstimateCalibrationRequestId || state.playing) return;
       const dimensions = getExportDimensions(settings);
@@ -1735,7 +1736,7 @@
     const chartCanvas = document.createElement("canvas");
     const outerPad = Math.max(10, Math.round(layout.width * 0.01));
     const chartTopGap = Math.max(8, Math.round(layout.height * 0.012));
-    const footerH = Math.max(34, Math.round(Math.min(layout.width, layout.height) * 0.052));
+    const footerH = Math.max(54, Math.round(Math.min(layout.width, layout.height) * ((layout.width <= layout.height ? 150 : 122) / 1080)));
     const dashboardKpis = captureDashboardKpis();
     let cards = [];
 
@@ -4293,8 +4294,8 @@
     return true;
   }
 
-  async function encodeExportWebM({ canvas: exportCanvas, settings, frameEnds }) {
-    return window.WSBDashboardExport.encodeWebM({
+  async function encodeExportVideo({ canvas: exportCanvas, settings, frameEnds }) {
+    return window.WSBDashboardExport.encodeVideo({
       canvas: exportCanvas,
       width: exportCanvas.width,
       height: exportCanvas.height,
@@ -4317,7 +4318,7 @@
     const start = fmtDateTime(state.animationStartMs, false).replace(/[^0-9A-Za-z]+/g, "_");
     const end = fmtDateTime(state.animationEndMs, false).replace(/[^0-9A-Za-z]+/g, "_");
     a.href = URL.createObjectURL(blob);
-    a.download = `patoshi_pattern_${start}_${end}_${settings.quality}p.webm`;
+    a.download = `patoshi_pattern_${start}_${end}_${settings.quality}p.${window.WSBDashboardExport.videoExtension(blob)}`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -4342,10 +4343,11 @@
       exportCanvas.height = height;
       if (!exportCanvas.getContext("2d")) throw new Error("Export canvas context unavailable.");
       const frames = getExportFrameEndTimes(settings);
-      const webmBlob = await encodeExportWebM({ canvas: exportCanvas, settings, frameEnds: frames });
-      if (webmBlob && !state.exportCancelRequested) {
+      const videoBlob = await encodeExportVideo({ canvas: exportCanvas, settings, frameEnds: frames });
+      if (!videoBlob && !state.exportCancelRequested) throw new Error("Video encoding is unavailable for the selected settings in this browser.");
+      if (videoBlob && !state.exportCancelRequested) {
         renderExportProgress(1);
-        downloadExportBlob(webmBlob, settings);
+        downloadExportBlob(videoBlob, settings);
       }
     } catch (error) {
       console.error("Unable to export Patoshi animation:", error);

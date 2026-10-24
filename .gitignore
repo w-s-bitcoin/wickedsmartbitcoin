@@ -26,6 +26,8 @@ __pycache__/
 # Build and dist
 dist/
 build/
+# Derived from existing price/block CSVs by the Pages build or local setup.
+webapps/eoe_growth/webapp_data/reference/
 *.log
 npm-debug.log*
 yarn-debug.log*

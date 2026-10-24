@@ -1252,6 +1252,7 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
     overflow: hidden;
     background: var(--card-preview-bg);
     opacity: 0;
+    transition: opacity 200ms ease;
     z-index: 1;
 }
 
@@ -1259,13 +1260,16 @@ body[data-standalone-modal-shell="1"] .buy-coffee {
     opacity: 1;
 }
 
+/* Keep the saved chart opaque underneath the live frame throughout its fade. */
 .chart-wrapper.dashboard-preview-wrapper .dashboard-preview-poster {
     object-fit: cover;
     background: #000;
 }
 
-.chart-wrapper.dashboard-preview-wrapper.preview-live .dashboard-preview-poster {
-    opacity: 0;
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-preview-viewport {
+        transition: none;
+    }
 }
 
 .dashboard-preview-saved-badge {
@@ -1549,7 +1553,9 @@ body.patoshi-pattern-dashboard-expanded .buy-coffee,
 body.days-since-ath-dashboard-expanded .modal-controls,
 body.days-since-ath-dashboard-expanded .buy-coffee,
 body.moving-average-dashboard-expanded .modal-controls,
-body.moving-average-dashboard-expanded .buy-coffee {
+body.moving-average-dashboard-expanded .buy-coffee,
+body.eoe-growth-dashboard-expanded .modal-controls,
+body.eoe-growth-dashboard-expanded .buy-coffee {
     opacity: 0;
     pointer-events: none;
 }

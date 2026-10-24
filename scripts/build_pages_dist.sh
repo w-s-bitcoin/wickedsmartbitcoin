@@ -4,6 +4,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST="$ROOT/dist"
 
+# Portable packaging fixtures deliberately omit a browser and complete previews.
+# Real builds (including Pages CI) capture once per UTC day and reuse that set.
+CAPTURE_CARD_FALLBACKS=1
+if [[ "${1:-}" == "--skip-card-fallbacks" && "$#" == 1 ]]; then
+  CAPTURE_CARD_FALLBACKS=0
+elif [[ "$#" != 0 ]]; then
+  echo "Usage: $0 [--skip-card-fallbacks]" >&2
+  exit 2
+fi
+
 copy_path() {
   local rel_path="$1"
   local src="$ROOT/$rel_path"
@@ -49,6 +59,10 @@ for app_dir in "$ROOT"/webapps/*; do
   copy_path "webapps/$app_name/moving_average_model.js"
   copy_path "webapps/$app_name/moving_average_charts.js"
   copy_path "webapps/$app_name/moving_average_export.js"
+  copy_path "webapps/$app_name/eoe_growth_model.js"
+  copy_path "webapps/$app_name/eoe_growth_live.js"
+  copy_path "webapps/$app_name/eoe_growth_charts.js"
+  copy_path "webapps/$app_name/eoe_growth_export.js"
   copy_path "webapps/$app_name/dashboard.css"
   copy_path "webapps/$app_name/preview.html"
   copy_path "webapps/$app_name/preview_app.js"
@@ -64,6 +78,14 @@ for app_dir in "$ROOT"/webapps/*; do
   copy_path "webapps/$app_name/preview_assets"
   copy_path "webapps/$app_name/webapp_data"
 done
+
+# Build compact, exact-height EOE references before omitting the raw histories.
+# This reads local files only and never invokes the production data producers.
+if [[ -f "$ROOT/webapps/eoe_growth/eoe_growth_live.js" ]]; then
+  rm -rf "$DIST/webapps/eoe_growth/webapp_data/reference"
+  python3 "$ROOT/scripts/build_eoe_live_reference.py" --source-root "$ROOT" \
+    --output-dir "$DIST/webapps/eoe_growth/webapp_data/reference"
+fi
 
 # First-pass deploy pruning: remove files that are either pipeline-only or raw
 # inputs that should not be served by the browser.
@@ -137,6 +159,14 @@ find "$DIST" -name "__pycache__" -type d -prune -exec rm -rf {} +
 find "$DIST" -name "*.py" -type f -delete
 find "$DIST" -name "*.pyc" -type f -delete
 find "$DIST" -name ".DS_Store" -type f -delete
+
+if [[ "$CAPTURE_CARD_FALLBACKS" == 1 ]]; then
+  CARD_CAPTURE_ARGS=(--dist "$DIST" --cache-dir "${WSB_CARD_FALLBACK_CACHE_DIR:-$ROOT/.cache/card-fallbacks}")
+  if [[ -n "${WSB_CARD_FALLBACK_UTC_DATE:-}" ]]; then
+    CARD_CAPTURE_ARGS+=(--utc-date "$WSB_CARD_FALLBACK_UTC_DATE")
+  fi
+  python3 "$ROOT/scripts/capture_card_fallbacks.py" "${CARD_CAPTURE_ARGS[@]}"
+fi
 
 echo "Built $DIST"
 du -sh "$DIST"

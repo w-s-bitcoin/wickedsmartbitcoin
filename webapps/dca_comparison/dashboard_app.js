@@ -1231,7 +1231,7 @@
       y: kpiY,
       width: width - margin * 2,
     }, palette);
-    const footerH = Math.max(34, Math.round(Math.min(width, height) * 0.052));
+    const footerH = Math.max(54, Math.round(Math.min(width, height) * ((width <= height ? 150 : 122) / 1080)));
     const chartTop = kpiY + kpiMetrics.height;
     const chartArea = {
       x: margin,
@@ -1538,6 +1538,7 @@
     }
 
     try {
+      await window.WSBDashboardExportBranding.ready();
       await document.fonts?.ready;
       if (requestId !== downloadEstimateCalibrationRequestId) return;
       const dimensions = getExportDimensions(settings);
@@ -3309,12 +3310,12 @@
     return true;
   }
 
-  async function encodeExportWebM({ canvas, settings, frameDates }) {
+  async function encodeExportVideo({ canvas, settings, frameDates }) {
     const finalDate = frameDates[frameDates.length - 1];
     const finalFrameStart = finalDate === state.maxIso
       ? frameDates.findLastIndex((date) => date !== finalDate) + 1 : -1;
     let finalLiveRows = null;
-    return window.WSBDashboardExport.encodeWebM({
+    return window.WSBDashboardExport.encodeVideo({
       canvas,
       width: canvas.width,
       height: canvas.height,
@@ -3339,7 +3340,7 @@
   function downloadExportBlob(blob, settings) {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `dca_comparison_${settings.assetA}_${settings.assetB}_${settings.rangeStart}_${settings.rangeEnd}.webm`;
+    a.download = `dca_comparison_${settings.assetA}_${settings.assetB}_${settings.rangeStart}_${settings.rangeEnd}.${window.WSBDashboardExport.videoExtension(blob)}`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -3369,14 +3370,15 @@
       const frames = getFrameDates(settings);
       const priorTheme = state.settings.theme;
       const exportSettings = { ...settings, theme: settings.theme || priorTheme };
-      const webmBlob = await encodeExportWebM({
+      const videoBlob = await encodeExportVideo({
         canvas,
         settings: exportSettings,
         frameDates: frames,
       });
-      if (webmBlob && !state.exportCancelRequested) {
+      if (!videoBlob && !state.exportCancelRequested) throw new Error("Video encoding is unavailable for the selected settings in this browser.");
+      if (videoBlob && !state.exportCancelRequested) {
         renderExportProgress(1);
-        downloadExportBlob(webmBlob, settings);
+        downloadExportBlob(videoBlob, settings);
       }
     } catch (err) {
       console.error("Unable to export DCA comparison animation:", err);
@@ -3385,7 +3387,7 @@
       state.isExporting = false;
       state.exportCancelRequested = false;
       resetExportProgress();
-      updateSettingsOptions();
+      syncControls();
     }
   }
 

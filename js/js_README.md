@@ -12,7 +12,7 @@ Read [`../AGENTS.md`](../AGENTS.md) for contributor safeguards and [`../README.m
 - `404.html`: production standalone shell (GitHub Pages fallback for clean routes)
 - Root `/<slug>.html` files: dedicated standalone modal shells that load a dashboard iframe through its local controller
 
-Current dashboard slugs: `bip110_signaling`, `bitcoin_dominance`, `bitcoin_net_worth`, `casascius_explorer`, `days_since_ath`, `dca_comparison`, `dca_cost_basis`, `issuance_rate`, `moving_average`, `node_count`, `patoshi_pattern`, `quantum_exposure`, and `uoa`.
+Current dashboard slugs: `bip110_signaling`, `bitcoin_dominance`, `bitcoin_net_worth`, `casascius_explorer`, `days_since_ath`, `dca_comparison`, `dca_cost_basis`, `eoe_growth`, `issuance_rate`, `moving_average`, `node_count`, `patoshi_pattern`, `quantum_exposure`, and `uoa`.
 
 ### URL behavior
 
@@ -40,7 +40,8 @@ The homepage loads the following deferred classic scripts in this order:
 10. `09_bootstrap_fetch_init_global_exports.js`
 11. `10_event_bindings_global_modal_menu.js`
 12. `11_dashboard_timezone_preferences.js`
-13. `12_homepage_kpis.js`
+13. `../webapps/shared/bitcoin_chain_tip.js`
+14. `12_homepage_kpis.js`
 
 `view.html` and `404.html` load `00` through `10`; timezone preferences and homepage KPIs are not part of those documents' script lists. Dashboard iframe documents load their own shared helpers and app code. Browser globals are per document, so an iframe must load any shared helper it uses.
 
@@ -91,9 +92,52 @@ including saved navigation snapshots. Their direct URLs remain available.
 - `09_bootstrap_fetch_init_global_exports.js`: image manifest fetch, representative card rewrites, deep-link resolution, init sequence
 - `10_event_bindings_global_modal_menu.js`: event wiring for keyboard/mouse/touch/menu/controls
 - `11_dashboard_timezone_preferences.js`: shared dashboard timezone preference handling
-- `12_homepage_kpis.js`: published network snapshot, supply/halving/difficulty progress, separate local clock, and refresh behavior. Failed or invalid fetches retain the last complete snapshot and its actual block timestamp.
+- `12_homepage_kpis.js`: live network snapshot with published fallback, elapsed block timer, supply/halving/difficulty progress, and separate local clock. Failed or invalid updates retain the last complete snapshot and its actual block timestamp.
 
-The landing page uses `assets/homepage.css`, scoped to `.homepage`, after the shared `assets/styles.css`. Its compact network snapshot shows the latest published block, issued supply, blocks until the next halving, and blocks until the next difficulty adjustment. The block timestamp and progress percentages sit directly beneath the divider and bars; detailed metrics have been removed from the cards. The block timestamp comes from `assets/top_kpis.json`, while the footer clock uses the browser's selected time zone. Dashboards have separate publication schedules.
+The landing page uses `assets/homepage.css`, scoped to `.homepage`, after the shared `assets/styles.css`. Its compact network snapshot shows the latest received block, issued supply, blocks until the next halving, and blocks until the next difficulty adjustment. The block timestamp and progress percentages sit directly beneath the bars. Timestamps and the separate footer clock follow the selected time zone. Dashboards have separate publication schedules.
+
+`webapps/shared/bitcoin_chain_tip.js` subscribes to the public mempool.space
+block WebSocket. Its initial block list catches up on arrival; new block events
+update all four cards together without waiting for Pages deployment. Heartbeats
+check the connection independently of block arrival, so a long block interval
+does not falsely mark the feed stale. Reconnects use bounded backoff, and the
+public blocks REST endpoint provides a fallback when the socket is unavailable.
+Hidden/offline pages pause live work and catch up when resumed.
+
+`assets/top_kpis.json` still refreshes every minute as the fallback and actual
+issuance anchor. A delayed publication cannot rewind a newer live tip. Supply
+adds the scheduled subsidy difference in integer satoshis, across any halving
+boundaries, to the published actual total. The caption and tooltip label this
+estimate until a publication matches the live height and timestamp. This is an
+estimate because miners can claim less than the scheduled subsidy; a reorg
+through the anchor also requires a matching publication to reconcile actual
+issuance. With only a live block available, block/countdown cards work while
+supply waits for its published anchor. Disconnects retain the last received
+block and show that the live connection is unavailable. A validated replacement
+block can change the timestamp at the same height or move the tip backward;
+in-flight REST responses cannot overwrite a newer socket event.
+
+The block card's elapsed counter updates every second while visible, using the
+displayed block's miner timestamp rather than fetch or page-load time. Its bar
+fills at 10 minutes, then expands its scale with the elapsed time. Tick marks
+remain at every 10-minute interval; compact labels stay to the right of the
+block height and thin out on narrow cards to avoid overlap. The bar is green
+below 10 minutes, orange from 10 to 40, and red at
+40 minutes or more. Its orange uses the same `--brand` color as the other bars
+in both themes. The red threshold follows
+[Timechain Calendar](https://timechaincalendar.com/); the earlier bands are
+simplified. This measures elapsed time, not an estimate of the next block.
+Timestamps ahead of the browser clock show a negative counter and a gray bar
+extending left from zero, occupying at most 20% of the meter width. The gray
+bar and its reserved space shrink together, moving zero left as the countdown
+falls. At zero that space disappears; green elapsed time then grows right from
+the left edge with the full meter width available. The right-hand tick marks and labels
+always describe elapsed time. The separate left-hand countdown scale is held
+at the larger of ten minutes or the initial lead so the gray bar keeps shrinking
+even for longer offsets. Moving the local clock farther back expands that
+countdown scale. A new timestamp resets it. A new received block resets the counter;
+failed refreshes preserve the prior timestamp and let its counter continue.
+Waking the page catches up immediately without adding per-second data fetches.
 
 ### Dashboard-local standalone controllers
 
@@ -110,11 +154,28 @@ rg -n 'localStandaloneBySlug|DASHBOARD_CARD_PREVIEW_SPECS' js webapps --glob '*.
 
 The homepage, preview frames, and modal dashboards have separate lifecycles. `06_grid_layout_filter_render.js` manages preview iframe creation, visibility, and sizing. `09_bootstrap_fetch_init_global_exports.js` coordinates bootstrap and wake behavior. A normal data refresh must not reload a preview frame or navigate an open modal.
 
-Each homepage card has a saved image in `assets/card_fallbacks/`. The card shows
-that image until its preview iframe paints a validated generation, and keeps it
-visible through a failed cold start. The iframe can replace it after an in-place
-recovery. Update the saved image when changing a preview's visual design; it is
-an illustrative fallback, not a current data publication.
+The first Pages deployment after midnight UTC refreshes dark/light card images
+from the actual preview pages and published data in its completed `dist/`
+artifact. Later deployments reuse that UTC day's images from
+`.cache/card-fallbacks`; the workflow's cache key and the generator's manifest
+date both prevent reuse from an earlier day. Local builds use the same daily
+cache, configurable with `WSB_CARD_FALLBACK_CACHE_DIR`.
+Data and source changes keep that day's captured images; newly added cards use
+their committed fallback until the next UTC day's capture.
+
+On a fresh capture, the script reads `DASHBOARD_CARD_PREVIEW_SPECS`, waits for a
+validated, painted preview, and blocks external market feeds. Every build
+installs the day's content-hashed image URLs into `DASHBOARD_CARD_FALLBACKS` and
+versions the homepage script containing that map. Theme changes select the
+corresponding image without reloading frames. The committed
+`assets/card_fallbacks/` images remain emergency/source-checkout fallbacks;
+builds never rewrite those source files.
+
+The card keeps its saved image underneath the preview until the live chart is
+available, then fades the opaque preview in over 200 ms. Reduced motion makes
+the switch immediate. Failed cold starts retain the saved image and can recover
+in place. Saved images can lag subsequent publications and live quotes during
+the day; the live preview's existing data refresh and quote feeds stay current.
 
 Each card title includes a question-mark button that reveals its catalog
 description over the chart on hover or keyboard focus. Clicking/tapping pins or

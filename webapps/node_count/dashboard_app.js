@@ -1728,9 +1728,11 @@
       const sourceEl = document.getElementById(chartId);
       if (!sourceEl?.data || !sourceEl?.layout) return;
 
-      const rect = sourceEl.getBoundingClientRect();
-      const width = Math.max(1, Math.round(rect.width || sourceEl.clientWidth || 1200));
-      const height = Math.max(1, Math.round(rect.height || sourceEl.clientHeight || 700));
+      const branding = window.WSBDashboardExportBranding;
+      await branding.ready();
+      const output = window.WSBDashboardExport.getLayoutMetrics({ quality: '2160', orientation: 'landscape' });
+      const width = output.width / 2;
+      const height = (output.height - output.footerHeight) / 2;
       const exportHost = document.createElement('div');
 
       exportHost.style.position = 'fixed';
@@ -1747,6 +1749,10 @@
         const exportLayout = JSON.parse(JSON.stringify(sourceEl.layout));
         exportLayout.paper_bgcolor = PLOTLY_EXPORT_BG;
         exportLayout.plot_bgcolor = PLOTLY_EXPORT_BG;
+        exportLayout.font = { ...exportLayout.font, color: '#f1f5f7' };
+        for (const axis of ['xaxis', 'yaxis']) {
+          exportLayout[axis] = { ...exportLayout[axis], gridcolor: '#263238' };
+        }
         exportLayout.width = width;
         exportLayout.height = height;
 
@@ -1756,13 +1762,35 @@
           staticPlot: true,
         });
 
-        await Plotly.downloadImage(exportHost, {
+        const chartUrl = await Plotly.toImage(exportHost, {
           format: 'png',
-          filename,
           width,
           height,
           scale: 2,
         });
+        const chartImage = new Image();
+        chartImage.src = chartUrl;
+        await chartImage.decode();
+        const canvas = document.createElement('canvas');
+        canvas.width = output.width;
+        canvas.height = output.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('Unable to create chart export canvas.');
+        ctx.fillStyle = PLOTLY_EXPORT_BG;
+        ctx.fillRect(0, 0, output.width, output.height);
+        ctx.drawImage(chartImage, 0, 0, output.width, output.height - output.footerHeight);
+        branding.drawFooter(ctx, 'node_count', output, { theme: 'dark', orientation: 'landscape' });
+        const blob = await new Promise((resolve, reject) => canvas.toBlob(
+          (value) => value ? resolve(value) : reject(new Error('Unable to encode PNG.')), 'image/png',
+        ));
+        const downloadUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = `${filename}.png`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
       } finally {
         try {
           Plotly.purge(exportHost);

@@ -120,10 +120,10 @@
     const portrait = height > width, h = portrait ? 1920 : 1080;
     return { width: 1080, height: h, kpi: { x: 48, y: 117 }, title: { x: 48, y: 52, width: 984 }, logo: { x: 832, y: 109, width: 200 },
       plots: portrait
-        ? (count === 1 ? [{ x: 48, y: 260, width: 864, height: 760 }, { x: 48, y: 1150, width: 864, height: 610 }]
-          : [{ x: 48, y: 260, width: 864, height: 650 }, { x: 48, y: 1045, width: 864, height: 300 }, { x: 48, y: 1480, width: 864, height: 270 }])
-        : (count === 1 ? [{ x: 48, y: 260, width: 864, height: 330 }, { x: 48, y: 700, width: 864, height: 210 }]
-          : [{ x: 48, y: 260, width: 864, height: 330 }, { x: 48, y: 700, width: 362, height: 210 }, { x: 550, y: 700, width: 362, height: 210 }]) };
+        ? (count === 1 ? [{ x: 48, y: 260, width: 864, height: 760 }, { x: 48, y: 1150, width: 864, height: 550 }]
+          : [{ x: 48, y: 260, width: 864, height: 650 }, { x: 48, y: 1045, width: 864, height: 300 }, { x: 48, y: 1480, width: 864, height: 210 }])
+        : (count === 1 ? [{ x: 48, y: 260, width: 864, height: 330 }, { x: 48, y: 700, width: 864, height: 150 }]
+          : [{ x: 48, y: 260, width: 864, height: 330 }, { x: 48, y: 700, width: 362, height: 150 }, { x: 550, y: 700, width: 362, height: 150 }]) };
   }
   function render(ctx, width, height, options) {
     const { model, lines, series, endIndex, theme = "dark" } = options, row = model.rows[endIndex];
@@ -160,7 +160,7 @@
     // Fixed right-hand gutters fit the axis text without shifting plots as
     // prices change or the selected scale switches between linear and log.
     l.plots.slice(0, 1 + active.length).forEach((rect, i) => plot(ctx, rect, options, i, active, colors));
-    B.drawFooter(ctx, "moving_average", { width: l.width, height: l.height, footerHeight: l.width > l.height ? 100 : 70 }, {
+    B.drawFooter(ctx, "moving_average", { width: l.width, height: l.height, footerHeight: l.width > l.height ? 100 : 150 }, {
       theme, orientation: l.width > l.height ? "landscape" : l.width === l.height ? "square" : "portrait",
     });
     ctx.restore();

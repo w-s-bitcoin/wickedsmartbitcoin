@@ -14,6 +14,11 @@ stay at 2.2 pixels; their cyan and orange colors remain the same in both themes.
 The homepage grid preview shows only the chart series, without grid lines,
 labels, ticks, or panel titles, and does not reserve space for those decorations.
 The full dashboard and exports retain their axes and labels.
+Above 1100px wide, the dashboard charts automatically fill the remaining viewport
+height, leaving the shared outer padding below them. Dragging the resize handle
+switches to a saved manual height; Restore Defaults returns to automatic sizing.
+Older saved defaults migrate to automatic sizing while custom heights remain
+manual. Narrow layouts keep their existing chart heights.
 Long history ranges use calendar-aligned year ticks spaced by powers of two
 (2, 4, 8 years, and so on), adapting to the available width in both the dashboard
 and downloads. Shorter ranges retain annual, monthly, weekly, or daily ticks.
@@ -76,7 +81,7 @@ Once the active date reaches the end of that initial window, the chart follows
 the ordinary trailing span from active date minus the period through active
 date. Subtracting calendar months clamps the day to the destination month's
 last day: May 31 minus three months is February 28, or February 29 in a leap
-year. Dashboard, homepage preview, PNG, and WebM share these display bounds.
+year. Dashboard, homepage preview, PNG, and video share these display bounds.
 The SMA/EMA calculations and their complete-history gates remain unchanged.
 
 The minimum period is 3. Limits are calculated from the complete latest
@@ -129,11 +134,11 @@ apply, and selectable maximum periods remain calculated from the published
 history while quotes arrive. The BTCUSD and both moving average KPIs display
 cents below $1 (for example, $0.0007 becomes `0.07¢`) and dollars at $1 or above.
 Both use two decimal places, with extra precision for values below `0.01¢` so
-tiny early prices do not round to zero. Dashboard playback, PNG, and WebM use
+tiny early prices do not round to zero. Dashboard playback, PNG, and video use
 the same KPI formatter.
 
 The homepage preview uses the same current endpoint calculation. PNG exports
-capture the displayed price and averages when export starts. A WebM ending at
+capture the displayed price and averages when export starts. A video ending at
 the current/latest date uses published prices and reference historical averages
 for its opening hold and historical motion, then captures the newest quote once
 at the start of its final motion frame. That quote and its calculated current
@@ -153,7 +158,7 @@ composition to their available space.
 
 PNG downloads always use 2160-pixel quality: **3840 × 2160** landscape,
 **2160 × 3840** portrait, or **2160 × 2160** square. The quality selector controls
-WebM resolution. Both formats use
+video resolution. Both formats use
 [`WSBDashboardExportBranding`](../README.md#export-typography-and-branding) and
 wait for the bundled fonts and Bitcoin wordmark before measuring or drawing.
 Headlines and panel headings use DejaVu Sans Bold; labels, dates, and KPIs use
@@ -175,12 +180,20 @@ all its date ticks mark the start of a year; otherwise every tick uses
 `MM-YYYY`, including January. Labels angle 30 degrees down to the right.
 Calendar-aligned ticks move with their
 dates without clamping labels to chart edges; a range within one month gets a
-single date label. WebM continues to use
+single date label. Video continues to use
 the shared deterministic encoder and the frozen final-price behavior above.
+
+Video downloads use the shared deterministic exporter: H.264 MP4 when supported
+at the selected dimensions, with genuine WebM selected before rendering when
+MP4 is unavailable. The filename follows the actual container. Frame timing,
+quality, branding, and frozen live snapshots are the same in either format.
 
 ## Publication and failure behavior
 
-Playback controls and range sliders follow Days Since ATH. During playback the
+Playback controls and range sliders follow Days Since ATH. Their styles now live
+in `shared/dashboard_playback.css`, also used by EOE, so the shared controls have
+identical dimensions, typography, borders, themes, and interaction states.
+During playback the
 end date, range length, and end handle advance together; the orange track shows
 the remaining interval. Dragging the end handle pauses and resumes playback,
 while dragging the start handle edits the visible range. Stop restores the
@@ -258,7 +271,7 @@ These cover SMA reference parity, EMA seeds and recurrence, exclusion of the
 active observation, current endpoint updates for all units, None, calendar month
 ends and leap years, no lookahead, complete-window limits, invalid/missing data,
 payload mismatch, generation races, and stale publications.
-The export regression decodes real PNG/WebM downloads, checks 4K image and
+The export regression decodes real PNG/video downloads, checks 4K image and
 selected video dimensions, verifies bundled font roles and the canonical footer,
 and checks stable header/plot geometry across widely
 different historical values, and covers light mode, square/portrait layouts,

@@ -91,6 +91,13 @@ PERIODIC_PREVIEWS = {
         "markers": ["/assets/daily_price_metadata.json"],
         "data": ["/assets/daily_price.csv"],
     },
+    "eoe_growth": {
+        "filename": "eoe_growth.png",
+        "path": "webapps/eoe_growth/preview.html",
+        "roots": ["#eoeGrowthPreview"],
+        "markers": ["/assets/daily_price_metadata.json"],
+        "data": ["/assets/daily_price.csv"],
+    },
     "days_since_ath": {
         "filename": "days_since_ath.png",
         "path": "webapps/days_since_ath/preview.html",
@@ -164,6 +171,7 @@ ALL_FILENAMES = [
     "dca_cost_basis.png",
     "days_since_ath.png",
     "moving_average.png",
+    "eoe_growth.png",
     "issuance_rate.png",
     "dca_comparison.png",
     "patoshi_pattern.png",
@@ -308,6 +316,7 @@ FETCH_HARNESS_TEMPLATE = r"""
   const hasLiveSpot = ['/webapps/dca_comparison/preview.html',
     '/webapps/dca_cost_basis/preview.html',
     '/webapps/moving_average/preview.html',
+    '/webapps/eoe_growth/preview.html',
     '/webapps/days_since_ath/preview.html',
     '/webapps/bitcoin_dominance/preview.html'].includes(pathname);
   if (hasLiveSpot) window.WebSocket = undefined;
@@ -420,7 +429,7 @@ FETCH_HARNESS_TEMPLATE = r"""
     const raw = typeof input === 'string' ? input : input?.url;
     const url = new URL(raw, document.baseURI);
     if (hasLiveSpot &&
-        /^(api\.exchange\.coinbase\.com|api\.coinbase\.com|api\.kraken\.com|mempool\.space|api\.gold-api\.com|scanner\.tradingview\.com|api\.coingecko\.com)$/.test(url.hostname)) {
+        /^(2140data\.io|api\.exchange\.coinbase\.com|api\.coinbase\.com|api\.kraken\.com|mempool\.space|api\.gold-api\.com|scanner\.tradingview\.com|api\.coingecko\.com)$/.test(url.hostname)) {
       throw new TypeError('Live price provider intentionally offline in publication fixture');
     }
     const target = url.pathname;
@@ -1476,8 +1485,12 @@ def test_homepage_integration(cdp: CdpSocket, server_port: int):
         raise AssertionError(f"Homepage preview frames were not stable: {bad_frames!r}")
 
 
-def test_homepage_saved_fallback(cdp: CdpSocket, server_port: int):
-    """A cold data mismatch shows a saved chart until the iframe recovers."""
+def test_homepage_saved_fallback(cdp: CdpSocket, server_port: int, *, reduced_motion=False):
+    """Cold failures retain a saved chart underneath an in-place recovery fade."""
+    cdp.command("Emulation.setEmulatedMedia", {"features": [{
+        "name": "prefers-reduced-motion",
+        "value": "reduce" if reduced_motion else "no-preference",
+    }]})
     cdp.command("Network.setBlockedURLs", {
         "urls": ["*issuance_rate/webapp_data/published_generation.json*"],
     })
@@ -1502,6 +1515,7 @@ def test_homepage_saved_fallback(cdp: CdpSocket, server_port: int):
       const frame = document.querySelector('.dashboard-preview-frame[data-filename="issuance_rate.png"]');
       const wrapper = frame.closest('.chart-wrapper');
       const poster = wrapper.querySelector('.dashboard-preview-poster');
+      const viewport = wrapper.querySelector('.dashboard-preview-viewport');
       return {
         available: frame.contentDocument?.documentElement?.dataset.previewAvailable || '',
         fetchError: frame.contentWindow?.__wsbStage5PreviewTest?.events?.some((event) => event.status === 'error') || false,
@@ -1509,7 +1523,9 @@ def test_homepage_saved_fallback(cdp: CdpSocket, server_port: int):
         live: wrapper.classList.contains('preview-live'),
         posterWidth: poster.naturalWidth,
         posterOpacity: getComputedStyle(poster).opacity,
-        frameOpacity: getComputedStyle(wrapper.querySelector('.dashboard-preview-viewport')).opacity,
+        frameOpacity: getComputedStyle(viewport).opacity,
+        transitionDuration: getComputedStyle(viewport).transitionDuration,
+        childTimeOrigin: frame.contentWindow.performance.timeOrigin,
       };
     })()"""
     try:
@@ -1521,18 +1537,40 @@ def test_homepage_saved_fallback(cdp: CdpSocket, server_port: int):
         raise AssertionError(f"No saved fallback appeared: {cdp.evaluate(state)!r}") from error
     if failed["live"] or failed["posterWidth"] == 0 or failed["posterOpacity"] != "1" or failed["frameOpacity"] != "0":
         raise AssertionError(f"The failed preview did not leave a visible saved chart: {failed!r}")
+    duration = float(failed["transitionDuration"].removesuffix("s"))
+    if (reduced_motion and duration != 0) or (not reduced_motion and not 0.18 <= duration <= 0.22):
+        raise AssertionError(f"The preview transition ignores the motion preference: {failed!r}")
     cdp.command("Network.setBlockedURLs", {"urls": []})
     cdp.evaluate("""(() => {
-      const child = document.querySelector('.dashboard-preview-frame[data-filename="issuance_rate.png"]').contentWindow;
+      const frame = document.querySelector('.dashboard-preview-frame[data-filename="issuance_rate.png"]');
+      const child = frame.contentWindow;
+      const wrapper = frame.closest('.chart-wrapper');
+      const viewport = wrapper.querySelector('.dashboard-preview-viewport');
+      const poster = wrapper.querySelector('.dashboard-preview-poster');
+      const samples = window.__wsbSavedPreviewFadeSamples = [];
+      const started = performance.now();
+      const sample = () => {
+        const opacity = Number(getComputedStyle(viewport).opacity);
+        samples.push({ frame: opacity, poster: Number(getComputedStyle(poster).opacity) });
+        if (opacity < 1 && performance.now() - started < 10000) requestAnimationFrame(sample);
+      };
+      sample();
       child.dispatchEvent(new Event('online'));
       return true;
     })()""")
     recovered = wait_for(
-        lambda: (value if (value := cdp.evaluate(state))["available"] == "1" and value["live"] else None),
+        lambda: (value if (value := cdp.evaluate(state))["available"] == "1" and value["live"] and value["frameOpacity"] == "1" else None),
         description="live chart restored after publication recovery",
     )
-    if recovered["frameOpacity"] != "1":
-        raise AssertionError(f"The recovered live preview is not visible: {recovered!r}")
+    samples = cdp.evaluate("window.__wsbSavedPreviewFadeSamples")
+    intermediate = any(0 < sample["frame"] < 1 for sample in samples)
+    if intermediate == reduced_motion:
+        raise AssertionError(f"Unexpected recovery fade for reduced_motion={reduced_motion}: {samples!r}")
+    if any(sample["poster"] != 1 for sample in samples) or recovered["posterOpacity"] != "1":
+        raise AssertionError(f"Recovery uncovered the background behind the live frame: {samples!r}")
+    if recovered["childTimeOrigin"] != failed["childTimeOrigin"]:
+        raise AssertionError(f"Recovery navigated the preview iframe: {recovered!r}")
+    cdp.command("Emulation.setEmulatedMedia", {"features": []})
 
 
 def validate_snapshot(snapshot: dict[str, bytes], targets: set[str]):
@@ -1637,6 +1675,7 @@ def main():
                 print("Passed: homepage integration", flush=True)
                 print("Testing homepage saved chart fallback...", flush=True)
                 test_homepage_saved_fallback(cdp, server_port)
+                test_homepage_saved_fallback(cdp, server_port, reduced_motion=True)
                 print("Passed: homepage saved chart fallback", flush=True)
         finally:
             chrome.terminate()

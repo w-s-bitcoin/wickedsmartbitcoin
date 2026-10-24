@@ -28,6 +28,16 @@ font files are unmodified and the interactive shell's typography stays separate.
   It retains the original lettering and orange Bitcoin symbol, with enough
   resolution for 4K output. The shared drawing helper preserves its aspect ratio
   and applies the established dark/light treatment.
+- `wicked-apple.png`: the maintainer's unmodified 100 × 100 creator
+  icon from `Projects/animations/Wicked Smart Bitcoin/sponsor-icons/wicked-apple-md.png`.
+  Its original black background is preserved in both themes. The shared footer
+  pairs it with the creator name and `@w_s_bitcoin` handle.
+  The Lightning QR is loaded from the existing canonical
+  [`assets/qr_lightning.png`](../../../assets/qr_lightning.png),
+  with the current `wicked@primal.net` address. It is not copied from the older
+  reference image. Landscape footers measure the URL between the two branding
+  sections and reduce its font size to fit; square and portrait give it a
+  separate row above the creator and donation sections.
 
 The DejaVu fonts, their license, and the wordmark were moved unchanged from
 `webapps/moving_average/assets/`. The reference notebook is

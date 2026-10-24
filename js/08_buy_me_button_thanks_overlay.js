@@ -158,6 +158,7 @@ function postThemeToModalEmbed(themeRaw) {
 
 function postThemeToPreviewFrames(themeRaw) {
     const theme = themeRaw === 'dark' ? 'dark' : 'light';
+    if (typeof updateDashboardPreviewPosters === 'function') updateDashboardPreviewPosters(theme);
     const frames = document.querySelectorAll('.dashboard-preview-frame');
     frames.forEach((frame) => {
         if (frame.contentWindow) {
