@@ -15,6 +15,8 @@ MODULES = (
     "scripts.test_hourly_casascius_workspace",
     "scripts.test_pages_build",
     "scripts.test_onchain_kpis",
+    "scripts.test_node_history_archive",
+    "scripts.test_node_count_producer",
 )
 
 
