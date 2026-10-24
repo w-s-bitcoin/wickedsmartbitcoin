@@ -2,7 +2,6 @@
  * BUY ME: BUTTON + THANKS OVERLAY
  * =========================== */
 const DONATION_LIGHTNING = 'wicked@primal.net';
-const DONATION_LIQUID = 'VJLDEF7n8TBjyJY2BaAgeVvzPSRMJ7VAP5opW9mB5A7ChyiKHnaguTugZNznxNiV2ZDyPxJyQoeZ2KhM';
 const DONATION_ONCHAIN = 'bc1q8mql8fucypd3dllkawqafytmrnwtv77gzxy346';
 const DASHBOARD_TZ_STORAGE_KEY = 'wicked_dashboard_timezone_v1';
 const DASHBOARD_TZ_CHANGE_EVENT = 'wsb:timezonechange';
@@ -49,7 +48,7 @@ function preloadThanksImagesIfNeeded(force = false) {
         }
     }
 
-    for (const method of ['lightning', 'liquid', 'onchain']) {
+    for (const method of ['lightning', 'onchain']) {
         const qrSrc = `assets/qr_${method}.png`;
         try {
             if (typeof preloadImage === 'function') preloadImage(qrSrc);
@@ -83,7 +82,7 @@ function preloadAllThanksImagesOnce() {
         }
     }
 
-    for (const method of ['lightning', 'liquid', 'onchain']) {
+    for (const method of ['lightning', 'onchain']) {
         const qrSrc = `assets/qr_${method}.png`;
         try {
             if (typeof preloadImage === 'function') preloadImage(qrSrc);
@@ -355,10 +354,6 @@ function splitChunksByPattern(chunks, rowPattern) {
 
 function formatDonationChunksForMethod(methodRaw, address) {
     const method = normalizeBuyCoffeeMethod(methodRaw);
-    if (method === 'liquid') {
-        const chunks = chunkText(address, 4);
-        return splitChunksByPattern(chunks, [7, 7, 6]);
-    }
     if (method === 'onchain') {
         const chunks = chunkText(address, 4);
         return splitChunksByPattern(chunks, [5, 6]);
@@ -368,9 +363,6 @@ function formatDonationChunksForMethod(methodRaw, address) {
 
 function thanksAddressPaletteForMethod(methodRaw) {
     const method = normalizeBuyCoffeeMethod(methodRaw);
-    if (method === 'liquid') {
-        return ['#ffffff', '#00B8B8'];
-    }
     if (method === 'onchain') {
         return ['#ffffff', '#ff9900'];
     }
@@ -402,7 +394,7 @@ function updateThanksDonationOverlayForMethod(methodRaw) {
     textEl.dataset.rawAddress = address;
     const lines = formatDonationChunksForMethod(method, address);
     const palette = thanksAddressPaletteForMethod(method);
-    const useAlternatingTwoTone = (method === 'liquid' || method === 'onchain');
+    const useAlternatingTwoTone = method === 'onchain';
     const chunkGap = useAlternatingTwoTone ? '0.62ch' : '0.45ch';
 
     textEl.textContent = '';
@@ -526,14 +518,12 @@ function getForcedLandscapeThanksFootprint() {
 function getDonationTextForMethod(method) {
   const m = normalizeBuyCoffeeMethod(method);
   if (m === 'lightning') return DONATION_LIGHTNING;
-  if (m === 'liquid') return DONATION_LIQUID;
   if (m === 'onchain') return DONATION_ONCHAIN;
   return DONATION_LIGHTNING;
 }
 function getDonationToastForMethod(method) {
   const m = normalizeBuyCoffeeMethod(method);
   if (m === 'lightning') return 'Lightning address<br>copied to clipboard';
-  if (m === 'liquid') return 'Liquid address<br>copied to clipboard';
   if (m === 'onchain') return 'On-chain address<br>copied to clipboard';
   return 'Copied to clipboard';
 }
@@ -618,7 +608,7 @@ function positionThanksDonationOverlay() {
         let fontSizePx = Math.max(10, Math.min(preferredFontPx, fitFontPx));
         const lineGapPx = Math.max(1, imageHeight * (isPortrait ? 0.004 : 0.004));
         const lineCount = Math.max(1, textEl.childElementCount || 1);
-        // In portrait, always size as if there are 3 rows (the max for liquid) so all
+        // Preserve the portrait spacing with a fixed 3-row sizing allowance so all
         // methods compute the same font size regardless of how many lines they render.
         const solverLineCount = isPortrait ? 3 : lineCount;
         const lineHeightMult = isPortrait ? 1.04 : 1.08;
@@ -966,14 +956,12 @@ function showThanksPopup({ fromRoute = false } = {}) {
             return btn;
         }
         const lightningButton = makeMethodBtn('Lightning', 'lightning');
-        const liquidButton    = makeMethodBtn('Liquid', 'liquid');
         const onChainButton   = makeMethodBtn('On-chain', 'onchain');
-        overlayMethodBtns.push(lightningButton, liquidButton, onChainButton);
+        overlayMethodBtns.push(lightningButton, onChainButton);
         const initialMethod = getStoredBuyCoffeeMethod();
         setActiveOverlayBuyCoffeeMethod(initialMethod);
         updateThanksOverlayImageForMethod(initialMethod);
         buttonContainer.appendChild(lightningButton);
-        buttonContainer.appendChild(liquidButton);
         buttonContainer.appendChild(onChainButton);
         container.appendChild(img);
         container.appendChild(donationLayer);
@@ -1114,7 +1102,7 @@ window.addEventListener("resize", updateBuyMeButtonLayout);
 function normalizeBuyCoffeeMethod(m) {
     const v = String(m || '').toLowerCase().trim();
     if (v === 'on-chain') return 'onchain';
-    if (v === 'lightning' || v === 'liquid' || v === 'onchain') return v;
+    if (v === 'lightning' || v === 'onchain') return v;
     return 'lightning';
 }
 function getStoredBuyCoffeeMethod() {

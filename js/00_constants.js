@@ -19,7 +19,6 @@ const BUY_COFFEE_IMG_URLS = [
 ];
 const BUY_DONATION_QR_URLS = [
   ASSET_BASE+'qr_lightning.png',
-  ASSET_BASE+'qr_liquid.png',
   ASSET_BASE+'qr_onchain.png'
 ];
 const cardByFilename = new Map();
