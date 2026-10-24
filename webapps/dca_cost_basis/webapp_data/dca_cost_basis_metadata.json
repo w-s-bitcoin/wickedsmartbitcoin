@@ -1,13 +1,13 @@
 {
-  "generated_utc": "2026-10-23T17:03:24.882562+00:00",
+  "generated_utc": "2026-10-24T02:02:49.509670+00:00",
   "source": {
     "path": "assets/daily_price.csv",
     "start_date": "2011-06-05",
-    "latest_date": "2026-10-23",
-    "latest_timestamp_utc": "2026-10-23T17:00:01+00:00",
-    "latest_block_height": 972802,
-    "latest_price": 81621.2,
-    "duration_days": 5620
+    "latest_date": "2026-10-24",
+    "latest_timestamp_utc": "2026-10-24T02:00:00+00:00",
+    "latest_block_height": 972858,
+    "latest_price": 80843.4,
+    "duration_days": 5621
   },
   "settings": {
     "contribution_usd": 1.0,
@@ -18,26 +18,26 @@
   "kpis": {
     "daily_dca": {
       "name": "daily_dca",
-      "current_basis": 81621.2,
+      "current_basis": 80843.4,
       "current_return_pct": 0.0,
       "invested_usd": 1.0,
-      "btc_accum": 1.2251718916163939e-05,
+      "btc_accum": 1.2369593559894809e-05,
       "purchase_count": 1,
       "days_ago": 1
     },
     "weekly_dca": {
       "name": "weekly_dca",
-      "current_basis": 81621.2,
-      "current_return_pct": 0.0,
+      "current_basis": 81031.6,
+      "current_return_pct": -0.23225507086125863,
       "invested_usd": 1.0,
-      "btc_accum": 1.2251718916163939e-05,
+      "btc_accum": 1.2340864551607026e-05,
       "purchase_count": 1,
       "days_ago": 1
     },
     "monthly_dca": {
       "name": "monthly_dca",
       "current_basis": 84795.2,
-      "current_return_pct": -3.743136403947393,
+      "current_return_pct": -4.660405305960719,
       "invested_usd": 1.0,
       "btc_accum": 1.1793120365303698e-05,
       "purchase_count": 1,
@@ -48,30 +48,30 @@
     {
       "label": "1st Halving",
       "date": "2012-11-28",
-      "days_ago": 5078
+      "days_ago": 5079
     },
     {
       "label": "2nd Halving",
       "date": "2016-07-09",
-      "days_ago": 3759
+      "days_ago": 3760
     },
     {
       "label": "3rd Halving",
       "date": "2020-05-11",
-      "days_ago": 2357
+      "days_ago": 2358
     },
     {
       "label": "4th Halving",
       "date": "2024-04-20",
-      "days_ago": 917
+      "days_ago": 918
     }
   ],
   "schema_version": 1,
   "artifact": {
     "path": "webapp_data/daily_dca.csv",
-    "sha256": "66de0dff8b126653f08046a3f937aa4f6b6330590e1b74de84354627de46b0bf",
-    "rows": 5620,
+    "sha256": "0facf5b34a9df9eaf63b4cfff0ede0c1885f425032ce1522b8291f66c69711a0",
+    "rows": 5621,
     "first_date": "2011-06-05",
-    "latest_date": "2026-10-23"
+    "latest_date": "2026-10-24"
   }
 }
