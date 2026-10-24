@@ -94,12 +94,15 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
 .snapshot-card progress::-webkit-progress-bar { background: var(--home-line); border-radius: 10px; }
 .snapshot-card progress::-webkit-progress-value { background: var(--home-progress); border-radius: 10px; }
 .snapshot-card progress::-moz-progress-bar { background: var(--home-progress); border-radius: 10px; }
-.snapshot-block-meter { position: relative; margin-top: auto; }
-.snapshot-block-meter progress { margin-top: 0; }
+.snapshot-block-meter { --block-zero: 20%; position: relative; height: 4px; margin-top: auto; border-radius: 10px; background: var(--home-line); }
+.snapshot-block-meter progress { position: absolute; left: var(--block-zero); width: calc(100% - var(--block-zero)); margin-top: 0; background: transparent; }
+.snapshot-block-meter progress::-webkit-progress-bar { background: transparent; }
+.snapshot-block-meter progress[data-elapsed-state="future"] { left: 0; width: var(--block-zero); direction: rtl; }
+.snapshot-block-zero { position: absolute; left: var(--block-zero); bottom: -3px; width: 1px; height: 10px; background: var(--home-muted); pointer-events: none; z-index: 1; }
 .snapshot-block-meter::before, .snapshot-block-meter::after { content: ""; position: absolute; bottom: -3px; height: 10px; pointer-events: none; opacity: .7; }
-.snapshot-block-meter::before { left: 0; right: 0; background-image: linear-gradient(to right, var(--home-muted) 1px, transparent 1px); background-size: var(--block-tick-spacing, 100%) 100%; background-repeat: repeat-x; }
+.snapshot-block-meter::before { left: var(--block-zero); right: 0; background-image: linear-gradient(to right, var(--home-muted) 1px, transparent 1px); background-size: var(--block-tick-spacing, 100%) 100%; background-repeat: repeat-x; }
 .snapshot-block-meter[data-end-tick="1"]::after { right: 0; width: 1px; background: var(--home-muted); }
-.snapshot-block-ticks { position: absolute; inset: -14px 0 auto; height: 12px; color: var(--home-muted); font-size: 8px; line-height: 10px; font-variant-numeric: tabular-nums; }
+.snapshot-block-ticks { position: absolute; inset: -14px 0 auto var(--block-zero); height: 12px; color: var(--home-muted); font-size: 8px; line-height: 10px; font-variant-numeric: tabular-nums; }
 .snapshot-block-ticks span { position: absolute; white-space: nowrap; }
 .snapshot-caption { display: block; min-height: 16px; margin-top: 8px; color: var(--home-muted); font-size: 10px; line-height: 1.6; }
 .snapshot-block-caption { display: flex; align-content: flex-start; align-items: baseline; flex-wrap: wrap; gap: 0 10px; }

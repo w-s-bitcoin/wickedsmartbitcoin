@@ -105,12 +105,14 @@ below 10 minutes, orange from 10 to 40, and red at
 in both themes. The red threshold follows
 [Timechain Calendar](https://timechaincalendar.com/); the earlier bands are
 simplified. This measures elapsed time, not an estimate of the next block.
-Timestamps ahead of the browser clock show a negative counter and a gray bar
-that shrinks toward the left start mark until zero, then turns green and counts
-up. While negative, ticks measure the remaining duration; its scale is held at
-the larger of ten minutes or the initial lead so the bar continues shrinking
+The zero mark stays at 20% of the meter width. Timestamps ahead of the browser
+clock show a negative counter and a gray bar extending left from zero; its left
+edge retreats right toward zero. At zero the fill empties, then green elapsed
+time grows right from the same mark. The right-hand tick marks and labels
+always describe elapsed time. The separate left-hand countdown scale is held
+at the larger of ten minutes or the initial lead so the gray bar keeps shrinking
 even for longer offsets. Moving the local clock farther back expands that
-scale. A new timestamp resets it. A new published block resets the counter;
+countdown scale. A new timestamp resets it. A new published block resets the counter;
 failed refreshes preserve the prior timestamp and let its counter continue.
 Waking the page catches up immediately without adding per-second data fetches.
 

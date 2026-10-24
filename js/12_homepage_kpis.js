@@ -203,7 +203,7 @@
     blockMeter.style.setProperty("--block-tick-spacing", `${spacing}%`);
     blockMeter.dataset.scaleSeconds = String(scaleSeconds);
     blockMeter.dataset.endTick = scaleSeconds % TARGET_BLOCK_SECONDS === 0 ? "1" : "0";
-    const width = blockMeter.clientWidth;
+    const width = blockTicks.clientWidth;
     const intervals = Math.floor(scaleSeconds / TARGET_BLOCK_SECONDS);
     // CSS draws every ten-minute tick. Bound label count by available space so
     // even an old retained snapshot cannot create thousands of DOM elements.
@@ -224,7 +224,7 @@
     }
     // The compact scale shares the value's bottom edge. Keep tick labels out
     // from under the height itself while retaining every tick mark on the bar.
-    let previousRight = values.height.getBoundingClientRect().right - blockMeter.getBoundingClientRect().left;
+    let previousRight = values.height.getBoundingClientRect().right - blockTicks.getBoundingClientRect().left;
     blockScaleLabels.forEach(({ label, interval, width: labelWidth }) => {
       const position = interval * TARGET_BLOCK_SECONDS / scaleSeconds * width;
       const left = Math.max(0, Math.min(width - labelWidth, position - labelWidth / 2));
@@ -251,7 +251,13 @@
     // a shrinking bar. Only expand it if the local clock moves farther back.
     if (future) blockFutureScaleSeconds = Math.max(blockFutureScaleSeconds, magnitude);
     const scaleSeconds = future ? blockFutureScaleSeconds : Math.max(TARGET_BLOCK_SECONDS, seconds);
-    renderBlockScale(scaleSeconds);
+    // Tick labels belong to the positive elapsed axis, right of the fixed zero.
+    // The separate left-hand countdown keeps its held scale until zero.
+    renderBlockScale(Math.max(TARGET_BLOCK_SECONDS, seconds));
+    if (blockMeter) {
+      if (future) blockMeter.dataset.countdownScaleSeconds = String(blockFutureScaleSeconds);
+      else delete blockMeter.dataset.countdownScaleSeconds;
+    }
     const state = future ? "future" : seconds >= LATE_BLOCK_SECONDS ? "late" : seconds >= TARGET_BLOCK_SECONDS ? "slow" : "normal";
     setText(blockElapsed, future ? `−${duration}` : `${duration} ago`);
     if (blockElapsed) {
@@ -265,8 +271,8 @@
       blockProgress.dataset.elapsedState = state;
       blockProgress.setAttribute("aria-label", future ? "Time until the displayed block timestamp" : "Time since the displayed block");
       setProgress(blockProgress, magnitude / scaleSeconds * 100, future
-        ? `${duration} until the displayed block timestamp; it is ahead of this clock. Gray shrinks to the start mark; ticks mark 10 minutes remaining; full scale ${formatBlockDuration(scaleSeconds)}`
-        : `${duration} since the displayed block; ticks every 10 minutes; full scale ${formatBlockDuration(scaleSeconds)}, not a countdown`);
+        ? `${duration} until the displayed block timestamp; it is ahead of this clock. Gray extends left of zero and shrinks toward it; left-side full scale ${formatBlockDuration(scaleSeconds)}. Ticks to the right mark 10-minute elapsed intervals`
+        : `${duration} since the displayed block; the bar grows right from zero; ticks every 10 minutes; full scale ${formatBlockDuration(scaleSeconds)}, not a countdown`);
     }
   }
 

@@ -104,6 +104,8 @@ STATE = """(() => {
     elapsed: elapsed?.textContent.trim(), color: elapsed ? getComputedStyle(elapsed).color : '',
     barColor: progress ? getComputedStyle(progress).accentColor : '',
     scaleSeconds: meter ? Number(meter.dataset.scaleSeconds) : null,
+    countdownScaleSeconds: meter?.dataset.countdownScaleSeconds == null
+      ? null : Number(meter.dataset.countdownScaleSeconds),
     tickSpacing: meter ? parseFloat(getComputedStyle(meter).getPropertyValue('--block-tick-spacing')) : null,
     tickLabels: Array.from(document.querySelectorAll('#homeKpiBlockTicks [data-minutes]'),
       label => ({minutes: Number(label.dataset.minutes), text: label.textContent.trim()})),
@@ -151,6 +153,19 @@ def check_scale(state, seconds, spacing):
     require(state.get("scaleSeconds") == seconds, "Elapsed scale did not follow its displayed age", state)
     require(abs((state.get("tickSpacing") or 0) - spacing) < 0.001,
             "Tick lines are not spaced every ten minutes on the elapsed scale", state)
+
+
+def check_countdown_scale(state, seconds):
+    check_scale(state, 600, 100)
+    require(state.get("countdownScaleSeconds") == seconds,
+            "Negative countdown scale was not held independently of the positive axis", state)
+
+
+def check_gray(state, theme):
+    gray = re.fullmatch(r"rgb\((\d+), (\d+), (\d+)\)", state["color"])
+    require(gray is not None and len(set(gray.groups())) == 1
+            and 0 < int(gray.group(1)) < 255,
+            f"Future timer is not neutral gray in {theme} theme", state)
 
 
 def test_elapsed_timer(cdp):
@@ -223,12 +238,12 @@ def test_future_timestamp(cdp):
     normal = publish(cdp, 0)
     future = publish(cdp, -60)
     check_elapsed(future, "−1m 00s", 10, "future")
-    check_scale(future, 600, 100)
+    check_countdown_scale(future, 600)
     requests = future["requests"]
 
     halfway = advance(cdp, 30)
     check_elapsed(halfway, "−0m 30s", 5, "future")
-    check_scale(halfway, 600, 100)
+    check_countdown_scale(halfway, 600)
     cdp.evaluate("window.WSBDashboardTime.setPreferredTimeZone('Asia/Kathmandu')")
     zoned = snapshot(cdp)
     check_elapsed(zoned, halfway["elapsed"], halfway["value"], "future")
@@ -240,10 +255,7 @@ def test_future_timestamp(cdp):
         cdp.evaluate(f"document.documentElement.dataset.theme = {json.dumps(theme)}")
         themed = snapshot(cdp)
         check_elapsed(themed, "−0m 30s", 5, "future")
-        gray = re.fullmatch(r"rgb\((\d+), (\d+), (\d+)\)", themed["color"])
-        require(gray is not None and len(set(gray.groups())) == 1
-                and 0 < int(gray.group(1)) < 255,
-                f"Future timer is not neutral gray in {theme} theme", themed)
+        check_gray(themed, theme)
     cdp.evaluate("document.documentElement.dataset.theme = 'dark'")
 
     # Floor signed elapsed seconds: the last millisecond remains −1s, not −0s.
@@ -252,6 +264,7 @@ def test_future_timestamp(cdp):
     zero = advance(cdp, 0.001)
     check_elapsed(zero, "0m 00s ago", 0, "normal")
     check_scale(zero, 600, 100)
+    require(zero["countdownScaleSeconds"] is None, "Zero retained the negative scale", zero)
     require(zero["color"] == normal["color"] and zero["color"] != future["color"],
             "Future timer did not return to green at zero", zero)
     positive = advance(cdp, 1)
@@ -261,14 +274,14 @@ def test_future_timestamp(cdp):
 
     long_future = publish(cdp, -1200)
     check_elapsed(long_future, "−20m 00s", 100, "future")
-    check_scale(long_future, 1200, 50)
+    check_countdown_scale(long_future, 1200)
     shrinking = advance(cdp, 60)
     check_elapsed(shrinking, "−19m 00s", 95, "future")
-    check_scale(shrinking, 1200, 50)
+    check_countdown_scale(shrinking, 1200)
     cdp.evaluate("window.WSBDashboardTime.setPreferredTimeZone('UTC')")
     zoned_long = snapshot(cdp)
     check_elapsed(zoned_long, shrinking["elapsed"], shrinking["value"], "future")
-    check_scale(zoned_long, 1200, 50)
+    check_countdown_scale(zoned_long, 1200)
     require(zoned_long["requests"] == long_future["requests"],
             "Long future countdown or timezone change fetched network data", zoned_long)
 
@@ -277,7 +290,7 @@ def test_future_timestamp(cdp):
                       description="failed refresh retains future block timestamp")
     retained = advance(cdp, 60)
     check_elapsed(retained, "−18m 00s", 90, "future")
-    check_scale(retained, 1200, 50)
+    check_countdown_scale(retained, 1200)
     require(retained["timestamp"] == long_future["timestamp"]
             and retained["height"] == long_future["height"],
             "Failed refresh replaced the future block timestamp", retained)
@@ -286,13 +299,15 @@ def test_future_timestamp(cdp):
 
     replacement = publish(cdp, -120)
     check_elapsed(replacement, "−2m 00s", 20, "future")
-    check_scale(replacement, 600, 100)
+    check_countdown_scale(replacement, 600)
     long_again = publish(cdp, -1200)
     check_elapsed(long_again, "−20m 00s", 100, "future")
-    check_scale(long_again, 1200, 50)
+    check_countdown_scale(long_again, 1200)
     long_zero = advance(cdp, 1200)
     check_elapsed(long_zero, "0m 00s ago", 0, "normal")
     check_scale(long_zero, 600, 100)
+    require(long_zero["countdownScaleSeconds"] is None,
+            "Zero retained the expanded negative scale", long_zero)
     require(long_zero["requests"] == long_again["requests"],
             "Long future countdown crossing zero fetched network data", long_zero)
     print("Passed: signed gray future countdown, held scale, zero crossing, timezone, replacement, and failure retention", flush=True)
@@ -315,6 +330,104 @@ def test_orange_theme_matching(cdp):
                 f"Orange counter differs from its bar in {theme} theme", colors)
     cdp.evaluate("document.documentElement.dataset.theme = 'dark'")
     print("Passed: orange counter and all four bars match in dark and light themes", flush=True)
+
+
+def signed_bar_geometry(cdp, theme, future):
+    geometry = cdp.evaluate("""(() => {
+      const progress = document.getElementById('homeKpiBlockProgress');
+      const bar = progress.getBoundingClientRect();
+      const meter = document.getElementById('homeKpiBlockMeter').getBoundingClientRect();
+      const zero = document.getElementById('homeKpiBlockZero').getBoundingClientRect();
+      const axis = document.getElementById('homeKpiBlockTicks').getBoundingClientRect();
+      const style = getComputedStyle(progress);
+      const fillWidth = bar.width * progress.value / progress.max;
+      const fillLeft = style.direction === 'rtl' ? bar.right - fillWidth : bar.left;
+      return {
+        state: progress.dataset.elapsedState, value: progress.value, direction: style.direction,
+        meterLeft: meter.left, meterRight: meter.right, meterWidth: meter.width,
+        zeroLeft: zero.left, zeroWidth: zero.width,
+        axisLeft: axis.left, axisRight: axis.right, axisWidth: axis.width,
+        barLeft: bar.left, barRight: bar.right, barWidth: bar.width, barTop: bar.top,
+        fillLeft, fillRight: fillLeft + fillWidth, fillWidth,
+        color: style.accentColor,
+        counterColor: getComputedStyle(document.getElementById('homeKpiBlockElapsed')).color,
+        supplyTop: document.getElementById('homeKpiSupplyProgress').getBoundingClientRect().top,
+        clientWidth: document.documentElement.clientWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+      };
+    })()""")
+    zero = geometry["meterLeft"] + geometry["meterWidth"] * 0.2
+    require(geometry["meterLeft"] < geometry["zeroLeft"] < geometry["meterRight"]
+            and geometry["zeroWidth"] > 0 and abs(geometry["zeroLeft"] - zero) < 1,
+            "Zero marker is not fixed at twenty percent inside the bar", geometry)
+    require(abs(geometry["axisLeft"] - zero) < 1
+            and abs(geometry["axisRight"] - geometry["meterRight"]) < 1
+            and abs(geometry["axisWidth"] - geometry["meterWidth"] * 0.8) < 1,
+            "Ten-minute labels are not confined to the positive side of zero", geometry)
+    require(abs(geometry["barTop"] - geometry["supplyTop"]) < 1,
+            "Signed block bar no longer aligns with the supply bar", geometry)
+    require(geometry["scrollWidth"] <= geometry["clientWidth"],
+            "Signed block bar causes horizontal overflow", geometry)
+    require(geometry["color"] == geometry["counterColor"],
+            "Signed bar and counter colors differ", geometry)
+    if future:
+        check_gray(geometry, theme)
+        require(geometry["state"] == "future" and geometry["direction"] == "rtl"
+                and abs(geometry["barLeft"] - geometry["meterLeft"]) < 1
+                and abs(geometry["barWidth"] - geometry["meterWidth"] * 0.2) < 1
+                and abs(geometry["fillRight"] - zero) < 1
+                and geometry["fillLeft"] < zero,
+                "Gray countdown does not extend left from the fixed zero", geometry)
+    else:
+        green = re.fullmatch(r"rgb\((\d+), (\d+), (\d+)\)", geometry["color"])
+        require(green is not None and int(green.group(2)) > max(int(green.group(1)), int(green.group(3))),
+                f"Nonnegative timer is not green in {theme} theme", geometry)
+        require(geometry["state"] == "normal" and geometry["direction"] == "ltr"
+                and abs(geometry["barLeft"] - zero) < 1
+                and abs(geometry["barWidth"] - geometry["meterWidth"] * 0.8) < 1
+                and abs(geometry["fillLeft"] - zero) < 1
+                and geometry["fillRight"] <= geometry["meterRight"] + 1,
+                "Elapsed green bar does not extend right from the fixed zero", geometry)
+    return geometry
+
+
+def test_signed_bar_geometry(cdp):
+    for width in (375, 320):
+        cdp.command("Emulation.setDeviceMetricsOverride", {
+            "width": width, "height": 900, "deviceScaleFactor": 1, "mobile": False,
+        })
+        cdp.evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))")
+        for theme in ("dark", "light"):
+            cdp.evaluate(f"document.documentElement.dataset.theme = {json.dumps(theme)}")
+            start = publish(cdp, -1200)
+            full = signed_bar_geometry(cdp, theme, future=True)
+            advance(cdp, 60)
+            shrinking = signed_bar_geometry(cdp, theme, future=True)
+            require(shrinking["fillLeft"] > full["fillLeft"]
+                    and abs(shrinking["fillWidth"] / full["fillWidth"] - 0.95) < 0.001
+                    and abs(shrinking["zeroLeft"] - full["zeroLeft"]) < 0.1,
+                    "Gray countdown did not shrink toward a stationary zero", shrinking)
+            advance(cdp, 1140)
+            empty = signed_bar_geometry(cdp, theme, future=False)
+            require(empty["fillWidth"] == 0 and abs(empty["zeroLeft"] - full["zeroLeft"]) < 0.1,
+                    "Crossing zero moved the marker or left a filled bar", empty)
+            advance(cdp, 1)
+            one_second = signed_bar_geometry(cdp, theme, future=False)
+            require(one_second["fillWidth"] > 0 and one_second["fillRight"] > one_second["fillLeft"],
+                    "The first elapsed second did not fill to the right", one_second)
+            advance(cdp, 29)
+            thirty_seconds = signed_bar_geometry(cdp, theme, future=False)
+            require(thirty_seconds["fillWidth"] > one_second["fillWidth"]
+                    and abs(thirty_seconds["value"] - 5) < 0.001
+                    and abs(thirty_seconds["zeroLeft"] - full["zeroLeft"]) < 0.1,
+                    "Elapsed green fill did not grow right from the stationary zero", thirty_seconds)
+            require(snapshot(cdp)["requests"] == start["requests"],
+                    "Signed bar animation fetched new snapshot data", thirty_seconds)
+    cdp.evaluate("document.documentElement.dataset.theme = 'dark'")
+    cdp.command("Emulation.setDeviceMetricsOverride", {
+        "width": 1440, "height": 1000, "deviceScaleFactor": 1, "mobile": False,
+    })
+    print("Passed: gray fills left of fixed zero and green grows right in both themes at 375px and 320px", flush=True)
 
 
 def test_scale_layout(cdp):
@@ -440,6 +553,7 @@ def main():
                     cdp.command("Page.navigate", {"url": f"http://127.0.0.1:{server.server_port}/kpi-fixture.html"})
                     test_elapsed_timer(cdp)
                     test_future_timestamp(cdp)
+                    test_signed_bar_geometry(cdp)
                     test_orange_theme_matching(cdp)
                     test_scale_layout(cdp)
                 finally:
