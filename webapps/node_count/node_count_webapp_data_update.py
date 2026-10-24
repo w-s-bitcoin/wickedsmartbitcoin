@@ -1,19 +1,30 @@
+import argparse
 import os
+import time
 import json
 import hashlib
 import tempfile
 import requests
 import pandas as pd
-import numpy as np
 from io import StringIO
 from datetime import datetime, timezone
 from pathlib import Path
 
 here = Path(__file__).resolve().parent
-webapp_data_dir = Path(os.getenv("NODE_COUNT_WEBAPP_DATA_DIR", str(here / "webapp_data"))).expanduser()
-webapp_data_dir.mkdir(parents=True, exist_ok=True)
+if __package__:
+    from .node_history_archive import merge_history_rows
+else:
+    from node_history_archive import merge_history_rows
 
-print(f"Webapp data output directory: {webapp_data_dir}")
+HISTORY_COLUMNS = [
+    "timestamp", "listening", "est_unreachable", "knots_count",
+    "core_v30_count", "bip110_count", "total_count", "datetime", "date",
+]
+PUBLISHED_ARTIFACTS = (
+    "bitcoin_node_history.csv",
+    "node_software_counts_grouped.csv",
+    "node_software_counts_with_reachability.csv",
+)
 
 
 def atomic_write_text(path: Path, text: str) -> None:
@@ -53,13 +64,105 @@ def sha256_file(path: Path) -> str:
             digest.update(chunk)
     return digest.hexdigest()
 
+def validate_history_frame(frame):
+    """Reject damaged input while retaining the archive's dated source gaps."""
+    if frame.empty or list(frame.columns) != HISTORY_COLUMNS:
+        raise ValueError("Node history is empty or has an unexpected schema")
+    frame = frame.copy()
+    for name in HISTORY_COLUMNS[:7]:
+        frame[name] = pd.to_numeric(frame[name], errors="raise")
+        present = frame[name].dropna()
+        if ((present < 0) | (present == float("inf")) | (present % 1 != 0)).any():
+            raise ValueError(f"Invalid node history {name}")
+    if frame["timestamp"].isna().any() or (frame["timestamp"] <= 0).any():
+        raise ValueError("Invalid node history timestamp")
+    expected = pd.to_datetime(frame["timestamp"], unit="s", utc=True)
+    frame["datetime"] = pd.to_datetime(frame["datetime"], utc=True)
+    if not frame["datetime"].equals(expected):
+        raise ValueError("Node history datetime does not match timestamp")
+    if not frame["date"].equals(expected.dt.strftime("%Y-%m-%d")):
+        raise ValueError("Node history date does not match timestamp")
+    totals = frame[["listening", "est_unreachable", "total_count"]].dropna()
+    if (totals["listening"] + totals["est_unreachable"] != totals["total_count"]).any():
+        raise ValueError("Node history total does not match its components")
+    return frame
+
+
+def read_history(path):
+    # A missing or damaged archive must fail, not bootstrap from a truncated feed.
+    return validate_history_frame(pd.read_csv(path))
+
+
+def merge_history_frames(archive, fetched):
+    rows = merge_history_rows(archive.to_dict("records"), fetched.to_dict("records"))
+    return validate_history_frame(pd.DataFrame(rows, columns=HISTORY_COLUMNS))
+
+
+def write_history_tables(history, data_dir):
+    """Write history and both derived tables from one reconciled generation."""
+    atomic_write_csv(history, data_dir / "bitcoin_node_history.csv")
+    blocks = history.copy()
+    blocks["week"] = blocks["datetime"].dt.isocalendar().week
+    blocks["year"] = blocks["datetime"].dt.isocalendar().year
+    periods = blocks.groupby(["year", "week"]).agg({
+        "datetime": ["min", "max"],
+        "total_count": ["mean", "max", "min"],
+    }).reset_index()
+    periods.columns = ["year", "week", "start_date", "end_date", "mean_count", "max_count", "min_count"]
+    periods["period"] = range(1, len(periods) + 1)
+    atomic_write_csv(periods, data_dir / "node_count_periods.csv")
+    atomic_write_csv(blocks, data_dir / "node_count_blocks.csv")
+
+
+def publish_generation(history, data_dir):
+    """Hash the actual payloads and expose the complete publication last."""
+    artifacts = {
+        name: {"sha256": sha256_file(data_dir / name), "rows": len(pd.read_csv(data_dir / name))}
+        for name in PUBLISHED_ARTIFACTS
+    }
+    updated = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    atomic_write_text(data_dir / "last_updated.txt", updated + "\n")
+    atomic_write_json({
+        "schema_version": 1,
+        "generation_id": updated,
+        "published_at_utc": updated,
+        "latest_history_datetime": history["datetime"].iloc[-1].isoformat(),
+        "artifacts": artifacts,
+    }, data_dir / "published_generation.json")
+
+
+def repair_history(archive_path, data_dir):
+    """Offline recovery: restore an audited archive and retain newer samples."""
+    marker_path = data_dir / "published_generation.json"
+    marker_text = marker_path.read_text()
+    marker = json.loads(marker_text)
+    if marker.get("schema_version") != 1 or set(marker.get("artifacts", {})) != set(PUBLISHED_ARTIFACTS):
+        raise ValueError("Cannot repair an invalid node publication")
+    for name in PUBLISHED_ARTIFACTS:
+        artifact = marker["artifacts"][name]
+        if artifact["sha256"] != sha256_file(data_dir / name) or artifact["rows"] != len(pd.read_csv(data_dir / name)):
+            raise ValueError(f"Cannot repair an incomplete node publication: {name}")
+    archive = read_history(archive_path)
+    current = read_history(data_dir / "bitcoin_node_history.csv")
+    history = merge_history_frames(archive, current)
+    if marker_path.read_text() != marker_text:
+        raise ValueError("Node publication changed during recovery; retry after it settles")
+    write_history_tables(history, data_dir)
+    publish_generation(history, data_dir)
+    print(f"Restored {len(archive)} archived observations; retained {len(history) - len(archive)} newer samples.")
+
+
 # Download and process node count history
 def fetch_node_history():
     url = "https://luke.dashjr.org/programs/bitcoin/files/charts/data/history.txt"
-    cols = ["timestamp", "listening", "est_unreachable", "knots_count", "core_v30_count", "bip110_count"]
     resp = requests.get(url, timeout=30)
     resp.raise_for_status()
-    text = resp.text
+    return parse_node_history(resp.text)
+
+
+def parse_node_history(text):
+    """Parse the upstream feed without reading or writing local artifacts."""
+    cols = HISTORY_COLUMNS[:6]
     cleaned_lines = []
     for line in text.splitlines():
         line = line.strip()
@@ -72,7 +175,7 @@ def fetch_node_history():
         sep=r"\s+", header=None, names=cols, engine="python"
     )
     for col in cols[1:]:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
+        df[col] = pd.to_numeric(df[col], errors="raise")
 
     df["total_count"] = df["listening"] + df["est_unreachable"]
     df["datetime"] = pd.to_datetime(df["timestamp"], unit="s", utc=True)
@@ -96,12 +199,7 @@ def fetch_node_history():
         print(f"Removed {removed} near-zero outlier rows from node history.")
         df = df.loc[~outlier_mask].copy()
 
-    return df
-
-node_history_df = fetch_node_history()
-node_history_csv = webapp_data_dir / "bitcoin_node_history.csv"
-atomic_write_csv(node_history_df, node_history_csv)
-print(f"Wrote: {node_history_csv}")
+    return validate_history_frame(df)
 
 # Fetch and process node software user agent data
 def fetch_node_software_data():
@@ -260,62 +358,6 @@ def fetch_node_software_data():
     df = build_rows_like_page(mappable_uas)
     return df
 
-node_software_df = fetch_node_software_data()
-node_software_csv = webapp_data_dir / "node_software_counts_with_reachability.csv"
-atomic_write_csv(node_software_df, node_software_csv)
-print(f"Wrote: {node_software_csv}")
-
-# Split node count history into weekly periods and export summary and per-block data
-PERIOD_SIZE = 7  # days per period (can adjust as needed)
-node_history_df["week"] = node_history_df["datetime"].dt.isocalendar().week
-node_history_df["year"] = node_history_df["datetime"].dt.isocalendar().year
-
-periods = node_history_df.groupby(["year", "week"]).agg({
-    "datetime": ["min", "max"],
-    "total_count": ["mean", "max", "min"]
-}).reset_index()
-periods.columns = ["year", "week", "start_date", "end_date", "mean_count", "max_count", "min_count"]
-periods["period"] = range(1, len(periods) + 1)
-
-periods_csv = webapp_data_dir / "node_count_periods.csv"
-atomic_write_csv(periods, periods_csv)
-print(f"Wrote: {periods_csv}")
-
-# Export per-block data for frontend (CSV)
-blocks_csv = webapp_data_dir / "node_count_blocks.csv"
-atomic_write_csv(node_history_df, blocks_csv)
-print(f"Wrote: {blocks_csv}")
-
-# Group node software/version data and export for webapp
-software_norm = node_software_df.copy()
-software_norm["software"] = software_norm["software"].fillna("other").astype(str)
-software_norm["main_version"] = software_norm["main_version"].fillna("unknown").astype(str)
-software_norm["sub_version"] = software_norm["sub_version"].fillna("unknown").astype(str)
-software_lc = software_norm["software"].str.lower()
-is_core = software_lc.str.contains("core", regex=False)
-is_knots = software_lc.str.contains("knots", regex=False)
-is_bip110 = software_lc.str.contains("bip110", regex=False)
-software_norm.loc[is_core, "software"] = "Bitcoin Core"
-software_norm.loc[is_knots, "software"] = "Bitcoin Knots"
-software_norm.loc[is_bip110, "software"] = "BIP110"
-is_other = ~(is_core | is_knots | is_bip110)
-software_norm.loc[is_other, "software"] = "other"
-software_norm.loc[is_other, "sub_version"] = software_norm.loc[is_other, "main_version"]
-software_grouped = (
-    software_norm
-    .groupby(["software", "main_version", "sub_version"], as_index=False)
-    .agg({"listening": "sum", "est_unreachable": "sum", "total_count": "sum"})
-    .sort_values(["software", "total_count"], ascending=[True, False], ignore_index=True)
-)
-software_grouped["percent"] = software_grouped["total_count"] / software_grouped["total_count"].sum() * 100.0
-software_grouped_csv = webapp_data_dir / "node_software_counts_grouped.csv"
-atomic_write_csv(software_grouped, software_grouped_csv)
-print(f"Wrote: {software_grouped_csv}")
-
-# Example: Fetch Bitcoin Core releases from GitHub API
-# (Extend as needed for other node software)
-import time
-
 def fetch_github_releases(repo, max_pages=2):
     releases = []
     url = f"https://api.github.com/repos/{repo}/releases?per_page=100"
@@ -334,88 +376,104 @@ def fetch_github_releases(repo, max_pages=2):
             break
     return releases
 
-core_releases = fetch_github_releases("bitcoin/bitcoin")
-release_rows = []
-for rel in core_releases:
-    tag = rel.get("tag_name")
-    published = rel.get("published_at")
-    url = rel.get("html_url")
-    if tag and published:
-        release_rows.append({
-            "software": "Bitcoin Core",
-            "version": tag,
-            "release_time_utc": published,
-            "github_url": url
-        })
-releases_csv = webapp_data_dir / "node_software_releases.csv"
-atomic_write_csv(pd.DataFrame(release_rows), releases_csv)
-print(f"Wrote: {releases_csv}")
+def main():
+    parser = argparse.ArgumentParser(description="Publish node data while retaining archived history.")
+    parser.add_argument("--repair-history-from", type=Path, help="Restore this audited CSV offline, retaining newer published days and software data.")
+    parser.add_argument("--history-archive", type=Path, default=here / "webapp_data" / "bitcoin_node_history.csv", help="Published history to preserve (defaults to the checkout, even with staged output).")
+    args = parser.parse_args()
+    webapp_data_dir = Path(os.getenv("NODE_COUNT_WEBAPP_DATA_DIR", str(here / "webapp_data"))).expanduser()
+    if args.repair_history_from:
+        repair_history(args.repair_history_from, webapp_data_dir)
+        return
 
-# Chart/static config for frontend
-chart_static = {
-    "chart": {
-        "figure_size_inches": [14, 8],
-        "period_size": 7,  # days per period
-        "titles": {
-            "node_count": "Bitcoin Node Count by Software & Version",
-        },
-        "axis_labels": {
-            "y": "Node Count",
-            "x_bottom": "Weekly Periods",
-        },
-        "colors": {
-            "background": "black",
-            "foreground": "white",
-            "core": "#f7931a",
-            "knots": "#39d98a",
-            "bip110": "#4169e1",
-            "other": "#8ea3ad",
-        },
-        "bar": {
-            "width": 0.5,
-        },
-        "footer": {
-            "source_url": "https://wickedsmartbitcoin.com/node_count",
-        },
-    },
-}
-chart_static_path = webapp_data_dir / "chart_static.json"
-atomic_write_json(chart_static, chart_static_path)
-print(f"Wrote: {chart_static_path}")
+    # Hourly output is a fresh staging directory. Read the published checkout
+    # archive, never that empty output directory, before fetching new samples.
+    archive = read_history(args.history_archive)
+    node_history_df = merge_history_frames(archive, fetch_node_history())
+    node_software_df = fetch_node_software_data()
+    webapp_data_dir.mkdir(parents=True, exist_ok=True)
+    write_history_tables(node_history_df, webapp_data_dir)
+    node_software_csv = webapp_data_dir / "node_software_counts_with_reachability.csv"
+    atomic_write_csv(node_software_df, node_software_csv)
 
-# Retain the human-readable timestamp for the dashboard KPI. The hash manifest
-# below is the actual publication boundary and is always written last.
-last_updated_path = webapp_data_dir / "last_updated.txt"
-updated_text = datetime.now(timezone.utc).isoformat(timespec="microseconds")
-atomic_write_text(last_updated_path, updated_text + "\n")
-print(f"Wrote: {last_updated_path}")
+    # Group node software/version data and export for webapp
+    software_norm = node_software_df.copy()
+    software_norm["software"] = software_norm["software"].fillna("other").astype(str)
+    software_norm["main_version"] = software_norm["main_version"].fillna("unknown").astype(str)
+    software_norm["sub_version"] = software_norm["sub_version"].fillna("unknown").astype(str)
+    software_lc = software_norm["software"].str.lower()
+    is_core = software_lc.str.contains("core", regex=False)
+    is_knots = software_lc.str.contains("knots", regex=False)
+    is_bip110 = software_lc.str.contains("bip110", regex=False)
+    software_norm.loc[is_core, "software"] = "Bitcoin Core"
+    software_norm.loc[is_knots, "software"] = "Bitcoin Knots"
+    software_norm.loc[is_bip110, "software"] = "BIP110"
+    is_other = ~(is_core | is_knots | is_bip110)
+    software_norm.loc[is_other, "software"] = "other"
+    software_norm.loc[is_other, "sub_version"] = software_norm.loc[is_other, "main_version"]
+    software_grouped = (
+        software_norm
+        .groupby(["software", "main_version", "sub_version"], as_index=False)
+        .agg({"listening": "sum", "est_unreachable": "sum", "total_count": "sum"})
+        .sort_values(["software", "total_count"], ascending=[True, False], ignore_index=True)
+    )
+    software_grouped["percent"] = software_grouped["total_count"] / software_grouped["total_count"].sum() * 100.0
+    software_grouped_csv = webapp_data_dir / "node_software_counts_grouped.csv"
+    atomic_write_csv(software_grouped, software_grouped_csv)
+    print(f"Wrote: {software_grouped_csv}")
 
-published_generation = {
-    "schema_version": 1,
-    "generation_id": updated_text,
-    "published_at_utc": updated_text,
-    "latest_history_datetime": node_history_df["datetime"].iloc[-1].isoformat(),
-    "artifacts": {
-        node_history_csv.name: {
-            "sha256": sha256_file(node_history_csv),
-            "rows": int(len(node_history_df)),
-        },
-        software_grouped_csv.name: {
-            "sha256": sha256_file(software_grouped_csv),
-            "rows": int(len(software_grouped)),
-        },
-        node_software_csv.name: {
-            "sha256": sha256_file(node_software_csv),
-            "rows": int(len(node_software_df)),
-        },
-    },
-}
-published_generation_path = webapp_data_dir / "published_generation.json"
-atomic_write_json(published_generation, published_generation_path)
-print(f"Wrote publication marker: {published_generation_path}")
+    core_releases = fetch_github_releases("bitcoin/bitcoin")
+    release_rows = []
+    for rel in core_releases:
+        tag = rel.get("tag_name")
+        published = rel.get("published_at")
+        url = rel.get("html_url")
+        if tag and published:
+            release_rows.append({
+                "software": "Bitcoin Core",
+                "version": tag,
+                "release_time_utc": published,
+                "github_url": url
+            })
+    releases_csv = webapp_data_dir / "node_software_releases.csv"
+    atomic_write_csv(pd.DataFrame(release_rows), releases_csv)
+    print(f"Wrote: {releases_csv}")
 
-# Print summary of all files in webapp_data_dir
-print("\nCreated/updated files:")
-for p in sorted(webapp_data_dir.glob("*")):
-    if p.is_file():
-        print(f"  - {p.name} ({p.stat().st_size:,} bytes)")
+    # Chart/static config for frontend
+    chart_static = {
+        "chart": {
+            "figure_size_inches": [14, 8],
+            "period_size": 7,  # days per period
+            "titles": {
+                "node_count": "Bitcoin Node Count by Software & Version",
+            },
+            "axis_labels": {
+                "y": "Node Count",
+                "x_bottom": "Weekly Periods",
+            },
+            "colors": {
+                "background": "black",
+                "foreground": "white",
+                "core": "#f7931a",
+                "knots": "#39d98a",
+                "bip110": "#4169e1",
+                "other": "#8ea3ad",
+            },
+            "bar": {
+                "width": 0.5,
+            },
+            "footer": {
+                "source_url": "https://wickedsmartbitcoin.com/node_count",
+            },
+        },
+    }
+    chart_static_path = webapp_data_dir / "chart_static.json"
+    atomic_write_json(chart_static, chart_static_path)
+    print(f"Wrote: {chart_static_path}")
+
+    publish_generation(node_history_df, webapp_data_dir)
+    print(f"Published node data: {webapp_data_dir}")
+
+
+if __name__ == "__main__":
+    main()
