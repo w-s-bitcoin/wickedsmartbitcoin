@@ -210,7 +210,7 @@ def main():
                     check(cdp, "__scaleTest.checkPriceFrames(__scaleTest.priceFrames, {endpoint:__scaleTest.samples.filter(s=>s.key==='price').at(-1).mix})")
                 cdp.command('Emulation.setEmulatedMedia', {'features':[{'name':'prefers-reduced-motion','value':'no-preference'}]})
                 # Exercise the production export renderer during an unfinished UI transition.
-                cdp.evaluate("""WSBDashboardExport.encodeWebM = async options => {
+                cdp.evaluate("""WSBDashboardExport.encodeVideo = async options => {
                   const start=__scaleTest.samples.length, ticks=__scaleTest.ticks.length, priceFrames=__scaleTest.priceFrames.length;
                   options.renderFrame(options.frames.at(-1), options.canvas, options.frames.length-1);
                   __scaleTest.exports.push({samples:__scaleTest.samples.length-start,ticks:__scaleTest.ticks.length-ticks,width:options.canvas.width,

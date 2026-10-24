@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Decode legacy WebM/Node PNG exports and check their shared creator/QR footer.
+"""Decode legacy video/Node PNG exports and check their shared creator/QR footer.
 
 Uses frozen local payloads and isolated Chrome. Only two frames per export are
 encoded; output PNG review images are written to /tmp, never to live data paths.
@@ -22,7 +22,9 @@ from test_stage1_refresh_atomicity import CdpSocket, free_port, wait_for
 SLUGS = ("dca_cost_basis", "dca_comparison", "days_since_ath", "issuance_rate", "uoa", "patoshi_pattern", "node_count")
 
 SHIM = r"""
-window.__footerTest={downloads:[],errors:[],renders:[]};
+window.__footerTest={downloads:[],errors:[],diagnostics:[],renders:[]};
+const nativeConsoleError=console.error.bind(console);
+console.error=(...args)=>{__footerTest.diagnostics.push(args.map(value=>value?.stack||String(value)).join(' '));nativeConsoleError(...args);};
 window.WebSocket=undefined;
 window.alert=message=>__footerTest.errors.push(String(message));
 addEventListener('error',event=>__footerTest.errors.push(event.message));
@@ -39,8 +41,12 @@ HTMLAnchorElement.prototype.click=function(){
 INSTRUMENT = r"""
 (() => {
   const E=window.WSBDashboardExport,B=window.WSBDashboardExportBranding,F=window.__footerTest;
-  const encode=E.encodeWebM;
-  E.encodeWebM=options=>encode({...options,frames:[options.frames[0],options.frames.at(-1)]});
+  if(window.WSBDashboardMP4){
+    const mux=window.WSBDashboardMP4.buildBlob;
+    window.WSBDashboardMP4.buildBlob=options=>{F.decoder={...options.decoderConfig,description:Array.from(new Uint8Array(options.decoderConfig.description))};return mux(options);};
+  }
+  const encode=E.encodeVideo;
+  E.encodeVideo=options=>encode({...options,frames:[options.frames[0],options.frames.at(-1)]});
   const draw=B.drawFooterStrip,drawCanonical=B.drawFooter;
   const inspect=(ctx,url,metrics,settings,callback)=>{
     const images=[],native=ctx.drawImage;
@@ -63,7 +69,7 @@ DECODE = r"""
     if(item.blob.type==='image/png'){
       bitmap=await createImageBitmap(item.blob);canvas.width=bitmap.width;canvas.height=bitmap.height;
     }else{
-      await new Promise((resolve,reject)=>{video.onloadeddata=resolve;video.onerror=()=>reject(new Error('WebM decode failed'));video.src=url;});
+      await new Promise((resolve,reject)=>{video.onloadeddata=resolve;video.onerror=()=>reject(new Error('Video decode failed'));video.src=url;});
       video.muted=true;document.body.appendChild(video);
       await new Promise((resolve,reject)=>{video.requestVideoFrameCallback(resolve);video.play().catch(reject);});
       video.pause();canvas.width=video.videoWidth;canvas.height=video.videoHeight;
@@ -78,7 +84,7 @@ DECODE = r"""
       for(let i=0;i<pixels.length;i+=4){if(Math.max(pixels[i],pixels[i+1],pixels[i+2])-Math.min(pixels[i],pixels[i+1],pixels[i+2])>50)colored++;if(pixels[i]>200&&pixels[i+1]>200&&pixels[i+2]>200)white++;}
       return {src:image.src,colored,white};
     });
-    return {name:item.name,bytes:item.blob.size,width:canvas.width,height:canvas.height,
+    return {name:item.name,type:item.blob.type,bytes:item.blob.size,width:canvas.width,height:canvas.height,
       frame:canvas.toDataURL('image/png').split(',')[1],render,decodedImages,errors:__footerTest.errors};
   }finally{video.remove();URL.revokeObjectURL(url);}
 })();
@@ -136,12 +142,14 @@ def main():
                         cdp.evaluate(f"document.querySelector('#downloadOrientationSelect [data-value={orientation}]').click();document.querySelector('#downloadQualitySelect [data-value=\"720\"]').click();")
                         cdp.evaluate(f"document.querySelector('#downloadThemeSelect [data-value={args.theme}]')?.click()")
                         cdp.evaluate(f"document.querySelector('{selector}').click()")
-                    wait_for(lambda: cdp.evaluate(f"__footerTest.downloads.length>{count} || __footerTest.errors.length"), timeout=60, description=f"{slug} {orientation} WebM")
-                    assert cdp.evaluate("__footerTest.errors") == [], cdp.evaluate("__footerTest.errors")
+                    wait_for(lambda: cdp.evaluate(f"__footerTest.downloads.length>{count} || __footerTest.errors.length"), timeout=60, description=f"{slug} {orientation} video")
+                    assert cdp.evaluate("__footerTest.errors") == [], (slug, orientation, cdp.evaluate("({errors:__footerTest.errors,diagnostics:__footerTest.diagnostics,decoder:__footerTest.decoder})"))
                     result = cdp.evaluate(DECODE)
                     image = result.pop("frame")
                     (output / f"{slug}-{orientation}.png").write_bytes(base64.b64decode(image))
                     assert result["bytes"] > 1000, result
+                    extension = {"image/png": "png", "video/mp4": "mp4", "video/webm": "webm"}[result["type"]]
+                    assert result["name"].endswith("." + extension), result
                     if slug == "node_count":
                         assert (result["width"], result["height"]) == (3840, 2160), result
                     assert result["errors"] == [], result["errors"]

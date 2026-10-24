@@ -86,7 +86,6 @@ const state = {
     quality: "720",
     speed: "1",
     theme: document.documentElement.dataset.theme === "light" ? "light" : "dark",
-    extension: "webm",
     endFrameHold: true,
   },
   seriesByCadence: {
@@ -2604,7 +2603,6 @@ function normalizeDownloadSettings(settings = {}) {
     quality: ["720", "1080", "1440", "2160"].includes(String(settings.quality)) ? String(settings.quality) : "720",
     speed: ["0.5", "1", "2", "4"].includes(String(settings.speed)) ? String(settings.speed) : String(state.dateRange.playbackSpeed || 1),
     theme: ["light", "dark"].includes(settings.theme) ? settings.theme : currentTheme,
-    extension: "webm",
     endFrameHold: settings.endFrameHold !== false,
   };
 }
@@ -3050,12 +3048,12 @@ function getDateRangeExportBitrate(settings) {
   return Math.max(4_000_000, Number(settings.quality) * 8000);
 }
 
-async function encodeDateRangeAnimationWebM({ canvas, ctx, settings, theme, palette, frameDates }) {
+async function encodeDateRangeAnimationVideo({ canvas, ctx, settings, theme, palette, frameDates }) {
   const finalDate = frameDates[frameDates.length - 1];
   const liveFinalFrameStart = finalDate === state.priceRows.at(-1)?.dateIso
     ? getDateRangeFinalFrameStartIndex(frameDates) : -1;
   let finalFrameRows = null;
-  return window.WSBDashboardExport.encodeWebM({
+  return window.WSBDashboardExport.encodeVideo({
     canvas,
     width: canvas.width,
     height: canvas.height,
@@ -3172,7 +3170,7 @@ async function downloadDateRangeAnimation() {
   try {
     await waitForDateRangeExportFonts();
     await drawExportFrame(ctx, canvas, finalDate, { ...settings, theme }, palette, getFrameRows(state.dateRange.startIso, finalDate));
-    const webmBlob = await encodeDateRangeAnimationWebM({
+    const videoBlob = await encodeDateRangeAnimationVideo({
       canvas,
       ctx,
       settings,
@@ -3180,9 +3178,10 @@ async function downloadDateRangeAnimation() {
       palette,
       frameDates,
     });
-    if (webmBlob && !dateRangeExportCancelRequested) {
+    if (!videoBlob && !dateRangeExportCancelRequested) throw new Error("Video encoding is unavailable for the selected settings in this browser.");
+    if (videoBlob && !dateRangeExportCancelRequested) {
       renderDateRangeDownloadButtonProgress(1);
-      downloadDateRangeExportBlob(webmBlob, "webm", settings);
+      downloadDateRangeExportBlob(videoBlob, window.WSBDashboardExport.videoExtension(videoBlob), settings);
     }
   } catch (error) {
     if (!dateRangeExportCancelRequested) {

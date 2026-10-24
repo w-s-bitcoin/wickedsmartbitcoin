@@ -27,8 +27,9 @@ For date-range playback and download controls, load
 dashboard-specific CSS. Moving Average and EOE use this canonical stylesheet;
 reuse it instead of recreating control dimensions, colors, or state styles.
 
-For PNG or WebM exports, also load `../shared/dashboard_export_branding.js`
-after `dashboard_export.js` and before the dashboard's export renderer. See the
+For PNG or video exports, also load `../shared/dashboard_export_branding.js`
+after `dashboard_export.js` and before the dashboard's export renderer. Animation
+exporters also load `../shared/dashboard_mp4.js` after `dashboard_export.js`. See the
 [shared export branding API](webapps/README.md#export-typography-and-branding).
 
 ## Required Dashboard Files
@@ -135,7 +136,7 @@ New dashboards should match existing UOA/DCA behavior:
 - PNG exports use the [2160-quality dimensions, typography, and branding standard](webapps/DASHBOARD_STANDARDS.md#png-and-webm-exports), independent of video quality; each dashboard keeps its own composition
 - shared download estimates through `window.WSBDashboardExport.estimateDownload()`
 - bundled export fonts, Bitcoin wordmark, and canonical URL footer through `window.WSBDashboardExportBranding`; await `ready()` before measuring or drawing, and retain dashboard-owned sizes and positions
-- no MP4 export paths; deterministic WebM is the standard video export
+- animation exports use shared deterministic `encodeVideo()`: H.264 MP4 when supported at the requested dimensions, otherwise WebM selected before rendering; derive the filename with `videoExtension(blob)`
 - copy/restore controls use shared visual classes and state classes
 - copy links include every data/view control, including defaults, explicit dates,
   and the current playback frame; URL state overrides recipient storage

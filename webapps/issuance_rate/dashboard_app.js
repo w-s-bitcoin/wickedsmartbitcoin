@@ -69,7 +69,6 @@
       quality: "720",
       speed: "1",
       theme: document.documentElement.dataset.theme === "light" ? "light" : "dark",
-      extension: "webm",
       endFrameHold: true,
     },
     dataSignature: "",
@@ -2243,7 +2242,6 @@
       quality: ["720", "1080", "1440", "2160"].includes(String(settings.quality)) ? String(settings.quality) : "720",
       speed: ["0.5", "1", "2", "4"].includes(String(settings.speed)) ? String(settings.speed) : String(state.playbackSpeed || 1),
       theme: ["light", "dark"].includes(settings.theme) ? settings.theme : currentTheme,
-      extension: "webm",
       endFrameHold: settings.endFrameHold !== false,
     };
   }
@@ -2527,8 +2525,8 @@
     syncDownloadSettingsDownloadButton();
   }
 
-  async function encodeDateRangeAnimationWebM({ canvas, settings, frameIndices }) {
-    return window.WSBDashboardExport.encodeWebM({
+  async function encodeDateRangeAnimationVideo({ canvas, settings, frameIndices }) {
+    return window.WSBDashboardExport.encodeVideo({
       canvas,
       width: canvas.width,
       height: canvas.height,
@@ -2699,11 +2697,12 @@
 
     try {
       await waitForDateRangeExportFonts();
-      const webmBlob = await encodeDateRangeAnimationWebM({ canvas, settings, frameIndices });
-      if (webmBlob && !dateRangeExportCancelRequested) {
+      const videoBlob = await encodeDateRangeAnimationVideo({ canvas, settings, frameIndices });
+      if (!videoBlob && !dateRangeExportCancelRequested) throw new Error("Video encoding is unavailable for the selected settings in this browser.");
+      if (videoBlob && !dateRangeExportCancelRequested) {
         recordMeasuredDownloadEstimate(settings, frameIndices, performance.now() - exportStartedAt);
         renderDateRangeDownloadButtonProgress(1);
-        downloadDateRangeExportBlob(webmBlob, "webm");
+        downloadDateRangeExportBlob(videoBlob, window.WSBDashboardExport.videoExtension(videoBlob));
         isDateRangeExporting = false;
         dateRangeExportCancelRequested = false;
         broadcastDateRangeExportActive(false);

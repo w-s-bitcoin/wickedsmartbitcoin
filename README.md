@@ -106,6 +106,10 @@ the ending hold reuses that frame. Historical End dates stay historical.
 For local EOE live references, run
 `python3 scripts/build_eoe_live_reference.py` after updating the raw CSV inputs.
 
+Animation downloads use H.264 MP4 when the browser supports encoding at the
+selected dimensions, with genuine WebM as the capability fallback. Both use
+the shared deterministic frame sequence, export layout, and live-frame policy.
+
 ## Architecture
 
 ```mermaid
@@ -305,6 +309,10 @@ node --test scripts/test_eoe_growth_live.mjs
 node --test scripts/test_calendar_ticks.mjs
 node --test scripts/test_export_branding.mjs
 node --test scripts/test_export_footer_integration.mjs
+node --test scripts/test_mp4_muxer.mjs scripts/test_video_encoder.mjs
+CHROME_BIN=/path/to/chromium python3 scripts/test_video_export_browser.py
+# Optional full Patoshi benchmark: 10m34s, 19,021 frames per codec (requires FFmpeg).
+CHROME_BIN=/path/to/chromium python3 scripts/test_video_export_browser.py --long --output-dir /tmp/wsb-video-long-review
 CHROME_BIN=/path/to/chromium python3 scripts/test_export_footer_browser.py
 node --test scripts/test_scale_transitions.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_dca_scale_browser.py

@@ -56,8 +56,10 @@ Common dashboard shell/layout rules are centralized in `webapps/shared/` and sho
   - `createCalendarTicks()` selects UTC day/week/month/year boundaries with doubling multi-year intervals. Moving Average's dashboard and exports share it; callers retain their own label formatting and layout. See [Calendar tick selection](#calendar-tick-selection).
   - `createScaleTransitionController()` provides the 700 ms half-cosine LOG/LIN transition, continuous reversals, independent panels, and reduced-motion/page lifecycle handling. Dashboards retain their own endpoint ranges and interpolate their screen coordinates. `morphScaleTicks()` moves the existing tick values, crossfades distinct tick sets, preserves shared labels, and prevents a linear-only zero tick from reappearing during its fade.
 - `shared/dashboard_export.js`
-  - Shared deterministic WebM export, output dimensions, bitrate, footer URL, and download estimate utilities
+  - Shared deterministic MP4/WebM export, output dimensions, bitrate, footer URL, and download estimate utilities
   - New or updated export features follow the [PNG resolution, typography, and branding standard](DASHBOARD_STANDARDS.md#png-and-webm-exports) while retaining their dashboard's layout. PNG requests use explicit 2160 quality; the utility's default/video quality does not enforce the PNG policy.
+- `shared/dashboard_mp4.js`
+  - Shared H.264 MP4 container writer. Load after `dashboard_export.js` and before the dashboard application; the shared export API owns codec selection and encoding.
 - `shared/dashboard_export_branding.js`
   - Lazy preparation of bundled export fonts, the Bitcoin wordmark, creator apple, and current Lightning donation QR; body/heading font roles and the shared creator/donation/URL footer. Load after `dashboard_export.js`; see [Export typography and branding](#export-typography-and-branding).
 - `shared/dashboard_shared.css`
@@ -85,11 +87,11 @@ Common dashboard shell/layout rules are centralized in `webapps/shared/` and sho
   - Fetches and validates a candidate, rechecks the markers immediately before commit, retries failures, and coalesces wake events without reloading the iframe
 - `shared/bitcoin_spot_price.js`
   - Supplies BTC/USD to DCA Cost Basis, Days Since ATH, DCA Comparison, Moving Average, EOE Growth, Unit of Account, and Bitcoin Net Worth, including the relevant home page cards. The `wss://2140data.io/` WebSocket is primary, its `/price` REST endpoint is first fallback, and shared legacy sources are last fallback: Coinbase socket and public REST sources, or Kraken for Net Worth. It pauses hidden tabs, rejects invalid or stale timed quotes, and retains the last accepted quote through an outage. A newer published price snapshot supersedes a retained quote.
-  - EOE Growth adds a current comparison using the exact previous-epoch block timestamp and its nearest historical price. Its small hashed lookup chunks are built from existing raw CSVs during Pages packaging; see [EOE lookup generation](eoe_growth/README.md#current-comparison-and-lookup-generation). Live quotes reuse the cached reference. Latest-date PNGs refresh and capture the current comparison after assets are ready. Latest-date WebM exports refresh and freeze the comparison at the final motion frame, keeping it through the ending hold; the opening hold has its own snapshot. Historical playback, earlier motion frames, and exports ending at an earlier selected or paused date remain daily.
+  - EOE Growth adds a current comparison using the exact previous-epoch block timestamp and its nearest historical price. Its small hashed lookup chunks are built from existing raw CSVs during Pages packaging; see [EOE lookup generation](eoe_growth/README.md#current-comparison-and-lookup-generation). Live quotes reuse the cached reference. Latest-date PNGs refresh and capture the current comparison after assets are ready. Latest-date video exports refresh and freeze the comparison at the final motion frame, keeping it through the ending hold; the opening hold has its own snapshot. Historical playback, earlier motion frames, and exports ending at an earlier selected or paused date remain daily.
   - The `/price` response must allow cross-origin reads from the site with `Access-Control-Allow-Origin`; otherwise browsers skip to the existing sources when the socket is unavailable.
   - In DCA Cost Basis, each accepted quote updates the current valuation and its date's modeled purchase, which recalculates rolling cost basis across the chart and home card. Earlier purchase prices, publication markers, and past playback frames remain based on the published price files. An animation ending at the latest published date captures one available quote when its final motion frame begins and holds that same chart through the ending pause; earlier frames remain published. If no quote has been accepted, its final frame uses the published snapshot.
   - DCA's Updated timestamp follows the displayed quote, or the published snapshot when that is newer. The block height beside it always identifies the published generation; the tooltip identifies the two sources. The BTCUSD dot is green for a quote received within 60 seconds and gray for a retained or published price. The hourly producer reads the staged price file from its own run before those values are published.
-  - Moving Average and its home card update the current Bitcoin price and enabled SMA/EMA endpoints. Current SMA averages the price with N−1 prior daily/Sunday/calendar month-end closes; current EMA applies that price once to the prior completed-period EMA with weight `2 / (N + 1)`. Both treat the price as the unfinished period and use the same method with the published-price fallback. Historical SMA retains the reference average of N prior closes; historical EMA seeds with the first N closes and updates recursively using completed closes. Complete-window requirements and selectable maximums remain based on published history. When publication is one day behind, one provisional current-day row uses the completed published closes; no missing intervening days are invented. Choosing None for the second line hides its period/unit controls, KPI, and chart while retaining its settings and expanding the first window. Current PNG exports and the final frame/hold of a current WebM use the same live endpoint calculation and enabled charts. Price KPIs show cents below $1 and dollars with two decimals at $1 or above; tiny cent values retain extra precision. The BTCUSD dot uses the same green/gray freshness state, and a newer publication supersedes an older retained quote.
+  - Moving Average and its home card update the current Bitcoin price and enabled SMA/EMA endpoints. Current SMA averages the price with N−1 prior daily/Sunday/calendar month-end closes; current EMA applies that price once to the prior completed-period EMA with weight `2 / (N + 1)`. Both treat the price as the unfinished period and use the same method with the published-price fallback. Historical SMA retains the reference average of N prior closes; historical EMA seeds with the first N closes and updates recursively using completed closes. Complete-window requirements and selectable maximums remain based on published history. When publication is one day behind, one provisional current-day row uses the completed published closes; no missing intervening days are invented. Choosing None for the second line hides its period/unit controls, KPI, and chart while retaining its settings and expanding the first window. Current PNG exports and the final frame/hold of a current video use the same live endpoint calculation and enabled charts. Price KPIs show cents below $1 and dollars with two decimals at $1 or above; tiny cent values retain extra precision. The BTCUSD dot uses the same green/gray freshness state, and a newer publication supersedes an older retained quote.
 - `shared/ath_live_price.js`
   - Derives a quote day's provisional daily high, ATH, and days since ATH from the highest quote observed in the tab without mutating published rows. The Days Since ATH dashboard and preview share this calculation. Its BTCUSD, drawdown, and Updated chips follow the latest accepted quote unless a newer publication wins, while the block height remains the published snapshot's height. Earlier intraday highs missed before the tab opened arrive with the next published snapshot. Historical playback and earlier animation frames stay published; a latest-day export freezes the observed high and latest quote for its final frame and hold.
 - `shared/comparison_live_price.js`
@@ -129,7 +131,9 @@ Add these references in every `dashboard.html` file (path is relative to each da
 <script src="../shared/dashboard_components.js"></script>
 <script src="../shared/dashboard_charting.js"></script>
 <script src="../shared/dashboard_export.js"></script>
-<!-- For dashboards offering PNG or WebM exports: -->
+<!-- For dashboards offering video exports: -->
+<script src="../shared/dashboard_mp4.js"></script>
+<!-- For dashboards offering PNG or video exports: -->
 <script src="../shared/dashboard_export_branding.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -249,7 +253,7 @@ coordinates with that renderer:
   in landscape and occupies a separate upper row in portrait/square.
 - `drawFooterStrip(ctx, url, metrics, settings = {})` accepts an already resolved
   canonical URL. Existing `WSBDashboardExport.drawFooterUrl()` callers delegate
-  to this strip when branding is loaded, and `encodeWebM()` awaits branding
+  to this strip when branding is loaded, and `encodeVideo()` / `encodeWebM()` await branding
   before encoding. Calibration renders and direct PNG callers must await
   `ready()` themselves; a failed asset must never produce an incomplete footer.
 
@@ -263,7 +267,7 @@ branding.drawWordmark(ctx, wordmarkRect, { theme });
 branding.drawFooter(ctx, manifest.slug, footerMetrics, { theme, orientation });
 ```
 
-Await readiness once before PNG capture or WebM frame rendering, and keep the
+Await readiness once before PNG capture or video frame rendering, and keep the
 data/settings snapshot fixed for that export. PNG callers still request
 `getDimensions({ quality: "2160", orientation })` explicitly; branding does not
 choose output size or arrange panels. Moving Average's
@@ -806,7 +810,7 @@ Before calling a new dashboard finished, check all of the following:
 - Place a live-status dot before the KPI label or value it describes. For a card-level status, place the dot in the card's upper-left corner.
 - Playback keyboard controls use `WSBDashboardComponents.bindPlaybackKeyboardShortcuts()`.
 - Copy-link and reset button state use `WSBDashboardComponents.copyDashboardLink()`, `setResetButtonState()`, or `bindDashboardActions()`.
-- Animation exports use `WSBDashboardExport.encodeWebM()` and `estimateDownload()`. PNG and WebM exporters use `WSBDashboardExportBranding` for bundled fonts, the Bitcoin wordmark, and canonical URL footers, awaiting `ready()` before drawing. MP4 export paths are retired.
+- Animation exports use `WSBDashboardExport.encodeVideo()` and `estimateDownload()`. The shared encoder selects H.264 MP4 when supported at the requested dimensions, or WebM before rendering begins. Derive the downloaded extension with `videoExtension(blob)`; never rename a container. PNG and video exporters use `WSBDashboardExportBranding` for bundled fonts, the Bitcoin wordmark, and canonical URL footers, awaiting `ready()` before drawing.
 - Canvas dashboards should use `WSBDashboardCharting` for repeated y-axis ticks, right-side labels, current-value labels, date ticks, and linear/log scale math before adding dashboard-local chart helpers.
 - Run `scripts/check_dashboard_contract.sh webapps/<dashboard>` before handoff; run `scripts/check_all_dashboards.sh --smoke` for shared shell changes. The default checks exclude Casascius because it uses a different application structure; its focused live-refresh suite covers its data lifecycle.
 - Browser smoke verifies that Chrome returns a document body; it does not prove that charts rendered or that there were no JavaScript errors. Run the relevant behavior suite and inspect changed UI in both standalone and embedded modes.

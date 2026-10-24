@@ -5,7 +5,8 @@
   const DEFAULT_REFERENCE_QUALITY = 720;
   const DEFAULT_BITRATE_FLOOR = 4_000_000;
   const DEFAULT_BITRATE_PER_QUALITY = 8000;
-  const DEFAULT_WEBM_EXTENSION_MULTIPLIER = 0.78;
+  const DEFAULT_SIZE_MULTIPLIER = 0.78;
+  const AVC_BITRATE_MULTIPLIER = 2;
 
   function normalizeQuality(quality, fallback = DEFAULT_QUALITY) {
     const parsed = Number(quality);
@@ -74,10 +75,13 @@
     const uniqueFrameCount = Math.max(0, Number(opts.uniqueFrameCount) || frameCount);
     const videoSeconds = Number.isFinite(opts.videoSeconds) ? Math.max(0, opts.videoSeconds) : frameCount / fps;
     const dimensions = opts.dimensions || getDimensions(settings);
-    const bitrate = Number(opts.bitrate) || getBitrate(settings, opts);
+    // The UI estimates the preferred MP4 budget; an unsupported-AVC WebM
+    // fallback can be smaller. An explicit WebM caller may pass format: "webm".
+    const bitrate = (Number(opts.bitrate) || getBitrate(settings, opts))
+      * (opts.format === "webm" ? 1 : AVC_BITRATE_MULTIPLIER);
     const extensionMultiplier = Number.isFinite(opts.extensionMultiplier)
       ? opts.extensionMultiplier
-      : DEFAULT_WEBM_EXTENSION_MULTIPLIER;
+      : DEFAULT_SIZE_MULTIPLIER;
     const estimatedBytes = (bitrate * videoSeconds / 8) * extensionMultiplier;
     const megapixels = Math.max(0.1, (dimensions.width * dimensions.height) / 1_000_000);
     const calibratedFrameSeconds = opts.calibration?.msPerFrame
@@ -320,74 +324,148 @@
     return !!(window.VideoEncoder && window.VideoFrame && typeof VideoEncoder.isConfigSupported === "function");
   }
 
-  async function encodeWebM({
-    canvas,
-    width,
-    height,
-    fps = DEFAULT_FPS,
-    settings = {},
-    frames = [],
-    renderFrame,
-    isCanceled,
-    onProgress,
-    title,
-    bitrate,
-  }) {
+  // AVC levels constrain both the picture size and the macroblocks per second.
+  // Constrained baseline forbids B-frames, so output order is also decode order.
+  const AVC_LEVELS = [
+    [30, 1620, 40500, 10_000_000], [31, 3600, 108000, 14_000_000],
+    [32, 5120, 216000, 20_000_000], [40, 8192, 245760, 20_000_000],
+    [41, 8192, 245760, 50_000_000], [42, 8704, 522240, 50_000_000],
+    [50, 22080, 589824, 135_000_000], [51, 36864, 983040, 240_000_000],
+    [52, 36864, 2073600, 240_000_000],
+  ];
+
+  async function getSupportedMp4Config(width, height, settings = {}, opts = {}) {
+    if (!hasWebCodecsExportSupport() || !window.WSBDashboardMP4?.buildBlob) return null;
+    const fps = Math.max(1, Number(opts.fps) || DEFAULT_FPS);
+    // AVC needs more bits than VP9 for fine chart lines/text. Keep the renderer
+    // and resolution identical and budget twice the existing WebM bitrate.
+    const bitrate = getBitrate(settings, opts) * AVC_BITRATE_MULTIPLIER;
+    const blocks = Math.ceil(width / 16) * Math.ceil(height / 16);
+    const level = AVC_LEVELS.find(([, pixels, rate, limit]) => blocks <= pixels && blocks * fps <= rate && bitrate <= limit);
+    if (!level) return null;
+    const config = {
+      codec: `avc1.42E0${level[0].toString(16).padStart(2, "0")}`,
+      width, height, framerate: fps, bitrate,
+      bitrateMode: "variable", latencyMode: "quality", avc: { format: "avc" },
+    };
+    try {
+      const support = await VideoEncoder.isConfigSupported(config);
+      if (support?.supported) return { container: "mp4", config: support.config || config };
+    } catch (_) { /* A genuine WebM fallback is selected before rendering. */ }
+    return null;
+  }
+
+  function videoExtension(blob) {
+    if (blob?.type === "video/mp4") return "mp4";
+    if (blob?.type === "video/webm") return "webm";
+    throw new Error("Unknown animation file format.");
+  }
+
+  function copyDescription(description) {
+    if (!description) return null;
+    return ArrayBuffer.isView(description)
+      ? new Uint8Array(description.buffer, description.byteOffset, description.byteLength).slice()
+      : new Uint8Array(description).slice();
+  }
+
+  async function encodeVideoFrames({
+    canvas, width, height, fps = DEFAULT_FPS, settings = {}, frames = [],
+    renderFrame, isCanceled, onProgress, title, bitrate,
+  }, preferMp4) {
     if (!canvas || typeof renderFrame !== "function") throw new Error("Missing export canvas or frame renderer.");
+    if (!Array.isArray(frames) || !frames.length) throw new Error("No animation frames to export.");
     const exportWidth = Math.max(1, Math.round(width || canvas.width || getDimensions(settings).width));
     const exportHeight = Math.max(1, Math.round(height || canvas.height || getDimensions(settings).height));
     if (canvas.width !== exportWidth) canvas.width = exportWidth;
     if (canvas.height !== exportHeight) canvas.height = exportHeight;
     const frameRate = Math.max(1, Number(fps) || DEFAULT_FPS);
-    const encoderConfig = await getSupportedWebCodecsConfig(exportWidth, exportHeight, settings, {
-      fps: frameRate,
-      getBitrate: bitrate ? () => bitrate : undefined,
-    });
+    const opts = { fps: frameRate, getBitrate: bitrate ? () => bitrate : undefined };
+    const encoderConfig = (preferMp4 && await getSupportedMp4Config(exportWidth, exportHeight, settings, opts))
+      || await getSupportedWebCodecsConfig(exportWidth, exportHeight, settings, opts);
     if (!encoderConfig) return null;
-    // Every encoded frame uses the same decoded creator/Lightning assets.
-    // Asset failures propagate to the dashboard's normal export recovery path.
     await window.WSBDashboardExportBranding?.ready();
-    const encodedFrames = [];
-    const frameDurationUs = Math.round(1000000 / frameRate);
-    let frameIndex = 0;
-    let encodeError = null;
-    const encoder = new VideoEncoder({
-      output: (chunk) => {
-        const data = new Uint8Array(chunk.byteLength);
-        chunk.copyTo(data);
-        encodedFrames.push({ timestamp: chunk.timestamp, type: chunk.type, data });
-      },
-      error: (error) => {
-        encodeError = error;
-      },
-    });
-    encoder.configure(encoderConfig.config);
-    for (const frameState of frames) {
-      if (typeof isCanceled === "function" && isCanceled()) break;
-      await renderFrame(frameState, canvas, frameIndex);
-      const frame = new VideoFrame(canvas, {
-        timestamp: frameIndex * frameDurationUs,
-        duration: frameDurationUs,
+    const canceled = () => typeof isCanceled === "function" && isCanceled();
+    if (canceled()) return null;
+    const encodedFrames = [], submitted = new Map(), received = new Set();
+    const boundary = (index) => Math.round(index * 1000000 / frameRate);
+    let encodeError = null, decoderConfig = null, encoder;
+    try {
+      encoder = new VideoEncoder({
+        output: (chunk, metadata) => {
+          try {
+            if (!Number.isSafeInteger(chunk.byteLength) || chunk.byteLength <= 0) {
+              throw new Error("Video encoder returned an empty frame; download stopped.");
+            }
+            if (!submitted.has(chunk.timestamp) || received.has(chunk.timestamp)) {
+              throw new Error("Video encoder returned a duplicate or unexpected frame; download stopped.");
+            }
+            if (encoderConfig.container === "mp4" && encodedFrames.length && chunk.timestamp <= encodedFrames.at(-1).timestamp) {
+              throw new Error("Video encoder reordered baseline frames; download stopped.");
+            }
+            const config = metadata?.decoderConfig;
+            if (config) {
+              const description = copyDescription(config.description);
+              if (decoderConfig && (config.codec !== decoderConfig.codec ||
+                (description && (description.length !== decoderConfig.description?.length || description.some((byte, i) => byte !== decoderConfig.description[i]))))) {
+                throw new Error("Video encoder changed configuration during export; download stopped.");
+              }
+              decoderConfig = { ...config, description: description || decoderConfig?.description };
+            }
+            const data = new Uint8Array(chunk.byteLength);
+            chunk.copyTo(data);
+            received.add(chunk.timestamp);
+            encodedFrames.push({ timestamp: chunk.timestamp, duration: submitted.get(chunk.timestamp), type: chunk.type, data });
+          } catch (error) { encodeError ||= error; }
+        },
+        error: (error) => { encodeError ||= error; },
       });
-      encoder.encode(frame, { keyFrame: frameIndex % frameRate === 0 });
-      frame.close();
-      if (encodeError) throw encodeError;
-      frameIndex += 1;
-      if (typeof onProgress === "function") onProgress(frameIndex / Math.max(1, frames.length));
-      if (encoder.encodeQueueSize > 8) {
-        await encoder.flush();
-        await wait(0);
-      } else if (frameIndex % 6 === 0) {
-        await wait(0);
+      encoder.configure(encoderConfig.config);
+      for (let index = 0; index < frames.length; index++) {
+        if (canceled()) return null;
+        if (encodeError) throw encodeError;
+        await renderFrame(frames[index], canvas, index);
+        if (canceled()) return null;
+        const timestamp = boundary(index), duration = boundary(index + 1) - timestamp;
+        const frame = new VideoFrame(canvas, { timestamp, duration });
+        try {
+          submitted.set(timestamp, duration);
+          encoder.encode(frame, { keyFrame: index % Math.max(1, Math.round(frameRate)) === 0 });
+        } finally { frame.close(); }
+        if (encodeError) throw encodeError;
+        // Keep progress below completion until flush, accounting, and mux succeed.
+        onProgress?.((index + 1) / (frames.length + 1));
+        if (encoder.encodeQueueSize > 8 || submitted.size - received.size > 8) {
+          await encoder.flush();
+          await wait(0);
+        } else if ((index + 1) % 6 === 0) {
+          await wait(0);
+        }
       }
+      await encoder.flush();
+      if (canceled()) return null;
+      if (encodeError) throw encodeError;
+      if (received.size !== frames.length || [...submitted.keys()].some((timestamp) => !received.has(timestamp))) {
+        throw new Error(`Video encoder preserved ${received.size} of ${frames.length} frames; download stopped.`);
+      }
+    } finally {
+      if (encoder && encoder.state !== "closed") encoder.close();
     }
-    await encoder.flush();
-    if (encodeError) throw encodeError;
-    encoder.close();
-    if (typeof isCanceled === "function" && isCanceled()) return null;
-    encodedFrames.sort((a, b) => a.timestamp - b.timestamp);
-    return buildWebMBlob(encodedFrames, exportWidth, exportHeight, frameRate, encoderConfig.webmCodecId, title);
+    // Never retry with another encoder after rendering starts: live final-frame
+    // snapshots and holds must be captured only once.
+    let blob;
+    if (encoderConfig.container === "mp4") {
+      blob = window.WSBDashboardMP4.buildBlob({ frames: encodedFrames, width: exportWidth, height: exportHeight, fps: frameRate, decoderConfig, title });
+    } else {
+      encodedFrames.sort((a, b) => a.timestamp - b.timestamp);
+      blob = buildWebMBlob(encodedFrames, exportWidth, exportHeight, frameRate, encoderConfig.webmCodecId, title);
+    }
+    if (canceled()) return null;
+    onProgress?.(1);
+    return blob;
   }
+
+  function encodeVideo(options) { return encodeVideoFrames(options, true); }
+  function encodeWebM(options) { return encodeVideoFrames(options, false); }
 
   function wait(ms) {
     return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -441,6 +519,9 @@
   ns.getSupportedWebCodecsConfig = getSupportedWebCodecsConfig;
   ns.hasWebCodecsExportSupport = hasWebCodecsExportSupport;
   ns.encodeWebM = encodeWebM;
+  ns.encodeVideo = encodeVideo;
+  ns.getSupportedMp4Config = getSupportedMp4Config;
+  ns.videoExtension = videoExtension;
   ns.drawFooterUrl = drawFooterUrl;
   ns.writeEstimateElements = writeEstimateElements;
 })();

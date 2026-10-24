@@ -5,7 +5,7 @@ compares live BTC/USD with the historical price nearest the timestamp of the
 block exactly 210,000 heights earlier. Historical playback compares each
 published daily price with the previous epoch's nearest daily block count.
 It shares the site shell, calendar, range/playback controls, timezone chip,
-Copy Link, reset/undo, atomic refresh, and deterministic PNG/WebM export helpers.
+Copy Link, reset/undo, atomic refresh, and deterministic PNG/video export helpers.
 The homepage preview uses the same model and renderer without axes or labels.
 Date/range buttons, playback, calendar selection, and download settings use
 `shared/dashboard_playback.css`, the same stylesheet as Moving Average. Their
@@ -37,7 +37,7 @@ Hidden previews install complete data and defer painting until visible.
   remain visible, including observations earlier than the animation's Start date,
   because those are the comparison basis. Start controls animation duration;
   End and the moving end handle identify the displayed observation.
-- Historical playback and earlier WebM motion frames use published daily prices
+- Historical playback and earlier video motion frames use published daily prices
   and block heights. Exports ending at the latest date refresh the chain/reference
   pair and capture the newest available quote for their final frame. Historical
   selected or paused End dates remain historical.
@@ -127,7 +127,7 @@ The footer uses the original apple artwork and current Lightning QR/address,
 donation sections; portrait and square place the URL on a separate row.
 
 PNG always renders at 3840 × 2160 landscape, 2160 × 3840 portrait, or
-2160 × 2160 square, regardless of the WebM quality selection. WebM uses the
+2160 × 2160 square, regardless of the video quality selection. Video uses the
 shared encoder at 30 output frames/second with selectable sampling speed and
 quality. The optional opening hold shows the final selected snapshot for one
 second before historical motion, followed by a three-second final hold, matching
@@ -135,7 +135,7 @@ the established animation controls. Paused exports end at the visible date.
 Cancellation, unsupported encoding, and asset failures restore usable controls.
 
 For a latest-date export, PNG captures the current comparison after fonts and
-branding are ready. WebM refreshes the chain/reference pair and samples the quote
+branding are ready. Video refreshes the chain/reference pair and samples the quote
 when the final motion frame begins, freezing that complete frame through the
 ending hold. The opening hold captures its own snapshot and does not freeze the
 ending early. A background tab waits until visible before capturing the current
@@ -165,6 +165,11 @@ its arrow keys) switches to a saved manual height; Restore Defaults returns to
 automatic sizing. Older saved defaults migrate to automatic sizing while custom
 heights remain manual. Narrow layouts keep their existing chart heights.
 
+Video downloads use the shared deterministic exporter: H.264 MP4 when supported
+at the selected dimensions, with genuine WebM selected before rendering when
+MP4 is unavailable. The filename follows the actual container. Frame timing,
+quality, branding, and frozen live snapshots are the same in either format.
+
 ## Validation
 
 From the repository root:
@@ -188,7 +193,7 @@ independent notebook-style calculation over the full published dataset.
 The isolated browser suite freezes publication bytes and injects fetch failures
 and races without changing live data. It exercises playback, shared state over
 conflicting storage, reset/undo, responsive light/dark layouts at 1440/1024/390/320,
-4K PNG in every orientation, and actual WebM decoding. `CHROME_BIN` can select a
+4K PNG in every orientation, and actual video decoding. `CHROME_BIN` can select a
 Chrome executable; review artifacts are written outside the repository.
 The focused `--fast-intro-only` mode checks the new checkbox's persistence,
 estimates, and decoded videos across the first measured growth value.

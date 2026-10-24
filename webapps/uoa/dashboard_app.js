@@ -111,7 +111,6 @@
   };
   const DEFAULT_DOWNLOAD_SETTINGS = {
     chartMode: "both",
-    extension: "webm",
     quality: "720",
     orientation: "landscape",
     theme: "",
@@ -1321,8 +1320,6 @@
 
   function normalizeDownloadSettings(settings = {}) {
     const chartMode = ["both", "left", "right"].includes(settings.chartMode) ? settings.chartMode : DEFAULT_DOWNLOAD_SETTINGS.chartMode;
-    const rawExtension = settings.extension === "gif" ? "webm" : settings.extension;
-    const extension = rawExtension === "webm" ? "webm" : DEFAULT_DOWNLOAD_SETTINGS.extension;
     const quality = ["720", "1080", "1440", "2160"].includes(String(settings.quality)) ? String(settings.quality) : DEFAULT_DOWNLOAD_SETTINGS.quality;
     const orientation = ["landscape", "portrait", "square"].includes(settings.orientation) ? settings.orientation : DEFAULT_DOWNLOAD_SETTINGS.orientation;
     const theme = settings.theme === "dark" ? "dark" : settings.theme === "light" ? "light" : getCurrentDashboardTheme();
@@ -1334,7 +1331,7 @@
       ? String(rawFps)
       : String(getSelectedDateRangePlaybackFps());
     const endFrameHold = settings.endFrameHold !== false;
-    return { chartMode, extension, quality, orientation, theme, fps, leftScale, rightScale, endFrameHold };
+    return { chartMode, quality, orientation, theme, fps, leftScale, rightScale, endFrameHold };
   }
 
   function loadDownloadSettings() {
@@ -1552,7 +1549,6 @@
   function readDownloadSettingsControls() {
     return normalizeDownloadSettings({
       chartMode: getDownloadSettingGroupValue(el.downloadChartModeSelect),
-      extension: "webm",
       quality: getDownloadSettingGroupValue(el.downloadQualitySelect),
       orientation: getDownloadSettingGroupValue(el.downloadOrientationSelect),
       theme: getDownloadSettingGroupValue(el.downloadThemeSelect),
@@ -1755,7 +1751,7 @@
     ctx.restore();
   }
 
-  async function encodeDateRangeAnimationWebM({
+  async function encodeDateRangeAnimationVideo({
     exportCanvas,
     layoutCanvas,
     layoutSettings,
@@ -1765,7 +1761,7 @@
     startIndex,
     frameIndices,
   }) {
-    return window.WSBDashboardExport.encodeWebM({
+    return window.WSBDashboardExport.encodeVideo({
       canvas: exportCanvas,
       width: exportCanvas.width,
       height: exportCanvas.height,
@@ -2359,7 +2355,7 @@
       await waitForDateRangeExportFonts();
       const frameIndices = buildDateRangeExportFrameIndices(startIndex, endIndex, selectedPlaybackFps, settings.endFrameHold);
 
-      const webmBlob = await encodeDateRangeAnimationWebM({
+      const videoBlob = await encodeDateRangeAnimationVideo({
         exportCanvas,
         layoutCanvas,
         layoutSettings,
@@ -2370,7 +2366,7 @@
         frameIndices,
       });
 
-      if (!webmBlob) {
+      if (!videoBlob) {
         if (dateRangeExportCancelRequested) wasCanceled = true;
         else throw new Error("Deterministic WebCodecs export unavailable.");
         return;
@@ -2380,7 +2376,7 @@
         return;
       }
       renderDateRangeDownloadButtonProgress(1);
-      downloadDateRangeExportBlob(webmBlob, "webm", settings, exportSnapshot);
+      downloadDateRangeExportBlob(videoBlob, window.WSBDashboardExport.videoExtension(videoBlob), settings, exportSnapshot);
     } catch (error) {
       if (!wasCanceled && !dateRangeExportCancelRequested) {
         console.error(error);

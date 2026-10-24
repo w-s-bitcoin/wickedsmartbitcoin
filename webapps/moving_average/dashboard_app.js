@@ -634,15 +634,15 @@
       await window.WSBMovingAverageExport.ready();
       await document.fonts.ready;
       const { width, height } = E.getDimensions(settings);
-      const blob = await window.WSBDashboardExport.encodeWebM({ canvas, width, height, settings, fps: 30, frames: list, title: "Moving Average",
+      const blob = await window.WSBDashboardExport.encodeVideo({ canvas, width, height, settings, fps: 30, frames: list, title: "Moving Average",
         renderFrame: (index, _canvas, frameIndex) => {
           if (snapshot.useLivePrice && frameIndex >= finalStart) {
             if (!finalSnapshot) finalSnapshot = liveExportSnapshot(snapshot);
             drawOutput(canvas, finalSnapshot, settings, finalSnapshot.currentIndex);
           } else drawOutput(canvas, snapshot, settings, index);
         }, isCanceled: () => cancelExport, onProgress: progress });
-      if (!blob && !cancelExport) throw new Error("This browser cannot encode the selected WebM export.");
-      if (blob && !cancelExport) download(blob, "webm", finalSnapshot || snapshot);
+      if (!blob && !cancelExport) throw new Error("This browser cannot encode the selected video export.");
+      if (blob && !cancelExport) download(blob, E.videoExtension(blob), finalSnapshot || snapshot);
     } catch (error) { status(`Export failed: ${error.message}`, true); }
     finally {
       exporting = false; controls.forEach((disabled, element) => { element.disabled = disabled; });

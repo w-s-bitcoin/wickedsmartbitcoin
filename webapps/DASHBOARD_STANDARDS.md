@@ -139,10 +139,15 @@ Read the target dashboard's own notes for its calculation and data contracts.
   and feed delay need distinct messages. Use shared loaders for initial loading;
   routine refresh must not blank a good chart or lock unrelated controls.
 
-## PNG and WebM exports
+<a id="png-and-webm-exports"></a>
+
+## PNG and video exports
+
+Video downloads prefer H.264 MP4 for broad player compatibility and retain WebM
+as a capability fallback.
 
 - **PNG resolution is fixed at 2160 quality**, independent of viewport size,
-  device pixel ratio, and the WebM quality selector. Use
+  device pixel ratio, and the video quality selector. Use
   `WSBDashboardExport.getDimensions({ quality: "2160", orientation })`:
 
   | Orientation | PNG pixels |
@@ -167,7 +172,7 @@ Read the target dashboard's own notes for its calculation and data contracts.
   `drawWordmark()` and `drawFooter()` methods.
   Match the reference's dark/light treatment and keep both mark and footer
   readable, clear of chart content, and inside the output. Use the same
-  typography and branding for a dashboard's PNG and WebM exports. The footer
+  typography and branding for a dashboard's PNG and video exports. The footer
   includes the shared Wicked creator apple/handle and the site's current
   Lightning donation QR/address. Reserve space for the whole strip, reduce the
   URL font to fit, and use its separate URL row in portrait/square layouts.
@@ -183,14 +188,27 @@ Read the target dashboard's own notes for its calculation and data contracts.
   date, not a hidden future playback target; estimates use that same range.
   Controls must recover after success, cancellation, or failure, and unsupported
   export capabilities need a clear message.
-- Use the shared deterministic WebM encoder, dimensions, estimates, and footer.
-  Keep WebM resolution selectable. Wait for fonts and decoded images before
+- Use the shared deterministic video encoder, dimensions, estimates, and footer.
+  `encodeVideo()` selects H.264 MP4 at the requested dimensions when supported;
+  genuine WebM is the fallback chosen before any frame is rendered.
+  `encodeWebM()` remains the explicit WebM-only API. Use `videoExtension(blob)`
+  for download filenames so the extension always matches the container.
+  H.264 uses a larger bitrate budget for chart detail and encodes directly from
+  the rendered canvas; it never transcodes a completed WebM. Both codecs are
+  lossy, so validate decoded quality rather than claiming identical pixels.
+  Keep video resolution selectable. Wait for fonts and decoded images before
   drawing; report an asset-loading failure instead of silently omitting branding
   or exporting with an unintended font. Give the export its own deliberate
   composition with stable geometry; do not enlarge a low-resolution screenshot.
+- Submit each rendered frame once with deterministic timestamps and quality-mode
+  encoding. The shared exporter bounds the encoder queue, yields while waiting,
+  and validates that every submitted timestamp has exactly one encoded frame.
+  Cancellation or failure closes the encoder and restores controls. Never
+  restart rendering in another format after encoding has begun, because live
+  final-frame snapshots must remain frozen.
 - Apply the same axis and calculation rules to interactive and exported charts.
   Tick counts may differ with plot width. Validate every offered orientation and
-  decode a real PNG/WebM; a successful download click does not prove correctness.
+  decode a real PNG/video; a successful download click does not prove correctness.
 - Freeze the data/settings used by an export. For dashboards offering a live
   final frame, use published historical frames and capture one quote at the
   start of the final frame, holding that quote and derived values through the
@@ -240,7 +258,7 @@ document loading. Neither proves visual or behavioral compliance.
 | Interaction or state | Keyboard/focus and pointer/touch behavior; reload persistence; shared link over conflicting stored preferences; reset/undo; reduced motion when animated |
 | Playback or calculations | Early/insufficient history, calendar boundaries, pause/seek/resume/stop, no lookahead, and agreement between chart, KPIs, hover, and exports |
 | Refresh or quotes | Isolated failure/race fixtures, last-good retention, publication supersession, hidden/resume behavior, and interaction/export deferral; never mutate live datasets for a test |
-| Downloads | Real decoded output; exact PNG dimensions in the table above even after selecting a lower WebM quality; loaded reference fonts and wordmark; canonical URL footer; correct end date; readable labels; stable geometry; supported themes/orientations; failure recovery |
+| Downloads | Real decoded output; exact PNG dimensions in the table above even after selecting a lower video quality; loaded reference fonts and wordmark; canonical URL footer; correct end date; readable labels; stable geometry; supported themes/orientations; failure recovery |
 | Shared helper or packaging | Relevant consumer suites; Pages build tests/artifact inspection for new runtime dependencies |
 | Authorized publication | Verify the deployed assets and changed behavior on the live route at desktop/mobile widths; separate a pushed commit from a verified deployment |
 

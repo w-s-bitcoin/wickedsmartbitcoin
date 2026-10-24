@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render and inspect Moving Average's image/video exports in isolated Chrome.
 
-Uses the existing frozen publication and fake live feed. Real PNGs, WebM, and
+Uses the existing frozen publication and fake live feed. Real PNGs, videos, and
 render geometry are written outside the repository for visual review. No data
 producer or live dataset is changed. Set CHROME_BIN if needed; optionally pass
 --output-dir /tmp/moving-average-review to retain a predictable review location.
@@ -94,8 +94,8 @@ fixture.renderDate=date=>{
   G.composite(ctx,reference.width,reference.height,{...options,endIndex});
   return {record:fixture.renders.at(-1),image:canvas.toDataURL('image/png').split(',')[1]};
 };
-const encode=w.WSBDashboardExport.encodeWebM;
-w.WSBDashboardExport.encodeWebM=options=>{
+const encode=w.WSBDashboardExport.encodeVideo;
+w.WSBDashboardExport.encodeVideo=options=>{
   fixture.video={width:options.width,height:options.height,frames:[...options.frames],rendered:[]};
   const render=options.renderFrame;
   return encode({...options,renderFrame:async (...args)=>{fixture.video.rendered.push(args[0]);return render(...args);}});
@@ -126,7 +126,7 @@ def save_blob(cdp, extension, output, decode_at=0):
           const bitmap=await createImageBitmap(blob);width=bitmap.width;height=bitmap.height;bitmap.close();
         }else{
           const video=d.createElement('video'),url=URL.createObjectURL(blob);
-          await new Promise((resolve,reject)=>{video.onloadeddata=resolve;video.onerror=()=>reject(new Error('Exported WebM is not decodable'));video.preload='auto';video.src=url;});
+          await new Promise((resolve,reject)=>{video.onloadeddata=resolve;video.onerror=()=>reject(new Error('Exported video is not decodable'));video.preload='auto';video.src=url;});
           if(w.__maFixture.decodeAt)await new Promise(resolve=>{video.onseeked=resolve;video.currentTime=w.__maFixture.decodeAt;});
           width=video.videoWidth;height=video.videoHeight;
           decodedTime=video.currentTime;duration=video.duration;
@@ -139,7 +139,13 @@ def save_blob(cdp, extension, output, decode_at=0):
     """)
     content = base64.b64decode(result.pop("data"))
     assert len(content) > 1000, result
-    assert content.startswith(b"\x89PNG\r\n\x1a\n" if extension == "png" else b"\x1aE\xdf\xa3"), result
+    actual_extension = {"image/png": "png", "video/mp4": "mp4", "video/webm": "webm"}[result["type"]]
+    assert result["name"].endswith("." + actual_extension), result
+    if actual_extension == "mp4":
+        assert content[4:8] == b"ftyp", result
+    else:
+        assert content.startswith(b"\x89PNG\r\n\x1a\n" if actual_extension == "png" else b"\x1aE\xdf\xa3"), result
+    output = output.with_suffix("." + actual_extension)
     output.write_bytes(content)
     if frame := result.pop("decodedFrame",None):
         output.with_name(output.stem+"-frame.png").write_bytes(base64.b64decode(frame))
@@ -389,7 +395,7 @@ def run_checks(cdp, direct, output):
     dashboard(cdp,"const hold=d.querySelector('#downloadEndFrameHoldToggle');hold.checked=false;hold.dispatchEvent(new w.Event('change',{bubbles:true}));")
     choose(cdp,"downloadQualitySelect","1080")
     set_input(cdp,'#endDateInput','2010-01-01','change');set_input(cdp,'#startDateInput','2009-12-29','change')
-    early_video=results['initial-window-video']=export_blob(cdp,'webm',output/'initial-window-1080.webm',decode_at=.1)
+    early_video=results['initial-window-video']=export_blob(cdp,'video',output/'initial-window-1080.mp4',decode_at=.1)
     assert (early_video['width'],early_video['height']) == (1920,1080),early_video
     assert early_video['record']['date'] == '2010-01-01' and early_video['decodedTime'] >= .1,early_video
     check_geometry(early_video['record']);check_price_endpoint(early_video['record'],2,'2009-10-06','2013-08-06')
@@ -399,7 +405,7 @@ def run_checks(cdp, direct, output):
     early_frames=dashboard(cdp,'return w.__maFixture.video;')
     assert len(early_frames['frames']) == 4 and early_frames['frames'] == early_frames['rendered'],early_frames
     set_input(cdp,'#endDateInput','2024-09-16','change');set_input(cdp,"#startDateInput","2024-09-13","change")
-    result = results["video"] = export_blob(cdp,"webm",output/"reference-1080.webm")
+    result = results["video"] = export_blob(cdp,"video",output/"reference-1080.mp4")
     assert (result["width"],result["height"]) == (1920,1080),result
     video = dashboard(cdp,"return w.__maFixture.video;")
     assert len(video["frames"]) == 4 and video["frames"] == video["rendered"],video
@@ -438,7 +444,7 @@ def run_checks(cdp, direct, output):
         if date == '2010-01-01':check_cents_statistics(result['record'])
     assert_clean(cdp)
     (output/"render-observations.json").write_text(json.dumps(results,indent=2)+"\n")
-    print("PASS export: bundled shared typography and branding without Google Fonts, visible asset failure and retry, true 4K PNG, decoded WebM, right-side y labels, consistent per-axis year/month formatting, powers-of-two long-history year ticks, no clipped/overlapping labels, stable historical geometry, light/square/portrait and EMA/None",flush=True)
+    print("PASS export: bundled shared typography and branding without Google Fonts, visible asset failure and retry, true 4K PNG, decoded video, right-side y labels, consistent per-axis year/month formatting, powers-of-two long-history year ticks, no clipped/overlapping labels, stable historical geometry, light/square/portrait and EMA/None",flush=True)
     print(f"Review images, video, and geometry: {output}",flush=True)
 
 

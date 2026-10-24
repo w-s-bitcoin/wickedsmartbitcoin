@@ -241,7 +241,7 @@
     E.writeEstimateElements({ size: $("downloadEstimateSize"), length: $("downloadEstimateLength"), time: $("downloadEstimateTime") }, estimate);
     if (!E.hasWebCodecsExportSupport()) {
       $("dateRangeDownloadBtn").disabled = true; $("downloadSettingsDownloadBtn").disabled = true;
-      $("dateRangeDownloadBtn").title = "WebM requires a browser with WebCodecs. PNG remains available.";
+      $("dateRangeDownloadBtn").title = "Video requires a browser with WebCodecs. PNG remains available.";
     }
   }
   function drawOutput(canvas, snapshot, settings, endIndex, view = null) {
@@ -283,7 +283,7 @@
   async function exportFile(video) {
     if (exporting) { if (video) { cancelExport = true; exportController?.abort(); $("dateRangeDownloadBtn").classList.add("is-canceling"); } return; }
     if (!model) return;
-    if (video && !E.hasWebCodecsExportSupport()) { status("WebM export is unavailable in this browser. PNG export is available.", true); return; }
+    if (video && !E.hasWebCodecsExportSupport()) { status("Video export is unavailable in this browser. PNG export is available.", true); return; }
     const snapshot = { model, endIndex: index(state.currentIso), date: state.currentIso,
       publication: { publishedAt: installed.publishedAt, latestHeight: installed.latestHeight } };
     // An earlier selected or paused End remains historical, even when the
@@ -313,7 +313,7 @@
         // but its one-second opening preview must still precede final capture.
         let finalStart = settings.endFrameHold ? 30 : 0, openingFrame = null, finalFrame = null;
         list.forEach((endIndex, frameIndex) => { if (endIndex !== snapshot.endIndex) finalStart = frameIndex + 1; });
-        blob = await E.encodeWebM({ canvas, width, height, settings, fps: 30, frames: list, title: "Epoch-Over-Epoch Growth",
+        blob = await E.encodeVideo({ canvas, width, height, settings, fps: 30, frames: list, title: "Epoch-Over-Epoch Growth",
           renderFrame: async (endIndex, _canvas, frameIndex) => {
             let view = null;
             if (snapshot.useLivePrice && endIndex === snapshot.endIndex) {
@@ -335,7 +335,7 @@
         blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
       }
       if (!blob && !cancelExport) throw new Error("The browser could not create the selected export.");
-      if (blob && !cancelExport) { download(blob, video ? "webm" : "png", snapshot.date); status(""); }
+      if (blob && !cancelExport) { download(blob, video ? E.videoExtension(blob) : "png", snapshot.date); status(""); }
     } catch (error) { status(`Export failed: ${error.message}`, true); }
     finally {
       exportController.abort(); exportController = null;

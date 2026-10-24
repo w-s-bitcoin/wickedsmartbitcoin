@@ -28,17 +28,18 @@ async function testDcaValuation() {
     CustomEvent: class {},
   };
   vm.createContext(sandbox);
+  vm.runInContext(readFileSync(new URL('webapps/shared/dashboard_charting.js', root), 'utf8'), sandbox);
   vm.runInContext(app.replace(/\binit\(\);\s*$/, `
     globalThis.testDca = {
       state, buildCadenceCaches, buildPriceRowsFromSeries, getFrameRows,
       getDateRangeFinalFrameStartIndex,
-      encodeDateRangeAnimationWebM,
+      encodeDateRangeAnimationVideo,
       setDrawExportFrame(fn) { drawExportFrame = fn; },
       setQuote(quote) { dcaSpotFeed = { current: () => quote }; },
     };`), sandbox);
   const { state, buildCadenceCaches, buildPriceRowsFromSeries, getFrameRows,
     getDateRangeFinalFrameStartIndex,
-    encodeDateRangeAnimationWebM, setDrawExportFrame, setQuote } = sandbox.testDca;
+    encodeDateRangeAnimationVideo, setDrawExportFrame, setQuote } = sandbox.testDca;
   const recovered = buildPriceRowsFromSeries([
     { dateIso: twoDaysAgo, timestampUtc: '', blockHeight: 1, historicalPrice: 100,
       daysAgo: 2, purchaseCount: 2, dcaBasis: 2 / (1 / 100 + 1 / 200) },
@@ -111,7 +112,7 @@ async function testDcaValuation() {
     captured.push(exportRows);
   });
   sandbox.window.WSBDashboardExport = {
-    async encodeWebM({ frames, renderFrame }) {
+    async encodeVideo({ frames, renderFrame }) {
       for (let index = 0; index < frames.length; index += 1) {
         await renderFrame(frames[index], {}, index);
         if (index === 2) setQuote({ price: 1600, source: 'Coinbase live', at: Date.now() });
@@ -120,7 +121,7 @@ async function testDcaValuation() {
     },
   };
   state.dateRange.startIso = twoDaysAgo;
-  await encodeDateRangeAnimationWebM({
+  await encodeDateRangeAnimationVideo({
     canvas: { width: 100, height: 100 }, ctx: {}, settings: { quality: 720 },
     theme: 'dark', palette: {},
     frameDates: [yesterday, twoDaysAgo, yesterday, yesterday],

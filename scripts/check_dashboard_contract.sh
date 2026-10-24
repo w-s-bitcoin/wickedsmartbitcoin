@@ -134,14 +134,14 @@ if grep -Eq "downloadEstimate(Size|Length|Time)|Download Animation|dateRangeDown
     echo "Contract failure in $app: animation export dashboards must use WSBDashboardExport.estimateDownload()" >&2
     exit 1
   fi
-  if grep -Fq "new MediaRecorder" "$app" && ! grep -Fq "WSBDashboardExport.encodeWebM" "$app"; then
-    echo "Contract failure in $app: MediaRecorder may only be a fallback after WSBDashboardExport.encodeWebM()" >&2
+  if ! grep -Fq '../shared/dashboard_mp4.js' "$html"; then
+    echo "Contract failure in $html: animation export dashboards must load ../shared/dashboard_mp4.js" >&2
     exit 1
   fi
 fi
 
-if grep -Eq "video/mp4|WSBMp4Muxer|12_mp4_muxer|mp4_muxer|encodeMp4|downloadMp4" "$html" "$app"; then
-  echo "Contract failure: MP4 export wiring is retired; use shared deterministic WebM export" >&2
+if grep -Eq "new MediaRecorder|WSBMp4Muxer|12_mp4_muxer|mp4_muxer|function (encodeMp4|buildMp4Blob)|const (encodeMp4|buildMp4Blob)" "$html" "$app"; then
+  echo "Contract failure: video encoding and muxing belong in the shared deterministic exporter" >&2
   exit 1
 fi
 

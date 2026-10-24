@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""EOE dashboard, publication, and actual PNG/WebM checks in isolated Chrome.
+"""EOE dashboard, publication, and actual PNG/video checks in isolated Chrome.
 
 Freeze the published generation in memory; inject failed/superseded responses
 without editing live data. Save review images outside the repository. Run from
@@ -195,7 +195,7 @@ def check_control_parity(cdp):
     dashboard(cdp, "d.querySelector('#dateRangeEndSlider').focus();d.activeElement.dispatchEvent(new w.KeyboardEvent('keydown',{key:'ArrowRight',code:'ArrowRight',bubbles:true}));")
     assert not dashboard(cdp, "return w.WSBEOEGrowthDashboard.isPlaying();")
     assert state(cdp)["currentIso"] == state(cdp)["endIso"] and state(cdp)["pausedPlayback"], state(cdp)
-    dashboard(cdp, "w.__eoeFixture.encode=w.WSBDashboardExport.encodeWebM;w.WSBDashboardExport.encodeWebM=async()=>{await new Promise(resolve=>w.__eoeFixture.releaseExport=resolve);return null;};")
+    dashboard(cdp, "w.__eoeFixture.encode=w.WSBDashboardExport.encodeVideo;w.WSBDashboardExport.encodeVideo=async()=>{await new Promise(resolve=>w.__eoeFixture.releaseExport=resolve);return null;};")
     click(cdp, "#dateRangeDownloadBtn")
     wait_for(lambda: dashboard(cdp, "return !!w.__eoeFixture.releaseExport;"), description="held export control fixture")
     assert dashboard(cdp, "return d.querySelector('#dateRangeDownloadBtn').title==='Cancel download'&&d.querySelector('#downloadSettingsDownloadBtn').textContent==='Stop Download';")
@@ -204,7 +204,7 @@ def check_control_parity(cdp):
     dashboard(cdp, "w.__eoeFixture.releaseExport();")
     wait_for(lambda: dashboard(cdp, "return !w.dateRangeExportActive;"), description="cancelled export controls restored")
     assert dashboard(cdp, "return !d.querySelector('#dateRangeDownloadBtn').classList.contains('is-canceling')&&d.querySelector('#dateRangeDownloadBtn').title==='Download animation';")
-    dashboard(cdp, "w.WSBDashboardExport.encodeWebM=w.__eoeFixture.encode;")
+    dashboard(cdp, "w.WSBDashboardExport.encodeVideo=w.__eoeFixture.encode;")
     click(cdp, "#stopBtn")
     set_input(cdp, "#endDateInput", "2024-05-31", "change")
     assert_clean(cdp)
@@ -373,8 +373,8 @@ exporter.render=(ctx,width,height,options)=>{
   ctx.drawImage=function(image,...args){record.images.push({source:image.currentSrc||image.src||'',width:image.naturalWidth,height:image.naturalHeight});return drawImage.call(ctx,image,...args);};
   try{return nativeRender(ctx,width,height,options);}finally{ctx.fillText=fillText;ctx.drawImage=drawImage;fixture.renders.push(record);}
 };
-const encode=w.WSBDashboardExport.encodeWebM;
-w.WSBDashboardExport.encodeWebM=options=>{
+const encode=w.WSBDashboardExport.encodeVideo;
+w.WSBDashboardExport.encodeVideo=options=>{
   fixture.video={frames:[...options.frames],rendered:[],width:options.width,height:options.height,fps:options.fps,settings:{...options.settings}};
   const render=options.renderFrame;
   return encode({...options,renderFrame:async(...args)=>{fixture.video.rendered.push(args[0]);return render(...args);}});
@@ -400,13 +400,13 @@ def export_blob(cdp, extension, output):
         if(blob.type==='image/png'){const bitmap=await createImageBitmap(blob);width=bitmap.width;height=bitmap.height;bitmap.close();}
         else{
           const video=d.createElement('video'),url=URL.createObjectURL(blob);
-          await new Promise((resolve,reject)=>{video.onloadeddata=resolve;video.onerror=()=>reject(new Error('WebM decode failed'));video.preload='auto';video.src=url;});
+          await new Promise((resolve,reject)=>{video.onloadeddata=resolve;video.onerror=()=>reject(new Error('Video decode failed'));video.preload='auto';video.src=url;});
           width=video.videoWidth;height=video.videoHeight;duration=video.duration;
           video.muted=true;d.body.append(video);
           await new Promise((resolve,reject)=>{video.requestVideoFrameCallback(()=>{video.pause();resolve();});video.play().catch(reject);});
           const canvas=d.createElement('canvas');canvas.width=width;canvas.height=height;canvas.getContext('2d').drawImage(video,0,0);frame=canvas.toDataURL('image/png').split(',')[1];
           const pixels=canvas.getContext('2d').getImageData(0,0,width,height).data;
-          if(!pixels.some((value,index)=>index%4!==3&&value>30))throw new Error('Decoded WebM frame is blank');
+          if(!pixels.some((value,index)=>index%4!==3&&value>30))throw new Error('Decoded video frame is blank');
           video.remove();
           URL.revokeObjectURL(url);
         }
@@ -415,7 +415,13 @@ def export_blob(cdp, extension, output):
     """)
     content = base64.b64decode(result.pop("data"))
     assert len(content) > 1000
-    assert content.startswith(b"\x89PNG\r\n\x1a\n" if extension == "png" else b"\x1aE\xdf\xa3")
+    actual_extension = {"image/png": "png", "video/mp4": "mp4", "video/webm": "webm"}[result["type"]]
+    assert result["name"].endswith("." + actual_extension), result
+    if actual_extension == "mp4":
+        assert content[4:8] == b"ftyp", result
+    else:
+        assert content.startswith(b"\x89PNG\r\n\x1a\n" if actual_extension == "png" else b"\x1aE\xdf\xa3"), result
+    output = output.with_suffix("." + actual_extension)
     output.write_bytes(content)
     if frame := result.pop("frame", None):
         output.with_name(output.stem + "-frame.png").write_bytes(base64.b64decode(frame))
@@ -456,7 +462,7 @@ def check_exports(cdp, output):
     set_input(cdp, "#endDateInput", "2026-03-19", "change")
     if dashboard(cdp, "return d.querySelector('#downloadEndFrameHoldToggle').checked;"):
         click(cdp, "#downloadEndFrameHoldToggle")
-    video = export_blob(cdp, "webm", output / "export-short.webm")
+    video = export_blob(cdp, "video", output / "export-short.mp4")
     assert (video["width"], video["height"]) == (1280, 720), video
     assert video["record"]["date"] == "2026-03-19"
     frame_record = dashboard(cdp, "return w.__eoeFixture.video;")
@@ -467,7 +473,7 @@ def check_exports(cdp, output):
     assert len(faces) >= 3 and all(face["status"] == "loaded" for face in faces), faces
     (output / "export-records.json").write_text(json.dumps({"exports": records, "video": frame_record, "fonts": faces}, indent=2))
     assert_clean(cdp)
-    print("PASS exports: decoded 4K PNG in all orientations with low video quality, light/dark, real short WebM", flush=True)
+    print("PASS exports: decoded 4K PNG in all orientations with low video quality, light/dark, real short video", flush=True)
 
 
 def check_fast_intro(cdp, direct, output, *, encode=True):
@@ -584,7 +590,7 @@ def check_fast_intro(cdp, direct, output, *, encode=True):
             planned = estimate()
             assert planned["options"]["frameCount"] == len(expected), planned
             dashboard(cdp, "w.__eoeFixture.renders=[];")
-            result = export_blob(cdp, "webm", output / ("fast-intro-on.webm" if enabled else "fast-intro-off.webm"))
+            result = export_blob(cdp, "video", output / ("fast-intro-on.mp4" if enabled else "fast-intro-off.mp4"))
             recorded = dashboard(cdp, "return {video:w.__eoeFixture.video,renders:w.__eoeFixture.renders.map(({index,date,growth})=>({index,date,growth}))};")
             assert recorded["video"]["frames"] == expected and recorded["video"]["rendered"] == expected, recorded
             assert [frame["index"] for frame in recorded["renders"]] == expected, recorded
@@ -596,7 +602,7 @@ def check_fast_intro(cdp, direct, output, *, encode=True):
             exports.append({"enabled": enabled, "result": result, **recorded})
         # Keep the new default for callers that proceed to other export checks.
         toggle(True)
-        print("PASS fast intro WebM: 5 fast vs 11 uniform submitted/rendered frames, exact decoded durations, first EOE and final frames retained", flush=True)
+        print("PASS fast intro video: 5 fast vs 11 uniform submitted/rendered frames, exact decoded durations, first EOE and final frames retained", flush=True)
     (output / "fast-intro-records.json").write_text(json.dumps({"firstGrowthIndex": first, "firstGrowthDate": bounds["date"], "estimates": estimates, "exports": exports}, indent=2))
     assert_clean(cdp)
 
@@ -604,8 +610,8 @@ def check_fast_intro(cdp, direct, output, *, encode=True):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", default="/tmp/eoe-growth-review")
-    parser.add_argument("--skip-exports", action="store_true", help="Run UI/state/refresh checks without real PNG/WebM encoding")
-    parser.add_argument("--fast-intro-only", action="store_true", help="Run only the fast-intro controls, estimates, and short boundary WebM checks")
+    parser.add_argument("--skip-exports", action="store_true", help="Run UI/state/refresh checks without real PNG/video encoding")
+    parser.add_argument("--fast-intro-only", action="store_true", help="Run only the fast-intro controls, estimates, and short boundary video checks")
     args = parser.parse_args()
     output = Path(args.output_dir).resolve()
     output.mkdir(parents=True, exist_ok=True)

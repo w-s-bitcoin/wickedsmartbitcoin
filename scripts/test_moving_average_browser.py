@@ -1024,8 +1024,8 @@ def check_layout_and_export(cdp):
     dashboard(cdp, "const checkbox=d.querySelector('#downloadEndFrameHoldToggle'); checkbox.checked=false; checkbox.dispatchEvent(new w.Event('change',{bubbles:true}));")
     click(cdp, '#downloadFpsSelect button[data-value="60"]')
     dashboard(cdp, """
-      const original=w.WSBDashboardExport.encodeWebM;
-      w.WSBDashboardExport.encodeWebM=options=>{
+      const original=w.WSBDashboardExport.encodeVideo;
+      w.WSBDashboardExport.encodeVideo=options=>{
         w.__maFixture.exportFrames=[...options.frames]; w.__maFixture.renderedFrames=[];
         const render=options.renderFrame;
         return original({...options,renderFrame:async (...args)=>{w.__maFixture.renderedFrames.push(args[0]);return render(...args);}});
@@ -1044,23 +1044,23 @@ def check_layout_and_export(cdp):
     assert dashboard(cdp, "return w.__maFixture.lastExport.lines;") == state(cdp)["lines"]
     assert dashboard(cdp, "return w.WSBDashboardExport.hasWebCodecsExportSupport();"), "Chrome lacks required WebCodecs export support"
     click(cdp, "#dateRangeDownloadBtn")
-    wait_for(lambda: dashboard(cdp, "return w.__maFixture.downloads.some(item=>item.name.endsWith('.webm'));"), timeout=60, description="actual deterministic WebM export")
-    result = dashboard(cdp, "return (async()=>{const item=w.__maFixture.downloads.find(item=>item.name.endsWith('.webm'));return {size:item.blob.size,type:item.blob.type,signature:Array.from(new Uint8Array(await item.blob.slice(0,4).arrayBuffer())),frames:w.__maFixture.exportFrames,rendered:w.__maFixture.renderedFrames,last:w.__maFixture.lastExport};})();")
-    assert result["size"] > 1000 and result["type"] == "video/webm", result
-    assert result["signature"] == [26,69,223,163], result
+    wait_for(lambda: dashboard(cdp, "return w.__maFixture.downloads.some(item=>item.blob.type.startsWith('video/'));"), timeout=60, description="actual deterministic video export")
+    result = dashboard(cdp, "return (async()=>{const item=w.__maFixture.downloads.find(item=>item.blob.type.startsWith('video/'));return {size:item.blob.size,type:item.blob.type,signature:Array.from(new Uint8Array(await item.blob.slice(0,8).arrayBuffer())),frames:w.__maFixture.exportFrames,rendered:w.__maFixture.renderedFrames,last:w.__maFixture.lastExport};})();")
+    assert result["size"] > 1000 and result["type"] in ("video/mp4", "video/webm"), result
+    assert (result["signature"][4:8] == [102,116,121,112] if result["type"] == "video/mp4" else result["signature"][:4] == [26,69,223,163]), result
     assert len(result["frames"]) == 4 and result["frames"] == result["rendered"], result
     assert result["last"]["date"] == "2024-05-31" and result["last"]["lines"] == state(cdp)["lines"]
     click(cdp, "#playBtn"); click(cdp, "#pauseBtn")
     set_input(cdp, "#dateRangeEndSlider", dashboard(cdp, "return w.WSBMovingAverageDashboard.getModel().rows.findIndex(row=>row.date==='2024-05-30');"))
     prior_downloads = dashboard(cdp, "return w.__maFixture.downloads.length;")
     click(cdp, "#dateRangeDownloadBtn")
-    wait_for(lambda: dashboard(cdp, f"return w.__maFixture.downloads.length>{prior_downloads};"), timeout=60, description="paused-range WebM export")
+    wait_for(lambda: dashboard(cdp, f"return w.__maFixture.downloads.length>{prior_downloads};"), timeout=60, description="paused-range video export")
     result = dashboard(cdp, "return {name:w.__maFixture.downloads.at(-1).name,frames:w.__maFixture.exportFrames,last:w.__maFixture.lastExport};")
     assert len(result["frames"]) == 3 and result["last"]["date"] == "2024-05-30", result
-    assert result["name"].endswith("2024-05-30.webm"), result
+    assert result["name"].endswith(("2024-05-30.mp4", "2024-05-30.webm")), result
     assert state(cdp)["endIso"] == "2024-05-31", "Export changed the playback target"
     assert_clean(cdp)
-    print("PASS presentation: dark/light desktop/mobile, three canvases, real PNG/WebM, export ends at visible paused date", flush=True)
+    print("PASS presentation: dark/light desktop/mobile, three canvases, real PNG/video, export ends at visible paused date", flush=True)
 
 
 def check_export_refresh(cdp):
@@ -1071,8 +1071,8 @@ def check_export_refresh(cdp):
     errors = dashboard(cdp, "return w.__maFixture.events.filter(event=>event.status==='error').length;")
     downloads = dashboard(cdp, "return w.__maFixture.downloads.length;")
     dashboard(cdp, """
-      const encode=w.WSBDashboardExport.encodeWebM;
-      w.WSBDashboardExport.encodeWebM=async options=>{
+      const encode=w.WSBDashboardExport.encodeVideo;
+      w.WSBDashboardExport.encodeVideo=async options=>{
         await new Promise(resolve=>{w.__maFixture.releaseExport=resolve;});
         return encode(options);
       };
@@ -1192,7 +1192,7 @@ def check_average_types(cdp, direct):
     wait_for(lambda:dashboard(cdp,"return w.__maFixture.downloads.filter(item=>item.name.endsWith('.png')).length===2;"),description="single-average portrait PNG")
     dashboard(cdp,"const hold=d.querySelector('#downloadEndFrameHoldToggle');hold.checked=false;hold.dispatchEvent(new w.Event('change',{bubbles:true}));")
     click(cdp,"#dateRangeDownloadBtn")
-    wait_for(lambda:dashboard(cdp,"return w.__maFixture.downloads.some(item=>item.name.endsWith('.webm'));"),timeout=60,description="single-average WebM")
+    wait_for(lambda:dashboard(cdp,"return w.__maFixture.downloads.some(item=>item.blob.type.startsWith('video/'));"),timeout=60,description="single-average video")
     exports=dashboard(cdp,"return w.__maFixture.singleExports;")
     assert len(exports)>=6 and all(frame["clips"]==2 and frame["secondStrokes"]==0 and any('9D EMA' in text for text in frame["text"]) and not any('17M' in text or '17 Month' in text for text in frame["text"]) for frame in exports),exports[:1]
     assert {(frame["width"],frame["height"]) for frame in exports}=={(1280,720),(720,1280)}
@@ -1287,8 +1287,8 @@ def check_live_price(cdp, direct):
     click(cdp,'#downloadFpsSelect button[data-value="60"]')
     dashboard(cdp,f"""
       w.__maFixture.liveExports=[];
-      const encode=w.WSBDashboardExport.encodeWebM;
-      w.WSBDashboardExport.encodeWebM=options=>{{
+      const encode=w.WSBDashboardExport.encodeVideo;
+      w.WSBDashboardExport.encodeVideo=options=>{{
         w.__maFixture.liveFrameCount=options.frames.length;
         w.__maFixture.liveFinalStart=options.frames.findLastIndex(index=>index!==options.frames.at(-1))+1;
         const render=options.renderFrame;
@@ -1301,7 +1301,7 @@ def check_live_price(cdp, direct):
       }};
     """)
     click(cdp,"#dateRangeDownloadBtn")
-    wait_for(lambda: dashboard(cdp,"return w.__maFixture.downloads.some(item=>item.name.endsWith('.webm'));"),timeout=60,description="live final-frame WebM")
+    wait_for(lambda: dashboard(cdp,"return w.__maFixture.downloads.some(item=>item.blob.type.startsWith('video/'));"),timeout=60,description="live final-frame video")
     exported=dashboard(cdp,"return {frames:w.__maFixture.liveExports,count:w.__maFixture.liveFrameCount,finalStart:w.__maFixture.liveFinalStart};")
     assert exported["count"] == len(exported["frames"]) and len(exported["frames"]) > 3, exported
     final_frames=exported["frames"][exported["finalStart"]:]
@@ -1361,7 +1361,7 @@ def check_live_price(cdp, direct):
     wait_for(lambda: cdp.evaluate("document.querySelector('#movingAveragePreview').dataset.priceSource==='retained'"),description="preview retained quote")
     assert cdp.evaluate("window.__maFixture.previewFrame.row.price") == quoted+10
     assert cdp.evaluate("window.__maFixture.errors") == []
-    print("PASS live price: isolated quotes, live MA endpoints, two-decimal KPIs, charts/hover/preview, retained outage value, immutable history, publication wins, next-day row, frozen PNG/WebM final quote",flush=True)
+    print("PASS live price: isolated quotes, live MA endpoints, two-decimal KPIs, charts/hover/preview, retained outage value, immutable history, publication wins, next-day row, frozen PNG/video final quote",flush=True)
 
 
 def main():

@@ -42,7 +42,7 @@ defaults; do not ask again for work the user has already authorized.
   when updating an older one. Track remaining gaps in that dashboard's README;
   do not expand a narrow task into an unrelated whole-dashboard migration.
 - Reuse `webapps/shared/` controls, chart helpers, embedding, and
-  deterministic WebM export; timezone preferences live in
+  deterministic MP4/WebM export; timezone preferences live in
   `js/11_dashboard_timezone_preferences.js`. Preserve theme, URL state,
   localStorage keys, keyboard behavior, iframe navigation, resizing, and
   playback unless the task calls for a change.

@@ -212,8 +212,8 @@ def check_exports(cdp, output):
     choose(cdp, "downloadOrientationSelect", "landscape")
     choose(cdp, "downloadFpsSelect", "60")
     dashboard(cdp, """
-      const encode=w.WSBDashboardExport.encodeWebM;
-      w.WSBDashboardExport.encodeWebM=async options=>{
+      const encode=w.WSBDashboardExport.encodeVideo;
+      w.WSBDashboardExport.encodeVideo=async options=>{
         const f=w.__eoeLiveFixture,draw=options.renderFrame;
         const renderFrame=async(...args)=>{f.position=args[2];await f.beforeFrame?.(...args);return draw(...args);};
         if(!f.stubEncode)return encode({...options,renderFrame});
@@ -242,7 +242,7 @@ def check_exports(cdp, output):
             if(position>f.opening+3)f.emit(170000+position);
           };
         """)
-        result = export_blob(cdp, "webm", output / ("live-ending-holds.webm" if holds else "live-ending.webm"))
+        result = export_blob(cdp, "video", output / ("live-ending-holds.mp4" if holds else "live-ending.mp4"))
         captures = live(cdp, "return {renders:f.renders,initial:f.initialExpected,final:f.finalExpected,refreshes:f.refreshes};")
         renders = captures["renders"]
         assert len(renders) == (123 if holds else 3), len(renders)
