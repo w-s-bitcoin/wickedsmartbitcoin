@@ -24,7 +24,7 @@
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@600&display=swap&text=%3F" rel="stylesheet" />
         <link rel="stylesheet" href="assets/styles.css?v=20261024-card-crossfade" />
-        <link rel="stylesheet" href="assets/homepage.css?v=20261025-block-red-text" />
+        <link rel="stylesheet" href="assets/homepage.css?v=20261025-block-light-green" />
         <link rel="manifest" href="manifest.json" />
         <link rel="preload" href="assets/image_list.json" as="fetch" crossorigin />
         <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -216,7 +216,7 @@
                         <div class="snapshot-block-meter" id="homeKpiBlockMeter" data-end-tick="1">
                             <span class="snapshot-block-zero" id="homeKpiBlockZero" aria-hidden="true" title="Zero: the displayed block timestamp"></span>
                             <div class="snapshot-block-ticks" id="homeKpiBlockTicks" aria-hidden="true"><span data-minutes="10" style="right: 0">10m</span></div>
-                            <progress id="homeKpiBlockProgress" max="100" value="0" aria-label="Time since the displayed block" aria-valuetext="Waiting for data" title="For a timestamp ahead of this clock, the gray bar and the space left of zero shrink together. Zero reaches the left edge when the countdown ends. Elapsed time then grows to the right in 10-minute bands: bright green, dark green, orange, dark orange, then red after 40 minutes. Ticks to the right mark 10-minute elapsed intervals; that scale expands after 10 minutes."></progress>
+                            <progress id="homeKpiBlockProgress" max="100" value="0" aria-label="Time since the displayed block" aria-valuetext="Waiting for data" title="For a timestamp ahead of this clock, the gray bar and the space left of zero shrink together. Zero reaches the left edge when the countdown ends. Elapsed time then grows to the right: bright green through 20 minutes, orange through 30, dark orange through 40, then red. Ticks to the right mark 10-minute elapsed intervals; that scale expands after 10 minutes."></progress>
                         </div>
                         <div class="snapshot-caption snapshot-block-caption">
                             <time id="homeKpiBlockTime">Waiting for data</time>
@@ -236,10 +236,10 @@
                         <div class="snapshot-caption" id="homeKpiHalvingCaption">Waiting for data</div>
                     </article>
                     <article class="snapshot-card" aria-labelledby="mining-heading">
-                        <div class="snapshot-card-heading"><h3 id="mining-heading" aria-label="Next difficulty adjustment"><span class="snapshot-heading-full" aria-hidden="true">Next difficulty adjustment</span><span class="snapshot-heading-short" aria-hidden="true">Next diff. adj.</span></h3><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 9 5v10l-9 5-9-5V7Z"/><path d="m10.5 8-1 8m5-8-1 8M8 10.5h8m-8 3h8"/></svg></div>
+                        <div class="snapshot-card-heading snapshot-difficulty-heading"><h3 id="mining-heading" aria-label="Next difficulty adjustment"><span class="snapshot-heading-full" aria-hidden="true">Next difficulty adjustment</span><span class="snapshot-heading-short" aria-hidden="true">Next diff. adj.</span><span class="snapshot-heading-narrow" aria-hidden="true">Diff. adj.</span></h3><span class="snapshot-difficulty-estimate" id="homeKpiDifficultyEstimate" hidden><svg class="snapshot-difficulty-arrow" viewBox="0 0 18 18" fill="currentColor" aria-hidden="true"><path d="M2 11.5 9 4.5l7 7H2Z"/></svg><span id="homeKpiDifficultyEstimateValue"></span></span></div>
                         <div class="snapshot-value"><span id="homeKpiDifficultyRemaining">—</span><span class="snapshot-unit">blocks away</span></div>
-                        <progress id="homeKpiDifficultyProgress" max="100" value="0" aria-label="Current difficulty epoch completed"></progress>
-                        <div class="snapshot-caption" id="homeKpiDifficultyCaption">Waiting for data</div>
+                        <div class="snapshot-difficulty-meter" id="homeKpiDifficultyMeter" data-pace="unknown" data-tooltip=""><progress id="homeKpiDifficultyProgress" max="100" value="0" tabindex="0" aria-label="Current difficulty epoch completed"></progress><span class="snapshot-difficulty-variance" aria-hidden="true"></span><span class="snapshot-difficulty-schedule-mark" aria-hidden="true"></span></div>
+                        <div class="snapshot-caption" id="homeKpiDifficultyEpochCaption">Waiting for data</div>
                     </article>
                 </div>
                 <div class="snapshot-footnote">
@@ -248,10 +248,10 @@
                         <summary>What do these numbers mean? <span aria-hidden="true">+</span></summary>
                         <div class="snapshot-glossary-panel">
                             <dl>
-                                <div><dt>Block height</dt><dd>A block's position in Bitcoin's chain, starting at zero. The counter measures time since the displayed block's miner timestamp. Elapsed time grows right of the zero mark on a 10-minute scale, expanding with longer waits; ticks mark every 10 minutes. The bar keeps each elapsed band: bright green for 0–10 minutes, dark green for 10–20, orange for 20–30, dark orange for 30–40, and red above 40. If the timestamp is ahead of your clock, a negative counter and gray bar shrink until that time arrives. The space left of zero shrinks with the bar, moving zero to the left edge and leaving the full width for elapsed time. This is not a countdown to the next block.</dd></div>
+                                <div><dt>Block height</dt><dd>A block's position in Bitcoin's chain, starting at zero. The counter measures time since the displayed block's miner timestamp. Elapsed time grows right of the zero mark on a 10-minute scale, expanding with longer waits; ticks mark every 10 minutes. The counter and bar use bright green for 0–20 minutes, orange for 20–30, dark orange for 30–40, and red above 40. If the timestamp is ahead of your clock, a negative counter and gray bar shrink until that time arrives. The space left of zero shrinks with the bar, moving zero to the left edge and leaving the full width for elapsed time. This is not a countdown to the next block.</dd></div>
                                 <div><dt>Bitcoin issued</dt><dd>BTC issued so far, approaching a limit of 21 million. The bar shows the share already issued. Between published updates, supply is estimated from the latest published total plus each new block's scheduled subsidy.</dd></div>
                                 <div><dt>Halving epoch</dt><dd>Every 210,000 blocks, the block subsidy is cut in half. The large number counts blocks until the next halving, and the bar shows progress through the current epoch.</dd></div>
-                                <div><dt>Difficulty adjustment</dt><dd>Difficulty adjusts every 2,016 blocks. The large number counts blocks until the next adjustment, and the bar shows progress through this epoch.</dd></div>
+                                <div><dt>Difficulty adjustment</dt><dd>Difficulty adjusts every 2,016 blocks. The large number counts blocks until the next adjustment. The bar compares mined blocks with the 10-minute-per-block schedule: green shows blocks ahead, red shows blocks behind. Hover over or focus the bar to see the difference in blocks. The arrow beside the title estimates the next difficulty change from the latest block pace.</dd></div>
                             </dl>
                         </div>
                     </details>
@@ -384,6 +384,6 @@
         <script src="js/10_event_bindings_global_modal_menu.js" defer></script>
         <script src="js/11_dashboard_timezone_preferences.js" defer></script>
         <script src="webapps/shared/bitcoin_chain_tip.js?v=20261024-tab-resume" defer></script>
-        <script src="js/12_homepage_kpis.js?v=20261025-block-bands" defer></script>
+        <script src="js/12_homepage_kpis.js?v=20261025-block-light-green" defer></script>
     </body>
 </html>

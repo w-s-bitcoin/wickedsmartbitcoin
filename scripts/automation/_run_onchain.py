@@ -432,6 +432,7 @@ def build_top_kpis_payload() -> dict | None:
         "target_hashrate_hps": target_hashrate_hps,
         "difficulty": difficulty,
         "difficulty_display": format_difficulty_display(difficulty),
+        "difficulty_epoch_start_timestamp": epoch_start_timestamp,
         "projected_difficulty_adjustment_percent": projected_difficulty_adjustment_percent(
             block_height, block_timestamp, epoch_start_timestamp
         ),

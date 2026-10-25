@@ -2676,6 +2676,36 @@
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  async function downloadImage() {
+    if (isDateRangeExporting || !state.rows.length) return;
+    const button = document.getElementById("downloadImageBtn");
+    button.disabled = true;
+    try {
+      const settings = {
+        ...normalizeDownloadSettings(state.downloadSettings),
+        quality: "2160",
+        dashboardSettings: getDashboardSettingsSnapshot(),
+      };
+      const { width, height } = getDownloadDimensions(settings);
+      const layout = getDownloadLayoutDimensions(settings);
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.__exportPixelWidth = width;
+      canvas.height = canvas.__exportPixelHeight = height;
+      canvas.__exportCssWidth = layout.width;
+      canvas.__exportCssHeight = layout.height;
+      scaleTransitions.finish();
+      await waitForDateRangeExportFonts();
+      renderExportFrame(canvas, state.currentIndex, settings);
+      await window.WSBDashboardExport.downloadPng(canvas,
+        `bitcoin-issuance-rate-${state.rows[state.startIndex]?.date || "start"}-${state.rows[state.currentIndex]?.date || "end"}.png`);
+    } catch (error) {
+      console.error("Unable to export issuance rate image.", error);
+      window.alert?.(error?.message || "Unable to export image.");
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   async function downloadDateRangeAnimation() {
     if (isDateRangeExporting) {
       requestDateRangeExportCancel();
@@ -3033,6 +3063,7 @@
       event.stopPropagation();
       setDashboardExpandedMode(!document.body.classList.contains("issuance-dashboard-expanded"));
     });
+    document.getElementById("downloadImageBtn")?.addEventListener("click", downloadImage);
     els.dateRangeDownloadBtn?.addEventListener("click", downloadDateRangeAnimation);
     els.downloadSettingsDownloadBtn?.addEventListener("click", downloadDateRangeAnimation);
     els.dateRangeSettingsBtn?.addEventListener("click", (event) => {

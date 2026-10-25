@@ -39,7 +39,10 @@
   const halvingCaption = byId("homeKpiHalvingCaption");
   const difficultyRemainingValue = byId("homeKpiDifficultyRemaining");
   const difficultyProgress = byId("homeKpiDifficultyProgress");
-  const difficultyCaption = byId("homeKpiDifficultyCaption");
+  const difficultyMeter = byId("homeKpiDifficultyMeter");
+  const difficultyEpochCaption = byId("homeKpiDifficultyEpochCaption");
+  const difficultyEstimate = byId("homeKpiDifficultyEstimate");
+  const difficultyEstimateValue = byId("homeKpiDifficultyEstimateValue");
   const compactSupply = window.matchMedia("(max-width: 480px)");
 
   let lastSnapshot = null;
@@ -161,7 +164,30 @@
     const projection = rawProjection == null ? null : requiredNumber(rawProjection, "projected difficulty adjustment", {
       minimum: -75, maximum: 300,
     });
-    return { height, minedAt, supply, subsidy, difficulty, projection };
+    const rawEpochStart = payload.difficulty_epoch_start_timestamp;
+    let difficultyEpochStart = rawEpochStart == null ? null : parseBlockTime(rawEpochStart);
+    if (rawEpochStart != null && (!Number.isFinite(difficultyEpochStart) || difficultyEpochStart > minedAt)) {
+      throw new Error("Invalid difficulty epoch start timestamp");
+    }
+    // Older published payloads contain only the rounded projection. Invert its
+    // pace formula until the next producer publication supplies the exact start.
+    const intervals = height % DIFFICULTY_INTERVAL;
+    if (difficultyEpochStart == null && intervals > 0 && projection != null && projection > -75 && projection < 300) {
+      const elapsed = DIFFICULTY_INTERVAL * TARGET_BLOCK_SECONDS * intervals
+        / ((DIFFICULTY_INTERVAL - 1) * (1 + projection / 100));
+      difficultyEpochStart = minedAt - elapsed * 1000;
+    }
+    return { height, minedAt, supply, subsidy, difficulty, projection, difficultyEpochStart };
+  }
+
+  function projectedAdjustment(height, minedAt, epochStart) {
+    const intervals = height % DIFFICULTY_INTERVAL;
+    const elapsed = (minedAt - epochStart) / 1000;
+    if (!intervals || !Number.isFinite(elapsed) || elapsed <= 0) return null;
+    const targetTimespan = DIFFICULTY_INTERVAL * TARGET_BLOCK_SECONDS;
+    const projectedTimespan = elapsed * (DIFFICULTY_INTERVAL - 1) / intervals;
+    const bounded = Math.max(targetTimespan / 4, Math.min(targetTimespan * 4, projectedTimespan));
+    return Math.round((targetTimespan / bounded - 1) * 10000) / 100;
   }
 
   function scheduledSupplySats(height) {
@@ -194,6 +220,9 @@
         height: liveTip.height, minedAt: liveTip.minedAt, id: liveTip.id,
         supply: supplySats === null ? null : Math.max(0, Math.min(TARGET_SUPPLY_BTC, supplySats / 100000000)),
         source: "live", supplyEstimated,
+        difficultyEpochStart: publishedSnapshot
+          && Math.floor(publishedSnapshot.height / DIFFICULTY_INTERVAL) === Math.floor(liveTip.height / DIFFICULTY_INTERVAL)
+          ? publishedSnapshot.difficultyEpochStart : null,
       };
     }
     if (!candidate) return;
@@ -332,7 +361,7 @@
     }
     // Measure tick labels after moving zero so they use the expanded positive axis.
     renderBlockScale(Math.max(TARGET_BLOCK_SECONDS, seconds));
-    const state = future ? "future" : seconds >= LATE_BLOCK_SECONDS ? "late" : seconds >= TARGET_BLOCK_SECONDS ? "slow" : "normal";
+    const state = future ? "future" : seconds >= LATE_BLOCK_SECONDS ? "late" : seconds >= TARGET_BLOCK_SECONDS * 2 ? "slow" : "normal";
     setText(blockElapsed, future ? `−${duration}` : `${duration} ago`);
     if (blockElapsed) {
       blockElapsed.dataset.elapsedState = state;
@@ -372,7 +401,7 @@
 
   function renderSnapshot() {
     if (!lastSnapshot) return;
-    const { height, minedAt, supply, supplyEstimated } = lastSnapshot;
+    const { height, minedAt, supply, supplyEstimated, difficultyEpochStart } = lastSnapshot;
     const epoch = Math.floor(height / HALVING_INTERVAL) + 1;
     const nextHalving = epoch * HALVING_INTERVAL;
     const epochMined = (height % HALVING_INTERVAL) + 1;
@@ -387,6 +416,17 @@
     const halvingText = `${formatProgressPercent(halvingPercent, 1)}% through the ${formatOrdinal(epoch)} epoch`;
     const difficultyText = `${difficultyRemaining.toLocaleString("en-US")} ${difficultyRemaining === 1 ? "block" : "blocks"} until adjustment`;
     const difficultyEpochText = `${formatProgressPercent(difficultyPercent, 1)}% through the ${formatOrdinal(difficultyEpoch)} diff. epoch`;
+    const scheduleIntervals = height % DIFFICULTY_INTERVAL;
+    const validSchedule = Number.isFinite(difficultyEpochStart) && difficultyEpochStart <= minedAt;
+    const expectedIntervals = validSchedule ? Math.max(0, (minedAt - difficultyEpochStart) / (TARGET_BLOCK_SECONDS * 1000)) : null;
+    const difference = expectedIntervals == null ? null : scheduleIntervals - expectedIntervals;
+    const pace = difference == null ? "unknown" : Math.abs(difference) < 0.5 ? "on" : difference > 0 ? "ahead" : "behind";
+    const scheduleText = pace === "ahead" ? `Ahead by ${Math.round(difference).toLocaleString("en-US")} blocks`
+      : pace === "behind" ? `Behind by ${Math.round(-difference).toLocaleString("en-US")} blocks`
+        : pace === "on" ? "On schedule" : "";
+    const estimate = lastSnapshot.source === "published" && lastSnapshot.projection != null
+      ? lastSnapshot.projection
+      : validSchedule ? projectedAdjustment(height, minedAt, difficultyEpochStart) : null;
 
     values.height.textContent = height.toLocaleString("en-US");
     values.supply.textContent = supply === null ? "—" : compactSupply.matches
@@ -404,10 +444,30 @@
     setText(halvingCaption, halvingText);
     setText(difficultyRemainingValue, difficultyRemaining.toLocaleString("en-US"));
     if (difficultyRemainingValue) difficultyRemainingValue.title = `Next adjustment at block ${(difficultyEpoch * DIFFICULTY_INTERVAL).toLocaleString("en-US")}`;
-    setText(difficultyCaption, difficultyEpochText);
+    setText(difficultyEpochCaption, difficultyEpochText);
+    if (difficultyMeter) {
+      difficultyMeter.dataset.pace = pace;
+      difficultyMeter.dataset.tooltip = scheduleText;
+      const expectedPercent = expectedIntervals == null ? difficultyPercent
+        : Math.max(0, Math.min(100, (expectedIntervals + 1) / DIFFICULTY_INTERVAL * 100));
+      difficultyMeter.style.setProperty("--schedule-expected", `${expectedPercent}%`);
+      difficultyMeter.style.setProperty("--schedule-start", `${Math.min(difficultyPercent, expectedPercent)}%`);
+      difficultyMeter.style.setProperty("--schedule-width", `${pace === "ahead" || pace === "behind" ? Math.abs(difficultyPercent - expectedPercent) : 0}%`);
+    }
+    if (difficultyEstimate && difficultyEstimateValue) {
+      difficultyEstimate.hidden = estimate == null;
+      if (estimate != null) {
+        const trend = estimate > 0 ? "up" : estimate < 0 ? "down" : "flat";
+        difficultyEstimate.dataset.trend = trend;
+        difficultyEstimateValue.textContent = `${Math.abs(estimate).toFixed(2)}%`;
+        const description = `Estimated next difficulty adjustment: ${trend === "up" ? "increase" : trend === "down" ? "decrease" : "no change"} ${Math.abs(estimate).toFixed(2)}%`;
+        difficultyEstimate.setAttribute("aria-label", description);
+        difficultyEstimate.title = description;
+      }
+    }
     setProgress(supplyProgress, supplyPercent, supplyText);
     setProgress(halvingProgress, halvingPercent, halvingText);
-    setProgress(difficultyProgress, difficultyPercent, `${difficultyEpochText}; ${difficultyText}`);
+    setProgress(difficultyProgress, difficultyPercent, `${difficultyEpochText}; ${difficultyText}${scheduleText ? `; ${scheduleText.toLowerCase()} at the latest block` : ""}`);
   }
 
   async function refreshSnapshot() {

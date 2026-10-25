@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Decode legacy video/Node PNG exports and check their shared creator/QR footer.
+"""Decode dashboard video and PNG exports and check their shared creator/QR footer.
 
 Uses frozen local payloads and isolated Chrome. Only two frames per export are
 encoded; output PNG review images are written to /tmp, never to live data paths.
@@ -87,7 +87,10 @@ DECODE = r"""
       video.pause();canvas.width=video.videoWidth;canvas.height=video.videoHeight;
     }
     const ctx=canvas.getContext('2d');ctx.drawImage(bitmap||video,0,0);bitmap?.close();
-    const render=__footerTest.renders.at(-1);
+    // Estimate calibration can draw another footer after the requested PNG.
+    const render=(item.blob.type==='image/png'
+      ? __footerTest.renders.findLast(entry=>entry.metrics.width===canvas.width&&entry.metrics.height===canvas.height)
+      : null)||__footerTest.renders.at(-1);
     const decodedImages=render.images.map(image=>{
       const x=Math.floor(image.x*canvas.width/render.metrics.width),y=Math.floor(image.y*canvas.height/render.metrics.height);
       const width=Math.max(1,Math.floor(image.width*canvas.width/render.metrics.width)),height=Math.max(1,Math.floor(image.height*canvas.height/render.metrics.height));
@@ -153,6 +156,7 @@ def main():
     parser.add_argument("slugs", nargs="*", choices=SLUGS)
     parser.add_argument("--output-dir", default="/tmp/wsb-export-footer-review")
     parser.add_argument("--theme", choices=("dark", "light"), default="dark")
+    parser.add_argument("--images-only", action="store_true", help="Check 2160 PNG actions without encoding video")
     args = parser.parse_args()
     output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=True)
@@ -180,16 +184,19 @@ def main():
             cdp.command("Network.enable")
             cdp.command("Page.addScriptToEvaluateOnNewDocument", {"source": SHIM})
             cdp.command("Page.addScriptToEvaluateOnNewDocument", {"source": f"localStorage.setItem('quantum-research-dashboard-theme',{json.dumps(args.theme)});"})
-            for slug in args.slugs or SLUGS:
+            for slug in args.slugs or (("days_since_ath", "dca_comparison", "issuance_rate", "uoa", "patoshi_pattern") if args.images_only else SLUGS):
                 # Node's existing Plotly loader uses its public CDN mirrors.
                 cdp.command("Network.setBlockedURLs", {"urls": ["*fonts.googleapis.com*", "*fonts.gstatic.com*"] if slug == "node_count" else ["https://*", "wss://*"]})
                 cdp.command("Page.navigate", {"url": f"http://127.0.0.1:{port}/webapps/{slug}/dashboard.html"})
-                selector = "#downloadBtn" if slug == "patoshi_pattern" else "#dateRangeDownloadBtn"
+                selector = "#downloadImageBtn" if args.images_only else ("#downloadBtn" if slug == "patoshi_pattern" else "#dateRangeDownloadBtn")
                 if slug == "node_count":
                     wait_for(lambda: cdp.evaluate("!!document.querySelector('#historyChart')?.data?.length"), timeout=60, description="Node Plotly data")
                 else:
                     wait_for(lambda: cdp.evaluate(f"!!document.querySelector('{selector}:not([disabled])') && !!window.WSBDashboardExportBranding"), timeout=60, description=slug)
                     wait_for(lambda: cdp.evaluate("Array.from(document.querySelectorAll('input[type=date],input[type=datetime-local]')).some(input=>!!input.value)"), timeout=60, description=f"{slug} data")
+                    if args.images_only:
+                        video_selector = "#downloadBtn" if slug == "patoshi_pattern" else "#dateRangeDownloadBtn"
+                        assert cdp.evaluate(f"(() => {{const image=document.querySelector('{selector}'),video=document.querySelector('{video_selector}');return video?.previousElementSibling===image&&getComputedStyle(image).display!=='none'&&image.getBoundingClientRect().width>=30;}})()"), slug
                 cdp.evaluate(INSTRUMENT)
                 for orientation in (("history", "software") if slug == "node_count" else ("landscape", "portrait", "square")):
                     count = cdp.evaluate("__footerTest.downloads.length")
@@ -199,7 +206,8 @@ def main():
                         cdp.evaluate(f"document.querySelector('#downloadOrientationSelect [data-value={orientation}]').click();document.querySelector('#downloadQualitySelect [data-value=\"720\"]').click();")
                         cdp.evaluate(f"document.querySelector('#downloadThemeSelect [data-value={args.theme}]')?.click()")
                         cdp.evaluate(f"document.querySelector('{selector}').click()")
-                    wait_for(lambda: cdp.evaluate(f"__footerTest.downloads.length>{count} || __footerTest.errors.length"), timeout=60, description=f"{slug} {orientation} video")
+                    wait_for(lambda: cdp.evaluate(f"__footerTest.downloads.length>{count} || __footerTest.errors.length"), timeout=60,
+                             description=f"{slug} {orientation} {'image' if args.images_only else 'video'}")
                     assert cdp.evaluate("__footerTest.errors") == [], (slug, orientation, cdp.evaluate("({errors:__footerTest.errors,diagnostics:__footerTest.diagnostics,decoder:__footerTest.decoder})"))
                     result = cdp.evaluate(DECODE)
                     image = result.pop("frame")
@@ -207,11 +215,18 @@ def main():
                     assert result["bytes"] > 1000, result
                     extension = {"image/png": "png", "video/mp4": "mp4", "video/webm": "webm"}[result["type"]]
                     assert result["name"].endswith("." + extension), result
+                    if args.images_only:
+                        assert result["type"] == "image/png", result
+                        assert (result["width"], result["height"]) == {
+                            "landscape": (3840, 2160), "portrait": (2160, 3840), "square": (2160, 2160),
+                        }[orientation], result
                     if slug == "node_count":
                         assert (result["width"], result["height"]) == (3840, 2160), result
                     assert result["errors"] == [], result["errors"]
                     assert_footer_url(result)
                     render = result["render"]
+                    if args.images_only and slug == "uoa":
+                        assert (render["metrics"]["width"], render["metrics"]["height"]) == (result["width"], result["height"]), render
                     assert render["url"] == f"https://wickedsmartbitcoin.com/{slug}", render
                     images = render["images"]
                     assert any(image["src"].endswith("wicked-apple.png") for image in images), render

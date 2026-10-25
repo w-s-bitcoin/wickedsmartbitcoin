@@ -323,3 +323,22 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* Image action beside animation download on dashboards with local playback CSS. */
+.date-range-image-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  min-width: 30px;
+  padding: 0;
+}
+.date-range-image-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

@@ -96,6 +96,15 @@ including saved navigation snapshots. Their direct URLs remain available.
 
 The landing page uses `assets/homepage.css`, scoped to `.homepage`, after the shared `assets/styles.css`. Its compact network snapshot shows the latest received block, issued supply, blocks until the next halving, and blocks until the next difficulty adjustment. The block timestamp and progress percentages sit directly beneath the bars. Timestamps and the separate footer clock follow the selected time zone. Dashboards have separate publication schedules.
 
+The difficulty card compares blocks mined in the current 2,016-block epoch with
+the 10-minute target pace at the latest block timestamp. Green marks the number
+of blocks ahead of schedule; red marks the gap when behind. Hovering or focusing
+the bar reveals the block difference. The heading shows
+the projected next adjustment with an up/down arrow. The onchain top-KPI payload
+publishes `difficulty_epoch_start_timestamp` for exact comparisons. Older
+payloads infer that start from their rounded projection until replaced; a cold
+live tip without a same-epoch anchor leaves the comparison unavailable.
+
 `webapps/shared/bitcoin_chain_tip.js` subscribes to the public mempool.space
 block WebSocket. Its initial block list catches up on arrival; new block events
 update all four cards together without waiting for Pages deployment. Heartbeats
@@ -124,9 +133,9 @@ The block card's elapsed counter updates every second while visible, using the
 displayed block's miner timestamp rather than fetch or page-load time. Its bar
 fills at 10 minutes, then expands its scale with the elapsed time. Tick marks
 remain at every 10-minute interval; compact labels stay to the right of the
-block height and thin out on narrow cards to avoid overlap. The bar retains
-five color bands as it grows: bright green for 0–10 minutes, dark green for
-10–20, orange for 20–30, dark orange for 30–40, and red after 40 minutes. Its
+block height and thin out on narrow cards to avoid overlap. The counter and bar
+stay bright green for 0–20 minutes, then turn orange for 20–30, dark orange
+for 30–40, and red after 40 minutes. Its
 orange uses the same `--brand` color as the other bars in both themes. This
 measures elapsed time, not an estimate of the next block.
 Timestamps ahead of the browser clock show a negative counter and a gray bar

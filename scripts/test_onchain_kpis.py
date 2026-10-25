@@ -45,6 +45,7 @@ class OnchainKpiTests(unittest.TestCase):
         self.assertEqual(payload["target_hex"], runner.target_hex_from_bits("17021ec5"))
         self.assertGreater(payload["target_hashrate_hps"], 0)
         self.assertEqual(payload["difficulty_display"], "132.76T")
+        self.assertEqual(payload["difficulty_epoch_start_timestamp"], 1789801745)
         self.assertEqual(payload["projected_difficulty_adjustment_percent"], -2.29)
 
     def test_failed_git_preflight_leaves_no_empty_priority_stage(self):
