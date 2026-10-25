@@ -1231,7 +1231,7 @@
       y: kpiY,
       width: width - margin * 2,
     }, palette);
-    const footerH = Math.max(54, Math.round(Math.min(width, height) * ((width <= height ? 150 : 122) / 1080)));
+    const footerH = window.WSBDashboardExport.getFooterHeight(width, height);
     const chartTop = kpiY + kpiMetrics.height;
     const chartArea = {
       x: margin,

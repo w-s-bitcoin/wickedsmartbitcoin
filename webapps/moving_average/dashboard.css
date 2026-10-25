@@ -43,7 +43,7 @@ button { cursor: pointer; }
 [hidden] { display: none !important; }
 .moving-average-wrap { min-height: 100vh; }
 .topbar, .date-range-panel, .chart-panel { border: 1px solid var(--panel-border); border-radius: 14px; background: var(--panel); }
-.topbar { display: grid; gap: 10px; padding: 10px 12px; z-index: 10; }
+.topbar { display: grid; gap: 8px; padding: 10px 12px; z-index: 10; }
 .title-row { min-height: 30px; padding-right: 240px; }
 .title-actions { position: absolute; right: 12px; top: 10px; margin-left: auto; }
 .mono, .chip, .ma-controls, .date-range-panel, .chart-scale-btn, .load-status { font-family: "IBM Plex Mono", monospace; }

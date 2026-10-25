@@ -1736,7 +1736,7 @@
     const chartCanvas = document.createElement("canvas");
     const outerPad = Math.max(10, Math.round(layout.width * 0.01));
     const chartTopGap = Math.max(8, Math.round(layout.height * 0.012));
-    const footerH = Math.max(54, Math.round(Math.min(layout.width, layout.height) * ((layout.width <= layout.height ? 150 : 122) / 1080)));
+    const footerH = window.WSBDashboardExport.getFooterHeight(layout.width, layout.height);
     const dashboardKpis = captureDashboardKpis();
     let cards = [];
 

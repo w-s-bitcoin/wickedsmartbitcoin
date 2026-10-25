@@ -370,7 +370,14 @@ exporter.render=(ctx,width,height,options)=>{
     record.text.push({text:String(text),font:ctx.font,bounds:[Math.min(...corners.map(p=>p[0])),Math.min(...corners.map(p=>p[1])),Math.max(...corners.map(p=>p[0])),Math.max(...corners.map(p=>p[1]))]});
     return fillText.call(ctx,text,x,y,...args);
   };
-  ctx.drawImage=function(image,...args){record.images.push({source:image.currentSrc||image.src||'',width:image.naturalWidth,height:image.naturalHeight});return drawImage.call(ctx,image,...args);};
+  ctx.drawImage=function(image,...args){
+    const dest=args.length===8?args.slice(4):args;
+    const derived=image instanceof w.HTMLCanvasElement;
+    const source=image.currentSrc||image.src||(derived?'/webapps/shared/export_assets/'+(image.width>image.height?'bitcoin-wordmark.jpg':'wicked-apple.png'):'');
+    record.images.push({source,derived,width:image.naturalWidth||image.width,height:image.naturalHeight||image.height,
+      origin:point(dest[0],dest[1]),end:point(dest[0]+(dest[2]||image.width),dest[1]+(dest[3]||image.height))});
+    return drawImage.call(ctx,image,...args);
+  };
   try{return nativeRender(ctx,width,height,options);}finally{ctx.fillText=fillText;ctx.drawImage=drawImage;fixture.renders.push(record);}
 };
 const encode=w.WSBDashboardExport.encodeVideo;
@@ -443,11 +450,18 @@ def check_exports(cdp, output):
         assert record["date"] == state(cdp)["currentIso"]
         texts = [item["text"] for item in record["text"]]
         assert "Epoch-Over-Epoch (EOE) Growth" in texts
-        assert "https://wickedsmartbitcoin.com/eoe_growth" in texts
+        footer_urls = [text for text in texts if "wickedsmartbitcoin.com/eoe_growth" in text]
+        assert footer_urls == (["https://wickedsmartbitcoin.com/eoe_growth"] if orientation == "landscape" else []), (orientation, footer_urls)
         for asset in ("bitcoin-wordmark.jpg", "wicked-apple.png", "qr_lightning.png"):
             assert any(image["source"].endswith(asset) and image["width"] > 0 for image in record["images"]), (orientation, asset)
-        for label in ("CREATOR", "Wicked", "@w_s_bitcoin", "LIGHTNING", "DONATIONS", "wicked", "@primal.net"):
+        footer_labels = {"CREATOR", "Wicked", "@w_s_bitcoin", "LIGHTNING", "DONATIONS", "wicked", "@primal.net"}
+        for label in footer_labels:
             assert label in texts, (orientation, label)
+        if orientation != "landscape":
+            chart_bottom = max(item["bounds"][3] for item in record["text"] if item["text"] not in footer_labels)
+            footer_top = min([item["bounds"][1] for item in record["text"] if item["text"] in footer_labels]
+                             + [image["origin"][1] for image in record["images"] if not image["source"].endswith("bitcoin-wordmark.jpg")])
+            assert 0 < footer_top - chart_bottom <= dimensions[0] * .05, (orientation, "Excess blank space above footer", chart_bottom, footer_top)
         for item in record["text"]:
             left, top, right, bottom = item["bounds"]
             assert -1 <= left <= right <= dimensions[0] + 1 and -1 <= top <= bottom <= dimensions[1] + 1, (orientation, "Clipped text", item)

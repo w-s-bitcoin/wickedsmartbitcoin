@@ -58,6 +58,11 @@ Read the target dashboard's own notes for its calculation and data contracts.
   clearance. A series keeps its identity across panels, tooltips, previews,
   themes, and exports; adjust contrast as needed. Do not use color alone to
   identify a series, selection, or feed status.
+- In the first dashboard card, place the title above KPIs and visible selectors
+  below them. The selectors row uses the shared full-width divider: a 1px
+  `--panel-border` line with 6px padding above the controls, matching DCA Cost
+  Basis in both themes. Use the shared `.topbar` controls rule for custom
+  selector layouts too.
 - Keep plot rectangles, title anchors, KPI positions, and label gutters stable
   during playback and live updates. Changing digit counts must not move panels.
   Layout may adapt when viewport, orientation, or enabled panels change.
@@ -243,7 +248,8 @@ as a capability fallback.
   typography and branding for a dashboard's PNG and video exports. The footer
   includes the shared Wicked creator apple/handle and the site's current
   Lightning donation QR/address. Reserve space for the whole strip, reduce the
-  URL font to fit, and use its separate URL row in portrait/square layouts.
+  URL font to fit in landscape. Portrait and square omit that URL and use the
+  reclaimed space for the chart above a compact creator/donation footer.
 - **Keep each dashboard's own composition.** Panel count, arrangement, chart
   types, legend placement, and meaningful metric colors stay dashboard-specific.
   Place the shared headline, wordmark, and footer around that composition;

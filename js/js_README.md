@@ -124,12 +124,11 @@ The block card's elapsed counter updates every second while visible, using the
 displayed block's miner timestamp rather than fetch or page-load time. Its bar
 fills at 10 minutes, then expands its scale with the elapsed time. Tick marks
 remain at every 10-minute interval; compact labels stay to the right of the
-block height and thin out on narrow cards to avoid overlap. The bar is green
-below 10 minutes, orange from 10 to 40, and red at
-40 minutes or more. Its orange uses the same `--brand` color as the other bars
-in both themes. The red threshold follows
-[Timechain Calendar](https://timechaincalendar.com/); the earlier bands are
-simplified. This measures elapsed time, not an estimate of the next block.
+block height and thin out on narrow cards to avoid overlap. The bar retains
+five color bands as it grows: bright green for 0–10 minutes, dark green for
+10–20, orange for 20–30, dark orange for 30–40, and red after 40 minutes. Its
+orange uses the same `--brand` color as the other bars in both themes. This
+measures elapsed time, not an estimate of the next block.
 Timestamps ahead of the browser clock show a negative counter and a gray bar
 extending left from zero, occupying at most 20% of the meter width. The gray
 bar and its reserved space shrink together, moving zero left as the countdown

@@ -21,11 +21,15 @@
     return { width: Math.round(quality * 16 / 9), height: quality };
   }
 
+  function getFooterHeight(width, height) {
+    return Math.max(54, Math.round(Math.min(width, height) * ((width <= height ? 117 : 122) / 1080)));
+  }
+
   function getLayoutMetrics(settings = {}) {
     const { width, height } = getDimensions(settings);
     const panelGap = Math.max(8, Math.round(Math.min(width, height) * 0.012));
     const outerMargin = panelGap;
-    const footerHeight = Math.max(54, Math.round(Math.min(width, height) * ((width <= height ? 150 : 122) / 1080)));
+    const footerHeight = getFooterHeight(width, height);
     return { width, height, outerMargin, panelGap, footerHeight };
   }
 
@@ -523,5 +527,6 @@
   ns.getSupportedMp4Config = getSupportedMp4Config;
   ns.videoExtension = videoExtension;
   ns.drawFooterUrl = drawFooterUrl;
+  ns.getFooterHeight = getFooterHeight;
   ns.writeEstimateElements = writeEstimateElements;
 })();
