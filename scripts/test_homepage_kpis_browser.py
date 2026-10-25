@@ -56,11 +56,22 @@ def harness_source():
     return """(() => {
       const state = window.__kpiTest = {
         now: FIXED_NOW, requests: 0, mode: 'fail', sockets: [], feedRequests: 0,
+        visibility: 'visible', online: true,
         payload: {block_height: 973001, block_timestamp: (FIXED_NOW / 1000) - 300,
           supply_btc: 20000000, subsidy_btc: 3.125, difficulty: 100000000000000,
           projected_difficulty_adjustment_percent: 1.5},
       };
       Date.now = () => state.now;
+      Object.defineProperty(document, 'visibilityState', {get: () => state.visibility, configurable: true});
+      Object.defineProperty(navigator, 'onLine', {get: () => state.online, configurable: true});
+      state.setVisible = visible => {
+        state.visibility = visible ? 'visible' : 'hidden';
+        document.dispatchEvent(new Event('visibilitychange'));
+      };
+      state.setOnline = online => {
+        state.online = online;
+        window.dispatchEvent(new Event(online ? 'online' : 'offline'));
+      };
       localStorage.clear();
       localStorage.setItem('wicked_dashboard_timezone_v1', 'UTC');
       const intervals = new Map();
@@ -143,6 +154,7 @@ STATE = """(() => {
   const elapsed = document.getElementById('homeKpiBlockElapsed');
   const time = document.getElementById('homeKpiBlockTime');
   const meter = document.getElementById('homeKpiBlockMeter');
+  const status = document.getElementById('homeKpiSnapshotStatus');
   return {
     value: progress?.value, max: progress?.max, tag: progress?.tagName,
     state: progress?.dataset.elapsedState, elapsedState: elapsed?.dataset.elapsedState,
@@ -159,6 +171,7 @@ STATE = """(() => {
     snapshot: document.getElementById('homeBip110Kpis')?.dataset.snapshotState,
     source: document.getElementById('homeBip110Kpis')?.dataset.snapshotSource,
     status: document.getElementById('homeKpiSnapshotStatus')?.textContent,
+    statusDisplay: status ? getComputedStyle(status).display : '',
     supply: document.getElementById('homeBip110SupplyKpi')?.title,
     supplyDisplayed: document.querySelector('#homeBip110SupplyKpi .chip-value')?.textContent,
     supplyCaption: document.getElementById('homeKpiSupplyCaption')?.textContent,
@@ -824,6 +837,90 @@ def test_reconnect_pong_preserves_publication(cdp):
     print("Passed: reconnect heartbeat preserves newer publication until a fresh live block arrives", flush=True)
 
 
+def test_tab_resume_status(cdp):
+    cdp.command("Page.reload")
+    wait_for(lambda: snapshot(cdp)["snapshot"] == "error", description="fresh tab lifecycle fixture")
+    cdp.evaluate("window.__kpiTest.publish(300, 973000)")
+    wait_for(lambda: snapshot(cdp)["height"] == "973,000", description="tab lifecycle publication")
+    cdp.evaluate("""(() => {
+      const test = window.__kpiTest;
+      test.feedOpen();
+      test.feedPush({blocks: [test.block(973001, 30)]});
+    })()""")
+    live = snapshot(cdp)
+    check_live_cards(live, 973001, 20000003.125)
+
+    def expect_retained_status(*, warning):
+        state = snapshot(cdp)
+        require(visible_values(state) == visible_values(live),
+                "Lifecycle status changed the last complete live values", state)
+        if warning:
+            require(state["snapshot"] == "cached" and state["statusDisplay"] != "none"
+                    and "unavailable" in state["status"].lower(),
+                    "A genuine outage lost its visible warning before confirmation", state)
+        else:
+            require(state["snapshot"] == "ready" and state["statusDisplay"] == "none",
+                    "Intentional tab suspension or reconnect showed a warning", state)
+        return state
+
+    expect_retained_status(warning=False)
+    cdp.evaluate("window.__kpiTest.setVisible(false)")
+    expect_retained_status(warning=False)
+    cdp.evaluate("window.__kpiTest.setVisible(true)")
+    require(cdp.evaluate("window.__kpiTest.sockets.at(-1).readyState") == 0,
+            "Resume fixture did not exercise an unconfirmed connection", snapshot(cdp))
+    expect_retained_status(warning=False)
+    cdp.evaluate("window.__kpiTest.feedOpen()")
+    # Leave a full browser frame between reconnect and confirmation: the status
+    # must stay hidden during the interval that caused the reported orange flash.
+    cdp.evaluate("new Promise(resolve => requestAnimationFrame(resolve))")
+    expect_retained_status(warning=False)
+    cdp.evaluate("window.__kpiTest.feedPush({pong: true})")
+    expect_retained_status(warning=False)
+
+    cdp.evaluate("window.dispatchEvent(new Event('pagehide'))")
+    expect_retained_status(warning=False)
+    cdp.evaluate("window.dispatchEvent(new Event('pageshow'))")
+    expect_retained_status(warning=False)
+    cdp.evaluate("window.__kpiTest.feedOpen(); window.__kpiTest.feedPush({pong: true})")
+    expect_retained_status(warning=False)
+
+    # A real loss remains visible throughout the automatic reconnect, including
+    # an open socket that has not yet confirmed the connection with a reply.
+    cdp.evaluate("window.__kpiTest.sockets.at(-1).close()")
+    expect_retained_status(warning=True)
+    wait_for(lambda: cdp.evaluate("window.__kpiTest.sockets.at(-1).readyState === 0"),
+             description="retry after genuine socket failure")
+    expect_retained_status(warning=True)
+    cdp.evaluate("window.__kpiTest.feedOpen()")
+    expect_retained_status(warning=True)
+    cdp.evaluate("window.__kpiTest.feedPush({pong: true})")
+    expect_retained_status(warning=False)
+
+    # Browser offline is a failure, even though the helper pauses its work.
+    cdp.evaluate("window.__kpiTest.setOnline(false)")
+    expect_retained_status(warning=True)
+    cdp.evaluate("window.__kpiTest.setVisible(false); window.__kpiTest.setVisible(true)")
+    expect_retained_status(warning=True)
+    cdp.evaluate("window.__kpiTest.setOnline(true)")
+    expect_retained_status(warning=True)
+    cdp.evaluate("window.__kpiTest.feedOpen()")
+    expect_retained_status(warning=True)
+    cdp.evaluate("window.__kpiTest.feedPush({pong: true})")
+    expect_retained_status(warning=False)
+
+    # An initially uneventful resume must still report its first real failure.
+    cdp.evaluate("window.__kpiTest.setVisible(false); window.__kpiTest.setVisible(true)")
+    expect_retained_status(warning=False)
+    cdp.evaluate("window.__kpiTest.sockets.at(-1).close()")
+    expect_retained_status(warning=True)
+    cdp.evaluate("window.dispatchEvent(new Event('pagehide')); window.dispatchEvent(new Event('pageshow'))")
+    expect_retained_status(warning=True)
+    cdp.evaluate("window.__kpiTest.feedOpen(); window.__kpiTest.feedPush({pong: true})")
+    expect_retained_status(warning=False)
+    print("Passed: quiet tab/page resume, persistent socket/offline warnings through retry, and confirmed recovery", flush=True)
+
+
 def main():
     chrome_path = find_chrome()
     html = fixture_html()
@@ -885,6 +982,7 @@ def main():
                     test_live_without_publication(cdp)
                     test_live_blocks(cdp)
                     test_reconnect_pong_preserves_publication(cdp)
+                    test_tab_resume_status(cdp)
                 finally:
                     close_browser(chrome, cdp)
     finally:

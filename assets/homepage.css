@@ -8,7 +8,7 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
     --home-muted: #999;
     --home-accent: #f7931a;
     --home-progress: var(--brand);
-    --home-block-normal: #68c686;
+    --home-block-normal: #3ec735;
     --home-block-future: #999;
     --home-block-slow: var(--brand);
     --home-block-late: #f27474;
@@ -30,7 +30,6 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
     --home-muted: #766d62;
     --home-accent: #a7550a;
     --home-accent-bg: #faf0e1;
-    --home-block-normal: #237b40;
     --home-block-future: #6b6b6b;
     --home-block-late: #bb3030;
 }

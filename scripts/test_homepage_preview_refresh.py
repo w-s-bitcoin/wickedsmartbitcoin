@@ -311,15 +311,16 @@ FETCH_HARNESS_TEMPLATE = r"""
   }
 
   if (!spec) return;
-  // Publication-refresh fixtures are deterministic; live spot behavior has a
-  // separate browser regression and must not repaint during marker assertions.
-  const hasLiveSpot = ['/webapps/dca_comparison/preview.html',
+  // Publication fixtures isolate live quotes and blocks, which have separate
+  // browser regressions and must not repaint during marker assertions.
+  const hasLiveFeed = ['/webapps/dca_comparison/preview.html',
     '/webapps/dca_cost_basis/preview.html',
     '/webapps/moving_average/preview.html',
     '/webapps/eoe_growth/preview.html',
+    '/webapps/issuance_rate/preview.html',
     '/webapps/days_since_ath/preview.html',
     '/webapps/bitcoin_dominance/preview.html'].includes(pathname);
-  if (hasLiveSpot) window.WebSocket = undefined;
+  if (hasLiveFeed) window.WebSocket = undefined;
   const nativeFetch = window.fetch.bind(window);
   const immutableDataPaths = new Set();
   const loadKey = `wsb-stage5-load-count:${pathname}`;
@@ -428,9 +429,9 @@ FETCH_HARNESS_TEMPLATE = r"""
   window.fetch = async (input, init) => {
     const raw = typeof input === 'string' ? input : input?.url;
     const url = new URL(raw, document.baseURI);
-    if (hasLiveSpot &&
+    if (hasLiveFeed &&
         /^(2140data\.io|api\.exchange\.coinbase\.com|api\.coinbase\.com|api\.kraken\.com|mempool\.space|api\.gold-api\.com|scanner\.tradingview\.com|api\.coingecko\.com)$/.test(url.hostname)) {
-      throw new TypeError('Live price provider intentionally offline in publication fixture');
+      throw new TypeError('Live provider intentionally offline in publication fixture');
     }
     const target = url.pathname;
     const isMarker = spec.markers.includes(target);

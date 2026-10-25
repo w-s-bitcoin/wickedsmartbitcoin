@@ -3,6 +3,8 @@
   const PREVIEW_URL = "webapp_data/issuance_rate_preview.json";
   const PUBLICATION_URL = "webapp_data/published_generation.json";
   let cachedRows = [];
+  let installedPayload = null;
+  const liveFeed = window.WSBIssuanceLive?.create({ onChange: requestLivePresent });
   let installedPublicationSignature = "";
   let installedBounds = null;
   let refresher = null;
@@ -130,11 +132,9 @@
     ctx.restore();
   }
 
-  function getCurrentEpochRows() {
-    const latest = cachedRows[cachedRows.length - 1];
-    const epoch = toNumber(latest?.epoch);
-    if (!Number.isFinite(epoch)) return cachedRows;
-    return cachedRows.filter((row) => toNumber(row.epoch) === epoch);
+  function getCurrentEpochRows(rows) {
+    const epoch = toNumber(rows.at(-1)?.epoch);
+    return Number.isFinite(epoch) ? rows.filter((row) => toNumber(row.epoch) === epoch) : rows;
   }
 
   function render() {
@@ -153,7 +153,16 @@
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, width, height);
 
-    const currentEpochRows = getCurrentEpochRows();
+    const snapshot = liveFeed?.current();
+    const displayedRows = window.WSBIssuanceLive?.projectRows(installedPayload, snapshot) || cachedRows;
+    const displayed = displayedRows.at(-1);
+    const source = displayed?.provisional ? (snapshot?.live ? "live" : "retained") : "published";
+    canvas.dataset.liveHeight = String(displayed.height);
+    canvas.dataset.liveSource = source;
+    canvas.dataset.liveDate = displayed.date;
+    canvas.setAttribute("aria-label", `Bitcoin issuance rate: ${(Number(displayed.issuance_rate) * 100).toFixed(2)}% annualized. ${source === "live" ? "Live" : source === "retained" ? "Retained" : "Published"} block ${Number(displayed.height).toLocaleString("en-US")}. Scheduled subsidy, ${displayed.date}.`);
+    canvas.title = `${source === "live" ? "Live network" : source === "retained" ? "Retained network" : "Published"} block ${Number(displayed.height).toLocaleString("en-US")}; scheduled issuance.`;
+    const currentEpochRows = getCurrentEpochRows(displayedRows);
     const pad = { top: 18, right: 24, bottom: 22, left: 36 };
     const plotW = Math.max(1, width - pad.left - pad.right);
     const plotH = Math.max(1, height - pad.top - pad.bottom);
@@ -162,9 +171,9 @@
     const epochStartHeight = Number.isFinite(latestEpoch) ? (latestEpoch - 1) * 210000 : toNumber(currentEpochRows[0]?.height);
     const epochEndHeight = epochStartHeight + 210000;
     const domainPaddingBlocks = 0.025 * 210000;
-    const domainStartHeight = Number.isFinite(epochStartHeight) ? epochStartHeight - domainPaddingBlocks : toNumber(cachedRows[0]?.height);
-    const domainEndHeight = Number.isFinite(epochEndHeight) ? epochEndHeight + domainPaddingBlocks : toNumber(cachedRows[cachedRows.length - 1]?.height);
-    const rows = cachedRows.filter((row) => {
+    const domainStartHeight = Number.isFinite(epochStartHeight) ? epochStartHeight - domainPaddingBlocks : toNumber(displayedRows[0]?.height);
+    const domainEndHeight = Number.isFinite(epochEndHeight) ? epochEndHeight + domainPaddingBlocks : toNumber(displayedRows.at(-1)?.height);
+    const rows = displayedRows.filter((row) => {
       const heightValue = toNumber(row.height);
       return Number.isFinite(heightValue)
         && Number.isFinite(domainStartHeight)
@@ -238,6 +247,7 @@
 
   function commitCandidate(candidate, context) {
     cachedRows = candidate.rows;
+    installedPayload = { ...candidate.payload, rows: cachedRows };
     const latest = candidate.rows[candidate.rows.length - 1];
     installedBounds = { latestDate: latest.date, latestHeight: Number(latest.height) };
     installedPublicationSignature = context.signature;
@@ -253,6 +263,18 @@
 
   function requestPresent(reason) {
     if (refresher) refresher.requestPresent(reason);
+  }
+
+  function requestLivePresent() {
+    if (!installedPayload) return;
+    const snapshot = liveFeed?.current();
+    const rows = snapshot ? window.WSBIssuanceLive.projectRows(installedPayload, snapshot) : cachedRows;
+    const renderedSource = document.getElementById("issuancePreview")?.dataset.liveSource;
+    // Connection attempts cannot change a published-only preview. A live row
+    // or its return to published data does require the shared paint lifecycle.
+    if (rows.at(-1)?.provisional || renderedSource === "live" || renderedSource === "retained") {
+      requestPresent("live-block");
+    }
   }
 
   function init() {
@@ -282,6 +304,9 @@
       },
     });
     refresher.start();
+    liveFeed?.start();
+    window.addEventListener("pagehide", () => liveFeed?.stop());
+    window.addEventListener("pageshow", () => { liveFeed?.start(); requestPresent("resume"); });
   }
 
   init();

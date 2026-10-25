@@ -110,6 +110,10 @@
   let issuanceRefreshPresentationPending = false;
   let issuanceInitializationComplete = false;
   let issuanceRefreshAdapterRegistered = false;
+  let issuancePublishedRows = [];
+  let issuanceLiveFeed = null;
+  let issuanceLivePresentationPending = false;
+  let issuanceRowsFrozen = false;
   const epochLogMinCache = new Map();
   const epochTargetLogMinCache = new Map();
   const timeZoneAdjustedRowsCache = new Map();
@@ -1163,6 +1167,11 @@
   function renderChart() {
     if (!els.issuanceChart || !state.rows.length) return;
     const canvas = els.issuanceChart;
+    if (!canvas.__exportCssWidth && (document.visibilityState === "hidden" || isDateRangeExporting)) return;
+    const displayed = getDisplayRow();
+    canvas.dataset.liveHeight = String(displayed?.height ?? "");
+    canvas.dataset.liveDate = displayed?.date || "";
+    canvas.dataset.liveSource = liveSourceForRow(displayed);
     const { ctx, width, height } = setupCanvas(canvas);
     const colors = {
       bg: getCss("--chart-bg") || getCss("--panel") || getCss("--bg") || "#000",
@@ -1613,7 +1622,18 @@
 
   function updateStatus() {
     const row = getDisplayRow(state.currentIndex);
-    const updatedRaw = String(state.data?.generated_utc || "").trim();
+    const updatedRaw = String(row?.live_block_time_utc || state.data?.generated_utc || "").trim();
+    const source = liveSourceForRow(row);
+    const status = $("issuanceLiveStatus");
+    if (status) {
+      status.dataset.source = source;
+      status.title = source === "live" ? "Live scheduled issuance from mempool.space"
+        : source === "retained" ? "Last complete block window; waiting for the live feed"
+        : "Published node data";
+      status.setAttribute("aria-label", status.title);
+    }
+    const updatedLabel = els.chipUpdated?.querySelector(".chip-label");
+    if (updatedLabel) updatedLabel.textContent = row?.provisional ? "Block" : "Updated";
     const value = els.chipUpdated?.querySelector(".chip-value");
     if (updatedTimeZoneChip) updatedTimeZoneChip.setUpdated(updatedRaw);
     else if (value) value.textContent = "-";
@@ -1644,7 +1664,7 @@
       const zone = getDailyCalculationTimeZone();
       const tooltip = Number.isFinite(blocks)
         ? row?.uses_rolling_24h
-          ? `${fmtNumber(blocks, 0)} blocks mined in the last 24 hours`
+          ? `${fmtNumber(blocks, 0)} blocks in the rolling height window ending at this block; boundary is the nearest ancestor at least 24 hours earlier`
           : `${fmtNumber(blocks, 0)} blocks mined in the selected ${zone} day`
         : row?.uses_rolling_24h
           ? "Blocks mined in the last 24 hours"
@@ -1689,6 +1709,7 @@
   }
 
   function syncControls() {
+    refreshLiveIssuanceRows();
     const max = Math.max(0, state.rows.length - 1);
     renderRangePresetButtons();
     if (els.dateRangeStartSlider) {
@@ -1978,6 +1999,7 @@
     state.isPlaying = false;
     state.isPaused = true;
     syncControls();
+    renderChart();
     bindDateRangePlaybackOutsidePointerActions();
   }
 
@@ -2672,7 +2694,11 @@
     };
     state.downloadSettings = normalizedSettings;
     saveDownloadSettings();
-    stopPlayback(false);
+    // Freeze exactly the rows selected when export starts, including any
+    // already displayed provisional final point. Resuming playback must not
+    // pull a newer tip into the export before its lock is installed below.
+    issuanceRowsFrozen = true;
+    try { stopPlayback(false); } finally { issuanceRowsFrozen = false; }
     const frameIndices = getDateRangeExportFrameIndices(state.startIndex, state.endIndex, Number(settings.speed) || 1, settings.endFrameHold);
     if (!frameIndices.length) return;
     const { width, height } = getDownloadDimensions(settings);
@@ -2728,6 +2754,8 @@
       broadcastDateRangeExportActive(false);
       resetDateRangeDownloadButton();
       updateDownloadEstimates();
+      issuanceLivePresentationPending = true;
+      presentPendingIssuanceRefresh();
     }
   }
 
@@ -3092,17 +3120,17 @@
       setIssuanceSettingsPanelOpen(false);
     });
     els.dateRangeStartSlider?.addEventListener("input", () => {
+      const rawStart = Number(els.dateRangeStartSlider.value);
       pauseIfActive();
       setLastAdjustedDateRangeHandle("start");
-      const rawStart = Number(els.dateRangeStartSlider.value);
       const nextStart = clamp(Number.isFinite(rawStart) ? rawStart : state.startIndex, 0, Math.max(0, state.endIndex - 1));
       setRange(nextStart, state.endIndex, Math.max(nextStart, state.currentIndex), "custom");
     });
     els.dateRangeEndSlider?.addEventListener("input", () => {
+      const rawEnd = Number(els.dateRangeEndSlider.value);
       pauseIfActive();
       setLastAdjustedDateRangeHandle("end");
       const minEnd = Math.min(state.rows.length - 1, state.startIndex + 1);
-      const rawEnd = Number(els.dateRangeEndSlider.value);
       const nextEnd = clamp(Number.isFinite(rawEnd) ? rawEnd : minEnd, minEnd, state.rows.length - 1);
       setRange(state.startIndex, nextEnd, nextEnd, "custom");
     });
@@ -3316,7 +3344,7 @@
     if (Number(data.source?.latest_block_height) !== Number(marker.latest_block_height)) return false;
     if (nextRows.length !== Number(marker.row_count)) return false;
     if (nextRows[0]?.date !== marker.first_date || nextRows[nextRows.length - 1]?.date !== marker.latest_date) return false;
-    if (!allowRegression && state.rows.length && nextRows.length < state.rows.length) return false;
+    if (!allowRegression && issuancePublishedRows.length && nextRows.length < issuancePublishedRows.length) return false;
     if (!allowRegression && state.data
         && Number(data.source?.latest_block_height) < Number(state.data.source?.latest_block_height)) return false;
 
@@ -3378,11 +3406,12 @@
     const oldStartDate = oldRows[state.startIndex]?.date || "";
     const oldEndDate = oldRows[state.endIndex]?.date || "";
     const oldCurrentDate = oldRows[state.currentIndex]?.date || "";
-    const endWasLatest = state.endIndex >= oldMax;
-    const currentWasLatest = state.currentIndex >= oldMax;
+    const endWasLatest = state.endTracksLatest && state.endIndex >= oldMax;
+    const currentWasLatest = state.currentTracksLatest && state.currentIndex >= oldMax;
 
     state.data = data;
-    state.rows = normalizeIssuanceRows(data);
+    issuancePublishedRows = normalizeIssuanceRows(data);
+    state.rows = issuancePublishedRows;
     state.dataSignature = getIssuanceDataSignature(data);
     timeZoneAdjustedRowsCache.clear();
     epochLogMinCache.clear();
@@ -3402,19 +3431,69 @@
       state.endIndex = max;
       state.currentIndex = max;
     }
+    refreshLiveIssuanceRows();
+  }
+
+  function liveSourceForRow(row) {
+    if (!row?.provisional) return "published";
+    const snapshot = issuanceLiveFeed?.current();
+    return snapshot?.live && snapshot.tip.id === row.live_block_hash ? "live" : "retained";
+  }
+
+  function refreshLiveIssuanceRows() {
+    if (!issuancePublishedRows.length || isDateRangeExporting || issuanceRowsFrozen || dateRangeCurrentMarkerDrag || dateRangeHandleDrag) return;
+    const oldRows = state.rows, oldMax = oldRows.length - 1;
+    const followsEnd = state.endTracksLatest && state.endIndex === oldMax;
+    const followsCurrent = state.currentTracksLatest && state.currentIndex === oldMax;
+    // Only the current view receives provisional rows. Historical navigation,
+    // playback and pause always use the complete immutable publication.
+    const project = !state.isPlaying && !state.isPaused && followsEnd && followsCurrent;
+    const nextRows = project && window.WSBIssuanceLive
+      ? window.WSBIssuanceLive.projectRows({ ...state.data, rows: issuancePublishedRows }, issuanceLiveFeed?.current())
+      : issuancePublishedRows;
+    const last = oldRows.at(-1), nextLast = nextRows.at(-1);
+    if (oldRows === nextRows || (oldRows.length === nextRows.length && last?.provisional && nextLast?.provisional
+        && last.live_block_hash === nextLast.live_block_hash && last.date === nextLast.date
+        && last.live_observed_at === nextLast.live_observed_at && oldRows[0] === nextRows[0])) return;
+    const startDate = oldRows[state.startIndex]?.date, endDate = oldRows[state.endIndex]?.date;
+    const currentDate = oldRows[state.currentIndex]?.date;
+    state.rows = nextRows;
+    const max = nextRows.length - 1;
+    state.startIndex = clamp(findRowIndexByDate(nextRows, startDate, state.startIndex), 0, max);
+    state.endIndex = followsEnd ? max : clamp(findRowIndexByDate(nextRows, endDate, state.endIndex), state.startIndex, max);
+    state.currentIndex = followsCurrent ? state.endIndex
+      : clamp(findRowIndexByDate(nextRows, currentDate, state.currentIndex), state.startIndex, state.endIndex);
+    timeZoneAdjustedRowsCache.clear();
+    epochLogMinCache.clear();
+    epochTargetLogMinCache.clear();
+  }
+
+  function startIssuanceLiveFeed() {
+    if (issuanceLiveFeed || !window.WSBIssuanceLive) return;
+    issuanceLiveFeed = window.WSBIssuanceLive.create({ onChange() {
+      refreshLiveIssuanceRows();
+      issuanceLivePresentationPending = true;
+      presentPendingIssuanceRefresh();
+    } });
+    issuanceLiveFeed.start();
   }
 
   function issuancePresentationBlocked() {
     return document.visibilityState !== "visible"
+      || isDateRangeExporting
       || isKeyboardShortcutTextEntry(document.activeElement)
       || !!dateRangeCurrentMarkerDrag
       || !!dateRangeHandleDrag;
   }
 
   function presentPendingIssuanceRefresh() {
-    if (!issuanceRefreshPresentationPending || !issuanceInitializationComplete || issuancePresentationBlocked()) return;
+    if (!(issuanceRefreshPresentationPending || issuanceLivePresentationPending)
+        || !issuanceInitializationComplete || issuancePresentationBlocked()) return;
+    const publicationChanged = issuanceRefreshPresentationPending;
     issuanceRefreshPresentationPending = false;
-    applyTopKpiWidthLocks();
+    issuanceLivePresentationPending = false;
+    refreshLiveIssuanceRows();
+    if (publicationChanged) applyTopKpiWidthLocks();
     syncControls();
     renderChart();
   }
@@ -3432,6 +3511,7 @@
     syncControls();
     renderChart();
     issuanceInitializationComplete = true;
+    startIssuanceLiveFeed();
     issuanceRefreshPresentationPending = false;
     if (state.isPaused) bindDateRangePlaybackOutsidePointerActions();
     document.body.classList.remove("issuance-loading");

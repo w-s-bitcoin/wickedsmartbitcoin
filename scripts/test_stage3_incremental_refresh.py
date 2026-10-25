@@ -267,6 +267,9 @@ FETCH_HARNESS = r"""
   (() => {
     const nativeFetch = window.fetch.bind(window);
     const pathname = window.location.pathname;
+    // Issuance block streaming is covered by test_dashboard_chain_live_browser.
+    // Publication checks must not race an unrelated public block arrival.
+    if (pathname === '/webapps/issuance_rate/dashboard.html') window.WebSocket = undefined;
     const markerPaths = {
       '/webapps/bip110_signaling/dashboard.html': [
         '/webapps/bip110_signaling/webapp_data/bip110_metadata.json',
@@ -445,6 +448,9 @@ FETCH_HARNESS = r"""
     window.fetch = async (input, init) => {
       const raw = typeof input === 'string' ? input : input?.url;
       const url = new URL(raw, location.href);
+      if (pathname === '/webapps/issuance_rate/dashboard.html' && url.hostname === 'mempool.space') {
+        throw new TypeError('Live blocks intentionally offline in publication fixture');
+      }
       const refreshValue = url.searchParams.get('wsb_refresh') || '';
       const phase = phaseFor(refreshValue);
       const generation = Number(test.generation);

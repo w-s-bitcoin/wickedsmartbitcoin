@@ -46,6 +46,7 @@
   let publishedSnapshot = null;
   let liveTip = null;
   let liveStatus = "connecting";
+  let liveUnavailable = false;
   let reorgCeiling = -1;
   let lastSignature = "";
   let refreshInFlight = false;
@@ -215,6 +216,10 @@
       installCurrentSnapshot();
     },
     onStatus(status) {
+      // A hidden tab intentionally pauses its socket. Resuming is not an outage;
+      // keep real failures visible through retries until the feed confirms recovery.
+      if (status === "offline") liveUnavailable = true;
+      else if (status === "live") liveUnavailable = false;
       liveStatus = status;
       installCurrentSnapshot();
       renderStatus();
@@ -346,10 +351,11 @@
     let text;
     if (lastSnapshot) {
       const live = lastSnapshot.source === "live";
-      const available = live ? liveStatus === "live" : !refreshFailed;
-      text = live ? (available ? "Live blocks · mempool.space"
-        : liveStatus === "paused" ? "Live updates paused · showing last received block."
-          : "Live connection unavailable · showing last received block.")
+      const available = live ? !liveUnavailable : !refreshFailed;
+      text = live ? (liveUnavailable ? "Live connection unavailable · showing last received block."
+        : liveStatus === "live" ? "Live blocks · mempool.space"
+          : liveStatus === "paused" ? "Live updates paused · showing last received block."
+            : "Connecting to live blocks…")
         : refreshFailed ? "Refresh unavailable · showing last published block." : "";
       container.dataset.snapshotState = available ? "ready" : "cached";
       container.dataset.snapshotSource = lastSnapshot.source;

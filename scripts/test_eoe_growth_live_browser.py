@@ -75,6 +75,11 @@ LIVE_FIXTURE = r"""
         isLive(q){return f.now-(q.receivedAt??q.at)<60000;},current(){return {...f.last};},last(){return {...f.last};}};
     }}});
   }});
+  Object.defineProperty(window,'WSBBitcoinChainTip',{configurable:true,set(){
+    Object.defineProperty(window,'WSBBitcoinChainTip',{configurable:true,writable:true,value:{
+      create(){return {start(){},stop(){},refresh(){return Promise.resolve(null);},last(){return null;},isLive(){return false;}};}
+    }});
+  }});
   Object.defineProperty(window,'WSBEOEGrowthLive',{configurable:true,set(api){
     const create=api.create;
     api.create=options=>{const controller=create(options),refresh=controller.refresh;

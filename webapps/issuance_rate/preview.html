@@ -47,8 +47,10 @@
   </style>
 </head>
 <body>
-  <canvas id="issuancePreview"></canvas>
+  <canvas id="issuancePreview" role="img" aria-label="Bitcoin issuance rate and target; loading published data"></canvas>
   <script src="../shared/preview_shared.js?v=20260825-stage5-atomic-v1"></script>
-  <script src="preview_app.js?v=20260825-stage5-atomic-v1"></script>
+  <script src="../shared/bitcoin_chain_tip.js"></script>
+  <script src="issuance_live.js?v=20261024-chain"></script>
+  <script src="preview_app.js?v=20261024-chain"></script>
 </body>
 </html>

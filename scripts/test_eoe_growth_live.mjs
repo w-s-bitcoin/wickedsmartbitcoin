@@ -4,6 +4,8 @@ import vm from "node:vm";
 import { readFileSync } from "node:fs";
 import { createHash, webcrypto } from "node:crypto";
 import L from "../webapps/eoe_growth/eoe_growth_live.js";
+import "../webapps/eoe_growth/eoe_growth_model.js";
+const M = globalThis.WSBEOEGrowthModel;
 
 if (!globalThis.crypto) Object.defineProperty(globalThis, "crypto", { value: webcrypto });
 const source = readFileSync(new URL("../webapps/eoe_growth/eoe_growth_live.js", import.meta.url), "utf8");
@@ -69,9 +71,10 @@ test("binary records verify SHA and lengths, preserve nonmonotonic block times, 
 
 function fixture(chunks = [chunk(500, [record(100), record(200), record(300)])]) {
   const timers = new Map(), listeners = new Map(), requests = [];
-  let nextTimer = 1, onQuote, changed = 0, starts = 0, stops = 0;
+  let nextTimer = 1, onQuote, onTip, onStatus, changed = 0, starts = 0, stops = 0;
+  let chainStarts = 0, chainStops = 0;
   const state = { tip: tip(210500), manifest: publication(chunks), live: true,
-    quote: { price: 1000, at: quoteTime, receivedAt: quoteTime, source: "Fixture live" }, intercept: null };
+    chainLive: true, network: null, quote: { price: 1000, at: quoteTime, receivedAt: quoteTime, source: "Fixture live" }, intercept: null };
   const buffers = new Map(chunks.map((item) => [item.descriptor.path, item.buffer]));
   const root = { crypto: webcrypto, AbortController, ArrayBuffer, DataView, Uint8Array,
     document: { visibilityState: "visible", addEventListener: (name, fn) => listeners.set(name, fn),
@@ -82,6 +85,11 @@ function fixture(chunks = [chunk(500, [record(100), record(200), record(300)])])
       onQuote = callback;
       return { start: () => starts++, stop: () => stops++, isLive: () => state.live,
         newerThan: time => state.quote?.at > time ? state.quote : null };
+    } },
+    WSBBitcoinChainTip: { create: callbacks => {
+      onTip = callbacks.onTip; onStatus = callbacks.onStatus;
+      return { start: () => chainStarts++, stop: () => chainStops++, refresh: async () => state.network,
+        last: () => state.network, isLive: () => state.chainLive };
     } },
     fetch: async (url, options) => {
       requests.push({ url, options });
@@ -95,12 +103,16 @@ function fixture(chunks = [chunk(500, [record(100), record(200), record(300)])])
   };
   const sandbox = { window: root, AbortController, ArrayBuffer, DataView, Uint8Array, console };
   vm.runInNewContext(source, sandbox);
-  const adapter = root.WSBEOEGrowthLive.create({ onChange: () => changed++, getPublishedAt: () => publishedAt });
   const context = { publishedAt, latestHeight: 210499 };
+  const adapter = root.WSBEOEGrowthLive.create({ onChange: () => changed++, getPublishedAt: () => context });
   return { root, state, requests, buffers, timers, adapter, context,
     start: async () => { adapter.start(); return adapter.refresh(); },
     current: () => adapter.current(context), changes: () => changed,
     emit: () => onQuote(), counts: () => ({ starts, stops }),
+    chainCounts: () => ({ starts: chainStarts, stops: chainStops }),
+    block: (height, changes = {}) => { state.network = { height, minedAt: quoteTime - 1000,
+      id: height.toString(16).padStart(64, "0"), reorg: false, ...changes }; onTip(state.network); },
+    chainStatus: (value) => { state.chainLive = value === "live"; onStatus(value); },
     visibility: value => { root.document.visibilityState = value; listeners.get("visibilitychange")?.(); } };
 }
 const deferred = () => { let resolve; const promise = new Promise(r => resolve = r); return { promise, resolve }; };
@@ -219,6 +231,7 @@ test("a request completing after its timeout cannot commit even if transport ign
   f.state.tip = tip(210501); const pending = deferred();
   f.state.intercept = url => url === L.TIP_URL ? pending.promise : undefined;
   const refresh = f.adapter.refresh();
+  await until(() => [...f.timers.values()].some(timer => timer.delay === 15000));
   const timeout = [...f.timers.values()].find(timer => timer.delay === 15000);
   assert.ok(timeout); timeout.fn();
   pending.resolve({ ok: true, json: async () => f.state.tip });
@@ -235,4 +248,87 @@ test("visibility cancels pending lookup and polling resumes only while visible",
   f.visibility("visible"); await until(() => f.requests.length > before);
   await f.adapter.refresh(); assert.ok([...f.timers.values()].some(timer => timer.delay === 60000));
   f.adapter.stop(); assert.equal(f.timers.size, 0);
+});
+
+
+test("network blocks update exact references immediately without waiting for Pages or another quote", async () => {
+  const f = fixture(); await f.start();
+  const publishedCalls = f.requests.filter(request => request.url === L.TIP_URL).length;
+  const chunkCalls = f.requests.filter(request => request.url.includes(".bin?")).length;
+  f.state.intercept = url => url === L.TIP_URL ? Promise.reject(new Error("Pages offline")) : undefined;
+  f.block(210501);
+  await until(() => f.current()?.tip.height === 210501);
+  assert.equal(f.current().reference.height, 501); assert.equal(f.current().reference.price, 200);
+  assert.equal(f.current().tip.source, "mempool"); assert.equal(f.current().chainLive, true);
+  assert.equal(f.current().quote.at, quoteTime, "an unchanged accepted quote can pair with a new block");
+  assert.equal(f.requests.filter(request => request.url === L.TIP_URL).length, publishedCalls);
+  assert.equal(f.requests.filter(request => request.url.includes(".bin?")).length, chunkCalls);
+  f.block(210502); await until(() => f.current()?.tip.height === 210502);
+  assert.equal(f.current().reference.price, 300);
+  f.chainStatus("offline");
+  assert.equal(f.current().tip.height, 210502); assert.equal(f.current().chainLive, false);
+  assert.equal(f.current().live, true, "block transport and price freshness have separate status");
+  assert.equal(await f.adapter.refresh(), true, "last network height retains its verified reference through an outage");
+  f.adapter.stop(); assert.deepEqual(f.chainCounts(), { starts: 1, stops: 1 });
+});
+
+test("network lookup races and malformed blocks retain the last complete pair", async () => {
+  const a = chunk(500, [record(100)]), b = chunk(501, [record(200)]), c = chunk(502, [record(300)]);
+  const f = fixture([a, b, c]); await f.start();
+  const held = deferred();
+  f.state.intercept = url => url.includes("/501.bin?") ? held.promise : undefined;
+  f.block(210501);
+  await until(() => f.requests.some(request => request.url.includes("/501.bin?")));
+  assert.equal(f.current().tip.height, 210500);
+  f.block(210502); await until(() => f.current()?.tip.height === 210502);
+  held.resolve({ ok: true, arrayBuffer: async () => b.buffer });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.current().reference.height, 502);
+  const changed = f.changes();
+  for (const invalid of [{ id: "bad" }, { minedAt: NaN }, { height: 210500.5 }, { height: -1 }]) f.block(210501, invalid);
+  assert.equal(f.changes(), changed); assert.equal(f.current().tip.height, 210502);
+  f.adapter.stop();
+});
+
+test("authoritative equal-height and shorter reorgs replace the live pair without accepting a stale initial tip", async () => {
+  const f = fixture(); f.state.tip = tip(210502); f.context.latestHeight = 210502;
+  await f.start();
+  f.block(210500); await f.adapter.refresh();
+  assert.equal(f.current().tip.height, 210502, "an initial lagging network source cannot displace the publication");
+  f.block(210502); await until(() => f.current()?.tip.source === "mempool");
+  const replacement = "b".repeat(64);
+  f.block(210502, { id: replacement }); await until(() => f.current()?.tip.id === replacement);
+  f.block(210500, { reorg: true }); await until(() => f.current()?.tip.height === 210500);
+  assert.equal(f.current().reference.height, 500); assert.equal(f.current().tip.reorg, true);
+  f.block(210501); await until(() => f.current()?.tip.height === 210501);
+  assert.equal(f.current().tip.reorg, true, "shorter replacement chain stays authoritative while it catches up");
+  assert.equal(f.adapter.current({ publishedAt, latestHeight: 210503 }), null,
+    "a publication beyond the observed reorg boundary supersedes the old tuple");
+  const model = M.buildModel([
+    { date: "2026-10-23", time: Date.parse("2026-10-23T00:00:00Z"), timestamp: "2026-10-23 12:00:00", height: 500, price: 100 },
+    { date: "2026-10-24", time: Date.parse("2026-10-24T00:00:00Z"), timestamp: "2026-10-24 12:00:00", height: 210502, price: 900 },
+  ]);
+  const before = JSON.stringify(model);
+  const view = M.liveFrame(model, f.current());
+  assert.equal(view.row.height, 210501); assert.equal(view.referenceRow.height, 501);
+  assert.equal(view.current.chainLive, true);
+  assert.ok(view.epochs.every(group => group.rows.every(row => row.height <= 210501)));
+  assert.equal(JSON.stringify(model), before, "reorg projection cannot rewrite historical playback");
+  f.adapter.stop();
+});
+
+test("network reference updates retain manifest rechecks and hidden resume", async () => {
+  const f = fixture(); await f.start();
+  let manifests = 0;
+  f.state.intercept = url => url === L.MANIFEST_URL && ++manifests === 2
+    ? { ok: true, json: async () => ({ ...f.state.manifest, last_height: 999 }) } : undefined;
+  f.block(210501);
+  await until(() => manifests === 2);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.current().tip.height, 210500, "a changed manifest never installs a partial network pair");
+  f.state.intercept = null;
+  f.visibility("hidden"); const requests = f.requests.length;
+  f.block(210502); assert.equal(f.requests.length, requests); assert.equal(f.current().tip.height, 210500);
+  f.visibility("visible"); await until(() => f.current()?.tip.height === 210502);
+  assert.equal(f.current().reference.price, 300); f.adapter.stop();
 });

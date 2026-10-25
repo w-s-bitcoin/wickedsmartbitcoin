@@ -14,7 +14,14 @@
         || !Number.isSafeInteger(block.timestamp) || block.timestamp <= 0
         || block.timestamp > 0xffffffff || typeof block.id !== "string"
         || !/^[0-9a-f]{64}$/i.test(block.id)) return null;
-    return { height: block.height, minedAt: block.timestamp * 1000, id: block.id.toLowerCase() };
+    const tip = { height: block.height, minedAt: block.timestamp * 1000, id: block.id.toLowerCase() };
+    // Consumers with a verified recent window can append a socket block without
+    // fetching it again. Older/basic responses can still omit the parent hash.
+    if (block.previousblockhash != null) {
+      if (typeof block.previousblockhash !== "string" || !/^[0-9a-f]{64}$/i.test(block.previousblockhash)) return null;
+      tip.previousblockhash = block.previousblockhash.toLowerCase();
+    }
+    return tip;
   }
 
   function readBlocks(blocks) {
@@ -224,7 +231,8 @@
       retryTimer = pollTimer = 0;
       cancelRequest();
       closeSocket();
-      setStatus("paused");
+      // Losing network access is a failure; hiding the page is an intentional pause.
+      setStatus(typeof navigator !== "undefined" && navigator.onLine === false ? "offline" : "paused");
     }
 
     function refresh() {
