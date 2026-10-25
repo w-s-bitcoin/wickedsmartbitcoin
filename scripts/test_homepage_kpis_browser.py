@@ -183,6 +183,19 @@ STATE = """(() => {
     halvingProgress: document.getElementById('homeKpiHalvingProgress')?.value,
     difficulty: document.getElementById('homeKpiDifficultyRemaining')?.textContent,
     difficultyProgress: document.getElementById('homeKpiDifficultyProgress')?.value,
+    difficultyPace: document.getElementById('homeKpiDifficultyMeter')?.dataset.pace,
+    difficultyEpochCaption: document.getElementById('homeKpiDifficultyEpochCaption')?.textContent,
+    difficultySchedule: document.getElementById('homeKpiDifficultyMeter')?.dataset.tooltip,
+    difficultyTooltipContent: getComputedStyle(document.getElementById('homeKpiDifficultyMeter'), '::after').content,
+    difficultyTooltipColor: getComputedStyle(document.getElementById('homeKpiDifficultyMeter'), '::after').color,
+    difficultySegmentColor: getComputedStyle(document.querySelector('.snapshot-difficulty-variance')).backgroundColor,
+    difficultyEstimateColor: getComputedStyle(document.getElementById('homeKpiDifficultyEstimate')).color,
+    difficultySegmentStart: parseFloat(document.getElementById('homeKpiDifficultyMeter')?.style.getPropertyValue('--schedule-start')),
+    difficultySegmentWidth: parseFloat(document.getElementById('homeKpiDifficultyMeter')?.style.getPropertyValue('--schedule-width')),
+    difficultyExpected: parseFloat(document.getElementById('homeKpiDifficultyMeter')?.style.getPropertyValue('--schedule-expected')),
+    difficultyEstimate: document.getElementById('homeKpiDifficultyEstimateValue')?.textContent,
+    difficultyEstimateTrend: document.getElementById('homeKpiDifficultyEstimate')?.dataset.trend,
+    difficultyEstimateHidden: document.getElementById('homeKpiDifficultyEstimate')?.hidden,
     requests: window.__kpiTest.requests,
   };
 })()"""
@@ -233,7 +246,8 @@ def check_bands(state, age_seconds):
             all(abs(actual - target) < .001 for actual, target in zip(state["bandStops"], expected)),
             "Ten-minute color bands do not follow the elapsed scale", state)
     require(all(color in state["bandFill"] for color in
-                ("#3ec735", "#2a4f1f", "#f7931a", "#5d3d16", "#eb3226")),
+                ("#3ec735", "#f7931a", "#5d3d16", "#eb3226"))
+            and "#2a4f1f" not in state["bandFill"],
             "Elapsed bar lost one of its retained color bands", state)
 
 
@@ -270,16 +284,20 @@ def test_elapsed_timer(cdp):
     almost_ten = advance(cdp, 299)
     check_elapsed(almost_ten, "9m 59s ago", 599 / 600 * 100, "normal")
     ten_minutes = advance(cdp, 1)
-    check_elapsed(ten_minutes, "10m 00s ago", 100, "slow")
+    check_elapsed(ten_minutes, "10m 00s ago", 100, "normal")
     check_bands(ten_minutes, 600)
     require(ten_minutes["requests"] == requests, "Elapsed clock tick fetched network data", ten_minutes)
-    require(ten_minutes["color"] != five_minutes["color"], "Ten-minute boundary did not change color", ten_minutes)
+    require(ten_minutes["color"] == five_minutes["color"], "Ten-minute boundary changed from light green", ten_minutes)
 
     fifteen_minutes = advance(cdp, 300)
-    check_elapsed(fifteen_minutes, "15m 00s ago", 100, "slow")
+    check_elapsed(fifteen_minutes, "15m 00s ago", 100, "normal")
     check_bands(fifteen_minutes, 900)
-    twenty_minutes = advance(cdp, 300)
+    almost_twenty = advance(cdp, 299)
+    check_elapsed(almost_twenty, "19m 59s ago", 100, "normal")
+    require(almost_twenty["color"] == five_minutes["color"], "Light green ended before 20 minutes", almost_twenty)
+    twenty_minutes = advance(cdp, 1)
     check_elapsed(twenty_minutes, "20m 00s ago", 100, "slow")
+    require(twenty_minutes["color"] != almost_twenty["color"], "Orange did not start at 20 minutes", twenty_minutes)
     check_bands(twenty_minutes, 1200)
     check_scale(twenty_minutes, 1200, 50)
     labels = {label["minutes"]: label["text"] for label in twenty_minutes["tickLabels"]}
@@ -622,6 +640,90 @@ def test_scale_layout(cdp):
         require(all(left["right"] <= right["left"] for left, right in zip(labels, labels[1:])),
                 "Elapsed labels overlap", layout)
     print("Passed: compact scale, height clearance, and aligned bars at 1440px, 375px, and 320px", flush=True)
+
+
+def test_difficulty_schedule(cdp):
+    for pace, height, difference, projection in (
+        ("ahead", 973001, 36, 5.02),
+        ("behind", 973002, -42, -3.14),
+    ):
+        cdp.command("Page.reload")
+        wait_for(lambda: snapshot(cdp)["snapshot"] == "error", description="cold schedule fixture")
+        intervals = height % 2016
+        mined_at = FIXED_NOW_MS // 1000 - 300
+        start = mined_at - (intervals - difference) * 600
+        cdp.evaluate(f"""(() => {{
+          const test=window.__kpiTest;
+          test.payload={{...test.payload,block_height:{height},block_timestamp:{mined_at},
+            difficulty_epoch_start_timestamp:{start},projected_difficulty_adjustment_percent:{projection}}};
+          test.mode='ok'; window.dispatchEvent(new Event('online'));
+        }})()""")
+        state = wait_for(lambda: (item if (item := snapshot(cdp))["snapshot"] == "ready" else None),
+                         description=f"{pace} schedule")
+        require(state["difficultyPace"] == pace and state["difficultySchedule"] ==
+                f"{pace.capitalize()} by {abs(difference)} blocks", "Schedule variance text or state changed", state)
+        require("Ahead" not in state["difficultyEpochCaption"] and "Behind" not in state["difficultyEpochCaption"],
+                "Schedule variance should appear only in the bar tooltip", state)
+        require(re.search(r"\b\d+(?:st|nd|rd|th) diff\. epoch\b", state["difficultyEpochCaption"]),
+                "Difficulty caption lost its numbered epoch", state)
+        require(state["difficultySegmentWidth"] > 0 and state["difficultyEstimateTrend"] ==
+                ("up" if pace == "ahead" else "down") and state["difficultyEstimate"] == f"{abs(projection):.2f}%",
+                "Projection or colored segment missing", state)
+        actual = state["difficultyProgress"]
+        expected = state["difficultyExpected"]
+        require((actual > expected) == (pace == "ahead") and
+                abs(state["difficultySegmentStart"] - min(actual, expected)) < .001 and
+                abs(state["difficultySegmentWidth"] - abs(actual - expected)) < .001,
+                "Variance segment does not span scheduled and actual progress", state)
+        expected_color = "rgb(62, 199, 53)" if pace == "ahead" else "rgb(235, 50, 38)"
+        require(state["difficultySegmentColor"] == expected_color and
+                state["difficultyEstimateColor"] == expected_color,
+                "Segment and estimate do not share the expected pace color", state)
+        cdp.evaluate("document.getElementById('homeKpiDifficultyProgress').focus()")
+        focused = snapshot(cdp)
+        require(focused["difficultySchedule"] in focused["difficultyTooltipContent"] and
+                focused["difficultyTooltipColor"] == expected_color,
+                "Keyboard focus did not reveal the matching schedule tooltip", focused)
+        cdp.evaluate("document.getElementById('homeKpiDifficultyProgress').blur()")
+        center = cdp.evaluate("""(() => { const r = document.getElementById('homeKpiDifficultyMeter').getBoundingClientRect();
+          return {x: r.left + r.width / 2, y: r.top + r.height / 2}; })()""")
+        cdp.command("Input.dispatchMouseEvent", {"type": "mouseMoved", **center})
+        hovered = snapshot(cdp)
+        require(hovered["difficultySchedule"] in hovered["difficultyTooltipContent"],
+                "Hover did not reveal the schedule tooltip", hovered)
+        cdp.command("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": 0, "y": 0})
+        if pace == "ahead":
+            cdp.evaluate(f"""(() => {{
+              const test = window.__kpiTest;
+              test.feedOpen();
+              test.feedPush({{blocks: [test.block({height + 1}, 60)]}});
+            }})()""")
+            live = snapshot(cdp)
+            require(live["source"] == "live" and live["difficultyPace"] == "ahead"
+                    and not live["difficultyEstimateHidden"] and live["difficultySegmentWidth"] > 0,
+                    "A same-epoch live block lost the schedule comparison", live)
+
+    # The current published file may predate the exact epoch-start field.
+    cdp.evaluate("""(() => {
+      const test = window.__kpiTest;
+      const {difficulty_epoch_start_timestamp, ...legacy} = test.payload;
+      test.payload = legacy;
+      window.dispatchEvent(new Event('online'));
+    })()""")
+    legacy = wait_for(lambda: (item if (item := snapshot(cdp))["requests"] > state["requests"] else None),
+                      description="legacy projection fallback")
+    require(legacy["difficultyPace"] == "behind" and not legacy["difficultyEstimateHidden"],
+            "Legacy published projection did not retain a schedule comparison", legacy)
+
+    # A cold live tip has no epoch anchor; neither a forecast nor a colored
+    # schedule gap should be invented from a previous epoch's publication.
+    cdp.command("Page.reload")
+    wait_for(lambda: snapshot(cdp)["snapshot"] == "error", description="cold live schedule fixture")
+    cdp.evaluate("window.__kpiTest.feedOpen();window.__kpiTest.feedPush({blocks:[window.__kpiTest.block(846720,1)]})")
+    missing = snapshot(cdp)
+    require(missing["difficultyPace"] == "unknown" and missing["difficultyEstimateHidden"] and
+            missing["difficultySegmentWidth"] == 0, "Cold live tip invented a schedule estimate", missing)
+    print("Passed: difficulty schedule ahead/behind segments, arrows, and unavailable fallback", flush=True)
 
 
 def check_live_cards(state, height, supply, *, estimated=True):
@@ -1021,6 +1123,7 @@ def main():
                     test_signed_bar_geometry(cdp)
                     test_orange_theme_matching(cdp)
                     test_scale_layout(cdp)
+                    test_difficulty_schedule(cdp)
                     test_live_without_publication(cdp)
                     test_live_blocks(cdp)
                     test_reconnect_pong_preserves_publication(cdp)

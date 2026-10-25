@@ -1938,6 +1938,30 @@
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  async function downloadImage() {
+    if (isDateRangeExporting || !state.rows.length) return;
+    const button = document.getElementById("downloadImageBtn");
+    button.disabled = true;
+    try {
+      const settings = { ...normalizeDownloadSettings(readDownloadSettingsControls()), quality: "2160" };
+      const index = Math.max(0, findIndex(state.endIso, "floor"));
+      const liveRows = index === state.rows.length - 1
+        ? ATH_LIVE?.withQuote(state.rows, selectedDaysSpotQuote(), Date.now(), observedSpotHigh) || state.rows
+        : null;
+      scaleTransitions.finish();
+      await waitForExportFonts();
+      const canvas = document.createElement("canvas");
+      drawExportFrame(index, settings, canvas, { liveRows });
+      const charts = settings.chartMode === "both" ? "both" : settings.chartMode === "left" ? "price" : "days";
+      await window.WSBDashboardExport.downloadPng(canvas, `days-since-ath-${charts}-${state.startIso}-${state.endIso}.png`);
+    } catch (error) {
+      console.error("Unable to export Days Since ATH image.", error);
+      window.alert?.(error?.message || "Unable to export image.");
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   async function downloadDateRangeAnimation() {
     if (isDateRangeExporting) {
       requestExportCancel();
@@ -2459,6 +2483,7 @@
       event.stopPropagation();
       toggleExpandedLayout();
     });
+    document.getElementById("downloadImageBtn")?.addEventListener("click", downloadImage);
     el.downloadBtn?.addEventListener("click", downloadDateRangeAnimation);
     el.settingsDownloadBtn?.addEventListener("click", () => {
       if (!isDateRangeExporting) setSettingsMenuOpen(false);

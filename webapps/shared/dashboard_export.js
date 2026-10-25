@@ -471,6 +471,20 @@
   function encodeVideo(options) { return encodeVideoFrames(options, true); }
   function encodeWebM(options) { return encodeVideoFrames(options, false); }
 
+  async function downloadPng(canvas, filename) {
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob((result) => result ? resolve(result) : reject(new Error("PNG encoding failed.")), "image/png");
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
   function wait(ms) {
     return new Promise((resolve) => window.setTimeout(resolve, ms));
   }
@@ -524,6 +538,7 @@
   ns.hasWebCodecsExportSupport = hasWebCodecsExportSupport;
   ns.encodeWebM = encodeWebM;
   ns.encodeVideo = encodeVideo;
+  ns.downloadPng = downloadPng;
   ns.getSupportedMp4Config = getSupportedMp4Config;
   ns.videoExtension = videoExtension;
   ns.drawFooterUrl = drawFooterUrl;

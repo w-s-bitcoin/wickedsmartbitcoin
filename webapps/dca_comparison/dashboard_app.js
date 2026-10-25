@@ -3340,6 +3340,31 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
+  async function exportImage() {
+    if (state.isExporting) return;
+    const button = document.getElementById("downloadImageBtn");
+    button.disabled = true;
+    try {
+      scaleTransition.finish();
+      normalizeSettings();
+      normalizeExportSettings();
+      const settings = { ...getExportSettingsSnapshot(), quality: 2160 };
+      await window.WSBDashboardExportBranding.ready();
+      const canvas = document.createElement("canvas");
+      const liveRows = settings.rangeEnd === state.maxIso
+        ? window.WSBComparisonLivePrice?.withQuotes(state.rows, selectedLatestQuotes(), Date.now(), dcaInstalledDataSignature) || state.rows
+        : null;
+      drawExportFrame(canvas, settings.rangeEnd, settings, getExportDimensions(settings), liveRows);
+      await window.WSBDashboardExport.downloadPng(canvas,
+        `dca_comparison_${settings.assetA}_${settings.assetB}_${settings.rangeStart}_${settings.rangeEnd}.png`);
+    } catch (error) {
+      console.error("Unable to export DCA comparison image:", error);
+      window.alert?.(error?.message || "Unable to export image.");
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   async function exportVideo() {
     if (requestExportCancel()) return;
     if (!hasDeterministicExportSupport()) {
@@ -3385,6 +3410,7 @@
   }
 
   function bindEvents() {
+    document.getElementById("downloadImageBtn")?.addEventListener("click", exportImage);
     const closeSettingsPanel = () => {
       el.settingsPanel?.classList.remove("open");
       el.settingsBtn?.classList.remove("is-open");

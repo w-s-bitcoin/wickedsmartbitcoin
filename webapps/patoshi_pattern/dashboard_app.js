@@ -4318,6 +4318,26 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
+  async function exportImage() {
+    if (state.isExporting) return;
+    const button = document.getElementById("downloadImageBtn");
+    button.disabled = true;
+    try {
+      normalizeExportSettings();
+      const settings = { ...getExportSettingsSnapshot(), quality: 2160 };
+      await window.WSBDashboardExportBranding.ready();
+      const canvas = document.createElement("canvas");
+      drawExportFrame(canvas, state.endMs, settings, getExportDimensions(settings));
+      const end = fmtDateTime(state.endMs, false).replace(/[^0-9A-Za-z]+/g, "_");
+      await window.WSBDashboardExport.downloadPng(canvas, `patoshi_pattern_${end}.png`);
+    } catch (error) {
+      console.error("Unable to export Patoshi image:", error);
+      window.alert?.(error?.message || "Unable to export image.");
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   async function exportVideo() {
     if (requestExportCancel()) return;
     if (!hasDeterministicExportSupport()) {
@@ -5369,6 +5389,7 @@
       saveState();
     });
     els.expandBtn?.addEventListener("click", toggleExpandMode);
+    document.getElementById("downloadImageBtn")?.addEventListener("click", exportImage);
     els.downloadBtn?.addEventListener("click", exportVideo);
     els.downloadPanelBtn?.addEventListener("click", exportVideo);
     els.chartPanModeBtn?.addEventListener("click", () => setChartInteractionMode("pan"));

@@ -2295,6 +2295,35 @@
     }
   }
 
+  async function downloadImage() {
+    if (isDateRangeExporting || !allRows.length) return;
+    const button = document.getElementById("downloadImageBtn");
+    button.disabled = true;
+    let exportRefs = null;
+    try {
+      const settings = { ...normalizeDownloadSettings(downloadSettings), quality: "2160" };
+      const maxIndex = allRows.length - 1;
+      const startValue = Number(el.dateRangeStartSlider?.value);
+      const endValue = Number(el.dateRangeEndSlider?.value);
+      const startIndex = Math.max(0, Math.min(maxIndex, Number.isFinite(startValue) ? startValue : 0));
+      const endIndex = Math.max(startIndex, Math.min(maxIndex, Number.isFinite(endValue) ? endValue : maxIndex));
+      const snapshot = getExportEstimateSnapshot(settings, startIndex, endIndex);
+      await waitForDateRangeExportFonts();
+      exportRefs = createExportRenderSurface(settings);
+      renderExportFrameToSurface(exportRefs, snapshot, startIndex, endIndex);
+      const canvas = document.createElement("canvas");
+      await composeDateRangeExportFrame(canvas, settings, exportRefs);
+      await window.WSBDashboardExport.downloadPng(canvas, getDateRangeExportFilename(settings, "png", snapshot));
+    } catch (error) {
+      console.error("Unable to export Unit of Account image.", error);
+      window.alert?.(error?.message || "Unable to export image.");
+    } finally {
+      exportRefs?.surface?.remove();
+      button.disabled = false;
+      renderAll();
+    }
+  }
+
   async function downloadDateRangeAnimation() {
     if (isDateRangeExporting) {
       requestDateRangeExportCancel();
@@ -2917,6 +2946,7 @@
 
   function bindDateRangeDownloadControls() {
     loadDownloadSettings();
+    document.getElementById("downloadImageBtn")?.addEventListener("click", downloadImage);
     if (el.dateRangeDownloadBtn && el.dateRangeDownloadBtn.dataset.bound !== "1") {
       el.dateRangeDownloadBtn.dataset.bound = "1";
       el.dateRangeDownloadBtn.addEventListener("click", () => {

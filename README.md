@@ -127,6 +127,9 @@ Price feeds continue using 2140data's WebSocket as their primary source.
 Animation downloads use H.264 MP4 when the browser supports encoding at the
 selected dimensions, with genuine WebM as the capability fallback. Both use
 the shared deterministic frame sequence, export layout, and live-frame policy.
+Every dashboard with animation download also offers a 2160-quality PNG of its
+current view, using the selected orientation, theme, and shared creator and
+Lightning donation footer.
 
 ## Architecture
 
@@ -355,6 +358,7 @@ CHROME_BIN=/path/to/chromium python3 scripts/test_video_export_browser.py
 # Optional full Patoshi benchmark: 10m34s, 19,021 frames per codec (requires FFmpeg).
 CHROME_BIN=/path/to/chromium python3 scripts/test_video_export_browser.py --long --output-dir /tmp/wsb-video-long-review
 CHROME_BIN=/path/to/chromium python3 scripts/test_export_footer_browser.py
+CHROME_BIN=/path/to/chromium python3 scripts/test_export_footer_browser.py --images-only
 node --test scripts/test_scale_transitions.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_dca_scale_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_days_issuance_scale_browser.py
