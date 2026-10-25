@@ -1,5 +1,14 @@
 # Bitcoin Node Count
 
+## PNG exports
+
+Chart PNG downloads capture the current view and selected light or dark theme
+before loading export assets. They retain 3840 × 2160 output and use the shared
+creator, current Lightning donation QR, and canonical URL footer. Light exports
+have white chart and footer backgrounds with dark axis labels and grid lines.
+The chart keeps its existing Plotly composition and typography; shared headline
+and Bitcoin wordmark adoption remains pending.
+
 ## Historical observations and recovery
 
 The producer reads Luke Dashjr's [history feed](https://luke.dashjr.org/programs/bitcoin/files/charts/data/history.txt).

@@ -50,7 +50,6 @@ const PLAYBACK_SPEEDS = [0.5, 1, 2, 4];
 const EXPORT_VIDEO_FPS = 30;
 const EXPORT_START_HOLD_SECONDS = 1;
 const EXPORT_END_HOLD_SECONDS = 3;
-const EXPORT_CHART_TEXT_SCALE = 1.72;
 const CHART_MONO_FONT_ATTR = "IBM Plex Mono, monospace";
 const CHART_TITLE_FONT_ATTR = "Space Grotesk, Helvetica Neue, sans-serif";
 const MS_PER_DAY = 86400000;
@@ -111,6 +110,7 @@ let dateRangeHandleDrag = null;
 let dateRangeLastAdjustedHandle = null;
 let activeDatePickerClose = null;
 let isDateRangeExporting = false;
+let isImageExporting = false;
 let dateRangeExportCancelRequested = false;
 let dateRangePlaybackOutsidePointerHandler = null;
 let dateRangePlaybackOutsidePointerTouchState = null;
@@ -1060,8 +1060,7 @@ function getDataBounds() {
   };
 }
 
-function findDateIndex(iso, mode = "exact") {
-  const rows = state.priceRows || [];
+function findDateIndex(iso, mode = "exact", rows = state.priceRows || []) {
   if (!rows.length || !iso) return -1;
   let lo = 0;
   let hi = rows.length - 1;
@@ -1416,26 +1415,26 @@ function initializeDateRangeState() {
 }
 
 function getFrameRows(startIso = state.dateRange.startIso, endIso = state.dateRange.currentEndIso,
-    useLiveSpot = false, liveQuoteOverride = undefined) {
-  const priceRows = state.priceRows || [];
+    useLiveSpot = false, liveQuoteOverride = undefined, model = state) {
+  const priceRows = model.priceRows || [];
   if (!priceRows.length) return [];
-  const startIdx = findDateIndex(startIso, "ceil");
-  const endIdx = findDateIndex(endIso, "floor");
+  const startIdx = findDateIndex(startIso, "ceil", priceRows);
+  const endIdx = findDateIndex(endIso, "floor", priceRows);
   if (startIdx < 0 || endIdx < 0 || startIdx > endIdx) return [];
 
-  const cache = state.cadenceCaches[state.cadence] || state.cadenceCaches.daily_dca;
+  const cache = model.cadenceCaches[model.cadence] || model.cadenceCaches.daily_dca;
   const endRow = priceRows[endIdx];
   const latestPublishedIndex = priceRows.length - 1;
-  const liveQuote = useLiveSpot && (state.dateRange.rangeTracksLatestEnd || liveQuoteOverride !== undefined)
-    && !state.dateRange.isPlaying && !state.dateRange.isPaused && endIdx === latestPublishedIndex
+  const liveQuote = useLiveSpot && (model.dateRange.rangeTracksLatestEnd || liveQuoteOverride !== undefined)
+    && !model.dateRange.isPlaying && !model.dateRange.isPaused && endIdx === latestPublishedIndex
     ? (liveQuoteOverride !== undefined ? liveQuoteOverride : selectedDcaSpotQuote()) : null;
   const currentPrice = liveQuote?.price || endRow.price;
   const quoteDay = liveQuote ? new Date(liveQuote.at).toISOString().slice(0, 10) : "";
   const liveToday = Boolean(quoteDay && endRow.dateIso === quoteDay);
   const appendToday = Boolean(quoteDay && diffDays(endRow.dateIso, quoteDay) === 1);
-  const buysToday = state.cadence === "daily_dca"
-    || (state.cadence === "weekly_dca" && new Date(`${quoteDay}T00:00:00Z`).getUTCDay() === 5)
-    || (state.cadence === "monthly_dca" && Number(quoteDay.slice(8, 10)) === 1);
+  const buysToday = model.cadence === "daily_dca"
+    || (model.cadence === "weekly_dca" && new Date(`${quoteDay}T00:00:00Z`).getUTCDay() === 5)
+    || (model.cadence === "monthly_dca" && Number(quoteDay.slice(8, 10)) === 1);
   const liveLatestBuy = liveToday && cache.mask[endIdx];
   const latestBuyPrice = liveLatestBuy ? currentPrice : endRow.price;
   const latestBuyAdjustment = liveLatestBuy ? (1 / currentPrice) - (1 / endRow.price)
@@ -1444,7 +1443,7 @@ function getFrameRows(startIso = state.dateRange.startIso, endIso = state.dateRa
 
   for (let index = startIdx; index <= endIdx; index += 1) {
     const row = priceRows[index];
-    const effectiveStart = state.cadence === "daily_dca"
+    const effectiveStart = model.cadence === "daily_dca"
       ? index
       : Math.max(0, cache.prevBuyIndex[index]);
     const prefixStart = Math.max(0, effectiveStart);
@@ -1456,7 +1455,7 @@ function getFrameRows(startIso = state.dateRange.startIso, endIso = state.dateRa
     const btcAccum = invPrice;
     const dcaBasis = purchaseCount > 0 && btcAccum > 0 ? investedUsd / btcAccum : NaN;
     const daysAgo = endIdx - index + 1 + (appendToday ? 1 : 0);
-    const oneDayDaily = state.cadence === "daily_dca" && daysAgo === 1;
+    const oneDayDaily = model.cadence === "daily_dca" && daysAgo === 1;
 
     output.push({
       daysAgo,
@@ -2611,14 +2610,35 @@ function getDownloadDimensions(settings) {
   return window.WSBDashboardExport.getDimensions(settings);
 }
 
-function getExportReferenceSettings(settings) {
-  return window.WSBDashboardExport.getReferenceSettings(settings, 1440);
+// A paused/scrubbed view defines the export end, including its estimate.
+function getDateRangeExportEndIso() {
+  return state.dateRange.currentEndIso || state.dateRange.endIso;
+}
+
+function getDcaExportSnapshot() {
+  return {
+    cadence: state.cadence, showHalvings: state.showHalvings, timeZone: state.timeZone,
+    priceRows: state.priceRows, cadenceCaches: state.cadenceCaches,
+    metadata: state.metadata,
+    dateRange: { ...state.dateRange, endIso: getDateRangeExportEndIso(), isPlaying: false, isPaused: false },
+  };
+}
+
+function getDcaExportFrameOptions(rows, settings, snapshot, quote = null) {
+  const latest = rows.reduce((a, b) => !a || b.daysAgo < a.daysAgo ? b : a, null);
+  return {
+    rows, cadence: snapshot.cadence, showHalvings: snapshot.showHalvings,
+    halvings: snapshot.metadata?.halvings, timeZone: snapshot.timeZone,
+    scale: settings.scale, theme: settings.theme,
+    timestamp: quote?.at || latest?.timestampUtc || `${latest?.dateIso}T00:00:00Z`,
+    height: quote ? snapshot.metadata?.source?.latest_block_height : latest?.blockHeight,
+  };
 }
 
 function getDownloadVideoSeconds(settings = state.downloadSettings) {
   const frameDates = getDateRangeExportFrameDates(
     state.dateRange.startIso,
-    state.dateRange.endIso,
+    getDateRangeExportEndIso(),
     Number(settings.speed) || 1,
     settings.endFrameHold,
   );
@@ -2630,7 +2650,7 @@ function getDownloadEstimateCalibrationKey(settings, frameDates) {
   return [
     state.cadence,
     state.dateRange.startIso,
-    state.dateRange.endIso,
+    getDateRangeExportEndIso(),
     settings.scale,
     settings.orientation,
     settings.quality,
@@ -2717,7 +2737,7 @@ function updateDownloadEstimates() {
   const { width, height } = getDownloadDimensions(settings);
   const megapixels = Math.max(1, (width * height) / (1280 * 720));
   const seconds = getDownloadVideoSeconds(settings);
-  const frameDates = getDateRangeExportFrameDates(state.dateRange.startIso, state.dateRange.endIso, Number(settings.speed) || 1, settings.endFrameHold);
+  const frameDates = getDateRangeExportFrameDates(state.dateRange.startIso, getDateRangeExportEndIso(), Number(settings.speed) || 1, settings.endFrameHold);
   const uniqueFrameCount = new Set(frameDates).size;
   const calibrationKey = getDownloadEstimateCalibrationKey(settings, frameDates);
   const calibration = downloadEstimateCalibrationCache.get(calibrationKey);
@@ -2793,7 +2813,7 @@ function resetDateRangeDownloadButton() {
   const downloadBtn = document.getElementById("dateRangeDownloadBtn");
   if (!downloadBtn) return;
   downloadBtn.classList.remove("is-exporting", "is-canceling");
-  downloadBtn.disabled = !canUseDeterministicWebCodecsExport();
+  downloadBtn.disabled = isImageExporting || !canUseDeterministicWebCodecsExport();
   downloadBtn.setAttribute("aria-label", "Download date range animation");
   downloadBtn.setAttribute("title", canUseDeterministicWebCodecsExport() ? "Download animation" : "Animation download requires WebCodecs support");
   downloadBtn.textContent = "↓";
@@ -2801,12 +2821,17 @@ function resetDateRangeDownloadButton() {
 }
 
 function syncDownloadSettingsDownloadButton() {
+  const imageButton = document.getElementById("downloadImageBtn");
+  if (imageButton) {
+    imageButton.disabled = isDateRangeExporting;
+    imageButton.setAttribute("aria-busy", String(isImageExporting));
+  }
   const button = document.getElementById("downloadSettingsDownloadBtn");
   if (!button) return;
   const canDownload = canUseDeterministicWebCodecsExport();
   button.classList.toggle("is-stop-download", isDateRangeExporting);
-  button.disabled = !canDownload && !isDateRangeExporting;
-  button.textContent = isDateRangeExporting ? "Stop Download" : "Download Animation";
+  button.disabled = isImageExporting || (!canDownload && !isDateRangeExporting);
+  button.textContent = isDateRangeExporting && !isImageExporting ? "Stop Download" : "Download Animation";
   button.title = canDownload ? "" : "Animation download requires WebCodecs support";
 }
 
@@ -2842,128 +2867,6 @@ function bindDateRangeExportUnloadGuard() {
     event.preventDefault();
     event.returnValue = "";
   });
-}
-
-function buildStandaloneChartSvg(rows, width, height, colors, yScale = state.yScale) {
-  if (!rows.length) return "";
-  const x = rows.map((r) => r.daysAgo);
-  const historicalPrice = rows.map((r) => r.historicalPrice);
-  const dcaBasis = rows.map((r) => r.dcaBasis);
-  const priceUp = rows.map((r) => (r.isPriceAbove === 1 ? r.historicalPrice : null));
-  const priceDown = rows.map((r) => (r.isPriceAbove === 0 ? r.historicalPrice : null));
-  for (let i = 0; i < rows.length - 1; i += 1) {
-    if (rows[i].isPriceAbove === rows[i + 1].isPriceAbove) continue;
-    if (rows[i].isPriceAbove === 1) priceUp[i + 1] = rows[i + 1].historicalPrice;
-    else priceDown[i + 1] = rows[i + 1].historicalPrice;
-  }
-  const latestRow = rows[rows.length - 1];
-  const rawCurrentPrice = Number.isFinite(latestRow.currentPrice) ? latestRow.currentPrice : latestRow.historicalPrice;
-  const maxDays = Math.max(...x);
-  const ticks = buildDurationTickConfig(maxDays);
-  const dateTicks = buildDateTickConfig(rows, width);
-  const allYValues = [
-    ...historicalPrice.filter((v) => Number.isFinite(v) && v >= 0),
-    ...dcaBasis.filter((v) => Number.isFinite(v) && v >= 0),
-  ];
-  if (Number.isFinite(rawCurrentPrice) && rawCurrentPrice >= 0) allYValues.push(rawCurrentPrice);
-  const currentPrice = Number.isFinite(rawCurrentPrice) && rawCurrentPrice > 0
-    ? rawCurrentPrice
-    : (allYValues.length ? allYValues[allYValues.length - 1] : NaN);
-  const labelSizes = scaleChartLabelSizes(getResponsiveChartLabelSizes(width), EXPORT_CHART_TEXT_SCALE);
-  const cadenceLabel = getCadenceLabel();
-  const legendFontSize = Math.max(12, Number((labelSizes.tick * 0.76).toFixed(2)));
-  const currentPriceOverlayMetrics = getCurrentPriceOverlayMetrics(labelSizes);
-  const legendHeight = Math.max(28, Math.round(legendFontSize * 1.95));
-  const margins = {
-    top: legendHeight + Math.max(78, Math.round(height * 0.068)),
-    right: Math.max(104, Math.round(width * 0.055), currentPriceOverlayMetrics.rightMargin + 20),
-    bottom: Math.max(96, Math.round(height * 0.086)),
-    left: Math.max(32, Math.round(width * 0.018)),
-  };
-  const topTitleY = legendHeight + Math.round((margins.top - legendHeight) * 0.52);
-  const topTickY = margins.top + Math.round(labelSizes.topTick * 0.7);
-  const bottomTickY = height - Math.round(margins.bottom * 0.55);
-  const bottomTitleY = height - Math.round(margins.bottom * 0.16);
-  const plotLeft = margins.left;
-  const plotRight = width - margins.right;
-  const plotTop = margins.top + 26;
-  const plotBottom = height - margins.bottom - 8;
-  const yAxis = buildYScaleConfig(allYValues, yScale);
-  const xForDay = (day) => {
-    const ratio = (maxDays - day) / Math.max(1, maxDays - 1);
-    return plotLeft + (ratio * Math.max(1, plotRight - plotLeft));
-  };
-  const yForValue = (value) => yAxis.map(value, plotTop, Math.max(1, plotBottom - plotTop));
-  const rawBottomTicks = maxDays >= 365 && maxDays <= 365 * 4
-    ? ticks
-    : filterTicksByPixelSpacing(
-      ticks.tickvals,
-      ticks.ticktext,
-      (day) => xForDay(day),
-      width < 900 ? 56 : 38,
-    );
-  const topTicks = filterDateTicksByPixelSpacing(
-    dateTicks.tickvals,
-    dateTicks.ticktext,
-    (day) => xForDay(day),
-    width < 900 ? 82 : 58,
-  );
-  const { bottomTicks, topTicks: balancedTopTicks } = balanceXAxisTickCounts(rawBottomTicks, topTicks);
-  const rightTicks = filterTicksByPixelSpacing(
-    yAxis.tickvals,
-    yAxis.ticktext,
-    (value) => yForValue(value),
-    labelSizes.yTick * 1.45,
-    { preserveFirst: true, preserveLast: true },
-  );
-  return buildChartSvgMarkup({
-    width,
-    height,
-    plotLeft,
-    plotRight,
-    plotTop,
-    plotBottom,
-    xForDay,
-    yForValue,
-    bottomTicks,
-    topTicks: balancedTopTicks,
-    rightTicks,
-    colors,
-    rows,
-    priceUp,
-    priceDown,
-    dcaBasis,
-    currentPrice,
-    maxDays,
-    topTitleY,
-    topTickY,
-    bottomTickY,
-    bottomTitleY,
-    labelSizes,
-    yScale,
-    renderCurrentPriceLabel: true,
-    renderLegend: true,
-    legendFontSize,
-    exportHalvingLabelSpacing: true,
-    axisTitleX: width / 2,
-    startDateX: margins.left,
-    currentDateX: width - margins.left,
-    topAxisTitle: `${cadenceLabel} Starting Date`,
-    bottomAxisTitle: `${cadenceLabel} Duration`,
-    lineWidths: {
-      price: 5.8,
-      basis: 6.4,
-      current: 2.4,
-      grid: 1,
-    },
-  });
-}
-
-function scaleChartLabelSizes(labelSizes, scale = 1) {
-  return Object.fromEntries(Object.entries(labelSizes || {}).map(([key, value]) => [
-    key,
-    Number((Number(value || 0) * scale).toFixed(2)),
-  ]));
 }
 
 function getCadenceLabel(cadence = state.cadence) {
@@ -3018,41 +2921,16 @@ function getPaletteForTheme(theme) {
   };
 }
 
-function imageFromSvg(svgMarkup) {
-  return new Promise((resolve, reject) => {
-    const markup = String(svgMarkup || "").replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" ');
-    const blob = new Blob([markup], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const image = new Image();
-    image.decoding = "sync";
-    image.onload = () => {
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-      resolve(image);
-    };
-    image.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error("Unable to render SVG frame."));
-    };
-    image.src = url;
-  });
-}
-
-function scaleSvgRoot(svgMarkup, width, height, viewWidth, viewHeight) {
-  return String(svgMarkup || "").replace(
-    /<svg\b([^>]*)\bwidth="[^"]+"\s+height="[^"]+"\s+viewBox="[^"]+"/,
-    `<svg$1width="${width}" height="${height}" viewBox="0 0 ${viewWidth} ${viewHeight}"`
-  );
-}
-
 function getDateRangeExportBitrate(settings) {
   return Math.max(4_000_000, Number(settings.quality) * 8000);
 }
 
-async function encodeDateRangeAnimationVideo({ canvas, ctx, settings, theme, palette, frameDates }) {
+async function encodeDateRangeAnimationVideo({ canvas, ctx, settings, theme, palette, frameDates, snapshot = getDcaExportSnapshot() }) {
   const finalDate = frameDates[frameDates.length - 1];
-  const liveFinalFrameStart = finalDate === state.priceRows.at(-1)?.dateIso
+  const liveFinalFrameStart = finalDate === snapshot.priceRows.at(-1)?.dateIso
     ? getDateRangeFinalFrameStartIndex(frameDates) : -1;
   let finalFrameRows = null;
+  let finalQuote = null;
   return window.WSBDashboardExport.encodeVideo({
     canvas,
     width: canvas.width,
@@ -3069,11 +2947,11 @@ async function encodeDateRangeAnimationVideo({ canvas, ctx, settings, theme, pal
       if (useLiveFinalFrame && !finalFrameRows) {
         // Capture the newest accepted quote when the final motion frame begins.
         // Reuse it through the final hold so its chart and labels stay consistent.
-        finalFrameRows = getFrameRows(state.dateRange.startIso, finalDate, true,
-          selectedDcaSpotQuote() || null);
+        finalQuote = selectedDcaSpotQuote() || null;
+        finalFrameRows = getFrameRows(snapshot.dateRange.startIso, finalDate, true, finalQuote, snapshot);
       }
-      const rows = useLiveFinalFrame ? finalFrameRows : getFrameRows(state.dateRange.startIso, dateIso);
-      await drawExportFrame(ctx, canvas, dateIso, { ...settings, theme }, palette, rows);
+      const rows = useLiveFinalFrame ? finalFrameRows : getFrameRows(snapshot.dateRange.startIso, dateIso, false, null, snapshot);
+      await drawExportFrame(ctx, canvas, dateIso, { ...settings, theme }, palette, rows, getDcaExportFrameOptions(rows, settings, snapshot, useLiveFinalFrame ? finalQuote : null));
     },
   });
 }
@@ -3088,52 +2966,63 @@ async function waitForDateRangeExportFonts() {
   }
 }
 
-async function drawExportFrame(ctx, canvas, frameEndIso, settings, palette, precomputedRows = null) {
-  const referenceSettings = getExportReferenceSettings(settings);
-  const { width: referenceWidth, height: referenceHeight } = getDownloadDimensions(referenceSettings);
-  const referenceMinDimension = Math.min(referenceWidth, referenceHeight);
-  const referencePanelPad = Math.max(8, Math.round(referenceMinDimension * 0.012));
-  const referenceFooterHeight = Math.max(54, Math.round(referenceMinDimension * ((referenceWidth <= referenceHeight ? 150 : 122) / 1080)));
-  const referenceChartWidth = referenceWidth - referencePanelPad * 2;
-  const referenceChartHeight = referenceHeight - referencePanelPad * 2 - referenceFooterHeight;
-  const scale = canvas.height / Math.max(1, referenceHeight);
-  const panelPad = Math.round(referencePanelPad * scale);
-  const footerHeight = Math.round(referenceFooterHeight * scale);
-  const chartWidth = canvas.width - panelPad * 2;
-  const chartHeight = canvas.height - panelPad * 2 - footerHeight;
-  const rows = Array.isArray(precomputedRows)
-    ? precomputedRows
-    : getFrameRows(state.dateRange.startIso, frameEndIso);
-  const svg = buildStandaloneChartSvg(rows, referenceChartWidth, referenceChartHeight, palette, settings.scale);
-  ctx.fillStyle = palette.bg;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  if (svg) {
-    const scaledSvg = scaleSvgRoot(svg, chartWidth, chartHeight, referenceChartWidth, referenceChartHeight);
-    const image = await imageFromSvg(scaledSvg);
-    ctx.drawImage(image, panelPad, panelPad, chartWidth, chartHeight);
-  }
-  ctx.fillStyle = palette.bg;
-  ctx.fillRect(0, canvas.height - footerHeight, canvas.width, footerHeight);
-  window.WSBDashboardExport.drawFooterUrl(
-    ctx,
-    "https://wickedsmartbitcoin.com/dca_cost_basis",
-    { width: canvas.width, height: canvas.height, footerHeight },
-    { ...settings, referenceQuality: 1440 },
-  );
+async function drawExportFrame(ctx, canvas, frameEndIso, settings, palette, precomputedRows = null, options = null) {
+  const snapshot = getDcaExportSnapshot();
+  const rows = precomputedRows || getFrameRows(snapshot.dateRange.startIso, frameEndIso);
+  window.WSBDCACostBasisExport.render(ctx, canvas.width, canvas.height,
+    options || getDcaExportFrameOptions(rows, settings, snapshot));
 }
 
-function downloadDateRangeExportBlob(blob, extension, settings) {
+function downloadDateRangeExportBlob(blob, extension, settings, range = state.dateRange) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `dca-cost-basis-${state.dateRange.startIso}-${state.dateRange.endIso}-${settings.orientation}-${settings.quality}p.${extension}`;
+  link.download = `dca-cost-basis-${range.startIso}-${range.endIso}-${settings.orientation}-${settings.quality}p.${extension}`;
   document.body.appendChild(link);
   link.click();
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+async function downloadDateRangeImage() {
+  if (isDateRangeExporting || !state.priceRows.length) return;
+  const settings = { ...normalizeDownloadSettings(state.downloadSettings), quality: "2160" };
+  const snapshot = getDcaExportSnapshot();
+  // Freeze the exact visible view before awaiting assets. Paused history stays historical.
+  const quote = !state.dateRange.isPaused && !state.dateRange.isPlaying
+    && state.dateRange.rangeTracksLatestEnd && snapshot.dateRange.endIso === snapshot.priceRows.at(-1)?.dateIso
+    ? selectedDcaSpotQuote() : null;
+  const rows = getFrameRows(snapshot.dateRange.startIso, snapshot.dateRange.endIso, !!quote, quote, snapshot);
+  if (!rows.length) return;
+  isDateRangeExporting = true;
+  isImageExporting = true;
+  broadcastDateRangeExportActive(true);
+  resetDateRangeDownloadButton();
+  try {
+    await waitForDateRangeExportFonts();
+    const { width, height } = getDownloadDimensions(settings);
+    const canvas = document.createElement("canvas");
+    canvas.width = width; canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas rendering is unavailable.");
+    await drawExportFrame(ctx, canvas, snapshot.dateRange.endIso, settings, null, rows,
+      getDcaExportFrameOptions(rows, settings, snapshot, quote));
+    const blob = await new Promise((resolve, reject) => canvas.toBlob(
+      result => result ? resolve(result) : reject(new Error("PNG encoding failed.")), "image/png"));
+    downloadDateRangeExportBlob(blob, "png", settings, snapshot.dateRange);
+  } catch (error) {
+    console.error(error);
+    window.alert(`The image export could not be completed: ${error.message}`);
+  } finally {
+    isDateRangeExporting = false;
+    isImageExporting = false;
+    broadcastDateRangeExportActive(false);
+    resetDateRangeDownloadButton();
+  }
+}
+
 async function downloadDateRangeAnimation() {
+  if (isImageExporting) return;
   if (isDateRangeExporting) {
     requestDateRangeExportCancel();
     return;
@@ -3146,6 +3035,7 @@ async function downloadDateRangeAnimation() {
     return;
   }
 
+  const snapshot = getDcaExportSnapshot();
   scaleTransition.finish();
   renderChart();
   stopDateRangePlayback(false);
@@ -3158,7 +3048,7 @@ async function downloadDateRangeAnimation() {
 
   const theme = settings.theme === "light" ? "light" : "dark";
   const palette = getPaletteForTheme(theme);
-  const frameDates = getDateRangeExportFrameDates(state.dateRange.startIso, state.dateRange.endIso, Number(settings.speed) || 1, settings.endFrameHold);
+  const frameDates = getDateRangeExportFrameDates(snapshot.dateRange.startIso, snapshot.dateRange.endIso, Number(settings.speed) || 1, settings.endFrameHold);
   if (!frameDates.length) return;
   const finalDate = frameDates[frameDates.length - 1];
 
@@ -3166,10 +3056,13 @@ async function downloadDateRangeAnimation() {
   dateRangeExportCancelRequested = false;
   broadcastDateRangeExportActive(true);
   renderDateRangeDownloadButtonProgress(0);
+  syncDownloadSettingsDownloadButton();
 
   try {
     await waitForDateRangeExportFonts();
-    await drawExportFrame(ctx, canvas, finalDate, { ...settings, theme }, palette, getFrameRows(state.dateRange.startIso, finalDate));
+    const initialRows = getFrameRows(snapshot.dateRange.startIso, finalDate, false, null, snapshot);
+    await drawExportFrame(ctx, canvas, finalDate, { ...settings, theme }, palette, initialRows,
+      getDcaExportFrameOptions(initialRows, settings, snapshot));
     const videoBlob = await encodeDateRangeAnimationVideo({
       canvas,
       ctx,
@@ -3177,11 +3070,12 @@ async function downloadDateRangeAnimation() {
       theme,
       palette,
       frameDates,
+      snapshot,
     });
     if (!videoBlob && !dateRangeExportCancelRequested) throw new Error("Video encoding is unavailable for the selected settings in this browser.");
     if (videoBlob && !dateRangeExportCancelRequested) {
       renderDateRangeDownloadButtonProgress(1);
-      downloadDateRangeExportBlob(videoBlob, window.WSBDashboardExport.videoExtension(videoBlob), settings);
+      downloadDateRangeExportBlob(videoBlob, window.WSBDashboardExport.videoExtension(videoBlob), settings, snapshot.dateRange);
     }
   } catch (error) {
     if (!dateRangeExportCancelRequested) {
@@ -5004,6 +4898,10 @@ function bindControls() {
     renderChart();
   });
   speedBtn?.addEventListener("click", cyclePlaybackSpeed);
+  document.getElementById("downloadImageBtn")?.addEventListener("click", () => {
+    closeDownloadSettingsMenu();
+    downloadDateRangeImage();
+  });
   downloadBtn?.addEventListener("click", () => {
     closeDownloadSettingsMenu();
     downloadDateRangeAnimation();

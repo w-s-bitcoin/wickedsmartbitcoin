@@ -9,15 +9,15 @@
   <script src="../shared/dashboard_share.js"></script>
   <script src="../shared/dashboard_components.js"></script>
   <script src="../shared/dashboard_charting.js?v=20261017-scale-transition"></script>
-  <script src="../shared/dashboard_export.js?v=20261024-mp4"></script>
+  <script src="../shared/dashboard_export.js?v=20261024-compact-footer"></script>
   <script src="../shared/dashboard_mp4.js?v=20261024-mp4"></script>
-  <script src="../shared/dashboard_export_branding.js"></script>
+  <script src="../shared/dashboard_export_branding.js?v=20261024-compact-footer"></script>
   <script src="../shared/bitcoin_spot_price.js"></script>
   <script src="../shared/comparison_live_price.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="../shared/dashboard_shared.css" />
+  <link rel="stylesheet" href="../shared/dashboard_shared.css?v=20261025-kpi-divider" />
     <link rel="stylesheet" href="../shared/dashboard_controls.css" />
   <style>
     :root {
@@ -301,6 +301,11 @@
       gap: 8px;
     }
 
+    .status-chip-row {
+      position: relative;
+      z-index: 70;
+    }
+
     #statusChips.kpi-cards {
       display: grid !important;
       grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
@@ -309,8 +314,8 @@
       inline-size: 100% !important;
       justify-self: stretch !important;
       box-sizing: border-box;
-      border-top: 1px solid rgba(255, 255, 255, 0.06);
-      padding-top: 8px;
+      border-top: 0;
+      padding-top: 0;
       min-height: 0;
     }
 
@@ -332,10 +337,6 @@
       #statusChips.kpi-cards {
         grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
       }
-    }
-
-    :root[data-theme="light"] #statusChips.kpi-cards {
-      border-top-color: rgba(0, 0, 0, 0.08);
     }
 
     .kpi-card {
@@ -462,7 +463,6 @@
       flex-wrap: wrap;
       align-items: center;
       gap: 10px;
-      border-top: 0;
       padding-top: var(--kpi-settings-pad-top);
     }
 
@@ -2408,7 +2408,7 @@
           <span class="btn-label">Restore Defaults</span>
         </button>
       </div>
-      <div class="controls">
+      <div class="chips status-chip-row">
         <div class="chip-menu-wrap single-select" id="updatedChipWrap">
           <div class="chip chip-kpi-display" id="chipUpdated"><span class="chip-label">Updated</span> <span id="updatedKpi" class="chip-value">Loading</span></div>
           <div id="updatedTimeZoneDropdown" class="dca-dropdown dca-dropdown-overlay">
@@ -2417,6 +2417,40 @@
           </div>
           <select id="updatedTimeZoneSelect" class="chip-menu-select chip-kpi-select-overlay dca-native-select" aria-label="Updated timestamp time zone"></select>
         </div>
+      </div>
+      <div class="chips kpi-cards" id="statusChips">
+        <article class="kpi-card">
+          <div class="kpi-title"><span id="assetAPriceTitle">1 bitcoin</span><span id="assetAPriceStatus" class="comparison-price-status"></span></div>
+          <div class="kpi-value" id="assetAPrice"></div>
+          <div class="kpi-foot" id="assetAPriceLabel"></div>
+        </article>
+        <article class="kpi-card">
+          <div class="kpi-title"><span id="assetBPriceTitle">1 oz gold</span><span id="assetBPriceStatus" class="comparison-price-status"></span></div>
+          <div class="kpi-value" id="assetBPrice"></div>
+          <div class="kpi-foot" id="assetBPriceLabel"></div>
+        </article>
+        <article class="kpi-card">
+          <div class="kpi-title" id="countLabel">Number of Weeks</div>
+          <div class="kpi-value" id="countKpi"></div>
+          <div class="kpi-foot" id="countYearsKpi"></div>
+        </article>
+        <article class="kpi-card">
+          <div class="kpi-title">Amount Invested</div>
+          <div class="kpi-value chip-pct-profit" id="investedKpi"></div>
+          <div class="kpi-foot kpi-foot-placeholder" aria-hidden="true">&nbsp;</div>
+        </article>
+        <article class="kpi-card">
+          <div class="kpi-title" id="assetADcaTitle">Bitcoin DCA Value</div>
+          <div class="kpi-value" id="assetADcaValue"></div>
+          <div class="kpi-foot" id="assetADcaUnits"></div>
+        </article>
+        <article class="kpi-card">
+          <div class="kpi-title" id="assetBDcaTitle">Gold DCA Value</div>
+          <div class="kpi-value" id="assetBDcaValue"></div>
+          <div class="kpi-foot" id="assetBDcaUnits"></div>
+        </article>
+      </div>
+      <div class="controls">
         <div class="comparison-asset-pair" aria-label="DCA comparison assets">
           <label class="chip" aria-label="Left comparison asset">
             <div id="assetADropdown" class="dca-dropdown">
@@ -2470,38 +2504,6 @@
         </label>
         <div id="dcaCapWarning" class="dca-cap-warning" role="status" aria-live="polite" tabindex="0"></div>
 
-      </div>
-      <div class="chips kpi-cards" id="statusChips">
-        <article class="kpi-card">
-          <div class="kpi-title"><span id="assetAPriceTitle">1 bitcoin</span><span id="assetAPriceStatus" class="comparison-price-status"></span></div>
-          <div class="kpi-value" id="assetAPrice"></div>
-          <div class="kpi-foot" id="assetAPriceLabel"></div>
-        </article>
-        <article class="kpi-card">
-          <div class="kpi-title"><span id="assetBPriceTitle">1 oz gold</span><span id="assetBPriceStatus" class="comparison-price-status"></span></div>
-          <div class="kpi-value" id="assetBPrice"></div>
-          <div class="kpi-foot" id="assetBPriceLabel"></div>
-        </article>
-        <article class="kpi-card">
-          <div class="kpi-title" id="countLabel">Number of Weeks</div>
-          <div class="kpi-value" id="countKpi"></div>
-          <div class="kpi-foot" id="countYearsKpi"></div>
-        </article>
-        <article class="kpi-card">
-          <div class="kpi-title">Amount Invested</div>
-          <div class="kpi-value chip-pct-profit" id="investedKpi"></div>
-          <div class="kpi-foot kpi-foot-placeholder" aria-hidden="true">&nbsp;</div>
-        </article>
-        <article class="kpi-card">
-          <div class="kpi-title" id="assetADcaTitle">Bitcoin DCA Value</div>
-          <div class="kpi-value" id="assetADcaValue"></div>
-          <div class="kpi-foot" id="assetADcaUnits"></div>
-        </article>
-        <article class="kpi-card">
-          <div class="kpi-title" id="assetBDcaTitle">Gold DCA Value</div>
-          <div class="kpi-value" id="assetBDcaValue"></div>
-          <div class="kpi-foot" id="assetBDcaUnits"></div>
-        </article>
       </div>
     </section>
 
@@ -2649,6 +2651,6 @@
     window.WSBWebappDataAutoRefresh = { urls: ["webapp_data/last_updated.txt"] };
   </script>
   <script src="../shared/webapp_data_auto_refresh.js"></script>
-  <script src="dashboard_app.js?v=20261024-mp4"></script>
+  <script src="dashboard_app.js?v=20261024-compact-footer"></script>
 </body>
 </html>

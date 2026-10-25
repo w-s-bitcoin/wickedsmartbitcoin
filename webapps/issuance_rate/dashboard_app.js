@@ -2601,7 +2601,7 @@
     const pixelWidth = Math.max(1, Number(canvas.__exportPixelWidth) || canvas.width || 1);
     const pixelHeight = Math.max(1, Number(canvas.__exportPixelHeight) || canvas.height || 1);
     const dpr = Math.max(1, Math.min(pixelWidth / cssWidth, pixelHeight / cssHeight));
-    const footerCssHeight = Math.max(54, Math.round(Math.min(cssWidth, cssHeight) * ((cssWidth <= cssHeight ? 150 : 122) / 1080)));
+    const footerCssHeight = window.WSBDashboardExport.getFooterHeight(cssWidth, cssHeight);
     const chartCssHeight = Math.max(1, cssHeight - footerCssHeight);
     const chartPixelHeight = Math.max(1, Math.min(pixelHeight - 1, Math.round(chartCssHeight * dpr)));
     const footerPixelHeight = Math.max(1, pixelHeight - chartPixelHeight);

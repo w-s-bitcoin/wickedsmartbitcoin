@@ -10,9 +10,9 @@
     const portrait = height > width;
     return { width: 1080, height: portrait ? 1920 : 1080, title: { x: 540, y: 48, width: 996 }, logo: { x: 40, y: 88, width: 200 }, date: { x: 332, y: 101 },
       kpis: [{ x: 150, y: 188 }, { x: 480, y: 188 }, { x: 300, y: 280 }, { x: 760, y: 280 }, { x: 860, y: 188 }],
-      plot: { left: 145, top: 360, right: 1022, bottom: portrait ? 1578 : 786, width: 877, height: portrait ? 1218 : 426 },
-      legend: { x: 145, y: portrait ? 1680 : 877, width: 877, height: 18 }, horizontalLegend: true,
-      xTitleY: portrait ? 1640 : 842, yTitleX: 38, footerHeight: 150, tickSize: 23, kpiSize: 36, labelSize: 22 };
+      plot: { left: 145, top: 360, right: 1022, bottom: portrait ? 1640 : 812, width: 877, height: portrait ? 1280 : 452 },
+      legend: { x: 145, y: portrait ? 1742 : 903, width: 877, height: 18 }, horizontalLegend: true,
+      xTitleY: portrait ? 1702 : 868, yTitleX: 38, footerHeight: 117, tickSize: 23, kpiSize: 36, labelSize: 22 };
   }
   function render(ctx, width, height, options) {
     const frame = R.getFrame(options), row = frame.row, theme = options.theme || "dark", colors = R.palette(theme), l = layout(width, height);

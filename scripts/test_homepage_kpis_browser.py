@@ -160,6 +160,9 @@ STATE = """(() => {
     state: progress?.dataset.elapsedState, elapsedState: elapsed?.dataset.elapsedState,
     elapsed: elapsed?.textContent.trim(), color: elapsed ? getComputedStyle(elapsed).color : '',
     barColor: progress ? getComputedStyle(progress).accentColor : '',
+    bandFill: progress ? getComputedStyle(progress).getPropertyValue('--block-band-fill') : '',
+    bandStops: meter ? [10, 20, 30, 40].map(minutes =>
+      parseFloat(getComputedStyle(meter).getPropertyValue(`--block-${minutes}m-stop`))) : [],
     scaleSeconds: meter ? Number(meter.dataset.scaleSeconds) : null,
     countdownScaleSeconds: meter?.dataset.countdownScaleSeconds == null
       ? null : Number(meter.dataset.countdownScaleSeconds),
@@ -223,6 +226,17 @@ def check_scale(state, seconds, spacing):
             "Tick lines are not spaced every ten minutes on the elapsed scale", state)
 
 
+def check_bands(state, age_seconds):
+    scale = max(600, age_seconds)
+    expected = [min(100, minutes * 60 / scale * 100) for minutes in (10, 20, 30, 40)]
+    require(len(state["bandStops"]) == 4 and
+            all(abs(actual - target) < .001 for actual, target in zip(state["bandStops"], expected)),
+            "Ten-minute color bands do not follow the elapsed scale", state)
+    require(all(color in state["bandFill"] for color in
+                ("#3ec735", "#2a4f1f", "#f7931a", "#5d3d16", "#eb3226")),
+            "Elapsed bar lost one of its retained color bands", state)
+
+
 def check_countdown_scale(state, seconds):
     check_scale(state, 600, 100)
     require(state.get("countdownScaleSeconds") == seconds,
@@ -234,6 +248,8 @@ def check_gray(state, theme):
     require(gray is not None and len(set(gray.groups())) == 1
             and 0 < int(gray.group(1)) < 255,
             f"Future timer is not neutral gray in {theme} theme", state)
+    require("linear-gradient" not in state["bandFill"],
+            f"Future countdown inherited elapsed color bands in {theme} theme", state)
 
 
 def test_elapsed_timer(cdp):
@@ -249,30 +265,47 @@ def test_elapsed_timer(cdp):
     five_minutes = publish(cdp, 300)
     check_elapsed(five_minutes, "5m 00s ago", 50, "normal")
     check_scale(five_minutes, 600, 100)
+    check_bands(five_minutes, 300)
     requests = five_minutes["requests"]
     almost_ten = advance(cdp, 299)
     check_elapsed(almost_ten, "9m 59s ago", 599 / 600 * 100, "normal")
     ten_minutes = advance(cdp, 1)
     check_elapsed(ten_minutes, "10m 00s ago", 100, "slow")
+    check_bands(ten_minutes, 600)
     require(ten_minutes["requests"] == requests, "Elapsed clock tick fetched network data", ten_minutes)
     require(ten_minutes["color"] != five_minutes["color"], "Ten-minute boundary did not change color", ten_minutes)
 
-    twenty_minutes = advance(cdp, 600)
+    fifteen_minutes = advance(cdp, 300)
+    check_elapsed(fifteen_minutes, "15m 00s ago", 100, "slow")
+    check_bands(fifteen_minutes, 900)
+    twenty_minutes = advance(cdp, 300)
     check_elapsed(twenty_minutes, "20m 00s ago", 100, "slow")
+    check_bands(twenty_minutes, 1200)
     check_scale(twenty_minutes, 1200, 50)
     labels = {label["minutes"]: label["text"] for label in twenty_minutes["tickLabels"]}
     require(labels.get(10) == "10m" and labels.get(20) == "20m",
             "Desktop elapsed scale lacks its ten- and twenty-minute labels", twenty_minutes)
-    thirty_minutes = advance(cdp, 600)
+    twenty_five_minutes = advance(cdp, 300)
+    check_elapsed(twenty_five_minutes, "25m 00s ago", 100, "slow")
+    check_bands(twenty_five_minutes, 1500)
+    thirty_minutes = advance(cdp, 300)
     check_elapsed(thirty_minutes, "30m 00s ago", 100, "slow")
+    check_bands(thirty_minutes, 1800)
     check_scale(thirty_minutes, 1800, 100 / 3)
 
-    before_late = advance(cdp, LATE_SECONDS - 1801)
+    thirty_five_minutes = advance(cdp, 300)
+    check_elapsed(thirty_five_minutes, "35m 00s ago", 100, "slow")
+    check_bands(thirty_five_minutes, 2100)
+    before_late = advance(cdp, LATE_SECONDS - 2101)
     require(before_late["state"] == "slow", "Red warning started before its threshold", before_late)
     late = advance(cdp, 1)
     check_elapsed(late, "40m 00s ago", 100, "late")
+    check_bands(late, 2400)
     require(late["color"] != ten_minutes["color"], "Late boundary did not change color", late)
-    hour = advance(cdp, 3600 - LATE_SECONDS)
+    forty_five_minutes = advance(cdp, 300)
+    check_elapsed(forty_five_minutes, "45m 00s ago", 100, "late")
+    check_bands(forty_five_minutes, 2700)
+    hour = advance(cdp, 3600 - 2700)
     check_elapsed(hour, "1h 00m 00s ago", 100, "late")
 
     # Changing the displayed timezone changes the timestamp, not block age.
@@ -396,8 +429,16 @@ def test_orange_theme_matching(cdp):
                 f"Orange elapsed bar differs from the other bars in {theme} theme", colors)
         require(colors["counter"] == "rgb(247, 147, 26)",
                 f"Orange counter differs from its bar in {theme} theme", colors)
+    publish(cdp, 2700)
+    for theme in ("dark", "light"):
+        cdp.evaluate(f"document.documentElement.dataset.theme = {json.dumps(theme)}")
+        late = snapshot(cdp)
+        require(late["state"] == "late", f"Red band is not active in {theme} theme", late)
+        check_bands(late, 2700)
+        require(late["color"] == "rgb(235, 50, 38)" and late["barColor"] == late["color"],
+                f"Elapsed time text does not match the reference-red bar in {theme} theme", late)
     cdp.evaluate("document.documentElement.dataset.theme = 'dark'")
-    print("Passed: orange counter and all four bars match in dark and light themes", flush=True)
+    print("Passed: orange counters and matching reference-red bar/time in dark and light themes", flush=True)
 
 
 def signed_bar_geometry(cdp, theme, future):
@@ -418,6 +459,7 @@ def signed_bar_geometry(cdp, theme, future):
         barLeft: bar.left, barRight: bar.right, barWidth: bar.width, barTop: bar.top,
         fillLeft, fillRight: fillLeft + fillWidth, fillWidth,
         color: style.accentColor,
+        bandFill: style.getPropertyValue('--block-band-fill'),
         counterColor: getComputedStyle(document.getElementById('homeKpiBlockElapsed')).color,
         supplyTop: document.getElementById('homeKpiSupplyProgress').getBoundingClientRect().top,
         clientWidth: document.documentElement.clientWidth,

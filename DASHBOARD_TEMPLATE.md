@@ -56,6 +56,11 @@ For a standard analytics dashboard, use the existing shared class and ID names:
 - `.copy-link-btn`
 - `.reset-dashboard-btn`
 
+When the first card includes KPIs and visible selectors, put the KPI row before
+the controls row. Use `.controls` or a dashboard-specific controls class styled
+by the shared topbar divider rule so its 1px border and spacing match DCA Cost
+Basis in both themes.
+
 Dashboards with date windows should use:
 
 - `#startDateBtn`

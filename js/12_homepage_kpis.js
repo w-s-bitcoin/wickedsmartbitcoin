@@ -268,6 +268,10 @@
     if (!blockMeter || !blockTicks) return;
     const spacing = TARGET_BLOCK_SECONDS / scaleSeconds * 100;
     blockMeter.style.setProperty("--block-tick-spacing", `${spacing}%`);
+    [10, 20, 30, 40].forEach((minutes) => {
+      const stop = Math.min(100, minutes * 60 / scaleSeconds * 100);
+      blockMeter.style.setProperty(`--block-${minutes}m-stop`, `${stop}%`);
+    });
     blockMeter.dataset.scaleSeconds = String(scaleSeconds);
     blockMeter.dataset.endTick = scaleSeconds % TARGET_BLOCK_SECONDS === 0 ? "1" : "0";
     const width = blockTicks.clientWidth;

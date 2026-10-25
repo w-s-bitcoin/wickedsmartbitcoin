@@ -31,8 +31,12 @@ test("legacy URL footer calls use the creator and Lightning strip", () => {
   const { E } = fixture({ drawFooterStrip(...args) { calls.push(args); } });
   const ctx = {}, metrics = E.getLayoutMetrics({ quality: 1080, orientation: "landscape" });
   assert.equal(metrics.footerHeight, 122);
-  assert.equal(E.getLayoutMetrics({ quality: 720, orientation: "portrait" }).footerHeight, 100);
-  assert.equal(E.getLayoutMetrics({ quality: 720, orientation: "square" }).footerHeight, 100);
+  assert.equal(E.getLayoutMetrics({ quality: 720, orientation: "portrait" }).footerHeight, 78);
+  assert.equal(E.getLayoutMetrics({ quality: 720, orientation: "square" }).footerHeight, 78);
+  assert.equal(E.getFooterHeight(1080, 1920), 117);
+  assert.equal(E.getFooterHeight(1080, 1080), 117);
+  assert.equal(E.getFooterHeight(1920, 1080), 122);
+  assert.equal(E.getFooterHeight(360, 640), 54, "small exports retain the readable footer minimum");
   E.drawFooterUrl(ctx, "https://wickedsmartbitcoin.com/uoa", metrics, { theme: "light" });
   assert.equal(calls.length, 1);
   assert.strictEqual(calls[0][0], ctx);

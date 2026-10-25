@@ -10,7 +10,7 @@ function deferred() {
 }
 
 function fixture() {
-  const faces = [], images = [], registered = [], footers = [];
+  const faces = [], images = [], registered = [], footers = [], canvases = [];
   class FontFace {
     constructor(family, source, descriptors = {}) {
       Object.assign(this, { family, source, descriptors, status: "unloaded", pending: deferred() });
@@ -26,18 +26,50 @@ function fixture() {
       Object.assign(this, { width: 1873, height: 394, naturalWidth: 1873, naturalHeight: 394, pending: deferred() });
       images.push(this);
     }
+    set src(value) {
+      this.url = value;
+      if (value.endsWith("wicked-apple.png")) Object.assign(this, { width: 100, height: 100, naturalWidth: 100, naturalHeight: 100 });
+    }
+    get src() { return this.url; }
     decode() { return this.pending.promise; }
   }
   const document = {
     currentScript: { src: "https://example.test/project/webapps/shared/dashboard_export_branding.js?v=3" },
     fonts: { add(face) { registered.push(face); } },
+    createElement(tag) {
+      assert.equal(tag, "canvas");
+      const canvas = { width: 0, height: 0, pixels: null, getContext() {
+        const ctx = {
+          ...context(),
+          getImageData: () => {
+            const data = new Uint8ClampedArray(canvas.width * canvas.height * 4);
+            for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
+              const offset = (y * canvas.width + x) * 4;
+              // Enclosed facial detail stays dark, while the two known gaps
+              // between the mascot's limbs are part of its background.
+              const inside = x > 0 && x < canvas.width - 1 && y > 0 && y < canvas.height - 1;
+              const face = x === 50 && y === 40;
+              const legGap = x >= 47 && x <= 54 && y >= 74 && y <= 84;
+              const armGap = x >= 60 && x <= 78 && y >= 61 && y <= 82;
+              data.set(inside && !face && !legGap && !armGap ? [190, 40, 25, 255] : [0, 0, 0, 255], offset);
+            }
+            return { data, width: canvas.width, height: canvas.height };
+          },
+          putImageData: pixels => { canvas.pixels = pixels; },
+        };
+        canvas.context = ctx;
+        return ctx;
+      } };
+      canvases.push(canvas);
+      return canvas;
+    },
   };
   const window = { WSBDashboardExport: { drawFooterUrl(...args) { footers.push(args); } } };
   runInNewContext(readFileSync(new URL("../webapps/shared/dashboard_export_branding.js", import.meta.url), "utf8"),
     { window, document, FontFace, Image, URL });
   // Asset resolution must not depend on the calling page or a later script.
   document.currentScript = null;
-  return { B: window.WSBDashboardExportBranding, faces, images, registered, footers };
+  return { B: window.WSBDashboardExportBranding, faces, images, registered, footers, canvases };
 }
 
 async function settle() { await Promise.resolve(); await Promise.resolve(); }
@@ -54,14 +86,17 @@ async function prepare(f) {
 function context() {
   const stack = [];
   return {
-    font: "initial font", filter: "initial filter", calls: [],
-    save() { stack.push({ font: this.font, filter: this.filter }); this.calls.push(["save"]); },
+    font: "initial font", filter: "initial filter", imageSmoothingEnabled: false, calls: [],
+    save() { stack.push({ font: this.font, filter: this.filter, imageSmoothingEnabled: this.imageSmoothingEnabled }); this.calls.push(["save"]); },
     restore() { Object.assign(this, stack.pop()); this.calls.push(["restore"]); },
     drawImage(...args) { this.calls.push(["drawImage", ...args, this.filter]); },
     fillRect(...args) { this.calls.push(["fillRect", ...args]); },
     fillText(...args) { this.calls.push(["fillText", ...args, this.font, this.textAlign]); },
     measureText(value) { return { width: value.length * Number(this.font.match(/([\d.]+)px/)?.[1] || 12) * 0.61 }; },
     translate() {}, rotate() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {},
+    rect(...args) { this.calls.push(["rect", ...args]); },
+    arc(...args) { this.calls.push(["arc", ...args]); },
+    clip() { this.calls.push(["clip"]); },
   };
 }
 
@@ -150,29 +185,39 @@ test("wordmark drawing preserves aspect, caller coordinates, and canvas state in
   for (const theme of ["dark", "light"]) {
     const ctx = context();
     f.B.drawWordmark(ctx, { x: 832, y: 109, width: 200 }, { theme });
-    assert.deepEqual(ctx.calls.map((call) => call[0]), ["save", "drawImage", "restore"]);
-    const [, image, x, y, width, height, filter] = ctx.calls[1];
-    assert.strictEqual(image, f.images[0]);
-    assert.deepEqual([x, y, width], [832, 109, 200]);
-    assert.equal(height, 200 * 394 / 1873);
-    if (theme === "light") assert.equal(filter, "invert(1) hue-rotate(180deg)");
-    else assert.ok(!filter.includes("invert("));
+    const draws = ctx.calls.filter(call => call[0] === "drawImage");
+    assert.equal(draws.length, 1);
+    for (const [, image, x, y, width, height] of draws) {
+      assert.strictEqual(image, theme === "light" ? f.canvases[0] : f.images[0]);
+      assert.deepEqual([x, y, width], [832, 109, 200]);
+      assert.equal(height, 200 * 394 / 1873);
+    }
+    if (theme === "light") {
+      const prepared = f.canvases[0].context.calls;
+      const images = prepared.filter(call => call[0] === "drawImage");
+      assert.equal(images[0].at(-1), "invert(1)", "only the monochrome backdrop and lettering are inverted");
+      assert.equal(images[1].at(-1), "none", "the coin retains the source orange and white Bitcoin symbol");
+      assert.ok(prepared.some(call => call[0] === "arc"));
+      assert.ok(prepared.some(call => call[0] === "clip"));
+    }
+    assert.equal(draws[0].at(-1), "none", "prepared artwork needs no per-frame color filter");
     assert.equal(ctx.filter, "initial filter");
     assert.equal(ctx.font, "initial font");
   }
 });
 
-test("creator and current Lightning QR fit the reserved strip with a measured canonical URL", async () => {
+test("creator and current Lightning QR fill the reserved strip with a landscape-only canonical URL", async () => {
   const f = fixture();
   await prepare(f);
-  for (const [width, height, footerHeight] of [[1920, 1080, 122], [1080, 1920, 150], [1080, 1080, 150], [720, 1280, 100], [720, 720, 100], [3840, 2160, 244]]) {
+  for (const [width, height, footerHeight] of [[1920, 1080, 122], [1080, 1920, 117], [1080, 1080, 117], [720, 1280, 78], [720, 720, 78], [3840, 2160, 244]]) {
     for (const theme of ["dark", "light"]) {
       const ctx = context(), metrics = { width, height, footerHeight }, settings = { theme };
       const slug = "a_very_long_dashboard_route_for_testing_measured_footer_fit";
       const result = f.B.drawFooter(ctx, slug, metrics, settings);
       const images = ctx.calls.filter((call) => call[0] === "drawImage");
       assert.equal(images.length, 2);
-      assert.strictEqual(images[0][1], f.images[1]); assert.strictEqual(images[1][1], f.images[2]);
+      assert.strictEqual(images[0][1], theme === "light" ? f.canvases[1] : f.images[1]);
+      assert.strictEqual(images[1][1], f.images[2]);
       if (width === 720) assert.ok(result.lightning.size >= 70, "720-quality stacked exports keep a readable QR footprint");
       for (const [, , x, y, imageWidth, imageHeight] of images) {
         assert.ok(x >= 0 && x + imageWidth <= width);
@@ -181,17 +226,43 @@ test("creator and current Lightning QR fit the reserved strip with a measured ca
       const text = ctx.calls.filter((call) => call[0] === "fillText");
       assert.ok(text.some((call) => call[1] === "@w_s_bitcoin"));
       assert.ok(text.some((call) => call[1] === "@primal.net"));
-      const url = text.at(-1);
-      assert.equal(url[1], `https://wickedsmartbitcoin.com/${slug}`);
-      assert.match(url[4], /"WSB Export IBM Plex Mono"/);
-      const measured = url[1].length * result.url.fontSize * 0.61;
-      assert.ok(url[2] - measured / 2 >= result.url.left - 1e-7);
-      assert.ok(url[2] + measured / 2 <= result.url.right + 1e-7);
+      const urls = text.filter(call => String(call[1]).startsWith("https://wickedsmartbitcoin.com/"));
+      const strip = ctx.calls.find(call => call[0] === "fillRect");
+      assert.deepEqual(strip.slice(1), [0, height - footerHeight, width, footerHeight], "footer uses the complete compact reservation without shrinking it again");
+      if (width <= height) {
+        assert.deepEqual(urls, [], "portrait and square exports omit the website URL");
+        assert.equal(result.url, null);
+      } else {
+        assert.equal(urls.length, 1);
+        const url = urls[0];
+        assert.equal(url[1], `https://wickedsmartbitcoin.com/${slug}`);
+        assert.match(url[4], /"WSB Export IBM Plex Mono"/);
+        const measured = url[1].length * result.url.fontSize * 0.61;
+        assert.ok(url[2] - measured / 2 >= result.url.left - 1e-7);
+        assert.ok(url[2] + measured / 2 <= result.url.right + 1e-7);
+      }
       assert.deepEqual(settings, { theme });
       assert.equal(ctx.font, "initial font"); assert.equal(ctx.filter, "initial filter");
+      assert.equal(ctx.imageSmoothingEnabled, false);
     }
   }
   assert.equal(f.footers.length, 0, "the shared strip must not recurse through the generic footer hook");
+});
+
+test("light creator removes outer and enclosed limb backgrounds while preserving dark facial detail", async () => {
+  const f = fixture();
+  await prepare(f);
+  const canvas = f.canvases[1];
+  assert.ok(canvas?.pixels, "light-mode creator must be prepared once with the other branding assets");
+  const pixel = (x, y) => Array.from(canvas.pixels.data.slice((y * canvas.width + x) * 4, (y * canvas.width + x) * 4 + 4));
+  const corner = pixel(0, 0);
+  assert.ok(corner[3] === 0 || corner.slice(0, 3).every(channel => channel === 255), "backdrop composites to white");
+  assert.deepEqual(pixel(50, 40), [0, 0, 0, 255], "enclosed black facial detail remains opaque black");
+  assert.deepEqual(pixel(50, 80), [255, 255, 255, 255], "the enclosed gap between the legs is white");
+  assert.deepEqual(pixel(65, 73), [255, 255, 255, 255], "the enclosed gap between the right arm and leg is white");
+  assert.deepEqual(pixel(2, 2), [190, 40, 25, 255], "the original apple color is unchanged");
+  await f.B.ready();
+  assert.equal(f.canvases.length, 2, "the processed wordmark and creator are reused by every frame");
 });
 
 test("footer requires a dashboard slug rather than a missing value or arbitrary URL", async () => {

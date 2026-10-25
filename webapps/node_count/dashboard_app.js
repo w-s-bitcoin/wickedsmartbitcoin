@@ -1730,7 +1730,6 @@
     }
 
     const PLOTLY_LIVE_BG = 'rgba(0,0,0,0)';
-    const PLOTLY_EXPORT_BG = '#000';
 
     async function downloadPlotlyChartWithBlackBackground(chartId, filename) {
       if (!window.Plotly) return;
@@ -1738,6 +1737,13 @@
       const sourceEl = document.getElementById(chartId);
       if (!sourceEl?.data || !sourceEl?.layout) return;
 
+      // Freeze the selected theme and chart together before assets load.
+      const theme = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+      const background = theme === 'light' ? '#ffffff' : '#000000';
+      const foreground = theme === 'light' ? '#1c1b19' : '#f1f5f7';
+      const grid = theme === 'light' ? 'rgba(0,0,0,0.12)' : '#263238';
+      const exportData = JSON.parse(JSON.stringify(sourceEl.data));
+      const exportLayout = JSON.parse(JSON.stringify(sourceEl.layout));
       const branding = window.WSBDashboardExportBranding;
       await branding.ready();
       const output = window.WSBDashboardExport.getLayoutMetrics({ quality: '2160', orientation: 'landscape' });
@@ -1755,13 +1761,11 @@
       document.body.appendChild(exportHost);
 
       try {
-        const exportData = JSON.parse(JSON.stringify(sourceEl.data));
-        const exportLayout = JSON.parse(JSON.stringify(sourceEl.layout));
-        exportLayout.paper_bgcolor = PLOTLY_EXPORT_BG;
-        exportLayout.plot_bgcolor = PLOTLY_EXPORT_BG;
-        exportLayout.font = { ...exportLayout.font, color: '#f1f5f7' };
+        exportLayout.paper_bgcolor = background;
+        exportLayout.plot_bgcolor = background;
+        exportLayout.font = { ...exportLayout.font, color: foreground };
         for (const axis of ['xaxis', 'yaxis']) {
-          exportLayout[axis] = { ...exportLayout[axis], gridcolor: '#263238' };
+          exportLayout[axis] = { ...exportLayout[axis], gridcolor: grid };
         }
         exportLayout.width = width;
         exportLayout.height = height;
@@ -1786,10 +1790,10 @@
         canvas.height = output.height;
         const ctx = canvas.getContext('2d');
         if (!ctx) throw new Error('Unable to create chart export canvas.');
-        ctx.fillStyle = PLOTLY_EXPORT_BG;
+        ctx.fillStyle = background;
         ctx.fillRect(0, 0, output.width, output.height);
         ctx.drawImage(chartImage, 0, 0, output.width, output.height - output.footerHeight);
-        branding.drawFooter(ctx, 'node_count', output, { theme: 'dark', orientation: 'landscape' });
+        branding.drawFooter(ctx, 'node_count', output, { theme, orientation: 'landscape' });
         const blob = await new Promise((resolve, reject) => canvas.toBlob(
           (value) => value ? resolve(value) : reject(new Error('Unable to encode PNG.')), 'image/png',
         ));

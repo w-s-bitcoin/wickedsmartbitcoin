@@ -28,6 +28,8 @@ from test_stage1_refresh_atomicity import CdpSocket, free_port, wait_for
 
 
 BLOCKED_EXTERNAL_FONTS = ["*fonts.googleapis.com*", "*fonts.gstatic.com*"]
+FOOTER_LABELS = {"Wicked", "@w_s_bitcoin", "wicked", "@primal.net", "CREATOR", "LIGHTNING", "DONATIONS"}
+FOOTER_URL = "https://wickedsmartbitcoin.com/moving_average"
 
 
 RECORD_EXPORTS = r"""
@@ -64,7 +66,8 @@ G.composite=(ctx,width,height,options)=>{
   };
   ctx.rect=function(x,y,width,height){lastRect={origin:point(x,y),end:point(x+width,y+height)};return native.rect.call(ctx,x,y,width,height);};
   ctx.clip=function(...args){
-    if(lastRect){
+    // Footer artwork can also clip a rectangle; only record chart plot clips.
+    if(lastRect&&lastRect.origin[1]<ctx.canvas.height*.85){
       record.plots.push(lastRect);
       const text=record.text.slice(axisStart);
       record.axes.push({x:text.filter(item=>item.rotated),
@@ -76,8 +79,10 @@ G.composite=(ctx,width,height,options)=>{
   };
   ctx.drawImage=function(image,...args){
     const dest=args.length===8?args.slice(4):args;
-    record.images.push({source:image.currentSrc||image.src||'',origin:point(dest[0],dest[1]),
-      naturalWidth:image.naturalWidth,naturalHeight:image.naturalHeight,filter:ctx.filter,
+    const derived=image instanceof w.HTMLCanvasElement;
+    const source=image.currentSrc||image.src||(derived?'/webapps/shared/export_assets/'+(image.width>image.height?'bitcoin-wordmark.jpg':'wicked-apple.png'):'');
+    record.images.push({source,derived,origin:point(dest[0],dest[1]),
+      naturalWidth:image.naturalWidth||image.width,naturalHeight:image.naturalHeight||image.height,filter:ctx.filter,
       end:point(dest[0]+(dest[2]||image.width),dest[1]+(dest[3]||image.height))});
     return native.drawImage.call(ctx,image,...args);
   };
@@ -187,9 +192,11 @@ def check_branding(record):
     assert logo["naturalWidth"] > 0 and logo["naturalHeight"] > 0, logo
     ratio = (logo["end"][0] - logo["origin"][0]) / (logo["end"][1] - logo["origin"][1])
     assert abs(ratio - logo["naturalWidth"] / logo["naturalHeight"]) < 1e-9, logo
-    assert logo["filter"] == ("invert(1) hue-rotate(180deg)" if record["theme"] == "light" else "none"), logo
+    assert logo["filter"] == "none", logo
+    assert logo["derived"] == (record["theme"] == "light"), logo
     creator, lightning = record["images"][1:]
     assert creator["source"].endswith("/webapps/shared/export_assets/wicked-apple.png"), creator
+    assert creator["derived"] == (record["theme"] == "light"), creator
     assert lightning["source"].endswith("/assets/qr_lightning.png"), lightning
     for image in (creator, lightning):
         assert image["naturalWidth"] > 0 and image["naturalHeight"] > 0, image
@@ -197,10 +204,9 @@ def check_branding(record):
         assert image["origin"][1] > record["canvasHeight"] * .85, image
         assert image["origin"][0] >= 0 and image["end"][0] <= record["canvasWidth"], image
         assert image["end"][1] <= record["canvasHeight"], image
-    footer_text = [item for item in record["text"] if item["text"] in
-                   ("Wicked", "@w_s_bitcoin", "wicked", "@primal.net", "CREATOR", "LIGHTNING", "DONATIONS",
-                    "https://wickedsmartbitcoin.com/moving_average")]
-    assert len(footer_text) == 8, footer_text
+    footer_text = [item for item in record["text"] if item["text"] in FOOTER_LABELS | {FOOTER_URL}]
+    expected_footer = FOOTER_LABELS | ({FOOTER_URL} if record["canvasWidth"] > record["canvasHeight"] else set())
+    assert len(footer_text) == len(expected_footer) and {item["text"] for item in footer_text} == expected_footer, footer_text
     for i, item in enumerate(footer_text):
         for other in footer_text[i + 1:]:
             assert not overlaps(item["bounds"], other["bounds"]), ("Overlapping footer labels", item, other)
@@ -238,8 +244,17 @@ def check_geometry(record, count=3):
         right, bottom = rect["end"]
         assert 0 <= x < right <= record["canvasWidth"] and 0 <= y < bottom <= record["canvasHeight"], rect
     footer = [item for item in record["text"] if "wickedsmartbitcoin.com/moving_average" in item["text"]]
-    assert len(footer) == 1, footer
-    assert footer[0]["position"][1] > record["canvasHeight"] * .85, footer
+    assert len(footer) == (1 if record["canvasWidth"] > record["canvasHeight"] else 0), footer
+    for item in footer:
+        assert item["position"][1] > record["canvasHeight"] * .85, item
+    # Portrait and square omit the URL, but chart labels must still clear the creator
+    # and donation strip. Check all footer labels and artwork in every shape.
+    footer_bounds = [item["bounds"] for item in record["text"] if item["text"] in FOOTER_LABELS | {FOOTER_URL}]
+    footer_bounds.extend([*image["origin"], *image["end"]] for image in record["images"][1:])
+    if record["canvasWidth"] <= record["canvasHeight"]:
+        chart_bottom = max(item["bounds"][3] for item in record["text"] if item["text"] not in FOOTER_LABELS | {FOOTER_URL})
+        footer_top = min(bounds[1] for bounds in footer_bounds)
+        assert 0 < footer_top - chart_bottom <= record["canvasWidth"] * .05, ("Excess blank space above footer", chart_bottom, footer_top)
     assert len(record['axes']) == count, record['axes']
     titles=[item for item in record['text'] if 'History (' in item['text'] or 'Window (' in item['text']]
     for index,(plot,axes) in enumerate(zip(record['plots'],record['axes'])):
@@ -255,7 +270,8 @@ def check_geometry(record, count=3):
             assert tick['position'][0]>plot['end'][0] and tick['bounds'][0]>=plot['end'][0], ('Y label is not in the right gutter',index,tick,plot)
         ticks=axes['x']+axes['y']
         for tick in ticks:
-            assert not overlaps(tick['bounds'],footer[0]['bounds']), ('Tick overlaps footer',index,tick,footer[0])
+            for bounds in footer_bounds:
+                assert not overlaps(tick['bounds'],bounds), ('Tick overlaps footer',index,tick,bounds)
             for other_plot in record['plots']:
                 bounds=[*other_plot['origin'],*other_plot['end']]
                 assert not overlaps(tick['bounds'],bounds), ('Tick overlaps chart',index,tick,other_plot)

@@ -48,11 +48,23 @@ INSTRUMENT = r"""
   const encode=E.encodeVideo;
   E.encodeVideo=options=>encode({...options,frames:[options.frames[0],options.frames.at(-1)]});
   const draw=B.drawFooterStrip,drawCanonical=B.drawFooter;
+  const wordmark=B.drawWordmark;
+  B.drawWordmark=(ctx,bounds,settings)=>{
+    const transform=ctx.getTransform();
+    F.wordmark={x:bounds.x*transform.a+transform.e,y:bounds.y*transform.d+transform.f,
+      width:bounds.width*transform.a,height:bounds.width*394/1873*transform.d};
+    return wordmark(ctx,bounds,settings);
+  };
   const inspect=(ctx,url,metrics,settings,callback)=>{
-    const images=[],native=ctx.drawImage;
-    ctx.drawImage=function(image,...args){images.push({src:image.src,x:args[0],y:args[1],width:args[2],height:args[3]});return native.call(ctx,image,...args);};
-    try{const layout=callback();F.renders.push({url,metrics,settings,layout,images});}
-    finally{ctx.drawImage=native;}
+    const images=[],footerText=[],native=ctx.drawImage,nativeText=ctx.fillText;
+    ctx.fillText=function(text,...args){footerText.push(String(text));return nativeText.call(ctx,text,...args);};
+    ctx.drawImage=function(image,...args){
+      const derived=image instanceof HTMLCanvasElement;
+      const src=image.src||(derived?'/webapps/shared/export_assets/'+(image.width>image.height?'bitcoin-wordmark.jpg':'wicked-apple.png'):'');
+      images.push({src,derived,x:args[0],y:args[1],width:args[2],height:args[3]});return native.call(ctx,image,...args);
+    };
+    try{const layout=callback();F.renders.push({url,metrics,settings,layout,images,footerText,wordmark:F.wordmark});}
+    finally{ctx.drawImage=native;ctx.fillText=nativeText;}
   };
   B.drawFooterStrip=(ctx,url,metrics,settings)=>inspect(ctx,url,metrics,settings,()=>draw(ctx,url,metrics,settings));
   B.drawFooter=(ctx,slug,metrics,settings)=>inspect(ctx,'https://wickedsmartbitcoin.com/'+slug,metrics,settings,()=>drawCanonical(ctx,slug,metrics,settings));
@@ -82,13 +94,58 @@ DECODE = r"""
       const pixels=ctx.getImageData(x,y,width,height).data;
       let colored=0,white=0;
       for(let i=0;i<pixels.length;i+=4){if(Math.max(pixels[i],pixels[i+1],pixels[i+2])-Math.min(pixels[i],pixels[i+1],pixels[i+2])>50)colored++;if(pixels[i]>200&&pixels[i+1]>200&&pixels[i+2]>200)white++;}
-      return {src:image.src,colored,white};
+      const at=(a,b)=>Array.from(pixels.slice((b*width+a)*4,(b*width+a)*4+3));
+      const inset=Math.max(1,Math.floor(Math.min(width,height)*.02));
+      const corners=[[inset,inset],[width-1-inset,inset],[inset,height-1-inset],[width-1-inset,height-1-inset]].map(([a,b])=>at(a,b));
+      // Preserve the exact destination rectangle before rounding a source
+      // landmark to a decoded pixel; rounded crop widths shift narrow gaps.
+      const limbGaps=[[.505,.805],[.665,.775]].map(([a,b])=>{
+        const px=Math.round((image.x+image.width*a)*canvas.width/render.metrics.width);
+        const py=Math.round((image.y+image.height*b)*canvas.height/render.metrics.height);
+        return Array.from(ctx.getImageData(px,py,1,1).data.slice(0,3));
+      });
+      const edges=[];
+      for(let a=inset;a<width-inset;a++)edges.push(at(a,inset),at(a,height-1-inset));
+      for(let b=inset;b<height-inset;b++)edges.push(at(inset,b),at(width-1-inset,b));
+      const edgeWhite=edges.filter(rgb=>rgb.every(channel=>channel>=225)).length/edges.length;
+      return {src:image.src,colored,white,corners,limbGaps,edgeWhite};
     });
+    let sourceOrange=0;
+    if(render.wordmark){
+      const mark=render.wordmark,size=Math.max(1,Math.floor(mark.height));
+      const coin=ctx.getImageData(Math.floor(mark.x),Math.floor(mark.y),size,size).data;
+      for(let i=0;i<coin.length;i+=4)
+        if(Math.abs(coin[i]-247)<20&&Math.abs(coin[i+1]-147)<20&&Math.abs(coin[i+2]-27)<20)sourceOrange++;
+    }
     return {name:item.name,type:item.blob.type,bytes:item.blob.size,width:canvas.width,height:canvas.height,
-      frame:canvas.toDataURL('image/png').split(',')[1],render,decodedImages,errors:__footerTest.errors};
+      frame:canvas.toDataURL('image/png').split(',')[1],render,decodedImages,sourceOrange,errors:__footerTest.errors};
   }finally{video.remove();URL.revokeObjectURL(url);}
 })();
 """
+
+
+def assert_light_branding(result, *, wordmark=False):
+    creator = next(image for image in result["decodedImages"] if image["src"].endswith("wicked-apple.png"))
+    qr = next(image for image in result["decodedImages"] if image["src"].endswith("qr_lightning.png"))
+    threshold = 250 if result["type"] == "image/png" else 225
+    assert all(min(corner) >= threshold for corner in creator["corners"]), ("Black creator background", creator)
+    assert all(min(gap) >= threshold for gap in creator["limbGaps"]), ("Black background remains between mascot limbs", creator)
+    assert all(min(corner) >= threshold for corner in qr["corners"]), ("Black QR corners", qr)
+    assert qr["edgeWhite"] >= .98, ("QR outer edge is not clean white", qr)
+    if wordmark:
+        assert result["sourceOrange"] > 20, ("Bitcoin emblem lost its source orange", result["sourceOrange"])
+
+
+def assert_footer_url(result):
+    render = result["render"]
+    urls = [text for text in render["footerText"] if text.startswith("https://wickedsmartbitcoin.com/")]
+    if result["width"] <= result["height"]:
+        assert urls == [] and render["layout"]["url"] is None, ("Portrait or square footer still includes website URL", render)
+        metrics = render["metrics"]
+        compact_height = max(54, int(min(metrics["width"], metrics["height"]) * 117 / 1080 + .5))
+        assert metrics["footerHeight"] == compact_height, ("Portrait or square still reserves the removed URL row", metrics)
+    else:
+        assert urls == [render["url"]] and render["layout"]["url"] is not None, ("Landscape footer lost website URL", render)
 
 
 def main():
@@ -153,6 +210,7 @@ def main():
                     if slug == "node_count":
                         assert (result["width"], result["height"]) == (3840, 2160), result
                     assert result["errors"] == [], result["errors"]
+                    assert_footer_url(result)
                     render = result["render"]
                     assert render["url"] == f"https://wickedsmartbitcoin.com/{slug}", render
                     images = render["images"]
@@ -160,6 +218,8 @@ def main():
                     assert any(image["src"].endswith("qr_lightning.png") for image in images), render
                     assert any(image["src"].endswith("wicked-apple.png") and image["colored"] > 20 for image in result["decodedImages"]), result
                     assert any(image["src"].endswith("qr_lightning.png") and image["white"] > 20 for image in result["decodedImages"]), result
+                    if args.theme == "light":
+                        assert_light_branding(result, wordmark=slug == "dca_cost_basis")
                     metrics = render["metrics"]
                     for image in images:
                         assert image["x"] >= 0 and image["x"] + image["width"] <= metrics["width"], image
@@ -167,6 +227,17 @@ def main():
                         assert image["y"] + image["height"] <= metrics["height"], image
                     (output / f"{slug}-{orientation}.json").write_text(json.dumps(result, indent=2))
                     print(f"{slug} {orientation}: decoded {result['width']}×{result['height']} export with creator and Lightning QR", flush=True)
+                    if slug == "dca_cost_basis" and args.theme == "light":
+                        count = cdp.evaluate("__footerTest.downloads.length")
+                        cdp.evaluate("document.querySelector('#downloadImageBtn').click()")
+                        wait_for(lambda: cdp.evaluate(f"__footerTest.downloads.length>{count}"), timeout=60,
+                                 description=f"DCA {orientation} light PNG")
+                        png = cdp.evaluate(DECODE)
+                        assert png["type"] == "image/png", png
+                        assert_footer_url(png)
+                        assert_light_branding(png, wordmark=True)
+                        (output / f"{slug}-{orientation}-png.png").write_bytes(base64.b64decode(png.pop("frame")))
+                        (output / f"{slug}-{orientation}-png.json").write_text(json.dumps(png, indent=2))
                 count = cdp.evaluate("__footerTest.downloads.length")
                 cdp.evaluate("__footerTest.ready=WSBDashboardExportBranding.ready;WSBDashboardExportBranding.ready=async()=>{throw new Error('Fixture branding asset unavailable');};")
                 if slug == "node_count":

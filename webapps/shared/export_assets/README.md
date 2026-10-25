@@ -27,17 +27,22 @@ font files are unmodified and the interactive shell's typography stays separate.
   `Projects/animations/Wicked Smart Bitcoin/sponsor-icons/bitcoin-logo-orig.jpg`.
   It retains the original lettering and orange Bitcoin symbol, with enough
   resolution for 4K output. The shared drawing helper preserves its aspect ratio
-  and applies the established dark/light treatment.
+  and keeps the original orange coin and white Bitcoin glyph in both themes.
+  Only the wordmark lettering/background invert for light exports.
 - `wicked-apple.png`: the maintainer's unmodified 100 × 100 creator
   icon from `Projects/animations/Wicked Smart Bitcoin/sponsor-icons/wicked-apple-md.png`.
-  Its original black background is preserved in both themes. The shared footer
+  Dark exports retain the source pixels. Light exports rematte only the
+  outer black background and enclosed gaps between the limbs to white, preserving dark facial
+  details. The derived canvas is cached during shared branding preparation. The shared footer
   pairs it with the creator name and `@w_s_bitcoin` handle.
   The Lightning QR is loaded from the existing canonical
   [`assets/qr_lightning.png`](../../../assets/qr_lightning.png),
   with the current `wicked@primal.net` address. It is not copied from the older
-  reference image. Landscape footers measure the URL between the two branding
-  sections and reduce its font size to fit; square and portrait give it a
-  separate row above the creator and donation sections.
+  reference image. Light exports replace its decorative black corner matte with
+  a clean white border, preserving all QR modules and their quiet zone.
+  Landscape footers measure the URL between the two branding sections and
+  reduce its font size to fit. Portrait and square omit the URL row for a
+  compact creator/donation banner with less empty space below the chart.
 
 The DejaVu fonts, their license, and the wordmark were moved unchanged from
 `webapps/moving_average/assets/`. The reference notebook is

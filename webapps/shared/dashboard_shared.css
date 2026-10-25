@@ -422,6 +422,13 @@ h1 {
   border-top: 1px solid var(--panel-border);
 }
 
+/* The first card uses the Cost Basis divider between KPIs and selections.
+   Moving Average has its own controls layout, but shares this boundary. */
+.topbar > :is(.controls, .ma-controls) {
+  border-top: 1px solid var(--panel-border);
+  padding-top: var(--kpi-settings-pad-top, 6px);
+}
+
 .topbar:has(.filters-panel.open),
 .topbar:has(.issuance-settings-panel.open),
 .date-range-panel:has(.date-range-settings-menu.open),

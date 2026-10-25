@@ -9,9 +9,12 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
     --home-accent: #f7931a;
     --home-progress: var(--brand);
     --home-block-normal: #3ec735;
+    --home-block-dark-green: #2a4f1f;
     --home-block-future: #999;
     --home-block-slow: var(--brand);
-    --home-block-late: #f27474;
+    --home-block-dark-orange: #5d3d16;
+    --home-block-red: #eb3226;
+    --home-block-late: var(--home-block-red);
     --home-accent-bg: #000;
     --home-control-space: 12px;
     --home-header-height: 61px;
@@ -31,7 +34,6 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
     --home-accent: #a7550a;
     --home-accent-bg: #faf0e1;
     --home-block-future: #6b6b6b;
-    --home-block-late: #bb3030;
 }
 :root[data-theme] body.homepage { background: var(--home-bg); color: var(--home-text); }
 .homepage :is(button, input, select) { font: inherit; }
@@ -96,6 +98,17 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
 .snapshot-block-meter { --block-countdown-width: 20%; --block-zero: calc(var(--block-countdown-width) * var(--block-future-fraction, 0)); position: relative; height: 4px; margin-top: auto; border-radius: 10px; background: var(--home-line); }
 .snapshot-block-meter progress { position: absolute; left: var(--block-zero); width: calc(100% - var(--block-zero)); margin-top: 0; background: transparent; }
 .snapshot-block-meter progress::-webkit-progress-bar { background: transparent; }
+.snapshot-block-meter progress::-webkit-progress-value { background: var(--block-band-fill); }
+.snapshot-block-meter progress::-moz-progress-bar { background: var(--block-band-fill); }
+.snapshot-block-meter progress:not([data-elapsed-state="future"]) {
+    --block-band-fill: linear-gradient(to right,
+        var(--home-block-normal) 0 var(--block-10m-stop, 100%),
+        var(--home-block-dark-green) var(--block-10m-stop, 100%) var(--block-20m-stop, 100%),
+        var(--home-block-slow) var(--block-20m-stop, 100%) var(--block-30m-stop, 100%),
+        var(--home-block-dark-orange) var(--block-30m-stop, 100%) var(--block-40m-stop, 100%),
+        var(--home-block-red) var(--block-40m-stop, 100%) 100%);
+}
+.snapshot-block-meter progress[data-elapsed-state="future"] { --block-band-fill: var(--home-block-future); }
 .snapshot-block-meter progress[data-elapsed-state="future"] { left: 0; width: var(--block-countdown-width); direction: ltr; }
 .snapshot-block-zero { position: absolute; left: var(--block-zero); bottom: -3px; width: 1px; height: 10px; background: var(--home-muted); pointer-events: none; z-index: 1; }
 .snapshot-block-meter::before, .snapshot-block-meter::after { content: ""; position: absolute; bottom: -3px; height: 10px; pointer-events: none; opacity: .7; }

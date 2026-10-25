@@ -241,18 +241,23 @@ coordinates with that renderer:
   retain their existing scaling and title/data hierarchy. The helper uses
   private font family aliases that do not change the interactive shell.
 - `drawWordmark(ctx, { x, y, width }, { theme = "dark" } = {})` preserves the
-  original image's aspect ratio. It applies the existing light-theme treatment
-  and restores the context afterward. Callers reserve the destination space.
+  original image's aspect ratio and orange/white Bitcoin coin in both themes.
+  Light output uses black lettering on white; no color filter touches the coin.
+  The context is restored afterward. Callers reserve the destination space.
 - `drawFooter(ctx, slug, metrics, settings = {})` draws the canonical
   `https://wickedsmartbitcoin.com/<slug>` URL in bundled IBM Plex Mono Medium,
   with the Wicked creator apple/handle and current Lightning donation QR/address.
+  Light exports use a clean white background around the apple and QR; enclosed
+  dark facial details and all QR modules are retained.
   Supply a canonical dashboard slug, not a URL. `metrics` contains drawing
   `width`, `height`, and `footerHeight`; `settings.theme` controls the palette.
   Reserve the entire footer area below the chart. The shared layout helper
-  reserves 122/1080 of the shorter output dimension in landscape and 150/1080
-  in portrait/square so the QR remains readable; reference-specific layouts
-  may supply their own height. The URL shrinks to fit the measured center gap
-  in landscape and occupies a separate upper row in portrait/square.
+  uses `WSBDashboardExport.getFooterHeight(width, height)` to reserve 122/1080
+  of the shorter output dimension in landscape and 117/1080 in portrait/square
+  so the QR remains readable; reference-specific layouts may supply their own
+  height. The URL shrinks to fit the measured center gap in landscape.
+  Portrait and square omit the URL row and reclaim its space for the chart,
+  keeping a compact creator/donation strip in both themes.
 - `drawFooterStrip(ctx, url, metrics, settings = {})` accepts an already resolved
   canonical URL. Existing `WSBDashboardExport.drawFooterUrl()` callers delegate
   to this strip when branding is loaded, and `encodeVideo()` / `encodeWebM()` await branding
