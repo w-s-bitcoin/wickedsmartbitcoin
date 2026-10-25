@@ -24,7 +24,7 @@
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@600&display=swap&text=%3F" rel="stylesheet" />
         <link rel="stylesheet" href="assets/styles.css?v=20261024-card-crossfade" />
-        <link rel="stylesheet" href="assets/homepage.css?v=20261025-block-light-green" />
+        <link rel="stylesheet" href="assets/homepage.css?v=20261025-diff-bar-shape" />
         <link rel="manifest" href="manifest.json" />
         <link rel="preload" href="assets/image_list.json" as="fetch" crossorigin />
         <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -238,7 +238,7 @@
                     <article class="snapshot-card" aria-labelledby="mining-heading">
                         <div class="snapshot-card-heading snapshot-difficulty-heading"><h3 id="mining-heading" aria-label="Next difficulty adjustment"><span class="snapshot-heading-full" aria-hidden="true">Next difficulty adjustment</span><span class="snapshot-heading-short" aria-hidden="true">Next diff. adj.</span><span class="snapshot-heading-narrow" aria-hidden="true">Diff. adj.</span></h3><span class="snapshot-difficulty-estimate" id="homeKpiDifficultyEstimate" hidden><svg class="snapshot-difficulty-arrow" viewBox="0 0 18 18" fill="currentColor" aria-hidden="true"><path d="M2 11.5 9 4.5l7 7H2Z"/></svg><span id="homeKpiDifficultyEstimateValue"></span></span></div>
                         <div class="snapshot-value"><span id="homeKpiDifficultyRemaining">—</span><span class="snapshot-unit">blocks away</span></div>
-                        <div class="snapshot-difficulty-meter" id="homeKpiDifficultyMeter" data-pace="unknown" data-tooltip=""><progress id="homeKpiDifficultyProgress" max="100" value="0" tabindex="0" aria-label="Current difficulty epoch completed"></progress><span class="snapshot-difficulty-variance" aria-hidden="true"></span><span class="snapshot-difficulty-schedule-mark" aria-hidden="true"></span></div>
+                        <div class="snapshot-difficulty-meter" id="homeKpiDifficultyMeter" data-pace="unknown" data-tooltip=""><span class="snapshot-difficulty-track"><progress id="homeKpiDifficultyProgress" max="100" value="0" tabindex="0" aria-label="Current difficulty epoch completed"></progress><span class="snapshot-difficulty-variance" aria-hidden="true"></span></span></div>
                         <div class="snapshot-caption" id="homeKpiDifficultyEpochCaption">Waiting for data</div>
                     </article>
                 </div>
@@ -384,6 +384,6 @@
         <script src="js/10_event_bindings_global_modal_menu.js" defer></script>
         <script src="js/11_dashboard_timezone_preferences.js" defer></script>
         <script src="webapps/shared/bitcoin_chain_tip.js?v=20261024-tab-resume" defer></script>
-        <script src="js/12_homepage_kpis.js?v=20261025-block-light-green" defer></script>
+        <script src="js/12_homepage_kpis.js?v=20261025-diff-bar-shape" defer></script>
     </body>
 </html>

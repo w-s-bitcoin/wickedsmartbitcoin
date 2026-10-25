@@ -110,17 +110,16 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
 .snapshot-card progress::-webkit-progress-value { background: var(--home-progress); border-radius: 10px; }
 .snapshot-card progress::-moz-progress-bar { background: var(--home-progress); border-radius: 10px; }
 .snapshot-difficulty-meter { position: relative; height: 4px; margin-top: auto; border-radius: 10px; background: var(--home-line); }
+.snapshot-difficulty-track { position: absolute; inset: 0; display: block; overflow: hidden; border-radius: inherit; }
 .snapshot-difficulty-meter progress { width: 100%; margin-top: 0; background: transparent; }
 .snapshot-difficulty-meter progress::-webkit-progress-bar { background: transparent; }
-.snapshot-difficulty-variance { position: absolute; top: -1px; left: var(--schedule-start, 0%); width: var(--schedule-width, 0%); height: 6px; border-radius: 10px; pointer-events: none; }
+.snapshot-difficulty-variance { position: absolute; top: 0; left: var(--schedule-start, 0%); width: var(--schedule-width, 0%); height: 100%; border-radius: 0 10px 10px 0; pointer-events: none; }
 .snapshot-difficulty-meter[data-pace="ahead"] .snapshot-difficulty-variance { background: var(--home-pace-ahead); }
 .snapshot-difficulty-meter[data-pace="behind"] .snapshot-difficulty-variance { background: var(--home-pace-behind); }
-.snapshot-difficulty-schedule-mark { position: absolute; top: -3px; left: var(--schedule-expected, 0%); width: 1px; height: 10px; background: var(--home-muted); opacity: .8; pointer-events: none; }
-.snapshot-difficulty-meter[data-pace="unknown"] .snapshot-difficulty-schedule-mark { display: none; }
 .snapshot-difficulty-meter[data-pace="ahead"] { --difficulty-tooltip-color: var(--home-pace-ahead); }
 .snapshot-difficulty-meter[data-pace="behind"] { --difficulty-tooltip-color: var(--home-pace-behind); }
 .snapshot-difficulty-meter[data-tooltip]:not([data-tooltip=""]):is(:hover, :focus-within)::after { content: attr(data-tooltip); position: absolute; z-index: 4; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); width: max-content; max-width: min(260px, 90vw); padding: 5px 8px; border: 1px solid var(--home-line); border-radius: 5px; background: var(--home-surface); color: var(--difficulty-tooltip-color, var(--home-text)); font: 11px/1.4 ui-monospace, "SFMono-Regular", Consolas, monospace; box-shadow: 0 3px 12px #0003; pointer-events: none; }
-.snapshot-difficulty-meter progress:focus-visible { outline: 2px solid var(--home-accent); outline-offset: 3px; }
+.snapshot-difficulty-meter:focus-within { outline: 2px solid var(--home-accent); outline-offset: 3px; }
 .snapshot-block-meter { --block-countdown-width: 20%; --block-zero: calc(var(--block-countdown-width) * var(--block-future-fraction, 0)); position: relative; height: 4px; margin-top: auto; border-radius: 10px; background: var(--home-line); }
 .snapshot-block-meter progress { position: absolute; left: var(--block-zero); width: calc(100% - var(--block-zero)); margin-top: 0; background: transparent; }
 .snapshot-block-meter progress::-webkit-progress-bar { background: transparent; }

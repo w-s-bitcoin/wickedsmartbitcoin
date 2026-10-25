@@ -450,7 +450,6 @@
       difficultyMeter.dataset.tooltip = scheduleText;
       const expectedPercent = expectedIntervals == null ? difficultyPercent
         : Math.max(0, Math.min(100, (expectedIntervals + 1) / DIFFICULTY_INTERVAL * 100));
-      difficultyMeter.style.setProperty("--schedule-expected", `${expectedPercent}%`);
       difficultyMeter.style.setProperty("--schedule-start", `${Math.min(difficultyPercent, expectedPercent)}%`);
       difficultyMeter.style.setProperty("--schedule-width", `${pace === "ahead" || pace === "behind" ? Math.abs(difficultyPercent - expectedPercent) : 0}%`);
     }
