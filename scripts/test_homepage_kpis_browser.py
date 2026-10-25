@@ -192,7 +192,6 @@ STATE = """(() => {
     difficultyEstimateColor: getComputedStyle(document.getElementById('homeKpiDifficultyEstimate')).color,
     difficultySegmentStart: parseFloat(document.getElementById('homeKpiDifficultyMeter')?.style.getPropertyValue('--schedule-start')),
     difficultySegmentWidth: parseFloat(document.getElementById('homeKpiDifficultyMeter')?.style.getPropertyValue('--schedule-width')),
-    difficultyExpected: parseFloat(document.getElementById('homeKpiDifficultyMeter')?.style.getPropertyValue('--schedule-expected')),
     difficultyEstimate: document.getElementById('homeKpiDifficultyEstimateValue')?.textContent,
     difficultyEstimateTrend: document.getElementById('homeKpiDifficultyEstimate')?.dataset.trend,
     difficultyEstimateHidden: document.getElementById('homeKpiDifficultyEstimate')?.hidden,
@@ -646,6 +645,8 @@ def test_difficulty_schedule(cdp):
     for pace, height, difference, projection in (
         ("ahead", 973001, 36, 5.02),
         ("behind", 973002, -42, -3.14),
+        ("ahead", 973727, 20, 1.00),
+        ("behind", 973700, -27, -2.00),
     ):
         cdp.command("Page.reload")
         wait_for(lambda: snapshot(cdp)["snapshot"] == "error", description="cold schedule fixture")
@@ -662,6 +663,8 @@ def test_difficulty_schedule(cdp):
                          description=f"{pace} schedule")
         require(state["difficultyPace"] == pace and state["difficultySchedule"] ==
                 f"{pace.capitalize()} by {abs(difference)} blocks", "Schedule variance text or state changed", state)
+        require(not cdp.evaluate("!!document.querySelector('.snapshot-difficulty-schedule-mark')"),
+                "Difficulty bar retained its target tick", state)
         require("Ahead" not in state["difficultyEpochCaption"] and "Behind" not in state["difficultyEpochCaption"],
                 "Schedule variance should appear only in the bar tooltip", state)
         require(re.search(r"\b\d+(?:st|nd|rd|th) diff\. epoch\b", state["difficultyEpochCaption"]),
@@ -670,7 +673,7 @@ def test_difficulty_schedule(cdp):
                 ("up" if pace == "ahead" else "down") and state["difficultyEstimate"] == f"{abs(projection):.2f}%",
                 "Projection or colored segment missing", state)
         actual = state["difficultyProgress"]
-        expected = state["difficultyExpected"]
+        expected = max(0, min(100, (intervals - difference + 1) / 2016 * 100))
         require((actual > expected) == (pace == "ahead") and
                 abs(state["difficultySegmentStart"] - min(actual, expected)) < .001 and
                 abs(state["difficultySegmentWidth"] - abs(actual - expected)) < .001,
@@ -679,6 +682,30 @@ def test_difficulty_schedule(cdp):
         require(state["difficultySegmentColor"] == expected_color and
                 state["difficultyEstimateColor"] == expected_color,
                 "Segment and estimate do not share the expected pace color", state)
+        geometry = cdp.evaluate("""(() => {
+          const track = document.querySelector('.snapshot-difficulty-track');
+          const progress = document.getElementById('homeKpiDifficultyProgress');
+          const segment = document.querySelector('.snapshot-difficulty-variance');
+          const box = element => { const r = element.getBoundingClientRect();
+            return {left: r.left, right: r.right, top: r.top, bottom: r.bottom, height: r.height}; };
+          const style = getComputedStyle(segment);
+          return {track: box(track), progress: box(progress), segment: box(segment),
+            clip: getComputedStyle(track).overflowX,
+            leftCorners: [style.borderTopLeftRadius, style.borderBottomLeftRadius],
+            rightCorners: [style.borderTopRightRadius, style.borderBottomRightRadius]};
+        })()""")
+        require(geometry["clip"] == "hidden" and
+                abs(geometry["segment"]["top"] - geometry["progress"]["top"]) < .1 and
+                abs(geometry["segment"]["height"] - geometry["progress"]["height"]) < .1 and
+                geometry["leftCorners"] == ["0px", "0px"] and
+                all(corner != "0px" for corner in geometry["rightCorners"]),
+                "Schedule segment does not match the bar thickness and edge shape", geometry)
+        require(geometry["segment"]["left"] >= geometry["track"]["left"] - .1 and
+                geometry["segment"]["right"] <= geometry["track"]["right"] + .1,
+                "Schedule segment crosses the gray track edge", geometry)
+        if height % 2016 >= 1980:
+            require(abs(geometry["segment"]["right"] - geometry["track"]["right"]) < .1,
+                    "Near-end schedule segment did not stop at the track edge", geometry)
         cdp.evaluate("document.getElementById('homeKpiDifficultyProgress').focus()")
         focused = snapshot(cdp)
         require(focused["difficultySchedule"] in focused["difficultyTooltipContent"] and
@@ -692,7 +719,7 @@ def test_difficulty_schedule(cdp):
         require(hovered["difficultySchedule"] in hovered["difficultyTooltipContent"],
                 "Hover did not reveal the schedule tooltip", hovered)
         cdp.command("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": 0, "y": 0})
-        if pace == "ahead":
+        if pace == "ahead" and height == 973001:
             cdp.evaluate(f"""(() => {{
               const test = window.__kpiTest;
               test.feedOpen();
