@@ -1,13 +1,13 @@
 {
-  "generated_at_utc": "2026-10-25T00:06:14.294543Z",
+  "generated_at_utc": "2026-10-27T00:08:12.361697Z",
   "source": {
     "name": "Frankfurter",
     "url": "https://api.frankfurter.app",
     "upstream": "European Central Bank (ECB) reference rates",
     "pair_endpoint": "https://api.frankfurter.app/1999-01-01..2999-12-31?from=EUR&to=USD",
     "start_date": "1999-01-04",
-    "end_date": "2026-10-25",
-    "notes": "Rates are business-day reference rates for 163 Frankfurter-supported currency pairs vs USD; CUP/USD is overwritten with elTOQUE TRMI via CUP=X where available; weekends and market holidays are forward-filled.",
+    "end_date": "2026-10-27",
+    "notes": "Rates are business-day reference rates for 168 Frankfurter-supported currency pairs vs USD; CUP/USD is overwritten with elTOQUE TRMI via CUP=X where available; weekends and market holidays are forward-filled.",
     "dataset_notes": "CSV schema simplified to date, eurusd where eurusd is the EUR/USD rate value. Source attribution is stored in this metadata file.",
     "cupusd_source": "elTOQUE TRMI via CUP=X"
   },
@@ -172,8 +172,8 @@
       "name": "Bitcoin",
       "code": "BTC",
       "symbol": "BTC",
-      "symbol_position": "right",
-      "minor_unit": 8,
+      "symbol_position": "left",
+      "minor_unit": 2,
       "groups": [
         "universal"
       ]
@@ -319,6 +319,13 @@
       "groups": [
         "americas"
       ]
+    },
+    "BCH": {
+      "name": "Bitcoin Cash",
+      "code": "BCH",
+      "symbol": "BCH",
+      "symbol_position": "left",
+      "minor_unit": 2
     },
     "BDT": {
       "name": "Bangladeshi Taka",
@@ -653,6 +660,13 @@
       "groups": [
         "africa"
       ]
+    },
+    "ETH": {
+      "name": "Ethereum",
+      "code": "ETH",
+      "symbol": "ETH",
+      "symbol_position": "left",
+      "minor_unit": 2
     },
     "EUR": {
       "name": "Euro",
@@ -1101,6 +1115,13 @@
       "groups": [
         "africa"
       ]
+    },
+    "LTC": {
+      "name": "Litecoin",
+      "code": "LTC",
+      "symbol": "LTC",
+      "symbol_position": "left",
+      "minor_unit": 2
     },
     "LYD": {
       "name": "Libyan Dinar",
@@ -1895,6 +1916,13 @@
         "monetary_metals"
       ]
     },
+    "XRP": {
+      "name": "XRP",
+      "code": "XRP",
+      "symbol": "XRP",
+      "symbol_position": "left",
+      "minor_unit": 2
+    },
     "YER": {
       "name": "Yemeni Rial",
       "code": "YER",
@@ -2096,6 +2124,19 @@
       "quote_assumption": "USD-denominated FX rate"
     },
     {
+      "id": "BCH/USD",
+      "base": "BCH",
+      "quote": "USD",
+      "display_name": "Bitcoin Cash / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "bchusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
       "id": "BDT/USD",
       "base": "BDT",
       "quote": "USD",
@@ -2195,6 +2236,19 @@
       "dataset_columns": [
         "date",
         "bsdusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "BTC/USD",
+      "base": "BTC",
+      "quote": "USD",
+      "display_name": "Bitcoin / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "btcusd"
       ],
       "pair_column_value": null,
       "quote_assumption": "USD-denominated FX rate"
@@ -2483,6 +2537,19 @@
       "dataset_columns": [
         "date",
         "etbusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "ETH/USD",
+      "base": "ETH",
+      "quote": "USD",
+      "display_name": "Ethereum / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "ethusd"
       ],
       "pair_column_value": null,
       "quote_assumption": "USD-denominated FX rate"
@@ -3016,6 +3083,19 @@
       "dataset_columns": [
         "date",
         "lslusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "LTC/USD",
+      "base": "LTC",
+      "quote": "USD",
+      "display_name": "Litecoin / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "ltcusd"
       ],
       "pair_column_value": null,
       "quote_assumption": "USD-denominated FX rate"
@@ -4004,6 +4084,19 @@
       "dataset_columns": [
         "date",
         "xptusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "XRP/USD",
+      "base": "XRP",
+      "quote": "USD",
+      "display_name": "XRP / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "xrpusd"
       ],
       "pair_column_value": null,
       "quote_assumption": "USD-denominated FX rate"
