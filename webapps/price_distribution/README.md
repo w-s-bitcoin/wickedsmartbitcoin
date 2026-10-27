@@ -47,6 +47,15 @@ reserves only the measured label width and the outer margin on the right.
 All layouts use the shared bundled export fonts and creator/donation footer.
 PNG is always 2160 quality. Video uses the shared deterministic MP4 encoder with
 WebM fallback, selectable resolution, and optional start/end holds.
+During the opening Not Valued interval, exported frames keep a fixed timeline
+through the actual last unpriced day. The bottom line grows from genesis and
+meets the histogram only on that final Not Valued day, matching the notebook's
+opening behavior without hard-coding its 275-day assumption. Later frames
+expand the timeline through the current frame as before, with a disconnected
+first priced point. Video sampling always includes the last Not Valued and
+first priced days, including at higher speeds. Counts and plotted prices still
+use only observations through the current frame; the future boundary date is
+used solely to establish the opening layout.
 
 Validation from the repository root:
 
@@ -77,7 +86,8 @@ they are omitted from previews and exported frames. The browser suites check
 values, bounds, styles, and cleanup at desktop/mobile widths in both themes.
 
 Hovering a daily price marks its chronological position within the corresponding
-price-range bar with a white line. Hovering a distribution row preserves the
+price-range bar with a white line that extends 3px above and below the bar,
+without an outline. Hovering a distribution row preserves the
 orange history inside that price range and dims the rest along with the other
 bars, values, and range labels to 20% opacity, clipping crossing
 segments at exact log-price band boundaries. Not Valued remains a separate

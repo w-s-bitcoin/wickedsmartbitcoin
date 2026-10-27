@@ -45,6 +45,11 @@
     }
     return { bins, min, max, total: endIndex - first + 1 };
   }
+  function exportMilestones(rows) {
+    if (!rows.length || rows[0].price > 0) return [];
+    const firstPriced = rows.findIndex((row) => row.price > 0);
+    return firstPriced < 0 ? [rows.length - 1] : [firstPriced - 1, firstPriced];
+  }
   function font(ctx, size, bold, branded) {
     if (branded) window.WSBDashboardExportBranding.setFont(ctx, size, bold ? "heading" : "body");
     else ctx.font = `${bold ? 600 : 400} ${size}px "Space Grotesk", sans-serif`;
@@ -111,7 +116,12 @@
     const priceY = (price) => exporting && !landscape
       ? history.y + history.height - (priceBand(price) + .5) / (historyCeiling + .75) * history.height
       : yAt(history, priceBand(price));
-    const span = Math.max(DAY, rows[endIndex].time - rows[first].time);
+    // The notebook reserves the full opening Not Valued interval. Only the
+    // observed path grows; it meets the histogram on the final unpriced day.
+    // Read the boundary date for layout, never draw/count future observations.
+    const openingEnd = exporting && first === 0 ? exportMilestones(rows)[0] : undefined;
+    const timelineEnd = Number.isInteger(openingEnd) ? Math.max(endIndex, openingEnd) : endIndex;
+    const span = Math.max(DAY, rows[timelineEnd].time - rows[first].time);
     const xAt = (time) => history.x + (time - rows[first].time) / span * history.width;
     const rowHeight = histogram.height / model.bins.length;
     const pointer = !exporting && !preview ? opts.hover : null, T = window.WSBDashboardChartTooltip;
@@ -181,9 +191,9 @@
           let ordinal = 0;
           for (let j = first; j <= hoverIndex; j++) if (inBin(rows[j].price, bin)) ordinal++;
           const markerX = histogram.x + (ordinal - .5) / maxCount * barWidth;
-          ctx.save(); ctx.beginPath(); ctx.rect(histogram.x, y - rowHeight * .175, bar, rowHeight * .35); ctx.clip();
-          ctx.beginPath(); ctx.moveTo(markerX, y - rowHeight * .175); ctx.lineTo(markerX, y + rowHeight * .175);
-          ctx.strokeStyle = "#543200"; ctx.lineWidth = 3.5; ctx.stroke();
+          const markerHalfHeight = rowHeight * .175 + 3;
+          ctx.save(); ctx.beginPath();
+          ctx.moveTo(markerX, y - markerHalfHeight); ctx.lineTo(markerX, y + markerHalfHeight);
           ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke(); ctx.restore();
         }
         if (!preview) {
@@ -248,5 +258,5 @@
     ctx.restore();
     return inspection;
   }
-  window.WSBPriceDistributionChart = { ...History, summary, distribution, priceLabel, render };
+  window.WSBPriceDistributionChart = { ...History, summary, distribution, priceLabel, exportMilestones, render };
 }());

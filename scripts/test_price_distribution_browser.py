@@ -233,15 +233,59 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
     assert all(export[key]["plot"][3] == 255 and max(export[key]["plot"][:3]) > 20
                for key in ("landscape", "portrait", "square")), export
 
+    # Capture the actual canvas path: the opening line must grow on a fixed
+    # timeline, including shortened exports and nonstandard unpriced histories.
+    opening = cdp.evaluate("""(async () => {
+      const G=WSBPriceDistributionChart;
+      const published=G.parse(await (await fetch('../../assets/daily_price.csv')).text());
+      const synthetic=[0,0,0,0,.001,.002].map((price,i)=>({price,height:i,time:Date.UTC(2009,0,3+i),iso:'2009-01-'+String(3+i).padStart(2,'0')}));
+      const NativePath=window.Path2D,results=[];
+      try {
+        for(const rows of [published,synthetic,synthetic.slice(0,4)]) {
+          const lastZero=G.exportMilestones(rows)[0];
+          for(const orientation of ['landscape','portrait','square']) {
+            const {width,height}=WSBDashboardExport.getDimensions({quality:'720',orientation});
+            const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
+            for(const index of [...new Set([0,1,Math.floor(lastZero/2),lastZero-1,lastZero,Math.min(lastZero+1,rows.length-1)])]) {
+              let points=[];
+              window.Path2D=class extends NativePath {
+                moveTo(x,y){points.push({move:true,x,y});super.moveTo(x,y);}
+                lineTo(x,y){points.push({move:false,x,y});super.lineTo(x,y);}
+              };
+              G.render(canvas.getContext('2d'),width,height,rows,index,{theme:'dark',export:true,branded:true});
+              const left=24*width/(orientation==='landscape'?1920:1080);
+              const right=orientation==='landscape'?width*.604:width-left;
+              results.push({orientation,index,lastZero,left,right,points});
+            }
+          }
+        }
+      } finally { window.Path2D=NativePath; }
+      return results;
+    })()""")
+    for result in opening:
+        points, index, last = result['points'], result['index'], result['lastZero']
+        assert len(points) == index + 1, result
+        last_unpriced = points[min(index, last)]
+        expected = result['left'] + min(index, last) / max(index, last) * (result['right'] - result['left'])
+        assert abs(last_unpriced['x'] - expected) < .001, result
+        assert all(abs(point['y'] - points[0]['y']) < .001 for point in points[:last+1]), result
+        if index < last:
+            assert last_unpriced['x'] < result['right'], result
+        if index > last:
+            assert points[-1]['move'] and points[-1]['y'] < last_unpriced['y'], result
+
     frozen = cdp.evaluate("""(async () => {
       const originalEncode = WSBDashboardExport.encodeVideo;
       const originalRender = WSBPriceDistributionChart.render;
       const observed = [];
+      let milestonesPreserved = false;
       WSBPriceDistributionChart.render = (ctx, width, height, rows, index, options) => {
         if (options.export) observed.push({index, price: rows[index].price});
         return originalRender(ctx, width, height, rows, index, options);
       };
       WSBDashboardExport.encodeVideo = async (config) => {
+        const rows=WSBPriceDistributionChart.parse(await (await fetch('../../assets/daily_price.csv')).text());
+        milestonesPreserved=WSBPriceDistributionChart.exportMilestones(rows).every(index=>config.frames.includes(index));
         await config.renderFrame(config.frames[0], config.canvas);
         window.__spotEmit(345678.90);
         await config.renderFrame(config.frames.at(-1), config.canvas);
@@ -254,13 +298,13 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
         document.getElementById('downloadVideo').click();
         for (let i = 0; i < 100 && WSBPriceDistributionDashboard.getState().exporting; i++)
           await new Promise(resolve => setTimeout(resolve, 20));
-        return {observed, recovered: !WSBPriceDistributionDashboard.getState().exporting && !document.getElementById('downloadImage').disabled};
+        return {observed, milestonesPreserved, recovered: !WSBPriceDistributionDashboard.getState().exporting && !document.getElementById('downloadImage').disabled};
       } finally {
         WSBDashboardExport.encodeVideo = originalEncode;
         WSBPriceDistributionChart.render = originalRender;
       }
     })()""")
-    assert frozen["recovered"] and len(frozen["observed"]) == 3, frozen
+    assert frozen["recovered"] and frozen["milestonesPreserved"] and len(frozen["observed"]) == 3, frozen
     assert cdp.evaluate("document.getElementById('startDateBtn').disabled && !document.getElementById('dateRangeStartSlider')"), "Export recovery unlocked Start"
     assert frozen["observed"][0]["price"] == 0, frozen
     assert [row["price"] for row in frozen["observed"][1:]] == [345678.90, 345678.90], frozen
@@ -268,13 +312,13 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
     videos = cdp.evaluate("""(async () => {
       const rows = WSBPriceDistributionChart.parse(await (await fetch('../../assets/daily_price.csv')).text());
       const firstPriced = rows.findIndex(row => row.price > 0), results = {};
+      const frames = [0, 1, Math.floor((firstPriced-1)/2), firstPriced-2, firstPriced-1, firstPriced, rows.length-1];
       for (const orientation of ['landscape', 'portrait', 'square']) {
         const settings = { quality: '720', orientation, theme: 'dark' };
         const { width, height } = WSBDashboardExport.getDimensions(settings);
         const canvas = document.createElement('canvas');
         const blob = await WSBDashboardExport.encodeVideo({
-          canvas, width, height, fps: 2, settings,
-          frames: [firstPriced - 1, firstPriced, rows.length - 1],
+          canvas, width, height, fps: WSBDashboardExport.VIDEO_FPS, settings, frames,
           renderFrame: async (i, target) => WSBPriceDistributionChart.render(
             target.getContext('2d'), width, height, rows, i, { theme: 'dark', export: true, branded: true }),
         });
@@ -283,7 +327,7 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
         player.muted = true; player.preload = 'auto';
         try {
           await new Promise((resolve, reject) => { player.onloadedmetadata = resolve; player.onerror = reject; player.src = url; });
-          await new Promise((resolve, reject) => { player.onseeked = resolve; player.onerror = reject; player.currentTime = Math.max(0, player.duration - .1); });
+          await new Promise((resolve, reject) => { player.onseeked = resolve; player.onerror = reject; player.currentTime = Math.max(0, player.duration - .5/WSBDashboardExport.VIDEO_FPS); });
           const decoded = document.createElement('canvas'); decoded.width = width; decoded.height = height;
           const ctx = decoded.getContext('2d'); ctx.drawImage(player, 0, 0);
           const pixels = ctx.getImageData(0, 0, width, height).data;
@@ -291,9 +335,24 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
           const pixel = [orange, 0, 0, 255];
           results[orientation] = { size: blob.size, extension: WSBDashboardExport.videoExtension(blob),
             width: player.videoWidth, height: player.videoHeight, duration: player.duration, pixel: [...pixel] };
+          const finalImage=decoded.toDataURL('image/png');
+          await new Promise((resolve,reject)=>{player.onseeked=resolve;player.onerror=reject;player.currentTime=2.5/WSBDashboardExport.VIDEO_FPS;});
+          ctx.drawImage(player,0,0);
+          if(orientation==='landscape') {
+            const u=width/1920,left=24*u,seam=width*.604,top=115*u,bottom=height-134*u;
+            const y=bottom-(bottom-top)*.5/13, xs=[];
+            const stripe=ctx.getImageData(Math.ceil(left),Math.floor(y)-3,Math.floor(seam-left)-3,7);
+            for(let j=0;j<stripe.data.length;j+=4) {
+              const [r,g,b]=stripe.data.slice(j,j+3);
+              if(r>150&&g>65&&g<200&&b<80)xs.push(Math.ceil(left)+(j/4)%stripe.width);
+            }
+            results[orientation].openingEnd=Math.max(...xs);
+            results[orientation].expectedOpeningEnd=left+frames[2]/(firstPriced-1)*(seam-left);
+          }
+          if (__SAVE_ARTIFACTS__) results[orientation].opening = decoded.toDataURL('image/png');
           if (__SAVE_ARTIFACTS__) {
             results[orientation].data = await new Promise(resolve => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.readAsDataURL(blob); });
-            results[orientation].frame = decoded.toDataURL('image/png');
+            results[orientation].frame = finalImage;
           }
         } finally { player.removeAttribute('src'); player.load(); URL.revokeObjectURL(url); }
       }
@@ -301,10 +360,13 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
     })()""".replace("__SAVE_ARTIFACTS__", "true" if artifact_dir else "false"))
     for orientation, expected in (("landscape", (1280, 720)), ("portrait", (720, 1280)), ("square", (720, 720))):
         result = videos[orientation]
+        if orientation == 'landscape':
+            assert abs(result['openingEnd'] - result['expectedOpeningEnd']) < 4, result
         if artifact_dir:
+            (artifact_dir / f"{orientation}-opening-video-frame.png").write_bytes(base64.b64decode(result.pop("opening").split(",", 1)[1]))
             (artifact_dir / f"{orientation}.{result['extension']}").write_bytes(base64.b64decode(result.pop("data").split(",", 1)[1]))
             (artifact_dir / f"{orientation}-video-frame.png").write_bytes(base64.b64decode(result.pop("frame").split(",", 1)[1]))
-        assert (result["width"], result["height"]) == expected and result["duration"] >= 1.4, result
+        assert (result["width"], result["height"]) == expected and abs(result["duration"] - 7/30) < .002, result
         assert result["size"] > 1000 and result["extension"] in ("mp4", "webm"), result
         assert result["pixel"][3] == 255 and max(result["pixel"][:3]) > 20, result
 

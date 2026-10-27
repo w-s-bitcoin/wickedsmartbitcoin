@@ -145,6 +145,24 @@ if grep -Eq "downloadEstimate(Size|Length|Time)|Download Animation|dateRangeDown
   fi
 fi
 
+# Export feedback is shared, including dashboards using the daily-history controller.
+if grep -Eq '\.(encodeVideo|encodeWebM)\(' "${app_sources[@]}"; then
+  for pattern in 'VIDEO_FPS' '.renderProgress('; do
+    if ! grep -Fq "$pattern" "${app_sources[@]}"; then
+      echo "Contract failure in $app: video exports must use the shared export API ($pattern)" >&2
+      exit 1
+    fi
+  done
+  if grep -Eq '(EXPORT[^ =]*FPS[[:space:]]*=[[:space:]]*[0-9]|outputFps:[[:space:]]*[0-9])' "${app_sources[@]}"; then
+    echo "Contract failure in $app: use WSBDashboardExport.VIDEO_FPS instead of a local numeric video frame rate" >&2
+    exit 1
+  fi
+  if grep -Eq 'date-range-export-progress|date-range-export-stop-square' "$html" "${app_sources[@]}" || { [[ -f "$css" ]] && grep -Eq 'date-range-export-progress|date-range-export-stop-square' "$css"; }; then
+    echo "Contract failure in $dashboard_dir: download progress markup/styles belong in the shared exporter and dashboard_shared.css" >&2
+    exit 1
+  fi
+fi
+
 if grep -Eq "new MediaRecorder|WSBMp4Muxer|12_mp4_muxer|mp4_muxer|function (encodeMp4|buildMp4Blob)|const (encodeMp4|buildMp4Blob)" "$html" "${app_sources[@]}"; then
   echo "Contract failure: video encoding and muxing belong in the shared deterministic exporter" >&2
   exit 1

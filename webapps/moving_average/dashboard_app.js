@@ -559,7 +559,7 @@
     const first = idx(state.startIso), last = idx(state.currentIso), speed = Number(settings.fps) / 60;
     const values = []; for (let f = 0; Math.floor(f * speed) <= last - first; f++) values.push(first + Math.floor(f * speed));
     if (values.at(-1) !== last) values.push(last);
-    return settings.endFrameHold ? [...Array(30).fill(last), ...values, ...Array(90).fill(last)] : values;
+    return settings.endFrameHold ? [...Array(E.VIDEO_FPS).fill(last), ...values, ...Array(E.VIDEO_FPS * 3).fill(last)] : values;
   }
   function updateEstimates() {
     if (!model) return;
@@ -569,7 +569,7 @@
     if (key === estimateKey) return;
     estimateKey = key;
     const list = frames(settings);
-    const estimate = window.WSBDashboardExport.estimateDownload(settings, { frameCount: list.length, uniqueFrameCount: new Set(list).size, chartCount, outputFps: 30 });
+    const estimate = window.WSBDashboardExport.estimateDownload(settings, { frameCount: list.length, uniqueFrameCount: new Set(list).size, chartCount, outputFps: E.VIDEO_FPS });
     E.writeEstimateElements({ size: $("downloadEstimateSize"), length: $("downloadEstimateLength"), time: $("downloadEstimateTime") }, estimate);
     if (!E.hasWebCodecsExportSupport()) {
       $("dateRangeDownloadBtn").disabled = true; $("downloadSettingsDownloadBtn").disabled = true;
@@ -622,11 +622,7 @@
     window.dateRangeExportActive = true; window.wsbDashboardExportActive = true;
     window.parent.postMessage({ type: "wsb-moving-average-date-range-export-active", active: true }, "*");
     function progress(value) {
-      const button = $("dateRangeDownloadBtn"), pct = `${Math.max(0, Math.min(1, Number(value) || 0)) * 100}%`;
-      const ring = button.querySelector(".date-range-export-progress");
-      if (button.classList.contains("is-exporting") && ring) { ring.style.setProperty("--date-range-export-progress", pct); return; }
-      button.classList.add("is-exporting"); button.setAttribute("aria-label", "Cancel animation download"); button.title = "Cancel download";
-      button.innerHTML = `<span class="date-range-export-progress" style="--date-range-export-progress:${pct}" aria-hidden="true"><span class="date-range-export-stop-square"></span></span>`;
+      E.renderProgress($("dateRangeDownloadBtn"), value);
       $("downloadSettingsDownloadBtn").classList.add("is-stop-download"); $("downloadSettingsDownloadBtn").textContent = "Stop Download";
     }
     progress(0);
@@ -634,7 +630,7 @@
       await window.WSBMovingAverageExport.ready();
       await document.fonts.ready;
       const { width, height } = E.getDimensions(settings);
-      const blob = await window.WSBDashboardExport.encodeVideo({ canvas, width, height, settings, fps: 30, frames: list, title: "Moving Average",
+      const blob = await window.WSBDashboardExport.encodeVideo({ canvas, width, height, settings, fps: E.VIDEO_FPS, frames: list, title: "Moving Average",
         renderFrame: (index, _canvas, frameIndex) => {
           if (snapshot.useLivePrice && frameIndex >= finalStart) {
             if (!finalSnapshot) finalSnapshot = liveExportSnapshot(snapshot);

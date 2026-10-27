@@ -223,6 +223,31 @@ Use the [chart](moving_average/moving_average_charts.js) and
 references. Run `node --test scripts/test_calendar_ticks.mjs` for the shared
 contract, plus the affected dashboard's rendering regressions.
 
+## Video cadence and download progress
+
+All animation dashboards use `WSBDashboardExport.VIDEO_FPS` (30 fps) for
+encoding, frame-count duration estimates, and timed holds. Playback speed and
+history sampling remain dashboard-specific; a speed selector does not change
+the encoded frame rate. `encodeVideo()` and `estimateDownload()` default to
+this same cadence.
+
+Call `WSBDashboardExport.renderProgress(downloadButton, 0)` when preparation
+begins, then call it from the encoder's `onProgress` callback. This shared
+component creates the orange progress ring and center stop square once and
+updates the existing ring, preserving its 140 ms linear transition. Its styles
+live in `dashboard_shared.css`, already required for every dashboard, and
+include dark/light themes, hover/focus, and cancellation feedback. Do not copy
+its markup or styles into a dashboard.
+
+The dashboard owns its cancel flag, settings-panel button, control locking,
+and cleanup: keep the download button clickable to request cancellation, add
+`is-canceling` when requested, and in `finally` remove `is-exporting` and
+`is-canceling`, restore the download icon, label/title, and controls. Perform
+that cleanup on success, cancellation, unsupported encoding, and errors.
+The shared daily-history controller supplies this integration automatically.
+`check_dashboard_contract.sh` checks video consumers for the shared cadence
+and progress API and rejects dashboard-local progress markup/styles.
+
 ## Export typography and branding
 
 Load `shared/dashboard_export_branding.js` after `dashboard_export.js` and before

@@ -245,7 +245,7 @@
     if (!model) return;
     const settings = normalizeDownload(downloads.readControls()), key = JSON.stringify([settings, state.startIso, state.currentIso]);
     if (key === estimateKey) return; estimateKey = key;
-    const list = frames(settings), estimate = window.WSBDashboardExport.estimateDownload(settings, { frameCount: list.length, uniqueFrameCount: new Set(list).size, chartCount: 1, outputFps: 30 });
+    const list = frames(settings), estimate = window.WSBDashboardExport.estimateDownload(settings, { frameCount: list.length, uniqueFrameCount: new Set(list).size, chartCount: 1, outputFps: E.VIDEO_FPS });
     E.writeEstimateElements({ size: $("downloadEstimateSize"), length: $("downloadEstimateLength"), time: $("downloadEstimateTime") }, estimate);
     if (!E.hasWebCodecsExportSupport()) {
       $("dateRangeDownloadBtn").disabled = true; $("downloadSettingsDownloadBtn").disabled = true;
@@ -307,8 +307,7 @@
     window.dateRangeExportActive = window.wsbDashboardExportActive = true;
     window.parent.postMessage({ type: "wsb-eoe-growth-date-range-export-active", active: true }, location.origin);
     function progress(value) {
-      $("dateRangeDownloadBtn").classList.add("is-exporting"); $("dateRangeDownloadBtn").setAttribute("aria-label", "Cancel animation download"); $("dateRangeDownloadBtn").title = "Cancel download";
-      $("dateRangeDownloadBtn").innerHTML = `<span class="date-range-export-progress" style="--date-range-export-progress:${Math.round(value * 100)}%" aria-hidden="true"><span class="date-range-export-stop-square"></span></span>`;
+      E.renderProgress($("dateRangeDownloadBtn"), value);
       $("downloadSettingsDownloadBtn").textContent = "Stop Download"; $("downloadSettingsDownloadBtn").classList.add("is-stop-download");
     }
     try {
@@ -319,9 +318,9 @@
         const { width, height } = E.getDimensions(settings);
         // A one-day range has no earlier source index to mark the boundary,
         // but its one-second opening preview must still precede final capture.
-        let finalStart = settings.endFrameHold ? 30 : 0, openingFrame = null, finalFrame = null;
+        let finalStart = settings.endFrameHold ? E.VIDEO_FPS : 0, openingFrame = null, finalFrame = null;
         list.forEach((endIndex, frameIndex) => { if (endIndex !== snapshot.endIndex) finalStart = frameIndex + 1; });
-        blob = await E.encodeVideo({ canvas, width, height, settings, fps: 30, frames: list, title: "Epoch-Over-Epoch Growth",
+        blob = await E.encodeVideo({ canvas, width, height, settings, fps: E.VIDEO_FPS, frames: list, title: "Epoch-Over-Epoch Growth",
           renderFrame: async (endIndex, _canvas, frameIndex) => {
             let view = null;
             if (snapshot.useLivePrice && endIndex === snapshot.endIndex) {

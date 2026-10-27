@@ -10,7 +10,7 @@
   const ATH_LIVE = window.WSBAthLivePrice;
   const PRICE_FALLBACK = 0.0001;
   const SPEEDS = [0.5, 1, 2, 4];
-  const DATE_RANGE_EXPORT_VIDEO_FPS = 30;
+  const DATE_RANGE_EXPORT_VIDEO_FPS = window.WSBDashboardExport.VIDEO_FPS;
   const DEFAULT_RANGE_PLAYBACK_FPS = 60;
   const DATE_RANGE_EXPORT_START_HOLD_SECONDS = 1;
   const DATE_RANGE_EXPORT_END_HOLD_SECONDS = 3;
@@ -1741,22 +1741,7 @@
   }
 
   function renderDateRangeDownloadButtonProgress(progress = 0) {
-    if (!el.downloadBtn) return;
-    const progressPct = `${Math.max(0, Math.min(1, Number(progress) || 0)) * 100}%`;
-    const progressEl = el.downloadBtn.querySelector(".date-range-export-progress");
-    if (el.downloadBtn.classList.contains("is-exporting") && progressEl) {
-      progressEl.style.setProperty("--date-range-export-progress", progressPct);
-      return;
-    }
-    el.downloadBtn.classList.add("is-exporting");
-    el.downloadBtn.disabled = false;
-    el.downloadBtn.setAttribute("aria-label", "Cancel animation download");
-    el.downloadBtn.setAttribute("title", "Cancel download");
-    el.downloadBtn.innerHTML = [
-      `<span class="date-range-export-progress" style="--date-range-export-progress: ${progressPct}" aria-hidden="true">`,
-      '<span class="date-range-export-stop-square"></span>',
-      "</span>",
-    ].join("");
+    window.WSBDashboardExport.renderProgress(el.downloadBtn, progress);
     syncDownloadSettingsDownloadButton();
   }
 

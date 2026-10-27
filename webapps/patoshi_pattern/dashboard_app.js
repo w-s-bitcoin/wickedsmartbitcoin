@@ -16,7 +16,7 @@
   const SPENT_REWARDS_PAGE_SIZE = 100;
   const SPENT_REWARDS_BOTTOM_THRESHOLD_PX = 4;
   const SPENT_REWARDS_LOAD_DELAY_MS = 250;
-  const EXPORT_FPS = 30;
+  const EXPORT_FPS = window.WSBDashboardExport.VIDEO_FPS;
   const EXPORT_START_HOLD_FRAMES = EXPORT_FPS;
   const EXPORT_END_HOLD_FRAMES = EXPORT_FPS * 3;
   const EXPORT_SPEEDS = [0.5, 1, 2, 4];
@@ -4241,22 +4241,7 @@
   }
 
   function renderExportProgress(progress = 0) {
-    if (!els.downloadBtn) return;
-    const pct = `${Math.max(0, Math.min(1, Number(progress) || 0)) * 100}%`;
-    const existing = els.downloadBtn.querySelector(".date-range-export-progress");
-    if (existing) {
-      existing.style.setProperty("--date-range-export-progress", pct);
-      return;
-    }
-    els.downloadBtn.classList.add("is-exporting");
-    els.downloadBtn.disabled = false;
-    els.downloadBtn.setAttribute("aria-label", "Cancel animation download");
-    els.downloadBtn.setAttribute("title", "Cancel download");
-    els.downloadBtn.innerHTML = [
-      `<span class="date-range-export-progress" style="--date-range-export-progress: ${pct}" aria-hidden="true">`,
-      '<span class="date-range-export-stop-square"></span>',
-      "</span>",
-    ].join("");
+    window.WSBDashboardExport.renderProgress(els.downloadBtn, progress);
     if (els.downloadPanelBtn) {
       els.downloadPanelBtn.classList.add("is-stop-download");
       els.downloadPanelBtn.textContent = "Stop Download";

@@ -657,68 +657,6 @@
       font-size: 0.95rem;
     }
 
-    .date-range-download-btn.is-exporting {
-      color: var(--muted);
-      cursor: pointer;
-      opacity: 1;
-    }
-
-    .date-range-download-btn.is-exporting:hover,
-    .date-range-download-btn.is-exporting:focus-visible {
-      color: var(--muted);
-      background: transparent;
-    }
-
-    @property --date-range-export-progress {
-      syntax: "<percentage>";
-      inherits: true;
-      initial-value: 0%;
-    }
-
-    .date-range-export-progress {
-      --date-range-export-progress: 0%;
-      position: relative;
-      display: block;
-      width: 22px;
-      height: 22px;
-    }
-
-    .date-range-export-progress::before {
-      content: "";
-      position: absolute;
-      inset: 1px;
-      border-radius: 50%;
-      background: conic-gradient(#ff9f1c 0% var(--date-range-export-progress), #5f5f5f var(--date-range-export-progress) 100%);
-      box-shadow: 0 0 5px color-mix(in srgb, #ff9f1c 22%, transparent);
-      -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
-      mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
-      transition: --date-range-export-progress 140ms linear;
-    }
-
-    :root[data-theme="light"] .date-range-export-progress::before {
-      background: conic-gradient(#ff9f1c 0% var(--date-range-export-progress), #bdbdbd var(--date-range-export-progress) 100%);
-    }
-
-    .date-range-export-stop-square {
-      position: absolute;
-      left: 50%;
-      top: 50%;
-      width: 7px;
-      height: 7px;
-      border-radius: 1px;
-      background: color-mix(in srgb, var(--muted) 80%, transparent);
-      transform: translate(-50%, -50%);
-      transition: background 120ms ease, box-shadow 120ms ease;
-      z-index: 1;
-    }
-
-    .date-range-download-btn.is-exporting:hover .date-range-export-stop-square,
-    .date-range-download-btn.is-exporting:focus-visible .date-range-export-stop-square,
-    .date-range-download-btn.is-exporting.is-canceling .date-range-export-stop-square {
-      background: #ff9f1c;
-      box-shadow: 0 0 7px color-mix(in srgb, #ff9f1c 58%, transparent);
-    }
-
     .date-range-download-wrap .date-range-settings-btn {
       border-top-left-radius: 0;
       border-bottom-left-radius: 0;

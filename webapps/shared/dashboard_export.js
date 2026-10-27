@@ -8,6 +8,23 @@
   const DEFAULT_SIZE_MULTIPLIER = 0.78;
   const AVC_BITRATE_MULTIPLIER = 2;
 
+  // Output cadence is independent of dashboard playback/sampling speed.
+  // Keep the ring node alive so CSS can interpolate between progress updates.
+  function renderProgress(button, progress = 0) {
+    if (!button) return;
+    const percent = `${Math.max(0, Math.min(1, Number(progress) || 0)) * 100}%`;
+    let ring = button.querySelector(".date-range-export-progress");
+    if (!ring) {
+      button.innerHTML = '<span class="date-range-export-progress" aria-hidden="true"><span class="date-range-export-stop-square"></span></span>';
+      ring = button.querySelector(".date-range-export-progress");
+    }
+    button.classList.add("is-exporting");
+    button.disabled = false;
+    button.setAttribute("aria-label", "Cancel animation download");
+    button.title = "Cancel download";
+    ring.style.setProperty("--date-range-export-progress", percent);
+  }
+
   function normalizeQuality(quality, fallback = DEFAULT_QUALITY) {
     const parsed = Number(quality);
     if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
@@ -522,6 +539,8 @@
     if (timeEl) timeEl.textContent = estimate.timeText || options.emptyText || "--";
   }
 
+  ns.VIDEO_FPS = DEFAULT_FPS;
+  ns.renderProgress = renderProgress;
   ns.getDimensions = getDimensions;
   ns.getLayoutMetrics = getLayoutMetrics;
   ns.getReferenceSettings = getReferenceSettings;

@@ -139,6 +139,8 @@ New dashboards should match existing UOA/DCA behavior:
 - fullscreen hides title/modal controls but keeps playback visible when applicable
 - deterministic export frame building when a dashboard supports video download
 - PNG exports use the [2160-quality dimensions, typography, and branding standard](webapps/DASHBOARD_STANDARDS.md#png-and-webm-exports), independent of video quality; each dashboard keeps its own composition
+- video output cadence uses `WSBDashboardExport.VIDEO_FPS` (30 fps), including estimates and timed holds; playback speed is separate
+- download feedback uses `WSBDashboardExport.renderProgress(button, fraction)` from preparation through encoding, with shared styles and cleanup on success/cancel/failure; see the [progress lifecycle contract](webapps/README.md#video-cadence-and-download-progress)
 - shared download estimates through `window.WSBDashboardExport.estimateDownload()`
 - bundled export fonts, Bitcoin wordmark, and canonical URL footer through `window.WSBDashboardExportBranding`; await `ready()` before measuring or drawing, and retain dashboard-owned sizes and positions
 - animation exports use shared deterministic `encodeVideo()`: H.264 MP4 when supported at the requested dimensions, otherwise WebM selected before rendering; derive the filename with `videoExtension(blob)`

@@ -47,7 +47,7 @@ const ICONS = {
   resetUndo: '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>',
 };
 const PLAYBACK_SPEEDS = [0.5, 1, 2, 4];
-const EXPORT_VIDEO_FPS = 30;
+const EXPORT_VIDEO_FPS = window.WSBDashboardExport.VIDEO_FPS;
 const EXPORT_START_HOLD_SECONDS = 1;
 const EXPORT_END_HOLD_SECONDS = 3;
 const CHART_MONO_FONT_ATTR = "IBM Plex Mono, monospace";
@@ -2789,23 +2789,7 @@ function syncDownloadSettingsControls() {
 }
 
 function renderDateRangeDownloadButtonProgress(progress = 0) {
-  const downloadBtn = document.getElementById("dateRangeDownloadBtn");
-  if (!downloadBtn) return;
-  const progressPct = `${Math.max(0, Math.min(1, Number(progress) || 0)) * 100}%`;
-  const progressEl = downloadBtn.querySelector(".date-range-export-progress");
-  if (downloadBtn.classList.contains("is-exporting") && progressEl) {
-    progressEl.style.setProperty("--date-range-export-progress", progressPct);
-    return;
-  }
-  downloadBtn.classList.add("is-exporting");
-  downloadBtn.disabled = false;
-  downloadBtn.setAttribute("aria-label", "Cancel animation download");
-  downloadBtn.setAttribute("title", "Cancel download");
-  downloadBtn.innerHTML = [
-    `<span class="date-range-export-progress" style="--date-range-export-progress: ${progressPct}" aria-hidden="true">`,
-    '<span class="date-range-export-stop-square"></span>',
-    "</span>",
-  ].join("");
+  window.WSBDashboardExport.renderProgress(document.getElementById("dateRangeDownloadBtn"), progress);
   syncDownloadSettingsDownloadButton();
 }
 

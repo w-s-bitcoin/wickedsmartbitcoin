@@ -17,7 +17,7 @@
   };
   const SPEEDS = [0.5, 1, 2, 4];
   const MS_DAY = 86400000;
-  const EXPORT_FPS = 30;
+  const EXPORT_FPS = window.WSBDashboardExport.VIDEO_FPS;
   const EXPORT_START_HOLD_FRAMES = EXPORT_FPS;
   const EXPORT_END_HOLD_FRAMES = EXPORT_FPS * 3;
   const LOG_MIN_POSITIVE = 1e-12;
@@ -3257,22 +3257,7 @@
   }
 
   function renderExportProgress(progress = 0) {
-    if (!el.downloadBtn) return;
-    const pct = `${Math.max(0, Math.min(1, Number(progress) || 0)) * 100}%`;
-    const existing = el.downloadBtn.querySelector(".date-range-export-progress");
-    if (existing) {
-      existing.style.setProperty("--date-range-export-progress", pct);
-      return;
-    }
-    el.downloadBtn.classList.add("is-exporting");
-    el.downloadBtn.disabled = false;
-    el.downloadBtn.setAttribute("aria-label", "Cancel animation download");
-    el.downloadBtn.setAttribute("title", "Cancel download");
-    el.downloadBtn.innerHTML = [
-      `<span class="date-range-export-progress" style="--date-range-export-progress: ${pct}" aria-hidden="true">`,
-      '<span class="date-range-export-stop-square"></span>',
-      "</span>",
-    ].join("");
+    window.WSBDashboardExport.renderProgress(el.downloadBtn, progress);
     if (el.downloadPanelBtn) {
       el.downloadPanelBtn.classList.add("is-stop-download");
       el.downloadPanelBtn.textContent = "Stop Download";

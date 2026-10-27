@@ -195,6 +195,11 @@ as a capability fallback.
   Controls must recover after success, cancellation, or failure, and unsupported
   export capabilities need a clear message.
 - Use the shared deterministic video encoder, dimensions, estimates, and footer.
+  All dashboards encode at `WSBDashboardExport.VIDEO_FPS` (30 fps), independent
+  of playback speed. Use the same constant for duration estimates and holds.
+  Use `renderProgress(button, fraction)` from preparation through encoding for
+  the shared orange ring/stop-square animation; keep its node between updates.
+  See [the progress lifecycle contract](README.md#video-cadence-and-download-progress).
   `encodeVideo()` selects H.264 MP4 at the requested dimensions when supported;
   genuine WebM is the fallback chosen before any frame is rendered.
   `encodeWebM()` remains the explicit WebM-only API. Use `videoExtension(blob)`

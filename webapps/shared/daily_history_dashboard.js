@@ -232,20 +232,24 @@ window.WSBDailyHistoryDashboard = function (config) {
     isEscapeActive: () => playing || exporting || document.body.classList.contains(config.expandedClass),
     isTextEntry: (element) => !!element?.closest?.("input, select, textarea, button, .date-picker-popup") || !!element?.isContentEditable,
     onSpace: () => playing ? pausePlayback() : play(), onArrow: (direction) => { pausePlayback(); select(index + direction); },
-    onInactiveArrow: (direction) => select(index + direction), onEscape: () => { if (exporting) cancelExport = true; else if (document.body.classList.contains(config.expandedClass)) setExpanded(false); else pausePlayback(); } });
+    onInactiveArrow: (direction) => select(index + direction), onEscape: () => { if (exporting) { cancelExport = true; $("downloadVideo").classList.add("is-canceling"); } else if (document.body.classList.contains(config.expandedClass)) setExpanded(false); else pausePlayback(); } });
   function exportSettings(quality) { const s = downloads.getSettings(); return { ...s, quality, theme: s.exportTheme }; }
   function frameIndices(source, target, first, settings) {
-    const count = Math.min(Math.ceil(900 / Number(settings.exportSpeed)), target - first + 1), frames = [];
+    const count = Math.min(Math.ceil(30 * E.VIDEO_FPS / Number(settings.exportSpeed)), target - first + 1), frames = [];
     for (let i = 0; i < count; i++) frames.push(first + Math.round(i * (target - first) / Math.max(1, count - 1)));
     for (let epoch = 1; epoch <= 6; epoch++) { const boundary = source.findIndex((row) => row.height >= epoch * 210000); if (boundary >= first && boundary <= target && !frames.includes(boundary)) frames.push(boundary); }
+    // Preserve dashboard-specific transitions even when regular sampling skips a day.
+    for (const boundary of Chart.exportMilestones?.(source) || []) {
+      if (boundary >= first && boundary <= target && !frames.includes(boundary)) frames.push(boundary);
+    }
     frames.sort((a, b) => a - b);
-    if (settings.endHold) { frames.unshift(...Array(30).fill(first)); frames.push(...Array(90).fill(target)); }
+    if (settings.endHold) { frames.unshift(...Array(E.VIDEO_FPS).fill(first)); frames.push(...Array(E.VIDEO_FPS * 3).fill(target)); }
     return frames;
   }
   function syncEstimate() {
     if (!rows.length) return;
     const settings = exportSettings(downloads.getSettings().quality), frames = frameIndices(rows, index, startIndex, settings);
-    const estimate = window.WSBDashboardExport.estimateDownload(settings, { frameCount: frames.length, uniqueFrameCount: new Set(frames).size, outputFps: 30 });
+    const estimate = window.WSBDashboardExport.estimateDownload(settings, { frameCount: frames.length, uniqueFrameCount: new Set(frames).size, outputFps: E.VIDEO_FPS });
     $("downloadEstimateSize").textContent = estimate.sizeText; $("downloadEstimateLength").textContent = estimate.lengthText; $("downloadEstimateTime").textContent = estimate.timeText;
   }
   function renderExport(ctx, width, height, source, frame, settings) { Chart.render(ctx, width, height, source, frame, { theme: settings.theme, export: true, branded: true, startIndex: settings.startIndex }); }
@@ -256,13 +260,15 @@ window.WSBDailyHistoryDashboard = function (config) {
     if (!locked) syncKpis();
   }
   async function runExport(kind) {
-    if (!rows.length || exporting) { if (exporting) cancelExport = true; return; }
+    if (!rows.length || exporting) { if (exporting) { cancelExport = true; $("downloadVideo").classList.add("is-canceling"); } return; }
     clearHover(); draw();
     const allowLive = usesLivePrice();
     pausePlayback(); exporting = true; cancelExport = false; setMenu(false); pickers?.startPicker.closePopup(); pickers?.endPicker.closePopup();
     const source = rows.slice(), frame = index, settings = { ...exportSettings(kind === "png" ? "2160" : downloads.getSettings().quality), startIndex };
     const { width, height } = E.getDimensions(settings), output = document.createElement("canvas"); output.width = width; output.height = height;
-    lockControls(true); $("downloadVideo").textContent = "×"; $("downloadVideo").setAttribute("aria-label", "Cancel export");
+    lockControls(true);
+    if (kind === "video") E.renderProgress($("downloadVideo"), 0);
+    else { $("downloadVideo").textContent = "×"; $("downloadVideo").setAttribute("aria-label", "Cancel export"); }
     status.textContent = kind === "video" ? "Preparing video…" : "Preparing 2160-quality PNG…";
     try {
       await B.ready();
@@ -272,9 +278,9 @@ window.WSBDailyHistoryDashboard = function (config) {
       if (kind === "png") { renderExport(output.getContext("2d"), width, height, finalRows(), frame, settings); await E.downloadPng(output, `${config.slug}_${source[frame].iso}.png`); }
       else {
         const frames = frameIndices(source, frame, settings.startIndex, settings);
-        const blob = await E.encodeVideo({ canvas: output, width, height, fps: 30, settings, frames, title: config.title, isCanceled: () => cancelExport,
+        const blob = await E.encodeVideo({ canvas: output, width, height, fps: E.VIDEO_FPS, settings, frames, title: config.title, isCanceled: () => cancelExport,
           renderFrame: (frameIndex, targetCanvas) => renderExport(targetCanvas.getContext("2d"), width, height, frameIndex === frame ? finalRows() : source, frameIndex, settings),
-          onProgress: (fraction) => { status.textContent = `Rendering video ${Math.floor(fraction * 100)}%`; } });
+          onProgress: (fraction) => { E.renderProgress($("downloadVideo"), fraction); status.textContent = `Rendering video ${Math.floor(fraction * 100)}%`; } });
         if (!cancelExport) {
           if (!blob) throw new Error("This browser cannot encode the selected video size.");
           const url = URL.createObjectURL(blob), a = document.createElement("a"); a.href = url; a.download = `${config.slug}_${source[frame].iso}.${E.videoExtension(blob)}`;
@@ -283,7 +289,7 @@ window.WSBDailyHistoryDashboard = function (config) {
       }
       status.textContent = cancelExport ? "Export canceled." : "Download ready.";
     } catch (error) { status.textContent = `Export failed: ${error.message}`; }
-    finally { exporting = false; cancelExport = false; $("downloadVideo").textContent = "↓"; $("downloadVideo").setAttribute("aria-label", "Download date range animation"); lockControls(false); persist(); }
+    finally { exporting = false; cancelExport = false; $("downloadVideo").classList.remove("is-exporting", "is-canceling"); $("downloadVideo").title = "Download animation"; $("downloadVideo").textContent = "↓"; $("downloadVideo").setAttribute("aria-label", "Download date range animation"); lockControls(false); persist(); }
   }
   $("downloadImage").addEventListener("click", () => runExport("png")); $("downloadVideo").addEventListener("click", () => runExport("video")); $("downloadSettingsDownloadBtn").addEventListener("click", () => runExport("video"));
   canvas.addEventListener("pointermove", (event) => {

@@ -155,3 +155,17 @@ test("a ten-minute timeline has no accumulated rounding drift", async () => {
   assert.equal(last.timestamp, 634000000);
   assert.equal(last.timestamp + last.duration, Math.round(19021 / 30 * 1e6));
 });
+
+test("default video cadence and estimates stay at 30 fps regardless of playback speed", async () => {
+  const { E, args, log } = fixture();
+  delete args.fps;
+  args.settings = { fps: "240" };
+  args.frames = Array.from({ length: 60 }, (_, i) => i);
+  await E.encodeVideo(args);
+  assert.equal(E.VIDEO_FPS, 30);
+  assert.equal(log.configs[0].framerate, E.VIDEO_FPS);
+  assert.equal(log.mux.fps, E.VIDEO_FPS);
+  const last = log.mux.frames.at(-1);
+  assert.equal(last.timestamp + last.duration, 2000000);
+  assert.equal(E.estimateDownload(args.settings, { frameCount: 60 }).videoSeconds, 2);
+});
