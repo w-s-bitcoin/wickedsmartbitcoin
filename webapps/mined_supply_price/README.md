@@ -14,6 +14,10 @@ a retained or published value; its accessible description identifies the
 source. Updated shows the quote time beside the published block height.
 Historical selections and playback remain on published daily prices.
 
+The homepage preview shows the donut and price area without text labels,
+including the donut's percentage and BTC amount. Dashboard and export labels
+remain visible.
+
 The donut shows the issued share of Bitcoin's 20,999,999.9769 BTC scheduled
 maximum. Each blue ring sector represents issuance in a halving era. The
 donut retains the reference's first ten fixed halving dividers: completed ones
@@ -47,12 +51,22 @@ capture one quote after export assets load; a latest-view video captures one
 quote at its final motion frame and holds it through the ending pause.
 MP4 is preferred, with WebM when H.264 is unavailable.
 
+Landscape PNG and video share one reference layout, scaled from 1920 × 1080
+coordinates. The timestamp is above Block Height at the upper left; Epoch,
+Block Subsidy, Mined Supply, and Price occupy fixed header columns. Regular
+bundled DejaVu Sans matches the reference's KPI and annotation typography.
+The donut is centered at (365, 613), with a 331-pixel outer radius and a
+115-pixel inner radius at that reference size. Its two-line heading and smaller
+center values retain their positions during playback. Year labels rotate 45°,
+and the vertical halving labels have clearance from their divider lines.
+The shared footer retains the site's current creator and donation details.
+
 Square and portrait exports keep every KPI at the top, with datetime above
 Block Height at the upper left. The donut sits above the price chart. Square
 halving labels use smaller type to stay below the price line.
-All three layouts share the same donut heading placement, fixed halving
-dividers, unoutlined mined boundary, and separated Not Valued baseline in PNG
-and video. Chart text and line weights scale with the export resolution.
+Each layout shares its donut heading placement between PNG and video, with
+fixed halving dividers, an unoutlined mined boundary, and a separated Not Valued
+baseline. Chart text and line weights scale with the export resolution.
 
 The reference notebook is a visual and calculation reference only. Its old
 machine paths, network calls, and file-deletion steps are not dashboard inputs.
@@ -64,6 +78,11 @@ mobile widths, and standalone expansion with
 `python3 scripts/test_mined_supply_price_browser.py` from the repository root.
 Add `--artifacts /private/tmp/mined-supply-exports` to save each PNG, video, and
 decoded final video frame for visual inspection.
+The suite also renders an isolated March 13, 2026 reference snapshot in both
+themes, checks header clearance and circle geometry, and compares normalized
+label positions at 720p, 1080p, and 2160p. With `--artifacts`, the reference
+images are saved as `landscape-reference-dark.png` and
+`landscape-reference-light.png`; published data is never changed.
 
 Chart inspection uses `shared/dashboard_chart_tooltip.js` and the shared compact
 tooltip style: 12px Space Grotesk, an 8px radius, theme-aware surfaces, bold

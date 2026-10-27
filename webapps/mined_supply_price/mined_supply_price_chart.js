@@ -23,7 +23,7 @@
     else ctx.font = `${bold ? 600 : 400} ${size}px "Space Grotesk", sans-serif`;
   }
   function donut(ctx, box, row, colors, opts) {
-    const { x, y, size } = box, cx = x + size / 2, cy = y + size / 2, r = size * 0.47, inner = r * 0.35;
+    const { x, y, size } = box, cx = x + size / 2, cy = y + size / 2, r = size * 0.47, inner = r * (opts.landscapeExport ? 115 / 331 : 0.35);
     let angle = -Math.PI / 2;
     const mined = Math.max(0, Math.min(MAX_SUPPLY, row.supply));
     // Each era is a fixed half of the subsidy still unissued at its start.
@@ -59,9 +59,12 @@
       ctx.lineTo(cx + Math.cos(boundaryAngle) * r, cy + Math.sin(boundaryAngle) * r);
       ctx.strokeStyle = boundarySupply <= mined ? colors.outline : colors.muted; ctx.stroke();
     }
-    ctx.fillStyle = colors.text; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    font(ctx, size * 0.095, false, opts.branded); ctx.fillText(`${(mined / MAX_SUPPLY * 100).toFixed(1)}%`, cx, cy - size * 0.012);
-    ctx.fillStyle = colors.muted; font(ctx, size * 0.043, false, opts.branded); ctx.fillText(`${(mined / 1e6).toFixed(1)}M BTC`, cx, cy + size * 0.062);
+    if (!opts.preview) {
+      const reference = opts.landscapeExport;
+      ctx.fillStyle = colors.text; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      font(ctx, reference ? 50.667 : size * 0.095, false, opts.branded); ctx.fillText(`${(mined / MAX_SUPPLY * 100).toFixed(1)}%`, cx, cy - (reference ? 6 : size * 0.012));
+      ctx.fillStyle = colors.muted; font(ctx, reference ? 26.667 : size * 0.043, false, opts.branded); ctx.fillText(`${(mined / 1e6).toFixed(1)}M BTC`, cx, cy + (reference ? 40 : size * 0.062));
+    }
     if (!opts.export && !opts.preview && opts.hover) {
       const p = opts.hover, distance = Math.hypot(p.x - cx, p.y - cy);
       if (distance <= r) {
@@ -136,7 +139,7 @@
     ctx.strokeStyle = "#fff"; ctx.lineWidth = (opts.preview ? 1.6 : 2.1) * uiScale; ctx.lineJoin = "round"; ctx.stroke(); ctx.restore();
     if (opts.preview) return;
     ctx.lineWidth = uiScale; ctx.strokeStyle = colors.axis; ctx.beginPath(); ctx.moveTo(x, bottom + 0.5 * uiScale); ctx.lineTo(x + width, bottom + 0.5 * uiScale); ctx.stroke();
-    ctx.fillStyle = colors.axis; ctx.textAlign = "center"; ctx.textBaseline = "top"; font(ctx, opts.uiScale ? 16 * uiScale : Math.max(11, Math.min(16, width / 65)), false, opts.branded);
+    ctx.fillStyle = colors.axis; ctx.textAlign = "center"; ctx.textBaseline = "top"; font(ctx, opts.landscapeExport ? 18 : opts.uiScale ? 16 * uiScale : Math.max(11, Math.min(16, width / 65)), false, opts.branded);
     const logicalWidth = width / uiScale;
     const yearStep = logicalWidth < 550 ? 4 : logicalWidth < 900 ? 2 : 1;
     for (let year = 2009; year <= new Date(end.time).getUTCFullYear(); year++) {
@@ -145,7 +148,11 @@
       let low = first, high = endIndex;
       while (low < high) { const mid = (low + high) >> 1; if (rows[mid].time < target) low = mid + 1; else high = mid; }
       const at = px(rows[low].height); if (at < x + 8 * uiScale || at > x + width - 8 * uiScale) continue;
-      ctx.beginPath(); ctx.moveTo(at, bottom); ctx.lineTo(at, bottom + 6 * uiScale); ctx.stroke(); ctx.fillText(String(year), at, bottom + 9 * uiScale);
+      ctx.beginPath(); ctx.moveTo(at, bottom); ctx.lineTo(at, bottom + 6 * uiScale); ctx.stroke();
+      if (opts.landscapeExport) {
+        ctx.save(); ctx.translate(at, bottom + 12); ctx.rotate(-Math.PI / 4);
+        ctx.textAlign = "right"; ctx.textBaseline = "middle"; ctx.fillText(String(year), 0, 0); ctx.restore();
+      } else ctx.fillText(String(year), at, bottom + 9 * uiScale);
     }
     const labels = ["1st", "2nd", "3rd", "4th", "5th", "6th"];
     for (let n = 1; n <= labels.length; n++) {
@@ -155,9 +162,9 @@
       while (low < high) { const mid = (low + high) >> 1; if (rows[mid].height < heightValue) low = mid + 1; else high = mid; }
       ctx.beginPath(); ctx.moveTo(at, bottom); ctx.lineTo(at, py(rows[low].price));
       ctx.strokeStyle = colors.outline; ctx.lineWidth = uiScale; ctx.stroke();
-      ctx.save(); ctx.translate(at - 8 * uiScale, bottom - 12 * uiScale); ctx.rotate(-Math.PI / 2);
+      ctx.save(); ctx.translate(at - (opts.landscapeExport ? 28 : 8 * uiScale), bottom - 12 * uiScale); ctx.rotate(-Math.PI / 2);
       ctx.fillStyle = colors.light && n >= 4 ? "#17212e" : "#fff";
-      font(ctx, opts.square ? 16 * uiScale : opts.uiScale ? 28 * uiScale : Math.max(14, Math.min(28, width / 36)), false, opts.branded);
+      font(ctx, opts.landscapeExport ? 29.333 : opts.square ? 16 * uiScale : opts.uiScale ? 28 * uiScale : Math.max(14, Math.min(28, width / 36)), false, opts.branded);
       ctx.textAlign = "left"; ctx.textBaseline = "middle";
       ctx.fillText(`${labels[n - 1]} Halving`, 0, 0); ctx.restore();
     }
@@ -206,12 +213,42 @@
     priceChart(ctx, { x: pad, y: chartY, width: width - pad * 2, height: height - footer - chartY - 10 * u }, rows, endIndex, colors, { ...options, square: true, uiScale: u });
     window.WSBDashboardExportBranding.drawFooter(ctx, "mined_supply_price", { width, height, footerHeight: footer }, { theme: options.theme, orientation: "square" });
   }
+  function renderLandscapeExport(ctx, width, height, rows, endIndex, colors, options) {
+    // Reference coordinates are 1920 × 1080. Scale the entire composition so
+    // the 2160 PNG and every video quality retain identical geometry and type.
+    ctx.save(); ctx.scale(width / 1920, height / 1080);
+    const row = rows[endIndex], s = summary(row);
+    const opts = { ...options, landscapeExport: true, uiScale: 1 };
+    const text = (value, x, y, size, tint = colors.text, align = "center") => {
+      ctx.fillStyle = tint; ctx.textAlign = align; ctx.textBaseline = "middle";
+      font(ctx, size, false, options.branded); ctx.fillText(value, x, y);
+    };
+    text(s.datetime + " (UTC)", 44, 49, 26.667, colors.text, "left");
+    text("Block Height:", 44, 96, 26.667, colors.muted, "left");
+    text(String(row.height), 234, 95, 32, colors.text, "left");
+    text("Epoch", 529, 49, 26.667, colors.muted);
+    text(String(s.epoch), 529, 93, 46.667);
+    text("Block Subsidy", 800, 49, 26.667, colors.muted);
+    text(`${s.subsidy} BTC`, 800, 93, 46.667, COLORS[Math.min(s.epoch - 1, COLORS.length - 1)]);
+    text("Mined Supply", 1245, 49, 26.667, colors.muted);
+    text(`${s.supply} BTC`, 1245, 93, 46.667);
+    text("Price (BTCUSD)", 1729, 49, 26.667, colors.muted);
+    text(s.price, 1729, 93, 46.667);
+    text("Percentage of", 365, 194, 37.333, colors.muted);
+    text("21M BTC Mined", 365, 241, 37.333, colors.muted);
+    const size = 662 / 0.94;
+    donut(ctx, { x: 365 - size / 2, y: 613 - size / 2, size }, row, colors, opts);
+    priceChart(ctx, { x: 709, y: 116, width: 1167, height: 830 }, rows, endIndex, colors, opts);
+    window.WSBDashboardExportBranding.drawFooter(ctx, "mined_supply_price", { width: 1920, height: 1080, footerHeight: 122 }, { theme: options.theme, orientation: "landscape" });
+    ctx.restore();
+  }
   function render(ctx, width, height, rows, endIndex, options = {}) {
     let inspection = null;
     options = { ...options, onInspect: (value) => { inspection = value; } };
-    const theme = options.theme || "dark", colors = palette(theme), preview = !!options.preview, branded = !!options.branded;
+    const theme = options.theme || "dark", colors = palette(theme), preview = !!options.preview;
     const landscape = width / height > 1.35, compact = width / height < 0.9;
     ctx.save(); ctx.fillStyle = colors.background; ctx.fillRect(0, 0, width, height);
+    if (options.export && landscape) { renderLandscapeExport(ctx, width, height, rows, endIndex, colors, options); ctx.restore(); return; }
     if (options.export && !landscape && !compact) { renderSquareExport(ctx, width, height, rows, endIndex, colors, options); ctx.restore(); return; }
     const scale = Math.min(width / 1920, height / (landscape ? 1080 : 1920));
     const pad = Math.max(12, 35 * scale), header = preview ? 0 : (options.export ? (landscape ? 145 * scale : 240 * width / 1080) : 12 * scale);
@@ -219,27 +256,7 @@
     const chartBottom = height - footer - (preview ? pad : 12 * scale);
     const available = chartBottom - header;
     const row = rows[endIndex];
-    if (options.export) {
-      const s = summary(row);
-      const cells = [pad, width * 0.27, width * 0.42, width * 0.65, width * 0.89];
-      ctx.textBaseline = "middle";
-      const k = Math.max(14, 27 * scale), big = Math.max(22, 47 * scale);
-      const label = (text, x, align) => { ctx.textAlign = align; ctx.fillStyle = colors.muted; font(ctx, k, false, branded); ctx.fillText(text, x, 48 * scale); };
-      const value = (text, x, align, tint) => { ctx.textAlign = align; ctx.fillStyle = tint || colors.text; font(ctx, big, false, branded); ctx.fillText(text, x, 94 * scale); };
-      if (landscape) {
-        label(s.datetime + " (UTC)", cells[0], "left");
-        ctx.textAlign = "left"; ctx.textBaseline = "middle"; font(ctx, k, false, branded);
-        ctx.fillStyle = colors.muted; ctx.fillText("Block Height:", cells[0], 94 * scale);
-        const heightX = cells[0] + ctx.measureText("Block Height:  ").width;
-        ctx.fillStyle = colors.text; ctx.fillText(s.height, heightX, 94 * scale);
-        label("Epoch", cells[1], "center"); value(String(s.epoch), cells[1], "center");
-        label("Block Subsidy", cells[2], "center"); value(`${s.subsidy} BTC`, cells[2], "center", COLORS[Math.min(s.epoch - 1, COLORS.length - 1)]);
-        label("Mined Supply", cells[3], "center"); value(`${s.supply} BTC`, cells[3], "center");
-        label("Price (BTCUSD)", cells[4], "center"); value(s.price, cells[4], "center");
-      } else {
-        compactExportHeader(ctx, width, row, colors, options);
-      }
-    }
+    if (options.export) compactExportHeader(ctx, width, row, colors, options);
     if (landscape) {
       const donutSize = Math.min(width * 0.38, available * (preview ? 0.9 : 0.8));
       const donutX = pad, donutY = header + (available - donutSize) / 2 + (preview ? 0 : 18 * scale);
