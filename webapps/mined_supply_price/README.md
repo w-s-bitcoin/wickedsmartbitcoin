@@ -34,10 +34,15 @@ dates normalize to genesis for the dashboard, PNG, and video.
 
 Exports use the reference image's header, donut, price area, halving labels, and
 shared creator/donation footer. PNG always renders at 2160 quality. Video uses
-published daily frames through the selected date, samples the full range into
-about 30 seconds at 1x, and includes each halving boundary. The optional holds
-add one second at the start and three at the end. The selected date and all
-historical video frames stay on one captured data generation. Latest-view PNGs
+published daily frames through the selected date: one frame per day at 1x,
+encoded at 30 fps, with no fixed-duration cap. At 0.5x each day repeats twice;
+2x/4x sample every second/fourth day while retaining halving boundaries and the
+selected endpoint. The shared daily frame planner also drives duration estimates.
+This is daily history even though the price chart uses a block-height axis. The optional holds
+show the final selected date for one second at the start and three at the end.
+The opening preview uses published data; the ending uses the final captured
+quote. The selected date and all historical video frames stay on one captured
+data generation. Latest-view PNGs
 capture one quote after export assets load; a latest-view video captures one
 quote at its final motion frame and holds it through the ending pause.
 MP4 is preferred, with WebM when H.264 is unavailable.

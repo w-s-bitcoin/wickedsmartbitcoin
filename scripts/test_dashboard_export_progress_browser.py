@@ -33,7 +33,7 @@ INSTALL = r"""
 (() => {
  const E=WSBDashboardExport,F=__progressTest,encode=E.encodeVideo;
  E.encodeVideo=async options=>{
-   F.options=options; F.fps=options.fps; F.entered=true;
+   F.options=options; F.plan=options.frames; F.fps=options.fps; F.entered=true;
    options.onProgress(.25);
    F.ring=document.querySelector('.date-range-export-progress');
    await new Promise(resolve=>F.release=resolve);
@@ -90,11 +90,32 @@ def main():
                 # Historical EOE endpoint avoids requesting the intentionally blocked live service.
                 if slug=='eoe_growth':
                     cdp.evaluate("const end=document.querySelector('#endDateInput');end.value='2020-01-01';end.dispatchEvent(new Event('change',{bubbles:true}));")
+                cdp.evaluate("const hold=document.getElementById('downloadEndFrameHoldToggle');if(!hold.checked)hold.click();")
                 for mode in ('success','cancel','failure'):
+                    if mode=='cancel':
+                        cdp.evaluate("document.getElementById('downloadEndFrameHoldToggle').click()")
                     count=cdp.evaluate('__progressTest.downloads.length')
                     cdp.evaluate(f"Object.assign(__progressTest,{{mode:'{mode}',entered:false,canceled:false}});document.querySelector('{selector}').click();")
                     wait_for(lambda: cdp.evaluate('__progressTest.entered'), timeout=60, description=f'{slug} {mode} encoder')
                     assert cdp.evaluate('__progressTest.fps')==30, slug
+                    if mode=='success':
+                        assert cdp.evaluate("""(() => {
+                          const frames=__progressTest.plan,last=frames.at(-1);
+                          const opening=location.pathname.includes('/patoshi_pattern/')?frames[30]:last;
+                          __progressTest.motion=frames.slice(30,-90);
+                          return frames.slice(0,30).every(frame=>frame===opening)
+                            && frames.slice(-90).every(frame=>frame===last);
+                        })()"""), (slug, 'Hold endpoints must follow the dashboard policy')
+                    if mode=='cancel':
+                        assert cdp.evaluate("JSON.stringify(__progressTest.plan)===JSON.stringify(__progressTest.motion)"), (slug, 'Unchecked must remove both holds')
+                    if slug in SLUGS[-2:] and mode=='success':
+                        assert cdp.evaluate("""(() => {
+                          const motion=__progressTest.motion;
+                          return motion.length===motion.at(-1)+1 && motion.every((index,frame)=>index===frame);
+                        })()"""), (slug, '1x must include every day without a clip-duration cap')
+                    assert cdp.evaluate("!document.querySelector('.date-range-panel .load-status')"), slug
+                    if slug in SLUGS[-2:]:
+                        assert cdp.evaluate("document.querySelector('.topbar #dashboardStatus')?.textContent === ''"), slug
                     cdp.evaluate('__progressTest.options.onProgress(.75)')
                     for theme,gray in [('dark','95, 95, 95'),('light','189, 189, 189')]:
                         cdp.evaluate(f"document.documentElement.dataset.theme='{theme}'")
@@ -115,6 +136,9 @@ def main():
                         decoded=cdp.evaluate('__progressTest.decoded')
                         assert decoded['width']>0 and decoded['height']>0 and abs(decoded['duration']-2/30)<.002,decoded
                     if mode=='cancel':assert cdp.evaluate('__progressTest.canceled'),slug
+                    if slug in SLUGS[-2:]:
+                        message=cdp.evaluate("document.querySelector('.topbar #dashboardStatus').textContent")
+                        assert ('Export failed:' in message) if mode=='failure' else message=='', (slug,mode,message)
                     assert cdp.evaluate('__progressTest.errors')==[],(slug,cdp.evaluate('__progressTest.errors'))
                 print(f'{slug}: 30 fps decoded video, shared ring in both themes, cancellation and failure recovery passed',flush=True)
             cdp.sock.close()

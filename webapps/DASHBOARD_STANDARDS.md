@@ -197,6 +197,18 @@ as a capability fallback.
 - Use the shared deterministic video encoder, dimensions, estimates, and footer.
   All dashboards encode at `WSBDashboardExport.VIDEO_FPS` (30 fps), independent
   of playback speed. Use the same constant for duration estimates and holds.
+  At 1x, daily histories advance one day per frame; block-height timelines
+  advance 144 blocks per frame. Speed multipliers scale those steps (0.5x/2x/4x
+  means 0.5/2/4 days or 72/288/576 blocks per frame). This is nominal timeline
+  pacing; actual block production varies. Daily data remains daily even when
+  displayed against block height. Reuse `buildDailyFrameIndices()` for new or
+  updated daily exporters, preserve selected endpoints and milestone frames,
+  and derive estimates from the same list. Do not cap full histories at a fixed
+  clip duration. Document intentional fast-intro/window-animation exceptions.
+  When enabled, both the one-second opening hold and three-second ending hold
+  use the final selected date/window, not the beginning of the historical range.
+  Patoshi intentionally opens on its initial window and ends on its final window.
+  Unchecking the option removes both holds.
   Use `renderProgress(button, fraction)` from preparation through encoding for
   the shared orange ring/stop-square animation; keep its node between updates.
   See [the progress lifecycle contract](README.md#video-cadence-and-download-progress).

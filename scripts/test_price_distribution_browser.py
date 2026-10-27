@@ -278,6 +278,7 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
       const originalEncode = WSBDashboardExport.encodeVideo;
       const originalRender = WSBPriceDistributionChart.render;
       const observed = [];
+      const publishedPrice = WSBPriceDistributionChart.parse(await (await fetch('../../assets/daily_price.csv')).text()).at(-1).price;
       let milestonesPreserved = false;
       WSBPriceDistributionChart.render = (ctx, width, height, rows, index, options) => {
         if (options.export) observed.push({index, price: rows[index].price});
@@ -286,11 +287,11 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
       WSBDashboardExport.encodeVideo = async (config) => {
         const rows=WSBPriceDistributionChart.parse(await (await fetch('../../assets/daily_price.csv')).text());
         milestonesPreserved=WSBPriceDistributionChart.exportMilestones(rows).every(index=>config.frames.includes(index));
-        await config.renderFrame(config.frames[0], config.canvas);
+        await config.renderFrame(config.frames[0], config.canvas, 0);
         window.__spotEmit(345678.90);
-        await config.renderFrame(config.frames.at(-1), config.canvas);
+        await config.renderFrame(config.frames.at(-1), config.canvas, config.frames.length - 1);
         window.__spotEmit(456789.01);
-        await config.renderFrame(config.frames.at(-1), config.canvas);
+        await config.renderFrame(config.frames.at(-1), config.canvas, config.frames.length - 1);
         // Exercise control recovery on an encoder failure as well.
         return null;
       };
@@ -298,7 +299,7 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
         document.getElementById('downloadVideo').click();
         for (let i = 0; i < 100 && WSBPriceDistributionDashboard.getState().exporting; i++)
           await new Promise(resolve => setTimeout(resolve, 20));
-        return {observed, milestonesPreserved, recovered: !WSBPriceDistributionDashboard.getState().exporting && !document.getElementById('downloadImage').disabled};
+        return {observed, publishedPrice, milestonesPreserved, recovered: !WSBPriceDistributionDashboard.getState().exporting && !document.getElementById('downloadImage').disabled};
       } finally {
         WSBDashboardExport.encodeVideo = originalEncode;
         WSBPriceDistributionChart.render = originalRender;
@@ -306,7 +307,8 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
     })()""")
     assert frozen["recovered"] and frozen["milestonesPreserved"] and len(frozen["observed"]) == 3, frozen
     assert cdp.evaluate("document.getElementById('startDateBtn').disabled && !document.getElementById('dateRangeStartSlider')"), "Export recovery unlocked Start"
-    assert frozen["observed"][0]["price"] == 0, frozen
+    assert frozen["observed"][0]["index"] == frozen["observed"][-1]["index"], frozen
+    assert frozen["observed"][0]["price"] == frozen["publishedPrice"], frozen
     assert [row["price"] for row in frozen["observed"][1:]] == [345678.90, 345678.90], frozen
 
     videos = cdp.evaluate("""(async () => {

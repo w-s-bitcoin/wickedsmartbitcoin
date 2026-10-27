@@ -25,6 +25,30 @@
     ring.style.setProperty("--date-range-export-progress", percent);
   }
 
+  // Daily observations advance by source days, never by a target clip length.
+  // Milestones preserve important transitions when 2x/4x would skip them.
+  function buildDailyFrameIndices(startIndex, endIndex, { speed = 1, endFrameHold = false, milestones = [] } = {}) {
+    speed = Number(speed);
+    if (!Number.isSafeInteger(startIndex) || !Number.isSafeInteger(endIndex)
+        || startIndex < 0 || endIndex < startIndex) throw new RangeError("Select a valid daily export range.");
+    if (![0.5, 1, 2, 4].includes(speed)) throw new RangeError("Select a valid daily export speed.");
+    const frames = [], span = endIndex - startIndex;
+    for (let frame = 0; Math.floor(frame * speed) <= span; frame++) {
+      frames.push(startIndex + Math.floor(frame * speed));
+    }
+    if (frames.at(-1) !== endIndex) frames.push(endIndex);
+    const included = new Set(frames);
+    for (const index of milestones) {
+      if (Number.isSafeInteger(index) && index >= startIndex && index <= endIndex && !included.has(index)) {
+        frames.push(index); included.add(index);
+      }
+    }
+    frames.sort((a, b) => a - b);
+    return endFrameHold
+      ? [...Array(DEFAULT_FPS).fill(endIndex), ...frames, ...Array(DEFAULT_FPS * 3).fill(endIndex)]
+      : frames;
+  }
+
   function normalizeQuality(quality, fallback = DEFAULT_QUALITY) {
     const parsed = Number(quality);
     if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
@@ -541,6 +565,7 @@
 
   ns.VIDEO_FPS = DEFAULT_FPS;
   ns.renderProgress = renderProgress;
+  ns.buildDailyFrameIndices = buildDailyFrameIndices;
   ns.getDimensions = getDimensions;
   ns.getLayoutMetrics = getLayoutMetrics;
   ns.getReferenceSettings = getReferenceSettings;

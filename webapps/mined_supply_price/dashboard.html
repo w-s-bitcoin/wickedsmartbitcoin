@@ -49,6 +49,7 @@
         <span class="chip">Mined <span class="chip-value" id="kpiSupply">—</span></span>
         <span class="chip" id="priceChip"><span id="priceLiveStatus" class="chip-spot-status" data-kind="published" role="img" aria-label="Published price"></span><span class="chip-label">Price</span> <span class="chip-value" id="kpiPrice">—</span></span>
       </div>
+      <p class="load-status" id="dashboardStatus" role="status" aria-live="polite"></p>
     </header>
     <section class="date-range-panel" aria-label="Date range controls">
       <div class="date-range-header mono">
@@ -157,7 +158,6 @@
         <div class="date-range-remaining" id="dateRangeSelection"></div>
         <div class="date-range-current-marker" id="dateRangeCurrentMarker" aria-hidden="true" hidden></div>
       </div>
-      <p class="load-status" id="dashboardStatus" role="status" aria-live="polite"></p>
     </section>
     <main class="panel chart-panel dashboard-chart-frame">
       <div class="chart-header"><h2>Mined supply &amp; price history</h2><span class="chart-note mono">BTCUSD · Logarithmic</span></div>

@@ -226,10 +226,36 @@ contract, plus the affected dashboard's rendering regressions.
 ## Video cadence and download progress
 
 All animation dashboards use `WSBDashboardExport.VIDEO_FPS` (30 fps) for
-encoding, frame-count duration estimates, and timed holds. Playback speed and
-history sampling remain dashboard-specific; a speed selector does not change
-the encoded frame rate. `encodeVideo()` and `estimateDownload()` default to
-this same cadence.
+encoding, frame-count duration estimates, and timed holds. A speed selector
+changes timeline advancement, not the encoded frame rate. The standard 1x
+pace is **one day per frame** for daily histories and **144 blocks per frame**
+for block-height timelines. At 0.5x, 2x, and 4x, advance by 0.5, 2, and 4 days,
+or 72, 288, and 576 blocks per frame, respectively. The block rule is a fixed
+animation pace based on the nominal ten-minute block interval, not a claim
+that every actual day contains 144 blocks. Choose the rule by the timeline's
+source unit; Mined Supply & Price uses daily observations despite its block-height
+chart axis. Metric-specific fast intros or window animations must document
+any intentional exception rather than silently compressing history to a fixed
+duration.
+
+New or updated daily exporters should use
+`WSBDashboardExport.buildDailyFrameIndices(startIndex, endIndex, options)`.
+Options are `speed` (0.5/1/2/4), `endFrameHold` (default false), and optional
+`milestones` (source indices to preserve). At 1x it emits every daily observation
+once; 0.5x repeats each observation twice; 2x/4x sample every second/fourth day.
+It always includes the selected endpoint and inserts skipped milestones once,
+without extending the selected range. Enabled holds add 30 and 90 copies of
+the final index. Estimate duration from this exact list at `VIDEO_FPS`, including
+milestones and holds. The shared daily-history controller uses this planner
+for both its estimates and actual video exports, without a 30-second cap.
+`encodeVideo()` and `estimateDownload()` default to the same 30 fps cadence.
+
+When enabled, the optional holds show the final selected frame for one second
+before the historical animation and three seconds after
+it. Patoshi is the exception: its opening hold shows the initial window and
+its ending hold shows the final window. Unchecking the option removes both
+holds. Opening previews retain the dashboard's published/live policy; a
+current-price ending still freezes its quote when the final motion frame begins.
 
 Call `WSBDashboardExport.renderProgress(downloadButton, 0)` when preparation
 begins, then call it from the encoder's `onProgress` callback. This shared
@@ -237,7 +263,10 @@ component creates the orange progress ring and center stop square once and
 updates the existing ring, preserving its 140 ms linear transition. Its styles
 live in `dashboard_shared.css`, already required for every dashboard, and
 include dark/light themes, hover/focus, and cancellation feedback. Do not copy
-its markup or styles into a dashboard.
+its markup or styles into a dashboard. Use the ring alone for routine export
+feedback; do not add preparation, rendering percentages, completion, or
+cancellation text beneath the playback controls. Actionable failures belong
+in the dashboard's top status area, outside the playback panel.
 
 The dashboard owns its cancel flag, settings-panel button, control locking,
 and cleanup: keep the download button clickable to request cancellation, add

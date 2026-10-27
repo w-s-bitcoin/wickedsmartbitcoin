@@ -357,7 +357,7 @@ CHROME_BIN=/path/to/chromium python3 scripts/test_dashboard_chain_live_browser.p
 node --test scripts/test_calendar_ticks.mjs
 node --test scripts/test_export_branding.mjs
 node --test scripts/test_export_footer_integration.mjs
-node --test scripts/test_mp4_muxer.mjs scripts/test_video_encoder.mjs
+node --test scripts/test_mp4_muxer.mjs scripts/test_video_encoder.mjs scripts/test_daily_export_frames.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_video_export_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_dashboard_export_progress_browser.py
 # Optional full Patoshi benchmark: 10m34s, 19,021 frames per codec (requires FFmpeg).

@@ -46,7 +46,13 @@ small upper inset instead of space for empty distribution bands. The bar chart
 reserves only the measured label width and the outer margin on the right.
 All layouts use the shared bundled export fonts and creator/donation footer.
 PNG is always 2160 quality. Video uses the shared deterministic MP4 encoder with
-WebM fallback, selectable resolution, and optional start/end holds.
+WebM fallback, selectable resolution, and optional start/end holds. The shared
+daily frame planner emits one frame per day at 1x, encoded at 30 fps without a
+fixed-duration cap. At 0.5x each day repeats twice; 2x/4x sample every second/fourth
+day while retaining halving boundaries, the Not Valued transition, and the
+selected endpoint. Duration estimates use the exact same frame list. Both holds
+show the final selected date (one second before the history and three after).
+The opening preview uses published data; the ending uses the final captured quote.
 During the opening Not Valued interval, exported frames keep a fixed timeline
 through the actual last unpriced day. The bottom line grows from genesis and
 meets the histogram only on that final Not Valued day, matching the notebook's

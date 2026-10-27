@@ -235,16 +235,11 @@ window.WSBDailyHistoryDashboard = function (config) {
     onInactiveArrow: (direction) => select(index + direction), onEscape: () => { if (exporting) { cancelExport = true; $("downloadVideo").classList.add("is-canceling"); } else if (document.body.classList.contains(config.expandedClass)) setExpanded(false); else pausePlayback(); } });
   function exportSettings(quality) { const s = downloads.getSettings(); return { ...s, quality, theme: s.exportTheme }; }
   function frameIndices(source, target, first, settings) {
-    const count = Math.min(Math.ceil(30 * E.VIDEO_FPS / Number(settings.exportSpeed)), target - first + 1), frames = [];
-    for (let i = 0; i < count; i++) frames.push(first + Math.round(i * (target - first) / Math.max(1, count - 1)));
-    for (let epoch = 1; epoch <= 6; epoch++) { const boundary = source.findIndex((row) => row.height >= epoch * 210000); if (boundary >= first && boundary <= target && !frames.includes(boundary)) frames.push(boundary); }
-    // Preserve dashboard-specific transitions even when regular sampling skips a day.
-    for (const boundary of Chart.exportMilestones?.(source) || []) {
-      if (boundary >= first && boundary <= target && !frames.includes(boundary)) frames.push(boundary);
-    }
-    frames.sort((a, b) => a - b);
-    if (settings.endHold) { frames.unshift(...Array(E.VIDEO_FPS).fill(first)); frames.push(...Array(E.VIDEO_FPS * 3).fill(target)); }
-    return frames;
+    const milestones = [...(Chart.exportMilestones?.(source) || [])];
+    for (let epoch = 1; epoch <= 6; epoch++) milestones.push(source.findIndex((row) => row.height >= epoch * 210000));
+    return E.buildDailyFrameIndices(first, target, {
+      speed: settings.exportSpeed, endFrameHold: settings.endHold, milestones,
+    });
   }
   function syncEstimate() {
     if (!rows.length) return;
@@ -269,7 +264,7 @@ window.WSBDailyHistoryDashboard = function (config) {
     lockControls(true);
     if (kind === "video") E.renderProgress($("downloadVideo"), 0);
     else { $("downloadVideo").textContent = "×"; $("downloadVideo").setAttribute("aria-label", "Cancel export"); }
-    status.textContent = kind === "video" ? "Preparing video…" : "Preparing 2160-quality PNG…";
+    status.textContent = "";
     try {
       await B.ready();
       if (cancelExport) return;
@@ -278,16 +273,19 @@ window.WSBDailyHistoryDashboard = function (config) {
       if (kind === "png") { renderExport(output.getContext("2d"), width, height, finalRows(), frame, settings); await E.downloadPng(output, `${config.slug}_${source[frame].iso}.png`); }
       else {
         const frames = frameIndices(source, frame, settings.startIndex, settings);
+        // Opening holds preview the final date using published data. Capture
+        // live data only at the final motion frame, then freeze the ending hold.
+        const finalMotionStart = Math.max(settings.endHold ? E.VIDEO_FPS : 0,
+          frames.findLastIndex((index) => index !== frame) + 1);
         const blob = await E.encodeVideo({ canvas: output, width, height, fps: E.VIDEO_FPS, settings, frames, title: config.title, isCanceled: () => cancelExport,
-          renderFrame: (frameIndex, targetCanvas) => renderExport(targetCanvas.getContext("2d"), width, height, frameIndex === frame ? finalRows() : source, frameIndex, settings),
-          onProgress: (fraction) => { E.renderProgress($("downloadVideo"), fraction); status.textContent = `Rendering video ${Math.floor(fraction * 100)}%`; } });
+          renderFrame: (frameIndex, targetCanvas, position) => renderExport(targetCanvas.getContext("2d"), width, height, position >= finalMotionStart ? finalRows() : source, frameIndex, settings),
+          onProgress: (fraction) => E.renderProgress($("downloadVideo"), fraction) });
         if (!cancelExport) {
           if (!blob) throw new Error("This browser cannot encode the selected video size.");
           const url = URL.createObjectURL(blob), a = document.createElement("a"); a.href = url; a.download = `${config.slug}_${source[frame].iso}.${E.videoExtension(blob)}`;
           document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
         }
       }
-      status.textContent = cancelExport ? "Export canceled." : "Download ready.";
     } catch (error) { status.textContent = `Export failed: ${error.message}`; }
     finally { exporting = false; cancelExport = false; $("downloadVideo").classList.remove("is-exporting", "is-canceling"); $("downloadVideo").title = "Download animation"; $("downloadVideo").textContent = "↓"; $("downloadVideo").setAttribute("aria-label", "Download date range animation"); lockControls(false); persist(); }
   }
