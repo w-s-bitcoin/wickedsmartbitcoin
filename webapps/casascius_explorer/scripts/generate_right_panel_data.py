@@ -93,10 +93,6 @@ def read_tracker_entries(type_slugs):
     tracker_bytes = TRACKER_CSV.read_bytes()
     rows = list(csv.DictReader(io.StringIO(tracker_bytes.decode("utf-8"), newline="")))
     validate_tracker_rows(rows)
-    all_unfunded_count = sum(
-        1 for row in rows
-        if str(row.get("Status") or "").strip().lower() in ("unfunded", "unloaded")
-    )
     s3_one_indexes = sorted(
         index for index in (finite_number(row.get("Index")) for row in rows if row.get("Type") == "S3-COIN-1-AG")
         if index is not None
@@ -110,8 +106,8 @@ def read_tracker_entries(type_slugs):
     entries = []
     for row in rows:
         slug = tracker_slug_for_row(row, s3_one_gold_rim_min_index, s3_half_series2_max_index, type_slugs)
-        if not slug or not row.get("Address"):
-            continue
+        # Overall totals include unclassified tracker rows in every status.
+        # Only the per-type summaries require a known coin/bar slug.
         entries.append({
             "slug": slug,
             "status": str(row.get("Status") or "").strip().lower(),
@@ -121,7 +117,7 @@ def read_tracker_entries(type_slugs):
             "redeemBlock": finite_number(row.get("Redeem Block")),
             "redeemTime": finite_number(row.get("Redeem Time")),
         })
-    return entries, all_unfunded_count, rows, tracker_bytes
+    return entries, rows, tracker_bytes
 
 
 def integer_or_none(value):
@@ -314,10 +310,8 @@ def info_for_coin(coin, rows):
     return info
 
 
-def all_info(coins, rows, all_unfunded_count=None):
+def all_info(coins, rows):
     info = info_for_rows(rows)
-    if all_unfunded_count is not None:
-        info["unfunded"] = all_unfunded_count
     info.update({
         "type": "All Coins & Bars",
         "material": "Mixed",
@@ -346,12 +340,13 @@ def clean_numbers(value):
 def main():
     coins = read_coins()
     type_slugs = read_tracker_type_slugs()
-    entries, all_unfunded_count, tracker_rows, tracker_bytes = read_tracker_entries(type_slugs)
+    entries, tracker_rows, tracker_bytes = read_tracker_entries(type_slugs)
     rows_by_slug = {}
     for entry in entries:
-        rows_by_slug.setdefault(entry["slug"], []).append(entry)
+        if entry["slug"]:
+            rows_by_slug.setdefault(entry["slug"], []).append(entry)
 
-    items = {ALL_ITEMS_GROUP_KEY: all_info(coins, entries, all_unfunded_count)}
+    items = {ALL_ITEMS_GROUP_KEY: all_info(coins, entries)}
     for coin in coins:
         stats_slug = SHARED_STATS_SLUGS.get(coin["slug"], coin["slug"])
         items[coin["slug"]] = info_for_coin(coin, rows_by_slug.get(stats_slug, []))

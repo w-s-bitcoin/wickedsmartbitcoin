@@ -15,9 +15,11 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "webapps/casascius_explorer"
+sys.path.insert(0, str(ROOT))
+
+from scripts import sync_main_data_to_dev as syncer
 
 
 class CasasciusWorkspaceTest(unittest.TestCase):
@@ -32,6 +34,44 @@ class CasasciusWorkspaceTest(unittest.TestCase):
             cls.hourly = importlib.util.module_from_spec(spec)
             with patch.dict(os.environ, {"ANIMATIONS_ENV_FILE": str(Path(temporary) / ".env")}):
                 spec.loader.exec_module(cls.hourly)
+
+    def test_unclassified_rows_contribute_to_overall_publication_totals(self):
+        spec = importlib.util.spec_from_file_location(
+            "casascius_panel_test", APP / "scripts/generate_right_panel_data.py"
+        )
+        generator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(generator)
+        coin = generator.read_coins()[0]
+        tracker = (
+            "Address,Type,Status,Value,Create Block,Create Time,Redeem Block,Redeem Time\n"
+            "known,known-type,Active,1,100,1000,,\n"
+            "unknown-redeemed,,Redeemed,1,101,1001,200,2000\n"
+            "unknown-active,new-type,Active,1,102,1002,,\n"
+            "unknown-unfunded,,Unfunded,0,,,,\n"
+            "unknown-unloaded,,Unloaded,0,,,,\n"
+        ).encode()
+        with tempfile.TemporaryDirectory(prefix="wsb-panel-unclassified-") as temporary:
+            root = Path(temporary)
+            csv_path, output_path = root / "tracker.csv", root / "panel.js"
+            csv_path.write_bytes(tracker)
+            with (
+                patch.object(generator, "ROOT", root),
+                patch.object(generator, "TRACKER_CSV", csv_path),
+                patch.object(generator, "OUT_JS", output_path),
+                patch.object(generator, "read_coins", return_value=[coin]),
+                patch.object(generator, "read_tracker_type_slugs", return_value={"known-type": coin["slug"]}),
+            ):
+                generator.main()
+            output = output_path.read_bytes()
+            payload = syncer.parse_casascius_right_panel_blob(output)
+            overall = payload["items"][payload["allKey"]]
+            self.assertEqual(
+                {key: overall[key] for key in ("active", "redeemed", "unfunded", "minted", "lastBlock", "lastTime")},
+                {"active": 2, "redeemed": 1, "unfunded": 2, "minted": 3, "lastBlock": 200, "lastTime": 2000},
+            )
+            self.assertEqual(payload["items"][coin["slug"]]["active"], 1)
+            self.assertEqual(payload["items"][coin["slug"]]["redeemed"], 0)
+            self.assertEqual(output, syncer.build_casascius_right_panel_marker(tracker, output))
 
     def test_minimal_workspace_generates_coherent_staged_right_panel(self):
         with tempfile.TemporaryDirectory(prefix="wsb-casascius-workspace-") as temporary:
@@ -114,6 +154,7 @@ class CasasciusWorkspaceTest(unittest.TestCase):
             self.assertEqual(publication["tracker"]["sha256"], hashlib.sha256(tracker).hexdigest())
             self.assertEqual(publication["tracker"]["rows"], len(rows))
             self.assertEqual(publication["rightPanelItems"], len(payload["items"]))
+            self.assertEqual(staged.read_bytes(), syncer.build_casascius_right_panel_marker(tracker, staged.read_bytes()))
             self.assertIn(payload["allKey"], payload["items"])
             self.assertGreater(len(payload["items"]), 1)
 

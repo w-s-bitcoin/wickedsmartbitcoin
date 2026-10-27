@@ -59,6 +59,11 @@ The hourly runner stages outputs and exposes a `.complete` marker after its
 phases finish. The deployer ignores incomplete hourly stages. Casascius gets a
 temporary workspace containing its updater, generator, and required data/code
 inputs; its static image library is not copied.
+Casascius overall summary counts include all tracker rows, even when their coin
+type is unknown. Per-type summaries include only classified rows. Regenerate
+the right-panel payload and its embedded publication metadata together with
+`python3 webapps/casascius_explorer/scripts/generate_right_panel_data.py` after
+changing the tracker or summary logic; this generator only reads local inputs.
 The DCA Cost Basis producer reads the newly staged `daily_price.csv` when the
 hourly run has one, so its price, snapshot timestamp, and block height describe
 the same generation. It reads the published checkout file when the source has
