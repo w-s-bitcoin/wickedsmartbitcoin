@@ -182,6 +182,8 @@
     dca_comparison: 'dca_comparison.html',
     patoshi_pattern: 'patoshi_pattern.html',
           issuance_rate: 'issuance_rate.html',
+          mined_supply_price: 'mined_supply_price.html',
+          price_distribution: 'price_distribution.html',
       casascius_explorer: 'casascius_explorer.html',
     uoa: 'uoa.html',
   };

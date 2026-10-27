@@ -32,6 +32,16 @@ const DASHBOARD_CARD_PREVIEW_SPECS = Object.freeze({
     width: 1280,
     height: 720,
   },
+  'price_distribution.png': {
+    url: 'webapps/price_distribution/preview.html',
+    width: 1280,
+    height: 720,
+  },
+  'mined_supply_price.png': {
+    url: 'webapps/mined_supply_price/preview.html',
+    width: 1280,
+    height: 720,
+  },
   'dca_comparison.png': {
     url: 'webapps/dca_comparison/preview.html',
     width: 1280,

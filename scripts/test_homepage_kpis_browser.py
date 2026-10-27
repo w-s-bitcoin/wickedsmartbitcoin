@@ -245,8 +245,7 @@ def check_bands(state, age_seconds):
             all(abs(actual - target) < .001 for actual, target in zip(state["bandStops"], expected)),
             "Ten-minute color bands do not follow the elapsed scale", state)
     require(all(color in state["bandFill"] for color in
-                ("#3ec735", "#f7931a", "#5d3d16", "#eb3226"))
-            and "#2a4f1f" not in state["bandFill"],
+                ("#3ec735", "#2a4f1f", "#f7931a", "#5d3d16", "#eb3226")),
             "Elapsed bar lost one of its retained color bands", state)
 
 

@@ -12,7 +12,7 @@ Read [`../AGENTS.md`](../AGENTS.md) for contributor safeguards and [`../README.m
 - `404.html`: production standalone shell (GitHub Pages fallback for clean routes)
 - Root `/<slug>.html` files: dedicated standalone modal shells that load a dashboard iframe through its local controller
 
-Current dashboard slugs: `bip110_signaling`, `bitcoin_dominance`, `bitcoin_net_worth`, `casascius_explorer`, `days_since_ath`, `dca_comparison`, `dca_cost_basis`, `eoe_growth`, `issuance_rate`, `moving_average`, `node_count`, `patoshi_pattern`, `quantum_exposure`, and `uoa`.
+Current dashboard slugs: `bip110_signaling`, `bitcoin_dominance`, `bitcoin_net_worth`, `casascius_explorer`, `days_since_ath`, `dca_comparison`, `dca_cost_basis`, `eoe_growth`, `issuance_rate`, `mined_supply_price`, `price_distribution`, `moving_average`, `node_count`, `patoshi_pattern`, `quantum_exposure`, and `uoa`.
 
 ### URL behavior
 
@@ -134,8 +134,9 @@ displayed block's miner timestamp rather than fetch or page-load time. Its bar
 fills at 10 minutes, then expands its scale with the elapsed time. Tick marks
 remain at every 10-minute interval; compact labels stay to the right of the
 block height and thin out on narrow cards to avoid overlap. The counter and bar
-stay bright green for 0–20 minutes, then turn orange for 20–30, dark orange
-for 30–40, and red after 40 minutes. Its
+use separate colors: the bar's bands are bright green for 0–10 minutes, dark green
+for 10–20, orange for 20–30, dark orange for 30–40, and red beyond 40 minutes.
+The counter stays bright green until 20 minutes, orange until 40, then red. Its
 orange uses the same `--brand` color as the other bars in both themes. This
 measures elapsed time, not an estimate of the next block.
 Timestamps ahead of the browser clock show a negative counter and a gray bar

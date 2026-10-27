@@ -9,6 +9,7 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
     --home-accent: #f7931a;
     --home-progress: var(--brand);
     --home-block-normal: #3ec735;
+    --home-block-dark-green: #2a4f1f;
     --home-block-future: #999;
     --home-block-slow: var(--brand);
     --home-block-dark-orange: #5d3d16;
@@ -127,7 +128,8 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
 .snapshot-block-meter progress::-moz-progress-bar { background: var(--block-band-fill); }
 .snapshot-block-meter progress:not([data-elapsed-state="future"]) {
     --block-band-fill: linear-gradient(to right,
-        var(--home-block-normal) 0 var(--block-20m-stop, 100%),
+        var(--home-block-normal) 0 var(--block-10m-stop, 100%),
+        var(--home-block-dark-green) var(--block-10m-stop, 100%) var(--block-20m-stop, 100%),
         var(--home-block-slow) var(--block-20m-stop, 100%) var(--block-30m-stop, 100%),
         var(--home-block-dark-orange) var(--block-30m-stop, 100%) var(--block-40m-stop, 100%),
         var(--home-block-red) var(--block-40m-stop, 100%) 100%);

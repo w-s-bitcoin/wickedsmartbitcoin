@@ -28,6 +28,11 @@ html="$dashboard_dir/dashboard.html"
 app="$dashboard_dir/dashboard_app.js"
 css="$dashboard_dir/dashboard.css"
 slug="$(basename "$dashboard_dir")"
+# Shared daily-history controllers own the same required widget wiring.
+app_sources=("$app")
+if grep -Fq '../shared/daily_history_dashboard.js' "$html" && grep -Fq 'window.WSBDailyHistoryDashboard(' "$app"; then
+  app_sources+=("$dashboard_dir/../shared/daily_history_dashboard.js")
+fi
 
 required_html_patterns=(
   "../shared/dashboard_embed_modal.js"
@@ -88,12 +93,12 @@ if grep -Fq "startDateBtn" "$html" || grep -Fq "endDateBtn" "$html" || grep -Fq 
     fi
   done
 
-  if grep -Fq ".showPicker(" "$app"; then
+  if grep -Fq ".showPicker(" "${app_sources[@]}"; then
     echo "Contract failure in $app: standard dashboard date controls must use WSBDashboardComponents, not native showPicker()" >&2
     exit 1
   fi
 
-  if ! grep -Eq "WSBDashboardComponents\\.(createDatePicker|makeDatePicker|bindDateRangePickers)" "$app"; then
+  if ! grep -Eq "WSBDashboardComponents\\.(createDatePicker|makeDatePicker|bindDateRangePickers)" "${app_sources[@]}"; then
     echo "Contract failure in $app: date controls must use WSBDashboardComponents" >&2
     exit 1
   fi
@@ -126,11 +131,11 @@ if grep -Eq "downloadEstimate(Size|Length|Time)|Download Animation|dateRangeDown
     echo "Contract failure in $html: animation export dashboards must load ../shared/dashboard_export.js" >&2
     exit 1
   fi
-  if ! grep -Fq "WSBDashboardExport" "$app"; then
+  if ! grep -Fq "WSBDashboardExport" "${app_sources[@]}"; then
     echo "Contract failure in $app: animation export dashboards must use WSBDashboardExport" >&2
     exit 1
   fi
-  if ! grep -Fq "WSBDashboardExport.estimateDownload" "$app"; then
+  if ! grep -Fq "WSBDashboardExport.estimateDownload" "${app_sources[@]}"; then
     echo "Contract failure in $app: animation export dashboards must use WSBDashboardExport.estimateDownload()" >&2
     exit 1
   fi
@@ -140,29 +145,29 @@ if grep -Eq "downloadEstimate(Size|Length|Time)|Download Animation|dateRangeDown
   fi
 fi
 
-if grep -Eq "new MediaRecorder|WSBMp4Muxer|12_mp4_muxer|mp4_muxer|function (encodeMp4|buildMp4Blob)|const (encodeMp4|buildMp4Blob)" "$html" "$app"; then
+if grep -Eq "new MediaRecorder|WSBMp4Muxer|12_mp4_muxer|mp4_muxer|function (encodeMp4|buildMp4Blob)|const (encodeMp4|buildMp4Blob)" "$html" "${app_sources[@]}"; then
   echo "Contract failure: video encoding and muxing belong in the shared deterministic exporter" >&2
   exit 1
 fi
 
-if grep -Eq "function (buildWebMBlob|webmSimpleBlock|ebmlElement|ebmlUint)|const (buildWebMBlob|webmSimpleBlock|ebmlElement|ebmlUint)" "$app"; then
+if grep -Eq "function (buildWebMBlob|webmSimpleBlock|ebmlElement|ebmlUint)|const (buildWebMBlob|webmSimpleBlock|ebmlElement|ebmlUint)" "${app_sources[@]}"; then
   echo "Contract failure in $app: WebM/EBML helpers belong in webapps/shared/dashboard_export.js" >&2
   exit 1
 fi
 
 if grep -Fq "copyDashboardLink" "$html"; then
-  if grep -Fq "navigator.clipboard.writeText" "$app"; then
+  if grep -Fq "navigator.clipboard.writeText" "${app_sources[@]}"; then
     echo "Contract failure in $app: copy link buttons must use WSBDashboardComponents.copyDashboardLink()" >&2
     exit 1
   fi
-  if ! grep -Eq 'WSBDashboardComponents(\?\.|\.)(copyDashboardLink|bindDashboardActions|initDashboardRuntime)(\?\.)?[[:space:]]*\(' "$app"; then
+  if ! grep -Eq 'WSBDashboardComponents(\?\.|\.)(copyDashboardLink|bindDashboardActions|initDashboardRuntime)(\?\.)?[[:space:]]*\(' "${app_sources[@]}"; then
     echo "Contract failure in $app: copy link buttons must use WSBDashboardComponents.copyDashboardLink(), bindDashboardActions(), or initDashboardRuntime()" >&2
     exit 1
   fi
 fi
 
 if grep -Fq "resetDashboard" "$html"; then
-  if grep -Fq "reset-dashboard-btn--undo" "$app" && ! grep -Eq 'WSBDashboardComponents(\?\.|\.)(setResetButtonState|bindDashboardActions|initDashboardRuntime)(\?\.)?[[:space:]]*\(' "$app"; then
+  if grep -Fq "reset-dashboard-btn--undo" "${app_sources[@]}" && ! grep -Eq 'WSBDashboardComponents(\?\.|\.)(setResetButtonState|bindDashboardActions|initDashboardRuntime)(\?\.)?[[:space:]]*\(' "${app_sources[@]}"; then
     echo "Contract failure in $app: reset button UI must use WSBDashboardComponents.setResetButtonState() or bindDashboardActions()" >&2
     exit 1
   fi
@@ -173,14 +178,14 @@ if grep -Fq "updatedTimeZoneSelect" "$html"; then
     echo "Contract failure in $html: Updated KPI timezone chips must load ../../js/11_dashboard_timezone_preferences.js" >&2
     exit 1
   fi
-  if ! grep -Fq "WSBDashboardComponents" "$app" || ! grep -Fq "createUpdatedTimeZoneChipController" "$app"; then
+  if ! grep -Fq "WSBDashboardComponents" "${app_sources[@]}" || ! grep -Fq "createUpdatedTimeZoneChipController" "${app_sources[@]}"; then
     echo "Contract failure in $app: Updated KPI timezone chips must use WSBDashboardComponents.createUpdatedTimeZoneChipController()" >&2
     exit 1
   fi
 fi
 
 if grep -Eq "<canvas|id=\"costBasisChart\"|class=\"historical-svg\"" "$html"; then
-  if ! grep -Eq "dashboard-ring-loader|panel-loader|loading-ring|uoa-loading|issuance-loading|historical-chart-loading|stage-loading-ring" "$html" "$app" "$css" 2>/dev/null; then
+  if ! grep -Eq "dashboard-ring-loader|panel-loader|loading-ring|uoa-loading|issuance-loading|historical-chart-loading|stage-loading-ring" "$html" "${app_sources[@]}" "$css" 2>/dev/null; then
     echo "Contract failure in $html: chart dashboards must include a shared ring loader pattern" >&2
     exit 1
   fi

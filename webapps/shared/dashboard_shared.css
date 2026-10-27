@@ -1265,3 +1265,17 @@ dialog.title-settings-dialog::backdrop {
 :root[data-theme="light"] .source-row a {
   color: var(--link, #1f4f78);
 }
+
+/* Compact canvas-chart inspection, matching Moving Average's tooltip treatment. */
+.dashboard-chart-tooltip {
+  position: fixed; z-index: 190; pointer-events: none; box-sizing: border-box;
+  overflow: hidden; padding: 6px 8px; border: 1px solid var(--panel-border);
+  border-radius: 8px; background: rgba(0, 0, 0, .92); color: #e5e7eb;
+  font-family: "Space Grotesk", sans-serif; font-size: .75rem; line-height: 1.25;
+  max-width: calc(100vw - 24px); box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+  overflow-wrap: anywhere;
+}
+.dashboard-chart-tooltip[hidden] { display: none; }
+.dashboard-chart-tooltip-title { margin-bottom: 3px; font-weight: 700; }
+.dashboard-chart-tooltip strong { font-weight: 700; font-variant-numeric: tabular-nums; }
+:root[data-theme="light"] .dashboard-chart-tooltip { background: rgba(255, 255, 255, .95); color: #111827; }

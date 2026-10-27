@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CHROME = os.environ.get("CHROME_BIN", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
 SLUGS = (
     "node_count", "bitcoin_dominance", "dca_cost_basis", "dca_comparison",
-    "days_since_ath", "moving_average", "eoe_growth", "issuance_rate", "uoa", "bip110_signaling",
+    "days_since_ath", "moving_average", "eoe_growth", "issuance_rate", "mined_supply_price", "price_distribution", "uoa", "bip110_signaling",
     "patoshi_pattern", "quantum_exposure", "casascius_explorer",
 )
 

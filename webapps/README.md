@@ -853,3 +853,19 @@ If a new dashboard is closer to a chart + controls + panel workflow, start by co
 If a new dashboard is closer to a pair of custom-rendered visual panels, start from `bip110_signaling/dashboard.html`.
 
 Use those as implementation baselines, then document any intentional deviations in the new dashboard itself so this file can stay the shared default reference.
+
+### Daily-history dashboards
+
+Mined Supply & Price and Price Distribution share `daily_price_history.js`
+for publication validation, date lookup, and current quote overlays, and
+`daily_history_dashboard.js` / `.css` for the control lifecycle and shell.
+Each `dashboard_app.js` supplies its model, KPI mapping, accessible summary,
+route, and independent storage key. Metric calculations and canvas/export
+composition stay in each dashboard's chart module. Both use the shared refresh
+adapter and deterministic exporter; their focused browser suites cover the
+shared consumer behavior.
+
+Both daily-history dashboards use `dashboard_chart_tooltip.js` for bounded
+inspection, nearest-observation lookup, guides, and tooltip lifecycle. The
+`.dashboard-chart-tooltip` rules in `dashboard_shared.css` match Moving Average's
+compact chart treatment. Each renderer supplies its own geometry and values.

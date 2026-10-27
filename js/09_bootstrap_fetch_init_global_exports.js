@@ -250,6 +250,8 @@ fetch(IMAGE_LIST_URL)
             'moving_average.png',
             'eoe_growth.png',
             'issuance_rate.png',
+            'mined_supply_price.png',
+            'price_distribution.png',
             'dca_comparison.png',
             'patoshi_pattern.png',
             'bip110_signaling.png',

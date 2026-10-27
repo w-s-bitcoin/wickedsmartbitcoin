@@ -23,8 +23,8 @@
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@600&display=swap&text=%3F" rel="stylesheet" />
-        <link rel="stylesheet" href="assets/styles.css?v=20261024-card-crossfade" />
-        <link rel="stylesheet" href="assets/homepage.css?v=20261025-diff-bar-shape" />
+        <link rel="stylesheet" href="assets/styles.css?v=20261027-price-distribution" />
+        <link rel="stylesheet" href="assets/homepage.css?v=20261026-block-green-band" />
         <link rel="manifest" href="manifest.json" />
         <link rel="preload" href="assets/image_list.json" as="fetch" crossorigin />
         <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -216,7 +216,7 @@
                         <div class="snapshot-block-meter" id="homeKpiBlockMeter" data-end-tick="1">
                             <span class="snapshot-block-zero" id="homeKpiBlockZero" aria-hidden="true" title="Zero: the displayed block timestamp"></span>
                             <div class="snapshot-block-ticks" id="homeKpiBlockTicks" aria-hidden="true"><span data-minutes="10" style="right: 0">10m</span></div>
-                            <progress id="homeKpiBlockProgress" max="100" value="0" aria-label="Time since the displayed block" aria-valuetext="Waiting for data" title="For a timestamp ahead of this clock, the gray bar and the space left of zero shrink together. Zero reaches the left edge when the countdown ends. Elapsed time then grows to the right: bright green through 20 minutes, orange through 30, dark orange through 40, then red. Ticks to the right mark 10-minute elapsed intervals; that scale expands after 10 minutes."></progress>
+                            <progress id="homeKpiBlockProgress" max="100" value="0" aria-label="Time since the displayed block" aria-valuetext="Waiting for data" title="For a timestamp ahead of this clock, the gray bar and the space left of zero shrink together. Zero reaches the left edge when the countdown ends. Elapsed time then grows to the right: bright green through 10 minutes, dark green through 20, orange through 30, dark orange through 40, then red. The time below stays bright green until 20 minutes. Ticks to the right mark 10-minute elapsed intervals; that scale expands after 10 minutes."></progress>
                         </div>
                         <div class="snapshot-caption snapshot-block-caption">
                             <time id="homeKpiBlockTime">Waiting for data</time>
@@ -248,7 +248,7 @@
                         <summary>What do these numbers mean? <span aria-hidden="true">+</span></summary>
                         <div class="snapshot-glossary-panel">
                             <dl>
-                                <div><dt>Block height</dt><dd>A block's position in Bitcoin's chain, starting at zero. The counter measures time since the displayed block's miner timestamp. Elapsed time grows right of the zero mark on a 10-minute scale, expanding with longer waits; ticks mark every 10 minutes. The counter and bar use bright green for 0–20 minutes, orange for 20–30, dark orange for 30–40, and red above 40. If the timestamp is ahead of your clock, a negative counter and gray bar shrink until that time arrives. The space left of zero shrinks with the bar, moving zero to the left edge and leaving the full width for elapsed time. This is not a countdown to the next block.</dd></div>
+                                <div><dt>Block height</dt><dd>A block's position in Bitcoin's chain, starting at zero. The counter measures time since the displayed block's miner timestamp. Elapsed time grows right of the zero mark on a 10-minute scale, expanding with longer waits; ticks mark every 10 minutes. The bar uses bright green for 0–10 minutes, dark green for 10–20, orange for 20–30, dark orange for 30–40, and red above 40. The counter stays bright green until 20 minutes, then orange until 40, then red. If the timestamp is ahead of your clock, a negative counter and gray bar shrink until that time arrives. The space left of zero shrinks with the bar, moving zero to the left edge and leaving the full width for elapsed time. This is not a countdown to the next block.</dd></div>
                                 <div><dt>Bitcoin issued</dt><dd>BTC issued so far, approaching a limit of 21 million. The bar shows the share already issued. Between published updates, supply is estimated from the latest published total plus each new block's scheduled subsidy.</dd></div>
                                 <div><dt>Halving epoch</dt><dd>Every 210,000 blocks, the block subsidy is cut in half. The large number counts blocks until the next halving, and the bar shows progress through the current epoch.</dd></div>
                                 <div><dt>Difficulty adjustment</dt><dd>Difficulty adjusts every 2,016 blocks. The large number counts blocks until the next adjustment. The bar compares mined blocks with the 10-minute-per-block schedule: green shows blocks ahead, red shows blocks behind. Hover over or focus the bar to see the difference in blocks. The arrow beside the title estimates the next difficulty change from the latest block pace.</dd></div>
@@ -376,8 +376,8 @@
         <script src="js/02_global_state.js" defer></script>
         <script src="js/03_lazy_image_loading.js" defer></script>
         <script src="js/04_persistence_cookies_localstorage.js" defer></script>
-        <script src="js/05_core_helpers_url_image_src_geometry.js?v=20261017-card-help" defer></script>
-        <script src="js/06_grid_layout_filter_render.js?v=20261024-card-fallbacks" defer></script>
+        <script src="js/05_core_helpers_url_image_src_geometry.js?v=20261027-price-distribution" defer></script>
+        <script src="js/06_grid_layout_filter_render.js?v=20261027-price-distribution" defer></script>
         <script src="js/07_modal_open_close_swipes.js" defer></script>
         <script src="js/08_buy_me_button_thanks_overlay.js?v=20261024-card-fallbacks" defer></script>
         <script src="js/09_bootstrap_fetch_init_global_exports.js" defer></script>

@@ -223,6 +223,8 @@ is picked up by the next eligible deployment.
 | `/dca_comparison` | Equal-budget DCA comparisons between assets |
 | `/days_since_ath` | All-time highs, drawdown, and time since the last high |
 | `/issuance_rate` | Bitcoin issuance and halving history |
+| `/mined_supply_price` | Mined supply by halving epoch beside Bitcoin price history |
+| `/price_distribution` | Daily Bitcoin price observations grouped into decade price ranges |
 | `/uoa` | Historical currency-pair comparisons in both directions |
 | `/bip110_signaling` | BIP-110 and historical SegWit signaling |
 | `/patoshi_pattern` | Early-block ExtraNonce patterns and Patoshi classifications |
@@ -379,6 +381,8 @@ node scripts/test_uoa_live_quotes.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_uoa_live_quotes_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_homepage_preview_refresh.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_homepage_kpis_browser.py
+CHROME_BIN=/path/to/chromium python3 scripts/test_mined_supply_price_browser.py
+python3 scripts/test_price_distribution_browser.py
 node --test scripts/test_bitcoin_chain_tip.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_card_fallbacks_browser.py
 node scripts/test_dashboard_share.mjs
