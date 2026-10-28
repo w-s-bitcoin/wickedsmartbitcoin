@@ -51,11 +51,14 @@ Not Valued and first priced days, and the selected endpoint. The shared daily
 frame planner also drives duration estimates.
 This is daily history even though the price chart uses a block-height axis. The optional holds
 show the final selected date for one second at the start and three at the end.
-The opening preview uses published data; the ending uses the final captured
-quote. The selected date and all historical video frames stay on one captured
-data generation. Latest-view PNGs
-capture one quote after export assets load; a latest-view video captures one
-quote at its final motion frame and holds it through the ending pause.
+Latest-view exports check for a newer complete publication after export assets
+load, refresh the live quote, then freeze one snapshot before rendering. The
+opening hold, final motion frame, and ending hold reuse that same price,
+timestamp, block height, and mined supply. Earlier video frames use published
+history from that captured generation. Failed publication checks retain the
+last complete history; unavailable quotes retain the last accepted quote unless
+the publication is newer. Historical selections remain historical. PNGs use
+the same preparation and snapshot policy.
 MP4 is preferred, with WebM when H.264 is unavailable.
 
 On the dashboard and in every PNG and video orientation, the Price KPI uses

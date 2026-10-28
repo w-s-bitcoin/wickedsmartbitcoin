@@ -191,14 +191,18 @@ window.WSBDailyHistoryDashboard = function (config) {
       select(Math.min(playbackTarget, index + Math.max(1, Math.round(speed * (blockTimeline ? 144 : 7)))));
     }, blockTimeline ? 1000 / E.VIDEO_FPS : 80);
   }
+  async function prepareHistory() {
+    const fetchFresh = async (url) => { const response = await fetch(url, { cache: "no-store" }); if (!response.ok) throw new Error(`History request returned HTTP ${response.status}.`); return response; };
+    const candidate = await Chart.prepareCandidate(fetchFresh);
+    const recheck = await (await fetchFresh(markerUrl)).json();
+    if (markerSignature(recheck) !== candidate.signature) throw new Error("A newer publication arrived during refresh.");
+    return candidate;
+  }
   async function refresh() {
     if (exporting || drag) return;
     const sequence = ++refreshSequence;
     try {
-      const fetchFresh = async (url) => { const response = await fetch(url, { cache: "no-store" }); if (!response.ok) throw new Error(`History request returned HTTP ${response.status}.`); return response; };
-      const candidate = await Chart.prepareCandidate(fetchFresh);
-      const recheck = await (await fetchFresh(markerUrl)).json();
-      if (markerSignature(recheck) !== candidate.signature) throw new Error("A newer publication arrived during refresh.");
+      const candidate = await prepareHistory();
       if (sequence !== refreshSequence || exporting || drag) return;
       if (olderHistory(candidate)) throw new Error("New history is older than the displayed version.");
       const selection = rows.length ? viewState() : initial;
@@ -314,7 +318,8 @@ window.WSBDailyHistoryDashboard = function (config) {
     clearHover(); draw();
     const allowLive = usesLivePrice();
     pausePlayback(); exporting = true; cancelExport = false; setMenu(false); pickers?.startPicker.closePopup(); pickers?.endPicker.closePopup();
-    const source = rows.slice(), frame = index, settings = { ...exportSettings(kind === "png" ? "2160" : downloads.getSettings().quality), startIndex };
+    let source = rows.slice(), frame = index, exportPublishedAt = publishedAt;
+    const settings = { ...exportSettings(kind === "png" ? "2160" : downloads.getSettings().quality), startIndex };
     const { width, height } = E.getDimensions(settings), output = document.createElement("canvas"); output.width = width; output.height = height;
     lockControls(true);
     if (kind === "video") E.renderProgress($("downloadVideo"), 0);
@@ -323,17 +328,31 @@ window.WSBDailyHistoryDashboard = function (config) {
     try {
       await B.ready();
       if (cancelExport) return;
+      if (config.freezeExportSnapshot && allowLive) {
+        try {
+          const candidate = await prepareHistory();
+          if (olderHistory(candidate)) throw new Error("New history is older than the displayed version.");
+          source = candidate.rows; frame = source.length - 1; exportPublishedAt = candidate.publishedAt;
+        } catch (error) {
+          status.textContent = `Update unavailable; exporting the last complete history. ${error.message}`;
+        }
+        if (cancelExport) return;
+        try { await spotFeed?.refresh(); } catch (_) { /* Retain the last accepted quote. */ }
+        if (cancelExport) return;
+      }
       let finalSource = null;
-      const finalRows = () => finalSource || (finalSource = allowLive ? Chart.withLiveQuote(source, spotFeed?.newerThan(publishedAt)) : source);
+      const finalRows = () => finalSource || (finalSource = allowLive ? Chart.withLiveQuote(source, spotFeed?.newerThan(exportPublishedAt)) : source);
+      if (config.freezeExportSnapshot) finalRows();
       if (kind === "png") { renderExport(output.getContext("2d"), width, height, finalRows(), frame, settings); await E.downloadPng(output, `${config.slug}_${source[frame].iso}.png`); }
       else {
         const frames = frameIndices(source, frame, settings.startIndex, settings);
-        // Opening holds preview the final date using published data. Capture
-        // live data only at the final motion frame, then freeze the ending hold.
+        // A frozen snapshot gives both holds the same endpoint. Other dashboards
+        // retain their final-motion-frame capture policy.
         const finalMotionStart = Math.max(settings.endHold ? E.VIDEO_FPS : 0,
           frames.findLastIndex((index) => index !== frame) + 1);
         const blob = await E.encodeVideo({ canvas: output, width, height, fps: E.VIDEO_FPS, settings, frames, title: config.title, isCanceled: () => cancelExport,
-          renderFrame: (frameIndex, targetCanvas, position) => renderExport(targetCanvas.getContext("2d"), width, height, position >= finalMotionStart ? finalRows() : source, frameIndex, settings),
+          renderFrame: (frameIndex, targetCanvas, position) => renderExport(targetCanvas.getContext("2d"), width, height,
+            (config.freezeExportSnapshot ? frameIndex === frame : position >= finalMotionStart) ? finalRows() : source, frameIndex, settings),
           onProgress: (fraction) => E.renderProgress($("downloadVideo"), fraction) });
         if (!cancelExport) {
           if (!blob) throw new Error("This browser cannot encode the selected video size.");

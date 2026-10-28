@@ -295,21 +295,41 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
     assert all(export[key]["plot"][3] == 255 and max(export[key]["plot"][:3]) > 20
                for key in ("landscape", "portrait", "square")), export
 
-    frozen = cdp.evaluate("""(async () => {
+    frozen = cdp.evaluate(r"""(async () => {
       const originalEncode = WSBDashboardExport.encodeVideo;
       const originalRender = WSBMinedSupplyPriceChart.render;
+      const originalFetch = window.fetch;
       const observed = [];
       let milestonesPreserved = false;
-      const publishedPrice = WSBMinedSupplyPriceChart.parse(await (await fetch('../../assets/daily_price.csv')).text()).at(-1).price;
+      // Publish a complete newer fixture only through this page's fetch shim.
+      const csv = await (await fetch('../../assets/daily_price.csv')).text();
+      const marker = await (await fetch('../../assets/daily_price_metadata.json')).json();
+      const lines = csv.trimEnd().split('\n'), fields = lines[0].split(','), last = lines.at(-1).split(',');
+      const heightField = fields.indexOf('block_height'), supplyField = fields.indexOf('supply');
+      last[heightField] = String(Number(last[heightField]) + 1);
+      last[supplyField] = String(Number(last[supplyField]) + 3.125);
+      lines[lines.length - 1] = last.join(',');
+      const freshCsv = lines.join('\n') + '\n';
+      marker.artifact.sha256 = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(freshCsv)))].map(b => b.toString(16).padStart(2, '0')).join('');
+      marker.latest_block_height = Number(last[heightField]);
+      window.fetch = async (url, ...args) => String(url).includes('daily_price_metadata.json') ? new Response(JSON.stringify(marker))
+        : String(url).includes('daily_price.csv') ? new Response(freshCsv) : originalFetch(url, ...args);
+      const freshRows = WSBMinedSupplyPriceChart.parse(freshCsv);
+      window.__spotEmit(234567.89);
       WSBMinedSupplyPriceChart.render = (ctx, width, height, rows, index, options) => {
-        if (options.export) observed.push({index, price: rows[index].price});
-        return originalRender(ctx, width, height, rows, index, options);
+        const result = originalRender(ctx, width, height, rows, index, options);
+        if (options.export) observed.push({index, price: rows[index].price, height: rows[index].height,
+          supply: rows[index].supply, quoteAt: rows[index].quoteAt, image: ctx.canvas.toDataURL()});
+        return result;
       };
       WSBDashboardExport.encodeVideo = async (config) => {
-        const history = WSBMinedSupplyPriceChart.parse(await (await fetch('../../assets/daily_price.csv')).text());
-        milestonesPreserved = WSBMinedSupplyPriceChart.exportMilestones(history).every(index => config.frames.includes(index));
+        milestonesPreserved = WSBMinedSupplyPriceChart.exportMilestones(freshRows).every(index => config.frames.includes(index));
         await config.renderFrame(config.frames[0], config.canvas, 0);
         window.__spotEmit(345678.90);
+        const historicalPosition = config.frames.findIndex(i => i !== config.frames.at(-1));
+        await config.renderFrame(config.frames[historicalPosition], config.canvas, historicalPosition);
+        const finalMotionPosition = config.frames.findLastIndex(i => i !== config.frames.at(-1)) + 1;
+        await config.renderFrame(config.frames[finalMotionPosition], config.canvas, finalMotionPosition);
         await config.renderFrame(config.frames.at(-1), config.canvas, config.frames.length - 1);
         window.__spotEmit(456789.01);
         await config.renderFrame(config.frames.at(-1), config.canvas, config.frames.length - 1);
@@ -320,17 +340,87 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
         document.getElementById('downloadVideo').click();
         for (let i = 0; i < 100 && WSBMinedSupplyPriceDashboard.getState().exporting; i++)
           await new Promise(resolve => setTimeout(resolve, 20));
-        return {observed, publishedPrice, milestonesPreserved, recovered: !WSBMinedSupplyPriceDashboard.getState().exporting && !document.getElementById('downloadImage').disabled};
+        const endpoints = observed.filter(item => item.index === freshRows.length - 1);
+        const matchingImages = endpoints.every(item => item.image === endpoints[0].image);
+        for (const item of observed) delete item.image;
+        return {observed, matchingImages, expectedHeight: marker.latest_block_height, expectedSupply: Number(last[supplyField]),
+          historicalPrice: freshRows[observed[1].index].price, milestonesPreserved,
+          recovered: !WSBMinedSupplyPriceDashboard.getState().exporting && !document.getElementById('downloadImage').disabled};
       } finally {
+        window.fetch = originalFetch;
         WSBDashboardExport.encodeVideo = originalEncode;
         WSBMinedSupplyPriceChart.render = originalRender;
       }
     })()""")
-    assert frozen["recovered"] and frozen["milestonesPreserved"] and len(frozen["observed"]) == 3, frozen
+    assert frozen["recovered"] and frozen["milestonesPreserved"] and len(frozen["observed"]) == 5, frozen
     assert cdp.evaluate("document.getElementById('startDateBtn').disabled && !document.getElementById('dateRangeStartSlider')"), "Export recovery unlocked Start"
     assert frozen["observed"][0]["index"] == frozen["observed"][-1]["index"], frozen
-    assert frozen["observed"][0]["price"] == frozen["publishedPrice"], frozen
-    assert [row["price"] for row in frozen["observed"][1:]] == [345678.90, 345678.90], frozen
+    endpoints = [frozen["observed"][i] for i in (0, 2, 3, 4)]
+    assert frozen["matchingImages"] and all(row == endpoints[0] for row in endpoints), frozen
+    assert endpoints[0]["price"] == 234567.89 and endpoints[0]["quoteAt"], frozen
+    assert endpoints[0]["height"] == frozen["expectedHeight"] and endpoints[0]["supply"] == frozen["expectedSupply"], frozen
+    assert frozen["observed"][1]["price"] == frozen["historicalPrice"], frozen
+
+    fallback = cdp.evaluate(r"""(async () => {
+      const originalFetch = window.fetch, originalEncode = WSBDashboardExport.encodeVideo;
+      const originalRender = WSBMinedSupplyPriceChart.render;
+      const history = WSBMinedSupplyPriceChart.parse(await (await fetch('../../assets/daily_price.csv')).text());
+      const results = [];
+      let observed = [], markerRequests = 0;
+      window.fetch = async (url, ...args) => {
+        const response = await originalFetch(url, ...args);
+        if (!String(url).includes('daily_price_metadata.json')) return response;
+        const marker = await response.json();
+        if (++markerRequests % 2 === 0) marker.artifact.sha256 = '0'.repeat(64);
+        return new Response(JSON.stringify(marker));
+      };
+      WSBMinedSupplyPriceChart.render = (ctx, width, height, rows, index, options) => {
+        if (options.export) observed.push({...rows[index]});
+        return originalRender(ctx, width, height, rows, index, options);
+      };
+      WSBDashboardExport.encodeVideo = async config => {
+        await config.renderFrame(config.frames[0], config.canvas, 0);
+        await config.renderFrame(config.frames.at(-1), config.canvas, config.frames.length - 1);
+        return null;
+      };
+      async function run() {
+        observed = [];
+        document.getElementById('downloadVideo').click();
+        for (let i = 0; i < 200 && WSBMinedSupplyPriceDashboard.getState().exporting; i++)
+          await new Promise(resolve => setTimeout(resolve, 20));
+        results.push(observed);
+      }
+      const hold = document.getElementById('downloadEndFrameHoldToggle');
+      const slider = document.getElementById('dateRangeEndSlider');
+      try {
+        window.__spotEmit(567890.12, false);
+        await run(); // A marker race keeps the original complete history and retained quote.
+        hold.click();
+        await run(); // No opening hold: start at genesis, end at the same captured quote.
+        const requestsBeforeHistorical = markerRequests;
+        hold.click();
+        slider.value = String(Math.floor(history.length / 2));
+        slider.dispatchEvent(new Event('input', {bubbles: true}));
+        slider.dispatchEvent(new Event('change', {bubbles: true}));
+        await run();
+        return {results, expectedHeight: history.at(-1).height, expectedSupply: history.at(-1).supply,
+          expectedHistorical: history[Math.floor(history.length / 2)], markerRequests, requestsBeforeHistorical};
+      } finally {
+        window.fetch = originalFetch; WSBDashboardExport.encodeVideo = originalEncode;
+        WSBMinedSupplyPriceChart.render = originalRender;
+        if (!hold.checked) hold.click();
+        slider.value = String(history.length - 1);
+        slider.dispatchEvent(new Event('input', {bubbles: true}));
+        slider.dispatchEvent(new Event('change', {bubbles: true}));
+      }
+    })()""")
+    held, no_hold, historical = fallback["results"]
+    assert len(held) == len(no_hold) == len(historical) == 2, fallback
+    assert held[0] == held[1] and held[0]["price"] == 567890.12, fallback
+    assert held[0]["height"] == fallback["expectedHeight"] and held[0]["supply"] == fallback["expectedSupply"], fallback
+    assert no_hold[0]["height"] == 0 and no_hold[1]["price"] == 567890.12, fallback
+    assert historical[0] == historical[1] == fallback["expectedHistorical"], fallback
+    assert fallback["markerRequests"] == fallback["requestsBeforeHistorical"] == 4, fallback
 
     videos = cdp.evaluate("""(async () => {
       const rows = WSBMinedSupplyPriceChart.parse(await (await fetch('../../assets/daily_price.csv')).text());
@@ -419,7 +509,7 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
     wait_for(lambda: cdp.evaluate("document.body.classList.contains('mined-supply-dashboard-expanded')"),
              description="standalone expand message")
     assert embedded["frame"] and cdp.evaluate("document.body.classList.contains('mined-supply-dashboard-expanded')"), embedded
-    print("Passed: reference geometry and shared typography across all orientations at PNG/video resolutions in both themes, shared controls, live/retained/historical price, genesis range, playback, three decoded PNG/video layouts, frozen live final frame, mobile widths, and standalone expand")
+    print("Passed: reference geometry and shared typography across all orientations at PNG/video resolutions in both themes, shared controls, live/retained/historical price, genesis range, playback, three decoded PNG/video layouts, matching live export holds with refreshed data, publication-race fallback, historical/no-hold exports, mobile widths, and standalone expand")
 
 
 def main() -> None:
