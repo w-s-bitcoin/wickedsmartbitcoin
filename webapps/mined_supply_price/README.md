@@ -14,6 +14,12 @@ a retained or published value; its accessible description identifies the
 source. Updated shows the quote time beside the published block height.
 Historical selections and playback remain on published daily prices.
 
+The Mined Supply KPI uses the same number of decimal places as the selected
+block's subsidy, retaining trailing zeros throughout each epoch. For example,
+a 3.125 BTC subsidy displays whole supply values as `20,000,000.000 BTC`;
+6.25 BTC uses two decimal places, 12.5 BTC uses one, and 25/50 BTC use none.
+The dashboard, mined-supply tooltips, and all PNG/video layouts share this format.
+
 The homepage preview shows the donut and price area without text labels,
 including the donut's percentage and BTC amount. Dashboard and export labels
 remain visible.
@@ -52,10 +58,10 @@ capture one quote after export assets load; a latest-view video captures one
 quote at its final motion frame and holds it through the ending pause.
 MP4 is preferred, with WebM when H.264 is unavailable.
 
-In every PNG and video orientation, the Price KPI uses cents (`¢`) for positive
-prices below $0.10, preserving small historical values (for example, $0.0007
+On the dashboard and in every PNG and video orientation, the Price KPI uses
+cents (`¢`) for positive prices below $0.10, preserving small historical values (for example, $0.0007
 becomes `0.07¢`). At $0.10 and above it uses dollars with two decimal places.
-This export-specific threshold intentionally differs from the shared $1 default;
+This dashboard-specific threshold intentionally differs from the shared $1 default;
 unpriced history remains `Not valued`.
 
 During the opening Not Valued interval, exported frames reserve the block-height

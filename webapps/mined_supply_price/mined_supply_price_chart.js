@@ -6,20 +6,24 @@
   const DATE = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric", year: "numeric" });
   const MONEY = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const SUPPLY = new Intl.NumberFormat("en-US", { maximumFractionDigits: 3 });
+  const supplyFormats = new Map();
   const integer = new Intl.NumberFormat("en-US");
   const EXPORT_TYPE = Object.freeze({ label: 26.667, value: 46.667, height: 32, heading: 37.333, percent: 50.667, year: 18, halving: 29.333 });
   const { parse, prepareCandidate, latestIndexAtDate, withLiveQuote } = window.WSBDailyPriceHistory;
   const exportMilestones = window.WSBDailyPriceHistory.openingPriceMilestones;
-  function formatExportPrice(price) {
+  function formatPrice(price) {
     if (!(price > 0)) return "Not valued";
     if (price < 0.1) return `${Number((price * 100).toPrecision(8))}¢`;
     return `$${MONEY.format(price)}`;
   }
   function summary(row) {
     const displayTime = row.quoteAt || Date.parse(row.timestamp.replace(" ", "T") + "Z") || row.time;
+    const subsidy = 50 / 2 ** Math.floor(row.height / HALVING);
+    const digits = String(subsidy).split(".")[1]?.length || 0;
+    if (!supplyFormats.has(digits)) supplyFormats.set(digits, new Intl.NumberFormat("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits }));
     return { date: DATE.format(row.time), datetime: `${DATE.format(displayTime)} ${new Date(displayTime).toISOString().slice(11, 16)}`, height: integer.format(row.height), epoch: Math.floor(row.height / HALVING) + 1,
-      subsidy: 50 / 2 ** Math.floor(row.height / HALVING), supply: SUPPLY.format(row.supply), percent: row.supply / MAX_SUPPLY * 100,
-      price: row.price > 0 ? `$${MONEY.format(row.price)}` : "Not valued" };
+      subsidy, supply: supplyFormats.get(digits).format(row.supply), percent: row.supply / MAX_SUPPLY * 100,
+      price: formatPrice(row.price) };
   }
   function palette(theme) {
     const light = theme === "light";
@@ -78,7 +82,7 @@
         const plot = { x, y, width: size, height: size }, entries = [];
         let title = "Mined supply";
         if (distance < inner) {
-          entries.push({ label: "Mined", value: `${SUPPLY.format(mined)} BTC` }, { label: "Share", value: `${(mined / MAX_SUPPLY * 100).toFixed(2)}%` });
+          entries.push({ label: "Mined", value: `${summary(row).supply} BTC` }, { label: "Share", value: `${(mined / MAX_SUPPLY * 100).toFixed(2)}%` });
         } else {
           const fraction = ((Math.atan2(p.y - cy, p.x - cx) + Math.PI / 2 + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2);
           if (fraction >= mined / MAX_SUPPLY) {
@@ -211,7 +215,7 @@
     text("Mined Supply", 285, 151, EXPORT_TYPE.label, muted, "center");
     text(`${s.supply} BTC`, 285, 195, EXPORT_TYPE.value, colors.text, "center", 506);
     text("Price (BTCUSD)", 805, 151, EXPORT_TYPE.label, muted, "center");
-    text(formatExportPrice(row.price), 805, 195, EXPORT_TYPE.value, colors.text, "center", 486);
+    text(formatPrice(row.price), 805, 195, EXPORT_TYPE.value, colors.text, "center", 486);
   }
   function renderSquareExport(ctx, width, height, rows, endIndex, colors, options) {
     ctx.save(); ctx.scale(width / 1080, height / 1080);
@@ -259,7 +263,7 @@
     text("Mined Supply", 1245, 49, EXPORT_TYPE.label, colors.muted);
     text(`${s.supply} BTC`, 1245, 93, EXPORT_TYPE.value);
     text("Price (BTCUSD)", 1729, 49, EXPORT_TYPE.label, colors.muted);
-    text(formatExportPrice(row.price), 1729, 93, EXPORT_TYPE.value);
+    text(formatPrice(row.price), 1729, 93, EXPORT_TYPE.value);
     text("Percentage of", 365, 194, EXPORT_TYPE.heading, colors.muted);
     text("21M BTC Mined", 365, 241, EXPORT_TYPE.heading, colors.muted);
     const size = 662 / 0.94;
