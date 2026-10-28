@@ -52,5 +52,10 @@
     copy[copy.length - 1] = { ...copy.at(-1), price: quote.price, quoteAt: quote.at };
     return copy;
   }
-  window.WSBDailyPriceHistory = { parse, prepareCandidate, latestIndexAtDate, withLiveQuote };
+  function openingPriceMilestones(rows) {
+    if (!rows.length || rows[0].price > 0) return [];
+    const firstPriced = rows.findIndex((row) => row.price > 0);
+    return firstPriced < 0 ? [rows.length - 1] : [firstPriced - 1, firstPriced];
+  }
+  window.WSBDailyPriceHistory = { parse, prepareCandidate, latestIndexAtDate, withLiveQuote, openingPriceMilestones };
 }());

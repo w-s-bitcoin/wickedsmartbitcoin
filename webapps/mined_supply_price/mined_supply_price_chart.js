@@ -9,6 +9,7 @@
   const integer = new Intl.NumberFormat("en-US");
   const EXPORT_TYPE = Object.freeze({ label: 26.667, value: 46.667, height: 32, heading: 37.333, percent: 50.667, year: 18, halving: 29.333 });
   const { parse, prepareCandidate, latestIndexAtDate, withLiveQuote } = window.WSBDailyPriceHistory;
+  const exportMilestones = window.WSBDailyPriceHistory.openingPriceMilestones;
   function summary(row) {
     const displayTime = row.quoteAt || Date.parse(row.timestamp.replace(" ", "T") + "Z") || row.time;
     return { date: DATE.format(row.time), datetime: `${DATE.format(displayTime)} ${new Date(displayTime).toISOString().slice(11, 16)}`, height: integer.format(row.height), epoch: Math.floor(row.height / HALVING) + 1,
@@ -102,7 +103,11 @@
     const end = rows[endIndex];
     const first = Math.max(0, Math.min(endIndex, Number(opts.startIndex) || 0));
     if (first < 0 || first > endIndex) return;
-    const firstHeight = rows[first].height, span = Math.max(1, end.height - firstHeight);
+    // Reserve the opening unpriced interval so the observed baseline grows
+    // across it. Future block heights set layout only, never plotted values.
+    const openingEnd = opts.export && first === 0 ? exportMilestones(rows)[0] : undefined;
+    const timelineEnd = Number.isInteger(openingEnd) ? Math.max(endIndex, openingEnd) : endIndex;
+    const firstHeight = rows[first].height, span = Math.max(1, rows[timelineEnd].height - firstHeight);
     let maxPrice = 1;
     for (let i = first; i <= endIndex; i++) if (rows[i].price > maxPrice) maxPrice = rows[i].price;
     const minLog = Math.log10(0.0005), maxLog = Math.log10(maxPrice) + 0.17;
@@ -295,5 +300,5 @@
     ctx.restore();
     return inspection;
   }
-  window.WSBMinedSupplyPriceChart = { parse, prepareCandidate, latestIndexAtDate, summary, withLiveQuote, render, MAX_SUPPLY };
+  window.WSBMinedSupplyPriceChart = { parse, prepareCandidate, latestIndexAtDate, summary, withLiveQuote, exportMilestones, render, MAX_SUPPLY };
 }());

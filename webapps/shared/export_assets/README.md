@@ -45,6 +45,9 @@ font files are unmodified and the interactive shell's typography stays separate.
   with the current `wicked@primal.net` address. It is not copied from the older
   reference image. Light exports replace its decorative black corner matte with
   a clean white border, preserving all QR modules and their quiet zone.
+  The donation address stays to the right of the QR. Its visible right edge
+  has the same outer margin as the left edge of the vertical CREATOR label
+  in every PNG/video layout; measured text bounds avoid unused address padding.
   Landscape footers measure the URL between the two branding sections and
   reduce its font size to fit. Portrait and square omit the URL row for a
   compact creator/donation banner with less empty space below the chart.

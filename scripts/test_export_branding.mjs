@@ -92,7 +92,10 @@ function context() {
     drawImage(...args) { this.calls.push(["drawImage", ...args, this.filter]); },
     fillRect(...args) { this.calls.push(["fillRect", ...args]); },
     fillText(...args) { this.calls.push(["fillText", ...args, this.font, this.textAlign]); },
-    measureText(value) { return { width: value.length * Number(this.font.match(/([\d.]+)px/)?.[1] || 12) * 0.61 }; },
+    measureText(value) {
+      const size = Number(this.font.match(/([\d.]+)px/)?.[1] || 12);
+      return { width: value.length * size * 0.61, actualBoundingBoxRight: value.length * size * 0.61, actualBoundingBoxAscent: size * 0.4 };
+    },
     translate() {}, rotate() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {},
     rect(...args) { this.calls.push(["rect", ...args]); },
     arc(...args) { this.calls.push(["arc", ...args]); },
@@ -113,7 +116,7 @@ test("branding is lazy and rejects rendering until every required asset is ready
   const pending = f.B.ready();
   assert.strictEqual(f.B.ready(), pending, "concurrent callers share the same preparation");
   await settle();
-  assert.equal(f.faces.length, 3);
+  assert.equal(f.faces.length, 4);
   assert.equal(f.images.length, 3);
   f.faces.forEach((face) => face.pending.resolve());
   await settle();
@@ -124,8 +127,8 @@ test("branding is lazy and rejects rendering until every required asset is ready
   assert.equal(f.registered.length, 0, "the creator icon and Lightning QR are required too");
   f.images.slice(1).forEach((image) => image.pending.resolve());
   await pending;
-  assert.equal(f.registered.length, 3);
-  assert.equal(new Set(f.registered).size, 3);
+  assert.equal(f.registered.length, 4);
+  assert.equal(new Set(f.registered).size, 4);
   assert.strictEqual(f.B.ready(), pending, "successful preparation stays cached");
   draws().forEach((draw) => assert.doesNotThrow(draw));
 });
@@ -134,9 +137,9 @@ test("the shared script resolves local font and logo URLs with explicit required
   const f = fixture();
   await prepare(f);
   assert.deepEqual(f.faces.map((face) => [face.family, String(face.descriptors.weight || "400")]), [
-    ["WSB Export DejaVu", "400"], ["WSB Export DejaVu", "700"], ["WSB Export IBM Plex Mono", "500"],
+    ["WSB Export DejaVu", "400"], ["WSB Export DejaVu", "700"], ["WSB Export DejaVu Mono", "400"], ["WSB Export IBM Plex Mono", "500"],
   ]);
-  for (const [index, filename] of ["DejaVuSans.ttf", "DejaVuSans-Bold.ttf", "IBMPlexMono-Medium.ttf"].entries()) {
+  for (const [index, filename] of ["DejaVuSans.ttf", "DejaVuSans-Bold.ttf", "DejaVuSansMono.ttf", "IBMPlexMono-Medium.ttf"].entries()) {
     assert.ok(f.faces[index].source.includes(`https://example.test/project/webapps/shared/export_assets/${filename}`), f.faces[index].source);
     assert.ok(!f.faces[index].source.includes("local("), "export faces must not vary with installed fonts");
   }
@@ -160,11 +163,11 @@ for (const failedAsset of ["font", "image"]) {
     const retry = f.B.ready();
     assert.notStrictEqual(retry, pending);
     await settle();
-    assert.equal(f.faces.length, 6);
+    assert.equal(f.faces.length, 8);
     assert.equal(f.images.length, 6);
-    resolveAll(f, 3, 3);
+    resolveAll(f, 4, 3);
     await retry;
-    assert.deepEqual(f.registered, f.faces.slice(3));
+    assert.deepEqual(f.registered, f.faces.slice(4));
     assert.doesNotThrow(() => f.B.setFont(context(), 20));
   });
 }
@@ -218,6 +221,7 @@ test("creator and current Lightning QR fill the reserved strip with a landscape-
       assert.equal(images.length, 2);
       assert.strictEqual(images[0][1], theme === "light" ? f.canvases[1] : f.images[1]);
       assert.strictEqual(images[1][1], f.images[2]);
+      const margin = width / height < 1.35 ? Math.min(24, width * .025) : 32 * Math.min(width / 1920, footerHeight / 122);
       if (width === 720) assert.ok(result.lightning.size >= 70, "720-quality stacked exports keep a readable QR footprint");
       for (const [, , x, y, imageWidth, imageHeight] of images) {
         assert.ok(x >= 0 && x + imageWidth <= width);
@@ -226,6 +230,11 @@ test("creator and current Lightning QR fill the reserved strip with a landscape-
       const text = ctx.calls.filter((call) => call[0] === "fillText");
       assert.ok(text.some((call) => call[1] === "@w_s_bitcoin"));
       assert.ok(text.some((call) => call[1] === "@primal.net"));
+      const address = text.find(call => call[1] === "@primal.net");
+      assert.equal(address.at(-1), "left");
+      assert.ok(address[2] > result.lightning.x + result.lightning.size, "address stays to the right of the QR");
+      const addressWidth = address[1].length * Number(address[4].match(/([\d.]+)px/)[1]) * .61;
+      assert.ok(Math.abs(width - address[2] - addressWidth - margin) < 1e-7, "address sits at the outer right margin");
       const urls = text.filter(call => String(call[1]).startsWith("https://wickedsmartbitcoin.com/"));
       const strip = ctx.calls.find(call => call[0] === "fillRect");
       assert.deepEqual(strip.slice(1), [0, height - footerHeight, width, footerHeight], "footer uses the complete compact reservation without shrinking it again");

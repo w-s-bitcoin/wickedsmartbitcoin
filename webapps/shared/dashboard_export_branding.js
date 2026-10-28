@@ -145,7 +145,12 @@
     const creatorX = margin + 30 * sectionScale;
     const creatorTextX = creatorX + icon + 12 * sectionScale;
     const creatorRight = creatorTextX + 180 * sectionScale;
-    const donationTextWidth = 180 * sectionScale;
+    // Match the visible address edge to CREATOR's outer margin rather than
+    // reserving unused space after the address. Keep the address after the QR.
+    ctx.save();
+    setFont(ctx, 23 * sectionScale); ctx.textAlign = "left";
+    const donationTextWidth = Math.max(...["wicked", "@primal.net"].map(text => ctx.measureText(text).actualBoundingBoxRight));
+    ctx.restore();
     const qrX = width - margin - donationTextWidth - icon - 12 * sectionScale;
     const donationLeft = qrX - 56 * sectionScale;
     const donationTextX = qrX + icon + 12 * sectionScale;
@@ -175,7 +180,9 @@
       function vertical(text, x, y, size) {
         ctx.save(); ctx.translate(x, y); ctx.rotate(-Math.PI / 2); ctx.textAlign = "center"; setFont(ctx, size); ctx.fillStyle = foreground; ctx.fillText(text, 0, 0); ctx.restore();
       }
-      vertical("CREATOR", margin + 8 * sectionScale, contentY + icon / 2, 16 * sectionScale);
+      setFont(ctx, 16 * sectionScale);
+      const creatorLabelX = margin + ctx.measureText("CREATOR").actualBoundingBoxAscent;
+      vertical("CREATOR", creatorLabelX, contentY + icon / 2, 16 * sectionScale);
       vertical("LIGHTNING", qrX - 37 * sectionScale, contentY + icon / 2, 15 * sectionScale);
       vertical("DONATIONS", qrX - 20 * sectionScale, contentY + icon / 2, 15 * sectionScale);
       ctx.strokeStyle = muted; ctx.lineWidth = Math.max(0.5, sectionScale);

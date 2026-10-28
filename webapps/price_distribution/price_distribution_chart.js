@@ -45,11 +45,7 @@
     }
     return { bins, min, max, total: endIndex - first + 1 };
   }
-  function exportMilestones(rows) {
-    if (!rows.length || rows[0].price > 0) return [];
-    const firstPriced = rows.findIndex((row) => row.price > 0);
-    return firstPriced < 0 ? [rows.length - 1] : [firstPriced - 1, firstPriced];
-  }
+  const exportMilestones = History.openingPriceMilestones;
   function font(ctx, size, bold, branded) {
     if (branded) window.WSBDashboardExportBranding.setFont(ctx, size, bold ? "heading" : "body");
     else ctx.font = `${bold ? 600 : 400} ${size}px "Space Grotesk", sans-serif`;

@@ -40,8 +40,9 @@ Exports use the reference image's header, donut, price area, halving labels, and
 shared creator/donation footer. PNG always renders at 2160 quality. Video uses
 published daily frames through the selected date: one frame per day at 1x,
 encoded at 30 fps, with no fixed-duration cap. At 0.5x each day repeats twice;
-2x/4x sample every second/fourth day while retaining halving boundaries and the
-selected endpoint. The shared daily frame planner also drives duration estimates.
+2x/4x sample every second/fourth day while retaining halving boundaries, the last
+Not Valued and first priced days, and the selected endpoint. The shared daily
+frame planner also drives duration estimates.
 This is daily history even though the price chart uses a block-height axis. The optional holds
 show the final selected date for one second at the start and three at the end.
 The opening preview uses published data; the ending uses the final captured
@@ -50,6 +51,14 @@ data generation. Latest-view PNGs
 capture one quote after export assets load; a latest-view video captures one
 quote at its final motion frame and holds it through the ending pause.
 MP4 is preferred, with WebM when H.264 is unavailable.
+
+During the opening Not Valued interval, exported frames reserve the block-height
+span through the actual last unpriced day, matching Price Distribution's growing
+opening line. The baseline advances from genesis to the right edge as blocks
+are mined; it reaches that edge on the final unpriced day. Later frames expand
+the axis through their current block as before. The future boundary height sets
+layout only: prices, supply, and KPIs use observations through the current frame.
+Exports ending within the opening interval retain the same partial reveal.
 
 Landscape PNG and video share one reference layout, scaled from 1920 × 1080
 coordinates. The timestamp is above Block Height at the upper left; Epoch,

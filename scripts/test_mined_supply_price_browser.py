@@ -102,6 +102,62 @@ def check_export_reference(cdp: CdpSocket, artifact_dir: Path | None) -> None:
             assert actual["text"] == expected["text"] and abs(actual["x"] - expected["x"]) < .01 and abs(actual["y"] - expected["y"]) < .01, (actual, expected)
 
 
+def check_opening_reveal(cdp: CdpSocket) -> None:
+    result = cdp.evaluate("""(async () => {
+      const G = WSBMinedSupplyPriceChart;
+      const published = G.parse(await (await fetch('../../assets/daily_price.csv')).text());
+      // Uneven block spacing ensures the reveal follows height, not row count.
+      const synthetic = [0, 0, 0, 0, .001, .002].map((price, i) => ({price,
+        height: [0, 2, 7, 10, 15, 20][i], supply: i * 50,
+        time: Date.UTC(2009, 0, 3 + i), timestamp: '2009-01-03 00:00:00'}));
+      const results = [];
+      for (const rows of [published, synthetic, synthetic.slice(0, 4)]) {
+        const lastZero = rows.findIndex(row => row.price > 0) < 0 ? rows.length - 1 : rows.findIndex(row => row.price > 0) - 1;
+        for (const orientation of ['landscape', 'portrait', 'square']) for (const theme of ['dark', 'light']) {
+          const {width, height} = WSBDashboardExport.getDimensions({quality: '720', orientation});
+          const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          let points = [], observed = [];
+          for (const name of ['beginPath', 'moveTo', 'lineTo', 'stroke']) {
+            const original = ctx[name].bind(ctx);
+            ctx[name] = (...args) => {
+              if (name === 'beginPath') points = [];
+              if (name === 'moveTo' || name === 'lineTo') points.push({move: name === 'moveTo', x: args[0], y: args[1]});
+              if (name === 'stroke' && ctx.strokeStyle === '#ffffff' && Math.abs(ctx.lineWidth - 2.1) < .001) observed = points.slice();
+              return original(...args);
+            };
+          }
+          for (const index of [...new Set([0, 1, Math.floor(lastZero / 2), lastZero, Math.min(lastZero + 1, rows.length - 1)])]) {
+            G.render(ctx, width, height, rows, index, {theme, export: true, branded: true});
+            const left = orientation === 'landscape' ? 709 : orientation === 'portrait' ? 20 : 32;
+            const right = orientation === 'landscape' ? 1876 : orientation === 'portrait' ? 1060 : 1048;
+            const fraction = (rows[Math.min(index, lastZero)].height - rows[0].height) /
+              Math.max(1, rows[Math.max(index, lastZero)].height - rows[0].height);
+            results.push({orientation, theme, index, lastZero, left, right, fraction, points: observed});
+          }
+        }
+      }
+      const milestones = G.exportMilestones(published);
+      const sampled = [0.5, 1, 2, 4].map(speed => {
+        const frames = WSBDashboardExport.buildDailyFrameIndices(0, published.length - 1, {speed, milestones});
+        return milestones.every(index => frames.includes(index));
+      });
+      return {results, sampled, empty: G.exportMilestones([]), priced: G.exportMilestones(synthetic.slice(4))};
+    })()""")
+    assert all(result['sampled']) and result['empty'] == result['priced'] == [], result
+    for frame in result['results']:
+        points, index, last = frame['points'], frame['index'], frame['lastZero']
+        assert len(points) == index + 1, frame
+        endpoint = points[min(index, last)]
+        expected = frame['left'] + frame['fraction'] * (frame['right'] - frame['left'])
+        assert abs(endpoint['x'] - expected) < .001, frame
+        assert all(abs(point['y'] - points[0]['y']) < .001 for point in points[:last + 1]), frame
+        if index < last:
+            assert endpoint['x'] < frame['right'], frame
+        if index > last:
+            assert points[-1]['move'] and points[-1]['y'] < endpoint['y'], frame
+
+
 def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None:
     # Replace the shared feed at its script boundary; no live endpoints are used.
     cdp.command("Page.addScriptToEvaluateOnNewDocument", {"source": """
@@ -139,6 +195,7 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
     })""")).get("model", {}).get("rows", 0) > 100 else None), description="mined supply dashboard")
     assert not initial["error"] and initial["size"][0] > 500 and initial["size"][1] > 300, initial
     check_export_reference(cdp, artifact_dir)
+    check_opening_reveal(cdp)
     assert initial["model"]["startIndex"] == 0, "Full range must include Not Valued history"
     assert cdp.evaluate("document.getElementById('startDateBtn').disabled && !document.getElementById('dateRangeStartSlider') && document.getElementById('rangeDaysInput').readOnly"), "Start must stay locked with only one handle"
     assert cdp.evaluate("!document.getElementById('kpiHeight')"), "Block chip duplicates Updated"
@@ -242,12 +299,15 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
       const originalEncode = WSBDashboardExport.encodeVideo;
       const originalRender = WSBMinedSupplyPriceChart.render;
       const observed = [];
+      let milestonesPreserved = false;
       const publishedPrice = WSBMinedSupplyPriceChart.parse(await (await fetch('../../assets/daily_price.csv')).text()).at(-1).price;
       WSBMinedSupplyPriceChart.render = (ctx, width, height, rows, index, options) => {
         if (options.export) observed.push({index, price: rows[index].price});
         return originalRender(ctx, width, height, rows, index, options);
       };
       WSBDashboardExport.encodeVideo = async (config) => {
+        const history = WSBMinedSupplyPriceChart.parse(await (await fetch('../../assets/daily_price.csv')).text());
+        milestonesPreserved = WSBMinedSupplyPriceChart.exportMilestones(history).every(index => config.frames.includes(index));
         await config.renderFrame(config.frames[0], config.canvas, 0);
         window.__spotEmit(345678.90);
         await config.renderFrame(config.frames.at(-1), config.canvas, config.frames.length - 1);
@@ -260,13 +320,13 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
         document.getElementById('downloadVideo').click();
         for (let i = 0; i < 100 && WSBMinedSupplyPriceDashboard.getState().exporting; i++)
           await new Promise(resolve => setTimeout(resolve, 20));
-        return {observed, publishedPrice, recovered: !WSBMinedSupplyPriceDashboard.getState().exporting && !document.getElementById('downloadImage').disabled};
+        return {observed, publishedPrice, milestonesPreserved, recovered: !WSBMinedSupplyPriceDashboard.getState().exporting && !document.getElementById('downloadImage').disabled};
       } finally {
         WSBDashboardExport.encodeVideo = originalEncode;
         WSBMinedSupplyPriceChart.render = originalRender;
       }
     })()""")
-    assert frozen["recovered"] and len(frozen["observed"]) == 3, frozen
+    assert frozen["recovered"] and frozen["milestonesPreserved"] and len(frozen["observed"]) == 3, frozen
     assert cdp.evaluate("document.getElementById('startDateBtn').disabled && !document.getElementById('dateRangeStartSlider')"), "Export recovery unlocked Start"
     assert frozen["observed"][0]["index"] == frozen["observed"][-1]["index"], frozen
     assert frozen["observed"][0]["price"] == frozen["publishedPrice"], frozen
@@ -275,13 +335,14 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
     videos = cdp.evaluate("""(async () => {
       const rows = WSBMinedSupplyPriceChart.parse(await (await fetch('../../assets/daily_price.csv')).text());
       const firstPriced = rows.findIndex(row => row.price > 0), results = {};
+      const frames = [0, 1, Math.floor((firstPriced - 1) / 2), firstPriced - 1, firstPriced, rows.length - 1];
       for (const orientation of ['landscape', 'portrait', 'square']) {
         const settings = { quality: '720', orientation, theme: 'dark' };
         const { width, height } = WSBDashboardExport.getDimensions(settings);
         const canvas = document.createElement('canvas');
         const blob = await WSBDashboardExport.encodeVideo({
           canvas, width, height, fps: 2, settings,
-          frames: [firstPriced - 1, firstPriced, rows.length - 1],
+          frames,
           renderFrame: async (i, target) => WSBMinedSupplyPriceChart.render(
             target.getContext('2d'), width, height, rows, i, { theme: 'dark', export: true, branded: true }),
         });
@@ -296,9 +357,26 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
           const pixel = ctx.getImageData(Math.floor(width * .7), Math.floor(height * (orientation === 'landscape' ? .5 : .8)), 1, 1).data;
           results[orientation] = { size: blob.size, extension: WSBDashboardExport.videoExtension(blob),
             width: player.videoWidth, height: player.videoHeight, duration: player.duration, pixel: [...pixel] };
+          const finalImage = decoded.toDataURL('image/png');
+          await new Promise((resolve, reject) => { player.onseeked = resolve; player.onerror = reject; player.currentTime = 1.25; });
+          ctx.drawImage(player, 0, 0);
+          const u = width / (orientation === 'landscape' ? 1920 : 1080);
+          const left = (orientation === 'landscape' ? 709 : orientation === 'portrait' ? 20 : 32) * u;
+          const right = (orientation === 'landscape' ? 1876 : orientation === 'portrait' ? 1060 : 1048) * u;
+          const bottom = (orientation === 'landscape' ? 911 : orientation === 'portrait' ? 1801 : 949) * u;
+          const stripe = ctx.getImageData(Math.ceil(left), Math.floor(bottom) - 2, Math.floor(right - left) - 2, 4);
+          const xs = [];
+          for (let i = 0; i < stripe.data.length; i += 4) {
+            if (stripe.data[i] > 145 && stripe.data[i + 1] > 145 && stripe.data[i + 2] > 145)
+              xs.push(Math.ceil(left) + (i / 4) % stripe.width);
+          }
+          results[orientation].openingEnd = Math.max(...xs);
+          results[orientation].expectedOpeningEnd = left + (rows[frames[2]].height - rows[0].height) /
+            (rows[firstPriced - 1].height - rows[0].height) * (right - left);
           if (__SAVE_ARTIFACTS__) {
             results[orientation].data = await new Promise(resolve => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.readAsDataURL(blob); });
-            results[orientation].frame = decoded.toDataURL('image/png');
+            results[orientation].frame = finalImage;
+            results[orientation].opening = decoded.toDataURL('image/png');
           }
         } finally { player.removeAttribute('src'); player.load(); URL.revokeObjectURL(url); }
       }
@@ -306,7 +384,9 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
     })()""".replace("__SAVE_ARTIFACTS__", "true" if artifact_dir else "false"))
     for orientation, expected in (("landscape", (1280, 720)), ("portrait", (720, 1280)), ("square", (720, 720))):
         result = videos[orientation]
+        assert abs(result['openingEnd'] - result['expectedOpeningEnd']) < 4, result
         if artifact_dir:
+            (artifact_dir / f"{orientation}-opening-video-frame.png").write_bytes(base64.b64decode(result.pop("opening").split(",", 1)[1]))
             (artifact_dir / f"{orientation}.{result['extension']}").write_bytes(base64.b64decode(result.pop("data").split(",", 1)[1]))
             (artifact_dir / f"{orientation}-video-frame.png").write_bytes(base64.b64decode(result.pop("frame").split(",", 1)[1]))
         assert (result["width"], result["height"]) == expected and result["duration"] >= 1.4, result

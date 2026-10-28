@@ -56,14 +56,24 @@ INSTRUMENT = r"""
     return wordmark(ctx,bounds,settings);
   };
   const inspect=(ctx,url,metrics,settings,callback)=>{
-    const images=[],footerText=[],native=ctx.drawImage,nativeText=ctx.fillText;
-    ctx.fillText=function(text,...args){footerText.push(String(text));return nativeText.call(ctx,text,...args);};
+    const images=[],footerText=[],textBounds=[],native=ctx.drawImage,nativeText=ctx.fillText;
+    const inverse=ctx.getTransform().inverse();
+    ctx.fillText=function(text,...args){
+      footerText.push(String(text));
+      const bounds=ctx.measureText(text),transform=ctx.getTransform(),[x,y]=args;
+      const points=[-bounds.actualBoundingBoxLeft,bounds.actualBoundingBoxRight].flatMap(dx=>
+        [-bounds.actualBoundingBoxAscent,bounds.actualBoundingBoxDescent].map(dy=>
+          inverse.transformPoint(transform.transformPoint({x:x+dx,y:y+dy}))));
+      textBounds.push({text:String(text),left:Math.min(...points.map(p=>p.x)),right:Math.max(...points.map(p=>p.x))});
+      return nativeText.call(ctx,text,...args);
+    };
     ctx.drawImage=function(image,...args){
       const derived=image instanceof HTMLCanvasElement;
       const src=image.src||(derived?'/webapps/shared/export_assets/'+(image.width>image.height?'bitcoin-wordmark.jpg':'wicked-apple.png'):'');
       images.push({src,derived,x:args[0],y:args[1],width:args[2],height:args[3]});return native.call(ctx,image,...args);
     };
-    try{const layout=callback();F.renders.push({url,metrics,settings,layout,images,footerText,wordmark:F.wordmark});}
+    try{const layout=callback();F.renders.push({url,metrics,settings,layout,images,footerText,textBounds,wordmark:F.wordmark,
+      outputWidth:ctx.canvas.width,outputHeight:ctx.canvas.height});}
     finally{ctx.drawImage=native;ctx.fillText=nativeText;}
   };
   B.drawFooterStrip=(ctx,url,metrics,settings)=>inspect(ctx,url,metrics,settings,()=>draw(ctx,url,metrics,settings));
@@ -89,7 +99,7 @@ DECODE = r"""
     const ctx=canvas.getContext('2d');ctx.drawImage(bitmap||video,0,0);bitmap?.close();
     // Estimate calibration can draw another footer after the requested PNG.
     const render=(item.blob.type==='image/png'
-      ? __footerTest.renders.findLast(entry=>entry.metrics.width===canvas.width&&entry.metrics.height===canvas.height)
+      ? __footerTest.renders.findLast(entry=>entry.outputWidth===canvas.width&&entry.outputHeight===canvas.height)
       : null)||__footerTest.renders.at(-1);
     const decodedImages=render.images.map(image=>{
       const x=Math.floor(image.x*canvas.width/render.metrics.width),y=Math.floor(image.y*canvas.height/render.metrics.height);
@@ -141,6 +151,12 @@ def assert_light_branding(result, *, wordmark=False):
 
 def assert_footer_url(result):
     render = result["render"]
+    creator = next(text for text in render["textBounds"] if text["text"] == "CREATOR")
+    qr = next(image for image in render["images"] if image["src"].endswith("qr_lightning.png"))
+    address = [text for text in render["textBounds"] if text["text"] in ("wicked", "@primal.net")]
+    assert abs(creator["left"] - (render["metrics"]["width"] - max(text["right"] for text in address))) < .01, ("Unequal outer footer margins", render)
+    assert all(text["left"] > qr["x"] + qr["width"] for text in address), ("Donation address must stay to the right of the QR", render)
+    assert all(0 <= text["left"] <= text["right"] <= render["metrics"]["width"] for text in render["textBounds"]), render
     urls = [text for text in render["footerText"] if text.startswith("https://wickedsmartbitcoin.com/")]
     if result["width"] <= result["height"]:
         assert urls == [] and render["layout"]["url"] is None, ("Portrait or square footer still includes website URL", render)
@@ -217,9 +233,10 @@ def main():
                     assert result["name"].endswith("." + extension), result
                     if args.images_only:
                         assert result["type"] == "image/png", result
-                        assert (result["width"], result["height"]) == {
-                            "landscape": (3840, 2160), "portrait": (2160, 3840), "square": (2160, 2160),
-                        }[orientation], result
+                        if slug != "node_count":
+                            assert (result["width"], result["height"]) == {
+                                "landscape": (3840, 2160), "portrait": (2160, 3840), "square": (2160, 2160),
+                            }[orientation], result
                     if slug == "node_count":
                         assert (result["width"], result["height"]) == (3840, 2160), result
                     assert result["errors"] == [], result["errors"]
