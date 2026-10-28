@@ -129,6 +129,11 @@ block and show that the live connection is unavailable. A validated replacement
 block can change the timestamp at the same height or move the tip backward;
 in-flight REST responses cannot overwrite a newer socket event.
 
+The block card's cube icon opens the displayed block on mempool.space in a new
+tab. Its link follows the displayed height through live updates, publications,
+and reorganizations, retaining the last displayed block during feed failures.
+It becomes keyboard-accessible when the first block loads.
+
 The block card's elapsed counter updates every second while visible, using the
 displayed block's miner timestamp rather than fetch or page-load time. Its bar
 fills at 10 minutes, then expands its scale with the elapsed time. Tick marks

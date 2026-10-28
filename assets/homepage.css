@@ -91,6 +91,10 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
 .snapshot-card-heading h3 { margin: 0; font-size: 12px; font-weight: 500; color: var(--home-muted); }
 .snapshot-heading-short { display: none; }
 .snapshot-card-heading svg { width: 20px; height: 20px; color: var(--home-muted); }
+.snapshot-block-link { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 24px; height: 24px; margin: -2px 0; border-radius: 4px; color: var(--home-muted); }
+.snapshot-card-heading .snapshot-block-link svg { display: block; color: inherit; }
+.snapshot-block-link[href]:hover, .snapshot-block-link:focus-visible { color: var(--home-accent); }
+.snapshot-block-link:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
 .snapshot-heading-narrow { display: none; }
 .snapshot-difficulty-heading { justify-content: flex-start; flex-wrap: wrap; gap: 4px 8px; }
 .snapshot-difficulty-heading h3 { white-space: nowrap; }

@@ -1,0 +1,42 @@
+name: Bump site version after PR merge
+
+on:
+  pull_request_target:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: read
+  actions: write
+
+concurrency:
+  group: site-version-main
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  bump:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Only trusted main code runs with write permissions; never check out PR heads.
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Increment the patch version once for this PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python3 scripts/bump_site_version.py --repository "$GITHUB_REPOSITORY" --pr "$PR_NUMBER" --publish
+
+      # GITHUB_TOKEN commits do not trigger push workflows. Also dispatch on a
+      # rerun whose bump already succeeded, so a failed dispatch can be recovered.
+      - name: Deploy the updated version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy-pages.yml --repo "$GITHUB_REPOSITORY" --ref main
