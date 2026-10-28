@@ -10,6 +10,11 @@
   const EXPORT_TYPE = Object.freeze({ label: 26.667, value: 46.667, height: 32, heading: 37.333, percent: 50.667, year: 18, halving: 29.333 });
   const { parse, prepareCandidate, latestIndexAtDate, withLiveQuote } = window.WSBDailyPriceHistory;
   const exportMilestones = window.WSBDailyPriceHistory.openingPriceMilestones;
+  function formatExportPrice(price) {
+    if (!(price > 0)) return "Not valued";
+    if (price < 0.1) return `${Number((price * 100).toPrecision(8))}¢`;
+    return `$${MONEY.format(price)}`;
+  }
   function summary(row) {
     const displayTime = row.quoteAt || Date.parse(row.timestamp.replace(" ", "T") + "Z") || row.time;
     return { date: DATE.format(row.time), datetime: `${DATE.format(displayTime)} ${new Date(displayTime).toISOString().slice(11, 16)}`, height: integer.format(row.height), epoch: Math.floor(row.height / HALVING) + 1,
@@ -206,7 +211,7 @@
     text("Mined Supply", 285, 151, EXPORT_TYPE.label, muted, "center");
     text(`${s.supply} BTC`, 285, 195, EXPORT_TYPE.value, colors.text, "center", 506);
     text("Price (BTCUSD)", 805, 151, EXPORT_TYPE.label, muted, "center");
-    text(s.price, 805, 195, EXPORT_TYPE.value, colors.text, "center", 486);
+    text(formatExportPrice(row.price), 805, 195, EXPORT_TYPE.value, colors.text, "center", 486);
   }
   function renderSquareExport(ctx, width, height, rows, endIndex, colors, options) {
     ctx.save(); ctx.scale(width / 1080, height / 1080);
@@ -254,7 +259,7 @@
     text("Mined Supply", 1245, 49, EXPORT_TYPE.label, colors.muted);
     text(`${s.supply} BTC`, 1245, 93, EXPORT_TYPE.value);
     text("Price (BTCUSD)", 1729, 49, EXPORT_TYPE.label, colors.muted);
-    text(s.price, 1729, 93, EXPORT_TYPE.value);
+    text(formatExportPrice(row.price), 1729, 93, EXPORT_TYPE.value);
     text("Percentage of", 365, 194, EXPORT_TYPE.heading, colors.muted);
     text("21M BTC Mined", 365, 241, EXPORT_TYPE.heading, colors.muted);
     const size = 662 / 0.94;

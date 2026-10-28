@@ -52,6 +52,12 @@ capture one quote after export assets load; a latest-view video captures one
 quote at its final motion frame and holds it through the ending pause.
 MP4 is preferred, with WebM when H.264 is unavailable.
 
+In every PNG and video orientation, the Price KPI uses cents (`¢`) for positive
+prices below $0.10, preserving small historical values (for example, $0.0007
+becomes `0.07¢`). At $0.10 and above it uses dollars with two decimal places.
+This export-specific threshold intentionally differs from the shared $1 default;
+unpriced history remains `Not valued`.
+
 During the opening Not Valued interval, exported frames reserve the block-height
 span through the actual last unpriced day, matching Price Distribution's growing
 opening line. The baseline advances from genesis to the right edge as blocks
