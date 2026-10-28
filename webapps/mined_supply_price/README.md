@@ -62,8 +62,14 @@ and the vertical halving labels have clearance from their divider lines.
 The shared footer retains the site's current creator and donation details.
 
 Square and portrait exports keep every KPI at the top, with datetime above
-Block Height at the upper left. The donut sits above the price chart. Square
-halving labels use smaller type to stay below the price line.
+Block Height at the upper left. All three orientations share the landscape
+reference's regular DejaVu Sans KPI sizes, muted label colors, and ungrouped
+block height. The donut sits above the price chart in portrait and square;
+its heading uses the reference typography and its center values scale in
+proportion to its radius. Year labels rotate 45° with room above the footer.
+Square halving labels use smaller type to stay below the price line, with the
+same proportional clearance from the divider as the other orientations.
+Each orientation scales one fixed composition for image and video output.
 Each layout shares its donut heading placement between PNG and video, with
 fixed halving dividers, an unoutlined mined boundary, and a separated Not Valued
 baseline. Chart text and line weights scale with the export resolution.
@@ -78,11 +84,11 @@ mobile widths, and standalone expansion with
 `python3 scripts/test_mined_supply_price_browser.py` from the repository root.
 Add `--artifacts /private/tmp/mined-supply-exports` to save each PNG, video, and
 decoded final video frame for visual inspection.
-The suite also renders an isolated March 13, 2026 reference snapshot in both
-themes, checks header clearance and circle geometry, and compares normalized
-label positions at 720p, 1080p, and 2160p. With `--artifacts`, the reference
-images are saved as `landscape-reference-dark.png` and
-`landscape-reference-light.png`; published data is never changed.
+The suite also renders an isolated March 13, 2026 reference snapshot in all
+three orientations and both themes. It checks shared KPI fonts, header and
+footer clearance, circle geometry, and matching normalized label positions
+at PNG and video resolutions. With `--artifacts`, reference images are saved
+as `<orientation>-reference-<theme>.png`; published data is never changed.
 
 Chart inspection uses `shared/dashboard_chart_tooltip.js` and the shared compact
 tooltip style: 12px Space Grotesk, an 8px radius, theme-aware surfaces, bold

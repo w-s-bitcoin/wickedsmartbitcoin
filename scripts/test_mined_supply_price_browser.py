@@ -28,7 +28,7 @@ class Handler(QuietHandler):
         super().__init__(*args, directory=str(ROOT), **kwargs)
 
 
-def check_landscape_reference(cdp: CdpSocket, artifact_dir: Path | None) -> None:
+def check_export_reference(cdp: CdpSocket, artifact_dir: Path | None) -> None:
     result = cdp.evaluate("""(async () => {
       await WSBDashboardExportBranding.ready();
       const history = WSBMinedSupplyPriceChart.parse(await (await fetch('../../assets/daily_price.csv')).text());
@@ -38,38 +38,56 @@ def check_landscape_reference(cdp: CdpSocket, artifact_dir: Path | None) -> None
       rows[rows.length - 1] = { ...rows.at(-1), timestamp: '2026-03-13 19:00:00',
         height: 940548, supply: 20001715.625, price: 71071.70 };
       const results = [];
-      for (const theme of ['dark', 'light']) for (const width of [1920, 1280, 3840]) {
-        const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = width * 9 / 16;
-        const ctx = canvas.getContext('2d'), labels = [], circles = [], unit = width / 1920;
-        const fillText = ctx.fillText.bind(ctx), arc = ctx.arc.bind(ctx);
-        ctx.fillText = (text, x, y, ...rest) => {
-          const m = ctx.getTransform(), p = m.transformPoint({x, y}), bounds = ctx.measureText(text);
-          labels.push({text, x: p.x / unit, y: p.y / unit, font: ctx.font, fontSize: Number(ctx.font.match(/([0-9.]+)px/)[1]), color: ctx.fillStyle,
-            angle: Math.atan2(m.b, m.a), left: (p.x - bounds.actualBoundingBoxLeft * Math.hypot(m.a, m.b)) / unit,
-            right: (p.x + bounds.actualBoundingBoxRight * Math.hypot(m.a, m.b)) / unit});
-          fillText(text, x, y, ...rest);
-        };
-        ctx.arc = (x, y, radius, ...rest) => {
-          const m = ctx.getTransform(), p = m.transformPoint({x, y});
-          circles.push({x: p.x / unit, y: p.y / unit, radius: radius * Math.hypot(m.a, m.b) / unit});
-          arc(x, y, radius, ...rest);
-        };
-        WSBMinedSupplyPriceChart.render(ctx, width, canvas.height, rows, rows.length - 1,
-          {theme, export: true, branded: true});
-        const result = {theme, width, labels, circle: circles[0]};
-        if (__SAVE_ARTIFACTS__ && width === 1920) result.data = canvas.toDataURL('image/png');
-        results.push(result);
+      for (const orientation of ['landscape', 'portrait', 'square']) for (const theme of ['dark', 'light']) {
+        const baseWidth = orientation === 'landscape' ? 1920 : 1080;
+        for (const width of [baseWidth, orientation === 'landscape' ? 1280 : 720, orientation === 'landscape' ? 3840 : 2160]) {
+          const canvas = document.createElement('canvas'); canvas.width = width;
+          canvas.height = width * (orientation === 'landscape' ? 9 / 16 : orientation === 'portrait' ? 16 / 9 : 1);
+          const ctx = canvas.getContext('2d'), labels = [], circles = [], unit = width / baseWidth;
+          const fillText = ctx.fillText.bind(ctx), arc = ctx.arc.bind(ctx);
+          ctx.fillText = (text, x, y, ...rest) => {
+            const m = ctx.getTransform(), p = m.transformPoint({x, y}), bounds = ctx.measureText(text);
+            const corners = [-bounds.actualBoundingBoxLeft, bounds.actualBoundingBoxRight].flatMap(dx =>
+              [-bounds.actualBoundingBoxAscent, bounds.actualBoundingBoxDescent].map(dy => m.transformPoint({x: x + dx, y: y + dy})));
+            labels.push({text, x: p.x / unit, y: p.y / unit, font: ctx.font, fontSize: Number(ctx.font.match(/([0-9.]+)px/)[1]), color: ctx.fillStyle,
+              top: Math.min(...corners.map(p => p.y)) / unit, bottom: Math.max(...corners.map(p => p.y)) / unit,
+              angle: Math.atan2(m.b, m.a), left: (p.x - bounds.actualBoundingBoxLeft * Math.hypot(m.a, m.b)) / unit,
+              right: (p.x + bounds.actualBoundingBoxRight * Math.hypot(m.a, m.b)) / unit});
+            fillText(text, x, y, ...rest);
+          };
+          ctx.arc = (x, y, radius, ...rest) => {
+            const m = ctx.getTransform(), p = m.transformPoint({x, y});
+            circles.push({x: p.x / unit, y: p.y / unit, radius: radius * Math.hypot(m.a, m.b) / unit});
+            arc(x, y, radius, ...rest);
+          };
+          WSBMinedSupplyPriceChart.render(ctx, width, canvas.height, rows, rows.length - 1,
+            {theme, export: true, branded: true});
+          const result = {orientation, theme, width, baseWidth, labels, circle: circles[0]};
+          if (__SAVE_ARTIFACTS__ && width === baseWidth) result.data = canvas.toDataURL('image/png');
+          results.push(result);
+        }
       }
       return results;
     })()""".replace("__SAVE_ARTIFACTS__", "true" if artifact_dir else "false"))
     for rendering in result:
         if artifact_dir and "data" in rendering:
-            (artifact_dir / f"landscape-reference-{rendering['theme']}.png").write_bytes(
+            (artifact_dir / f"{rendering['orientation']}-reference-{rendering['theme']}.png").write_bytes(
                 base64.b64decode(rendering.pop("data").split(",", 1)[1]))
         labels = {label["text"]: label for label in rendering["labels"]}
         circle = rendering["circle"]
-        assert abs(circle["x"] - 365) < 1 and abs(circle["y"] - 613) < 1, circle
-        assert abs(circle["radius"] - 331) < 1, circle
+        if rendering["orientation"] == "landscape":
+            assert abs(circle["x"] - 365) < 1 and abs(circle["y"] - 613) < 1, circle
+            assert abs(circle["radius"] - 331) < 1, circle
+        else:
+            assert abs(circle["x"] - 540) < 1, circle
+            assert labels["20,001,715.625 BTC"]["bottom"] + 10 < labels["Percentage of 21M BTC Mined"]["top"], labels
+            footer_top = 1854 if rendering["orientation"] == "portrait" else 1002
+            assert all(label["bottom"] < footer_top for label in rendering["labels"] if label["text"].isdigit() and len(label["text"]) == 4), labels
+        landscape = next(item for item in result if item["theme"] == rendering["theme"] and item["orientation"] == "landscape" and item["width"] == 1920)
+        landscape_labels = {label["text"]: label for label in landscape["labels"]}
+        for text in ["Block Height:", "940548", "Epoch", "5", "Block Subsidy", "3.125 BTC", "Mined Supply", "20,001,715.625 BTC", "Price (BTCUSD)", "$71,071.70"]:
+            assert labels[text]["font"] == landscape_labels[text]["font"] and labels[text]["color"] == landscape_labels[text]["color"], labels[text]
+        assert abs(labels["95.2%"]["fontSize"] / circle["radius"] - landscape_labels["95.2%"]["fontSize"] / 331) < .001, circle
         assert labels["Block Height:"]["right"] + 8 < labels["940548"]["left"], labels
         assert labels["940548"]["right"] + 60 < labels["5"]["left"], labels
         assert 44 <= labels["20,001,715.625 BTC"]["fontSize"] <= 49, labels
@@ -78,7 +96,8 @@ def check_landscape_reference(cdp: CdpSocket, artifact_dir: Path | None) -> None
         assert abs(labels["2012"]["angle"] + 3.141592653589793 / 4) < .001, labels
         assert labels["95.2%"]["right"] - labels["95.2%"]["left"] < 175, labels
         # The normalized chart layout must be identical at PNG and video sizes.
-        baseline = next(item for item in result if item["theme"] == rendering["theme"] and item["width"] == 1920)
+        baseline = next(item for item in result if item["theme"] == rendering["theme"] and item["orientation"] == rendering["orientation"] and item["width"] == rendering["baseWidth"])
+        assert len(rendering["labels"]) == len(baseline["labels"])
         for actual, expected in zip(rendering["labels"], baseline["labels"]):
             assert actual["text"] == expected["text"] and abs(actual["x"] - expected["x"]) < .01 and abs(actual["y"] - expected["y"]) < .01, (actual, expected)
 
@@ -119,7 +138,7 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
       size: [document.getElementById('dashboardCanvas')?.width, document.getElementById('dashboardCanvas')?.height],
     })""")).get("model", {}).get("rows", 0) > 100 else None), description="mined supply dashboard")
     assert not initial["error"] and initial["size"][0] > 500 and initial["size"][1] > 300, initial
-    check_landscape_reference(cdp, artifact_dir)
+    check_export_reference(cdp, artifact_dir)
     assert initial["model"]["startIndex"] == 0, "Full range must include Not Valued history"
     assert cdp.evaluate("document.getElementById('startDateBtn').disabled && !document.getElementById('dateRangeStartSlider') && document.getElementById('rangeDaysInput').readOnly"), "Start must stay locked with only one handle"
     assert cdp.evaluate("!document.getElementById('kpiHeight')"), "Block chip duplicates Updated"
@@ -320,7 +339,7 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
     wait_for(lambda: cdp.evaluate("document.body.classList.contains('mined-supply-dashboard-expanded')"),
              description="standalone expand message")
     assert embedded["frame"] and cdp.evaluate("document.body.classList.contains('mined-supply-dashboard-expanded')"), embedded
-    print("Passed: reference landscape geometry and typography at PNG/video resolutions in both themes, shared controls, live/retained/historical price, genesis range, playback, three decoded PNG/video layouts, frozen live final frame, mobile widths, and standalone expand")
+    print("Passed: reference geometry and shared typography across all orientations at PNG/video resolutions in both themes, shared controls, live/retained/historical price, genesis range, playback, three decoded PNG/video layouts, frozen live final frame, mobile widths, and standalone expand")
 
 
 def main() -> None:
