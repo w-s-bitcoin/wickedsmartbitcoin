@@ -8,8 +8,9 @@
     while (low < high) { const mid = (low + high) >> 1; if (rows[mid][key] < value) low = mid + 1; else high = mid; }
     return low > first && value - rows[low - 1][key] <= rows[low][key] - value ? low - 1 : low;
   }
-  function drawGuide(ctx, plot, x, y, light, { line = true } = {}) {
-    ctx.save(); ctx.beginPath(); ctx.rect(plot.x, plot.y, plot.width, plot.height); ctx.clip();
+  function drawGuide(ctx, plot, x, y, light, { line = true, clip = true } = {}) {
+    ctx.save();
+    if (clip) { ctx.beginPath(); ctx.rect(plot.x, plot.y, plot.width, plot.height); ctx.clip(); }
     ctx.strokeStyle = light ? "rgba(75,85,99,.55)" : "rgba(180,180,180,.7)";
     if (line) {
       ctx.lineWidth = 1; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(x, plot.y); ctx.lineTo(x, plot.y + plot.height); ctx.stroke();

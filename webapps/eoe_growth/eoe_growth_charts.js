@@ -48,10 +48,10 @@
     return { ctx, width, height };
   }
   function getFrame(options) { return options.frame || window.WSBEOEGrowthModel.frame(options.model, options.endIndex ?? options.model.rows.length - 1); }
-  function geometry(plot) {
-    return { plot, valueToX: (value) => C.valueToX(value, -5000, 215000, plot),
-      valueToY: (value) => C.valueToY(value > 0 ? value : UNVALUED, LOW, HIGH, plot, "log"),
-      blockAtX: (value) => clamp(-5000 + (value - plot.left) / plot.width * 220000, 1, 210000) };
+  function geometry(plot, high = HIGH, firstBlock = -5000, lastBlock = 215000, low = LOW) {
+    return { plot, valueToX: (value) => C.valueToX(value, firstBlock, lastBlock, plot),
+      valueToY: (value) => C.valueToY(value > 0 ? value : UNVALUED, low, high, plot, "log"),
+      blockAtX: (value) => clamp(firstBlock + (value - plot.left) / plot.width * (lastBlock - firstBlock), 1, 210000) };
   }
   function nearest(rows, block) {
     if (window.WSBEOEGrowthModel.nearestRow) return window.WSBEOEGrowthModel.nearestRow(rows, block);
@@ -187,8 +187,22 @@
     const frame = getFrame(options), colors = palette(options.theme), compact = options.compact === true;
     const horizontal = rect.width < 700;
     ctx.save(); ctx.translate(rect.x || 0, rect.y || 0); ctx.fillStyle = colors.bg; ctx.fillRect(0, 0, rect.width, rect.height);
-    const plot = C.getPlotRect(rect.width, rect.height, compact ? {} : { left: rect.width < 400 ? 77 : 85, right: horizontal ? 22 : 145, top: 16, bottom: horizontal ? 110 : 58 });
-    const g = geometry(plot);
+    const plot = C.getPlotRect(rect.width, rect.height, compact ? (options.previewInsets || {}) : { left: rect.width < 400 ? 77 : 85, right: horizontal ? 22 : 145, top: 16, bottom: horizontal ? 110 : 58 });
+    let high = HIGH, low = LOW;
+    if (compact) {
+      let peak = UNVALUED;
+      for (const epoch of frame.epochs) for (const row of epoch.rows) {
+        if (row.price > 0) peak = Math.max(peak, row.price);
+        if (row.price > 0 && row.previousPrice > 0) peak = Math.max(peak, row.previousPrice);
+      }
+      // Fit the card to its plotted prices, with 3px clearance for the outline.
+      const span = Math.max(.001, Math.log10(peak / UNVALUED));
+      high = peak * 10 ** (span * 3 / Math.max(1, plot.height - 5));
+      low = UNVALUED / 10 ** (span * 2 / Math.max(1, plot.height - 5));
+    }
+    // The card already has outer insets; omit the full chart's extra 5,000
+    // blocks of horizontal breathing room on each side of the epoch.
+    const g = compact ? geometry(plot, high, 1, 210000, low) : geometry(plot, high);
     if (!compact) drawAxes(ctx, frame, g, { colors, fontSize: rect.width < 400 ? 10 : 12, shortCounts: horizontal, omitLeftEpochLabels: plot.width < 600 });
     drawSeries(ctx, frame, g, { colors, lineWidth: compact ? 1.25 : 1.7, markers: !compact });
     if (!compact) {

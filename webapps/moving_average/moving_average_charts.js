@@ -50,16 +50,17 @@
     }
     return [];
   }
-  function scaleGeometry(dataMin, dataMax, plot, logarithmic) {
+  function scaleGeometry(dataMin, dataMax, plot, logarithmic, bottomInset = 16) {
     const inset = Math.min(16, plot.height / 4);
+    bottomInset = Math.min(bottomInset, plot.height / 4);
     let min = logarithmic ? Math.log10(dataMin) : dataMin;
     let max = logarithmic ? Math.log10(dataMax) : dataMax;
     if (min === max) {
       const span = logarithmic ? 0.12 : dataMax * 0.08;
       min -= span / 2; max += span / 2;
     }
-    const padding = (max - min) * inset / Math.max(1, plot.height - inset * 2);
-    min -= padding; max += padding;
+    const scale = (max - min) / Math.max(1, plot.height - inset - bottomInset);
+    min -= scale * bottomInset; max += scale * inset;
     return { min, max, priceMin: logarithmic ? 10 ** min : min, priceMax: logarithmic ? 10 ** max : max,
       y: (value) => logarithmic && value <= 0 ? plot.bottom : C.valueToY(logarithmic ? Math.log10(value) : value, min, max, plot) };
   }
@@ -181,8 +182,9 @@
     // Blend the independently padded screen coordinates, as in the reference
     // animation. Data extrema retain exactly the same inset in every frame.
     const mix = Number.isFinite(options.scaleMix) ? Math.max(0, Math.min(1, options.scaleMix)) : scale === "log" ? 1 : 0;
-    const linearAxis = scaleGeometry(dataMin, dataMax, plot, false);
-    const logAxis = scaleGeometry(dataMin, dataMax, plot, true);
+    const bottomInset = compact ? (options.previewBottomInset ?? 16) : 16;
+    const linearAxis = scaleGeometry(dataMin, dataMax, plot, false, bottomInset);
+    const logAxis = scaleGeometry(dataMin, dataMax, plot, true, bottomInset);
     const x = (t) => C.valueToX(t, minTime, endTime, plot);
     const y = (v) => mix === 0 ? linearAxis.y(v) : mix === 1 ? logAxis.y(v) : linearAxis.y(v) * (1 - mix) + logAxis.y(v) * mix;
     function yToValue(at) {
@@ -285,7 +287,11 @@
     const colors = palette(theme), end = model.rows[endIndex], gap = 14;
     const activeIndices = lines.flatMap((line, index) => line.type === "none" ? [] : [index]);
     ctx.fillStyle = colors.bg; ctx.fillRect(0, 0, width, height);
-    const header = 8, footer = 8;
+    // Each compact panel already has 8px side gutters and a 16px top value inset.
+    const inset = options.previewInsets;
+    const left = Math.max(0, (inset?.left || 0) - 8), right = Math.max(0, (inset?.right || 0) - 8);
+    ctx.save(); ctx.translate(left, 0); width -= left + right;
+    const header = Math.max(8, (inset?.top || 0) - 16), footer = inset?.bottom ?? 8;
     const area = height - header - footer;
     const portrait = width < height;
     let layouts = portrait
@@ -303,9 +309,11 @@
       const bounds = position ? M.windowBounds(end.time, line.period, line.unit) : { startTime: model.rows[startIndex].time, endTime: end.time };
       panel(ctx, rect, { model, lines, series, endIndex, theme, compact, scale: scales[position ? lineIndex + 1 : 0],
         priceLineWidth: options.priceLineWidths?.[position],
+        previewBottomInset: inset ? 0 : 16,
         ...bounds,
         title: position ? windowTitle(line) : `Price & moving average${activeIndices.length === 1 ? "" : "s"}` });
     });
+    ctx.restore();
   }
   window.WSBMovingAverageCharts = { palette, setup, panel, composite, money, kpiMoney, indexAt, windowTitle, hoverValue };
 }());

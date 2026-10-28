@@ -30,7 +30,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="../shared/dashboard_shared.css?v=20261025-kpi-divider" />
-    <link rel="stylesheet" href="../shared/dashboard_controls.css?v=20261025-png" />
+    <link rel="stylesheet" href="../shared/dashboard_controls.css?v=20261027-block-search-2" />
   <style>
     :root {
       --bg: var(--dashboard-page-bg, #000);
@@ -239,108 +239,6 @@
     .dca-dropdown-trigger:focus-visible {
       outline: none;
       box-shadow: none;
-    }
-    .block-search-pill {
-      position: relative;
-      display: inline-flex;
-      align-items: center;
-      gap: 0;
-      min-height: unset;
-      padding: 0;
-      overflow: hidden;
-      vertical-align: top;
-    }
-    .block-search-target {
-      width: 34px;
-      align-self: stretch;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      border: 0;
-      border-right: 1px solid var(--card-border);
-      padding: 5px 0;
-      margin: 0;
-      border-radius: 999px 0 0 999px;
-      background: transparent;
-      color: var(--muted);
-      cursor: pointer;
-    }
-    .block-search-target:hover:not(:disabled),
-    .block-search-target:focus-visible,
-    .block-search-target.is-active {
-      color: var(--accent);
-    }
-    .block-search-target:disabled {
-      color: var(--control-disabled);
-      cursor: not-allowed;
-      opacity: 0.58;
-    }
-    .block-search-target svg {
-      width: 15px;
-      height: 15px;
-      fill: none;
-      stroke: currentColor;
-      stroke-width: 2.1;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-    .block-search-input {
-      width: 16ch;
-      min-width: 16ch;
-      border: 0;
-      outline: 0;
-      background: transparent;
-      color: var(--fg);
-      font: inherit;
-      font-variant-numeric: tabular-nums;
-      line-height: normal;
-      padding: 5px 11px;
-      margin: 0;
-    }
-    .block-search-pill.has-value .block-search-input {
-      padding-right: 30px;
-    }
-    .block-search-input::placeholder {
-      color: color-mix(in srgb, var(--muted) 66%, transparent);
-    }
-    .block-search-input:focus,
-    .block-search-input:focus-visible {
-      outline: none;
-      box-shadow: none;
-    }
-    .block-search-clear {
-      position: absolute;
-      right: 5px;
-      top: 50%;
-      width: 20px;
-      height: 20px;
-      display: none;
-      align-items: center;
-      justify-content: center;
-      border: 0;
-      padding: 0;
-      margin: 0;
-      background: transparent;
-      color: color-mix(in srgb, var(--muted) 82%, var(--fg));
-      cursor: pointer;
-      transform: translateY(-50%);
-    }
-    .block-search-clear svg {
-      width: 13px;
-      height: 13px;
-      display: block;
-      fill: none;
-      stroke: currentColor;
-      stroke-width: 2.4;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-    .block-search-clear:hover,
-    .block-search-clear:focus-visible {
-      color: var(--fg);
-    }
-    .block-search-pill.has-value .block-search-clear {
-      display: inline-flex;
     }
     .dca-dropdown.dca-dropdown-overlay {
       position: absolute;

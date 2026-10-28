@@ -14,6 +14,11 @@ window.WSBDailyHistoryDashboard = function (config) {
   const C = window.WSBDashboardComponents, E = window.WSBDashboardExport;
   const B = window.WSBDashboardExportBranding, Chart = config.chart;
   const STORAGE = config.storageKey, SPEEDS = [0.5, 1, 2, 4];
+  const blockTimeline = config.timeline === "blocks";
+  const markerUrl = Chart.MARKER || "../../assets/daily_price_metadata.json";
+  const markerSignature = (marker) => blockTimeline ? marker.signature : marker?.artifact?.sha256;
+  const olderHistory = (candidate) => rows.length && (candidate.rows.at(-1).height < rows.at(-1).height ||
+    (!blockTimeline && candidate.rows.at(-1).time < rows.at(-1).time));
   const $ = (id) => document.getElementById(id);
   const canvas = $("dashboardCanvas"), loader = $("chartLoader"), status = $("dashboardStatus");
   const tooltip = window.WSBDashboardChartTooltip.create(canvas);
@@ -27,6 +32,7 @@ window.WSBDailyHistoryDashboard = function (config) {
   let speed = validSpeed(initial.speed), playbackTarget = null, exporting = false, cancelExport = false;
   let previousReset = null, undoTimer = null, refreshSequence = 0, drag = null;
   let hover = null;
+  let selectedHeight = Number.isInteger(initial.selectedHeight) && initial.selectedHeight >= 0 ? initial.selectedHeight : null;
   let publishedAt = null, spotFeed = null, livePaintTimer = null;
   function usesLivePrice() { return tracksLatest && !playing && playbackTarget === null && index === rows.length - 1; }
   function selectedQuote() { return usesLivePrice() ? spotFeed?.newerThan(publishedAt) : null; }
@@ -54,11 +60,13 @@ window.WSBDailyHistoryDashboard = function (config) {
   });
   function viewState() {
     return { startDate: rows[startIndex]?.iso || "first", date: tracksLatest ? "latest" : rows[index]?.iso || "latest",
+      ...(blockTimeline ? { height: tracksLatest ? "latest" : index, pausedHeight: playbackTarget } : {}),
+      ...(config.blockSearch ? { selectedHeight } : {}),
       speed: String(speed), ...downloads.getSettings(), pausedTarget: playbackTarget === null ? null : rows[playbackTarget]?.iso };
   }
   function isDefault() {
     const s = viewState();
-    return s.startDate === (rows[0]?.iso || "first") && s.date === "latest" && s.orientation === "landscape" && s.quality === "720" && s.speed === "1" && s.exportSpeed === "1" && s.exportTheme === theme() && s.endHold;
+    return (!config.blockSearch || selectedHeight === null) && s.startDate === (rows[0]?.iso || "first") && s.date === "latest" && s.orientation === "landscape" && s.quality === "720" && s.speed === "1" && s.exportSpeed === "1" && s.exportTheme === theme() && s.endHold;
   }
   function persist() {
     try { localStorage.setItem(STORAGE, JSON.stringify(viewState())); } catch (_) {}
@@ -81,8 +89,13 @@ window.WSBDailyHistoryDashboard = function (config) {
   function installSelection(value) {
     tracksLatest = !isIso(value.date);
     index = tracksLatest ? rows.length - 1 : Chart.latestIndexAtDate(rows, value.date);
+    if (blockTimeline && Number.isInteger(value.height)) {
+      index = Math.max(0, Math.min(rows.length - 1, value.height)); tracksLatest = false;
+    }
     startIndex = 0; // Both charts always accumulate from Bitcoin genesis, including old saved links.
     playbackTarget = isIso(value.pausedTarget) ? Math.max(index, Chart.latestIndexAtDate(rows, value.pausedTarget)) : null;
+    if (blockTimeline && Number.isInteger(value.pausedHeight)) playbackTarget = Math.max(index, Math.min(rows.length - 1, value.pausedHeight));
+    if (config.blockSearch) selectedHeight = Number.isInteger(value.selectedHeight) && value.selectedHeight >= 0 && value.selectedHeight < rows.length ? value.selectedHeight : null;
   }
   function applySettings(value) {
     pausePlayback(); speed = validSpeed(value.speed); downloads.setSettings(value); installSelection(value); render(); persist();
@@ -93,20 +106,26 @@ window.WSBDailyHistoryDashboard = function (config) {
     const quote = selectedQuote(), row = Chart.withLiveQuote(rows, quote)[index], s = Chart.summary(row), max = rows.length - 1;
     const live = quote && spotFeed.isLive(quote);
     updatedChip?.setUpdated(quote ? new Date(quote.at).toISOString() : row.timestamp.replace(" ", "T") + "Z", { includeHeight: true, height: row.height });
-    const sourceDescription = quote ? `${live ? "Live" : "Retained"} ${quote.source} BTC/USD quote at ${new Date(quote.at).toISOString()}.`
+    const sourceDescription = blockTimeline ? `Published block ${row.height.toLocaleString("en-US")} at ${row.timestamp} UTC.` : quote ? `${live ? "Live" : "Retained"} ${quote.source} BTC/USD quote at ${new Date(quote.at).toISOString()}.`
       : `Published daily BTC/USD price for ${row.iso}.`;
-    $("priceLiveStatus").dataset.kind = quote ? (live ? "live" : "retained") : "published";
-    $("priceLiveStatus").setAttribute("aria-label", sourceDescription);
-    $("priceChip").title = sourceDescription;
+    if ($("priceLiveStatus")) {
+      $("priceLiveStatus").dataset.kind = quote ? (live ? "live" : "retained") : "published";
+      $("priceLiveStatus").setAttribute("aria-label", sourceDescription);
+      $("priceChip").title = sourceDescription;
+    }
     $("chipUpdated").title = `${sourceDescription} Block height and historical observations are from the publication at ${row.timestamp} UTC.`;
     for (const [id, value] of config.kpis(s)) $(id).textContent = value;
+    if (config.blockSearch) {
+      if (document.activeElement !== $("blockSearchInput")) $("blockSearchInput").value = selectedHeight === null ? "" : selectedHeight.toLocaleString("en-US");
+      $("blockSearchPill").classList.toggle("has-value", selectedHeight !== null || !!$("blockSearchInput").value);
+    }
     for (const [which, at] of [["start", startIndex], ["end", index]]) {
       const input = $(which + "DateInput"), button = $(which + "DateBtn");
       input.value = rows[at].iso; input.min = rows[which === "end" ? startIndex : 0].iso; input.max = rows[which === "start" ? index : max].iso;
       button.querySelector("span").textContent = dateLabel(rows[at].iso); button.querySelector("span").classList.remove("date-range-btn-placeholder"); button.querySelector("span").removeAttribute("aria-hidden");
       button.title = Chart.summary(rows[at]).date;
       const slider = $(which === "start" ? "dateRangeStartSlider" : "dateRangeEndSlider");
-      if (slider) { slider.min = 0; slider.max = max; slider.value = at; slider.setAttribute("aria-valuetext", rows[at].iso); }
+      if (slider) { slider.min = 0; slider.max = max; slider.value = at; slider.setAttribute("aria-valuetext", blockTimeline ? `Block ${at}, ${rows[at].iso}` : rows[at].iso); }
     }
     const percent = (i) => `${range.indexPercent(i)}%`;
     $("dateRangeSliderWrap").style.setProperty("--slider-start", percent(startIndex));
@@ -132,8 +151,10 @@ window.WSBDailyHistoryDashboard = function (config) {
     const width = Math.max(1, Math.round(rect.width)), height = Math.max(1, Math.round(rect.height));
     canvas.width = Math.round(width * dpr); canvas.height = Math.round(height * dpr);
     const ctx = canvas.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const inspection = Chart.render(ctx, width, height, Chart.withLiveQuote(rows, selectedQuote()), index, { theme: theme(), startIndex, hover: playing || drag || exporting ? null : hover });
-    tooltip.show(inspection, hover);
+    const inspection = Chart.render(ctx, width, height, Chart.withLiveQuote(rows, selectedQuote()), index, { theme: theme(), startIndex,
+      selectedHeight: config.blockSearch && !playing && !drag && !exporting ? selectedHeight : null,
+      hover: playing || drag || exporting || config.blockSearch ? null : hover });
+    tooltip.show(inspection, inspection?.pointer || hover);
     C.setChartLoaderVisible(loader, false);
   }
   function render() { if (rows.length) { syncKpis(); draw(); } }
@@ -167,8 +188,8 @@ window.WSBDailyHistoryDashboard = function (config) {
     timer = setInterval(() => {
       if (document.hidden) return;
       if (index >= playbackTarget) { pausePlayback(); persist(); return; }
-      select(Math.min(playbackTarget, index + Math.max(1, Math.round(speed * 7))));
-    }, 80);
+      select(Math.min(playbackTarget, index + Math.max(1, Math.round(speed * (blockTimeline ? 144 : 7)))));
+    }, blockTimeline ? 1000 / E.VIDEO_FPS : 80);
   }
   async function refresh() {
     if (exporting || drag) return;
@@ -176,10 +197,10 @@ window.WSBDailyHistoryDashboard = function (config) {
     try {
       const fetchFresh = async (url) => { const response = await fetch(url, { cache: "no-store" }); if (!response.ok) throw new Error(`History request returned HTTP ${response.status}.`); return response; };
       const candidate = await Chart.prepareCandidate(fetchFresh);
-      const recheck = await (await fetchFresh("../../assets/daily_price_metadata.json")).json();
-      if (recheck?.artifact?.sha256 !== candidate.signature) throw new Error("A newer publication arrived during refresh.");
+      const recheck = await (await fetchFresh(markerUrl)).json();
+      if (markerSignature(recheck) !== candidate.signature) throw new Error("A newer publication arrived during refresh.");
       if (sequence !== refreshSequence || exporting || drag) return;
-      if (rows.length && (candidate.rows.at(-1).time < rows.at(-1).time || candidate.rows.at(-1).height < rows.at(-1).height)) throw new Error("New history is older than the displayed version.");
+      if (olderHistory(candidate)) throw new Error("New history is older than the displayed version.");
       const selection = rows.length ? viewState() : initial;
       rows = candidate.rows; publishedAt = candidate.publishedAt; installSelection(selection); status.textContent = ""; render();
     } catch (error) {
@@ -192,6 +213,38 @@ window.WSBDailyHistoryDashboard = function (config) {
     if (which === "start" || !isIso(iso)) return;
     const at = Chart.latestIndexAtDate(rows, iso); setRange(which === "start" ? at : startIndex, which === "end" ? at : index);
   } });
+  if (config.editableCount) $("rangeDaysInput").addEventListener("change", () => {
+    const raw = $("rangeDaysInput").value.replaceAll(",", "").trim(), count = Number(raw);
+    if (!/^\d+$/.test(raw) || !Number.isInteger(count) || count < 1 || count > rows.length) {
+      status.textContent = `Enter a block count from 1 to ${rows.length.toLocaleString("en-US")}.`;
+      $("rangeDaysInput").value = (index + 1).toLocaleString("en-US"); return;
+    }
+    status.textContent = ""; setRange(0, count - 1);
+  });
+  if (config.blockSearch) {
+    function searchBlock() {
+      if (!rows.length || exporting) return;
+      const input = $("blockSearchInput"), raw = input.value.replaceAll(",", "").trim(), height = Number(raw);
+      if (raw && (!/^\d+$/.test(raw) || !Number.isInteger(height) || height < 0 || height >= rows.length)) {
+        input.setAttribute("aria-invalid", "true");
+        status.textContent = `Enter a block height from 0 to ${(rows.length - 1).toLocaleString("en-US")}.`; return;
+      }
+      input.removeAttribute("aria-invalid"); status.textContent = ""; pausePlayback(); playbackTarget = null;
+      selectedHeight = raw ? height : null; previousReset = null;
+      if (selectedHeight !== null && selectedHeight > index) index = selectedHeight;
+      render(); persist();
+      if (selectedHeight !== null) {
+        Chart.revealSelection?.(canvas, rows, selectedHeight); draw();
+      }
+    }
+    $("blockSearchTarget").addEventListener("click", searchBlock);
+    $("blockSearchInput").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") { event.preventDefault(); searchBlock(); }
+      if (event.key === "Escape") { event.preventDefault(); $("blockSearchInput").value = ""; searchBlock(); }
+    });
+    $("blockSearchInput").addEventListener("input", () => $("blockSearchPill").classList.toggle("has-value", !!$("blockSearchInput").value));
+    $("blockSearchClear").addEventListener("click", () => { $("blockSearchInput").value = ""; searchBlock(); $("blockSearchInput").focus(); });
+  }
   $("rangeButtons").addEventListener("click", (event) => {
     const preset = event.target.closest("[data-range-preset]")?.dataset.rangePreset;
     if (!preset || !rows.length || exporting) return;
@@ -235,6 +288,7 @@ window.WSBDailyHistoryDashboard = function (config) {
     onInactiveArrow: (direction) => select(index + direction), onEscape: () => { if (exporting) { cancelExport = true; $("downloadVideo").classList.add("is-canceling"); } else if (document.body.classList.contains(config.expandedClass)) setExpanded(false); else pausePlayback(); } });
   function exportSettings(quality) { const s = downloads.getSettings(); return { ...s, quality, theme: s.exportTheme }; }
   function frameIndices(source, target, first, settings) {
+    if (Chart.frameIndices) return Chart.frameIndices(source, target, first, settings);
     const milestones = [...(Chart.exportMilestones?.(source) || [])];
     for (let epoch = 1; epoch <= 6; epoch++) milestones.push(source.findIndex((row) => row.height >= epoch * 210000));
     return E.buildDailyFrameIndices(first, target, {
@@ -251,6 +305,7 @@ window.WSBDailyHistoryDashboard = function (config) {
   function lockControls(locked) {
     document.querySelectorAll('.date-range-panel button, .date-range-panel input').forEach((el) => { if (el.id !== "downloadVideo") el.disabled = locked; });
     $("copyDashboardLink").disabled = locked; $("updatedTimeZoneDropdownTrigger").disabled = locked;
+    if (config.blockSearch) for (const id of ["blockSearchInput", "blockSearchTarget", "blockSearchClear"]) $(id).disabled = locked;
     $("startDateBtn").disabled = true; $("startDateInput").disabled = true;
     if (!locked) syncKpis();
   }
@@ -291,11 +346,12 @@ window.WSBDailyHistoryDashboard = function (config) {
   }
   $("downloadImage").addEventListener("click", () => runExport("png")); $("downloadVideo").addEventListener("click", () => runExport("video")); $("downloadSettingsDownloadBtn").addEventListener("click", () => runExport("video"));
   canvas.addEventListener("pointermove", (event) => {
+    if (config.blockSearch) return;
     if (playing || exporting || drag || event.buttons || event.pointerType === "touch") { clearHover(); draw(); return; }
     const rect = canvas.getBoundingClientRect(); hover = { x: event.clientX - rect.left, y: event.clientY - rect.top }; draw();
   });
-  for (const type of ["pointerleave", "pointercancel", "pointerdown"]) canvas.addEventListener(type, () => { clearHover(); draw(); });
-  document.addEventListener("scroll", () => { if (hover) { clearHover(); draw(); } }, true);
+  for (const type of ["pointerleave", "pointercancel", "pointerdown"]) canvas.addEventListener(type, () => { if (!config.blockSearch) { clearHover(); draw(); } });
+  document.addEventListener("scroll", () => { if (config.blockSearch && selectedHeight !== null) draw(); else if (hover) { clearHover(); draw(); } }, true);
   new ResizeObserver(() => { clearHover(); draw(); }).observe(canvas.parentElement);
   new MutationObserver(draw).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { draw(); refresh(); } });
@@ -307,12 +363,13 @@ window.WSBDailyHistoryDashboard = function (config) {
     prepare: (context) => Chart.prepareCandidate(context.fetchFresh),
     commit: (candidate) => {
       if (exporting || drag) return false;
-      if (rows.length && (candidate.rows.at(-1).time < rows.at(-1).time || candidate.rows.at(-1).height < rows.at(-1).height)) throw new Error("New history is older than the displayed version.");
+      if (olderHistory(candidate)) throw new Error("New history is older than the displayed version.");
       const selection = rows.length ? viewState() : initial;
       rows = candidate.rows; publishedAt = candidate.publishedAt; installSelection(selection);
       status.textContent = ""; render(); return true;
     },
     onError: (error) => { status.textContent = `Update unavailable; showing the last complete history. ${error.message}`; },
   }));
-  return { getState: () => ({ index, startIndex, rows: rows.length, date: rows[index]?.iso, playing, exporting }), refresh };
+  return { getState: () => ({ index, startIndex, rows: rows.length, date: rows[index]?.iso, playing, exporting,
+    ...(config.blockSearch ? { selectedHeight } : {}) }), refresh };
 };

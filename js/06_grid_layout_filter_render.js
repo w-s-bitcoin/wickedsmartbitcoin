@@ -3,82 +3,87 @@
  * =========================== */
 const DASHBOARD_CARD_PREVIEW_SPECS = Object.freeze({
   'quantum_exposure.png': {
-    url: 'webapps/quantum_exposure/preview.html',
+    url: 'webapps/quantum_exposure/preview.html?v=20261028-card-bottom',
     width: 1280,
     height: 720,
   },
   'dca_cost_basis.png': {
-    url: 'webapps/dca_cost_basis/preview.html',
+    url: 'webapps/dca_cost_basis/preview.html?v=20261028-card-top',
     width: 1280,
     height: 720,
   },
   'moving_average.png': {
-    url: 'webapps/moving_average/preview.html?v=20261017-series-colors',
+    url: 'webapps/moving_average/preview.html?v=20261028-card-bottom',
     width: 1280,
     height: 720,
   },
   'eoe_growth.png': {
-    url: 'webapps/eoe_growth/preview.html',
+    url: 'webapps/eoe_growth/preview.html?v=20261028-card-bottom',
     width: 1280,
     height: 720,
   },
   'days_since_ath.png': {
-    url: 'webapps/days_since_ath/preview.html',
+    url: 'webapps/days_since_ath/preview.html?v=20261028-card-bottom',
     width: 1280,
     height: 720,
   },
   'issuance_rate.png': {
-    url: 'webapps/issuance_rate/preview.html',
+    url: 'webapps/issuance_rate/preview.html?v=20261028-card-bottom',
     width: 1280,
     height: 720,
   },
+  'target_and_block_hashes.png': {
+    url: 'webapps/target_and_block_hashes/preview.html?v=20261028-card-bottom',
+    width: 640,
+    height: 360,
+  },
   'price_distribution.png': {
-    url: 'webapps/price_distribution/preview.html',
+    url: 'webapps/price_distribution/preview.html?v=20261028-card-bottom',
     width: 1280,
     height: 720,
   },
   'mined_supply_price.png': {
-    url: 'webapps/mined_supply_price/preview.html',
+    url: 'webapps/mined_supply_price/preview.html?v=20261028-card-bottom',
     width: 1280,
     height: 720,
   },
   'dca_comparison.png': {
-    url: 'webapps/dca_comparison/preview.html',
+    url: 'webapps/dca_comparison/preview.html?v=20261028-card-bottom',
     width: 1280,
     height: 720,
   },
   'patoshi_pattern.png': {
-    url: 'webapps/patoshi_pattern/preview.html',
+    url: 'webapps/patoshi_pattern/preview.html?v=20261028-card-bottom',
     width: 1280,
     height: 720,
   },
   'bip110_signaling.png': {
-    url: 'webapps/bip110_signaling/preview.html',
+    url: 'webapps/bip110_signaling/preview.html?v=20261028-card-bottom',
     width: 1280,
     height: 720,
   },
   'bitcoin_dominance.png': {
-    url: 'webapps/bitcoin_dominance/preview.html',
+    url: 'webapps/bitcoin_dominance/preview.html?v=20261028-card-bottom',
     width: 1280,
     height: 720,
   },
   'uoa.png': {
-    url: 'webapps/uoa/preview.html',
+    url: 'webapps/uoa/preview.html?v=20261028-card-bottom',
     width: 1280,
     height: 720,
   },
   'node_count.png': {
-    url: 'webapps/node_count/preview.html',
+    url: 'webapps/node_count/preview.html?v=20261028-card-bottom',
     width: 1280,
     height: 720,
   },
   'bitcoin_net_worth.png': {
-    url: 'webapps/bitcoin_net_worth/preview.html',
+    url: 'webapps/bitcoin_net_worth/preview.html?v=20261028-card-centered',
     width: 1280,
     height: 720,
   },
   'casascius_explorer.png': {
-    url: 'webapps/casascius_explorer/preview.html?coin_hover=20260927-v2',
+    url: 'webapps/casascius_explorer/preview.html?v=20261028-card-centered',
     width: 1280,
     height: 720,
   },
@@ -558,8 +563,10 @@ function getDashboardCardPreviewSpec(filename) {
 function getDashboardCardFallbackUrl(filename, themeRaw) {
   const theme = themeRaw || (typeof getStoredDashboardTheme === 'function' ? getStoredDashboardTheme() : 'dark');
   const key = String(filename || '').trim().toLowerCase();
-  const path = DASHBOARD_CARD_FALLBACKS[key]?.[theme === 'light' ? 'light' : 'dark']
-    || `assets/card_fallbacks/${filename}`;
+  const variant = theme === 'light' ? 'light' : 'dark';
+  const sourceName = variant === 'light' ? key.replace(/\.png$/, '.light.png') : key;
+  const path = DASHBOARD_CARD_FALLBACKS[key]?.[variant]
+    || `assets/card_fallbacks/${sourceName}?v=20261027-saved-cards`;
   return `${getPageBasePath()}/${path}`;
 }
 

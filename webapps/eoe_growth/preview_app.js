@@ -20,6 +20,7 @@
     const { ctx, width, height } = G.setup(canvas);
     G.panel(ctx, { x: 0, y: 0, width, height }, {
       frame: view, theme: document.documentElement.dataset.theme, compact: true,
+      previewInsets: window.WSBPreviewShared.chartInsets(width, height),
     });
     canvas.dataset.endDate = view.row.date;
     canvas.dataset.blockHeight = String(view.row.height);

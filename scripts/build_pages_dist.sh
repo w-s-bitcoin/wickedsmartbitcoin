@@ -58,6 +58,8 @@ for app_dir in "$ROOT"/webapps/*; do
   copy_path "webapps/$app_name/market_units.js"
   copy_path "webapps/$app_name/mined_supply_price_chart.js"
   copy_path "webapps/$app_name/price_distribution_chart.js"
+  copy_path "webapps/$app_name/target_hashes_model.js"
+  copy_path "webapps/$app_name/target_hashes_chart.js"
   copy_path "webapps/$app_name/moving_average_model.js"
   copy_path "webapps/$app_name/moving_average_charts.js"
   copy_path "webapps/$app_name/moving_average_export.js"
@@ -89,6 +91,13 @@ if [[ -f "$ROOT/webapps/eoe_growth/eoe_growth_live.js" ]]; then
   rm -rf "$DIST/webapps/eoe_growth/webapp_data/reference"
   python3 "$ROOT/scripts/build_eoe_live_reference.py" --source-root "$ROOT" \
     --output-dir "$DIST/webapps/eoe_growth/webapp_data/reference"
+fi
+
+# Package the complete block/hash history from the same committed source CSVs.
+if [[ -f "$ROOT/webapps/target_and_block_hashes/target_hashes_model.js" ]]; then
+  rm -rf "$DIST/webapps/target_and_block_hashes/webapp_data"
+  python3 "$ROOT/scripts/build_target_hashes.py" --source-root "$ROOT" \
+    --output-dir "$DIST/webapps/target_and_block_hashes/webapp_data"
 fi
 
 # First-pass deploy pruning: remove files that are either pipeline-only or raw

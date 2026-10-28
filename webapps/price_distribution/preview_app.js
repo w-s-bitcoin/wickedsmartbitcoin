@@ -12,7 +12,7 @@
     const ctx = canvas.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const visibleRows = Chart.withLiveQuote(installed.rows, spotFeed?.newerThan(installed.publishedAt));
     Chart.render(ctx, width, height, visibleRows, visibleRows.length - 1,
-      { theme: document.documentElement.dataset.theme === "light" ? "light" : "dark", preview: true });
+      { theme: document.documentElement.dataset.theme === "light" ? "light" : "dark", preview: true, previewInsets: P.chartInsets(width, height) });
     canvas.dataset.endDate = installed.rows.at(-1).iso;
     return true;
   }

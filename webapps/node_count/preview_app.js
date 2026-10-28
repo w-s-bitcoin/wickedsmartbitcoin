@@ -163,14 +163,14 @@
     ];
 
     const height = Math.max(chart.clientHeight || 0, 220);
-    const pad = { top: 12, right: 18, bottom: 16, left: 18 };
+    const pad = window.WSBPreviewShared.chartInsets(width, height, { top: 12, right: 18, left: 18 });
     const plotW = Math.max(1, width - pad.left - pad.right);
     const plotH = Math.max(1, height - pad.top - pad.bottom);
     const n = data.length;
 
     const allValues = series.flatMap((s) => s.values).filter((v) => Number.isFinite(v) && v > 0);
     if (!allValues.length) return false;
-    const minY = 0;
+    const minY = Math.min(...allValues);
     const maxY = Math.max(...allValues) * 1.05;
     const spanY = Math.max(1, maxY - minY);
 

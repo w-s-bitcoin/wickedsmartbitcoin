@@ -112,6 +112,11 @@ build; the browser requests only the required 64 KiB chunk. Daily history loads
 independently, and historical playback and earlier video frames remain daily.
 Latest-date PNGs and final video frames refresh and freeze the current comparison;
 the ending hold reuses that frame. Historical End dates stay historical.
+Target & Block Hashes uses the existing committed block CSVs, packaged into
+verified binary chunks during each Pages build. For local use, run
+`python3 scripts/build_target_hashes.py`. Its block-height search pins a tooltip
+beside the selected hash. See [its data and export notes](webapps/target_and_block_hashes/README.md).
+
 For local EOE live references, run
 `python3 scripts/build_eoe_live_reference.py` after updating the raw CSV inputs.
 
@@ -227,6 +232,7 @@ is picked up by the next eligible deployment.
 | `/issuance_rate` | Bitcoin issuance and halving history |
 | `/mined_supply_price` | Mined supply by halving epoch beside Bitcoin price history |
 | `/price_distribution` | Daily Bitcoin price observations grouped into decade price ranges |
+| `/target_and_block_hashes` | Block hashes, difficulty targets, record lows, halving markers, and exact block search |
 | `/uoa` | Historical currency-pair comparisons in both directions |
 | `/bip110_signaling` | BIP-110 and historical SegWit signaling |
 | `/patoshi_pattern` | Early-block ExtraNonce patterns and Patoshi classifications |
@@ -386,6 +392,8 @@ CHROME_BIN=/path/to/chromium python3 scripts/test_homepage_preview_refresh.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_homepage_kpis_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_mined_supply_price_browser.py
 python3 scripts/test_price_distribution_browser.py
+python3 scripts/build_target_hashes.py
+python3 scripts/test_target_hashes_browser.py
 node --test scripts/test_bitcoin_chain_tip.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_card_fallbacks_browser.py
 node scripts/test_dashboard_share.mjs
@@ -422,8 +430,8 @@ Local builds use the same cache directory by default; set
 `WSB_CARD_FALLBACK_CACHE_DIR` to choose another location. The generator also
 checks the cache manifest's UTC date before reuse.
 
-A fresh capture renders all 14 preview pages at 1280×720 in both themes using
-only packaged files. Every build installs the day's hashed poster URLs and
+A fresh capture renders every registered preview at its configured dimensions
+in both themes using only packaged files. Every build installs the day's hashed poster URLs and
 versions the homepage script containing that map. Later deployments that day
 reuse the images and skip the capture-specific browser check, reducing build
 time while still publishing current data. Cards added later that day use their

@@ -4,6 +4,17 @@
   const SIGNATURE_SEPARATOR = "\n---WSB-DATA-SIGNATURE-PART---\n";
   const dataRefreshers = new Map();
 
+  // Keep shared side/top insets, with only stroke clearance below the chart.
+  // Preserve explicitly required renderer gutters without stacking padding.
+  function chartInsets(width, height, existing = {}) {
+    return {
+      left: Math.max(width / 40, existing.left || 0),
+      right: Math.max(width / 40, existing.right || 0),
+      top: Math.max(height / 30, existing.top || 0),
+      bottom: Math.max(3, height / 180, existing.bottom || 0),
+    };
+  }
+
   function resolvePreferredTheme() {
     return "dark";
   }
@@ -556,6 +567,7 @@
   }
 
   window.WSBPreviewShared = {
+    chartInsets,
     SIGNATURE_SEPARATOR,
     createDataRefresher,
     initThemeSync,

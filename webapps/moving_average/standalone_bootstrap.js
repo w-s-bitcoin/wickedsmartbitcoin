@@ -100,6 +100,7 @@
       issuance_rate: "issuance_rate.html",
       mined_supply_price: "mined_supply_price.html",
       price_distribution: "price_distribution.html",
+      target_and_block_hashes: "target_and_block_hashes.html",
       casascius_explorer: "casascius_explorer.html",
       uoa: "uoa.html",
     };

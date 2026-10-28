@@ -197,6 +197,7 @@ class PagesBuildTest(unittest.TestCase):
             (root / "scripts").mkdir()
             shutil.copy2(ROOT / "scripts/build_pages_dist.sh", root / "scripts")
             shutil.copy2(ROOT / "scripts/build_eoe_live_reference.py", root / "scripts")
+            shutil.copy2(ROOT / "scripts/build_target_hashes.py", root / "scripts")
 
             fixtures = {
                 "index.html": "<!doctype html><title>Fixture</title>",
@@ -205,6 +206,9 @@ class PagesBuildTest(unittest.TestCase):
                 "assets/qr_lightning.png": "current Lightning QR fixture",
                 "eoe_growth.html": '<script src="webapps/eoe_growth/standalone_bootstrap.js"></script>',
                 "webapps/eoe_growth/eoe_growth_model.js": "window.WSBEOEGrowthModel = {};",
+                "target_and_block_hashes.html": '<script src="webapps/target_and_block_hashes/standalone_bootstrap.js"></script>',
+                "webapps/target_and_block_hashes/target_hashes_model.js": "window.WSBTargetHashesModel = {};",
+                "webapps/target_and_block_hashes/target_hashes_chart.js": "window.WSBTargetHashesChart = {};",
                 "webapps/eoe_growth/eoe_growth_live.js": "window.WSBEOEGrowthLive = {};",
                 "webapps/issuance_rate/issuance_live.js": "window.WSBIssuanceLive = {};",
                 "webapps/eoe_growth/eoe_growth_charts.js": "window.WSBEOEGrowthCharts = {};",
@@ -221,6 +225,7 @@ class PagesBuildTest(unittest.TestCase):
                 "webapps/shared/export_assets/wicked-apple.png": "creator fixture",
                 "webapps/shared/export_assets/DejaVuSans.ttf": "font fixture",
                 "webapps/shared/export_assets/DejaVuSans-Bold.ttf": "bold font fixture",
+                "webapps/shared/export_assets/DejaVuSansMono.ttf": "hash font fixture",
                 "webapps/shared/export_assets/IBMPlexMono-Medium.ttf": "footer font fixture",
                 "webapps/shared/export_assets/LICENSE_DEJAVU": "DejaVu license fixture",
                 "webapps/shared/export_assets/LICENSE_IBM_PLEX": "IBM Plex license fixture",
@@ -228,7 +233,9 @@ class PagesBuildTest(unittest.TestCase):
                 "webapps/moving_average/standalone_bootstrap.js": "window.movingAverageShell = true;",
                 "webapps/shared/dashboard_share.js": "window.WSBDashboardShare = {};",
                 "webapps/shared/bitcoin_chain_tip.js": "window.WSBBitcoinChainTip = {};",
-                "assets/block_data_0_99999.csv": "block_height,timestamp\n0,1231027200\n1,1231027500\n",
+                "assets/block_data_0_99999.csv": "block_height,timestamp,block_hash,difficulty,target\n" +
+                    f"0,1231027200,{'0' * 63}1,1,{'0' * 8}ffff{'0' * 52}\n" +
+                    f"1,1231027500,{'0' * 63}2,1,{'0' * 8}ffff{'0' * 52}\n",
                 "assets/btcusd_10m_prices.csv": "timestamp,price,price_height\n1231027200,1.5,0\n1231027800,2.5,1\n",
                 "webapps/example/dashboard.html": (
                     '<script src="dashboard_manifest.js"></script>'
@@ -283,6 +290,9 @@ class PagesBuildTest(unittest.TestCase):
             kept = (
                 "index.html",
                 "eoe_growth.html",
+                "target_and_block_hashes.html",
+                "webapps/target_and_block_hashes/target_hashes_model.js",
+                "webapps/target_and_block_hashes/target_hashes_chart.js",
                 "webapps/eoe_growth/eoe_growth_model.js",
                 "webapps/eoe_growth/eoe_growth_live.js",
                 "webapps/issuance_rate/issuance_live.js",
@@ -331,6 +341,14 @@ class PagesBuildTest(unittest.TestCase):
             payload = (reference / chunk["path"]).read_bytes()
             self.assertEqual(hashlib.sha256(payload).hexdigest(), chunk["sha256"])
             self.assertEqual(struct.unpack_from("<IId", payload, 16), (1231027500, 1231027200, 1.5))
+
+            hashes = dist / "webapps/target_and_block_hashes/webapp_data"
+            marker = json.loads((hashes / "manifest.json").read_text())
+            self.assertEqual(marker['count'], 2)
+            chunk = marker['chunks'][0]
+            packed = (hashes / chunk['path']).read_bytes()
+            self.assertEqual(hashlib.sha256(packed).hexdigest(), chunk['sha256'])
+            self.assertEqual(struct.unpack_from('<I32s', packed, 36), (1231027500, bytes.fromhex('0' * 63 + '2')))
 
             pruned = (
                 "assets/block_data_0_99999.csv",

@@ -221,7 +221,7 @@
     const colors = getThemeColors();
     const width = Math.max(chart.clientWidth || 0, 420);
     const height = Math.max(chart.clientHeight || 0, 220);
-    const padding = { top: 12, right: 18, bottom: 16, left: 18 };
+    const padding = window.WSBPreviewShared.chartInsets(width, height, { top: 12, right: 18, left: 18 });
     const plotWidth = Math.max(1, width - padding.left - padding.right);
     const plotHeight = Math.max(1, height - padding.top - padding.bottom);
 
@@ -244,9 +244,9 @@
 
     const minYRaw = Math.min(...priceValues, ...basisValues);
     const maxYRaw = Math.max(...priceValues, ...basisValues);
-    const padY = (maxYRaw - minYRaw) * 0.1 || Math.max(1, maxYRaw * 0.08);
-    const minY = Math.max(0, minYRaw - padY);
-    const maxY = maxYRaw + padY;
+    const minY = Math.max(0, minYRaw);
+    // The shared top inset already provides clearance above the highest trace.
+    const maxY = Math.max(maxYRaw, minY + 1e-9);
     const spanY = Math.max(1e-9, maxY - minY);
 
     const mapX = (idx) => padding.left + (idx / Math.max(1, safeRows.length - 1)) * plotWidth;

@@ -274,7 +274,7 @@
     const padding = {
       top: Math.max(8, height * 0.035),
       right: Math.max(10, width * 0.025),
-      bottom: Math.max(8, height * 0.035),
+      bottom: window.WSBPreviewShared.chartInsets(width, height).bottom,
       left: Math.max(10, width * 0.025),
     };
     const chartW = Math.max(1, width - padding.left - padding.right);

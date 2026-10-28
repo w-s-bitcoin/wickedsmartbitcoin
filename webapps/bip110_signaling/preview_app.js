@@ -193,10 +193,11 @@
     const periodSize = getPeriodSize();
     const currentMainPeriod = getMainChainPeriod();
     const plotWidth = CHART.width - (CHART.padX * 2);
-    const plotHeight = CHART.height - (CHART.padY * 2);
+    const bottom = window.WSBPreviewShared.chartInsets(CHART.width, CHART.height).bottom;
+    const plotHeight = CHART.height - CHART.padY - bottom;
     const step = plotWidth / rows.length;
     const barWidth = Math.min(CHART.maxBarWidth, step * 0.72);
-    const baseline = CHART.height - CHART.padY;
+    const baseline = CHART.height - bottom;
 
     const fragment = document.createDocumentFragment();
     rows.forEach((row, index) => {

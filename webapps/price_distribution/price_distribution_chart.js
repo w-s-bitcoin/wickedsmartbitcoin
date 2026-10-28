@@ -63,15 +63,17 @@
     const landscape = preview || width / height > 1.35, portrait = width / height < .9;
     const u = exporting ? width / (landscape ? 1920 : 1080) : 1;
     const pad = exporting ? 24 * u : preview ? 4 : 16;
+    const inset = preview ? opts.previewInsets : null;
     const footer = exporting ? (landscape ? 122 : 82) * u : 0;
-    const bottom = height - footer - (exporting ? 12 * u : pad);
+    const bottom = height - footer - (inset ? inset.bottom : exporting ? 12 * u : pad);
     const header = exporting ? (landscape ? 115 : 160) * u : 0;
     let history, histogram, titleY, titleSize, labelSize;
     if (landscape) {
-      const top = preview ? pad : exporting ? header : pad + Math.min(23, width / 58) + 36;
+      const top = preview ? (inset?.top ?? pad) : exporting ? header : pad + Math.min(23, width / 58) + 36;
       const seam = preview ? width * .64 : width * .604;
-      const right = preview ? width - pad : width * .888;
-      history = { x: pad, y: top, width: seam - pad, height: bottom - top };
+      const right = preview ? width - (inset?.right ?? pad) : width * .888;
+      const left = inset?.left ?? pad;
+      history = { x: left, y: top, width: seam - left, height: bottom - top };
       histogram = { x: seam, y: top, width: right - seam, height: bottom - top };
       titleSize = exporting ? 40 * u : Math.min(23, width / 58);
       titleY = exporting ? 48 * u : pad + titleSize / 2;
@@ -105,8 +107,17 @@
       const fittedWidth = width - (exporting ? pad : 12) - histogram.x - labelWidth - 16 * u;
       histogram.width = fittedWidth;
     }
-    const yAt = (box, band) => box.y + box.height - (band + .5) / model.bins.length * box.height;
     const priceBand = (price) => price > 0 ? Math.log10(price) - model.min + .5 : 0;
+    // Crop only the card's unused upper bands. Keep history and histogram on
+    // one scale, fitting both the observed peak and the highest occupied bar.
+    let visibleBands = model.bins.length;
+    if (preview) {
+      visibleBands = .675;
+      model.bins.forEach((bin, i) => { if (bin.count) visibleBands = Math.max(visibleBands, i + .675); });
+      for (let i = first; i <= endIndex; i++) visibleBands = Math.max(visibleBands, priceBand(rows[i].price) + .5);
+    }
+    const bandFloor = preview ? .325 : 0; // lower edge of the Not Valued bar
+    const yAt = (box, band) => box.y + box.height - (band + .5 - bandFloor) / (visibleBands - bandFloor) * box.height;
     // Stacked exports do not need to reserve the histogram's empty upper bands
     // above the history. Keep a small inset above the highest observed price.
     let historyCeiling = 1;
@@ -123,7 +134,7 @@
     const timelineEnd = Number.isInteger(openingEnd) ? Math.max(endIndex, openingEnd) : endIndex;
     const span = Math.max(DAY, rows[timelineEnd].time - rows[first].time);
     const xAt = (time) => history.x + (time - rows[first].time) / span * history.width;
-    const rowHeight = histogram.height / model.bins.length;
+    const rowHeight = histogram.height / (visibleBands - bandFloor);
     const pointer = !exporting && !preview ? opts.hover : null, T = window.WSBDashboardChartTooltip;
     let hoverIndex = -1, hoverBinIndex = -1;
     if (pointer && T.contains(history, pointer) && pointer.x <= xAt(row.time)) {

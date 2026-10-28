@@ -21,6 +21,7 @@ from test_stage1_refresh_atomicity import CdpSocket, QuietHandler, free_port, wa
 ROOT = Path(__file__).resolve().parents[1]
 CHROME = os.environ.get("CHROME_BIN", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
 SLUGS = (
+    "target_and_block_hashes",
     "node_count", "bitcoin_dominance", "dca_cost_basis", "dca_comparison",
     "days_since_ath", "moving_average", "eoe_growth", "issuance_rate", "mined_supply_price", "price_distribution", "uoa", "bip110_signaling",
     "patoshi_pattern", "quantum_exposure", "casascius_explorer",

@@ -75,8 +75,9 @@
     ctx.fillRect(0, 0, w, h);
     if (!rows.length) return;
     const maxY = Math.max(500, ...rows.filter(row => row.patoshi).map(row => row.extranonce));
-    const x = ms => 16 + ((ms - START) / (END - START)) * (w - 32);
-    const y = value => h - 12 - (value / maxY) * (h - 24);
+    const inset = window.WSBPreviewShared.chartInsets(w, h, { left: 16, right: 16, top: 12 });
+    const x = ms => inset.left + ((ms - START) / (END - START)) * (w - inset.left - inset.right);
+    const y = value => h - inset.bottom - (value / maxY) * (h - inset.top - inset.bottom);
 
     ctx.lineWidth = 1.5;
     ctx.lineCap = "round";

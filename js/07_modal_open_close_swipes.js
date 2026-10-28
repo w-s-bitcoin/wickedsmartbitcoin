@@ -353,6 +353,7 @@ function closeModal() {
     document.body?.classList?.remove('issuance-dashboard-expanded');
     document.body?.classList?.remove('mined-supply-dashboard-expanded');
     document.body?.classList?.remove('price-distribution-dashboard-expanded');
+    document.body?.classList?.remove('target-hashes-dashboard-expanded');
     document.body?.classList?.remove('patoshi-pattern-dashboard-expanded');
     document.body?.classList?.remove('days-since-ath-dashboard-expanded');
     document.body?.classList?.remove('moving-average-dashboard-expanded');

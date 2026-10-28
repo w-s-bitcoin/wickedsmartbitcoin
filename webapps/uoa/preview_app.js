@@ -174,9 +174,9 @@
     const minLog = Math.log10(Math.max(Math.min(...values), 1e-300));
     const maxLog = Math.log10(Math.max(Math.max(...values), 1e-300));
     const padX = 12;
-    const padY = 12;
+    const padY = 12, padBottom = window.WSBPreviewShared.chartInsets(width, height).bottom;
     const chartWidth = width - padX * 2;
-    const chartHeight = height - padY * 2;
+    const chartHeight = height - padY - padBottom;
     const xFor = (index) => padX + (index / Math.max(1, values.length - 1)) * chartWidth;
     const yFor = (value) => padY + (
       (maxLog - Math.log10(Math.max(value, 1e-300))) / Math.max(1e-9, maxLog - minLog)
@@ -193,8 +193,8 @@
       if (index === 0) ctx.moveTo(xFor(index), yFor(value));
       else ctx.lineTo(xFor(index), yFor(value));
     });
-    ctx.lineTo(width - padX, height - padY);
-    ctx.lineTo(padX, height - padY);
+    ctx.lineTo(width - padX, height - padBottom);
+    ctx.lineTo(padX, height - padBottom);
     ctx.closePath();
     ctx.fill();
 

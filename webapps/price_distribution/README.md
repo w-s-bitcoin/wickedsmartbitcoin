@@ -99,3 +99,9 @@ bars, values, and range labels to 20% opacity, clipping crossing
 segments at exact log-price band boundaries. Not Valued remains a separate
 segment. The history tooltip lists Block then Price; bar tooltips list Days
 and Share. These linked hover effects are absent from previews and exports.
+
+The grid preview uses the shared card insets and crops unused upper price bands
+and the gap below the Not Valued bar.
+History and bars retain one logarithmic scale, fitted to the higher of the
+observed price peak and the top occupied bar. Dashboard and export price bands
+retain the reference composition.

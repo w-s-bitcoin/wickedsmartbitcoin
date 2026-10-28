@@ -163,7 +163,7 @@
     canvas.setAttribute("aria-label", `Bitcoin issuance rate: ${(Number(displayed.issuance_rate) * 100).toFixed(2)}% annualized. ${source === "live" ? "Live" : source === "retained" ? "Retained" : "Published"} block ${Number(displayed.height).toLocaleString("en-US")}. Scheduled subsidy, ${displayed.date}.`);
     canvas.title = `${source === "live" ? "Live network" : source === "retained" ? "Retained network" : "Published"} block ${Number(displayed.height).toLocaleString("en-US")}; scheduled issuance.`;
     const currentEpochRows = getCurrentEpochRows(displayedRows);
-    const pad = { top: 18, right: 24, bottom: 22, left: 36 };
+    const pad = window.WSBPreviewShared.chartInsets(width, height, { top: 18, right: 24, left: 36 });
     const plotW = Math.max(1, width - pad.left - pad.right);
     const plotH = Math.max(1, height - pad.top - pad.bottom);
     const latest = currentEpochRows[currentEpochRows.length - 1];
@@ -183,7 +183,7 @@
     });
     const values = rows.flatMap((row) => [toNumber(row.issuance_rate), toNumber(row.target_rate)])
       .filter(Number.isFinite);
-    const minY = Math.min(0, ...values);
+    const minY = values.length ? Math.min(...values) : 0;
     const maxRaw = Math.max(0.01, ...values);
     const maxY = maxRaw * 1.04;
     const xFor = (row, idx) => {

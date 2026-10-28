@@ -108,18 +108,18 @@
     const VW = 1000; // viewBox width units
     const iconSize = 28;
     const iconGap = 12;
-    const padT = 8;
-    const padB = 8;
-    const padL = 18;
-    const padR = iconSize + iconGap + 18; // right of the longest bar
-    const plotW = VW - padL - padR;
-    const n = rows.length;
     // Use aspect ratio from actual element if available, else default
     const elW = chartEl.getBoundingClientRect().width || chartEl.clientWidth || 420;
     const elH = chartEl.getBoundingClientRect().height || chartEl.clientHeight || 280;
+    const inset = window.WSBPreviewShared.chartInsets(VW, elH * VW / elW, { left: 18, right: 18, top: 8 });
+    const padT = inset.top, padB = inset.bottom, padL = inset.left;
+    const padR = iconSize + iconGap + inset.right; // includes the icon after the longest bar
+    const plotW = VW - padL - padR;
+    const n = rows.length;
     const rowH = Math.max(16, Math.floor((elH * (VW / elW) - padT - padB) / n));
     const barH = Math.round(rowH * 0.52);
-    const totalH = padT + n * rowH + padB;
+    const lastRowBottom = Math.max(Math.round((rowH - barH) / 2) + barH, Math.round((rowH - iconSize) / 2) + iconSize);
+    const totalH = padT + (n - 1) * rowH + lastRowBottom + padB;
 
     const items = rows.map((row, idx) => {
       const cap = row['Market Cap'];

@@ -252,6 +252,7 @@ fetch(IMAGE_LIST_URL)
             'issuance_rate.png',
             'mined_supply_price.png',
             'price_distribution.png',
+            'target_and_block_hashes.png',
             'dca_comparison.png',
             'patoshi_pattern.png',
             'bip110_signaling.png',

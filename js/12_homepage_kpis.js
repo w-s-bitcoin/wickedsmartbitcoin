@@ -412,7 +412,7 @@
     const difficultyPercent = difficultyMined / DIFFICULTY_INTERVAL * 100;
     const supplyPercent = supply === null ? 0 : supply / TARGET_SUPPLY_BTC * 100;
     const supplyText = supply === null ? "Waiting for published supply"
-      : `${formatProgressPercent(supplyPercent, 2)}% of 21 million BTC${supplyEstimated ? " · estimated" : ""}`;
+      : `${formatProgressPercent(supplyPercent, 2)}% of 21 million BTC`;
     const halvingText = `${formatProgressPercent(halvingPercent, 1)}% through the ${formatOrdinal(epoch)} epoch`;
     const difficultyText = `${difficultyRemaining.toLocaleString("en-US")} ${difficultyRemaining === 1 ? "block" : "blocks"} until adjustment`;
     const difficultyEpochText = `${formatProgressPercent(difficultyPercent, 1)}% through the ${formatOrdinal(difficultyEpoch)} diff. epoch`;

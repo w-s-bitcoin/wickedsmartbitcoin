@@ -56,6 +56,27 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
       date: document.getElementById('previewCanvas')?.dataset.endDate,
     })""")).get("ready") == "1" else None), description="price distribution preview")
     assert preview["available"] == "1" and preview["date"], preview
+    for theme in ("dark", "light"):
+        cdp.evaluate(f'window.postMessage({{type:"quantum-dashboard-theme",theme:{json.dumps(theme)}}},"*")')
+        cdp.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+        bounds = cdp.evaluate('''(() => {
+          const canvas=document.getElementById('previewCanvas'), w=canvas.width, h=canvas.height;
+          const data=canvas.getContext('2d').getImageData(0,0,w,h).data;
+          let left=w,right=0,top=h,bottom=0;
+          for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+            const i=(y*w+x)*4;
+            if(data[i]>data[i+2]+40 && data[i]>data[i+1]+20){
+              left=Math.min(left,x);right=Math.max(right,x);top=Math.min(top,y);bottom=Math.max(bottom,y);
+            }
+          }
+          return {left,right,top,bottom,w,h};
+        })()''')
+        assert abs(bounds['left'] - bounds['w'] / 40) <= 3, bounds
+        assert abs(bounds['w'] - bounds['right'] - bounds['w'] / 40) <= 3, bounds
+        assert abs(bounds['top'] - bounds['h'] / 30) <= 2, 'Preview must crop empty upper price bands'
+        if artifact_dir:
+            shot = cdp.command('Page.captureScreenshot', {'format':'png'})
+            (artifact_dir / f'preview-{theme}.png').write_bytes(base64.b64decode(shot['data']))
 
     cdp.command("Page.navigate", {"url": origin + "/webapps/price_distribution/dashboard.html"})
     initial = wait_for(lambda: (state if (state := cdp.evaluate("""({

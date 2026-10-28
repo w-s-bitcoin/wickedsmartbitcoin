@@ -176,12 +176,7 @@
     const width = Math.max(containerWidth, 280);
     const height = Math.max(container.clientHeight || 300, 140);
 
-    const margin = {
-      top: 12,
-      right: 18,
-      bottom: 16,
-      left: 18,
-    };
+    const margin = window.WSBPreviewShared.chartInsets(width, height, { top: 12, right: 18, left: 18 });
     const plotWidth = Math.max(width - margin.left - margin.right, 80);
     const plotHeight = Math.max(height - margin.top - margin.bottom, 56);
 

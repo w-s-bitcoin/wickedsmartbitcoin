@@ -66,3 +66,6 @@ dev/
 
 # Casascius grading images retained locally but not shipped through GitHub Pages
 webapps/casascius_explorer/gradings/
+
+# Generated locally or during Pages packaging from committed block CSVs.
+webapps/target_and_block_hashes/webapp_data/

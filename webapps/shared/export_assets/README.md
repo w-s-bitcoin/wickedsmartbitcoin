@@ -14,6 +14,11 @@ font files are unmodified and the interactive shell's typography stays separate.
   Copyright and redistribution terms are preserved in
   [`LICENSE_DEJAVU`](LICENSE_DEJAVU). These fonts are governed by that license
   rather than the repository's MIT license.
+- `DejaVuSansMono.ttf`: unmodified DejaVu Sans Mono from
+  [Matplotlib v3.10.7](https://github.com/matplotlib/matplotlib/blob/v3.10.7/lib/matplotlib/mpl-data/fonts/ttf/DejaVuSansMono.ttf),
+  used for Target & Block Hashes hexadecimal rows via the shared `mono` font
+  role. It uses the existing `LICENSE_DEJAVU`; the regular body, headings and
+  URL-footer font roles are unchanged.
 - `IBMPlexMono-Medium.ttf`: unmodified IBM Plex Mono Medium (500), used by the
   canonical URL footer. It comes from the official IBM Plex repository at
   commit `71f558992315a12ca1f06a2215d57962a1992162`:

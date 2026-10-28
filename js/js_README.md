@@ -180,7 +180,8 @@ validated, painted preview, and blocks external market feeds. Every build
 installs the day's content-hashed image URLs into `DASHBOARD_CARD_FALLBACKS` and
 versions the homepage script containing that map. Theme changes select the
 corresponding image without reloading frames. The committed
-`assets/card_fallbacks/` images remain emergency/source-checkout fallbacks;
+`assets/card_fallbacks/` images remain emergency/source-checkout fallbacks
+(`slug.png` for dark and `slug.light.png` for light);
 builds never rewrite those source files.
 
 The card keeps its saved image underneath the preview until the live chart is

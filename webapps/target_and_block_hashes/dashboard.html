@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style id="wsb-early-black">html,body{background:#000;color:#f1f5f7}:root[data-theme="light"],:root[data-theme="light"] body{background:#f4f5f7;color:#111827}</style>
+  <title>Target & Block Hashes</title>
+  <script src="../shared/dashboard_embed_modal.js"></script>
+  <script src="../shared/dashboard_share.js"></script>
+  <script src="dashboard_manifest.js"></script>
+  <script src="../shared/dashboard_components.js"></script>
+  <script src="../shared/dashboard_charting.js"></script>
+  <script src="../shared/dashboard_export.js"></script>
+  <script src="../shared/dashboard_mp4.js"></script>
+  <script src="../shared/dashboard_export_branding.js?v=20261027-mono"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../shared/dashboard_shared.css" />
+  <link rel="stylesheet" href="../shared/dashboard_controls.css?v=20261027-block-search-2" />
+  <link rel="stylesheet" href="../shared/dashboard_playback.css" />
+  <link rel="stylesheet" href="../shared/daily_history_dashboard.css" />
+  <link rel="stylesheet" href="dashboard.css?v=20261027-search" />
+</head>
+<body>
+  <div class="wrap">
+    <header class="topbar" aria-label="Target & Block Hashes controls">
+      <div class="title-row">
+        <span class="title-heading"><h1 class="title">Target & Block Hashes</h1>
+          <span class="info-wrap"><button type="button" class="info-btn" aria-label="About this dashboard" aria-describedby="targetHashesInfo">?</button>
+          <span class="info-popover" id="targetHashesInfo" role="tooltip">Loading description.</span></span></span>
+      </div>
+      <div class="title-actions">
+          <button type="button" class="copy-link-btn" id="copyDashboardLink" aria-label="Copy shareable dashboard link" data-tooltip="Copy shareable dashboard link">
+            <span class="btn-icon" aria-hidden="true"><svg id="copyDashboardIcon" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></span><span class="btn-label">Copy Link</span>
+          </button>
+          <button type="button" class="reset-dashboard-btn" id="resetDashboard" disabled aria-label="Restore dashboard defaults" data-tooltip="Reset dashboard to defaults">
+            <span class="btn-icon" aria-hidden="true"><svg id="resetDashboardIcon" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></span><span class="btn-label">Restore Defaults</span>
+          </button>
+      </div>
+      <div class="chips kpi-row" aria-label="Current observation">
+        <div class="chip-menu-wrap single-select" id="updatedChipWrap">
+          <div class="chip chip-kpi-display" id="chipUpdated"><span class="chip-label">Updated</span> <span id="updatedKpi" class="chip-value">—</span></div>
+          <div id="updatedTimeZoneDropdown" class="dca-dropdown dca-dropdown-overlay"><button id="updatedTimeZoneDropdownTrigger" type="button" class="dca-dropdown-trigger" aria-label="Updated timestamp time zone"></button><div id="updatedTimeZoneDropdownMenu" class="dca-dropdown-menu" aria-label="Updated timestamp time zone options"></div></div>
+          <select id="updatedTimeZoneSelect" class="chip-menu-select chip-kpi-select-overlay dca-native-select" aria-label="Updated timestamp time zone"></select>
+        </div>
+        <span class="chip">Difficulty <span class="chip-value" id="kpiDifficulty">—</span></span>
+        <span class="chip">Target Hashrate <span class="chip-value" id="kpiHashrate">—</span></span>
+        <div class="chip block-search-pill" id="blockSearchPill"><button id="blockSearchTarget" class="block-search-target" type="button" aria-label="Find block height" ><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="7"></circle><circle cx="12" cy="12" r="1.6"></circle><path d="M12 2.8v3"></path><path d="M12 18.2v3"></path><path d="M2.8 12h3"></path><path d="M18.2 12h3"></path></svg></button><input id="blockSearchInput" class="block-search-input" type="text" inputmode="numeric" autocomplete="off" placeholder="Search block" aria-label="Search block height" /><button id="blockSearchClear" class="block-search-clear" type="button" aria-label="Clear block search"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button></div>
+      </div>
+      <p class="load-status" id="dashboardStatus" role="status" aria-live="polite"></p>
+    </header>
+    <section class="date-range-panel" aria-label="Date range controls">
+      <div class="date-range-header mono">
+        <label class="chip" for="startDateInput">Start
+          <button id="startDateBtn" disabled aria-label="Start date fixed at January 3, 2009" class="date-range-btn" type="button"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg><span class="date-range-btn-placeholder" aria-hidden="true">00/00/00</span></button>
+          <input id="startDateInput" disabled type="date" style="display:none" />
+        </label>
+        <label class="chip" for="endDateInput">End
+          <button id="endDateBtn" class="date-range-btn" type="button"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg><span class="date-range-btn-placeholder" aria-hidden="true">00/00/00</span></button>
+          <input id="endDateInput" type="date" style="display:none" />
+        </label>
+        <div class="date-range-range-control">
+          <span class="date-range-range-label">Range</span>
+          <div class="date-range-presets date-range-range-buttons" id="rangeButtons" role="group" aria-label="History length and latest date">
+            <label class="date-range-days-segment" for="rangeDaysInput">
+              <input id="rangeDaysInput" class="date-range-days-input" type="text" inputmode="numeric" autocomplete="off" aria-label="Number of blocks, including genesis" />
+              <span class="date-range-days-suffix">Blocks</span>
+            </label>
+            <button type="button" class="date-range-preset-btn" id="latestBtn" data-range="full" data-range-preset="full">Latest</button>
+          </div>
+        </div>
+        <div class="date-range-play-row" id="dateRangePlaybackControls" aria-label="Playback controls">
+          <div class="date-range-playback-button-group" role="group" aria-label="Playback controls">
+          <button type="button" id="playPause" class="date-range-playback-btn date-range-play-btn" aria-label="Play date range animation" aria-pressed="false" title="Play range animation">▶</button>
+          <button type="button" id="pausePlayback" class="date-range-playback-btn date-range-pause-btn" aria-label="Pause date range animation" title="Pause range animation" disabled>❚❚</button>
+          <button type="button" id="stopPlayback" class="date-range-playback-btn date-range-stop-btn" aria-label="Stop and reset range animation" title="Stop and reset" disabled>■</button>
+          <button type="button" id="playbackSpeed" class="date-range-playback-btn date-range-speed-btn" aria-label="Playback speed" title="Playback speed">1x</button>
+          <button type="button" id="expandDashboard" class="date-range-playback-btn dashboard-expand-btn" aria-label="Expand video layout" aria-pressed="false" title="Expand video layout">
+            <svg class="dashboard-expand-icon dashboard-expand-icon-expand" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 9V4h5" />
+              <path d="M20 9V4h-5" />
+              <path d="M4 15v5h5" />
+              <path d="M20 15v5h-5" />
+            </svg>
+            <svg class="dashboard-expand-icon dashboard-expand-icon-shrink" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M9 4v5H4" />
+              <path d="M15 4v5h5" />
+              <path d="M9 20v-5H4" />
+              <path d="M15 20v-5h5" />
+            </svg>
+          </button>
+          <button type="button" id="downloadImage" class="date-range-playback-btn date-range-image-btn" aria-label="Download current charts as PNG" title="Download image"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 5-5 4 4 4-6 5 7"/></svg></button>
+          <button type="button" id="downloadVideo" class="date-range-playback-btn date-range-download-btn" aria-label="Download date range animation" title="Download animation">↓</button>
+          <div class="date-range-download-settings" id="dateRangeDownloadSettings">
+            <button type="button" id="dateRangeSettingsBtn" class="date-range-playback-btn date-range-settings-btn" aria-haspopup="dialog" aria-expanded="false" aria-label="Download settings" title="Download settings">⚙</button>
+            <div id="dateRangeSettingsMenu" class="date-range-download-settings-menu" role="dialog" aria-label="Download options">
+              <p class="download-hint">PNG saves at 4K quality. Quality and playback speed apply to video.</p>
+              <div class="download-setting-field">Orientation
+                <div id="exportOrientation" class="download-setting-button-row" role="group" aria-label="Download orientation">
+                  <button type="button" class="download-setting-option is-selected" data-value="landscape" aria-pressed="true">Landscape</button>
+                  <button type="button" class="download-setting-option" data-value="portrait" aria-pressed="false">Portrait</button>
+                  <button type="button" class="download-setting-option" data-value="square" aria-pressed="false">Square</button>
+                </div>
+              </div>
+              <div class="download-setting-field">Quality
+                <div id="exportQuality" class="download-setting-button-row" role="group" aria-label="Download quality">
+                  <button type="button" class="download-setting-option is-selected" data-value="720" aria-pressed="true">720p</button>
+                  <button type="button" class="download-setting-option" data-value="1080" aria-pressed="false">1080p</button>
+                  <button type="button" class="download-setting-option" data-value="1440" aria-pressed="false">1440p</button>
+                  <button type="button" class="download-setting-option" data-value="2160" aria-pressed="false">4K</button>
+                </div>
+              </div>
+              <div class="download-setting-field">Playback Speed
+                <div id="exportSpeed" class="download-setting-button-row" role="group" aria-label="Download playback speed">
+                  <button type="button" class="download-setting-option" data-value="0.5" aria-pressed="false">0.5x</button>
+                  <button type="button" class="download-setting-option is-selected" data-value="1" aria-pressed="true">1x</button>
+                  <button type="button" class="download-setting-option" data-value="2" aria-pressed="false">2x</button>
+                  <button type="button" class="download-setting-option" data-value="4" aria-pressed="false">4x</button>
+                </div>
+              </div>
+              <div class="download-setting-field">Theme
+                <div id="exportTheme" class="download-setting-button-row" role="group" aria-label="Download theme">
+                  <button type="button" class="download-setting-option is-selected" data-value="light" aria-pressed="true">Light</button>
+                  <button type="button" class="download-setting-option" data-value="dark" aria-pressed="false">Dark</button>
+                </div>
+              </div>
+              <label class="download-setting-checkbox">
+                <input type="checkbox" id="downloadEndFrameHoldToggle" checked>
+                <span>1s start / 3s end hold</span>
+              </label>
+              <div id="downloadEstimatePanel" class="download-estimate-panel" aria-live="polite">
+                <div class="download-estimate-row">
+                  <span>File Size</span>
+                  <strong id="downloadEstimateSize">--</strong>
+                </div>
+                <div class="download-estimate-row">
+                  <span>Video Length</span>
+                  <strong id="downloadEstimateLength">--</strong>
+                </div>
+                <div class="download-estimate-row">
+                  <span>Download Time</span>
+                  <strong id="downloadEstimateTime">--</strong>
+                </div>
+              </div>
+              <div class="download-setting-actions">
+                <button type="button" id="downloadSettingsDownloadBtn">Download Animation</button>
+              </div>
+            </div>
+          </div>
+          </div>
+        </div>
+      </div>
+      <div class="date-range-slider-wrap" id="dateRangeSliderWrap">
+        <div class="date-range-available-track" id="dateRangeAvailableTrack"></div>
+        <input id="dateRangeEndSlider" class="date-range-slider" type="range" min="0" max="0" value="0" step="1" aria-label="End date slider" />
+        <div class="date-range-remaining" id="dateRangeSelection"></div>
+        <div class="date-range-current-marker" id="dateRangeCurrentMarker" aria-hidden="true" hidden></div>
+      </div>
+    </section>
+    <main class="panel chart-panel dashboard-chart-frame">
+      <div class="chart-canvas-wrap">
+      <canvas id="dashboardCanvas" role="img" aria-label="Bitcoin block hashes and difficulty targets by block height"></canvas>
+      </div>
+      <div class="dashboard-ring-loader" id="chartLoader" role="status" aria-live="polite" aria-label="Loading chart"><span class="chart-loader-ring" aria-hidden="true"></span></div>
+    </main>
+  </div>
+  <script src="../../js/11_dashboard_timezone_preferences.js"></script>
+  <script src="target_hashes_model.js"></script>
+  <script src="target_hashes_chart.js?v=20261028-search-colors"></script>
+  <script>window.WSBWebappDataAutoRefresh = { urls: ["webapp_data/manifest.json"], intervalMs: 60000 };</script>
+  <script src="../shared/webapp_data_auto_refresh.js"></script>
+  <script src="../shared/dashboard_chart_tooltip.js?v=20261027-marker"></script>
+  <script src="../shared/daily_history_dashboard.js?v=20261027-blocks"></script>
+  <script src="dashboard_app.js"></script>
+</body>
+</html>

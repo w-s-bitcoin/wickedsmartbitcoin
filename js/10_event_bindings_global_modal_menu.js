@@ -91,6 +91,7 @@ const PLAYBACK_DASHBOARD_MODAL_MATCHES = [
     { filename: 'dca_cost_basis.png', path: '/webapps/dca_cost_basis/dashboard.html' },
     { filename: 'issuance_rate.png', path: '/webapps/issuance_rate/dashboard.html' },
     { filename: 'mined_supply_price.png', path: '/webapps/mined_supply_price/dashboard.html' },
+    { filename: 'target_and_block_hashes.png', path: '/webapps/target_and_block_hashes/dashboard.html' },
     { filename: 'price_distribution.png', path: '/webapps/price_distribution/dashboard.html' },
     { filename: 'patoshi_pattern.png', path: '/webapps/patoshi_pattern/dashboard.html' },
 ];
@@ -235,6 +236,10 @@ window.addEventListener('message', e => {
     }
     if (data.type === 'wsb-mined-supply-dashboard-expanded') {
         document.body?.classList?.toggle('mined-supply-dashboard-expanded', !!data.expanded);
+        return;
+    }
+    if (data.type === 'wsb-target-hashes-dashboard-expanded') {
+        document.body?.classList?.toggle('target-hashes-dashboard-expanded', !!data.expanded);
         return;
     }
     if (data.type === 'wsb-price-distribution-dashboard-expanded') {

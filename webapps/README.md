@@ -15,6 +15,7 @@ Current dashboards:
 - `dca_comparison/`: compares recurring purchases across Bitcoin and other assets
 - `days_since_ath/`: Bitcoin price and elapsed time since all-time highs
 - `issuance_rate/`: Bitcoin supply and issuance history
+- `target_and_block_hashes/`: complete block-hash history, difficulty targets, record lows, exact block search and reference-style exports
 - `patoshi_pattern/`: early mining pattern exploration
 - `casascius_explorer/`: physical Bitcoin collectibles, balances, and redemption activity
 - `bitcoin_net_worth/`: interactive net worth tracker with demo/live modes, snapshot history, and optional encryption
@@ -77,6 +78,7 @@ Common dashboard shell/layout rules are centralized in `webapps/shared/` and sho
   - Auto-applies on load and listens for window + parent resize events
   - Sends `{ type: 'wsb-dashboard-nav-key', key }` postMessages to parent for arrow-key navigation passthrough
 - `shared/preview_shared.js`
+  - `chartInsets(width, height, existing)` supplies 2.5% side and 3⅓% top insets, with only 3–4px of bottom stroke clearance at standard preview sizes. Explicitly required larger gutters are preserved. Chart previews remove unused lower domain space and account for their inner gutters. Net Worth and Casascius keep their centered artwork, and homepage titles keep equal padding above and below.
   - Exposes `window.WSBPreviewShared.initThemeSync(options)` — reads the shared theme key from localStorage, defaults to dark, applies `data-theme` to `documentElement`, and listens for `storage` and `quantum-dashboard-theme` postMessage events
   - Exposes `window.WSBPreviewShared.createDataRefresher(options)` — polls lightweight publication markers, stages and validates complete candidates, rechecks the marker before commit, keeps the last-good preview through failures, and coalesces hidden/resume, focus, pageshow, and online recovery
   - Preview adapters keep data installation separate from presentation. Hidden frames may install a complete generation, but paint only once when visible; theme and resize handlers render cached data and never fetch.
@@ -923,3 +925,9 @@ Both daily-history dashboards use `dashboard_chart_tooltip.js` for bounded
 inspection, nearest-observation lookup, guides, and tooltip lifecycle. The
 `.dashboard-chart-tooltip` rules in `dashboard_shared.css` match Moving Average's
 compact chart treatment. Each renderer supplies its own geometry and values.
+
+Target & Block Hashes also uses `daily_history_dashboard.js` / `.css`, with the
+optional block timeline and search adapters. Its own model loads verified binary
+block chunks, supplies exact-height frame plans, and keeps price feeds disabled.
+The default daily-history behavior is unchanged. Patoshi and Target & Block
+Hashes share the block-search pill styles in `dashboard_controls.css`.

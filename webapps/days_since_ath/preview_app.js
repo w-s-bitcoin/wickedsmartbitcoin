@@ -161,7 +161,7 @@
   function drawPanel(ctx, x, y, width, height, rows, getValue, options = {}) {
     const bg = getCss("--bg", "#000");
     const accent = getCss("--accent", "#ff9900");
-    const pad = { top: 18, right: 18, bottom: 18, left: 18 };
+    const pad = { top: 18, right: 18, bottom: 0, left: 18 };
     const plotX = x + pad.left;
     const plotY = y + pad.top;
     const plotW = Math.max(1, width - pad.left - pad.right);
@@ -238,7 +238,7 @@
     const gap = Math.max(10, Math.round(width * 0.012));
     const outerPad = Math.max(10, Math.round(Math.min(width, height) * 0.025));
     const panelY = outerPad;
-    const panelH = Math.max(1, height - outerPad * 2);
+    const panelH = Math.max(1, height - outerPad - window.WSBPreviewShared.chartInsets(width, height).bottom);
     const panelW = Math.max(1, (width - outerPad * 2 - gap) / 2);
     const leftX = outerPad;
     const rightX = outerPad + panelW + gap;

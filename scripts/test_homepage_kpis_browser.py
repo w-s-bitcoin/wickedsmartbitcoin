@@ -757,8 +757,10 @@ def check_live_cards(state, height, supply, *, estimated=True):
     expected_supply = f"{supply:,.8f} BTC"
     require(state["supply"].startswith(expected_supply),
             f"Supply should remain anchored to published issuance ({expected_supply})", state)
-    require(("estimated" in state["supplyCaption"].lower()) == estimated,
-            "Supply estimate is not identified accurately", state)
+    require("estimated" not in state["supplyCaption"].lower(),
+            "Supply caption should show only the share of 21 million BTC", state)
+    require(("estimated" in state["supply"].lower()) == estimated,
+            "Supply tooltip should retain the estimate detail", state)
     require(abs(state["supplyProgress"] - supply / 21000000 * 100) < 1e-8,
             "Supply progress did not follow the live height", state)
     halving_remaining = (height // 210000 + 1) * 210000 - height

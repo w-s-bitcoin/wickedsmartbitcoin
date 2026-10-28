@@ -7,6 +7,11 @@ published daily price with the previous epoch's nearest daily block count.
 It shares the site shell, calendar, range/playback controls, timezone chip,
 Copy Link, reset/undo, atomic refresh, and deterministic PNG/video export helpers.
 The homepage preview uses the same model and renderer without axes or labels.
+Its upper price bound fits the displayed epoch prices, leaving only the shared
+card inset and 3px for the line outline. Its horizontal domain is blocks 1–210,000,
+so the epoch reaches the shared side insets without additional axis padding.
+Its lower bound fits the Not Valued baseline with 2px of outline clearance.
+The dashboard and exports retain their fixed reference scales.
 Date/range buttons, playback, calendar selection, and download settings use
 `shared/dashboard_playback.css`, the same stylesheet as Moving Average. Their
 dimensions, typography, borders, themes, and interaction states are shared.

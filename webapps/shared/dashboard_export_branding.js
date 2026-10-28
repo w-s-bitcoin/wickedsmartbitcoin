@@ -3,6 +3,7 @@
   const base = new URL("export_assets/", document.currentScript.src);
   const BODY = '"WSB Export DejaVu", sans-serif';
   const FOOTER = '"WSB Export IBM Plex Mono", monospace';
+  const MONO = '"WSB Export DejaVu Mono", monospace';
   let pending, assets;
 
   // Lazy, shared preparation: no requests until an exporter needs these assets.
@@ -12,6 +13,7 @@
       const faces = [
         ["WSB Export DejaVu", "DejaVuSans.ttf", "400"],
         ["WSB Export DejaVu", "DejaVuSans-Bold.ttf", "700"],
+        ["WSB Export DejaVu Mono", "DejaVuSansMono.ttf", "400"],
         ["WSB Export IBM Plex Mono", "IBMPlexMono-Medium.ttf", "500"],
       ].map(([family, file, weight]) => new FontFace(family, `url("${new URL(file, base)}")`, { weight }));
       const wordmark = new Image(), creator = new Image(), lightning = new Image();
@@ -100,8 +102,8 @@
 
   function setFont(ctx, size, role = "body") {
     requireReady();
-    if (!["body", "heading"].includes(role)) throw new Error(`Unknown export font role: ${role}`);
-    ctx.font = `${role === "heading" ? "700" : "400"} ${size}px ${BODY}`;
+    if (!["body", "heading", "mono"].includes(role)) throw new Error(`Unknown export font role: ${role}`);
+    ctx.font = `${role === "heading" ? "700" : "400"} ${size}px ${role === "mono" ? MONO : BODY}`;
   }
 
   // The dashboard owns the destination rectangle. Preserve the original mark's

@@ -24,6 +24,7 @@
       // The sparse 200-day trace needs more stroke weight to visually match the
       // overlapping daily segments in the full-history and 200-week thumbnails.
       priceLineWidths: [1.3, 2.2, 1.3],
+      previewInsets: window.WSBPreviewShared.chartInsets(width, height),
       scales: ["log", "linear", "linear"], theme: document.documentElement.dataset.theme, compact: true });
   }
   window.WSBPreviewShared?.initThemeSync({ onThemeChanged: () => refresher?.requestPresent("theme") });

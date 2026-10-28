@@ -268,8 +268,10 @@
     if (options.export && !landscape && !compact) { renderSquareExport(ctx, width, height, rows, endIndex, colors, options); ctx.restore(); return; }
     if (options.export) { renderPortraitExport(ctx, width, height, rows, endIndex, colors, options); ctx.restore(); return; }
     const scale = Math.min(width / 1920, height / (landscape ? 1080 : 1920));
-    const pad = Math.max(12, 35 * scale), header = preview ? 0 : 12 * scale;
-    const chartBottom = height - (preview ? pad : 12 * scale);
+    const inset = preview ? options.previewInsets : null, basePad = Math.max(12, 35 * scale);
+    const pad = Math.max(basePad, inset?.left || 0);
+    const header = preview ? Math.max(0, (inset?.top || 0) - 18 * scale) : 12 * scale;
+    const chartBottom = height - (preview ? (inset?.bottom ?? basePad) : 12 * scale);
     const available = chartBottom - header;
     const row = rows[endIndex];
     if (landscape) {
@@ -279,7 +281,7 @@
       if (!preview) donutHeading(ctx, donutBox, ["Percentage of", "21M BTC Mined"], 34 * scale, 38 * scale, colors, options);
       donut(ctx, donutBox, row, colors, options);
       priceChart(ctx, { x: Math.max(width * 0.37, donutX + donutSize + pad * 0.3), y: header + 10 * scale,
-        width: width - Math.max(width * 0.37, donutX + donutSize + pad * 0.3) - pad, height: available - 16 * scale }, rows, endIndex, colors, options);
+        width: width - Math.max(width * 0.37, donutX + donutSize + pad * 0.3) - pad, height: available - (preview ? 10 : 16) * scale }, rows, endIndex, colors, options);
     } else {
       const donutSize = Math.min(width - pad * 2, compact ? available * 0.44 : available * 0.53);
       const headingSize = Math.max(12, 29 * scale);

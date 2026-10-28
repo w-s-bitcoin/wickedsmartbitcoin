@@ -101,6 +101,7 @@
       patoshi_pattern: 'patoshi_pattern.html',
       mined_supply_price: 'mined_supply_price.html',
       price_distribution: 'price_distribution.html',
+      target_and_block_hashes: 'target_and_block_hashes.html',
       bitcoin_dominance: 'bitcoin_dominance.html',
       bitcoin_net_worth: 'bitcoin_net_worth.html',
       casascius_explorer: 'casascius_explorer.html',

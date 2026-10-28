@@ -185,7 +185,7 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
 .homepage .image-grid.grid > div { width: auto; }
 .homepage .dashboard-card-surface { border: 1px solid var(--home-line); border-radius: 8px; background: var(--home-surface); transition: border-color .18s ease, box-shadow .18s ease; }
 .homepage .dashboard-card-surface:hover, .homepage .dashboard-card-surface:focus-within { border-color: var(--home-accent); box-shadow: 0 0 16px rgba(247, 147, 26, .22); }
-.homepage .image-grid .chart-title { order: 1; width: 100%; min-height: 58px; margin: 0; padding: 15px 18px; justify-content: flex-start; align-items: center; text-align: left; font-size: 15px; font-weight: 400; gap: 8px; }
+.homepage .image-grid .chart-title { order: 1; width: 100%; min-height: 48px; margin: 0; padding: 10px 18px; justify-content: flex-start; align-items: center; text-align: left; font-size: 15px; font-weight: 400; gap: 8px; }
 .homepage .chart-title::after { content: "↗"; margin-left: auto; color: var(--home-muted); font-family: system-ui, sans-serif; font-size: 18px; font-weight: 400; line-height: 1; }
 .homepage .chart-title { cursor: pointer; }
 .homepage .chart-title-text { min-width: 0; overflow-wrap: anywhere; }
