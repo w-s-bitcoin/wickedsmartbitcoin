@@ -15,6 +15,7 @@ MODULES = (
     "scripts.test_hourly_casascius_workspace",
     "scripts.test_pages_build",
     "scripts.test_pages_workflow",
+    "scripts.test_site_version",
     "scripts.test_eoe_live_reference",
     "scripts.test_target_hashes",
     "scripts.test_onchain_kpis",

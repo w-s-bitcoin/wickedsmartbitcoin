@@ -133,7 +133,8 @@ so edits made during sync also prevent history cleanup.
 
 ## Pages build and deployment queue
 
-`.github/workflows/deploy-pages.yml` runs on each push to `main`. Builds are
+`.github/workflows/deploy-pages.yml` runs on each push to `main` and explicit
+workflow dispatches, including the post-merge version update. Builds are
 independent, with no workflow-wide lock or build cancellation. A delayed older
 run cannot hold up or cancel a newer build. Before checkout and again before
 artifact upload, each run reads the current `refs/heads/main` from GitHub and
@@ -167,6 +168,37 @@ and can be run directly with `python3 -m unittest scripts.test_pages_workflow`.
 
 See [GitHub's concurrency behavior](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)
 for queue limits and ordering.
+
+## Site version after merged PRs
+
+The homepage footer starts at `v0.4.0`. `.github/workflows/bump-site-version.yml`
+increments only its patch component for each PR merged into `main`: `v0.4.1`,
+`v0.4.2`, and so on. Direct pushes and data publications do not increment it.
+The workflow runs on merged `pull_request_target: closed` events and checks out
+trusted `main`, never an unmerged PR head. The version remains in `index.html`;
+`.github/versioned-prs.json` records counted PR numbers. Keep that ledger when
+manually changing the major/minor version so old reruns cannot count twice.
+
+`scripts/bump_site_version.py` rechecks that the PR is merged into `main`, reads
+both files at one current commit, and creates one atomic version/ledger commit
+through the GitHub API. Reference updates are fast-forward only. If another
+merge or data publication wins the race, it recomputes against the new head;
+it never resets a checkout or force-pushes. The workflow queues merge events
+without canceling pending runs and reruns do not increment a counted PR again.
+No historical PR backfill runs when the workflow is installed.
+
+The job uses the built-in `GITHUB_TOKEN` with contents-write, PR-read, and
+Actions-write permissions; no new secret is needed. GitHub-token commits do not
+trigger push workflows, so it explicitly dispatches `deploy-pages.yml` on
+`main`. Pages retains all existing checks and stale-commit guards. Rerunning a
+failed deployment-dispatch step is safe even if the version commit succeeded.
+Branch protections that prohibit bot commits must permit this workflow before
+it can write; failures remain visible in Actions and never bypass protection.
+
+Run its offline checks with `python3 -m unittest scripts.test_site_version`.
+They also run through `scripts/check_project.sh`. They cover duplicate events,
+concurrent publications/merges, malformed input, and rejected writes without
+using credentials or contacting GitHub.
 
 ## Unattended Git access
 

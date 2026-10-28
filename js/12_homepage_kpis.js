@@ -28,6 +28,7 @@
   ]));
   const snapshotStatus = byId("homeKpiSnapshotStatus");
   const blockTime = byId("homeKpiBlockTime");
+  const blockLink = byId("homeKpiBlockLink");
   const blockElapsed = byId("homeKpiBlockElapsed");
   const blockProgress = byId("homeKpiBlockProgress");
   const blockMeter = byId("homeKpiBlockMeter");
@@ -429,6 +430,13 @@
       : validSchedule ? projectedAdjustment(height, minedAt, difficultyEpochStart) : null;
 
     values.height.textContent = height.toLocaleString("en-US");
+    if (blockLink) {
+      blockLink.href = `https://mempool.space/block/${height}`;
+      blockLink.title = `View block ${height.toLocaleString("en-US")} on mempool.space (opens in a new tab)`;
+      blockLink.setAttribute("aria-label", blockLink.title);
+      blockLink.removeAttribute("aria-disabled");
+      blockLink.removeAttribute("tabindex");
+    }
     values.supply.textContent = supply === null ? "—" : compactSupply.matches
       ? `${(supply / 1000000).toFixed(3)}M`
       : supply.toLocaleString("en-US", { maximumFractionDigits: 0 });
