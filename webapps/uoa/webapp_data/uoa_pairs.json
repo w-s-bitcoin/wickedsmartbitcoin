@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-10-29T13:29:30.083496Z",
+  "generated_at_utc": "2026-10-29T16:12:32.660168Z",
   "source": {
     "name": "Frankfurter",
     "url": "https://api.frankfurter.app",
@@ -7,7 +7,7 @@
     "pair_endpoint": "https://api.frankfurter.app/1999-01-01..2999-12-31?from=EUR&to=USD",
     "start_date": "1999-01-04",
     "end_date": "2026-10-29",
-    "notes": "Rates are business-day reference rates for 168 Frankfurter-supported currency pairs vs USD; CUP/USD is overwritten with elTOQUE TRMI via CUP=X where available; weekends and market holidays are forward-filled.",
+    "notes": "Rates are business-day reference rates for 163 Frankfurter-supported currency pairs vs USD; CUP/USD is overwritten with elTOQUE TRMI via CUP=X where available; weekends and market holidays are forward-filled.",
     "dataset_notes": "CSV schema simplified to date, eurusd where eurusd is the EUR/USD rate value. Source attribution is stored in this metadata file.",
     "cupusd_source": "elTOQUE TRMI via CUP=X"
   },
@@ -319,17 +319,6 @@
       "groups": [
         "americas"
       ]
-    },
-    "BCH": {
-      "name": "Bitcoin Cash",
-      "code": "BCH",
-      "symbol": "BCH",
-      "symbol_position": "right",
-      "minor_unit": 8,
-      "groups": [
-        "alternative_cryptocurrencies"
-      ],
-      "asset_type": "alternative_cryptocurrency"
     },
     "BDT": {
       "name": "Bangladeshi Taka",
@@ -664,17 +653,6 @@
       "groups": [
         "africa"
       ]
-    },
-    "ETH": {
-      "name": "Ethereum",
-      "code": "ETH",
-      "symbol": "ETH",
-      "symbol_position": "right",
-      "minor_unit": 8,
-      "groups": [
-        "alternative_cryptocurrencies"
-      ],
-      "asset_type": "alternative_cryptocurrency"
     },
     "EUR": {
       "name": "Euro",
@@ -1123,17 +1101,6 @@
       "groups": [
         "africa"
       ]
-    },
-    "LTC": {
-      "name": "Litecoin",
-      "code": "LTC",
-      "symbol": "LTC",
-      "symbol_position": "right",
-      "minor_unit": 8,
-      "groups": [
-        "alternative_cryptocurrencies"
-      ],
-      "asset_type": "alternative_cryptocurrency"
     },
     "LYD": {
       "name": "Libyan Dinar",
@@ -1928,17 +1895,6 @@
         "monetary_metals"
       ]
     },
-    "XRP": {
-      "name": "XRP",
-      "code": "XRP",
-      "symbol": "XRP",
-      "symbol_position": "right",
-      "minor_unit": 8,
-      "groups": [
-        "alternative_cryptocurrencies"
-      ],
-      "asset_type": "alternative_cryptocurrency"
-    },
     "YER": {
       "name": "Yemeni Rial",
       "code": "YER",
@@ -1981,10 +1937,54 @@
         "africa"
       ]
     },
+    "ETH": {
+      "name": "Ethereum",
+      "code": "ETH",
+      "symbol": "ETH",
+      "symbol_position": "right",
+      "minor_unit": 8,
+      "groups": [
+        "alternative_cryptocurrencies"
+      ],
+      "asset_type": "alternative_cryptocurrency"
+    },
+    "BCH": {
+      "name": "Bitcoin Cash",
+      "code": "BCH",
+      "symbol": "BCH",
+      "symbol_position": "right",
+      "minor_unit": 8,
+      "groups": [
+        "alternative_cryptocurrencies"
+      ],
+      "asset_type": "alternative_cryptocurrency"
+    },
+    "LTC": {
+      "name": "Litecoin",
+      "code": "LTC",
+      "symbol": "LTC",
+      "symbol_position": "right",
+      "minor_unit": 8,
+      "groups": [
+        "alternative_cryptocurrencies"
+      ],
+      "asset_type": "alternative_cryptocurrency"
+    },
     "BNB": {
       "name": "BNB",
       "code": "BNB",
       "symbol": "BNB",
+      "symbol_position": "right",
+      "minor_unit": 8,
+      "groups": [
+        "alternative_cryptocurrencies"
+      ],
+      "asset_type": "alternative_cryptocurrency"
+    },
+    "XRP": {
+      "name": "XRP",
+      "code": "XRP",
+      "symbol": "XRP",
       "symbol_position": "right",
       "minor_unit": 8,
       "groups": [
@@ -2404,19 +2404,6 @@
       "dataset_columns": [
         "date",
         "bsdusd"
-      ],
-      "pair_column_value": null,
-      "quote_assumption": "USD-denominated FX rate"
-    },
-    {
-      "id": "BTC/USD",
-      "base": "BTC",
-      "quote": "USD",
-      "display_name": "Bitcoin / US Dollar",
-      "dataset": "daily_fx_rates.csv",
-      "dataset_columns": [
-        "date",
-        "btcusd"
       ],
       "pair_column_value": null,
       "quote_assumption": "USD-denominated FX rate"
