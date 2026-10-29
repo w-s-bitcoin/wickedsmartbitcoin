@@ -163,6 +163,17 @@ as a capability fallback.
 
   Render charts and text at the target resolution; do not upscale a screenshot.
   A video quality selection must never silently reduce PNG resolution.
+- **Keep PNG and video proportions identical for the same orientation.** Use
+  one logical composition for every output quality (720/1080/1440/2160).
+  Resolution changes pixel density, never the relative sizes of fonts, labels,
+  stars/other event markers, strokes, panels, margins, or branding. Derive
+  layout from logical dimensions rather than backing pixels, viewport size,
+  or screen DPR. Scale minimum sizes with that layout; interactive pixel floors
+  must not change export proportions. Measure glyph bounds at a fixed logical
+  font size and reserve footer space before output-pixel rounding. Keep event
+  shapes consistent with the live chart, including UOA's devaluation stars.
+  Verify a real 2160 PNG against decoded video at every offered quality with
+  `scripts/test_export_scale_browser.py`; lossy video pixels may differ.
 - **Use one export typography treatment**, supplied by
   `WSBDashboardExportBranding`: DejaVu Sans Bold for the headline and panel headings, and regular
   DejaVu Sans for labels, dates, and KPIs. Preserve tabular digits and a consistent
@@ -232,6 +243,11 @@ as a capability fallback.
 - Apply the same axis and calculation rules to interactive and exported charts.
   Tick counts may differ with plot width. Validate every offered orientation and
   decode a real PNG/video; a successful download click does not prove correctness.
+- Daily-close video headers show the source calendar date without a time or
+  timezone. Use `WSBDashboardExport.formatDailyDate()` (`Jan 09, 2026`) and
+  `WSBDashboardExportBranding.drawDateText()` for fixed-width month, day, year,
+  and spaces. Keep the font size and anchor fixed across frames and output
+  resolutions. Snapshot images may retain their quote/publication timestamps.
 - Freeze the data/settings used by an export. For dashboards offering a live
   final frame, use published historical frames and capture one quote at the
   start of the final frame, holding that quote and derived values through the

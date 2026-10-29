@@ -19,7 +19,7 @@ function element(id) {
     },
     setAttribute: (name, value) => attributes.set(name, String(value)),
     getAttribute: name => attributes.get(name) ?? null,
-    querySelector: () => null,
+    querySelector: selector => selector === '.date-range-export-progress' ? { style: { setProperty() {} } } : null,
     querySelectorAll: () => [],
     addEventListener() {},
     remove() {},
@@ -230,6 +230,8 @@ test("video captures one final quote and preserves its rows and timestamp throug
   assert.strictEqual(f.renders[2][5], f.renders[3][5], "ending hold reuses the captured derived rows");
   for (const record of f.renders.slice(2)) {
     assert.equal(record[6].timestamp, finalQuote.at);
+    assert.equal(record[6].dateOnly, true);
+    assert.equal(record[6].date, finalQuote.at);
     assert.equal(record[6].height, 940548);
     assert.equal(record[6].cadence, "daily_dca");
   }
@@ -300,6 +302,9 @@ function rendererFixture() {
   const branding = {
     ready: async () => {},
     setFont(context, size, role) { context.font = `${size}px WSB-${role}`; },
+    drawDateText(context, text, x, y, size) {
+      context.save(); this.setFont(context, size, 'mono'); context.fillText(text, x, y); context.restore();
+    },
     drawWordmark(context, bounds, options) { calls.push({ name: "wordmark", bounds, options }); },
     drawFooter(context, slug, metrics, settings) { calls.push({ name: "footer", slug, metrics, settings }); },
   };
@@ -312,7 +317,7 @@ function rendererFixture() {
   }
   const sandbox = { window: { WSBDashboardExportBranding: branding }, Date: LocalDate };
   vm.createContext(sandbox);
-  for (const path of ["webapps/shared/dashboard_charting.js", "webapps/dca_cost_basis/dca_cost_basis_export.js"])
+  for (const path of ["webapps/shared/dashboard_export.js", "webapps/shared/dashboard_charting.js", "webapps/dca_cost_basis/dca_cost_basis_export.js"])
     vm.runInContext(readFileSync(new URL(path, root), "utf8"), sandbox);
   return { E: sandbox.window.WSBDCACostBasisExport, ctx, calls };
 }
@@ -325,6 +330,25 @@ test("renderer keeps published timestamps in UTC on a non-UTC browser", () => {
   assert.equal(result.timestamp, "Mar 13, 2026 19:00 (UTC)");
   assert.ok(calls.some(call => call.name === "text" && call.text === "940548"));
   assert.ok(calls.some(call => call.name === "arc"), "a single daily purchase remains visible");
+});
+
+test("daily video dates ignore timezone shifts and retain one size and anchor through calendar changes", () => {
+  for (const [width, height] of [[1920, 1080], [1080, 1920], [1080, 1080]]) {
+    const drawn = [];
+    for (const date of ['2025-12-31', '2026-01-01', '2026-01-09', '2026-01-10', '2026-09-09']) {
+      const { E, ctx, calls } = rendererFixture();
+      E.render(ctx, width, height, { rows: [{ daysAgo: 1, dateIso: date,
+        historicalPrice: 70000, dcaBasis: 70000, currentPrice: 70000, blockHeight: 940548 }],
+        dateOnly: true, date, timestamp: `${date}T00:00:00Z`, timeZone: 'America/New_York',
+        theme: 'dark', scale: 'linear' });
+      const label = calls.find(c => c.name === 'text' && /^[A-Z][a-z]{2} \d{2}, \d{4}$/.test(c.text));
+      assert.ok(label, date);
+      assert.ok(label.text.includes(date.slice(8) + ', ' + date.slice(0, 4)), label);
+      assert.ok(!calls.some(c => c.name === 'text' && /\d{2}:\d{2}/.test(c.text)));
+      drawn.push([label.x, label.y, label.font]);
+    }
+    drawn.forEach(label => assert.deepEqual(label, drawn[0]));
+  }
 });
 
 for (const [orientation, width, height] of [["landscape", 3840, 2160], ["portrait", 2160, 3840], ["square", 2160, 2160]]) {

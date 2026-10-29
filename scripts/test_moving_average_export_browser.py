@@ -168,7 +168,7 @@ def check_loaded_fonts(cdp):
       return [...d.fonts].filter(face=>face.family.includes('WSB Export')).map(face=>({
         family:face.family.replaceAll('"',''),weight:face.weight,status:face.status}));
     """)
-    expected = {("WSB Export DejaVu", "400"), ("WSB Export DejaVu", "700"), ("WSB Export IBM Plex Mono", "500")}
+    expected = {("WSB Export DejaVu", "400"), ("WSB Export DejaVu", "700"), ("WSB Export DejaVu Mono", "400"), ("WSB Export IBM Plex Mono", "500")}
     assert {(face["family"], face["weight"]) for face in faces} == expected, faces
     assert all(face["status"] == "loaded" for face in faces), faces
 
@@ -178,6 +178,8 @@ def check_branding(record):
         font, text = item["font"], item["text"]
         if text == "https://wickedsmartbitcoin.com/moving_average":
             assert '"WSB Export IBM Plex Mono"' in font and font.startswith("500 "), item
+        elif re.fullmatch(r'[A-Z][a-z]{2} \d{2}, \d{4}', text):
+            assert '"WSB Export DejaVu Mono"' in font and not re.match(r'^(?:[5-9]00|bold|bolder)\s', font), item
         else:
             assert '"WSB Export DejaVu"' in font, item
             heading = "Moving Average" in text or "History (" in text or "Window (" in text or text in (" & ", "Wicked")

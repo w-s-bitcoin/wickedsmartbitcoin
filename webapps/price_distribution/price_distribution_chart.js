@@ -237,7 +237,10 @@
         const size = (landscape ? 28 : 24) * u;
         text(label, pad, y, size, muted);
         const x = pad + ctx.measureText(label + " ").width;
-        text(value, x, y, size);
+        if (label === "Date:") {
+          ctx.fillStyle = fg;
+          B.drawDateText(ctx, window.WSBDashboardExport.formatDailyDate(row.time), x, y, size);
+        } else text(value, x, y, size);
       };
       metadata("Date:", s.date, dateY); metadata("Block Height:", s.height, blockY);
       const px = (landscape ? 575 : 510) * u, ax = (landscape ? 935 : 860) * u;

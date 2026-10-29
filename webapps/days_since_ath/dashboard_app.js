@@ -309,6 +309,7 @@
 
   function fmtDate(iso) {
     if (!iso) return "-";
+    if (activeExportFrameIso) return window.WSBDashboardExport.formatDailyDate(iso);
     const d = new Date(`${iso}T00:00:00Z`);
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
   }
@@ -727,7 +728,9 @@
     canvas.width = Math.round(width * scale);
     canvas.height = Math.round(height * scale);
     const ctx = canvas.getContext("2d");
-    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    // Use the actual backing dimensions so rounding a panel to whole pixels
+    // cannot shrink its contents when composited into the export layout.
+    ctx.setTransform(canvas.width / width, 0, 0, canvas.height / height, 0, 0);
     return { ctx, width, height };
   }
 
@@ -902,6 +905,11 @@
     ctx.restore();
   }
 
+  function logicalCanvasWidth(canvas) {
+    // Export pixels are independent of the viewer's screen DPR and video quality.
+    return Number(canvas.__exportWidth) || canvas.width / Math.max(1, window.devicePixelRatio || 1);
+  }
+
   function chartLabelSizes(width = window.innerWidth) {
     const safeWidth = Number.isFinite(width) ? width : window.innerWidth;
     const progress = Math.max(0, Math.min(1, (safeWidth - 420) / 900));
@@ -928,7 +936,7 @@
   }
 
   function drawYGrid(ctx, ticks, yFor, pad, plotW, plotH, formatter, currentY = null, options = {}) {
-    const labelSizes = chartLabelSizes(ctx.canvas.width / Math.max(1, window.devicePixelRatio || 1));
+    const labelSizes = chartLabelSizes(logicalCanvasWidth(ctx.canvas));
     const colors = chartColors();
     const tickFontSize = labelSizes.yTick;
     const currentFontSize = labelSizes.currentValue;
@@ -964,7 +972,7 @@
         if (label === "Not Valued") {
           labelFontSize = Math.min(labelFontSize * 0.78, 12);
           ctx.font = `500 ${labelFontSize}px IBM Plex Mono, monospace`;
-          const availableWidth = Math.max(24, (ctx.canvas.width / Math.max(1, window.devicePixelRatio || 1)) - plotRight - 12);
+          const availableWidth = Math.max(24, logicalCanvasWidth(ctx.canvas) - plotRight - 12);
           while (ctx.measureText(label).width > availableWidth && labelFontSize > 8) {
             labelFontSize -= 1;
             ctx.font = `500 ${labelFontSize}px IBM Plex Mono, monospace`;
@@ -1185,7 +1193,7 @@
 
   function drawXAxisTicks(ctx, ticks, xForIso, pad, plotW, plotH, labelOffset = 14) {
     if (!Array.isArray(ticks) || !ticks.length) return;
-    const labelSizes = chartLabelSizes(ctx.canvas.width / Math.max(1, window.devicePixelRatio || 1));
+    const labelSizes = chartLabelSizes(logicalCanvasWidth(ctx.canvas));
     const colors = chartColors();
     const tickFontSize = labelSizes.yTick;
     const top = pad.top;

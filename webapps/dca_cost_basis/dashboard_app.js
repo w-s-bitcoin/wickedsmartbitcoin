@@ -2935,7 +2935,10 @@ async function encodeDateRangeAnimationVideo({ canvas, ctx, settings, theme, pal
         finalFrameRows = getFrameRows(snapshot.dateRange.startIso, finalDate, true, finalQuote, snapshot);
       }
       const rows = useLiveFinalFrame ? finalFrameRows : getFrameRows(snapshot.dateRange.startIso, dateIso, false, null, snapshot);
-      await drawExportFrame(ctx, canvas, dateIso, { ...settings, theme }, palette, rows, getDcaExportFrameOptions(rows, settings, snapshot, useLiveFinalFrame ? finalQuote : null));
+      await drawExportFrame(ctx, canvas, dateIso, { ...settings, theme }, palette, rows, {
+        ...getDcaExportFrameOptions(rows, settings, snapshot, useLiveFinalFrame ? finalQuote : null),
+        dateOnly: true, date: useLiveFinalFrame && finalQuote ? finalQuote.at : dateIso,
+      });
     },
   });
 }

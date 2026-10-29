@@ -8,6 +8,15 @@
   const DEFAULT_SIZE_MULTIPLIER = 0.78;
   const AVC_BITRATE_MULTIPLIER = 2;
 
+  function formatDailyDate(value) {
+    // Daily rows name a UTC calendar day, not an instant in the viewer's zone.
+    const raw = typeof value === "string" ? value.slice(0, 10) : value;
+    const date = new Date(typeof raw === "string" ? `${raw}T00:00:00Z` : raw);
+    if (!Number.isFinite(date.getTime())) return "--";
+    const month = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][date.getUTCMonth()];
+    return `${month} ${String(date.getUTCDate()).padStart(2, "0")}, ${String(date.getUTCFullYear()).padStart(4, "0")}`;
+  }
+
   // Output cadence is independent of dashboard playback/sampling speed.
   // Keep the ring node alive so CSS can interpolate between progress updates.
   function renderProgress(button, progress = 0) {
@@ -586,6 +595,7 @@
   ns.getSupportedMp4Config = getSupportedMp4Config;
   ns.videoExtension = videoExtension;
   ns.drawFooterUrl = drawFooterUrl;
+  ns.formatDailyDate = formatDailyDate;
   ns.getFooterHeight = getFooterHeight;
   ns.writeEstimateElements = writeEstimateElements;
 })();

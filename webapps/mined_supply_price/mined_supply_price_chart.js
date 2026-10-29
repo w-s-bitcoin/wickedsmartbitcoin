@@ -3,7 +3,7 @@
   const MAX_SUPPLY = 20999999.9769;
   const HALVING = 210000;
   const COLORS = ["#0d326b", "#0f559e", "#2e7fba", "#559fcc", "#88bdd8", "#aecde1", "#c8dcea", "#dce7ee"];
-  const DATE = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric", year: "numeric" });
+  const DATE = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "2-digit", year: "numeric" });
   const MONEY = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const SUPPLY = new Intl.NumberFormat("en-US", { maximumFractionDigits: 3 });
   const supplyFormats = new Map();
@@ -205,7 +205,9 @@
       ctx.fillStyle = tint; ctx.textAlign = align; ctx.textBaseline = "middle"; font(ctx, size * u, false, options.branded);
       ctx.fillText(value, x * u, y * u, maxWidth ? maxWidth * u : width);
     };
-    text(s.datetime + " (UTC)", 32, 49, EXPORT_TYPE.label);
+    ctx.fillStyle = colors.text; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    window.WSBDashboardExportBranding.drawDateText(ctx, options.exportKind === "video"
+      ? window.WSBDashboardExport.formatDailyDate(row.quoteAt || row.time) : s.datetime + " (UTC)", 32 * u, 49 * u, EXPORT_TYPE.label * u);
     text("Block Height:", 32, 96, EXPORT_TYPE.label, muted);
     text(String(row.height), 222, 95, EXPORT_TYPE.height);
     text("Epoch", 510, 49, EXPORT_TYPE.label, muted, "center");
@@ -253,7 +255,9 @@
       ctx.fillStyle = tint; ctx.textAlign = align; ctx.textBaseline = "middle";
       font(ctx, size, false, options.branded); ctx.fillText(value, x, y);
     };
-    text(s.datetime + " (UTC)", 44, 49, EXPORT_TYPE.label, colors.text, "left");
+    ctx.fillStyle = colors.text; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    window.WSBDashboardExportBranding.drawDateText(ctx, options.exportKind === "video"
+      ? window.WSBDashboardExport.formatDailyDate(row.quoteAt || row.time) : s.datetime + " (UTC)", 44, 49, EXPORT_TYPE.label);
     text("Block Height:", 44, 96, EXPORT_TYPE.label, colors.muted, "left");
     text(String(row.height), 234, 95, EXPORT_TYPE.height, colors.text, "left");
     text("Epoch", 529, 49, EXPORT_TYPE.label, colors.muted);

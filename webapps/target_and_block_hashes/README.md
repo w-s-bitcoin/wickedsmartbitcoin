@@ -79,6 +79,9 @@ bundled DejaVu Sans Mono through the shared branding helper; other export labels
 use the existing DejaVu Sans. The approved current footer uses
 `wicked@primal.net`. Square/portrait preserve the same chart structure above the
 shared compact footer. Video is lossy; it shares the PNG renderer and geometry.
+Export point radii, target/trail strokes, halving diamonds, and record-low stars
+scale with the composition at every quality, without the interactive minimum
+pixel sizes. The raster cache distinguishes export and interactive rendering.
 
 On narrow screens, the chart scrolls horizontally at a minimum 760px width so
 33 hash digits remain readable. Controls wrap using the shared styles. Searching

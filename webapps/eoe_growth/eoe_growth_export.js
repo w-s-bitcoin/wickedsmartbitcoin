@@ -1,7 +1,6 @@
 (function () {
   "use strict";
   const B = window.WSBDashboardExportBranding, R = window.WSBEOEGrowthCharts;
-  const dateFormat = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
   function layout(width, height) {
     if (width > height) return { width: 1920, height: 1080, title: { x: 970, y: 57, width: 1310 }, logo: { x: 38, y: 32, width: 200 }, date: { x: 40, y: 108 },
       kpis: [{ x: 454, y: 114 }, { x: 736, y: 114 }, { x: 1073, y: 114 }, { x: 1404, y: 114 }, { x: 1740, y: 114 }],
@@ -22,9 +21,12 @@
     const title = "Epoch-Over-Epoch (EOE) Growth"; font(42, true); font(Math.min(42, 42 * l.title.width / ctx.measureText(title).width), true);
     ctx.fillText(title, l.title.x, l.title.y); B.drawWordmark(ctx, l.logo, { theme });
     font(24); ctx.textAlign = "left";
-    for (const [label, value, y] of [["Date:", dateFormat.format(row.time), l.date.y], ["Block Height:", String(row.height), l.date.y + 35]]) {
+    for (const [label, value, y] of [["Date:", window.WSBDashboardExport.formatDailyDate(row.time), l.date.y], ["Block Height:", String(row.height), l.date.y + 35]]) {
       ctx.fillStyle = "#999999"; ctx.fillText(label, l.date.x, y);
-      ctx.fillStyle = colors.fg; ctx.fillText(value, l.date.x + ctx.measureText(label + " ").width, y);
+      ctx.fillStyle = colors.fg;
+      const x = l.date.x + ctx.measureText(label + " ").width;
+      if (label === "Date:") B.drawDateText(ctx, value, x, y, 24);
+      else ctx.fillText(value, x, y);
     }
     const values = [["Epoch", String(row.epoch)], ["Epoch Block Count", String(row.epochBlockCount ?? row.count)],
       [`Epoch ${Math.max(0, row.epoch - 1)} Price`, R.kpiMoney(row.previousPrice)], [`Epoch ${row.epoch} Price`, R.kpiMoney(row.price)], ["EOE Growth", R.growthLabel(row.growth)]];

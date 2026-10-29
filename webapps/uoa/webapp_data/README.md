@@ -1,5 +1,11 @@
 # UoA Webapp Data
 
+For current alternative-cryptocurrency coverage, source attribution, earliest
+observations, remaining source gaps, and refresh rules, see
+[the dashboard guide](../README.md#alternative-cryptocurrencies). These columns
+are daily USD observations from a reviewed list; they bypass FX forward-filling
+and spike cleanup. The older FX inventory below describes the initial rollout.
+
 This folder holds historical conversion-rate datasets for Unit of Account dashboard expansion.
 
 Current dashboard implementation reads from `assets/daily_price.csv` (Bitcoin/USD prices) as primary reference.
@@ -99,7 +105,7 @@ Metadata for supported currencies:
 
 **Currency coverage behavior:**
 
-1. `uoa_webapp_data_update.py` automatically discovers all currently supported Frankfurter currencies.
+1. `uoa_webapp_data_update.py` discovers supported ISO currencies and explicit non-ISO fiat exceptions from Frankfurter. Alternative cryptocurrencies use the separate reviewed history helper.
 2. Existing columns are refreshed incrementally from the latest saved date to today.
 3. Newly discovered currency columns are backfilled from full history and then forward-filled for non-trading days.
 4. `uoa_pairs.json` currencies/pairs are regenerated from discovered source coverage (plus BTC/USD metadata).
@@ -115,5 +121,5 @@ The dashboard (`dashboard_app.js`) dynamically:
 - Converts any BTC pair via USD using rates from matching columns
 - Formats values with correct symbols, placement, and decimal precision per metadata
 
-No hardcoding required; new currencies are automatically supported once CSV and JSON are updated.
+Currency metadata controls the dropdowns. Alternative cryptocurrencies require explicit coverage approval and default to hidden.
 

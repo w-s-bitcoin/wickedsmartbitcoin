@@ -434,7 +434,7 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
           canvas, width, height, fps: 2, settings,
           frames,
           renderFrame: async (i, target) => WSBMinedSupplyPriceChart.render(
-            target.getContext('2d'), width, height, rows, i, { theme: 'dark', export: true, branded: true }),
+            target.getContext('2d'), width, height, rows, i, { theme: 'dark', export: true, exportKind: 'video', branded: true }),
         });
         if (!blob) throw new Error('No encoded video for ' + orientation);
         const player = document.createElement('video'), url = URL.createObjectURL(blob);

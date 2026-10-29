@@ -104,7 +104,7 @@ Common dashboard shell/layout rules are centralized in `webapps/shared/` and sho
 - `shared/uoa_live_quotes.js`
   - Supplies only the selected Unit of Account pair's USD legs: BTC from the shared spot feed, monetary metals from Gold API, and available fiat symbols from TradingView's indicative FX scanner. The dashboard divides those USD values for a cross rate. It retains the published value for a selected leg while a quote is pending or unavailable, and retains the last accepted quote through an outage. A newer published generation takes precedence over an older cached quote.
   - CUP stays on its published informal-market series, including when BTC updates live. TradingView's indicative CUP quote represents a different market and would create a false jump at the latest chart point.
-  - A quote updates only the latest chart point, or adds a provisional current-day point when the complete published FX row is older. It does not invent rows for dates between that publication and today. The Updated time follows the latest used quote while its block height stays with the published snapshot; hover text on Pair and Updated identifies the mixed sources. The Pair KPI has a dot beside each currency: green for a fresh quote, amber for a fresh delayed quote, gray for a published or retained value, and a hollow dot for USD as the fixed reference. A dropped feed retains its last accepted price until a newer publication replaces it; the dot turns gray after 60 seconds without a quote. Historical dates, playback, exports, publication markers, and unselected currencies remain based on published data. FX scanner availability and delay vary by currency; an unsupported or non-streaming symbol stays on the published snapshot.
+  - A quote updates only the latest chart point, or adds a provisional current-day point when the complete published FX row is older. It does not invent rows for dates between that publication and today. The Updated time follows the latest used quote while its block height stays with the published snapshot; hover text on Pair and Updated identifies the mixed sources. The Pair KPI has a dot beside each currency: green for a fresh quote, amber for a fresh delayed quote, gray for a published or retained value, and a hollow dot for USD as the fixed reference. A dropped feed retains its last accepted price until a newer publication replaces it; the dot turns gray after 60 seconds without a quote. Historical dates, playback, historical export frames, publication markers, and unselected currencies remain based on published data. Latest-date PNGs capture current quotes; video opening and final holds each freeze their own current quote snapshot. LBP uses the inverted USDLBP symbol to avoid an inconsistent direct LBPUSD quote. See [UOA live prices and exports](uoa/README.md). FX scanner availability and delay vary by currency; an unsupported or non-streaming symbol stays on the published snapshot.
 
 Bitcoin Net Worth uses the shared spot feed with Kraken as its final fallback. Its BTCUSD dot follows the same 60-second green/gray rule, and its quote cache includes the receipt time so a reload does not claim an old value is live. The latest published BTC price replaces an older quote when the complete demo generation is installed. Manual price overrides remain gray.
 
@@ -286,16 +286,21 @@ the dashboard's export renderer. Its `window.WSBDashboardExportBranding` API
 shares presentation assets while leaving each dashboard's composition and
 coordinates with that renderer:
 
-- `await ready()` loads DejaVu Sans regular (400) and bold (700), IBM Plex Mono
+- `await ready()` loads DejaVu Sans regular (400) and bold (700), DejaVu Sans Mono
+  regular (400), IBM Plex Mono
   Medium (500), the decoded Bitcoin wordmark and creator apple from
   `shared/export_assets/`, and the site's current `assets/qr_lightning.png`.
   Preparation is lazy and shared across calls. It must finish before text is
   measured or output is drawn. Failure rejects the promise; report it through
   the export UI and allow a later retry.
 - `setFont(ctx, size, role = "body")` selects bundled DejaVu Sans regular for
-  `"body"` or bold for `"heading"`. Sizes are canvas drawing units, so callers
+  `"body"`, bold for `"heading"`, or DejaVu Sans Mono for `"mono"`. Sizes are canvas drawing units, so callers
   retain their existing scaling and title/data hierarchy. The helper uses
   private font family aliases that do not change the interactive shell.
+- `drawDateText(ctx, text, x, y, size)` uses the bundled monospace face while
+  preserving the caller's font, alignment and baseline. Pair it with
+  `WSBDashboardExport.formatDailyDate()` for stable `Jan 09, 2026` date cells.
+  Daily-close videos omit times/timezones; PNG snapshots can retain timestamps.
 - `drawWordmark(ctx, { x, y, width }, { theme = "dark" } = {})` preserves the
   original image's aspect ratio and orange/white Bitcoin coin in both themes.
   Light output uses black lettering on white; no color filter touches the coin.
@@ -336,6 +341,31 @@ data/settings snapshot fixed for that export. PNG callers still request
 choose output size or arrange panels. Moving Average's
 [export renderer](moving_average/moving_average_export.js) uses the shared helper
 for both formats while keeping its own layout.
+
+### Consistent export proportions
+
+Choose a fixed logical composition per orientation and use it for PNG and all
+video qualities. `getReferenceSettings(settings, referenceQuality)` supplies
+that layout; `getDimensions(settings)` supplies the output pixels. Render with
+the output/reference transform and draw nested charts at the corresponding
+backing density. When a panel's backing size rounds to whole pixels, use its
+actual backing/logical ratios before compositing. Read logical widths for
+labels instead of dividing export pixels by the viewer's device pixel ratio.
+Resolution must not change relative font, marker, line, margin, or panel sizes.
+The shared footer measures text at fixed logical sizes and scales its margins
+and rules; reserve its height in logical units before rounding backing pixels.
+
+`scripts/test_export_scale_browser.py` compares real 2160 PNGs with encoded and
+decoded videos at 720/1080/1440/2160 in landscape, portrait, and square. It traces
+final-canvas text geometry, strokes, and circle radii through nested canvases,
+using frozen local payloads and blocked live feeds. It covers all eleven
+dashboards offering both formats: DCA Cost Basis, DCA Comparison, Days Since
+ATH, Issuance Rate, UOA, Patoshi, Moving Average, EOE Growth, Mined Supply &
+Price, Price Distribution, and Target & Block Hashes. Node Count offers PNG
+only and retains its fixed logical Plotly composition. Target & Block Hashes
+requires its existing packaged local data; the regression never runs producers.
+Use `--theme light --mobile-video` to compare desktop PNGs against narrow-screen
+DPR-2 videos. Detailed draw records go to `/tmp/wsb-export-scale-review` by default.
 
 Do not copy these assets into individual dashboards. Preserve their
 [provenance and font licenses](shared/export_assets/README.md) in the Pages

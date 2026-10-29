@@ -58,6 +58,12 @@ attributes. A feed outage retains the last usable values without an alert.
 
 ## Validation and remaining adoption work
 
+PNG and video share one logical composition at every quality. The footer uses
+the logical chart dimensions and reserved height, before chart backing pixels
+are rounded, so its fonts and branding retain the same proportions at 4K and
+720/1080/1440 video quality. Verify with
+`python3 scripts/test_export_scale_browser.py issuance_rate`.
+
 Focused checks are `node --test scripts/test_issuance_live.mjs`,
 `python3 scripts/test_dashboard_chain_live_browser.py`, and
 `bash scripts/check_dashboard_contract.sh webapps/issuance_rate`. The existing

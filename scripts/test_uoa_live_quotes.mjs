@@ -27,6 +27,15 @@ assert.equal(btcEur.rows.at(-1).liveUsdValues.JPY, undefined, 'unselected curren
 assert.equal(btcEur.rows.at(-1).blockHeight, 969322, 'published block stays attached');
 assert.equal(rows[0].price, 84000, 'published row remains immutable');
 
+const currentRows = [{ ...rows[0], date: new Date('2026-10-01T00:00:00Z') }];
+const sameDay = project(currentRows, ['BTC', 'EUR'], quotes, snapshot, publishedAt, at);
+assert.equal(sameDay.rows.length, 1, 'same-day live quotes replace only the endpoint');
+assert.equal(sameDay.rows[0].liveUsdValues.BTC, 85000);
+assert.equal(currentRows[0].liveUsdValues, undefined, 'same-day projection preserves published data');
+const invalid = project(rows, ['BTC', 'EUR'], { BTC: { ...quotes.BTC, usd: Infinity } },
+  snapshot, publishedAt, at);
+assert.equal(invalid.rows, rows, 'a nonfinite quote must never become a live export value');
+
 const eurJpy = project(rows, ['EUR', 'JPY'], quotes, snapshot, publishedAt, at);
 assert.equal(eurJpy.rows.at(-1).liveUsdValues.EUR / eurJpy.rows.at(-1).liveUsdValues.JPY,
   1.13 / 0.0063, 'fiat cross uses USD legs');
@@ -109,3 +118,45 @@ assert.equal(notifications.at(-1).BTC.usd, 85000, 'stale status retains the last
 source.stop();
 
 console.log('UoA selected live quote projection passed');
+
+// Reproduce the public feed mismatch: the direct LBP quote implied 142857 LBP/USD.
+const requests = [];
+let fxReply = [
+  { s: 'FX_IDC:LBPUSD', d: [0.000007, 'streaming'] },
+  { s: 'FX_IDC:USDLBP', d: [89500, 'streaming'] },
+];
+context.AbortController = AbortController;
+context.fetch = async (url, options) => {
+  requests.push(JSON.parse(options.body).symbols.tickers);
+  return { ok: true, json: async () => ({ data: fxReply }) };
+};
+const lbpSource = window.WSBUoaLiveQuotes.create();
+lbpSource.setSelection(['BTC', 'LBP']);
+lbpSource.start();
+await [...timers.values()].find(timer => timer.delay === 0).callback();
+assert.deepEqual(requests.at(-1), ['FX_IDC:USDLBP'], 'never request the inconsistent LBPUSD leg');
+assert.equal(lbpSource.current().LBP.usd, 1 / 89500);
+const lbpCross = project(rows, ['BTC', 'LBP'], {
+  ...lbpSource.current(), BTC: quotes.BTC,
+}, { ...snapshot, LBP: 1 / 89600 }, publishedAt, at + 60000);
+assert.ok(Math.abs(lbpCross.rows.at(-1).liveUsdValues.BTC / lbpCross.rows.at(-1).liveUsdValues.LBP
+  - 85000 * 89500) < 0.00001, 'BTC/LBP cross uses the corrected USD leg');
+lbpSource.stop();
+fxReply = [fxReply[0]];
+const unavailable = window.WSBUoaLiveQuotes.create();
+unavailable.setSelection(['LBP']);
+unavailable.start();
+await [...timers.values()].filter(timer => timer.delay === 0).at(-1).callback();
+assert.equal(unavailable.current().LBP, undefined, 'missing USDLBP must not fall back to the bad direct quote');
+unavailable.stop();
+console.log('UoA LBP quote direction regression passed');
+
+const beforeCrypto = requests.length;
+const cryptoSource = window.WSBUoaLiveQuotes.create({ isSnapshotOnly: code => ['ETH', 'HYPE'].includes(code) });
+cryptoSource.setSelection(['ETH', 'HYPE']);
+cryptoSource.start();
+assert.equal(requests.length, beforeCrypto, 'alternative cryptocurrencies must not be sent to the FX scanner');
+cryptoSource.setSelection(['ETH', 'JPY']);
+await [...timers.values()].filter(timer => timer.delay === 0).at(-1).callback();
+assert.deepEqual(requests.at(-1), ['FX_IDC:JPYUSD', 'FX_IDC:USDJPY'], 'only the fiat leg is requested for a mixed pair');
+cryptoSource.stop();

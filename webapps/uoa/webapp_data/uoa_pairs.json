@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-10-29T12:05:23.806555Z",
+  "generated_at_utc": "2026-10-29T13:29:30.083496Z",
   "source": {
     "name": "Frankfurter",
     "url": "https://api.frankfurter.app",
@@ -324,8 +324,12 @@
       "name": "Bitcoin Cash",
       "code": "BCH",
       "symbol": "BCH",
-      "symbol_position": "left",
-      "minor_unit": 2
+      "symbol_position": "right",
+      "minor_unit": 8,
+      "groups": [
+        "alternative_cryptocurrencies"
+      ],
+      "asset_type": "alternative_cryptocurrency"
     },
     "BDT": {
       "name": "Bangladeshi Taka",
@@ -665,8 +669,12 @@
       "name": "Ethereum",
       "code": "ETH",
       "symbol": "ETH",
-      "symbol_position": "left",
-      "minor_unit": 2
+      "symbol_position": "right",
+      "minor_unit": 8,
+      "groups": [
+        "alternative_cryptocurrencies"
+      ],
+      "asset_type": "alternative_cryptocurrency"
     },
     "EUR": {
       "name": "Euro",
@@ -1120,8 +1128,12 @@
       "name": "Litecoin",
       "code": "LTC",
       "symbol": "LTC",
-      "symbol_position": "left",
-      "minor_unit": 2
+      "symbol_position": "right",
+      "minor_unit": 8,
+      "groups": [
+        "alternative_cryptocurrencies"
+      ],
+      "asset_type": "alternative_cryptocurrency"
     },
     "LYD": {
       "name": "Libyan Dinar",
@@ -1920,8 +1932,12 @@
       "name": "XRP",
       "code": "XRP",
       "symbol": "XRP",
-      "symbol_position": "left",
-      "minor_unit": 2
+      "symbol_position": "right",
+      "minor_unit": 8,
+      "groups": [
+        "alternative_cryptocurrencies"
+      ],
+      "asset_type": "alternative_cryptocurrency"
     },
     "YER": {
       "name": "Yemeni Rial",
@@ -1964,6 +1980,171 @@
       "groups": [
         "africa"
       ]
+    },
+    "BNB": {
+      "name": "BNB",
+      "code": "BNB",
+      "symbol": "BNB",
+      "symbol_position": "right",
+      "minor_unit": 8,
+      "groups": [
+        "alternative_cryptocurrencies"
+      ],
+      "asset_type": "alternative_cryptocurrency"
+    },
+    "SOL": {
+      "name": "Solana",
+      "code": "SOL",
+      "symbol": "SOL",
+      "symbol_position": "right",
+      "minor_unit": 8,
+      "groups": [
+        "alternative_cryptocurrencies"
+      ],
+      "asset_type": "alternative_cryptocurrency"
+    },
+    "TRX": {
+      "name": "TRON",
+      "code": "TRX",
+      "symbol": "TRX",
+      "symbol_position": "right",
+      "minor_unit": 8,
+      "groups": [
+        "alternative_cryptocurrencies"
+      ],
+      "asset_type": "alternative_cryptocurrency"
+    },
+    "ZEC": {
+      "name": "Zcash",
+      "code": "ZEC",
+      "symbol": "ZEC",
+      "symbol_position": "right",
+      "minor_unit": 8,
+      "groups": [
+        "alternative_cryptocurrencies"
+      ],
+      "asset_type": "alternative_cryptocurrency"
+    },
+    "HYPE": {
+      "name": "Hyperliquid",
+      "code": "HYPE",
+      "symbol": "HYPE",
+      "symbol_position": "right",
+      "minor_unit": 8,
+      "groups": [
+        "alternative_cryptocurrencies"
+      ],
+      "asset_type": "alternative_cryptocurrency"
+    },
+    "DOGE": {
+      "name": "Dogecoin",
+      "code": "DOGE",
+      "symbol": "DOGE",
+      "symbol_position": "right",
+      "minor_unit": 8,
+      "groups": [
+        "alternative_cryptocurrencies"
+      ],
+      "asset_type": "alternative_cryptocurrency"
+    },
+    "XMR": {
+      "name": "Monero",
+      "code": "XMR",
+      "symbol": "XMR",
+      "symbol_position": "right",
+      "minor_unit": 8,
+      "groups": [
+        "alternative_cryptocurrencies"
+      ],
+      "asset_type": "alternative_cryptocurrency"
+    },
+    "ADA": {
+      "name": "Cardano",
+      "code": "ADA",
+      "symbol": "ADA",
+      "symbol_position": "right",
+      "minor_unit": 8,
+      "groups": [
+        "alternative_cryptocurrencies"
+      ],
+      "asset_type": "alternative_cryptocurrency"
+    },
+    "LINK": {
+      "name": "Chainlink",
+      "code": "LINK",
+      "symbol": "LINK",
+      "symbol_position": "right",
+      "minor_unit": 8,
+      "groups": [
+        "alternative_cryptocurrencies"
+      ],
+      "asset_type": "alternative_cryptocurrency"
+    },
+    "AVAX": {
+      "name": "Avalanche",
+      "code": "AVAX",
+      "symbol": "AVAX",
+      "symbol_position": "right",
+      "minor_unit": 8,
+      "groups": [
+        "alternative_cryptocurrencies"
+      ],
+      "asset_type": "alternative_cryptocurrency"
+    },
+    "DOT": {
+      "name": "Polkadot",
+      "code": "DOT",
+      "symbol": "DOT",
+      "symbol_position": "right",
+      "minor_unit": 8,
+      "groups": [
+        "alternative_cryptocurrencies"
+      ],
+      "asset_type": "alternative_cryptocurrency"
+    },
+    "TON": {
+      "name": "Toncoin",
+      "code": "TON",
+      "symbol": "TON",
+      "symbol_position": "right",
+      "minor_unit": 8,
+      "groups": [
+        "alternative_cryptocurrencies"
+      ],
+      "asset_type": "alternative_cryptocurrency"
+    },
+    "SHIB": {
+      "name": "Shiba Inu",
+      "code": "SHIB",
+      "symbol": "SHIB",
+      "symbol_position": "right",
+      "minor_unit": 8,
+      "groups": [
+        "alternative_cryptocurrencies"
+      ],
+      "asset_type": "alternative_cryptocurrency"
+    },
+    "SUI": {
+      "name": "Sui",
+      "code": "SUI",
+      "symbol": "SUI",
+      "symbol_position": "right",
+      "minor_unit": 8,
+      "groups": [
+        "alternative_cryptocurrencies"
+      ],
+      "asset_type": "alternative_cryptocurrency"
+    },
+    "XLM": {
+      "name": "Stellar",
+      "code": "XLM",
+      "symbol": "XLM",
+      "symbol_position": "right",
+      "minor_unit": 8,
+      "groups": [
+        "alternative_cryptocurrencies"
+      ],
+      "asset_type": "alternative_cryptocurrency"
     }
   },
   "pairs": [
@@ -2119,19 +2300,6 @@
       "dataset_columns": [
         "date",
         "bbdusd"
-      ],
-      "pair_column_value": null,
-      "quote_assumption": "USD-denominated FX rate"
-    },
-    {
-      "id": "BCH/USD",
-      "base": "BCH",
-      "quote": "USD",
-      "display_name": "Bitcoin Cash / US Dollar",
-      "dataset": "daily_fx_rates.csv",
-      "dataset_columns": [
-        "date",
-        "bchusd"
       ],
       "pair_column_value": null,
       "quote_assumption": "USD-denominated FX rate"
@@ -2537,19 +2705,6 @@
       "dataset_columns": [
         "date",
         "etbusd"
-      ],
-      "pair_column_value": null,
-      "quote_assumption": "USD-denominated FX rate"
-    },
-    {
-      "id": "ETH/USD",
-      "base": "ETH",
-      "quote": "USD",
-      "display_name": "Ethereum / US Dollar",
-      "dataset": "daily_fx_rates.csv",
-      "dataset_columns": [
-        "date",
-        "ethusd"
       ],
       "pair_column_value": null,
       "quote_assumption": "USD-denominated FX rate"
@@ -3083,19 +3238,6 @@
       "dataset_columns": [
         "date",
         "lslusd"
-      ],
-      "pair_column_value": null,
-      "quote_assumption": "USD-denominated FX rate"
-    },
-    {
-      "id": "LTC/USD",
-      "base": "LTC",
-      "quote": "USD",
-      "display_name": "Litecoin / US Dollar",
-      "dataset": "daily_fx_rates.csv",
-      "dataset_columns": [
-        "date",
-        "ltcusd"
       ],
       "pair_column_value": null,
       "quote_assumption": "USD-denominated FX rate"
@@ -4089,19 +4231,6 @@
       "quote_assumption": "USD-denominated FX rate"
     },
     {
-      "id": "XRP/USD",
-      "base": "XRP",
-      "quote": "USD",
-      "display_name": "XRP / US Dollar",
-      "dataset": "daily_fx_rates.csv",
-      "dataset_columns": [
-        "date",
-        "xrpusd"
-      ],
-      "pair_column_value": null,
-      "quote_assumption": "USD-denominated FX rate"
-    },
-    {
       "id": "YER/USD",
       "base": "YER",
       "quote": "USD",
@@ -4152,6 +4281,272 @@
       ],
       "pair_column_value": null,
       "quote_assumption": "USD-denominated FX rate"
+    },
+    {
+      "id": "ETH/USD",
+      "base": "ETH",
+      "quote": "USD",
+      "display_name": "Ethereum / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "ethusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD per token; observed daily prices, no pre-trading backfill",
+      "rate_source": "CoinGecko via DefiLlama; Coin Metrics PriceUSD"
+    },
+    {
+      "id": "BCH/USD",
+      "base": "BCH",
+      "quote": "USD",
+      "display_name": "Bitcoin Cash / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "bchusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD per token; observed daily prices, no pre-trading backfill",
+      "rate_source": "CoinGecko via DefiLlama; Coin Metrics PriceUSD"
+    },
+    {
+      "id": "LTC/USD",
+      "base": "LTC",
+      "quote": "USD",
+      "display_name": "Litecoin / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "ltcusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD per token; observed daily prices, no pre-trading backfill",
+      "rate_source": "CoinGecko via DefiLlama; Coin Metrics PriceUSD"
+    },
+    {
+      "id": "BNB/USD",
+      "base": "BNB",
+      "quote": "USD",
+      "display_name": "BNB / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "bnbusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD per token; observed daily prices, no pre-trading backfill",
+      "rate_source": "CoinGecko via DefiLlama; Coin Metrics PriceUSD"
+    },
+    {
+      "id": "XRP/USD",
+      "base": "XRP",
+      "quote": "USD",
+      "display_name": "XRP / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "xrpusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD per token; observed daily prices, no pre-trading backfill",
+      "rate_source": "CoinGecko via DefiLlama; Coin Metrics PriceUSD"
+    },
+    {
+      "id": "SOL/USD",
+      "base": "SOL",
+      "quote": "USD",
+      "display_name": "Solana / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "solusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD per token; observed daily prices, no pre-trading backfill",
+      "rate_source": "CoinGecko via DefiLlama; Coin Metrics PriceUSD"
+    },
+    {
+      "id": "TRX/USD",
+      "base": "TRX",
+      "quote": "USD",
+      "display_name": "TRON / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "trxusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD per token; observed daily prices, no pre-trading backfill",
+      "rate_source": "CoinGecko via DefiLlama; Coin Metrics PriceUSD"
+    },
+    {
+      "id": "ZEC/USD",
+      "base": "ZEC",
+      "quote": "USD",
+      "display_name": "Zcash / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "zecusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD per token; observed daily prices, no pre-trading backfill",
+      "rate_source": "CoinGecko via DefiLlama; Coin Metrics PriceUSD"
+    },
+    {
+      "id": "HYPE/USD",
+      "base": "HYPE",
+      "quote": "USD",
+      "display_name": "Hyperliquid / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "hypeusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD per token; observed daily prices, no pre-trading backfill",
+      "rate_source": "CoinGecko via DefiLlama; Coin Metrics PriceUSD"
+    },
+    {
+      "id": "DOGE/USD",
+      "base": "DOGE",
+      "quote": "USD",
+      "display_name": "Dogecoin / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "dogeusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD per token; observed daily prices, no pre-trading backfill",
+      "rate_source": "CoinGecko via DefiLlama; Coin Metrics PriceUSD"
+    },
+    {
+      "id": "XMR/USD",
+      "base": "XMR",
+      "quote": "USD",
+      "display_name": "Monero / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "xmrusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD per token; observed daily prices, no pre-trading backfill",
+      "rate_source": "CoinGecko via DefiLlama; Coin Metrics PriceUSD"
+    },
+    {
+      "id": "ADA/USD",
+      "base": "ADA",
+      "quote": "USD",
+      "display_name": "Cardano / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "adausd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD per token; observed daily prices, no pre-trading backfill",
+      "rate_source": "CoinGecko via DefiLlama; Coin Metrics PriceUSD"
+    },
+    {
+      "id": "LINK/USD",
+      "base": "LINK",
+      "quote": "USD",
+      "display_name": "Chainlink / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "linkusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD per token; observed daily prices, no pre-trading backfill",
+      "rate_source": "CoinGecko via DefiLlama; Coin Metrics PriceUSD"
+    },
+    {
+      "id": "AVAX/USD",
+      "base": "AVAX",
+      "quote": "USD",
+      "display_name": "Avalanche / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "avaxusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD per token; observed daily prices, no pre-trading backfill",
+      "rate_source": "CoinGecko via DefiLlama; Coin Metrics PriceUSD"
+    },
+    {
+      "id": "DOT/USD",
+      "base": "DOT",
+      "quote": "USD",
+      "display_name": "Polkadot / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "dotusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD per token; observed daily prices, no pre-trading backfill",
+      "rate_source": "CoinGecko via DefiLlama; Coin Metrics PriceUSD"
+    },
+    {
+      "id": "TON/USD",
+      "base": "TON",
+      "quote": "USD",
+      "display_name": "Toncoin / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "tonusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD per token; observed daily prices, no pre-trading backfill",
+      "rate_source": "CoinGecko via DefiLlama"
+    },
+    {
+      "id": "SHIB/USD",
+      "base": "SHIB",
+      "quote": "USD",
+      "display_name": "Shiba Inu / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "shibusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD per token; observed daily prices, no pre-trading backfill",
+      "rate_source": "CoinGecko via DefiLlama; Coin Metrics PriceUSD"
+    },
+    {
+      "id": "SUI/USD",
+      "base": "SUI",
+      "quote": "USD",
+      "display_name": "Sui / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "suiusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD per token; observed daily prices, no pre-trading backfill",
+      "rate_source": "CoinGecko via DefiLlama; Coin Metrics PriceUSD"
+    },
+    {
+      "id": "XLM/USD",
+      "base": "XLM",
+      "quote": "USD",
+      "display_name": "Stellar / US Dollar",
+      "dataset": "daily_fx_rates.csv",
+      "dataset_columns": [
+        "date",
+        "xlmusd"
+      ],
+      "pair_column_value": null,
+      "quote_assumption": "USD per token; observed daily prices, no pre-trading backfill",
+      "rate_source": "CoinGecko via DefiLlama; Coin Metrics PriceUSD"
     }
   ],
   "currency_groups": [
@@ -4198,6 +4593,244 @@
     {
       "id": "monetary_metals",
       "label": "Monetary Metals"
+    },
+    {
+      "id": "alternative_cryptocurrencies",
+      "label": "Alternative cryptocurrencies"
     }
-  ]
+  ],
+  "alternative_crypto_history": {
+    "ETH": {
+      "full_history": true,
+      "first_observation": "2015-08-07",
+      "last_observation": "2026-10-28",
+      "observations": 4101,
+      "early_source_end": "2015-08-07",
+      "missing_calendar_days": 0,
+      "sources": [
+        "CoinGecko via DefiLlama",
+        "Coin Metrics PriceUSD"
+      ]
+    },
+    "BCH": {
+      "full_history": true,
+      "first_observation": "2017-08-01",
+      "last_observation": "2026-10-28",
+      "observations": 3376,
+      "early_source_end": "2017-07-31",
+      "missing_calendar_days": 0,
+      "sources": [
+        "CoinGecko via DefiLlama",
+        "Coin Metrics PriceUSD"
+      ]
+    },
+    "LTC": {
+      "full_history": true,
+      "first_observation": "2013-04-01",
+      "last_observation": "2026-10-28",
+      "observations": 4959,
+      "early_source_end": "2013-03-31",
+      "missing_calendar_days": 0,
+      "sources": [
+        "CoinGecko via DefiLlama",
+        "Coin Metrics PriceUSD"
+      ]
+    },
+    "BNB": {
+      "full_history": true,
+      "first_observation": "2017-07-15",
+      "last_observation": "2026-10-28",
+      "observations": 3393,
+      "early_source_end": "2017-07-14",
+      "missing_calendar_days": 0,
+      "sources": [
+        "CoinGecko via DefiLlama",
+        "Coin Metrics PriceUSD"
+      ]
+    },
+    "XRP": {
+      "full_history": true,
+      "first_observation": "2013-08-04",
+      "last_observation": "2026-10-28",
+      "observations": 4829,
+      "early_source_end": "2014-08-14",
+      "missing_calendar_days": 5,
+      "sources": [
+        "CoinGecko via DefiLlama",
+        "Coin Metrics PriceUSD"
+      ]
+    },
+    "SOL": {
+      "full_history": true,
+      "first_observation": "2020-04-10",
+      "last_observation": "2026-10-28",
+      "observations": 2393,
+      "early_source_end": "2020-04-09",
+      "missing_calendar_days": 0,
+      "sources": [
+        "CoinGecko via DefiLlama",
+        "Coin Metrics PriceUSD"
+      ]
+    },
+    "TRX": {
+      "full_history": true,
+      "first_observation": "2017-11-09",
+      "last_observation": "2026-10-28",
+      "observations": 3276,
+      "early_source_end": "2018-06-24",
+      "missing_calendar_days": 0,
+      "sources": [
+        "CoinGecko via DefiLlama",
+        "Coin Metrics PriceUSD"
+      ]
+    },
+    "ZEC": {
+      "full_history": true,
+      "first_observation": "2016-10-29",
+      "last_observation": "2026-10-28",
+      "observations": 3652,
+      "early_source_end": "2016-10-28",
+      "missing_calendar_days": 0,
+      "sources": [
+        "CoinGecko via DefiLlama",
+        "Coin Metrics PriceUSD"
+      ]
+    },
+    "HYPE": {
+      "full_history": true,
+      "first_observation": "2024-11-29",
+      "last_observation": "2026-10-28",
+      "observations": 699,
+      "early_source_end": "2024-12-12",
+      "missing_calendar_days": 0,
+      "sources": [
+        "CoinGecko via DefiLlama",
+        "Coin Metrics PriceUSD"
+      ]
+    },
+    "DOGE": {
+      "full_history": true,
+      "first_observation": "2013-12-15",
+      "last_observation": "2026-10-28",
+      "observations": 4699,
+      "early_source_end": "2014-01-22",
+      "missing_calendar_days": 2,
+      "sources": [
+        "CoinGecko via DefiLlama",
+        "Coin Metrics PriceUSD"
+      ]
+    },
+    "XMR": {
+      "full_history": true,
+      "first_observation": "2014-05-20",
+      "last_observation": "2026-10-28",
+      "observations": 4545,
+      "early_source_end": "2014-05-19",
+      "missing_calendar_days": 0,
+      "sources": [
+        "CoinGecko via DefiLlama",
+        "Coin Metrics PriceUSD"
+      ]
+    },
+    "ADA": {
+      "full_history": true,
+      "first_observation": "2017-10-18",
+      "last_observation": "2026-10-28",
+      "observations": 3298,
+      "early_source_end": "2017-11-30",
+      "missing_calendar_days": 0,
+      "sources": [
+        "CoinGecko via DefiLlama",
+        "Coin Metrics PriceUSD"
+      ]
+    },
+    "LINK": {
+      "full_history": true,
+      "first_observation": "2017-09-29",
+      "last_observation": "2026-10-28",
+      "observations": 3317,
+      "early_source_end": "2017-09-28",
+      "missing_calendar_days": 0,
+      "sources": [
+        "CoinGecko via DefiLlama",
+        "Coin Metrics PriceUSD"
+      ]
+    },
+    "AVAX": {
+      "full_history": true,
+      "first_observation": "2020-09-22",
+      "last_observation": "2026-10-28",
+      "observations": 2228,
+      "early_source_end": "2020-09-22",
+      "missing_calendar_days": 0,
+      "sources": [
+        "CoinGecko via DefiLlama",
+        "Coin Metrics PriceUSD"
+      ]
+    },
+    "DOT": {
+      "full_history": true,
+      "first_observation": "2020-08-19",
+      "last_observation": "2026-10-28",
+      "observations": 2262,
+      "early_source_end": "2020-08-19",
+      "missing_calendar_days": 0,
+      "sources": [
+        "CoinGecko via DefiLlama",
+        "Coin Metrics PriceUSD"
+      ]
+    },
+    "TON": {
+      "full_history": true,
+      "first_observation": "2021-08-27",
+      "last_observation": "2026-10-28",
+      "observations": 1889,
+      "early_source_end": "2026-10-29",
+      "missing_calendar_days": 0,
+      "sources": [
+        "CoinGecko via DefiLlama"
+      ]
+    },
+    "SHIB": {
+      "full_history": true,
+      "first_observation": "2020-08-01",
+      "last_observation": "2026-10-28",
+      "observations": 2248,
+      "early_source_end": "2021-05-10",
+      "missing_calendar_days": 32,
+      "sources": [
+        "CoinGecko via DefiLlama",
+        "Coin Metrics PriceUSD"
+      ]
+    },
+    "SUI": {
+      "full_history": true,
+      "first_observation": "2023-05-03",
+      "last_observation": "2026-10-28",
+      "observations": 1275,
+      "early_source_end": "2023-08-16",
+      "missing_calendar_days": 0,
+      "sources": [
+        "CoinGecko via DefiLlama",
+        "Coin Metrics PriceUSD"
+      ]
+    },
+    "XLM": {
+      "full_history": true,
+      "first_observation": "2014-08-06",
+      "last_observation": "2026-10-28",
+      "observations": 4466,
+      "early_source_end": "2015-09-29",
+      "missing_calendar_days": 1,
+      "sources": [
+        "CoinGecko via DefiLlama",
+        "Coin Metrics PriceUSD"
+      ]
+    }
+  },
+  "alternative_crypto_selection": {
+    "review_date": "2026-10-29",
+    "market_cap_source": "https://www.coingecko.com/",
+    "policy": "Non-stablecoin cryptocurrencies above $10B plus explicitly retained popular currencies below the cutoff; excludes wrapped/staked duplicates and tokenized credit. Explicit reviewed list, not automatic FX discovery."
+  }
 }

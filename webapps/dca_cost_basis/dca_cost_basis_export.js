@@ -61,7 +61,7 @@
     const date = new Date(utc);
     if (!Number.isFinite(date.getTime())) return "Date unavailable";
     const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone: timeZone || "UTC", year: "numeric", month: "short", day: "numeric",
+      timeZone: timeZone || "UTC", year: "numeric", month: "short", day: "2-digit",
       hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZoneName: "short",
     }).formatToParts(date);
     const p = Object.fromEntries(parts.map((part) => [part.type, part.value]));
@@ -113,7 +113,9 @@
     let yTicks = logarithmic ? C.createLogTicks(yMin, yMax, { minor: yMax / yMin < 1000 }) : linearTicks(0, yMax, 7);
     if (logarithmic && yTicks.length < 2) yTicks = linearTicks(yMin, yMax, 5);
     const currentY = yFor(currentPrice), duration = durationTicks(maxDays, plot.width);
-    const dateText = timestampText(options.timestamp ?? rows[0].timestampUtc ?? `${rows[0].dateIso}T00:00:00Z`, options.timeZone);
+    const dateText = options.dateOnly
+      ? window.WSBDashboardExport.formatDailyDate(options.date ?? rows[0].dateIso)
+      : timestampText(options.timestamp ?? rows[0].timestampUtc ?? `${rows[0].dateIso}T00:00:00Z`, options.timeZone);
     const blockHeight = Number(options.height ?? rows[0].blockHeight);
     const obstacles = [];
 
@@ -140,8 +142,12 @@
         ctx.fillText("(Weighted Average Cost)", l.title.x, l.title.subtitleY);
       }
 
-      font(l.date.size); font(Math.min(l.date.size, l.date.size * l.date.width / ctx.measureText(dateText).width));
-      ctx.textAlign = "right"; ctx.fillStyle = colors.fg; ctx.fillText(dateText, l.date.x, l.date.y);
+      B.setFont(ctx, l.date.size, "mono");
+      // Reserve the longest timestamp form for both formats so PNG and video
+      // share one date font size, independent of month, timezone or DST.
+      const dateSize = Math.min(l.date.size, l.date.size * l.date.width / ctx.measureText("Sep 30, 2000 00:00 (GMT+00:00)").width);
+      ctx.textAlign = "right"; ctx.fillStyle = colors.fg;
+      B.drawDateText(ctx, dateText, l.date.x, l.date.y, dateSize);
       font(27); const heightText = Number.isFinite(blockHeight) && blockHeight > 0 ? String(Math.round(blockHeight)) : "—";
       ctx.fillText(heightText, l.date.x, l.blockY);
       const heightWidth = ctx.measureText(heightText).width;

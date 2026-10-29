@@ -154,7 +154,10 @@ def assert_footer_url(result):
     creator = next(text for text in render["textBounds"] if text["text"] == "CREATOR")
     qr = next(image for image in render["images"] if image["src"].endswith("qr_lightning.png"))
     address = [text for text in render["textBounds"] if text["text"] in ("wicked", "@primal.net")]
-    assert abs(creator["left"] - (render["metrics"]["width"] - max(text["right"] for text in address))) < .01, ("Unequal outer footer margins", render)
+    # Layout measures fixed-size glyphs, then scales them. Actual glyph bounds
+    # can snap by a pixel per edge at that reference size when rasterized.
+    glyph_tolerance = 2 * render["layout"]["creator"]["size"] / 100
+    assert abs(creator["left"] - (render["metrics"]["width"] - max(text["right"] for text in address))) < glyph_tolerance, ("Unequal outer footer margins", render)
     assert all(text["left"] > qr["x"] + qr["width"] for text in address), ("Donation address must stay to the right of the QR", render)
     assert all(0 <= text["left"] <= text["right"] <= render["metrics"]["width"] for text in render["textBounds"]), render
     urls = [text for text in render["footerText"] if text.startswith("https://wickedsmartbitcoin.com/")]
@@ -243,7 +246,7 @@ def main():
                     assert_footer_url(result)
                     render = result["render"]
                     if args.images_only and slug == "uoa":
-                        assert (render["metrics"]["width"], render["metrics"]["height"]) == (result["width"], result["height"]), render
+                        assert (render["metrics"]["width"] * 1.5, render["metrics"]["height"] * 1.5) == (result["width"], result["height"]), render
                     assert render["url"] == f"https://wickedsmartbitcoin.com/{slug}", render
                     images = render["images"]
                     assert any(image["src"].endswith("wicked-apple.png") for image in images), render

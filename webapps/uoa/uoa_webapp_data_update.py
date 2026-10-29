@@ -4,6 +4,7 @@
 import argparse
 import csv
 import json
+import io
 import math
 import os
 from datetime import datetime, timedelta, timezone
@@ -47,11 +48,17 @@ except ModuleNotFoundError:
 
     requests = _RequestsFallback()
 
+try:
+    from . import uoa_crypto_history as crypto_history
+except ImportError:
+    import uoa_crypto_history as crypto_history
+
 # Configuration
 API_BASE = "https://api.frankfurter.dev/v2"
 START_DATE = "1999-01-01"
 REFRESH_LOOKBACK_DAYS = 35
 EXCLUDED_SOURCE_CURRENCIES = {"CNH", "MRO"}
+NON_ISO_FIAT_CURRENCIES = {"CMD", "CNH", "GGP", "IMP", "JEP"}
 CUP_INFORMAL_API_URL = "https://api.cambiocuba.money/api/v1/x-rates-by-date-range"
 CUP_INFORMAL_PERIOD = "2Y"
 CUP_INFORMAL_SOURCE_LABEL = "elTOQUE TRMI via CUP=X"
@@ -525,7 +532,9 @@ def fetch_supported_currencies():
         for row in data:
             code = str(row.get("iso_code") or "").upper().strip()
             name = str(row.get("name") or code).strip()
-            if code:
+            # Crypto symbols discovered by this FX endpoint must not silently
+            # become currencies. Non-ISO fiat exceptions are explicit.
+            if code and (row.get("iso_numeric") is not None or code in NON_ISO_FIAT_CURRENCIES):
                 out[code] = name
         if out:
             return out
@@ -1384,7 +1393,17 @@ def main():
         action="store_true",
         help="Refresh only cupusd from the informal-market CUP source.",
     )
+    parser.add_argument("--crypto-only", action="store_true", help="Refresh only the reviewed alternative-cryptocurrency histories.")
+    parser.add_argument("--full-crypto-history", action="store_true", help="Refetch all available alternative-cryptocurrency history.")
     args = parser.parse_args()
+    if args.crypto_only:
+        directory = output_data_dir()
+        with input_data_path(directory, "daily_fx_rates.csv").open(newline="") as stream:
+            rows = list(csv.DictReader(stream))
+        metadata = json.loads(input_data_path(directory, "uoa_pairs.json").read_text())
+        rows, metadata = crypto_history.prepare(rows, metadata, full=args.full_crypto_history)
+        crypto_history.install(directory, rows, metadata, publish_refresh_marker)
+        return
     if args.cup_only:
         refresh_cup_only()
         return
@@ -1408,6 +1427,8 @@ def main():
     # Preserve source decimals exactly when an optional feed fails and its
     # existing values are carried forward; the default parser can shorten long
     # decimal strings on an otherwise value-identical round trip.
+    with fx_rates_input_file.open(newline="") as stream:
+        existing_crypto_rows = {row["date"]: row for row in csv.DictReader(stream)}
     existing_df = pd.read_csv(fx_rates_input_file, float_precision="round_trip")
     existing_df['date'] = pd.to_datetime(existing_df['date'])
     min_date = existing_df['date'].min().strftime('%Y-%m-%d')
@@ -1428,7 +1449,7 @@ def main():
     supported_currencies = fetch_supported_currencies()
     target_currencies = sorted(
         code for code in supported_currencies.keys()
-        if code != "USD" and code not in EXCLUDED_SOURCE_CURRENCIES
+        if code not in {"USD", "BTC", *crypto_history.COINS} and code not in EXCLUDED_SOURCE_CURRENCIES
     )
     print(f"  Frankfurter-supported currencies (excl. USD): {len(target_currencies)}")
 
@@ -1534,13 +1555,6 @@ def main():
         print(f"  Cleaned transient spike runs: {total_spike_fixes} across {len(spike_fixes)} columns")
         print(f"    Top columns: {top_cols_text}")
 
-    # Save updated CSV
-    print(f"\nSaving updated CSV with {len(df_combined.columns)-1} currency pairs...")
-    fx_rates_tmp_file = fx_rates_file.with_suffix(fx_rates_file.suffix + ".tmp")
-    df_combined.to_csv(fx_rates_tmp_file, index=False)
-    fx_rates_tmp_file.replace(fx_rates_file)
-    print(f"  Saved {len(df_combined)} rows to {fx_rates_file.name}")
-
     # Update uoa_pairs.json
     print("\nUpdating uoa_pairs.json...")
     with open(uoa_pairs_input_file, 'r') as f:
@@ -1630,15 +1644,20 @@ def main():
     uoa_data["redenomination_events"] = REDENOMINATION_EVENTS
     uoa_data["notable_events"] = NOTABLE_EVENTS
 
-    uoa_pairs_tmp_file = uoa_pairs_file.with_suffix(uoa_pairs_file.suffix + ".tmp")
-    with open(uoa_pairs_tmp_file, 'w') as f:
-        json.dump(uoa_data, f, indent=2)
-    uoa_pairs_tmp_file.replace(uoa_pairs_file)
-    print(f"  Added {len(target_currencies)} source currencies to uoa_pairs.json")
-
-    # Publish the refresh marker only after every dashboard data file is complete.
-    # The browser uses this as the generation boundary for atomic in-place refreshes.
-    publish_refresh_marker(webapp_data_dir)
+    # Keep alternative cryptocurrencies outside FX cleanup/forward filling and
+    # automatic source discovery. Validate every history before writing payloads.
+    buffer = io.StringIO()
+    df_combined.to_csv(buffer, index=False)
+    buffer.seek(0)
+    crypto_rows = list(csv.DictReader(buffer))
+    for row in crypto_rows:
+        for code in crypto_history.COINS:
+            column = code.lower() + "usd"
+            row[column] = existing_crypto_rows.get(row["date"], {}).get(column, "")
+    crypto_rows, uoa_data = crypto_history.prepare(
+        crypto_rows, uoa_data, full=args.full_crypto_history,
+    )
+    crypto_history.install(webapp_data_dir, crypto_rows, uoa_data, publish_refresh_marker)
 
     # Summary
     print("\n" + "=" * 60)

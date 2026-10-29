@@ -106,6 +106,16 @@
     ctx.font = `${role === "heading" ? "700" : "400"} ${size}px ${role === "mono" ? MONO : BODY}`;
   }
 
+  function drawDateText(ctx, text, x, y, size) {
+    // Fixed character cells keep month, day, year and spaces anchored across
+    // animation frames. Preserve the caller's alignment, baseline and font.
+    ctx.save();
+    try {
+      setFont(ctx, size, "mono");
+      ctx.fillText(text, x, y);
+    } finally { ctx.restore(); }
+  }
+
   // The dashboard owns the destination rectangle. Preserve the original mark's
   // lettering/aspect ratio and isolate the light-theme filter from chart drawing.
   function drawWordmark(ctx, { x, y, width }, { theme = "dark" } = {}) {
@@ -135,7 +145,7 @@
     // Landscape keeps the reference's single strip, measuring the actual gap
     // between creator and donation. Narrow exports omit the website URL.
     const unit = Math.min(width / 1920, footerHeight / 122);
-    const margin = stacked ? Math.min(24, width * 0.025) : 32 * unit;
+    const margin = stacked ? 24 * width / 1080 : 32 * unit;
     const urlRowHeight = stacked && !compact ? footerHeight * 0.22 : 0;
     const contentTop = top + urlRowHeight;
     const contentHeight = footerHeight - urlRowHeight;
@@ -148,8 +158,10 @@
     // Match the visible address edge to CREATOR's outer margin rather than
     // reserving unused space after the address. Keep the address after the QR.
     ctx.save();
-    setFont(ctx, 23 * sectionScale); ctx.textAlign = "left";
-    const donationTextWidth = Math.max(...["wicked", "@primal.net"].map(text => ctx.measureText(text).actualBoundingBoxRight));
+    // Measure at a fixed logical size: browser glyph bounds are pixel-snapped
+    // and otherwise move the layout when output resolution changes.
+    setFont(ctx, 23); ctx.textAlign = "left";
+    const donationTextWidth = sectionScale * Math.max(...["wicked", "@primal.net"].map(text => ctx.measureText(text).actualBoundingBoxRight));
     ctx.restore();
     const qrX = width - margin - donationTextWidth - icon - 12 * sectionScale;
     const donationLeft = qrX - 56 * sectionScale;
@@ -180,20 +192,21 @@
       function vertical(text, x, y, size) {
         ctx.save(); ctx.translate(x, y); ctx.rotate(-Math.PI / 2); ctx.textAlign = "center"; setFont(ctx, size); ctx.fillStyle = foreground; ctx.fillText(text, 0, 0); ctx.restore();
       }
-      setFont(ctx, 16 * sectionScale);
-      const creatorLabelX = margin + ctx.measureText("CREATOR").actualBoundingBoxAscent;
+      setFont(ctx, 16);
+      const creatorLabelX = margin + sectionScale * ctx.measureText("CREATOR").actualBoundingBoxAscent;
       vertical("CREATOR", creatorLabelX, contentY + icon / 2, 16 * sectionScale);
       vertical("LIGHTNING", qrX - 37 * sectionScale, contentY + icon / 2, 15 * sectionScale);
       vertical("DONATIONS", qrX - 20 * sectionScale, contentY + icon / 2, 15 * sectionScale);
-      ctx.strokeStyle = muted; ctx.lineWidth = Math.max(0.5, sectionScale);
+      ctx.strokeStyle = muted; ctx.lineWidth = sectionScale;
       ctx.beginPath(); ctx.moveTo(creatorX - 10 * sectionScale, contentY + 4 * sectionScale); ctx.lineTo(creatorX - 10 * sectionScale, contentY + icon - 4 * sectionScale); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(qrX - 7 * sectionScale, contentY + 4 * sectionScale); ctx.lineTo(qrX - 7 * sectionScale, contentY + icon - 4 * sectionScale); ctx.stroke();
       let urlLayout = null;
       if (!compact) {
         const maximumFont = stacked ? urlRowHeight * 0.69 : 36 * unit;
-        ctx.font = `500 ${maximumFont}px ${FOOTER}`;
+        ctx.font = `500 36px ${FOOTER}`;
         const available = Math.max(1, urlRight - urlLeft);
-        const fontSize = Math.min(maximumFont, maximumFont * available / Math.max(1, ctx.measureText(url).width));
+        const measuredWidth = ctx.measureText(url).width * maximumFont / 36;
+        const fontSize = Math.min(maximumFont, maximumFont * available / Math.max(1, measuredWidth));
         ctx.font = `500 ${fontSize}px ${FOOTER}`; ctx.fillStyle = light ? "#77716b" : "#999999"; ctx.textAlign = "center";
         ctx.fillText(url, (urlLeft + urlRight) / 2, urlY);
         urlLayout = { left: urlLeft, right: urlRight, y: urlY, fontSize };
@@ -203,5 +216,5 @@
     } finally { ctx.restore(); }
   }
 
-  window.WSBDashboardExportBranding = { ready, setFont, drawWordmark, drawFooter, drawFooterStrip };
+  window.WSBDashboardExportBranding = { ready, setFont, drawDateText, drawWordmark, drawFooter, drawFooterStrip };
 }());
