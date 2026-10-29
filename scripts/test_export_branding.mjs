@@ -133,6 +133,20 @@ test("branding is lazy and rejects rendering until every required asset is ready
   draws().forEach((draw) => assert.doesNotThrow(draw));
 });
 
+test("date text uses prepared monospace cells without changing the caller's font or anchor", async () => {
+  const f = fixture(), ctx = context();
+  await prepare(f);
+  ctx.textAlign = 'right';
+  for (const date of ['Dec 31, 2025', 'Jan 01, 2026', 'Jan 09, 2026', 'Jan 10, 2026', 'Sep 09, 2026']) {
+    f.B.drawDateText(ctx, date, 400, 50, 24);
+    const call = ctx.calls.at(-2);
+    assert.deepEqual(call.slice(0, 4), ['fillText', date, 400, 50]);
+    assert.match(call[4], /24px "WSB Export DejaVu Mono"/);
+    assert.equal(call[5], 'right');
+    assert.equal(ctx.font, 'initial font');
+  }
+});
+
 test("the shared script resolves local font and logo URLs with explicit required weights", async () => {
   const f = fixture();
   await prepare(f);
@@ -221,7 +235,7 @@ test("creator and current Lightning QR fill the reserved strip with a landscape-
       assert.equal(images.length, 2);
       assert.strictEqual(images[0][1], theme === "light" ? f.canvases[1] : f.images[1]);
       assert.strictEqual(images[1][1], f.images[2]);
-      const margin = width / height < 1.35 ? Math.min(24, width * .025) : 32 * Math.min(width / 1920, footerHeight / 122);
+      const margin = width / height < 1.35 ? 24 * width / 1080 : 32 * Math.min(width / 1920, footerHeight / 122);
       if (width === 720) assert.ok(result.lightning.size >= 70, "720-quality stacked exports keep a readable QR footprint");
       for (const [, , x, y, imageWidth, imageHeight] of images) {
         assert.ok(x >= 0 && x + imageWidth <= width);

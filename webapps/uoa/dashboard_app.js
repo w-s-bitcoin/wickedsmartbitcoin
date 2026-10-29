@@ -79,6 +79,7 @@
   const LOG_MIN_POSITIVE = 1e-300;
   const DEFAULT_RANGE_PLAYBACK_FPS = 60;
   const DEFAULT_UOA_GROUP = "all";
+  const ALTERNATIVE_CRYPTO_GROUP = "alternative_cryptocurrencies";
   const MONETARY_METALS_GROUP = "monetary_metals";
   const DEFAULT_SHOW_PEGGED_CURRENCIES = false;
   const DEFAULT_SHOW_MONETARY_METALS = true;
@@ -86,7 +87,7 @@
   const DATE_RANGE_THUMB_WIDTH_PX = 12;
   const DATE_RANGE_EXPORT_VIDEO_FPS = window.WSBDashboardExport.VIDEO_FPS;
   const DATE_RANGE_EXPORT_START_HOLD_SECONDS = 1;
-  const DATE_RANGE_EXPORT_END_HOLD_SECONDS = 3;
+  const EXPORT_REFERENCE_QUALITY = 1440;
   const YELLOW_METAL_CURRENCIES = new Set(["XAU"]);
   const SILVER_METAL_CURRENCIES = new Set(["XAG", "XPT", "XPD"]);
   const GRAINS_PER_TROY_OUNCE = 480;
@@ -180,6 +181,7 @@
     uoaSettingsClose: document.getElementById("uoaSettingsClose"),
     metalDenominationOptions: document.getElementById("metalDenominationOptions"),
     showPeggedCurrenciesToggle: document.getElementById("showPeggedCurrenciesToggle"),
+    showAlternativeCryptocurrenciesToggle: document.getElementById("showAlternativeCryptocurrenciesToggle"),
     showMonetaryMetalsToggle: document.getElementById("showMonetaryMetalsToggle"),
     updatedKpiValue: document.getElementById("updatedKpiValue"),
     blockHeightKpiValue: document.getElementById("blockHeightKpiValue"),
@@ -280,6 +282,7 @@
   let selectedUoaGroup = DEFAULT_UOA_GROUP;
   let monetaryMetalDenomination = DEFAULT_METAL_DENOMINATION;
   let showPeggedCurrencies = DEFAULT_SHOW_PEGGED_CURRENCIES;
+  let showAlternativeCryptocurrencies = false;
   let showMonetaryMetals = DEFAULT_SHOW_MONETARY_METALS;
   let preResetStateSnapshot = null;
   let suppressResetSnapshotClear = false;
@@ -338,6 +341,7 @@
   let dateRangeExportCancelRequested = false;
   let isRenderingDateRangeExportFrame = false;
   let activeDateRangeExportTheme = null;
+  let activeDateRangeExportProjection = null;
   let activeDateRangeExportAxisRows = null;
   let activeDateRangeExportScaleModes = null;
   // Repaint the current chart snapshots during a scale morph without rerunning
@@ -1040,53 +1044,17 @@
   }
 
   function buildDateRangeExportFrameIndices(startIndex, endIndex, playbackFps, includeEndFrameHold = true) {
-    const start = Math.round(Number(startIndex));
-    const end = Math.round(Number(endIndex));
-    const safeStart = Number.isFinite(start) ? start : 0;
-    const safeEnd = Number.isFinite(end) ? end : safeStart;
-    const startHoldFrames = includeEndFrameHold
-      ? Math.max(0, Math.round(DATE_RANGE_EXPORT_START_HOLD_SECONDS * DATE_RANGE_EXPORT_VIDEO_FPS))
-      : 0;
-    const endHoldFrames = includeEndFrameHold
-      ? Math.max(0, Math.round(DATE_RANGE_EXPORT_END_HOLD_SECONDS * DATE_RANGE_EXPORT_VIDEO_FPS))
-      : 0;
-    const frames = [
-      ...Array.from({ length: startHoldFrames }, () => safeEnd),
-    ];
-
-    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
-      frames.push(...Array.from({ length: endHoldFrames }, () => safeEnd));
-      return frames.length ? frames : [safeStart];
-    }
-
-    const speed = getPlaybackSpeedMultiplier(playbackFps);
-    const span = end - start;
-    const indices = [];
-    let frameNumber = 0;
-    let lastIndex = null;
-
-    while (true) {
-      const offset = Math.floor(frameNumber * speed);
-      if (offset > span) break;
-      const index = start + offset;
-      indices.push(index);
-      lastIndex = index;
-      frameNumber += 1;
-      if (frameNumber > (span / speed) + DATE_RANGE_EXPORT_VIDEO_FPS + 2) break;
-    }
-
-    if (lastIndex !== end) indices.push(end);
-    const motionFrames = indices.length ? indices : [start, end];
-    frames.push(...motionFrames);
-    frames.push(...Array.from({ length: endHoldFrames }, () => end));
-    return frames.length ? frames : [start, end];
+    return window.WSBDashboardExport.buildDailyFrameIndices(startIndex, endIndex, {
+      speed: getPlaybackSpeedMultiplier(playbackFps),
+      endFrameHold: includeEndFrameHold,
+    });
   }
 
   function getDateRangeExportEstimateRange() {
     if (!allRows.length || !el.dateRangeStartSlider || !el.dateRangeEndSlider) return null;
     const maxIndex = Math.max(0, allRows.length - 1);
     const playbackStart = Number(dateRangePlaybackState.startIndex);
-    const playbackEnd = Number(dateRangePlaybackState.targetEndIndex);
+    const playbackEnd = Number(dateRangePlaybackState.currentEndIndex);
     const sliderStart = Number(el.dateRangeStartSlider.value);
     const sliderEnd = Number(el.dateRangeEndSlider.value);
     const rawStart = dateRangePlaybackState.hasSession && Number.isFinite(playbackStart)
@@ -1150,7 +1118,16 @@
       exportTheme: settings.theme,
       startIso: toIsoDate(allRows[startIndex]?.date),
       endIso: toIsoDate(allRows[endIndex]?.date),
+      publishedRows: allRows.slice(),
+      publishedAt: refreshedAtText,
     };
+  }
+
+  function captureExportLiveProjection(snapshot, startIndex, endIndex) {
+    const sourceRows = snapshot.publishedRows;
+    if (!liveQuotes || endIndex !== sourceRows.length - 1) return null;
+    return projectLivePair(sourceRows.slice(startIndex, endIndex + 1), sourceRows,
+      snapshot.primaryCurrency, snapshot.secondaryCurrency, liveQuotes.current(), snapshot.publishedAt);
   }
 
   async function calibrateDownloadEstimate(settings, frameIndices, startIndex, endIndex, key) {
@@ -1159,11 +1136,12 @@
     if (!representativeFrames.length) return;
     downloadEstimateCalibrationPending.add(key);
     const requestId = ++downloadEstimateCalibrationRequestId;
+    let exportRefs = null;
     try {
       await waitForDateRangeExportFonts();
       if (requestId !== downloadEstimateCalibrationRequestId) return;
       const layoutSettings = getExportReferenceLayoutSettings(settings);
-      const exportRefs = createExportRenderSurface(layoutSettings);
+      exportRefs = createExportRenderSurface(layoutSettings, settings);
       const exportSnapshot = getExportEstimateSnapshot(settings, startIndex, endIndex);
       const layoutCanvas = document.createElement("canvas");
       const sampleDurations = [];
@@ -1171,7 +1149,7 @@
         if (requestId !== downloadEstimateCalibrationRequestId) return;
         const started = performance.now();
         renderExportFrameToSurface(exportRefs, exportSnapshot, startIndex, frameIndex);
-        await composeDateRangeExportFrame(layoutCanvas, layoutSettings, exportRefs);
+        await composeDateRangeExportFrame(layoutCanvas, layoutSettings, exportRefs, settings);
         sampleDurations.push(performance.now() - started);
       }
       sampleDurations.sort((a, b) => a - b);
@@ -1185,6 +1163,7 @@
     } catch (error) {
       console.warn("Unable to calibrate UOA export estimate.", error);
     } finally {
+      exportRefs?.surface?.remove();
       downloadEstimateCalibrationPending.delete(key);
     }
   }
@@ -1711,7 +1690,7 @@
   }
 
   function getExportReferenceLayoutSettings(settings) {
-    return window.WSBDashboardExport.getReferenceSettings(settings, 1440);
+    return window.WSBDashboardExport.getReferenceSettings(settings, EXPORT_REFERENCE_QUALITY);
   }
 
   function shouldExportChart(settings, chartSide) {
@@ -1719,26 +1698,8 @@
     return chartMode === "both" || chartMode === chartSide;
   }
 
-  function drawScaledExportFrame(sourceCanvas, targetCanvas, settings) {
-    const { width, height } = getDownloadDimensions(settings);
-    if (targetCanvas.width !== width) targetCanvas.width = width;
-    if (targetCanvas.height !== height) targetCanvas.height = height;
-    const ctx = targetCanvas.getContext("2d");
-    if (!ctx) return;
-    const bg = getExportThemePalette(settings.theme)["--bg"];
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, width, height);
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(sourceCanvas, 0, 0, width, height);
-    ctx.restore();
-  }
-
   async function encodeDateRangeAnimationVideo({
     exportCanvas,
-    layoutCanvas,
     layoutSettings,
     exportRefs,
     exportSnapshot,
@@ -1746,6 +1707,16 @@
     startIndex,
     frameIndices,
   }) {
+    const endIndex = frameIndices.at(-1);
+    const openingCount = settings.endFrameHold
+      ? DATE_RANGE_EXPORT_START_HOLD_SECONDS * DATE_RANGE_EXPORT_VIDEO_FPS : 0;
+    // The ending phase starts after the last historical frame, including 0.5x repeats.
+    let finalStart = openingCount;
+    frameIndices.forEach((index, position) => {
+      if (index !== endIndex) finalStart = position + 1;
+    });
+    let openingProjection;
+    let endingProjection;
     return window.WSBDashboardExport.encodeVideo({
       canvas: exportCanvas,
       width: exportCanvas.width,
@@ -1756,10 +1727,21 @@
       title: "Unit of Account",
       isCanceled: () => dateRangeExportCancelRequested,
       onProgress: renderDateRangeDownloadButtonProgress,
-      renderFrame: async (index) => {
-        renderExportFrameToSurface(exportRefs, exportSnapshot, startIndex, index);
-        await composeDateRangeExportFrame(layoutCanvas, layoutSettings, exportRefs);
-        drawScaledExportFrame(layoutCanvas, exportCanvas, settings);
+      renderFrame: async (index, canvas, position) => {
+        let projection = null;
+        if (position < openingCount) {
+          if (openingProjection === undefined) {
+            openingProjection = captureExportLiveProjection(exportSnapshot, startIndex, endIndex);
+          }
+          projection = openingProjection;
+        } else if (position >= finalStart) {
+          if (endingProjection === undefined) {
+            endingProjection = captureExportLiveProjection(exportSnapshot, startIndex, endIndex);
+          }
+          projection = endingProjection;
+        }
+        renderExportFrameToSurface(exportRefs, exportSnapshot, startIndex, index, projection);
+        await composeDateRangeExportFrame(exportCanvas, layoutSettings, exportRefs, settings);
       },
     });
   }
@@ -1786,6 +1768,7 @@
 
   function formatDateEdgeText(isoValue) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(isoValue || ""))) return "--";
+    if (isRenderingDateRangeExportFrame) return window.WSBDashboardExport.formatDailyDate(isoValue);
     const [yearRaw, monthRaw, dayRaw] = String(isoValue).split("-");
     const year = Number(yearRaw);
     const month = Number(monthRaw);
@@ -1840,18 +1823,11 @@
     select.value = value;
   }
 
-  function createExportRenderSurface(settings) {
+  function createExportRenderSurface(settings, outputSettings = settings) {
     const { width, height, outerMargin, panelGap, footerHeight } = getExportLayoutMetrics(settings);
     const palette = getExportThemePalette(settings.theme);
-    const exportFontScale = 1.65;
-    const scaleCssPixels = (value) => {
-      const numeric = parseFloat(value);
-      return Number.isFinite(numeric) ? `${Math.round(numeric * exportFontScale)}px` : value;
-    };
-    const liveTitleStyle = el.usdBtcTitle ? getComputedStyle(el.usdBtcTitle) : null;
-    const liveValueStyle = el.usdBtcBig ? getComputedStyle(el.usdBtcBig) : null;
-    const liveSubStyle = el.satUsdText ? getComputedStyle(el.satUsdText) : null;
-    const liveDateStyle = el.usdBtcDateEdges ? getComputedStyle(el.usdBtcDateEdges) : null;
+    // One logical layout for PNG and every video quality; rasterize at output density.
+    const outputScale = getDownloadDimensions(outputSettings).width / width;
     const surface = document.createElement("div");
     surface.className = "uoa-export-surface";
     surface.style.width = `${width}px`;
@@ -1891,16 +1867,13 @@
       const chart = document.createElement("canvas");
       chart.width = 1200;
       chart.height = 720;
-      if (liveTitleStyle) title.style.fontSize = scaleCssPixels(liveTitleStyle.fontSize);
-      if (liveValueStyle) big.style.fontSize = scaleCssPixels(liveValueStyle.fontSize);
-      if (liveSubStyle) {
-        sub.style.fontSize = scaleCssPixels(liveSubStyle.fontSize);
-        sub.style.margin = liveSubStyle.margin;
-      }
-      if (liveDateStyle) {
-        edges.style.fontSize = scaleCssPixels(liveDateStyle.fontSize);
-        edges.style.height = scaleCssPixels(liveDateStyle.height);
-      }
+      title.style.fontSize = "40px";
+      big.style.fontSize = "72px";
+      sub.style.fontSize = "26px";
+      sub.style.margin = "10px 0 5px";
+      edges.style.fontSize = "22px";
+      edges.style.height = "28px";
+      chart.dataset.exportPixelRatio = String(Math.max(1, outputScale));
       title.style.color = palette["--fg"];
       sub.style.color = palette["--fg"];
       edges.style.color = palette["--muted"];
@@ -1928,6 +1901,8 @@
       secondaryUoaSelect: createExportSelect("USD"),
       scaleSelect: createExportSelect("log"),
       orderBySelect: createExportSelect("alpha-asc"),
+      startDateInput: document.createElement("input"),
+      endDateInput: document.createElement("input"),
       vesRedenomAdjustToggle: Object.assign(document.createElement("input"), { type: "checkbox" }),
       usdBtcBig: left.big,
       btcUsdBig: right.big,
@@ -1975,7 +1950,7 @@
     }
   }
 
-  function renderExportFrameToSurface(exportRefs, snapshot, startIndex, endIndex) {
+  function renderExportFrameToSurface(exportRefs, snapshot, startIndex, endIndex, projection = null) {
     withExportElements(exportRefs, () => {
       setExportSelectValue(exportRefs.primaryUoaSelect, snapshot.primaryCurrency);
       setExportSelectValue(exportRefs.secondaryUoaSelect, snapshot.secondaryCurrency);
@@ -1983,14 +1958,20 @@
       setExportSelectValue(exportRefs.orderBySelect, snapshot.orderMode);
       exportRefs.vesRedenomAdjustToggle.checked = snapshot.smoothVesRedenom;
       const savedRows = rows;
+      const savedAllRows = allRows;
+      const savedProjection = activeDateRangeExportProjection;
+      allRows = snapshot.publishedRows || allRows;
+      activeDateRangeExportProjection = projection;
       const savedExportRenderFlag = isRenderingDateRangeExportFrame;
       const savedExportTheme = activeDateRangeExportTheme;
       const savedExportAxisRows = activeDateRangeExportAxisRows;
       const savedExportScaleModes = activeDateRangeExportScaleModes;
       const frameStartIso = toIsoDate(allRows[startIndex].date);
-      const frameEndIso = toIsoDate(allRows[endIndex].date);
-      const frameStartText = formatDateEdgeText(frameStartIso);
-      const frameEndText = formatDateEdgeText(frameEndIso);
+      const frameEndIso = toIsoDate(projection?.rows.at(-1)?.date || allRows[endIndex].date);
+      exportRefs.startDateInput.value = frameStartIso;
+      exportRefs.endDateInput.value = frameEndIso;
+      const frameStartText = window.WSBDashboardExport.formatDailyDate(frameStartIso);
+      const frameEndText = window.WSBDashboardExport.formatDailyDate(frameEndIso);
       exportRefs.usdBtcStartDateEdge.textContent = frameStartText;
       exportRefs.btcUsdStartDateEdge.textContent = frameStartText;
       exportRefs.usdBtcEndDateEdge.textContent = frameEndText;
@@ -2008,6 +1989,8 @@
         stabilizeDateRangeExportNumericText(exportRefs);
       } finally {
         rows = savedRows;
+        allRows = savedAllRows;
+        activeDateRangeExportProjection = savedProjection;
         isRenderingDateRangeExportFrame = savedExportRenderFlag;
         activeDateRangeExportTheme = savedExportTheme;
         activeDateRangeExportAxisRows = savedExportAxisRows;
@@ -2103,20 +2086,18 @@
       exportRefs?.btcUsdBig,
       exportRefs?.satUsdText,
       exportRefs?.usdSatText,
-      exportRefs?.usdBtcStartDateEdge,
-      exportRefs?.usdBtcEndDateEdge,
-      exportRefs?.btcUsdStartDateEdge,
-      exportRefs?.btcUsdEndDateEdge,
     ].forEach(stabilizeExportNumericTextNode);
   }
 
 
-  async function composeDateRangeExportFrame(canvas, settings, exportRefs) {
+  async function composeDateRangeExportFrame(canvas, settings, exportRefs, outputSettings = settings) {
     const { width, height, footerHeight } = getExportLayoutMetrics(settings);
-    if (canvas.width !== width) canvas.width = width;
-    if (canvas.height !== height) canvas.height = height;
+    const output = getDownloadDimensions(outputSettings);
+    if (canvas.width !== output.width) canvas.width = output.width;
+    if (canvas.height !== output.height) canvas.height = output.height;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    ctx.setTransform(output.width / width, 0, 0, output.height / height, 0, 0);
     const palette = getExportThemePalette(settings.theme);
     const bg = palette["--bg"];
     ctx.fillStyle = bg;
@@ -2206,7 +2187,7 @@
       ctx.fillStyle = style.color || "#ffffff";
       ctx.textAlign = alignRight ? "right" : "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(node.textContent, textX, centerY);
+      window.WSBDashboardExportBranding.drawDateText(ctx, node.textContent, textX, centerY, parseFloat(style.fontSize));
       ctx.restore();
     };
     const drawPanel = (panel, title, big, sub, edges, startEdge, endEdge, chart) => {
@@ -2265,7 +2246,7 @@
     ctx.fillRect(0, height - footerHeight, width, footerHeight);
     window.WSBDashboardExport.drawFooterUrl(ctx, "https://wickedsmartbitcoin.com/uoa", { width, height, footerHeight }, {
       ...settings,
-      referenceQuality: 1440,
+      referenceQuality: EXPORT_REFERENCE_QUALITY,
     });
     ctx.restore();
   }
@@ -2284,6 +2265,7 @@
     if (isDateRangeExporting || !allRows.length) return;
     const button = document.getElementById("downloadImageBtn");
     button.disabled = true;
+    isDateRangeExporting = true;
     let exportRefs = null;
     try {
       const settings = { ...normalizeDownloadSettings(downloadSettings), quality: "2160" };
@@ -2294,10 +2276,12 @@
       const endIndex = Math.max(startIndex, Math.min(maxIndex, Number.isFinite(endValue) ? endValue : maxIndex));
       const snapshot = getExportEstimateSnapshot(settings, startIndex, endIndex);
       await waitForDateRangeExportFonts();
-      exportRefs = createExportRenderSurface(settings);
-      renderExportFrameToSurface(exportRefs, snapshot, startIndex, endIndex);
+      const layoutSettings = getExportReferenceLayoutSettings(settings);
+      exportRefs = createExportRenderSurface(layoutSettings, settings);
+      const projection = captureExportLiveProjection(snapshot, startIndex, endIndex);
+      renderExportFrameToSurface(exportRefs, snapshot, startIndex, endIndex, projection);
       const canvas = document.createElement("canvas");
-      await composeDateRangeExportFrame(canvas, settings, exportRefs);
+      await composeDateRangeExportFrame(canvas, layoutSettings, exportRefs, settings);
       await window.WSBDashboardExport.downloadPng(canvas, getDateRangeExportFilename(settings, "png", snapshot));
     } catch (error) {
       console.error("Unable to export Unit of Account image.", error);
@@ -2305,6 +2289,9 @@
     } finally {
       exportRefs?.surface?.remove();
       button.disabled = false;
+      isDateRangeExporting = false;
+      dateRangeExportCancelRequested = false;
+      resetDateRangeDownloadButton();
       renderAll();
     }
   }
@@ -2321,14 +2308,13 @@
     }
     if (!allRows.length || !el.dateRangeStartSlider || !el.dateRangeEndSlider) return;
     const settings = normalizeDownloadSettings(downloadSettings);
-    const dashboardScaleModes = getDashboardScaleModes();
     const layoutSettings = getExportReferenceLayoutSettings(settings);
     const selectedPlaybackFps = Math.max(1, Number(settings.fps) || getSelectedDateRangePlaybackFps());
     const { width: exportWidth, height: exportHeight } = getExportLayoutMetrics(settings);
 
     const maxIndex = Math.max(0, allRows.length - 1);
     const playbackStart = Number(dateRangePlaybackState.startIndex);
-    const playbackEnd = Number(dateRangePlaybackState.targetEndIndex);
+    const playbackEnd = Number(dateRangePlaybackState.currentEndIndex);
     const sliderStart = Number(el.dateRangeStartSlider.value);
     const sliderEnd = Number(el.dateRangeEndSlider.value);
     const rawStart = dateRangePlaybackState.hasSession && Number.isFinite(playbackStart)
@@ -2339,18 +2325,7 @@
       : sliderEnd;
     const startIndex = Math.max(0, Math.min(maxIndex, Number.isFinite(rawStart) ? rawStart : 0));
     const endIndex = Math.max(startIndex, Math.min(maxIndex, Number.isFinite(rawEnd) ? rawEnd : maxIndex));
-    const exportSnapshot = {
-      primaryCurrency: el.primaryUoaSelect?.value || "BTC",
-      secondaryCurrency: el.secondaryUoaSelect?.value || "USD",
-      scaleMode: dashboardScaleModes.left,
-      leftScaleMode: settings.leftScale || dashboardScaleModes.left,
-      rightScaleMode: settings.rightScale || dashboardScaleModes.right,
-      orderMode: ORDER_MODES.includes(el.orderBySelect?.value) ? el.orderBySelect.value : "alpha-asc",
-      smoothVesRedenom: !!el.vesRedenomAdjustToggle?.checked,
-      exportTheme: settings.theme,
-      startIso: toIsoDate(allRows[startIndex].date),
-      endIso: toIsoDate(allRows[endIndex].date),
-    };
+    const exportSnapshot = getExportEstimateSnapshot(settings, startIndex, endIndex);
 
     isDateRangeExporting = true;
     dateRangeExportCancelRequested = false;
@@ -2360,18 +2335,16 @@
     const exportCanvas = document.createElement("canvas");
     exportCanvas.width = exportWidth;
     exportCanvas.height = exportHeight;
-    const layoutCanvas = document.createElement("canvas");
     let exportRefs = null;
     let wasCanceled = false;
 
     try {
-      exportRefs = createExportRenderSurface(layoutSettings);
+      exportRefs = createExportRenderSurface(layoutSettings, settings);
       await waitForDateRangeExportFonts();
       const frameIndices = buildDateRangeExportFrameIndices(startIndex, endIndex, selectedPlaybackFps, settings.endFrameHold);
 
       const videoBlob = await encodeDateRangeAnimationVideo({
         exportCanvas,
-        layoutCanvas,
         layoutSettings,
         exportRefs,
         exportSnapshot,
@@ -3021,21 +2994,28 @@
     const params = new URLSearchParams(window.location.search || "");
     const rawPair = params.get("pair");
     const pair = String(rawPair || "").trim().toUpperCase();
-    if (rawPair !== null && !/^[A-Z]{6}$/.test(pair)) return null;
+    const codes = Array.from(new Set(["BTC", ...Object.keys(uoaPairs?.currencies || {})]));
+    const matches = rawPair === null ? [] : codes.flatMap(primary => codes
+      .filter(secondary => primary !== secondary && `${primary}${secondary}` === pair)
+      .map(secondary => ({ primary, secondary })));
+    if (rawPair !== null && matches.length !== 1) return null;
     const primary = rawPair === null
-      ? String(params.get("primary") || "").trim().toUpperCase() : pair.slice(0, 3);
+      ? String(params.get("primary") || "").trim().toUpperCase() : matches[0].primary;
     const secondary = rawPair === null
-      ? String(params.get("secondary") || "").trim().toUpperCase() : pair.slice(3);
-    const isSupported = (code) => code === "BTC" || Object.hasOwn(uoaPairs?.currencies || {}, code);
-    if (!/^[A-Z]{3}$/.test(primary) || !/^[A-Z]{3}$/.test(secondary)
-        || primary === secondary || !isSupported(primary) || !isSupported(secondary)) return null;
+      ? String(params.get("secondary") || "").trim().toUpperCase() : matches[0].secondary;
+    if (primary === secondary || !codes.includes(primary) || !codes.includes(secondary)) return null;
     return { primary, secondary };
   }
 
   function getInitialFilterState() {
     const shareState = getDashboardShareStateFromUrl();
     const pair = getRequestedPairFromUrl();
-    if (!pair) return shareState || safeReadJson(UOA_FILTERS_KEY) || {};
+    if (!pair) {
+      const stored = shareState || safeReadJson(UOA_FILTERS_KEY) || {};
+      return { ...stored, showAlternativeCryptocurrencies: stored.showAlternativeCryptocurrencies === true
+        || stored.uoaGroup === ALTERNATIVE_CRYPTO_GROUP
+        || !!(shareState && [stored.primaryUoa, stored.secondaryUoa].some(isAlternativeCryptocurrency)) };
+    }
     const requestedGroup = normalizeUoaGroup(shareState?.uoaGroup);
     const belongsToGroup = (code) => code === "BTC" || requestedGroup === DEFAULT_UOA_GROUP
       || getCurrencyGroupIds(code).includes(requestedGroup);
@@ -3047,6 +3027,8 @@
       secondaryUoa: pair.secondary,
       showPeggedCurrencies: !!(shareState?.showPeggedCurrencies
         || isCurrencyPegged(pair.primary) || isCurrencyPegged(pair.secondary)),
+      showAlternativeCryptocurrencies: !!(shareState?.showAlternativeCryptocurrencies
+        || isAlternativeCryptocurrency(pair.primary) || isAlternativeCryptocurrency(pair.secondary)),
       showMonetaryMetals: !!(shareState?.showMonetaryMetals !== false
         || isMonetaryMetalCurrency(pair.primary) || isMonetaryMetalCurrency(pair.secondary)),
     };
@@ -3188,6 +3170,7 @@
       smoothVesRedenom,
       metalDenomination,
       showPeggedCurrencies: storedShowPeggedCurrencies,
+      showAlternativeCryptocurrencies: stored.showAlternativeCryptocurrencies === true,
       showMonetaryMetals: storedShowMonetaryMetals,
       playbackFps,
       chartMode,
@@ -3237,6 +3220,7 @@
       smoothVesRedenom,
       metalDenomination,
       showPeggedCurrencies: storedShowPeggedCurrencies,
+      showAlternativeCryptocurrencies: stored.showAlternativeCryptocurrencies === true,
       showMonetaryMetals: storedShowMonetaryMetals,
       playbackFps,
       chartMode,
@@ -3254,8 +3238,10 @@
     if (el.orderBySelect) el.orderBySelect.value = shellState.orderMode;
     if (el.vesRedenomAdjustToggle) el.vesRedenomAdjustToggle.checked = shellState.smoothVesRedenom;
     showPeggedCurrencies = shellState.showPeggedCurrencies === true;
+    showAlternativeCryptocurrencies = shellState.showAlternativeCryptocurrencies === true;
     showMonetaryMetals = shellState.showMonetaryMetals !== false;
     if (el.showPeggedCurrenciesToggle) el.showPeggedCurrenciesToggle.checked = showPeggedCurrencies;
+    syncShowAlternativeCryptocurrenciesToggle();
     if (el.showMonetaryMetalsToggle) el.showMonetaryMetalsToggle.checked = showMonetaryMetals;
     setMetalDenomination(shellState.metalDenomination, { persist: false, render: false, updateReset: false, force: true });
 
@@ -3318,6 +3304,7 @@
         smoothVesRedenom: !!el.vesRedenomAdjustToggle?.checked,
         metalDenomination: getMetalDenominationSetting(),
         showPeggedCurrencies: getShowPeggedCurrenciesSetting(),
+        showAlternativeCryptocurrencies: showAlternativeCryptocurrencies === true,
         showMonetaryMetals: getShowMonetaryMetalsSetting(),
         playbackFps: getSelectedDateRangePlaybackFps(),
         chartMode: getVisibleChartMode(),
@@ -3350,6 +3337,7 @@
       smoothVesRedenom: true,
       metalDenomination: DEFAULT_METAL_DENOMINATION,
       showPeggedCurrencies: DEFAULT_SHOW_PEGGED_CURRENCIES,
+      showAlternativeCryptocurrencies: false,
       showMonetaryMetals: DEFAULT_SHOW_MONETARY_METALS,
       playbackFps: DEFAULT_RANGE_PLAYBACK_FPS,
       chartMode: "both",
@@ -3371,6 +3359,7 @@
       smoothVesRedenom: !!el.vesRedenomAdjustToggle?.checked,
       metalDenomination: getMetalDenominationSetting(),
       showPeggedCurrencies: getShowPeggedCurrenciesSetting(),
+      showAlternativeCryptocurrencies: showAlternativeCryptocurrencies === true,
       showMonetaryMetals: getShowMonetaryMetalsSetting(),
       playbackFps: getSelectedDateRangePlaybackFps(),
       chartMode: getVisibleChartMode(),
@@ -3386,10 +3375,12 @@
     suppressResetSnapshotClear = true;
     try {
       showPeggedCurrencies = snapshot.showPeggedCurrencies === true;
+      showAlternativeCryptocurrencies = snapshot.showAlternativeCryptocurrencies === true;
       showMonetaryMetals = snapshot.showMonetaryMetals !== false;
       selectedUoaGroup = normalizeUoaGroup(snapshot.uoaGroup);
       syncUoaGroupSelect();
       syncShowPeggedCurrenciesToggle();
+      syncShowAlternativeCryptocurrenciesToggle();
       syncShowMonetaryMetalsToggle();
       populateCurrencyDropdowns({ preserveSelection: true });
       applyCurrencyOrdering();
@@ -3475,6 +3466,7 @@
       && current.smoothVesRedenom === defaults.smoothVesRedenom
       && current.metalDenomination === defaults.metalDenomination
       && current.showPeggedCurrencies === defaults.showPeggedCurrencies
+      && current.showAlternativeCryptocurrencies === defaults.showAlternativeCryptocurrencies
       && current.showMonetaryMetals === defaults.showMonetaryMetals
       && Number(current.playbackFps) === Number(defaults.playbackFps)
       && current.chartMode === defaults.chartMode
@@ -3577,6 +3569,10 @@
     const next = normalizeUoaGroup(value);
     const changed = next !== selectedUoaGroup;
     selectedUoaGroup = next;
+    if (next === ALTERNATIVE_CRYPTO_GROUP) {
+      showAlternativeCryptocurrencies = true;
+      syncShowAlternativeCryptocurrenciesToggle();
+    }
     syncUoaGroupSelect();
     if (!changed && !options.force) return;
     populateCurrencyDropdowns({ preserveSelection: true });
@@ -3589,6 +3585,27 @@
 
   function getShowPeggedCurrenciesSetting() {
     return showPeggedCurrencies === true;
+  }
+
+  function syncShowAlternativeCryptocurrenciesToggle() {
+    if (el.showAlternativeCryptocurrenciesToggle) {
+      el.showAlternativeCryptocurrenciesToggle.checked = showAlternativeCryptocurrencies === true;
+    }
+  }
+
+  function setShowAlternativeCryptocurrencies(value) {
+    showAlternativeCryptocurrencies = value === true;
+    if (!showAlternativeCryptocurrencies && getActiveUoaGroup() === ALTERNATIVE_CRYPTO_GROUP) {
+      selectedUoaGroup = DEFAULT_UOA_GROUP;
+      syncUoaGroupSelect();
+    }
+    syncShowAlternativeCryptocurrenciesToggle();
+    populateCurrencyDropdowns({ preserveSelection: true });
+    applyCurrencyOrdering();
+    syncPairControls();
+    persistFilters();
+    renderAll();
+    updateResetButtonUi();
   }
 
   function getShowMonetaryMetalsSetting() {
@@ -3625,6 +3642,7 @@
     const next = value !== false;
     const changed = next !== showMonetaryMetals;
     showMonetaryMetals = next;
+    syncShowAlternativeCryptocurrenciesToggle();
     syncShowMonetaryMetalsToggle();
     if (!changed && !options.force) return;
     populateCurrencyDropdowns({ preserveSelection: true });
@@ -3682,6 +3700,12 @@
         setShowPeggedCurrencies(el.showPeggedCurrenciesToggle.checked);
       });
     }
+    if (el.showAlternativeCryptocurrenciesToggle && el.showAlternativeCryptocurrenciesToggle.dataset.bound !== "1") {
+      el.showAlternativeCryptocurrenciesToggle.dataset.bound = "1";
+      el.showAlternativeCryptocurrenciesToggle.addEventListener("change", () => {
+        setShowAlternativeCryptocurrencies(el.showAlternativeCryptocurrenciesToggle.checked);
+      });
+    }
     if (el.showMonetaryMetalsToggle && el.showMonetaryMetalsToggle.dataset.bound !== "1") {
       el.showMonetaryMetalsToggle.dataset.bound = "1";
       el.showMonetaryMetalsToggle.addEventListener("change", () => {
@@ -3690,6 +3714,7 @@
     }
     syncMetalDenominationButtons();
     syncShowPeggedCurrenciesToggle();
+    syncShowAlternativeCryptocurrenciesToggle();
     syncShowMonetaryMetalsToggle();
   }
 
@@ -3948,6 +3973,13 @@
     return isPreciousMetalCurrency(String(currencyCode || "").trim().toUpperCase());
   }
 
+  function isAlternativeCryptocurrency(code) {
+    // The fallback also hides the three inadvertently discovered FX symbols
+    // while an older published metadata generation is still installed.
+    return ["ETH", "BCH", "LTC"].includes(code)
+      || uoaPairs?.currencies?.[code]?.asset_type === "alternative_cryptocurrency";
+  }
+
   function getUoaGroupOptions() {
     const groups = Array.isArray(uoaPairs?.currency_groups)
       ? uoaPairs.currency_groups
@@ -3958,6 +3990,9 @@
         label: String(group?.label || group?.id || "").trim(),
       }))
       .filter((group) => group.id && group.id !== DEFAULT_UOA_GROUP && group.label);
+    if (!normalizedGroups.some(group => group.id === ALTERNATIVE_CRYPTO_GROUP)) {
+      normalizedGroups.push({ id: ALTERNATIVE_CRYPTO_GROUP, label: "Alternative cryptocurrencies" });
+    }
     return [{ id: DEFAULT_UOA_GROUP, label: "All" }, ...normalizedGroups];
   }
 
@@ -3973,6 +4008,7 @@
   }
 
   function getCurrencyGroupIds(currencyCode) {
+    if (isAlternativeCryptocurrency(currencyCode)) return [ALTERNATIVE_CRYPTO_GROUP];
     const groups = uoaPairs?.currencies?.[currencyCode]?.groups;
     return Array.isArray(groups)
       ? groups.map((group) => String(group || "").trim().toLowerCase()).filter(Boolean)
@@ -3992,6 +4028,7 @@
     const currencies = Object.keys(uoaPairs.currencies);
     return ["BTC", ...currencies.filter((code) => {
       if (code === "BTC") return false;
+      if (isAlternativeCryptocurrency(code) && !showAlternativeCryptocurrencies) return false;
       if (!currencyMatchesActiveGroup(code)) return false;
       if (
         !getShowMonetaryMetalsSetting()
@@ -4354,7 +4391,7 @@
     }
 
     const symbol = getCurrencySymbol(currencyCode);
-    if (/^[A-Z]{3}$/i.test(symbol) && symbol.toUpperCase() === String(currencyCode || "").toUpperCase()) {
+    if (/^[A-Z0-9]{2,10}$/i.test(symbol) && symbol.toUpperCase() === String(currencyCode || "").toUpperCase()) {
       return `${amountText} ${symbol.toUpperCase()}`;
     }
     const position = getCurrencySymbolPosition(currencyCode);
@@ -4776,10 +4813,17 @@
 
   function getLivePairProjection(primaryCurrency, secondaryCurrency) {
     const unchanged = { rows, allRows, used: {}, provisional: false };
-    if (!liveQuotes || isDateRangeExporting || isRenderingDateRangeExportFrame
+    if (isRenderingDateRangeExportFrame) return activeDateRangeExportProjection || unchanged;
+    if (!liveQuotes || isDateRangeExporting
         || dateRangePlaybackState.isPlaying || !rows.length || !allRows.length
         || rows[rows.length - 1] !== allRows[allRows.length - 1]) return unchanged;
-    const last = allRows[allRows.length - 1];
+    return projectLivePair(rows, allRows, primaryCurrency, secondaryCurrency,
+      liveQuotes.current(), refreshedAtText);
+  }
+
+  function projectLivePair(visibleRows, sourceRows, primaryCurrency, secondaryCurrency, quotes, publishedAt) {
+    const unchanged = { rows: visibleRows, allRows: sourceRows, used: {}, provisional: false };
+    const last = sourceRows[sourceRows.length - 1];
     const isoDate = toIsoDate(last.date);
     const selected = [primaryCurrency, secondaryCurrency];
     const snapshotUsd = Object.fromEntries(selected.map((code) => [code,
@@ -4788,11 +4832,11 @@
         : getCurrencyValueInUsd(code, last, isoDate),
     ]));
     const projected = window.WSBUoaLiveQuotes.project(
-      rows, selected, liveQuotes.current(), snapshotUsd, refreshedAtText
+      visibleRows, selected, quotes, snapshotUsd, publishedAt
     );
     if (!Object.keys(projected.used).length) return unchanged;
     const projectedAll = window.WSBUoaLiveQuotes.project(
-      allRows, selected, liveQuotes.current(), snapshotUsd, refreshedAtText
+      sourceRows, selected, quotes, snapshotUsd, publishedAt
     );
     return { ...projected, allRows: projectedAll.rows };
   }
@@ -5367,7 +5411,7 @@
     if (event.key === "Enter") {
       const highlightedButton = getDropdownHighlightedButton(menu, keyboardStateEl);
       const typedCode = String(valueEl?.value || "").trim().toUpperCase();
-      const exactOption = config.searchable && /^[A-Z]{3}$/.test(typedCode)
+      const exactOption = config.searchable && /^[A-Z0-9]{2,10}$/.test(typedCode)
         ? getDropdownOptionsForConfig(config, select).find((option) => option.value === typedCode)
         : null;
       const nextValue = highlightedButton?.dataset.value || exactOption?.value || "";
@@ -7025,8 +7069,10 @@
       });
     }
     showPeggedCurrencies = saved.showPeggedCurrencies === true;
+    showAlternativeCryptocurrencies = saved.showAlternativeCryptocurrencies === true;
     showMonetaryMetals = saved.showMonetaryMetals !== false;
     syncShowPeggedCurrenciesToggle();
+    syncShowAlternativeCryptocurrenciesToggle();
     syncShowMonetaryMetalsToggle();
     setMetalDenomination(saved.metalDenomination, { persist: false, render: false, updateReset: false, force: true });
 
@@ -7180,14 +7226,16 @@
   }
 
   function getResponsiveTickLabelFontSize() {
+    if (isRenderingDateRangeExportFrame) return 27;
     const width = window.innerWidth;
-    const baseSize = width < 640 ? 12 : width < 980 ? 14 : 18;
-    return isRenderingDateRangeExportFrame ? Math.round(baseSize * 1.5) : baseSize;
+    return width < 640 ? 12 : width < 980 ? 14 : 18;
   }
 
   function drawChart(canvas, series, opts) {
     const rect = canvas.getBoundingClientRect();
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const dpr = isRenderingDateRangeExportFrame
+      ? Number(canvas.dataset.exportPixelRatio) || 1
+      : Math.max(1, window.devicePixelRatio || 1);
     const w = Math.max(320, Math.round(rect.width));
     const h = Math.max(240, Math.round(rect.height));
     canvas.width = Math.round(w * dpr);
@@ -7422,8 +7470,9 @@
     const fullRangeCount = Math.max(2, Array.isArray(allRows) ? allRows.length : series.length);
     const visibleRangeRatio = Math.max(0, Math.min(1, (series.length - 1) / Math.max(1, fullRangeCount - 1)));
     const shortRangeBoost = 1 - Math.sqrt(visibleRangeRatio);
-    const primaryLineWidth = 1.6 + shortRangeBoost * 1.8;
-    const ghostLineWidth = 0.6 + shortRangeBoost * 0.7;
+    const featureScale = isRenderingDateRangeExportFrame ? 2 : 1;
+    const primaryLineWidth = (1.6 + shortRangeBoost * 1.8) * featureScale;
+    const ghostLineWidth = (0.6 + shortRangeBoost * 0.7) * featureScale;
     const lineTipBleed = Math.ceil(Math.max(primaryLineWidth, ghostLineWidth) / 2);
 
     // Clip line rendering near the chart area while preserving rounded line tips.
@@ -7463,7 +7512,7 @@
       const pointY = yFor(series[0].value);
       ctx.fillStyle = opts.color;
       ctx.beginPath();
-      ctx.arc(pointX, pointY, 2.6, 0, Math.PI * 2);
+      ctx.arc(pointX, pointY, 2.6 * featureScale, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.restore();
@@ -7491,11 +7540,11 @@
 
       const x = xFor(idx);
       const y = yFor(yValue);
-      drawStar(ctx, x, y);
+      drawStar(ctx, x, y, 7 * featureScale, 3.2 * featureScale);
       ctx.fillStyle = "#ffffff";
       ctx.fill();
       ctx.strokeStyle = "rgba(0,0,0,0.78)";
-      ctx.lineWidth = 1;
+      ctx.lineWidth = featureScale;
       ctx.stroke();
 
       markerStates.push({
@@ -8653,6 +8702,7 @@
     // Populate the title/filter shell as soon as the small metadata files are ready.
     selectedUoaGroup = getInitialUoaGroupSetting();
     showPeggedCurrencies = getInitialShowPeggedCurrenciesSetting();
+    showAlternativeCryptocurrencies = getInitialFilterState().showAlternativeCryptocurrencies === true;
     showMonetaryMetals = getInitialShowMonetaryMetalsSetting();
     populateUoaGroupSelect();
     populateCurrencyDropdowns();
@@ -8671,7 +8721,7 @@
     applyFilters();
     restorePausedPlaybackSession(saved);
     document.body.classList.remove("uoa-loading");
-    liveQuotes = window.WSBUoaLiveQuotes?.create({ onQuote: () => {
+    liveQuotes = window.WSBUoaLiveQuotes?.create({ isSnapshotOnly: isAlternativeCryptocurrency, onQuote: () => {
       if (document.visibilityState !== "hidden" && !isDateRangeExporting
           && !dateRangePlaybackState.isPlaying) renderAll();
     } });

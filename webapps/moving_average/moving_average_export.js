@@ -3,7 +3,6 @@
   const M = window.WSBMovingAverageModel, C = window.WSBDashboardCharting;
   const B = window.WSBDashboardExportBranding, DAY = 86400000;
   const units = { day: "Day", week: "Week", month: "Month" };
-  const dateFormat = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
   function font(ctx, size, bold = false) { B.setFont(ctx, size, bold ? "heading" : "body"); }
   function fullLabel(line) { return `${line.period} ${units[line.unit]} ${line.type === "ema" ? "Exponential " : ""}Moving Average`; }
   function shortLabel(line) {
@@ -146,7 +145,9 @@
     });
     if (!labels.length) { ctx.fillStyle = colors.fg; ctx.fillText(title, titleX, l.title.y); }
     font(ctx, 64 / 3); ctx.fillStyle = colors.fg;
-    ctx.fillText(`Date: ${dateFormat.format(row.time)}`, l.kpi.x, l.kpi.y);
+    ctx.fillText("Date: ", l.kpi.x, l.kpi.y);
+    B.drawDateText(ctx, window.WSBDashboardExport.formatDailyDate(row.time),
+      l.kpi.x + ctx.measureText("Date: ").width, l.kpi.y, 64 / 3);
     ctx.fillText(`Price: ${statistic(row.price)}`, l.kpi.x, l.kpi.y + 24);
     active.forEach((i, position) => {
       const label = shortLabel(lines[i]), y = l.kpi.y + 48 + position * 24;

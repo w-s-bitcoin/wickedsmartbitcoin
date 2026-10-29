@@ -8,6 +8,9 @@
   const METALS = new Set(["XAU", "XAG", "XPT", "XPD"]);
   // CUP history uses the informal-market rate; indicative FX quotes use a different market.
   const SNAPSHOT_ONLY = new Set(["CUP"]);
+  // LBPUSD is inconsistent with USDLBP (0.000007 vs 89500 on 2026-10-29).
+  // Use the verified USD-denominated direction; never fall back to that bad leg.
+  const INVERSE_ONLY = new Set(["LBP"]);
   const dayOf = (instant) => new Date(instant).toISOString().slice(0, 10);
 
   function publishedInstant(value) {
@@ -28,7 +31,8 @@
     for (const code of new Set(selected)) {
       const snapshot = code === "USD" ? 1 : Number(snapshotUsd?.[code]);
       const quote = quotes?.[code];
-      const accepted = !SNAPSHOT_ONLY.has(code) && quote && Number(quote.usd) > 0 && Number.isFinite(quote.at)
+      const accepted = !SNAPSHOT_ONLY.has(code) && quote && Number.isFinite(Number(quote.usd))
+        && Number(quote.usd) > 0 && Number.isFinite(quote.at)
         && quote.at > cutoff && quote.at <= now && dayOf(quote.at) >= latestDay;
       const usd = accepted ? Number(quote.usd) : snapshot;
       if (Number.isFinite(usd) && usd > 0) values[code] = usd;
@@ -53,7 +57,7 @@
     };
   }
 
-  function create({ onQuote } = {}) {
+  function create({ onQuote, isSnapshotOnly = () => false } = {}) {
     const quotes = {};
     let selected = [];
     let started = false;
@@ -91,7 +95,7 @@
     }
 
     function publish(code, usd, at, source, delay) {
-      if (!selected.includes(code) || !(Number(usd) > 0) || !Number.isFinite(at)
+      if (!selected.includes(code) || !Number.isFinite(Number(usd)) || !(Number(usd) > 0) || !Number.isFinite(at)
           || at < (quotes[code]?.at || 0)) return;
       quotes[code] = { usd: Number(usd), at, source, delay, connected: true };
       scheduleStatus();
@@ -126,7 +130,8 @@
 
     async function pollFiat(codes) {
       if (!codes.length) return;
-      const tickers = codes.flatMap((code) => [`FX_IDC:${code}USD`, `FX_IDC:USD${code}`]);
+      const tickers = codes.flatMap((code) => INVERSE_ONLY.has(code)
+        ? [`FX_IDC:USD${code}`] : [`FX_IDC:${code}USD`, `FX_IDC:USD${code}`]);
       try {
         const data = await fetchJson("https://scanner.tradingview.com/forex/scan", {
           method: "POST",
@@ -135,7 +140,7 @@
         });
         const receivedAt = Date.now();
         for (const code of codes) {
-          const direct = data?.data?.find((item) => item.s === `FX_IDC:${code}USD`);
+          const direct = !INVERSE_ONLY.has(code) && data?.data?.find((item) => item.s === `FX_IDC:${code}USD`);
           const inverse = data?.data?.find((item) => item.s === `FX_IDC:USD${code}`);
           const item = direct?.d?.[0] > 0 ? direct : inverse?.d?.[0] > 0 ? inverse : null;
           const mode = String(item?.d?.[1] || "");
@@ -181,7 +186,7 @@
     }
 
     function setSelection(codes) {
-      const next = [...new Set(codes.filter((code) => code && code !== "USD" && !SNAPSHOT_ONLY.has(code)))];
+      const next = [...new Set(codes.filter((code) => code && code !== "USD" && !SNAPSHOT_ONLY.has(code) && !isSnapshotOnly(code)))];
       if (next.join("|") === selected.join("|")) return;
       selected = next;
       pollVersion += 1;

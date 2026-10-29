@@ -2511,9 +2511,13 @@
     ctx.fillStyle = muted;
     ctx.textBaseline = "middle";
     ctx.textAlign = "left";
-    ctx.fillText(points[0].date, left, topTitleY);
+    if (opts.export) window.WSBDashboardExportBranding.drawDateText(ctx,
+      window.WSBDashboardExport.formatDailyDate(points[0].date), left, topTitleY, Math.max(11, tickLabelFontSize * 0.78));
+    else ctx.fillText(points[0].date, left, topTitleY);
     ctx.textAlign = "right";
-    ctx.fillText(points[points.length - 1].date, localW - left, topTitleY);
+    if (opts.export) window.WSBDashboardExportBranding.drawDateText(ctx,
+      window.WSBDashboardExport.formatDailyDate(points[points.length - 1].date), localW - left, topTitleY, Math.max(11, tickLabelFontSize * 0.78));
+    else ctx.fillText(points[points.length - 1].date, localW - left, topTitleY);
     if (opts.export) {
       ctx.fillStyle = muted;
       ctx.textAlign = "center";

@@ -305,7 +305,7 @@ window.WSBDailyHistoryDashboard = function (config) {
     const estimate = window.WSBDashboardExport.estimateDownload(settings, { frameCount: frames.length, uniqueFrameCount: new Set(frames).size, outputFps: E.VIDEO_FPS });
     $("downloadEstimateSize").textContent = estimate.sizeText; $("downloadEstimateLength").textContent = estimate.lengthText; $("downloadEstimateTime").textContent = estimate.timeText;
   }
-  function renderExport(ctx, width, height, source, frame, settings) { Chart.render(ctx, width, height, source, frame, { theme: settings.theme, export: true, branded: true, startIndex: settings.startIndex }); }
+  function renderExport(ctx, width, height, source, frame, settings) { Chart.render(ctx, width, height, source, frame, { theme: settings.theme, export: true, exportKind: settings.exportKind, branded: true, startIndex: settings.startIndex }); }
   function lockControls(locked) {
     document.querySelectorAll('.date-range-panel button, .date-range-panel input').forEach((el) => { if (el.id !== "downloadVideo") el.disabled = locked; });
     $("copyDashboardLink").disabled = locked; $("updatedTimeZoneDropdownTrigger").disabled = locked;
@@ -319,7 +319,7 @@ window.WSBDailyHistoryDashboard = function (config) {
     const allowLive = usesLivePrice();
     pausePlayback(); exporting = true; cancelExport = false; setMenu(false); pickers?.startPicker.closePopup(); pickers?.endPicker.closePopup();
     let source = rows.slice(), frame = index, exportPublishedAt = publishedAt;
-    const settings = { ...exportSettings(kind === "png" ? "2160" : downloads.getSettings().quality), startIndex };
+    const settings = { ...exportSettings(kind === "png" ? "2160" : downloads.getSettings().quality), startIndex, exportKind: kind };
     const { width, height } = E.getDimensions(settings), output = document.createElement("canvas"); output.width = width; output.height = height;
     lockControls(true);
     if (kind === "video") E.renderProgress($("downloadVideo"), 0);

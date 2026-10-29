@@ -8,6 +8,16 @@ runInNewContext(readFileSync(new URL("../webapps/shared/dashboard_export.js", im
 const E = window.WSBDashboardExport;
 const plan = (first, last, options) => Array.from(E.buildDailyFrameIndices(first, last, options));
 
+test("daily export dates keep padded calendar cells across day, month and year boundaries", () => {
+  for (const [value, expected] of [
+    ["2025-12-31", "Dec 31, 2025"], ["2026-01-01", "Jan 01, 2026"],
+    ["2026-01-09", "Jan 09, 2026"], ["2026-01-10", "Jan 10, 2026"],
+    ["2024-02-29", "Feb 29, 2024"], ["2026-09-09T23:59:59Z", "Sep 09, 2026"],
+    [Date.UTC(2026, 0, 9, 23, 59), "Jan 09, 2026"],
+  ]) assert.equal(E.formatDailyDate(value), expected);
+  assert.equal(E.formatDailyDate("invalid"), "--");
+});
+
 test("1x includes every day without a duration cap, for short and full histories", () => {
   for (const [first, last] of [[0, 0], [4, 9], [0, 6506]]) {
     const frames = plan(first, last);

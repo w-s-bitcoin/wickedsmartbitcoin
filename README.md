@@ -100,7 +100,11 @@ updates the latest point in the open dashboard. Selected legs keep their
 published value until a usable quote arrives; unsupported symbols stay on the
 published snapshot. The Pair KPI shows each leg's quote status with a colored
 dot; a dropped feed retains its last price until a newer publication wins.
-Historical playback and exports use published data.
+Historical playback uses published data. Latest-date PNGs capture the current
+selected-pair quote. Videos capture live quotes for the opening hold and again
+for the final motion frame, freezing each snapshot through its hold; earlier
+frames and historical End dates stay published. LBP uses the USD/LBP direction
+of the indicative feed because its reverse symbol is inconsistent.
 
 EOE Growth uses the shared live BTC/USD feed for its current view. It compares
 the price with the historical sample nearest the timestamp of the block exactly
@@ -370,6 +374,9 @@ CHROME_BIN=/path/to/chromium python3 scripts/test_dashboard_export_progress_brow
 CHROME_BIN=/path/to/chromium python3 scripts/test_video_export_browser.py --long --output-dir /tmp/wsb-video-long-review
 CHROME_BIN=/path/to/chromium python3 scripts/test_export_footer_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_export_footer_browser.py --images-only
+CHROME_BIN=/path/to/chromium python3 scripts/test_export_scale_browser.py
+# Optional viewport/theme variant; uses desktop PNG and mobile DPR-2 video.
+CHROME_BIN=/path/to/chromium python3 scripts/test_export_scale_browser.py --theme light --mobile-video
 node --test scripts/test_scale_transitions.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_dca_scale_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_days_issuance_scale_browser.py
@@ -386,6 +393,8 @@ CHROME_BIN=/path/to/chromium python3 scripts/test_comparison_live_price_browser.
 CHROME_BIN=/path/to/chromium python3 scripts/test_networth_live_quote_browser.py
 node scripts/test_networth_market_units.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_networth_units_browser.py
+python3 -m unittest scripts.test_uoa_crypto_history
+CHROME_BIN=/path/to/chromium python3 scripts/test_uoa_crypto_browser.py
 node scripts/test_uoa_live_quotes.mjs
 CHROME_BIN=/path/to/chromium python3 scripts/test_uoa_live_quotes_browser.py
 CHROME_BIN=/path/to/chromium python3 scripts/test_homepage_preview_refresh.py

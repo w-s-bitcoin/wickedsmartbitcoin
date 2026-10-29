@@ -2627,10 +2627,11 @@
         ctx.drawImage(chartCanvas, 0, 0, pixelWidth, chartPixelHeight);
         ctx.fillStyle = bg;
         ctx.fillRect(0, chartPixelHeight, pixelWidth, footerPixelHeight);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         window.WSBDashboardExport.drawFooterUrl(
           ctx,
           "https://wickedsmartbitcoin.com/issuance_rate",
-          { width: pixelWidth, height: pixelHeight, footerHeight: footerPixelHeight },
+          { width: cssWidth, height: cssHeight, footerHeight: footerCssHeight },
           { ...settings, referenceQuality: 1440 },
         );
         ctx.restore();

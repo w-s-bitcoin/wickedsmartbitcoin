@@ -34,7 +34,7 @@
         const px = x + Math.cos(angle) * r, py = y + Math.sin(angle) * r;
         if (j) ctx.lineTo(px, py); else ctx.moveTo(px, py);
       }
-      ctx.closePath(); ctx.fill(); ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(x, y, Math.max(.5, size * .11), 0, Math.PI * 2); ctx.fill(); ctx.restore();
+      ctx.closePath(); ctx.fill(); ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(x, y, (exporting ? size * .11 : Math.max(.5, size * .11)), 0, Math.PI * 2); ctx.fill(); ctx.restore();
     }
     if (!preview) {
       ctx.strokeStyle = light ? "#d2d2d2" : "#353535"; ctx.lineWidth = 1.1 * u;
@@ -44,13 +44,13 @@
     // Rasterize every observed block, with alpha compositing at its true pixel.
     // No sampling/aggregation discards rare low hashes or changes the density.
     const pixelWidth = Math.max(1, Math.ceil(plot.width)), pixelHeight = Math.max(1, Math.ceil(plot.height));
-    const key = `${index}:${pixelWidth}:${pixelHeight}:${light}:${preview}`;
+    const key = `${index}:${pixelWidth}:${pixelHeight}:${light}:${preview}:${exporting}`;
     if (!rasterCache || rasterCache.rows !== rows || rasterCache.key !== key) {
       const canvas = document.createElement("canvas"); canvas.width = pixelWidth; canvas.height = pixelHeight;
       const pixels = canvas.getContext("2d").createImageData(pixelWidth, pixelHeight), rgba = pixels.data;
       const rgb = light ? [191, 112, 0] : [255, 153, 0];
       const baseAlpha = .025 * Math.max((840000 - index) / 42000, 1), mean = Math.max(.00001, rows.means[index]);
-      const radius = exporting ? Math.max(.5, u * .65) : .5;
+      const radius = exporting ? u * .65 : .5;
       for (let i = 0; i <= index; i++) {
         const x = (maxLog - rows.logs[i]) / logSpan * pixelWidth, y = pixelHeight - (i - lower) / span * pixelHeight;
         const alpha = Math.min(1, baseAlpha + .975 * (rows.epochs[rows.epochAt[i]].log - rows.logs[i]) / mean);
@@ -72,14 +72,14 @@
       const epoch = rows.epochs[e]; ctx.lineTo(xAt(rows.epochs[e - 1].log), yAt(epoch.height - 1)); ctx.lineTo(xAt(epoch.log), yAt(epoch.height));
     }
     ctx.lineTo(xAt(rows.epochs[rows.epochAt[index]].log), yAt(index));
-    ctx.strokeStyle = fg; ctx.lineWidth = Math.max(1.2, 3 * u); ctx.lineJoin = "round"; ctx.stroke();
+    ctx.strokeStyle = fg; ctx.lineWidth = exporting ? 3 * u : Math.max(1.2, 3 * u); ctx.lineJoin = "round"; ctx.stroke();
     ctx.beginPath(); ctx.moveTo(xAt(rows.logs[0]), yAt(0)); let previousLow = 0;
     for (const i of rows.records) if (i && i <= index) {
       ctx.lineTo(xAt(rows.logs[previousLow]), yAt(i - 1)); ctx.lineTo(xAt(rows.logs[i]), yAt(i)); previousLow = i;
     }
-    ctx.lineTo(xAt(rows.logs[previousLow]), yAt(index)); ctx.strokeStyle = green; ctx.lineWidth = Math.max(.8, 1.5 * u); ctx.setLineDash([4 * u, 3 * u]); ctx.stroke(); ctx.setLineDash([]);
-    for (let i = 210000; i <= index; i += 210000) marker(xAt(rows.logs[i]), yAt(i), "diamond", Math.max(3, 8 * u), blue);
-    marker(xAt(rows.logs[row.lowHeight]), yAt(row.lowHeight), "star", Math.max(4, 10 * u), green);
+    ctx.lineTo(xAt(rows.logs[previousLow]), yAt(index)); ctx.strokeStyle = green; ctx.lineWidth = exporting ? 1.5 * u : Math.max(.8, 1.5 * u); ctx.setLineDash([4 * u, 3 * u]); ctx.stroke(); ctx.setLineDash([]);
+    for (let i = 210000; i <= index; i += 210000) marker(xAt(rows.logs[i]), yAt(i), "diamond", exporting ? 8 * u : Math.max(3, 8 * u), blue);
+    marker(xAt(rows.logs[row.lowHeight]), yAt(row.lowHeight), "star", exporting ? 10 * u : Math.max(4, 10 * u), green);
     ctx.restore();
     if (!preview) {
       const lowHash = rows.getHash(row.lowHeight), digitSize = 45 * u, labelSize = 25 * u;
