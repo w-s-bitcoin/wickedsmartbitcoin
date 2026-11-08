@@ -20,7 +20,7 @@ CHROME = os.environ.get('CHROME_BIN', '/Applications/Google Chrome.app/Contents/
 HARNESS = r"""
 (() => {
   localStorage.clear();
-  const test = window.__scaleTest = {samples:[], ticks:[], errors:[], controllers:[], exports:[], priceFrames:[]};
+  const test = window.__scaleTest = {samples:[], ticks:[], errors:[], controllers:[], exports:[], priceFrames:[], exportText:[]};
   addEventListener('error', e => test.errors.push(e.message));
   addEventListener('unhandledrejection', e => test.errors.push(String(e.reason)));
   const fetchOriginal = fetch;
@@ -55,6 +55,7 @@ HARNESS = r"""
   const fillText = proto.fillText, beginPath = proto.beginPath;
   const moveTo = proto.moveTo, lineTo = proto.lineTo, stroke = proto.stroke;
   proto.fillText = function(text, x, y, ...args) {
+    if (!this.canvas.id) test.exportText.push({text:String(text), color:this.fillStyle});
     if (text === 'Daily High Price') {
       const frame = {export: this.canvas.id !== 'priceCanvas',
         mix: test.samples.findLast(sample => sample.key === 'price')?.mix,
@@ -211,10 +212,10 @@ def main():
                 cdp.command('Emulation.setEmulatedMedia', {'features':[{'name':'prefers-reduced-motion','value':'no-preference'}]})
                 # Exercise the production export renderer during an unfinished UI transition.
                 cdp.evaluate("""WSBDashboardExport.encodeVideo = async options => {
-                  const start=__scaleTest.samples.length, ticks=__scaleTest.ticks.length, priceFrames=__scaleTest.priceFrames.length;
+                  const start=__scaleTest.samples.length, ticks=__scaleTest.ticks.length, priceFrames=__scaleTest.priceFrames.length, textStart=__scaleTest.exportText.length;
                   options.renderFrame(options.frames.at(-1), options.canvas, options.frames.length-1);
                   __scaleTest.exports.push({samples:__scaleTest.samples.length-start,ticks:__scaleTest.ticks.length-ticks,width:options.canvas.width,
-                    priceFrames:__scaleTest.priceFrames.slice(priceFrames), priceScale:options.settings.leftScale});
+                    priceFrames:__scaleTest.priceFrames.slice(priceFrames), text:__scaleTest.exportText.slice(textStart), priceScale:options.settings.leftScale});
                   return new Blob(['fixture'],{type:'video/webm'});
                 };""")
                 click(cdp, f'{selector}:nth-child(1)')
@@ -222,12 +223,12 @@ def main():
                 wait_for(lambda: cdp.evaluate('__scaleTest.exports.length > 0'), timeout=15, description='endpoint export')
                 check(cdp, "__scaleTest.exports.some(e=>e.samples||e.ticks||!e.width) ? 'Export sampled transitional scale' : __scaleTest.errors.join('; ')")
                 if slug == 'days_since_ath':
-                    check(cdp, "__scaleTest.exports.map(e=>__scaleTest.checkPriceFrames(e.priceFrames,{export:true,endpoint:Number(e.priceScale==='log')})).filter(Boolean).join('; ')")
+                    check(cdp, "__scaleTest.exports.some(e=>!e.text.some(t=>t.text==='BTCUSD') || !e.text.some(t=>t.text===(e.priceScale==='log'?'LOG':'LINEAR') && t.color==='#ff9900') || e.text.some(t=>t.text==='Daily High Price')) ? 'Reference export did not use its selected endpoint scale' : ''")
                     # The alternate export setting must remain an explicit endpoint choice.
                     cdp.evaluate("document.querySelector('#downloadPriceScaleSelect [data-value=linear]').click()")
                     click(cdp, '#dateRangeDownloadBtn')
                     wait_for(lambda: cdp.evaluate('__scaleTest.exports.length > 1'), timeout=15, description='linear baseline export')
-                    check(cdp, "__scaleTest.exports.map(e=>__scaleTest.checkPriceFrames(e.priceFrames,{export:true,endpoint:Number(e.priceScale==='log')})).filter(Boolean).join('; ')")
+                    check(cdp, "__scaleTest.exports.some(e=>!e.text.some(t=>t.text==='BTCUSD') || !e.text.some(t=>t.text===(e.priceScale==='log'?'LOG':'LINEAR') && t.color==='#ff9900') || e.text.some(t=>t.text==='Daily High Price')) ? 'Reference export did not use its selected endpoint scale' : ''")
                 cdp.command('Emulation.setDeviceMetricsOverride', {'width':390,'height':844,'deviceScaleFactor':1,'mobile':False})
                 click(cdp, f'{selector}:nth-child(2)')
                 wait_for(lambda: cdp.evaluate('!__scaleTest.controllers.some(c=>c.isAnimating())'), timeout=4, description='mobile transition')

@@ -9,6 +9,8 @@
   const PUBLICATION_URL = "../../assets/daily_price_metadata.json";
   const ATH_LIVE = window.WSBAthLivePrice;
   const PRICE_FALLBACK = 0.0001;
+  const EXPORT_SERIF_URL = new URL("../shared/export_assets/DejaVuSerif.ttf", document.currentScript.src);
+  let exportSerifReady;
   const SPEEDS = [0.5, 1, 2, 4];
   const DATE_RANGE_EXPORT_VIDEO_FPS = window.WSBDashboardExport.VIDEO_FPS;
   const DEFAULT_RANGE_PLAYBACK_FPS = 60;
@@ -681,7 +683,7 @@
   }
 
   function getExportReferenceLayoutSettings(settings) {
-    return window.WSBDashboardExport.getReferenceSettings(settings, 720);
+    return window.WSBDashboardExport.getReferenceSettings(settings, 1080);
   }
 
   function getExportBitrate(settings) {
@@ -1791,99 +1793,203 @@
   }
 
   async function waitForExportFonts() {
-    await window.WSBDashboardExportBranding.ready();
-    try {
-      await document.fonts?.ready;
-    } catch (_) {}
+    if (!exportSerifReady) {
+      exportSerifReady = new FontFace("WSB ATH Serif", `url("${EXPORT_SERIF_URL}")`).load()
+        .then((face) => document.fonts.add(face))
+        .catch((error) => { exportSerifReady = null; throw error; });
+    }
+    await Promise.all([window.WSBDashboardExportBranding.ready(), exportSerifReady]);
   }
 
-  function drawExportLayoutFrame(index, settings, exportCanvas, options = {}) {
-    const { width, height, footerHeight } = getExportLayoutMetrics(settings);
-    const outputSettings = options.outputSettings || settings;
-    const outputDimensions = getDownloadDimensions(outputSettings);
-    const pixelScale = Math.max(1, Number(options.pixelScale) || 1);
-    if (exportCanvas.width !== outputDimensions.width) exportCanvas.width = outputDimensions.width;
-    if (exportCanvas.height !== outputDimensions.height) exportCanvas.height = outputDimensions.height;
-    const ctx = exportCanvas.getContext("2d");
-    const bg = EXPORT_THEME_PALETTES[settings.theme]?.["--bg"] || css("--bg", "#000");
-    ctx.setTransform(pixelScale, 0, 0, pixelScale, 0, 0);
+  // The notebook uses a 1920 × 1080 composition, not the interactive chart's
+  // axes and gutters. All coordinates below are logical pixels at that size.
+  function drawExportFrame(index, settings, canvas, options = {}) {
+    const output = getDownloadDimensions(settings);
+    const logical = getDownloadDimensions(getExportReferenceLayoutSettings(settings));
+    const { width, height } = logical;
+    canvas.width = output.width;
+    canvas.height = output.height;
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(output.width / width, 0, 0, output.height / height, 0, 0);
+    const branding = window.WSBDashboardExportBranding;
+    const light = settings.theme === "light";
+    const bg = light ? "#ffffff" : "#000000";
+    const fg = light ? "#111111" : "#ffffff";
+    const muted = light ? "#555555" : "#d3d3d3";
+    const orange = "#ff9900", green = "#469b54";
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, width, height);
-
-    const mode = settings.chartMode;
-    const surfaceHeight = Math.max(1, height - footerHeight);
-    const gap = mode === "both" ? Math.max(10, Math.round(Math.min(width, height) * 0.012)) : 0;
-    const horizontal = mode !== "both" || width >= surfaceHeight;
-    const panelWidth = mode === "both" && horizontal ? Math.floor((width - gap) / 2) : width;
-    const panelHeight = mode === "both" && !horizontal ? Math.floor((surfaceHeight - gap) / 2) : surfaceHeight;
-    const priceCanvas = document.createElement("canvas");
-    const daysCanvas = document.createElement("canvas");
-    priceCanvas.__exportWidth = panelWidth;
-    priceCanvas.__exportHeight = panelHeight;
-    priceCanvas.__exportPixelScale = pixelScale;
-    daysCanvas.__exportWidth = panelWidth;
-    daysCanvas.__exportHeight = panelHeight;
-    daysCanvas.__exportPixelScale = pixelScale;
-
-    const prevFrameIso = activeExportFrameIso;
-    const prevLiveRows = activeExportLiveRows;
-    const prevPriceScale = activeExportPriceScaleMode;
-    const prevDaysScale = activeExportDaysScaleMode;
-    const prevTheme = activeExportTheme;
-    activeExportFrameIso = state.rows[index]?.date || state.endIso;
-    activeExportLiveRows = options.liveRows || null;
-    activeExportPriceScaleMode = settings.leftScale;
-    activeExportDaysScaleMode = settings.rightScale;
-    activeExportTheme = settings.theme;
-    try {
-      if (mode !== "right") drawPriceChart(priceCanvas);
-      if (mode !== "left") drawDaysChart(daysCanvas);
-    } finally {
-      activeExportFrameIso = prevFrameIso;
-      activeExportLiveRows = prevLiveRows;
-      activeExportPriceScaleMode = prevPriceScale;
-      activeExportDaysScaleMode = prevDaysScale;
-      activeExportTheme = prevTheme;
+    const source = options.liveRows || state.rows;
+    const start = Math.max(0, findIndex(state.startIso, "ceil"));
+    const rows = source.slice(start, Math.max(start, index) + 1);
+    if (source.length > state.rows.length && index === state.rows.length - 1) rows.push(source[source.length - 1]);
+    if (!rows.length) return;
+    const latest = rows[rows.length - 1];
+    const compact = width <= height;
+    const margin = compact ? 30 : 54;
+    const footerHeight = compact ? getExportLayoutMetrics(getExportReferenceLayoutSettings(settings)).footerHeight : 122;
+    const chartTop = compact ? 268 : 145;
+    const chartBottom = height - footerHeight - 7;
+    const gap = compact ? 28 : 38;
+    const plotWidth = width - margin * 2;
+    const both = settings.chartMode === "both";
+    const panelWidth = both && !compact ? (plotWidth - gap) / 2 : plotWidth;
+    const panelHeight = both && compact ? (chartBottom - chartTop - gap) / 2 : chartBottom - chartTop;
+    const shortDate = (iso) => {
+      const date = new Date(`${iso}T00:00:00Z`);
+      return `${MONTH_SHORT[date.getUTCMonth()]} ${date.getUTCDate()}, ${date.getUTCFullYear()}`;
+    };
+    const priceText = (value, decimals = value < 1000 ? 2 : 0) => isNotValued(value) ? "Not Valued"
+      : value < 1 ? `${(value * 100).toFixed(3)}¢`
+        : `$${value.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}`;
+    function text(label, x, y, size, color = fg, align = "left", serif = false) {
+      ctx.font = serif ? `400 ${size}px "WSB ATH Serif", serif` : `400 ${size}px "WSB Export DejaVu", sans-serif`;
+      ctx.textAlign = align;
+      ctx.textBaseline = "alphabetic";
+      ctx.fillStyle = color;
+      ctx.fillText(label, x, y);
     }
-
-    if (mode === "left") {
-      ctx.drawImage(priceCanvas, 0, 0, width, surfaceHeight);
-    } else if (mode === "right") {
-      ctx.drawImage(daysCanvas, 0, 0, width, surfaceHeight);
-    } else if (horizontal) {
-      ctx.drawImage(priceCanvas, 0, 0, panelWidth, surfaceHeight);
-      ctx.drawImage(daysCanvas, panelWidth + gap, 0, width - panelWidth - gap, surfaceHeight);
-    } else {
-      ctx.drawImage(priceCanvas, 0, 0, width, panelHeight);
-      ctx.drawImage(daysCanvas, 0, panelHeight + gap, width, surfaceHeight - panelHeight - gap);
+    function triangle(x, y, up) {
+      ctx.fillStyle = green;
+      ctx.beginPath();
+      ctx.moveTo(x, y + (up ? -6 : 6));
+      ctx.lineTo(x - 6, y + (up ? 6 : -6));
+      ctx.lineTo(x + 6, y + (up ? 6 : -6));
+      ctx.closePath(); ctx.fill();
     }
-
-    ctx.save();
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, height - footerHeight, width, footerHeight);
-    ctx.fillStyle = settings.theme === "dark" ? "#6f7f87" : "#8f887f";
-    window.WSBDashboardExport.drawFooterUrl(
-      ctx,
-      "https://wickedsmartbitcoin.com/days_since_ath",
-      { width, height, footerHeight },
-      { ...settings, referenceQuality: 1440 },
-    );
-    ctx.restore();
-  }
-
-  function drawExportFrame(index, settings, exportCanvas, options = {}) {
-    const referenceSettings = getExportReferenceLayoutSettings(settings);
-    const referenceDimensions = getDownloadDimensions(referenceSettings);
-    const outputDimensions = getDownloadDimensions(settings);
-    const pixelScale = Math.max(
-      outputDimensions.width / Math.max(1, referenceDimensions.width),
-      outputDimensions.height / Math.max(1, referenceDimensions.height),
-    );
-    drawExportLayoutFrame(index, referenceSettings, exportCanvas, {
-      outputSettings: settings,
-      pixelScale,
-      liveRows: options.liveRows,
+    const currentPrice = Number(latest.spotPrice) > 0 ? latest.spotPrice : latest.price;
+    const drawdown = isNotValued(latest.price) ? "N/A" : `${((currentPrice / latest.athPrice - 1) * 100).toFixed(2)}%`;
+    const kpis = [
+      ["All Time High (BTCUSD)", priceText(latest.athPrice)],
+      ["Daily High (BTCUSD)", priceText(latest.price, 2)],
+      ["Drawdown from ATH", drawdown],
+      ["Days Since ATH", latest.daysSinceAth.toLocaleString("en-US")],
+    ];
+    kpis.forEach(([label, value], i) => {
+      const x = compact ? width / 2 * (i % 2 + 1) - margin : [504, 948, 1428, 1866][i];
+      const y = compact ? 45 + Math.floor(i / 2) * 125 : 53;
+      const labelSize = compact ? 29 : 30.667;
+      text(label, x, y, labelSize, fg, "right", true);
+      if (i === 0) {
+        const labelWidth = ctx.measureText(label).width;
+        triangle(x - labelWidth - 17, y - 12, false);
+      }
+      // Long tiny-price / Not Valued strings stay within their own KPI column.
+      const maxWidth = compact ? width / 2 - margin * 2 : 440;
+      ctx.font = '400 64px "WSB Export DejaVu", sans-serif';
+      const valueSize = Math.min(64, 64 * maxWidth / Math.max(1, ctx.measureText(value).width));
+      text(value, x, y + 65, valueSize, fg, "right");
     });
+
+    const cycles = completedAthCycles(rows);
+    const rowByDate = new Map(rows.map((row) => [row.date, row]));
+    function panel(kind, x, y) {
+      const w = panelWidth, h = panelHeight;
+      const price = kind === "price";
+      const scale = price ? settings.leftScale : settings.rightScale;
+      // Notebook frame limits: x = [-.01, 1.01], y = [-.025, 1.068].
+      const left = x + w / 102, spanX = w / 1.02;
+      // Compact panels still reserve room for the header, peak labels and
+      // the ATH date; percentage-only insets clip these in square exports.
+      const topInset = Math.max(49, h * .068 / 1.093);
+      const bottomInset = Math.max(19, h * .025 / 1.093);
+      const baseline = y + h - bottomInset, spanY = h - topInset - bottomInset;
+      const minX = price ? rows[0].height : Date.parse(rows[0].date);
+      const firstValued = state.rows.find((row) => !isNotValued(row.price)) || latest;
+      const maxX = Math.max(minX + (price ? 1 : 86400000),
+        price ? Math.max(latest.height, firstValued.height) : Math.max(Date.parse(latest.date), Date.parse(firstValued.date)));
+      const xValue = (value) => left + (value - minX) / (maxX - minX) * spanX;
+      const xRow = (row) => xValue(price ? row.height : Date.parse(row.date));
+      // The reference's pre-market baseline is a display floor only; published
+      // prices and ATH calculations retain their existing model semantics.
+      const exportPrice = (row) => isNotValued(row.price) ? .0005 : row.price;
+      const minPrice = Math.min(...rows.map(exportPrice));
+      const maxPrice = Math.max(...rows.map(exportPrice), isNotValued(latest.price) ? firstValued.price : 0, minPrice * 1.01);
+      const maxDays = Math.max(1, ...rows.map((row) => row.daysSinceAth));
+      const yPrice = (value, mode = scale) => baseline - spanY * (mode === "log"
+        ? Math.log(value / minPrice) / Math.log(maxPrice / minPrice)
+        : (value - minPrice) / (maxPrice - minPrice));
+      const yDays = (value) => baseline - spanY * (scale === "log"
+        ? Math.log10(Math.max(.1, value) / .1) / Math.log10(Math.max(1, maxDays) / .1) : value / maxDays);
+      const outlineLabel = (label, px, py, color = muted) => {
+        ctx.font = '400 13px "WSB Export DejaVu", sans-serif';
+        ctx.textAlign = "right"; ctx.textBaseline = "alphabetic";
+        const labelWidth = ctx.measureText(label).width;
+        px = Math.max(x + labelWidth + 4, Math.min(x + w - 4, px));
+        py = Math.max(y + 45, py);
+        ctx.strokeStyle = bg; ctx.lineWidth = 5; ctx.lineJoin = "round";
+        ctx.strokeText(label, px, py); ctx.fillStyle = color; ctx.fillText(label, px, py);
+      };
+      ctx.save();
+      ctx.beginPath(); ctx.rect(x, y + 32, w, h - 32); ctx.clip();
+      if (state.showHalvings) {
+        HALVINGS.forEach((halving) => {
+          if (halving.date < rows[0].date || halving.date > latest.date) return;
+          const hx = xValue(price ? halving.height : Date.parse(halving.date));
+          ctx.strokeStyle = fg; ctx.lineWidth = 1.2; ctx.setLineDash([4, 3]);
+          ctx.beginPath(); ctx.moveTo(hx, baseline); ctx.lineTo(hx, price ? yPrice(exportPrice(rowByDate.get(halving.date) || latest)) : baseline - spanY * 1.02); ctx.stroke();
+          ctx.setLineDash([]);
+        });
+      }
+      function line(color, weight, yFor, valued = null) {
+        ctx.strokeStyle = color; ctx.lineWidth = weight; ctx.lineJoin = "round"; ctx.lineCap = "round";
+        ctx.beginPath(); let started = false;
+        rows.forEach((row) => {
+          if (valued !== null && !isNotValued(row.price) !== valued) { started = false; return; }
+          const px = xRow(row), py = yFor(row);
+          if (started) ctx.lineTo(px, py); else { ctx.moveTo(px, py); started = true; }
+        });
+        ctx.stroke();
+        if (rows.length === 1) { ctx.fillStyle = color; ctx.beginPath(); ctx.arc(xRow(rows[0]), yFor(rows[0]), weight / 2, 0, 2 * Math.PI); ctx.fill(); }
+      }
+      if (price) {
+        line(light ? "#cccccc" : "#2d2d2d", 2.1, (row) => yPrice(exportPrice(row), scale === "log" ? "linear" : "log"), true);
+        line(orange, 2.1, (row) => yPrice(exportPrice(row)), true);
+        line(orange, 2.7, (row) => yPrice(exportPrice(row)), false);
+      } else line(orange, 2.7, (row) => yDays(row.daysSinceAth));
+      if (price && state.showHalvings) {
+        HALVINGS.forEach((halving) => {
+          if (halving.date < rows[0].date || halving.date > latest.date) return;
+          ctx.save(); ctx.translate(xValue(halving.height) - 13, baseline - 3); ctx.rotate(-Math.PI / 2);
+          text(halving.label, 0, 0, 19); ctx.restore();
+        });
+      }
+      if (state.showAthLabels) {
+        const labels = price ? filteredCompletedAthLabels(cycles, "athDate", latest.athDate) : cycles;
+        const boxes = [];
+        labels.forEach((cycle) => {
+          const row = rowByDate.get(price ? cycle.athDate : cycle.resetDate);
+          if (!row) return;
+          const px = xRow(row), py = (price ? yPrice(cycle.athPrice) : yDays(cycle.days)) - 10;
+          const label = price ? priceText(cycle.athPrice) : String(cycle.days);
+          ctx.font = '400 13px "WSB Export DejaVu", sans-serif';
+          const box = { left: px - ctx.measureText(label).width, right: px, top: py - 13, bottom: py + 2 };
+          if (boxes.some((other) => boxesOverlap(box, other))) return;
+          boxes.push(box); outlineLabel(label, px, py);
+        });
+      }
+      if (state.showAthMarkers && !isNotValued(latest.price)) {
+        const ath = rowByDate.get(latest.athDate);
+        if (ath) {
+          triangle(xRow(ath), price ? baseline - spanY * 1.017 : baseline + spanY * .01, !price);
+          if (!price) outlineLabel(shortDate(latest.athDate), xRow(ath) - spanX * .012, baseline + 13, green);
+        }
+      }
+      ctx.restore();
+      ctx.strokeStyle = fg; ctx.lineWidth = 1.2; ctx.strokeRect(x, y, w, h);
+      if (price) {
+        text("BTCUSD", x + 9, y + 25, 19);
+        text("LOG", x + 92, y + 25, 19, scale === "log" ? orange : "#555555");
+        text("LINEAR", x + 137, y + 25, 19, scale === "linear" ? orange : "#555555");
+        text(`BLOCK HEIGHT: ${Math.round(latest.height)}`, x + w - 9, y + 25, 19, fg, "right");
+      } else {
+        text(scale === "log" ? "DAYS SINCE ATH · LOG" : "DAYS SINCE ATH", x + 9, y + 25, 19);
+        text(shortDate(latest.date).toUpperCase(), x + w - 9, y + 25, 19, fg, "right");
+      }
+    }
+    if (settings.chartMode !== "right") panel("price", margin, chartTop);
+    if (settings.chartMode !== "left") panel("days", margin + (both && !compact ? panelWidth + gap : 0), chartTop + (both && compact ? panelHeight + gap : 0));
+    branding.drawFooter(ctx, "days_since_ath", { width, height, footerHeight }, settings);
   }
 
   async function encodeAnimationVideo(settings, frameIndices) {

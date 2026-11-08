@@ -19,6 +19,10 @@ font files are unmodified and the interactive shell's typography stays separate.
   used for Target & Block Hashes hexadecimal rows via the shared `mono` font
   role. It uses the existing `LICENSE_DEJAVU`; the regular body, headings and
   URL-footer font roles are unchanged.
+- `DejaVuSerif.ttf`: unmodified DejaVu Serif from the maintainer's local
+  Matplotlib installation (`Projects/onchain/lib/python3.13/site-packages/matplotlib/mpl-data/fonts/ttf/`).
+  Days Since ATH loads it lazily for the supplied notebook reference's serif KPI
+  headings. It uses the existing `LICENSE_DEJAVU`; shared font roles are unchanged.
 - `IBMPlexMono-Medium.ttf`: unmodified IBM Plex Mono Medium (500), used by the
   canonical URL footer. It comes from the official IBM Plex repository at
   commit `71f558992315a12ca1f06a2215d57962a1992162`:
