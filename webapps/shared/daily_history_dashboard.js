@@ -92,7 +92,8 @@ window.WSBDailyHistoryDashboard = function (config) {
     if (blockTimeline && Number.isInteger(value.height)) {
       index = Math.max(0, Math.min(rows.length - 1, value.height)); tracksLatest = false;
     }
-    startIndex = 0; // Both charts always accumulate from Bitcoin genesis, including old saved links.
+    startIndex = config.editableStart && isIso(value.startDate)
+      ? Math.min(index, Chart.latestIndexAtDate(rows, value.startDate)) : 0;
     playbackTarget = isIso(value.pausedTarget) ? Math.max(index, Chart.latestIndexAtDate(rows, value.pausedTarget)) : null;
     if (blockTimeline && Number.isInteger(value.pausedHeight)) playbackTarget = Math.max(index, Math.min(rows.length - 1, value.pausedHeight));
     if (config.blockSearch) selectedHeight = Number.isInteger(value.selectedHeight) && value.selectedHeight >= 0 && value.selectedHeight < rows.length ? value.selectedHeight : null;
@@ -167,7 +168,8 @@ window.WSBDailyHistoryDashboard = function (config) {
   function setRange(start, end, preset = "") {
     if (!rows.length || exporting) return;
     pausePlayback(); playbackTarget = null;
-    startIndex = 0; select(Math.max(startIndex, end));
+    startIndex = config.editableStart ? Math.max(0, Math.min(rows.length - 1, end, start)) : 0;
+    select(Math.max(startIndex, end));
   }
   function pausePlayback() { playing = false; if (timer) clearInterval(timer); timer = null; syncKpis(); }
   function stopPlayback() { const end = playbackTarget; pausePlayback(); playbackTarget = null; if (end !== null) select(end); }
@@ -214,7 +216,7 @@ window.WSBDailyHistoryDashboard = function (config) {
     }
   }
   const pickers = window.WSBDashboardComponents.bindDateRangePickers({ isDisabled: () => !rows.length || exporting, onSelect: (which, iso) => {
-    if (which === "start" || !isIso(iso)) return;
+    if ((which === "start" && !config.editableStart) || !isIso(iso)) return;
     const at = Chart.latestIndexAtDate(rows, iso); setRange(which === "start" ? at : startIndex, which === "end" ? at : index);
   } });
   if (config.editableCount) $("rangeDaysInput").addEventListener("change", () => {
@@ -257,11 +259,22 @@ window.WSBDailyHistoryDashboard = function (config) {
     if (preset === "ytd") date.setUTCMonth(0, 1); else date.setUTCFullYear(date.getUTCFullYear() - Number(preset.slice(0, -1)));
     setRange(Math.max(0, Chart.latestIndexAtDate(rows, date.toISOString().slice(0, 10))), index, preset);
   });
+  if (config.editableStart) $("dateRangeStartSlider").addEventListener("input", () => setRange(Number($("dateRangeStartSlider").value), index));
   $("dateRangeEndSlider").addEventListener("input", () => { const next = Number($("dateRangeEndSlider").value); if (playbackTarget !== null) { pausePlayback(); select(Math.min(playbackTarget, next)); } else setRange(startIndex, Math.max(startIndex, next)); });
   const track = $("dateRangeSliderWrap");
   track.addEventListener("pointerdown", (event) => {
     if (!rows.length || exporting || event.button !== 0) return;
-    const at = range.indexFromPointer(event.clientX, track), mode = "end";
+    const at = range.indexFromPointer(event.clientX, track);
+    let mode = "end";
+    if (config.editableStart) {
+      const bounds = track.getBoundingClientRect(), pointer = event.clientX - bounds.left;
+      const startX = range.indexPercent(startIndex) / 100 * bounds.width;
+      const endX = range.indexPercent(index) / 100 * bounds.width;
+      if (Math.abs(pointer - startX) <= 12 && Math.abs(pointer - startX) < Math.abs(pointer - endX)) mode = "start";
+      else if (playbackTarget === null && pointer > startX + 12 && pointer < endX - 12) mode = "range";
+      else if (pointer < startX) mode = "start";
+      if (mode !== "range") $(mode === "start" ? "dateRangeStartSlider" : "dateRangeEndSlider").focus({ preventScroll: true });
+    }
     clearHover(); draw();
     drag = { mode, start: startIndex, end: index, at, pointerId: event.pointerId }; pausePlayback();
     track.setPointerCapture(event.pointerId); event.preventDefault();
@@ -269,7 +282,12 @@ window.WSBDailyHistoryDashboard = function (config) {
   track.addEventListener("pointermove", (event) => {
     if (!drag || event.pointerId !== drag.pointerId) return;
     const at = range.indexFromPointer(event.clientX, track); event.preventDefault();
-    if (playbackTarget !== null) select(Math.min(playbackTarget, at)); else setRange(startIndex, Math.max(startIndex, at));
+    if (drag.mode === "start") setRange(Math.min(index, at), index);
+    else if (drag.mode === "range") {
+      const delta = Math.max(-drag.start, Math.min(rows.length - 1 - drag.end, at - drag.at));
+      setRange(drag.start + delta, drag.end + delta);
+    } else if (playbackTarget !== null) select(Math.min(playbackTarget, at));
+    else setRange(startIndex, Math.max(startIndex, at));
   });
   const endDrag = (event) => { if (drag?.pointerId === event.pointerId) { drag = null; if (track.hasPointerCapture(event.pointerId)) track.releasePointerCapture(event.pointerId); } };
   track.addEventListener("pointerup", endDrag); track.addEventListener("pointercancel", endDrag);
@@ -310,7 +328,8 @@ window.WSBDailyHistoryDashboard = function (config) {
     document.querySelectorAll('.date-range-panel button, .date-range-panel input').forEach((el) => { if (el.id !== "downloadVideo") el.disabled = locked; });
     $("copyDashboardLink").disabled = locked; $("updatedTimeZoneDropdownTrigger").disabled = locked;
     if (config.blockSearch) for (const id of ["blockSearchInput", "blockSearchTarget", "blockSearchClear"]) $(id).disabled = locked;
-    $("startDateBtn").disabled = true; $("startDateInput").disabled = true;
+    $("startDateBtn").disabled = locked || !config.editableStart;
+    $("startDateInput").disabled = locked || !config.editableStart;
     if (!locked) syncKpis();
   }
   async function runExport(kind) {
@@ -320,6 +339,7 @@ window.WSBDailyHistoryDashboard = function (config) {
     pausePlayback(); exporting = true; cancelExport = false; setMenu(false); pickers?.startPicker.closePopup(); pickers?.endPicker.closePopup();
     let source = rows.slice(), frame = index, exportPublishedAt = publishedAt;
     const settings = { ...exportSettings(kind === "png" ? "2160" : downloads.getSettings().quality), startIndex, exportKind: kind };
+    const exportStartDate = rows[startIndex].iso;
     const { width, height } = E.getDimensions(settings), output = document.createElement("canvas"); output.width = width; output.height = height;
     lockControls(true);
     if (kind === "video") E.renderProgress($("downloadVideo"), 0);
@@ -333,6 +353,7 @@ window.WSBDailyHistoryDashboard = function (config) {
           const candidate = await prepareHistory();
           if (olderHistory(candidate)) throw new Error("New history is older than the displayed version.");
           source = candidate.rows; frame = source.length - 1; exportPublishedAt = candidate.publishedAt;
+          if (config.editableStart) settings.startIndex = Math.min(frame, Chart.latestIndexAtDate(source, exportStartDate));
         } catch (error) {
           status.textContent = `Update unavailable; exporting the last complete history. ${error.message}`;
         }
