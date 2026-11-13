@@ -117,11 +117,22 @@
     const openingEnd = opts.export && first === 0 ? exportMilestones(rows)[0] : undefined;
     const timelineEnd = Number.isInteger(openingEnd) ? Math.max(endIndex, openingEnd) : endIndex;
     const firstHeight = rows[first].height, span = Math.max(1, rows[timelineEnd].height - firstHeight);
-    let maxPrice = 1;
-    for (let i = first; i <= endIndex; i++) if (rows[i].price > maxPrice) maxPrice = rows[i].price;
-    const minLog = Math.log10(0.0005), maxLog = Math.log10(maxPrice) + 0.17;
+    let minPrice = Infinity, maxPrice = 0, hasUnpriced = false;
+    for (let i = first; i <= endIndex; i++) {
+      const price = rows[i].price;
+      if (price > 0) { minPrice = Math.min(minPrice, price); maxPrice = Math.max(maxPrice, price); }
+      else hasUnpriced = true;
+    }
+    let minLog = Math.log10(0.0005), maxLog = Math.log10(Math.max(1, maxPrice)) + 0.17;
+    if (first > 0 && !hasUnpriced && Number.isFinite(minPrice)) {
+      // Fit the selected priced history, with room for the boundary stroke.
+      // A small minimum span also keeps flat/single-day windows well-defined.
+      const low = Math.log10(minPrice), high = Math.log10(maxPrice);
+      const padding = Math.max(0.02, (high - low) * 0.05);
+      minLog = low - padding; maxLog = high + padding;
+    }
     const px = (heightValue) => x + (heightValue - firstHeight) / span * width;
-    const py = (price) => price <= 0 ? bottom : bottom - (Math.log10(Math.max(0.0005, price)) - minLog) / (maxLog - minLog) * (bottom - top);
+    const py = (price) => price <= 0 ? bottom : bottom - (Math.max(minLog, Math.log10(price)) - minLog) / (maxLog - minLog) * (bottom - top);
     ctx.save(); ctx.beginPath(); ctx.rect(x, top, width, bottom - top + 1); ctx.clip();
     let segment = [];
     function drawSegment() {

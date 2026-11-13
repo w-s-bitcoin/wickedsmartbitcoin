@@ -158,6 +158,56 @@ def check_opening_reveal(cdp: CdpSocket) -> None:
             assert points[-1]['move'] and points[-1]['y'] < endpoint['y'], frame
 
 
+def check_selected_price_bounds(cdp: CdpSocket) -> None:
+    results = cdp.evaluate("""(async () => {
+      await WSBDashboardExportBranding.ready();
+      const results = [];
+      for (const prices of [[0, 100, 200, 150], [0, .00001, .00002, .000015], [0, 100, 100, 100], [0, 100]]) {
+        const rows = prices.map((price, i) => ({price, height: i * 144, supply: i * 7200,
+          time: Date.UTC(2009, 0, 3 + i), timestamp: '2009-01-03 00:00:00'}));
+        for (const orientation of ['dashboard', 'landscape', 'portrait', 'square']) {
+          const {width, height} = orientation === 'dashboard' ? {width: 1200, height: 650}
+            : WSBDashboardExport.getDimensions({quality: '720', orientation});
+          const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          let points = [], observed, plot, pricePlot;
+          for (const name of ['beginPath', 'moveTo', 'lineTo', 'stroke', 'rect']) {
+            const original = ctx[name].bind(ctx);
+            ctx[name] = (...args) => {
+              if (name === 'beginPath') points = [];
+              if (name === 'rect') plot = {top: args[1], bottom: args[1] + args[3] - 1};
+              if (name === 'moveTo' || name === 'lineTo') points.push(args[1]);
+              if (name === 'stroke' && ctx.strokeStyle === '#ffffff' && Math.abs(ctx.lineWidth - 2.1) < .001) {
+                observed = points.slice(); pricePlot = plot;
+              }
+              return original(...args);
+            };
+          }
+          for (const theme of ['dark', 'light']) {
+            const options = {theme, export: orientation !== 'dashboard', branded: orientation !== 'dashboard', startIndex: 1};
+            WSBMinedSupplyPriceChart.render(ctx, width, height, rows, rows.length - 1, options);
+            const positions = observed.map(y => (y - pricePlot.top) / (pricePlot.bottom - pricePlot.top));
+            // Offscreen historical extremes and future rows cannot affect the bounds.
+            const changed = rows.map(row => ({...row})); changed[0].price = 1e20;
+            changed.push({...rows.at(-1), price: 1e30});
+            WSBMinedSupplyPriceChart.render(ctx, width, height, changed, rows.length - 1, options);
+            results.push({orientation, theme, prices: prices.slice(1), positions,
+              isolated: positions.every((p, i) => Math.abs(p - (observed[i] - pricePlot.top) / (pricePlot.bottom - pricePlot.top)) < 1e-9)});
+          }
+        }
+      }
+      return results;
+    })()""")
+    for result in results:
+        positions = result['positions']
+        assert result['isolated'] and all(0 < position < 1 for position in positions), result
+        if min(result['prices']) == max(result['prices']):
+            assert all(abs(position - .5) < .001 for position in positions), result
+        else:
+            assert max(positions) - min(positions) > .85, result
+            assert positions[0] > positions[2] > positions[1], result
+
+
 def check_start_range(cdp: CdpSocket, artifact_dir: Path | None) -> None:
     selected = cdp.evaluate("""(() => {
       document.getElementById('startDateBtn').click();
@@ -291,6 +341,7 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
     assert not initial["error"] and initial["size"][0] > 500 and initial["size"][1] > 300, initial
     check_export_reference(cdp, artifact_dir)
     check_opening_reveal(cdp)
+    check_selected_price_bounds(cdp)
     assert initial["model"]["startIndex"] == 0, "Full range must include Not Valued history"
     assert cdp.evaluate("!document.getElementById('startDateBtn').disabled && !!document.getElementById('dateRangeStartSlider')"), "Start needs a calendar and slider handle"
     check_start_range(cdp, artifact_dir)

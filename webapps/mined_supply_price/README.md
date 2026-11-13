@@ -46,6 +46,12 @@ and video, and survives saved settings, share links, and data refreshes. The
 donut still shows total mined supply at the selected End date. Latest and
 Restore Defaults return to the full history beginning at genesis.
 
+When Start excludes the opening unpriced history, the logarithmic price axis
+fits the minimum and maximum prices in the visible range, with 5% logarithmic
+padding (at least 0.02 decades on each side for flat or very narrow ranges).
+The same bounds apply to the dashboard, hover guides, and exported frames.
+Ranges containing Not Valued observations retain the original baseline.
+
 Exports use the reference image's header, donut, price area, halving labels, and
 shared creator/donation footer. PNG always renders at 2160 quality. Video uses
 published daily frames through the selected date: one frame per day at 1x,
