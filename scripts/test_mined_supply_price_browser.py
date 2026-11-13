@@ -158,6 +158,101 @@ def check_opening_reveal(cdp: CdpSocket) -> None:
             assert points[-1]['move'] and points[-1]['y'] < endpoint['y'], frame
 
 
+def check_start_range(cdp: CdpSocket, artifact_dir: Path | None) -> None:
+    selected = cdp.evaluate("""(() => {
+      document.getElementById('startDateBtn').click();
+      [...document.querySelectorAll('.date-picker-day:not(.dp-disabled)')].find(day => day.textContent === '10').click();
+      return {state: WSBMinedSupplyPriceDashboard.getState(), date: document.getElementById('startDateInput').value};
+    })()""")
+    assert selected['date'] == '2009-01-10' and selected['state']['startIndex'] == 7, selected
+    cdp.evaluate("document.getElementById('dateRangeStartSlider').focus()")
+    cdp.command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'ArrowRight', 'code': 'ArrowRight', 'windowsVirtualKeyCode': 39})
+    cdp.command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'ArrowRight', 'code': 'ArrowRight', 'windowsVirtualKeyCode': 39})
+    assert cdp.evaluate('WSBMinedSupplyPriceDashboard.getState().startIndex') == 8
+    # Exercise actual pointer capture on the Start handle and selected segment.
+    def drag(from_fraction: float, to_fraction: float) -> None:
+        box = cdp.evaluate("document.getElementById('dateRangeSliderWrap').getBoundingClientRect().toJSON()")
+        for kind, fraction in [('mousePressed', from_fraction), ('mouseMoved', to_fraction), ('mouseReleased', to_fraction)]:
+            cdp.command('Input.dispatchMouseEvent', {'type': kind, 'x': box['x'] + box['width'] * fraction,
+                'y': box['y'] + box['height'] / 2, 'button': 'left', 'buttons': 0 if kind == 'mouseReleased' else 1, 'clickCount': 1})
+    count = cdp.evaluate('WSBMinedSupplyPriceDashboard.getState().rows')
+    drag(8 / (count - 1), .25)
+    assert abs(cdp.evaluate('WSBMinedSupplyPriceDashboard.getState().startIndex') / (count - 1) - .25) < .01
+    cdp.evaluate("(() => { const end = document.getElementById('dateRangeEndSlider'); end.value = Math.floor(Number(end.max) * .75); end.dispatchEvent(new Event('input')); })()")
+    before = cdp.evaluate('WSBMinedSupplyPriceDashboard.getState()')
+    drag(.5, .6)
+    after = cdp.evaluate('WSBMinedSupplyPriceDashboard.getState()')
+    assert after['startIndex'] > before['startIndex'] and after['index'] - after['startIndex'] == before['index'] - before['startIndex'], (before, after)
+    cdp.evaluate('WSBMinedSupplyPriceDashboard.refresh()')
+    assert cdp.evaluate('WSBMinedSupplyPriceDashboard.getState()') == after, 'Refresh lost selected range'
+    cdp.evaluate("document.getElementById('playPause').click(); document.getElementById('pausePlayback').click()")
+    assert cdp.evaluate('WSBMinedSupplyPriceDashboard.getState().index') == after['startIndex']
+    cdp.evaluate("document.getElementById('stopPlayback').click()")
+    assert cdp.evaluate('WSBMinedSupplyPriceDashboard.getState().index') == after['index']
+    exported = cdp.evaluate("""(async () => {
+      const originalEncode = WSBDashboardExport.encodeVideo, originalPng = WSBDashboardExport.downloadPng;
+      const originalRender = WSBMinedSupplyPriceChart.render;
+      let frames, seen = [], png;
+      WSBMinedSupplyPriceChart.render = (...args) => {
+        if (args[5]?.export) seen.push({start: args[5].startIndex, end: args[4], kind: args[5].exportKind});
+        return originalRender(...args);
+      };
+      WSBDashboardExport.downloadPng = async canvas => { png = canvas.toDataURL('image/png'); };
+      WSBDashboardExport.encodeVideo = async config => {
+        frames = config.frames;
+        await config.renderFrame(Math.min(...frames), config.canvas, 0);
+        await config.renderFrame(frames.at(-1), config.canvas, frames.length - 1);
+        return null;
+      };
+      try {
+        for (const id of ['downloadImage', 'downloadVideo']) {
+          document.getElementById(id).click();
+          while (WSBMinedSupplyPriceDashboard.getState().exporting) await new Promise(resolve => setTimeout(resolve, 20));
+        }
+        return {seen, first: Math.min(...frames), last: Math.max(...frames), png: __SAVE_ARTIFACTS__ ? png : null,
+          recovered: !document.getElementById('startDateBtn').disabled && !document.getElementById('dateRangeStartSlider').disabled};
+      } finally {
+        WSBDashboardExport.encodeVideo = originalEncode; WSBDashboardExport.downloadPng = originalPng;
+        WSBMinedSupplyPriceChart.render = originalRender;
+      }
+    })()""".replace('__SAVE_ARTIFACTS__', 'true' if artifact_dir else 'false'))
+    if artifact_dir:
+        (artifact_dir / 'selected-range.png').write_bytes(base64.b64decode(exported.pop('png').split(',', 1)[1]))
+        (artifact_dir / 'selected-range-dashboard.png').write_bytes(base64.b64decode(cdp.command('Page.captureScreenshot')['data']))
+    assert exported['recovered'] and exported['first'] == after['startIndex'] and exported['last'] == after['index'], exported
+    assert len(exported['seen']) == 3 and all(frame['start'] == after['startIndex'] for frame in exported['seen']), exported
+    saved = cdp.evaluate("JSON.parse(localStorage.getItem('wsb_mined_supply_price_view_v1'))")
+    assert saved['startDate'] == cdp.evaluate("document.getElementById('startDateInput').value"), saved
+    cdp.command('Page.reload')
+    wait_for(lambda: cdp.evaluate('window.WSBMinedSupplyPriceDashboard?.getState().rows > 100'), description='saved start range reload')
+    assert cdp.evaluate('WSBMinedSupplyPriceDashboard.getState().startIndex') == after['startIndex']
+    shared_url = cdp.evaluate("""(() => {
+      const state = JSON.parse(localStorage.getItem('wsb_mined_supply_price_view_v1'));
+      const query = new URL(WSBDashboardComponents.buildShareUrl({slug: 'mined_supply_price', state})).search;
+      localStorage.setItem('wsb_mined_supply_price_view_v1', JSON.stringify({...state, startDate: 'first'}));
+      return location.origin + location.pathname + query;
+    })()""")
+    cdp.command('Page.navigate', {'url': shared_url})
+    wait_for(lambda: cdp.evaluate('window.WSBMinedSupplyPriceDashboard?.getState().rows > 100'), description='shared start range')
+    assert cdp.evaluate('WSBMinedSupplyPriceDashboard.getState().startIndex') == after['startIndex'], 'Shared start must override saved state'
+    cdp.evaluate("history.replaceState(null, '', location.pathname)")
+    cdp.evaluate("document.getElementById('resetDashboard').click()")
+    assert cdp.evaluate('WSBMinedSupplyPriceDashboard.getState().startIndex') == 0
+    cdp.evaluate("document.getElementById('resetDashboard').click()")
+    assert cdp.evaluate('WSBMinedSupplyPriceDashboard.getState().startIndex') == after['startIndex']
+    cdp.evaluate("document.getElementById('latestBtn').click()")
+    assert cdp.evaluate('WSBMinedSupplyPriceDashboard.getState().startIndex') == 0
+    single = cdp.evaluate("""(() => {
+      const start = document.getElementById('dateRangeStartSlider');
+      start.value = start.max; start.dispatchEvent(new Event('input'));
+      const end = document.getElementById('dateRangeEndSlider');
+      end.value = '0'; end.dispatchEvent(new Event('input'));
+      return WSBMinedSupplyPriceDashboard.getState();
+    })()""")
+    assert single['startIndex'] == single['index'] == single['rows'] - 1, single
+    cdp.evaluate("document.getElementById('latestBtn').click()")
+
+
 def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None:
     # Replace the shared feed at its script boundary; no live endpoints are used.
     cdp.command("Page.addScriptToEvaluateOnNewDocument", {"source": """
@@ -197,7 +292,8 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
     check_export_reference(cdp, artifact_dir)
     check_opening_reveal(cdp)
     assert initial["model"]["startIndex"] == 0, "Full range must include Not Valued history"
-    assert cdp.evaluate("document.getElementById('startDateBtn').disabled && !document.getElementById('dateRangeStartSlider') && document.getElementById('rangeDaysInput').readOnly"), "Start must stay locked with only one handle"
+    assert cdp.evaluate("!document.getElementById('startDateBtn').disabled && !!document.getElementById('dateRangeStartSlider')"), "Start needs a calendar and slider handle"
+    check_start_range(cdp, artifact_dir)
     assert cdp.evaluate("!document.getElementById('kpiHeight')"), "Block chip duplicates Updated"
     check_tooltips(cdp, "WSBMinedSupplyPriceChart", artifact_dir)
     cdp.evaluate("window.__spotEmit(123456.78)")
@@ -353,7 +449,7 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
       }
     })()""")
     assert frozen["recovered"] and frozen["milestonesPreserved"] and len(frozen["observed"]) == 5, frozen
-    assert cdp.evaluate("document.getElementById('startDateBtn').disabled && !document.getElementById('dateRangeStartSlider')"), "Export recovery unlocked Start"
+    assert cdp.evaluate("!document.getElementById('startDateBtn').disabled && !document.getElementById('dateRangeStartSlider').disabled"), "Export recovery left Start locked"
     assert frozen["observed"][0]["index"] == frozen["observed"][-1]["index"], frozen
     endpoints = [frozen["observed"][i] for i in (0, 2, 3, 4)]
     assert frozen["matchingImages"] and all(row == endpoints[0] for row in endpoints), frozen

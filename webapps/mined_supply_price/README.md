@@ -33,14 +33,18 @@ area uses the same epoch colors as the donut and a logarithmic vertical scale,
 with a white observed-price boundary. No price is interpolated from future
 samples. Year ticks follow UTC dates mapped to the associated published block
 height; the horizontal price axis is block height, following the notebook.
-The range always begins at genesis (January 3, 2009). Zero-price history draws a flat Not Valued
+The default range begins at genesis (January 3, 2009). Zero-price history draws a flat Not Valued
 baseline. The positive-price line and area start separately at the first valued
 observation, with no connecting stroke from the Not Valued baseline.
 
 The shell uses the same shared date range, calendar, playback button group,
 download settings, timezone, Copy Link, and reset components as EOE Growth and
-Moving Average. The timeline has one editable End handle. Start is locked; older saved start
-dates normalize to genesis for the dashboard, PNG, and video.
+Moving Average. Start and End each have an editable calendar and draggable
+timeline handle, matching UOA. Dragging the selected middle segment moves both
+dates together. The selected start applies to the price chart, playback, PNG,
+and video, and survives saved settings, share links, and data refreshes. The
+donut still shows total mined supply at the selected End date. Latest and
+Restore Defaults return to the full history beginning at genesis.
 
 Exports use the reference image's header, donut, price area, halving labels, and
 shared creator/donation footer. PNG always renders at 2160 quality. Video uses
