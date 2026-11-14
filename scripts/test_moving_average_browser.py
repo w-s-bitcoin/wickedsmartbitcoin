@@ -39,13 +39,13 @@ FIXTURE = r"""
   class PriceSocket {
     constructor(url) {
       this.url=url; fixture.sockets.push(this);
-      if(url==='wss://2140data.io/') fixture.socket=this;
+      if(url==='wss://ws-feed.exchange.coinbase.com') fixture.socket=this;
       setTimeout(()=>{if(!this.closed)this.onopen?.();},0);
     }
     send(payload) {this.subscription=payload;}
     close() {this.closed=true;}
     emit(price,time=new Date(Date.now()).toISOString()) {
-      this.onmessage?.({data:JSON.stringify({weightedPrice:String(price),time})});
+      this.onmessage?.({data:JSON.stringify({type:'ticker',product_id:'BTC-USD',price:String(price),time})});
     }
   }
   window.WebSocket=PriceSocket;

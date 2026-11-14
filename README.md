@@ -49,11 +49,13 @@ Between publications, issued supply adds the scheduled subsidies for intervening
 blocks and is labeled estimated; a matching publication reconciles it. Failed
 updates retain the last block and show the connection status.
 BTC/USD prices in DCA Cost Basis, Days Since ATH, DCA Comparison, Moving Average, EOE Growth,
-Unit of Account, and Bitcoin Net Worth use the public `wss://2140data.io/`
-WebSocket. The 2140data.io `/price` endpoint is the first REST fallback. DCA,
-Days, Comparison, Moving Average, and Unit of Account use the shared Coinbase
-socket and public REST sources as the last fallback; Net Worth retains its
-previous Kraken calculation. In DCA Cost Basis, each accepted quote updates the
+Unit of Account, Bitcoin Net Worth, Price Distribution, and Mined Supply Price
+use the public `wss://ws-feed.exchange.coinbase.com` WebSocket with BTC-USD
+`ticker_batch` updates. If Coinbase disconnects or stops sending usable prices,
+`wss://2140data.io/` and its `/price` REST endpoint supply fallback quotes. Other
+public REST sources remain the last fallback; Net Worth retains its Kraken
+calculation at that stage. Coinbase recovery takes priority and closes the
+fallback socket. In DCA Cost Basis, each accepted quote updates the
 current valuation, including weekly or monthly schedules whose last purchase
 was before today. It recalculates a modeled purchase and rolling cost basis only
 when the current UTC day is a scheduled purchase day; earlier purchase prices
@@ -132,7 +134,7 @@ blocks update directly from the WebSocket. Missed blocks and reorganizations
 trigger a validated catch-up, with the last complete view retained on failure.
 Historical rows, timezone histories, and custom datasets remain on the existing
 node pipeline. See [Issuance's calculation and refresh notes](webapps/issuance_rate/README.md).
-Price feeds continue using 2140data's WebSocket as their primary source.
+Price feeds use Coinbase's WebSocket as their primary source, with 2140data as fallback.
 
 Animation downloads use H.264 MP4 when the browser supports encoding at the
 selected dimensions, with genuine WebM as the capability fallback. Both use

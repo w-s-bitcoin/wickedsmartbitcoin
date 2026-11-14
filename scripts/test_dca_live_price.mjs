@@ -206,18 +206,29 @@ async function testSpotFeed() {
   const feed = sandbox.window.WSBBitcoinSpotPrice.create({ onQuote: (quote) => quotes.push(quote) });
   feed.start();
   const socket = sockets[0];
-  assert.equal(socket.url, 'wss://2140data.io/');
+  assert.equal(socket.url, 'wss://ws-feed.exchange.coinbase.com');
+  assert.equal(requests.length, 0, 'Coinbase gets the first chance to provide a quote');
   socket.onopen();
-  assert.equal(socket.subscription, undefined, '2140data sends prices without a subscription');
+  assert.equal(JSON.stringify(socket.subscription), JSON.stringify({
+    type: 'subscribe', product_ids: ['BTC-USD'], channels: ['ticker_batch'],
+  }));
+  const emit = (target, price, extra = {}) => target.onmessage?.({ data: JSON.stringify({
+    type: 'ticker', product_id: 'BTC-USD', price: String(price), time: new Date(now).toISOString(), ...extra,
+  }) });
   socket.onmessage({ data: JSON.stringify({ price: '1000' }) });
-  socket.onmessage({ data: JSON.stringify({ weightedPrice: '-1' }) });
+  socket.onmessage({ data: 'not json' });
+  emit(socket, -1);
+  emit(socket, 1000, { product_id: 'ETH-USD' });
+  emit(socket, 1000, { type: 'heartbeat' });
+  emit(socket, 1000, { time: new Date(now - 91000).toISOString() });
+  emit(socket, 1000, { time: new Date(now + 91000).toISOString() });
   assert.equal(quotes.length, 0, 'invalid or unrelated messages do not affect BTC');
-  socket.onmessage({ data: JSON.stringify({ weightedPrice: '400' }) });
+  emit(socket, 400);
   assert.equal(feed.current().price, 400);
-  assert.equal(quotes.at(-1).source, '2140data.io live');
+  assert.equal(quotes.at(-1).source, 'Coinbase live');
   const firstQuoteAt = quotes.at(-1).at;
   now += 1000;
-  socket.onmessage({ data: JSON.stringify({ weightedPrice: '400' }) });
+  emit(socket, 400);
   assert.ok(quotes.at(-1).at > firstQuoteAt,
     'a fresh accepted quote updates the timestamp even when its price is unchanged');
   const repeatedAt = quotes.at(-1).at;
@@ -230,7 +241,16 @@ async function testSpotFeed() {
   assert.equal(requests[0], 'https://2140data.io/price');
   assert.equal(feed.current().price, 300);
   assert.equal(feed.current().source, '2140data.io REST');
-  assert.equal(sockets.length, 1, 'working 2140data REST does not start the legacy socket');
+  const fallbackSocket = sockets.at(-1);
+  assert.equal(fallbackSocket.url, 'wss://2140data.io/');
+  assert.equal(fallbackSocket.subscription, undefined, '2140data needs no subscription');
+  now += 1000;
+  fallbackSocket.onmessage({ data: JSON.stringify({ weightedPrice: '325' }) });
+  assert.equal(feed.current().price, 325);
+  assert.equal(feed.current().source, '2140data.io live');
+  const beforeRefresh = requests.length;
+  await feed.refresh();
+  assert.equal(requests.length, beforeRefresh, 'a healthy fallback socket suppresses REST');
 
   restFails = true;
   now += 66000;
@@ -238,23 +258,45 @@ async function testSpotFeed() {
   assert.equal(feed.current().price, 350);
   assert.equal(feed.current().source, 'Coinbase');
   const oldSocket = sockets.at(-1);
-  assert.equal(oldSocket.url, 'wss://ws-feed.exchange.coinbase.com');
-  oldSocket.onopen();
-  assert.equal(oldSocket.subscription.channels[0], 'ticker_batch');
+  assert.equal(oldSocket.url, 'wss://2140data.io/');
+  assert.equal(fallbackSocket.closed, true, 'stalled fallback socket is replaced');
 
   now += 1000;
   for (const [id, timer] of [...timers]) {
     if (timer.at <= now && timer.fn) { timers.delete(id); timer.fn(); }
   }
-  const resumedSocket = sockets.findLast((entry) => entry.url === 'wss://2140data.io/');
+  const resumedSocket = sockets.findLast((entry) => entry.url === 'wss://ws-feed.exchange.coinbase.com');
   resumedSocket.onopen();
-  resumedSocket.onmessage({ data: JSON.stringify({ weightedPrice: '500' }) });
+  emit(resumedSocket, 500);
   assert.equal(feed.current().price, 500);
-  assert.equal(oldSocket.closed, true, 'primary recovery closes the legacy socket');
+  assert.equal(oldSocket.closed, true, 'Coinbase recovery closes the fallback socket');
+
+  // A REST response that finishes after Coinbase recovers must not replace it.
+  resumedSocket.onclose();
+  now += 1000;
+  let finishRest;
+  sandbox.fetch = (url, options) => new Promise(resolve => {
+    finishRest = () => resolve({ ok: true, json: async () => ({ price: '1' }) });
+    sandbox.pendingSignal = options.signal;
+  });
+  const pendingPoll = feed.refresh();
+  now += 3000;
+  for (const [id, timer] of [...timers]) {
+    if (timer.at <= now) { timers.delete(id); timer.fn(); }
+  }
+  const recoveredSocket = sockets.findLast((entry) => entry.url === 'wss://ws-feed.exchange.coinbase.com');
+  recoveredSocket.onopen();
+  emit(recoveredSocket, 500);
+  assert.equal(sandbox.pendingSignal.aborted, true, 'Coinbase aborts a pending fallback request');
+  finishRest();
+  await pendingPoll;
+  assert.equal(feed.current().price, 500, 'late fallback REST cannot overwrite Coinbase');
+  emit(recoveredSocket, 1, { time: new Date(now - 1000).toISOString() });
+  assert.equal(feed.current().price, 500, 'older quotes cannot move the endpoint backward');
 
   sandbox.document.visibilityState = 'hidden';
   events.get('visibilitychange')();
-  assert.equal(resumedSocket.closed, true, 'hidden documents release the socket');
+  assert.equal(recoveredSocket.closed, true, 'hidden documents release the socket');
   now += 90002;
   for (const [id, timer] of [...timers]) {
     if (timer.at <= now) { timers.delete(id); timer.fn(); }
@@ -270,9 +312,72 @@ async function testSpotFeed() {
   assert.equal(feed.newerThan(new Date(now + 1000).toISOString()), null,
     'a newer publication wins over the retained quote');
   assert.equal(quotes.at(-1), null);
+  sandbox.document.visibilityState = 'visible';
+  events.get('visibilitychange')();
+  const visibleSocket = sockets.at(-1);
+  assert.equal(visibleSocket.url, 'wss://ws-feed.exchange.coinbase.com', 'visibility resumes Coinbase first');
+  visibleSocket.onopen();
+  const lateMessage = visibleSocket.onmessage;
   feed.stop();
+  assert.equal(visibleSocket.closed, true);
+  assert.equal(timers.size, 0, 'stop releases every scheduled callback');
+  const quoteCount = quotes.length;
+  lateMessage({ data: JSON.stringify({ type: 'ticker', product_id: 'BTC-USD', price: '999' }) });
+  assert.equal(quotes.length, quoteCount, 'queued messages after stop cannot publish');
+}
+
+async function testPrimaryConnectionFailures() {
+  // Opening a socket does not guarantee a valid subscription or a usable price.
+  for (const failure of ['constructor', 'subscription', 'silent']) {
+    let now = Date.now();
+    let nextId = 1;
+    const timers = new Map();
+    const sockets = [];
+    const requests = [];
+    class Socket {
+      constructor(url) {
+        if (failure === 'constructor' && url.includes('coinbase')) throw new Error('unavailable');
+        this.url = url; sockets.push(this);
+      }
+      send() {}
+      close() { this.closed = true; this.onclose?.(); }
+    }
+    const sandbox = {
+      Date: class extends Date { static now() { return now; } },
+      WebSocket: Socket, AbortController,
+      document: { visibilityState: 'visible', addEventListener() {}, removeEventListener() {} },
+      window: { setTimeout(fn, delay) { const id = nextId++; timers.set(id, {fn, at: now + delay}); return id; } },
+      clearTimeout(id) { timers.delete(id); },
+      fetch: async url => { requests.push(url); return { ok: true, json: async () => ({price:'300'}) }; },
+    };
+    vm.createContext(sandbox); vm.runInContext(spot, sandbox);
+    const feed = sandbox.window.WSBBitcoinSpotPrice.create();
+    feed.start();
+    if (failure === 'subscription') {
+      sockets[0].onopen();
+      sockets[0].onmessage({data:JSON.stringify({type:'error', message:'subscription rejected'})});
+      assert.equal(sockets[0].closed, true);
+    }
+    now += 5000;
+    for (const [id, timer] of [...timers]) {
+      if (timer.at <= now) { timers.delete(id); timer.fn(); }
+    }
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(requests[0], 'https://2140data.io/price', `${failure} uses fallback REST`);
+    assert.ok(sockets.some(s => s.url === 'wss://2140data.io/'), `${failure} opens fallback socket`);
+    assert.equal(feed.current().source, '2140data.io REST');
+    if (failure === 'silent') {
+      now += 65000;
+      for (const [id, timer] of [...timers]) {
+        if (timer.at <= now) { timers.delete(id); timer.fn(); }
+      }
+      assert.equal(sockets[0].closed, true, 'stalled handshake is closed and retried');
+    }
+    feed.stop();
+  }
 }
 
 await testDcaValuation();
 await testSpotFeed();
+await testPrimaryConnectionFailures();
 console.log('DCA live price regressions passed.');

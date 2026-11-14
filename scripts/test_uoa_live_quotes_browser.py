@@ -353,7 +353,7 @@ def main():
                   document.querySelector('#usdBtcChart')?.width > 0
                   && document.querySelector('#primaryUoaSelect')?.options.length > 100
                   && document.querySelector('#btcUsdEndDateEdge')?.textContent?.trim()
-                  && window.__dcaTestSocket?.url === 'wss://2140data.io/'
+                  && window.__dcaTestSocket?.url === 'wss://ws-feed.exchange.coinbase.com'
                 """), timeout=35, description="Unit of Account dashboard load")
             except TimeoutError:
                 diagnostic = cdp.evaluate("""({
@@ -383,7 +383,7 @@ def main():
               return '';
             })()""")
             cdp.evaluate("window.__dcaTestSocket.emit(90000, 'BTC-USD', new Date().toISOString())")
-            wait_for(lambda: cdp.evaluate("document.querySelector('#pairKpiChip')?.title.includes('BTC: 2140data.io live')"),
+            wait_for(lambda: cdp.evaluate("document.querySelector('#pairKpiChip')?.title.includes('BTC: Coinbase live')"),
                      description="live BTC quote")
             assert_browser(cdp, """(() => {
               if (document.querySelector('.pair-primary .pair-status')?.dataset.kind !== 'live')
@@ -444,8 +444,17 @@ def main():
               secondary.dispatchEvent(new Event('change', { bubbles: true }));
               return '';
             })()""")
-            wait_for(lambda: cdp.evaluate("document.querySelector('#pairKpiChip')?.title.includes('XAU: Gold API')"),
-                     description="selected gold quote")
+            try:
+                wait_for(lambda: cdp.evaluate("document.querySelector('#pairKpiChip')?.title.includes('XAU: Gold API')"),
+                         description="selected gold quote")
+            except TimeoutError:
+                diagnostic = cdp.evaluate("""({
+                  primary: document.querySelector('#primaryUoaSelect')?.value,
+                  secondary: document.querySelector('#secondaryUoaSelect')?.value,
+                  title: document.querySelector('#pairKpiChip')?.title,
+                  calls: window.__uoaQuoteFixture.calls,
+                })""")
+                raise AssertionError(f"Selected gold quote: {diagnostic}") from None
             assert_browser(cdp, """(() => {
               const calls = window.__uoaQuoteFixture.calls.flat();
               if (!calls.some((item) => item === 'https://api.gold-api.com/price/XAU'))

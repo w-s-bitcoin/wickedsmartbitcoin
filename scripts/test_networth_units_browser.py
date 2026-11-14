@@ -40,9 +40,10 @@ SHIM = r"""
     constructor() {
       setTimeout(() => {
         this.onopen?.();
-        this.onmessage?.({ data: JSON.stringify({ weightedPrice: '100000' }) });
+        this.onmessage?.({ data: JSON.stringify({ type: 'ticker', product_id: 'BTC-USD', price: '100000' }) });
       }, 0);
     }
+    send() {}
     close() {}
   }
   window.WebSocket = PriceSocket;

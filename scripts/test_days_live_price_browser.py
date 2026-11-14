@@ -131,7 +131,7 @@ def main():
               document.querySelector('#priceChartLoader')?.classList.contains('hidden')
               && document.querySelector('#daysChartLoader')?.classList.contains('hidden')
               && document.querySelector('#priceCanvas')?.width > 0
-              && window.__dcaTestSocket?.url === 'wss://2140data.io/'
+              && window.__dcaTestSocket?.url === 'wss://ws-feed.exchange.coinbase.com'
             """), timeout=65, description="Days Since ATH dashboard and spot subscription")
             check(cdp, """
               (() => {
@@ -195,16 +195,20 @@ def main():
             cdp.command("Page.navigate", {"url": f"http://127.0.0.1:{server_port}/webapps/days_since_ath/preview.html"})
             wait_for(lambda: cdp.evaluate("""
               document.querySelector('#daysSinceAthPreview')?.dataset.priceSource === 'published'
-              && window.__dcaTestSocket?.url === 'wss://2140data.io/'
+              && window.__dcaTestSocket?.url === 'wss://ws-feed.exchange.coinbase.com'
             """), timeout=65, description="Days Since ATH homepage card and spot subscription")
             check(cdp, """
               (() => {
                 const canvas = document.querySelector('#daysSinceAthPreview');
                 const published = canvas.toDataURL();
+                // A same-day quote below the published daily high correctly
+                // leaves this high-price chart unchanged. Exercise a new day.
+                const previewNow = Date.now;
+                Date.now = () => previewNow() + 3 * 86400000;
                 window.__dcaTestSocket.emit(40000);
                 if (canvas.dataset.priceSource !== 'live') return 'home card stayed published';
                 const first = canvas.toDataURL();
-                if (first === published) return 'home card current spot guide did not move';
+                if (first === published) return 'home card live endpoint did not move';
                 window.__dcaTestSocket.emit(80000);
                 if (canvas.toDataURL() === first) return 'home card did not update on next quote';
                 const realNow = Date.now;

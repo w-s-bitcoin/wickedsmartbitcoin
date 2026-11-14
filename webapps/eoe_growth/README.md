@@ -49,8 +49,8 @@ Hidden previews install complete data and defer painting until visible.
 
 ### Current comparison and lookup generation
 
-`eoe_growth_live.js` keeps the shared `bitcoin_spot_price.js` feed (2140data.io
-WebSocket primary) and subscribes to `bitcoin_chain_tip.js` for mempool.space's
+`eoe_growth_live.js` keeps the shared `bitcoin_spot_price.js` feed (Coinbase
+WebSocket primary, 2140data fallback) and subscribes to `bitcoin_chain_tip.js` for mempool.space's
 public block WebSocket, with that helper's REST fallback. Each accepted block
 immediately requests its exact historical reference; it does not wait for a
 Pages deployment or another price tick. `assets/top_kpis.json` supplies the
