@@ -2164,7 +2164,7 @@
       const priceB = hasB ? r[s.assetB] : NaN;
       if (!Number.isFinite(priceA) || priceA <= 0) continue;
       if (hasB && (!Number.isFinite(priceB) || priceB <= 0)) continue;
-      if (r.date >= s.dcaStart && isDcaDate(r.date, s.dcaStart, s.cadence)) {
+      if (!r.valuationOnly && r.date >= s.dcaStart && isDcaDate(r.date, s.dcaStart, s.cadence)) {
         invested += s.amount;
         let capHit = false;
         const rawUnitsA = s.amount / priceA;

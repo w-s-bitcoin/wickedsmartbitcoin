@@ -192,7 +192,7 @@
 
     for (const row of rows) {
       if (row.date < startIso || row.date > endIso) continue;
-      if (dayDiff(startIso, row.date) % 7 === 0) {
+      if (!row.valuationOnly && dayDiff(startIso, row.date) % 7 === 0) {
         invested += DEFAULT_AMOUNT;
         unitsA += DEFAULT_AMOUNT / row[DEFAULT_ASSET_A];
         unitsB += DEFAULT_AMOUNT / row[DEFAULT_ASSET_B];
