@@ -286,7 +286,42 @@ test("a next-day live point uses published prior closes and keeps published peri
   }
 });
 
-test("live projection rejects invalid, superseded, future, and noncontiguous quotes but retains usable quotes", () => {
+test("multi-day live endpoints preserve history and require every completed period close", () => {
+  const source = rowsFrom("2024-01-01", 182);
+  const model = M.buildModel(source), before = JSON.stringify(model.rows);
+  // June 30 is both Sunday and month-end. Missing weekdays don't invalidate
+  // weekly/monthly averages; crossing the next close does.
+  for (const [date, missingUnits] of [
+    ["2024-07-02", ["day"]], ["2024-07-03", ["day"]],
+    ["2024-07-07", ["day"]], ["2024-07-08", ["day", "week"]],
+    ["2024-08-01", ["day", "week", "month"]],
+  ]) {
+    const quote = { price: 9999, at: utc(date) + 1000 };
+    const projected = M.withLiveQuote(model, quote, { publishedAt: "2024-06-30T23:30:00Z", now: quote.at });
+    assert.equal(projected.rows.length, model.rows.length + 1);
+    assert.equal(projected.rows.at(-1).date, date);
+    assert.equal(projected.rows.at(-1).price, quote.price);
+    assert.equal(projected.rows.at(-1).height, undefined);
+    assert.deepEqual(projected.rows.slice(0, -1), model.rows);
+    assert.deepEqual(projected.limits, model.limits);
+    assert.throws(() => M.buildModel(projected.rows), /missing/, "published history still rejects gaps");
+    for (const unit of ["day", "week", "month"]) for (const type of ["sma", "ema"]) {
+      const selection = { period: 3, unit, type };
+      const values = M.calculateCurrent(projected, selection);
+      assert.deepEqual(values.slice(0, -1), M.calculate(model, selection));
+      if (missingUnits.includes(unit)) {
+        assert.equal(values.at(-1), null, `${date} ${unit} cannot invent missing closes`);
+      } else {
+        const nextDay = M.withLiveQuote(model, { ...quote, at: utc("2024-07-01") },
+          { publishedAt: "2024-06-30T23:30:00Z", now: quote.at });
+        approximate(values.at(-1), M.calculateCurrent(nextDay, selection).at(-1));
+      }
+    }
+  }
+  assert.equal(JSON.stringify(model.rows), before);
+});
+
+test("live projection rejects invalid, superseded, and future quotes but retains usable quotes", () => {
   const source = rowsFrom("2024-01-01", 182);
   source.at(-1).timestamp = "2024-06-30T11:00:00Z";
   const model = M.buildModel(source), at = Date.parse("2024-06-30T12:00:00Z");
@@ -301,8 +336,6 @@ test("live projection rejects invalid, superseded, future, and noncontiguous quo
   assert.equal(M.withLiveQuote(model, quote, { ...options, publishedAt: "2024-06-30T12:00:00Z" }), model);
   assert.equal(M.withLiveQuote(model, quote, { ...options, publishedAt: "invalid" }), model);
   assert.equal(M.withLiveQuote(model, quote, { ...options, now: NaN }), model);
-  assert.equal(M.withLiveQuote(model, { ...quote, at: utc("2024-07-02") }, { ...options, now: utc("2024-07-02") }), model);
-  assert.equal(M.withLiveQuote(model, { ...quote, at: utc("2024-07-03") }, { ...options, now: utc("2024-07-03") }), model);
   const retained = M.withLiveQuote(model, quote, { ...options, now: utc("2024-07-10") });
   assert.equal(retained.liveQuote.at, at, "quote retention does not fabricate a newer timestamp or extra dates");
   assert.equal(retained.rows.length, model.rows.length);
@@ -333,6 +366,7 @@ test("preview live quotes respect hidden presentation, publication supersession,
     },
     WSBPreviewShared: {
       initThemeSync: () => {},
+      chartInsets: () => ({ top: 16, bottom: 16, left: 16, right: 16 }),
       createDataRefresher: (options) => {
         adapter = options;
         return { start: () => {}, requestPresent: () => { if (visible) options.present(); } };

@@ -132,6 +132,32 @@ async function testDcaValuation() {
   assert.equal(captured[1][0].dateIso, twoDaysAgo, 'historical motion frames stay published');
   assert.equal(captured[2][0].dcaBasis, 1200, 'the final motion frame uses the latest accepted quote');
   assert.equal(captured[3][0].dcaBasis, 1200, 'the final hold freezes that live generation');
+
+  const originalRows = state.priceRows;
+  for (const gap of [2, 3, 7]) {
+    state.priceRows = Array.from({ length: 40 }, (_, index) => {
+      const date = new Date(Date.parse(`${today}T00:00:00Z`) - (gap + 39 - index) * 86400000);
+      return { dateIso: date.toISOString().slice(0, 10), price: 100 + index,
+        utcDay: date.getUTCDay(), monthDay: date.getUTCDate() };
+    });
+    state.cadenceCaches = buildCadenceCaches(state.priceRows);
+    const first = state.priceRows[0].dateIso, last = state.priceRows.at(-1).dateIso;
+    for (const cadence of ['daily_dca', 'weekly_dca', 'monthly_dca']) {
+      state.cadence = cadence;
+      const historical = getFrameRows(first, last);
+      const live = getFrameRows(first, last, true);
+      assert.equal(live.length, historical.length, 'a gap does not invent purchase days');
+      for (const [index, row] of live.entries()) {
+        assert.equal(row.currentPrice, 1600, `${cadence} values holdings at live spot across a ${gap}-day gap`);
+        for (const key of ['purchaseCount', 'btcAccum', 'investedUsd', 'dcaBasis', 'historicalPrice']) {
+          assert.equal(row[key], historical[index][key], `${cadence} preserves ${key}`);
+        }
+      }
+      assert.equal(getFrameRows(first, state.priceRows.at(-2).dateIso, true)[0].currentPrice,
+        state.priceRows.at(-2).price, 'historical ranges stay historical across a publication gap');
+    }
+  }
+  state.priceRows = originalRows;
 }
 
 async function testSpotFeed() {

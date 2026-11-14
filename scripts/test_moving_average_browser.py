@@ -1352,6 +1352,43 @@ def check_live_price(cdp, direct):
     ema_after=dashboard(cdp,"return w.WSBMovingAverageDashboard.getDisplaySeries().map(values=>values.at(-1));")
     assert all(abs(value-ema_before[i]-11*2/(baseline["periods"][i]+1))<.000001 for i,value in enumerate(ema_after)),(ema_before,ema_after)
     assert dashboard(cdp,"return JSON.stringify(w.WSBMovingAverageDashboard.getSeries())===w.__maFixture.emaHistory;")
+    gap_at = baseline["row"]["time"] + 3 * 86400000 + 10000
+    emit(quoted+77,gap_at)
+    gap=dashboard(cdp,"""
+      const app=w.WSBMovingAverageDashboard,m=app.getDisplayModel();
+      return {source:d.querySelector('#priceChip').dataset.priceSource,count:m.rows.length,
+        row:m.rows.at(-1),averages:app.getDisplaySeries().map(values=>values.at(-1)),
+        unchanged:JSON.stringify(m.rows.slice(0,-1))===JSON.stringify(app.getModel().rows),
+        updated:d.querySelector('#updatedKpi').textContent};
+    """)
+    assert gap["source"] == "live" and gap["count"] == baseline["count"]+1 and gap["unchanged"],gap
+    assert gap["row"]["time"] == baseline["row"]["time"]+3*86400000 and gap["averages"][0] is None,gap
+    assert gap["updated"] != live["updated"] and gap["updated"].endswith(f"{baseline['marker']['latest_block_height']+1:,}"),gap
+    png_count=dashboard(cdp,"return w.__maFixture.downloads.filter(item=>item.name.endsWith('.png')).length;")
+    click(cdp,"#downloadImageBtn")
+    wait_for(lambda: dashboard(cdp,f"return w.__maFixture.downloads.filter(item=>item.name.endsWith('.png')).length>{png_count};"),description="gap live PNG")
+    gap_png=dashboard(cdp,"return w.__maFixture.liveExports.at(-1);")
+    assert gap_png["row"]["price"] == quoted+77 and gap_png["series"][0] is None and gap_png["live"],gap_png
+    video_count=dashboard(cdp,"return w.__maFixture.downloads.filter(item=>item.blob.type.startsWith('video/')).length;")
+    dashboard(cdp,f"""
+      w.__maFixture.liveExports=[];
+      const encodeGap=w.WSBDashboardExport.encodeVideo;
+      w.WSBDashboardExport.encodeVideo=options=>{{
+        const render=options.renderFrame,final=options.frames.findLastIndex(index=>index!==options.frames.at(-1))+1;
+        return encodeGap({{...options,renderFrame:async(...args)=>{{
+          if(args[2]===final){{w.__maFixture.now={gap_at+1000};w.__maFixture.socket.emit({quoted+88},new Date({gap_at+1000}).toISOString());}}
+          const result=await render(...args);
+          if(args[2]===final){{w.__maFixture.now={gap_at+2000};w.__maFixture.socket.emit({quoted+111},new Date({gap_at+2000}).toISOString());}}
+          return result;
+        }}}});
+      }};
+    """)
+    click(cdp,"#dateRangeDownloadBtn")
+    wait_for(lambda: dashboard(cdp,f"return w.__maFixture.downloads.filter(item=>item.blob.type.startsWith('video/')).length>{video_count};"),timeout=60,description="gap live video")
+    gap_frames=dashboard(cdp,"return w.__maFixture.liveExports;")
+    final_frames=[frame for frame in gap_frames if frame["live"]]
+    assert len(final_frames)>1 and len(final_frames)<len(gap_frames),gap_frames[:1]
+    assert all(frame["row"]["price"]==quoted+88 and frame["series"][0] is None for frame in final_frames),final_frames[:1]
     assert_clean(cdp)
 
     cdp.command("Page.navigate",{"url":direct.replace('dashboard.html','preview.html')})
@@ -1371,6 +1408,10 @@ def check_live_price(cdp, direct):
     cdp.evaluate(f"window.__maFixture.now={published_at+91200};document.dispatchEvent(new Event('visibilitychange'));window.dispatchEvent(new Event('resize'));")
     wait_for(lambda: cdp.evaluate("document.querySelector('#movingAveragePreview').dataset.priceSource==='retained'"),description="preview retained quote")
     assert cdp.evaluate("window.__maFixture.previewFrame.row.price") == quoted+10
+    cdp.evaluate(f"window.__maFixture.now={gap_at};window.__maFixture.socket.emit({quoted+77},new Date({gap_at}).toISOString());")
+    wait_for(lambda: cdp.evaluate(f"window.__maFixture.previewFrame.row.price==={quoted+77}"),description="preview live across three-day publication gap")
+    assert cdp.evaluate("window.__maFixture.previewFrame.averages[0]") is None
+    assert cdp.evaluate("document.querySelector('#movingAveragePreview').dataset.priceSource") == "live"
     assert cdp.evaluate("window.__maFixture.errors") == []
     print("PASS live price: isolated quotes, live MA endpoints, two-decimal KPIs, charts/hover/preview, retained outage value, immutable history, publication wins, next-day row, frozen PNG/video final quote",flush=True)
 

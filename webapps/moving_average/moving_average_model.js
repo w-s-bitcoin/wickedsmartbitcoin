@@ -126,13 +126,19 @@
   }
 
   function buildModel(sourceRows) {
+    return createModel(sourceRows);
+  }
+
+  function createModel(sourceRows, allowLiveEndpointGap = false) {
     if (!Array.isArray(sourceRows) || !sourceRows.length) throw new Error("No price history is available.");
     let firstPositive = -1;
     sourceRows.forEach((row, index) => {
       if (!Number.isFinite(row.time) || isoTime(row.date) !== row.time || !Number.isFinite(row.price) || row.price < 0) {
         throw new Error(`Price history contains an invalid row at ${index + 1}.`);
       }
-      if (index && row.time - sourceRows[index - 1].time !== DAY_MS) {
+      const gap = index ? row.time - sourceRows[index - 1].time : 0;
+      if (index && gap !== DAY_MS
+          && !(allowLiveEndpointGap && index === sourceRows.length - 1 && gap > DAY_MS)) {
         throw new Error("Price history has a missing, duplicated, or out-of-order UTC date.");
       }
       if (index && row.height !== undefined && sourceRows[index - 1].height > row.height) {
@@ -180,6 +186,14 @@
     return values;
   }
 
+  function previousClose(time, unit) {
+    const date = new Date(time - DAY_MS);
+    if (unit === "day") return date.getTime();
+    if (unit === "week") return date.getTime() - date.getUTCDay() * DAY_MS;
+    const current = new Date(time);
+    return Date.UTC(current.getUTCFullYear(), current.getUTCMonth(), 0);
+  }
+
   function calculate(model, selection) {
     const type = averageType(selection);
     const period = Number(selection?.period), unit = selection?.unit;
@@ -193,6 +207,10 @@
     const alpha = 2 / (period + 1);
     let count = 0, ema = null;
     const values = model.rows.map((row) => {
+      // Live price may bridge a delayed publication, but unavailable completed
+      // closes cannot be replaced with older samples or invented prices.
+      if (model.missingClosesAfter !== undefined && row.time === model.latestTime
+          && previousClose(row.time, unit) > model.missingClosesAfter) return null;
       // Strictly earlier observations match the notebook's [i:i+N] means,
       // whose result is assigned to the following day/Sunday/month-end.
       while (count < samples.length && samples[count].time < row.time) {
@@ -243,10 +261,11 @@
     const timestamp = new Date(quote.at);
     if (!Number.isFinite(timestamp.getTime())) return model;
     const date = timestamp.toISOString().slice(0, 10), time = isoTime(date), gap = time - latest.time;
-    if (gap !== 0 && gap !== DAY_MS) return model;
+    if (gap < 0) return model;
     const liveRow = { ...(gap === 0 ? latest : {}), date, time, price: quote.price, timestamp: timestamp.toISOString() };
     const rows = gap === 0 ? [...model.rows.slice(0, -1), liveRow] : [...model.rows, liveRow];
-    const projected = buildModel(rows);
+    const projected = createModel(rows, true);
+    if (gap > DAY_MS) projected.missingClosesAfter = latest.time;
     // Selectable periods belong to the published generation, even when a live
     // quote adds a provisional day with another complete lookback window.
     projected.limits = { ...model.limits };

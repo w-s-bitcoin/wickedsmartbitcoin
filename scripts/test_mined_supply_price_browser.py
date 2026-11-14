@@ -309,13 +309,16 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
     cdp.command("Page.addScriptToEvaluateOnNewDocument", {"source": """
       Object.defineProperty(window, 'WSBBitcoinSpotPrice', { configurable: true,
         set(api) {
-          let quote = null, live = false, callback;
+          let quote = null, live = false, callback, quoteAt;
           const feed = { start() {}, stop() {}, refresh: async () => { await window.__spotRefresh?.(); return quote; },
             current: () => live ? quote : null, last: () => quote, isLive: () => live,
-            newerThan: (at) => quote && quote.at > Date.parse(at || 0) ? quote : null };
+            newerThan: (at) => {
+              quoteAt = Date.parse(at) + 3 * 86400000;
+              return quote && quote.at > Date.parse(at || 0) ? quote : null;
+            } };
           api.create = ({ onQuote }) => { callback = onQuote; return feed; };
-          window.__spotEmit = (price, isLive = true) => {
-            if (price) quote = { price, source: 'test feed', at: Date.now() + 86400000, receivedAt: Date.now() };
+          window.__spotEmit = (price, isLive = true, at = quoteAt) => {
+            if (price) quote = { price, source: 'test feed', at, receivedAt: Date.now() };
             live = isLive; callback?.(live ? quote : null);
           };
           Object.defineProperty(window, 'WSBBitcoinSpotPrice', { value: api, configurable: true });
