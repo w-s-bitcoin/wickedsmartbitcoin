@@ -10,6 +10,8 @@ The current valuation price follows the live quote even on days without a
 scheduled weekly or monthly purchase. Earlier purchase prices, quantities, and
 cost basis stay fixed; the current-price guide and ROI use the newest quote.
 Pinning the latest date does not disable this current valuation.
+The homepage preview also values the position at the current quote even when
+published purchase history is older; it does not invent missing purchases.
 
 ## Downloads
 
