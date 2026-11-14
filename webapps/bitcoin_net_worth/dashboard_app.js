@@ -1934,8 +1934,7 @@ async function bootstrap() {
     renderAll();
     scheduleQuoteStatus();
     networthSpotFeed = window.WSBBitcoinSpotPrice?.create({
-      legacySocket: false,
-      legacySources: [{
+      fallbackSources: [{
         name: "Kraken",
         url: KRAKEN_URL,
         read: (payload) => ({

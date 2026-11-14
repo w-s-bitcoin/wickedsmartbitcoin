@@ -30,14 +30,15 @@ SHIM = r"""
   class PriceSocket {
     constructor(url) {
       this.url = url;
-      window.__netSocket = this;
+      if (url === 'wss://ws-feed.exchange.coinbase.com') window.__netSocket = this;
       setTimeout(() => {
         this.onopen?.();
-        if (!window.__netQuote.offline && !window.__netQuote.primaryOffline) this.onmessage?.({ data: JSON.stringify({
-          weightedPrice: String(window.__netQuote.price),
+        if (url === 'wss://ws-feed.exchange.coinbase.com' && !window.__netQuote.offline && !window.__netQuote.primaryOffline) this.onmessage?.({ data: JSON.stringify({
+          type: 'ticker', product_id: 'BTC-USD', price: String(window.__netQuote.price),
         }) });
       }, 0);
     }
+    send(payload) { this.subscription = JSON.parse(payload); }
     close() { this.closed = true; }
   }
   window.WebSocket = PriceSocket;

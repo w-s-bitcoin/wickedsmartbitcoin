@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise current-day DCA Comparison prices and its homepage card in Chrome."""
 
+import hashlib
 import json
 import mimetypes
 import os
@@ -9,7 +10,7 @@ import tempfile
 import threading
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
@@ -199,6 +200,21 @@ def main():
     last_market_day = FrozenHandler.snapshot[
         "/webapps/dca_comparison/webapp_data/market_indices.csv"
     ].decode().strip().splitlines()[-1].split(",", 1)[0]
+    # Published CSVs include forward-filled weekend rows. Keep this fixture on
+    # a trading day so its delayed equity quotes can legitimately supersede it.
+    market_day = datetime.fromisoformat(last_market_day)
+    while market_day.weekday() >= 5:
+        market_day -= timedelta(days=1)
+    last_market_day = market_day.date().isoformat()
+    for path in DATA_PATHS:
+        if not path.endswith(".csv"):
+            continue
+        key = "/" + path
+        lines = FrozenHandler.snapshot[key].decode().strip().splitlines()
+        date_column = 1 if path == "assets/daily_price.csv" else 0
+        kept = [line for line in lines[1:]
+                if line.split(",")[date_column][:10] <= last_market_day]
+        FrozenHandler.snapshot[key] = ("\n".join([lines[0], *kept]) + "\n").encode()
     btc_path = "/assets/daily_price.csv"
     btc_lines = FrozenHandler.snapshot[btc_path].decode().strip().splitlines()
     btc_tail = btc_lines[-1].split(",")
@@ -211,6 +227,14 @@ def main():
     marker_path = "/webapps/dca_comparison/webapp_data/published_generation.json"
     marker = json.loads(FrozenHandler.snapshot[marker_path])
     marker["generated_utc"] = f"{last_market_day}T14:00:00Z"
+    preview = FrozenHandler.snapshot["/webapps/dca_comparison/webapp_data/dca_comparison_preview.csv"]
+    preview_rows = preview.decode().strip().splitlines()[1:]
+    marker["artifact"].update({
+        "sha256": hashlib.sha256(preview).hexdigest(),
+        "rows": len(preview_rows),
+        "first_date": preview_rows[0].split(",")[0],
+        "latest_date": preview_rows[-1].split(",")[0],
+    })
     FrozenHandler.snapshot[marker_path] = json.dumps(marker).encode()
     fake_now_ms = int(datetime.fromisoformat(last_market_day).replace(
         hour=15, tzinfo=timezone.utc).timestamp() * 1000)
@@ -240,7 +264,7 @@ def main():
                 wait_for(lambda: cdp.evaluate("""
                   document.querySelector('#chartCanvas')?.width > 0
                   && document.querySelector('#assetBPriceStatus')?.dataset.kind === 'live'
-                  && window.__dcaTestSocket?.url === 'wss://2140data.io/'
+                  && window.__dcaTestSocket?.url === 'wss://ws-feed.exchange.coinbase.com'
                   && document.querySelector('#errorBox')?.hidden
                 """), timeout=25, description="DCA Comparison data, metal quote and BTC socket")
             except TimeoutError:
@@ -372,7 +396,7 @@ def main():
             cdp.command("Page.navigate", {"url": f"http://127.0.0.1:{server_port}/webapps/dca_comparison/preview.html"})
             wait_for(lambda: cdp.evaluate("""
               document.querySelector('#comparisonPreview')?.dataset.priceSource === 'live'
-              && window.__dcaTestSocket?.url === 'wss://2140data.io/'
+              && window.__dcaTestSocket?.url === 'wss://ws-feed.exchange.coinbase.com'
             """), timeout=65, description="DCA Comparison live home card")
             assert_browser(cdp, """
               (() => {

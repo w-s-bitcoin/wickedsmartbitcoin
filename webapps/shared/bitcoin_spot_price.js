@@ -1,16 +1,17 @@
-/* Public BTC/USD spot feed: 2140data socket, 2140data REST, then legacy sources. */
+/* Public BTC/USD spot feed: Coinbase socket, then 2140data and public REST fallbacks. */
 (function () {
   "use strict";
 
-  const SOCKET_URL = "wss://2140data.io/";
+  const SOCKET_URL = "wss://ws-feed.exchange.coinbase.com";
   const REST_URL = "https://2140data.io/price";
-  const LEGACY_SOCKET_URL = "wss://ws-feed.exchange.coinbase.com";
+  const FALLBACK_SOCKET_URL = "wss://2140data.io/";
+  const SOCKET_STARTUP_MS = 5000;
   const SOCKET_STALL_MS = 65000;
   const QUOTE_LIVE_MS = 60000;
   const QUOTE_STALE_MS = 90000;
   const POLL_MS = 60000;
   const REQUEST_TIMEOUT_MS = 12000;
-  const LEGACY_SOURCES = [
+  const FALLBACK_SOURCES = [
     {
       name: "Coinbase",
       url: "https://api.exchange.coinbase.com/products/BTC-USD/ticker",
@@ -33,14 +34,14 @@
     },
   ];
 
-  function create({ onQuote, legacySources = LEGACY_SOURCES, legacySocket = true } = {}) {
+  function create({ onQuote, fallbackSources = FALLBACK_SOURCES } = {}) {
     let started = false;
     let socket = null;
     let socketPriceAt = 0;
     let socketHeardAt = 0;
-    let oldSocket = null;
-    let oldSocketPriceAt = 0;
-    let restPriceAt = 0;
+    let fallbackSocket = null;
+    let fallbackSocketPriceAt = 0;
+    let fallbackSocketHeardAt = 0;
     let retryDelay = 2000;
     let retryTimer = 0;
     let watchTimer = 0;
@@ -110,11 +111,11 @@
       old.close();
     }
 
-    function closeOldSocket() {
-      oldSocketPriceAt = 0;
-      if (!oldSocket) return;
-      const old = oldSocket;
-      oldSocket = null;
+    function closeFallbackSocket() {
+      fallbackSocketPriceAt = 0;
+      if (!fallbackSocket) return;
+      const old = fallbackSocket;
+      fallbackSocket = null;
       old.onopen = old.onmessage = old.onclose = old.onerror = null;
       old.close();
     }
@@ -146,24 +147,34 @@
         socket = new WebSocket(SOCKET_URL);
       } catch (_) {
         retrySocket();
+        schedulePoll(0);
         return;
       }
       const opened = socket;
+      socketHeardAt = Date.now();
+      watchTimer = window.setTimeout(watchSocket, SOCKET_STALL_MS / 2);
       opened.onopen = () => {
-        socketHeardAt = Date.now();
-        watchTimer = window.setTimeout(watchSocket, SOCKET_STALL_MS / 2);
+        opened.send(JSON.stringify({
+          type: "subscribe", product_ids: ["BTC-USD"], channels: ["ticker_batch"],
+        }));
       };
       opened.onmessage = (event) => {
+        if (!started || !isVisible() || socket !== opened) return;
         let data;
         try { data = JSON.parse(event.data); } catch (_) { return; }
+        if (data?.type === "error" || (data?.type === "subscriptions" && !data.channels?.length)) {
+          opened.close();
+          return;
+        }
+        if (data?.type !== "ticker" || data.product_id !== "BTC-USD") return;
         const eventAt = data?.time ? Date.parse(data.time) : Date.now();
         if (!Number.isFinite(eventAt) || Math.abs(Date.now() - eventAt) > QUOTE_STALE_MS) return;
-        if (publish(Number(data?.weightedPrice), "2140data.io live", eventAt)) {
+        if (publish(Number(data.price), "Coinbase live", eventAt)) {
           socketHeardAt = Date.now();
           socketPriceAt = Date.now();
           retryDelay = 2000;
           request?.abort();
-          closeOldSocket();
+          closeFallbackSocket();
         }
       };
       opened.onclose = () => {
@@ -178,31 +189,33 @@
       opened.onerror = () => opened.close();
     }
 
-    function connectOldSocket() {
-      if (!legacySocket || !started || !isVisible() || oldSocket
+    function connectFallbackSocket() {
+      if (fallbackSocket && Date.now() - fallbackSocketHeardAt >= SOCKET_STALL_MS) {
+        closeFallbackSocket();
+      }
+      if (!started || !isVisible() || fallbackSocket
           || typeof WebSocket === "undefined") return;
-      try { oldSocket = new WebSocket(LEGACY_SOCKET_URL); }
+      try { fallbackSocket = new WebSocket(FALLBACK_SOCKET_URL); }
       catch (_) { return; }
-      const opened = oldSocket;
-      opened.onopen = () => opened.send(JSON.stringify({
-        type: "subscribe", product_ids: ["BTC-USD"], channels: ["ticker_batch"],
-      }));
+      const opened = fallbackSocket;
+      fallbackSocketHeardAt = Date.now();
       opened.onmessage = (event) => {
+        if (!started || !isVisible() || fallbackSocket !== opened) return;
         if (socketPriceAt && Date.now() - socketPriceAt < SOCKET_STALL_MS) return;
-        if (restPriceAt && Date.now() - restPriceAt < POLL_MS + 5000) return;
         let data;
         try { data = JSON.parse(event.data); } catch (_) { return; }
-        if (data?.type === "error" || (data?.type === "subscriptions" && !data.channels?.length)) {
-          closeOldSocket();
-          return;
-        }
-        if (data?.type !== "ticker" || data.product_id !== "BTC-USD") return;
-        const eventAt = data.time ? Date.parse(data.time) : Date.now();
+        const eventAt = data?.time ? Date.parse(data.time) : Date.now();
         if (!Number.isFinite(eventAt) || Math.abs(Date.now() - eventAt) > QUOTE_STALE_MS) return;
-        if (publish(Number(data.price), "Coinbase live", eventAt)) oldSocketPriceAt = Date.now();
+        if (publish(Number(data?.weightedPrice), "2140data.io live", eventAt)) {
+          fallbackSocketHeardAt = fallbackSocketPriceAt = Date.now();
+          request?.abort();
+        }
       };
       opened.onclose = () => {
-        if (oldSocket === opened) oldSocket = null;
+        if (fallbackSocket === opened) {
+          fallbackSocket = null;
+          fallbackSocketPriceAt = 0;
+        }
       };
       opened.onerror = () => opened.close();
     }
@@ -222,17 +235,21 @@
         schedulePoll();
         return current();
       }
+      connectFallbackSocket();
+      if (fallbackSocketPriceAt && Date.now() - fallbackSocketPriceAt < SOCKET_STALL_MS) {
+        schedulePoll();
+        return current();
+      }
       const pollStartedAt = Date.now();
       const sources = [
         { name: "2140data.io REST", url: REST_URL,
           read: (data) => ({ price: Number(data?.price) }) },
-        ...legacySources,
+        ...fallbackSources,
       ];
-      let restSucceeded = false;
       for (const [index, source] of sources.entries()) {
         if (!started || !isVisible()) break;
         if (socketPriceAt && Date.now() - socketPriceAt < SOCKET_STALL_MS) break;
-        if (index === 1) connectOldSocket();
+        if (fallbackSocketPriceAt && Date.now() - fallbackSocketPriceAt < SOCKET_STALL_MS) break;
         const controller = new AbortController();
         request = controller;
         const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -242,14 +259,9 @@
           const { price, at } = source.read(await response.json());
           if (!started || !isVisible()) break;
           if (socketPriceAt >= pollStartedAt) break;
-          if (index > 0 && oldSocketPriceAt >= pollStartedAt) break;
+          if (fallbackSocketPriceAt >= pollStartedAt) break;
           if (index === 0) {
-            if (publish(price, source.name)) {
-              restPriceAt = Date.now();
-              restSucceeded = true;
-              closeOldSocket();
-              break;
-            }
+            if (publish(price, source.name)) break;
           } else if (Number.isFinite(at)) {
             if (Math.abs(Date.now() - at) > QUOTE_STALE_MS || at < (lastQuote?.at || 0)) continue;
             if (publish(price, source.name, at)) break;
@@ -263,9 +275,6 @@
           if (request === controller) request = null;
         }
       }
-      if (!restSucceeded && (!socketPriceAt || Date.now() - socketPriceAt >= SOCKET_STALL_MS)) {
-        connectOldSocket();
-      }
       schedulePoll();
       return current();
     }
@@ -278,7 +287,7 @@
         retryTimer = pollTimer = 0;
         request?.abort();
         closeSocket();
-        closeOldSocket();
+        closeFallbackSocket();
       } else {
         if (!current() && quote) {
           quote = null;
@@ -286,7 +295,8 @@
         }
         retryDelay = 2000;
         connectSocket();
-        schedulePoll(0);
+        // Give Coinbase time to subscribe before using a fallback on startup.
+        schedulePoll(socket ? SOCKET_STARTUP_MS : 0);
       }
     }
 
@@ -309,7 +319,7 @@
       retryTimer = watchTimer = pollTimer = liveTimer = staleTimer = 0;
       request?.abort();
       closeSocket();
-      closeOldSocket();
+      closeFallbackSocket();
     }
 
     return { start, stop, current, last, isLive, newerThan, refresh: poll };

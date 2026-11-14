@@ -98,8 +98,9 @@ touch, arrow keys, Home/End, Enter/Space, Escape, and ordinary Tab navigation.
 ## Live current price and averages
 
 The dashboard and homepage preview use `shared/bitcoin_spot_price.js`. Its primary
-source is `wss://2140data.io/`, followed by `https://2140data.io/price`, then the
-shared Coinbase socket and public REST fallbacks. The feed pauses hidden tabs
+source is `wss://ws-feed.exchange.coinbase.com` (BTC-USD `ticker_batch`), with
+`wss://2140data.io/`, `https://2140data.io/price`, and other public REST sources
+as fallbacks. The feed pauses hidden tabs
 and rejects invalid or stale timed quotes. If a connection fails, the last
 accepted price remains visible until a newer quote or published snapshot replaces
 it. The BTCUSD status dot is green for a quote received within 60 seconds and
