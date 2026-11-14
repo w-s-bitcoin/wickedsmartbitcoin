@@ -2,7 +2,7 @@
 
 The dashboard reads the published daily price history and its publication
 marker. Live quotes can project the current endpoint through the existing
-`days_live_price.js` helper; historical observations remain published. Do not
+`../shared/ath_live_price.js` helper; historical observations remain published. Do not
 run producers or rewrite live data to test presentation changes.
 
 ## Export composition
@@ -27,8 +27,13 @@ block height (940571), rather than the earlier 940548 in the supplied image.
 
 PNG output is always 2160 quality. Video quality changes only pixel density;
 viewport size and DPR do not change proportions. Historical frames remain based
-on published rows; a latest-date PNG or final video frame retains the existing
-frozen live-quote policy. The Daily High KPI displays the observed high; drawdown
+on published rows. A latest-date PNG captures its quote after export assets load.
+Video captures the newest accepted quote when the final motion frame starts and
+freezes that quote and observed high through the ending hold, including single-day
+videos. An explicit or paused latest date remains eligible; an earlier visible
+playback date stays historical, even when playback originally targeted the latest
+date. Selection, annotations, and published rows stay fixed for each export.
+The Daily High KPI displays the observed high; drawdown
 uses the captured spot quote when available, otherwise the published daily high.
 
 Run `python3 scripts/test_export_scale_browser.py days_since_ath` for encoded
@@ -37,6 +42,8 @@ video/PNG proportion comparisons at every resolution and orientation. Add
 video. Existing interaction and live-price regressions are
 `scripts/test_days_issuance_scale_browser.py` and
 `scripts/test_days_live_price_browser.py`; all use isolated browser fixtures.
+The live-price suite also checks decoded 4K PNGs and real video encoding with
+quotes arriving during asset loading and the ending hold, plus paused history.
 
 Run `python3 scripts/test_days_export_browser.py` for reference-date KPI assertions
 and review PNGs in `/tmp/wsb-days-reference`, covering all orientations, themes,

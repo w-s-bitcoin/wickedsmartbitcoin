@@ -26,7 +26,7 @@ FEED_SHIM = r"""
     }
     send(payload) { this.subscription = JSON.parse(payload); }
     close() { this.closed = true; }
-    emit(price, product = 'BTC-USD', time = new Date().toISOString()) {
+    emit(price, product = 'BTC-USD', time = new Date(Date.now()).toISOString()) {
       this.onmessage?.({ data: JSON.stringify({
         ...(product === 'BTC-USD' ? { weightedPrice: String(price) } : { price: String(price) }),
         time,
@@ -122,6 +122,10 @@ def main():
             result = cdp.evaluate("""
               (() => {
                 const snapshot = state.metadata.source;
+                // Keep live purchase assertions on the frozen publication's day
+                // even when the checked-in fixture is older than the wall clock.
+                const fixtureNow = Date.parse(snapshot.latest_timestamp_utc) + 10000;
+                Date.now = () => fixtureNow;
                 const snapshotText = updatedTimeZoneChip.formatUpdated(snapshot.latest_timestamp_utc, {
                   includeHeight: true, height: snapshot.latest_block_height,
                 });
@@ -171,7 +175,23 @@ def main():
                 Date.now = realNow;
                 updateSpotPriceChip();
                 state.dateRange.rangeTracksLatestEnd = false;
-                if (getFilteredRows()[0].currentPrice !== state.priceRows.at(-1).price) return 'historical view changed';
+                if (getFilteredRows()[0].currentPrice !== quoted * 1.2) return 'pinned latest view lost live valuation';
+                for (const cadence of ['weekly_dca', 'monthly_dca']) {
+                  const previous = state.cadence;
+                  state.cadence = cadence;
+                  const historical = getFrameRows();
+                  const live = getFilteredRows();
+                  if (!live.every(row => row.currentPrice === quoted * 1.2)) return `${cadence} current price follows a purchase date`;
+                  const quoteDate = new Date(dcaSpotFeed.last().at).toISOString().slice(0, 10);
+                  const hasBuy = cadence === 'weekly_dca' ? new Date(quoteDate).getUTCDay() === 5 : quoteDate.endsWith('-01');
+                  if (!hasBuy && Math.abs(live[0].dcaBasis - historical[0].dcaBasis) > 0.000001)
+                    return `${cadence} changed prior purchase costs on a non-purchase day`;
+                  renderChart();
+                  if (!document.querySelector('.current-price-overlay')?.textContent.includes(fmtUsd(quoted * 1.2, 0)))
+                    return `${cadence} current-price guide omitted live valuation`;
+                  state.cadence = previous;
+                }
+                renderChart();
                 state.dateRange.rangeTracksLatestEnd = true;
                 if (getFrameRows()[0].currentPrice !== state.priceRows.at(-1).price) return 'export frame changed';
                 return '';

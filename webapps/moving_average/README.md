@@ -137,13 +137,17 @@ Both use two decimal places, with extra precision for values below `0.01¢` so
 tiny early prices do not round to zero. Dashboard playback, PNG, and video use
 the same KPI formatter.
 
-The homepage preview uses the same current endpoint calculation. PNG exports
-capture the displayed price and averages when export starts. A video ending at
+The homepage preview uses the same current endpoint calculation. Latest-date PNG
+exports capture the newest quote and calculate its averages after export assets
+are ready, immediately before drawing. A video ending at
 the current/latest date uses published prices and reference historical averages
 for its opening hold and historical motion, then captures the newest quote once
 at the start of its final motion frame. That quote and its calculated current
-average endpoints stay fixed through the final hold. Historical and paused
-selections continue to use published prices and historical calculations.
+average endpoints stay fixed through the final hold. Even a one-date video waits
+until its opening hold has finished before capturing that final quote. Pinned
+or paused latest-date exports use the same current quote policy; earlier export
+dates continue to use published prices and historical calculations. Interactive
+paused views retain their historical playback behavior.
 
 ## Image and video exports
 

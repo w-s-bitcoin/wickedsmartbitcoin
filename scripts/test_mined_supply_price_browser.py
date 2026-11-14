@@ -17,6 +17,7 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 
 from daily_history_tooltip_checks import check_tooltips
+from daily_history_export_checks import check_live_exports
 from browser_cdp import CdpSocket, QuietHandler, free_port, wait_for
 from capture_card_fallbacks import capture_workspace, close_browser, find_chrome
 
@@ -309,7 +310,7 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
       Object.defineProperty(window, 'WSBBitcoinSpotPrice', { configurable: true,
         set(api) {
           let quote = null, live = false, callback;
-          const feed = { start() {}, stop() {}, refresh: async () => quote,
+          const feed = { start() {}, stop() {}, refresh: async () => { await window.__spotRefresh?.(); return quote; },
             current: () => live ? quote : null, last: () => quote, isLive: () => live,
             newerThan: (at) => quote && quote.at > Date.parse(at || 0) ? quote : null };
           api.create = ({ onQuote }) => { callback = onQuote; return feed; };
@@ -488,9 +489,10 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
         for (let i = 0; i < 100 && WSBMinedSupplyPriceDashboard.getState().exporting; i++)
           await new Promise(resolve => setTimeout(resolve, 20));
         const endpoints = observed.filter(item => item.index === freshRows.length - 1);
-        const matchingImages = endpoints.every(item => item.image === endpoints[0].image);
+        const matchingImages = endpoints.slice(1).every(item => item.image === endpoints[1].image);
+        const refreshedFinal = endpoints[0].image !== endpoints[1].image;
         for (const item of observed) delete item.image;
-        return {observed, matchingImages, expectedHeight: marker.latest_block_height, expectedSupply: Number(last[supplyField]),
+        return {observed, matchingImages, refreshedFinal, expectedHeight: marker.latest_block_height, expectedSupply: Number(last[supplyField]),
           historicalPrice: freshRows[observed[1].index].price, milestonesPreserved,
           recovered: !WSBMinedSupplyPriceDashboard.getState().exporting && !document.getElementById('downloadImage').disabled};
       } finally {
@@ -503,9 +505,11 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
     assert cdp.evaluate("!document.getElementById('startDateBtn').disabled && !document.getElementById('dateRangeStartSlider').disabled"), "Export recovery left Start locked"
     assert frozen["observed"][0]["index"] == frozen["observed"][-1]["index"], frozen
     endpoints = [frozen["observed"][i] for i in (0, 2, 3, 4)]
-    assert frozen["matchingImages"] and all(row == endpoints[0] for row in endpoints), frozen
+    assert frozen["matchingImages"] and frozen["refreshedFinal"], frozen
+    assert all(row == endpoints[1] for row in endpoints[1:]), frozen
     assert endpoints[0]["price"] == 234567.89 and endpoints[0]["quoteAt"], frozen
-    assert endpoints[0]["height"] == frozen["expectedHeight"] and endpoints[0]["supply"] == frozen["expectedSupply"], frozen
+    assert endpoints[1]["price"] == 345678.90 and endpoints[1]["quoteAt"], frozen
+    assert all(row["height"] == frozen["expectedHeight"] and row["supply"] == frozen["expectedSupply"] for row in endpoints), frozen
     assert frozen["observed"][1]["price"] == frozen["historicalPrice"], frozen
 
     fallback = cdp.evaluate(r"""(async () => {
@@ -568,6 +572,8 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
     assert no_hold[0]["height"] == 0 and no_hold[1]["price"] == 567890.12, fallback
     assert historical[0] == historical[1] == fallback["expectedHistorical"], fallback
     assert fallback["markerRequests"] == fallback["requestsBeforeHistorical"] == 4, fallback
+
+    check_live_exports(cdp, origin, "mined_supply_price", "WSBMinedSupplyPriceDashboard", "WSBMinedSupplyPriceChart")
 
     videos = cdp.evaluate("""(async () => {
       const rows = WSBMinedSupplyPriceChart.parse(await (await fetch('../../assets/daily_price.csv')).text());
@@ -656,7 +662,7 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
     wait_for(lambda: cdp.evaluate("document.body.classList.contains('mined-supply-dashboard-expanded')"),
              description="standalone expand message")
     assert embedded["frame"] and cdp.evaluate("document.body.classList.contains('mined-supply-dashboard-expanded')"), embedded
-    print("Passed: reference geometry and shared typography across all orientations at PNG/video resolutions in both themes, shared controls, live/retained/historical price, genesis range, playback, three decoded PNG/video layouts, matching live export holds with refreshed data, publication-race fallback, historical/no-hold exports, mobile widths, and standalone expand")
+    print("Passed: reference geometry and shared typography across all orientations at PNG/video resolutions in both themes, shared controls, live/retained/historical price, genesis range, playback, three decoded PNG/video layouts, refreshed live final frame with frozen ending hold, publication-race fallback, historical/no-hold exports, mobile widths, and standalone expand")
 
 
 def main() -> None:

@@ -6,6 +6,10 @@ divided by accumulated BTC for each possible starting date. The price history's
 red/green segments indicate whether that purchase window's cost basis is above
 or below the current valuation price. Published rows remain the historical source;
 the shared spot feed adjusts only the unfinished current purchase.
+The current valuation price follows the live quote even on days without a
+scheduled weekly or monthly purchase. Earlier purchase prices, quantities, and
+cost basis stay fixed; the current-price guide and ROI use the newest quote.
+Pinning the latest date does not disable this current valuation.
 
 ## Downloads
 
@@ -27,11 +31,14 @@ The shared footer supplies the current
 `assets/qr_lightning.png` and `wicked@primal.net` donation address, as in EOE Growth.
 
 Exports capture cadence, date range, halving visibility, timezone, and the
-installed data generation. PNG captures the visible quote once; paused frames
-stay historical. Video and its estimate end at the visible date. Historical
+installed data generation. A latest-date PNG captures the newest available quote
+after export assets are ready, immediately before drawing. Latest-date exports
+use that quote even when the date is pinned or playback is paused there; earlier
+dates stay historical. Video and its estimate end at the visible date. Historical
 frames use published data; a video ending at the latest published day captures
 one current quote when its final motion frame begins and retains its price,
 cost basis, timestamp, and published block height through the ending hold.
+The final quote is captured after the opening hold even for a one-date video.
 The shared encoder chooses H.264 MP4 or a genuine WebM capability fallback.
 Asset or encoding failures restore the controls and report an error; PNG does
 not require video encoding support.

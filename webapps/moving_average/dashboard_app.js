@@ -70,7 +70,7 @@
     return next;
   }
   function recompute() { series = state.lines.map((line) => M.calculate(model, line)); }
-  function selectedQuote() { return spotFeed?.newerThan(installed?.publishedAt) || null; }
+  function selectedQuote(publishedAt = installed?.publishedAt) { return spotFeed?.newerThan(publishedAt) || null; }
   function usesLivePrice() { return !session && state.tracksLatest && state.currentIso === model?.rows.at(-1).date; }
   function viewWithQuote(baseModel, lines, endIndex, publishedAt, quote) {
     const key = JSON.stringify(lines);
@@ -590,18 +590,19 @@
       startIndex: snapshot.startIndex, endIndex, theme: outputSettings.theme || snapshot.theme });
   }
   function exportSnapshot() { return { ...capture(), model, series: series.slice(), startIndex: idx(state.startIso), currentIndex: idx(state.currentIso),
-    publishedAt: installed.publishedAt, useLivePrice: usesLivePrice(), theme: document.documentElement.dataset.theme }; }
+    publishedAt: installed.publishedAt, useLivePrice: state.currentIso === model.rows.at(-1).date, theme: document.documentElement.dataset.theme }; }
   function liveExportSnapshot(snapshot) {
     if (!snapshot.useLivePrice) return snapshot;
-    const view = viewWithQuote(snapshot.model, snapshot.lines, snapshot.currentIndex, snapshot.publishedAt, selectedQuote());
+    const view = viewWithQuote(snapshot.model, snapshot.lines, snapshot.currentIndex, snapshot.publishedAt, selectedQuote(snapshot.publishedAt));
     return { ...snapshot, model: view.model, series: view.series, currentIndex: view.endIndex, currentIso: view.model.rows[view.endIndex].date };
   }
   async function imageExport() {
     if (!model || exporting) return;
     finishScaleTransitions(); render();
-    const snapshot = liveExportSnapshot(exportSnapshot()), settings = { ...normalizeDownload(downloads.readControls()), quality: "2160" }, canvas = document.createElement("canvas");
+    const selection = exportSnapshot(), settings = { ...normalizeDownload(downloads.readControls()), quality: "2160" }, canvas = document.createElement("canvas");
     try {
       await window.WSBMovingAverageExport.ready(); await document.fonts.ready;
+      const snapshot = liveExportSnapshot(selection);
       drawOutput(canvas, snapshot, settings, snapshot.currentIndex);
       canvas.toBlob((blob) => { if (blob) download(blob, "png", snapshot); }, "image/png");
     } catch (error) { status(`Export failed: ${error.message}`, true); }
@@ -613,7 +614,7 @@
     const snapshot = exportSnapshot(), settings = normalizeDownload(downloads.readControls()), list = frames(settings), canvas = document.createElement("canvas");
     // Only the final motion frame and its hold receive a current quote. Capture
     // that projection once so incoming ticks cannot change held export frames.
-    let finalStart = 0, finalSnapshot = null;
+    let finalStart = settings.endFrameHold ? E.VIDEO_FPS : 0, finalSnapshot = null;
     list.forEach((index, frameIndex) => { if (index !== snapshot.currentIndex) finalStart = frameIndex + 1; });
     const wasPlaying = playing; pause(false); closeLineMenus(); exporting = true; cancelExport = false;
     const controls = new Map();

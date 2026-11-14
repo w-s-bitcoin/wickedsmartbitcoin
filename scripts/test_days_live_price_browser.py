@@ -25,6 +25,83 @@ def check(cdp, expression):
         raise AssertionError(result)
 
 
+def check_live_exports(cdp):
+    """Check real PNG/video snapshots while accepted quotes change during export."""
+    cdp.evaluate(r"""(() => {
+      const f=window.__daysExportFixture={errors:[],pngs:[],frames:[]};
+      f.unit=Math.max(1000000,Math.ceil(Number(document.querySelector('#athKpi').textContent.replace(/[^0-9.]/g,''))*2));
+      f.base=f.unit*2;
+      window.alert=message=>f.errors.push(message);
+      const now=Date.now;Date.now=()=>now()+10000;
+      f.emit=price=>window.__dcaTestSocket.emit(price,'BTC-USD',new Date(Date.now()).toISOString());
+      f.set=(id,value)=>{const input=document.getElementById(id);input.value=value;input.dispatchEvent(new Event('change',{bubbles:true}));};
+      f.end=document.querySelector('#endDateInput').max;
+      f.set('startDateInput',f.end);f.set('endDateInput',f.end);
+      document.querySelector('#downloadQualitySelect [data-value="720"]').click();
+      const text=CanvasRenderingContext2D.prototype.fillText;
+      CanvasRenderingContext2D.prototype.fillText=function(value,...args){
+        if(!this.canvas.id&&f.text)f.text.push(String(value));
+        return text.call(this,value,...args);
+      };
+      f.originalText=text;
+      WSBDashboardExport.downloadPng=async(canvas,filename)=>{
+        const image=await createImageBitmap(await new Promise(resolve=>canvas.toBlob(resolve)));
+        f.pngs.push({width:image.width,height:image.height,text:f.text.slice(),filename});image.close();
+      };
+      const ready=WSBDashboardExportBranding.ready;f.ready=ready;
+      WSBDashboardExportBranding.ready=async()=>{await ready();await new Promise(resolve=>{f.release=resolve;});};
+      const encode=WSBDashboardExport.encodeVideo;
+      WSBDashboardExport.encodeVideo=async options=>{
+        f.done=false;f.frames=[];f.finalPrice=f.base;f.base+=2*f.unit;
+        let finalStart=options.settings.endFrameHold?30:0;
+        options.frames.forEach((index,position)=>{if(index!==options.frames.at(-1))finalStart=position+1;});
+        f.finalStart=finalStart;
+        const blob=await encode({...options,renderFrame:async(index,canvas,position)=>{
+          if(position===finalStart)f.emit(f.finalPrice);
+          f.text=[];await options.renderFrame(index,canvas,position);
+          f.frames.push({index,text:f.text.slice()});
+          if(position===finalStart)f.emit(f.finalPrice+f.unit);
+        }});
+        f.bytes=blob?.size||0;f.done=true;return blob;
+      };
+      const click=HTMLAnchorElement.prototype.click;
+      HTMLAnchorElement.prototype.click=function(){if(!this.href.startsWith('blob:'))click.call(this);};
+      f.emit(f.unit/2);f.text=[];document.querySelector('#downloadImageBtn').click();
+    })()""")
+    wait_for(lambda: cdp.evaluate("!!window.__daysExportFixture.release"), description="Days PNG asset readiness gate")
+    cdp.evaluate("window.__daysExportFixture.emit(window.__daysExportFixture.unit);window.__daysExportFixture.release();WSBDashboardExportBranding.ready=window.__daysExportFixture.ready")
+    wait_for(lambda: cdp.evaluate("!document.querySelector('#downloadImageBtn').disabled"), timeout=45, description="Days live PNG")
+    png=cdp.evaluate("window.__daysExportFixture.pngs.at(-1)")
+    unit=cdp.evaluate("__daysExportFixture.unit")
+    price=lambda multiple: f"${unit*multiple:,.2f}"
+    assert [png["width"],png["height"]]==[3840,2160] and price(1) in png["text"], png
+
+    def video():
+        cdp.evaluate("window.__daysExportFixture.done=false;document.querySelector('#dateRangeDownloadBtn').click()")
+        wait_for(lambda: cdp.evaluate("window.__daysExportFixture.done&&!document.querySelector('#dateRangeDownloadBtn').classList.contains('is-exporting')"), timeout=60, description="Days encoded video")
+        result=cdp.evaluate("({frames:__daysExportFixture.frames,final:__daysExportFixture.finalPrice,bytes:__daysExportFixture.bytes,errors:__daysExportFixture.errors})")
+        assert result["bytes"]>0 and not result["errors"], result
+        return result
+
+    single=video()
+    assert len(single["frames"])==121, len(single["frames"])
+    assert all(price(2) not in frame["text"] for frame in single["frames"][:30]), single["frames"][0]
+    assert all(price(2) in frame["text"] and price(3) not in frame["text"] for frame in single["frames"][30:]), single["frames"][-1]
+    cdp.evaluate("__daysExportFixture.set('startDateInput',new Date(Date.parse(__daysExportFixture.end+'T00:00:00Z')-2*86400000).toISOString().slice(0,10));document.querySelector('#downloadEndFrameHoldToggle').click()")
+    motion=video()
+    assert len(motion["frames"])==3 and price(4) in motion["frames"][-1]["text"], motion
+    assert all(price(4) not in frame["text"] for frame in motion["frames"][:-1]), motion
+    cdp.evaluate("document.querySelector('#playBtn').click();document.querySelector('#pauseBtn').click();__daysExportFixture.text=[];document.querySelector('#downloadImageBtn').click()")
+    wait_for(lambda: cdp.evaluate("!document.querySelector('#downloadImageBtn').disabled"), timeout=45, description="Days paused historical PNG")
+    paused_png=cdp.evaluate("__daysExportFixture.pngs.at(-1)")
+    assert price(5) not in paused_png["text"], paused_png
+    assert cdp.evaluate("document.querySelector('#endDateInput').value") in paused_png["filename"], paused_png
+    paused=video()
+    assert len(paused["frames"])==1 and price(6) not in paused["frames"][0]["text"], paused
+    cdp.evaluate("document.querySelector('#stopBtn').click();CanvasRenderingContext2D.prototype.fillText=__daysExportFixture.originalText")
+    print("Days live exports passed: asset-ready 4K PNG, separate single-day final capture/frozen hold, no-hold latest video, paused historical PNG/video")
+
+
 def main():
     if not Path(CHROME).is_file():
         raise SystemExit(f"Chrome not found at {CHROME}; set CHROME_BIN")
@@ -111,6 +188,7 @@ def main():
                 return '';
               })()
             """)
+            check_live_exports(cdp)
             cdp.command("Page.navigate", {"url": f"http://127.0.0.1:{server_port}/webapps/days_since_ath/preview.html"})
             wait_for(lambda: cdp.evaluate("""
               document.querySelector('#daysSinceAthPreview')?.dataset.priceSource === 'published'
