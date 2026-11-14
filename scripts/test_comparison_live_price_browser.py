@@ -106,6 +106,8 @@ def check_live_exports(cdp):
       f.emit = price => window.__dcaTestSocket.emit(price, 'BTC-USD', new Date(Date.now()).toISOString());
       f.set('cadenceSelect', 'daily');
       f.set('dateRangeStartInput', f.end); f.set('dateRangeEndInput', f.end);
+      const hold=document.querySelector('#downloadEndFrameHoldToggle');
+      if(!hold.checked)hold.click();
       document.querySelector('#downloadQualitySelect [data-value="720"]').click();
       f.emit(90000);
       const originalText = CanvasRenderingContext2D.prototype.fillText;
@@ -400,7 +402,36 @@ def main():
                   ? 'retained quote changed the home card values' : '';
               })()
             """)
-            print("DCA Comparison dashboard and home card live quote regression passed.")
+            # Reproduce a publication that is several days behind the quote.
+            cdp.command("Page.navigate", {"url": f"http://127.0.0.1:{server_port}/webapps/dca_comparison/dashboard.html"})
+            wait_for(lambda: cdp.evaluate("!!document.querySelector('#assetAPrice')?.textContent && !!window.__dcaTestSocket"), timeout=60, description="lagged publication dashboard")
+            assert_browser(cdp, """(() => {
+              const set=(id,value)=>{const el=document.getElementById(id);el.value=value;el.dispatchEvent(new Event('change',{bubbles:true}));};
+              const end=document.querySelector('#dateRangeEndInput').max;
+              set('cadenceSelect','daily'); set('dateRangeEndInput',end);
+              const count=document.querySelector('#countKpi').textContent;
+              const invested=document.querySelector('#investedKpi').textContent;
+              const now=Date.parse(end+'T15:00:00Z')+3*86400000;
+              Date.now=()=>now; window.__comparisonRealNow=Date.now;
+              window.__dcaTestSocket.emit(90000,'BTC-USD',new Date(now).toISOString());
+              if(document.querySelector('#assetAPrice').textContent!=='$90,000')return 'publication gap disabled live BTC';
+              if(document.querySelector('#assetAPriceStatus').dataset.kind!=='live')return 'publication gap lost live status';
+              if(!document.querySelector('#updatedKpi').textContent.includes(new Date(now).toISOString().slice(0,10)))return 'Updated stayed on old publication';
+              if(document.querySelector('#countKpi').textContent!==count||document.querySelector('#investedKpi').textContent!==invested)return 'gap invented purchases';
+              return '';
+            })()""")
+            check_live_exports(cdp)
+            cdp.command("Page.navigate", {"url": f"http://127.0.0.1:{server_port}/webapps/dca_comparison/preview.html"})
+            wait_for(lambda: cdp.evaluate("document.querySelector('#comparisonPreview')?.dataset.priceSource==='live' && !!window.__dcaTestSocket"), timeout=60, description="lagged publication preview")
+            cdp.evaluate("""(() => {
+              const now=Date.now()+3*86400000;Date.now=()=>now;
+              const canvas=document.querySelector('#comparisonPreview');window.__gapPreviewBefore=canvas.toDataURL();
+              window.__dcaTestSocket.emit(190000,'BTC-USD',new Date(now).toISOString());
+            })()""")
+            # Gold is now retained while BTC is fresh, so the combined card can
+            # correctly report retained despite using the new BTC valuation.
+            wait_for(lambda: cdp.evaluate("document.querySelector('#comparisonPreview').dataset.priceSource!=='published' && document.querySelector('#comparisonPreview').toDataURL()!==window.__gapPreviewBefore"), timeout=10, description="live preview across publication gap")
+            print("DCA Comparison live quotes, exports and publication-gap regressions passed.")
         finally:
             chrome.terminate()
             try:

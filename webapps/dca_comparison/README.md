@@ -3,6 +3,11 @@
 Published Bitcoin, metal, and market-index history supplies the daily DCA model.
 `../shared/comparison_live_price.js` overlays accepted quotes for selected assets
 on the latest view. Earlier observations and published files remain unchanged.
+Live quotes continue updating valuation and Updated even when the publication
+is two or more days behind. In that case, one current valuation endpoint is
+added without inventing purchases for the missing history or repricing earlier
+purchases. The dashboard, homepage preview, PNG, and final video frame share
+this policy. The block height still identifies the published snapshot.
 
 ## PNG and video exports
 

@@ -67,8 +67,10 @@
     const targetDay = quoteDays.sort().at(-1);
     const gap = Math.round((Date.parse(`${targetDay}T00:00:00Z`)
       - Date.parse(`${latest.date}T00:00:00Z`)) / DAY_MS);
-    if (gap !== 0 && gap !== 1) return { rows, appliedQuotes: {} };
-    const live = { ...latest, date: targetDay, provisional: gap === 1 };
+    // A delayed publication must not disable current valuation. Across missing
+    // days, add only a valuation endpoint; their purchase prices are unknown.
+    const live = { ...latest, date: targetDay, provisional: gap > 0,
+      ...(gap > 1 ? { valuationOnly: true } : {}) };
     for (const [asset, quote] of Object.entries(accepted)) live[asset] = quote.price;
     return {
       rows: gap === 0 ? [...rows.slice(0, -1), live] : [...rows, live],
