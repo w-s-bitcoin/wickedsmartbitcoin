@@ -5,6 +5,23 @@ The dashboard converts selected currency pairs through USD using published
 `uoa_webapp_data_update.py` produces the FX publication; frontend fixes do not
 require running it or changing publication markers.
 
+## Cuban peso refresh
+
+CUP uses informal daily medians from elTOQUE TRMI via CUP=X. Hourly refreshes
+request three months of observations with a 20-second request timeout, then try
+one month if the request fails or returns no valid observations. The former
+two-year query repeatedly timed out even while shorter queries succeeded.
+
+The producer restores published informal CUP history before applying fresh
+observations, so a short response cannot expose official rates from the wider
+35-day Frankfurter revision window. Unreported days carry the last informal
+observation. If both requests fail, the primary FX update continues with the
+preserved informal series. `--cup-only` uses the same bounded requests and
+preserves other currencies and CUP history preceding the response window.
+
+Run `python3 -m unittest scripts.test_uoa_refresh_windows` with pandas installed
+to cover request fallback, response validation, history retention, and outages.
+
 ## Alternative cryptocurrencies
 
 ETH, BCH, and LTC first appeared in the October 26, 2026 automated data commit
