@@ -26,8 +26,10 @@ updates its price and moves that one observation between bands when needed.
 Completed days never change with a quote. A green dot means a recent quote;
 gray identifies retained or published values, with accessible source text.
 Updated follows the accepted quote, alongside the published block height.
-Historical and paused views use published prices. Latest PNGs freeze one quote;
-a video's final frame and ending hold share one captured quote.
+Historical and paused interactive views use published prices. Exports ending at
+the latest date refresh and capture a quote just before the PNG or final video
+frame is drawn, including explicitly selected or paused latest dates. The final
+frame and ending hold share that captured quote; earlier dates remain published.
 
 The shell uses the same shared end-date calendar, timeline, playback,
 export settings, timezone, Copy Link, and reset/undo components as the other
@@ -52,7 +54,9 @@ fixed-duration cap. At 0.5x each day repeats twice; 2x/4x sample every second/fo
 day while retaining halving boundaries, the Not Valued transition, and the
 selected endpoint. Duration estimates use the exact same frame list. Both holds
 show the final selected date (one second before the history and three after).
-The opening preview uses published data; the ending uses the final captured quote.
+The opening hold captures its own live quote; the final motion frame captures
+the newest available quote again and freezes it through the ending hold, even
+for a single-date video. The published history generation stays fixed throughout.
 During the opening Not Valued interval, exported frames keep a fixed timeline
 through the actual last unpriced day. The bottom line grows from genesis and
 meets the histogram only on that final Not Valued day, matching the notebook's

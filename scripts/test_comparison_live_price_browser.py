@@ -89,6 +89,107 @@ def assert_browser(cdp, expression):
         raise AssertionError(result)
 
 
+def check_live_exports(cdp):
+    """Encode real output while changing quotes between opening and final frames."""
+    cdp.evaluate(r"""(() => {
+      Date.now = window.__comparisonRealNow;
+      const f = window.__comparisonPriceFixture;
+      f.errors = []; f.pngs = []; f.done = false;
+      window.alert = message => f.errors.push(message);
+      f.set = (id, value) => {
+        const input = document.getElementById(id); input.value = value;
+        input.dispatchEvent(new Event('change', {bubbles:true}));
+      };
+      f.end = document.querySelector('#dateRangeEndInput').max;
+      f.start = document.querySelector('#dateRangeStartInput').value;
+      f.cadence = document.querySelector('#cadenceSelect').value;
+      f.emit = price => window.__dcaTestSocket.emit(price, 'BTC-USD', new Date(Date.now()).toISOString());
+      f.set('cadenceSelect', 'daily');
+      f.set('dateRangeStartInput', f.end); f.set('dateRangeEndInput', f.end);
+      document.querySelector('#downloadQualitySelect [data-value="720"]').click();
+      f.emit(90000);
+      const originalText = CanvasRenderingContext2D.prototype.fillText;
+      CanvasRenderingContext2D.prototype.fillText = function(text, ...args) {
+        if (this.canvas.id !== 'chartCanvas' && f.text) f.text.push(String(text));
+        return originalText.call(this, text, ...args);
+      };
+      f.originalText = originalText;
+      WSBDashboardExport.downloadPng = async(canvas, filename) => {
+        const image = await createImageBitmap(await new Promise(resolve => canvas.toBlob(resolve)));
+        f.pngs.push({width:image.width,height:image.height,text:f.text.slice(),filename});
+        image.close();
+      };
+      const ready = WSBDashboardExportBranding.ready;
+      WSBDashboardExportBranding.ready = async () => { await ready(); f.emit(100000); };
+      f.ready = ready;
+      const encode = WSBDashboardExport.encodeVideo;
+      WSBDashboardExport.encodeVideo = async options => {
+        f.frames = []; f.done = false;
+        const opening = options.settings.endFrameHold ? 30 : 0;
+        let finalStart = opening;
+        options.frames.forEach((date, position) => { if(date !== options.frames.at(-1)) finalStart=position+1; });
+        f.finalStart = finalStart;
+        const blob = await encode({...options, renderFrame: async(date, canvas, position) => {
+          if(position === finalStart) f.emit(110000);
+          f.text = [];
+          await options.renderFrame(date, canvas, position);
+          f.frames.push({date,text:f.text.slice()});
+          if(position === 0) f.emit(105000);
+          if(position === finalStart) f.emit(120000);
+        }});
+        f.videoBytes = blob?.size || 0;
+        f.done = true;
+        return blob;
+      };
+      const click = HTMLAnchorElement.prototype.click;
+      HTMLAnchorElement.prototype.click = function() {if(!this.href.startsWith('blob:'))click.call(this);};
+      f.text = [];
+      document.querySelector('#downloadImageBtn').click();
+    })()""")
+    wait_for(lambda: cdp.evaluate("!document.querySelector('#downloadImageBtn').disabled"), timeout=45, description="Comparison latest PNG")
+    png = cdp.evaluate("window.__comparisonPriceFixture.pngs.at(-1)")
+    assert png and [png["width"], png["height"]] == [3840, 2160] and "$100,000" in png["text"], png
+    cdp.evaluate("WSBDashboardExportBranding.ready=window.__comparisonPriceFixture.ready")
+
+    def video():
+        cdp.evaluate("window.__comparisonPriceFixture.emit(90000);window.__comparisonPriceFixture.done=false;document.querySelector('#dateRangeDownloadBtn').click()")
+        wait_for(lambda: cdp.evaluate("window.__comparisonPriceFixture.done && !document.querySelector('#dateRangeDownloadBtn').classList.contains('is-exporting')"), timeout=60, description="Comparison live video")
+        result = cdp.evaluate("({frames:window.__comparisonPriceFixture.frames,bytes:window.__comparisonPriceFixture.videoBytes,errors:window.__comparisonPriceFixture.errors})")
+        assert result["bytes"] > 0 and not result["errors"], result
+        return result["frames"]
+
+    single = video()
+    assert len(single) == 121, len(single)
+    assert all("$90,000" in frame["text"] for frame in single[:30]), single[0]
+    assert all("$110,000" in frame["text"] and "$120,000" not in frame["text"] for frame in single[30:]), single[-1]
+    cdp.evaluate("window.__comparisonPriceFixture.set('dateRangeStartInput',new Date(Date.parse(window.__comparisonPriceFixture.end+'T00:00:00Z')-2*86400000).toISOString().slice(0,10));document.querySelector('#downloadEndFrameHoldToggle').click()")
+    motion = video()
+    assert len(motion) == 3 and "$110,000" in motion[-1]["text"], motion[-1]
+    assert all("$90,000" not in frame["text"] and "$110,000" not in frame["text"] for frame in motion[:-1]), motion[:-1]
+    cdp.evaluate("window.__comparisonPriceFixture.set('dateRangeEndInput',new Date(Date.parse(window.__comparisonPriceFixture.end+'T00:00:00Z')-86400000).toISOString().slice(0,10))")
+    historical = video()
+    assert len(historical) == 2 and all("$110,000" not in frame["text"] for frame in historical), historical
+    cdp.evaluate("""(() => {
+      const f=window.__comparisonPriceFixture;
+      f.set('dateRangeEndInput',f.end);
+      document.querySelector('#dateRangePlayBtn').click();
+      document.querySelector('#dateRangePauseBtn').click();
+    })()""")
+    paused = video()
+    assert len(paused) == 1 and "$110,000" not in paused[0]["text"], paused
+    cdp.evaluate("document.activeElement?.blur();document.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}))")
+    paused_latest = video()
+    assert len(paused_latest) == 3 and "$110,000" in paused_latest[-1]["text"], paused_latest
+    cdp.evaluate("document.querySelector('#dateRangeStopBtn').click()")
+    cdp.evaluate("""(() => {
+      const f=window.__comparisonPriceFixture;
+      CanvasRenderingContext2D.prototype.fillText=f.originalText;
+      f.set('dateRangeStartInput',f.start);f.set('dateRangeEndInput',f.end);f.emit(90000);
+      f.set('cadenceSelect',f.cadence);
+    })()""")
+    print("DCA Comparison live exports passed: 4K PNG after asset readiness, single-day opening/final holds, latest/historical/paused video")
+
+
 def main():
     if not Path(CHROME).is_file():
         raise SystemExit(f"Chrome not found at {CHROME}; set CHROME_BIN")
@@ -221,6 +322,7 @@ def main():
                 return '';
               })()
             """)
+            check_live_exports(cdp)
             btc_tail[1] = f"{last_market_day} 15:01:00"
             btc_tail[2] = "88000"
             btc_tail[4] = str(int(btc_tail[4]) + 1)

@@ -249,9 +249,15 @@ as a capability fallback.
   and spaces. Keep the font size and anchor fixed across frames and output
   resolutions. Snapshot images may retain their quote/publication timestamps.
 - Freeze the data/settings used by an export. For dashboards offering a live
-  final frame, use published historical frames and capture one quote at the
-  start of the final frame, holding that quote and derived values through the
-  ending pause. Dashboards with published-only exports retain that policy. Do
+  price, determine eligibility from the selected visible endpoint: an explicitly
+  selected or paused latest date receives the current quote, while an earlier
+  date stays historical. PNGs capture the newest available quote after assets
+  are ready, immediately before drawing. Videos use published historical frames
+  and capture a fresh quote at the start of the final motion frame, holding that
+  quote and derived values through the ending pause. Keep that capture separate
+  from the opening hold, including when the selected range contains only one
+  date. Retain the last accepted quote during outages unless a newer publication
+  supersedes it. Dashboards with published-only exports retain that policy. Do
   not mix publication generations halfway through a render.
 - Moving Average's 30-degree labels, notebook-specific margins, prior-N-close
   SMA, and 16px interactive inset remain local contracts. They do not follow

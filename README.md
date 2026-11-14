@@ -53,9 +53,10 @@ Unit of Account, and Bitcoin Net Worth use the public `wss://2140data.io/`
 WebSocket. The 2140data.io `/price` endpoint is the first REST fallback. DCA,
 Days, Comparison, Moving Average, and Unit of Account use the shared Coinbase
 socket and public REST sources as the last fallback; Net Worth retains its
-previous Kraken calculation. In DCA Cost Basis, each accepted
-quote recalculates the current
-UTC day's modeled purchase and the rolling cost basis; earlier purchase prices
+previous Kraken calculation. In DCA Cost Basis, each accepted quote updates the
+current valuation, including weekly or monthly schedules whose last purchase
+was before today. It recalculates a modeled purchase and rolling cost basis only
+when the current UTC day is a scheduled purchase day; earlier purchase prices
 remain fixed. The last accepted quote stays visible through feed outages until a
 newer hourly publication replaces it. A green dot means a quote arrived within
 60 seconds; a gray dot marks a retained or published price. Published hourly data supplies historical
@@ -141,6 +142,14 @@ progress ring with a stop control.
 Every dashboard with animation download also offers a 2160-quality PNG of its
 current view, using the selected orientation, theme, and shared creator and
 Lightning donation footer.
+Price-bearing PNG exports ending at the latest date capture the newest available
+quote after export assets are ready. Latest-date videos capture it again when their
+final motion frame is rendered, then freeze it through the ending hold. This
+also applies to one-date ranges and explicitly selected or paused latest dates.
+An earlier visible playback date stays historical. DCA Cost Basis, Days Since
+ATH, DCA Comparison, Moving Average, EOE Growth, Unit of Account, Mined Supply
+& Price, and Price Distribution follow this policy; published history remains
+fixed throughout an export.
 
 ## Architecture
 

@@ -650,6 +650,7 @@
     ];
 
     if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+      frames.push(safeEnd);
       frames.push(...Array.from({ length: endHoldFrames }, () => safeEnd));
       return frames.length ? frames : [safeStart];
     }
@@ -698,7 +699,7 @@
     if (!el.downloadEstimateSize || !el.downloadEstimateLength || !el.downloadEstimateTime || !state.rows.length) return;
     const settings = normalizeDownloadSettings(readDownloadSettingsControls());
     const startIndex = Math.max(0, findIndex(state.startIso, "ceil"));
-    const endIndex = Math.max(startIndex, findIndex(state.endIso, "floor"));
+    const endIndex = Math.max(startIndex, findIndex(state.currentIso || state.endIso, "floor"));
     const frameIndices = buildExportFrameIndices(startIndex, endIndex, Number(settings.fps), settings.endFrameHold);
     const uniqueFrameCount = new Set(frameIndices).size;
     const videoSeconds = frameIndices.length / DATE_RANGE_EXPORT_VIDEO_FPS;
@@ -736,8 +737,7 @@
     return { ctx, width, height };
   }
 
-  function selectedDaysSpotQuote() {
-    const publishedAt = state.rows[state.rows.length - 1]?.timestamp;
+  function selectedDaysSpotQuote(publishedAt = state.rows[state.rows.length - 1]?.timestamp) {
     return spotFeed?.newerThan ? spotFeed.newerThan(publishedAt) : spotFeed?.current();
   }
 
@@ -1803,7 +1803,14 @@
 
   // The notebook uses a 1920 × 1080 composition, not the interactive chart's
   // axes and gutters. All coordinates below are logical pixels at that size.
+  function getExportSnapshot() {
+    return { rows: state.rows, startIso: state.startIso, endIso: state.currentIso || state.endIso,
+      startIndex: Math.max(0, findIndex(state.startIso, "ceil")),
+      showHalvings: state.showHalvings, showAthLabels: state.showAthLabels, showAthMarkers: state.showAthMarkers };
+  }
+
   function drawExportFrame(index, settings, canvas, options = {}) {
+    const snapshot = options.snapshot || getExportSnapshot();
     const output = getDownloadDimensions(settings);
     const logical = getDownloadDimensions(getExportReferenceLayoutSettings(settings));
     const { width, height } = logical;
@@ -1819,10 +1826,10 @@
     const orange = "#ff9900", green = "#469b54";
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, width, height);
-    const source = options.liveRows || state.rows;
-    const start = Math.max(0, findIndex(state.startIso, "ceil"));
+    const source = options.liveRows || snapshot.rows;
+    const start = snapshot.startIndex;
     const rows = source.slice(start, Math.max(start, index) + 1);
-    if (source.length > state.rows.length && index === state.rows.length - 1) rows.push(source[source.length - 1]);
+    if (source.length > snapshot.rows.length && index === snapshot.rows.length - 1) rows.push(source[source.length - 1]);
     if (!rows.length) return;
     const latest = rows[rows.length - 1];
     const compact = width <= height;
@@ -1895,7 +1902,7 @@
       const bottomInset = Math.max(19, h * .025 / 1.093);
       const baseline = y + h - bottomInset, spanY = h - topInset - bottomInset;
       const minX = price ? rows[0].height : Date.parse(rows[0].date);
-      const firstValued = state.rows.find((row) => !isNotValued(row.price)) || latest;
+      const firstValued = snapshot.rows.find((row) => !isNotValued(row.price)) || latest;
       const maxX = Math.max(minX + (price ? 1 : 86400000),
         price ? Math.max(latest.height, firstValued.height) : Math.max(Date.parse(latest.date), Date.parse(firstValued.date)));
       const xValue = (value) => left + (value - minX) / (maxX - minX) * spanX;
@@ -1922,7 +1929,7 @@
       };
       ctx.save();
       ctx.beginPath(); ctx.rect(x, y + 32, w, h - 32); ctx.clip();
-      if (state.showHalvings) {
+      if (snapshot.showHalvings) {
         HALVINGS.forEach((halving) => {
           if (halving.date < rows[0].date || halving.date > latest.date) return;
           const hx = xValue(price ? halving.height : Date.parse(halving.date));
@@ -1947,14 +1954,14 @@
         line(orange, 2.1, (row) => yPrice(exportPrice(row)), true);
         line(orange, 2.7, (row) => yPrice(exportPrice(row)), false);
       } else line(orange, 2.7, (row) => yDays(row.daysSinceAth));
-      if (price && state.showHalvings) {
+      if (price && snapshot.showHalvings) {
         HALVINGS.forEach((halving) => {
           if (halving.date < rows[0].date || halving.date > latest.date) return;
           ctx.save(); ctx.translate(xValue(halving.height) - 13, baseline - 3); ctx.rotate(-Math.PI / 2);
           text(halving.label, 0, 0, 19); ctx.restore();
         });
       }
-      if (state.showAthLabels) {
+      if (snapshot.showAthLabels) {
         const labels = price ? filteredCompletedAthLabels(cycles, "athDate", latest.athDate) : cycles;
         const boxes = [];
         labels.forEach((cycle) => {
@@ -1968,7 +1975,7 @@
           boxes.push(box); outlineLabel(label, px, py);
         });
       }
-      if (state.showAthMarkers && !isNotValued(latest.price)) {
+      if (snapshot.showAthMarkers && !isNotValued(latest.price)) {
         const ath = rowByDate.get(latest.athDate);
         if (ath) {
           triangle(xRow(ath), price ? baseline - spanY * 1.017 : baseline + spanY * .01, !price);
@@ -1992,12 +1999,14 @@
     branding.drawFooter(ctx, "days_since_ath", { width, height, footerHeight }, settings);
   }
 
-  async function encodeAnimationVideo(settings, frameIndices) {
+  async function encodeAnimationVideo(settings, frameIndices, snapshot = getExportSnapshot()) {
     const { width, height } = getDownloadDimensions(settings);
     const exportCanvas = document.createElement("canvas");
     const finalIndex = frameIndices[frameIndices.length - 1];
     const lastHistoricalFrame = frameIndices.reduce((last, index, frame) => index !== finalIndex ? frame : last, -1);
-    const liveFinalStart = finalIndex === state.rows.length - 1 ? lastHistoricalFrame + 1 : -1;
+    const liveFinalStart = finalIndex === snapshot.rows.length - 1
+      ? Math.max(settings.endFrameHold ? DATE_RANGE_EXPORT_START_HOLD_SECONDS * DATE_RANGE_EXPORT_VIDEO_FPS : 0,
+        lastHistoricalFrame + 1) : -1;
     let finalLiveRows = null;
     const blob = await window.WSBDashboardExport.encodeVideo({
       canvas: exportCanvas,
@@ -2011,11 +2020,11 @@
         if (liveFinalStart >= 0 && frame >= liveFinalStart) {
           if (!finalLiveRows) {
             // Hold one quote generation through the final motion frame and pause.
-            finalLiveRows = ATH_LIVE?.withQuote(state.rows, selectedDaysSpotQuote(), Date.now(), observedSpotHigh) || state.rows;
+            finalLiveRows = ATH_LIVE?.withQuote(snapshot.rows, selectedDaysSpotQuote(snapshot.rows.at(-1)?.timestamp), Date.now(), observedSpotHigh) || snapshot.rows;
           }
-          drawExportFrame(index, settings, exportCanvas, { liveRows: finalLiveRows });
+          drawExportFrame(index, settings, exportCanvas, { liveRows: finalLiveRows, snapshot });
         } else {
-          drawExportFrame(index, settings, exportCanvas);
+          drawExportFrame(index, settings, exportCanvas, { snapshot });
         }
       },
       isCanceled: () => dateRangeExportCancelRequested,
@@ -2025,11 +2034,11 @@
     return blob;
   }
 
-  function downloadBlob(blob, settings) {
+  function downloadBlob(blob, settings, snapshot = getExportSnapshot()) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     const charts = settings.chartMode === "both" ? "both" : settings.chartMode === "left" ? "price" : "days";
-    link.download = `days-since-ath-${charts}-${state.startIso}-${state.endIso}.${window.WSBDashboardExport.videoExtension(blob)}`;
+    link.download = `days-since-ath-${charts}-${snapshot.startIso}-${snapshot.endIso}.${window.WSBDashboardExport.videoExtension(blob)}`;
     link.href = url;
     document.body.appendChild(link);
     link.click();
@@ -2043,16 +2052,17 @@
     button.disabled = true;
     try {
       const settings = { ...normalizeDownloadSettings(readDownloadSettingsControls()), quality: "2160" };
-      const index = Math.max(0, findIndex(state.endIso, "floor"));
-      const liveRows = index === state.rows.length - 1
-        ? ATH_LIVE?.withQuote(state.rows, selectedDaysSpotQuote(), Date.now(), observedSpotHigh) || state.rows
-        : null;
+      const snapshot = getExportSnapshot();
+      const index = Math.max(0, findIndex(snapshot.endIso, "floor"));
       scaleTransitions.finish();
       await waitForExportFonts();
       const canvas = document.createElement("canvas");
-      drawExportFrame(index, settings, canvas, { liveRows });
+      const liveRows = index === snapshot.rows.length - 1
+        ? ATH_LIVE?.withQuote(snapshot.rows, selectedDaysSpotQuote(snapshot.rows.at(-1)?.timestamp), Date.now(), observedSpotHigh) || snapshot.rows
+        : null;
+      drawExportFrame(index, settings, canvas, { liveRows, snapshot });
       const charts = settings.chartMode === "both" ? "both" : settings.chartMode === "left" ? "price" : "days";
-      await window.WSBDashboardExport.downloadPng(canvas, `days-since-ath-${charts}-${state.startIso}-${state.endIso}.png`);
+      await window.WSBDashboardExport.downloadPng(canvas, `days-since-ath-${charts}-${snapshot.startIso}-${snapshot.endIso}.png`);
     } catch (error) {
       console.error("Unable to export Days Since ATH image.", error);
       window.alert?.(error?.message || "Unable to export image.");
@@ -2075,8 +2085,9 @@
     const settings = normalizeDownloadSettings(readDownloadSettingsControls());
     downloadSettings = settings;
     persistDownloadSettingsFromControls();
-    const startIndex = Math.max(0, findIndex(state.startIso, "ceil"));
-    const endIndex = Math.max(startIndex, findIndex(state.endIso, "floor"));
+    const snapshot = getExportSnapshot();
+    const startIndex = snapshot.startIndex;
+    const endIndex = Math.max(startIndex, findIndex(snapshot.endIso, "floor"));
     const frameIndices = buildExportFrameIndices(startIndex, endIndex, Number(settings.fps), settings.endFrameHold);
     scaleTransitions.finish();
     render();
@@ -2086,10 +2097,10 @@
     renderDateRangeDownloadButtonProgress(0);
     try {
       await waitForExportFonts();
-      const blob = await encodeAnimationVideo(settings, frameIndices);
+      const blob = await encodeAnimationVideo(settings, frameIndices, snapshot);
       if (blob && !dateRangeExportCancelRequested) {
         renderDateRangeDownloadButtonProgress(1);
-        downloadBlob(blob, settings);
+        downloadBlob(blob, settings, snapshot);
       }
     } catch (error) {
       console.error("Unable to export Days Since ATH animation.", error);

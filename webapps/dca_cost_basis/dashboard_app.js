@@ -1425,8 +1425,7 @@ function getFrameRows(startIso = state.dateRange.startIso, endIso = state.dateRa
   const cache = model.cadenceCaches[model.cadence] || model.cadenceCaches.daily_dca;
   const endRow = priceRows[endIdx];
   const latestPublishedIndex = priceRows.length - 1;
-  const liveQuote = useLiveSpot && (model.dateRange.rangeTracksLatestEnd || liveQuoteOverride !== undefined)
-    && !model.dateRange.isPlaying && !model.dateRange.isPaused && endIdx === latestPublishedIndex
+  const liveQuote = useLiveSpot && !model.dateRange.isPlaying && !model.dateRange.isPaused && endIdx === latestPublishedIndex
     ? (liveQuoteOverride !== undefined ? liveQuoteOverride : selectedDcaSpotQuote()) : null;
   const currentPrice = liveQuote?.price || endRow.price;
   const quoteDay = liveQuote ? new Date(liveQuote.at).toISOString().slice(0, 10) : "";
@@ -2912,7 +2911,8 @@ function getDateRangeExportBitrate(settings) {
 async function encodeDateRangeAnimationVideo({ canvas, ctx, settings, theme, palette, frameDates, snapshot = getDcaExportSnapshot() }) {
   const finalDate = frameDates[frameDates.length - 1];
   const liveFinalFrameStart = finalDate === snapshot.priceRows.at(-1)?.dateIso
-    ? getDateRangeFinalFrameStartIndex(frameDates) : -1;
+    ? Math.max(settings.endFrameHold ? EXPORT_START_HOLD_SECONDS * EXPORT_VIDEO_FPS : 0,
+      getDateRangeFinalFrameStartIndex(frameDates)) : -1;
   let finalFrameRows = null;
   let finalQuote = null;
   return window.WSBDashboardExport.encodeVideo({
@@ -2931,7 +2931,7 @@ async function encodeDateRangeAnimationVideo({ canvas, ctx, settings, theme, pal
       if (useLiveFinalFrame && !finalFrameRows) {
         // Capture the newest accepted quote when the final motion frame begins.
         // Reuse it through the final hold so its chart and labels stay consistent.
-        finalQuote = selectedDcaSpotQuote() || null;
+        finalQuote = selectedDcaSpotQuote(snapshot.metadata?.source?.latest_timestamp_utc) || null;
         finalFrameRows = getFrameRows(snapshot.dateRange.startIso, finalDate, true, finalQuote, snapshot);
       }
       const rows = useLiveFinalFrame ? finalFrameRows : getFrameRows(snapshot.dateRange.startIso, dateIso, false, null, snapshot);
@@ -2975,12 +2975,8 @@ async function downloadDateRangeImage() {
   if (isDateRangeExporting || !state.priceRows.length) return;
   const settings = { ...normalizeDownloadSettings(state.downloadSettings), quality: "2160" };
   const snapshot = getDcaExportSnapshot();
-  // Freeze the exact visible view before awaiting assets. Paused history stays historical.
-  const quote = !state.dateRange.isPaused && !state.dateRange.isPlaying
-    && state.dateRange.rangeTracksLatestEnd && snapshot.dateRange.endIso === snapshot.priceRows.at(-1)?.dateIso
-    ? selectedDcaSpotQuote() : null;
-  const rows = getFrameRows(snapshot.dateRange.startIso, snapshot.dateRange.endIso, !!quote, quote, snapshot);
-  if (!rows.length) return;
+  // Freeze the selection and publication now; capture the latest quote only
+  // after the export assets are ready, immediately before drawing the image.
   isDateRangeExporting = true;
   isImageExporting = true;
   broadcastDateRangeExportActive(true);
@@ -2992,6 +2988,10 @@ async function downloadDateRangeImage() {
     canvas.width = width; canvas.height = height;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Canvas rendering is unavailable.");
+    const quote = snapshot.dateRange.endIso === snapshot.priceRows.at(-1)?.dateIso
+      ? selectedDcaSpotQuote(snapshot.metadata?.source?.latest_timestamp_utc) : null;
+    const rows = getFrameRows(snapshot.dateRange.startIso, snapshot.dateRange.endIso, !!quote, quote, snapshot);
+    if (!rows.length) return;
     await drawExportFrame(ctx, canvas, snapshot.dateRange.endIso, settings, null, rows,
       getDcaExportFrameOptions(rows, settings, snapshot, quote));
     const blob = await new Promise((resolve, reject) => canvas.toBlob(
@@ -3285,9 +3285,9 @@ function getVisibleHalvings(rows, maxDays) {
     .filter((h) => Number.isFinite(h.daysAgo) && h.daysAgo >= 1 && h.daysAgo <= maxDays);
 }
 
-function selectedDcaSpotQuote() {
+function selectedDcaSpotQuote(publishedAt = state.metadata?.source?.latest_timestamp_utc) {
   return dcaSpotFeed?.newerThan
-    ? dcaSpotFeed.newerThan(state.metadata?.source?.latest_timestamp_utc)
+    ? dcaSpotFeed.newerThan(publishedAt)
     : dcaSpotFeed?.current();
 }
 

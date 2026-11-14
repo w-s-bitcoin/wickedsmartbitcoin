@@ -84,6 +84,7 @@ function fixture() {
     unbindDateRangePlaybackOutsidePointerActions = () => {};
     globalThis.api = {
       state, buildCadenceCaches, getFrameRows, getDateRangeExportEndIso,
+      getFilteredRows,
       getDcaExportSnapshot, getDcaExportFrameOptions,
       getDownloadVideoSeconds, getDateRangeExportFrameDates,
       downloadDateRangeImage, downloadDateRangeAnimation, encodeDateRangeAnimationVideo,
@@ -163,7 +164,7 @@ test("paused PNG and video use the visible published date, with matching estimat
   assert.equal(f.alerts.length, 0);
 });
 
-test("PNG freezes visible data, quote time, settings, and file name while assets load", async () => {
+test("PNG freezes selection while assets load, then captures the newest quote", async () => {
   const f = fixture(), ready = deferred();
   const quote = { price: 800, at: Date.parse(`${day}T20:01:00Z`) };
   f.api.setQuote(quote);
@@ -187,9 +188,9 @@ test("PNG freezes visible data, quote time, settings, and file name while assets
   assert.equal(f.downloads.length, 1);
   assert.match(f.downloads[0].filename, /2026-03-11-2026-03-13-landscape-2160p\.png$/);
   const record = f.renders.at(-1), options = record[6];
-  assert.equal(record[5][0].currentPrice, 800);
-  assert.equal(record[5][0].dcaBasis, 800);
-  assert.equal(options.timestamp, quote.at, "same-day live header follows its frozen quote, not the publication time");
+  assert.equal(record[5][0].currentPrice, 1600);
+  assert.equal(record[5][0].dcaBasis, 1600);
+  assert.equal(options.timestamp, quote.at + 60_000, "same-day live header follows the quote captured after assets load");
   assert.equal(options.height, 940548, "live quotes preserve the published snapshot block height");
   assert.equal(options.cadence, "daily_dca");
   assert.equal(options.showHalvings, true);
@@ -197,6 +198,16 @@ test("PNG freezes visible data, quote time, settings, and file name while assets
   assert.equal(options.scale, "linear");
   assert.equal(options.theme, "dark");
   assert.equal(f.controls.get("downloadImageBtn").getAttribute("aria-busy"), "false");
+});
+
+test("pinned or paused latest-date PNGs still use the newest quote", async () => {
+  const f = fixture();
+  Object.assign(f.api.state.dateRange, { rangeTracksLatestEnd: false, isPaused: true });
+  f.api.setQuote({ price: 800, at: Date.parse(`${day}T20:00:00Z`) });
+  await f.api.downloadDateRangeImage();
+  assert.equal(f.renders.at(-1)[5][0].currentPrice, 800);
+  assert.equal(f.api.state.dateRange.isPaused, true);
+  assert.equal(f.api.state.dateRange.rangeTracksLatestEnd, false);
 });
 
 test("video captures one final quote and preserves its rows and timestamp through the hold", async () => {
@@ -236,6 +247,58 @@ test("video captures one final quote and preserves its rows and timestamp throug
     assert.equal(record[6].cadence, "daily_dca");
   }
 });
+
+test("one-date video captures a fresh final quote after its opening hold", async () => {
+  const f = fixture();
+  f.api.state.dateRange.startIso = day;
+  f.api.state.downloadSettings.endFrameHold = true;
+  f.api.setQuote({ price: 800, at: Date.parse(`${day}T20:00:00Z`) });
+  const snapshot = f.api.getDcaExportSnapshot();
+  f.window.WSBDashboardExport.encodeVideo = async options => {
+    for (let index = 0; index < options.frames.length; index++) {
+      if (index === 30) f.api.setQuote({ price: 1600, at: Date.parse(`${day}T20:01:00Z`) });
+      if (index === 31) f.api.setQuote({ price: 3200, at: Date.parse(`${day}T20:02:00Z`) });
+      await options.renderFrame(options.frames[index], options.canvas, index);
+    }
+  };
+  await f.api.encodeDateRangeAnimationVideo({ canvas: { width: 1280, height: 720 }, ctx: {},
+    settings: { ...f.api.state.downloadSettings }, theme: "dark", palette: {},
+    frameDates: f.api.getDateRangeExportFrameDates(day, day, 1, true), snapshot,
+  });
+  assert.equal(f.renders.length, 121);
+  assert.ok(f.renders.slice(0, 30).every(record => record[5][0].currentPrice === 400));
+  assert.ok(f.renders.slice(30).every(record => record[5][0].currentPrice === 1600));
+});
+
+for (const cadence of ["daily_dca", "weekly_dca", "monthly_dca"]) {
+  test(`${cadence} values the latest selection at live spot independently of its last purchase`, async () => {
+    const f = fixture(), end = "2026-03-09"; // Monday, after Friday and the first of the month.
+    f.api.state.priceRows = Array.from({ length: 9 }, (_, index) => {
+      const dateIso = `2026-03-${String(index + 1).padStart(2, "0")}`;
+      return { dateIso, timestampUtc: `${dateIso}T19:00:00Z`, blockHeight: 940000 + index,
+        price: 100 * (index + 1), utcDay: new Date(`${dateIso}T00:00:00Z`).getUTCDay(), monthDay: index + 1 };
+    });
+    f.api.state.cadenceCaches = f.api.buildCadenceCaches(f.api.state.priceRows);
+    f.api.state.cadence = cadence;
+    Object.assign(f.api.state.dateRange, { startIso: "2026-03-01", endIso: end, currentEndIso: end, rangeTracksLatestEnd: false });
+    const original = f.api.getFrameRows();
+    f.api.setQuote({ price: 1800, at: Date.parse(`${end}T20:00:00Z`) });
+    const liveRows = f.api.getFilteredRows();
+    assert.ok(liveRows.every(row => row.currentPrice === 1800));
+    if (cadence !== "daily_dca") {
+      assert.deepEqual(liveRows.map(row => [row.dcaBasis, row.purchaseCount, row.btcAccum]),
+        original.map(row => [row.dcaBasis, row.purchaseCount, row.btcAccum]), "a non-purchase day must not reprice earlier buys");
+      assert.equal(liveRows[0].dcaBasis, cadence === "weekly_dca" ? 600 : 100);
+    }
+    await f.api.downloadDateRangeImage();
+    assert.ok(f.renders.at(-1)[5].every(row => row.currentPrice === 1800));
+    f.api.setQuote({ price: 2700, at: Date.parse(`${end}T20:01:00Z`) });
+    await f.api.downloadDateRangeAnimation();
+    assert.ok(f.renders.at(-1)[5].every(row => row.currentPrice === 2700));
+    if (cadence !== "daily_dca") assert.equal(f.renders.at(-1)[5][0].dcaBasis, cadence === "weekly_dca" ? 600 : 100);
+    assert.equal(f.alerts.length, 0);
+  });
+}
 
 test("missing assets and unavailable canvas recover export controls for a retry", async () => {
   const f = fixture();

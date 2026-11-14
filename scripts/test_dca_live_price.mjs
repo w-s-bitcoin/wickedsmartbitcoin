@@ -29,6 +29,7 @@ async function testDcaValuation() {
   };
   vm.createContext(sandbox);
   vm.runInContext(readFileSync(new URL('webapps/shared/dashboard_charting.js', root), 'utf8'), sandbox);
+  vm.runInContext(readFileSync(new URL('webapps/shared/dashboard_export.js', root), 'utf8'), sandbox);
   vm.runInContext(app.replace(/\binit\(\);\s*$/, `
     globalThis.testDca = {
       state, buildCadenceCaches, buildPriceRowsFromSeries, getFrameRows,
@@ -67,7 +68,8 @@ async function testDcaValuation() {
   assert.ok(Math.abs(rows[1].dcaBasis - 133.33333333333334) < 1e-8);
 
   state.dateRange.rangeTracksLatestEnd = false;
-  assert.equal(getFrameRows(yesterday, today, true)[0].currentPrice, 200, 'fixed historical range ignores live spot');
+  assert.equal(getFrameRows(yesterday, today, true)[0].currentPrice, 400, 'pinned latest date still uses live spot');
+  assert.equal(getFrameRows(yesterday, yesterday, true)[0].currentPrice, 100, 'earlier dates remain historical');
   state.dateRange.rangeTracksLatestEnd = true;
   state.priceRows[0].dateIso = twoDaysAgo;
   state.priceRows[1].dateIso = yesterday;
@@ -101,8 +103,8 @@ async function testDcaValuation() {
   setQuote({ price: 1200, source: 'Coinbase live', at: Date.now() });
   rows = getFrameRows(twoDaysAgo, yesterday, true, frozenQuote);
   assert.equal(rows[0].dcaBasis, 800, 'the export can freeze the final live quote');
-  assert.equal(getFrameRows(twoDaysAgo, yesterday, true)[0].dcaBasis, 200,
-    'a fixed on-screen historical range remains published');
+  assert.equal(getFrameRows(twoDaysAgo, yesterday, true)[0].dcaBasis, 1200,
+    'a pinned latest on-screen range uses the newest live quote');
   assert.equal(getDateRangeFinalFrameStartIndex([yesterday, twoDaysAgo, yesterday, yesterday]), 2,
     'the initial hold remains historical and the final motion frame begins the live hold');
   assert.equal(getDateRangeFinalFrameStartIndex([yesterday]), 0);

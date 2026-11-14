@@ -17,6 +17,7 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 
 from daily_history_tooltip_checks import check_tooltips
+from daily_history_export_checks import check_live_exports
 from browser_cdp import CdpSocket, QuietHandler, free_port, wait_for
 from capture_card_fallbacks import capture_workspace, close_browser, find_chrome
 
@@ -34,7 +35,7 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
       Object.defineProperty(window, 'WSBBitcoinSpotPrice', { configurable: true,
         set(api) {
           let quote = null, live = false, callback;
-          const feed = { start() {}, stop() {}, refresh: async () => quote,
+          const feed = { start() {}, stop() {}, refresh: async () => { await window.__spotRefresh?.(); return quote; },
             current: () => live ? quote : null, last: () => quote, isLive: () => live,
             newerThan: (at) => quote && quote.at > Date.parse(at || 0) ? quote : null };
           api.create = ({ onQuote }) => { callback = onQuote; return feed; };
@@ -301,6 +302,7 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
       const observed = [];
       const publishedPrice = WSBPriceDistributionChart.parse(await (await fetch('../../assets/daily_price.csv')).text()).at(-1).price;
       let milestonesPreserved = false;
+      window.__spotEmit(234567.89);
       WSBPriceDistributionChart.render = (ctx, width, height, rows, index, options) => {
         if (options.export) observed.push({index, price: rows[index].price});
         return originalRender(ctx, width, height, rows, index, options);
@@ -329,8 +331,10 @@ def check(cdp: CdpSocket, origin: str, artifact_dir: Path | None = None) -> None
     assert frozen["recovered"] and frozen["milestonesPreserved"] and len(frozen["observed"]) == 3, frozen
     assert cdp.evaluate("document.getElementById('startDateBtn').disabled && !document.getElementById('dateRangeStartSlider')"), "Export recovery unlocked Start"
     assert frozen["observed"][0]["index"] == frozen["observed"][-1]["index"], frozen
-    assert frozen["observed"][0]["price"] == frozen["publishedPrice"], frozen
+    assert frozen["observed"][0]["price"] == 234567.89, frozen
     assert [row["price"] for row in frozen["observed"][1:]] == [345678.90, 345678.90], frozen
+
+    check_live_exports(cdp, origin, "price_distribution", "WSBPriceDistributionDashboard", "WSBPriceDistributionChart")
 
     videos = cdp.evaluate("""(async () => {
       const rows = WSBPriceDistributionChart.parse(await (await fetch('../../assets/daily_price.csv')).text());

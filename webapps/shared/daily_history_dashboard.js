@@ -335,11 +335,15 @@ window.WSBDailyHistoryDashboard = function (config) {
   async function runExport(kind) {
     if (!rows.length || exporting) { if (exporting) { cancelExport = true; $("downloadVideo").classList.add("is-canceling"); } return; }
     clearHover(); draw();
-    const allowLive = usesLivePrice();
+    // Export eligibility follows the selected endpoint, including an explicitly
+    // selected or paused latest date. Interactive playback keeps its own policy.
+    let allowLive = !blockTimeline && index === rows.length - 1;
+    const followLatest = tracksLatest && playbackTarget === null;
     pausePlayback(); exporting = true; cancelExport = false; setMenu(false); pickers?.startPicker.closePopup(); pickers?.endPicker.closePopup();
     let source = rows.slice(), frame = index, exportPublishedAt = publishedAt;
     const settings = { ...exportSettings(kind === "png" ? "2160" : downloads.getSettings().quality), startIndex, exportKind: kind };
     const exportStartDate = rows[startIndex].iso;
+    const exportEndDate = rows[index].iso;
     const { width, height } = E.getDimensions(settings), output = document.createElement("canvas"); output.width = width; output.height = height;
     lockControls(true);
     if (kind === "video") E.renderProgress($("downloadVideo"), 0);
@@ -348,32 +352,44 @@ window.WSBDailyHistoryDashboard = function (config) {
     try {
       await B.ready();
       if (cancelExport) return;
-      if (config.freezeExportSnapshot && allowLive) {
+      if (config.refreshExportHistory && allowLive) {
         try {
           const candidate = await prepareHistory();
           if (olderHistory(candidate)) throw new Error("New history is older than the displayed version.");
-          source = candidate.rows; frame = source.length - 1; exportPublishedAt = candidate.publishedAt;
+          source = candidate.rows; exportPublishedAt = candidate.publishedAt;
+          frame = followLatest ? source.length - 1 : Chart.latestIndexAtDate(source, exportEndDate);
+          allowLive = frame === source.length - 1;
           if (config.editableStart) settings.startIndex = Math.min(frame, Chart.latestIndexAtDate(source, exportStartDate));
         } catch (error) {
           status.textContent = `Update unavailable; exporting the last complete history. ${error.message}`;
         }
         if (cancelExport) return;
-        try { await spotFeed?.refresh(); } catch (_) { /* Retain the last accepted quote. */ }
-        if (cancelExport) return;
       }
-      let finalSource = null;
-      const finalRows = () => finalSource || (finalSource = allowLive ? Chart.withLiveQuote(source, spotFeed?.newerThan(exportPublishedAt)) : source);
-      if (config.freezeExportSnapshot) finalRows();
-      if (kind === "png") { renderExport(output.getContext("2d"), width, height, finalRows(), frame, settings); await E.downloadPng(output, `${config.slug}_${source[frame].iso}.png`); }
+      async function captureRows() {
+        if (!allowLive) return source;
+        try { await spotFeed?.refresh(); } catch (_) { /* Retain the last accepted quote. */ }
+        return Chart.withLiveQuote(source, spotFeed?.newerThan(exportPublishedAt));
+      }
+      if (kind === "png") {
+        const imageRows = await captureRows();
+        if (cancelExport) return;
+        renderExport(output.getContext("2d"), width, height, imageRows, frame, settings);
+        await E.downloadPng(output, `${config.slug}_${source[frame].iso}.png`);
+      }
       else {
         const frames = frameIndices(source, frame, settings.startIndex, settings);
-        // A frozen snapshot gives both holds the same endpoint. Other dashboards
-        // retain their final-motion-frame capture policy.
-        const finalMotionStart = Math.max(settings.endHold ? E.VIDEO_FPS : 0,
+        const openingFrames = settings.endHold ? E.VIDEO_FPS : 0;
+        // Even a one-date video has separate opening and final snapshots.
+        const finalMotionStart = Math.max(openingFrames,
           frames.findLastIndex((index) => index !== frame) + 1);
+        let openingSource = null, finalSource = null;
         const blob = await E.encodeVideo({ canvas: output, width, height, fps: E.VIDEO_FPS, settings, frames, title: config.title, isCanceled: () => cancelExport,
-          renderFrame: (frameIndex, targetCanvas, position) => renderExport(targetCanvas.getContext("2d"), width, height,
-            (config.freezeExportSnapshot ? frameIndex === frame : position >= finalMotionStart) ? finalRows() : source, frameIndex, settings),
+          renderFrame: async (frameIndex, targetCanvas, position) => {
+            let frameSource = source;
+            if (position < openingFrames) frameSource = openingSource || (openingSource = await captureRows());
+            else if (position >= finalMotionStart) frameSource = finalSource || (finalSource = await captureRows());
+            if (!cancelExport) renderExport(targetCanvas.getContext("2d"), width, height, frameSource, frameIndex, settings);
+          },
           onProgress: (fraction) => E.renderProgress($("downloadVideo"), fraction) });
         if (!cancelExport) {
           if (!blob) throw new Error("This browser cannot encode the selected video size.");

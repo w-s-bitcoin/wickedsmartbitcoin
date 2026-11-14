@@ -1277,11 +1277,21 @@ def check_live_price(cdp, direct):
 
     start=dashboard(cdp, "return w.WSBMovingAverageDashboard.getModel().rows.at(-3).date;")
     set_input(cdp,"#startDateInput",start,"change")
+    # A paused latest selection still exports the current quote, including a
+    # newer tick received while bundled export assets are becoming ready.
+    click(cdp,"#playBtn"); click(cdp,"#pauseBtn")
+    set_input(cdp,"#dateRangeEndSlider",baseline["count"]-1)
+    dashboard(cdp,"""
+      w.__maFixture.exportReady=w.WSBMovingAverageExport.ready;
+      w.WSBMovingAverageExport.ready=async()=>{await w.__maFixture.exportReady();await new Promise(resolve=>{w.__maFixture.releaseExport=resolve;});};
+    """)
     click(cdp,"#downloadImageBtn")
+    wait_for(lambda: dashboard(cdp,"return !!w.__maFixture.releaseExport;"),description="PNG waiting for assets")
+    dashboard(cdp,f"w.__maFixture.now={published_at+250};w.__maFixture.socket.emit({quoted+12},new Date({published_at+250}).toISOString());w.__maFixture.releaseExport();w.WSBMovingAverageExport.ready=w.__maFixture.exportReady;")
     wait_for(lambda: dashboard(cdp,"return w.__maFixture.downloads.some(item=>item.name.endsWith('.png'));"),description="live PNG")
     png_frame=dashboard(cdp,"return w.__maFixture.liveExports.at(-1);")
-    assert png_frame["row"]["price"] == quoted+11
-    assert all(abs(value-live["averages"][i]-11/baseline["periods"][i]) < .000001 for i,value in enumerate(png_frame["series"])), png_frame
+    assert png_frame["row"]["price"] == quoted+12
+    assert all(abs(value-live["averages"][i]-12/baseline["periods"][i]) < .000001 for i,value in enumerate(png_frame["series"])), png_frame
     click(cdp,"#dateRangeSettingsBtn")
     dashboard(cdp,"const input=d.querySelector('#downloadEndFrameHoldToggle');input.checked=true;input.dispatchEvent(new w.Event('change',{bubbles:true}));")
     click(cdp,'#downloadFpsSelect button[data-value="60"]')
@@ -1308,6 +1318,7 @@ def check_live_price(cdp, direct):
     assert len(final_frames) > 1 and all(frame["row"]["price"] == quoted+22 and frame["live"] for frame in final_frames), final_frames[:2]
     assert all(all(abs(value-live["averages"][i]-22/baseline["periods"][i]) < .000001 for i,value in enumerate(frame["series"])) for frame in final_frames), final_frames[:2]
     assert all(not frame["live"] for frame in exported["frames"][:exported["finalStart"]])
+    click(cdp,"#stopBtn")
     wait_for(lambda: dashboard(cdp,f"return w.WSBMovingAverageDashboard.getDisplayModel().rows.at(-1).price==={quoted+99};"),description="new quote visible after frozen export")
 
     # Publish a complete newer generation only through the in-memory fetch shim.
