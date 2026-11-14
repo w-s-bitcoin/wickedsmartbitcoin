@@ -226,6 +226,7 @@
     const plotHeight = Math.max(1, height - padding.top - padding.bottom);
 
     const priceValues = safeRows.map((r) => r.historicalPrice);
+    const currentPrice = Number(safeRows.at(-1).currentPrice) || priceValues.at(-1);
     const basisValues = safeRows.map((r) => r.dcaBasis);
     const priceUpValues = safeRows.map((r) => (r.isPriceAbove === 1 ? r.historicalPrice : NaN));
     const priceDownValues = safeRows.map((r) => (r.isPriceAbove === 0 ? r.historicalPrice : NaN));
@@ -242,8 +243,8 @@
       }
     }
 
-    const minYRaw = Math.min(...priceValues, ...basisValues);
-    const maxYRaw = Math.max(...priceValues, ...basisValues);
+    const minYRaw = Math.min(...priceValues, ...basisValues, currentPrice);
+    const maxYRaw = Math.max(...priceValues, ...basisValues, currentPrice);
     const minY = Math.max(0, minYRaw);
     // The shared top inset already provides clearance above the highest trace.
     const maxY = Math.max(maxYRaw, minY + 1e-9);
@@ -255,7 +256,7 @@
     const basisPath = buildSvgLinePath(basisValues, mapX, mapY);
     const upPaths = buildSvgSegmentedPaths(priceUpValues, mapX, mapY);
     const downPaths = buildSvgSegmentedPaths(priceDownValues, mapX, mapY);
-    const yCurrent = mapY(priceValues[priceValues.length - 1]);
+    const yCurrent = mapY(currentPrice);
 
     const upPathElements = upPaths.map((d) => (
       `<path d="${d}" fill="none" stroke="${colors.up}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />`
@@ -296,13 +297,14 @@
       return {
         ...row,
         dcaBasis,
+        currentPrice: quote.price,
         historicalPrice: latestToday ? quote.price : row.historicalPrice,
         isPriceAbove: quote.price >= dcaBasis ? 1 : 0,
       };
     });
     if (appendToday) {
       displayRows.push({ ...latest, date: quoteDay, daysAgo: 0,
-        historicalPrice: quote.price, dcaBasis: quote.price, isPriceAbove: 1 });
+        historicalPrice: quote.price, currentPrice: quote.price, dcaBasis: quote.price, isPriceAbove: 1 });
     }
     return displayRows;
   }

@@ -1431,6 +1431,8 @@
 
   function getExportSettingsSnapshot() {
     const settings = { ...state.settings };
+    // Playback keeps its target End separately from the visible day.
+    if (state.isPlaying || state.paused) settings.rangeEnd = state.currentIso;
     const exportSettings = { ...DEFAULT_EXPORT_SETTINGS, ...state.exportSettings };
     settings.scale = getSelectedDownloadSetting("downloadScaleSelect", exportSettings.scale);
     settings.orientation = getSelectedDownloadSetting("downloadOrientationSelect", exportSettings.orientation);
@@ -1969,9 +1971,9 @@
       : { rows: state.rows, appliedQuotes: {} };
   }
 
-  function selectedLatestQuotes(quotes = comparisonPriceFeed?.current()) {
+  function selectedLatestQuotes(quotes = comparisonPriceFeed?.current(), settings = state.settings) {
     if (!quotes) return {};
-    return Object.fromEntries([state.settings.assetA, state.settings.assetB]
+    return Object.fromEntries([settings.assetA, settings.assetB]
       .filter((asset) => quotes[asset])
       .map((asset) => [asset, quotes[asset]]));
   }
@@ -3294,8 +3296,12 @@
 
   async function encodeExportVideo({ canvas, settings, frameDates }) {
     const finalDate = frameDates[frameDates.length - 1];
+    const openingCount = settings.endFrameHold ? EXPORT_START_HOLD_FRAMES : 0;
     const finalFrameStart = finalDate === state.maxIso
-      ? frameDates.findLastIndex((date) => date !== finalDate) + 1 : -1;
+      ? Math.max(openingCount, frameDates.findLastIndex((date) => date !== finalDate) + 1) : -1;
+    const captureLiveRows = () => window.WSBComparisonLivePrice?.withQuotes(
+      state.rows, selectedLatestQuotes(undefined, settings), Date.now(), dcaInstalledDataSignature) || state.rows;
+    let openingLiveRows = null;
     let finalLiveRows = null;
     return window.WSBDashboardExport.encodeVideo({
       canvas,
@@ -3309,12 +3315,18 @@
       isCanceled: () => state.exportCancelRequested,
       onProgress: renderExportProgress,
       renderFrame: (iso, _canvas, frame) => {
-        if (finalFrameStart >= 0 && frame >= finalFrameStart && !finalLiveRows) {
-          finalLiveRows = window.WSBComparisonLivePrice?.withQuotes(
-            state.rows, selectedLatestQuotes(), Date.now(), dcaInstalledDataSignature) || state.rows;
+        let liveRows = null;
+        if (finalFrameStart >= 0) {
+          if (frame < openingCount) {
+            openingLiveRows ||= captureLiveRows();
+            liveRows = openingLiveRows;
+          } else if (frame >= finalFrameStart) {
+            finalLiveRows ||= captureLiveRows();
+            liveRows = finalLiveRows;
+          }
         }
         drawExportFrame(canvas, iso, settings, { width: canvas.width, height: canvas.height },
-          finalFrameStart >= 0 && frame >= finalFrameStart ? finalLiveRows : null);
+          liveRows);
       },
     });
   }
@@ -3333,6 +3345,7 @@
     if (state.isExporting) return;
     const button = document.getElementById("downloadImageBtn");
     button.disabled = true;
+    state.isExporting = true;
     try {
       scaleTransition.finish();
       normalizeSettings();
@@ -3341,7 +3354,7 @@
       await window.WSBDashboardExportBranding.ready();
       const canvas = document.createElement("canvas");
       const liveRows = settings.rangeEnd === state.maxIso
-        ? window.WSBComparisonLivePrice?.withQuotes(state.rows, selectedLatestQuotes(), Date.now(), dcaInstalledDataSignature) || state.rows
+        ? window.WSBComparisonLivePrice?.withQuotes(state.rows, selectedLatestQuotes(undefined, settings), Date.now(), dcaInstalledDataSignature) || state.rows
         : null;
       drawExportFrame(canvas, settings.rangeEnd, settings, getExportDimensions(settings), liveRows);
       await window.WSBDashboardExport.downloadPng(canvas,
@@ -3351,6 +3364,10 @@
       window.alert?.(error?.message || "Unable to export image.");
     } finally {
       button.disabled = false;
+      state.isExporting = false;
+      state.exportCancelRequested = false;
+      resetExportProgress();
+      render();
     }
   }
 
