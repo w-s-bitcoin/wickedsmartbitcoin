@@ -323,7 +323,8 @@ def main():
     fx_lines[-1] = ",".join(last_fx_row)
     FrozenHandler.snapshot[fx_key] = ("\n".join(fx_lines) + "\n").encode()
     fx_last = last_fx_row[0]
-    next_day = date.fromisoformat(fx_last) + timedelta(days=1)
+    # All live dashboard/preview/export checks run across a publication gap.
+    next_day = date.fromisoformat(fx_last) + timedelta(days=3)
     fake_now = int(datetime.combine(next_day, time(12), timezone.utc).timestamp() * 1000)
     server_port, debug_port = free_port(), free_port()
     server = ThreadingHTTPServer(("127.0.0.1", server_port),

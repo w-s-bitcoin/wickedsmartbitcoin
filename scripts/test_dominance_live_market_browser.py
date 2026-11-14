@@ -49,6 +49,12 @@ def main():
         "circulating_supply": float(row["Circulating Supply"]),
     } for row in known.values()]
     fixture = """(() => {
+      const NativeDate = Date;
+      const now = NativeDate.parse('__PUBLISHED_DAY__T12:00:00Z') + 3 * 86400000;
+      window.Date = class extends NativeDate {
+        constructor(...args) { super(...(args.length ? args : [now])); }
+        static now() { return now; }
+      };
       const nativeFetch = window.fetch.bind(window);
       window.__marketCalls = 0;
       window.__marketQuotes = __QUOTES__;
@@ -99,7 +105,7 @@ def main():
           },
         },
       };
-    })();""".replace("__QUOTES__", json.dumps(quotes))
+    })();""".replace("__QUOTES__", json.dumps(quotes)).replace("__PUBLISHED_DAY__", max(row["Date"] for row in incl + excl))
     port, debug_port = free_port(), free_port()
     server = ThreadingHTTPServer(("127.0.0.1", port),
         lambda *args, **kwargs: FrozenHandler(*args, directory=str(ROOT), **kwargs))

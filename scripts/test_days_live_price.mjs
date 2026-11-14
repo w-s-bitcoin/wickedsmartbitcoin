@@ -53,4 +53,18 @@ assert.equal(displayed.at(-1).spotPrice, 130,
 displayed = withQuote([rows[0]], { price: 130, at: now }, now);
 assert.equal(displayed.length, 2,
   'a multi-day publication gap adds one provisional quote day without inventing intermediate highs');
+for (const gap of [3, 7]) {
+  const at = now + gap * 86400000;
+  const low = withQuote(rows, { price: 90, at }, at);
+  assert.equal(low.length, rows.length + 1);
+  assert.equal(low.at(-1).spotPrice, 90);
+  assert.equal(low.at(-1).daysSinceAth, gap + 2, 'elapsed time counts calendar days, including missing observations');
+  assert.equal(low.at(-1).athPrice, 120);
+  const high = observeHigh(null, { price: 140, at });
+  const fallen = withQuote(rows, { price: 90, at: at + 1000 }, at + 1000, high);
+  assert.equal(fallen.at(-1).athPrice, 140);
+  assert.equal(fallen.at(-1).spotPrice, 90);
+  assert.equal(fallen.at(-1).daysSinceAth, 0);
+  rows.forEach((row, index) => assert.equal(fallen[index], row));
+}
 console.log('Days Since ATH live price calculations passed.');

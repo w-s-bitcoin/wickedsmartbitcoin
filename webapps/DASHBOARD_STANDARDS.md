@@ -132,6 +132,11 @@ Read the target dashboard's own notes for its calculation and data contracts.
   paused views remain reproducible from their published generation. Retain the
   last usable quote through outages, label its status, and let a newer valid
   publication supersede it according to the feed contract.
+- A multi-day publication delay must not disable a newer live price. Keep
+  current valuations and eligible latest exports live without synthesizing
+  missing purchases, closes, highs, or block observations. Derived values that
+  require missing history remain unavailable; complete historical inputs remain
+  unchanged. Test this with publication gaps of at least three days.
 - Distinguish live, delayed, retained, and published values with accessible text
   as well as status dots. An Updated time describes the data actually displayed;
   separately identify the published snapshot/block when it differs.

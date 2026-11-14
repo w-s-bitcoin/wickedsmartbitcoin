@@ -127,9 +127,13 @@ quote never rewrites the published history.
 
 The latest view uses the current endpoint formula even when the latest published
 price is the fallback, so a feed outage or new publication does not switch the
-calculation method. When publication is one day behind, the live view can append
-one provisional current UTC-day row. It never fills gaps in older data or
-persists provisional prices into the dataset. Complete-window requirements still
+calculation method. When publication is behind, the live view appends just the
+quoted UTC-day endpoint, even across a multi-day gap. It never fills missing days
+or persists provisional prices into the dataset. If a required completed daily,
+Sunday, or month-end close is missing, that average's current endpoint is
+unavailable while the current price stays live. Averages whose required closes
+are complete continue updating normally. Published history still requires
+contiguous dates. Complete-window requirements still
 apply, and selectable maximum periods remain calculated from the published
 history while quotes arrive. The BTCUSD and both moving average KPIs display
 cents below $1 (for example, $0.0007 becomes `0.07¢`) and dollars at $1 or above.

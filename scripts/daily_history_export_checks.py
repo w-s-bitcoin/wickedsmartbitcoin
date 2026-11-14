@@ -44,6 +44,11 @@ def check_live_exports(cdp: CdpSocket, origin: str, slug: str, dashboard: str, c
           let label = '', refreshes = 0, assetsReady = false, refreshedAfterReady = true, pngSize = null;
           let firstFrame = null, lastFrame = null;
           const published = G.parse(await (await fetch('../../assets/daily_price.csv')).text());
+          // Pinned historical views needn't select a quote before an export.
+          // Give their feed a valid quote three days after the publication too.
+          const emit = window.__spotEmit;
+          const quoteAt = Date.parse(published.at(-1).timestamp.replace(' ', 'T') + 'Z') + 3 * 86400000;
+          window.__spotEmit = (price, live = true) => emit(price, live, quoteAt);
           if (args.advance) {
             // A complete next-day fixture exists only behind this page's fetch shim.
             const csv = await (await fetch('../../assets/daily_price.csv')).text();
