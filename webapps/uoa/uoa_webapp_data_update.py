@@ -60,7 +60,9 @@ REFRESH_LOOKBACK_DAYS = 35
 EXCLUDED_SOURCE_CURRENCIES = {"CNH", "MRO"}
 NON_ISO_FIAT_CURRENCIES = {"CMD", "CNH", "GGP", "IMP", "JEP"}
 CUP_INFORMAL_API_URL = "https://api.cambiocuba.money/api/v1/x-rates-by-date-range"
-CUP_INFORMAL_PERIOD = "2Y"
+CUP_INFORMAL_PERIOD = "3M"
+CUP_INFORMAL_FALLBACK_PERIOD = "1M"
+CUP_INFORMAL_TIMEOUT_SECONDS = 20
 CUP_INFORMAL_SOURCE_LABEL = "elTOQUE TRMI via CUP=X"
 OUTPUT_DIR_ENV = "UOA_WEBAPP_DATA_DIR"
 VES_REDENOMINATION_EVENTS = [
@@ -618,44 +620,62 @@ def fetch_pair_rates_chunk(base_currency, quote_currency, start_dt, end_dt, max_
     raise last_error
 
 
-def fetch_cup_informal_usd_rates(period=CUP_INFORMAL_PERIOD):
-    """Fetch informal-market CUP/USD values and convert to USD per 1 CUP.
-
-    The CUP=X/elTOQUE feed reports CUP per 1 USD. Our canonical `cupusd`
-    column stores USD per 1 CUP, so each valid median is inverted.
-    """
-    print(f"  Fetching CUP/USD informal rate ({CUP_INFORMAL_SOURCE_LABEL}, period={period})...")
-    response = requests.get(
-        CUP_INFORMAL_API_URL,
-        params={"trmi": "true", "period": period, "cur": "USD"},
-        timeout=90,
-    )
-    response.raise_for_status()
-    data = response.json()
+def parse_cup_informal_usd_rates(data):
+    """Validate dated medians and invert CUP per USD into USD per CUP."""
     if not isinstance(data, list):
         raise ValueError("Unexpected CUP informal rate response format")
 
-    rates = []
+    rates = {}
     for row in data:
         if not isinstance(row, dict):
             continue
         date_str = str(row.get("_id") or row.get("date") or "").strip()[:10]
-        if not date_str:
+        try:
+            if datetime.strptime(date_str, "%Y-%m-%d").date().isoformat() != date_str:
+                continue
+        except ValueError:
             continue
         cup_per_usd = row.get("median")
-        if not isinstance(cup_per_usd, (int, float)) or cup_per_usd <= 0:
+        if (isinstance(cup_per_usd, bool) or not isinstance(cup_per_usd, (int, float))
+                or not math.isfinite(cup_per_usd) or cup_per_usd <= 0):
+            continue
+        rate = 1.0 / float(cup_per_usd)
+        if not math.isfinite(rate) or rate <= 0:
             continue
 
         # The current public feed covers post-2021 data. If earlier rows are
         # added later, keep the source denomination as reported for that date;
         # chart-level redenomination handling will segment CUP values.
-        rates.append((date_str, 1.0 / float(cup_per_usd)))
+        if date_str in rates and rates[date_str] != rate:
+            raise ValueError(f"Conflicting CUP informal medians for {date_str}")
+        rates[date_str] = rate
 
-    rates = sorted(set(rates), key=lambda item: item[0])
     if not rates:
         raise ValueError("No valid CUP informal rates returned")
-    print(f"    Got {len(rates)} daily medians ({rates[0][0]}..{rates[-1][0]})")
-    return rates
+    return sorted(rates.items())
+
+
+def fetch_cup_informal_usd_rates(period=CUP_INFORMAL_PERIOD):
+    """Refresh recent medians without repeatedly querying two years of history."""
+    periods = [period]
+    if period == CUP_INFORMAL_PERIOD:
+        periods.append(CUP_INFORMAL_FALLBACK_PERIOD)
+    for index, window in enumerate(periods):
+        print(f"  Fetching CUP/USD informal rate ({CUP_INFORMAL_SOURCE_LABEL}, period={window})...")
+        try:
+            response = requests.get(
+                CUP_INFORMAL_API_URL,
+                params={"trmi": "true", "period": window, "cur": "USD"},
+                timeout=CUP_INFORMAL_TIMEOUT_SECONDS,
+            )
+            response.raise_for_status()
+            rates = parse_cup_informal_usd_rates(response.json())
+            print(f"    Got {len(rates)} daily medians ({rates[0][0]}..{rates[-1][0]})")
+            return rates
+        except Exception as exc:
+            if index == len(periods) - 1:
+                raise
+            print(f"    CUP {window} refresh failed ({type(exc).__name__}); trying {periods[index + 1]}.")
 
 
 def apply_cup_informal_rates(df, period=CUP_INFORMAL_PERIOD):
@@ -725,17 +745,20 @@ def restore_existing_cup_rates(df, existing_df):
 
 def apply_cup_informal_rates_best_effort(df, existing_df):
     """Refresh optional informal CUP data without blocking the primary FX update."""
+    # Frankfurter refreshes 35 days of official CUP values. Preserve the deployed
+    # informal series first: the fallback window can be shorter than that, and
+    # neither a successful short response nor an outage may leak official rates.
+    preserved = restore_existing_cup_rates(df, existing_df)
     try:
-        out, count, start, end = apply_cup_informal_rates(df)
+        out, count, start, end = apply_cup_informal_rates(preserved)
         print(f"  Applied informal CUP/USD rates: {count} rows ({start}..{end})")
         return out, count, start, end
     except Exception as exc:
-        out = restore_existing_cup_rates(df, existing_df)
         print(
             "  WARNING: Informal CUP/USD refresh failed; retaining and forward-filling "
             f"the last deployed informal series ({type(exc).__name__}: {exc})"
         )
-        return out, 0, None, None
+        return preserved, 0, None, None
 
 
 def fill_missing_dates(df, start_date, end_date):
