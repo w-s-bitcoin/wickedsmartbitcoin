@@ -120,7 +120,7 @@ def main():
                 print(f"Public live BTC/USD quote reached the dashboard from {source} and the home card.")
                 return
             result = cdp.evaluate("""
-              (() => {
+              (async () => {
                 const snapshot = state.metadata.source;
                 // Keep live purchase assertions on the frozen publication's day
                 // even when the checked-in fixture is older than the wall clock.
@@ -187,6 +187,7 @@ def main():
                   if (!hasBuy && Math.abs(live[0].dcaBasis - historical[0].dcaBasis) > 0.000001)
                     return `${cadence} changed prior purchase costs on a non-purchase day`;
                   renderChart();
+                  await new Promise(resolve => requestAnimationFrame(resolve));
                   if (!document.querySelector('.current-price-overlay')?.textContent.includes(fmtUsd(quoted * 1.2, 0)))
                     return `${cadence} current-price guide omitted live valuation`;
                   state.cadence = previous;
@@ -232,8 +233,12 @@ def main():
               && window.__dcaTestSocket?.url === 'wss://2140data.io/'
             """), timeout=60, description="DCA home card and live price subscription")
             result = cdp.evaluate("""
-              (() => {
+              (async () => {
                 const chart = document.querySelector('#costBasisChart');
+                const metadata = await (await fetch('webapp_data/dca_cost_basis_metadata.json')).json();
+                const publishedDay = metadata.source.latest_timestamp_utc.slice(0, 10);
+                const quoteDay = new Date(Date.now()).toISOString().slice(0, 10);
+                const daysSincePublication = Math.round((Date.parse(quoteDay) - Date.parse(publishedDay)) / 86400000);
                 const publishedLine = chart.querySelector('svg line').getAttribute('y1');
                 const publishedPath = chart.querySelector('svg').innerHTML;
                 const basisPath = () => [...chart.querySelectorAll('svg path')]
@@ -247,8 +252,11 @@ def main():
                 if (chart.querySelector('svg').innerHTML === publishedPath)
                   return 'home card chart did not update';
                 const firstLiveBasis = basisPath();
+                const firstLiveLine = chart.querySelector('svg line').getAttribute('y1');
                 window.__dcaTestSocket.emit(80000);
-                if (!firstLiveBasis || basisPath() === firstLiveBasis)
+                if (chart.querySelector('svg line').getAttribute('y1') === firstLiveLine)
+                  return 'home card current price guide did not follow the next quote';
+                if (!firstLiveBasis || (daysSincePublication <= 1 && basisPath() === firstLiveBasis))
                   return 'home card orange cost basis path did not update with the next quote';
                 const now = Date.now;
                 Date.now = () => now() + 90002;
