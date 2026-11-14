@@ -237,6 +237,8 @@ def main():
                 const chart = document.querySelector('#costBasisChart');
                 const metadata = await (await fetch('webapp_data/dca_cost_basis_metadata.json')).json();
                 const publishedDay = metadata.source.latest_timestamp_utc.slice(0, 10);
+                const fixtureNow = Date.parse(publishedDay+'T12:00:00Z') + 3*86400000;
+                Date.now = () => fixtureNow;
                 const quoteDay = new Date(Date.now()).toISOString().slice(0, 10);
                 const daysSincePublication = Math.round((Date.parse(quoteDay) - Date.parse(publishedDay)) / 86400000);
                 const publishedLine = chart.querySelector('svg line').getAttribute('y1');

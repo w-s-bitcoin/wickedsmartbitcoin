@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import threading
 import urllib.request
+from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
@@ -18,6 +19,11 @@ CHROME = os.environ.get("CHROME_BIN", "/Applications/Google Chrome.app/Contents/
 
 SHIM = r"""
 (() => {
+  const NativeDate = Date, offset = __FIXTURE_NOW__ - NativeDate.now();
+  window.Date = class extends NativeDate {
+    constructor(...args) { super(...(args.length ? args : [NativeDate.now() + offset])); }
+    static now() { return NativeDate.now() + offset; }
+  };
   const nativeFetch = window.fetch.bind(window);
   window.__netQuote = { offline: localStorage.getItem('netQuoteFixtureOffline') === '1',
     primaryOffline: false, price: 123456 };
@@ -73,7 +79,12 @@ def main():
             cdp = CdpSocket(target["webSocketDebuggerUrl"])
             cdp.command("Page.enable")
             cdp.command("Runtime.enable")
-            cdp.command("Page.addScriptToEvaluateOnNewDocument", {"source": SHIM})
+            marker = json.loads((ROOT / 'assets/daily_price_metadata.json').read_text())
+            published = datetime.fromisoformat(marker['latest_timestamp'].replace('Z', '+00:00'))
+            if published.tzinfo is None:
+                published = published.replace(tzinfo=timezone.utc)
+            fixture_now = int(published.timestamp() * 1000) + 3 * 86400000
+            cdp.command("Page.addScriptToEvaluateOnNewDocument", {"source": SHIM.replace('__FIXTURE_NOW__', str(fixture_now))})
             cdp.command("Page.navigate", {"url":
                 f"http://127.0.0.1:{server_port}/webapps/bitcoin_net_worth/dashboard.html"})
             wait_for(lambda: cdp.evaluate("""

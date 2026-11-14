@@ -69,4 +69,12 @@ assert.equal(feed.isLive(), false);
 publishedAt = '2026-09-30T13:00:00Z';
 feed.publishedChanged();
 assert.equal(feed.current(), null); // Newer publication takes precedence.
+fail = false;
+time = fetchedAt + 7 * 86400000;
+await feed.poll();
+assert.equal(feed.isLive(), true, 'a week-old publication does not block the live market snapshot');
+const gapHistory = market.overlayHistory(history, feed.current().history.incl);
+assert.equal(gapHistory.length, history.length + 1, 'missing days are not synthesized');
+assert.equal(gapHistory.at(-1).Date, '2026-10-07');
+assert.deepEqual(gapHistory.slice(0, -1), history);
 console.log('Bitcoin Dominance live market checks passed');

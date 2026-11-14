@@ -143,7 +143,10 @@ def main():
                   return 'published fallback badge missing';
                 const high = document.querySelector('#dailyHighKpi').textContent;
                 const publishedDay = document.querySelector('#endDateInput').value;
-                const utcDay = new Date().toISOString().slice(0, 10);
+                // Exercise the full dashboard and exports across missing days.
+                const fixtureNow = Date.parse(publishedDay+'T12:00:00Z') + 3*86400000;
+                Date.now = () => fixtureNow;
+                const utcDay = new Date(Date.now()).toISOString().slice(0, 10);
                 const drawdown = document.querySelector('#drawdownKpi').textContent;
                 const priceImage = document.querySelector('#priceCanvas').toDataURL();
                 const quote = Math.max(1, dollars(high) * 0.8);

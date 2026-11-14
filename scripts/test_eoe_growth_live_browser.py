@@ -21,8 +21,8 @@ LIVE_FIXTURE = r"""
 (() => {
   const source=__SOURCE__;
   const f=window.__eoeLiveFixture={requests:{},mode:'pass',pending:[],chunks:new Map(),renders:[],
-    generation:0,referenceCount:64,refreshes:[],now:source.at+120000,first:source.height-210000,tip:{block_height:source.height+2,
-    block_time_utc:new Date(source.at+60000).toISOString()}};
+    generation:0,referenceCount:64,refreshes:[],now:source.at+3*86400000+120000,first:source.height-210000,tip:{block_height:source.height+2,
+    block_time_utc:new Date(source.at+3*86400000+60000).toISOString()}};
   const NativeDate=Date;
   window.Date=class extends NativeDate {constructor(...args){super(...(args.length?args:[f.now]));}static now(){return f.now;}};
   f.last={price:100000.25,at:f.now,receivedAt:f.now,source:'Isolated quote'};

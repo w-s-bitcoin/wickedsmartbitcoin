@@ -141,6 +141,21 @@ test("complete comparison uses shared quote freshness and superseding publicatio
   f.adapter.stop(); assert.deepEqual(f.counts(), { starts: 1, stops: 1 }); assert.equal(f.timers.size, 0);
 });
 
+test("multi-day publication gaps keep the current price and verified epoch reference live", async () => {
+  const f = fixture(); await f.start();
+  const reference = f.current().reference;
+  for (const gap of [2, 3, 7]) {
+    const at = quoteTime + gap * 86400000;
+    f.state.quote = { ...f.state.quote, price: 1000 + gap, at, receivedAt: at };
+    f.emit();
+    assert.equal(f.current().quote.price, 1000 + gap);
+    assert.equal(f.current().quote.at, at);
+    assert.equal(f.current().live, true);
+    assert.equal(f.current().reference, reference, "the quote does not alter historical epoch prices");
+  }
+  f.adapter.stop();
+});
+
 test("new heights commit atomically, reuse verified chunks, and retain the prior pair after failure", async () => {
   const f = fixture(); await f.start();
   const requests = f.requests.filter(r => r.url.includes(".bin?")).length;
