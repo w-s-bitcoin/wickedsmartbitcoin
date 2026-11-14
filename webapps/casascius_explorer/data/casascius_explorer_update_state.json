@@ -1,7 +1,7 @@
 {
-  "affected_address_count": 1,
-  "changed_row_count": 1,
-  "last_checked_block_time": 1794682858,
-  "last_checked_height": 975830,
-  "previous_checked_height": 975829
+  "affected_address_count": 5,
+  "changed_row_count": 5,
+  "last_checked_block_time": 1794686704,
+  "last_checked_height": 975837,
+  "previous_checked_height": 975830
 }
