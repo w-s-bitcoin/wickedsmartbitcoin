@@ -49,8 +49,16 @@ assert.equal(withQuotes(rows, { BTC: quotes.BTC }, Date.parse('2026-10-01T01:00:
 assert.equal(publishedInstant('2026-09-29 23:11:13.991202 UTC'),
   Date.parse('2026-09-29T23:11:13.991Z'));
 assert.equal(publishedInstant('2026-09-29 22:00:00'), Date.parse('2026-09-29T22:00:00Z'));
-assert.equal(withQuotes([{ ...rows[0], date: '2026-09-27' }], quotes, now).length, 1,
-  'a multi-day gap must not fabricate omitted purchases');
+for (const day of ['2026-09-28', '2026-09-27', '2026-09-01']) {
+  const history = [{ ...rows[0], date: day }];
+  const projection = project(history, quotes, now);
+  assert.equal(projection.rows.length, 2, 'append only the quoted endpoint, never missing days');
+  assert.equal(projection.rows[0], history[0], 'historical purchases stay unchanged');
+  assert.equal(projection.rows.at(-1).BTC, 81000);
+  assert.equal(projection.rows.at(-1).date, '2026-09-30');
+  assert.equal(projection.rows.at(-1).valuationOnly, true, 'missing purchase history is not invented');
+  assert.equal(projection.appliedQuotes.BTC, quotes.BTC);
+}
 
 assert.equal(lastEquitySessionDay(Date.parse('2026-09-29T15:00:00Z')), '2026-09-29');
 assert.equal(lastEquitySessionDay(Date.parse('2026-09-30T05:00:00Z')), '2026-09-29');
