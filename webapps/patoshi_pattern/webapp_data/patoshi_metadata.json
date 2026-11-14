@@ -1,19 +1,19 @@
 {
-  "generated_at": "2026-11-12T22:06:07.989022Z",
+  "generated_at": "2026-11-14T19:05:40.307091Z",
   "source": "Patoshi Pattern notebook CSVs plus assets/block_data_0_99999.csv",
   "block_count": 100000,
   "patoshi_count": 22491,
   "patoshi_original_count": 21956,
   "patoshi_updated_count": 22491,
-  "spent_count": 67072,
-  "spending_height_count": 67072,
+  "spent_count": 67074,
+  "spending_height_count": 67074,
   "spent_without_spending_height_count": 0,
-  "spending_height_last_queried_height": 975603,
+  "spending_height_last_queried_height": 975830,
   "spending_height_query_status": "queried: coinbases.isspent/spendingblock",
   "first_height": 0,
   "last_height": 99999,
   "first_datetime": "2009-01-03T18:15:05Z",
   "last_datetime": "2010-12-29T11:55:31Z",
   "max_extranonce": 308519,
-  "data_sha256": "41f657b2845fc9b595bd04846ee0db209b9b904ae2d9aed2e88940f7f3f90f8b"
+  "data_sha256": "b5258ed8d69b29fa75c2f986470f02b5c44412af00e262b4383869a8219d7c20"
 }

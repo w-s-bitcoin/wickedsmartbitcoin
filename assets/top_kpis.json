@@ -1,16 +1,16 @@
 {
-  "block_height": 975606,
-  "block_time_utc": "2026-11-12 22:12:16 UTC",
+  "block_height": 975830,
+  "block_time_utc": "2026-11-14 19:00:58 UTC",
   "epoch": 5,
-  "epoch_complete": 0.645,
+  "epoch_complete": 0.646,
   "subsidy_btc": 3.125,
   "subsidy_sats": 312500000,
-  "supply_btc": 20111242.91655096,
-  "supply_target_complete": 0.9576796141486856,
-  "target_hex": "00000000000000000001e5ac0000000000000000000000000000000000000000",
-  "target_hashrate_hps": 1.0620348956616791e+21,
-  "difficulty": 148364561003867.4,
-  "difficulty_display": "148.36T",
-  "difficulty_epoch_start_timestamp": 1793301298,
-  "projected_difficulty_adjustment_percent": -7.61
+  "supply_btc": 20111942.91655096,
+  "supply_target_complete": 0.9577129474820557,
+  "target_hex": "0000000000000000000216730000000000000000000000000000000000000000",
+  "target_hashrate_hps": 9.651066200411337e+20,
+  "difficulty": 134823837323272.7,
+  "difficulty_display": "134.82T",
+  "difficulty_epoch_start_timestamp": 1794632570,
+  "projected_difficulty_adjustment_percent": 2.66
 }
