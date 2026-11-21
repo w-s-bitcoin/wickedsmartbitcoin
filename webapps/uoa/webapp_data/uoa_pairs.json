@@ -1,12 +1,12 @@
 {
-  "generated_at_utc": "2026-11-16T16:09:46.834890Z",
+  "generated_at_utc": "2026-11-21T12:04:06.019916Z",
   "source": {
     "name": "Frankfurter",
     "url": "https://api.frankfurter.app",
     "upstream": "European Central Bank (ECB) reference rates",
     "pair_endpoint": "https://api.frankfurter.app/1999-01-01..2999-12-31?from=EUR&to=USD",
     "start_date": "1999-01-04",
-    "end_date": "2026-11-16",
+    "end_date": "2026-11-21",
     "notes": "Rates are business-day reference rates for 163 Frankfurter-supported currency pairs vs USD; CUP/USD is overwritten with elTOQUE TRMI via CUP=X where available; weekends and market holidays are forward-filled.",
     "dataset_notes": "CSV schema simplified to date, eurusd where eurusd is the EUR/USD rate value. Source attribution is stored in this metadata file.",
     "cupusd_source": "elTOQUE TRMI via CUP=X"
@@ -4590,8 +4590,8 @@
     "ETH": {
       "full_history": true,
       "first_observation": "2015-08-07",
-      "last_observation": "2026-11-15",
-      "observations": 4119,
+      "last_observation": "2026-11-20",
+      "observations": 4124,
       "early_source_end": "2015-08-07",
       "missing_calendar_days": 0,
       "sources": [
@@ -4602,8 +4602,8 @@
     "BCH": {
       "full_history": true,
       "first_observation": "2017-08-01",
-      "last_observation": "2026-11-15",
-      "observations": 3394,
+      "last_observation": "2026-11-20",
+      "observations": 3399,
       "early_source_end": "2017-07-31",
       "missing_calendar_days": 0,
       "sources": [
@@ -4614,8 +4614,8 @@
     "LTC": {
       "full_history": true,
       "first_observation": "2013-04-01",
-      "last_observation": "2026-11-15",
-      "observations": 4977,
+      "last_observation": "2026-11-20",
+      "observations": 4982,
       "early_source_end": "2013-03-31",
       "missing_calendar_days": 0,
       "sources": [
@@ -4626,8 +4626,8 @@
     "BNB": {
       "full_history": true,
       "first_observation": "2017-07-15",
-      "last_observation": "2026-11-15",
-      "observations": 3411,
+      "last_observation": "2026-11-20",
+      "observations": 3416,
       "early_source_end": "2017-07-14",
       "missing_calendar_days": 0,
       "sources": [
@@ -4638,8 +4638,8 @@
     "XRP": {
       "full_history": true,
       "first_observation": "2013-08-04",
-      "last_observation": "2026-11-15",
-      "observations": 4847,
+      "last_observation": "2026-11-20",
+      "observations": 4852,
       "early_source_end": "2014-08-14",
       "missing_calendar_days": 5,
       "sources": [
@@ -4650,8 +4650,8 @@
     "SOL": {
       "full_history": true,
       "first_observation": "2020-04-10",
-      "last_observation": "2026-11-15",
-      "observations": 2411,
+      "last_observation": "2026-11-20",
+      "observations": 2416,
       "early_source_end": "2020-04-09",
       "missing_calendar_days": 0,
       "sources": [
@@ -4662,8 +4662,8 @@
     "TRX": {
       "full_history": true,
       "first_observation": "2017-11-09",
-      "last_observation": "2026-11-15",
-      "observations": 3294,
+      "last_observation": "2026-11-20",
+      "observations": 3299,
       "early_source_end": "2018-06-24",
       "missing_calendar_days": 0,
       "sources": [
@@ -4674,8 +4674,8 @@
     "ZEC": {
       "full_history": true,
       "first_observation": "2016-10-29",
-      "last_observation": "2026-11-15",
-      "observations": 3670,
+      "last_observation": "2026-11-20",
+      "observations": 3675,
       "early_source_end": "2016-10-28",
       "missing_calendar_days": 0,
       "sources": [
@@ -4686,8 +4686,8 @@
     "HYPE": {
       "full_history": true,
       "first_observation": "2024-11-29",
-      "last_observation": "2026-11-15",
-      "observations": 717,
+      "last_observation": "2026-11-20",
+      "observations": 722,
       "early_source_end": "2024-12-12",
       "missing_calendar_days": 0,
       "sources": [
@@ -4698,8 +4698,8 @@
     "DOGE": {
       "full_history": true,
       "first_observation": "2013-12-15",
-      "last_observation": "2026-11-15",
-      "observations": 4717,
+      "last_observation": "2026-11-20",
+      "observations": 4722,
       "early_source_end": "2014-01-22",
       "missing_calendar_days": 2,
       "sources": [
@@ -4710,8 +4710,8 @@
     "XMR": {
       "full_history": true,
       "first_observation": "2014-05-20",
-      "last_observation": "2026-11-15",
-      "observations": 4563,
+      "last_observation": "2026-11-20",
+      "observations": 4568,
       "early_source_end": "2014-05-19",
       "missing_calendar_days": 0,
       "sources": [
@@ -4722,8 +4722,8 @@
     "ADA": {
       "full_history": true,
       "first_observation": "2017-10-18",
-      "last_observation": "2026-11-15",
-      "observations": 3316,
+      "last_observation": "2026-11-20",
+      "observations": 3321,
       "early_source_end": "2017-11-30",
       "missing_calendar_days": 0,
       "sources": [
@@ -4734,8 +4734,8 @@
     "LINK": {
       "full_history": true,
       "first_observation": "2017-09-29",
-      "last_observation": "2026-11-15",
-      "observations": 3335,
+      "last_observation": "2026-11-20",
+      "observations": 3340,
       "early_source_end": "2017-09-28",
       "missing_calendar_days": 0,
       "sources": [
@@ -4746,8 +4746,8 @@
     "AVAX": {
       "full_history": true,
       "first_observation": "2020-09-22",
-      "last_observation": "2026-11-15",
-      "observations": 2246,
+      "last_observation": "2026-11-20",
+      "observations": 2251,
       "early_source_end": "2020-09-22",
       "missing_calendar_days": 0,
       "sources": [
@@ -4758,8 +4758,8 @@
     "DOT": {
       "full_history": true,
       "first_observation": "2020-08-19",
-      "last_observation": "2026-11-15",
-      "observations": 2280,
+      "last_observation": "2026-11-20",
+      "observations": 2285,
       "early_source_end": "2020-08-19",
       "missing_calendar_days": 0,
       "sources": [
@@ -4770,8 +4770,8 @@
     "TON": {
       "full_history": true,
       "first_observation": "2021-08-27",
-      "last_observation": "2026-11-15",
-      "observations": 1907,
+      "last_observation": "2026-11-20",
+      "observations": 1912,
       "early_source_end": "2026-10-29",
       "missing_calendar_days": 0,
       "sources": [
@@ -4781,8 +4781,8 @@
     "SHIB": {
       "full_history": true,
       "first_observation": "2020-08-01",
-      "last_observation": "2026-11-15",
-      "observations": 2266,
+      "last_observation": "2026-11-20",
+      "observations": 2271,
       "early_source_end": "2021-05-10",
       "missing_calendar_days": 32,
       "sources": [
@@ -4793,8 +4793,8 @@
     "SUI": {
       "full_history": true,
       "first_observation": "2023-05-03",
-      "last_observation": "2026-11-15",
-      "observations": 1293,
+      "last_observation": "2026-11-20",
+      "observations": 1298,
       "early_source_end": "2023-08-16",
       "missing_calendar_days": 0,
       "sources": [
@@ -4805,8 +4805,8 @@
     "XLM": {
       "full_history": true,
       "first_observation": "2014-08-06",
-      "last_observation": "2026-11-15",
-      "observations": 4484,
+      "last_observation": "2026-11-20",
+      "observations": 4489,
       "early_source_end": "2015-09-29",
       "missing_calendar_days": 1,
       "sources": [

@@ -1,4 +1,6 @@
 software,version,release_time_utc,github_url
+Bitcoin Core,v31.3,2026-11-20T11:29:43Z,https://github.com/bitcoin/bitcoin/releases/tag/v31.3
+Bitcoin Core,v30.5,2026-11-20T11:30:35Z,https://github.com/bitcoin/bitcoin/releases/tag/v30.5
 Bitcoin Core,v32.1,2026-10-28T14:23:53Z,https://github.com/bitcoin/bitcoin/releases/tag/v32.1
 Bitcoin Core,v31.2,2026-10-28T14:24:55Z,https://github.com/bitcoin/bitcoin/releases/tag/v31.2
 Bitcoin Core,v30.4,2026-10-28T14:26:15Z,https://github.com/bitcoin/bitcoin/releases/tag/v30.4
